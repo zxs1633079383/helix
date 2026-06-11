@@ -84,6 +84,16 @@ impl ImModule {
         self.state.channels.insert(id, Channel::new(id, initial_cursor));
     }
 
+    /// 查询 per-channel cursor（测试 / 诊断用）
+    pub fn cursor_for(&self, channel_id: ChannelId) -> Option<u64> {
+        self.state.channels.get(&channel_id).map(|ch| ch.cursor.value().0)
+    }
+
+    /// 查询 pending_sends 数量（测试用）
+    pub fn pending_send_count(&self) -> usize {
+        self.state.pending_sends.len()
+    }
+
     /// 处理 PortReply（Persist/Http 的异步结果回报）
     ///
     /// ## MAJ-1 修复

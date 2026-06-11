@@ -5,7 +5,7 @@
 //! helix-core 保持零运行时依赖；所有异步协调（WS recv、HTTP 响应、timer fired、
 //! AppCommand）在此 tokio mpsc 统一入站。
 //!
-//! ## 架构（E1 修复后）
+//! ## 架构（E1 修复 + review 回炉后）
 //!
 //! ```text
 //! +- tick_rx (mpsc, cap=256) ─────────────────────────────────────────────────+
@@ -18,7 +18,7 @@
 //!                v &[Effect] (borrows shell.scratch, valid until next step)
 //!     consume_effects() -> collect to OwnedEffect (frees borrow)
 //!     dispatch_owned_effects() -> dispatch by type，立即返回不等磁盘
-//!                                  Persist → 入 per-table 有序 worker 队列
+//!                                  Persist → 入 per-table-set 有序 worker 队列
 //!
 //! +- reply_tx (unbounded mpsc) ─────────────────────────────────────────────+
 //! |  per-table worker tasks  -> Tick::PortReply（写完即回灌，不等引擎收）     |
@@ -31,14 +31,25 @@
 //! 原实现：PortReply 回灌与入站 Tick 共用同一条有界 mpsc(cap=256)，且
 //! dispatch_owned_effects 末尾 await 全部 persist handles → 洪峰 >256 环形等待。
 //!
-//! 修复四不变量：
+//! ## 修复四不变量（review 回炉校正版）
+//!
 //! 1. **回灌必达**：PortReply 走独立 unbounded channel（reply_tx），永不堵塞写任务。
-//!    in-flight 数受 corr_map 登记数自然有界，unbounded 不会无限增长。
-//! 2. **主循环不等磁盘**：dispatch 把 Persist 分发进 per-table worker 队列后立即返回，
-//!    不 await 落库完成，主循环继续收下一帧。
-//! 3. **同组写顺序保持**：每个 table 对应一个长驻 worker task + 自己的有序队列
-//!    (tokio::mpsc, unbounded)；跨 tick 的同组 Persist 严格按产生顺序执行。
+//!    reply_rx 中排队的条目 ≤ 已完成 job 数（有界上界）；真正有界的约束在入站背压——
+//!    **入站背压仍是接入方契约**：调用方必须使用有界 tick_tx（cap=256）并在背压下
+//!    等待，避免 job queue 积压无界增长。per-table job queue 容量 = `PERSIST_QUEUE_CAP`
+//!    （有界），超限时 dispatch 侧 `.await` 阻塞主循环，把背压传导回 tick_tx。
+//! 2. **主循环不等磁盘**：dispatch 把 Persist 入队到 per-table worker 后立即返回
+//!    （job queue 未满时）；满时阻塞主循环（有界背压传导），不会无界积压。
+//! 3. **同组写顺序保持**：routing key = ops 涉及的全部 table 名（有序集合，"|" 分隔）。
+//!    单表 ops → 单表 key（常见路径，无额外开销）；
+//!    多表 ops → 组合 key（退化到一个独立 worker，不与单表 worker 交叉），
+//!    保证跨 tick 的同 key 写严格按产生顺序执行。
+//!    **约束**：调用方需保证「需要相互有序的 Persist 使用相同 table-set key」。
+//!    若 tick1 的 `Persist{ops:[op_A]}` 和 tick2 的 `Persist{ops:[op_A, op_B]}` 需要
+//!    全局有序，应合并为同一 Persist 或在 core 层保证单表。见 `table_set_key` 文档。
 //! 4. **回灌优先**：biased select! 把 reply_rx 排在 tick_rx 前，防 PortReply 饥饿。
+//! 5. **退出 drain**：tick_rx 关闭后，drop 全部 job sender，join 全部 worker task，
+//!    drain reply_rx，确保「run_engine_loop 返回 = 全部已接收 Persist 均已落盘」。
 //!
 //! ## Effect 借用收集策略（关键）
 //!
@@ -69,7 +80,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::{json, Value as JsonValue};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 use helix_core::{ExecutionShell, Tick};
 use helix_core::effect::{Effect, StorageOp, Correlation, TimerId, TransportId,
@@ -83,6 +95,12 @@ use crate::storage::NativeStorage;
 use crate::http::NativeHttp;
 use crate::event_sink::NativeEventSink;
 use crate::timer::TimerRegistry;
+
+/// per-table worker 的 job 队列深度上限（有界背压）。
+///
+/// 超过此值时 dispatch 侧 `.await` 阻塞主循环，将背压传导到 tick_tx（cap=256）。
+/// 这恢复了旧实现"磁盘慢则入站慢"的背压链，同时避免死锁（PortReply 走独立通道）。
+const PERSIST_QUEUE_CAP: usize = 1024;
 
 /// 事件泵配置（所有依赖项聚合）。
 pub struct EngineConfig {
@@ -159,36 +177,51 @@ fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
     }).collect()
 }
 
-// ─── Per-table 有序 Worker ────────────────────────────────────────────────────
+// ─── Per-table-set 有序 Worker ───────────────────────────────────────────────
 
-/// 一条进 per-table worker 队列的工作单元。
+/// 一条进 per-table-set worker 队列的工作单元。
 type PersistJob = (Option<Correlation>, Vec<StorageOp>);
 
-/// 启动（或复用）某 table 对应的长驻有序 worker task，返回其发送端。
+/// per-table-set worker 的句柄（发送端 + JoinHandle，用于 graceful drain）。
+struct WorkerHandle {
+    /// job 发送端（bounded channel，drop 时 worker 任务自然退出）。
+    tx: mpsc::Sender<PersistJob>,
+    /// worker task 句柄，shutdown 时 join 确保积压全部落盘。
+    join: JoinHandle<()>,
+}
+
+/// 启动（或复用）某 table-set 对应的长驻有序 worker task，返回其发送端引用。
 ///
-/// ## 设计不变量（E1 修复 §3）
+/// ## 设计不变量（review 回炉 §3）
 ///
-/// 同组内所有 Persist/PersistFire 严格按入队顺序执行，worker task 是单消费者。
-/// 写完后若有 corr → 往 reply_tx（unbounded）发 PortReply，不因队列满堵塞。
+/// 同 key 内所有 Persist/PersistFire 严格按入队顺序执行，worker task 是单消费者。
+/// job queue 有界（`PERSIST_QUEUE_CAP`），超限时 caller .await 阻塞，背压传导到
+/// tick_tx（有界入站通道）。
+/// 写完后若有 corr → 往 reply_tx（unbounded）发 PortReply，永不堵塞写 worker。
+///
+/// ## 注意：此函数是 async 的（bounded send 需 await）
+///
+/// 调用方（dispatch_effects）须在 async 上下文中 .await get_or_spawn_worker 的
+/// send 操作，见 `enqueue_persist`。
 fn get_or_spawn_worker(
-    workers: &mut HashMap<String, mpsc::UnboundedSender<PersistJob>>,
+    workers: &mut HashMap<String, WorkerHandle>,
     table_key: String,
     storage: Arc<NativeStorage>,
     reply_tx: mpsc::UnboundedSender<Tick>,
-) -> &mpsc::UnboundedSender<PersistJob> {
+) -> &WorkerHandle {
     workers.entry(table_key).or_insert_with(|| {
-        let (job_tx, mut job_rx) = mpsc::unbounded_channel::<PersistJob>();
-        tokio::spawn(async move {
+        let (job_tx, mut job_rx) = mpsc::channel::<PersistJob>(PERSIST_QUEUE_CAP);
+        let join = tokio::spawn(async move {
             while let Some((corr_opt, ops)) = job_rx.recv().await {
                 let outcome = execute_storage_ops(&storage, &ops).await;
                 if let Some(corr) = corr_opt {
-                    // unbounded send：不会阻塞，回灌必达（E1 修复 §1）
+                    // unbounded send：不会阻塞，回灌必达（§1）
                     reply_tx.send(Tick::PortReply { corr, outcome }).ok();
                 }
                 // PersistFire (corr_opt = None) → fire-and-forget，不回报
             }
         });
-        job_tx
+        WorkerHandle { tx: job_tx, join }
     })
 }
 
@@ -200,15 +233,24 @@ fn get_or_spawn_worker(
 ///
 /// ```rust,ignore
 /// let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+/// let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 /// let config = EngineConfig { storage, http, event_sink };
-/// tokio::spawn(run_engine_loop(shell, tick_rx, tick_tx.clone(), config));
+/// tokio::spawn(run_engine_loop(shell, tick_rx, tick_tx.clone(), config, shutdown_rx));
 /// // tick_tx 克隆给外部（Tauri command handler / Transport 读任务 / 测试）注入 Tick
+/// // shutdown_tx.send(()) 触发 graceful drain + 退出
 /// ```
+///
+/// ## Shutdown 语义
+///
+/// 发送 `shutdown_tx.send(())` 后，引擎停止接收新 Tick，执行 graceful drain：
+/// 等待全部已入队 Persist 落盘后返回。
+/// 返回 = 「全部已接收 Persist 均已落盘」。
 pub async fn run_engine_loop(
     mut shell: ExecutionShell,
     mut tick_rx: mpsc::Receiver<Tick>,
     tick_tx: mpsc::Sender<Tick>,
     config: EngineConfig,
+    mut shutdown_rx: oneshot::Receiver<()>,
 ) {
     let clock = NativeClock;
     let storage = Arc::new(config.storage);
@@ -219,8 +261,8 @@ pub async fn run_engine_loop(
     // E1 修复：独立 unbounded 回灌通道（不与入站 tick_rx 共用，永不堵塞写任务）
     let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
 
-    // per-table 长驻 worker 映射（table_key → job 发送端）
-    let mut persist_workers: HashMap<String, mpsc::UnboundedSender<PersistJob>> = HashMap::new();
+    // per-table-set 长驻 worker 映射（table_set_key → WorkerHandle{tx, join}）
+    let mut persist_workers: HashMap<String, WorkerHandle> = HashMap::new();
 
     // 初始化：触发 on_start
     let initial_effects = match shell.start() {
@@ -241,12 +283,16 @@ pub async fn run_engine_loop(
         &mut timer_registry,
         &reply_tx,
         &mut persist_workers,
-    );
+    ).await;
 
     // 事件泵主循环
     //
-    // biased select!：reply_rx 排在前 → PortReply 优先于新入站 Tick（E1 修复 §4）。
+    // biased select!：reply_rx 排在前 → PortReply 优先于新入站 Tick（§4）。
     // 若 reply_rx 有待处理回灌，优先消费，防 PortReply 在洪峰时饥饿。
+    //
+    // shutdown_armed：oneshot 只允许被 poll 到完成一次（poll-after-completion 会
+    // panic），完成后该分支永久解除武装。
+    let mut shutdown_armed = true;
     loop {
         let tick = tokio::select! {
             biased;
@@ -254,11 +300,24 @@ pub async fn run_engine_loop(
             // 优先：PortReply 回灌
             Some(reply) = reply_rx.recv() => reply,
 
-            // 次选：入站 Tick（Command / Inbound / Timer / …）
+            // 次选：shutdown 信号（graceful drain 入口）
+            // Ok(()) = 调用方显式 send(()) → 立即进入 graceful drain；
+            // Err(_) = sender 被 drop 而未 send → 视为「无 shutdown 信号」继续运行
+            //          （此时唯一退出路径是 tick 通道关闭）。
+            // shutdown_armed 防 poll-after-completion：tokio oneshot 完成后再 poll
+            // 会 panic——若只写 `Ok(()) = ...`，Err 完成时分支不命中、下一轮 select
+            // 重新 poll 已完成的 oneshot 即触发 panic。
+            res = &mut shutdown_rx, if shutdown_armed => {
+                shutdown_armed = false;
+                if res.is_ok() { break; }
+                continue;
+            }
+
+            // 三选：入站 Tick（Command / Inbound / Timer / …）
             tick = tick_rx.recv() => {
                 match tick {
                     Some(t) => t,
-                    None => break, // tick 通道关闭，引擎退出
+                    None => break, // tick 通道关闭，进入 graceful drain
                 }
             }
         };
@@ -282,20 +341,53 @@ pub async fn run_engine_loop(
                 &mut timer_registry,
                 &reply_tx,
                 &mut persist_workers,
-            );
+            ).await;
         }
     }
 
-    tracing::info!("helix engine loop exited (tick channel closed)");
+    // ── Graceful drain（§5，review 回炉）────────────────────────────────────
+    //
+    // tick_rx 关闭 → 不再有新 Tick 进来。此时 per-table worker 可能还有积压 job。
+    //
+    // 正确关闭顺序：
+    // 1. drop 全部 job sender（worker 排空队列后自然退出）
+    // 2. join 全部 worker task（保证积压 job 全部落盘）
+    // 3. drain reply_rx（捡走写完后才回灌的最后一批 PortReply，避免 log 噪音）
+    //
+    // 保证：run_engine_loop 返回 = 全部已接收 Persist 均已落盘。
+    // 破坏此保证的改动需同步更新本文档注释。
+    tracing::info!("helix engine loop: tick_rx closed, draining {} workers", persist_workers.len());
+
+    // step 1: 提取全部 JoinHandle，同时 drop 全部 job sender（Sender drop → worker 的 recv 返回 None）
+    let join_handles: Vec<JoinHandle<()>> = persist_workers
+        .drain()
+        .map(|(_, wh)| {
+            drop(wh.tx); // drop sender，触发 worker job_rx.recv() 返回 None
+            wh.join
+        })
+        .collect();
+
+    // step 2: join 全部 worker（等待积压 job 全部落盘）
+    for handle in join_handles {
+        if let Err(e) = handle.await {
+            tracing::error!("persist worker panicked during shutdown: {:?}", e);
+        }
+    }
+
+    // step 3: drain reply_rx（write worker 写完最后 job 发出的 PortReply）
+    while reply_rx.try_recv().is_ok() {}
+
+    tracing::info!("helix engine loop exited (all persists drained)");
 }
 
-/// 把一批 OwnedEffect 分流兑现（同步，立即返回，不 await 任何 I/O）。
+/// 把一批 OwnedEffect 分流兑现（async，Persist 入有界队列，满时等待）。
 ///
-/// ## E1 修复要点
+/// ## review 回炉要点
 ///
-/// - Persist / PersistFire：入队到 per-table worker，立即返回，主循环不阻塞
-/// - PortReply 回灌走 reply_tx（unbounded），由 worker 任务独立发送
-fn dispatch_effects(
+/// - Persist / PersistFire：按 `table_set_key` 路由到对应 worker，`.send().await`
+///   在队列满时阻塞主循环，将背压传导到 tick_tx，避免 job queue 无界增长（§1 / §2）。
+/// - PortReply 回灌走 reply_tx（unbounded），由 worker 任务独立发送（§1）。
+async fn dispatch_effects(
     effects: Vec<OwnedEffect>,
     tick_tx: &mpsc::Sender<Tick>,
     storage: &Arc<NativeStorage>,
@@ -303,32 +395,34 @@ fn dispatch_effects(
     event_sink: &Arc<NativeEventSink>,
     timer_registry: &mut TimerRegistry,
     reply_tx: &mpsc::UnboundedSender<Tick>,
-    persist_workers: &mut HashMap<String, mpsc::UnboundedSender<PersistJob>>,
+    persist_workers: &mut HashMap<String, WorkerHandle>,
 ) {
     for effect in effects {
         match effect {
             // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
-                let key = first_table_key(&ops);
-                let worker_tx = get_or_spawn_worker(
+                let key = table_set_key(&ops);
+                let wh = get_or_spawn_worker(
                     persist_workers,
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
                 );
-                worker_tx.send((Some(corr), ops)).ok();
+                // bounded send：队列满时 .await 阻塞主循环，背压传导到 tick_tx
+                wh.tx.send((Some(corr), ops)).await.ok();
             }
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
-                let key = first_table_key(&ops);
-                let worker_tx = get_or_spawn_worker(
+                let key = table_set_key(&ops);
+                let wh = get_or_spawn_worker(
                     persist_workers,
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
                 );
-                worker_tx.send((None, ops)).ok();
+                // bounded send：背压传导同上
+                wh.tx.send((None, ops)).await.ok();
             }
 
             // ── Http（并发，带 corr 回报，走 reply_tx）────────────────────
@@ -516,17 +610,45 @@ pub fn rows_from_reply_bytes(
 
 // ─── 辅助函数 ────────────────────────────────────────────────────────────────
 
-/// 从 StorageOp 列表提取第一个 op 的 table 名（用于分组并发）。
-fn first_table_key(ops: &[StorageOp]) -> String {
-    ops.first()
-        .map(|op| match op {
-            StorageOp::BatchUpsert(s) => s.table.to_string(),
-            StorageOp::BatchUpdate(s) => s.table.to_string(),
-            StorageOp::MonotonicUpsert(_) => "_helix_monotonic".to_string(),
-            StorageOp::Get(s) => s.table.to_string(),
-            StorageOp::Scan(s) => s.table.to_string(),
-        })
-        .unwrap_or_default()
+/// 从 StorageOp 列表计算路由键（per-table-set worker 的路由依据）。
+///
+/// ## 语义（review 回炉 §3）
+///
+/// - 路由键 = ops 涉及的**全部** table 名，有序去重后以 "|" 分隔。
+/// - 单表 ops（常见路径）→ 单表名，与之前 first_table_key 等价，无额外开销。
+/// - 多表 ops → 组合键，例如 `"channel_event_cursor|messages"`。组合键会路由到一个
+///   独立 worker，与各单表 worker 隔离，保证跨 tick 的同一 ops 集合严格有序。
+///
+/// ## 接口约束（务必遵守）
+///
+/// 要求 tick1 的 Persist 与 tick2 的 Persist **相互有序**，则二者必须拥有
+/// **完全相同的 table set**（相同路由键），才能路由到同一 worker 并保序。
+///
+/// 反例（会产生跨 worker 并发）：
+/// - tick1: `Persist{ops: [Get("cursor"), BatchUpsert("messages", v1)]}`
+///   路由键 = `"cursor|messages"`
+/// - tick2: `Persist{ops: [BatchUpsert("messages", v2)]}`
+///   路由键 = `"messages"`
+/// 两条路由到不同 worker，并发执行，v2 可能先于 v1 落库。
+/// 正确做法：将需要有序的写操作合并进同一 Persist ops vec（相同 table set），
+/// 或在 core 层拆分为需要 PortReply 链式执行。
+///
+/// **空 ops** → 返回空字符串（路由到 "" worker，行为等同于 single-op 兜底）。
+fn table_set_key(ops: &[StorageOp]) -> String {
+    if ops.is_empty() {
+        return String::new();
+    }
+    // 收集全部 table 名（保留重复以便调试；有序去重后拼键）
+    let mut tables: Vec<&str> = ops.iter().map(|op| match op {
+        StorageOp::BatchUpsert(s) => s.table,
+        StorageOp::BatchUpdate(s) => s.table,
+        StorageOp::MonotonicUpsert(_) => "_helix_monotonic",
+        StorageOp::Get(s) => s.table,
+        StorageOp::Scan(s) => s.table,
+    }).collect();
+    tables.sort_unstable();
+    tables.dedup();
+    tables.join("|")
 }
 
 /// helix_core::PortError（driver boundary）→ tick::PortError（模块可见）。
@@ -633,18 +755,56 @@ mod tests {
     }
 
     #[test]
-    fn test_first_table_key_empty() {
-        assert_eq!(first_table_key(&[]), "");
+    fn test_table_set_key_empty() {
+        assert_eq!(table_set_key(&[]), "");
     }
 
     #[test]
-    fn test_first_table_key_upsert() {
+    fn test_table_set_key_single_table() {
         use helix_core::effect::UpsertSpec;
         let ops = vec![StorageOp::BatchUpsert(UpsertSpec {
             table: "messages",
             rows: vec![],
             conflict_key: None,
         })];
-        assert_eq!(first_table_key(&ops), "messages");
+        assert_eq!(table_set_key(&ops), "messages");
+    }
+
+    #[test]
+    fn test_table_set_key_multi_table_sorted() {
+        use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec};
+        // 两个不同 table 的 ops，顺序无所谓，键必须按字典序排
+        let ops = vec![
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![],
+                conflict_key: None,
+            }),
+            StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                scope_key: "ch:1".to_string(),
+                value: 1,
+            }),
+        ];
+        // messages > _helix_monotonic（字典序），键应是 "_helix_monotonic|messages"
+        assert_eq!(table_set_key(&ops), "_helix_monotonic|messages");
+    }
+
+    #[test]
+    fn test_table_set_key_dedup_same_table() {
+        use helix_core::effect::UpsertSpec;
+        // 同一 table 出现多次，去重后仍是单 key
+        let ops = vec![
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![],
+                conflict_key: None,
+            }),
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![],
+                conflict_key: None,
+            }),
+        ];
+        assert_eq!(table_set_key(&ops), "messages");
     }
 }

@@ -72,6 +72,7 @@ impl Harness {
     }
 
     /// 执行 on_start，收集 Effects
+    #[allow(dead_code)]
     pub fn start(&mut self, now_ms: u64) -> Vec<EffectKind> {
         use helix_core::Module;
         self.sink.clear();
@@ -132,6 +133,7 @@ pub fn inbound_event(channel_id: u64, seq: u64, event_type: u8) -> Tick {
 }
 
 /// 构造 im_send_message 命令 Tick
+#[allow(dead_code)]
 pub fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick {
     use serde_json::json;
     let payload = json!({

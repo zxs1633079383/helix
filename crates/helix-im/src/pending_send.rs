@@ -75,8 +75,8 @@ impl PendingSend {
     ///
     /// C006：若 echo 迟到（status 已为 Sent），幂等忽略。
     pub fn on_timeout(&mut self, fx: &mut EffectSink) {
-        if self.status == SendStatus::Sent {
-            // 已对账，timer 迟到，幂等忽略
+        // 幂等：已对账（Sent）或已标记 UnSend 的，重复 timer fire 忽略
+        if self.status == SendStatus::Sent || self.status == SendStatus::UnSend {
             return;
         }
 

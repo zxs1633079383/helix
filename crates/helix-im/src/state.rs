@@ -52,6 +52,13 @@ pub enum SendStatus {
     UnSend,
 }
 
+/// per-channel sync 在途标记（B1 gate_inflight 守卫）
+///
+/// 同一 channel 同时只允许一个在途 sync Http（防止并发自踩）。
+/// 值：当前在途 sync 的 corr（用于日志）；None = 无在途 sync。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InflightSync(pub helix_core::Correlation);
+
 /// per-channel 游标（单调推进，MAX guard）
 #[derive(Debug, Clone, Copy)]
 pub struct Cursor {
@@ -119,6 +126,12 @@ pub struct ImState {
     /// on_start 时发出的 Scan corr（用于 proactive resync 路由）
     pub scan_corr: Option<helix_core::Correlation>,
 
+    /// E3 续拉：Persist corr → channel_id（persist_corr 落库成功后触发续拉 sync Http）
+    ///
+    /// 仅当该批 sync 响应 `needs_continuation=true` 时才注册。
+    /// PortReply Ok 路由 1 完成 on_persist_ok 后检查此 map，若命中则发续拉 Http。
+    pub continuation_pending: HashMap<helix_core::Correlation, ChannelId>,
+
     /// 退避 timer ID（当前重连倒计时）
     pub backoff_timer: Option<helix_core::TimerId>,
 
@@ -136,6 +149,7 @@ impl ImState {
             corr_to_send: HashMap::new(),
             corr_to_sync: HashMap::new(),
             scan_corr: None,
+            continuation_pending: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,
         }

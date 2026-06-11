@@ -106,8 +106,8 @@ impl ImModule {
     ///
     /// ## E4 修复
     ///
-    /// 新增 scan_corr 分支：on_start 发出的 Scan{channel_event_cursor} PortReply
-    /// 在此解析 rows → register_channel + 批量发 proactive sync Http。
+    /// 新增 scan_corr 分支：on_start 发出的 Scan{_helix_monotonic} PortReply
+    /// 在此解析 rows（scope_key TEXT + value INTEGER）→ register_channel + 批量发 proactive sync Http。
     fn handle_port_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -125,11 +125,11 @@ impl ImModule {
                     self.handle_scan_reply(reply, out)?;
                 }
                 PortOutcome::Err(e) => {
-                    // 降级：scan 失败不崩，空 channel 集启动仍可用
+                    // 降级：scan 失败（包括首次启动表不存在 / no such table）不崩，空 channel 集仍可用
                     tracing::warn!(
                         corr = corr.raw(),
                         error = ?e,
-                        "scan channel_event_cursor failed, starting with empty channel set"
+                        "scan _helix_monotonic failed (likely first run, no cursors yet), starting with empty channel set"
                     );
                 }
             }
@@ -211,17 +211,20 @@ impl ImModule {
         Ok(())
     }
 
-    /// E4：处理 on_start Scan{channel_event_cursor} 的 PortReply
+    /// E4：处理 on_start Scan{_helix_monotonic} 的 PortReply
     ///
-    /// driver 将 scan 结果序列化为 `[{"channel_id": N, "last_event_seq": N}, ...]`（见 engine_loop.rs 顶部约定）。
-    /// 解析每行注册 channel，然后对全部已知 channel 吐批量 sync Http（与 Connected 路径复用）。
+    /// `_helix_monotonic` 是 advance_cursor 写入的实际表（scope_key TEXT, value INTEGER）。
+    /// engine_loop 将 rows 序列化为 JSON 数组 `[{"scope_key": "<channel_id>", "value": N}, ...]`。
+    ///
+    /// scope_key 是 channel_id.to_string()（IM 业务约定，见 acl/to_effect.rs::advance_cursor）。
+    /// 反序列化时把 TEXT scope_key parse 回 u64；value 即 last event seq。
     fn handle_scan_reply(
         &mut self,
         reply: &helix_core::tick::ReplyBytes,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 按 engine_loop 约定，rows 序列化为 JSON 数组：[{"col": val}, ...]
-        // 对 channel_event_cursor 表：列名为 channel_id（Integer）+ last_event_seq（Integer）
+        // engine_loop 约定：rows → JSON 数组 [{"col": val}, ...]
+        // _helix_monotonic 表：scope_key TEXT（channel_id 字符串）, value INTEGER（cursor）
         let rows: Vec<serde_json::Value> = if reply.0.is_empty() {
             vec![]
         } else {
@@ -236,14 +239,21 @@ impl ImModule {
         };
 
         for row in &rows {
-            let channel_id = match row["channel_id"].as_i64() {
-                Some(v) if v > 0 => v as u64,
-                _ => {
-                    tracing::warn!(row = ?row, "scan row missing or invalid channel_id, skipping");
+            // scope_key 是 TEXT（channel_id.to_string()），需要从字符串解析回 u64
+            let channel_id = match row["scope_key"].as_str() {
+                Some(s) => match s.parse::<u64>() {
+                    Ok(v) if v > 0 => v,
+                    Ok(_) | Err(_) => {
+                        tracing::warn!(scope_key = s, "scan row scope_key not a valid channel_id u64, skipping");
+                        continue;
+                    }
+                },
+                None => {
+                    tracing::warn!(row = ?row, "scan row missing scope_key, skipping");
                     continue;
                 }
             };
-            let cursor = match row["last_event_seq"].as_i64() {
+            let cursor = match row["value"].as_i64() {
                 Some(v) if v >= 0 => v as u64,
                 _ => 0u64,
             };
@@ -750,16 +760,20 @@ impl Module for ImModule {
 
     /// 启动：读取 cursor + arm ping timer + 吐 Scan（§4.8 proactive resync 所需）
     ///
-    /// Scan 吐 Persist{corr, ops:[Scan(channel_event_cursor)]}，
-    /// PortReply 回来后驱动会把全部 cursor 行打包进 ReplyBytes，
-    /// 模块在 handle_port_reply 里扫 channels 补 sync（§4.8）。
+    /// Scan 吐 Persist{corr, ops:[Scan(_helix_monotonic)]}。
+    /// _helix_monotonic 是 advance_cursor（acl/to_effect.rs）写入的实际 cursor 表，
+    /// 列：scope_key TEXT PRIMARY KEY（= channel_id.to_string()）, value INTEGER（= cursor seq）。
+    /// PortReply 回来后 handle_scan_reply 解析 scope_key→u64 + value，注册 channel，
+    /// 然后对全部已知 channel 发 proactive sync Http（§4.8）。
     fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
-        // 1. 吐 Persist{corr, Scan(channel_event_cursor)} 载入全部 cursor
+        // 1. 吐 Persist{corr, Scan(_helix_monotonic)} 载入全部 cursor
+        // 注意：此表由 monotonic_upsert 懒建，首次启动（无任何 cursor 写过）时为空或不存在。
+        // driver scan 对 no such table 应降级返回 PortOutcome::Err，handle_scan_reply 处理降级。
         let scan_corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr: scan_corr,
             ops: vec![StorageOp::Scan(ScanSpec {
-                table: "channel_event_cursor",
+                table: "_helix_monotonic",
                 limit: None,
             })],
         });

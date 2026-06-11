@@ -2,10 +2,16 @@
 //!
 //! ## 验收场景
 //!
-//! on_start 发出 Persist{Scan(channel_event_cursor)}，PortReply 回来时：
-//! 1. 解析 rows → register_channel（channel_id + cursor）
+//! on_start 发出 Persist{Scan(_helix_monotonic)}，PortReply 回来时：
+//! 1. 解析 rows（scope_key TEXT→u64 channel_id, value INTEGER→cursor）→ register_channel
 //! 2. 若已 Connected，批量发 proactive sync Http（与 Connected 路径复用）
 //! 3. 解析失败降级：log warn，不崩，空 channel 集启动仍可用
+//!
+//! ## schema 契约
+//!
+//! scan 目标表：`_helix_monotonic`（列：scope_key TEXT PRIMARY KEY, value INTEGER）
+//! 写路径：advance_cursor → MonotonicUpsert{scope_key=channel_id.to_string(), value=seq}
+//! 读路径：engine_loop rows_to_reply_bytes → JSON `[{"scope_key":"<u64>","value":N},...]`
 
 mod common;
 use common::*;

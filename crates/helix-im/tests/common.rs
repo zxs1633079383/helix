@@ -174,14 +174,17 @@ pub fn sync_reply_events(channel_id: u64, seqs: &[u64], needs_continuation: bool
     bytes::Bytes::from(serde_json::to_vec(&body).unwrap())
 }
 
-/// 构造 scan 回报（channel_event_cursor 扫描结果）
-/// 格式遵循 engine_loop 约定：`[{"channel_id": N, "last_event_seq": N}, ...]`
+/// 构造 scan 回报（_helix_monotonic 扫描结果）
+///
+/// 格式遵循 engine_loop rows_to_reply_bytes 约定：`[{"scope_key": "<channel_id>", "value": N}, ...]`
+/// scope_key 是 TEXT（channel_id.to_string()），value 是 INTEGER cursor seq。
+/// 对应 advance_cursor 写路径（acl/to_effect.rs：MonotonicUpsert{scope_key=channel_id.to_string(), value=seq}）
 #[allow(dead_code)]
 pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
     use serde_json::json;
-    let arr: Vec<_> = rows.iter().map(|&(channel_id, last_event_seq)| json!({
-        "channel_id": channel_id,
-        "last_event_seq": last_event_seq
+    let arr: Vec<_> = rows.iter().map(|&(channel_id, cursor_seq)| json!({
+        "scope_key": channel_id.to_string(),
+        "value": cursor_seq as i64
     })).collect();
     bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
 }

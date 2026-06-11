@@ -59,10 +59,8 @@
 - [x] **C2 · Effect 单一 enum 二进制层诚实补充**（**2026-06-10 完成**）
   已落架构设计 §五「诚实声明」：行为级解耦非编译级裁剪，Effect 单一 enum、IM 表名常量编进 wasm binary，唯一未来口子是 wasm 包体积。
 
-- [ ] **C3 · Storage 通用 scan 读能力**（⚠️ 2026-06-10 升级为 **MVP 前置阻塞项**，不再低优先）
-  `GetSpec` 扩展为可返回 `Vec<Row>`，或新增通用 `scan`，让 im 在 on_start 一次性载入所有 channel cursor。**通用读，不含 IM 语义**。
-  升级理由：架构设计 §4.8 proactive resync 序列图第 1 步直接依赖它，当前 port 做不到 = 文档描述了 port 无法满足的操作。
-  落点：core `Storage` port + `ports/storage.rs`。
+- [x] **C3 · Storage 通用 scan 读能力**（⚠️ 曾升级为 MVP 前置阻塞项 · **2026-06-11 完成**）
+  已落：core 新增 `ScanSpec` + `StorageOp::Scan` + `Storage::scan`（Phase A `7d39a11`）；native 实现（读池 + LIMIT 硬上限，Phase C）；helix-im on_start 已用（Phase B）。wasm/ffi 的 scan 仍为 todo 占位（随各端 driver 落地）。
 
 - [x] **C4 · HX-C006 / CLAUDE.md panic 策略措辞修正**（低 · 2026-06-10 review 新增 · **同日完成**）
   现行表述「catch_unwind + panic="abort"」两者互斥：crate 级 panic=abort 使 catch_unwind 静默失效。已改为二选一表述（生产 cdylib abort / dev unwind+catch_unwind），与架构设计 §4.4.3 对齐。

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use helix_core::{ExecutionShell, Tick};
 use helix_core::effect::{Correlation, Effect, EffectSink, TimerId,
@@ -154,8 +154,9 @@ async fn test_emit_received_by_subscriber() {
     let config = EngineConfig { storage, http, event_sink };
     let tick_tx_for_loop = tick_tx.clone();
 
+    let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let _loop_handle = tokio::spawn(async move {
-        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config).await;
+        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config, shutdown_rx).await;
     });
 
     // 等待 emit 事件（最多 500ms）
@@ -194,8 +195,9 @@ async fn test_timer_fires_into_engine() {
     let config = EngineConfig { storage, http, event_sink };
     let tick_tx_for_loop = tick_tx.clone();
 
+    let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let _loop_handle = tokio::spawn(async move {
-        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config).await;
+        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config, shutdown_rx).await;
     });
 
     // 等待 timer 触发（50ms + 500ms margin）
@@ -235,8 +237,9 @@ async fn test_persist_portreply_roundtrip() {
     let config = EngineConfig { storage, http, event_sink };
     let tick_tx_for_loop = tick_tx.clone();
 
+    let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let _loop_handle = tokio::spawn(async move {
-        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config).await;
+        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config, shutdown_rx).await;
     });
 
     // 等待 Persist 完成并 PortReply 回灌到 engine，handle 被调用

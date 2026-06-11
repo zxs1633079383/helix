@@ -3,8 +3,8 @@
 //! 对应源码实测的核心状态字段：
 //! - channels: per-channel cursor + gate + buffer
 //! - pending_sends: temporaryId → PendingSend（等待 echo/sync 对账）
-//! - pending_commits: corr → target_seq（写成功才推 cursor，peek/commit 两段式）
 //! - conn_state: WS 连接状态机
+//! - 各种 corr 路由索引（corr_to_channel / corr_to_send / corr_to_sync）
 
 use std::collections::HashMap;
 use crate::channel::Channel;
@@ -103,17 +103,21 @@ pub struct ImState {
     /// 来自源码：乐观落库后等 echo 或 sync 对账，15s 超时 → unSend
     pub pending_sends: HashMap<TemporaryId, PendingSend>,
 
-    /// MAJ-1 修复：路由索引（corr → channel_id），替代原 pending_commits。
+    /// MAJ-1 修复：路由索引（corr → channel_id），用于 channel sync Persist 回报。
     ///
-    /// 原 `pending_commits: HashMap<Correlation, (ChannelId, Seq)>` 与
-    /// `Channel.pending_commits: HashMap<Correlation, Seq>` 是两份独立 source of truth，
-    /// 导致 cursor 推进逻辑分裂（module.rs 查 state，channel.rs 查自身，互不调用）。
-    ///
-    /// 修复后：
     /// - `corr_to_channel`：仅存路由信息（corr → channel_id），不存 seq
     /// - `Channel.pending_commits`：持有 `corr → Seq`，是 cursor 推进的唯一聚合根
     /// - 路径：PortReply → `corr_to_channel.remove(corr)` → `channel.on_persist_ok(corr, fx)`
     pub corr_to_channel: HashMap<helix_core::Correlation, ChannelId>,
+
+    /// 路由索引（corr → temporary_id），用于 P1 乐观落库 Persist 回报。
+    pub corr_to_send: HashMap<helix_core::Correlation, TemporaryId>,
+
+    /// 路由索引（corr → channel_id），用于 sync/notify Http 回报。
+    pub corr_to_sync: HashMap<helix_core::Correlation, ChannelId>,
+
+    /// on_start 时发出的 Scan corr（用于 proactive resync 路由）
+    pub scan_corr: Option<helix_core::Correlation>,
 
     /// 退避 timer ID（当前重连倒计时）
     pub backoff_timer: Option<helix_core::TimerId>,
@@ -129,6 +133,9 @@ impl ImState {
             channels: HashMap::new(),
             pending_sends: HashMap::new(),
             corr_to_channel: HashMap::new(),
+            corr_to_send: HashMap::new(),
+            corr_to_sync: HashMap::new(),
+            scan_corr: None,
             backoff_timer: None,
             ping_timer: None,
         }

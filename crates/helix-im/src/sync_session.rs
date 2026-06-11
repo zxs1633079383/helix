@@ -12,11 +12,26 @@ use crate::state::{ChannelId, Seq};
 /// 解析后的强类型入站事件（14 类 WS type 的产物）
 #[derive(Debug, Clone)]
 pub struct EventEnvelope {
+    /// per-channel ID（channel_id 的内部引用，两个字段保持同步）
+    pub id: ChannelId,
     pub channel_id: ChannelId,
     pub seq: Seq,
     pub kind: EventKind,
     /// 原始 JSON payload（ACL-1 决定如何翻译为 StorageOp）
     pub raw: bytes::Bytes,
+}
+
+impl EventEnvelope {
+    /// 构造 EventEnvelope（统一入口，确保 id 与 channel_id 始终一致）
+    pub fn new(channel_id: ChannelId, seq: Seq, kind: EventKind, raw: bytes::Bytes) -> Self {
+        Self {
+            id: channel_id,
+            channel_id,
+            seq,
+            kind,
+            raw,
+        }
+    }
 }
 
 /// IM 事件类型（对应 WS 协议 type 字段，源码 14 类分桶）
@@ -32,6 +47,19 @@ pub enum EventKind {
     PostRead,
     /// 其他类型（暂不处理）
     Other(u8),
+}
+
+impl EventKind {
+    /// 返回对应的 WS 协议 type 数字（用于落库和分桶排序）
+    pub fn type_num(&self) -> u8 {
+        match self {
+            EventKind::PostUpsert => 1,
+            EventKind::PostEdit   => 2,
+            EventKind::PostRevoke => 3,
+            EventKind::PostRead   => 6,
+            EventKind::Other(n)   => *n,
+        }
+    }
 }
 
 /// sync 响应的 4 种形态

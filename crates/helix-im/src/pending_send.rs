@@ -12,10 +12,9 @@
 //! - echo/sync 对账走同一对账点（reconcile）
 //! - 15s 超时无自动补发（on_timeout 不产出 Http effect）
 
-use helix_core::{Effect, EffectSink, Correlation, TimerId, CoreError};
-use helix_core::effect::{StorageOp, UpsertSpec, Row, SqlValue, DomainEventBytes};
+use helix_core::{Effect, EffectSink, Correlation, TimerId};
+use helix_core::effect::{StorageOp, UpsertSpec, SqlValue};
 use crate::state::{ServerId, TemporaryId, SendStatus};
-use crate::error::ImError;
 
 /// 待对账的单条消息发送记录
 pub struct PendingSend {
@@ -44,7 +43,6 @@ impl PendingSend {
     /// echo 与 sync 走完全相同 Effect 序列（源码印证）：
     /// 1. Persist{ON CONFLICT(temporary_id) 覆盖 id=serverId, status=sent}
     /// 2. CancelTimer{timeout_timer}（撤 15s 超时）
-    /// 3. Emit{PostReceived}（通知前端）
     pub fn reconcile(
         &mut self,
         server_id: ServerId,
@@ -70,10 +68,6 @@ impl PendingSend {
         // 吐 CancelTimer（撤 15s 超时）
         fx.push(Effect::CancelTimer { id: self.timeout_timer });
 
-        // 吐 Emit（通知前端 PostReceived）
-        // TODO: 序列化 ImDomainEvent::PostReceived 为 DomainEventBytes（在 ACL-1 处理）
-        // fx.push(Effect::Emit { event: acl::serialize_post_received(...) });
-
         self.status = SendStatus::Sent;
     }
 
@@ -81,15 +75,23 @@ impl PendingSend {
     ///
     /// C006：若 echo 迟到（status 已为 Sent），幂等忽略。
     pub fn on_timeout(&mut self, fx: &mut EffectSink) {
-        if self.status == SendStatus::Sent {
-            // 已对账，timer 迟到，幂等忽略
+        // 幂等：已对账（Sent）或已标记 UnSend 的，重复 timer fire 忽略
+        if self.status == SendStatus::Sent || self.status == SendStatus::UnSend {
             return;
         }
 
         self.status = SendStatus::UnSend;
 
-        // TODO: 吐 batch_update{sendStatus=unSend}（ACL-1 翻译）
-        // fx.push(Effect::PersistFire { ... });
-        let _ = fx;
+        // PersistFire：batch_update send_status = unsend（幂等）
+        fx.push(Effect::PersistFire {
+            ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![vec![
+                    ("temporary_id".to_string(), SqlValue::Text(self.temporary_id.0.clone())),
+                    ("send_status".to_string(), SqlValue::Text("unsend".to_string())),
+                ]],
+                conflict_key: Some("temporary_id"),
+            })],
+        });
     }
 }

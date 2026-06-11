@@ -92,3 +92,14 @@
 ## 评审总结论
 
 > 架构能支撑「一份逻辑三端一致 + 可回放可测 + 加第二模块零改内核」，核心设计正确、与现网对齐度高、无颠覆性错误。**可以过会**——3 大缺口已补入设计（A），B/C/D 为实现阶段待办。工期建议整体 +3 周。
+
+---
+
+## E. 并发承压修复（2026-06-11 四专家审查 + 压测揪出 · 详见 [并发承压评估](./helix-并发承压评估-2026-06-11.md)）
+
+- [ ] **E1 · P0 泵死锁**：PortReply 回灌与入站共用 cap=256 mpsc + dispatch 同步 await → 洪峰冻结（实测复现）。修：回灌独立通道 + dispatch 不阻塞 join。落点 engine_loop.rs。
+- [ ] **E2 · P0 batch_upsert 包事务**：逐行 autocommit 写放大实测 9.0x。修：begin/commit 包裹 + SQL 串复用。落点 storage.rs:172。
+- [ ] **E3 · P0 needs_continuation 续拉**：>500 事件离线同步截断丢消息。落点 module.rs:195。
+- [ ] **E4 · P0 scan_corr 回报路由**：on_start cursor 加载是死代码，proactive resync 不工作。落点 module.rs handle_port_reply。
+- [ ] **E5 · P1 monotonic_upsert DDL 出热路径**（实测拖至 7.4K/s）；**E6 · P1 gate buffer 容量上限 + 客户端主动 too_long**；**E7 · P1 broadcast lagged 可感知**。
+- [ ] **E8/E9 · P2**：timer O(N) 查找反向索引；热路径分配收口（HX-C005）。

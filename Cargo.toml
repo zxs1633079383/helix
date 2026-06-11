@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    "crates/helix-core",
+    "crates/helix-im",
+    "crates/helix-driver-native",
+    "crates/helix-driver-wasm",
+    "crates/helix-driver-ffi",
+]
+resolver = "2"
+
+[workspace.dependencies]
+serde           = { version = "1", features = ["derive"] }
+serde_json      = "1"
+thiserror       = "2"
+bytes           = "1"
+async-trait     = "0.1"
+futures-channel = "0.3"
+futures-core    = "0.3"
+tracing         = "0.1"
+# MIN-5 修复：getrandom 的 "js" feature 仅在 wasm32 target 下需要，
+# 不应在 workspace 级声明（getrandom 0.3 升级时 native 的 "js" feature 可能破坏链接）。
+# 在 helix-driver-wasm/Cargo.toml 的 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# 段中声明，确保只对 wasm32 target 启用。
+# native / ffi crate 若传递依赖了 getrandom，需要不带 "js" feature。
+getrandom       = { version = "0.2" }
+
+[profile.release]
+opt-level     = "z"
+lto           = true
+codegen-units = 1
+# panic=abort 说明：
+# - wasm 端：去除 unwind 表，节省约 20% .wasm 体积
+# - native 端：接受 fail-loud abort；所有用户可达失败路径必须返回 Result<_, CoreError>，
+#   不得 panic。abort 仅作为内部不变量违反（真正的 bug）的 fail-loud 响应。
+# - FFI cdylib/staticlib：跨 FFI panic 是 UB，abort 是正确的边界行为。
+panic         = "abort"
+strip         = true

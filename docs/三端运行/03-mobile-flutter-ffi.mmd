@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant UI as Flutter UI (Dart)
+    participant F as dart:ffi 边界 (C ABI)
+    participant R as Rust .so (core + ffi-driver + 内置tokio)
+    participant DB as rusqlite (spawn_blocking)
+    participant NET as reqwest / tokio-tungstenite
+    participant SP as Dart SendPort (Stream)
+    participant SV as 服务端
+
+    UI->>F: helix_send(ptr, bytes{tmp_9})
+    F->>R: catch_unwind → Tick::Command{Send, tmp_9}
+    R-->>SP: Emit Sending → Dart Stream
+    SP-->>UI: 0 等待上屏 "发送中"
+    Note over UI,R: 丝滑①  FFI 调用即返回，事件走 SendPort 异步流，UI 不阻塞
+    par .so 内 tokio 多线程
+        R->>DB: spawn_blocking rusqlite 写 tmp_9 (不阻塞 runtime)
+        DB-->>R: Ok → PortReply{P1}
+    and
+        R->>SV: reqwest POST /posts/create
+        SV-->>R: 2xx → PortReply{H1}
+    end
+    SV-->>NET: WS push post{tmp_9, server_id, seq}
+    NET->>R: Tick::Inbound{echo}
+    R->>DB: upsert 刷 server_id O(1)
+    R-->>SP: Emit Received → Dart Stream
+    SP-->>UI: 气泡转 "已送达"
+    Note over F,R: 安全  opaque ptr 单 owner / 每个 extern"C" catch_unwind / panic=abort

@@ -1,0 +1,20 @@
+[package]
+name    = "helix-core"
+version = "0.1.0"
+edition = "2021"
+
+# helix-core 是三栖共享的纯库，crate-type 默认 rlib
+# ❌ 绝对不含：tokio / sqlx / reqwest / tokio-tungstenite / rusqlite / web-sys / tauri
+#    platform::spawn 已移至各 driver 的 engine_loop.rs，此处无任何运行时依赖
+
+[features]
+# testing: 启用 MockClock 等测试工具（生产构建不启用，避免 wasm32 atomics 依赖）
+testing = []
+
+[dependencies]
+serde           = { workspace = true }
+thiserror       = { workspace = true }
+bytes           = { workspace = true }
+async-trait     = { workspace = true }
+futures-channel = { workspace = true }
+tracing         = { workspace = true }

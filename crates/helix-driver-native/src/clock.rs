@@ -1,7 +1,6 @@
 //! NativeClock — SystemTime
 
 use helix_core::ports::Clock;
-use helix_core::platform::MaybeSend;
 
 #[derive(Clone, Debug)]
 pub struct NativeClock;

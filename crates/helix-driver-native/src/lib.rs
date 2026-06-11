@@ -19,3 +19,12 @@ pub mod event_sink;
 pub mod http;
 pub mod engine_loop;
 pub mod timer;
+
+// 公共 API 再导出（方便 helix-tauri / 测试直接 use helix_driver_native::*）
+pub use storage::NativeStorage;
+pub use transport::NativeTransport;
+pub use clock::NativeClock;
+pub use event_sink::NativeEventSink;
+pub use http::NativeHttp;
+pub use timer::TimerRegistry;
+pub use engine_loop::{run_engine_loop, EngineConfig, rows_to_reply_bytes, rows_from_reply_bytes};

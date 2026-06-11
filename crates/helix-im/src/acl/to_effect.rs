@@ -71,9 +71,6 @@ pub fn emit_post_received(channel_id: ChannelId, server_msg_id: u64) -> Effect {
             "msg_id": server_msg_id,
         }
     });
-    // MIN-4：`unwrap_or_default` 会在序列化失败时静默发送空字节，前端行为未定义。
-    // 该 JSON 结构是静态已知形状，序列化失败属于内部不变量违反（不是用户可恢复错误），
-    // 用 expect 让失败 fail-loud（debug 构建 panic，release 构建 abort）。
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
             .expect("emit_post_received: static JSON shape must not fail to serialize"),
@@ -81,4 +78,59 @@ pub fn emit_post_received(channel_id: ChannelId, server_msg_id: u64) -> Effect {
     Effect::Emit {
         event: DomainEventBytes(bytes),
     }
+}
+
+/// 发送乐观上屏事件（im:post:sending）
+pub fn emit_post_sending(channel_id: ChannelId, temporary_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:post:sending",
+        "data": {
+            "channel_id": channel_id.0,
+            "temporary_id": temporary_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_sending: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// 发送 im:sync:too_long 事件（前端收到后清内存 buffer + 重拉首屏）
+pub fn emit_sync_too_long(channel_id: ChannelId) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:sync:too_long",
+        "data": {
+            "channel_id": channel_id.0,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_sync_too_long: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// 批量 upsert EventEnvelope 列表（sync 路径）
+pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
+    events.iter().map(|ev| {
+        StorageOp::BatchUpsert(UpsertSpec {
+            table: "messages",
+            rows: vec![vec![
+                ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
+                ("channel_id".to_string(), SqlValue::Integer(ev.id.0 as i64)),
+                ("event_type".to_string(), SqlValue::Integer(ev.kind.type_num() as i64)),
+                ("raw".to_string(), SqlValue::Text(
+                    String::from_utf8_lossy(ev.raw.as_ref()).to_string()
+                )),
+            ]],
+            conflict_key: Some("seq"),
+        })
+    }).collect()
 }

@@ -147,3 +147,41 @@ pub fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick
     let bytes = serde_json::to_vec(&payload).unwrap();
     Tick::Command(AppCommand::new("im_send_message", bytes))
 }
+
+/// 构造 PortReply Ok，带自定义 ReplyBytes（用于 scan / sync 回报）
+#[allow(dead_code)]
+pub fn port_reply_with_body(corr_raw: u64, body: bytes::Bytes) -> Tick {
+    Tick::PortReply {
+        corr: Correlation::from_raw(corr_raw),
+        outcome: PortOutcome::Ok(ReplyBytes(body)),
+    }
+}
+
+/// 构造 sync 响应帧（events 类型，可控 needs_continuation）
+#[allow(dead_code)]
+pub fn sync_reply_events(channel_id: u64, seqs: &[u64], needs_continuation: bool) -> bytes::Bytes {
+    use serde_json::json;
+    let events: Vec<_> = seqs.iter().map(|&seq| json!({
+        "channel_id": channel_id,
+        "seq": seq,
+        "event_type": 1
+    })).collect();
+    let body = json!({
+        "type": "events",
+        "events": events,
+        "needs_continuation": needs_continuation
+    });
+    bytes::Bytes::from(serde_json::to_vec(&body).unwrap())
+}
+
+/// 构造 scan 回报（channel_event_cursor 扫描结果）
+/// 格式遵循 engine_loop 约定：`[{"channel_id": N, "last_event_seq": N}, ...]`
+#[allow(dead_code)]
+pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
+    use serde_json::json;
+    let arr: Vec<_> = rows.iter().map(|&(channel_id, last_event_seq)| json!({
+        "channel_id": channel_id,
+        "last_event_seq": last_event_seq
+    })).collect();
+    bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
+}

@@ -103,6 +103,11 @@ impl ImModule {
     /// 1. `corr_to_channel`（Correlation → ChannelId 路由索引）
     /// 2. 查到 channel_id 后委托 `channel.on_persist_ok(corr, fx)` 推进 cursor
     /// 3. 15s 超时 timer → 通过 `corr_to_send` 找 PendingSend
+    ///
+    /// ## E4 修复
+    ///
+    /// 新增 scan_corr 分支：on_start 发出的 Scan{channel_event_cursor} PortReply
+    /// 在此解析 rows → register_channel + 批量发 proactive sync Http。
     fn handle_port_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -112,12 +117,37 @@ impl ImModule {
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
 
+        // 路由 0（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
+        if self.state.scan_corr == Some(corr) {
+            self.state.scan_corr = None;
+            match outcome {
+                PortOutcome::Ok(reply) => {
+                    self.handle_scan_reply(reply, out)?;
+                }
+                PortOutcome::Err(e) => {
+                    // 降级：scan 失败不崩，空 channel 集启动仍可用
+                    tracing::warn!(
+                        corr = corr.raw(),
+                        error = ?e,
+                        "scan channel_event_cursor failed, starting with empty channel set"
+                    );
+                }
+            }
+            return Ok(());
+        }
+
         // 路由 1：channel sync Persist 回报（cursor 推进）
         if let Some(channel_id) = self.state.corr_to_channel.remove(&corr) {
+            // 同时检查 continuation_pending（E3 续拉意图）
+            let wants_continuation = self.state.continuation_pending.remove(&corr).is_some();
             match outcome {
                 PortOutcome::Ok(_) => {
                     if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                         ch.on_persist_ok(corr, out)?;
+                    }
+                    // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
+                    if wants_continuation {
+                        self.maybe_continue_sync(channel_id, out);
                     }
                 }
                 PortOutcome::Err(e) => {
@@ -127,6 +157,10 @@ impl ImModule {
                         error = ?e,
                         "persist failed, cursor not advanced, will re-sync"
                     );
+                    // persist 失败：清除 last_sync_from_seq 避免遗留脏状态
+                    if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                        ch.last_sync_from_seq = None;
+                    }
                 }
             }
             return Ok(());
@@ -154,6 +188,10 @@ impl ImModule {
 
         // 路由 3：sync Http 回报（sync/notify 响应）
         if let Some(channel_id) = self.state.corr_to_sync.remove(&corr) {
+            // B1 gate_inflight 清除：sync 回报到达，清除在途标记
+            if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                ch.inflight_sync = None;
+            }
             match outcome {
                 PortOutcome::Ok(reply) => {
                     self.handle_sync_reply(corr, channel_id, reply, out)?;
@@ -173,7 +211,160 @@ impl ImModule {
         Ok(())
     }
 
+    /// E4：处理 on_start Scan{channel_event_cursor} 的 PortReply
+    ///
+    /// driver 将 scan 结果序列化为 `[{"channel_id": N, "last_event_seq": N}, ...]`（见 engine_loop.rs 顶部约定）。
+    /// 解析每行注册 channel，然后对全部已知 channel 吐批量 sync Http（与 Connected 路径复用）。
+    fn handle_scan_reply(
+        &mut self,
+        reply: &helix_core::tick::ReplyBytes,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        // 按 engine_loop 约定，rows 序列化为 JSON 数组：[{"col": val}, ...]
+        // 对 channel_event_cursor 表：列名为 channel_id（Integer）+ last_event_seq（Integer）
+        let rows: Vec<serde_json::Value> = if reply.0.is_empty() {
+            vec![]
+        } else {
+            serde_json::from_slice(reply.0.as_ref()).unwrap_or_else(|e| {
+                tracing::warn!(
+                    error = %e,
+                    raw = %String::from_utf8_lossy(reply.0.as_ref()),
+                    "scan reply JSON parse failed, treating as empty rows"
+                );
+                vec![]
+            })
+        };
+
+        for row in &rows {
+            let channel_id = match row["channel_id"].as_i64() {
+                Some(v) if v > 0 => v as u64,
+                _ => {
+                    tracing::warn!(row = ?row, "scan row missing or invalid channel_id, skipping");
+                    continue;
+                }
+            };
+            let cursor = match row["last_event_seq"].as_i64() {
+                Some(v) if v >= 0 => v as u64,
+                _ => 0u64,
+            };
+            // register_channel 幂等：若已存在则不覆盖（Connected 路径可能已注册）
+            self.state.channels
+                .entry(ChannelId(channel_id))
+                .or_insert_with(|| crate::channel::Channel::new(ChannelId(channel_id), cursor));
+        }
+
+        tracing::info!(
+            channel_count = rows.len(),
+            "scan_corr resolved, loaded {} channels from cursor store",
+            rows.len()
+        );
+
+        // 仅在已连接时触发 proactive resync（复用 Connected 路径逻辑）
+        // 若此时尚未连接，Connected 事件到来后会自行 resync
+        if self.state.conn == crate::state::ConnState::Connected {
+            self.emit_proactive_resync(out);
+        }
+
+        Ok(())
+    }
+
+    /// 向所有已知 channel 发 proactive sync Http（复用逻辑，Connected 和 scan_reply 共用）
+    fn emit_proactive_resync(&mut self, out: &mut EffectSink) {
+        let channel_cursors: Vec<(ChannelId, Seq)> = self.state.channels.iter()
+            .map(|(&id, ch)| (id, ch.cursor.value()))
+            .collect();
+        for (channel_id, from_seq) in channel_cursors {
+            // B1 gate_inflight 守卫：跳过已有在途 sync 的 channel
+            if self.state.channels.get(&channel_id)
+                .map_or(false, |ch| ch.inflight_sync.is_some())
+            {
+                continue;
+            }
+            let sync_corr = self.alloc_corr_internal();
+            self.state.corr_to_sync.insert(sync_corr, channel_id);
+            if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
+            }
+            out.push(crate::acl::to_effect::sync_notify(
+                &self.config.api_base_url,
+                channel_id,
+                from_seq,
+                sync_corr,
+            ));
+        }
+    }
+
+    /// E3 续拉：Persist 落库成功后，若上批 sync 标记了 needs_continuation，
+    /// 以推进后的 cursor（新 fromSeq）发出下一批 sync Http。
+    ///
+    /// 终止保证（双重）：
+    /// 1. fromSeq（= cursor after commit）必须严格 > last_sync_from_seq（上次发出续拉时的 fromSeq）
+    ///    这保证每次续拉都在推进位置；若 cursor 未前进，说明所有事件均是幂等 dup → 停止
+    /// 2. B1 gate_inflight 守卫：同 channel 同时只允许一个在途 sync
+    fn maybe_continue_sync(&mut self, channel_id: ChannelId, out: &mut EffectSink) {
+        // 读取 cursor 和 last_sync_from_seq（不可变借用）
+        let (cursor_seq, prev_from_seq, has_inflight) = match self.state.channels.get(&channel_id) {
+            Some(ch) => (ch.cursor.value(), ch.last_sync_from_seq, ch.inflight_sync.is_some()),
+            None => return,
+        };
+
+        // B1：若已有在途 sync（意外情况），跳过
+        if has_inflight {
+            tracing::warn!(
+                channel_id = channel_id.0,
+                "maybe_continue_sync: inflight_sync already set, skipping continuation"
+            );
+            return;
+        }
+
+        // 终止保证：新 fromSeq（= cursor after commit）必须严格 > prev_from_seq
+        // 若相等，说明服务端返回的事件均低于上次 fromSeq（全部幂等丢弃，cursor 未前进）
+        if let Some(prev_from) = prev_from_seq {
+            if cursor_seq.0 <= prev_from.0 {
+                tracing::warn!(
+                    channel_id = channel_id.0,
+                    cursor = cursor_seq.0,
+                    prev_from_seq = prev_from.0,
+                    "continuation aborted: cursor did not advance past prev sync fromSeq (all events were dup-drops)"
+                );
+                if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                    ch.last_sync_from_seq = None;
+                }
+                return;
+            }
+        }
+
+        // 记录本次续拉的 fromSeq（下一批检查时用）
+        if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+            ch.last_sync_from_seq = Some(cursor_seq);
+        }
+
+        let sync_corr = self.alloc_corr_internal();
+        self.state.corr_to_sync.insert(sync_corr, channel_id);
+        if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+            ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
+        }
+        out.push(crate::acl::to_effect::sync_notify(
+            &self.config.api_base_url,
+            channel_id,
+            cursor_seq,
+            sync_corr,
+        ));
+        tracing::debug!(
+            channel_id = channel_id.0,
+            from_seq = cursor_seq.0,
+            "E3: continuation sync Http emitted"
+        );
+    }
+
     /// 处理 sync/notify HTTP 响应
+    ///
+    /// ## E3 修复
+    ///
+    /// `needs_continuation=true` 时，Persist 落库后（on_persist_ok 路径），
+    /// 此函数还需记录「续拉意图」——通过在 channel 上设置 `last_sync_max_seq`。
+    /// 实际续拉在 `on_persist_ok` → `maybe_continue_sync` 中触发，确保 cursor 已推进。
+    /// 终止条件：events 为空但 needs_continuation=true → 停止 + log warn（防服务端 bug）。
     fn handle_sync_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -192,10 +383,18 @@ impl ImModule {
                 // cursor 已是最新，无事可做
             }
 
-            SyncResponse::Events { events, needs_continuation: _ } => {
+            SyncResponse::Events { events, needs_continuation } => {
                 if events.is_empty() {
+                    if needs_continuation {
+                        // 终止保证：服务端返回空 events 但仍声称需续拉 → 防无限循环
+                        tracing::warn!(
+                            channel_id = channel_id.0,
+                            "needs_continuation=true but events is empty, stopping continuation to prevent infinite loop"
+                        );
+                    }
                     return Ok(());
                 }
+
                 // peek/commit 三阶段：peek（只读预览，不推 cursor）
                 // 为整批事件分配一个 Persist corr（先分配，避免借用冲突）
                 let commit_target = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
@@ -209,6 +408,11 @@ impl ImModule {
                     ops: persist_ops,
                 });
                 self.state.corr_to_channel.insert(persist_corr, channel_id);
+                // E3：在 corr_to_channel 同时记录是否需要续拉
+                // 通过 state.continuation_pending 标记（此 corr 落库成功后续拉）
+                if needs_continuation {
+                    self.state.continuation_pending.insert(persist_corr, channel_id);
+                }
             }
 
             SyncResponse::TooLong { reset_to } => {
@@ -218,6 +422,7 @@ impl ImModule {
                     ch.buffer.clear();
                     ch.gate = None;
                     ch.cursor = crate::state::Cursor::new(reset_cursor);
+                    ch.last_sync_from_seq = None;
                 }
                 out.push(crate::acl::to_effect::emit_sync_too_long(channel_id));
             }
@@ -231,6 +436,7 @@ impl ImModule {
                     ch.buffer.clear();
                     ch.gate = None;
                     ch.pending_commits.insert(persist_corr, reset_to);
+                    ch.last_sync_from_seq = None;
                 }
                 out.push(Effect::Persist {
                     corr: persist_corr,
@@ -301,9 +507,10 @@ impl ImModule {
             let sync_corr = self.alloc_corr_internal();
             self.state.corr_to_sync.insert(sync_corr, channel_id);
 
-            // 清除 gate（已触发）
+            // 清除 gate（已触发）+ 设置 inflight（B1 守卫）
             if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                 ch.gate = None;
+                ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
             }
 
             out.push(crate::acl::to_effect::sync_notify(
@@ -516,34 +723,26 @@ impl Module for ImModule {
 
             Tick::Connected(_transport) => {
                 // 连接建立 → proactive resync：对所有 channel 发 sync/notify（§4.8）
+                // B1 gate_inflight 守卫在 emit_proactive_resync 内部实施（跳过已有在途 sync）
                 self.state.conn = ConnState::Connected;
-
-                // 先收集 channel_id + from_seq，避免持有 channels 不可变借用时
-                // 再借用 self.next_corr（alloc_corr_internal）和 self.state.corr_to_sync
-                let channel_cursors: Vec<(ChannelId, Seq)> = self.state.channels.iter()
-                    .map(|(&id, ch)| (id, ch.cursor.value()))
-                    .collect();
-
-                let channel_count = channel_cursors.len();
-                for (channel_id, from_seq) in channel_cursors {
-                    let sync_corr = self.alloc_corr_internal();
-                    self.state.corr_to_sync.insert(sync_corr, channel_id);
-                    out.push(crate::acl::to_effect::sync_notify(
-                        &self.config.api_base_url,
-                        channel_id,
-                        from_seq,
-                        sync_corr,
-                    ));
-                }
-
+                let channel_count = self.state.channels.len();
+                self.emit_proactive_resync(out);
                 tracing::info!("helix-im: connected, triggered proactive resync for {} channels",
                     channel_count);
             }
 
             Tick::Disconnected(_transport) => {
                 self.state.conn = ConnState::Disconnected;
-                // 重连退避是 driver 的责任；模块只感知断线状态
-                tracing::debug!("helix-im: disconnected");
+                // 清除所有 channel 的 inflight_sync（连接断开，所有在途 Http 不会回报）
+                // 若不清除，重连后 proactive resync 会被 B1 守卫全部跳过
+                for ch in self.state.channels.values_mut() {
+                    ch.inflight_sync = None;
+                    ch.last_sync_from_seq = None;
+                }
+                // 清除 corr_to_sync（在途 sync Http corr，断线后不会再收到 PortReply）
+                self.state.corr_to_sync.clear();
+                self.state.continuation_pending.clear();
+                tracing::debug!("helix-im: disconnected, cleared inflight sync state");
             }
         }
         Ok(())

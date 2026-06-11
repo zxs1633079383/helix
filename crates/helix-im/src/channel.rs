@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use helix_core::{Effect, EffectSink, Correlation};
 use helix_core::effect::{StorageOp, TimerId};
-use crate::state::{ChannelId, Seq, Cursor};
+use crate::state::{ChannelId, Seq, Cursor, InflightSync};
 use crate::sync_session::EventEnvelope;
 use crate::error::ImError;
 
@@ -53,6 +53,16 @@ pub struct Channel {
     pub pending_commits: std::collections::HashMap<Correlation, Seq>,
     /// 乱序缓冲（contiguous flush 用）
     pub buffer: BTreeMap<Seq, EventEnvelope>,
+    /// B1 gate_inflight：同 channel 同时只允许一个在途 sync Http。
+    ///
+    /// Some(InflightSync(corr)) 表示有在途 sync；续拉发出时置 Some，PortReply 到达后清 None。
+    /// 防止 needs_continuation 并发自踩（连续触发多个相同 channel 的 sync）。
+    pub inflight_sync: Option<InflightSync>,
+    /// E3 续拉：记录发出续拉 sync 时的 fromSeq（上一批请求的起点）
+    ///
+    /// 终止保证：若 persist ok 后 cursor == sync_from_seq（cursor 未前进），
+    /// 停止续拉 + log warn（意味着服务端返回的所有事件都低于 fromSeq，幂等丢弃）。
+    pub last_sync_from_seq: Option<Seq>,
 }
 
 impl Channel {
@@ -63,6 +73,8 @@ impl Channel {
             gate: None,
             pending_commits: std::collections::HashMap::new(),
             buffer: BTreeMap::new(),
+            inflight_sync: None,
+            last_sync_from_seq: None,
         }
     }
 

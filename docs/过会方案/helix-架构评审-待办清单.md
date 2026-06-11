@@ -18,7 +18,7 @@
 
 > 这些是现网踩坑沉淀的真实机制，设计文档未展开，实现 Rust-im 时**必须显式处理**，否则会踩坑。
 
-- [ ] **B1 · gate_inflight 去重守卫**（中）
+- [x] **B1 · gate_inflight 去重守卫**（中 · **2026-06-11 随 E3 落地**：Channel.inflight_sync + 全部 sync 发出路径置/清 + Disconnected 清理）
   现网 `ImState.gate_inflight: HashSet<channel_id>` 防同 channel 并发触发多个 HTTP sync。
   Rust-im 需等价守卫：`Timer(gate)` 到期 + 「事件数≥阈值续拉」可能对同 channel 并发进 sync。不破坏正确性（cursor 单调 + upsert 幂等），但浪费双 HTTP/双 dispatch。
   落点：Rust-im `ImState` 加 inflight 集合。
@@ -97,9 +97,9 @@
 
 ## E. 并发承压修复（2026-06-11 四专家审查 + 压测揪出 · 详见 [并发承压评估](./helix-并发承压评估-2026-06-11.md)）
 
-- [ ] **E1 · P0 泵死锁**：PortReply 回灌与入站共用 cap=256 mpsc + dispatch 同步 await → 洪峰冻结（实测复现）。修：回灌独立通道 + dispatch 不阻塞 join。落点 engine_loop.rs。
-- [ ] **E2 · P0 batch_upsert 包事务**：逐行 autocommit 写放大实测 9.0x。修：begin/commit 包裹 + SQL 串复用。落点 storage.rs:172。
-- [ ] **E3 · P0 needs_continuation 续拉**：>500 事件离线同步截断丢消息。落点 module.rs:195。
-- [ ] **E4 · P0 scan_corr 回报路由**：on_start cursor 加载是死代码，proactive resync 不工作。落点 module.rs handle_port_reply。
+- [x] **E1 · P0 泵死锁**（**2026-06-11 修复**）：独立 unbounded 回灌通道 + per-table-set 有序 worker + 有界 job queue(1024) 背压传导 + graceful drain（join 全部 worker，「返回=全落盘」）+ shutdown oneshot。验收：10k 裸灌不死锁；drain 测试断言 500 条全落盘。经对抗 review 3 blocking 回炉。
+- [x] **E2 · P0 batch_upsert 包事务**（**2026-06-11 修复**）：begin/commit 整批 + SQL 串复用。实测 369ms→~40-60ms / 5000 行（82K-122K 行/秒），写放大 9.6x→~1.0x。
+- [x] **E3 · P0 needs_continuation 续拉**（**2026-06-11 修复**）：persist 提交后续拉、fromSeq 严格递增终止保证、空 events 防死循环；顺手落地 **B1 gate_inflight**（per-channel 在途 sync 守卫 + Disconnected 清理）。
+- [x] **E4 · P0 scan_corr 回报路由**（**2026-06-11 修复**）：handle_port_reply 路由 0 消费 Scan 回报；review 拦截「扫虚构表」后对齐 driver 真实 `_helix_monotonic(scope_key,value)` schema；解析失败降级空集启动。
 - [ ] **E5 · P1 monotonic_upsert DDL 出热路径**（实测拖至 7.4K/s）；**E6 · P1 gate buffer 容量上限 + 客户端主动 too_long**；**E7 · P1 broadcast lagged 可感知**。
 - [ ] **E8/E9 · P2**：timer O(N) 查找反向索引；热路径分配收口（HX-C005）。

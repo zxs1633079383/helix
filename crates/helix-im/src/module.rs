@@ -220,6 +220,16 @@ impl Module for ImModule {
                         source: Box::new(e),
                     })?;
             }
+
+            Tick::Connected(transport) => {
+                // TODO(Phase B): 重连业务策略——cursor reset 判定 + proactive resync（§4.7/4.8）
+                tracing::debug!(transport = transport.raw(), "im: transport connected");
+            }
+
+            Tick::Disconnected(transport) => {
+                // TODO(Phase B): 标记离线态（重连退避是 driver 的事，模块只感知状态）
+                tracing::debug!(transport = transport.raw(), "im: transport disconnected");
+            }
         }
         Ok(())
     }

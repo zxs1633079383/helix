@@ -88,8 +88,10 @@ pub enum StorageOp {
     MonotonicUpsert(MonotonicUpsertSpec),
     /// batch update：UPDATE table SET patch WHERE key_col IN (key_vals)
     BatchUpdate(BatchUpdateSpec),
-    /// get：SELECT * FROM table WHERE ...
+    /// get：SELECT * FROM table WHERE ...（单行）
     Get(GetSpec),
+    /// scan：SELECT * FROM table [LIMIT n]（多行，C3）
+    Scan(ScanSpec),
 }
 
 /// BatchUpsert 规格
@@ -140,6 +142,19 @@ pub struct GetSpec {
     pub table: &'static str,
     pub key_col: &'static str,
     pub key_val: SqlValue,
+}
+
+/// scan 规格：通用多行扫描读（评审待办 C3，MVP 前置阻塞项）。
+///
+/// 典型用途：模块 on_start 时一次性载入全部单调水位（如 helix-im 扫
+/// channel_event_cursor 全表做 proactive resync）。通用读，core 不含业务语义。
+/// `GetSpec` 保持单行语义不变，多行走本类型。
+#[derive(Debug, Clone)]
+pub struct ScanSpec {
+    /// 目标表名（编译期常量）
+    pub table: &'static str,
+    /// 最多返回行数（None = 全表；driver 应设硬上限防御）
+    pub limit: Option<u32>,
 }
 
 /// SQL 值类型（不含数据库具体类型）

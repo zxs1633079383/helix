@@ -15,7 +15,7 @@
 
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
-use crate::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, Row};
+use crate::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row};
 
 /// 持久化操作的 core 抽象。
 ///
@@ -64,6 +64,11 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
 
     /// get：单行查询
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError>;
+
+    /// scan：多行扫描读（评审待办 C3）。`limit = None` 表示全表，driver 应设硬上限防御。
+    ///
+    /// 典型用途：模块 on_start 一次性载入全部单调水位（proactive resync 前置）。
+    async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError>;
 }
 
 // The spec types are defined in crate::effect and imported above.

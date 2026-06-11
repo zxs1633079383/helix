@@ -25,6 +25,8 @@ pub fn accepts_tick(tick: &Tick) -> bool {
             cmd.name.as_ref(),
             "im_send_message" | "im_read_channel" | "im_reconnect"
         ),
+        // 连接状态变化：IM 要响应（cursor reset / proactive resync 策略在 im 层）
+        Tick::Connected(_) | Tick::Disconnected(_) => true,
         // PortReply / Timer 通过 corr_map 定向路由，不走 accepts()
         _ => false,
     }

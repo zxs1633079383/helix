@@ -99,7 +99,7 @@ impl ExecutionShell {
         self.scratch.clear();
 
         match &tick {
-            Tick::Inbound(_) | Tick::Command(_) => {
+            Tick::Inbound(_) | Tick::Command(_) | Tick::Connected(_) | Tick::Disconnected(_) => {
                 match self.host.dispatch_inbound(&tick, now_ms, &mut self.scratch)? {
                     Some(idx) => {
                         // BLK-1a: 传入真实的 module_index，而非 0 占位符

@@ -18,7 +18,7 @@
 //! RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 
 use helix_core::PortError;
-use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, Row, SqlValue};
+use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row, SqlValue};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
@@ -81,5 +81,11 @@ impl helix_core::ports::Storage for WasmStorage {
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError> {
         let _ = spec;
         todo!("WasmStorage::get")
+    }
+
+    async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {
+        // SAHPool 单连接顺序执行（无读池）
+        let _ = spec;
+        todo!("WasmStorage::scan")
     }
 }

@@ -8,7 +8,7 @@
 
 use helix_core::PortError;
 use helix_core::ports::Storage;
-use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, Row, SqlValue};
+use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row, SqlValue};
 
 pub struct NativeStorage {
     // TODO: write_pool: sqlx::SqlitePool,  // max=1
@@ -58,5 +58,11 @@ impl Storage for NativeStorage {
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError> {
         // TODO: SELECT * FROM {spec.table} WHERE {spec.key_col} = ?
         todo!("NativeStorage::get")
+    }
+
+    async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {
+        // TODO: SELECT * FROM {spec.table} LIMIT {spec.limit | 硬上限}（走读池）
+        let _ = spec;
+        todo!("NativeStorage::scan")
     }
 }

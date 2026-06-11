@@ -16,7 +16,7 @@
 //! 通过 C ABI 回调执行 SQL 操作，不依赖 Rust SQLite crate。
 
 use helix_core::PortError;
-use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, Row, SqlValue};
+use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row, SqlValue};
 
 pub struct FfiStorage {
     // TODO: sqlite_handle: *mut std::ffi::c_void,  // host 传入的 SQLite 句柄
@@ -53,5 +53,11 @@ impl helix_core::ports::Storage for FfiStorage {
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError> {
         // MAJ-4: 同上
         todo!("FfiStorage::get: wrap C call in spawn_blocking")
+    }
+
+    async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError> {
+        // MAJ-4: 同上（同步 C 调用必须包 spawn_blocking）
+        let _ = spec;
+        todo!("FfiStorage::scan: wrap C call in spawn_blocking")
     }
 }

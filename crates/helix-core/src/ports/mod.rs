@@ -20,7 +20,7 @@ pub mod id;
 
 pub use transport::Transport;
 pub use storage::Storage;
-pub use crate::effect::{UpsertSpec, MonotonicUpsertSpec, BatchUpdateSpec, GetSpec};
+pub use crate::effect::{UpsertSpec, MonotonicUpsertSpec, BatchUpdateSpec, GetSpec, ScanSpec};
 pub use clock::Clock;
 #[cfg(any(test, feature = "testing"))]
 pub use clock::MockClock;

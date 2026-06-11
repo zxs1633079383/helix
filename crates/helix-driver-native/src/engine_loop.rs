@@ -5,21 +5,40 @@
 //! helix-core 保持零运行时依赖；所有异步协调（WS recv、HTTP 响应、timer fired、
 //! AppCommand）在此 tokio mpsc 统一入站。
 //!
-//! ## 架构
+//! ## 架构（E1 修复后）
 //!
 //! ```text
-//! +- tick_tx mpsc::channel ------------------------------------------+
-//! |  WS reads (per transport) -> Tick::Inbound / Connected / Disconnected |
-//! |  timer spawn             -> Tick::Timer                          |
-//! |  HTTP spawn              -> Tick::PortReply                      |
-//! |  AppCommand (external)   -> Tick::Command                        |
-//! +------------------------------------------------------------------+
-//!             v tick_rx.recv()
+//! +- tick_rx (mpsc, cap=256) ─────────────────────────────────────────────────+
+//! |  WS reads (per transport) -> Tick::Inbound / Connected / Disconnected      |
+//! |  timer spawn             -> Tick::Timer                                     |
+//! |  AppCommand (external)   -> Tick::Command                                  |
+//! +───────────────────────────────────────────────────────────────────────────+
+//!                v  biased select（reply_rx 优先）
 //!     ExecutionShell::step(tick, now_ms)
-//!             v &[Effect] (borrows shell.scratch, valid until next step)
+//!                v &[Effect] (borrows shell.scratch, valid until next step)
 //!     consume_effects() -> collect to OwnedEffect (frees borrow)
-//!     dispatch_owned_effects() -> dispatch by type
+//!     dispatch_owned_effects() -> dispatch by type，立即返回不等磁盘
+//!                                  Persist → 入 per-table 有序 worker 队列
+//!
+//! +- reply_tx (unbounded mpsc) ─────────────────────────────────────────────+
+//! |  per-table worker tasks  -> Tick::PortReply（写完即回灌，不等引擎收）     |
+//! |  http spawn              -> Tick::PortReply                               |
+//! +─────────────────────────────────────────────────────────────────────────+
 //! ```
+//!
+//! ## E1 死锁根因与修复
+//!
+//! 原实现：PortReply 回灌与入站 Tick 共用同一条有界 mpsc(cap=256)，且
+//! dispatch_owned_effects 末尾 await 全部 persist handles → 洪峰 >256 环形等待。
+//!
+//! 修复四不变量：
+//! 1. **回灌必达**：PortReply 走独立 unbounded channel（reply_tx），永不堵塞写任务。
+//!    in-flight 数受 corr_map 登记数自然有界，unbounded 不会无限增长。
+//! 2. **主循环不等磁盘**：dispatch 把 Persist 分发进 per-table worker 队列后立即返回，
+//!    不 await 落库完成，主循环继续收下一帧。
+//! 3. **同组写顺序保持**：每个 table 对应一个长驻 worker task + 自己的有序队列
+//!    (tokio::mpsc, unbounded)；跨 tick 的同组 Persist 严格按产生顺序执行。
+//! 4. **回灌优先**：biased select! 把 reply_rx 排在 tick_rx 前，防 PortReply 饥饿。
 //!
 //! ## Effect 借用收集策略（关键）
 //!
@@ -50,7 +69,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::{json, Value as JsonValue};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::mpsc;
 
 use helix_core::{ExecutionShell, Tick};
 use helix_core::effect::{Effect, StorageOp, Correlation, TimerId, TransportId,
@@ -64,9 +83,6 @@ use crate::storage::NativeStorage;
 use crate::http::NativeHttp;
 use crate::event_sink::NativeEventSink;
 use crate::timer::TimerRegistry;
-
-/// 跨组并发存储操作的最大并发度
-const STORAGE_CONCURRENCY: usize = 4;
 
 /// 事件泵配置（所有依赖项聚合）。
 pub struct EngineConfig {
@@ -143,6 +159,39 @@ fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
     }).collect()
 }
 
+// ─── Per-table 有序 Worker ────────────────────────────────────────────────────
+
+/// 一条进 per-table worker 队列的工作单元。
+type PersistJob = (Option<Correlation>, Vec<StorageOp>);
+
+/// 启动（或复用）某 table 对应的长驻有序 worker task，返回其发送端。
+///
+/// ## 设计不变量（E1 修复 §3）
+///
+/// 同组内所有 Persist/PersistFire 严格按入队顺序执行，worker task 是单消费者。
+/// 写完后若有 corr → 往 reply_tx（unbounded）发 PortReply，不因队列满堵塞。
+fn get_or_spawn_worker(
+    workers: &mut HashMap<String, mpsc::UnboundedSender<PersistJob>>,
+    table_key: String,
+    storage: Arc<NativeStorage>,
+    reply_tx: mpsc::UnboundedSender<Tick>,
+) -> &mpsc::UnboundedSender<PersistJob> {
+    workers.entry(table_key).or_insert_with(|| {
+        let (job_tx, mut job_rx) = mpsc::unbounded_channel::<PersistJob>();
+        tokio::spawn(async move {
+            while let Some((corr_opt, ops)) = job_rx.recv().await {
+                let outcome = execute_storage_ops(&storage, &ops).await;
+                if let Some(corr) = corr_opt {
+                    // unbounded send：不会阻塞，回灌必达（E1 修复 §1）
+                    reply_tx.send(Tick::PortReply { corr, outcome }).ok();
+                }
+                // PersistFire (corr_opt = None) → fire-and-forget，不回报
+            }
+        });
+        job_tx
+    })
+}
+
 // ─── engine loop ─────────────────────────────────────────────────────────────
 
 /// 运行 ExecutionShell 的 tokio 事件泵。
@@ -166,10 +215,14 @@ pub async fn run_engine_loop(
     let http = Arc::new(config.http);
     let event_sink = Arc::new(config.event_sink);
     let mut timer_registry = TimerRegistry::new();
-    let sem = Arc::new(Semaphore::new(STORAGE_CONCURRENCY));
+
+    // E1 修复：独立 unbounded 回灌通道（不与入站 tick_rx 共用，永不堵塞写任务）
+    let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
+
+    // per-table 长驻 worker 映射（table_key → job 发送端）
+    let mut persist_workers: HashMap<String, mpsc::UnboundedSender<PersistJob>> = HashMap::new();
 
     // 初始化：触发 on_start
-    // 立即 consume → 脱离 &shell.scratch 借用，再进行 async 兑现
     let initial_effects = match shell.start() {
         Ok(effects) => consume_effects(effects),
         Err(e) => {
@@ -179,77 +232,109 @@ pub async fn run_engine_loop(
     };
     tracing::info!("helix engine started, {} initial effects", initial_effects.len());
 
-    dispatch_owned_effects(
+    dispatch_effects(
         initial_effects,
         &tick_tx,
         &storage,
         &http,
         &event_sink,
         &mut timer_registry,
-        &sem,
-    ).await;
+        &reply_tx,
+        &mut persist_workers,
+    );
 
     // 事件泵主循环
-    while let Some(tick) = tick_rx.recv().await {
+    //
+    // biased select!：reply_rx 排在前 → PortReply 优先于新入站 Tick（E1 修复 §4）。
+    // 若 reply_rx 有待处理回灌，优先消费，防 PortReply 在洪峰时饥饿。
+    loop {
+        let tick = tokio::select! {
+            biased;
+
+            // 优先：PortReply 回灌
+            Some(reply) = reply_rx.recv() => reply,
+
+            // 次选：入站 Tick（Command / Inbound / Timer / …）
+            tick = tick_rx.recv() => {
+                match tick {
+                    Some(t) => t,
+                    None => break, // tick 通道关闭，引擎退出
+                }
+            }
+        };
+
         let now_ms = clock.now_ms();
         let owned = match shell.step(tick, now_ms) {
-            Ok(effects) => consume_effects(effects), // 立即脱离借用
+            Ok(effects) => consume_effects(effects),
             Err(e) => {
                 tracing::error!("engine step error: {}", e);
-                // 非致命：记录继续，避免单个坏帧击沉整个 engine
                 continue;
             }
         };
 
         if !owned.is_empty() {
-            dispatch_owned_effects(
+            dispatch_effects(
                 owned,
                 &tick_tx,
                 &storage,
                 &http,
                 &event_sink,
                 &mut timer_registry,
-                &sem,
-            ).await;
+                &reply_tx,
+                &mut persist_workers,
+            );
         }
     }
 
     tracing::info!("helix engine loop exited (tick channel closed)");
 }
 
-/// 把一批 OwnedEffect 分流兑现。
-async fn dispatch_owned_effects(
+/// 把一批 OwnedEffect 分流兑现（同步，立即返回，不 await 任何 I/O）。
+///
+/// ## E1 修复要点
+///
+/// - Persist / PersistFire：入队到 per-table worker，立即返回，主循环不阻塞
+/// - PortReply 回灌走 reply_tx（unbounded），由 worker 任务独立发送
+fn dispatch_effects(
     effects: Vec<OwnedEffect>,
     tick_tx: &mpsc::Sender<Tick>,
     storage: &Arc<NativeStorage>,
     http: &Arc<NativeHttp>,
     event_sink: &Arc<NativeEventSink>,
     timer_registry: &mut TimerRegistry,
-    sem: &Arc<Semaphore>,
+    reply_tx: &mpsc::UnboundedSender<Tick>,
+    persist_workers: &mut HashMap<String, mpsc::UnboundedSender<PersistJob>>,
 ) {
-    // 按 table 分组的 Persist 任务列表：table_name → vec[(corr?, ops)]
-    // 同 table 内的操作保证串行（避免写顺序乱序 + SQLite 锁争用）
-    let mut persist_groups: HashMap<String, Vec<(Option<Correlation>, Vec<StorageOp>)>> =
-        HashMap::new();
-
     for effect in effects {
         match effect {
-            // ── Persist（带 corr，兑现后回报）──────────────────────────────
+            // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
                 let key = first_table_key(&ops);
-                persist_groups.entry(key).or_default().push((Some(corr), ops));
+                let worker_tx = get_or_spawn_worker(
+                    persist_workers,
+                    key,
+                    Arc::clone(storage),
+                    reply_tx.clone(),
+                );
+                worker_tx.send((Some(corr), ops)).ok();
             }
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
                 let key = first_table_key(&ops);
-                persist_groups.entry(key).or_default().push((None, ops));
+                let worker_tx = get_or_spawn_worker(
+                    persist_workers,
+                    key,
+                    Arc::clone(storage),
+                    reply_tx.clone(),
+                );
+                worker_tx.send((None, ops)).ok();
             }
 
-            // ── Http（并发，带 corr 回报）──────────────────────────────────
+            // ── Http（并发，带 corr 回报，走 reply_tx）────────────────────
             OwnedEffect::Http { corr, req } => {
                 let http_clone = Arc::clone(http);
-                let tx_clone = tick_tx.clone();
+                let reply_clone = reply_tx.clone();
                 tokio::spawn(async move {
                     let outcome = match http_clone.request(req).await {
                         Ok(resp) => {
@@ -264,7 +349,7 @@ async fn dispatch_owned_effects(
                         }
                         Err(e) => PortOutcome::Err(classify_port_error(e)),
                     };
-                    tx_clone.send(Tick::PortReply { corr, outcome }).await.ok();
+                    reply_clone.send(Tick::PortReply { corr, outcome }).ok();
                 });
             }
 
@@ -284,6 +369,7 @@ async fn dispatch_owned_effects(
 
             // ── ScheduleTimer ──────────────────────────────────────────────
             OwnedEffect::ScheduleTimer { id, after_ms } => {
+                // timer fires → 往 tick_tx（有界）发送；timer 回调走入站通道
                 timer_registry.schedule(id, after_ms, tick_tx.clone());
             }
 
@@ -291,35 +377,6 @@ async fn dispatch_owned_effects(
             OwnedEffect::CancelTimer { id } => {
                 timer_registry.cancel(id);
             }
-        }
-    }
-
-    // 并发执行各组 Persist 任务（跨组并发，组内顺序）
-    if !persist_groups.is_empty() {
-        let mut handles = Vec::new();
-        for (_table, group) in persist_groups {
-            let storage_clone = Arc::clone(storage);
-            let tx_clone = tick_tx.clone();
-            let sem_clone = Arc::clone(sem);
-
-            let handle = tokio::spawn(async move {
-                let _permit = sem_clone.acquire().await.ok();
-                for (corr_opt, ops) in group {
-                    let outcome = execute_storage_ops(&storage_clone, &ops).await;
-                    if let Some(corr) = corr_opt {
-                        tx_clone
-                            .send(Tick::PortReply { corr, outcome })
-                            .await
-                            .ok();
-                    }
-                    // PersistFire (corr_opt = None) → 不回报，fire-and-forget
-                }
-            });
-            handles.push(handle);
-        }
-        // 等待所有组完成（保证本次 step 的所有 Persist 兑现后再处理下一个 Tick）
-        for h in handles {
-            h.await.ok();
         }
     }
 }
@@ -375,7 +432,6 @@ async fn execute_storage_ops(
             StorageOp::Scan(spec) => {
                 match storage.scan(spec.clone()).await {
                     Ok(rows) => {
-                        // rows→bytes 约定：JSON array，详见文件顶注释
                         last_ok_bytes = rows_to_reply_bytes(&rows);
                     }
                     Err(e) => return PortOutcome::Err(classify_port_error(e)),

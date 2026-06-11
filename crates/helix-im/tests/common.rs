@@ -101,6 +101,7 @@ impl Harness {
 // ─── 辅助构造器 ──────────────────────────────────────────────────────────────
 
 /// 构造 PortReply Ok Tick（用于回报 Persist/Http 成功）
+#[allow(dead_code)]
 pub fn port_reply_ok(corr_raw: u64) -> Tick {
     Tick::PortReply {
         corr: Correlation::from_raw(corr_raw),
@@ -109,11 +110,13 @@ pub fn port_reply_ok(corr_raw: u64) -> Tick {
 }
 
 /// 构造 Timer Tick
+#[allow(dead_code)]
 pub fn timer_tick(id_raw: u64) -> Tick {
     Tick::Timer(TimerId::from_raw(id_raw))
 }
 
 /// 构造带 seq 的 WS Inbound 帧（JSON，用于测试 gate 状态机）
+#[allow(dead_code)]
 pub fn inbound_event(channel_id: u64, seq: u64, event_type: u8) -> Tick {
     use serde_json::json;
     let payload = json!({

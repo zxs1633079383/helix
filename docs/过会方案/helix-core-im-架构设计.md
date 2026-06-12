@@ -77,6 +77,100 @@
 
 ---
 
+# 一·五、现状全景 → 目标全景（总览）
+
+> 端到端整条 IM 链路的 as-is / to-be。**业务①** = 收发/同步/去重（方向 D），**展示②** = 排序/未读/分组/草稿（方向 A）。
+> 注意时序：目标态 helix-im 内部**先 D 后 A**（Model 建好 `view()` 才有东西投影），见 [`../GOAL.md` §6](../GOAL.md) / [§七](#七core-viewviewmodel-投影机制方向-a--未来)。
+
+## 🔴 现状全景（cses-client 今天）：业务逻辑两处分裂，移动重写一份
+
+```
+                          ┌─────────────── 服务端 (Mattermost/cses) ───────────────┐
+                          │   WS 广播 (post/read/...)        HTTP (/posts, /sync)    │
+                          └───────┬──────────────────────────────────┬─────────────┘
+                                  │ WS 帧                              │ HTTP
+   ┌══════════════════════════════▼══════════════════════════════════▼═══════════════┐
+   ║  桌面端 src-tauri/features/im (Rust) —— 业务逻辑①(已在 Rust)                      ║
+   ║   router → post.rs/channel.rs/sync.rs                                            ║
+   ║   ChannelGateState 乱序门 · channel_event_cursor · 去重 · SQLite 持久化           ║
+   ║   离线 im_sync_channels · channel_bitmap 回填                                     ║
+   ║                          │ 18 个细粒度事件 → emit im:__bus__ (单通道信封)         ║
+   ╚══════════════════════════│══════════════════════════════════════════════════════╝
+                              │ IPC
+   ┌──────────────────────────▼───────────────────────────────────────────────────────┐
+   │  Angular 20 (message-v3) —— 业务逻辑②(散在 TS) + UI                                │
+   │   ImEventBusDispatcher → ipcEvent.service(RxJS) → ipcEventHandler → CoreEventMgr   │
+   │   messageGlobalBaseContext: 一堆 Signal/BehaviorSubject                            │
+   │   ★ Angular 自己算: 排序(pinned+updateAt) · 未读聚合(排除 type=T)                  │
+   │                     · 消息分组 · @mention 高亮 · 草稿 draftMap · 昵称合并          │
+   │                          ▼  组件渲染 (虚拟滚动)                                    │
+   └──────────────────────────────────────────────────────────────────────────────────┘
+   ┌──────────────────────────────────────────────────────────────────────────────────┐
+   │  移动端 Flutter —— 业务①②全部各写一份(必然漂移) · 浏览器端: 无                    │
+   └──────────────────────────────────────────────────────────────────────────────────┘
+   痛点: 业务①在 Rust 但仅桌面 · 业务②全在 TS · 移动重写一份 · 不可回放测试
+```
+
+## 🟢 目标全景（helix 三栖）：一份 core，业务①②全收进来，UI 退化成 dumb 渲染
+
+```
+                          ┌─────────────── 服务端 (Mattermost/cses) ───────────────┐
+                          └───────┬──────────────────────────────────┬─────────────┘
+            ┌─────────────────────┼─── 经各端 driver 的 Transport/Http 进来 ─┼──────────┐
+            │   ┌─────────────────▼──────────────────────────────────▼───────────────┐  │
+            │   │   helix-core (sans-IO · 零运行时 · 确定性 · 编到三端就这一份)        │  │
+            │   │   ports: Transport/Storage/Clock/EventSink/IdSource                  │  │
+            │   │   step(Tick) → Module.update() → 改 Model → 吐 Effect                │  │
+            │   │       Effect: Persist · Send · SetTimer · Emit · ★Render             │  │
+            │   │   ┌───────────────────────────────────────────────────────────────┐ │  │
+            │   │   │ helix-im (业务模块 · guest#1)                                   │ │  │
+            │   │   │  ▸方向D: 收发 · 乱序门 · cursor · 去重 · 离线同步 (从现网搬)    │ │  │
+            │   │   │  ▸方向A: Model(频道/消息/未读/成员/草稿)                        │ │  │
+            │   │   │          view()→ ViewModel{ orderedDialogs, totalUnread,        │ │  │
+            │   │   │          perChannelUnread, groupedMessages, mentionRanges,draft}│ │  │
+            │   │   └───────────────────────────────────────────────────────────────┘ │  │
+            │   └────────┬───────────────────────┬──────────────────────┬─────────────┘  │
+            │            │ 实现 ports (driver→core 单向)                  │ Effect::Render │
+            │   ┌────────▼────────┐  ┌───────────▼─────────┐  ┌──────────▼───────────┐   │
+            │   │ driver-native   │  │ driver-wasm         │  │ driver-ffi           │   │
+            │   │ tokio/sqlx/     │  │ web-sys/fetch/OPFS  │  │ uniffi/rusqlite/     │   │
+            │   │ tungstenite     │  │ (单线程 spawn_local)│  │ host 回调            │   │
+            │   └────────┬────────┘  └───────────┬─────────┘  └──────────┬───────────┘   │
+            └────────────│───────────────────────│───────────────────────│───────────────┘
+        host 收 Render → core.view() → ViewModel (diff/patch 或 窗口切片, HX-C007) → 各端总线
+                         │                       │                       │
+                ┌────────▼────────┐  ┌───────────▼─────────┐  ┌──────────▼───────────┐
+                │ Angular (Tauri) │  │ 浏览器 JS (WASM)    │  │ SwiftUI / Compose    │
+                │ 订阅 ViewModel  │  │ 订阅 ViewModel      │  │ 订阅 ViewModel       │
+                │ 绑模板+虚拟滚动 │  │ 绑模板              │  │ typegen 出的类型     │
+                │ 无排序/聚合/分组│  │ 无业务逻辑          │  │ 只渲染               │
+                └─────────────────┘  └─────────────────────┘  └──────────────────────┘
+   达成: 业务①②写一次三端字节级一致 · 可回放测试 · 加端=加driver · 加模块=Module+register
+```
+
+## 两图差异速读
+
+| | 🔴 现状 | 🟢 目标 |
+|---|---|---|
+| 业务① 收发/同步/去重 | Rust，但**仅桌面**；移动重写 | helix-im 一份，**三端共享**（方向 D） |
+| 展示② 排序/未读/分组/草稿 | **全在 Angular TS** | helix-im `view()`，三端共享（方向 A） |
+| core ↔ UI 之间 | 18 个细粒度 `im:*` 事件 | 1 个 `im:viewmodel:patch`（Render 触发） |
+| UI 各端职责 | 算业务 + 渲染 | **只渲染**（dumb） |
+| 平台 I/O | 揉在 src-tauri | 关进三套 driver |
+| 可测试性 | Signal 汤，不可回放 | `view`=Model 纯函数，可回放 |
+| 红线 | — | core 出数字/区间 ✅，出 view 树/像素 ❌（方向 B） |
+
+## 一·五.1 参考项目（本设计的 grounding 来源）
+
+| 项目 | 路径 | 角色 |
+|---|---|---|
+| **Crux**（Red Badger） | `/workspace/rustWorkspace/crux` | 方向 A 的**参照实现**：Rust sans-IO core + `App{Model,update,view,ViewModel}` + Bridge(bincode FFI) + typegen(Swift/Kotlin/TS)。core-view / 三端边界映射直接对照它（见 [方向A设计 §1.1](./helix-core-view-方向A设计.md)） |
+| **现网 cses-client** | `/Users/mac28/workspace/angular/cses-client` | **行为真源 + 现状对照**：Angular 20 + Tauri 2 IM 桌面端；`src-tauri/features/im`(业务①已在 Rust) + message-v3(展示②在 TS)。目标态的 IM 机制逐节对齐它 |
+| **Dioxus core** | （上游 crate） | 内核经验来源：step 循环 / Effect 跨边界批处理（sledgehammer → `HX-C007`）/ `Scope<'a>` 生命周期教训（→ `HX-C002`）。**仅取内核，禁渲染层/RSX**（GOAL §6 方向 B 红线） |
+| **Bun**（runtime 跑 JS） | — | 概念祖先：runtime 无关 + reference 行为真源方法论（见 CLAUDE.md §4.5 / `AI工程化对齐-Bun-checklist.md`） |
+
+---
+
 # 二、Rust-Core 内核
 
 ## 2.1 三层架构

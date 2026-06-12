@@ -647,4 +647,66 @@ Timer{flush}    → Get{读 buffer} → Http{POST /audit/batch} → PortReply Ok
 
 ---
 
+# 七、core-view：ViewModel 投影机制（方向 A · 未来）
+
+> 抽象往上一格：core 不止吐领域事件，还吐**给 UI 的只读投影 ViewModel**。**少字看图**。
+> 完整设计 / 可行性 / cses 对照见 [`helix-core-view-方向A设计.md`](./helix-core-view-方向A设计.md)；边界见 [`../GOAL.md` §6](../GOAL.md)。
+> 时序：**先 D（收发/同步进 core）后 A**，链路稳了再增量切。
+
+## 7.1 现状 vs 方向 A（同一份 IM，展示逻辑搬家）
+
+```
+现状（展示在 Angular 算）                       方向 A（展示在 core view() 投影）
+─────────────────────────                      ─────────────────────────────────
+Rust features/im                               helix-im (Model: 频道/消息/未读/成员/草稿)
+   │ 18 个细粒度 im:* 事件                          │ update() 改状态
+   ▼                                               ▼ view() 纯函数投影
+ipcEvent → ipcEventHandler                      ViewModel{ orderedDialogs[], totalUnread,
+   │                                               perChannelUnread{}, currentConversation
+   ▼  Angular 自己算                                {groupedMessages[], mentionRanges[]}, draftText }
+ 排序 + 未读聚合 + 分组 + 草稿 + 昵称               │ Effect::Render
+   ▼                                               ▼
+ 组件渲染                                         host 拉 core.view() → im:viewmodel:patch
+                                                   ▼
+                                                Angular 绑模板（无排序/聚合/分组逻辑）
+```
+
+## 7.2 core 数据流扩展：`step(Tick) → Effect` 增 `Render`（对照 §2.2）
+
+```
+Inbound/Timer/PortReply ─▶ Module.update() ─▶ 改 Model ─▶ 吐 Effect
+                                                            ├─ Persist / Send / SetTimer / Emit   （既有）
+                                                            └─ Render                             （★新增·通用·fire-and-forget）
+host 收到 Render ─▶ Module.view() ─▶ ViewBytes（core 不解释内容）─▶ 序列化过边界 ─▶ UI 绑定
+```
+
+## 7.3 边界序列（host ↔ core ↔ UI，对照 Crux Core::process/view）
+
+```
+UI 事件 ─invoke─▶ host ─▶ core.update(event)
+                              └─▶ Vec<Effect> 含 Render?
+                                      │ 是
+                       host ◀─Render─┘
+                         │ core.view()  →  ViewModel(diff/patch 或 窗口切片，HX-C007)
+                         └─ im:viewmodel:patch ─▶ Angular setState(绑模板)
+```
+
+## 7.4 归属边界（搬进 view() / 留 Angular）
+
+```
+搬进 helix-im view()：排序(pinned+updateAt) · 未读聚合(排除 type=T) · 消息分组 · mention 区间 · 昵称合并 · 草稿存储
+留 Angular（红线外）：虚拟滚动 windowing · ranges→<span> DOM · tab/滚动位置/动画/CSS · 上传进度/通知弹窗
+红线：core 出「数字/区间/有序列表」=方向A✅；出「view 树/控件/像素」=方向B❌（退化成 Dioxus）
+```
+
+## 7.5 归属：ViewModel 在 module，core 只给通用机制（守 §五不变量 + GOAL §1.6）
+
+```
+helix-core： enum Effect{ ... , Render }   trait Module{ fn view(&self)->Option<ViewBytes> }   ← 不认识业务
+helix-im：   struct ImModel{...}  struct ImViewModel{...}  fn view(&self)->ImViewModel          ← ViewModel 住这
+判据：grep ViewModel crates/helix-core == 0（同 cursor/DomainEvent 隔离）；typegen → ViewModel 的 TS interface
+```
+
+---
+
 **结语**：现在把业务状态机 + 平台胶水揉在 Tauri-Rust 里、只在桌面跑；我把**业务状态机抽进 Rust-im（一份、三端、可回放）**，把**平台胶水关进三套 driver（通用、共享）**——同一套现在验证过的 IM 机制，第一次具备写一次三端一致 + 可单测的形态。（现网机制逐节对齐标注见各节正文.）

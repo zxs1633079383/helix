@@ -68,3 +68,24 @@
 - **7 张 HX-C harness 卡** = 把 §1/§2 编译成 grep/CI/正反对照的**可执行护栏**（docs/harness/）。
 - **decisions.md** = 已拍板的 ADR（防反复推导）。
 - 改动与本文冲突 → 停下问；新决策 → 追加本文 §4 或 decisions.md。
+
+---
+
+## §6 抽象高度边界（方向 A 可走 / 方向 B·C 红线）
+
+> 沿用 §1.6「业务不污染内核」+ §1.2「sans-IO」，把「core 还能往上吃多少 UI」这条线钉死。
+> 完整设计 + cses-client 对照 + Crux 参照见 [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md)。
+
+| 方向 | 含义 | 结论 |
+|---|---|---|
+| **A（往上一格 · 可走）** | core 吐**数据形态的 ViewModel**（数字 / 有序列表 / 高亮区间），各端 UI 绑定即渲染 | ✅ **未来增量切**。停在此线 |
+| **B（再往上 · 红线）** | core 吐 **view 树 / 控件 / 像素**（Rust 写 UI） | ❌ 退化成 Dioxus；现网 Angular 全废；见 §4 已类比否定 |
+| **C（往下 · 红线）** | core 自己做 I/O（省 driver） | ❌ 违反 §1.2 / §2（sans-IO）；三栖立刻碎，`HX-C001` 守门 |
+
+**方向 A 不变量（不破 §1.6 的前提下才放行）**：
+- `ViewModel` 是**业务类型 → 只在 helix-im**（同 DomainEvent / cursor 待遇）；`grep ViewModel crates/helix-core` 必须 = 0。
+- core 只新增**通用**机制：`Effect::Render`（fire-and-forget 通知）+ `Module::view() -> ViewBytes`（不透明字节，core 不解释内容，对照 Crux `Core::view` 泛型）。
+- core 可以说「未读=3」「这段是 mention」，**不能说**「画一个红色 badge / 渲染第几个像素」——越线即方向 B。
+- ViewModel 跨边界**必须 diff/patch 或窗口化**，不全量 ship → 复用 `HX-C007`。
+
+**时序硬约束**：方向 A 必须**在基础 core + Model + 收发/同步链路稳固之后增量切**（先 D 后 A）；ViewModel 投影的是业务状态，链路没进 core 之前没有干净 Model 可投影。

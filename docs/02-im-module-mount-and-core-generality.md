@@ -337,6 +337,32 @@ engine.start();
 - presence **不需要** peek/commit 写成功才推（它的状态是 last-writer-wins，不是事件流对账）——证明 core 的 correlation 契约是**可选能力**（IM 用，presence 可不用），core 不强加。
 - 若将来加 docs 协作模块（OT/CRDT），它会**重度复用** correlation 配对（每个 op 落库成功才推版本号）——证明 §5 的 correlation 契约对"第二类需要事务式推进的模块"也通用，不是 IM 一次性需求。
 
+### 4.4 多模块多端口：独立 transport + TransportId 分配约定（host 装配前钉死）
+
+> §4.2 设想的是两模块**共享一条 WS**（同 `TransportId`）。但更常见的是**第二个模块连不同后端、不同端口**（IM=`8065`，presence=`3399`）。这两种形态用**同一套契约**，区别只在 host 怎么建连接 + 怎么分配句柄。**最小宿主（UC-1 D1-2）一次留对，避免 M2 后返工。**
+
+**铁律一：helix 没有「端口」抽象，端口是模块 Config 里 URL 字符串的一部分。**
+- 每模块自带 `Config { ws_url, api_base_url }`（`helix-im/src/module.rs:23`），URL 含端口。core 只见 `Effect::Http{url:完整串}` + `Effect::Send{transport:TransportId}`（`helix-core/src/effect.rs:175/194`），**不知端口/host/path、不知 WS 与 HTTP 是否同端口**。
+- 推论：**端口隔离 = config 隔离，天然成立**。IM 填 `…:8065`、presence 填 `…:3399`，互不感知。"http 和 ws 公用一个端口"不是被建模的概念——两字段各填各的，恰好同端口而已。
+
+**铁律二：`TransportId` 由 host 集中分配，不靠模块自觉。**
+- 现状缺口：`corr`/`timer` 是各模块从不同起点手动分配避撞（BLK-1b 注释，`module.rs` `next_corr`/`next_timer`）。**`TransportId` 不能照抄这套**——它指代物理连接，连接由 host 建，**必须 host 分配**：
+  ```rust
+  // host-cli 装配（UC-1 D1-2）：host 是唯一知道全部模块+全部连接的地方
+  let im_ws   = host.add_transport("ws://127.0.0.1:8065/ws");  // → TransportId(1)
+  let pres_ws = host.add_transport("ws://127.0.0.1:3399/ws");  // → TransportId(2)
+  engine.register(ImModule::new(im_cfg.with_transport(im_ws)));        // 模块拿到分给它的句柄
+  engine.register(PresenceModule::new(pres_cfg.with_transport(pres_ws)));
+  ```
+- 模块在 `Effect::Send{transport}` 里回填**自己被分到的 `TransportId`**；不自造、不猜。共享一条 WS（§4.2）= 两模块拿到同一个 id；独立端口 = 各拿各的。
+
+**铁律三：driver 维护 `TransportId → 实际连接` 路由表（出站）+ 入站 `Tick::Inbound` 标注来源 id。**
+- 出站：`engine_loop` 按 `Effect::Send` 的 `TransportId` 查表发到对应 WS。**这张表当前是 `engine_loop.rs:459-463` 的 tracing 占位（"wire Transport into engine_loop for production"）——UC-1 D1-2 补的就是它**，且从一开始就做成 `HashMap<TransportId, NativeTransport>` 而非单连接，省得第二模块来时重构。
+- 入站：driver 读哪条连接就把 `Tick::Inbound{transport_id, frame}` 标哪个 id（§3.1 已定 `TransportId` 寻址）。多连接时 `ModuleHost.dispatch` 先按 `transport_id` 缩到候选模块、再按 `accepts(frame)` 细分（共享连接才需要第二级）。
+- HTTP 无连接、不走 TransportId：每个 `Effect::Http` 自带完整 URL（含端口），`NativeHttp` 无状态按 URL 打（`http.rs:104`）。所以 **HTTP 的端口隔离比 WS 更简单——URL 自带，无需句柄**。
+
+**裁决**：多端口多模块**当前契约已够**（`TransportId` 寻址 + `Tick::Inbound` 带 id + 模块各自 Config），唯一要做的是 host 集中分配 + driver 路由表做成 `HashMap` 而非单连接。**这是装配层 + driver 的活，core/模块契约零改动**——再次印证 §3.1「`TransportId` 寻址是 core 必备」的预留是对的。
+
 ---
 
 ## 5. C006 / temporaryId / "写成功才推 cursor" 在该模型下的落点

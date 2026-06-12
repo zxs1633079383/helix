@@ -1,0 +1,5 @@
+# 工具链锁定（Bun 对齐 2.2）：所有人 / 所有 agent / CI 同一版本，消除「在我机器上行」
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

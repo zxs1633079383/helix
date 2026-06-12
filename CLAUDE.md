@@ -98,6 +98,10 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 ---
 
+## 4.5 行为真源（Bun Zig-as-reference 同款）
+
+实现 / 修复 IM 行为有争议时，**现网 `~/workspace/angular/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；机制级对齐标注见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md) 各节。
+
 ## 5. 代码风格
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明

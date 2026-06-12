@@ -21,23 +21,23 @@ pub extern "C" fn helix_create(callbacks: HelixCallbacks) -> *mut std::ffi::c_vo
 /// 调用后 handle 不可再使用。
 #[no_mangle]
 pub extern "C" fn helix_destroy(handle: *mut std::ffi::c_void) {
-    if handle.is_null() { return; }
+    if handle.is_null() {
+        return;
+    }
     // TODO: drop(unsafe { Box::from_raw(handle as *mut EngineHandle) })
 }
 
 /// 宿主收到 WS 帧时调用：把帧注入 engine。
 /// 注意：data 指向的 buffer 必须在本函数内拷贝，不得持有。
 #[no_mangle]
-pub extern "C" fn helix_on_ws_frame(
-    handle: *mut std::ffi::c_void,
-    data: *const u8,
-    len: usize,
-) {
-    if handle.is_null() || data.is_null() { return; }
+pub extern "C" fn helix_on_ws_frame(handle: *mut std::ffi::c_void, data: *const u8, len: usize) {
+    if handle.is_null() || data.is_null() {
+        return;
+    }
     // 立即拷贝（ACL-3：C 侧 buffer 回调返回后可能被复用）
-    let _owned: Vec<u8> = unsafe {
-        std::slice::from_raw_parts(data, len).to_vec()
-    };
+    // SAFETY: data 非空已检查；调用方契约保证 data 指向至少 len 字节的有效内存，
+    // 且仅在本回调期间有效——因此 from_raw_parts 后立即 to_vec 拷贝、不持有切片。
+    let _owned: Vec<u8> = unsafe { std::slice::from_raw_parts(data, len).to_vec() };
     // TODO: 包成 Tick::Inbound 并通过 channel 发给 engine_loop
 }
 
@@ -50,10 +50,14 @@ pub extern "C" fn helix_on_http_response(
     body: *const u8,
     body_len: usize,
 ) {
-    if handle.is_null() { return; }
+    if handle.is_null() {
+        return;
+    }
     let _body_owned: Vec<u8> = if body.is_null() {
         vec![]
     } else {
+        // SAFETY: body 非空分支；调用方契约保证 body 指向至少 body_len 字节、
+        // 仅在本回调期间有效——立即 to_vec 拷贝、不持有。
         unsafe { std::slice::from_raw_parts(body, body_len).to_vec() }
     };
     // TODO: 包成 PortReply{corr=req_id, Ok(body)} 发给 engine_loop

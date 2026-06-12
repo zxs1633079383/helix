@@ -51,9 +51,13 @@
 
 ## 3. 已验证的编制配方（L3，直接复用）
 
-- **四专家并行审查**（架构文档 review / 承压评估两役验证）：四人各带 schema 出 findings → 每人 top-2 对抗证伪 → 主对话汇总修复。dioxus-dev 的 prompt 必须显式写「只用 core 经验，不涉渲染层」。
-- **双线修复编制**（E1-E4 修复战验证）：按 crate 拆 worktree（白名单零交集）→ rust-dev 修 → 对抗 review → blocking 回炉 → 主对话 merge + gate.sh 终验。
-- **压测随队**：凡涉性能结论，编制里加一个实测 agent（`/helix-stress-verify` skill 是它的操作手册）——无数字的性能主张不收。
+> **已固化成可重放脚本** → `.claude/workflows/*.workflow.js`（bun 100w rust 同款机制）。下面三条配方各对应一个具名 workflow，`Workflow({name})` 一键调起；详见 [`.claude/workflows/README.md`](../workflows/README.md)。文字配方与脚本同步维护。
+
+- **四专家并行审查** → `expert-panel-review`（架构文档 review / 承压评估两役验证）：四人各带 schema 出 findings → 每人 top-2 对抗证伪 → 主对话汇总修复。dioxus-dev 的 prompt 必须显式写「只用 core 经验，不涉渲染层」。
+- **双线修复编制** → `dual-track-fix`（E1-E4 修复战验证）：按 crate 分片（白名单零交集）→ 默认子 agent 修 → rust-dev/core-dev 对抗 review → blocking 回炉 → 主对话 merge + gate.sh 终验。
+- **压测随队** → `stress-verify`：凡涉性能结论，编制里加实测 agent（`/helix-stress-verify` skill 是它的操作手册）——无数字的性能主张不收。
+
+> 分工铁律：批量机械活用**默认 workflow 子 agent**（便宜可大 fan-out）+ 扫描用 `Explore`；**4 专家只当评审/正确性闸门**，不当逐文件搬砖工（bun 百万行 port 即如此分层）。
 
 ## 4. 本仓自有 Skill（与专家 Skill 区分）
 

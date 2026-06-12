@@ -764,6 +764,38 @@ Timer{flush}    → Get{读 buffer} → Http{POST /audit/batch} → PortReply Ok
 > 完整设计 / 可行性 / cses 对照见 [`helix-core-view-方向A设计.md`](./helix-core-view-方向A设计.md)；边界见 [`../GOAL.md` §6](../GOAL.md)。
 > 时序：**先 D（收发/同步进 core）后 A**，链路稳了再增量切。
 
+## 7.0 参照：Crux 的设计理念与做法
+
+本节的 core-view 直接**参照 Crux**（Red Badger，`/workspace/rustWorkspace/crux`）的设计思想——一句话：**「沙漏架构」+ 单向数据流（类 Elm/MVU）的 headless 内核**。
+
+**设计理念（思想）：**
+- **纯核 + 薄壳**：所有业务/展示决策收进一个 sans-IO 的 Rust 纯核（确定性、可回放、三端共享一份）；各端 shell 只做 I/O 与渲染，薄到没有业务逻辑。
+- **core 不碰 I/O、不碰 UI**：时间/随机/网络/存储都不在核里执行，核只**描述**要做的副作用；UI 也不在核里画，核只**投影**出一个只读 `ViewModel`，怎么渲染是 shell 的事。
+- **单向数据流（MVU）**：`Model` 是唯一真相，`update` 是唯一改它的入口，`view` 是 `Model` 的纯函数投影——同输入同输出。
+
+**怎么做（机制）：** 一个 `App` trait + 四个关联类型 + 两个方法，外加一层序列化桥：
+
+```mermaid
+flowchart LR
+  UIev["UI 事件"] -->|"序列化 Event"| UPD["update(event, &mut Model)"]
+  UPD -->|"改 Model · 返回 Command⟨Effect⟩"| EFF{"Effect"}
+  EFF -->|"Http/KV/Time…（值，不执行）"| SH["shell 执行副作用"]
+  SH -->|"resolve(结果) 回喂"| UPD
+  EFF -->|"Render（fire-and-forget）"| VIEW["shell 调 view(&Model) → ViewModel"]
+  VIEW -->|"Bridge bincode 序列化过 FFI"| REND["各端原生渲染（typegen 出 Swift/Kotlin/TS 类型）"]
+  classDef core fill:#d0ebff,stroke:#1c7ed6,color:#000
+  classDef shell fill:#e9ecef,stroke:#868e96,color:#000
+  class UPD,EFF,VIEW core
+  class SH,REND,UIev shell
+```
+
+- `App{ type Model; type Event; type ViewModel; type Effect }`：`update(event,&mut model)->Command⟨Effect⟩` 改状态，`view(&model)->ViewModel` 投影展示态。
+- **Render capability**：core 只发一个 `Render` 通知（fire-and-forget），shell 收到就去拉 `view()`——这就是「投影变了来取最新 ViewModel」。
+- **Bridge + typegen**：事件/Effect/ViewModel 用 bincode `[u8]` 过 FFI，`crux_core::typegen` 从 Rust 类型生成 Swift/Kotlin/TS，三端编译期类型一致。
+- **shell 三件事**：转发 Event → 执行 Effect → 渲染 ViewModel，没有业务逻辑。
+
+> **helix 的取法**：§七 7.1–7.5 的 `Model / view() / ViewModel / Effect::Render` 正是照搬这套思想；唯一差别——helix 的 `Effect` 是**单一 enum**（过会纪要③拍板），Crux 是 capability 派生的 Effect。三端边界逐项映射见 [方向A设计 §1.1](./helix-core-view-方向A设计.md)。
+
 ## 7.1 现状 vs 方向 A（同一份 IM，展示逻辑搬家）
 
 ```mermaid

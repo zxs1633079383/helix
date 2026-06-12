@@ -766,56 +766,106 @@ Timer{flush}    → Get{读 buffer} → Http{POST /audit/batch} → PortReply Ok
 
 ## 7.1 现状 vs 方向 A（同一份 IM，展示逻辑搬家）
 
-```
-现状（展示在 Angular 算）                       方向 A（展示在 core view() 投影）
-─────────────────────────                      ─────────────────────────────────
-Rust features/im                               helix-im (Model: 频道/消息/未读/成员/草稿)
-   │ 18 个细粒度 im:* 事件                          │ update() 改状态
-   ▼                                               ▼ view() 纯函数投影
-ipcEvent → ipcEventHandler                      ViewModel{ orderedDialogs[], totalUnread,
-   │                                               perChannelUnread{}, currentConversation
-   ▼  Angular 自己算                                {groupedMessages[], mentionRanges[]}, draftText }
- 排序 + 未读聚合 + 分组 + 草稿 + 昵称               │ Effect::Render
-   ▼                                               ▼
- 组件渲染                                         host 拉 core.view() → im:viewmodel:patch
-                                                   ▼
-                                                Angular 绑模板（无排序/聚合/分组逻辑）
+```mermaid
+flowchart LR
+  subgraph NOW["现状：展示在 Angular 算"]
+    direction TB
+    N1["Rust features/im"] -->|"18 个细粒度 im:* 事件"| N2["ipcEvent → ipcEventHandler"]
+    N2 -->|"Angular 自己算"| N3["排序 + 未读聚合 + 分组 + 草稿 + 昵称"]
+    N3 --> N4["组件渲染（虚拟滚动）"]
+  end
+  subgraph DIRA["方向 A：展示在 core view() 投影"]
+    direction TB
+    A1["helix-im（Model：频道/消息/未读/成员/草稿）"] -->|"update() 改状态"| A2["view() 纯函数投影"]
+    A2 --> A3["ViewModel{ orderedDialogs, totalUnread,<br/>perChannelUnread, groupedMessages, mentionRanges, draft }"]
+    A3 -->|"Effect::Render"| A4["host 拉 core.view() → im:viewmodel:patch"]
+    A4 --> A5["Angular 绑模板（无排序/聚合/分组逻辑）"]
+  end
+  NOW -. 方向 A 接管 .-> DIRA
 ```
 
 ## 7.2 core 数据流扩展：`step(Tick) → Effect` 增 `Render`（对照 §2.2）
 
-```
-Inbound/Timer/PortReply ─▶ Module.update() ─▶ 改 Model ─▶ 吐 Effect
-                                                            ├─ Persist / Send / SetTimer / Emit   （既有）
-                                                            └─ Render                             （★新增·通用·fire-and-forget）
-host 收到 Render ─▶ Module.view() ─▶ ViewBytes（core 不解释内容）─▶ 序列化过边界 ─▶ UI 绑定
+```mermaid
+flowchart LR
+  IN["Inbound / Timer / PortReply"] --> UPD["Module.update()"]
+  UPD --> MOD["改 Model"]
+  MOD --> EFF{"吐 Effect"}
+  EFF --> E1["Persist / Send / SetTimer / Emit（既有）"]
+  EFF --> E2["★ Render（新增 · 通用 · fire-and-forget）"]
+  E2 --> VW["host 收到 Render → Module.view()"]
+  VW --> VB["ViewBytes（core 不解释内容）"]
+  VB --> UIB["序列化过边界 → UI 绑定"]
+  classDef hot fill:#fff3bf,stroke:#f08c00,color:#000
+  class E2,VW hot
 ```
 
 ## 7.3 边界序列（host ↔ core ↔ UI，对照 Crux Core::process/view）
 
-```
-UI 事件 ─invoke─▶ host ─▶ core.update(event)
-                              └─▶ Vec<Effect> 含 Render?
-                                      │ 是
-                       host ◀─Render─┘
-                         │ core.view()  →  ViewModel(diff/patch 或 窗口切片，HX-C007)
-                         └─ im:viewmodel:patch ─▶ Angular setState(绑模板)
+```mermaid
+sequenceDiagram
+  participant UI as UI（各端）
+  participant H as host（driver）
+  participant C as helix-core
+  UI->>H: UI 事件 invoke
+  H->>C: core.update(event)
+  C-->>H: Vec⟨Effect⟩（含 Render ?）
+  alt 含 Render
+    H->>C: core.view()
+    C-->>H: ViewModel（diff/patch 或 窗口切片，HX-C007）
+    H->>UI: im:viewmodel:patch
+    UI->>UI: setState 绑模板
+  end
 ```
 
 ## 7.4 归属边界（搬进 view() / 留 Angular）
 
-```
-搬进 helix-im view()：排序(pinned+updateAt) · 未读聚合(排除 type=T) · 消息分组 · mention 区间 · 昵称合并 · 草稿存储
-留 Angular（红线外）：虚拟滚动 windowing · ranges→<span> DOM · tab/滚动位置/动画/CSS · 上传进度/通知弹窗
-红线：core 出「数字/区间/有序列表」=方向A✅；出「view 树/控件/像素」=方向B❌（退化成 Dioxus）
+```mermaid
+flowchart TB
+  subgraph INN["搬进 helix-im view()"]
+    direction LR
+    G1["排序 pinned+updateAt"]
+    G2["未读聚合 排除 type=T"]
+    G3["消息分组"]
+    G4["mention 区间"]
+    G5["昵称合并"]
+    G6["草稿存储"]
+  end
+  RED{{"红线：core 出 数字/区间/有序列表 = 方向A ✅<br/>出 view 树/控件/像素 = 方向B ❌（退化成 Dioxus）"}}
+  subgraph KEEP["留 Angular（红线外）"]
+    direction LR
+    K1["虚拟滚动 windowing"]
+    K2["ranges → span DOM"]
+    K3["tab / 滚动位置 / 动画 / CSS"]
+    K4["上传进度 / 通知弹窗"]
+  end
+  INN --- RED --- KEEP
+  classDef ok fill:#c3fae8,stroke:#0ca678,color:#000
+  classDef no fill:#ffe3e3,stroke:#e03131,color:#000
+  class G1,G2,G3,G4,G5,G6 ok
+  class K1,K2,K3,K4 no
 ```
 
 ## 7.5 归属：ViewModel 在 module，core 只给通用机制（守 §五不变量 + GOAL §1.6）
 
-```
-helix-core： enum Effect{ ... , Render }   trait Module{ fn view(&self)->Option<ViewBytes> }   ← 不认识业务
-helix-im：   struct ImModel{...}  struct ImViewModel{...}  fn view(&self)->ImViewModel          ← ViewModel 住这
-判据：grep ViewModel crates/helix-core == 0（同 cursor/DomainEvent 隔离）；typegen → ViewModel 的 TS interface
+```mermaid
+flowchart TB
+  subgraph CORE["helix-core（通用机制 · 不认识业务）"]
+    EE["enum Effect{ … , Render }"]
+    MM["trait Module{ fn view(&self) -> Option⟨ViewBytes⟩ }"]
+  end
+  subgraph IMM["helix-im（ViewModel 住这）"]
+    S1["struct ImModel{ … }"]
+    S2["struct ImViewModel{ … }"]
+    VF["fn view(&self) -> ImViewModel"]
+  end
+  CORE -->|"承载通用 view()/Render"| IMM
+  JJ["判据：grep ViewModel crates/helix-core == 0（同 cursor/DomainEvent 隔离）<br/>typegen → ViewModel 的 TS interface"]
+  IMM --> JJ
+  classDef core fill:#d0ebff,stroke:#1c7ed6,color:#000
+  classDef biz fill:#c3fae8,stroke:#0ca678,color:#000
+  class EE,MM core
+  class S1,S2,VF biz
 ```
 
 ---

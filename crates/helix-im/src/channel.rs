@@ -27,6 +27,13 @@ use helix_core::effect::{StorageOp, TimerId};
 use helix_core::{Correlation, Effect, EffectSink};
 use std::collections::BTreeMap;
 
+/// E6：单 channel gate 乱序缓冲的客户端容量上限。
+///
+/// 取值须 > 合法最大缺口（承压实测 5000 条乱序堆积由 gate 正常回填），
+/// 又须 << OOM 阈值。超限不再无界堆积、不再只依赖服务端 too_long——
+/// 主动走 too_long 恢复路径（清 buffer + 通知 UI 全量刷新 + sync 重拉）。
+const MAX_GATE_BUFFER: usize = 16_384;
+
 /// gate 缺口闸门（1s 超时后发 /sync/notify）
 #[derive(Debug)]
 pub struct Gate {
@@ -160,9 +167,28 @@ impl Channel {
         ev: EventEnvelope,
         fx: &mut EffectSink,
     ) -> Result<(), ImError> {
+        // E6：客户端 buffer 容量安全网。缺口过大（远超 gate 正常回填规模）时，
+        // 不再无界堆积、不再只等服务端 too_long——主动走 too_long 恢复：
+        // 清 buffer + 通知 UI 全量刷新 + 保持 gate（cursor 有效不回退，sync 从
+        // cursor+1 重拉缺口）。丢弃的 far-future 事件由后续 sync/WS 重新投递。
+        // 退化场景（永久缺口 + 持续洪峰）每满一次触发一次恢复，触发频率有界。
+        if self.buffer.len() >= MAX_GATE_BUFFER {
+            self.buffer.clear();
+            fx.push(crate::acl::to_effect::emit_sync_too_long(self.id));
+            self.arm_gate_if_needed(fx);
+            return Ok(());
+        }
+
         self.buffer.insert(ev.seq, ev);
+        self.arm_gate_if_needed(fx);
+        Ok(())
+    }
+
+    /// arm 1s gate timer（若尚未 armed）。
+    ///
+    /// BLK-1b：TimerId 由 channel_id 偏移 + cursor 低位派生，避免多 channel timer 碰撞。
+    fn arm_gate_if_needed(&mut self, fx: &mut EffectSink) {
         if self.gate.is_none() {
-            // BLK-1b：channel_id 偏移 + cursor 低位哈希，避免多 channel 场景的 timer_id 碰撞
             let timer_id = TimerId::from_raw(
                 self.id
                     .0
@@ -178,7 +204,6 @@ impl Channel {
                 expected_seq: Seq(self.cursor.value().0 + 1),
             });
         }
-        Ok(())
     }
 
     /// flush_contiguous_from_buffer：从 buffer 中取出严格连续段并 apply
@@ -268,4 +293,83 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
         ]],
         conflict_key: Some("seq"),
     })
+}
+
+// ─── 单元测试 ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::{ChannelId, Seq};
+    use crate::sync_session::{EventEnvelope, EventKind};
+    use helix_core::{Effect, EffectSink};
+
+    fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
+        EventEnvelope::new(
+            ChannelId(ch),
+            Seq(seq),
+            EventKind::PostUpsert,
+            bytes::Bytes::from_static(b"{}"),
+        )
+    }
+
+    fn is_too_long_emit(e: &Effect) -> bool {
+        matches!(e, Effect::Emit { event }
+            if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))
+    }
+
+    /// 回归锚: E6 —— gate buffer 客户端上限。
+    ///
+    /// 制造永久缺口（全部 seq >= 2，缺 seq=1），持续灌入远超 MAX_GATE_BUFFER 的
+    /// 乱序事件。断言：① buffer 始终有界（永不超过上限）；② 越限时主动
+    /// emit im:sync:too_long；③ cursor 不被回退（安全网靠 sync 从 cursor+1 重拉）。
+    #[test]
+    fn test_gate_buffer_capped_proactive_too_long_e6() {
+        let mut ch = Channel::new(ChannelId(7), 0); // cursor=0 → expected=1，制造永久缺口
+        let mut fx = EffectSink::new();
+        let mut saw_too_long = false;
+
+        // 灌到越过上限 + 余量，确保触发至少一次主动恢复
+        for seq in 2..(MAX_GATE_BUFFER as u64 + 2 + 128) {
+            fx.clear();
+            ch.ingest(gapped_ev(7, seq), &mut fx, 1_000)
+                .expect("ingest gapped event");
+            assert!(
+                ch.buffer.len() <= MAX_GATE_BUFFER,
+                "buffer 必须有界（≤ 上限），实际 {}",
+                ch.buffer.len()
+            );
+            if fx.as_slice().iter().any(is_too_long_emit) {
+                saw_too_long = true;
+            }
+        }
+
+        assert!(
+            saw_too_long,
+            "越过 buffer 上限必须主动 emit im:sync:too_long（不再静等服务端）"
+        );
+        assert_eq!(
+            ch.cursor.value(),
+            Seq(0),
+            "E6 安全网不回退 cursor（缺口由后续 sync 从 cursor+1 重拉）"
+        );
+    }
+
+    /// 上限以内正常乱序堆积不误触发 too_long（不误伤承压合法 5000 缺口场景）。
+    #[test]
+    fn test_gate_buffer_under_cap_no_false_too_long_e6() {
+        let mut ch = Channel::new(ChannelId(3), 0);
+        let mut fx = EffectSink::new();
+
+        for seq in 2..=5001 {
+            // 承压同款 5000 缺口
+            ch.ingest(gapped_ev(3, seq), &mut fx, 1_000)
+                .expect("ingest");
+        }
+        assert_eq!(ch.buffer.len(), 5000, "5000 缺口应全部正常堆积");
+        assert!(
+            !fx.as_slice().iter().any(is_too_long_emit),
+            "上限以内不得误触发 too_long"
+        );
+    }
 }

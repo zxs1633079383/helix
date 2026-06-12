@@ -19,6 +19,7 @@
 //! 行 shape 与 helix-im event_to_upsert_op 一致：
 //! (seq INTEGER PK, channel_id INTEGER, event_type INTEGER, raw TEXT ~150B)。
 
+// 回归锚: E2（batch_upsert 写放大 9x→1x）—— 见 docs/过会方案/helix-架构评审-待办清单.md
 use std::time::Instant;
 
 use helix_core::effect::{MonotonicUpsertSpec, SqlValue, UpsertSpec};

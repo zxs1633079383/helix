@@ -17,6 +17,11 @@ tracing     = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"
+criterion = "0.5"
+
+[[bench]]
+name = "step_inorder"
+harness = false
 
 # 编译期护栏（同 helix-core：业务模块禁 ambient 时间/线程/打印）
 [lints.clippy]

@@ -39,6 +39,7 @@
 //! cargo test --release -p helix-driver-native stress -- --nocapture --test-threads=1
 //! ```
 
+// 回归锚: E1（泵死锁）· graceful drain（review 回炉 §3）—— 见 docs/过会方案/helix-架构评审-待办清单.md
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

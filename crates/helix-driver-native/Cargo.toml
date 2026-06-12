@@ -28,3 +28,10 @@ futures-util     = "0.3"
 undocumented_unsafe_blocks = "deny"
 disallowed_methods = "allow"
 disallowed_macros = "allow"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "storage_upsert"
+harness = false

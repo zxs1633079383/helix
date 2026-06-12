@@ -28,7 +28,7 @@
 - [x] ✅ **3.2 标准化测试 harness**（Bun：harness.ts 集中 bunEnv/tempDir/snapshot 工具）→ helix `tests/common.rs` 回放剧本辅助 + mock port，**同构已具**。可随 1.1 在 im/CLAUDE.md 写明「新测试必须用 common.rs 的剧本工具」。
 - [x] ✅ **3.3 回归测试 issue 锚定**（Bun：regression/issue/${N} 路径强制）→ helix 无 issue 系统。动作：约定 `tests/regression_e{N}.rs` 命名（锚到待办清单编号，如 E1 死锁的回归测试），把已有 stress_engine 死锁场景标注 E1。量级：1 小时。
 - [x] ✅ **3.4 bench 常态化 + 无数字性能主张自动拒**（Bun：42 域 bench + metrics 留痕）→ helix 压测三件套已入库 🟡 但是 #[test] 形态、数字只进 commit message。动作：criterion 化 + 基线 json 入库 + 「性能类 PR 必附 before/after」写进规则。量级：1 天。
-- [x] 🟡 **3.5 CI 闸门链**（Bun：.github 多 job——format/lint/build/test 矩阵）→ **helix 最大单项缺口：所有闸门现在靠会话手跑**。动作：`.github/workflows/ci.yml`（或本地 git pre-push hook 先行，仓库还没远端）：三栖 check → clippy → test → cargo tree gate → grep gate → public-api gate，即 ROADMAP §三结构闸门全自动化。量级：半天（本地 hook）/ 1 天（GHA）。
+- [x] 🟡 **3.5 CI 闸门链**（Bun：.github 多 job——format/lint/build/test 矩阵）→ **本地链已落地**（2026-06-12）：`scripts/gate.sh` 七道闸门（三栖 check → clippy → test → cargo tree gate → grep gate → harness 索引不变量 → public-api）+ `.git/hooks/pre-push` 调它 + PostToolUse rustfmt hook + clippy deny-list。**剩 GHA 远端 job 未做**（仓库还没远端，无紧迫）；接远端时 `.github/workflows/ci.yml` 跑同一条 `gate.sh`。量级：1 天（GHA）。
 - [x] ✅ **3.6 快照/确定性验证**（Bun：toMatchInlineSnapshot + human review）→ helix 用「同剧本同 Effect 序列」的确定性断言 + proptest，同等强度。M3 追加三端 byte-level 一致比对（已在 ROADMAP）。
 
 ## 第 4 层 · 流程层（spec → 实现 → 验收成闭环）

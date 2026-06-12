@@ -101,5 +101,19 @@
 - [x] **E2 · P0 batch_upsert 包事务**（**2026-06-11 修复**）：begin/commit 整批 + SQL 串复用。实测 369ms→~40-60ms / 5000 行（82K-122K 行/秒），写放大 9.6x→~1.0x。
 - [x] **E3 · P0 needs_continuation 续拉**（**2026-06-11 修复**）：persist 提交后续拉、fromSeq 严格递增终止保证、空 events 防死循环；顺手落地 **B1 gate_inflight**（per-channel 在途 sync 守卫 + Disconnected 清理）。
 - [x] **E4 · P0 scan_corr 回报路由**（**2026-06-11 修复**）：handle_port_reply 路由 0 消费 Scan 回报；review 拦截「扫虚构表」后对齐 driver 真实 `_helix_monotonic(scope_key,value)` schema；解析失败降级空集启动。
-- [ ] **E5 · P1 monotonic_upsert DDL 出热路径**（实测拖至 7.4K/s）；**E6 · P1 gate buffer 容量上限 + 客户端主动 too_long**；**E7 · P1 broadcast lagged 可感知**。
+- [x] **E5 · P1 monotonic_upsert DDL 出热路径**（**2026-06-12 修复**）：建表挪到 `open()` 一次性，热路径仅剩单 INSERT。回归锚 `test_monotonic_table_created_at_open_e5`。
+- [x] **E6 · P1 gate buffer 容量上限 + 客户端主动 too_long**（**2026-06-12 修复**）：`MAX_GATE_BUFFER=16384`，超限清 buffer + emit too_long + sync 重拉，cursor 不回退。回归锚 ×2。
+- [x] **E7 · P1 broadcast lagged 可感知**（**2026-06-12 修复**）：感知点从 emit(send)侧 改到接收侧 `EventReceiver/RecvOutcome::Lagged` 显式上报（纠正承压评估原定位——send 侧感知不到 lagged）。回归锚 ×2。
+- [ ] **E10 · P2→D5 已拍板（2026-06-12）**：写池 `PRAGMA synchronous=NORMAL`。E5 验证暴露 cursor 写真瓶颈是 fsync(synchronous=FULL 822 calls/s)，非 DDL；WAL 下 NORMAL 安全（仅断电丢已提交尾部，cursor 可由 sync 重导）。排进 ROADMAP M2 第1周 D5。
 - [ ] **E8/E9 · P2**：timer O(N) 查找反向索引；热路径分配收口（HX-C005）。
+
+---
+
+## F. UC-1 联调前置缺口（2026-06-12 四专家 panel-review 揪出 · 详见 ROADMAP §一 D1-2）
+
+> 用 ROADMAP + 承压评估当输入跑 `expert-panel-review`，对抗证伪后存活 3 条，全部实锤（grep 验证）。UC-1 happy-path 跨的 3 块代码当时**死/缺/脆**，smoke 排在它们之前 = 顺序倒置。**用户已拍板：先补 4 块再跑真 Go smoke**。
+
+- [ ] **F1 · 🔴critical echo→reconcile 路由缺失**：`handle_echo`（`module.rs:679`）`#[allow(dead_code)]`、Inbound 分支从不调用 → 发消息后 PendingSend 永停 Sending、tmp_id→正式 id 不覆写、「已送达」不 emit → UC-1 echo 验收必然不绿。修：Inbound 分支识别 echo 帧路由到 `handle_echo`。
+- [ ] **F2 · 🟠high parser 无 event_seq fallback + hello-ack 解析**（`parser.rs:29-56`）：真 Go 帧含 event_seq / hello-ack 无 seq → `ImError::Parse` 静默丢 → cursor 不推/握手不成。修：B4 三级 fallback + hello-ack 帧格式。
+- [ ] **F3 · 🟠high 握手时序 + `im:connection:established` 全仓 0 命中**：`Tick::Connected`（TCP/WS 完成即触发，`transport.rs:103-156`）早于 Go 应用层 hello-ack → resync 先于 auth 可能 401/403；且 established 事件**模块/driver 都没 emit**，D1-2 验收条件本不满足。修：Connected→发 hello→收 hello-ack→置 Connected + emit established，联调前先与 Go 对齐 hello 字段集。
+- [x] **B 侧 E5/E6/E7 修复经同一 panel 对抗审 = 干净**（0 条存活，prod-align 提 3 条全证伪），无需返工。

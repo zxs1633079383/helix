@@ -9,12 +9,13 @@
 
 ### M2 收官 · 第 1 周——真连 Go 服务端（L2 联调）
 
+> ⚠️ **2026-06-12 四专家 panel-review 重排**：原 D2-3 smoke 排在 B4/B5 之前 = 顺序倒置；且 UC-1 happy-path 跨的 3 块代码当时**死/缺/脆**（echo 死代码、parser 无 event_seq、`im:connection:established` 全仓 0 命中）。决策：**先补 4 块前置缺口再跑真 Go smoke**（用户拍板）。
+
 | 天 | 交付 | 验收 |
 |---|---|---|
-| D1-2 | **最小 native 宿主**（`crates/helix-host-cli`）：engine_loop + ImModule + 真实 config 装配；连 dev 环境 Go IM 完成 hello 握手 | 握手日志 + `im:connection:established` 事件可见 |
-| D2-3 | **UC-1 端到端 smoke**：发消息 → echo 对账 → 查库验证；录制真实帧 → golden fixtures（im_trace 导出 → Tick 剧本转换小工具） | smoke 绿 + fixtures 入库 `tests/fixtures/` |
-| D3-4 | **B4** event_seq 三级 fallback 解析 + **B5** phantom 事件（联调必撞的两个）；**B2** increment_end 冷启动自愈 | 各配 replay 测试 |
-| D5 | **E5-E7** 三个 P1（DDL 出热路径 / gate buffer 上限+主动 too_long / broadcast lagged 可感知）+ 重跑压测对照 | stress_storage cursor 路径 ≥ 30K/s |
+| D1-2 | **最小 native 宿主**（`crates/helix-host-cli`）+ **UC-1 前置 4 块**（panel-review 揪出 happy-path 死/缺/脆）：① **hello 握手时序**——`Tick::Connected` 后先发 hello 帧、收 hello-ack 才置 Connected 并 **emit `im:connection:established`**（当前全仓 0 此事件，验收条件本不满足；resync 须等握手后发，否则 Go 401/403）② **B4** event_seq 三级 fallback **+ hello-ack 帧解析**（parser 当前无 event_seq、hello-ack 无 seq 被静默丢）③ **B5** phantom ④ **echo→reconcile 路由**（`handle_echo` module.rs:679 当前 `#[allow(dead_code)]` 从不被 Inbound 调用，tmp_id→正式 id 不覆写）| 握手日志 + `im:connection:established` 可见 + 4 块各配 replay 测试 |
+| D3-4 | **UC-1 端到端真 Go smoke**：发消息 → 0 等待上屏 → echo 对账「已送达」→ 查库 temporaryId 已换正式 id；录制真实帧 → golden fixtures（im_trace 导出 → Tick 剧本转换小工具，注意时间/id 注入确定性）| smoke 绿 + fixtures 入库 `tests/fixtures/` |
+| D5 | **B2** increment_end 冷启动自愈 + **E10 WAL `synchronous=NORMAL`**（写池，2026-06-12 拍板：WAL 下仅断电丢已提交尾部，cursor 可由 sync 重导，安全）+ 重跑压测对照 | B2 配 replay + stress_storage cursor 写吞吐数量级提升（脱离 fsync 822/s 上限）|
 
 ### M2 收官 · 第 2 周——Tauri 换引擎（四接缝）
 
@@ -46,12 +47,20 @@ CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-a
 ## 二、TodoList（活账，按优先级）
 
 **P0（M2 收官阻塞）**
-- [ ] 最小 native 宿主 bin + Go 服务端 UC-1 联调
-- [ ] B4 event_seq 三级 fallback · B5 phantom · B2 increment_end 自愈
+- [ ] 最小 native 宿主 bin（`crates/helix-host-cli`）——transport 路由表从一开始做成 `HashMap<TransportId, NativeTransport>`（非单连接）+ host 集中分配 TransportId，给第二模块/多端口（如 3399）留对接缝。设计见 `docs/02-im-module-mount-and-core-generality.md §4.4`
+- [ ] **UC-1 前置 4 块**（panel-review 2026-06-12 揪出，smoke 必须排在其后）：
+  - [ ] ① hello 握手时序：`Tick::Connected`→发 hello→收 hello-ack→置 Connected + emit `im:connection:established`（transport.rs:103-156 / module.rs:771-781 / 828）
+  - [ ] ② B4 event_seq 三级 fallback + hello-ack 帧解析（parser.rs:29-56 当前无）
+  - [ ] ③ B5 phantom 事件
+  - [ ] ④ echo→reconcile 路由：Inbound 分支识别 echo 帧调 `handle_echo`（module.rs:679 当前死代码 / 715-738 Inbound 分支）
+- [ ] B2 increment_end 冷启动自愈
+- [ ] UC-1 端到端真 Go smoke + golden fixtures（排在前置 4 块之后）
 - [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）
 
 **P1（质量与性能）**
-- [ ] E5 monotonic_upsert DDL 出热路径 · E6 gate buffer 上限+主动 too_long · E7 broadcast lagged 可感知
+- [x] E5 monotonic_upsert DDL 出热路径（建表挪到 open()，monotonic_upsert 仅剩单 INSERT；回归锚 test_monotonic_table_created_at_open_e5）
+- [x] E6 gate buffer 上限+主动 too_long（MAX_GATE_BUFFER=16384，超限清 buffer + emit too_long + sync 重拉，cursor 不回退；回归锚 ×2）
+- [x] E7 broadcast lagged 可感知（接收侧 EventReceiver/RecvOutcome::Lagged 显式上报；纠正承压评估 emit 侧定位错误——send 侧感知不到 lagged；回归锚 ×2）
 - [ ] B6 UpsertSpec conflict 列语义文档
 - [ ] golden fixtures 工具链（im_trace 导出 → Tick 剧本）
 
@@ -61,7 +70,7 @@ CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-a
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [ ] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）
 
-**已销账**：A 全部 · B1 · C1-C4 · E1-E4 · M1 全部 · M2 的 driver/im 主体。
+**已销账**：A 全部 · B1 · C1-C4 · E1-E4 · **E5-E7** · M1 全部 · M2 的 driver/im 主体。
 
 ---
 

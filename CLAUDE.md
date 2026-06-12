@@ -102,6 +102,20 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 实现 / 修复 IM 行为有争议时，**现网 `~/workspace/angular/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；机制级对齐标注见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md) 各节。
 
+## 4.6 专家 Agent / Skill 注册表（按需调用 · 渐进式披露）
+
+> 完整调度规则 + 编制配方见 [`.claude/rules/expert-dispatch.md`](.claude/rules/expert-dispatch.md)（按需 Read）。
+> 阶梯：**L0 就近文件 → L1 Skill 拉知识 → L2 单 Agent 派活/审查 → L3 Workflow 编制**——能低不高，升级要有触发条件。
+
+| 专家 Agent ↔ Knowledge Skill | 领域一句话 | 何时调 |
+|---|---|---|
+| `rust-dev` ↔ `/rust-knowledge` | Rust 语言与工程全栈（所有权/async/性能/unsafe） | 借用·Send 报错、热路径审查、trait 设计争议 |
+| `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | Tauri 2 桌面骨架端到端，**参考仓 = 现网 cses-client** | 现网对齐核验（唯一权威）、IPC 契约、M2 Tauri 接缝 |
+| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+WASM+FFI（cfg/Send/OPFS/uniffi） | 三栖边界守门、M3 wasm / M4 FFI 主力 |
+| `dioxus-dev` ↔ `/dioxus-knowledge` | **仅取 core 内核经验**（step 循环/Effect 批处理/调度），**禁渲染层/RSX 话题** | 内核循环设计对照、批次边界、调度公平性 |
+
+本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。
+
 ## 5. 代码风格
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明

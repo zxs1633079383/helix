@@ -18,3 +18,9 @@ futures-channel = { workspace = true }
 
 # FFI 绑定（cbindgen 在 build.rs 生成 helix.h）
 # uniffi = { version = "0.28", features = ["scaffolding"] }  # 按需开启
+
+# driver 层是 ambient API（SystemTime/线程）的唯一合法落点 → 不开 disallowed deny
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "allow"
+disallowed_macros = "allow"

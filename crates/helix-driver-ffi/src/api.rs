@@ -29,8 +29,17 @@ pub extern "C" fn helix_destroy(handle: *mut std::ffi::c_void) {
 
 /// 宿主收到 WS 帧时调用：把帧注入 engine。
 /// 注意：data 指向的 buffer 必须在本函数内拷贝，不得持有。
+///
+/// # Safety
+///
+/// 调用方必须保证：`handle` 为 `helix_create` 返回的有效句柄或 null；
+/// `data` 非 null 时指向至少 `len` 字节、在本调用期间有效的内存。
 #[no_mangle]
-pub extern "C" fn helix_on_ws_frame(handle: *mut std::ffi::c_void, data: *const u8, len: usize) {
+pub unsafe extern "C" fn helix_on_ws_frame(
+    handle: *mut std::ffi::c_void,
+    data: *const u8,
+    len: usize,
+) {
     if handle.is_null() || data.is_null() {
         return;
     }
@@ -42,8 +51,13 @@ pub extern "C" fn helix_on_ws_frame(handle: *mut std::ffi::c_void, data: *const 
 }
 
 /// 宿主 HTTP 响应回调
+///
+/// # Safety
+///
+/// 调用方必须保证：`handle` 有效或 null；`body` 非 null 时指向至少
+/// `body_len` 字节、在本调用期间有效的内存。
 #[no_mangle]
-pub extern "C" fn helix_on_http_response(
+pub unsafe extern "C" fn helix_on_http_response(
     handle: *mut std::ffi::c_void,
     req_id: u64,
     status: u16,

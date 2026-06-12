@@ -18,3 +18,10 @@ bytes           = { workspace = true }
 async-trait     = { workspace = true }
 futures-channel = { workspace = true }
 tracing         = { workspace = true }
+
+# 编译期护栏（Bun 对齐 2.1/2.4）：deny ambient 时间/线程/打印——纪律变契约
+[lints.clippy]
+disallowed_methods = "deny"
+disallowed_macros = "deny"
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"

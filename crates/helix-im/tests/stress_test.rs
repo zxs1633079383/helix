@@ -22,6 +22,9 @@
 //! 注意：workspace release profile 是 opt-level="z" + lto（面向 wasm 体积），
 //! 不是 opt-level=3 —— 数字是保守值（生产 native 端只会更快）。
 
+// 测量类压测文件：Instant 计时与 --nocapture 打印是用途本身，非业务代码（clippy.toml deny 的显式豁免）
+#![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
+
 use std::time::Instant;
 
 use helix_core::tick::{InboundBytes, PortOutcome, ReplyBytes};

@@ -1,0 +1,16 @@
+# Clippy deny-list（Bun 对齐 2.1）：把 harness 纪律升级为编译期契约。
+# 生效范围：配置全局；强度由各 crate Cargo.toml 的 [lints.clippy] 控制——
+#   helix-core / helix-im = deny（确定性内核与业务模块禁 ambient 时间/线程/打印）
+#   driver 三 crate      = allow（NativeClock 等是这些 API 的唯一合法落点）
+# 违规须显式 #[allow] + 注明理由（Bun 同款流程）。
+
+disallowed-methods = [
+    { path = "std::time::Instant::now", reason = "HX-C001 确定性：core/im 禁 ambient 时间，必须经 Clock port 注入；测量类测试文件可显式 allow" },
+    { path = "std::time::SystemTime::now", reason = "同上；driver 的 NativeClock 是唯一合法实现点" },
+    { path = "std::thread::spawn", reason = "并发不进 core/im——并发属于 driver 边缘（tokio）；wasm 无线程" },
+]
+
+disallowed-macros = [
+    { path = "std::println", reason = "输出走 tracing（结构化、可控级别）；压测 --nocapture 输出文件可显式 allow" },
+    { path = "std::eprintln", reason = "同上" },
+]

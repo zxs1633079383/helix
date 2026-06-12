@@ -40,3 +40,9 @@ gloo-timers  = { version = "0.3", features = ["futures"] }
 # ⚠️ 必须在 Web Worker 内初始化，需要编译标志：
 #    RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 # sqlite-wasm-rs = "0.1"  # TODO: 添加版本后取消注释
+
+# driver 层是 ambient API（SystemTime/线程）的唯一合法落点 → 不开 disallowed deny
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "allow"
+disallowed_macros = "allow"

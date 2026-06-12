@@ -92,6 +92,18 @@ impl NativeStorage {
             .await
             .map_err(Self::map_err)?;
 
+        // E5：driver 私有 schema 一次性建表（出热路径）。
+        // _helix_monotonic 是 cursor 单调推进的专用表，过去在 monotonic_upsert 内
+        // 每次调用都跑 `CREATE TABLE IF NOT EXISTS`（cursor 热路径每事件命中），
+        // 实测拖到 7.4K/s。建表本就是幂等一次性操作，挪到 open()。
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _helix_monotonic \
+             (scope_key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL DEFAULT 0)",
+        )
+        .execute(&sync_write_pool)
+        .await
+        .map_err(Self::map_err)?;
+
         Ok(Self {
             sync_write_pool,
             user_write_pool,
@@ -257,16 +269,10 @@ impl Storage for NativeStorage {
     ///
     /// 专用表 `_helix_monotonic`（driver 约定，core 不知道表名）。
     /// O(1) per call：单行 WHERE PK lookup。
+    ///
+    /// 表已在 `open()` 一次性建好（E5）；此处只剩一条 INSERT…ON CONFLICT，
+    /// 真正做到热路径单 SQL、零 DDL。
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {
-        // 确保表存在（首次调用时建表，幂等）
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS _helix_monotonic \
-             (scope_key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL DEFAULT 0)",
-        )
-        .execute(&self.sync_write_pool)
-        .await
-        .map_err(Self::map_err)?;
-
         sqlx::query(
             "INSERT INTO _helix_monotonic (scope_key, value) VALUES (?, ?) \
              ON CONFLICT(scope_key) DO UPDATE SET value = excluded.value \
@@ -445,6 +451,23 @@ mod tests {
             .expect("row");
         let seq = r.iter().find(|(k, _)| k == "seq").unwrap();
         assert!(matches!(&seq.1, SqlValue::Integer(99)));
+    }
+
+    /// 回归锚: E5 —— open() 一次性建表，monotonic_upsert 不含 DDL。
+    /// 断言：open() 后未调用任何 monotonic_upsert，_helix_monotonic 表已存在可查。
+    #[tokio::test]
+    async fn test_monotonic_table_created_at_open_e5() {
+        let storage = in_memory_storage().await;
+        // 未做任何 monotonic_upsert——表必须已由 open() 建好（否则 get 报 no such table）
+        let row = storage
+            .get(GetSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                key_val: SqlValue::Text("nonexistent".to_string()),
+            })
+            .await
+            .expect("查询已存在的 _helix_monotonic 表不应报错（E5：open 建表）");
+        assert!(row.is_none(), "空表查询应返回 None，但表必须存在");
     }
 
     #[tokio::test]

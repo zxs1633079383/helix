@@ -84,69 +84,86 @@
 
 ## 🔴 现状全景（cses-client 今天）：业务逻辑两处分裂，移动重写一份
 
+```mermaid
+flowchart TB
+  SRV(["服务端 Mattermost / cses"])
+  SRV -->|"WS 广播 + HTTP /posts /sync"| GATE
+
+  subgraph DESK["桌面端（唯一在跑这套）"]
+    direction TB
+    subgraph TAURI["src-tauri/features/im · Rust"]
+      GATE["业务①：ChannelGateState 乱序门 · cursor · 去重<br/>SQLite 持久化 · 离线 im_sync_channels · bitmap"]
+    end
+    subgraph NG["Angular message-v3 · TS"]
+      BUS["ipcEvent → ipcEventHandler<br/>messageGlobalBaseContext（Signals）"]
+      CALC["业务②★算：排序 pinned+updateAt · 未读聚合（排除 type=T）<br/>消息分组 · @mention 高亮 · 草稿 draftMap · 昵称合并"]
+      REND["组件渲染（虚拟滚动）"]
+      BUS --> CALC --> REND
+    end
+    GATE -->|"18 个细粒度 im:* 事件 → im:__bus__"| BUS
+  end
+
+  MOB["移动端 Flutter：业务①②各写一份（必然漂移）"]
+  WEB["浏览器端：无"]
+
+  classDef biz fill:#ffe3e3,stroke:#e03131,color:#000
+  classDef ts fill:#fff3bf,stroke:#f08c00,color:#000
+  classDef plat fill:#e9ecef,stroke:#868e96,color:#000
+  class GATE biz
+  class BUS,CALC,REND ts
+  class MOB,WEB plat
 ```
-                          ┌─────────────── 服务端 (Mattermost/cses) ───────────────┐
-                          │   WS 广播 (post/read/...)        HTTP (/posts, /sync)    │
-                          └───────┬──────────────────────────────────┬─────────────┘
-                                  │ WS 帧                              │ HTTP
-   ┌══════════════════════════════▼══════════════════════════════════▼═══════════════┐
-   ║  桌面端 src-tauri/features/im (Rust) —— 业务逻辑①(已在 Rust)                      ║
-   ║   router → post.rs/channel.rs/sync.rs                                            ║
-   ║   ChannelGateState 乱序门 · channel_event_cursor · 去重 · SQLite 持久化           ║
-   ║   离线 im_sync_channels · channel_bitmap 回填                                     ║
-   ║                          │ 18 个细粒度事件 → emit im:__bus__ (单通道信封)         ║
-   ╚══════════════════════════│══════════════════════════════════════════════════════╝
-                              │ IPC
-   ┌──────────────────────────▼───────────────────────────────────────────────────────┐
-   │  Angular 20 (message-v3) —— 业务逻辑②(散在 TS) + UI                                │
-   │   ImEventBusDispatcher → ipcEvent.service(RxJS) → ipcEventHandler → CoreEventMgr   │
-   │   messageGlobalBaseContext: 一堆 Signal/BehaviorSubject                            │
-   │   ★ Angular 自己算: 排序(pinned+updateAt) · 未读聚合(排除 type=T)                  │
-   │                     · 消息分组 · @mention 高亮 · 草稿 draftMap · 昵称合并          │
-   │                          ▼  组件渲染 (虚拟滚动)                                    │
-   └──────────────────────────────────────────────────────────────────────────────────┘
-   ┌──────────────────────────────────────────────────────────────────────────────────┐
-   │  移动端 Flutter —— 业务①②全部各写一份(必然漂移) · 浏览器端: 无                    │
-   └──────────────────────────────────────────────────────────────────────────────────┘
-   痛点: 业务①在 Rust 但仅桌面 · 业务②全在 TS · 移动重写一份 · 不可回放测试
-```
+
+> 痛点：业务①在 Rust 但**仅桌面** · 业务②**全在 TS** · 移动**重写一份** · 不可回放测试。
 
 ## 🟢 目标全景（helix 三栖）：一份 core，业务①②全收进来，UI 退化成 dumb 渲染
 
+```mermaid
+flowchart TB
+  SRV(["服务端 Mattermost / cses"])
+  SRV -->|"经各端 driver 的 Transport / Http"| CORE
+
+  subgraph CORE["helix-core · sans-IO · 零运行时 · 确定性 · 三端共享一份"]
+    direction TB
+    PORTS["ports：Transport / Storage / Clock / EventSink / IdSource"]
+    STEP["step(Tick) → Module.update() → 改 Model → 吐 Effect<br/>Effect：Persist · Send · SetTimer · Emit · ★Render"]
+    subgraph IM["helix-im · 业务模块 guest#1"]
+      DD["▸ 方向D：收发 · 乱序门 · cursor · 去重 · 离线同步（从现网搬）"]
+      AA["▸ 方向A：Model + view() → ViewModel<br/>orderedDialogs · totalUnread · groupedMessages · mentionRanges · draft"]
+    end
+    PORTS --> STEP --> IM
+  end
+
+  subgraph DRV["平台驱动层（driver → core 单向）"]
+    direction LR
+    DN["driver-native<br/>tokio / sqlx / tungstenite"]
+    DW["driver-wasm<br/>web-sys / fetch / OPFS"]
+    DF["driver-ffi<br/>uniffi / rusqlite / host 回调"]
+  end
+  CORE -->|"实现 ports"| DRV
+
+  REN{{"Effect::Render → host 拉 core.view()<br/>ViewModel diff/patch 或 窗口切片（HX-C007）"}}
+  CORE --> REN
+
+  subgraph UI["各端 UI · dumb 渲染（订阅 ViewModel，无业务逻辑）"]
+    direction LR
+    UA["Angular (Tauri)<br/>绑模板 + 虚拟滚动"]
+    UW["浏览器 JS (WASM)<br/>绑模板"]
+    UF["SwiftUI / Compose<br/>typegen 类型 · 只渲染"]
+  end
+  REN --> UI
+
+  classDef core fill:#d0ebff,stroke:#1c7ed6,color:#000
+  classDef biz fill:#c3fae8,stroke:#0ca678,color:#000
+  classDef plat fill:#e9ecef,stroke:#868e96,color:#000
+  classDef ui fill:#eebefa,stroke:#9c36b5,color:#000
+  class PORTS,STEP core
+  class DD,AA biz
+  class DN,DW,DF plat
+  class UA,UW,UF ui
 ```
-                          ┌─────────────── 服务端 (Mattermost/cses) ───────────────┐
-                          └───────┬──────────────────────────────────┬─────────────┘
-            ┌─────────────────────┼─── 经各端 driver 的 Transport/Http 进来 ─┼──────────┐
-            │   ┌─────────────────▼──────────────────────────────────▼───────────────┐  │
-            │   │   helix-core (sans-IO · 零运行时 · 确定性 · 编到三端就这一份)        │  │
-            │   │   ports: Transport/Storage/Clock/EventSink/IdSource                  │  │
-            │   │   step(Tick) → Module.update() → 改 Model → 吐 Effect                │  │
-            │   │       Effect: Persist · Send · SetTimer · Emit · ★Render             │  │
-            │   │   ┌───────────────────────────────────────────────────────────────┐ │  │
-            │   │   │ helix-im (业务模块 · guest#1)                                   │ │  │
-            │   │   │  ▸方向D: 收发 · 乱序门 · cursor · 去重 · 离线同步 (从现网搬)    │ │  │
-            │   │   │  ▸方向A: Model(频道/消息/未读/成员/草稿)                        │ │  │
-            │   │   │          view()→ ViewModel{ orderedDialogs, totalUnread,        │ │  │
-            │   │   │          perChannelUnread, groupedMessages, mentionRanges,draft}│ │  │
-            │   │   └───────────────────────────────────────────────────────────────┘ │  │
-            │   └────────┬───────────────────────┬──────────────────────┬─────────────┘  │
-            │            │ 实现 ports (driver→core 单向)                  │ Effect::Render │
-            │   ┌────────▼────────┐  ┌───────────▼─────────┐  ┌──────────▼───────────┐   │
-            │   │ driver-native   │  │ driver-wasm         │  │ driver-ffi           │   │
-            │   │ tokio/sqlx/     │  │ web-sys/fetch/OPFS  │  │ uniffi/rusqlite/     │   │
-            │   │ tungstenite     │  │ (单线程 spawn_local)│  │ host 回调            │   │
-            │   └────────┬────────┘  └───────────┬─────────┘  └──────────┬───────────┘   │
-            └────────────│───────────────────────│───────────────────────│───────────────┘
-        host 收 Render → core.view() → ViewModel (diff/patch 或 窗口切片, HX-C007) → 各端总线
-                         │                       │                       │
-                ┌────────▼────────┐  ┌───────────▼─────────┐  ┌──────────▼───────────┐
-                │ Angular (Tauri) │  │ 浏览器 JS (WASM)    │  │ SwiftUI / Compose    │
-                │ 订阅 ViewModel  │  │ 订阅 ViewModel      │  │ 订阅 ViewModel       │
-                │ 绑模板+虚拟滚动 │  │ 绑模板              │  │ typegen 出的类型     │
-                │ 无排序/聚合/分组│  │ 无业务逻辑          │  │ 只渲染               │
-                └─────────────────┘  └─────────────────────┘  └──────────────────────┘
-   达成: 业务①②写一次三端字节级一致 · 可回放测试 · 加端=加driver · 加模块=Module+register
-```
+
+> 达成：业务①② 写一次**三端字节级一致** · 可回放测试 · 加端 = 加 driver · 加模块 = Module + register。
 
 ## 两图差异速读
 

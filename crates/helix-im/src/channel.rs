@@ -20,12 +20,12 @@
 //! 2. 外层吐 `Persist{corr, ops}` — driver 落库
 //! 3. `on_persist_ok(corr, fx)`    — 仅 PortReply Ok 才 `commit_up_to` + 推 cursor
 
-use std::collections::BTreeMap;
-use helix_core::{Effect, EffectSink, Correlation};
-use helix_core::effect::{StorageOp, TimerId};
-use crate::state::{ChannelId, Seq, Cursor, InflightSync};
-use crate::sync_session::EventEnvelope;
 use crate::error::ImError;
+use crate::state::{ChannelId, Cursor, InflightSync, Seq};
+use crate::sync_session::EventEnvelope;
+use helix_core::effect::{StorageOp, TimerId};
+use helix_core::{Correlation, Effect, EffectSink};
+use std::collections::BTreeMap;
 
 /// gate 缺口闸门（1s 超时后发 /sync/notify）
 #[derive(Debug)]
@@ -91,8 +91,8 @@ impl Channel {
     ) -> Result<(), ImError> {
         let expected = Seq(self.cursor.value().0 + 1);
         match ev.seq.cmp(&expected) {
-            std::cmp::Ordering::Equal   => self.apply_and_flush_contiguous(ev, fx, now_ms),
-            std::cmp::Ordering::Less    => Ok(()),  // dup drop，幂等
+            std::cmp::Ordering::Equal => self.apply_and_flush_contiguous(ev, fx, now_ms),
+            std::cmp::Ordering::Less => Ok(()), // dup drop，幂等
             std::cmp::Ordering::Greater => self.buffer_and_arm_gate(ev, fx),
         }
     }
@@ -103,11 +103,7 @@ impl Channel {
     /// 1. 从 pending_commits 取出 target_seq
     /// 2. commit_cursor（MAX guard）
     /// 3. flush_contiguous_from_buffer（尝试继续处理缓冲中已就绪的事件）
-    pub fn on_persist_ok(
-        &mut self,
-        corr: Correlation,
-        fx: &mut EffectSink,
-    ) -> Result<(), ImError> {
+    pub fn on_persist_ok(&mut self, corr: Correlation, fx: &mut EffectSink) -> Result<(), ImError> {
         if let Some(target_seq) = self.pending_commits.remove(&corr) {
             self.commit_cursor(target_seq, fx)?;
             // 尝试放行 buffer 中已就绪的连续段
@@ -159,14 +155,24 @@ impl Channel {
     /// TimerId 由 `channel_id * 1000 + (cursor & 0xFFF)` 派生，确保同一 channel
     /// 在不同 cursor 位置的 gate timer 有不同 id（避免 timer_map 冲突）。
     /// 更健壮的方案是从 module 级别的 IdSource 分配；此处先用 channel 内派生策略。
-    fn buffer_and_arm_gate(&mut self, ev: EventEnvelope, fx: &mut EffectSink) -> Result<(), ImError> {
+    fn buffer_and_arm_gate(
+        &mut self,
+        ev: EventEnvelope,
+        fx: &mut EffectSink,
+    ) -> Result<(), ImError> {
         self.buffer.insert(ev.seq, ev);
         if self.gate.is_none() {
             // BLK-1b：channel_id 偏移 + cursor 低位哈希，避免多 channel 场景的 timer_id 碰撞
             let timer_id = TimerId::from_raw(
-                self.id.0.wrapping_mul(1000).wrapping_add(self.cursor.value().0 & 0xFFF)
+                self.id
+                    .0
+                    .wrapping_mul(1000)
+                    .wrapping_add(self.cursor.value().0 & 0xFFF),
             );
-            fx.push(Effect::ScheduleTimer { id: timer_id, after_ms: 1_000 });
+            fx.push(Effect::ScheduleTimer {
+                id: timer_id,
+                after_ms: 1_000,
+            });
             self.gate = Some(Gate {
                 timer_id,
                 expected_seq: Seq(self.cursor.value().0 + 1),
@@ -204,7 +210,8 @@ impl Channel {
     ///
     /// 外层对这批 ops 吐 Persist{corr, ops}，PortReply Ok 后才调 commit_up_to。
     pub fn peek_up_to(&self, target_seq: Seq) -> Vec<StorageOp> {
-        self.buffer.range(..=target_seq)
+        self.buffer
+            .range(..=target_seq)
             .map(|(_, ev)| event_to_upsert_op(ev))
             .collect()
     }
@@ -244,16 +251,20 @@ impl Channel {
 ///
 /// 生产场景应用 msg_id 作为 conflict key；此处用 seq 满足测试用的确定性断言。
 pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
-    use helix_core::effect::{UpsertSpec, SqlValue};
+    use helix_core::effect::{SqlValue, UpsertSpec};
     StorageOp::BatchUpsert(UpsertSpec {
         table: "messages",
         rows: vec![vec![
             ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
             ("channel_id".to_string(), SqlValue::Integer(ev.id.0 as i64)),
-            ("event_type".to_string(), SqlValue::Integer(ev.kind.type_num() as i64)),
-            ("raw".to_string(), SqlValue::Text(
-                String::from_utf8_lossy(ev.raw.as_ref()).to_string()
-            )),
+            (
+                "event_type".to_string(),
+                SqlValue::Integer(ev.kind.type_num() as i64),
+            ),
+            (
+                "raw".to_string(),
+                SqlValue::Text(String::from_utf8_lossy(ev.raw.as_ref()).to_string()),
+            ),
         ]],
         conflict_key: Some("seq"),
     })

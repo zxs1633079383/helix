@@ -19,15 +19,14 @@ use std::time::Duration;
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
 
-use helix_core::{ExecutionShell, Tick};
-use helix_core::effect::{Correlation, Effect, EffectSink, TimerId,
-                          DomainEventBytes, StorageOp};
+use helix_core::effect::{Correlation, DomainEventBytes, Effect, EffectSink, StorageOp, TimerId};
 use helix_core::error::CoreError;
 use helix_core::module_host::Module;
+use helix_core::{ExecutionShell, Tick};
 
 use helix_driver_native::{
-    NativeStorage, NativeHttp, NativeEventSink,
-    engine_loop::{EngineConfig, run_engine_loop},
+    engine_loop::{run_engine_loop, EngineConfig},
+    NativeEventSink, NativeHttp, NativeStorage,
 };
 
 // ─── 假模块（测试专用）────────────────────────────────────────────────────────
@@ -53,14 +52,22 @@ impl FakeModule {
         start_effects: Vec<BuiltEffect>,
         received: Arc<std::sync::Mutex<Vec<String>>>,
     ) -> Self {
-        Self { name, start_effects, received }
+        Self {
+            name,
+            start_effects,
+            received,
+        }
     }
 }
 
 impl Module for FakeModule {
-    fn name(&self) -> &'static str { self.name }
+    fn name(&self) -> &'static str {
+        self.name
+    }
 
-    fn accepts(&self, _: &Tick) -> bool { false }
+    fn accepts(&self, _: &Tick) -> bool {
+        false
+    }
 
     fn handle(
         &mut self,
@@ -72,7 +79,11 @@ impl Module for FakeModule {
             Tick::PortReply { corr, outcome } => format!(
                 "PortReply({},{})",
                 corr.raw(),
-                if matches!(outcome, helix_core::tick::PortOutcome::Ok(_)) { "ok" } else { "err" }
+                if matches!(outcome, helix_core::tick::PortOutcome::Ok(_)) {
+                    "ok"
+                } else {
+                    "err"
+                }
             ),
             Tick::Timer(id) => format!("Timer({})", id.raw()),
             Tick::Inbound(_) => "Inbound".to_string(),
@@ -97,7 +108,7 @@ impl Module for FakeModule {
                             helix_core::effect::MonotonicUpsertSpec {
                                 scope_key: format!("test_key_{}", corr_raw),
                                 value: 1,
-                            }
+                            },
                         )],
                     });
                 }
@@ -151,7 +162,11 @@ async fn test_emit_received_by_subscriber() {
     ));
 
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let config = EngineConfig { storage, http, event_sink };
+    let config = EngineConfig {
+        storage,
+        http,
+        event_sink,
+    };
     let tick_tx_for_loop = tick_tx.clone();
 
     let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -160,13 +175,10 @@ async fn test_emit_received_by_subscriber() {
     });
 
     // 等待 emit 事件（最多 500ms）
-    let event = tokio::time::timeout(
-        Duration::from_millis(500),
-        event_rx.recv(),
-    )
-    .await
-    .expect("should receive event within 500ms")
-    .expect("channel should not be closed");
+    let event = tokio::time::timeout(Duration::from_millis(500), event_rx.recv())
+        .await
+        .expect("should receive event within 500ms")
+        .expect("channel should not be closed");
 
     assert_eq!(event.0, Bytes::from_static(payload));
     drop(tick_tx);
@@ -187,12 +199,19 @@ async fn test_timer_fires_into_engine() {
     shell.register(FakeModule::new(
         "timer-test",
         // on_start: 调度 50ms 后触发的 timer
-        vec![BuiltEffect::ScheduleTimer { id_raw: 77, after_ms: 50 }],
+        vec![BuiltEffect::ScheduleTimer {
+            id_raw: 77,
+            after_ms: 50,
+        }],
         received_clone,
     ));
 
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let config = EngineConfig { storage, http, event_sink };
+    let config = EngineConfig {
+        storage,
+        http,
+        event_sink,
+    };
     let tick_tx_for_loop = tick_tx.clone();
 
     let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -206,7 +225,8 @@ async fn test_timer_fires_into_engine() {
     let ticks = received.lock().unwrap();
     assert!(
         ticks.iter().any(|s| s.contains("Timer(77)")),
-        "expected Timer(77) in received ticks, got: {:?}", &*ticks
+        "expected Timer(77) in received ticks, got: {:?}",
+        &*ticks
     );
     drop(tick_tx);
 }
@@ -234,7 +254,11 @@ async fn test_persist_portreply_roundtrip() {
     ));
 
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let config = EngineConfig { storage, http, event_sink };
+    let config = EngineConfig {
+        storage,
+        http,
+        event_sink,
+    };
     let tick_tx_for_loop = tick_tx.clone();
 
     let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -248,7 +272,8 @@ async fn test_persist_portreply_roundtrip() {
     let ticks = received.lock().unwrap();
     assert!(
         ticks.iter().any(|s| s.starts_with("PortReply(2002,")),
-        "expected PortReply(2002,...) in received ticks, got: {:?}", &*ticks
+        "expected PortReply(2002,...) in received ticks, got: {:?}",
+        &*ticks
     );
     drop(tick_tx);
 }

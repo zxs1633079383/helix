@@ -72,12 +72,7 @@ impl Module for PumpModule {
         matches!(tick, Tick::Command(c) if c.name == "pump")
     }
 
-    fn handle(
-        &mut self,
-        tick: &Tick,
-        _now_ms: u64,
-        out: &mut EffectSink,
-    ) -> Result<(), CoreError> {
+    fn handle(&mut self, tick: &Tick, _now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
             Tick::Command(_) => {
                 let corr = helix_core::Correlation::from_raw(self.next_corr);
@@ -124,7 +119,11 @@ async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
     });
 
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let config = EngineConfig { storage, http, event_sink };
+    let config = EngineConfig {
+        storage,
+        http,
+        event_sink,
+    };
     let tick_tx_for_loop = tick_tx.clone();
     let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     tokio::spawn(async move {
@@ -138,7 +137,13 @@ async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
 /// 用于 graceful drain 验证。
 async fn setup_engine_with_handle(
     db_path: &str,
-) -> (mpsc::Sender<Tick>, Arc<AtomicU64>, NativeStorage, tokio::task::JoinHandle<()>, oneshot::Sender<()>) {
+) -> (
+    mpsc::Sender<Tick>,
+    Arc<AtomicU64>,
+    NativeStorage,
+    tokio::task::JoinHandle<()>,
+    oneshot::Sender<()>,
+) {
     let _ = std::fs::remove_file(db_path);
     let _ = std::fs::remove_file(format!("{db_path}-shm"));
     let _ = std::fs::remove_file(format!("{db_path}-wal"));
@@ -162,7 +167,11 @@ async fn setup_engine_with_handle(
     });
 
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
-    let config = EngineConfig { storage, http, event_sink };
+    let config = EngineConfig {
+        storage,
+        http,
+        event_sink,
+    };
     let tick_tx_for_loop = tick_tx.clone();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
@@ -209,10 +218,19 @@ async fn stress_engine_pump_10k_no_window() {
 
     eprintln!("\n[stress_engine_pump_10k_no_window] (E1 修复验证，无背压窗口)");
     eprintln!("  persist effects  : {}", N);
-    eprintln!("  send phase       : {:.3} ms (无限流，立即全灌)", send_done.as_secs_f64() * 1e3);
+    eprintln!(
+        "  send phase       : {:.3} ms (无限流，立即全灌)",
+        send_done.as_secs_f64() * 1e3
+    );
     eprintln!("  total roundtrip  : {:.3} ms", elapsed.as_secs_f64() * 1e3);
-    eprintln!("  loop throughput  : {:.0} persist-roundtrips/s", N as f64 / elapsed.as_secs_f64());
-    eprintln!("  per-roundtrip    : {:.3} ms", elapsed.as_secs_f64() * 1e3 / N as f64);
+    eprintln!(
+        "  loop throughput  : {:.0} persist-roundtrips/s",
+        N as f64 / elapsed.as_secs_f64()
+    );
+    eprintln!(
+        "  per-roundtrip    : {:.3} ms",
+        elapsed.as_secs_f64() * 1e3 / N as f64
+    );
     drop(tick_tx);
 }
 
@@ -254,10 +272,19 @@ async fn stress_engine_pump_10k_windowed() {
 
     eprintln!("\n[stress_engine_pump_10k_windowed] (window=100 背压对照)");
     eprintln!("  persist effects  : {}", N);
-    eprintln!("  send phase       : {:.3} ms (背压后全部入队)", send_done.as_secs_f64() * 1e3);
+    eprintln!(
+        "  send phase       : {:.3} ms (背压后全部入队)",
+        send_done.as_secs_f64() * 1e3
+    );
     eprintln!("  total roundtrip  : {:.3} ms", elapsed.as_secs_f64() * 1e3);
-    eprintln!("  loop throughput  : {:.0} persist-roundtrips/s", N as f64 / elapsed.as_secs_f64());
-    eprintln!("  per-roundtrip    : {:.3} ms", elapsed.as_secs_f64() * 1e3 / N as f64);
+    eprintln!(
+        "  loop throughput  : {:.0} persist-roundtrips/s",
+        N as f64 / elapsed.as_secs_f64()
+    );
+    eprintln!(
+        "  per-roundtrip    : {:.3} ms",
+        elapsed.as_secs_f64() * 1e3 / N as f64
+    );
     drop(tick_tx);
 }
 
@@ -300,7 +327,10 @@ async fn stress_engine_graceful_drain() {
         if replies.load(Ordering::Relaxed) >= N {
             break;
         }
-        assert!(Instant::now() < deadline, "timeout waiting for PortReplies before drain");
+        assert!(
+            Instant::now() < deadline,
+            "timeout waiting for PortReplies before drain"
+        );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 
@@ -310,18 +340,27 @@ async fn stress_engine_graceful_drain() {
 
     // 等待引擎 drain 完成（run_engine_loop 返回）
     let drain_timeout = tokio::time::timeout(Duration::from_secs(30), engine_join).await;
-    assert!(drain_timeout.is_ok(), "engine graceful drain timed out after 30s");
-    assert!(drain_timeout.unwrap().is_ok(), "engine task panicked during drain");
+    assert!(
+        drain_timeout.is_ok(),
+        "engine graceful drain timed out after 30s"
+    );
+    assert!(
+        drain_timeout.unwrap().is_ok(),
+        "engine task panicked during drain"
+    );
 
     let elapsed = start.elapsed();
 
     // 查 DB：_helix_monotonic 里 scope_key="stress:pump" 的 value 应等于 N
     // (MonotonicUpsert 用 MAX guard，每个 Command 写自己的 corr 值，最终是最大值 = N)
-    let row = verify_storage.get(GetSpec {
-        table: "_helix_monotonic",
-        key_col: "scope_key",
-        key_val: helix_core::effect::SqlValue::Text("stress:pump".to_string()),
-    }).await.expect("db get after drain");
+    let row = verify_storage
+        .get(GetSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            key_val: helix_core::effect::SqlValue::Text("stress:pump".to_string()),
+        })
+        .await
+        .expect("db get after drain");
 
     assert!(
         row.is_some(),

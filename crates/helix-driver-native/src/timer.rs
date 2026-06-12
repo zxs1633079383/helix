@@ -9,9 +9,9 @@
 //! - `cancel()` abort JoinHandle + 移除（幂等，id 不存在时静默）
 //! - JoinHandle 不 await：fire-and-forget spawn，timer 到期自行发送 Tick
 
-use std::collections::HashMap;
-use helix_core::TimerId;
 use helix_core::Tick;
+use helix_core::TimerId;
+use std::collections::HashMap;
 use tokio::task::JoinHandle;
 
 pub struct TimerRegistry {
@@ -20,7 +20,9 @@ pub struct TimerRegistry {
 
 impl TimerRegistry {
     pub fn new() -> Self {
-        Self { handles: HashMap::new() }
+        Self {
+            handles: HashMap::new(),
+        }
     }
 
     /// 调度 timer：after_ms 毫秒后把 `Tick::Timer{id}` 发到 tick_tx。
@@ -76,10 +78,8 @@ mod tests {
         let id = TimerId::from_raw(42);
         registry.schedule(id, 10, tx); // 10ms 后触发
 
-        let tick = tokio::time::timeout(
-            tokio::time::Duration::from_millis(200),
-            rx.recv(),
-        ).await
+        let tick = tokio::time::timeout(tokio::time::Duration::from_millis(200), rx.recv())
+            .await
             .expect("timer should fire within 200ms")
             .expect("channel should not be closed");
 
@@ -98,13 +98,13 @@ mod tests {
         // tx 仍然 alive（clone 持有），rx.recv() 会阻塞（而非立即返回 None）
         // 因此 timeout 50ms 后应超时（Err），而非收到消息（Ok）
 
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_millis(50),
-            rx.recv(),
-        ).await;
+        let result = tokio::time::timeout(tokio::time::Duration::from_millis(50), rx.recv()).await;
 
         // timeout elapsed = Err(Elapsed)，表示 timer 未触发（符合预期）
-        assert!(result.is_err(), "cancelled timer should not fire within 50ms, result was ready");
+        assert!(
+            result.is_err(),
+            "cancelled timer should not fire within 50ms, result was ready"
+        );
 
         // 显式 drop tx（避免 rx 挂起）
         drop(tx);
@@ -117,12 +117,10 @@ mod tests {
 
         let id = TimerId::from_raw(7);
         registry.schedule(id, 10_000, tx.clone()); // 10s timer
-        registry.schedule(id, 10, tx);              // 10ms 覆盖
+        registry.schedule(id, 10, tx); // 10ms 覆盖
 
-        let tick = tokio::time::timeout(
-            tokio::time::Duration::from_millis(200),
-            rx.recv(),
-        ).await
+        let tick = tokio::time::timeout(tokio::time::Duration::from_millis(200), rx.recv())
+            .await
             .expect("reschedule should fire fast")
             .expect("channel open");
 

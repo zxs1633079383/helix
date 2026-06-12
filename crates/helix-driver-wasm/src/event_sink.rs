@@ -1,7 +1,7 @@
 //! WasmEventSink — wasm-bindgen JS callback
 
-use helix_core::ports::EventSink;
 use helix_core::effect::DomainEventBytes;
+use helix_core::ports::EventSink;
 
 pub struct WasmEventSink {
     // TODO: callback: js_sys::Function,  // JS callback(eventBytes: Uint8Array)

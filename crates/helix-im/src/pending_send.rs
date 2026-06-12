@@ -12,9 +12,9 @@
 //! - echo/sync 对账走同一对账点（reconcile）
 //! - 15s 超时无自动补发（on_timeout 不产出 Http effect）
 
-use helix_core::{Effect, EffectSink, Correlation, TimerId};
-use helix_core::effect::{StorageOp, UpsertSpec, SqlValue};
-use crate::state::{ServerId, TemporaryId, SendStatus};
+use crate::state::{SendStatus, ServerId, TemporaryId};
+use helix_core::effect::{SqlValue, StorageOp, UpsertSpec};
+use helix_core::{Correlation, Effect, EffectSink, TimerId};
 
 /// 待对账的单条消息发送记录
 pub struct PendingSend {
@@ -43,12 +43,7 @@ impl PendingSend {
     /// echo 与 sync 走完全相同 Effect 序列（源码印证）：
     /// 1. Persist{ON CONFLICT(temporary_id) 覆盖 id=serverId, status=sent}
     /// 2. CancelTimer{timeout_timer}（撤 15s 超时）
-    pub fn reconcile(
-        &mut self,
-        server_id: ServerId,
-        corr: Correlation,
-        fx: &mut EffectSink,
-    ) {
+    pub fn reconcile(&mut self, server_id: ServerId, corr: Correlation, fx: &mut EffectSink) {
         // 吐 Persist（ON CONFLICT temporaryId 覆盖为 server_id + Sent）
         // MAJ-5: table 和 conflict_key 使用 &'static str 常量，避免热路径堆分配
         fx.push(Effect::Persist {
@@ -56,9 +51,15 @@ impl PendingSend {
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
                 table: "messages",
                 rows: vec![vec![
-                    ("temporary_id".to_string(), SqlValue::Text(self.temporary_id.0.clone())),
+                    (
+                        "temporary_id".to_string(),
+                        SqlValue::Text(self.temporary_id.0.clone()),
+                    ),
                     ("id".to_string(), SqlValue::Integer(server_id.0 as i64)),
-                    ("send_status".to_string(), SqlValue::Text("sent".to_string())),
+                    (
+                        "send_status".to_string(),
+                        SqlValue::Text("sent".to_string()),
+                    ),
                 ]],
                 // conflict_key 的值（"temporary_id"）由 ACL-1 提供，core 不知道含义
                 conflict_key: Some("temporary_id"),
@@ -66,7 +67,9 @@ impl PendingSend {
         });
 
         // 吐 CancelTimer（撤 15s 超时）
-        fx.push(Effect::CancelTimer { id: self.timeout_timer });
+        fx.push(Effect::CancelTimer {
+            id: self.timeout_timer,
+        });
 
         self.status = SendStatus::Sent;
     }
@@ -87,8 +90,14 @@ impl PendingSend {
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
                 table: "messages",
                 rows: vec![vec![
-                    ("temporary_id".to_string(), SqlValue::Text(self.temporary_id.0.clone())),
-                    ("send_status".to_string(), SqlValue::Text("unsend".to_string())),
+                    (
+                        "temporary_id".to_string(),
+                        SqlValue::Text(self.temporary_id.0.clone()),
+                    ),
+                    (
+                        "send_status".to_string(),
+                        SqlValue::Text("unsend".to_string()),
+                    ),
                 ]],
                 conflict_key: Some("temporary_id"),
             })],

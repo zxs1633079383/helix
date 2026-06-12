@@ -11,8 +11,8 @@
 //! - wasm:   gloo-net/fetch（或 reqwest wasm 后端，无流式，无自定义 TLS）
 //! - ffi:    host http 回调 + futures-channel oneshot 包装
 
-use crate::error::PortError;
 use crate::effect::{HttpRequest, HttpResponse};
+use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
 
 /// HTTP 客户端的 core 抽象。

@@ -6,9 +6,9 @@
 //! - conn_state: WS 连接状态机
 //! - 各种 corr 路由索引（corr_to_channel / corr_to_send / corr_to_sync）
 
-use std::collections::HashMap;
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
+use std::collections::HashMap;
 
 // ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
 

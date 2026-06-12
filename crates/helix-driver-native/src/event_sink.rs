@@ -11,9 +11,9 @@
 //! // 然后在 tokio 任务里 loop { rx.recv().await }，转发给 Tauri AppHandle.emit
 //! ```
 
-use tokio::sync::broadcast;
-use helix_core::ports::EventSink;
 use helix_core::effect::DomainEventBytes;
+use helix_core::ports::EventSink;
+use tokio::sync::broadcast;
 
 /// broadcast channel 容量：缓冲突发事件，lagged 接收方跳过过旧消息。
 const BROADCAST_CAPACITY: usize = 1024;

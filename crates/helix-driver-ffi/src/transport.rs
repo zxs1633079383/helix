@@ -1,7 +1,7 @@
 //! FfiTransport — C ABI 回调包装 + futures-channel 桥接
 
-use helix_core::PortError;
 use bytes::Bytes;
+use helix_core::PortError;
 
 pub struct FfiTransport {
     // TODO: send_fn: extern "C" fn(*const u8, usize),

@@ -23,9 +23,9 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use helix_core::PortError;
-use helix_core::ports::Transport;
 use helix_core::effect::TransportId;
+use helix_core::ports::Transport;
+use helix_core::PortError;
 use helix_core::Tick;
 
 /// 退避参数（重连状态机将在后续版本接入；当前 Transport trait 调用方直接管理）
@@ -119,7 +119,11 @@ impl Transport for NativeTransport {
                         }
                     }
                     Ok(Message::Text(text)) => {
-                        if frame_tx.send(Ok(Bytes::from(text.into_bytes()))).await.is_err() {
+                        if frame_tx
+                            .send(Ok(Bytes::from(text.into_bytes())))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -156,12 +160,13 @@ impl Transport for NativeTransport {
     async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
         let mut state = self.state.lock().await;
         match &mut *state {
-            ConnState::Connected { sink, .. } => {
-                sink.send(Message::Binary(frame.to_vec())).await.map_err(map_ws_err)
-            }
-            ConnState::Disconnected => {
-                Err(PortError::Transport("send on disconnected transport".to_string()))
-            }
+            ConnState::Connected { sink, .. } => sink
+                .send(Message::Binary(frame.to_vec()))
+                .await
+                .map_err(map_ws_err),
+            ConnState::Disconnected => Err(PortError::Transport(
+                "send on disconnected transport".to_string(),
+            )),
         }
     }
 
@@ -205,11 +210,8 @@ mod tests {
     #[tokio::test]
     async fn test_send_on_disconnected_returns_err() {
         let (tx, _rx) = mpsc::channel(8);
-        let mut transport = NativeTransport::new(
-            "ws://127.0.0.1:0/never",
-            TransportId::from_raw(1),
-            Some(tx),
-        );
+        let mut transport =
+            NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(1), Some(tx));
 
         // 未 connect，send 应返回错误
         let result = transport.send(Bytes::from_static(b"hello")).await;
@@ -219,11 +221,8 @@ mod tests {
     #[tokio::test]
     async fn test_recv_on_disconnected_returns_none() {
         let (tx, _rx) = mpsc::channel(8);
-        let mut transport = NativeTransport::new(
-            "ws://127.0.0.1:0/never",
-            TransportId::from_raw(2),
-            Some(tx),
-        );
+        let mut transport =
+            NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(2), Some(tx));
 
         let result = transport.recv().await.expect("recv should not error");
         assert!(result.is_none(), "disconnected recv should return None");
@@ -232,11 +231,8 @@ mod tests {
     #[tokio::test]
     async fn test_close_on_disconnected_is_ok() {
         let (tx, _rx) = mpsc::channel(8);
-        let mut transport = NativeTransport::new(
-            "ws://127.0.0.1:0/never",
-            TransportId::from_raw(3),
-            Some(tx),
-        );
+        let mut transport =
+            NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(3), Some(tx));
         // close on disconnected 不应 panic
         transport.close().await.ok();
     }

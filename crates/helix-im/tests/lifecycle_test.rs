@@ -9,8 +9,8 @@
 mod common;
 use common::*;
 
+use helix_core::effect::TransportId;
 use helix_core::Tick;
-use helix_core::effect::{TransportId};
 
 // ─── on_start 行为 ────────────────────────────────────────────────────────────
 
@@ -22,17 +22,22 @@ fn on_start_emits_scan_persist_and_ping_timer() {
     // 应包含 Persist（Scan cursor）
     assert!(
         effects.iter().any(|e| matches!(e, EffectKind::Persist(_))),
-        "on_start should emit Persist(Scan), got: {:?}", effects
+        "on_start should emit Persist(Scan), got: {:?}",
+        effects
     );
     // 应包含 ScheduleTimer（ping）
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
-        "on_start should emit ScheduleTimer(ping), got: {:?}", effects
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
+        "on_start should emit ScheduleTimer(ping), got: {:?}",
+        effects
     );
     // 不应产出 Http（on_start 不主动 sync，等 Connected 后才 proactive resync）
     assert!(
         !effects.iter().any(|e| matches!(e, EffectKind::Http(_))),
-        "on_start should NOT emit Http, got: {:?}", effects
+        "on_start should NOT emit Http, got: {:?}",
+        effects
     );
 }
 
@@ -43,7 +48,8 @@ fn on_start_with_channels_still_no_http() {
     let effects = h.start(0);
     assert!(
         !effects.iter().any(|e| matches!(e, EffectKind::Http(_))),
-        "on_start with channels should NOT emit Http (proactive resync is in Connected), got: {:?}", effects
+        "on_start with channels should NOT emit Http (proactive resync is in Connected), got: {:?}",
+        effects
     );
 }
 
@@ -57,9 +63,15 @@ fn connected_triggers_proactive_resync_for_each_channel() {
     let connected_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 500);
 
     // 应对 3 个 channel 各发一个 Http（sync/notify）
-    let http_count = connected_effects.iter().filter(|e| matches!(e, EffectKind::Http(_))).count();
-    assert_eq!(http_count, 3,
-        "Connected with 3 channels should emit 3 Http sync/notify effects, got: {:?}", connected_effects);
+    let http_count = connected_effects
+        .iter()
+        .filter(|e| matches!(e, EffectKind::Http(_)))
+        .count();
+    assert_eq!(
+        http_count, 3,
+        "Connected with 3 channels should emit 3 Http sync/notify effects, got: {:?}",
+        connected_effects
+    );
 }
 
 #[test]
@@ -67,9 +79,15 @@ fn connected_with_no_channels_emits_no_http() {
     let mut h = Harness::new(&[]);
     h.start(0);
     let connected_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 500);
-    let http_count = connected_effects.iter().filter(|e| matches!(e, EffectKind::Http(_))).count();
-    assert_eq!(http_count, 0,
-        "Connected with no channels should emit no Http, got: {:?}", connected_effects);
+    let http_count = connected_effects
+        .iter()
+        .filter(|e| matches!(e, EffectKind::Http(_)))
+        .count();
+    assert_eq!(
+        http_count, 0,
+        "Connected with no channels should emit no Http, got: {:?}",
+        connected_effects
+    );
 }
 
 #[test]
@@ -78,9 +96,16 @@ fn connected_each_channel_gets_different_corr() {
     h.start(0);
     let effects = h.step(Tick::Connected(TransportId::from_raw(0)), 500);
 
-    let http_corrs: Vec<u64> = effects.iter().filter_map(|e| {
-        if let EffectKind::Http(c) = e { Some(*c) } else { None }
-    }).collect();
+    let http_corrs: Vec<u64> = effects
+        .iter()
+        .filter_map(|e| {
+            if let EffectKind::Http(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .collect();
     assert_eq!(http_corrs.len(), 3);
     // 所有 corr 应互不相同
     let unique: std::collections::HashSet<u64> = http_corrs.iter().copied().collect();
@@ -99,7 +124,8 @@ fn disconnected_produces_no_effects() {
     let disconnect_effects = h.step(Tick::Disconnected(TransportId::from_raw(0)), 1000);
     assert!(
         disconnect_effects.is_empty(),
-        "Disconnected should produce no effects, got: {:?}", disconnect_effects
+        "Disconnected should produce no effects, got: {:?}",
+        disconnect_effects
     );
 }
 
@@ -113,9 +139,14 @@ fn disconnected_then_reconnect_triggers_new_resync() {
 
     // 第二次连接
     let reconnect_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 2000);
-    let http_count = reconnect_effects.iter().filter(|e| matches!(e, EffectKind::Http(_))).count();
-    assert_eq!(http_count, 2,
-        "reconnect should trigger proactive resync again for all channels");
+    let http_count = reconnect_effects
+        .iter()
+        .filter(|e| matches!(e, EffectKind::Http(_)))
+        .count();
+    assert_eq!(
+        http_count, 2,
+        "reconnect should trigger proactive resync again for all channels"
+    );
 }
 
 // ─── ping timer 跨连接状态测试 ────────────────────────────────────────────────
@@ -124,9 +155,16 @@ fn disconnected_then_reconnect_triggers_new_resync() {
 fn ping_timer_fires_only_when_connected() {
     let mut h = Harness::new(&[]);
     let start_effects = h.start(0);
-    let ping_timer = start_effects.iter().find_map(|e| {
-        if let EffectKind::ScheduleTimer(id) = e { Some(*id) } else { None }
-    }).expect("should have ping timer from on_start");
+    let ping_timer = start_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .expect("should have ping timer from on_start");
 
     // Disconnected 状态下 ping timer 触发 → 不应吐 Send 帧（只 re-arm timer）
     let disconnect_effects = h.step(Tick::Disconnected(TransportId::from_raw(0)), 500);
@@ -135,7 +173,9 @@ fn ping_timer_fires_only_when_connected() {
     let timer_effects = h.step(timer_tick(ping_timer), 8001);
     // 应 re-arm（ScheduleTimer）
     assert!(
-        timer_effects.iter().any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
+        timer_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
         "ping timer should re-arm in disconnected state"
     );
     // 不应发 Send（未连接）
@@ -149,9 +189,16 @@ fn ping_timer_fires_only_when_connected() {
 fn ping_timer_fires_send_when_connected() {
     let mut h = Harness::new(&[]);
     let start_effects = h.start(0);
-    let ping_timer = start_effects.iter().find_map(|e| {
-        if let EffectKind::ScheduleTimer(id) = e { Some(*id) } else { None }
-    }).expect("should have ping timer from on_start");
+    let ping_timer = start_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .expect("should have ping timer from on_start");
 
     // 连接建立
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
@@ -164,7 +211,9 @@ fn ping_timer_fires_send_when_connected() {
     );
     // 应 re-arm
     assert!(
-        timer_effects.iter().any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
+        timer_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
         "ping timer should re-arm"
     );
 }

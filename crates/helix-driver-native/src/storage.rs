@@ -25,11 +25,12 @@
 //!   Real(f) → JSON number, Null → null。
 //! 此约定写在 engine_loop.rs 的 `rows_to_reply_bytes`/`rows_from_reply_bytes` 中。
 
-use helix_core::PortError;
+use helix_core::effect::{
+    GetSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+};
 use helix_core::ports::Storage;
-use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, SqlValue,
-                          Row as HelixRow};
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions, Column};
+use helix_core::PortError;
+use sqlx::{sqlite::SqlitePoolOptions, Column, SqlitePool};
 
 /// SQLite WAL 驱动存储。
 ///
@@ -91,7 +92,11 @@ impl NativeStorage {
             .await
             .map_err(Self::map_err)?;
 
-        Ok(Self { sync_write_pool, user_write_pool, read_pool })
+        Ok(Self {
+            sync_write_pool,
+            user_write_pool,
+            read_pool,
+        })
     }
 
     /// sqlx::Error → PortError::Storage（ACL-2 翻译）
@@ -239,7 +244,9 @@ impl Storage for NativeStorage {
         for val in key_vals {
             q = Self::bind_value(q, val);
         }
-        q.execute(&self.user_write_pool).await.map_err(Self::map_err)?;
+        q.execute(&self.user_write_pool)
+            .await
+            .map_err(Self::map_err)?;
 
         Ok(())
     }
@@ -254,7 +261,7 @@ impl Storage for NativeStorage {
         // 确保表存在（首次调用时建表，幂等）
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS _helix_monotonic \
-             (scope_key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL DEFAULT 0)"
+             (scope_key TEXT PRIMARY KEY NOT NULL, value INTEGER NOT NULL DEFAULT 0)",
         )
         .execute(&self.sync_write_pool)
         .await
@@ -263,7 +270,7 @@ impl Storage for NativeStorage {
         sqlx::query(
             "INSERT INTO _helix_monotonic (scope_key, value) VALUES (?, ?) \
              ON CONFLICT(scope_key) DO UPDATE SET value = excluded.value \
-             WHERE excluded.value > _helix_monotonic.value"
+             WHERE excluded.value > _helix_monotonic.value",
         )
         .bind(&spec.scope_key)
         .bind(spec.value)
@@ -284,7 +291,10 @@ impl Storage for NativeStorage {
         let mut q = sqlx::query(&sql);
         q = Self::bind_value(q, &spec.key_val);
 
-        let row = q.fetch_optional(&self.read_pool).await.map_err(Self::map_err)?;
+        let row = q
+            .fetch_optional(&self.read_pool)
+            .await
+            .map_err(Self::map_err)?;
         Ok(row.map(|r| Self::convert_row(&r)))
     }
 
@@ -308,7 +318,7 @@ impl Storage for NativeStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use helix_core::effect::{UpsertSpec, GetSpec, ScanSpec, SqlValue, MonotonicUpsertSpec};
+    use helix_core::effect::{GetSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec};
 
     async fn in_memory_storage() -> NativeStorage {
         // sqlite::memory: 每个连接是独立的内存 DB；用命名共享内存让三池共享同一 DB。
@@ -316,14 +326,15 @@ mod tests {
         // `?cache=shared` 让同进程内同名内存 DB 被多个连接共享（SQLite URI mode）。
         // sqlx 用 `sqlite:` scheme，URI 参数需要 `?mode=memory&cache=shared`。
         // 最简单方案：三池都用 max_connections=1 连同一个命名 in-memory DB。
-        NativeStorage::open("sqlite:file::testmem:?mode=memory&cache=shared").await
+        NativeStorage::open("sqlite:file::testmem:?mode=memory&cache=shared")
+            .await
             .expect("open shared in-memory sqlite")
     }
 
     async fn setup_test_table(storage: &NativeStorage) {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS messages \
-             (id INTEGER PRIMARY KEY, content TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0)"
+             (id INTEGER PRIMARY KEY, content TEXT NOT NULL, seq INTEGER NOT NULL DEFAULT 0)",
         )
         .execute(&storage.user_write_pool)
         .await
@@ -338,47 +349,54 @@ mod tests {
         // 首次插入
         let spec = UpsertSpec {
             table: "messages",
-            rows: vec![
-                vec![
-                    ("id".to_string(), SqlValue::Integer(1)),
-                    ("content".to_string(), SqlValue::Text("hello".to_string())),
-                    ("seq".to_string(), SqlValue::Integer(1)),
-                ],
-            ],
+            rows: vec![vec![
+                ("id".to_string(), SqlValue::Integer(1)),
+                ("content".to_string(), SqlValue::Text("hello".to_string())),
+                ("seq".to_string(), SqlValue::Integer(1)),
+            ]],
             conflict_key: Some("id"),
         };
         storage.batch_upsert(spec).await.expect("first insert");
 
         // 确认写入
-        let row = storage.get(GetSpec {
-            table: "messages",
-            key_col: "id",
-            key_val: SqlValue::Integer(1),
-        }).await.expect("get").expect("should exist");
+        let row = storage
+            .get(GetSpec {
+                table: "messages",
+                key_col: "id",
+                key_val: SqlValue::Integer(1),
+            })
+            .await
+            .expect("get")
+            .expect("should exist");
         let content = row.iter().find(|(k, _)| k == "content").unwrap();
         assert!(matches!(&content.1, SqlValue::Text(s) if s == "hello"));
 
         // ON CONFLICT DO UPDATE（相同 id，更新 content）
         let spec2 = UpsertSpec {
             table: "messages",
-            rows: vec![
-                vec![
-                    ("id".to_string(), SqlValue::Integer(1)),
-                    ("content".to_string(), SqlValue::Text("world".to_string())),
-                    ("seq".to_string(), SqlValue::Integer(2)),
-                ],
-            ],
+            rows: vec![vec![
+                ("id".to_string(), SqlValue::Integer(1)),
+                ("content".to_string(), SqlValue::Text("world".to_string())),
+                ("seq".to_string(), SqlValue::Integer(2)),
+            ]],
             conflict_key: Some("id"),
         };
         storage.batch_upsert(spec2).await.expect("upsert conflict");
 
-        let row2 = storage.get(GetSpec {
-            table: "messages",
-            key_col: "id",
-            key_val: SqlValue::Integer(1),
-        }).await.expect("get2").expect("should exist");
+        let row2 = storage
+            .get(GetSpec {
+                table: "messages",
+                key_col: "id",
+                key_val: SqlValue::Integer(1),
+            })
+            .await
+            .expect("get2")
+            .expect("should exist");
         let content2 = row2.iter().find(|(k, _)| k == "content").unwrap();
-        assert!(matches!(&content2.1, SqlValue::Text(s) if s == "world"), "upsert should update content");
+        assert!(
+            matches!(&content2.1, SqlValue::Text(s) if s == "world"),
+            "upsert should update content"
+        );
     }
 
     #[tokio::test]
@@ -406,16 +424,25 @@ mod tests {
         storage.batch_upsert(spec).await.expect("setup rows");
 
         // 批量更新 seq
-        storage.batch_update(
-            "messages",
-            "id",
-            &[SqlValue::Integer(10), SqlValue::Integer(11)],
-            vec![("seq".to_string(), SqlValue::Integer(99))],
-        ).await.expect("batch_update");
+        storage
+            .batch_update(
+                "messages",
+                "id",
+                &[SqlValue::Integer(10), SqlValue::Integer(11)],
+                vec![("seq".to_string(), SqlValue::Integer(99))],
+            )
+            .await
+            .expect("batch_update");
 
-        let r = storage.get(GetSpec {
-            table: "messages", key_col: "id", key_val: SqlValue::Integer(10)
-        }).await.expect("get").expect("row");
+        let r = storage
+            .get(GetSpec {
+                table: "messages",
+                key_col: "id",
+                key_val: SqlValue::Integer(10),
+            })
+            .await
+            .expect("get")
+            .expect("row");
         let seq = r.iter().find(|(k, _)| k == "seq").unwrap();
         assert!(matches!(&seq.1, SqlValue::Integer(99)));
     }
@@ -425,30 +452,47 @@ mod tests {
         let storage = in_memory_storage().await;
 
         // 首次：value=5
-        storage.monotonic_upsert(MonotonicUpsertSpec {
-            scope_key: "ch:1".to_string(),
-            value: 5,
-        }).await.expect("first");
+        storage
+            .monotonic_upsert(MonotonicUpsertSpec {
+                scope_key: "ch:1".to_string(),
+                value: 5,
+            })
+            .await
+            .expect("first");
 
         // 推进：value=10（> 5，应写入）
-        storage.monotonic_upsert(MonotonicUpsertSpec {
-            scope_key: "ch:1".to_string(),
-            value: 10,
-        }).await.expect("advance");
+        storage
+            .monotonic_upsert(MonotonicUpsertSpec {
+                scope_key: "ch:1".to_string(),
+                value: 10,
+            })
+            .await
+            .expect("advance");
 
         // 退行：value=3（< 10，MAX guard 应拒绝，保持 10）
-        storage.monotonic_upsert(MonotonicUpsertSpec {
-            scope_key: "ch:1".to_string(),
-            value: 3,
-        }).await.expect("reject smaller");
+        storage
+            .monotonic_upsert(MonotonicUpsertSpec {
+                scope_key: "ch:1".to_string(),
+                value: 3,
+            })
+            .await
+            .expect("reject smaller");
 
-        let row = storage.get(GetSpec {
-            table: "_helix_monotonic",
-            key_col: "scope_key",
-            key_val: SqlValue::Text("ch:1".to_string()),
-        }).await.expect("get monotonic").expect("should exist");
+        let row = storage
+            .get(GetSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                key_val: SqlValue::Text("ch:1".to_string()),
+            })
+            .await
+            .expect("get monotonic")
+            .expect("should exist");
         let val = row.iter().find(|(k, _)| k == "value").unwrap();
-        assert!(matches!(&val.1, SqlValue::Integer(10)), "MAX guard must keep 10, got {:?}", val.1);
+        assert!(
+            matches!(&val.1, SqlValue::Integer(10)),
+            "MAX guard must keep 10, got {:?}",
+            val.1
+        );
     }
 
     #[tokio::test]
@@ -470,12 +514,27 @@ mod tests {
             storage.batch_upsert(spec).await.expect("insert row");
         }
 
-        let rows = storage.scan(ScanSpec { table: "messages", limit: Some(3) }).await.expect("scan");
+        let rows = storage
+            .scan(ScanSpec {
+                table: "messages",
+                limit: Some(3),
+            })
+            .await
+            .expect("scan");
         assert_eq!(rows.len(), 3, "scan with limit=3 should return 3 rows");
 
-        let all = storage.scan(ScanSpec { table: "messages", limit: None }).await.expect("scan all");
+        let all = storage
+            .scan(ScanSpec {
+                table: "messages",
+                limit: None,
+            })
+            .await
+            .expect("scan all");
         // 5 rows inserted but there might be more from other tests; at least 5
-        assert!(all.len() >= 5, "scan None should return all rows (at least 5)");
+        assert!(
+            all.len() >= 5,
+            "scan None should return all rows (at least 5)"
+        );
     }
 
     #[tokio::test]
@@ -483,11 +542,14 @@ mod tests {
         let storage = in_memory_storage().await;
         setup_test_table(&storage).await;
 
-        let row = storage.get(GetSpec {
-            table: "messages",
-            key_col: "id",
-            key_val: SqlValue::Integer(9999),
-        }).await.expect("get");
+        let row = storage
+            .get(GetSpec {
+                table: "messages",
+                key_col: "id",
+                key_val: SqlValue::Integer(9999),
+            })
+            .await
+            .expect("get");
         assert!(row.is_none(), "nonexistent key should return None");
     }
 }

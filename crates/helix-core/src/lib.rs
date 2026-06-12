@@ -21,18 +21,18 @@
 //! cargo check -p helix-core --target aarch64-apple-ios
 //! ```
 
-pub mod platform;
-pub mod engine;
-pub mod module_host;
 pub mod effect;
-pub mod tick;
+pub mod engine;
 pub mod error;
+pub mod module_host;
+pub mod platform;
 pub mod ports;
+pub mod tick;
 
 // Re-export most-used types at crate root for ergonomic imports
+pub use effect::{Correlation, DomainEventBytes, Effect, EffectSink, TimerId};
 pub use engine::ExecutionShell;
-pub use module_host::{Module, ModuleHost};
-pub use effect::{Effect, EffectSink, Correlation, TimerId, DomainEventBytes};
-pub use tick::Tick;
 pub use error::{CoreError, PortError};
+pub use module_host::{Module, ModuleHost};
 pub use platform::{MaybeSend, MaybeSync};
+pub use tick::Tick;

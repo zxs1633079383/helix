@@ -11,13 +11,13 @@
 //! - `handle` 严格同步，零 await，零 I/O，零 spawn
 //! - 所有副作用通过 EffectSink 输出，由 driver 异步兑现
 
-use helix_core::{Module, Tick, EffectSink, CoreError, Effect};
-use helix_core::effect::{TimerId, StorageOp, ScanSpec, UpsertSpec, SqlValue, HttpRequest};
-use crate::state::{ImState, ConnState, ChannelId, Seq, TemporaryId, SendStatus};
-use crate::channel::Channel;
-use crate::pending_send::PendingSend;
 use crate::acl;
+use crate::channel::Channel;
 use crate::error::ImError;
+use crate::pending_send::PendingSend;
+use crate::state::{ChannelId, ConnState, ImState, SendStatus, Seq, TemporaryId};
+use helix_core::effect::{HttpRequest, ScanSpec, SqlValue, StorageOp, TimerId, UpsertSpec};
+use helix_core::{CoreError, Effect, EffectSink, Module, Tick};
 
 /// IM 业务模块配置
 pub struct ImConfig {
@@ -81,12 +81,17 @@ impl ImModule {
 
     /// 测试 / driver 初始化用：预注册一个 channel（初始 cursor 值由调用方提供）
     pub fn register_channel(&mut self, id: ChannelId, initial_cursor: u64) {
-        self.state.channels.insert(id, Channel::new(id, initial_cursor));
+        self.state
+            .channels
+            .insert(id, Channel::new(id, initial_cursor));
     }
 
     /// 查询 per-channel cursor（测试 / 诊断用）
     pub fn cursor_for(&self, channel_id: ChannelId) -> Option<u64> {
-        self.state.channels.get(&channel_id).map(|ch| ch.cursor.value().0)
+        self.state
+            .channels
+            .get(&channel_id)
+            .map(|ch| ch.cursor.value().0)
     }
 
     /// 查询 pending_sends 数量（测试用）
@@ -244,7 +249,10 @@ impl ImModule {
                 Some(s) => match s.parse::<u64>() {
                     Ok(v) if v > 0 => v,
                     Ok(_) | Err(_) => {
-                        tracing::warn!(scope_key = s, "scan row scope_key not a valid channel_id u64, skipping");
+                        tracing::warn!(
+                            scope_key = s,
+                            "scan row scope_key not a valid channel_id u64, skipping"
+                        );
                         continue;
                     }
                 },
@@ -258,7 +266,8 @@ impl ImModule {
                 _ => 0u64,
             };
             // register_channel 幂等：若已存在则不覆盖（Connected 路径可能已注册）
-            self.state.channels
+            self.state
+                .channels
                 .entry(ChannelId(channel_id))
                 .or_insert_with(|| crate::channel::Channel::new(ChannelId(channel_id), cursor));
         }
@@ -280,12 +289,18 @@ impl ImModule {
 
     /// 向所有已知 channel 发 proactive sync Http（复用逻辑，Connected 和 scan_reply 共用）
     fn emit_proactive_resync(&mut self, out: &mut EffectSink) {
-        let channel_cursors: Vec<(ChannelId, Seq)> = self.state.channels.iter()
+        let channel_cursors: Vec<(ChannelId, Seq)> = self
+            .state
+            .channels
+            .iter()
             .map(|(&id, ch)| (id, ch.cursor.value()))
             .collect();
         for (channel_id, from_seq) in channel_cursors {
             // B1 gate_inflight 守卫：跳过已有在途 sync 的 channel
-            if self.state.channels.get(&channel_id)
+            if self
+                .state
+                .channels
+                .get(&channel_id)
                 .map_or(false, |ch| ch.inflight_sync.is_some())
             {
                 continue;
@@ -314,7 +329,11 @@ impl ImModule {
     fn maybe_continue_sync(&mut self, channel_id: ChannelId, out: &mut EffectSink) {
         // 读取 cursor 和 last_sync_from_seq（不可变借用）
         let (cursor_seq, prev_from_seq, has_inflight) = match self.state.channels.get(&channel_id) {
-            Some(ch) => (ch.cursor.value(), ch.last_sync_from_seq, ch.inflight_sync.is_some()),
+            Some(ch) => (
+                ch.cursor.value(),
+                ch.last_sync_from_seq,
+                ch.inflight_sync.is_some(),
+            ),
             None => return,
         };
 
@@ -382,8 +401,8 @@ impl ImModule {
         reply: &helix_core::tick::ReplyBytes,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        use crate::sync_session::SyncResponse;
         use crate::parser::parse_sync_response;
+        use crate::sync_session::SyncResponse;
 
         let response = parse_sync_response(reply.0.as_ref())
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
@@ -393,7 +412,10 @@ impl ImModule {
                 // cursor 已是最新，无事可做
             }
 
-            SyncResponse::Events { events, needs_continuation } => {
+            SyncResponse::Events {
+                events,
+                needs_continuation,
+            } => {
                 if events.is_empty() {
                     if needs_continuation {
                         // 终止保证：服务端返回空 events 但仍声称需续拉 → 防无限循环
@@ -421,7 +443,9 @@ impl ImModule {
                 // E3：在 corr_to_channel 同时记录是否需要续拉
                 // 通过 state.continuation_pending 标记（此 corr 落库成功后续拉）
                 if needs_continuation {
-                    self.state.continuation_pending.insert(persist_corr, channel_id);
+                    self.state
+                        .continuation_pending
+                        .insert(persist_corr, channel_id);
                 }
             }
 
@@ -507,7 +531,10 @@ impl ImModule {
 
         // 3. gate timer（per-channel，1s 缺口后触发 sync/notify）
         //    找出哪个 channel 持有这个 gate timer
-        let maybe_channel = self.state.channels.iter()
+        let maybe_channel = self
+            .state
+            .channels
+            .iter()
             .find(|(_, ch)| ch.gate.as_ref().map_or(false, |g| g.timer_id == timer_id))
             .map(|(id, _)| *id);
 
@@ -533,7 +560,10 @@ impl ImModule {
         }
 
         // 4. 15s 发送超时 timer
-        let maybe_tmp = self.state.pending_sends.iter()
+        let maybe_tmp = self
+            .state
+            .pending_sends
+            .iter()
             .find(|(_, ps)| ps.timeout_timer == timer_id)
             .map(|(id, _)| id.clone());
 
@@ -555,18 +585,16 @@ impl ImModule {
     /// 2. Http{H1, POST /posts/create}
     /// 3. ScheduleTimer{T1, 15s}
     /// 4. Emit(im:post:sending)
-    fn handle_send_message(
-        &mut self,
-        payload: &[u8],
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
+    fn handle_send_message(&mut self, payload: &[u8], out: &mut EffectSink) -> Result<(), ImError> {
         // 解析命令载荷
         let cmd: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| ImError::Parse(format!("im_send_message payload: {}", e)))?;
 
-        let channel_id = cmd["channel_id"].as_u64()
+        let channel_id = cmd["channel_id"]
+            .as_u64()
             .ok_or_else(|| ImError::Parse("missing channel_id".to_string()))?;
-        let tmp_id_str = cmd["temporary_id"].as_str()
+        let tmp_id_str = cmd["temporary_id"]
+            .as_str()
             .ok_or_else(|| ImError::Parse("missing temporary_id".to_string()))?
             .to_string();
         let text = cmd["text"].as_str().unwrap_or("").to_string();
@@ -585,10 +613,19 @@ impl ImModule {
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
                 table: "messages",
                 rows: vec![vec![
-                    ("temporary_id".to_string(), SqlValue::Text(tmp_id_str.clone())),
-                    ("channel_id".to_string(), SqlValue::Integer(channel_id.0 as i64)),
+                    (
+                        "temporary_id".to_string(),
+                        SqlValue::Text(tmp_id_str.clone()),
+                    ),
+                    (
+                        "channel_id".to_string(),
+                        SqlValue::Integer(channel_id.0 as i64),
+                    ),
                     ("message".to_string(), SqlValue::Text(text.clone())),
-                    ("send_status".to_string(), SqlValue::Text("sending".to_string())),
+                    (
+                        "send_status".to_string(),
+                        SqlValue::Text("sending".to_string()),
+                    ),
                 ]],
                 conflict_key: Some("temporary_id"),
             })],
@@ -617,13 +654,18 @@ impl ImModule {
         });
 
         // 4. Emit(im:post:sending)
-        out.push(crate::acl::to_effect::emit_post_sending(channel_id, &tmp_id_str));
+        out.push(crate::acl::to_effect::emit_post_sending(
+            channel_id,
+            &tmp_id_str,
+        ));
 
         // 注册 PendingSend（等待 echo 对账）
         let mut ps = PendingSend::new(tmp_id.clone(), t1_timer);
         ps.status = SendStatus::Local;
         self.state.pending_sends.insert(tmp_id, ps);
-        self.state.corr_to_send.insert(p1_corr, TemporaryId(tmp_id_str));
+        self.state
+            .corr_to_send
+            .insert(p1_corr, TemporaryId(tmp_id_str));
 
         Ok(())
     }
@@ -669,12 +711,7 @@ impl Module for ImModule {
     }
 
     /// 处理一个 Tick，零 I/O，零 await。
-    fn handle(
-        &mut self,
-        tick: &Tick,
-        now_ms: u64,
-        out: &mut EffectSink,
-    ) -> Result<(), CoreError> {
+    fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
             Tick::Inbound(_) => {
                 // ACL-1 解析入站帧
@@ -693,27 +730,27 @@ impl Module for ImModule {
                         // 解析失败：静默 drop（不让 IM wire 错误崩溃 engine）
                         tracing::debug!("im: inbound parse error: {}", msg);
                     }
-                    Err(e) => return Err(CoreError::ModuleError {
-                        module: self.name(),
-                        source: Box::new(e),
-                    }),
+                    Err(e) => {
+                        return Err(CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })
+                    }
                 }
             }
 
-            Tick::Command(cmd) => {
-                match cmd.name.as_ref() {
-                    "im_send_message" => {
-                        self.handle_send_message(cmd.payload.as_ref(), out)
-                            .map_err(|e| CoreError::ModuleError {
-                                module: self.name(),
-                                source: Box::new(e),
-                            })?;
-                    }
-                    _ => {
-                        tracing::debug!("im: unhandled command '{}'", cmd.name);
-                    }
+            Tick::Command(cmd) => match cmd.name.as_ref() {
+                "im_send_message" => {
+                    self.handle_send_message(cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
                 }
-            }
+                _ => {
+                    tracing::debug!("im: unhandled command '{}'", cmd.name);
+                }
+            },
 
             Tick::PortReply { corr, outcome } => {
                 self.handle_port_reply(*corr, outcome, now_ms, out)
@@ -737,8 +774,10 @@ impl Module for ImModule {
                 self.state.conn = ConnState::Connected;
                 let channel_count = self.state.channels.len();
                 self.emit_proactive_resync(out);
-                tracing::info!("helix-im: connected, triggered proactive resync for {} channels",
-                    channel_count);
+                tracing::info!(
+                    "helix-im: connected, triggered proactive resync for {} channels",
+                    channel_count
+                );
             }
 
             Tick::Disconnected(_transport) => {
@@ -801,14 +840,20 @@ impl Module for ImModule {
             out.push(Effect::CancelTimer { id: backoff_timer });
         }
         // Cancel all channel gate timers
-        let gate_timers: Vec<TimerId> = self.state.channels.values()
+        let gate_timers: Vec<TimerId> = self
+            .state
+            .channels
+            .values()
             .filter_map(|ch| ch.gate.as_ref().map(|g| g.timer_id))
             .collect();
         for tid in gate_timers {
             out.push(Effect::CancelTimer { id: tid });
         }
         // Cancel all pending send timeout timers
-        let send_timers: Vec<TimerId> = self.state.pending_sends.values()
+        let send_timers: Vec<TimerId> = self
+            .state
+            .pending_sends
+            .values()
             .map(|ps| ps.timeout_timer)
             .collect();
         for tid in send_timers {

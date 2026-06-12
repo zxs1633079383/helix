@@ -16,11 +16,11 @@
 //!
 //! 预期模块数 < 10，Inbound 的线性扫描实践 O(1)，可接受。
 
-use std::collections::HashMap;
+use crate::effect::{Correlation, EffectSink, TimerId};
+use crate::error::CoreError;
 use crate::platform::MaybeSend;
 use crate::tick::Tick;
-use crate::effect::{EffectSink, Correlation, TimerId};
-use crate::error::CoreError;
+use std::collections::HashMap;
 
 /// 确定性业务模块的完整契约。
 ///
@@ -50,12 +50,7 @@ pub trait Module: MaybeSend + 'static {
     /// - 严格同步：零 await，零 I/O，零 spawn
     /// - 不直接调用任何 port trait
     /// - 所有副作用通过 `out.push(Effect::...)` 表达
-    fn handle(
-        &mut self,
-        tick: &Tick,
-        now_ms: u64,
-        out: &mut EffectSink,
-    ) -> Result<(), CoreError>;
+    fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError>;
 
     /// 模块启动钩子。
     ///
@@ -140,7 +135,9 @@ pub struct ModuleHost {
 
 impl ModuleHost {
     pub fn new() -> Self {
-        Self { modules: Vec::new() }
+        Self {
+            modules: Vec::new(),
+        }
     }
 
     /// 注册新业务模块（加模块不改 dispatch 逻辑，开闭原则）
@@ -182,7 +179,9 @@ impl ModuleHost {
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
-        let m = self.modules.get_mut(module_index)
+        let m = self
+            .modules
+            .get_mut(module_index)
             .ok_or(CoreError::NoHandler("module_index out of bounds"))?;
         m.handle(tick, now_ms, out)
             .map_err(|e| CoreError::ModuleError {
@@ -194,8 +193,9 @@ impl ModuleHost {
     /// 调用单个模块的 on_start（BLK-1a：供 ExecutionShell 按 index 逐个调用，
     /// 以便每个模块的 Correlation/TimerId 注册到正确的 module_index）
     pub fn start_one(&mut self, idx: usize, out: &mut EffectSink) -> Result<(), CoreError> {
-        let m = self.modules.get_mut(idx)
-            .ok_or(CoreError::NoHandler("start_one: module_index out of bounds"))?;
+        let m = self.modules.get_mut(idx).ok_or(CoreError::NoHandler(
+            "start_one: module_index out of bounds",
+        ))?;
         m.on_start(out).map_err(|e| CoreError::ModuleError {
             module: m.name(),
             source: Box::new(e),

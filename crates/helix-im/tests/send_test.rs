@@ -19,26 +19,36 @@ fn send_message_emits_four_effects() {
     // 应产出 Persist{P1}（乐观落库）
     assert!(
         effects.iter().any(|e| matches!(e, EffectKind::Persist(_))),
-        "im_send_message should emit Persist(P1), got: {:?}", effects
+        "im_send_message should emit Persist(P1), got: {:?}",
+        effects
     );
     // 应产出 Http{H1}（POST /posts/create）
     assert!(
         effects.iter().any(|e| matches!(e, EffectKind::Http(_))),
-        "im_send_message should emit Http(H1), got: {:?}", effects
+        "im_send_message should emit Http(H1), got: {:?}",
+        effects
     );
     // 应产出 ScheduleTimer{T1, 15s}
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
-        "im_send_message should emit ScheduleTimer(T1), got: {:?}", effects
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
+        "im_send_message should emit ScheduleTimer(T1), got: {:?}",
+        effects
     );
     // 应产出 Emit(im:post:sending)
     assert!(
         effects.iter().any(|e| matches!(e, EffectKind::Emit)),
-        "im_send_message should emit Emit(im:post:sending), got: {:?}", effects
+        "im_send_message should emit Emit(im:post:sending), got: {:?}",
+        effects
     );
     // 恰好 4 个 Effect
-    assert_eq!(effects.len(), 4,
-        "im_send_message should emit exactly 4 effects, got: {:?}", effects);
+    assert_eq!(
+        effects.len(),
+        4,
+        "im_send_message should emit exactly 4 effects, got: {:?}",
+        effects
+    );
 }
 
 // ─── 两条消息各自独立 ────────────────────────────────────────────────────────
@@ -50,13 +60,52 @@ fn send_two_messages_each_independent() {
     let e2 = h.step(send_message_cmd(1, "tmp_2", "msg2"), 1001);
 
     // 两条消息各有自己的 Persist corr（不同）
-    let corr1 = e1.iter().find_map(|e| if let EffectKind::Persist(c) = e { Some(*c) } else { None }).unwrap();
-    let corr2 = e2.iter().find_map(|e| if let EffectKind::Persist(c) = e { Some(*c) } else { None }).unwrap();
-    assert_ne!(corr1, corr2, "two messages should have different Persist corrs");
+    let corr1 = e1
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Persist(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let corr2 = e2
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Persist(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_ne!(
+        corr1, corr2,
+        "two messages should have different Persist corrs"
+    );
 
     // 各自 timer 也不同
-    let t1 = e1.iter().find_map(|e| if let EffectKind::ScheduleTimer(id) = e { Some(*id) } else { None }).unwrap();
-    let t2 = e2.iter().find_map(|e| if let EffectKind::ScheduleTimer(id) = e { Some(*id) } else { None }).unwrap();
+    let t1 = e1
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let t2 = e2
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .unwrap();
     assert_ne!(t1, t2, "two messages should have different timeout timers");
 }
 
@@ -66,20 +115,34 @@ fn send_two_messages_each_independent() {
 fn send_p1_persist_ok_advances_status() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
-    let p1_corr = effects.iter().find_map(|e| {
-        if let EffectKind::Persist(c) = e { Some(*c) } else { None }
-    }).expect("P1 corr");
+    let p1_corr = effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Persist(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .expect("P1 corr");
 
     // P1 落库成功
     let reply_effects = h.step(port_reply_ok(p1_corr), 1100);
     // P1 PortReply 不产出额外 Effect（只是状态推进）
     // 不应产出新 Persist 或 Http
     assert!(
-        !reply_effects.iter().any(|e| matches!(e, EffectKind::Persist(_))),
-        "P1 ok should not emit new Persist, got: {:?}", reply_effects
+        !reply_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::Persist(_))),
+        "P1 ok should not emit new Persist, got: {:?}",
+        reply_effects
     );
     // pending_send 仍存在（等待 echo 对账）
-    assert_eq!(h.module.pending_send_count(), 1, "pending_send should still be 1 after P1 ok");
+    assert_eq!(
+        h.module.pending_send_count(),
+        1,
+        "pending_send should still be 1 after P1 ok"
+    );
 }
 
 // ─── 15s 超时 → UnSend + PersistFire ─────────────────────────────────────────
@@ -88,16 +151,26 @@ fn send_p1_persist_ok_advances_status() {
 fn send_timeout_marks_unsend() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
-    let timeout_timer = effects.iter().find_map(|e| {
-        if let EffectKind::ScheduleTimer(id) = e { Some(*id) } else { None }
-    }).expect("timeout timer");
+    let timeout_timer = effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .expect("timeout timer");
 
     // 15s 超时触发
     let timeout_effects = h.step(timer_tick(timeout_timer), 16_001);
     // 应产出 PersistFire（标记 unsend）
     assert!(
-        timeout_effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "timeout should emit PersistFire to mark unsend, got: {:?}", timeout_effects
+        timeout_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistFire)),
+        "timeout should emit PersistFire to mark unsend, got: {:?}",
+        timeout_effects
     );
 }
 
@@ -107,9 +180,16 @@ fn send_timeout_marks_unsend() {
 fn send_echo_reconcile_cancels_timer() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
-    let timeout_timer = effects.iter().find_map(|e| {
-        if let EffectKind::ScheduleTimer(id) = e { Some(*id) } else { None }
-    }).expect("timeout timer");
+    let timeout_timer = effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .expect("timeout timer");
 
     // 模拟 echo 通过 inbound_event 不太直接（需要 parser 支持 temporary_id 字段）
     // 此处用 PendingSend.reconcile 路径通过直接触发验证
@@ -119,7 +199,9 @@ fn send_echo_reconcile_cancels_timer() {
     // 我们通过 timer_tick 模拟超时先到，再验证幂等（已 Sent 的忽略）
     let timeout_effects = h.step(timer_tick(timeout_timer), 16_001);
     assert!(
-        timeout_effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
+        timeout_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistFire)),
         "timeout should emit PersistFire"
     );
 
@@ -127,8 +209,11 @@ fn send_echo_reconcile_cancels_timer() {
     let effects2 = h.step(timer_tick(timeout_timer), 16_002);
     // 不应再次产出 PersistFire
     assert!(
-        !effects2.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "double-fire timeout should be idempotent, got: {:?}", effects2
+        !effects2
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistFire)),
+        "double-fire timeout should be idempotent, got: {:?}",
+        effects2
     );
 }
 
@@ -143,11 +228,16 @@ fn send_and_receive_interleaved() {
     // 同时收到 seq=1 的 WS 事件（其他人发的消息）
     let recv_effects = h.step(inbound_event(1, 1, 1), 1001);
     assert!(
-        recv_effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
+        recv_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::PersistFire)),
         "inbound WS event should still work while send is pending"
     );
 
     // 发送的消息和接收的事件应该互不影响
-    assert_eq!(h.module.pending_send_count(), 1,
-        "pending send should still be 1 after receiving other message");
+    assert_eq!(
+        h.module.pending_send_count(),
+        1,
+        "pending send should still be 1 after receiving other message"
+    );
 }

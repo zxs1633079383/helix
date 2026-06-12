@@ -14,12 +14,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use reqwest::{Client, Method, header::{HeaderMap, HeaderName, HeaderValue}};
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Client, Method,
+};
 use tokio::sync::RwLock;
 
-use helix_core::PortError;
-use helix_core::ports::HttpRequester;
 use helix_core::effect::{HttpRequest, HttpResponse};
+use helix_core::ports::HttpRequester;
+use helix_core::PortError;
 
 /// 默认请求超时（含连接 + 响应体读取）
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -138,7 +141,11 @@ impl HttpRequester for NativeHttp {
 
         let body = resp.bytes().await.map_err(|e| Self::classify_error(&e))?;
 
-        Ok(HttpResponse { status, headers, body })
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
     }
 }
 
@@ -159,8 +166,12 @@ mod tests {
     #[tokio::test]
     async fn test_set_and_remove_global_header() {
         let http = NativeHttp::new().expect("build");
-        http.set_global_header("x-custom", "test-value").await.expect("set header");
-        http.remove_global_header("x-custom").await.expect("remove header");
+        http.set_global_header("x-custom", "test-value")
+            .await
+            .expect("set header");
+        http.remove_global_header("x-custom")
+            .await
+            .expect("remove header");
     }
 
     #[tokio::test]
@@ -189,7 +200,8 @@ mod tests {
         let result = http.request(req).await;
         assert!(
             matches!(result, Err(PortError::Transport(_))),
-            "timeout/network should produce PortError::Transport, got {:?}", result
+            "timeout/network should produce PortError::Transport, got {:?}",
+            result
         );
     }
 }

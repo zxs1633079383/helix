@@ -1,8 +1,8 @@
 //! core Tick → IM 事件翻译（ACL-1 读入端）
 
-use helix_core::Tick;
-use crate::sync_session::EventEnvelope;
 use crate::error::ImError;
+use crate::sync_session::EventEnvelope;
+use helix_core::Tick;
 
 /// 解析 Tick::Inbound 的不透明字节为 IM 强类型事件。
 ///

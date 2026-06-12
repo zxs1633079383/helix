@@ -1,7 +1,7 @@
 //! WasmHttp — gloo-net fetch
 
-use helix_core::PortError;
 use helix_core::effect::{HttpRequest, HttpResponse};
+use helix_core::PortError;
 
 pub struct WasmHttp;
 

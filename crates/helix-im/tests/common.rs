@@ -8,12 +8,12 @@
 //! use common::*;
 //! ```
 
-use helix_core::{Effect, EffectSink, Tick};
-use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::effect::{Correlation, TimerId};
-use helix_im::ImModule;
+use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
+use helix_core::{Effect, EffectSink, Tick};
 use helix_im::module::ImConfig;
 use helix_im::state::ChannelId;
+use helix_im::ImModule;
 
 // ─── Harness ────────────────────────────────────────────────────────────────
 
@@ -28,9 +28,9 @@ pub struct Harness {
 /// Effect 的简化分类（用于断言，不含全部字段）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectKind {
-    Persist(u64),       // corr.raw()
+    Persist(u64), // corr.raw()
     PersistFire,
-    Http(u64),          // corr.raw()
+    Http(u64), // corr.raw()
     Emit,
     ScheduleTimer(u64), // timer_id.raw()
     CancelTimer(u64),   // timer_id.raw()
@@ -40,13 +40,13 @@ pub enum EffectKind {
 impl EffectKind {
     pub fn from_effect(e: &Effect) -> Self {
         match e {
-            Effect::Persist { corr, .. }      => EffectKind::Persist(corr.raw()),
-            Effect::PersistFire { .. }         => EffectKind::PersistFire,
-            Effect::Http { corr, .. }          => EffectKind::Http(corr.raw()),
-            Effect::Emit { .. }                => EffectKind::Emit,
-            Effect::ScheduleTimer { id, .. }   => EffectKind::ScheduleTimer(id.raw()),
-            Effect::CancelTimer { id }         => EffectKind::CancelTimer(id.raw()),
-            Effect::Send { .. }                => EffectKind::Send,
+            Effect::Persist { corr, .. } => EffectKind::Persist(corr.raw()),
+            Effect::PersistFire { .. } => EffectKind::PersistFire,
+            Effect::Http { corr, .. } => EffectKind::Http(corr.raw()),
+            Effect::Emit { .. } => EffectKind::Emit,
+            Effect::ScheduleTimer { id, .. } => EffectKind::ScheduleTimer(id.raw()),
+            Effect::CancelTimer { id } => EffectKind::CancelTimer(id.raw()),
+            Effect::Send { .. } => EffectKind::Send,
         }
     }
 }
@@ -94,7 +94,11 @@ impl Harness {
     }
 
     fn collect_kinds(&self) -> Vec<EffectKind> {
-        self.sink.as_slice().iter().map(EffectKind::from_effect).collect()
+        self.sink
+            .as_slice()
+            .iter()
+            .map(EffectKind::from_effect)
+            .collect()
     }
 }
 
@@ -161,11 +165,16 @@ pub fn port_reply_with_body(corr_raw: u64, body: bytes::Bytes) -> Tick {
 #[allow(dead_code)]
 pub fn sync_reply_events(channel_id: u64, seqs: &[u64], needs_continuation: bool) -> bytes::Bytes {
     use serde_json::json;
-    let events: Vec<_> = seqs.iter().map(|&seq| json!({
-        "channel_id": channel_id,
-        "seq": seq,
-        "event_type": 1
-    })).collect();
+    let events: Vec<_> = seqs
+        .iter()
+        .map(|&seq| {
+            json!({
+                "channel_id": channel_id,
+                "seq": seq,
+                "event_type": 1
+            })
+        })
+        .collect();
     let body = json!({
         "type": "events",
         "events": events,
@@ -182,9 +191,14 @@ pub fn sync_reply_events(channel_id: u64, seqs: &[u64], needs_continuation: bool
 #[allow(dead_code)]
 pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
     use serde_json::json;
-    let arr: Vec<_> = rows.iter().map(|&(channel_id, cursor_seq)| json!({
-        "scope_key": channel_id.to_string(),
-        "value": cursor_seq as i64
-    })).collect();
+    let arr: Vec<_> = rows
+        .iter()
+        .map(|&(channel_id, cursor_seq)| {
+            json!({
+                "scope_key": channel_id.to_string(),
+                "value": cursor_seq as i64
+            })
+        })
+        .collect();
     bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
 }

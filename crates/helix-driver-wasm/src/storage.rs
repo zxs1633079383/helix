@@ -17,8 +17,8 @@
 //!
 //! RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 
+use helix_core::effect::{GetSpec, MonotonicUpsertSpec, Row, ScanSpec, SqlValue, UpsertSpec};
 use helix_core::PortError;
-use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row, SqlValue};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 

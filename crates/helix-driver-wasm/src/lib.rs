@@ -36,9 +36,9 @@ compile_error!(
      Use helix-driver-native for native targets, helix-driver-ffi for FFI/mobile."
 );
 
-pub mod transport;
-pub mod storage;
 pub mod clock;
+pub mod engine_loop;
 pub mod event_sink;
 pub mod http;
-pub mod engine_loop;
+pub mod storage;
+pub mod transport;

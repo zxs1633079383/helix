@@ -5,9 +5,9 @@
 //! - wasm:   `helix-driver-wasm` WasmTransport（ws_stream_wasm / web-sys）
 //! - ffi:    `helix-driver-ffi` FfiTransport（C ABI 回调）
 
-use bytes::Bytes;
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
+use bytes::Bytes;
 
 /// WebSocket 连接的 core 抽象。
 ///

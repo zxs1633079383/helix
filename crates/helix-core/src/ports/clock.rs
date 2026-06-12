@@ -77,7 +77,9 @@ impl MockClock {
 #[cfg(any(test, feature = "testing"))]
 impl Clone for MockClock {
     fn clone(&self) -> Self {
-        Self { inner: std::cell::Cell::new(self.inner.get()) }
+        Self {
+            inner: std::cell::Cell::new(self.inner.get()),
+        }
     }
 }
 

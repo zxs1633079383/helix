@@ -13,8 +13,8 @@
 //!   消除 `'a` lifetime 污染，使 `Tick` 满足 `'static + Send`，
 //!   从而 driver 的 `tokio::sync::mpsc::Sender<Tick>` 和 timer channel 可以正常工作。
 
-use std::borrow::Cow;
 use crate::effect::{Correlation, TimerId, TransportId};
+use std::borrow::Cow;
 
 /// 入站 wire bytes（未解析，由模块的 parser 解析为强类型事件）
 ///

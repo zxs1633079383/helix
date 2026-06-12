@@ -11,19 +11,19 @@
 //! native 和 wasm 两种实现。统一返回 `PortError` 解决此问题，且去掉了
 //! wasm 单线程环境下多余的 `type Error: Send + Sync` 约束。
 
-pub mod transport;
-pub mod storage;
 pub mod clock;
 pub mod event_sink;
 pub mod http;
 pub mod id;
+pub mod storage;
+pub mod transport;
 
-pub use transport::Transport;
-pub use storage::Storage;
-pub use crate::effect::{UpsertSpec, MonotonicUpsertSpec, BatchUpdateSpec, GetSpec, ScanSpec};
+pub use crate::effect::{BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, ScanSpec, UpsertSpec};
 pub use clock::Clock;
 #[cfg(any(test, feature = "testing"))]
 pub use clock::MockClock;
 pub use event_sink::EventSink;
-pub use http::{HttpRequester};
+pub use http::HttpRequester;
 pub use id::{IdSource, Random};
+pub use storage::Storage;
+pub use transport::Transport;

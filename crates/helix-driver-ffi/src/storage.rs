@@ -15,8 +15,8 @@
 //! FfiStorage 设计为由宿主（Swift/Kotlin/C 调用方）传入 SQLite 句柄，
 //! 通过 C ABI 回调执行 SQL 操作，不依赖 Rust SQLite crate。
 
+use helix_core::effect::{GetSpec, MonotonicUpsertSpec, Row, ScanSpec, SqlValue, UpsertSpec};
 use helix_core::PortError;
-use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row, SqlValue};
 
 pub struct FfiStorage {
     // TODO: sqlite_handle: *mut std::ffi::c_void,  // host 传入的 SQLite 句柄

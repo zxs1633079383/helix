@@ -83,17 +83,18 @@ use serde_json::{json, Value as JsonValue};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use helix_core::{ExecutionShell, Tick};
-use helix_core::effect::{Effect, StorageOp, Correlation, TimerId, TransportId,
-                          HttpRequest, DomainEventBytes, SqlValue};
-use helix_core::tick::{PortOutcome, ReplyBytes, PortError as CorePortError};
+use helix_core::effect::{
+    Correlation, DomainEventBytes, Effect, HttpRequest, SqlValue, StorageOp, TimerId, TransportId,
+};
+use helix_core::ports::{Clock, EventSink, HttpRequester, Storage};
+use helix_core::tick::{PortError as CorePortError, PortOutcome, ReplyBytes};
 use helix_core::PortError;
-use helix_core::ports::{Storage, HttpRequester, EventSink, Clock};
+use helix_core::{ExecutionShell, Tick};
 
 use crate::clock::NativeClock;
-use crate::storage::NativeStorage;
-use crate::http::NativeHttp;
 use crate::event_sink::NativeEventSink;
+use crate::http::NativeHttp;
+use crate::storage::NativeStorage;
 use crate::timer::TimerRegistry;
 
 /// per-table worker 的 job 队列深度上限（有界背压）。
@@ -148,33 +149,32 @@ enum OwnedEffect {
 /// `bytes::Bytes` clone 是 O(1) 引用计数；`Vec` clone 按需复制。
 /// 此函数同步执行，在 shell 返回 `&[Effect]` 后立即调用。
 fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
-    effects.iter().map(|e| match e {
-        Effect::Send { transport, frame } => OwnedEffect::Send {
-            transport: *transport,
-            frame: frame.clone(),
-        },
-        Effect::Persist { corr, ops } => OwnedEffect::Persist {
-            corr: *corr,
-            ops: ops.clone(),
-        },
-        Effect::PersistFire { ops } => OwnedEffect::PersistFire {
-            ops: ops.clone(),
-        },
-        Effect::Http { corr, req } => OwnedEffect::Http {
-            corr: *corr,
-            req: req.clone(),
-        },
-        Effect::Emit { event } => OwnedEffect::Emit {
-            event: event.clone(),
-        },
-        Effect::ScheduleTimer { id, after_ms } => OwnedEffect::ScheduleTimer {
-            id: *id,
-            after_ms: *after_ms,
-        },
-        Effect::CancelTimer { id } => OwnedEffect::CancelTimer {
-            id: *id,
-        },
-    }).collect()
+    effects
+        .iter()
+        .map(|e| match e {
+            Effect::Send { transport, frame } => OwnedEffect::Send {
+                transport: *transport,
+                frame: frame.clone(),
+            },
+            Effect::Persist { corr, ops } => OwnedEffect::Persist {
+                corr: *corr,
+                ops: ops.clone(),
+            },
+            Effect::PersistFire { ops } => OwnedEffect::PersistFire { ops: ops.clone() },
+            Effect::Http { corr, req } => OwnedEffect::Http {
+                corr: *corr,
+                req: req.clone(),
+            },
+            Effect::Emit { event } => OwnedEffect::Emit {
+                event: event.clone(),
+            },
+            Effect::ScheduleTimer { id, after_ms } => OwnedEffect::ScheduleTimer {
+                id: *id,
+                after_ms: *after_ms,
+            },
+            Effect::CancelTimer { id } => OwnedEffect::CancelTimer { id: *id },
+        })
+        .collect()
 }
 
 // ─── Per-table-set 有序 Worker ───────────────────────────────────────────────
@@ -272,7 +272,10 @@ pub async fn run_engine_loop(
             return;
         }
     };
-    tracing::info!("helix engine started, {} initial effects", initial_effects.len());
+    tracing::info!(
+        "helix engine started, {} initial effects",
+        initial_effects.len()
+    );
 
     dispatch_effects(
         initial_effects,
@@ -283,7 +286,8 @@ pub async fn run_engine_loop(
         &mut timer_registry,
         &reply_tx,
         &mut persist_workers,
-    ).await;
+    )
+    .await;
 
     // 事件泵主循环
     //
@@ -341,7 +345,8 @@ pub async fn run_engine_loop(
                 &mut timer_registry,
                 &reply_tx,
                 &mut persist_workers,
-            ).await;
+            )
+            .await;
         }
     }
 
@@ -356,7 +361,10 @@ pub async fn run_engine_loop(
     //
     // 保证：run_engine_loop 返回 = 全部已接收 Persist 均已落盘。
     // 破坏此保证的改动需同步更新本文档注释。
-    tracing::info!("helix engine loop: tick_rx closed, draining {} workers", persist_workers.len());
+    tracing::info!(
+        "helix engine loop: tick_rx closed, draining {} workers",
+        persist_workers.len()
+    );
 
     // step 1: 提取全部 JoinHandle，同时 drop 全部 job sender（Sender drop → worker 的 recv 返回 None）
     let join_handles: Vec<JoinHandle<()>> = persist_workers
@@ -481,27 +489,20 @@ async fn dispatch_effects(
 ///
 /// 同组内按顺序执行，任意一个失败则返回 Err（后续 ops 跳过）。
 /// 成功时返回最后一个有意义 op 的结果（scan/get → rows JSON；其余 → 空 bytes）。
-async fn execute_storage_ops(
-    storage: &NativeStorage,
-    ops: &[StorageOp],
-) -> PortOutcome {
+async fn execute_storage_ops(storage: &NativeStorage, ops: &[StorageOp]) -> PortOutcome {
     let mut last_ok_bytes = Bytes::new();
 
     for op in ops {
         match op {
-            StorageOp::BatchUpsert(spec) => {
-                match storage.batch_upsert(spec.clone()).await {
-                    Ok(()) => {}
-                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
-                }
-            }
+            StorageOp::BatchUpsert(spec) => match storage.batch_upsert(spec.clone()).await {
+                Ok(()) => {}
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
             StorageOp::BatchUpdate(spec) => {
-                match storage.batch_update(
-                    spec.table,
-                    spec.key_col,
-                    &spec.key_vals,
-                    spec.patch.clone(),
-                ).await {
+                match storage
+                    .batch_update(spec.table, spec.key_col, &spec.key_vals, spec.patch.clone())
+                    .await
+                {
                     Ok(()) => {}
                     Err(e) => return PortOutcome::Err(classify_port_error(e)),
                 }
@@ -512,25 +513,21 @@ async fn execute_storage_ops(
                     Err(e) => return PortOutcome::Err(classify_port_error(e)),
                 }
             }
-            StorageOp::Get(spec) => {
-                match storage.get(spec.clone()).await {
-                    Ok(Some(row)) => {
-                        last_ok_bytes = rows_to_reply_bytes(&[row]);
-                    }
-                    Ok(None) => {
-                        last_ok_bytes = Bytes::new();
-                    }
-                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            StorageOp::Get(spec) => match storage.get(spec.clone()).await {
+                Ok(Some(row)) => {
+                    last_ok_bytes = rows_to_reply_bytes(&[row]);
                 }
-            }
-            StorageOp::Scan(spec) => {
-                match storage.scan(spec.clone()).await {
-                    Ok(rows) => {
-                        last_ok_bytes = rows_to_reply_bytes(&rows);
-                    }
-                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
+                Ok(None) => {
+                    last_ok_bytes = Bytes::new();
                 }
-            }
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
+            StorageOp::Scan(spec) => match storage.scan(spec.clone()).await {
+                Ok(rows) => {
+                    last_ok_bytes = rows_to_reply_bytes(&rows);
+                }
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
         }
     }
 
@@ -574,9 +571,7 @@ pub fn rows_to_reply_bytes(rows: &[helix_core::effect::Row]) -> Bytes {
 /// JSON bytes → `Vec<Row>`（`rows_to_reply_bytes` 的逆操作）。
 ///
 /// number 类型：整型 → Integer；有小数点 → Real。
-pub fn rows_from_reply_bytes(
-    bytes: &Bytes,
-) -> Result<Vec<helix_core::effect::Row>, String> {
+pub fn rows_from_reply_bytes(bytes: &Bytes) -> Result<Vec<helix_core::effect::Row>, String> {
     use helix_core::effect::{Row, SqlValue};
 
     let json: Vec<serde_json::Map<String, JsonValue>> =
@@ -639,13 +634,16 @@ fn table_set_key(ops: &[StorageOp]) -> String {
         return String::new();
     }
     // 收集全部 table 名（保留重复以便调试；有序去重后拼键）
-    let mut tables: Vec<&str> = ops.iter().map(|op| match op {
-        StorageOp::BatchUpsert(s) => s.table,
-        StorageOp::BatchUpdate(s) => s.table,
-        StorageOp::MonotonicUpsert(_) => "_helix_monotonic",
-        StorageOp::Get(s) => s.table,
-        StorageOp::Scan(s) => s.table,
-    }).collect();
+    let mut tables: Vec<&str> = ops
+        .iter()
+        .map(|op| match op {
+            StorageOp::BatchUpsert(s) => s.table,
+            StorageOp::BatchUpdate(s) => s.table,
+            StorageOp::MonotonicUpsert(_) => "_helix_monotonic",
+            StorageOp::Get(s) => s.table,
+            StorageOp::Scan(s) => s.table,
+        })
+        .collect();
     tables.sort_unstable();
     tables.dedup();
     tables.join("|")
@@ -681,8 +679,16 @@ fn base64_encode(bytes: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(TABLE[((n >> 18) & 63) as usize] as char);
         out.push(TABLE[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { TABLE[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -696,14 +702,12 @@ mod tests {
 
     #[test]
     fn test_rows_roundtrip() {
-        let rows = vec![
-            vec![
-                ("id".to_string(), SqlValue::Integer(1)),
-                ("name".to_string(), SqlValue::Text("alice".to_string())),
-                ("score".to_string(), SqlValue::Real(9.5)),
-                ("extra".to_string(), SqlValue::Null),
-            ],
-        ];
+        let rows = vec![vec![
+            ("id".to_string(), SqlValue::Integer(1)),
+            ("name".to_string(), SqlValue::Text("alice".to_string())),
+            ("score".to_string(), SqlValue::Real(9.5)),
+            ("extra".to_string(), SqlValue::Null),
+        ]];
         let bytes = rows_to_reply_bytes(&rows);
         let restored = rows_from_reply_bytes(&bytes).expect("roundtrip");
         assert_eq!(restored.len(), 1);
@@ -772,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_table_set_key_multi_table_sorted() {
-        use helix_core::effect::{UpsertSpec, MonotonicUpsertSpec};
+        use helix_core::effect::{MonotonicUpsertSpec, UpsertSpec};
         // 两个不同 table 的 ops，顺序无所谓，键必须按字典序排
         let ops = vec![
             StorageOp::BatchUpsert(UpsertSpec {

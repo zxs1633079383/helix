@@ -4,8 +4,8 @@
 //! ⚠️ 不可用 std::time::SystemTime（不稳定）
 //! 必须用 js_sys::Date::now() 或注入的 Clock port
 
-use helix_core::ports::Clock;
 use helix_core::platform::MaybeSend;
+use helix_core::ports::Clock;
 
 #[derive(Clone, Debug)]
 pub struct JsClock;

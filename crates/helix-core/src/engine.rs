@@ -9,9 +9,9 @@
 //! - 维护 `corr_map` 和 `timer_map`，保证 PortReply/Timer 定向投递（审查意见2 P3）
 
 use crate::effect::{Effect, EffectSink};
-use crate::module_host::{ModuleHost, CorrelationMap, TimerMap};
-use crate::tick::Tick;
 use crate::error::CoreError;
+use crate::module_host::{CorrelationMap, ModuleHost, TimerMap};
+use crate::tick::Tick;
 
 /// sans-IO 确定性执行壳。
 ///
@@ -100,7 +100,10 @@ impl ExecutionShell {
 
         match &tick {
             Tick::Inbound(_) | Tick::Command(_) | Tick::Connected(_) | Tick::Disconnected(_) => {
-                match self.host.dispatch_inbound(&tick, now_ms, &mut self.scratch)? {
+                match self
+                    .host
+                    .dispatch_inbound(&tick, now_ms, &mut self.scratch)?
+                {
                     Some(idx) => {
                         // BLK-1a: 传入真实的 module_index，而非 0 占位符
                         self.register_effects_to_maps(idx);
@@ -119,7 +122,8 @@ impl ExecutionShell {
             Tick::PortReply { corr, .. } => {
                 match self.corr_map.consume(corr) {
                     Some(module_index) => {
-                        self.host.dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
+                        self.host
+                            .dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
                         // BLK-1a: PortReply 产出的新 Effect 注册到发出原 corr 的同一模块
                         self.register_effects_to_maps(module_index);
                     }
@@ -139,13 +143,17 @@ impl ExecutionShell {
                 match self.timer_map.peek(timer_id) {
                     Some(module_index) => {
                         // recurring timer：不从 timer_map 移除（模块可重新 arm）
-                        self.host.dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
+                        self.host
+                            .dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
                         // BLK-1a: Timer 产出的新 Effect（如 re-arm）注册到同一模块
                         self.register_effects_to_maps(module_index);
                     }
                     None => {
                         // timer_id 未知：已被 CancelTimer 移除后的迟到触发，静默忽略
-                        tracing::debug!(id = timer_id.raw(), "received Timer for unknown id, ignoring");
+                        tracing::debug!(
+                            id = timer_id.raw(),
+                            "received Timer for unknown id, ignoring"
+                        );
                     }
                 }
                 return Ok(self.scratch.as_slice());

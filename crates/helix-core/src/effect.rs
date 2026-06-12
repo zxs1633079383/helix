@@ -172,7 +172,7 @@ pub type Row = Vec<(String, SqlValue)>;
 /// HTTP 请求（driver 的 HttpRequester 解析并发出）
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
-    pub method: String,   // "GET" / "POST" / etc.
+    pub method: String, // "GET" / "POST" / etc.
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<Bytes>,
@@ -216,34 +216,22 @@ pub enum Effect {
     /// - 任何依赖"写入成功"才能继续的操作
     ///
     /// 典型用途：在 `Persist{corr}` 的 PortReply Ok 后推进单调水位（如同步 cursor）。
-    PersistFire {
-        ops: Vec<StorageOp>,
-    },
+    PersistFire { ops: Vec<StorageOp> },
 
     /// HTTP 请求（带 Correlation）。
     /// driver 执行后产出 `Tick::PortReply{corr, outcome=Ok(resp)/Err}`。
-    Http {
-        corr: Correlation,
-        req: HttpRequest,
-    },
+    Http { corr: Correlation, req: HttpRequest },
 
     /// 发布领域事件（同步 push，不等待）。
     /// driver 调用 EventSink::emit，事件字节已在 ACL-1 序列化。
-    Emit {
-        event: DomainEventBytes,
-    },
+    Emit { event: DomainEventBytes },
 
     /// 调度定时器：`after_ms` 毫秒后产出 `Tick::Timer{id}`。
     /// driver 维护 TimerRegistry；id 由模块分配（建议模块维护 IdSource）。
-    ScheduleTimer {
-        id: TimerId,
-        after_ms: u64,
-    },
+    ScheduleTimer { id: TimerId, after_ms: u64 },
 
     /// 取消定时器（幂等，id 不存在时静默忽略）。
-    CancelTimer {
-        id: TimerId,
-    },
+    CancelTimer { id: TimerId },
 }
 
 // ─── EffectSink ──────────────────────────────────────────────────────────────
@@ -262,7 +250,9 @@ pub struct EffectSink {
 
 impl EffectSink {
     pub fn new() -> Self {
-        Self { buf: Vec::with_capacity(8) }
+        Self {
+            buf: Vec::with_capacity(8),
+        }
     }
 
     /// 写入一个 Effect

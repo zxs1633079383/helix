@@ -100,10 +100,19 @@ async fn stress_batch_upsert_39x100() {
 
     let total_rows = ROWS_PER_BATCH * BATCHES;
     eprintln!("\n[stress_batch_upsert_39x100]");
-    eprintln!("  batches          : {} x {} rows = {} rows", BATCHES, ROWS_PER_BATCH, total_rows);
+    eprintln!(
+        "  batches          : {} x {} rows = {} rows",
+        BATCHES, ROWS_PER_BATCH, total_rows
+    );
     eprintln!("  total time       : {:.3} ms", elapsed.as_secs_f64() * 1e3);
-    eprintln!("  per-batch latency: {:.3} ms", elapsed.as_secs_f64() * 1e3 / BATCHES as f64);
-    eprintln!("  row throughput   : {:.0} rows/s", total_rows as f64 / elapsed.as_secs_f64());
+    eprintln!(
+        "  per-batch latency: {:.3} ms",
+        elapsed.as_secs_f64() * 1e3 / BATCHES as f64
+    );
+    eprintln!(
+        "  row throughput   : {:.0} rows/s",
+        total_rows as f64 / elapsed.as_secs_f64()
+    );
 }
 
 // ─── 测试 2：5000 行单批 + 显式事务基线 ──────────────────────────────────────
@@ -134,7 +143,10 @@ async fn stress_batch_upsert_5000_single_batch() {
         .connect(&format!("sqlite:{path}?mode=rwc"))
         .await
         .expect("aux pool");
-    sqlx::query("PRAGMA busy_timeout=5000").execute(&pool).await.unwrap();
+    sqlx::query("PRAGMA busy_timeout=5000")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let rows_b: Vec<_> = (N + 1..=N * 2).map(make_row).collect();
     let start_tx = Instant::now();
@@ -161,10 +173,16 @@ async fn stress_batch_upsert_5000_single_batch() {
 
     let amp = autocommit_elapsed.as_secs_f64() / tx_elapsed.as_secs_f64();
     eprintln!("\n[stress_batch_upsert_5000_single_batch]");
-    eprintln!("  A. batch_upsert (per-row autocommit) : {:.3} ms ({:.0} rows/s)",
-        autocommit_elapsed.as_secs_f64() * 1e3, N as f64 / autocommit_elapsed.as_secs_f64());
-    eprintln!("  B. explicit tx baseline (1 commit)   : {:.3} ms ({:.0} rows/s)",
-        tx_elapsed.as_secs_f64() * 1e3, N as f64 / tx_elapsed.as_secs_f64());
+    eprintln!(
+        "  A. batch_upsert (per-row autocommit) : {:.3} ms ({:.0} rows/s)",
+        autocommit_elapsed.as_secs_f64() * 1e3,
+        N as f64 / autocommit_elapsed.as_secs_f64()
+    );
+    eprintln!(
+        "  B. explicit tx baseline (1 commit)   : {:.3} ms ({:.0} rows/s)",
+        tx_elapsed.as_secs_f64() * 1e3,
+        N as f64 / tx_elapsed.as_secs_f64()
+    );
     eprintln!("  write amplification (A/B)            : {:.1}x", amp);
 }
 
@@ -189,8 +207,17 @@ async fn stress_monotonic_upsert_1000() {
     let elapsed = start.elapsed();
 
     eprintln!("\n[stress_monotonic_upsert_1000]");
-    eprintln!("  calls            : {} (每次含 CREATE TABLE IF NOT EXISTS + UPSERT)", N);
+    eprintln!(
+        "  calls            : {} (每次含 CREATE TABLE IF NOT EXISTS + UPSERT)",
+        N
+    );
     eprintln!("  total time       : {:.3} ms", elapsed.as_secs_f64() * 1e3);
-    eprintln!("  per-call latency : {:.3} ms", elapsed.as_secs_f64() * 1e3 / N as f64);
-    eprintln!("  call throughput  : {:.0} calls/s", N as f64 / elapsed.as_secs_f64());
+    eprintln!(
+        "  per-call latency : {:.3} ms",
+        elapsed.as_secs_f64() * 1e3 / N as f64
+    );
+    eprintln!(
+        "  call throughput  : {:.0} calls/s",
+        N as f64 / elapsed.as_secs_f64()
+    );
 }

@@ -13,5 +13,5 @@
 //! `temporary_id`、`channel_event_seq`、`im:` 前缀、`15000ms` 全在此模块拼成参数值，
 //! 不进 helix-core 的类型系统。
 
-pub mod to_effect;
 pub mod from_tick;
+pub mod to_effect;

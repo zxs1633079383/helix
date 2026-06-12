@@ -3,8 +3,8 @@
 //! 优先使用 web-sys WebSocket + futures-channel 手桥（不依赖 ws_stream_wasm）。
 //! ws_stream_wasm 可作备选，更换时只改此文件，port 契约不变。
 
-use helix_core::PortError;
 use bytes::Bytes;
+use helix_core::PortError;
 
 pub struct WasmTransport {
     url: String,

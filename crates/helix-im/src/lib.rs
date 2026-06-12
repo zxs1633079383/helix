@@ -15,14 +15,14 @@
 //!      crates/helix-core/src/  # 期望 0 行
 //! ```
 
-pub mod module;
-pub mod state;
-pub mod channel;
-pub mod pending_send;
-pub mod sync_session;
-pub mod parser;
-pub mod error;
 pub mod acl;
+pub mod channel;
+pub mod error;
+pub mod module;
+pub mod parser;
+pub mod pending_send;
+pub mod state;
+pub mod sync_session;
 
-pub use module::ImModule;
 pub use error::ImError;
+pub use module::ImModule;

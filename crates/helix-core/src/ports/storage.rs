@@ -13,9 +13,9 @@
 //! - wasm:   sqlite-wasm-rs + OPFS（需 RUSTFLAGS=atomics+bulk-memory，在 Worker 初始化）
 //! - ffi:    host SQLite handle via C ABI
 
+use crate::effect::{GetSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec};
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
-use crate::effect::{UpsertSpec, MonotonicUpsertSpec, GetSpec, ScanSpec, Row};
 
 /// 持久化操作的 core 抽象。
 ///

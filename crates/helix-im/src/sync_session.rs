@@ -54,10 +54,10 @@ impl EventKind {
     pub fn type_num(&self) -> u8 {
         match self {
             EventKind::PostUpsert => 1,
-            EventKind::PostEdit   => 2,
+            EventKind::PostEdit => 2,
             EventKind::PostRevoke => 3,
-            EventKind::PostRead   => 6,
-            EventKind::Other(n)   => *n,
+            EventKind::PostRead => 6,
+            EventKind::Other(n) => *n,
         }
     }
 }

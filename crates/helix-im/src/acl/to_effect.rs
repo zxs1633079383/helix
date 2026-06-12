@@ -1,13 +1,12 @@
 //! IM 概念 → core Effect 翻译（ACL-1 写出端）
 
-use helix_core::{Effect, Correlation};
-use helix_core::effect::{
-    StorageOp, UpsertSpec, MonotonicUpsertSpec, Row, SqlValue, DomainEventBytes,
-    HttpRequest,
-};
-use bytes::Bytes;
-use crate::state::{ChannelId, TemporaryId, Seq};
+use crate::state::{ChannelId, Seq, TemporaryId};
 use crate::sync_session::EventEnvelope;
+use bytes::Bytes;
+use helix_core::effect::{
+    DomainEventBytes, HttpRequest, MonotonicUpsertSpec, Row, SqlValue, StorageOp, UpsertSpec,
+};
+use helix_core::{Correlation, Effect};
 
 /// 乐观落库：INSERT INTO messages ON CONFLICT(temporary_id) DO UPDATE
 ///
@@ -16,11 +15,7 @@ use crate::sync_session::EventEnvelope;
 ///
 /// MAJ-5：`table` 和 `conflict_key` 改为 `&'static str` 常量，
 /// 消除热路径的 `"messages".to_string()` 堆分配。
-pub fn upsert_message(
-    _temporary_id: &TemporaryId,
-    row: Row,
-    corr: Correlation,
-) -> Effect {
+pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) -> Effect {
     Effect::Persist {
         corr,
         ops: vec![StorageOp::BatchUpsert(UpsertSpec {
@@ -45,13 +40,20 @@ pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
 }
 
 /// 触发 /sync/notify HTTP 请求
-pub fn sync_notify(base_url: &str, channel_id: ChannelId, from_seq: Seq, corr: Correlation) -> Effect {
+pub fn sync_notify(
+    base_url: &str,
+    channel_id: ChannelId,
+    from_seq: Seq,
+    corr: Correlation,
+) -> Effect {
     Effect::Http {
         corr,
         req: HttpRequest {
             method: "GET".to_string(),
-            url: format!("{}/sync/notify?channel_id={}&from_seq={}",
-                         base_url, channel_id.0, from_seq.0),
+            url: format!(
+                "{}/sync/notify?channel_id={}&from_seq={}",
+                base_url, channel_id.0, from_seq.0
+            ),
             headers: vec![],
             body: None,
         },
@@ -119,18 +121,25 @@ pub fn emit_sync_too_long(channel_id: ChannelId) -> Effect {
 
 /// 批量 upsert EventEnvelope 列表（sync 路径）
 pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
-    events.iter().map(|ev| {
-        StorageOp::BatchUpsert(UpsertSpec {
-            table: "messages",
-            rows: vec![vec![
-                ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
-                ("channel_id".to_string(), SqlValue::Integer(ev.id.0 as i64)),
-                ("event_type".to_string(), SqlValue::Integer(ev.kind.type_num() as i64)),
-                ("raw".to_string(), SqlValue::Text(
-                    String::from_utf8_lossy(ev.raw.as_ref()).to_string()
-                )),
-            ]],
-            conflict_key: Some("seq"),
+    events
+        .iter()
+        .map(|ev| {
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![vec![
+                    ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
+                    ("channel_id".to_string(), SqlValue::Integer(ev.id.0 as i64)),
+                    (
+                        "event_type".to_string(),
+                        SqlValue::Integer(ev.kind.type_num() as i64),
+                    ),
+                    (
+                        "raw".to_string(),
+                        SqlValue::Text(String::from_utf8_lossy(ev.raw.as_ref()).to_string()),
+                    ),
+                ]],
+                conflict_key: Some("seq"),
+            })
         })
-    }).collect()
+        .collect()
 }

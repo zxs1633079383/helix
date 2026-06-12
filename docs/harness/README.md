@@ -4,6 +4,7 @@
 > **母本（方法论）**：[`/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md`](/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md)
 > **项目指令**：[`../../CLAUDE.md`](../../CLAUDE.md)（§4 索引指针 + 三栖 checklist）
 > **详细规约**：[`../../.claude/rules/runtime-agnostic-core.md`](../../.claude/rules/runtime-agnostic-core.md)
+> **触发操作手册**：[`OPERATING.md`](./OPERATING.md)（什么事 → 调什么；自动 vs 人工触发矩阵）
 
 本目录是 Helix「心脏血脉生命线」的可执行护栏：每条卡片把一个**三栖边界条件 / 架构不变量**编译成 grep gate + CI gate + 正反代码对照，让坑写不出来、不重复踩。
 

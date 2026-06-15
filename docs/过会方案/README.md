@@ -40,6 +40,7 @@
 | 文档 | 说明 |
 |---|---|
 | [core-view · 方向A设计](./helix-core-view-方向A设计.md) | 抽象往上一格：core 加 `view()`/ViewModel 投影，各端 UI 退化成 dumb 渲染（参照 Crux）。可行性 + cses 对照 + 安全边界（方向 A 可走 / B·C 红线）。**增量切，先 D 后 A**。机制流程图见 [架构设计 §七](./helix-core-im-架构设计.md)；边界锚点见 [`../GOAL.md` §6](../GOAL.md) |
+| [Crux 参照对照](./helix-crux-参照对照.md) | Crux 能力边界三分法（✅做到 headless核+多端+IPC+投影 / 🚫故意不做渲染=方向B / ⚠️真缺口大列表整份ship）+ 除已采用外还能从 Crux 取的 8 个方向（测试范式/typegen双后端/Command组合子/…）。详表见 [`../ROADMAP-full.md`](../ROADMAP-full.md) |
 
 ---
 

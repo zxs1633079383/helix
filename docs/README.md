@@ -33,6 +33,7 @@
 → 进 [`过会方案/README.md`](./过会方案/README.md)（七篇主文档的阅读顺序 + 已拍板七条）。要点：
 - **架构定稿** = `helix-core-im-架构设计.md`（机制权威）｜**决策存档** = `helix-技术评审纪要.md`（决策权威）
 - **未来方向** = `helix-core-view-方向A设计.md`（core-view/ViewModel 投影，先 D 后 A）
+- **Crux 参照** = `helix-crux-参照对照.md`（边界三分法：做到/故意不做/真缺口 + 还能从 Crux 取什么 8 向）
 - **参考/历史** = `helix-Rust-Core-技术过会-回到原点版.md`、`helix-two-layer-architecture.md`（全量长稿，溯源用）
 
 ### 00-05 baseline 设计层（2026-06-08 冻结 · 溯源/细节用，非当前权威）

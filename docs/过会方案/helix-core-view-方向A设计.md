@@ -1,7 +1,7 @@
 # Helix core-view —— 方向 A（ViewModel 投影接管）设计
 
 > 抽象高度上「往上一格」：core 不止吐领域事件，还吐**给 UI 的只读投影 ViewModel**，各端 UI 退化成 dumb 渲染。
-> **可行性结论：可行**，且不撞北极星——前提是守住一条线（见 §3）。参照实现 = Crux（`/Users/mac28/workspace/rustWorkspace/crux`）。
+> **可行性结论：机制层可行（Crux 是活的存在性证明），但「可行 ≠ 无风险」。** 风险不在「能不能做」——`view()` 是 `Model` 纯函数、`Render`+typegen 都有现成范式；风险几乎全压在 **§4 红线1：大列表 ViewModel 的增量投影/传输（性能工程）**——这恰是 Crux 原生范式（每次 Render 整份重拉）覆盖最弱处，必须自建窗口化 / diff-patch（方案见 §4.1）。另一条是 **§6「先 D 后 A」前置时序**：没有干净的 in-memory Model 之前无对象可投。守住 §3 一条线则不撞北极星。参照实现 = Crux（`/Users/mac28/workspace/rustWorkspace/crux`）。
 > 上层约束见 [`../GOAL.md` §6 抽象高度边界](../GOAL.md)；机制流程图见 [`helix-core-im-架构设计.md` §七](./helix-core-im-架构设计.md)；边界纪律见 [`../harness/HX-C007`](../harness/HX-C007-effect-batch-across-boundary.md)。
 > **时序定位：方向 A 在「基础 core + Model + 收发/同步链路」稳固之后增量切，不先行。**
 
@@ -116,6 +116,31 @@ helix-im(Model: 频道+消息+未读+成员+草稿) ──update()──▶ 状�
 1. **绝不每次变更 ship 整个 ViewModel**。dialogList 几百、消息上千，每条新消息全量序列化过 IPC = 灾难。→ **ViewModel diff/patch** 或 **窗口化 ViewModel**（只投影可见会话 + dialog 切片）。这把 HX-C007「Effect 跨边界批处理」从建议升级成生死线。
 2. **虚拟滚动留 Angular**。helix 出数据（有序列表/窗口切片），Angular 出窗口（windowing + 渲染）。helix 绝不碰像素 = 不退方向 B。
 3. **用 typegen 生成 ViewModel 的 TS 类型**（抄 `crux_core::typegen`）。Angular 拿到编译期类型安全的 ViewModel interface；改 Rust 字段、TS 立刻红——三端契约的巨大收益。
+
+### §4.1 大列表投影性能方案（§4 红线1 展开 · 分层叠加而非五选一）
+
+**先决条件（不具备就别上 B/C/D/E，会翻车）：**
+1. 每行稳定 id（dialog id / message `temporaryId`+`id`）——diff / 窗口定位全靠它（cses 已有 ✅）
+2. Model 能增量感知「什么变了」（revision 计数 / per-section dirty flags / `update` 返回 changed-set）——**需建**
+3. ViewModel 形状 diff 友好：keyed 扁平集合，别每次重建整棵树
+4. viewport（offset/limit/当前 channelId）能作为 `Tick::Command` 进 core——窗口化前提
+5. patch / 窗口协议 typegen 化（三端统一 apply，不各写一遍）——抄 `crux typegen`
+6. 守 HX-C007 批次边界 + 丢补丁兜底（patch 序号断 → 全量 resync，类比 `too_long`）
+
+| 方案 | 做法 | 算量/传输 | 优 | 缺 | 适用 |
+|---|---|---|---|---|---|
+| **A** 全量重投影+全量 ship（Crux 原生） | `view()` 算整份 → 整份序列化过边界 | O(N)/每次变更 | 最简、零 diff、确定性最干净 | 大列表必崩 | 小列表 / 首屏 / 兜底基线 |
+| **B** 窗口化投影 | 只投影可见切片，viewport 进 core | O(可见行)≈常数 | 与总量无关、天然配虚拟滚动 | 全局聚合（总未读）不能窗口化；跳转/搜索定位要额外处理 | **chat 主力** |
+| **C** diff/patch | core 存上次快照，只 ship added/removed/updated/moved（by key） | O(变化量) | 「列表大但每次只变几条」最优（IM 正是） | core 2x 内存或重算；apply 逻辑；丢补丁要兜底 | 与 B 组合 |
+| **D** 分块多通道 VM | 拆 unread / dialogList / conversation / draft 各自独立 `Render` | 各块用各自最优 | 改一块不动其他、增量落地友好 | 多通道要解复用（`im:__bus__` 信封天然支持） | **顶层组织方式** |
+| **E** 脏标记惰性投影 | revision + dirty flag，只对脏块调 `view()` | 省 CPU（不重算干净块） | 没变不重算 | 漏标=UI 不更新 / 错标=多算，正确性要严守 | B/C/D 的 CPU 优化层 |
+
+**推荐组合（分层叠，不是五选一）：**
+- 顶层 **D 分块**：`unread` 标量走 **A**（极小全量）；`dialogList` 走 **B+C**（窗口化 + 窗口内 diff）；`conversation` 走 **B**（消息窗口化）；`draft` 走 **A**（单字段）。
+- 全局加 **E**（脏标记省重算）+ **A 兜底**（patch 断链/版本不齐 → 退该块全量）。
+- 落地顺序对齐 §6 一刀一个：第1刀未读用纯 **A** 验证 Render/typegen/patch 管线 → 第2刀 dialogList 上 **B** → 列表稳了再叠 **C** → conversation 上 **B**。**先证明管线，再上性能。**
+
+> 红线不变（§4 红线2）：以上全是「core 出数据/切片/补丁，UI 出窗口/像素」。windowing / DOM / 滚动位置永远在 Angular，任何方案都不许 core 碰像素 = 不退方向 B。
 
 ---
 

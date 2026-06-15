@@ -27,6 +27,7 @@
 |---|---|
 | [`GOAL.md`](./GOAL.md) | 设计理念不变量 + 硬约束 + 成功标准 + 抽象高度边界（方向 A/B/C 红线） |
 | [`ROADMAP.md`](./ROADMAP.md) | 天级 roadmap + TodoList 活账 + 验收 checklist + AI 工程化差距 |
+| [`ROADMAP-full.md`](./ROADMAP-full.md) | 完整全景 roadmap（D+A 八阶段 + crux 构件映射 + headless 守卫逐阶段 + 性能自研层）；管「为什么这么排」，ROADMAP.md 管「这周做哪条」 |
 
 ### 过会方案/（评审 + 定稿层 · 有独立索引）
 → 进 [`过会方案/README.md`](./过会方案/README.md)（七篇主文档的阅读顺序 + 已拍板七条）。要点：

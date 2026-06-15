@@ -3,6 +3,7 @@
 > 第一人称 · 2026-06-10 · 技术部
 > 机制依据：cses-client `Message-v3` + `src-tauri/src/features/im`（已逐文件核验）。
 > 📚 关联：[技术过会方案](./helix-Rust-Core-技术过会方案.md) · [评审待办](./helix-架构评审-待办清单.md) · 拍板以 [评审纪要](./helix-技术评审纪要.md) 为准。
+> 2026-06-15 更新：按 ADR-006，当前产品化目标收缩为 **PC Tauri + Flutter 手机端**；Web/WASM 章节保留为历史方案，不进入当前 roadmap、CI 必跑矩阵或交付验收。
 
 ---
 
@@ -16,8 +17,8 @@
 |---|---|
 | **sans-IO（无 I/O 内核）** | 内核自己不碰网络/磁盘，只产出「我想做什么 I/O」的清单；真正动手的是外层驱动 |
 | **helix-core（内核）** | 执行壳 + 端口定义 + 模块宿主，零业务、零运行时依赖 |
-| **helix-im（IM 业务模块）** | 消息收发/对账/增量同步的全部业务状态机，写一份编译三端 |
-| **helix-driver-native（桌面驱动）** | 桌面端的「手脚」：真正连 WebSocket、写 SQLite、发 HTTP 的实现层（另有 wasm/ffi 两套） |
+| **helix-im（IM 业务模块）** | 消息收发/对账/增量同步的全部业务状态机，写一份供 PC Tauri + Flutter 复用 |
+| **helix-driver-native（桌面驱动）** | 桌面端的「手脚」：真正连 WebSocket、写 SQLite、发 HTTP 的实现层 |
 | **Tick（输入事件）** | 喂给内核的一切「发生了的事」，共六种：四类核心——UI 命令（Command）/ 网络入站帧（Inbound）/ I/O 完成回报（PortReply）/ 定时器到期（Timer）；外加两类连接生命周期——连接建立（Connected）/ 连接断开（Disconnected） |
 | **Effect（I/O 意图）** | 内核吐出的「待办清单」：发帧（Send）/ 落库（Persist·PersistFire）/ 发 HTTP（Http）/ 发事件（Emit）/ 定时器（ScheduleTimer·CancelTimer） |
 | **step()（步进函数）** | 内核唯一入口：喂一个 Tick + 当前时间，吐一批 Effect；严格同步、不做任何 I/O |
@@ -59,14 +60,14 @@
 | **invoke / app.emit** | Tauri 的两个 IPC 原语：前端调 Rust 命令 / Rust 向前端广播事件 |
 | **im:\_\_bus\_\_ / envelope（信封）** | 现网前后端事件单总线的频道名；信封 = `{channel, payload, tracing}` 三件套，前端按 channel 解复用 |
 | **tokio / sqlx / tungstenite / reqwest** | 桌面驱动用的四个 Rust 库：异步运行时 / SQLite 客户端 / WebSocket / HTTP |
-| **wasm / OPFS / Worker** | 浏览器字节码格式 / 浏览器私有文件系统（只能在 Worker 线程里用）/ 浏览器后台线程 |
+| **wasm / OPFS / Worker** | 历史 Web 方案术语；当前已暂停维护，见 ADR-006 |
 | **FFI / SendPort** | 跨语言 C 接口（移动端 Dart↔Rust 用）/ Dart 的跨 isolate 事件流通道 |
 
 ---
 
 # 一、目标与不变量
 
-我做一台 **sans-IO 确定性内核**（Rust-core）：定义五类端口（7 个 trait）+ 一个纯状态机执行壳，自己不做 I/O、不持有运行时。IM 的全部业务逻辑写在 **Rust-im 一份**，编译到三端（native/Tauri · wasm/浏览器 · FFI/移动）行为一致。内核不认识任何业务，IM 是第一个 guest。
+我做一台 **sans-IO 确定性内核**（Rust-core）：定义五类端口（7 个 trait）+ 一个纯状态机执行壳，自己不做 I/O、不持有运行时。IM 的全部业务逻辑写在 **Rust-im 一份**，当前产品化编译到两端（native/Tauri · FFI/Flutter）行为一致。内核不认识任何业务，IM 是第一个 guest。wasm/浏览器端已按 ADR-006 暂停维护。
 
 **不变量（铁律）：**
 
@@ -479,6 +480,8 @@ flowchart LR
 > Angular 唯一保留职责：too_long 兜底（清**内存** buffer + 重拉首屏；SQLite 不清、upsert 覆盖——已知 trade-off），零改动。**交付物是「换引擎」，不是「重写客户端」。**
 
 ### 4.4.2 Web 浏览器 / WASM 接入
+
+> **已暂停维护（2026-06-15 / ADR-006）**：网页端当前不做，以下方案仅作历史归档。不要把本节内容转成实现任务、验收项或 CI 必跑项；未来若重启 Web，需要先新增 ADR 重新评估 IndexedDB/OPFS/Worker/cache 策略。
 
 ```mermaid
 sequenceDiagram
@@ -902,4 +905,4 @@ flowchart TB
 
 ---
 
-**结语**：现在把业务状态机 + 平台胶水揉在 Tauri-Rust 里、只在桌面跑；我把**业务状态机抽进 Rust-im（一份、三端、可回放）**，把**平台胶水关进三套 driver（通用、共享）**——同一套现在验证过的 IM 机制，第一次具备写一次三端一致 + 可单测的形态。（现网机制逐节对齐标注见各节正文.）
+**结语**：现在把业务状态机 + 平台胶水揉在 Tauri-Rust 里、只在桌面跑；我把**业务状态机抽进 Rust-im（一份、PC Tauri + Flutter 复用、可回放）**，把**平台胶水关进对应 driver（native + FFI）**——同一套现在验证过的 IM 机制，第一次具备写一次双端一致 + 可单测的形态。Web/WASM 方案按 ADR-006 归档暂停。（现网机制逐节对齐标注见各节正文.）

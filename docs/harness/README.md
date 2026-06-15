@@ -2,11 +2,11 @@
 
 > **scope**：`crates/helix-core` + `crates/helix-im` + `crates/helix-driver-*`
 > **母本（方法论）**：[`/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md`](/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md)
-> **项目指令**：[`../../CLAUDE.md`](../../CLAUDE.md)（§4 索引指针 + 三栖 checklist）
+> **项目指令**：[`../../CLAUDE.md`](../../CLAUDE.md)（§4 索引指针 + 双端 checklist）
 > **详细规约**：[`../../.claude/rules/runtime-agnostic-core.md`](../../.claude/rules/runtime-agnostic-core.md)
 > **触发操作手册**：[`OPERATING.md`](./OPERATING.md)（什么事 → 调什么；自动 vs 人工触发矩阵）
 
-本目录是 Helix「心脏血脉生命线」的可执行护栏：每条卡片把一个**三栖边界条件 / 架构不变量**编译成 grep gate + CI gate + 正反代码对照，让坑写不出来、不重复踩。
+本目录是 Helix「心脏血脉生命线」的可执行护栏：每条卡片把一个**双端边界条件 / 架构不变量**编译成 grep gate + CI gate + 正反代码对照，让坑写不出来、不重复踩。历史 wasm 护栏按 ADR-006 归档保留，不作为当前产品验收。
 
 ## 1. 三个即时同步铁律（最高优先级，来自母本 §0）
 
@@ -30,12 +30,12 @@
 | ID | Status | Severity | Title | 检测手段 | Recurrence | Last |
 |----|--------|----------|-------|---------|------------|------|
 | [HX-C001](./HX-C001-core-zero-runtime-dep.md) | active | blocker | helix-core 零运行时/零平台依赖 | `cargo tree`+grep gate | 1 | 2026-06-08 |
-| [HX-C002](./HX-C002-async-send-boundary-no-lifetime.md) | active | blocker | async port Send 边界 + 状态禁 `&'a` | grep + 三栖 check | 1 | 2026-06-08 |
-| [HX-C003](./HX-C003-wasm-cfg-must-ci-typecheck.md) | active | blocker | wasm-only 代码必须进 CI 三栖 type-check + compile_error 守护 | CI matrix | 1 | 2026-06-08 |
+| [HX-C002](./HX-C002-async-send-boundary-no-lifetime.md) | active | blocker | async port Send 边界 + 状态禁 `&'a` | grep + 双端 check | 1 | 2026-06-08 |
+| [HX-C003](./HX-C003-wasm-cfg-must-ci-typecheck.md) | archived | blocker | wasm-only 代码必须进 CI type-check + compile_error 守护 | CI matrix | 1 | 2026-06-15 |
 | [HX-C004](./HX-C004-features-additive.md) | active | major | features 必须 additive，禁互斥 | feature matrix build | 1 | 2026-06-08 |
 | [HX-C005](./HX-C005-hotpath-zero-alloc.md) | active | major | 热路径零分配 O(1)（`&'static str` 不 String）| grep | 1 | 2026-06-08 |
 | [HX-C006](./HX-C006-ffi-boundary-discipline.md) | active | blocker | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| grep + review | 1 | 2026-06-08 |
-| [HX-C007](./HX-C007-effect-batch-across-boundary.md) | active | major | Effect 跨 wasm·FFI 边界批处理，不逐条 | review | 1 | 2026-06-08 |
+| [HX-C007](./HX-C007-effect-batch-across-boundary.md) | active | major | Effect 跨 FFI 边界批处理，不逐条 | review | 1 | 2026-06-08 |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=7）。不等 = 漂移，立即修。
 

@@ -1,7 +1,8 @@
 # Helix — 项目指令（每次会话开局必读）
 
-> Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，编译到三端：
-> **native（Tauri / FFI 桌面）· FFI（移动 Swift/Kotlin）· WASM（浏览器）**。
+> Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，当前产品化维护两端：
+> **native（Tauri 桌面 / PC）· FFI（Flutter 手机端）**。
+> 网页端暂不做；`helix-driver-wasm` 保留为历史实验/归档代码，不进入 roadmap、CI 必跑矩阵和交付验收（见 `docs/harness/decisions.md` ADR-006）。
 > IM 只是跑在它上面的**第一个业务模块**；core layer 本身不认识任何业务。
 > 概念祖先：Bun（runtime 跑 JS）/ Dioxus core（headless 核跑 6 端）。
 
@@ -9,7 +10,7 @@
 > 任何改动若与 GOAL.md §1 设计理念 / §2 硬约束冲突 → **先停下问，不偏离**。
 
 > 📋 **架构评审待办（实现阶段提醒）→ [`docs/过会方案/helix-架构评审-待办清单.md`](docs/过会方案/helix-架构评审-待办清单.md)**
-> 过会评审揪出的必办项：B 正确性遗漏（gate_inflight / event_seq 三级 fallback / type=6 readBits / phantom）· C 约束澄清（Storage scan / Module 同步约束）· D roadmap 调整（MVP1 加 IndexedDB 兜底 / MVP2 拆 2a-2b / +3 周）。**进实现阶段前先扫一眼，防遗忘。**
+> 过会评审揪出的必办项：B 正确性遗漏（gate_inflight / event_seq 三级 fallback / type=6 readBits / phantom）· C 约束澄清（Storage scan / Module 同步约束）· D roadmap 调整。注意 D 中 wasm/IndexedDB 相关项已被 ADR-006 取代：当前只维护 PC Tauri + Flutter。**进实现阶段前先扫一眼，防遗忘。**
 
 > 🔁 **指令文件同步铁律**：本仓所有同目录的 `CLAUDE.md` 与 `AGENTS.md` 是镜像文件；任何修改必须同时落到两者，内容保持完全同步。新增 / 删除某一级指令文件也必须成对处理。
 
@@ -22,11 +23,12 @@
     ▲ 实现 Module trait + register()
 core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSource) + Module 宿主 + Effect/事件 + sans-IO 执行壳
     ▲ 实现 ports（依赖方向单向：adapter → core，永不反向）
-平台驱动层   helix-driver-native(tokio/sqlx/tungstenite/reqwest) · helix-driver-wasm(wasm-bindgen/web-sys/OPFS) · helix-driver-ffi(C ABI/uniffi/rusqlite)
+平台驱动层   helix-driver-native(tokio/sqlx/tungstenite/reqwest) · helix-driver-ffi(C ABI/uniffi/rusqlite)
+             helix-driver-wasm = archived/experimental（网页端暂停维护，不作为交付目标）
 ```
 
 **依赖铁律**：`helix-core` 永不直接 import `tokio` / `sqlx` / `reqwest` / `web-sys` / `tauri` —— **只定义 trait**。
-驱动在边缘实现。违反 = 三栖立刻碎。验证见 harness `HX-C001`。
+驱动在边缘实现。违反 = 双端复用立刻碎。验证见 harness `HX-C001`。
 
 ---
 
@@ -34,36 +36,33 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 1. **Sans-IO / 六边形**：core 不做任何 I/O、不持有任何运行时。纯状态机：喂入(入站帧 / now_ms / 端口响应) → 吐出(Effect: Persist/Send/SetTimer/Emit)。真正的网络/存储/线程由驱动做。
 2. **确定性**：时间 / 随机 / ID 一律由 host 注入（不在 core 调 `Instant::now` / `rand` / 生成 id）。同输入同输出，可回放、可测试。
-3. **并发不进 core**：WASM 单线程，tokio multi-thread 在 wasm32 不可用 → 并发模型属于驱动层。core 必须能在单线程跑。
-4. **YAGNI 但边界要对**：通用性靠「≥1 真实模块跑通 + 第二模块插得进」挣，不预建插件框架。但 **YAGNI 边界必须在「三端目标集合」下画** —— 单平台假设会砍错三栖必需的抽象（见 harness `HX-C001`/`HX-C002` 教训）。
+3. **并发不进 core**：tokio multi-thread / Flutter FFI 宿主线程模型都属于驱动层。core 必须能在单线程跑。
+4. **YAGNI 但边界要对**：通用性靠「≥1 真实模块跑通 + 第二模块插得进」挣，不预建插件框架。但 **YAGNI 边界必须在「PC Tauri + Flutter 手机端目标集合」下画** —— 单平台假设仍会砍错双端必需的抽象（见 harness `HX-C001`/`HX-C002` 教训）。
 
 ---
 
-## 2. 三栖边界条件 checklist（写 core / 改 port / 加 driver 前过一遍）
+## 2. 双端边界条件 checklist（写 core / 改 port / 加 driver 前过一遍）
 
 > 完整规则 + 代码 + 坑词典见 [`.claude/rules/runtime-agnostic-core.md`](.claude/rules/runtime-agnostic-core.md)（按需 Read）。
 > 下面是开局必记的速查：
 
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
-- [ ] **async 抽象 Send 边界**：native 要 `Send+'static`，wasm 单线程 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
+- [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **wasm-only 代码必须进 CI 三栖 type-check**：`#[cfg(wasm32)]` 在 native CI 不被检查 → CI 必跑 `--target wasm32-unknown-unknown` + 误链 `compile_error!` 守护（`HX-C003`）
+- [ ] **wasm/web 暂停维护**：不要新增或修复 `helix-driver-wasm` 作为交付项；若未来重启网页端，先新增 ADR 重新激活 wasm CI 与 HX-C003（当前 HX-C003 仅作为历史护栏保留）。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）
 - [ ] **热路径零分配 O(1)**：`&'static str` 不 `String`、复用 buffer、单 INSERT/UPDATE WHERE PK、禁 read-modify-write（`HX-C005`）
 - [ ] **FFI 边界铁律**：不许 unwind 跨 `extern "C"`——策略二选一：生产 cdylib `panic="abort"`（无需 catch_unwind）/ dev unwind 时逐导出 `catch_unwind`，禁两者混说；opaque ptr 单一 owner（`Box::into_raw`/`from_raw` 各一次）；同步 SQLite C 调用包 `spawn_blocking`（`HX-C006`）
-- [ ] **Effect 跨边界批处理**：FFI/wasm 边界**批量**过 effect，不逐条（Dioxus sledgehammer 教训，`HX-C007`）
-- [ ] **getrandom js feature**：任何 wasm target 加 `getrandom = { features=["js"] }`
-- [ ] **wasm size**：release profile `opt-level="z"` + `lto` + `panic="abort"` + `strip`
+- [ ] **Effect 跨 FFI 边界批处理**：FFI 边界**批量**过 effect，不逐条（Dioxus sledgehammer 教训，`HX-C007`）
 
 ---
 
 ## 3. 编译 / 测试 cadence
 
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
-- **三栖验收**（phase 完成前 / 改 port 或 driver 后必跑）：
+- **双端验收**（phase 完成前 / 改 port 或 driver 后必跑）：
   ```bash
   cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
-  cargo check --target wasm32-unknown-unknown -p helix-core -p helix-driver-wasm
   cargo test -p helix-core
   ```
 - `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
@@ -89,12 +88,12 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | 编号 | 标题（一句话） | 状态 |
 |---|---|---|
 | HX-C001 | helix-core 零运行时 / 零平台依赖（grep gate）| active |
-| HX-C002 | async port Send 边界 + 状态禁 `&'a`（三栖 + 生命周期）| active |
-| HX-C003 | wasm-only 代码必须进 CI 三栖 type-check + compile_error 守护 | active |
+| HX-C002 | async port Send 边界 + 状态禁 `&'a`（双端 + 生命周期）| active |
+| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（wasm 暂停维护，见 ADR-006） |
 | HX-C004 | features 必须 additive，禁互斥 | active |
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
-| HX-C007 | Effect 跨 wasm·FFI 边界批处理，不逐条 | active |
+| HX-C007 | Effect 跨 FFI 边界批处理，不逐条 | active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 
@@ -113,7 +112,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 |---|---|---|
 | `rust-dev` ↔ `/rust-knowledge` | Rust 语言与工程全栈（所有权/async/性能/unsafe） | 借用·Send 报错、热路径审查、trait 设计争议 |
 | `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | Tauri 2 桌面骨架端到端，**参考仓 = 现网 cses-client** | 现网对齐核验（唯一权威）、IPC 契约、M2 Tauri 接缝 |
-| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+WASM+FFI（cfg/Send/OPFS/uniffi） | 三栖边界守门、M3 wasm / M4 FFI 主力 |
+| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+FFI（cfg/Send/uniffi；wasm 已归档） | 双端边界守门、Flutter FFI 主力 |
 | `dioxus-dev` ↔ `/dioxus-knowledge` | **仅取 core 内核经验**（step 循环/Effect 批处理/调度），**禁渲染层/RSX 话题** | 内核循环设计对照、批次边界、调度公平性 |
 
 本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。

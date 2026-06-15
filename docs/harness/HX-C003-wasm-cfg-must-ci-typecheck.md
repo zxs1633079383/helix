@@ -1,7 +1,7 @@
 ---
 id: HX-C003
-title: wasm-only 代码必须进 CI 三栖 type-check；core 不许误链入 native binary
-status: active
+title: wasm-only 代码必须进 CI type-check；core 不许误链入 native binary
+status: archived
 severity: blocker
 scope: helix
 created: 2026-06-08
@@ -24,6 +24,8 @@ graduates_to:
 ---
 
 # HX-C003 — wasm cfg 代码必须进 CI 三栖 type-check
+
+> **归档状态（2026-06-15 / ADR-006）**：网页端/wasm 暂停维护，本文不再作为当前 CI 和交付验收要求。保留本卡是为了未来如果重启 Web 端，可以直接恢复 wasm target type-check 与误链守护。
 
 ## §1 触发场景
 - 写 `#[cfg(target_arch="wasm32")]` 分支
@@ -73,3 +75,4 @@ cargo check -p helix-driver-wasm --target wasm32-unknown-unknown
 
 ## §7 历史与演进
 - drafting → active：2026-06-08，加 compile_error 守护 + CI wasm32 target 后确立。
+- active → archived：2026-06-15，ADR-006 拍板网页端/wasm 暂停维护；当前产品路线只保留 PC Tauri + Flutter FFI。

@@ -1,6 +1,7 @@
 # helix-driver-ffi —— FFI 驱动层设计文档
 
 > **版本** 2026-06-08 · C ABI 稳定层 + uniffi 双轨方案
+> **状态更新（2026-06-15 / ADR-006）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置与事件订阅，不写 IM 同步逻辑、不写消息 SQL。网页端 wasm 已暂停维护。
 >
 > **本文目的**：详述 `helix-driver-ffi` 如何通过 C ABI（`extern "C"` / `#[no_mangle]` / `repr(C)` / opaque ptr）和 uniffi（Swift/Kotlin 绑定）把 core ports 暴露给移动端宿主，以及 host 回调如何提供 I/O 能力。
 
@@ -9,10 +10,10 @@
 ## 0. 定位与两轨方案
 
 ```
-iOS (Swift)          Android (Kotlin/JVM)         C/C++ 宿主
+Flutter / Dart FFI        iOS/Android 原生宿主        C/C++ 宿主
     │                        │                         │
-    │ uniffi bindings         │ uniffi bindings          │ extern "C"
-    │ HelixCore.swift         │ HelixCore.kt             │ helix.h
+    │ dart:ffi               │ uniffi/C ABI              │ extern "C"
+    │ package bridge         │ Swift/Kotlin wrapper      │ helix.h
     ▼                        ▼                         ▼
 helix-driver-ffi  (crate-type = ["cdylib", "staticlib"])
     │  implements: Transport / Storage / Clock / EventSink / HttpRequester
@@ -25,10 +26,23 @@ helix-core + helix-im
 
 | 轨道 | 适用场景 | 生成产物 |
 |---|---|---|
-| **C ABI 轨**（`extern "C"` + `#[no_mangle]` + `cbindgen`）| 任何能加载 `.dylib` / `.so` / `.a` 的宿主（C++、Unity、NDK raw）| `helix.h` + `.dylib`/`.a` |
-| **uniffi 轨**（`#[uniffi::export]` + UDL / proc-macro）| Swift (iOS) / Kotlin (Android) 上层 | `HelixCore.swift` + `HelixCore.kt` + 对应绑定 |
+| **C ABI 轨**（`extern "C"` + `#[no_mangle]` + `cbindgen`）| Flutter `dart:ffi` 主线，以及任何能加载 `.dylib` / `.so` / `.a` 的宿主 | `helix.h` + `.dylib`/`.so`/`.a` |
+| **uniffi 轨**（`#[uniffi::export]` + UDL / proc-macro）| 未来 Swift (iOS) / Kotlin (Android) 原生上层 | `HelixCore.swift` + `HelixCore.kt` + 对应绑定 |
 
-两轨共享同一份 Rust 实现，只是暴露层不同：C ABI 轨手写 `extern "C"` 函数，uniffi 轨加注解自动生成。
+两轨共享同一份 Rust 实现，只是暴露层不同：Flutter 当前优先走 C ABI；uniffi 是未来原生壳备选，不作为 Flutter MVP 阻塞项。
+
+### 0.1 Flutter 最小 API 面
+
+Flutter 侧 API 要薄：Dart 不理解 `Tick` / `Effect` / `StorageOp`，只调用命令并订阅事件。
+
+```dart
+final helix = Helix.open(dbPath: path, apiBaseUrl: api, wsUrl: ws);
+helix.events.listen(handleImEvent);
+helix.sendMessage(channelId: id, temporaryId: tmp, text: text);
+helix.destroy();
+```
+
+Rust FFI 侧对应少量稳定入口：`helix_create` / `helix_start` / `helix_send_command` / `helix_destroy` / `helix_on_ws_frame` / `helix_on_http_response`。消息 schema、sync、cursor、pending send 全部留在 `helix-im` 和 driver 内部。
 
 ---
 

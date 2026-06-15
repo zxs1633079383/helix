@@ -1,6 +1,7 @@
 # Helix 完整 Roadmap（D + A 全景 · crux-grounded · headless 守卫逐阶段）
 
 > 2026-06-15 · 本文是**全景 + 设计推演**视角；天级 todo / 验收 checklist 见 [`ROADMAP.md`](./ROADMAP.md)（两者分工：本文管"为什么这么排、每阶段守什么线"，ROADMAP.md 管"这周做哪几条"）。
+> 2026-06-15 更新（ADR-006）：当前产品路线收缩为 PC Tauri + Flutter 手机端；Web/WASM 归档暂停。本文中旧 wasm 阶段仅作历史推演，不作为当前 roadmap。
 > 关联：北极星 [`GOAL.md`](./GOAL.md) · 决策权威 [`过会方案/helix-技术评审纪要.md`](./过会方案/helix-技术评审纪要.md) · 机制权威 [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) · 方向A [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) · 参照实现 Crux（`/Users/mac28/workspace/rustWorkspace/crux`，源码已核） · 行为真源 cses-client（`src-tauri/features/im` + `message-v3`）。
 
 ---
@@ -13,7 +14,7 @@
 |---|---|
 | 零运行时依赖 | `cargo tree -p helix-core \| grep -iE 'tokio\|sqlx\|reqwest\|web-sys\|tauri'` = 空 |
 | 零业务概念 | `grep channel/message/temporaryId crates/helix-core` = 0；公开面 `cargo public-api` 对 allowlist 无新业务类型 |
-| 三栖编译绿 | native 4 crate + `--target wasm32` 2 crate 全过 |
+| 双端编译绿 | native 产品 crate（core/im/driver-native/driver-ffi）全过；wasm 不作为当前必跑目标 |
 | 加模块/加端 core 零改 | 加模块 = `Module`+`register`；加端 = 实现 ports（开闭原则） |
 | 确定性可回放 | 同 Tick 序列 → 同输出 |
 | **（进 A 后追加）** | `grep ViewModel crates/helix-core` = 0 —— ViewModel 是业务类型，只在 helix-im |
@@ -26,7 +27,7 @@
 
 ```
 横向（加业务模块，core 零改）:  IM ──→ +Presence ──→ +Meeting ...
-纵向（加平台端，core/模块零改）: native ──→ wasm ──→ ffi
+纵向（加平台端，core/模块零改）: native ──→ ffi（Flutter）
         交叉点 = helix-core（永远 headless 通用核） → M×P 塌成 M+P
 
 core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型投影口(view)，
@@ -43,9 +44,9 @@ core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型�
 | 1 | 先证最硬骨头（乱序 backfill proptest） | 业务① | ✅ 完成 |
 | 2 | native 落地 + 真 Go 联调 + Tauri 换引擎 | 业务① + native | 🔄 进行中（M2 ~60%） |
 | 3 | 基础 core 完工 + 统一 in-memory Model | 业务①（D 阶段2 收尾） | ⏳ A 的枢纽前提 |
-| 4 | wasm 浏览器端 | +端 | ⏳ M3 |
-| 5 | FFI 移动端 | +端 | ⏳ M4 |
-| — | **以上 = 方向 D 完成：业务①写一次三端一致，地基独立回本** | | |
+| 4 | FFI / Flutter 手机端 | +端 | ⏳ M3 |
+| 5 | wasm 浏览器端 | +端 | archived（ADR-006 暂停维护） |
+| — | **以上 = 方向 D 当前产品完成：业务①写一次 PC + Flutter 双端一致，地基独立回本** | | |
 | 6 | core-view **通用机制**（Render + view + typegen） | core（仍 headless） | 🔮 未来 |
 | 7 | 方向 A 增量切（一刀一 ViewModel）+ 大列表性能自研层 | 展示②（helix-im） | 🔮 未来 |
 | 支线① | AI 工程化硬化（CI matrix / clippy deny / public-api gate） | 工程化 | 并行 |
@@ -77,15 +78,14 @@ core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型�
 **为什么单列**：**这是「先 D 后 A」的转轴**——ViewModel 投影的是业务 Model，没有干净 Model 之前 A 无对象可投。Model 没建好坚决不碰 Phase 6/7。
 **headless 守卫**：Model 是 helix-im 业务状态，core 只见 `table:&'static str`，不知是「消息」还是「草稿」。
 
-### ⏳ Phase 4 — wasm 浏览器端（M3）
-IndexedDB 兜底先跑通 Tick-Effect 循环 → Worker + postMessage 批量桥（HX-C007）→ OPFS（SAHPool + COOP/COEP）升级 → **三端回放一致性**（同剧本 native vs wasm byte-level）。
-**headless 守卫**：同一份 core + helix-im 编 wasm **零改**，差异只在 driver-wasm 的 cfg。
-
-### ⏳ Phase 5 — FFI 移动端（M4）
-uniffi 对 `Vec<Effect>`/嵌套 enum 实测 → `helix_command`/`helix_query` C ABI + SendPort 事件流 → `panic=abort` cdylib（HX-C006）→ Flutter 冒烟。
+### ⏳ Phase 4 — FFI / Flutter 手机端（M3）
+C ABI + Dart FFI 最小 API → rusqlite/SQLite 存储 → `helix_command`/`helix_query` + Dart Stream 事件流 → `panic=abort` cdylib/staticlib（HX-C006）→ Flutter 冒烟 → native vs FFI 同 Tick 剧本一致。
 **headless 守卫**：同一份 core 跑 ffi 零改；panic 不跨 `extern "C"`；opaque ptr 单 owner。
 
-> **—— 到此 = 方向 D 完成。业务①（收发/同步/对账/离线）写一次三端一致、可回放可单测。这是地基，独立回本——即使 A 不做，投资也不白费（纪要定锚）。——**
+### archived Phase 5 — wasm 浏览器端（暂停维护）
+IndexedDB / Worker / OPFS / wasm 包体积相关方案按 ADR-006 归档。当前不做网页端、不补 driver-wasm、不纳入 CI 或交付验收；未来重启 Web 需新增 ADR 重新评估 cache/storage 策略。
+
+> **—— 到此 = 方向 D 当前产品完成。业务①（收发/同步/对账/离线）写一次 PC Tauri + Flutter 双端一致、可回放可单测。这是地基，独立回本——即使 A 不做，投资也不白费（纪要定锚）。——**
 
 ### 🔮 Phase 6 — core-view **通用机制**（仍然 headless）
 core **只**加两个**通用**原语：
@@ -108,7 +108,7 @@ host 加 `Render → view() → im:viewmodel:patch` 链路；typegen 抄 `crux T
 **headless 守卫**：ViewModel 在 helix-im；windowing/DOM/像素永远在 UI——**core 出数字/切片/补丁，不碰像素 = 不退方向 B**。
 
 ### 支线① — AI 工程化硬化（可与任意 Phase 并行）
-CI 三栖 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate CLAUDE.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。详见 [`AI工程化对齐-Bun-checklist.md`](./AI工程化对齐-Bun-checklist.md)。
+CI 双端 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate CLAUDE.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。详见 [`AI工程化对齐-Bun-checklist.md`](./AI工程化对齐-Bun-checklist.md)。
 
 ### 支线② — 第二模块验证 = 通用核裁决（D 后任一时点）
 `register(MeetingModule)` / `register(PresenceModule)`，**core 零改**跑通。会议用全四能力但形状完全异于 IM（无 temporaryId 对账、无 cursor 同步）；audit 只用 Http+Storage+Timer 不碰 WS。**这是「core 是通用核而非 IM 框架」的代码裁决**（架构设计 §六）——你最在意的不变量，要用第二个形状异于 IM 的模块插得进来证明，不靠嘴说。

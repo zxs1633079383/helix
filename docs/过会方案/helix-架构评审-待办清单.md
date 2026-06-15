@@ -2,6 +2,7 @@
 
 > 来源：rust-dev 纯架构评审（2026-06-10，对照 cses-client 现网 IM 代码 + roadmap 评估）。
 > 用途：过会后进入实现阶段的**必办事项清单**，防止评审揪出的缺口被遗忘。
+> 2026-06-15 更新（ADR-006）：网页端/wasm 暂停维护；当前产品路线只覆盖 PC Tauri + Flutter 手机端。本文中 wasm/IndexedDB/OPFS 相关待办均视为历史建议，不再作为实现阶段必办项。
 > 📚 关联：[架构设计](./helix-core-im-架构设计.md) · [评审纪要](./helix-技术评审纪要.md) · 索引见项目 [`CLAUDE.md`](../../CLAUDE.md)。
 
 ---
@@ -71,10 +72,10 @@
 ## D. Roadmap 调整建议（评审：整体 +3 周更现实）
 
 - [ ] **D1 · MVP1 拉到 10-12 天**（原 7 天偏紧）
-  wasm OPFS 必须 Worker 内初始化是硬坑（2-3 天）+ FFI uniffi layout 验证 + CI 三栖维护。
+  现按 ADR-006 收缩为 PC Tauri + Flutter FFI；工期重点从 wasm OPFS/CI 三栖转为 FFI Flutter ABI、rusqlite 存储、双端一致性测试。
 
-- [ ] **D2 · MVP1 wasm Storage 先用 IndexedDB 兜底**
-  OPFS 复杂度高（origin isolation / COOP-COEP / Worker）。先用 IndexedDB（主线程可用、API 简单）跑通 Tick-Effect 循环，OPFS 留 MVP2/3 升级——否则「三栖验收」实为 native+ffi 两端。
+- [x] **D2 · wasm Storage / IndexedDB 兜底（已由 ADR-006 取代）**
+  网页端暂不做，`helix-driver-wasm` 暂停维护；不再补 IndexedDB/OPFS。
 
 - [ ] **D3 · MVP2 拆两 phase**（原 8-14 天过紧）
   `handlers/post.rs` 现网 1300+ 行，含 spawn/await/Mutex，重写为纯同步 Tick→Effect 是深度重构。
@@ -84,14 +85,14 @@
 - [ ] **D4 · MVP3 前置测试基础设施**
   mock port + 可回放测试用例必须在 MVP3 验证前建好（喂剧本化 Tick 断言 Effect），否则只能靠真实环境验证，很慢。
 
-- [ ] **D5 · MVP4 工期微调**
-  Flutter FFI 4→7 天（uniffi 对 `Vec<Effect>`/嵌套 enum 有已知问题，需实测）；WASM 3 天只是 Demo，离生产可用（OPFS origin isolation / binary 优化）有距离。
+- [ ] **D5 · Flutter FFI 工期微调**
+  Flutter FFI 4→7 天（uniffi 对 `Vec<Effect>`/嵌套 enum 有已知问题，需实测）；当前优先 C ABI + Dart FFI，wasm demo 不再作为 roadmap 项。
 
 ---
 
 ## 评审总结论
 
-> 架构能支撑「一份逻辑三端一致 + 可回放可测 + 加第二模块零改内核」，核心设计正确、与现网对齐度高、无颠覆性错误。**可以过会**——3 大缺口已补入设计（A），B/C/D 为实现阶段待办。工期建议整体 +3 周。
+> 架构能支撑「一份逻辑多端一致 + 可回放可测 + 加第二模块零改内核」，核心设计正确、与现网对齐度高、无颠覆性错误。**可以过会**——3 大缺口已补入设计（A），B/C/D 为实现阶段待办。按 ADR-006，当前交付目标收缩为 PC Tauri + Flutter。
 
 ---
 
@@ -105,7 +106,7 @@
 - [x] **E6 · P1 gate buffer 容量上限 + 客户端主动 too_long**（**2026-06-12 修复**）：`MAX_GATE_BUFFER=16384`，超限清 buffer + emit too_long + sync 重拉，cursor 不回退。回归锚 ×2。
 - [x] **E7 · P1 broadcast lagged 可感知**（**2026-06-12 修复**）：感知点从 emit(send)侧 改到接收侧 `EventReceiver/RecvOutcome::Lagged` 显式上报（纠正承压评估原定位——send 侧感知不到 lagged）。回归锚 ×2。
 - [x] **E10 已落地（2026-06-12 `d58dff1`）**：写池 `PRAGMA synchronous=NORMAL`。实测 cursor FULL 8.1K→NORMAL warm ~16K（**~2x，非数量级**）。⚠️「fsync 822 calls/s」本仓从未实测、已 **retract**（macOS fsync 弱）；E10 增益平台依赖，生产 Linux 待测。详见承压评估 2026-06-12 节。
-- [ ] **🔴 多模块并发写 benchmark（对抗审揪出的真缺口）**：单写者池（max_connections=1）下，第二模块（presence/docs）并发 batch_upsert 竞争同一写连接的实测——「通用业务海量涌入」的真问号，零数据。+ E9 cursor 热路径 to_string 堆分配 + wasm 存储 todo!() 待补。
+- [ ] **🔴 多模块并发写 benchmark（对抗审揪出的真缺口）**：单写者池（max_connections=1）下，第二模块（presence/docs）并发 batch_upsert 竞争同一写连接的实测——「通用业务海量涌入」的真问号，零数据。+ E9 cursor 热路径 to_string 堆分配待补。wasm 存储 todo 不再作为当前缺口。
 - [ ] **E8/E9 · P2**：timer O(N) 查找反向索引；热路径分配收口（HX-C005）。
 
 ---

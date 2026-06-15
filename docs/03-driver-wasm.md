@@ -1,5 +1,7 @@
 # helix-driver-wasm —— WASM 驱动层设计文档
 
+> **状态更新（2026-06-15 / ADR-006）**：网页端暂不做，`helix-driver-wasm` 暂停维护。本文仅作为历史实验和未来重启网页端时的参考，不进入当前 roadmap、CI 必跑矩阵、交付验收或日常修复范围。当前产品目标是 PC Tauri（`helix-driver-native`）+ Flutter 手机端（`helix-driver-ffi`）。
+>
 > **版本** 2026-06-08 · 基于三栖约束底座 + wasm32-unknown-unknown 编译约束
 >
 > **本文目的**：详述 `helix-driver-wasm` 如何用 wasm-bindgen-futures / web-sys / sqlite-wasm-rs / fetch API 实现全部 core ports，严守 wasm32-unknown-unknown 的三个硬约束（无 std::thread / 无 Instant / getrandom js feature）。

@@ -1,6 +1,7 @@
 # Helix 细粒度 Roadmap · TodoList · 验收 Checklist
 
 > 2026-06-12 · 基于：技术过会方案 §6（M0-M4）+ 评审 D 系调整（+3 周）+ 实际进度对账。
+> 2026-06-15 更新：按 ADR-006，网页端/wasm 暂停维护；产品化路线只保留 PC Tauri + Flutter 手机端。
 > 当前位置：**按日历 M2 第一周，按交付物 M2 中后段**（M1 全部 + M2 约 60% 已完，见 git log `519bbde..85e07ec`）。
 
 ---
@@ -27,20 +28,18 @@
 
 ### AI 工程化补课（0.5 周，可与上面并行——见 §四差距）
 
-CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-api gate（优先级从左到右）。
+CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md → cargo public-api gate（优先级从左到右）。wasm CI 不再作为必跑项，除非未来 ADR 重新激活网页端。
 
-### M3 —— wasm 浏览器端（3-4 周，按 D2 调整）
+### M3 —— Flutter 手机端 / FFI（2-3 周，按 ADR-006 调整）
 
-1. W1：**IndexedDB 兜底**先跑通 Tick-Effect 循环（D2 拍板：OPFS 后置）；wasm driver 从空壳到四能力可用
-2. W2：Worker 接入 + postMessage 批量桥 + 读查询 request_id 路由（§4.4.2）
-3. W3：OPFS（SAHPool + COOP/COEP）升级 + 浏览器 IM demo + wasm 包体积（opt-level=z 链路 + twiggy）
-4. W4：缓冲 / 三端回放一致性测试（同一剧本 native vs wasm 输出比对）
+1. F1：确定 Flutter FFI API 最小面：`open/start/send_message/on_event/destroy`，Dart 不碰 IM SQL / sync 细节
+2. F2：`helix-driver-ffi` 内置 rusqlite/SQLite 存储，跑通 `StorageOp` 语义与 native 对齐
+3. F3：事件回 Dart Stream；panic=abort cdylib/staticlib profile；Flutter demo 冒烟
+4. F4：同一 Tick 剧本 native vs FFI 输出一致；同一 schema/migration + Storage conformance 测试
 
-### M4 —— FFI 移动端（2-3 周，按 D5 调整）
+### M4 —— 归档的 wasm/web（暂停维护）
 
-1. uniffi 对 `Vec<Effect>`/嵌套 enum 实测（D5：4→7 天）；spawn_blocking 落地（MAJ-4/HX-C006）
-2. helix_command/helix_query C ABI + SendPort 事件流 + Flutter demo
-3. panic=abort cdylib profile + 双端冒烟
+`crates/helix-driver-wasm` 与 `docs/03-driver-wasm.md` 只作为历史实验保留。当前不做网页端、不补 IndexedDB/OPFS、不把 wasm 纳入交付验收。未来若重启网页端，先新增 ADR 重新定义 storage/cache 策略和 CI。
 
 ---
 
@@ -66,7 +65,7 @@ CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-a
 
 **P2（性能尾巴 + 工程化）**
 - [ ] E8 timer 反向索引 · E9 热路径分配收口（HX-C005）
-- [ ] AI 工程化四件：CI matrix / clippy deny / per-crate CLAUDE / public-api gate（§四）
+- [ ] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate（§四）
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [ ] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）
 
@@ -77,7 +76,7 @@ CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-a
 ## 三、最终验收 Checklist（全部 machine-checkable，过一项勾一项）
 
 **结构闸门（每次 merge 必跑）**
-- [ ] `cargo check` 三栖（native 4 crate + wasm 2 crate）= 0 error
+- [ ] `cargo check` 双端产品目标（core/im/driver-native/driver-ffi）= 0 error
 - [ ] `cargo test --release` workspace 全绿（当前基线 85，只增不减）
 - [ ] `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` = 空
 - [ ] `grep -rn 'channel\|message\|temporaryId' crates/helix-core/src/ | grep -v '//'` = 0
@@ -96,9 +95,9 @@ CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-a
 - [ ] UC-4：多 channel 批量 sync，置顶优先
 - [ ] Tauri 灰度：Angular `git diff` = 0；开关回退 < 5s；同一 DB 双引擎数据互认
 
-**M3/M4 各自追加**
-- [ ] 同一 Tick 剧本三端输出 byte-level 一致（可回放跨端验证）
-- [ ] wasm demo 浏览器收发 + 包体积 < 2MB；FFI Flutter 冒烟 + abort 语义验证
+**M3 追加（Flutter FFI）**
+- [ ] 同一 Tick 剧本 native vs FFI 输出 byte-level 一致（可回放跨端验证）
+- [ ] FFI Flutter 冒烟 + abort 语义验证
 
 ---
 
@@ -109,7 +108,7 @@ CI 三栖 matrix → clippy deny-list → per-crate CLAUDE.md → cargo public-a
 | 层 | Bun 机制 | Helix 现状 | 差距动作（按 ROI 排序） |
 |---|---|---|---|
 | 护栏 | **clippy.toml 29 条 deny-list**（std::fs→bun_sys 等，编译期 API 边界） | HX-C001/C005 靠 grep + review | **①** `clippy.toml`：helix-core 内 deny `std::time::Instant::now`/`SystemTime`（必须走 Clock port）、deny `println!`；workspace deny `unwrap` in 边界路径——把 harness 卡编译期化 |
-| 验证 | CI 多 job 闸门链 + 修改必附测试 | 全部 gate 靠手跑/会话纪律 | **②** `.github/workflows/ci.yml`：三栖 matrix + cargo tree gate + grep gate + test + （后续 public-api）——本文件 §三结构闸门全部自动化 |
+| 验证 | CI 多 job 闸门链 + 修改必附测试 | 全部 gate 靠手跑/会话纪律 | **②** `.github/workflows/ci.yml`：双端 matrix + cargo tree gate + grep gate + test + （后续 public-api）——本文件 §三结构闸门全部自动化 |
 | 指令 | **嵌套 CLAUDE/AGENTS.md ×11**（就近继承）+ settings.json hooks 自愈 | 仅 root CLAUDE.md + 1 个 rules 文件 | **③** 每 crate 一份薄 CLAUDE.md（core：零依赖铁律+不变量；im：剧本测试 pattern+ACL 约定；driver：worker/背压契约+压测命令）；PostToolUse hook 自动 rustfmt |
 | 流程 | **.claude/skills 7 个 + commands 6 个**（pattern 即代码） | docs/harness 7 卡（雏形同构） | **④** harness 卡毕业为 `.claude/skills/`（写新模块 / 写回放测试 / 跑承压验收 三个 skill 起步） |
 | 锁定 | rust-toolchain.toml + rustfmt.toml pinning | 无 | **⑤** 两个文件各 5 行，一次性 |

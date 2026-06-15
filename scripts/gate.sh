@@ -6,15 +6,15 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 echo "▶ [1/7] 三栖 cargo check"
-cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi --quiet
+cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
 cargo check --target wasm32-unknown-unknown -p helix-core -p helix-driver-wasm --quiet
 
 echo "▶ [2/7] clippy（deny-list 生效）"
-cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi --quiet -- -D warnings 2>/dev/null \
-  || cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi --quiet
+cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet -- -D warnings 2>/dev/null \
+  || cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
 
-echo "▶ [3/7] 测试（native 三 crate）"
-cargo test -p helix-core -p helix-im -p helix-driver-native --quiet
+echo "▶ [3/7] 测试（native 四 crate：core/im/driver-native/driver-host）"
+cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-host --quiet
 
 echo "▶ [4/7] 零运行时闸门（HX-C001）"
 if cargo tree -p helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then

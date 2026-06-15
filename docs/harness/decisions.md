@@ -38,3 +38,10 @@
 - **决策**：新增 `helix-driver-host` 作为 PC Tauri 与 Flutter FFI 的共享 Rust host driver 层。SQLite schema/migration、rusqlite Storage 实现、`StorageOp -> PortOutcome` 兑现、`rows_to_reply_bytes` / `rows_from_reply_bytes` 统一维护在该 crate；`helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳与边界 API。
 - **理由**：Flutter 手机端选择 Rust 侧全包 I/O，Dart 只负责 UI、FFI 命令与事件流。若 native 继续 sqlx、ffi 单独 rusqlite，messages SQL、monotonic 表、StorageOp 语义和 row 编解码会出现双维护漂移。统一 rusqlite + blocking worker/shared queue 优先维护性，并直接服务 PC + Flutter 两端。
 - **状态**：已定（2026-06-15）。当前已落地共享 Storage/schema/StorageOp/rows 编解码；HTTP/WS 与更通用 engine loop 共享继续按不破坏平台壳边界增量推进。
+
+## ADR-008 — sync-v2：helix 适配现网 Go 真实 wire，不改 Go server
+- **决策**：sync-v2 落地时，helix（parser/sync_session/to_effect/im handler）**适配现网 Go 的真实 wire**——increment 走「`POST /api/cses/channels/load/increment` HTTP 触发 → 后台 goroutine → WS 单播 `increment_channel`×N + `increment_channel_end`」push 模型；离线对账走「`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}` → `entries[]`」pull 模型；游标字段为 `event_seq`（三级 fallback：data.event_seq → props.channel_event_seq → 顶层 channel_event_seq）；鉴权 `cookieId` header = userId。**Go server 零改动。**
+- **理由**：现网 Go `mattermost/server/channels/csesapi` 已服务生产 iOS/cses-client，反向让 Go 适配 helix 抽象会动生产服务端、影响现网 iOS，代价大。GOAL §4.5 定「现网 cses-client/Go 为行为真源」。helix 当前把 increment（push）与 sync/notify（pull）误揉成单一抽象 `GET /sync/notify` 拉模型 + 字段名 `seq`，是错位，须按真 wire 改回两条链路。
+- **代码事实（2026-06-15 map 实测）**：helix-im parser 仅读 `data.seq` 一级、`GET /sync/notify`、不认 increment/hello 帧；on_start 不发 hello；全仓 0 `im:connection:established`；echo→reconcile 死代码；engine_loop Send 占位无 transport 路由表。详见 [`../过会方案/helix-sync-v2-real-go-wire-设计.md`](../过会方案/helix-sync-v2-real-go-wire-设计.md)。
+- **配套未决**：connect 触发归属（`Effect::Connect` 意图 vs host-cli 主动 connect）放 Phase A2 拍；「运维消息」是否新立 `im:ops:*` 类待拍。
+- **状态**：已定（2026-06-15）。落 `dev-zlc` 分支，A→B→C→D 分阶段全量实现。

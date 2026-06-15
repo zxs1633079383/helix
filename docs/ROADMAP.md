@@ -15,7 +15,7 @@
 |---|---|---|
 | D1-2 | **最小 native 宿主**（`crates/helix-host-cli`）+ **UC-1 前置 4 块**（panel-review 揪出 happy-path 死/缺/脆）：① **hello 握手时序**——`Tick::Connected` 后先发 hello 帧、收 hello-ack 才置 Connected 并 **emit `im:connection:established`**（当前全仓 0 此事件，验收条件本不满足；resync 须等握手后发，否则 Go 401/403）② **B4** event_seq 三级 fallback **+ hello-ack 帧解析**（parser 当前无 event_seq、hello-ack 无 seq 被静默丢）③ **B5** phantom ④ **echo→reconcile 路由**（`handle_echo` module.rs:679 当前 `#[allow(dead_code)]` 从不被 Inbound 调用，tmp_id→正式 id 不覆写）| 握手日志 + `im:connection:established` 可见 + 4 块各配 replay 测试 |
 | D3-4 | **UC-1 端到端真 Go smoke**：发消息 → 0 等待上屏 → echo 对账「已送达」→ 查库 temporaryId 已换正式 id；录制真实帧 → golden fixtures（im_trace 导出 → Tick 剧本转换小工具，注意时间/id 注入确定性）| smoke 绿 + fixtures 入库 `tests/fixtures/` |
-| D5 | **B2** increment_end 冷启动自愈 + **E10 WAL `synchronous=NORMAL`**（写池，2026-06-12 拍板：WAL 下仅断电丢已提交尾部，cursor 可由 sync 重导，安全）+ 重跑压测对照 | B2 配 replay + stress_storage cursor 写吞吐数量级提升（脱离 fsync 822/s 上限）|
+| D5 | ~~E10~~（已落地 `d58dff1`）+ **B2** increment_end 冷启动自愈 + **多模块并发写 benchmark**（对抗审揪出的真缺口）+ 生产 Linux 真盘数字 | B2 配 replay；多模块并发写实测（单写者池竞争）；详见承压评估 2026-06-12 节 |
 
 ### M2 收官 · 第 2 周——Tauri 换引擎（四接缝）
 

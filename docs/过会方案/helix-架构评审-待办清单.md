@@ -104,7 +104,8 @@
 - [x] **E5 · P1 monotonic_upsert DDL 出热路径**（**2026-06-12 修复**）：建表挪到 `open()` 一次性，热路径仅剩单 INSERT。回归锚 `test_monotonic_table_created_at_open_e5`。
 - [x] **E6 · P1 gate buffer 容量上限 + 客户端主动 too_long**（**2026-06-12 修复**）：`MAX_GATE_BUFFER=16384`，超限清 buffer + emit too_long + sync 重拉，cursor 不回退。回归锚 ×2。
 - [x] **E7 · P1 broadcast lagged 可感知**（**2026-06-12 修复**）：感知点从 emit(send)侧 改到接收侧 `EventReceiver/RecvOutcome::Lagged` 显式上报（纠正承压评估原定位——send 侧感知不到 lagged）。回归锚 ×2。
-- [ ] **E10 · P2→D5 已拍板（2026-06-12）**：写池 `PRAGMA synchronous=NORMAL`。E5 验证暴露 cursor 写真瓶颈是 fsync(synchronous=FULL 822 calls/s)，非 DDL；WAL 下 NORMAL 安全（仅断电丢已提交尾部，cursor 可由 sync 重导）。排进 ROADMAP M2 第1周 D5。
+- [x] **E10 已落地（2026-06-12 `d58dff1`）**：写池 `PRAGMA synchronous=NORMAL`。实测 cursor FULL 8.1K→NORMAL warm ~16K（**~2x，非数量级**）。⚠️「fsync 822 calls/s」本仓从未实测、已 **retract**（macOS fsync 弱）；E10 增益平台依赖，生产 Linux 待测。详见承压评估 2026-06-12 节。
+- [ ] **🔴 多模块并发写 benchmark（对抗审揪出的真缺口）**：单写者池（max_connections=1）下，第二模块（presence/docs）并发 batch_upsert 竞争同一写连接的实测——「通用业务海量涌入」的真问号，零数据。+ E9 cursor 热路径 to_string 堆分配 + wasm 存储 todo!() 待补。
 - [ ] **E8/E9 · P2**：timer O(N) 查找反向索引；热路径分配收口（HX-C005）。
 
 ---

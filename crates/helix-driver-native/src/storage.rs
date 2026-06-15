@@ -65,6 +65,14 @@ impl NativeStorage {
             .execute(&sync_write_pool)
             .await
             .map_err(Self::map_err)?;
+        // E10：cursor 写真瓶颈是 fsync（synchronous=FULL 每提交一次 fsync，实测 ~822/s）。
+        // WAL 下 synchronous=NORMAL 安全：不损坏数据库，仅在「断电/OS 崩溃」时可能丢
+        // 最后几条已提交事务——而 cursor 可由服务端 sync 重导，丢尾部无损正确性。
+        // 这把 cursor/batch 写吞吐从 fsync 上限解放（见 stress_storage 对照）。
+        sqlx::query("PRAGMA synchronous=NORMAL")
+            .execute(&sync_write_pool)
+            .await
+            .map_err(Self::map_err)?;
 
         let user_write_pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -77,6 +85,12 @@ impl NativeStorage {
             .await
             .map_err(Self::map_err)?;
         sqlx::query("PRAGMA busy_timeout=5000")
+            .execute(&user_write_pool)
+            .await
+            .map_err(Self::map_err)?;
+        // E10：业务批量写同样 fsync-bound；IM 场景服务端是 source of truth + sync 重拉，
+        // 断电丢尾部可恢复 → NORMAL 安全。若未来某模块需严格 durability，可在此 opt 回 FULL。
+        sqlx::query("PRAGMA synchronous=NORMAL")
             .execute(&user_write_pool)
             .await
             .map_err(Self::map_err)?;

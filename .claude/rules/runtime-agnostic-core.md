@@ -23,7 +23,7 @@
 ```rust
 // helix-core：只定义 trait，永不 import tokio/sqlx/reqwest/web-sys/tauri
 pub trait Transport { /* connect/send/recv/close */ }
-pub trait Storage   { /* batch_upsert/update/delete/get/cursor_upsert（通用 spec，不暴露 IM schema）*/ }
+pub trait Storage   { /* batch_upsert/batch_update/get/monotonic_upsert/scan（通用 spec，不暴露 IM schema）*/ }
 pub trait Clock     { fn now_ms(&self) -> u64; /* set_timer/clear_timer */ }
 pub trait EventSink { fn emit(&self, ev: DomainEvent); }
 pub trait IdSource  { fn next_id(&self) -> Id; }   // 确定性：id 由 host 注入，core 不自生成

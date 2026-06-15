@@ -38,7 +38,7 @@
 | **batch_upsert / ON CONFLICT** | 批量「有则更新、无则插入」，主键冲突时覆盖——消息落库的 O(1) 热路径 |
 | **monotonic_upsert（单调写）** | 「只许变大」的写库原语：新值 > 旧值才写，天然幂等、防回退（游标/心跳都用它） |
 | **WAL** | SQLite 的写前日志模式，读写互不阻塞 |
-| **三池** | 现网 SQLite 连接池形态：同步写（max=1）+ 用户交互写（max=1）+ 读（max=4），共享同一文件 |
+| **读写分离池**（原「三池」） | native/FFI 共享 `helix-driver-host`（rusqlite，ADR-007）的连接形态：**1 个写连接**（WAL 单写者）+ **N=4 只读连接池**，共享同一 WAL 文件。原 sqlx「sync写1/用户写1/读4 三池」为重构前形态 |
 
 **IM 同步机制**
 
@@ -59,7 +59,7 @@
 |---|---|
 | **invoke / app.emit** | Tauri 的两个 IPC 原语：前端调 Rust 命令 / Rust 向前端广播事件 |
 | **im:\_\_bus\_\_ / envelope（信封）** | 现网前后端事件单总线的频道名；信封 = `{channel, payload, tracing}` 三件套，前端按 channel 解复用 |
-| **tokio / sqlx / tungstenite / reqwest** | 桌面驱动用的四个 Rust 库：异步运行时 / SQLite 客户端 / WebSocket / HTTP |
+| **tokio / rusqlite / tungstenite / reqwest** | 桌面驱动用的四个 Rust 库：异步运行时 / SQLite 客户端 / WebSocket / HTTP |
 | **wasm / OPFS / Worker** | 历史 Web 方案术语；当前已暂停维护，见 ADR-006 |
 | **FFI / SendPort** | 跨语言 C 接口（移动端 Dart↔Rust 用）/ Dart 的跨 isolate 事件流通道 |
 
@@ -137,7 +137,7 @@ flowchart TB
 
   subgraph DRV["平台驱动层（driver → core 单向）"]
     direction LR
-    DN["driver-native<br/>tokio / sqlx / tungstenite"]
+    DN["driver-native<br/>tokio / rusqlite / tungstenite"]
     DW["driver-wasm<br/>web-sys / fetch / OPFS"]
     DF["driver-ffi<br/>uniffi / rusqlite / host 回调"]
   end
@@ -204,7 +204,7 @@ flowchart TB
         PORTS["5 类 Port · 7 trait：Transport · Storage · HttpRequester · EventSink · Clock/IdSource/Random"]
     end
     subgraph L3["平台驱动层（内核之外）"]
-        DN["driver-native：tokio·sqlx·tungstenite·reqwest"]
+        DN["driver-native：tokio·rusqlite·tungstenite·reqwest"]
         DW["driver-wasm：wasm-bindgen·web-sys·OPFS"]
         DF["driver-ffi：C ABI·uniffi·rusqlite"]
     end
@@ -248,7 +248,7 @@ flowchart TB
         EV["EventSink（事件）<br/>emit 入队即返回 O(1)"]
         DET["确定性注入（3 trait）<br/>Clock 时间 · IdSource ID · Random 随机"]
     end
-    DN["driver-native<br/>tungstenite · sqlx · reqwest · broadcast"] -.实现.-> CORE
+    DN["driver-native<br/>tungstenite · rusqlite · reqwest · broadcast"] -.实现.-> CORE
     DW["driver-wasm<br/>web-sys · OPFS · fetch · postMessage"] -.实现.-> CORE
     DF["driver-ffi<br/>宿主回调 · rusqlite · SendPort"] -.实现.-> CORE
     style CORE fill:#1a3a5c,color:#fff
@@ -319,12 +319,12 @@ flowchart LR
 
 ## 3.2 Storage —— `Storage`（热路径 O(1)）
 
-port 零业务语义（`table: &'static str` 编译期常量）。对齐现网三池：`tenant_write`（sync 写 max=1）+ `tenant_user_write`（用户交互写 max=1，与 sync 大批量写隔离 FIFO 互不排队）+ `tenant_read`（读 max=4），共享同一 WAL 文件；批量 `INSERT ON CONFLICT(PK)`（39/批）+ 禁 read-modify-write。
+port 零业务语义（`table: &'static str` 编译期常量）。native/FFI 共享 `helix-driver-host`（rusqlite，ADR-007）：**1 个写连接**（WAL 单写者，写串行本就正确）+ **N=4 只读连接池**（`SQLITE_OPEN_READ_ONLY`，WAL 下多读者与单写者并发），共享同一 WAL 文件；批量 `INSERT ON CONFLICT(PK)`（39/批，单事务）+ 禁 read-modify-write。
 
 ```mermaid
 flowchart LR
     M["业务模块吐落库意图<br/>（Persist{corr,ops} / PersistFire{ops}）"] --> P[["存储端口 Storage（5 方法）<br/>批量写 upsert·update / 单调写 / 单行读 / 全表扫描"]]
-    P -->|"桌面端（native）"| N["sqlx SQLite 连接池 + WAL<br/>（三池：同步写1 / 用户写1 / 读4）"]
+    P -->|"PC native"| N["helix-driver-host（rusqlite）+ WAL<br/>（1 写连接 + 4 只读池，ADR-007）"]
     P -->|"浏览器（wasm）"| W["sqlite-wasm-rs + OPFS<br/>（仅 Worker 内，单连接）"]
     P -->|"移动端（ffi）"| F["rusqlite + 阻塞线程池<br/>（spawn_blocking）"]
     N -->|"写完成"| R[["完成回报（Tick::PortReply{corr}）回灌内核"]]
@@ -335,8 +335,8 @@ flowchart LR
 ```
 
 - **并发兑现**：内核 `step` 串行；driver 按 channel 分组——同 channel 顺序、跨 channel 并发（恢复现网 4-worker 性能），并发只在驱动边缘。
-- **三端差异**：并发与读池仅 native；wasm（OPFS SAHPool）单文件单连接、读写串行无读池；FFI 经 `spawn_blocking` 串行。O(1) 热路径三端不变，差异只在吞吐上限。
-- **sqlx 编不过 wasm 根因**：sqlx 锁死 tokio，io-driver→mio 需要 OS epoll/kqueue，wasm32 无此 syscall——三套存储后端的根因。
+- **端差异**：native + FFI 共享 `helix-driver-host`——1 写连接 + 4 只读池（WAL 读并发）；FFI 经 `spawn_blocking` 不阻塞 worker。wasm（ADR-006 归档）OPFS SAHPool 单连接无读池。O(1) 热路径不变，差异只在吞吐上限。
+- **存储后端选型（ADR-006/007）**：native + FFI 共享 `helix-driver-host`（rusqlite）；wasm 端已归档。（历史：sqlx 锁死 tokio→mio→OS epoll，编不过 wasm32，曾是分后端根因。）
 
 ## 3.3 Http —— `HttpRequester`
 
@@ -544,7 +544,7 @@ sequenceDiagram
         D->>SV: 发起 HTTP 请求（reqwest POST /posts/create）
         SV-->>D: 返回 2xx → 包成完成回报（Tick::PortReply{H1}）
     and
-        D->>D: 落库（sqlx 批量 upsert tmp_9，O(1)）→ 完成回报（Tick::PortReply{P1, Ok}）
+        D->>D: 落库（rusqlite 批量 upsert tmp_9，O(1)）→ 完成回报（Tick::PortReply{P1, Ok}）
     end
     SV-->>D: WS 回声帧（echo：正式 id + 事件序号 + 临时 id tmp_9）
     D->>C: 回灌入站事件（Tick::Inbound{echo}）
@@ -594,7 +594,7 @@ sequenceDiagram
     C->>IM: 身份路由（corr_map：S1 是 IM 发起的）→ 处理
     Note over IM: ① 只读预览（peek_up_to 14）：不推游标
     IM-->>C: 吐落库意图（Persist{W1, 提交目标=14, 批量写 12-14}）
-    C-->>D: 交驱动落库（sqlx 写池）
+    C-->>D: 交驱动落库（rusqlite 写连接）
     D->>C: 写完成回报（Tick::PortReply{W1, Ok}）
     C->>IM: 身份路由 → 处理
     Note over IM: ② 写成功才提交（commit_up_to 14）：清空缓冲 + 推进游标

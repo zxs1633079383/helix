@@ -1,0 +1,80 @@
+# Helix CI（Bun 对齐 3.5）—— 远端跑同一条 scripts/gate.sh，与本地 pre-push 闸门单一事实源。
+# 前提（runner 侧，详见 docs/ops/gitlab-ci-runner-交接说明.md + 本文件尾注）：
+#   1. 已注册 GitLab Runner（docker executor 推荐）；
+#   2. runner 能拉 rust:1.95.0（公网或私有 registry 镜像）；
+#   3. 私有网若访问不了 crates.io，需配 cargo 镜像（见尾部注释）。
+# toolchain 版本由 rust-toolchain.toml 锁定（1.95.0 + rustfmt/clippy + wasm32），
+# rustup 镜像会据此自动对齐，无需在此写死。
+
+stages:
+  - gate
+  - api
+
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"   # 放进工作区，缓存才命中
+  CARGO_TERM_COLOR: "always"
+  CARGO_INCREMENTAL: "0"                  # CI 关增量编译，缓存更稳
+
+default:
+  image: rust:1.95.0
+  cache:
+    key:
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo/registry/index/
+      - .cargo/registry/cache/
+      - .cargo/git/db/
+      - target/
+  before_script:
+    - rustup component add rustfmt clippy
+    - rustup target add wasm32-unknown-unknown
+
+# ── 主闸门：三栖 check → clippy → test → 零运行时 → 零业务 → harness 索引 ──
+# gate.sh[7] public-api 在本 job 自动跳过（未装 cargo-public-api），不影响主闸门。
+gate:
+  stage: gate
+  script:
+    - chmod +x scripts/gate.sh
+    - scripts/gate.sh
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+# ── 公开面闸门（2.5 / 纪要拍板 #2）：cargo-public-api diff core 公开类型面 ──
+# 注意：cargo-public-api 依赖 nightly rustdoc JSON；故本 job 单独装 nightly。
+# 首次跑会生成基线（需 commit docs/api-baseline/helix-core.txt 后才真正卡红）。
+# 在基线入库前设 allow_failure，避免挡住 MR。
+api-surface:
+  stage: api
+  allow_failure: true
+  cache:
+    key: cargo-public-api-bin
+    paths:
+      - .cargo/bin/
+  before_script:
+    - rustup toolchain install nightly --component rust-docs-json 2>/dev/null || rustup toolchain install nightly
+    - command -v cargo-public-api >/dev/null 2>&1 || cargo install cargo-public-api --locked
+  script:
+    - mkdir -p docs/api-baseline
+    - cargo +nightly public-api -p helix-core --simplified > /tmp/api.txt
+    - |
+      if [ -f docs/api-baseline/helix-core.txt ]; then
+        diff -u docs/api-baseline/helix-core.txt /tmp/api.txt \
+          || { echo "❌ helix-core 公开 API 面变化——确认后更新 docs/api-baseline/helix-core.txt"; exit 1; }
+      else
+        cp /tmp/api.txt docs/api-baseline/helix-core.txt
+        echo "✦ 首次生成 API 基线，请把 docs/api-baseline/helix-core.txt commit 进仓库"
+      fi
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+# ── 私有网无法访问 crates.io 时（air-gapped），在此或 ~/.cargo/config.toml 配镜像 ──
+# variables 加：
+#   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+# 或仓库根 .cargo/config.toml：
+#   [source.crates-io]
+#   replace-with = "mirror"
+#   [source.mirror]
+#   registry = "sparse+http://<你的私有 crates 镜像>/index/"

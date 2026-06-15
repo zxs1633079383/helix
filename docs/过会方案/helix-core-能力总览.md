@@ -49,7 +49,7 @@
 |---|---|---|
 | 类型契约（Tick/Effect/7 trait/Module） | ✅ 已立，三栖编译通过、零依赖实测通过 | — |
 | ExecutionShell（step / corr_map / timer_map） | ✅ 骨架可跑 | proptest 回放测试钉死（M1，待办 D4 前置） |
-| 三套 driver 方法体 | `todo!()` 占位 | M1-M2 逐端落地；Storage `scan` 是前置阻塞（待办 C3） |
+| 三套 driver 方法体 | native 部分已落地 / wasm·ffi `todo!()` 占位 | M1-M2 逐端落地；Storage `scan` C3 已销账（native 实现，wasm/ffi 随端） |
 | Rust-im 业务状态机 | Channel/GateState 骨架，flush 方法体为空 | M2 两 phase（基础收发 → 完整增量同步） |
 | 现网灰度接入 | 设计完成（§4.4.1 四接缝） | M4 Tauri 第一站换引擎验收 |
 

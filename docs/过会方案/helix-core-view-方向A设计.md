@@ -20,7 +20,7 @@ Crux 的 `App` trait 就是 helix 走到方向 A 终点的样子（`crux_core/sr
 | Crux `App` | helix 现在 | 方向 A 要补 |
 |---|---|---|
 | `type Model`（完整内部状态） | Module 有状态，无统一 Model | helix-im 持有 IM **Model**（频道/消息/未读/成员/草稿） |
-| `update(event,&mut model)->Command<Effect>` | ✅ Module + Effect(Persist/Send/SetTimer/Emit) | 已具备 |
+| `update(event,&mut model)->Command<Effect>` | ✅ Module + Effect(Persist/Send/ScheduleTimer/Emit) | 已具备 |
 | **`view(&model)->ViewModel`** | ❌ 无 | ★ helix-im 加纯函数 `view()` 投影展示态 |
 | `type ViewModel`（UI 只读投影） | ❌ 无 | ★ ViewModel 定义在 **helix-im**（业务，不进 core） |
 | Render capability → shell 拉 `view()` | EventSink 吐**领域事件** | core 加通用 `Render` effect；host 收到拉 `view()` |
@@ -35,7 +35,7 @@ Crux 的三端边界**只有一条、三端共用**：一套字节协议 + 一�
 | Crux 边界构件 | 作用 | helix 对应 |
 |---|---|---|
 | `Bridge.update/resolve/view`（`crux_core/src/bridge/mod.rs`，bincode `[u8]` 进出） | UI 事件进 core / Effect 结果喂回 / 拉 ViewModel | `step(Tick)->Effect` + 未来 `Module::view()` |
-| Capability `Request<Op>`（值，不执行） | core 只**描述** Effect | `Effect` 单一 enum（Persist/Send/SetTimer/Emit/**Render**） |
+| Capability `Request<Op>`（值，不执行） | core 只**描述** Effect | `Effect` 单一 enum（Persist/Send/ScheduleTimer/Emit/**Render**） |
 | `Effect::Render`（fire-and-forget）→ shell 拉 `view()` | 通知「投影变了来拉」 | `Effect::Render` → host 拉 `Module::view()` |
 | `typegen` 生成 Swift/Kotlin/**TS** 类型 | 编译期跨语言类型契约 | 抄此套生成 ViewModel 的 TS interface |
 | bincode `[u8]` 过边界 | 语言无关传输 | **HX-C007「Effect 跨边界批量传不逐条」** |
@@ -131,7 +131,7 @@ pub trait Module {
 }
 
 pub enum Effect {
-    Persist(/* ... */), Send(/* ... */), SetTimer(/* ... */), Emit(/* DomainEvent */),
+    Persist(/* ... */), Send(/* ... */), ScheduleTimer(/* ... */), Emit(/* DomainEvent */),
     Render,            // ★ 新增：通知 host「投影变了，来拉 view()」（fire-and-forget，对应 Crux RenderOperation）
 }
 ```

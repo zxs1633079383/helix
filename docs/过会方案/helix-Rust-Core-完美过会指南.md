@@ -85,7 +85,7 @@ A：helix-core 的 trait 定义互不依赖，`EventSink` import 不了 `Storage
 
 ### 设计
 
-`Storage` trait 定义在 `crates/helix-core/src/ports/storage.rs:34`，4 方法：
+`Storage` trait 定义在 `crates/helix-core/src/ports/storage.rs:34`，5 方法：
 
 ```rust
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -95,6 +95,7 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     async fn batch_update(&self, table: &str, ...)         -> Result<(), PortError>;
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec)  -> Result<(), PortError>;
     async fn get(&self, spec: GetSpec)                     -> Result<Option<Row>, PortError>;
+    async fn scan(&self, spec: ScanSpec)                   -> Result<Vec<Row>, PortError>;
 }
 ```
 
@@ -473,7 +474,7 @@ A：架构支持 shard，但当前是单 shell。`engine_loop.rs:11-12` 注释�
 | 乱序增量同步验证了吗？ | 没有。这是主动上桌的头号未验证风险。`channel.rs` 的 BTreeMap buffer + gate + ingest 三路分支骨架已实现，`apply_and_flush_contiguous` 和 `flush_contiguous_from_buffer` 方法体是空 `Ok(())`。M1 第一件事用 proptest 钉死 | `grep -A 5 'fn apply_and_flush' crates/helix-im/src/channel.rs` |
 | 读命令为什么不进内核？写后立读能看到吗？ | 写走 `Tick::Command` 进内核；读（`im_query_*` 查询族）直连 Storage 读池**旁路内核**——sans-IO 壳只管事件流，硬塞请求-响应查询会把 corr_map 变成 RPC 框架。查询读到的是**已落库**状态；UI 实时性靠 Emit 事件乐观上屏，从不依赖「写后立读可见」；cursor scan 读到旧值最多 benign over-sync（单调 + 幂等兜住）。wasm 端无独立读池（OPFS SAHPool 单连接），同 Worker 内串行 | 架构设计 §4.4.1 接缝① + §3.2 三端差异 |
 | IPC 契约面只有 10 个命令吗？ | 不止——还有**第四条隐式接缝**：`store:*` 命令族（`store_get_messages` 的 `(create_at, temporary_id)` 复合游标分页）+ `tauri.service.ts` 内 `imDataSource:query/queryCache/reset` 前端旁路直调。这批 SQL 语义与 camelCase 入参映射同属冻结契约，Helix Storage driver 必须逐字段对齐，否则 Angular 读路径悄然失效 | 架构设计 §4.4.1 接缝④ |
-| §4.8 proactive resync 要扫全表 cursor，Storage port 支持吗？ | 当前不支持（`get` 只返回 `Option<Row>` 单行）——已主动识别并升级为 **MVP 实现前置阻塞项**（待办 C3）：新增 `StorageOp::Scan(ScanSpec)` 返回 `Vec<Row>`（现有 GetSpec 单行语义不动），预估 2 天（trait + 三端 driver 各一条 SQL + on_start 调用）。答辩话术：这是「设计已闭环、实现排了序」的缺口，不是没想到 | 待办清单 C3 + 架构设计 §4.8 注 |
+| §4.8 proactive resync 要扫全表 cursor，Storage port 支持吗？ | **已支持**：`StorageOp::Scan(ScanSpec)` 返回 `Vec<Row>`（现有 GetSpec 单行语义不动），C3 已于 2026-06-11 销账——core trait + `ScanSpec` + native 实现（读池 + LIMIT 硬上限）+ helix-im on_start 已调用；wasm/ffi 的 scan 随各端 driver 落地 | 待办清单 C3（已完成）+ 架构设计 §4.8 注 |
 | 多模块下 Correlation / TimerId 会不会碰撞？ | 两者是**独立 newtype + 独立路由表**（CorrelationMap / TimerMap），类型层天然隔离不可能互撞；**跨模块 corr 唯一性**当前靠各模块起点偏移约定——源码 BLK-1b 注释主动标记（`module.rs:64`），`channel.rs:116` 的 `TimerId::from_raw(channel_id)` 是已知 placeholder；多模块落地前由 core 统一分配器（AtomicU64 + module 前缀）收口，<20 行改动；MVP-1 单模块零风险 | `grep -rn 'BLK-1b\|placeholder' crates/helix-im/src/` |
 | on_start 吐的带 corr Effect 会不会注册错模块？ | 不会——`engine.rs::start()` 逐模块 `start_one(idx)` + 立即 `register_effects_to_maps(idx)`（BLK-1a 已修：传真实 module_index 而非 0 占位），每模块初始 corr 注册到自己的 index；PortReply 续产的新 Effect 也注册回原 corr 所属模块 | `grep -n 'BLK-1a' crates/helix-core/src/engine.rs` |
 

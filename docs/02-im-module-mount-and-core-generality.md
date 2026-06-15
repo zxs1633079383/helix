@@ -229,13 +229,13 @@ sans-IO 表达（**timer = effect，fire = 入站事件**，与 §0 一致）：
 
 **实时核要求**：客户端重连后能从断点恢复（offset/epoch 二维 recovery）；丢太多则 fallback 整体重拉。
 
-**core 现状**：IM 已实现 per-channel cursor（`cursor_upsert` 单调）+ flush_contiguous(WS 严格+1) / flush_up_to(sync 跳空洞) + TooLong 兜底。这些**全在 helix-im 内核**，core 只提供 `cursor_upsert(scope_key, value)` 单调原语 + correlation 配对。
+**core 现状**：IM 已实现 per-channel cursor（`monotonic_upsert` 单调）+ flush_contiguous(WS 严格+1) / flush_up_to(sync 跳空洞) + TooLong 兜底。这些**全在 helix-im 内核**，core 只提供 `monotonic_upsert(scope_key, value)` 单调原语 + correlation 配对。
 
 **裁决：覆盖，且这是 core 通用性的最强证据。**
 
-- ✅ **cursor 模型本身就是 IM 私有，不进 core**——core 只给"单调写 + 写成功才推"地基（§5）。第二个模块若要自己的 recovery（如 docs 模块的版本号），用同一个 `cursor_upsert` 原语，scope_key 换成 doc_id，core 一行不改。
+- ✅ **cursor 模型本身就是 IM 私有，不进 core**——core 只给"单调写 + 写成功才推"地基（§5）。第二个模块若要自己的 recovery（如 docs 模块的版本号），用同一个 `monotonic_upsert` 原语，scope_key 换成 doc_id，core 一行不改。
 - ✅ **epoch（断点失效检测）**：实时核的 epoch 是"broker 重启则 offset 作废"。IM 的 TooLong 就是同语义（`reset_to` → 清表重拉）。core 不需要认识 epoch/TooLong——它是模块在 PortReply（sync 4 kind）里自己判的纯逻辑。
-- ⚠️ **多一点点（可接受）**：core 的 `cursor_upsert` MAX guard 语义有点"偏 recovery"。但它本质是"单调 KV 写"通用原语，notify 模块的"已读水位"也能用，所以不算污染，保留。
+- ⚠️ **多一点点（可接受）**：core 的 `monotonic_upsert` MAX guard 语义有点"偏 recovery"。但它本质是"单调 KV 写"通用原语，notify 模块的"已读水位"也能用，所以不算污染，保留。
 - **缺什么：无。** recovery 的全部花样（双 flush / TooLong / 续拉）都能在模块内核用 §0 的 Tick/Effect 表达。这把尺证明 **core 的 cursor 契约抽象层级正确**（给原语不给策略）。
 
 ### 3.3 尺三：背压 / 慢消费（slow consumer）
@@ -286,7 +286,7 @@ sans-IO 表达（**timer = effect，fire = 入站事件**，与 §0 一致）：
 | 尺 | 覆盖度 | core 必补增量（通用，不污染） | 确认无需进 core 的（模块/driver 专属） |
 |---|---|---|---|
 | Transport 抽象 | 基本覆盖 | `TransportId` 寻址；`Tick::TransportEvent{Opened/Closed/Error}` | SSE/WebTransport 具体协议 |
-| recovery/cursor | **完全覆盖** | 无（`cursor_upsert` 单调原语已够） | 双 flush / TooLong / epoch / 续拉（全模块内核） |
+| recovery/cursor | **完全覆盖** | 无（`monotonic_upsert` 单调原语已够） | 双 flush / TooLong / epoch / 续拉（全模块内核） |
 | 背压/慢消费 | **缺** | ① `Send` 可选 corr 回报 ② `TransportEvent` 带 `Backpressure{queued_bytes}/Drained` ③ 执行壳 **bounded in-flight effects** 调度 | kick/close 策略（IM 用 close effect 表达） |
 | 心跳/重连 | 覆盖（靠 tick+Random+TransportEvent） | `TransportEvent`（与尺一同款）；其余已有 | 重连状态机 / 8s·5s·退避数值（全 IM 模块内核） |
 
@@ -295,7 +295,7 @@ sans-IO 表达（**timer = effect，fire = 入站事件**，与 §0 一致）：
 2. `Effect::Send` 增 `transport: TransportId` 寻址 + 可选 `corr` 拿可发性回报。
 3. 执行壳 **bounded in-flight effects** 调度（driver 声明上限，core 据此节流 dispatch）。
 
-**多出来的（要警惕但本次没有）**：core 没有混进任何 IM 概念。`cursor_upsert` 的 MAX guard 是唯一"略偏 recovery"的原语，但它是通用单调写，保留。
+**多出来的（要警惕但本次没有）**：core 没有混进任何 IM 概念。`monotonic_upsert` 的 MAX guard 是唯一"略偏 recovery"的原语，但它是通用单调写，保留。
 
 **结论**：6 个 port 抽象层级正确，执行壳 sans-IO 形状正确；**唯一系统性缺口是背压/transport 生命周期**，补 3 条通用契约即可覆盖 Centrifugo 级实时核需求。recovery 这把尺反过来证明 core 抽象正确（给原语不给策略）。
 
@@ -310,7 +310,7 @@ sans-IO 表达（**timer = effect，fire = 入站事件**，与 §0 一致）：
 | port | presence 怎么用（与 IM 不同的内容，相同的契约） |
 |---|---|
 | `Transport` | 同一条 WS（或自己的 transport）。订阅 presence 帧（`presence_join/leave/heartbeat`——presence 私有 wire 名，core 不认识，正如 core 不认识 IM 的 `post`）。`accepts(frame)` 按帧 type 前缀区分归 presence 还是 IM。 |
-| `Storage` | `set(table="presence", key=channel:user, value=online_at)` + `cursor_upsert(scope_key=channel, value=presence_epoch)`——**复用 IM 同款 cursor 原语**做 presence 的 recovery，core 完全不知道这次 scope 是 presence。 |
+| `Storage` | `set(table="presence", key=channel:user, value=online_at)` + `monotonic_upsert(scope_key=channel, value=presence_epoch)`——**复用 IM 同款 cursor 原语**做 presence 的 recovery，core 完全不知道这次 scope 是 presence。 |
 | `Clock` | `ScheduleTimer{ heartbeat 25s }`——自己起心跳；`TimerFired` 到点吐 `Send{heartbeat}`。**与 IM 的 1s gate / 15s 超时用同一组 timer 原语**，TimerId 各自管。 |
 | `EventSink` | `Emit{ DomainEvent::PresenceChanged{...} }`——presence 自己的 DomainEvent variant；driver 序列化为 `presence:changed` wire 名。**core 的 EventSink 不知道有 `im:` 还是 `presence:` 前缀。** |
 | `HttpRequester` | presence 全量快照拉取 `Http{ req=/presence/snapshot }`——自己的 URL，core 搬不透明 request。 |
@@ -407,11 +407,11 @@ C006 = 补发时序的确定性收敛。两种到达次序，**同一终态**：
 
 **Step N（收到 sync Events 入站 `Tick::PortReply(Events)`）** → IM `handle`：
 - `peek_up_to` 纯逻辑：分桶 type1/2/3/6（顺序铁律）算出"该写哪些" + "若全成功 cursor 推到 `target_seq`"。
-- 吐 `Effect::Persist { corr=C, ops:[分桶批] }`（**带 core 分配的 `corr`**），**此刻不吐 cursor_upsert**。
+- 吐 `Effect::Persist { corr=C, ops:[分桶批] }`（**带 core 分配的 `corr`**），**此刻不吐 monotonic_upsert**。
 - 记 `pending_commits[C] = CommitPlan { scope_key=channel, target_seq }`。
 
 **Step N+1（收到 `Tick::PortReply(PersistResult{ corr:C, ok })`）** → IM `handle`：
-- `ok==true` → `commit_up_to`：吐 `Effect::Persist { ops:[StorageOp::CursorUpsert { scope_key=channel, value=target_seq }] }`（MAX guard 单调），内存 cursor 推到 target_seq，清 `pending_commits[C]`。
+- `ok==true` → `commit_up_to`：吐 `Effect::Persist { ops:[StorageOp::MonotonicUpsert { scope_key=channel, value=target_seq }] }`（MAX guard 单调），内存 cursor 推到 target_seq，清 `pending_commits[C]`。
 - `ok==false` → **不推 cursor**，丢弃/保留 plan，下次 sync 仍从旧 cursor 拉（不丢事件）。
 
 **确定性保证**：cursor 推进**只锚定在 `PersistResult` 这个确定性入站事件**上，不依赖时钟/线程时序 → 同一 (Events 入站 + PersistResult 入站) 序列必产同一 cursor 终值，可回放、三端一致。
@@ -431,7 +431,7 @@ C006 = 补发时序的确定性收敛。两种到达次序，**同一终态**：
 | 分片 | "同 routing-key Tick 串行喂入同一模块"契约；`PartitionKey` 不透明 | hash(channel_id)%4、4 这个数、channel 作分区键 |
 | timer | `ScheduleTimer/CancelTimer/TimerFired` 通用原语 | 1s gate / 15s 超时 / 8s ping / 5s timeout 数值 |
 | transport | Transport port + `TransportId` 寻址 + `TransportEvent` 生命周期/背压入站 | WS 协议、hello/post/ping 帧格式 |
-| cursor/recovery | `cursor_upsert(scope_key,value)` 单调 MAX guard 原语 | per-channel、event_seq、双 flush、TooLong、续拉 |
+| cursor/recovery | `monotonic_upsert(scope_key,value)` 单调 MAX guard 原语 | per-channel、event_seq、双 flush、TooLong、续拉 |
 | 背压 | Send 可选 corr 回报 + bounded in-flight 调度 | close+重连降级策略 |
 | 重连 | tick(now_ms) + TransportEvent + Random 种子注入 | ConnState 状态机、退避基数、jitter 算法 |
 | 对账 | 多入站来源进同一 handle + Persist conflict_key 参数化 | temporaryId 作 PK、值级覆盖、reconcile 逻辑 |

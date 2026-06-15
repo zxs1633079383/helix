@@ -48,11 +48,11 @@ IM 实测用到的存储操作（源码）→ 必须能用 core 通用 Storage p
 | `update_content_by_message_id`（type2 edit） | 按业务键改字段 | `update(table, key, patch)` |
 | `mark_revoked`（type3 delete） | 软删标记 | 同 `update`（patch 一个字段）—— core 不需要"revoke"概念 |
 | `batch_apply_read`（type6 read） | 批量改已读 | `batch_update(table, keys, patch)` |
-| `channel_event_cursor` upsert（PK channel_id, MAX guard, O(1)） | 单调游标持久化 | `cursor_upsert(scope_key, value)` with **MAX guard 语义**（见 §6）；core 提供"单调写"原语，不知道 scope 是 channel |
+| `channel_event_cursor` upsert（PK channel_id, MAX guard, O(1)） | 单调游标持久化 | `monotonic_upsert(scope_key, value)` with **MAX guard 语义**（见 §6）；core 提供"单调写"原语，不知道 scope 是 channel |
 | `store:setItem` / `store:getItem`（乐观落库 / 读） | KV get/set | `get(table,key)` / `set(table,key,value)` |
 | `peek_up_to` / `commit_up_to`（写成功才推 cursor） | 事务式"先写数据后推游标" | 见 §6：core 需要**"持久化成功回报"**契约，不是 Storage 单方法 |
 
-- **关键**：Storage port 暴露的是 **batch_upsert / update / batch_update / get / set / cursor_upsert(单调)** 这几个**通用关系/KV 原语**。`temporary_id`、`message` 表名、23 个字段、`ON CONFLICT(temporary_id)`、`segment_id` 索引——**全是 helix-im 传进去的参数**，不进 trait 签名。
+- **关键**：Storage port 暴露的是 **batch_upsert / update / batch_update / get / set / monotonic_upsert(单调)** 这几个**通用关系/KV 原语**。`temporary_id`、`message` 表名、23 个字段、`ON CONFLICT(temporary_id)`、`segment_id` 索引——**全是 helix-im 传进去的参数**，不进 trait 签名。
 
 ### 1.3 `Clock`（计时点）
 
@@ -169,7 +169,7 @@ IM 实测（源码）：发送主路径 `imHttp.post('/posts/create')`（HTTP �
 - type2 edit：`update_content`
 - type3 delete：`mark_revoked`
 - type6 read：`batch_apply_read`
-- cursor：`cursor_upsert`（写成功才推，见 §6）
+- cursor：`monotonic_upsert`（写成功才推，见 §6）
 
 **C. 出站（→ Transport / HttpRequester）**：
 - WS 出站帧（`im_send_message` 原语）
@@ -193,7 +193,7 @@ IM 实测（源码）：发送主路径 `imHttp.post('/posts/create')`（HTTP �
 | `im:` wire 名（`im:post:received`、`im:__bus__`、`im:sync:too_long`） | 业务事件命名 | core 只搬 `DomainEvent`（模块定义的 enum）；wire 名在 adapter 序列化时才出现 |
 | `temporaryId` 语义（作为对账 PK / id 值级覆盖） | IM 对账机制 | core 的 batch_upsert 只接 `conflict_key: &str` 参数，不知道叫什么 |
 | Mattermost 帧格式 / 14 类 `type` 字符串 | IM wire 协议 | core Transport 搬不透明帧；type 解析在 helix-im |
-| `channel_event_seq` / per-channel cursor 概念 | IM 的事件序号设计 | core 提供"单调 cursor_upsert(scope_key,value)"通用原语，不知道 scope=channel、value=event_seq |
+| `channel_event_seq` / per-channel cursor 概念 | IM 的事件序号设计 | core 提供"单调 monotonic_upsert(scope_key,value)"通用原语，不知道 scope=channel、value=event_seq |
 | 四类 event_type 编码（1 new / 2 edit / 3 delete / 6 read） | IM 事件分类 | core 不知道有"四类"；分桶在 helix-im 内核 |
 | `ON CONFLICT(temporary_id)` / `message` 表名 / 23 字段 schema / `segment_id` 索引 | IM 专属 DB schema | core Storage 接表名+行+冲突键作参数；schema 知识全在 helix-im |
 | `/posts/create`、`/sync/notify`、`from_seq` | IM HTTP 契约 | core HttpRequester 搬不透明 HttpRequest |
@@ -223,23 +223,23 @@ sans-IO 表达：
 
 ## 6. cursor 的 peek/commit "写成功才推" 在 sans-IO 下如何表达
 
-源码事实回指（决策#2 2026-06-05）：`peek_up_to`（只读不推）→ `batch_write_events` 锁外分桶 → **写成功才 `commit_up_to` + `write_cursor`**；`cursor_upsert` 是 MAX guard 的 O(1) upsert；两种 flush（contiguous 严格+1 / up_to 跳空洞）。
+源码事实回指（决策#2 2026-06-05）：`peek_up_to`（只读不推）→ `batch_write_events` 锁外分桶 → **写成功才 `commit_up_to` + `write_cursor`**；`monotonic_upsert` 是 MAX guard 的 O(1) upsert；两种 flush（contiguous 严格+1 / up_to 跳空洞）。
 
 sans-IO 表达（**两段式 step**，确定性靠"effect 与回报配对"保证）：
 
 **Step N（收到 sync Events 入站）**：
 - 内核 `peek_up_to`：纯逻辑算出"该写哪些 event（分桶 type1/2/3/6 顺序）"+"如果全写成功，cursor 该推到 `target_seq`"。
-- 吐出 effect：`Persist{events 分桶批}`（**带一个 correlation id 标记这批对应 target_seq**），但**此刻不吐 cursor_upsert**。内核内部状态：`pending_commit[corr] = target_seq`，cursor **暂不推**。
+- 吐出 effect：`Persist{events 分桶批}`（**带一个 correlation id 标记这批对应 target_seq**），但**此刻不吐 monotonic_upsert**。内核内部状态：`pending_commit[corr] = target_seq`，cursor **暂不推**。
 
 **Step N+1（收到 Persist 端口响应）**：
 - 端口响应 = `PersistResult{ corr, ok }` 入站。
-- `ok == true` → 内核纯逻辑 `commit_up_to`：吐 `Persist{ cursor_upsert(scope_key, target_seq) }`（MAX guard 由 Storage 通用原语保证单调），并把内存 cursor 推到 target_seq。
+- `ok == true` → 内核纯逻辑 `commit_up_to`：吐 `Persist{ monotonic_upsert(scope_key, target_seq) }`（MAX guard 由 Storage 通用原语保证单调），并把内存 cursor 推到 target_seq。
 - `ok == false` → 内核**不推 cursor**（pending_commit 丢弃/保留以待重拉），下次 sync 仍从旧 cursor 拉 → 不丢事件。
 
 **确定性如何保证**：
 - cursor 推进**只发生在"持久化成功端口响应"这个确定性入站事件上**，不依赖时钟/线程时序 → 同一 (events 入站 + PersistResult 入站) 序列必产生同一 cursor 终值。
 - `flush_contiguous` vs `flush_up_to` 的区别落在 **peek 阶段算 target_seq 的纯规则**上（WS 严格+1 遇空洞停 / sync 跳空洞到权威水位），两者都走同一 peek→persist→commit 两段式。
-- "写成功才推"在 sans-IO 下 = **cursor_upsert effect 必须晚于 events Persist effect 一个 round-trip，且以 PersistResult.ok 为门**。core 提供的契约就是：**effect 必须可携带 correlation id，且端口响应能带回同一 correlation id + 成功标志**。这是 core 执行壳对所有模块的通用要求，**core 不知道这是 cursor、不知道 MAX guard 是为单调 event_seq**。
+- "写成功才推"在 sans-IO 下 = **monotonic_upsert effect 必须晚于 events Persist effect 一个 round-trip，且以 PersistResult.ok 为门**。core 提供的契约就是：**effect 必须可携带 correlation id，且端口响应能带回同一 correlation id + 成功标志**。这是 core 执行壳对所有模块的通用要求，**core 不知道这是 cursor、不知道 MAX guard 是为单调 event_seq**。
 
 > core 侧需求收口：执行壳必须支持 **(a) effect 带 correlation id；(b) 端口响应作为入站事件携带 correlation id + ok/err；(c) 模块可在内核保存 pending 状态跨 step**。满足这三点，IM 的 peek/commit 写成功才推就能纯逻辑表达——这是 §6 对 core 契约的硬性增量需求。
 
@@ -252,7 +252,7 @@ sans-IO 表达（**两段式 step**，确定性靠"effect 与回报配对"保证
 | Transport 搬不透明帧 | `message_loop.rs:73` dispatcher / `im_send_message`(commands.rs:37) |
 | Storage: batch_upsert(conflict_key 参数化) | `message_repo.rs:48` ON CONFLICT(temporary_id) +23字段 |
 | Storage: update/mark/batch_update | apply_event type2/3/6 (`post.rs:1113`) |
-| Storage: 单调 cursor_upsert(MAX guard) | `channel_event_cursor.rs` MAX guard upsert O(1) |
+| Storage: 单调 monotonic_upsert(MAX guard) | `channel_event_cursor.rs` MAX guard upsert O(1) |
 | Clock: timer effect (after_ms 参数) | 15s `message.service.ts:184` / 1s gate `post.rs` |
 | EventSink: emit(DomainEvent enum) | `event_bus.rs:44` emit_im → `im:__bus__` |
 | Id/Random port 但内核不主动生成 | temporaryId 由 UI 注入 (`messageSend` 主路径) |

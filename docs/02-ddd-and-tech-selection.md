@@ -152,7 +152,7 @@ core 域**自身几乎不产生领域事件**——它是机制层。唯一的 c
 |---|---|---|
 | **Channel（会话）** | 一个频道的消息集合 + 单调 event cursor。聚合根。 | core 不知道有 Channel |
 | **Message（消息）** | 一条消息。PK 语义特殊：`temporaryId`（UI 注入）→ server `id` **值级覆盖**（`ON CONFLICT id=excluded.id`）。 | core 看到的是 `Persist{conflict_key}` 的一行 |
-| **Cursor（游标）** | per-channel `last_event_seq`，单调推进（MAX guard），**写成功才推**。 | core 的 `cursor_upsert(scope_key,value)` 单调原语 |
+| **Cursor（游标）** | per-channel `last_event_seq`，单调推进（MAX guard），**写成功才推**。 | core 的 `monotonic_upsert(scope_key,value)` 单调原语 |
 | **PendingSend（待确认发送）** | 已乐观落库、等 echo/sync 对账的发送；15s 超时 → `unSend`（无自动补发）。 | core 的 `ScheduleTimer/CancelTimer` + Correlation |
 | **Reconciliation（对账）** | echo 与 sync **同一对账点**：按 temporaryId 值级覆盖回 `sent` + 撤超时。 | core 看不到对账，只看到 Persist + CancelTimer + Emit |
 | **SyncSession（同步会话）** | 一次 `/sync/notify(from_seq)` 拉取：响应 4 kind（NoChange/Events/Snapshot/TooLong）+ ≥500 续拉。 | core 看到 HttpRequest + PortReply |
@@ -270,7 +270,7 @@ DDD 的 ACL = 在边界放一层翻译器，**让一边的模型变化不污染�
 | IM 域概念（BC-B） | ──ACL 翻译──▶ | core 域概念（BC-A） |
 |---|---|---|
 | `DomainEvent::PostReceived` | 序列化为 `im:post:received` JSON + `Bytes` 包装 | `Effect::Emit(DomainEventBytes)` |
-| `Channel.cursor.try_advance(seq)` | `scope_key = channel_id.to_string()` | `Effect::Persist{ cursor_upsert(scope_key, value), corr }` |
+| `Channel.cursor.try_advance(seq)` | `scope_key = channel_id.to_string()` | `Effect::Persist{ monotonic_upsert(scope_key, value), corr }` |
 | `Message{temporary_id, 23 字段}` | `conflict_key = "temporary_id"` + row 列表 | `Effect::Persist{ batch_upsert(table, rows, conflict_key), corr }` |
 | `/posts/create` 直发 / `/sync/notify?from_seq=` | 拼 URL + body | `Effect::HttpRequest{ req, corr }` |
 | WS 出站 `im_send_message(action,data,seq)` | 序列化帧 | `Effect::Send(OutboundFrame)` |

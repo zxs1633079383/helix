@@ -18,7 +18,7 @@
 | **helix-core（内核）** | 执行壳 + 端口定义 + 模块宿主，零业务、零运行时依赖 |
 | **helix-im（IM 业务模块）** | 消息收发/对账/增量同步的全部业务状态机，写一份编译三端 |
 | **helix-driver-native（桌面驱动）** | 桌面端的「手脚」：真正连 WebSocket、写 SQLite、发 HTTP 的实现层（另有 wasm/ffi 两套） |
-| **Tick（输入事件）** | 喂给内核的一切「发生了的事」，只有四种：UI 命令（Command）/ 网络入站帧（Inbound）/ I/O 完成回报（PortReply）/ 定时器到期（Timer） |
+| **Tick（输入事件）** | 喂给内核的一切「发生了的事」，共六种：四类核心——UI 命令（Command）/ 网络入站帧（Inbound）/ I/O 完成回报（PortReply）/ 定时器到期（Timer）；外加两类连接生命周期——连接建立（Connected）/ 连接断开（Disconnected） |
 | **Effect（I/O 意图）** | 内核吐出的「待办清单」：发帧（Send）/ 落库（Persist·PersistFire）/ 发 HTTP（Http）/ 发事件（Emit）/ 定时器（ScheduleTimer·CancelTimer） |
 | **step()（步进函数）** | 内核唯一入口：喂一个 Tick + 当前时间，吐一批 Effect；严格同步、不做任何 I/O |
 | **Port（端口）/ trait（接口）** | 内核与外界对话的 5 类抽象接口（共 7 个 Rust trait）：网络 / 存储 / HTTP / 事件 / 时间·ID·随机 |
@@ -126,7 +126,7 @@ flowchart TB
   subgraph CORE["helix-core · sans-IO · 零运行时 · 确定性 · 三端共享一份"]
     direction TB
     PORTS["ports：Transport / Storage / Clock / EventSink / IdSource"]
-    STEP["step(Tick) → Module.update() → 改 Model → 吐 Effect<br/>Effect：Persist · Send · SetTimer · Emit · ★Render"]
+    STEP["step(Tick) → Module.update() → 改 Model → 吐 Effect<br/>Effect：Persist · Send · ScheduleTimer · Emit · ★Render"]
     subgraph IM["helix-im · 业务模块 guest#1"]
       DD["▸ 方向D：收发 · 乱序门 · cursor · 去重 · 离线同步（从现网搬）"]
       AA["▸ 方向A：Model + view() → ViewModel<br/>orderedDialogs · totalUnread · groupedMessages · mentionRanges · draft"]
@@ -232,7 +232,7 @@ flowchart LR
     style STEP fill:#1a3a5c,color:#fff
 ```
 
-**Tick（输入字母表）：** `Command`（UI 命令） · `Inbound`（WS 帧） · `PortReply{corr, outcome}`（I/O 回报） · `Timer`（定时器到期）。
+**Tick（输入字母表）：** `Command`（UI 命令） · `Inbound`（WS 帧） · `PortReply{corr, outcome}`（I/O 回报） · `Timer`（定时器到期） · `Connected`/`Disconnected`（连接生命周期，content-routed，模块据此做 cursor reset / proactive resync）。
 
 **Effect（输出字母表）：** `Send`（发帧） · `Persist{corr}`（需回报落库） · `PersistFire`（幂等写） · `Http{corr}` · `Emit`（领域事件） · `ScheduleTimer`/`CancelTimer`。
 
@@ -242,7 +242,7 @@ flowchart LR
 flowchart TB
     subgraph CORE["内核对外契约：5 类槽位 · 7 个 trait"]
         TR["Transport（网络）<br/>连接 / 发帧 / 收帧 / 关闭"]
-        ST["Storage（存储·4 方法）<br/>批量写 upsert·update / 单调写 / 单行读"]
+        ST["Storage（存储·5 方法）<br/>批量写 upsert·update / 单调写 / 单行读 / 全表扫描"]
         HT["HttpRequester（HTTP）<br/>request 请求-响应"]
         EV["EventSink（事件）<br/>emit 入队即返回 O(1)"]
         DET["确定性注入（3 trait）<br/>Clock 时间 · IdSource ID · Random 随机"]
@@ -322,7 +322,7 @@ port 零业务语义（`table: &'static str` 编译期常量）。对齐现网�
 
 ```mermaid
 flowchart LR
-    M["业务模块吐落库意图<br/>（Persist{corr,ops} / PersistFire{ops}）"] --> P[["存储端口 Storage（4 方法）<br/>批量写 upsert·update / 单调写 / 单行读"]]
+    M["业务模块吐落库意图<br/>（Persist{corr,ops} / PersistFire{ops}）"] --> P[["存储端口 Storage（5 方法）<br/>批量写 upsert·update / 单调写 / 单行读 / 全表扫描"]]
     P -->|"桌面端（native）"| N["sqlx SQLite 连接池 + WAL<br/>（三池：同步写1 / 用户写1 / 读4）"]
     P -->|"浏览器（wasm）"| W["sqlite-wasm-rs + OPFS<br/>（仅 Worker 内，单连接）"]
     P -->|"移动端（ffi）"| F["rusqlite + 阻塞线程池<br/>（spawn_blocking）"]
@@ -656,7 +656,7 @@ sequenceDiagram
     Note over IM,ST: 后台空闲分批拉，无感补齐离线全量（落库走 §4.6 三阶段）
 ```
 
-> 依赖新增 `StorageOp::Scan`（返回 `Vec<Row>`，GetSpec 单行语义不动）——**MVP 前置阻塞项**（待办 C3，预估 2 天）。
+> 用到 `StorageOp::Scan`（返回 `Vec<Row>`，GetSpec 单行语义不动）——**已落地**（C3 销账 2026-06-11：core trait + `ScanSpec` + native 实现 + helix-im on_start 已调用；wasm/ffi scan 随各端 driver 落地）。
 
 ## 4.9 IM 存储 schema（业务表在 im，通过通用 spec 落库）
 
@@ -823,7 +823,7 @@ flowchart LR
   IN["Inbound / Timer / PortReply"] --> UPD["Module.update()"]
   UPD --> MOD["改 Model"]
   MOD --> EFF{"吐 Effect"}
-  EFF --> E1["Persist / Send / SetTimer / Emit（既有）"]
+  EFF --> E1["Persist / Send / ScheduleTimer / Emit（既有）"]
   EFF --> E2["★ Render（新增 · 通用 · fire-and-forget）"]
   E2 --> VW["host 收到 Render → Module.view()"]
   VW --> VB["ViewBytes（core 不解释内容）"]

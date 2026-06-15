@@ -17,7 +17,7 @@ helix-driver-ffi    ─┘
 - **helix-im**：IM 业务模块，只依赖 helix-core，不含任何运行时 crate
 - **helix-driver-***：各平台的 port 实现（tokio/sqlx/web-sys 在此，不在 core）
 
-详细架构见 [`docs/helix-two-layer-architecture.md`](docs/helix-two-layer-architecture.md)。
+详细架构见 [`docs/过会方案/helix-two-layer-architecture.md`](docs/过会方案/helix-two-layer-architecture.md)。
 
 ## 三栖 Build 命令
 
@@ -91,4 +91,4 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 3. **PortReply/Timer 定向路由**：`corr_map` 保证多模块并存时不误吞（审查意见2 P3）
 4. **Module trait 4 方法**：删除 `tick()`，周期心跳用 `ScheduleTimer` self-arm（审查意见2 S1）
 5. **EffectSink 统一**：EffectBuffer/EffectBatch/EffectSink 三名字合一（审查意见2 S4）
-6. **写成功才推 cursor**：Persist{corr} → PortReply{Ok} → PersistFire{cursor_upsert}（决策#2）
+6. **写成功才推 cursor**：Persist{corr} → PortReply{Ok} → PersistFire{monotonic_upsert}（决策#2）

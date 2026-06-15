@@ -57,6 +57,7 @@
 | 文档 | 作用 |
 |---|---|
 | [`三端运行/发消息全链路-三端.md`](./三端运行/发消息全链路-三端.md) | 发消息三端链路科普（机制详情见架构设计 §4.5） |
+| [`三端运行/复利模型-加功能加端各写什么.md`](./三端运行/复利模型-加功能加端各写什么.md) | 发送 vs 撤回实算：每层写什么、business 写一次三端共享、加功能/加端的复利账（M×P→M+P） |
 | [`AI工程化对齐-Bun-checklist.md`](./AI工程化对齐-Bun-checklist.md) | 对照 Bun Rust 重写仓的工程化差距（落地动作见 ROADMAP §四） |
 | [`ops/gitlab-ci-runner-交接说明.md`](./ops/gitlab-ci-runner-交接说明.md) | GitLab CI 激活的运维交接（注册 docker runner / 镜像 / crates 镜像 / 资源）；配套根 `.gitlab-ci.yml` |
 | [`reports/`](./reports/) | 修复战报（E1-E4 等），历史留痕 |

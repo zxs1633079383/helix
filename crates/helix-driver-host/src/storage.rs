@@ -180,6 +180,12 @@ impl Storage for HostStorage {
         let writer = Arc::clone(&self.writer);
         tokio::task::spawn_blocking(move || {
             let mut conn = writer.lock().map_err(map_lock_err)?;
+            // HX-C005 TODO（不过度工程）：batch_upsert 的 SQL 因 table + 动态列名 + conflict_key
+            // 形状各异，单 `&'static str` 不可行。若实测此路径成为分配热点，可按
+            // (table, col_count, has_conflict_key) 形状缓存 SQL 串（OnceCell/HashMap）。
+            // 现状：prepare_cached 已复用已编译语句，每次仅重建 SQL 字符串本身——
+            // batch_upsert 是「整批一事务」而非 per-message 单条，相对 monotonic cursor
+            // 冷得多，暂不缓存。
             let col_names: Vec<&str> = spec.rows[0].iter().map(|(k, _)| k.as_str()).collect();
             let cols_sql = col_names.join(", ");
             let placeholders = col_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
@@ -268,18 +274,24 @@ impl Storage for HostStorage {
     }
 
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {
+        // HX-C005 热路径零分配：cursor 推进是每条 WS 消息触发的最热路径，但其 SQL 是
+        // 永远指向 `_helix_monotonic` 表的**固定模板** → 提为 `&'static str` const，配合
+        // prepare_cached 复用已编译语句，消除 per-call SQL 字符串/parse 开销。
+        // （`spec.scope_key: String` 是 channel_id 运行时值，合法 owned 数据，不在收口范围。）
+        const MONOTONIC_UPSERT_SQL: &str =
+            "INSERT INTO _helix_monotonic (scope_key, value) VALUES (?, ?) \
+             ON CONFLICT(scope_key) DO UPDATE SET value = excluded.value \
+             WHERE excluded.value > _helix_monotonic.value";
         let writer = Arc::clone(&self.writer);
         tokio::task::spawn_blocking(move || {
             let conn = writer.lock().map_err(map_lock_err)?;
             // E5 不变量：MAX guard —— 仅当 excluded.value 严格大于现值才前进（防 cursor 回退）。
-            conn.execute(
-                "INSERT INTO _helix_monotonic (scope_key, value) VALUES (?, ?) \
-                 ON CONFLICT(scope_key) DO UPDATE SET value = excluded.value \
-                 WHERE excluded.value > _helix_monotonic.value",
-                (&spec.scope_key, spec.value),
-            )
-            .map(|_| ())
-            .map_err(map_sqlite_err)
+            let mut stmt = conn
+                .prepare_cached(MONOTONIC_UPSERT_SQL)
+                .map_err(map_sqlite_err)?;
+            stmt.execute((&spec.scope_key, spec.value))
+                .map(|_| ())
+                .map_err(map_sqlite_err)
         })
         .await
         .map_err(map_join_err)?

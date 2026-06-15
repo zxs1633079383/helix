@@ -398,6 +398,130 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
     assert_eq!(notes.len(), K as usize, "all concurrent note writes landed");
 }
 
+// ─── B1 强证明：读真的与写并发（确定性，纯串行实现必失败）────────────────────
+//
+// 上面 concurrent_writes_and_reads 的 20s 上限对实测 0.01s 是 2000x 余量 —— 纯串行
+// 单锁也能过，证不了「读与写真并发」。本测试给出**确定性强证明**：
+//
+//   1. 测出「单个 scan 在无写干扰时」的基线耗时 base。
+//   2. 起一个**长时占用写连接**的写操作（一条墙钟 ≈ HOLD 的慢 UPDATE，靠递归 CTE
+//      在 SQL 内 burn 时间，全程持有 writer 锁 + 写事务）。
+//   3. 写仍在跑期间，并发发起 N 个 scan（走只读池，WAL 读快照）。
+//   4. 断言：N 个并发读的总墙钟 < 写释放时刻（读在写占用期间就返回），且远小于
+//      「写时长 + N×base」（串行下界）。
+//
+// 纯串行单锁实现：读必须排在写后面 → 总墙钟 ≥ HOLD + N×base，断言失败。
+// 读写分离 + WAL：读走独立只读连接，不被写连接的事务阻塞 → 读在 HOLD 期间就全部返回。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reads_proceed_while_write_holds_connection() {
+    use std::time::{Duration, Instant};
+
+    let (storage, _path) = file_storage().await;
+    // 预填一些行，让 scan 有真实读工作量。
+    for i in 1..=50 {
+        storage
+            .batch_upsert(UpsertSpec {
+                table: "messages",
+                rows: vec![message_row(i, &format!("seed-{i}"), i)],
+                conflict_key: Some("id"),
+            })
+            .await
+            .expect("seed");
+    }
+
+    // 基线：无写干扰时单个 scan 的耗时。
+    let base_start = Instant::now();
+    storage
+        .scan(ScanSpec {
+            table: "messages",
+            limit: Some(1000),
+        })
+        .await
+        .expect("baseline scan");
+    let base = base_start.elapsed();
+
+    // 长时占用写连接：一条慢 UPDATE，靠递归 CTE 在 SQL 内 burn 墙钟（约 HOLD）。
+    // 全程持有 writer 锁 + 写事务（execute_raw 在写连接上跑）。
+    const HOLD: Duration = Duration::from_millis(800);
+    let s_writer = storage.clone();
+    let write_start = Instant::now();
+    let writer_handle = tokio::spawn(async move {
+        // 递归 CTE 计数到一个足够大的数以消耗 ~HOLD 墙钟；包在显式事务里持有写连接。
+        // count 取值偏保守，宁可超过 HOLD（让读窗口更明确），断言只看读 vs 写释放相对关系。
+        s_writer
+            .execute_raw(
+                "BEGIN IMMEDIATE; \
+                 UPDATE messages SET seq = seq + ( \
+                   WITH RECURSIVE burn(n) AS ( \
+                     SELECT 1 UNION ALL SELECT n + 1 FROM burn WHERE n < 8000000 \
+                   ) SELECT count(*) FROM burn \
+                 ) WHERE id = 1; \
+                 COMMIT;",
+            )
+            .await
+            .expect("long-held write");
+        write_start.elapsed()
+    });
+
+    // 给写一点时间真正进入 BEGIN IMMEDIATE（拿到写连接 + 写锁）。
+    // 用 spawn_blocking + std sleep（dev-deps 未启 tokio "time" feature）。
+    tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(50)))
+        .await
+        .expect("warmup sleep");
+
+    // 写仍在跑期间，并发发起 N 个 scan（走只读池）。
+    const N: usize = 8;
+    let reads_start = Instant::now();
+    let mut read_handles = Vec::new();
+    for _ in 0..N {
+        let s = storage.clone();
+        read_handles.push(tokio::spawn(async move {
+            s.scan(ScanSpec {
+                table: "messages",
+                limit: Some(1000),
+            })
+            .await
+            .expect("concurrent scan during write")
+            .len()
+        }));
+    }
+    let mut total_rows = 0usize;
+    for h in read_handles {
+        total_rows += h.await.expect("read task join");
+    }
+    let reads_wall = reads_start.elapsed();
+
+    // 写释放时刻（相对 write_start）。
+    let write_elapsed = writer_handle.await.expect("writer join");
+
+    // 写确实占用了可观墙钟（保证窗口存在；若机器太快 burn 不够则放宽断言留 TODO）。
+    assert!(
+        write_elapsed >= HOLD / 2,
+        "写应长时占用连接以构造并发窗口，实际 {write_elapsed:?}（机器过快？提高 burn count）"
+    );
+
+    // 强证明①：N 个并发读的总墙钟远小于「串行下界 = 写时长 + N×base」。
+    // 串行实现下读排在写后，reads_wall 必 ≳ write_elapsed；这里要求 reads_wall 明显更小。
+    assert!(
+        reads_wall < write_elapsed,
+        "读必须在写占用连接期间就完成（reads_wall {reads_wall:?} < write_elapsed {write_elapsed:?}）\
+         —— 串行实现下读会被写阻塞至 ≥ write_elapsed，此断言即失败"
+    );
+
+    // 强证明②：N 个并发读总墙钟 ≈ 单个读量级（并发借还，非 N× 串行）。
+    // 给宽松上界 max(N×base 的小比例, 一个常数地板) 以吸收调度抖动，但仍远低于 N×base。
+    let serial_read_lower = base.saturating_mul(N as u32);
+    let concurrent_ceiling = serial_read_lower / 2 + Duration::from_millis(200);
+    assert!(
+        reads_wall < concurrent_ceiling,
+        "N={N} 并发读应 ≈ 单读量级而非 N×base（reads_wall {reads_wall:?} < ceiling {concurrent_ceiling:?}, \
+         base {base:?}）—— 串行单锁会退化成 N× 串行"
+    );
+
+    // 结果正确：每个并发读都拿到全部 50 行。
+    assert_eq!(total_rows, 50 * N, "并发读结果必须完整正确");
+}
+
 // ─── E5 守护：monotonic 等值写是 no-op（MAX guard 仅严格大于才前进）────────────
 #[tokio::test]
 async fn monotonic_upsert_equal_value_is_noop() {

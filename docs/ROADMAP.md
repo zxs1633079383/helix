@@ -67,7 +67,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [ ] E8 timer 反向索引 · E9 热路径分配收口（HX-C005）——含 **a0595607 遗留**：`helix-driver-host` batch_upsert SQL 按 (table, col_count, has_conflict) 形状缓存（monotonic cursor SQL 已 const 化，B1 修复内）
 - [ ] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate（§四）；public-api 基线含新增 `SqlValue::Blob`（M2）
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
-- [ ] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实项**：N=1 墙钟→criterion + 收紧回归阈值（当前 1s vs ~100ms 主张 10x 余量太松）+ 并发 parity 改"串行会超时"的强证明（已补，见 storage_conformance）
+- [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准已落 `helix-driver-host/benches/storage_bench.rs`（warmup+100 samples+median/CI/离群，回归判据 median>2x；实测 5000 行 5.16ms[5.04,5.30]·39×100 6.08ms·monotonic cursor 28.5µs）② 并发 parity 改「串行会超时」强证明（已补 storage_conformance）。**剩**：bench 数字进 CI 留痕（待远端 runner）+ engine/im 侧 criterion 补齐
 - [ ] FFI MAJ-4：C-ABI 导出层 `spawn_blocking` 包裹落地（HX-C006/ADR-005，当前 todo）
 
 **已销账**：A 全部 · B1 · C1-C4 · E1-E4 · **E5-E7** · M1 全部 · M2 的 driver/im 主体。

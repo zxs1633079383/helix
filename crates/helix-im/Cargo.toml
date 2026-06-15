@@ -23,6 +23,10 @@ criterion = "0.5"
 name = "step_inorder"
 harness = false
 
+[[bench]]
+name = "gate_bench"
+harness = false
+
 # 编译期护栏（同 helix-core：业务模块禁 ambient 时间/线程/打印）
 [lints.clippy]
 disallowed_methods = "deny"

@@ -35,3 +35,7 @@ criterion = "0.5"
 [[bench]]
 name = "storage_upsert"
 harness = false
+
+[[bench]]
+name = "engine_bench"
+harness = false

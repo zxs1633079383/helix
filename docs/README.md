@@ -60,7 +60,7 @@
 | [`AI工程化对齐-Bun-checklist.md`](./AI工程化对齐-Bun-checklist.md) | 对照 Bun Rust 重写仓的工程化差距（落地动作见 ROADMAP §四） |
 | [`ops/gitlab-ci-runner-交接说明.md`](./ops/gitlab-ci-runner-交接说明.md) | GitLab CI 激活的运维交接（注册 docker runner / 镜像 / crates 镜像 / 资源）；配套根 `.gitlab-ci.yml` |
 | [`reports/`](./reports/) | 修复战报（E1-E4 等），历史留痕 |
-| `curx/` | Crux（方向 A 参照实现）调研笔记（WIP，未入库） |
+| [`curx/curx 视频总结.md`](./curx/curx%20视频总结.md) | Crux 发布演讲（Stuart Harris @ Rust Nation UK）逐段总结；是 §7.0 Crux 参照 + `helix-crux-参照对照.md` 的素材源 |
 
 ---
 

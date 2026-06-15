@@ -635,6 +635,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "criterion",
  "helix-core",
  "rusqlite",
  "serde_json",

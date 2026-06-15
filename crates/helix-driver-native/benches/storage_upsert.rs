@@ -1,6 +1,15 @@
-//! criterion 基准：batch_upsert 写吞吐（E2 修复的常态化回归监测）
+//! criterion 基准：batch_upsert 写吞吐（E2 修复的常态化回归监测）。
 //!
-//! 基线（2026-06-11，事务包裹后）：5000 行 ~40-60ms（82K-122K 行/秒）。
+//! a0595607 重构后 `NativeStorage` 委托 `helix-driver-host::HostStorage`，本 bench 仍可
+//! 编译并测 native 侧 facade（含委托开销）。**严格的方法学基准（warmup + iter_batched
+//! setup 隔离 + 5000 行 / 39×100 / monotonic 多形态 + 可签回归判据）见
+//! `helix-driver-host/benches/storage_bench.rs`**——那里直接测 HostStorage 内核，是
+//! 写路径性能的权威落点；本文件保留为 native facade 的轻量冒烟。
+//!
+//! 基线注释更新（2026-06-15）：旧注释「5000 行 ~40-60ms（82K-122K 行/秒）」与现实
+//! 脱节——stress-verify 实测整批 upsert 在 ~ms 量级（WAL + 单事务 + prepare_cached 后
+//! 远快于旧估），保留旧数字会误导回归判读。**不在此处硬编绝对耗时基线**，回归以
+//! criterion 自身的 median 对比（`target/criterion/.../base`）为准：median 回归 > 2x 判红。
 //! 跑法：`cargo bench -p helix-driver-native`
 #![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
 

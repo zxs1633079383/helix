@@ -16,7 +16,7 @@ impl helix_core::ports::Transport for FfiTransport {
         todo!("FfiTransport::connect")
     }
 
-    async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
+    async fn send(&mut self, _frame: Bytes) -> Result<(), PortError> {
         // TODO: (self.send_fn)(frame.as_ptr(), frame.len());
         todo!("FfiTransport::send")
     }

@@ -9,6 +9,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 helix-core = { path = "../helix-core" }
+helix-driver-host = { path = "../helix-driver-host" }
 serde       = { workspace = true }
 thiserror   = { workspace = true }
 bytes       = { workspace = true }

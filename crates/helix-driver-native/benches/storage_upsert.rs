@@ -30,15 +30,12 @@ fn bench_batch_upsert(c: &mut Criterion) {
     );
     let storage = rt.block_on(async {
         let s = NativeStorage::open(&db).await.expect("open");
-        // 建表（与 stress_storage 同构）
-        s.batch_upsert(UpsertSpec {
-            table: "bench_msgs",
-            rows: make_rows(1),
-            conflict_key: Some("seq"),
-        })
+        s.execute_raw(
+            "CREATE TABLE IF NOT EXISTS bench_msgs \
+             (seq INTEGER PRIMARY KEY, msg_id TEXT, actor_id TEXT, raw TEXT)",
+        )
         .await
-        .ok(); // 首次会因表不存在失败
-        sqlx_bootstrap(&db, &rt);
+        .expect("create bench table");
         s
     });
 
@@ -56,22 +53,6 @@ fn bench_batch_upsert(c: &mut Criterion) {
         });
     });
     group.finish();
-}
-
-fn sqlx_bootstrap(db: &str, rt: &tokio::runtime::Runtime) {
-    rt.block_on(async {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(db)
-            .await
-            .expect("pool");
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS bench_msgs (seq INTEGER PRIMARY KEY, msg_id TEXT, actor_id TEXT, raw TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .expect("create table");
-    });
 }
 
 criterion_group!(benches, bench_batch_upsert);

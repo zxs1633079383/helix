@@ -33,7 +33,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 ### M3 —— Flutter 手机端 / FFI（2-3 周，按 ADR-006 调整）
 
 1. F1：确定 Flutter FFI API 最小面：`open/start/send_message/on_event/destroy`，Dart 不碰 IM SQL / sync 细节
-2. F2：`helix-driver-ffi` 内置 rusqlite/SQLite 存储，跑通 `StorageOp` 语义与 native 对齐
+2. F2：`helix-driver-ffi` 复用 `helix-driver-host` 的 rusqlite/SQLite 存储，`StorageOp` 语义与 native 单一真源对齐（已落 shared conformance 测试）
 3. F3：事件回 Dart Stream；panic=abort cdylib/staticlib profile；Flutter demo 冒烟
 4. F4：同一 Tick 剧本 native vs FFI 输出一致；同一 schema/migration + Storage conformance 测试
 
@@ -98,6 +98,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 **M3 追加（Flutter FFI）**
 - [ ] 同一 Tick 剧本 native vs FFI 输出 byte-level 一致（可回放跨端验证）
 - [ ] FFI Flutter 冒烟 + abort 语义验证
+- [ ] `helix-driver-host` storage conformance 测试覆盖 native/ffi 共享 SQLite 语义
 
 ---
 

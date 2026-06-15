@@ -3,12 +3,11 @@
 //! ## 测什么
 //!
 //! 1. `stress_batch_upsert_39x100`：单批 39 行 × 100 批（共 3900 行），
-//!    走 `Storage::batch_upsert`（当前实现：逐行 INSERT，每行独立 autocommit）。
-//! 2. `stress_batch_upsert_5000_single_batch`：5000 行单批。
-//!    同时跑 **显式事务基线**（BEGIN + 逐行 INSERT + COMMIT）量化写放大倍数。
+//!    走 shared host `Storage::batch_upsert`。
+//! 2. `stress_batch_upsert_5000_single_batch`：5000 行单批，验证 shared host
+//!    storage 保持事务包裹写入。
 //! 3. `stress_monotonic_upsert_1000`：cursor 热路径（advance_cursor 每条 WS
-//!    消息触发一次 monotonic_upsert，当前实现每次调用都先跑
-//!    CREATE TABLE IF NOT EXISTS）。
+//!    消息触发一次 monotonic_upsert）。
 //!
 //! ## 跑法
 //!
@@ -38,24 +37,18 @@ async fn make_temp_storage(path: &str) -> NativeStorage {
         .expect("open temp storage")
 }
 
-/// 建 messages 表（NativeStorage 池私有，用独立 sqlx 连接建表）
-async fn create_messages_table(path: &str) {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect(&format!("sqlite:{path}?mode=rwc"))
-        .await
-        .expect("aux pool");
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS messages \
+/// 建 messages 表（经 NativeStorage 走 shared host storage）。
+async fn create_messages_table(storage: &NativeStorage) {
+    storage
+        .execute_raw(
+            "CREATE TABLE IF NOT EXISTS messages \
          (seq INTEGER PRIMARY KEY NOT NULL, \
           channel_id INTEGER NOT NULL, \
           event_type INTEGER NOT NULL, \
           raw TEXT NOT NULL)",
-    )
-    .execute(&pool)
-    .await
-    .expect("create messages table");
-    pool.close().await;
+        )
+        .await
+        .expect("create messages table");
 }
 
 /// 构造一行（与 helix-im event_to_upsert_op 同 shape，raw 约 150 字节）
@@ -81,7 +74,7 @@ async fn stress_batch_upsert_39x100() {
     const BATCHES: i64 = 100;
     let path = "/tmp/helix_stress_39x100.db";
     let storage = make_temp_storage(path).await;
-    create_messages_table(path).await;
+    create_messages_table(&storage).await;
 
     let start = Instant::now();
     for b in 0..BATCHES {
@@ -123,9 +116,8 @@ async fn stress_batch_upsert_5000_single_batch() {
     const N: i64 = 5_000;
     let path = "/tmp/helix_stress_5000.db";
     let storage = make_temp_storage(path).await;
-    create_messages_table(path).await;
+    create_messages_table(&storage).await;
 
-    // A. 当前实现：batch_upsert（逐行 INSERT，每行独立 autocommit）
     let rows: Vec<_> = (1..=N).map(make_row).collect();
     let start = Instant::now();
     storage
@@ -136,55 +128,14 @@ async fn stress_batch_upsert_5000_single_batch() {
         })
         .await
         .expect("batch_upsert 5000 rows");
-    let autocommit_elapsed = start.elapsed();
+    let elapsed = start.elapsed();
 
-    // B. 基线：同样 5000 行包进一个显式事务（BEGIN..COMMIT，单次 fsync）
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect(&format!("sqlite:{path}?mode=rwc"))
-        .await
-        .expect("aux pool");
-    sqlx::query("PRAGMA busy_timeout=5000")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let rows_b: Vec<_> = (N + 1..=N * 2).map(make_row).collect();
-    let start_tx = Instant::now();
-    let mut tx = pool.begin().await.expect("begin tx");
-    for row in &rows_b {
-        let mut q = sqlx::query(
-            "INSERT INTO messages (seq, channel_id, event_type, raw) VALUES (?, ?, ?, ?) \
-             ON CONFLICT(seq) DO UPDATE SET channel_id = excluded.channel_id, \
-             event_type = excluded.event_type, raw = excluded.raw",
-        );
-        for (_, v) in row {
-            q = match v {
-                SqlValue::Text(s) => q.bind(s.as_str()),
-                SqlValue::Integer(i) => q.bind(*i),
-                SqlValue::Real(f) => q.bind(*f),
-                SqlValue::Null => q.bind(Option::<String>::None),
-            };
-        }
-        q.execute(&mut *tx).await.expect("tx insert");
-    }
-    tx.commit().await.expect("commit");
-    let tx_elapsed = start_tx.elapsed();
-    pool.close().await;
-
-    let amp = autocommit_elapsed.as_secs_f64() / tx_elapsed.as_secs_f64();
     eprintln!("\n[stress_batch_upsert_5000_single_batch]");
     eprintln!(
-        "  A. batch_upsert (per-row autocommit) : {:.3} ms ({:.0} rows/s)",
-        autocommit_elapsed.as_secs_f64() * 1e3,
-        N as f64 / autocommit_elapsed.as_secs_f64()
+        "  shared host batch_upsert             : {:.3} ms ({:.0} rows/s)",
+        elapsed.as_secs_f64() * 1e3,
+        N as f64 / elapsed.as_secs_f64()
     );
-    eprintln!(
-        "  B. explicit tx baseline (1 commit)   : {:.3} ms ({:.0} rows/s)",
-        tx_elapsed.as_secs_f64() * 1e3,
-        N as f64 / tx_elapsed.as_secs_f64()
-    );
-    eprintln!("  write amplification (A/B)            : {:.1}x", amp);
 }
 
 // ─── 测试 3：monotonic_upsert（cursor 热路径）× 1000 ─────────────────────────
@@ -209,7 +160,7 @@ async fn stress_monotonic_upsert_1000() {
 
     eprintln!("\n[stress_monotonic_upsert_1000]");
     eprintln!(
-        "  calls            : {} (每次含 CREATE TABLE IF NOT EXISTS + UPSERT)",
+        "  calls            : {} (UPSERT only; schema created at open)",
         N
     );
     eprintln!("  total time       : {:.3} ms", elapsed.as_secs_f64() * 1e3);

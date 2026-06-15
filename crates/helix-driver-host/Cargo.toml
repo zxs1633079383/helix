@@ -1,0 +1,22 @@
+[package]
+name    = "helix-driver-host"
+version = "0.1.0"
+edition = "2021"
+
+# Shared Rust host driver layer for product clients:
+# PC Tauri shell (helix-driver-native) and Flutter FFI shell (helix-driver-ffi).
+
+[dependencies]
+helix-core = { path = "../helix-core" }
+async-trait = { workspace = true }
+bytes       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+tokio       = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+rusqlite    = { version = "0.32.1", features = ["bundled"] }
+
+# driver 层是 ambient API（SystemTime/线程）的合法落点 → 不开 disallowed deny
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "allow"
+disallowed_macros = "allow"

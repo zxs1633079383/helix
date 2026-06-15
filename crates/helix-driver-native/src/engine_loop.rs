@@ -79,17 +79,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use serde_json::{json, Value as JsonValue};
+use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use helix_core::effect::{
-    Correlation, DomainEventBytes, Effect, HttpRequest, SqlValue, StorageOp, TimerId, TransportId,
+    Correlation, DomainEventBytes, Effect, HttpRequest, StorageOp, TimerId, TransportId,
 };
-use helix_core::ports::{Clock, EventSink, HttpRequester, Storage};
-use helix_core::tick::{PortError as CorePortError, PortOutcome, ReplyBytes};
-use helix_core::PortError;
+use helix_core::ports::{Clock, EventSink, HttpRequester};
+use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::{ExecutionShell, Tick};
+use helix_driver_host::{classify_port_error, execute_storage_ops, table_set_key};
+pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
 use crate::clock::NativeClock;
 use crate::event_sink::NativeEventSink;
@@ -213,7 +214,7 @@ fn get_or_spawn_worker(
         let (job_tx, mut job_rx) = mpsc::channel::<PersistJob>(PERSIST_QUEUE_CAP);
         let join = tokio::spawn(async move {
             while let Some((corr_opt, ops)) = job_rx.recv().await {
-                let outcome = execute_storage_ops(&storage, &ops).await;
+                let outcome = execute_storage_ops(storage.as_ref(), &ops).await;
                 if let Some(corr) = corr_opt {
                     // unbounded send：不会阻塞，回灌必达（§1）
                     reply_tx.send(Tick::PortReply { corr, outcome }).ok();
@@ -483,190 +484,7 @@ async fn dispatch_effects(
     }
 }
 
-// ─── Storage ops 执行 ────────────────────────────────────────────────────────
-
-/// 执行一批 StorageOp，返回 PortOutcome。
-///
-/// 同组内按顺序执行，任意一个失败则返回 Err（后续 ops 跳过）。
-/// 成功时返回最后一个有意义 op 的结果（scan/get → rows JSON；其余 → 空 bytes）。
-async fn execute_storage_ops(storage: &NativeStorage, ops: &[StorageOp]) -> PortOutcome {
-    let mut last_ok_bytes = Bytes::new();
-
-    for op in ops {
-        match op {
-            StorageOp::BatchUpsert(spec) => match storage.batch_upsert(spec.clone()).await {
-                Ok(()) => {}
-                Err(e) => return PortOutcome::Err(classify_port_error(e)),
-            },
-            StorageOp::BatchUpdate(spec) => {
-                match storage
-                    .batch_update(spec.table, spec.key_col, &spec.key_vals, spec.patch.clone())
-                    .await
-                {
-                    Ok(()) => {}
-                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
-                }
-            }
-            StorageOp::MonotonicUpsert(spec) => {
-                match storage.monotonic_upsert(spec.clone()).await {
-                    Ok(()) => {}
-                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
-                }
-            }
-            StorageOp::Get(spec) => match storage.get(spec.clone()).await {
-                Ok(Some(row)) => {
-                    last_ok_bytes = rows_to_reply_bytes(&[row]);
-                }
-                Ok(None) => {
-                    last_ok_bytes = Bytes::new();
-                }
-                Err(e) => return PortOutcome::Err(classify_port_error(e)),
-            },
-            StorageOp::Scan(spec) => match storage.scan(spec.clone()).await {
-                Ok(rows) => {
-                    last_ok_bytes = rows_to_reply_bytes(&rows);
-                }
-                Err(e) => return PortOutcome::Err(classify_port_error(e)),
-            },
-        }
-    }
-
-    PortOutcome::Ok(ReplyBytes(last_ok_bytes))
-}
-
-// ─── rows→bytes 序列化约定 ────────────────────────────────────────────────────
-
-/// `&[Row]` → JSON array bytes（driver 约定序列化格式）。
-///
-/// ## Schema
-///
-/// ```json
-/// [{"col1": "str", "col2": 42, "col3": 3.14, "col4": null}, ...]
-/// ```
-pub fn rows_to_reply_bytes(rows: &[helix_core::effect::Row]) -> Bytes {
-    let json_rows: Vec<JsonValue> = rows
-        .iter()
-        .map(|row| {
-            let obj: serde_json::Map<String, JsonValue> = row
-                .iter()
-                .map(|(k, v)| {
-                    let jv = match v {
-                        SqlValue::Text(s) => JsonValue::String(s.clone()),
-                        SqlValue::Integer(i) => json!(i),
-                        SqlValue::Real(f) => json!(f),
-                        SqlValue::Null => JsonValue::Null,
-                    };
-                    (k.clone(), jv)
-                })
-                .collect();
-            JsonValue::Object(obj)
-        })
-        .collect();
-
-    serde_json::to_vec(&json_rows)
-        .map(Bytes::from)
-        .unwrap_or_default()
-}
-
-/// JSON bytes → `Vec<Row>`（`rows_to_reply_bytes` 的逆操作）。
-///
-/// number 类型：整型 → Integer；有小数点 → Real。
-pub fn rows_from_reply_bytes(bytes: &Bytes) -> Result<Vec<helix_core::effect::Row>, String> {
-    use helix_core::effect::{Row, SqlValue};
-
-    let json: Vec<serde_json::Map<String, JsonValue>> =
-        serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-
-    let rows: Vec<Row> = json
-        .into_iter()
-        .map(|obj| {
-            obj.into_iter()
-                .map(|(k, v)| {
-                    let sv = match v {
-                        JsonValue::String(s) => SqlValue::Text(s),
-                        JsonValue::Number(n) => {
-                            if let Some(i) = n.as_i64() {
-                                SqlValue::Integer(i)
-                            } else {
-                                SqlValue::Real(n.as_f64().unwrap_or(0.0))
-                            }
-                        }
-                        JsonValue::Null => SqlValue::Null,
-                        other => SqlValue::Text(other.to_string()),
-                    };
-                    (k, sv)
-                })
-                .collect()
-        })
-        .collect();
-
-    Ok(rows)
-}
-
 // ─── 辅助函数 ────────────────────────────────────────────────────────────────
-
-/// 从 StorageOp 列表计算路由键（per-table-set worker 的路由依据）。
-///
-/// ## 语义（review 回炉 §3）
-///
-/// - 路由键 = ops 涉及的**全部** table 名，有序去重后以 "|" 分隔。
-/// - 单表 ops（常见路径）→ 单表名，与之前 first_table_key 等价，无额外开销。
-/// - 多表 ops → 组合键，例如 `"channel_event_cursor|messages"`。组合键会路由到一个
-///   独立 worker，与各单表 worker 隔离，保证跨 tick 的同一 ops 集合严格有序。
-///
-/// ## 接口约束（务必遵守）
-///
-/// 要求 tick1 的 Persist 与 tick2 的 Persist **相互有序**，则二者必须拥有
-/// **完全相同的 table set**（相同路由键），才能路由到同一 worker 并保序。
-///
-/// 反例（会产生跨 worker 并发）：
-/// - tick1: `Persist{ops: [Get("cursor"), BatchUpsert("messages", v1)]}`
-///   路由键 = `"cursor|messages"`
-/// - tick2: `Persist{ops: [BatchUpsert("messages", v2)]}`
-///   路由键 = `"messages"`
-/// 两条路由到不同 worker，并发执行，v2 可能先于 v1 落库。
-/// 正确做法：将需要有序的写操作合并进同一 Persist ops vec（相同 table set），
-/// 或在 core 层拆分为需要 PortReply 链式执行。
-///
-/// **空 ops** → 返回空字符串（路由到 "" worker，行为等同于 single-op 兜底）。
-fn table_set_key(ops: &[StorageOp]) -> String {
-    if ops.is_empty() {
-        return String::new();
-    }
-    // 收集全部 table 名（保留重复以便调试；有序去重后拼键）
-    let mut tables: Vec<&str> = ops
-        .iter()
-        .map(|op| match op {
-            StorageOp::BatchUpsert(s) => s.table,
-            StorageOp::BatchUpdate(s) => s.table,
-            StorageOp::MonotonicUpsert(_) => "_helix_monotonic",
-            StorageOp::Get(s) => s.table,
-            StorageOp::Scan(s) => s.table,
-        })
-        .collect();
-    tables.sort_unstable();
-    tables.dedup();
-    tables.join("|")
-}
-
-/// helix_core::PortError（driver boundary）→ tick::PortError（模块可见）。
-///
-/// 模块用此类型区分 4xx/5xx/超时，实现差异化重试策略（MIN-3 落实）。
-fn classify_port_error(e: PortError) -> CorePortError {
-    match &e {
-        PortError::Storage(_) => CorePortError::Storage(0),
-        PortError::Transport(msg) if msg.starts_with("timeout") => CorePortError::Timeout,
-        PortError::Transport(_) => CorePortError::Network,
-        PortError::Http(msg) => {
-            let code = msg
-                .split_whitespace()
-                .find_map(|w| w.parse::<u16>().ok())
-                .unwrap_or(0);
-            CorePortError::Http(code)
-        }
-        _ => CorePortError::Other(0),
-    }
-}
 
 /// 简单 base64 编码（HTTP body 放进 JSON 时用，避免 binary 污染 JSON string）。
 fn base64_encode(bytes: &[u8]) -> String {
@@ -699,6 +517,8 @@ fn base64_encode(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use helix_core::effect::SqlValue;
+    use helix_core::tick::PortError as CorePortError;
+    use helix_core::PortError;
 
     #[test]
     fn test_rows_roundtrip() {

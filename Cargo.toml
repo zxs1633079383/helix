@@ -2,6 +2,7 @@
 members = [
     "crates/helix-core",
     "crates/helix-im",
+    "crates/helix-driver-host",
     "crates/helix-driver-native",
     "crates/helix-driver-wasm",
     "crates/helix-driver-ffi",

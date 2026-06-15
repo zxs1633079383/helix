@@ -1,9 +1,9 @@
 # helix-driver-ffi —— FFI 驱动层设计文档
 
 > **版本** 2026-06-08 · C ABI 稳定层 + uniffi 双轨方案
-> **状态更新（2026-06-15 / ADR-006）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置与事件订阅，不写 IM 同步逻辑、不写消息 SQL。网页端 wasm 已暂停维护。
+> **状态更新（2026-06-15 / ADR-006/ADR-007）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置与事件订阅，不写 IM 同步逻辑、不写消息 SQL。SQLite schema/migration、StorageOp 兑现与 rows reply 编解码复用 `helix-driver-host`；网页端 wasm 已暂停维护。
 >
-> **本文目的**：详述 `helix-driver-ffi` 如何通过 C ABI（`extern "C"` / `#[no_mangle]` / `repr(C)` / opaque ptr）和 uniffi（Swift/Kotlin 绑定）把 core ports 暴露给移动端宿主，以及 host 回调如何提供 I/O 能力。
+> **本文目的**：详述 `helix-driver-ffi` 如何通过 C ABI（`extern "C"` / `#[no_mangle]` / `repr(C)` / opaque ptr）和 uniffi（Swift/Kotlin 绑定）把 Flutter/移动端接到 Rust host driver；Flutter 主线由 Rust 侧全包 I/O，host 回调只保留事件/生命周期/可选宿主能力。
 
 ---
 
@@ -16,8 +16,9 @@ Flutter / Dart FFI        iOS/Android 原生宿主        C/C++ 宿主
     │ package bridge         │ Swift/Kotlin wrapper      │ helix.h
     ▼                        ▼                         ▼
 helix-driver-ffi  (crate-type = ["cdylib", "staticlib"])
-    │  implements: Transport / Storage / Clock / EventSink / HttpRequester
-    │  owns:       host callback table / 同步 SQLite (rusqlite) / C ABI 边界
+    │  implements: Flutter C ABI / opaque handle / Dart event callback
+    │  reuses:     helix-driver-host Storage + StorageOp execution
+    │  owns:       lifecycle / callback boundary / event stream bridge
     ▼
 helix-core + helix-im
 ```
@@ -62,14 +63,12 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 helix-core = { path = "../helix-core" }
+helix-driver-host = { path = "../helix-driver-host" }
 bytes       = { workspace = true }
 thiserror   = { workspace = true }
 serde       = { workspace = true }
 serde_json  = "1"
 
-# FFI 只在 non-wasm target
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rusqlite   = { version = "0.31", features = ["bundled"] }
 # uniffi：仅当启用 uniffi feature
 uniffi     = { version = "0.27", optional = true }
 # cbindgen 是构建工具，不是运行时依赖（在 build.rs 里调）
@@ -162,9 +161,9 @@ pub extern "C" fn helix_destroy(handle: *mut HelixHandle) {
 
 ---
 
-## 3. Host 回调表：C 端提供 I/O 能力
+## 3. Host 回调表：C 端提供事件与可选宿主能力
 
-FFI 的 I/O 能力由宿主（Swift/Kotlin/C++）注入回调函数，Rust driver 通过回调执行实际 I/O：
+Flutter 主线选择 Rust 侧全包 I/O：Dart 不执行 IM sync、消息 SQL、cursor 推进、echo 对账，也不理解 `Tick` / `Effect` / `StorageOp`。C 回调表主线只用于事件投递、可选时间/ID 注入和生命周期通知；历史的 `ws_send` / `http_request` host callback 只作为非 Flutter 宿主备选，不是当前产品路径。
 
 ```rust
 // helix-driver-ffi/src/callbacks.rs
@@ -301,9 +300,36 @@ impl Transport for FfiTransport {
 
 ---
 
-## 5. Storage Port 实现：`FfiStorage`（rusqlite 同步 + spawn_blocking）
+## 5. Storage Port 实现：`FfiStorage`（复用 `helix-driver-host`）
 
-FFI 端的 SQLite 通常是宿主 app 已有的 SQLite 实例，或 driver 自持 rusqlite。两者都是同步 API，用 `tokio::task::spawn_blocking` 包装：
+`FfiStorage` 是 `helix_driver_host::HostStorage` 的薄 wrapper。Flutter/Dart 只传 DB 路径或 app data dir；Rust 打开 SQLite、执行 migration、兑现 StorageOp、回灌 PortReply。
+
+```rust
+#[derive(Clone)]
+pub struct FfiStorage {
+    inner: helix_driver_host::HostStorage,
+}
+```
+
+共享层提供：
+
+- SQLite WAL / synchronous=NORMAL / busy_timeout
+- `_helix_monotonic(scope_key,value)` schema 与 migration
+- `batch_upsert` / `batch_update` / `monotonic_upsert` / `get` / `scan`
+- `StorageOp -> PortOutcome`
+- `rows_to_reply_bytes` / `rows_from_reply_bytes`
+
+FFI 层保留：
+
+- C ABI / opaque handle / destroy 单 owner
+- Dart event callback -> Stream
+- Flutter 最小命令 API：`helix_create/open`、`helix_start/connect`、`helix_send_command` 或 `send_message`、必要 query、`helix_destroy`
+
+历史草稿中的宿主 SQLite 句柄回调方案不再作为 Flutter 主线；若未来 iOS/Android 原生壳需要接宿主 SQLite，必须先保证与 `helix-driver-host` conformance tests 共享同一语义。
+
+<!-- historical sketch retained below for context -->
+
+FFI 端若选择宿主 SQLite 句柄，两者都是同步 API，用 `tokio::task::spawn_blocking` 包装：
 
 ```rust
 // helix-driver-ffi/src/storage.rs
@@ -373,10 +399,10 @@ impl Storage for FfiStorage {
 }
 ```
 
-**为何 FFI 侧用 rusqlite 而非 sqlx**：
+**为何 shared host 层用 rusqlite 而非 native sqlx + ffi rusqlite 双轨**：
 
-- `sqlx` 在移动端的交叉编译工具链上偶有依赖问题（`pkg-config`，`openssl`）；`rusqlite` 带 `bundled` feature 自包含 SQLite 源码，交叉编译更稳定。
-- FFI 场景通常是宿主 app（iOS/Android）管理 SQLite 文件，不需要 sqlx 的 compile-time 查询检查。
+- `sqlx` 在移动端的交叉编译工具链上偶有依赖问题（`pkg-config`，`openssl`）；`rusqlite` bundled 自包含 SQLite 源码，交叉编译更稳定。
+- native/ffi 双实现会让 messages SQL、`_helix_monotonic`、StorageOp 语义和 row 映射漂移；统一 rusqlite 后只有一份 conformance tests。
 
 ---
 
@@ -566,7 +592,7 @@ fn main() {
 | core Port | FFI 实现类型 | 核心依赖 | 所有权规则 |
 |---|---|---|---|
 | `Transport` | `FfiTransport` | host `ws_send` callback + `helix_ws_received` 入口 | 入站帧立即 `copy_from_slice`；出站调回调前 buffer 在 Rust 栈上 |
-| `Storage` | `FfiStorage` | `rusqlite` bundled + `spawn_blocking` | `Arc<Mutex<Connection>>` 单写者 |
+| `Storage` | `FfiStorage` → `HostStorage` | `helix-driver-host` / `rusqlite` bundled + `spawn_blocking` | shared blocking SQLite worker |
 | `Clock` | `FfiClock` | host `now_fn` 或 `SystemTime` | 无状态 Clone |
 | `EventSink` | `FfiEventSink` | host `on_event` callback | CString 在回调返回后 drop，host 必须在回调内拷贝 |
 | `HttpRequester` | `FfiHttpRequester` | host `http_request` callback + `helix_http_reply` 入口 | correlation_id 配对；body bytes 立即拷贝 |

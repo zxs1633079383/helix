@@ -23,7 +23,8 @@
     ▲ 实现 Module trait + register()
 core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSource) + Module 宿主 + Effect/事件 + sans-IO 执行壳
     ▲ 实现 ports（依赖方向单向：adapter → core，永不反向）
-平台驱动层   helix-driver-native(tokio/sqlx/tungstenite/reqwest) · helix-driver-ffi(C ABI/uniffi/rusqlite)
+平台驱动层   helix-driver-host(shared rusqlite Storage/StorageOp) · helix-driver-native(PC/Tauri 壳)
+             helix-driver-ffi(Flutter FFI 壳)
              helix-driver-wasm = archived/experimental（网页端暂停维护，不作为交付目标）
 ```
 

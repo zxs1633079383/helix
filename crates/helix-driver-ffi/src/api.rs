@@ -11,7 +11,7 @@ use crate::callbacks::HelixCallbacks;
 /// 创建 Helix 引擎实例，返回不透明指针。
 /// 宿主负责持有并传递给所有后续 API 调用。
 #[no_mangle]
-pub extern "C" fn helix_create(callbacks: HelixCallbacks) -> *mut std::ffi::c_void {
+pub extern "C" fn helix_create(_callbacks: HelixCallbacks) -> *mut std::ffi::c_void {
     // TODO: 创建 ExecutionShell + FfiTransport + FfiStorage + 注册 ImModule
     //       Box::into_raw(Box::new(engine_handle)) as *mut c_void
     std::ptr::null_mut()
@@ -59,8 +59,8 @@ pub unsafe extern "C" fn helix_on_ws_frame(
 #[no_mangle]
 pub unsafe extern "C" fn helix_on_http_response(
     handle: *mut std::ffi::c_void,
-    req_id: u64,
-    status: u16,
+    _req_id: u64,
+    _status: u16,
     body: *const u8,
     body_len: usize,
 ) {

@@ -1,6 +1,6 @@
 //! # helix-driver-native
 //!
-//! tokio + sqlx + tokio-tungstenite + reqwest 实现 helix-core ports。
+//! tokio + shared rusqlite host storage + tokio-tungstenite + reqwest 实现 helix-core ports。
 //!
 //! ## tokio::spawn 在此
 //!
@@ -9,7 +9,7 @@
 //!
 //! ## 错误翻译（ACL-2）
 //!
-//! 每个 port 实现用 thiserror 把具体 crate 错误（sqlx::Error / reqwest::Error / 等）
+//! 每个 port 实现用 thiserror 把具体 crate 错误（rusqlite / reqwest / 等）
 //! 翻译为 helix_core::PortError，不让具体类型穿透 port 边界。
 
 pub mod clock;

@@ -33,3 +33,8 @@
 - **决策**：Helix 当前产品化目标只覆盖两类客户端：PC 端 Tauri（`helix-driver-native`）与手机端 Flutter（`helix-driver-ffi`）。网页端暂不做，`helix-driver-wasm` 保留为历史实验/归档代码，不进入 roadmap、CI 必跑矩阵、交付验收或日常维护。
 - **理由**：用户已拍板优先保证 PC + 手机端同步更新并降低维护成本；浏览器端 IndexedDB/OPFS/Worker/wasm 包体积会引入额外平台复杂度，当前不是产品需求。业务逻辑仍保持 runtime-agnostic、sans-IO、可回放，避免把未来 Web 可能性彻底写死，但不为未维护端付实现和验收成本。
 - **状态**：已定（2026-06-15）。后续代码变更不得为了 wasm/web 额外扩 scope；如重新启动网页端，需新增 ADR 重新激活 `helix-driver-wasm` 和对应验收。
+
+## ADR-007 — PC/Flutter 共享 Rust host driver 存储层
+- **决策**：新增 `helix-driver-host` 作为 PC Tauri 与 Flutter FFI 的共享 Rust host driver 层。SQLite schema/migration、rusqlite Storage 实现、`StorageOp -> PortOutcome` 兑现、`rows_to_reply_bytes` / `rows_from_reply_bytes` 统一维护在该 crate；`helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳与边界 API。
+- **理由**：Flutter 手机端选择 Rust 侧全包 I/O，Dart 只负责 UI、FFI 命令与事件流。若 native 继续 sqlx、ffi 单独 rusqlite，messages SQL、monotonic 表、StorageOp 语义和 row 编解码会出现双维护漂移。统一 rusqlite + blocking worker/shared queue 优先维护性，并直接服务 PC + Flutter 两端。
+- **状态**：已定（2026-06-15）。当前已落地共享 Storage/schema/StorageOp/rows 编解码；HTTP/WS 与更通用 engine loop 共享继续按不破坏平台壳边界增量推进。

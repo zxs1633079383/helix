@@ -1,8 +1,9 @@
 # helix-driver-native —— Native 驱动层设计文档
 
 > **版本** 2026-06-08 · 基于 cses-client 源码实测 + 三栖约束底座
+> **状态更新（2026-06-15 / ADR-007）**：PC native 的 SQLite 存储不再单独维护 sqlx 语义；`helix-driver-native` 作为 PC/Tauri 壳复用 `helix-driver-host` 的 rusqlite schema/migration、StorageOp 兑现与 rows reply 编解码。
 >
-> **本文目的**：详述 `helix-driver-native` 如何用 tokio/sqlx/tokio-tungstenite/reqwest **实现全部 core ports**，并说明多线程并发模型（WS runtime / 单写者 / 4-worker 分片）如何驻扎在驱动层而非 core。
+> **本文目的**：详述 `helix-driver-native` 如何用 tokio/tokio-tungstenite/reqwest 加共享 `helix-driver-host` **实现 core ports**，并说明多线程并发模型（WS runtime / shared blocking SQLite worker / effect worker 分片）如何驻扎在驱动层而非 core。
 
 ---
 
@@ -14,8 +15,8 @@
 │  helix-driver-native (本文档)                           │
 │    implements: Transport / Storage / Clock / EventSink  │
 │                HttpRequester / IdGen / Clock            │
-│    owns:       tokio runtime / sqlx pool / reqwest      │
-│                WS 重连状态机 / 单写者单例                │
+│    owns:       tokio runtime / reqwest / WS 状态机       │
+│    reuses:     helix-driver-host rusqlite Storage        │
 ├─────────────────────────────────────────────────────────┤
 │  helix-core  (port traits)                              │
 │  helix-im    (deterministic business module)            │
@@ -37,21 +38,16 @@ edition = "2021"
 
 [dependencies]
 helix-core = { path = "../helix-core" }
+helix-driver-host = { path = "../helix-driver-host" }
 bytes       = { workspace = true }
 thiserror   = { workspace = true }
 serde       = { workspace = true }
 serde_json  = "1"
 tracing     = { workspace = true }
 
-# ---- 仅 non-wasm target（驱动三件套）----
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = [
     "rt-multi-thread", "macros", "sync",
     "time", "net", "io-util"
-]}
-sqlx = { version = "0.8", default-features = false, features = [
-    "sqlite", "runtime-tokio",
-    "macros", "migrate"
 ]}
 tokio-tungstenite = { version = "0.23", features = ["native-tls"] }
 reqwest = { version = "0.12", default-features = false, features = [
@@ -62,7 +58,7 @@ rand     = "0.8"
 uuid     = { version = "1", features = ["v4"] }
 ```
 
-**为何全在 `cfg(not(wasm32))` 块**：驱动层 crate 允许被 workspace CI 用 native target 编译，但 Cargo 必须看不到 wasm-only crate（`wasm-bindgen` 等）和 native-only crate（`mio`/`tokio-net`）同时出现。`target.'cfg(...)'` 是 Cargo 唯一正确的隔离手段。
+`helix-driver-native` 是 PC/Tauri 壳，不进入 wasm/web 验收；wasm driver 已归档。SQLite 依赖由 `helix-driver-host` 承载，避免 native 与 Flutter FFI 各写一套 SQL。
 
 ---
 
@@ -223,13 +219,41 @@ impl WsRuntime {
 
 **关键设计决策**：
 
-- `tokio::spawn` 只在 `WsRuntime::start()` 里调用，不进 `helix-core`。wasm 下 `WsRuntime` 不存在，由 `helix-driver-wasm` 的 `spawn_local` 替代。
+- `tokio::spawn` 只在 `WsRuntime::start()` 里调用，不进 `helix-core`。wasm/web 当前已归档，不作为替代实现或验收目标。
 - `inbound_rx` 是 `futures_channel::mpsc::Receiver`（不是 `tokio::sync::mpsc`），保证如果 `Transport` trait 实现被挪到 core 边界测试也能编译。
 - hello 握手（`connectionId` 回注 header）：driver 收到 `type=hello` 帧 → 通过 core EventSink 吐 `DomainEvent::Connected { connection_id }` → helix-tauri 宿主监听并调用 `HeaderManager` 更新 `Arc<RwLock<HeaderMap>>`——这条链路完全在 core 之外。
 
 ---
 
 ## 3. Storage Port 实现：`NativeStorage`
+
+`NativeStorage` 现在是 `helix_driver_host::HostStorage` 的薄 wrapper：
+
+```rust
+#[derive(Clone)]
+pub struct NativeStorage {
+    inner: helix_driver_host::HostStorage,
+}
+```
+
+共享层负责：
+
+- `PRAGMA journal_mode=WAL` / `synchronous=NORMAL` / `busy_timeout=5000`
+- `_helix_monotonic(scope_key,value)` schema 与 open-time migration
+- `batch_upsert` / `batch_update` / `monotonic_upsert` / `get` / `scan`
+- `StorageOp -> PortOutcome` 兑现与 `rows_to_reply_bytes` / `rows_from_reply_bytes`
+
+Native 保留的职责：
+
+- PC/Tauri 路径管理、多租户 DB 定位、灰度开关
+- tokio engine loop 的 worker/backpressure/timer/event sink
+- Tauri `app.emit` 接缝和 host command 接缝
+
+这一改动选择 PC 与 Flutter 都走 rusqlite + blocking worker/shared queue，优先维护性：messages SQL、schema/migration、monotonic 表和 StorageOp 语义只维护一份。
+
+### 3.1 旧 sqlx 设计（已替换）
+
+以下 sqlx 三池设计是历史方案，不再作为当前代码真源；保留用于解释 E1/E2/E10 背景。
 
 ### 3.1 读写分离架构（单写者防 SQLITE_BUSY）
 
@@ -580,7 +604,7 @@ impl HttpRequester for NativeHttpRequester {
                                                               ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ EffectExecutor（tokio spawn 的 driver 私有任务）                             │
-│  Persist → sqlx write_pool（单写者）                                        │
+│  Persist → helix-driver-host rusqlite blocking worker（shared queue）        │
 │  Send    → WsRuntime tx                                                     │
 │  Http    → NativeHttpRequester                                              │
 │  Timer   → TimerRegistry + tokio::time::sleep                              │
@@ -649,7 +673,7 @@ async fn effect_executor_loop(
 | core Port | Native 实现类型 | 核心依赖 | 并发角色 |
 |---|---|---|---|
 | `Transport` | `NativeTransport` | `tokio-tungstenite` | 读：WsRuntime spawn；写：driver 调 |
-| `Storage` | `NativeStorage` | `sqlx` | 写：单写池(1 conn)；读：多读池(4 conn) |
+| `Storage` | `NativeStorage` → `HostStorage` | `helix-driver-host` / `rusqlite` | shared blocking SQLite worker |
 | `Clock` | `NativeClock` | `std::time::SystemTime` | 无状态 Clone |
 | `EventSink` | `NativeEventSink` | `tokio::sync::broadcast` | fan-out 多消费者 |
 | `HttpRequester` | `NativeHttpRequester` | `reqwest` | 连接池 + Arc 共享 |

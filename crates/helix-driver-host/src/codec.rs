@@ -19,6 +19,8 @@ pub fn rows_to_reply_bytes(rows: &[Row]) -> Bytes {
                         SqlValue::Text(s) => JsonValue::String(s.clone()),
                         SqlValue::Integer(i) => json!(i),
                         SqlValue::Real(f) => json!(f),
+                        // M2：Blob 编为 JSON 字节数组（与 Text/Number/Null 不歧义）
+                        SqlValue::Blob(b) => json!(b),
                         SqlValue::Null => JsonValue::Null,
                     };
                     (k.clone(), jv)
@@ -53,6 +55,12 @@ pub fn rows_from_reply_bytes(bytes: &Bytes) -> Result<Vec<Row>, String> {
                             }
                         }
                         JsonValue::Null => SqlValue::Null,
+                        // M2：JSON 数组 = Blob 字节序列（rows_to_reply_bytes 的逆）
+                        JsonValue::Array(a) => SqlValue::Blob(
+                            a.iter()
+                                .filter_map(|x| x.as_u64().map(|n| n as u8))
+                                .collect(),
+                        ),
                         other => SqlValue::Text(other.to_string()),
                     };
                     (k, sv)

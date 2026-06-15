@@ -21,7 +21,7 @@
 // 回归锚: E2（batch_upsert 写放大 9x→1x）—— 见 docs/过会方案/helix-架构评审-待办清单.md
 use std::time::Instant;
 
-use helix_core::effect::{MonotonicUpsertSpec, SqlValue, UpsertSpec};
+use helix_core::effect::{MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec};
 use helix_core::ports::Storage;
 use helix_driver_native::NativeStorage;
 
@@ -136,6 +136,100 @@ async fn stress_batch_upsert_5000_single_batch() {
         elapsed.as_secs_f64() * 1e3,
         N as f64 / elapsed.as_secs_f64()
     );
+
+    // 回归断言（E2 写放大 1x 基线，被 a0595607 删掉的吞吐基线恢复）：
+    // 5000 行单事务应在 ~100ms 量级内完成。放宽到 1s 作 CI 上限（慢盘/竞争容差），
+    // 真正能抓住的是「写放大回退到 9x / 退化成逐行独立事务」会让墙钟跳到数秒级。
+    assert!(
+        elapsed.as_millis() < 1_000,
+        "batch_upsert 5000 rows took {elapsed:?} (>1s) — write amplification regression \
+         (expected single-transaction ~100ms order)"
+    );
+
+    // 全部落盘（单事务原子提交）。
+    let rows = storage
+        .scan(ScanSpec {
+            table: "messages",
+            limit: Some(10_000),
+        })
+        .await
+        .expect("scan after 5000 batch");
+    assert_eq!(rows.len(), N as usize, "all 5000 rows must land");
+}
+
+// ─── 测试 4：10k 裸灌 + graceful drain 全落盘 ─────────────────────────────────
+//
+// 恢复被 a0595607 删掉的「10k 裸灌不死锁 + drain 后全落盘」基线。
+// 这里直接经 Storage::batch_upsert 灌（每批 100 行 × 100 批 = 10k），并发交错读，
+// 断言 ① 不死锁（有界墙钟内完成）② 全部 10k 行落盘。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stress_10k_flood_no_deadlock_all_landed() {
+    use std::time::Duration;
+
+    const BATCHES: i64 = 100;
+    const PER_BATCH: i64 = 100;
+    const TOTAL: i64 = BATCHES * PER_BATCH;
+    let path = "/tmp/helix_stress_10k_flood.db";
+    let storage = make_temp_storage(path).await;
+    create_messages_table(&storage).await;
+
+    let start = Instant::now();
+
+    // 并发灌 100 批，每批 100 行（不同 seq 段，互不冲突）。
+    let mut handles = Vec::new();
+    for b in 0..BATCHES {
+        let s = storage.clone();
+        handles.push(tokio::spawn(async move {
+            let rows: Vec<_> = (0..PER_BATCH)
+                .map(|i| make_row(b * PER_BATCH + i + 1))
+                .collect();
+            s.batch_upsert(UpsertSpec {
+                table: "messages",
+                rows,
+                conflict_key: Some("seq"),
+            })
+            .await
+            .expect("flood batch_upsert");
+        }));
+    }
+    // 交错并发读，验证读不阻死写（读写分离）。
+    for _ in 0..32 {
+        let s = storage.clone();
+        handles.push(tokio::spawn(async move {
+            let _ = s
+                .scan(ScanSpec {
+                    table: "messages",
+                    limit: Some(10_000),
+                })
+                .await
+                .expect("flood scan");
+        }));
+    }
+
+    for h in handles {
+        h.await.expect("flood task join");
+    }
+    let elapsed = start.elapsed();
+
+    eprintln!("\n[stress_10k_flood_no_deadlock_all_landed]");
+    eprintln!("  total rows       : {TOTAL}");
+    eprintln!("  total time       : {:.3} ms", elapsed.as_secs_f64() * 1e3);
+
+    // 不死锁：有界墙钟。
+    assert!(
+        elapsed < Duration::from_secs(30),
+        "10k flood took {elapsed:?} (>30s) — possible deadlock/serialization regression"
+    );
+
+    // graceful drain 后全落盘：所有 10k 行可读回。
+    let rows = storage
+        .scan(ScanSpec {
+            table: "messages",
+            limit: Some(20_000),
+        })
+        .await
+        .expect("final scan after flood");
+    assert_eq!(rows.len(), TOTAL as usize, "all 10k flooded rows must land");
 }
 
 // ─── 测试 3：monotonic_upsert（cursor 热路径）× 1000 ─────────────────────────

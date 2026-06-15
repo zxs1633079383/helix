@@ -163,6 +163,8 @@ pub enum SqlValue {
     Text(String),
     Integer(i64),
     Real(f64),
+    /// 二进制大对象（M2：无损携带，禁 BLOB→lossy text 静默损坏）
+    Blob(Vec<u8>),
     Null,
 }
 

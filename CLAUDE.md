@@ -11,6 +11,8 @@
 > 📋 **架构评审待办（实现阶段提醒）→ [`docs/过会方案/helix-架构评审-待办清单.md`](docs/过会方案/helix-架构评审-待办清单.md)**
 > 过会评审揪出的必办项：B 正确性遗漏（gate_inflight / event_seq 三级 fallback / type=6 readBits / phantom）· C 约束澄清（Storage scan / Module 同步约束）· D roadmap 调整（MVP1 加 IndexedDB 兜底 / MVP2 拆 2a-2b / +3 周）。**进实现阶段前先扫一眼，防遗忘。**
 
+> 🔁 **指令文件同步铁律**：本仓所有同目录的 `CLAUDE.md` 与 `AGENTS.md` 是镜像文件；任何修改必须同时落到两者，内容保持完全同步。新增 / 删除某一级指令文件也必须成对处理。
+
 ---
 
 ## 0. 三层架构（铁律，不可变）

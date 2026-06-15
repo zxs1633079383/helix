@@ -1,8 +1,13 @@
 # Helix Core Layer — 完整契约设计
 
+> 🗂️ **状态：2026-06-08 baseline 契约设计稿。** 当 trait 签名 / effect 模型与本文冲突时，
+> **以实际代码 `crates/helix-core` + [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md)（机制权威源）为准**。
+> ✅ 命名已对齐代码：原 `cursor_upsert`/`CursorUpsertSpec` 已于 2026-06-14 全量替换为 `monotonic_upsert`/`MonotonicUpsertSpec`（见 [decisions.md ADR-004](./harness/decisions.md#adr-004)）。
+> 全文档地图见 [`docs/README.md`](./README.md)。
+
 > 版本 2026-06-08  
 > 事实来源：`01-im-as-core-contract-demands.md`（IM 第一性需求）+ 三栖约束底座 + FRESH_IM_SOURCE 源码实测  
-> 本文是 `helix-core` crate 的权威设计文档。所有 trait 签名草案、模块契约、effect 模型在此定稿。
+> 本文是 `helix-core` crate 的 baseline 契约设计稿（trait 签名草案、模块契约、effect 模型）。
 
 ---
 
@@ -163,11 +168,11 @@ pub struct UpdateSpec {
     pub patch: Row,  // 要修改的列，其余不动
 }
 
-/// 单调 cursor upsert：cursor_upsert(scope_key, value)
+/// 单调 cursor upsert：monotonic_upsert(scope_key, value)
 /// MAX guard 语义：只有 value > 当前值才写入（O(1) upsert）
 /// scope_key 由调用方传（IM 传 channel_id 字符串，core 不知道这是 channel）
 #[derive(Clone, Debug)]
-pub struct CursorUpsertSpec {
+pub struct MonotonicUpsertSpec {
     pub scope_key: String,
     pub value: i64,
 }
@@ -204,7 +209,7 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     ) -> Result<(), Self::Error>;
 
     /// 单调 cursor upsert（MAX guard，O(1)，scope_key 由调用方指定）
-    async fn cursor_upsert(&self, spec: CursorUpsertSpec) -> Result<(), Self::Error>;
+    async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), Self::Error>;
 
     /// KV get（表名 + 键 → 值行，Optional）
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, Self::Error>;
@@ -641,7 +646,7 @@ pub enum ImDomainEvent {
 
 use bytes::Bytes;
 use crate::event::DomainEvent;
-use crate::storage::{UpsertSpec, UpdateSpec, CursorUpsertSpec, GetSpec, CorrelationId, Row, SqlValue};
+use crate::storage::{UpsertSpec, UpdateSpec, MonotonicUpsertSpec, GetSpec, CorrelationId, Row, SqlValue};
 use crate::ports::http_requester::HttpRequest;
 
 /// 所有 effect variant 的通用 correlation id wrapper
@@ -664,7 +669,7 @@ pub enum PersistOp {
         key_vals: Vec<SqlValue>,
         patch: Row,
     },
-    CursorUpsert(CursorUpsertSpec),
+    MonotonicUpsert(MonotonicUpsertSpec),
     Set { table: String, key: String, value: Row },
 }
 
@@ -723,13 +728,13 @@ Step N 收到 sync Events 入站：
   模块内核 peek_up_to（纯逻辑，算出该写哪些 + target_seq）
   → 吐出：
       Persist { corr=X, BatchUpsert(events分桶) }   ← 先写数据
-      // 注意：此时不吐 CursorUpsert
+      // 注意：此时不吐 MonotonicUpsert
   → 模块内部状态保存 pending_commit[X] = target_seq
 
 Step N+1 收到 PersistResult { corr=X, ok=true } 入站：
   模块内核 commit_up_to（纯逻辑）
   → 吐出：
-      PersistFire { CursorUpsert { scope_key=channel_id, value=target_seq } }
+      PersistFire { MonotonicUpsert { scope_key=channel_id, value=target_seq } }
       // MAX guard 由 Storage 通用原语保证单调性
   → 内存 cursor 推进
 
@@ -903,8 +908,8 @@ fn test_send_echo_roundtrip_converges() {
         &StepContext { now_ms: clock.now_ms() },
     ).unwrap();
 
-    // 断言：cursor 推进（CursorUpsert effect）
-    assert!(effects3.iter().any(|e| matches!(e, Effect::PersistFire(PersistOp::CursorUpsert(_)))));
+    // 断言：cursor 推进（MonotonicUpsert effect）
+    assert!(effects3.iter().any(|e| matches!(e, Effect::PersistFire(PersistOp::MonotonicUpsert(_)))));
 
     // EventSink 应已收到 PostReceived 事件
     let emitted = event_sink.drain();

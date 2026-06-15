@@ -1,6 +1,13 @@
 # Helix — 运行时无关确定性核心层 完整架构设计文档
 
-> **版本** 2026-06-08（终稿草稿）  
+> 🗂️ **状态：2026-06-08 baseline 设计稿（已被取代，留作溯源）。** 本文是
+> [`过会方案/helix-two-layer-architecture.md`](./过会方案/helix-two-layer-architecture.md) 的**前稿**；
+> 当前**机制事实权威源** = [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md)，
+> **决策权威源** = [`过会方案/helix-技术评审纪要.md`](./过会方案/helix-技术评审纪要.md)。
+> ✅ 命名已对齐代码：原 `cursor_upsert`/`CursorUpsert` 已于 2026-06-14 全量替换为 `monotonic_upsert`/`MonotonicUpsert`（见 [decisions.md ADR-004](./harness/decisions.md#adr-004)）。
+> 全文档地图见 [`docs/README.md`](./README.md)。
+
+> **版本** 2026-06-08（baseline 设计稿，已被取代）  
 > **事实来源**：FRESH_IM_SOURCE（2026-06-08 IM 源码实测）+ 三栖约束底座 + 各设计文档对抗综合  
 > **命名约定**：`helix-core`（核心层）/ `helix-im`（IM 模块）/ `helix-driver-native|wasm|ffi`（平台驱动）  
 > **工作目录**：`/workspace/rustWorkspace/helix/`
@@ -87,7 +94,7 @@ engine.step(Tick)  ← 严格同步，零 await，零 I/O，零 spawn
 
 | 轴 | 内容 | 本文落实位置 |
 |---|---|---|
-| ① 性能最优 | 热路径 O(1)、零拷贝、最少分配、无多余 await 往返 | §4.2 batch_upsert / cursor_upsert MAX guard / EffectBuffer 复用 |
+| ① 性能最优 | 热路径 O(1)、零拷贝、最少分配、无多余 await 往返 | §4.2 batch_upsert / monotonic_upsert MAX guard / EffectBuffer 复用 |
 | ② 复杂度最低 | 最简够用；通用性靠≥1 真实模块跑通+第二用例插得进挣，不预建框架 | §4.1 ModuleHost 只有 register/dispatch；§6 presence 第二模块证明 |
 | ③ 兼容性最高 | 三栖 native/ffi/wasm 全绿；executor-agnostic；tri-target crate 选型 | §三、§四.1、§五.8 三栖编译图 |
 | ④ 可扩展性强 | 加新业务模块=实现 Module+register，不改 core；加新平台=实现 ports，不改 core/模块 | §4.3 Module trait 开闭原则 |
@@ -211,7 +218,7 @@ impl ModuleHost {
 |---|---|---|
 | **Channel** | 一个频道的消息集合 + 单调 event cursor。聚合根。 | core 看不到 Channel |
 | **Message** | PK 语义特殊：`temporaryId`（UI 注入）→ server `id` 值级覆盖（ON CONFLICT id=excluded.id） | core 看到 `Persist{conflict_key}` 的一行 |
-| **Cursor** | per-channel `last_event_seq`，单调推进（MAX guard），**写成功才推** | core 的 `cursor_upsert(scope_key,value)` 单调原语 |
+| **Cursor** | per-channel `last_event_seq`，单调推进（MAX guard），**写成功才推** | core 的 `monotonic_upsert(scope_key,value)` 单调原语 |
 | **PendingSend** | 已乐观落库、等 echo/sync 对账的发送；15s 超时 → unSend（无自动补发） | core 的 ScheduleTimer/CancelTimer + Correlation |
 | **Reconciliation** | echo 与 sync **同一对账点**：按 temporaryId 值级覆盖回 sent + 撤超时 | core 看到 Persist + CancelTimer + Emit |
 | **Gate** | seq>cursor+1 时 buffer + 1s timer，补齐则 cancel | core 的 ScheduleTimer/CancelTimer |
@@ -327,7 +334,7 @@ pub enum ImDomainEvent {
 | IM 域概念 | ACL 翻译 | core 域概念 |
 |---|---|---|
 | `DomainEvent::PostReceived` | 序列化 JSON + Bytes 包装 | `Effect::Emit(DomainEventBytes)` |
-| `Channel.cursor.try_advance(seq)` | `scope_key = channel_id.to_string()` | `Effect::Persist{ cursor_upsert(scope_key, value), corr }` |
+| `Channel.cursor.try_advance(seq)` | `scope_key = channel_id.to_string()` | `Effect::Persist{ monotonic_upsert(scope_key, value), corr }` |
 | `Message{temporary_id, 23字段}` | `conflict_key = "temporary_id"` + row 列表 | `Effect::Persist{ batch_upsert(table, rows, conflict_key), corr }` |
 | `/posts/create` 直发 / `/sync/notify?from_seq=` | 拼 URL + body | `Effect::Http{ req, corr }` |
 | WS 出站 `im_send_message(action,data,seq)` | 序列化帧 | `Effect::Send(OutboundFrame)` |
@@ -472,7 +479,7 @@ pub enum ImDomainEvent {
 │   │       ├── tick.rs             # Tick enum / InboundFrame
 │   │       ├── ports/
 │   │       │   ├── transport.rs    # trait Transport
-│   │       │   ├── storage.rs      # trait Storage + SqlValue + UpsertSpec + CursorUpsertSpec
+│   │       │   ├── storage.rs      # trait Storage + SqlValue + UpsertSpec + MonotonicUpsertSpec
 │   │       │   ├── clock.rs        # trait Clock + MockClock
 │   │       │   ├── event_sink.rs   # trait EventSink
 │   │       │   ├── http.rs         # trait HttpRequester
@@ -591,7 +598,7 @@ pub struct UpsertSpec {
 }
 
 #[derive(Clone, Debug)]
-pub struct CursorUpsertSpec {
+pub struct MonotonicUpsertSpec {
     pub scope_key: String,  // IM 传 channel_id，core 不知道这是 channel
     pub value: i64,         // MAX guard：只有 value > 当前值才写入
 }
@@ -604,7 +611,7 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     async fn update(&self, spec: UpdateSpec) -> Result<(), Self::Error>;
     async fn batch_update(&self, table: &str, key_col: &str, key_vals: &[SqlValue], patch: Row)
         -> Result<(), Self::Error>;
-    async fn cursor_upsert(&self, spec: CursorUpsertSpec) -> Result<(), Self::Error>;
+    async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), Self::Error>;
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, Self::Error>;
     async fn set(&self, table: &str, key: &str, value: Row) -> Result<(), Self::Error>;
 }
@@ -649,7 +656,7 @@ pub struct Correlation(u64);
 pub enum Effect {
     Send      { transport: TransportId, frame: bytes::Bytes },
     Persist   { corr: Correlation, ops: Vec<StorageOp> },    // 带 corr = 需成功回报
-    PersistFire { ops: Vec<StorageOp> },                     // fire-and-forget（cursor_upsert 在 commit 后）
+    PersistFire { ops: Vec<StorageOp> },                     // fire-and-forget（monotonic_upsert 在 commit 后）
     Http      { corr: Correlation, req: HttpRequest },
     Emit      { event: DomainEventBytes },
     ScheduleTimer { id: TimerId, after_ms: u64 },
@@ -667,7 +674,7 @@ Step N：收到 sync Events
 
 Step N+1：收到 Tick::PortReply { corr=X, outcome=Ok }
   IM 纯逻辑 commit_up_to
-  → 吐 Effect::PersistFire { cursor_upsert { scope_key, value=target_seq } }  // 才推 cursor
+  → 吐 Effect::PersistFire { monotonic_upsert { scope_key, value=target_seq } }  // 才推 cursor
   → 内存 cursor 推进
 
 若 outcome=Err：
@@ -988,7 +995,7 @@ flowchart TD
     F --> G["peek_up_to:\n保存 pending_commits[X]=target_seq"]
     G --> H["等待 PortReply{corr=X}"]
 
-    H -->|"outcome=Ok"| I["commit_up_to\n吐 PersistFire{cursor_upsert target_seq}\n内存 cursor 推进\n触发 flush_contiguous"]
+    H -->|"outcome=Ok"| I["commit_up_to\n吐 PersistFire{monotonic_upsert target_seq}\n内存 cursor 推进\n触发 flush_contiguous"]
     H -->|"outcome=Err"| J["丢弃 pending_commits[X]\ncursor 不动，下次 sync 重拉"]
 
     E --> K{"1s gate timer 触发?"}
@@ -1229,12 +1236,12 @@ graph LR
 3. hello 响应 → 检查各 channel cursor
 4. 发现 seq gap（`buffer_and_arm_gate`）→ 吐 `ScheduleTimer{1s}`
 5. 1s TimerFired → 吐 `Http{/sync/notify?from_seq=cursor}`
-6. 响应 Events → 分桶 `Persist{corr}` → `PortReply Ok` → `cursor_upsert` → `flush_contiguous`
+6. 响应 Events → 分桶 `Persist{corr}` → `PortReply Ok` → `monotonic_upsert` → `flush_contiguous`
 
 #### UC5：too_long 清表重拉
 
 1. sync 响应 `TooLong { reset_to }` → IM handle
-2. 吐 `PersistFire{cursor_upsert(channel_id, reset_to - 1)}`（内存 cursor 重置）
+2. 吐 `PersistFire{monotonic_upsert(channel_id, reset_to - 1)}`（内存 cursor 重置）
 3. 吐 `Emit{SyncTooLong}`
 4. driver → EventSink → Tauri `im:sync:too_long` → 前端清本地消息表 + 重拉首屏
 
@@ -1287,7 +1294,7 @@ sequenceDiagram
     DB-->>Driver: Ok
     Driver->>Engine: Tick::PortReply{corr=X, Ok}
     Engine->>IM: handle(PortReply{corr=X, Ok})
-    IM-->>Engine: Effect::PersistFire{cursor_upsert(channel_id, target_seq)}
+    IM-->>Engine: Effect::PersistFire{monotonic_upsert(channel_id, target_seq)}
     Note over IM: cursor 在写成功确认后才推进
 ```
 
@@ -1312,7 +1319,7 @@ flowchart LR
 
 | 轴 | 声明 | 具体证据 |
 |---|---|---|
-| **① 性能最优** | 热路径 O(1)、零拷贝、最少分配、无多余 await 往返 | `batch_upsert` ON CONFLICT 单条 O(log N)≈O(1)；`cursor_upsert` MAX guard O(1)；`EffectBuffer` 跨 step 复用（clear 不重建）；`DomainEventBytes = bytes::Bytes` 零拷贝；`engine.step()` 严格同步，不加任何 await 往返 |
+| **① 性能最优** | 热路径 O(1)、零拷贝、最少分配、无多余 await 往返 | `batch_upsert` ON CONFLICT 单条 O(log N)≈O(1)；`monotonic_upsert` MAX guard O(1)；`EffectBuffer` 跨 step 复用（clear 不重建）；`DomainEventBytes = bytes::Bytes` 零拷贝；`engine.step()` 严格同步，不加任何 await 往返 |
 | **② 复杂度最低** | 最简够用；通用性靠真实模块跑通挣，不预建框架 | ModuleHost 只有 `register` + `dispatch`（约 20行）；6 个 port trait 签名由 IM 第一性需求推导，无预测性扩展；presence 第二模块能直接 `register` 不改 core 任何代码（UC7 验证）；§四.3 两段式 step 是通用 Correlation 契约，IM 用到，presence 可不用 |
 | **③ 兼容性最高** | 三栖全绿；executor-agnostic；tri-target crate | helix-core 无 tokio/sqlx/reqwest/web-sys（`Cargo.toml` 验证）；`MaybeSend/MaybeSync` 30行 cfg bridge；`platform::spawn` cfg-gate；wasm 用 `async_trait(?Send)`；getrandom workspace 级 `features=["js"]`；三栖编译图 §5.8；sqlx 禁入 wasm 是永久限制，Storage port 就是解法 |
 | **④ 可扩展性强** | 加模块不改 core；加平台不改 core/模块 | 开闭原则体现在 ModuleHost.register（不改 dispatch 逻辑）；新 driver = 实现 6 个 port trait（不改 helix-core / helix-im）；presence 第二模块 UC7；`#[cfg(feature)]` 门控能力（可单独关闭 IM 只用 presence） |

@@ -17,11 +17,12 @@
 - **理由**：cfg 分支只在对应 target type-check（MAJ-2）；防 wasm 符号误链 native。
 - **状态**：已定。配套 HX-C003。注意：`cargo check --workspace` 触发 compile_error 是预期行为。
 
-## ADR-004 — CursorUpsert 是否算 core 通用原语（待老大/Spec 拍板）
+## ADR-004 — CursorUpsert 是否算 core 通用原语（已闭环）
 - **背景**：review 后实测 `grep channel/message/temporary crates/helix-core` = 0（纯 IM 概念隔离干净），但 `cursor`（`CursorUpsert` effect）进了 core（5 处）。
 - **选项**：A) 保留为 core 通用「增量同步基建原语」（多数 sync 类业务都需要，可辩护）；B) 折进通用 `Upsert`，core 彻底不含 cursor 语义（纯粹派）。
-- **当前**：暂定 A（保留），但**演示给老大时话术只说"channel/message/temporaryId 三个纯 IM 概念 = 0"，不说"所有 IM 概念 = 0"**，避免现场被 grep 打脸。最终 A/B 待拍板。
-- **状态**：待决。
+- **拍板（纪要拍板 #1）**：取 **A 的精神 + 改名落地**——cursor 是 IM 概念归 `helix-im`，**不进 core**；core 只保留与业务无关的通用单调写原语，并把 `CursorUpsert`/`cursor_upsert` **更名为 `MonotonicUpsert`/`monotonic_upsert`**（MAX guard，类比 CAS），使 core 公开面不出现 "cursor" 一词。
+- **代码事实（2026-06-10 起核实）**：`crates/helix-core` 内零处 `cursor_upsert`/`CursorUpsert`；`grep -i cursor crates/helix-core/src` 仅命中注释举例（非 API 名）。口径护栏：grep「零业务概念」的承诺对象只含 channel/message/temporaryId 三词，**不含 cursor**（不要声称 `grep cursor = 0`）。
+- **状态**：已定。配套 [架构设计 §3.2/§4.9](../过会方案/helix-core-im-架构设计.md) + 纪要拍板 #1。GOAL §3 同步。
 
 ## ADR-005 — FFI 同步调用必须 spawn_blocking（实现待补）
 - **决策**：FFI driver 的同步 SQLite C 调用包 `spawn_blocking`；不许阻塞 tokio worker。

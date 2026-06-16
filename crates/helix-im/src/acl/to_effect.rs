@@ -39,12 +39,16 @@ pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
     }
 }
 
-/// 触发 /sync/notify HTTP 请求
+/// 触发 /sync/notify HTTP 请求。
+///
+/// A3b：`connection_id`（hello 回注，§A4）若 Some 则盖章进 headers——现网 IM HTTP
+/// 身份头（`connectionId`）。core 不认识它，只透传字符串。
 pub fn sync_notify(
     base_url: &str,
     channel_id: ChannelId,
     from_seq: Seq,
     corr: Correlation,
+    connection_id: Option<&str>,
 ) -> Effect {
     Effect::Http {
         corr,
@@ -54,9 +58,20 @@ pub fn sync_notify(
                 "{}/sync/notify?channel_id={}&from_seq={}",
                 base_url, channel_id.0, from_seq.0
             ),
-            headers: vec![],
+            headers: connection_id_headers(connection_id),
             body: None,
         },
+    }
+}
+
+/// A3b：把 connectionId（若 Some）组装成 IM HTTP 身份头列表。
+///
+/// 单点收口——sync/notify、posts/create 共用，避免散落漏盖。
+/// cookieId(=userId) 是 **driver 全局头**（host 注入），不在此（core 不认识 userId）。
+pub fn connection_id_headers(connection_id: Option<&str>) -> Vec<(String, String)> {
+    match connection_id {
+        Some(id) => vec![("connectionId".to_string(), id.to_string())],
+        None => vec![],
     }
 }
 
@@ -113,6 +128,27 @@ pub fn emit_sync_too_long(channel_id: ChannelId) -> Effect {
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
             .expect("emit_sync_too_long: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// A4：发送 im:connection:established 事件（hello 握手完成信号）。
+///
+/// 现网：前端收到此事件 + connectionId 才放行 pendingSends（businessReady gate）。
+/// 是 sync-v2「业务模块启动」类的首个事件，UC-1 验收依赖它可见。
+pub fn emit_connection_established(connection_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:connection:established",
+        "data": {
+            "connectionId": connection_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_connection_established: static JSON shape must not fail to serialize"),
     );
     Effect::Emit {
         event: DomainEventBytes(bytes),

@@ -30,7 +30,8 @@ pub struct Harness {
 pub enum EffectKind {
     Persist(u64), // corr.raw()
     PersistFire,
-    Http(u64), // corr.raw()
+    Http(u64),    // corr.raw()
+    Request(u64), // corr.raw()（REP 方向① 发起端）
     Emit,
     ScheduleTimer(u64), // timer_id.raw()
     CancelTimer(u64),   // timer_id.raw()
@@ -43,6 +44,7 @@ impl EffectKind {
             Effect::Persist { corr, .. } => EffectKind::Persist(corr.raw()),
             Effect::PersistFire { .. } => EffectKind::PersistFire,
             Effect::Http { corr, .. } => EffectKind::Http(corr.raw()),
+            Effect::Request { corr, .. } => EffectKind::Request(corr.raw()),
             Effect::Emit { .. } => EffectKind::Emit,
             Effect::ScheduleTimer { id, .. } => EffectKind::ScheduleTimer(id.raw()),
             Effect::CancelTimer { id } => EffectKind::CancelTimer(id.raw()),
@@ -134,6 +136,18 @@ pub fn inbound_event(channel_id: u64, seq: u64, event_type: u8) -> Tick {
             "created_at": 1000000_u64,
             "payload": null
         }
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    Tick::Inbound(InboundBytes(bytes.into()))
+}
+
+/// 构造 hello 握手帧 Inbound（A4：现网 Go 连上后单向下发；触发 connection:established + resync）
+#[allow(dead_code)]
+pub fn hello_inbound(connection_id: &str) -> Tick {
+    use serde_json::json;
+    let payload = json!({
+        "action": "hello",
+        "data": { "connectionId": connection_id }
     });
     let bytes = serde_json::to_vec(&payload).unwrap();
     Tick::Inbound(InboundBytes(bytes.into()))

@@ -55,6 +55,22 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     ))
 }
 
+/// A4：识别 hello 握手帧——顶层 `action=="hello"` 时返回 `data.connectionId`，否则 None。
+///
+/// 现网 Go 服务端连上后**单向下发** `{"action":"hello","data":{"connectionId",...}}`，
+/// 客户端收到即握手完成（无需回 ack）。非 hello 帧返回 None（调用方继续走事件解析路径）。
+/// 边界输入零信任（HX-C005）：JSON 非法 / 缺字段一律 None，绝不 panic / unwrap。
+pub fn parse_hello(bytes: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if v.get("action").and_then(|a| a.as_str()) != Some("hello") {
+        return None;
+    }
+    v.get("data")
+        .and_then(|d| d.get("connectionId"))
+        .and_then(|c| c.as_str())
+        .map(str::to_string)
+}
+
 /// 解析 sync/notify HTTP 响应为 SyncResponse。
 ///
 /// 4 种形态之一：

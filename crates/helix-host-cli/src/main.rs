@@ -71,6 +71,16 @@ async fn main() {
             return;
         }
     };
+    // A3a：cookieId(=userId) 注入为 driver 全局 HTTP 身份头（现网 sync-v2 鉴权）。
+    // 身份头由 host 注入，core/im 不认识 userId（connectionId 才由 im 盖章，见 A3b）。
+    if !cookie_id.is_empty() {
+        match http.set_global_header("cookieId", &cookie_id).await {
+            Ok(()) => tracing::info!("已注入 cookieId 全局头（=userId）"),
+            Err(e) => {
+                tracing::warn!(error = %e, "注入 cookieId 全局头失败（继续，HTTP 将无身份头）")
+            }
+        }
+    }
     let (event_sink, mut event_rx) = NativeEventSink::new();
 
     // ── shell + IM 模块 ─────────────────────────────────────

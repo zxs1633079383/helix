@@ -53,16 +53,28 @@ fn scan_reply_registers_channels_and_syncs_on_connected() {
         scan_effects
     );
 
-    // 验证 cursor 已加载：Connected 后发出 3 个 Http
+    // A4：Connected 只置 Connecting，不立即 resync（握手前 resync 会被 Go 401）
     let connected_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 200);
-    let http_count = connected_effects
+    assert_eq!(
+        connected_effects
+            .iter()
+            .filter(|e| matches!(e, EffectKind::Http(_)))
+            .count(),
+        0,
+        "A4: Connected 不再立即 resync（等 hello），got: {:?}",
+        connected_effects
+    );
+
+    // A4：收到 hello → 握手完成 → 对 3 个已加载 channel 发 sync Http
+    let hello_effects = h.step(hello_inbound("CONN_1"), 300);
+    let http_count = hello_effects
         .iter()
         .filter(|e| matches!(e, EffectKind::Http(_)))
         .count();
     assert_eq!(
         http_count, 3,
-        "after scan+Connected with 3 channels, should emit 3 Http sync, got: {:?}",
-        connected_effects
+        "hello 握手后应对 3 个已加载 channel resync, got: {:?}",
+        hello_effects
     );
 }
 
@@ -81,18 +93,19 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         })
         .expect("on_start should emit Persist(Scan)");
 
-    // 先 Connected（此时 channels 为空，无 Http）
-    let connected_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 100);
+    // A4：先 Connected（→Connecting）再 hello（→Connected 握手完成）；此时 channels 空，无 Http
+    h.step(Tick::Connected(TransportId::from_raw(0)), 100);
+    let hello_effects = h.step(hello_inbound("CONN_1"), 150);
     assert_eq!(
-        connected_effects
+        hello_effects
             .iter()
             .filter(|e| matches!(e, EffectKind::Http(_)))
             .count(),
         0,
-        "Connected with no channels yet should emit 0 Http"
+        "握手完成但 channels 为空，应 0 Http"
     );
 
-    // 然后 scan 回报（已 Connected）→ 应立即发 3 个 Http
+    // 然后 scan 回报（已握手完成/Connected）→ 应立即发 3 个 Http
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
     let scan_port_reply = port_reply_with_body(scan_persist_corr, scan_body);
     let reply_effects = h.step(scan_port_reply, 200);

@@ -103,6 +103,11 @@ pub struct ImState {
     /// WS 连接状态机
     pub conn: ConnState,
 
+    /// 服务端 hello 帧回注的 connectionId（A4 握手完成后存入）。
+    /// A3b：作 IM HTTP 身份头（`connectionId`）盖章进 sync/notify、posts/create。
+    /// None = 尚未握手；现网前端凭 im:connection:established + 此值放行 pendingSends。
+    pub connection_id: Option<String>,
+
     /// per-channel 聚合（消息 + 游标 + gate）
     pub channels: HashMap<ChannelId, Channel>,
 
@@ -143,6 +148,7 @@ impl ImState {
     pub fn new() -> Self {
         Self {
             conn: ConnState::Disconnected,
+            connection_id: None,
             channels: HashMap::new(),
             pending_sends: HashMap::new(),
             corr_to_channel: HashMap::new(),

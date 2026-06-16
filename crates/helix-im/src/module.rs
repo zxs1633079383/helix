@@ -287,8 +287,25 @@ impl ImModule {
         Ok(())
     }
 
-    /// 向所有已知 channel 发 proactive sync Http（复用逻辑，Connected 和 scan_reply 共用）
+    /// A4：处理 hello 握手帧——存 connectionId + 置 Connected + emit 信号 + resync。
+    ///
+    /// 现网时序：transport Connected（→ Connecting）→ 服务端单向下发 hello（此处）
+    /// → 握手完成可用。connectionId 存入 state，A3b 盖章进后续 IM HTTP 身份头。
+    /// resync 推迟到此刻（cursor 已由 on_start 的 Scan 载入），不在 Connected 时发。
+    fn handle_hello(&mut self, connection_id: String, out: &mut EffectSink) {
+        self.state.conn = ConnState::Connected;
+        self.state.connection_id = Some(connection_id.clone());
+        out.push(crate::acl::to_effect::emit_connection_established(
+            &connection_id,
+        ));
+        self.emit_proactive_resync(out);
+        tracing::info!("helix-im: hello handshake complete, connection established");
+    }
+
+    /// 向所有已知 channel 发 proactive sync Http（复用逻辑，hello 握手和 scan_reply 共用）
     fn emit_proactive_resync(&mut self, out: &mut EffectSink) {
+        // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
+        let conn_id = self.state.connection_id.clone();
         let channel_cursors: Vec<(ChannelId, Seq)> = self
             .state
             .channels
@@ -315,6 +332,7 @@ impl ImModule {
                 channel_id,
                 from_seq,
                 sync_corr,
+                conn_id.as_deref(),
             ));
         }
     }
@@ -327,6 +345,8 @@ impl ImModule {
     ///    这保证每次续拉都在推进位置；若 cursor 未前进，说明所有事件均是幂等 dup → 停止
     /// 2. B1 gate_inflight 守卫：同 channel 同时只允许一个在途 sync
     fn maybe_continue_sync(&mut self, channel_id: ChannelId, out: &mut EffectSink) {
+        // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
+        let conn_id = self.state.connection_id.clone();
         // 读取 cursor 和 last_sync_from_seq（不可变借用）
         let (cursor_seq, prev_from_seq, has_inflight) = match self.state.channels.get(&channel_id) {
             Some(ch) => (
@@ -378,6 +398,7 @@ impl ImModule {
             channel_id,
             cursor_seq,
             sync_corr,
+            conn_id.as_deref(),
         ));
         tracing::debug!(
             channel_id = channel_id.0,
@@ -555,6 +576,7 @@ impl ImModule {
                 channel_id,
                 from_seq,
                 sync_corr,
+                self.state.connection_id.as_deref(),
             ));
             return Ok(());
         }
@@ -642,7 +664,14 @@ impl ImModule {
             req: HttpRequest {
                 method: "POST".to_string(),
                 url: format!("{}/posts/create", self.config.api_base_url),
-                headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+                headers: {
+                    // A3b：Content-Type + connectionId 身份头（hello 后 Some）
+                    let mut h = vec![("Content-Type".to_string(), "application/json".to_string())];
+                    h.extend(crate::acl::to_effect::connection_id_headers(
+                        self.state.connection_id.as_deref(),
+                    ));
+                    h
+                },
                 body: Some(bytes::Bytes::from(serde_json::to_vec(&body).unwrap())),
             },
         });
@@ -713,8 +742,13 @@ impl Module for ImModule {
     /// 处理一个 Tick，零 I/O，零 await。
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
-            Tick::Inbound(_) => {
-                // ACL-1 解析入站帧
+            Tick::Inbound(bytes) => {
+                // A4：先 peek 是否 hello 握手帧（现网 Go 连上后单向下发，无需回 ack）。
+                if let Some(connection_id) = crate::parser::parse_hello(bytes.as_bytes()) {
+                    self.handle_hello(connection_id, out);
+                    return Ok(());
+                }
+                // 非 hello → 现有事件路径（ACL-1 解析入站帧）
                 match acl::from_tick::parse_inbound_tick(tick) {
                     Ok(ev) => {
                         if let Some(ch) = self.state.channels.get_mut(&ev.channel_id) {
@@ -769,15 +803,12 @@ impl Module for ImModule {
             }
 
             Tick::Connected(_transport) => {
-                // 连接建立 → proactive resync：对所有 channel 发 sync/notify（§4.8）
-                // B1 gate_inflight 守卫在 emit_proactive_resync 内部实施（跳过已有在途 sync）
-                self.state.conn = ConnState::Connected;
-                let channel_count = self.state.channels.len();
-                self.emit_proactive_resync(out);
-                tracing::info!(
-                    "helix-im: connected, triggered proactive resync for {} channels",
-                    channel_count
-                );
+                // A4：连接建立 ≠ 可用。现网 Go 服务端连上后**单向下发 hello 帧**；
+                // 必须等收到 hello（→ Connected + connectionId）才能 resync——
+                // 否则握手前发 sync/notify 会被 Go 401/403（缺 connectionId 身份头）。
+                // 故此处只置 Connecting，resync 推迟到 hello Inbound 分支（handle_hello）。
+                self.state.conn = ConnState::Connecting;
+                tracing::debug!("helix-im: transport connected, awaiting hello handshake");
             }
 
             Tick::Disconnected(_transport) => {
@@ -861,5 +892,101 @@ impl Module for ImModule {
         }
         self.state.conn = ConnState::Closing;
         Ok(())
+    }
+}
+
+// ─── A4 hello 握手回放测试（in-crate：直接断言 pub(crate) state）────────────
+#[cfg(test)]
+mod handshake_tests {
+    use super::*;
+    use helix_core::effect::TransportId;
+    use helix_core::tick::InboundBytes;
+
+    fn module_with_channel() -> ImModule {
+        let mut m = ImModule::new(ImConfig::default());
+        m.register_channel(ChannelId(1), 0);
+        m
+    }
+
+    fn hello_frame(conn_id: &str) -> Tick {
+        let body = serde_json::json!({
+            "action": "hello",
+            "data": { "connectionId": conn_id, "serverVersion": "x", "pingInterval": 30000u64 }
+        });
+        Tick::Inbound(InboundBytes(serde_json::to_vec(&body).unwrap().into()))
+    }
+
+    fn has_http(sink: &EffectSink) -> bool {
+        sink.as_slice()
+            .iter()
+            .any(|e| matches!(e, Effect::Http { .. }))
+    }
+
+    /// Connected → conn 变 Connecting，且不产 resync Http（现网 Go 握手前 resync 会 401）。
+    #[test]
+    fn connected_sets_connecting_no_resync() {
+        let mut m = module_with_channel();
+        let mut sink = EffectSink::new();
+        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
+            .unwrap();
+        assert_eq!(m.state.conn, ConnState::Connecting);
+        assert!(!has_http(&sink), "握手前不得 resync");
+    }
+
+    /// hello Inbound → Connected + emit im:connection:established + resync Http + connectionId 存。
+    #[test]
+    fn hello_completes_handshake_and_resyncs() {
+        let mut m = module_with_channel();
+        let mut sink = EffectSink::new();
+        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
+            .unwrap();
+        sink.clear();
+        m.handle(&hello_frame("CONN_ABC"), 1001, &mut sink).unwrap();
+        assert_eq!(m.state.conn, ConnState::Connected);
+        assert_eq!(m.state.connection_id.as_deref(), Some("CONN_ABC"));
+        assert!(
+            sink.as_slice()
+                .iter()
+                .any(|e| matches!(e, Effect::Emit { .. })),
+            "应 emit im:connection:established"
+        );
+        assert!(has_http(&sink), "hello 后应 resync");
+    }
+
+    /// hello 后构造的 sync Http headers 含 ("connectionId", id)。
+    #[test]
+    fn sync_http_carries_connection_id_header() {
+        let mut m = module_with_channel();
+        let mut sink = EffectSink::new();
+        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
+            .unwrap();
+        sink.clear();
+        m.handle(&hello_frame("CONN_XYZ"), 1001, &mut sink).unwrap();
+        let req = sink
+            .as_slice()
+            .iter()
+            .find_map(|e| match e {
+                Effect::Http { req, .. } => Some(req),
+                _ => None,
+            })
+            .expect("应有 resync Http");
+        assert!(
+            req.headers
+                .iter()
+                .any(|(k, v)| k == "connectionId" && v == "CONN_XYZ"),
+            "sync Http 须带 connectionId 身份头"
+        );
+    }
+
+    /// 顺序不变性：先 Connected 后 hello，终态 Connected + connectionId 已存。
+    #[test]
+    fn order_connected_then_hello_terminal_connected() {
+        let mut m = module_with_channel();
+        let mut sink = EffectSink::new();
+        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
+            .unwrap();
+        m.handle(&hello_frame("C1"), 1001, &mut sink).unwrap();
+        assert_eq!(m.state.conn, ConnState::Connected);
+        assert_eq!(m.state.connection_id.as_deref(), Some("C1"));
     }
 }

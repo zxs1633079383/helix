@@ -60,17 +60,19 @@ fn connected_triggers_proactive_resync_for_each_channel() {
     let mut h = Harness::new(&[1, 2, 3]);
     h.start(0);
 
-    let connected_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    // A4：Connected 只置 Connecting，resync 在 hello 握手后
+    h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    let hello_effects = h.step(hello_inbound("CONN_1"), 600);
 
     // 应对 3 个 channel 各发一个 Http（sync/notify）
-    let http_count = connected_effects
+    let http_count = hello_effects
         .iter()
         .filter(|e| matches!(e, EffectKind::Http(_)))
         .count();
     assert_eq!(
         http_count, 3,
-        "Connected with 3 channels should emit 3 Http sync/notify effects, got: {:?}",
-        connected_effects
+        "hello 握手后应对 3 个 channel 发 3 个 Http sync/notify, got: {:?}",
+        hello_effects
     );
 }
 
@@ -94,7 +96,9 @@ fn connected_with_no_channels_emits_no_http() {
 fn connected_each_channel_gets_different_corr() {
     let mut h = Harness::new(&[10, 20, 30]);
     h.start(0);
-    let effects = h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    // A4：resync 在 hello 握手后
+    h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    let effects = h.step(hello_inbound("CONN_1"), 600);
 
     let http_corrs: Vec<u64> = effects
         .iter()
@@ -135,17 +139,19 @@ fn disconnected_then_reconnect_triggers_new_resync() {
     let mut h = Harness::new(&[1, 2]);
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    h.step(hello_inbound("CONN_1"), 600); // 首次握手
     h.step(Tick::Disconnected(TransportId::from_raw(0)), 1000);
 
-    // 第二次连接
-    let reconnect_effects = h.step(Tick::Connected(TransportId::from_raw(0)), 2000);
+    // 第二次连接 + 重新握手（hello 带新 connectionId）
+    h.step(Tick::Connected(TransportId::from_raw(0)), 2000);
+    let reconnect_effects = h.step(hello_inbound("CONN_2"), 2100);
     let http_count = reconnect_effects
         .iter()
         .filter(|e| matches!(e, EffectKind::Http(_)))
         .count();
     assert_eq!(
         http_count, 2,
-        "reconnect should trigger proactive resync again for all channels"
+        "reconnect 后再次 hello 应对所有 channel 重新 resync"
     );
 }
 
@@ -200,8 +206,9 @@ fn ping_timer_fires_send_when_connected() {
         })
         .expect("should have ping timer from on_start");
 
-    // 连接建立
+    // 连接建立 + hello 握手（A4：conn=Connected 才发 ping Send）
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    h.step(hello_inbound("CONN_1"), 600);
 
     let timer_effects = h.step(timer_tick(ping_timer), 8001);
     // 应有 Send（ping 帧）

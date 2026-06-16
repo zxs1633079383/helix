@@ -52,6 +52,13 @@ async fn main() {
     // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
     let cookie_id = std::env::var("HELIX_COOKIE_ID").unwrap_or_default();
     let company_id = std::env::var("HELIX_COMPANY_ID").unwrap_or_default();
+    // appType 是现网 app 身份头（Apifox 实测：HTTP increment + WS 都带 `appType: bct`）。
+    // 缺 appType → 对端 Java Company 服务判 session 过期 → grpc service fail → increment 不推帧。
+    // device/deviceId/language 是 WS 全局头（Apifox WS 带 device:IOS/deviceId/language:zh）。
+    let app_type = std::env::var("HELIX_APP_TYPE").unwrap_or_else(|_| "bct".to_string());
+    let device = std::env::var("HELIX_DEVICE").unwrap_or_else(|_| "IOS".to_string());
+    let device_id = std::env::var("HELIX_DEVICE_ID").unwrap_or_default();
+    let language = std::env::var("HELIX_LANGUAGE").unwrap_or_else(|_| "zh".to_string());
     let db_path =
         std::env::var("HELIX_DB").unwrap_or_else(|_| "/tmp/helix_host_cli.db".to_string());
 
@@ -94,6 +101,13 @@ async fn main() {
             Err(e) => tracing::warn!(error = %e, "注入 companyId 全局头失败"),
         }
     }
+    // appType HTTP 全局头：缺它对端 Java Company 服务判 session 过期 → grpc service fail。
+    if !app_type.is_empty() {
+        match http.set_global_header("appType", &app_type).await {
+            Ok(()) => tracing::info!(app_type = %app_type, "已注入 appType 全局头"),
+            Err(e) => tracing::warn!(error = %e, "注入 appType 全局头失败"),
+        }
+    }
     let (event_sink, mut event_rx) = NativeEventSink::new();
 
     // ── shell + IM 模块 ─────────────────────────────────────
@@ -118,6 +132,19 @@ async fn main() {
     }
     if !company_id.is_empty() {
         ws_headers.push(("companyId".to_string(), company_id.clone()));
+    }
+    // WS 全局头（Apifox 实测：appType/device/language/deviceId）
+    if !app_type.is_empty() {
+        ws_headers.push(("appType".to_string(), app_type.clone()));
+    }
+    if !device.is_empty() {
+        ws_headers.push(("device".to_string(), device.clone()));
+    }
+    if !language.is_empty() {
+        ws_headers.push(("language".to_string(), language.clone()));
+    }
+    if !device_id.is_empty() {
+        ws_headers.push(("deviceId".to_string(), device_id.clone()));
     }
     let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
         .with_handshake_headers(ws_headers);

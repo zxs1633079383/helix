@@ -179,9 +179,9 @@ fn sync_success_path_peek_then_commit_cursor() {
     let reply_body = serde_json::json!({
         "type": "events",
         "events": [
-            {"channel_id": 1, "seq": 1, "event_type": 1},
-            {"channel_id": 1, "seq": 2, "event_type": 1},
-            {"channel_id": 1, "seq": 3, "event_type": 1},
+            {"channel_id": cid(1), "seq": 1, "event_type": 1},
+            {"channel_id": cid(1), "seq": 2, "event_type": 1},
+            {"channel_id": cid(1), "seq": 3, "event_type": 1},
         ],
         "needs_continuation": false
     });
@@ -263,7 +263,7 @@ fn sync_too_long_resets_cursor_and_emits() {
     // cursor 应已复位（reset_to-1 = 99）
     let cursor = h
         .module
-        .cursor_for(helix_im::state::ChannelId(1))
+        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
         .unwrap_or(0);
     assert_eq!(
         cursor, 99,
@@ -301,7 +301,7 @@ fn gate_buffer_flush_on_contiguous_arrival() {
     // cursor 最终应为 3
     let cursor = h
         .module
-        .cursor_for(helix_im::state::ChannelId(1))
+        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
         .unwrap_or(0);
     assert_eq!(
         cursor, 3,
@@ -321,7 +321,7 @@ fn cursor_never_decreases_under_any_input() {
     }
     let cursor_after_5 = h
         .module
-        .cursor_for(helix_im::state::ChannelId(1))
+        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
         .unwrap_or(0);
     assert_eq!(cursor_after_5, 5, "cursor should be 5 after contiguous 1-5");
 
@@ -329,7 +329,7 @@ fn cursor_never_decreases_under_any_input() {
     h.step(inbound_event(1, 3, 1), 6000);
     let cursor_after_dup = h
         .module
-        .cursor_for(helix_im::state::ChannelId(1))
+        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
         .unwrap_or(0);
     assert_eq!(cursor_after_dup, 5, "cursor should not decrease on dup");
 
@@ -337,7 +337,7 @@ fn cursor_never_decreases_under_any_input() {
     h.step(port_reply_ok(99999), 7000);
     let cursor_after_stale = h
         .module
-        .cursor_for(helix_im::state::ChannelId(1))
+        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
         .unwrap_or(0);
     assert_eq!(
         cursor_after_stale, 5,

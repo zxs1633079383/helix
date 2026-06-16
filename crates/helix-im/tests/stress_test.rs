@@ -43,8 +43,13 @@ fn make_module(channel_id: u64) -> ImModule {
         send_timeout_ms: 15_000,
     };
     let mut module = ImModule::new(config);
-    module.register_channel(ChannelId(channel_id), 0);
+    module.register_channel(ChannelId::from_test_u64(channel_id), 0);
     module
+}
+
+/// 测试桥接：数值 channel id → 真 wire 26 字符字符串。
+fn cid(n: u64) -> String {
+    ChannelId::from_test_u64(n).as_str().to_string()
 }
 
 /// 构造 posted WS 帧（与 common.rs::inbound_event 同构，payload 约 150 字节）
@@ -52,7 +57,7 @@ fn make_inbound_tick(channel_id: u64, seq: u64) -> Tick {
     let payload = serde_json::json!({
         "event": "posted",
         "data": {
-            "channel_id": channel_id,
+            "channel_id": cid(channel_id),
             "seq": seq,
             "event_type": 1,
             "msg_id": format!("msg_{}", seq),
@@ -96,7 +101,7 @@ fn stress_inorder_100k() {
     let elapsed = start.elapsed();
 
     assert_eq!(
-        module.cursor_for(ChannelId(1)),
+        module.cursor_for(ChannelId::from_test_u64(1)),
         Some(N),
         "cursor must reach N"
     );
@@ -139,7 +144,7 @@ fn stress_gap_5000_ws_flush() {
     }
     let buf_elapsed = start_buf.elapsed();
     assert_eq!(
-        module.cursor_for(ChannelId(1)),
+        module.cursor_for(ChannelId::from_test_u64(1)),
         Some(0),
         "cursor must NOT advance while gapped"
     );
@@ -154,7 +159,7 @@ fn stress_gap_5000_ws_flush() {
     let flush_elapsed = start_flush.elapsed();
 
     assert_eq!(
-        module.cursor_for(ChannelId(1)),
+        module.cursor_for(ChannelId::from_test_u64(1)),
         Some(GAP + 1),
         "cursor must reach 5001"
     );
@@ -229,7 +234,7 @@ fn stress_gap_5000_sync_backfill() {
     let events: Vec<serde_json::Value> = (1..=GAP)
         .map(|s| {
             serde_json::json!({
-                "channel_id": 1,
+                "channel_id": cid(1),
                 "seq": s,
                 "event_type": 1,
                 "msg_id": format!("msg_{}", s),
@@ -269,7 +274,7 @@ fn stress_gap_5000_sync_backfill() {
         })
         .expect("sync events must yield one Persist batch");
     assert_eq!(
-        module.cursor_for(ChannelId(1)),
+        module.cursor_for(ChannelId::from_test_u64(1)),
         Some(0),
         "cursor must NOT advance before PortReply Ok"
     );
@@ -287,7 +292,7 @@ fn stress_gap_5000_sync_backfill() {
     let commit_elapsed = start_commit.elapsed();
 
     assert_eq!(
-        module.cursor_for(ChannelId(1)),
+        module.cursor_for(ChannelId::from_test_u64(1)),
         Some(GAP + 1),
         "cursor must reach 5001 after commit + buffer flush"
     );

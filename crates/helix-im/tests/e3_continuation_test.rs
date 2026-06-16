@@ -87,7 +87,8 @@ fn continuation_three_batches_then_stops() {
 
     // cursor 应为 500
     assert_eq!(
-        h.module.cursor_for(helix_im::state::ChannelId(1)),
+        h.module
+            .cursor_for(helix_im::state::ChannelId::from_test_u64(1)),
         Some(500),
         "cursor should be 500 after batch1"
     );
@@ -123,7 +124,8 @@ fn continuation_three_batches_then_stops() {
 
     // cursor 应为 1000
     assert_eq!(
-        h.module.cursor_for(helix_im::state::ChannelId(1)),
+        h.module
+            .cursor_for(helix_im::state::ChannelId::from_test_u64(1)),
         Some(1000),
         "cursor should be 1000 after batch2"
     );
@@ -149,7 +151,8 @@ fn continuation_three_batches_then_stops() {
 
     // cursor 应为 1500
     assert_eq!(
-        h.module.cursor_for(helix_im::state::ChannelId(1)),
+        h.module
+            .cursor_for(helix_im::state::ChannelId::from_test_u64(1)),
         Some(1500),
         "cursor should be 1500 after batch3"
     );

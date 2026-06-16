@@ -35,8 +35,9 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
         .ok_or_else(|| ImError::Parse("missing 'data' field".to_string()))?;
 
     let channel_id = data["channel_id"]
-        .as_u64()
-        .ok_or_else(|| ImError::Parse("missing data.channel_id".to_string()))?;
+        .as_str()
+        .and_then(ChannelId::from_str)
+        .ok_or_else(|| ImError::Parse("missing/invalid data.channel_id".to_string()))?;
 
     let seq = data["seq"]
         .as_u64()
@@ -47,12 +48,7 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     let kind = parse_event_kind(event_type);
     let raw = bytes::Bytes::copy_from_slice(bytes);
 
-    Ok(EventEnvelope::new(
-        ChannelId(channel_id),
-        Seq(seq),
-        kind,
-        raw,
-    ))
+    Ok(EventEnvelope::new(channel_id, Seq(seq), kind, raw))
 }
 
 /// A4：识别 hello 握手帧——顶层 `action=="hello"` 时返回 `data.connectionId`，否则 None。
@@ -140,20 +136,18 @@ pub fn parse_sync_response(bytes: &[u8]) -> Result<SyncResponse, ImError> {
             let mut events = Vec::with_capacity(raw_events.len());
             for ev_json in raw_events {
                 let channel_id = ev_json["channel_id"]
-                    .as_u64()
-                    .ok_or_else(|| ImError::Parse("event missing channel_id".to_string()))?;
+                    .as_str()
+                    .and_then(ChannelId::from_str)
+                    .ok_or_else(|| {
+                        ImError::Parse("event missing/invalid channel_id".to_string())
+                    })?;
                 let seq = ev_json["seq"]
                     .as_u64()
                     .ok_or_else(|| ImError::Parse("event missing seq".to_string()))?;
                 let event_type = ev_json["event_type"].as_u64().unwrap_or(1) as u8;
                 let kind = parse_event_kind(event_type);
                 let raw = bytes::Bytes::from(serde_json::to_vec(ev_json).unwrap_or_default());
-                events.push(EventEnvelope::new(
-                    ChannelId(channel_id),
-                    Seq(seq),
-                    kind,
-                    raw,
-                ));
+                events.push(EventEnvelope::new(channel_id, Seq(seq), kind, raw));
             }
             // 分桶排序（type1 → type2 → type3 → type6，铁律）
             sort_events_by_bucket(&mut events);
@@ -175,8 +169,9 @@ pub fn parse_sync_response(bytes: &[u8]) -> Result<SyncResponse, ImError> {
 
         "snapshot" => {
             let channel_id = v["channel_id"]
-                .as_u64()
-                .ok_or_else(|| ImError::Parse("snapshot missing channel_id".to_string()))?;
+                .as_str()
+                .and_then(ChannelId::from_str)
+                .ok_or_else(|| ImError::Parse("snapshot missing/invalid channel_id".to_string()))?;
             let reset_to = v["reset_to"]
                 .as_u64()
                 .ok_or_else(|| ImError::Parse("snapshot missing reset_to".to_string()))?;
@@ -186,18 +181,21 @@ pub fn parse_sync_response(bytes: &[u8]) -> Result<SyncResponse, ImError> {
 
             let mut messages = Vec::with_capacity(raw_messages.len());
             for msg_json in raw_messages {
-                let ch_id = msg_json["channel_id"].as_u64().unwrap_or(channel_id);
+                let ch_id = msg_json["channel_id"]
+                    .as_str()
+                    .and_then(ChannelId::from_str)
+                    .unwrap_or(channel_id);
                 let seq = msg_json["seq"]
                     .as_u64()
                     .ok_or_else(|| ImError::Parse("snapshot message missing seq".to_string()))?;
                 let event_type = msg_json["event_type"].as_u64().unwrap_or(1) as u8;
                 let kind = parse_event_kind(event_type);
                 let raw = bytes::Bytes::from(serde_json::to_vec(msg_json).unwrap_or_default());
-                messages.push(EventEnvelope::new(ChannelId(ch_id), Seq(seq), kind, raw));
+                messages.push(EventEnvelope::new(ch_id, Seq(seq), kind, raw));
             }
 
             Ok(SyncResponse::Snapshot(ChannelSnapshot {
-                channel_id: ChannelId(channel_id),
+                channel_id,
                 reset_to: Seq(reset_to),
                 messages,
             }))

@@ -38,7 +38,7 @@ proptest! {
 
         for (i, seq) in seqs.iter().enumerate() {
             h.step(inbound_event(1, *seq, 1), (i as u64 + 1) * 100);
-            let cursor = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+            let cursor = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
             prop_assert!(
                 cursor >= last_cursor,
                 "cursor decreased! was {} now {} after seq={}",
@@ -68,15 +68,15 @@ proptest! {
             h.step(inbound_event(1, seq, 1), seq * 100);
         }
         // cursor 应为 10
-        let cursor_after_prefix = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+        let cursor_after_prefix = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
         prop_assert_eq!(cursor_after_prefix, 10,
             "cursor should be 10 after contiguous 1-10");
 
         // 喂额外 seqs（可能乱序/dup/超前）
         for (i, seq) in extra_seqs.iter().enumerate() {
-            let prev = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+            let prev = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
             h.step(inbound_event(1, *seq, 1), (11 + i as u64) * 100);
-            let after = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+            let after = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
             prop_assert!(after >= prev,
                 "cursor decreased on extra seq={}: {} -> {}", seq, prev, after);
         }
@@ -108,8 +108,8 @@ proptest! {
                 "non-determinism: seq={} ts={} produced different effects", seq, ts);
         }
         // cursor 也应一致
-        let c1 = h1.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
-        let c2 = h2.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+        let c1 = h1.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
+        let c2 = h2.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
         prop_assert_eq!(c1, c2, "non-determinism: cursors diverged");
     }
 }
@@ -133,7 +133,7 @@ proptest! {
         for seq in 1u64..=base_seq {
             h.step(inbound_event(1, seq, 1), seq * 100);
         }
-        let cursor_before = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+        let cursor_before = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
         prop_assert_eq!(cursor_before, base_seq);
 
         // 重复喂 base_seq 若干次（dup）
@@ -144,7 +144,7 @@ proptest! {
                 effects.is_empty(),
                 "dup seq={} should produce no effects (idempotent), got: {:?}", base_seq, effects
             );
-            let cursor = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+            let cursor = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
             prop_assert_eq!(cursor, base_seq,
                 "cursor changed after dup seq={}!", base_seq);
         }
@@ -186,7 +186,7 @@ proptest! {
 
         // 由于 gate 需要 sync/notify 补全，乱序情况下 cursor 可能不等于 n
         // 但不应超过 n，且不应为负（单调性）
-        let cursor = h.module.cursor_for(helix_im::state::ChannelId(1)).unwrap_or(0);
+        let cursor = h.module.cursor_for(helix_im::state::ChannelId::from_test_u64(1)).unwrap_or(0);
         prop_assert!(cursor <= n,
             "cursor should not exceed max seq n={}, got {}", n, cursor);
 

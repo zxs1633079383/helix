@@ -53,6 +53,12 @@ impl EffectKind {
     }
 }
 
+/// 测试桥接：数值 channel id → 真 wire 的 26 字符字符串（与 ChannelId::from_test_u64 一致）。
+#[allow(dead_code)]
+pub fn cid(n: u64) -> String {
+    ChannelId::from_test_u64(n).as_str().to_string()
+}
+
 impl Harness {
     /// 创建 Harness，channel_ids 列表自动预注册（初始 cursor=0）
     pub fn new(channel_ids: &[u64]) -> Self {
@@ -64,7 +70,7 @@ impl Harness {
         };
         let mut module = ImModule::new(config);
         for &id in channel_ids {
-            module.register_channel(ChannelId(id), 0);
+            module.register_channel(ChannelId::from_test_u64(id), 0);
         }
         Self {
             module,
@@ -128,7 +134,7 @@ pub fn inbound_event(channel_id: u64, seq: u64, event_type: u8) -> Tick {
     let payload = json!({
         "event": "posted",
         "data": {
-            "channel_id": channel_id,
+            "channel_id": cid(channel_id),
             "seq": seq,
             "event_type": event_type,
             "msg_id": format!("msg_{}", seq),
@@ -158,7 +164,7 @@ pub fn hello_inbound(connection_id: &str) -> Tick {
 pub fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick {
     use serde_json::json;
     let payload = json!({
-        "channel_id": channel_id,
+        "channel_id": cid(channel_id),
         "temporary_id": temporary_id,
         "text": text
     });
@@ -183,7 +189,7 @@ pub fn sync_reply_events(channel_id: u64, seqs: &[u64], needs_continuation: bool
         .iter()
         .map(|&seq| {
             json!({
-                "channel_id": channel_id,
+                "channel_id": cid(channel_id),
                 "seq": seq,
                 "event_type": 1
             })
@@ -209,7 +215,7 @@ pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
         .iter()
         .map(|&(channel_id, cursor_seq)| {
             json!({
-                "scope_key": channel_id.to_string(),
+                "scope_key": cid(channel_id),
                 "value": cursor_seq as i64
             })
         })

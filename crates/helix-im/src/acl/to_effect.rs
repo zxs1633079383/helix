@@ -33,7 +33,7 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
 pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
     Effect::PersistFire {
         ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
-            scope_key: channel_id.0.to_string(),
+            scope_key: channel_id.as_str().to_string(),
             value: target_seq.0 as i64,
         })],
     }
@@ -56,7 +56,9 @@ pub fn sync_notify(
             method: "GET".to_string(),
             url: format!(
                 "{}/sync/notify?channel_id={}&from_seq={}",
-                base_url, channel_id.0, from_seq.0
+                base_url,
+                channel_id.as_str(),
+                from_seq.0
             ),
             headers: connection_id_headers(connection_id),
             body: None,
@@ -84,7 +86,7 @@ pub fn emit_post_received(channel_id: ChannelId, server_msg_id: u64) -> Effect {
     let payload = json!({
         "event": "im:post:received",
         "data": {
-            "channel_id": channel_id.0,
+            "channel_id": channel_id.as_str(),
             "msg_id": server_msg_id,
         }
     });
@@ -103,7 +105,7 @@ pub fn emit_post_sending(channel_id: ChannelId, temporary_id: &str) -> Effect {
     let payload = json!({
         "event": "im:post:sending",
         "data": {
-            "channel_id": channel_id.0,
+            "channel_id": channel_id.as_str(),
             "temporary_id": temporary_id,
         }
     });
@@ -122,7 +124,7 @@ pub fn emit_sync_too_long(channel_id: ChannelId) -> Effect {
     let payload = json!({
         "event": "im:sync:too_long",
         "data": {
-            "channel_id": channel_id.0,
+            "channel_id": channel_id.as_str(),
         }
     });
     let bytes = Bytes::from(
@@ -164,7 +166,10 @@ pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
                 table: "messages",
                 rows: vec![vec![
                     ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
-                    ("channel_id".to_string(), SqlValue::Integer(ev.id.0 as i64)),
+                    (
+                        "channel_id".to_string(),
+                        SqlValue::Text(ev.id.as_str().to_string()),
+                    ),
                     (
                         "event_type".to_string(),
                         SqlValue::Integer(ev.kind.type_num() as i64),

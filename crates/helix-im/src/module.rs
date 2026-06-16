@@ -157,7 +157,7 @@ impl ImModule {
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(
-                        channel_id = channel_id.0,
+                        channel_id = channel_id.as_str(),
                         corr = corr.raw(),
                         error = ?e,
                         "persist failed, cursor not advanced, will re-sync"
@@ -203,7 +203,7 @@ impl ImModule {
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(
-                        channel_id = channel_id.0,
+                        channel_id = channel_id.as_str(),
                         corr = corr.raw(),
                         error = ?e,
                         "sync/notify failed"
@@ -244,20 +244,14 @@ impl ImModule {
         };
 
         for row in &rows {
-            // scope_key 是 TEXT（channel_id.to_string()），需要从字符串解析回 u64
-            let channel_id = match row["scope_key"].as_str() {
-                Some(s) => match s.parse::<u64>() {
-                    Ok(v) if v > 0 => v,
-                    Ok(_) | Err(_) => {
-                        tracing::warn!(
-                            scope_key = s,
-                            "scan row scope_key not a valid channel_id u64, skipping"
-                        );
-                        continue;
-                    }
-                },
+            // scope_key 是 TEXT（channel_id.as_str()，26 字符 id），解析回 ChannelId（零信任）
+            let channel_id = match row["scope_key"].as_str().and_then(ChannelId::from_str) {
+                Some(id) => id,
                 None => {
-                    tracing::warn!(row = ?row, "scan row missing scope_key, skipping");
+                    tracing::warn!(
+                        scope_key = ?row["scope_key"],
+                        "scan row scope_key not a valid 26-char channel_id, skipping"
+                    );
                     continue;
                 }
             };
@@ -268,8 +262,8 @@ impl ImModule {
             // register_channel 幂等：若已存在则不覆盖（Connected 路径可能已注册）
             self.state
                 .channels
-                .entry(ChannelId(channel_id))
-                .or_insert_with(|| crate::channel::Channel::new(ChannelId(channel_id), cursor));
+                .entry(channel_id)
+                .or_insert_with(|| crate::channel::Channel::new(channel_id, cursor));
         }
 
         tracing::info!(
@@ -360,7 +354,7 @@ impl ImModule {
         // B1：若已有在途 sync（意外情况），跳过
         if has_inflight {
             tracing::warn!(
-                channel_id = channel_id.0,
+                channel_id = channel_id.as_str(),
                 "maybe_continue_sync: inflight_sync already set, skipping continuation"
             );
             return;
@@ -371,7 +365,7 @@ impl ImModule {
         if let Some(prev_from) = prev_from_seq {
             if cursor_seq.0 <= prev_from.0 {
                 tracing::warn!(
-                    channel_id = channel_id.0,
+                    channel_id = channel_id.as_str(),
                     cursor = cursor_seq.0,
                     prev_from_seq = prev_from.0,
                     "continuation aborted: cursor did not advance past prev sync fromSeq (all events were dup-drops)"
@@ -401,7 +395,7 @@ impl ImModule {
             conn_id.as_deref(),
         ));
         tracing::debug!(
-            channel_id = channel_id.0,
+            channel_id = channel_id.as_str(),
             from_seq = cursor_seq.0,
             "E3: continuation sync Http emitted"
         );
@@ -441,7 +435,7 @@ impl ImModule {
                     if needs_continuation {
                         // 终止保证：服务端返回空 events 但仍声称需续拉 → 防无限循环
                         tracing::warn!(
-                            channel_id = channel_id.0,
+                            channel_id = channel_id.as_str(),
                             "needs_continuation=true but events is empty, stopping continuation to prevent infinite loop"
                         );
                     }
@@ -613,15 +607,14 @@ impl ImModule {
             .map_err(|e| ImError::Parse(format!("im_send_message payload: {}", e)))?;
 
         let channel_id = cmd["channel_id"]
-            .as_u64()
-            .ok_or_else(|| ImError::Parse("missing channel_id".to_string()))?;
+            .as_str()
+            .and_then(ChannelId::from_str)
+            .ok_or_else(|| ImError::Parse("missing/invalid channel_id".to_string()))?;
         let tmp_id_str = cmd["temporary_id"]
             .as_str()
             .ok_or_else(|| ImError::Parse("missing temporary_id".to_string()))?
             .to_string();
         let text = cmd["text"].as_str().unwrap_or("").to_string();
-
-        let channel_id = ChannelId(channel_id);
         let tmp_id = TemporaryId(tmp_id_str.clone());
 
         // 分配 corr / timer
@@ -641,7 +634,7 @@ impl ImModule {
                     ),
                     (
                         "channel_id".to_string(),
-                        SqlValue::Integer(channel_id.0 as i64),
+                        SqlValue::Text(channel_id.as_str().to_string()),
                     ),
                     ("message".to_string(), SqlValue::Text(text.clone())),
                     (
@@ -655,7 +648,7 @@ impl ImModule {
 
         // 2. Http{H1, POST /posts/create}
         let body = serde_json::json!({
-            "channel_id": channel_id.0,
+            "channel_id": channel_id.as_str(),
             "temporary_id": tmp_id_str,
             "message": text,
         });
@@ -913,7 +906,7 @@ mod handshake_tests {
 
     fn module_with_channel() -> ImModule {
         let mut m = ImModule::new(ImConfig::default());
-        m.register_channel(ChannelId(1), 0);
+        m.register_channel(ChannelId::from_test_u64(1), 0);
         m
     }
 

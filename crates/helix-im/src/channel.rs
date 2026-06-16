@@ -191,7 +191,7 @@ impl Channel {
         if self.gate.is_none() {
             let timer_id = TimerId::from_raw(
                 self.id
-                    .0
+                    .hash_u64()
                     .wrapping_mul(1000)
                     .wrapping_add(self.cursor.value().0 & 0xFFF),
             );
@@ -281,7 +281,10 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
         table: "messages",
         rows: vec![vec![
             ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
-            ("channel_id".to_string(), SqlValue::Integer(ev.id.0 as i64)),
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(ev.id.as_str().to_string()),
+            ),
             (
                 "event_type".to_string(),
                 SqlValue::Integer(ev.kind.type_num() as i64),
@@ -306,7 +309,7 @@ mod tests {
 
     fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
         EventEnvelope::new(
-            ChannelId(ch),
+            ChannelId::from_test_u64(ch),
             Seq(seq),
             EventKind::PostUpsert,
             bytes::Bytes::from_static(b"{}"),
@@ -325,7 +328,7 @@ mod tests {
     /// emit im:sync:too_long；③ cursor 不被回退（安全网靠 sync 从 cursor+1 重拉）。
     #[test]
     fn test_gate_buffer_capped_proactive_too_long_e6() {
-        let mut ch = Channel::new(ChannelId(7), 0); // cursor=0 → expected=1，制造永久缺口
+        let mut ch = Channel::new(ChannelId::from_test_u64(7), 0); // cursor=0 → expected=1，制造永久缺口
         let mut fx = EffectSink::new();
         let mut saw_too_long = false;
 
@@ -358,7 +361,7 @@ mod tests {
     /// 上限以内正常乱序堆积不误触发 too_long（不误伤承压合法 5000 缺口场景）。
     #[test]
     fn test_gate_buffer_under_cap_no_false_too_long_e6() {
-        let mut ch = Channel::new(ChannelId(3), 0);
+        let mut ch = Channel::new(ChannelId::from_test_u64(3), 0);
         let mut fx = EffectSink::new();
 
         for seq in 2..=5001 {

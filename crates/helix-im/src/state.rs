@@ -12,9 +12,76 @@ use std::collections::HashMap;
 
 // ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
 
-/// 频道 ID（不透明 u64）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChannelId(pub u64);
+/// mattermost 风格定长 ID（26 字符 base32 ASCII）。
+///
+/// Copy newtype，零分配热路径 key（HX-C005）；真 Go channelId/userId/msgId 恒为 26 char。
+/// 不透明：构造只经 `from_str`（边界零信任）/ `from_test_u64`（测试桥接）。ADR-009。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Id26([u8; 26]);
+
+impl Id26 {
+    /// 边界零信任构造：仅当 `s` 恰 26 字节 ASCII 时 Some，否则 None（不 panic）。
+    pub fn from_str(s: &str) -> Option<Self> {
+        let b = s.as_bytes();
+        if b.len() != 26 || !b.is_ascii() {
+            return None;
+        }
+        let mut arr = [0u8; 26];
+        arr.copy_from_slice(b);
+        Some(Self(arr))
+    }
+
+    /// 零拷贝取字符串视图。
+    pub fn as_str(&self) -> &str {
+        // SAFETY: 不变量——Id26 只能经 from_str（已验证恰 26 字节 ASCII）或
+        // from_test_u64（format!("{:026}") 全 ASCII 数字）构造，故内部恒为合法 UTF-8。
+        unsafe { std::str::from_utf8_unchecked(&self.0) }
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 26] {
+        &self.0
+    }
+
+    /// 派生确定性 u64（FNV-1a，非加密）——用于 timer id 偏移等需数值的场景。
+    pub fn hash_u64(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for &b in &self.0 {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+
+    /// 测试桥接：数值 → 26 字符确定性 id（零填充十进制）。test-only（注释约束，非编译期）。
+    pub fn from_test_u64(n: u64) -> Self {
+        let mut arr = [0u8; 26];
+        arr.copy_from_slice(format!("{:026}", n).as_bytes());
+        Self(arr)
+    }
+}
+
+/// 频道 ID（mattermost 26 字符 ID，不透明 Copy）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ChannelId(pub Id26);
+
+impl ChannelId {
+    /// 从字符串构造（边界零信任，非法→None）。
+    pub fn from_str(s: &str) -> Option<Self> {
+        Id26::from_str(s).map(Self)
+    }
+    /// 零拷贝取字符串视图。
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+    /// 派生确定性 u64（timer id 偏移等数值场景）。
+    pub fn hash_u64(&self) -> u64 {
+        self.0.hash_u64()
+    }
+    /// 测试桥接：数值 → 26 字符 ChannelId。test-only。
+    pub fn from_test_u64(n: u64) -> Self {
+        Self(Id26::from_test_u64(n))
+    }
+}
 
 /// Server 消息 ID（echo 到时的真实 ID）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -165,5 +232,49 @@ impl ImState {
 impl Default for ImState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod id26_tests {
+    use super::{ChannelId, Id26};
+
+    #[test]
+    fn from_str_accepts_exactly_26_ascii_and_roundtrips() {
+        let s = "5ffd465e263864787b87aa01"; // 24 字符——非法
+        assert!(Id26::from_str(s).is_none(), "24 字符应拒绝");
+        let s26 = "5ffd465e263864787b87aa0123"; // 26 字符
+        assert_eq!(s26.len(), 26);
+        let id = Id26::from_str(s26).expect("26 ASCII 应接受");
+        assert_eq!(id.as_str(), s26, "as_str 必须原样回放");
+    }
+
+    #[test]
+    fn from_str_rejects_wrong_len_and_non_ascii() {
+        assert!(Id26::from_str("").is_none());
+        assert!(Id26::from_str("abc").is_none()); // 太短
+        assert!(Id26::from_str(&"a".repeat(27)).is_none()); // 太长
+        assert!(Id26::from_str("你好你好你好你好你好你好你").is_none()); // 非 ASCII（字节数也≠26）
+    }
+
+    #[test]
+    fn from_test_u64_is_26_ascii_and_distinct() {
+        let a = ChannelId::from_test_u64(1);
+        let b = ChannelId::from_test_u64(2);
+        assert_eq!(a.as_str().len(), 26);
+        assert_ne!(a, b);
+        assert_eq!(a, ChannelId::from_test_u64(1), "确定性");
+        // 经 from_str 再解析应等价（26 ASCII 数字）
+        assert_eq!(ChannelId::from_str(a.as_str()), Some(a));
+    }
+
+    #[test]
+    fn hash_u64_deterministic() {
+        let a = ChannelId::from_test_u64(7);
+        assert_eq!(a.hash_u64(), a.hash_u64());
+        assert_ne!(
+            ChannelId::from_test_u64(7).hash_u64(),
+            ChannelId::from_test_u64(8).hash_u64()
+        );
     }
 }

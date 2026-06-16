@@ -1,7 +1,7 @@
 # helix-driver-ffi —— FFI 驱动层设计文档
 
 > **版本** 2026-06-08 · C ABI 稳定层 + uniffi 双轨方案
-> **状态更新（2026-06-15 / ADR-006/ADR-007/ADR-008）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置、命令入口与事件订阅，不写 IM 同步逻辑、不写消息 SQL、不直接实现业务 HTTP/WS。SQLite schema/migration、StorageOp 兑现、rows reply 编解码、HTTP client 与 WebSocket client 统一复用 `helix-driver-host`；网页端 wasm 已暂停维护。
+> **状态更新（2026-06-15 / ADR-006/ADR-007/ADR-010）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置、命令入口与事件订阅，不写 IM 同步逻辑、不写消息 SQL、不直接实现业务 HTTP/WS。SQLite schema/migration、StorageOp 兑现、rows reply 编解码、HTTP client 与 WebSocket client 统一复用 `helix-driver-host`；网页端 wasm 已暂停维护。
 >
 > **本文目的**：详述 `helix-driver-ffi` 如何通过 C ABI（`extern "C"` / `#[no_mangle]` / `repr(C)` / opaque ptr）和 uniffi（Swift/Kotlin 绑定）把 Flutter/移动端接到 Rust host driver；Flutter 主线由 Rust 侧全包 I/O，host 回调只保留事件/生命周期/可选宿主能力。登录/鉴权不归 Helix，Helix 只消费外部传入的 header/token/session 配置。
 

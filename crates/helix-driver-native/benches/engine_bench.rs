@@ -48,7 +48,7 @@ use helix_core::{ExecutionShell, Tick};
 
 use helix_driver_native::{
     engine_loop::{run_engine_loop, EngineConfig},
-    NativeEventSink, NativeHttp, NativeStorage,
+    HostNetworkConfig, NativeEventSink, NativeHttp, NativeStorage,
 };
 
 /// 每个 roundtrip 的命令数：对齐 stress test 的 10k 量级则单次 routine 太重（bench 跑不完），
@@ -116,7 +116,9 @@ async fn setup_engine() -> (
     let storage = NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc"))
         .await
         .expect("open temp storage");
-    let http = NativeHttp::new().expect("http");
+    let http =
+        NativeHttp::with_config(HostNetworkConfig::new("http://127.0.0.1", "ws://127.0.0.1"))
+            .expect("http");
     let (event_sink, _event_rx) = NativeEventSink::new();
 
     let replies = Arc::new(AtomicU64::new(0));

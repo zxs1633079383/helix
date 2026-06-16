@@ -1,7 +1,5 @@
 //! Native HTTP thin shell over the shared host client.
 
-use std::time::Duration;
-
 use helix_core::effect::{HttpRequest, HttpResponse};
 use helix_core::ports::HttpRequester;
 use helix_core::PortError;
@@ -17,18 +15,8 @@ pub struct NativeHttp {
 }
 
 impl NativeHttp {
-    pub fn new() -> Result<Self, PortError> {
-        Err(PortError::Http(
-            "NativeHttp requires external HostNetworkConfig".to_string(),
-        ))
-    }
-
-    pub fn with_timeout(_timeout: Duration) -> Result<Self, PortError> {
-        Err(PortError::Http(
-            "NativeHttp::with_timeout requires external HostNetworkConfig; use with_config(config.with_timeout(...))".to_string(),
-        ))
-    }
-
+    // 构造唯一入口 = with_config / from_shared（ADR-010 共享 client）。
+    // 旧 new()/with_timeout() 曾退化为永远 Err 的活墓碑——已删，误用变编译错（D2 drift 收敛）。
     pub fn with_config(config: HostNetworkConfig) -> Result<Self, PortError> {
         SharedHttpClient::new(config).map(Self::from_shared)
     }
@@ -57,6 +45,7 @@ impl HttpRequester for NativeHttp {
 mod tests {
     use super::*;
     use helix_core::effect::HttpRequest;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_http_client_builds_with_external_config() {
@@ -104,12 +93,6 @@ mod tests {
             "timeout/network should produce PortError::Transport, got {:?}",
             result
         );
-    }
-
-    #[tokio::test]
-    async fn test_new_without_external_config_returns_err() {
-        let result = NativeHttp::new();
-        assert!(matches!(result, Err(PortError::Http(_))));
     }
 
     fn test_config() -> HostNetworkConfig {

@@ -1,7 +1,7 @@
 # Helix 细粒度 Roadmap · TodoList · 验收 Checklist
 
 > 2026-06-12 · 基于：技术过会方案 §6（M0-M4）+ 评审 D 系调整（+3 周）+ 实际进度对账。
-> 2026-06-15 更新：按 ADR-006/ADR-008，网页端/wasm 暂停维护；产品化路线只保留 PC Tauri + Flutter 手机端；HTTP/WS client 与 Storage 一样走 shared Rust host driver，前端只负责命令、事件与渲染。
+> 2026-06-15 更新：按 ADR-006/ADR-010，网页端/wasm 暂停维护；产品化路线只保留 PC Tauri + Flutter 手机端；HTTP/WS client 与 Storage 一样走 shared Rust host driver，前端只负责命令、事件与渲染。
 > 2026-06-16 更新：shared HTTP/WS client 代码边界已阶段落地到 `helix-driver-host`；native/ffi Rust 侧复用同一套 client 与 header registry。真 Go smoke、WS reconnect/backoff 与 proxy/TLS/cert knobs 仍按后续联调项推进。
 > 当前位置：**按日历 M2 第一周，按交付物 M2 中后段**（M1 全部 + M2 约 60% 已完，见 git log `519bbde..85e07ec`）。
 

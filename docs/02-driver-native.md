@@ -1,7 +1,7 @@
 # helix-driver-native —— Native 驱动层设计文档
 
 > **版本** 2026-06-08 · 基于 cses-client 源码实测 + 三栖约束底座
-> **状态更新（2026-06-15 / ADR-007/ADR-008）**：PC native 的 SQLite 存储不再单独维护 sqlx 语义；HTTP/WS client 也不再作为 PC 专属逻辑长期分叉。`helix-driver-native` 作为 PC/Tauri 壳复用 `helix-driver-host` 的 rusqlite schema/migration、StorageOp 兑现、rows reply 编解码以及共享 HTTP/WS client 能力。
+> **状态更新（2026-06-15 / ADR-007/ADR-010）**：PC native 的 SQLite 存储不再单独维护 sqlx 语义；HTTP/WS client 也不再作为 PC 专属逻辑长期分叉。`helix-driver-native` 作为 PC/Tauri 壳复用 `helix-driver-host` 的 rusqlite schema/migration、StorageOp 兑现、rows reply 编解码以及共享 HTTP/WS client 能力。
 >
 > **本文目的**：详述 `helix-driver-native` 如何作为 Tauri/PC 平台壳接入共享 host driver，并说明多线程并发模型（WS runtime / shared blocking SQLite worker / effect worker 分片）如何驻扎在驱动层而非 core。Tauri 前端只走 command/event，不直接实现业务 HTTP/WS。
 

@@ -210,3 +210,26 @@ Phase 5 吐指令到各 Driver
 - **event_seq 跳号容忍**：parser/gate 必须容忍非连续 event_seq，靠 sync 自补；不可假设 +1 连续（仅 WS 实时严格+1，sync 跳洞）。
 - **跨会话 gate 残留**：现网每个 hello 窗口起点 drain gate_states + 清 dedup 集（2026-06-05 实测陈旧 cursor 卡首屏）。helix 需「会话边界 reset」入口。
 - **心跳同步快照**：piggyback `build_ping_data` 在同步闭包跑（不能 await），需 core 提供同步可读镜像。
+
+---
+
+## 8. expert-panel-review 结论落地（2026-06-16，4 专家对抗证伪）
+
+### 8.1 [critical·已修] mattermost ID 全族用 Id26，msgId 不能留 u64
+- **发现**：§1.5 ChannelEvent.msgId、§1.6 phantom 的 `messages{msgId:Post}`、§5 echo 对账的 `server_id` 全是 26 字符 base32（含 a-z 非数字）。但 `ServerId(pub u64)` 仍是 u64，reconcile 写 `Integer(server_id.0 as i64)`——真 Go msgId 解析失败/截断 → **C1 echo→reconcile 整条死**，且与 ADR-009（channelId 已 Id26）自相矛盾。
+- **落地**：B0b（commit `c1025ff`）`ServerId(u64)→ServerId(Id26)`，messages.id 列 `Integer→Text`。**ID 族铁律**：channelId / msgId / actorId / userId 等 mattermost 26 字符 ID 一律 Id26 + SQL TEXT；**唯独 `event_seq` 是 `Seq(u64)` 数值 cursor（Go `eventSeq:int64`），不是 ID，不迁移**。C 阶段 actorId（read_echo）按需补 `ActorId(Id26)`。
+
+### 8.2 [medium] one-shot timer 必须模块自清（core 无 one-shot 语义）
+- **发现**：core 的 TimerMap 把**所有** timer 当 recurring（`Tick::Timer` 只 peek 不移除，唯一移除入口是模块发 `Effect::CancelTimer`）。one-shot timer 若**自然触发**而 handler 不补 CancelTimer → timer id 永久滞留 map（`alloc_timer` 单调不复用 → 慢泄漏）。
+- **落地（B-rest/C 实现铁律，回链 core CLAUDE.md §4「one-shot timer 须 CancelTimer」）**：
+
+| timer 用途 | kind | arm 点 | 清除点 |
+|---|---|---|---|
+| 1s gate（缺口补拉） | one-shot | seq>cursor+1 buffer 时 | seq 补齐 cancel；**自然触发后 handler 自发 CancelTimer** |
+| 15s 发送超时 | one-shot | send 命令吐 | echo 对账 cancel；**自然触发（标 UnSend）后 handler 自发 CancelTimer** |
+| 5s 节流（pong 补偿） | one-shot | 补偿触发时 | **自然触发后 handler 自发 CancelTimer** |
+| ping 心跳 | recurring | on_start / 握手后 | 与 hello.pingInterval（实测 60s）对齐；Disconnected 时 CancelTimer |
+
+> 铁律：**one-shot timer 的 timeout handler 分支，在产出业务 Effect 的同时必须补 `Effect::CancelTimer(self)`**。否则 timer_map 慢泄漏。（更干净的做法是 core 给 Timer 加 one-shot 标志位让 engine 触发后自动 remove——属 core 改动需新 ADR，暂不做。）
+
+> 另：心跳 ping 当前是占位帧 `{action:"ping"}` + 间隔与 hello.pingInterval（60s）未对齐——真 Go 冒烟见握手后 ~8s disconnect 疑似此因，B-rest 对齐 ping 帧格式 + 间隔。

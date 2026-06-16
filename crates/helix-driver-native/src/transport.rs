@@ -139,6 +139,9 @@ impl Transport for NativeTransport {
         let (frame_tx, frame_rx) = mpsc::channel::<Result<Bytes, PortError>>(64);
         let id = self.id;
         let tick_tx_clone = self.tick_tx.clone();
+        // 联调工具：HELIX_DUMP_FRAMES 置位时打印每条入站原始帧（抓真 Go wire 做 golden fixtures）。
+        // 零成本（仅一次 env 读 + off 时不打印）；driver 层 ambient 合法。
+        let dump_frames = std::env::var("HELIX_DUMP_FRAMES").is_ok();
 
         let reader = tokio::spawn(async move {
             let mut stream = stream;
@@ -161,6 +164,15 @@ impl Transport for NativeTransport {
                 };
 
                 let Some(bytes) = data else { continue };
+
+                if dump_frames {
+                    tracing::info!(
+                        target: "helix_ws_frames",
+                        len = bytes.len(),
+                        frame = %String::from_utf8_lossy(&bytes),
+                        "RAW WS inbound"
+                    );
+                }
 
                 // A2：入站接线。
                 // 生产路径（tick_tx=Some）直接把入站帧作 `Tick::Inbound` 喂进泵，

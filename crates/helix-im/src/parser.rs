@@ -41,9 +41,23 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
         .and_then(ChannelId::from_str)
         .ok_or_else(|| ImError::Parse("missing/invalid data.channel_id".to_string()))?;
 
-    let seq = data["seq"]
+    // event_seq 三级 fallback（设计文档 §1.5，后端注入位置不统一）：
+    //   ① data.event_seq（权威，真 Go int64 数值）
+    //   ② per-post props.channel_event_seq（posted 帧冗余）
+    //   ③ 顶层 channel_event_seq（legacy）
+    // 兼容兜底：legacy data.seq（无 action 抽象 wire / 既有测试帧）。
+    // 真 event_seq 是 int64 数值（Seq(u64)），非 26 字符 id；零信任只取 as_u64。
+    let seq = data["event_seq"]
         .as_u64()
-        .ok_or_else(|| ImError::Parse("missing data.seq".to_string()))?;
+        .or_else(|| data["props"]["channel_event_seq"].as_u64())
+        .or_else(|| v["channel_event_seq"].as_u64())
+        .or_else(|| data["seq"].as_u64())
+        .ok_or_else(|| {
+            ImError::Parse(
+                "missing event_seq (data.event_seq / props.channel_event_seq / channel_event_seq / data.seq)"
+                    .to_string(),
+            )
+        })?;
 
     let event_type = data["event_type"].as_u64().unwrap_or(1) as u8;
 
@@ -127,12 +141,32 @@ pub fn classify_frame(bytes: &[u8]) -> FrameClass {
 
 /// 解析 `increment_channel` 帧的 `data` → `IncrementChannel`（边界零信任，非法→None）。
 ///
-/// **B-r0 stub**：当前返回 None（→ classify 暂归 Ignored，行为不变）。
-/// TODO(B-rest 分片A 实现)：按设计文档 §1.3 解析真 Go data——
-///   `id`(26 字符 channelId, 经 `ChannelId::from_str`) / `lastEventSeq`(Seq) / `needSync`(bool, 缺省 true)；
-///   `raw` = 整个 data 的字节（供 emit im:channel:increment 透传）。
-pub fn parse_increment_channel(_data: &serde_json::Value) -> Option<IncrementChannel> {
-    None
+/// 按设计文档 §1.3 解析真 Go `IncrementChannel.ToMap()` 的 data：
+///   - `id`：26 字符 base32 channelId → `ChannelId::from_str`（零信任，非 26 字符→None）。
+///   - `lastEventSeq`：int64 服务端当前 max event_seq → `Seq`（作离线同步 v2 cursor 种子）。
+///   - `needSync`：bool，**缺省 true**（多拉不漏；false=已追平可省 sync）。
+///   - `raw`：`serde_json::to_vec(data)`（供 emit im:channel:increment 透传 mentionList/urgentPostList）。
+///
+/// 任一必填非法（缺 id / id 非 26 字符 / lastEventSeq 非数值）→ None（不 panic / unwrap）。
+pub fn parse_increment_channel(data: &serde_json::Value) -> Option<IncrementChannel> {
+    let channel_id = data
+        .get("id")
+        .and_then(|v| v.as_str())
+        .and_then(ChannelId::from_str)?;
+    let last_event_seq = Seq(data.get("lastEventSeq").and_then(|v| v.as_u64())?);
+    // needSync 缺省 true：宁可多拉一次 sync，也不漏增量（§1.3 防前端永久 loading）。
+    let need_sync = data
+        .get("needSync")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let raw = bytes::Bytes::from(serde_json::to_vec(data).ok()?);
+
+    Some(IncrementChannel {
+        channel_id,
+        last_event_seq,
+        need_sync,
+        raw,
+    })
 }
 
 /// 解析 sync/notify HTTP 响应为 SyncResponse。

@@ -26,6 +26,7 @@
 | **现网对齐·IPC 契约·Tauri 接缝** | `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | 👤 人工 | 判断触发 |
 | **内核循环·Effect 批次·调度** | `dioxus-dev`（仅 core 经验，禁渲染层） ↔ `/dioxus-knowledge` | 👤 人工 | 判断触发 |
 | **文档↔代码漂移（熵管理）** | `/helix-drift-check` + 更新状态文档 + 查 harness 索引不变量 | 👤 人工（可挂 cron） | slash |
+| **架构偏移收敛（gap≥5 commit）** | `scripts/review-gap.sh` 命中 → `Workflow({name:"architecture-drift-review"})` → 更新 `docs/review/workflow-review-ledger.md` | 👤 人工（强制触发，可挂 hook 兜底）| 闸门脚本 + workflow（见 `.claude/rules/agent-review-cadence.md`）|
 | **同根因≥3 / 用户拍板 / Spec** | 新建 `docs/harness/HX-C{NNN}` + 同步索引三处 | 👤 人工 | 三铁律（README §1） |
 
 ---

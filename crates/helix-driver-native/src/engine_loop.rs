@@ -133,6 +133,11 @@ enum OwnedEffect {
         corr: Correlation,
         req: HttpRequest,
     },
+    Request {
+        corr: Correlation,
+        kind: &'static str,
+        payload: Bytes,
+    },
     Emit {
         event: DomainEventBytes,
     },
@@ -165,6 +170,15 @@ fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
             Effect::Http { corr, req } => OwnedEffect::Http {
                 corr: *corr,
                 req: req.clone(),
+            },
+            Effect::Request {
+                corr,
+                kind,
+                payload,
+            } => OwnedEffect::Request {
+                corr: *corr,
+                kind,
+                payload: payload.clone(),
             },
             Effect::Emit { event } => OwnedEffect::Emit {
                 event: event.clone(),
@@ -462,6 +476,24 @@ async fn dispatch_effects(
                     transport_id = transport.raw(),
                     frame_len = frame.len(),
                     "Effect::Send — wire Transport into engine_loop for production"
+                );
+            }
+
+            // ── Request（EventBus REP·方向①：发起端）─────────────────────
+            // TODO(方向①收尾): 接入 HostRequester port，把请求转交宿主，
+            //   再把宿主回复包成 Tick::PortReply{corr} 经 reply_tx 回灌。
+            //   当前为 deferred stub——仅日志、不回灌（生产模块尚未发起 Request；
+            //   core 侧闭环已由 helix-core/tests/request_reply_replay.rs 验证）。
+            OwnedEffect::Request {
+                corr,
+                kind,
+                payload,
+            } => {
+                tracing::warn!(
+                    corr = corr.raw(),
+                    kind,
+                    payload_len = payload.len(),
+                    "Effect::Request 尚未接入 HostRequester port（方向① deferred）"
                 );
             }
 

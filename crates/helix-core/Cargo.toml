@@ -19,6 +19,10 @@ async-trait     = { workspace = true }
 futures-channel = { workspace = true }
 tracing         = { workspace = true }
 
+[dev-dependencies]
+# 集成测试（tests/*.rs）是独立 crate，需显式声明用到的普通依赖
+bytes = { workspace = true }
+
 # 编译期护栏（Bun 对齐 2.1/2.4）：deny ambient 时间/线程/打印——纪律变契约
 [lints.clippy]
 disallowed_methods = "deny"

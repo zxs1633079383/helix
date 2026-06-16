@@ -44,6 +44,14 @@
 
 ---
 
+## 🔧 MVP 实现设计（active）
+
+| 文档 | 说明 |
+|---|---|
+| [EventBus REP 双向通道设计](./helix-eventbus-rep-双向通道设计.md) | EventBus PUB（单向）vs REP（双向）判据 + 方向①（core 问宿主：入群邀请待决策）/ 方向②（宿主问 core：查询同步进度）各一场景落地。方向① core 侧已通（`Effect::Request` + corr_map 复用 PortReply + 回放测试）；方向②待实现。 |
+
+---
+
 ## 📂 参考 / 历史文档（非主线，按需查）
 
 | 文档 | 说明 |

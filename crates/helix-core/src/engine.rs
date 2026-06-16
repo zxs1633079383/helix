@@ -171,7 +171,9 @@ impl ExecutionShell {
     fn register_effects_to_maps(&mut self, module_index: usize) {
         for effect in self.scratch.as_slice() {
             match effect {
-                Effect::Persist { corr, .. } | Effect::Http { corr, .. } => {
+                Effect::Persist { corr, .. }
+                | Effect::Http { corr, .. }
+                | Effect::Request { corr, .. } => {
                     self.corr_map.register(*corr, module_index);
                 }
                 Effect::ScheduleTimer { id, .. } => {

@@ -224,6 +224,25 @@ pub enum Effect {
     /// driver 执行后产出 `Tick::PortReply{corr, outcome=Ok(resp)/Err}`。
     Http { corr: Correlation, req: HttpRequest },
 
+    /// 主动请求宿主（EventBus REP 模式·方向① core→host→core）：带 Correlation。
+    ///
+    /// 与 `Http`/`Persist` 同构——driver 把请求转交宿主（UI / FFI host / JS），
+    /// 宿主处理后**必须**产出 `Tick::PortReply{corr, outcome}`，
+    /// 经 `ExecutionShell::corr_map` 定向回投给发起该 corr 的模块。
+    ///
+    /// - `kind`：编译期常量路由键（如 "ask_user" / "host_config"），core 不解析其含义
+    /// - `payload`：已序列化的请求字节（由模块 ACL 序列化）
+    ///
+    /// ## 与 `Emit` 的区别
+    ///
+    /// `Emit` 是单向 PUB（fire-and-forget，无回音）；
+    /// `Request` 是双向 REP 的**发起端**（要回音，靠 corr 配对，复用 PortReply 回路）。
+    Request {
+        corr: Correlation,
+        kind: &'static str,
+        payload: Bytes,
+    },
+
     /// 发布领域事件（同步 push，不等待）。
     /// driver 调用 EventSink::emit，事件字节已在 ACL-1 序列化。
     Emit { event: DomainEventBytes },

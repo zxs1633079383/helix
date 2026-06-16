@@ -17,7 +17,18 @@ mod common;
 use common::*;
 
 use helix_core::effect::{Correlation, TransportId};
-use helix_core::Tick;
+use helix_core::{Effect, Tick};
+
+/// 收集本批所有 Http effect 的 (method, url)（断言 increment HTTP vs sync/notify）。
+fn http_reqs(sink: &helix_core::EffectSink) -> Vec<(String, String)> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Http { req, .. } => Some((req.method.clone(), req.url.clone())),
+            _ => None,
+        })
+        .collect()
+}
 
 // ─── 核心验收：scan 3 行 → 3 个 channel 注册 + Connected 后 3 个 sync Http ──────
 
@@ -65,16 +76,21 @@ fn scan_reply_registers_channels_and_syncs_on_connected() {
         connected_effects
     );
 
-    // A4：收到 hello → 握手完成 → 对 3 个已加载 channel 发 sync Http
-    let hello_effects = h.step(hello_inbound("CONN_1"), 300);
-    let http_count = hello_effects
-        .iter()
-        .filter(|e| matches!(e, EffectKind::Http(_)))
-        .count();
+    // A4+B-rest：收到 hello → 握手完成 → 触发 1 个 increment HTTP（带 3 个已加载 channel 游标），
+    // 不再逐 channel resync。scan 载入 channel 的正确性由 scan_reply_loads_correct_cursors 覆盖。
+    h.step(hello_inbound("CONN_1"), 300);
+    let reqs = http_reqs(&h.sink);
     assert_eq!(
-        http_count, 3,
-        "hello 握手后应对 3 个已加载 channel resync, got: {:?}",
-        hello_effects
+        reqs.len(),
+        1,
+        "hello 后应发 1 个 increment HTTP（带 3 channel 游标），got: {:?}",
+        reqs
+    );
+    assert_eq!(reqs[0].0, "POST");
+    assert!(
+        reqs[0].1.ends_with("/channels/load/increment"),
+        "hello 须触发 increment HTTP 而非逐 channel sync，got: {}",
+        reqs[0].1
     );
 }
 
@@ -93,19 +109,24 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         })
         .expect("on_start should emit Persist(Scan)");
 
-    // A4：先 Connected（→Connecting）再 hello（→Connected 握手完成）；此时 channels 空，无 Http
+    // A4：先 Connected（→Connecting）再 hello（→Connected 握手完成）。
+    // B-rest：即使 channels 空，hello 也触发 1 个 increment HTTP（空 cursors）——旧「空→0 Http」前提不再成立。
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
-    let hello_effects = h.step(hello_inbound("CONN_1"), 150);
+    h.step(hello_inbound("CONN_1"), 150);
+    let hello_reqs = http_reqs(&h.sink);
     assert_eq!(
-        hello_effects
-            .iter()
-            .filter(|e| matches!(e, EffectKind::Http(_)))
-            .count(),
-        0,
-        "握手完成但 channels 为空，应 0 Http"
+        hello_reqs.len(),
+        1,
+        "B-rest：hello 即使 channels 空也发 1 个 increment HTTP，got: {:?}",
+        hello_reqs
+    );
+    assert!(
+        hello_reqs[0].1.ends_with("/channels/load/increment"),
+        "hello 须触发 increment HTTP，got: {}",
+        hello_reqs[0].1
     );
 
-    // 然后 scan 回报（已握手完成/Connected）→ 应立即发 3 个 Http
+    // 然后 scan 回报（已握手完成/Connected）→ E4 路径仍立即对 3 个 scan 载入 channel 发 sync Http
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
     let scan_port_reply = port_reply_with_body(scan_persist_corr, scan_body);
     let reply_effects = h.step(scan_port_reply, 200);

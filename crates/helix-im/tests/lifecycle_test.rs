@@ -10,7 +10,30 @@ mod common;
 use common::*;
 
 use helix_core::effect::TransportId;
-use helix_core::Tick;
+use helix_core::{Effect, Tick};
+use helix_im::state::{ChannelId, Seq};
+use helix_im::sync_session::IncrementChannel;
+
+/// 收集本批所有 Http effect 的 (method, url)（断言 increment HTTP vs sync/notify）。
+fn http_reqs(sink: &helix_core::EffectSink) -> Vec<(String, String)> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Http { req, .. } => Some((req.method.clone(), req.url.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 构造 IncrementChannel（数值 id → 26 字符）。
+fn inc(channel_id: u64, last_event_seq: u64, need_sync: bool) -> IncrementChannel {
+    IncrementChannel {
+        channel_id: ChannelId::from_test_u64(channel_id),
+        last_event_seq: Seq(last_event_seq),
+        need_sync,
+        raw: bytes::Bytes::from_static(b"{}"),
+    }
+}
 
 // ─── on_start 行为 ────────────────────────────────────────────────────────────
 
@@ -60,20 +83,45 @@ fn connected_triggers_proactive_resync_for_each_channel() {
     let mut h = Harness::new(&[1, 2, 3]);
     h.start(0);
 
-    // A4：Connected 只置 Connecting，resync 在 hello 握手后
+    // A4：Connected 只置 Connecting；B-rest：hello 后触发 1 个 increment HTTP（非逐 channel resync）
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
-    let hello_effects = h.step(hello_inbound("CONN_1"), 600);
-
-    // 应对 3 个 channel 各发一个 Http（sync/notify）
-    let http_count = hello_effects
-        .iter()
-        .filter(|e| matches!(e, EffectKind::Http(_)))
-        .count();
+    h.step(hello_inbound("CONN_1"), 600);
+    let reqs = http_reqs(&h.sink);
     assert_eq!(
-        http_count, 3,
-        "hello 握手后应对 3 个 channel 发 3 个 Http sync/notify, got: {:?}",
-        hello_effects
+        reqs.len(),
+        1,
+        "B-rest：hello 后应只发 1 个 increment HTTP（不再逐 channel resync），got: {:?}",
+        reqs
     );
+    assert_eq!(reqs[0].0, "POST", "increment 触发须 POST");
+    assert!(
+        reqs[0].1.ends_with("/channels/load/increment"),
+        "hello 须触发 increment HTTP 而非 sync/notify，got: {}",
+        reqs[0].1
+    );
+
+    // 真 sync 在 increment_channel ×3 + increment_end(None=global) 后，对 3 个增量群各发一次 sync POST。
+    h.sink.clear();
+    for ch in [1u64, 2, 3] {
+        h.module.ingest_increment(&inc(ch, 0, true), &mut h.sink);
+    }
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+    let syncs = http_reqs(&h.sink);
+    assert_eq!(
+        syncs.len(),
+        3,
+        "global-end 须对 3 个增量群各发一次 sync POST，got: {:?}",
+        syncs
+    );
+    for (method, url) in &syncs {
+        assert_eq!(method, "POST", "sync/notify 须 POST（设计文档 §1.4）");
+        assert!(
+            url.ends_with("/channel/sync/notify"),
+            "global-end 须发 sync/notify，got: {}",
+            url
+        );
+    }
 }
 
 #[test]
@@ -96,23 +144,42 @@ fn connected_with_no_channels_emits_no_http() {
 fn connected_each_channel_gets_different_corr() {
     let mut h = Harness::new(&[10, 20, 30]);
     h.start(0);
-    // A4：resync 在 hello 握手后
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
-    let effects = h.step(hello_inbound("CONN_1"), 600);
 
-    let http_corrs: Vec<u64> = effects
+    // B-rest：hello 只发 1 个 increment HTTP（corr 唯一性移到 global-end sync 路径验证）
+    let effects = h.step(hello_inbound("CONN_1"), 600);
+    let hello_http = effects
         .iter()
-        .filter_map(|e| {
-            if let EffectKind::Http(c) = e {
-                Some(*c)
-            } else {
-                None
-            }
+        .filter(|e| matches!(e, EffectKind::Http(_)))
+        .count();
+    assert_eq!(
+        hello_http, 1,
+        "hello 只发 1 个 increment HTTP, got: {:?}",
+        effects
+    );
+
+    // global-end sync：3 个增量群 → 3 个 sync Http，各 corr 互不相同。
+    h.sink.clear();
+    for ch in [10u64, 20, 30] {
+        h.module.ingest_increment(&inc(ch, 0, true), &mut h.sink);
+    }
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+    let sync_corrs: Vec<u64> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Http { corr, .. } => Some(corr.raw()),
+            _ => None,
         })
         .collect();
-    assert_eq!(http_corrs.len(), 3);
-    // 所有 corr 应互不相同
-    let unique: std::collections::HashSet<u64> = http_corrs.iter().copied().collect();
+    assert_eq!(
+        sync_corrs.len(),
+        3,
+        "global-end 应对 3 群各发一个 sync Http"
+    );
+    let unique: std::collections::HashSet<u64> = sync_corrs.iter().copied().collect();
     assert_eq!(unique.len(), 3, "each sync Http should have a unique corr");
 }
 
@@ -142,16 +209,35 @@ fn disconnected_then_reconnect_triggers_new_resync() {
     h.step(hello_inbound("CONN_1"), 600); // 首次握手
     h.step(Tick::Disconnected(TransportId::from_raw(0)), 1000);
 
-    // 第二次连接 + 重新握手（hello 带新 connectionId）
+    // 第二次连接 + 重新握手（hello 带新 connectionId）→ B-rest：1 个 increment HTTP
     h.step(Tick::Connected(TransportId::from_raw(0)), 2000);
-    let reconnect_effects = h.step(hello_inbound("CONN_2"), 2100);
-    let http_count = reconnect_effects
-        .iter()
-        .filter(|e| matches!(e, EffectKind::Http(_)))
-        .count();
+    h.step(hello_inbound("CONN_2"), 2100);
+    let reqs = http_reqs(&h.sink);
     assert_eq!(
-        http_count, 2,
-        "reconnect 后再次 hello 应对所有 channel 重新 resync"
+        reqs.len(),
+        1,
+        "重连 hello 后应发 1 个 increment HTTP（重连 sync 走 increment_end），got: {:?}",
+        reqs
+    );
+    assert!(
+        reqs[0].1.ends_with("/channels/load/increment"),
+        "重连须触发 increment HTTP，got: {}",
+        reqs[0].1
+    );
+
+    // 重连 sync 走 increment_end(None)：喂 2 群 + global-end → 2 个 sync POST。
+    h.sink.clear();
+    for ch in [1u64, 2] {
+        h.module.ingest_increment(&inc(ch, 0, true), &mut h.sink);
+    }
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+    let syncs = http_reqs(&h.sink);
+    assert_eq!(
+        syncs.len(),
+        2,
+        "重连 increment_end 后应对 2 群发 2 个 sync POST，got: {:?}",
+        syncs
     );
 }
 

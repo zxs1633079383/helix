@@ -743,12 +743,21 @@ impl Module for ImModule {
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
             Tick::Inbound(bytes) => {
-                // A4：先 peek 是否 hello 握手帧（现网 Go 连上后单向下发，无需回 ack）。
-                if let Some(connection_id) = crate::parser::parse_hello(bytes.as_bytes()) {
-                    self.handle_hello(connection_id, out);
-                    return Ok(());
+                // B1：按真 Go 信封顶层 action 分类（{v,action,data,broadcast,seq}）。
+                match crate::parser::classify_frame(bytes.as_bytes()) {
+                    crate::parser::FrameClass::Hello(connection_id) => {
+                        // A4 握手：现网 Go 连上后单向下发 hello，收到即完成。
+                        self.handle_hello(connection_id, out);
+                        return Ok(());
+                    }
+                    crate::parser::FrameClass::Ignored => {
+                        // 运维帧（status_change/typing/…）+ 真 Go action 事件帧（待 ChannelId
+                        // u64→String 迁移才能真处理）一律优雅忽略——不报错、不刷日志。
+                        return Ok(());
+                    }
+                    crate::parser::FrameClass::Event => { /* 落到下方 legacy 事件路径 */ }
                 }
-                // 非 hello → 现有事件路径（ACL-1 解析入站帧）
+                // legacy {event,data} 数值帧 → 现有事件路径（ACL-1 解析入站帧）
                 match acl::from_tick::parse_inbound_tick(tick) {
                     Ok(ev) => {
                         if let Some(ch) = self.state.channels.get_mut(&ev.channel_id) {

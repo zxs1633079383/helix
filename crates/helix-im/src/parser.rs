@@ -71,6 +71,48 @@ pub fn parse_hello(bytes: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 入站帧按真 Go 信封顶层 `action` 分类的结果。
+///
+/// 真 Go 信封实测形态：`{"v":1,"action":"<type>","data":{...},"broadcast":{...},"seq":<信封序号>}`
+/// （`action` 在顶层、`seq` 是信封序号非 event_seq；样本见 tests/fixtures/real_go_frames/）。
+#[derive(Debug, PartialEq, Eq)]
+pub enum FrameClass {
+    /// hello 握手帧，携带 connectionId（A4 握手）。
+    Hello(String),
+    /// 运维/状态/真 Go action 帧——当前优雅忽略（不报错、不刷日志）。
+    ///
+    /// 现网 status_change / multiple_channels_viewed / typing / presence 等本就可丢；
+    /// 而 increment_channel / posted 等真事件帧的**真实处理**需先做 `ChannelId u64→String`
+    /// 迁移（真 Go channelId 是 26 字符串，helix 当前是 u64）——该迁移是 Phase B 余下部分的
+    /// 前置阻塞项，未完成前这些帧归为 Ignored 不误报。
+    Ignored,
+    /// legacy `{event,data}` 数值帧（抽象 wire / 既有测试）——走 `parse_inbound` 事件路径。
+    Event,
+}
+
+/// 按真 Go 信封顶层 `action` 分类入站帧。零信任：非法 JSON / 缺字段 → Ignored（不 panic）。
+///
+/// - `action=="hello"` → `Hello(connectionId)`
+/// - 其它 `action`（status_change / increment_channel / posted 等真 Go 帧）→ `Ignored`
+///   （真实处理待 ChannelId u64→String 迁移；当前不误报）
+/// - 无 `action`（legacy `{event,data}` 帧）→ `Event`（既有数值事件路径）
+pub fn classify_frame(bytes: &[u8]) -> FrameClass {
+    let v: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(v) => v,
+        Err(_) => return FrameClass::Ignored,
+    };
+    match v.get("action").and_then(|a| a.as_str()) {
+        Some("hello") => v
+            .get("data")
+            .and_then(|d| d.get("connectionId"))
+            .and_then(|c| c.as_str())
+            .map(|id| FrameClass::Hello(id.to_string()))
+            .unwrap_or(FrameClass::Ignored),
+        Some(_) => FrameClass::Ignored,
+        None => FrameClass::Event,
+    }
+}
+
 /// 解析 sync/notify HTTP 响应为 SyncResponse。
 ///
 /// 4 种形态之一：

@@ -64,7 +64,9 @@
 
 ## 2. helix 现状 vs 目标错位表
 
-| 维度 | helix 现状（抽象简化版） | 目标（真 Go wire） |
+> ✅ **本表「helix 现状」列为 2026-06-15 的旧抽象态，已被 B1/B2/B3 纠正（commit 6d83ad5，见 §6 Phase B）**——增量已拆 push/pull 两链路、WS 入站读 `event_seq` 三级 fallback、sync 端点 `POST {cursors}` 真 wire。下表保留作设计依据/对照。
+
+| 维度 | helix 现状（抽象简化版，已纠正） | 目标（真 Go wire，已落地） |
 |---|---|---|
 | 增量模型 | 单一 `GET /sync/notify` 拉 | increment（push）+ sync/notify（pull）**两条** |
 | WS 入站字段 | `data.seq` 一级 | `data.event_seq` + 三级 fallback |
@@ -185,21 +187,24 @@ Phase 5 吐指令到各 Driver
 - ✅ A4 `parse_hello` 帧识别 + 握手时序（Connected→Connecting→收 hello→Connected）+ `emit im:connection:established`。修 🔴 旧 bug（Connected 即 resync→现网 Go 401）。— `d7ef3c6`
 - **验收**：✅ host-cli 可连 `ws://...:8065/api/v4/websocket`（无 Go 时 connect 失败不 panic）；✅ 入站帧→Tick::Inbound 本地 WS 测试绿；✅ helix-im 51 测试绿（含 4 新 handshake replay）；✅ core 零运行时保持。**待真 Go 联调冒烟**（需起 Go 服务端 + 真 cookieId）。
 
-### Phase B — increment 真 wire
-- B1 parser：`increment_channel`/`increment_channel_end` 解析 + event_seq 三级 fallback（`seq`→`event_seq` 重命名，parser/sync_session/to_effect 三处同步）。
-- B2 `handle_increment`/`handle_increment_end` + `LastEventSeq` cursor 消费 + increment_fetched/needSync-skip 集 + global-end→proactive_resync。
-- B3 `/sync/notify` GET→POST + `{cursors:[]}` body；SyncEntry 真字段（nextSeq/resetTo/messages）。
-- **验收**：UC-1/UC-3 真 Go smoke（发消息→上屏→echo→正式 id；离线>500→续拉至 no_change，cursor==服务端 maxSeq）。
+### Phase B — increment 真 wire ✅ 主体完成（2026-06-16）
+- ✅ B1 parser：`increment_channel`/`increment_channel_end` 解析 + event_seq 三级 fallback。
+- ✅ B2 `handle_increment`/`handle_increment_end` + `LastEventSeq` cursor 消费 + increment_fetched/needSync-skip 集 + global-end→proactive_resync。（剩 B2 increment_end **冷启动自愈** 未做）
+- ✅ B3 `/sync/notify` GET→POST + `{cursors:[]}` body；SyncEntry 真字段（commit `6d83ad5`，HX-C008）：真 wire `{status,data:{entries:[SyncEntry]}}`、`eventSeq` 游标、续拉 `len≥500`、cursor 锚权威 `nextSeq`。修了 139 个 `missing 'type'`。
+- ➕ **持久化层**（678 对齐，本会话）：host-cli `IM_SCHEMA`（message/channel/channel_member）execv_raw 建表于 Application Support 多租户 tenant.db；cursor 真源 `_helix_monotonic`（`channel_event_cursor` 暂不建，M2 再引）；发送路径落 message。
+- **验收**：单测全绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连/入站达泵）。剩 UC-1 端到端（依赖 C 阶段）。
 
-### Phase C — 正确性 + EventBus 全量
-- C1 echo→reconcile 激活（死代码接进 Inbound，echo 帧解析 temporary_id/server_id）。
-- C2 B5 phantom（msg_id 维度 + messages.get==None 判定，cursor 推进不渲染）+ B3 type=6 readBits 单调覆盖。
-- C3 21 个 emit 事件补全 + `im:__bus__` 信封接线（NativeEventSink→app.emit）。**可 fan-out 并行**（事件相对独立）。
+### Phase C — 正确性 + EventBus 全量 ❌ 未做（大头）
+- ❌ C1 echo→reconcile 激活（`handle_echo` 仍 `#[allow(dead_code)]` 未接 Inbound）。
+- ❌ C2 B5 phantom（`SyncEntry.messages` Post map→message 内容落库 + cursor 推进不渲染）+ B3 type=6 readBits。
+- ❌ C3 emit 仅 6/24 事件 + `im:__bus__` 信封未接（driver 只到 broadcast）。
 - **验收**：24 事件齐 + 前端零改动跑通（对齐现网 im:__bus__ 信封）。
 
-### Phase D — 真 Go smoke + golden fixtures
-- D 录制真实帧 → Tick 剧本 → `tests/fixtures/`（确定性 id/时间注入）+ UC-2/UC-4。
+### Phase D — 真 Go smoke + golden fixtures ❌ 未做
+- ❌ D 录制真实帧 → Tick 剧本 → `tests/fixtures/`（确定性 id/时间注入）+ UC-2/UC-4。
 - **验收**：现有 ROADMAP §三 M2 联调闸门全绿。
+
+> **架构基座（本会话 merge）**：main↔dev-zlc 已合（`fcf3222`），采纳 **ADR-010 共享 HTTP/WS client**——`NativeTransport`/`NativeHttp` 改薄壳复用 `helix-driver-host` 的 `SharedWsClient`/`SharedHttpClient`，真 Go 硬修保住（Text 帧/握手头/不回 hello/入站 `Tick::Inbound`）。开放：D1 FFI 句柄类型统一、D3 native·FFI registry 对称化、ping/退避重连。
 
 ---
 

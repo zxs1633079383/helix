@@ -47,13 +47,15 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 
 ## 二、TodoList（活账，按优先级）
 
+> **2026-06-16 进展**：B1/B2 主体 + **B3 sync 真 wire**（commit 6d83ad5，HX-C008）+ **持久化层 678 对齐**（IM_SCHEMA/多租户 tenant.db/cursor=_helix_monotonic）+ **merge main（ADR-010 共享 HTTP/WS client）**（fcf3222）均落地；交付 crate 全测绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连）。详见 `docs/过会方案/helix-sync-v2-real-go-wire-设计.md §6`。
+
 **P0（M2 收官阻塞）**
-- [ ] 最小 native 宿主 bin（`crates/helix-host-cli`）——transport 路由表从一开始做成 `HashMap<TransportId, NativeTransport>`（非单连接）+ host 集中分配 TransportId，给第二模块/多端口（如 3399）留对接缝。设计见 `docs/02-im-module-mount-and-core-generality.md §4.4`
+- [x] 最小 native 宿主 bin（`crates/helix-host-cli`）——transport 路由表 `HashMap<TransportId, NativeTransport>` + host 集中分配 TransportId（已落地，真 Go 冒烟跑通）
 - [ ] **UC-1 前置 4 块**（panel-review 2026-06-12 揪出，smoke 必须排在其后）：
-  - [ ] ① hello 握手时序：`Tick::Connected`→发 hello→收 hello-ack→置 Connected + emit `im:connection:established`（transport.rs:103-156 / module.rs:771-781 / 828）
-  - [ ] ② B4 event_seq 三级 fallback + hello-ack 帧解析（parser.rs:29-56 当前无）
-  - [ ] ③ B5 phantom 事件
-  - [ ] ④ echo→reconcile 路由：Inbound 分支识别 echo 帧调 `handle_echo`（module.rs:679 当前死代码 / 715-738 Inbound 分支）
+  - [x] ① hello 握手时序：`Tick::Connected`→收 hello→置 Connected + emit `im:connection:established`（真 Go 冒烟实测「hello handshake complete」）
+  - [x] ② B4 event_seq 三级 fallback（parser.rs 已实现）；hello-ack 帧解析（Go 单向下发 hello 无需回 ack）
+  - [ ] ③ B5 phantom 事件 + 离线消息内容落库（`SyncEntry.messages` Post map→message）
+  - [ ] ④ echo→reconcile 路由：Inbound 分支识别 echo 帧调 `handle_echo`（module.rs 当前 `#[allow(dead_code)]`）
 - [ ] B2 increment_end 冷启动自愈
 - [ ] UC-1 端到端真 Go smoke + golden fixtures（排在前置 4 块之后）
 - [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）

@@ -178,12 +178,12 @@ Phase 5 吐指令到各 Driver
 
 > 用户拍板「全量真 Go wire 一次性」。实现仍按依赖排序分阶段提交（防超时丢工作 + 单 commit 单 type），但 scope = 全部。
 
-### Phase A — 基础贯通（解锁真连 Go）
-- A1 `crates/helix-host-cli` 最小宿主 + `engine_loop` Send 接线 + `HashMap<TransportId, NativeTransport>` 路由表（从一开始多连接形态）。
-- A2 NativeTransport connect 触发模型 + Connected/Disconnected 回灌（谁调 connect 归属钉死：host-cli/driver）。
-- A3 driver 全局头 `cookieId=userId`（`set_global_header`）+ connectionId（im 盖章进 HttpRequest.headers）。
-- A4 parser hello 帧解析 + 握手时序（Connected→Connecting→hello→Connected）+ `emit im:connection:established`。
-- **验收**：host-cli 真连 `ws://...:8065/api/v4/websocket` + 收 hello + `im:connection:established` 可见 + 各配 replay 测试。
+### Phase A — 基础贯通（解锁真连 Go）✅ 完成（2026-06-16，commit e669f84..d7ef3c6）
+- ✅ A1 `crates/helix-host-cli` 最小宿主 + `engine_loop` Send 接线 + `HashMap<TransportId, Arc<Mutex<NativeTransport>>>` 路由表（多连接形态）。— `bf52b69`
+- ✅ A2 入站 WS 帧 → `Tick::Inbound` 接线（读任务独立持 stream 半边，不与 send 抢锁）+ 本地 WS server 集成测试。connect 触发：A2 决策保持 host 主动 connect，重连状态机归 helix-im（随后续 hello tick 驱动），Effect::Connect 暂不引入。— `b99fd7c`
+- ✅ A3 driver 全局头 `cookieId=userId`（host-cli `set_global_header`）+ connectionId（im 盖章进 HttpRequest.headers，`connection_id_headers()` 单点）。— `d7ef3c6`
+- ✅ A4 `parse_hello` 帧识别 + 握手时序（Connected→Connecting→收 hello→Connected）+ `emit im:connection:established`。修 🔴 旧 bug（Connected 即 resync→现网 Go 401）。— `d7ef3c6`
+- **验收**：✅ host-cli 可连 `ws://...:8065/api/v4/websocket`（无 Go 时 connect 失败不 panic）；✅ 入站帧→Tick::Inbound 本地 WS 测试绿；✅ helix-im 51 测试绿（含 4 新 handshake replay）；✅ core 零运行时保持。**待真 Go 联调冒烟**（需起 Go 服务端 + 真 cookieId）。
 
 ### Phase B — increment 真 wire
 - B1 parser：`increment_channel`/`increment_channel_end` 解析 + event_seq 三级 fallback（`seq`→`event_seq` 重命名，parser/sync_session/to_effect 三处同步）。

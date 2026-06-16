@@ -95,6 +95,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
 | HX-C007 | Effect 跨 FFI 边界批处理，不逐条 | active |
+| HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 
@@ -117,6 +118,16 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | `dioxus-dev` ↔ `/dioxus-knowledge` | **仅取 core 内核经验**（step 循环/Effect 批处理/调度），**禁渲染层/RSX 话题** | 内核循环设计对照、批次边界、调度公平性 |
 
 本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。
+
+## 4.7 架构 review 收敛节律（强制行为）
+
+> 完整规则见 [`.claude/rules/agent-review-cadence.md`](.claude/rules/agent-review-cadence.md)（按需 Read）。台账 [`docs/review/workflow-review-ledger.md`](docs/review/workflow-review-ledger.md) · 闸门 `scripts/review-gap.sh`。
+
+防 agent/workflow 自主改动「跑着跑着偏离架构」无人察觉：**自主改动每累计 5 个 commit，必须过一次架构 review 收敛。**
+
+- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 5` → 🔴 强制先派 `Workflow({name:"architecture-drift-review"})`（查 HX-C001..C008 + GOAL §1/§2 + 全流程合理性 → 对抗证伪 → drift 判定），review 通过 + 更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
+- **检查点**：开局新会话 / 每次 commit 后 / 派新 feature workflow 前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。
+- **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
 
 ## 5. 代码风格
 

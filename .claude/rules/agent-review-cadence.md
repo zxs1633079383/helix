@@ -3,7 +3,7 @@
 > 根 [`CLAUDE.md`](../../CLAUDE.md) 的约束层展开（按需 Read）。配套：
 > 台账 [`docs/review/workflow-review-ledger.md`](../../docs/review/workflow-review-ledger.md) ·
 > 闸门 `scripts/review-gap.sh` · review workflow `Workflow({name:"architecture-drift-review"})`。
-> 核心一句话：**自主改动每累计 5 个 commit，必须过一次架构 review 收敛，防偏移。**
+> 核心一句话：**自主改动每累计 10 个 commit，在 commit 检查点（非中途任务）过一次架构 review 收敛，防偏移。**
 
 ---
 
@@ -15,23 +15,29 @@ agent / workflow 自主连续改代码，跑着跑着可能悄悄偏离架构（
 
 ```
 gap = git rev-list --count <last_reviewed_commit>..HEAD     # 见 ledger
-gap ≥ 5  →  🔴 强制：先派发 Workflow({name:"architecture-drift-review"})，review 通过 + 更新 ledger 后，方可继续 feature 开发
+gap ≥ 10  →  🔴 强制：在 commit 检查点派发 Workflow({name:"architecture-drift-review"})，review 通过 + 更新 ledger 后，方可继续 feature 开发
 ```
 
-- **阈值 = 5 commit**（「临界点五个」）。
+- **阈值 = 10 commit**。
+- **只在 commit 检查点判定/触发，绝不中途任务触发**（见 §3）——不打断进行中的实现。
+- **可自动触发**（无需问用户）：命中即派 drift-review；workflow 内部已对抗证伪，主对话只读结论 → **省 token、高性价比**。
 - `last_reviewed_commit` 真源 = `docs/review/workflow-review-ledger.md`。
 - review 通过 → ledger `last_reviewed_commit` 改为本次 HEAD + 追历史行 + runId → gap 归 0。
 
 ## 3. 何时检查（触发点）
 
+> **铁律：只在 commit 检查点判定，绝不中途任务触发。** review 是收尾动作，不打断进行中的实现/调试。
+
 | 触发点 | 动作 |
 |---|---|
-| **开局新会话**（读完 ROADMAP/OPERATING 后）| 跑 `scripts/review-gap.sh`；退出码 1 → 本会话**第一件事**是派 review workflow，不先做 feature |
-| **每次 commit 后** | 跑 `scripts/review-gap.sh`；命中 → 立即收敛，不攒着 |
-| **准备派新 feature workflow 前** | 先 `scripts/review-gap.sh`；命中 → 先 review 后 feature |
-| **会话收尾** | gap≥4 时提醒「下次开局须 review」 |
+| **一批 commit 完成 + 工作树干净后**（主检查点）| 跑 `scripts/review-gap.sh`；退出码 1 → **自动**派 drift-review 收敛（此刻任务已落地，是合法检查点，不算中途）|
+| **开局新会话**（读完 ROADMAP/OPERATING 后）| 跑一次；命中 → 本会话第一件事先收敛再 feature |
+| **准备派新 feature workflow 前** | 跑一次；命中 → 先 review 后 feature |
+| **中途任务进行中（写代码/调试/未落 commit）** | ❌ 不跑、不触发——绝不打断；等落到 commit 检查点 |
+| **会话收尾** | gap≥9 时提醒「下次开局须 review」 |
 
-> `scripts/review-gap.sh` 退出码：0=ok / 1=强制 review / 2=ledger 异常。可挂 pre-push / Stop hook 兜底。
+> `scripts/review-gap.sh` 退出码：0=ok / 1=强制 review / 2=ledger 异常。可挂 pre-push / Stop hook 兜底（commit/push 时机天然是检查点）。
+> 自动触发授权：命中即派，无需问用户；drift-review 内部对抗证伪，主对话只读结论，token 高性价比。
 
 ## 4. review workflow 查什么（架构不偏移 + 全流程合理）
 
@@ -46,7 +52,8 @@ gap ≥ 5  →  🔴 强制：先派发 Workflow({name:"architecture-drift-revie
 
 ## 5. 强制规则
 
-- ❌ gap≥5 还继续派 feature workflow / 攒新改动 —— 必须先 review 收敛。
+- ❌ gap≥10 还继续派 feature workflow / 攒新改动 —— 必须先 review 收敛。
+- ❌ 中途任务（未落 commit）触发 review —— 只在 commit 检查点判定，不打断实现。
 - ❌ review 通过却不更新 ledger `last_reviewed_commit` —— gap 永不归零 = 闸门失效。
 - ❌ 把 `last_reviewed_commit` 手动跳到未真正 review 的 commit —— 闸门作弊。
 - ✅ review 发现 🔴 重 drift → 先修复回正再更新 ledger（ledger 指向「已收敛」的 commit）。

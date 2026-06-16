@@ -123,10 +123,10 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 > 完整规则见 [`.claude/rules/agent-review-cadence.md`](.claude/rules/agent-review-cadence.md)（按需 Read）。台账 [`docs/review/workflow-review-ledger.md`](docs/review/workflow-review-ledger.md) · 闸门 `scripts/review-gap.sh`。
 
-防 agent/workflow 自主改动「跑着跑着偏离架构」无人察觉：**自主改动每累计 5 个 commit，必须过一次架构 review 收敛。**
+防 agent/workflow 自主改动「跑着跑着偏离架构」无人察觉：**自主改动每累计 10 个 commit，在 commit 检查点过一次架构 review 收敛。**
 
-- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 5` → 🔴 强制先派 `Workflow({name:"architecture-drift-review"})`（查 HX-C001..C008 + GOAL §1/§2 + 全流程合理性 → 对抗证伪 → drift 判定），review 通过 + 更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
-- **检查点**：开局新会话 / 每次 commit 后 / 派新 feature workflow 前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。
+- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 10` → 🔴 强制先派 `Workflow({name:"architecture-drift-review"})`（查 HX-C001..C008 + GOAL §1/§2 + 全流程合理性 → 对抗证伪 → drift 判定），review 通过 + 更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
+- **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature workflow 前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。命中**可自动派**（无需问用户，token 高性价比）。
 - **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
 
 ## 5. 代码风格

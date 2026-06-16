@@ -11,7 +11,7 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 LEDGER="docs/review/workflow-review-ledger.md"
-THRESHOLD=5
+THRESHOLD=10
 
 [ -f "$LEDGER" ] || { echo "⛔ 缺 $LEDGER"; exit 2; }
 

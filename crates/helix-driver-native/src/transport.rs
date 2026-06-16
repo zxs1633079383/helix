@@ -25,6 +25,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
+use helix_core::tick::InboundBytes;
 use helix_core::PortError;
 use helix_core::Tick;
 
@@ -112,23 +113,13 @@ impl Transport for NativeTransport {
         let reader = tokio::spawn(async move {
             let mut stream = stream;
             while let Some(msg) = stream.next().await {
-                match msg {
-                    Ok(Message::Binary(data)) => {
-                        if frame_tx.send(Ok(Bytes::from(data))).await.is_err() {
-                            break; // 接收端已关闭
-                        }
-                    }
-                    Ok(Message::Text(text)) => {
-                        if frame_tx
-                            .send(Ok(Bytes::from(text.into_bytes())))
-                            .await
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
-                        // tungstenite 自动处理 Ping/Pong，此处透传
+                // 先归一化数据帧字节（Binary/Text 统一 Bytes）；控制帧/关闭单独处理。
+                let data: Option<Bytes> = match msg {
+                    Ok(Message::Binary(data)) => Some(Bytes::from(data)),
+                    Ok(Message::Text(text)) => Some(Bytes::from(text.into_bytes())),
+                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => {
+                        // tungstenite 自动处理 Ping/Pong；Frame 原始帧忽略
+                        None
                     }
                     Ok(Message::Close(_)) | Err(_) => {
                         // 连接关闭：产出 Disconnected Tick
@@ -137,7 +128,27 @@ impl Transport for NativeTransport {
                         }
                         break;
                     }
-                    Ok(Message::Frame(_)) => {}
+                };
+
+                let Some(bytes) = data else { continue };
+
+                // A2：入站接线。
+                // 生产路径（tick_tx=Some）直接把入站帧作 `Tick::Inbound` 喂进泵，
+                // 与 Connected/Disconnected 同一通道——读任务独立持有 stream 半边，
+                // 不碰 state Mutex，故不与 send 抢锁（`Arc<Mutex<NativeTransport>>`
+                // 下若用 recv-pump，recv 跨 await 持锁会与 send 死锁）。
+                // 手动驱动路径（tick_tx=None，单测）回退 frame_tx，供 `Transport::recv` 拉取。
+                match &tick_tx_clone {
+                    Some(tx) => {
+                        if tx.send(Tick::Inbound(InboundBytes(bytes))).await.is_err() {
+                            break; // 泵已关闭
+                        }
+                    }
+                    None => {
+                        if frame_tx.send(Ok(bytes)).await.is_err() {
+                            break; // 接收端已关闭
+                        }
+                    }
                 }
             }
         });

@@ -97,7 +97,19 @@ async fn main() {
     // ── 主 WS transport ─────────────────────────────────────
     // TransportId 约定：0 = 主连接（多端口/第二模块用 1、2…，host 集中分配）。
     let main_transport = TransportId::from_raw(0);
-    let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()));
+    // 现网 Go 在 WS 升级阶段按 cookieId=userId 建 session（session 空则不发 hello、~5s 超时关）。
+    // 身份头必须随 upgrade 请求带，不能只设 HTTP 全局头（A3a 漏了 WS 这条，真 Go 冒烟暴露）。
+    let mut ws_headers: Vec<(String, String)> = Vec::new();
+    if !cookie_id.is_empty() {
+        ws_headers.push(("cookieId".to_string(), cookie_id.clone()));
+    }
+    if let Ok(company_id) = std::env::var("HELIX_COMPANY_ID") {
+        if !company_id.is_empty() {
+            ws_headers.push(("companyId".to_string(), company_id));
+        }
+    }
+    let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
+        .with_handshake_headers(ws_headers);
     // A1 临时：host 主动 connect（A2 改为 Effect::Connect 意图驱动）。
     // 连不上不退出——仍进泵，Effect::Send 走「发送失败 warn」兜底，证明接线存在。
     match transport.connect().await {

@@ -73,6 +73,10 @@ pub struct NativeTransport {
     state: Arc<Mutex<ConnState>>,
     /// engine_loop 入站通道：Connected/Disconnected Tick 从此注入
     tick_tx: Option<mpsc::Sender<Tick>>,
+    /// WS upgrade 握手头（如现网 Go 鉴权 `cookieId=userId`）。
+    /// 现网 Go 在 HTTP 升级中间件按 header 建 session，session 空则不发 hello、超时关连接，
+    /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。
+    handshake_headers: Vec<(String, String)>,
 }
 
 impl NativeTransport {
@@ -90,7 +94,14 @@ impl NativeTransport {
             id,
             state: Arc::new(Mutex::new(ConnState::Disconnected)),
             tick_tx,
+            handshake_headers: Vec::new(),
         }
+    }
+
+    /// 注入 WS upgrade 握手头（builder）。现网 Go：`cookieId=userId`（+ 可选 companyId 等）。
+    pub fn with_handshake_headers(mut self, headers: Vec<(String, String)>) -> Self {
+        self.handshake_headers = headers;
+        self
     }
 }
 
@@ -102,7 +113,26 @@ fn map_ws_err(e: impl std::fmt::Display) -> PortError {
 impl Transport for NativeTransport {
     /// 建立 WebSocket 连接，spawn 后台读任务，产出 `Tick::Connected`。
     async fn connect(&mut self) -> Result<(), PortError> {
-        let (ws_stream, _resp) = connect_async(&self.url).await.map_err(map_ws_err)?;
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
+
+        // 带握手头的 upgrade 请求：现网 Go 在 HTTP 升级中间件按 cookieId=userId 建 session，
+        // session 空则不发 hello、~5s 超时关连接。身份头必须随 upgrade 请求带。
+        let mut request = self
+            .url
+            .as_str()
+            .into_client_request()
+            .map_err(map_ws_err)?;
+        {
+            let headers = request.headers_mut();
+            for (k, v) in &self.handshake_headers {
+                let name = HeaderName::from_bytes(k.as_bytes()).map_err(map_ws_err)?;
+                let value = HeaderValue::from_str(v).map_err(map_ws_err)?;
+                headers.insert(name, value);
+            }
+        }
+
+        let (ws_stream, _resp) = connect_async(request).await.map_err(map_ws_err)?;
         let (sink, stream) = ws_stream.split();
 
         // 读任务：把 WS 消息转为 Bytes 发入 frame_rx

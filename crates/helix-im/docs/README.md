@@ -3,9 +3,10 @@
 > 本目录只放 **helix-im 业务模块**自己的设计文档（IM 范畴）。
 > core 层通用契约在仓库根 `docs/`（如 [`docs/过会方案/helix-eventbus-下游能力契约.md`](../../../docs/过会方案/helix-eventbus-下游能力契约.md)）；本目录是它在 IM 侧的**落地实例**。
 
-| 文档 | 一句话 |
+| 目录/文档 | 一句话 |
 |---|---|
-| [`eventbus-下游域卡.md`](./eventbus-下游域卡.md) | IM 事件流的下游消费者域卡（通知/@我/未读/生命周期/运维），反推驱动，每域一卡 |
+| [`sync-v2-能力与缺口状态.md`](./sync-v2-能力与缺口状态.md) | **落地真相快照**：HTTP/WS/Storage 能力 + sync-v2 各 Phase 进度 + 8 缺口 + 明天代办（优先级排序）|
+| [`eventbus/`](./eventbus/) | IM EventBus 设计：场景全集（结合现网 cses-client）+ 下游消费者域卡 |
 
 ## 维护铁律
 

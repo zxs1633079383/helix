@@ -175,17 +175,8 @@ fn sync_success_path_peek_then_commit_cursor() {
         })
         .expect("sync Http corr");
 
-    // driver 回报 sync/notify 成功，带回 3 个事件（seq 1,2,3）
-    let reply_body = serde_json::json!({
-        "type": "events",
-        "events": [
-            {"channel_id": cid(1), "seq": 1, "event_type": 1},
-            {"channel_id": cid(1), "seq": 2, "event_type": 1},
-            {"channel_id": cid(1), "seq": 3, "event_type": 1},
-        ],
-        "needs_continuation": false
-    });
-    let reply_bytes = ReplyBytes(bytes::Bytes::from(serde_json::to_vec(&reply_body).unwrap()));
+    // driver 回报 sync/notify 成功，带回 3 个事件（seq 1,2,3）——真 Go wire SyncEntry
+    let reply_bytes = ReplyBytes(sync_reply_events(1, &[1, 2, 3]));
     let port_reply = Tick::PortReply {
         corr: Correlation::from_raw(sync_corr),
         outcome: PortOutcome::Ok(reply_bytes),
@@ -213,6 +204,62 @@ fn sync_success_path_peek_then_commit_cursor() {
             .any(|e| matches!(e, EffectKind::PersistFire)),
         "persist ok should advance cursor (PersistFire), got: {:?}",
         commit_effects
+    );
+}
+
+// ─── cursor 锚 nextSeq（权威水位）而非 max(event.seq)——防尾部稀疏 cursor 落后 ──────
+//
+// 回归锚: B3 nextSeq 加固。服务端权威 nextSeq=50，但本页只下发到 seq=10
+//（尾部 11..=50 是 phantom / 稀疏空洞，不进 events 数组）。cursor 必须跳到 50，
+// 否则停在 10 → 下次 sync from=10 → 服务端又算 gap=40 → 稀疏 sync 风暴。
+#[test]
+fn sync_cursor_anchors_to_next_seq_not_max_event() {
+    let mut h = Harness::new(&[1]);
+    // arm gate（喂乱序 seq=99 → buffer + arm timer）
+    let gate_effects = h.step(inbound_event(1, 99, 1), 1000);
+    let gate_timer_id = gate_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .expect("gate timer");
+    let sync_effects = h.step(timer_tick(gate_timer_id), 2001);
+    let sync_corr = sync_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Http(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .expect("sync Http corr");
+
+    // 下发 events seq 1..=10，但权威 nextSeq=50（尾部 11..=50 稀疏，不在 events 数组）
+    let reply = sync_reply_events_with_next(1, &(1..=10).collect::<Vec<_>>(), 50);
+    let peek_effects = h.step(port_reply_with_body(sync_corr, reply), 2100);
+    let persist_corr = peek_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Persist(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .expect("should emit Persist");
+
+    // persist ok → cursor 应跳到权威 nextSeq=50（不是 max(event.seq)=10）
+    h.step(port_reply_ok(persist_corr), 2200);
+    assert_eq!(
+        h.module
+            .cursor_for(helix_im::state::ChannelId::from_test_u64(1)),
+        Some(50),
+        "cursor must anchor to authoritative nextSeq=50, NOT max(event.seq)=10"
     );
 }
 
@@ -245,9 +292,8 @@ fn sync_too_long_resets_cursor_and_emits() {
         })
         .expect("sync Http corr");
 
-    // 服务端返回 too_long
-    let reply_body = serde_json::json!({ "type": "too_long", "reset_to": 100 });
-    let reply_bytes = ReplyBytes(bytes::Bytes::from(serde_json::to_vec(&reply_body).unwrap()));
+    // 服务端返回 too_long（真 Go wire SyncEntry，resetTo=100）
+    let reply_bytes = ReplyBytes(sync_reply_too_long(1, 100));
     let port_reply = Tick::PortReply {
         corr: Correlation::from_raw(sync_corr),
         outcome: PortOutcome::Ok(reply_bytes),

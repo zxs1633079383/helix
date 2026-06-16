@@ -181,26 +181,87 @@ pub fn port_reply_with_body(corr_raw: u64, body: bytes::Bytes) -> Tick {
     }
 }
 
-/// 构造 sync 响应帧（events 类型，可控 needs_continuation）
+/// 构造真 Go wire 的 sync 响应信封：`{status:SUCCESS, data:{entries:[entry], serverTime}}`。
+fn sync_envelope(entry: serde_json::Value) -> bytes::Bytes {
+    use serde_json::json;
+    let body = json!({
+        "status": "SUCCESS",
+        "data": { "entries": [entry], "serverTime": 1_700_000_000_i64 }
+    });
+    bytes::Bytes::from(serde_json::to_vec(&body).unwrap())
+}
+
+/// 构造 sync 响应帧（真 Go wire `events` SyncEntry）。
+///
+/// 续拉与否由 batch 满批（≥500）派生，**不再**有显式 needs_continuation 字段
+/// （真 wire 无此字段，见 parser::SYNC_EVENTS_PER_ENTRY）。
 #[allow(dead_code)]
-pub fn sync_reply_events(channel_id: u64, seqs: &[u64], needs_continuation: bool) -> bytes::Bytes {
+pub fn sync_reply_events(channel_id: u64, seqs: &[u64]) -> bytes::Bytes {
     use serde_json::json;
     let events: Vec<_> = seqs
         .iter()
         .map(|&seq| {
             json!({
-                "channel_id": cid(channel_id),
-                "seq": seq,
-                "event_type": 1
+                "channelId": cid(channel_id),
+                "eventSeq": seq,
+                "eventType": 1
             })
         })
         .collect();
-    let body = json!({
-        "type": "events",
+    let next_seq = seqs.iter().copied().max();
+    sync_envelope(json!({
+        "channelId": cid(channel_id),
+        "kind": "events",
         "events": events,
-        "needs_continuation": needs_continuation
-    });
-    bytes::Bytes::from(serde_json::to_vec(&body).unwrap())
+        "nextSeq": next_seq,
+        "resetTo": serde_json::Value::Null,
+    }))
+}
+
+/// 构造 `events` SyncEntry 并显式指定 nextSeq（用于测「cursor 锚 nextSeq 而非 max(event.seq)」）。
+///
+/// 真 wire 下 nextSeq==末条 seq，但服务端权威水位可 > 实际下发事件的 max（尾部 phantom seq
+/// 不进 events 数组的契约漂移场景）——此时 cursor 必须跳到 nextSeq，不能停在 max(event.seq)。
+#[allow(dead_code)]
+pub fn sync_reply_events_with_next(channel_id: u64, seqs: &[u64], next_seq: u64) -> bytes::Bytes {
+    use serde_json::json;
+    let events: Vec<_> = seqs
+        .iter()
+        .map(|&seq| json!({ "channelId": cid(channel_id), "eventSeq": seq, "eventType": 1 }))
+        .collect();
+    sync_envelope(json!({
+        "channelId": cid(channel_id),
+        "kind": "events",
+        "events": events,
+        "nextSeq": next_seq,
+        "resetTo": serde_json::Value::Null,
+    }))
+}
+
+/// 构造真 Go wire 的 `no_change` SyncEntry（续拉链终止信号，nextSeq=maxSeq）。
+#[allow(dead_code)]
+pub fn sync_reply_no_change(channel_id: u64, next_seq: u64) -> bytes::Bytes {
+    use serde_json::json;
+    sync_envelope(json!({
+        "channelId": cid(channel_id),
+        "kind": "no_change",
+        "events": [],
+        "nextSeq": next_seq,
+        "resetTo": serde_json::Value::Null,
+    }))
+}
+
+/// 构造真 Go wire 的 `too_long` SyncEntry（resetTo=maxSeq，客户端清表重拉）。
+#[allow(dead_code)]
+pub fn sync_reply_too_long(channel_id: u64, reset_to: u64) -> bytes::Bytes {
+    use serde_json::json;
+    sync_envelope(json!({
+        "channelId": cid(channel_id),
+        "kind": "too_long",
+        "events": [],
+        "nextSeq": serde_json::Value::Null,
+        "resetTo": reset_to,
+    }))
 }
 
 /// 构造 scan 回报（_helix_monotonic 扫描结果）

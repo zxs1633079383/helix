@@ -21,8 +21,10 @@ pub mod error;
 pub mod module;
 pub mod parser;
 pub mod pending_send;
+pub mod schema;
 pub mod state;
 pub mod sync_session;
 
 pub use error::ImError;
 pub use module::ImModule;
+pub use schema::IM_SCHEMA;

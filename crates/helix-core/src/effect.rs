@@ -99,14 +99,14 @@ pub enum StorageOp {
 /// ## MAJ-5 修复
 ///
 /// `table` 和 `conflict_key` 改为 `&'static str`，消除热路径的运行时 String 分配。
-/// 表名和冲突键都是编译期已知的常量（"messages"、"temporary_id"），
-/// `"messages".to_string()` 每次消息落库都产生一次堆分配，改为静态引用零成本。
+/// 表名和冲突键都是编译期已知的常量（示例 "message"、"temporary_id"——core 不解释含义），
+/// `"message".to_string()` 每次消息落库都产生一次堆分配，改为静态引用零成本。
 ///
 /// 注意：`conflict_key` 的具体值（如 `"temporary_id"`）由 ACL-1 在 helix-im 侧提供，
 /// helix-core 只传递字符串，不理解其含义。
 #[derive(Debug, Clone)]
 pub struct UpsertSpec {
-    /// 目标表名（编译期常量，如 "messages"）
+    /// 目标表名（编译期常量，如 "message"）
     pub table: &'static str,
     pub rows: Vec<Row>,
     /// ON CONFLICT 的列名（如 ACL-1 提供 "temporary_id"；core 不知道含义）

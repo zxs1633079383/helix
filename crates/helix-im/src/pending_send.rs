@@ -49,7 +49,7 @@ impl PendingSend {
         fx.push(Effect::Persist {
             corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
+                table: "message",
                 rows: vec![vec![
                     (
                         "temporary_id".to_string(),
@@ -92,7 +92,7 @@ impl PendingSend {
         // PersistFire：batch_update send_status = unsend（幂等）
         fx.push(Effect::PersistFire {
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
+                table: "message",
                 rows: vec![vec![
                     (
                         "temporary_id".to_string(),

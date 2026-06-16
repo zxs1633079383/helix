@@ -1,19 +1,27 @@
-//! E3 修复验收测试：needs_continuation 自动续拉
+//! E3 修复验收测试：自动续拉（真 Go wire 派生续拉）
+//!
+//! ## 续拉信号来源（B3 真 wire）
+//!
+//! 真 Go `events` SyncEntry **无显式续拉标志**——续拉与否由 parser 按「满批」派生
+//! （`events.len() >= SYNC_EVENTS_PER_ENTRY(500)` → 还有更多 → 续拉），拉到不足上限 /
+//! `no_change` 为止（B3 验收：离线>500→续拉至 cursor==服务端 maxSeq）。
 //!
 //! ## 验收场景
 //!
-//! 1500 事件分 3 批（500×3，前两批 needs_continuation=true）：
-//! - 第一批 sync 回报（seq 1-500，needs_continuation=true）→ Persist{corr1}
+//! 1500 事件分 3 满批（500×3）+ 收尾 no_change：
+//! - 第一批 sync 回报（seq 1-500，满批 → 派生续拉）→ Persist{corr1}
 //! - Persist ok → cursor=500 + 吐第二次 sync Http（续拉，fromSeq=500）
-//! - 第二批 sync 回报（seq 501-1000，needs_continuation=true）→ Persist{corr2}
+//! - 第二批 sync 回报（seq 501-1000，满批 → 派生续拉）→ Persist{corr2}
 //! - Persist ok → cursor=1000 + 吐第三次 sync Http（续拉，fromSeq=1000）
-//! - 第三批 sync 回报（seq 1001-1500，needs_continuation=false）→ Persist{corr3}
-//! - Persist ok → cursor=1500，不再发第四次 sync
+//! - 第三批 sync 回报（seq 1001-1500，满批 → 仍派生续拉）→ Persist{corr3}
+//! - Persist ok → cursor=1500 + 吐第四次 sync Http（续拉，fromSeq=1500）
+//! - 第四批 sync 回报（no_change，已追平）→ 终止，cursor 仍=1500（==maxSeq）
 //!
 //! ## 终止保证
 //!
-//! - 若服务端返回 events 为空但 needs_continuation=true → 停止续拉（防无限循环）
-//! - 若第二次续拉时 cursor 未前进（dup 幂等），停止续拉
+//! - 服务端 no_change → 终止续拉（正常收尾）
+//! - 若服务端返回 events 为空 → 不落库不续拉（防服务端 bug 无限循环）
+//! - 若续拉时 cursor 未前进（dup 幂等），停止续拉
 
 mod common;
 use common::*;
@@ -56,9 +64,9 @@ fn continuation_three_batches_then_stops() {
     let mut h = Harness::new(&[1]);
     let sync_corr1 = setup_initial_sync(&mut h);
 
-    // 第一批：seq 1-500，needs_continuation=true
+    // 第一批：seq 1-500（满批 500 → 派生续拉）
     let batch1_seqs: Vec<u64> = (1..=500).collect();
-    let reply1 = sync_reply_events(1, &batch1_seqs, true);
+    let reply1 = sync_reply_events(1, &batch1_seqs);
     let p1_effects = h.step(port_reply_with_body(sync_corr1, reply1), 3000);
 
     let persist_corr1 = p1_effects
@@ -93,9 +101,9 @@ fn continuation_three_batches_then_stops() {
         "cursor should be 500 after batch1"
     );
 
-    // 第二批：seq 501-1000，needs_continuation=true
+    // 第二批：seq 501-1000（满批 500 → 派生续拉）
     let batch2_seqs: Vec<u64> = (501..=1000).collect();
-    let reply2 = sync_reply_events(1, &batch2_seqs, true);
+    let reply2 = sync_reply_events(1, &batch2_seqs);
     let p2_effects = h.step(port_reply_with_body(sync_corr2, reply2), 4000);
 
     let persist_corr2 = p2_effects
@@ -130,9 +138,9 @@ fn continuation_three_batches_then_stops() {
         "cursor should be 1000 after batch2"
     );
 
-    // 第三批：seq 1001-1500，needs_continuation=false（最后一批）
+    // 第三批：seq 1001-1500（满批 500 → 仍派生续拉，真 wire 靠 no_change 收尾）
     let batch3_seqs: Vec<u64> = (1001..=1500).collect();
-    let reply3 = sync_reply_events(1, &batch3_seqs, false);
+    let reply3 = sync_reply_events(1, &batch3_seqs);
     let p3_effects = h.step(port_reply_with_body(sync_corr3, reply3), 5000);
 
     let persist_corr3 = p3_effects
@@ -146,7 +154,7 @@ fn continuation_three_batches_then_stops() {
         })
         .expect("batch3 should emit Persist");
 
-    // persist ok → cursor=1500，不再发第四次 Http
+    // persist ok → cursor=1500 + 续拉第四次 Http（满批派生续拉，等服务端 no_change 收尾）
     let after_p3_effects = h.step(port_reply_ok(persist_corr3), 5100);
 
     // cursor 应为 1500
@@ -157,15 +165,45 @@ fn continuation_three_batches_then_stops() {
         "cursor should be 1500 after batch3"
     );
 
-    // 不应再发 Http（最后一批 needs_continuation=false）
-    let http_count = after_p3_effects
+    let sync_corr4 = after_p3_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Http(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .expect("满批 batch3 后应续拉第四次 Http（真 wire 无续拉标志，靠 no_change 收尾）");
+
+    // 第四批：服务端 no_change（gap=0，已追平）→ 终止续拉，cursor 不变
+    let reply4 = sync_reply_no_change(1, 1500);
+    let after_p4_effects = h.step(port_reply_with_body(sync_corr4, reply4), 5200);
+
+    // no_change：不落库、不续拉
+    assert!(
+        !after_p4_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::Persist(_))),
+        "no_change should NOT emit Persist, got: {:?}",
+        after_p4_effects
+    );
+    let http_count = after_p4_effects
         .iter()
         .filter(|e| matches!(e, EffectKind::Http(_)))
         .count();
     assert_eq!(
         http_count, 0,
-        "after final batch (needs_continuation=false), should NOT emit Http, got: {:?}",
-        after_p3_effects
+        "after no_change, should NOT emit further Http (continuation done), got: {:?}",
+        after_p4_effects
+    );
+
+    // cursor 仍为 1500（==服务端 maxSeq）
+    assert_eq!(
+        h.module
+            .cursor_for(helix_im::state::ChannelId::from_test_u64(1)),
+        Some(1500),
+        "cursor should remain 1500 (== server maxSeq) after no_change"
     );
 }
 
@@ -176,8 +214,8 @@ fn continuation_stops_on_empty_events_with_continuation_flag() {
     let mut h = Harness::new(&[1]);
     let sync_corr = setup_initial_sync(&mut h);
 
-    // 服务端返回空 events 但 needs_continuation=true（服务端 bug 场景）
-    let empty_reply = sync_reply_events(1, &[], true);
+    // 服务端返回空 events（kind=events 但列表空，服务端 bug 场景）→ 防御性不落库不续拉
+    let empty_reply = sync_reply_events(1, &[]);
     let effects = h.step(port_reply_with_body(sync_corr, empty_reply), 3000);
 
     // 不应发 Persist 也不应发续拉 Http
@@ -200,8 +238,8 @@ fn continuation_inflight_guard_prevents_concurrent_sync() {
     let mut h = Harness::new(&[1]);
     let sync_corr = setup_initial_sync(&mut h);
 
-    // 第一批有续拉意图
-    let batch1 = sync_reply_events(1, &(1..=500).collect::<Vec<_>>(), true);
+    // 第一批满批 500 → 派生续拉意图
+    let batch1 = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
     let p1_effects = h.step(port_reply_with_body(sync_corr, batch1), 3000);
     let persist_corr1 = p1_effects
         .iter()
@@ -246,8 +284,8 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
     let mut h = Harness::new(&[1]);
     let sync_corr = setup_initial_sync(&mut h);
 
-    // 第一批：seq 1-500，needs_continuation=true → persist ok → 发出第二次 sync Http（fromSeq=500）
-    let batch1 = sync_reply_events(1, &(1..=500).collect::<Vec<_>>(), true);
+    // 第一批：seq 1-500（满批 → 派生续拉）→ persist ok → 发出第二次 sync Http（fromSeq=500）
+    let batch1 = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
     let p1_effects = h.step(port_reply_with_body(sync_corr, batch1), 3000);
     let persist_corr1 = p1_effects
         .iter()
@@ -272,9 +310,9 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
         .expect("continuation Http after batch1");
     // last_sync_from_seq 已置为 500
 
-    // 第二批：seq 1-500（全 dup），needs_continuation=true
+    // 第二批：seq 1-500（全 dup），满批 500 → 派生续拉意图
     // commit_target = 500，cursor.try_advance(500) → cursor 当前 500，500 <= 500 → 不推进
-    let batch2_dup = sync_reply_events(1, &(1..=500).collect::<Vec<_>>(), true);
+    let batch2_dup = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
     let p2_effects = h.step(port_reply_with_body(sync_corr2, batch2_dup), 4000);
     let persist_corr2 = p2_effects
         .iter()

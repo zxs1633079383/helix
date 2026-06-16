@@ -244,10 +244,20 @@ fn stress_gap_5000_sync_backfill() {
             })
         })
         .collect();
+    // 真 Go wire：{status:SUCCESS, data:{entries:[SyncEntry], serverTime}}。
+    // 单 entry 5000 events（超 500 上限 → parser 派生续拉，对本压测断言无影响）。
     let resp = serde_json::json!({
-        "type": "events",
-        "events": events,
-        "needs_continuation": false
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": cid(1),
+                "kind": "events",
+                "events": events,
+                "nextSeq": GAP,
+                "resetTo": serde_json::Value::Null,
+            }],
+            "serverTime": 1_700_000_000_i64
+        }
     });
     let resp_bytes = serde_json::to_vec(&resp).expect("build sync response");
     let resp_len = resp_bytes.len();

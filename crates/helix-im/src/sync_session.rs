@@ -83,6 +83,10 @@ pub enum SyncResponse {
     /// 有事件（列表，≥500 时 needs_continuation=true 需续拉）
     Events {
         events: Vec<EventEnvelope>,
+        /// 服务端权威水位（Go `SyncEntry.nextSeq`）：cursor 应推进到此值，**不要**用
+        /// `max(event.seq)` 推导。当前契约下二者恒等（Go `next = events[末].EventSeq`），
+        /// 但显式锚 nextSeq 防契约漂移（尾部 phantom seq 不进 events 数组时不落后）。
+        next_seq: Seq,
         needs_continuation: bool,
     },
     /// 服务端返回快照（cursor 跳跃过大时的降级）

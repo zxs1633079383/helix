@@ -4,8 +4,7 @@ use crate::state::{ChannelId, Seq, TemporaryId};
 use crate::sync_session::EventEnvelope;
 use bytes::Bytes;
 use helix_core::effect::{
-    DomainEventBytes, HttpRequest, MonotonicUpsertSpec, Row, SqlValue, StorageOp, TransportId,
-    UpsertSpec,
+    DomainEventBytes, HttpRequest, MonotonicUpsertSpec, Row, StorageOp, TransportId, UpsertSpec,
 };
 use helix_core::{Correlation, Effect};
 
@@ -34,7 +33,7 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
     Effect::Persist {
         corr,
         ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-            table: "messages",
+            table: "message",
             rows: vec![row],
             conflict_key: Some("temporary_id"),
         })],
@@ -276,30 +275,15 @@ pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
     }
 }
 
-/// 批量 upsert EventEnvelope 列表（sync 路径）
+/// 批量 upsert EventEnvelope 列表（sync 路径，事件态）。
+///
+/// 收口到 `channel::event_to_upsert_op` —— 与 WS 推送路径**共用同一落库映射**，
+/// 写向 678 真库 `message` 表（PK=temporary_id，与发送态同表同主键语义）。
+/// 不再有 "messages" 影子表：sync 增量主链路（handle_sync_reply → Persist）落库后
+/// cursor 正常推进，续拉至 cursor==服务端 maxSeq，无 `no such table` → 无 sync 风暴。
 pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
     events
         .iter()
-        .map(|ev| {
-            StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
-                rows: vec![vec![
-                    ("seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
-                    (
-                        "channel_id".to_string(),
-                        SqlValue::Text(ev.id.as_str().to_string()),
-                    ),
-                    (
-                        "event_type".to_string(),
-                        SqlValue::Integer(ev.kind.type_num() as i64),
-                    ),
-                    (
-                        "raw".to_string(),
-                        SqlValue::Text(String::from_utf8_lossy(ev.raw.as_ref()).to_string()),
-                    ),
-                ]],
-                conflict_key: Some("seq"),
-            })
-        })
+        .map(crate::channel::event_to_upsert_op)
         .collect()
 }

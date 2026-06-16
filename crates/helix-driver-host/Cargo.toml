@@ -23,6 +23,10 @@ disallowed_macros = "allow"
 
 [dev-dependencies]
 criterion = "0.5"
+# 真 DB 落库集成测试用：以 IM_SCHEMA 建真 SQLite，喂 event_to_upsert_op 产物，
+# 断言 message 表真有行（而非断 Effect 字符串）。helix-im 纯 crate，无运行时依赖。
+helix-im = { path = "../helix-im" }
+bytes = { workspace = true }
 
 [[bench]]
 name = "storage_bench"

@@ -519,7 +519,7 @@ impl ImModule {
         use crate::parser::parse_sync_response;
         use crate::sync_session::SyncResponse;
 
-        let response = parse_sync_response(reply.0.as_ref())
+        let response = parse_sync_response(reply.0.as_ref(), channel_id)
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
 
         match response {
@@ -529,6 +529,7 @@ impl ImModule {
 
             SyncResponse::Events {
                 events,
+                next_seq,
                 needs_continuation,
             } => {
                 if events.is_empty() {
@@ -544,7 +545,10 @@ impl ImModule {
 
                 // peek/commit 三阶段：peek（只读预览，不推 cursor）
                 // 为整批事件分配一个 Persist corr（先分配，避免借用冲突）
-                let commit_target = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
+                // cursor 锚服务端权威 next_seq（跳过尾部稀疏/phantom 空洞，防 cursor 落后→sync 风暴）；
+                // 取 max(next_seq, 实际末条) 兜底异常响应（next_seq < 末条时不丢已落库事件）。
+                let max_event_seq = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
+                let commit_target = next_seq.max(max_event_seq);
                 let persist_corr = self.alloc_corr_internal();
                 let persist_ops = crate::acl::to_effect::batch_upsert_events(&events);
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
@@ -719,10 +723,11 @@ impl ImModule {
         let t1_timer = self.alloc_timer();
 
         // 1. Persist{P1, 乐观落库 status=Sending}
+        // 表名 message（PK=temporary_id，对齐 678 真库；见 schema::IM_SCHEMA）
         out.push(Effect::Persist {
             corr: p1_corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
+                table: "message",
                 rows: vec![vec![
                     (
                         "temporary_id".to_string(),

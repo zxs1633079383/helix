@@ -59,12 +59,31 @@ async fn main() {
     let device = std::env::var("HELIX_DEVICE").unwrap_or_else(|_| "IOS".to_string());
     // deviceId 必须随 HTTP + WS 都带：对端 Java paas（/Users/mac28/workspace/java/x9/paas）
     // session 校验读 deviceId，nil → 判 session 过期 → grpc service fail → increment 不推帧（用户 debug 实证）。
-    // 默认用测试设备 id（Apifox 同款）；生产由 host 按真实设备注入。
+    // 解析优先级：① HELIX_DEVICE_ID env 显式覆盖（联调时手动指定可用）→ ② 从本机派生
+    // （macOS IOPlatformUUID / Linux machine-id / Windows MachineGuid）→ ③ 空（告警，不再
+    // 硬编码某台设备 id）。**铁律**：不默认绑死任何一台真实设备 id。
     let device_id = std::env::var("HELIX_DEVICE_ID")
-        .unwrap_or_else(|_| "ED380414932542BAB4993E5AC3E07C64".to_string());
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(machine_device_id)
+        .unwrap_or_default();
+    if device_id.is_empty() {
+        tracing::warn!(
+            "未能从本机派生 deviceId（可设 HELIX_DEVICE_ID 覆盖）；HTTP/WS 将不带 deviceId，对端可能判 session 过期"
+        );
+    } else {
+        tracing::info!(
+            device_id_present = true,
+            "deviceId 已解析（本机派生 / env 覆盖）"
+        );
+    }
     let language = std::env::var("HELIX_LANGUAGE").unwrap_or_else(|_| "zh".to_string());
-    let db_path =
-        std::env::var("HELIX_DB").unwrap_or_else(|_| "/tmp/helix_host_cli.db".to_string());
+    // ── DB 路径派生（多租户，对齐现网 678 真库目录）───────────────────────
+    // 优先级：HELIX_DB env 显式覆盖（测试/调试逃生口，含旧 /tmp 能力）> 派生路径 > /tmp 兜底。
+    // 派生形态：~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db
+    // <tenant> 来源（高→低）：HELIX_TENANT > cookie_id(=userId，对齐 cses-client tenant_key) > "default"。
+    // 目录不存在则 create_dir_all。
+    let db_path = resolve_db_path(&cookie_id);
 
     tracing::info!(
         %ws_url,
@@ -74,13 +93,32 @@ async fn main() {
     );
 
     // ── ports ───────────────────────────────────────────────
+    tracing::info!(db_path = %db_path, "DB 绝对路径（派生 / HELIX_DB 覆盖）");
     let storage = match NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc")).await {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!(error = %e, "打开存储失败，退出");
+            tracing::error!(error = %e, db_path = %db_path, "打开存储失败，退出");
             return;
         }
     };
+    // open() 内部已 migrate()（建通用 _helix_monotonic）。IM 业务 schema 是 additive：
+    // 在进泵前 loop execute_raw 叠加建表（DDL 当数据，core 仍 schema-agnostic，HX-C001）。
+    // execute_raw 签名 &'static str —— IM_SCHEMA 每条都是 string literal，天然满足。
+    {
+        let mut ok = 0usize;
+        let total = helix_im::IM_SCHEMA.len();
+        for sql in helix_im::IM_SCHEMA {
+            match storage.execute_raw(sql).await {
+                Ok(()) => ok += 1,
+                Err(e) => tracing::error!(error = %e, "建 IM 表失败（继续尝试其余语句）"),
+            }
+        }
+        if ok == total {
+            tracing::info!(statements = total, "IM schema 建表完成（全部成功）");
+        } else {
+            tracing::warn!(ok, total, "IM schema 建表部分失败");
+        }
+    }
     let http = match NativeHttp::new() {
         Ok(h) => h,
         Err(e) => {
@@ -211,4 +249,123 @@ async fn main() {
     )
     .await;
     tracing::info!("engine loop 退出");
+}
+
+/// 派生 SQLite DB 绝对路径（多租户，对齐现网 678 真库目录）。
+///
+/// 优先级（高 → 低）：
+/// 1. `HELIX_DB` env 显式设置 → 直接返回（测试/调试逃生口，保留旧 `/tmp` 能力）。
+/// 2. 派生路径 `~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db`：
+///    - bundle identifier `com.jinqidongli.cses.dev` 硬编码（与 678 真库目录一致）。
+///    - `<tenant>` 取值（高 → 低）：`HELIX_TENANT` > `cookie_id`(=userId，对齐 cses-client
+///      tenant_key = userId) > 字面 `"default"`。
+///    - 返回前 `create_dir_all` 父目录（失败则退回 `/tmp` 兜底）。
+/// 3. 取不到 `$HOME` → `/tmp/helix_host_cli.db` 兜底。
+///
+/// host 是 ambient API（`std::env` / `std::fs`）合法落点（本 crate clippy allow）。
+fn resolve_db_path(cookie_id: &str) -> String {
+    // ① HELIX_DB 显式覆盖（铁律：设置即用，跳过派生）。
+    if let Ok(explicit) = std::env::var("HELIX_DB") {
+        if !explicit.is_empty() {
+            return explicit;
+        }
+    }
+
+    // ② 派生 base_dir = ~/Library/Application Support/com.jinqidongli.cses.dev
+    let home = std::env::var("HOME").ok().filter(|s| !s.is_empty());
+    let Some(home) = home else {
+        tracing::warn!("$HOME 未设置，DB 退回 /tmp 兜底");
+        return "/tmp/helix_host_cli.db".to_string();
+    };
+
+    let tenant = std::env::var("HELIX_TENANT")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| (!cookie_id.is_empty()).then(|| cookie_id.to_string()))
+        .unwrap_or_else(|| "default".to_string());
+
+    let dir = std::path::Path::new(&home)
+        .join("Library")
+        .join("Application Support")
+        .join("com.jinqidongli.cses.dev")
+        .join("data")
+        .join(&tenant);
+
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(error = %e, dir = %dir.display(), "创建 DB 目录失败，退回 /tmp 兜底");
+        return "/tmp/helix_host_cli.db".to_string();
+    }
+
+    dir.join("tenant.db").to_string_lossy().into_owned()
+}
+
+/// 从本机派生稳定 deviceId（**不再硬编码任何一台真实设备 id**）。
+///
+/// - macOS：`ioreg` 的 `IOPlatformUUID`
+/// - Linux：`/etc/machine-id`（回退 `/var/lib/dbus/machine-id`）
+/// - Windows：注册表 `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`
+///
+/// 统一归一化为**大写、去连字符**（对齐现网 deviceId 的 32 hex 形态）。
+/// 取不到 → `None`（调用方告警并以空 deviceId 跑，暴露问题而非静默冒用他人 id）。
+/// host 是 ambient API 合法落点（本 crate clippy `disallowed_methods=allow`）。
+fn machine_device_id() -> Option<String> {
+    let raw = raw_machine_id()?;
+    let normalized: String = raw
+        .chars()
+        .filter(|c| *c != '-')
+        .flat_map(|c| c.to_uppercase())
+        .collect();
+    let trimmed = normalized.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn raw_machine_id() -> Option<String> {
+    let out = std::process::Command::new("ioreg")
+        .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // 行形如：    "IOPlatformUUID" = "ED380414-9325-42BA-B499-3E5AC3E07C64"
+    text.lines()
+        .find(|l| l.contains("IOPlatformUUID"))
+        .and_then(|l| l.split('"').nth(3))
+        .map(str::to_string)
+}
+
+#[cfg(target_os = "linux")]
+fn raw_machine_id() -> Option<String> {
+    std::fs::read_to_string("/etc/machine-id")
+        .or_else(|_| std::fs::read_to_string("/var/lib/dbus/machine-id"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(target_os = "windows")]
+fn raw_machine_id() -> Option<String> {
+    let out = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Cryptography",
+            "/v",
+            "MachineGuid",
+        ])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // 行形如：    MachineGuid    REG_SZ    ed380414-9325-42ba-b499-3e5ac3e07c64
+    text.lines()
+        .find(|l| l.contains("MachineGuid"))
+        .and_then(|l| l.split_whitespace().last())
+        .map(str::to_string)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn raw_machine_id() -> Option<String> {
+    None
 }

@@ -108,10 +108,20 @@ fn build_sync_response(channel_id: u64, gap: u64) -> bytes::Bytes {
             })
         })
         .collect();
+    // 真 Go wire：{status:SUCCESS, data:{entries:[SyncEntry], serverTime}}。
+    // channelId 用 from_test_u64 同款 26 字符零填充形态，匹配注册的 ChannelId。
     let resp = serde_json::json!({
-        "type": "events",
-        "events": events,
-        "needs_continuation": false
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": format!("{:026}", channel_id),
+                "kind": "events",
+                "events": events,
+                "nextSeq": gap,
+                "resetTo": serde_json::Value::Null,
+            }],
+            "serverTime": 1_700_000_000_i64
+        }
     });
     serde_json::to_vec(&resp)
         .expect("build sync response")

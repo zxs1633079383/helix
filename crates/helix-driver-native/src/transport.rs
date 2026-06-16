@@ -209,14 +209,20 @@ impl Transport for NativeTransport {
         Ok(())
     }
 
-    /// 发送一帧（Binary 消息）。
+    /// 发送一帧（Text/JSON 消息）。
+    ///
+    /// 现网 Go 按 WS 帧类型选 codec：**Text→JSON 解码，Binary→msgpack 解码**。
+    /// helix 出站帧是 JSON（hello/ping/业务），必须发 **Text**——发 Binary 则 Go 用 msgpack
+    /// 解 `{`(0x7b) 失败：`msgpack: unexpected code=7b decoding map length` → 关连接
+    /// （真 Go dev-loop 三测实测定位的 ~8s 断连根因）。
     async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
         let mut state = self.state.lock().await;
         match &mut *state {
-            ConnState::Connected { sink, .. } => sink
-                .send(Message::Binary(frame.to_vec()))
-                .await
-                .map_err(map_ws_err),
+            ConnState::Connected { sink, .. } => {
+                let text = String::from_utf8(frame.to_vec())
+                    .map_err(|e| PortError::Transport(format!("non-utf8 ws frame: {e}")))?;
+                sink.send(Message::Text(text)).await.map_err(map_ws_err)
+            }
             ConnState::Disconnected => Err(PortError::Transport(
                 "send on disconnected transport".to_string(),
             )),

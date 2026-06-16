@@ -83,9 +83,26 @@ impl ChannelId {
     }
 }
 
-/// Server 消息 ID（echo 到时的真实 ID）
+/// Server 消息 ID（echo 到时的真实 ID）——mattermost msgId 是 26 字符 base32 字符串
+/// （含 a-z，非数字），同 ChannelId 用 Id26（ADR-009）；旧 u64 装不下真 Go msgId
+/// 会让 C1 echo→reconcile 整条死（expert-panel-review 2026-06-16 critical 确认）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ServerId(pub u64);
+pub struct ServerId(pub Id26);
+
+impl ServerId {
+    /// 从字符串构造（边界零信任，非法→None）。
+    pub fn from_str(s: &str) -> Option<Self> {
+        Id26::from_str(s).map(Self)
+    }
+    /// 零拷贝取字符串视图。
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+    /// 测试桥接：数值 → 26 字符 ServerId。test-only。
+    pub fn from_test_u64(n: u64) -> Self {
+        Self(Id26::from_test_u64(n))
+    }
+}
 
 /// UI 注入的临时消息 ID（乐观落库 PK，不由内核生成）
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -55,7 +55,11 @@ impl PendingSend {
                         "temporary_id".to_string(),
                         SqlValue::Text(self.temporary_id.0.clone()),
                     ),
-                    ("id".to_string(), SqlValue::Integer(server_id.0 as i64)),
+                    // msgId 是 26 字符 base32 → Text（非 Integer），同 channelId（ADR-009）
+                    (
+                        "id".to_string(),
+                        SqlValue::Text(server_id.as_str().to_string()),
+                    ),
                     (
                         "send_status".to_string(),
                         SqlValue::Text("sent".to_string()),

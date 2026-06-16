@@ -45,3 +45,9 @@
 - **代码事实（2026-06-15 map 实测）**：helix-im parser 仅读 `data.seq` 一级、`GET /sync/notify`、不认 increment/hello 帧；on_start 不发 hello；全仓 0 `im:connection:established`；echo→reconcile 死代码；engine_loop Send 占位无 transport 路由表。详见 [`../过会方案/helix-sync-v2-real-go-wire-设计.md`](../过会方案/helix-sync-v2-real-go-wire-设计.md)。
 - **配套未决**：connect 触发归属（`Effect::Connect` 意图 vs host-cli 主动 connect）放 Phase A2 拍；「运维消息」是否新立 `im:ops:*` 类待拍。
 - **状态**：已定（2026-06-15）。落 `dev-zlc` 分支，A→B→C→D 分阶段全量实现。
+
+## ADR-009 — mattermost ID（ChannelId 等）用 `[u8;26]` Copy newtype（Id26），非 u64/String
+- **决策**：helix-im 的 ChannelId（及后续 MsgId/ActorId 等 mattermost ID）底层用定长 `Id26([u8;26])` Copy newtype 表示，不用 u64（抽象 wire 残留）、不用 String（热路径分配）。`ChannelId(Id26)` 保持 newtype 不透明；`Id26::from_str` 边界零信任（仅恰 26 字节 ASCII 才 Some），`as_str` 走 `from_utf8_unchecked`（构造已验证 ASCII 的 SAFETY 不变量，零拷贝）。
+- **理由**：真 Go `channelId` 是 26 字符 base32（如 `5ffd465e263864787b87aa01`，真帧 broadcast.userId 实测印证）；helix 旧 `ChannelId(u64)` 是当初抽象简化 wire 的产物，对真 Go 不可用（Phase B 冒烟暴露）。ChannelId 是热路径 key（每事件命中、gates `HashMap<ChannelId,_>`、进每个 Effect），mattermost ID 恒为 26 char → 定长 `[u8;26]` 是 Copy、零分配（memcpy 26B，无 clone 成本）、FFI 跨界干净，对齐 HX-C005 热路径零分配；String 每次 clone 分配违背该铁律，Arc<str> 有原子引计微成本且非真 Copy。用户拍板取 `[u8;26]`。
+- **代码事实**：仅在 helix-im（core 无 channel 概念，GOAL §3 grep channel=0，迁移不碰 core 零运行时）。测试经 `ChannelId::from_test_u64` 桥接（数值 id 确定性映射 26 字符），纯类型替换零行为变更。
+- **状态**：已定（2026-06-16）。Phase B0 迁移子相落地；MsgId/ActorId 等同款 Id26 在 Phase C（phantom/read_echo）按需扩。

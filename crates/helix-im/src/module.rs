@@ -743,9 +743,20 @@ impl Module for ImModule {
                         self.handle_hello(connection_id, out);
                         return Ok(());
                     }
+                    crate::parser::FrameClass::Increment(_inc) => {
+                        // B-r0 占位：B-rest 分片B 换为 self.handle_increment(_inc, out)
+                        //   —— 注册 channel + LastEventSeq cursor 种子 + 记 increment_fetched
+                        //   + emit im:channel:increment。
+                        return Ok(());
+                    }
+                    crate::parser::FrameClass::IncrementEnd(_ch) => {
+                        // B-r0 占位：B-rest 分片B 换为 self.handle_increment_end(_ch, out)
+                        //   —— global end → 对 (increment_fetched − needSync-skip) sync；
+                        //   per-channel → emit im:channel:update。
+                        return Ok(());
+                    }
                     crate::parser::FrameClass::Ignored => {
-                        // 运维帧（status_change/typing/…）+ 真 Go action 事件帧（待 ChannelId
-                        // u64→String 迁移才能真处理）一律优雅忽略——不报错、不刷日志。
+                        // 运维帧（status_change/typing/…）优雅忽略——不报错、不刷日志。
                         return Ok(());
                     }
                     crate::parser::FrameClass::Event => { /* 落到下方 legacy 事件路径 */ }

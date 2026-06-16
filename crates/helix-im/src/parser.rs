@@ -5,7 +5,9 @@
 
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq};
-use crate::sync_session::{ChannelSnapshot, EventEnvelope, EventKind, SyncResponse};
+use crate::sync_session::{
+    ChannelSnapshot, EventEnvelope, EventKind, IncrementChannel, SyncResponse,
+};
 
 /// 解析 WS 入站帧为 EventEnvelope。
 ///
@@ -75,12 +77,13 @@ pub fn parse_hello(bytes: &[u8]) -> Option<String> {
 pub enum FrameClass {
     /// hello 握手帧，携带 connectionId（A4 握手）。
     Hello(String),
-    /// 运维/状态/真 Go action 帧——当前优雅忽略（不报错、不刷日志）。
-    ///
-    /// 现网 status_change / multiple_channels_viewed / typing / presence 等本就可丢；
-    /// 而 increment_channel / posted 等真事件帧的**真实处理**需先做 `ChannelId u64→String`
-    /// 迁移（真 Go channelId 是 26 字符串，helix 当前是 u64）——该迁移是 Phase B 余下部分的
-    /// 前置阻塞项，未完成前这些帧归为 Ignored 不误报。
+    /// `increment_channel` 帧（B-rest）：per-channel 增量推送，携带解析好的 IncrementChannel。
+    Increment(IncrementChannel),
+    /// `increment_channel_end` 帧（B-rest）：本批增量收尾信号。
+    /// `Some(channel_id)`=某 parent 子 topic 批次结束；`None`=hello/重连整批 global end。
+    IncrementEnd(Option<ChannelId>),
+    /// 运维/状态帧——优雅忽略（不报错、不刷日志）。
+    /// 现网 status_change / multiple_channels_viewed / typing / presence 等本就可丢。
     Ignored,
     /// legacy `{event,data}` 数值帧（抽象 wire / 既有测试）——走 `parse_inbound` 事件路径。
     Event,
@@ -104,9 +107,32 @@ pub fn classify_frame(bytes: &[u8]) -> FrameClass {
             .and_then(|c| c.as_str())
             .map(|id| FrameClass::Hello(id.to_string()))
             .unwrap_or(FrameClass::Ignored),
+        Some("increment_channel") => match v.get("data").and_then(parse_increment_channel) {
+            Some(ic) => FrameClass::Increment(ic),
+            None => FrameClass::Ignored, // 解析失败/未实现 → 不误报
+        },
+        Some("increment_channel_end") => {
+            // data.channelId 非空=子 topic 批次结束；空/缺=global end。零信任。
+            let ch = v
+                .get("data")
+                .and_then(|d| d.get("channelId"))
+                .and_then(|c| c.as_str())
+                .and_then(ChannelId::from_str);
+            FrameClass::IncrementEnd(ch)
+        }
         Some(_) => FrameClass::Ignored,
         None => FrameClass::Event,
     }
+}
+
+/// 解析 `increment_channel` 帧的 `data` → `IncrementChannel`（边界零信任，非法→None）。
+///
+/// **B-r0 stub**：当前返回 None（→ classify 暂归 Ignored，行为不变）。
+/// TODO(B-rest 分片A 实现)：按设计文档 §1.3 解析真 Go data——
+///   `id`(26 字符 channelId, 经 `ChannelId::from_str`) / `lastEventSeq`(Seq) / `needSync`(bool, 缺省 true)；
+///   `raw` = 整个 data 的字节（供 emit im:channel:increment 透传）。
+pub fn parse_increment_channel(_data: &serde_json::Value) -> Option<IncrementChannel> {
+    None
 }
 
 /// 解析 sync/notify HTTP 响应为 SyncResponse。

@@ -34,6 +34,19 @@ impl EventEnvelope {
     }
 }
 
+/// `increment_channel` 帧 data（`IncrementChannel.ToMap()`）的解析结果（B-rest 契约）。
+///
+/// 真 Go data 含 id/teamId/displayName/lastEventSeq/unreadCount/needSync/mentionList/
+/// urgentPostList（设计文档 §1.3）；helix 增量同步只需 `channel_id` + `last_event_seq`
+/// （作 cursor 种子）+ `need_sync`（false=已追平省 sync）；`raw` 供 emit im:channel:increment 透传。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncrementChannel {
+    pub channel_id: ChannelId,
+    pub last_event_seq: Seq,
+    pub need_sync: bool,
+    pub raw: bytes::Bytes,
+}
+
 /// IM 事件类型（对应 WS 协议 type 字段，源码 14 类分桶）
 #[derive(Debug, Clone)]
 pub enum EventKind {

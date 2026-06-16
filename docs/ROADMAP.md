@@ -103,20 +103,21 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 
 ---
 
-## 四、AI 工程化差距（对照 Bun Rust 重写仓，`/workspace/ai-workspace/bun`）
+## 四、AI 工程化对照 Bun（✅ 已全部闭合 — 2026-06-12 落地 / 2026-06-16 销账核实）
 
 > Bun 的设计哲学：**把工程约束嵌入工具链（clippy/hooks/CI），让 AI 的错误选择触发自动反馈，而不是等 review**。
+> **状态：原 7 项差距已全部闭合**。本节保留作历史对照与证据索引，**勿再当待办引用**。
 
-| 层 | Bun 机制 | Helix 现状 | 差距动作（按 ROI 排序） |
-|---|---|---|---|
-| 护栏 | **clippy.toml 29 条 deny-list**（std::fs→bun_sys 等，编译期 API 边界） | HX-C001/C005 靠 grep + review | **①** `clippy.toml`：helix-core 内 deny `std::time::Instant::now`/`SystemTime`（必须走 Clock port）、deny `println!`；workspace deny `unwrap` in 边界路径——把 harness 卡编译期化 |
-| 验证 | CI 多 job 闸门链 + 修改必附测试 | 全部 gate 靠手跑/会话纪律 | **②** `.github/workflows/ci.yml`：双端 matrix + cargo tree gate + grep gate + test + （后续 public-api）——本文件 §三结构闸门全部自动化 |
-| 指令 | **嵌套 CLAUDE/AGENTS.md ×11**（就近继承）+ settings.json hooks 自愈 | 仅 root CLAUDE.md + 1 个 rules 文件 | **③** 每 crate 一份薄 CLAUDE.md（core：零依赖铁律+不变量；im：剧本测试 pattern+ACL 约定；driver：worker/背压契约+压测命令）；PostToolUse hook 自动 rustfmt |
-| 流程 | **.claude/skills 7 个 + commands 6 个**（pattern 即代码） | docs/harness 7 卡（雏形同构） | **④** harness 卡毕业为 `.claude/skills/`（写新模块 / 写回放测试 / 跑承压验收 三个 skill 起步） |
-| 锁定 | rust-toolchain.toml + rustfmt.toml pinning | 无 | **⑤** 两个文件各 5 行，一次性 |
-| 参照 | **Zig-as-reference**（.zig sibling 是行为真源） | 已在实践（现网 cses-client 逐文件核验）但未成文 | **⑥** 写进 root CLAUDE.md 一句：「行为争议时 `cses-client/src-tauri/features/im` 对应 handler 是 source of truth」 |
-| 验证 | bench 42 域 + 无数字性能主张自动拒 | 压测三件套已入库但非常态 | **⑦** criterion 化 +「性能 PR 必附 before/after」写入规则 |
+| 层 | Bun 机制 | Helix 落地（✅ 已闭合，证据） |
+|---|---|---|
+| 护栏 | clippy.toml deny-list | ✅ 根 `clippy.toml` deny `Instant::now`/`SystemTime::now`/`thread::spawn`/`println`/`eprintln`（带 reason）；`helix-core`/`helix-im` Cargo.toml `[lints.clippy] disallowed_methods=deny`+`unwrap_used=warn`；driver 三 crate allow（ambient 合法落点） |
+| 验证 | CI 多 job 闸门链 | ✅ `.gitlab-ci.yml`（非 GitHub）`gate` stage（双端 check + cargo tree 零运行时 + grep 零业务 + test）+ `api-surface` stage（public-api gate）；`scripts/gate.sh` + `install-hooks.sh` pre-push |
+| 指令 | 嵌套 CLAUDE.md ×N（就近继承） | ✅ 7 crate 全配 per-crate CLAUDE.md（core/im/driver-{host,native,ffi,wasm}/host-cli；后两个 2026-06-16 补齐）+ `.claude/rules/`（runtime-agnostic-core / expert-dispatch） |
+| 流程 | skills/commands（pattern 即代码） | ✅ `.claude/workflows/` 3 可重放脚本（expert-panel-review / dual-track-fix / stress-verify）+ `/helix-new-module`·`/helix-replay-test`·`/helix-stress-verify` skills + 7 张 HX-C 坑卡 |
+| 锁定 | toolchain pinning | ✅ `rust-toolchain.toml` + `rustfmt.toml` |
+| 参照 | Zig-as-reference（行为真源） | ✅ root CLAUDE.md §4.5「现网 `cses-client/src-tauri/.../im` 对应 handler 是 source of truth」+ ADR |
+| 验证 | bench + 无数字性能主张自动拒 | ✅ criterion 全链路覆盖（storage/engine 泵/IM 乱序 gate，§二 P2 销账）+ `stress-verify` workflow（无数字不收） |
 
-**已对齐不用补的**：结构化 commit + 模块化 tag（≈ Bun 的 PR 纪律）、对抗 review 流程（≈ Landing PR checklist 的 agent 化）、回放测试基建（≈ harness.ts 思想）、待办清单销账制（≈ issue 流程的轻量版）。
+**结对齐（一并已具备）**：结构化 commit + 模块化 tag、对抗 review（4 专家 workflow）、回放测试基建、待办清单销账制——全在。
 
-**Bun 给 5-crate 小项目的三条核心移植**（Explore 结论）：分层指令而非集中、clippy deny 当 API 契约、skills/commands 当 AI 课程——对应上表 ③①④。
+> ⚠️ **销账记录**：本表原为 2026-06-12 之前的*差距清单*；闭合后一度未销账，2026-06-16 sync-v2 期间被误当待办引用一次（主对话建议「并行补这四件」被用户当场识破为重复劳动）→ 即时销账标 ✅。教训：差距表闭合后必须立即翻面为「已闭合+证据」，否则成误导性文档残留。

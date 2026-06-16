@@ -47,8 +47,11 @@ async fn main() {
     // 真 Go 实测 `POST /api/cses/channels/load/increment` 返 200（B-rest 冒烟确认）。
     let api_base_url = std::env::var("HELIX_API_BASE")
         .unwrap_or_else(|_| "http://127.0.0.1:8065/api/cses".to_string());
-    // A1：cookieId(=userId) 先读不强制用；A3 注入为 HTTP/WS 身份头
+    // cookieId(=userId) + companyId 身份头：现网 sync-v2 鉴权两件套。
+    // companyId 经 web/handlers.go 注入 ctx → 传到对端 paas-grpc（loadTeamMap/ReadIdNameWithCompany）；
+    // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
     let cookie_id = std::env::var("HELIX_COOKIE_ID").unwrap_or_default();
+    let company_id = std::env::var("HELIX_COMPANY_ID").unwrap_or_default();
     let db_path =
         std::env::var("HELIX_DB").unwrap_or_else(|_| "/tmp/helix_host_cli.db".to_string());
 
@@ -84,6 +87,13 @@ async fn main() {
             }
         }
     }
+    // companyId HTTP 全局头：increment/sync 等所有 IM HTTP 必带，否则 paas-grpc 业务失败。
+    if !company_id.is_empty() {
+        match http.set_global_header("companyId", &company_id).await {
+            Ok(()) => tracing::info!("已注入 companyId 全局头"),
+            Err(e) => tracing::warn!(error = %e, "注入 companyId 全局头失败"),
+        }
+    }
     let (event_sink, mut event_rx) = NativeEventSink::new();
 
     // ── shell + IM 模块 ─────────────────────────────────────
@@ -106,10 +116,8 @@ async fn main() {
     if !cookie_id.is_empty() {
         ws_headers.push(("cookieId".to_string(), cookie_id.clone()));
     }
-    if let Ok(company_id) = std::env::var("HELIX_COMPANY_ID") {
-        if !company_id.is_empty() {
-            ws_headers.push(("companyId".to_string(), company_id));
-        }
+    if !company_id.is_empty() {
+        ws_headers.push(("companyId".to_string(), company_id.clone()));
     }
     let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
         .with_handshake_headers(ws_headers);

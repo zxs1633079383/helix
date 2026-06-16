@@ -283,86 +283,58 @@ impl Channel {
 ///
 /// ## 字段映射（真源 = cses-client `From<types::Post> for Message`）
 ///
-/// - `temporary_id`（PK）：`temporary_id` ?? `id` ?? `evt:{channel}:{seq}` 合成键。
+/// 字段提取已上移 parser（`extract_post_fields`，`Value` 解析时一次完成），
+/// 本函数只读 `ev.fields`（owned typed 视图）拼装 Row——**零再解析、零额外字符串分配**
+/// （列名 `&'static str`，字段值 owned 所有权转移）。
+///
+/// - `temporary_id`（PK）：`fields.temporary_id` ?? `fields.id` ?? `evt:{channel}:{seq}` 合成键。
 ///   三级回退保证 PK 恒非空、且对同一事件**确定性幂等**（re-sync 同批 = 同 PK 覆盖 = O(1)，
 ///   不产生重复行、不引发 sync 风暴）。
-/// - `id` / `channel_id` / `user_id` / `type` / `message` / `props` / `create_at`：从事件
-///   `raw`（ChannelEvent wire JSON）提取，缺省安全回退（边界零信任，无 unwrap）。
+/// - `channel_id`：`fields.channel_id` 缺省时回退 envelope 权威 channel_id（parser 已校验）。
 /// - `props`：保留服务端原始 props 对象（业务扩展）；用于已读位 / event_seq 等下游对账。
 ///
-/// 热路径：单条 INSERT ... ON CONFLICT(temporary_id) DO UPDATE = O(1)，无 read-modify-write。
+/// ## 复杂度（诚实标注，HX-C005）
+///
+/// - **SQL 写**：单条 INSERT ... ON CONFLICT(temporary_id) DO UPDATE = O(1)，无 read-modify-write。
+/// - **解析**：0（字段已在 parser `extract_post_fields` 一次提取，本函数不再 `from_slice` 重解析）。
+/// - **分配**：字段值由 `ev.fields` clone 出（每条 ~7 个 String clone + 8 个列名 `.to_string()`，
+///   均为落库必需的 owned Row 构造，非冗余重解析）；PK 合成兜底分支仅在无 id 时分配一次。
+///   注：列名仍走 `String`（`Row = Vec<(String, SqlValue)>` 是 core 类型契约，`convert_row`
+///   从 rusqlite 读运行时列名同样是 String；改 `&'static str` 需 core 级动核且破坏 driver
+///   codec——超本 drift 修复白名单，见 MAJ-5 仅 table/conflict_key 静态化的同因取舍）。
 pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
     use helix_core::effect::{SqlValue, UpsertSpec};
 
-    // raw 是 ChannelEvent wire JSON（parser 产出，边界零信任）。post 字段可能在顶层，
-    // 也可能嵌套在 "post" / "data" 子对象下——按优先级探查，全程安全回退不 panic。
-    let root: serde_json::Value =
-        serde_json::from_slice(ev.raw.as_ref()).unwrap_or(serde_json::Value::Null);
-    let post = root
-        .get("post")
-        .or_else(|| root.get("data"))
-        .unwrap_or(&root);
+    let f = &ev.fields;
 
-    // 取字符串字段：先 post 视图，回退 root 顶层（兼容扁平 wire）。
-    let pick_str = |key: &str| -> Option<String> {
-        post.get(key)
-            .and_then(|v| v.as_str())
-            .or_else(|| root.get(key).and_then(|v| v.as_str()))
-            .map(|s| s.to_string())
+    // channel_id 缺省回退到 envelope 权威 channel_id（parser 已校验，含正确性）。
+    let channel_id = if f.channel_id.is_empty() {
+        ev.channel_id.as_str().to_string()
+    } else {
+        f.channel_id.clone()
     };
-
-    // 兼容 snake_case / camelCase（Go wire 多为 camelCase；既有测试帧用 snake_case）。
-    let temporary_id = pick_str("temporary_id").or_else(|| pick_str("temporaryId"));
-    let id = pick_str("id").unwrap_or_default();
-    let channel_id = pick_str("channel_id")
-        .or_else(|| pick_str("channelId"))
-        // 回退到 envelope 权威 channel_id（parser 已校验）。
-        .unwrap_or_else(|| ev.channel_id.as_str().to_string());
-    let user_id = pick_str("user_id")
-        .or_else(|| pick_str("userId"))
-        .unwrap_or_default();
-    let msg_type = pick_str("type")
-        .or_else(|| pick_str("post_type"))
-        .unwrap_or_default();
-    let message = pick_str("message").unwrap_or_default();
-    let create_at = post
-        .get("create_at")
-        .or_else(|| post.get("createAt"))
-        .or_else(|| root.get("create_at"))
-        .or_else(|| root.get("createAt"))
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
-    // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
-    let props = post
-        .get("props")
-        .or_else(|| root.get("props"))
-        .map(|v| v.to_string())
-        .unwrap_or_default();
 
     // PK 三级回退（真源 cses-client：temporary_id ?? id；再加 evt:{ch}:{seq} 合成兜底，
     // 保证收到的事件即便无 temporary_id 也有确定性非空 PK，re-sync 幂等覆盖同行）。
-    let pk = temporary_id
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            if id.is_empty() {
-                None
-            } else {
-                Some(id.clone())
-            }
-        })
-        .unwrap_or_else(|| format!("evt:{}:{}", ev.channel_id.as_str(), ev.seq.0));
+    let pk = if !f.temporary_id.is_empty() {
+        f.temporary_id.clone()
+    } else if !f.id.is_empty() {
+        f.id.clone()
+    } else {
+        format!("evt:{}:{}", ev.channel_id.as_str(), ev.seq.0)
+    };
 
     StorageOp::BatchUpsert(UpsertSpec {
         table: "message",
         rows: vec![vec![
             ("temporary_id".to_string(), SqlValue::Text(pk)),
-            ("id".to_string(), SqlValue::Text(id)),
+            ("id".to_string(), SqlValue::Text(f.id.clone())),
             ("channel_id".to_string(), SqlValue::Text(channel_id)),
-            ("user_id".to_string(), SqlValue::Text(user_id)),
-            ("type".to_string(), SqlValue::Text(msg_type)),
-            ("message".to_string(), SqlValue::Text(message)),
-            ("props".to_string(), SqlValue::Text(props)),
-            ("create_at".to_string(), SqlValue::Integer(create_at)),
+            ("user_id".to_string(), SqlValue::Text(f.user_id.clone())),
+            ("type".to_string(), SqlValue::Text(f.msg_type.clone())),
+            ("message".to_string(), SqlValue::Text(f.message.clone())),
+            ("props".to_string(), SqlValue::Text(f.props.clone())),
+            ("create_at".to_string(), SqlValue::Integer(f.create_at)),
         ]],
         conflict_key: Some("temporary_id"),
     })
@@ -382,7 +354,7 @@ mod tests {
             ChannelId::from_test_u64(ch),
             Seq(seq),
             EventKind::PostUpsert,
-            bytes::Bytes::from_static(b"{}"),
+            crate::sync_session::PostFields::default(),
         )
     }
 

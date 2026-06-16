@@ -6,8 +6,73 @@
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq};
 use crate::sync_session::{
-    ChannelSnapshot, EventEnvelope, EventKind, IncrementChannel, SyncResponse,
+    ChannelSnapshot, EventEnvelope, EventKind, IncrementChannel, PostFields, SyncResponse,
 };
+
+/// 从已在手的 `Value`（root + post 视图）一次性提取落库 owned 字段（HX-C005）。
+///
+/// 字段映射真源 = cses-client `From<types::Post> for Message`：
+///   - post 字段可能在顶层，也可能嵌套在 `post` / `data` 子对象下——按优先级探查。
+///   - 兼容 snake_case / camelCase（Go wire 多 camelCase；既有测试帧用 snake_case）。
+///   - 全程安全回退不 panic（边界零信任，helix-im 不变量 4）。
+///
+/// 调用方（`parse_inbound` / `parse_channel_events`）此时 `Value` 已解析完成（用于取 seq/type），
+/// 复用同一棵树提取字段——避免落库路径（`event_to_upsert_op`）再 `from_slice(raw)` 重解析。
+fn extract_post_fields(root: &serde_json::Value) -> PostFields {
+    // post 字段可能在顶层，也可能嵌套在 "post" / "data" 子对象下——按优先级探查。
+    let post = root
+        .get("post")
+        .or_else(|| root.get("data"))
+        .unwrap_or(root);
+
+    // 取字符串字段：先 post 视图，回退 root 顶层（兼容扁平 wire）。
+    let pick_str = |key: &str| -> Option<String> {
+        post.get(key)
+            .and_then(|v| v.as_str())
+            .or_else(|| root.get(key).and_then(|v| v.as_str()))
+            .map(|s| s.to_string())
+    };
+
+    let temporary_id = pick_str("temporary_id")
+        .or_else(|| pick_str("temporaryId"))
+        .unwrap_or_default();
+    let id = pick_str("id").unwrap_or_default();
+    // channel_id 此处可能为空（缺省）；event_to_upsert_op 回退到 envelope 权威 channel_id。
+    let channel_id = pick_str("channel_id")
+        .or_else(|| pick_str("channelId"))
+        .unwrap_or_default();
+    let user_id = pick_str("user_id")
+        .or_else(|| pick_str("userId"))
+        .unwrap_or_default();
+    let msg_type = pick_str("type")
+        .or_else(|| pick_str("post_type"))
+        .unwrap_or_default();
+    let message = pick_str("message").unwrap_or_default();
+    let create_at = post
+        .get("create_at")
+        .or_else(|| post.get("createAt"))
+        .or_else(|| root.get("create_at"))
+        .or_else(|| root.get("createAt"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
+    let props = post
+        .get("props")
+        .or_else(|| root.get("props"))
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+
+    PostFields {
+        temporary_id,
+        id,
+        channel_id,
+        user_id,
+        msg_type,
+        message,
+        props,
+        create_at,
+    }
+}
 
 /// 解析 WS 入站帧为 EventEnvelope。
 ///
@@ -62,9 +127,10 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     let event_type = data["event_type"].as_u64().unwrap_or(1) as u8;
 
     let kind = parse_event_kind(event_type);
-    let raw = bytes::Bytes::copy_from_slice(bytes);
+    // HX-C005：字段提取上移此处（`v` 已解析在手），落库路径零再解析、零回序列化。
+    let fields = extract_post_fields(&v);
 
-    Ok(EventEnvelope::new(channel_id, Seq(seq), kind, raw))
+    Ok(EventEnvelope::new(channel_id, Seq(seq), kind, fields))
 }
 
 /// A4：识别 hello 握手帧——顶层 `action=="hello"` 时返回 `data.connectionId`，否则 None。
@@ -310,8 +376,10 @@ fn parse_channel_events(
             .or_else(|| ev["event_type"].as_u64())
             .unwrap_or(1) as u8;
         let kind = parse_event_kind(event_type);
-        let raw = bytes::Bytes::from(serde_json::to_vec(ev).unwrap_or_default());
-        events.push(EventEnvelope::new(channel_id, Seq(seq), kind, raw));
+        // HX-C005：`ev`（ChannelEvent Value）已在手，直接提取落库字段——
+        // 消除原 `serde_json::to_vec(ev)` 回序列化 + 落库时 `from_slice(raw)` 再解析的三趟开销。
+        let fields = extract_post_fields(ev);
+        events.push(EventEnvelope::new(channel_id, Seq(seq), kind, fields));
     }
     Ok(events)
 }

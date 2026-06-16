@@ -125,12 +125,11 @@ pub const IM_SCHEMA: &[&'static str] = &[
     )",
     "CREATE INDEX IF NOT EXISTS idx_channel_member_user ON channel_member(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_channel_member_role ON channel_member(channel_id, role)",
-    // ── channel_event_cursor（增量同步游标占位；本轮 helix-im 运行时仍写 _helix_monotonic）──
-    // cursor_decision：本轮保留 _helix_monotonic（core 零改动铁律），channel_event_cursor
-    // 仅建表占位使 M2 不缺表。M2 映射：scope_key↔channel_id，value↔last_event_seq。
-    "CREATE TABLE IF NOT EXISTS channel_event_cursor (\
-        channel_id TEXT NOT NULL PRIMARY KEY,\
-        last_event_seq INTEGER NOT NULL DEFAULT 0,\
-        updated_at INTEGER NOT NULL DEFAULT 0\
-    )",
+    // ── 增量同步游标（cursor）真源说明 ──────────────────────────────────────────
+    // 本轮 helix-im 运行时 cursor 真源 = core 通用单调表 `_helix_monotonic`
+    // （`advance_cursor` 走 `MonotonicUpsert{scope_key=channel_id, value=last_event_seq}`，
+    // host driver open 时建表 + MAX guard）。曾有 `channel_event_cursor` 死表占位（零读零写）
+    // 已删（drift 修复）——避免「建了不用」的影子 schema 误导。
+    // M2 接 cses-client 若需独立 cursor 表，再随迁移步骤引入，映射：
+    // scope_key↔channel_id，value↔last_event_seq。
 ];

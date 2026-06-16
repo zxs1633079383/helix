@@ -16,12 +16,12 @@ use helix_core::ports::Storage;
 use helix_driver_host::HostStorage;
 use helix_im::channel::event_to_upsert_op;
 use helix_im::state::{ChannelId, Seq};
-use helix_im::sync_session::{EventEnvelope, EventKind};
+use helix_im::sync_session::{EventEnvelope, EventKind, PostFields};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static DB_SEQ: AtomicUsize = AtomicUsize::new(0);
 
-/// 以真 `IM_SCHEMA` 建库（含 message / channel / channel_member / channel_event_cursor）。
+/// 以真 `IM_SCHEMA` 建库（含 message / channel / channel_member；cursor 真源是 _helix_monotonic）。
 async fn storage_with_im_schema() -> HostStorage {
     let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
     let db = format!(
@@ -42,26 +42,26 @@ async fn storage_with_im_schema() -> HostStorage {
     storage
 }
 
-/// 造一条 type=1 PostUpsert 事件（raw = ChannelEvent wire JSON，含真 post 字段）。
+/// 造一条 type=1 PostUpsert 事件（fields = parser 提取后的 owned typed 视图，含真 post 字段）。
+///
+/// HX-C005 后：EventEnvelope 携带 PostFields（不再持 raw JSON）；落库路径 `event_to_upsert_op`
+/// 直接读 fields。本助手直接构造 fields，等价于 parser 从 ChannelEvent wire 提取后的结果。
 fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) -> EventEnvelope {
-    let raw = serde_json::to_vec(&serde_json::json!({
-        "eventSeq": seq,
-        "eventType": 1,
-        "temporaryId": temporary_id,
-        "id": id,
-        "channelId": ChannelId::from_test_u64(channel).as_str(),
-        "userId": "user-zhang",
-        "type": "P",
-        "message": text,
-        "props": { "channel_event_seq": seq },
-        "createAt": 1_700_000_000_000_i64 + seq as i64,
-    }))
-    .expect("serialize post event");
+    let fields = PostFields {
+        temporary_id: temporary_id.to_string(),
+        id: id.to_string(),
+        channel_id: ChannelId::from_test_u64(channel).as_str().to_string(),
+        user_id: "user-zhang".to_string(),
+        msg_type: "P".to_string(),
+        message: text.to_string(),
+        props: serde_json::json!({ "channel_event_seq": seq }).to_string(),
+        create_at: 1_700_000_000_000_i64 + seq as i64,
+    };
     EventEnvelope::new(
         ChannelId::from_test_u64(channel),
         Seq(seq),
         EventKind::PostUpsert,
-        bytes::Bytes::from(raw),
+        fields,
     )
 }
 
@@ -180,19 +180,18 @@ async fn resync_same_event_is_idempotent_upsert() {
 #[tokio::test]
 async fn event_without_temporary_id_falls_back_to_id_as_pk() {
     let storage = storage_with_im_schema().await;
-    let raw = serde_json::to_vec(&serde_json::json!({
-        "eventSeq": 3,
-        "eventType": 1,
-        "id": "server-post-id-only",
-        "channelId": ChannelId::from_test_u64(7).as_str(),
-        "message": "from someone else",
-    }))
-    .unwrap();
+    // 无 temporary_id（他人消息），仅有 id —— event_to_upsert_op 走 PK 回退到 id。
+    let fields = PostFields {
+        id: "server-post-id-only".to_string(),
+        channel_id: ChannelId::from_test_u64(7).as_str().to_string(),
+        message: "from someone else".to_string(),
+        ..Default::default()
+    };
     let ev = EventEnvelope::new(
         ChannelId::from_test_u64(7),
         Seq(3),
         EventKind::PostUpsert,
-        bytes::Bytes::from(raw),
+        fields,
     );
 
     let op = event_to_upsert_op(&ev);

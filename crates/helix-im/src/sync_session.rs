@@ -9,6 +9,29 @@
 
 use crate::state::{ChannelId, Seq};
 
+/// 落库所需的 owned typed 视图（HX-C005：字段提取上移 parser，热路径零再解析）。
+///
+/// parser（`parse_inbound` / `parse_channel_events`，`Value` 已在手）一次解析填充此结构；
+/// `channel::event_to_upsert_op` 退化为零再解析的 Row 拼装——不再每事件
+/// `serde_json::from_slice(raw)` 全量重解析 + ~14 次 String 堆分配。
+///
+/// 字段映射真源 = cses-client `From<types::Post> for Message`（PK 三级回退、snake/camel 兼容
+/// 已在 parser 提取阶段处理）。`props` 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
+#[derive(Debug, Clone, Default)]
+pub struct PostFields {
+    /// `temporary_id` ?? `temporaryId`（PK 首选，空字符串=缺省，由 event_to_upsert_op 走三级回退）。
+    pub temporary_id: String,
+    pub id: String,
+    /// post 内的 channel_id（缺省回退到 envelope 权威 channel_id，在拼装时处理）。
+    pub channel_id: String,
+    pub user_id: String,
+    pub msg_type: String,
+    pub message: String,
+    /// 服务端原始 props 对象的字符串形态（业务扩展透传）。
+    pub props: String,
+    pub create_at: i64,
+}
+
 /// 解析后的强类型入站事件（14 类 WS type 的产物）
 #[derive(Debug, Clone)]
 pub struct EventEnvelope {
@@ -17,19 +40,22 @@ pub struct EventEnvelope {
     pub channel_id: ChannelId,
     pub seq: Seq,
     pub kind: EventKind,
-    /// 原始 JSON payload（ACL-1 决定如何翻译为 StorageOp）
-    pub raw: bytes::Bytes,
+    /// 落库所需 owned typed 视图（parser 一次解析填充；HX-C005 热路径零再解析）。
+    pub fields: PostFields,
 }
 
 impl EventEnvelope {
-    /// 构造 EventEnvelope（统一入口，确保 id 与 channel_id 始终一致）
-    pub fn new(channel_id: ChannelId, seq: Seq, kind: EventKind, raw: bytes::Bytes) -> Self {
+    /// 构造 EventEnvelope（统一入口，确保 id 与 channel_id 始终一致）。
+    ///
+    /// parser 经此入口传入已提取的 `fields`（owned typed 视图），落库路径直接读取，
+    /// 不再持有 / 重解析原始 JSON 字节（HX-C005）。
+    pub fn new(channel_id: ChannelId, seq: Seq, kind: EventKind, fields: PostFields) -> Self {
         Self {
             id: channel_id,
             channel_id,
             seq,
             kind,
-            raw,
+            fields,
         }
     }
 }

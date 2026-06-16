@@ -1,9 +1,9 @@
 # helix-driver-native —— Native 驱动层设计文档
 
 > **版本** 2026-06-08 · 基于 cses-client 源码实测 + 三栖约束底座
-> **状态更新（2026-06-15 / ADR-007）**：PC native 的 SQLite 存储不再单独维护 sqlx 语义；`helix-driver-native` 作为 PC/Tauri 壳复用 `helix-driver-host` 的 rusqlite schema/migration、StorageOp 兑现与 rows reply 编解码。
+> **状态更新（2026-06-15 / ADR-007/ADR-008）**：PC native 的 SQLite 存储不再单独维护 sqlx 语义；HTTP/WS client 也不再作为 PC 专属逻辑长期分叉。`helix-driver-native` 作为 PC/Tauri 壳复用 `helix-driver-host` 的 rusqlite schema/migration、StorageOp 兑现、rows reply 编解码以及共享 HTTP/WS client 能力。
 >
-> **本文目的**：详述 `helix-driver-native` 如何用 tokio/tokio-tungstenite/reqwest 加共享 `helix-driver-host` **实现 core ports**，并说明多线程并发模型（WS runtime / shared blocking SQLite worker / effect worker 分片）如何驻扎在驱动层而非 core。
+> **本文目的**：详述 `helix-driver-native` 如何作为 Tauri/PC 平台壳接入共享 host driver，并说明多线程并发模型（WS runtime / shared blocking SQLite worker / effect worker 分片）如何驻扎在驱动层而非 core。Tauri 前端只走 command/event，不直接实现业务 HTTP/WS。
 
 ---
 
@@ -15,8 +15,8 @@
 │  helix-driver-native (本文档)                           │
 │    implements: Transport / Storage / Clock / EventSink  │
 │                HttpRequester / IdGen / Clock            │
-│    owns:       tokio runtime / reqwest / WS 状态机       │
-│    reuses:     helix-driver-host rusqlite Storage        │
+│    owns:       Tauri command/event 接缝 / 生命周期 / 灰度 │
+│    reuses:     helix-driver-host Storage + HTTP/WS client │
 ├─────────────────────────────────────────────────────────┤
 │  helix-core  (port traits)                              │
 │  helix-im    (deterministic business module)            │
@@ -58,7 +58,20 @@ rand     = "0.8"
 uuid     = { version = "1", features = ["v4"] }
 ```
 
-`helix-driver-native` 是 PC/Tauri 壳，不进入 wasm/web 验收；wasm driver 已归档。SQLite 依赖由 `helix-driver-host` 承载，避免 native 与 Flutter FFI 各写一套 SQL。
+`helix-driver-native` 是 PC/Tauri 壳，不进入 wasm/web 验收；wasm driver 已归档。SQLite 与 HTTP/WS 的长期主线都由 `helix-driver-host` 承载，避免 native 与 Flutter FFI 各写一套 SQL、HTTP client、WS runtime、header 注入和错误分类。
+
+### 1.1 网络初始化材料由 Tauri 宿主提供
+
+Tauri 前端不直接实现业务 HTTP/WS；Tauri 宿主在创建 Helix driver 时把网络初始化材料传给 shared host driver：
+
+- `api_base_url`：业务模块拼 HTTP path 时使用的 API 根地址。
+- `ws_url`：shared WS client 建连使用的地址。
+- `headers`：Authorization、租户、设备、版本等默认 header；登录模块拿到/刷新 token 后通过 driver API 更新。
+- 可选平台配置：timeout、user-agent、proxy/TLS/cert 策略等。
+
+这些材料组成 `HostNetworkConfig` 与 shared header registry。`helix-im` / 未来业务模块只产生命令意图，不直接读取 token/header；HTTP 请求与 WS connect/重连由 shared HTTP/WS client 统一注入最新 header。
+
+当前 `cses-im-server` 线上契约：Tauri 宿主应传入类似 `http://host:port/api/cses` 的 `api_base_url`，以及完整 `ws://host:port/api/v4/websocket` 的 `ws_url`。shared client 不从 HTTP base 推导 WS 路径，也不在 Helix 内硬编码后端地址。
 
 ---
 
@@ -672,11 +685,11 @@ async fn effect_executor_loop(
 
 | core Port | Native 实现类型 | 核心依赖 | 并发角色 |
 |---|---|---|---|
-| `Transport` | `NativeTransport` | `tokio-tungstenite` | 读：WsRuntime spawn；写：driver 调 |
+| `Transport` | `NativeTransport` 薄壳 → shared WS client | `helix-driver-host` / `tokio-tungstenite` | 读：WsRuntime spawn；写：driver 调 |
 | `Storage` | `NativeStorage` → `HostStorage` | `helix-driver-host` / `rusqlite` | shared blocking SQLite worker |
 | `Clock` | `NativeClock` | `std::time::SystemTime` | 无状态 Clone |
 | `EventSink` | `NativeEventSink` | `tokio::sync::broadcast` | fan-out 多消费者 |
-| `HttpRequester` | `NativeHttpRequester` | `reqwest` | 连接池 + Arc 共享 |
+| `HttpRequester` | `NativeHttpRequester` 薄壳 → shared HTTP client | `helix-driver-host` / `reqwest` | 连接池 + Arc 共享 |
 | `IdGen` | `NativeIdGen` | `uuid::Uuid::new_v4()` | 无状态 Clone |
 
 ---

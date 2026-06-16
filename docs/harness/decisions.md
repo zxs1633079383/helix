@@ -51,3 +51,12 @@
 - **理由**：真 Go `channelId` 是 26 字符 base32（如 `5ffd465e263864787b87aa01`，真帧 broadcast.userId 实测印证）；helix 旧 `ChannelId(u64)` 是当初抽象简化 wire 的产物，对真 Go 不可用（Phase B 冒烟暴露）。ChannelId 是热路径 key（每事件命中、gates `HashMap<ChannelId,_>`、进每个 Effect），mattermost ID 恒为 26 char → 定长 `[u8;26]` 是 Copy、零分配（memcpy 26B，无 clone 成本）、FFI 跨界干净，对齐 HX-C005 热路径零分配；String 每次 clone 分配违背该铁律，Arc<str> 有原子引计微成本且非真 Copy。用户拍板取 `[u8;26]`。
 - **代码事实**：仅在 helix-im（core 无 channel 概念，GOAL §3 grep channel=0，迁移不碰 core 零运行时）。测试经 `ChannelId::from_test_u64` 桥接（数值 id 确定性映射 26 字符），纯类型替换零行为变更。
 - **状态**：已定（2026-06-16）。Phase B0 迁移子相落地；MsgId/ActorId 等同款 Id26 在 Phase C（phantom/read_echo）按需扩。
+
+## ADR-010 — PC/Flutter 共享 Rust host driver HTTP/WS client
+> 📌 merge 注：本 ADR 在 main 分支原编号 ADR-008，与 dev-zlc 的 ADR-008（sync-v2）号撞；2026-06-16 merge main→dev-zlc 时改号 ADR-010（内容不变，避免双 008）。
+- **决策**：HTTP client 与 WebSocket client 不属于 IM 模块，也不按端各写一套；它们是 `helix-driver-host` 的共享 host I/O 能力。`helix-driver-native` 与 `helix-driver-ffi` 只负责平台壳职责（Tauri command/event、FFI ABI、路径、生命周期、打包、灰度开关），通过同一套 shared HTTP/WS runtime 兑现 core 的 `HttpRequester` / `Transport` port。Flutter/Dart 与 Tauri 前端都只调用命令、订阅事件、渲染，不直接写业务 HTTP、IM sync、WS 长连、cursor、echo 对账或消息 SQL。
+- **初始化边界**：shared HTTP/WS client 的代码只有一份，但初始化材料由端壳或登录模块提供：`api_base_url`、`ws_url`、默认 headers、WS 握手 headers、user-agent、timeout/proxy/TLS 等平台配置。Helix 不负责登录/刷新 token，只提供 `HostNetworkConfig` 与 header registry/update API（如 `set_header` / `remove_header` / `replace_headers`），由 shared client 在 HTTP 请求与 WS connect/重连时统一读取并注入。
+- **边界**：业务模块（如 `helix-im`，未来 presence/meeting/notify）只组装业务请求意图、解析业务帧、维护业务状态机；它们不拥有网络 client，也不直接读写 token/header。登录/鉴权不纳入 Helix 业务边界，Helix 只消费外部已获得的 token/header/session 配置，并由 shared HTTP/WS client 统一注入到后续请求/连接。平台必须使用系统网络栈、证书代理或后台能力时，可保留 host callback 作为逃生口，但不是 PC/Flutter 产品主路径。
+- **理由**：IM 只是第一个业务模块，若每个模块或每个端都各写 HTTP/WS，会导致重连、超时、header 注入、连接复用、错误分类和事件回灌语义漂移。共享 client 让“一个逻辑”落到真实工程结构：业务协议一份、I/O 执行一份、平台壳多份。
+- **状态**：已定并阶段落地（2026-06-16）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；`helix-driver-native` 改为薄壳复用 shared client；`helix-driver-ffi` 的 Rust 侧主路径复用 shared client，并暴露 `helix_set_header` / `helix_remove_header`。保留项：WS reconnect/backoff、proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
+> ⚠️ dev-zlc 合入时 transport.rs 尚未适配本 ADR（仍直连 tokio-tungstenite + 真 Go 硬修）；适配由 merge 后 workflow 完成（保住 Text 帧/ping seq/握手头/8s 断连修复）。

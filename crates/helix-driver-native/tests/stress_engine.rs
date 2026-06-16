@@ -51,6 +51,7 @@ use helix_core::error::CoreError;
 use helix_core::module_host::Module;
 use helix_core::tick::AppCommand;
 use helix_core::{ExecutionShell, Tick};
+use helix_driver_host::HostNetworkConfig;
 
 use helix_driver_native::{
     engine_loop::{run_engine_loop, EngineConfig},
@@ -101,6 +102,11 @@ impl Module for PumpModule {
 
 // ─── 辅助：建存储 + 启引擎 ────────────────────────────────────────────────────
 
+fn make_test_http() -> NativeHttp {
+    NativeHttp::with_config(HostNetworkConfig::new("http://127.0.0.1", "ws://127.0.0.1"))
+        .expect("http")
+}
+
 async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
     let _ = std::fs::remove_file(db_path);
     let _ = std::fs::remove_file(format!("{db_path}-shm"));
@@ -109,7 +115,7 @@ async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
     let storage = NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc"))
         .await
         .expect("open temp storage");
-    let http = NativeHttp::new().expect("http");
+    let http = make_test_http();
     let (event_sink, _event_rx) = NativeEventSink::new();
 
     let replies = Arc::new(AtomicU64::new(0));
@@ -157,7 +163,7 @@ async fn setup_engine_with_handle(
         .await
         .expect("open verify storage");
 
-    let http = NativeHttp::new().expect("http");
+    let http = make_test_http();
     let (event_sink, _event_rx) = NativeEventSink::new();
 
     let replies = Arc::new(AtomicU64::new(0));

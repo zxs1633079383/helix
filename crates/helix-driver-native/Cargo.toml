@@ -3,7 +3,7 @@ name    = "helix-driver-native"
 version = "0.1.0"
 edition = "2021"
 
-# native driver：tokio multi-thread + sqlx + tungstenite + reqwest
+# native driver：tokio multi-thread + shared host storage/network wrappers
 # tokio::spawn 在此 crate 的 engine_loop.rs，不在 helix-core
 
 [dependencies]
@@ -16,12 +16,8 @@ bytes       = { workspace = true }
 tracing     = { workspace = true }
 
 # 运行时（仅 native）
-tokio            = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-reqwest          = { version = "0.12", features = ["json"] }
-async-trait      = { workspace = true }
-futures-channel  = { workspace = true }
-futures-util     = "0.3"
+tokio       = { version = "1", features = ["full"] }
+async-trait = { workspace = true }
 
 # driver 层是 ambient API（SystemTime/线程）的唯一合法落点 → 不开 disallowed deny
 [lints.clippy]
@@ -31,6 +27,10 @@ disallowed_macros = "allow"
 
 [dev-dependencies]
 criterion = "0.5"
+# transport_inbound 集成测试用：起本地 WS server 发帧，验入站 Tick::Inbound 接线（A2）。
+# 协议执行已迁 helix-driver-host，故这两条仅测试侧需要。
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 [[bench]]
 name = "storage_upsert"

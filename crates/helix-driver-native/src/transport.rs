@@ -1,265 +1,162 @@
-//! NativeTransport — tokio-tungstenite WebSocket
+//! Native WebSocket thin shell over the shared host client.
 //!
-//! ## 设计要点
-//!
-//! - `.split()` 读写分离：SplitSink（写）+ SplitStream（读），允许并发读写
-//! - 连接/断开产出 Tick::Connected(id) / Tick::Disconnected(id)（发往 engine_loop 的 mpsc）
-//! - 指数退避重连（私有状态机，模块不感知）：2^n * 100ms + jitter，上限 30s
-//! - Ping/Pong 心跳：driver 私有，每 30s 发一次 ping，60s 无 pong → 主动断连重连
-//!
-//! ## 关于 connect/send/recv/close 的 Transport trait 实现
-//!
-//! Transport trait 是供 engine_loop 直接驱动的低级接口。
-//! 重连状态机和心跳是 NativeTransport 的私有实现细节。
-//!
-//! ## 错误翻译（ACL-2）
-//!
-//! tokio-tungstenite 错误 → PortError::Transport(msg)
-
-use std::sync::Arc;
+//! WS 协议执行（连接/收发/Text 出站/入站读任务）统一在 `helix-driver-host` 的
+//! `SharedWsClient`（ADR-007 双端共享）。native 只保留 engine-loop 生命周期 Tick 接线
+//! 与现网兼容构造器：
+//! - **握手头**（`with_handshake_headers`）：现网 Go 在 WS 升级阶段按 `cookieId=userId` 建 session，
+//!   session 空则不发 hello、~5s 超时关连接，故身份头必须随 upgrade 请求带（灌进共享 header registry）。
+//! - **入站推送**（`SharedWsClient::with_inbound_tick`）：native engine_loop 从不调 `recv()`，
+//!   入站帧全靠读任务作 `Tick::Inbound` 直发泵（A2 不变量）。
 
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
-use tokio::sync::{mpsc, Mutex};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
-
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
-use helix_core::tick::InboundBytes;
 use helix_core::PortError;
 use helix_core::Tick;
+use helix_driver_host::{HostNetworkConfig, SharedWsClient};
+use tokio::sync::mpsc;
 
-/// 退避参数（重连状态机将在后续版本接入；当前 Transport trait 调用方直接管理）
-#[allow(dead_code)]
-const BACKOFF_BASE_MS: u64 = 100;
-#[allow(dead_code)]
-const BACKOFF_MAX_MS: u64 = 30_000;
-/// Ping 心跳间隔（driver 私有状态机，当前注记，后续版本接入）
-#[allow(dead_code)]
-const PING_INTERVAL_MS: u64 = 30_000;
-/// Pong 超时（超时后主动断连重连）
-#[allow(dead_code)]
-const PONG_TIMEOUT_MS: u64 = 60_000;
-
-type WsSink = futures_util::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    Message,
->;
-
-#[allow(dead_code)]
-type WsStream = futures_util::stream::SplitStream<
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
->;
-
-/// 内部连接状态。
-enum ConnState {
-    Disconnected,
-    Connected {
-        sink: WsSink,
-        /// 读任务发来的帧；读任务在 connect() 时 spawn
-        frame_rx: mpsc::Receiver<Result<Bytes, PortError>>,
-        /// 读任务 handle（关闭时 abort）
-        _reader: tokio::task::JoinHandle<()>,
-    },
-}
-
-/// tokio-tungstenite WebSocket 驱动传输。
+/// PC/Tauri transport wrapper.
 ///
-/// 使用 `Arc<Mutex<ConnState>>` 允许 engine_loop 在多处持有（如同时持有 Transport + timer）。
-/// Mutex 仅在 send/recv/connect/close 时短暂持有，不跨 await 泄漏。
+/// WebSocket protocol execution lives in `helix-driver-host`; native keeps only
+/// engine-loop lifecycle tick wiring and compatibility constructors.
 pub struct NativeTransport {
-    url: String,
     id: TransportId,
-    state: Arc<Mutex<ConnState>>,
-    /// engine_loop 入站通道：Connected/Disconnected Tick 从此注入
+    inner: Option<SharedWsClient>,
+    init_error: Option<String>,
     tick_tx: Option<mpsc::Sender<Tick>>,
+    connected: bool,
+    disconnected_emitted: bool,
     /// WS upgrade 握手头（如现网 Go 鉴权 `cookieId=userId`）。
     /// 现网 Go 在 HTTP 升级中间件按 header 建 session，session 空则不发 hello、超时关连接，
-    /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。
+    /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。connect 前灌进共享 registry。
     handshake_headers: Vec<(String, String)>,
 }
 
 impl NativeTransport {
-    /// 创建传输实例。
-    ///
-    /// `tick_tx` 用于产出 `Tick::Connected` / `Tick::Disconnected`，
-    /// 设为 None 时不产出（测试 / 手动驱动场景）。
     pub fn new(
         url: impl Into<String>,
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Self {
-        Self {
-            url: url.into(),
-            id,
-            state: Arc::new(Mutex::new(ConnState::Disconnected)),
-            tick_tx,
-            handshake_headers: Vec::new(),
+        let config = HostNetworkConfig::new("", url.into());
+        match Self::with_config(config, id, tick_tx) {
+            Ok(transport) => transport,
+            Err(e) => Self {
+                id,
+                inner: None,
+                init_error: Some(e.to_string()),
+                tick_tx: None,
+                connected: false,
+                disconnected_emitted: false,
+                handshake_headers: Vec::new(),
+            },
         }
     }
 
     /// 注入 WS upgrade 握手头（builder）。现网 Go：`cookieId=userId`（+ 可选 companyId 等）。
+    /// 头在 `connect` 前灌进 `SharedWsClient` 的共享 header registry，随 upgrade 请求带出。
     pub fn with_handshake_headers(mut self, headers: Vec<(String, String)>) -> Self {
         self.handshake_headers = headers;
         self
     }
-}
 
-fn map_ws_err(e: impl std::fmt::Display) -> PortError {
-    PortError::Transport(e.to_string())
+    pub fn with_config(
+        config: HostNetworkConfig,
+        id: TransportId,
+        tick_tx: Option<mpsc::Sender<Tick>>,
+    ) -> Result<Self, PortError> {
+        let mut inner = SharedWsClient::new(config)?;
+        // A2：tick_tx=Some（生产 native 路径）→ 共享读任务作 Tick::Inbound 直发泵；
+        // tick_tx=None（单测手动驱动）→ 不注入，读任务回退 frame_rx，由 recv() 拉取。
+        if let Some(tx) = &tick_tx {
+            inner = inner.with_inbound_tick(id, tx.clone());
+        }
+        Ok(Self::from_shared(inner, id, tick_tx))
+    }
+
+    pub fn from_shared(
+        inner: SharedWsClient,
+        id: TransportId,
+        tick_tx: Option<mpsc::Sender<Tick>>,
+    ) -> Self {
+        Self {
+            id,
+            inner: Some(inner),
+            init_error: None,
+            tick_tx,
+            connected: false,
+            disconnected_emitted: false,
+            handshake_headers: Vec::new(),
+        }
+    }
+
+    async fn emit(&self, tick: Tick) {
+        if let Some(tx) = &self.tick_tx {
+            tx.send(tick).await.ok();
+        }
+    }
+
+    async fn emit_disconnected_once(&mut self) {
+        if self.connected && !self.disconnected_emitted {
+            self.emit(Tick::Disconnected(self.id)).await;
+            self.disconnected_emitted = true;
+            self.connected = false;
+        }
+    }
+
+    fn inner_mut(&mut self) -> Result<&mut SharedWsClient, PortError> {
+        match self.inner.as_mut() {
+            Some(inner) => Ok(inner),
+            None => Err(PortError::Transport(
+                self.init_error
+                    .clone()
+                    .unwrap_or_else(|| "transport not initialized".to_string()),
+            )),
+        }
+    }
 }
 
 #[async_trait::async_trait]
 impl Transport for NativeTransport {
-    /// 建立 WebSocket 连接，spawn 后台读任务，产出 `Tick::Connected`。
     async fn connect(&mut self) -> Result<(), PortError> {
-        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
-
-        // 带握手头的 upgrade 请求：现网 Go 在 HTTP 升级中间件按 cookieId=userId 建 session，
-        // session 空则不发 hello、~5s 超时关连接。身份头必须随 upgrade 请求带。
-        let mut request = self
-            .url
-            .as_str()
-            .into_client_request()
-            .map_err(map_ws_err)?;
-        {
-            let headers = request.headers_mut();
-            for (k, v) in &self.handshake_headers {
-                let name = HeaderName::from_bytes(k.as_bytes()).map_err(map_ws_err)?;
-                let value = HeaderValue::from_str(v).map_err(map_ws_err)?;
-                headers.insert(name, value);
-            }
+        // 握手头灌进共享 header registry：SharedWsClient::connect 会把 registry 快照
+        // 逐条注入 WS upgrade 请求（现网 Go cookieId=userId 建 session 依赖此）。
+        if !self.handshake_headers.is_empty() {
+            let registry = self.inner_mut()?.headers();
+            registry
+                .replace_headers(self.handshake_headers.iter().map(|(k, v)| (k, v)))
+                .await?;
         }
 
-        let (ws_stream, _resp) = connect_async(request).await.map_err(map_ws_err)?;
-        let (sink, stream) = ws_stream.split();
-
-        // 读任务：把 WS 消息转为 Bytes 发入 frame_rx
-        let (frame_tx, frame_rx) = mpsc::channel::<Result<Bytes, PortError>>(64);
-        let id = self.id;
-        let tick_tx_clone = self.tick_tx.clone();
-        // 联调工具：HELIX_DUMP_FRAMES 置位时打印每条入站原始帧（抓真 Go wire 做 golden fixtures）。
-        // 零成本（仅一次 env 读 + off 时不打印）；driver 层 ambient 合法。
-        let dump_frames = std::env::var("HELIX_DUMP_FRAMES").is_ok();
-
-        let reader = tokio::spawn(async move {
-            let mut stream = stream;
-            while let Some(msg) = stream.next().await {
-                // 先归一化数据帧字节（Binary/Text 统一 Bytes）；控制帧/关闭单独处理。
-                let data: Option<Bytes> = match msg {
-                    Ok(Message::Binary(data)) => Some(Bytes::from(data)),
-                    Ok(Message::Text(text)) => Some(Bytes::from(text.into_bytes())),
-                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => {
-                        // tungstenite 自动处理 Ping/Pong；Frame 原始帧忽略
-                        None
-                    }
-                    Ok(Message::Close(_)) | Err(_) => {
-                        // 连接关闭：产出 Disconnected Tick
-                        if let Some(tx) = &tick_tx_clone {
-                            tx.send(Tick::Disconnected(id)).await.ok();
-                        }
-                        break;
-                    }
-                };
-
-                let Some(bytes) = data else { continue };
-
-                if dump_frames {
-                    tracing::info!(
-                        target: "helix_ws_frames",
-                        len = bytes.len(),
-                        frame = %String::from_utf8_lossy(&bytes),
-                        "RAW WS inbound"
-                    );
-                }
-
-                // A2：入站接线。
-                // 生产路径（tick_tx=Some）直接把入站帧作 `Tick::Inbound` 喂进泵，
-                // 与 Connected/Disconnected 同一通道——读任务独立持有 stream 半边，
-                // 不碰 state Mutex，故不与 send 抢锁（`Arc<Mutex<NativeTransport>>`
-                // 下若用 recv-pump，recv 跨 await 持锁会与 send 死锁）。
-                // 手动驱动路径（tick_tx=None，单测）回退 frame_tx，供 `Transport::recv` 拉取。
-                match &tick_tx_clone {
-                    Some(tx) => {
-                        if tx.send(Tick::Inbound(InboundBytes(bytes))).await.is_err() {
-                            break; // 泵已关闭
-                        }
-                    }
-                    None => {
-                        if frame_tx.send(Ok(bytes)).await.is_err() {
-                            break; // 接收端已关闭
-                        }
-                    }
-                }
-            }
-        });
-
-        *self.state.lock().await = ConnState::Connected {
-            sink,
-            frame_rx,
-            _reader: reader,
-        };
-
-        // 产出 Connected Tick
-        if let Some(tx) = &self.tick_tx {
-            tx.send(Tick::Connected(self.id)).await.ok();
-        }
-
+        self.inner_mut()?.connect().await?;
+        self.connected = true;
+        self.disconnected_emitted = false;
+        self.emit(Tick::Connected(self.id)).await;
         Ok(())
     }
 
-    /// 发送一帧（Text/JSON 消息）。
-    ///
-    /// 现网 Go 按 WS 帧类型选 codec：**Text→JSON 解码，Binary→msgpack 解码**。
-    /// helix 出站帧是 JSON（hello/ping/业务），必须发 **Text**——发 Binary 则 Go 用 msgpack
-    /// 解 `{`(0x7b) 失败：`msgpack: unexpected code=7b decoding map length` → 关连接
-    /// （真 Go dev-loop 三测实测定位的 ~8s 断连根因）。
     async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
-        let mut state = self.state.lock().await;
-        match &mut *state {
-            ConnState::Connected { sink, .. } => {
-                let text = String::from_utf8(frame.to_vec())
-                    .map_err(|e| PortError::Transport(format!("non-utf8 ws frame: {e}")))?;
-                sink.send(Message::Text(text)).await.map_err(map_ws_err)
-            }
-            ConnState::Disconnected => Err(PortError::Transport(
-                "send on disconnected transport".to_string(),
-            )),
-        }
+        // 出站走 SharedWsClient::send（已修为 Message::Text，现网 Go Text→JSON 解码）。
+        self.inner_mut()?.send(frame).await
     }
 
-    /// 接收下一帧（None = 连接已关闭）。
     async fn recv(&mut self) -> Result<Option<Bytes>, PortError> {
-        let mut state = self.state.lock().await;
-        match &mut *state {
-            ConnState::Connected { frame_rx, .. } => {
-                match frame_rx.recv().await {
-                    Some(Ok(bytes)) => Ok(Some(bytes)),
-                    Some(Err(e)) => Err(e),
-                    None => Ok(None), // 读任务已结束（连接关闭）
-                }
-            }
-            ConnState::Disconnected => Ok(None),
+        // 生产 native 路径（tick_tx=Some）入站走 Tick::Inbound，engine_loop 不调本方法；
+        // 此方法仅服务单测手动驱动路径（tick_tx=None → SharedWsClient frame_rx 拉取）。
+        let result = self.inner_mut()?.recv().await?;
+        if result.is_none() {
+            self.emit_disconnected_once().await;
         }
+        Ok(result)
     }
 
-    /// 发送 Close 帧并清理状态。
     async fn close(&mut self) -> Result<(), PortError> {
-        let mut state = self.state.lock().await;
-        if let ConnState::Connected { sink, .. } = &mut *state {
-            sink.send(Message::Close(None)).await.map_err(map_ws_err)?;
-        }
-        *state = ConnState::Disconnected;
-
-        if let Some(tx) = &self.tick_tx {
-            tx.send(Tick::Disconnected(self.id)).await.ok();
-        }
-        Ok(())
+        let result = self.inner_mut()?.close().await;
+        self.emit_disconnected_once().await;
+        result
     }
 }
-
-// ─── 单元测试（集成测试在 tests/ 目录，需真实 WS 服务）────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -272,7 +169,6 @@ mod tests {
         let mut transport =
             NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(1), Some(tx));
 
-        // 未 connect，send 应返回错误
         let result = transport.send(Bytes::from_static(b"hello")).await;
         assert!(matches!(result, Err(PortError::Transport(_))));
     }
@@ -292,7 +188,6 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let mut transport =
             NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(3), Some(tx));
-        // close on disconnected 不应 panic
         transport.close().await.ok();
     }
 }

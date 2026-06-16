@@ -12,8 +12,12 @@ async-trait = { workspace = true }
 bytes       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }
-tokio       = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio       = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net"] }
 rusqlite    = { version = "0.32.1", features = ["bundled"] }
+reqwest     = { version = "0.12", features = ["json"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+tracing     = { workspace = true }
 
 # driver 层是 ambient API（SystemTime/线程）的合法落点 → 不开 disallowed deny
 [lints.clippy]

@@ -1,9 +1,9 @@
 # helix-driver-ffi —— FFI 驱动层设计文档
 
 > **版本** 2026-06-08 · C ABI 稳定层 + uniffi 双轨方案
-> **状态更新（2026-06-15 / ADR-006/ADR-007）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置与事件订阅，不写 IM 同步逻辑、不写消息 SQL。SQLite schema/migration、StorageOp 兑现与 rows reply 编解码复用 `helix-driver-host`；网页端 wasm 已暂停维护。
+> **状态更新（2026-06-15 / ADR-006/ADR-007/ADR-008）**：手机端确定为 Flutter。`helix-driver-ffi` 是当前移动端主线；Dart/Flutter 只负责 UI、路径配置、命令入口与事件订阅，不写 IM 同步逻辑、不写消息 SQL、不直接实现业务 HTTP/WS。SQLite schema/migration、StorageOp 兑现、rows reply 编解码、HTTP client 与 WebSocket client 统一复用 `helix-driver-host`；网页端 wasm 已暂停维护。
 >
-> **本文目的**：详述 `helix-driver-ffi` 如何通过 C ABI（`extern "C"` / `#[no_mangle]` / `repr(C)` / opaque ptr）和 uniffi（Swift/Kotlin 绑定）把 Flutter/移动端接到 Rust host driver；Flutter 主线由 Rust 侧全包 I/O，host 回调只保留事件/生命周期/可选宿主能力。
+> **本文目的**：详述 `helix-driver-ffi` 如何通过 C ABI（`extern "C"` / `#[no_mangle]` / `repr(C)` / opaque ptr）和 uniffi（Swift/Kotlin 绑定）把 Flutter/移动端接到 Rust host driver；Flutter 主线由 Rust 侧全包 I/O，host 回调只保留事件/生命周期/可选宿主能力。登录/鉴权不归 Helix，Helix 只消费外部传入的 header/token/session 配置。
 
 ---
 
@@ -17,7 +17,7 @@ Flutter / Dart FFI        iOS/Android 原生宿主        C/C++ 宿主
     ▼                        ▼                         ▼
 helix-driver-ffi  (crate-type = ["cdylib", "staticlib"])
     │  implements: Flutter C ABI / opaque handle / Dart event callback
-    │  reuses:     helix-driver-host Storage + StorageOp execution
+    │  reuses:     helix-driver-host Storage + HTTP/WS client + StorageOp execution
     │  owns:       lifecycle / callback boundary / event stream bridge
     ▼
 helix-core + helix-im
@@ -43,7 +43,20 @@ helix.sendMessage(channelId: id, temporaryId: tmp, text: text);
 helix.destroy();
 ```
 
-Rust FFI 侧对应少量稳定入口：`helix_create` / `helix_start` / `helix_send_command` / `helix_destroy` / `helix_on_ws_frame` / `helix_on_http_response`。消息 schema、sync、cursor、pending send 全部留在 `helix-im` 和 driver 内部。
+Rust FFI 侧对应少量稳定入口：`helix_create/open`（传入 DB 路径、`api_base_url`、`ws_url`、初始 headers 等 `HostNetworkConfig`）/ `helix_start` / `helix_send_command` / `helix_set_header` / `helix_remove_header` / `helix_destroy`。消息 schema、sync、cursor、pending send、HTTP 请求执行、WS 长连收发全部留在 `helix-im` 和 shared host driver 内部。
+
+### 0.2 网络初始化材料由宿主提供
+
+Flutter/Dart 不实现业务 HTTP/WS，但必须在创建 Helix 时提供 shared client 的初始化材料：
+
+- `api_base_url`：业务模块拼 HTTP path 时使用的 API 根地址。
+- `ws_url`：shared WS client 建连使用的地址。
+- `headers`：Authorization、租户、设备、版本等默认 header；登录模块拿到/刷新 token 后通过 `helix_set_header` 更新。
+- 可选平台配置：timeout、user-agent、proxy/TLS/cert 策略等，进入 `HostNetworkConfig`，由 shared client 消费。
+
+业务模块不直接读取 token/header；HTTP request 和 WS connect/重连时由 shared header registry 统一注入。
+
+当前 `cses-im-server` 线上契约：Flutter 宿主应传入类似 `http://host:port/api/cses` 的 `api_base_url`，以及完整 `ws://host:port/api/v4/websocket` 的 `ws_url`。shared client 不从 HTTP base 推导 WS 路径，也不在 Helix 内硬编码后端地址。
 
 ---
 
@@ -163,7 +176,7 @@ pub extern "C" fn helix_destroy(handle: *mut HelixHandle) {
 
 ## 3. Host 回调表：C 端提供事件与可选宿主能力
 
-Flutter 主线选择 Rust 侧全包 I/O：Dart 不执行 IM sync、消息 SQL、cursor 推进、echo 对账，也不理解 `Tick` / `Effect` / `StorageOp`。C 回调表主线只用于事件投递、可选时间/ID 注入和生命周期通知；历史的 `ws_send` / `http_request` host callback 只作为非 Flutter 宿主备选，不是当前产品路径。
+Flutter 主线选择 Rust 侧全包 I/O：Dart 不执行 IM sync、消息 SQL、cursor 推进、echo 对账、业务 HTTP 请求或 WS 长连，也不理解 `Tick` / `Effect` / `StorageOp`。C 回调表主线只用于事件投递、可选时间/ID 注入和生命周期通知；header/token 更新走显式配置 API（如 `helix_set_header`），进入 shared header registry。历史的 `ws_send` / `http_request` host callback 只作为非 Flutter 宿主或平台网络栈强约束下的逃生口，不是 PC/Flutter 产品路径。
 
 ```rust
 // helix-driver-ffi/src/callbacks.rs
@@ -172,7 +185,8 @@ Flutter 主线选择 Rust 侧全包 I/O：Dart 不执行 IM sync、消息 SQL、
 /// 所有回调必须是线程安全的（可能从 Rust tokio 线程调用）
 #[repr(C)]
 pub struct HelixCallbacks {
-    /// WebSocket 发送：host 把帧发到真实 socket
+    /// 可选逃生口：host 把帧发到真实 socket。
+    /// Flutter 产品主路径为空，Rust shared WS client 负责真实连接。
     pub ws_send: Option<extern "C" fn(
         ctx: *mut std::ffi::c_void,
         data: *const u8,
@@ -186,8 +200,9 @@ pub struct HelixCallbacks {
         payload_json: *const std::ffi::c_char,
     )>,
 
-    /// HTTP 请求：host 执行（可能是 URLSession / OkHttp）
-    /// 异步：请求完成后 host 调 helix_http_reply 把结果喂回
+    /// 可选逃生口：host 执行 HTTP（可能是 URLSession / OkHttp）。
+    /// Flutter 产品主路径为空，Rust shared HTTP client 负责真实请求。
+    /// 异步：请求完成后 host 调 helix_http_reply 把结果喂回。
     pub http_request: Option<extern "C" fn(
         ctx: *mut std::ffi::c_void,
         correlation_id: u64,
@@ -207,9 +222,9 @@ unsafe impl Send for HelixCallbacks {}
 unsafe impl Sync for HelixCallbacks {}
 ```
 
-### 3.1 WS 入站：host → Rust
+### 3.1 可选逃生口：WS 入站 host → Rust
 
-C/Swift/Kotlin 收到 WS 帧时，调 Rust 的入站接口：
+Flutter 产品主路径不走此入口：shared WS client 在 Rust 内部建连、收帧并回灌 Tick。只有当某个平台必须使用宿主网络栈（例如系统代理、证书、后台网络能力）时，C/Swift/Kotlin 才收到 WS 帧后调 Rust 的入站接口：
 
 ```rust
 /// host 调此函数把 WS 入站帧推给 Rust engine
@@ -231,9 +246,9 @@ pub extern "C" fn helix_ws_received(
 
 **关键**：`data` 是 C 端 buffer，**必须在函数返回前拷贝完成**（`Bytes::copy_from_slice`），不得让 Rust 持有 C 端 buffer 指针到函数返回后。
 
-### 3.2 HTTP 异步回报：host → Rust
+### 3.2 可选逃生口：HTTP 异步回报 host → Rust
 
-HTTP 是异步操作，host 执行完后通过 `helix_http_reply` 把结果喂回：
+Flutter 产品主路径不走此入口：shared HTTP client 在 Rust 内部执行请求并回灌 PortReply。只有 host-network 逃生口启用时，HTTP 才由宿主异步执行，完成后通过 `helix_http_reply` 把结果喂回：
 
 ```rust
 /// host HTTP 请求完成后调此函数
@@ -258,13 +273,24 @@ pub extern "C" fn helix_http_reply(
 
 ---
 
-## 4. Transport Port 实现：`FfiTransport`
+## 4. Transport / HttpRequester Port 实现：薄壳复用 shared client
+
+`FfiTransport` 与 `FfiHttpRequester` 不再各自实现一套移动端网络逻辑。产品主路径是：
+
+- `FfiTransport` 持有 shared WS client handle，调用 `connect/send/recv/close`。
+- `FfiHttpRequester` 持有 shared HTTP client handle，调用 `request`。
+- header/token/session 由 `helix_set_header` 这类 FFI API 注入 shared header registry。
+- shared client 初始化时接收 `HostNetworkConfig`，后续 HTTP 请求和 WS connect/重连都从同一个 header registry 取最新 header。
+- host `ws_send` / `http_request` callback 仅作为 host-network 逃生口，不是默认路径。
+
+逃生口示例仍保留如下，用于说明 FFI buffer 所有权约束：
 
 ```rust
 // helix-driver-ffi/src/transport.rs
 use helix_core::ports::Transport;
 use bytes::Bytes;
 
+/// Host-network fallback only. Flutter product path uses shared WS client.
 pub struct FfiTransport {
     /// WS 入站帧（由 helix_ws_received 推入）
     inbound_rx: futures_channel::mpsc::Receiver<Bytes>,
@@ -506,6 +532,7 @@ interface HelixHandle {
 /// uniffi 不直接支持函数指针，用 trait 替代
 callback interface HelixCallbacksUdl {
     void on_event(string channel, string payload_json);
+    // Host-network fallback only. Flutter product path uses Rust shared clients.
     [Throws=HelixError]
     void ws_send(bytes frame);
     void http_request(u64 correlation_id, string method, string url, bytes? body);
@@ -534,6 +561,7 @@ impl HelixHandleUniffi {
 #[uniffi::export(callback_interface)]
 pub trait HelixCallbacksUdl: Send + Sync {
     fn on_event(&self, channel: String, payload_json: String);
+    // Host-network fallback only. Flutter product path uses Rust shared clients.
     fn ws_send(&self, frame: Vec<u8>) -> Result<(), HelixError>;
     fn http_request(&self, correlation_id: u64, method: String, url: String, body: Option<Vec<u8>>);
 }
@@ -581,9 +609,9 @@ fn main() {
 **Helix FFI 推荐**：
 
 - **命令入口**：`helix_send_command(handle, json_ptr, json_len)` —— 命令体积小、类型多，JSON 字符串最灵活。
-- **WS 帧**：`helix_ws_received(handle, data, len)` —— 纯字节，不反序列化，driver 层处理。
+- **WS**：Flutter 产品主路径不暴露 WS 帧入口；shared WS client 在 Rust 内部收发并把入站帧转成 Tick。`helix_ws_received(handle, data, len)` 仅保留给 host-network 逃生口。
 - **事件出口**：`on_event(ctx, channel_cstr, json_cstr)` —— channel + JSON payload，宿主按需解析。
-- **HTTP**：回调传 correlation_id + url + body bytes；回报传 correlation_id + status + body bytes。
+- **HTTP**：Flutter 产品主路径不通过 host 回调执行请求；shared HTTP client 在 Rust 内部完成请求并回灌 PortReply。`http_request` / `helix_http_reply` 仅保留给 host-network 逃生口。
 
 ---
 
@@ -591,11 +619,11 @@ fn main() {
 
 | core Port | FFI 实现类型 | 核心依赖 | 所有权规则 |
 |---|---|---|---|
-| `Transport` | `FfiTransport` | host `ws_send` callback + `helix_ws_received` 入口 | 入站帧立即 `copy_from_slice`；出站调回调前 buffer 在 Rust 栈上 |
+| `Transport` | `FfiTransport` 薄壳 → shared WS client | `helix-driver-host` shared WS runtime；host callback 仅逃生口 | 产品主路径无 host WS buffer；逃生口入站帧必须立即 `copy_from_slice` |
 | `Storage` | `FfiStorage` → `HostStorage` | `helix-driver-host` / `rusqlite` bundled + `spawn_blocking` | shared blocking SQLite worker |
 | `Clock` | `FfiClock` | host `now_fn` 或 `SystemTime` | 无状态 Clone |
 | `EventSink` | `FfiEventSink` | host `on_event` callback | CString 在回调返回后 drop，host 必须在回调内拷贝 |
-| `HttpRequester` | `FfiHttpRequester` | host `http_request` callback + `helix_http_reply` 入口 | correlation_id 配对；body bytes 立即拷贝 |
+| `HttpRequester` | `FfiHttpRequester` 薄壳 → shared HTTP client | `helix-driver-host` shared HTTP client；host callback 仅逃生口 | 产品主路径无 host HTTP buffer；逃生口 correlation_id 配对、body bytes 立即拷贝 |
 | `IdGen` | `FfiIdGen` | host `next_id_fn` 或 uuid | 无状态 Clone |
 
 ---

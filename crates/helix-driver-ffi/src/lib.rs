@@ -17,5 +17,6 @@
 
 pub mod api;
 pub mod callbacks;
+pub mod http;
 pub mod storage;
 pub mod transport;

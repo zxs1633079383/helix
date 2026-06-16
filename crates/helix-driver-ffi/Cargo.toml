@@ -16,6 +16,7 @@ bytes       = { workspace = true }
 tracing     = { workspace = true }
 async-trait = { workspace = true }
 futures-channel = { workspace = true }
+futures-util = "0.3"
 
 # FFI 绑定（cbindgen 在 build.rs 生成 helix.h）
 # uniffi = { version = "0.28", features = ["scaffolding"] }  # 按需开启

@@ -17,16 +17,22 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 8c69f25
+last_reviewed_commit: 3c5324f
 last_reviewed_at: 2026-06-16
-last_review_runId: (baseline — 规则生效锚点，尚未跑首次 review)
+last_review_runId: wf_ee61a139-68b (architecture-drift-review，首轮)
 threshold: 10
 ```
 
-> 说明：2026-06-16 规则生效，以 `8c69f25`（当时 HEAD）为基线锚点。此后每累计 5 个 commit 触发一次强制架构 review。B3 sync-wire + 持久化层（workflow wg54jl7rq）等改动落 commit 后开始计 gap。
+> 说明：2026-06-16 规则生效，基线锚点 `8c69f25`。首轮 review（gap=5 触发，阈值当时=5，已调至 10）核 `8c69f25..3c5324f`，🟡 轻 drift（2 条，非阻塞），ledger 推进到 `3c5324f`，gap 归 0。
+
+## 待收敛 todo（drift-review 登记，择期修，非阻塞）
+
+- [ ] **[medium] HX-C005 热路径回归**：`event_to_upsert_op`（channel.rs:296-353，6d83ad5 引入）WS 每事件 `serde_json::from_slice(raw)` 全量重解析 + ~14 次 String 堆分配；sync 路径 parse→reserialize(parser.rs:313)→parse 三趟。SQL 写仍真 O(1)（单 BatchUpsert ON CONFLICT，无 RMW），受 WS 帧率约束非 fan-out → medium。**修法**：A. 字段提取上移 parser，EventEnvelope 携 owned typed 视图（消除 reserialize）→ **与 B5（Post map→message 内容落库）同源，建议合并到 B5 轮**；B. 列名 `&'static str`；C. channel.rs:293 注释诚实化（SQL O(1) 但分配非零）；D. 承压实测 alloc 数。
+- [ ] **[low] 双 cursor schema 占位**：`schema.rs:131` 建 `channel_event_cursor` 死表（零读零写），运行时实际写 `_helix_monotonic`。原判「污染 core §1.6」已证伪（core 零业务 schema；channel_event_cursor 在 helix-im 属正当位置）→ 实为 helix-im 内 cursor 单一真源自洽瑕疵。**修法**：A.（推荐）从 IM_SCHEMA 删 `channel_event_cursor`，M2 再引入并写迁移 `_helix_monotonic` 已有水位步骤；或 B. 保留+注释不变量「_helix_monotonic 唯一真源」+ grep gate 禁 SELECT channel_event_cursor。
 
 ## 历史
 
 | 日期 | review 到 commit | 区间(from..to) | workflow runId | drift 判定 | 关键发现 / 收敛动作 |
 |---|---|---|---|---|---|
 | 2026-06-16 | 8c69f25 | — (基线) | — | 🟢 baseline | 规则生效锚点；无 review，仅设基线 |
+| 2026-06-16 | 3c5324f | 8c69f25..3c5324f | wf_ee61a139-68b | 🟡 轻 drift | 2 条真 drift（8 报告去重）：[medium] event_to_upsert_op 热路径二/三次 serde + per-event alloc（违 HX-C005，6d83ad5 引入）；[low] channel_event_cursor 死表占位 vs 运行时 _helix_monotonic。均非阻塞、无正确性崩塌 → 登记「待收敛 todo」择期修，ledger 直接推进 |

@@ -6,7 +6,7 @@ severity: major
 scope: helix
 created: 2026-06-08
 source: 2026-06-08 review（MAJ-5）+ 全局性能规约
-recurrence_count: 2
+recurrence_count: 3
 trigger_paths:
   - "crates/helix-core/src/effect.rs"
   - "crates/helix-im/src/**"
@@ -66,6 +66,7 @@ grep -rn '"[a-z_]*"\.to_string()' crates/helix-im/src crates/helix-driver-*/src/
 |---|---|---|---|
 | 2026-06-08 | review MAJ-5 fix | `UpsertSpec.table: String` 每消息 `"messages".to_string()` 堆分配 | 热路径常量误用 owned String → 改 &'static str |
 | 2026-06-15 | a0595607 review / c6a655a | `helix-driver-host` 把 cursor 热路径 `monotonic_upsert` SQL 用 per-call `format!` 重建 String（stress-verify 揪出）| 固定 SQL 模板误用 `format!` → 提 `&'static const`；batch 动态 SQL 形状缓存留 P2 |
+| 2026-06-16 | 6d83ad5 / drift-review wf_ee61a139-68b | `event_to_upsert_op`（channel.rs:296-353）持久化列对齐时改成 WS 每事件 `serde_json::from_slice(raw)` 全量重解析 + ~14 次 String 堆分配；sync 路径 parse→reserialize→parse 三趟（独立 drift-review 揪出，self-review 漏）| B3 字段提取误放热路径调用点而非 parser → 待修：提取上移 parser（与 B5 同源）+ 列名 &'static str + 注释诚实化。count 2→3 达 graduate 评估线 |
 
 ## §6 关联
 - 上游：~/.claude/rules/common/performance.md（热路径 O(1)）/ CLAUDE.md §2

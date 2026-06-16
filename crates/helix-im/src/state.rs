@@ -240,6 +240,18 @@ pub struct ImState {
     /// 这些 channel 无需 pull sync——global-end 时从 `increment_fetched` 中扣除。
     /// 与 `increment_fetched` 同生命周期（hello 起点 clear）。
     pub need_sync_skip: HashSet<ChannelId>,
+
+    /// 出站 WS 消息单调序号（client→server）。现网 Go `websocket_router.go:34 if r.Seq <= 0`
+    /// 拒绝 seq≤0（"Invalid sequence"）→ 关连接。每条出站 WS 帧（ping 等）必带 `seq = ++client_seq`。
+    pub client_seq: u64,
+}
+
+impl ImState {
+    /// 分配下一个出站 WS 消息序号（从 1 开始单调递增）。
+    pub fn next_client_seq(&mut self) -> u64 {
+        self.client_seq += 1;
+        self.client_seq
+    }
 }
 
 impl ImState {
@@ -258,6 +270,7 @@ impl ImState {
             ping_timer: None,
             increment_fetched: HashSet::new(),
             need_sync_skip: HashSet::new(),
+            client_seq: 0,
         }
     }
 

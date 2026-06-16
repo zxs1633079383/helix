@@ -4,9 +4,24 @@ use crate::state::{ChannelId, Seq, TemporaryId};
 use crate::sync_session::EventEnvelope;
 use bytes::Bytes;
 use helix_core::effect::{
-    DomainEventBytes, HttpRequest, MonotonicUpsertSpec, Row, SqlValue, StorageOp, UpsertSpec,
+    DomainEventBytes, HttpRequest, MonotonicUpsertSpec, Row, SqlValue, StorageOp, TransportId,
+    UpsertSpec,
 };
 use helix_core::{Correlation, Effect};
+
+/// 出站 WS ping 帧（带单调 `seq`）。现网 Go `websocket_router.go:34 if r.Seq <= 0` 拒绝
+/// seq≤0（"Invalid sequence" → 关连接），故每条出站 WS 帧必带 `seq = ++client_seq`。
+/// 真 ping piggyback（cursors/allHash，§8 心跳）后续扩；当前最小 `{action,seq}` 保活。
+pub fn ping_frame(seq: u64) -> Effect {
+    let payload = serde_json::json!({ "action": "ping", "seq": seq });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload).expect("ping_frame: static JSON shape must not fail"),
+    );
+    Effect::Send {
+        transport: TransportId::from_raw(0),
+        frame: bytes,
+    }
+}
 
 /// 乐观落库：INSERT INTO messages ON CONFLICT(temporary_id) DO UPDATE
 ///

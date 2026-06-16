@@ -616,11 +616,9 @@ impl ImModule {
         // 1. ping timer（self-arm 周期心跳）
         if self.state.ping_timer == Some(timer_id) {
             if self.state.conn == ConnState::Connected {
-                // 吐 ping WS 帧（简化实现：用 Send{空帧}）
-                out.push(Effect::Send {
-                    transport: helix_core::effect::TransportId::from_raw(0),
-                    frame: bytes::Bytes::from_static(b"{\"action\":\"ping\"}"),
-                });
+                // ping WS 帧带单调 seq（Go websocket_router 拒 seq≤0）。
+                let seq = self.state.next_client_seq();
+                out.push(crate::acl::to_effect::ping_frame(seq));
             }
             // 重新 arm（self-arm 实现无 tick() 的周期心跳）
             let new_timer = self.alloc_timer();
@@ -636,11 +634,9 @@ impl ImModule {
         if self.state.backoff_timer == Some(timer_id) {
             self.state.backoff_timer = None;
             self.state.conn = ConnState::Connecting;
-            // 吐 connect 意图（hello 帧）
-            out.push(Effect::Send {
-                transport: helix_core::effect::TransportId::from_raw(0),
-                frame: bytes::Bytes::from_static(b"{\"action\":\"hello\"}"),
-            });
+            // 不发 hello 帧：现网 Go 是服务端单向下发 hello，客户端不发（抽象 wire 残留，
+            // 且 seq=0 会被 Go 拒）。重连应由 driver/host transport 层 connect（§7/A2 Effect::Connect
+            // 待定）；此处仅置 Connecting，等真重连后服务端再下发 hello 走 handle_hello。
             return Ok(());
         }
 

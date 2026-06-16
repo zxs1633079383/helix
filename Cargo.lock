@@ -622,6 +622,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-channel",
+ "futures-util",
  "helix-core",
  "helix-driver-host",
  "serde",
@@ -636,11 +637,14 @@ dependencies = [
  "async-trait",
  "bytes",
  "criterion",
+ "futures-util",
  "helix-core",
+ "reqwest",
  "rusqlite",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -650,16 +654,12 @@ dependencies = [
  "async-trait",
  "bytes",
  "criterion",
- "futures-channel",
- "futures-util",
  "helix-core",
  "helix-driver-host",
- "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "tokio-tungstenite",
  "tracing",
 ]
 

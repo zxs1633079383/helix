@@ -71,6 +71,8 @@ Tauri 前端不直接实现业务 HTTP/WS；Tauri 宿主在创建 Helix driver �
 
 这些材料组成 `HostNetworkConfig` 与 shared header registry。`helix-im` / 未来业务模块只产生命令意图，不直接读取 token/header；HTTP 请求与 WS connect/重连由 shared HTTP/WS client 统一注入最新 header。
 
+当前 `cses-im-server` 线上契约：Tauri 宿主应传入类似 `http://host:port/api/cses` 的 `api_base_url`，以及完整 `ws://host:port/api/v4/websocket` 的 `ws_url`。shared client 不从 HTTP base 推导 WS 路径，也不在 Helix 内硬编码后端地址。
+
 ---
 
 ## 2. Transport Port 实现：`NativeTransport`

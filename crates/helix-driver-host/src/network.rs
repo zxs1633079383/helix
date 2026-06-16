@@ -1,0 +1,406 @@
+//! Shared HTTP and WebSocket clients for PC Tauri and Flutter FFI.
+//!
+//! Login/auth remains outside Helix. Platform shells provide config and update
+//! headers; these clients only inject the latest header snapshot into requests.
+
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+
+use bytes::Bytes;
+use futures_util::{SinkExt, StreamExt};
+use helix_core::effect::{HttpRequest, HttpResponse};
+use helix_core::ports::{HttpRequester, Transport};
+use helix_core::PortError;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+use reqwest::{Client, Method, Url};
+use tokio::sync::{mpsc, Mutex};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::Message;
+
+const DEFAULT_TIMEOUT_SECS: u64 = 30;
+const WS_FRAME_BUFFER: usize = 64;
+
+type WsSink = futures_util::stream::SplitSink<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    Message,
+>;
+
+/// Platform-provided network initialization material.
+#[derive(Debug, Clone)]
+pub struct HostNetworkConfig {
+    pub api_base_url: String,
+    pub ws_url: String,
+    pub timeout: Duration,
+    pub user_agent: Option<String>,
+}
+
+impl HostNetworkConfig {
+    pub fn new(api_base_url: impl Into<String>, ws_url: impl Into<String>) -> Self {
+        Self {
+            api_base_url: api_base_url.into(),
+            ws_url: ws_url.into(),
+            timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+            user_agent: None,
+        }
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.user_agent = Some(user_agent.into());
+        self
+    }
+}
+
+/// Shared mutable header registry used by HTTP requests and WS handshakes.
+#[derive(Clone, Default)]
+pub struct HostHeaderRegistry {
+    inner: Arc<RwLock<HeaderMap>>,
+}
+
+impl HostHeaderRegistry {
+    pub async fn set_header(&self, name: &str, value: &str) -> Result<(), PortError> {
+        self.set_header_sync(name, value)
+    }
+
+    pub fn set_header_sync(&self, name: &str, value: &str) -> Result<(), PortError> {
+        let name = header_name(name)?;
+        let value = header_value(name.as_str(), value)?;
+        self.inner
+            .write()
+            .map_err(map_header_lock_err)?
+            .insert(name, value);
+        Ok(())
+    }
+
+    pub async fn remove_header(&self, name: &str) -> Result<(), PortError> {
+        self.remove_header_sync(name)
+    }
+
+    pub fn remove_header_sync(&self, name: &str) -> Result<(), PortError> {
+        let name = header_name(name)?;
+        self.inner
+            .write()
+            .map_err(map_header_lock_err)?
+            .remove(name);
+        Ok(())
+    }
+
+    pub async fn replace_headers<I, K, V>(&self, headers: I) -> Result<(), PortError>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        let mut next = HeaderMap::new();
+        for (name, value) in headers {
+            let name = header_name(name.as_ref())?;
+            let value = header_value(name.as_str(), value.as_ref())?;
+            next.insert(name, value);
+        }
+        *self.inner.write().map_err(map_header_lock_err)? = next;
+        Ok(())
+    }
+
+    pub async fn snapshot(&self) -> HeaderMap {
+        self.inner
+            .read()
+            .map(|headers| headers.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// Request shape after shared config/header resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedHttpRequest {
+    pub method: String,
+    pub url: String,
+    pub headers: BTreeMap<String, String>,
+    pub body: Option<Bytes>,
+}
+
+/// Shared reqwest-backed HTTP port implementation.
+#[derive(Clone)]
+pub struct SharedHttpClient {
+    client: Client,
+    config: HostNetworkConfig,
+    headers: HostHeaderRegistry,
+}
+
+impl SharedHttpClient {
+    pub fn new(config: HostNetworkConfig) -> Result<Self, PortError> {
+        Self::with_registry(config, HostHeaderRegistry::default())
+    }
+
+    pub fn with_registry(
+        config: HostNetworkConfig,
+        headers: HostHeaderRegistry,
+    ) -> Result<Self, PortError> {
+        validate_url(&config.api_base_url, "api_base_url")?;
+        let mut builder = Client::builder().timeout(config.timeout);
+        if let Some(user_agent) = &config.user_agent {
+            builder = builder.user_agent(user_agent);
+        }
+        let client = builder
+            .build()
+            .map_err(|e| PortError::Http(format!("reqwest client build error: {e}")))?;
+        Ok(Self {
+            client,
+            config,
+            headers,
+        })
+    }
+
+    pub fn headers(&self) -> HostHeaderRegistry {
+        self.headers.clone()
+    }
+
+    pub async fn prepare_for_test(
+        &self,
+        req: HttpRequest,
+    ) -> Result<PreparedHttpRequest, PortError> {
+        self.prepare(req).await
+    }
+
+    async fn prepare(&self, req: HttpRequest) -> Result<PreparedHttpRequest, PortError> {
+        let method = Method::from_bytes(req.method.as_bytes())
+            .map_err(|e| PortError::Http(format!("invalid method '{}': {e}", req.method)))?;
+        let url = resolve_http_url(&self.config.api_base_url, &req.url)?;
+
+        let mut headers = self.headers.snapshot().await;
+        if let Some(user_agent) = &self.config.user_agent {
+            headers.insert(USER_AGENT, header_value("user-agent", user_agent)?);
+        }
+        for (name, value) in &req.headers {
+            let name = header_name(name)?;
+            let value = header_value(name.as_str(), value)?;
+            headers.insert(name, value);
+        }
+
+        Ok(PreparedHttpRequest {
+            method: method.as_str().to_string(),
+            url,
+            headers: headers_to_strings(&headers),
+            body: req.body,
+        })
+    }
+
+    fn classify_error(e: &reqwest::Error) -> PortError {
+        if e.is_timeout() {
+            PortError::Transport(format!("timeout: {e}"))
+        } else if e.is_connect() || e.is_request() {
+            PortError::Transport(format!("network: {e}"))
+        } else {
+            PortError::Http(e.to_string())
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl HttpRequester for SharedHttpClient {
+    async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
+        let prepared = self.prepare(req).await?;
+        let method = Method::from_bytes(prepared.method.as_bytes())
+            .map_err(|e| PortError::Http(format!("invalid method '{}': {e}", prepared.method)))?;
+        let mut builder = self.client.request(method, &prepared.url);
+
+        for (name, value) in &prepared.headers {
+            builder = builder.header(name, value);
+        }
+        if let Some(body) = prepared.body {
+            builder = builder.body(body);
+        }
+
+        let resp = builder.send().await.map_err(|e| Self::classify_error(&e))?;
+        let status = resp.status().as_u16();
+        let headers = resp
+            .headers()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_string(),
+                    v.to_str().unwrap_or("<non-utf8>").to_string(),
+                )
+            })
+            .collect();
+        let body = resp.bytes().await.map_err(|e| Self::classify_error(&e))?;
+
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
+    }
+}
+
+enum WsState {
+    Disconnected,
+    Connected {
+        sink: WsSink,
+        frame_rx: mpsc::Receiver<Result<Bytes, PortError>>,
+        reader: tokio::task::JoinHandle<()>,
+    },
+}
+
+/// Shared tokio-tungstenite-backed WebSocket port implementation.
+pub struct SharedWsClient {
+    config: HostNetworkConfig,
+    headers: HostHeaderRegistry,
+    state: Arc<Mutex<WsState>>,
+}
+
+impl SharedWsClient {
+    pub fn new(config: HostNetworkConfig) -> Result<Self, PortError> {
+        Self::with_registry(config, HostHeaderRegistry::default())
+    }
+
+    pub fn with_registry(
+        config: HostNetworkConfig,
+        headers: HostHeaderRegistry,
+    ) -> Result<Self, PortError> {
+        validate_url(&config.ws_url, "ws_url")?;
+        Ok(Self {
+            config,
+            headers,
+            state: Arc::new(Mutex::new(WsState::Disconnected)),
+        })
+    }
+
+    pub fn headers(&self) -> HostHeaderRegistry {
+        self.headers.clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl Transport for SharedWsClient {
+    async fn connect(&mut self) -> Result<(), PortError> {
+        let mut request = self
+            .config
+            .ws_url
+            .as_str()
+            .into_client_request()
+            .map_err(|e| PortError::Transport(format!("invalid ws request: {e}")))?;
+        for (name, value) in self.headers.snapshot().await.iter() {
+            request.headers_mut().insert(name.clone(), value.clone());
+        }
+        if let Some(user_agent) = &self.config.user_agent {
+            request
+                .headers_mut()
+                .insert(USER_AGENT, header_value("user-agent", user_agent)?);
+        }
+
+        let (ws, _resp) = tokio_tungstenite::connect_async(request)
+            .await
+            .map_err(map_ws_err)?;
+        let (sink, mut stream) = ws.split();
+        let (frame_tx, frame_rx) = mpsc::channel::<Result<Bytes, PortError>>(WS_FRAME_BUFFER);
+
+        let reader = tokio::spawn(async move {
+            while let Some(msg) = stream.next().await {
+                let frame = match msg {
+                    Ok(Message::Binary(data)) => Ok(Bytes::from(data)),
+                    Ok(Message::Text(text)) => Ok(Bytes::from(text.into_bytes())),
+                    Ok(Message::Close(_)) => break,
+                    Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => continue,
+                    Err(e) => Err(map_ws_err(e)),
+                };
+                if frame_tx.send(frame).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        *self.state.lock().await = WsState::Connected {
+            sink,
+            frame_rx,
+            reader,
+        };
+        Ok(())
+    }
+
+    async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
+        let mut state = self.state.lock().await;
+        match &mut *state {
+            WsState::Connected { sink, .. } => sink
+                .send(Message::Binary(frame.to_vec()))
+                .await
+                .map_err(map_ws_err),
+            WsState::Disconnected => Err(PortError::Transport(
+                "send on disconnected transport".to_string(),
+            )),
+        }
+    }
+
+    async fn recv(&mut self) -> Result<Option<Bytes>, PortError> {
+        let mut state = self.state.lock().await;
+        match &mut *state {
+            WsState::Connected { frame_rx, .. } => match frame_rx.recv().await {
+                Some(Ok(bytes)) => Ok(Some(bytes)),
+                Some(Err(e)) => Err(e),
+                None => Ok(None),
+            },
+            WsState::Disconnected => Ok(None),
+        }
+    }
+
+    async fn close(&mut self) -> Result<(), PortError> {
+        let mut state = self.state.lock().await;
+        if let WsState::Connected { sink, reader, .. } = &mut *state {
+            sink.send(Message::Close(None)).await.map_err(map_ws_err)?;
+            reader.abort();
+        }
+        *state = WsState::Disconnected;
+        Ok(())
+    }
+}
+
+fn header_name(name: &str) -> Result<HeaderName, PortError> {
+    HeaderName::from_bytes(name.as_bytes())
+        .map_err(|e| PortError::Http(format!("invalid header name '{name}': {e}")))
+}
+
+fn header_value(name: &str, value: &str) -> Result<HeaderValue, PortError> {
+    HeaderValue::from_str(value)
+        .map_err(|e| PortError::Http(format!("invalid header value for '{name}': {e}")))
+}
+
+fn validate_url(url: &str, field: &str) -> Result<(), PortError> {
+    Url::parse(url)
+        .map(|_| ())
+        .map_err(|e| PortError::Http(format!("invalid {field} '{url}': {e}")))
+}
+
+fn resolve_http_url(base: &str, req_url: &str) -> Result<String, PortError> {
+    if Url::parse(req_url).is_ok() {
+        return Ok(req_url.to_string());
+    }
+    let base = Url::parse(base)
+        .map_err(|e| PortError::Http(format!("invalid api_base_url '{base}': {e}")))?;
+    base.join(req_url)
+        .map(|url| url.to_string())
+        .map_err(|e| PortError::Http(format!("invalid request url '{req_url}': {e}")))
+}
+
+fn headers_to_strings(headers: &HeaderMap) -> BTreeMap<String, String> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_string(),
+                value.to_str().unwrap_or("<non-utf8>").to_string(),
+            )
+        })
+        .collect()
+}
+
+fn map_ws_err(e: impl std::fmt::Display) -> PortError {
+    PortError::Transport(e.to_string())
+}
+
+fn map_header_lock_err<T>(_: std::sync::PoisonError<T>) -> PortError {
+    PortError::Http("header registry lock poisoned".to_string())
+}

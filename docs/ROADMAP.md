@@ -2,6 +2,7 @@
 
 > 2026-06-12 · 基于：技术过会方案 §6（M0-M4）+ 评审 D 系调整（+3 周）+ 实际进度对账。
 > 2026-06-15 更新：按 ADR-006/ADR-008，网页端/wasm 暂停维护；产品化路线只保留 PC Tauri + Flutter 手机端；HTTP/WS client 与 Storage 一样走 shared Rust host driver，前端只负责命令、事件与渲染。
+> 2026-06-16 更新：shared HTTP/WS client 代码边界已阶段落地到 `helix-driver-host`；native/ffi Rust 侧复用同一套 client 与 header registry。真 Go smoke、WS reconnect/backoff 与 proxy/TLS/cert knobs 仍按后续联调项推进。
 > 当前位置：**按日历 M2 第一周，按交付物 M2 中后段**（M1 全部 + M2 约 60% 已完，见 git log `519bbde..85e07ec`）。
 
 ---
@@ -24,7 +25,7 @@
 |---|---|---|
 | D1-3 | 接缝①②：10 个生产命令内部切 Tick / 读旁路；`NativeEventSink` → `app.emit('im:__bus__')`；**灰度开关** | cses-client 前端零改动跑通收发 |
 | D3-4 | 接缝③④：同库同表灰度共存；**B7** store:\*/imDataSource SQL 语义逐字段对齐；**B3** readBits 单调覆盖 | 开关切换 + 秒级回退演练 |
-| D5 | `helix-driver-host` shared HTTP/WS client 设计落地到代码边界：`HostNetworkConfig` + shared header registry + native HTTP/WS 薄壳复用 shared client，header/token 不进 IM；M2 总验收（见 Checklist §三）+ 文档对账同步 | Tauri 前端不直接业务 fetch/WS；端壳可初始化/更新 header；native 仍能真 Go smoke；全 gate 绿 → 申请 M3 |
+| D5 | `helix-driver-host` shared HTTP/WS client 代码边界阶段落地：`HostNetworkConfig` + shared header registry + native/ffi Rust 侧 HTTP/WS 薄壳复用 shared client，header/token 不进 IM；文档对账同步 | Tauri/Flutter 前端不直接业务 fetch/WS；端壳可初始化/更新 header；已通过 crate checks + host/native/ffi 定向测试；真 Go smoke 仍排在 UC-1 前置缺口之后 |
 
 ### AI 工程化补课（0.5 周，可与上面并行——见 §四差距）
 
@@ -34,7 +35,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 
 1. F1：确定 Flutter FFI API 最小面：`open/start/send_message/on_event/destroy`，Dart 不碰 IM SQL / sync 细节
 2. F2：`helix-driver-ffi` 复用 `helix-driver-host` 的 rusqlite/SQLite 存储，`StorageOp` 语义与 native 单一真源对齐（已落 shared conformance 测试）
-3. F3：`helix-driver-ffi` 复用 `helix-driver-host` shared HTTP/WS client；Dart 不实现业务 HTTP/WS，只在 open/create 时注入 `api_base_url`、`ws_url`、初始 headers，并通过 header update API 刷新 token/header
+3. F3：`helix-driver-ffi` Rust 侧已复用 `helix-driver-host` shared HTTP/WS client，并提供 `helix_set_header` / `helix_remove_header`；Dart 不实现业务 HTTP/WS，只在 open/create 时注入 `api_base_url`、`ws_url`、初始 headers，并通过 header update API 刷新 token/header（Dart demo 接线仍在 F4）
 4. F4：事件回 Dart Stream；panic=abort cdylib/staticlib profile；Flutter demo 冒烟
 5. F5：同一 Tick 剧本 native vs FFI 输出一致；同一 schema/migration + Storage conformance 测试；同一 HTTP/WS shared client 行为验收
 
@@ -56,7 +57,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [ ] B2 increment_end 冷启动自愈
 - [ ] UC-1 端到端真 Go smoke + golden fixtures（排在前置 4 块之后）
 - [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）
-- [ ] `helix-driver-host` shared HTTP/WS client 边界落地：native/ffi 只留薄壳，业务模块不拥有网络 client，登录鉴权只作为 `HostNetworkConfig` + header/token 配置输入
+- [x] `helix-driver-host` shared HTTP/WS client 边界阶段落地：native/ffi Rust 侧只留薄壳，业务模块不拥有网络 client，登录鉴权只作为 `HostNetworkConfig` + header/token 配置输入（剩余：真 Go smoke、WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback 完整接线）
 
 **P1（质量与性能）**
 - [x] E5 monotonic_upsert DDL 出热路径（建表挪到 open()，monotonic_upsert 仅剩单 INSERT；回归锚 test_monotonic_table_created_at_open_e5）

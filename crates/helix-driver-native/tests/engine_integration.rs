@@ -23,6 +23,7 @@ use helix_core::effect::{Correlation, DomainEventBytes, Effect, EffectSink, Stor
 use helix_core::error::CoreError;
 use helix_core::module_host::Module;
 use helix_core::{ExecutionShell, Tick};
+use helix_driver_host::HostNetworkConfig;
 
 use helix_driver_native::{
     engine_loop::{run_engine_loop, EngineConfig},
@@ -141,6 +142,11 @@ async fn make_temp_storage(path: &str) -> NativeStorage {
         .expect("open temp storage")
 }
 
+fn make_test_http() -> NativeHttp {
+    NativeHttp::with_config(HostNetworkConfig::new("http://127.0.0.1", "ws://127.0.0.1"))
+        .expect("http")
+}
+
 // ─── 测试 1：Emit 可被订阅端收到 ─────────────────────────────────────────────
 //
 // 最简单的测试：on_start 产出 Emit，订阅者接收。
@@ -148,7 +154,7 @@ async fn make_temp_storage(path: &str) -> NativeStorage {
 #[tokio::test]
 async fn test_emit_received_by_subscriber() {
     let storage = make_temp_storage("/tmp/helix_test_emit.db").await;
-    let http = NativeHttp::new().expect("http");
+    let http = make_test_http();
     let (event_sink, mut event_rx) = NativeEventSink::new();
 
     let received = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -189,7 +195,7 @@ async fn test_emit_received_by_subscriber() {
 #[tokio::test]
 async fn test_timer_fires_into_engine() {
     let storage = make_temp_storage("/tmp/helix_test_timer.db").await;
-    let http = NativeHttp::new().expect("http");
+    let http = make_test_http();
     let (event_sink, _) = NativeEventSink::new();
 
     let received = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -238,7 +244,7 @@ async fn test_timer_fires_into_engine() {
 #[tokio::test]
 async fn test_persist_portreply_roundtrip() {
     let storage = make_temp_storage("/tmp/helix_test_persist.db").await;
-    let http = NativeHttp::new().expect("http");
+    let http = make_test_http();
     let (event_sink, _) = NativeEventSink::new();
 
     let received = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));

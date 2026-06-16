@@ -56,6 +56,8 @@ Flutter/Dart 不实现业务 HTTP/WS，但必须在创建 Helix 时提供 shared
 
 业务模块不直接读取 token/header；HTTP request 和 WS connect/重连时由 shared header registry 统一注入。
 
+当前 `cses-im-server` 线上契约：Flutter 宿主应传入类似 `http://host:port/api/cses` 的 `api_base_url`，以及完整 `ws://host:port/api/v4/websocket` 的 `ws_url`。shared client 不从 HTTP base 推导 WS 路径，也不在 Helix 内硬编码后端地址。
+
 ---
 
 ## 1. Cargo.toml

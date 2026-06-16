@@ -6,6 +6,7 @@ members = [
     "crates/helix-driver-native",
     "crates/helix-driver-wasm",
     "crates/helix-driver-ffi",
+    "crates/helix-host-cli",
 ]
 resolver = "2"
 

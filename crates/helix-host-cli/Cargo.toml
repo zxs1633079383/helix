@@ -1,0 +1,25 @@
+[package]
+name    = "helix-host-cli"
+version = "0.1.0"
+edition = "2021"
+
+# 最小 native 宿主（sync-v2 Phase A1）：把 ExecutionShell + ImModule + NativeTransport
+# 接成端到端可跑闭环，验证 Effect::Send 真发 WS。host 层 = ambient API 合法落点。
+
+[[bin]]
+name = "helix-host-cli"
+path = "src/main.rs"
+
+[dependencies]
+helix-core          = { path = "../helix-core" }
+helix-im            = { path = "../helix-im" }
+helix-driver-native = { path = "../helix-driver-native" }
+
+tokio              = { version = "1", features = ["full"] }
+tracing            = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# host/driver 层是 ambient API（SystemTime/线程/打印）的合法落点
+[lints.clippy]
+disallowed_methods = "allow"
+disallowed_macros  = "allow"

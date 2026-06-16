@@ -80,13 +80,13 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::json;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
 use helix_core::effect::{
     Correlation, DomainEventBytes, Effect, HttpRequest, StorageOp, TimerId, TransportId,
 };
-use helix_core::ports::{Clock, EventSink, HttpRequester};
+use helix_core::ports::{Clock, EventSink, HttpRequester, Transport};
 use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::{classify_port_error, execute_storage_ops, table_set_key};
@@ -97,6 +97,15 @@ use crate::event_sink::NativeEventSink;
 use crate::http::NativeHttp;
 use crate::storage::NativeStorage;
 use crate::timer::TimerRegistry;
+use crate::transport::NativeTransport;
+
+/// TransportId → 实际 WS 连接 的路由表。
+///
+/// A1：host 装配阶段填入（`host.add_transport(...)` → `TransportId`）；engine_loop
+/// 的 `Effect::Send` 分支按 id 查表调 `NativeTransport::send`。多连接形态从一开始
+/// 做成 `HashMap`（非单连接），给第二模块 / 多端口留缝（设计文档 §6 / 02 §4.4）。
+/// `Arc<Mutex<_>>`：send 需 `&mut self`，且 host 在装配时也要 `connect()` 同一实例。
+pub type TransportTable = HashMap<TransportId, Arc<Mutex<NativeTransport>>>;
 
 /// per-table worker 的 job 队列深度上限（有界背压）。
 ///
@@ -261,11 +270,35 @@ fn get_or_spawn_worker(
 /// 等待全部已入队 Persist 落盘后返回。
 /// 返回 = 「全部已接收 Persist 均已落盘」。
 pub async fn run_engine_loop(
+    shell: ExecutionShell,
+    tick_rx: mpsc::Receiver<Tick>,
+    tick_tx: mpsc::Sender<Tick>,
+    config: EngineConfig,
+    shutdown_rx: oneshot::Receiver<()>,
+) {
+    // 无 transport 的兼容入口：Send 表为空 → Effect::Send 落 warn（回退既有行为）。
+    run_engine_loop_with_transports(
+        shell,
+        tick_rx,
+        tick_tx,
+        config,
+        shutdown_rx,
+        TransportTable::new(),
+    )
+    .await
+}
+
+/// 带 transport 路由表的事件泵入口（A1）。
+///
+/// 与 [`run_engine_loop`] 唯一区别：`transports` 把 `TransportId → NativeTransport`
+/// 接进泵，使 `Effect::Send` 真正发到 WS。host 装配时 `connect()` 各 transport 后填表。
+pub async fn run_engine_loop_with_transports(
     mut shell: ExecutionShell,
     mut tick_rx: mpsc::Receiver<Tick>,
     tick_tx: mpsc::Sender<Tick>,
     config: EngineConfig,
     mut shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable,
 ) {
     let clock = NativeClock;
     let storage = Arc::new(config.storage);
@@ -301,6 +334,7 @@ pub async fn run_engine_loop(
         &mut timer_registry,
         &reply_tx,
         &mut persist_workers,
+        &transports,
     )
     .await;
 
@@ -360,6 +394,7 @@ pub async fn run_engine_loop(
                 &mut timer_registry,
                 &reply_tx,
                 &mut persist_workers,
+                &transports,
             )
             .await;
         }
@@ -419,6 +454,7 @@ async fn dispatch_effects(
     timer_registry: &mut TimerRegistry,
     reply_tx: &mpsc::UnboundedSender<Tick>,
     persist_workers: &mut HashMap<String, WorkerHandle>,
+    transports: &TransportTable,
 ) {
     for effect in effects {
         match effect {
@@ -470,14 +506,27 @@ async fn dispatch_effects(
                 });
             }
 
-            // ── Send（当前泵内记录，生产接入时替换为 Transport::send）────
-            OwnedEffect::Send { transport, frame } => {
-                tracing::debug!(
-                    transport_id = transport.raw(),
-                    frame_len = frame.len(),
-                    "Effect::Send — wire Transport into engine_loop for production"
-                );
-            }
+            // ── Send（A1：查路由表 → NativeTransport::send 真发 WS）────────
+            // inline await（WS send 快）。失败/未注册只 warn，绝不让泵崩——
+            // 上行帧丢失由上层重连 / sync 补偿兜底，不是泵的不变量（保持 §1-§5）。
+            OwnedEffect::Send { transport, frame } => match transports.get(&transport) {
+                Some(t) => {
+                    if let Err(e) = t.lock().await.send(frame).await {
+                        tracing::warn!(
+                            transport_id = transport.raw(),
+                            error = %e,
+                            "Effect::Send 发送失败（连接异常，待重连/补偿兜底）"
+                        );
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        transport_id = transport.raw(),
+                        frame_len = frame.len(),
+                        "Effect::Send 无对应 transport（路由表未注册该 id）"
+                    );
+                }
+            },
 
             // ── Request（EventBus REP·方向①：发起端）─────────────────────
             // TODO(方向①收尾): 接入 HostRequester port，把请求转交宿主，

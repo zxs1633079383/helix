@@ -22,7 +22,10 @@ pub mod transport;
 
 // 公共 API 再导出（方便 helix-tauri / 测试直接 use helix_driver_native::*）
 pub use clock::NativeClock;
-pub use engine_loop::{rows_from_reply_bytes, rows_to_reply_bytes, run_engine_loop, EngineConfig};
+pub use engine_loop::{
+    rows_from_reply_bytes, rows_to_reply_bytes, run_engine_loop, run_engine_loop_with_transports,
+    EngineConfig, TransportTable,
+};
 pub use event_sink::{EventReceiver, NativeEventSink, RecvOutcome};
 pub use http::NativeHttp;
 pub use storage::NativeStorage;

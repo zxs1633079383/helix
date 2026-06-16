@@ -57,7 +57,11 @@ async fn main() {
     // device/deviceId/language 是 WS 全局头（Apifox WS 带 device:IOS/deviceId/language:zh）。
     let app_type = std::env::var("HELIX_APP_TYPE").unwrap_or_else(|_| "bct".to_string());
     let device = std::env::var("HELIX_DEVICE").unwrap_or_else(|_| "IOS".to_string());
-    let device_id = std::env::var("HELIX_DEVICE_ID").unwrap_or_default();
+    // deviceId 必须随 HTTP + WS 都带：对端 Java paas（/Users/mac28/workspace/java/x9/paas）
+    // session 校验读 deviceId，nil → 判 session 过期 → grpc service fail → increment 不推帧（用户 debug 实证）。
+    // 默认用测试设备 id（Apifox 同款）；生产由 host 按真实设备注入。
+    let device_id = std::env::var("HELIX_DEVICE_ID")
+        .unwrap_or_else(|_| "ED380414932542BAB4993E5AC3E07C64".to_string());
     let language = std::env::var("HELIX_LANGUAGE").unwrap_or_else(|_| "zh".to_string());
     let db_path =
         std::env::var("HELIX_DB").unwrap_or_else(|_| "/tmp/helix_host_cli.db".to_string());
@@ -107,6 +111,20 @@ async fn main() {
             Ok(()) => tracing::info!(app_type = %app_type, "已注入 appType 全局头"),
             Err(e) => tracing::warn!(error = %e, "注入 appType 全局头失败"),
         }
+    }
+    // deviceId HTTP 全局头：Java paas session 校验读它，nil → 判过期 → grpc service fail。
+    if !device_id.is_empty() {
+        match http.set_global_header("deviceId", &device_id).await {
+            Ok(()) => tracing::info!("已注入 deviceId 全局头"),
+            Err(e) => tracing::warn!(error = %e, "注入 deviceId 全局头失败"),
+        }
+    }
+    // appType/device/language 也随 HTTP 带（与 WS 对齐，paas 可能校验多项）。
+    if !device.is_empty() {
+        let _ = http.set_global_header("device", &device).await;
+    }
+    if !language.is_empty() {
+        let _ = http.set_global_header("language", &language).await;
     }
     let (event_sink, mut event_rx) = NativeEventSink::new();
 

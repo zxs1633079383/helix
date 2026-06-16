@@ -24,8 +24,8 @@ use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_native::{
-    run_engine_loop_with_transports, EngineConfig, NativeEventSink, NativeHttp, NativeStorage,
-    NativeTransport, TransportTable,
+    run_engine_loop_with_transports, EngineConfig, HostNetworkConfig, NativeEventSink, NativeHttp,
+    NativeStorage, NativeTransport, TransportTable,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -119,13 +119,16 @@ async fn main() {
             tracing::warn!(ok, total, "IM schema 建表部分失败");
         }
     }
-    let http = match NativeHttp::new() {
-        Ok(h) => h,
-        Err(e) => {
-            tracing::error!(error = %e, "构造 HTTP 客户端失败，退出");
-            return;
-        }
-    };
+    // ADR-010：共享 HTTP client 需 HostNetworkConfig（api_base + ws_url）；身份头随后经 set_global_header 灌 registry。
+    let http =
+        match NativeHttp::with_config(HostNetworkConfig::new(api_base_url.clone(), ws_url.clone()))
+        {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::error!(error = %e, "构造 HTTP 客户端失败，退出");
+                return;
+            }
+        };
     // A3a：cookieId(=userId) 注入为 driver 全局 HTTP 身份头（现网 sync-v2 鉴权）。
     // 身份头由 host 注入，core/im 不认识 userId（connectionId 才由 im 盖章，见 A3b）。
     if !cookie_id.is_empty() {

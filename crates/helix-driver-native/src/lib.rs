@@ -31,3 +31,5 @@ pub use http::NativeHttp;
 pub use storage::NativeStorage;
 pub use timer::TimerRegistry;
 pub use transport::NativeTransport;
+// 共享 host I/O 配置（ADR-010）：host 装配层构造 NativeHttp::with_config 需要，re-export 免直依 driver-host。
+pub use helix_driver_host::HostNetworkConfig;

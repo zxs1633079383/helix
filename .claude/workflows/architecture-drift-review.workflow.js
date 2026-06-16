@@ -64,8 +64,10 @@ const FINDINGS_SCHEMA = {
     },
   },
 };
+// ⚠️ READ-ONLY 铁律：drift-review 是审查，不是施工。review workflow 越权改文件 = 引入未审 drift。
+const READONLY = `\n\n# ⛔ READ-ONLY（铁律，违反即污染）\n你是审查者，**只读不写**：禁止 Edit/Write/新建/删除/重构任何文件，禁止 git add/commit/checkout，禁止跑会改文件的命令。\n只能 git diff / grep / cat / Read 看代码，产出结论文本。发现问题→写进 findings（文件:行 + 收敛方向），由主对话决定怎么改。绝不自己动手"顺便修"。`;
 const COMMON = `cwd=${REPO}。只审 diff 区间 ${RANGE}（git diff ${RANGE}）。找**架构偏移**，不是普通 bug。
-每条给 文件:行 + severity(high/medium/low) + 违反的不变量 + 收敛方向。无 drift → findings 空数组。`;
+每条给 文件:行 + severity(high/medium/low) + 违反的不变量 + 收敛方向。无 drift → findings 空数组。${READONLY}`;
 
 const LENSES = [
   { key: "core-tri", agentType: "rust-runtime-agnostic-core-dev",
@@ -100,7 +102,7 @@ const verified = await parallel(allFindings.map((f) => () =>
 位置：${f.where}
 违反：${f.invariant}
 理由：${f.why}
-去看真实代码 + 对照 docs/harness/${f.invariant} 或 docs/GOAL.md。给 is_real + severity + 收敛动作。`,
+去看真实代码 + 对照 docs/harness/${f.invariant} 或 docs/GOAL.md。给 is_real + severity + 收敛动作。${READONLY}`,
     { label: `verify:${(f.where || f.title).slice(0, 32)}`, phase: "Verify", schema: VERDICT_SCHEMA, effort: "high" })
     .then((v) => ({ ...f, verdict: v }))
 ));
@@ -128,7 +130,7 @@ const synth = await agent(`cwd=${REPO}。汇总架构 drift review（区间 ${RA
 ${confirmed.map((f) => `- [${f.verdict.severity}] ${f.title} @${f.where}（${f.invariant}）→ ${f.verdict.verdict}`).join("\n") || "（无确认 drift）"}
 
 产出：verdict + converge_todo + ledger_update + summary。
-铁律：workflow 不改 ledger/不 commit（主对话做）；ledger_update 是给主对话的指令文本。`,
+铁律：workflow 不改 ledger/不 commit（主对话做）；ledger_update 是给主对话的指令文本。${READONLY}`,
   { label: "synthesize", phase: "Synthesize", schema: SYNTH_SCHEMA, effort: "high" });
 
 return {

@@ -8,7 +8,7 @@
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
 
@@ -226,6 +226,20 @@ pub struct ImState {
 
     /// ping timer ID
     pub ping_timer: Option<helix_core::TimerId>,
+
+    /// B-rest：本次 increment 批次已收到推送的 channel 集合（`increment_channel` 帧落地）。
+    ///
+    /// 设计文档 §3 Phase 4：`increment_channel_end`(global) 收尾时，对
+    /// `(increment_fetched − need_sync_skip)` 每个 channel 发 proactive sync Http。
+    /// 会话边界 reset（hello 起点 clear，§7 跨会话残留）：旧批次残留集会让
+    /// 重连后对不该 sync 的 channel 误触发 sync 风暴。
+    pub increment_fetched: HashSet<ChannelId>,
+
+    /// B-rest：本次 increment 批次中 `needSync==false`（服务端已追平）的 channel 集合。
+    ///
+    /// 这些 channel 无需 pull sync——global-end 时从 `increment_fetched` 中扣除。
+    /// 与 `increment_fetched` 同生命周期（hello 起点 clear）。
+    pub need_sync_skip: HashSet<ChannelId>,
 }
 
 impl ImState {
@@ -242,7 +256,16 @@ impl ImState {
             continuation_pending: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,
+            increment_fetched: HashSet::new(),
+            need_sync_skip: HashSet::new(),
         }
+    }
+
+    /// 会话边界 reset（§7 跨会话残留）：每个 hello 窗口起点清空 increment 批次集，
+    /// 避免上一会话残留让重连后对已追平 channel 误触发 sync 风暴。
+    pub fn reset_increment_batch(&mut self) {
+        self.increment_fetched.clear();
+        self.need_sync_skip.clear();
     }
 }
 

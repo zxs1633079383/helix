@@ -99,6 +99,30 @@ impl ImModule {
         self.state.pending_sends.len()
     }
 
+    /// 查询 increment_fetched 是否含某 channel（测试 / 诊断用）。
+    pub fn increment_fetched_contains(&self, channel_id: ChannelId) -> bool {
+        self.state.increment_fetched.contains(&channel_id)
+    }
+
+    /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
+    ///
+    /// 真路径是 `Tick::Inbound` → parser.classify_frame → 此 handler；本 pub 包装让
+    /// 上层（driver / 回放测试）在 parser 满载前能直接驱动 increment 流程（分片A 在改 parser，
+    /// 契约已定，此处不耦合其实现进度）。
+    pub fn ingest_increment(
+        &mut self,
+        inc: &crate::sync_session::IncrementChannel,
+        out: &mut EffectSink,
+    ) {
+        self.handle_increment(inc, out);
+    }
+
+    /// B-rest 测试 / driver 入口：直接喂 `increment_channel_end` 信号。
+    /// `Some(ch)`=子 topic 结束；`None`=global end（触发增量群 sync）。
+    pub fn ingest_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
+        self.handle_increment_end(ch, out);
+    }
+
     /// 处理 PortReply（Persist/Http 的异步结果回报）
     ///
     /// ## MAJ-1 修复
@@ -281,41 +305,62 @@ impl ImModule {
         Ok(())
     }
 
-    /// A4：处理 hello 握手帧——存 connectionId + 置 Connected + emit 信号 + resync。
+    /// A4 + B-rest：处理 hello 握手帧——存 connectionId + 置 Connected + emit established
+    /// + 触发 increment HTTP（取代直接 resync）。
     ///
     /// 现网时序：transport Connected（→ Connecting）→ 服务端单向下发 hello（此处）
     /// → 握手完成可用。connectionId 存入 state，A3b 盖章进后续 IM HTTP 身份头。
-    /// resync 推迟到此刻（cursor 已由 on_start 的 Scan 载入），不在 Connected 时发。
+    ///
+    /// B-rest 扭转（设计文档 §3 Phase 2）：hello 后**不再直接 emit_proactive_resync**，
+    /// 改为触发 increment HTTP（push 模型，带已知 channel 游标）+ emit im:channels:loaded。
+    /// 真增量走 WS `increment_channel` 单播（→ handle_increment），global-end 收尾时才
+    /// 对增量群发 proactive sync。会话边界 reset increment 批次集（§7 跨会话残留）。
     fn handle_hello(&mut self, connection_id: String, out: &mut EffectSink) {
         self.state.conn = ConnState::Connected;
         self.state.connection_id = Some(connection_id.clone());
+        // §7：每个 hello 窗口起点清空上一会话残留的 increment 批次集（防 sync 风暴）。
+        self.state.reset_increment_batch();
         out.push(crate::acl::to_effect::emit_connection_established(
             &connection_id,
         ));
-        self.emit_proactive_resync(out);
-        tracing::info!("helix-im: hello handshake complete, connection established");
-    }
 
-    /// 向所有已知 channel 发 proactive sync Http（复用逻辑，hello 握手和 scan_reply 共用）
-    fn emit_proactive_resync(&mut self, out: &mut EffectSink) {
-        // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
+        // B-rest：触发 increment HTTP（带已知 channel 游标）。HTTP 仅 ack 无数据。
         let conn_id = self.state.connection_id.clone();
-        let channel_cursors: Vec<(ChannelId, Seq)> = self
+        let cursors: Vec<(ChannelId, Seq)> = self
             .state
             .channels
             .iter()
             .map(|(&id, ch)| (id, ch.cursor.value()))
             .collect();
-        for (channel_id, from_seq) in channel_cursors {
-            // B1 gate_inflight 守卫：跳过已有在途 sync 的 channel
-            if self
-                .state
-                .channels
-                .get(&channel_id)
-                .map_or(false, |ch| ch.inflight_sync.is_some())
-            {
-                continue;
-            }
+        let inc_corr = self.alloc_corr_internal();
+        out.push(crate::acl::to_effect::increment_http_trigger(
+            &self.config.api_base_url,
+            &cursors,
+            inc_corr,
+            conn_id.as_deref(),
+        ));
+        out.push(crate::acl::to_effect::emit_channels_loaded());
+        tracing::info!("helix-im: hello handshake complete, increment HTTP triggered");
+    }
+
+    /// 向所有已知 channel 发 proactive sync Http（scan_reply 路径复用）。
+    fn emit_proactive_resync(&mut self, out: &mut EffectSink) {
+        let all: Vec<ChannelId> = self.state.channels.keys().copied().collect();
+        self.emit_proactive_resync_for(&all, out);
+    }
+
+    /// 向指定 channel 集发 proactive sync Http（B-rest global-end 用增量群子集；
+    /// scan_reply 用全集）。逐 channel 走既有 gate/peek-commit 链路。
+    fn emit_proactive_resync_for(&mut self, targets: &[ChannelId], out: &mut EffectSink) {
+        // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
+        let conn_id = self.state.connection_id.clone();
+        for &channel_id in targets {
+            // 读取 cursor（不可变借用），channel 不存在则跳过。
+            let from_seq = match self.state.channels.get(&channel_id) {
+                Some(ch) if ch.inflight_sync.is_some() => continue, // B1 gate_inflight 守卫
+                Some(ch) => ch.cursor.value(),
+                None => continue,
+            };
             let sync_corr = self.alloc_corr_internal();
             self.state.corr_to_sync.insert(sync_corr, channel_id);
             if let Some(ch) = self.state.channels.get_mut(&channel_id) {
@@ -328,6 +373,61 @@ impl ImModule {
                 sync_corr,
                 conn_id.as_deref(),
             ));
+        }
+    }
+
+    /// B-rest：处理 WS `increment_channel` 帧（设计文档 §3 Phase 3）。
+    ///
+    /// 对每个推送的 channel：
+    /// 1. channels 无该 channel → 注册（cursor 种子 = inc.last_event_seq）。
+    ///    已存在则保留现有 cursor（幂等，不回退；现有 cursor 由 scan/WS 推进过）。
+    /// 2. 记入 increment_fetched 集；inc.need_sync==false 时记入 need_sync_skip 集。
+    /// 3. emit im:channel:increment（透传 inc.raw，含 mentionList/urgentPostList）。
+    ///
+    /// 纯同步零 I/O；不在此发 sync——sync 留到 global-end 统一发（避免每帧风暴）。
+    fn handle_increment(
+        &mut self,
+        inc: &crate::sync_session::IncrementChannel,
+        out: &mut EffectSink,
+    ) {
+        let channel_id = inc.channel_id;
+        // cursor 种子：channels 无该 channel 才注册（已存在不覆盖，保持单调不回退）。
+        self.state
+            .channels
+            .entry(channel_id)
+            .or_insert_with(|| crate::channel::Channel::new(channel_id, inc.last_event_seq.0));
+        // 记 increment_fetched；need_sync==false 记 skip（global-end 时从增量群扣除）。
+        self.state.increment_fetched.insert(channel_id);
+        if !inc.need_sync {
+            self.state.need_sync_skip.insert(channel_id);
+        }
+        out.push(crate::acl::to_effect::emit_channel_increment(
+            channel_id,
+            inc.raw.as_ref(),
+        ));
+    }
+
+    /// B-rest：处理 WS `increment_channel_end` 帧（设计文档 §3 Phase 4）。
+    ///
+    /// - `Some(channel_id)`：某 parent 子 topic 批次结束 → emit im:channel:update。
+    /// - `None`：hello/重连整批 global end → 对 `(increment_fetched − need_sync_skip)`
+    ///   每个 channel 调既有 `emit_proactive_resync` 链路发 sync Http（进 gate/peek-commit）。
+    fn handle_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
+        match ch {
+            Some(channel_id) => {
+                out.push(crate::acl::to_effect::emit_channel_update(channel_id));
+            }
+            None => {
+                // global end：对增量群（已 fetched 且需 sync）发 proactive sync。
+                let targets: Vec<ChannelId> = self
+                    .state
+                    .increment_fetched
+                    .iter()
+                    .filter(|id| !self.state.need_sync_skip.contains(*id))
+                    .copied()
+                    .collect();
+                self.emit_proactive_resync_for(&targets, out);
+            }
         }
     }
 
@@ -743,16 +843,16 @@ impl Module for ImModule {
                         self.handle_hello(connection_id, out);
                         return Ok(());
                     }
-                    crate::parser::FrameClass::Increment(_inc) => {
-                        // B-r0 占位：B-rest 分片B 换为 self.handle_increment(_inc, out)
-                        //   —— 注册 channel + LastEventSeq cursor 种子 + 记 increment_fetched
-                        //   + emit im:channel:increment。
+                    crate::parser::FrameClass::Increment(inc) => {
+                        // B-rest 分片B：注册 channel + LastEventSeq cursor 种子 +
+                        // 记 increment_fetched / need_sync_skip + emit im:channel:increment。
+                        self.handle_increment(&inc, out);
                         return Ok(());
                     }
-                    crate::parser::FrameClass::IncrementEnd(_ch) => {
-                        // B-r0 占位：B-rest 分片B 换为 self.handle_increment_end(_ch, out)
-                        //   —— global end → 对 (increment_fetched − needSync-skip) sync；
-                        //   per-channel → emit im:channel:update。
+                    crate::parser::FrameClass::IncrementEnd(ch) => {
+                        // B-rest 分片B：global end → 对 (increment_fetched − need_sync_skip) sync；
+                        // per-channel → emit im:channel:update。
+                        self.handle_increment_end(ch, out);
                         return Ok(());
                     }
                     crate::parser::FrameClass::Ignored => {

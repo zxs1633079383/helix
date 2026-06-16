@@ -39,7 +39,11 @@ pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
     }
 }
 
-/// 触发 /sync/notify HTTP 请求。
+/// 触发 /sync/notify HTTP 请求（pull 模型，设计文档 §1.4）。
+///
+/// 真 Go wire：`POST /channel/sync/notify`，body `{cursors:[{channelId, fromSeq}]}`。
+/// helix 的 sync 链路（gate / 续拉 / proactive resync）逐 channel 发起，故 cursors
+/// 数组恒含单元素（≤500 约束天然满足）。
 ///
 /// A3b：`connection_id`（hello 回注，§A4）若 Some 则盖章进 headers——现网 IM HTTP
 /// 身份头（`connectionId`）。core 不认识它，只透传字符串。
@@ -50,18 +54,58 @@ pub fn sync_notify(
     corr: Correlation,
     connection_id: Option<&str>,
 ) -> Effect {
+    let body = serde_json::json!({
+        "cursors": [
+            { "channelId": channel_id.as_str(), "fromSeq": from_seq.0 }
+        ]
+    });
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    headers.extend(connection_id_headers(connection_id));
     Effect::Http {
         corr,
         req: HttpRequest {
-            method: "GET".to_string(),
-            url: format!(
-                "{}/sync/notify?channel_id={}&from_seq={}",
-                base_url,
-                channel_id.as_str(),
-                from_seq.0
-            ),
-            headers: connection_id_headers(connection_id),
-            body: None,
+            method: "POST".to_string(),
+            url: format!("{}/channel/sync/notify", base_url),
+            headers,
+            body: Some(Bytes::from(serde_json::to_vec(&body).expect(
+                "sync_notify: static JSON shape must not fail to serialize",
+            ))),
+        },
+    }
+}
+
+/// B-rest：触发 increment HTTP（push 模型，设计文档 §1.3 / §3 Phase 2）。
+///
+/// `POST /channels/load/increment`，body `{timestamp:0, cursors:[{channelId, fromSeq}]}`
+/// （根群带已知 channel 游标）。HTTP **仅 ack 无数据**，真增量走 WS `increment_channel`
+/// 单播（→ handle_increment）。connectionId 身份头经 connection_id_headers 盖章。
+pub fn increment_http_trigger(
+    base_url: &str,
+    cursors: &[(ChannelId, Seq)],
+    corr: Correlation,
+    connection_id: Option<&str>,
+) -> Effect {
+    let cursor_json: Vec<serde_json::Value> = cursors
+        .iter()
+        .map(
+            |(ch, from_seq)| serde_json::json!({ "channelId": ch.as_str(), "fromSeq": from_seq.0 }),
+        )
+        .collect();
+    let body = serde_json::json!({
+        "timestamp": 0,
+        "cursors": cursor_json,
+    });
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    headers.extend(connection_id_headers(connection_id));
+    Effect::Http {
+        corr,
+        req: HttpRequest {
+            method: "POST".to_string(),
+            url: format!("{}/channels/load/increment", base_url),
+            headers,
+            body: Some(Bytes::from(serde_json::to_vec(&body).expect(
+                "increment_http_trigger: static JSON shape must not fail to serialize",
+            ))),
         },
     }
 }
@@ -151,6 +195,66 @@ pub fn emit_connection_established(connection_id: &str) -> Effect {
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
             .expect("emit_connection_established: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// B-rest：发送 im:channels:loaded 事件（hello 冷启动补齐信号，设计文档 §3 Phase 2）。
+///
+/// increment HTTP 触发后立即 emit（不在此等数据——真增量走 WS `increment_channel`）。
+/// im:__bus__ 信封 array payload 形态：`data` 是数组时包 `{items}`（前端总线约定）。
+pub fn emit_channels_loaded() -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channels:loaded",
+        "data": { "items": [] }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channels_loaded: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// B-rest：发送 im:channel:increment 事件（设计文档 §3 Phase 3）。
+///
+/// 透传 `increment_channel` 帧 `data` 原始字节（含 mentionList/urgentPostList，前端直接消费）。
+/// `raw` 是边界字节（零信任已在 parser 完成），此处仅透传不解释；若非合法 JSON 则降级为空对象。
+pub fn emit_channel_increment(channel_id: ChannelId, raw: &[u8]) -> Effect {
+    use serde_json::json;
+    // raw 透传：parser 产出的 increment data 字节。非法 JSON 时降级 null（不 panic）。
+    let inc_data: serde_json::Value =
+        serde_json::from_slice(raw).unwrap_or(serde_json::Value::Null);
+    let payload = json!({
+        "event": "im:channel:increment",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "increment": inc_data,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_increment: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// B-rest：发送 im:channel:update 事件（设计文档 §3 Phase 4，子 topic 批次结束）。
+pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channel:update",
+        "data": { "channel_id": channel_id.as_str() }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_update: static JSON shape must not fail to serialize"),
     );
     Effect::Emit {
         event: DomainEventBytes(bytes),

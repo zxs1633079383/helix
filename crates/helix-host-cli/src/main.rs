@@ -42,8 +42,11 @@ async fn main() {
 
     let ws_url = std::env::var("HELIX_WS_URL")
         .unwrap_or_else(|_| "ws://127.0.0.1:8065/api/v4/websocket".to_string());
-    let api_base_url =
-        std::env::var("HELIX_API_BASE").unwrap_or_else(|_| "http://127.0.0.1:8065".to_string());
+    // HTTP api base 含 /api/cses 前缀：现网 cses-client imHttp base 即含此前缀，
+    // helix-im to_effect 用 {api_base}/channels/load/increment、{api_base}/channel/sync/notify。
+    // 真 Go 实测 `POST /api/cses/channels/load/increment` 返 200（B-rest 冒烟确认）。
+    let api_base_url = std::env::var("HELIX_API_BASE")
+        .unwrap_or_else(|_| "http://127.0.0.1:8065/api/cses".to_string());
     // A1：cookieId(=userId) 先读不强制用；A3 注入为 HTTP/WS 身份头
     let cookie_id = std::env::var("HELIX_COOKIE_ID").unwrap_or_default();
     let db_path =

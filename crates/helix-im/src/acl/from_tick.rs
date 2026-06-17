@@ -8,7 +8,7 @@ use helix_core::Tick;
 /// PortReply / Timer 通过 corr_map 定向路由，不走此方法。
 ///
 /// R4-tombstone：旧 `parse_inbound_tick`（重构 A 前的二趟解析入口）已删——
-/// 解析在 `parser::classify_inbound` 内一次分到底（见 module.rs `Tick::Inbound` 臂），
+/// 解析在 `ws::WsFrame::parse` + registry handler 内一次分到底（见 module.rs `Tick::Inbound` 臂），
 /// 全仓 src+tests 零调用方。
 pub fn accepts_tick(tick: &Tick) -> bool {
     match tick {

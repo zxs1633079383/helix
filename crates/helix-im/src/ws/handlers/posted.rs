@@ -21,8 +21,11 @@ impl WsMessageHandler for PostedHandler {
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let echo = parse_echo(frame)?;
-        reconcile_echo(ctx, echo, out);
+        // 非 echo 的 posted（无本端 temporary_id，他人推送/legacy）→ 优雅忽略（Ok(None)），
+        // 对齐行为真源 dev 口径（classify_inbound：非 echo posted → Ignored），不冒泡 error! 噪声。
+        if let Some(echo) = parse_echo(frame)? {
+            reconcile_echo(ctx, echo, out);
+        }
         Ok(())
     }
 }
@@ -34,7 +37,12 @@ struct PostedEcho {
     server_id: ServerId,
 }
 
-fn parse_echo(frame: &WsFrame) -> Result<PostedEcho, ImError> {
+/// `posted` 帧 → echo 对账载荷。返回三态（边界零信任，helix-im 不变量 4）：
+/// - `Ok(Some)`：本端 echo（带 temporary_id + 合法 server_id/channel_id/seq）；
+/// - `Ok(None)`：非 echo posted（无 temporary_id，他人推送/legacy）→ 优雅忽略（**非错误**，
+///   对齐 dev 行为真源口径 classify_inbound「非 echo posted → Ignored」，不冒泡 error! 日志）；
+/// - `Err`：带 temporary_id 但必填字段非法（真畸形帧，照常上浮）。
+fn parse_echo(frame: &WsFrame) -> Result<Option<PostedEcho>, ImError> {
     let data = frame.data_required()?;
     let post = data.get("post").unwrap_or(data);
 
@@ -45,7 +53,7 @@ fn parse_echo(frame: &WsFrame) -> Result<PostedEcho, ImError> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
     else {
-        return Err(ImError::UnsupportedWsAction("posted(non-echo)".to_string()));
+        return Ok(None);
     };
 
     let server_id = post
@@ -78,12 +86,12 @@ fn parse_echo(frame: &WsFrame) -> Result<PostedEcho, ImError> {
         .map(Seq)
         .ok_or_else(invalid_posted_echo)?;
 
-    Ok(PostedEcho {
+    Ok(Some(PostedEcho {
         channel_id,
         seq,
         temporary_id,
         server_id,
-    })
+    }))
 }
 
 fn invalid_posted_echo() -> ImError {

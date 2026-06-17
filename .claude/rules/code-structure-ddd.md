@@ -3,7 +3,7 @@
 > 根 [`CLAUDE.md`](../../CLAUDE.md) §5 代码风格的完整展开（按需 Read）。
 > 核心一句话：**单一职责 + 小文件 + 复杂度升序 + 设计模式服务于解耦；DDD 概念映射到 Helix 既有 sans-IO 六边形三层，不另起炉灶。**
 >
-> **优先级**：本文件是项目级 rule，与全局 [`~/.claude/rules/common/coding-style.md`](../../../.claude/rules/common/coding-style.md)（「200-400 行典型，800 max」）冲突时**本文件覆盖**（具体压一般，见 rules/README.md 优先级）。
+> **优先级**：本文件是项目级 rule，与全局 `~/.claude/rules/common/coding-style.md`（「200-400 行典型，800 max」，仓外用户级文件）冲突时**本文件覆盖**（具体压一般，见 rules/README.md 优先级）。
 
 ---
 
@@ -71,7 +71,7 @@
 
 ## 3. 算法复杂度升序实现（从 O(1) 起）
 
-**实现选型从最低复杂度起，先证明 O(1)/O(log n) 不可行才升级，并在注释留证据。** 对齐 [`performance.md`](../../../.claude/rules/common/performance.md) 热路径铁律。
+**实现选型从最低复杂度起，先证明 O(1)/O(log n) 不可行才升级，并在注释留证据。** 对齐全局 `~/.claude/rules/common/performance.md` 热路径铁律。
 
 | 路径类型 | 复杂度预算 | 级别 |
 |---|---|---|
@@ -130,7 +130,7 @@
 
 ## 6. 闸门（建议，接入项目 gate 文化）
 
-提议新增 `scripts/structure-gate.sh`（与 `gate.sh`/`review-gap.sh` 同族），CI / pre-push 兜底：
+已落地 `scripts/structure-gate.sh`（与 `gate.sh`/`review-gap.sh` 同族，commit 1419690），建议挂 CI / pre-push 兜底：
 
 1. **行数闸**：`src/**.rs` 超 300 行 → 列出（存量 backlog 走白名单豁免，新增超限 = exit 1）。
 2. **镜像闸**：每个 `crates/*/` 必须有 CLAUDE.md + AGENTS.md 且 `diff` 为空（不一致 = exit 1）。

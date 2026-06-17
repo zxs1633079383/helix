@@ -21,11 +21,9 @@ mod common;
 use common::*;
 
 use helix_core::effect::{Effect, SqlValue, StorageOp};
-use helix_core::CoreError;
 use helix_core::Module;
 use helix_core::Tick;
 use helix_im::state::{SendStatus, ServerId};
-use helix_im::ImError;
 
 /// 测试桥接：数值 → 26 字符 server id（与 ServerId::from_test_u64 一致）。
 fn sid(n: u64) -> String {
@@ -220,14 +218,13 @@ fn posted_without_temporary_id_is_not_echo() {
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
     h.sink.clear();
-    let err = h
-        .module
+    h.module
         .handle(
             &Tick::Inbound(InboundBytes(bytes.into())),
             1100,
             &mut h.sink,
         )
-        .expect_err("non-echo posted should return unsupported marker");
+        .expect("non-echo posted should be gracefully ignored (Ok), not error");
 
     // pending_send 不受影响（仍 Local，未对账）
     assert_eq!(
@@ -235,19 +232,6 @@ fn posted_without_temporary_id_is_not_echo() {
         Some(SendStatus::Local),
         "non-echo posted must not reconcile our pending send"
     );
-    match err {
-        CoreError::ModuleError { module, source } => {
-            assert_eq!(module, "helix-im");
-            let im_err = source
-                .downcast_ref::<ImError>()
-                .expect("source should be ImError");
-            assert!(
-                matches!(im_err, ImError::UnsupportedWsAction(action) if action == "posted(non-echo)"),
-                "expected UnsupportedWsAction(posted(non-echo)), got {im_err:?}"
-            );
-        }
-        other => panic!("expected ModuleError, got {other:?}"),
-    }
     // 不产出 reconcile 的 message Persist + CancelTimer
     assert!(
         !h.sink

@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_ws_posted_non_echo_returns_unsupported_marker() {
+    fn dispatch_ws_posted_non_echo_gracefully_ignored() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
         let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
@@ -427,11 +427,9 @@ mod tests {
         }));
         let mut out = EffectSink::new();
 
-        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
+        // 非 echo posted（无 temporary_id）→ 优雅忽略：Ok + 零 effect（对齐 dev Ignored 口径）
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
 
-        assert!(
-            matches!(err, ImError::UnsupportedWsAction(action) if action == "posted(non-echo)")
-        );
         assert!(out.as_slice().is_empty());
     }
 

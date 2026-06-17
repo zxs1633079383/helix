@@ -107,7 +107,8 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
 }
 
 /// `parse_inbound` 的内核：从**已解析好的 root `Value`**（非 `data` 子树）提取 legacy 数值帧
-/// 的 `EventEnvelope`。`classify_inbound` 的「无 action」臂复用此函数，消除第二趟 `from_slice`（痛点 1）。
+/// 的 `EventEnvelope`。`ws::handlers::legacy_event`（无 action 的 legacy 数值帧）复用此函数，
+/// 复用 `WsFrame::parse` 已解析的 root Value，消除第二趟 `from_slice`（痛点 1）。
 ///
 /// **边界等价铁律（重构 A 不可漂移）**：取数源逐字保持 `parse_inbound` 历史行为——
 ///   - `data` 硬要求存在（缺 → Err），channel_id / event_seq 等取数全部基于 `data`；

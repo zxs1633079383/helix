@@ -79,8 +79,9 @@ mod tests {
     use helix_core::{Effect, EffectSink};
 
     use crate::channel::Channel;
+    use crate::pending_send::PendingSend;
     use crate::state::ImState;
-    use crate::state::{ChannelId, ConnState, Seq};
+    use crate::state::{ChannelId, ConnState, SendStatus, Seq, ServerId, TemporaryId};
 
     use super::*;
 
@@ -120,6 +121,28 @@ mod tests {
 
     fn channel_id_string(n: u64) -> String {
         channel_id(n).as_str().to_string()
+    }
+
+    fn server_id(n: u64) -> ServerId {
+        ServerId::from_test_u64(n)
+    }
+
+    fn server_id_string(n: u64) -> String {
+        server_id(n).as_str().to_string()
+    }
+
+    fn posted_echo_frame(channel_id: ChannelId, seq: u64, temporary_id: &str) -> WsFrame {
+        frame_from_json(serde_json::json!({
+            "v": 1,
+            "action": "posted",
+            "data": {
+                "id": server_id_string(42),
+                "temporary_id": temporary_id,
+                "channel_id": channel_id.as_str(),
+                "event_seq": seq,
+                "message": "hello"
+            }
+        }))
     }
 
     fn emit_body(effect: &Effect) -> Option<String> {
@@ -206,6 +229,215 @@ mod tests {
         let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
 
         assert!(matches!(err, ImError::UnsupportedWsAction(action) if action == "missing"));
+    }
+
+    #[test]
+    fn dispatch_ws_posted_echo_reconciles_pending_send_and_advances_cursor() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(21);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 3));
+        state.pending_sends.insert(
+            TemporaryId("tmp-registry".to_string()),
+            PendingSend::new(
+                TemporaryId("tmp-registry".to_string()),
+                helix_core::TimerId::from_raw(44),
+            ),
+        );
+
+        let mut next_corr = 501;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = posted_echo_frame(channel_id, 9, "tmp-registry");
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        let pending = ctx
+            .state
+            .pending_sends
+            .get(&TemporaryId("tmp-registry".to_string()))
+            .expect("pending send should remain tracked");
+        assert_eq!(pending.status, SendStatus::Sent);
+        assert_eq!(
+            ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
+            Seq(9)
+        );
+        assert!(
+            out.as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::Persist { corr, .. } if corr.raw() == 501)),
+            "echo should reconcile through PendingSend with allocated corr, got: {:?}",
+            out.as_slice()
+        );
+        assert!(
+            out.as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::CancelTimer { id } if id.raw() == 44)),
+            "echo should cancel pending send timeout, got: {:?}",
+            out.as_slice()
+        );
+        assert!(
+            out.as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::PersistFire { .. })),
+            "echo should push advance_cursor when channel exists, got: {:?}",
+            out.as_slice()
+        );
+    }
+
+    #[test]
+    fn dispatch_ws_posted_echo_advances_cursor_without_pending_send() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(22);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 3));
+
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "v": 1,
+            "action": "posted",
+            "channel_event_seq": 99,
+            "data": {
+                "event_seq": 7,
+                "post": {
+                    "id": server_id_string(43),
+                    "temporaryId": "tmp-no-pending",
+                    "channelId": channel_id.as_str(),
+                    "props": { "channel_event_seq": 8 }
+                }
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert_eq!(
+            ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
+            Seq(7),
+            "data.event_seq must win over post.props and root channel_event_seq"
+        );
+        assert!(
+            out.as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::PersistFire { .. })),
+            "valid echo should advance cursor even without pending send, got: {:?}",
+            out.as_slice()
+        );
+    }
+
+    #[test]
+    fn dispatch_ws_posted_echo_missing_channel_is_noop_without_error() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "v": 1,
+            "action": "posted",
+            "channel_event_seq": 11,
+            "data": {
+                "post": {
+                    "id": server_id_string(44),
+                    "temporary_id": "tmp-missing-channel-state",
+                    "channel_id": channel_id_string(23)
+                }
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert!(
+            out.as_slice().is_empty(),
+            "missing channel and pending send should produce no effects, got: {:?}",
+            out.as_slice()
+        );
+    }
+
+    #[test]
+    fn dispatch_ws_posted_non_echo_returns_unsupported_marker() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "v": 1,
+            "action": "posted",
+            "data": {
+                "id": server_id_string(42),
+                "channel_id": channel_id_string(1),
+                "event_seq": 4
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
+
+        assert!(
+            matches!(err, ImError::UnsupportedWsAction(action) if action == "posted(non-echo)")
+        );
+        assert!(out.as_slice().is_empty());
+    }
+
+    #[test]
+    fn dispatch_ws_posted_missing_echo_required_fields_is_invalid_frame() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(21);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 3));
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "v": 1,
+            "action": "posted",
+            "data": {
+                "id": server_id_string(42),
+                "temporary_id": "tmp-missing-seq",
+                "channel_id": channel_id.as_str(),
+                "eventSeq": 99
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
+
+        assert!(matches!(err, ImError::InvalidWsFrame(msg) if msg.contains("posted echo")));
+        assert_eq!(
+            ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
+            Seq(3),
+            "eventSeq compatibility field must not classify posted echo"
+        );
+        assert!(out.as_slice().is_empty());
+    }
+
+    #[test]
+    fn dispatch_ws_posted_invalid_echo_required_fields_is_invalid_frame() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "v": 1,
+            "action": "posted",
+            "data": {
+                "id": "not-a-server-id",
+                "temporary_id": "tmp-invalid",
+                "channel_id": channel_id_string(1),
+                "event_seq": 4
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
+
+        assert!(matches!(err, ImError::InvalidWsFrame(msg) if msg.contains("posted echo")));
+        assert!(out.as_slice().is_empty());
     }
 
     #[test]

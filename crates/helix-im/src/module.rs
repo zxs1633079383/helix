@@ -769,36 +769,6 @@ impl ImModule {
         Ok(())
     }
 
-    /// 处理 echo 入站帧（WS 回声，§4.5 对账）
-    ///
-    /// echo 帧含 temporary_id → 按 tmp_id 找 PendingSend → reconcile。
-    ///
-    /// C1（sync-v2）已接进 `Tick::Inbound`：`classify_frame` 识别 `posted` + 非空
-    /// `temporary_id` → `FrameClass::Echo` → 本函数。`ps.reconcile` 内已含 message 表覆写
-    /// （`UPDATE message SET id=server_id, send_status='sent' WHERE temporary_id=tmp`，
-    /// BatchUpsert conflict_key=temporary_id，对齐 678 列）+ CancelTimer 15s。
-    fn handle_echo(
-        &mut self,
-        channel_id: ChannelId,
-        seq: crate::state::Seq,
-        tmp_id: &str,
-        server_id: crate::state::ServerId,
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
-        let tmp_id = TemporaryId(tmp_id.to_string());
-        // 先分配 corr，避免后续双重可变借用
-        let reconcile_corr = self.alloc_corr_internal();
-        if let Some(ps) = self.state.pending_sends.get_mut(&tmp_id) {
-            ps.reconcile(server_id, reconcile_corr, out);
-        }
-        // 推进 cursor（独立借用，不与 pending_sends 冲突）
-        if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-            let _ = ch.cursor.try_advance(seq);
-            out.push(crate::acl::to_effect::advance_cursor(channel_id, seq));
-        }
-        Ok(())
-    }
-
     fn dispatch_ws_frame(
         &mut self,
         bytes: &[u8],
@@ -862,19 +832,15 @@ impl Module for ImModule {
                         return Ok(());
                     }
                     crate::parser::FrameClass::Echo {
-                        channel_id,
-                        seq,
-                        temporary_id,
-                        server_id,
+                        channel_id: _,
+                        seq: _,
+                        temporary_id: _,
+                        server_id: _,
                     } => {
                         // C1 §4.5 发送对账：本端 posted 回声 → tmp_id 找 PendingSend →
                         // reconcile（message.id=server_id + send_status=sent 覆写 + CancelTimer）
                         // + cursor 独立推进（与可见性解耦，HX-C008）。
-                        self.handle_echo(channel_id, seq, &temporary_id, server_id, out)
-                            .map_err(|e| CoreError::ModuleError {
-                                module: self.name(),
-                                source: Box::new(e),
-                            })?;
+                        self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
                         return Ok(());
                     }
                     crate::parser::FrameClass::Ignored => {

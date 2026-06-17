@@ -17,9 +17,9 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 761bf50
+last_reviewed_commit: d052a19
 last_reviewed_at: 2026-06-17
-last_review_runId: wf_71a48486-004 (architecture-drift-review，三轮 sync-v2 C 收口)
+last_review_runId: wf_f8be5840-1a0 (architecture-drift-review，四轮 A/B 重构收口)
 threshold: 10
 ```
 
@@ -44,6 +44,13 @@ threshold: 10
 - [ ] **[low·R3-clone] type1 sync 落库每事件 2× PostFields 克隆 + 无用 msg_id 派生**（HX-C005 常数因子，~16 alloc 可降 ~8）：to_effect.rs:482-487 `fields.clone()`+`EventEnvelope::new`（内部再派生 msg_id）；channel.rs event_to_upsert_op 从不读 ev.msg_id。**修法（可选优化，非强制）**：抽 `upsert_op_from_fields(channel_id,seq,&PostFields)` 借用映射，type1 复用，删中间 EventEnvelope::new + 无用派生。分支仍 O(1) 无 RMW，核心不变量未破。
 - [ ] **[low·R3-echo] echo 识别强耦合 event_seq 存在**（pending-verification，gated D 阶段真帧）：parser.rs:281-289 event_seq 三级 fallback 尾 `?`，全缺→classify_echo None→posted 退 Ignored→reconcile 不触发。真源 cses post.rs:58 echo 仅凭 temporary_id 非空、与 event_seq 解耦。已诚实标「真帧待核 TODO」。**修法**：D 阶段 UC-1 真 Go 抓首个真 echo 帧核对 action/字段路径落 fixture；若真帧无 event_seq→fallback 降 `Option<Seq>`、echo 只凭 temporary_id+id+channel_id 三件、seq=None 跳 advance_cursor（与真源解耦对齐）。
 
+### 四轮（A/B 重构）drift
+
+- [ ] **[medium·R4-echo-gate] post echo reconcile 被 channel 注册门控**（择期修，非阻塞）：module.rs:1053-1061 把 `reconcile_post_echo` 整个包在 `if let Some(ch)=channels.get_mut(&ev.channel_id)` 内，而 `reconcile_post_echo`(945-976) 只读 pending_sends/corr_map、从不读 channels → 门控多余且有害。对照旧 `handle_echo`(918-925) reconcile 在 channel 查找之外，新 Post 路径形态回退。冷启动 send-before-cursor-seed 乱序窗口下 pending 残留 → 15s on_timeout 误标 UnSend（打在 `post_echo_then_15s_timer_does_not_mark_unsend` 故障形态上）。**修法**：A. reconcile 提到 channel 查找之外（先无条件 reconcile，再 `if let Some(ch)` 做 ingest/cursor，保留未注册 channel 不落库语义）；B. 补回放测试（send→未注册 channel echo→断言 pending==0→迟到 timer→无 unsend）；C. 架构设计 §4.5 注「echo 对账与 channel gate 解耦」不变量。
+- [ ] **[low·R4-retain] reconcile_post_echo 用 corr_map.retain O(n) 清 OptimisticSend**（HX-C005 常数因子，非真违）：module.rs:973，纯内存 HashMap 无 RMW、pending_sends.contains_key 守门稀有触发。**修法**：`PendingSend.persist_corr`(pending_send.rs:27)已存在但 send 时未回填(L886 置 None)→ send 时 `ps.persist_corr=Some(p1_corr)`，reconcile 改 `corr_map.remove(p1_corr)` O(1) 删 retain。旁注：handle_echo(907-927) reconcile 后不删 corr，两路径清理不对称（OptimisticSend corr 泄漏隐患），一并核。压测证实热点后再做。
+- [ ] **[low·R4-doc-rot] module.rs 陈注引用已删 corr_to_* 表**：L143-149(handle_port_reply MAJ-1/E4 步骤)/L939/L969 仍提 corr_to_channel/corr_to_send/scan_corr，函数体已用单表 corr_map+match CorrelationContext（state.rs:181-250 权威 doc 已同步）。**修法**：L143-149 改述「单表 corr_map.remove+match CorrelationContext，类别互斥靠 corr 全局唯一」，L939/L969 措辞改 corr_map(OptimisticSend)；不动 L643/L1140 合法历史注记。下次 im 改动 commit 顺手带走。
+- [ ] **[low·R4-tombstone] parse_inbound_tick 零调用方活墓碑**：acl/from_tick.rs:10，重构 A 后全仓 grep 零调用（spec item8「测试可能引用」经实证为假），因 pub mod+pub fn 致 dead_code lint 抑制成活墓碑，零行为影响。**修法**：独立 chore commit 删 `parse_inbound_tick`（保留 accepts_tick）+ 更新 A-spec item8。
+
 ## 历史
 
 | 日期 | review 到 commit | 区间(from..to) | workflow runId | drift 判定 | 关键发现 / 收敛动作 |
@@ -52,3 +59,4 @@ threshold: 10
 | 2026-06-16 | 3c5324f | 8c69f25..3c5324f | wf_ee61a139-68b | 🟡 轻 drift | 2 条真 drift（8 报告去重）：[medium] event_to_upsert_op 热路径二/三次 serde + per-event alloc（违 HX-C005，6d83ad5 引入）；[low] channel_event_cursor 死表占位 vs 运行时 _helix_monotonic。均非阻塞 → 登记 todo（已于 cff383f 收敛）|
 | 2026-06-16 | 6b2fd52 | 3c5324f..6b2fd52 (10 commits) | wf_703e8a49-178 | 🟡 轻 drift | merge main→dev-zlc 收口。5 条真 drift（11 报告去重）：D1 FFI 句柄类型不一致(medium)；D2 NativeHttp::new 活墓碑+live bench caller(medium)；D3 native·FFI registry 不对称(medium)；D4 ADR-008→010 三处文档引用漂移(low)；D5 decisions.md:62 transport 适配滞后注(low)。无机制破坏、core 零运行时仍成立。D2/D4/D5 即修，D1/D3 登记前置触发 todo |
 | 2026-06-17 | 761bf50 | 6b2fd52..761bf50 (13 commits) | wf_71a48486-004 | 🟡 轻 drift | sync-v2 C1/C2/C3/B2 + eventbus/迁移文档收口。3 条真 drift（5 报告去重）：R3-emit emit_post_received 信封 msg_id=seq 数字+缺 event_seq(medium，已修 43bf75d)；R3-clone type1 落库双重 PostFields 克隆+无用派生(low，HX-C005 常数因子)；R3-echo echo 识别耦合 event_seq(low，pending-verification gated D 阶段真帧)。核心不变量 HX-C001/C005/三层/sans-IO 全未破 |
+| 2026-06-17 | d052a19 | 761bf50..d052a19 (10 commits) | wf_f8be5840-1a0 | 🟡 轻 drift | corr_map 统一(B)+InboundEvent 合并(A) 重构 + refactor-spec-then-build workflow 留痕。6 报告去重为 4 条真 drift：R4-echo-gate post echo reconcile 被 channel 注册门控致冷启动乱序漏对账 15s 误标 UnSend(medium，登记择期修，非阻塞)；R4-retain corr_map.retain O(n) 清 OptimisticSend(low，HX-C005 常数因子非真违)；R4-doc-rot module.rs:143-149/939/969 陈注引用已删 corr_to_* 表(low)；R4-tombstone parse_inbound_tick 零调用方活墓碑(low)。核心不变量 HX-C001/C005/C008/三层单向/sans-IO/单调 cursor 全未破，GOAL §1/§2 未触 |

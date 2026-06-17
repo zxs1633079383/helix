@@ -31,25 +31,45 @@
 //! 原实现：PortReply 回灌与入站 Tick 共用同一条有界 mpsc(cap=256)，且
 //! dispatch_owned_effects 末尾 await 全部 persist handles → 洪峰 >256 环形等待。
 //!
-//! ## 修复四不变量（review 回炉校正版）
+//! ## 统一原语 `BoundedSpawner`（刀2-driver）
 //!
-//! 1. **回灌必达**：PortReply 走独立 unbounded channel（reply_tx），永不堵塞写任务。
-//!    reply_rx 中排队的条目 ≤ 已完成 job 数（有界上界）；真正有界的约束在入站背压——
-//!    **入站背压仍是接入方契约**：调用方必须使用有界 tick_tx（cap=256）并在背压下
-//!    等待，避免 job queue 积压无界增长。per-table job queue 容量 = `PERSIST_QUEUE_CAP`
-//!    （有界），超限时 dispatch 侧 `.await` 阻塞主循环，把背压传导回 tick_tx。
-//! 2. **主循环不等磁盘**：dispatch 把 Persist 入队到 per-table worker 后立即返回
-//!    （job queue 未满时）；满时阻塞主循环（有界背压传导），不会无界积压。
-//! 3. **同组写顺序保持**：routing key = ops 涉及的全部 table 名（有序集合，"|" 分隔）。
-//!    单表 ops → 单表 key（常见路径，无额外开销）；
-//!    多表 ops → 组合 key（退化到一个独立 worker，不与单表 worker 交叉），
-//!    保证跨 tick 的同 key 写严格按产生顺序执行。
-//!    **约束**：调用方需保证「需要相互有序的 Persist 使用相同 table-set key」。
-//!    若 tick1 的 `Persist{ops:[op_A]}` 和 tick2 的 `Persist{ops:[op_A, op_B]}` 需要
-//!    全局有序，应合并为同一 Persist 或在 core 层保证单表。见 `table_set_key` 文档。
+//! Persist / Http(必达) / HttpFire(可丢) 不再各写一套手写背压骨架，统一成
+//! `BoundedSpawner`：**有界 mpsc 队列(cap=K) + N 个常驻 worker task + 溢出策略
+//! (Block | DropOldest) + 独立 unbounded reply_tx 回灌**。三类只是实例化参数差异，
+//! 纪律集中在一处（Dioxus「统一流」取舍：一个背压/批次/调度策略管全部，纪律不散落）。
+//!
+//! - **Persist**：per-table-set 懒建，每实例 N=1（保写序），Block 溢出。
+//! - **Http（必达）**：全局单例 N=max_http_inflight(默认 8)，Block 溢出。旧 Semaphore
+//!   并发闸的语义（permit 数）收敛进 N 个 worker——第 N+1 条请求在有界队列里等 worker，
+//!   不在泵里阻塞（Block 模式队未满时 send 立即返回）。
+//! - **HttpFire（可丢）**：全局单例 N=8，DropOldest 溢出（背压下丢最旧 + warn，
+//!   丢失靠 cursor-gate 重发自愈）。
+//!
+//! ## 修复五不变量（BoundedSpawner 统一版）
+//!
+//! 1. **回灌必达**：PortReply 走独立 unbounded channel（reply_tx），永不堵塞 worker。
+//!    🔴 **红线**：reply_tx 绝不能改有界——一旦有界且泵唯一消费，Block 模式的死锁环回来
+//!    （泵 block 在入队 → 不消费 reply_rx → reply 满 → worker block 在回报 → 不抽队列）。
+//! 2. **主循环不等 I/O（Block 传导回源）**：dispatch 把 Persist / 必达 Http 入有界队列后
+//!    立即返回（未满时）；满时 `send().await` 阻塞主循环（背压传导回 tick_tx）。
+//!    🔴 **红线**：抽水绝不能放泵循环——任何「dispatch 末尾 await worker 完成」都会重新
+//!    引入自死锁（泵 block 就抽不了水）。抽水物理上在独立 worker task，submit 后立即返回循环。
+//!    HttpFire 走 DropOldest，泵永不阻塞（try_send 满即丢）。
+//! 3. **同组写顺序保持**：Persist routing key = ops 涉及的全部 table 名（有序集合，"|" 分隔），
+//!    per-table-set worker **强制 N=1**（单消费者保序）。单表 ops → 单表 key；多表 ops →
+//!    组合 key（独立 worker，不与单表交叉）。Http/HttpFire 无写序要求（N=8）。
 //! 4. **回灌优先**：biased select! 把 reply_rx 排在 tick_rx 前，防 PortReply 饥饿。
-//! 5. **退出 drain**：tick_rx 关闭后，drop 全部 job sender，join 全部 worker task，
-//!    drain reply_rx，确保「run_engine_loop 返回 = 全部已接收 Persist 均已落盘」。
+//! 5. **退出 drain**：tick_rx 关闭后，shutdown 全部 BoundedSpawner（drop tx → worker
+//!    recv None 退出 → join），drain reply_rx，确保「run_engine_loop 返回 = 全部已接收
+//!    Persist + 必达 Http 均已落地」。HttpFire 可丢，不纳入「必达落地」保证。
+//!
+//! ## Block 模式死锁安全证明（与现有 Persist 模型同构）
+//!
+//! 泵阻塞在「入队 submit().await（满）」是安全的，当且仅当：① 抽水在独立 worker task
+//! （不是泵自己 drain）② PortReply 走独立 unbounded reply_tx。依赖链是单向 DAG
+//! （泵等 worker，worker 不等泵）：worker `recv → run(I/O) → reply_tx.send(unbounded,不阻塞)
+//! → 队列腾位 → 泵 send 解开`。无环 → 无死锁。这正是现有 `get_or_spawn_worker` 已压测验证
+//! 的形态，BoundedSpawner 只是把它抽成通用原语复用到 Http，不引入新死锁面。
 //!
 //! ## Effect 借用收集策略（关键）
 //!
@@ -59,12 +79,12 @@
 //!
 //! ## Effect 分流策略
 //!
-//! - `Persist` / `PersistFire`：按目标表名分组，同组顺序执行，跨组 tokio::spawn 并发（最大 4）
-//! - `Http`：tokio::spawn 并发，但受 `Semaphore(max_http_inflight)` 限流（默认 8，host 经
-//!   EngineConfig 注入）。permit 在 spawned task 内 `acquire_owned().await` 后才发请求——
-//!   排队挂在 semaphore 上、**不在泵线程**，泵只 spawn 不阻塞，死锁不变量保持。
-//!   （旧注释「受 reqwest 连接池自限」有误：reqwest pool 不限新连接并发，冷启动 N 条齐发会
-//!   瞬间打满底层 connect → 全 Network。）
+//! - `Persist` / `PersistFire`：按目标表名分组，同组顺序执行（per-table-set BoundedSpawner，N=1）
+//! - `Http`（必达）：submit 到 Http BoundedSpawner（N=max_http_inflight，Block 溢出）。
+//!   N 个 worker 抢有界队列，泵只入队不发请求——第 N+1 条在队列里等 worker，不挂泵线程。
+//!   （旧 Semaphore 限流的并发语义收敛进 N 个 worker；旧注释「受 reqwest 连接池自限」有误：
+//!   reqwest pool 不限新连接并发，冷启动 N 条齐发会瞬间打满底层 connect → 全 Network。）
+//! - `HttpFire`（可丢）：submit 到 HttpFire BoundedSpawner（N=8，DropOldest 溢出）。
 //! - `Send`：tracing 记录（生产接入时调用者传入 Transport map）
 //! - `Emit`：同步调用 EventSink::emit
 //! - `ScheduleTimer` / `CancelTimer`：TimerRegistry 操作
@@ -84,7 +104,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::json;
-use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
 use helix_core::effect::{
@@ -117,16 +137,23 @@ pub type TransportTable = HashMap<TransportId, Arc<Mutex<NativeTransport>>>;
 /// 这恢复了旧实现"磁盘慢则入站慢"的背压链，同时避免死锁（PortReply 走独立通道）。
 const PERSIST_QUEUE_CAP: usize = 1024;
 
+/// Http / HttpFire BoundedSpawner 的有界队列深度上限。
+///
+/// 必达 Http（Block）满时 `send().await` 把背压传导回 tick_tx；
+/// HttpFire（DropOldest）满时 try_send 失败即丢最旧 + warn（自愈靠 cursor-gate 重发）。
+const HTTP_QUEUE_CAP: usize = 1024;
+
 /// 事件泵配置（所有依赖项聚合）。
 pub struct EngineConfig {
     pub storage: NativeStorage,
     pub http: NativeHttp,
     pub event_sink: NativeEventSink,
-    /// Http effect 并发上限（Semaphore permit 数）。
+    /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。
     ///
     /// 冷启动时 core 一步可吐 N 条 `Effect::Http`（如每 channel 一条 sync/notify），
     /// 若全部齐发会瞬间打满底层连接（reqwest pool **不**限制新连接并发，旧注释假设有误），
-    /// 表现为大批 connect 失败 → 全 Network。此字段经 Semaphore 给 Http 限流。
+    /// 表现为大批 connect 失败 → 全 Network。此字段 = Http/HttpFire BoundedSpawner 的常驻
+    /// worker 数（收敛旧 Semaphore permit 语义）：第 N+1 条请求在有界队列里等 worker，不并发齐发。
     /// host（ambient API 合法落点）读 env 注入；建议默认 8。`0` 会被 `.max(1)` 兜底为 1。
     pub max_http_inflight: usize,
 }
@@ -151,6 +178,9 @@ enum OwnedEffect {
     },
     Http {
         corr: Correlation,
+        req: HttpRequest,
+    },
+    HttpFire {
         req: HttpRequest,
     },
     Request {
@@ -191,6 +221,7 @@ fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
                 corr: *corr,
                 req: req.clone(),
             },
+            Effect::HttpFire { req } => OwnedEffect::HttpFire { req: req.clone() },
             Effect::Request {
                 corr,
                 kind,
@@ -212,52 +243,186 @@ fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
         .collect()
 }
 
-// ─── Per-table-set 有序 Worker ───────────────────────────────────────────────
+// ─── BoundedSpawner — driver 内通用有界并发原语（刀2-driver）──────────────────
+//
+// Persist / Http(必达) / HttpFire(可丢) 统一成此原语：有界 mpsc 队列(cap=K) + N 个
+// 常驻 worker task + 溢出策略 + 独立 unbounded reply_tx 回灌。三类只是参数差异。
 
-/// 一条进 per-table-set worker 队列的工作单元。
-type PersistJob = (Option<Correlation>, Vec<StorageOp>);
-
-/// per-table-set worker 的句柄（发送端 + JoinHandle，用于 graceful drain）。
-struct WorkerHandle {
-    /// job 发送端（bounded channel，drop 时 worker 任务自然退出）。
-    tx: mpsc::Sender<PersistJob>,
-    /// worker task 句柄，shutdown 时 join 确保积压全部落盘。
-    join: JoinHandle<()>,
+/// 溢出策略：有界队列满时怎么办（每实例固定一种）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Overflow {
+    /// 队满 `send().await` 阻塞泵 → 背压传导回 tick_tx（慢而不丢）。Persist / Http(必达) 用。
+    Block,
+    /// 队满 try_send 失败即丢（warn，泵不阻塞）。HttpFire 用（丢失靠 cursor-gate 重发自愈）。
+    DropOldest,
 }
 
-/// 启动（或复用）某 table-set 对应的长驻有序 worker task，返回其发送端引用。
+/// 一条工作单元：可选回报 corr（None = fire-and-forget，不发 PortReply）+ job 载荷。
+struct Job<P> {
+    corr: Option<Correlation>,
+    payload: P,
+}
+
+/// 通用有界并发原语：有界 mpsc(cap=K) + N 个常驻 worker + 溢出策略。
 ///
-/// ## 设计不变量（review 回炉 §3）
+/// ## 死锁安全（与现有 Persist 模型同构，已压测验证）
 ///
-/// 同 key 内所有 Persist/PersistFire 严格按入队顺序执行，worker task 是单消费者。
-/// job queue 有界（`PERSIST_QUEUE_CAP`），超限时 caller .await 阻塞，背压传导到
-/// tick_tx（有界入站通道）。
-/// 写完后若有 corr → 往 reply_tx（unbounded）发 PortReply，永不堵塞写 worker。
+/// 抽水在独立 worker task（不是泵自己 drain），PortReply 走独立 unbounded reply_tx，
+/// 故 Block 模式泵阻塞在「入队」是安全的：依赖链是单向 DAG（泵等 worker，worker 不等泵）。
+/// 🔴 两条红线：① reply_tx 必须 unbounded（不变量1）② 抽水绝不放泵循环（不变量2）。
+struct BoundedSpawner<P: Send + 'static> {
+    /// 有界 job 发送端（cap = queue_cap）。
+    tx: mpsc::Sender<Job<P>>,
+    /// N 个 worker task 句柄，shutdown 时 join 确保积压（必达类）全部落地。
+    joins: Vec<JoinHandle<()>>,
+    /// 溢出策略。
+    overflow: Overflow,
+}
+
+impl<P: Send + 'static> BoundedSpawner<P> {
+    /// 构造：concurrency=N 个 worker；queue_cap=K；run = 每条 job 的 I/O 执行体
+    /// （async 闭包，返回 `PortOutcome`，仅在 job.corr=Some 时回报）。
+    ///
+    /// N 个 worker 共享单队列（竞争 recv）；Persist 用 N=1 保写序。
+    fn new<F, Fut>(
+        concurrency: usize,
+        queue_cap: usize,
+        overflow: Overflow,
+        reply_tx: mpsc::UnboundedSender<Tick>,
+        run: F,
+    ) -> Self
+    where
+        F: Fn(P) -> Fut + Clone + Send + 'static,
+        Fut: std::future::Future<Output = PortOutcome> + Send + 'static,
+    {
+        let (tx, rx) = mpsc::channel::<Job<P>>(queue_cap.max(1));
+        // N worker 共享单队列：Arc<Mutex<rx>>，竞争 recv（公平由 tokio Mutex 保证 FIFO-ish）。
+        let rx = Arc::new(Mutex::new(rx));
+        let joins = (0..concurrency.max(1))
+            .map(|_| {
+                let rx = Arc::clone(&rx);
+                let reply_tx = reply_tx.clone();
+                let run = run.clone();
+                tokio::spawn(async move {
+                    loop {
+                        // 独立 worker 持续抽水（recv 不持锁跨 await：lock→recv→drop lock）。
+                        let job = {
+                            let mut guard = rx.lock().await;
+                            guard.recv().await
+                        };
+                        let Some(Job { corr, payload }) = job else {
+                            break;
+                        };
+                        let outcome = run(payload).await; // 执行 I/O（不持泵锁、不持队列锁）
+                        if let Some(corr) = corr {
+                            // unbounded send：不会阻塞，回灌必达（不变量1）。
+                            reply_tx.send(Tick::PortReply { corr, outcome }).ok();
+                        }
+                        // corr=None → fire-and-forget，不回报。
+                    }
+                })
+            })
+            .collect();
+        Self {
+            tx,
+            joins,
+            overflow,
+        }
+    }
+
+    /// 入队一条 job。
+    /// - Block：`send().await`，满则阻塞泵（背压传导回 tick_tx）。
+    /// - DropOldest：try_send，满则丢 + warn（泵不阻塞）。
+    async fn submit(&self, job: Job<P>) {
+        match self.overflow {
+            Overflow::Block => {
+                // 队满阻塞——独立 worker 持续抽水会腾位，泵解开（死锁安全见 struct 文档）。
+                self.tx.send(job).await.ok();
+            }
+            Overflow::DropOldest => {
+                // 单生产者下「丢最旧」与「丢最新」在自愈场景等价（都靠 cursor-gate 重发补），
+                // 取最简的 try_send-Full-drop（丢本条），warn 即可（YAGNI，不引 worker 端 skip）。
+                if self.tx.try_send(job).is_err() {
+                    tracing::warn!(
+                        "HttpFire 队列满，丢弃本条（fire-and-forget 自愈请求，靠 cursor-gate 重发兜底）"
+                    );
+                }
+            }
+        }
+    }
+
+    /// graceful drain：drop tx → worker recv None 退出 → join 全部。
+    async fn shutdown(self) {
+        drop(self.tx);
+        for j in self.joins {
+            let _ = j.await;
+        }
+    }
+}
+
+// ─── Persist 专用：per-table-set 懒建 BoundedSpawner（N=1 保写序）──────────────
+
+/// 启动（或复用）某 table-set 对应的 Persist BoundedSpawner（N=1 单消费者保序）。
 ///
-/// ## 注意：此函数是 async 的（bounded send 需 await）
+/// ## 设计不变量（不变量3）
 ///
-/// 调用方（dispatch_effects）须在 async 上下文中 .await get_or_spawn_worker 的
-/// send 操作，见 `enqueue_persist`。
-fn get_or_spawn_worker(
-    workers: &mut HashMap<String, WorkerHandle>,
+/// 同 key 内所有 Persist/PersistFire 严格按入队顺序执行（N=1 → 单 worker 单消费者）。
+/// job queue 有界（`PERSIST_QUEUE_CAP`），超限时 caller `.await` 阻塞，背压传导到 tick_tx。
+fn get_or_spawn_persist(
+    workers: &mut HashMap<String, BoundedSpawner<Vec<StorageOp>>>,
     table_key: String,
     storage: Arc<NativeStorage>,
     reply_tx: mpsc::UnboundedSender<Tick>,
-) -> &WorkerHandle {
+) -> &BoundedSpawner<Vec<StorageOp>> {
     workers.entry(table_key).or_insert_with(|| {
-        let (job_tx, mut job_rx) = mpsc::channel::<PersistJob>(PERSIST_QUEUE_CAP);
-        let join = tokio::spawn(async move {
-            while let Some((corr_opt, ops)) = job_rx.recv().await {
-                let outcome = execute_storage_ops(storage.as_ref(), &ops).await;
-                if let Some(corr) = corr_opt {
-                    // unbounded send：不会阻塞，回灌必达（§1）
-                    reply_tx.send(Tick::PortReply { corr, outcome }).ok();
-                }
-                // PersistFire (corr_opt = None) → fire-and-forget，不回报
-            }
-        });
-        WorkerHandle { tx: job_tx, join }
+        let storage = Arc::clone(&storage);
+        BoundedSpawner::new(
+            1, // N=1：单 worker 单消费者保写序（不变量3）
+            PERSIST_QUEUE_CAP,
+            Overflow::Block,
+            reply_tx,
+            move |ops: Vec<StorageOp>| {
+                let storage = Arc::clone(&storage);
+                async move { execute_storage_ops(storage.as_ref(), &ops).await }
+            },
+        )
     })
+}
+
+/// 执行一条 HTTP 请求，返回 `PortOutcome`（Http / HttpFire worker 共用）。
+async fn run_http(http: Arc<NativeHttp>, req: HttpRequest) -> PortOutcome {
+    match http.request(req).await {
+        Ok(resp) => {
+            let body_b64 = base64_encode(&resp.body);
+            let json_bytes = serde_json::to_vec(&json!({
+                "status": resp.status,
+                "headers": resp.headers,
+                "body": body_b64,
+            }))
+            .unwrap_or_default();
+            PortOutcome::Ok(ReplyBytes(Bytes::from(json_bytes)))
+        }
+        Err(e) => PortOutcome::Err(classify_port_error(e)),
+    }
+}
+
+/// 构造 Http(必达) BoundedSpawner：N=max_http_inflight，Block 溢出。
+fn spawn_http_pool(
+    concurrency: usize,
+    http: Arc<NativeHttp>,
+    reply_tx: mpsc::UnboundedSender<Tick>,
+    overflow: Overflow,
+) -> BoundedSpawner<HttpRequest> {
+    BoundedSpawner::new(
+        concurrency,
+        HTTP_QUEUE_CAP,
+        overflow,
+        reply_tx,
+        move |req: HttpRequest| {
+            let http = Arc::clone(&http);
+            async move { run_http(http, req).await }
+        },
+    )
 }
 
 // ─── engine loop ─────────────────────────────────────────────────────────────
@@ -315,16 +480,24 @@ pub async fn run_engine_loop_with_transports(
     let storage = Arc::new(config.storage);
     let http = Arc::new(config.http);
     let event_sink = Arc::new(config.event_sink);
-    // Http 并发闸：permit 数 = max_http_inflight（`.max(1)` 防 0 永久阻塞）。
-    // 泵只 spawn task；permit 在 task 内 acquire，排队挂 semaphore 不挂泵（见 dispatch_effects）。
-    let http_sem = Arc::new(Semaphore::new(config.max_http_inflight.max(1)));
+    let http_n = config.max_http_inflight.max(1);
     let mut timer_registry = TimerRegistry::new();
 
     // E1 修复：独立 unbounded 回灌通道（不与入站 tick_rx 共用，永不堵塞写任务）
     let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
 
-    // per-table-set 长驻 worker 映射（table_set_key → WorkerHandle{tx, join}）
-    let mut persist_workers: HashMap<String, WorkerHandle> = HashMap::new();
+    // per-table-set Persist BoundedSpawner 映射（table_set_key → BoundedSpawner，N=1 保写序）
+    let mut persist_workers: HashMap<String, BoundedSpawner<Vec<StorageOp>>> = HashMap::new();
+
+    // Http(必达)：N=http_n，Block 溢出（旧 Semaphore 并发闸收敛进 N 个 worker）。
+    let http_pool = spawn_http_pool(http_n, Arc::clone(&http), reply_tx.clone(), Overflow::Block);
+    // HttpFire(可丢)：N=http_n，DropOldest 溢出（丢失靠 cursor-gate 重发自愈）。
+    let http_fire_pool = spawn_http_pool(
+        http_n,
+        Arc::clone(&http),
+        reply_tx.clone(),
+        Overflow::DropOldest,
+    );
 
     // 初始化：触发 on_start
     let initial_effects = match shell.start() {
@@ -343,8 +516,8 @@ pub async fn run_engine_loop_with_transports(
         initial_effects,
         &tick_tx,
         &storage,
-        &http,
-        &http_sem,
+        &http_pool,
+        &http_fire_pool,
         &event_sink,
         &mut timer_registry,
         &reply_tx,
@@ -404,8 +577,8 @@ pub async fn run_engine_loop_with_transports(
                 owned,
                 &tick_tx,
                 &storage,
-                &http,
-                &http_sem,
+                &http_pool,
+                &http_fire_pool,
                 &event_sink,
                 &mut timer_registry,
                 &reply_tx,
@@ -416,61 +589,59 @@ pub async fn run_engine_loop_with_transports(
         }
     }
 
-    // ── Graceful drain（§5，review 回炉）────────────────────────────────────
+    // ── Graceful drain（§5，BoundedSpawner 统一版）──────────────────────────
     //
-    // tick_rx 关闭 → 不再有新 Tick 进来。此时 per-table worker 可能还有积压 job。
+    // tick_rx 关闭 → 不再有新 Tick 进来。此时各 BoundedSpawner 可能还有积压 job。
     //
-    // 正确关闭顺序：
-    // 1. drop 全部 job sender（worker 排空队列后自然退出）
-    // 2. join 全部 worker task（保证积压 job 全部落盘）
-    // 3. drain reply_rx（捡走写完后才回灌的最后一批 PortReply，避免 log 噪音）
+    // 正确关闭顺序（每个 BoundedSpawner.shutdown 内部：drop tx → worker recv None → join）：
+    // 1. shutdown 全部 Persist BoundedSpawner（必达落地）
+    // 2. shutdown Http(必达) BoundedSpawner（必达落地）
+    // 3. shutdown HttpFire BoundedSpawner（尽力 join，但其语义可丢，不纳入「必达落地」保证）
+    // 4. drain reply_rx（捡走写完后才回灌的最后一批 PortReply，避免 log 噪音）
     //
-    // 保证：run_engine_loop 返回 = 全部已接收 Persist 均已落盘。
+    // 保证：run_engine_loop 返回 = 全部已接收 Persist + 必达 Http 均已落地。
     // 破坏此保证的改动需同步更新本文档注释。
     tracing::info!(
-        "helix engine loop: tick_rx closed, draining {} workers",
+        "helix engine loop: tick_rx closed, draining {} persist + http pools",
         persist_workers.len()
     );
 
-    // step 1: 提取全部 JoinHandle，同时 drop 全部 job sender（Sender drop → worker 的 recv 返回 None）
-    let join_handles: Vec<JoinHandle<()>> = persist_workers
-        .drain()
-        .map(|(_, wh)| {
-            drop(wh.tx); // drop sender，触发 worker job_rx.recv() 返回 None
-            wh.join
-        })
-        .collect();
-
-    // step 2: join 全部 worker（等待积压 job 全部落盘）
-    for handle in join_handles {
-        if let Err(e) = handle.await {
-            tracing::error!("persist worker panicked during shutdown: {:?}", e);
-        }
+    // step 1: shutdown 全部 Persist BoundedSpawner（drop tx → worker 排空 → join）
+    for (_, sp) in persist_workers.drain() {
+        sp.shutdown().await;
     }
 
-    // step 3: drain reply_rx（write worker 写完最后 job 发出的 PortReply）
+    // step 2 + 3: shutdown Http(必达) + HttpFire 两个 pool
+    http_pool.shutdown().await;
+    http_fire_pool.shutdown().await;
+
+    // step 4: drain reply_rx（worker 写完最后 job 发出的 PortReply）
     while reply_rx.try_recv().is_ok() {}
 
-    tracing::info!("helix engine loop exited (all persists drained)");
+    tracing::info!("helix engine loop exited (all persists + 必达 http drained)");
 }
 
-/// 把一批 OwnedEffect 分流兑现（async，Persist 入有界队列，满时等待）。
+/// 把一批 OwnedEffect 分流兑现（async，BoundedSpawner submit，Block 满时等待）。
 ///
-/// ## review 回炉要点
+/// ## 要点（BoundedSpawner 统一版）
 ///
-/// - Persist / PersistFire：按 `table_set_key` 路由到对应 worker，`.send().await`
-///   在队列满时阻塞主循环，将背压传导到 tick_tx，避免 job queue 无界增长（§1 / §2）。
-/// - PortReply 回灌走 reply_tx（unbounded），由 worker 任务独立发送（§1）。
+/// - Persist / PersistFire：按 `table_set_key` 路由到 per-table-set Persist BoundedSpawner
+///   （懒建，N=1 保写序），`submit` 在队列满时阻塞主循环传导背压（不变量2/3）。
+/// - Http（必达）：submit 到 `http_pool`（Block，满则阻塞泵传导背压；绝不 drop，不变量2）。
+/// - HttpFire（可丢）：submit 到 `http_fire_pool`（DropOldest，满即丢 + warn，泵不阻塞）。
+/// - 泵线程绝不在此 await worker 完成（抽水在独立 worker，submit 即返回；死锁红线，不变量2）。
+/// - PortReply 回灌走 reply_tx（unbounded），由 worker 独立发送（不变量1）。
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_effects(
     effects: Vec<OwnedEffect>,
     tick_tx: &mpsc::Sender<Tick>,
     storage: &Arc<NativeStorage>,
-    http: &Arc<NativeHttp>,
-    http_sem: &Arc<Semaphore>,
+    http_pool: &BoundedSpawner<HttpRequest>,
+    http_fire_pool: &BoundedSpawner<HttpRequest>,
     event_sink: &Arc<NativeEventSink>,
     timer_registry: &mut TimerRegistry,
     reply_tx: &mpsc::UnboundedSender<Tick>,
-    persist_workers: &mut HashMap<String, WorkerHandle>,
+    persist_workers: &mut HashMap<String, BoundedSpawner<Vec<StorageOp>>>,
     transports: &TransportTable,
 ) {
     for effect in effects {
@@ -478,62 +649,58 @@ async fn dispatch_effects(
             // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
                 let key = table_set_key(&ops);
-                let wh = get_or_spawn_worker(
+                let sp = get_or_spawn_persist(
                     persist_workers,
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
                 );
-                // bounded send：队列满时 .await 阻塞主循环，背压传导到 tick_tx
-                wh.tx.send((Some(corr), ops)).await.ok();
+                // Block submit：队列满时 .await 阻塞主循环，背压传导到 tick_tx（不变量2）。
+                sp.submit(Job {
+                    corr: Some(corr),
+                    payload: ops,
+                })
+                .await;
             }
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
                 let key = table_set_key(&ops);
-                let wh = get_or_spawn_worker(
+                let sp = get_or_spawn_persist(
                     persist_workers,
                     key,
                     Arc::clone(storage),
                     reply_tx.clone(),
                 );
-                // bounded send：背压传导同上
-                wh.tx.send((None, ops)).await.ok();
+                sp.submit(Job {
+                    corr: None,
+                    payload: ops,
+                })
+                .await;
             }
 
-            // ── Http（并发但限流，带 corr 回报，走 reply_tx）──────────────
+            // ── Http（必达，Block 溢出，带 corr 回报，走 reply_tx）──────────
             //
-            // 死锁不变量：泵线程在此分支只做 `Arc::clone` + `tokio::spawn`（同步非阻塞，
-            // 立即返回循环）。permit 的 `acquire_owned().await` 在 spawned task 内部、
-            // 发 reqwest 之前 —— 超过 N 的 task 排队挂在 semaphore 上、**不挂泵**，泵照常
-            // 处理其它 Tick / PortReply（释放 permit 的回灌路径不变）。task 完成后
-            // OwnedSemaphorePermit drop → release → 唤醒队列中下一个。
+            // 死锁不变量：泵在此只做 submit（队未满立即返回；满则 Block 阻塞泵，独立 worker
+            // 持续抽水后解开——抽水绝不在泵循环，红线见 BoundedSpawner 文档/不变量2）。
             OwnedEffect::Http { corr, req } => {
-                let http_clone = Arc::clone(http);
-                let reply_clone = reply_tx.clone();
-                let sem = Arc::clone(http_sem);
-                tokio::spawn(async move {
-                    // permit 在 task 内 acquire（排队在 semaphore，不在泵）。
-                    // Err 仅当 semaphore 被 close——Arc 持有期间不会发生，保守返回。
-                    let _permit = match sem.acquire_owned().await {
-                        Ok(p) => p,
-                        Err(_) => return,
-                    };
-                    let outcome = match http_clone.request(req).await {
-                        Ok(resp) => {
-                            let body_b64 = base64_encode(&resp.body);
-                            let json_bytes = serde_json::to_vec(&json!({
-                                "status": resp.status,
-                                "headers": resp.headers,
-                                "body": body_b64,
-                            }))
-                            .unwrap_or_default();
-                            PortOutcome::Ok(ReplyBytes(Bytes::from(json_bytes)))
-                        }
-                        Err(e) => PortOutcome::Err(classify_port_error(e)),
-                    };
-                    reply_clone.send(Tick::PortReply { corr, outcome }).ok();
-                });
+                http_pool
+                    .submit(Job {
+                        corr: Some(corr),
+                        payload: req,
+                    })
+                    .await;
+            }
+
+            // ── HttpFire（可丢，DropOldest 溢出，无 corr 不回报）────────────
+            // 满即丢 + warn（泵不阻塞），丢失靠 cursor-gate 重发自愈。
+            OwnedEffect::HttpFire { req } => {
+                http_fire_pool
+                    .submit(Job {
+                        corr: None,
+                        payload: req,
+                    })
+                    .await;
             }
 
             // ── Send（A1：查路由表 → NativeTransport::send 真发 WS）────────
@@ -741,5 +908,201 @@ mod tests {
             }),
         ];
         assert_eq!(table_set_key(&ops), "messages");
+    }
+
+    // ─── BoundedSpawner 原语测试（刀2-driver）────────────────────────────────
+    //
+    // 直接喂 run 闭包（不依赖 NativeHttp/NativeStorage），精确测溢出/写序/回灌语义。
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
+
+    /// ① HttpFire 满队列 DropOldest：泵不阻塞，溢出条目被丢，已入队的最终执行。
+    #[tokio::test]
+    async fn test_bounded_spawner_drop_oldest_no_block() {
+        let executed = Arc::new(AtomicU64::new(0));
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+
+        let executed_c = Arc::clone(&executed);
+        let gate_c = Arc::clone(&gate);
+        // N=1，queue_cap=1，worker 在第一条 job 内 park 在 gate 上 → 队列很快填满。
+        let sp: BoundedSpawner<u64> = BoundedSpawner::new(
+            1,
+            1,
+            Overflow::DropOldest,
+            reply_tx,
+            move |_payload: u64| {
+                let executed = Arc::clone(&executed_c);
+                let gate = Arc::clone(&gate_c);
+                async move {
+                    gate.notified().await; // 卡住 worker，制造队满
+                    executed.fetch_add(1, Ordering::SeqCst);
+                    PortOutcome::Ok(ReplyBytes::default())
+                }
+            },
+        );
+
+        // 提交 100 条：DropOldest 下 submit 永不阻塞（worker 卡住，队满即丢）。
+        // 用 timeout 证明「泵不阻塞」——若是 Block 会在此卡死超时。
+        let submit_all = async {
+            for i in 0..100u64 {
+                sp.submit(Job {
+                    corr: None,
+                    payload: i,
+                })
+                .await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(2), submit_all)
+            .await
+            .expect("DropOldest submit 必须不阻塞泵（未超时）");
+
+        // 放行 worker，等待消化。queue_cap=1 + worker 卡 1 条 → 大量被丢。
+        for _ in 0..200 {
+            gate.notify_one();
+        }
+        sp.shutdown().await;
+
+        let done = executed.load(Ordering::SeqCst);
+        // 至多消化 worker-in-flight(1) + queue_cap(1) ≈ 2 条，其余 98 条被丢。
+        assert!(
+            done < 100,
+            "DropOldest 必须丢弃溢出条目，实际执行 {done}/100（应远小于 100）"
+        );
+    }
+
+    /// ② Http 满队列 Block：泵 submit 阻塞，worker 抽水后解开，零丢失（全部执行）。
+    #[tokio::test]
+    async fn test_bounded_spawner_block_no_loss() {
+        let executed = Arc::new(AtomicU64::new(0));
+        let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+
+        let executed_c = Arc::clone(&executed);
+        // N=1，queue_cap=1，每条 run 慢一点 → submit 第 3 条起必然阻塞等 worker 抽水。
+        let sp: BoundedSpawner<u64> =
+            BoundedSpawner::new(1, 1, Overflow::Block, reply_tx, move |_payload: u64| {
+                let executed = Arc::clone(&executed_c);
+                async move {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    executed.fetch_add(1, Ordering::SeqCst);
+                    PortOutcome::Ok(ReplyBytes::default())
+                }
+            });
+
+        const N: u64 = 50;
+        for i in 0..N {
+            // Block：满则阻塞，worker 抽水后解开——不死锁（抽水在独立 worker）。
+            sp.submit(Job {
+                corr: None,
+                payload: i,
+            })
+            .await;
+        }
+        // shutdown：drop tx → worker 排空积压 → join，必达保证全部落地。
+        sp.shutdown().await;
+
+        assert_eq!(
+            executed.load(Ordering::SeqCst),
+            N,
+            "Block 模式必达零丢失：{N} 条必须全部执行"
+        );
+    }
+
+    /// ③ Persist 写序：N=1 单 worker 单消费者，入队序 == 执行序（不变量3）。
+    #[tokio::test]
+    async fn test_bounded_spawner_n1_preserves_order() {
+        let order = Arc::new(Mutex::new(Vec::<u64>::new()));
+        let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+
+        let order_c = Arc::clone(&order);
+        let sp: BoundedSpawner<u64> = BoundedSpawner::new(
+            1, // N=1 保序
+            8,
+            Overflow::Block,
+            reply_tx,
+            move |payload: u64| {
+                let order = Arc::clone(&order_c);
+                async move {
+                    // 故意让靠前的条目「执行体」更慢，若并发(N>1)会乱序——N=1 必有序。
+                    tokio::time::sleep(Duration::from_millis((10 - (payload % 10)) as u64)).await;
+                    order.lock().await.push(payload);
+                    PortOutcome::Ok(ReplyBytes::default())
+                }
+            },
+        );
+
+        for i in 0..20u64 {
+            sp.submit(Job {
+                corr: None,
+                payload: i,
+            })
+            .await;
+        }
+        sp.shutdown().await;
+
+        let recorded = order.lock().await.clone();
+        let expected: Vec<u64> = (0..20).collect();
+        assert_eq!(
+            recorded, expected,
+            "N=1 BoundedSpawner 必须保持入队序 == 执行序"
+        );
+    }
+
+    /// ②附：Block 模式带 corr 回报 → reply_tx 收到 PortReply（回灌必达，不变量1）。
+    #[tokio::test]
+    async fn test_bounded_spawner_reports_via_reply_tx() {
+        let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
+        let sp: BoundedSpawner<u64> = BoundedSpawner::new(
+            1,
+            8,
+            Overflow::Block,
+            reply_tx,
+            move |_payload: u64| async move { PortOutcome::Ok(ReplyBytes::default()) },
+        );
+
+        sp.submit(Job {
+            corr: Some(Correlation::from_raw(42)),
+            payload: 1,
+        })
+        .await;
+        sp.shutdown().await;
+
+        let reply = reply_rx.try_recv().expect("应收到 PortReply 回灌");
+        match reply {
+            Tick::PortReply { corr, .. } => assert_eq!(corr.raw(), 42),
+            _ => panic!("期望 Tick::PortReply"),
+        }
+    }
+
+    /// ④ Http / HttpFire core 变体 round-trip：consume_effects 正确映射到 OwnedEffect。
+    #[test]
+    fn test_consume_effects_http_and_httpfire_roundtrip() {
+        let req = || HttpRequest {
+            method: "POST".to_string(),
+            url: "http://test/x".to_string(),
+            headers: vec![],
+            body: None,
+        };
+        let effects = vec![
+            Effect::Http {
+                corr: Correlation::from_raw(7),
+                req: req(),
+            },
+            Effect::HttpFire { req: req() },
+        ];
+        let owned = consume_effects(&effects);
+        assert_eq!(owned.len(), 2);
+        match &owned[0] {
+            OwnedEffect::Http { corr, req } => {
+                assert_eq!(corr.raw(), 7);
+                assert_eq!(req.url, "http://test/x");
+            }
+            _ => panic!("期望 OwnedEffect::Http"),
+        }
+        match &owned[1] {
+            OwnedEffect::HttpFire { req } => assert_eq!(req.method, "POST"),
+            _ => panic!("期望 OwnedEffect::HttpFire"),
+        }
     }
 }

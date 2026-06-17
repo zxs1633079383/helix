@@ -18,6 +18,11 @@ impl WsFrame {
         let action = root
             .get("action")
             .and_then(serde_json::Value::as_str)
+            .or_else(|| {
+                root.get("payload")
+                    .and_then(|payload| payload.get("action"))
+                    .and_then(serde_json::Value::as_str)
+            })
             .unwrap_or(LEGACY_EVENT_ACTION)
             .to_string();
 
@@ -50,9 +55,26 @@ impl WsFrame {
     }
 
     pub(crate) fn event_seq(&self) -> Option<Seq> {
-        self.data()
-            .and_then(|data| data.get("event_seq"))
+        self.root
+            .get("eventSeq")
             .and_then(serde_json::Value::as_u64)
+            .or_else(|| {
+                self.root
+                    .get("event")
+                    .and_then(|event| event.get("seq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.root
+                    .get("payload")
+                    .and_then(|payload| payload.get("eventSeq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.data()
+                    .and_then(|data| data.get("event_seq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
             .or_else(|| {
                 self.data()
                     .and_then(|data| data.get("props"))
@@ -79,19 +101,22 @@ mod tests {
 
     #[test]
     fn parse_action_frame_reads_top_level_action() {
-        let frame = WsFrame::parse(br#"{"action":"posted","data":{"event_seq":7}}"#).unwrap();
+        let frame = WsFrame::parse(br#"{"action":"posted","eventSeq":7}"#).unwrap();
 
         assert_eq!(frame.action(), "posted");
-        assert_eq!(
-            frame.raw(),
-            br#"{"action":"posted","data":{"event_seq":7}}"#
-        );
-        assert_eq!(frame.data().unwrap()["event_seq"], 7);
+        assert_eq!(frame.raw(), br#"{"action":"posted","eventSeq":7}"#);
+    }
+
+    #[test]
+    fn parse_payload_action_when_top_level_action_missing() {
+        let frame = WsFrame::parse(br#"{"payload":{"action":"posted"}}"#).unwrap();
+
+        assert_eq!(frame.action(), "posted");
     }
 
     #[test]
     fn parse_legacy_frame_uses_legacy_action_key() {
-        let frame = WsFrame::parse(br#"{"data":{"event_seq":8}}"#).unwrap();
+        let frame = WsFrame::parse(br#"{"payload":{"eventSeq":8}}"#).unwrap();
 
         assert_eq!(frame.action(), LEGACY_EVENT_ACTION);
     }
@@ -107,22 +132,31 @@ mod tests {
     }
 
     #[test]
-    fn event_seq_uses_data_then_props_then_root() {
+    fn event_seq_uses_event_seq_then_event_dot_seq_then_payload_event_seq() {
         let data_seq = WsFrame::parse(
-            br#"{"action":"posted","channel_event_seq":1,"data":{"event_seq":2,"props":{"channel_event_seq":3}}}"#,
+            br#"{"action":"posted","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4}}"#,
         )
         .unwrap();
         assert_eq!(data_seq.event_seq(), Some(Seq(2)));
 
-        let props_seq = WsFrame::parse(
+        let event_seq = WsFrame::parse(
+            br#"{"action":"post_update","event":{"seq":3},"payload":{"eventSeq":4}}"#,
+        )
+        .unwrap();
+        assert_eq!(event_seq.event_seq(), Some(Seq(3)));
+
+        let payload_seq =
+            WsFrame::parse(br#"{"action":"posts_update","payload":{"eventSeq":4}}"#).unwrap();
+        assert_eq!(payload_seq.event_seq(), Some(Seq(4)));
+    }
+
+    #[test]
+    fn event_seq_keeps_legacy_fallback_after_acceptance_fields() {
+        let frame = WsFrame::parse(
             br#"{"action":"post_update","channel_event_seq":1,"data":{"props":{"channel_event_seq":3}}}"#,
         )
         .unwrap();
-        assert_eq!(props_seq.event_seq(), Some(Seq(3)));
 
-        let root_seq =
-            WsFrame::parse(br#"{"action":"posts_update","channel_event_seq":1,"data":{}}"#)
-                .unwrap();
-        assert_eq!(root_seq.event_seq(), Some(Seq(1)));
+        assert_eq!(frame.event_seq(), Some(Seq(3)));
     }
 }

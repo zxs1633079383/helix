@@ -36,5 +36,9 @@ pub struct HelixCallbacks {
     pub ctx: *mut c_void,
 }
 
+// SAFETY: HelixCallbacks 仅持有 `extern "C" fn` 函数指针（线程无关）+ `ctx: *mut c_void`
+// 不透明句柄。host 侧契约保证 ctx 指向的对象在所有回调线程间安全共享（host 自管同步，
+// Rust 不解引用、不拥有 ctx——只原样回传给 host 的 extern "C" fn）。故跨线程传递/共享安全。
 unsafe impl Send for HelixCallbacks {}
+// SAFETY: 见上——函数指针 + 不透明 ctx（host 自管线程安全），无内部可变状态被 Rust 触碰。
 unsafe impl Sync for HelixCallbacks {}

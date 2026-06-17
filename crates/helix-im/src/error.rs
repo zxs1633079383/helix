@@ -15,10 +15,19 @@ use thiserror::Error;
 /// 但 IM 自身不持有 CoreError（避免循环持有）。
 ///
 /// 若需要包装外部错误，在 `module.rs` 的 `handle` 方法中显式 map_err 到 CoreError。
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum ImError {
     #[error("parse error: {0}")]
     Parse(String),
+
+    #[error("unsupported websocket action: {0}")]
+    UnsupportedWsAction(String),
+
+    #[error("duplicate websocket action handler: {0}")]
+    DuplicateWsAction(String),
+
+    #[error("invalid websocket frame: {0}")]
+    InvalidWsFrame(String),
 
     #[error("invalid seq: expected {expected}, got {got}")]
     InvalidSeq { expected: u64, got: u64 },

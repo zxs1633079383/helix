@@ -139,13 +139,16 @@ pub fn connection_id_headers(connection_id: Option<&str>) -> Vec<(String, String
 ///
 /// 此处是 im:__bus__ event 名的唯一生成点。
 /// helix-core / helix-tauri 只接收已序列化的字节，不知道 "im:" 前缀。
-pub fn emit_post_received(channel_id: ChannelId, server_msg_id: u64) -> Effect {
+pub fn emit_post_received(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
     use serde_json::json;
+    // 信封对齐同批 post:updated/deleted/read（D2 收敛）+ 现网真源 cses post.rs:1252
+    // {channelId, eventSeq, msgId(字符串)}：msg_id 是 26 字符 Id26 字符串，非 event_seq 数字。
     let payload = json!({
         "event": "im:post:received",
         "data": {
             "channel_id": channel_id.as_str(),
-            "msg_id": server_msg_id,
+            "event_seq": event_seq,
+            "msg_id": msg_id,
         }
     });
     let bytes = Bytes::from(
@@ -402,7 +405,7 @@ pub fn sync_mutation_emits(
             // type1：可见（命中 map）才 emit received + channel update-by-post（离线未读 +N）。
             EventKind::PostUpsert => {
                 if messages.contains_key(msg_id) {
-                    emits.push(emit_post_received(ev.channel_id, ev.seq.0));
+                    emits.push(emit_post_received(ev.channel_id, ev.seq.0, msg_id));
                     emits.push(emit_channel_update_by_post(ev.channel_id, ev.seq.0, msg_id));
                 }
                 // else phantom → 不 emit（UI 不渲染，真源 1270-1280）。

@@ -147,8 +147,12 @@ impl Channel {
         // PersistFire monotonic_upsert（持久化 cursor，幂等）
         fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
 
-        // Emit 通知前端
-        fx.push(crate::acl::to_effect::emit_post_received(self.id, seq.0));
+        // Emit 通知前端（msg_id = wire 权威 Id26 字符串，D2 信封对齐）
+        fx.push(crate::acl::to_effect::emit_post_received(
+            self.id,
+            seq.0,
+            ev.msg_id.as_deref().unwrap_or(""),
+        ));
 
         // 尝试放行 buffer 中紧接着的连续段
         self.flush_contiguous_from_buffer(fx)?;
@@ -221,7 +225,11 @@ impl Channel {
                 });
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
-                fx.push(crate::acl::to_effect::emit_post_received(self.id, seq.0));
+                fx.push(crate::acl::to_effect::emit_post_received(
+                    self.id,
+                    seq.0,
+                    ev.msg_id.as_deref().unwrap_or(""),
+                ));
             } else {
                 break;
             }

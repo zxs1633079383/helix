@@ -17,15 +17,14 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: e501952
+last_reviewed_commit: 1419690
 last_reviewed_at: 2026-06-17
-last_review_runId: wf_744e7f2e-3e2 (architecture-drift-review，五轮 HttpFire 背压根治 + 治理 medium 收口)
-# 合并支线（main 侧 WS registry 重构线）最后一次独立 review = 00df4e0
-# (agent_019ed4c3-0a53-7dd0-a7a9-bef44483cdad，WS registry merge 收口)
-# 本次 dev-zlc ← main 合并（integ/merge-main-2026-06-17）尚未过 drift-review：
-# 合并把两条改动线（dev: corr_map+InboundEvent 重构 / main: WS handler registry）汇成
-# registry-as-dispatch + post/echo/HttpFire 能力并集，下一个 commit 检查点须派
-# architecture-drift-review 收敛后再把 last_reviewed_commit 推进到合并 HEAD。
+last_review_runId: wf_e9045934-1e9 (post-merge-review-integ，dev-zlc←main 合并调和 + 结构 rule 多维对抗 review)
+# 六轮 = dev-zlc ← main 合并收口 review（integ/merge-main-2026-06-17，gap=29 核 e501952..1419690）：
+# registry-as-dispatch + post/echo/HttpFire 能力并集 + 结构 rule（code-structure-ddd）。
+# 🟢 GREEN 无阻断，HX-C001..C009/helix-im 五不变量/GOAL §1/§2 全 HOLD，
+# 8 条确认 finding 全 low/nit（日志卫生/微小性能/doc-rot/文档死链）登记择期。
+# 合并支线（main WS registry 线）原独立 review 锚 00df4e0 已并入本次合并 review。
 threshold: 10
 ```
 
@@ -74,4 +73,4 @@ threshold: 10
 | 2026-06-17 | e501952 | d052a19..e501952 (11 commits) | wf_744e7f2e-3e2 | 🟡 轻 drift | 五轮 HttpFire 背压根治(core/driver/im) + §4.8/HX-C009 治理元系统。8 预判全证实无破 HX-C001..C009/GOAL §1/§2/三层/sans-IO/单调 cursor；2 medium 即修(ad6f0ec/e501952)、6 low 登记择期 |
 | 2026-06-17 | 5f33446 | 761bf50..5f33446 (13 commits) | agent_019ed44f-6da4-7c83-90eb-179a05ab066a | 🟡 轻 drift | WS handler registry T1-T3 收口（main 改动线）。2 条真 drift：R4-registry-mainpath registry 当前只覆盖 hello+legacy，unknown-action 仍未进入 production 主路径(medium，按 Task 4-7 收敛)；R4-hotpath-parse legacy 临时多 parse/copy 常数因子(low，随 Task 7 单 parse 收敛)。HX-C001/C002/C004/C006/C007/C008 未破，core/runtime/FFI/sync 契约保持 |
 | 2026-06-17 | 00df4e0 | 5f33446..00df4e0 (11 commits) | agent_019ed4c3-0a53-7dd0-a7a9-bef44483cdad | 🟡 轻 drift | WS handler registry merge 收口（main 改动线）。R4-registry-mainpath 已收敛：生产入站统一 `WsFrame::parse` → registry handler，unknown action 返回错误，invalid JSON 保持 no-op；`FrameClass`/`classify_frame` 无残留。HX-C001/C002/C004/C005/C006/C007/C008 未破；仅 AGENTS/CLAUDE EOF 空行镜像漂移(low，收尾即修) |
-| 2026-06-17 | (待 review) | 994b9ee(merge-base)..合并HEAD | integ/merge-main-2026-06-17 | ⏳ 待 drift-review | **dev-zlc ← main 合并收口**：两条改动线汇合——dev 的 corr_map 统一 + InboundEvent 一趟解析(A/B 重构) + post/echo + core HttpFire；main 的 WS handler registry 策略注册表。和解方案 = registry 做 dispatch 主干，嫁接 dev 的统一 corr_map+CorrelationContext，dev post action 主路径以新增 `ws/handlers/post.rs` handler 接进 registry（含 R4-echo-gate 解耦 + reconcile 15s BLOCKING 修复 + corr_map 防泄漏）。判定待下个 commit 检查点派 architecture-drift-review，通过后把 last_reviewed_commit 推进到合并 HEAD |
+| 2026-06-17 | 1419690 | e501952..1419690 (gap=29) | wf_e9045934-1e9 | 🟢 GREEN 无 drift | **六轮 = dev-zlc ← main 合并收口 review**（681a529 merge + 1419690 结构 rule）。两条改动线汇合——dev 的 corr_map 统一 + InboundEvent 一趟解析(A/B 重构) + post/echo + core HttpFire；main 的 WS handler registry。和解 = registry 做 dispatch 主干 + dev post/echo/HttpFire 能力并集（新建 `ws/handlers/post.rs` + 3 文件 corr_to_sync→corr_map+CorrelationContext::SyncPull）。多维对抗 review（合并正确性/架构 drift/结构 rule，12 agents）：8 条确认 finding **全 low/nit 无阻断**——MERGE-1 非echo posted 漂移 error!日志(low)、MERGE-2 legacy 双解析回退(low)、DRIFT-1/RULE doc-rot+死链(low/nit)。**HX-C001..C009 + helix-im 五不变量 + GOAL §1/§2 全 HOLD**，cargo check 四 crate + test 165/165 + core 零运行时 grep 已绿。8 条登记择期，非 land 前置 |

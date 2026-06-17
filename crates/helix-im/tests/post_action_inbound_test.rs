@@ -453,3 +453,85 @@ fn post_frame_unregistered_channel_silently_ignored() {
         "unregistered-channel post must not create or touch any PendingSend"
     );
 }
+
+// ─── R4-echo-gate：echo 对账与 channel gate 解耦（冷启动 send-before-cursor-seed 修复）────
+
+/// 回归锚: R4-echo-gate（drift-review 收口）—— 本端 echo 在 channel **未注册**时仍须对账。
+///
+/// ## 修复前真实故障
+///
+/// 旧 `InboundEvent::Post` 把 `reconcile_post_echo` 整个包在 `if let Some(ch)=channels.get_mut(..)`
+/// 内。但 `reconcile_post_echo` 只读 `pending_sends`/`corr_map`、**从不读 channels** → 该门控多余
+/// 且有害：冷启动 send-before-cursor-seed 乱序下（本端先 send、channel 尚未经 increment 种 cursor），
+/// 本端 echo 帧因 channel 未注册被整段跳过 → PendingSend 残留 → 15s 后 on_timeout 把已送达的本端
+/// 消息误标 UnSend。
+///
+/// 修复：`reconcile_post_echo` 提到 channel 查找之外**无条件**先做（ingest/cursor 仍门控注册），
+/// 对照 `handle_echo` 把 reconcile 置于 channel 查找之外的形态。
+#[test]
+fn echo_reconciles_even_when_channel_unregistered() {
+    // channel 5 故意 **不** 注册（模拟冷启动 cursor 尚未种下）。
+    let config = ImConfig {
+        ws_url: "ws://test".to_string(),
+        api_base_url: "http://test".to_string(),
+        ping_interval_ms: 8_000,
+        send_timeout_ms: 15_000,
+    };
+    let mut h = Harness {
+        module: ImModule::new(config),
+        sink: helix_core::EffectSink::new(),
+        effect_log: Vec::new(),
+    };
+
+    // 1. 本端 send（注册乐观行 tmp_cold + 15s timer）—— send 不依赖 channel 注册。
+    let send_effects = h.step(send_message_cmd(5, "tmp_cold", "from-me-cold"), 1_000);
+    let timeout_timer = first_schedule_timer(&send_effects);
+    assert_eq!(
+        h.module.pending_send_count(),
+        1,
+        "send 注册 1 个在途 PendingSend（不依赖 channel 注册）"
+    );
+
+    // 2. 本端 echo 帧（action=post，同 temporary_id），但 channel 5 **未注册**。
+    let _ = h.step(
+        post_frame(
+            5,
+            1,
+            "tmp_cold",
+            "7xq3r6nqrjrm8nydit6awaaaaa",
+            "from-me-cold",
+        ),
+        1_100,
+    );
+
+    // 3. 即便 channel 未注册（ingest 被跳过），echo 仍须对账 → PendingSend 落定移除。
+    assert_eq!(
+        h.module.pending_send_count(),
+        0,
+        "echo 必须对账掉 PendingSend，即便 channel 未注册（与 channel gate 解耦）"
+    );
+
+    // 4. 迟到的 15s timer fire → 必须无害（PendingSend 已移除）：
+    //    不得产出任何写 send_status='unsend' 的 Persist/PersistFire（这是修复前的故障表现）。
+    let late = h.step(timer_tick(timeout_timer), 16_001);
+    let wrote_unsend = h.sink.as_slice().iter().any(|e| {
+        let ops = match e {
+            Effect::Persist { ops, .. } => ops,
+            Effect::PersistFire { ops } => ops,
+            _ => return false,
+        };
+        ops.iter().any(|op| match op {
+            StorageOp::BatchUpsert(s) if s.table == "message" => s.rows.iter().any(|r| {
+                r.iter().any(|(k, v)| {
+                    k == "send_status" && matches!(v, SqlValue::Text(t) if t == "unsend")
+                })
+            }),
+            _ => false,
+        })
+    });
+    assert!(
+        !wrote_unsend,
+        "15s timer after cold-start echo (unregistered channel) must NOT mark UnSend, got: {:?}",
+        late
+    );
+}

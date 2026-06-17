@@ -139,14 +139,15 @@ impl ImModule {
     /// ## MAJ-1 修复
     ///
     /// 原实现在 `state.pending_commits` 中查找，但 `channel.pending_commits` 才是
-    /// cursor 推进的聚合根。修复：
-    /// 1. `corr_to_channel`（Correlation → ChannelId 路由索引）
-    /// 2. 查到 channel_id 后委托 `channel.on_persist_ok(corr, fx)` 推进 cursor
-    /// 3. 15s 超时 timer → 通过 `corr_to_send` 找 PendingSend
+    /// cursor 推进的聚合根。修复（统一 `corr_map` 单表 + `match CorrelationContext` 分发，
+    /// 类别互斥靠 corr 全局唯一保证，见 state.rs `CorrelationContext` 不变量）：
+    /// 1. `corr_map.remove(corr)` 取出上下文（取代旧 `corr_to_channel` 路由索引）
+    /// 2. `ChannelPersist` 变体 → 委托 `channel.on_persist_ok(corr, fx)` 推进 cursor
+    /// 3. 15s 超时 timer → 通过 `pending_sends`/`OptimisticSend` 变体找 PendingSend
     ///
     /// ## E4 修复
     ///
-    /// 新增 scan_corr 分支：on_start 发出的 Scan{_helix_monotonic} PortReply
+    /// `ScanCursors` 变体：on_start 发出的 Scan{_helix_monotonic} PortReply
     /// 在此解析 rows（scope_key TEXT + value INTEGER）→ register_channel + 批量发 proactive sync Http。
     fn handle_port_reply(
         &mut self,
@@ -885,6 +886,9 @@ impl ImModule {
         // 注册 PendingSend（等待 echo 对账）
         let mut ps = PendingSend::new(tmp_id.clone(), t1_timer);
         ps.status = SendStatus::Local;
+        // R4-retain：回填本 send 的 P1 Persist corr，对账时按它 O(1) `corr_map.remove`，
+        // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
+        ps.persist_corr = Some(p1_corr);
         self.state.pending_sends.insert(tmp_id, ps);
         self.state.corr_map.insert(
             p1_corr,
@@ -915,8 +919,20 @@ impl ImModule {
         let tmp_id = TemporaryId(tmp_id.to_string());
         // 先分配 corr，避免后续双重可变借用
         let reconcile_corr = self.alloc_corr_internal();
+        // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于对账后 O(1) 清路由。
+        let persist_corr = self
+            .state
+            .pending_sends
+            .get(&tmp_id)
+            .and_then(|ps| ps.persist_corr);
         if let Some(ps) = self.state.pending_sends.get_mut(&tmp_id) {
             ps.reconcile(server_id, reconcile_corr, out);
+            // R4-retain：对账落定后 O(1) 移除该 send 的 OptimisticSend 路由（与 reconcile_post_echo
+            // 对账落定即清 corr_map 对称，防 corr_map 泄漏）。PendingSend 本身**保留**（status=Sent
+            // 可查询，对齐本路径既有契约：迟到 15s timer 凭 status==Sent 幂等无害）。
+            if let Some(corr) = persist_corr {
+                self.state.corr_map.remove(&corr);
+            }
         }
         // 推进 cursor（独立借用，不与 pending_sends 冲突）
         if let Some(ch) = self.state.channels.get_mut(&channel_id) {
@@ -936,8 +952,8 @@ impl ImModule {
     /// - `temporary_id` 命中在途 `PendingSend` 时 → `ps.reconcile`（吐 Persist 覆写
     ///   `send_status='sent'` + `id=server_id` ON CONFLICT(temporary_id) + CancelTimer 撤 15s，
     ///   状态推进到 Sent）。
-    /// - 之后从 `pending_sends` / `corr_to_send` 移除该记录（防泄漏；移除后状态查询返回 None
-    ///   表示"已彻底对账落定"）。
+    /// - 之后从 `pending_sends` + `corr_map`(OptimisticSend) 移除该记录（防泄漏；移除后状态查询
+    ///   返回 None 表示"已彻底对账落定"）。
     ///
     /// **不推进 cursor**：cursor 已由调用方 `ch.ingest` 推进（HX-C008 单调，避免双推）。
     /// 非 echo（`temporary_id` 空 / 不在 pending_sends / `id` 非合法 26 字符 ServerId）→ no-op，
@@ -963,16 +979,23 @@ impl ImModule {
             return;
         }
         let reconcile_corr = self.alloc_corr_internal();
+        // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于 O(1) 清路由。
+        let persist_corr = self
+            .state
+            .pending_sends
+            .get(&tmp)
+            .and_then(|ps| ps.persist_corr);
         if let Some(ps) = self.state.pending_sends.get_mut(&tmp) {
             ps.reconcile(server_id, reconcile_corr, out);
         }
-        // 对账落定后移除（防 PendingSend / corr_to_send 泄漏；late timer 已被 CancelTimer 撤销，
+        // 对账落定后移除（防 PendingSend / corr_map 泄漏；late timer 已被 CancelTimer 撤销，
         // 即便竞态到达也因 status==Sent 幂等无害）。
         self.state.pending_sends.remove(&tmp);
-        // 对账落定后移除该 tmp 的 OptimisticSend 路由（防 corr_map 泄漏）。
-        self.state.corr_map.retain(|_, ctx| {
-            !matches!(ctx, CorrelationContext::OptimisticSend { temporary_id } if *temporary_id == tmp)
-        });
+        // 对账落定后移除该 send 的 OptimisticSend 路由（防 corr_map 泄漏）。
+        // R4-retain：单表 `corr_map.remove(persist_corr)` O(1)，取代旧 `retain` 全表扫描。
+        if let Some(corr) = persist_corr {
+            self.state.corr_map.remove(&corr);
+        }
     }
 }
 
@@ -1050,17 +1073,23 @@ impl Module for ImModule {
                         let echo_tmp_id = ev.fields.temporary_id.clone();
                         let echo_server_id =
                             crate::state::ServerId::from_str(ev.fields.id.as_str());
+                        // R4-echo-gate：echo 对账与 channel gate **解耦**——reconcile 只读
+                        // pending_sends/corr_map，从不读 channels，故必须**无条件**先做（对照
+                        // handle_echo 把 reconcile 置于 channel 查找之外的形态）。否则冷启动
+                        // send-before-cursor-seed 乱序下，本端帧因 channel 未注册被整体跳过 →
+                        // pending 残留 → 15s on_timeout 把已送达消息误标 UnSend。
+                        // 仅当 temporary_id 命中在途 send 时才实际对账（内部门控）。
+                        self.reconcile_post_echo(&echo_tmp_id, echo_server_id, out);
+                        // ingest（落库 + cursor 推进）仍门控 channel 注册：未注册 channel
+                        //（driver 未通过 increment 种 cursor）不落库/不推 cursor，静默忽略，
+                        // 与下方 legacy Event 路径同口径（driver 路由问题，非 IM 错误）。
                         if let Some(ch) = self.state.channels.get_mut(&ev.channel_id) {
                             ch.ingest(ev, out, now_ms)
                                 .map_err(|e| CoreError::ModuleError {
                                     module: self.name(),
                                     source: Box::new(e),
                                 })?;
-                            // 落库/cursor 已就绪后做发送对账（仅当 temporary_id 命中在途 send）。
-                            self.reconcile_post_echo(&echo_tmp_id, echo_server_id, out);
                         }
-                        // 未注册 channel（driver 未通过 increment 种 cursor）：静默忽略，
-                        // 与下方 legacy Event 路径同口径（driver 路由问题，非 IM 错误）。
                         return Ok(());
                     }
                     crate::parser::InboundEvent::LegacyEvent(ev) => {

@@ -556,6 +556,8 @@ sequenceDiagram
     Note over IM,C: 双序收敛：回声 15s 未到 → 定时器触发标「未送达」；迟到回声按 tmp_9 覆盖回「已发」（幂等覆盖写 + 游标单调）
 ```
 
+> **不变量（R4-echo-gate）：echo 对账与 channel gate 解耦。** echo 对账只读 `pending_sends`/`corr_map`（按 temporary_id 对号），**从不读 `channels`**，故 `reconcile` 必须无条件先做，**不**门控 channel 是否已注册；落库 / 推进游标（`ch.ingest`）才门控注册。否则冷启动 send-before-cursor-seed 乱序下（本端先 send、channel 尚未经 increment 种 cursor），本端回声会被整段跳过 → PendingSend 残留 → 15s 后误标 UnSend。回归锚见 `tests/post_action_inbound_test.rs::echo_reconciles_even_when_channel_unregistered`。
+
 ## 4.6 满足用例2-4 的增量同步机制（per-channel Gate 状态机）
 
 **ChannelGateState（Rust-im owned）：** `cursor`（已按序确认的 max event_seq） · `buffer: BTreeMap<i64,ImEvent>`（乱序缓冲） · `gate_armed`（1s gate）。

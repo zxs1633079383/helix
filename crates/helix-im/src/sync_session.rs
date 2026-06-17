@@ -17,7 +17,7 @@ use crate::state::{ChannelId, Seq};
 ///
 /// 字段映射真源 = cses-client `From<types::Post> for Message`（PK 三级回退、snake/camel 兼容
 /// 已在 parser 提取阶段处理）。`props` 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PostFields {
     /// `temporary_id` ?? `temporaryId`（PK 首选，空字符串=缺省，由 event_to_upsert_op 走三级回退）。
     pub temporary_id: String,
@@ -36,7 +36,7 @@ pub struct PostFields {
 }
 
 /// 解析后的强类型入站事件（14 类 WS type 的产物）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventEnvelope {
     /// per-channel ID（channel_id 的内部引用，两个字段保持同步）
     pub id: ChannelId,
@@ -105,7 +105,7 @@ pub struct IncrementChannel {
 }
 
 /// IM 事件类型（对应 WS 协议 type 字段，源码 14 类分桶）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventKind {
     /// type1：新消息 upsert
     PostUpsert,

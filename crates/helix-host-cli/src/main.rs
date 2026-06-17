@@ -219,10 +219,22 @@ async fn main() {
     let mut transports = TransportTable::new();
     transports.insert(main_transport, Arc::new(Mutex::new(transport)));
 
+    // Http 并发上限：env 注入（probe 可不重编译扫不同 N）。解析失败/缺省/非正 → 默认 8。
+    let max_http_inflight = std::env::var("HELIX_HTTP_MAX_INFLIGHT")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(8);
+    tracing::info!(
+        max_http_inflight,
+        "Http 并发闸 N（HELIX_HTTP_MAX_INFLIGHT）"
+    );
+
     let config = EngineConfig {
         storage,
         http,
         event_sink,
+        max_http_inflight,
     };
 
     // ── 观察 emit 出口（领域事件打印，验证 EventSink 兑现）──

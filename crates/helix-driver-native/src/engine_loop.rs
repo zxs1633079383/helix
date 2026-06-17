@@ -60,7 +60,11 @@
 //! ## Effect 分流策略
 //!
 //! - `Persist` / `PersistFire`：按目标表名分组，同组顺序执行，跨组 tokio::spawn 并发（最大 4）
-//! - `Http`：tokio::spawn 并发（受 reqwest 客户端连接池自限）
+//! - `Http`：tokio::spawn 并发，但受 `Semaphore(max_http_inflight)` 限流（默认 8，host 经
+//!   EngineConfig 注入）。permit 在 spawned task 内 `acquire_owned().await` 后才发请求——
+//!   排队挂在 semaphore 上、**不在泵线程**，泵只 spawn 不阻塞，死锁不变量保持。
+//!   （旧注释「受 reqwest 连接池自限」有误：reqwest pool 不限新连接并发，冷启动 N 条齐发会
+//!   瞬间打满底层 connect → 全 Network。）
 //! - `Send`：tracing 记录（生产接入时调用者传入 Transport map）
 //! - `Emit`：同步调用 EventSink::emit
 //! - `ScheduleTimer` / `CancelTimer`：TimerRegistry 操作
@@ -80,7 +84,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::json;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 use tokio::task::JoinHandle;
 
 use helix_core::effect::{
@@ -118,6 +122,13 @@ pub struct EngineConfig {
     pub storage: NativeStorage,
     pub http: NativeHttp,
     pub event_sink: NativeEventSink,
+    /// Http effect 并发上限（Semaphore permit 数）。
+    ///
+    /// 冷启动时 core 一步可吐 N 条 `Effect::Http`（如每 channel 一条 sync/notify），
+    /// 若全部齐发会瞬间打满底层连接（reqwest pool **不**限制新连接并发，旧注释假设有误），
+    /// 表现为大批 connect 失败 → 全 Network。此字段经 Semaphore 给 Http 限流。
+    /// host（ambient API 合法落点）读 env 注入；建议默认 8。`0` 会被 `.max(1)` 兜底为 1。
+    pub max_http_inflight: usize,
 }
 
 // ─── OwnedEffect ─────────────────────────────────────────────────────────────
@@ -258,7 +269,7 @@ fn get_or_spawn_worker(
 /// ```rust,ignore
 /// let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
 /// let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-/// let config = EngineConfig { storage, http, event_sink };
+/// let config = EngineConfig { storage, http, event_sink, max_http_inflight: 8 };
 /// tokio::spawn(run_engine_loop(shell, tick_rx, tick_tx.clone(), config, shutdown_rx));
 /// // tick_tx 克隆给外部（Tauri command handler / Transport 读任务 / 测试）注入 Tick
 /// // shutdown_tx.send(()) 触发 graceful drain + 退出
@@ -304,6 +315,9 @@ pub async fn run_engine_loop_with_transports(
     let storage = Arc::new(config.storage);
     let http = Arc::new(config.http);
     let event_sink = Arc::new(config.event_sink);
+    // Http 并发闸：permit 数 = max_http_inflight（`.max(1)` 防 0 永久阻塞）。
+    // 泵只 spawn task；permit 在 task 内 acquire，排队挂 semaphore 不挂泵（见 dispatch_effects）。
+    let http_sem = Arc::new(Semaphore::new(config.max_http_inflight.max(1)));
     let mut timer_registry = TimerRegistry::new();
 
     // E1 修复：独立 unbounded 回灌通道（不与入站 tick_rx 共用，永不堵塞写任务）
@@ -330,6 +344,7 @@ pub async fn run_engine_loop_with_transports(
         &tick_tx,
         &storage,
         &http,
+        &http_sem,
         &event_sink,
         &mut timer_registry,
         &reply_tx,
@@ -390,6 +405,7 @@ pub async fn run_engine_loop_with_transports(
                 &tick_tx,
                 &storage,
                 &http,
+                &http_sem,
                 &event_sink,
                 &mut timer_registry,
                 &reply_tx,
@@ -450,6 +466,7 @@ async fn dispatch_effects(
     tick_tx: &mpsc::Sender<Tick>,
     storage: &Arc<NativeStorage>,
     http: &Arc<NativeHttp>,
+    http_sem: &Arc<Semaphore>,
     event_sink: &Arc<NativeEventSink>,
     timer_registry: &mut TimerRegistry,
     reply_tx: &mpsc::UnboundedSender<Tick>,
@@ -484,11 +501,24 @@ async fn dispatch_effects(
                 wh.tx.send((None, ops)).await.ok();
             }
 
-            // ── Http（并发，带 corr 回报，走 reply_tx）────────────────────
+            // ── Http（并发但限流，带 corr 回报，走 reply_tx）──────────────
+            //
+            // 死锁不变量：泵线程在此分支只做 `Arc::clone` + `tokio::spawn`（同步非阻塞，
+            // 立即返回循环）。permit 的 `acquire_owned().await` 在 spawned task 内部、
+            // 发 reqwest 之前 —— 超过 N 的 task 排队挂在 semaphore 上、**不挂泵**，泵照常
+            // 处理其它 Tick / PortReply（释放 permit 的回灌路径不变）。task 完成后
+            // OwnedSemaphorePermit drop → release → 唤醒队列中下一个。
             OwnedEffect::Http { corr, req } => {
                 let http_clone = Arc::clone(http);
                 let reply_clone = reply_tx.clone();
+                let sem = Arc::clone(http_sem);
                 tokio::spawn(async move {
+                    // permit 在 task 内 acquire（排队在 semaphore，不在泵）。
+                    // Err 仅当 semaphore 被 close——Arc 持有期间不会发生，保守返回。
+                    let _permit = match sem.acquire_owned().await {
+                        Ok(p) => p,
+                        Err(_) => return,
+                    };
                     let outcome = match http_clone.request(req).await {
                         Ok(resp) => {
                             let body_b64 = base64_encode(&resp.body);

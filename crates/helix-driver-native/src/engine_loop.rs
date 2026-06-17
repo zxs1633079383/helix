@@ -305,7 +305,11 @@ impl<P: Send + 'static> BoundedSpawner<P> {
                 let run = run.clone();
                 tokio::spawn(async move {
                     loop {
-                        // 独立 worker 持续抽水（recv 不持锁跨 await：lock→recv→drop lock）。
+                        // 独立 worker 持续抽水。**锁有意跨 recv().await 持有**：tokio mpsc
+                        // Receiver 是单消费者（recv 要 &mut self），N worker 共享须互斥。空队列时
+                        // 仅一个 worker 持锁 park 在 recv，新 job 唤醒它即出块 drop 锁、下一 worker 接力
+                        // （经 mutex 串行交接，非瞬时 N 名额）。真并发在锁外的 run().await(下)，故
+                        // N 路 I/O 不受队列锁串行化影响——死锁安全见 CLAUDE.md「Block 模式」节。
                         let job = {
                             let mut guard = rx.lock().await;
                             guard.recv().await
@@ -492,6 +496,13 @@ pub async fn run_engine_loop_with_transports(
     // Http(必达)：N=http_n，Block 溢出（旧 Semaphore 并发闸收敛进 N 个 worker）。
     let http_pool = spawn_http_pool(http_n, Arc::clone(&http), reply_tx.clone(), Overflow::Block);
     // HttpFire(可丢)：N=http_n，DropOldest 溢出（丢失靠 cursor-gate 重发自愈）。
+    // ⚠️ 有意取舍（drift-review R-low 收敛）：当前**零生产者**——helix-im 三个 Http 的
+    // PortReply 均 load-bearing（sync 数据/清 inflight 闸/推 cursor），全为必达 `Http`，
+    // 无一吐 `HttpFire`。本池为与 `http_pool` **类型对称**而 eager 建（与 core 即使无消费者
+    // 也定义 PersistFire 同理——可丢弃性是声明好的类型契约）。N 个 worker park 在 recv 近零成本，
+    // 不懒建（懒建 Option 包装是为零成本空闲 task 加复杂度，反 YAGNI）。
+    // **拆除/重审触发**：第二个业务模块（presence/notify）接入时——若仍无 HttpFire 生产者则改懒建或删；
+    // 若有则本池即就位。见 CLAUDE.md「已知缺口：跨模块公平性」同节登记。
     let http_fire_pool = spawn_http_pool(
         http_n,
         Arc::clone(&http),

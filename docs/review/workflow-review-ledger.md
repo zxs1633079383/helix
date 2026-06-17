@@ -17,13 +17,13 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: d052a19
+last_reviewed_commit: e501952
 last_reviewed_at: 2026-06-17
-last_review_runId: wf_f8be5840-1a0 (architecture-drift-review，四轮 A/B 重构收口)
+last_review_runId: wf_744e7f2e-3e2 (architecture-drift-review，五轮 HttpFire 背压根治 + 治理 medium 收口)
 threshold: 10
 ```
 
-> 说明：2026-06-16 规则生效，基线锚点 `8c69f25`。首轮核 `8c69f25..3c5324f`（🟡 2，已修 `cff383f`）。二轮 gap=10 核 `3c5324f..6b2fd52`（merge ADR-010），🟡 5：D2/D4/D5 即修、D1/D3 登记。三轮 gap=13 核 `6b2fd52..761bf50`（sync-v2 C1/C2/C3/B2 + eventbus/迁移文档），🟡 3：emit 信封即修(`43bf75d`)、type1 克隆/echo 真帧登记，ledger 推进到 `761bf50`。核心不变量 HX-C001/C005/三层/sans-IO 全未破。
+> 说明：2026-06-16 规则生效，基线锚点 `8c69f25`。首轮核 `8c69f25..3c5324f`（🟡 2，已修 `cff383f`）。二轮 gap=10 核 `3c5324f..6b2fd52`（merge ADR-010），🟡 5：D2/D4/D5 即修、D1/D3 登记。三轮 gap=13 核 `6b2fd52..761bf50`（sync-v2 C1/C2/C3/B2 + eventbus/迁移文档），🟡 3：emit 信封即修(`43bf75d`)、type1 克隆/echo 真帧登记，ledger 推进到 `761bf50`。四轮收口推进到 `d052a19`（A/B 重构 + §4.8 治理）。**五轮 gap=11 核 `d052a19..5745931`**（HttpFire 背压根治 core/driver/im + 兄弟会话 §4.8/HX-C009 治理元系统），🟡 轻：8 条预判全证实**无一破 HX-C001..C009/GOAL §1/§2/三层/sans-IO/单调 cursor**——2 medium（drift-review 首跑被 SESSION:4 图例自污染·grep 未锚 §0 + §4.8 机制未 dogfood）即修 `ad6f0ec`/`e501952`，6 low（HttpFire 空桶 YAGNI→option-C 文档化 / recv 锁注释诚实化 / 7ecede5 tripwire 名实 / 治理元系统 scope creep）登记择期。ledger 推进到 `e501952`（含 medium 修复，非直接跳 5745931=避免「把空转闸门登记为已收敛」的作弊）。核心不变量 HX-C001/C005/三层/sans-IO 全未破。
 
 ## 待收敛 todo（drift-review 登记）
 

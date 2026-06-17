@@ -192,6 +192,21 @@ pub enum FrameClass {
         temporary_id: String,
         server_id: ServerId,
     },
+    /// 真 Go 在线广播新消息/echo 统一帧（C1 sync-v2，action==`post`）。
+    ///
+    /// **现网真相**（行为真源 cses-client router.rs:40 `"post" => post::handle` +
+    /// post.rs:42-114 + message_service.rs:64-69）：真 Go WS 在线新消息广播顶层
+    /// `action=="post"`（**不是** `posted`——Go 常量 `WebsocketEventPost="post"` 与
+    /// `WebsocketEventPosted="posted"` 是两个事件，cses 新消息用 `post`）。现网对 echo
+    /// 与新消息**不在落库层分叉**：统一 `handle_new_post`→`batch_upsert ON CONFLICT(temporary_id)`，
+    /// echo（本端 temporary_id 命中乐观行）靠 PK 自然对账，server `id` 覆写本地行；
+    /// 区分仅发生在 Track 日志（self vs other），不影响数据。
+    ///
+    /// helix 对齐：`post` 帧解析成 `EventEnvelope` 喂 channel gate（`ch.ingest`），
+    /// 复用既有 `event_to_upsert_op`（ON CONFLICT temporary_id）路径——echo 与新消息
+    /// 统一走 gate，靠 temporary_id PK upsert 自然对账，不另开 reconcile 特例。
+    /// seq=event_seq（三级 fallback，data.event_seq 优先），kind=PostUpsert（post 恒为 upsert）。
+    Post(EventEnvelope),
     /// 运维/状态帧——优雅忽略（不报错、不刷日志）。
     /// 现网 status_change / multiple_channels_viewed / typing / presence 等本就可丢。
     Ignored,
@@ -230,9 +245,16 @@ pub fn classify_frame(bytes: &[u8]) -> FrameClass {
                 .and_then(ChannelId::from_str);
             FrameClass::IncrementEnd(ch)
         }
-        // C1：`posted` 帧若带本端 `temporary_id` → echo 回声（发送对账）。
-        // 非 echo 的 `posted`（他人推送，temporary_id 空 / 字段缺失 / id 非 26 字符）→ Ignored
-        // （在线 receive 落库不在 C1 sync-v2 验收范围，离线 receive 走 sync events 路径）。
+        // C1：真 Go 在线广播新消息/echo 统一帧（action==`post`，行为真源 router.rs:40）。
+        // echo 与新消息**不在落库层分叉**——统一解析成 EventEnvelope 喂 channel gate
+        // （ch.ingest → event_to_upsert_op ON CONFLICT temporary_id），echo 靠 PK 自然对账。
+        // 解析失败（缺 channelId / event_seq）→ Ignored（边界零信任，不误报）。
+        Some("post") => parse_post_frame(&v)
+            .map(FrameClass::Post)
+            .unwrap_or(FrameClass::Ignored),
+        // `posted` 帧若带本端 `temporary_id` → echo 回声（发送对账）。**保留向后兼容**：
+        // 真 wire 在线广播用 `post`（上一臂），`posted` 仅作既有 echo 单测/历史兼容路径。
+        // 非 echo 的 `posted`（他人推送，temporary_id 空 / 字段缺失 / id 非 26 字符）→ Ignored。
         Some("posted") => classify_echo(&v).unwrap_or(FrameClass::Ignored),
         Some(_) => FrameClass::Ignored,
         None => FrameClass::Event,
@@ -294,6 +316,63 @@ fn classify_echo(v: &serde_json::Value) -> Option<FrameClass> {
         temporary_id,
         server_id,
     })
+}
+
+/// 解析真 Go `action=="post"` 在线广播帧 → `EventEnvelope`（C1 sync-v2，喂 channel gate）。
+///
+/// 行为真源（现网 source of truth）：
+///   - `cses-client/src-tauri/src/features/im/router.rs:40` `"post" => post::handle`；
+///   - `post.rs:42-114` 统一 `handle_new_post`，不在落库层分叉 echo/新消息；
+///   - `message_service.rs:64-69` `batch_upsert ON CONFLICT(temporary_id)`。
+///
+/// 硬 gate（缺则 None → 调用方 Ignored，边界零信任不 panic，helix-im 不变量 4）：
+///   1. `channel_id`：`data.channelId` ?? `data.channel_id`（26 字符 Id26）——cursor 推进锚；
+///   2. `seq`：event_seq 三级 fallback（**data.event_seq 优先**，与 `parse_inbound`/§1.5 同源）：
+///      ① `data.event_seq`（权威 int64，post_core.go:424 注入顶层 data）
+///      → ② per-post `data.props.channel_event_seq`（单帧冗余兜底，与顶层同值）
+///      → ③ 顶层 `channel_event_seq`（legacy 键名）。零信任只取 `as_u64`，非数值/缺 → None。
+///
+/// 宽松字段（**不**像 classify_echo 硬校验 26 字符 id——现网 handle_new_post 对 id 不卡
+/// `message_service.rs:55 unwrap_or("unknown")`）：
+///   - `kind`：恒 `PostUpsert`（type1；post 帧恒为新消息 upsert）；
+///   - `fields`：`extract_post_fields(data 或 root)`（复用既有提取，读 id/temporary_id/
+///     channelId/message/props/readBits 等，全程安全回退）；
+///   - `msg_id`：宽松取 `data.id` / `data.post.id`（缺省 None，with_msg_id 内部回退 fields 派生）。
+fn parse_post_frame(v: &serde_json::Value) -> Option<EventEnvelope> {
+    let data = v.get("data")?;
+    // post 字段可能嵌在 data 顶层或 data.post 子对象下（与 extract_post_fields 同源探查）。
+    let post = data.get("post").unwrap_or(data);
+
+    // channel_id 硬 gate（cursor 推进锚）：兼容 camel/snake；缺/非 26 字符 → None。
+    let channel_id = data
+        .get("channelId")
+        .or_else(|| data.get("channel_id"))
+        .or_else(|| post.get("channelId"))
+        .or_else(|| post.get("channel_id"))
+        .and_then(|c| c.as_str())
+        .and_then(ChannelId::from_str)?;
+
+    // event_seq 三级 fallback（§1.5，data.event_seq 优先，与 parse_inbound 同源）：
+    //   ① data.event_seq（权威 int64）→ ② per-post props.channel_event_seq → ③ 顶层 channel_event_seq。
+    // 零信任只取 as_u64；非数值/缺 → None（不 panic）。
+    let seq = Seq(data
+        .get("event_seq")
+        .and_then(|s| s.as_u64())
+        .or_else(|| {
+            post.get("props")
+                .and_then(|p| p.get("channel_event_seq"))
+                .and_then(|s| s.as_u64())
+        })
+        .or_else(|| v.get("channel_event_seq").and_then(|s| s.as_u64()))?);
+
+    // post 帧恒为新消息 upsert（type1）；字段复用既有提取（宽松回退，含 temporary_id/id/message/props/readBits）。
+    let fields = extract_post_fields(data);
+
+    // msg_id 宽松取（缺省 None → with_msg_id 内部回退 fields 派生的 id/temporary_id）。
+    // **不**硬校验 26 字符（现网 handle_new_post 对 id 不 gate）。
+    let msg_id = post.get("id").and_then(|i| i.as_str()).map(str::to_string);
+
+    Some(EventEnvelope::new(channel_id, seq, EventKind::PostUpsert, fields).with_msg_id(msg_id))
 }
 
 /// 解析 `increment_channel` 帧的 `data` → `IncrementChannel`（边界零信任，非法→None）。

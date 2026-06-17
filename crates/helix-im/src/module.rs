@@ -907,6 +907,52 @@ impl ImModule {
         }
         Ok(())
     }
+
+    /// `post` action 帧的发送对账（BLOCKING 修复，与 `handle_echo` 共用 reconcile 语义）。
+    ///
+    /// 真 Go 在线广播（含本端 echo）统一发 `action=="post"`，由 `FrameClass::Post` 喂
+    /// `ch.ingest` 完成 cursor 推进 + 落库（ON CONFLICT temporary_id 覆盖乐观行）。但
+    /// `event_to_upsert_op` **不写 send_status 列**、**不取消 15s timer**——这两件事是 helix
+    /// 把现网前端的乐观态/超时下沉进 core 后新增的职责。本函数补齐：
+    ///
+    /// - `temporary_id` 命中在途 `PendingSend` 时 → `ps.reconcile`（吐 Persist 覆写
+    ///   `send_status='sent'` + `id=server_id` ON CONFLICT(temporary_id) + CancelTimer 撤 15s，
+    ///   状态推进到 Sent）。
+    /// - 之后从 `pending_sends` / `corr_to_send` 移除该记录（防泄漏；移除后状态查询返回 None
+    ///   表示"已彻底对账落定"）。
+    ///
+    /// **不推进 cursor**：cursor 已由调用方 `ch.ingest` 推进（HX-C008 单调，避免双推）。
+    /// 非 echo（`temporary_id` 空 / 不在 pending_sends / `id` 非合法 26 字符 ServerId）→ no-op，
+    /// 与他人推送的新消息一致（仅落库 + 推 cursor，不动发送态）。边界零信任不 panic。
+    fn reconcile_post_echo(
+        &mut self,
+        temporary_id: &str,
+        server_id: Option<crate::state::ServerId>,
+        out: &mut EffectSink,
+    ) {
+        // 空 temporary_id（他人推送的新消息）→ 非 echo，不动发送态。
+        if temporary_id.is_empty() {
+            return;
+        }
+        // server_id 必须是合法 26 字符 Id26（现网 handle_new_post 对 id 宽松，但 reconcile
+        // 覆写 message.id 必须用合法 server id；非法/缺失 → 不 reconcile，留待 sync 兜底覆盖）。
+        let Some(server_id) = server_id else {
+            return;
+        };
+        let tmp = TemporaryId(temporary_id.to_string());
+        // 仅当命中在途 PendingSend 才对账（先分配 corr 避免双重可变借用）。
+        if !self.state.pending_sends.contains_key(&tmp) {
+            return;
+        }
+        let reconcile_corr = self.alloc_corr_internal();
+        if let Some(ps) = self.state.pending_sends.get_mut(&tmp) {
+            ps.reconcile(server_id, reconcile_corr, out);
+        }
+        // 对账落定后移除（防 PendingSend / corr_to_send 泄漏；late timer 已被 CancelTimer 撤销，
+        // 即便竞态到达也因 status==Sent 幂等无害）。
+        self.state.pending_sends.remove(&tmp);
+        self.state.corr_to_send.retain(|_, v| v != &tmp);
+    }
 }
 
 impl Module for ImModule {
@@ -957,6 +1003,42 @@ impl Module for ImModule {
                                 module: self.name(),
                                 source: Box::new(e),
                             })?;
+                        return Ok(());
+                    }
+                    crate::parser::FrameClass::Post(ev) => {
+                        // C1 §4.5：真 Go 在线广播新消息/echo 统一帧（action==`post`）。
+                        // 与现网 handle_new_post 对齐——echo 与新消息**不在落库层分叉**，统一喂
+                        // channel gate（ch.ingest → event_to_upsert_op ON CONFLICT temporary_id）：
+                        //   - seq == cursor+1 → 立即 apply（PersistFire upsert + advance_cursor
+                        //     + emit_post_received）；
+                        //   - seq > cursor+1  → buffer + arm 1s gate；seq <= cursor → dup drop。
+                        //
+                        // **但 echo 仍须额外 reconcile PendingSend**（BLOCKING 修复）：
+                        // 现网 cses-client 的 15s 发送超时 + 乐观态在 **Angular 前端**，Rust 侧
+                        // 落库即可（`Post::into()` 的 send_status="" 经 batch_upsert 覆盖）。helix 把
+                        // 这条 15s 超时/乐观态**下沉进了 core**（PendingSend + timeout_timer），故
+                        // 单靠 ON CONFLICT(temporary_id) 的 PK 覆盖**不足**——`event_to_upsert_op`
+                        // 不写 send_status 列（ON CONFLICT 保留乐观 'sending'），且不取消 15s timer
+                        // → 15s 后 on_timeout 把已送达的本端消息误标 UnSend。
+                        // 故：ch.ingest（cursor/gate/落库）后，若本帧带本端 temporary_id 且命中
+                        // 在途 PendingSend → 调 reconcile（CancelTimer + send_status='sent' 覆写 +
+                        // 状态推进到 Sent）。cursor 已由 ch.ingest 推进，此处**不再**重复推进。
+                        // 真帧 action==`post` 取代已死的 `posted`→Echo 路径（真 Go router.rs:40
+                        // 只路由 `post`），此 reconcile 是 15s 超时保证的唯一活路径。
+                        let echo_tmp_id = ev.fields.temporary_id.clone();
+                        let echo_server_id =
+                            crate::state::ServerId::from_str(ev.fields.id.as_str());
+                        if let Some(ch) = self.state.channels.get_mut(&ev.channel_id) {
+                            ch.ingest(ev, out, now_ms)
+                                .map_err(|e| CoreError::ModuleError {
+                                    module: self.name(),
+                                    source: Box::new(e),
+                                })?;
+                            // 落库/cursor 已就绪后做发送对账（仅当 temporary_id 命中在途 send）。
+                            self.reconcile_post_echo(&echo_tmp_id, echo_server_id, out);
+                        }
+                        // 未注册 channel（driver 未通过 increment 种 cursor）：静默忽略，
+                        // 与下方 legacy Event 路径同口径（driver 路由问题，非 IM 错误）。
                         return Ok(());
                     }
                     crate::parser::FrameClass::Ignored => {

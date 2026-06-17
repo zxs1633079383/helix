@@ -1,0 +1,3 @@
+// 来源: /tmp/helix_devloop_1781666785.log 真 Go 现网抓帧 (devloop 2026-06-17, 运维帧)
+// 形态: action=="status_change"，data={status:online,user_id:...} → FrameClass::Ignored (零 effect/零 panic)
+{"v":1,"action":"status_change","data":{"status":"online","user_id":"5ffd465e263864787b87aa01"},"broadcast":{"omitUsers":null,"userId":"5ffd465e263864787b87aa01","userIds":null,"channelId":"","teamId":"","connectionId":"","omit_connectionId":""},"seq":1}

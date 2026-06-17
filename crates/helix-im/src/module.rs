@@ -373,7 +373,11 @@ impl ImModule {
 
     /// 向所有已知 channel 发 proactive sync Http（scan_reply 路径复用）。
     fn emit_proactive_resync(&mut self, out: &mut EffectSink) {
-        let all: Vec<ChannelId> = self.state.channels.keys().copied().collect();
+        // NS-1：channels 是 HashMap，迭代序逐进程随机（SipHash 随机种子）。本路径逐 channel
+        // 单调 alloc_corr + push 有序 Http Effect，故必须确定性排序锚定可回放（GOAL §1 确定性，
+        // ChannelId: Ord）。冷路径（resync）排序零热路径代价。
+        let mut all: Vec<ChannelId> = self.state.channels.keys().copied().collect();
+        all.sort_unstable();
         self.emit_proactive_resync_for(&all, out);
     }
 

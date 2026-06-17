@@ -63,8 +63,12 @@ impl ExecutionShell {
         self.scratch.clear();
         let module_count = self.host.module_count();
         for idx in 0..module_count {
+            // EFFECT-3：start() 跨模块**不 clear** scratch（要累积返回所有模块的 on_start
+            // Effect），故每个模块只能注册自己**新增**区间 [start..]，否则后一个模块的
+            // register 会把前序模块的 Correlation 重复扫描并覆盖到自己 → PortReply 投错家。
+            let start = self.scratch.as_slice().len();
             self.host.start_one(idx, &mut self.scratch)?;
-            self.register_effects_to_maps(idx);
+            self.register_effects_to_maps(idx, start);
         }
         Ok(self.scratch.as_slice())
     }
@@ -106,7 +110,8 @@ impl ExecutionShell {
                 {
                     Some(idx) => {
                         // BLK-1a: 传入真实的 module_index，而非 0 占位符
-                        self.register_effects_to_maps(idx);
+                        // start=0：step() 开头已 clear，scratch 内全是本次新增（EFFECT-3）
+                        self.register_effects_to_maps(idx, 0);
                     }
                     None => {
                         // 无模块处理此 Inbound/Command——可能是正常（如未知帧 drop），
@@ -125,7 +130,7 @@ impl ExecutionShell {
                         self.host
                             .dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
                         // BLK-1a: PortReply 产出的新 Effect 注册到发出原 corr 的同一模块
-                        self.register_effects_to_maps(module_index);
+                        self.register_effects_to_maps(module_index, 0);
                     }
                     None => {
                         // corr 未知：可能是 PersistFire 后的误发（不应发生），
@@ -146,7 +151,7 @@ impl ExecutionShell {
                         self.host
                             .dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
                         // BLK-1a: Timer 产出的新 Effect（如 re-arm）注册到同一模块
-                        self.register_effects_to_maps(module_index);
+                        self.register_effects_to_maps(module_index, 0);
                     }
                     None => {
                         // timer_id 未知：已被 CancelTimer 移除后的迟到触发，静默忽略
@@ -161,15 +166,21 @@ impl ExecutionShell {
         }
     }
 
-    /// 扫描 scratch 中本次 dispatch 产出的新 Effect，
+    /// 扫描 scratch `[start..]` 区间内本次 dispatch 产出的新 Effect，
     /// 把 Correlation/TimerId 注册到 `module_index` 对应的 map。
     ///
     /// ## BLK-1a 修复
     ///
     /// 参数 `module_index` 来自 dispatch 函数的返回值，不再是硬编码的 `0`。
     /// 确保多模块并存时，每个模块的 Correlation/TimerId 路由到自己而非 module[0]。
-    fn register_effects_to_maps(&mut self, module_index: usize) {
-        for effect in self.scratch.as_slice() {
+    ///
+    /// ## EFFECT-3 修复
+    ///
+    /// 参数 `start` = 本次 dispatch 前的 scratch 长度，只扫**新增**区间。
+    /// `step()` 开头 clear 故传 `0`；`start()` 跨模块累积 scratch 故传各模块 on_start 前的长度，
+    /// 避免后一个模块把前序模块的 Correlation 重复扫描并覆盖到自己（PortReply 投错家）。
+    fn register_effects_to_maps(&mut self, module_index: usize, start: usize) {
+        for effect in &self.scratch.as_slice()[start..] {
             match effect {
                 Effect::Persist { corr, .. }
                 | Effect::Http { corr, .. }

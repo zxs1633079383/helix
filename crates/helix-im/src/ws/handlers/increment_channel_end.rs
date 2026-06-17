@@ -18,13 +18,16 @@ pub(crate) fn apply_increment_end(
             out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         None => {
-            let targets: Vec<ChannelId> = ctx
+            // NS-1：increment_fetched 是 HashSet，迭代序逐进程随机。resync 逐 channel 单调
+            // alloc_corr + push 有序 Http Effect，必须确定性排序锚定可回放（GOAL §1，ChannelId: Ord）。
+            let mut targets: Vec<ChannelId> = ctx
                 .state
                 .increment_fetched
                 .iter()
                 .filter(|id| !ctx.state.need_sync_skip.contains(*id))
                 .copied()
                 .collect();
+            targets.sort_unstable();
             emit_proactive_resync_for(ctx, &targets, out);
             heal_incomplete_backfill_once(ctx, out);
         }

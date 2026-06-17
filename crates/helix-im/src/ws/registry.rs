@@ -109,6 +109,45 @@ mod tests {
         action: "post_update",
     };
 
+    fn frame_from_json(value: serde_json::Value) -> WsFrame {
+        let bytes = serde_json::to_vec(&value).unwrap();
+        WsFrame::parse(&bytes).unwrap()
+    }
+
+    fn channel_id(n: u64) -> ChannelId {
+        ChannelId::from_test_u64(n)
+    }
+
+    fn channel_id_string(n: u64) -> String {
+        channel_id(n).as_str().to_string()
+    }
+
+    fn emit_body(effect: &Effect) -> Option<String> {
+        match effect {
+            Effect::Emit { event } => Some(String::from_utf8_lossy(event.0.as_ref()).into_owned()),
+            _ => None,
+        }
+    }
+
+    fn sync_http_channel_ids(out: &EffectSink) -> Vec<String> {
+        out.as_slice()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify") => {
+                    let body: serde_json::Value =
+                        serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+                    Some(
+                        body["cursors"][0]["channelId"]
+                            .as_str()
+                            .unwrap()
+                            .to_string(),
+                    )
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn build_registry_rejects_duplicate_actions() {
         static ENTRIES: &[WsHandlerRegistration] = &[
@@ -272,5 +311,158 @@ mod tests {
         assert!(saw_established, "missing connection established emit");
         assert!(saw_increment_http, "missing increment HTTP trigger");
         assert!(saw_channels_loaded, "missing channels loaded emit");
+    }
+
+    #[test]
+    fn dispatch_ws_increment_channel_registers_channel_and_emits_increment() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let channel_id = channel_id(77);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "action": "increment_channel",
+            "data": {
+                "id": channel_id.as_str(),
+                "lastEventSeq": 42,
+                "needSync": true,
+                "mentionList": [],
+                "urgentPostList": []
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        let channel = ctx
+            .state
+            .channels
+            .get(&channel_id)
+            .expect("increment should register a missing channel");
+        assert_eq!(channel.cursor.value(), Seq(42));
+        assert!(ctx.state.increment_fetched.contains(&channel_id));
+        assert!(!ctx.state.need_sync_skip.contains(&channel_id));
+        assert_eq!(ctx.state.increment_target.get(&channel_id), Some(&Seq(42)));
+        assert!(
+            out.as_slice().iter().filter_map(emit_body).any(|body| {
+                body.contains("im:channel:increment") && body.contains(channel_id.as_str())
+            }),
+            "increment should emit channel increment, got: {:?}",
+            out.as_slice()
+        );
+    }
+
+    #[test]
+    fn dispatch_ws_global_increment_end_syncs_fetched_minus_skip() {
+        let mut state = ImState::new();
+        let sync_channel = channel_id(10);
+        let skipped_channel = channel_id(12);
+        state
+            .channels
+            .insert(sync_channel, Channel::new(sync_channel, 5));
+        state
+            .channels
+            .insert(skipped_channel, Channel::new(skipped_channel, 3));
+        state.increment_fetched.insert(sync_channel);
+        state.increment_fetched.insert(skipped_channel);
+        state.need_sync_skip.insert(skipped_channel);
+        state.connection_id = Some("CONN_INC".to_string());
+
+        let mut next_corr = 7;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(
+            &mut state,
+            1_000,
+            "https://example.test/api",
+            &mut alloc_corr,
+        );
+        let frame = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {}
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert_eq!(sync_http_channel_ids(&out), vec![sync_channel.as_str()]);
+        assert_eq!(
+            ctx.state
+                .corr_to_sync
+                .get(&helix_core::Correlation::from_raw(7)),
+            Some(&sync_channel)
+        );
+        assert!(
+            ctx.state
+                .channels
+                .get(&sync_channel)
+                .unwrap()
+                .inflight_sync
+                .is_some(),
+            "global end sync should set inflight guard"
+        );
+        let req = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { req, .. } => Some(req),
+                _ => None,
+            })
+            .expect("global end should emit sync HTTP");
+        assert!(
+            req.headers
+                .iter()
+                .any(|(key, value)| key == "connectionId" && value == "CONN_INC"),
+            "sync should carry connectionId header, got: {:?}",
+            req.headers
+        );
+    }
+
+    #[test]
+    fn dispatch_ws_subtopic_increment_end_emits_update_without_sync() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(
+            &mut state,
+            1_000,
+            "https://example.test/api",
+            &mut alloc_corr,
+        );
+        let frame = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": { "channelId": channel_id_string(99) }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert!(sync_http_channel_ids(&out).is_empty());
+        assert!(
+            out.as_slice().iter().filter_map(emit_body).any(|body| {
+                body.contains("im:channel:update") && body.contains(&channel_id_string(99))
+            }),
+            "subtopic end should emit channel update, got: {:?}",
+            out.as_slice()
+        );
+    }
+
+    #[test]
+    fn dispatch_ws_invalid_increment_channel_is_silent_noop() {
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "action": "increment_channel",
+            "data": { "id": "tooshort", "lastEventSeq": 1 }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert!(ctx.state.channels.is_empty());
+        assert!(ctx.state.increment_fetched.is_empty());
+        assert!(out.as_slice().is_empty());
     }
 }

@@ -34,7 +34,7 @@
 4. 🔶 **真 Go 数据路径两轮复验（2026-06-17）：increment 已真连验过 ✅，sync 数据路径受阻于冷启动 sync 风暴 🔴**：
    - **layer-1 grpc ✅ 解**：第一轮 helix 发本机派生 deviceId（≠真实设备）→ paas session/deviceId 校验拒 → grpc `xpa-12-grpc` 返 `IsSuccess=false`（grpcx9.go:480，**业务级拒绝非 DNS**：consul 已发现实例 0→1）→ `cses_channel.go:177 parallel load failed`。**第二轮设 `HELIX_DEVICE_ID=ED380414…`（真实设备）→ `Increment worker completed`(cses_channel.go:234)，257 `increment_channel` 帧 + end 全落地、DomainEvent emit（62KB payload）。increment 数据路径真 Go 端到端验过。**
    - **layer-2 sync 风暴 🔴**：`increment_channel_end` → 每 needSync channel 一条 proactive sync/notify HTTP（state.rs:233，**无并发上限**）→ 冷启动 257 channel ~88+ 并发齐发 → **全 `error=Network`**（reqwest connect 失败，~30ms 内，未到 30s timeout；Go 侧 0 sync arrival）→ 0 消息回填 → message 表 0 行。state.rs:236 注释已预警「sync 风暴」。**修法：proactive sync fan-out 加并发闸**（semaphore/顺序/批量）；修完重跑走 C2/C3 判据。
-5. **心跳 ping 占位帧**：长连稳定待 ping 实装（真 Go 25s 没断是 Go 容忍）。
+5. ✅ **心跳 ping 已完成**（commit `488e094`，06-16，**本卡原标"待实装"是过时文档**）：self-arm 周期 timer（hello 起 arm + fire 重 arm + Disconnected 清）+ 带单调 seq 的 `ping_frame`（Go websocket_router 拒 seq≤0）；`lifecycle_test` 的 `ping_timer_fires_*` 绿。
 6. **channel 表建了没人写**：increment 的 channel 元数据只 emit 不落库。
 7. **架构 smell（drift-review 登记）**：✅ event_to_upsert_op 热路径(cff383f)/✅ channel_event_cursor 死表(cff383f)；⏳[D1] FFI 句柄类型(接 FFI 冒烟前)；⏳[D3] native·FFI registry 不对称(接 reconnect 前)；2 份 eventbus 稿保留。
 8. **host-cli DB 路径 quirk**：`sqlite:{path}?mode=rwc` 把 `?mode=rwc` 当文件名一部分（DB 实际落 `xxx.db?mode=rwc`）——功能正常，路径丑，低优先修。
@@ -77,7 +77,7 @@
 
 ### P1 — 收尾
 - [ ] golden fixtures 工具链（`HELIX_DUMP_FRAMES=1` 抓 echo/sync-with-messages/type2-3-6 帧 → `tests/fixtures/real_go_frames/`）+ echo 真帧形态核对。
-- [ ] 心跳 ping 对齐（缺口 #5）：ping 帧 + 间隔对齐 hello.pingInterval(60s)。
+- [x] 心跳 ping（缺口 #5）✅ 已完成（commit `488e094`，06-16）：self-arm 周期 timer + 单调 seq `ping_frame`，间隔走 config（默认 8s）。
 - [ ] host-cli DB 路径 quirk（`?mode=rwc` 当文件名，缺口 #8）。
 
 ### 历史（已完成，留档）

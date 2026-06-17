@@ -86,6 +86,8 @@ fn heal_incomplete_backfill_once(ctx: &mut ImWsContext<'_>, out: &mut EffectSink
 }
 
 fn parse_channel_id(frame: &WsFrame) -> Option<ChannelId> {
+    // Preserve the existing classifier contract: missing or invalid channelId is
+    // treated as a global increment end for this migration phase.
     frame
         .data()
         .and_then(|data| data.get("channelId"))

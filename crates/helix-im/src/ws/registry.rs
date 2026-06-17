@@ -421,6 +421,33 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_ws_invalid_increment_end_channel_id_preserves_global_end_compatibility() {
+        let mut state = ImState::new();
+        let sync_channel = channel_id(10);
+        state
+            .channels
+            .insert(sync_channel, Channel::new(sync_channel, 5));
+        state.increment_fetched.insert(sync_channel);
+
+        let mut alloc_corr = || helix_core::Correlation::from_raw(7);
+        let mut ctx = ImWsContext::new(
+            &mut state,
+            1_000,
+            "https://example.test/api",
+            &mut alloc_corr,
+        );
+        let frame = frame_from_json(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": { "channelId": "not-a-valid-channel-id" }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert_eq!(sync_http_channel_ids(&out), vec![sync_channel.as_str()]);
+    }
+
+    #[test]
     fn dispatch_ws_subtopic_increment_end_emits_update_without_sync() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);

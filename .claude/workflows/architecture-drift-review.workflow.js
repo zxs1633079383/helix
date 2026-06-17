@@ -27,18 +27,18 @@ const SCOPE_SCHEMA = {
     head: { type: "string", description: "当前 HEAD short sha" },
     changed_files: { type: "string", description: "git diff --stat base..HEAD 全文" },
     diff_summary: { type: "string", description: "改动按子系统归类的概述（parser/cursor/storage/host/driver/...），含净增减；无新 commit 写 NO_NEW_COMMITS" },
-    drift_pred: { type: "string", description: "SESSION.md §0 当前所有 ⚡ DRIFT-PRED 行原文（grep -n '⚡ DRIFT-PRED' SESSION.md）；无命中写 NONE" },
+    drift_pred: { type: "string", description: "SESSION.md §0 当前所有 ⚡ DRIFT-PRED 行原文（锚定 §0 正文+行首+排除图例，见 Scope 步骤 2 的 awk|grep）；无命中写 NONE" },
     trap_archive: { type: "string", description: "docs/harness/log.md 历史 trap / 教训条目原文摘要（供回放闸门用）；无则写 NONE" },
-    expect_done: { type: "string", description: "SESSION.md §0 的 🎯 EXPECT 与 ✅ DONE 行原文（grep -nE '🎯 EXPECT|✅ DONE' SESSION.md），供反向抽检自评自判漏洞；无命中写 NONE" },
+    expect_done: { type: "string", description: "SESSION.md §0 的 🎯 EXPECT 与 ✅ DONE 行原文（锚定 §0 正文+行首+排除图例，见 Scope 步骤 4 的 awk|grep），供反向抽检自评自判漏洞；无命中写 NONE" },
   },
 };
 const scope = await agent(`cwd=${REPO}。算本次架构 review 的 diff 区间 + 收集预期对账信号（§4.8 接力）。
 ${baseOverride ? `base 已指定 = ${baseOverride}` : "base = docs/review/workflow-review-ledger.md 里 \`last_reviewed_commit:\` 的值"}。
 跑这三件事：
 1. git rev-parse --short HEAD；git diff --stat <base>..HEAD；git diff <base>..HEAD（看实质改动）。若 base==HEAD（gap=0，无新 commit）→ diff_summary 写 "NO_NEW_COMMITS"。
-2. grep -n '⚡ DRIFT-PRED' SESSION.md（收集"预期≠实际"的惊讶记录，CLAUDE.md §4.8 的第二燃料）→ 原文填 drift_pred；无命中写 "NONE"。
+2. **锚定 §0 正文 + 行首 + 排除图例**：\`awk '/^## §0/{f=1;next}/^## /{f=0}f' SESSION.md | grep -nE '^⚡ DRIFT-PRED'\`（收集"预期≠实际"的惊讶记录，CLAUDE.md §4.8 的第二燃料）→ 原文填 drift_pred；无命中（exit 1）写 "NONE"。⚠️ 绝不用裸 \`grep -n '⚡ DRIFT-PRED' SESSION.md\`——它会命中第 4 行图例 blockquote（含全部三字面量）致机制自污染。
 3. cat docs/harness/log.md（历史 trap / 教训，供候选约束回放闸门）→ 摘其条目填 trap_archive；无则 "NONE"。
-4. grep -nE '🎯 EXPECT|✅ DONE' SESSION.md（收集预期与终态行，供反向抽检 EXPECT 可证伪性 + DONE 是否偏离却没记 DRIFT-PRED）→ 填 expect_done；无命中写 "NONE"。
+4. **锚定 §0 正文 + 行首 + 排除图例**：\`awk '/^## §0/{f=1;next}/^## /{f=0}f' SESSION.md | grep -nE '^(🎯 EXPECT|✅ DONE)'\`（收集预期与终态行，供反向抽检 EXPECT 可证伪性 + DONE 是否偏离却没记 DRIFT-PRED）→ 填 expect_done；无命中写 "NONE"。⚠️ 同样禁裸 grep（第 4 行图例含 🎯 EXPECT/✅ DONE 字面量）。
 返回 schema。`,
   { label: "scope:diff-range", phase: "Scope", agentType: "Explore", schema: SCOPE_SCHEMA });
 

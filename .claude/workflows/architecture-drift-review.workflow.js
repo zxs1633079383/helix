@@ -21,7 +21,7 @@ const baseOverride = ARGS.base || null; // 可选：显式指定 base commit，�
 phase("Scope");
 const SCOPE_SCHEMA = {
   type: "object", additionalProperties: false,
-  required: ["base", "head", "changed_files", "diff_summary", "drift_pred", "trap_archive"],
+  required: ["base", "head", "changed_files", "diff_summary", "drift_pred", "trap_archive", "expect_done"],
   properties: {
     base: { type: "string", description: "last_reviewed_commit（或 args.base）" },
     head: { type: "string", description: "当前 HEAD short sha" },
@@ -29,6 +29,7 @@ const SCOPE_SCHEMA = {
     diff_summary: { type: "string", description: "改动按子系统归类的概述（parser/cursor/storage/host/driver/...），含净增减；无新 commit 写 NO_NEW_COMMITS" },
     drift_pred: { type: "string", description: "SESSION.md §0 当前所有 ⚡ DRIFT-PRED 行原文（grep -n '⚡ DRIFT-PRED' SESSION.md）；无命中写 NONE" },
     trap_archive: { type: "string", description: "docs/harness/log.md 历史 trap / 教训条目原文摘要（供回放闸门用）；无则写 NONE" },
+    expect_done: { type: "string", description: "SESSION.md §0 的 🎯 EXPECT 与 ✅ DONE 行原文（grep -nE '🎯 EXPECT|✅ DONE' SESSION.md），供反向抽检自评自判漏洞；无命中写 NONE" },
   },
 };
 const scope = await agent(`cwd=${REPO}。算本次架构 review 的 diff 区间 + 收集预期对账信号（§4.8 接力）。
@@ -37,6 +38,7 @@ ${baseOverride ? `base 已指定 = ${baseOverride}` : "base = docs/review/workfl
 1. git rev-parse --short HEAD；git diff --stat <base>..HEAD；git diff <base>..HEAD（看实质改动）。若 base==HEAD（gap=0，无新 commit）→ diff_summary 写 "NO_NEW_COMMITS"。
 2. grep -n '⚡ DRIFT-PRED' SESSION.md（收集"预期≠实际"的惊讶记录，CLAUDE.md §4.8 的第二燃料）→ 原文填 drift_pred；无命中写 "NONE"。
 3. cat docs/harness/log.md（历史 trap / 教训，供候选约束回放闸门）→ 摘其条目填 trap_archive；无则 "NONE"。
+4. grep -nE '🎯 EXPECT|✅ DONE' SESSION.md（收集预期与终态行，供反向抽检 EXPECT 可证伪性 + DONE 是否偏离却没记 DRIFT-PRED）→ 填 expect_done；无命中写 "NONE"。
 返回 schema。`,
   { label: "scope:diff-range", phase: "Scope", agentType: "Explore", schema: SCOPE_SCHEMA });
 
@@ -109,7 +111,23 @@ ${scope.drift_pred}`,
     { label: "review:pred", phase: "Review", agentType: "rust-dev", schema: FINDINGS_SCHEMA, effort: "high" });
   if (predReview && Array.isArray(predReview.findings)) allFindings.push(...predReview.findings);
 }
-log(`收集 ${allFindings.length} 条疑似 drift（含 ⚡ DRIFT-PRED 衍生）`);
+
+// —— 自评自判反向抽检 lens：堵漏洞 7（同一 agent 自产 EXPECT 又自判偏离 → 可模糊化使惊讶永空）——
+// 偏离裁定移出生产者：由 drift-review 这个独立 lens 反向查 EXPECT 可证伪性 + DONE 惊讶吞没。
+const hasExpect = !!(scope && scope.expect_done && !/^\s*NONE\s*$/i.test(scope.expect_done));
+if (hasExpect) {
+  const auditReview = await agent(`cwd=${REPO}。你是**独立**审计员，不信任写下方记录的那个 agent 的自评（CLAUDE.md §4.8「偏离判定不自产自判」）。下面是 SESSION §0 的 🎯 EXPECT / ✅ DONE 行。
+两件事各产出 finding（无则不收）：
+① **EXPECT 可证伪性**：每条 🎯 EXPECT 是否含 ≥1 条可证伪断言（具体文件集 / 数值阈值 / 命名不变量 / 命令 pass-fail）？若是 "我觉得能行 / 应该没问题" 这类模糊空话 → finding（where="SESSION §0"，invariant="§4.8 EXPECT 不可证伪"，why=可使 DRIFT-PRED 永空的自评自判后门）。
+② **惊讶吞没**：对照 ${RANGE ? `diff 区间 ${RANGE}（git diff ${RANGE}）` : "现有代码"} 与配对的 ✅ DONE——实际结果是否**偏离了** EXPECT 的断言、却**没有**记 ⚡ DRIFT-PRED？若是 → finding（invariant="§4.8 惊讶吞没：DONE 偏离 EXPECT 未记 DRIFT-PRED"）。
+${READONLY}
+
+🎯 EXPECT / ✅ DONE 原文：
+${scope.expect_done}`,
+    { label: "review:expect-audit", phase: "Review", agentType: "rust-dev", schema: FINDINGS_SCHEMA, effort: "high" });
+  if (auditReview && Array.isArray(auditReview.findings)) allFindings.push(...auditReview.findings);
+}
+log(`收集 ${allFindings.length} 条疑似 drift（含 ⚡ DRIFT-PRED 衍生 + 自评自判抽检）`);
 
 phase("Verify");
 const VERDICT_SCHEMA = {

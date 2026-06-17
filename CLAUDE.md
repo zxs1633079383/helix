@@ -153,11 +153,14 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 **触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
 ≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
 
-**开局**——写一行进 `SESSION.md §0`：
+**开局**——写一行进 `SESSION.md §0`（EXPECT 必须**可证伪**，堵自评自判漏洞）：
 
 ```
-🎯 EXPECT <一句话预判结果> | 赌注 高/中/低 | 可逆 是/否 | @<ts>
+🎯 EXPECT <预判结果，至少含 1 条可证伪断言> | 赌注 高/中/低 | 可逆 是/否 | @<ts>
 ```
+
+- **可证伪断言**举例：预测改动文件集（"只动 parser.rs + sync_session.rs"）/ 数值阈值（"batch_upsert 仍 <6ms"）/ 命名不变量（"不新增 HX-C 违反"）/ 命令 pass-fail（"cargo check -p helix-core 过"）。
+- ❌ 禁止 "我觉得能行 / 应该没问题 / 大概顺利" 这类**不可证伪**空话——越具体，DRIFT-PRED 越能被自动检出；写虚 = 自废本机制。
 
 **收尾**——已有 `✅ DONE` = 结果对账方。若实际偏离开局预期，紧跟 DONE 追一行：
 
@@ -169,6 +172,10 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 **接力**：`architecture-drift-review` 触发时，除 `<last_reviewed>..HEAD` diff 外，**加扫**上次 review 以来
 SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后决定是否升 HX-C 卡。
+
+**偏离判定不自产自判（堵 GIGO 后门）**：写 EXPECT 的 agent **不是**「是否偏离」的唯一裁判。`architecture-drift-review`
+反向抽检区间内实质 commit：① EXPECT 是否可证伪（模糊化 = 一条 finding）；② DONE 实际是否偏离 EXPECT 却没记
+`⚡ DRIFT-PRED`（惊讶被吞没 = 一条 finding）。最终偏离裁定由 drift-review 的独立 lens 给，不由生产者自己说了算。
 
 **回放闸门**（候选教训 → 新建 HX-C 卡前必过）：拿候选约束回放 `docs/harness/log.md` 历史 trap
 + §0 既往 `⚡ DRIFT-PRED`——能挡住当初那次、且不误伤既往成功，才建卡（防约束过拟合 / 膨胀）。

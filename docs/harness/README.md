@@ -37,8 +37,9 @@
 | [HX-C006](./HX-C006-ffi-boundary-discipline.md) | active | blocker | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| grep + review | 1 | 2026-06-08 |
 | [HX-C007](./HX-C007-effect-batch-across-boundary.md) | active | major | Effect 跨 FFI 边界批处理，不逐条 | review | 1 | 2026-06-08 |
 | [HX-C008](./HX-C008-sync-pull-wire-contract.md) | active | blocker | sync/notify pull 契约：cursor 锚 nextSeq + 续拉看 len≥500（无显式 flag）| grep + 单测 | 1 | 2026-06-16 |
+| [HX-C009](./HX-C009-expect-reconcile-loop-integrity.md) | active | major | 预期对账闭环完整性（DRIFT-PRED 真接入·EXPECT 可证伪·偏离不自产自判）| grep gate + node --check | 1 | 2026-06-17 |
 
-> 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=8）。不等 = 漂移，立即修。
+> 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=9）。不等 = 漂移，立即修。
 
 ## 4. 目录结构
 
@@ -48,7 +49,7 @@ docs/harness/
 ├── TEMPLATE.md          ← 7 节卡片模板
 ├── decisions.md         ← 关键架构拍板记录（ADR-lite）
 ├── log.md               ← 跨卡复现日志
-└── HX-C001 .. HX-C008   ← 8 条 active 约束
+└── HX-C001 .. HX-C009   ← 9 条（HX-C003 archived，余 active）
 ```
 
 ## 5. 生命周期

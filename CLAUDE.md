@@ -96,6 +96,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
 | HX-C007 | Effect 跨 FFI 边界批处理，不逐条 | active |
 | HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
+| HX-C009 | 预期对账闭环完整性（DRIFT-PRED 真接入 · EXPECT 可证伪 · 偏离不自产自判）| active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 

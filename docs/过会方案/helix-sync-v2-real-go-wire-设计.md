@@ -194,15 +194,16 @@ Phase 5 吐指令到各 Driver
 - ➕ **持久化层**（678 对齐，本会话）：host-cli `IM_SCHEMA`（message/channel/channel_member）execv_raw 建表于 Application Support 多租户 tenant.db；cursor 真源 `_helix_monotonic`（`channel_event_cursor` 暂不建，M2 再引）；发送路径落 message。
 - **验收**：单测全绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连/入站达泵）。剩 UC-1 端到端（依赖 C 阶段）。
 
-### Phase C — 正确性 + EventBus 全量 ❌ 未做（大头）
-- ❌ C1 echo→reconcile 激活（`handle_echo` 仍 `#[allow(dead_code)]` 未接 Inbound）。
-- ❌ C2 B5 phantom（`SyncEntry.messages` Post map→message 内容落库 + cursor 推进不渲染）+ B3 type=6 readBits。
-- ❌ C3 emit 仅 6/24 事件 + `im:__bus__` 信封未接（driver 只到 broadcast）。
-- **验收**：24 事件齐 + 前端零改动跑通（对齐现网 im:__bus__ 信封）。
+### Phase C — 正确性 + EventBus ✅ 实现完成（2026-06-17，commit `20334d2`，单测+对抗审绿）
+- ✅ C1 echo→reconcile 激活（`handle_echo` 接进 Inbound，tmp_id→server_id 覆写 message.id+send_status）。**echo 真帧形态待核**（按 posted+temporary_id 识别）。
+- ✅ C2 phantom（`SyncEntry.messages` Post map→message 内容落库；msgId∉map→phantom 不落行 cursor 照推）+ type6 readBits 单调覆盖 + type2/3 edit/revoke。
+- ✅ C3-core：sync 驱动 mutation 事件（post:read/updated/deleted/channel:update-by-post）+ `im:__bus__` 信封接线（`to_bus_envelope`）。功能性事件(schedule/member 等)暂缓。
+- **验收**：单测全绿；前端零改动 im:__bus__ 信封留 M2 Tauri 接缝验。
 
-### Phase D — 真 Go smoke + golden fixtures ❌ 未做
-- ❌ D 录制真实帧 → Tick 剧本 → `tests/fixtures/`（确定性 id/时间注入）+ UC-2/UC-4。
-- **验收**：现有 ROADMAP §三 M2 联调闸门全绿。
+### Phase D — 真 Go smoke + golden fixtures ⚠️ 半通过
+- ⚠️ **真 Go 数据路径未验**（2026-06-17 :8065 25s：连接/握手/0断连/schema/连接层事件 ✅；但账号已追平+host-cli 无发送→无消息流→C1/C2/C3 数据路径真连待补，状态卡 §5 今日必办）。
+- ❌ golden fixtures 工具链未建（echo/sync-with-messages/type2-3-6 帧）。
+- **验收**：真实消息流跑通 message 落库 + echo 回正 + mutation 事件（用户解 DNS 后回来验）。
 
 > **架构基座（本会话 merge）**：main↔dev-zlc 已合（`fcf3222`），采纳 **ADR-010 共享 HTTP/WS client**——`NativeTransport`/`NativeHttp` 改薄壳复用 `helix-driver-host` 的 `SharedWsClient`/`SharedHttpClient`，真 Go 硬修保住（Text 帧/握手头/不回 hello/入站 `Tick::Inbound`）。开放：D1 FFI 句柄类型统一、D3 native·FFI registry 对称化、ping/退避重连。
 

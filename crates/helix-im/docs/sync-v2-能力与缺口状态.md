@@ -17,41 +17,52 @@
 
 > ⚠️ **cursor 真源 = `_helix_monotonic`**（通用单调表）。`channel_event_cursor` 曾作占位死表，已于 `cff383f` 从 IM_SCHEMA 删除（M2 接 cses-client tenant.db 时再引入 + 写迁移）。
 
-## 2. sync-v2 落地表（约 50%）
+## 2. sync-v2 落地表（约 85%，2026-06-17 更新）
 
 | Phase | 状态 | 缺什么 |
 |---|---|---|
 | A 基础贯通（hello/身份头/transport/入站） | ✅ | — |
-| B increment 真 wire | ✅ 主体（B3 sync/notify 真 wire 本会话）| B2 `increment_end` 冷启动自愈 未做 |
-| **C 正确性 + EventBus** | ❌ 大头未做 | C1 echo→reconcile 死代码(`handle_echo #[allow(dead_code)]`)；C2 phantom/readBits 未做；C3 emit 只 **6/24** 事件、`im:__bus__` 信封未接（driver 只到 broadcast）|
-| **D 真 Go smoke + golden fixtures** | ❌ | 从未真连 Go 冒烟；fixtures 工具链未建 |
+| B increment 真 wire | ✅（B3 sync/notify 真 wire + **B2 冷启动自愈** `heal_incomplete_backfill_once`，commit `20334d2`）| — |
+| **C 正确性 + EventBus** | ✅ 实现（`20334d2`，单测+对抗审绿）| C1 echo 对账（`handle_echo` 激活）✅ · C2 phantom/离线落库/readBits ✅ · C3 mutation 事件(post:read/updated/deleted)+`im:__bus__` 信封 ✅。**残留**：echo 真帧形态待核（按 posted+temporary_id 识别）；功能性事件(schedule/member 等)暂缓 |
+| **D 真 Go smoke + golden fixtures** | ⚠️ 半通过 | ✅ 连接/握手/0断连/schema/连接层事件真 Go 验过；❌ **数据路径真连未验**（账号已追平+host-cli 无发送→无消息流）；golden fixtures 未建 |
 
-## 3. 8 个易被忽略的真相（缺口清单）
+## 3. 缺口清单（2026-06-17 更新）
 
-1. **离线历史消息当前不会上屏**：B5 OUT —— sync `events` 只推 cursor，`SyncEntry.messages`(Post 快照) 不落 message 表；只有自己发的消息进 message。**持久化打通最大剩余缺口。**
-2. **echo 对账死代码**：`handle_echo`(module.rs:801 `#[allow(dead_code)]`) 没接 Inbound → temporary_id→正式 id 不覆写。
-3. **im:__bus__ 信封没接通**：前端「零改动跑通」前提未满足；emit 仅 6/24 事件。
-4. **真 Go 直连冒烟已通过**（2026-06-16 :8065 22s：握手/increment/0 断连/入站达泵）；但 **UC-1 端到端**（发→上屏→echo→正式 id）仍未验，依赖 C 阶段。
-5. **心跳 ping 占位帧**：间隔与 hello.pingInterval(60s) 未对齐（真 Go 22s 没断是 Go 侧容忍；长连稳定待 ping 实装）。
-6. **channel 表建了没人写**：increment 的 channel 元数据(mention/urgent/lastEventSeq) 只 emit 不落库。
-7. **架构 smell（drift-review 登记，部分已修）**：✅[medium] `event_to_upsert_op` 热路径重解析（cff383f 字段提取上移 parser 已修）；✅[low] channel_event_cursor 死表（cff383f 已删）；⏳[medium·D1] FFI 句柄类型不一致（接 FFI 冒烟前修）；⏳[medium·D3] native·FFI registry 不对称（接 WS reconnect 前修）；driver-host→helix-im 反向 dev-dep（test-only）；2 份 eventbus 设计稿**已拍板保留**。
-8. **持久化只到「建表+发送+cursor」**，≠「IM 数据全链路落库」。
+1. ✅ **离线历史消息上屏已实现**（`20334d2` C2）：sync `SyncEntry.messages`(Post map)→message 内容落库；phantom(msgId∉map)不落行但 cursor 照推。**真连验待数据流**（见 §5 今日必办）。
+2. ✅ **echo 对账已激活**（`20334d2` C1）：`handle_echo` 接进 Inbound，tmp_id→server_id 覆写 message.id+send_status。**echo 真帧形态待核** + 真连验待发送。
+3. ⚠️ **im:__bus__ 信封已接线**（`20334d2` C3，`to_bus_envelope`）；emit 补 post:read/updated/deleted；host-cli 无窗口→以 EventSink 计数验，真 app.emit 留 M2 Tauri 接缝。功能性事件(schedule/member/nickname/todo)暂缓。
+4. ⚠️ **真 Go 数据路径真连未验**：连接/握手/0断连/schema/连接层事件已验（2026-06-17 :8065 25s）；但 message/channel 0 行、仅 2 DomainEvent——账号已追平+host-cli 无发送→**无消息流，C1/C2/C3 数据路径真连待补**（§5 今日必办）。
+5. **心跳 ping 占位帧**：长连稳定待 ping 实装（真 Go 25s 没断是 Go 容忍）。
+6. **channel 表建了没人写**：increment 的 channel 元数据只 emit 不落库。
+7. **架构 smell（drift-review 登记）**：✅ event_to_upsert_op 热路径(cff383f)/✅ channel_event_cursor 死表(cff383f)；⏳[D1] FFI 句柄类型(接 FFI 冒烟前)；⏳[D3] native·FFI registry 不对称(接 reconnect 前)；2 份 eventbus 稿保留。
+8. **host-cli DB 路径 quirk**：`sqlite:{path}?mode=rwc` 把 `?mode=rwc` 当文件名一部分（DB 实际落 `xxx.db?mode=rwc`）——功能正常，路径丑，低优先修。
 
 ## 4. 一句话
 
-引擎三件套(HTTP/WS/Storage)齐 + 持久化骨架按 678 对齐建起来了；但 sync-v2 正确性层(C：echo 对账/phantom/全量 EventBus) 和真 Go 联调(D) 没做，离线历史上屏(B5)也没做。**现在能「连上、发出去、推游标、建对表」，还不能「完整离线对账 + 前端零改动消费」。**
+引擎三件套(HTTP/WS/Storage)齐 + 678 持久化 + sync-v2 正确性层(C1/C2/C3)+B2 **实现完成**（单测+对抗审+回归全绿）。**现在代码能「连上·发出去对账·离线补齐(含 phantom/已读/编辑/撤回)·前端经 im:__bus__ 消费」**——但**数据路径的真 Go 端到端验证待真实消息流**（账号已追平，需制造消息活动）。
 
 ---
 
-## 5. 明天代办（优先级排序）
+## 5. 待办
 
-> 排序原则：先解锁「真 Go 端到端可验」（UC-1 前置），再补离线完整性，最后清架构债。
+### 🔴 今日必办（用户拍板 2026-06-17）—— sync-v2 数据路径真 Go 端到端验证
 
-### P0 — 解锁 UC-1 真 Go 冒烟（D 的前置）
-- [ ] **心跳 ping 对齐**（缺口 #5）：ping 帧格式 + 间隔对齐 hello.pingInterval(60s)，修 ~8s 断连 → 真连 Go 第一道坎。
-- [ ] **echo→reconcile 激活**（C1，缺口 #2）：`handle_echo` 接进 `Tick::Inbound` 分支，解析 echo 帧 temporary_id→server_id 覆写 message.id。
-- [ ] **B5 phantom + 离线消息上屏**（C2 + 缺口 #1）：解析 `SyncEntry.messages`(Post map) → 落 message 内容；phantom(msgId 不在 map)cursor 推进但不渲染。
-  - ✅ [medium] HX-C005 热路径回归已先修（cff383f：PostFields 提取上移 parser，event_to_upsert_op 零再解析）。
+> C1/C2/C3/B2 代码已实现 + 单测/对抗审/回归全绿；**唯缺「真 Go 数据路径」验证**（账号已追平、host-cli 无发送 → 25s 冒烟无消息流）。**用户解决 DNS 问题后回来验证。**
+>
+> **就绪验证配方（二选一）**：
+> - **选 1（验 C1 echo + C2，需先加 host-cli 发送）**：给 host-cli 加 `HELIX_SMOKE_SEND=<channelId>` 启动发一条测试消息 → Go echo 回流验 tmp_id→server_id 覆写 + 该消息进 message 表。⚠️ 往真频道发 1 条真消息。
+> - **选 2（验 C2 离线落库 + C3 mutation，无副作用）**：用户从 web/另一设备往本账号频道发几条（含编辑/撤回/已读）→ 同时跑 `HELIX_DB=/tmp/v.db?... cargo run -p helix-host-cli`（dev-loop.sh creds）→ 查 `message` 表有内容行 + `read_bits` 正确 + DomainEvent 含 post:read/updated/deleted。
+>
+> **验收判据**：message 表有真实内容行 + phantom 不落但 cursor 推进 + read_bits 单调 + echo 回正 id + 对应 DomainEvent 流出。绿 → sync-v2 全验收通过。
+
+### P1 — 收尾
+- [ ] golden fixtures 工具链（`HELIX_DUMP_FRAMES=1` 抓 echo/sync-with-messages/type2-3-6 帧 → `tests/fixtures/real_go_frames/`）+ echo 真帧形态核对。
+- [ ] 心跳 ping 对齐（缺口 #5）：ping 帧 + 间隔对齐 hello.pingInterval(60s)。
+- [ ] host-cli DB 路径 quirk（`?mode=rwc` 当文件名，缺口 #8）。
+
+### 历史（已完成，留档）
+- ✅ C1 echo→reconcile（`20334d2`）· ✅ C2 phantom/离线落库/readBits（`20334d2`）· ✅ C3 mutation 事件+bus（`20334d2`）· ✅ B2 冷启动自愈（`20334d2`）
+- ✅ HX-C005 热路径回归先修（cff383f）
 
 ### P1 — EventBus 全量 + 离线完整性
 - [ ] **C3 emit 补全 6→24 事件 + `im:__bus__` 信封接线**（缺口 #3）：NativeEventSink→app.emit 信封，对齐现网前端总线契约。

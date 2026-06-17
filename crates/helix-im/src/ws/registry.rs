@@ -4,16 +4,20 @@ use std::sync::OnceLock;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
+use helix_core::EffectSink;
 
 use super::context::ImWsContext;
 use super::frame::WsFrame;
 
-pub(crate) type ImEffect = helix_core::Effect;
-
 pub(crate) trait WsMessageHandler: Sync {
     fn action(&self) -> &'static str;
 
-    fn handle(&self, ctx: &mut ImWsContext<'_>, frame: &WsFrame) -> Result<Vec<ImEffect>, ImError>;
+    fn handle(
+        &self,
+        ctx: &mut ImWsContext<'_>,
+        frame: &WsFrame,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError>;
 }
 
 pub(crate) struct WsHandlerRegistration {
@@ -61,16 +65,21 @@ fn build_registry(
 pub(crate) fn dispatch_ws(
     ctx: &mut ImWsContext<'_>,
     frame: &WsFrame,
-) -> Result<Vec<ImEffect>, ImError> {
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
     let handler = registry()?
         .get(frame.action())
         .ok_or_else(|| ImError::UnsupportedWsAction(frame.action().to_string()))?;
 
-    handler.handle(ctx, frame)
+    handler.handle(ctx, frame, out)
 }
 
 #[cfg(test)]
 mod tests {
+    use helix_core::{Effect, EffectSink};
+
+    use crate::channel::Channel;
+    use crate::state::ChannelId;
     use crate::state::ImState;
 
     use super::*;
@@ -88,8 +97,9 @@ mod tests {
             &self,
             _ctx: &mut ImWsContext<'_>,
             _frame: &WsFrame,
-        ) -> Result<Vec<ImEffect>, ImError> {
-            Ok(Vec::new())
+            _out: &mut EffectSink,
+        ) -> Result<(), ImError> {
+            Ok(())
         }
     }
 
@@ -149,11 +159,45 @@ mod tests {
     #[test]
     fn dispatch_ws_returns_unsupported_ws_action_for_unknown_action() {
         let mut state = ImState::new();
-        let mut ctx = ImWsContext::new(&mut state);
+        let mut ctx = ImWsContext::new(&mut state, 0);
         let frame = WsFrame::parse(br#"{"action":"missing"}"#).unwrap();
+        let mut out = EffectSink::new();
 
-        let err = dispatch_ws(&mut ctx, &frame).unwrap_err();
+        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
 
         assert!(matches!(err, ImError::UnsupportedWsAction(action) if action == "missing"));
+    }
+
+    #[test]
+    fn dispatch_ws_routes_legacy_no_action_event_through_registry() {
+        let mut state = ImState::new();
+        let channel_id = ChannelId::from_test_u64(1);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 0));
+        let mut ctx = ImWsContext::new(&mut state, 1_000);
+        let raw = format!(
+            r#"{{"event":"posted","data":{{"channel_id":"{}","seq":1,"event_type":1,"msg_id":"msg_1","actor_id":"user_1","created_at":1000000,"payload":null}}}}"#,
+            channel_id.as_str()
+        );
+        let frame = WsFrame::parse(raw.as_bytes()).unwrap();
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert!(
+            out.as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::PersistFire { .. })),
+            "legacy event should still apply through channel.ingest, got: {:?}",
+            out.as_slice()
+        );
+        assert!(
+            out.as_slice()
+                .iter()
+                .any(|effect| matches!(effect, Effect::Emit { .. })),
+            "legacy event should still emit domain event, got: {:?}",
+            out.as_slice()
+        );
     }
 }

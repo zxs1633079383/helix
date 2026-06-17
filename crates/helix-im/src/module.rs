@@ -965,29 +965,21 @@ impl Module for ImModule {
                     }
                     crate::parser::FrameClass::Event => { /* 落到下方 legacy 事件路径 */ }
                 }
-                // legacy {event,data} 数值帧 → 现有事件路径（ACL-1 解析入站帧）
-                match acl::from_tick::parse_inbound_tick(tick) {
-                    Ok(ev) => {
-                        if let Some(ch) = self.state.channels.get_mut(&ev.channel_id) {
-                            ch.ingest(ev, out, now_ms)
-                                .map_err(|e| CoreError::ModuleError {
-                                    module: self.name(),
-                                    source: Box::new(e),
-                                })?;
-                        }
-                        // 未注册 channel 的帧：静默忽略（driver 路由问题，不是 IM 错误）
+                // legacy {event,data} 数值帧 → WS registry legacy handler（保持旧事件路径行为）
+                let module_name = self.name();
+                let frame = crate::ws::WsFrame::parse(bytes.as_bytes()).map_err(|e| {
+                    CoreError::ModuleError {
+                        module: module_name,
+                        source: Box::new(e),
                     }
-                    Err(ImError::Parse(msg)) => {
-                        // 解析失败：静默 drop（不让 IM wire 错误崩溃 engine）
-                        tracing::debug!("im: inbound parse error: {}", msg);
+                })?;
+                let mut ctx = crate::ws::ImWsContext::new(&mut self.state, now_ms);
+                crate::ws::dispatch_ws(&mut ctx, &frame, out).map_err(|e| {
+                    CoreError::ModuleError {
+                        module: module_name,
+                        source: Box::new(e),
                     }
-                    Err(e) => {
-                        return Err(CoreError::ModuleError {
-                            module: self.name(),
-                            source: Box::new(e),
-                        })
-                    }
-                }
+                })?;
             }
 
             Tick::Command(cmd) => match cmd.name.as_ref() {

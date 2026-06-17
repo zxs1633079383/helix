@@ -183,6 +183,8 @@ SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后�
 
 ## 5. 代码风格
 
+> 完整结构约束（单文件 ≤300 行 / 设计模式解耦 / 复杂度升序 / DDD 映射 / 每文件夹双文档镜像）见 [`.claude/rules/code-structure-ddd.md`](.claude/rules/code-structure-ddd.md)（按需 Read）。配套闸门 `scripts/structure-gate.sh`（纳入 §4.7 drift lens）。
+
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明
 - 错误：`thiserror` 边界类型 / 不滥 `anyhow`；外部输入（WS 帧 / sync 响应 / FFI 入参）**零 `unwrap`/`expect`**，走 `Result`
 - 命名/模块：高内聚低耦合，many small files；mod.rs 只 re-export

@@ -1,24 +1,30 @@
-//! B-rest 分片A：increment_channel 真帧解析 + event_seq 三级 fallback 回放测试。
+//! B-rest 分片A：increment_channel 真帧生产路径 + event_seq 三级 fallback 回放测试。
 //!
 //! 验证（设计文档 §1.3 / §1.5）：
 //! - increment_channel 真帧（顶层 action + data{id,lastEventSeq,needSync}）
-//!   → classify_frame 返 FrameClass::Increment，字段逐一对齐，raw 透传 data。
+//!   → Tick::Inbound 走 WS registry，注册 channel / 透传 emit。
 //! - event_seq 三级 fallback：① data.event_seq ② props.channel_event_seq ③ 顶层 channel_event_seq
 //!   各命中一级 + legacy data.seq 兼容（无 action 帧）。
-//! - 非法 data（缺 id / id 非 26 字符 / lastEventSeq 非数值）→ Ignored/None（零信任，不 panic）。
+//! - 非法 data（缺 id / id 非 26 字符 / lastEventSeq 非数值）→ 生产路径 no-op / helper None。
 //!
 //! 回归锚: B-rest 分片A（increment_channel 真 wire 解析 + event_seq 三级 fallback）
 
-use helix_im::parser::{classify_frame, parse_increment_channel, FrameClass};
+mod common;
+use common::*;
+
+use helix_core::tick::InboundBytes;
+use helix_core::Module;
+use helix_core::Tick;
+use helix_im::parser::parse_increment_channel;
 use helix_im::state::{ChannelId, Seq};
 
 /// 26 字符 ASCII channelId（base32 形态占位，长度恰 26）。
 const CH26: &str = "00000000000000000000000001";
 
-// ─── ① increment_channel 真帧 → FrameClass::Increment 且字段正确 ──────────────
+// ─── ① increment_channel 真帧 → 生产路径 registry handler ───────────────────
 
 #[test]
-fn increment_channel_real_frame_classifies_with_correct_fields() {
+fn increment_channel_real_frame_dispatches_through_registry() {
     // 按 §1.3 手造真 Go increment_channel 帧（顶层 action + data 含 ToMap 字段）。
     let frame = serde_json::json!({
         "v": 1,
@@ -37,19 +43,30 @@ fn increment_channel_real_frame_classifies_with_correct_fields() {
         "seq": 9
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
+    let mut h = Harness::new(&[]);
 
-    match classify_frame(&bytes) {
-        FrameClass::Increment(ic) => {
-            assert_eq!(ic.channel_id, ChannelId::from_str(CH26).unwrap());
-            assert_eq!(ic.last_event_seq, Seq(4242));
-            assert!(ic.need_sync);
-            // raw 透传整个 data（供 emit im:channel:increment）。
-            let raw_v: serde_json::Value = serde_json::from_slice(&ic.raw).unwrap();
-            assert_eq!(raw_v["displayName"], "general");
-            assert_eq!(raw_v["id"], CH26);
-        }
-        other => panic!("expected Increment, got {:?}", other),
-    }
+    h.module
+        .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
+        .expect("increment_channel should dispatch through WS registry");
+
+    let channel_id = ChannelId::from_str(CH26).unwrap();
+    assert_eq!(
+        h.module.cursor_for(channel_id),
+        Some(4242),
+        "increment_channel should register channel with lastEventSeq cursor seed"
+    );
+    assert!(
+        h.module.increment_fetched_contains(channel_id),
+        "increment_channel should record fetched channel for increment_end"
+    );
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(EffectKind::from_effect(effect), EffectKind::Emit)),
+        "increment_channel should emit im:channel:increment, got {:?}",
+        h.sink.as_slice()
+    );
 }
 
 #[test]
@@ -147,7 +164,16 @@ fn increment_channel_missing_id_returns_ignored() {
         "data": { "lastEventSeq": 1, "needSync": true }
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
-    assert_eq!(classify_frame(&bytes), FrameClass::Ignored);
+    let mut h = Harness::new(&[]);
+
+    h.module
+        .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
+        .expect("invalid increment_channel should stay no-op");
+
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "invalid increment_channel should not produce effects"
+    );
 }
 
 #[test]
@@ -161,7 +187,16 @@ fn increment_channel_non26_id_returns_none() {
         "data": { "id": "tooshort", "lastEventSeq": 1 }
     });
     let bytes = serde_json::to_vec(&frame).unwrap();
-    assert_eq!(classify_frame(&bytes), FrameClass::Ignored);
+    let mut h = Harness::new(&[]);
+
+    h.module
+        .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
+        .expect("invalid increment_channel should stay no-op");
+
+    assert!(
+        h.sink.as_slice().is_empty(),
+        "invalid increment_channel should not produce effects"
+    );
 }
 
 #[test]

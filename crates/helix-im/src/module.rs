@@ -115,9 +115,8 @@ impl ImModule {
 
     /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
     ///
-    /// 真路径是 `Tick::Inbound` → parser.classify_frame → 此 handler；本 pub 包装让
-    /// 上层（driver / 回放测试）在 parser 满载前能直接驱动 increment 流程（分片A 在改 parser，
-    /// 契约已定，此处不耦合其实现进度）。
+    /// 真路径是 `Tick::Inbound` → `WsFrame::parse` → WS registry；本 pub 包装让
+    /// 上层（driver / 回放测试）能直接驱动 increment 流程。
     pub fn ingest_increment(
         &mut self,
         inc: &crate::sync_session::IncrementChannel,
@@ -771,16 +770,11 @@ impl ImModule {
 
     fn dispatch_ws_frame(
         &mut self,
-        bytes: &[u8],
+        frame: &crate::ws::WsFrame,
         now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), CoreError> {
         let module_name = self.name();
-        let frame = crate::ws::WsFrame::parse(bytes).map_err(|e| CoreError::ModuleError {
-            module: module_name,
-            source: Box::new(e),
-        })?;
-
         let api_base_url = self.config.api_base_url.as_str();
         let next_corr = &mut self.next_corr;
         let mut alloc_corr = || {
@@ -790,7 +784,7 @@ impl ImModule {
         };
         let mut ctx =
             crate::ws::ImWsContext::new(&mut self.state, now_ms, api_base_url, &mut alloc_corr);
-        crate::ws::dispatch_ws(&mut ctx, &frame, out).map_err(|e| CoreError::ModuleError {
+        crate::ws::dispatch_ws(&mut ctx, frame, out).map_err(|e| CoreError::ModuleError {
             module: module_name,
             source: Box::new(e),
         })
@@ -812,45 +806,11 @@ impl Module for ImModule {
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
             Tick::Inbound(bytes) => {
-                // B1：按真 Go 信封顶层 action 分类（{v,action,data,broadcast,seq}）。
-                match crate::parser::classify_frame(bytes.as_bytes()) {
-                    crate::parser::FrameClass::Hello(_connection_id) => {
-                        // A4 握手：现网 Go 连上后单向下发 hello，收到即完成。
-                        self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
-                        return Ok(());
-                    }
-                    crate::parser::FrameClass::Increment(_) => {
-                        // B-rest 分片B：注册 channel + LastEventSeq cursor 种子 +
-                        // 记 increment_fetched / need_sync_skip + emit im:channel:increment。
-                        self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
-                        return Ok(());
-                    }
-                    crate::parser::FrameClass::IncrementEnd(_) => {
-                        // B-rest 分片B：global end → 对 (increment_fetched − need_sync_skip) sync；
-                        // per-channel → emit im:channel:update。
-                        self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
-                        return Ok(());
-                    }
-                    crate::parser::FrameClass::Echo {
-                        channel_id: _,
-                        seq: _,
-                        temporary_id: _,
-                        server_id: _,
-                    } => {
-                        // C1 §4.5 发送对账：本端 posted 回声 → tmp_id 找 PendingSend →
-                        // reconcile（message.id=server_id + send_status=sent 覆写 + CancelTimer）
-                        // + cursor 独立推进（与可见性解耦，HX-C008）。
-                        self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
-                        return Ok(());
-                    }
-                    crate::parser::FrameClass::Ignored => {
-                        // 运维帧（status_change/typing/…）优雅忽略——不报错、不刷日志。
-                        return Ok(());
-                    }
-                    crate::parser::FrameClass::Event => { /* 落到下方 legacy 事件路径 */ }
-                }
-                // legacy {event,data} 数值帧 → WS registry legacy handler（保持旧事件路径行为）
-                self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
+                // 入口保留旧容错：坏 JSON inbound 是可丢 WS 噪音，不升级为 CoreError。
+                let Ok(frame) = crate::ws::WsFrame::parse(bytes.as_bytes()) else {
+                    return Ok(());
+                };
+                self.dispatch_ws_frame(&frame, now_ms, out)?;
             }
 
             Tick::Command(cmd) => match cmd.name.as_ref() {

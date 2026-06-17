@@ -68,6 +68,18 @@
 | `causation_id` | 由哪次操作/帧引发（因果链） | 审计域、调试、"一次操作扇出"溯源 |
 | `payload` | 业务原始数据（**含 relevance 原始字段**，见 §3.2） | 各域自取 |
 
+#### §3.1.1 信封补字段决议（已定 · 2026-06-16）
+
+现网 `im:__bus__` 信封缺 `actor` / `event_seq` / `causation_id`（见 [`crates/helix-im/docs/eventbus/场景全集.md`](../../crates/helix-im/docs/eventbus/场景全集.md) §6），导致"非我才弹""掉线 catch-up""扇出溯源"做不了。**本轮拍板：三字段升为信封必填**，规格如下（落地到 `to_effect.rs` emit）：
+
+| 字段 | 类型 | 语义 | 谁来填 | 解锁 |
+|---|---|---|---|---|
+| `actor` | id（string） | 触发主体：发送者 / 系统 / 对端用户 id；系统事件填保留值 `__system__` | helix-im 序列化时 | 通知域"非我才弹"（`actor != me`）、审计 |
+| `event_seq` | u64 单调 | 事件单调序号，**catch-up replay 锚点**；与业务行号解耦（对齐 HX-C008、performance.md「事件流单调 cursor」） | host 注入（确定性，core 不自生成） | C5 掉线补齐、@我流去重键 |
+| `causation_id` | id（string，可空） | 由哪次入站帧 / 操作引发（因果链）；同一操作扇出的多事件共享同一 id | helix-im 透传触发帧的 corr/id | 审计、调试、"一次操作引发无限内容"溯源 |
+
+> `actor` / `causation_id` 是**业务字段** → 在 helix-im 填，`grep crates/helix-core` 必须为 0（GOAL §1.6）。`event_seq` 是通用单调原语 → host 注入，core 只搬不解释。
+
 ### §3.2 relevance 归属（已拍：**各下游域自己算**）
 
 **决议**：core 与 helix-im **只透传 relevance 的原始字段，绝不算"是否与我相关"的结论**。
@@ -88,7 +100,7 @@
 | **生命周期域** | 显示连接/模块"启动·就绪·断线" | `im:conn:established`、`*:lifecycle` | type + connection_id + ts | 不涉及（全局态） |
 | **@我/与我相关域** | 聚合"@我/回复我/指派我"成一条流 + 红点 | `im:channel:increment`、`im:post:received` | payload.mentionList / reply_to / assignee + actor + scope | **域自己**（持 `me`） |
 | **未读徽章域** | per-channel / 全局未读计数 | `im:channel:increment` | scope + payload 增量计数 | 域自己 |
-| **运维域（待拍）** | ops 播报 / 审计留痕 | `im:ops:*`（**未定**） | actor + causation_id + ts + 原始帧 | 不涉及 |
+| ~~运维域~~ 🚫 已下线 | ops 播报 / 审计留痕 | ~~`im:ops:*`~~（移出 roadmap，2026-06-16） | —— | 现存运维场景走 interceptor/UpdateService |
 | **同步状态域** | "同步到哪了"（**注意：这是 REP 不是 PUB**） | —— | 见 REP 文档 §4（UI 主动查询） | —— |
 
 > 末行警示：**同步进度"播报"走 PUB Emit，"UI 主动问当前进度"走 REP**——别混（判据见 REP 文档 §0/§5）。
@@ -107,9 +119,9 @@
 
 ## §6 待拍 / 落地 checklist
 
-- [ ] §3.1 信封字段表定稿 + 版本化（与现网 `im:__bus__` envelope 对齐字段名）
+- [x] §3.1 信封补字段 `actor`/`event_seq`/`causation_id` **已定必填**（§3.1.1，2026-06-16）；落地到 `to_effect.rs` emit 待办
 - [ ] §3.2 relevance「域自己算」写入硬约束 + payload 透传字段清单（防漏字段）
-- [ ] **ADR：运维消息 `im:ops:*`**（目前 ADR-008 标"待拍"）——定它走 PUB 还是 REP、信封含哪些 ops 上下文
+- [x] ~~ADR：运维消息 `im:ops:*`~~ → **运维域已下线**（移出 roadmap，2026-06-16；重启需先立 ADR）
 - [ ] C3 订阅/过滤契约：下游声明 `type ∧ scope` 的格式（沿用单总线还是分 topic）
 - [ ] C5 catch-up：EventBus 事件流接 `event_seq` replay 的最小设计（复用 HX-C008）
 - [ ] 每个域一份"最小上下文清单"补全 §4 表（新域加入时强制过判据）

@@ -102,7 +102,20 @@ fn extract_post_fields(root: &serde_json::Value) -> PostFields {
 pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     let v: serde_json::Value = serde_json::from_slice(bytes)
         .map_err(|e| ImError::Parse(format!("invalid JSON: {}", e)))?;
+    parse_inbound_value(&v)
+}
 
+/// `parse_inbound` 的内核：从**已解析好的 root `Value`**（非 `data` 子树）提取 legacy 数值帧
+/// 的 `EventEnvelope`。`classify_inbound` 的「无 action」臂复用此函数，消除第二趟 `from_slice`（痛点 1）。
+///
+/// **边界等价铁律（重构 A 不可漂移）**：取数源逐字保持 `parse_inbound` 历史行为——
+///   - `data` 硬要求存在（缺 → Err），channel_id / event_seq 等取数全部基于 `data`；
+///   - `channel_id` 仅 `data["channel_id"]`（snake_case，**无 camelCase fallback**）；
+///   - event_seq 四级 fallback：① `data.event_seq` ② `data.props.channel_event_seq`
+///     ③ **顶层** `v["channel_event_seq"]`（第③级必须取 root，故入参 = root） ④ `data.seq`；
+///   - `extract_post_fields(v)` 传 **root**（不是 data）。
+/// 任何「顺手统一成 parse_post_frame 风格」都会让 increment_parse_test 的 fallback 断言语义漂移。
+pub fn parse_inbound_value(v: &serde_json::Value) -> Result<EventEnvelope, ImError> {
     let data = v
         .get("data")
         .ok_or_else(|| ImError::Parse("missing 'data' field".to_string()))?;
@@ -134,7 +147,8 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
 
     let kind = parse_event_kind(event_type);
     // HX-C005：字段提取上移此处（`v` 已解析在手），落库路径零再解析、零回序列化。
-    let fields = extract_post_fields(&v);
+    // 边界等价铁律：传 ROOT（不是 data）——与历史 parse_inbound 一字不动。
+    let fields = extract_post_fields(v);
     // WS 帧 wire `msg_id`（兼容 msgId）；缺省 None（with_msg_id 内部回退 fields 派生值）。
     let msg_id = data
         .get("msg_id")
@@ -161,12 +175,16 @@ pub fn parse_hello(bytes: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
-/// 入站帧按真 Go 信封顶层 `action` 分类的结果。
+/// 入站 WS 帧一次解析分到底的结果（重构 A：取代 `FrameClass` + legacy `Event`→`parse_inbound` 二趟）。
 ///
 /// 真 Go 信封实测形态：`{"v":1,"action":"<type>","data":{...},"broadcast":{...},"seq":<信封序号>}`
 /// （`action` 在顶层、`seq` 是信封序号非 event_seq；样本见 tests/fixtures/real_go_frames/）。
+///
+/// 分发维度（顶层 `action` + 无 action 的 legacy 数值帧）一次性归类；每个携带数据的变体都装
+/// **已解析好的强类型载荷**，`module.handle` 不再二次解析。边界零信任（helix-im 不变量 4）：
+/// 任一变体解析失败 → `Ignored`（不 panic / 不 unwrap）。
 #[derive(Debug, PartialEq, Eq)]
-pub enum FrameClass {
+pub enum InboundEvent {
     /// hello 握手帧，携带 connectionId（A4 握手）。
     Hello(String),
     /// `increment_channel` 帧（B-rest）：per-channel 增量推送，携带解析好的 IncrementChannel。
@@ -207,34 +225,41 @@ pub enum FrameClass {
     /// 统一走 gate，靠 temporary_id PK upsert 自然对账，不另开 reconcile 特例。
     /// seq=event_seq（三级 fallback，data.event_seq 优先），kind=PostUpsert（post 恒为 upsert）。
     Post(EventEnvelope),
+    /// 无 `action` 的 legacy `{event,data}` 数值帧（抽象 wire / 既有测试）。
+    ///
+    /// 重构 A：**改前**此处是空信号变体 `Event`（需 module 再调 `parse_inbound` 二解析）；
+    /// **改后**直接携带 `parse_inbound_value` 解析好的 `EventEnvelope`（`kind` 由 type 数字
+    /// 经 `parse_event_kind` 派生），module 直接 `ch.ingest`，不再二趟解析。
+    LegacyEvent(EventEnvelope),
     /// 运维/状态帧——优雅忽略（不报错、不刷日志）。
     /// 现网 status_change / multiple_channels_viewed / typing / presence 等本就可丢。
+    /// 边界零信任：非法 JSON / 缺字段 / legacy 帧解析失败一律落此，不 panic。
     Ignored,
-    /// legacy `{event,data}` 数值帧（抽象 wire / 既有测试）——走 `parse_inbound` 事件路径。
-    Event,
 }
 
-/// 按真 Go 信封顶层 `action` 分类入站帧。零信任：非法 JSON / 缺字段 → Ignored（不 panic）。
+/// 一次解析分到底，按真 Go 信封顶层 `action`（含无 action 的 legacy 数值帧）分类入站帧。
+/// 零信任：非法 JSON / 缺字段 → Ignored（不 panic）。
 ///
 /// - `action=="hello"` → `Hello(connectionId)`
-/// - 其它 `action`（status_change / increment_channel / posted 等真 Go 帧）→ `Ignored`
-///   （真实处理待 ChannelId u64→String 迁移；当前不误报）
-/// - 无 `action`（legacy `{event,data}` 帧）→ `Event`（既有数值事件路径）
-pub fn classify_frame(bytes: &[u8]) -> FrameClass {
+/// - `increment_channel` / `increment_channel_end` / `post` / `posted` → 各自强类型变体
+/// - 其它 `action`（status_change / typing 等）→ `Ignored`
+/// - 无 `action`（legacy `{event,data}` 帧）→ 内联 `parse_inbound_value`：成功 `LegacyEvent(ev)`，
+///   失败 `Ignored`（保留原 `module.rs` legacy 路径「parse error 静默 drop」语义，行为等价）
+pub fn classify_inbound(bytes: &[u8]) -> InboundEvent {
     let v: serde_json::Value = match serde_json::from_slice(bytes) {
         Ok(v) => v,
-        Err(_) => return FrameClass::Ignored,
+        Err(_) => return InboundEvent::Ignored,
     };
     match v.get("action").and_then(|a| a.as_str()) {
         Some("hello") => v
             .get("data")
             .and_then(|d| d.get("connectionId"))
             .and_then(|c| c.as_str())
-            .map(|id| FrameClass::Hello(id.to_string()))
-            .unwrap_or(FrameClass::Ignored),
+            .map(|id| InboundEvent::Hello(id.to_string()))
+            .unwrap_or(InboundEvent::Ignored),
         Some("increment_channel") => match v.get("data").and_then(parse_increment_channel) {
-            Some(ic) => FrameClass::Increment(ic),
-            None => FrameClass::Ignored, // 解析失败/未实现 → 不误报
+            Some(ic) => InboundEvent::Increment(ic),
+            None => InboundEvent::Ignored, // 解析失败/未实现 → 不误报
         },
         Some("increment_channel_end") => {
             // data.channelId 非空=子 topic 批次结束；空/缺=global end。零信任。
@@ -243,27 +268,36 @@ pub fn classify_frame(bytes: &[u8]) -> FrameClass {
                 .and_then(|d| d.get("channelId"))
                 .and_then(|c| c.as_str())
                 .and_then(ChannelId::from_str);
-            FrameClass::IncrementEnd(ch)
+            InboundEvent::IncrementEnd(ch)
         }
         // C1：真 Go 在线广播新消息/echo 统一帧（action==`post`，行为真源 router.rs:40）。
         // echo 与新消息**不在落库层分叉**——统一解析成 EventEnvelope 喂 channel gate
         // （ch.ingest → event_to_upsert_op ON CONFLICT temporary_id），echo 靠 PK 自然对账。
         // 解析失败（缺 channelId / event_seq）→ Ignored（边界零信任，不误报）。
         Some("post") => parse_post_frame(&v)
-            .map(FrameClass::Post)
-            .unwrap_or(FrameClass::Ignored),
+            .map(InboundEvent::Post)
+            .unwrap_or(InboundEvent::Ignored),
         // `posted` 帧若带本端 `temporary_id` → echo 回声（发送对账）。**保留向后兼容**：
         // 真 wire 在线广播用 `post`（上一臂），`posted` 仅作既有 echo 单测/历史兼容路径。
         // 非 echo 的 `posted`（他人推送，temporary_id 空 / 字段缺失 / id 非 26 字符）→ Ignored。
-        Some("posted") => classify_echo(&v).unwrap_or(FrameClass::Ignored),
-        Some(_) => FrameClass::Ignored,
-        None => FrameClass::Event,
+        Some("posted") => classify_echo(&v).unwrap_or(InboundEvent::Ignored),
+        Some(_) => InboundEvent::Ignored,
+        // 无 action：legacy 数值帧。内联 parse_inbound_value（复用同一棵 `v`，消除第二趟 from_slice）。
+        // 解析失败 → Ignored + debug log（迁移原 module.rs legacy 路径的「Err(Parse) 静默 drop」语义）。
+        None => match parse_inbound_value(&v) {
+            Ok(ev) => InboundEvent::LegacyEvent(ev),
+            Err(ImError::Parse(msg)) => {
+                tracing::debug!("im: inbound parse error: {}", msg);
+                InboundEvent::Ignored
+            }
+            Err(_) => InboundEvent::Ignored,
+        },
     }
 }
 
 /// 从 `posted` 帧识别 echo 回声（C1 §4.5）。边界零信任：任一必填缺失/非法 → None（不 panic）。
 ///
-/// **真帧待核**（TODO sync-v2 C1，见 `FrameClass::Echo` 文档）：当前按最可能形态解析——
+/// **真帧待核**（TODO sync-v2 C1，见 `InboundEvent::Echo` 文档）：当前按最可能形态解析——
 /// `data`（或嵌套 `data.post`）含 `temporary_id`（非空）+ `id`（26 字符 server_id）+
 /// `channel_id` + `event_seq`（三级 fallback）。抓到真 echo 帧后核对字段路径并补 fixture。
 ///
@@ -272,7 +306,7 @@ pub fn classify_frame(bytes: &[u8]) -> FrameClass {
 ///   2. `id` 是合法 26 字符 Id26（server 权威 post.id）；
 ///   3. `channel_id` 是合法 26 字符 Id26；
 ///   4. `event_seq` 存在（三级 fallback：data.event_seq → props.channel_event_seq → 顶层）。
-fn classify_echo(v: &serde_json::Value) -> Option<FrameClass> {
+fn classify_echo(v: &serde_json::Value) -> Option<InboundEvent> {
     let data = v.get("data")?;
     // post 字段可能嵌在 data 顶层或 data.post 子对象下（与 extract_post_fields 同源探查）。
     let post = data.get("post").unwrap_or(data);
@@ -310,7 +344,7 @@ fn classify_echo(v: &serde_json::Value) -> Option<FrameClass> {
         })
         .or_else(|| v.get("channel_event_seq").and_then(|s| s.as_u64()))?);
 
-    Some(FrameClass::Echo {
+    Some(InboundEvent::Echo {
         channel_id,
         seq,
         temporary_id,

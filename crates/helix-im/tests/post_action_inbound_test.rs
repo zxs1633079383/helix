@@ -352,7 +352,7 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
 
 /// 回归锚: C1 —— BLOCKING 根因回归：`post` echo 后触发 15s timer **不得**误标 UnSend。
 ///
-/// 这是修复前的真实故障：旧 `FrameClass::Post` 只走 ch.ingest（不取消 15s timer / 不写
+/// 这是修复前的真实故障：旧 `InboundEvent::Post` 只走 ch.ingest（不取消 15s timer / 不写
 /// send_status），本端已送达的消息在 15s 后被 on_timeout 翻成 UnSend + 持久化 unsend。
 /// 修复后 reconcile 撤了 timer 且移除 PendingSend，timer fire 必须是无害 no-op。
 #[test]
@@ -409,12 +409,12 @@ fn post_echo_then_15s_timer_does_not_mark_unsend() {
 
 /// 回归锚: C1 —— 未注册 channel（driver 未种 cursor）的 post 帧静默忽略，与 legacy Event 同口径。
 ///
-/// 强化（reviewer minor）：先断言该帧**确实解析成 `FrameClass::Post`**（非 parse 失败 Ignored），
+/// 强化（reviewer minor）：先断言该帧**确实解析成 `InboundEvent::Post`**（非 parse 失败 Ignored），
 /// 锁定"静默忽略 = channel 查找未命中（module.rs 的 get_mut 落空）"这条**意图路径**，而非
 /// 因解析失败误判通过。即"帧合法、只是 channel 没注册"→ 不落库不 panic。
 #[test]
 fn post_frame_unregistered_channel_silently_ignored() {
-    use helix_im::parser::{classify_frame, FrameClass};
+    use helix_im::parser::{classify_inbound, InboundEvent};
 
     // channel 5 未注册
     let config = ImConfig {
@@ -433,8 +433,8 @@ fn post_frame_unregistered_channel_silently_ignored() {
     // 先证明帧本身合法解析成 Post（意图路径锁定：忽略源自 channel 未注册，非 parse 失败）。
     if let Tick::Inbound(InboundBytes(bytes)) = &tick {
         assert!(
-            matches!(classify_frame(bytes.as_ref()), FrameClass::Post(_)),
-            "frame must parse to FrameClass::Post (silent-ignore must be the channel-lookup miss)"
+            matches!(classify_inbound(bytes.as_ref()), InboundEvent::Post(_)),
+            "frame must parse to InboundEvent::Post (silent-ignore must be the channel-lookup miss)"
         );
     } else {
         panic!("post_frame must build a Tick::Inbound");

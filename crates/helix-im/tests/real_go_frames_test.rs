@@ -2,7 +2,7 @@
 //!
 //! 用真 Go 抓取的 fixtures（tests/fixtures/real_go_frames/connect_init.jsonl）验证：
 //! - 真 hello 帧（顶层 action+data.connectionId）→ emit im:connection:established。
-//! - 真运维帧（status_change / multiple_channels_viewed）→ FrameClass::Ignored → 零 effect、零 panic。
+//! - 真运维帧（status_change / multiple_channels_viewed）→ InboundEvent::Ignored → 零 effect、零 panic。
 //!
 //! 回归锚: B1（真 Go wire 信封 {v,action,data,broadcast,seq}，action 在顶层）
 

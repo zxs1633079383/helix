@@ -15,7 +15,9 @@ use crate::acl;
 use crate::channel::Channel;
 use crate::error::ImError;
 use crate::pending_send::PendingSend;
-use crate::state::{ChannelId, ConnState, ImState, SendStatus, Seq, TemporaryId};
+use crate::state::{
+    ChannelId, ConnState, CorrelationContext, ImState, SendStatus, Seq, TemporaryId,
+};
 use helix_core::effect::{HttpRequest, ScanSpec, SqlValue, StorageOp, TimerId, UpsertSpec};
 use helix_core::{CoreError, Effect, EffectSink, Module, Tick};
 
@@ -115,7 +117,7 @@ impl ImModule {
 
     /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
     ///
-    /// 真路径是 `Tick::Inbound` → parser.classify_frame → 此 handler；本 pub 包装让
+    /// 真路径是 `Tick::Inbound` → parser.classify_inbound → 此 handler；本 pub 包装让
     /// 上层（driver / 回放测试）在 parser 满载前能直接驱动 increment 流程（分片A 在改 parser，
     /// 契约已定，此处不耦合其实现进度）。
     pub fn ingest_increment(
@@ -155,10 +157,15 @@ impl ImModule {
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
 
-        // 路由 0（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
-        if self.state.scan_corr == Some(corr) {
-            self.state.scan_corr = None;
-            match outcome {
+        // 单次 remove 取出上下文（取代原 4 张表逐一 if-let 试探）。
+        // 未命中（late/未知 corr）→ no-op，边界零信任（等价原"无人认领 → Ok(())"）。
+        let Some(ctx) = self.state.corr_map.remove(&corr) else {
+            return Ok(());
+        };
+
+        match ctx {
+            // 路由（E4）：on_start Scan 回报 → 加载 cursor + 触发 proactive resync
+            CorrelationContext::ScanCursors => match outcome {
                 PortOutcome::Ok(reply) => {
                     self.handle_scan_reply(reply, out)?;
                 }
@@ -170,15 +177,13 @@ impl ImModule {
                         "scan _helix_monotonic failed (likely first run, no cursors yet), starting with empty channel set"
                     );
                 }
-            }
-            return Ok(());
-        }
+            },
 
-        // 路由 1：channel sync Persist 回报（cursor 推进）
-        if let Some(channel_id) = self.state.corr_to_channel.remove(&corr) {
-            // 同时检查 continuation_pending（E3 续拉意图）
-            let wants_continuation = self.state.continuation_pending.remove(&corr).is_some();
-            match outcome {
+            // 路由：channel sync Persist 回报（cursor 推进 + E3 续拉）
+            CorrelationContext::ChannelPersist {
+                channel_id,
+                wants_continuation,
+            } => match outcome {
                 PortOutcome::Ok(_) => {
                     if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                         ch.on_persist_ok(corr, out)?;
@@ -200,50 +205,45 @@ impl ImModule {
                         ch.last_sync_from_seq = None;
                     }
                 }
-            }
-            return Ok(());
-        }
+            },
 
-        // 路由 2：发送 Persist 回报（P1 乐观落库）
-        if let Some(tmp_id) = self.state.corr_to_send.remove(&corr) {
-            match outcome {
+            // 路由：发送 Persist 回报（P1 乐观落库）
+            CorrelationContext::OptimisticSend { temporary_id } => match outcome {
                 PortOutcome::Ok(_) => {
                     // P1 落库成功：将 PendingSend 状态推进到 Sending
-                    if let Some(ps) = self.state.pending_sends.get_mut(&tmp_id) {
+                    if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
                         ps.status = SendStatus::Sending;
                     }
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(
-                        tmp_id = ?tmp_id,
+                        tmp_id = ?temporary_id,
                         error = ?e,
                         "P1 optimistic persist failed"
                     );
                 }
-            }
-            return Ok(());
-        }
+            },
 
-        // 路由 3：sync Http 回报（sync/notify 响应）
-        if let Some(channel_id) = self.state.corr_to_sync.remove(&corr) {
-            // B1 gate_inflight 清除：sync 回报到达，清除在途标记
-            if let Some(ch) = self.state.channels.get_mut(&channel_id) {
-                ch.inflight_sync = None;
-            }
-            match outcome {
-                PortOutcome::Ok(reply) => {
-                    self.handle_sync_reply(corr, channel_id, reply, out)?;
+            // 路由：sync Http 回报（sync/notify 响应）
+            CorrelationContext::SyncPull { channel_id } => {
+                // B1 gate_inflight 清除：sync 回报到达，清除在途标记
+                if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                    ch.inflight_sync = None;
                 }
-                PortOutcome::Err(e) => {
-                    tracing::warn!(
-                        channel_id = channel_id.as_str(),
-                        corr = corr.raw(),
-                        error = ?e,
-                        "sync/notify failed"
-                    );
+                match outcome {
+                    PortOutcome::Ok(reply) => {
+                        self.handle_sync_reply(corr, channel_id, reply, out)?;
+                    }
+                    PortOutcome::Err(e) => {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            corr = corr.raw(),
+                            error = ?e,
+                            "sync/notify failed"
+                        );
+                    }
                 }
             }
-            return Ok(());
         }
 
         Ok(())
@@ -371,7 +371,9 @@ impl ImModule {
                 None => continue,
             };
             let sync_corr = self.alloc_corr_internal();
-            self.state.corr_to_sync.insert(sync_corr, channel_id);
+            self.state
+                .corr_map
+                .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
             if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                 ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
             }
@@ -555,7 +557,9 @@ impl ImModule {
         }
 
         let sync_corr = self.alloc_corr_internal();
-        self.state.corr_to_sync.insert(sync_corr, channel_id);
+        self.state
+            .corr_map
+            .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
         if let Some(ch) = self.state.channels.get_mut(&channel_id) {
             ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
         }
@@ -635,7 +639,15 @@ impl ImModule {
                     corr: persist_corr,
                     ops: persist_ops,
                 });
-                self.state.corr_to_channel.insert(persist_corr, channel_id);
+                // E3：续拉意图归并为 ChannelPersist 变体的 wants_continuation 字段
+                // （旧 corr_to_channel + continuation_pending 两张表合并为一条 entry）。
+                self.state.corr_map.insert(
+                    persist_corr,
+                    CorrelationContext::ChannelPersist {
+                        channel_id,
+                        wants_continuation: needs_continuation,
+                    },
+                );
                 // C3-core：落库 Persist 入队后，逐事件 emit sync 驱动的 mutation 事件
                 // （post:received/updated/deleted/read + channel:update-by-post）。phantom-aware
                 // 与落库同口径（可见才动 UI）；真源 apply_event_with_messages（post.rs:1146-1448）。
@@ -643,13 +655,6 @@ impl ImModule {
                 // cursor 仍由 persist_corr 的 PortReply Ok 独立推进到 commit_target）。
                 for emit in crate::acl::to_effect::sync_mutation_emits(&events, &messages) {
                     out.push(emit);
-                }
-                // E3：在 corr_to_channel 同时记录是否需要续拉
-                // 通过 state.continuation_pending 标记（此 corr 落库成功后续拉）
-                if needs_continuation {
-                    self.state
-                        .continuation_pending
-                        .insert(persist_corr, channel_id);
                 }
             }
 
@@ -680,7 +685,15 @@ impl ImModule {
                     corr: persist_corr,
                     ops: persist_ops,
                 });
-                self.state.corr_to_channel.insert(persist_corr, channel_id);
+                // Snapshot 无续拉语义，wants_continuation 恒 false（与原行为一致：
+                // 原 Snapshot 分支不写 continuation_pending）。
+                self.state.corr_map.insert(
+                    persist_corr,
+                    CorrelationContext::ChannelPersist {
+                        channel_id,
+                        wants_continuation: false,
+                    },
+                );
             }
         }
 
@@ -742,7 +755,9 @@ impl ImModule {
             // gate 超时：吐 Http{sync/notify}
             let from_seq = self.state.channels[&channel_id].cursor.value();
             let sync_corr = self.alloc_corr_internal();
-            self.state.corr_to_sync.insert(sync_corr, channel_id);
+            self.state
+                .corr_map
+                .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
 
             // 清除 gate（已触发）+ 设置 inflight（B1 守卫）
             if let Some(ch) = self.state.channels.get_mut(&channel_id) {
@@ -871,9 +886,12 @@ impl ImModule {
         let mut ps = PendingSend::new(tmp_id.clone(), t1_timer);
         ps.status = SendStatus::Local;
         self.state.pending_sends.insert(tmp_id, ps);
-        self.state
-            .corr_to_send
-            .insert(p1_corr, TemporaryId(tmp_id_str));
+        self.state.corr_map.insert(
+            p1_corr,
+            CorrelationContext::OptimisticSend {
+                temporary_id: TemporaryId(tmp_id_str),
+            },
+        );
 
         Ok(())
     }
@@ -882,8 +900,8 @@ impl ImModule {
     ///
     /// echo 帧含 temporary_id → 按 tmp_id 找 PendingSend → reconcile。
     ///
-    /// C1（sync-v2）已接进 `Tick::Inbound`：`classify_frame` 识别 `posted` + 非空
-    /// `temporary_id` → `FrameClass::Echo` → 本函数。`ps.reconcile` 内已含 message 表覆写
+    /// C1（sync-v2）已接进 `Tick::Inbound`：`classify_inbound` 识别 `posted` + 非空
+    /// `temporary_id` → `InboundEvent::Echo` → 本函数。`ps.reconcile` 内已含 message 表覆写
     /// （`UPDATE message SET id=server_id, send_status='sent' WHERE temporary_id=tmp`，
     /// BatchUpsert conflict_key=temporary_id，对齐 678 列）+ CancelTimer 15s。
     fn handle_echo(
@@ -910,7 +928,7 @@ impl ImModule {
 
     /// `post` action 帧的发送对账（BLOCKING 修复，与 `handle_echo` 共用 reconcile 语义）。
     ///
-    /// 真 Go 在线广播（含本端 echo）统一发 `action=="post"`，由 `FrameClass::Post` 喂
+    /// 真 Go 在线广播（含本端 echo）统一发 `action=="post"`，由 `InboundEvent::Post` 喂
     /// `ch.ingest` 完成 cursor 推进 + 落库（ON CONFLICT temporary_id 覆盖乐观行）。但
     /// `event_to_upsert_op` **不写 send_status 列**、**不取消 15s timer**——这两件事是 helix
     /// 把现网前端的乐观态/超时下沉进 core 后新增的职责。本函数补齐：
@@ -951,7 +969,10 @@ impl ImModule {
         // 对账落定后移除（防 PendingSend / corr_to_send 泄漏；late timer 已被 CancelTimer 撤销，
         // 即便竞态到达也因 status==Sent 幂等无害）。
         self.state.pending_sends.remove(&tmp);
-        self.state.corr_to_send.retain(|_, v| v != &tmp);
+        // 对账落定后移除该 tmp 的 OptimisticSend 路由（防 corr_map 泄漏）。
+        self.state.corr_map.retain(|_, ctx| {
+            !matches!(ctx, CorrelationContext::OptimisticSend { temporary_id } if *temporary_id == tmp)
+        });
     }
 }
 
@@ -970,26 +991,27 @@ impl Module for ImModule {
     fn handle(&mut self, tick: &Tick, now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
             Tick::Inbound(bytes) => {
-                // B1：按真 Go 信封顶层 action 分类（{v,action,data,broadcast,seq}）。
-                match crate::parser::classify_frame(bytes.as_bytes()) {
-                    crate::parser::FrameClass::Hello(connection_id) => {
+                // B1：一次解析分到底（重构 A）——按真 Go 信封顶层 action（含无 action 的 legacy
+                // 数值帧）一层 match 分类（{v,action,data,broadcast,seq}）。
+                match crate::parser::classify_inbound(bytes.as_bytes()) {
+                    crate::parser::InboundEvent::Hello(connection_id) => {
                         // A4 握手：现网 Go 连上后单向下发 hello，收到即完成。
                         self.handle_hello(connection_id, out);
                         return Ok(());
                     }
-                    crate::parser::FrameClass::Increment(inc) => {
+                    crate::parser::InboundEvent::Increment(inc) => {
                         // B-rest 分片B：注册 channel + LastEventSeq cursor 种子 +
                         // 记 increment_fetched / need_sync_skip + emit im:channel:increment。
                         self.handle_increment(&inc, out);
                         return Ok(());
                     }
-                    crate::parser::FrameClass::IncrementEnd(ch) => {
+                    crate::parser::InboundEvent::IncrementEnd(ch) => {
                         // B-rest 分片B：global end → 对 (increment_fetched − need_sync_skip) sync；
                         // per-channel → emit im:channel:update。
                         self.handle_increment_end(ch, out);
                         return Ok(());
                     }
-                    crate::parser::FrameClass::Echo {
+                    crate::parser::InboundEvent::Echo {
                         channel_id,
                         seq,
                         temporary_id,
@@ -1005,7 +1027,7 @@ impl Module for ImModule {
                             })?;
                         return Ok(());
                     }
-                    crate::parser::FrameClass::Post(ev) => {
+                    crate::parser::InboundEvent::Post(ev) => {
                         // C1 §4.5：真 Go 在线广播新消息/echo 统一帧（action==`post`）。
                         // 与现网 handle_new_post 对齐——echo 与新消息**不在落库层分叉**，统一喂
                         // channel gate（ch.ingest → event_to_upsert_op ON CONFLICT temporary_id）：
@@ -1041,15 +1063,12 @@ impl Module for ImModule {
                         // 与下方 legacy Event 路径同口径（driver 路由问题，非 IM 错误）。
                         return Ok(());
                     }
-                    crate::parser::FrameClass::Ignored => {
-                        // 运维帧（status_change/typing/…）优雅忽略——不报错、不刷日志。
-                        return Ok(());
-                    }
-                    crate::parser::FrameClass::Event => { /* 落到下方 legacy 事件路径 */ }
-                }
-                // legacy {event,data} 数值帧 → 现有事件路径（ACL-1 解析入站帧）
-                match acl::from_tick::parse_inbound_tick(tick) {
-                    Ok(ev) => {
+                    crate::parser::InboundEvent::LegacyEvent(ev) => {
+                        // 无 action 的 legacy {event,data} 数值帧（重构 A：解析已在 classify_inbound
+                        // 内联完成，不再二趟 parse_inbound_tick）。落库逻辑原样：注册 channel → ch.ingest；
+                        // 未注册 channel → 静默忽略（driver 路由问题，不是 IM 错误）。
+                        // 解析失败的 legacy 帧已在 classify_inbound 的 None 臂落 Ignored（debug log），
+                        // 与原 module Err(ImError::Parse) 静默 drop 语义等价。
                         if let Some(ch) = self.state.channels.get_mut(&ev.channel_id) {
                             ch.ingest(ev, out, now_ms)
                                 .map_err(|e| CoreError::ModuleError {
@@ -1057,17 +1076,11 @@ impl Module for ImModule {
                                     source: Box::new(e),
                                 })?;
                         }
-                        // 未注册 channel 的帧：静默忽略（driver 路由问题，不是 IM 错误）
+                        return Ok(());
                     }
-                    Err(ImError::Parse(msg)) => {
-                        // 解析失败：静默 drop（不让 IM wire 错误崩溃 engine）
-                        tracing::debug!("im: inbound parse error: {}", msg);
-                    }
-                    Err(e) => {
-                        return Err(CoreError::ModuleError {
-                            module: self.name(),
-                            source: Box::new(e),
-                        })
+                    crate::parser::InboundEvent::Ignored => {
+                        // 运维帧（status_change/typing/…）或边界解析失败优雅忽略——不报错、不刷日志。
+                        return Ok(());
                     }
                 }
             }
@@ -1118,9 +1131,26 @@ impl Module for ImModule {
                     ch.inflight_sync = None;
                     ch.last_sync_from_seq = None;
                 }
-                // 清除 corr_to_sync（在途 sync Http corr，断线后不会再收到 PortReply）
-                self.state.corr_to_sync.clear();
-                self.state.continuation_pending.clear();
+                // 断线清理（语义保真 = 旧 corr_to_sync.clear() + continuation_pending.clear()）：
+                //   1. 清除 SyncPull（在途 sync Http corr，断线后不会再收到 PortReply）。
+                //   2. ChannelPersist 本体**保留**、仅把 wants_continuation 置 false——
+                //      对应的 Effect::Persist 是本地 SQLite 写（driver spawn_blocking 执行），
+                //      其 PortReply 与 WS 断线物理无关，断线后极可能照常完成并回报，
+                //      留着可继续推进 cursor（HX-C008 cursor 单调推进）；只是不再续拉 sync。
+                //      旧代码 continuation_pending.clear() 仅清续拉意图、故意不清 corr_to_channel
+                //      本体（module.rs 路由1 仍能推 cursor），此处逐字节保真。
+                //   3. OptimisticSend / ScanCursors 不动（旧代码同样不清）。
+                for ctx in self.state.corr_map.values_mut() {
+                    if let CorrelationContext::ChannelPersist {
+                        wants_continuation, ..
+                    } = ctx
+                    {
+                        *wants_continuation = false;
+                    }
+                }
+                self.state
+                    .corr_map
+                    .retain(|_, ctx| !matches!(ctx, CorrelationContext::SyncPull { .. }));
                 tracing::debug!("helix-im: disconnected, cleared inflight sync state");
             }
         }
@@ -1146,7 +1176,9 @@ impl Module for ImModule {
                 limit: None,
             })],
         });
-        self.state.scan_corr = Some(scan_corr);
+        self.state
+            .corr_map
+            .insert(scan_corr, CorrelationContext::ScanCursors);
 
         // 2. arm ping timer
         let ping_timer = self.alloc_timer();

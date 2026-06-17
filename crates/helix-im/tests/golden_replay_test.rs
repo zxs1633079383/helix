@@ -92,7 +92,7 @@ fn message_upsert_col(sink: &helix_core::EffectSink, col: &str) -> Vec<String> {
 /// - emit im:post:received。
 ///
 /// **这是 post/posted 回归的活护栏**：若 parser 把 action 名写错（如退回 "posted"），
-/// classify_frame 会判 Ignored → 零 effect → 本测试立刻红。
+/// classify_inbound 会判 Ignored → 零 effect → 本测试立刻红。
 #[test]
 fn real_go_post_frame_persists_message_and_advances_cursor() {
     // post.json 真帧 channelId = rmibkwkjwidhdx5xy8pyse6a3r，event_seq = 40114。
@@ -219,7 +219,7 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
 
 // ─── ③ status_change.json：真运维帧 → 优雅忽略（零 effect / 零 panic）────────────
 
-/// 真 Go `status_change` 运维帧 → FrameClass::Ignored：零 effect、零 panic、零状态副作用。
+/// 真 Go `status_change` 运维帧 → InboundEvent::Ignored：零 effect、零 panic、零状态副作用。
 #[test]
 fn real_go_status_change_frame_is_ignored() {
     let mut h = Harness::new(&[]);

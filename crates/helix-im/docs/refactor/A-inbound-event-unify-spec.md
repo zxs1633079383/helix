@@ -195,11 +195,10 @@ flowchart TB
 
 ### `crates/helix-im/src/acl/from_tick.rs`
 
-8. **保留 `parse_inbound_tick`（`from_tick.rs:10`）不删**：它仍 `pub`、仍被既有测试可能引用，
-   但**不再是 handle 的活路径**（module 改走 `classify_inbound`）。内部仍调 `parser::parse_inbound`
-   （已退化为 `from_slice + parse_inbound_value`），签名零变更。
-   - 可选（YAGNI，留注）：若 grep 确认 `parse_inbound_tick` 除测试外零调用方，可在后续独立 commit 标
-     `#[cfg(test)]` 或删除——本次不动，避免扩大 diff。
+8. ~~**保留 `parse_inbound_tick`（`from_tick.rs:10`）不删**~~ → **已删（R4-tombstone，drift-review 收口）**：
+   原 defer 理由「仍 `pub`、仍被既有测试可能引用」已证伪——重构 A 后全仓 src+tests grep `parse_inbound_tick`
+   零调用方（仅剩历史注释提及），是死代码。已删除该函数（`accepts_tick` 保留），并清掉随之失活的
+   `ImError` / `EventEnvelope` import。
 
 ### 测试文件（类型名跟随，断言不变；详见「回放测试影响」）
 

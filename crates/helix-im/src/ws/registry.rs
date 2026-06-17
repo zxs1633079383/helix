@@ -79,8 +79,8 @@ mod tests {
     use helix_core::{Effect, EffectSink};
 
     use crate::channel::Channel;
-    use crate::state::ChannelId;
     use crate::state::ImState;
+    use crate::state::{ChannelId, ConnState, Seq};
 
     use super::*;
 
@@ -159,7 +159,8 @@ mod tests {
     #[test]
     fn dispatch_ws_returns_unsupported_ws_action_for_unknown_action() {
         let mut state = ImState::new();
-        let mut ctx = ImWsContext::new(&mut state, 0);
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 0, "", &mut alloc_corr);
         let frame = WsFrame::parse(br#"{"action":"missing"}"#).unwrap();
         let mut out = EffectSink::new();
 
@@ -175,7 +176,8 @@ mod tests {
         state
             .channels
             .insert(channel_id, Channel::new(channel_id, 0));
-        let mut ctx = ImWsContext::new(&mut state, 1_000);
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
         let raw = format!(
             r#"{{"event":"posted","data":{{"channel_id":"{}","seq":1,"event_type":1,"msg_id":"msg_1","actor_id":"user_1","created_at":1000000,"payload":null}}}}"#,
             channel_id.as_str()
@@ -199,5 +201,76 @@ mod tests {
             "legacy event should still emit domain event, got: {:?}",
             out.as_slice()
         );
+    }
+
+    #[test]
+    fn dispatch_ws_routes_hello_through_registry() {
+        let mut state = ImState::new();
+        let channel_id = ChannelId::from_test_u64(7);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 42));
+        state.increment_fetched.insert(channel_id);
+
+        let mut next_corr = 91;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut ctx = ImWsContext::new(
+            &mut state,
+            1_000,
+            "https://example.test/api",
+            &mut alloc_corr,
+        );
+        let frame =
+            WsFrame::parse(br#"{"v":1,"action":"hello","data":{"connectionId":"CONN_REG"}}"#)
+                .unwrap();
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        assert_eq!(ctx.state.conn, ConnState::Connected);
+        assert_eq!(ctx.state.connection_id.as_deref(), Some("CONN_REG"));
+        assert!(
+            ctx.state.increment_fetched.is_empty(),
+            "hello should reset the previous increment batch"
+        );
+
+        let mut saw_established = false;
+        let mut saw_channels_loaded = false;
+        let mut saw_increment_http = false;
+        for effect in out.as_slice() {
+            match effect {
+                Effect::Emit { event } => {
+                    let body = String::from_utf8_lossy(event.0.as_ref());
+                    saw_established |=
+                        body.contains("im:connection:established") && body.contains("CONN_REG");
+                    saw_channels_loaded |= body.contains("im:channels:loaded");
+                }
+                Effect::Http { corr, req } => {
+                    saw_increment_http = true;
+                    assert_eq!(corr.raw(), 91);
+                    assert_eq!(req.method, "POST");
+                    assert!(req.url.ends_with("/channels/load/increment"));
+                    assert!(
+                        req.headers
+                            .iter()
+                            .any(|(key, value)| key == "connectionId" && value == "CONN_REG"),
+                        "increment HTTP should carry connectionId header, got: {:?}",
+                        req.headers
+                    );
+                    let body: serde_json::Value =
+                        serde_json::from_slice(req.body.as_ref().unwrap()).unwrap();
+                    assert_eq!(body["cursors"][0]["channelId"], channel_id.as_str());
+                    assert_eq!(body["cursors"][0]["fromSeq"], Seq(42).0);
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_established, "missing connection established emit");
+        assert!(saw_increment_http, "missing increment HTTP trigger");
+        assert!(saw_channels_loaded, "missing channels loaded emit");
     }
 }

@@ -324,6 +324,7 @@ impl ImModule {
     /// 改为触发 increment HTTP（push 模型，带已知 channel 游标）+ emit im:channels:loaded。
     /// 真增量走 WS `increment_channel` 单播（→ handle_increment），global-end 收尾时才
     /// 对增量群发 proactive sync。会话边界 reset increment 批次集（§7 跨会话残留）。
+    #[allow(dead_code)]
     fn handle_hello(&mut self, connection_id: String, out: &mut EffectSink) {
         self.state.conn = ConnState::Connected;
         self.state.connection_id = Some(connection_id.clone());
@@ -907,6 +908,33 @@ impl ImModule {
         }
         Ok(())
     }
+
+    fn dispatch_ws_frame(
+        &mut self,
+        bytes: &[u8],
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), CoreError> {
+        let module_name = self.name();
+        let frame = crate::ws::WsFrame::parse(bytes).map_err(|e| CoreError::ModuleError {
+            module: module_name,
+            source: Box::new(e),
+        })?;
+
+        let api_base_url = self.config.api_base_url.as_str();
+        let next_corr = &mut self.next_corr;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(*next_corr);
+            *next_corr += 1;
+            corr
+        };
+        let mut ctx =
+            crate::ws::ImWsContext::new(&mut self.state, now_ms, api_base_url, &mut alloc_corr);
+        crate::ws::dispatch_ws(&mut ctx, &frame, out).map_err(|e| CoreError::ModuleError {
+            module: module_name,
+            source: Box::new(e),
+        })
+    }
 }
 
 impl Module for ImModule {
@@ -926,9 +954,9 @@ impl Module for ImModule {
             Tick::Inbound(bytes) => {
                 // B1：按真 Go 信封顶层 action 分类（{v,action,data,broadcast,seq}）。
                 match crate::parser::classify_frame(bytes.as_bytes()) {
-                    crate::parser::FrameClass::Hello(connection_id) => {
+                    crate::parser::FrameClass::Hello(_connection_id) => {
                         // A4 握手：现网 Go 连上后单向下发 hello，收到即完成。
-                        self.handle_hello(connection_id, out);
+                        self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
                         return Ok(());
                     }
                     crate::parser::FrameClass::Increment(inc) => {
@@ -966,20 +994,7 @@ impl Module for ImModule {
                     crate::parser::FrameClass::Event => { /* 落到下方 legacy 事件路径 */ }
                 }
                 // legacy {event,data} 数值帧 → WS registry legacy handler（保持旧事件路径行为）
-                let module_name = self.name();
-                let frame = crate::ws::WsFrame::parse(bytes.as_bytes()).map_err(|e| {
-                    CoreError::ModuleError {
-                        module: module_name,
-                        source: Box::new(e),
-                    }
-                })?;
-                let mut ctx = crate::ws::ImWsContext::new(&mut self.state, now_ms);
-                crate::ws::dispatch_ws(&mut ctx, &frame, out).map_err(|e| {
-                    CoreError::ModuleError {
-                        module: module_name,
-                        source: Box::new(e),
-                    }
-                })?;
+                self.dispatch_ws_frame(bytes.as_bytes(), now_ms, out)?;
             }
 
             Tick::Command(cmd) => match cmd.name.as_ref() {

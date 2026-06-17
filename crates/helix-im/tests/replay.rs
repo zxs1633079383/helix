@@ -4,6 +4,8 @@
 
 mod common;
 use common::*;
+use helix_core::tick::InboundBytes;
+use helix_core::Tick;
 
 #[test]
 fn smoke_harness_on_start_emits_schedule_timer() {
@@ -29,6 +31,22 @@ fn smoke_inbound_unknown_parse_does_not_panic() {
     assert!(
         effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
         "valid inbound event should emit PersistFire, got: {:?}",
+        effects
+    );
+}
+
+#[test]
+fn invalid_json_inbound_is_ignored_without_effects() {
+    let mut h = Harness::new(&[1]);
+
+    let effects = h.step(
+        Tick::Inbound(InboundBytes(bytes::Bytes::from_static(b"{"))),
+        1000,
+    );
+
+    assert!(
+        effects.is_empty(),
+        "invalid JSON inbound should be ignored without effects, got: {:?}",
         effects
     );
 }

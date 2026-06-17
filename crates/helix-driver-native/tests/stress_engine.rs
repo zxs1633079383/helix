@@ -130,6 +130,7 @@ async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
         storage,
         http,
         event_sink,
+        max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
     let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -178,6 +179,7 @@ async fn setup_engine_with_handle(
         storage,
         http,
         event_sink,
+        max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

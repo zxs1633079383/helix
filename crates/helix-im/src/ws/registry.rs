@@ -42,6 +42,14 @@ fn build_registry(
     let mut registry = HashMap::with_capacity(entries.len());
 
     for entry in entries {
+        let handler_action = entry.handler.action();
+        if entry.action != handler_action {
+            return Err(ImError::InvalidWsHandlerRegistration {
+                registered: entry.action.to_string(),
+                handler: handler_action.to_string(),
+            });
+        }
+
         if registry.insert(entry.action, entry.handler).is_some() {
             return Err(ImError::DuplicateWsAction(entry.action.to_string()));
         }
@@ -63,18 +71,9 @@ pub(crate) fn dispatch_ws(
 
 #[cfg(test)]
 mod tests {
-    use helix_core::ports::EventSink;
-    use helix_core::DomainEventBytes;
-
     use crate::state::ImState;
 
     use super::*;
-
-    struct NoopEventSink;
-
-    impl EventSink for NoopEventSink {
-        fn emit(&self, _event: DomainEventBytes) {}
-    }
 
     struct TestHandler {
         action: &'static str,
@@ -96,6 +95,9 @@ mod tests {
 
     static POSTED_HANDLER: TestHandler = TestHandler { action: "posted" };
     static DUPLICATE_POSTED_HANDLER: TestHandler = TestHandler { action: "posted" };
+    static MISMATCHED_HANDLER: TestHandler = TestHandler {
+        action: "post_update",
+    };
 
     #[test]
     fn build_registry_rejects_duplicate_actions() {
@@ -119,6 +121,25 @@ mod tests {
     }
 
     #[test]
+    fn build_registry_rejects_registration_action_mismatch() {
+        static ENTRIES: &[WsHandlerRegistration] = &[WsHandlerRegistration {
+            action: "posted",
+            handler: &MISMATCHED_HANDLER,
+        }];
+
+        let err = match build_registry(ENTRIES) {
+            Ok(_) => panic!("registration action mismatch should fail"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            ImError::InvalidWsHandlerRegistration { registered, handler }
+                if registered == "posted" && handler == "post_update"
+        ));
+    }
+
+    #[test]
     fn distributed_registry_has_unique_actions() {
         let registry = build_registry(&WS_HANDLERS).unwrap();
 
@@ -128,8 +149,7 @@ mod tests {
     #[test]
     fn dispatch_ws_returns_unsupported_ws_action_for_unknown_action() {
         let mut state = ImState::new();
-        let event_sink = NoopEventSink;
-        let mut ctx = ImWsContext::new(&mut state, &event_sink);
+        let mut ctx = ImWsContext::new(&mut state);
         let frame = WsFrame::parse(br#"{"action":"missing"}"#).unwrap();
 
         let err = dispatch_ws(&mut ctx, &frame).unwrap_err();

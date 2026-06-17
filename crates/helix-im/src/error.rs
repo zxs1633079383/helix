@@ -26,6 +26,9 @@ pub enum ImError {
     #[error("duplicate websocket action handler: {0}")]
     DuplicateWsAction(String),
 
+    #[error("invalid websocket handler registration: registered {registered}, handler {handler}")]
+    InvalidWsHandlerRegistration { registered: String, handler: String },
+
     #[error("invalid websocket frame: {0}")]
     InvalidWsFrame(String),
 

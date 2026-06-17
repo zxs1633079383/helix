@@ -18,11 +18,6 @@ impl WsFrame {
         let action = root
             .get("action")
             .and_then(serde_json::Value::as_str)
-            .or_else(|| {
-                root.get("payload")
-                    .and_then(|payload| payload.get("action"))
-                    .and_then(serde_json::Value::as_str)
-            })
             .unwrap_or(LEGACY_EVENT_ACTION)
             .to_string();
 
@@ -55,9 +50,30 @@ impl WsFrame {
     }
 
     pub(crate) fn event_seq(&self) -> Option<Seq> {
-        self.root
-            .get("eventSeq")
+        self.data()
+            .and_then(|data| data.get("event_seq"))
             .and_then(serde_json::Value::as_u64)
+            .or_else(|| {
+                self.data()
+                    .and_then(|data| data.get("props"))
+                    .and_then(|props| props.get("channel_event_seq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.root
+                    .get("channel_event_seq")
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.data()
+                    .and_then(|data| data.get("seq"))
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .or_else(|| {
+                self.root
+                    .get("eventSeq")
+                    .and_then(serde_json::Value::as_u64)
+            })
             .or_else(|| {
                 self.root
                     .get("event")
@@ -68,22 +84,6 @@ impl WsFrame {
                 self.root
                     .get("payload")
                     .and_then(|payload| payload.get("eventSeq"))
-                    .and_then(serde_json::Value::as_u64)
-            })
-            .or_else(|| {
-                self.data()
-                    .and_then(|data| data.get("event_seq"))
-                    .and_then(serde_json::Value::as_u64)
-            })
-            .or_else(|| {
-                self.data()
-                    .and_then(|data| data.get("props"))
-                    .and_then(|props| props.get("channel_event_seq"))
-                    .and_then(serde_json::Value::as_u64)
-            })
-            .or_else(|| {
-                self.root
-                    .get("channel_event_seq")
                     .and_then(serde_json::Value::as_u64)
             })
             .map(Seq)
@@ -111,7 +111,7 @@ mod tests {
     fn parse_payload_action_when_top_level_action_missing() {
         let frame = WsFrame::parse(br#"{"payload":{"action":"posted"}}"#).unwrap();
 
-        assert_eq!(frame.action(), "posted");
+        assert_eq!(frame.action(), LEGACY_EVENT_ACTION);
     }
 
     #[test]
@@ -132,31 +132,42 @@ mod tests {
     }
 
     #[test]
-    fn event_seq_uses_event_seq_then_event_dot_seq_then_payload_event_seq() {
+    fn event_seq_uses_legacy_wire_priority_before_compatibility_fields() {
         let data_seq = WsFrame::parse(
-            br#"{"action":"posted","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4}}"#,
+            br#"{"action":"posted","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4},"channel_event_seq":5,"data":{"event_seq":6,"props":{"channel_event_seq":7}}}"#,
         )
         .unwrap();
-        assert_eq!(data_seq.event_seq(), Some(Seq(2)));
+        assert_eq!(data_seq.event_seq(), Some(Seq(6)));
 
+        let props_seq = WsFrame::parse(
+            br#"{"action":"post_update","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4},"channel_event_seq":5,"data":{"props":{"channel_event_seq":7}}}"#,
+        )
+        .unwrap();
+        assert_eq!(props_seq.event_seq(), Some(Seq(7)));
+
+        let root_seq = WsFrame::parse(
+            br#"{"action":"posts_update","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4},"channel_event_seq":5,"data":{}}"#,
+        )
+        .unwrap();
+        assert_eq!(root_seq.event_seq(), Some(Seq(5)));
+    }
+
+    #[test]
+    fn event_seq_uses_compatibility_fields_after_legacy_wire_fields() {
         let event_seq = WsFrame::parse(
+            br#"{"action":"post_update","eventSeq":2,"event":{"seq":3},"payload":{"eventSeq":4}}"#,
+        )
+        .unwrap();
+        assert_eq!(event_seq.event_seq(), Some(Seq(2)));
+
+        let event_dot_seq = WsFrame::parse(
             br#"{"action":"post_update","event":{"seq":3},"payload":{"eventSeq":4}}"#,
         )
         .unwrap();
-        assert_eq!(event_seq.event_seq(), Some(Seq(3)));
+        assert_eq!(event_dot_seq.event_seq(), Some(Seq(3)));
 
         let payload_seq =
             WsFrame::parse(br#"{"action":"posts_update","payload":{"eventSeq":4}}"#).unwrap();
         assert_eq!(payload_seq.event_seq(), Some(Seq(4)));
-    }
-
-    #[test]
-    fn event_seq_keeps_legacy_fallback_after_acceptance_fields() {
-        let frame = WsFrame::parse(
-            br#"{"action":"post_update","channel_event_seq":1,"data":{"props":{"channel_event_seq":3}}}"#,
-        )
-        .unwrap();
-
-        assert_eq!(frame.event_seq(), Some(Seq(3)));
     }
 }

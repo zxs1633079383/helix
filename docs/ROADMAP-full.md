@@ -2,7 +2,7 @@
 
 > 2026-06-15 · 本文是**全景 + 设计推演**视角；天级 todo / 验收 checklist 见 [`ROADMAP.md`](./ROADMAP.md)（两者分工：本文管"为什么这么排、每阶段守什么线"，ROADMAP.md 管"这周做哪几条"）。
 > 2026-06-15 更新（ADR-006）：当前产品路线收缩为 PC Tauri + Flutter 手机端；Web/WASM 归档暂停。本文中旧 wasm 阶段仅作历史推演，不作为当前 roadmap。
-> 关联：北极星 [`GOAL.md`](./GOAL.md) · 决策权威 [`过会方案/helix-技术评审纪要.md`](./过会方案/helix-技术评审纪要.md) · 机制权威 [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) · 方向A [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) · 参照实现 Crux（`/Users/mac28/workspace/rustWorkspace/crux`，源码已核） · 行为真源 cses-client（`src-tauri/features/im` + `message-v3`）。
+> 关联：北极星 [`GOAL.md`](./GOAL.md) · 决策权威 [`harness/decisions.md`](./harness/decisions.md) · 机制权威 [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) · 方向A [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) · 参照实现 Crux（`/Users/mac28/workspace/rustWorkspace/crux`，源码已核） · 行为真源 cses-client（`src-tauri/features/im` + `message-v3`）。
 
 ---
 
@@ -108,7 +108,7 @@ host 加 `Render → view() → im:viewmodel:patch` 链路；typegen 抄 `crux T
 **headless 守卫**：ViewModel 在 helix-im；windowing/DOM/像素永远在 UI——**core 出数字/切片/补丁，不碰像素 = 不退方向 B**。
 
 ### 支线① — AI 工程化硬化（可与任意 Phase 并行）
-CI 双端 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate CLAUDE.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。详见 [`AI工程化对齐-Bun-checklist.md`](./AI工程化对齐-Bun-checklist.md)。
+CI 双端 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate CLAUDE.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。落地动作见 [`ROADMAP.md` §二 P2 工程化](./ROADMAP.md)（原「AI工程化对齐-Bun-checklist」已随 docs 缩减并入 ROADMAP）。
 
 ### 支线② — 第二模块验证 = 通用核裁决（D 后任一时点）
 `register(MeetingModule)` / `register(PresenceModule)`，**core 零改**跑通。会议用全四能力但形状完全异于 IM（无 temporaryId 对账、无 cursor 同步）；audit 只用 Http+Storage+Timer 不碰 WS。**这是「core 是通用核而非 IM 框架」的代码裁决**（架构设计 §六）——你最在意的不变量，要用第二个形状异于 IM 的模块插得进来证明，不靠嘴说。
@@ -151,4 +151,4 @@ Crux 源码实证：`Core::view()` 就一句 `self.app.view(&model)`，bincode *
 
 ---
 
-> 交叉引用：北极星 [`GOAL.md`](./GOAL.md) · 决策 [`纪要`](./过会方案/helix-技术评审纪要.md) · 机制 [`架构设计`](./过会方案/helix-core-im-架构设计.md) · 方向A [`方向A设计`](./过会方案/helix-core-view-方向A设计.md) · 天级 todo [`ROADMAP.md`](./ROADMAP.md) · 护栏 [`harness/`](./harness/README.md) · 文档地图 [`README.md`](./README.md)。
+> 交叉引用：北极星 [`GOAL.md`](./GOAL.md) · 决策 [`纪要`](./harness/decisions.md) · 机制 [`架构设计`](./过会方案/helix-core-im-架构设计.md) · 方向A [`方向A设计`](./过会方案/helix-core-view-方向A设计.md) · 天级 todo [`ROADMAP.md`](./ROADMAP.md) · 护栏 [`harness/`](./harness/README.md) · 文档地图 [`README.md`](./README.md)。

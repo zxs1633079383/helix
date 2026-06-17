@@ -9,8 +9,8 @@
 > 🧭 **北极星（设计理念不变量，不可偏离）→ [`docs/GOAL.md`](docs/GOAL.md)**　每次会话开局必读。
 > 任何改动若与 GOAL.md §1 设计理念 / §2 硬约束冲突 → **先停下问，不偏离**。
 
-> 📋 **架构评审待办（实现阶段提醒）→ [`docs/过会方案/helix-架构评审-待办清单.md`](docs/过会方案/helix-架构评审-待办清单.md)**
-> 过会评审揪出的必办项：B 正确性遗漏（gate_inflight / event_seq 三级 fallback / type=6 readBits / phantom）· C 约束澄清（Storage scan / Module 同步约束）· D roadmap 调整。注意 D 中 wasm/IndexedDB 相关项已被 ADR-006 取代：当前只维护 PC Tauri + Flutter。**进实现阶段前先扫一眼，防遗忘。**
+> 📋 **实现阶段待办 → [`docs/ROADMAP.md`](docs/ROADMAP.md) §二 P0/P1/P2 活账**
+> （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。wasm/IndexedDB 项已被 ADR-006 取代——当前只维护 PC Tauri + Flutter。）**进实现阶段前先扫一眼 ROADMAP 活账。**
 
 > 🔁 **指令文件同步铁律**：本仓所有同目录的 `CLAUDE.md` 与 `AGENTS.md` 是镜像文件；任何修改必须同时落到两者，内容保持完全同步。新增 / 删除某一级指令文件也必须成对处理。
 

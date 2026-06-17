@@ -41,24 +41,25 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 
 ### M4 —— 归档的 wasm/web（暂停维护）
 
-`crates/helix-driver-wasm` 与 `docs/03-driver-wasm.md` 只作为历史实验保留。当前不做网页端、不补 IndexedDB/OPFS、不把 wasm 纳入交付验收。未来若重启网页端，先新增 ADR 重新定义 storage/cache 策略和 CI。
+`crates/helix-driver-wasm` 只作为历史实验保留（设计稿 `03-driver-wasm.md` 已随 docs 缩减删除，wasm 归档见 ADR-006）。当前不做网页端、不补 IndexedDB/OPFS、不把 wasm 纳入交付验收。未来若重启网页端，先新增 ADR 重新定义 storage/cache 策略和 CI。
 
 ---
 
 ## 二、TodoList（活账，按优先级）
 
-> **2026-06-16 进展**：B1/B2 主体 + **B3 sync 真 wire**（commit 6d83ad5，HX-C008）+ **持久化层 678 对齐**（IM_SCHEMA/多租户 tenant.db/cursor=_helix_monotonic）+ **merge main（ADR-010 共享 HTTP/WS client）**（fcf3222）均落地；交付 crate 全测绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连）。详见 `docs/过会方案/helix-sync-v2-real-go-wire-设计.md §6`。
+> **2026-06-16 进展**：B1/B2 主体 + **B3 sync 真 wire**（commit 6d83ad5，HX-C008）+ **持久化层 678 对齐**（IM_SCHEMA/多租户 tenant.db/cursor=_helix_monotonic）+ **merge main（ADR-010 共享 HTTP/WS client）**（fcf3222）均落地；交付 crate 全测绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连）。详见 `docs/过会方案/helix-sync-v2-设计.md`（合并自 real-go-wire + 完成-spec）。
 
 > **2026-06-17 进展**：sync-v2 **Phase C（C1 echo 对账 / C2 phantom+离线落库+readBits / C3 mutation 事件+im:__bus__）+ B2 冷启动自愈** 实现完成（commit `20334d2`，单测+对抗审+`gate.sh` 7 闸门全绿）。详见 `crates/helix-im/docs/sync-v2-能力与缺口状态.md`。
 
-**🔴 今日必办（2026-06-17 用户拍板）**
-- [ ] **sync-v2 数据路径真 Go 端到端验证**（C1/C2/C3 代码已绿，唯缺真消息流验证；账号已追平+host-cli 无发送 → 25s 冒烟无数据）。**用户解 DNS 后回来验**；配方见状态卡 §5 今日必办（选 1 加 host-cli 发送验 echo / 选 2 用户发消息验离线落库）。
+**✅ 已完成（2026-06-17）**
+- [x] **sync-v2 数据路径真 Go 端到端验证通过**：真消息 curl→Go post→WS `post` 帧→parser 认 post→gate apply→message 表落真实内容行 + temporary_id↔server_id 对账 + read_bits + cursor 推进 + post:received DomainEvent。**三层 blocker 全清**（grpc-deviceId / sync 风暴-BoundedSpawner 并发闸 / WS-post-action-parser）。详见 `crates/helix-im/docs/sync-v2-能力与缺口状态.md`。
+- [x] golden fixtures 真帧回放（`tests/fixtures/real_go_frames/` + golden_replay_test，防 post/posted 同类回归）；im_trace→Tick 剧本完整工具链仍 P1。
 
 **P0（M2 收官阻塞）**
 - [x] 最小 native 宿主 bin（`crates/helix-host-cli`）+ transport 路由表（真 Go 冒烟跑通）
 - [x] **UC-1 前置 4 块**（panel-review 2026-06-12 揪出）：① hello 握手 ✅ · ② B4 event_seq fallback ✅ · ③ B5 phantom+离线落库 ✅（`20334d2`）· ④ echo→reconcile ✅（`20334d2`，handle_echo 激活）
 - [x] B2 increment_end 冷启动自愈（`20334d2` heal_incomplete_backfill_once）
-- [ ] UC-1 端到端真 Go smoke（**数据路径待真消息流**，见今日必办）+ golden fixtures 工具链
+- [x] UC-1 数据路径真 Go smoke ✅（2026-06-17 真消息端到端验过，见上「已完成」）
 - [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）
 - [x] `helix-driver-host` shared HTTP/WS client 边界阶段落地：native/ffi Rust 侧只留薄壳，业务模块不拥有网络 client，登录鉴权只作为 `HostNetworkConfig` + header/token 配置输入（剩余：真 Go smoke、WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback 完整接线）
 
@@ -75,6 +76,9 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准**全链路覆盖完成**（median/CI/离群，回归判据 median>2x）：storage（`host_storage` 5000 行 5.16ms·39×100 6.08ms·monotonic cursor 28.5µs）+ **engine 泵**（`engine_loop/pump_roundtrip_1k` 40.2ms ≈ 24.9K roundtrips/s）+ **IM 乱序同步**（`gate/backfill_5000` 8.0ms ≈ 624K events/s·`send/echo_reconcile_1000` 2.39ms ≈ 418K/s）+ im_step ② 并发 parity 改「串行会超时」强证明（storage_conformance）。**仅剩**：bench 数字进 CI 留痕（待远端 GitLab runner）
 - [ ] FFI MAJ-4：C-ABI 导出层 `spawn_blocking` 包裹落地（HX-C006/ADR-005，当前 todo）
+- [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver CLAUDE.md「已知缺口」）
+- [ ] **双 `PortError` enum 统一**（tick.rs:56 vs error.rs:51 待合一——折叠自已删稿「完美过会指南」技术债）
+- [ ] **多模块并发写实测**（单写者池在多业务模块下零实测——折叠自「并发承压评估」开放项；承压稿已移 `docs/reports/`）
 
 **已销账**：A 全部 · B1 · C1-C4 · E1-E4 · **E5-E7** · M1 全部 · M2 的 driver/im 主体。
 

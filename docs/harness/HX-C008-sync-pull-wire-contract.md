@@ -90,7 +90,7 @@ let resp_type = v["type"].as_str()...;   // → 139 个 "missing 'type'"
 
 ## §6 关联
 
-- 上游：`docs/过会方案/helix-sync-v2-real-go-wire-设计.md`（§1.4 sync/notify wire、§1.5 ChannelEvent、§1.6 phantom）；CLAUDE.md §4.5 行为真源。
+- 上游：`docs/过会方案/helix-sync-v2-设计.md`（§1.4 sync/notify wire、§1.5 ChannelEvent、§1.6 phantom）；CLAUDE.md §4.5 行为真源。
 - 全局 rule：`~/.claude/rules/common/performance.md`「事件流单调 cursor」节（append-only event log + 单调 cursor + TooLong 兜底）——本卡是其 helix 落地。
 - 兄弟 harness：HX-C005（热路径零分配——sync 批量落库走单 INSERT/UPSERT，禁 RMW）。
 - 行为真源：cses-im-server `internal/app/sync.go` / cses-client `domain/sync.rs` + `handlers/post.rs`。

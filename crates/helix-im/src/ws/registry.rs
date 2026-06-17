@@ -232,6 +232,56 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_ws_ignored_actions_are_noop() {
+        let mut state = ImState::new();
+        let channel_id = channel_id(31);
+        state
+            .channels
+            .insert(channel_id, Channel::new(channel_id, 77));
+        state.conn = ConnState::Connecting;
+
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let ignored_actions = [
+            "status_change",
+            "multiple_channels_viewed",
+            "typing",
+            "presence",
+        ];
+
+        for action in ignored_actions {
+            let frame = frame_from_json(serde_json::json!({
+                "v": 1,
+                "action": action,
+                "data": { "channel_id": channel_id.as_str() }
+            }));
+            let mut out = EffectSink::new();
+
+            dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+            assert!(
+                out.as_slice().is_empty(),
+                "{action} should not produce effects, got: {:?}",
+                out.as_slice()
+            );
+            assert_eq!(
+                ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
+                Seq(77),
+                "{action} should not advance channel cursor"
+            );
+            assert_eq!(
+                ctx.state.conn,
+                ConnState::Connecting,
+                "{action} should not change connection state"
+            );
+            assert!(
+                ctx.state.pending_sends.is_empty(),
+                "{action} should not touch pending sends"
+            );
+        }
+    }
+
+    #[test]
     fn dispatch_ws_posted_echo_reconciles_pending_send_and_advances_cursor() {
         let mut state = ImState::new();
         let channel_id = channel_id(21);

@@ -144,6 +144,35 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 - **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature workflow 前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。命中**可自动派**（无需问用户，token 高性价比）。
 - **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
 
+## 4.8 预期对账（L1 决策原子 · 试点中，2026-06-17 起）
+
+> 目的：给 §4.7 `architecture-drift-review` 接上「偏离**预期**」这第二根进料管——
+> 原本它只吃「偏离**约束**（HX-C/GOAL）」+ commit 计数触发；现加 prediction-error 惊讶信号。
+> 试点期 2 周；按校准有效率（`⚡ DRIFT-PRED` → 真 HX-C 卡 / 真修复 占比）决定是否晋升全局 CLAUDE.md。
+
+**触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
+≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
+
+**开局**——写一行进 `SESSION.md §0`：
+
+```
+🎯 EXPECT <一句话预判结果> | 赌注 高/中/低 | 可逆 是/否 | @<ts>
+```
+
+**收尾**——已有 `✅ DONE` = 结果对账方。若实际偏离开局预期，紧跟 DONE 追一行：
+
+```
+⚡ DRIFT-PRED <哪里出乎意料> → 候选教训：<一句话>
+```
+
+并 `type:surprise` 落 `/workspace/java/logs/{date}.json`。预期命中（无偏离）则不追，`✅ DONE` 即结。
+
+**接力**：`architecture-drift-review` 触发时，除 `<last_reviewed>..HEAD` diff 外，**加扫**上次 review 以来
+SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后决定是否升 HX-C 卡。
+
+**回放闸门**（候选教训 → 新建 HX-C 卡前必过）：拿候选约束回放 `docs/harness/log.md` 历史 trap
++ §0 既往 `⚡ DRIFT-PRED`——能挡住当初那次、且不误伤既往成功，才建卡（防约束过拟合 / 膨胀）。
+
 ## 5. 代码风格
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明

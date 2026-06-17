@@ -1,6 +1,7 @@
 # Helix SESSION
 
-> 跨会话状态可查。任务完成/中断写一行固定前缀终态记录于 §0（`grep '✅ DONE' SESSION.md` 即得）。
+> 跨会话状态可查。§0 记三类固定前缀行（均可 grep · 详见 CLAUDE.md §4.8）：
+> 开局 `🎯 EXPECT`（实质任务预判）· 收尾 `✅ DONE`（终态）· 偏离预期时 `⚡ DRIFT-PRED`（喂 §4.7 drift-review）。
 
 ## §0 终态记录
 

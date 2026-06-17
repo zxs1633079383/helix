@@ -12,6 +12,7 @@
 mod common;
 use common::*;
 
+use helix_core::effect::Effect;
 use helix_core::tick::InboundBytes;
 use helix_core::Module;
 use helix_core::Tick;
@@ -60,10 +61,17 @@ fn increment_channel_real_frame_dispatches_through_registry() {
         "increment_channel should record fetched channel for increment_end"
     );
     assert!(
-        h.sink
-            .as_slice()
-            .iter()
-            .any(|effect| matches!(EffectKind::from_effect(effect), EffectKind::Emit)),
+        h.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Emit { event }
+                if {
+                    let body = String::from_utf8_lossy(event.0.as_ref());
+                    body.contains("im:channel:increment")
+                        && body.contains(CH26)
+                        && body.contains("displayName")
+                        && body.contains("general")
+                }
+        )),
         "increment_channel should emit im:channel:increment, got {:?}",
         h.sink.as_slice()
     );

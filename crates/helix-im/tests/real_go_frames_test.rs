@@ -9,6 +9,7 @@
 mod common;
 use common::*;
 
+use helix_core::effect::Effect;
 use helix_core::tick::InboundBytes;
 use helix_core::CoreError;
 use helix_core::Module;
@@ -44,11 +45,16 @@ fn real_go_hello_completes_handshake_and_emits_connection_established() {
     h.start(0);
 
     // line 0 = 真 hello 帧
-    let hello_effects = h.step(inbound_raw(&lines[0]), 100);
+    let _ = h.step(inbound_raw(&lines[0]), 100);
     assert!(
-        hello_effects.iter().any(|e| matches!(e, EffectKind::Emit)),
+        h.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Emit { event }
+                if String::from_utf8_lossy(event.0.as_ref())
+                    .contains("im:connection:established")
+        )),
         "真 hello 帧应 emit im:connection:established，got {:?}",
-        hello_effects
+        h.sink.as_slice()
     );
 }
 

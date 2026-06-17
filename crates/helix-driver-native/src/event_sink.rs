@@ -29,6 +29,57 @@ use tokio::sync::broadcast;
 /// broadcast channel 默认容量：缓冲突发事件，超出后慢消费者会 lagged。
 const BROADCAST_CAPACITY: usize = 1024;
 
+/// IM 内部总线 event name（真源 cses-client event_bus.rs `BUS_CHANNEL`）。
+///
+/// 前端 `tauri.service.ts` 唯一订阅入口——所有 `im:*` 业务事件统一经此一个 Tauri
+/// event 下发，前端 dispatcher 按 payload 内的 event 名分发（N 次 IPC 注册压成 1 次）。
+pub const BUS_CHANNEL: &str = "im:__bus__";
+
+/// C3-core：把 helix-im 吐出的 `DomainEventBytes`（`{event, data}` JSON）转成 `im:__bus__`
+/// 总线信封 `{channel, payload}`（真源 cses-client event_bus.rs `BusEvent`）。
+///
+/// helix-im 的 emit_*（acl/to_effect.rs）已把事件序列化成 `{"event":"im:post:read","data":{...}}`；
+/// 此函数读出 `event` 字段作 `channel`、整个对象作 `payload`，组装成前端 dispatcher 期望的
+/// 信封形态。**单一转换点**——未来 helix-tauri 的 event_bus loop 用它把 DomainEvent → app.emit
+/// 的 payload，避免转换逻辑散落。
+///
+/// ## M2 Tauri 接缝（host-cli 无窗口）
+///
+/// host-cli 无 Tauri `AppHandle` → **不调** `app.emit(BUS_CHANNEL, envelope)`；C3 验收以
+/// 「EventReceiver 收到 DomainEvent + [`bus_event_name`] 类型计数正确」为准（见 host-cli
+/// 消费 loop）。真 `app.emit` 信封在 M2 Tauri 装配层接 `AppHandle` 时落地：
+/// ```rust,ignore
+/// // helix-tauri event_bus loop（M2 接缝，本 crate 不依赖 tauri）：
+/// RecvOutcome::Event(ev) => {
+///     let envelope = to_bus_envelope(&ev);              // 本函数
+///     let _ = app.emit(BUS_CHANNEL, &envelope);          // 真 Tauri emit
+/// }
+/// ```
+/// 边界零信任：payload 非法 JSON / 缺 `event` 字段 → 回退 `channel=""`（不 panic）。
+pub fn to_bus_envelope(ev: &DomainEventBytes) -> serde_json::Value {
+    let payload: serde_json::Value =
+        serde_json::from_slice(ev.0.as_ref()).unwrap_or(serde_json::Value::Null);
+    let channel = payload
+        .get("event")
+        .and_then(|e| e.as_str())
+        .unwrap_or("")
+        .to_string();
+    serde_json::json!({
+        "channel": channel,
+        "payload": payload,
+    })
+}
+
+/// C3-core：从 `DomainEventBytes` 提取 `event` 名（如 `"im:post:read"`），供 host-cli 按
+/// 类型计数验证（无窗口 → 不真 emit，靠计数证接线）。非法/缺字段 → None（零信任）。
+pub fn bus_event_name(ev: &DomainEventBytes) -> Option<String> {
+    let payload: serde_json::Value = serde_json::from_slice(ev.0.as_ref()).ok()?;
+    payload
+        .get("event")
+        .and_then(|e| e.as_str())
+        .map(str::to_string)
+}
+
 /// 消费侧 recv 结果：把 broadcast 的 lagged 从「静默跳过」升级为显式信号（E7）。
 #[derive(Debug)]
 pub enum RecvOutcome {
@@ -198,5 +249,69 @@ mod tests {
 
         assert_eq!(rx1.recv().await.expect("rx1").0, payload);
         assert_eq!(rx2.recv().await.expect("rx2").0, payload);
+    }
+
+    // ─── C3-core：im:__bus__ 信封转换 + 事件名提取 ─────────────────────────────
+
+    fn domain_event(json: serde_json::Value) -> DomainEventBytes {
+        DomainEventBytes(Bytes::from(serde_json::to_vec(&json).unwrap()))
+    }
+
+    /// 回归锚: C3 —— DomainEvent（{event,data}）→ im:__bus__ 信封 {channel,payload}。
+    #[test]
+    fn to_bus_envelope_wraps_event_as_channel() {
+        let ev = domain_event(serde_json::json!({
+            "event": "im:post:read",
+            "data": { "channel_id": "ch_1", "msg_id": "m_1" }
+        }));
+        let envelope = to_bus_envelope(&ev);
+        assert_eq!(
+            envelope.get("channel").and_then(|c| c.as_str()),
+            Some("im:post:read"),
+            "channel 取自 DomainEvent 的 event 字段"
+        );
+        // payload 完整保留原 {event,data} 对象（前端 dispatcher 消费）。
+        assert_eq!(
+            envelope.get("payload"),
+            Some(&serde_json::json!({
+                "event": "im:post:read",
+                "data": { "channel_id": "ch_1", "msg_id": "m_1" }
+            }))
+        );
+    }
+
+    /// 边界零信任：非法 JSON payload → channel 回退空串，不 panic。
+    #[test]
+    fn to_bus_envelope_invalid_json_falls_back_empty_channel() {
+        let ev = DomainEventBytes(Bytes::from_static(b"not json{"));
+        let envelope = to_bus_envelope(&ev);
+        assert_eq!(envelope.get("channel").and_then(|c| c.as_str()), Some(""));
+    }
+
+    /// host-cli 计数验证路径：从 DomainEvent 提取 event 名。
+    #[test]
+    fn bus_event_name_extracts_event_field() {
+        let ev = domain_event(serde_json::json!({
+            "event": "im:post:deleted",
+            "data": {}
+        }));
+        assert_eq!(bus_event_name(&ev).as_deref(), Some("im:post:deleted"));
+    }
+
+    #[test]
+    fn bus_event_name_none_on_missing_or_invalid() {
+        assert_eq!(
+            bus_event_name(&domain_event(serde_json::json!({"x": 1}))),
+            None
+        );
+        assert_eq!(
+            bus_event_name(&DomainEventBytes(Bytes::from_static(b"{["))),
+            None
+        );
+    }
+
+    #[test]
+    fn bus_channel_constant_is_internal_namespace() {
+        assert!(BUS_CHANNEL.starts_with("im:__"));
     }
 }

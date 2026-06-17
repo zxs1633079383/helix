@@ -231,19 +231,35 @@ fn stress_gap_5000_sync_backfill() {
 
     // 3. 构造 5000 events 的 sync 响应（~600KB JSON），PortReply 灌入
     //    度量：JSON parse + 分桶排序 + 5000 个 BatchUpsert op 构造
+    //    C2：内容在分离的 messages map（key=msgId）。本压测全可见（无 phantom）——
+    //    每个 event 的 msgId 都在 messages map，落 5000 条真 upsert（热路径压测意图保留）。
     let events: Vec<serde_json::Value> = (1..=GAP)
         .map(|s| {
             serde_json::json!({
-                "channel_id": cid(1),
-                "seq": s,
-                "event_type": 1,
-                "msg_id": format!("msg_{}", s),
-                "actor_id": "user_1",
-                "created_at": 1000000_u64,
-                "payload": null
+                "channelId": cid(1),
+                "eventSeq": s,
+                "eventType": 1,
+                "msgId": format!("msg_{}", s),
+                "actorId": "user_1",
+                "createAt": 1000000_u64,
             })
         })
         .collect();
+    // messages map：每个 msgId → 内容对象（含 read_bits 空位）。全可见 = 0 phantom。
+    let mut messages = serde_json::Map::with_capacity(GAP as usize);
+    for s in 1..=GAP {
+        let mid = format!("msg_{}", s);
+        messages.insert(
+            mid.clone(),
+            serde_json::json!({
+                "id": mid,
+                "temporary_id": mid,
+                "channel_id": cid(1),
+                "message": "stress body",
+                "readBits": "",
+            }),
+        );
+    }
     // 真 Go wire：{status:SUCCESS, data:{entries:[SyncEntry], serverTime}}。
     // 单 entry 5000 events（超 500 上限 → parser 派生续拉，对本压测断言无影响）。
     let resp = serde_json::json!({
@@ -253,6 +269,7 @@ fn stress_gap_5000_sync_backfill() {
                 "channelId": cid(1),
                 "kind": "events",
                 "events": events,
+                "messages": serde_json::Value::Object(messages),
                 "nextSeq": GAP,
                 "resetTo": serde_json::Value::Null,
             }],

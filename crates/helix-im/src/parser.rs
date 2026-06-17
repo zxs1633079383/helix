@@ -4,7 +4,7 @@
 //! helix-core 的 Tick::Inbound 只携带不透明字节，由此模块解析为强类型。
 
 use crate::error::ImError;
-use crate::state::{ChannelId, Seq};
+use crate::state::{ChannelId, Seq, ServerId};
 use crate::sync_session::{
     ChannelSnapshot, EventEnvelope, EventKind, IncrementChannel, PostFields, SyncResponse,
 };
@@ -61,6 +61,11 @@ fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .or_else(|| root.get("props"))
         .map(|v| v.to_string())
         .unwrap_or_default();
+    // read_bits（C2 / type=6 真源 post.rs:1088 `readBits`）：服务端权威已读位字符串。
+    // 兼容 readBits（Go camelCase wire）/ read_bits（snake 测试帧）；缺省空串。
+    let read_bits = pick_str("readBits")
+        .or_else(|| pick_str("read_bits"))
+        .unwrap_or_default();
 
     PostFields {
         temporary_id,
@@ -71,6 +76,7 @@ fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         message,
         props,
         create_at,
+        read_bits,
     }
 }
 
@@ -129,8 +135,14 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     let kind = parse_event_kind(event_type);
     // HX-C005：字段提取上移此处（`v` 已解析在手），落库路径零再解析、零回序列化。
     let fields = extract_post_fields(&v);
+    // WS 帧 wire `msg_id`（兼容 msgId）；缺省 None（with_msg_id 内部回退 fields 派生值）。
+    let msg_id = data
+        .get("msg_id")
+        .or_else(|| data.get("msgId"))
+        .and_then(|m| m.as_str())
+        .map(str::to_string);
 
-    Ok(EventEnvelope::new(channel_id, Seq(seq), kind, fields))
+    Ok(EventEnvelope::new(channel_id, Seq(seq), kind, fields).with_msg_id(msg_id))
 }
 
 /// A4：识别 hello 握手帧——顶层 `action=="hello"` 时返回 `data.connectionId`，否则 None。
@@ -162,6 +174,24 @@ pub enum FrameClass {
     /// `increment_channel_end` 帧（B-rest）：本批增量收尾信号。
     /// `Some(channel_id)`=某 parent 子 topic 批次结束；`None`=hello/重连整批 global end。
     IncrementEnd(Option<ChannelId>),
+    /// echo 回声帧（C1 §4.5 发送对账）：本端发出的 `posted` 帧带 `temporary_id` 回流。
+    ///
+    /// **真帧待核**（TODO sync-v2 C1）：当前按最可能形态识别——真 Go `action=="posted"`
+    /// 帧的 `data` 含本端 send 时注入的 `temporary_id`（非空）即视为 echo（行为真源
+    /// cses-client post.rs:58「`post.temporary_id` 非空 → sendMessage 回流对账」）。
+    /// 抓到首个真 echo 帧（`HELIX_DUMP_FRAMES=1`）后核对 action 名 / temporary_id / id
+    /// 字段路径，补 golden fixture（tests/fixtures/real_go_frames/echo_*.jsonl）。
+    ///
+    /// - `channel_id`：post 所属 channel（cursor 推进锚）。
+    /// - `seq`：event_seq（三级 fallback，与 increment LastEventSeq 同源 §1.5），推进 cursor。
+    /// - `temporary_id`：本端 send 注入的 PK，按值匹配 PendingSend。
+    /// - `server_id`：服务端权威 `post.id`（26 字符 Id26），覆写 message.id。
+    Echo {
+        channel_id: ChannelId,
+        seq: Seq,
+        temporary_id: String,
+        server_id: ServerId,
+    },
     /// 运维/状态帧——优雅忽略（不报错、不刷日志）。
     /// 现网 status_change / multiple_channels_viewed / typing / presence 等本就可丢。
     Ignored,
@@ -200,9 +230,70 @@ pub fn classify_frame(bytes: &[u8]) -> FrameClass {
                 .and_then(ChannelId::from_str);
             FrameClass::IncrementEnd(ch)
         }
+        // C1：`posted` 帧若带本端 `temporary_id` → echo 回声（发送对账）。
+        // 非 echo 的 `posted`（他人推送，temporary_id 空 / 字段缺失 / id 非 26 字符）→ Ignored
+        // （在线 receive 落库不在 C1 sync-v2 验收范围，离线 receive 走 sync events 路径）。
+        Some("posted") => classify_echo(&v).unwrap_or(FrameClass::Ignored),
         Some(_) => FrameClass::Ignored,
         None => FrameClass::Event,
     }
+}
+
+/// 从 `posted` 帧识别 echo 回声（C1 §4.5）。边界零信任：任一必填缺失/非法 → None（不 panic）。
+///
+/// **真帧待核**（TODO sync-v2 C1，见 `FrameClass::Echo` 文档）：当前按最可能形态解析——
+/// `data`（或嵌套 `data.post`）含 `temporary_id`（非空）+ `id`（26 字符 server_id）+
+/// `channel_id` + `event_seq`（三级 fallback）。抓到真 echo 帧后核对字段路径并补 fixture。
+///
+/// 识别条件（全部满足才算 echo，否则非 echo `posted` → 调用方按 Ignored 处理）：
+///   1. `temporary_id` 非空（本端 send 注入，他人推送无此字段 → 排除）；
+///   2. `id` 是合法 26 字符 Id26（server 权威 post.id）；
+///   3. `channel_id` 是合法 26 字符 Id26；
+///   4. `event_seq` 存在（三级 fallback：data.event_seq → props.channel_event_seq → 顶层）。
+fn classify_echo(v: &serde_json::Value) -> Option<FrameClass> {
+    let data = v.get("data")?;
+    // post 字段可能嵌在 data 顶层或 data.post 子对象下（与 extract_post_fields 同源探查）。
+    let post = data.get("post").unwrap_or(data);
+
+    // temporary_id：兼容 snake/camel；空串视为「无 temporary_id」→ 非 echo。
+    let temporary_id = post
+        .get("temporary_id")
+        .or_else(|| post.get("temporaryId"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())?
+        .to_string();
+
+    // server_id = 权威 post.id（26 字符 Id26）；非 26 字符 → None（不误判截断）。
+    let server_id = post
+        .get("id")
+        .and_then(|i| i.as_str())
+        .and_then(ServerId::from_str)?;
+
+    // channel_id（cursor 推进锚）：兼容 snake/camel；缺/非 26 字符 → None。
+    let channel_id = post
+        .get("channel_id")
+        .or_else(|| post.get("channelId"))
+        .and_then(|c| c.as_str())
+        .and_then(ChannelId::from_str)?;
+
+    // event_seq 三级 fallback（§1.5，与 parse_inbound 同源）：
+    //   ① data.event_seq（权威 int64）→ ② per-post props.channel_event_seq → ③ 顶层。
+    let seq = Seq(data
+        .get("event_seq")
+        .and_then(|s| s.as_u64())
+        .or_else(|| {
+            post.get("props")
+                .and_then(|p| p.get("channel_event_seq"))
+                .and_then(|s| s.as_u64())
+        })
+        .or_else(|| v.get("channel_event_seq").and_then(|s| s.as_u64()))?);
+
+    Some(FrameClass::Echo {
+        channel_id,
+        seq,
+        temporary_id,
+        server_id,
+    })
 }
 
 /// 解析 `increment_channel` 帧的 `data` → `IncrementChannel`（边界零信任，非法→None）。
@@ -303,6 +394,8 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
 
         "events" => {
             let mut events = parse_channel_events(entry, channel_id)?;
+            // C2：消息内容快照（key=msgId）。phantom = event.msg_id ∉ messages（真源 post.rs:1069）。
+            let messages = parse_messages_map(entry);
             // 真 wire 无续拉标志：满批（命中上限）即认为还有更多 → 续拉；不足 → 已追平。
             let needs_continuation = events.len() >= SYNC_EVENTS_PER_ENTRY;
             // cursor 锚服务端权威 nextSeq（Go `next = events[末].EventSeq`）；缺省/异常
@@ -313,6 +406,7 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
             sort_events_by_bucket(&mut events);
             Ok(SyncResponse::Events {
                 events,
+                messages,
                 next_seq,
                 needs_continuation,
             })
@@ -379,9 +473,34 @@ fn parse_channel_events(
         // HX-C005：`ev`（ChannelEvent Value）已在手，直接提取落库字段——
         // 消除原 `serde_json::to_vec(ev)` 回序列化 + 落库时 `from_slice(raw)` 再解析的三趟开销。
         let fields = extract_post_fields(ev);
-        events.push(EventEnvelope::new(channel_id, Seq(seq), kind, fields));
+        // C2：wire 权威 `msgId`（phantom 判定真源）。兼容 msgId（Go camelCase）/ msg_id（snake 测试帧）。
+        // 零信任：缺省 / 空串 → None（with_msg_id 内部再过滤空串）。
+        let msg_id = ev
+            .get("msgId")
+            .or_else(|| ev.get("msg_id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        events.push(EventEnvelope::new(channel_id, Seq(seq), kind, fields).with_msg_id(msg_id));
     }
     Ok(events)
+}
+
+/// 解析 `SyncEntry.messages`（key=msgId → Post JSON 对象）为 owned `PostFields` map（C2 真源）。
+///
+/// 真源 post.rs:1047 `messages: &HashMap<String, serde_json::Value>`——服务端按可见性过滤后
+/// 下发的消息内容快照。helix 在 parser 阶段一次解析为 owned `PostFields`（复用 `extract_post_fields`，
+/// HX-C005 热路径零再解析）。`event.msg_id ∈ map` → 落内容行；`∉` → phantom。
+/// `messages` 缺失 / 非对象 → 空 map（= 全 phantom，仅推 cursor）。边界零信任不 panic。
+fn parse_messages_map(entry: &serde_json::Value) -> std::collections::HashMap<String, PostFields> {
+    let mut map = std::collections::HashMap::new();
+    let Some(obj) = entry.get("messages").and_then(|m| m.as_object()) else {
+        return map;
+    };
+    map.reserve(obj.len());
+    for (msg_id, post) in obj {
+        map.insert(msg_id.clone(), extract_post_fields(post));
+    }
+    map
 }
 
 /// 从 WS type 数字解析 EventKind

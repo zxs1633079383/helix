@@ -99,6 +99,15 @@ impl ImModule {
         self.state.pending_sends.len()
     }
 
+    /// 查询某 temporary_id 的 PendingSend 状态（测试 / 诊断用）。
+    /// 用于 C1 echo→reconcile 断言「对账后 PendingSend 推进到 Sent」。
+    pub fn pending_send_status(&self, temporary_id: &str) -> Option<SendStatus> {
+        self.state
+            .pending_sends
+            .get(&TemporaryId(temporary_id.to_string()))
+            .map(|ps| ps.status)
+    }
+
     /// 查询 increment_fetched 是否含某 channel（测试 / 诊断用）。
     pub fn increment_fetched_contains(&self, channel_id: ChannelId) -> bool {
         self.state.increment_fetched.contains(&channel_id)
@@ -401,6 +410,16 @@ impl ImModule {
         if !inc.need_sync {
             self.state.need_sync_skip.insert(channel_id);
         }
+        // B2 冷启动自愈：记录服务端权威水位（inc.last_event_seq，单调 max）。
+        // global-end heal 阶段用「local cursor < 此水位」识别冷启动未追平的卡死 channel。
+        let target = self
+            .state
+            .increment_target
+            .entry(channel_id)
+            .or_insert(Seq(0));
+        if inc.last_event_seq > *target {
+            *target = inc.last_event_seq;
+        }
         out.push(crate::acl::to_effect::emit_channel_increment(
             channel_id,
             inc.raw.as_ref(),
@@ -427,8 +446,61 @@ impl ImModule {
                     .copied()
                     .collect();
                 self.emit_proactive_resync_for(&targets, out);
+                // B2 冷启动自愈：补发那些「服务端说已追平(need_sync=false 进了 skip)，但本地
+                // cursor 实际仍落后服务端水位」的卡死 channel——即冷启动期 cursor 推过了没落库的
+                // 可见消息（真源 heal_incomplete_backfill_once post.rs:666-715 同一卡死信号）。
+                self.heal_incomplete_backfill_once(out);
             }
         }
+    }
+
+    /// B2 冷启动自愈（一次性，对齐 cses-client `heal_incomplete_backfill_once`
+    /// post.rs:666-715）。
+    ///
+    /// ## 卡死信号（真源映射）
+    ///
+    /// 真源比较「本地消息数 == 首屏 20 且 cursor > 本地数」识别冷启动卡死 channel。
+    /// helix sans-IO 核不直接读本地消息数（那是 driver 侧 DB），等价的核内确定性信号是
+    /// **local cursor < 服务端 increment 水位**：冷启动 cursor 已推到服务端水位但本地内容
+    /// 未落齐时，重连后 increment 仍带更高/相等水位 → cursor 落后即未追平。
+    ///
+    /// ## once-only 守卫（防 phantom 死循环）
+    ///
+    /// 对齐真源 sentinel `__im_backfill_heal_v1__`：phantom-heavy channel 本地 cursor 恒
+    /// < 水位（HX-C008 §1.6 phantom 不推 cursor），不设守卫会每个 global-end 都补发 → 死循环。
+    /// 故每个 hello 会话批次只 heal 一次（`backfill_healed` 标志，hello 起点 reset）。
+    ///
+    /// 与 §global-end 主 resync 的关系：主 resync 已覆盖 `(fetched − skip)`；heal 只补回被
+    /// skip 误扣但实际落后的卡死 channel。`emit_proactive_resync_for` 自带 inflight 守卫，
+    /// 与主 resync 撞同 channel 时自动跳过，不重复发。
+    fn heal_incomplete_backfill_once(&mut self, out: &mut EffectSink) {
+        // once-only：本批次已 heal 过 → 跳过（防 phantom-heavy channel 反复补发死循环）。
+        if self.state.backfill_healed {
+            return;
+        }
+        self.state.backfill_healed = true;
+
+        // 卡死信号：fetched 集中 local cursor 严格 < 服务端 increment 水位的 channel。
+        let stuck: Vec<ChannelId> = self
+            .state
+            .increment_fetched
+            .iter()
+            .filter_map(|&id| {
+                let target = self.state.increment_target.get(&id).copied()?;
+                let cursor = self.state.channels.get(&id)?.cursor.value();
+                (cursor < target).then_some(id)
+            })
+            .collect();
+
+        if stuck.is_empty() {
+            return;
+        }
+        tracing::info!(
+            stuck_channels = stuck.len(),
+            "helix-im B2: 冷启动自愈——对 local cursor 落后服务端 increment 水位的 channel 补发 sync"
+        );
+        // 复用既有 resync 链路（含 B1 inflight 守卫去重 + peek/commit gate）。
+        self.emit_proactive_resync_for(&stuck, out);
     }
 
     /// E3 续拉：Persist 落库成功后，若上批 sync 标记了 needs_continuation，
@@ -529,6 +601,7 @@ impl ImModule {
 
             SyncResponse::Events {
                 events,
+                messages,
                 next_seq,
                 needs_continuation,
             } => {
@@ -550,7 +623,11 @@ impl ImModule {
                 let max_event_seq = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
                 let commit_target = next_seq.max(max_event_seq);
                 let persist_corr = self.alloc_corr_internal();
-                let persist_ops = crate::acl::to_effect::batch_upsert_events(&events);
+                // C2：按 messages map 落库（phantom 跳过 / readBits 单调覆盖 / edit / revoke）。
+                // persist_ops 可能 < events.len()（全 phantom = 空），但 cursor 仍推进到
+                // commit_target——phantom 不卡 cursor（HX-C008 §1.6，真源 post.rs:1271-1280）。
+                let persist_ops =
+                    crate::acl::to_effect::batch_upsert_events_with_messages(&events, &messages);
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.insert(persist_corr, commit_target);
                 }
@@ -559,6 +636,14 @@ impl ImModule {
                     ops: persist_ops,
                 });
                 self.state.corr_to_channel.insert(persist_corr, channel_id);
+                // C3-core：落库 Persist 入队后，逐事件 emit sync 驱动的 mutation 事件
+                // （post:received/updated/deleted/read + channel:update-by-post）。phantom-aware
+                // 与落库同口径（可见才动 UI）；真源 apply_event_with_messages（post.rs:1146-1448）。
+                // 落库与 emit 同批 step 内吐出，前端经 im:__bus__ 消费（HX-C008：emit 不卡 cursor，
+                // cursor 仍由 persist_corr 的 PortReply Ok 独立推进到 commit_target）。
+                for emit in crate::acl::to_effect::sync_mutation_emits(&events, &messages) {
+                    out.push(emit);
+                }
                 // E3：在 corr_to_channel 同时记录是否需要续拉
                 // 通过 state.continuation_pending 标记（此 corr 落库成功后续拉）
                 if needs_continuation {
@@ -795,10 +880,12 @@ impl ImModule {
 
     /// 处理 echo 入站帧（WS 回声，§4.5 对账）
     ///
-    /// echo 帧含 temporary_id → 按 tmp_id 找 PendingSend → reconcile
-    /// Phase B 中 echo 解析路径尚未在 ingest 中调用（parser 需完整 echo 字段支持），
-    /// 函数已实现但等待后续调用点接入。
-    #[allow(dead_code)]
+    /// echo 帧含 temporary_id → 按 tmp_id 找 PendingSend → reconcile。
+    ///
+    /// C1（sync-v2）已接进 `Tick::Inbound`：`classify_frame` 识别 `posted` + 非空
+    /// `temporary_id` → `FrameClass::Echo` → 本函数。`ps.reconcile` 内已含 message 表覆写
+    /// （`UPDATE message SET id=server_id, send_status='sent' WHERE temporary_id=tmp`，
+    /// BatchUpsert conflict_key=temporary_id，对齐 678 列）+ CancelTimer 15s。
     fn handle_echo(
         &mut self,
         channel_id: ChannelId,
@@ -854,6 +941,22 @@ impl Module for ImModule {
                         // B-rest 分片B：global end → 对 (increment_fetched − need_sync_skip) sync；
                         // per-channel → emit im:channel:update。
                         self.handle_increment_end(ch, out);
+                        return Ok(());
+                    }
+                    crate::parser::FrameClass::Echo {
+                        channel_id,
+                        seq,
+                        temporary_id,
+                        server_id,
+                    } => {
+                        // C1 §4.5 发送对账：本端 posted 回声 → tmp_id 找 PendingSend →
+                        // reconcile（message.id=server_id + send_status=sent 覆写 + CancelTimer）
+                        // + cursor 独立推进（与可见性解耦，HX-C008）。
+                        self.handle_echo(channel_id, seq, &temporary_id, server_id, out)
+                            .map_err(|e| CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(e),
+                            })?;
                         return Ok(());
                     }
                     crate::parser::FrameClass::Ignored => {

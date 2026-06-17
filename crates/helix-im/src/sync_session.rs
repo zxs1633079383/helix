@@ -30,6 +30,9 @@ pub struct PostFields {
     /// 服务端原始 props 对象的字符串形态（业务扩展透传）。
     pub props: String,
     pub create_at: i64,
+    /// 服务端权威已读位（C2 / type=6 真源 post.rs:1087-1089）。
+    /// 缺省空串=该 post 无已读信息；落库时**单调覆盖** message.read_bits 列（非累加）。
+    pub read_bits: String,
 }
 
 /// 解析后的强类型入站事件（14 类 WS type 的产物）
@@ -42,6 +45,12 @@ pub struct EventEnvelope {
     pub kind: EventKind,
     /// 落库所需 owned typed 视图（parser 一次解析填充；HX-C005 热路径零再解析）。
     pub fields: PostFields,
+    /// 事件 wire 的 `msgId`（C2 phantom 判定真源 post.rs:1064-1069）。
+    ///
+    /// sync `events` 路径：事件本身只带 `eventSeq/eventType/msgId/actorId`，消息内容在
+    /// 分离的 `messages` map（key=msgId）。`msg_id ∈ messages` → 落内容行；`∉` → phantom
+    /// （cursor 推进但不落 message 行，HX-C008 §1.6）。`None` = 无 msgId（read 事件可空 / legacy）。
+    pub msg_id: Option<String>,
 }
 
 impl EventEnvelope {
@@ -49,14 +58,36 @@ impl EventEnvelope {
     ///
     /// parser 经此入口传入已提取的 `fields`（owned typed 视图），落库路径直接读取，
     /// 不再持有 / 重解析原始 JSON 字节（HX-C005）。
+    ///
+    /// `msg_id` 缺省从 fields 派生（`id` ?? `temporary_id`，皆空=None）——既有调用方
+    /// （WS 路径 / driver-host 测试）无须改签名；sync 路径再用 `with_msg_id` 覆盖为 wire 权威值。
     pub fn new(channel_id: ChannelId, seq: Seq, kind: EventKind, fields: PostFields) -> Self {
+        let msg_id = if !fields.id.is_empty() {
+            Some(fields.id.clone())
+        } else if !fields.temporary_id.is_empty() {
+            Some(fields.temporary_id.clone())
+        } else {
+            None
+        };
         Self {
             id: channel_id,
             channel_id,
             seq,
             kind,
             fields,
+            msg_id,
         }
+    }
+
+    /// 覆盖 wire 权威 `msgId`（sync `events` / WS 路径，C2 phantom 判定）。
+    ///
+    /// 仅当传入 `Some(非空)` 时覆盖——`None` / `Some("")` 保留 `new` 派生的 fallback
+    /// （`id` ?? `temporary_id`），不抹掉。边界零信任，helix-im 不变量 4。
+    pub fn with_msg_id(mut self, msg_id: Option<String>) -> Self {
+        if let Some(id) = msg_id.filter(|s| !s.is_empty()) {
+            self.msg_id = Some(id);
+        }
+        self
     }
 }
 
@@ -109,6 +140,12 @@ pub enum SyncResponse {
     /// 有事件（列表，≥500 时 needs_continuation=true 需续拉）
     Events {
         events: Vec<EventEnvelope>,
+        /// C2：服务端按可见性过滤的消息内容快照（key=msgId，真源 post.rs:1047 `messages` 参数）。
+        ///
+        /// 落库时：type1/2 的 `event.msg_id ∈ messages` → 用此 map 内容落 message 行；
+        /// `∉` → phantom（不落行，cursor 照推）。type6 → 读 `messages[msg_id].read_bits`
+        /// 单调覆盖。空 map = 全 phantom（仅推 cursor）。owned `PostFields`（HX-C005）。
+        messages: std::collections::HashMap<String, PostFields>,
         /// 服务端权威水位（Go `SyncEntry.nextSeq`）：cursor 应推进到此值，**不要**用
         /// `max(event.seq)` 推导。当前契约下二者恒等（Go `next = events[末].EventSeq`），
         /// 但显式锚 nextSeq 防契约漂移（尾部 phantom seq 不进 events 数组时不落后）。

@@ -334,9 +334,80 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
             ("type".to_string(), SqlValue::Text(f.msg_type.clone())),
             ("message".to_string(), SqlValue::Text(f.message.clone())),
             ("props".to_string(), SqlValue::Text(f.props.clone())),
+            ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
             ("create_at".to_string(), SqlValue::Integer(f.create_at)),
         ]],
         conflict_key: Some("temporary_id"),
+    })
+}
+
+/// type=2 编辑：**仅覆盖内容列**，保留本地权威列（C2 真源 message_repo.rs:185-221
+/// `update_content_by_message_id`）。
+///
+/// 真源 cses edit 走 `UPDATE message SET <17 内容列> WHERE id = msg_id`，**显式不含**
+/// `read_bits` / `send_status` / `segment_id`（本地权威列）+ 身份列（id/channel_id/user_id/
+/// create_at/temporary_id）——对齐 Telegram `applyEdit`「只改内容、不碰已读态」。
+///
+/// 为何**不能**复用 `event_to_upsert_op`：后者全量 upsert（含 `read_bits=excluded.read_bits`），
+/// edit body 的 readBits 常为空（map body 无已读位 → unwrap_or_default → ""），upsert 的
+/// ON CONFLICT DO UPDATE 会把已落地行的 read_bits **擦成空串** → 丢已读位（与真源 + 本仓 spec
+/// 双重不一致）。改用 `BatchUpdate`（WHERE id IN）做**字段级 patch**，read_bits 列不在 patch
+/// 中 → 已读位保留。本地无此行 → no-op（真源 0 行命中=未覆盖，留段查询/远端补拉）。
+///
+/// patch 范围 = helix `message` 表中 PostFields 携带的内容列：`type` / `message` / `props`
+/// （schema.rs 其余内容列如 viewers/mentions/... PostFields 当前不解析 → 不进 patch，避免把
+/// 未解析的空值覆盖回库）。复杂度 O(1)（UPDATE WHERE id，idx_message_id 命中）。
+pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "message",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(msg_id.to_string())],
+        // 仅内容列；显式排除 read_bits / send_status / segment_id（本地权威）+ 身份列。
+        patch: vec![
+            ("type".to_string(), SqlValue::Text(fields.msg_type.clone())),
+            (
+                "message".to_string(),
+                SqlValue::Text(fields.message.clone()),
+            ),
+            ("props".to_string(), SqlValue::Text(fields.props.clone())),
+        ],
+    })
+}
+
+/// type=3 撤回：标记 message 行 `revoke=1`（C2 真源 post.rs:1110-1114 `batch_revoke`）。
+///
+/// 撤回**无须** messages body——直接按 wire msgId 命中行置 revoke。用 `BatchUpdate`
+/// （`UPDATE message SET revoke=1 WHERE id IN (msg_id)`）：本地无此行 → no-op（真源
+/// `mark_revoked` 返回 Ok(false)，幂等不报错）。**不**用 ON CONFLICT(id)——message 表
+/// `id` 仅有非唯一索引 idx_message_id（无 UNIQUE 约束），upsert 冲突子句会运行时报错。
+/// 复杂度 O(1)（UPDATE WHERE id，idx_message_id 命中）。
+pub fn revoke_op(msg_id: &str) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "message",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(msg_id.to_string())],
+        patch: vec![("revoke".to_string(), SqlValue::Integer(1))],
+    })
+}
+
+/// type=6 已读：**单调覆盖** message 行 `read_bits` 列（C2 真源 post.rs:1116-1120 `batch_apply_read`）。
+///
+/// read_bits 是服务端权威已读位（从 `messages[msg_id].read_bits` 取），直接赋值**非累加**
+/// （HX-C008：read_bits 单调覆盖非累加）。用 `BatchUpdate`（`UPDATE message SET read_bits=?
+/// WHERE id IN (msg_id)`）：本地无此行 → no-op（消息体尚未落地，待后续 type1 sync 带其
+/// 自身 read_bits 落库）。同样**不**用 ON CONFLICT(id)（message.id 无 UNIQUE 约束）。复杂度 O(1)。
+pub fn apply_read_op(msg_id: &str, read_bits: &str) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "message",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(msg_id.to_string())],
+        patch: vec![(
+            "read_bits".to_string(),
+            SqlValue::Text(read_bits.to_string()),
+        )],
     })
 }
 

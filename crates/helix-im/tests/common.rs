@@ -283,3 +283,70 @@ pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
         .collect();
     bytes::Bytes::from(serde_json::to_vec(&arr).unwrap())
 }
+
+// ─── C2：sync events + messages map（phantom / readBits / edit / revoke）────────
+
+/// 单条 ChannelEvent 描述（C2 测试用）：seq + type + msgId。
+#[allow(dead_code)]
+pub struct EvSpec {
+    pub seq: u64,
+    pub event_type: u8,
+    pub msg_id: &'static str,
+}
+
+#[allow(dead_code)]
+pub fn ev(seq: u64, event_type: u8, msg_id: &'static str) -> EvSpec {
+    EvSpec {
+        seq,
+        event_type,
+        msg_id,
+    }
+}
+
+/// 构造 sync `events` 响应，显式给定 events 列表 + messages 内容 map（C2 真源对齐）。
+///
+/// - `events`：每条带 msgId（phantom 判定靠 msgId 是否在 messages map）。
+/// - `messages`：`(msg_id, content_text, read_bits)` 三元组——content_text 落 message 列，
+///   read_bits 落 read_bits 列（type6 单调覆盖源）。不在此列表的 msgId = phantom。
+/// - `next_seq`：服务端权威水位（cursor 推进锚点）。
+#[allow(dead_code)]
+pub fn sync_reply_events_with_messages(
+    channel_id: u64,
+    events: &[EvSpec],
+    messages: &[(&str, &str, &str)],
+    next_seq: u64,
+) -> bytes::Bytes {
+    use serde_json::json;
+    let ev_json: Vec<_> = events
+        .iter()
+        .map(|e| {
+            json!({
+                "channelId": cid(channel_id),
+                "eventSeq": e.seq,
+                "eventType": e.event_type,
+                "msgId": e.msg_id,
+            })
+        })
+        .collect();
+    let mut msg_map = serde_json::Map::new();
+    for (mid, text, read_bits) in messages {
+        msg_map.insert(
+            mid.to_string(),
+            json!({
+                "id": mid,
+                "temporary_id": mid,
+                "channel_id": cid(channel_id),
+                "message": text,
+                "readBits": read_bits,
+            }),
+        );
+    }
+    sync_envelope(json!({
+        "channelId": cid(channel_id),
+        "kind": "events",
+        "events": ev_json,
+        "messages": serde_json::Value::Object(msg_map),
+        "nextSeq": next_seq,
+        "resetTo": serde_json::Value::Null,
+    }))
+}

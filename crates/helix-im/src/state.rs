@@ -241,6 +241,23 @@ pub struct ImState {
     /// 与 `increment_fetched` 同生命周期（hello 起点 clear）。
     pub need_sync_skip: HashSet<ChannelId>,
 
+    /// B2 冷启动自愈：本批次每个 increment_channel 帧带来的服务端权威水位
+    /// （`inc.last_event_seq`，单调 max 累计）。
+    ///
+    /// 真源 cses-client `heal_incomplete_backfill_once`（post.rs:666-715）：冷启动时
+    /// 「cursor 已推到 maxSeq 但本地只灌了首屏」的卡死 channel，靠「本地落后水位」识别后
+    /// 补发 sync 全量回填。helix sans-IO 核无直接读本地消息数的能力，故等价信号为
+    /// 「local cursor < 服务端 increment 水位」——记录于此。
+    /// 与 `increment_fetched` 同生命周期（hello 起点 clear），防跨会话残留误判。
+    pub increment_target: HashMap<ChannelId, Seq>,
+
+    /// B2 冷启动自愈：本批次是否已跑过一次 heal（once-only 守卫）。
+    ///
+    /// 对齐真源 sentinel `__im_backfill_heal_v1__`（post.rs:667/708）：phantom-heavy channel
+    /// 本地 cursor 恒 < 水位（HX-C008 §1.6：phantom 不推 cursor），若每次 global-end 都补发
+    /// 会进死循环 → 每批次只 heal 一次。hello 起点 reset 回 false（新会话允许再 heal 一次）。
+    pub backfill_healed: bool,
+
     /// 出站 WS 消息单调序号（client→server）。现网 Go `websocket_router.go:34 if r.Seq <= 0`
     /// 拒绝 seq≤0（"Invalid sequence"）→ 关连接。每条出站 WS 帧（ping 等）必带 `seq = ++client_seq`。
     pub client_seq: u64,
@@ -270,6 +287,8 @@ impl ImState {
             ping_timer: None,
             increment_fetched: HashSet::new(),
             need_sync_skip: HashSet::new(),
+            increment_target: HashMap::new(),
+            backfill_healed: false,
             client_seq: 0,
         }
     }
@@ -279,6 +298,8 @@ impl ImState {
     pub fn reset_increment_batch(&mut self) {
         self.increment_fetched.clear();
         self.need_sync_skip.clear();
+        self.increment_target.clear();
+        self.backfill_healed = false;
     }
 }
 

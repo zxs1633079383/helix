@@ -275,15 +275,251 @@ pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
     }
 }
 
-/// 批量 upsert EventEnvelope 列表（sync 路径，事件态）。
+// ─── C3-core：sync 驱动的 post:* mutation 事件 ────────────────────────────────
+//
+// 真源 = cses-client `apply_event_with_messages`（post.rs:1146-1448）。sync `events`
+// 路径逐事件 dispatch，按 event_type + 是否命中 messages map（phantom 判定）emit
+// 对应 `im:*` 业务事件。helix 无 `actorId` 解析（EventEnvelope 仅携 msg_id），故
+// payload 携 `channel_id`/`event_seq`/`msg_id`——前端 im:__bus__ dispatcher 按 channel
+// 分发，actor 维度暂缺（功能性需求，非 sync-v2 mutation 核心）。
+//
+// **信封铁律**：`{event, data}` 形态与既有 7 个 emit 一致（emit_post_received/sending/...），
+// driver 侧由 event_sink 透传进 im:__bus__（host-cli 无窗口 → 以 DomainEvent 计数验，
+// 真 app.emit 留 M2 接缝）。phantom 不 emit（与落库一致，HX-C008 cursor 独立推进不依赖可见性）。
+
+/// C3：type=6 已读 echo → `im:post:read`（真源 post.rs:1413-1437，无须 body 恒 emit）。
+///
+/// 真源 emit `im:channel:read_echo`；helix spec C3 统一命名 `im:post:read`（mutation 语义）。
+/// 服务端权威 read_bits 已经 C2 落库单调覆盖；本事件让前端刷新该 msg 的已读态 UI。
+pub fn emit_post_read(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:post:read",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "event_seq": event_seq,
+            "msg_id": msg_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_read: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// C3：type=2 编辑 → `im:post:updated`（真源 post.rs:1337，**仅可见时** emit；phantom noop）。
+pub fn emit_post_updated(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:post:updated",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "event_seq": event_seq,
+            "msg_id": msg_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_updated: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// C3：type=3 撤回 → `im:post:deleted`（真源 post.rs:1402，无须 body，有 msgId 即 emit）。
+pub fn emit_post_deleted(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:post:deleted",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "event_seq": event_seq,
+            "msg_id": msg_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_deleted: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// C3：type=1 可见新消息 → `im:channel:update-by-post`（离线未读 +N，真源 post.rs:1204-1248）。
+///
+/// 真源走 `update_channel_from_post`（内含 sender 豁免：msg_user_id != auth_id 才 +1）后
+/// emit `im:channel:update-by-post` 让 +N 落到前端 badge。helix-core 无 userId（不认识身份），
+/// sender 豁免归 driver/前端裁决——本事件仅透传 channel_id + msg_id，前端按 auth 决定是否 +N。
+pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channel:update-by-post",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "event_seq": event_seq,
+            "msg_id": msg_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_update_by_post: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// C3：逐 sync 事件产出 mutation 事件 Effect（真源 dispatch table post.rs:1157-1448）。
+///
+/// phantom-aware（与 `batch_upsert_events_with_messages` 落库分桶同口径）：
+/// - **type1 new**：`msg_id ∈ messages`（可见）→ `im:post:received` + `im:channel:update-by-post`
+///   （真源 1252/1232，离线补未读 +N）；`∉`（phantom）→ **不 emit**（cursor 照推，UI 不渲染）。
+/// - **type2 edit**：`msg_id ∈ messages`（可见）→ `im:post:updated`（真源 1337）；phantom → noop。
+/// - **type3 revoke**：有 `msg_id` → `im:post:deleted`（真源 1402，无须 body）。
+/// - **type6 read**：有 `msg_id` → `im:post:read`（真源 1428，无须 body 恒 emit）。
+/// - **Other(n)**：前向兼容，不 emit。
+///
+/// 复杂度：每事件 O(1)（HashMap 查 + 1-2 个 Emit 构造），与落库批同遍历语义但分离关注点
+/// （落库 = 状态变更；emit = UI 通知）。两者 phantom 判定一致：可见才动 UI（HX-C008）。
+pub fn sync_mutation_emits(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+) -> Vec<Effect> {
+    use crate::sync_session::EventKind;
+
+    let mut emits = Vec::new();
+    for ev in events {
+        let Some(msg_id) = ev.msg_id.as_deref() else {
+            // 无 msgId（read 事件可空 / legacy）→ 无可通知的 post，跳过。
+            continue;
+        };
+        match ev.kind {
+            // type1：可见（命中 map）才 emit received + channel update-by-post（离线未读 +N）。
+            EventKind::PostUpsert => {
+                if messages.contains_key(msg_id) {
+                    emits.push(emit_post_received(ev.channel_id, ev.seq.0));
+                    emits.push(emit_channel_update_by_post(ev.channel_id, ev.seq.0, msg_id));
+                }
+                // else phantom → 不 emit（UI 不渲染，真源 1270-1280）。
+            }
+            // type2：可见才 emit updated（phantom noop，真源 1346）。
+            EventKind::PostEdit => {
+                if messages.contains_key(msg_id) {
+                    emits.push(emit_post_updated(ev.channel_id, ev.seq.0, msg_id));
+                }
+            }
+            // type3：无须 body，有 msgId 即 emit deleted（真源 1367/1402）。
+            EventKind::PostRevoke => {
+                emits.push(emit_post_deleted(ev.channel_id, ev.seq.0, msg_id));
+            }
+            // type6：无须 body，恒 emit read（真源 1413-1437）。
+            EventKind::PostRead => {
+                emits.push(emit_post_read(ev.channel_id, ev.seq.0, msg_id));
+            }
+            // 前向兼容：未知类型不 emit（cursor 仍照推）。
+            EventKind::Other(_) => {}
+        }
+    }
+    emits
+}
+
+/// 批量 upsert EventEnvelope 列表（**inline 内容**路径：Snapshot / 直接事件态 / 测试帧）。
 ///
 /// 收口到 `channel::event_to_upsert_op` —— 与 WS 推送路径**共用同一落库映射**，
 /// 写向 678 真库 `message` 表（PK=temporary_id，与发送态同表同主键语义）。
-/// 不再有 "messages" 影子表：sync 增量主链路（handle_sync_reply → Persist）落库后
-/// cursor 正常推进，续拉至 cursor==服务端 maxSeq，无 `no such table` → 无 sync 风暴。
+/// 不再有 "messages" 影子表：sync 增量主链路落库后 cursor 正常推进。
+///
+/// **注意**：此函数把每个事件**无条件**落库（内容取自事件自身 `fields`）——用于内容内联在
+/// 事件里的场景（Snapshot 重建、legacy 测试帧）。sync `events` 路径（内容在分离的 messages
+/// map + phantom 语义）须用 `batch_upsert_events_with_messages`。
 pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
     events
         .iter()
         .map(crate::channel::event_to_upsert_op)
         .collect()
+}
+
+/// C2：批量落库 sync `events`——按 `messages` map 做 phantom / readBits / edit / revoke 分桶。
+///
+/// 真源 = cses-client `batch_write_events`（post.rs:1043-1134）。逐事件按 `event.msg_id` 在
+/// `messages` map 中的命中情况分发（铁律：cursor 推进由调用方独立负责，phantom 不卡 cursor）：
+///
+/// - **type1 new**：`msg_id ∈ map` → 用 **map 内容**（含权威 read_bits）upsert message 行
+///   （真源 1071-1078）；`∉ map` → **phantom**：不产 StorageOp（cursor 由 commit_target 照推，
+///   HX-C008 §1.6）。
+/// - **type2 edit**：`msg_id ∈ map` → `edit_content_op`（**仅覆盖内容列** UPDATE WHERE id，
+///   保留本地 read_bits/send_status/segment_id，真源 `update_content_by_message_id`）；`∉` → noop。
+///   **不**走 upsert——避免 edit 空 readBits 经 ON CONFLICT 擦回已读位（C2 BLOCKING-1）。
+/// - **type3 revoke**：**无须** map body → 恒发 `revoke_op`（UPDATE revoke=1 WHERE id，真源 1086/1110）。
+/// - **type6 read**：读 `map[msg_id].read_bits` → `apply_read_op`（**单调覆盖** read_bits 列，
+///   真源 1087-1090/1116；map 无该 msg 或 read_bits 空 → 跳过，无可写位）。
+/// - **Other(n)**：前向兼容，不落库（cursor 照推）。
+///
+/// 复杂度：每事件 O(1)（HashMap 查 + 单条 upsert/update 构造）；phantom/未命中分支零分配。
+/// 内容取自 map 的 owned `PostFields`（HX-C005，parser 阶段已一次解析），落库零再解析。
+pub fn batch_upsert_events_with_messages(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+) -> Vec<StorageOp> {
+    use crate::sync_session::EventKind;
+
+    let mut ops = Vec::with_capacity(events.len());
+    for ev in events {
+        // wire msgId（phantom 判定键）；缺省回退 fields 派生值（new 已填）。
+        let msg_id = ev.msg_id.as_deref();
+        match ev.kind {
+            // type1 new：内容来自 messages map（命中才落，未命中=phantom noop）。
+            // 全量 upsert（含 read_bits=excluded）——new 行不预存，无擦回风险。
+            EventKind::PostUpsert => {
+                if let Some(fields) = msg_id.and_then(|id| messages.get(id)) {
+                    // 用 map 权威内容重建一个 EventEnvelope 视图（seq/channel 取事件，内容取 map），
+                    // 复用 event_to_upsert_op 的同一落库映射（PK 三级回退 / read_bits 列对齐 678）。
+                    let ev_with_body = crate::sync_session::EventEnvelope::new(
+                        ev.channel_id,
+                        ev.seq,
+                        ev.kind.clone(),
+                        fields.clone(),
+                    );
+                    ops.push(crate::channel::event_to_upsert_op(&ev_with_body));
+                }
+                // else: phantom（type1）→ 不落行，cursor 由调用方照推。
+            }
+            // type2 edit：命中 map → **仅覆盖内容列** UPDATE WHERE id（保留本地 read_bits/
+            // send_status/segment_id，真源 update_content_by_message_id）；∉ map → noop。
+            // 关键：edit **不**走 event_to_upsert_op 全量 upsert——否则 edit body 空 readBits
+            // 会经 ON CONFLICT DO UPDATE 把已落地行的 read_bits 擦成空串（丢已读位，C2 BLOCKING-1）。
+            EventKind::PostEdit => {
+                if let Some(id) = msg_id {
+                    if let Some(fields) = messages.get(id) {
+                        ops.push(crate::channel::edit_content_op(id, fields));
+                    }
+                    // else: 不可见（type2 ∉ map）→ 不落行，cursor 照推。
+                }
+            }
+            // type3 revoke：无须 body，按 msgId 命中行置 revoke=1（无 msgId 则跳过）。
+            EventKind::PostRevoke => {
+                if let Some(id) = msg_id {
+                    ops.push(crate::channel::revoke_op(id));
+                }
+            }
+            // type6 read：读 map[msgId].read_bits 单调覆盖；无 body / 空位 → 跳过。
+            EventKind::PostRead => {
+                if let Some(id) = msg_id {
+                    if let Some(fields) = messages.get(id) {
+                        if !fields.read_bits.is_empty() {
+                            ops.push(crate::channel::apply_read_op(id, &fields.read_bits));
+                        }
+                    }
+                }
+            }
+            // 前向兼容：未知类型不落库（cursor 照推）。
+            EventKind::Other(_) => {}
+        }
+    }
+    ops
 }

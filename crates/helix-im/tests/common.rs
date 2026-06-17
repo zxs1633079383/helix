@@ -94,6 +94,7 @@ impl Harness {
     }
 
     /// 喂一个 Tick，收集 Effects
+    #[allow(dead_code)]
     pub fn step(&mut self, tick: Tick, now_ms: u64) -> Vec<EffectKind> {
         use helix_core::Module;
         self.sink.clear();

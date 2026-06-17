@@ -24,6 +24,7 @@ pub mod pending_send;
 pub mod schema;
 pub mod state;
 pub mod sync_session;
+pub(crate) mod ws;
 
 pub use error::ImError;
 pub use module::ImModule;

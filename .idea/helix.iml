@@ -5,6 +5,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-core/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-driver-ffi/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/helix-driver-host/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-driver-host/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-driver-host/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-driver-native/benches" isTestSource="true" />
@@ -14,6 +15,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-im/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-im/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/helix-im/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/helix-core/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/helix-host-cli/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

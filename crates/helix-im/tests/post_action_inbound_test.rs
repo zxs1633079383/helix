@@ -31,7 +31,7 @@ use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::InboundBytes;
 use helix_core::Tick;
 use helix_im::module::ImConfig;
-use helix_im::state::{ChannelId, SendStatus};
+use helix_im::state::ChannelId;
 use helix_im::ImModule;
 
 /// 构造 Harness 并以指定 cursor 种子注册单个 channel（模拟 increment 种 cursor）。
@@ -409,13 +409,13 @@ fn post_echo_then_15s_timer_does_not_mark_unsend() {
 
 /// 回归锚: C1 —— 未注册 channel（driver 未种 cursor）的 post 帧静默忽略，与 legacy Event 同口径。
 ///
-/// 强化（reviewer minor）：先断言该帧**确实解析成 `InboundEvent::Post`**（非 parse 失败 Ignored），
-/// 锁定"静默忽略 = channel 查找未命中（module.rs 的 get_mut 落空）"这条**意图路径**，而非
-/// 因解析失败误判通过。即"帧合法、只是 channel 没注册"→ 不落库不 panic。
+/// 强化（reviewer minor）：锁定"静默忽略 = channel 查找未命中（post handler 的 get_mut 落空）"
+/// 这条**意图路径**——帧本身是合法 `action=="post"`（与上方多个 persist 用例同一 `post_frame`
+/// 构造器，已证其在已注册 channel 下能落库），此处静默忽略只可能源自 channel 未注册，而非解析失败。
+/// 合并后 dispatch 走 registry by action（`ws/handlers/post.rs`），不再有 `classify_inbound` 集中分类
+/// 可在集成测试侧内省；意图由"同构造器的正向 persist 用例 + 本用例无 persist"两侧夹逼锁定。
 #[test]
 fn post_frame_unregistered_channel_silently_ignored() {
-    use helix_im::parser::{classify_inbound, InboundEvent};
-
     // channel 5 未注册
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
@@ -430,16 +430,6 @@ fn post_frame_unregistered_channel_silently_ignored() {
     };
 
     let tick = post_frame(5, 1, "tmp_u", "7xq3r6nqrjrm8nydit6awaaaaa", "orphan");
-    // 先证明帧本身合法解析成 Post（意图路径锁定：忽略源自 channel 未注册，非 parse 失败）。
-    if let Tick::Inbound(InboundBytes(bytes)) = &tick {
-        assert!(
-            matches!(classify_inbound(bytes.as_ref()), InboundEvent::Post(_)),
-            "frame must parse to InboundEvent::Post (silent-ignore must be the channel-lookup miss)"
-        );
-    } else {
-        panic!("post_frame must build a Tick::Inbound");
-    }
-
     let effects = h.step(tick, 1_100);
     assert!(
         !effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),

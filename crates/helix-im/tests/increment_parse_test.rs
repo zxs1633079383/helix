@@ -16,7 +16,7 @@ use helix_core::effect::Effect;
 use helix_core::tick::InboundBytes;
 use helix_core::Module;
 use helix_core::Tick;
-use helix_im::parser::parse_increment_channel;
+use helix_im::parser::{parse_inbound_value, parse_increment_channel};
 use helix_im::state::{ChannelId, Seq};
 
 /// 26 字符 ASCII channelId（base32 形态占位，长度恰 26）。
@@ -161,6 +161,37 @@ fn event_seq_priority_level1_over_others() {
     });
     let ev = event_envelope_from(&frame);
     assert_eq!(ev.seq, Seq(111), "data.event_seq 应优先于 props / 顶层");
+}
+
+#[test]
+fn parse_inbound_value_reuses_parsed_json_for_event_seq_fallback() {
+    let frame = serde_json::json!({
+        "channel_event_seq": 333,
+        "data": {
+            "channel_id": CH26,
+            "event_type": 1,
+            "props": { "channel_event_seq": 222 }
+        }
+    });
+
+    let ev = parse_inbound_value(&frame).expect("parsed Value frame should parse");
+
+    assert_eq!(ev.seq, Seq(222));
+    assert_eq!(ev.channel_id, ChannelId::from_str(CH26).unwrap());
+}
+
+#[test]
+fn parse_inbound_value_rejects_invalid_data_without_bytes() {
+    let frame = serde_json::json!({
+        "data": { "event_seq": 111, "event_type": 1 }
+    });
+
+    let err = parse_inbound_value(&frame).expect_err("missing channel_id should fail");
+
+    assert!(
+        matches!(&err, helix_im::ImError::Parse(msg) if msg == "missing/invalid data.channel_id"),
+        "unexpected error: {err:?}"
+    );
 }
 
 // ─── ③ 非法 data → Ignored / None（零信任，不 panic） ────────────────────────

@@ -103,7 +103,14 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     let v: serde_json::Value = serde_json::from_slice(bytes)
         .map_err(|e| ImError::Parse(format!("invalid JSON: {}", e)))?;
 
-    let data = v
+    parse_inbound_value(&v)
+}
+
+/// 从已解析的 WS 入站 JSON 根节点解析 EventEnvelope。
+///
+/// legacy WS registry 路径已在 `WsFrame::parse` 得到 `Value`，复用它避免 raw bytes 二次解析。
+pub fn parse_inbound_value(root: &serde_json::Value) -> Result<EventEnvelope, ImError> {
+    let data = root
         .get("data")
         .ok_or_else(|| ImError::Parse("missing 'data' field".to_string()))?;
 
@@ -121,7 +128,7 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
     let seq = data["event_seq"]
         .as_u64()
         .or_else(|| data["props"]["channel_event_seq"].as_u64())
-        .or_else(|| v["channel_event_seq"].as_u64())
+        .or_else(|| root["channel_event_seq"].as_u64())
         .or_else(|| data["seq"].as_u64())
         .ok_or_else(|| {
             ImError::Parse(
@@ -134,7 +141,7 @@ pub fn parse_inbound(bytes: &[u8]) -> Result<EventEnvelope, ImError> {
 
     let kind = parse_event_kind(event_type);
     // HX-C005：字段提取上移此处（`v` 已解析在手），落库路径零再解析、零回序列化。
-    let fields = extract_post_fields(&v);
+    let fields = extract_post_fields(root);
     // WS 帧 wire `msg_id`（兼容 msgId）；缺省 None（with_msg_id 内部回退 fields 派生值）。
     let msg_id = data
         .get("msg_id")

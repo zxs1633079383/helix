@@ -20,7 +20,7 @@ impl WsMessageHandler for LegacyEventHandler {
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        match crate::parser::parse_inbound(frame.raw()) {
+        match crate::parser::parse_inbound_value(frame.root()) {
             Ok(ev) => {
                 if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
                     ch.ingest(ev, out, ctx.now_ms)?;

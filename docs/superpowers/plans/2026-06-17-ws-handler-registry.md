@@ -263,53 +263,16 @@ mod tests {
 Create `crates/helix-im/src/ws/context.rs`:
 
 ```rust
-use helix_core::EffectSink;
-
-use crate::error::ImError;
 use crate::module::ImModule;
-use crate::state::{ChannelId, Seq, ServerId};
-use crate::sync_session::IncrementChannel;
 
 pub(crate) struct ImWsContext<'a> {
-    module: &'a mut ImModule,
-    now_ms: u64,
+    pub(crate) module: &'a mut ImModule,
+    pub(crate) now_ms: u64,
 }
 
 impl<'a> ImWsContext<'a> {
     pub(crate) fn new(module: &'a mut ImModule, now_ms: u64) -> Self {
         Self { module, now_ms }
-    }
-
-    pub(crate) fn handle_hello(&mut self, connection_id: String, out: &mut EffectSink) {
-        self.module.handle_hello(connection_id, out);
-    }
-
-    pub(crate) fn handle_increment(&mut self, inc: &IncrementChannel, out: &mut EffectSink) {
-        self.module.handle_increment(inc, out);
-    }
-
-    pub(crate) fn handle_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
-        self.module.handle_increment_end(ch, out);
-    }
-
-    pub(crate) fn handle_echo(
-        &mut self,
-        channel_id: ChannelId,
-        seq: Seq,
-        temporary_id: &str,
-        server_id: ServerId,
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
-        self.module
-            .handle_echo(channel_id, seq, temporary_id, server_id, out)
-    }
-
-    pub(crate) fn handle_legacy_inbound(
-        &mut self,
-        raw: &[u8],
-        out: &mut EffectSink,
-    ) -> Result<(), ImError> {
-        self.module.handle_legacy_inbound(raw, self.now_ms, out)
     }
 }
 ```
@@ -446,6 +409,7 @@ git commit -m "feat(im): 添加 WS handler 注册表骨架"
 
 **Files:**
 - Modify: `crates/helix-im/src/module.rs`
+- Modify: `crates/helix-im/src/ws/context.rs`
 - Create: `crates/helix-im/src/ws/handlers/mod.rs`
 - Create: `crates/helix-im/src/ws/handlers/legacy_event.rs`
 
@@ -487,6 +451,26 @@ pub(crate) fn handle_legacy_inbound(
 
 - [ ] **Step 3: Add legacy handler**
 
+Add this method to `crates/helix-im/src/ws/context.rs`:
+
+```rust
+use helix_core::EffectSink;
+
+use crate::error::ImError;
+
+impl<'a> ImWsContext<'a> {
+    pub(crate) fn handle_legacy_inbound(
+        &mut self,
+        raw: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.module.handle_legacy_inbound(raw, self.now_ms, out)
+    }
+}
+```
+
+- [ ] **Step 4: Add legacy handler**
+
 Create `crates/helix-im/src/ws/handlers/legacy_event.rs`:
 
 ```rust
@@ -514,7 +498,7 @@ static LEGACY_EVENT: WsHandlerEntry = WsHandlerEntry {
 };
 ```
 
-- [ ] **Step 4: Replace only the legacy path in `Tick::Inbound`**
+- [ ] **Step 5: Replace only the legacy path in `Tick::Inbound`**
 
 In `crates/helix-im/src/module.rs`, replace the current `Tick::Inbound(bytes) => { ... }`
 body with dispatcher wiring:
@@ -534,7 +518,7 @@ Tick::Inbound(bytes) => {
 At this point, action-bearing frames will return `UnsupportedWsAction` until their
 handlers are migrated in later tasks.
 
-- [ ] **Step 5: Run legacy replay tests**
+- [ ] **Step 6: Run legacy replay tests**
 
 Run:
 
@@ -549,7 +533,7 @@ Expected:
 test result: ok
 ```
 
-- [ ] **Step 6: Commit legacy dispatch wiring**
+- [ ] **Step 7: Commit legacy dispatch wiring**
 
 ```bash
 git add crates/helix-im/src/module.rs crates/helix-im/src/ws/handlers
@@ -560,6 +544,7 @@ git commit -m "feat(im): 将 legacy WS 帧接入 handler registry"
 
 **Files:**
 - Modify: `crates/helix-im/src/module.rs`
+- Modify: `crates/helix-im/src/ws/context.rs`
 - Create: `crates/helix-im/src/ws/handlers/hello.rs`
 - Modify: `crates/helix-im/src/ws/handlers/mod.rs`
 
@@ -573,6 +558,18 @@ pub(crate) fn handle_hello(&mut self, connection_id: String, out: &mut EffectSin
 
 - [ ] **Step 2: Register hello handler module**
 
+Add this method to `crates/helix-im/src/ws/context.rs`:
+
+```rust
+impl<'a> ImWsContext<'a> {
+    pub(crate) fn handle_hello(&mut self, connection_id: String, out: &mut EffectSink) {
+        self.module.handle_hello(connection_id, out);
+    }
+}
+```
+
+- [ ] **Step 3: Register hello handler module**
+
 Edit `crates/helix-im/src/ws/handlers/mod.rs`:
 
 ```rust
@@ -580,7 +577,7 @@ pub(crate) mod hello;
 pub(crate) mod legacy_event;
 ```
 
-- [ ] **Step 3: Add hello handler**
+- [ ] **Step 4: Add hello handler**
 
 Create `crates/helix-im/src/ws/handlers/hello.rs`:
 
@@ -615,7 +612,7 @@ static HELLO: WsHandlerEntry = WsHandlerEntry {
 };
 ```
 
-- [ ] **Step 4: Run hello lifecycle tests**
+- [ ] **Step 5: Run hello lifecycle tests**
 
 Run:
 
@@ -630,7 +627,7 @@ Expected:
 test result: ok
 ```
 
-- [ ] **Step 5: Commit hello migration**
+- [ ] **Step 6: Commit hello migration**
 
 ```bash
 git add crates/helix-im/src/module.rs crates/helix-im/src/ws/handlers
@@ -641,6 +638,7 @@ git commit -m "feat(im): 迁移 hello WS handler"
 
 **Files:**
 - Modify: `crates/helix-im/src/module.rs`
+- Modify: `crates/helix-im/src/ws/context.rs`
 - Create: `crates/helix-im/src/ws/handlers/increment_channel.rs`
 - Create: `crates/helix-im/src/ws/handlers/increment_channel_end.rs`
 - Modify: `crates/helix-im/src/ws/handlers/mod.rs`
@@ -661,7 +659,26 @@ pub(crate) fn handle_increment(
 pub(crate) fn handle_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
 ```
 
-- [ ] **Step 2: Register increment handler modules**
+- [ ] **Step 2: Add increment methods to context**
+
+Add these imports and methods to `crates/helix-im/src/ws/context.rs`:
+
+```rust
+use crate::state::ChannelId;
+use crate::sync_session::IncrementChannel;
+
+impl<'a> ImWsContext<'a> {
+    pub(crate) fn handle_increment(&mut self, inc: &IncrementChannel, out: &mut EffectSink) {
+        self.module.handle_increment(inc, out);
+    }
+
+    pub(crate) fn handle_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
+        self.module.handle_increment_end(ch, out);
+    }
+}
+```
+
+- [ ] **Step 3: Register increment handler modules**
 
 Edit `crates/helix-im/src/ws/handlers/mod.rs`:
 
@@ -672,7 +689,7 @@ pub(crate) mod increment_channel_end;
 pub(crate) mod legacy_event;
 ```
 
-- [ ] **Step 3: Add increment channel handler**
+- [ ] **Step 4: Add increment channel handler**
 
 Create `crates/helix-im/src/ws/handlers/increment_channel.rs`:
 
@@ -705,7 +722,7 @@ static INCREMENT_CHANNEL: WsHandlerEntry = WsHandlerEntry {
 };
 ```
 
-- [ ] **Step 4: Add increment end handler**
+- [ ] **Step 5: Add increment end handler**
 
 Create `crates/helix-im/src/ws/handlers/increment_channel_end.rs`:
 
@@ -740,7 +757,7 @@ static INCREMENT_CHANNEL_END: WsHandlerEntry = WsHandlerEntry {
 };
 ```
 
-- [ ] **Step 5: Run increment tests**
+- [ ] **Step 6: Run increment tests**
 
 Run:
 
@@ -756,7 +773,7 @@ Expected:
 test result: ok
 ```
 
-- [ ] **Step 6: Commit increment migration**
+- [ ] **Step 7: Commit increment migration**
 
 ```bash
 git add crates/helix-im/src/module.rs crates/helix-im/src/ws/handlers
@@ -767,6 +784,7 @@ git commit -m "feat(im): 迁移 increment WS handlers"
 
 **Files:**
 - Modify: `crates/helix-im/src/module.rs`
+- Modify: `crates/helix-im/src/ws/context.rs`
 - Create: `crates/helix-im/src/ws/handlers/posted.rs`
 - Modify: `crates/helix-im/src/ws/handlers/mod.rs`
 
@@ -785,7 +803,29 @@ pub(crate) fn handle_echo(
 ) -> Result<(), ImError> {
 ```
 
-- [ ] **Step 2: Register posted handler module**
+- [ ] **Step 2: Add echo method to context**
+
+Add these imports and method to `crates/helix-im/src/ws/context.rs`:
+
+```rust
+use crate::state::{Seq, ServerId};
+
+impl<'a> ImWsContext<'a> {
+    pub(crate) fn handle_echo(
+        &mut self,
+        channel_id: ChannelId,
+        seq: Seq,
+        temporary_id: &str,
+        server_id: ServerId,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.module
+            .handle_echo(channel_id, seq, temporary_id, server_id, out)
+    }
+}
+```
+
+- [ ] **Step 3: Register posted handler module**
 
 Edit `crates/helix-im/src/ws/handlers/mod.rs`:
 
@@ -797,7 +837,7 @@ pub(crate) mod legacy_event;
 pub(crate) mod posted;
 ```
 
-- [ ] **Step 3: Add posted echo handler**
+- [ ] **Step 4: Add posted echo handler**
 
 Create `crates/helix-im/src/ws/handlers/posted.rs`:
 
@@ -855,7 +895,7 @@ static POSTED: WsHandlerEntry = WsHandlerEntry {
 };
 ```
 
-- [ ] **Step 4: Run echo tests**
+- [ ] **Step 5: Run echo tests**
 
 Run:
 
@@ -870,7 +910,7 @@ Expected:
 test result: ok
 ```
 
-- [ ] **Step 5: Commit posted migration**
+- [ ] **Step 6: Commit posted migration**
 
 ```bash
 git add crates/helix-im/src/module.rs crates/helix-im/src/ws/handlers

@@ -182,6 +182,8 @@ impl ExecutionShell {
                 Effect::CancelTimer { id } => {
                     self.timer_map.remove(id);
                 }
+                // HttpFire 故意不注册 corr：它无 Correlation、不产 PortReply（fire-and-forget），
+                // 与 Emit / PersistFire 同列落通配臂。
                 _ => {}
             }
         }

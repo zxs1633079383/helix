@@ -105,6 +105,21 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 实现 / 修复 IM 行为有争议时，**现网 `~/workspace/angular/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；机制级对齐标注见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md) 各节。
 
+### 4.5.1 csesapi → cses-im-server 迁移全量图谱 + sync-v2 落地真相（接口/事件/用例 索引 · 按需 Read）
+
+> 现网（mattermost csesapi 后端 + cses-client 前端）的**接口/WS 事件/用户用例/渲染逻辑/Tauri 交互**全量映射 + 三态缺口矩阵 + sync-v2 落地状态——做迁移/对齐/排查时的**消费视角真源**。本表只挂索引，正文按需 Read（渐进式披露）。
+
+| 文档 | 视角 | 一句话 |
+|---|---|---|
+| [`crates/helix-im/docs/sync-v2-能力与缺口状态.md`](crates/helix-im/docs/sync-v2-能力与缺口状态.md) | **落地真相（现在到哪了）** | 三件套引擎 ✅ + sync-v2 ~85% + C1/C2/C3/B2 实现完成；§5 = 今日必办（真 Go 数据路径端到端验证） |
+| [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **全量图谱总索引** | backend-\*（源端 HTTP/WS 清单）+ client-\*（前端用例/渲染/Tauri）+ gap-\* 三类导读 |
+| [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **缺口矩阵** | covered 86 / partial 30 / missing 7 + 替代 mattermost 阻塞能力优先级 |
+| `…/full-map/partials/1-…posts` · `2-…channel-sync` · `3-…user-misc` · `4-…bot-agent` | **后端 HTTP** | 124 接口四域全清单 + wire 契约字段 + 命名陷阱 |
+| `…/full-map/partials/5--backend-ws-events.md` | **后端 WS 推送** | 19 事件常量真源（`websocket_message.go`）+ `event_seq` 注入铁律 |
+| `…/full-map/partials/6--client-usecases.md` · `7--client-ui-rendering.md` · `8--client-tauri-im.md` | **前端用例/渲染/Tauri** | message-v3 service 42 用例 + UI readBits/字段契约 + src-tauri Rust IM 核心 14 用例集 |
+| `…/full-map/partials/9..12-gap-*.md` | **三态缺口** | posts/channel/user-misc/bot-agent 各域 covered/partial/missing 对照 |
+| [`crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md`](crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](crates/helix-im/docs/csesapi-migration/02-迁移蓝图.md) | **可达性 + 蓝图** | 接口可达性逐条 + 迁移蓝图 |
+
 ## 4.6 专家 Agent / Skill 注册表（按需调用 · 渐进式披露）
 
 > 完整调度规则 + 编制配方见 [`.claude/rules/expert-dispatch.md`](.claude/rules/expert-dispatch.md)（按需 Read）。

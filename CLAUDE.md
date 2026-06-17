@@ -139,5 +139,3 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 ## 6. 提交规范（commit / PR / tag）
 
 **提交代码前必读 → [`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**：Conventional Commits（中文 description/body）+ 触发条件命中时的 5 段结构化 body（影响范围 / 改动影响面 / 功能改进 / Harness 更新 / 验证）+ PR / Tag 策略。本仓有 `docs/harness/` → Harness 一节必填。配套 `scripts/gate.sh` + pre-push hook。
-
-

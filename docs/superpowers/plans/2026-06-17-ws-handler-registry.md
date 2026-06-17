@@ -4,9 +4,32 @@
 
 **Goal:** Replace `helix-im` WebSocket inbound `action` dispatch with a `linkme`-backed `action -> handler` registry so new WS message types can be added without changing the central dispatcher.
 
-**Architecture:** Keep the registry entirely inside `helix-im`; `helix-core` and drivers remain unchanged. Use `linkme::distributed_slice` for distributed static registration, a `OnceLock<HashMap<...>>` lookup for dispatch, and an `ImWsContext` wrapper around `ImModule` for the first migration pass.
+**Architecture:** Keep the registry entirely inside `helix-im`; `helix-core` and drivers remain unchanged. Use `linkme::distributed_slice` for distributed static registration, a `OnceLock<HashMap<...>>` lookup for dispatch, and a thin `ImWsContext` for handler state access.
 
 **Tech Stack:** Rust 2021, `linkme` 0.3.35, `serde_json`, existing `helix-core` `Tick`/`Effect` model, existing `helix-im` replay tests.
+
+## Current Interface Truth After Task 1 Review
+
+The original planning snippets below still contain some early function-pointer
+sketches. The implemented and reviewed Task 1 interface is authoritative for
+Tasks 2 through 7:
+
+- `WsMessageHandler` is the strategy interface:
+  - `action(&self) -> &'static str`
+  - `handle(&self, ctx: &mut ImWsContext<'_>, frame: &WsFrame) -> Result<Vec<ImEffect>, ImError>`
+- `WsHandlerRegistration` stores `action` plus `&'static dyn WsMessageHandler`.
+  `build_registry` must reject duplicate actions and reject
+  `registration.action != handler.action()`.
+- `dispatch_ws(ctx, frame)` receives a parsed `WsFrame` and returns
+  `Result<Vec<ImEffect>, ImError>`.
+- `ImWsContext` must not expose `EventSink`; handlers return `Effect::Emit`
+  rather than emitting out of band.
+- `WsFrame::action()` reads only top-level `action`; frames without top-level
+  `action` map to `__legacy_event__`.
+- `WsFrame::event_seq()` keeps the existing real-wire priority first:
+  `data.event_seq` -> `data.props.channel_event_seq` ->
+  top-level `channel_event_seq` -> `data.seq`, then compatibility fallbacks
+  `eventSeq` -> `event.seq` -> `payload.eventSeq`.
 
 ---
 

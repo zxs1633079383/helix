@@ -24,10 +24,10 @@
 - **代码事实（2026-06-10 起核实）**：`crates/helix-core` 内零处 `cursor_upsert`/`CursorUpsert`；`grep -i cursor crates/helix-core/src` 仅命中注释举例（非 API 名）。口径护栏：grep「零业务概念」的承诺对象只含 channel/message/temporaryId 三词，**不含 cursor**（不要声称 `grep cursor = 0`）。
 - **状态**：已定。配套 [架构设计 §3.2/§4.9](../过会方案/helix-core-im-架构设计.md) + 纪要拍板 #1。GOAL §3 同步。
 
-## ADR-005 — FFI 同步调用必须 spawn_blocking（实现待补）
+## ADR-005 — FFI 同步调用必须 spawn_blocking（storage 已落地，engine 接线待 M3-F4）
 - **决策**：FFI driver 的同步 SQLite C 调用包 `spawn_blocking`；不许阻塞 tokio worker。
 - **理由**：MAJ-4。
-- **状态**：契约已定（HX-C006），实现当前 `todo!()`，FFI 落地前必补（P1）。
+- **状态**：storage 端 `spawn_blocking` **已落地**于 `helix-driver-host/src/storage.rs` ×7（native/FFI 共享 host 存储栈，一次满足两端继承，ADR-007）；FFI 经 `FfiStorage` 薄壳委托即继承。**C-ABI 导出层 engine_loop 接线仍 stub（ROADMAP M3-F4，非架构偏移）**。契约 HX-C006 已守。
 
 ## ADR-006 — 产品维护目标收缩为 PC Tauri + Flutter，wasm/web 暂停维护
 - **决策**：Helix 当前产品化目标只覆盖两类客户端：PC 端 Tauri（`helix-driver-native`）与手机端 Flutter（`helix-driver-ffi`）。网页端暂不做，`helix-driver-wasm` 保留为历史实验/归档代码，不进入 roadmap、CI 必跑矩阵、交付验收或日常维护。

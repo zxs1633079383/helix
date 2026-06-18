@@ -1,5 +1,7 @@
 # helix-host-cli 局部指令（就近优先，全局见根 CLAUDE.md）
 
+> 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
+
 ## 本 crate 是什么
 
 最小 native 宿主 bin（sync-v2 Phase A 落地）：把 `ExecutionShell` + `ImModule` + `NativeTransport` 接成端到端可跑闭环，真连 Go 验证收发/握手。host 装配层 = 选 driver、建 ports、分配 TransportId、跑 `run_engine_loop_with_transports`。

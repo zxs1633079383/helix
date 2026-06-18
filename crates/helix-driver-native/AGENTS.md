@@ -1,5 +1,7 @@
 # helix-driver-native 局部指令（就近优先，全局见根 CLAUDE.md）
 
+> 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
+
 ## 本 crate 契约（engine_loop 五不变量，破坏须同步改文档）
 
 > 刀2-driver：Persist / Http(必达) / HttpFire(可丢) 统一成 `BoundedSpawner` 原语

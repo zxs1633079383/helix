@@ -1,5 +1,7 @@
 # helix-im 局部指令（就近优先，全局见根 CLAUDE.md）
 
+> 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
+
 ## 本 crate 文档索引（`docs/` · 按需 Read）
 
 - **落地真相** → [`docs/sync-v2-能力与缺口状态.md`](docs/sync-v2-能力与缺口状态.md)：现在到哪了 + 缺什么 + 今日必办（§5 真 Go 数据路径端到端验证）。

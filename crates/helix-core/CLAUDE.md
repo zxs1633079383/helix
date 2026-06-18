@@ -1,5 +1,7 @@
 # helix-core 局部指令（就近优先，全局见根 CLAUDE.md）
 
+> 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
+
 ## 本 crate 不变量（违反 = 三栖碎）
 
 1. **零运行时依赖**：永不 import tokio/sqlx/reqwest/web-sys/tauri——clippy deny + `cargo tree` 闸门双保险（HX-C001）

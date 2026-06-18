@@ -1,22 +1,30 @@
 //! # helix-driver-ffi
 //!
-//! C ABI / uniffi 平台驱动（Flutter Dart FFI / iOS Swift / Android Kotlin / 纯 C 宿主）。
+//! C ABI 平台驱动（C++ 直连模型）。
 //!
-//! ## FFI 内存安全约束（必须遵守）
+//! ## 模型变更（Dart-host → C++ host）
 //!
-//! - C 侧传入的 `*const u8` buffer **必须在回调返回前拷贝到 Rust 堆**
-//!   再包成 `Tick::Inbound`。C 侧可能在回调返回后立即复用 buffer。
-//! - Flutter/Dart 只调用命令与订阅事件，不暴露 Tick/Effect/StorageOp
-//! - 生产 cdylib/staticlib 采用 `panic=abort`，panic 不跨 FFI unwind
+//! - **已删**：`HelixCallbacks`（Dart-host 喂帧/喂响应遗物）、
+//!   `FfiTransportMode::Callback`、`helix_on_ws_frame`、`helix_on_http_response`。
+//! - **C++ 直连**：Rust 持有 SharedWsClient + SharedHttpClient；
+//!   host 只实现 `CppHostVtable`（事件接收 + 壁钟）。
 //!
-//! ## cbindgen 用法
+//! ## FFI 内存安全约束（HX-C006）
 //!
-//! ```bash
-//! cbindgen --config cbindgen.toml --crate helix-driver-ffi --output helix.h
-//! ```
+//! - C 侧传入的 `*const u8` buffer **必须在函数返回前拷贝到 Rust 堆**（ACL-3）
+//! - `Box<T>` ↔ raw ptr 必须用 `Box::into_raw` / `Box::from_raw` 配对，各一次
+//! - 生产 cdylib/staticlib 采用 `panic=abort`（workspace release profile 已设置），
+//!   panic 不跨 FFI unwind
+//!
+//! ## cbindgen
+//!
+//! build.rs 自动调用 cbindgen 生成 `helix.hpp`（C++，pragma_once）。
+//! `CppHostVtable` repr(C) 自动扫描进头文件；`HelixHandle` 为不透明前向声明。
 
 pub mod api;
-pub mod callbacks;
+pub mod batch;
+pub mod clock;
+pub mod event_sink;
 pub mod http;
-pub mod storage;
-pub mod transport;
+pub mod pump;
+pub mod vtable;

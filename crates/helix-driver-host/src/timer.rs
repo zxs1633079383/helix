@@ -18,6 +18,12 @@ pub struct TimerRegistry {
     handles: HashMap<TimerId, JoinHandle<()>>,
 }
 
+impl Default for TimerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TimerRegistry {
     pub fn new() -> Self {
         Self {
@@ -59,6 +65,17 @@ impl TimerRegistry {
     #[cfg(test)]
     pub fn pending_count(&self) -> usize {
         self.handles.len()
+    }
+}
+
+/// Drop 时 abort 所有挂起 timer 任务：把「`run_engine_loop` 返回 = 完全 drain」的
+/// 保证扩展到 timer。`JoinHandle::drop` 仅 detach 不 abort——否则长 timer 任务会泄漏到
+/// runtime 关停，且持 tick_tx clone 延迟 channel 关闭。与 `cancel` 的 abort 语义一致。
+impl Drop for TimerRegistry {
+    fn drop(&mut self) {
+        for (_, h) in self.handles.drain() {
+            h.abort();
+        }
     }
 }
 

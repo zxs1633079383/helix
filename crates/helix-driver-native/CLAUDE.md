@@ -30,7 +30,7 @@
 
 - 三池：sync 写(1) / 用户写(1) / 读(4)，共享 WAL；batch_upsert 整批一事务（E2，写放大 ~1.0x）
 - 本 crate 是 SystemTime/线程等 ambient API 的**唯一合法落点**（clippy 在此 allow）
-- rows→bytes JSON 约定的定义点在 engine_loop.rs（helix-im 反序列化端必须对齐）
+- rows→bytes / HTTP envelope JSON 约定真源在 `helix-driver-host`（`codec` / `http_envelope`）；本 crate engine_loop 仅 re-export 转出，helix-im 反序列化端必须对齐
 
 ## 改动验收
 

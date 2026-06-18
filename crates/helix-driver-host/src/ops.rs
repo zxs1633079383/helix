@@ -93,3 +93,81 @@ pub fn classify_port_error(e: PortError) -> CorePortError {
         _ => CorePortError::Other(0),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use helix_core::effect::StorageOp;
+
+    #[test]
+    fn test_classify_port_error_timeout() {
+        let e = PortError::Transport("timeout: connection timed out".to_string());
+        assert_eq!(classify_port_error(e), CorePortError::Timeout);
+    }
+
+    #[test]
+    fn test_classify_port_error_network() {
+        let e = PortError::Transport("network: connection refused".to_string());
+        assert_eq!(classify_port_error(e), CorePortError::Network);
+    }
+
+    #[test]
+    fn test_classify_port_error_storage() {
+        let e = PortError::Storage("disk full".to_string());
+        assert!(matches!(classify_port_error(e), CorePortError::Storage(_)));
+    }
+
+    #[test]
+    fn test_table_set_key_empty() {
+        assert_eq!(table_set_key(&[]), "");
+    }
+
+    #[test]
+    fn test_table_set_key_single_table() {
+        use helix_core::effect::UpsertSpec;
+        let ops = vec![StorageOp::BatchUpsert(UpsertSpec {
+            table: "messages",
+            rows: vec![],
+            conflict_key: None,
+        })];
+        assert_eq!(table_set_key(&ops), "messages");
+    }
+
+    #[test]
+    fn test_table_set_key_multi_table_sorted() {
+        use helix_core::effect::{MonotonicUpsertSpec, UpsertSpec};
+        // 两个不同 table 的 ops，顺序无所谓，键必须按字典序排
+        let ops = vec![
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![],
+                conflict_key: None,
+            }),
+            StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                scope_key: "ch:1".to_string(),
+                value: 1,
+            }),
+        ];
+        // messages > _helix_monotonic（字典序），键应是 "_helix_monotonic|messages"
+        assert_eq!(table_set_key(&ops), "_helix_monotonic|messages");
+    }
+
+    #[test]
+    fn test_table_set_key_dedup_same_table() {
+        use helix_core::effect::UpsertSpec;
+        // 同一 table 出现多次，去重后仍是单 key
+        let ops = vec![
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![],
+                conflict_key: None,
+            }),
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "messages",
+                rows: vec![],
+                conflict_key: None,
+            }),
+        ];
+        assert_eq!(table_set_key(&ops), "messages");
+    }
+}

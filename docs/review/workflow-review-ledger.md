@@ -17,9 +17,14 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: cb8b6d5
+last_reviewed_commit: e3540cf
 last_reviewed_at: 2026-06-18
-last_review_runId: wf_45201637-38e (storage 读写并发压测 verify-diff：test-validity + HX-C005/C006/迁移)
+last_review_runId: wf_3f017dd5-500 (十轮 architecture-drift-review：收口+设计思想+HX-C011 · 区间 cb8b6d5..6d90461)
+# 十轮 = 收口代办+三端设计思想沉淀+新建 HX-C011 review（cb8b6d5..6d90461，gap=10 触发）。🟡 轻 / 0🔴。
+# 3 finding 全证实全收敛(commit e3540cf)：F1 core effect.rs DropOldest 文档残留→DropNewest；
+# F2 stress_storage_core 2 false-green 补 break→fail 断言 + HX-C011 §4 gate 文件级→函数级；
+# F3 finalize DONE 缺配对 EXPECT→补事后 EXPECT。HX-C001..C011/GOAL 全未破。
+# 函数级 gate 升级后抓出 helix-im stress_inorder_100k 亦 false-green=backlog(留 im/feat 线修)。
 # 九轮 = storage 读写并发压测（feat/storage-rw-concurrency 2 commit · merge cb8b6d5）。**test-only 无架构变更**。
 # verify-diff 2 lens(test-validity + HX-C005/C006/迁移)判 0 blocking；首版 2 false-green(P1-C tautology / P3 无 assert)
 # 被 test-validity lens 抓出 → 修 + 证伪证明(破坏→FAIL→还原→PASS)。P0 path3 dev-zlc 零 RMW 合规；feat path3 flag 合并待查。
@@ -83,3 +88,4 @@ threshold: 10
 | 2026-06-18 | 0156be8 | 1419690..0156be8 | wf_ba3cc60b-dae + wf_69cf287f-163 | 🟢 GREEN 无 drift | **七轮 = core/driver 基座最优性 + 北极星符合性 双深度审查**（8 专家 agent + 对抗证伪）。基座：core-ports `solid`(6 trait dyn-safe + MaybeSend cfg 别名 + Module::handle 拿不到 port 句柄=sans-IO 类型保证) / HTTP-头 `solid` / WS-action `solid` / Effect `solid-minor-gaps`。北极星：5 命题全 conforms（一份 core 编多端✓ 复杂度无损迁移 FfiStorage 薄壳✓ 三层单向零业务✓ sans-IO/确定性✓ 扩展性✓）。**2 个 latent bug 修+回归测试(2d50405)**：EFFECT-3 多模块 start() corr 覆盖(P0,威胁第二模块插得进) + NS-1 resync HashMap 迭代序非确定性(high,威胁可回放)。打磨(0156be8)：EFFECT-5/2 执行契约文档 + HTTP-4 parking_lot 消静默丢头。**7 疑似 drift 驳回**(FFI engine_loop=ROADMAP M3-F4 计划内非偏移)；**8 优化建议对抗驳回**(防过度工程)。CORE-1/WS-1 微 nit + 候选 HX-C010(确定性约束,过回放闸门后建卡)择期 |
 | 2026-06-18 | c229531 | 8997a72..design/ffi-cpp-direct (11 commits · merge c229531) | wf_8b8c9a1f-cc5 | 🟡 轻 drift | **八轮 = driver-ffi C++ 直连 + M3-F4 pump 端到端**（实现优先 + 编译器/clippy 闸门 + 验真 diff，非 design-doc 轮——前两轮 design-doc 验证连栽臆造 core 类型 9 blocking，pivot 后一轮收敛）。下沉整套 pump 核到 helix-driver-host(run_engine_loop 泛型壳/dispatch/BoundedSpawner/run_http_envelope/TimerRegistry/consume_effects)，native 1119→168 薄壳 + ffi 薄壳，**parity by construction**（七轮驳回的 M3-F4 计划内项本轮落地）。3 lens(HX 不变量/GOAL+全流程自洽/DRIFT-PRED 对抗证伪)判 light/0 blocking：3 条 ⚡ DRIFT-PRED(scope 扩 host/design 臆造/query stub)全「有据偏离」、过回放闸门均不建卡(重叠 HX-C009+runtime-agnostic §6)。4 minor(文档滞后/FfiTransport·FfiStorage 死包装 rm/build.rs helix.hpp 脏化/composition-root 注)收敛 2967350。**HX-C001(core 零运行时)/C005/C006/C007 + GOAL §1/§2 + 三层单向 全 HOLD**；native 零回归(18 lib+stress 3+4)+ffi 12(含 e2e command→Emit→批回调)+host 17 全绿 + gate.sh 7 闸门过。留 TODO：helix_query stub(name→Spec 属 IM 域,待 IM 暴露通用 query 路由) |
 | 2026-06-18 | cb8b6d5 | b92012c..feat/storage-rw-concurrency (2 commits · merge cb8b6d5) | wf_45201637-38e | 🟡 轻（test-only） | **九轮 = storage 读写并发压测**（下沉后共享核覆盖 + sync-v2 写负载，用户点出）。test-only 无 src 行为变更。verify-diff 2 lens(test-validity / HX-C005-C006-迁移)判 0 blocking。**首版 2 false-green 被抓**：P1-C cursor 单调 tautology(顺序写恒 100·删 MAX guard 照过) + P3 bench 无 assert + block_on 单 op 不跑并发 → 修 + **证伪证明**(P1-C 去 guard→FAIL/还原→PASS·P1-A 去背压→FAIL)。P0：dev-zlc channel.unread_count 本轮零写路径=零 RMW(HX-C005 合规)·cursor=monotonic_upsert 原子 ON CONFLICT；feat/sync-v2 path3 flag 合并待查未跨改。host 34+native stress 8 零回归·gate.sh 过·core 零运行时。候选教训「压测必带证伪证明」与 2026-06-15 stress-verify REJECT 同根=2 次，未达建卡阈值待回放闸门 |
+| 2026-06-18 | e3540cf | cb8b6d5..6d90461 (gap=10·收敛 e3540cf) | wf_3f017dd5-500 | 🟡 轻 drift | **十轮 = 收口代办+三端设计思想沉淀+新建 HX-C011**（DropOldest→DropNewest 改名 + 压测下沉 host + 三端 00-设计思想.md + HX-C011 建卡 + P1-A flaky hotfix）。3 finding 全证实全收敛(e3540cf)：F1[low] core effect.rs:241/taxonomy.mmd DropOldest 文档残留(改名黑名单遗留)→DropNewest；F2[low] stress_storage_core 2 测无 assert false-green + HX-C011 §4 grep -L 文件级对混合文件逃检 → 补 break→fail 断言(scan len + monotonic 回退) + gate 升函数级；F3[medium] finalize DONE 缺配对 EXPECT(§4.8 tripwire 失效)→补事后 EXPECT。**HX-C001..C011 + GOAL §1/§2 + 三层/sans-IO/单调 cursor 全未破，代码合规**。回放闸门：F2(b) gate 修=N/A·F3(b) DONE须配EXPECT 结构约束=HOLD(单样本无同根史)。函数级 gate 抓出 helix-im stress_inorder_100k=backlog。「**HX-C011 建卡即首次执行就抓到同 diff 违反**」=机制即时生效验证 |

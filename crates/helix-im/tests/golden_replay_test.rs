@@ -167,7 +167,7 @@ fn real_go_post_frame_on_unregistered_channel_is_silently_dropped() {
 
 // ─── ② increment_channel.json：真增量帧 → 注册 + cursor 种子 + emit ───────────────
 
-/// 真 Go `increment_channel` 帧 → 注册全新 channel + LastEventSeq 种 cursor + emit im:channel:increment。
+/// 真 Go `increment_channel` 帧 → 注册全新 channel + 冷启动 cursor 种子 0（非 LastEventSeq）+ emit。
 #[test]
 fn real_go_increment_channel_registers_and_seeds_cursor() {
     // increment_channel.json 真帧 data.id = bi643wys7fgy9pbai9wjfusnfa，lastEventSeq = 151。
@@ -178,11 +178,12 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
 
     let effects = h.step(inbound(INCREMENT_JSON), 1000);
 
-    // 注册 + cursor 种子 = lastEventSeq。
+    // 修 todo#1：冷启动真新 channel 内存 cursor 种子 = 0（本地确认水位），**不是** data.lastEventSeq(151,
+    // 服务端水位)。误种水位 → from_seq=max → Go no_change → 离线 backfill 永不触发。
     assert_eq!(
         h.module.cursor_for(channel),
-        Some(151),
-        "真 increment 帧须用 data.lastEventSeq 种 cursor"
+        Some(0),
+        "真 increment 帧冷启动 cursor 种子须为 0，不得用 data.lastEventSeq（服务端水位）"
     );
     // 记入 increment_fetched 批次集（needSync=true）。
     assert!(

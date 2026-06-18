@@ -52,6 +52,31 @@ fn cid(n: u64) -> String {
     ChannelId::from_test_u64(n).as_str().to_string()
 }
 
+/// 标准 base64 编码（与 host base64_encode 同表）。dev-zlc ADR-007 sync 信封 body 用。
+fn base64_std(bytes: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// 构造 posted WS 帧（与 common.rs::inbound_event 同构，payload 约 150 字节）
 fn make_inbound_tick(channel_id: u64, seq: u64) -> Tick {
     let payload = serde_json::json!({
@@ -278,9 +303,17 @@ fn stress_gap_5000_sync_backfill() {
     });
     let resp_bytes = serde_json::to_vec(&resp).expect("build sync response");
     let resp_len = resp_bytes.len();
+    // dev-zlc：sync 回报走 ADR-007 信封 {status,headers,body:base64(裸 Go body)}，
+    // handle_sync_reply 解信封 + base64 decode 后才喂 parse_sync_response。
+    let envelope = serde_json::json!({
+        "status": 200,
+        "headers": {},
+        "body": base64_std(&resp_bytes),
+    });
+    let envelope_bytes = serde_json::to_vec(&envelope).expect("build sync envelope");
     let reply_tick = Tick::PortReply {
         corr: sync_corr,
-        outcome: PortOutcome::Ok(ReplyBytes(resp_bytes.into())),
+        outcome: PortOutcome::Ok(ReplyBytes(envelope_bytes.into())),
     };
 
     sink.clear();

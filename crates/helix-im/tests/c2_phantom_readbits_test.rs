@@ -171,7 +171,7 @@ fn all_phantom_batch_still_advances_cursor() {
         &[], // 空 messages → 全 phantom
         5,
     );
-    let p_effects = h.step(port_reply_with_body(sync_corr, reply), 3000);
+    let p_effects = h.step(port_reply_with_body(sync_corr, enveloped(reply)), 3000);
     let persist_corr = p_effects
         .iter()
         .find_map(|e| match e {

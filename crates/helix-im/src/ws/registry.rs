@@ -618,7 +618,9 @@ mod tests {
             .channels
             .get(&channel_id)
             .expect("increment should register a missing channel");
-        assert_eq!(channel.cursor.value(), Seq(42));
+        // 修 todo#1：冷启动真新 channel 内存 cursor 种子 = 0（本地确认水位），**不是** lastEventSeq(42)。
+        // lastEventSeq 只喂 increment_target（gap / B2-heal stuck 检测），与 cursor 严格解耦。
+        assert_eq!(channel.cursor.value(), Seq(0));
         assert!(ctx.state.increment_fetched.contains(&channel_id));
         assert!(!ctx.state.need_sync_skip.contains(&channel_id));
         assert_eq!(ctx.state.increment_target.get(&channel_id), Some(&Seq(42)));

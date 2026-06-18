@@ -216,7 +216,7 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
         &[("m_a", "hi", "11")],
         2,
     );
-    h.step(port_reply_with_body(sync_corr, reply), 3000);
+    h.step(port_reply_with_body(sync_corr, enveloped(reply)), 3000);
 
     // 同 step 内：sink 含 mutation emits（received + update-by-post + read）。
     let names = emit_names(h.sink.as_slice());

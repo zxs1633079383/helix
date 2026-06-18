@@ -51,10 +51,12 @@ fn increment_channel_real_frame_dispatches_through_registry() {
         .expect("increment_channel should dispatch through WS registry");
 
     let channel_id = ChannelId::from_str(CH26).unwrap();
+    // 修 todo#1：冷启动真新 channel 内存 cursor 种子 = 0（本地确认水位），不是 lastEventSeq(4242,
+    // 服务端水位)。lastEventSeq 只进 increment_target。误种子 → from_seq=max → 离线 backfill 永不触发。
     assert_eq!(
         h.module.cursor_for(channel_id),
-        Some(4242),
-        "increment_channel should register channel with lastEventSeq cursor seed"
+        Some(0),
+        "increment_channel cold-start should seed cursor 0, not lastEventSeq (server watermark)"
     );
     assert!(
         h.module.increment_fetched_contains(channel_id),

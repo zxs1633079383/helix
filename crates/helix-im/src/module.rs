@@ -488,7 +488,13 @@ impl ImModule {
         use crate::parser::parse_sync_response;
         use crate::sync_session::SyncResponse;
 
-        let response = parse_sync_response(reply.0.as_ref(), channel_id)
+        // #6 信封解层（仅 SyncPull 路径，scan 路径不经此）：ADR-007 driver 把每条 2xx 响应包成
+        // `{status, headers, body: base64(raw_go_body)}` 信封（host run_http_envelope，native+FFI 共享）。
+        // 直接把信封喂 parse_sync_response → 找不到 data.entries → 静默 NoChange → 0 persist / 0 emit
+        // → 离线消息悄无声息丢失（#6 latent bug）。故此处先剥信封 + base64 decode 出裸 Go body 再解析。
+        // 边界零信任（HX-C 不变量 4）：信封 / base64 畸形走 Result::Err，不 unwrap、不 panic、不静默吞。
+        let raw_body = unwrap_sync_envelope(reply.0.as_ref())?;
+        let response = parse_sync_response(raw_body.as_ref(), channel_id)
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
 
         match response {
@@ -819,6 +825,20 @@ impl ImModule {
             source: Box::new(e),
         })
     }
+}
+
+/// 剥 ADR-007 HTTP 信封（仅 SyncPull 路径用）：`{status, headers, body: base64(raw_go_body)}`
+/// → 裸 Go body 字节。host `run_http_envelope` 的反序列化端，base64 decode 在 helix-im 内联
+/// （HX-C001：不依赖 helix-driver-host）。边界零信任：信封 / base64 畸形 → `Err`，不 panic。
+fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
+    let env: serde_json::Value = serde_json::from_slice(reply)
+        .map_err(|e| ImError::Parse(format!("sync envelope JSON parse error: {}", e)))?;
+    let body_b64 = env
+        .get("body")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| ImError::Parse("sync envelope missing string `body` field".to_string()))?;
+    crate::base64::decode(body_b64)
+        .map_err(|e| ImError::Parse(format!("sync envelope body base64 decode error: {}", e)))
 }
 
 impl Module for ImModule {

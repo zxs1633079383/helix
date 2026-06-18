@@ -16,10 +16,15 @@ pub(crate) fn apply_increment(
     out: &mut EffectSink,
 ) {
     let channel_id = inc.channel_id;
+    // 冷启动真新 channel（DB 无 cursor，on_start Scan 未载入）首次注册时，内存 cursor 种子
+    // 必须是 0（= 本地未确认任何 event），不是帧的 lastEventSeq（服务端水位）。
+    // 误种水位 → from_seq=cursor=max → Go no_change → 离线 backfill 永不触发，且 B2 heal 的
+    // cursor<target 永假（cursor==target==水位）连带废（真源 todo#1 / B2，post.rs）。
+    // lastEventSeq 只喂下面的 increment_target（gap / B2-heal stuck 检测），与 cursor 严格解耦。
     ctx.state
         .channels
         .entry(channel_id)
-        .or_insert_with(|| Channel::new(channel_id, inc.last_event_seq.0));
+        .or_insert_with(|| Channel::new(channel_id, 0));
 
     ctx.state.increment_fetched.insert(channel_id);
     if !inc.need_sync {

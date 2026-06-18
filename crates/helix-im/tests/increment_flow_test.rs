@@ -107,16 +107,21 @@ fn increment_channel_registers_and_seeds_cursor() {
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_INC"), 200);
 
-    // 喂一个全新 channel=77 的 increment_channel，LastEventSeq=42。
+    // 喂一个全新 channel=77 的 increment_channel，LastEventSeq=42（服务端水位）。
     h.sink.clear();
     h.module.ingest_increment(
         &inc(77, 42, true, r#"{"mentionList":[],"urgentPostList":[]}"#),
         &mut h.sink,
     );
 
-    // channel 已注册且 cursor 种子 = 42。
+    // 修 todo#1：冷启动真新 channel 已注册，但内存 cursor 种子 = 0（本地未确认任何 event），
+    // **不是** LastEventSeq(42)。误种水位 → from_seq=cursor=max → Go no_change → 离线 backfill 永不触发。
     let cursor = h.module.cursor_for(ChannelId::from_test_u64(77));
-    assert_eq!(cursor, Some(42), "increment 须用 LastEventSeq 种子 cursor");
+    assert_eq!(
+        cursor,
+        Some(0),
+        "冷启动真新 channel cursor 种子须为 0（本地确认水位），不得用 LastEventSeq（服务端水位）"
+    );
 
     // 记入 increment_fetched。
     assert!(
@@ -162,7 +167,8 @@ fn global_increment_end_syncs_fetched_minus_skip() {
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_INC"), 200);
 
-    // 三个增量群：10(need_sync=true) / 11(need_sync=true) / 12(need_sync=false→skip)。
+    // 三个增量群：10(need_sync=true) / 11(need_sync=true) / 12(need_sync=false→skip 主 resync)。
+    // 修 todo#1 后：三者皆冷启动真新 channel → cursor 种子=0，increment_target=各自 lastEventSeq。
     h.sink.clear();
     h.module
         .ingest_increment(&inc(10, 5, true, "{}"), &mut h.sink);
@@ -171,15 +177,17 @@ fn global_increment_end_syncs_fetched_minus_skip() {
     h.module
         .ingest_increment(&inc(12, 3, false, "{}"), &mut h.sink);
 
-    // global end（None）→ 对 (fetched − skip) = {10, 11} 发 sync，跳过 12。
+    // global end（None）→ 主 resync 对 (fetched − skip) = {10, 11} 各发一次；
+    // B2 heal 再对 12 补发（cursor 0 < target 3 = 真有离线事件被 need_sync=false 漏掉）→ 共 3 次。
+    // 修前 12 的 cursor 误种子=3 → heal 的 cursor<target 假 → 12 离线事件被静默吞掉（backfill 缺口）。
     h.sink.clear();
     h.module.ingest_increment_end(None, &mut h.sink);
 
     let reqs = http_reqs(&h.sink);
     assert_eq!(
         reqs.len(),
-        2,
-        "global-end 须对增量群（10,11，扣除 need_sync=false 的 12）各发一次 sync，got: {:?}",
+        3,
+        "global-end：主 resync {{10,11}} 各一次 + B2 heal 对 need_sync=false 但落后水位的 12 补一次 = 3，got: {:?}",
         reqs
     );
     for (method, url) in &reqs {

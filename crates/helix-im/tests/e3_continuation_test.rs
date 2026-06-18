@@ -67,7 +67,7 @@ fn continuation_three_batches_then_stops() {
     // 第一批：seq 1-500（满批 500 → 派生续拉）
     let batch1_seqs: Vec<u64> = (1..=500).collect();
     let reply1 = sync_reply_events(1, &batch1_seqs);
-    let p1_effects = h.step(port_reply_with_body(sync_corr1, reply1), 3000);
+    let p1_effects = h.step(port_reply_with_body(sync_corr1, enveloped(reply1)), 3000);
 
     let persist_corr1 = p1_effects
         .iter()
@@ -104,7 +104,7 @@ fn continuation_three_batches_then_stops() {
     // 第二批：seq 501-1000（满批 500 → 派生续拉）
     let batch2_seqs: Vec<u64> = (501..=1000).collect();
     let reply2 = sync_reply_events(1, &batch2_seqs);
-    let p2_effects = h.step(port_reply_with_body(sync_corr2, reply2), 4000);
+    let p2_effects = h.step(port_reply_with_body(sync_corr2, enveloped(reply2)), 4000);
 
     let persist_corr2 = p2_effects
         .iter()
@@ -141,7 +141,7 @@ fn continuation_three_batches_then_stops() {
     // 第三批：seq 1001-1500（满批 500 → 仍派生续拉，真 wire 靠 no_change 收尾）
     let batch3_seqs: Vec<u64> = (1001..=1500).collect();
     let reply3 = sync_reply_events(1, &batch3_seqs);
-    let p3_effects = h.step(port_reply_with_body(sync_corr3, reply3), 5000);
+    let p3_effects = h.step(port_reply_with_body(sync_corr3, enveloped(reply3)), 5000);
 
     let persist_corr3 = p3_effects
         .iter()
@@ -178,7 +178,7 @@ fn continuation_three_batches_then_stops() {
 
     // 第四批：服务端 no_change（gap=0，已追平）→ 终止续拉，cursor 不变
     let reply4 = sync_reply_no_change(1, 1500);
-    let after_p4_effects = h.step(port_reply_with_body(sync_corr4, reply4), 5200);
+    let after_p4_effects = h.step(port_reply_with_body(sync_corr4, enveloped(reply4)), 5200);
 
     // no_change：不落库、不续拉
     assert!(
@@ -216,7 +216,10 @@ fn continuation_stops_on_empty_events_with_continuation_flag() {
 
     // 服务端返回空 events（kind=events 但列表空，服务端 bug 场景）→ 防御性不落库不续拉
     let empty_reply = sync_reply_events(1, &[]);
-    let effects = h.step(port_reply_with_body(sync_corr, empty_reply), 3000);
+    let effects = h.step(
+        port_reply_with_body(sync_corr, enveloped(empty_reply)),
+        3000,
+    );
 
     // 不应发 Persist 也不应发续拉 Http
     assert!(
@@ -240,7 +243,7 @@ fn continuation_inflight_guard_prevents_concurrent_sync() {
 
     // 第一批满批 500 → 派生续拉意图
     let batch1 = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
-    let p1_effects = h.step(port_reply_with_body(sync_corr, batch1), 3000);
+    let p1_effects = h.step(port_reply_with_body(sync_corr, enveloped(batch1)), 3000);
     let persist_corr1 = p1_effects
         .iter()
         .find_map(|e| {
@@ -286,7 +289,7 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
 
     // 第一批：seq 1-500（满批 → 派生续拉）→ persist ok → 发出第二次 sync Http（fromSeq=500）
     let batch1 = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
-    let p1_effects = h.step(port_reply_with_body(sync_corr, batch1), 3000);
+    let p1_effects = h.step(port_reply_with_body(sync_corr, enveloped(batch1)), 3000);
     let persist_corr1 = p1_effects
         .iter()
         .find_map(|e| {
@@ -313,7 +316,10 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
     // 第二批：seq 1-500（全 dup），满批 500 → 派生续拉意图
     // commit_target = 500，cursor.try_advance(500) → cursor 当前 500，500 <= 500 → 不推进
     let batch2_dup = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
-    let p2_effects = h.step(port_reply_with_body(sync_corr2, batch2_dup), 4000);
+    let p2_effects = h.step(
+        port_reply_with_body(sync_corr2, enveloped(batch2_dup)),
+        4000,
+    );
     let persist_corr2 = p2_effects
         .iter()
         .find_map(|e| {

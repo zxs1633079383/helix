@@ -16,6 +16,7 @@
 //! ```
 
 pub mod acl;
+pub(crate) mod base64;
 pub mod channel;
 pub mod error;
 pub mod module;

@@ -176,7 +176,7 @@ fn sync_success_path_peek_then_commit_cursor() {
         .expect("sync Http corr");
 
     // driver 回报 sync/notify 成功，带回 3 个事件（seq 1,2,3）——真 Go wire SyncEntry
-    let reply_bytes = ReplyBytes(sync_reply_events(1, &[1, 2, 3]));
+    let reply_bytes = ReplyBytes(enveloped(sync_reply_events(1, &[1, 2, 3])));
     let port_reply = Tick::PortReply {
         corr: Correlation::from_raw(sync_corr),
         outcome: PortOutcome::Ok(reply_bytes),
@@ -241,7 +241,7 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
 
     // 下发 events seq 1..=10，但权威 nextSeq=50（尾部 11..=50 稀疏，不在 events 数组）
     let reply = sync_reply_events_with_next(1, &(1..=10).collect::<Vec<_>>(), 50);
-    let peek_effects = h.step(port_reply_with_body(sync_corr, reply), 2100);
+    let peek_effects = h.step(port_reply_with_body(sync_corr, enveloped(reply)), 2100);
     let persist_corr = peek_effects
         .iter()
         .find_map(|e| {
@@ -293,7 +293,7 @@ fn sync_too_long_resets_cursor_and_emits() {
         .expect("sync Http corr");
 
     // 服务端返回 too_long（真 Go wire SyncEntry，resetTo=100）
-    let reply_bytes = ReplyBytes(sync_reply_too_long(1, 100));
+    let reply_bytes = ReplyBytes(enveloped(sync_reply_too_long(1, 100)));
     let port_reply = Tick::PortReply {
         corr: Correlation::from_raw(sync_corr),
         outcome: PortOutcome::Ok(reply_bytes),

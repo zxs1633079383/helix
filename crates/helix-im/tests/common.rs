@@ -184,7 +184,35 @@ pub fn port_reply_with_body(corr_raw: u64, body: bytes::Bytes) -> Tick {
     }
 }
 
-/// 构造真 Go wire 的 sync 响应信封：`{status:SUCCESS, data:{entries:[entry], serverTime}}`。
+/// 标准 base64 编码（内联，与 host base64_encode 同表）。dev-zlc ADR-007 信封 body 用。
+#[allow(dead_code)]
+fn base64_std(bytes: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// 构造真 Go wire 的 sync 响应 body：`{status:SUCCESS, data:{entries:[entry], serverTime}}`。
+/// 这是**裸 Go body**——直接喂 parse_sync_response 的 parser 单测用；走 handle_sync_reply 的集成
+/// 测试须先经 `enveloped()` 包 ADR-007 信封（dev-zlc driver 回灌形态）。
 fn sync_envelope(entry: serde_json::Value) -> bytes::Bytes {
     use serde_json::json;
     let body = json!({
@@ -192,6 +220,21 @@ fn sync_envelope(entry: serde_json::Value) -> bytes::Bytes {
         "data": { "entries": [entry], "serverTime": 1_700_000_000_i64 }
     });
     bytes::Bytes::from(serde_json::to_vec(&body).unwrap())
+}
+
+/// 把裸 Go body 包成 ADR-007 HTTP 信封 `{status,headers,body:base64(raw)}`——即 host
+/// run_http_envelope 对 2xx sync 响应的实际回灌形态。集成测试经 handle_sync_reply 灌 sync
+/// PortReply 时须先包（handle_sync_reply 解信封 + base64 decode 后才喂 parse_sync_response）。
+/// scan reply **不**经此（scan 路径非信封，见 scan_reply）。
+#[allow(dead_code)]
+pub fn enveloped(raw_go_body: bytes::Bytes) -> bytes::Bytes {
+    use serde_json::json;
+    let env = json!({
+        "status": 200,
+        "headers": {},
+        "body": base64_std(raw_go_body.as_ref()),
+    });
+    bytes::Bytes::from(serde_json::to_vec(&env).unwrap())
 }
 
 /// 构造 sync 响应帧（真 Go wire `events` SyncEntry）。

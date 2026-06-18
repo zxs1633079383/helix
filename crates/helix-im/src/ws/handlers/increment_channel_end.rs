@@ -71,7 +71,7 @@ fn heal_incomplete_backfill_once(ctx: &mut ImWsContext<'_>, out: &mut EffectSink
     }
     ctx.state.backfill_healed = true;
 
-    let stuck: Vec<ChannelId> = ctx
+    let mut stuck: Vec<ChannelId> = ctx
         .state
         .increment_fetched
         .iter()
@@ -85,6 +85,10 @@ fn heal_incomplete_backfill_once(ctx: &mut ImWsContext<'_>, out: &mut EffectSink
     if stuck.is_empty() {
         return;
     }
+    // HX-C010：stuck 由 increment_fetched（HashSet）迭代收集 → SipHash 逐进程随机序。
+    // emit_proactive_resync_for 逐 channel alloc 单调 corr + 插 corr_map（corr 是 load-bearing：
+    // 路由 + inflight 守卫 + 回放断言），≥2 stuck channel 须确定性有序锚定可回放（ChannelId: Ord）。
+    stuck.sort_unstable();
     tracing::info!(
         stuck_channels = stuck.len(),
         "helix-im B2: 冷启动自愈——对 local cursor 落后服务端 increment 水位的 channel 补发 sync"

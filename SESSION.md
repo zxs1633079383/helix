@@ -14,6 +14,13 @@
   ↳ ⑥ #5 auth 不搬（ImConfig 无身份字段）· S9 emit A5/A4 分流落地（grep `im:channel:read_echo` + `im:post:batch-updated`）· 全 parity 真机在线+离线（localhost:8065）跑通
   ↳ 偏离即记 DRIFT-PRED：若 core 出运行时依赖 / base64 反向依赖 host / path3 RMW / feat 测试未 port 或不过 / 改根黑名单 / src 文件 >300 行未拆 → 偏离
 
+✅ DONE sync-v2 全 parity re-port 到 dev-zlc(ADR-007) · 代码侧完成 + 确定性验证 @2026-06-18 | commit 36f65a5..afad24b（9 phase + 1 parity-fix）| helix/feat/sync-v2-report-on-adr007（未 merge）
+  ↳ 落地：A(#1 cursor 种子0 + #6 ADR-007 信封内联 base64 解层 + HX-C010 sort) · B0(GuardedBump substrate 跨 5 crate) · B(channel_write 5 文件 + acl to_effect{,_s1} + 成员 + member_count + 前置基建) · C(10 WS handler · S1 全 14-action · S9 emit A5/A4 分流 · linkme wiring) · D(makeTopic + S4/S5/S6 测试 + S7/S10 验 + #5 核实不搬)
+  ↳ 验证：cargo test core/im/host/native **277 passed / 0 failed**（feat replay 测试 http6/b2/s1/s4/s5/s6/channel_write/channel_member 逐字 port 全绿）· gate.sh + structure-gate ✅ · core 零运行时 · base64 helix-im 内联无 host import · unread=GuardedBump O(1) · A5 `im:channel:read_echo`/A4 `im:post:batch-updated` 落地 · #5 auth 不搬（全局头）· channel_write 各文件 ≤300
+  ↳ EXPECT 对账：①③④⑤ held；②**falsified**（见下 ⚡）；⑥代码 held 但**真机验收 env-blocked**——后端 Java paas grpc fail @cses_channel.go:177（非 re-port；deviceId/session 已通），待 grpc 恢复跑在线+离线真机验收
+  ↳ review：per-phase 4 专家 pass（1 Phase C blocking A5 分流已修 e9e6c64）+ holistic drift-review（rust-dev call-site lens）抓出 2 parity 死代码 call-site → afad24b 修 + 补可证伪测试。🟡 轻 drift，无 HX-C/GOAL 违反，多数 src byte-identical 于 feat
+⚡ DRIFT-PRED EXPECT②「每阶 feat 测试逐字 port 且 PASS = parity 硬证」**被证伪**——byte-diff + per-phase ported 测试证不了消费侧 call-site 是否接线：2 处「函数在(byte-identical)、零调用」死代码（sync_unread_bump_ops 在 module.rs SyncPull 零调用=BLOCKING 离线未读丢 / host auth_user_id 恒空=MAJOR 自己消息计未读）藏在 ADR-007 接缝文件，cargo 绿 + 277 测试绿仍漏，靠 holistic call-site/caller-graph 独立 lens 才抓出 → 候选教训：「parity re-port 验收必加 call-site/caller-graph 审计 lens（grep 函数定义 vs 调用方），不只 byte-diff + ported 测试」。已 type:surprise 落 logs，回放闸门待过再建卡
+
 🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）把 feat 的 **sync-v2 整条业务实现 re-port 到 dev-zlc 的 ADR-007 架构，目标 = feat 全 parity（不只 6 个 fix）**。参照源 = `feat/sync-v2-full-replacement`（已真机验证，**不文本合并**，逐项 re-port）。
 
   ⚠️ **范围铁律：目标是 feat 全 parity，A+B 只是子集，远不够。** 之前映射 agent 只读 dev-zlc、没 diff feat → 漏了一半。**第 0 步必做**：

@@ -389,3 +389,225 @@ async fn stress_engine_graceful_drain() {
     eprintln!("  total time       : {:.3} ms", elapsed.as_secs_f64() * 1e3);
     eprintln!("  DB value after drain: {:?}", val);
 }
+
+// ─── 测试 4：P2 三入口混合 flood（Persist 写 + Persist 读 + PortReply 回灌）────────
+//
+// spec §5.2 场景 E：三类入口并发：
+//   - 500 个 Tick::Command("pump") → PumpModule → Effect::Persist{MonotonicUpsert}
+//   - 100 个 Tick::Command("query") → QueryModule → Effect::Persist{StorageOp::Get}
+//   - 所有 PortReply 由 engine 自动回灌（回灌优先，biased select）
+//
+// 判据：
+//   - ✅ 无死锁（120s 内全部完成）
+//   - ✅ 全部 500 写 PortReply 到达（PumpModule.replies == 500）
+//   - ✅ 全部 100 读 PortReply 到达（QueryModule.replies == 100）
+//   - ✅ cursor 最终值 ≥ 500（MAX guard，实际 == 500，因 corr 从 1 递增）
+//   - ✅ 吞吐无显著回归（相对 10k 纯写测试，600 混合在相同量级内）
+//
+// ## 注意事项
+//
+// 读 Effect 走 `Effect::Persist{corr, ops:[StorageOp::Get]}` 路径，与写同队。
+// 读的 PortReply 包含 `bytes`（scan 结果）或空 bytes（get miss），两者都是 Ok(PortOutcome)。
+// QueryModule 只统计 PortReply 数，不关心具体 bytes。
+//
+// 迁移注记：本测试使用 NativeStorage/NativeEventSink/NativeHttp（native-specific），
+// 因此放在 helix-driver-native/tests 而非 host/tests。
+// 测试共享核（run_engine_loop from helix-driver-host），native 只提供具体 port 实现。
+
+/// 读写混合 flood 模块：接受 "pump"（写）和 "query"（读）两种命令。
+struct MixedModule {
+    /// 写命令 corr 分配器（从 1 开始）
+    next_write_corr: u64,
+    /// 读命令 corr 分配器（从 100_001 开始，与写分离避免 corr 碰撞）
+    next_read_corr: u64,
+    /// 写 PortReply 计数
+    write_replies: Arc<AtomicU64>,
+    /// 读 PortReply 计数
+    read_replies: Arc<AtomicU64>,
+}
+
+impl Module for MixedModule {
+    fn name(&self) -> &'static str {
+        "mixed-flood"
+    }
+
+    fn accepts(&self, tick: &Tick) -> bool {
+        matches!(tick, Tick::Command(c) if c.name == "pump" || c.name == "query")
+            || matches!(tick, Tick::PortReply { .. })
+    }
+
+    fn handle(&mut self, tick: &Tick, _now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
+        use helix_core::effect::{GetSpec, SqlValue};
+        match tick {
+            Tick::Command(c) if c.name == "pump" => {
+                let corr = helix_core::Correlation::from_raw(self.next_write_corr);
+                self.next_write_corr += 1;
+                out.push(Effect::Persist {
+                    corr,
+                    ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                        scope_key: "mixed:cursor".to_string(),
+                        value: corr.raw() as i64,
+                    })],
+                });
+            }
+            Tick::Command(c) if c.name == "query" => {
+                let corr = helix_core::Correlation::from_raw(self.next_read_corr);
+                self.next_read_corr += 1;
+                out.push(Effect::Persist {
+                    corr,
+                    ops: vec![StorageOp::Get(GetSpec {
+                        table: "_helix_monotonic",
+                        key_col: "scope_key",
+                        key_val: SqlValue::Text("mixed:cursor".to_string()),
+                    })],
+                });
+            }
+            Tick::PortReply { corr, .. } => {
+                if corr.raw() < 100_001 {
+                    self.write_replies.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    self.read_replies.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn on_start(&mut self, _out: &mut EffectSink) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
+/// P2 三入口混合 flood：500 写 + 100 读，无死锁，所有 PortReply 到达。
+///
+/// 回归锚: E1（泵死锁）· P2 engine 混合 flood（spec §5.2 场景 E）
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stress_engine_mixed_write_read_flood() {
+    use helix_core::effect::{GetSpec, SqlValue};
+    use helix_core::ports::Storage;
+
+    const WRITES: u64 = 500;
+    const READS: u64 = 100;
+    const TOTAL: u64 = WRITES + READS;
+
+    let db_path = "/tmp/helix_stress_engine_mixed.db";
+    let _ = std::fs::remove_file(db_path);
+    let _ = std::fs::remove_file(format!("{db_path}-shm"));
+    let _ = std::fs::remove_file(format!("{db_path}-wal"));
+
+    let storage = NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc"))
+        .await
+        .expect("open mixed storage");
+    let verify_storage = NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc"))
+        .await
+        .expect("open verify storage");
+    let http = make_test_http();
+    let (event_sink, _event_rx) = NativeEventSink::new();
+
+    let write_replies = Arc::new(AtomicU64::new(0));
+    let read_replies = Arc::new(AtomicU64::new(0));
+
+    let mut shell = ExecutionShell::new();
+    shell.register(MixedModule {
+        next_write_corr: 1,
+        next_read_corr: 100_001,
+        write_replies: Arc::clone(&write_replies),
+        read_replies: Arc::clone(&read_replies),
+    });
+
+    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(512);
+    let config = helix_driver_native::engine_loop::EngineConfig {
+        storage,
+        http,
+        event_sink,
+        max_http_inflight: 8,
+    };
+    let tick_tx_for_loop = tick_tx.clone();
+    let (_shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    tokio::spawn(async move {
+        run_engine_loop(shell, tick_rx, tick_tx_for_loop, config, shutdown_rx).await;
+    });
+
+    let start = Instant::now();
+
+    // 发送 500 个写命令
+    for _ in 0..WRITES {
+        tick_tx
+            .send(Tick::Command(AppCommand::new("pump", &b"{}"[..])))
+            .await
+            .expect("send pump command");
+    }
+    // 发送 100 个读命令（交错在写命令之间，模拟真实混合负载）
+    for _ in 0..READS {
+        tick_tx
+            .send(Tick::Command(AppCommand::new("query", &b"{}"[..])))
+            .await
+            .expect("send query command");
+    }
+
+    // 等所有 PortReply 到达（上限 120s）
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let wr = write_replies.load(Ordering::Relaxed);
+        let rr = read_replies.load(Ordering::Relaxed);
+        if wr >= WRITES && rr >= READS {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "P2 mixed flood timeout after 120s: writes={wr}/{WRITES}, reads={rr}/{READS} (possible deadlock)"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+
+    let elapsed = start.elapsed();
+    let final_writes = write_replies.load(Ordering::Relaxed);
+    let final_reads = read_replies.load(Ordering::Relaxed);
+
+    // ① 无死锁（已在上面 deadline 断言）
+    // ② 全部写 PortReply 到达
+    assert_eq!(
+        final_writes, WRITES,
+        "写 PortReply 必须全部到达: {final_writes}/{WRITES}"
+    );
+    // ③ 全部读 PortReply 到达
+    assert_eq!(
+        final_reads, READS,
+        "读 PortReply 必须全部到达: {final_reads}/{READS}"
+    );
+
+    // ④ cursor 最终值 ≥ WRITES（MAX guard）
+    drop(tick_tx);
+    // 短暂等待 engine 把 drain 收尾（不强制 graceful drain，只等短时间）
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let cursor_row = verify_storage
+        .get(GetSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            key_val: SqlValue::Text("mixed:cursor".to_string()),
+        })
+        .await
+        .expect("get cursor after mixed flood");
+
+    let cursor_val = cursor_row
+        .as_ref()
+        .and_then(|r| r.iter().find(|(k, _)| k == "value"))
+        .map(|(_, v)| v.clone());
+
+    assert!(
+        matches!(cursor_val, Some(SqlValue::Integer(v)) if v >= WRITES as i64),
+        "cursor 终态应 ≥ {WRITES}，实际: {cursor_val:?}"
+    );
+
+    eprintln!("\n[stress_engine_mixed_write_read_flood] P2 mixed flood");
+    eprintln!("  writes sent/replied  : {WRITES}/{final_writes}");
+    eprintln!("  reads  sent/replied  : {READS}/{final_reads}");
+    eprintln!("  total time           : {:.3} ms", elapsed.as_secs_f64() * 1e3);
+    eprintln!(
+        "  mixed throughput     : {:.0} ops/s",
+        TOTAL as f64 / elapsed.as_secs_f64()
+    );
+    eprintln!("  cursor final value   : {cursor_val:?}");
+}

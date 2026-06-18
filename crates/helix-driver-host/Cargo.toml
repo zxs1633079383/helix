@@ -36,3 +36,7 @@ bytes = { workspace = true }
 [[bench]]
 name = "storage_bench"
 harness = false
+
+[[bench]]
+name = "runtime_compare"
+harness = false

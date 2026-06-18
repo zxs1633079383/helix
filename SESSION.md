@@ -5,6 +5,25 @@
 
 ## §0 终态记录
 
+🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）跑**一个长 workflow** 把 sync-v2 修复 re-port 到 dev-zlc 的 ADR-007 架构：先 Phase A(#1 cursor 种子=0 + #6 解信封层，立刻修好 dev-zlc 现带的两个数据丢失 bug) → 再 Phase B(#2 成员+#6col channel 写整层) → 每阶段 cargo + 真机连 localhost:8065 离线 e2e 验 backfill。参照源 = `feat/sync-v2-full-replacement`（已真机验证的 sync-v2，**不文本合并**，逐项 re-port）。
+
+📌 **背景/坑（2026-06-18，必读，别再踩）**：
+  - **架构并行分叉**：我 10:24 从 8997a72 分叉建 feat/sync-v2 做业务层；**另一个会话 12:43 把 ADR-007（engine 下沉 host、native/FFI 薄壳、http_envelope 信封契约）合进 dev-zlc**。两条线整天并行没碰头 → 17:33 才发现架构岔开巨大、而**业务代码两边都已开发**。教训：**开长线前先对齐基线**（都从 dev-zlc 最新分叉 / 定期 rebase），否则岔几小时就分道。
+  - **好消息**：helix-im 是 sans-IO，业务逻辑（#1/#2/#6col/#3）与 driver 架构无关，re-port 干净；只 #6（解信封）碰 driver 接缝。
+  - **哪个架构留**：ADR-007（dev-zlc）更好（服务北极星「一份 core 编 native+FFI」），保留它；搬 feat 的业务逻辑过去。
+  - **信封契约已拍板**：保 dev-zlc 的 ADR-007 信封，#6 改成「parse_sync_response 前加解信封+base64 层」（落 module.rs handle_sync_reply，只对 SyncPull 路径，别碰 scan）。base64 跨 crate：helix-im 不能依赖 host → im 自带 decode 或挪 core。
+  - **#5 不搬**：dev-zlc 用全局头(cookieId)已覆盖，搬进 ImConfig 违 ADR-010。
+  - **re-port 落点矩阵** 见映射 agent 报告（dev-zlc #1 现带 lastEventSeq 种子 bug=increment_channel.rs:22 / #6 latent 吞数据 bug=module.rs:491 / #2+#6col channel-member 写层整体缺失 / #3 makeTopic 待读 feat diff）。
+
+🔧 **真机联调铁律（今天反复踩，沉淀）**：
+  - **所有 HTTP 请求头都要带 deviceId**（`HELIX_DEVICE_ID`）——缺了对端 paas 判 session 过期 → grpc 拒。今天踩好多次。host-cli 已支持 env 注入。
+  - **真机连 Go 用 `scripts/dev-loop.sh`**（焊死正确 base + 双端日志三层关联），别手搓 host-cli env：base 必含 `/api/cses`、`HELIX_DB` 别带 `?mode=rwc`（host-cli 自拼）。
+  - **后端三仓 + grpc 排障**：Go mattermost = `/Users/mac28/workspace/golangProject/mattermost`（日志 `/Users/mac28/workspace/mmlog/mattermost.log`）；Java cses(paas/x9 grpc) = `/Users/mac28/workspace/java/cses`。出 grpc 问题（`no service available` / `RunIncrementWorker panic` / `new grpc client fail` / consul `xpa-12-grpc` 0 实例）→ **查各自日志**；常见根因 = Java paas grpc 服务挂/未注册 consul（今天 17:19 因一个 JVM suspend=y 等 debugger 卡住）。
+
+🔁 **dev-zlc 分叉监控（防再分叉 · 手动 cadence，durable cron 本环境不支持）**：新会话开局 + re-port 每个 commit 检查点，跑一次 `git rev-list --count feat/sync-v2-report-on-adr007..dev-zlc` 看落后多少；**落后 ≥5 或 dev-zlc 动了 `helix-driver-host/engine.rs`·`http_envelope.rs`·`helix-im` → 先 rebase 本分支到 dev-zlc 再续 re-port**，别让架构再岔。新会话也可自挂 session-only cron（`*/57 * * * *`）跑上面那条命令兜底。
+
+✅ DONE sync-v2 全链真机闭环（在线+离线）@2026-06-18 | feat/sync-v2-full-replacement（参照源，未合并）：删库重拉离线 backfill 实证（Go `kind=events fromSeq=0`→message 落行）+ 在线发收 echo 回填。6 fix + member_count 全 commit、cargo/test 绿。**唯落到 dev-zlc 的 re-port 待做（见上续接）。**
+
 🎯 EXPECT F5 跨端 parity 自动化（同 Tick 剧本 native vs FFI byte-level 一致 · 设备无关）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/f5-cross-parity 未 merge）
   ↳ 可证伪预判：① golden Tick 剧本→Emit DomainEvent 序列 byte-identical 到 committed fixture + 跑两次确定性 ② native(NativeEventSink broadcast)↔ffi(FfiEventSink batch decode) 对同剧本 deliver 的 DomainEvent byte-identical ③ 改动只在 tests + golden fixture（不改 src 逻辑/不碰 core 行为）④ 两测 HX-C011 可证伪（改 emit / break egress → fixture mismatch FAIL，commit body 附破坏证明）⑤ cargo test 全绿 + native 零回归 + gate.sh 过
   ↳ 偏离即记 DRIFT-PRED：若改 src 逻辑 · golden 是 tautology(改 emit 照过) · parity 黑盒证不了 · 跨 crate dev-dep 成环 → 偏离

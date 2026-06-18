@@ -1,0 +1,46 @@
+# cbindgen.toml — helix-driver-ffi C++ 头生成配置
+#
+# 生成 helix.hpp（C++，pragma_once）。
+# CppHostVtable repr(C) 自动扫描；HelixHandle 作不透明 struct（C++ 前向声明）。
+#
+# ## HelixHandle 不透明处理
+#
+# cbindgen 在 C++ 模式下，对 [export.exclude] 中排除的类型，
+# 若它出现在函数签名的指针位置，会自动生成正确的不透明 struct 前向声明：
+#   struct HelixHandle;
+# 这是 cbindgen C++ 模式的标准 opaque pointer 写法。
+#
+# 禁用的错误写法（round-2 纠错）：
+#   typedef struct HelixHandle HelixHandle;  <- C 语法，C++ 无效（C++ 已有 struct tag = type）
+#   extern "C" struct HelixHandle;           <- 也不对
+# cbindgen language=C++ 下排除后自动给正确前向声明，无需 after_includes 手写。
+
+language = "C++"
+
+# pragma_once 替代 include guard
+pragma_once = true
+
+# doc 注释风格：Rust doc 注释转换为 C++ // 行注释
+documentation_style = "c++"
+
+# 不额外 include（cbindgen 自动补 stdint 等）
+includes = []
+
+# HelixHandle 不透明前向声明（C++ 语法）。
+# cbindgen exclude 后函数签名中的 HelixHandle* 需要这一行才能编译。
+after_includes = "struct HelixHandle;"
+
+# HelixHandle 是 Rust-side opaque struct，C++ 只通过指针使用；
+# 排除它的定义，cbindgen 在函数签名中自动生成 `struct HelixHandle;` 前向声明。
+[export]
+exclude = ["HelixHandle"]
+
+# 命名约定：保持 snake_case（与现有 helix_ 前缀一致）
+[fn]
+rename_args = "None"
+
+[struct]
+rename_fields = "None"
+
+[enum]
+rename_variants = "None"

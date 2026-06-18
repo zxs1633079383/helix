@@ -3,23 +3,30 @@ name    = "helix-driver-ffi"
 version = "0.1.0"
 edition = "2021"
 
-# FFI driver：C ABI + uniffi，编译为 cdylib + staticlib
+# FFI driver：C ABI，编译为 cdylib + staticlib
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-helix-core = { path = "../helix-core" }
+helix-core        = { path = "../helix-core" }
 helix-driver-host = { path = "../helix-driver-host" }
-serde       = { workspace = true }
-thiserror   = { workspace = true }
-bytes       = { workspace = true }
-tracing     = { workspace = true }
-async-trait = { workspace = true }
+serde        = { workspace = true }
+thiserror    = { workspace = true }
+bytes        = { workspace = true }
+tracing      = { workspace = true }
+async-trait  = { workspace = true }
 futures-channel = { workspace = true }
 futures-util = "0.3"
+# parking_lot Mutex：包 tick_tx Sender（Sender 非 Sync，需 Mutex 允许 &self 发送）
+parking_lot  = "0.12"
+# tokio sync：tick channel（mpsc）；仅需 sync feature，不需要 rt
+tokio        = { version = "1", features = ["sync"] }
 
-# FFI 绑定（cbindgen 在 build.rs 生成 helix.h）
+# FFI 绑定（build.rs 调用 cbindgen 生成 helix.hpp）
 # uniffi = { version = "0.28", features = ["scaffolding"] }  # 按需开启
+
+[build-dependencies]
+cbindgen = "0.27"
 
 # driver 层是 ambient API（SystemTime/线程）的唯一合法落点 → 不开 disallowed deny
 [lints.clippy]

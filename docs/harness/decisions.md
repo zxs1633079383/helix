@@ -24,10 +24,10 @@
 - **代码事实（2026-06-10 起核实）**：`crates/helix-core` 内零处 `cursor_upsert`/`CursorUpsert`；`grep -i cursor crates/helix-core/src` 仅命中注释举例（非 API 名）。口径护栏：grep「零业务概念」的承诺对象只含 channel/message/temporaryId 三词，**不含 cursor**（不要声称 `grep cursor = 0`）。
 - **状态**：已定。配套 [架构设计 §3.2/§4.9](../过会方案/helix-core-im-架构设计.md) + 纪要拍板 #1。GOAL §3 同步。
 
-## ADR-005 — FFI 同步调用必须 spawn_blocking（实现待补）
+## ADR-005 — FFI 同步调用必须 spawn_blocking（storage 已落地，engine 接线待 M3-F4）
 - **决策**：FFI driver 的同步 SQLite C 调用包 `spawn_blocking`；不许阻塞 tokio worker。
 - **理由**：MAJ-4。
-- **状态**：契约已定（HX-C006），实现当前 `todo!()`，FFI 落地前必补（P1）。
+- **状态**：storage 端 `spawn_blocking` **已落地**于 `helix-driver-host/src/storage.rs` ×7（native/FFI 共享 host 存储栈，一次满足两端继承，ADR-007）；FFI 经 `FfiStorage` 薄壳委托即继承。**C-ABI 导出层 engine_loop 接线仍 stub（ROADMAP M3-F4，非架构偏移）**。契约 HX-C006 已守。
 
 ## ADR-006 — 产品维护目标收缩为 PC Tauri + Flutter，wasm/web 暂停维护
 - **决策**：Helix 当前产品化目标只覆盖两类客户端：PC 端 Tauri（`helix-driver-native`）与手机端 Flutter（`helix-driver-ffi`）。网页端暂不做，`helix-driver-wasm` 保留为历史实验/归档代码，不进入 roadmap、CI 必跑矩阵、交付验收或日常维护。
@@ -42,7 +42,7 @@
 ## ADR-008 — sync-v2：helix 适配现网 Go 真实 wire，不改 Go server
 - **决策**：sync-v2 落地时，helix（parser/sync_session/to_effect/im handler）**适配现网 Go 的真实 wire**——increment 走「`POST /api/cses/channels/load/increment` HTTP 触发 → 后台 goroutine → WS 单播 `increment_channel`×N + `increment_channel_end`」push 模型；离线对账走「`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}` → `entries[]`」pull 模型；游标字段为 `event_seq`（三级 fallback：data.event_seq → props.channel_event_seq → 顶层 channel_event_seq）；鉴权 `cookieId` header = userId。**Go server 零改动。**
 - **理由**：现网 Go `mattermost/server/channels/csesapi` 已服务生产 iOS/cses-client，反向让 Go 适配 helix 抽象会动生产服务端、影响现网 iOS，代价大。GOAL §4.5 定「现网 cses-client/Go 为行为真源」。helix 当前把 increment（push）与 sync/notify（pull）误揉成单一抽象 `GET /sync/notify` 拉模型 + 字段名 `seq`，是错位，须按真 wire 改回两条链路。
-- **代码事实（2026-06-15 map 实测）**：helix-im parser 仅读 `data.seq` 一级、`GET /sync/notify`、不认 increment/hello 帧；on_start 不发 hello；全仓 0 `im:connection:established`；echo→reconcile 死代码；engine_loop Send 占位无 transport 路由表。详见 [`../过会方案/helix-sync-v2-real-go-wire-设计.md`](../过会方案/helix-sync-v2-real-go-wire-设计.md)。
+- **代码事实（2026-06-15 map 实测）**：helix-im parser 仅读 `data.seq` 一级、`GET /sync/notify`、不认 increment/hello 帧；on_start 不发 hello；全仓 0 `im:connection:established`；echo→reconcile 死代码；engine_loop Send 占位无 transport 路由表。详见 [`../过会方案/helix-sync-v2-设计.md`](../过会方案/helix-sync-v2-设计.md)（合并自 real-go-wire + 完成-spec）。
 - **配套未决**：connect 触发归属（`Effect::Connect` 意图 vs host-cli 主动 connect）放 Phase A2 拍；「运维消息」是否新立 `im:ops:*` 类待拍。
 - **状态**：已定（2026-06-15）。落 `dev-zlc` 分支，A→B→C→D 分阶段全量实现。
 
@@ -60,3 +60,28 @@
 - **理由**：IM 只是第一个业务模块，若每个模块或每个端都各写 HTTP/WS，会导致重连、超时、header 注入、连接复用、错误分类和事件回灌语义漂移。共享 client 让“一个逻辑”落到真实工程结构：业务协议一份、I/O 执行一份、平台壳多份。
 - **状态**：已定并阶段落地（2026-06-16）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；`helix-driver-native` 改为薄壳复用 shared client；`helix-driver-ffi` 的 Rust 侧主路径复用 shared client，并暴露 `helix_set_header` / `helix_remove_header`。保留项：WS reconnect/backoff、proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
 > ✅ transport.rs 已适配本 ADR（6b2fd52）：`NativeTransport` 薄壳复用 `SharedWsClient`，tokio-tungstenite 降为 dev-dep（仅集成测试）；真 Go 硬修保住（Text 帧 / 握手头灌 registry / 不回客户端 hello / 入站 `Tick::Inbound` 推送 via `with_inbound_tick`），真 Go :8065 直连 22s 回归通过（0 个 8s 断连）。保留项：WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback、native·FFI 共享 registry 对称化（drift D3 待修）。
+
+---
+
+## 过会拍板结论（原 helix-技术评审纪要，2026-06-17 折叠）
+
+> 这 7 条 + 头号风险原是 `docs/过会方案/helix-技术评审纪要.md` 的内容（8 轮逐条拷问 + 三视角合议的拍板结论）。
+> 文档大缩减时纪要稿删除，**决策权威源已并入本文件**——本节自此是这些过会结论的唯一事实源。
+> 与现有 ADR 的关系：纪要拍板 #1 = ADR-004（cursor 归属）；其余条目是更宽口径的过会级结论，不与 ADR-001..010 冲突。
+
+**评审总结论**：能过会——靠「诚实 + 原点守住」过，不是靠「无懈可击」过。原点（业务逻辑写多份 / Bug 修多处行为分叉 / 业务逻辑测不动）经得起敲，技术核心方向正确，未建完的部分被主动摆上桌、且有明确的最低成本验证路径。
+
+| # | 拍板结论 | 内容 |
+|---|---|---|
+| 1 | **cursor 归属** | cursor 是 IM 模块的同步游标概念，**归 `helix-im`，不进 core**；core 只保留与业务无关的通用 spec 原语（`CursorUpsert`→`MonotonicUpsert` 更名落地）。= ADR-004。 |
+| 2 | **栅栏升级：禁词清单 → 公开面冻结** | 「core 零业务概念」从 `grep 禁词`（denylist）升级为 `cargo public-api` **快照冻结 core 公开类型面**（allowlist）；任何新增具名业务类型即 CI 红——拦的是「新增了类型」这个结构事实，而非某个词。 |
+| 3 | **四能力解耦定性 = 行为级（A）** | Tick/Effect 提供的是**行为解耦**（模块只 emit 自己需要的 Effect），**非编译级裁剪**；「feature additive / 单独构建 / 编译级互不依赖」措辞全部校准为「行为级解耦」。唯一保留的编译级口子（B）：wasm 包体积——若 wasm size 真咬人，再为 wasm 单独拆 `Effect` 子枚举。`Effect` 仍是**单一 enum**。 |
+| 4 | **重试归 driver** | helix-im 不重试、失败只标 UnSend（源码 `ports/http.rs` 注释为准）；重试 / 退避是 driver 私有责任。 |
+| 5 | **DomainEvent 契约必须版本化** | 业务逻辑全进 Rust 后，core 与前端唯一对话面是 DomainEvent 事件流；该契约**必须版本化**（信封带 `v`），否则「业务回调地狱」会换成「事件 schema 对不齐地狱」。 |
+| 6 | **三端说法诚实校准** | 措辞从「三端在跑」改为「**两端在跑**（桌面 Tauri/Angular + 移动 Flutter）+ 浏览器在路上」。（注：浏览器端后被 ADR-006 进一步收缩为暂停维护。） |
+| 7 | **driver 方法体当前全是 `todo!()`** | 流程图 / 序列图是「编译期类型验证为真的契约意图」，运行时兑现待 M2。（注：本条为 2026-06-17 折叠时的状态；之后 native transport/http/storage 主路径已逐步落地，见 ADR-007/008/010。） |
+
+**头号技术风险（主动上桌）**：乱序增量同步（断线重连 backfill）尚未验证——架构在最干净的发消息链上已证，但在最脏的「乱序帧缓冲 + gap 检测 + 按序补齐」链上一字未证。
+**最低成本验证路径（M1 第一优先级）**：**先写乱序 backfill 的 proptest，再写任何 driver**——在 `helix-im` 内用 owned 状态（`pending: BTreeMap<Seq,Frame>` 缓冲、连续水位 cursor、bitmap 已拉区间）+ `ScheduleTimer` 驱动「攒 1s flush」，喂任意乱序 `Tick::Inbound` + `Tick::Timer`，断言落库顺序 == 排序后顺序。范式参考 Telegram `getDifference(pts)`。
+
+> 进度脚注（2026-06-17）：拍板 #4/#5/#7 与后续 sync-v2 落地一致；sync-v2 数据路径已真 Go 端到端验证（见 [`../过会方案/helix-sync-v2-设计.md`](../过会方案/helix-sync-v2-设计.md)），但本条头号风险中的「断线重连 backfill 全脏路径 proptest」仍为 M1 收尾项，未因 sync-v2 数据路径打通而豁免。

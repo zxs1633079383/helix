@@ -1,0 +1,69 @@
+%% helix-driver-ffi — C-ABI 边界全景
+%% Dart ↔ C-ABI 导出函数 ↔ Rust（handle / transport / storage / http）
+%% 实线 = ✅ 已接（src 已落地）；虚线 = ❌ F4 未接（engine 泵缺）
+%% 真源：crates/helix-driver-ffi/src/{api.rs, callbacks.rs, transport.rs, storage.rs, http.rs}
+
+flowchart TD
+    subgraph DART["📱 Dart / Flutter 宿主侧（dart:ffi）"]
+        DCALL["调用导出函数<br/>open / set_header / on_ws_frame ..."]
+        DCB["持有回调表 HelixCallbacks<br/>send_ws_frame · send_http · on_domain_event · now_ms · ctx"]
+        DSTREAM["Dart Stream<br/>（ReceivePort / NativePort）"]
+    end
+
+    subgraph ABI["🔌 C-ABI 导出函数（#no_mangle extern C · api.rs）"]
+        E_CREATE["✅ helix_create<br/>（占位，返回 null_mut · api.rs:27）"]
+        E_CREATEN["✅ helix_create_with_network<br/>（建 handle · Box::into_raw · api.rs:37）"]
+        E_DESTROY["✅ helix_destroy<br/>（Box::from_raw 回收 · api.rs:71）"]
+        E_SETH["✅ helix_set_header · api.rs:86"]
+        E_RMH["✅ helix_remove_header · api.rs:119"]
+        E_WS["⚠️ helix_on_ws_frame<br/>（拷贝 buffer 后 TODO 断头 · api.rs:148）"]
+        E_HTTP["⚠️ helix_on_http_response<br/>（拷贝 body 后 TODO 断头 · api.rs:170）"]
+        E_CMD["❌ helix_command / send_message<br/>（命令入口，尚未导出）"]
+        E_QUERY["❌ helix_query<br/>（F1 同步读路径，尚未导出）"]
+    end
+
+    subgraph HANDLE["🦀 HelixHandle（opaque ptr · 单 owner · api.rs:17）"]
+        H_HDR["headers: HostHeaderRegistry"]
+        H_HTTP["_http: SharedHttpClient"]
+        H_WS["_ws: SharedWsClient"]
+        H_CB["_callbacks: HelixCallbacks"]
+    end
+
+    subgraph PORTS["🦀 Port 实现（薄壳委托 helix-driver-host）"]
+        T_TRANS["FfiTransport · transport.rs<br/>Shared=复用 host WS / Callback=回调 Dart"]
+        T_STORE["FfiStorage · storage.rs<br/>一行委托 HostStorage（StorageOp）"]
+        T_HTTPR["FfiHttpRequester · http.rs<br/>委托 SharedHttpClient"]
+    end
+
+    ENGINE["❌ engine 泵（ExecutionShell / engine_loop）<br/>FFI 端尚未接入 = M3-F4 缺口"]
+
+    DCALL --> E_CREATEN
+    DCALL --> E_SETH
+    DCALL --> E_RMH
+    DCALL --> E_WS
+    DCALL --> E_HTTP
+    DCALL -.->|❌ 待导出| E_CMD
+    DCALL -.->|❌ 待导出| E_QUERY
+    DCB -.->|repr(C) 传入| E_CREATEN
+
+    E_CREATEN --> HANDLE
+    E_DESTROY --> HANDLE
+    E_SETH --> H_HDR
+    E_RMH --> H_HDR
+
+    H_HTTP --> T_HTTPR
+    H_WS --> T_TRANS
+    HANDLE -.->|F2 已具备但未在泵中驱动| T_STORE
+
+    E_WS -.->|❌ TODO：未喂 engine| ENGINE
+    E_HTTP -.->|❌ TODO：未喂 engine| ENGINE
+    E_CMD -.->|❌ 未接| ENGINE
+    ENGINE -.->|❌ FfiEventSink 未接| DSTREAM
+
+    classDef done fill:#d4edda,stroke:#28a745,color:#155724;
+    classDef stub fill:#fff3cd,stroke:#ffc107,color:#856404;
+    classDef gap fill:#f8d7da,stroke:#dc3545,color:#721c24;
+
+    class E_CREATE,E_CREATEN,E_DESTROY,E_SETH,E_RMH,H_HDR,H_HTTP,H_WS,H_CB,T_TRANS,T_STORE,T_HTTPR,DCALL,DCB done;
+    class E_WS,E_HTTP stub;
+    class E_CMD,E_QUERY,ENGINE,DSTREAM gap;

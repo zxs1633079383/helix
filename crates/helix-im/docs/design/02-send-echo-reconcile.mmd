@@ -1,0 +1,47 @@
+%% helix-im 设计图 02 —— 发消息 + echo 对账时序
+%% 真源: src/module.rs::handle_send_message, src/pending_send.rs, src/ws/handlers/{post.rs,posted.rs}
+%% 关联: HX-C006（FFI/对账确定性：echo 先到 vs timer 先到 终态一致）/ HX-C008（cursor 不双推）
+sequenceDiagram
+    autonumber
+    participant UI as UI（Tauri 命令 im_send_message）
+    participant IM as ImModule.handle_send_message
+    participant DRV as Driver（Storage/Http/Timer 端口）
+    participant GO as 真 Go server
+    participant WS as ImModule WS dispatch
+    participant PS as PendingSend（state.pending_sends）
+
+    Note over UI,PS: ① 乐观发送（同步纯函数吐 4 Effect + 注册 PendingSend）✅
+    UI->>IM: im_send_message{channel_id, temporary_id, text}
+    IM->>DRV: Effect::Persist{P1} 乐观落库 message（send_status=sending, PK=temporary_id）
+    IM->>DRV: Effect::Http{H1} POST /posts/create（带 connectionId 身份头）
+    IM->>DRV: Effect::ScheduleTimer{T1, 15s} 超时令牌
+    IM->>UI: Effect::Emit im:post:sending（上屏乐观态）✅
+    IM->>PS: insert PendingSend{status=Local, timeout_timer=T1, persist_corr=P1}
+    IM->>IM: corr_map[P1]=OptimisticSend{temporary_id}
+
+    Note over DRV,IM: P1 落库回报 → 状态推进 Sending
+    DRV-->>IM: Tick::PortReply{P1, Ok}
+    IM->>PS: status = Sending（OptimisticSend 路由）
+
+    Note over GO,WS: ② 服务端回声（真 Go 统一发 action=="post"；"posted" 为兼容路径）✅
+    GO-->>WS: WS 帧 action=post / posted（data.temporary_id + server id + event_seq）
+    WS->>WS: reconcile_*_echo：temporary_id 命中在途 PendingSend？
+
+    alt 命中在途 send（本端 echo）
+        WS->>PS: PendingSend.reconcile（alloc 新 corr）
+        Note right of PS: 吐 Persist{ON CONFLICT(temporary_id)\n  id=server_id, send_status='sent'}\n+ CancelTimer{T1} 撤 15s\nstatus → Sent ✅
+        WS->>DRV: Effect::Persist（server_id 覆写乐观行）
+        WS->>DRV: Effect::CancelTimer{T1}
+        WS->>PS: pending_sends.remove + corr_map.remove(P1)（防泄漏）
+        Note over WS: post 路径：ch.ingest 已推 cursor → 对账不双推（HX-C008）\nposted 路径：cursor 由 reconcile_echo 独立 advance_cursor
+    else 非 echo（他人推送 / temporary_id 不命中 / server_id 非法 26 字符）
+        WS-->>WS: no-op（边界零信任，不误标发送态）⚠️
+    end
+
+    Note over PS,DRV: ③ 超时兜底（echo 未到 · 终态确定性 HX-C006）
+    alt T1 未被撤销（15s 到）
+        DRV-->>IM: Tick::Timer{T1}
+        IM->>PS: on_timeout：status=Local/Sending → UnSend\n+ PersistFire send_status='unsend'（无自动补发）⚠️
+    else echo 已 CancelTimer{T1}
+        Note over PS: T1 永不 fire；即便竞态迟到，status==Sent 幂等无害 ✅
+    end

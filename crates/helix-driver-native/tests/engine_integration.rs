@@ -172,6 +172,7 @@ async fn test_emit_received_by_subscriber() {
         storage,
         http,
         event_sink,
+        max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
 
@@ -217,6 +218,7 @@ async fn test_timer_fires_into_engine() {
         storage,
         http,
         event_sink,
+        max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
 
@@ -264,6 +266,7 @@ async fn test_persist_portreply_roundtrip() {
         storage,
         http,
         event_sink,
+        max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
 

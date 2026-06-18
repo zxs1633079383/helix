@@ -1,0 +1,272 @@
+//! Golden fixtures 回放——拿**真 Go 实际下发的帧**做确定性回放断言。
+//!
+//! 回归锚: C1（post 帧）/ B2（increment）/ B1（运维帧忽略）—— golden fixtures 工具链。
+//!
+//! ## 为什么有这个文件（防 post/posted 同类回归）
+//!
+//! 本会话最大坑：parser 曾按**猜测**的 `"posted"` 写，真帧其实是 `"post"`。根因是手写帧
+//! 凭猜，与现网 wire 漂移而 CI 测不出。Golden fixtures 把「测试用帧」从「手写猜测」升级为
+//! 「现网真抓」——fixture 文件 = 真 Go 服务端 RAW WS 下发原文（带来源头注释），测试 = 回放断言。
+//! 任何 parser 字段路径 / action 名漂移，回放断言立刻红。
+//!
+//! ## 帧来源
+//!
+//! - `post.json`                  : live 抓帧，action=="post" 新消息广播（event_seq=40114）
+//! - `increment_channel.json`     : devloop 抓帧，action=="increment_channel"（lastEventSeq=151）
+//! - `increment_channel_end.json` : devloop 抓帧，action=="increment_channel_end"（global end）
+//! - `status_change_ignored.json` : devloop 抓帧，action=="status_change" 运维帧（须忽略）
+//!
+//! 补真帧的「链」（怎么持续喂入新真帧）见 `tests/fixtures/real_go_frames/README.md`。
+
+mod common;
+use common::*;
+
+use helix_core::effect::{SqlValue, StorageOp};
+use helix_core::tick::InboundBytes;
+use helix_core::{Effect, Tick};
+use helix_im::state::ChannelId;
+
+// ─── fixture 加载 ────────────────────────────────────────────────────────────
+
+const POST_JSON: &str = include_str!("fixtures/real_go_frames/post.json");
+const INCREMENT_JSON: &str = include_str!("fixtures/real_go_frames/increment_channel.json");
+const INCREMENT_END_JSON: &str = include_str!("fixtures/real_go_frames/increment_channel_end.json");
+const STATUS_CHANGE_JSON: &str = include_str!("fixtures/real_go_frames/status_change_ignored.json");
+
+/// 取 fixture 的 JSON 主体——剥掉 `//` 来源头注释行，拼回单个 JSON 帧。
+fn fixture_body(raw: &str) -> Vec<u8> {
+    raw.lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into_bytes()
+}
+
+fn inbound(raw: &str) -> Tick {
+    Tick::Inbound(InboundBytes(fixture_body(raw).into()))
+}
+
+// ─── 断言辅助：从原始 sink 取 effect 细节（EffectKind 不带字段）──────────────────
+
+fn as_text(v: &SqlValue) -> Option<&str> {
+    match v {
+        SqlValue::Text(s) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+/// 收集所有 message 表 upsert 行（PersistFire / Persist 都算）的某列 TEXT 值。
+fn message_upsert_col(sink: &helix_core::EffectSink, col: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in sink.as_slice() {
+        let ops = match e {
+            Effect::PersistFire { ops } => ops,
+            Effect::Persist { ops, .. } => ops,
+            _ => continue,
+        };
+        for op in ops {
+            if let StorageOp::BatchUpsert(spec) = op {
+                if spec.table != "message" {
+                    continue;
+                }
+                for row in &spec.rows {
+                    if let Some(v) = row
+                        .iter()
+                        .find(|(k, _)| k == col)
+                        .and_then(|(_, v)| as_text(v))
+                    {
+                        out.push(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+// ─── ① post.json：真新消息帧 → 落库 message 行 + cursor 推进 ─────────────────────
+
+/// 真 Go `action=="post"` 帧（event_seq=cursor+1）→ 立即 apply：
+/// - PersistFire 落 message 行，列 temporary_id / id / message / read_bits 全对齐真帧；
+/// - advance_cursor 把 cursor 推到 40114；
+/// - emit im:post:received。
+///
+/// **这是 post/posted 回归的活护栏**：若 parser 把 action 名写错（如退回 "posted"），
+/// classify_inbound 会判 Ignored → 零 effect → 本测试立刻红。
+#[test]
+fn real_go_post_frame_persists_message_and_advances_cursor() {
+    // post.json 真帧 channelId = rmibkwkjwidhdx5xy8pyse6a3r，event_seq = 40114。
+    let channel =
+        ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
+
+    // 注册该 channel，cursor 种到 40113，使真帧 event_seq(40114) == cursor+1 → 立即 apply。
+    let mut h = Harness::new(&[]);
+    h.module.register_channel(channel, 40113);
+    h.start(0);
+
+    let effects = h.step(inbound(POST_JSON), 1000);
+
+    // 立即 apply 产出序列：PersistFire(message upsert) + PersistFire(advance_cursor) + Emit。
+    let persist_fire = effects
+        .iter()
+        .filter(|e| **e == EffectKind::PersistFire)
+        .count();
+    assert!(
+        persist_fire >= 2,
+        "真 post 帧立即 apply 须有 message upsert + advance_cursor 两条 PersistFire，got {:?}",
+        effects
+    );
+    assert!(
+        effects.iter().any(|e| *e == EffectKind::Emit),
+        "真 post 帧须 emit im:post:received，got {:?}",
+        effects
+    );
+
+    // 落库 message 行字段全对齐真帧（防字段路径漂移：camelCase temporaryId/readBits 等）。
+    assert_eq!(
+        message_upsert_col(&h.sink, "temporary_id"),
+        vec!["helixverify1781671289".to_string()],
+        "message 行 temporary_id 须取真帧 data.temporaryId（camelCase 路径）"
+    );
+    assert_eq!(
+        message_upsert_col(&h.sink, "id"),
+        vec!["hjh19t4tutnt5ygxn4oxsqtbkc".to_string()],
+        "message 行 id 须取真帧 server 权威 data.id"
+    );
+    assert_eq!(
+        message_upsert_col(&h.sink, "message"),
+        vec!["helix-verify-1781671289".to_string()],
+        "message 行 message 内容须取真帧 data.message"
+    );
+    assert_eq!(
+        message_upsert_col(&h.sink, "read_bits"),
+        vec!["100".to_string()],
+        "message 行 read_bits 须取真帧 data.readBits（camelCase 路径，防 c2 readBits 回归）"
+    );
+
+    // cursor 推进到真帧 event_seq。
+    assert_eq!(
+        h.module.cursor_for(channel),
+        Some(40114),
+        "真 post 帧须把 cursor 推进到 data.event_seq=40114"
+    );
+}
+
+/// 边界：未注册 channel 收到真 post 帧 → 静默忽略（driver 路由问题，非 IM 错误），零 effect、零 panic。
+#[test]
+fn real_go_post_frame_on_unregistered_channel_is_silently_dropped() {
+    let mut h = Harness::new(&[]);
+    h.start(0);
+    let effects = h.step(inbound(POST_JSON), 1000);
+    assert!(
+        effects.is_empty(),
+        "未注册 channel 的真 post 帧应静默忽略（零 effect），got {:?}",
+        effects
+    );
+}
+
+// ─── ② increment_channel.json：真增量帧 → 注册 + cursor 种子 + emit ───────────────
+
+/// 真 Go `increment_channel` 帧 → 注册全新 channel + LastEventSeq 种 cursor + emit im:channel:increment。
+#[test]
+fn real_go_increment_channel_registers_and_seeds_cursor() {
+    // increment_channel.json 真帧 data.id = bi643wys7fgy9pbai9wjfusnfa，lastEventSeq = 151。
+    let channel = ChannelId::from_str("bi643wys7fgy9pbai9wjfusnfa").expect("真帧 id 合法 26 字符");
+
+    let mut h = Harness::new(&[]);
+    h.start(0);
+
+    let effects = h.step(inbound(INCREMENT_JSON), 1000);
+
+    // 注册 + cursor 种子 = lastEventSeq。
+    assert_eq!(
+        h.module.cursor_for(channel),
+        Some(151),
+        "真 increment 帧须用 data.lastEventSeq 种 cursor"
+    );
+    // 记入 increment_fetched 批次集（needSync=true）。
+    assert!(
+        h.module.increment_fetched_contains(channel),
+        "真 increment 帧须记入 increment_fetched 集"
+    );
+    // emit im:channel:increment。
+    assert!(
+        effects.iter().any(|e| *e == EffectKind::Emit),
+        "真 increment 帧须 emit im:channel:increment，got {:?}",
+        effects
+    );
+
+    // increment_channel_end（global，data={}）→ 对增量群（含本群）发 sync Http。
+    let end_effects = h.step(inbound(INCREMENT_END_JSON), 1100);
+    let http = end_effects
+        .iter()
+        .filter(|e| matches!(e, EffectKind::Http(_)))
+        .count();
+    assert!(
+        http >= 1,
+        "真 increment_channel_end(global) 须对增量群发 sync Http，got {:?}",
+        end_effects
+    );
+    // sync 发的是 /channel/sync/notify。
+    let saw_sync_notify = h.sink.as_slice().iter().any(
+        |e| matches!(e, Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify")),
+    );
+    assert!(
+        saw_sync_notify,
+        "真 increment_channel_end 须触发 /channel/sync/notify"
+    );
+}
+
+// ─── ③ status_change.json：真运维帧 → 优雅忽略（零 effect / 零 panic）────────────
+
+/// 真 Go `status_change` 运维帧 → InboundEvent::Ignored：零 effect、零 panic、零状态副作用。
+#[test]
+fn real_go_status_change_frame_is_ignored() {
+    let mut h = Harness::new(&[]);
+    h.start(0);
+
+    let before_cursor = h.module.cursor_for(ChannelId::from_test_u64(1));
+
+    let effects = h.step(inbound(STATUS_CHANGE_JSON), 1000);
+
+    assert!(
+        effects.is_empty(),
+        "真 status_change 运维帧须优雅忽略（零 effect），got {:?}",
+        effects
+    );
+    // 无任何 channel 副作用（cursor 不变）。
+    assert_eq!(
+        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        before_cursor,
+        "运维帧不得改动任何 channel 状态"
+    );
+}
+
+// ─── ④ fixture 健康检查：每个 fixture 都是合法 JSON 帧（剥头注释后）────────────────
+
+/// 全部 fixture 主体都能被 serde_json 解析——防有人手改 fixture 改坏 JSON。
+#[test]
+fn all_fixtures_are_valid_json_after_stripping_header() {
+    for (name, raw) in [
+        ("post.json", POST_JSON),
+        ("increment_channel.json", INCREMENT_JSON),
+        ("increment_channel_end.json", INCREMENT_END_JSON),
+        ("status_change_ignored.json", STATUS_CHANGE_JSON),
+    ] {
+        let body = fixture_body(raw);
+        let parsed: Result<serde_json::Value, _> = serde_json::from_slice(&body);
+        assert!(
+            parsed.is_ok(),
+            "fixture {} 剥头注释后须是合法 JSON：{:?}",
+            name,
+            parsed.err()
+        );
+        // 每个真帧都带顶层 action（真 Go 信封 {v,action,data,broadcast,seq}）。
+        let v = parsed.unwrap();
+        assert!(
+            v.get("action").and_then(|a| a.as_str()).is_some(),
+            "fixture {} 须含顶层 action（真 Go 信封）",
+            name
+        );
+    }
+}

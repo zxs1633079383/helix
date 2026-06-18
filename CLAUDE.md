@@ -9,8 +9,8 @@
 > 🧭 **北极星（设计理念不变量，不可偏离）→ [`docs/GOAL.md`](docs/GOAL.md)**　每次会话开局必读。
 > 任何改动若与 GOAL.md §1 设计理念 / §2 硬约束冲突 → **先停下问，不偏离**。
 
-> 📋 **架构评审待办（实现阶段提醒）→ [`docs/过会方案/helix-架构评审-待办清单.md`](docs/过会方案/helix-架构评审-待办清单.md)**
-> 过会评审揪出的必办项：B 正确性遗漏（gate_inflight / event_seq 三级 fallback / type=6 readBits / phantom）· C 约束澄清（Storage scan / Module 同步约束）· D roadmap 调整。注意 D 中 wasm/IndexedDB 相关项已被 ADR-006 取代：当前只维护 PC Tauri + Flutter。**进实现阶段前先扫一眼，防遗忘。**
+> 📋 **实现阶段待办 → [`docs/ROADMAP.md`](docs/ROADMAP.md) §二 P0/P1/P2 活账**
+> （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。wasm/IndexedDB 项已被 ADR-006 取代——当前只维护 PC Tauri + Flutter。）**进实现阶段前先扫一眼 ROADMAP 活账。**
 
 > 🔁 **指令文件同步铁律**：本仓所有同目录的 `CLAUDE.md` 与 `AGENTS.md` 是镜像文件；任何修改必须同时落到两者，内容保持完全同步。新增 / 删除某一级指令文件也必须成对处理。
 
@@ -96,6 +96,8 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
 | HX-C007 | Effect 跨 FFI 边界批处理，不逐条 | active |
 | HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
+| HX-C009 | 预期对账闭环完整性（DRIFT-PRED 真接入 · EXPECT 可证伪 · 偏离不自产自判）| active |
+| HX-C010 | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序）| active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 
@@ -104,6 +106,21 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 ## 4.5 行为真源（Bun Zig-as-reference 同款）
 
 实现 / 修复 IM 行为有争议时，**现网 `~/workspace/angular/cses-client/src-tauri/src/features/im/` 对应 handler 是 source of truth**；机制级对齐标注见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md) 各节。
+
+### 4.5.1 csesapi → cses-im-server 迁移全量图谱 + sync-v2 落地真相（接口/事件/用例 索引 · 按需 Read）
+
+> 现网（mattermost csesapi 后端 + cses-client 前端）的**接口/WS 事件/用户用例/渲染逻辑/Tauri 交互**全量映射 + 三态缺口矩阵 + sync-v2 落地状态——做迁移/对齐/排查时的**消费视角真源**。本表只挂索引，正文按需 Read（渐进式披露）。
+
+| 文档 | 视角 | 一句话 |
+|---|---|---|
+| [`crates/helix-im/docs/sync-v2-能力与缺口状态.md`](crates/helix-im/docs/sync-v2-能力与缺口状态.md) | **落地真相（现在到哪了）** | 三件套引擎 ✅ + sync-v2 ~85% + C1/C2/C3/B2 实现完成；§5 = 今日必办（真 Go 数据路径端到端验证） |
+| [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **全量图谱总索引** | backend-\*（源端 HTTP/WS 清单）+ client-\*（前端用例/渲染/Tauri）+ gap-\* 三类导读 |
+| [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **缺口矩阵** | covered 86 / partial 30 / missing 7 + 替代 mattermost 阻塞能力优先级 |
+| `…/full-map/partials/1-…posts` · `2-…channel-sync` · `3-…user-misc` · `4-…bot-agent` | **后端 HTTP** | 124 接口四域全清单 + wire 契约字段 + 命名陷阱 |
+| `…/full-map/partials/5--backend-ws-events.md` | **后端 WS 推送** | 19 事件常量真源（`websocket_message.go`）+ `event_seq` 注入铁律 |
+| `…/full-map/partials/6--client-usecases.md` · `7--client-ui-rendering.md` · `8--client-tauri-im.md` | **前端用例/渲染/Tauri** | message-v3 service 42 用例 + UI readBits/字段契约 + src-tauri Rust IM 核心 14 用例集 |
+| `…/full-map/partials/9..12-gap-*.md` | **三态缺口** | posts/channel/user-misc/bot-agent 各域 covered/partial/missing 对照 |
+| [`crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md`](crates/helix-im/docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](crates/helix-im/docs/csesapi-migration/02-迁移蓝图.md) | **可达性 + 蓝图** | 接口可达性逐条 + 迁移蓝图 |
 
 ## 4.6 专家 Agent / Skill 注册表（按需调用 · 渐进式披露）
 
@@ -129,7 +146,45 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 - **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature workflow 前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。命中**可自动派**（无需问用户，token 高性价比）。
 - **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
 
+## 4.8 预期对账（L1 决策原子 · 试点中，2026-06-17 起）
+
+> 目的：给 §4.7 `architecture-drift-review` 接上「偏离**预期**」这第二根进料管——
+> 原本它只吃「偏离**约束**（HX-C/GOAL）」+ commit 计数触发；现加 prediction-error 惊讶信号。
+> 试点期 2 周；按校准有效率（`⚡ DRIFT-PRED` → 真 HX-C 卡 / 真修复 占比）决定是否晋升全局 CLAUDE.md。
+
+**触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
+≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
+
+**开局**——写一行进 `SESSION.md §0`（EXPECT 必须**可证伪**，堵自评自判漏洞）：
+
+```
+🎯 EXPECT <预判结果，至少含 1 条可证伪断言> | 赌注 高/中/低 | 可逆 是/否 | @<ts>
+```
+
+- **可证伪断言**举例：预测改动文件集（"只动 parser.rs + sync_session.rs"）/ 数值阈值（"batch_upsert 仍 <6ms"）/ 命名不变量（"不新增 HX-C 违反"）/ 命令 pass-fail（"cargo check -p helix-core 过"）。
+- ❌ 禁止 "我觉得能行 / 应该没问题 / 大概顺利" 这类**不可证伪**空话——越具体，DRIFT-PRED 越能被自动检出；写虚 = 自废本机制。
+
+**收尾**——已有 `✅ DONE` = 结果对账方。若实际偏离开局预期，紧跟 DONE 追一行：
+
+```
+⚡ DRIFT-PRED <哪里出乎意料> → 候选教训：<一句话>
+```
+
+并 `type:surprise` 落 `/workspace/java/logs/{date}.json`。预期命中（无偏离）则不追，`✅ DONE` 即结。
+
+**接力**：`architecture-drift-review` 触发时，除 `<last_reviewed>..HEAD` diff 外，**加扫**上次 review 以来
+SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后决定是否升 HX-C 卡。
+
+**偏离判定不自产自判（堵 GIGO 后门）**：写 EXPECT 的 agent **不是**「是否偏离」的唯一裁判。`architecture-drift-review`
+反向抽检区间内实质 commit：① EXPECT 是否可证伪（模糊化 = 一条 finding）；② DONE 实际是否偏离 EXPECT 却没记
+`⚡ DRIFT-PRED`（惊讶被吞没 = 一条 finding）。最终偏离裁定由 drift-review 的独立 lens 给，不由生产者自己说了算。
+
+**回放闸门**（候选教训 → 新建 HX-C 卡前必过）：拿候选约束回放 `docs/harness/log.md` 历史 trap
++ §0 既往 `⚡ DRIFT-PRED`——能挡住当初那次、且不误伤既往成功，才建卡（防约束过拟合 / 膨胀）。
+
 ## 5. 代码风格
+
+> 完整结构约束（单文件 ≤300 行 / 设计模式解耦 / 复杂度升序 / DDD 映射 / 每文件夹双文档镜像）见 [`.claude/rules/code-structure-ddd.md`](.claude/rules/code-structure-ddd.md)（按需 Read）。配套闸门 `scripts/structure-gate.sh`（纳入 §4.7 drift lens）。
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明
 - 错误：`thiserror` 边界类型 / 不滥 `anyhow`；外部输入（WS 帧 / sync 响应 / FFI 入参）**零 `unwrap`/`expect`**，走 `Result`

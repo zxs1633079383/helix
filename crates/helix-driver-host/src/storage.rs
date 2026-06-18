@@ -27,7 +27,7 @@
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
-    GetSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -238,13 +238,13 @@ impl Storage for HostStorage {
         .map_err(map_join_err)?
     }
 
-    async fn batch_update(
-        &self,
-        table: &str,
-        key_col: &str,
-        key_vals: &[SqlValue],
-        patch: HelixRow,
-    ) -> Result<(), PortError> {
+    async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError> {
+        let BatchUpdateSpec {
+            table,
+            key_col,
+            key_vals,
+            patch,
+        } = spec;
         if key_vals.is_empty() || patch.is_empty() {
             return Ok(());
         }
@@ -252,7 +252,6 @@ impl Storage for HostStorage {
         let writer = Arc::clone(&self.writer);
         let table = table.to_string();
         let key_col = key_col.to_string();
-        let key_vals = key_vals.to_vec();
         tokio::task::spawn_blocking(move || {
             let conn = writer.lock().map_err(map_lock_err)?;
             let set_clause: Vec<String> = patch.iter().map(|(k, _)| format!("{k} = ?")).collect();

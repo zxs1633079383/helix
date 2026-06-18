@@ -1,0 +1,54 @@
+%% helix-driver-native — Effect 兑现路由（9 种 Effect → native 兑现器）
+%% 真源：src/engine_loop.rs dispatch_effects match + consume_effects
+%% core 吐 &[Effect] → OwnedEffect → 按 type 分流；能力 ✅ / 缺口 ⚠️ / 回灌 ==>
+flowchart TD
+    CORE["ExecutionShell::step → &[Effect] ✅<br/>9 个变体（helix-core effect.rs）"]
+    OWN["consume_effects → Vec&lt;OwnedEffect&gt; ✅<br/>脱 shell.scratch 借用·Bytes O(1) clone"]
+    CORE --> OWN
+
+    OWN --> M{"dispatch_effects<br/>match effect"}
+
+    %% ── 1. Send ──
+    M -->|"Send{transport, frame}"| SEND["transports.get(&id) ✅<br/>NativeTransport::send → SharedWsClient (Message::Text)<br/>inline await（WS send 快）<br/>未注册/失败只 warn·绝不让泵崩"]
+    SEND --> WS([WS 出站帧])
+
+    %% ── 2. Persist（必达回报）──
+    M -->|"Persist{corr, ops}"| PER["table_set_key(ops) → get_or_spawn_persist ✅<br/>submit Job{corr:Some} → Persist BoundedSpawner(N=1,Block)"]
+    PER --> PERIO["execute_storage_ops → host SQLite ✅<br/>batch_upsert / batch_update / monotonic_upsert"]
+    PERIO ==>|"PortReply{corr, Ok/Err}"| RTX
+
+    %% ── 3. PersistFire（幂等丢失可接受）──
+    M -->|"PersistFire{ops}"| PERF["table_set_key → 同 Persist 实例 ✅<br/>submit Job{corr:None} → 不回报"]
+    PERF --> PERIO
+
+    %% ── 4. Http（必达回报）──
+    M -->|"Http{corr, req}"| HTTP["http_pool.submit Job{corr:Some} ✅<br/>Http BoundedSpawner(N=8, Block)"]
+    HTTP --> HTTPIO["run_http → NativeHttp::request → reqwest ✅<br/>resp 包 {status,headers,body(base64)} JSON"]
+    HTTPIO ==>|"PortReply{corr, Ok(ReplyBytes)/Err}"| RTX
+
+    %% ── 5. HttpFire（可丢·不回报）──
+    M -->|"HttpFire{req}"| HF["http_fire_pool.submit Job{corr:None} ⚠️<br/>HttpFire BoundedSpawner(N=8, DropOldest)<br/>当前零生产者（类型对称 eager 建）"]
+    HF --> HTTPIO
+
+    %% ── 6. Request（方向① stub）──
+    M -->|"Request{corr, kind, payload}"| REQ["⚠️ deferred stub<br/>HostRequester port 未接·仅 tracing::warn<br/>core 侧闭环已由 request_reply_replay.rs 验证"]
+
+    %% ── 7. Emit（同步非阻塞）──
+    M -->|"Emit{event}"| EMIT["event_sink.emit(DomainEventBytes) ✅<br/>NativeEventSink broadcast(cap=1024)<br/>无接收者静默 .ok()·lagged 消费侧 EventReceiver 显式上报(E7)"]
+    EMIT --> BUS([订阅者 → im:__bus__ 信封<br/>to_bus_envelope · M2 Tauri app.emit])
+
+    %% ── 8. ScheduleTimer ──
+    M -->|"ScheduleTimer{id, after_ms}"| ST["timer_registry.schedule ✅<br/>先 cancel 同 id（覆盖幂等）→ spawn sleep"]
+    ST --> TFIRE["到期 tick_tx.send(Tick::Timer(id)) ✅<br/>经入站通道回泵（统一汇流）"]
+
+    %% ── 9. CancelTimer ──
+    M -->|"CancelTimer{id}"| CT["timer_registry.cancel ✅<br/>abort JoinHandle·幂等（id 不存在静默）"]
+
+    RTX["reply_tx (unbounded) ✅<br/>🔴 永不有界"] ==>|biased 优先| CORE
+
+    classDef gap fill:#fff3cd,stroke:#d39e00,color:#663c00
+    classDef red fill:#f8d7da,stroke:#dc3545,color:#721c24
+    classDef ok fill:#d4edda,stroke:#28a745,color:#155724
+    class HF,REQ gap
+    class RTX red
+    class SEND,PER,HTTP,EMIT,ST,CT,PERIO,HTTPIO ok

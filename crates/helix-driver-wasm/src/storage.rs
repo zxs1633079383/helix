@@ -17,7 +17,9 @@
 //!
 //! RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 
-use helix_core::effect::{GetSpec, MonotonicUpsertSpec, Row, ScanSpec, SqlValue, UpsertSpec};
+use helix_core::effect::{
+    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec,
+};
 use helix_core::PortError;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
@@ -62,14 +64,8 @@ impl helix_core::ports::Storage for WasmStorage {
         todo!("WasmStorage::batch_upsert")
     }
 
-    async fn batch_update(
-        &self,
-        table: &str,
-        key_col: &str,
-        key_vals: &[SqlValue],
-        patch: Row,
-    ) -> Result<(), PortError> {
-        let _ = (table, key_col, key_vals, patch);
+    async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError> {
+        let _ = spec;
         todo!("WasmStorage::batch_update")
     }
 

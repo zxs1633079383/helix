@@ -1,8 +1,18 @@
 # Helix SESSION
 
-> 跨会话状态可查。任务完成/中断写一行固定前缀终态记录于 §0（`grep '✅ DONE' SESSION.md` 即得）。
+> 跨会话状态可查。§0 记三类固定前缀行（均可 grep · 详见 CLAUDE.md §4.8）：
+> 开局 `🎯 EXPECT`（实质任务预判）· 收尾 `✅ DONE`（终态）· 偏离预期时 `⚡ DRIFT-PRED`（喂 §4.7 drift-review）。
 
 ## §0 终态记录
+
+🎯 EXPECT 背压根治（Http/HttpFire 类型契约 + 统一 BoundedSpawner）@2026-06-17 | 只动 helix-core/{effect,engine}.rs · helix-driver-native/{engine_loop.rs,CLAUDE.md} · helix-im/tests/common.rs
+  ↳ 可证伪预判：cargo check 四 crate 过 · helix-core 仍零运行时（cargo tree 空）· 不新增 HX-C001/C005 违反 · Http 默认翻 Block 不引入泵自死锁 · per-effect-kind ad-hoc 散落消除为单 BoundedSpawner（grep 无 live Semaphore）
+  ↳ 偏离即记 DRIFT-PRED：若 core 出运行时依赖 / 泵 Http 分支出现 .await 阻塞 / 引入新 HX-C 破坏 → 偏离
+
+✅ DONE 背压根治 @2026-06-17 ~15:35 | commit 0df4019..HEAD（core HttpFire + driver BoundedSpawner + im test + R-low 收敛）| helix/dev-zlc
+  ↳ 范围：core Http/HttpFire 二分(仿 PersistFire) · driver 统一 BoundedSpawner(Persist N=1/Block · Http N=8/Block · HttpFire N=8/DropOldest) · 删旧 semaphore+atomic+泵顶 drain 三层 · 翻默认 Block 传导回源 · 跨模块公平性 tripwire 登记 · IM 三 Http 全保必达(PortReply load-bearing)
+  ↳ 验证：cargo check 四 crate + 全测 PASS(driver lib 36 含 5 新测) · core 零运行时 · 设计 review 3 专家(deadlock/sans-io/general 全 True) · drift-review 🟡 轻(无破 HX-C001..C009/GOAL §1/§2/三层/sans-IO/单调 cursor)
+  ↳ ⚡ DRIFT-PRED：EXPECT「不引入新 drift」与实际略偏——drift-review 揪出 R-low（均治理级非架构偏移，本批已收敛）：① HttpFire 零生产者空桶 YAGNI 越线 → option-C 文档化为「类型对称有意提前引入 + 拆除触发=第二模块接入」② engine_loop:308 recv 锁注释失真 → 诚实化 ③ §4.8 机制首跑被 SESSION:4 图例自污染(grep 未锚 §0) → workflow.js 改锚定版（本条即修）
 
 ✅ DONE a0595607 存储重构 review→修复闭环 @2026-06-15 16:38 | commit f44b78b..2b22736（4 commit）| B1/B2/M1/M2 + 遗留 #2/#3 全修 · gate 绿 · 已 push origin/main | helix/main
   ↳ 范围：B1 读写分离(1 写连接+4 只读池) · B2 NO_MUTEX · M1 query 不截断 · M2 SqlValue::Blob 无损 · #2 cursor SQL const 化(HX-C005) · #3 读写分离并发强证明测试 · 架构设计 sqlx→rusqlite 对齐(消 GOAL↔架构设计 矛盾) · ROADMAP 落遗留 · gate.sh 纳入 helix-driver-host

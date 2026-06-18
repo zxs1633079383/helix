@@ -124,6 +124,49 @@ fn connected_triggers_proactive_resync_for_each_channel() {
     }
 }
 
+/// 从 sink 抽取所有 sync/notify Http Effect 的 channelId（按 Effect 产出顺序）。
+fn sync_notify_channel_ids(sink: &helix_core::EffectSink) -> Vec<String> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify") => {
+                let body = req.body.as_ref()?;
+                let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+                v["cursors"][0]["channelId"].as_str().map(str::to_string)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// NS-1 回归：global-end resync 的 sync/notify Effect 必须按 ChannelId **确定性升序**产出。
+///
+/// 回归锚: NS-1（北极星符合性 review wf_69cf287f，GOAL §1 确定性可回放）。
+/// 防 `increment_fetched`(HashSet) / `channels`(HashMap) 迭代序逐进程随机 → resync 逐 channel
+/// 单调 alloc_corr + push 有序 Http Effect → 同输入不同输出。故意非排序注册，断言输出锚升序。
+#[test]
+fn proactive_resync_emits_channels_in_deterministic_sorted_order() {
+    let mut h = Harness::new(&[3, 1, 2]); // 非排序注册顺序
+    h.start(0);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 500);
+    h.step(hello_inbound("CONN_NS1"), 600);
+
+    h.sink.clear();
+    for ch in [3u64, 1, 2] {
+        h.module.ingest_increment(&inc(ch, 0, true), &mut h.sink);
+    }
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+
+    let ids = sync_notify_channel_ids(&h.sink);
+    assert_eq!(
+        ids,
+        vec![cid(1), cid(2), cid(3)],
+        "NS-1: resync sync/notify 必须按 ChannelId 升序确定性产出，got {:?}",
+        ids
+    );
+}
+
 #[test]
 fn connected_with_no_channels_emits_no_http() {
     let mut h = Harness::new(&[]);

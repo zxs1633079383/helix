@@ -41,14 +41,15 @@ gap ≥ 10  →  🔴 强制：在 commit 检查点派发 Workflow({name:"archit
 
 ## 4. review workflow 查什么（架构不偏移 + 全流程合理）
 
-`Workflow({name:"architecture-drift-review"})` 对 `<last_reviewed_commit>..HEAD` 的 diff 跑：
+`Workflow({name:"architecture-drift-review"})` 对 `<last_reviewed_commit>..HEAD` 的 diff **+ SESSION §0 的 ⚡ DRIFT-PRED 预期对账信号** 跑：
 
 1. **HX-C001..C008 不变量**逐条（core 零运行时/零 schema、Send 边界、features additive、热路径 O(1)、FFI 边界、Effect 批处理、sync-wire 契约）。
 2. **GOAL §1 设计理念 + §2 硬约束**（sans-IO / 确定性 / 三层依赖单向 / 双端边界）。
 3. **全流程合理性**：收发(WS/HTTP) → 解析(parser) → cursor(gate/续拉) → 落库(schema/列对齐) 接缝是否仍自洽、有无死代码/绕过/临时 mock 残留。
-4. 对每条疑似 drift **对抗证伪**，确认后给修复收敛动作。
+4. **预期对账 lens（CLAUDE.md §4.8）**：Scope 阶段 `grep '⚡ DRIFT-PRED' SESSION.md` 收集"预期≠实际"的惊讶信号，预期对账 lens 把真实教训转成候选 finding，与 diff drift 同走对抗证伪。
+5. 对每条疑似 drift / 候选约束 **对抗证伪**；确认后给修复收敛动作。建议新建 HX-C 卡的，**过回放闸门**（拿候选约束回放 `docs/harness/log.md` 历史 trap，挡得住当初 + 不误伤过去才 PASS）。
 
-输出：drift 判定（🟢无/🟡轻/🔴重）+ findings + 收敛 todo + 「ledger 更新到 commit X」指令。
+输出：drift 判定（🟢无/🟡轻/🔴重）+ findings + 收敛 todo + **回放闸门结论** + 「ledger 更新到 commit X」指令。
 
 ## 5. 强制规则
 

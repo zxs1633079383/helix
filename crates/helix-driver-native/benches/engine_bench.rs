@@ -133,6 +133,7 @@ async fn setup_engine() -> (
         storage,
         http,
         event_sink,
+        max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

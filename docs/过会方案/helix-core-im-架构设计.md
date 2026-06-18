@@ -2,8 +2,9 @@
 
 > 第一人称 · 2026-06-10 · 技术部
 > 机制依据：cses-client `Message-v3` + `src-tauri/src/features/im`（已逐文件核验）。
-> 📚 关联：[技术过会方案](./helix-Rust-Core-技术过会方案.md) · [评审待办](./helix-架构评审-待办清单.md) · 拍板以 [评审纪要](./helix-技术评审纪要.md) 为准。
+> 📚 关联：过会拍板结论以 [decisions.md「过会拍板」节](../harness/decisions.md) 为准 · 实现待办见 [ROADMAP.md §二 活账](../ROADMAP.md)（原「技术过会方案/评审待办清单」已随 docs 熵管理缩减，内容并入 decisions/ROADMAP）。
 > 2026-06-15 更新：按 ADR-006，当前产品化目标收缩为 **PC Tauri + Flutter 手机端**；Web/WASM 章节保留为历史方案，不进入当前 roadmap、CI 必跑矩阵或交付验收。
+> 2026-06-17 更新（实现进度落到本稿）：① **Effect 模型加 `Http`/`HttpFire` 二分**（§2.2/§3.3）+ **driver 分发统一 `BoundedSpawner`**（§3.5，背压根治）；② **sync-v2 数据路径已真 Go 端到端验证通过**（§六/§4.5/§4.6 的发送对账 + gate + 落库链路，从「契约意图待验」升级为「真 Go 跑通」，详见 [`helix-sync-v2-设计.md`](./helix-sync-v2-设计.md) §0）；③ **ping 心跳已实装**（self-arm 周期 timer + 单调 seq）；④ **refactor A**（入站二重分类 → 单 `InboundEvent` enum）+ **refactor B**（5 张 `corr_to_*` HashMap → 单 `corr_map`，`handle_port_reply` 一个 `match` 收口）已落地。
 
 ---
 
@@ -20,7 +21,7 @@
 | **helix-im（IM 业务模块）** | 消息收发/对账/增量同步的全部业务状态机，写一份供 PC Tauri + Flutter 复用 |
 | **helix-driver-native（桌面驱动）** | 桌面端的「手脚」：真正连 WebSocket、写 SQLite、发 HTTP 的实现层 |
 | **Tick（输入事件）** | 喂给内核的一切「发生了的事」，共六种：四类核心——UI 命令（Command）/ 网络入站帧（Inbound）/ I/O 完成回报（PortReply）/ 定时器到期（Timer）；外加两类连接生命周期——连接建立（Connected）/ 连接断开（Disconnected） |
-| **Effect（I/O 意图）** | 内核吐出的「待办清单」：发帧（Send）/ 落库（Persist·PersistFire）/ 发 HTTP（Http）/ 发事件（Emit）/ 定时器（ScheduleTimer·CancelTimer） |
+| **Effect（I/O 意图）** | 内核吐出的「待办清单」：发帧（Send）/ 落库（Persist·PersistFire）/ 发 HTTP（Http·HttpFire）/ 发事件（Emit）/ 定时器（ScheduleTimer·CancelTimer）。Http/HttpFire 与 Persist/PersistFire 同款二分：必达·绝不丢 vs 可丢·自愈 |
 | **step()（步进函数）** | 内核唯一入口：喂一个 Tick + 当前时间，吐一批 Effect；严格同步、不做任何 I/O |
 | **Port（端口）/ trait（接口）** | 内核与外界对话的 5 类抽象接口（共 7 个 Rust trait）：网络 / 存储 / HTTP / 事件 / 时间·ID·随机 |
 | **Module（模块契约）** | 业务挂进内核要实现的接口：accepts（认不认这个事件）+ handle（处理并吐 Effect）+ on_start（启动时做什么） |
@@ -185,7 +186,7 @@ flowchart TB
 | **Crux**（Red Badger） | `/workspace/rustWorkspace/crux` | 方向 A 的**参照实现**：Rust sans-IO core + `App{Model,update,view,ViewModel}` + Bridge(bincode FFI) + typegen(Swift/Kotlin/TS)。core-view / 三端边界映射直接对照它（见 [方向A设计 §1.1](./helix-core-view-方向A设计.md)） |
 | **现网 cses-client** | `/Users/mac28/workspace/angular/cses-client` | **行为真源 + 现状对照**：Angular 20 + Tauri 2 IM 桌面端；`src-tauri/features/im`(业务①已在 Rust) + message-v3(展示②在 TS)。目标态的 IM 机制逐节对齐它 |
 | **Dioxus core** | （上游 crate） | 内核经验来源：step 循环 / Effect 跨边界批处理（sledgehammer → `HX-C007`）/ `Scope<'a>` 生命周期教训（→ `HX-C002`）。**仅取内核，禁渲染层/RSX**（GOAL §6 方向 B 红线） |
-| **Bun**（runtime 跑 JS） | — | 概念祖先：runtime 无关 + reference 行为真源方法论（见 CLAUDE.md §4.5 / `AI工程化对齐-Bun-checklist.md`） |
+| **Bun**（runtime 跑 JS） | — | 概念祖先：runtime 无关 + reference 行为真源方法论（见 CLAUDE.md §4.5） |
 
 ---
 
@@ -235,7 +236,9 @@ flowchart LR
 
 **Tick（输入字母表）：** `Command`（UI 命令） · `Inbound`（WS 帧） · `PortReply{corr, outcome}`（I/O 回报） · `Timer`（定时器到期） · `Connected`/`Disconnected`（连接生命周期，content-routed，模块据此做 cursor reset / proactive resync）。
 
-**Effect（输出字母表）：** `Send`（发帧） · `Persist{corr}`（需回报落库） · `PersistFire`（幂等写） · `Http{corr}` · `Emit`（领域事件） · `ScheduleTimer`/`CancelTimer`。
+**Effect（输出字母表）：** `Send`（发帧） · `Persist{corr}`（需回报落库） · `PersistFire`（幂等写） · `Http{corr}`（必达·绝不丢） · `HttpFire`（可丢·自愈） · `Emit`（领域事件） · `ScheduleTimer`/`CancelTimer`。
+
+> **Http/HttpFire 可丢弃性二分（类型级背压契约，2026-06-17 落地）**：仿 `Persist`/`PersistFire`，按「这个请求丢了能不能自愈」拆两个变体——`Http{corr}` 必达（离线 sync 对账、发消息等绝不能丢，driver 队满则 Block 把背压传导回源 step）；`HttpFire` 可丢（纯遥测/可重算的轻量请求，driver 队满 DropOldest 自愈）。**sync fan-out 的 `/sync/notify` 走 `Http`（必达/Block）**。这是「丢不丢」这个语义事实进类型，不靠 driver 私自决定（详见 §3.3 + §3.5 BoundedSpawner）。
 
 ## 2.3 五类 Port · 7 个 trait（内核全部对外契约）
 
@@ -341,12 +344,13 @@ flowchart LR
 ## 3.3 Http —— `HttpRequester`
 
 `request(HttpRequest)`。url 由 im 拼；**重试是 driver 责任**，im 不重试、失败标 UnSend。对齐现网运行时 header 注入（hello 后回注 connectionId）。
+**必达 vs 可丢**：`Effect::Http{corr}` 必达（绝不丢，队满 Block）；`Effect::HttpFire` 可丢（队满 DropOldest 自愈）。sync fan-out（一次对 N channel 发 `/sync/notify`）走 `Http` 必达——离线对账不能丢。背压由统一 `BoundedSpawner` 兜（§3.5）。
 
 ```mermaid
 flowchart LR
-    M["业务模块吐 HTTP 请求意图<br/>（Effect::Http{corr, req}）"] --> P[["HTTP 端口 HttpRequester::request"]]
-    P -->|"桌面端（native）"| N["reqwest（连接池 / header 热注入）"]
-    P -->|"浏览器（wasm）"| W["浏览器 fetch（gloo-net）"]
+    M["业务模块吐 HTTP 请求意图<br/>（Effect::Http{corr,req} 必达 / HttpFire 可丢）"] --> P[["HTTP 端口 HttpRequester::request"]]
+    P -->|"桌面端（native）"| N["reqwest（连接池 / header 热注入 / BoundedSpawner N=8）"]
+    P -->|"浏览器（wasm，归档）"| W["浏览器 fetch（gloo-net）"]
     P -->|"移动端（ffi）"| F["宿主 HTTP 回调"]
     N -->|"收到响应"| R[["响应回报（Tick::PortReply{corr, resp}）回灌内核"]]
     W --> R
@@ -372,6 +376,22 @@ flowchart LR
     style P fill:#1a3a5c,color:#fff
     style R fill:#2d4a2d,color:#fff
 ```
+
+> **ping 心跳已实装（2026-06-17，commit 488e094）**：helix-im `on_start`/握手后 self-arm 一个 **recurring** timer（与 `hello.pingInterval` 对齐），到期吐 `Effect::Send{ping_frame}`，帧带**单调 seq**；`Disconnected` 时 `CancelTimer`。这修了早期握手后 ~8s 被现网 Go 断连（缺心跳保活）的问题。
+
+## 3.5 driver effect 分发：统一 `BoundedSpawner`（背压根治，2026-06-17）
+
+driver 兑现 Effect 的并发与背压**收敛为一套** `BoundedSpawner`，取代早期 per-type ad-hoc（旧形态是 semaphore + atomic 计数 + 泵顶 drain 三层各自为战，背压不传导回源 → sync fan-out 风暴）。
+
+`BoundedSpawner` = 有界队列 + N worker + `on_overflow{Block, DropOldest}` + 独立 unbounded `reply_tx`（回报路径绝不背压，防回灌死锁）。Persist / Http / HttpFire 共用同一套，仅参数不同：
+
+| Effect | N worker | on_overflow | 语义 |
+|---|---|---|---|
+| `Persist`/`PersistFire` | 1 | Block | WAL 单写者，写串行本就正确 |
+| `Http` | 8 | **Block** | 必达——队满压回源 step（慢而不丢） |
+| `HttpFire` | 8 | **DropOldest** | 可丢——队满丢最旧（自愈） |
+
+**默认翻 Block**（背压传导回源，慢而不丢）；`DropOldest` 只给显式 `HttpFire`。删旧 semaphore + atomic + 泵顶 drain 三层。跨模块公平性 tripwire **暂不建**（YAGNI——当前单 IM 模块未现该问题）。这把「sync fan-out 不风暴」从纪律升级为结构保证：cursor 只锚 Persist 成功 PortReply（§六链路铁律），fan-out Http 必达 + Block 回压，sync 请求不被悄悄丢。
 
 ---
 
@@ -403,7 +423,7 @@ struct ImEvent {
 // action 全集：hello · post/post_update/posts_update/post_read · increment_channel(_end)/update_channel/channel_created/channel_member_update
 ```
 
-> `event_seq` 三级 fallback（edit 在 per-post `props.channel_event_seq`、delete 在顶层）—— 解析待办见 [评审待办 B4](./helix-架构评审-待办清单.md)。
+> `event_seq` 三级 fallback（edit 在 per-post `props.channel_event_seq`、delete 在顶层）—— B4 解析已落地（parser event_seq fallback，见 HX-C008）。
 
 ## 4.3 满足用例1 的连接初始化机制
 
@@ -524,6 +544,8 @@ sequenceDiagram
 
 ## 4.5 满足用例1 的发送消息机制（乐观 → HTTP → echo 对账 → 双序收敛）
 
+> ✅ **已真 Go 端到端验证（2026-06-17）**：本节链路（乐观落库 → HTTP post → WS `post` 帧回声 → tmp_id↔server_id 对账 → cursor 推进 → `im:post:received`）在真 Go :8065 上跑通。注意真帧 action 名是 **`post`**（非 `posted`），echo 经 `temporary_id` 匹配回正 `server post.id`。详见 [`helix-sync-v2-设计.md`](./helix-sync-v2-设计.md) §0/§2.5。
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -556,7 +578,11 @@ sequenceDiagram
     Note over IM,C: 双序收敛：回声 15s 未到 → 定时器触发标「未送达」；迟到回声按 tmp_9 覆盖回「已发」（幂等覆盖写 + 游标单调）
 ```
 
+> **不变量（R4-echo-gate）：echo 对账与 channel gate 解耦。** echo 对账只读 `pending_sends`/`corr_map`（按 temporary_id 对号），**从不读 `channels`**，故 `reconcile` 必须无条件先做，**不**门控 channel 是否已注册；落库 / 推进游标（`ch.ingest`）才门控注册。否则冷启动 send-before-cursor-seed 乱序下（本端先 send、channel 尚未经 increment 种 cursor），本端回声会被整段跳过 → PendingSend 残留 → 15s 后误标 UnSend。回归锚见 `tests/post_action_inbound_test.rs::echo_reconciles_even_when_channel_unregistered`。
+
 ## 4.6 满足用例2-4 的增量同步机制（per-channel Gate 状态机）
+
+> ✅ **sync-v2 数据路径已真 Go 验证（2026-06-17）**：在线 WS `post` 帧 gate apply、离线 `/sync/notify`（pull）补齐含 phantom/已读(type6)/编辑(type2)/撤回(type3)、message 内容落库 + read_bits 单调覆盖、cursor 跳号容忍 + 锚权威 `nextSeq`——核心数据路径真 Go 跑通。三 blocker（grpc-deviceId / sync 风暴-并发闸 / WS-post-action-parser）全清；fan-out 的 `/sync/notify` 走 `Effect::Http`（必达/Block，§3.5 BoundedSpawner），不再风暴。剩冷启动自愈 + golden fixtures，详见 [`helix-sync-v2-设计.md`](./helix-sync-v2-设计.md) §6/§7。
 
 **ChannelGateState（Rust-im owned）：** `cursor`（已按序确认的 max event_seq） · `buffer: BTreeMap<i64,ImEvent>`（乱序缓冲） · `gate_armed`（1s gate）。
 **两条 flush：** `flush_contiguous`（WS 路径，从 cursor+1 弹严格连续段） · `flush_up_to`（sync 权威路径，drain ≤ next_seq，跳合法稀疏空洞）。

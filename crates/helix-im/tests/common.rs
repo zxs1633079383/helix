@@ -31,6 +31,7 @@ pub enum EffectKind {
     Persist(u64), // corr.raw()
     PersistFire,
     Http(u64),    // corr.raw()
+    HttpFire,     // fire-and-forget HTTP（无 corr）
     Request(u64), // corr.raw()（REP 方向① 发起端）
     Emit,
     ScheduleTimer(u64), // timer_id.raw()
@@ -44,6 +45,7 @@ impl EffectKind {
             Effect::Persist { corr, .. } => EffectKind::Persist(corr.raw()),
             Effect::PersistFire { .. } => EffectKind::PersistFire,
             Effect::Http { corr, .. } => EffectKind::Http(corr.raw()),
+            Effect::HttpFire { .. } => EffectKind::HttpFire,
             Effect::Request { corr, .. } => EffectKind::Request(corr.raw()),
             Effect::Emit { .. } => EffectKind::Emit,
             Effect::ScheduleTimer { id, .. } => EffectKind::ScheduleTimer(id.raw()),

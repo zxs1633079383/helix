@@ -1,0 +1,20 @@
+%% helix-host-cli ↔ 真 Go 服务端 WS 握手时序（实测 localhost:8065）
+sequenceDiagram
+    participant H as host-cli<br/>(NativeTransport)
+    participant G as 真 Go 服务端<br/>(mattermost csesapi :8065)
+    participant E as ExecutionShell<br/>+ ImModule
+
+    H->>G: WS upgrade (ws://.../api/v4/websocket)<br/>带 cookieId/companyId 身份头
+    Note over G: Go 按 cookieId=userId 建 session
+    G-->>H: ✅ 101 Switching Protocols（WS 已连接 transport_id=0）
+
+    alt cookieId 有效（真实登录用户）
+        G->>H: {"action":"hello","data":{"connectionId":...}}
+        H->>E: Tick::Inbound → hello handler
+        E-->>H: emit im:connection:established + 触发 increment HTTP
+        Note over H,G: 后续：increment_channel×N → increment_channel_end → 落库
+    else cookieId 空 / 无效（实测无 cred）
+        Note over G: session 空 → 不发 hello
+        G-->>H: ~5s 后关闭连接
+        H->>E: Tick::Disconnected → 清 inflight sync（优雅，无 panic）
+    end

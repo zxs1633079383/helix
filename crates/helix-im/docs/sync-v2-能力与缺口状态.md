@@ -23,16 +23,18 @@
 |---|---|---|
 | A 基础贯通（hello/身份头/transport/入站） | ✅ | — |
 | B increment 真 wire | ✅（B3 sync/notify 真 wire + **B2 冷启动自愈** `heal_incomplete_backfill_once`，commit `20334d2`）| — |
-| **C 正确性 + EventBus** | ✅ 实现（`20334d2`，单测+对抗审绿）| C1 echo 对账（`handle_echo` 激活）✅ · C2 phantom/离线落库/readBits ✅ · C3 mutation 事件(post:read/updated/deleted)+`im:__bus__` 信封 ✅。**残留**：echo 真帧形态待核（按 posted+temporary_id 识别）；功能性事件(schedule/member 等)暂缓 |
-| **D 真 Go smoke + golden fixtures** | ⚠️ 半通过 | ✅ 连接/握手/0断连/schema/连接层事件真 Go 验过；❌ **数据路径真连未验**（账号已追平+host-cli 无发送→无消息流）；golden fixtures 未建 |
+| **C 正确性 + EventBus** | ✅ 实现 / 🔧 真帧修正中（2026-06-17 live 注入定位）| C1 echo 对账 · C2 phantom/离线落库/readBits · C3 mutation 事件 已实现单测绿。**🔴 真帧形态实测纠偏**：parser 原按猜测 action `"posted"` 识别（parser.rs:236），但真 Go 新消息广播 action 是 **`"post"`**（live 帧实证 event_seq=40113 + 全 message 内容；Go 常量 `WebsocketEventPost="post"` L28 ≠ `WebsocketEventPosted="posted"` L27）→ 真帧落 `Some(_)=>Ignored` 被丢、不进 gate、不落库。修复中（workflow wf_cc9003c9：classify_frame 认 `post`→gate apply；channel cursor 已正确种子=lastEventSeq，认了即 cursor+1 落库）。功能性事件(schedule/member)暂缓 |
+| **D 真 Go smoke + golden fixtures** | ✅ 数据路径通过（2026-06-17）| ✅ 连接/握手/schema/连接层 + **数据路径真 Go 端到端验过**：真实 deviceId 解 grpc → increment 257 channel → 并发闸解 sync 风暴 → 真消息(curl 发 rmibkwkj event_seq=40114)经 WS `post` 帧 → parser 认 `post`(修) → gate apply(cursor+1) → **message 表落真实内容行 + temporary_id↔server_id 对账 + read_bits=100 + cursor 推进 40114 + post:received DomainEvent**。golden fixtures 工具链仍未建（P1） |
 
 ## 3. 缺口清单（2026-06-17 更新）
 
 1. ✅ **离线历史消息上屏已实现**（`20334d2` C2）：sync `SyncEntry.messages`(Post map)→message 内容落库；phantom(msgId∉map)不落行但 cursor 照推。**真连验待数据流**（见 §5 今日必办）。
 2. ✅ **echo 对账已激活**（`20334d2` C1）：`handle_echo` 接进 Inbound，tmp_id→server_id 覆写 message.id+send_status。**echo 真帧形态待核** + 真连验待发送。
 3. ⚠️ **im:__bus__ 信封已接线**（`20334d2` C3，`to_bus_envelope`）；emit 补 post:read/updated/deleted；host-cli 无窗口→以 EventSink 计数验，真 app.emit 留 M2 Tauri 接缝。功能性事件(schedule/member/nickname/todo)暂缓。
-4. ⚠️ **真 Go 数据路径真连未验**：连接/握手/0断连/schema/连接层事件已验（2026-06-17 :8065 25s）；但 message/channel 0 行、仅 2 DomainEvent——账号已追平+host-cli 无发送→**无消息流，C1/C2/C3 数据路径真连待补**（§5 今日必办）。
-5. **心跳 ping 占位帧**：长连稳定待 ping 实装（真 Go 25s 没断是 Go 容忍）。
+4. 🔶 **真 Go 数据路径两轮复验（2026-06-17）：increment 已真连验过 ✅，sync 数据路径受阻于冷启动 sync 风暴 🔴**：
+   - **layer-1 grpc ✅ 解**：第一轮 helix 发本机派生 deviceId（≠真实设备）→ paas session/deviceId 校验拒 → grpc `xpa-12-grpc` 返 `IsSuccess=false`（grpcx9.go:480，**业务级拒绝非 DNS**：consul 已发现实例 0→1）→ `cses_channel.go:177 parallel load failed`。**第二轮设 `HELIX_DEVICE_ID=ED380414…`（真实设备）→ `Increment worker completed`(cses_channel.go:234)，257 `increment_channel` 帧 + end 全落地、DomainEvent emit（62KB payload）。increment 数据路径真 Go 端到端验过。**
+   - **layer-2 sync 风暴 🔴**：`increment_channel_end` → 每 needSync channel 一条 proactive sync/notify HTTP（state.rs:233，**无并发上限**）→ 冷启动 257 channel ~88+ 并发齐发 → **全 `error=Network`**（reqwest connect 失败，~30ms 内，未到 30s timeout；Go 侧 0 sync arrival）→ 0 消息回填 → message 表 0 行。state.rs:236 注释已预警「sync 风暴」。**修法：proactive sync fan-out 加并发闸**（semaphore/顺序/批量）；修完重跑走 C2/C3 判据。
+5. ✅ **心跳 ping 已完成**（commit `488e094`，06-16，**本卡原标"待实装"是过时文档**）：self-arm 周期 timer（hello 起 arm + fire 重 arm + Disconnected 清）+ 带单调 seq 的 `ping_frame`（Go websocket_router 拒 seq≤0）；`lifecycle_test` 的 `ping_timer_fires_*` 绿。
 6. **channel 表建了没人写**：increment 的 channel 元数据只 emit 不落库。
 7. **架构 smell（drift-review 登记）**：✅ event_to_upsert_op 热路径(cff383f)/✅ channel_event_cursor 死表(cff383f)；⏳[D1] FFI 句柄类型(接 FFI 冒烟前)；⏳[D3] native·FFI registry 不对称(接 reconnect 前)；2 份 eventbus 稿保留。
 8. **host-cli DB 路径 quirk**：`sqlite:{path}?mode=rwc` 把 `?mode=rwc` 当文件名一部分（DB 实际落 `xxx.db?mode=rwc`）——功能正常，路径丑，低优先修。
@@ -45,9 +47,27 @@
 
 ## 5. 待办
 
-### 🔴 今日必办（用户拍板 2026-06-17）—— sync-v2 数据路径真 Go 端到端验证
+### ✅ 今日必办（用户拍板 2026-06-17）—— sync-v2 数据路径真 Go 端到端验证【DONE】
 
-> C1/C2/C3/B2 代码已实现 + 单测/对抗审/回归全绿；**唯缺「真 Go 数据路径」验证**（账号已追平、host-cli 无发送 → 25s 冒烟无消息流）。**用户解决 DNS 问题后回来验证。**
+> ✅ **DONE sync-v2 数据路径真 Go 端到端验证 @2026-06-17 ~12:45 | helix dev-zlc | 真消息 rmibkwkj event_seq=40114 落 message 行 + cursor 推进 + post:received emit | 三层 blocker 全清（grpc-deviceId / sync-风暴-并发闸 / WS-post-action-parser）**
+>
+> **最终验证链（live curl 注入实证）**：curl 发真消息→Go `post sender success`→WS 广播 `post` 帧(event_seq=40114)→helix 收→parser 认 `post`(修)→gate apply(==cursor+1)→PersistFire→**message 表落真实内容行**(temporary_id `helixverify…`↔server id `hjh19t4t…` 对账 / message 内容 / read_bits=100)+ `_helix_monotonic` cursor→40114 + post:received DomainEvent。0 error / 0 sync Network fail。
+>
+> **三层 blocker 收口**：
+> - **L1 grpc（deviceId）**：本机派生 deviceId≠真实设备→paas `IsSuccess=false`；设 `HELIX_DEVICE_ID=ED380414…` 真实设备→`Increment worker completed`，increment 257 channel 全通。
+> - **L2 sync 风暴（并发闸，workflow wf_cc5ecd60）**：`increment_channel_end` 每 channel 一条 proactive sync 无并发上限→冷启动 257 并发齐发全 `Network`；`engine_loop.rs` 加 `Arc<Semaphore>`(permit 在 spawned task 内 acquire，泵不阻塞)，N=`HELIX_HTTP_MAX_INFLIGHT`(默认8) 经 EngineConfig；双对抗审 pass→Network 88→0，SyncChannels 0→257。
+> - **L3 WS post 真帧（parser，workflow wf_cc9003c9）**：parser 原按猜测 action `"posted"` 识别，真 Go 新消息广播是 `"post"`(Go 常量 L28，≠`posted` L27)→真帧 `Some(_)=>Ignored` 被丢；`classify_frame` 加 `Some("post")=>FrameClass::Post(EventEnvelope)`→`ch.ingest` gate；现网对齐审 pass + 对抗审揪出「self-echo 不 reconcile→15s 后误标 unsend」blocking→Fix 补 `reconcile_post_echo`(CancelTimer)→cargo test 全绿(post_action_inbound 6/6 等 18 bin)。
+>
+> **未提交**：L2+L3 代码改动仍在工作区（engine_loop.rs/host-cli/parser.rs/module.rs/sync_session.rs + 测试 + 6 处 EngineConfig 构造点 + docs），待用户确认提交。golden fixtures 工具链(P1) 仍未建。
+>
+> ---
+> 历史诊断过程（留档）：⚠️ **2026-06-17 复验（两轮，DNS 修复后）：blocker 连下两层——layer-1 grpc 已解，layer-2 sync 风暴新现**。
+>
+> **Layer 1 ✅ 已解（真实 deviceId 修复）**：第一轮 helix 发本机派生 deviceId `86C35B0E…`（≠user 真实设备）→ paas 按 session/deviceId 校验拒 → grpc `xpa-12-grpc` 返 `IsSuccess=false`（grpcx9.go:480）→ `cses_channel.go:177 parallel load failed "grpc service fail"`。**非 DNS/连通性**（consul 已发现实例 0→1，是业务级拒绝）。第二轮 `HELIX_DEVICE_ID=ED380414…`（user 真实设备）→ Go `Increment worker completed`(cses_channel.go:234) → **increment 全通**：257 `increment_channel` 帧 + `increment_channel_end` 落地，DomainEvent emit（含 62KB channel payload）。✅ **increment 数据路径真 Go 端到端验过**。
+>
+> **Layer 2 ✅ 已修（并发闸，workflow wf_cc5ecd60 落地）**：原症——`increment_channel_end` 对 `(increment_fetched − need_sync_skip)` **每 channel 发一条 proactive sync/notify HTTP**（state.rs:233，无并发上限）→ 冷启动 257 channel 全 `needSync:true` → ~88 并发 sync/notify 在 ~30ms 齐发 → **全 `error=Network`**（reqwest connect 失败，未到 30s timeout）→ 0 回填。**修法**：`helix-driver-native/engine_loop.rs` 给 Http effect dispatch 加 `Arc<Semaphore>` 有界并发闸——permit 在 spawned task 内 `acquire_owned().await`（泵线程只 clone+spawn，永不阻塞→无自死锁），N 由 host-cli 读 `HELIX_HTTP_MAX_INFLIGHT`（默认 8）经 EngineConfig 注入；core/im 零改（sans-IO 守住）。rust-dev + core-dev 双对抗审 pass（死锁/permit 全路径 release/闸真生效/HX-C001-002）。**复验**：N=8/12 重跑 → **sync/notify Network 88→0，Go `SyncChannels` invoke 0→257，全部 round-trip 完成**。✅ sync 风暴消除、sync 数据路径接通。
+>
+> **当前真相（数据路径全通，缺真实消息内容）**：Go 257 条 sync 全返 `cursor decision kind=no_change`（账号已追平）→ helix `SyncResponse::NoChange` 不落库 → message 表 0 行 = **正确行为**（无离线内容可回填，非 bug）。**全链路已验**：connect→hello→increment(257 channel)→有界 sync fan-out(257 round-trip 0 失败)→no_change 正确不落。**唯缺**：真实消息内容触发 `events`-kind sync → 落 message 行（需制造消息活动，见 §5）。C2 落库逻辑本身单测+对抗审已绿。
 >
 > **就绪验证配方（二选一）**：
 > - **选 1（验 C1 echo + C2，需先加 host-cli 发送）**：给 host-cli 加 `HELIX_SMOKE_SEND=<channelId>` 启动发一条测试消息 → Go echo 回流验 tmp_id→server_id 覆写 + 该消息进 message 表。⚠️ 往真频道发 1 条真消息。
@@ -57,7 +77,7 @@
 
 ### P1 — 收尾
 - [ ] golden fixtures 工具链（`HELIX_DUMP_FRAMES=1` 抓 echo/sync-with-messages/type2-3-6 帧 → `tests/fixtures/real_go_frames/`）+ echo 真帧形态核对。
-- [ ] 心跳 ping 对齐（缺口 #5）：ping 帧 + 间隔对齐 hello.pingInterval(60s)。
+- [x] 心跳 ping（缺口 #5）✅ 已完成（commit `488e094`，06-16）：self-arm 周期 timer + 单调 seq `ping_frame`，间隔走 config（默认 8s）。
 - [ ] host-cli DB 路径 quirk（`?mode=rwc` 当文件名，缺口 #8）。
 
 ### 历史（已完成，留档）

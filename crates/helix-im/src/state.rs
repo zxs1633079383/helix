@@ -4,7 +4,7 @@
 //! - channels: per-channel cursor + gate + buffer
 //! - pending_sends: temporaryId → PendingSend（等待 echo/sync 对账）
 //! - conn_state: WS 连接状态机
-//! - 各种 corr 路由索引（corr_to_channel / corr_to_send / corr_to_sync）
+//! - corr_map: 统一 corr 回报路由表（corr → CorrelationContext）
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
@@ -178,6 +178,48 @@ pub enum ConnState {
     Closing,
 }
 
+// ─── CorrelationContext ───────────────────────────────────────────────────────
+
+/// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
+/// 需要的全部上下文。tagged union 取代原 4 张 HashMap + 1 个 Option：
+/// 一个 corr 恰属于一个类别，类别互斥由类型系统保证（不再靠 if-let 试探顺序）。
+///
+/// ## 载体不变量（INVARIANT，承重前提，勿破）
+///
+/// **所有写入 `corr_map` 的 `Correlation` 均出自同一单调分配器**
+/// （`ImModule::alloc_corr` / `alloc_corr_internal` 共用同一 `self.next_corr`，从 1 单调递增），
+/// 因此跨类别 corr 全局唯一、永不碰撞。单表合并（4 张分散 HashMap + scan 的 `Option` 并入
+/// 一张表）的正确性完全依赖这一点：若将来任一注册路径改用独立计数器、或由 host 注入可复用
+/// 的 corr 值，则不同类别的 corr 可能撞同一 key → 误路由（scan corr 撞 send corr 等）。
+/// 新增任何 corr 来源前，必须确认其仍由该单调分配器产出。
+///
+/// HX-C005 热路径：变体字段全部 owned/Copy（`ChannelId` Copy / `TemporaryId` 是已分配的
+/// String，移交所有权零额外分配），无 `&'a` 生命周期（HX-C002，要进 HashMap 跨 step 存活）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CorrelationContext {
+    /// on_start `Scan(_helix_monotonic)` 的回报：载入 per-channel cursor + proactive resync。
+    /// （取代旧 `scan_corr: Option<Correlation>`——单值语义并入统一表，靠 corr 唯一性区分。）
+    ScanCursors,
+
+    /// channel sync **Persist** 回报：`channel.on_persist_ok(corr)` 推进 cursor。
+    /// （取代旧 `corr_to_channel` + `continuation_pending` 两张表——续拉意图降为本变体的
+    /// `wants_continuation` 标志，因为它本就与同一 `persist_corr` 绑定，不是独立路由类别。）
+    ChannelPersist {
+        channel_id: ChannelId,
+        /// E3 续拉：该批 sync 响应 `needs_continuation=true` 时为 true；
+        /// on_persist_ok 推进 cursor 后据此决定是否 `maybe_continue_sync`。
+        wants_continuation: bool,
+    },
+
+    /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`。
+    /// （取代旧 `corr_to_send`。）
+    OptimisticSend { temporary_id: TemporaryId },
+
+    /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析。
+    /// （取代旧 `corr_to_sync`。）
+    SyncPull { channel_id: ChannelId },
+}
+
 // ─── ImState ────────────────────────────────────────────────────────────────
 
 /// ImModule 的全量状态（纯数据结构，不含任何 I/O 句柄）
@@ -199,27 +241,13 @@ pub struct ImState {
     /// 来自源码：乐观落库后等 echo 或 sync 对账，15s 超时 → unSend
     pub pending_sends: HashMap<TemporaryId, PendingSend>,
 
-    /// MAJ-1 修复：路由索引（corr → channel_id），用于 channel sync Persist 回报。
+    /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。
     ///
-    /// - `corr_to_channel`：仅存路由信息（corr → channel_id），不存 seq
-    /// - `Channel.pending_commits`：持有 `corr → Seq`，是 cursor 推进的唯一聚合根
-    /// - 路径：PortReply → `corr_to_channel.remove(corr)` → `channel.on_persist_ok(corr, fx)`
-    pub corr_to_channel: HashMap<helix_core::Correlation, ChannelId>,
-
-    /// 路由索引（corr → temporary_id），用于 P1 乐观落库 Persist 回报。
-    pub corr_to_send: HashMap<helix_core::Correlation, TemporaryId>,
-
-    /// 路由索引（corr → channel_id），用于 sync/notify Http 回报。
-    pub corr_to_sync: HashMap<helix_core::Correlation, ChannelId>,
-
-    /// on_start 时发出的 Scan corr（用于 proactive resync 路由）
-    pub scan_corr: Option<helix_core::Correlation>,
-
-    /// E3 续拉：Persist corr → channel_id（persist_corr 落库成功后触发续拉 sync Http）
-    ///
-    /// 仅当该批 sync 响应 `needs_continuation=true` 时才注册。
-    /// PortReply Ok 路由 1 完成 on_persist_ok 后检查此 map，若命中则发续拉 Http。
-    pub continuation_pending: HashMap<helix_core::Correlation, ChannelId>,
+    /// 取代旧 4 张分散 HashMap（`corr_to_channel` / `corr_to_send` / `corr_to_sync` /
+    /// `continuation_pending`）+ 1 个 `Option`（`scan_corr`）。`PortReply` 到达时
+    /// 单次 `remove(corr)` 取出上下文，按变体 `match` 分发；一个 corr 恰对应一个变体，
+    /// 类别互斥由数据结构（一 key 一 value）+ corr 全局唯一（见 `CorrelationContext` 不变量）保证。
+    pub corr_map: HashMap<helix_core::Correlation, CorrelationContext>,
 
     /// 退避 timer ID（当前重连倒计时）
     pub backoff_timer: Option<helix_core::TimerId>,
@@ -278,11 +306,7 @@ impl ImState {
             connection_id: None,
             channels: HashMap::new(),
             pending_sends: HashMap::new(),
-            corr_to_channel: HashMap::new(),
-            corr_to_send: HashMap::new(),
-            corr_to_sync: HashMap::new(),
-            scan_corr: None,
-            continuation_pending: HashMap::new(),
+            corr_map: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,
             increment_fetched: HashSet::new(),

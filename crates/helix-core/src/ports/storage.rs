@@ -13,7 +13,7 @@
 //! - wasm:   sqlite-wasm-rs + OPFS（需 RUSTFLAGS=atomics+bulk-memory，在 Worker 初始化）
 //! - ffi:    host SQLite handle via C ABI
 
-use crate::effect::{GetSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec};
+use crate::effect::{BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec};
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
 
@@ -40,15 +40,11 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
 
     /// batch update：UPDATE table SET patch WHERE key_col IN (key_vals)
     ///
-    /// `update(single_row)` 即 `batch_update(key_vals.len=1)`。
+    /// `update(single_row)` 即 `batch_update(spec.key_vals.len=1)`。
     /// 实现可对 len=1 的情况内部优化为单行 UPDATE。
-    async fn batch_update(
-        &self,
-        table: &str,
-        key_col: &str,
-        key_vals: &[crate::effect::SqlValue],
-        patch: Row,
-    ) -> Result<(), PortError>;
+    ///
+    /// CORE-1：收 `BatchUpdateSpec` 与其余 4 个 spec 方法对齐（API 一致性，零行为变更）。
+    async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError>;
 
     /// 通用单调 MAX-guard 写：仅在 new value > 当前值时才写入（CAS / 单调寄存器语义）。
     ///

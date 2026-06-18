@@ -1,0 +1,47 @@
+%% helix-driver-ffi — FFI 内存安全边界（HX-C006）
+%% opaque ptr 单 owner + panic=abort + C 侧 buffer 立即拷贝 + 单 owner 生命周期
+%% 真源：api.rs（Box::into_raw/from_raw · to_vec 拷贝 · ffi_str null/utf8 守卫）
+%% 局部铁律：crates/helix-driver-ffi/CLAUDE.md「FFI 铁律」+ 根 .claude/rules HX-C006
+
+flowchart TD
+    subgraph OWNER["① opaque ptr 单 owner（Box::into_raw / from_raw 各一次）"]
+        O1["helix_create_with_network<br/>Box::into_raw(Box::new(HelixHandle)) · api.rs:60"]
+        O2["✅ 唯一所有权交给 C 侧<br/>（Rust 不再持有，C 持 *mut HelixHandle）"]
+        O3["C 侧把 ptr 回传后续每个 API<br/>set_header / on_ws_frame ... 仅 &*handle 借用，不夺所有权"]
+        O4["helix_destroy<br/>Box::from_raw 回收（唯一一次）· api.rs:71"]
+        O5["✅ null-check 先行<br/>handle.is_null() → 提前 return，防 double-free / use-after-free"]
+        O1 --> O2 --> O3 --> O4
+        O5 -.->|每个导出入口先查| O3
+    end
+
+    subgraph PANIC["② panic=abort（不跨 extern C unwind）"]
+        P1["最终 cdylib profile panic=abort（根 Cargo.toml ✅）"]
+        P2["✅ panic 即 abort，绝不 unwind 越过 extern C 边界"]
+        P3["→ 无需 catch_unwind（策略二选一，禁混说 · HX-C006）"]
+        P1 --> P2 --> P3
+    end
+
+    subgraph BUFFER["③ C 侧 buffer 立即拷贝不持有（ACL-3）"]
+        B1["helix_on_ws_frame(data, len)<br/>C 侧 buffer 回调返回后可能被复用"]
+        B2["✅ slice::from_raw_parts(data,len).to_vec()<br/>当场拷贝到 Rust 堆 · api.rs:159"]
+        B3["✅ 不持有原始切片<br/>（owned Vec&lt;u8&gt; 才能跨 step 进 engine）"]
+        B4["helix_on_http_response(body, body_len)<br/>同款：body 非空分支 to_vec · api.rs:185"]
+        B1 --> B2 --> B3
+        B4 --> B2
+    end
+
+    subgraph GUARD["④ 边界输入零信任守卫（ffi_str · api.rs:190）"]
+        G1["*const u8 入参<br/>name / value / url"]
+        G2["✅ null → FFI_NULL(-1)"]
+        G3["✅ 非 UTF-8 → FFI_UTF8(-2)"]
+        G4["✅ 业务失败 → FFI_INVALID(-3) / 成功 FFI_OK(0)"]
+        G1 --> G2
+        G1 --> G3
+        G1 --> G4
+    end
+
+    classDef done fill:#d4edda,stroke:#28a745,color:#155724;
+    classDef note fill:#e2e3e5,stroke:#6c757d,color:#383d41;
+
+    class O2,O5,P1,P2,P3,B2,B3,G2,G3,G4 done;
+    class O1,O3,O4,B1,B4,G1,P3 note;

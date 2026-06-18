@@ -2,7 +2,7 @@
 
 > 2026-06-15 · 本文是**全景 + 设计推演**视角；天级 todo / 验收 checklist 见 [`ROADMAP.md`](./ROADMAP.md)（两者分工：本文管"为什么这么排、每阶段守什么线"，ROADMAP.md 管"这周做哪几条"）。
 > 2026-06-15 更新（ADR-006）：当前产品路线收缩为 PC Tauri + Flutter 手机端；Web/WASM 归档暂停。本文中旧 wasm 阶段仅作历史推演，不作为当前 roadmap。
-> 关联：北极星 [`GOAL.md`](./GOAL.md) · 决策权威 [`过会方案/helix-技术评审纪要.md`](./过会方案/helix-技术评审纪要.md) · 机制权威 [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) · 方向A [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) · 参照实现 Crux（`/Users/mac28/workspace/rustWorkspace/crux`，源码已核） · 行为真源 cses-client（`src-tauri/features/im` + `message-v3`）。
+> 关联：北极星 [`GOAL.md`](./GOAL.md) · 决策权威 [`harness/decisions.md`](./harness/decisions.md) · 机制权威 [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) · 方向A [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) · 参照实现 Crux（`/Users/mac28/workspace/rustWorkspace/crux`，源码已核） · 行为真源 cses-client（`src-tauri/features/im` + `message-v3`）。
 
 ---
 
@@ -42,9 +42,9 @@ core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型�
 |---|---|---|---|
 | 0 | 骨架（5 crate / 7 trait / step 壳 / Module host） | core | ✅ 完成 |
 | 1 | 先证最硬骨头（乱序 backfill proptest） | 业务① | ✅ 完成 |
-| 2 | native 落地 + 真 Go 联调 + Tauri 换引擎 | 业务① + native | 🔄 进行中（M2 ~60%） |
+| 2 | native 落地 + 真 Go 联调 + Tauri 换引擎 | 业务① + native | 🔄 M2 ~90%（仅 Tauri 四接缝剩余；2a/2b/2c ✅） |
 | 3 | 基础 core 完工 + 统一 in-memory Model | 业务①（D 阶段2 收尾） | ⏳ A 的枢纽前提 |
-| 4 | FFI / Flutter 手机端 | +端 | ⏳ M3 |
+| 4 | FFI / Flutter 手机端 | +端 | 🔄 M3-F4 启动（F2/F3 ✅，F4 engine 接线拆解中） |
 | 5 | wasm 浏览器端 | +端 | archived（ADR-006 暂停维护） |
 | — | **以上 = 方向 D 当前产品完成：业务①写一次 PC + Flutter 双端一致，地基独立回本** | | |
 | 6 | core-view **通用机制**（Render + view + typegen） | core（仍 headless） | 🔮 未来 |
@@ -64,12 +64,12 @@ core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型�
 **产物**：乱序 backfill 的 proptest——gate / cursor 单调 / 不丢不重 / 确定性。**先证再写 driver**：在最脏的「乱序帧缓冲 + gap 检测 + 按序补齐」链上把架构钉死，过会底气来自此。
 
 ### 🔄 Phase 2 — native 落地 + 真 Go 联调 + Tauri 换引擎（M2）
-| 子阶段 | 内容 | grounding |
-|---|---|---|
-| 2a 业务①搬进 helix-im | `handlers/{hello,post,sync,channel}.rs` + `state.rs GateState` → `handle` + owned 状态 | cses `src-tauri/features/im` 逐文件 |
-| 2b driver-native 实现 ports | `WsManager/DbManager/HttpManager` → Transport/Storage/Http；`message_loop` 4-worker → 按 channel 并发兑现 Persist | cses 现网并发形态 |
-| 2c UC-1 前置4块 + 真 Go smoke | hello 握手时序 / B4 event_seq 三级 fallback / B5 phantom / echo→reconcile 路由 → golden fixtures | panel-review 揪出的死/缺/脆 |
-| 2d Tauri 四接缝 + 灰度 | 10 命令内部切 Tick / 读旁路 · `NativeEventSink`→`im:__bus__` · 同库灰度 · `store:*`/B3 readBits 对齐 | **Angular message-v3 零改** |
+| 子阶段 | 状态 | 内容 | grounding |
+|---|---|---|---|
+| 2a 业务①搬进 helix-im | ✅ | `handlers/*` + `state.rs GateState` → `handle` + owned 状态；后续 WS registry 重构（main 线）+ sync-v2 全链路 | cses `src-tauri/features/im` 逐文件 |
+| 2b driver-native 实现 ports | ✅ | Transport/Storage/Http 落地；`BoundedSpawner` 背压根治（Persist/Http/HttpFire 统一） | cses 现网并发形态 |
+| 2c UC-1 前置4块 + 真 Go smoke | ✅ | hello 握手 / B4 event_seq / B5 phantom / echo→reconcile + golden fixtures；真消息端到端验过（2026-06-17） | panel-review 揪出的死/缺/脆 |
+| 2d Tauri 四接缝 + 灰度 | ⬜ **未做（M2 唯一剩余）** | 10 命令内部切 Tick / 读旁路 · `NativeEventSink`→`im:__bus__` · 同库灰度 · `store:*` 对齐（B3 readBits ✅） | **Angular message-v3 零改** |
 
 **headless 守卫**：业务①全在 helix-im，平台胶水全在 driver-native，core 零改。交付物 = **换引擎，不是重写客户端**。
 
@@ -78,8 +78,9 @@ core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型�
 **为什么单列**：**这是「先 D 后 A」的转轴**——ViewModel 投影的是业务 Model，没有干净 Model 之前 A 无对象可投。Model 没建好坚决不碰 Phase 6/7。
 **headless 守卫**：Model 是 helix-im 业务状态，core 只见 `table:&'static str`，不知是「消息」还是「草稿」。
 
-### ⏳ Phase 4 — FFI / Flutter 手机端（M3）
+### 🔄 Phase 4 — FFI / Flutter 手机端（M3，F4 启动）
 C ABI + Dart FFI 最小 API → rusqlite/SQLite 存储 → `helix_command`/`helix_query` + Dart Stream 事件流 → `panic=abort` cdylib/staticlib（HX-C006）→ Flutter 冒烟 → native vs FFI 同 Tick 剧本一致。
+**进度**：F2（FfiStorage 复用 host）✅ · F3（shared HTTP/WS client + set/remove_header + FfiTransport）✅ · opaque handle/create/destroy ✅；**F4（engine 接线 + 事件回 Dart Stream）2026-06-18 启动**——核心缺口 = FFI 无 engine 泵（`helix_on_ws_frame`/`on_http_response` 不喂 engine、无 command 入口）。**逐子任务拆解（F4.1 泵归属决策 / F4.2 runtime+Tick 入队 / F4.3 事件回 Stream / F4.4 panic+spawn_blocking 核 / F4.5 Flutter 冒烟）见 [`ROADMAP.md` §一 M3 ▶ F4 实装拆解](./ROADMAP.md)**。
 **headless 守卫**：同一份 core 跑 ffi 零改；panic 不跨 `extern "C"`；opaque ptr 单 owner。
 
 ### archived Phase 5 — wasm 浏览器端（暂停维护）
@@ -108,7 +109,7 @@ host 加 `Render → view() → im:viewmodel:patch` 链路；typegen 抄 `crux T
 **headless 守卫**：ViewModel 在 helix-im；windowing/DOM/像素永远在 UI——**core 出数字/切片/补丁，不碰像素 = 不退方向 B**。
 
 ### 支线① — AI 工程化硬化（可与任意 Phase 并行）
-CI 双端 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate CLAUDE.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。详见 [`AI工程化对齐-Bun-checklist.md`](./AI工程化对齐-Bun-checklist.md)。
+CI 双端 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate CLAUDE.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。落地动作见 [`ROADMAP.md` §二 P2 工程化](./ROADMAP.md)（原「AI工程化对齐-Bun-checklist」已随 docs 缩减并入 ROADMAP）。
 
 ### 支线② — 第二模块验证 = 通用核裁决（D 后任一时点）
 `register(MeetingModule)` / `register(PresenceModule)`，**core 零改**跑通。会议用全四能力但形状完全异于 IM（无 temporaryId 对账、无 cursor 同步）；audit 只用 Http+Storage+Timer 不碰 WS。**这是「core 是通用核而非 IM 框架」的代码裁决**（架构设计 §六）——你最在意的不变量，要用第二个形状异于 IM 的模块插得进来证明，不靠嘴说。
@@ -151,4 +152,4 @@ Crux 源码实证：`Core::view()` 就一句 `self.app.view(&model)`，bincode *
 
 ---
 
-> 交叉引用：北极星 [`GOAL.md`](./GOAL.md) · 决策 [`纪要`](./过会方案/helix-技术评审纪要.md) · 机制 [`架构设计`](./过会方案/helix-core-im-架构设计.md) · 方向A [`方向A设计`](./过会方案/helix-core-view-方向A设计.md) · 天级 todo [`ROADMAP.md`](./ROADMAP.md) · 护栏 [`harness/`](./harness/README.md) · 文档地图 [`README.md`](./README.md)。
+> 交叉引用：北极星 [`GOAL.md`](./GOAL.md) · 决策 [`纪要`](./harness/decisions.md) · 机制 [`架构设计`](./过会方案/helix-core-im-架构设计.md) · 方向A [`方向A设计`](./过会方案/helix-core-view-方向A设计.md) · 天级 todo [`ROADMAP.md`](./ROADMAP.md) · 护栏 [`harness/`](./harness/README.md) · 文档地图 [`README.md`](./README.md)。

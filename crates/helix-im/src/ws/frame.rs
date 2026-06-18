@@ -8,28 +8,26 @@ pub(crate) const LEGACY_EVENT_ACTION: &str = "__legacy_event__";
 pub(crate) struct WsFrame {
     raw: Bytes,
     root: serde_json::Value,
-    action: String,
 }
 
 impl WsFrame {
     pub(crate) fn parse(raw: &[u8]) -> Result<Self, ImError> {
         let root: serde_json::Value = serde_json::from_slice(raw)
             .map_err(|err| ImError::InvalidWsFrame(format!("invalid JSON: {err}")))?;
-        let action = root
-            .get("action")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(LEGACY_EVENT_ACTION)
-            .to_string();
 
         Ok(Self {
             raw: Bytes::copy_from_slice(raw),
             root,
-            action,
         })
     }
 
+    /// WS-1：惰性从已解析 root 取 action `&str`——删 action 字段，不每帧堆分配 String（HX-C005
+    /// `&'static str` 字面纪律）。借用 `&self.root`，唯一消费方在同步 dispatch 内，借用安全。
     pub(crate) fn action(&self) -> &str {
-        &self.action
+        self.root
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(LEGACY_EVENT_ACTION)
     }
 
     pub(crate) fn raw(&self) -> &[u8] {

@@ -2,7 +2,7 @@ use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::state::{ChannelId, InflightSync};
+use crate::state::{ChannelId, CorrelationContext, InflightSync};
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
@@ -18,13 +18,16 @@ pub(crate) fn apply_increment_end(
             out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         None => {
-            let targets: Vec<ChannelId> = ctx
+            // NS-1：increment_fetched 是 HashSet，迭代序逐进程随机。resync 逐 channel 单调
+            // alloc_corr + push 有序 Http Effect，必须确定性排序锚定可回放（GOAL §1，ChannelId: Ord）。
+            let mut targets: Vec<ChannelId> = ctx
                 .state
                 .increment_fetched
                 .iter()
                 .filter(|id| !ctx.state.need_sync_skip.contains(*id))
                 .copied()
                 .collect();
+            targets.sort_unstable();
             emit_proactive_resync_for(ctx, &targets, out);
             heal_incomplete_backfill_once(ctx, out);
         }
@@ -44,7 +47,11 @@ pub(crate) fn emit_proactive_resync_for(
             None => continue,
         };
         let sync_corr = ctx.alloc_corr();
-        ctx.state.corr_to_sync.insert(sync_corr, channel_id);
+        // 统一 corr_map 路由（取代旧 corr_to_sync）：sync/notify HTTP 回报走
+        // CorrelationContext::SyncPull 分发到 handle_sync_reply。
+        ctx.state
+            .corr_map
+            .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
         if let Some(ch) = ctx.state.channels.get_mut(&channel_id) {
             ch.inflight_sync = Some(InflightSync(sync_corr));
         }

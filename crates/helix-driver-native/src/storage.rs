@@ -6,7 +6,7 @@
 //! implementation details.
 
 use helix_core::effect::{
-    GetSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -35,16 +35,8 @@ impl Storage for NativeStorage {
         self.inner.batch_upsert(spec).await
     }
 
-    async fn batch_update(
-        &self,
-        table: &str,
-        key_col: &str,
-        key_vals: &[SqlValue],
-        patch: HelixRow,
-    ) -> Result<(), PortError> {
-        self.inner
-            .batch_update(table, key_col, key_vals, patch)
-            .await
+    async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError> {
+        self.inner.batch_update(spec).await
     }
 
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {

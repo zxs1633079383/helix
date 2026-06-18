@@ -2,7 +2,7 @@
 # review-gap.sh — 架构 review 收敛闸门
 #
 # 算 HEAD 距上次 agent/workflow 架构 review 的 commit 距离（gap）。
-# gap ≥ 阈值(5) → 强制派发 Workflow({name:"architecture-drift-review"}) 收敛后才能继续 feature 开发。
+# gap ≥ 阈值(10) → 强制派发 Workflow({name:"architecture-drift-review"}) 收敛后才能继续 feature 开发。
 # 规则：.claude/rules/agent-review-cadence.md   台账：docs/review/workflow-review-ledger.md
 #
 # 退出码：0=ok（gap<阈值） / 1=强制 review（gap≥阈值） / 2=ledger 异常

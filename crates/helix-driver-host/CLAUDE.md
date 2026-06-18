@@ -1,5 +1,7 @@
 # helix-driver-host 局部指令（就近优先，全局见根 CLAUDE.md）
 
+> 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
+
 ## 本 crate 是什么
 
 PC Tauri（native）与 Flutter FFI **共享**的 host driver 存储层（ADR-007）。SQLite schema/migration、rusqlite `Storage` 实现、`StorageOp → PortOutcome` 兑现、`rows_to_reply_bytes`/`rows_from_reply_bytes` 编解码——**统一维护在此**，`helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳，不重复实现存储。

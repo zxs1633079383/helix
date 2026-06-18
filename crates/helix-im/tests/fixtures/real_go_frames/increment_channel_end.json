@@ -1,0 +1,3 @@
+// 来源: /tmp/helix_devloop_1781666785.log 真 Go 现网抓帧 (devloop 2026-06-17, 增量批次收尾)
+// 形态: action=="increment_channel_end"，data={} 空 → global end (None) → 触发 (fetched−skip) 群 sync
+{"v":1,"action":"increment_channel_end","data":{},"broadcast":{"omitUsers":null,"userId":"5ffd465e263864787b87aa01","userIds":null,"channelId":"","teamId":"","connectionId":"","omit_connectionId":""},"seq":260}

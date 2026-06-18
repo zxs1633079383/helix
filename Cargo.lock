@@ -640,6 +640,7 @@ dependencies = [
  "futures-util",
  "helix-core",
  "helix-im",
+ "parking_lot",
  "reqwest",
  "rusqlite",
  "serde_json",

@@ -5,6 +5,15 @@
 
 ## §0 终态记录
 
+🎯 EXPECT sync-v2 全 parity re-port 到 dev-zlc(ADR-007) @2026-06-18 | 赌注 高 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
+  ↳ 可证伪预判：① 改动文件集 = Phase A(increment_channel/increment_channel_end/module.rs) + B0(helix-core effect.rs/ports·storage.rs + helix-driver-{host,native,ffi,wasm}/storage.rs) + B(channel_write/5 + acl/to_effect{,_s1}.rs + parser/context/schema/sync_session/ImConfig) + C(ws/handlers/10 新 + mod.rs + 改 post/increment) + D(tests)；**不碰根 SESSION/CLAUDE/README**
+  ↳ ② 每阶 feat 对应 replay 测试逐字 port 且 PASS（http6/b2/s1(576)/s4/s5/s6/channel_write_program/channel_member_collect 全绿）= parity 硬证
+  ↳ ③ base64 decode 在 helix-im 内联（grep helix-im 不 import helix-driver-host）· core 仍零运行时（`cargo tree -p helix-core | grep tokio|sqlx|reqwest|web-sys|tauri` 空）
+  ↳ ④ unread = GuardedBump SQL 自增（grep 无 path3 read-modify-write）· member_count = 单行 ON CONFLICT upsert（HX-C005）
+  ↳ ⑤ cargo check 5 crate + cargo test helix-im/core/host/native 全绿 · gate.sh + structure-gate 过（新 src 文件 ≤300 行）
+  ↳ ⑥ #5 auth 不搬（ImConfig 无身份字段）· S9 emit A5/A4 分流落地（grep `im:channel:read_echo` + `im:post:batch-updated`）· 全 parity 真机在线+离线（localhost:8065）跑通
+  ↳ 偏离即记 DRIFT-PRED：若 core 出运行时依赖 / base64 反向依赖 host / path3 RMW / feat 测试未 port 或不过 / 改根黑名单 / src 文件 >300 行未拆 → 偏离
+
 🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）把 feat 的 **sync-v2 整条业务实现 re-port 到 dev-zlc 的 ADR-007 架构，目标 = feat 全 parity（不只 6 个 fix）**。参照源 = `feat/sync-v2-full-replacement`（已真机验证，**不文本合并**，逐项 re-port）。
 
   ⚠️ **范围铁律：目标是 feat 全 parity，A+B 只是子集，远不够。** 之前映射 agent 只读 dev-zlc、没 diff feat → 漏了一半。**第 0 步必做**：

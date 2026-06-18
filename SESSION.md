@@ -5,6 +5,10 @@
 
 ## §0 终态记录
 
+✅ DONE C++ 直连冒烟自动化 harness（cpp→rust→cpp 真 C++ 端到端）@2026-06-18 | commit a80cc49 | helix/dev-zlc
+  ↳ 真 C++ link libhelix_driver_ffi.dylib + #include helix.hpp：create(vtable)→helix_command(im_send_message)→收 on_domain_events_batch 含 im:post:sending→destroy(join pump)。cmake/ctest 1/1 PASS 1.54s；scripts/cpp-smoke.sh 一键（CI 可调）；crates/helix-driver-ffi/smoke/{smoke.cpp,CMakeLists.txt}
+  ↳ 环境现实：本机无设备/iOS 模拟器/完整 Xcode/Android SDK → **Flutter 真机冒烟不可行**；完整 Flutter↔C++↔Rust 链需用户原项目 C++ host。C++ 直连冒烟=本架构(C++-host)的「真机冒烟」正解。Flutter 安装后台进行(brew cask)，装后仅 macOS 桌面 demo 可跑
+
 ✅ DONE 收口代办 + 沉淀三端设计思想文档 @2026-06-18 | commit 7f28a19..daf44fe（merge 527100f + hotfix daf44fe）| helix/dev-zlc
   ↳ 代办全清：DropOldest→DropNewest 改名(13 文件) · native↔host 压测去重(共享核 4 测下沉 host stress_storage_core + native 2 parity 烟测·覆盖 6>4) · helix_query 设计落档(blocked-on-IM 通用 query 路由) · feat/sync-v2 path3 零 RMW 结论存档(两分支均原子 ON CONFLICT·unread 不写 channel 表)
   ↳ 沉淀：helix-driver-{host,ffi,native}/docs/design/00-设计思想.md（host 完整 8 节：北极星/parity by construction/C++直连pivot/BatchSink/读写并发/方法论教训/不变量/待办 · ffi+native 角色版引用 host）+ ffi/03-helix-query-design.md

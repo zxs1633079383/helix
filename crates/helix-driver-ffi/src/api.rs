@@ -202,10 +202,14 @@ pub unsafe extern "C" fn helix_destroy(handle: *mut HelixHandle) {
         let _ = tx.send(());
     }
     // 3. join pump 线程：阻塞到泵退出（drain 完成）→ 最后一批 on_domain_events_batch 已返回，
-    //    C++ 释放 ctx 安全。join 失败（pump 线程 panic）仅记录，不二次 panic 跨 FFI。
+    //    C++ 释放 ctx 安全。
+    //    panic 隔离：pump 线程的 panic 由 std::thread 在线程边界捕获，join() 返回 Err 而非
+    //    重新 panic——不存在 unwind 跨 extern "C"。tracing::error! 保证不 panic。
+    //    ⚠️ 本 extern "C" 函数内禁止新增任何 panic 路径（panic!/expect/unwrap/poisoned-lock）：
+    //       dev unwind 模式下 panic 越过 extern "C" = UB（HX-C006 §4）。
     if let Some(t) = boxed.pump_thread.lock().take() {
         if t.join().is_err() {
-            tracing::error!("FFI pump 线程 join 时检测到 panic（已被 catch 在线程内）");
+            tracing::error!("FFI pump 线程 panic（已在线程边界隔离，join 返回 Err）");
         }
     }
 

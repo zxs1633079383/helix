@@ -137,21 +137,24 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
         initial_effects.len()
     );
 
-    dispatch_effects(
-        initial_effects,
-        &tick_tx,
-        &storage,
-        &http_pool,
-        &http_fire_pool,
-        &event_sink,
-        &mut timer_registry,
-        &reply_tx,
-        &mut persist_workers,
-        &transports,
-    )
-    .await;
-    // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
-    event_sink.flush();
+    // 与主循环同门控：有初始 effect 才 dispatch + flush（避免空批跨 FFI 边界的无谓回调）。
+    if !initial_effects.is_empty() {
+        dispatch_effects(
+            initial_effects,
+            &tick_tx,
+            &storage,
+            &http_pool,
+            &http_fire_pool,
+            &event_sink,
+            &mut timer_registry,
+            &reply_tx,
+            &mut persist_workers,
+            &transports,
+        )
+        .await;
+        // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
+        event_sink.flush();
+    }
 
     // 事件泵主循环。
     //

@@ -9,6 +9,15 @@
   ↳ 可证伪预判：① 仓内只动 docs/superpowers/specs/2026-06-18-...（已）+ docs/flutter-demo-pointer.md + ffi CLAUDE.md/AGENTS.md 各 1 行索引，**helix-core/helix-im/cdylib 零改** ② `dart run` console 冒烟 PASS：dart:ffi→C++ shim→cdylib→pump→Emit→batch→`NativeCallable.listener` 异步回调收到含 `im:post:sending` 的批（证异步跨线程全链）③ build_native.sh 一键 `cargo build --release`(panic=abort) + `clang` 链 cdylib 产 libhelix_shim.dylib（otool -L 验 @rpath，**不碰 Xcode**）④ `cargo check -p helix-driver-ffi` 仍过 + `scripts/cpp-smoke.sh` 仍绿（零回归）⑤ structure-gate 镜像闸绿（ffi CLAUDE/AGENTS 成对 diff 空）⑥ integration_test/main.dart/maestro 代码就绪，`flutter test -d macos` 标 BLOCKED-on-Xcode（阶段 2，不计失败）
   ↳ 偏离即记 DRIFT-PRED：若被迫改 cdylib 导出 / shim C++ 异常外逸跨 extern C / listener 拿到失效 ptr UAF / console 证不了异步跨线程 / 仓内动了 core·im / free_batch 非无状态
 
+✅ DONE F4.5 Flutter FFI 桌面 demo（C 路线·阶段1：console 证完整链路）@2026-06-18 | commit 195c88e..4db4592（spec+session+ffi 文档）+ 仓外工程 /workspace/flutterWorkspace/helix_ffi_demo | helix/dev-zlc
+  ↳ 链路真证（阶段1）：`dart run bin/console_smoke.dart` PASS×3 — dart:ffi→C++ shim(libhelix_shim.dylib)→cdylib→pump→Effect::Emit→batch→`NativeCallable.listener` 异步回调收 1 条 101B 完整 JSON `{"event":"im:post:sending"}`（listenerFired=true / free_batch 调用 / dispose 6 步 join pump，无 UAF·无 hang·exit 0）；build_native.sh 一键 cargo --release + clang 链 cdylib，两 dylib @loader_path 同目录（免 DYLD_LIBRARY_PATH）
+  ↳ Workflow 编排 9 agent：P1 脚手架×4 + P2 shim+Dart×2（**一次跑通零返工**）+ P3a console 验证 + P4 cpp-rust-systems-dev 闸门（🟢 7 不变量逐条带行号成立：malloc+memcpy 稳定化/noexcept+catch/整批一次/free_batch 无状态/uintptr_t↔UintPtr/销毁 6 步/C malloc-free 不混 new）+ 收口 gate（🟢）
+  ↳ 交付物：仓外 helix_ffi_demo（native/helix_shim.{h,cpp} + lib/{helix_ffi,main}.dart + bin/console_smoke.dart + integration_test + maestro 骨架 + tool/build_native.sh）；仓内 3 文档（docs/flutter-demo-pointer.md + ffi CLAUDE/AGENTS 镜像各 1 行）
+  ↳ 验证：cargo check -p helix-driver-ffi PASS(3.33s) + scripts/cpp-smoke.sh 零回归 PASS + structure-gate 镜像闸 PASS + core/im/.rs/Cargo.toml **零改**
+  ↳ EXPECT 对账：6 条断言**全命中**（仓内仅 3 文档 / console PASS 见 im:post:sending / build_native @loader_path / 零回归 / 镜像闸绿 / UI·test·maestro 代码就绪）→ **无 DRIFT-PRED**（预期全中）
+  ↳ 阶段2 BLOCKED-on-Xcode：`flutter test integration_test -d macos` 待用户装完整 Xcode+CocoaPods（本机仅 Command Line Tools，flutter doctor 实测）；UI/integration_test/maestro 代码已就绪，装后一键可跑
+  ↳ 收口：gap=10 → §4.7 强制 architecture-drift-review（紧接派，通过后更新 ledger e3540cf→HEAD）
+
 🎯 EXPECT F5 跨端 parity 自动化（同 Tick 剧本 native vs FFI byte-level 一致 · 设备无关）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/f5-cross-parity 未 merge）
   ↳ 可证伪预判：① golden Tick 剧本→Emit DomainEvent 序列 byte-identical 到 committed fixture + 跑两次确定性 ② native(NativeEventSink broadcast)↔ffi(FfiEventSink batch decode) 对同剧本 deliver 的 DomainEvent byte-identical ③ 改动只在 tests + golden fixture（不改 src 逻辑/不碰 core 行为）④ 两测 HX-C011 可证伪（改 emit / break egress → fixture mismatch FAIL，commit body 附破坏证明）⑤ cargo test 全绿 + native 零回归 + gate.sh 过
   ↳ 偏离即记 DRIFT-PRED：若改 src 逻辑 · golden 是 tautology(改 emit 照过) · parity 黑盒证不了 · 跨 crate dev-dep 成环 → 偏离

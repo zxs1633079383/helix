@@ -5,7 +5,9 @@ edition = "2021"
 
 # FFI driver：C ABI，编译为 cdylib + staticlib
 [lib]
-crate-type = ["cdylib", "staticlib"]
+# rlib は integration tests（`tests/`）が `helix_driver_ffi::*` を使えるよう必要。
+# cdylib = C FFI 出口（生産）; staticlib = C++ direct-link; rlib = Rust 統合テスト用。
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 helix-core        = { path = "../helix-core" }
@@ -26,6 +28,11 @@ tokio        = { version = "1", features = ["sync", "rt"] }
 
 # FFI 绑定（build.rs 调用 cbindgen 生成 helix.hpp）
 # uniffi = { version = "0.28", features = ["scaffolding"] }  # 按需开启
+
+[dev-dependencies]
+# parity 测试（f5_egress_parity）：NativeEventSink（broadcast 路径）与 FfiEventSink 对比
+helix-driver-native = { path = "../helix-driver-native" }
+serde_json  = { workspace = true }
 
 [build-dependencies]
 cbindgen = "0.27"

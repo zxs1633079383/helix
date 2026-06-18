@@ -32,4 +32,6 @@ cargo check -p helix-driver-ffi && cargo clippy -p helix-driver-ffi --all-target
 cargo test -p helix-driver-ffi   # 含 command→Emit→批回调 e2e + pump lifecycle drain
 # 改 pump 核（host engine/BatchSink）后 native 零回归安全网必跑：
 cargo test -p helix-driver-native -p helix-driver-host
+# C++ 直连冒烟（真 C++ link cdylib + #include helix.hpp，cpp→rust→cpp 端到端，CI 可调）：
+bash scripts/cpp-smoke.sh   # cargo build cdylib → cmake build smoke/ → ctest
 ```

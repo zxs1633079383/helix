@@ -1,0 +1,21 @@
+%% helix-driver-wasm 计划（暂停维护）的浏览器端架构 — ADR-006 归档
+%% 📦 全部为「若未来重启网页端」的设计留存，当前 ports 实现为 todo!()
+
+flowchart TD
+    CORE["helix-core（同一份，零改）<br/>+ helix-im（同一份业务模块）"]
+
+    subgraph WASM["helix-driver-wasm（📦 archived，ports 当前 todo!()）"]
+        direction TB
+        WS["Transport：web-sys WebSocket<br/>（替代 tokio-tungstenite）"]
+        STORE["Storage：OPFS / IndexedDB<br/>⚠️ OPFS 仅 DedicatedWorker 内<br/>⚠️ SAHPool 无读池无并发"]
+        SPAWN["执行器：wasm_bindgen_futures::spawn_local<br/>（无 tokio，单线程 !Send）"]
+        HTTP["Http：gloo-net / fetch<br/>（无流式/无自定义 TLS）"]
+    end
+
+    CORE -.同一份 core 编 wasm（理论零改）.-> WASM
+
+    BROWSER["浏览器主线程 ↔ DedicatedWorker<br/>（OPFS 初始化须在 Worker 内）"]
+    WASM --> BROWSER
+
+    style WASM fill:#f0f0f0,stroke:#999,stroke-dasharray: 5 5
+    style CORE fill:#e8f4ff

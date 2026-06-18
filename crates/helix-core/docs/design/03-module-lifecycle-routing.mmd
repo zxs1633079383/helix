@@ -1,0 +1,41 @@
+%% helix-core — Module 生命周期 + 多模块定向路由
+%% 真源：src/module_host.rs (Module trait / ModuleHost / start_one / dispatch_*)
+%%        src/engine.rs (start 逐模块 + register_effects_to_maps 的 EFFECT-3 修复)
+%% 关联：开闭原则（加模块只调 register） · EFFECT-3（start 只扫新增区间防投错家）
+flowchart TD
+    classDef shell fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
+    classDef host fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a
+    classDef life fill:#fef7e0,stroke:#fbbc04,color:#1a1a1a
+    classDef warn fill:#fce8e6,stroke:#ea4335,color:#1a1a1a
+
+    %% ── 注册阶段（开闭原则）──
+    REG["✅ shell.register(ImModule)<br/>开闭原则：加模块不改 dispatch 一行<br/>→ ModuleHost.modules: Vec<Box<dyn Module>>"]:::shell
+
+    %% ── 启动阶段（逐模块，EFFECT-3）──
+    REG --> START["✅ shell.start()<br/>scratch.clear() 一次，跨模块累积返回"]:::shell
+    START --> LOOP["for idx in 0..module_count"]:::host
+    LOOP --> MARK["start = scratch.len()（本模块前长度）"]:::host
+    MARK --> ONS["✅ host.start_one(idx) → Module::on_start(out)<br/>默认空实现；典型吐 Send(hello)/Persist(读cursor)/ScheduleTimer(心跳)"]:::life
+    ONS --> RE["✅ register_effects_to_maps(idx, start)<br/>⚠️ EFFECT-3：只扫 [start..] 新增区间<br/>否则后模块重复扫描前模块 corr → PortReply 投错家"]:::host
+    RE --> LOOP
+    LOOP -->|"全部 on_start 完"| READY["✅ Ok(&[Effect]) 初始 Effect 全集 → driver 兑现"]:::shell
+
+    %% ── 运行阶段（多模块定向路由）──
+    READY --> RUN["运行期 step() 循环（见 01-step-event-loop）"]:::shell
+    RUN --> DISP{"Tick 类型"}:::host
+    DISP -->|"Inbound/Command"| SCAN["✅ dispatch_inbound：遍历 modules<br/>first-match accepts() 排他命中<br/>（accepts 必须纯函数，不改 self）"]:::host
+    DISP -->|"PortReply"| BYCORR["✅ corr_map.consume(corr) → idx<br/>定向 dispatch_reply(idx)<br/>（不走 accepts，避免误吞）"]:::host
+    DISP -->|"Timer"| BYTIMER["✅ timer_map.peek(id) → idx<br/>定向 dispatch_reply(idx)"]:::host
+
+    SCAN --> HANDLE["✅ Module::handle(&tick, now_ms, out)<br/>同步纯函数 · out.push(Effect)"]:::life
+    BYCORR --> HANDLE
+    BYTIMER --> HANDLE
+
+    %% ── 周期行为：无 tick() 方法，靠 self-arm ──
+    HANDLE -.->|"周期心跳：on_start 吐 ScheduleTimer<br/>handle(Timer) 内 re-arm 实现无限循环"| HANDLE
+
+    %% ── 停止阶段（逆序 LIFO）──
+    RUN --> STOP["✅ shell.stop() → host.stop_all<br/>逆序（LIFO）调 on_stop<br/>典型吐 CancelTimer(所有) + Send(close)"]:::shell
+
+    %% ── 错误归属 ──
+    HANDLE -.->|"handle 返 Err"| ERR["⚠️ CoreError::ModuleError{module名, source}<br/>携带 Module::name() 便于定位"]:::warn

@@ -1,0 +1,31 @@
+%% Helix · helix-driver-host · 异步外壳包同步 I/O
+%% 真源：src/storage.rs（全部 Storage 方法的 spawn_blocking 模式 + with_reader）
+%% 关联：HX-C006（no unwind / 单 owner / spawn_blocking）· ADR-005（FFI 同步调用包 spawn_blocking）
+%% 命题：异步是调度手段，真正的 I/O 是同步的 rusqlite C 调用
+flowchart TD
+    CALLER["上层（native engine_loop / FFI 宿主）\nawait storage.batch_upsert(..) / get(..) ..."]
+
+    CALLER --> ASYNC["#[async_trait] Storage 方法\n（async fn 外壳：只做调度，不做阻塞 I/O）"]
+
+    ASYNC --> SEMA{"读 op？\n（get / scan）"}
+    SEMA -->|"是"| ACQ["先 permits.acquire().await\n满载异步挂起 → 背压传导"]
+    SEMA -->|"否（写 op）"| SB
+
+    ACQ --> SB["tokio::task::spawn_blocking(move || { ... })\n切到 blocking 线程池\n→ 不占用 tokio worker（async runtime 线程）"]
+
+    SB --> SYNC["同步 rusqlite C 调用（真 I/O）\nConnection::lock / transaction\nprepare_cached / execute / query\n（SQLite 是同步阻塞库，无 async 接口）"]
+
+    SYNC --> RET[".await spawn_blocking 句柄\nmap_join_err 处理 JoinError\n→ 结果回到 async 外壳"]
+
+    RET --> CALLER
+
+    subgraph WHY["为什么这样分层 ✅"]
+        WHY1["SQLite/rusqlite = 同步阻塞 C 库，\n直接在 tokio worker 上调 → 阻塞整个 runtime 线程"]
+        WHY2["spawn_blocking 把同步阻塞挪到专用 blocking 池\n→ async runtime 继续调度其它任务"]
+        WHY3["⚑ HX-C006 / ADR-005：FFI 侧同步调用必须 spawn_blocking 包裹\n（×7 调用点：open / execute_raw / with_reader / 三个写 op）"]
+        WHY1 --- WHY2 --- WHY3
+    end
+    SB -.-> WHY
+
+    note["一句话：async 是调度手段，I/O 真同步。\nhelix-core 不持有 runtime；并发/阻塞隔离全在此 driver 层（三层架构铁律）"]
+    SYNC -.-> note

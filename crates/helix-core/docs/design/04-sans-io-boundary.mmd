@@ -1,0 +1,38 @@
+%% helix-core — sans-IO 边界因果链（core 吐意图 → driver 兑现 → PortReply 回灌）
+%% 真源：src/engine.rs (step 同步) + 6 ports (async 在 driver 侧) + src/effect.rs(Effect/corr)
+%% 关联：HX-C001(core 零运行时) · HX-C002(async port Send 边界) · CLAUDE.md §1 sans-IO/确定性
+%% 6 ports：Transport / Storage / Clock / EventSink / IdSource(+Random) / HttpRequester
+sequenceDiagram
+    autonumber
+    participant H as Host / UI<br/>(Tauri / Flutter FFI)
+    participant D as driver engine_loop<br/>（async · 持运行时）
+    participant C as helix-core ExecutionShell<br/>（✅ 同步 · 零 I/O · 确定性）
+    participant M as Module（helix-im）<br/>（✅ handle 纯函数）
+    participant P as Ports 实现（driver 侧）<br/>Transport/Storage/Http/Clock...
+
+    Note over C,M: ── core 域：同步纯函数，不持 tokio/sqlx/reqwest（HX-C001）──
+    Note over D,P: ── driver 域：async 兑现，Send 边界 cfg 切（HX-C002）──
+
+    H->>D: WS 帧 / UI Command 到达
+    D->>D: clock.now_ms() 读墙钟（时间由 host 注入）
+    D->>C: step(Tick::Inbound/Command, now_ms)
+    C->>M: 路由 → Module::handle(&tick, now_ms, out)
+    M-->>C: out.push(Effect::Http{corr,req})<br/>✅ 只声明意图，零 await/IO
+    C->>C: register_effects_to_maps：corr → corr_map
+    C-->>D: 返回 &[Effect]（借 scratch）
+
+    Note over D,P: driver 兑现 Effect（这里才有真 I/O / async）
+    D->>P: HttpRequester::request(req).await
+    P-->>D: Result<HttpResponse, PortError>
+    D->>D: 包成 Tick::PortReply{corr, outcome}
+
+    Note over D,C: ── 因果回环：经 corr 串联，不靠 Vec 下标顺序（EFFECT-5）──
+    D->>C: step(Tick::PortReply{corr}, now_ms')
+    C->>C: corr_map.consume(corr) → 定向同一模块
+    C->>M: dispatch_reply → Module::handle(PortReply)
+    M-->>C: out.push(下一步 Effect)<br/>如 PersistFire 推 cursor / Emit 领域事件
+    C-->>D: 返回 &[Effect]
+    D->>P: Storage::batch_upsert / EventSink::emit ...
+    D->>H: EventSink → AppHandle.emit（领域事件回到 UI）
+
+    Note over C: ✅ 同输入同输出可回放：<br/>相同 Tick 序列 + 相同模块初态 ⇒ 相同 Effect 序列

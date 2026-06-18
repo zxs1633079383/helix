@@ -1,0 +1,45 @@
+%% helix-im 设计图 03 —— 同步流（在线增量 push + 离线对账 pull + 冷启动自愈）
+%% 真源: src/module.rs::{on_start,handle_scan_reply,handle_hello,handle_sync_reply,maybe_continue_sync},
+%%        src/ws/handlers/increment_channel_end.rs, src/sync_session.rs（SyncResponse 4 态）
+%% 关联: HX-C008（cursor 锚 nextSeq · 续拉看 len≥500 · too_long 兜底）/ HX-C010（确定性 resync：迭代前 sort）
+flowchart TD
+    START["on_start ✅"] --> SCAN["Effect::Persist Scan(_helix_monotonic)\n载入 per-channel cursor"]
+    SCAN --> SCANRPLY["handle_scan_reply：rows→register_channel（幂等）\nscan 失败（首跑无表）→ 降级空集 ⚠️不崩"]
+    SCANRPLY -->|"已 Connected"| PRORESYNC
+
+    CONN["Tick::Connected → conn=Connecting（不直接 resync）"] --> HELLO
+    HELLO["WS hello 帧 → conn=Connected ✅\n存 connectionId + reset_increment_batch"] --> INCHTTP
+
+    subgraph ONLINE["在线增量（push 模型 · B-rest）✅"]
+        INCHTTP["increment HTTP trigger（带已知 channel cursor）\nHTTP 仅 ack 无数据"]
+        INCHTTP -->|"真 Go 回推"| INCN["WS increment_channel ×N\n注册 channel + 记 increment_fetched/target\nneedSync=false → need_sync_skip\nemit im:channel:increment"]
+        INCN --> INCEND["WS increment_channel_end（global）\nNS-1：targets 排序后逐 channel（HX-C010 确定性）"]
+    end
+
+    INCEND --> PRORESYNC
+    INCEND --> HEAL["B2 heal_incomplete_backfill_once ✅\nlocal cursor < increment_target 水位\n→ 补发 sync（once-only 守卫防死循环）"]
+
+    PRORESYNC["proactive resync：(fetched − skip) 每 channel\n corr_map[c]=SyncPull · inflight_sync 守卫（B1）"] --> SYNCNOTIFY
+    HEAL --> SYNCNOTIFY
+
+    subgraph OFFLINE["离线对账（pull · sync/notify · cursor 锚 nextSeq HX-C008）"]
+        SYNCNOTIFY["Effect::Http POST /channel/sync/notify\n cursors[{channelId, fromSeq=cursor}]"]
+        SYNCNOTIFY -->|"PortReply Ok → 清 inflight_sync"| PARSERSP["parse_sync_response → SyncResponse 4 态"]
+        PARSERSP --> RSP{"SyncResponse"}
+
+        RSP -->|"NoChange"| NC["cursor 已最新 · no-op ✅"]
+        RSP -->|"Events{events, messages, next_seq, needs_continuation}"| EV["commit_target = next_seq.max(末条)（HX-C008 锚 nextSeq 非 max）\nPersist{persist_corr, batch_upsert phantom-aware}\ncorr_map[corr]=ChannelPersist{wants_continuation}\n逐事件 emit post:received/updated/deleted/read ✅"]
+        RSP -->|"TooLong{reset_to}"| TL["清 buffer + gate + cursor=reset_to-1\nlast_sync_from_seq=None\nemit im:sync:too_long（前端清表重拉）⚠️"]
+        RSP -->|"Snapshot"| SN["批量 upsert + cursor 跳 reset_to\nwants_continuation 恒 false ✅"]
+    end
+
+    EV -->|"Persist PortReply Ok"| COMMIT["ch.on_persist_ok：commit_cursor 推进（写成功才推）\n+ flush_contiguous_from_buffer"]
+    COMMIT -->|"wants_continuation=true"| CONTINUE
+    SN -->|"Persist PortReply Ok"| COMMIT
+
+    subgraph E3["E3 续拉（len≥500 → 续拉 · HX-C008）"]
+        CONTINUE["maybe_continue_sync ✅\n双重终止保证：\n① fromSeq=新 cursor 必须 > prev_from_seq（否则全 dup→停）\n② inflight_sync 守卫（同 channel 单飞）"]
+        CONTINUE -->|"cursor 已前进"| SYNCNOTIFY
+    end
+
+    DISC["Tick::Disconnected ⚠️\nconn=Disconnected · 清所有 inflight_sync/last_sync_from_seq\n清 SyncPull 路由 · ChannelPersist 保留仅停续拉（本地写仍会回报推 cursor）"]

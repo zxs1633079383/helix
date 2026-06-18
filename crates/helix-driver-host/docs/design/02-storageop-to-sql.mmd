@@ -1,0 +1,47 @@
+%% Helix · helix-driver-host · StorageOp → SQL 兑现
+%% 真源：src/ops.rs（execute_storage_ops / table_set_key）· src/storage.rs（5 个 Storage trait 方法）
+%% 关联：HX-C005（热路径零分配 O(1)）· ADR-007（host 单一真源）
+flowchart TD
+    OPS["execute_storage_ops(&storage, ops)\n顺序执行；任一失败短路；\n返回最后一次 Get/Scan 结果（rows JSON bytes），写返回空 bytes"]
+
+    OPS --> BU & MU & BUP & GET & SCAN
+
+    subgraph BU["StorageOp::BatchUpsert ✅"]
+        BU1["有 conflict_key：\nINSERT INTO t (cols) VALUES (?..)\nON CONFLICT(key) DO UPDATE SET c=excluded.c\n（无更新列 → DO NOTHING）"]
+        BU2["无 conflict_key：\nINSERT OR REPLACE INTO t (cols) VALUES (?..)"]
+        BU3["⚑ E2 不变量：整批一事务\n（写放大 ~1x，中途失败全回滚）\nprepare_cached 复用已编译语句"]
+        BU1 --- BU2 --- BU3
+    end
+
+    subgraph MU["StorageOp::MonotonicUpsert ✅ 最热路径（每条 WS 消息）"]
+        MU1["const &'static SQL（HX-C005 零分配）：\nINSERT INTO _helix_monotonic(scope_key,value)\nVALUES(?,?) ON CONFLICT(scope_key)\nDO UPDATE SET value=excluded.value\nWHERE excluded.value &gt; _helix_monotonic.value"]
+        MU2["⚑ E5 不变量：MAX guard\n仅当严格大于现值才前进 → 防 cursor 回退"]
+        MU1 --- MU2
+    end
+
+    subgraph BUP["StorageOp::BatchUpdate ✅"]
+        BUP1["UPDATE t SET c=? .. WHERE key_col IN (?..)\n单条 UPDATE WHERE PK 集合"]
+    end
+
+    subgraph GET["StorageOp::Get ✅"]
+        GET1["SELECT * FROM t WHERE key_col = ?\nwith_reader → 读池并发\nprepare_cached"]
+    end
+
+    subgraph SCAN["StorageOp::Scan ✅"]
+        SCAN1["SELECT * FROM t LIMIT {limit}\nHARD_LIMIT=10000 兜底\nwith_reader → 读池并发"]
+    end
+
+    GET --> RC["convert_row → Vec&lt;(name, SqlValue)&gt;\n→ rows_to_reply_bytes（JSON）"]
+    SCAN --> RC
+
+    subgraph DISC["O(1) 热路径纪律（HX-C005）✅"]
+        D1["单 INSERT / 单 UPDATE WHERE PK"]
+        D2["禁 read-modify-write（不读 JSON 数组改回写）"]
+        D3["固定模板 SQL 提 &'static str；动态形状 SQL 靠 prepare_cached 复用编译产物"]
+    end
+    MU -.-> DISC
+    BUP -.-> DISC
+    BU -.-> DISC
+
+    ROUTE["table_set_key(ops)：取各 op 的表名去重排序\n→ ordered persist worker 的分片路由键\n（MonotonicUpsert 归 _helix_monotonic）"]
+    OPS -.-> ROUTE

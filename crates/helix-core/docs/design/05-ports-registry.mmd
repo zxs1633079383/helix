@@ -1,0 +1,44 @@
+%% helix-core — 6 ports 抽象 + 三端实现去向（依赖倒置 / ports & adapters）
+%% 真源：src/ports/{transport,storage,clock,event_sink,id,http}.rs + src/platform.rs
+%% 关联：HX-C001(core 只定义 trait) · HX-C002(MaybeSend/MaybeSync cfg 切) · 对象安全(统一 PortError)
+flowchart LR
+    classDef core fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
+    classDef port fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a
+    classDef native fill:#fef7e0,stroke:#fbbc04,color:#1a1a1a
+    classDef wasm fill:#f3e8fd,stroke:#a142f4,color:#1a1a1a
+    classDef ffi fill:#fce8e6,stroke:#ea4335,color:#1a1a1a
+
+    subgraph CORE["helix-core（✅ 只定义 trait，永不 import 运行时）"]
+        direction TB
+        PLAT["✅ platform.rs<br/>MaybeSend/MaybeSync = cfg 切<br/>native: Send/Sync · wasm: 空（单线程）"]:::core
+        T["✅ Transport（async）<br/>connect/send/recv/close"]:::port
+        S["✅ Storage（async）<br/>batch_upsert/batch_update<br/>monotonic_upsert/get/scan"]:::port
+        CL["✅ Clock（sync）<br/>now_ms()→u64 墙钟<br/>（std::Instant wasm 会 panic）"]:::port
+        ES["✅ EventSink（sync）<br/>emit(DomainEventBytes) 非阻塞"]:::port
+        ID["✅ IdSource + Random（sync）<br/>new_uuid / random_u64(jitter)"]:::port
+        HT["✅ HttpRequester（async）<br/>request(req)→HttpResponse"]:::port
+        ERR["✅ 统一 Result<_, PortError><br/>无关联类型 → dyn-safe（可 Box<dyn>）"]:::core
+    end
+
+    %% async trait 三端 Send cfg（HX-C002）
+    PLAT -.->|"非 wasm32: #[async_trait]（Send）<br/>wasm32: #[async_trait(?Send)]"| T
+    PLAT -.-> S
+    PLAT -.-> HT
+
+    %% ── native driver ──
+    T -->|"impl"| NT["⚠️ NativeTransport<br/>tokio-tungstenite"]:::native
+    S -->|"impl"| NS["⚠️ sqlx SqlitePool<br/>WAL · 写池 max=1 / 读池 max=4"]:::native
+    HT -->|"impl"| NH["⚠️ reqwest"]:::native
+    CL -->|"impl"| NC["⚠️ SystemTime"]:::native
+    ES -->|"impl"| NE["⚠️ Tauri AppHandle.emit"]:::native
+
+    %% ── wasm driver（已归档，ADR-006 暂停维护）──
+    T -.->|"impl（archived）"| WT["❌ WasmTransport<br/>ws_stream_wasm / web-sys"]:::wasm
+    S -.->|"impl（archived）"| WS["❌ sqlite-wasm-rs + OPFS"]:::wasm
+
+    %% ── ffi driver（Flutter 手机端）──
+    T -->|"impl"| FT["⚠️ FfiTransport（C ABI 回调）"]:::ffi
+    S -->|"impl"| FS["⚠️ host SQLite handle（C ABI）"]:::ffi
+    HT -->|"impl"| FH["⚠️ host http 回调 + oneshot"]:::ffi
+
+    Note["依赖铁律：adapter → core 单向，永不反向<br/>cargo tree -p helix-core | grep tokio/sqlx/reqwest/web-sys/tauri 必须空"]:::core

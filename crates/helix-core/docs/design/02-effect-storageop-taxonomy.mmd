@@ -1,0 +1,39 @@
+%% helix-core — Effect / StorageOp 分类树
+%% 真源：src/effect.rs (enum Effect 9 变体 · enum StorageOp 5 变体)
+%% 关联：HX-C005(热路径零分配·&'static str) · HX-C007(Effect 跨边界批处理) · EFFECT-5(无序契约)
+flowchart TD
+    classDef root fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
+    classDef must fill:#e8f0fe,stroke:#4285f4,color:#1a1a1a
+    classDef fire fill:#fef7e0,stroke:#fbbc04,color:#1a1a1a
+    classDef nocorr fill:#f3e8fd,stroke:#a142f4,color:#1a1a1a
+    classDef op fill:#fce8e6,stroke:#ea4335,color:#1a1a1a
+
+    ROOT["✅ enum Effect（9 变体）<br/>模块吐出的 I/O 意图声明（tagged union）<br/>EFFECT-5：同 step 内无兑现顺序保证，因果经 corr 串联"]:::root
+
+    %% ── A 类：带 Correlation（必达 → 必产 PortReply）──
+    ROOT --> A["① 带 corr · 必达 · 必回 PortReply<br/>（注册进 corr_map，定向回投发起模块）"]:::must
+    A --> A1["✅ Persist{corr, ops}<br/>需成功回报的持久化（peek/commit 两段式）"]:::must
+    A --> A2["✅ Http{corr, req}<br/>必达 HTTP，超载只 block-back 绝不 drop<br/>（PortReply load-bearing：数据/清闸/推 cursor）"]:::must
+    A --> A3["✅ Request{corr, kind, payload}<br/>EventBus REP 发起端（core→host→core）<br/>kind = 编译期常量路由键"]:::must
+
+    %% ── B 类：Fire-and-forget（无 corr · 不回 PortReply）──
+    ROOT --> B["② Fire-and-forget · 无 corr · 不产 PortReply<br/>仅限【幂等 且 丢失可自愈】"]:::fire
+    B --> B1["✅ PersistFire{ops}<br/>幂等写（如 monotonic_upsert 推水位）<br/>禁首次落库业务数据"]:::fire
+    B --> B2["⚠️ HttpFire{req}<br/>可丢 HTTP（DropOldest 溢出）<br/>helix-im 暂为空桶，为 telemetry/心跳预留"]:::fire
+
+    %% ── C 类：无 corr 的其余意图 ──
+    ROOT --> C["③ 其余意图 · 无 corr"]:::nocorr
+    C --> C1["✅ Send{transport, frame}<br/>发 WS 帧（Transport::send）"]:::nocorr
+    C --> C2["✅ Emit{event}<br/>单向 PUB 领域事件（fire-and-forget 无回音）"]:::nocorr
+    C --> C3["✅ ScheduleTimer{id, after_ms}<br/>注册进 timer_map，到期产 Tick::Timer"]:::nocorr
+    C --> C4["✅ CancelTimer{id}<br/>幂等，从 timer_map remove"]:::nocorr
+
+    %% ── StorageOp 子树（Persist / PersistFire 的 ops 元素）──
+    A1 -.->|"ops: Vec<StorageOp>"| SOP
+    B1 -.->|"ops: Vec<StorageOp>"| SOP
+    SOP["✅ enum StorageOp（5 变体）<br/>具体 SQL 由 driver Storage 实现构造"]:::op
+    SOP --> S1["✅ BatchUpsert(UpsertSpec)<br/>INSERT ON CONFLICT DO UPDATE<br/>table/conflict_key = &'static str（HX-C005 零分配）"]:::op
+    SOP --> S2["✅ MonotonicUpsert(MonotonicUpsertSpec)<br/>单调 MAX-guard（严格 > 才写，CAS 语义）<br/>scope_key 运行时值，core 不解析"]:::op
+    SOP --> S3["✅ BatchUpdate(BatchUpdateSpec)<br/>UPDATE SET patch WHERE key_col IN (...)"]:::op
+    SOP --> S4["✅ Get(GetSpec)<br/>SELECT 单行 WHERE key_col = val"]:::op
+    SOP --> S5["✅ Scan(ScanSpec)<br/>SELECT 多行 [LIMIT n]（on_start 载入水位）"]:::op

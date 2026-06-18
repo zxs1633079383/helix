@@ -18,6 +18,12 @@ pub struct TimerRegistry {
     handles: HashMap<TimerId, JoinHandle<()>>,
 }
 
+impl Default for TimerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TimerRegistry {
     pub fn new() -> Self {
         Self {

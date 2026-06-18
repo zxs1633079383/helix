@@ -1,6 +1,6 @@
 # C++ 直连模型 — 最终边界面表
 
-> 本轮落地的 FFI 边界面（无 pump；pump = M3-F4）。
+> FFI 边界面（pump 已实装，commit d8c3093..630a713）。
 > 所有函数签名与 `helix.hpp` 同步（cbindgen 自动生成，以 .hpp 为准）。
 
 ---
@@ -14,25 +14,25 @@
 
 ### CppHostVtable 字段
 
-| 字段 | 类型 | 何时调用 | 本轮状态 |
+| 字段 | 类型 | 何时调用 | 状态 |
 |---|---|---|---|
-| `on_domain_events_batch` | `fn(ctx, ptr, len)` | pump（M3-F4）吐 `Effect::Emit` 批后整批调用（HX-C007）| 仅声明契约，本轮不调用 |
-| `now_ms` | `fn(ctx) -> u64` | pump（M3-F4）每次 `step()` 前注入壁钟（HX-C002 确定性）| 仅声明契约，本轮不调用 |
+| `on_domain_events_batch` | `fn(ctx, ptr, len)` | pump 吐 `Effect::Emit` 批后整批调用（HX-C007）| ✅ 已实装（`FfiEventSink` + `BatchSink::flush` 每 step 整批回调）|
+| `now_ms` | `fn(ctx) -> u64` | pump 每次 `step()` 前注入壁钟（HX-C002 确定性）| ✅ 已实装（`FfiClock` 调用；None 时 fallback SystemTime + warn）|
 | `ctx` | `*mut void` | 原样透传给两个回调 | Rust 不解引用 |
 
 ---
 
 ## 导出函数
 
-| 函数 | 返回 | 本轮状态 | 说明 |
+| 函数 | 返回 | 状态 | 说明 |
 |---|---|---|---|
-| `helix_create_with_network(api_url, api_len, ws_url, ws_len, vtable)` | `*mut HelixHandle` / null | 已实现 | 建 SharedHttp/WsClient + tick channel；vtable 存入 handle |
-| `helix_destroy(handle)` | void | 已实现 | null-check → Box::from_raw → take tick_tx drop sender; TODO(M3-F4) join pump_thread |
-| `helix_set_header(handle, name, nlen, value, vlen)` | i32 | 已实现 | `headers.set_header_sync` |
-| `helix_remove_header(handle, name, nlen)` | i32 | 已实现 | `headers.remove_header_sync` |
-| `helix_command(handle, name, nlen, payload, plen)` | i32 | 已实现（入队，无消费者）| 立即拷贝（ACL-3）→ `Tick::Command` → `try_send`；Full=FFI_BUSY，禁静默丢 |
-| `helix_query(handle, qname, qnlen, qpayload, qplen, out_ptr, out_len)` | i32 | **stub** (FFI_UNIMPLEMENTED) | TODO(M3-F4) spawn_blocking + Storage 读 |
-| `helix_query_free(ptr, len)` | void | 已实现（null-check + Box::from_raw slice）| 配对 helix_query 成功时的 Box::into_raw |
+| `helix_create_with_network(api_url, api_len, ws_url, ws_len, vtable)` | `*mut HelixHandle` / null | ✅ 已实现 | 起 pump 线程（current_thread runtime block_on host `run_engine_loop`）+ tick channel；装配失败 join 回收返回 null |
+| `helix_destroy(handle)` | void | ✅ 已实现 | null-check → Box::from_raw → take/drop tick_tx + send shutdown → **join pump_thread**（最后一批回调在 ctx 释放前返回）|
+| `helix_set_header(handle, name, nlen, value, vlen)` | i32 | ✅ 已实现 | `headers.set_header_sync` |
+| `helix_remove_header(handle, name, nlen)` | i32 | ✅ 已实现 | `headers.remove_header_sync` |
+| `helix_command(handle, name, nlen, payload, plen)` | i32 | ✅ 已实现（**有真实 pump 消费者**：`tick_rx` → step → Effect）| 立即拷贝（ACL-3）→ `Tick::Command` → `try_send`；Full=FFI_BUSY，禁静默丢 |
+| `helix_query(handle, qname, qnlen, qpayload, qplen, out_ptr, out_len)` | i32 | ⏳ **stub** (FFI_UNIMPLEMENTED) | runtime+storage infra 已就位；缺 `query_name→Spec` 映射（IM 语义，避免 schema 泄漏进 driver）|
+| `helix_query_free(ptr, len)` | void | ✅ 已实现（null-check + Box::from_raw slice）| 配对 helix_query 成功时的 Box::into_raw |
 
 ---
 

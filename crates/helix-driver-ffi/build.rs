@@ -5,8 +5,9 @@
 ///
 /// ## 触发条件
 ///
-/// cargo 在以下情况重新运行 build.rs：
-///   - src/ 下任何 .rs 文件变化
+/// cargo 在以下情况重新运行 build.rs（收窄到实际影响导出的文件，不监听整个 src/，
+/// 避免无关 .rs 改动触发重跑 + 脏化已跟踪的 helix.hpp）：
+///   - 影响 C ABI 导出 / repr(C) 类型的源文件（api.rs / vtable.rs / lib.rs）
 ///   - cbindgen.toml 变化
 ///
 /// ## helix.hpp 位置
@@ -15,8 +16,11 @@
 /// `target/<profile>/build/helix-driver-ffi-<hash>/out/helix.hpp`）。
 /// C++ 构建系统通过 `$(cargo metadata)` 或硬链接到已知路径取得此文件。
 fn main() {
-    // 重新运行触发条件
-    println!("cargo:rerun-if-changed=src/");
+    // 重新运行触发条件：只监听实际决定 C ABI 表面的文件（导出函数 / repr(C) 类型 /
+    // 模块根），不监听整个 src/——否则任何内部实现改动都重跑 cbindgen 并脏化 helix.hpp。
+    println!("cargo:rerun-if-changed=src/api.rs");
+    println!("cargo:rerun-if-changed=src/vtable.rs");
+    println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
     let crate_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -27,26 +31,25 @@ fn main() {
         cbindgen::Config::from_file(std::path::PathBuf::from(&crate_dir).join("cbindgen.toml"))
             .expect("failed to read cbindgen.toml");
 
-    cbindgen::Builder::new()
+    let generated = cbindgen::Builder::new()
         .with_crate(&crate_dir)
         .with_config(config)
         .generate()
-        .expect("cbindgen failed to generate helix.hpp")
-        .write_to_file(&out_file);
+        .expect("cbindgen failed to generate helix.hpp");
 
-    // 同时输出到 crate 根目录，方便开发时直接引用（非构建系统时使用）
-    // OUT_DIR 内的文件是正式产物；crate 根目录版本仅供开发参考。
+    // OUT_DIR 内是正式产物，每次都写。
+    generated.write_to_file(&out_file);
+
+    // crate 根目录副本（git 已跟踪，供 C++ 侧引用）：仅在内容**确有差异**时才写，
+    // 避免无谓改写脏化工作树（rerun 时若 ABI 未变，新产物与现有一致 → 不动文件）。
+    // 比对源用刚写出的 OUT_DIR 产物（即本次生成结果），不重新 generate。
+    let new_bytes = std::fs::read(&out_file).expect("failed to read generated OUT_DIR helix.hpp");
     let dev_file = std::path::PathBuf::from(&crate_dir).join("helix.hpp");
-    cbindgen::Builder::new()
-        .with_crate(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-        .with_config(
-            cbindgen::Config::from_file(
-                std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-                    .join("cbindgen.toml"),
-            )
-            .expect("failed to read cbindgen.toml for dev output"),
-        )
-        .generate()
-        .expect("cbindgen dev output failed")
-        .write_to_file(&dev_file);
+    let differs = match std::fs::read(&dev_file) {
+        Ok(existing) => existing != new_bytes,
+        Err(_) => true, // 不存在 / 读失败 → 写出
+    };
+    if differs {
+        std::fs::write(&dev_file, &new_bytes).expect("failed to write crate-root helix.hpp");
+    }
 }

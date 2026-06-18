@@ -1,6 +1,7 @@
 # helix-driver-ffi — C++ 直连模型 · 边界面文档
 
-> 本目录记录 C++ 直连模型的最终边界面设计 + M3-F4 TODO 清单。
+> 本目录记录 C++ 直连模型的边界面设计 + M3-F4 pump 落地实录。
+> pump 主循环已实装（commit d8c3093..630a713，e2e 通过）；仅 `helix_query` 仍为 honest stub。
 > 源码真源：`crates/helix-driver-ffi/src/`；头文件：`crates/helix-driver-ffi/helix.hpp`。
 
 ---
@@ -16,12 +17,12 @@
 
 ---
 
-## 最终边界面（本轮落地）
+## 边界面表
 
 见 [01-boundary-table.md](01-boundary-table.md)。
 
 ---
 
-## M3-F4 TODO 清单
+## M3-F4 落地实录
 
-见 [02-m3-f4-todo.md](02-m3-f4-todo.md)。
+见 [02-m3-f4-todo.md](02-m3-f4-todo.md)（pump 各项已落地形态 + `helix_query` 仍为真 TODO 的依据）。

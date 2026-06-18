@@ -3,8 +3,9 @@
 > 2026-06-12 · 基于：技术过会方案 §6（M0-M4）+ 评审 D 系调整（+3 周）+ 实际进度对账。
 > 2026-06-15 更新：按 ADR-006/ADR-010，网页端/wasm 暂停维护；产品化路线只保留 PC Tauri + Flutter 手机端；HTTP/WS client 与 Storage 一样走 shared Rust host driver，前端只负责命令、事件与渲染。
 > 2026-06-16 更新：shared HTTP/WS client 代码边界已阶段落地到 `helix-driver-host`；native/ffi Rust 侧复用同一套 client 与 header registry。真 Go smoke、WS reconnect/backoff 与 proxy/TLS/cert knobs 仍按后续联调项推进。
-> 2026-06-18 更新：**M2 ~90% 完**（native 真 Go 联调 + sync-v2 全链路 + shared host I/O + WS registry + 背压根治 + 基座最优性/北极星双 review 收口全落 main）；**M2 唯一剩余 = Tauri 四接缝接入（D1-3 接缝①②）**。**M3：F1 部分 / F2·F3 ✅，本次启动 F4（FFI engine 接线，拆解见 §一 M3）**。
-> 当前位置：**按交付物 M2 收尾 + M3-F4 启动**（M1 全部 + M2 主体 + M3 F2/F3 已完）。
+> 2026-06-18 更新：**M2 ~90% 完**（native 真 Go 联调 + sync-v2 全链路 + shared host I/O + WS registry + 背压根治 + 基座最优性/北极星双 review 收口全落 main）；**M2 唯一剩余 = Tauri 四接缝接入（D1-3 接缝①②）**。**M3：F1 主体 ✅(query stub) / F2·F3 ✅ / F4 ✅ 端到端接通**。
+> 2026-06-18 更新②：**M3-F4 完成并 merge dev-zlc（c229531）**。架构 pivot：原计划 Dart-host（Dart 喂帧 + `on_domain_event`→Dart Stream）→ **用户拍板 C++-host 直连**（cpp→rust→cpp：Rust 持 WS、事件批回 C++ vtable、Dart 只在 UI 层收 C++ 转发）。pump 核下沉 `helix-driver-host`，native(1119→168)+ffi 共用薄壳 **parity by construction**。八轮 branch drift-review 判 light/0 blocking。剩 F4.5 Flutter 真机冒烟 + F5 跨端 byte-level 验收。
+> 当前位置：**M2 收尾（Tauri 四接缝）+ M3-F4 ✅，下一站 F5 跨端验收 / Flutter 冒烟**（M1 全 + M2 主体 + M3 F1 主体/F2/F3/F4 已完）。
 
 ---
 
@@ -28,26 +29,26 @@
 
 CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md → cargo public-api gate（优先级从左到右）。wasm CI 不再作为必跑项，除非未来 ADR 重新激活网页端。
 
-- [~] **F1 Flutter FFI API 最小面**：`create/destroy/set_header/remove_header/on_ws_frame/on_http_response` ✅；**缺 `start`/`helix_command`(send_message)/`helix_query`(读路径)** ❌
-- [x] **F2 FfiStorage 复用 host** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 测试覆盖
-- [x] **F3 shared HTTP/WS client + header API** ✅：FfiTransport(Shared+Callback) + FfiHttpRequester + `helix_set_header`/`helix_remove_header`；Dart 只注入 url/headers（demo 接线在 F4）
-- [ ] **F4 engine 接线 + 事件回 Dart Stream**（**当前启动，拆解见下** ↓）
+- [x] **F1 Flutter FFI API 最小面** ✅(query stub)：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 仍 honest stub**（`name→ScanSpec` 属 IM 域，待 IM 暴露通用 query 路由）
+- [x] **F2 host storage 复用** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 覆盖；**pump 直接用 `HostStorage`**（F4 后 `FfiStorage` 冗余薄壳已 git rm）
+- [x] **F3 shared HTTP/WS client + header API** ✅：pump 用 `SharedWsClient`(with_inbound_tick) + `FfiHttpRequester` + `helix_set_header`/`helix_remove_header`（F4 后 `FfiTransport`/Callback 模式已删，Rust 自持 WS/HTTP）
+- [x] **F4 engine 接线 + 事件批回 C++**（C++-host 直连 · merge c229531）✅：pump 核下沉 host，FFI 薄壳端到端接通——命令真跑 + 事件批回 C++ vtable。拆解见下 ↓
 - [ ] **F5 跨端一致性验收**：同一 Tick 剧本 native vs FFI 输出 byte-level 一致 + schema/migration conformance + shared client 行为验收
 
-#### ▶ F4 实装拆解（FFI 第二端 engine 接线 · 2026-06-18 启动）
+#### ▶ F4 实装拆解（FFI 第二端 engine 接线 · 2026-06-18 启动 · ✅ 完成 merge c229531）
 
-> **现状**（`crates/helix-driver-ffi` 545 行）：opaque handle(create/destroy)✅ · FfiTransport/Http/Storage 薄壳✅ · set/remove_header✅；**但 FFI 无 engine_loop**——`helix_on_ws_frame`(api.rs:160)、`helix_on_http_response`(api.rs:187) 只拷贝 buffer 后 `// TODO` 不喂 engine；`on_domain_event` 回调表已定义但未接；无 command 入口。
-> **核心缺口 = 没有「驱动 ExecutionShell 的事件泵」**（native 有 `engine_loop.rs` 1119 行，FFI 无对应）。
+> **启动前现状（已解）**：FFI 无 engine_loop——`helix_on_ws_frame`/`on_http_response` 拷贝 buffer 后 `// TODO` 不喂 engine；无 command 入口；核心缺口 = 没有驱动 ExecutionShell 的事件泵（native 有 `engine_loop.rs` 1119 行）。
+> **落地结果**：不是「FFI 自写一份泵」，而是**把 native 泵核下沉 `helix-driver-host`**（采纳 F4.1 推荐），native+ffi 都成薄壳共用 `run_engine_loop`——parity by construction，根除两套泵漂移。**架构 pivot**：C++-host 直连下 Rust 自持 WS，入站不再经 `on_ws_frame`（已删）而走 `SharedWsClient::with_inbound_tick`；事件不回 Dart Stream 而**批回 C++ vtable**，由 C++ 转发 Dart UI。
 
 | 子任务 | 交付 | 验收 | 风险/依赖 |
 |---|---|---|---|
-| **F4.1 engine 泵归属决策（设计先行）** | ADR：native `engine_loop` 的 ExecutionShell 泵 + BoundedSpawner 抽进 `helix-driver-host` 共享（native/ffi 只配 runtime/transport 壳），还是 FFI 自写瘦泵。**推荐抽取共享**（ADR-007 单一真源，避免两套泵漂移）。定义 `EnginePump` 接缝（Tick 入队 / Effect 解释 / reply 回灌） | ADR 落 `decisions.md`；接缝签名定稿；native 若重构则回归全绿（零行为变更） | 🔴 最高：native 泵与 WS 连接生命周期耦合，抽取须解耦「连接管理」与「engine 泵」 |
-| **F4.2 FFI engine runtime + Tick 入队** | `helix_create_with_network` 内建 tokio runtime + spawn engine 泵 task + `ExecutionShell.register(ImModule)` + `start()`；`helix_on_ws_frame`→拷贝→`Tick::Inbound`→channel 投 engine（接 api.rs:160 TODO）；`helix_on_http_response`→`PortReply{corr=req_id}`→投 engine（接 api.rs:187）；新增 `helix_command(handle, cmd_bytes)`→`Tick::Command`（send_message 入口） | FFI 收 WS 帧→engine step→FfiStorage 落库（→host）；mock callback 单测验证 | 依赖 F4.1；线程模型（current_thread runtime in Dart isolate） |
-| **F4.3 事件回 Dart Stream** | `FfiEventSink impl EventSink`：`emit(DomainEvent)`→`callbacks.on_domain_event(ctx, bytes)`（接已定义回调表）；`Effect::Emit` 解释→FfiEventSink→Dart `ReceivePort/NativePort`→Stream | engine emit 的 DomainEvent 经回调到达 C 侧；跨 isolate 线程安全 | engine 泵在 tokio task，回调跨到 Dart isolate 须 NativePort |
-| **F4.4 panic=abort + spawn_blocking 终核（MAJ-4）** | 确认 `panic="abort"` 在最终 cdylib（根 Cargo.toml✅）；核 FFI 路径同步阻塞经 host `spawn_blocking`（ADR-005 已澄清 storage 端 ×7 继承）；无新增裸同步阻塞 tokio worker | `cargo check -p helix-driver-ffi` + clippy + 边界测试（null/invalid-utf8/单 owner 已有） | HX-C006 铁律 |
-| **F4.5 Flutter demo 冒烟 + 跨端一致（= F5 起点）** | cbindgen 生成 `helix.h`；最小 Flutter app `dart:ffi` 绑定 open/start/send/on_event；冒烟：Flutter 发消息→真 Go→echo 对账→事件回 Dart Stream 上屏 | Flutter 冒烟绿 + 同一 Tick 剧本 native vs FFI byte-level 一致（验收 §三 M3 项） | 依赖 F4.1-4.3 全绿 |
+| **F4.1 engine 泵归属决策** ✅ | **抽取共享（采纳推荐）**：pump 核（`run_engine_loop` 泛型壳 over Storage/Http/EventSink/Transport/Clock + `BoundedSpawner` + `dispatch` + `run_http_envelope` + `TimerRegistry` + `consume_effects`）下沉 `helix-driver-host`；native `engine_loop` 1119→168 薄壳复用 | ✅ native 重构**零回归**（cargo test 64 全绿 + stress 3+4）；接缝 = `EngineDeps` + `BatchSink` egress 钩子 | 🔴 已解：连接管理留各端薄壳（native broadcast / ffi vtable），泵核共享 |
+| **F4.2 FFI engine runtime + Tick 入队** ✅ | `helix_create_with_network` 起专用 std::thread + current_thread runtime(`.enable_all`) + `register(ImModule)` + `start()`；`helix_command`→`Tick::Command` ✅；**入站改 `SharedWsClient::with_inbound_tick`→`Tick::Inbound`**（C++-host 模型 Rust 自持 WS，`on_ws_frame`/`on_http_response` 已删）；HTTP/PortReply 走 host dispatch internal | ✅ e2e `command_emits_domain_event_through_batch_callback` 命令→step→Effect 通；core 单线程跑（GOAL §1.3）| current_thread（不在 Dart isolate，C++ host 自管线程）|
+| **F4.3 事件批回 C++（原"回 Dart Stream"已 pivot）** ✅ | `FfiEventSink impl EventSink`（经 host `BatchSink::flush` 钩子）：每 step 攒本批 Emit→单 buffer→**一次** `CppHostVtable::on_domain_events_batch`（HX-C007，绝不逐条）；C++ 再转发 Dart UI | ✅ 批回调 e2e + 批 wire layout(len-prefixed)单测；egress 在 host 参数化、core EventSink 零改 | flush 钩子 host 非 core（HX-C001 边界）|
+| **F4.4 panic=abort + spawn_blocking 终核（MAJ-4）** ✅ | `panic="abort"` 最终 cdylib ✅；pump 同步阻塞经 host `HostStorage`(spawn_blocking ×7 继承)；无新增裸阻塞 tokio worker；pump 线程 panic 在线程边界隔离 | ✅ clippy ffi 0 警告 + 边界测试 + destroy join 不挂 | HX-C006 全 HOLD（八轮 drift-review 复核）|
+| **F4.5 Flutter demo 冒烟 + 跨端一致（= F5 起点）** [~] | cbindgen 生成 `helix.hpp` ✅（C++ opaque + `CppHostVtable` + 6 导出）；Rust extern"C" vtable e2e ✅。**剩**：真 Flutter app `dart:ffi`→C++→Rust 冒烟 + 同一 Tick 剧本 native vs FFI byte-level 一致 | helix.hpp 已交付；**Flutter 真机冒烟 + 跨端 parity 测试待做（F5）** | 依赖真机环境 |
 
-**关键路径**：F4.1（泵归属决策）是枢纽 + 最高风险，先出 ADR 定接缝再动手；F4.2/4.3 是主体接线；F4.4 是合规核；F4.5 兑现 F5 验收。**headless 守卫**：全程 core/helix-im 零改，只在 `helix-driver-ffi`（+ 可能 `helix-driver-host` 抽取泵）动；同一份 core 跑 ffi 零改。
+**关键路径**：F4.1–F4.4 ✅ 端到端接通并 merge（c229531）。**采纳「抽取共享」而非「FFI 自写泵」**——native+ffi 共用 host `run_engine_loop`，parity by construction。**剩 F4.5/F5** = Flutter 真机冒烟 + native↔FFI byte-level 跨端一致验收。**headless 守卫兑现**：全程 core/helix-im 零改（cargo tree -p helix-core 零运行时复证），改动落 `helix-driver-{ffi,host,native}`；同一份 core 跑 ffi 零改 ✅。
 
 ### M4 —— 归档的 wasm/web（暂停维护）
 
@@ -85,7 +86,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [ ] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate（§四）；public-api 基线含新增 `SqlValue::Blob`（M2）
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准**全链路覆盖完成**（median/CI/离群，回归判据 median>2x）：storage（`host_storage` 5000 行 5.16ms·39×100 6.08ms·monotonic cursor 28.5µs）+ **engine 泵**（`engine_loop/pump_roundtrip_1k` 40.2ms ≈ 24.9K roundtrips/s）+ **IM 乱序同步**（`gate/backfill_5000` 8.0ms ≈ 624K events/s·`send/echo_reconcile_1000` 2.39ms ≈ 418K/s）+ im_step ② 并发 parity 改「串行会超时」强证明（storage_conformance）。**仅剩**：bench 数字进 CI 留痕（待远端 GitLab runner）
-- [ ] FFI MAJ-4：C-ABI 导出层 `spawn_blocking` 包裹落地（HX-C006/ADR-005，当前 todo）
+- [~] FFI MAJ-4：pump 路径同步 SQLite 经 host `HostStorage` spawn_blocking(×7)继承 ✅（HX-C006/ADR-005）；**剩** `helix_query` 同步读路径（infra 就位，待 IM 通用 query 路由后接 spawn_blocking + oneshot blocking_recv，禁 block_on worker）
 - [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver CLAUDE.md「已知缺口」）
 - [ ] **双 `PortError` enum 统一**（tick.rs:56 vs error.rs:51 待合一——折叠自已删稿「完美过会指南」技术债）
 - [ ] **多模块并发写实测**（单写者池在多业务模块下零实测——折叠自「并发承压评估」开放项；承压稿已移 `docs/reports/`）

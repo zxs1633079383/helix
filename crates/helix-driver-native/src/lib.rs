@@ -17,7 +17,6 @@ pub mod engine_loop;
 pub mod event_sink;
 pub mod http;
 pub mod storage;
-pub mod timer;
 pub mod transport;
 
 // 公共 API 再导出（方便 helix-tauri / 测试直接 use helix_driver_native::*）
@@ -31,7 +30,8 @@ pub use event_sink::{
 };
 pub use http::NativeHttp;
 pub use storage::NativeStorage;
-pub use timer::TimerRegistry;
 pub use transport::NativeTransport;
+// TimerRegistry 已下沉 host（pump 核统一）；native re-export 保持公开路径兼容。
+pub use helix_driver_host::TimerRegistry;
 // 共享 host I/O 配置（ADR-010）：host 装配层构造 NativeHttp::with_config 需要，re-export 免直依 driver-host。
 pub use helix_driver_host::HostNetworkConfig;

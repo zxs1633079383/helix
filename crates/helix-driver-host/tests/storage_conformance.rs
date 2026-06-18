@@ -106,7 +106,7 @@ async fn host_storage_blob_roundtrip_lossless() {
     }
 
     // codec 往返也必须无损（数组编码，不退化成 Text）
-    let bytes = rows_to_reply_bytes(&[got.clone()]);
+    let bytes = rows_to_reply_bytes(&[got]);
     let back = rows_from_reply_bytes(&bytes).expect("decode");
     match back[0].iter().find(|(k, _)| k == "data").map(|(_, v)| v) {
         Some(SqlValue::Blob(b)) => assert_eq!(b, &raw, "codec 往返 blob 必须无损"),
@@ -613,11 +613,14 @@ async fn batch_upsert_rolls_back_entire_batch_on_midway_failure() {
 //
 // 判据（三条，与 spec 对应）：
 //   ① 16 个读全部成功，每个拿到相同行数（结果正确）
-//   ② 总墙钟 < 16 × base（并发借用，非全串行）
-//   ③ 总墙钟 > 0（Semaphore 确实运作，不是瞬间完成）
+//   ② 总墙钟 < N/2 × base + 500ms（并发借用，非全串行）
+//   ③ 总墙钟 ≥ (N/READ_POOL_SIZE) × base（Semaphore 分批，非所有读同时完成）
+//      N=16 / pool=4 → ≥ 4 批；wall_clock ≥ 4×base（宽松下界，吸收调度抖动）
 //
 // 注：N>4 时第 5+ 个 `acquire_owned().await` 在 Semaphore 上异步挂起（不占线程）。
 // 纯串行单锁下 16 个读必须排队；WAL 读池下同时跑 ≤4，但总墙钟 ≪ 16×base。
+// 判据③是卖点证明：若把 pool 大小改成 16（无背压），所有 scan 同时跑，
+// wall ≈ base，③ FAIL → 证明 Semaphore 确实在分批而非被旁路绕过。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
     use std::time::{Duration, Instant};
@@ -692,9 +695,22 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
          Semaphore 应允许 ≤4 路并发，而非全串行"
     );
 
-    // ③ 结果正确（已在①断言每个 row_count）
+    // ③ 总墙钟 ≥ (N/READ_POOL_SIZE) × base（Semaphore 分批，而非所有读同时完成）
+    // N=16 / pool=4 → 至少 4 批；每批 ≥ base → wall ≥ (N/READ_POOL_SIZE) × base。
+    // 宽松下界：取 (N/READ_POOL_SIZE - 1) × base（吸收并行启动抖动）；地板 1µs 防 base≈0。
+    // 若 Semaphore 被旁路（pool 大小改成 N=16）→ 所有读同时跑 wall≈base，(N/4-1)×base≫base → FAIL。
+    const READ_POOL_SIZE: u32 = 4;
+    let batches = (N as u32) / READ_POOL_SIZE;
+    let batching_lower = base.saturating_mul(batches.saturating_sub(1));
+    assert!(
+        wall >= batching_lower,
+        "N={N} pool={READ_POOL_SIZE}: 读应分 ≥{batches} 批，墙钟下界 ≥ (batches-1)×base={batching_lower:?}，\
+         实际 wall={wall:?}（= Semaphore 被旁路，所有读同时完成）"
+    );
+
     eprintln!(
-        "\n[read_read_concurrency_n_gt_pool_semaphore_backpressure] N={N}, wall={wall:?}, base={base:?}"
+        "\n[read_read_concurrency_n_gt_pool_semaphore_backpressure] N={N}, wall={wall:?}, base={base:?}, \
+         batching_lower={batching_lower:?}"
     );
 }
 

@@ -37,6 +37,9 @@ bytes = { workspace = true }
 name = "storage_bench"
 harness = false
 
-[[bench]]
-name = "runtime_compare"
-harness = false
+# runtime_compare bench 已注销（MAJOR-2 false-green 修复，2026-06-18）：
+# spawn_blocking 设计保证两种 runtime 形态存储吞吐构造上等同，无需 bench 实测。
+# bench 文件保留（benches/runtime_compare.rs）仅为记录决策，不被 harness 运行。
+# [[bench]]
+# name = "runtime_compare"
+# harness = false

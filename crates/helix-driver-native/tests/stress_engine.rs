@@ -402,7 +402,10 @@ async fn stress_engine_graceful_drain() {
 //   - ✅ 全部 500 写 PortReply 到达（PumpModule.replies == 500）
 //   - ✅ 全部 100 读 PortReply 到达（QueryModule.replies == 100）
 //   - ✅ cursor 最终值 ≥ 500（MAX guard，实际 == 500，因 corr 从 1 递增）
-//   - ✅ 吞吐无显著回归（相对 10k 纯写测试，600 混合在相同量级内）
+//
+// 注：「吞吐无显著回归>10%」判据已删除（MINOR 修复，2026-06-18）：
+// 混合 flood 与 10k 纯写测试总量不同（600 vs 10000），直接对比无意义；
+// 写后串行读也构造不出真并发场景。吞吐对照由 bench/stress 压测专题覆盖。
 //
 // ## 注意事项
 //
@@ -538,7 +541,7 @@ async fn stress_engine_mixed_write_read_flood() {
             .await
             .expect("send pump command");
     }
-    // 发送 100 个读命令（交错在写命令之间，模拟真实混合负载）
+    // 发送 100 个读命令（写命令发完后批量发读，dispatch 层并发调度混合负载）
     for _ in 0..READS {
         tick_tx
             .send(Tick::Command(AppCommand::new("query", &b"{}"[..])))

@@ -5,8 +5,8 @@ edition = "2021"
 
 # FFI driver：C ABI，编译为 cdylib + staticlib
 [lib]
-# rlib は integration tests（`tests/`）が `helix_driver_ffi::*` を使えるよう必要。
-# cdylib = C FFI 出口（生産）; staticlib = C++ direct-link; rlib = Rust 統合テスト用。
+# rlib 为集成测试（`tests/`）能使用 `helix_driver_ffi::*` 所必需。
+# cdylib = C FFI 出口（生产）; staticlib = C++ direct-link; rlib = Rust 集成测试用。
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]

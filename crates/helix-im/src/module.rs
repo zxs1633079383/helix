@@ -27,6 +27,13 @@ pub struct ImConfig {
     pub ws_url: String,
     /// HTTP API base URL（如 "https://api.example.com"）
     pub api_base_url: String,
+    /// 当前登录用户 Id26（host 经同 `api_base_url` 机制注入，确定性身份）。
+    ///
+    /// 用途：① path3 未读 +1 的 sender 豁免（自己消息 +0）+ 可见性门控（viewers 不含自己 +0）；
+    /// ② path1 全量 upsert 写 channel `user_id` 列（频道归属）。空串 = 无身份（登录前 / 未注入）→
+    /// 退化为保守计入（不漏未读，sender 豁免下沉前端）——但**正常运行期 host 必须注入真值**，
+    /// 否则 §5 验收「自己 +0 / 不可见 +0 / echo 无 unread」不达成（BLOCKING-1 根因）。
+    pub auth_user_id: String,
     /// 心跳间隔（毫秒，默认 8000）
     pub ping_interval_ms: u64,
     /// 发送超时（毫秒，默认 15000）
@@ -38,6 +45,7 @@ impl Default for ImConfig {
         Self {
             ws_url: String::new(),
             api_base_url: String::new(),
+            auth_user_id: String::new(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
         }
@@ -125,14 +133,20 @@ impl ImModule {
         out: &mut EffectSink,
     ) {
         let api_base_url = self.config.api_base_url.as_str();
+        let auth_user_id = self.config.auth_user_id.as_str();
         let next_corr = &mut self.next_corr;
         let mut alloc_corr = || {
             let corr = helix_core::Correlation::from_raw(*next_corr);
             *next_corr += 1;
             corr
         };
-        let mut ctx =
-            crate::ws::ImWsContext::new(&mut self.state, 0, api_base_url, &mut alloc_corr);
+        let mut ctx = crate::ws::ImWsContext::new(
+            &mut self.state,
+            0,
+            api_base_url,
+            auth_user_id,
+            &mut alloc_corr,
+        );
         crate::ws::handlers::increment_channel::apply_increment(&mut ctx, inc, out);
     }
 
@@ -140,14 +154,20 @@ impl ImModule {
     /// `Some(ch)`=子 topic 结束；`None`=global end（触发增量群 sync）。
     pub fn ingest_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
         let api_base_url = self.config.api_base_url.as_str();
+        let auth_user_id = self.config.auth_user_id.as_str();
         let next_corr = &mut self.next_corr;
         let mut alloc_corr = || {
             let corr = helix_core::Correlation::from_raw(*next_corr);
             *next_corr += 1;
             corr
         };
-        let mut ctx =
-            crate::ws::ImWsContext::new(&mut self.state, 0, api_base_url, &mut alloc_corr);
+        let mut ctx = crate::ws::ImWsContext::new(
+            &mut self.state,
+            0,
+            api_base_url,
+            auth_user_id,
+            &mut alloc_corr,
+        );
         crate::ws::handlers::increment_channel_end::apply_increment_end(&mut ctx, ch, out);
     }
 
@@ -164,8 +184,8 @@ impl ImModule {
     ///
     /// ## E4 修复
     ///
-    /// `ScanCursors` 变体：on_start 发出的 Scan{_helix_monotonic} PortReply
-    /// 在此解析 rows（scope_key TEXT + value INTEGER）→ register_channel + 批量发 proactive sync Http。
+    /// `ScanCursors` 变体：on_start 发出的 Scan{channel_event_cursor} PortReply
+    /// 在此解析 rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel + 批量发 proactive sync Http。
     fn handle_port_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -192,7 +212,7 @@ impl ImModule {
                     tracing::warn!(
                         corr = corr.raw(),
                         error = ?e,
-                        "scan _helix_monotonic failed (likely first run, no cursors yet), starting with empty channel set"
+                        "scan channel_event_cursor failed (likely first run, no cursors yet), starting with empty channel set"
                     );
                 }
             },
@@ -267,20 +287,21 @@ impl ImModule {
         Ok(())
     }
 
-    /// E4：处理 on_start Scan{_helix_monotonic} 的 PortReply
+    /// E4 / S2：处理 on_start Scan{channel_event_cursor} 的 PortReply
     ///
-    /// `_helix_monotonic` 是 advance_cursor 写入的实际表（scope_key TEXT, value INTEGER）。
-    /// engine_loop 将 rows 序列化为 JSON 数组 `[{"scope_key": "<channel_id>", "value": N}, ...]`。
+    /// `channel_event_cursor` 是 advance_cursor 写入的实际表（channel_id TEXT PK,
+    /// last_event_seq INTEGER, updated_at INTEGER）。engine_loop 将 rows 序列化为 JSON
+    /// 数组 `[{"channel_id": "<id>", "last_event_seq": N, "updated_at": T}, ...]`。
     ///
-    /// scope_key 是 channel_id.to_string()（IM 业务约定，见 acl/to_effect.rs::advance_cursor）。
-    /// 反序列化时把 TEXT scope_key parse 回 u64；value 即 last event seq。
+    /// channel_id 是 26 字符 Id26 字符串（IM 业务约定，见 acl/to_effect.rs::advance_cursor）。
+    /// last_event_seq 即该 channel 的 cursor 水位。
     fn handle_scan_reply(
         &mut self,
         reply: &helix_core::tick::ReplyBytes,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         // engine_loop 约定：rows → JSON 数组 [{"col": val}, ...]
-        // _helix_monotonic 表：scope_key TEXT（channel_id 字符串）, value INTEGER（cursor）
+        // channel_event_cursor 表：channel_id TEXT PK, last_event_seq INTEGER（cursor）
         let rows: Vec<serde_json::Value> = if reply.0.is_empty() {
             vec![]
         } else {
@@ -295,18 +316,18 @@ impl ImModule {
         };
 
         for row in &rows {
-            // scope_key 是 TEXT（channel_id.as_str()，26 字符 id），解析回 ChannelId（零信任）
-            let channel_id = match row["scope_key"].as_str().and_then(ChannelId::from_str) {
+            // channel_id 是 TEXT（26 字符 id），解析回 ChannelId（零信任）
+            let channel_id = match row["channel_id"].as_str().and_then(ChannelId::from_str) {
                 Some(id) => id,
                 None => {
                     tracing::warn!(
-                        scope_key = ?row["scope_key"],
-                        "scan row scope_key not a valid 26-char channel_id, skipping"
+                        channel_id = ?row["channel_id"],
+                        "scan row channel_id not a valid 26-char channel_id, skipping"
                     );
                     continue;
                 }
             };
-            let cursor = match row["value"].as_i64() {
+            let cursor = match row["last_event_seq"].as_i64() {
                 Some(v) if v >= 0 => v as u64,
                 _ => 0u64,
             };
@@ -385,14 +406,20 @@ impl ImModule {
     /// scan_reply 用全集）。逐 channel 走既有 gate/peek-commit 链路。
     fn emit_proactive_resync_for(&mut self, targets: &[ChannelId], out: &mut EffectSink) {
         let api_base_url = self.config.api_base_url.as_str();
+        let auth_user_id = self.config.auth_user_id.as_str();
         let next_corr = &mut self.next_corr;
         let mut alloc_corr = || {
             let corr = helix_core::Correlation::from_raw(*next_corr);
             *next_corr += 1;
             corr
         };
-        let mut ctx =
-            crate::ws::ImWsContext::new(&mut self.state, 0, api_base_url, &mut alloc_corr);
+        let mut ctx = crate::ws::ImWsContext::new(
+            &mut self.state,
+            0,
+            api_base_url,
+            auth_user_id,
+            &mut alloc_corr,
+        );
         crate::ws::handlers::increment_channel_end::emit_proactive_resync_for(
             &mut ctx, targets, out,
         );
@@ -813,14 +840,20 @@ impl ImModule {
     ) -> Result<(), CoreError> {
         let module_name = self.name();
         let api_base_url = self.config.api_base_url.as_str();
+        let auth_user_id = self.config.auth_user_id.as_str();
         let next_corr = &mut self.next_corr;
         let mut alloc_corr = || {
             let corr = helix_core::Correlation::from_raw(*next_corr);
             *next_corr += 1;
             corr
         };
-        let mut ctx =
-            crate::ws::ImWsContext::new(&mut self.state, now_ms, api_base_url, &mut alloc_corr);
+        let mut ctx = crate::ws::ImWsContext::new(
+            &mut self.state,
+            now_ms,
+            api_base_url,
+            auth_user_id,
+            &mut alloc_corr,
+        );
         crate::ws::dispatch_ws(&mut ctx, frame, out).map_err(|e| CoreError::ModuleError {
             module: module_name,
             source: Box::new(e),
@@ -938,20 +971,20 @@ impl Module for ImModule {
 
     /// 启动：读取 cursor + arm ping timer + 吐 Scan（§4.8 proactive resync 所需）
     ///
-    /// Scan 吐 Persist{corr, ops:[Scan(_helix_monotonic)]}。
-    /// _helix_monotonic 是 advance_cursor（acl/to_effect.rs）写入的实际 cursor 表，
-    /// 列：scope_key TEXT PRIMARY KEY（= channel_id.to_string()）, value INTEGER（= cursor seq）。
-    /// PortReply 回来后 handle_scan_reply 解析 scope_key→u64 + value，注册 channel，
+    /// Scan 吐 Persist{corr, ops:[Scan(channel_event_cursor)]}。
+    /// channel_event_cursor 是 advance_cursor（acl/to_effect.rs）写入的实际 cursor 表，
+    /// 列：channel_id TEXT PRIMARY KEY（= channel_id.as_str()）, last_event_seq INTEGER（= cursor seq）。
+    /// PortReply 回来后 handle_scan_reply 解析 channel_id→ChannelId + last_event_seq，注册 channel，
     /// 然后对全部已知 channel 发 proactive sync Http（§4.8）。
     fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
-        // 1. 吐 Persist{corr, Scan(_helix_monotonic)} 载入全部 cursor
-        // 注意：此表由 monotonic_upsert 懒建，首次启动（无任何 cursor 写过）时为空或不存在。
+        // 1. 吐 Persist{corr, Scan(channel_event_cursor)} 载入全部 cursor
+        // 注意：此表由 schema migrate 建（schema.rs），首次启动（无任何 cursor 写过）时为空。
         // driver scan 对 no such table 应降级返回 PortOutcome::Err，handle_scan_reply 处理降级。
         let scan_corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr: scan_corr,
             ops: vec![StorageOp::Scan(ScanSpec {
-                table: "_helix_monotonic",
+                table: "channel_event_cursor",
                 limit: None,
             })],
         });

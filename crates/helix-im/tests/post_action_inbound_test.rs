@@ -41,6 +41,7 @@ fn harness_with_seed(channel_id: u64, seed_cursor: u64) -> Harness {
         api_base_url: "http://test".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
+        auth_user_id: String::new(),
     };
     let mut module = ImModule::new(config);
     module.register_channel(ChannelId::from_test_u64(channel_id), seed_cursor);
@@ -422,6 +423,7 @@ fn post_frame_unregistered_channel_silently_ignored() {
         api_base_url: "http://test".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
+        auth_user_id: String::new(),
     };
     let mut h = Harness {
         module: ImModule::new(config),
@@ -466,6 +468,7 @@ fn echo_reconciles_even_when_channel_unregistered() {
         api_base_url: "http://test".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
+        auth_user_id: String::new(),
     };
     let mut h = Harness {
         module: ImModule::new(config),

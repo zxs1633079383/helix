@@ -5,7 +5,8 @@
 //!   → Tick::Inbound 走 WS registry，注册 channel / 透传 emit。
 //! - event_seq 三级 fallback：① data.event_seq ② props.channel_event_seq ③ 顶层 channel_event_seq
 //!   各命中一级 + legacy data.seq 兼容（无 action 帧）。
-//! - 非法 data（缺 id / id 非 26 字符 / lastEventSeq 非数值）→ 生产路径 no-op / helper None。
+//! - 仅 id 非法（缺 / 非 26 字符）→ 生产路径 no-op / helper None；
+//!   lastEventSeq 缺失/非数值 → **仍解析**（cursor 种子回退 0，P6-realframe 真帧兼容）。
 //!
 //! 回归锚: B-rest 分片A（increment_channel 真 wire 解析 + event_seq 三级 fallback）
 
@@ -210,14 +211,63 @@ fn increment_channel_non26_id_returns_none() {
 }
 
 #[test]
-fn increment_channel_missing_last_event_seq_returns_none() {
+fn increment_channel_missing_last_event_seq_seeds_zero() {
+    // 回归锚: P6-realframe —— 真 Go（legacy mattermost 9.7.3 GetMaxSeq 降级）increment 帧
+    // **不带** lastEventSeq。修复前 parser 用 `?` 早退丢整帧（实测 650 帧落库 0 行）；修复后
+    // lastEventSeq 缺失 → cursor 种子回退 Seq(0)，帧仍解析、channel 仍 upsert（对齐现网
+    // types.rs:257 Option<i64> + channel_state.rs:345 unwrap_or(0)）。
     let data = serde_json::json!({ "id": CH26, "needSync": true });
-    assert!(parse_increment_channel(&data).is_none());
+    let ic = parse_increment_channel(&data).expect("missing lastEventSeq must still parse");
+    assert_eq!(
+        ic.last_event_seq,
+        Seq(0),
+        "缺 lastEventSeq → cursor 种子回退 0"
+    );
+    assert!(ic.need_sync);
 }
 
 #[test]
-fn increment_channel_last_event_seq_non_numeric_returns_none() {
-    // lastEventSeq 是字符串（非 int64）→ as_u64 None → None。
+fn increment_channel_last_event_seq_non_numeric_seeds_zero() {
+    // lastEventSeq 是字符串（非 int64）→ as_u64 None → 缺省回退 Seq(0)，**不**丢帧。
     let data = serde_json::json!({ "id": CH26, "lastEventSeq": "not_a_number" });
-    assert!(parse_increment_channel(&data).is_none());
+    let ic = parse_increment_channel(&data).expect("non-numeric lastEventSeq must still parse");
+    assert_eq!(ic.last_event_seq, Seq(0));
+}
+
+#[test]
+fn increment_channel_no_last_event_seq_still_dispatches() {
+    // 回归锚: P6-realframe —— increment_channel 帧无 lastEventSeq → 仍走 registry：
+    // 注册 channel（cursor 种子 0）+ emit（非全静默丢帧）。
+    // 注：path1 全量 upsert 落库由 Phase C 的 apply_increment(path1+成员) 接入，此处只验
+    // 「帧不被丢弃 + channel 注册 + cursor 种子 0」（parser lastEventSeq Optional 的端到端证据）。
+    let frame = serde_json::json!({
+        "v": 1,
+        "action": "increment_channel",
+        "data": {
+            "id": CH26,
+            "displayName": "no-seq-channel",
+            "needSync": true
+            // 故意不带 lastEventSeq（模拟 GetMaxSeq 降级真帧）
+        },
+        "seq": 1
+    });
+    let bytes = serde_json::to_vec(&frame).unwrap();
+    let mut h = Harness::new(&[]);
+
+    h.module
+        .handle(&Tick::Inbound(InboundBytes(bytes.into())), 100, &mut h.sink)
+        .expect("increment_channel without lastEventSeq must dispatch, not drop");
+
+    let channel_id = ChannelId::from_str(CH26).unwrap();
+    assert_eq!(
+        h.module.cursor_for(channel_id),
+        Some(0),
+        "缺 lastEventSeq → channel 仍注册，cursor 种子 0"
+    );
+    // 至少产出 emit（im:channel:increment）——证明帧未被丢弃。
+    assert!(
+        !h.sink.as_slice().is_empty(),
+        "缺 lastEventSeq → 帧仍 dispatch 产出 effect（非全静默丢帧），got {:?}",
+        h.sink.as_slice()
+    );
 }

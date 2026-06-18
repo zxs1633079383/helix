@@ -67,6 +67,18 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     let read_bits = pick_str("readBits")
         .or_else(|| pick_str("read_bits"))
         .unwrap_or_default();
+    // viewers（A3/CAP-9 可见性受众）：post 子树或 root 顶层的字符串数组；缺省空 Vec（无堆分配）。
+    // 元素非字符串项跳过（边界零信任）。
+    let viewers = post
+        .get("viewers")
+        .or_else(|| root.get("viewers"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
 
     PostFields {
         temporary_id,
@@ -78,6 +90,7 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         props,
         create_at,
         read_bits,
+        viewers,
     }
 }
 
@@ -164,18 +177,26 @@ pub fn parse_inbound_value(v: &serde_json::Value) -> Result<EventEnvelope, ImErr
 /// 解析 `increment_channel` 帧的 `data` → `IncrementChannel`（边界零信任，非法→None）。
 ///
 /// 按设计文档 §1.3 解析真 Go `IncrementChannel.ToMap()` 的 data：
-///   - `id`：26 字符 base32 channelId → `ChannelId::from_str`（零信任，非 26 字符→None）。
+///   - `id`：26 字符 base32 channelId → `ChannelId::from_str`（**唯一必填**，cursor/路由锚；
+///     零信任，非 26 字符→None）。
 ///   - `lastEventSeq`：int64 服务端当前 max event_seq → `Seq`（作离线同步 v2 cursor 种子）。
+///     **真 Go 为 Optional**（types.rs:257 `Option<i64>`，legacy mattermost 9.7.3 的 GetMaxSeq
+///     降级场景帧不带此字段，channel_state.rs:345 `unwrap_or(0)`）——缺省回退 `Seq(0)`，**绝不**
+///     因缺失整帧丢弃（P0：实测 650 increment 帧因 `?` 早退被全静默丢、落库 0 行）。
 ///   - `needSync`：bool，**缺省 true**（多拉不漏；false=已追平可省 sync）。
 ///   - `raw`：`serde_json::to_vec(data)`（供 emit im:channel:increment 透传 mentionList/urgentPostList）。
 ///
-/// 任一必填非法（缺 id / id 非 26 字符 / lastEventSeq 非数值）→ None（不 panic / unwrap）。
+/// 仅 `id` 非法（缺 / 非 26 字符）→ None（边界零信任，不 panic / unwrap）；其余字段缺省回退默认值。
 pub fn parse_increment_channel(data: &serde_json::Value) -> Option<IncrementChannel> {
     let channel_id = data
         .get("id")
         .and_then(|v| v.as_str())
         .and_then(ChannelId::from_str)?;
-    let last_event_seq = Seq(data.get("lastEventSeq").and_then(|v| v.as_u64())?);
+    // lastEventSeq 真 Go Optional（GetMaxSeq 降级场景缺失）→ 缺省 Seq(0)，不早退丢帧。
+    let last_event_seq = Seq(data
+        .get("lastEventSeq")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0));
     // needSync 缺省 true：宁可多拉一次 sync，也不漏增量（§1.3 防前端永久 loading）。
     let need_sync = data
         .get("needSync")
@@ -242,9 +263,15 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
     };
 
     // 取命中本 channel 的 entry（helix 逐 channel 发，至多一条）；无 → NoChange。
-    let entry = entries
-        .iter()
-        .find(|e| e.get("channelId").and_then(|c| c.as_str()) == Some(channel_id.as_str()));
+    // S10：SyncEntry 真源 `domain/sync.rs:120 #[serde(rename_all="camelCase")]` → wire `channelId`；
+    // 兼容 snake `channel_id`（server app/sync.go 历史 json tag，零信任双形态，helix-im 不变量 4）。
+    let entry = entries.iter().find(|e| {
+        let cid = e
+            .get("channelId")
+            .or_else(|| e.get("channel_id"))
+            .and_then(|c| c.as_str());
+        cid == Some(channel_id.as_str())
+    });
     let entry = match entry {
         Some(e) => e,
         None => return Ok(SyncResponse::NoChange),
@@ -265,8 +292,12 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
             let needs_continuation = events.len() >= SYNC_EVENTS_PER_ENTRY;
             // cursor 锚服务端权威 nextSeq（Go `next = events[末].EventSeq`）；缺省/异常
             // 回退到 max(event.seq)（与 nextSeq 当前恒等），再退 Seq(0)。
+            // S10：真源 wire `nextSeq`（camelCase）；兼容 snake `next_seq`（零信任双形态）。
             let max_event_seq = events.iter().map(|e| e.seq.0).max().unwrap_or(0);
-            let next_seq = Seq(entry["nextSeq"].as_u64().unwrap_or(max_event_seq));
+            let next_seq = Seq(entry["nextSeq"]
+                .as_u64()
+                .or_else(|| entry["next_seq"].as_u64())
+                .unwrap_or(max_event_seq));
             // 分桶排序（type1 → type2 → type3 → type6，铁律）
             sort_events_by_bucket(&mut events);
             Ok(SyncResponse::Events {
@@ -278,8 +309,10 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
         }
 
         "too_long" => {
+            // S10：真源 wire `resetTo`（camelCase）；兼容 snake `reset_to`（零信任双形态）。
             let reset_to = entry["resetTo"]
                 .as_u64()
+                .or_else(|| entry["reset_to"].as_u64())
                 .ok_or_else(|| ImError::Parse("too_long missing resetTo".to_string()))?;
             Ok(SyncResponse::TooLong {
                 reset_to: Seq(reset_to),
@@ -288,7 +321,10 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
 
         "snapshot" => {
             // 保留未启用：防御性按 entry.events + resetTo 构造快照（resetTo 缺省 0）。
-            let reset_to = entry["resetTo"].as_u64().unwrap_or(0);
+            let reset_to = entry["resetTo"]
+                .as_u64()
+                .or_else(|| entry["reset_to"].as_u64())
+                .unwrap_or(0);
             let messages = parse_channel_events(entry, channel_id)?;
             Ok(SyncResponse::Snapshot(ChannelSnapshot {
                 channel_id,

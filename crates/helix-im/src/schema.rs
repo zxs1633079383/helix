@@ -125,11 +125,22 @@ pub const IM_SCHEMA: &[&'static str] = &[
     )",
     "CREATE INDEX IF NOT EXISTS idx_channel_member_user ON channel_member(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_channel_member_role ON channel_member(channel_id, role)",
-    // ── 增量同步游标（cursor）真源说明 ──────────────────────────────────────────
-    // 本轮 helix-im 运行时 cursor 真源 = core 通用单调表 `_helix_monotonic`
-    // （`advance_cursor` 走 `MonotonicUpsert{scope_key=channel_id, value=last_event_seq}`，
-    // host driver open 时建表 + MAX guard）。曾有 `channel_event_cursor` 死表占位（零读零写）
-    // 已删（drift 修复）——避免「建了不用」的影子 schema 误导。
-    // M2 接 cses-client 若需独立 cursor 表，再随迁移步骤引入，映射：
-    // scope_key↔channel_id，value↔last_event_seq。
+    // ── channel_event_cursor（增量同步游标，S2）─────────────────────────────────
+    // 全量替换要求 byte 对齐现网 678 读路径 → IM cursor 写 `channel_event_cursor`
+    // （三列 channel_id PK / last_event_seq / updated_at），与现网
+    // `tables/channel_event_cursor.rs:28-37 migrate` 字符级幂等（IF NOT EXISTS）。
+    // 写路径：`acl/to_effect::advance_cursor` 走 `MonotonicUpsert{table=channel_event_cursor,
+    //   key_col=channel_id, value_col=last_event_seq, touch_col=updated_at}`——表名/列名作
+    //   数据传给 core（守 HX-C001，core 不解释）；MAX guard 由 core MonotonicUpsert 语义保证
+    //   （value 严格 > 才前进，cursor 不回退）；updated_at 由 driver ambient 时钟写穿。
+    // 读路径：on_start 吐 `Scan(channel_event_cursor)`，handle_scan_reply 解析
+    //   channel_id（TEXT 26 字符）+ last_event_seq（INTEGER）重建内存 cursor。
+    // cursor 单一真源仍是 helix gate（channel gate state），此表仅持久化镜像。
+    // 注：core 通用单调表 `_helix_monotonic` 由 driver migrate() 自建（generic primitive，
+    //   stress/conformance 测试用），与本业务 cursor 表互不影响（additive）。
+    "CREATE TABLE IF NOT EXISTS channel_event_cursor (\
+        channel_id TEXT NOT NULL PRIMARY KEY,\
+        last_event_seq INTEGER NOT NULL DEFAULT 0,\
+        updated_at INTEGER NOT NULL DEFAULT 0\
+    )",
 ];

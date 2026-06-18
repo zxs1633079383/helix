@@ -222,7 +222,7 @@ mod tests {
     fn dispatch_ws_returns_unsupported_ws_action_for_unknown_action() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 0, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 0, "", "", &mut alloc_corr);
         let frame = WsFrame::parse(br#"{"action":"missing"}"#).unwrap();
         let mut out = EffectSink::new();
 
@@ -241,7 +241,7 @@ mod tests {
         state.conn = ConnState::Connecting;
 
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let ignored_actions = [
             "status_change",
             "multiple_channels_viewed",
@@ -302,7 +302,7 @@ mod tests {
             next_corr += 1;
             corr
         };
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = posted_echo_frame(channel_id, 9, "tmp-registry");
         let mut out = EffectSink::new();
 
@@ -350,7 +350,7 @@ mod tests {
             .insert(channel_id, Channel::new(channel_id, 3));
 
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "v": 1,
             "action": "posted",
@@ -387,7 +387,7 @@ mod tests {
     fn dispatch_ws_posted_echo_missing_channel_is_noop_without_error() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "v": 1,
             "action": "posted",
@@ -415,7 +415,7 @@ mod tests {
     fn dispatch_ws_posted_non_echo_gracefully_ignored() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "v": 1,
             "action": "posted",
@@ -441,7 +441,7 @@ mod tests {
             .channels
             .insert(channel_id, Channel::new(channel_id, 3));
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "v": 1,
             "action": "posted",
@@ -469,7 +469,7 @@ mod tests {
     fn dispatch_ws_posted_invalid_echo_required_fields_is_invalid_frame() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "v": 1,
             "action": "posted",
@@ -496,7 +496,7 @@ mod tests {
             .channels
             .insert(channel_id, Channel::new(channel_id, 0));
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let raw = format!(
             r#"{{"event":"posted","data":{{"channel_id":"{}","seq":1,"event_type":1,"msg_id":"msg_1","actor_id":"user_1","created_at":1000000,"payload":null}}}}"#,
             channel_id.as_str()
@@ -541,6 +541,7 @@ mod tests {
             &mut state,
             1_000,
             "https://example.test/api",
+            "",
             &mut alloc_corr,
         );
         let frame =
@@ -598,7 +599,7 @@ mod tests {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
         let channel_id = channel_id(77);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "action": "increment_channel",
             "data": {
@@ -659,6 +660,7 @@ mod tests {
             &mut state,
             1_000,
             "https://example.test/api",
+            "",
             &mut alloc_corr,
         );
         let frame = frame_from_json(serde_json::json!({
@@ -718,6 +720,7 @@ mod tests {
             &mut state,
             1_000,
             "https://example.test/api",
+            "",
             &mut alloc_corr,
         );
         let frame = frame_from_json(serde_json::json!({
@@ -739,6 +742,7 @@ mod tests {
             &mut state,
             1_000,
             "https://example.test/api",
+            "",
             &mut alloc_corr,
         );
         let frame = frame_from_json(serde_json::json!({
@@ -763,7 +767,7 @@ mod tests {
     fn dispatch_ws_invalid_increment_channel_is_silent_noop() {
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", &mut alloc_corr);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
         let frame = frame_from_json(serde_json::json!({
             "action": "increment_channel",
             "data": { "id": "tooshort", "lastEventSeq": 1 }

@@ -69,6 +69,7 @@ impl Harness {
             api_base_url: "http://test".to_string(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
+            auth_user_id: String::new(),
         };
         let mut module = ImModule::new(config);
         for &id in channel_ids {
@@ -310,11 +311,13 @@ pub fn sync_reply_too_long(channel_id: u64, reset_to: u64) -> bytes::Bytes {
     }))
 }
 
-/// 构造 scan 回报（_helix_monotonic 扫描结果）
+/// 构造 scan 回报（channel_event_cursor 扫描结果，S2）
 ///
-/// 格式遵循 engine_loop rows_to_reply_bytes 约定：`[{"scope_key": "<channel_id>", "value": N}, ...]`
-/// scope_key 是 TEXT（channel_id.to_string()），value 是 INTEGER cursor seq。
-/// 对应 advance_cursor 写路径（acl/to_effect.rs：MonotonicUpsert{scope_key=channel_id.to_string(), value=seq}）
+/// 格式遵循 engine_loop rows_to_reply_bytes 约定：
+/// `[{"channel_id": "<id26>", "last_event_seq": N, "updated_at": T}, ...]`。
+/// channel_id 是 TEXT（26 字符 id），last_event_seq 是 INTEGER cursor seq。
+/// 对应 advance_cursor 写路径（acl/to_effect.rs：MonotonicUpsert{table=channel_event_cursor,
+/// key_col=channel_id, value_col=last_event_seq}）。
 #[allow(dead_code)]
 pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
     use serde_json::json;
@@ -322,8 +325,9 @@ pub fn scan_reply(rows: &[(u64, u64)]) -> bytes::Bytes {
         .iter()
         .map(|&(channel_id, cursor_seq)| {
             json!({
-                "scope_key": cid(channel_id),
-                "value": cursor_seq as i64
+                "channel_id": cid(channel_id),
+                "last_event_seq": cursor_seq as i64,
+                "updated_at": 0i64
             })
         })
         .collect();

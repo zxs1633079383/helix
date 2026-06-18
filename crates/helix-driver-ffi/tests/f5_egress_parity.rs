@@ -68,11 +68,12 @@ fn build_shell() -> ExecutionShell {
         api_base_url: "http://test".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
+        auth_user_id: String::new(),
     };
     let mut module = ImModule::new(config);
     module.register_channel(ChannelId::from_test_u64(1), 0);
-    let post_channel = ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r")
-        .expect("真帧 channelId 合法 26 字符");
+    let post_channel =
+        ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
     module.register_channel(post_channel, 40113);
 
     let mut shell = ExecutionShell::new();
@@ -245,7 +246,8 @@ fn f5_egress_parity_native_ffi_byte_identical() {
     // byte-identical 逐条断言
     for (i, (ffi, native)) in ffi_vec.iter().zip(native_vec.iter()).enumerate() {
         assert_eq!(
-            ffi.0, native.0,
+            ffi.0,
+            native.0,
             "DomainEvent[{i}] FFI 与 native 字节不同:\n  ffi    = {}\n  native = {}",
             String::from_utf8_lossy(&ffi.0),
             String::from_utf8_lossy(&native.0),
@@ -255,7 +257,8 @@ fn f5_egress_parity_native_ffi_byte_identical() {
     // source-of-truth 校验（每路都 == 原始 Emit）
     for (i, (actual, expected)) in ffi_vec.iter().zip(source.iter()).enumerate() {
         assert_eq!(
-            actual.0, expected.0,
+            actual.0,
+            expected.0,
             "DomainEvent[{i}] FFI 与 source 字节不同:\n  ffi    = {}\n  source = {}",
             String::from_utf8_lossy(&actual.0),
             String::from_utf8_lossy(&expected.0),

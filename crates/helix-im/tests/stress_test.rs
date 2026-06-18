@@ -41,6 +41,7 @@ fn make_module(channel_id: u64) -> ImModule {
         api_base_url: "http://stress".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
+        auth_user_id: String::new(),
     };
     let mut module = ImModule::new(config);
     module.register_channel(ChannelId::from_test_u64(channel_id), 0);

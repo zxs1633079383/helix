@@ -5,7 +5,19 @@
 
 ## §0 终态记录
 
-🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）跑**一个长 workflow** 把 sync-v2 修复 re-port 到 dev-zlc 的 ADR-007 架构：先 Phase A(#1 cursor 种子=0 + #6 解信封层，立刻修好 dev-zlc 现带的两个数据丢失 bug) → 再 Phase B(#2 成员+#6col channel 写整层) → 每阶段 cargo + 真机连 localhost:8065 离线 e2e 验 backfill。参照源 = `feat/sync-v2-full-replacement`（已真机验证的 sync-v2，**不文本合并**，逐项 re-port）。
+🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）把 feat 的 **sync-v2 整条业务实现 re-port 到 dev-zlc 的 ADR-007 架构，目标 = feat 全 parity（不只 6 个 fix）**。参照源 = `feat/sync-v2-full-replacement`（已真机验证，**不文本合并**，逐项 re-port）。
+
+  ⚠️ **范围铁律：目标是 feat 全 parity，A+B 只是子集，远不够。** 之前映射 agent 只读 dev-zlc、没 diff feat → 漏了一半。**第 0 步必做**：
+
+  - **Step 0（前置·必做）全枚举审计**：`git diff dev-zlc...feat/sync-v2-full-replacement -- crates/` **读两边**，列出「feat 有 / dev-zlc 缺或不同」的**每一项**成真 re-port 清单（别只搬记得的 6 个 fix）。已知 dev-zlc 缺的大块：**8 个 WS action**(post_read/post_update/posts_update/update_channel/channel_created/channel_close/channel_member_update/nickname/schedule×2，S1)、**channel 三路径写整层**(S3)、**成员 memberChange.join**(#2)、**member_count**、**makeTopic**(#3)；以及 **S2 cursor 表/S4 写顺序/S5 echo/S6 sync 续拉/S7 读契约/S9 emit 全集/S10 命名陷阱** 逐项核「dev-zlc 已有还是要搬」。
+  - **分阶 re-port（覆盖全 parity，每阶 cargo + 真机 e2e）**：
+    - Phase A：#1 cursor 种子=0 + #6 解信封层（先修好 dev-zlc 现带的两个数据丢失 bug，且验 ADR-007 接缝适配）
+    - Phase B：#2 成员 + #6col channel 三路径写 + member_count
+    - **Phase C：缺失的 8 个 WS action（S1 全 14 对齐）**——post_read/编辑/update_channel/channel_created/close/成员/排程
+    - **Phase D：#3 makeTopic + S4/S5/S6/S7/S9/S10 核对补全**（写顺序铁律/echo 三级/sync 续拉 too_long/读契约二维游标/emit 全集对齐/命名陷阱）
+    - #5 auth：**不搬，仅核实** dev-zlc 全局头(cookieId)已覆盖鉴权
+  - **全 parity 验收**：feat 全部用例在 dev-zlc(ADR-007) 上真机跑通——在线收发+echo回填、离线 backfill、编辑/已读/撤回/排程、makeTopic、channel/成员落库、14 action。
+  - **每个 commit 检查点先跑 dev-zlc 分叉监控**（见下），落后就先 rebase。
 
 📌 **背景/坑（2026-06-18，必读，别再踩）**：
   - **架构并行分叉**：我 10:24 从 8997a72 分叉建 feat/sync-v2 做业务层；**另一个会话 12:43 把 ADR-007（engine 下沉 host、native/FFI 薄壳、http_envelope 信封契约）合进 dev-zlc**。两条线整天并行没碰头 → 17:33 才发现架构岔开巨大、而**业务代码两边都已开发**。教训：**开长线前先对齐基线**（都从 dev-zlc 最新分叉 / 定期 rebase），否则岔几小时就分道。

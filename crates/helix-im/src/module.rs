@@ -123,6 +123,15 @@ impl ImModule {
         self.state.increment_fetched.contains(&channel_id)
     }
 
+    /// 查询某 channel 的 increment_target（服务端水位，测试 / 诊断用）。
+    /// cursor（本地确认）与 target（服务端水位）严格解耦——HX-C008 回归断言锚点。
+    pub fn increment_target_for(&self, channel_id: ChannelId) -> Option<u64> {
+        self.state
+            .increment_target
+            .get(&channel_id)
+            .map(|seq| seq.0)
+    }
+
     /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
     ///
     /// 真路径是 `Tick::Inbound` → `WsFrame::parse` → WS registry；本 pub 包装让

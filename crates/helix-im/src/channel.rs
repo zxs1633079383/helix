@@ -104,6 +104,39 @@ impl Channel {
         }
     }
 
+    /// BLOCKING-2：仅推进 cursor 的 gate 入口（posts_update 批量帧用）。
+    ///
+    /// posts_update 是**单 cursor 事件**（顶层一个 event_seq）但携带 N 条 post 编辑/撤回——
+    /// 真源 `handle_batch_update`（post.rs:226）保存所有 post 后由顶层 event_seq 推进 cursor 一次。
+    /// N 条内容 patch 由调用方**立即**幂等落库（`BatchUpdate WHERE id`，本地无行=no-op），本方法
+    /// 只负责 cursor 的严格 +1 / drop / 缺口 arm-gate——**不**落 message、**不** emit（emit 由调用方）。
+    ///
+    /// 三路（与 `ingest` 同口径，守 spec §S6 严格 +1）：
+    /// - seq == cursor+1 → 推进 cursor（+ flush buffer 中已就绪的连续 post）；
+    /// - seq <= cursor   → drop（幂等，cursor 不动）；
+    /// - seq >  cursor+1 → 缺口：**仅 arm 1s gate**（不 buffer——内容已立即落库，缺的是中间 post，
+    ///   由 post 路径 buffer 或 gate 触发的 sync 回拉填上；cursor 卡住不前进直至缺口填平，
+    ///   绝不 MAX-jump 跨过空洞）。
+    pub fn ingest_cursor_advance(&mut self, seq: Seq, fx: &mut EffectSink) -> Result<(), ImError> {
+        let expected = Seq(self.cursor.value().0 + 1);
+        match seq.cmp(&expected) {
+            std::cmp::Ordering::Equal => {
+                self.cursor.try_advance(seq);
+                fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
+                self.flush_contiguous_from_buffer(fx)?;
+                // 缺口已被本帧填平 → 若无后续缺口，gate 由 flush 后的连续性自然失效；
+                // 这里不主动 cancel gate（与 ingest 一致，gate timer 触发时再判定 still-stuck）。
+                Ok(())
+            }
+            std::cmp::Ordering::Less => Ok(()), // dup drop
+            std::cmp::Ordering::Greater => {
+                // 缺口：不 buffer 内容（已立即落库），仅 arm gate 触发 sync 回拉缺口。
+                self.arm_gate_if_needed(fx);
+                Ok(())
+            }
+        }
+    }
+
     /// 处理 PortReply{corr=X, Ok}：推进 cursor（写成功才推）
     ///
     /// sync 权威路径的 commit 阶段：
@@ -133,10 +166,11 @@ impl Channel {
     ) -> Result<(), ImError> {
         let seq = ev.seq;
 
-        // 吐 PersistFire（幂等落库：单条 upsert message 表，ON CONFLICT(temporary_id) DO UPDATE）
-        // WS 路径用 PersistFire（fire-and-forget），不需要 PortReply 回报
+        // 吐 PersistFire（幂等落库）。BLOCKING-2 kind-aware：type1=全量 upsert / type2=内容 patch
+        // /type3=撤回 / type6=已读位覆盖——edit/read 经 gate 缓冲后 flush 也按各自语义落库，
+        // 不再误用全量 upsert 擦本地权威 read_bits/send_status。WS 路径用 PersistFire（幂等）。
         fx.push(Effect::PersistFire {
-            ops: vec![event_to_upsert_op(&ev)],
+            ops: vec![event_to_storage_op(&ev)],
         });
 
         // 推进内存 cursor（WS 路径：直接 try_advance，不等 PortReply）
@@ -147,12 +181,8 @@ impl Channel {
         // PersistFire monotonic_upsert（持久化 cursor，幂等）
         fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
 
-        // Emit 通知前端（msg_id = wire 权威 Id26 字符串，D2 信封对齐）
-        fx.push(crate::acl::to_effect::emit_post_received(
-            self.id,
-            seq.0,
-            ev.msg_id.as_deref().unwrap_or(""),
-        ));
+        // Emit 通知前端（kind-aware：post=received / edit=updated / revoke=deleted / read=read）。
+        fx.push(emit_for_kind(&ev));
 
         // 尝试放行 buffer 中紧接着的连续段
         self.flush_contiguous_from_buffer(fx)?;
@@ -220,16 +250,13 @@ impl Channel {
             let next_expected = Seq(self.cursor.value().0 + 1);
             if let Some(ev) = self.buffer.remove(&next_expected) {
                 let seq = ev.seq;
+                // BLOCKING-2：flush 同样 kind-aware（缓冲的乱序事件可能是 edit/read/revoke）。
                 fx.push(Effect::PersistFire {
-                    ops: vec![event_to_upsert_op(&ev)],
+                    ops: vec![event_to_storage_op(&ev)],
                 });
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
-                fx.push(crate::acl::to_effect::emit_post_received(
-                    self.id,
-                    seq.0,
-                    ev.msg_id.as_deref().unwrap_or(""),
-                ));
+                fx.push(emit_for_kind(&ev));
             } else {
                 break;
             }
@@ -418,6 +445,54 @@ pub fn apply_read_op(msg_id: &str, read_bits: &str) -> StorageOp {
             SqlValue::Text(read_bits.to_string()),
         )],
     })
+}
+
+/// kind-aware 落库映射：按 `ev.kind` 分派到对应 StorageOp（gate apply/flush 用，BLOCKING-2）。
+///
+/// 现网真源 `apply_event_with_messages`（post.rs:1146）按 event_type 分发：type1=全量 upsert /
+/// type2=内容 patch / type3=撤回 / type6=已读位覆盖。gate buffer 可缓冲任意 kind 的乱序事件
+/// （post + edit/read/revoke 都经 `ch.ingest`），flush 必须按各自语义落库——**不能**对 edit/read
+/// 也走全量 upsert（会擦本地权威 read_bits/send_status，正是 `edit_content_op` 注释所述擦位 bug）。
+///
+/// msg_id 取 `ev.msg_id`（wire 权威）?? `ev.fields.id`；edit/read/revoke 缺 msg_id → patch
+/// WHERE id="" 命中 0 行 = 安全 no-op（边界零信任）。PostUpsert 用 PK 三级回退恒非空。
+pub fn event_to_storage_op(ev: &EventEnvelope) -> StorageOp {
+    use crate::sync_session::EventKind;
+    let msg_id = ev
+        .msg_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(ev.fields.id.as_str());
+    match ev.kind {
+        EventKind::PostUpsert => event_to_upsert_op(ev),
+        EventKind::PostEdit => edit_content_op(msg_id, &ev.fields),
+        EventKind::PostRevoke => revoke_op(msg_id),
+        EventKind::PostRead => apply_read_op(msg_id, ev.fields.read_bits.as_str()),
+        // 未知类型：cursor 推进但不落 message（phantom 同口径，HX-C008）。空 patch no-op。
+        EventKind::Other(_) => StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec {
+            table: "message",
+            key_col: "id",
+            key_vals: vec![helix_core::effect::SqlValue::Text(msg_id.to_string())],
+            patch: Vec::new(),
+        }),
+    }
+}
+
+/// kind-aware 前端通知 Effect（gate apply/flush 用，BLOCKING-2）。
+///
+/// 真源 apply_event_with_messages 按 type emit 不同 im:post:* 事件。
+/// post=received / edit=updated / revoke=deleted / read=read；未知类型按 received 兜底。
+pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
+    use crate::sync_session::EventKind;
+    let msg_id = ev.msg_id.as_deref().unwrap_or("");
+    let seq = ev.seq.0;
+    match ev.kind {
+        EventKind::PostUpsert => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id),
+        EventKind::PostEdit => crate::acl::to_effect::emit_post_updated(ev.id, seq, msg_id),
+        EventKind::PostRevoke => crate::acl::to_effect::emit_post_deleted(ev.id, seq, msg_id),
+        EventKind::PostRead => crate::acl::to_effect::emit_post_read(ev.id, seq, msg_id),
+        EventKind::Other(_) => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id),
+    }
 }
 
 // ─── 单元测试 ────────────────────────────────────────────────────────────────

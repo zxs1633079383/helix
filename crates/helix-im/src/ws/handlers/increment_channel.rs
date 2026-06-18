@@ -31,6 +31,8 @@ pub(crate) fn apply_increment(
         ctx.state.need_sync_skip.insert(channel_id);
     }
 
+    // lastEventSeq → increment_target（服务端水位，算 gap / B2 heal 的 stuck 判定），
+    // 与内存 cursor 严格解耦（cursor=本地确认，target=服务端水位）。
     let target = ctx
         .state
         .increment_target
@@ -40,6 +42,30 @@ pub(crate) fn apply_increment(
         *target = inc.last_event_seq;
     }
 
+    // S3 path1：全量 upsert（52 列）落库。从帧 data（`inc.raw`，parser 已零信任校验）逐列计算。
+    // BLOCKING-1：user_id 列写 host 注入的真身份（ctx.auth_user_id，非硬编码空串）；空串=无身份退化。
+    // now_ms 由 host 经 Clock 注入（确定性）。非法 data（缺 id）→ program_full None → 跳落库（仍 emit）。
+    if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
+        if let Some((cols, exclude)) =
+            crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
+        {
+            out.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+        }
+
+        // A1 修复：从帧四源 `members/owner/adminUsers/boss` **+ `memberChange.join`** 写
+        // channel_member 表（复合 PK）。真源 `tables/channel.rs:333 collect_members_from_channel_json`
+        // （四源全量）+ `apply_member_change_tx:247`（join 增量）→ 成员真值进独立 channel_member 表；
+        // 读路径 assemble_channel 再从该表重建主表 members/owner/admin_users/boss JSON 列。
+        // 此前 `collect_members` 只读四源 → 真 Go 增量帧成员经 memberChange.join 交付时全丢
+        // （43 人群仅落稀疏 members[] 的 3 行）；现 collect_members 已合并 join（members.rs）。
+        // leave 偏离（core 无 Delete 变体，不删离场成员）见 members.rs 模块头 + ROADMAP-P。
+        let members = crate::channel_write::collect_members(&data);
+        if let Some(eff) = crate::acl::to_effect_s1::upsert_channel_members(channel_id, members) {
+            out.push(eff);
+        }
+    }
+
+    // 前端仍要 emit（透传 mentionList/urgentPostList，B-rest 契约不变）。
     out.push(crate::acl::to_effect::emit_channel_increment(
         channel_id,
         inc.raw.as_ref(),

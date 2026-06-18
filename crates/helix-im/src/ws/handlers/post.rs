@@ -48,6 +48,37 @@ impl WsMessageHandler for PostHandler {
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
         reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
 
+        // S3 path3：新消息触发 channel 写（未读 +1 SQL 自增 + lastPost 组）。**仅当该 post 会被
+        // 立即 apply**（seq == cursor+1，连续）才触发——与 gate 落库语义对齐：乱序（seq>cursor+1）
+        // 的 post 进 buffer 不落 message，channel 未读也不应提前 +1（待 flush 时该消息已在库，
+        // 由后续 sync/increment 全量 upsert 或下一条 post 的守卫推进对账）。重复/旧消息（seq<=cursor）
+        // 同样不触发（gate dup drop 同口径）。守卫 `msg_create_at > last_root_post_at` 再做 SQL 层
+        // 幂等兜底（即便偶发重复触发也不重复 +1）。CAP-9：sync apply type=1 走同一 post_updates。
+        //
+        // BLOCKING-1：auth_user_id 由 host 经 ctx 注入真值（非硬编码空串）。这样 `post_updates`
+        // 才能正确做 ① sender 豁免（自己消息 +0，真源 message_service.rs:342）② 可见性门控
+        // （viewers 不含自己 → +0）。再叠加 echo 显式跳过（temporary_id 命中在途 send 或
+        // user_id==self）作前置闸门——echo 帧（自己发的消息回流）即便偶发 is_contiguous 也绝不
+        // bump unread（§5 验收：echo 无 unread）。两道防线对齐现网「自己 +0、不可见 +0」。
+        let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
+        let is_contiguous = ctx
+            .state
+            .channels
+            .get(&ev.channel_id)
+            .map(|ch| ev.seq.0 == ch.cursor.value().0 + 1)
+            .unwrap_or(false);
+        if is_contiguous && !is_echo {
+            if let Some(data) = parse_post_data(frame) {
+                let upd = crate::channel_write::post_updates(
+                    ev.channel_id,
+                    data,
+                    ctx.auth_user_id,
+                    ev.fields.create_at,
+                );
+                out.push(crate::acl::to_effect::bump_channel_unread(&upd));
+            }
+        }
+
         // ingest（落库 + cursor 推进）门控 channel 注册：未注册 channel（driver 未通过 increment
         // 种 cursor）静默忽略，与 legacy event 路径同口径（driver 路由问题，非 IM 错误）。
         if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
@@ -113,6 +144,59 @@ fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
         .map(str::to_string);
 
     Some(EventEnvelope::new(channel_id, seq, EventKind::PostUpsert, fields).with_msg_id(msg_id))
+}
+
+/// 取 `post` 帧的 post 数据子树（path3 谓词用：type/viewers/isSchedule/userId/postId）。
+///
+/// 与 `parse_post_frame` 同源探查：post 字段可能在 `data.post` 子对象或 `data` 顶层。
+/// 缺 data → None（边界零信任，path3 写跳过；message 落库仍走 ingest）。
+fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
+    let data = frame.data()?;
+    Some(data.get("post").unwrap_or(data))
+}
+
+/// 判定 `post` 帧是否为本端 echo（自己发的消息回流），用于 path3 未读 +1 前置闸门。
+///
+/// 两路识别（命中任一即 echo）——对齐现网「自己消息 +0」（message_service.rs:342 sender 豁免）：
+///   1. `temporary_id` 命中在途 `PendingSend`：本端乐观发送的占位消息回流（最强信号，PK 对账键）；
+///   2. `user_id == auth_user_id`（host 注入真身份且非空时）：sender 即自己。
+///
+/// 无身份（auth 空串）时仅靠路 1（temporary_id）——保守不漏未读（与 `post_updates` 退化同策略）。
+/// 边界零信任：纯只读判定，不改状态、不 panic。
+fn is_echo_frame(
+    ctx: &ImWsContext<'_>,
+    temporary_id: &str,
+    ev: &EventEnvelope,
+    frame: &WsFrame,
+) -> bool {
+    // 路 1：temporary_id 命中在途 send（本端乐观占位回流）。
+    if !temporary_id.is_empty() {
+        let tmp = TemporaryId(temporary_id.to_string());
+        if ctx.state.pending_sends.contains_key(&tmp) {
+            return true;
+        }
+    }
+    // 路 2：发送者 == 当前登录用户（仅当 host 注入了非空 auth 身份才可判）。
+    if !ctx.auth_user_id.is_empty() {
+        // sender 优先 ev.fields.user_id（parser 已提取）；回退 wire data.userId（含 userSnapshot）。
+        let sender = if !ev.fields.user_id.is_empty() {
+            ev.fields.user_id.as_str()
+        } else {
+            frame
+                .data()
+                .and_then(|d| {
+                    d.get("userSnapshot")
+                        .and_then(|s| s.get("userId"))
+                        .or_else(|| d.get("userId"))
+                })
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+        };
+        if !sender.is_empty() && sender == ctx.auth_user_id {
+            return true;
+        }
+    }
+    false
 }
 
 /// `post` 帧的发送对账（BLOCKING 修复）。

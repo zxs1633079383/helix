@@ -5,6 +5,10 @@
 
 ## §0 终态记录
 
+🎯 EXPECT F4.5 Flutter FFI 桌面 demo（C 路线：完整 Xcode 待装 → console 证链路 + UI/test 代码就绪）@2026-06-18 | 赌注 中 | 可逆 是（Flutter 工程在仓外 /workspace/flutterWorkspace/helix_ffi_demo，删目录即回滚；仓内仅 3 行文档）
+  ↳ 可证伪预判：① 仓内只动 docs/superpowers/specs/2026-06-18-...（已）+ docs/flutter-demo-pointer.md + ffi CLAUDE.md/AGENTS.md 各 1 行索引，**helix-core/helix-im/cdylib 零改** ② `dart run` console 冒烟 PASS：dart:ffi→C++ shim→cdylib→pump→Emit→batch→`NativeCallable.listener` 异步回调收到含 `im:post:sending` 的批（证异步跨线程全链）③ build_native.sh 一键 `cargo build --release`(panic=abort) + `clang` 链 cdylib 产 libhelix_shim.dylib（otool -L 验 @rpath，**不碰 Xcode**）④ `cargo check -p helix-driver-ffi` 仍过 + `scripts/cpp-smoke.sh` 仍绿（零回归）⑤ structure-gate 镜像闸绿（ffi CLAUDE/AGENTS 成对 diff 空）⑥ integration_test/main.dart/maestro 代码就绪，`flutter test -d macos` 标 BLOCKED-on-Xcode（阶段 2，不计失败）
+  ↳ 偏离即记 DRIFT-PRED：若被迫改 cdylib 导出 / shim C++ 异常外逸跨 extern C / listener 拿到失效 ptr UAF / console 证不了异步跨线程 / 仓内动了 core·im / free_batch 非无状态
+
 🎯 EXPECT F5 跨端 parity 自动化（同 Tick 剧本 native vs FFI byte-level 一致 · 设备无关）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/f5-cross-parity 未 merge）
   ↳ 可证伪预判：① golden Tick 剧本→Emit DomainEvent 序列 byte-identical 到 committed fixture + 跑两次确定性 ② native(NativeEventSink broadcast)↔ffi(FfiEventSink batch decode) 对同剧本 deliver 的 DomainEvent byte-identical ③ 改动只在 tests + golden fixture（不改 src 逻辑/不碰 core 行为）④ 两测 HX-C011 可证伪（改 emit / break egress → fixture mismatch FAIL，commit body 附破坏证明）⑤ cargo test 全绿 + native 零回归 + gate.sh 过
   ↳ 偏离即记 DRIFT-PRED：若改 src 逻辑 · golden 是 tautology(改 emit 照过) · parity 黑盒证不了 · 跨 crate dev-dep 成环 → 偏离

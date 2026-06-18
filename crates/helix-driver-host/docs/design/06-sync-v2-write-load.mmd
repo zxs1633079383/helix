@@ -1,0 +1,74 @@
+%% Helix · helix-driver-host · sync-v2 三入口写负载流图
+%% 真源：crates/helix-im/src/（channel.rs / module.rs / acl/to_effect.rs）
+%%       crates/helix-driver-host/src/（engine.rs / spawner.rs / storage.rs）
+%% 分支：feat/sync-v2-full-replacement（worktrees/sync-v2-full-align）
+%% 关联：HX-C005（O(1) 热路径）· HX-C008（sync cursor 契约）
+
+flowchart TD
+    subgraph SOURCES["sync-v2 三类入站来源"]
+        WS_FRAME["WS 推送帧\n（posted / increment_channel / posted_reaction / …）"]
+        SYNC_REPLY["HTTP sync pull PortReply\n（sync/notify 拉 → 批量历史帧 + cursor）"]
+        QUERY_R["helix_query（FFI 只读查询）\n→ 只走 Get/Scan，不产生写 Effect"]
+    end
+
+    subgraph IM_MODULE["helix-im ImModule（纯同步状态机）"]
+        PARSE["parser: WS 帧 JSON → InboundEvent\n（边界零信任，外部输入全 Result）"]
+        GATE["channel gate\n三阶段：peek → persist → commit\ncursor 单调不回退不变量"]
+        STATE["state 推进\n（ImState / channel gate 状态更新）"]
+    end
+
+    WS_FRAME --> PARSE --> GATE
+    SYNC_REPLY --> GATE
+    GATE --> STATE
+
+    subgraph WRITE_PATHS["sync-v2 三路径写（→ Effect::Persist → HostStorage）"]
+        P1["path1：全量 upsert\nchannel 首次 / sync_full 回应\n→ batch_upsert(channels_table)\n整批一事务，O(1) per-row INSERT"]
+        P2["path2：PATCH 增量更新\n已有 channel 字段变更\n→ batch_update(key_vals, patch)\n单 UPDATE WHERE PK IN(...)，O(1)"]
+        P3["path3：未读自增\nincrement_channel 事件\n→ 需确认：SQL INCREMENT 或 monotonic 追加\n⚠️ 候选风险：若走 read-modify-write 违 HX-C005"]
+    end
+
+    subgraph CURSOR_WRITES["cursor 推进写（每条消息必触发）"]
+        CURSOR["channel cursor 推进\n→ monotonic_upsert(channel_cursor:{id}, next_seq)\n&'static SQL + MAX guard + prepare_cached\n最热路径，O(1)（HX-C005）"]
+        EVENT_CURSOR["channel_event_cursor 表\n→ monotonic_upsert(event_cursor:{id}, event_seq)\n同上，O(1)"]
+    end
+
+    STATE --> P1
+    STATE --> P2
+    STATE --> P3
+    STATE --> CURSOR
+    STATE --> EVENT_CURSOR
+
+    subgraph PERSIST_DISPATCH["dispatch → BoundedSpawner（写序保证）"]
+        BKEY["table_set_key(ops)\n按涉及表集合分组\n同一表集 → 同一 BoundedSpawner 实例"]
+        BSN1["BoundedSpawner N=1\n单消费者 → 同 key 写序 = 入队序（不变量3）\nOverflow::Block → 满时背压回 tick_tx"]
+    end
+
+    P1 --> BKEY
+    P2 --> BKEY
+    P3 --> BKEY
+    CURSOR --> BKEY
+    EVENT_CURSOR --> BKEY
+    BKEY --> BSN1
+
+    subgraph HOST_STORAGE["HostStorage · SQLite WAL"]
+        SB_WRITE["spawn_blocking → writer.lock()（HX-C006）\n同步 rusqlite C 调用卸到 blocking pool"]
+        WAL["SQLite WAL 文件\n写串行（单写连接 Mutex）\n读可并发（READ_ONLY 快照）"]
+    end
+
+    BSN1 --> SB_WRITE --> WAL
+
+    subgraph READ_CONCURRENT["并发读（与写互不阻塞）"]
+        SYNC_READ["sync pull 中的 Get/Scan\n→ ReadPool Semaphore(4)\n→ READ_ONLY 连接 WAL 快照\n看 writer 上次提交状态"]
+        QUERY_READ["helix_query（FFI）\n→ 同 ReadPool（暂 stub）"]
+    end
+
+    WAL -.->|"WAL 快照"| SYNC_READ
+    WAL -.->|"WAL 快照"| QUERY_READ
+    QUERY_R --> QUERY_READ
+
+    subgraph REPLY_LOOP["PortReply 回灌闭环"]
+        REPLY_TX["reply_tx（unbounded）\n写完 → PortOutcome → Tick::PortReply\n→ engine biased select reply_rx 优先消费"]
+    end
+
+    BSN1 -->|"落库完成"| REPLY_TX
+    REPLY_TX -->|"回灌 engine"| GATE

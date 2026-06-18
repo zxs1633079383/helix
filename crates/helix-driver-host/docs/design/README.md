@@ -11,6 +11,15 @@
 | [`03-http-header-injection.mmd`](03-http-header-injection.mmd) | HostNetworkConfig（启动期配置）+ HostHeaderRegistry（parking_lot RwLock 运行时 header 快照，无 poison）→ 每个 HTTP 请求 / WS 握手注入最新快照 → reqwest 出站（HTTP 与 WS 共享同一 registry/token） | `network.rs` | HTTP-4 · ADR-007 |
 | [`04-async-shell-wraps-sync-io.mmd`](04-async-shell-wraps-sync-io.mmd) | 异步外壳包同步 I/O：`#[async_trait]` async fn → `spawn_blocking`（×7）→ 同步 rusqlite C 调用。**异步是调度手段，真 I/O 同步**，并发/阻塞隔离全在 driver 层（core 不持 runtime） | `storage.rs` | HX-C006 · ADR-005 |
 
+| [`05-storage-rw-concurrency.mmd`](05-storage-rw-concurrency.mmd) | 读写/读读/写读三类并发交织图：三入口（WS 写 / HTTP 读写 / query 读）→ HostStorage，写路径 BoundedSpawner N=1 写序 + ReadPool Semaphore(4) 背压 + WAL 快照并发，含 FFI current_thread vs native 差异 | `storage.rs` · `engine.rs` · `spawner.rs` | HX-C005 · HX-C006 · 五不变量 |
+| [`06-sync-v2-write-load.mmd`](06-sync-v2-write-load.mmd) | sync-v2 三路径写负载流图：path1 全量 upsert / path2 PATCH / path3 未读自增 + cursor 推进 + channel_event_cursor，经 BoundedSpawner N=1 → HostStorage WAL，含 PortReply 回灌闭环 | `helix-im/{channel,module,acl}` · `engine.rs` | HX-C005 · HX-C008 · 五不变量 |
+
+**设计规范文档（并发正确性 + 压测）**
+
+| 文档 | 一句话 | 真源 |
+|---|---|---|
+| [`07-storage-rw-concurrency-spec.md`](07-storage-rw-concurrency-spec.md) | 读读/读写/写读三类并发正确性不变量 + 死锁饥饿面分析 + FFI vs native 差异 + 现有压测覆盖缺口矩阵 + 6 个待补场景设计 + 下一步 workflow scope | `storage.rs` · `spawner.rs` · `engine.rs` · `tests/` |
+
 ## 不变量速记（破坏 = 双端存储漂移）
 
 - **单一真源**：messages SQL / monotonic 表 / StorageOp 语义 / rows 编解码 = 此 crate 唯一定义点，native/ffi 复用不重写。

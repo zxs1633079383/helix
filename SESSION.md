@@ -5,6 +5,16 @@
 
 ## §0 终态记录
 
+🎯 EXPECT storage 读写并发压测全 phase（下沉后共享核覆盖 + sync-v2 写负载）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/storage-rw-concurrency 未 merge）
+  ↳ 可证伪预判：① 改动只在 helix-driver-{host,native}/{tests,benches}（+ 仅 P0 命中 dev-zlc RMW 时 helix-im/channel.rs 一处），不碰 core/仍零运行时 ② P0 path3 未读自增确认为原子 `ON CONFLICT SET unread=unread+excluded`（预测合规非 RMW；若 RMW 则修）③ 6 缺口场景落地（读读 N>4 背压/WAL 脏读断言/多 channel cursor 单调/engine 混合 flood/FFI↔native bench）+ native↔host 迁移清单 ④ cargo test host 全绿 + native 零回归 ⑤ verify 无 blocking 才算成（新测须真证伪、无 false-green）
+  ↳ 偏离即记 DRIFT-PRED：若动 core/im 超 P0 一处 · 新测 false-green(测了证不了) · 迁移丢覆盖 · path3 实为 RMW 却没修/没 flag → 偏离
+
+✅ DONE storage 读写并发压测全 phase @2026-06-18 | commit b494e11..caa203a（merge cb8b6d5）| helix/dev-zlc
+  ↳ 范围：host/tests 加读读 N>4 Semaphore 背压 + WAL 脏读可证伪断言 + 多 channel cursor 单调(含回退证伪) · native stress_engine 三入口混合 flood · P3 伪对照 bench 诚实删（存储层两 runtime 经 spawn_blocking 构造上等同，差异在泵层已 P2 覆盖）
+  ↳ P0 结论：dev-zlc channel.unread_count 本轮无写路径=零 RMW（HX-C005 合规）；cursor advance=monotonic_upsert 原子 ON CONFLICT WHERE excluded>value（O(1)）；feat/sync-v2 path3 flag「合并 review 待查」未跨改
+  ↳ 验证：host 34 + native stress 8 零回归 · clippy -D warnings 0 · gate.sh 全闸门 · core 零运行时 · **每条不变量带证伪证明**（P1-C 去 MAX guard→FAIL/还原→PASS · P1-A 去背压→FAIL）
+  ↳ ⚡ DRIFT-PRED：EXPECT⑤「新测须真证伪/无 false-green」首版偏离——2 false-green（P1-C 顺序写恒 100=tautology·删 guard 照过 · P3 bench 无 assert + block_on 单 op 不跑并发）被 verify-diff test-validity lens 抓出 → 修+证伪证明。EXPECT③ 小偏离：P3 改诚实删非实现、迁移纯增量未去重(backlog)。候选教训「压测/并发不变量测试必带证伪证明(破坏即 fail)否则假信心」——与 2026-06-15 stress-verify REJECT 同根=2 次，未达建卡三铁律，记 logs 待回放闸门。已 type:surprise 落 logs
+
 🎯 EXPECT driver-ffi M3-F4 engine pump 落地（命令真跑 + 事件回 C++ · 镜像 native）@2026-06-18 | 赌注 高 | 可逆 是（同 branch design/ffi-cpp-direct 未 merge）
   ↳ 【2026-06-18 scope 修订·用户拍板】grounding 揭示「下沉整套 pump 核到 host、native+ffi 都成薄壳」优于「confined-to-ffi 复制」（否则 HTTP 信封 + 刚统一背压纪律随时间漂移、破跨驱动 parity）→ 用户选下沉。故断言①作废、scope 扩为三 crate（host 得 pump 核 / native 重构薄壳 / ffi 新薄壳）。安全网 = native 测试零回归。
   ↳ 可证伪预判：① 改动在 helix-driver-{host,native,ffi}/**（helix-core/helix-im 仍不碰，core 仍零运行时）② pump 跑在 dedicated std::thread + tokio current_thread runtime（core 单线程跑 · GOAL §1.3）· native 重构后 cargo test -p helix-driver-native 零回归（下沉零行为改变安全网）③ Effect 分发镜像 native engine_loop 语义——尤其 Http 任意 status→PortOutcome::Ok(ReplyBytes 同 envelope)、只传输错→Err（跨驱动 parity）④ Emit 整批→on_domain_events_batch 一次过边界（HX-C007 · 不逐条）⑤ helix_query 走 spawn_blocking 非 block_on ⑥ helix_destroy drop-sender→join 干净退出 ⑦ cargo check/clippy/test 过、helix-core 仍零运行时

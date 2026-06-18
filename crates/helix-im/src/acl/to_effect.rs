@@ -41,6 +41,111 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
     }
 }
 
+/// S3 path1：channel 全量 upsert（INSERT … ON CONFLICT(id) DO UPDATE，52 列）。
+///
+/// 入参 `cols` = `channel_write::program_full` 产出的 `(列名, 值)` 行（含 JSON rename）；
+/// `exclude_from_update` = 守卫 / 本地列（server None / 本地维护 → 冲突时不覆盖，保留既有值）。
+/// 写非热路径（仅 increment_channel 帧 / 冷启动补齐触发），列名 `&'static str` → `String`
+/// 转换在此完成（core `Row` 契约要求 String key）。复杂度 O(1)（单行 upsert WHERE PK=id）。
+///
+/// 用 `PersistFire`（幂等：ON CONFLICT 全列覆盖；丢失可由后续 increment / sync 重投覆盖恢复）。
+pub fn upsert_channel_full(
+    cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
+    exclude_from_update: Vec<&'static str>,
+) -> Effect {
+    let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    Effect::PersistFire {
+        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel",
+            rows: vec![row],
+            conflict_key: Some("id"),
+            exclude_from_update,
+        })],
+    }
+}
+
+/// S3 path2/3：channel 部分更新（UPDATE channel SET <cols> WHERE id=?）。
+///
+/// 入参 `cols` = `channel_write::collect_present`（path2）的白名单列集；空 cols → None（无写意图）。
+/// 用 `BatchUpdate`（`UPDATE … SET … WHERE id IN (?)`，单 key）。本地无此行 → 0 行命中 no-op
+/// （与现网 update_partial 同口径）。列名 `&'static str` → `String`。复杂度 O(1)（WHERE PK=id）。
+///
+/// 用 `PersistFire`（幂等：绝对列覆盖；丢失由后续 increment 全量 upsert 兜底）。
+pub fn update_channel_partial(
+    channel_id: ChannelId,
+    cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
+) -> Option<Effect> {
+    if cols.is_empty() {
+        return None;
+    }
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    let patch: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    Some(Effect::PersistFire {
+        ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
+            table: "channel",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+            patch,
+        })],
+    })
+}
+
+/// S3 path3：新消息触发 channel 写——未读 +1 **SQL 自增**（守 HX-C005，禁读改写）+ lastPost 组。
+///
+/// 入参 = `channel_write::PostChannelUpdate`（纯计算决策）。落成单条 `GuardedBump`：
+/// `UPDATE channel SET unread_count = unread_count + <delta>[, unread_post_id=?, last_post=?,
+///  last_root_post_at=?] WHERE id=? AND <msg_create_at> > last_root_post_at`。
+/// 守卫 `msg_create_at > last_root_post_at` 同时门控 lastPost 组与未读组（旧 / 重复消息不污染）。
+/// `unread_delta==0`（自己消息 / 不可见）→ 自增 0，但 lastPost 组仍在守卫命中时写（与现网
+/// 「可见但自己发」仍更新 last_post 一致；unread_post_id 仅 delta>0 时写）。
+///
+/// 用 `PersistFire`（幂等：守卫保证同消息重复投递不重复 +1）。`set_cols` 列名 `&'static str`。
+pub fn bump_channel_unread(upd: &crate::channel_write::PostChannelUpdate) -> Effect {
+    Effect::PersistFire {
+        ops: vec![bump_channel_unread_op(upd)],
+    }
+}
+
+/// `bump_channel_unread` 的 StorageOp 内核（A3：供 sync 应用路径并入同一 `Effect::Persist` 批，
+/// 与 message 落库同 corr 落定 → DB unread 列写成功后 cursor 才推进，CAP-9 在线/离线同口径）。
+///
+/// `GuardedBump`（`SET unread_count=unread_count+delta, set_cols… WHERE id=? AND guard>last_root`）
+/// 守卫保证旧 / 重复消息不重复 +1（幂等，HX-C005 O(1) SQL 自增禁 RMW）。`delta==0`（自己 /
+/// 不可见）→ 自增 0，但守卫命中时 lastPost 组仍写（与现网一致）。
+pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> StorageOp {
+    use helix_core::effect::{GuardedBumpSpec, SqlValue};
+    let mut set_cols: Row = Vec::with_capacity(3);
+    // unread_post_id 仅在确有未读 +1（他人可见消息）时写绝对值。
+    if let Some(ref pid) = upd.unread_post_id {
+        set_cols.push(("unread_post_id".to_string(), SqlValue::Text(pid.clone())));
+    }
+    // lastPost 组（可见时；不可见 last_post 为空串，本函数据此跳过——对齐现网 update_last_post
+    // 仅在可见时才赋值 last_post）。
+    if !upd.last_post.is_empty() {
+        set_cols.push((
+            "last_post".to_string(),
+            SqlValue::Text(upd.last_post.clone()),
+        ));
+    }
+    if upd.has_schedule_post {
+        set_cols.push(("has_schedule_post".to_string(), SqlValue::Integer(1)));
+    }
+    set_cols.push((
+        "last_root_post_at".to_string(),
+        SqlValue::Integer(upd.msg_create_at),
+    ));
+    StorageOp::GuardedBump(GuardedBumpSpec {
+        table: "channel",
+        key_col: "id",
+        key_val: SqlValue::Text(upd.channel_id.as_str().to_string()),
+        bump_col: "unread_count",
+        bump_delta: upd.unread_delta,
+        set_cols,
+        guard_col: "last_root_post_at",
+        guard_val: upd.msg_create_at,
+    })
+}
+
 /// advance_cursor：推进 per-channel 同步 cursor（fire-and-forget，写成功后调用）。
 ///
 /// cursor 是 IM 概念，停留在 helix-im；底层用 core 的通用单调原语 `MonotonicUpsert` 表达。
@@ -305,9 +410,12 @@ pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
 // driver 侧由 event_sink 透传进 im:__bus__（host-cli 无窗口 → 以 DomainEvent 计数验，
 // 真 app.emit 留 M2 接缝）。phantom 不 emit（与落库一致，HX-C008 cursor 独立推进不依赖可见性）。
 
-/// C3：type=6 已读 echo → `im:post:read`（真源 post.rs:1413-1437，无须 body 恒 emit）。
+/// 在线 `post_read`（type=6）→ `im:post:read`（真源 post.rs:157/167，WS 在线已读回声）。
 ///
-/// 真源 emit `im:channel:read_echo`；helix spec C3 统一命名 `im:post:read`（mutation 语义）。
+/// 仅**在线** WS post_read handler 路径走此事件名（gate apply 经 `emit_for_kind`）。
+/// **离线 sync 应用**的 type6 read 走另一事件名 `im:channel:read_echo`（见
+/// `emit_channel_read_echo` / `sync_mutation_emits`，真源 post.rs:1428）——A5 修复：两路径
+/// 按现网区分，不再统一命名（守 spec §0.3/§S9 前端零改动契约）。
 /// 服务端权威 read_bits 已经 C2 落库单调覆盖；本事件让前端刷新该 msg 的已读态 UI。
 pub fn emit_post_read(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
     use serde_json::json;
@@ -328,6 +436,31 @@ pub fn emit_post_read(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Ef
     }
 }
 
+/// 离线 sync 应用的 type=6 read → `im:channel:read_echo`（真源 post.rs:1428）。
+///
+/// **A5 修复**：现网区分两条 read 回声——在线 WS post_read 发 `im:post:read`（post.rs:157/167），
+/// **sync 应用**的 type6 read 发 `im:channel:read_echo`（post.rs:1428）。此前 helix
+/// `sync_mutation_emits` 统一发 `im:post:read`（违 spec §0.3/§S9 前端零改动契约——前端 read_echo
+/// 订阅分支收不到）。本工厂供 sync 应用路径专用，与在线路径分流。
+pub fn emit_channel_read_echo(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channel:read_echo",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "event_seq": event_seq,
+            "msg_id": msg_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_read_echo: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 /// C3：type=2 编辑 → `im:post:updated`（真源 post.rs:1337，**仅可见时** emit；phantom noop）。
 pub fn emit_post_updated(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
     use serde_json::json;
@@ -342,6 +475,35 @@ pub fn emit_post_updated(channel_id: ChannelId, event_seq: u64, msg_id: &str) ->
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
             .expect("emit_post_updated: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// `posts_update`（批量编辑/撤回）→ `im:post:batch-updated`（真源 post.rs:254）。
+///
+/// payload 形态 = `{posts: [...]}`（前端 message_loop.rs:187/341 专门按此事件名 + `posts` 数组
+/// 形态解析）。**A4 修复**：此前 posts_update 误用 `emit_post_updated`（事件名 `im:post:updated`
+/// + payload `{event_seq,msg_id:''}`）——事件名与形态双错，前端批量编辑分支收不到。
+/// `posts` 由调用方透传帧的 `data.posts` 数组（前端直接消费），非法/缺失降级空数组。
+pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value) -> Effect {
+    use serde_json::json;
+    let posts = if posts.is_array() {
+        posts.clone()
+    } else {
+        json!([])
+    };
+    let payload = json!({
+        "event": "im:post:batch-updated",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "posts": posts,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_batch_updated: static JSON shape must not fail to serialize"),
     );
     Effect::Emit {
         event: DomainEventBytes(bytes),
@@ -538,6 +700,41 @@ pub fn batch_upsert_events_with_messages(
             // 前向兼容：未知类型不落库（cursor 照推）。
             EventKind::Other(_) => {}
         }
+    }
+    ops
+}
+
+/// A3/CAP-9：离线 sync 应用的可见 type1 新消息 → channel 未读 +1 **落 DB**（不只 emit）。
+///
+/// 真源 post.rs:1234 离线 sync apply 显式调 `update_channel_from_post`（内含 sender 豁免 +
+/// 可见性门控）把 `unread_count` +1 落库——否则离线 >N 事件重连后 `store_query channel` 读出的
+/// `unread_count` 列不含离线未读（UC-3 / 红点 +N 不达成）。此前 helix sync apply 仅 emit
+/// `im:channel:update-by-post`（把 +N 推前端裁决），**DB 列不增** = A3 缺口。
+///
+/// 与在线 `post.rs` handler 的 `bump_channel_unread` 同口径（CAP-9 在线/离线对单条事件互斥，
+/// 不重复 +1：在线帧已 reconcile 的本端 echo 不进 sync；他人消息在线已 +1 则 cursor 已过、
+/// 不会再进 sync 区间）。phantom（msg_id ∉ messages）= 不可见内容 → 不 bump（与落库一致）。
+/// 复杂度：每事件 O(1)（HashMap 查 + 谓词 + 单 GuardedBump 构造）。
+pub fn sync_unread_bump_ops(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+) -> Vec<StorageOp> {
+    use crate::sync_session::EventKind;
+
+    let mut ops = Vec::new();
+    for ev in events {
+        if !matches!(ev.kind, EventKind::PostUpsert) {
+            continue;
+        }
+        // 仅可见 type1（命中 messages map）才参与未读决策——与落库 / emit 同 phantom 口径。
+        let Some(fields) = ev.msg_id.as_deref().and_then(|id| messages.get(id)) else {
+            continue;
+        };
+        let upd =
+            crate::channel_write::post_updates_from_fields(ev.channel_id, fields, auth_user_id);
+        // delta==0（自己 / 不可见）仍可能写 lastPost 组；GuardedBump 守卫幂等，安全并入批。
+        ops.push(bump_channel_unread_op(&upd));
     }
     ops
 }

@@ -59,7 +59,7 @@ pub fn emit_channel_member_updated(channel_id: ChannelId, raw: &[u8]) -> Effect 
     )
 }
 
-/// `update_channel_member_nickName` → `im:channel:memberNickname`(真源 channel.rs:757)。
+/// `update_channel_member_nickName` → `im:channel:memberNickname`（真源 channel.rs:757）。
 pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &str) -> Effect {
     emit(
         "im:channel:memberNickname",

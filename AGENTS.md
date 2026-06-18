@@ -98,6 +98,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
 | HX-C009 | 预期对账闭环完整性（DRIFT-PRED 真接入 · EXPECT 可证伪 · 偏离不自产自判）| active |
 | HX-C010 | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序）| active |
+| HX-C011 | 测试可证伪性铁律（压测/并发必带破坏即fail 证伪 · 禁墙钟下界断言，结构化/计数证不变量）| active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 

@@ -13,8 +13,9 @@ WS 协议 / HTTP / SQLite 的真正执行已下沉 `helix-driver-host`（ADR-007
 
 ## 图清单
 
-| 图 | 一句话 | 覆盖源码 |
+| 文档 / 图 | 一句话 | 覆盖源码 |
 |---|---|---|
+| **[`00-设计思想.md`](00-设计思想.md)** | **角色宣言**：native 薄壳定义 / ADR-007 前后对比（1119→168 行）/ NativeEventSink broadcast no-op flush / NativeStorage 委托层 parity / 合法 ambient API 落点 | — |
 | [`01-engine-loop-event-pump.mmd`](01-engine-loop-event-pump.mmd) | **事件泵全景**：transport/timer/command 三源 → Tick → tick_tx(cap=256) → biased select(reply 优先) → step → consume_effects → dispatch → Effect 兑现器 → PortReply 经 unbounded reply_tx 回灌闭环。🔴 死锁红线①②标注 | `engine_loop.rs` run_engine_loop_with_transports / 主循环 |
 | [`02-bounded-spawner-backpressure.mmd`](02-bounded-spawner-backpressure.mmd) | **统一背压原语 BoundedSpawner 三态**：Persist(N=1 Block 保写序) / Http(N=8 Block 必达不丢) / HttpFire(N=8 DropNewest 可丢·满即丢当前条目)；有界队列 cap=1024 + 独立 unbounded reply_tx。🔴 红线①(reply_tx 永不有界) + 红线②(抽水绝不放泵循环)·单向 DAG 死锁安全证明 | `engine_loop.rs` struct BoundedSpawner / Overflow / submit / get_or_spawn_persist / spawn_http_pool |
 | [`03-effect-dispatch-routing.mmd`](03-effect-dispatch-routing.mmd) | **Effect 兑现路由**：9 种 Effect 各自怎么被 native 兑现——Send→WS / Persist·PersistFire→spawner→host SQLite / Http·HttpFire→spawner→reqwest / Emit→broadcast event_sink / Schedule·CancelTimer→TimerRegistry / Request→deferred stub | `engine_loop.rs` dispatch_effects match + consume_effects |

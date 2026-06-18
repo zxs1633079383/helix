@@ -10,6 +10,7 @@
   ↳ 沉淀：helix-driver-{host,ffi,native}/docs/design/00-设计思想.md（host 完整 8 节：北极星/parity by construction/C++直连pivot/BatchSink/读写并发/方法论教训/不变量/待办 · ffi+native 角色版引用 host）+ ffi/03-helix-query-design.md
   ↳ ⚡ DRIFT-PRED：merge 后 gate.sh 红——P1-A 墙钟下界断言 flaky（finalize worktree 侥幸过/dev-zlc 更快即 FAIL）。hotfix daf44fe 删下界(保留全完成/无死锁/非全串行非 flaky 断言)。教训「timing 断言天生非确定，不变量结构化证不靠墙钟」=「压测证伪证明」族**第 3 次同根**（2026-06-15 stress REJECT + storage false-green + 本次 flaky）→ **达 HX-C 建卡阈值(≥3)，下次 architecture-drift-review 过回放闸门建卡**。已 type:surprise 落 logs
   ↳ 验证：cargo test host+native 全绿 · clippy -D warnings 0 · core 零运行时 · structure-gate + gate.sh 全闸门
+  ↳ 🎯 EXPECT（事后补记·十轮 drift-review F3 补偿·本应开局写）：可证伪预判——① 改动只在 driver-{host,native,ffi}/**（+ core 仅 DropOldest 文档残留、零代码逻辑改）② 改名 DropNewest behavior-neutral（cargo test 不破）③ 压测去重覆盖不减 ④ 三端设计思想 md 沉淀 ⑤ gate.sh 过。实际偏离：P1-A flaky 已记上方 DRIFT-PRED。**教训**：实质收尾任务亦须开局 EXPECT——§4.8 drift-review F3 抓出本 DONE 缺配对 EXPECT，DRIFT-PRED 一度悬空
 
 🎯 EXPECT storage 读写并发压测全 phase（下沉后共享核覆盖 + sync-v2 写负载）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/storage-rw-concurrency 未 merge）
   ↳ 可证伪预判：① 改动只在 helix-driver-{host,native}/{tests,benches}（+ 仅 P0 命中 dev-zlc RMW 时 helix-im/channel.rs 一处），不碰 core/仍零运行时 ② P0 path3 未读自增确认为原子 `ON CONFLICT SET unread=unread+excluded`（预测合规非 RMW；若 RMW 则修）③ 6 缺口场景落地（读读 N>4 背压/WAL 脏读断言/多 channel cursor 单调/engine 混合 flood/FFI↔native bench）+ native↔host 迁移清单 ④ cargo test host 全绿 + native 零回归 ⑤ verify 无 blocking 才算成（新测须真证伪、无 false-green）

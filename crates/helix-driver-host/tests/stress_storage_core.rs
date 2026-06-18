@@ -20,7 +20,7 @@
 
 use std::time::Instant;
 
-use helix_core::effect::{MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec};
+use helix_core::effect::{GetSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec};
 use helix_core::ports::Storage;
 use helix_driver_host::HostStorage;
 
@@ -105,6 +105,21 @@ async fn stress_batch_upsert_39x100() {
     eprintln!(
         "  row throughput   : {:.0} rows/s",
         total_rows as f64 / elapsed.as_secs_f64()
+    );
+
+    // 事务完整性断言（HX-C011：破坏即 fail）——全 3900 行须落盘。
+    // 若某批 batch_upsert 静默丢行 / 事务未提交，scan 回来 < total_rows → FAIL。
+    let landed = storage
+        .scan(ScanSpec {
+            table: "messages",
+            limit: Some(10_000),
+        })
+        .await
+        .expect("scan after 39x100");
+    assert_eq!(
+        landed.len(),
+        total_rows as usize,
+        "全 {total_rows} 行须落盘（39×100 批事务完整性）"
     );
 }
 
@@ -263,5 +278,33 @@ async fn stress_monotonic_upsert_1000() {
     eprintln!(
         "  call throughput  : {:.0} calls/s",
         N as f64 / elapsed.as_secs_f64()
+    );
+
+    // 单调防回退断言（HX-C011：破坏即 fail）——MAX guard 验证。
+    // 写完 1..N 终态应为 N；再写一个回退值（N/2 < N），MAX guard 应拒绝，终态仍 N。
+    // 若 guard 被移除（无条件 UPDATE），回退值覆写 → 下面断言 FAIL。
+    storage
+        .monotonic_upsert(MonotonicUpsertSpec {
+            scope_key: "channel_event_cursor:1".to_string(),
+            value: N / 2,
+        })
+        .await
+        .expect("regression monotonic_upsert");
+    let row = storage
+        .get(GetSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            key_val: SqlValue::Text("channel_event_cursor:1".to_string()),
+        })
+        .await
+        .expect("get monotonic after regression");
+    let val = row
+        .as_ref()
+        .and_then(|r| r.iter().find(|(k, _)| k == "value"))
+        .map(|(_, v)| v.clone());
+    assert!(
+        matches!(val, Some(SqlValue::Integer(v)) if v == N),
+        "monotonic cursor 终态应为 {N}（回退值 {} 被 MAX guard 拒），实际: {val:?}",
+        N / 2
     );
 }

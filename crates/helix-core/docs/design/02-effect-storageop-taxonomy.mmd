@@ -19,7 +19,7 @@ flowchart TD
     %% ── B 类：Fire-and-forget（无 corr · 不回 PortReply）──
     ROOT --> B["② Fire-and-forget · 无 corr · 不产 PortReply<br/>仅限【幂等 且 丢失可自愈】"]:::fire
     B --> B1["✅ PersistFire{ops}<br/>幂等写（如 monotonic_upsert 推水位）<br/>禁首次落库业务数据"]:::fire
-    B --> B2["⚠️ HttpFire{req}<br/>可丢 HTTP（DropOldest 溢出）<br/>helix-im 暂为空桶，为 telemetry/心跳预留"]:::fire
+    B --> B2["⚠️ HttpFire{req}<br/>可丢 HTTP（DropNewest 溢出·丢本条）<br/>helix-im 暂为空桶，为 telemetry/心跳预留"]:::fire
 
     %% ── C 类：无 corr 的其余意图 ──
     ROOT --> C["③ 其余意图 · 无 corr"]:::nocorr

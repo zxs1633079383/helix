@@ -64,9 +64,14 @@ graduates_to:
 ```bash
 # 墙钟下界断言（危险）
 grep -rn 'assert!(.*\(wall\|elapsed\).*>=' crates/*/tests crates/*/benches
-# 无 assert 只 eprintln 的性能判据（疑似 false-green）
-grep -rln 'eprintln!.*\(throughput\|吞吐\|ops/s\|回归\)' crates/*/tests | \
-  xargs grep -L 'assert!' 2>/dev/null
+# 无 assert 只 eprintln 的性能判据（false-green）——**函数级**扫描。
+# ⚠️ 文件级 `grep -L 'assert!'` 对混合文件逃检：含 assert 的文件整体被 -L 排除，
+#    块内 assert-less 测试永久漏检（见 §5 2026-06-18 实测）。必须按 fn 切块逐块判：
+for f in crates/*/tests/*stress*.rs crates/*/benches/*.rs; do
+  awk -v F="$f" '/^[[:space:]]*(pub )?(async )?fn /{if(n&&p&&!a)print F": "n; n=$0;p=0;a=0}
+    /assert!/{a=1} /eprintln!.*(throughput|ops\/s|吞吐|回归)/{p=1}
+    END{if(n&&p&&!a)print F": "n}' "$f"
+done
 # 压测/不变量测试应有「破坏→fail」证明（commit body 或注释）
 ```
 > 审查准则：每个 stress/invariant 测试问一句「把不变量删了它会 fail 吗？」——不会 = false-green，打回。
@@ -77,6 +82,7 @@ grep -rln 'eprintln!.*\(throughput\|吞吐\|ops/s\|回归\)' crates/*/tests | \
 | 2026-06-15 | stress-verify | verdict=REJECT | N=1 墙钟 + 阈值松 + 并发未严格证明 |
 | 2026-06-18 | storage 压测 verify-diff | P1-C tautology + P3 无 assert | 顺序写恒值 / 注释当判据 / block_on 单 op 不跑并发 |
 | 2026-06-18 | daf44fe | P1-A 墙钟下界 flaky（finalize 侥幸过 / dev-zlc FAIL） | timing 下界假设分批串行，快读 pipeline 违反 |
+| 2026-06-18 | 建卡当 diff drift-review | stress_storage_core 2 测无 assert（建卡同 diff 即违反）+ §4 文件级 grep -L 对混合文件逃检 | 下沉迁移漏补 assert；gate 文件级盲区 → 补 break→fail 断言 + gate 升函数级（本 commit） |
 
 ## §6 关联
 - 兄弟：HX-C005（热路径 O(1)，压测对象）· HX-C009（预期对账：偏离不自产自判，false-green 是「自评通过实则证不了」的实例）

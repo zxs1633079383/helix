@@ -233,13 +233,13 @@ pub enum Effect {
     /// driver 对必达 `Http` 在超载时**只能 block-back**（队满 `.await` 把背压传导回
     /// tick_tx，慢而不丢），**绝不 drop**——因为 PortReply 是 load-bearing：响应数据 /
     /// inflight-gate 清除 / cursor 推进都依赖它。
-    /// 「丢最旧」降级为显式 opt-in（见 `HttpFire`），不再是 Http 的全局默认。
+    /// 「满即丢本条」降级为显式 opt-in（见 `HttpFire`），不再是 Http 的全局默认。
     Http { corr: Correlation, req: HttpRequest },
 
     /// 幂等 fire-and-forget HTTP（**可丢弃·丢失可自愈**）：不带 Correlation，不产出 PortReply。
     ///
-    /// 与 `PersistFire` 对称——driver 对 `HttpFire` 用 DropOldest 溢出策略
-    /// （背压下丢最旧 + warn），泵不阻塞。
+    /// 与 `PersistFire` 对称——driver 对 `HttpFire` 用 DropNewest 溢出策略
+    /// （队满丢本条/最新来的 + warn），泵不阻塞。
     ///
     /// ## 约束（强制，与 `PersistFire` 同口径）
     ///

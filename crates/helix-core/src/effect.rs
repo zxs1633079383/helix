@@ -88,6 +88,9 @@ pub enum StorageOp {
     MonotonicUpsert(MonotonicUpsertSpec),
     /// batch update：UPDATE table SET patch WHERE key_col IN (key_vals)
     BatchUpdate(BatchUpdateSpec),
+    /// 守卫式自增：`UPDATE … SET bump_col = bump_col + delta[, set…] WHERE key=? AND ? > guard_col`。
+    /// 通用计数器原语（无 read-modify-write），见 `GuardedBumpSpec`。
+    GuardedBump(GuardedBumpSpec),
     /// get：SELECT * FROM table WHERE ...（单行）
     Get(GetSpec),
     /// scan：SELECT * FROM table [LIMIT n]（多行，C3）
@@ -111,15 +114,53 @@ pub struct UpsertSpec {
     pub rows: Vec<Row>,
     /// ON CONFLICT 的列名（如 ACL-1 提供 "temporary_id"；core 不知道含义）
     pub conflict_key: Option<&'static str>,
+    /// 冲突时**不**更新的列（INSERT 仍写其字面值，ON CONFLICT DO UPDATE 排除它们）。
+    ///
+    /// 用途：守卫列 / 本地维护列——新行用提供的字面值，但已存在的行保留既有值
+    /// （"server 缺省 → 回退本地"语义在 upsert 层表达，无需先读后写）。列名编译期常量，
+    /// driver 不解释含义（守 HX-C001）。空 = 旧行为（除 conflict_key 外全列更新）。
+    ///
+    /// 默认空：用 `UpsertSpec::new(...)` 构造可零改动迁移既有调用方。
+    pub exclude_from_update: Vec<&'static str>,
+}
+
+impl UpsertSpec {
+    /// 便捷构造（无排除列，旧默认行为）——既有调用方零改动迁移点。
+    pub fn new(table: &'static str, rows: Vec<Row>, conflict_key: Option<&'static str>) -> Self {
+        Self {
+            table,
+            rows,
+            conflict_key,
+            exclude_from_update: Vec::new(),
+        }
+    }
 }
 
 /// 通用单调 MAX-guard 写规格：仅当 `value > 当前值` 才写入（CAS / 单调寄存器语义）。
 ///
 /// 通用原语，core 不含任何业务含义——典型用途：增量同步水位、presence 心跳时间戳、单调计数器。
 /// `scope_key` 是运行时值（由上层提供，如 channel_id.to_string()），core 不解析其含义。
+///
+/// ## 表名 / 列名作数据（HX-C001）
+///
+/// `table` / `key_col` / `value_col` / `touch_col` 都是**编译期常量**（`&'static str`），
+/// 由上层业务模块提供。core 只把它们当字符串透传给 driver 拼 SQL，**绝不**理解其业务含义
+/// ——业务 schema 不进 core（守 HX-C001）。`touch_col` 为 `Some` 时，driver 用自身的
+/// ambient 时钟（driver 层合法）写穿该列为当前毫秒时间戳（非权威镜像列，不参与 MAX guard 判定）。
 #[derive(Debug, Clone)]
 pub struct MonotonicUpsertSpec {
+    /// 目标表名（编译期常量；core 不解释含义）
+    pub table: &'static str,
+    /// PRIMARY KEY 列名（编译期常量）
+    pub key_col: &'static str,
+    /// 单调 MAX-guard 的值列名（编译期常量）
+    pub value_col: &'static str,
+    /// 可选「最近更新时间」列名；`Some` 时 driver 写穿当前时间戳，
+    /// 不参与 MAX guard。`None` = 无此列（最小单调寄存器形态）。
+    pub touch_col: Option<&'static str>,
+    /// PK 运行时值（由上层提供）；core 不解析其含义。
     pub scope_key: String,
+    /// 单调写入值；仅当 `> 当前值` 才前进。
     pub value: i64,
 }
 
@@ -132,6 +173,48 @@ pub struct BatchUpdateSpec {
     pub key_col: &'static str,
     pub key_vals: Vec<SqlValue>,
     pub patch: Row,
+}
+
+/// 守卫式自增规格：单行原子计数器递增 + 可选绝对列写，带前进守卫——**无 read-modify-write**。
+///
+/// SQL 语义（表名 / 列名都是编译期常量，由上层业务模块提供——守 HX-C001，core/driver
+/// 不解释含义；`key_val` / `set_cols` 值 / `bump_delta` / `guard_val` 是运行时数据）：
+/// ```sql
+/// UPDATE <table> SET <bump_col> = <bump_col> + <bump_delta> [, <set_cols…> = ?…]
+///   WHERE <key_col> = ? AND ? > <guard_col>
+/// ```
+/// （守卫占位 `?` 绑定 `guard_val`：仅当 `guard_val > 当前 guard_col` 才命中更新。）
+///
+/// ## 为什么需要独立原语（不能用 `BatchUpdate`）
+///
+/// `BatchUpdate` 只能 `SET col = ?`（绝对值）+ `WHERE key IN (…)`——无法表达
+/// `col = col + delta`（自增）也无法表达 `AND ? > guard_col`（前进守卫）。把「读出 +1 写回」
+/// 下沉成单条 SQL `col = col + delta` 是 HX-C005 热路径 O(1) 的硬约束（禁应用层 RMW）；
+/// 守卫条件让「同一消息重复投递不重复 +1」「乱序旧消息不污染计数」在 SQL 层幂等成立。
+///
+/// ## 通用性（YAGNI 边界）
+///
+/// 纯计数器语义，core 不含任何业务含义——典型用途：未读计数 +1（guard=last_post_at 防回退）、
+/// 限流桶累加、引用计数。`set_cols` 为空 = 纯自增；`guard_val=i64::MIN`/无意义守卫由上层避免
+/// （上层须保证 guard 语义正确）。`set_cols` 列名同样是 `&'static str` 编译期常量。
+#[derive(Debug, Clone)]
+pub struct GuardedBumpSpec {
+    /// 目标表名（编译期常量；core 不解释含义）
+    pub table: &'static str,
+    /// 主键列名（编译期常量）
+    pub key_col: &'static str,
+    /// 主键运行时值（定位单行；core 不解析含义）
+    pub key_val: SqlValue,
+    /// 被自增的数值列名（编译期常量）
+    pub bump_col: &'static str,
+    /// 自增量（运行时值，通常 +1；负数 = 自减）
+    pub bump_delta: i64,
+    /// 与自增同事务写入的绝对值列（列名编译期常量，值运行时）；空 = 纯自增。
+    pub set_cols: Row,
+    /// 前进守卫列名（编译期常量）：仅当 `guard_val > <guard_col> 当前值` 才更新整行。
+    pub guard_col: &'static str,
+    /// 守卫比较值（运行时）：严格大于现值才命中（防重复 / 旧值回退）。
+    pub guard_val: i64,
 }
 
 /// get 规格

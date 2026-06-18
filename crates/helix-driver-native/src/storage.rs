@@ -6,7 +6,8 @@
 //! implementation details.
 
 use helix_core::effect::{
-    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec, UpsertSpec,
+    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec,
+    UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -41,6 +42,10 @@ impl Storage for NativeStorage {
 
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {
         self.inner.monotonic_upsert(spec).await
+    }
+
+    async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError> {
+        self.inner.guarded_bump(spec).await
     }
 
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {

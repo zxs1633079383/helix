@@ -67,6 +67,7 @@ impl PendingSend {
                 ]],
                 // conflict_key 的值（"temporary_id"）由 ACL-1 提供，core 不知道含义
                 conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
             })],
         });
 
@@ -104,6 +105,7 @@ impl PendingSend {
                     ),
                 ]],
                 conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
             })],
         });
     }

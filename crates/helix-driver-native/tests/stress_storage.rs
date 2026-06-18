@@ -82,6 +82,7 @@ async fn parity_native_batch_upsert_5000() {
             table: "messages",
             rows,
             conflict_key: Some("seq"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("parity batch_upsert 5000 rows");
@@ -127,6 +128,10 @@ async fn parity_native_monotonic_upsert_no_regression() {
     for i in 1..=100i64 {
         storage
             .monotonic_upsert(MonotonicUpsertSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                value_col: "value",
+                touch_col: None,
                 scope_key: "parity_cursor:1".to_string(),
                 value: i,
             })
@@ -137,6 +142,10 @@ async fn parity_native_monotonic_upsert_no_regression() {
     // 尝试写入回退值：MAX guard 应使之成为 no-op。
     storage
         .monotonic_upsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "parity_cursor:1".to_string(),
             value: 50, // 小于当前值 100
         })

@@ -83,6 +83,10 @@ async fn multi_channel_cursor_monotone_under_concurrency() {
         handles.push(tokio::spawn(async move {
             for step in 1..=(STEPS as i64) {
                 s.monotonic_upsert(MonotonicUpsertSpec {
+                    table: "_helix_monotonic",
+                    key_col: "scope_key",
+                    value_col: "value",
+                    touch_col: None,
                     scope_key: format!("channel:{ch}"),
                     value: step,
                 })
@@ -132,6 +136,10 @@ async fn multi_channel_cursor_monotone_under_concurrency() {
     for ch in 0..CHANNELS {
         storage
             .monotonic_upsert(MonotonicUpsertSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                value_col: "value",
+                touch_col: None,
                 scope_key: format!("channel:{ch}"),
                 value: REGRESSION_VALUE, // 故意写小于 STEPS 的值
             })

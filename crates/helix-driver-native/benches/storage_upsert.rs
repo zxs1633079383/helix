@@ -57,6 +57,7 @@ fn bench_batch_upsert(c: &mut Criterion) {
                 table: "bench_msgs",
                 rows: rows.clone(),
                 conflict_key: Some("seq"),
+                exclude_from_update: Vec::new(),
             }))
             .expect("upsert");
         });

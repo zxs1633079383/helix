@@ -36,6 +36,7 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
             table: "message",
             rows: vec![row],
             conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
         })],
     }
 }
@@ -45,8 +46,16 @@ pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) 
 /// cursor 是 IM 概念，停留在 helix-im；底层用 core 的通用单调原语 `MonotonicUpsert` 表达。
 /// `scope_key = channel_id` 是 IM 业务键名，core 不知道这是 channel。
 pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
+    // B0 substrate：`MonotonicUpsertSpec` 扩了 table/key_col/value_col/touch_col 字段后，
+    // 此处显式指向既有 `_helix_monotonic` 表（scope_key/value 列，touch_col=None），
+    // 行为与扩字段前完全一致——cursor 目标表 retarget 到 `channel_event_cursor`
+    // 属 Phase B schema 工作（audit-B §1f），不在 B0 范围。
     Effect::PersistFire {
         ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: channel_id.as_str().to_string(),
             value: target_seq.0 as i64,
         })],

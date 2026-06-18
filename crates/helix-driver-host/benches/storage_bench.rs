@@ -127,6 +127,7 @@ fn bench_batch_upsert_5000(c: &mut Criterion) {
                 table: "bench_msgs",
                 rows: template.clone(),
                 conflict_key: Some("seq"),
+                exclude_from_update: Vec::new(),
             }))
             .expect("upsert");
         });
@@ -176,6 +177,7 @@ fn bench_batch_upsert_39x100(c: &mut Criterion) {
                             table: "bench_msgs",
                             rows,
                             conflict_key: Some("seq"),
+                            exclude_from_update: Vec::new(),
                         })
                         .await
                         .expect("upsert");
@@ -213,6 +215,10 @@ fn bench_monotonic_upsert(c: &mut Criterion) {
             let value = counter.get();
             counter.set(value + 1);
             rt.block_on(storage.monotonic_upsert(MonotonicUpsertSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                value_col: "value",
+                touch_col: None,
                 scope_key: "channel_1".to_string(),
                 value,
             }))

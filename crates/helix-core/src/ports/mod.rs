@@ -18,7 +18,9 @@ pub mod id;
 pub mod storage;
 pub mod transport;
 
-pub use crate::effect::{BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, ScanSpec, UpsertSpec};
+pub use crate::effect::{
+    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec, UpsertSpec,
+};
 pub use clock::Clock;
 #[cfg(any(test, feature = "testing"))]
 pub use clock::MockClock;

@@ -346,6 +346,7 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
             ("create_at".to_string(), SqlValue::Integer(f.create_at)),
         ]],
         conflict_key: Some("temporary_id"),
+        exclude_from_update: Vec::new(),
     })
 }
 

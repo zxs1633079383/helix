@@ -13,7 +13,9 @@
 //! - wasm:   sqlite-wasm-rs + OPFS（需 RUSTFLAGS=atomics+bulk-memory，在 Worker 初始化）
 //! - ffi:    host SQLite handle via C ABI
 
-use crate::effect::{BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec};
+use crate::effect::{
+    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec,
+};
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
 
@@ -57,6 +59,13 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     ///
     /// `spec.scope_key` 是运行时值（由上层提供），core 不含业务含义。
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError>;
+
+    /// 守卫式自增：`UPDATE … SET bump_col = bump_col + delta[, set…] WHERE key=? AND ? > guard_col`。
+    ///
+    /// 单行原子计数器递增（**无 read-modify-write**，守 HX-C005 O(1)）+ 前进守卫
+    /// （仅当 `guard_val > guard_col` 现值才命中）。SQL 语义见 `GuardedBumpSpec`。
+    /// 列名都是 `&'static str` 编译期常量（由上层提供，driver 不解释含义，守 HX-C001）。
+    async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError>;
 
     /// get：单行查询
     async fn get(&self, spec: GetSpec) -> Result<Option<Row>, PortError>;

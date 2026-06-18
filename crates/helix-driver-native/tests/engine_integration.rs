@@ -107,6 +107,10 @@ impl Module for FakeModule {
                         corr: Correlation::from_raw(*corr_raw),
                         ops: vec![StorageOp::MonotonicUpsert(
                             helix_core::effect::MonotonicUpsertSpec {
+                                table: "_helix_monotonic",
+                                key_col: "scope_key",
+                                value_col: "value",
+                                touch_col: None,
                                 scope_key: format!("test_key_{}", corr_raw),
                                 value: 1,
                             },

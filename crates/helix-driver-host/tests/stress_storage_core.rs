@@ -85,6 +85,7 @@ async fn stress_batch_upsert_39x100() {
                 table: "messages",
                 rows,
                 conflict_key: Some("seq"),
+                exclude_from_update: Vec::new(),
             })
             .await
             .expect("batch_upsert 39 rows");
@@ -140,6 +141,7 @@ async fn stress_batch_upsert_5000_single_batch() {
             table: "messages",
             rows,
             conflict_key: Some("seq"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("batch_upsert 5000 rows");
@@ -200,6 +202,7 @@ async fn stress_10k_flood_no_deadlock_all_landed() {
                 table: "messages",
                 rows,
                 conflict_key: Some("seq"),
+                exclude_from_update: Vec::new(),
             })
             .await
             .expect("flood batch_upsert");
@@ -257,6 +260,10 @@ async fn stress_monotonic_upsert_1000() {
     for i in 1..=N {
         storage
             .monotonic_upsert(MonotonicUpsertSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                value_col: "value",
+                touch_col: None,
                 scope_key: "channel_event_cursor:1".to_string(),
                 value: i,
             })
@@ -285,6 +292,10 @@ async fn stress_monotonic_upsert_1000() {
     // 若 guard 被移除（无条件 UPDATE），回退值覆写 → 下面断言 FAIL。
     storage
         .monotonic_upsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "channel_event_cursor:1".to_string(),
             value: N / 2,
         })

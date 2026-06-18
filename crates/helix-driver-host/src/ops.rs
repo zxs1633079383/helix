@@ -35,6 +35,10 @@ where
                     Err(e) => return PortOutcome::Err(classify_port_error(e)),
                 }
             }
+            StorageOp::GuardedBump(spec) => match storage.guarded_bump(spec.clone()).await {
+                Ok(()) => {}
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
             StorageOp::Get(spec) => match storage.get(spec.clone()).await {
                 Ok(Some(row)) => {
                     last_ok_bytes = rows_to_reply_bytes(&[row]);
@@ -67,7 +71,8 @@ pub fn table_set_key(ops: &[StorageOp]) -> String {
         .map(|op| match op {
             StorageOp::BatchUpsert(s) => s.table,
             StorageOp::BatchUpdate(s) => s.table,
-            StorageOp::MonotonicUpsert(_) => "_helix_monotonic",
+            StorageOp::MonotonicUpsert(s) => s.table,
+            StorageOp::GuardedBump(s) => s.table,
             StorageOp::Get(s) => s.table,
             StorageOp::Scan(s) => s.table,
         })
@@ -125,11 +130,11 @@ mod tests {
     #[test]
     fn test_table_set_key_single_table() {
         use helix_core::effect::UpsertSpec;
-        let ops = vec![StorageOp::BatchUpsert(UpsertSpec {
-            table: "messages",
-            rows: vec![],
-            conflict_key: None,
-        })];
+        let ops = vec![StorageOp::BatchUpsert(UpsertSpec::new(
+            "messages",
+            vec![],
+            None,
+        ))];
         assert_eq!(table_set_key(&ops), "messages");
     }
 
@@ -138,12 +143,12 @@ mod tests {
         use helix_core::effect::{MonotonicUpsertSpec, UpsertSpec};
         // 两个不同 table 的 ops，顺序无所谓，键必须按字典序排
         let ops = vec![
-            StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
-                rows: vec![],
-                conflict_key: None,
-            }),
+            StorageOp::BatchUpsert(UpsertSpec::new("messages", vec![], None)),
             StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                value_col: "value",
+                touch_col: None,
                 scope_key: "ch:1".to_string(),
                 value: 1,
             }),
@@ -157,16 +162,8 @@ mod tests {
         use helix_core::effect::UpsertSpec;
         // 同一 table 出现多次，去重后仍是单 key
         let ops = vec![
-            StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
-                rows: vec![],
-                conflict_key: None,
-            }),
-            StorageOp::BatchUpsert(UpsertSpec {
-                table: "messages",
-                rows: vec![],
-                conflict_key: None,
-            }),
+            StorageOp::BatchUpsert(UpsertSpec::new("messages", vec![], None)),
+            StorageOp::BatchUpsert(UpsertSpec::new("messages", vec![], None)),
         ];
         assert_eq!(table_set_key(&ops), "messages");
     }

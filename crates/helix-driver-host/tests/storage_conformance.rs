@@ -1,5 +1,5 @@
 use helix_core::effect::{
-    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
+    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -86,6 +86,7 @@ async fn host_storage_blob_roundtrip_lossless() {
                 ("data".to_string(), SqlValue::Blob(raw.clone())),
             ]],
             conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("insert blob");
@@ -123,6 +124,7 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
             table: "messages",
             rows: vec![message_row(1, "hello", 1)],
             conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("insert");
@@ -132,6 +134,7 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
             table: "messages",
             rows: vec![message_row(1, "world", 2)],
             conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("conflict update");
@@ -190,6 +193,10 @@ async fn host_storage_creates_monotonic_table_at_open_and_uses_max_guard() {
 
     storage
         .monotonic_upsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "channel:1".to_string(),
             value: 10,
         })
@@ -197,6 +204,10 @@ async fn host_storage_creates_monotonic_table_at_open_and_uses_max_guard() {
         .expect("first monotonic");
     storage
         .monotonic_upsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "channel:1".to_string(),
             value: 3,
         })
@@ -244,6 +255,7 @@ async fn execute_storage_ops_returns_rows_bytes_and_short_circuits_on_error() {
             table: "messages",
             rows: vec![message_row(7, "seven", 7)],
             conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("insert");
@@ -272,6 +284,10 @@ async fn execute_storage_ops_returns_rows_bytes_and_short_circuits_on_error() {
                 key_val: SqlValue::Integer(7),
             }),
             helix_core::effect::StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                table: "_helix_monotonic",
+                key_col: "scope_key",
+                value_col: "value",
+                touch_col: None,
                 scope_key: "must_not_run".to_string(),
                 value: 1,
             }),
@@ -324,6 +340,7 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
                 table: "messages",
                 rows: vec![message_row(i, &format!("msg-{i}"), i)],
                 conflict_key: Some("id"),
+                exclude_from_update: Vec::new(),
             })
             .await
             .expect("concurrent message upsert");
@@ -340,6 +357,7 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
                     ("body".to_string(), SqlValue::Text(format!("note-{i}"))),
                 ]],
                 conflict_key: Some("id"),
+                exclude_from_update: Vec::new(),
             })
             .await
             .expect("concurrent note upsert");
@@ -426,6 +444,7 @@ async fn reads_proceed_while_write_holds_connection() {
                 table: "messages",
                 rows: vec![message_row(i, &format!("seed-{i}"), i)],
                 conflict_key: Some("id"),
+                exclude_from_update: Vec::new(),
             })
             .await
             .expect("seed");
@@ -530,6 +549,10 @@ async fn monotonic_upsert_equal_value_is_noop() {
     let storage = storage().await;
     storage
         .monotonic_upsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "ch:eq".to_string(),
             value: 10,
         })
@@ -538,6 +561,10 @@ async fn monotonic_upsert_equal_value_is_noop() {
     // 再写同值 10 —— WHERE excluded.value > value 不成立 → no-op，仍是 10。
     storage
         .monotonic_upsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "ch:eq".to_string(),
             value: 10,
         })
@@ -587,6 +614,7 @@ async fn batch_upsert_rolls_back_entire_batch_on_midway_failure() {
                 ],
             ],
             conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
         })
         .await;
     assert!(err.is_err(), "batch with NOT NULL violation must fail");
@@ -634,6 +662,7 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
                 table: "messages",
                 rows: vec![message_row(i, &format!("p1a-{i}"), i)],
                 conflict_key: Some("id"),
+                exclude_from_update: Vec::new(),
             })
             .await
             .expect("seed");
@@ -732,6 +761,7 @@ async fn wal_snapshot_isolation_no_dirty_read() {
                 ("value".to_string(), SqlValue::Integer(100)),
             ]],
             conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
         })
         .await
         .expect("seed notes");
@@ -838,8 +868,13 @@ fn table_set_key_is_sorted_and_deduplicated() {
             table: "messages",
             rows: vec![],
             conflict_key: None,
+            exclude_from_update: Vec::new(),
         }),
         StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+            table: "_helix_monotonic",
+            key_col: "scope_key",
+            value_col: "value",
+            touch_col: None,
             scope_key: "channel:1".to_string(),
             value: 1,
         }),
@@ -847,8 +882,218 @@ fn table_set_key_is_sorted_and_deduplicated() {
             table: "messages",
             rows: vec![],
             conflict_key: None,
+            exclude_from_update: Vec::new(),
         }),
     ]);
 
     assert_eq!(key, "_helix_monotonic|messages");
+}
+// ─── S3：GuardedBump（守卫式自增）+ exclude_from_update（守卫列不覆盖）─────────────
+
+async fn channel_like_storage() -> HostStorage {
+    let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
+    let db = format!(
+        "file:helix_host_gbump_{}_{}?mode=memory&cache=shared",
+        std::process::id(),
+        seq
+    );
+    let storage = HostStorage::open_sqlite_url(&db)
+        .await
+        .expect("open storage");
+    storage
+        .execute_raw(
+            "CREATE TABLE IF NOT EXISTS channel (\
+             id TEXT PRIMARY KEY, unread_count INTEGER NOT NULL DEFAULT 0, \
+             unread_post_id TEXT NOT NULL DEFAULT '', last_post TEXT NOT NULL DEFAULT '', \
+             last_root_post_at INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT '')",
+        )
+        .await
+        .expect("create channel");
+    storage
+}
+
+/// 回归锚: S3 path3 —— guarded_bump 守卫命中 → unread +1（SQL 自增）+ 绝对列写。
+#[tokio::test]
+async fn guarded_bump_increments_when_guard_passes_s3() {
+    let st = channel_like_storage().await;
+    st.batch_upsert(UpsertSpec {
+        table: "channel",
+        rows: vec![vec![
+            ("id".to_string(), SqlValue::Text("c1".to_string())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("last_root_post_at".to_string(), SqlValue::Integer(100)),
+        ]],
+        conflict_key: Some("id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed channel");
+
+    // 连续 3 条他人消息（create_at 递增，均 > 当前 last_root_post_at）→ +3。
+    for (i, ts) in [200i64, 300, 400].iter().enumerate() {
+        st.guarded_bump(GuardedBumpSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c1".to_string()),
+            bump_col: "unread_count",
+            bump_delta: 1,
+            set_cols: vec![
+                (
+                    "unread_post_id".to_string(),
+                    SqlValue::Text(format!("p{i}")),
+                ),
+                ("last_post".to_string(), SqlValue::Text(format!("body{i}"))),
+                // 生产路径（bump_channel_unread）同样把 last_root_post_at 推进进 set_cols——
+                // 守卫列自身随命中前进，使下一条按新水位判定（与现网 update_last_post 一致）。
+                ("last_root_post_at".to_string(), SqlValue::Integer(*ts)),
+            ],
+            guard_col: "last_root_post_at",
+            guard_val: *ts,
+        })
+        .await
+        .expect("bump");
+    }
+
+    let row = st
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c1".to_string()),
+        })
+        .await
+        .expect("get")
+        .expect("row");
+    let unread = row
+        .iter()
+        .find(|(k, _)| k == "unread_count")
+        .map(|(_, v)| v);
+    assert!(
+        matches!(unread, Some(SqlValue::Integer(3))),
+        "连续 3 条 → unread==3，got {unread:?}"
+    );
+    let lrp = row
+        .iter()
+        .find(|(k, _)| k == "last_root_post_at")
+        .map(|(_, v)| v);
+    assert!(
+        matches!(lrp, Some(SqlValue::Integer(400))),
+        "last_root_post_at 推进到 400"
+    );
+}
+
+/// 回归锚: S3 path3 —— guarded_bump 守卫不过（旧/重复消息）→ 不自增、不污染。
+#[tokio::test]
+async fn guarded_bump_noop_when_guard_fails_s3() {
+    let st = channel_like_storage().await;
+    st.batch_upsert(UpsertSpec {
+        table: "channel",
+        rows: vec![vec![
+            ("id".to_string(), SqlValue::Text("c2".to_string())),
+            ("unread_count".to_string(), SqlValue::Integer(5)),
+            ("last_root_post_at".to_string(), SqlValue::Integer(500)),
+        ]],
+        conflict_key: Some("id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed");
+
+    // 守卫值 300 < 现值 500 → 守卫不过 → 整行不动（重复 / 乱序旧消息幂等）。
+    st.guarded_bump(GuardedBumpSpec {
+        table: "channel",
+        key_col: "id",
+        key_val: SqlValue::Text("c2".to_string()),
+        bump_col: "unread_count",
+        bump_delta: 1,
+        set_cols: vec![(
+            "unread_post_id".to_string(),
+            SqlValue::Text("stale".to_string()),
+        )],
+        guard_col: "last_root_post_at",
+        guard_val: 300,
+    })
+    .await
+    .expect("bump");
+
+    let row = st
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c2".to_string()),
+        })
+        .await
+        .expect("get")
+        .expect("row");
+    let unread = row
+        .iter()
+        .find(|(k, _)| k == "unread_count")
+        .map(|(_, v)| v);
+    assert!(
+        matches!(unread, Some(SqlValue::Integer(5))),
+        "守卫不过 → unread 不变 (5)，got {unread:?}"
+    );
+}
+
+/// 回归锚: S3 path1 —— exclude_from_update：冲突时守卫/本地列保留既有值，其余列覆盖。
+#[tokio::test]
+async fn upsert_exclude_from_update_preserves_guard_cols_s3() {
+    let st = channel_like_storage().await;
+    // 初始：unread=7（本地累计）、purpose="local"、last_post="old"。
+    st.batch_upsert(UpsertSpec {
+        table: "channel",
+        rows: vec![vec![
+            ("id".to_string(), SqlValue::Text("c3".to_string())),
+            ("unread_count".to_string(), SqlValue::Integer(7)),
+            ("purpose".to_string(), SqlValue::Text("local".to_string())),
+            ("last_post".to_string(), SqlValue::Text("old".to_string())),
+        ]],
+        conflict_key: Some("id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed");
+
+    // path1 全量 upsert：server 未给 unread/purpose（行内写默认 0/""），但 exclude → 冲突时不覆盖；
+    // last_post 不在 exclude → 覆盖为 "new"。
+    st.batch_upsert(UpsertSpec {
+        table: "channel",
+        rows: vec![vec![
+            ("id".to_string(), SqlValue::Text("c3".to_string())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("purpose".to_string(), SqlValue::Text(String::new())),
+            ("last_post".to_string(), SqlValue::Text("new".to_string())),
+        ]],
+        conflict_key: Some("id"),
+        exclude_from_update: vec!["unread_count", "purpose"],
+    })
+    .await
+    .expect("upsert full");
+
+    let row = st
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c3".to_string()),
+        })
+        .await
+        .expect("get")
+        .expect("row");
+    let unread = row
+        .iter()
+        .find(|(k, _)| k == "unread_count")
+        .map(|(_, v)| v);
+    let purpose = row.iter().find(|(k, _)| k == "purpose").map(|(_, v)| v);
+    let last_post = row.iter().find(|(k, _)| k == "last_post").map(|(_, v)| v);
+    assert!(
+        matches!(unread, Some(SqlValue::Integer(7))),
+        "exclude → unread 保留本地 7，got {unread:?}"
+    );
+    assert!(
+        matches!(purpose, Some(SqlValue::Text(s)) if s == "local"),
+        "exclude → purpose 保留本地，got {purpose:?}"
+    );
+    assert!(
+        matches!(last_post, Some(SqlValue::Text(s)) if s == "new"),
+        "非 exclude → last_post 覆盖 new，got {last_post:?}"
+    );
 }

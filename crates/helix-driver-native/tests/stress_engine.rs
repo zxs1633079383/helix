@@ -82,6 +82,10 @@ impl Module for PumpModule {
                 out.push(Effect::Persist {
                     corr,
                     ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                        table: "_helix_monotonic",
+                        key_col: "scope_key",
+                        value_col: "value",
+                        touch_col: None,
                         scope_key: "stress:pump".to_string(),
                         value: corr.raw() as i64,
                     })],
@@ -448,6 +452,10 @@ impl Module for MixedModule {
                 out.push(Effect::Persist {
                     corr,
                     ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+                        table: "_helix_monotonic",
+                        key_col: "scope_key",
+                        value_col: "value",
+                        touch_col: None,
                         scope_key: "mixed:cursor".to_string(),
                         value: corr.raw() as i64,
                     })],

@@ -13,7 +13,7 @@ pub mod storage;
 pub mod timer;
 
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
-pub use engine::{run_engine_loop, EngineDeps, TransportTable};
+pub use engine::{run_engine_loop, BatchSink, EngineDeps, TransportTable};
 pub use http_envelope::{base64_encode, run_http_envelope};
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,

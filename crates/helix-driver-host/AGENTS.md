@@ -9,7 +9,9 @@ PC Tauri（native）与 Flutter FFI **共享**的 host driver 层（ADR-007）�
 - **存储层**：SQLite schema/migration、rusqlite `Storage` 实现、`StorageOp → PortOutcome` 兑现、`rows_to_reply_bytes`/`rows_from_reply_bytes` 编解码。
 - **pump 核（事件泵原语，本轮下沉）**：`engine`（泛型事件泵壳 `run_engine_loop`，over Storage/HttpRequester/EventSink/Transport/Clock）+ `dispatch`（Effect 分流）+ `spawner`（`BoundedSpawner` 有界并发原语）+ `pools`（Persist/Http 池构造）+ `owned_effect`（`&[Effect]` 借用脱离）+ `http_envelope`（HTTP 响应 → PortReply JSON 信封）+ `timer`（`TimerRegistry`）。
 
-`helix-driver-native`（与下一轮 `helix-driver-ffi`）只保留平台壳：装配具体 ports + tick 源接线 + EventSink egress 特化（native=broadcast / ffi=批处理 vtable），共用此泛型 pump 核，不重复实现存储/泵。
+`helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳：装配具体 ports + tick 源接线 + EventSink egress 特化（native=broadcast / ffi=批处理 vtable），共用此泛型 pump 核，不重复实现存储/泵。
+
+- **`BatchSink` egress 批处理钩子（`engine.rs`）**：`trait BatchSink: EventSink { fn flush(&self) {} }`（默认 no-op）。`run_engine_loop` 的 `E` bound = `BatchSink`，在**每次 `dispatch_effects`（本 step effects）之后**调一次 `flush()`。native `impl BatchSink for NativeEventSink {}`（broadcast 即时发，no-op）；ffi `FfiEventSink::flush` 把本 step 攒的整批 DomainEvent 编码成单 buffer，一次过 vtable 回调（HX-C007，绝不逐条过 FFI 边界）。flush 钩子在 host 不在 core——core 的 `EventSink` 不认识「批边界」运行时概念（HX-C001 边界）。
 
 ## 本 crate 不变量（破坏 = 双端存储/泵语义漂移）
 

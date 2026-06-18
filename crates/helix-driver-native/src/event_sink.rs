@@ -176,6 +176,10 @@ impl EventSink for NativeEventSink {
     }
 }
 
+// broadcast egress 是逐条即时 send，无需 step 批边界 → 用 BatchSink 默认 no-op。
+// （host pump 每 step 调一次 flush()；native 这里什么都不做，行为零变。FFI 才攒批一次过边界。）
+impl helix_driver_host::BatchSink for NativeEventSink {}
+
 // ─── 单元测试 ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

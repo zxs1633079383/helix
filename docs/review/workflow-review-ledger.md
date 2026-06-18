@@ -17,14 +17,17 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 1419690
-last_reviewed_at: 2026-06-17
-last_review_runId: wf_e9045934-1e9 (post-merge-review-integ，dev-zlc←main 合并调和 + 结构 rule 多维对抗 review)
-# 六轮 = dev-zlc ← main 合并收口 review（integ/merge-main-2026-06-17，gap=29 核 e501952..1419690）：
-# registry-as-dispatch + post/echo/HttpFire 能力并集 + 结构 rule（code-structure-ddd）。
-# 🟢 GREEN 无阻断，HX-C001..C009/helix-im 五不变量/GOAL §1/§2 全 HOLD，
-# 8 条确认 finding 全 low/nit（日志卫生/微小性能/doc-rot/文档死链）登记择期。
-# 合并支线（main WS registry 线）原独立 review 锚 00df4e0 已并入本次合并 review。
+last_reviewed_commit: 0156be8
+last_reviewed_at: 2026-06-18
+last_review_runId: wf_ba3cc60b-dae + wf_69cf287f-163 (基座最优性 + 北极星符合性 双深度审查)
+# 七轮 = core/driver 基座最优性(wf_ba3cc60b 21 agents) + 北极星符合性(wf_69cf287f 13 agents) 双深度审查
+# （从 1419690 起核到 0156be8，含两轮 review + 全部收敛修复）：基座 solid + 5 北极星命题全 conforms。
+# 2 个 latent bug 已修+回归测试落 main：EFFECT-3(多模块 start() corr 覆盖,威胁「第二模块插得进」,2d50405)
+# + NS-1(resync HashMap/HashSet 迭代序非确定性,威胁可回放,2d50405)；
+# 打磨 EFFECT-5/2 执行契约文档 + HTTP-4 parking_lot 消静默丢头(0156be8)。
+# 7 疑似 drift 对抗驳回(FFI engine_loop 未接线=ROADMAP M3-F4 计划内,非架构偏移)；
+# 8 条优化建议对抗驳回(防过度工程,如删 HttpFire/registry 改 fallible/HTTP 加 TimeoutProfile)。
+# 六轮(合并收口)锚 wf_e9045934-1e9 → 1419690；合并支线原 review 锚 00df4e0 已并入。
 threshold: 10
 ```
 
@@ -74,3 +77,4 @@ threshold: 10
 | 2026-06-17 | 5f33446 | 761bf50..5f33446 (13 commits) | agent_019ed44f-6da4-7c83-90eb-179a05ab066a | 🟡 轻 drift | WS handler registry T1-T3 收口（main 改动线）。2 条真 drift：R4-registry-mainpath registry 当前只覆盖 hello+legacy，unknown-action 仍未进入 production 主路径(medium，按 Task 4-7 收敛)；R4-hotpath-parse legacy 临时多 parse/copy 常数因子(low，随 Task 7 单 parse 收敛)。HX-C001/C002/C004/C006/C007/C008 未破，core/runtime/FFI/sync 契约保持 |
 | 2026-06-17 | 00df4e0 | 5f33446..00df4e0 (11 commits) | agent_019ed4c3-0a53-7dd0-a7a9-bef44483cdad | 🟡 轻 drift | WS handler registry merge 收口（main 改动线）。R4-registry-mainpath 已收敛：生产入站统一 `WsFrame::parse` → registry handler，unknown action 返回错误，invalid JSON 保持 no-op；`FrameClass`/`classify_frame` 无残留。HX-C001/C002/C004/C005/C006/C007/C008 未破；仅 AGENTS/CLAUDE EOF 空行镜像漂移(low，收尾即修) |
 | 2026-06-17 | 1419690 | e501952..1419690 (gap=29) | wf_e9045934-1e9 | 🟢 GREEN 无 drift | **六轮 = dev-zlc ← main 合并收口 review**（681a529 merge + 1419690 结构 rule）。两条改动线汇合——dev 的 corr_map 统一 + InboundEvent 一趟解析(A/B 重构) + post/echo + core HttpFire；main 的 WS handler registry。和解 = registry 做 dispatch 主干 + dev post/echo/HttpFire 能力并集（新建 `ws/handlers/post.rs` + 3 文件 corr_to_sync→corr_map+CorrelationContext::SyncPull）。多维对抗 review（合并正确性/架构 drift/结构 rule，12 agents）：8 条确认 finding **全 low/nit 无阻断**——MERGE-1 非echo posted 漂移 error!日志(low)、MERGE-2 legacy 双解析回退(low)、DRIFT-1/RULE doc-rot+死链(low/nit)。**HX-C001..C009 + helix-im 五不变量 + GOAL §1/§2 全 HOLD**，cargo check 四 crate + test 165/165 + core 零运行时 grep 已绿。8 条登记择期，非 land 前置 |
+| 2026-06-18 | 0156be8 | 1419690..0156be8 | wf_ba3cc60b-dae + wf_69cf287f-163 | 🟢 GREEN 无 drift | **七轮 = core/driver 基座最优性 + 北极星符合性 双深度审查**（8 专家 agent + 对抗证伪）。基座：core-ports `solid`(6 trait dyn-safe + MaybeSend cfg 别名 + Module::handle 拿不到 port 句柄=sans-IO 类型保证) / HTTP-头 `solid` / WS-action `solid` / Effect `solid-minor-gaps`。北极星：5 命题全 conforms（一份 core 编多端✓ 复杂度无损迁移 FfiStorage 薄壳✓ 三层单向零业务✓ sans-IO/确定性✓ 扩展性✓）。**2 个 latent bug 修+回归测试(2d50405)**：EFFECT-3 多模块 start() corr 覆盖(P0,威胁第二模块插得进) + NS-1 resync HashMap 迭代序非确定性(high,威胁可回放)。打磨(0156be8)：EFFECT-5/2 执行契约文档 + HTTP-4 parking_lot 消静默丢头。**7 疑似 drift 驳回**(FFI engine_loop=ROADMAP M3-F4 计划内非偏移)；**8 优化建议对抗驳回**(防过度工程)。CORE-1/WS-1 微 nit + 候选 HX-C010(确定性约束,过回放闸门后建卡)择期 |

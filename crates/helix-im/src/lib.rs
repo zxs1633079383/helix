@@ -18,6 +18,7 @@
 pub mod acl;
 pub(crate) mod base64;
 pub mod channel;
+pub mod channel_write;
 pub mod error;
 pub mod module;
 pub mod parser;

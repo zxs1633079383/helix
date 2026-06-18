@@ -3,8 +3,9 @@
 //! Login/auth remains outside Helix. Platform shells provide config and update
 //! headers; these clients only inject the latest header snapshot into requests.
 
+use parking_lot::RwLock; // 无 poison：panic 时不静默丢头（HTTP-4，对齐现网 cses-client）
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -71,10 +72,7 @@ impl HostHeaderRegistry {
     pub fn set_header_sync(&self, name: &str, value: &str) -> Result<(), PortError> {
         let name = header_name(name)?;
         let value = header_value(name.as_str(), value)?;
-        self.inner
-            .write()
-            .map_err(map_header_lock_err)?
-            .insert(name, value);
+        self.inner.write().insert(name, value);
         Ok(())
     }
 
@@ -84,10 +82,7 @@ impl HostHeaderRegistry {
 
     pub fn remove_header_sync(&self, name: &str) -> Result<(), PortError> {
         let name = header_name(name)?;
-        self.inner
-            .write()
-            .map_err(map_header_lock_err)?
-            .remove(name);
+        self.inner.write().remove(name);
         Ok(())
     }
 
@@ -103,15 +98,12 @@ impl HostHeaderRegistry {
             let value = header_value(name.as_str(), value.as_ref())?;
             next.insert(name, value);
         }
-        *self.inner.write().map_err(map_header_lock_err)? = next;
+        *self.inner.write() = next;
         Ok(())
     }
 
     pub async fn snapshot(&self) -> HeaderMap {
-        self.inner
-            .read()
-            .map(|headers| headers.clone())
-            .unwrap_or_default()
+        self.inner.read().clone()
     }
 }
 
@@ -468,8 +460,4 @@ fn headers_to_strings(headers: &HeaderMap) -> BTreeMap<String, String> {
 
 fn map_ws_err(e: impl std::fmt::Display) -> PortError {
     PortError::Transport(e.to_string())
-}
-
-fn map_header_lock_err<T>(_: std::sync::PoisonError<T>) -> PortError {
-    PortError::Http("header registry lock poisoned".to_string())
 }

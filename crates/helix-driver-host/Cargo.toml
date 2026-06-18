@@ -17,6 +17,7 @@ rusqlite    = { version = "0.32.1", features = ["bundled"] }
 reqwest     = { version = "0.12", features = ["json"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
+parking_lot = "0.12" # HostHeaderRegistry 用：无 poison（panic 不静默丢头），对齐现网 cses-client
 tracing     = { workspace = true }
 
 # driver 层是 ambient API（SystemTime/线程）的合法落点 → 不开 disallowed deny

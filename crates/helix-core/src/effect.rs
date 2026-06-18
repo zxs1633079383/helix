@@ -188,7 +188,12 @@ pub struct HttpResponse {
     pub body: Bytes,
 }
 
-/// 模块吐出的 I/O 意图声明（tagged union，非法组合不可表达）
+/// 模块吐出的 I/O 意图声明（tagged union，非法组合不可表达）。
+///
+/// **执行顺序契约（EFFECT-5）**：同一个 step 产出的 `Vec<Effect>` 之间**无兑现顺序保证**——
+/// driver 可乱序/并发兑现（如 Persist 入队即返回，Send/Emit inline await）。需要顺序的因果
+/// **必须经 `Correlation` 串联**（吐 Request/Persist{corr} → 等 `PortReply` → 再吐下一步），
+/// 不可依赖 `Vec` 下标顺序。
 #[derive(Debug)]
 pub enum Effect {
     /// 发送 WS 帧（driver 调用 Transport::send）
@@ -266,6 +271,10 @@ pub enum Effect {
     ///
     /// `Emit` 是单向 PUB（fire-and-forget，无回音）；
     /// `Request` 是双向 REP 的**发起端**（要回音，靠 corr 配对，复用 PortReply 回路）。
+    ///
+    /// **driver 实现契约（EFFECT-2）**：driver 必须兑现并回灌 `Tick::PortReply{corr}`；若是
+    /// deferred stub（如 native engine_loop 当前只 warn 不回灌），该 corr 会永久滞留 corr_map、
+    /// inflight 闸不清——接线缺口在「第二个发起 Request 的模块接入」时暴露（与 Http/Persist 同口径）。
     Request {
         corr: Correlation,
         kind: &'static str,

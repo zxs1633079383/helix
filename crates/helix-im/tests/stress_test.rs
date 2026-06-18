@@ -328,7 +328,30 @@ fn stress_gap_5000_sync_backfill() {
         .iter()
         .find_map(|e| match e {
             Effect::Persist { corr, ops } => {
-                assert_eq!(ops.len(), GAP as usize, "persist batch must carry 5000 ops");
+                // A3/CAP-9：全 5000 条可见 type1 → 5000 message upsert + 5000 channel 未读 +1
+                // GuardedBump（离线未读落 DB，非仅 emit）= 10000 ops。
+                use helix_core::effect::StorageOp;
+                let msg_upserts = ops
+                    .iter()
+                    .filter(|op| matches!(op, StorageOp::BatchUpsert(s) if s.table == "message"))
+                    .count();
+                let unread_bumps = ops
+                    .iter()
+                    .filter(|op| matches!(op, StorageOp::GuardedBump(s) if s.table == "channel"))
+                    .count();
+                assert_eq!(
+                    msg_upserts, GAP as usize,
+                    "5000 条可见 type1 须 5000 message upsert"
+                );
+                assert_eq!(
+                    unread_bumps, GAP as usize,
+                    "A3：5000 条可见 type1 须各 1 条 channel 未读 +1 GuardedBump（CAP-9 落 DB）"
+                );
+                assert_eq!(
+                    ops.len(),
+                    (GAP as usize) * 2,
+                    "persist batch = 5000 msg + 5000 bump"
+                );
                 Some(*corr)
             }
             _ => None,

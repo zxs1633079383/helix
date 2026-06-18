@@ -171,9 +171,18 @@ async fn main() {
 
     // ── shell + IM 模块 ─────────────────────────────────────
     let mut shell = ExecutionShell::new();
+    // auth_user_id = cookieId(=userId)：host 注入确定性身份（id 作数据，core/im 不认识 userId 语义）。
+    // 缺它 → post_updates 退化「自己消息也计未读」（§5 离线未读偏高根因，todo #5）。
+    // 空串（未设 HELIX_COOKIE_ID）→ 保留无身份保守计入退化，不强行编造身份。
+    if cookie_id.is_empty() {
+        tracing::warn!(
+            "未设 HELIX_COOKIE_ID → ImConfig.auth_user_id 为空，post_updates 将退化为「自己消息也计未读」（离线未读偏高）"
+        );
+    }
     shell.register(ImModule::new(ImConfig {
         ws_url: ws_url.clone(),
         api_base_url,
+        auth_user_id: cookie_id.clone(),
         ..Default::default()
     }));
 

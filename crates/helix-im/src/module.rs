@@ -565,8 +565,16 @@ impl ImModule {
                 // C2：按 messages map 落库（phantom 跳过 / readBits 单调覆盖 / edit / revoke）。
                 // persist_ops 可能 < events.len()（全 phantom = 空），但 cursor 仍推进到
                 // commit_target——phantom 不卡 cursor（HX-C008 §1.6，真源 post.rs:1271-1280）。
-                let persist_ops =
+                let mut persist_ops =
                     crate::acl::to_effect::batch_upsert_events_with_messages(&events, &messages);
+                // A3/CAP-9：可见 type1 离线未读 +1 落 DB（并入同一 Persist 批，与消息落库同 corr →
+                // unread 列写成功后 cursor 才推进；不只 emit 把 +N 推前端）。真源 feat module.rs:563-571。
+                let auth_user_id = self.config.auth_user_id.as_str();
+                persist_ops.extend(crate::acl::to_effect::sync_unread_bump_ops(
+                    &events,
+                    &messages,
+                    auth_user_id,
+                ));
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.insert(persist_corr, commit_target);
                 }

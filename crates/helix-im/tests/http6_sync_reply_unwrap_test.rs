@@ -105,3 +105,51 @@ fn http6_legacy_envelope_is_silently_swallowed() {
         "信封未解层直喂 parser 必须静默 NoChange（0 persist / 0 emit 的 #6 bug 现场），got: {response:?}"
     );
 }
+
+/// 回归锚: BLOCKING（holistic-review 抓出）—— 防 `sync_unread_bump_ops` 在 `module.rs` SyncPull
+/// 分支变回「函数在、零调用」死代码（离线未读 +N 落 DB 被静默丢）。本测试钉死 module.rs 的
+/// `persist_ops.extend(sync_unread_bump_ops(..))` 调用点：删之 → 无 GuardedBump unread_count op
+/// → FAIL（HX-C011 可证伪；per-phase byte-diff 漏掉的正是这种「消费侧 call-site 未接线」缺陷）。
+/// auth_user_id 空（Harness 默认）→ 保守计入 → 每条可见 type1 给 unread +1（3 条 → +3）。
+#[test]
+fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
+    use helix_core::effect::{Effect, StorageOp};
+
+    let mut h = Harness::new(&[1]);
+    let sync_corr = drive_sync_pull(&mut h);
+    let raw = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 1, "msg_a"), ev(2, 1, "msg_b"), ev(3, 1, "msg_c")],
+        &[("msg_a", "a", ""), ("msg_b", "b", ""), ("msg_c", "c", "")],
+        3,
+    );
+    // dev-zlc driver 把裸 body 包成 ADR-007 信封回灌；enveloped() 复刻该字节。
+    h.step(port_reply_with_body(sync_corr, enveloped(raw)), 3000);
+
+    // 离线可见 type1 → channel.unread_count GuardedBump +N（与消息落库同一 Persist 批，
+    // unread 列写成功后 cursor 才推进——CAP-9 在线↔离线未读 parity）。
+    let total_bump: i64 = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Persist { ops, .. } => Some(
+                ops.iter()
+                    .filter_map(|op| match op {
+                        StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => {
+                            Some(s.bump_delta)
+                        }
+                        _ => None,
+                    })
+                    .sum::<i64>(),
+            ),
+            _ => None,
+        })
+        .sum();
+
+    assert!(
+        total_bump >= 1,
+        "离线 sync 可见 type1 须经 GuardedBump 给 channel.unread_count +N（防 module.rs SyncPull \
+         分支把 sync_unread_bump_ops 退回死代码 = 离线未读丢失），got total_bump={total_bump}"
+    );
+}

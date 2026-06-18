@@ -58,6 +58,8 @@ fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) 
         create_at: 1_700_000_000_000_i64 + seq as i64,
         // C2：PostFields 新增 read_bits 字段（type6 已读位 / type1 落库列）。本助手不测已读，留空。
         read_bits: String::new(),
+        // A3：viewers（可见性受众）；本助手不测未读门控，留空 Vec。
+        viewers: Vec::new(),
     };
     EventEnvelope::new(
         ChannelId::from_test_u64(channel),

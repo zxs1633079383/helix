@@ -1,0 +1,184 @@
+//! sync-v2 §S4 写顺序铁律 对齐补全回放测试。
+//!
+//! 回归锚: S4（SPEC-sync-v2-full-replacement.md §S4）
+//!
+//! 补齐既有 c2_phantom_readbits_test 未显式锁定的契约：
+//! - 同批 type1+type6（同 msg）→ StorageOp 严格 type1 先 / type6 后（否则 type1 全量
+//!   upsert 经 ON CONFLICT 擦掉 type6 单调覆盖的 read_bits）；
+//! - 全四类混批严格 type1→type2→type3→type6（type6 殿后）；
+//! - db_ok 失败 → cursor 不推进（写库成功才 commit，否则 re-pull）。
+
+mod common;
+use common::*;
+
+use helix_core::effect::StorageOp;
+use helix_core::tick::PortOutcome;
+use helix_core::{Correlation, Tick};
+use helix_im::acl::to_effect::batch_upsert_events_with_messages;
+use helix_im::parser::parse_sync_response;
+use helix_im::state::ChannelId;
+use helix_im::sync_session::SyncResponse;
+
+fn parse_evs(
+    bytes: &bytes::Bytes,
+    channel_id: u64,
+) -> (
+    Vec<helix_im::sync_session::EventEnvelope>,
+    std::collections::HashMap<String, helix_im::sync_session::PostFields>,
+) {
+    let ch = ChannelId::from_test_u64(channel_id);
+    match parse_sync_response(bytes.as_ref(), ch).expect("parse sync") {
+        SyncResponse::Events {
+            events, messages, ..
+        } => (events, messages),
+        other => panic!("expected Events, got {other:?}"),
+    }
+}
+
+/// 取 op 的「桶序号」：type1 upsert / type6 read / type3 revoke / type2 edit 各有可辨形态。
+#[derive(Debug, PartialEq, Eq)]
+enum OpKind {
+    Type1Upsert,
+    Type6Read,
+    Type3Revoke,
+    Type2Edit,
+    Other,
+}
+
+fn classify(op: &StorageOp) -> OpKind {
+    match op {
+        StorageOp::BatchUpsert(s) if s.table == "message" => OpKind::Type1Upsert,
+        StorageOp::BatchUpdate(s) if s.table == "message" => {
+            if s.patch.iter().any(|(k, _)| k == "read_bits") {
+                OpKind::Type6Read
+            } else if s.patch.iter().any(|(k, _)| k == "revoke") {
+                OpKind::Type3Revoke
+            } else {
+                OpKind::Type2Edit
+            }
+        }
+        _ => OpKind::Other,
+    }
+}
+
+/// 回归锚: S4 —— 同批 type1 + type6（同 msg）→ type1 upsert 必须排在 type6 read 之前。
+///
+/// 铁律：type6 单调覆盖 read_bits 的 UPDATE 必须在 type1 全量 upsert **之后**执行；否则
+/// type1 的 ON CONFLICT(temporary_id) DO UPDATE 会用 map body 的 read_bits（可能为旧值）
+/// 把 type6 刚写的权威 read_bits 擦回。helix 在 parser `sort_events_by_bucket` 稳定排序
+/// type1→type6，故落库 ops 顺序天然铁律对齐。本测试钉死该顺序不可漂移。
+#[test]
+fn s4_type1_before_type6_in_same_batch() {
+    // wire 乱序投递：type6 在前、type1 在后（同 msg m1）——parser 必须分桶纠正为 type1→type6。
+    let reply = sync_reply_events_with_messages(
+        1,
+        &[ev(10, 6, "m1"), ev(11, 1, "m1")],
+        &[("m1", "body", "1111")],
+        11,
+    );
+    let (events, messages) = parse_evs(&reply, 1);
+
+    // parser 分桶：events 顺序 type1, type6。
+    let types: Vec<u8> = events.iter().map(|e| e.kind.type_num()).collect();
+    assert_eq!(types, vec![1, 6], "parser 须分桶 type1→type6（type6 最后）");
+
+    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let kinds: Vec<OpKind> = ops.iter().map(classify).collect();
+    let p1 = kinds
+        .iter()
+        .position(|k| *k == OpKind::Type1Upsert)
+        .expect("有 type1 upsert");
+    let p6 = kinds
+        .iter()
+        .position(|k| *k == OpKind::Type6Read)
+        .expect("有 type6 read");
+    assert!(
+        p1 < p6,
+        "S4 铁律：type1 upsert(pos={p1}) 必须早于 type6 read(pos={p6})，否则擦 read_bits。kinds={kinds:?}"
+    );
+}
+
+/// 回归锚: S4 —— 全四类混批严格 type1→type2→type3→type6（type6 殿后）。
+#[test]
+fn s4_four_bucket_strict_order() {
+    let reply = sync_reply_events_with_messages(
+        2,
+        &[
+            ev(24, 6, "a"), // read（须排末）
+            ev(23, 3, "b"), // revoke
+            ev(22, 2, "c"), // edit
+            ev(21, 1, "d"), // new（须排首）
+        ],
+        &[("a", "x", "01"), ("c", "edited", ""), ("d", "new", "10")],
+        24,
+    );
+    let (events, messages) = parse_evs(&reply, 2);
+    let ops = batch_upsert_events_with_messages(&events, &messages);
+    let kinds: Vec<OpKind> = ops.iter().map(classify).collect();
+    // d=type1 upsert, c=type2 edit, b=type3 revoke, a=type6 read → 四桶各一，顺序铁律。
+    assert_eq!(
+        kinds,
+        vec![
+            OpKind::Type1Upsert,
+            OpKind::Type2Edit,
+            OpKind::Type3Revoke,
+            OpKind::Type6Read,
+        ],
+        "S4 铁律：落库 ops 须严格 type1→type2→type3→type6，got {kinds:?}"
+    );
+}
+
+/// 回归锚: S4 —— db_ok 失败 → cursor 不推进（写库成功才 commit，否则 re-pull）。
+#[test]
+fn s4_persist_err_does_not_advance_cursor() {
+    let mut h = Harness::new(&[1]);
+    // 触发 gate → sync Http corr。
+    let gate = h.step(inbound_event(1, 99, 1), 1000);
+    let gate_timer = gate
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::ScheduleTimer(id) => Some(*id),
+            _ => None,
+        })
+        .expect("gate timer");
+    let sync = h.step(timer_tick(gate_timer), 2001);
+    let sync_corr = sync
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::Http(c) => Some(*c),
+            _ => None,
+        })
+        .expect("sync Http corr");
+
+    // 服务端回报 events（seq 1-3，nextSeq=3）→ 产 Persist{corr}。
+    let reply = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 1, "m1"), ev(2, 1, "m2"), ev(3, 1, "m3")],
+        &[("m1", "a", ""), ("m2", "b", ""), ("m3", "c", "")],
+        3,
+    );
+    // dev-zlc ADR-007：handle_sync_reply 吃 HTTP 信封（base64 body），enveloped() 复刻 driver 回灌字节。
+    let p = h.step(port_reply_with_body(sync_corr, enveloped(reply)), 3000);
+    let persist_corr = p
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::Persist(c) => Some(*c),
+            _ => None,
+        })
+        .expect("Persist corr");
+
+    // persist 失败（db_ok=false）→ cursor 不得推进（仍 0），下次 re-pull。
+    h.step(
+        Tick::PortReply {
+            corr: Correlation::from_raw(persist_corr),
+            outcome: PortOutcome::Err(helix_core::tick::PortError::Storage(1)),
+        },
+        3100,
+    );
+    assert_eq!(
+        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        Some(0),
+        "S4：persist 失败时 cursor 不推进（写库成功才 commit），got {:?}",
+        h.module.cursor_for(ChannelId::from_test_u64(1))
+    );
+}

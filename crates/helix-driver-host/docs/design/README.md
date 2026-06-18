@@ -4,8 +4,9 @@
 > native / ffi 只留薄壳，存储 / 网络复杂度全沉淀在此。本目录 mermaid 图从真实 src 提炼，
 > 真源文件：`src/{storage.rs, network.rs, ops.rs, codec.rs}`。
 
-| 图 | 一句话 | 真源 | 关联约束 |
+| 文档 / 图 | 一句话 | 真源 | 关联约束 |
 |---|---|---|---|
+| **[`00-设计思想.md`](00-设计思想.md)** | **架构意图与核心决策备忘**：北极星单一真源 / parity by construction / C++ 直连转折 / BatchSink flush hook / 读写三池 / 工程化教训 | — | ADR-007 · §§1-8 |
 | [`01-storage-read-write-split-pool.mmd`](01-storage-read-write-split-pool.mmd) | rusqlite 读写分离池：写连接 **N=1**（串行保序，WAL 单写者）/ 只读连接 **N=4**（READ_ONLY，WAL 并发快照），Semaphore 限并发 + spawn_blocking 隔离 + WAL/PRAGMA 在 open 设 | `storage.rs` | HX-C006 · ADR-005/007 |
 | [`02-storageop-to-sql.mmd`](02-storageop-to-sql.mmd) | 5 种 StorageOp（BatchUpsert/MonotonicUpsert/BatchUpdate/Get/Scan）各自的 SQL 形态 + O(1) 热路径纪律（单 INSERT/UPDATE WHERE PK，禁 read-modify-write，固定模板 `&'static` SQL + prepare_cached） | `ops.rs` · `storage.rs` | HX-C005 · ADR-007 |
 | [`03-http-header-injection.mmd`](03-http-header-injection.mmd) | HostNetworkConfig（启动期配置）+ HostHeaderRegistry（parking_lot RwLock 运行时 header 快照，无 poison）→ 每个 HTTP 请求 / WS 握手注入最新快照 → reqwest 出站（HTTP 与 WS 共享同一 registry/token） | `network.rs` | HTTP-4 · ADR-007 |

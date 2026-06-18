@@ -31,7 +31,7 @@ flowchart TD
     subgraph SINK["Effect 兑现器（详见图 03）"]
         SP_P["Persist BoundedSpawner ✅<br/>per-table-set 懒建 N=1"]
         SP_H["Http BoundedSpawner ✅<br/>N=8 Block"]
-        SP_HF["HttpFire BoundedSpawner ⚠️<br/>N=8 DropOldest（零生产者·类型对称 eager 建）"]
+        SP_HF["HttpFire BoundedSpawner ⚠️<br/>N=8 DropNewest（满即丢当前·零生产者·类型对称 eager 建）"]
         SENDW["Effect::Send → transports.get(id) → WS ✅"]
         EMITW["Effect::Emit → NativeEventSink::emit ✅"]
         TIMW["Schedule/Cancel Timer → TimerRegistry ✅"]

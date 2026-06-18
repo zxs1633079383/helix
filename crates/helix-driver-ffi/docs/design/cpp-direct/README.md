@@ -26,3 +26,9 @@
 ## M3-F4 落地实录
 
 见 [02-m3-f4-todo.md](02-m3-f4-todo.md)（pump 各项已落地形态 + `helix_query` 仍为真 TODO 的依据）。
+
+---
+
+## helix_query 设计（blocked-on-IM）
+
+见 [03-helix-query-design.md](03-helix-query-design.md)（为什么不在 driver 层硬编 name→Spec + 正解路由设计 + 实装解封条件）。

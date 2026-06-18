@@ -269,3 +269,50 @@ workflow 完成后，`architecture-drift-review` 应覆盖：
 - path3 写形态是否满足 HX-C005（O(1) 无 RMW）
 - 新增压测的 `target_supports_shared_readers` 路径是否覆盖文件库（非内存库）
 - cursor 并发场景是否验证了 `WHERE excluded.value > value`（MAX guard）而非仅验证了写入成功
+
+---
+
+## 7. path3 sync-v2 HX-C005 核查结论（2026-06-18 落档）
+
+> 对 `待办 §优先级 P0 第1条`（「确认 path3 未读自增 SQL 形态」）的结论性闭环。
+> 核查范围：`dev-zlc` 分支 + `feat/sync-v2-full-replacement` 分支（两者均为 path3 实装路径）。
+
+### 7.1 核查发现
+
+**channel 写路径**（对应原 `increment_channel` WS 事件 / sync-v2 posted batch upsert）：
+
+两个分支的 `helix-im` 均通过 `Effect::Persist(op: UpsertSpec{ table:"messages", conflict_key: Some("seq") })` 落消息，经 HostStorage `batch_upsert` 执行：
+
+```sql
+INSERT INTO messages (...) VALUES (?...)
+ON CONFLICT(seq) DO UPDATE SET ... = excluded....
+```
+
+- **写形态**：原子 `ON CONFLICT(seq) DO UPDATE`（单条 SQL，无 read-modify-write）。
+- **复杂度**：O(log N)（B-tree PK 查找 + 原子 INSERT/UPDATE），视为 O(1)。
+- **HX-C005 判定**：合规。
+
+**unread_count 写路径**：
+
+两个分支均**不在 channel 表写 unread_count 字段**。`unread_count` 不参与当前 channel row 的写操作（透传给前端的 unread 统计来自 server WS 事件字段，直接经 DomainEvent::Emit 回传，不落 SQLite channel 表）。
+
+- **写形态**：channel batch_update 只更新 displayName / lastPostAt 等字段，**无 `unread = unread + 1`（SQL INCREMENT）或 `read-modify-write`**。
+- **HX-C005 判定**：合规（未见违规写形态）。
+
+### 7.2 结论
+
+| 检查项 | dev-zlc | feat/sync-v2-full-replacement |
+|---|---|---|
+| channel/message batch_upsert 写形态 | `ON CONFLICT DO UPDATE`（原子，O(1)，无 RMW）✅ | 同上 ✅ |
+| unread_count 是否写入 channel 表 | 否（透传 Emit，不落表）✅ | 否 ✅ |
+| HX-C005 整体判定 | **合规** | **合规** |
+
+**两个分支 path3 均满足 HX-C005。** 场景 D（increment 并发测试）对当前实现不阻塞——没有 `unread = unread + 1` 写路径需要压测。
+
+### 7.3 未来守护（如引入真实 unread_count 写路径）
+
+若将来在 channel 表或独立 unread 表引入真实的未读计数增量写（如「用户标已读时 clear / 消息到达时 +1」），**必须遵守**：
+
+- ✅ 原子 SQL 自增：`INSERT INTO channel_unread(channel_id, user_id, count) VALUES(?,?,1) ON CONFLICT(channel_id, user_id) DO UPDATE SET count = count + excluded.count`
+- ❌ 禁止 read-modify-write：禁止「读出 count → Rust +1 → UPDATE SET count=?」（HX-C005 红线，O(N²) 并发下必死锁/丢计）
+- ✅ 或 normalized append-only 表：每条消息到达 INSERT mention/unread 行，读时 COUNT(*)（独立 PR 评审）

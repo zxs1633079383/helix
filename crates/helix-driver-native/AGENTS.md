@@ -5,12 +5,12 @@
 ## 本 crate 契约（engine_loop 五不变量，破坏须同步改文档）
 
 > 刀2-driver：Persist / Http(必达) / HttpFire(可丢) 统一成 `BoundedSpawner` 原语
-> （有界 mpsc 队列 + N worker + 溢出策略 Block|DropOldest + 独立 unbounded reply_tx）。
+> （有界 mpsc 队列 + N worker + 溢出策略 Block|DropNewest + 独立 unbounded reply_tx）。
 > 三类只是参数差异，背压纪律集中一处（不再 per-type ad-hoc 散落）。
 
 1. **回灌必达**：PortReply 走独立 unbounded reply_tx，永不堵塞 worker。
    🔴 红线：reply_tx 绝不能改有界——否则 Block 死锁环回来（泵 block 入队 → 不消费 reply → reply 满 → worker block 回报 → 不抽队列）。
-2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满时 `submit().await` 把背压传导回 tick_tx（慢而不丢，绝不 drop）。HttpFire 走 DropOldest（try_send 满即丢 + warn，泵不阻塞）。
+2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满时 `submit().await` 把背压传导回 tick_tx（慢而不丢，绝不 drop）。HttpFire 走 DropNewest（try_send 满即丢当前条目 + warn，泵不阻塞）。
    🔴 红线：抽水绝不放泵循环——任何「dispatch 末尾 await worker 完成」都会引入自死锁。抽水在独立 worker task，submit 即返回循环。
 3. **同 key 写顺序**：Persist per-table-set BoundedSpawner **强制 N=1**（单消费者保序）；多表 ops 走组合键独立实例（跨 key 不保证相对顺序——需有序就合进同一 Persist）。Http/HttpFire 无写序要求（N=8）。
 4. **回灌优先**：biased select reply_rx 在前

@@ -13,10 +13,11 @@ WS 协议 / HTTP / SQLite 的真正执行已下沉 `helix-driver-host`（ADR-007
 
 ## 图清单
 
-| 图 | 一句话 | 覆盖源码 |
+| 文档 / 图 | 一句话 | 覆盖源码 |
 |---|---|---|
+| **[`00-设计思想.md`](00-设计思想.md)** | **角色宣言**：native 薄壳定义 / ADR-007 前后对比（1119→168 行）/ NativeEventSink broadcast no-op flush / NativeStorage 委托层 parity / 合法 ambient API 落点 | — |
 | [`01-engine-loop-event-pump.mmd`](01-engine-loop-event-pump.mmd) | **事件泵全景**：transport/timer/command 三源 → Tick → tick_tx(cap=256) → biased select(reply 优先) → step → consume_effects → dispatch → Effect 兑现器 → PortReply 经 unbounded reply_tx 回灌闭环。🔴 死锁红线①②标注 | `engine_loop.rs` run_engine_loop_with_transports / 主循环 |
-| [`02-bounded-spawner-backpressure.mmd`](02-bounded-spawner-backpressure.mmd) | **统一背压原语 BoundedSpawner 三态**：Persist(N=1 Block 保写序) / Http(N=8 Block 必达不丢) / HttpFire(N=8 DropOldest 可丢)；有界队列 cap=1024 + 独立 unbounded reply_tx。🔴 红线①(reply_tx 永不有界) + 红线②(抽水绝不放泵循环)·单向 DAG 死锁安全证明 | `engine_loop.rs` struct BoundedSpawner / Overflow / submit / get_or_spawn_persist / spawn_http_pool |
+| [`02-bounded-spawner-backpressure.mmd`](02-bounded-spawner-backpressure.mmd) | **统一背压原语 BoundedSpawner 三态**：Persist(N=1 Block 保写序) / Http(N=8 Block 必达不丢) / HttpFire(N=8 DropNewest 可丢·满即丢当前条目)；有界队列 cap=1024 + 独立 unbounded reply_tx。🔴 红线①(reply_tx 永不有界) + 红线②(抽水绝不放泵循环)·单向 DAG 死锁安全证明 | `engine_loop.rs` struct BoundedSpawner / Overflow / submit / get_or_spawn_persist / spawn_http_pool |
 | [`03-effect-dispatch-routing.mmd`](03-effect-dispatch-routing.mmd) | **Effect 兑现路由**：9 种 Effect 各自怎么被 native 兑现——Send→WS / Persist·PersistFire→spawner→host SQLite / Http·HttpFire→spawner→reqwest / Emit→broadcast event_sink / Schedule·CancelTimer→TimerRegistry / Request→deferred stub | `engine_loop.rs` dispatch_effects match + consume_effects |
 
 ## 五不变量（破坏须同步改图 + CLAUDE.md）
@@ -24,7 +25,7 @@ WS 协议 / HTTP / SQLite 的真正执行已下沉 `helix-driver-host`（ADR-007
 刀2-driver：Persist / Http(必达) / HttpFire(可丢) 统一成 `BoundedSpawner`（有界 mpsc + N worker + 溢出策略 + 独立 unbounded reply_tx）。
 
 1. **回灌必达**：PortReply 走独立 unbounded `reply_tx`，永不堵塞 worker。🔴 红线：reply_tx 绝不能改有界——否则 Block 死锁环回来。
-2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满 `submit().await` 把背压传导回 tick_tx（慢而不丢）。HttpFire 走 DropOldest（满即丢 + warn）。🔴 红线：抽水绝不放泵循环。
+2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满 `submit().await` 把背压传导回 tick_tx（慢而不丢）。HttpFire 走 DropNewest（满即丢当前条目 + warn）。🔴 红线：抽水绝不放泵循环。
 3. **同 key 写顺序**：Persist per-table-set `BoundedSpawner` 强制 N=1（单消费者保序）；多表 ops 走组合键独立实例。Http/HttpFire 无写序要求（N=8）。
 4. **回灌优先**：biased `select!` 把 `reply_rx` 排在 `tick_rx` 前，防 PortReply 饥饿。
 5. **graceful drain**：`run_engine_loop` 返回 = 全部已接收 Persist + 必达 Http 已落地（shutdown：drop tx → join workers → drain replies）。HttpFire 可丢，不纳入保证。

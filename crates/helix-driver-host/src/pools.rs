@@ -2,7 +2,7 @@
 //!
 //! - Persist：per-table-set 懒建，每实例 N=1（保写序），Block 溢出。
 //! - Http(必达)：全局单例 N=max_http_inflight，Block 溢出。
-//! - HttpFire(可丢)：全局单例 N，DropOldest 溢出。
+//! - HttpFire(可丢)：全局单例 N，DropNewest 溢出（满即丢当前条目）。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ where
     })
 }
 
-/// 构造 Http BoundedSpawner（必达 Block / 可丢 DropOldest 由 overflow 参数选）。
+/// 构造 Http BoundedSpawner（必达 Block / 可丢 DropNewest 由 overflow 参数选）。
 ///
 /// N=concurrency 个 worker 抢有界队列，泵只入队不发请求——第 N+1 条在队列里等 worker。
 pub fn spawn_http_pool<H>(

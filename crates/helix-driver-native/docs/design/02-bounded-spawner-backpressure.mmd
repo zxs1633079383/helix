@@ -23,7 +23,7 @@ flowchart TD
         FQ["有界 mpsc 队列 cap=1024"]
         FW["N=8 worker"]
         FQ --> FW
-        FO{"溢出=DropOldest ⚠️<br/>try_send 满即丢本条 + warn<br/>泵永不阻塞·丢失靠 cursor-gate 重发自愈"}
+        FO{"溢出=DropNewest ⚠️<br/>try_send 满即丢本条（最新来的）+ warn<br/>泵永不阻塞·丢失靠 cursor-gate 重发自愈"}
         FNOTE["⚠️ 当前零生产者<br/>helix-im 三 Http 均必达<br/>与 http_pool 类型对称 eager 建<br/>第二模块接入时重审/删"]
     end
 

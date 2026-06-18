@@ -1,4 +1,6 @@
-use helix_core::effect::{GetSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec};
+use helix_core::effect::{
+    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
+};
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
 use helix_driver_host::{
@@ -135,12 +137,12 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
         .expect("conflict update");
 
     storage
-        .batch_update(
-            "messages",
-            "id",
-            &[SqlValue::Integer(1)],
-            vec![("seq".to_string(), SqlValue::Integer(9))],
-        )
+        .batch_update(BatchUpdateSpec {
+            table: "messages",
+            key_col: "id",
+            key_vals: vec![SqlValue::Integer(1)],
+            patch: vec![("seq".to_string(), SqlValue::Integer(9))],
+        })
         .await
         .expect("batch update");
 

@@ -25,15 +25,10 @@ where
                 Ok(()) => {}
                 Err(e) => return PortOutcome::Err(classify_port_error(e)),
             },
-            StorageOp::BatchUpdate(spec) => {
-                match storage
-                    .batch_update(spec.table, spec.key_col, &spec.key_vals, spec.patch.clone())
-                    .await
-                {
-                    Ok(()) => {}
-                    Err(e) => return PortOutcome::Err(classify_port_error(e)),
-                }
-            }
+            StorageOp::BatchUpdate(spec) => match storage.batch_update(spec.clone()).await {
+                Ok(()) => {}
+                Err(e) => return PortOutcome::Err(classify_port_error(e)),
+            },
             StorageOp::MonotonicUpsert(spec) => {
                 match storage.monotonic_upsert(spec.clone()).await {
                     Ok(()) => {}

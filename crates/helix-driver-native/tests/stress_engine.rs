@@ -607,7 +607,10 @@ async fn stress_engine_mixed_write_read_flood() {
     eprintln!("\n[stress_engine_mixed_write_read_flood] P2 mixed flood");
     eprintln!("  writes sent/replied  : {WRITES}/{final_writes}");
     eprintln!("  reads  sent/replied  : {READS}/{final_reads}");
-    eprintln!("  total time           : {:.3} ms", elapsed.as_secs_f64() * 1e3);
+    eprintln!(
+        "  total time           : {:.3} ms",
+        elapsed.as_secs_f64() * 1e3
+    );
     eprintln!(
         "  mixed throughput     : {:.0} ops/s",
         TOTAL as f64 / elapsed.as_secs_f64()

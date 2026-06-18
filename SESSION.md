@@ -5,6 +5,17 @@
 
 ## §0 终态记录
 
+🎯 EXPECT F5 跨端 parity 自动化（同 Tick 剧本 native vs FFI byte-level 一致 · 设备无关）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/f5-cross-parity 未 merge）
+  ↳ 可证伪预判：① golden Tick 剧本→Emit DomainEvent 序列 byte-identical 到 committed fixture + 跑两次确定性 ② native(NativeEventSink broadcast)↔ffi(FfiEventSink batch decode) 对同剧本 deliver 的 DomainEvent byte-identical ③ 改动只在 tests + golden fixture（不改 src 逻辑/不碰 core 行为）④ 两测 HX-C011 可证伪（改 emit / break egress → fixture mismatch FAIL，commit body 附破坏证明）⑤ cargo test 全绿 + native 零回归 + gate.sh 过
+  ↳ 偏离即记 DRIFT-PRED：若改 src 逻辑 · golden 是 tautology(改 emit 照过) · parity 黑盒证不了 · 跨 crate dev-dep 成环 → 偏离
+
+✅ DONE F5 跨端 parity 自动化 @2026-06-18 | commit ce8ccfc..7601e15（merge 7601e15）| helix/dev-zlc
+  ↳ 两测：① helix-im/tests/f5_golden_replay.rs — Tick 剧本(im_send_message Command + posted Inbound)→shell.step→Emit DomainEvent 序列 == committed golden(fixtures/f5 ndjson 2 行)+ 跑两次确定性 ② helix-driver-ffi/tests/f5_egress_parity.rs(dev-dep native)— 同剧本 emit 经 NativeEventSink(broadcast) vs FfiEventSink(batch decode) deliver 的 DomainEvent **byte-identical**
+  ↳ HX-C011 破坏→fail 实测：改 golden event 名→A FAIL/还原 PASS · 截断 FfiEventSink flush 末条→B FAIL(ffi 1 条 vs native 2 条)/还原 PASS（非 tautology）
+  ↳ 验证：im+ffi 新两测过 · native 零回归 · gate.sh 全闸门 · core 零运行时 · 未改 src/未碰 core · ffi dev-dep native 无环(生产构建树不含 native·cargo tree no-dev 验)
+  ↳ EXPECT 5 断言全 held；verify-diff 0 blocking。1 major(worktree agent 误改根 SESSION·§6.5)**已撤回收敛**、DONE 由主对话写。2 minor backlog：parity 专证 egress 机制(引擎双端一致靠共享 build_shell by-construction)+ 多 step 多 batch 拼接未覆盖(单批已足证)
+  ↳ ⚡ DRIFT-PRED：本轮按 F3 教训开局写了 EXPECT ✅（流程改进生效）；新坑=worktree agent 仍越界写根 SESSION（§6.5 黑名单 prompt 已含却没拦住）→ 候选：派 worktree agent 时强调「§4.8 EXPECT/DONE 落 worktree REPORT.md 不落根 SESSION，根 SESSION 主对话独占」。已 type:surprise 落 logs
+
 ✅ DONE C++ 直连冒烟自动化 harness（cpp→rust→cpp 真 C++ 端到端）@2026-06-18 | commit a80cc49 | helix/dev-zlc
   ↳ 真 C++ link libhelix_driver_ffi.dylib + #include helix.hpp：create(vtable)→helix_command(im_send_message)→收 on_domain_events_batch 含 im:post:sending→destroy(join pump)。cmake/ctest 1/1 PASS 1.54s；scripts/cpp-smoke.sh 一键（CI 可调）；crates/helix-driver-ffi/smoke/{smoke.cpp,CMakeLists.txt}
   ↳ 环境现实：本机无设备/iOS 模拟器/完整 Xcode/Android SDK → **Flutter 真机冒烟不可行**；完整 Flutter↔C++↔Rust 链需用户原项目 C++ host。C++ 直连冒烟=本架构(C++-host)的「真机冒烟」正解。Flutter 安装后台进行(brew cask)，装后仅 macOS 桌面 demo 可跑

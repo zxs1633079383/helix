@@ -25,6 +25,11 @@ last_review_runId: wf_b809b3b3-ab6 (十一轮 architecture-drift-review：F5 跨
 # 3 finding 全 low 非阻塞 backlog：F5 egress parity 测试旁路真泵 per-step flush ×2（test-fidelity）
 # + Cargo.toml 日语注释 ×1（code-style）。无 HX-C/GOAL 违反、byte-parity 结论可信、无新建卡。
 # 注：0514a4d 后 dev-zlc 另有 2 docs commit（4db4592/c3f1797 = F4.5 demo 指针+SESSION，纯文档无 src）gap=2 绿。
+# 另·F4.5 会话收口期因陈旧 gap 锚点(e3540cf·并发十一轮推进发生在本轮 drift-review 运行的 492s 内)并发误触发**重叠** drift-review wf_fd406543-c76
+#   (区间 e3540cf..c3f1797 ⊇ 十一轮 e3540cf..0514a4d)，结论一致 🟡 轻·无 HX-C001..C011 / GOAL §1·§2 / 三层·sans-IO·单调cursor 架构违反。
+#   独有 finding F3 = a80cc49 C++ smoke harness DONE 缺配对 🎯EXPECT(§4.8 audit 后门，与 finalize DONE 同根≥2 逼近建卡阈值)
+#   → 候选 HX-C012『实质任务(含 test/CI/harness ≥50 行或新源文件)须开局 EXPECT』回放闸门 **HOLD**(历史 trap 均代码级约束·性质不同源·挡不住这次·待下次再过)。
+#   last_reviewed 不推进(闸门已由十一轮满足 gap=2 绿·避免与活跃并发会话争写主字段)；F1/F2 与十一轮 F5-egress-parity finding 同源已登记。
 last_review_prev_runId: wf_3f017dd5-500 (十轮：收口+设计思想+HX-C011 · 区间 cb8b6d5..6d90461)
 # 十轮 = 收口代办+三端设计思想沉淀+新建 HX-C011 review（cb8b6d5..6d90461，gap=10 触发）。🟡 轻 / 0🔴。
 # 3 finding 全证实全收敛(commit e3540cf)：F1 core effect.rs DropOldest 文档残留→DropNewest；

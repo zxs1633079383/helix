@@ -106,7 +106,7 @@ async fn host_storage_blob_roundtrip_lossless() {
     }
 
     // codec 往返也必须无损（数组编码，不退化成 Text）
-    let bytes = rows_to_reply_bytes(&[got.clone()]);
+    let bytes = rows_to_reply_bytes(&[got]);
     let back = rows_from_reply_bytes(&bytes).expect("decode");
     match back[0].iter().find(|(k, _)| k == "data").map(|(_, v)| v) {
         Some(SqlValue::Blob(b)) => assert_eq!(b, &raw, "codec 往返 blob 必须无损"),
@@ -604,6 +604,241 @@ async fn batch_upsert_rolls_back_entire_batch_on_midway_failure() {
         0,
         "no rows should land — entire batch rolled back"
     );
+}
+
+// ─── P1-A：读读并发 N>4 Semaphore 背压（无死锁，全完成）────────────────────────
+//
+// spec §5.2 场景 A：16 个并发 scan（N=16 > READ_POOL_SIZE=4）走 Semaphore 背压，
+// 无死锁，最终 16 个全成功，每个拿到相同行。
+//
+// 判据（三条，与 spec 对应）：
+//   ① 16 个读全部成功，每个拿到相同行数（结果正确）
+//   ② 总墙钟 < N/2 × base + 500ms（并发借用，非全串行）
+//   ③ 总墙钟 ≥ (N/READ_POOL_SIZE) × base（Semaphore 分批，非所有读同时完成）
+//      N=16 / pool=4 → ≥ 4 批；wall_clock ≥ 4×base（宽松下界，吸收调度抖动）
+//
+// 注：N>4 时第 5+ 个 `acquire_owned().await` 在 Semaphore 上异步挂起（不占线程）。
+// 纯串行单锁下 16 个读必须排队；WAL 读池下同时跑 ≤4，但总墙钟 ≪ 16×base。
+// 判据③是卖点证明：若把 pool 大小改成 16（无背压），所有 scan 同时跑，
+// wall ≈ base，③ FAIL → 证明 Semaphore 确实在分批而非被旁路绕过。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
+    use std::time::{Duration, Instant};
+
+    let (storage, _path) = file_storage().await;
+
+    // 预填 100 行
+    for i in 1_i64..=100 {
+        storage
+            .batch_upsert(UpsertSpec {
+                table: "messages",
+                rows: vec![message_row(i, &format!("p1a-{i}"), i)],
+                conflict_key: Some("id"),
+            })
+            .await
+            .expect("seed");
+    }
+
+    // 基线：单个 scan 耗时（无并发）
+    let base_start = Instant::now();
+    let base_rows = storage
+        .scan(ScanSpec {
+            table: "messages",
+            limit: Some(1000),
+        })
+        .await
+        .expect("baseline scan")
+        .len();
+    let base = base_start.elapsed().max(Duration::from_micros(1)); // 防止 base=0 导致上界为 0
+
+    // 并发发起 16 个 scan（N=16 > READ_POOL_SIZE=4）
+    const N: usize = 16;
+    let start = Instant::now();
+    let mut handles = Vec::with_capacity(N);
+    for _ in 0..N {
+        let s = storage.clone();
+        handles.push(tokio::spawn(async move {
+            s.scan(ScanSpec {
+                table: "messages",
+                limit: Some(1000),
+            })
+            .await
+            .expect("concurrent scan N>4")
+            .len()
+        }));
+    }
+    let mut results = Vec::with_capacity(N);
+    for h in handles {
+        results.push(h.await.expect("task join"));
+    }
+    let wall = start.elapsed();
+
+    // ① 全部成功，每个拿到相同 100 行
+    assert_eq!(
+        results.len(),
+        N,
+        "所有 {N} 个读必须完成（无死锁/panic）"
+    );
+    for (i, &row_count) in results.iter().enumerate() {
+        assert_eq!(
+            row_count, base_rows,
+            "reader {i} 拿到 {row_count} 行，期望 {base_rows} 行（结果正确）"
+        );
+    }
+
+    // ② 总墙钟 < N × base（并发，非串行）
+    // 给足余量：N/2 × base + 常数地板（吸收 CI 调度抖动）
+    let serial_upper = base.saturating_mul(N as u32 / 2) + Duration::from_millis(500);
+    assert!(
+        wall < serial_upper,
+        "N={N} 并发读墙钟 {wall:?} 应 < 串行上界 {serial_upper:?}（base={base:?}）——\
+         Semaphore 应允许 ≤4 路并发，而非全串行"
+    );
+
+    // ③ 总墙钟 ≥ (N/READ_POOL_SIZE) × base（Semaphore 分批，而非所有读同时完成）
+    // N=16 / pool=4 → 至少 4 批；每批 ≥ base → wall ≥ (N/READ_POOL_SIZE) × base。
+    // 宽松下界：取 (N/READ_POOL_SIZE - 1) × base（吸收并行启动抖动）；地板 1µs 防 base≈0。
+    // 若 Semaphore 被旁路（pool 大小改成 N=16）→ 所有读同时跑 wall≈base，(N/4-1)×base≫base → FAIL。
+    const READ_POOL_SIZE: u32 = 4;
+    let batches = (N as u32) / READ_POOL_SIZE;
+    let batching_lower = base.saturating_mul(batches.saturating_sub(1));
+    assert!(
+        wall >= batching_lower,
+        "N={N} pool={READ_POOL_SIZE}: 读应分 ≥{batches} 批，墙钟下界 ≥ (batches-1)×base={batching_lower:?}，\
+         实际 wall={wall:?}（= Semaphore 被旁路，所有读同时完成）"
+    );
+
+    eprintln!(
+        "\n[read_read_concurrency_n_gt_pool_semaphore_backpressure] N={N}, wall={wall:?}, base={base:?}, \
+         batching_lower={batching_lower:?}"
+    );
+}
+
+// ─── P1-B：WAL 快照隔离（COMMIT 前读旧快照，COMMIT 后读新快照，零脏读）──────────
+//
+// spec §5.2 场景 B：写事务 uncommitted 期间 reader 读到的是提交前快照，不是脏数据。
+//
+// 判据：
+//   ① COMMIT 前的读：value=100（旧快照，不脏读）
+//   ② COMMIT 后的读：value=200（新快照）
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wal_snapshot_isolation_no_dirty_read() {
+    use std::time::Duration;
+
+    let (storage, _path) = file_storage().await;
+
+    // 建 notes 表，预填 id=1 value=100
+    storage
+        .execute_raw(
+            "CREATE TABLE IF NOT EXISTS notes \
+             (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)",
+        )
+        .await
+        .expect("create notes");
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "notes",
+            rows: vec![vec![
+                ("id".to_string(), SqlValue::Integer(1)),
+                ("value".to_string(), SqlValue::Integer(100)),
+            ]],
+            conflict_key: Some("id"),
+        })
+        .await
+        .expect("seed notes");
+
+    // "慢写"任务：BEGIN IMMEDIATE → UPDATE value=200 → sleep 200ms → COMMIT
+    // 在 COMMIT 之前我们先做"COMMIT前读"，COMMIT 之后做"COMMIT后读"。
+    //
+    // 使用 tokio oneshot 通道协调时序：
+    //   慢写 BEGIN 后发 tx1；主线程 COMMIT前读；发 tx2 告知慢写可 COMMIT；
+    //   慢写 COMMIT 后发 tx3；主线程 COMMIT后读。
+    let (tx_begin, rx_begin) = tokio::sync::oneshot::channel::<()>();
+    let (tx_ok_to_commit, rx_ok_to_commit) = tokio::sync::oneshot::channel::<()>();
+    let (tx_committed, rx_committed) = tokio::sync::oneshot::channel::<()>();
+
+    let s_writer = storage.clone();
+    let write_handle = tokio::spawn(async move {
+        // execute_raw 在写连接上运行：BEGIN IMMEDIATE 持有写锁。
+        // 分两步：先 BEGIN + UPDATE，等主线程读完，再 COMMIT。
+        s_writer
+            .execute_raw(
+                "BEGIN IMMEDIATE; \
+                 UPDATE notes SET value = 200 WHERE id = 1;",
+            )
+            .await
+            .expect("begin + update");
+        // 通知主线程：写已进入 uncommitted 状态
+        let _ = tx_begin.send(());
+        // 等待主线程完成 COMMIT 前读后发来"可以 COMMIT"信号
+        let _ = rx_ok_to_commit.await;
+        // COMMIT
+        s_writer
+            .execute_raw("COMMIT;")
+            .await
+            .expect("commit");
+        // 通知主线程：COMMIT 完成
+        let _ = tx_committed.send(());
+    });
+
+    // 等写进入 uncommitted 状态（有界等待，避免 flaky）
+    tokio::time::timeout(Duration::from_secs(5), rx_begin)
+        .await
+        .expect("begin timeout")
+        .expect("begin signal");
+
+    // COMMIT 前读：value 应为旧快照 100，不是脏数据 200
+    let before_rows = storage
+        .get(GetSpec {
+            table: "notes",
+            key_col: "id",
+            key_val: SqlValue::Integer(1),
+        })
+        .await
+        .expect("before-commit read");
+    let before_val = before_rows
+        .as_ref()
+        .and_then(|row| row.iter().find(|(k, _)| k == "value"))
+        .map(|(_, v)| v.clone());
+
+    // 告知写任务可以 COMMIT
+    let _ = tx_ok_to_commit.send(());
+
+    // 等 COMMIT 完成
+    tokio::time::timeout(Duration::from_secs(5), rx_committed)
+        .await
+        .expect("commit timeout")
+        .expect("commit signal");
+
+    // COMMIT 后读：value 应为新快照 200
+    let after_rows = storage
+        .get(GetSpec {
+            table: "notes",
+            key_col: "id",
+            key_val: SqlValue::Integer(1),
+        })
+        .await
+        .expect("after-commit read");
+    let after_val = after_rows
+        .as_ref()
+        .and_then(|row| row.iter().find(|(k, _)| k == "value"))
+        .map(|(_, v)| v.clone());
+
+    write_handle.await.expect("writer join");
+
+    // ① COMMIT 前不脏读（旧快照 100）
+    assert!(
+        matches!(before_val, Some(SqlValue::Integer(100))),
+        "COMMIT 前读应看到旧快照 value=100，实际: {before_val:?}（脏读 = 违反 WAL 快照隔离）"
+    );
+
+    // ② COMMIT 后读到新快照 200
+    assert!(
+        matches!(after_val, Some(SqlValue::Integer(200))),
+        "COMMIT 后读应看到新快照 value=200，实际: {after_val:?}"
+    );
+
+    eprintln!("\n[wal_snapshot_isolation_no_dirty_read] PASS: before={before_val:?}, after={after_val:?}");
 }
 
 #[test]

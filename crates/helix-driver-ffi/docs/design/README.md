@@ -8,6 +8,7 @@
 
 | 图 | 文件 | 一句话 |
 |---|---|---|
+| **设计思想** | [`cpp-direct/00-设计思想.md`](cpp-direct/00-设计思想.md) | FFI crate 角色宣言：为什么消灭 Dart 中间层 / Rust 持 WS 持 SQLite / FfiEventSink 批处理 / helix_query blocked-on-IM 来龙去脉 |
 | ① C-ABI 边界全景 | [`01-c-abi-boundary.mmd`](01-c-abi-boundary.mmd) | Dart ↔ 7 个 C-ABI 导出函数 ↔ HelixHandle / 三个 Port 薄壳；✅ create/destroy/set_header/remove_header 已接，⚠️ on_ws_frame/on_http_response 拷贝后断头，❌ engine 泵 / helix_command / helix_query 未接（虚线红） |
 | ② 当前数据流 vs 目标 F4 | [`02-dataflow-current-vs-f4.mmd`](02-dataflow-current-vs-f4.mmd) | 左现状（收帧→拷贝→`// TODO` 断头，engine 不被驱动）对比 右目标（→Tick::Inbound→engine step→Vec\<Effect\>→Persist 落库 / Emit→on_domain_event→Dart Stream 闭环） |
 | ③ FFI 内存安全边界（HX-C006） | [`03-ffi-memory-safety.mmd`](03-ffi-memory-safety.mmd) | ① opaque ptr 单 owner（into_raw/from_raw 各一次 + null-check）② panic=abort 不跨 extern C unwind ③ C 侧 buffer 立即 to_vec 拷贝不持有（ACL-3）④ ffi_str 零信任守卫（null/utf8/invalid 错误码） |

@@ -16,6 +16,8 @@
   ↳ 验证：cargo test host+native 全绿 · clippy -D warnings 0 · core 零运行时 · structure-gate + gate.sh 全闸门
   ↳ 🎯 EXPECT（事后补记·十轮 drift-review F3 补偿·本应开局写）：可证伪预判——① 改动只在 driver-{host,native,ffi}/**（+ core 仅 DropOldest 文档残留、零代码逻辑改）② 改名 DropNewest behavior-neutral（cargo test 不破）③ 压测去重覆盖不减 ④ 三端设计思想 md 沉淀 ⑤ gate.sh 过。实际偏离：P1-A flaky 已记上方 DRIFT-PRED。**教训**：实质收尾任务亦须开局 EXPECT——§4.8 drift-review F3 抓出本 DONE 缺配对 EXPECT，DRIFT-PRED 一度悬空
 
+🎯 EXPECT F5 跨端 parity 两测 + golden fixture @2026-06-18 | 赌注 中 | 可逆 是 | 改动文件集：helix-im/tests/f5_golden_replay.rs + helix-driver-ffi/tests/f5_egress_parity.rs + ffi/Cargo.toml dev-dep + tests/fixtures/f5_golden_events.ndjson | 可证伪断言：① 不碰任何 src/ 逻辑（grep src/ 变更=0）② im_send_message 剧本在 ExecutionShell 下产 Emit(im:post:sending) ③ golden fixture NDJSON 行数==Emit 条数 ④ FfiEventSink flush batch decode 与 NativeEventSink broadcast receive byte-identical ⑤ cargo test -p helix-im -p helix-driver-ffi 全绿 ⑥ helix-core 零运行时不变
+
 🎯 EXPECT storage 读写并发压测全 phase（下沉后共享核覆盖 + sync-v2 写负载）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/storage-rw-concurrency 未 merge）
   ↳ 可证伪预判：① 改动只在 helix-driver-{host,native}/{tests,benches}（+ 仅 P0 命中 dev-zlc RMW 时 helix-im/channel.rs 一处），不碰 core/仍零运行时 ② P0 path3 未读自增确认为原子 `ON CONFLICT SET unread=unread+excluded`（预测合规非 RMW；若 RMW 则修）③ 6 缺口场景落地（读读 N>4 背压/WAL 脏读断言/多 channel cursor 单调/engine 混合 flood/FFI↔native bench）+ native↔host 迁移清单 ④ cargo test host 全绿 + native 零回归 ⑤ verify 无 blocking 才算成（新测须真证伪、无 false-green）
   ↳ 偏离即记 DRIFT-PRED：若动 core/im 超 P0 一处 · 新测 false-green(测了证不了) · 迁移丢覆盖 · path3 实为 RMW 却没修/没 flag → 偏离

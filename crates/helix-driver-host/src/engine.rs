@@ -18,7 +18,7 @@
 //!
 //! 1. 回灌必达：PortReply 走独立 unbounded reply_tx（🔴 绝不改有界）。
 //! 2. 主循环不等 I/O：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx
-//!    （🔴 抽水绝不放泵循环）。HttpFire 走 DropOldest（满即丢，泵不阻塞）。
+//!    （🔴 抽水绝不放泵循环）。HttpFire 走 DropNewest（满即丢当前条目，泵不阻塞）。
 //! 3. 同 key 写顺序：Persist per-table-set N=1 单消费者保序。
 //! 4. 回灌优先：biased select reply_rx 在前。
 //! 5. graceful drain：返回 = 全部已接收 Persist + 必达 Http 已落地。
@@ -114,14 +114,14 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
 
     // Http(必达)：N=http_n，Block 溢出（旧 Semaphore 并发闸收敛进 N 个 worker）。
     let http_pool = spawn_http_pool(http_n, Arc::clone(&http), reply_tx.clone(), Overflow::Block);
-    // HttpFire(可丢)：N=http_n，DropOldest 溢出（丢失靠 cursor-gate 重发自愈）。
+    // HttpFire(可丢)：N=http_n，DropNewest 溢出（满即丢当前条目，丢失靠 cursor-gate 重发自愈）。
     // ⚠️ 有意取舍：当前零生产者（IM 三 Http 均必达）；为类型对称 eager 建，N worker park 近零成本。
     // 拆除/重审触发：第二个业务模块接入时（见 native CLAUDE.md「跨模块公平性」）。
     let http_fire_pool = spawn_http_pool(
         http_n,
         Arc::clone(&http),
         reply_tx.clone(),
-        Overflow::DropOldest,
+        Overflow::DropNewest,
     );
 
     // 初始化：触发 on_start。

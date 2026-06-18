@@ -27,7 +27,7 @@ flowchart TD
     HTTPIO ==>|"PortReply{corr, Ok(ReplyBytes)/Err}"| RTX
 
     %% ── 5. HttpFire（可丢·不回报）──
-    M -->|"HttpFire{req}"| HF["http_fire_pool.submit Job{corr:None} ⚠️<br/>HttpFire BoundedSpawner(N=8, DropOldest)<br/>当前零生产者（类型对称 eager 建）"]
+    M -->|"HttpFire{req}"| HF["http_fire_pool.submit Job{corr:None} ⚠️<br/>HttpFire BoundedSpawner(N=8, DropNewest：满即丢当前)<br/>当前零生产者（类型对称 eager 建）"]
     HF --> HTTPIO
 
     %% ── 6. Request（方向① stub）──

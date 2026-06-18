@@ -24,7 +24,7 @@ PC Tauri（native）与 Flutter FFI **共享**的 host driver 层（ADR-007）�
 ## 事件泵五不变量（真源在 `engine.rs` 头注，破坏须同步改本节 + native CLAUDE.md）
 
 1. **回灌必达**：PortReply 走独立 unbounded reply_tx（🔴 绝不改有界，否则 Block 死锁环回来）。
-2. **主循环不等 I/O**：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx（🔴 抽水绝不放泵循环）。HttpFire DropOldest（满即丢，泵不阻塞）。
+2. **主循环不等 I/O**：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx（🔴 抽水绝不放泵循环）。HttpFire DropNewest（满即丢当前条目，泵不阻塞）。
 3. **同 key 写顺序**：Persist per-table-set BoundedSpawner 强制 N=1（单消费者保序）。
 4. **回灌优先**：biased select reply_rx 在前。
 5. **graceful drain**：`run_engine_loop` 返回 = 全部已接收 Persist + 必达 Http 已落地。HttpFire 可丢，不纳入。

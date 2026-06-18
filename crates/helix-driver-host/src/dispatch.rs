@@ -83,7 +83,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     .await;
             }
 
-            // ── HttpFire（可丢，DropOldest 溢出，无 corr 不回报）────────────
+            // ── HttpFire（可丢，DropNewest 溢出，无 corr 不回报）────────────
             OwnedEffect::HttpFire { req } => {
                 http_fire_pool
                     .submit(Job {

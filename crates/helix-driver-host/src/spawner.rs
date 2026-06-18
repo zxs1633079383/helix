@@ -24,8 +24,11 @@ use helix_core::Tick;
 pub enum Overflow {
     /// 队满 `send().await` 阻塞泵 → 背压传导回 tick_tx（慢而不丢）。Persist / Http(必达) 用。
     Block,
-    /// 队满 try_send 失败即丢（warn，泵不阻塞）。HttpFire 用（丢失靠 cursor-gate 重发自愈）。
-    DropOldest,
+    /// 队满 try_send 失败即丢**当前（最新）**条目（warn，泵不阻塞）。HttpFire 用（丢失靠 cursor-gate 重发自愈）。
+    ///
+    /// 语义：`try_send` 满时丢的是**本次**（新来的）请求，不是队列里最旧的那条。
+    /// 在 fire-and-forget 自愈场景下等价（两端都靠 cursor-gate 重发补），取最简实现（try_send-Full-drop）。
+    DropNewest,
 }
 
 /// 一条工作单元：可选回报 corr（None = fire-and-forget，不发 PortReply）+ job 载荷。
@@ -101,19 +104,20 @@ impl<P: Send + 'static> BoundedSpawner<P> {
 
     /// 入队一条 job。
     /// - Block：`send().await`，满则阻塞泵（背压传导回 tick_tx）。
-    /// - DropOldest：try_send，满则丢 + warn（泵不阻塞）。
+    /// - DropNewest：try_send，满则丢**本条（最新）** + warn（泵不阻塞）。
     pub async fn submit(&self, job: Job<P>) {
         match self.overflow {
             Overflow::Block => {
                 // 队满阻塞——独立 worker 持续抽水会腾位，泵解开（死锁安全见 struct 文档）。
                 self.tx.send(job).await.ok();
             }
-            Overflow::DropOldest => {
-                // 单生产者下「丢最旧」与「丢最新」在自愈场景等价（都靠 cursor-gate 重发补），
-                // 取最简的 try_send-Full-drop（丢本条），warn 即可（YAGNI，不引 worker 端 skip）。
+            Overflow::DropNewest => {
+                // DropNewest：try_send 满时丢本条（最新来的请求），队列里已入队的条目继续执行。
+                // 在 fire-and-forget 自愈场景下（靠 cursor-gate 重发补），此行为等价于任意丢弃策略。
+                // 取最简实现（try_send-Full-drop，丢本条），warn 即可（YAGNI，不引 worker 端 skip）。
                 if self.tx.try_send(job).is_err() {
                     tracing::warn!(
-                        "HttpFire 队列满，丢弃本条（fire-and-forget 自愈请求，靠 cursor-gate 重发兜底）"
+                        "HttpFire 队列满，丢弃本条（满即丢当前，fire-and-forget 自愈请求，靠 cursor-gate 重发兜底）"
                     );
                 }
             }
@@ -136,9 +140,9 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
 
-    /// ① HttpFire 满队列 DropOldest：泵不阻塞，溢出条目被丢，已入队的最终执行。
+    /// ① HttpFire 满队列 DropNewest：泵不阻塞，溢出（最新来的）条目被丢，已入队的最终执行。
     #[tokio::test]
-    async fn test_bounded_spawner_drop_oldest_no_block() {
+    async fn test_bounded_spawner_drop_newest_no_block() {
         let executed = Arc::new(AtomicU64::new(0));
         let gate = Arc::new(tokio::sync::Notify::new());
         let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
@@ -149,7 +153,7 @@ mod tests {
         let sp: BoundedSpawner<u64> = BoundedSpawner::new(
             1,
             1,
-            Overflow::DropOldest,
+            Overflow::DropNewest,
             reply_tx,
             move |_payload: u64| {
                 let executed = Arc::clone(&executed_c);
@@ -162,7 +166,7 @@ mod tests {
             },
         );
 
-        // 提交 100 条：DropOldest 下 submit 永不阻塞（worker 卡住，队满即丢）。
+        // 提交 100 条：DropNewest 下 submit 永不阻塞（worker 卡住，队满即丢本条）。
         let submit_all = async {
             for i in 0..100u64 {
                 sp.submit(Job {
@@ -174,7 +178,7 @@ mod tests {
         };
         tokio::time::timeout(Duration::from_secs(2), submit_all)
             .await
-            .expect("DropOldest submit 必须不阻塞泵（未超时）");
+            .expect("DropNewest submit 必须不阻塞泵（未超时）");
 
         // 放行 worker，等待消化。queue_cap=1 + worker 卡 1 条 → 大量被丢。
         for _ in 0..200 {
@@ -185,7 +189,7 @@ mod tests {
         let done = executed.load(Ordering::SeqCst);
         assert!(
             done < 100,
-            "DropOldest 必须丢弃溢出条目，实际执行 {done}/100（应远小于 100）"
+            "DropNewest 必须丢弃溢出条目（最新来的），实际执行 {done}/100（应远小于 100）"
         );
     }
 

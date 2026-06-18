@@ -76,13 +76,18 @@ HelixHandle *helix_create_with_network(const uint8_t *api_base_url,
 
 /// 销毁 Helix 引擎实例，释放所有资源。调用后 `handle` 不可再使用。
 ///
+/// ## 关闭顺序（graceful drain + join，独占所有权契约）
+///
+/// 1. 取出并 drop `tick_tx` → 关闭 tick channel（pump recv None 进 drain）。
+/// 2. 取出并 send `shutdown_tx`（双触发冗余：drop tick_tx 与 shutdown 任一即触发 host graceful drain）。
+/// 3. **join `pump_thread`**：阻塞到 pump 线程退出 → 保证最后一批 `on_domain_events_batch`
+///    回调已返回，C++ 之后释放 vtable.ctx 安全（不会 use-after-free）。
+///
 /// # Safety
 ///
 /// - `handle` 必须是 `helix_create_with_network` 返回的有效指针，或 null（null 时无操作）。
-/// - 调用方必须保证此后不再向 `handle` 传递给任何 helix API（独占所有权契约）。
-/// - **C++ 不得在本函数返回前释放 vtable.ctx**：pump（M3-F4）在 join 完成前仍可能回调。
-///   TODO(M3-F4): pump 线程建好后，在此处 join(pump_thread) 后再返回，
-///   保证 on_domain_events_batch 不会在 ctx 释放后被调用。
+/// - 调用方必须保证此后不再向 `handle` 传递给任何 helix API（独占所有权契约，无 double-free）。
+/// - **C++ 不得在本函数返回前释放 vtable.ctx**：join 完成前 pump 仍可能回调；本函数返回即安全。
 void helix_destroy(HelixHandle *handle);
 
 /// 更新 shared header registry。后续 HTTP 请求和 WS connect/reconnect 会读取最新值。
@@ -108,30 +113,34 @@ int32_t helix_remove_header(HelixHandle *handle, const uint8_t *name, uintptr_t 
 /// 向 engine 发送应用命令（UI → engine）。
 ///
 /// 立即将 `name` / `payload` 拷贝到 Rust 堆（ACL-3），构造 `Tick::Command`，
-/// 并 **非阻塞** 尝试送入 tick channel：
+/// 并 **非阻塞** 尝试送入 tick channel（pump 线程 rx 端消费 → step → Effect → 批回 C++）：
 ///   - channel 满 → 返回 `FFI_BUSY`（C++ 侧应稍后重试，禁静默丢弃）。
-///   - pump 未建时命令仅入队不被消费，等 M3-F4 pump 接入后自动处理。
+///   - destroy 后 channel 已关闭 → 返回 `FFI_NULL`。
 ///
 /// # Safety
 ///
 /// - `handle`：有效指针或 null。
 /// - `name` / `payload`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
 ///   `name` 必须是合法 UTF-8；`payload` 为任意字节（不强要求 UTF-8）。
-///
-/// # TODO(M3-F4)
-///
-/// pump 接入前命令仅入队不被消费；pump 接入后 tick channel rx 端被 pump 主循环驱动。
 int32_t helix_command(HelixHandle *handle,
                       const uint8_t *name,
                       uintptr_t name_len,
                       const uint8_t *payload,
                       uintptr_t payload_len);
 
-/// 同步读取 engine 状态（stub，M3-F4 接入后填充）。
+/// 同步读取 engine 状态（**honest stub**：返回 `FFI_UNIMPLEMENTED`，基础设施已就位）。
 ///
-/// 本轮返回 `FFI_UNIMPLEMENTED`，不写 out_ptr / out_len。
+/// ## 为什么仍是 stub（取舍说明）
 ///
-/// # 配对约定
+/// 同步读的**运行时基础设施已接好**（`HelixHandle.query` = pump runtime `Handle` + 共享
+/// `HostStorage`；C 同步线程可 `handle.spawn(async { storage.scan/get })` + `blocking_recv`
+/// 等结果，阻塞 C 线程合规——它不是 tokio worker，HostStorage 内部已 `spawn_blocking`，不违
+/// HX-C006 §5）。**缺的是 `query_name → ScanSpec/GetSpec` 的映射**——那是 IM 领域语义
+/// （哪个表、哪些列、WHERE 谓词），属 helix-im 关注点。在 FFI 层硬编码该映射会把 IM schema
+/// 泄漏进 driver（违反 runtime-agnostic-core.md §6「Storage trait 不许泄漏业务 schema」）。
+/// 故保留 honest stub，待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，不在此越界。
+///
+/// ## 配对约定（填充后生效）
 ///
 /// 成功（返回 0）时，`*out_ptr` 指向 Rust 分配的 boxed slice；
 /// C++ 侧**必须**调用 `helix_query_free(*out_ptr, *out_len)` 释放，禁止 free() / delete[]。
@@ -141,13 +150,6 @@ int32_t helix_command(HelixHandle *handle,
 /// - `handle`：有效指针或 null。
 /// - `query_name` / `query_payload`：各自指向对应 `_len` 字节有效内存，在本调用期间有效。
 /// - `out_ptr` / `out_len`：非 null，指向调用方分配的存储位置。
-///
-/// # TODO(M3-F4)
-///
-/// 实现：经 pump runtime Handle 的 `spawn_blocking` 跑 Storage 同步读
-/// （HX-C006 §5 禁止在 tokio worker 直接 block_on）→ 序列化结果
-/// → `into_boxed_slice()` → `Box::into_raw(slice)` 写 out_ptr / out_len（配对 helix_query_free）。
-/// **禁止** 在本函数内 block_on（死锁：若 tokio 运行时在同一线程，block_on 会死锁）。
 int32_t helix_query(HelixHandle *handle,
                     const uint8_t *_query_name,
                     uintptr_t _query_name_len,

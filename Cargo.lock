@@ -703,6 +703,7 @@ dependencies = [
  "futures-util",
  "helix-core",
  "helix-driver-host",
+ "helix-im",
  "parking_lot",
  "serde",
  "thiserror 2.0.18",

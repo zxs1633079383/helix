@@ -22,7 +22,11 @@
 //! `CppHostVtable` repr(C) 自动扫描进头文件；`HelixHandle` 为不透明前向声明。
 
 pub mod api;
+pub mod batch;
+pub mod clock;
+pub mod event_sink;
 pub mod http;
+pub mod pump;
 pub mod storage;
 pub mod transport;
 pub mod vtable;

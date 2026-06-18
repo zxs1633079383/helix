@@ -10,6 +10,8 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 helix-core        = { path = "../helix-core" }
 helix-driver-host = { path = "../helix-driver-host" }
+# helix-im：pump 线程装配 ExecutionShell 时注册 ImModule（FFI 是 driver 层，依赖业务模块装配合法）
+helix-im          = { path = "../helix-im" }
 serde        = { workspace = true }
 thiserror    = { workspace = true }
 bytes        = { workspace = true }
@@ -19,8 +21,8 @@ futures-channel = { workspace = true }
 futures-util = "0.3"
 # parking_lot Mutex：包 tick_tx Sender（Sender 非 Sync，需 Mutex 允许 &self 发送）
 parking_lot  = "0.12"
-# tokio sync：tick channel（mpsc）；仅需 sync feature，不需要 rt
-tokio        = { version = "1", features = ["sync"] }
+# tokio：tick channel(sync) + pump 专用线程的 current_thread runtime(rt) + spawn_blocking 支持(rt)
+tokio        = { version = "1", features = ["sync", "rt"] }
 
 # FFI 绑定（build.rs 调用 cbindgen 生成 helix.hpp）
 # uniffi = { version = "0.28", features = ["scaffolding"] }  # 按需开启

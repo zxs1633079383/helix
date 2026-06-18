@@ -19,16 +19,13 @@ fn main() {
     println!("cargo:rerun-if-changed=src/");
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set");
-    let out_dir = std::env::var("OUT_DIR")
-        .expect("OUT_DIR not set");
+    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
     let out_file = std::path::PathBuf::from(&out_dir).join("helix.hpp");
 
-    let config = cbindgen::Config::from_file(
-        std::path::PathBuf::from(&crate_dir).join("cbindgen.toml"),
-    )
-    .expect("failed to read cbindgen.toml");
+    let config =
+        cbindgen::Config::from_file(std::path::PathBuf::from(&crate_dir).join("cbindgen.toml"))
+            .expect("failed to read cbindgen.toml");
 
     cbindgen::Builder::new()
         .with_crate(&crate_dir)

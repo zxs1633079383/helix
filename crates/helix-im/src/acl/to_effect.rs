@@ -561,7 +561,8 @@ pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id
 ///   （真源 1252/1232，离线补未读 +N）；`∉`（phantom）→ **不 emit**（cursor 照推，UI 不渲染）。
 /// - **type2 edit**：`msg_id ∈ messages`（可见）→ `im:post:updated`（真源 1337）；phantom → noop。
 /// - **type3 revoke**：有 `msg_id` → `im:post:deleted`（真源 1402，无须 body）。
-/// - **type6 read**：有 `msg_id` → `im:post:read`（真源 1428，无须 body 恒 emit）。
+/// - **type6 read**：有 `msg_id` → `im:channel:read_echo`（真源 1428，sync 应用路径专用事件名；
+///   A5：与在线 post_read 的 `im:post:read` 分流，无须 body 恒 emit）。
 /// - **Other(n)**：前向兼容，不 emit。
 ///
 /// 复杂度：每事件 O(1)（HashMap 查 + 1-2 个 Emit 构造），与落库批同遍历语义但分离关注点
@@ -597,9 +598,10 @@ pub fn sync_mutation_emits(
             EventKind::PostRevoke => {
                 emits.push(emit_post_deleted(ev.channel_id, ev.seq.0, msg_id));
             }
-            // type6：无须 body，恒 emit read（真源 1413-1437）。
+            // type6：无须 body，恒 emit read_echo（A5：sync 应用路径发 im:channel:read_echo，
+            // 真源 1428；与在线 post_read 的 im:post:read 分流）。
             EventKind::PostRead => {
-                emits.push(emit_post_read(ev.channel_id, ev.seq.0, msg_id));
+                emits.push(emit_channel_read_echo(ev.channel_id, ev.seq.0, msg_id));
             }
             // 前向兼容：未知类型不 emit（cursor 仍照推）。
             EventKind::Other(_) => {}

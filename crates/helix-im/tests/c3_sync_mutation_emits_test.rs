@@ -10,7 +10,7 @@
 //!   `∉`（phantom）→ 不 emit（UI 不渲染，真源 1270-1280）。
 //! - type2 edit：`msgId ∈ messages` → im:post:updated；phantom → noop（真源 1346）。
 //! - type3 revoke：有 msgId → im:post:deleted（无须 body，真源 1402）。
-//! - type6 read：有 msgId → im:post:read（无须 body 恒 emit，真源 1428）。
+//! - type6 read：有 msgId → im:channel:read_echo（A5 sync 应用路径，无须 body 恒 emit，真源 1428）。
 //!
 //! ## 铁律（HX-C008）
 //!
@@ -60,10 +60,12 @@ fn parse_events_and_messages(
     }
 }
 
-// ─── 1. type6 read：恒 emit im:post:read（无须 body）─────────────────────────────
+// ─── 1. type6 read：恒 emit im:channel:read_echo（A5：sync 应用路径专用事件名）──────────
 
 #[test]
-fn read_event_emits_post_read() {
+fn read_event_emits_channel_read_echo() {
+    // 回归锚: A5 —— sync 应用的 type6 read 发 im:channel:read_echo（真源 post.rs:1428），
+    // 与在线 post_read 的 im:post:read（post.rs:157/167）分流。
     let reply = sync_reply_events_with_messages(
         2,
         &[ev(20, 6, "msg_read")],
@@ -72,7 +74,7 @@ fn read_event_emits_post_read() {
     );
     let (events, messages) = parse_events_and_messages(&reply, 2);
     let emits = sync_mutation_emits(&events, &messages);
-    assert_eq!(emit_names(&emits), vec!["im:post:read"]);
+    assert_eq!(emit_names(&emits), vec!["im:channel:read_echo"]);
 }
 
 /// type6 read 即便 msg 不在 messages map 也 emit（无须 body，真源 1413-1437 恒 emit）。
@@ -83,8 +85,8 @@ fn read_event_emits_even_when_phantom() {
     let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
-        vec!["im:post:read"],
-        "read 无须 body，恒 emit"
+        vec!["im:channel:read_echo"],
+        "sync read 无须 body，恒 emit im:channel:read_echo（A5）"
     );
 }
 
@@ -174,15 +176,49 @@ fn mixed_batch_emits_match_dispatch_table() {
     assert_eq!(types, vec![1, 1, 3, 6]);
 
     let emits = sync_mutation_emits(&events, &messages);
-    // type1 可见 → received + update-by-post；type1 phantom → 无；type3 → deleted；type6 → read。
+    // type1 可见 → received + update-by-post；type1 phantom → 无；type3 → deleted；
+    // type6 → channel:read_echo（A5 sync 应用路径）。
     assert_eq!(
         emit_names(&emits),
         vec![
             "im:post:received",
             "im:channel:update-by-post",
             "im:post:deleted",
-            "im:post:read",
+            "im:channel:read_echo",
         ]
+    );
+}
+
+// ─── 5.1 在线 vs 离线 read 分流对照：同一 type6 read，两路径 emit 名必须不同 ──────────
+//
+// 回归锚: A5/F2 —— 钉死 read_echo 分流不变量，防再次回归。
+// 离线 sync 应用路径（sync_mutation_emits）→ im:channel:read_echo；
+// 在线 WS post_read 路径（gate emit_for_kind → emit_post_read）→ im:post:read。
+// 两者命名分流是前端零改动契约（spec §0.3/§S9）的硬约束。
+#[test]
+fn online_vs_offline_read_emit_names_differ() {
+    use helix_im::acl::to_effect::{emit_channel_read_echo, emit_post_read};
+
+    let ch = ChannelId::from_test_u64(7);
+    // 离线 sync 应用路径：im:channel:read_echo。
+    let offline = emit_channel_read_echo(ch, 42, "m_read");
+    // 在线 WS post_read 路径：im:post:read。
+    let online = emit_post_read(ch, 42, "m_read");
+
+    assert_eq!(
+        emit_event_name(&offline).as_deref(),
+        Some("im:channel:read_echo"),
+        "离线 sync 应用 read → im:channel:read_echo"
+    );
+    assert_eq!(
+        emit_event_name(&online).as_deref(),
+        Some("im:post:read"),
+        "在线 WS post_read → im:post:read"
+    );
+    assert_ne!(
+        emit_event_name(&offline),
+        emit_event_name(&online),
+        "同 type6 read 在两路径必须分流为不同事件名（A5 前端零改动契约）"
     );
 }
 
@@ -229,8 +265,8 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
         "应 emit im:channel:update-by-post，got {names:?}"
     );
     assert!(
-        names.iter().any(|n| n == "im:post:read"),
-        "应 emit im:post:read，got {names:?}"
+        names.iter().any(|n| n == "im:channel:read_echo"),
+        "sync 应用 type6 应 emit im:channel:read_echo（A5），got {names:?}"
     );
 
     // emit 不卡 cursor：persist ok 后 cursor 推进到 nextSeq=2。

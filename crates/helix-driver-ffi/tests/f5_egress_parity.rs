@@ -2,12 +2,13 @@
 //!
 //! ## 目的（ROADMAP §一 M3 F5）
 //!
-//! 证明：对同一 Tick 剧本，`NativeEventSink`（broadcast channel）与 `FfiEventSink`
-//! （batch encode→vtable 回调→decode）交付的 DomainEventBytes 序列 byte-identical。
+//! 证明：对**同一份**已收集的 Emit 序列（source-of-truth），`NativeEventSink`（broadcast
+//! channel）与 `FfiEventSink`（batch encode→vtable 回调→decode）两条 **egress 传输管道**
+//! 交付的 DomainEventBytes byte-identical。
 //!
-//! 这是「parity by construction」的显式测试——native 和 FFI 两路走不同机制
-//! （broadcast vs batch buffer），本测试把「两路结果相同」从「设计信念」变为「可 CI 强制的
-//! 事实」。
+//! 这是 egress 管道的「parity by construction」显式测试——两路走不同机制（broadcast 直传
+//! vs batch encode/decode roundtrip），本测试把「两路对同一序列结果相同」从「设计信念」变为
+//! 「可 CI 强制的事实」。**覆盖边界见末节「## 覆盖边界（诚实声明）」——勿当端到端引擎 parity。**
 //!
 //! ## 测试方法
 //!
@@ -15,7 +16,8 @@
 //!    下跑，收集所有 Effect::Emit 的 DomainEventBytes 作 source-of-truth 序列。
 //! 2. **FfiEventSink 路径**：逐事件 emit → 按 step 边界 flush → 录 vtable 回调 buffer
 //!    → batch.rs decode → Vec<DomainEventBytes>。
-//! 3. **NativeEventSink 路径**：subscribe_observed() → 逐事件 emit → try_recv → Vec<DomainEventBytes>。
+//! 3. **NativeEventSink 路径**：`NativeEventSink::new()` 裸 `broadcast::Receiver` → 逐事件 emit
+//!    → `try_recv` → Vec<DomainEventBytes>（与 host-cli 现网 main.rs:170/243 裸 `recv()` 对齐）。
 //! 4. 断言两 Vec byte-identical，且 == source-of-truth 序列。
 //!
 //! ## HX-C011 可证伪性
@@ -24,11 +26,25 @@
 //! 若 break batch decode（如 off-by-one len）→ decode 内容错位 → parity FAIL。
 //! commit body 附破坏证明（见提交记录）。
 //!
-//! ## 注意
+//! ## 注意（runtime）
 //!
-//! 本测试不依赖 tokio runtime（NativeEventSink 的 subscribe_observed().recv() 是 async，
-//! 但我们只 emit 后立即 try_recv 同步取；broadcast channel 的 send 是同步的，
-//! 用 try_recv 直接取出不需要 await）。
+//! 本测试不依赖 tokio runtime（broadcast `Receiver::recv()` 是 async，但我们 emit 后立即
+//! `try_recv` 同步取；broadcast 的 send 同步，try_recv 直接取出无需 await）。
+//!
+//! ## 覆盖边界（诚实声明 · 勿过度解读）
+//!
+//! 1. **egress 管道 parity，非端到端引擎 parity**：两 sink 喂的是 `collect_source_emits`
+//!    **单次**跑引擎预收集的同一份 source（`collect_ffi_emits(&source)` /
+//!    `collect_native_emits(&source)`），只验证「batch roundtrip（HX-C007）vs broadcast 直传」
+//!    对同一序列字节一致。引擎层双端一致靠**共享 `build_shell` by-construction**（同一份
+//!    core/im 装配），未在本测试内被独立驱动证伪。回归「引擎双端 parity」需另立测试
+//!    （两端各自 `shell.step` 同剧本再比对）。
+//! 2. **§lagged（latent risk · 前移 M2）**：native `event_sink.rs` 有 lagged-aware
+//!    `EventReceiver`/`subscribe_observed()`/`RecvOutcome::Lagged→resync_needed`（E7，
+//!    helix-tauri event_bus 用）；`FfiEventSink`（`Mutex<Vec<Bytes>>` 整批 flush）**无对等
+//!    lagged/resync 信号**。两路 byte-identical 仅在 **capacity 充裕、无慢消费**时成立；
+//!    「lagged/丢事件下 native(resync_needed) vs FFI(batch) 是否对等」**未覆盖**——前移为
+//!    M2 Tauri 接 `EventReceiver` 时验收，避免 native 升级后 parity 静默失效。
 
 use bytes::Bytes;
 use helix_core::effect::DomainEventBytes;
@@ -71,8 +87,8 @@ fn build_shell() -> ExecutionShell {
     };
     let mut module = ImModule::new(config);
     module.register_channel(ChannelId::from_test_u64(1), 0);
-    let post_channel = ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r")
-        .expect("真帧 channelId 合法 26 字符");
+    let post_channel =
+        ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
     module.register_channel(post_channel, 40113);
 
     let mut shell = ExecutionShell::new();
@@ -245,7 +261,8 @@ fn f5_egress_parity_native_ffi_byte_identical() {
     // byte-identical 逐条断言
     for (i, (ffi, native)) in ffi_vec.iter().zip(native_vec.iter()).enumerate() {
         assert_eq!(
-            ffi.0, native.0,
+            ffi.0,
+            native.0,
             "DomainEvent[{i}] FFI 与 native 字节不同:\n  ffi    = {}\n  native = {}",
             String::from_utf8_lossy(&ffi.0),
             String::from_utf8_lossy(&native.0),
@@ -255,7 +272,8 @@ fn f5_egress_parity_native_ffi_byte_identical() {
     // source-of-truth 校验（每路都 == 原始 Emit）
     for (i, (actual, expected)) in ffi_vec.iter().zip(source.iter()).enumerate() {
         assert_eq!(
-            actual.0, expected.0,
+            actual.0,
+            expected.0,
             "DomainEvent[{i}] FFI 与 source 字节不同:\n  ffi    = {}\n  source = {}",
             String::from_utf8_lossy(&actual.0),
             String::from_utf8_lossy(&expected.0),

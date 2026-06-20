@@ -62,8 +62,8 @@ fn build_shell() -> ExecutionShell {
 
     // Tick 2 用的真帧 channel（post.json channelId=rmibkwkjwidhdx5xy8pyse6a3r，event_seq=40114）
     // cursor 预种 40113 → event_seq(40114)==cursor+1 → 立即 apply
-    let post_channel = ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r")
-        .expect("真帧 channelId 合法 26 字符");
+    let post_channel =
+        ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
     module.register_channel(post_channel, 40113);
 
     let mut shell = ExecutionShell::new();
@@ -90,7 +90,9 @@ fn run_script(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
         "im_send_message",
         serde_json::to_vec(&payload).expect("static JSON"),
     ));
-    let effects = shell.step(cmd, FIXED_NOW_MS).expect("step cmd should not fail");
+    let effects = shell
+        .step(cmd, FIXED_NOW_MS)
+        .expect("step cmd should not fail");
     collect_emits(effects, &mut emits);
 
     // Tick 2: 真 Go post 帧 → Emit(im:post:received)
@@ -113,8 +115,10 @@ fn collect_emits(effects: &[Effect], out: &mut Vec<DomainEventBytes>) {
 
 // ─── golden fixture I/O ──────────────────────────────────────────────────────
 
-const GOLDEN_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/f5/f5_golden_events.ndjson");
+const GOLDEN_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/f5/f5_golden_events.ndjson"
+);
 
 /// 首次生成 golden fixture：跑剧本 + 把 Emit 序列写为 NDJSON（每行一条）。
 ///
@@ -215,7 +219,8 @@ fn f5_golden_replay_deterministic_twice() {
     );
     for (i, (a, b)) in emits_1.iter().zip(emits_2.iter()).enumerate() {
         assert_eq!(
-            a.0, b.0,
+            a.0,
+            b.0,
             "Emit[{i}] 两次结果不同（非确定性）:\n  run1 = {}\n  run2 = {}",
             String::from_utf8_lossy(&a.0),
             String::from_utf8_lossy(&b.0),

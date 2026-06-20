@@ -5,6 +5,12 @@
 
 ## §0 终态记录
 
+✅ DONE 修复 backlog：建 HX-C012（候选）+ f5 F1/F2 文档诚实化 @2026-06-21 | commit 3418ac7..a409eea（A 建卡 / B f5 / C 自指 recurrence） | helix/dev-zlc
+  ↳ 候选 HX-C012：**用户拍板**建卡——实质任务（含 test/CI/harness ≥50 行或新源文件）须**开局**写 🎯 EXPECT·禁事后补记（堵 DRIFT-PRED 永空 audit 后门）；drift-review wf_fd406543-c76 回放闸门 **HOLD** 在卡 §7 诚实记录（历史 trap 均代码级·与流程治理缺口性质不同源）；索引 11→12 四处同步（卡数==README==CLAUDE==AGENTS==12 + 根镜像 diff 空）
+  ↳ f5：egress_parity.rs 头注/doc 诚实化——F1 收紧措辞：证的是 **egress 管道 parity**（batch roundtrip HX-C007 vs broadcast 对同一 source byte-identical）非端到端引擎双端等价（引擎靠共享 build_shell by-construction）；F2 doc `subscribe_observed()`→裸 `try_recv` 如实（与 host-cli main.rs:170/243 对齐）+ FfiEventSink 无 lagged/resync 登记前移 M2；**零逻辑改·f5 两测 2+2 passed**
+  ↳ ⚡ 自指（无配对 EXPECT 的诚实承认）：本「修复候选+f5」实质任务（6 文件跨 docs/test）**自身未开局写 EXPECT** = 刚建的 HX-C012 第 3 次同根复发 → recurrence 2→3·log.md+§5 如实记（**非补假 EXPECT，守 §3 Forbidden**）·同根达 3 部分缓解回放闸门 HOLD。本 DONE 即「孤儿 DONE」实例，留作 HX-C012 反面教材
+  ↳ 验证：harness 索引==12 四处一致 + 根 CLAUDE/AGENTS 镜像 diff 空 · structure-gate PASS · f5 两测全过 · core/im 零逻辑改
+
 🎯 EXPECT F4.5 Flutter FFI 桌面 demo（C 路线：完整 Xcode 待装 → console 证链路 + UI/test 代码就绪）@2026-06-18 | 赌注 中 | 可逆 是（Flutter 工程在仓外 /workspace/flutterWorkspace/helix_ffi_demo，删目录即回滚；仓内仅 3 行文档）
   ↳ 可证伪预判：① 仓内只动 docs/superpowers/specs/2026-06-18-...（已）+ docs/flutter-demo-pointer.md + ffi CLAUDE.md/AGENTS.md 各 1 行索引，**helix-core/helix-im/cdylib 零改** ② `dart run` console 冒烟 PASS：dart:ffi→C++ shim→cdylib→pump→Emit→batch→`NativeCallable.listener` 异步回调收到含 `im:post:sending` 的批（证异步跨线程全链）③ build_native.sh 一键 `cargo build --release`(panic=abort) + `clang` 链 cdylib 产 libhelix_shim.dylib（otool -L 验 @rpath，**不碰 Xcode**）④ `cargo check -p helix-driver-ffi` 仍过 + `scripts/cpp-smoke.sh` 仍绿（零回归）⑤ structure-gate 镜像闸绿（ffi CLAUDE/AGENTS 成对 diff 空）⑥ integration_test/main.dart/maestro 代码就绪，`flutter test -d macos` 标 BLOCKED-on-Xcode（阶段 2，不计失败）
   ↳ 偏离即记 DRIFT-PRED：若被迫改 cdylib 导出 / shim C++ 异常外逸跨 extern C / listener 拿到失效 ptr UAF / console 证不了异步跨线程 / 仓内动了 core·im / free_batch 非无状态

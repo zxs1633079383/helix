@@ -58,13 +58,13 @@ async fn main() {
     let app_type = std::env::var("HELIX_APP_TYPE").unwrap_or_else(|_| "bct".to_string());
     let device = std::env::var("HELIX_DEVICE").unwrap_or_else(|_| "IOS".to_string());
     // deviceId 必须随 HTTP + WS 都带：对端 Java paas（/Users/mac28/workspace/java/x9/paas）
-    // session 校验读 deviceId，nil → 判 session 过期 → grpc service fail → increment 不推帧（用户 debug 实证）。
-    // 解析优先级：① HELIX_DEVICE_ID env 显式覆盖（联调时手动指定可用）→ ② 从本机派生
-    // （macOS IOPlatformUUID / Linux machine-id / Windows MachineGuid）→ ③ 空（告警，不再
-    // 硬编码某台设备 id）。**铁律**：不默认绑死任何一台真实设备 id。
+    // session 校验读 deviceId，nil/不匹配 → 判 session 过期 → grpc service fail → increment 不推帧（用户 debug 实证）。
+    // 优先级：① HELIX_DEVICE_ID env 覆盖 → ② 联调写死值（用户 2026-06-21 拍板：别每次手填 / 本机派生；
+    // 该值 = 现网注册设备，对应 userId=5ffd465e… 的活会话）。machine_device_id 保留为工具但默认不走。
     let device_id = std::env::var("HELIX_DEVICE_ID")
         .ok()
         .filter(|s| !s.is_empty())
+        .or_else(|| Some("ED380414932542BAB4993E5AC3E07C64".to_string()))
         .or_else(machine_device_id)
         .unwrap_or_default();
     if device_id.is_empty() {

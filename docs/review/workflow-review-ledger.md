@@ -17,9 +17,9 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 0514a4d
-last_reviewed_at: 2026-06-18
-last_review_runId: wf_b809b3b3-ab6 (十一轮 architecture-drift-review：F5 跨端 parity + F4.5 demo 开局 · 区间 e3540cf..0514a4d · gap=11 触发)
+last_reviewed_commit: 592574d
+last_reviewed_at: 2026-06-21
+last_review_runId: manual-self-check-2026-06-21 (主对话轻量自查推进 0514a4d→592574d · 全 docs+单 chore 区间 · 见下注)；最近 workflow review = wf_b809b3b3-ab6 (十一轮 architecture-drift-review：F5 跨端 parity + F4.5 demo 开局 · 区间 e3540cf..0514a4d · gap=11 触发)
 # 十一轮 = sync-v2 re-port 开局前置 gate（gap 11 命中自动派）。🟡 轻 / 0🔴。
 # 区间 e3540cf..0514a4d（11 commit：F5 跨端 parity 自动化 + F4.5 Flutter demo 开局 EXPECT/spec）。
 # 3 finding 全 low 非阻塞 backlog：F5 egress parity 测试旁路真泵 per-step flush ×2（test-fidelity）
@@ -30,6 +30,10 @@ last_review_runId: wf_b809b3b3-ab6 (十一轮 architecture-drift-review：F5 跨
 #   独有 finding F3 = a80cc49 C++ smoke harness DONE 缺配对 🎯EXPECT(§4.8 audit 后门，与 finalize DONE 同根≥2 逼近建卡阈值)
 #   → 候选 HX-C012『实质任务(含 test/CI/harness ≥50 行或新源文件)须开局 EXPECT』回放闸门 **HOLD**(历史 trap 均代码级约束·性质不同源·挡不住这次·待下次再过)。
 #   last_reviewed 不推进(闸门已由十一轮满足 gap=2 绿·避免与活跃并发会话争写主字段)；F1/F2 与十一轮 F5-egress-parity finding 同源已登记。
+# 另·2026-06-21 F4.5 backlog 修复会话收口（用户「修复候选和f5」）主对话**轻量自查**推进 0514a4d→592574d（gap=10 命中 §4.7·用户拍板轻量自查不派重 workflow）：
+#   区间 10 commit = 全 docs/test 注释（HX-C012 建卡+四处索引 / f5 egress doc 诚实化 F1·F2 / SESSION / ledger）+ 唯一 src 改动 = host-cli main.rs deviceId 写死（并发会话 d966250 chore·env 可覆盖·非 core/im/driver·无 HX-C001..C012/GOAL §1·§2 触及）+ Cargo 注释。
+#   自查结论 🟢 无架构 drift。**诚实标注：此为主对话自查（非独立 drift-review 对抗证伪），对全 docs+单 chore 区间足够；后续若有实质 src 逻辑改动累积仍须走 architecture-drift-review。**
+#   交付：建 HX-C012（用户拍板·回放闸门 HOLD 在卡 §7 诚实记录）+ f5 F1/F2 文档诚实化 + 自指复发 recurrence 2→3（本修复任务自身漏写开局 EXPECT，如实记非补假 EXPECT）。
 last_review_prev_runId: wf_3f017dd5-500 (十轮：收口+设计思想+HX-C011 · 区间 cb8b6d5..6d90461)
 # 十轮 = 收口代办+三端设计思想沉淀+新建 HX-C011 review（cb8b6d5..6d90461，gap=10 触发）。🟡 轻 / 0🔴。
 # 3 finding 全证实全收敛(commit e3540cf)：F1 core effect.rs DropOldest 文档残留→DropNewest；
@@ -101,3 +105,4 @@ threshold: 10
 | 2026-06-18 | cb8b6d5 | b92012c..feat/storage-rw-concurrency (2 commits · merge cb8b6d5) | wf_45201637-38e | 🟡 轻（test-only） | **九轮 = storage 读写并发压测**（下沉后共享核覆盖 + sync-v2 写负载，用户点出）。test-only 无 src 行为变更。verify-diff 2 lens(test-validity / HX-C005-C006-迁移)判 0 blocking。**首版 2 false-green 被抓**：P1-C cursor 单调 tautology(顺序写恒 100·删 MAX guard 照过) + P3 bench 无 assert + block_on 单 op 不跑并发 → 修 + **证伪证明**(P1-C 去 guard→FAIL/还原→PASS·P1-A 去背压→FAIL)。P0：dev-zlc channel.unread_count 本轮零写路径=零 RMW(HX-C005 合规)·cursor=monotonic_upsert 原子 ON CONFLICT；feat/sync-v2 path3 flag 合并待查未跨改。host 34+native stress 8 零回归·gate.sh 过·core 零运行时。候选教训「压测必带证伪证明」与 2026-06-15 stress-verify REJECT 同根=2 次，未达建卡阈值待回放闸门 |
 | 2026-06-18 | e3540cf | cb8b6d5..6d90461 (gap=10·收敛 e3540cf) | wf_3f017dd5-500 | 🟡 轻 drift | **十轮 = 收口代办+三端设计思想沉淀+新建 HX-C011**（DropOldest→DropNewest 改名 + 压测下沉 host + 三端 00-设计思想.md + HX-C011 建卡 + P1-A flaky hotfix）。3 finding 全证实全收敛(e3540cf)：F1[low] core effect.rs:241/taxonomy.mmd DropOldest 文档残留(改名黑名单遗留)→DropNewest；F2[low] stress_storage_core 2 测无 assert false-green + HX-C011 §4 grep -L 文件级对混合文件逃检 → 补 break→fail 断言(scan len + monotonic 回退) + gate 升函数级；F3[medium] finalize DONE 缺配对 EXPECT(§4.8 tripwire 失效)→补事后 EXPECT。**HX-C001..C011 + GOAL §1/§2 + 三层/sans-IO/单调 cursor 全未破，代码合规**。回放闸门：F2(b) gate 修=N/A·F3(b) DONE须配EXPECT 结构约束=HOLD(单样本无同根史)。函数级 gate 抓出 helix-im stress_inorder_100k=backlog。「**HX-C011 建卡即首次执行就抓到同 diff 违反**」=机制即时生效验证 |
 | 2026-06-18 | 0514a4d | e3540cf..0514a4d (11 commits·gap=11 触发) | wf_b809b3b3-ab6 | 🟡 轻 drift | **十一轮 = sync-v2 re-port 开局前置 gate**（gap 11 命中自动派）。区间 = F5 跨端 parity 自动化 + F4.5 Flutter demo 开局 EXPECT/spec。3 finding 全 low 非阻塞 backlog：F5 egress parity 测试旁路真泵 per-step flush ×2（test-fidelity·crates/helix-driver-ffi/tests/f5_egress_parity.rs）+ Cargo.toml 日语注释 ×1（code-style）。**无 HX-C/GOAL 违反、byte-parity 结论可信、无新建卡**。0514a4d 后 dev-zlc 另有 2 docs commit(4db4592/c3f1797=F4.5 demo 指针·纯文档)gap=2 绿。下游 = sync-v2 全 parity re-port（branch feat/sync-v2-report-on-adr007） |
+| 2026-06-21 | 592574d | 0514a4d..592574d (10 commits·gap=10 触发) | manual-self-check（主对话轻量自查·非 workflow） | 🟢 无 drift（自查） | **F4.5 backlog 修复收口轻量自查**（用户「修复候选和f5」；gap=10 命中 §4.7·用户拍板轻量自查不派重 workflow=避免与活跃并发会话撞车+省 ~1.3M token）。区间 10 commit = 全 docs/test 注释（HX-C012 建卡+四处索引 / f5 egress doc 诚实化 F1·F2 / SESSION / ledger）+ 唯一 src 改动 = host-cli main.rs deviceId 写死（并发会话 d966250 chore·env 可覆盖·非 core/im/driver·无 HX-C001..C012/GOAL §1·§2 触及）+ Cargo 注释。交付：建 HX-C012（用户拍板·回放闸门 HOLD 诚实记录·同族 HX-C009）+ f5 F1/F2 诚实化（egress 管道 parity 非端到端引擎·裸 try_recv·lagged latent 前移 M2）+ 自指复发 recurrence 2→3（本任务自身漏写开局 EXPECT，如实记非补假 EXPECT）。**诚实标注：主对话自查非独立 drift-review 对抗证伪，对全 docs+单 chore 区间足够；后续实质 src 逻辑改动累积仍须走 architecture-drift-review** |

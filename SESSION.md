@@ -13,6 +13,11 @@
   ↳ ⑤ cargo check 5 crate + cargo test core/im/host/native 全绿 · gate.sh + structure-gate 过
   ↳ 偏离即记 DRIFT-PRED：若 core 出运行时依赖 / delete 无 channel 作用域跨群误删 / 测试非证伪 / 改根黑名单 → 偏离
 
+✅ DONE StorageOp::BatchDelete + memberChange.leave 删行 @2026-06-21 | commit 975a5d7 | helix/feat/sync-v2-report-on-adr007
+  ↳ 落地：core(StorageOp::BatchDelete + BatchDeleteSpec + batch_delete trait) · driver(host 真 SQL `DELETE … WHERE channel_id=? AND user_id IN` / native 委托 host / wasm todo! 归档) · im(delete_channel_members 工厂 + channel_member_update/increment 接 collect_member_leaves，channel_created 经委托覆盖)
+  ↳ 验证：cargo check 5 crate + cargo test core/im/host/native 全绿 · gate.sh + structure-gate ✅ · core 零运行时 0 · 2 可证伪测试（s1 leave→BatchDelete · storage_conformance 真 SQLite 跨作用域隔离 c2/u1 不误删）· s6 too_long「不删 message」强化
+  ↳ EXPECT 5 断言全 held（文件集 / SQL 作用域 / 零运行时 / 可证伪 / gate 全中），无 DRIFT-PRED。填补原「memberChange.leave 解析无消费方」ROADMAP-P 缺口（core 原无 Delete）
+
 🎯 EXPECT sync-v2 全 parity re-port 到 dev-zlc(ADR-007) @2026-06-18 | 赌注 高 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 可证伪预判：① 改动文件集 = Phase A(increment_channel/increment_channel_end/module.rs) + B0(helix-core effect.rs/ports·storage.rs + helix-driver-{host,native,ffi,wasm}/storage.rs) + B(channel_write/5 + acl/to_effect{,_s1}.rs + parser/context/schema/sync_session/ImConfig) + C(ws/handlers/10 新 + mod.rs + 改 post/increment) + D(tests)；**不碰根 SESSION/CLAUDE/README**
   ↳ ② 每阶 feat 对应 replay 测试逐字 port 且 PASS（http6/b2/s1(576)/s4/s5/s6/channel_write_program/channel_member_collect 全绿）= parity 硬证

@@ -65,6 +65,7 @@ async fn main() {
     let device_id = std::env::var("HELIX_DEVICE_ID")
         .ok()
         .filter(|s| !s.is_empty())
+        .or_else(|| Some("ED380414932542BAB4993E5AC3E07C64".to_string()))
         .or_else(machine_device_id)
         .unwrap_or_default();
     if device_id.is_empty() {

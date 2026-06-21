@@ -21,6 +21,11 @@
   ↳ review：per-phase 4 专家 pass（1 Phase C blocking A5 分流已修 e9e6c64）+ holistic drift-review（rust-dev call-site lens）抓出 2 parity 死代码 call-site → afad24b 修 + 补可证伪测试。🟡 轻 drift，无 HX-C/GOAL 违反，多数 src byte-identical 于 feat
 ⚡ DRIFT-PRED EXPECT②「每阶 feat 测试逐字 port 且 PASS = parity 硬证」**被证伪**——byte-diff + per-phase ported 测试证不了消费侧 call-site 是否接线：2 处「函数在(byte-identical)、零调用」死代码（sync_unread_bump_ops 在 module.rs SyncPull 零调用=BLOCKING 离线未读丢 / host auth_user_id 恒空=MAJOR 自己消息计未读）藏在 ADR-007 接缝文件，cargo 绿 + 277 测试绿仍漏，靠 holistic call-site/caller-graph 独立 lens 才抓出 → 候选教训：「parity re-port 验收必加 call-site/caller-graph 审计 lens（grep 函数定义 vs 调用方），不只 byte-diff + ported 测试」。已 type:surprise 落 logs，回放闸门待过再建卡
 
+✅ DONE 真机在线+离线 parity 验收**通过** @2026-06-21 | helix/feat/sync-v2-report-on-adr007 真连 localhost:8065（EXPECT⑥ 真机部分现 held）
+  ↳ 落库实证（fresh DB 冷启动 = 离线 fromSeq=0 backfill）：**channel 257 行** · **channel_member 2275 行**（MEMBER 2058/OWNER 214/BOSS 3，四源+memberChange.join role normalize）· **message 950 行**（离线 backfill）· **channel_event_cursor 23**（max seq 554）· **member_count 实数 599/598/41/40…**（原卡 0 现真值）· Go「Increment worker completed」· increment_channel handler ×257 dispatch
+  ↳ 全 parity 闭环点亮：#1 cursor 种子0 + #6 解信封 → 离线 backfill 真落 950 msg · B0 GuardedBump + channel_write → 257 channel · #2 成员 → 2275 member · member_count → 实数 · S2 cursor → 23 行
+  ↳ 阻塞根因（非 re-port · 详 [`docs/sync-v2-report/真机验收-grpc阻塞根因.md`](docs/sync-v2-report/真机验收-grpc阻塞根因.md)）：后端 grpc serviceName 改名 `xpa-12-grpc`→`xpa-2-12-grpc`（consul 0 实例 → 用户起服务+改 Go `grpcx9.go:66` const 后修复）。deviceId 写死 `ED380…`（host-cli env 可覆盖，d966250）
+
 🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）把 feat 的 **sync-v2 整条业务实现 re-port 到 dev-zlc 的 ADR-007 架构，目标 = feat 全 parity（不只 6 个 fix）**。参照源 = `feat/sync-v2-full-replacement`（已真机验证，**不文本合并**，逐项 re-port）。
 
   ⚠️ **范围铁律：目标是 feat 全 parity，A+B 只是子集，远不够。** 之前映射 agent 只读 dev-zlc、没 diff feat → 漏了一半。**第 0 步必做**：

@@ -292,6 +292,43 @@ fn channel_created_full_upsert_and_members_s1() {
         .any(|n| n == "im:channel:created"));
 }
 
+/// 回归锚: member-leave —— memberChange.leave → BatchDelete channel_member 删离场成员
+/// （复合 PK 作用域删，scope=channel_id 不跨群）。删 handler 的 collect_member_leaves→
+/// delete_channel_members 接线 → 本测 FAIL（HX-C011 可证伪）。core 原无 Delete，本能力新加。
+#[test]
+fn channel_member_update_leave_deletes_member_row() {
+    use helix_core::effect::{SqlValue, StorageOp};
+    let mut h = Harness::new(&[]);
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "channel_member_update",
+            "data": {
+                "id": cid(7),
+                "type": "P",
+                "memberChange": { "leave": [ { "id": "u-gone" } ] }
+            }
+        })),
+        1_000,
+    );
+    let ops = storage_ops(&h.sink);
+    let found = ops.iter().any(|op| match op {
+        StorageOp::BatchDelete(s) => {
+            s.table == "channel_member"
+                && s.scope_col == "channel_id"
+                && matches!(&s.scope_val, SqlValue::Text(c) if *c == cid(7))
+                && s.key_col == "user_id"
+                && s.key_vals
+                    .iter()
+                    .any(|v| matches!(v, SqlValue::Text(u) if u == "u-gone"))
+        }
+        _ => false,
+    });
+    assert!(
+        found,
+        "memberChange.leave 须产 BatchDelete(channel_member, scope=channel_id, user_id∋u-gone)，ops: {ops:?}"
+    );
+}
+
 /// 回归锚: A1 —— increment_channel 帧 members/owner/adminUsers/boss 数组 → 写 channel_member 表。
 ///
 /// 此前 apply_increment 只 path1 主表 upsert（成员列空字面量）+ emit，从不写 channel_member 表

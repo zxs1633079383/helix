@@ -63,6 +63,12 @@ pub(crate) fn apply_increment(
         if let Some(eff) = crate::acl::to_effect_s1::upsert_channel_members(channel_id, members) {
             out.push(eff);
         }
+
+        // memberChange.leave → 删离场成员（复合 PK 作用域删，scope=channel_id 不跨群）。
+        let leaves = crate::channel_write::collect_member_leaves(&data);
+        if let Some(eff) = crate::acl::to_effect_s1::delete_channel_members(channel_id, leaves) {
+            out.push(eff);
+        }
     }
 
     // 前端仍要 emit（透传 mentionList/urgentPostList，B-rest 契约不变）。

@@ -8,7 +8,9 @@
 
 use crate::state::ChannelId;
 use bytes::Bytes;
-use helix_core::effect::{BatchUpdateSpec, DomainEventBytes, Row, SqlValue, StorageOp, UpsertSpec};
+use helix_core::effect::{
+    BatchDeleteSpec, BatchUpdateSpec, DomainEventBytes, Row, SqlValue, StorageOp, UpsertSpec,
+};
 use helix_core::Effect;
 
 /// 把 `{event, data}` JSON 包成 Emit Effect（信封铁律：与既有 emit_* 同形态）。
@@ -143,6 +145,27 @@ pub fn upsert_channel_members(channel_id: ChannelId, members: Vec<MemberRow>) ->
             rows,
             conflict_key: Some("channel_id,user_id"),
             exclude_from_update: Vec::new(),
+        })],
+    })
+}
+
+/// `memberChange.leave` 的成员离场批量删行（`DELETE FROM channel_member WHERE channel_id=?
+/// AND user_id IN(…)`）→ `PersistFire`。
+///
+/// 真源：`memberChange.leave`（`collect_member_leaves` 解析）→ 从 `channel_member` 表删该 channel
+/// 下这些成员。scope=channel_id 作用域约束**绝不跨 channel 误删**（复合 PK 第一段）。
+/// 空 leaver 集 → None（无删意图）。复杂度 O(k) 单语句。
+pub fn delete_channel_members(channel_id: ChannelId, user_ids: Vec<String>) -> Option<Effect> {
+    if user_ids.is_empty() {
+        return None;
+    }
+    Some(Effect::PersistFire {
+        ops: vec![StorageOp::BatchDelete(BatchDeleteSpec {
+            table: "channel_member",
+            scope_col: "channel_id",
+            scope_val: SqlValue::Text(channel_id.as_str().to_string()),
+            key_col: "user_id",
+            key_vals: user_ids.into_iter().map(SqlValue::Text).collect(),
         })],
     })
 }

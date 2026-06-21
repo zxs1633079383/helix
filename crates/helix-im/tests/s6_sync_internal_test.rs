@@ -72,6 +72,7 @@ fn s6_too_long_emits_but_does_not_delete_message() {
                 StorageOp::MonotonicUpsert(s) => s.table == "message",
                 StorageOp::Scan(s) => s.table == "message",
                 StorageOp::Get(s) => s.table == "message",
+                StorageOp::BatchDelete(s) => s.table == "message",
             };
             assert!(
                 !touches_message,

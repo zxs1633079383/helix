@@ -95,6 +95,10 @@ pub enum StorageOp {
     Get(GetSpec),
     /// scan：SELECT * FROM table [LIMIT n]（多行，C3）
     Scan(ScanSpec),
+    /// batch delete：`DELETE FROM table WHERE scope_col = ? AND key_col IN (key_vals)`。
+    /// 复合 PK 作用域删除（如 channel_member 成员离场：scope=channel_id + key=user_id）。
+    /// O(k) 单语句；scope 等值约束**绝不跨作用域误删**。见 `BatchDeleteSpec`。
+    BatchDelete(BatchDeleteSpec),
 }
 
 /// BatchUpsert 规格
@@ -173,6 +177,25 @@ pub struct BatchUpdateSpec {
     pub key_col: &'static str,
     pub key_vals: Vec<SqlValue>,
     pub patch: Row,
+}
+
+/// BatchDelete 规格：`DELETE FROM table WHERE scope_col = ? AND key_col IN (key_vals)`。
+///
+/// 复合 PK 作用域删除（如 channel_member：scope=channel_id 等值 + key=user_id IN 列表）——
+/// 表名 / 列名编译期常量（core 不解释含义，守 HX-C001），单语句 O(k) 删 k 行。scope 等值约束
+/// **绝不跨作用域误删**（无 scope 会把该 user 从所有 channel 删掉）。`key_vals` 空 → 上层应不产 op。
+#[derive(Debug, Clone)]
+pub struct BatchDeleteSpec {
+    /// 目标表名（编译期常量）
+    pub table: &'static str,
+    /// 作用域列名（等值约束，编译期常量）—— 复合 PK 第一段，如 channel_id。
+    pub scope_col: &'static str,
+    /// 作用域运行时值（定位作用域；core 不解析含义）
+    pub scope_val: SqlValue,
+    /// IN-list 列名（编译期常量）—— 复合 PK 第二段，如 user_id。
+    pub key_col: &'static str,
+    /// 待删行的 key 运行时值列表
+    pub key_vals: Vec<SqlValue>,
 }
 
 /// 守卫式自增规格：单行原子计数器递增 + 可选绝对列写，带前进守卫——**无 read-modify-write**。

@@ -18,7 +18,8 @@
 //! RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"
 
 use helix_core::effect::{
-    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
+    UpsertSpec,
 };
 use helix_core::PortError;
 #[cfg(target_arch = "wasm32")]
@@ -88,5 +89,10 @@ impl helix_core::ports::Storage for WasmStorage {
         // SAHPool 单连接顺序执行（无读池）
         let _ = spec;
         todo!("WasmStorage::scan")
+    }
+
+    async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
+        let _ = spec;
+        todo!("WasmStorage::batch_delete")
     }
 }

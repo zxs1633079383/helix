@@ -14,7 +14,8 @@
 //! - ffi:    host SQLite handle via C ABI
 
 use crate::effect::{
-    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
+    UpsertSpec,
 };
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
@@ -74,6 +75,13 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     ///
     /// 典型用途：模块 on_start 一次性载入全部单调水位（proactive resync 前置）。
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<Row>, PortError>;
+
+    /// batch delete：`DELETE FROM table WHERE scope_col = ? AND key_col IN (key_vals)`。
+    ///
+    /// 复合 PK 作用域删除（如 channel_member 成员离场：scope=channel_id + key=user_id IN 列表）。
+    /// O(k) 单语句；scope 等值约束**绝不跨作用域误删**。列名都是 `&'static str` 编译期常量
+    /// （由上层提供，driver 不解释含义，守 HX-C001）。`key_vals` 空 → 上层应不产 op（driver 也兜底跳过）。
+    async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError>;
 }
 
 // The spec types are defined in crate::effect and imported above.

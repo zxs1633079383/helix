@@ -108,6 +108,12 @@ pub(super) fn apply_channel_full_and_members(
     if let Some(eff) = crate::acl::to_effect_s1::upsert_channel_members(channel_id, members) {
         out.push(eff);
     }
+
+    // memberChange.leave → 从 channel_member 删离场成员（复合 PK 作用域删，scope=channel_id 不跨群）。
+    let leaves = crate::channel_write::collect_member_leaves(data);
+    if let Some(eff) = crate::acl::to_effect_s1::delete_channel_members(channel_id, leaves) {
+        out.push(eff);
+    }
 }
 
 static CHANNEL_MEMBER_UPDATE_HANDLER: ChannelMemberUpdateHandler = ChannelMemberUpdateHandler;

@@ -5,6 +5,14 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 实现 StorageOp::BatchDelete + 接通 memberChange.leave 删行 @2026-06-21 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
+  ↳ 可证伪预判：① 改动文件集 = core(effect.rs +BatchDeleteSpec/StorageOp::BatchDelete · ports/storage.rs +batch_delete trait) + driver(host ops.rs 派发+表名 arm · host/native/wasm storage.rs +batch_delete impl) + im(acl/to_effect_s1.rs +delete_channel_members · ws/handlers/channel_member_update.rs + increment_channel.rs 接 collect_member_leaves) + tests；不碰根黑名单
+  ↳ ② SQL = DELETE FROM channel_member WHERE channel_id=? AND user_id IN(?…)（复合 PK 作用域，O(k) 单语句，绝不跨 channel 误删）
+  ↳ ③ core 仍零运行时（`cargo tree -p helix-core` grep 空）· native 委托 host · wasm `todo!`（归档不交付）
+  ↳ ④ 新增可证伪测试：channel_member_update 带 memberChange.leave → 断言 BatchDelete op on channel_member 含 leaver user_id（删调用 → 测试 FAIL，HX-C011）
+  ↳ ⑤ cargo check 5 crate + cargo test core/im/host/native 全绿 · gate.sh + structure-gate 过
+  ↳ 偏离即记 DRIFT-PRED：若 core 出运行时依赖 / delete 无 channel 作用域跨群误删 / 测试非证伪 / 改根黑名单 → 偏离
+
 🎯 EXPECT sync-v2 全 parity re-port 到 dev-zlc(ADR-007) @2026-06-18 | 赌注 高 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 可证伪预判：① 改动文件集 = Phase A(increment_channel/increment_channel_end/module.rs) + B0(helix-core effect.rs/ports·storage.rs + helix-driver-{host,native,ffi,wasm}/storage.rs) + B(channel_write/5 + acl/to_effect{,_s1}.rs + parser/context/schema/sync_session/ImConfig) + C(ws/handlers/10 新 + mod.rs + 改 post/increment) + D(tests)；**不碰根 SESSION/CLAUDE/README**
   ↳ ② 每阶 feat 对应 replay 测试逐字 port 且 PASS（http6/b2/s1(576)/s4/s5/s6/channel_write_program/channel_member_collect 全绿）= parity 硬证

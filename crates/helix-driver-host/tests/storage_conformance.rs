@@ -1,5 +1,6 @@
 use helix_core::effect::{
-    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
+    SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -1095,5 +1096,85 @@ async fn upsert_exclude_from_update_preserves_guard_cols_s3() {
     assert!(
         matches!(last_post, Some(SqlValue::Text(s)) if s == "new"),
         "非 exclude → last_post 覆盖 new，got {last_post:?}"
+    );
+}
+
+/// BatchDelete 真 SQLite 验证：复合 PK 作用域删 + **跨作用域隔离**（绝不误删别的 channel 的成员）。
+/// 改 batch_delete 的 scope WHERE（去掉 scope_col=? 约束）→ c2/u1 被误删 → 本测 FAIL（HX-C011）。
+#[tokio::test]
+async fn host_storage_batch_delete_scoped_no_cross_channel_delete() {
+    let s = storage().await;
+    s.execute_raw(
+        "CREATE TABLE channel_member (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, \
+         PRIMARY KEY (channel_id, user_id))",
+    )
+    .await
+    .expect("create channel_member");
+
+    let mk = |cid: &str, uid: &str| {
+        vec![
+            ("channel_id".to_string(), SqlValue::Text(cid.to_string())),
+            ("user_id".to_string(), SqlValue::Text(uid.to_string())),
+        ]
+    };
+    s.batch_upsert(UpsertSpec {
+        table: "channel_member",
+        rows: vec![
+            mk("c1", "u1"),
+            mk("c1", "u2"),
+            mk("c1", "u3"),
+            mk("c2", "u1"),
+        ],
+        conflict_key: Some("channel_id,user_id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed");
+
+    // 删 c1 的 u1,u2（scope=c1）
+    s.batch_delete(BatchDeleteSpec {
+        table: "channel_member",
+        scope_col: "channel_id",
+        scope_val: SqlValue::Text("c1".to_string()),
+        key_col: "user_id",
+        key_vals: vec![
+            SqlValue::Text("u1".to_string()),
+            SqlValue::Text("u2".to_string()),
+        ],
+    })
+    .await
+    .expect("delete");
+
+    let rows = s
+        .scan(ScanSpec {
+            table: "channel_member",
+            limit: None,
+        })
+        .await
+        .expect("scan");
+    let pairs: Vec<(String, String)> = rows
+        .iter()
+        .map(|r| {
+            let g = |col: &str| match r.iter().find(|(k, _)| k == col).map(|(_, v)| v) {
+                Some(SqlValue::Text(t)) => t.clone(),
+                _ => String::new(),
+            };
+            (g("channel_id"), g("user_id"))
+        })
+        .collect();
+    assert_eq!(pairs.len(), 2, "删后剩 2 行(c1/u3 + c2/u1)，got {pairs:?}");
+    assert!(
+        pairs.contains(&("c1".to_string(), "u3".to_string())),
+        "c1/u3 应保留，got {pairs:?}"
+    );
+    assert!(
+        pairs.contains(&("c2".to_string(), "u1".to_string())),
+        "c2/u1 不应被跨作用域误删，got {pairs:?}"
+    );
+    assert!(
+        !pairs
+            .iter()
+            .any(|(c, u)| c == "c1" && (u == "u1" || u == "u2")),
+        "c1/u1,c1/u2 应被删，got {pairs:?}"
     );
 }

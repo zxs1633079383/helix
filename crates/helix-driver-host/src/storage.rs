@@ -27,8 +27,8 @@
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
-    BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row as HelixRow, ScanSpec,
-    SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
+    Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -404,6 +404,42 @@ impl Storage for HostStorage {
             Ok(out)
         })
         .await
+    }
+
+    async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
+        let BatchDeleteSpec {
+            table,
+            scope_col,
+            scope_val,
+            key_col,
+            key_vals,
+        } = spec;
+        if key_vals.is_empty() {
+            return Ok(());
+        }
+
+        let writer = Arc::clone(&self.writer);
+        let table = table.to_string();
+        let scope_col = scope_col.to_string();
+        let key_col = key_col.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = writer.lock().map_err(map_lock_err)?;
+            let in_placeholders: Vec<&str> = key_vals.iter().map(|_| "?").collect();
+            // DELETE FROM <table> WHERE <scope_col> = ? AND <key_col> IN (?…)
+            // scope 等值约束（复合 PK 第一段）定位单作用域，绝不跨作用域误删；O(k) 单语句。
+            let sql = format!(
+                "DELETE FROM {table} WHERE {scope_col} = ? AND {key_col} IN ({in_vals})",
+                in_vals = in_placeholders.join(", "),
+            );
+            // 绑定顺序与占位一致：scope_val → key_vals…
+            let mut values = sql_values(std::iter::once(&scope_val));
+            values.extend(sql_values(key_vals.iter()));
+            conn.execute(&sql, params_from_iter(values.iter()))
+                .map(|_| ())
+                .map_err(map_sqlite_err)
+        })
+        .await
+        .map_err(map_join_err)?
     }
 }
 

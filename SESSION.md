@@ -348,3 +348,21 @@
 ⚡ 待 P4 收口：legacy ws/handlers/posted.rs reconcile 与「echo 只走 post」冲突（P1 fail-hard① 推迟到 P4 dead-action 清理）。
 
 ⚡ DRIFT-PRED P4 EXPECT①「各 1 个 distributed_slice 注册，零改 registry.rs/dispatch」被 diff 证伪：registry.rs +39/-201，但 churn 100% 在 `mod tests` 块内（生产 dispatch 确零改，distributed_slice 自动注册预判成立）→ 候选教训：EXPECT 写文件级「零改 X.rs」须限定「零改 X 生产 dispatch（测试块随 dead-action 调整可变）」。drift-review dbe1b74..7e9f3ca finding③，HX-C009/C012 已覆盖不建卡。
+
+## §0 接管收官 — 终态
+
+✅ DONE helix-im 全权接管 cses-client HTTP+WS+业务 P0-P7 @2026-06-22 | commit c7a38ef..1752378 | 11/11 phase gate 绿 | helix/feat/im-takeover
+- 出站 88（send + 7posts写 + 17posts读 + 17channel + 11user-misc + 35bot-agent，全 distributed_slice 注册）
+- 入站 WS 19 live 事件 + SyncScheduler 并发窗口 + parser event_seq 三级 fallback + dead-action 清理
+- driver-native 四接缝（真 emit im:__bus__ + bus_guard 出口守护 + 投影命令 im_query_messages_by_channel + 批处理 Vec<Effect>）
+- P1.5 横切层 P6 接泵（with_crosscut: 鉴权/401→im:http:unauthorized/断网→im:net:offline/traceparent）
+- userSnapshot→ucenter 注入（host 展开 ImConfig，host-cli env / Tauri 登录态）
+- 全程：core 零运行时 ✅ / 确定性 grep 空 ✅ / 新文件 100% 覆盖 / structure-gate PASS / drift-review 🟡 无架构破裂
+- P7 cses-client 接入方案 = 纯设计（04 文档按真实 IPC 面 finalize），本轮不碰 cses-client 代码
+
+### 接入前残留缺口（非本轮阻塞，cses-client cutover 前置）
+1. ⛔ projection-schema.md 未冻结（C2）：P6 emit 已产事件但字段集未冻 + 未与 DialogItem 逐字段对齐 → cutover 前必冻，否则前端补算破纯渲染
+2. ⏸ createPosts PascalCase（D3）：1 命令待真抓包定 body casing，未纳入 88 outbound
+3. ⏸ im_delete_all_dialogs 物理 truncate：core 缺 StorageOp::Truncate，P6 降级清内存+emit（YAGNI）
+
+⚡ DRIFT-PRED P6 结构闸 baseline 又被上调（module.rs 1211→1264 query 分发 / storage.rs 560→578 scan additive）——与十二/十三轮 drift-review 反复点名的「baseline 棘轮后门复发」同根 → 候选教训：additive 原语扩展应优先拆文件回落 ≤baseline 而非抬 baseline 保绿；下次 drift-review 须复核 module.rs/storage.rs 拆分。type:surprise。

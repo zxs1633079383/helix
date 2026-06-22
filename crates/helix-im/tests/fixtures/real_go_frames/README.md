@@ -38,12 +38,25 @@ golden fixtures 把「测试用帧」从「手写猜测」升级为「现网真�
 | `increment_channel_end.json` | `increment_channel_end` | data={} → global end | 对增量群发 /channel/sync/notify |
 | `status_change_ignored.json` | `status_change` | 运维帧 status=online | FrameClass::Ignored（零 effect/零 panic） |
 | `connect_init.jsonl`（既有） | `hello` + 运维帧 | 握手 + status_change/multiple_channels_viewed | 见 `real_go_frames_test.rs` |
+| `sync_no_change.json` ⚠️占位 | HTTP `no_change` | `/channel/sync/notify` reply，kind=no_change / nextSeq=maxSeq | `sync_http_fixtures_test.rs`：parse→NoChange |
+| `sync_events.json` ⚠️占位 | HTTP `events` | reply，kind=events / eventSeq 单调 / nextSeq=末条 seq | parse→Events{next_seq,!needs_continuation} |
+| `sync_too_long.json` ⚠️占位 | HTTP `too_long` | reply，kind=too_long / resetTo=maxSeq | parse→TooLong{reset_to}（清内存不清表） |
+
+> ⚠️占位 = PLACEHOLDER：非真 Go 抓帧，按 `parser::parse_sync_response` 文档 wire 形态手填，头注释带
+> 「待真抓」+ 真抓法。`sync_http_fixtures_test.rs` 喂**真 parser** 锁 wire 形态——真帧抓到覆盖文件后
+> 测试无需改动即继续守护。这三个走 **HTTP**（非 WS RAW），WS dump 抓不到，须先在 driver HTTP 层
+> 补 dump（见「已知缺口」），抓真 body 后覆盖占位。
 
 ## 怎么抓新真帧 + 加 fixture（工具链的「链」）
 
 ### Step 1 — 用 `HELIX_DUMP_FRAMES=1` 抓帧
 
 跑带真 Go 后端的 dev 循环，开启 RAW 帧 dump：
+
+`HELIX_DUMP_FRAMES=1` 打开 WS 入站帧 dump（driver `network.rs`，`target="helix_ws_frames"`，
+日志行 `RAW WS inbound len=... frame={...}`）。
+> HTTP 响应体（`/channel/sync/notify` sync reply）目前**不在** dump 内——见下方「已知缺口」，
+> 需先补 driver HTTP 层 dump 才能抓真 sync body。
 
 ```bash
 HELIX_DUMP_FRAMES=1 <你的 dev/driver 启动命令> 2>&1 | tee /tmp/helix_capture.log
@@ -108,9 +121,13 @@ cargo test -p helix-im --test golden_replay_test
 ## 已知缺口（待后续补真帧）
 
 - **sync `no_change` / `too_long` / `events` HTTP 响应体**：这些走 **HTTP**（`/channel/sync/notify`
-  的 reply body），不在本批 WS RAW 帧日志里——需要在 driver HTTP 层加 dump 后单独抓。
-  抓到后存 `sync_no_change.json` 等并补回放断言（解析路径见 `parser::parse_sync_response`，
-  断言模板见 `c2_phantom_readbits_test.rs` / `c3_sync_mutation_emits_test.rs`）。
+  的 reply body），不在 WS RAW 帧日志里。✅ P0 已落三个 ⚠️占位 fixture（`sync_no_change/sync_events/
+  sync_too_long.json`）+ `sync_http_fixtures_test.rs` 喂**真 parser** 锁 wire 形态（parse→NoChange/
+  Events/TooLong）。**剩余两步（P1+ 接力）**：① 在 driver HTTP 层（`network.rs` 的 `request()` 读到
+  body 后）加 `HELIX_DUMP_FRAMES` 旁路 dump（对齐 WS dump，注意 `structure-gate.sh` 对 network.rs
+  的 463 行 baseline——dump 落地需同步该 backlog 拆分或基线调整）；② 抓真 body 覆盖占位文件 + 删
+  占位头注释 + 升级到走 `handle_sync_reply` 的落库/cursor/emit 集成断言（模板
+  `c2_phantom_readbits_test.rs` / `c3_sync_mutation_emits_test.rs`）。
 - **`post` echo 帧**（本端 send 回流，temporary_id 命中在途 PendingSend）：当前 `post.json`
   的 temporaryId 是本端注入但测试未注册 PendingSend；后续可抓「先 send 后 echo」的真帧对
   对账链路（reconcile + CancelTimer）补断言。

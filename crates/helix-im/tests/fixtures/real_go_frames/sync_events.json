@@ -1,0 +1,8 @@
+// ⚠️ 占位（PLACEHOLDER · 待真抓）—— 非真 Go 抓帧，按 parser::parse_sync_response 文档 wire 形态手填。
+// 真抓法: HELIX_DUMP_FRAMES=1 跑 dev 循环（离线>0 事件后冷启动触发 sync），driver HTTP 层落
+//         target="helix_http_frames" 的 "RAW HTTP response ... url=.../channel/sync/notify" 行，抠 body。
+//         覆盖本文件后删本警告头，并加进 golden_replay_test 的真帧断言。
+// 形态: HTTP /channel/sync/notify reply；kind=="events"；events[].eventSeq 单调；nextSeq=末条 seq
+//       （服务端权威水位，cursor 推进锚点，HX-C008）。满批(≥500)派生续拉，无显式续拉标志。
+// 解析路径: parser::parse_sync_response → SyncResponse::Events{events, next_seq, needs_continuation}。
+{"status":"SUCCESS","data":{"entries":[{"channelId":"rmibkwkjwidhdx5xy8pyse6a3r","kind":"events","events":[{"channelId":"rmibkwkjwidhdx5xy8pyse6a3r","eventSeq":40113,"eventType":1},{"channelId":"rmibkwkjwidhdx5xy8pyse6a3r","eventSeq":40114,"eventType":1}],"nextSeq":40114,"resetTo":null,"messages":{}}],"serverTime":1700000000}}

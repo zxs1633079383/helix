@@ -15,6 +15,11 @@ pub mod post_props;
 pub mod posts_existing;
 // P3a posts 读族（G1 并行，独立 distributed_slice 注册，与 channel* 零交集）。
 pub mod posts_read;
+// P3b channel 写族（G1 并行，独立 distributed_slice 注册，与 posts_read 零交集）：
+// createSpecifyOwner / change(info/source/picture/notice/top) / member(role/notify)。
+pub mod channel_change;
+pub mod channel_create;
+pub mod channel_member_admin;
 pub mod quick_reply;
 pub mod registry;
 pub mod template_received;

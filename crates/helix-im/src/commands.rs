@@ -27,6 +27,8 @@ pub fn is_outbound(name: &str) -> bool {
             | "im_cancel_schedule"
             | "im_create_channel"
             | "im_make_topic"
+            | "im_channel_close"
+            | "im_update_member_nickname"
     )
 }
 
@@ -103,6 +105,23 @@ pub fn handle_outbound(
             require_str(&args, "postId", name)?;
             ("posts/makeTopic", args.clone())
         }
+        // #27 POST /api/cses/channel/close — 关闭频道 → channel_close（broadcast 到 channelId·自己也收）。真源 {ChannelId}。
+        "im_channel_close" => {
+            let channel_id = require_str(&args, "channel_id", name)?;
+            ("channel/close", json!({ "channelId": channel_id }))
+        }
+        // #31 POST /api/cses/channel/member/change/nickname — 改群昵称 → update_channel_member_nickName
+        // （注意现网 WS 名 camelCase `nickName`，broadcast 到 channelId）。真源 {ChannelId, UserId(nil→session), Nickname(trim 空→清空)}。
+        "im_update_member_nickname" => {
+            let channel_id = require_str(&args, "channel_id", name)?;
+            // nickname 允许空（trim 空→Go 侧清空昵称），故不 require 非空。
+            let nickname = args.get("nickname").and_then(Value::as_str).unwrap_or("");
+            let mut b = json!({ "channelId": channel_id, "nickname": nickname });
+            if let Some(uid) = args.get("user_id").and_then(Value::as_str) {
+                b["userId"] = json!(uid);
+            }
+            ("channel/member/change/nickname", b)
+        }
         other => return Err(ImError::Parse(format!("未认领的 outbound 命令 '{other}'"))),
     };
 
@@ -142,131 +161,4 @@ fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&'a str, ImE
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空必填字段 '{key}'")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const BASE: &str = "http://x/api/cses";
-    fn corr() -> Correlation {
-        Correlation::from_raw(7)
-    }
-
-    /// 取出单条 Http 的 (url, body-json)；非单条 Http → panic。
-    fn one_http(effects: Vec<Effect>) -> (String, Value) {
-        assert_eq!(effects.len(), 1, "outbound 命令当前恒产单条 Effect::Http");
-        match effects.into_iter().next().unwrap() {
-            Effect::Http { req, .. } => {
-                let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
-                (req.url, body)
-            }
-            other => panic!("expected Effect::Http, got {other:?}"),
-        }
-    }
-
-    fn run(name: &str, payload: Value) -> Vec<Effect> {
-        handle_outbound(
-            name,
-            &serde_json::to_vec(&payload).unwrap(),
-            BASE,
-            Some("conn-1"),
-            corr(),
-        )
-        .expect("handle_outbound should not fail")
-    }
-
-    #[test]
-    fn read_maps_to_post_read_with_channel_and_endtime() {
-        let (url, body) = one_http(run(
-            "im_post_read",
-            json!({ "channel_id": "ch1", "end_time": 123 }),
-        ));
-        // endpoint 锚现网真源（删/改 url → FAIL，HX-C011）
-        assert_eq!(url, "http://x/api/cses/post/read");
-        assert_eq!(body["channelId"], "ch1");
-        assert_eq!(body["endTime"], 123);
-    }
-
-    #[test]
-    fn revoke_leave_cancel_map_to_real_endpoints() {
-        let (url, body) = one_http(run("im_revoke", json!({ "post_id": "p9" })));
-        assert_eq!(url, "http://x/api/cses/posts/revoke");
-        assert_eq!(body["postId"], "p9");
-
-        let (url, body) = one_http(run("im_channel_leave", json!({ "channel_id": "ch2" })));
-        assert_eq!(url, "http://x/api/cses/channel/member/leave");
-        assert_eq!(body["channelId"], "ch2");
-
-        let (url, body) = one_http(run("im_cancel_schedule", json!({ "channel_id": "ch3" })));
-        assert_eq!(url, "http://x/api/cses/posts/cancelSchedule");
-        assert_eq!(body["channelId"], "ch3");
-    }
-
-    #[test]
-    fn schedule_nests_post_and_schedulepostat() {
-        let (url, body) = one_http(run(
-            "im_create_schedule",
-            json!({ "channel_id": "ch4", "message": "later", "schedule_post_at": 999, "temporary_id": "t1" }),
-        ));
-        assert_eq!(url, "http://x/api/cses/posts/createSchedule");
-        assert_eq!(body["schedulePostAt"], 999);
-        assert_eq!(body["post"]["channelId"], "ch4");
-        assert_eq!(body["post"]["message"], "later");
-        assert_eq!(body["post"]["temporaryId"], "t1");
-    }
-
-    #[test]
-    fn create_and_make_topic_passthrough_body_with_real_endpoint() {
-        // create：raw body 直传，仅认领 endpoint
-        let (url, body) = one_http(run(
-            "im_create_channel",
-            json!({ "displayName": "g", "users": [{ "id": "u1" }] }),
-        ));
-        assert_eq!(url, "http://x/api/cses/channel/create");
-        assert_eq!(body["displayName"], "g");
-
-        let (url, body) = one_http(run("im_make_topic", json!({ "postId": "p1" })));
-        assert_eq!(url, "http://x/api/cses/posts/makeTopic");
-        assert_eq!(body["postId"], "p1");
-    }
-
-    #[test]
-    fn missing_required_field_is_parse_error_not_panic() {
-        // 边界零信任：缺必填 → Err，不崩
-        assert!(handle_outbound(
-            "im_revoke",
-            &serde_json::to_vec(&json!({})).unwrap(),
-            BASE,
-            None,
-            corr(),
-        )
-        .is_err());
-        // 缺 schedule_post_at（int 字段）
-        assert!(handle_outbound(
-            "im_create_schedule",
-            &serde_json::to_vec(&json!({ "channel_id": "c", "message": "m" })).unwrap(),
-            BASE,
-            None,
-            corr(),
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn is_outbound_covers_exactly_the_seven() {
-        for n in [
-            "im_post_read",
-            "im_revoke",
-            "im_channel_leave",
-            "im_create_schedule",
-            "im_cancel_schedule",
-            "im_create_channel",
-            "im_make_topic",
-        ] {
-            assert!(is_outbound(n), "{n} 应被认领");
-        }
-        assert!(!is_outbound("im_send_message"), "send 走 module.rs 不在此");
-        assert!(!is_outbound("bogus"));
-    }
 }

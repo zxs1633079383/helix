@@ -74,6 +74,8 @@ fn print_usage() {
          leave <channelId>                  退群 → channel_member_update + leave 删行(BatchDelete)\n\
          schedule <channelId> <atMs> <text> 定时消息 → post_schedule_created\n\
          cancel <channelId>                 取消定时 → post_schedule_canceled\n\
+         close <channelId>                  关闭频道 → channel_close\n\
+         nickname <channelId> <新昵称>      改群昵称 → update_channel_member_nickName\n\
          create <rawJSON body>              建群 → channel_created（body 含 users[] 等现网字段）\n\
          makeTopic <rawJSON 含 postId>      转话题 → channel_created + post_update\n\
          help | ?                           打印本用法\n\

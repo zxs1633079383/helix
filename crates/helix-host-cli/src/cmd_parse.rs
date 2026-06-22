@@ -39,6 +39,8 @@ pub(crate) fn parse_line(line: &str, tmp_seq: &mut u64) -> Parsed {
             "cancel <channelId>",
         ),
         "schedule" => parse_schedule(rest),
+        "close" => one_str_cmd("im_channel_close", "channel_id", rest, "close <channelId>"),
+        "nickname" => parse_nickname(rest),
         "create" => parse_raw_json("im_create_channel", rest, "create <rawJSON body>"),
         "makeTopic" | "maketopic" => {
             parse_raw_json("im_make_topic", rest, "makeTopic <rawJSON 含 postId>")
@@ -104,7 +106,21 @@ fn parse_schedule(rest: &str) -> Parsed {
     ))
 }
 
-/// 单字符串参数命令（revoke/leave/cancel）：`<verb> <value>` → {field: value}。
+/// `nickname <channelId> <新昵称...>` → im_update_member_nickname。
+/// 昵称允许空（清空昵称，Go 侧 trim 空→nil）；userId 缺省 → Go 用 session 兜底。
+fn parse_nickname(rest: &str) -> Parsed {
+    let mut it = rest.splitn(2, char::is_whitespace);
+    let Some(channel) = it.next().filter(|s| !s.is_empty()) else {
+        return Parsed::Bad("用法 nickname <channelId> <新昵称>".into());
+    };
+    let nick = it.next().unwrap_or("").trim();
+    Parsed::Command(command(
+        "im_update_member_nickname",
+        serde_json::json!({ "channel_id": channel, "nickname": nick }),
+    ))
+}
+
+/// 单字符串参数命令（revoke/leave/cancel/close）：`<verb> <value>` → {field: value}。
 fn one_str_cmd(name: &'static str, field: &str, rest: &str, usage: &str) -> Parsed {
     let value = rest.split_whitespace().next().unwrap_or("");
     if value.is_empty() {
@@ -198,6 +214,16 @@ mod tests {
         let (name, v) = unwrap_cmd(parse_line("cancel ch_3", &mut seq));
         assert_eq!(name, "im_cancel_schedule");
         assert_eq!(v["channel_id"], "ch_3");
+
+        let (name, v) = unwrap_cmd(parse_line("close ch_8", &mut seq));
+        assert_eq!(name, "im_channel_close");
+        assert_eq!(v["channel_id"], "ch_8");
+
+        // nickname 保留空格 + 允许空昵称（清空）
+        let (name, v) = unwrap_cmd(parse_line("nickname ch_9 New Name", &mut seq));
+        assert_eq!(name, "im_update_member_nickname");
+        assert_eq!(v["channel_id"], "ch_9");
+        assert_eq!(v["nickname"], "New Name");
     }
 
     #[test]

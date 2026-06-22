@@ -209,7 +209,11 @@ impl Channel {
         // 退化场景（永久缺口 + 持续洪峰）每满一次触发一次恢复，触发频率有界。
         if self.buffer.len() >= MAX_GATE_BUFFER {
             self.buffer.clear();
-            fx.push(crate::acl::to_effect::emit_sync_too_long(self.id));
+            // 客户端 buffer 溢出自触发 too_long：cursor 不回退（保持现值，注释 §E6）。
+            // 故 resetTo = cursor+1 → 前端 cursor=resetTo-1 = 现值不变；UI 仍刷新首屏，
+            // sync 从 cursor+1 重拉缺口（与服务端 too_long 的 reset_to 语义统一走同一 emit）。
+            let reset_to = Seq(self.cursor.value().0 + 1);
+            fx.push(crate::acl::to_effect::emit_sync_too_long(self.id, reset_to));
             self.arm_gate_if_needed(fx);
             return Ok(());
         }

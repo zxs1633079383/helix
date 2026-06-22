@@ -610,11 +610,18 @@ impl ImModule {
                     ch.cursor = crate::state::Cursor::new(reset_cursor);
                     ch.last_sync_from_seq = None;
                 }
-                out.push(crate::acl::to_effect::emit_sync_too_long(channel_id));
+                // emit 带服务端 reset_to（前端 cursor=resetTo-1 记账，对齐现网 post.rs:918）。
+                out.push(crate::acl::to_effect::emit_sync_too_long(
+                    channel_id, reset_to,
+                ));
             }
 
             SyncResponse::Snapshot(snap) => {
-                // Snapshot：批量 upsert + cursor 跳至 reset_to（先分配，避免借用冲突）
+                // Snapshot（A2-reserved）：wire 协议定义但**服务端未实现**（现网 sync.rs:71 「保留扩展」，
+                // 真帧从不产生此分支）。现网 Rust 把 `Events | Snapshot` 合并同分支治理、仅 Snapshot 不续拉
+                // （post.rs:931）。helix 对齐：**覆盖式 batch_upsert + cursor 跳 reset_to + 不续拉**，
+                // **绝不**物理 `DELETE FROM message`——「清旧」靠 ON CONFLICT 幂等覆盖（与 too_long 同语义，
+                // 现网 im-sync.service.ts 实证）。物理 DELETE 仅限 channel_member（成员全替换）/ event_cursor。
                 let persist_corr = self.alloc_corr_internal();
                 let reset_to = snap.reset_to;
                 let persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);

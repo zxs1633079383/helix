@@ -299,13 +299,19 @@ pub fn emit_post_sending(channel_id: ChannelId, temporary_id: &str) -> Effect {
     }
 }
 
-/// 发送 im:sync:too_long 事件（前端收到后清内存 buffer + 重拉首屏）
-pub fn emit_sync_too_long(channel_id: ChannelId) -> Effect {
+/// 发送 im:sync:too_long 事件（前端收到后清内存 buffer + `getLatestPost` 重拉首屏 + `cursor=resetTo-1` 记账）。
+///
+/// payload 对齐现网 `handlers/post.rs:918` 的 `{channelId, resetTo}`（前端 `im-sync.service.ts`
+/// `onRustTooLong` 按此读：用 `channelId` 定位、`resetTo` 做本地 cursor 记账 `cursor=resetTo-1`）。
+/// **铁律**：too_long 是覆盖式重拉（前端 getLatestPost 20 条 + batch_upsert 幂等覆盖），
+/// helix/Rust 侧**不**物理 `DELETE FROM message`（现网语义，im-sync.service.ts 实证）。
+pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:sync:too_long",
         "data": {
-            "channel_id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "resetTo": reset_to.0,
         }
     });
     let bytes = Bytes::from(

@@ -57,6 +57,21 @@ fn s6_too_long_emits_but_does_not_delete_message() {
     });
     assert!(saw_emit, "too_long 须 emit im:sync:too_long");
 
+    // 1b. emit payload 须含 resetTo（=服务端 reset_to 100）+ channelId（对齐现网 post.rs:918，
+    // 前端 onRustTooLong 按此做 cursor=resetTo-1 记账 + getLatestPost 重拉）。删 resetTo → FAIL。
+    let emit_has_resetto = h.sink.as_slice().iter().any(|e| {
+        matches!(e, Effect::Emit { event } if {
+            let s = String::from_utf8_lossy(event.0.as_ref());
+            s.contains("im:sync:too_long")
+                && s.contains("\"resetTo\":100")
+                && s.contains("\"channelId\"")
+        })
+    });
+    assert!(
+        emit_has_resetto,
+        "too_long emit 须带 resetTo=100 + channelId（前端 cursor 记账契约，对齐现网）"
+    );
+
     // 2. 不得产生任何 message 表写（无 DELETE 语义；StorageOp 也无 Delete 变体）。
     for e in h.sink.as_slice() {
         let ops: &[StorageOp] = match e {

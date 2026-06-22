@@ -1178,3 +1178,66 @@ async fn host_storage_batch_delete_scoped_no_cross_channel_delete() {
         "c1/u1,c1/u2 应被删，got {pairs:?}"
     );
 }
+
+/// 回归锚: #1 防历史重算 —— guarded_bump 守卫 FAIL（消息 create_at ≤ 当前 last_root_post_at =
+/// 已看过的历史/backfill 旧消息）→ unread **不动**（SQL `WHERE ? > guard_col` 严格大于不命中），
+/// 水位也不前进。删守卫 WHERE 子句 → 历史也 +1 → 本测 FAIL（HX-C011 可证伪）。
+/// 这是「离线全量 backfill 不把已读历史重复计未读」的存储层闸。
+#[tokio::test]
+async fn guarded_bump_does_not_increment_when_guard_fails_historical_s3() {
+    let st = channel_like_storage().await;
+    st.batch_upsert(UpsertSpec {
+        table: "channel",
+        rows: vec![vec![
+            ("id".to_string(), SqlValue::Text("c1".to_string())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("last_root_post_at".to_string(), SqlValue::Integer(1000)),
+        ]],
+        conflict_key: Some("id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed channel");
+
+    // 三条历史/等值消息：create_at ∈ {500, 800, 1000} 均 ≤ 当前水位 1000（严格 > 才命中）→ 均不 bump。
+    for ts in [500i64, 800, 1000] {
+        st.guarded_bump(GuardedBumpSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c1".to_string()),
+            bump_col: "unread_count",
+            bump_delta: 1,
+            set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(ts))],
+            guard_col: "last_root_post_at",
+            guard_val: ts,
+        })
+        .await
+        .expect("bump");
+    }
+
+    let row = st
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c1".to_string()),
+        })
+        .await
+        .expect("get")
+        .expect("row");
+    let unread = row
+        .iter()
+        .find(|(k, _)| k == "unread_count")
+        .map(|(_, v)| v);
+    assert!(
+        matches!(unread, Some(SqlValue::Integer(0))),
+        "历史消息(create_at ≤ last_root_post_at)守卫 fail → unread 不动==0（防历史重算），got {unread:?}"
+    );
+    let lrp = row
+        .iter()
+        .find(|(k, _)| k == "last_root_post_at")
+        .map(|(_, v)| v);
+    assert!(
+        matches!(lrp, Some(SqlValue::Integer(1000))),
+        "守卫 fail → 整行不更新 → last_root_post_at 不前进==1000，got {lrp:?}"
+    );
+}

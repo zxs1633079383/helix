@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 
 mod cmd_parse;
 mod host_env;
@@ -212,8 +212,10 @@ async fn main() {
             "主 WS 连接失败（Go 未起？）——仍进泵，上行 Send 将走 warn 兜底"
         ),
     }
+    // host-cli 走「预填表」路径：上面已同步 connect 好，直接放共享句柄进表（去外层 Mutex，
+    // 对齐 send/recv/close 的 `&self`）。FFI 端因 create 不能 await connect 才用注册通道。
     let mut transports = TransportTable::new();
-    transports.insert(main_transport, Arc::new(Mutex::new(transport)));
+    transports.insert(main_transport, Arc::new(transport));
 
     // Http 并发上限：env 注入（probe 可不重编译扫不同 N）。解析失败/缺省/非正 → 默认 8。
     let max_http_inflight = std::env::var("HELIX_HTTP_MAX_INFLIGHT")

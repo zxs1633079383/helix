@@ -382,7 +382,7 @@ impl Transport for SharedWsClient {
     /// helix 出站帧是 JSON（hello/ping/业务），必须发 **Text**——发 Binary 则 Go 用 msgpack
     /// 解 `{`(0x7b) 失败：`msgpack: unexpected code=7b decoding map length` → 关连接
     /// （真 Go dev-loop 三测实测定位的 ~8s 断连根因，c823701）。双端（PC+Flutter）共享此修。
-    async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
+    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
         let mut state = self.state.lock().await;
         match &mut *state {
             WsState::Connected { sink, .. } => {
@@ -396,7 +396,7 @@ impl Transport for SharedWsClient {
         }
     }
 
-    async fn recv(&mut self) -> Result<Option<Bytes>, PortError> {
+    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
         let mut state = self.state.lock().await;
         match &mut *state {
             WsState::Connected { frame_rx, .. } => match frame_rx.recv().await {
@@ -408,7 +408,7 @@ impl Transport for SharedWsClient {
         }
     }
 
-    async fn close(&mut self) -> Result<(), PortError> {
+    async fn close(&self) -> Result<(), PortError> {
         let mut state = self.state.lock().await;
         if let WsState::Connected { sink, reader, .. } = &mut *state {
             sink.send(Message::Close(None)).await.map_err(map_ws_err)?;

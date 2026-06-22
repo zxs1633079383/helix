@@ -13,6 +13,8 @@ pub mod send_build;
 pub mod channel_existing;
 pub mod post_props;
 pub mod posts_existing;
+// P3a posts 读族（G1 并行，独立 distributed_slice 注册，与 channel* 零交集）。
+pub mod posts_read;
 pub mod quick_reply;
 pub mod registry;
 pub mod template_received;

@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 use bytes::Bytes;
 use helix_core::effect::{Effect, HttpRequest};
-use helix_core::Correlation;
+use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
 use linkme::distributed_slice;
 use serde_json::Value;
 
@@ -27,7 +27,25 @@ pub(crate) trait OutboundCommand: Sync {
     fn name(&self) -> &'static str;
 
     /// 翻译：通用入参 `args` → `(endpoint_path, wire_body)`。`path` 不含 `api_base_url` 前缀。
+    ///
+    /// `path` 为**静态模板**（`&'static str`，零分配，绝大多数命令的 endpoint 是定值）。
+    /// 含 REST path/query param 的命令（bot-agent `{botUserId}`/`?botUserId=`，P5b）走 `path_override`
+    /// 产动态 path——`build` 仍返回静态模板做 fallback（不破既有 11 文件返回类型，零 ripple）。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError>;
+
+    /// 动态 path 覆盖（默认 `None` = 用 `build` 的静态 path）。REST path/query param 命令 override
+    /// 此方法产 `Some(Ok(format!(...)))`；wire body 仍由 `build` 产（path 与 body 各管一摊，DRY）。
+    /// 解析失败（缺/坏 path 段）→ `Some(Err)`（边界零信任，零 panic）。
+    fn path_override(&self, _args: &Value) -> Option<Result<String, ImError>> {
+        None
+    }
+
+    /// 出站鉴权**意图**（generic 两类凭据路由，HX-C001/C6）：core 只标意图、绝不拼 token，
+    /// 真凭据由 driver 横切层据 `X-Auth-Kind` 注入。默认 `Session`（绝大多数命令走用户会话）；
+    /// bot-agent bot-token 调用命令（P5b #22-27）override 为 `Bot`。
+    fn auth_kind(&self) -> AuthKind {
+        AuthKind::Session
+    }
 }
 
 /// 注册条目（`name` 与 `cmd.name()` 必须一致，build_registry 会校验）。
@@ -92,12 +110,18 @@ pub fn handle_outbound(
     let args: Value = serde_json::from_slice(payload)
         .map_err(|e| ImError::Parse(format!("{name} payload: {e}")))?;
 
-    let (path, body) = command.build(&args)?;
+    let (static_path, body) = command.build(&args)?;
+    // 动态 path（REST path/query param）优先；缺省回落静态模板（零分配，零 ripple）。
+    let path: std::borrow::Cow<'static, str> = match command.path_override(&args) {
+        Some(dynamic) => std::borrow::Cow::Owned(dynamic?),
+        None => std::borrow::Cow::Borrowed(static_path),
+    };
 
     Ok(vec![http_post(
         api_base_url,
-        path,
+        &path,
         body,
+        command.auth_kind(),
         connection_id,
         corr,
     )])
@@ -111,16 +135,23 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空必填字段 '{key}'")))
 }
 
-/// 组装一条 `Effect::Http` POST（Content-Type + connectionId 身份头）。
+/// 组装一条 `Effect::Http` POST（Content-Type + connectionId 身份头 + 鉴权意图头）。
+///
+/// 鉴权意图（`X-Auth-Kind`）仅在非默认 `Bot` 时显式下标——`Session` 是 driver 横切层缺省，
+/// 不冗余写头（既省字节又保留「无头=session」语义）。真凭据由 driver 注入（C6，core 不拼）。
 fn http_post(
     api_base_url: &str,
     path: &str,
     body: Value,
+    auth_kind: AuthKind,
     connection_id: Option<&str>,
     corr: Correlation,
 ) -> Effect {
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
+    if auth_kind == AuthKind::Bot {
+        headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
+    }
     Effect::Http {
         corr,
         req: HttpRequest {

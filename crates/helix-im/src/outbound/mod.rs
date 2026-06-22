@@ -24,10 +24,15 @@ pub mod quick_reply;
 pub mod registry;
 pub mod template_received;
 pub mod urgent;
-// P5a user-misc 域（G2 并行，独立 distributed_slice 注册，与 P5b bot_agent.rs 零交集）：
+// P5a user-misc 域（G2 并行，独立 distributed_slice 注册，与 P5b bot_agent 零交集）：
 // users(list/status) / teams(upsert/member add/quit) / modules/getAll / notification/loadSend /
 // search 四件套（post/user/channel/do）。presence（D2 自建）= users/status/ids 接管。
 pub mod user_misc;
+// P5b bot-agent 域（G2 并行，目录模块 6 子族独立 distributed_slice 注册，与 P5a user_misc 零交集）：
+// gateway(createBot/botCallback) / bot_manage(CRUD 9) / config(config+channel 10) /
+// calls(bot-token 调用 6，auth_kind=Bot) / agents(会话 5) / webhook(config 3)。
+// 排除 timeline/cost(#33/34 D7 废弃) + cross-repo demo(#38-40 非业务)。
+pub mod bot_agent;
 
 // 对外单一入口：accepts_tick / module.rs dispatch / 集成测试都从此处取。
 pub use registry::{handle_outbound, is_outbound};

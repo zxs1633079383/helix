@@ -2,7 +2,7 @@
 
 > docs/ 的**单一入口**：先看这页，再进具体文档。
 > **2026-06-17 大缩减（熵管理）**：55 → 29 个。删除 00-05 baseline 草稿 / 过会 presentation 稿（大白话/技术过会方案/完美过会指南/回到原点）/ two-layer 长稿 / 三端科普 / superpowers 临时稿；决策权威「评审纪要」7 条过会拍板已**并入 `harness/decisions.md`**；`eventbus` 两稿合一、`sync-v2` 两稿合一。目的：AI 广读的「叙事/设计」集压到 10 个，杜绝读到过时稿。
-> 维护规则见文末「§ 熵管理」。最近对账：**2026-06-17**。
+> 维护规则见文末「§ 熵管理」。最近对账：**2026-06-22**（sync-v2 落地真相/README 两端化/FFI F4 落地/cursor 表真源/wasm 归档同步）。
 
 ---
 
@@ -13,7 +13,7 @@
 | **设计理念 / 不变量（北极星）** | [`GOAL.md`](./GOAL.md) | L2 常量，每次会话开局必读；§1 设计理念 / §2 硬约束不可偏离 |
 | **决策（ADR + 过会拍板）** | [`harness/decisions.md`](./harness/decisions.md) | ADR-001..010 + **7 条过会拍板**（原「评审纪要」已并入，决策唯一事实源） |
 | **机制事实（IM 全链路）** | [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) | 内核 + 四能力 + IM 模块 + 三端接入；含 Effect 模型(Http/HttpFire) / BoundedSpawner / sync-v2 已验证 |
-| **可执行护栏** | [`harness/`](./harness/README.md) | HX-C001..C009 = 把 GOAL §1/§2 编译成 grep/CI 闸门 |
+| **可执行护栏** | [`harness/`](./harness/README.md) | HX-C001..C012 = 把 GOAL §1/§2 编译成 grep/CI 闸门（HX-C003 已随 ADR-006 归档） |
 | **代码本身** | `crates/helix-{core,im,driver-native,driver-host,driver-ffi}` | trait/effect 冲突时，**代码 > 任何设计稿** |
 | **架构 review 台账** | [`review/workflow-review-ledger.md`](./review/workflow-review-ledger.md) | drift-review 收敛记录（§4.7 闸门） |
 
@@ -41,7 +41,7 @@
 | [`helix-crux-参照对照.md`](./过会方案/helix-crux-参照对照.md) | Crux 能力边界三分法 + 还能从 Crux 取的方向 |
 
 ### harness/（护栏层 · 按需 grep，非广读）
-→ [`harness/README.md`](./harness/README.md)：HX-C001..C009（active 不变量卡）+ [`OPERATING.md`](./harness/OPERATING.md)（什么事→调什么）+ [`decisions.md`](./harness/decisions.md)（ADR + 过会拍板）+ [`log.md`](./harness/log.md)（踩坑流水）。
+→ [`harness/README.md`](./harness/README.md)：HX-C001..C012（11 active 不变量卡 + HX-C003 archived）+ [`OPERATING.md`](./harness/OPERATING.md)（什么事→调什么）+ [`decisions.md`](./harness/decisions.md)（ADR + 过会拍板）+ [`log.md`](./harness/log.md)（踩坑流水）。
 
 ### reports/（战报 + 性能留痕）
 | 文档 | 作用 |

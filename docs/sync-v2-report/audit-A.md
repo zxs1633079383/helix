@@ -1,5 +1,7 @@
 # Phase A re-port audit — `feat/sync-v2-full-replacement` → `dev-zlc` (ADR-007)
 
+> 📦 历史归档（2026-06-17 sync-v2 re-port 审计）：源分支 feat/dev-zlc 已合并入 main 并删除；本审计枚举的 A/B/C/D 各 phase 改动均已落地入 main。保留作审计留痕，**非活跑 tracker**。
+
 > READ-ONLY enumeration audit. Phase A = the two data-loss bug fixes already on feat:
 > **#1 cursor seed = 0** and **#6 envelope unwrap layer**.
 > FEAT (source of truth, real-machine verified): `worktrees/sync-v2-full-align/`

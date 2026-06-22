@@ -1,5 +1,7 @@
 # Audit C — Phase C: 缺失 WS action handler（S1 全 14-action 对齐）
 
+> 📦 历史归档（2026-06-17 sync-v2 re-port 审计）：源分支 feat/dev-zlc 已合并入 main 并删除；本审计枚举的 A/B/C/D 各 phase 改动均已落地入 main。保留作审计留痕，**非活跑 tracker**。
+
 > READ-ONLY 枚举审计。源真值 = `worktrees/sync-v2-full-align`（`feat/sync-v2-full-replacement`，真机验证）。
 > 目标 = `worktrees/sync-v2-report`（`dev-zlc`，ADR-007 架构）。
 > 对比命令：`git diff dev-zlc...feat/sync-v2-full-replacement -- <path>`（repo root）。

@@ -1,5 +1,7 @@
 # Phase D 全枚举审计 — #3 makeTopic + S4/S5/S6/S7/S9/S10 cross-check + #5 verify
 
+> 📦 历史归档（2026-06-17 sync-v2 re-port 审计）：源分支 feat/dev-zlc 已合并入 main 并删除；本审计枚举的 A/B/C/D 各 phase 改动均已落地入 main。保留作审计留痕，**非活跑 tracker**。
+
 > READ-ONLY 审计。来源真源 = `feat/sync-v2-full-replacement`（真机验证）；目标 = `dev-zlc`（ADR-007 架构）。
 > diff 基线：`git diff dev-zlc...feat/sync-v2-full-replacement -- crates/helix-im`（helix-im +5209 / −162，60 文件）。
 > SPEC 真源：`crates/helix-im/docs/csesapi-migration/SPEC-sync-v2-full-replacement.md`（515 行，feat 新增）。

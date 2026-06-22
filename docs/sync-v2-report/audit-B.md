@@ -1,5 +1,7 @@
 # audit-B — Phase B re-port enumeration (members + channel three-path write + member_count)
 
+> 📦 历史归档（2026-06-17 sync-v2 re-port 审计）：源分支 feat/dev-zlc 已合并入 main 并删除；本审计枚举的 A/B/C/D 各 phase 改动均已落地入 main。保留作审计留痕，**非活跑 tracker**。
+
 > READ-ONLY audit. Compares FEAT (`feat/sync-v2-full-replacement`, real-machine verified) vs DEV-ZLC
 > (`dev-zlc`, ADR-007 arch). Diff base: `git diff dev-zlc...feat/sync-v2-full-replacement`.
 > Scope = #2 members (memberChange.join) · channel three-path write layer (`channel_write/`) · member_count.

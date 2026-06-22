@@ -1,7 +1,7 @@
 # helix-im docs（IM 模块专属文档）
 
 > 本目录只放 **helix-im 业务模块**自己的设计文档（IM 范畴）。
-> core 层通用契约在仓库根 `docs/`（如 [`docs/过会方案/helix-eventbus-下游能力契约.md`](../../../docs/过会方案/helix-eventbus-下游能力契约.md)）；本目录是它在 IM 侧的**落地实例**。
+> core 层通用契约在仓库根 `docs/`（如 [`docs/过会方案/helix-eventbus-设计.md`](../../../docs/过会方案/helix-eventbus-设计.md)）；本目录是它在 IM 侧的**落地实例**。
 
 | 目录/文档 | 一句话 |
 |---|---|

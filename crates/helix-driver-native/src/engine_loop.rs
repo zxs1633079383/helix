@@ -27,7 +27,7 @@ pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 use helix_core::effect::TransportId;
 use helix_core::{ExecutionShell, Tick};
 use std::collections::HashMap;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::clock::NativeClock;
 use crate::event_sink::NativeEventSink;
@@ -38,9 +38,10 @@ use crate::transport::NativeTransport;
 /// TransportId → 实际 WS 连接 的路由表（native 特化：值为 `NativeTransport`）。
 ///
 /// host 装配阶段填入（`host.add_transport(...)` → `TransportId`）；host 泵的 `Effect::Send`
-/// 分支按 id 查表调 `NativeTransport::send`。多连接形态从一开始做成 `HashMap`。
-/// `Arc<Mutex<_>>`：send 需 `&mut self`，且 host 在装配时也要 `connect()` 同一实例。
-pub type TransportTable = HashMap<TransportId, Arc<Mutex<NativeTransport>>>;
+/// 分支按 id 查表调 `NativeTransport::send`（`&self`）。多连接形态从一开始做成 `HashMap`。
+/// `Arc<_>`（无外层 `Mutex`）：send/recv/close 已收紧 `&self`（host `SharedWsClient` 内部 state 锁
+/// 串行化），表里只需共享句柄；connect 在装配端独占 `&mut` 持有时完成（见 host engine 头注）。
+pub type TransportTable = HashMap<TransportId, Arc<NativeTransport>>;
 
 /// 事件泵配置（native 具体 ports 聚合）。
 ///
@@ -120,6 +121,10 @@ pub async fn run_engine_loop_with_transports(
     shutdown_rx: oneshot::Receiver<()>,
     transports: TransportTable,
 ) {
+    // native（host-cli）走「预填表」路径：装配端启动前同步 connect 好直接放进 `transports`
+    // （CLI 可阻塞，约束3不约束此端）。故注册通道留空、`transport_rx` 永不收到任何句柄——
+    // 仅为对齐 host 泛型壳签名而构造（无害；FFI 端才用它做连接成功后投递，见 pump.rs）。
+    let (_transport_tx, transport_rx) = mpsc::unbounded_channel();
     engine::run_engine_loop(
         shell,
         tick_rx,
@@ -127,6 +132,7 @@ pub async fn run_engine_loop_with_transports(
         config.into_deps(),
         shutdown_rx,
         transports,
+        transport_rx,
     )
     .await
 }

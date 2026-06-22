@@ -28,17 +28,17 @@ impl helix_core::ports::Transport for WasmTransport {
         todo!("WasmTransport::connect")
     }
 
-    async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
+    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
         // TODO: self.ws.send_with_u8_array(&frame)
         todo!("WasmTransport::send")
     }
 
-    async fn recv(&mut self) -> Result<Option<Bytes>, PortError> {
+    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
         // TODO: self.recv_rx.next().await
         todo!("WasmTransport::recv")
     }
 
-    async fn close(&mut self) -> Result<(), PortError> {
+    async fn close(&self) -> Result<(), PortError> {
         // TODO: self.ws.close()
         todo!("WasmTransport::close")
     }

@@ -22,6 +22,29 @@
 ✅ DONE 批次A修复 review P1-ID API 与 ID 校验 @2026-06-22
   ↳ 落地：生产公开 API 删除 `Id26/ChannelId/ServerId::from_test_u64`；`Id26::from_str` 收紧为 26 位 `[a-z0-9]`；helix-im/driver-host/driver-ffi 测试与 bench 改用固定真实形态 26 字符 fixture；S6 fan-out 排序测试改用非数值序 fixture；`Harness::new` dead_code warning 清理。
   ↳ 验证：RED `cargo test -p helix-im id26_tests::from_str_rejects_invalid_ascii_alphabet` 先失败（旧实现接受 `!`）→ 修复后 PASS；`cargo test -p helix-im` PASS；`cargo test -p helix-driver-host --test im_event_persist` PASS；`cargo test -p helix-driver-ffi --test f5_egress_parity` PASS；`cargo check -p helix-im --benches` PASS；代码/测试/bench 范围 `rg from_test_u64` 0 命中；工作树级 `git diff --check` PASS。`fa07ff1..HEAD` 历史 docs whitespace 仍留批次B。
+🧭✅ **新会话开局先读这条（2026-06-22 · 本轮全收口）**：本会话全部工作已**合并到 `main`**（主仓 `/Users/mac28/workspace/rustWorkspace/helix`，已 push `origin/main`；临时分支 `feat/sync-v2-followup` + 旧 `dev-zlc` 已删、worktree 已移除）。**新会话在主仓 `main` 分支上续**。sync-v2 wire 对齐 + 真机 e2e 8/8 + drift-review 回正 + plan-gate 约定 + **#4 FFI pump 锁跨 await 彻底解** + 合并推送 **全部落地·无开放项**。
+  ✅ DONE **#4 FFI pump 锁跨 connect().await 彻底解**（commit `34c54bd`）：注册通道——连接期 transport 独占 loop 外后台跑 connect(裸 ws·不在表)→连成功经 channel 投进 loop 私有表→连接期 transports.get()=None 走 warn（**类型层不可见**·不靠时序不变量）。Transport send/recv/close 收紧 `&self`(connect 保 &mut)、TransportTable 去外层 Mutex、不新增 per-Send 锁、create 非阻塞不回退。验：5-crate+wasm core · driver 全测绿(**lifecycle_net_decouple 3/3·create/destroy 不阻塞**) · 零运行时 · gate+structure-gate。
+  ⚠️ **落地坑沉淀（实测·别再踩）**：#4 设计阶段「自动落地反复失败」是**假象**——`Workflow({name})` 工具的 agent 与 fork **实际编辑落在主仓 git root（`/Users/mac28/workspace/rustWorkspace/helix`），不落当前 worktree**；我一直在 worktree 查 status 才误判「丢失」。**教训：workflow/fork agent 文件改动落主仓、不落 worktree——在主仓查 status/commit。**（下方 📋 SPEC 保留作 #4 实现的设计参考。）
+  ⚠️ **落地坑（实测·别再踩）**：#4 **3 次自动尝试全失败落地**——2 次 `Workflow({name})` 工具的 agent **跑隔离副本、编辑不落主工作树**；1 次 fork 空跑 34s。**教训：用主对话自己的 Edit/Write 落地（实测持久——本会话 plan-gate `534b524` / 回正 `615f2f3..` 都是这么落的），或盯紧的 fork（回正那个成功了）；落完即 commit 锁定**（未提交改动会被某 rustfmt-restore 链路吃掉，那 3 个反复出现的噪音文件 engine.rs/spawner.rs/lifecycle 测就是诱因，别整树 git restore）。当前 #4 仅「in-code 文档化(commit 2a24df7) + ROADMAP-P」interim，**合法非阻塞**。
+
+  ## 📋 SPEC — #4 FFI pump 锁跨 await（已验证·照此实现·无需重新设计）
+  - **objective**：消除 FFI pump 后台连接任务持 `Arc<Mutex>` 跨 `connect().await`(~30s) 的锁跨 await 脆弱点（现靠 hello-gated 时序不变量、非类型强制）。彻底解 = 连接期句柄**类型层不可见**。
+  - **approach（注册通道·主干取方案A）**：连接期 transport 独占在 loop 外后台 spawn 任务跑 connect（**裸 ws·无 Arc/Mutex·不在表**）→ 连成功经 `transport_tx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（类型层不可见，不靠时序）。表内 `Arc<Tr>`（无外层 Mutex）；send 走 `&self`；并发由 `SharedWsClient` 既有内部 `state: Arc<Mutex<WsState>>` 串行化（**非新增 per-Send 锁**）。**connect 保 `&mut self`**——NativeTransport 状态机字段 `connected/disconnected_emitted` 真改、合法需要（方案B「四方法全 &self」被此否决）。
+  - **filesToChange（9）**：
+    1. `helix-core/src/ports/transport.rs`：`send/recv/close` `&mut self`→`&self`（connect 不动）。唯一 core 改 = 签名收紧，非 Effect/Tick 变体。
+    2. `helix-driver-host/src/network.rs`：SharedWsClient `send/recv/close` 去 `&mut`（零逻辑改，内部已 state.lock()）。
+    3. `helix-driver-host/src/engine.rs`：`TransportTable<Tr>` 去外层 Mutex→`HashMap<TransportId,Arc<Tr>>`；`run_engine_loop` +`mut transports` +`transport_rx: mpsc::UnboundedReceiver<(TransportId,Arc<Tr>)>`；**biased select 第四臂**(紧随 reply_rx 后)：`Some((id,tr))=transport_rx.recv()=>{transports.insert(id,tr);continue;}`；Tr bound +`Sync`；改写头注②死锁分析为类型层论证。
+    4. `helix-driver-host/src/dispatch.rs`：Send 臂 `t.lock().await.send(frame).await`→`t.send(frame).await`。
+    5. `helix-driver-host/src/lib.rs`：`run_engine_loop_with_transports` +`transport_rx` 透传+re-export。
+    6. `helix-driver-native/src/transport.rs`：NativeTransport `send/recv/close`→`&self`；`inner_mut` 拆(connect 用 / send 用新增 `inner(&self)`)；`connected/disconnected_emitted` `bool`→`AtomicBool`；`emit_disconnected_once`→`&self`；connect 保 `&mut`。
+    7. `helix-driver-native/src/engine_loop.rs`：TransportTable 去 Mutex；内部构造空 `transport_rx` 透传(native 走预填表·channel 永空)。
+    8. `helix-driver-ffi/src/pump.rs`：删 `ws_handle=Arc::new(Mutex::new(ws))`+旧 insert；建 `(transport_tx,transport_rx)=mpsc::unbounded_channel()`；transports 起空表；后台任务 `let mut ws=ws` move 跑 connect 成功后 `transport_tx.send((main_transport,Arc::new(ws)))`；run_engine_loop +transport_rx；**ready_tx 仍 spawn 前立即回传**(create 非阻塞不回退)；删 108-136 时序长注释换类型层短注。
+    9. `helix-driver-wasm/src/transport.rs`（archived）：`send/recv/close`→`&self` 保编译一致。
+  - **acceptance**：`cargo check` 5-crate + `--target wasm32 -p helix-core`；`cargo test` driver-host/ffi/native（**lifecycle_net_decouple 绿**·create<2s/destroy<4s vs blackhole 192.0.2.1）；`cargo tree -p helix-core` grep tokio/sqlx/.. 空；`gate.sh`+`structure-gate` 绿。类型层证据 = grep 确认 dispatch/engine 无 transport `.lock()`、连接期句柄不在表。
+  - **boundaries**：connect 必保 `&mut`；不新增 per-Send 锁；不回退 create 非阻塞；core 仅签名收紧。
+  - **openQuestions**：无（设计已收敛+对抗证伪+run1 验证 deliverable:true）。
+  - **全文设计 rationale**（为什么不取方案B 等）：workflow 输出 `/private/tmp/claude-501/-Users-mac28-workspace-rustWorkspace-helix/25ed0a01-4885-4b70-be32-d8f054edd02d/tasks/wdv5vx813.output` 的 `result.design`。
+  - 落完：commit(结构化 5 段) + `docs/ROADMAP.md` 把 #4 从 P 划掉 + 候选 HX-C 过回放闸门(倾向 HOLD·单样本)。
 
 🧭 **续接一句话（新会话开局读这条·2026-06-22）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）—— sync-v2 **全 parity re-port + memberChange.leave 删行(StorageOp::BatchDelete) + 三未读/同步行为(冷启动 unread/在线增量/too_long-snapshot 覆盖式不删)** 全部落地，`cargo test` 全绿 + gate.sh/structure-gate 过，**真机冷启动路径已验收**（:8065 真连：increment 257 channel / 2275 member / member_count 实数 / 离线 backfill 950 msg / cursor 23）。
   **✅ A 已完成（host-cli stdin 遥控器 Tier0+Tier1，commit 333e977+621f086）**：8 命令 `send/read/revoke/leave/schedule/cancel/create/makeTopic`(+quit/help) → helix-im `im_*` → `Effect::Http` POST 现网真源 endpoint。chassis 运行时已证（piped help/quit→优雅退出）。
@@ -65,12 +88,12 @@
   ↳ 可证伪预判：① emit_sync_too_long 加 reset_to → payload `{channelId, resetTo}`（对齐现网；2 调用点 module.rs 服务端值 / channel.rs 客户端溢出 cursor+1 同步）② **绝不**加 `DELETE FROM message`（加了即违现网）；Snapshot 分支文档化「A2-reserved + 治理-as-Events + no-DELETE-intentional」③ 三可证伪测试：too_long emit 含 resetTo · guarded_bump 守卫 FAIL(historical create_at≤水位)→不 bump(host conformance) · sender 豁免(auth set 自己消息→unread_delta 0) ④ #2 冷启动 unread server-authoritative + omit-fallback 已测/补 ⑤ cargo check 5 + test core/im/host/native 全绿 + gate + structure
   ↳ 偏离即记 DRIFT-PRED：若加 message DELETE / emit 仍缺 resetTo / 测试非证伪 / 改根黑名单 → 偏离
 
-✅ DONE #1/#2/#3 未读/同步三行为完整对齐现网 + 锁可证伪测试 @2026-06-22 | commit 待填 | helix/feat/sync-v2-report-on-adr007
+✅ DONE #1/#2/#3 未读/同步三行为完整对齐现网 + 锁可证伪测试 @2026-06-22 | commit 5b089f1 | helix/feat/sync-v2-report-on-adr007
   ↳ 真源裁定后落地：#1 在线增量（+1 per 新消息 / sender 豁免 / `create_at>last_root_post_at` 防历史重算）**已对+已测**（post.rs 内联 5 测自己/他人/不可见/NOTICE + host guard pass/fail）· #2 冷启动 unread = 服务端权威 `unreadCount`（Some→写/None→omit 回退本地）**已对+已测**（program_full S3）· #3 too_long/snapshot **覆盖式非删**（现网铁律）
   ↳ 真实修复：`emit_sync_too_long` 加 `reset_to` → payload `{channelId, resetTo}`（原缺 resetTo + `channel_id`snake→`channelId`，对齐现网 post.rs:918 前端 cursor=resetTo-1 记账契约）；2 调用点（module.rs 服务端值 / channel.rs 客户端 buffer 溢出 cursor+1）；Snapshot 分支文档化（A2-reserved + no-DELETE-intentional + 治理-as-Events）
   ↳ ⚡关键纠偏（现网 agent）：too_long/snapshot **不物理 DELETE message**——覆盖式 upsert + cursor 重置 + emit + 前端 getLatestPost 重拉。我初判「snapshot 缺 DELETE 清表」**是错的**；物理 DELETE 仅 channel_member（成员全替换）/ event_cursor（自愈）。已写进 emit/Snapshot 注释防后人误加
   ↳ 新增 2 可证伪测试：s6 too_long emit 含 `resetTo=100`+`channelId` · host guarded_bump 守卫 fail（historical create_at≤水位）→ unread/水位 均不动。cargo check 5 + test 全绿（45 suites/0 fail）+ gate.sh + structure-gate ✅
-  ↳ EXPECT 5 断言全 held，无 DRIFT-PRED（②「绝不加 DELETE」直觉经现网 agent 校正后**已写入 EXPECT**，落地一致——开局对账机制按设计生效）
+  ↳ ⚡ DRIFT-PRED（drift-review wf_efcf1ca4-759 #11 补记·惊讶吞没纠正）：上方 :53「初判 too_long/snapshot 物理删 message=错 → 现网覆盖式 upsert+cursor 重置」是**真实预期偏离**（赌前以为要 DELETE），却被回填进开局 EXPECT②「绝不加 DELETE」+ 本 DONE 原自评「5 断言全 held·无 DRIFT-PRED·开局对账机制按设计生效」= §4.8 惊讶吞没后门。如实改判：**此为 DRIFT-PRED**，偏离裁定权归 drift-review 独立 lens、非生产者自评。候选教训：too_long/snapshot 语义先验现网 upsert-vs-delete 再写 EXPECT。已 type:surprise 落 logs。
 
 🎯 EXPECT 实现 StorageOp::BatchDelete + 接通 memberChange.leave 删行 @2026-06-21 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 可证伪预判：① 改动文件集 = core(effect.rs +BatchDeleteSpec/StorageOp::BatchDelete · ports/storage.rs +batch_delete trait) + driver(host ops.rs 派发+表名 arm · host/native/wasm storage.rs +batch_delete impl) + im(acl/to_effect_s1.rs +delete_channel_members · ws/handlers/channel_member_update.rs + increment_channel.rs 接 collect_member_leaves) + tests；不碰根黑名单
@@ -133,7 +156,7 @@
   - **真机连 Go 用 `scripts/dev-loop.sh`**（焊死正确 base + 双端日志三层关联），别手搓 host-cli env：base 必含 `/api/cses`、`HELIX_DB` 别带 `?mode=rwc`（host-cli 自拼）。
   - **后端三仓 + grpc 排障**：Go mattermost = `/Users/mac28/workspace/golangProject/mattermost`（日志 `/Users/mac28/workspace/mmlog/mattermost.log`）；Java cses(paas/x9 grpc) = `/Users/mac28/workspace/java/cses`。出 grpc 问题（`no service available` / `RunIncrementWorker panic` / `new grpc client fail` / consul `xpa-12-grpc` 0 实例）→ **查各自日志**；常见根因 = Java paas grpc 服务挂/未注册 consul（今天 17:19 因一个 JVM suspend=y 等 debugger 卡住）。
 
-🔁 **dev-zlc 分叉监控（防再分叉 · 手动 cadence，durable cron 本环境不支持）**：新会话开局 + re-port 每个 commit 检查点，跑一次 `git rev-list --count feat/sync-v2-report-on-adr007..dev-zlc` 看落后多少；**落后 ≥5 或 dev-zlc 动了 `helix-driver-host/engine.rs`·`http_envelope.rs`·`helix-im` → 先 rebase 本分支到 dev-zlc 再续 re-port**，别让架构再岔。新会话也可自挂 session-only cron（`*/57 * * * *`）跑上面那条命令兜底。
+🔁 **dev-zlc 分叉监控 → 已硬化成机器闸门 `scripts/branch-sync-gate.sh`**（drift-review #2 收敛 / 用户 2026-06-22 指出散文太软）：旧版只是本条散文「落后 ≥5 就 rebase」、无脚本无 hook → 静默失效（feat 一度落后 dev-zlc 17）。现跑 `bash scripts/branch-sync-gate.sh`——当前分支落后集成分支（默认 dev-zlc，env 可覆盖）≥5 commit = exit 1 强制先 `git rebase dev-zlc` / `git merge dev-zlc` 再续。建议挂 pre-push / Stop hook / 开局检查（与 review-gap.sh / structure-gate.sh 同族）。
 
 ✅ DONE sync-v2 全链真机闭环（在线+离线）@2026-06-18 | feat/sync-v2-full-replacement（参照源，未合并）：删库重拉离线 backfill 实证（Go `kind=events fromSeq=0`→message 落行）+ 在线发收 echo 回填。6 fix + member_count 全 commit、cargo/test 绿。**唯落到 dev-zlc 的 re-port 待做（见上续接）。**
 ✅ DONE 生命周期与网络 I/O 解耦根治 + ffi-verify 6 层闸门落地 @2026-06-22 | commit 448a993..4bfff14（worktree fix/lifecycle TDD → merge c10b2a9 → ffi-verify 4bfff14）| helix/dev-zlc

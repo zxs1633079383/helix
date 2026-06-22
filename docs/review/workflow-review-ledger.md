@@ -17,9 +17,19 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 592574d
-last_reviewed_at: 2026-06-21
-last_review_runId: manual-self-check-2026-06-21 (主对话轻量自查推进 0514a4d→592574d · 全 docs+单 chore 区间 · 见下注)；最近 workflow review = wf_b809b3b3-ab6 (十一轮 architecture-drift-review：F5 跨端 parity + F4.5 demo 开局 · 区间 e3540cf..0514a4d · gap=11 触发)
+last_reviewed_commit: 196c869
+last_reviewed_at: 2026-06-22
+last_review_runId: wf_efcf1ca4-759 (十二轮 architecture-drift-review：sync-v2 wire 对齐 + 13-action e2e + FFI 生命周期解耦 + merge origin/main · 区间 592574d..7d78e60 · gap=41 触发 · 判定 🔴 重 → 已回正收敛 196c869)
+# 十二轮 = sync-v2 send body camelCase+必填(→post 回声打通) + 13-action e2e + channel/member/change + FFI 生命周期解耦 + merge origin/main。
+# gap=41≫10 闸门逾期(🔴 主因·之前分支审错未归零) + 多条护栏侵蚀。**回正 5 批 615f2f3..196c869**：
+#   ① HX-C005：cursor 推进 const SQL 零分配(Cow::Borrowed)+now_ms 条件化 / 未读 guarded_bump bump_delta 绑参(615f2f3)
+#   ② #4 FFI pump 锁跨 connect.await：in-code 文档化脆弱点 + 类型化收敛留 ROADMAP-P(2a24df7·engine-API 变更不在回正批做)
+#   ③ #6 死注释：leave→BatchDelete「已接通」纠正(03740a9) ④ #1/#7+#2 闸门硬化：结构闸 path→baseline 机器强制「只减不增」+ branch-sync-gate(0dd39e6)
+#   ⑤ #11/#13 SESSION 诚实化：too_long DELETE 误判惊讶吞没→改判 DRIFT-PRED + commit 回填(196c869)
+# 全套验收绿(5-crate check + 40 suite/0 fail + core 零运行时空 + gate/structure/branch-sync 全 PASS)。
+# 回放闸门：4 候选(结构闸基线/call-site 可达性/too_long 语义先验/FFI pump 脆弱)全 HOLD(单样本/与现卡重叠/防膨胀)→无新建卡，靠代码+checklist+rule 收敛。
+# core 内核未破(HX-C001 零运行时✓ · BatchDelete scope-safe✓)；🔴 系「流程闸门逾期 + 护栏侵蚀」非地基塌。
+last_review_prev: manual-self-check-2026-06-21 (主对话轻量自查 0514a4d→592574d · 全 docs+单 chore · 见下注)；wf_b809b3b3-ab6 (十一轮 · e3540cf..0514a4d · gap=11)
 # 十一轮 = sync-v2 re-port 开局前置 gate（gap 11 命中自动派）。🟡 轻 / 0🔴。
 # 区间 e3540cf..0514a4d（11 commit：F5 跨端 parity 自动化 + F4.5 Flutter demo 开局 EXPECT/spec）。
 # 3 finding 全 low 非阻塞 backlog：F5 egress parity 测试旁路真泵 per-step flush ×2（test-fidelity）
@@ -106,3 +116,4 @@ threshold: 10
 | 2026-06-18 | e3540cf | cb8b6d5..6d90461 (gap=10·收敛 e3540cf) | wf_3f017dd5-500 | 🟡 轻 drift | **十轮 = 收口代办+三端设计思想沉淀+新建 HX-C011**（DropOldest→DropNewest 改名 + 压测下沉 host + 三端 00-设计思想.md + HX-C011 建卡 + P1-A flaky hotfix）。3 finding 全证实全收敛(e3540cf)：F1[low] core effect.rs:241/taxonomy.mmd DropOldest 文档残留(改名黑名单遗留)→DropNewest；F2[low] stress_storage_core 2 测无 assert false-green + HX-C011 §4 grep -L 文件级对混合文件逃检 → 补 break→fail 断言(scan len + monotonic 回退) + gate 升函数级；F3[medium] finalize DONE 缺配对 EXPECT(§4.8 tripwire 失效)→补事后 EXPECT。**HX-C001..C011 + GOAL §1/§2 + 三层/sans-IO/单调 cursor 全未破，代码合规**。回放闸门：F2(b) gate 修=N/A·F3(b) DONE须配EXPECT 结构约束=HOLD(单样本无同根史)。函数级 gate 抓出 helix-im stress_inorder_100k=backlog。「**HX-C011 建卡即首次执行就抓到同 diff 违反**」=机制即时生效验证 |
 | 2026-06-18 | 0514a4d | e3540cf..0514a4d (11 commits·gap=11 触发) | wf_b809b3b3-ab6 | 🟡 轻 drift | **十一轮 = sync-v2 re-port 开局前置 gate**（gap 11 命中自动派）。区间 = F5 跨端 parity 自动化 + F4.5 Flutter demo 开局 EXPECT/spec。3 finding 全 low 非阻塞 backlog：F5 egress parity 测试旁路真泵 per-step flush ×2（test-fidelity·crates/helix-driver-ffi/tests/f5_egress_parity.rs）+ Cargo.toml 日语注释 ×1（code-style）。**无 HX-C/GOAL 违反、byte-parity 结论可信、无新建卡**。0514a4d 后 dev-zlc 另有 2 docs commit(4db4592/c3f1797=F4.5 demo 指针·纯文档)gap=2 绿。下游 = sync-v2 全 parity re-port（branch feat/sync-v2-report-on-adr007） |
 | 2026-06-21 | 592574d | 0514a4d..592574d (10 commits·gap=10 触发) | manual-self-check（主对话轻量自查·非 workflow） | 🟢 无 drift（自查） | **F4.5 backlog 修复收口轻量自查**（用户「修复候选和f5」；gap=10 命中 §4.7·用户拍板轻量自查不派重 workflow=避免与活跃并发会话撞车+省 ~1.3M token）。区间 10 commit = 全 docs/test 注释（HX-C012 建卡+四处索引 / f5 egress doc 诚实化 F1·F2 / SESSION / ledger）+ 唯一 src 改动 = host-cli main.rs deviceId 写死（并发会话 d966250 chore·env 可覆盖·非 core/im/driver·无 HX-C001..C012/GOAL §1·§2 触及）+ Cargo 注释。交付：建 HX-C012（用户拍板·回放闸门 HOLD 诚实记录·同族 HX-C009）+ f5 F1/F2 诚实化（egress 管道 parity 非端到端引擎·裸 try_recv·lagged latent 前移 M2）+ 自指复发 recurrence 2→3（本任务自身漏写开局 EXPECT，如实记非补假 EXPECT）。**诚实标注：主对话自查非独立 drift-review 对抗证伪，对全 docs+单 chore 区间足够；后续实质 src 逻辑改动累积仍须走 architecture-drift-review** |
+| 2026-06-22 | 196c869 | 592574d..7d78e60 (41 commits·gap=41 触发·回正 615f2f3..196c869) | wf_efcf1ca4-759 | 🔴 重 → 已回正收敛 | **十二轮 = sync-v2 wire 对齐 + 13-action e2e + FFI 生命周期解耦 + merge origin/main**（gap=41≫10，含 channel_write/core 两 StorageOp 变体/三端 driver 实质 src，逾期未审）。🔴 主因 = **review 闸门逾期 + 护栏侵蚀**（非内核破裂：HX-C001 零运行时✓·BatchDelete scope-safe✓ 已证 PASS）。确认 finding：#2/#3 HX-C005 热路径回退（cursor format! 分配 + 未读 delta 内插 SQL）· #4 FFI pump 锁跨 connect.await（时序不变量非类型强制）· #6 死注释 leave 偏离 · #1/#7 结构闸 WHITELIST 后门（只比路径·4 文件随便涨）· #11 too_long DELETE 误判惊讶吞没 · #13 commit 待填。**回正 5 批**：HX-C005 const SQL 零分配+绑参 / #4 文档化+ROADMAP-P / 死注释纠正 / 结构闸 path→baseline 机器强制+branch-sync-gate 硬化（用户指出分叉监控太软）/ SESSION 惊讶吞没改判 DRIFT-PRED+回填。回放闸门 **4 候选全 HOLD 无新建卡**（防过拟合）。全套验收绿（40 suite/0 fail·零运行时·gate/structure/branch-sync 全 PASS）。**HX-C001..C012 + GOAL §1/§2 + 三层/sans-IO/单调 cursor 全 HOLD** |

@@ -97,7 +97,9 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             // inline await（WS send 快）。失败/未注册只 warn，绝不让泵崩。
             OwnedEffect::Send { transport, frame } => match transports.get(&transport) {
                 Some(t) => {
-                    if let Err(e) = t.lock().await.send(frame).await {
+                    // 表内 `Arc<Tr>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
+                    // transport 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
+                    if let Err(e) = t.send(frame).await {
                         tracing::warn!(
                             transport_id = transport.raw(),
                             error = %e,

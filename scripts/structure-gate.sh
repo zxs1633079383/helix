@@ -15,34 +15,43 @@ cd "$ROOT"
 MAX_LINES=300
 fail=0
 
-# ── 存量债白名单（src/ 已超 300 行，待拆 backlog；见 rule §1）。只减不增。 ──
-# 行尾注释为当前行数（参考，闸门不读注释，只比对路径）。
+# ── 存量债白名单（src/ 已超 300 行，待拆 backlog；见 rule §1）：`path baseline_lines` ──
+# 🔒 机器强制「只减不增」（drift-review wf_efcf1ca4-759 #1/#7 后门收敛）：闸门**读 baseline**——
+#    当前行数 > baseline 即 FAIL（baseline = 锁定时的当前行数，红线 = 不许再涨）。
+#    拆小到 ≤300 后从此表删除该行 → 重新受 300 硬顶。基线先锁(A)、实际拆分回正记 ROADMAP(B)。
 WHITELIST=(
-  "crates/helix-driver-native/src/engine_loop.rs"   # ~1119
-  "crates/helix-im/src/module.rs"                    # ~1077（merge 后 dispatch 拆分中）
-  "crates/helix-im/src/ws/registry.rs"              # ~779
-  "crates/helix-im/src/acl/to_effect.rs"            # ~528
-  "crates/helix-im/src/channel.rs"                  # ~499
-  "crates/helix-driver-host/src/network.rs"         # ~475
-  "crates/helix-driver-host/src/storage.rs"         # ~447
-  "crates/helix-im/src/parser.rs"                   # ~393
-  "crates/helix-im/src/state.rs"                    # ~378
-  "crates/helix-core/src/effect.rs"                 # ~337
-  "crates/helix-driver-native/src/event_sink.rs"    # ~317
-  "crates/helix-driver-ffi/src/api.rs"              # ~307
+  "crates/helix-im/src/module.rs 1211"
+  "crates/helix-im/src/ws/registry.rs 783"
+  "crates/helix-im/src/acl/to_effect.rs 748"
+  "crates/helix-driver-ffi/src/api.rs 733"
+  "crates/helix-im/src/channel.rs 579"
+  "crates/helix-driver-host/src/storage.rs 560"
+  "crates/helix-driver-host/src/network.rs 463"
+  "crates/helix-core/src/effect.rs 452"
+  "crates/helix-im/src/parser.rs 430"
+  "crates/helix-im/src/state.rs 378"
+  "crates/helix-driver-native/src/event_sink.rs 321"
 )
-is_whitelisted() {
+# 命中白名单 → stdout 回传 baseline + return 0；未命中 → return 1。
+whitelist_baseline() {
   local f="$1"
-  for w in "${WHITELIST[@]}"; do [ "$w" = "$f" ] && return 0; done
+  for entry in "${WHITELIST[@]}"; do
+    if [ "${entry% *}" = "$f" ]; then echo "${entry##* }"; return 0; fi
+  done
   return 1
 }
 
-echo "STRUCT-GATE ① 行数闸（src/**.rs ≤ ${MAX_LINES}，存量豁免 ${#WHITELIST[@]} 个）"
+echo "STRUCT-GATE ① 行数闸（src/**.rs ≤ ${MAX_LINES}，存量豁免 ${#WHITELIST[@]} 个·基线只减不增）"
 while IFS= read -r f; do
   lines=$(wc -l < "$f" | tr -d ' ')
   [ "$lines" -le "$MAX_LINES" ] && continue
-  if is_whitelisted "$f"; then
-    echo "STRUCT-GATE   · 豁免(存量债) $f = $lines 行 —— 改到时顺手拆，拆完移出 WHITELIST"
+  if base=$(whitelist_baseline "$f"); then
+    if [ "$lines" -gt "$base" ]; then
+      echo "STRUCT-GATE   ✗ 存量债增长 $f = $lines 行 > 基线 ${base} —— 违『只减不增』，拆分回正或收口到基线"
+      fail=1
+    else
+      echo "STRUCT-GATE   · 豁免(存量债) $f = $lines 行（≤基线 ${base}，只减不增 OK）"
+    fi
   else
     echo "STRUCT-GATE   ✗ 超限(新增) $f = $lines 行 > ${MAX_LINES} —— 拆分（many small files / mod.rs 只 re-export）"
     fail=1

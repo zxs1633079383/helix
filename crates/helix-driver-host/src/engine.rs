@@ -30,7 +30,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 
 use helix_core::effect::{StorageOp, TransportId};
 use helix_core::ports::{Clock, EventSink, HttpRequester, Storage, Transport};
@@ -74,9 +74,18 @@ const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// `TransportId → 实际连接` 路由表（泛型 over Transport 实现）。
 ///
-/// host 装配阶段填入；`Effect::Send` 分支按 id 查表调 `Transport::send`。
-/// `Arc<Mutex<_>>`：send 需 `&mut self`，且 host 装配时也要 `connect()` 同一实例。
-pub type TransportTable<Tr> = HashMap<TransportId, Arc<Mutex<Tr>>>;
+/// host 装配阶段填入（或经 `transport_rx` 注册通道在连接成功后投递入表）；`Effect::Send`
+/// 分支按 id 查表调 `Transport::send`（`&self`）。
+///
+/// ## 为什么 `Arc<Tr>`（无外层 `Mutex`）
+///
+/// `Transport::send/recv/close` 已收紧为 `&self`（driver 内部用自有锁串行化，如
+/// `SharedWsClient::state`）→ 表里只需共享句柄 `Arc<Tr>`，dispatch 走 `t.send().await`。
+/// 去掉外层 `Mutex` 消除「连接期外层锁跨 `connect().await`」这一架构脆弱点：connect 在
+/// loop 外对**独占 move 进后台任务的裸句柄**跑，连成功才经 `transport_rx` 投进表 →
+/// 连接期间该句柄不在表内、`Effect::Send` 的 `transports.get()` 看不到它（**类型/可见性层**
+/// 证明无锁争用，而非靠「hello 之后才产 Send」的运行时时序不变量）。
+pub type TransportTable<Tr> = HashMap<TransportId, Arc<Tr>>;
 
 /// 事件泵依赖聚合（泛型 ports + 配置）。
 ///
@@ -92,6 +101,21 @@ pub struct EngineDeps<S, H, E, C> {
 
 /// 运行 ExecutionShell 的 tokio 事件泵（泛型壳）。
 ///
+/// ## Transport 注册（连接期句柄类型层不可见 / 消除锁跨 await）
+///
+/// `transports` 是 loop 私有 `mut` 表（dispatch 只读，不再外层 `Arc<Mutex>`）。装配端有两条
+/// 路径填表：① 预填（host-cli 启动前同步 connect 好直接放入，CLI 可阻塞）；② 注册通道
+/// （FFI：create 不能 await connect，否则卡满 `DEFAULT_TIMEOUT_SECS`——见 fix/lifecycle-net-decouple）。
+/// 路径②下，装配端 spawn 后台任务对**独占 move 进去的裸句柄**跑 `connect().await`，连成功后经
+/// `transport_rx` 投递 `(id, Arc<Tr>)`，本 loop 的 biased select 第二臂收到即 `insert`。
+///
+/// **死锁/停顿安全（类型层论证，非时序不变量）**：连接在途时句柄**根本不在 `transports` 表内**，
+/// `Effect::Send` 的 `transports.get()` 返回 `None` → 走既有 warn 兜底；连接期间不存在任何「会被
+/// Send 路径争用、且被某任务持有跨 `connect().await` 的锁」（表内 `Arc<Tr>` 无外层锁，并发 send
+/// 由 transport 内部 state 锁串行化，那把锁本就存在、非新增）。`transport_rx` 是 unbounded（同
+/// `reply_tx` 哲学）→ 后台 connect 任务投递句柄永不阻塞 → 依赖链单向 DAG（loop 等 channel，
+/// channel 不等 loop）无环。
+///
 /// ## Shutdown 语义
 ///
 /// `shutdown_rx` 收到 `()` 或 `tick_rx` 关闭 → graceful drain：等全部已接收 Persist
@@ -103,12 +127,14 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     tick_tx: mpsc::Sender<Tick>,
     deps: EngineDeps<S, H, E, C>,
     mut shutdown_rx: oneshot::Receiver<()>,
-    transports: TransportTable<Tr>,
+    mut transports: TransportTable<Tr>,
+    mut transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Tr>)>,
 ) where
     S: Storage + Send + Sync + 'static,
     H: HttpRequester + Send + Sync + 'static,
     E: BatchSink + Send + Sync + 'static,
-    Tr: Transport + Send + 'static,
+    // `Send + Sync`：`Arc<Tr>` 经 `transport_rx` 跨后台 connect 任务边界共享。
+    Tr: Transport + Send + Sync + 'static,
     C: Clock,
 {
     let clock = deps.clock;
@@ -180,6 +206,16 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
 
             // 优先：PortReply 回灌
             Some(reply) = reply_rx.recv() => reply,
+
+            // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
+            // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
+            // I/O」）。排在 reply_rx 之后保「回灌优先」（不变量4）；排在 shutdown/tick 之前确保
+            // 连接成功的句柄尽快可见，缩短「连上但句柄未入表」窗口（μs 级）。
+            Some((id, tr)) = transport_rx.recv() => {
+                tracing::info!(transport_id = id.raw(), "transport 连接成功，注册入路由表");
+                transports.insert(id, tr);
+                continue;
+            }
 
             // 次选：shutdown 信号（graceful drain 入口）
             res = &mut shutdown_rx, if shutdown_armed => {

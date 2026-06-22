@@ -8,6 +8,8 @@
 //! - **入站推送**（`SharedWsClient::with_inbound_tick`）：native engine_loop 从不调 `recv()`，
 //!   入站帧全靠读任务作 `Tick::Inbound` 直发泵（A2 不变量）。
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use bytes::Bytes;
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
@@ -25,8 +27,14 @@ pub struct NativeTransport {
     inner: Option<SharedWsClient>,
     init_error: Option<String>,
     tick_tx: Option<mpsc::Sender<Tick>>,
-    connected: bool,
-    disconnected_emitted: bool,
+    /// 连接生命周期标记（内部可变）。
+    ///
+    /// send/recv/close 已收紧为 `&self`（Transport port，消除外层锁跨 await）；recv/close 路径仍需
+    /// 推进「已连接 / 已发过 Disconnected」状态做幂等去重 → 用 `AtomicBool` 内部可变（单线程
+    /// current_thread/native 单 transport 下无真并发，`Ordering::Relaxed` 足够）。connect 仍 `&mut self`
+    /// 可直写，但统一走原子设值保一致。
+    connected: AtomicBool,
+    disconnected_emitted: AtomicBool,
     /// WS upgrade 握手头（如现网 Go 鉴权 `cookieId=userId`）。
     /// 现网 Go 在 HTTP 升级中间件按 header 建 session，session 空则不发 hello、超时关连接，
     /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。connect 前灌进共享 registry。
@@ -47,8 +55,8 @@ impl NativeTransport {
                 inner: None,
                 init_error: Some(e.to_string()),
                 tick_tx: None,
-                connected: false,
-                disconnected_emitted: false,
+                connected: AtomicBool::new(false),
+                disconnected_emitted: AtomicBool::new(false),
                 handshake_headers: Vec::new(),
             },
         }
@@ -85,8 +93,8 @@ impl NativeTransport {
             inner: Some(inner),
             init_error: None,
             tick_tx,
-            connected: false,
-            disconnected_emitted: false,
+            connected: AtomicBool::new(false),
+            disconnected_emitted: AtomicBool::new(false),
             handshake_headers: Vec::new(),
         }
     }
@@ -97,16 +105,32 @@ impl NativeTransport {
         }
     }
 
-    async fn emit_disconnected_once(&mut self) {
-        if self.connected && !self.disconnected_emitted {
+    async fn emit_disconnected_once(&self) {
+        // 幂等去重：仅在「已连接且尚未发过 Disconnected」时发一次（内部可变，`&self`）。
+        if self.connected.load(Ordering::Relaxed) && !self.disconnected_emitted.load(Ordering::Relaxed)
+        {
             self.emit(Tick::Disconnected(self.id)).await;
-            self.disconnected_emitted = true;
-            self.connected = false;
+            self.disconnected_emitted.store(true, Ordering::Relaxed);
+            self.connected.store(false, Ordering::Relaxed);
         }
     }
 
+    /// connect 路径用：状态机推进需 `&mut`（合法）。
     fn inner_mut(&mut self) -> Result<&mut SharedWsClient, PortError> {
         match self.inner.as_mut() {
+            Some(inner) => Ok(inner),
+            None => Err(PortError::Transport(
+                self.init_error
+                    .clone()
+                    .unwrap_or_else(|| "transport not initialized".to_string()),
+            )),
+        }
+    }
+
+    /// send/recv/close 稳态路径用：`SharedWsClient::{send,recv,close}` 已收紧 `&self`，
+    /// 只需共享引用（与 Transport port `&self` 对齐，消除外层锁）。
+    fn inner(&self) -> Result<&SharedWsClient, PortError> {
+        match self.inner.as_ref() {
             Some(inner) => Ok(inner),
             None => Err(PortError::Transport(
                 self.init_error
@@ -130,29 +154,29 @@ impl Transport for NativeTransport {
         }
 
         self.inner_mut()?.connect().await?;
-        self.connected = true;
-        self.disconnected_emitted = false;
+        self.connected.store(true, Ordering::Relaxed);
+        self.disconnected_emitted.store(false, Ordering::Relaxed);
         self.emit(Tick::Connected(self.id)).await;
         Ok(())
     }
 
-    async fn send(&mut self, frame: Bytes) -> Result<(), PortError> {
+    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
         // 出站走 SharedWsClient::send（已修为 Message::Text，现网 Go Text→JSON 解码）。
-        self.inner_mut()?.send(frame).await
+        self.inner()?.send(frame).await
     }
 
-    async fn recv(&mut self) -> Result<Option<Bytes>, PortError> {
+    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
         // 生产 native 路径（tick_tx=Some）入站走 Tick::Inbound，engine_loop 不调本方法；
         // 此方法仅服务单测手动驱动路径（tick_tx=None → SharedWsClient frame_rx 拉取）。
-        let result = self.inner_mut()?.recv().await?;
+        let result = self.inner()?.recv().await?;
         if result.is_none() {
             self.emit_disconnected_once().await;
         }
         Ok(result)
     }
 
-    async fn close(&mut self) -> Result<(), PortError> {
-        let result = self.inner_mut()?.close().await;
+    async fn close(&self) -> Result<(), PortError> {
+        let result = self.inner()?.close().await;
         self.emit_disconnected_once().await;
         result
     }

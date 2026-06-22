@@ -30,19 +30,27 @@
 
 ### 存量债（已超 300 行的 `src/`，待拆 backlog，不阻塞新代码落地）
 
-按行数倒序，**改到谁就顺手拆谁**（不强制一次性重构）：
+**🔒 baseline 机器强制（drift-review #1/#7 后门收敛）**：`scripts/structure-gate.sh` 的 WHITELIST 是
+`path baseline_lines` 映射——**当前行数 > baseline 即 FAIL**（不再是「只比路径、注释里写只减不增」的
+软规矩）。下表 = 当前基线（2026-06-22 锁定），**红线 = 不许再涨**；拆小到 ≤300 后从 WHITELIST 删行。
 
-| 文件 | 行 | 拆分方向（建议） |
+| 文件 | baseline 行 | 拆分方向（建议） |
 |---|---|---|
-| `helix-driver-native/src/engine_loop.rs` | ~1119 | 按 Effect 解释器分文件（persist/http/timer/send 各一）|
-| `helix-im/src/module.rs` | ~1077 | dispatch 已部分挪进 `ws/` registry；继续把 handler 编排抽出 |
-| `helix-im/src/ws/registry.rs` | ~779 | registry 骨架与各 handler 注册分文件 |
-| `helix-im/src/acl/to_effect.rs` | ~528 | 按 Effect 族裂分 |
-| `helix-im/src/channel.rs` | ~499 | gate 三阶段（peek/persist/commit）可各成文件 |
-| `helix-driver-host/src/{network,storage}.rs` | ~475/447 | 按 port 实现职责裂分 |
-| `helix-im/src/{parser,state}.rs` · `helix-core/src/effect.rs` | ~393/378/337 | 临界，下次改动时收口 |
+| `helix-im/src/module.rs` | 1211 | dispatch 已部分挪进 `ws/` registry；继续把 handler 编排抽出 |
+| `helix-im/src/ws/registry.rs` | 783 | registry 骨架与各 handler 注册分文件 |
+| `helix-im/src/acl/to_effect.rs` | 748 | 按 Effect 族裂分（已有 `to_effect_s1.rs` 兄弟先例）|
+| `helix-driver-ffi/src/api.rs` | 733 | C ABI 导出按职责族裂分 |
+| `helix-im/src/channel.rs` | 579 | gate 三阶段（peek/persist/commit）可各成文件 |
+| `helix-driver-host/src/storage.rs` | 560 | 按 StorageOp 族裂分 |
+| `helix-driver-host/src/network.rs` | 463 | 按 port 实现职责裂分 |
+| `helix-core/src/effect.rs` | 452 | Effect/Spec 族裂分 |
+| `helix-im/src/parser.rs` | 430 | 临界，下次改动时收口 |
+| `helix-im/src/state.rs` | 378 | 临界 |
+| `helix-driver-native/src/event_sink.rs` | 321 | 临界 |
 
-> 闸门接 §6；新代码必须 ≤ 300，存量超限文件「只减不增」。
+> 注：`engine_loop.rs`（曾 ~1119）已拆至 168 行（FFI 生命周期解耦时），**已移出 WHITELIST 重新受 300 硬顶**。
+> 闸门接 §6；新代码必须 ≤ 300，存量超限文件「只减不增」由 baseline **机器断言**（先锁 A，实际拆分回正记
+> ROADMAP B）。
 
 ---
 
@@ -132,9 +140,13 @@
 
 已落地 `scripts/structure-gate.sh`（与 `gate.sh`/`review-gap.sh` 同族，commit 1419690），建议挂 CI / pre-push 兜底：
 
-1. **行数闸**：`src/**.rs` 超 300 行 → 列出（存量 backlog 走白名单豁免，新增超限 = exit 1）。
+1. **行数闸**：`src/**.rs` 超 300 行 → 检查（新增超限 = exit 1）。存量债走 WHITELIST，但 **WHITELIST 是
+   `path baseline_lines` 映射、闸门读 baseline——当前行数 > baseline 即 exit 1**（机器强制「只减不增」，
+   drift-review #1/#7 后门收敛；不再是软注释）。
 2. **镜像闸**：每个 `crates/*/` 必须有 CLAUDE.md + AGENTS.md 且 `diff` 为空（不一致 = exit 1）。
-3. 命中输出可 grep 的告警行，纳入 §4.7 drift-review lens。
+3. **分叉闸** `scripts/branch-sync-gate.sh`（同族，drift-review #2 收敛）：当前分支落后集成分支（dev-zlc）
+   ≥5 commit = exit 1（把 SESSION 的散文「分叉监控」硬化成退出码，可挂 pre-push / Stop hook）。
+4. 命中输出可 grep 的告警行，纳入 §4.7 drift-review lens。
 
 ---
 

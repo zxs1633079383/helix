@@ -115,6 +115,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | 文档 | 视角 | 一句话 |
 |---|---|---|
 | [`crates/helix-im/docs/sync-v2-能力与缺口状态.md`](crates/helix-im/docs/sync-v2-能力与缺口状态.md) | **落地真相（现在到哪了）** | 三件套引擎 ✅ + sync-v2 ~85% + C1/C2/C3/B2 实现完成；§5 = 今日必办（真 Go 数据路径端到端验证） |
+| [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](crates/helix-im/docs/csesapi-migration/真机curl真源.md) | **outbound 请求体/头 ground truth（真抓包 > 源码推断）** | 现网 cses-client 实抓 6 个 curl（posts/create·makeTopic·revoke·channel/create·member/change·close）逐字 body+头；helix-im outbound 命令体必须对齐此处（send 无回声真因=体不对·非 Pulsar；普通发消息 WS 推 `post` 非 `posted`）|
 | [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **全量图谱总索引** | backend-\*（源端 HTTP/WS 清单）+ client-\*（前端用例/渲染/Tauri）+ gap-\* 三类导读 |
 | [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **缺口矩阵** | covered 86 / partial 30 / missing 7 + 替代 mattermost 阻塞能力优先级 |
 | `…/full-map/partials/1-…posts` · `2-…channel-sync` · `3-…user-misc` · `4-…bot-agent` | **后端 HTTP** | 124 接口四域全清单 + wire 契约字段 + 命名陷阱 |

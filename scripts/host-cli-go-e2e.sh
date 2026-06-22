@@ -36,28 +36,17 @@ ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 fail_pre=0
 if [ -z "${CHANNEL_ID:-}" ]; then red "⛔ 缺 CHANNEL_ID（真 channelId 作非破坏操作靶）"; fail_pre=1; fi
 if [ -z "${HELIX_COOKIE_ID:-}" ]; then red "⛔ 缺 HELIX_COOKIE_ID（=userId 身份头，缺则 Go 判 session 过期）"; fail_pre=1; fi
-# Go 可达性：用 mattermost 健康端点 /api/v4/system/ping（200=活）。
-# ⚠️ 不用 `curl -f` 测根路径——根返 404（正常），-f 会把 404 误判为 down。
-http_root="${API_BASE%/api/cses}"
-ping_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$http_root/api/v4/system/ping" 2>/dev/null)"
-if [ "$ping_code" != "200" ]; then
-  # 兜底：根路径有任何 HTTP 响应（含 404）即算服务在监听（仅 000/空 = 真连不上）。
-  root_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$http_root/" 2>/dev/null)"
-  if [ -z "$root_code" ] || [ "$root_code" = "000" ]; then
-    red "⛔ Go 不可达：${http_root}（ping=$ping_code root=${root_code}）—— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)"; fail_pre=1
-  else
-    ylw "⚠️ ping 非 200（=${ping_code}）但根有响应（${root_code}）→ 服务在监听，继续"
-  fi
+# Go 可达性：纯 TCP 端口探测（cses 不走 HTTP ping——ping 是 WS 推送，cses-client 无 ping 接口）。
+# 只确认 :8065 在监听即可；真正的「业务就绪」由 host-cli WS connect + hello 握手证（运行时自然暴露）。
+ws_host_port="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
+ws_host="${ws_host_port%%:*}"; ws_port="${ws_host_port##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
+if ! nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null; then
+  red "⛔ Go WS 端口不可达：${ws_host}:${ws_port} —— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)"; fail_pre=1
 fi
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止（未跑任何命令）"; exit 2; }
 
-# Pulsar 可达性（软警告，不中止）：posts/create 是 **Pulsar 异步落库** 路径（full-map #1）；
-# Pulsar down → send/posts_update/revoke/makeTopic 无回声（非代码 bug）。
-# 同步类（nickname/schedule/cancel/close/leave）不经 Pulsar，不受影响。
-if ! nc -z -w2 127.0.0.1 6650 2>/dev/null; then
-  ylw "⚠️ Pulsar :6650 不通 —— send/posts_update/revoke/makeTopic（消息创建族，走 Pulsar 异步）将无回声。"
-  ylw "   先起 Pulsar 再验消息族；本次仍跑同步类（nickname/schedule/cancel）做连通性验证。"
-fi
+# ⚠️ send 无回声真因 = helix-im posts/create 请求体不对（snake_case + 缺必填字段），**非 Pulsar**。
+# 真源体见 docs/csesapi-migration/真机curl真源.md；handle_send_message body 须对齐后才有 `post` 回声。
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 settle() { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }

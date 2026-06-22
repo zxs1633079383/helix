@@ -5,6 +5,7 @@
 ## 本 crate 文档索引（`docs/` · 按需 Read）
 
 - **落地真相** → [`docs/sync-v2-能力与缺口状态.md`](docs/sync-v2-能力与缺口状态.md)：现在到哪了 + 缺什么 + 今日必办（§5 真 Go 数据路径端到端验证）。
+- **🔴 outbound 请求体真源（真抓包）** → [`docs/csesapi-migration/真机curl真源.md`](docs/csesapi-migration/真机curl真源.md)：现网实抓 6 curl 逐字 body+头；改任何 outbound 命令体（send/makeTopic/create/revoke/close/member）前**必读**。真抓包 > 源码推断。
 - **csesapi → cses-im-server 迁移全量图谱** → [`docs/csesapi-migration/full-map/00-README-index.md`](docs/csesapi-migration/full-map/00-README-index.md)：现网后端 HTTP(124)/WS(19 事件) + 前端 message-v3 用例/UI 渲染/src-tauri Tauri 交互全清单 + 三态缺口矩阵（[`30-capability-gap-matrix.md`](docs/csesapi-migration/full-map/30-capability-gap-matrix.md)）。接口可达性 + 蓝图见 [`csesapi-migration/01-接口可达性清单.md`](docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](docs/csesapi-migration/02-迁移蓝图.md)。
 - 根 CLAUDE.md/AGENTS.md §4.5.1 已挂同一索引（每次对话自动加载）。
 

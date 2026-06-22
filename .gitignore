@@ -4,3 +4,4 @@
 .DS_Store
 .superpowers/
 crates/helix-driver-ffi/smoke/build/
+/.idea/

@@ -29,8 +29,8 @@ use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_native::{
-    run_engine_loop_with_transports, EngineConfig, HostNetworkConfig, NativeEventSink, NativeHttp,
-    NativeStorage, NativeTransport, TransportTable,
+    run_engine_loop_with_transports, AuthTokenRegistry, EngineConfig, HostNetworkConfig,
+    NativeEventSink, NativeHttp, NativeStorage, NativeTransport, SharedHttpClient, TransportTable,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -91,6 +91,11 @@ async fn main() {
     let app_version = std::env::var("HELIX_APP_VERSION").unwrap_or_else(|_| "1.2.56".to_string());
     let os_version =
         std::env::var("HELIX_OS_VERSION").unwrap_or_else(|_| "macos-14.5.0".to_string());
+    // P6 blocker(a)：userSnapshot 三占位转真值（现网取自 ucenter `this.ctx.userInfo`，helix-im
+    // 不认识 ucenter HX-C001 → host 展开注入 ImConfig；host-cli 走 env，Tauri 壳走登录态）。
+    let user_name = std::env::var("HELIX_USER_NAME").unwrap_or_default();
+    let org_name = std::env::var("HELIX_ORG_NAME").unwrap_or_default();
+    let dept_name = std::env::var("HELIX_DEPT_NAME").unwrap_or_default();
     // ── DB 路径派生（多租户，对齐现网 678 真库目录）───────────────────────
     // 优先级：HELIX_DB env 显式覆盖（测试/调试逃生口，含旧 /tmp 能力）> 派生路径 > /tmp 兜底。
     // 派生形态：~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db
@@ -132,18 +137,27 @@ async fn main() {
             tracing::warn!(ok, total, "IM schema 建表部分失败");
         }
     }
-    // ADR-010：共享 HTTP client 需 HostNetworkConfig（api_base + ws_url）；身份头随后经 set_global_header 灌 registry。
-    // TODO(M2): 登录态就绪后改 NativeHttp::with_crosscut 接 P1.5 出站横切层（鉴权 token 注入 + 401→im:http:unauthorized
-    //   + 断网→im:net:offline + traceparent 透传）。当前走裸 Plain，横切语义不生效（drift-review dbe1b74..7e9f3ca finding①）。
-    let http =
-        match NativeHttp::with_config(HostNetworkConfig::new(api_base_url.clone(), ws_url.clone()))
-        {
-            Ok(h) => h,
+    // EventSink 先于 HTTP：P6 blocker(b) 横切层 401/断网回报经它 emit，故 with_crosscut 前先建。
+    // Clone 是 Arc-backed O(1)：一份给横切回报，原件随后进 EngineConfig（同一 broadcast）。
+    let (event_sink, mut event_rx) = NativeEventSink::new();
+
+    // P6 blocker(b)：激活 P1.5 出站横切层（drift-review dbe1b74..7e9f3ca finding① 收敛=装配就绪
+    // 未接泵→此处接泵）。with_crosscut 包：鉴权意图→token 注入 + 401→im:http:unauthorized +
+    // 断网→im:net:offline + traceparent 透传。通用身份头仍走下方 set_global_header（registry 句柄保留）。
+    // session 凭据 = cookieId(=userId)（现网 IM_HTTP session 轴）；实际 token 留 driver，core 零 token(C6)。
+    let auth = AuthTokenRegistry::new();
+    if !cookie_id.is_empty() {
+        auth.set_session("cookieId", cookie_id.clone());
+    }
+    let shared_client =
+        match SharedHttpClient::new(HostNetworkConfig::new(api_base_url.clone(), ws_url.clone())) {
+            Ok(c) => c,
             Err(e) => {
-                tracing::error!(error = %e, "构造 HTTP 客户端失败，退出");
+                tracing::error!(error = %e, "构造共享 HTTP client 失败，退出");
                 return;
             }
         };
+    let http = NativeHttp::with_crosscut(shared_client, Arc::new(event_sink.clone()), auth);
     // 身份头单一真源（HTTP 全局头 + WS 握手头同源，host 注入；core/im 不认识 userId，
     // connectionId 才由 im 盖章见 A3b）。各头来源/缺失后果（真机curl真源 §0 通用头 +
     // sync-v2 鉴权）：cookieId(=userId)/companyId 缺→paas-grpc 业务失败；appType 缺→Java
@@ -168,7 +182,6 @@ async fn main() {
             Err(e) => tracing::warn!(error = %e, header = %name, "注入 HTTP 全局头失败（继续）"),
         }
     }
-    let (event_sink, mut event_rx) = NativeEventSink::new();
 
     // ── shell + IM 模块 ─────────────────────────────────────
     let mut shell = ExecutionShell::new();
@@ -187,6 +200,10 @@ async fn main() {
         // companyId 之前只灌了 HTTP/WS 全局头，没进 ImConfig；现注入 → outbound posts/create
         // body 的 teamId/userSnapshot.teamId 才有真值（真机curl真源 §1，send 回声前置条件）。
         company_id: company_id.clone(),
+        // P6 blocker(a)：userSnapshot 三占位转真值（ucenter 展开，host 注入，HX-C001）。
+        user_name: user_name.clone(),
+        org_name: org_name.clone(),
+        dept_name: dept_name.clone(),
         ..Default::default()
     }));
 

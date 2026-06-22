@@ -398,9 +398,27 @@ impl Storage for HostStorage {
         const HARD_LIMIT: u32 = 10_000;
         self.with_reader(move |conn| {
             let limit = spec.limit.unwrap_or(HARD_LIMIT).min(HARD_LIMIT);
-            let sql = format!("SELECT * FROM {table} LIMIT {limit}", table = spec.table);
+            // 可选过滤/排序（P6 投影；None=旧全表语义零行为改变）。列名 core 编译期 `&'static str`
+            // （HX-C001 列名作数据）；过滤值走绑定参数防注入。
+            let where_clause = spec
+                .filter
+                .as_ref()
+                .map_or(String::new(), |(c, _)| format!(" WHERE {c} = ?"));
+            let order_clause = spec
+                .order_desc_col
+                .map_or(String::new(), |c| format!(" ORDER BY {c} DESC"));
+            let sql = format!(
+                "SELECT * FROM {table}{where_clause}{order_clause} LIMIT {limit}",
+                table = spec.table,
+            );
+            let bind: Vec<Value> = spec
+                .filter
+                .as_ref()
+                .map_or_else(Vec::new, |(_, val)| sql_values(std::iter::once(val)));
             let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
-            let mut rows = stmt.query([]).map_err(map_sqlite_err)?;
+            let mut rows = stmt
+                .query(params_from_iter(bind.iter()))
+                .map_err(map_sqlite_err)?;
             let mut out = Vec::new();
             while let Some(row) = rows.next().map_err(map_sqlite_err)? {
                 out.push(convert_row(row)?);

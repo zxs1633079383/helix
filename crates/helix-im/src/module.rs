@@ -318,6 +318,21 @@ impl ImModule {
                 // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
                 self.drain_sync_queue(out);
             }
+
+            // P6 投影查询 **Scan** 回报：把消息行 emit 成 im:messages:query_result 投影
+            // （driver `{items:[]}` 包装）。Err → 空投影（前端拿空列表，不卡渲染）。
+            CorrelationContext::MessageQuery { channel_id } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    out.push(crate::query::emit_message_query_result(
+                        &channel_id,
+                        reply.0.as_ref(),
+                    ));
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(channel_id = channel_id.as_str(), error = ?e, "message query scan failed");
+                    out.push(crate::query::emit_message_query_result(&channel_id, b"[]"));
+                }
+            },
         }
 
         Ok(())
@@ -677,6 +692,36 @@ impl ImModule {
         c
     }
 
+    /// P6 投影/状态命令分发（薄壳，契约在 `crate::query`）。
+    ///
+    /// - `im_query_messages_by_channel`：吐 `Scan(message)` + 注册 `MessageQuery` corr 上下文；
+    ///   PortReply 回报后 `handle_port_reply` 的 MessageQuery 臂 emit 投影。
+    /// - `im_delete_all_dialogs`：清内存 channel gate + emit 刷新（物理 truncate 缺原语，见 query.rs）。
+    fn handle_query_command(
+        &mut self,
+        name: &str,
+        payload: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        match name {
+            "im_query_messages_by_channel" => {
+                let corr = self.alloc_corr_internal();
+                let (channel_id, effect) = crate::query::build_message_query(payload, corr)?;
+                self.state
+                    .corr_map
+                    .insert(corr, CorrelationContext::MessageQuery { channel_id });
+                out.push(effect);
+            }
+            "im_delete_all_dialogs" => {
+                // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。
+                self.state.channels.clear();
+                out.push(crate::query::emit_dialogs_cleared());
+            }
+            _ => tracing::debug!("im: query dispatch miss '{}'", name),
+        }
+        Ok(())
+    }
+
     /// B4：drain SyncScheduler 队列至满窗（拆借 state + next_corr 分配器，避免 &mut self 双借）。
     fn drain_sync_queue(&mut self, out: &mut EffectSink) {
         let api_base_url = self.config.api_base_url.clone();
@@ -980,9 +1025,16 @@ impl Module for ImModule {
                         out.push(eff);
                     }
                 }
-                _ => {
-                    tracing::debug!("im: unhandled command '{}'", cmd.name);
+                // P6 投影/状态命令（im_query_messages_by_channel / im_delete_all_dialogs）：
+                // 本地读/清，零 HTTP；契约在 crate::query（薄壳，与 outbound registry 解耦）。
+                name if crate::query::is_query(name) => {
+                    self.handle_query_command(name, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
                 }
+                _ => tracing::debug!("im: unhandled command '{}'", cmd.name),
             },
 
             Tick::PortReply { corr, outcome } => {
@@ -1061,6 +1113,8 @@ impl Module for ImModule {
             ops: vec![StorageOp::Scan(ScanSpec {
                 table: "channel_event_cursor",
                 limit: None,
+                filter: None,
+                order_desc_col: None,
             })],
         });
         self.state

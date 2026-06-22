@@ -36,6 +36,18 @@
 - e2e：257 channel 真 Go connect/increment/sync（验 SyncScheduler 限流不风暴, B4）；send 6/8 echo 对账（验 action=="post" 锚, B3）；too_long 清内存重拉首屏（不清表）；切会话/上拉历史；401/断网横切端到端（验 P1.5）。
 - gate：前端渲染零业务逻辑回归（unread/readBits/加急/回复全由 Rust 投喂，验 C2 投影 schema 字段齐）。
 
+### 5.5 P6 落地后 IPC 面 finalize（按 P0-P6 真实代码勘误，2026-06-22）
+
+> P6 接缝落地后，按 cses-client `framework/boot.rs` **真实注册的命令清单** + helix core 原语**真实能力**收口 IPC 面（rv-tauri 草案的若干 claim 与 ground truth 不符，此处勘误）。
+
+**① `im_get_state` 不存在（rv-tauri B1「漏项」claim 勘误）**：核对 `boot.rs` generate_handler! 全量列表——**无** `im_get_state` 命令。rv-tauri 01 文档表 B「`im_get_state`/`im_delete_all_dialogs` 补入兼容表（boot.rs 已注册）」对 `im_get_state` 部分**与现网不符**。helix **不实现** `im_get_state`（凭空补 = 引入前端永不调用的死命令，违 YAGNI）。`im_delete_all_dialogs` 确实注册，保留。
+
+**② 投影命令 `im_query_messages_by_channel` 经 `ScanSpec` additive 扩展落地**：现网是 `SELECT * FROM message WHERE channel_id=? ORDER BY create_at DESC, temporary_id DESC LIMIT ?`。core 原 `ScanSpec` 只有 `{table, limit}`（全表无过滤）/ `GetSpec` 单行——**均表达不了 per-channel 多行有序读**。P6 给 `ScanSpec` 加 **additive 可选字段** `filter: Option<(&'static str, SqlValue)>` + `order_desc_col: Option<&'static str>`（None = 旧全表语义零行为改变，HX-C004）。helix 走 `Scan(message, filter=channel_id, order_desc=create_at, limit)` → emit `im:messages:query_result` 投影。**保真偏差**：现网二级排序 `, temporary_id DESC`（同毫秒簇确定化）未携带（ScanSpec 当前单序列）——dump 用途下非语义关键；若未来需要，`order_desc_col` 升 `Vec<&'static str>` 即可（再 additive 扩）。
+
+**③ `im_delete_all_dialogs` 物理 truncate = 核原语缺口（P7 blocker）**：现网 `DELETE FROM channel` + `DELETE FROM channel_member`（无条件全表删）。core `StorageOp` 无 truncate 原语（`BatchDelete` 需 `scope_col=? AND key_col IN (...)`，表达不了删全表）。P6 实现 = **清 core 内存 channel gate + emit `im:channels:loaded` 刷新**（命令名被识别，前端不报 command not found）；**物理 `DELETE FROM` 留待补 `StorageOp::Truncate`/`DeleteAll` 原语**——不为单个测试命令现造原语（YAGNI/HX-C001），列为 P7 接入前可选项。M2 共享既有 tenant.db 时 legacy 仍可物理删，helix 接管后该测试命令降级为内存清+刷新（功能影响仅限「测试用清库」按钮）。
+
+**④ `createPosts` PascalCase 仍挂 blocker（D3 待真抓包）**：与 02 文档一致，未纳入 P6。
+
 ### 6. 接入前置 checklist（设计期确认项）
 
 - [ ] 开放决策全部拍板（createUser/presence/createPosts casing/灰度机制/覆盖率工具）

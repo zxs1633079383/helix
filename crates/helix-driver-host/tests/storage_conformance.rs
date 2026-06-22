@@ -172,6 +172,8 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(1),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan");
@@ -372,6 +374,8 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
                 .scan(ScanSpec {
                     table: "messages",
                     limit: Some(100),
+                    filter: None,
+                    order_desc_col: None,
                 })
                 .await
                 .expect("concurrent scan");
@@ -401,6 +405,8 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(1000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("final scan messages");
@@ -413,6 +419,8 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
         .scan(ScanSpec {
             table: "notes",
             limit: Some(1000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("final scan notes");
@@ -457,6 +465,8 @@ async fn reads_proceed_while_write_holds_connection() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(1000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("baseline scan");
@@ -501,6 +511,8 @@ async fn reads_proceed_while_write_holds_connection() {
             s.scan(ScanSpec {
                 table: "messages",
                 limit: Some(1000),
+                filter: None,
+                order_desc_col: None,
             })
             .await
             .expect("concurrent scan during write")
@@ -625,6 +637,8 @@ async fn batch_upsert_rolls_back_entire_batch_on_midway_failure() {
         .scan(ScanSpec {
             table: "strict_tbl",
             limit: Some(100),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan strict_tbl");
@@ -675,6 +689,8 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(1000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("baseline scan")
@@ -691,6 +707,8 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
             s.scan(ScanSpec {
                 table: "messages",
                 limit: Some(1000),
+                filter: None,
+                order_desc_col: None,
             })
             .await
             .expect("concurrent scan N>4")
@@ -1149,6 +1167,8 @@ async fn host_storage_batch_delete_scoped_no_cross_channel_delete() {
         .scan(ScanSpec {
             table: "channel_member",
             limit: None,
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan");
@@ -1225,6 +1245,8 @@ async fn execute_storage_ops_dispatches_batch_delete() {
         .scan(ScanSpec {
             table: "channel_member",
             limit: None,
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan");

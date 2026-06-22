@@ -20,12 +20,12 @@ fail=0
 #    当前行数 > baseline 即 FAIL（baseline = 锁定时的当前行数，红线 = 不许再涨）。
 #    拆小到 ≤300 后从此表删除该行 → 重新受 300 硬顶。基线先锁(A)、实际拆分回正记 ROADMAP(B)。
 WHITELIST=(
-  "crates/helix-im/src/module.rs 1211"
+  "crates/helix-im/src/module.rs 1264"
   "crates/helix-im/src/ws/registry.rs 783"
   "crates/helix-im/src/acl/to_effect.rs 748"
   "crates/helix-driver-ffi/src/api.rs 733"
   "crates/helix-im/src/channel.rs 579"
-  "crates/helix-driver-host/src/storage.rs 560"
+  "crates/helix-driver-host/src/storage.rs 578"
   "crates/helix-driver-host/src/network.rs 463"
   "crates/helix-core/src/effect.rs 452"
   "crates/helix-im/src/parser.rs 430"

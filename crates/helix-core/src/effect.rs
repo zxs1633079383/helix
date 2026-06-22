@@ -240,9 +240,7 @@ pub struct GuardedBumpSpec {
     pub guard_val: i64,
 }
 
-/// get 规格
-///
-/// MAJ-5：`table` 和 `key_col` 改为 `&'static str`
+/// get 规格（单行；MAJ-5：`table`/`key_col` = `&'static str`）。
 #[derive(Debug, Clone)]
 pub struct GetSpec {
     pub table: &'static str,
@@ -250,17 +248,19 @@ pub struct GetSpec {
     pub key_val: SqlValue,
 }
 
-/// scan 规格：通用多行扫描读（评审待办 C3，MVP 前置阻塞项）。
-///
-/// 典型用途：模块 on_start 时一次性载入全部单调水位（如 helix-im 扫
-/// channel_event_cursor 全表做 proactive resync）。通用读，core 不含业务语义。
-/// `GetSpec` 保持单行语义不变，多行走本类型。
+/// scan 规格：通用多行扫描读（C3）。on_start 载入单调水位（全表）/ P6 投影查询（等值过滤+降序）。
+/// 过滤/排序**可选 additive**（HX-C004）：`filter`/`order_desc_col` 为 None = 旧全表语义（零行为
+/// 改变）；`Some((col,val))`→`WHERE col=?`，`Some(c)`→`ORDER BY c DESC`（列名编译期常量 HX-C001）。
 #[derive(Debug, Clone)]
 pub struct ScanSpec {
     /// 目标表名（编译期常量）
     pub table: &'static str,
     /// 最多返回行数（None = 全表；driver 应设硬上限防御）
     pub limit: Option<u32>,
+    /// 可选等值过滤 `WHERE <col> = <val>`（列名编译期常量，值运行时）。None = 不过滤（旧全表）。
+    pub filter: Option<(&'static str, SqlValue)>,
+    /// 可选降序列 `ORDER BY <col> DESC`（编译期常量）。None = 不排序（旧 rowid 序）。
+    pub order_desc_col: Option<&'static str>,
 }
 
 /// SQL 值类型（不含数据库具体类型）

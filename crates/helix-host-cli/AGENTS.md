@@ -30,6 +30,8 @@
 3. **身份头分层**：`cookieId=userId` 由 host 注入——**WS 握手头**（`with_handshake_headers`，Go 升级阶段建 session）**与** HTTP 全局头（`set_global_header`）两处都要带；`connectionId` 由 helix-im 收 hello 后盖章（core/im 不认识 userId）。
 4. **connect 触发**：A1/A2 选 host 主动 `connect()`（连不上不退，进泵走 Send-warn 兜底）。`Effect::Connect` 意图驱动是后续可选项（未引入）。
 5. 配置走 env：`HELIX_WS_URL` / `HELIX_API_BASE` / `HELIX_COOKIE_ID` / `HELIX_COMPANY_ID` / `HELIX_DB`；联调抓帧 `HELIX_DUMP_FRAMES=1`。
+6. **P6 userSnapshot（ucenter 展开）**：`HELIX_USER_NAME` / `HELIX_ORG_NAME` / `HELIX_DEPT_NAME` 注入 `ImConfig.user_name/org_name/dept_name`（P1 占位转真值，posts/create body 的 userSnapshot 三字段）；缺省空（非阻断，Go 落库主键 = userId/teamId）。Tauri 壳改从登录态展开注入，driver 代码不变。
+7. **P6 出站横切层激活**：HTTP 走 `NativeHttp::with_crosscut`（非裸 `with_config`）——session 凭据 = `cookieId`(=userId) 经 `AuthTokenRegistry::set_session` 注入；横切层接 401→`im:http:unauthorized` / 断网→`im:net:offline` / traceparent 透传（P1.5 装配就绪 → P6 接泵，drift-review finding① 收敛）。通用身份头仍走 `set_global_header`（registry 句柄保留，不互扰）。
 
 ## 改动验收
 

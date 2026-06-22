@@ -25,6 +25,7 @@ pub mod module;
 pub mod outbound;
 pub mod parser;
 pub mod pending_send;
+pub mod query;
 pub mod schema;
 pub mod state;
 pub mod sync_scheduler;

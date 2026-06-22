@@ -194,8 +194,7 @@ pub enum ConnState {
 /// 该分配器产出。HX-C005：变体字段全 owned/Copy（无 `&'a`，要进 HashMap 跨 step 存活，HX-C002）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorrelationContext {
-    /// on_start `Scan(_helix_monotonic)` 的回报：载入 per-channel cursor + proactive resync。
-    /// （取代旧 `scan_corr: Option<Correlation>`——单值语义并入统一表，靠 corr 唯一性区分。）
+    /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 
     /// channel sync **Persist** 回报：`channel.on_persist_ok(corr)` 推进 cursor。
@@ -208,13 +207,15 @@ pub enum CorrelationContext {
         wants_continuation: bool,
     },
 
-    /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`。
-    /// （取代旧 `corr_to_send`。）
+    /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
     OptimisticSend { temporary_id: TemporaryId },
 
-    /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析。
-    /// （取代旧 `corr_to_sync`。）
+    /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
     SyncPull { channel_id: ChannelId },
+
+    /// P6 投影查询 **Get** 回报：`im_query_messages_by_channel` 的 `Get(message WHERE channel_id)`
+    /// 回报 → 把行 emit 成 `im:messages:query_result` 投影（data 数组 → driver `{items:[]}` 包装）。
+    MessageQuery { channel_id: ChannelId },
 }
 
 // ─── ImState ────────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ use crate::pending_send::PendingSend;
 use crate::state::{
     ChannelId, ConnState, CorrelationContext, ImState, SendStatus, Seq, TemporaryId,
 };
-use helix_core::effect::{HttpRequest, ScanSpec, SqlValue, StorageOp, TimerId, UpsertSpec};
+use helix_core::effect::{HttpRequest, ScanSpec, StorageOp, TimerId};
 use helix_core::{CoreError, Effect, EffectSink, Module, Tick};
 
 /// IM 业务模块配置
@@ -40,10 +40,29 @@ pub struct ImConfig {
     /// §1 必填）。现网 `companyId` HTTP/WS 全局头与此同源（host 一处注入两处用）。空串 =
     /// 未注入（登录前），Go 侧 paas-grpc 可能业务失败——正常运行期 host 必须注入真值。
     pub company_id: String,
+    /// userSnapshot 三占位字段（userName/orgName/deptName）。P1 BLOCKER：现网取自
+    /// `this.ctx.userInfo`（ucenter 跨 feature 读）；helix-im 不认识 ucenter（HX-C001），由 host
+    /// 把登录态展开注入。缺这三非阻断字段不影响 Go 落库/推回声（主键身份是 userId/teamId，§1）。
+    pub user_name: String,
+    pub org_name: String,
+    pub dept_name: String,
     /// 心跳间隔（毫秒，默认 8000）
     pub ping_interval_ms: u64,
     /// 发送超时（毫秒，默认 15000）
     pub send_timeout_ms: u64,
+}
+
+impl ImConfig {
+    /// 当前登录用户身份视图（userSnapshot 注入源，posts/create body §1）。
+    pub fn user_identity(&self) -> crate::outbound::send_build::UserIdentity<'_> {
+        crate::outbound::send_build::UserIdentity {
+            user_id: &self.auth_user_id,
+            team_id: &self.company_id,
+            user_name: &self.user_name,
+            org_name: &self.org_name,
+            dept_name: &self.dept_name,
+        }
+    }
 }
 
 impl Default for ImConfig {
@@ -53,6 +72,9 @@ impl Default for ImConfig {
             api_base_url: String::new(),
             auth_user_id: String::new(),
             company_id: String::new(),
+            user_name: String::new(),
+            org_name: String::new(),
+            dept_name: String::new(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
         }
@@ -758,7 +780,12 @@ impl ImModule {
     /// 2. Http{H1, POST /posts/create}
     /// 3. ScheduleTimer{T1, 15s}
     /// 4. Emit(im:post:sending)
-    fn handle_send_message(&mut self, payload: &[u8], out: &mut EffectSink) -> Result<(), ImError> {
+    fn handle_send_message(
+        &mut self,
+        payload: &[u8],
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
         // 解析命令载荷
         let cmd: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| ImError::Parse(format!("im_send_message payload: {}", e)))?;
@@ -771,72 +798,42 @@ impl ImModule {
             .as_str()
             .ok_or_else(|| ImError::Parse("missing temporary_id".to_string()))?
             .to_string();
-        let text = cmd["text"].as_str().unwrap_or("").to_string();
         let tmp_id = TemporaryId(tmp_id_str.clone());
+
+        // ── buildMessageObject 编排（P1 下沉）──────────────────────────────────
+        // 现网前端 service 的 wire body 组装下沉到 outbound::send_build（C1 纯渲染）。命令载荷
+        // （viewers/mentions/props/topic_id/replied/text）+ 注入身份/Clock → camelCase body。
+        // 空消息（trim 空 + props 空）→ None → 拦截不发（现网 validMessages.length===0 → return）。
+        let identity = self.config.user_identity();
+        let Some(body) = crate::outbound::send_build::build_from_command(
+            &cmd,
+            channel_id.as_str(),
+            &tmp_id_str,
+            now_ms,
+            &identity,
+        ) else {
+            return Ok(());
+        };
+        // 落库用的纯文本（与 body.message 同源：2000 截断后）。
+        let persisted_text = body["message"].as_str().unwrap_or("").to_string();
 
         // 分配 corr / timer
         let p1_corr = self.alloc_corr_internal();
         let h1_corr = self.alloc_corr_internal();
         let t1_timer = self.alloc_timer();
 
-        // 1. Persist{P1, 乐观落库 status=Sending}
-        // 表名 message（PK=temporary_id，对齐 678 真库；见 schema::IM_SCHEMA）
+        // 1. Persist{P1, 乐观落库 status=Sending}（PK=temporary_id，见 schema::IM_SCHEMA）。
         out.push(Effect::Persist {
             corr: p1_corr,
-            ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-                table: "message",
-                rows: vec![vec![
-                    (
-                        "temporary_id".to_string(),
-                        SqlValue::Text(tmp_id_str.clone()),
-                    ),
-                    (
-                        "channel_id".to_string(),
-                        SqlValue::Text(channel_id.as_str().to_string()),
-                    ),
-                    ("message".to_string(), SqlValue::Text(text.clone())),
-                    (
-                        "send_status".to_string(),
-                        SqlValue::Text("sending".to_string()),
-                    ),
-                ]],
-                conflict_key: Some("temporary_id"),
-                exclude_from_update: Vec::new(),
-            })],
+            ops: vec![crate::outbound::send_build::optimistic_persist_op(
+                &tmp_id_str,
+                channel_id.as_str(),
+                persisted_text,
+            )],
         });
 
-        // 2. Http{H1, POST /posts/create}
-        // body 逐字对齐现网真抓包（docs/csesapi-migration/真机curl真源.md §1）：
-        // 全 camelCase + 大量必填字段，否则 Go 收下但不处理/不推回声（send 无回声真因 = 体不对，
-        // 非 Pulsar）。WS 回声 action=`post`（非 `posted`），handlers/post.rs reconcile 对账。
-        //
-        // 身份字段（userId/teamId）：host 经 ImConfig 注入（auth_user_id / company_id），core/im
-        // 不自生成。userSnapshot：现网 5 字段 {orgName,deptName,userName,userId,teamId}，但 helix
-        // 无 org/dept/userName 登录态 → 先填最小 {userId,teamId,userName:""}（待 host 注入完整
-        // userSnapshot；缺这三非阻断字段不影响 Go 落库/推回声，主键身份是 userId/teamId）。
-        let user_id = self.config.auth_user_id.as_str();
-        let team_id = self.config.company_id.as_str();
-        let body = serde_json::json!({
-            "channelId": channel_id.as_str(),
-            "temporaryId": tmp_id_str,
-            "message": text,
-            "type": "TEXT",
-            "simpleMessage": text,
-            "viewers": ["all"],
-            "mentions": [],
-            "props": {},
-            "topicId": "",
-            "revoke": false,
-            "id": "",
-            "userId": user_id,
-            "teamId": team_id,
-            // TODO(host): userSnapshot 待 host 注入完整 {orgName,deptName,userName}（登录态）。
-            "userSnapshot": {
-                "userId": user_id,
-                "teamId": team_id,
-                "userName": "",
-            },
-        });
+        // 2. Http{H1, POST /posts/create}（body 由 send_build 组装，对齐真抓包 §1：全 camelCase
+        // + createAt 非 createdAt；体不对则 Go 不推回声。回声 action=`post`，post.rs reconcile）。
         let body_bytes =
             serde_json::to_vec(&body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
@@ -866,8 +863,10 @@ impl ImModule {
             &tmp_id_str,
         ));
 
-        // 注册 PendingSend（等待 echo 对账）
-        let mut ps = PendingSend::new(tmp_id.clone(), t1_timer);
+        // 注册 PendingSend（等待 echo 对账）。connection_id 维度（M1）：记录本条在哪个握手
+        // 会话下发，重连 increment 补回时按 temporaryId 去重不双份。
+        let conn = self.state.connection_id.clone();
+        let mut ps = PendingSend::new(tmp_id.clone(), t1_timer, conn);
         ps.status = SendStatus::Local;
         // R4-retain：回填本 send 的 P1 Persist corr，对账时按它 O(1) `corr_map.remove`，
         // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
@@ -956,7 +955,7 @@ impl Module for ImModule {
 
             Tick::Command(cmd) => match cmd.name.as_ref() {
                 "im_send_message" => {
-                    self.handle_send_message(cmd.payload.as_ref(), out)
+                    self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {
                             module: self.name(),
                             source: Box::new(e),

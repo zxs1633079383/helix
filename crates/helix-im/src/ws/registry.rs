@@ -288,13 +288,9 @@ mod tests {
         state
             .channels
             .insert(channel_id, Channel::new(channel_id, 3));
-        state.pending_sends.insert(
-            TemporaryId("tmp-registry".to_string()),
-            PendingSend::new(
-                TemporaryId("tmp-registry".to_string()),
-                helix_core::TimerId::from_raw(44),
-            ),
-        );
+        let tmp_reg = TemporaryId("tmp-registry".to_string());
+        let ps = PendingSend::new(tmp_reg.clone(), helix_core::TimerId::from_raw(44), None);
+        state.pending_sends.insert(tmp_reg, ps);
 
         let mut next_corr = 501;
         let mut alloc_corr = || {

@@ -22,6 +22,7 @@ pub mod channel_write;
 pub mod commands;
 pub mod error;
 pub mod module;
+pub mod outbound;
 pub mod parser;
 pub mod pending_send;
 pub mod schema;

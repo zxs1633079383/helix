@@ -59,6 +59,9 @@ fn build_shell() -> ExecutionShell {
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
         company_id: String::new(),
+        user_name: String::new(),
+        org_name: String::new(),
+        dept_name: String::new(),
     };
     let mut module = ImModule::new(config);
 

@@ -25,16 +25,29 @@ pub struct PendingSend {
     pub timeout_timer: TimerId,
     /// 用于写入数据库的 Persist corr（可选，发送时可能尚未落库）
     pub persist_corr: Option<Correlation>,
+    /// 发送时的 connectionId（M1 重连去重维度）。
+    ///
+    /// 重连后服务端 `increment` 会把本会话已发但未收 echo 的 post 整批补回——届时按
+    /// `temporary_id`（HashMap key）天然去重不双份；本字段记录「这条是哪个 connectionId 下发的」，
+    /// 让重连后能判定「跨会话补回 vs 本会话 echo」（None = 发送时尚未握手，无 connectionId）。
+    pub connection_id: Option<String>,
 }
 
 impl PendingSend {
-    /// 创建新的待对账记录（Local 状态）
-    pub fn new(temporary_id: TemporaryId, timeout_timer: TimerId) -> Self {
+    /// 创建新的待对账记录（Local 状态）。
+    ///
+    /// `connection_id` = 发送时刻的握手 connectionId（M1 维度，None = 未握手）。
+    pub fn new(
+        temporary_id: TemporaryId,
+        timeout_timer: TimerId,
+        connection_id: Option<String>,
+    ) -> Self {
         Self {
             temporary_id,
             status: SendStatus::Local,
             timeout_timer,
             persist_corr: None,
+            connection_id,
         }
     }
 

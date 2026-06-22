@@ -44,12 +44,20 @@ if [ "$ping_code" != "200" ]; then
   # 兜底：根路径有任何 HTTP 响应（含 404）即算服务在监听（仅 000/空 = 真连不上）。
   root_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$http_root/" 2>/dev/null)"
   if [ -z "$root_code" ] || [ "$root_code" = "000" ]; then
-    red "⛔ Go 不可达：$http_root（ping=$ping_code root=$root_code）—— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)"; fail_pre=1
+    red "⛔ Go 不可达：${http_root}（ping=$ping_code root=${root_code}）—— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)"; fail_pre=1
   else
-    ylw "⚠️ ping 非 200（=$ping_code）但根有响应（$root_code）→ 服务在监听，继续"
+    ylw "⚠️ ping 非 200（=${ping_code}）但根有响应（${root_code}）→ 服务在监听，继续"
   fi
 fi
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止（未跑任何命令）"; exit 2; }
+
+# Pulsar 可达性（软警告，不中止）：posts/create 是 **Pulsar 异步落库** 路径（full-map #1）；
+# Pulsar down → send/posts_update/revoke/makeTopic 无回声（非代码 bug）。
+# 同步类（nickname/schedule/cancel/close/leave）不经 Pulsar，不受影响。
+if ! nc -z -w2 127.0.0.1 6650 2>/dev/null; then
+  ylw "⚠️ Pulsar :6650 不通 —— send/posts_update/revoke/makeTopic（消息创建族，走 Pulsar 异步）将无回声。"
+  ylw "   先起 Pulsar 再验消息族；本次仍跑同步类（nickname/schedule/cancel）做连通性验证。"
+fi
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 settle() { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }
@@ -57,16 +65,21 @@ settle() { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }
 # 跑一组命令（逐行喂 host-cli，行间 settle 等 WS 回推），append 到 $LOG。
 # host-cli 读 stdin 到 quit/EOF；HELIX_DUMP_FRAMES=1 打印入站帧。
 drive() {
-  { for line in "$@"; do printf '%s\n' "$line"; settle; done; printf 'quit\n'; } \
+  # ⚠️ 首个 settle 在命令**之前**：等 WS connect + hello 握手盖 connectionId 落定，
+  # 否则第一条命令（如 send）会在 connectionId=None 时发 HTTP → Go 401/403 无回推
+  #（对齐现网前端 pendingSends/businessReady gate：握手前不发业务请求）。
+  { settle; for line in "$@"; do printf '%s\n' "$line"; settle; done; printf 'quit\n'; } \
     | HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
       cargo run -q -p helix-host-cli >>"$LOG" 2>&1
 }
 
-# 断言：日志里出现「RAW WS inbound … <action>」= Go 真推了该 WS action。
+# 断言：日志里 RAW WS inbound 帧的 `"action": "<exact>"` = Go 真推了该 action。
+# ⚠️ 精确匹配引号内整值（非裸子串）——否则 "update_channel" 会被 "update_channel_member_nickName" 误命中。
+# action 支持 `a|b` 备选（如 posted|post）。
 declare -a RESULTS
 assert_ws() {
   local action="$1" label="$2"
-  if grep -E "RAW WS inbound" "$LOG" | grep -q -- "$action"; then
+  if grep -E "RAW WS inbound" "$LOG" | grep -qE "\"action\": ?\"($action)\""; then
     RESULTS+=("PASS|$label|WS action '$action'")
   else
     RESULTS+=("FAIL|$label|未见 WS action '$action'（Go 未推/未连/命令未达）")
@@ -74,16 +87,16 @@ assert_ws() {
 }
 
 ylw "▶ 预编译 host-cli（cargo build -q）…"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
-ylw "▶ Phase 1：非破坏 channel-scoped 命令（靶 channel=$CHANNEL_ID）"
+ylw "▶ Phase 1：非破坏 channel-scoped 命令（靶 channel=${CHANNEL_ID}）"
 TS_FUTURE="$(( $(now_ms) + 600000 ))"   # 定时消息：10 分钟后
 drive \
   "send $CHANNEL_ID e2e-probe-$(now_ms)" \
-  "read $CHANNEL_ID" \
+  "read $CHANNEL_ID $(now_ms)" \
   "nickname $CHANNEL_ID e2e-nick" \
   "schedule $CHANNEL_ID $TS_FUTURE e2e-scheduled" \
   "cancel $CHANNEL_ID"
 
-assert_ws "posted"                         "① post/posted-echo (send)"
+assert_ws "posted|post"                    "① post/posted-echo (send)"
 assert_ws "posts_update"                   "② posts_update (send 旁推)"
 assert_ws "post_read"                      "③ post_read (read)"
 assert_ws "update_channel"                 "④ update_channel (read 旁推)"
@@ -93,14 +106,15 @@ assert_ws "post_schedule_canceled"         "⑦ cancel"
 
 # ── Phase 2：postId 依赖（revoke / makeTopic）—— 从 Phase 1 posted 帧抠 server postId ──
 ylw "▶ Phase 2：抠 postId 链式（revoke / makeTopic）"
-POST_ID="$(grep -E "RAW WS inbound" "$LOG" \
-  | grep -oE '"id":"[A-Za-z0-9_-]{20,30}"' | head -1 | sed -E 's/.*"id":"([^"]+)".*/\1/')"
+# 只从 send 的 posted 回声帧抠 server postId（非任意 increment 帧的 lastPost.id）。
+POST_ID="$(grep -E "RAW WS inbound" "$LOG" | grep -E '"action": ?"posted"' \
+  | grep -oE '"id":"[a-z0-9]{26}"' | head -1 | sed -E 's/.*"id":"([^"]+)".*/\1/')"
 if [ -n "$POST_ID" ]; then
   drive "revoke $POST_ID" "makeTopic {\"postId\":\"$POST_ID\",\"displayName\":\"e2e-topic\",\"type\":\"P\"}"
   assert_ws "post_update"     "⑧ post_update (revoke)"
   assert_ws "channel_created" "⑨ channel_created (makeTopic)"
 else
-  RESULTS+=("SKIP|⑧⑨ revoke/makeTopic|未从 posted 帧抠到 postId（send 是否成功？看 $LOG）")
+  RESULTS+=("SKIP|⑧⑨ revoke/makeTopic|未从 posted 帧抠到 postId（send 是否成功？看 ${LOG}）")
 fi
 
 # ── 可选：create（需现网成员对象 JSON）──
@@ -114,7 +128,7 @@ fi
 
 # ── 可选：破坏性 leave/close（仅当给了可销毁 channel）──
 if [ -n "${CLOSE_CHANNEL_ID:-}" ]; then
-  ylw "▶ 破坏性 leave/close（靶 channel=$CLOSE_CHANNEL_ID）"
+  ylw "▶ 破坏性 leave/close（靶 channel=${CLOSE_CHANNEL_ID}）"
   drive "leave $CLOSE_CHANNEL_ID" "close $CLOSE_CHANNEL_ID"
   assert_ws "channel_member_update" "⑪ channel_member_update + leave 删行 (leave)"
   assert_ws "channel_close"         "⑫ channel_close (close)"
@@ -135,5 +149,5 @@ for r in "${RESULTS[@]}"; do
 done
 echo "─────────────────────────────────────────────"
 echo "PASS $pass · FAIL $failc · SKIP $skip · 日志 $LOG"
-echo "（旁证可看 emit：grep 'DomainEvent emit' $LOG）"
+echo "（旁证可看 emit：grep 'DomainEvent emit' ${LOG}）"
 [ "$failc" -gt 0 ] && exit 1 || exit 0

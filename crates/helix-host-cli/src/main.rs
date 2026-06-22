@@ -256,7 +256,19 @@ async fn main() {
     tokio::spawn(async move {
         loop {
             match event_rx.recv().await {
-                Ok(ev) => tracing::info!(bytes = ev.0.len(), "DomainEvent emit"),
+                // 联调可观测：解出 DomainEvent 的 `event` 名（im:*）→ e2e harness 可断言
+                // 完整 frame→handler→emit 管道（非仅字节长度）。解析失败回退长度，不崩。
+                Ok(ev) => {
+                    match serde_json::from_slice::<serde_json::Value>(&ev.0)
+                        .ok()
+                        .and_then(|v| v.get("event").and_then(|e| e.as_str()).map(str::to_owned))
+                    {
+                        Some(name) => {
+                            tracing::info!(event = %name, bytes = ev.0.len(), "DomainEvent emit")
+                        }
+                        None => tracing::info!(bytes = ev.0.len(), "DomainEvent emit (unparsed)"),
+                    }
+                }
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!(dropped = n, "EventSink 落后丢事件（应触发重拉）")
                 }

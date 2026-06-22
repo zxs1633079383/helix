@@ -5,7 +5,7 @@
 
 ## §0 终态记录
 
-🧭🔴 **新会话开局先读这条（FFI #4 待落地 · 2026-06-22）**：分支已变 **`feat/sync-v2-followup`**（== dev-zlc == main == `7d78e60`，已 push origin）。本会话 sync-v2 wire 对齐 + 真机 e2e 8/8 + drift-review 回正(HX-C005 热路径/闸门硬化/分叉 gate/诚实化) + plan-gate 约定 + 分支合并推送 **全部落地**（见下方 DONE 链）。**唯一开放项 = #4「FFI pump 锁跨 connect().await 类型化收敛」——设计已验证(deliverable:true)、待落地**。
+🧭🔴 **新会话开局先读这条（FFI #4 待落地 · 2026-06-22）**：本会话全部工作已**合并到 `main`**（主仓 `/Users/mac28/workspace/rustWorkspace/helix`，已 push `origin/main`；临时分支 `feat/sync-v2-followup` + 旧 `dev-zlc` 已删、worktree 已移除）。**新会话在主仓 `main` 分支上续**（不再有 worktree/sub-branch）。本会话 sync-v2 wire 对齐 + 真机 e2e 8/8 + drift-review 回正(HX-C005 热路径/闸门硬化/分叉 gate/诚实化) + plan-gate 约定 + 合并推送 **全部落地**（见下方 DONE 链）。**唯一开放项 = #4「FFI pump 锁跨 connect().await 类型化收敛」——设计已验证(deliverable:true)、待落地**。
   ⚠️ **落地坑（实测·别再踩）**：#4 **3 次自动尝试全失败落地**——2 次 `Workflow({name})` 工具的 agent **跑隔离副本、编辑不落主工作树**；1 次 fork 空跑 34s。**教训：用主对话自己的 Edit/Write 落地（实测持久——本会话 plan-gate `534b524` / 回正 `615f2f3..` 都是这么落的），或盯紧的 fork（回正那个成功了）；落完即 commit 锁定**（未提交改动会被某 rustfmt-restore 链路吃掉，那 3 个反复出现的噪音文件 engine.rs/spawner.rs/lifecycle 测就是诱因，别整树 git restore）。当前 #4 仅「in-code 文档化(commit 2a24df7) + ROADMAP-P」interim，**合法非阻塞**。
 
   ## 📋 SPEC — #4 FFI pump 锁跨 await（已验证·照此实现·无需重新设计）

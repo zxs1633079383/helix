@@ -5,6 +5,28 @@
 
 ## §0 终态记录
 
+🧭🔴 **新会话开局先读这条（FFI #4 待落地 · 2026-06-22）**：分支已变 **`feat/sync-v2-followup`**（== dev-zlc == main == `7d78e60`，已 push origin）。本会话 sync-v2 wire 对齐 + 真机 e2e 8/8 + drift-review 回正(HX-C005 热路径/闸门硬化/分叉 gate/诚实化) + plan-gate 约定 + 分支合并推送 **全部落地**（见下方 DONE 链）。**唯一开放项 = #4「FFI pump 锁跨 connect().await 类型化收敛」——设计已验证(deliverable:true)、待落地**。
+  ⚠️ **落地坑（实测·别再踩）**：#4 **3 次自动尝试全失败落地**——2 次 `Workflow({name})` 工具的 agent **跑隔离副本、编辑不落主工作树**；1 次 fork 空跑 34s。**教训：用主对话自己的 Edit/Write 落地（实测持久——本会话 plan-gate `534b524` / 回正 `615f2f3..` 都是这么落的），或盯紧的 fork（回正那个成功了）；落完即 commit 锁定**（未提交改动会被某 rustfmt-restore 链路吃掉，那 3 个反复出现的噪音文件 engine.rs/spawner.rs/lifecycle 测就是诱因，别整树 git restore）。当前 #4 仅「in-code 文档化(commit 2a24df7) + ROADMAP-P」interim，**合法非阻塞**。
+
+  ## 📋 SPEC — #4 FFI pump 锁跨 await（已验证·照此实现·无需重新设计）
+  - **objective**：消除 FFI pump 后台连接任务持 `Arc<Mutex>` 跨 `connect().await`(~30s) 的锁跨 await 脆弱点（现靠 hello-gated 时序不变量、非类型强制）。彻底解 = 连接期句柄**类型层不可见**。
+  - **approach（注册通道·主干取方案A）**：连接期 transport 独占在 loop 外后台 spawn 任务跑 connect（**裸 ws·无 Arc/Mutex·不在表**）→ 连成功经 `transport_tx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（类型层不可见，不靠时序）。表内 `Arc<Tr>`（无外层 Mutex）；send 走 `&self`；并发由 `SharedWsClient` 既有内部 `state: Arc<Mutex<WsState>>` 串行化（**非新增 per-Send 锁**）。**connect 保 `&mut self`**——NativeTransport 状态机字段 `connected/disconnected_emitted` 真改、合法需要（方案B「四方法全 &self」被此否决）。
+  - **filesToChange（9）**：
+    1. `helix-core/src/ports/transport.rs`：`send/recv/close` `&mut self`→`&self`（connect 不动）。唯一 core 改 = 签名收紧，非 Effect/Tick 变体。
+    2. `helix-driver-host/src/network.rs`：SharedWsClient `send/recv/close` 去 `&mut`（零逻辑改，内部已 state.lock()）。
+    3. `helix-driver-host/src/engine.rs`：`TransportTable<Tr>` 去外层 Mutex→`HashMap<TransportId,Arc<Tr>>`；`run_engine_loop` +`mut transports` +`transport_rx: mpsc::UnboundedReceiver<(TransportId,Arc<Tr>)>`；**biased select 第四臂**(紧随 reply_rx 后)：`Some((id,tr))=transport_rx.recv()=>{transports.insert(id,tr);continue;}`；Tr bound +`Sync`；改写头注②死锁分析为类型层论证。
+    4. `helix-driver-host/src/dispatch.rs`：Send 臂 `t.lock().await.send(frame).await`→`t.send(frame).await`。
+    5. `helix-driver-host/src/lib.rs`：`run_engine_loop_with_transports` +`transport_rx` 透传+re-export。
+    6. `helix-driver-native/src/transport.rs`：NativeTransport `send/recv/close`→`&self`；`inner_mut` 拆(connect 用 / send 用新增 `inner(&self)`)；`connected/disconnected_emitted` `bool`→`AtomicBool`；`emit_disconnected_once`→`&self`；connect 保 `&mut`。
+    7. `helix-driver-native/src/engine_loop.rs`：TransportTable 去 Mutex；内部构造空 `transport_rx` 透传(native 走预填表·channel 永空)。
+    8. `helix-driver-ffi/src/pump.rs`：删 `ws_handle=Arc::new(Mutex::new(ws))`+旧 insert；建 `(transport_tx,transport_rx)=mpsc::unbounded_channel()`；transports 起空表；后台任务 `let mut ws=ws` move 跑 connect 成功后 `transport_tx.send((main_transport,Arc::new(ws)))`；run_engine_loop +transport_rx；**ready_tx 仍 spawn 前立即回传**(create 非阻塞不回退)；删 108-136 时序长注释换类型层短注。
+    9. `helix-driver-wasm/src/transport.rs`（archived）：`send/recv/close`→`&self` 保编译一致。
+  - **acceptance**：`cargo check` 5-crate + `--target wasm32 -p helix-core`；`cargo test` driver-host/ffi/native（**lifecycle_net_decouple 绿**·create<2s/destroy<4s vs blackhole 192.0.2.1）；`cargo tree -p helix-core` grep tokio/sqlx/.. 空；`gate.sh`+`structure-gate` 绿。类型层证据 = grep 确认 dispatch/engine 无 transport `.lock()`、连接期句柄不在表。
+  - **boundaries**：connect 必保 `&mut`；不新增 per-Send 锁；不回退 create 非阻塞；core 仅签名收紧。
+  - **openQuestions**：无（设计已收敛+对抗证伪+run1 验证 deliverable:true）。
+  - **全文设计 rationale**（为什么不取方案B 等）：workflow 输出 `/private/tmp/claude-501/-Users-mac28-workspace-rustWorkspace-helix/25ed0a01-4885-4b70-be32-d8f054edd02d/tasks/wdv5vx813.output` 的 `result.design`。
+  - 落完：commit(结构化 5 段) + `docs/ROADMAP.md` 把 #4 从 P 划掉 + 候选 HX-C 过回放闸门(倾向 HOLD·单样本)。
+
 🧭 **续接一句话（新会话开局读这条·2026-06-22）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）—— sync-v2 **全 parity re-port + memberChange.leave 删行(StorageOp::BatchDelete) + 三未读/同步行为(冷启动 unread/在线增量/too_long-snapshot 覆盖式不删)** 全部落地，`cargo test` 全绿 + gate.sh/structure-gate 过，**真机冷启动路径已验收**（:8065 真连：increment 257 channel / 2275 member / member_count 实数 / 离线 backfill 950 msg / cursor 23）。
   **✅ A 已完成（host-cli stdin 遥控器 Tier0+Tier1，commit 333e977+621f086）**：8 命令 `send/read/revoke/leave/schedule/cancel/create/makeTopic`(+quit/help) → helix-im `im_*` → `Effect::Http` POST 现网真源 endpoint。chassis 运行时已证（piped help/quit→优雅退出）。
   **➡️ 下一步（三选一）**：

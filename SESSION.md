@@ -21,6 +21,12 @@
   ↳ ⑥ cargo check 5 crate + cargo test core/im/host/native 全绿 · gate.sh + structure-gate 过（新 repl.rs / handler ≤300 行）
   ↳ 偏离即记 DRIFT-PRED：若需改 core Effect/ports / helix-im 反向依赖 driver / endpoint 编造非现网 / 测试非证伪 / src 文件 >300 行未拆 / 改根黑名单 → 偏离
 
+✅ DONE outbound 请求体对齐真机 curl 真源 + 真机 e2e 全链验证（workflow fix-outbound-wire-then-e2e）@2026-06-22 | commit 45a621c(真源doc) + d1a9d0c(wire fix) | helix/feat/sync-v2-report-on-adr007
+  ↳ 真源：用户提供现网实抓 6 curl → `crates/helix-im/docs/csesapi-migration/真机curl真源.md`（渐进索引 4 处）。揪出 send 真机无回声真因 = **请求体不对（snake_case + 缺 11 字段）·非 Pulsar**（用户证实 Pulsar 没问题）。
+  ↳ 修（workflow Phase1·rust-tauri-skeleton-dev）：handle_send_message body 全 camelCase + 必填齐（type/simpleMessage/viewers/userId/teamId/userSnapshot…）· ImConfig +company_id（host 注入）· +im_channel_member_change(channel/member/change) · main.rs +appVersion/osVersion 头 + 13 头块收口 identity_headers(321→278) · post echo 对账链核实已存在(reconcile_post_echo)。cargo 5-crate + 30 test + 零运行时 + gate 全绿。
+  ↳ 验（workflow Phase2·真连 Go :8065 自建频道 xf8mdqjc 全链）：**8 PASS / 0 FAIL / 2 SKIP·reached100**——✅ create/send(post 回声·核心)/revoke/makeTopic/nickname/schedule/cancel/close；⏭ read→post_read(自建频道无未读·数据依赖·Go 200)·member→channel_member_update(广播给目标用户非 self·单 client 观察限·Go 200)。2 SKIP 均非 bug（wire 正确）。
+  ↳ 待联调核：deviceId 形态(连字符 UUID vs 32hex) · userSnapshot 完整 org/dept/userName 注入 · read/member 两 SKIP 需未读数据/第二 client 才能观察。
+
 ✅ DONE channel_close/nickname 补全 + host-cli↔Go e2e harness/workflow（事后补记·无开局 EXPECT：反应式纠错 + 用户中途请求展开）@2026-06-22 | commit 8b21ef9 + a6de5bf | helix/feat/sync-v2-report-on-adr007
   ↳ 纠错：上轮误判「channel_close/nickname 无干净自 endpoint」——实查 full-map #27/#31 均有自服务 endpoint 且 broadcast 到 channelId（自己也收）→ **13 action 全 host-cli 自驱动，无一需第二 actor**。补 im_channel_close + im_update_member_nickname（commands.rs test 外迁 tests/outbound_commands.rs 守 ≤300）。
   ↳ e2e 资产：`scripts/host-cli-go-e2e.sh`（逐 action 经 stdin 发命令 → grep HELIX_DUMP_FRAMES 入站帧 WS action 断言 → PASS/FAIL 表 + postId 链式 + 破坏性 leave/close 仅 CLOSE_CHANNEL_ID 给时跑）+ 具名 `Workflow({name:"host-cli-go-e2e"})`（Drive+Diagnose）+ main.rs emit 打印 event 名（im:*）便于断言。验的是**共享 driver-host I/O 栈**，跑一次（native/ffi 复用，端增量靠 smoke.cpp+F5）。

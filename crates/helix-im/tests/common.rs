@@ -70,6 +70,7 @@ impl Harness {
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
             auth_user_id: String::new(),
+            company_id: String::new(),
         };
         let mut module = ImModule::new(config);
         for &id in channel_ids {

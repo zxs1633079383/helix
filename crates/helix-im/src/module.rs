@@ -34,6 +34,12 @@ pub struct ImConfig {
     /// 退化为保守计入（不漏未读，sender 豁免下沉前端）——但**正常运行期 host 必须注入真值**，
     /// 否则 §5 验收「自己 +0 / 不可见 +0 / echo 无 unread」不达成（BLOCKING-1 根因）。
     pub auth_user_id: String,
+    /// 当前用户所属公司/团队 Id（host 注入，对齐 `auth_user_id` 模式）。
+    ///
+    /// 用途：outbound `posts/create` body 的 `teamId` + `userSnapshot.teamId`（现网真抓包
+    /// §1 必填）。现网 `companyId` HTTP/WS 全局头与此同源（host 一处注入两处用）。空串 =
+    /// 未注入（登录前），Go 侧 paas-grpc 可能业务失败——正常运行期 host 必须注入真值。
+    pub company_id: String,
     /// 心跳间隔（毫秒，默认 8000）
     pub ping_interval_ms: u64,
     /// 发送超时（毫秒，默认 15000）
@@ -46,6 +52,7 @@ impl Default for ImConfig {
             ws_url: String::new(),
             api_base_url: String::new(),
             auth_user_id: String::new(),
+            company_id: String::new(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
         }
@@ -799,10 +806,36 @@ impl ImModule {
         });
 
         // 2. Http{H1, POST /posts/create}
+        // body 逐字对齐现网真抓包（docs/csesapi-migration/真机curl真源.md §1）：
+        // 全 camelCase + 大量必填字段，否则 Go 收下但不处理/不推回声（send 无回声真因 = 体不对，
+        // 非 Pulsar）。WS 回声 action=`post`（非 `posted`），handlers/post.rs reconcile 对账。
+        //
+        // 身份字段（userId/teamId）：host 经 ImConfig 注入（auth_user_id / company_id），core/im
+        // 不自生成。userSnapshot：现网 5 字段 {orgName,deptName,userName,userId,teamId}，但 helix
+        // 无 org/dept/userName 登录态 → 先填最小 {userId,teamId,userName:""}（待 host 注入完整
+        // userSnapshot；缺这三非阻断字段不影响 Go 落库/推回声，主键身份是 userId/teamId）。
+        let user_id = self.config.auth_user_id.as_str();
+        let team_id = self.config.company_id.as_str();
         let body = serde_json::json!({
-            "channel_id": channel_id.as_str(),
-            "temporary_id": tmp_id_str,
+            "channelId": channel_id.as_str(),
+            "temporaryId": tmp_id_str,
             "message": text,
+            "type": "TEXT",
+            "simpleMessage": text,
+            "viewers": ["all"],
+            "mentions": [],
+            "props": {},
+            "topicId": "",
+            "revoke": false,
+            "id": "",
+            "userId": user_id,
+            "teamId": team_id,
+            // TODO(host): userSnapshot 待 host 注入完整 {orgName,deptName,userName}（登录态）。
+            "userSnapshot": {
+                "userId": user_id,
+                "teamId": team_id,
+                "userName": "",
+            },
         });
         out.push(Effect::Http {
             corr: h1_corr,

@@ -91,6 +91,31 @@ fn create_and_make_topic_passthrough_body_with_real_endpoint() {
 }
 
 #[test]
+fn member_change_passthrough_body_with_real_endpoint() {
+    // 真机curl真源 §5：{channelId, joinUsers/leaveUsers} 直传，endpoint channel/member/change。
+    let (url, body) = one_http(run(
+        "im_channel_member_change",
+        json!({
+            "channelId": "ch_m",
+            "joinUsers": [{ "id": "u9", "teamId": "t1", "role": "MEMBER" }],
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/channel/member/change");
+    assert_eq!(body["channelId"], "ch_m");
+    assert_eq!(body["joinUsers"][0]["id"], "u9");
+
+    // 缺 channelId → Err（边界零信任，不崩）。
+    assert!(handle_outbound(
+        "im_channel_member_change",
+        &serde_json::to_vec(&json!({ "joinUsers": [] })).unwrap(),
+        BASE,
+        None,
+        corr(),
+    )
+    .is_err());
+}
+
+#[test]
 fn close_and_nickname_map_to_real_endpoints() {
     let (url, body) = one_http(run("im_channel_close", json!({ "channel_id": "ch5" })));
     assert_eq!(url, "http://x/api/cses/channel/close");
@@ -139,7 +164,7 @@ fn missing_required_field_is_parse_error_not_panic() {
 }
 
 #[test]
-fn is_outbound_covers_exactly_the_nine() {
+fn is_outbound_covers_exactly_the_ten() {
     for n in [
         "im_post_read",
         "im_revoke",
@@ -148,6 +173,7 @@ fn is_outbound_covers_exactly_the_nine() {
         "im_cancel_schedule",
         "im_create_channel",
         "im_make_topic",
+        "im_channel_member_change",
         "im_channel_close",
         "im_update_member_nickname",
     ] {

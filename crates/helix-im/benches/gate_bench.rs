@@ -53,6 +53,7 @@ fn make_module(channel_id: u64) -> ImModule {
         api_base_url: "http://bench".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
+        ..Default::default()
     });
     module.register_channel(ChannelId(channel_id), 0);
     module

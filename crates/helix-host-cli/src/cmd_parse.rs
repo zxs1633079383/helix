@@ -45,6 +45,11 @@ pub(crate) fn parse_line(line: &str, tmp_seq: &mut u64) -> Parsed {
         "makeTopic" | "maketopic" => {
             parse_raw_json("im_make_topic", rest, "makeTopic <rawJSON 含 postId>")
         }
+        "member" => parse_raw_json(
+            "im_channel_member_change",
+            rest,
+            "member <rawJSON 含 channelId + joinUsers/leaveUsers>",
+        ),
         other => Parsed::Bad(format!("未知命令 '{other}'（help 看用法）")),
     }
 }
@@ -256,6 +261,15 @@ mod tests {
         let (name, v) = unwrap_cmd(parse_line(r#"create {"displayName":"g"}"#, &mut seq));
         assert_eq!(name, "im_create_channel");
         assert_eq!(v["displayName"], "g");
+
+        // member：raw JSON 透传（含 channelId + joinUsers/leaveUsers，真机curl真源 §5）。
+        let (name, v) = unwrap_cmd(parse_line(
+            r#"member {"channelId":"ch_m","joinUsers":[{"id":"u9"}]}"#,
+            &mut seq,
+        ));
+        assert_eq!(name, "im_channel_member_change");
+        assert_eq!(v["channelId"], "ch_m");
+        assert_eq!(v["joinUsers"][0]["id"], "u9");
 
         // 非法 JSON → Bad
         assert!(matches!(

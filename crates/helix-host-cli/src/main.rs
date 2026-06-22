@@ -86,6 +86,11 @@ async fn main() {
         );
     }
     let language = std::env::var("HELIX_LANGUAGE").unwrap_or_else(|_| "zh".to_string());
+    // appVersion/osVersion 是现网通用请求头（真机curl真源 §0：所有 outbound 都带）。
+    // host-cli 之前不发这两个头；补上对齐桌面端真值（默认值取真抓包示例，env 可覆盖）。
+    let app_version = std::env::var("HELIX_APP_VERSION").unwrap_or_else(|_| "1.2.56".to_string());
+    let os_version =
+        std::env::var("HELIX_OS_VERSION").unwrap_or_else(|_| "macos-14.5.0".to_string());
     // ── DB 路径派生（多租户，对齐现网 678 真库目录）───────────────────────
     // 优先级：HELIX_DB env 显式覆盖（测试/调试逃生口，含旧 /tmp 能力）> 派生路径 > /tmp 兜底。
     // 派生形态：~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db
@@ -137,43 +142,29 @@ async fn main() {
                 return;
             }
         };
-    // A3a：cookieId(=userId) 注入为 driver 全局 HTTP 身份头（现网 sync-v2 鉴权）。
-    // 身份头由 host 注入，core/im 不认识 userId（connectionId 才由 im 盖章，见 A3b）。
-    if !cookie_id.is_empty() {
-        match http.set_global_header("cookieId", &cookie_id).await {
-            Ok(()) => tracing::info!("已注入 cookieId 全局头（=userId）"),
-            Err(e) => {
-                tracing::warn!(error = %e, "注入 cookieId 全局头失败（继续，HTTP 将无身份头）")
-            }
+    // 身份头单一真源（HTTP 全局头 + WS 握手头同源，host 注入；core/im 不认识 userId，
+    // connectionId 才由 im 盖章见 A3b）。各头来源/缺失后果（真机curl真源 §0 通用头 +
+    // sync-v2 鉴权）：cookieId(=userId)/companyId 缺→paas-grpc 业务失败；appType 缺→Java
+    // 判 session 过期；deviceId 缺→paas session 校验过期；appVersion/osVersion 通用头。
+    // 空值项跳过（不编造）。`&str` slice 一次构造，两处（HTTP/WS）复用，去重 + 守 ≤300 行。
+    let identity_headers: Vec<(&str, &str)> = [
+        ("cookieId", cookie_id.as_str()),
+        ("companyId", company_id.as_str()),
+        ("appType", app_type.as_str()),
+        ("device", device.as_str()),
+        ("language", language.as_str()),
+        ("deviceId", device_id.as_str()),
+        ("appVersion", app_version.as_str()),
+        ("osVersion", os_version.as_str()),
+    ]
+    .into_iter()
+    .filter(|(_, v)| !v.is_empty())
+    .collect();
+    for (name, value) in &identity_headers {
+        match http.set_global_header(name, value).await {
+            Ok(()) => tracing::info!(header = %name, "已注入 HTTP 全局头"),
+            Err(e) => tracing::warn!(error = %e, header = %name, "注入 HTTP 全局头失败（继续）"),
         }
-    }
-    // companyId HTTP 全局头：increment/sync 等所有 IM HTTP 必带，否则 paas-grpc 业务失败。
-    if !company_id.is_empty() {
-        match http.set_global_header("companyId", &company_id).await {
-            Ok(()) => tracing::info!("已注入 companyId 全局头"),
-            Err(e) => tracing::warn!(error = %e, "注入 companyId 全局头失败"),
-        }
-    }
-    // appType HTTP 全局头：缺它对端 Java Company 服务判 session 过期 → grpc service fail。
-    if !app_type.is_empty() {
-        match http.set_global_header("appType", &app_type).await {
-            Ok(()) => tracing::info!(app_type = %app_type, "已注入 appType 全局头"),
-            Err(e) => tracing::warn!(error = %e, "注入 appType 全局头失败"),
-        }
-    }
-    // deviceId HTTP 全局头：Java paas session 校验读它，nil → 判过期 → grpc service fail。
-    if !device_id.is_empty() {
-        match http.set_global_header("deviceId", &device_id).await {
-            Ok(()) => tracing::info!("已注入 deviceId 全局头"),
-            Err(e) => tracing::warn!(error = %e, "注入 deviceId 全局头失败"),
-        }
-    }
-    // appType/device/language 也随 HTTP 带（与 WS 对齐，paas 可能校验多项）。
-    if !device.is_empty() {
-        let _ = http.set_global_header("device", &device).await;
-    }
-    if !language.is_empty() {
-        let _ = http.set_global_header("language", &language).await;
     }
     let (event_sink, mut event_rx) = NativeEventSink::new();
 
@@ -191,6 +182,9 @@ async fn main() {
         ws_url: ws_url.clone(),
         api_base_url,
         auth_user_id: cookie_id.clone(),
+        // companyId 之前只灌了 HTTP/WS 全局头，没进 ImConfig；现注入 → outbound posts/create
+        // body 的 teamId/userSnapshot.teamId 才有真值（真机curl真源 §1，send 回声前置条件）。
+        company_id: company_id.clone(),
         ..Default::default()
     }));
 
@@ -202,26 +196,11 @@ async fn main() {
     let main_transport = TransportId::from_raw(0);
     // 现网 Go 在 WS 升级阶段按 cookieId=userId 建 session（session 空则不发 hello、~5s 超时关）。
     // 身份头必须随 upgrade 请求带，不能只设 HTTP 全局头（A3a 漏了 WS 这条，真 Go 冒烟暴露）。
-    let mut ws_headers: Vec<(String, String)> = Vec::new();
-    if !cookie_id.is_empty() {
-        ws_headers.push(("cookieId".to_string(), cookie_id.clone()));
-    }
-    if !company_id.is_empty() {
-        ws_headers.push(("companyId".to_string(), company_id.clone()));
-    }
-    // WS 全局头（Apifox 实测：appType/device/language/deviceId）
-    if !app_type.is_empty() {
-        ws_headers.push(("appType".to_string(), app_type.clone()));
-    }
-    if !device.is_empty() {
-        ws_headers.push(("device".to_string(), device.clone()));
-    }
-    if !language.is_empty() {
-        ws_headers.push(("language".to_string(), language.clone()));
-    }
-    if !device_id.is_empty() {
-        ws_headers.push(("deviceId".to_string(), device_id.clone()));
-    }
+    // 复用上面 HTTP 同一份 identity_headers（HTTP/WS 单一真源，避免两处漂移）。
+    let ws_headers: Vec<(String, String)> = identity_headers
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect();
     let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
         .with_handshake_headers(ws_headers);
     // A1 临时：host 主动 connect（A2 改为 Effect::Connect 意图驱动）。

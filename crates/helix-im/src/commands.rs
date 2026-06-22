@@ -27,6 +27,7 @@ pub fn is_outbound(name: &str) -> bool {
             | "im_cancel_schedule"
             | "im_create_channel"
             | "im_make_topic"
+            | "im_channel_member_change"
             | "im_channel_close"
             | "im_update_member_nickname"
     )
@@ -104,6 +105,15 @@ pub fn handle_outbound(
             // 至少校验 postId 存在（边界零信任），其余字段直传。
             require_str(&args, "postId", name)?;
             ("posts/makeTopic", args.clone())
+        }
+        // POST /api/cses/channel/member/change — 加/退成员 → channel_member_update。
+        // 真源 §5（真机curl真源）：{channelId, joinUsers?:[{id,teamId,role}], leaveUsers?:[...]}，
+        // joinUsers/leaveUsers 两者可同时非空。成员对象结构（ChannelMemberMinimal）较复杂，由
+        // repl 直供 raw body（args 即 Go body 直传）；至少校验 channelId 存在（边界零信任）。
+        // 注意：与 #33 `channel/member/leave`（自己退群）是两条——本条是 admin 增减成员。
+        "im_channel_member_change" => {
+            require_str(&args, "channelId", name)?;
+            ("channel/member/change", args.clone())
         }
         // #27 POST /api/cses/channel/close — 关闭频道 → channel_close（broadcast 到 channelId·自己也收）。真源 {ChannelId}。
         "im_channel_close" => {

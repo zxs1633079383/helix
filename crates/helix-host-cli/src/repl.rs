@@ -78,6 +78,7 @@ fn print_usage() {
          nickname <channelId> <新昵称>      改群昵称 → update_channel_member_nickName\n\
          create <rawJSON body>              建群 → channel_created（body 含 users[] 等现网字段）\n\
          makeTopic <rawJSON 含 postId>      转话题 → channel_created + post_update\n\
+         member <rawJSON channelId+join/leave> 加/退成员 → channel_member_update\n\
          help | ?                           打印本用法\n\
          quit | exit                        退出（EOF/管道结束亦优雅退出）\n"
     );

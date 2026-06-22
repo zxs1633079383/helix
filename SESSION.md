@@ -309,3 +309,5 @@
 
 ⚡ DRIFT-PRED P1.5 横切层落点：plan 写 native-only http_manager.rs，实际落 helix-driver-host/http_cross.rs（双端共享 ADR-007）→ 候选教训：双端共享出站语义应统一进 driver-host，plan 文档 02/05 待更正（架构更对，非回退）。已采纳。
 ⚡ 待 P4 收口：legacy ws/handlers/posted.rs reconcile 与「echo 只走 post」冲突（P1 fail-hard① 推迟到 P4 dead-action 清理）。
+
+⚡ DRIFT-PRED P4 EXPECT①「各 1 个 distributed_slice 注册，零改 registry.rs/dispatch」被 diff 证伪：registry.rs +39/-201，但 churn 100% 在 `mod tests` 块内（生产 dispatch 确零改，distributed_slice 自动注册预判成立）→ 候选教训：EXPECT 写文件级「零改 X.rs」须限定「零改 X 生产 dispatch（测试块随 dead-action 调整可变）」。drift-review dbe1b74..7e9f3ca finding③，HX-C009/C012 已覆盖不建卡。

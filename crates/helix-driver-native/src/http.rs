@@ -7,7 +7,9 @@
 //! - 裸出站：[`NativeHttp::with_config`] / [`NativeHttp::from_shared`]（无横切，host-cli / 测试）。
 //! - 带横切：[`NativeHttp::with_crosscut`] 把 `SharedHttpClient` 包进
 //!   [`CrossCuttingHttp`]（鉴权意图→token 注入 + 401→`im:http:unauthorized` +
-//!   断网→`im:net:offline` + traceparent 透传），插进事件泵 `http` 端口位（M2 接缝③）。
+//!   断网→`im:net:offline` + traceparent 透传）。**装配点就绪，泵接线待 M2**：当前
+//!   host-cli 走裸 `Plain` 出站，横切语义未生效；M2 host 装配层（host-cli / Tauri shell）
+//!   登录态就绪后改调 `with_crosscut` 接横切层（drift-review dbe1b74..7e9f3ca finding①）。
 
 use std::sync::Arc;
 

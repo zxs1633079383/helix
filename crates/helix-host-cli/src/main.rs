@@ -133,6 +133,8 @@ async fn main() {
         }
     }
     // ADR-010：共享 HTTP client 需 HostNetworkConfig（api_base + ws_url）；身份头随后经 set_global_header 灌 registry。
+    // TODO(M2): 登录态就绪后改 NativeHttp::with_crosscut 接 P1.5 出站横切层（鉴权 token 注入 + 401→im:http:unauthorized
+    //   + 断网→im:net:offline + traceparent 透传）。当前走裸 Plain，横切语义不生效（drift-review dbe1b74..7e9f3ca finding①）。
     let http =
         match NativeHttp::with_config(HostNetworkConfig::new(api_base_url.clone(), ws_url.clone()))
         {

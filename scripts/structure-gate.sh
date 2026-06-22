@@ -26,7 +26,6 @@ WHITELIST=(
   "crates/helix-driver-host/src/network.rs"         # ~475
   "crates/helix-driver-host/src/storage.rs"         # ~447
   "crates/helix-im/src/parser.rs"                   # ~393
-  "crates/helix-host-cli/src/main.rs"               # ~386
   "crates/helix-im/src/state.rs"                    # ~378
   "crates/helix-core/src/effect.rs"                 # ~337
   "crates/helix-driver-native/src/event_sink.rs"    # ~317

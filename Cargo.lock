@@ -773,9 +773,11 @@ dependencies = [
 name = "helix-host-cli"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "helix-core",
  "helix-driver-native",
  "helix-im",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

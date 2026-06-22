@@ -7,11 +7,11 @@
 //! 统一收集 **四源（members/adminUsers/boss/owner）+ memberChange.join** → `channel_member` 表
 //! （复合 PK，`upsert_channel_members`），与 `increment_channel` / `channel_created` 三路径同口径。
 //!
-//! ⚠️ **memberChange.leave 偏离**：现网 `apply_member_change_tx:270` 对 leave 走物理
-//! `DELETE FROM channel_member`。helix-core `StorageOp` 无 Delete 变体（见 `channel_write/members.rs`
-//! 模块头偏离说明 + ROADMAP-P），当前**有意不删离场成员**——`collect_member_leaves` 已解析出
-//! 离场集备接力，待 core 加 `BatchDelete` 后接通。此前本注释误称「leave 靠下次 path1 全量
-//! memberChange 覆盖」，但 helix 是 **upsert（非 replace）**，离场行不会被覆盖清除——已纠正。
+//! ✅ **memberChange.leave 物理删（已接通）**：现网 `apply_member_change_tx:270` 对 leave 走物理
+//! `DELETE FROM channel_member`。helix-core `StorageOp` 已加 `BatchDelete` 变体；本 handler 在
+//! :113-114 调 `collect_member_leaves` → `delete_channel_members` → `StorageOp::BatchDelete`
+//! 物理删离场行（与 `increment_channel.rs:69` 同口径）。注：helix 成员是 **upsert（非 replace）**，
+//! 离场行只能靠此显式 BatchDelete 清除，不会被后续全量帧覆盖掉——故必须走删除路径。
 
 use helix_core::EffectSink;
 use linkme::distributed_slice;

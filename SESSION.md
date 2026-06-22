@@ -5,6 +5,12 @@
 
 ## §0 终态记录
 
+🧭 **续接一句话（新会话开局读这条·2026-06-22）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）—— sync-v2 **全 parity re-port + memberChange.leave 删行(StorageOp::BatchDelete) + 三未读/同步行为(冷启动 unread/在线增量/too_long-snapshot 覆盖式不删)** 全部落地，`cargo test` 全绿 + gate.sh/structure-gate 过，**真机冷启动路径已验收**（:8065 真连：increment 257 channel / 2275 member / member_count 实数 / 离线 backfill 950 msg / cursor 23）。
+  **➡️ 下一步（二选一）**：
+  - **A（推荐·小）**：给 `crates/helix-host-cli` 加 **stdin 命令入口**（敲 `send <ch> <text>` / `read` / `edit` / `leave` → 走 helix-im `im_send_message` 真发 Go → 收 echo/推送处理）= 真机 e2e「遥控器」，解锁**在线 13 action 真机验收**（post/posted-echo/post_update/posts_update/post_read/channel_created-makeTopic/channel_member_update/update_channel/channel_close/nickname/schedule×2/leave-Delete/too_long）。**非测试代码，是联调 bin 的真机驱动入口。**
+  - **B（大·M2 ROADMAP P0）**：Tauri 前端四接缝接入 + 灰度开关 —— emit 消费(`im:__bus__`)/读路径 S7(2D cursor 分页)/too_long 前端 getLatestPost 链 的唯一验法。
+  **真机连法**：`HELIX_DEVICE_ID` 已写死 `ED380414932542BAB4993E5AC3E07C64`（host-cli，env 可覆盖）· `scripts/dev-loop.sh` · 后端 grpc 服务名 = `xpa-2-12-grpc`（Go `grpcx9.go:66 CsesGrpc`，改名根因见 `docs/sync-v2-report/真机验收-grpc阻塞根因.md`）。**结构性未通**：Tauri 前端(M2)/FFI 手机端 IM e2e(M3-F4)/Snapshot(A2 服务端未实现不可达)。
+
 🎯 EXPECT #1/#2/#3 未读/同步三行为完整对齐现网 + 锁可证伪测试 @2026-06-22 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 现网真源裁定（rust-tauri-skeleton-dev）：①冷启动 unread = 服务端权威 `unreadCount`（Some→写/omit→回退本地，channel_state.rs:292）②在线增量 = +1 per 新消息 + sender 豁免 + `create_at>last_root_post_at` 时间闸防历史重算（message_service.rs:365）③**too_long/snapshot 不物理删 message**——覆盖式 upsert + cursor 重置 + emit，前端 getLatestPost 重拉（post.rs:931 + im-sync.service.ts:61）
   ↳ 可证伪预判：① emit_sync_too_long 加 reset_to → payload `{channelId, resetTo}`（对齐现网；2 调用点 module.rs 服务端值 / channel.rs 客户端溢出 cursor+1 同步）② **绝不**加 `DELETE FROM message`（加了即违现网）；Snapshot 分支文档化「A2-reserved + 治理-as-Events + no-DELETE-intentional」③ 三可证伪测试：too_long emit 含 resetTo · guarded_bump 守卫 FAIL(historical create_at≤水位)→不 bump(host conformance) · sender 豁免(auth set 自己消息→unread_delta 0) ④ #2 冷启动 unread server-authoritative + omit-fallback 已测/补 ⑤ cargo check 5 + test core/im/host/native 全绿 + gate + structure

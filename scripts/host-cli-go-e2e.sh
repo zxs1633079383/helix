@@ -36,10 +36,18 @@ ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 fail_pre=0
 if [ -z "${CHANNEL_ID:-}" ]; then red "⛔ 缺 CHANNEL_ID（真 channelId 作非破坏操作靶）"; fail_pre=1; fi
 if [ -z "${HELIX_COOKIE_ID:-}" ]; then red "⛔ 缺 HELIX_COOKIE_ID（=userId 身份头，缺则 Go 判 session 过期）"; fail_pre=1; fi
-# Go 可达性（HTTP base 根）：connect 失败立刻退，别白跑。
+# Go 可达性：用 mattermost 健康端点 /api/v4/system/ping（200=活）。
+# ⚠️ 不用 `curl -f` 测根路径——根返 404（正常），-f 会把 404 误判为 down。
 http_root="${API_BASE%/api/cses}"
-if ! curl -sf -o /dev/null --max-time 4 "$http_root" 2>/dev/null; then
-  red "⛔ Go 不可达：$http_root —— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)，再跑本脚本"; fail_pre=1
+ping_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$http_root/api/v4/system/ping" 2>/dev/null)"
+if [ "$ping_code" != "200" ]; then
+  # 兜底：根路径有任何 HTTP 响应（含 404）即算服务在监听（仅 000/空 = 真连不上）。
+  root_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$http_root/" 2>/dev/null)"
+  if [ -z "$root_code" ] || [ "$root_code" = "000" ]; then
+    red "⛔ Go 不可达：$http_root（ping=$ping_code root=$root_code）—— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)"; fail_pre=1
+  else
+    ylw "⚠️ ping 非 200（=$ping_code）但根有响应（$root_code）→ 服务在监听，继续"
+  fi
 fi
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止（未跑任何命令）"; exit 2; }
 

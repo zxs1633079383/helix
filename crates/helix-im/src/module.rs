@@ -929,6 +929,25 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
+                // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
+                name if crate::commands::is_outbound(name) => {
+                    let corr = self.alloc_corr_internal();
+                    let effects = crate::commands::handle_outbound(
+                        name,
+                        cmd.payload.as_ref(),
+                        self.config.api_base_url.as_str(),
+                        self.state.connection_id.as_deref(),
+                        corr,
+                    )
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?;
+                    for eff in effects {
+                        out.push(eff);
+                    }
+                }
                 _ => {
                     tracing::debug!("im: unhandled command '{}'", cmd.name);
                 }

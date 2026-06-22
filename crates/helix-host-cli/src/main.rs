@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+mod cmd_parse;
 mod host_env;
 mod repl;
 use host_env::{machine_device_id, resolve_db_path};

@@ -16,7 +16,9 @@ variables:
   CARGO_INCREMENTAL: "0"                  # CI 关增量编译，缓存更稳
 
 default:
-  image: rust:1.95.0
+  image: harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0
+  tags:
+    - docker                               # 命中 ops 注册的 project runner（bzoxCnA6·docker tag）
   cache:
     key:
       files:

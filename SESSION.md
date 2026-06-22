@@ -290,3 +290,14 @@
   ↳ 遗留（ROADMAP P2）：batch_upsert SQL 形状缓存 · FFI MAJ-4 spawn_blocking · M2 使 SqlValue::Blob 进 public-api 基线
   ↳ 2026-06-15 criterion 化已落（commit d1fb149）：弱断言→可签 median+95%CI——batch_upsert 5000 **5.16ms**[5.04,5.30]/969K rows/s · 39×100 6.08ms · monotonic cursor **28.5µs**[27.3,29.7]；回归判据 median>2x。stress「承压不回归」升级为可签硬数字
   ↳ 2026-06-15 criterion **全链路覆盖完成**（commit 1551c14）：engine 泵 `pump_roundtrip_1k` **40.2ms ≈ 24.9K roundtrips/s** · IM 乱序 `gate/backfill_5000` **8.0ms ≈ 624K events/s** · `send/echo_reconcile_1000` **2.39ms ≈ 418K/s**。性能基准从「仅 storage」→ storage+engine 泵+IM 乱序同步/对账 全有可签 median/CI；仅剩 bench 数字进 CI（待 runner）
+
+## §0 接管基线 — 终态
+
+✅ DONE helix-im 接管串行基线 P0→P1→P1.5→P2 @2026-06-22 | commit c7a38ef..799e7ea | 4/4 gate 绿 | helix/feat/im-takeover
+- P0 c7a38ef 覆盖率工具链(cargo-llvm-cov)+ sync HTTP 占位 fixture；helix-im baseline 89.38% lines 锁定
+- P1 60d09fd SendPosts 编排下沉 send_build.rs(100%)；createAt 经 Clock 注入；temporaryId 前端透传
+- P1.5 5d9818d 出站横切 auth.rs/http_cross.rs(100%)
+- P2 799e7ea outbound linkme registry 化 + posts 写族 7 命令
+
+⚡ DRIFT-PRED P1.5 横切层落点：plan 写 native-only http_manager.rs，实际落 helix-driver-host/http_cross.rs（双端共享 ADR-007）→ 候选教训：双端共享出站语义应统一进 driver-host，plan 文档 02/05 待更正（架构更对，非回退）。已采纳。
+⚡ 待 P4 收口：legacy ws/handlers/posted.rs reconcile 与「echo 只走 post」冲突（P1 fail-hard① 推迟到 P4 dead-action 清理）。

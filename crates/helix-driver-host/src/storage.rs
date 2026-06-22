@@ -288,39 +288,45 @@ impl Storage for HostStorage {
         // 列；即便 MAX guard 因无进展不更新 value，updated_at 仍随 excluded 覆盖（对齐现网
         // channel_event_cursor.rs:55-56 `updated_at = excluded.updated_at`）。
         //
-        // 注：spec.table / *_col 来自调用方编译期常量集合（有限枚举），prepare_cached 命中率
-        // 极高；`format!` 仅在 SQL 文本构造一次（owned String 入 cache key），非每事件重 parse。
-        let sql = match spec.touch_col {
-            // 对齐现网 channel_event_cursor.rs:54-56：value 走 MAX guard（不回退），
-            // touch（updated_at）恒随 excluded 覆盖（无 WHERE）——MAX 本身已防 value 回退，
-            // 不再加 WHERE，使 updated_at 每次写都刷新（与现网 Utc::now 写穿语义一致）。
-            Some(touch) => format!(
-                "INSERT INTO {table} ({key}, {val}, {touch}) VALUES (?, ?, ?) \
-                 ON CONFLICT({key}) DO UPDATE SET \
-                 {val} = MAX({table}.{val}, excluded.{val}), {touch} = excluded.{touch}",
-                table = spec.table,
-                key = spec.key_col,
-                val = spec.value_col,
-                touch = touch,
-            ),
-            None => format!(
-                "INSERT INTO {table} ({key}, {val}) VALUES (?, ?) \
-                 ON CONFLICT({key}) DO UPDATE SET {val} = excluded.{val} \
-                 WHERE excluded.{val} > {table}.{val}",
-                table = spec.table,
-                key = spec.key_col,
-                val = spec.value_col,
-            ),
-        };
+        // HX-C005 零分配：唯一热 shape（advance_cursor：channel_event_cursor / channel_id /
+        // last_event_seq / updated_at）→ `&'static str` 常量 SQL，per-call **不分配 String**
+        // （`Cow::Borrowed`）。其余 shape（当前运行时无调用，保泛型 API）才走 `format!` 兜底。
+        // 对齐现网 channel_event_cursor.rs:54-56：value 走 MAX guard（不回退）；touch（updated_at）
+        // 恒随 excluded 覆盖（MAX 已防 value 回退，updated_at 每写刷新，与现网 Utc::now 写穿一致）。
+        const CURSOR_ADVANCE_UPSERT_SQL: &str =
+            "INSERT INTO channel_event_cursor (channel_id, last_event_seq, updated_at) \
+             VALUES (?, ?, ?) ON CONFLICT(channel_id) DO UPDATE SET \
+             last_event_seq = MAX(channel_event_cursor.last_event_seq, excluded.last_event_seq), \
+             updated_at = excluded.updated_at";
+        let sql: std::borrow::Cow<'static, str> =
+            match (spec.table, spec.key_col, spec.value_col, spec.touch_col) {
+                ("channel_event_cursor", "channel_id", "last_event_seq", Some("updated_at")) => {
+                    std::borrow::Cow::Borrowed(CURSOR_ADVANCE_UPSERT_SQL)
+                }
+                (table, key, val, Some(touch)) => std::borrow::Cow::Owned(format!(
+                    "INSERT INTO {table} ({key}, {val}, {touch}) VALUES (?, ?, ?) \
+                     ON CONFLICT({key}) DO UPDATE SET \
+                     {val} = MAX({table}.{val}, excluded.{val}), {touch} = excluded.{touch}",
+                )),
+                (table, key, val, None) => std::borrow::Cow::Owned(format!(
+                    "INSERT INTO {table} ({key}, {val}) VALUES (?, ?) \
+                     ON CONFLICT({key}) DO UPDATE SET {val} = excluded.{val} \
+                     WHERE excluded.{val} > {table}.{val}",
+                )),
+            };
         // updated_at 由 driver ambient 时钟提供（毫秒，对齐现网 Utc::now().timestamp_millis()）。
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
+        // 仅 touch_col=Some 才需 → 无 touch 列不调 SystemTime::now() syscall（HX-C005）。
+        let now_ms = match spec.touch_col {
+            Some(_) => std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
+            None => 0,
+        };
         let writer = Arc::clone(&self.writer);
         tokio::task::spawn_blocking(move || {
             let conn = writer.lock().map_err(map_lock_err)?;
-            let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
+            let mut stmt = conn.prepare_cached(sql.as_ref()).map_err(map_sqlite_err)?;
             match spec.touch_col {
                 Some(_) => stmt.execute((&spec.scope_key, spec.value, now_ms)),
                 None => stmt.execute((&spec.scope_key, spec.value)),
@@ -334,18 +340,15 @@ impl Storage for HostStorage {
 
     async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError> {
         // HX-C005 热路径 O(1)：未读 +1 等计数路径——单条 UPDATE WHERE PK，**无 read-modify-write**。
-        // SQL：`SET bump_col = bump_col + delta [, set_cols = ?…] WHERE key = ? AND ? > guard_col`。
+        // SQL：`SET bump_col = bump_col + ? [, set_cols = ?…] WHERE key = ? AND ? > guard_col`。
         // 守卫占位 `?` 绑定 guard_val（严格 > guard_col 现值才命中）——同一消息重复投递 / 旧消息
         // 乱序到达均在 SQL 层幂等不污染计数。表名 / 列名都是 spec 的 `&'static str`（上层编译期
         // 常量，driver 不解释含义，守 HX-C001），prepare_cached 复用同形状语句。
         let writer = Arc::clone(&self.writer);
         tokio::task::spawn_blocking(move || {
-            // SET 片段：先自增列，再可选绝对列。
-            let mut set_parts = vec![format!(
-                "{bump} = {bump} + {delta}",
-                bump = spec.bump_col,
-                delta = spec.bump_delta,
-            )];
+            // SET 片段：先自增列（delta 走**绑定参数** `?`，非内插 SQL 文本——HX-C005：SQL 文本
+            // 不随 bump_delta 值变 → prepare_cached 同形状命中，零 per-delta 重编译），再可选绝对列。
+            let mut set_parts = vec![format!("{bump} = {bump} + ?", bump = spec.bump_col)];
             set_parts.extend(spec.set_cols.iter().map(|(k, _)| format!("{k} = ?")));
             let sql = format!(
                 "UPDATE {table} SET {set} WHERE {key} = ? AND ? > {guard}",
@@ -354,8 +357,9 @@ impl Storage for HostStorage {
                 key = spec.key_col,
                 guard = spec.guard_col,
             );
-            // 绑定顺序与 SQL 占位一致：set_cols 值… → key_val → guard_val。
-            let mut params = sql_values(spec.set_cols.iter().map(|(_, v)| v));
+            // 绑定顺序与 SQL 占位一致：bump_delta → set_cols 值… → key_val → guard_val。
+            let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
+            params.extend(sql_values(spec.set_cols.iter().map(|(_, v)| v)));
             params.extend(sql_values(std::iter::once(&spec.key_val)));
             params.extend(sql_values(std::iter::once(&SqlValue::Integer(
                 spec.guard_val,

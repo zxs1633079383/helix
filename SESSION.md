@@ -5,6 +5,16 @@
 
 ## §0 终态记录
 
+✅ DONE 生命周期与网络 I/O 解耦根治 + ffi-verify 6 层闸门落地 @2026-06-22 | commit 448a993..4bfff14（worktree fix/lifecycle TDD → merge c10b2a9 → ffi-verify 4bfff14）| helix/dev-zlc
+  ↳ 🎯 EXPECT 真源 = **worktree REPORT.md**（开局写·git `448a993` 可查·**并行规划支柱③：worktree 线 EXPECT 落 REPORT、集成者汇总 DONE 到根 SESSION，非孤儿 DONE**）
+  ↳ 根治（systematic-debugging Phase1-4 确证 + worktree TDD 红→绿）：连不上服务器时 helix_create/helix_destroy 各卡 30s（本机 5s=OS TCP connect timeout 先于 reqwest 30s 应用层触发）——① create `ws.connect` 异步化（pump spawn 后台连接·ready_tx 立即回传，兑现「连不上仍进泵」）② destroy 必达 Http drain 上限（spawner `shutdown_with_timeout` + engine `HTTP_DRAIN_LIMIT=3s` 超时 abort）。**五不变量⑤ 改写**「drain=必达 Http 已持久化(乐观态)·落地靠重发，非必等满网络」+ host/native CLAUDE/AGENTS 4 文件镜像
+  ↳ HX-C011 双向证伪铁证：①还原同步 connect→FAIL@5s / 根治 PASS@0.02s；②还原无上限 drain→FAIL@4.99s / 根治 PASS；两测各守一根因·互不串扰
+  ↳ ffi-verify.sh 落地（6 层端线自验·**并行规划支柱④**）：**首跑即抓到此 destroy bug（脚本价值自证）**→ 根治后全 6 层 PASS 24.68s（e2e 60s→0.23s·cpp-smoke timeout→0.06s·console PASS）；gate.sh 第3步补 ffi test + --full 加 cpp-smoke
+  ↳ 验证：FFI 17 + native stress 6/6 + host 17 全过·core 零改(grep 空)·clippy 零新 warning·structure-gate·黑名单(core/im/根)零触碰·与活跃 sync-v2-report 零交集 merge·gap=4 绿
+  ↳ EXPECT 6 断言对账：5 命中 + #4「真 Go 连得上时必达 Http 落地」⚠️**部分**（本环境无真 Go·结构化论证替代：drain 上限 3s≫LAN POST 往返·连得上不 abort 落地路径不变）→ **backlog：go+grpc 真连补验 #4**
+  ↳ ⚡ DRIFT-PRED ①（根因数值+复现源）：开局赌 30s 实测 5s（TCP connect 层 OS timeout 先触发）；`*.example.test` 被本机 DNS 重定向 fast-refuse 假绿(0.02s)测不出阻塞→改 blackhole IP `192.0.2.1`(RFC5737)才真复现。候选教训：**timeout bug 复现用稳定 hang 的 blackhole IP，非 DNS-refuse 域名**
+  ↳ ⚡ DRIFT-PRED ②（测试覆盖）：多根因 bug 须**逐根因独立证伪**（单聚合断言碰巧覆盖①漏②，还原②无上限 drain 仍假绿）→补 `destroy_not_blocked` 独立测。**HX-C011 延伸**，候选并入（下次 drift-review 评估）
+
 ✅ DONE 修复 backlog：建 HX-C012（候选）+ f5 F1/F2 文档诚实化 @2026-06-21 | commit 3418ac7..a409eea（A 建卡 / B f5 / C 自指 recurrence） | helix/dev-zlc
   ↳ 候选 HX-C012：**用户拍板**建卡——实质任务（含 test/CI/harness ≥50 行或新源文件）须**开局**写 🎯 EXPECT·禁事后补记（堵 DRIFT-PRED 永空 audit 后门）；drift-review wf_fd406543-c76 回放闸门 **HOLD** 在卡 §7 诚实记录（历史 trap 均代码级·与流程治理缺口性质不同源）；索引 11→12 四处同步（卡数==README==CLAUDE==AGENTS==12 + 根镜像 diff 空）
   ↳ f5：egress_parity.rs 头注/doc 诚实化——F1 收紧措辞：证的是 **egress 管道 parity**（batch roundtrip HX-C007 vs broadcast 对同一 source byte-identical）非端到端引擎双端等价（引擎靠共享 build_shell by-construction）；F2 doc `subscribe_observed()`→裸 `try_recv` 如实（与 host-cli main.rs:170/243 对齐）+ FfiEventSink 无 lagged/resync 登记前移 M2；**零逻辑改·f5 两测 2+2 passed**

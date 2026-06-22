@@ -1,135 +1,75 @@
+//! Dead-action graceful no-op：`posted` / `post_urgent` / `post_edited`（P4 dead-action 清理）。
+//!
+//! 行为真源（现网 source of truth）：csesapi send/广播路径**只走 `post`**（WebsocketEventPost），
+//! echo 对账与新消息统一经 `post.rs` handler（temporary_id ON CONFLICT 自然对账）。`posted`
+//! （WebsocketEventPosted）是 mattermost core 遗留事件，**非** csesapi 业务路径；`post_urgent`/
+//! `post_edited` 是内部归一名（wire 实际是 `post_update`），从不作为独立 wire action 出现。
+//!
+//! P4 前 helix 曾在此做 `posted` 帧的 temporary_id reconcile（legacy 残影），与「send echo 只走
+//! `post`」契约冲突（见 `p1_send_build_test.rs:321` 留给 main 裁决的 blocker）。本次按 02 文档 P4
+//! 「不要实现 dead action posted/post_urgent/post_edited」下线该 reconcile：echo 对账唯一真路径 =
+//! `post.rs::reconcile_post_echo`。
+//!
+//! 仍**注册**这三个 action（而非删除）——保留 graceful no-op：若线上偶发收到这类遗留帧，经 registry
+//! 正常路由不冒 `UnsupportedWsAction` 硬错（module.rs dispatch 把 UnsupportedWsAction 升 CoreError），
+//! 对齐真源 `router.rs:46 _ => vec![]` 未知 action 静默口径。无任何业务 Effect。
+
 use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::state::{ChannelId, Seq, ServerId, TemporaryId};
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
 const POSTED_ACTION: &str = "posted";
+const POST_URGENT_ACTION: &str = "post_urgent";
+const POST_EDITED_ACTION: &str = "post_edited";
 
-struct PostedHandler;
+/// 参数化 dead-action no-op handler（三个遗留 action 共用形态，各自独立注册）。
+struct DeadActionHandler {
+    action: &'static str,
+}
 
-impl WsMessageHandler for PostedHandler {
+impl WsMessageHandler for DeadActionHandler {
     fn action(&self) -> &'static str {
-        POSTED_ACTION
+        self.action
     }
 
     fn handle(
         &self,
-        ctx: &mut ImWsContext<'_>,
-        frame: &WsFrame,
-        out: &mut EffectSink,
+        _ctx: &mut ImWsContext<'_>,
+        _frame: &WsFrame,
+        _out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 非 echo 的 posted（无本端 temporary_id，他人推送/legacy）→ 优雅忽略（Ok(None)），
-        // 对齐行为真源 dev 口径（classify_inbound：非 echo posted → Ignored），不冒泡 error! 噪声。
-        if let Some(echo) = parse_echo(frame)? {
-            reconcile_echo(ctx, echo, out);
-        }
+        // dead action：不实现业务逻辑（echo 真路径 = post.rs）。no-op，无 Effect。
         Ok(())
     }
 }
 
-struct PostedEcho {
-    channel_id: ChannelId,
-    seq: Seq,
-    temporary_id: String,
-    server_id: ServerId,
-}
-
-/// `posted` 帧 → echo 对账载荷。返回三态（边界零信任，helix-im 不变量 4）：
-/// - `Ok(Some)`：本端 echo（带 temporary_id + 合法 server_id/channel_id/seq）；
-/// - `Ok(None)`：非 echo posted（无 temporary_id，他人推送/legacy）→ 优雅忽略（**非错误**，
-///   对齐 dev 行为真源口径 classify_inbound「非 echo posted → Ignored」，不冒泡 error! 日志）；
-/// - `Err`：带 temporary_id 但必填字段非法（真畸形帧，照常上浮）。
-fn parse_echo(frame: &WsFrame) -> Result<Option<PostedEcho>, ImError> {
-    let data = frame.data_required()?;
-    let post = data.get("post").unwrap_or(data);
-
-    let Some(temporary_id) = post
-        .get("temporary_id")
-        .or_else(|| post.get("temporaryId"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-    else {
-        return Ok(None);
-    };
-
-    let server_id = post
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .and_then(ServerId::from_str)
-        .ok_or_else(invalid_posted_echo)?;
-
-    let channel_id = post
-        .get("channel_id")
-        .or_else(|| post.get("channelId"))
-        .and_then(serde_json::Value::as_str)
-        .and_then(ChannelId::from_str)
-        .ok_or_else(invalid_posted_echo)?;
-
-    let seq = data
-        .get("event_seq")
-        .and_then(serde_json::Value::as_u64)
-        .or_else(|| {
-            post.get("props")
-                .and_then(|props| props.get("channel_event_seq"))
-                .and_then(serde_json::Value::as_u64)
-        })
-        .or_else(|| {
-            frame
-                .root()
-                .get("channel_event_seq")
-                .and_then(serde_json::Value::as_u64)
-        })
-        .map(Seq)
-        .ok_or_else(invalid_posted_echo)?;
-
-    Ok(Some(PostedEcho {
-        channel_id,
-        seq,
-        temporary_id,
-        server_id,
-    }))
-}
-
-fn invalid_posted_echo() -> ImError {
-    ImError::InvalidWsFrame("invalid posted echo required fields".to_string())
-}
-
-fn reconcile_echo(ctx: &mut ImWsContext<'_>, echo: PostedEcho, out: &mut EffectSink) {
-    let tmp_id = TemporaryId(echo.temporary_id);
-    let reconcile_corr = ctx.alloc_corr();
-    // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于对账后 O(1) 清路由。
-    let persist_corr = ctx
-        .state
-        .pending_sends
-        .get(&tmp_id)
-        .and_then(|ps| ps.persist_corr);
-    if let Some(ps) = ctx.state.pending_sends.get_mut(&tmp_id) {
-        ps.reconcile(echo.server_id, reconcile_corr, out);
-        // R4-retain：对账落定后 O(1) 移除该 send 的 OptimisticSend 路由（防 corr_map 泄漏）。
-        // PendingSend 本身**保留**（status=Sent 可查询，对齐 `posted` 路径既有契约：
-        // 迟到 15s timer 凭 status==Sent 幂等无害）。
-        if let Some(corr) = persist_corr {
-            ctx.state.corr_map.remove(&corr);
-        }
-    }
-    // cursor 独立推进（与 pending_sends 借用解耦，HX-C008）。
-    if let Some(ch) = ctx.state.channels.get_mut(&echo.channel_id) {
-        let _ = ch.cursor.try_advance(echo.seq);
-        out.push(crate::acl::to_effect::advance_cursor(
-            echo.channel_id,
-            echo.seq,
-        ));
-    }
-}
-
-static POSTED_HANDLER: PostedHandler = PostedHandler;
+static POSTED_HANDLER: DeadActionHandler = DeadActionHandler {
+    action: POSTED_ACTION,
+};
+static POST_URGENT_HANDLER: DeadActionHandler = DeadActionHandler {
+    action: POST_URGENT_ACTION,
+};
+static POST_EDITED_HANDLER: DeadActionHandler = DeadActionHandler {
+    action: POST_EDITED_ACTION,
+};
 
 #[distributed_slice(WS_HANDLERS)]
 static POSTED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
     action: POSTED_ACTION,
     handler: &POSTED_HANDLER,
+};
+
+#[distributed_slice(WS_HANDLERS)]
+static POST_URGENT_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
+    action: POST_URGENT_ACTION,
+    handler: &POST_URGENT_HANDLER,
+};
+
+#[distributed_slice(WS_HANDLERS)]
+static POST_EDITED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
+    action: POST_EDITED_ACTION,
+    handler: &POST_EDITED_HANDLER,
 };

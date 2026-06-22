@@ -138,6 +138,14 @@ impl ImModule {
         self.state.pending_sends.len()
     }
 
+    /// B4：全局在途 sync 数 + 待 dispatch 队列长（HX-C011 证伪性质测试结构化断言用）。
+    pub fn sync_inflight(&self) -> usize {
+        self.state.sync_scheduler.inflight()
+    }
+    pub fn sync_pending_len(&self) -> usize {
+        self.state.sync_scheduler.pending_len()
+    }
+
     /// 查询某 temporary_id 的 PendingSend 状态（测试 / 诊断用）。
     /// 用于 C1 echo→reconcile 断言「对账后 PendingSend 推进到 Sent」。
     pub fn pending_send_status(&self, temporary_id: &str) -> Option<SendStatus> {
@@ -209,21 +217,12 @@ impl ImModule {
         crate::ws::handlers::increment_channel_end::apply_increment_end(&mut ctx, ch, out);
     }
 
-    /// 处理 PortReply（Persist/Http 的异步结果回报）
+    /// 处理 PortReply（Persist/Http 的异步结果回报）。
     ///
-    /// ## MAJ-1 修复
-    ///
-    /// 原实现在 `state.pending_commits` 中查找，但 `channel.pending_commits` 才是
-    /// cursor 推进的聚合根。修复（统一 `corr_map` 单表 + `match CorrelationContext` 分发，
-    /// 类别互斥靠 corr 全局唯一保证，见 state.rs `CorrelationContext` 不变量）：
-    /// 1. `corr_map.remove(corr)` 取出上下文（取代旧 `corr_to_channel` 路由索引）
-    /// 2. `ChannelPersist` 变体 → 委托 `channel.on_persist_ok(corr, fx)` 推进 cursor
-    /// 3. 15s 超时 timer → 通过 `pending_sends`/`OptimisticSend` 变体找 PendingSend
-    ///
-    /// ## E4 修复
-    ///
-    /// `ScanCursors` 变体：on_start 发出的 Scan{channel_event_cursor} PortReply
-    /// 在此解析 rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel + 批量发 proactive sync Http。
+    /// 统一 `corr_map` 单表 + `match CorrelationContext` 分发（类别互斥靠 corr 全局唯一，见 state.rs
+    /// `CorrelationContext` 不变量）：`remove(corr)` 取上下文 → `ChannelPersist` 委托
+    /// `channel.on_persist_ok` 推 cursor / `OptimisticSend` 找 PendingSend / `ScanCursors`（E4）解析
+    /// on_start Scan rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel + proactive sync。
     fn handle_port_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -300,25 +299,24 @@ impl ImModule {
                 }
             },
 
-            // 路由：sync Http 回报（sync/notify 响应）
+            // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {
-                // B1 gate_inflight 清除：sync 回报到达，清除在途标记
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.inflight_sync = None;
                 }
+                // B4：释放 1 个全局 sync 窗口（Ok/Err 都释放——否则失败 sync 永久占窗 → 队列饿死）。
+                self.state.sync_scheduler.release_window();
                 match outcome {
                     PortOutcome::Ok(reply) => {
-                        self.handle_sync_reply(corr, channel_id, reply, out)?;
+                        self.handle_sync_reply(corr, channel_id, reply, out)?
                     }
-                    PortOutcome::Err(e) => {
-                        tracing::warn!(
-                            channel_id = channel_id.as_str(),
-                            corr = corr.raw(),
-                            error = ?e,
-                            "sync/notify failed"
-                        );
-                    }
+                    PortOutcome::Err(e) => tracing::warn!(
+                        channel_id = channel_id.as_str(), corr = corr.raw(), error = ?e,
+                        "sync/notify failed"
+                    ),
                 }
+                // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
+                self.drain_sync_queue(out);
             }
         }
 
@@ -521,6 +519,8 @@ impl ImModule {
         if let Some(ch) = self.state.channels.get_mut(&channel_id) {
             ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
         }
+        // B4：续拉重新占 1 个全局窗口（SyncPull 回报已 release），保持 inflight = 真在途数。
+        self.state.sync_scheduler.acquire_window();
         out.push(crate::acl::to_effect::sync_notify(
             &self.config.api_base_url,
             channel_id,
@@ -553,11 +553,9 @@ impl ImModule {
         use crate::parser::parse_sync_response;
         use crate::sync_session::SyncResponse;
 
-        // #6 信封解层（仅 SyncPull 路径，scan 路径不经此）：ADR-007 driver 把每条 2xx 响应包成
-        // `{status, headers, body: base64(raw_go_body)}` 信封（host run_http_envelope，native+FFI 共享）。
-        // 直接把信封喂 parse_sync_response → 找不到 data.entries → 静默 NoChange → 0 persist / 0 emit
-        // → 离线消息悄无声息丢失（#6 latent bug）。故此处先剥信封 + base64 decode 出裸 Go body 再解析。
-        // 边界零信任（HX-C 不变量 4）：信封 / base64 畸形走 Result::Err，不 unwrap、不 panic、不静默吞。
+        // #6 信封解层（仅 SyncPull 路径）：剥 ADR-007 `{status,headers,body:base64(raw_go_body)}` 信封
+        // + base64 decode 出裸 Go body 再解析（直喂信封会找不到 data.entries → 静默 NoChange 丢消息）。
+        // 边界零信任（HX-C 不变量 4）：信封 / base64 畸形走 Result::Err，不 unwrap / panic / 静默吞。
         let raw_body = unwrap_sync_envelope(reply.0.as_ref())?;
         let response = parse_sync_response(raw_body.as_ref(), channel_id)
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
@@ -584,20 +582,17 @@ impl ImModule {
                     return Ok(());
                 }
 
-                // peek/commit 三阶段：peek（只读预览，不推 cursor）
-                // 为整批事件分配一个 Persist corr（先分配，避免借用冲突）
-                // cursor 锚服务端权威 next_seq（跳过尾部稀疏/phantom 空洞，防 cursor 落后→sync 风暴）；
+                // B6/HX-C008 cursor 锚服务端权威 next_seq（跳尾部稀疏/phantom 空洞，防 cursor 落后→风暴）；
                 // 取 max(next_seq, 实际末条) 兜底异常响应（next_seq < 末条时不丢已落库事件）。
                 let max_event_seq = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
                 let commit_target = next_seq.max(max_event_seq);
                 let persist_corr = self.alloc_corr_internal();
-                // C2：按 messages map 落库（phantom 跳过 / readBits 单调覆盖 / edit / revoke）。
-                // persist_ops 可能 < events.len()（全 phantom = 空），但 cursor 仍推进到
-                // commit_target——phantom 不卡 cursor（HX-C008 §1.6，真源 post.rs:1271-1280）。
+                // C2：按 messages map 落库（phantom 跳过 / readBits 单调覆盖 / edit / revoke）；persist_ops
+                // 可能 < events.len()（全 phantom = 空），cursor 仍推进 commit_target（HX-C008 §1.6）。
                 let mut persist_ops =
                     crate::acl::to_effect::batch_upsert_events_with_messages(&events, &messages);
-                // A3/CAP-9：可见 type1 离线未读 +1 落 DB（并入同一 Persist 批，与消息落库同 corr →
-                // unread 列写成功后 cursor 才推进；不只 emit 把 +N 推前端）。真源 feat module.rs:563-571。
+                // A3/CAP-9：可见 type1 离线未读 +1 落 DB（并入同 Persist 批同 corr，unread 写成功 cursor
+                // 才推进，不只 emit 推前端）。真源 feat module.rs:563-571。
                 let auth_user_id = self.config.auth_user_id.as_str();
                 persist_ops.extend(crate::acl::to_effect::sync_unread_bump_ops(
                     &events,
@@ -611,8 +606,7 @@ impl ImModule {
                     corr: persist_corr,
                     ops: persist_ops,
                 });
-                // E3：续拉意图归并为 ChannelPersist 变体的 wants_continuation 字段
-                // （旧 corr_to_channel + continuation_pending 两张表合并为一条 entry）。
+                // E3：续拉意图归并为 ChannelPersist 变体的 wants_continuation 字段。
                 self.state.corr_map.insert(
                     persist_corr,
                     CorrelationContext::ChannelPersist {
@@ -620,11 +614,9 @@ impl ImModule {
                         wants_continuation: needs_continuation,
                     },
                 );
-                // C3-core：落库 Persist 入队后，逐事件 emit sync 驱动的 mutation 事件
-                // （post:received/updated/deleted/read + channel:update-by-post）。phantom-aware
-                // 与落库同口径（可见才动 UI）；真源 apply_event_with_messages（post.rs:1146-1448）。
-                // 落库与 emit 同批 step 内吐出，前端经 im:__bus__ 消费（HX-C008：emit 不卡 cursor，
-                // cursor 仍由 persist_corr 的 PortReply Ok 独立推进到 commit_target）。
+                // C3-core：落库 Persist 入队后逐事件 emit sync mutation（post:received/updated/deleted/
+                // read + channel:update-by-post），phantom-aware 同落库口径（可见才动 UI），真源
+                // post.rs:1146-1448。HX-C008：emit 不卡 cursor（cursor 由 persist_corr Ok 独立推进）。
                 for emit in crate::acl::to_effect::sync_mutation_emits(&events, &messages) {
                     out.push(emit);
                 }
@@ -646,11 +638,9 @@ impl ImModule {
             }
 
             SyncResponse::Snapshot(snap) => {
-                // Snapshot（A2-reserved）：wire 协议定义但**服务端未实现**（现网 sync.rs:71 「保留扩展」，
-                // 真帧从不产生此分支）。现网 Rust 把 `Events | Snapshot` 合并同分支治理、仅 Snapshot 不续拉
-                // （post.rs:931）。helix 对齐：**覆盖式 batch_upsert + cursor 跳 reset_to + 不续拉**，
-                // **绝不**物理 `DELETE FROM message`——「清旧」靠 ON CONFLICT 幂等覆盖（与 too_long 同语义，
-                // 现网 im-sync.service.ts 实证）。物理 DELETE 仅限 channel_member（成员全替换）/ event_cursor。
+                // Snapshot（A2-reserved）：wire 定义但服务端未实现（sync.rs:71，真帧不产生此分支）。对齐现网
+                // （post.rs:931）：覆盖式 batch_upsert + cursor 跳 reset_to + 不续拉；**绝不**物理 DELETE
+                // message（「清旧」靠 ON CONFLICT 幂等覆盖）。物理 DELETE 仅限 channel_member / event_cursor。
                 let persist_corr = self.alloc_corr_internal();
                 let reset_to = snap.reset_to;
                 let persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);
@@ -685,6 +675,18 @@ impl ImModule {
         let c = helix_core::Correlation::from_raw(self.next_corr);
         self.next_corr += 1;
         c
+    }
+
+    /// B4：drain SyncScheduler 队列至满窗（拆借 state + next_corr 分配器，避免 &mut self 双借）。
+    fn drain_sync_queue(&mut self, out: &mut EffectSink) {
+        let api_base_url = self.config.api_base_url.clone();
+        let next_corr = &mut self.next_corr;
+        let mut alloc = || {
+            let c = helix_core::Correlation::from_raw(*next_corr);
+            *next_corr += 1;
+            c
+        };
+        crate::sync_scheduler::drain(&mut self.state, &api_base_url, &mut alloc, out);
     }
 
     /// 处理 Timer 触发
@@ -882,12 +884,10 @@ impl ImModule {
         Ok(())
     }
 
-    /// `Tick::Inbound` 解析后的统一 dispatch：`WsFrame::parse` → WS registry by action。
-    ///
-    /// registry 策略注册表按顶层 `action` 路由到对应 handler（hello / increment_channel /
-    /// increment_channel_end / post / posted / 运维 ignored / 无 action 的 legacy event）。
-    /// 未知 action → `UnsupportedWsAction`（生产路径可观测）。各 handler 在 `ImWsContext`
-    /// 上操作 state，副作用经 `out.push(Effect::…)`，保持 handle 同步纯函数。
+    /// `Tick::Inbound` 解析后的统一 dispatch：`WsFrame::parse` → WS registry by `action`（hello /
+    /// increment_channel(_end) / post / 19 事件全集 / dead-action no-op / 无 action 的 legacy event）。
+    /// 未知 action → `UnsupportedWsAction`（可观测）。各 handler 在 `ImWsContext` 上操作 state，副作用
+    /// 经 `out.push(Effect::…)`，保持 handle 同步纯函数。
     fn dispatch_ws_frame(
         &mut self,
         frame: &crate::ws::WsFrame,

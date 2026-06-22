@@ -27,6 +27,7 @@ pub mod parser;
 pub mod pending_send;
 pub mod schema;
 pub mod state;
+pub mod sync_scheduler;
 pub mod sync_session;
 pub(crate) mod ws;
 

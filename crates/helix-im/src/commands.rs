@@ -8,4 +8,4 @@
 //!
 //! `im_send_message` 因带乐观落库 / timer / PendingSend 对账，仍留 `module.rs`，不在本表。
 
-pub use crate::outbound::registry::{handle_outbound, is_outbound};
+pub use crate::outbound::registry::{handle_outbound, is_outbound, outbound_command_count};

@@ -95,6 +95,14 @@ pub fn is_outbound(name: &str) -> bool {
     registry().map(|m| m.contains_key(name)).unwrap_or(false)
 }
 
+/// 注册表命令总数（`im_send_message` 不在内——它走 module.rs send arm，非 HTTP-fire outbound）。
+///
+/// 供性质测试断言「outbound 注册总数」不漂移（CP：补 createPosts 后 = 88）；构建失败（重复/错配）
+/// 退化为 0（不吞 `Result`，O(1) 取 len）。
+pub fn outbound_command_count() -> usize {
+    registry().map(HashMap::len).unwrap_or(0)
+}
+
 /// 把一条 outbound 命令翻成 Effect 列表（当前恒为单条 `Effect::Http`）。
 pub fn handle_outbound(
     name: &str,

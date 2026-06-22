@@ -13,6 +13,8 @@ pub mod send_build;
 pub mod channel_existing;
 pub mod post_props;
 pub mod posts_existing;
+// CP：posts/createPosts 批量转发（补齐唯一挂起 outbound，88→89）。独立文件零交集。
+pub mod posts_relay;
 // P3a posts 读族（G1 并行，独立 distributed_slice 注册，与 channel* 零交集）。
 pub mod posts_read;
 // P3b channel 写族（G1 并行，独立 distributed_slice 注册，与 posts_read 零交集）：
@@ -35,4 +37,4 @@ pub mod user_misc;
 pub mod bot_agent;
 
 // 对外单一入口：accepts_tick / module.rs dispatch / 集成测试都从此处取。
-pub use registry::{handle_outbound, is_outbound};
+pub use registry::{handle_outbound, is_outbound, outbound_command_count};

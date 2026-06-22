@@ -97,8 +97,7 @@ pub fn run(args: PumpArgs) {
         };
         let main_transport = TransportId::from_raw(MAIN_TRANSPORT);
         // 入站帧 → Tick::Inbound 直发泵（with_inbound_tick）；不经 C++。
-        let mut ws = match SharedWsClient::with_registry(args.config.clone(), args.headers.clone())
-        {
+        let ws = match SharedWsClient::with_registry(args.config.clone(), args.headers.clone()) {
             Ok(c) => c.with_inbound_tick(main_transport, args.tick_tx.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedWsClient 失败");
@@ -106,12 +105,35 @@ pub fn run(args: PumpArgs) {
                 return;
             }
         };
-        // 连不上不退出——仍进泵，Effect::Send 走 host 「发送失败 warn」兜底（对齐 host-cli A1）。
-        if let Err(e) = ws.connect().await {
-            tracing::error!(error = %e, "FFI pump 主 WS 连接失败——仍进泵，上行走 warn 兜底");
-        }
+        // 🔴 connect 异步化（fix/lifecycle-net-decouple）：**装配阶段绝不 await connect**——
+        // 否则连不上的 host 会让 `helix_create_with_network` 同步阻塞满 `DEFAULT_TIMEOUT_SECS`
+        // （实测 create 卡死直到 TCP connect 超时）。ws 先进 transports table，再 spawn 后台连接
+        // 任务，`ready_tx` 立即回传 → create 不等网络（兑现 :109 旧注释「连不上仍进泵」意图：
+        // 真正做到「立即进泵、连接后台进行」，而非旧实现的 `await` 同步等满）。
+        //
+        // 未连上时的出站语义（已正确，无需额外处理）：`Effect::Send` 在 host `dispatch` 里对
+        // `WsState::Disconnected` 走 `send()→Err` 的「发送失败 warn」兜底（dispatch.rs 连接异常分支），
+        // 不 panic、不阻塞泵。连上后读任务把入站帧作 `Tick::Inbound` 直发泵（with_inbound_tick）。
+        let ws_handle = Arc::new(tokio::sync::Mutex::new(ws));
         let mut transports: TransportTable<SharedWsClient> = TransportTable::new();
-        transports.insert(main_transport, Arc::new(tokio::sync::Mutex::new(ws)));
+        transports.insert(main_transport, Arc::clone(&ws_handle));
+        // 后台连接任务：与泵核同跑此 current_thread runtime（spawn 进同 runtime 域）。
+        // 连不上仅 warn——上行走 dispatch 的 warn 兜底，连接由读任务/后续重连推进（YAGNI：
+        // 当前不内建退避重连，对齐 host-cli「连不上仍进泵」最简语义；重连留 IM 层 im_reconnect 命令驱动）。
+        //
+        // ⚠️ 锁跨 connect().await 的死锁/停顿分析（五不变量② 主循环不等 I/O 的守护）：
+        // 此任务持 `ws_handle`（= transports[main] 同一 Arc<Mutex>）跨 `connect().await`（连不上
+        // 可达 ~30s）。理论上若此窗口内泵分流 `Effect::Send`，dispatch 的 `t.lock().await` 会等满
+        // → 泵停顿。**实际不发生**：IM 的 `Effect::Send`（hello-ack/ping/业务 WS 帧）只在 transport
+        // 报 Connected + 服务端下发 hello **之后**才产出（module.rs handle_hello 链；ping 在 hello 后
+        // 才 ScheduleTimer）。而 hello 经读任务 `Tick::Inbound` 进泵——读任务只在 connect 成功后才
+        // 启动。故 connect 在途（未成功）时**无任何 Send 入泵**，锁无人争用；connect 成功瞬间锁即
+        // 释放，其后的 Send 畅通。on_start 产 Scan/Http（不走此锁），亦不受影响。
+        tokio::spawn(async move {
+            if let Err(e) = ws_handle.lock().await.connect().await {
+                tracing::error!(error = %e, "FFI pump 主 WS 后台连接失败——仍进泵，上行走 warn 兜底");
+            }
+        });
 
         // ── event sink（FFI 批处理 egress）+ clock（host 注入壁钟）────────
         let event_sink = FfiEventSink::new(args.vtable);

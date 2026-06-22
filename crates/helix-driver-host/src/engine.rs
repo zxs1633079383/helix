@@ -21,7 +21,11 @@
 //!    （🔴 抽水绝不放泵循环）。HttpFire 走 DropNewest（满即丢当前条目，泵不阻塞）。
 //! 3. 同 key 写顺序：Persist per-table-set N=1 单消费者保序。
 //! 4. 回灌优先：biased select reply_rx 在前。
-//! 5. graceful drain：返回 = 全部已接收 Persist + 必达 Http 已落地。
+//! 5. graceful drain：返回 = 全部已接收 Persist **已落地** + 必达 Http **已持久化(乐观态)**。
+//!    必达 Http drain 有上限（`HTTP_DRAIN_LIMIT`）：在途请求超时则 abort，不等满网络 timeout。
+//!    「必达」由乐观态(status=Sending)落库 + 重连重发对账承担，不由「drain 必等满网络」承担——
+//!    生命周期（destroy）绝不被不可控的网络 I/O 阻塞（fix/lifecycle-net-decouple）。
+//!    Persist drain 仍无上限（本地 DB 写，毫秒级，无网络不可控性，保「同 key 写顺序+全落地」）。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,6 +63,14 @@ use crate::owned_effect::consume_effects;
 use crate::pools::spawn_http_pool;
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
+
+/// graceful drain 时「必达 Http」在途请求的 join 上限（fix/lifecycle-net-decouple）。
+///
+/// 必达 Http reqwest 单条可卡满 `DEFAULT_TIMEOUT_SECS`（连不上 host ~30s）。drain 给此上限：
+/// 超时 abort 在途请求，让生命周期（helix_destroy）快速退出，而非等满网络 timeout。
+/// 不丢保证由「乐观态持久化 + 重连重发对账」承担（见五不变量⑤ + `shutdown_with_timeout` doc）。
+/// 取 3s：足够覆盖正常 LAN 内 POST /posts/create 往返（毫秒级），又远小于 30s 网络 timeout。
+const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// `TransportId → 实际连接` 路由表（泛型 over Transport 实现）。
 ///
@@ -217,21 +229,32 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     // ── Graceful drain（不变量5）──────────────────────────────────────────
     //
     // 正确关闭顺序（每个 BoundedSpawner.shutdown 内部：drop tx → worker recv None → join）：
-    // 1. shutdown 全部 Persist（必达落地）
-    // 2. shutdown Http(必达)（必达落地）
-    // 3. shutdown HttpFire（尽力 join，可丢，不纳入「必达落地」保证）
+    // 1. shutdown 全部 Persist（必达落地——本地 DB 写，无网络，无上限 join）
+    // 2. shutdown Http(必达)（**有上限** drain：不被在途网络阻塞，超时 abort 在途 reqwest）
+    // 3. shutdown HttpFire（尽力 join，可丢，不纳入「必达落地」保证；同样有上限）
     // 4. drain reply_rx（捡走写完后才回灌的最后一批 PortReply）
     tracing::info!(
         "helix engine loop: tick_rx closed, draining {} persist + http pools",
         persist_workers.len()
     );
 
+    // Persist：本地 SQLite 写，毫秒级，无网络不可控性 → 无上限 join（保「同 key 写顺序+全落地」）。
     for (_, sp) in persist_workers.drain() {
         sp.shutdown().await;
     }
-    http_pool.shutdown().await;
-    http_fire_pool.shutdown().await;
+    // 必达 Http：给上限（HTTP_DRAIN_LIMIT）。在途 reqwest 连不上 host 时单条卡满
+    // DEFAULT_TIMEOUT_SECS（~30s），无上限会让 graceful drain（→ helix_destroy）等满该 timeout。
+    // 超时则 abort 在途——乐观态 status=Sending 已落库（真源），不丢，靠重连重发对账兜底
+    // （不变量5 改写：见本文件头注「五不变量⑤」+ helix-driver-{host,native} CLAUDE.md）。
+    if !http_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
+        tracing::warn!(
+            limit_ms = HTTP_DRAIN_LIMIT.as_millis(),
+            "必达 Http drain 超上限——abort 在途请求（乐观态已持久化，靠重连重发对账兜底）"
+        );
+    }
+    // HttpFire：可丢，同样封顶（不阻塞退出）。
+    let _ = http_fire_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await;
     while reply_rx.try_recv().is_ok() {}
 
-    tracing::info!("helix engine loop exited (all persists + 必达 http drained)");
+    tracing::info!("helix engine loop exited (persists drained; 必达 http drained or aborted at limit)");
 }

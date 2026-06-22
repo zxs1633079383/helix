@@ -40,8 +40,9 @@
 | [HX-C009](./HX-C009-expect-reconcile-loop-integrity.md) | active | major | 预期对账闭环完整性（DRIFT-PRED 真接入·EXPECT 可证伪·偏离不自产自判）| grep gate + node --check | 1 | 2026-06-17 |
 | [HX-C010](./HX-C010-deterministic-effect-ordering-from-collections.md) | active | major | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序破可回放）| 回放测试 pin 顺序 + grep | 1 | 2026-06-18 |
 | [HX-C011](./HX-C011-test-falsifiability.md) | active | major | 测试可证伪性铁律：压测/并发不变量测试必带「破坏即 fail」证伪 · 禁墙钟下界断言（结构化/计数证不变量）| grep wall>=断言 + 破坏→fail 证明 | 3 | 2026-06-18 |
+| [HX-C012](./HX-C012-substantive-task-must-open-expect.md) | active | medium | 实质任务（含 test/CI/harness ≥50 行或新源文件）须开局写 🎯 EXPECT，禁事后补记（堵 DRIFT-PRED 永空 audit 后门）| grep DONE↔EXPECT 配对 | 3 | 2026-06-21 |
 
-> 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=11）。不等 = 漂移，立即修。
+> 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=12）。不等 = 漂移，立即修。
 
 ## 4. 目录结构
 
@@ -51,7 +52,7 @@ docs/harness/
 ├── TEMPLATE.md          ← 7 节卡片模板
 ├── decisions.md         ← 关键架构拍板记录（ADR-lite）
 ├── log.md               ← 跨卡复现日志
-└── HX-C001 .. HX-C011   ← 11 条（HX-C003 archived，余 active）
+└── HX-C001 .. HX-C012   ← 12 条（HX-C003 archived，余 active）
 ```
 
 ## 5. 生命周期

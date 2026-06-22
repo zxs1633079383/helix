@@ -118,6 +118,34 @@
 🔁 **dev-zlc 分叉监控（防再分叉 · 手动 cadence，durable cron 本环境不支持）**：新会话开局 + re-port 每个 commit 检查点，跑一次 `git rev-list --count feat/sync-v2-report-on-adr007..dev-zlc` 看落后多少；**落后 ≥5 或 dev-zlc 动了 `helix-driver-host/engine.rs`·`http_envelope.rs`·`helix-im` → 先 rebase 本分支到 dev-zlc 再续 re-port**，别让架构再岔。新会话也可自挂 session-only cron（`*/57 * * * *`）跑上面那条命令兜底。
 
 ✅ DONE sync-v2 全链真机闭环（在线+离线）@2026-06-18 | feat/sync-v2-full-replacement（参照源，未合并）：删库重拉离线 backfill 实证（Go `kind=events fromSeq=0`→message 落行）+ 在线发收 echo 回填。6 fix + member_count 全 commit、cargo/test 绿。**唯落到 dev-zlc 的 re-port 待做（见上续接）。**
+✅ DONE 生命周期与网络 I/O 解耦根治 + ffi-verify 6 层闸门落地 @2026-06-22 | commit 448a993..4bfff14（worktree fix/lifecycle TDD → merge c10b2a9 → ffi-verify 4bfff14）| helix/dev-zlc
+  ↳ 🎯 EXPECT 真源 = **worktree REPORT.md**（开局写·git `448a993` 可查·**并行规划支柱③：worktree 线 EXPECT 落 REPORT、集成者汇总 DONE 到根 SESSION，非孤儿 DONE**）
+  ↳ 根治（systematic-debugging Phase1-4 确证 + worktree TDD 红→绿）：连不上服务器时 helix_create/helix_destroy 各卡 30s（本机 5s=OS TCP connect timeout 先于 reqwest 30s 应用层触发）——① create `ws.connect` 异步化（pump spawn 后台连接·ready_tx 立即回传，兑现「连不上仍进泵」）② destroy 必达 Http drain 上限（spawner `shutdown_with_timeout` + engine `HTTP_DRAIN_LIMIT=3s` 超时 abort）。**五不变量⑤ 改写**「drain=必达 Http 已持久化(乐观态)·落地靠重发，非必等满网络」+ host/native CLAUDE/AGENTS 4 文件镜像
+  ↳ HX-C011 双向证伪铁证：①还原同步 connect→FAIL@5s / 根治 PASS@0.02s；②还原无上限 drain→FAIL@4.99s / 根治 PASS；两测各守一根因·互不串扰
+  ↳ ffi-verify.sh 落地（6 层端线自验·**并行规划支柱④**）：**首跑即抓到此 destroy bug（脚本价值自证）**→ 根治后全 6 层 PASS 24.68s（e2e 60s→0.23s·cpp-smoke timeout→0.06s·console PASS）；gate.sh 第3步补 ffi test + --full 加 cpp-smoke
+  ↳ 验证：FFI 17 + native stress 6/6 + host 17 全过·core 零改(grep 空)·clippy 零新 warning·structure-gate·黑名单(core/im/根)零触碰·与活跃 sync-v2-report 零交集 merge·gap=4 绿
+  ↳ EXPECT 6 断言对账：5 命中 + #4「真 Go 连得上时必达 Http 落地」⚠️**部分**（本环境无真 Go·结构化论证替代：drain 上限 3s≫LAN POST 往返·连得上不 abort 落地路径不变）→ **backlog：go+grpc 真连补验 #4**
+  ↳ ⚡ DRIFT-PRED ①（根因数值+复现源）：开局赌 30s 实测 5s（TCP connect 层 OS timeout 先触发）；`*.example.test` 被本机 DNS 重定向 fast-refuse 假绿(0.02s)测不出阻塞→改 blackhole IP `192.0.2.1`(RFC5737)才真复现。候选教训：**timeout bug 复现用稳定 hang 的 blackhole IP，非 DNS-refuse 域名**
+  ↳ ⚡ DRIFT-PRED ②（测试覆盖）：多根因 bug 须**逐根因独立证伪**（单聚合断言碰巧覆盖①漏②，还原②无上限 drain 仍假绿）→补 `destroy_not_blocked` 独立测。**HX-C011 延伸**，候选并入（下次 drift-review 评估）
+
+✅ DONE 修复 backlog：建 HX-C012（候选）+ f5 F1/F2 文档诚实化 @2026-06-21 | commit 3418ac7..a409eea（A 建卡 / B f5 / C 自指 recurrence） | helix/dev-zlc
+  ↳ 候选 HX-C012：**用户拍板**建卡——实质任务（含 test/CI/harness ≥50 行或新源文件）须**开局**写 🎯 EXPECT·禁事后补记（堵 DRIFT-PRED 永空 audit 后门）；drift-review wf_fd406543-c76 回放闸门 **HOLD** 在卡 §7 诚实记录（历史 trap 均代码级·与流程治理缺口性质不同源）；索引 11→12 四处同步（卡数==README==CLAUDE==AGENTS==12 + 根镜像 diff 空）
+  ↳ f5：egress_parity.rs 头注/doc 诚实化——F1 收紧措辞：证的是 **egress 管道 parity**（batch roundtrip HX-C007 vs broadcast 对同一 source byte-identical）非端到端引擎双端等价（引擎靠共享 build_shell by-construction）；F2 doc `subscribe_observed()`→裸 `try_recv` 如实（与 host-cli main.rs:170/243 对齐）+ FfiEventSink 无 lagged/resync 登记前移 M2；**零逻辑改·f5 两测 2+2 passed**
+  ↳ ⚡ 自指（无配对 EXPECT 的诚实承认）：本「修复候选+f5」实质任务（6 文件跨 docs/test）**自身未开局写 EXPECT** = 刚建的 HX-C012 第 3 次同根复发 → recurrence 2→3·log.md+§5 如实记（**非补假 EXPECT，守 §3 Forbidden**）·同根达 3 部分缓解回放闸门 HOLD。本 DONE 即「孤儿 DONE」实例，留作 HX-C012 反面教材
+  ↳ 验证：harness 索引==12 四处一致 + 根 CLAUDE/AGENTS 镜像 diff 空 · structure-gate PASS · f5 两测全过 · core/im 零逻辑改
+
+🎯 EXPECT F4.5 Flutter FFI 桌面 demo（C 路线：完整 Xcode 待装 → console 证链路 + UI/test 代码就绪）@2026-06-18 | 赌注 中 | 可逆 是（Flutter 工程在仓外 /workspace/flutterWorkspace/helix_ffi_demo，删目录即回滚；仓内仅 3 行文档）
+  ↳ 可证伪预判：① 仓内只动 docs/superpowers/specs/2026-06-18-...（已）+ docs/flutter-demo-pointer.md + ffi CLAUDE.md/AGENTS.md 各 1 行索引，**helix-core/helix-im/cdylib 零改** ② `dart run` console 冒烟 PASS：dart:ffi→C++ shim→cdylib→pump→Emit→batch→`NativeCallable.listener` 异步回调收到含 `im:post:sending` 的批（证异步跨线程全链）③ build_native.sh 一键 `cargo build --release`(panic=abort) + `clang` 链 cdylib 产 libhelix_shim.dylib（otool -L 验 @rpath，**不碰 Xcode**）④ `cargo check -p helix-driver-ffi` 仍过 + `scripts/cpp-smoke.sh` 仍绿（零回归）⑤ structure-gate 镜像闸绿（ffi CLAUDE/AGENTS 成对 diff 空）⑥ integration_test/main.dart/maestro 代码就绪，`flutter test -d macos` 标 BLOCKED-on-Xcode（阶段 2，不计失败）
+  ↳ 偏离即记 DRIFT-PRED：若被迫改 cdylib 导出 / shim C++ 异常外逸跨 extern C / listener 拿到失效 ptr UAF / console 证不了异步跨线程 / 仓内动了 core·im / free_batch 非无状态
+
+✅ DONE F4.5 Flutter FFI 桌面 demo（C 路线·阶段1：console 证完整链路）@2026-06-18 | commit 195c88e..4db4592（spec+session+ffi 文档）+ 仓外工程 /workspace/flutterWorkspace/helix_ffi_demo | helix/dev-zlc
+  ↳ 链路真证（阶段1）：`dart run bin/console_smoke.dart` PASS×3 — dart:ffi→C++ shim(libhelix_shim.dylib)→cdylib→pump→Effect::Emit→batch→`NativeCallable.listener` 异步回调收 1 条 101B 完整 JSON `{"event":"im:post:sending"}`（listenerFired=true / free_batch 调用 / dispose 6 步 join pump，无 UAF·无 hang·exit 0）；build_native.sh 一键 cargo --release + clang 链 cdylib，两 dylib @loader_path 同目录（免 DYLD_LIBRARY_PATH）
+  ↳ Workflow 编排 9 agent：P1 脚手架×4 + P2 shim+Dart×2（**一次跑通零返工**）+ P3a console 验证 + P4 cpp-rust-systems-dev 闸门（🟢 7 不变量逐条带行号成立：malloc+memcpy 稳定化/noexcept+catch/整批一次/free_batch 无状态/uintptr_t↔UintPtr/销毁 6 步/C malloc-free 不混 new）+ 收口 gate（🟢）
+  ↳ 交付物：仓外 helix_ffi_demo（native/helix_shim.{h,cpp} + lib/{helix_ffi,main}.dart + bin/console_smoke.dart + integration_test + maestro 骨架 + tool/build_native.sh）；仓内 3 文档（docs/flutter-demo-pointer.md + ffi CLAUDE/AGENTS 镜像各 1 行）
+  ↳ 验证：cargo check -p helix-driver-ffi PASS(3.33s) + scripts/cpp-smoke.sh 零回归 PASS + structure-gate 镜像闸 PASS + core/im/.rs/Cargo.toml **零改**
+  ↳ EXPECT 对账：6 条断言**全命中**（仓内仅 3 文档 / console PASS 见 im:post:sending / build_native @loader_path / 零回归 / 镜像闸绿 / UI·test·maestro 代码就绪）→ **无 DRIFT-PRED**（预期全中）
+  ↳ 阶段2 BLOCKED-on-Xcode：`flutter test integration_test -d macos` 待用户装完整 Xcode+CocoaPods（本机仅 Command Line Tools，flutter doctor 实测）；UI/integration_test/maestro 代码已就绪，装后一键可跑
+  ↳ 收口：gap=10 → §4.7 强制 architecture-drift-review（紧接派，通过后更新 ledger e3540cf→HEAD）
 
 🎯 EXPECT F5 跨端 parity 自动化（同 Tick 剧本 native vs FFI byte-level 一致 · 设备无关）@2026-06-18 | 赌注 中 | 可逆 是（worktree feat/f5-cross-parity 未 merge）
   ↳ 可证伪预判：① golden Tick 剧本→Emit DomainEvent 序列 byte-identical 到 committed fixture + 跑两次确定性 ② native(NativeEventSink broadcast)↔ffi(FfiEventSink batch decode) 对同剧本 deliver 的 DomainEvent byte-identical ③ 改动只在 tests + golden fixture（不改 src 逻辑/不碰 core 行为）④ 两测 HX-C011 可证伪（改 emit / break egress → fixture mismatch FAIL，commit body 附破坏证明）⑤ cargo test 全绿 + native 零回归 + gate.sh 过

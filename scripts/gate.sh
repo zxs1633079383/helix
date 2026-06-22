@@ -13,8 +13,8 @@ echo "▶ [2/7] clippy（deny-list 生效）"
 cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet -- -D warnings 2>/dev/null \
   || cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
 
-echo "▶ [3/7] 测试（native 四 crate：core/im/driver-native/driver-host）"
-cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-host --quiet
+echo "▶ [3/7] 测试（五 crate：core/im/driver-native/driver-host + driver-ffi 含 f5 parity/e2e）"
+cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-host -p helix-driver-ffi --quiet
 
 echo "▶ [4/7] 零运行时闸门（HX-C001）"
 if cargo tree -p helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
@@ -49,6 +49,9 @@ if [ "${1:-}" = "--full" ]; then
   echo "▶ [full] 承压三件套（release）"
   cargo test --release -p helix-im --test stress_test --quiet -- --test-threads=1
   cargo test --release -p helix-driver-native --test stress_storage --test stress_engine --quiet -- --test-threads=1
+  echo "▶ [full] ffi C ABI cpp 直连冒烟（真 C++ link cdylib · cpp→rust→cpp）"
+  # ffi 线完整自验（含 C++ shim + Dart console 第6层）见 scripts/ffi-verify.sh（需仓外 demo）
+  bash scripts/cpp-smoke.sh
 fi
 
 echo "✅ 全部闸门通过"

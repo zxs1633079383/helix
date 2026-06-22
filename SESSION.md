@@ -47,12 +47,12 @@
   ↳ 可证伪预判：① emit_sync_too_long 加 reset_to → payload `{channelId, resetTo}`（对齐现网；2 调用点 module.rs 服务端值 / channel.rs 客户端溢出 cursor+1 同步）② **绝不**加 `DELETE FROM message`（加了即违现网）；Snapshot 分支文档化「A2-reserved + 治理-as-Events + no-DELETE-intentional」③ 三可证伪测试：too_long emit 含 resetTo · guarded_bump 守卫 FAIL(historical create_at≤水位)→不 bump(host conformance) · sender 豁免(auth set 自己消息→unread_delta 0) ④ #2 冷启动 unread server-authoritative + omit-fallback 已测/补 ⑤ cargo check 5 + test core/im/host/native 全绿 + gate + structure
   ↳ 偏离即记 DRIFT-PRED：若加 message DELETE / emit 仍缺 resetTo / 测试非证伪 / 改根黑名单 → 偏离
 
-✅ DONE #1/#2/#3 未读/同步三行为完整对齐现网 + 锁可证伪测试 @2026-06-22 | commit 待填 | helix/feat/sync-v2-report-on-adr007
+✅ DONE #1/#2/#3 未读/同步三行为完整对齐现网 + 锁可证伪测试 @2026-06-22 | commit 5b089f1 | helix/feat/sync-v2-report-on-adr007
   ↳ 真源裁定后落地：#1 在线增量（+1 per 新消息 / sender 豁免 / `create_at>last_root_post_at` 防历史重算）**已对+已测**（post.rs 内联 5 测自己/他人/不可见/NOTICE + host guard pass/fail）· #2 冷启动 unread = 服务端权威 `unreadCount`（Some→写/None→omit 回退本地）**已对+已测**（program_full S3）· #3 too_long/snapshot **覆盖式非删**（现网铁律）
   ↳ 真实修复：`emit_sync_too_long` 加 `reset_to` → payload `{channelId, resetTo}`（原缺 resetTo + `channel_id`snake→`channelId`，对齐现网 post.rs:918 前端 cursor=resetTo-1 记账契约）；2 调用点（module.rs 服务端值 / channel.rs 客户端 buffer 溢出 cursor+1）；Snapshot 分支文档化（A2-reserved + no-DELETE-intentional + 治理-as-Events）
   ↳ ⚡关键纠偏（现网 agent）：too_long/snapshot **不物理 DELETE message**——覆盖式 upsert + cursor 重置 + emit + 前端 getLatestPost 重拉。我初判「snapshot 缺 DELETE 清表」**是错的**；物理 DELETE 仅 channel_member（成员全替换）/ event_cursor（自愈）。已写进 emit/Snapshot 注释防后人误加
   ↳ 新增 2 可证伪测试：s6 too_long emit 含 `resetTo=100`+`channelId` · host guarded_bump 守卫 fail（historical create_at≤水位）→ unread/水位 均不动。cargo check 5 + test 全绿（45 suites/0 fail）+ gate.sh + structure-gate ✅
-  ↳ EXPECT 5 断言全 held，无 DRIFT-PRED（②「绝不加 DELETE」直觉经现网 agent 校正后**已写入 EXPECT**，落地一致——开局对账机制按设计生效）
+  ↳ ⚡ DRIFT-PRED（drift-review wf_efcf1ca4-759 #11 补记·惊讶吞没纠正）：上方 :53「初判 too_long/snapshot 物理删 message=错 → 现网覆盖式 upsert+cursor 重置」是**真实预期偏离**（赌前以为要 DELETE），却被回填进开局 EXPECT②「绝不加 DELETE」+ 本 DONE 原自评「5 断言全 held·无 DRIFT-PRED·开局对账机制按设计生效」= §4.8 惊讶吞没后门。如实改判：**此为 DRIFT-PRED**，偏离裁定权归 drift-review 独立 lens、非生产者自评。候选教训：too_long/snapshot 语义先验现网 upsert-vs-delete 再写 EXPECT。已 type:surprise 落 logs。
 
 🎯 EXPECT 实现 StorageOp::BatchDelete + 接通 memberChange.leave 删行 @2026-06-21 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 可证伪预判：① 改动文件集 = core(effect.rs +BatchDeleteSpec/StorageOp::BatchDelete · ports/storage.rs +batch_delete trait) + driver(host ops.rs 派发+表名 arm · host/native/wasm storage.rs +batch_delete impl) + im(acl/to_effect_s1.rs +delete_channel_members · ws/handlers/channel_member_update.rs + increment_channel.rs 接 collect_member_leaves) + tests；不碰根黑名单
@@ -115,7 +115,7 @@
   - **真机连 Go 用 `scripts/dev-loop.sh`**（焊死正确 base + 双端日志三层关联），别手搓 host-cli env：base 必含 `/api/cses`、`HELIX_DB` 别带 `?mode=rwc`（host-cli 自拼）。
   - **后端三仓 + grpc 排障**：Go mattermost = `/Users/mac28/workspace/golangProject/mattermost`（日志 `/Users/mac28/workspace/mmlog/mattermost.log`）；Java cses(paas/x9 grpc) = `/Users/mac28/workspace/java/cses`。出 grpc 问题（`no service available` / `RunIncrementWorker panic` / `new grpc client fail` / consul `xpa-12-grpc` 0 实例）→ **查各自日志**；常见根因 = Java paas grpc 服务挂/未注册 consul（今天 17:19 因一个 JVM suspend=y 等 debugger 卡住）。
 
-🔁 **dev-zlc 分叉监控（防再分叉 · 手动 cadence，durable cron 本环境不支持）**：新会话开局 + re-port 每个 commit 检查点，跑一次 `git rev-list --count feat/sync-v2-report-on-adr007..dev-zlc` 看落后多少；**落后 ≥5 或 dev-zlc 动了 `helix-driver-host/engine.rs`·`http_envelope.rs`·`helix-im` → 先 rebase 本分支到 dev-zlc 再续 re-port**，别让架构再岔。新会话也可自挂 session-only cron（`*/57 * * * *`）跑上面那条命令兜底。
+🔁 **dev-zlc 分叉监控 → 已硬化成机器闸门 `scripts/branch-sync-gate.sh`**（drift-review #2 收敛 / 用户 2026-06-22 指出散文太软）：旧版只是本条散文「落后 ≥5 就 rebase」、无脚本无 hook → 静默失效（feat 一度落后 dev-zlc 17）。现跑 `bash scripts/branch-sync-gate.sh`——当前分支落后集成分支（默认 dev-zlc，env 可覆盖）≥5 commit = exit 1 强制先 `git rebase dev-zlc` / `git merge dev-zlc` 再续。建议挂 pre-push / Stop hook / 开局检查（与 review-gap.sh / structure-gate.sh 同族）。
 
 ✅ DONE sync-v2 全链真机闭环（在线+离线）@2026-06-18 | feat/sync-v2-full-replacement（参照源，未合并）：删库重拉离线 backfill 实证（Go `kind=events fromSeq=0`→message 落行）+ 在线发收 echo 回填。6 fix + member_count 全 commit、cargo/test 绿。**唯落到 dev-zlc 的 re-port 待做（见上续接）。**
 ✅ DONE 生命周期与网络 I/O 解耦根治 + ffi-verify 6 层闸门落地 @2026-06-22 | commit 448a993..4bfff14（worktree fix/lifecycle TDD → merge c10b2a9 → ffi-verify 4bfff14）| helix/dev-zlc

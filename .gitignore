@@ -2,5 +2,6 @@
 /worktrees/
 **/*.rs.bk
 .DS_Store
+.idea/
 .superpowers/
 crates/helix-driver-ffi/smoke/build/

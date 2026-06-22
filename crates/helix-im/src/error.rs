@@ -40,4 +40,7 @@ pub enum ImError {
 
     #[error("unknown correlation: {0}")]
     UnknownCorrelation(u64),
+
+    #[error("serialize error: {0}")]
+    Serialize(String),
 }

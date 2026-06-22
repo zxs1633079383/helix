@@ -48,39 +48,35 @@ impl WsMessageHandler for PostHandler {
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
         reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
 
-        // S3 path3：新消息触发 channel 写（未读 +1 SQL 自增 + lastPost 组）。**仅当该 post 会被
-        // 立即 apply**（seq == cursor+1，连续）才触发——与 gate 落库语义对齐：乱序（seq>cursor+1）
-        // 的 post 进 buffer 不落 message，channel 未读也不应提前 +1（待 flush 时该消息已在库，
-        // 由后续 sync/increment 全量 upsert 或下一条 post 的守卫推进对账）。重复/旧消息（seq<=cursor）
-        // 同样不触发（gate dup drop 同口径）。守卫 `msg_create_at > last_root_post_at` 再做 SQL 层
-        // 幂等兜底（即便偶发重复触发也不重复 +1）。CAP-9：sync apply type=1 走同一 post_updates。
+        // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
+        // 决策在此用「原始帧 + auth + 完整 echo 判定」算定后 attach 到 envelope，由 gate 在
+        // **apply 与 flush 两路**统一发出——**不再**在此直接 push、**不再**用 is_contiguous 门控
+        // （apply 时机交给 gate）。修复偏差：乱序（seq>cursor+1）post 先进 buffer，flush 时同样
+        // 补未读（原实现只在立即 apply 路径 +1，乱序经 buffer flush 丢未读）。
         //
-        // BLOCKING-1：auth_user_id 由 host 经 ctx 注入真值（非硬编码空串）。这样 `post_updates`
-        // 才能正确做 ① sender 豁免（自己消息 +0，真源 message_service.rs:342）② 可见性门控
-        // （viewers 不含自己 → +0）。再叠加 echo 显式跳过（temporary_id 命中在途 send 或
-        // user_id==self）作前置闸门——echo 帧（自己发的消息回流）即便偶发 is_contiguous 也绝不
-        // bump unread（§5 验收：echo 无 unread）。两道防线对齐现网「自己 +0、不可见 +0」。
+        // BLOCKING-1：auth_user_id 由 host 经 ctx 注入真值。`post_updates` 据此做 ① sender 豁免
+        // （自己消息 +0，真源 message_service.rs:342）② 可见性门控（viewers 不含自己 → +0）。
+        // echo 帧（本端回流）显式跳过（temporary_id 命中在途 send 或 user_id==self），即便落库也绝不
+        // bump（§5 验收：echo 无 unread）；此判定在 handler（有 ctx）做，对**乱序帧同样有效**，故
+        // 「乱序自端 echo」无需依赖额外假设。重复/旧消息（seq<=cursor）由 gate dup-drop 不 apply →
+        // 不发；GuardedBump 守卫（create_at > last_root_post_at）再兜底幂等。
         let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
-        let is_contiguous = ctx
-            .state
-            .channels
-            .get(&ev.channel_id)
-            .map(|ch| ev.seq.0 == ch.cursor.value().0 + 1)
-            .unwrap_or(false);
-        if is_contiguous && !is_echo {
-            if let Some(data) = parse_post_data(frame) {
-                let upd = crate::channel_write::post_updates(
+        let unread_bump = if is_echo {
+            None
+        } else {
+            parse_post_data(frame).map(|data| {
+                crate::channel_write::post_updates(
                     ev.channel_id,
                     data,
                     ctx.auth_user_id,
                     ev.fields.create_at,
-                );
-                out.push(crate::acl::to_effect::bump_channel_unread(&upd));
-            }
-        }
+                )
+            })
+        };
+        let ev = ev.with_unread_bump(unread_bump);
 
-        // ingest（落库 + cursor 推进）门控 channel 注册：未注册 channel（driver 未通过 increment
-        // 种 cursor）静默忽略，与 legacy event 路径同口径（driver 路由问题，非 IM 错误）。
+        // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）门控 channel 注册：未注册 channel
+        // （driver 未通过 increment 种 cursor）静默忽略，与 legacy event 路径同口径（driver 路由问题）。
         if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
             ch.ingest(ev, out, ctx.now_ms)?;
         }

@@ -99,6 +99,15 @@ impl CorrelationMap {
 }
 
 /// `TimerId → module_index` 映射，供 Timer 定向路由。
+///
+/// ## 语义真源：timer 一律 one-shot-on-fire（HIGH 修复，2026-06-22）
+///
+/// 全仓**无 recurring timer**——所有 timer 触发即作废，"周期心跳"由模块在
+/// `handle(Tick::Timer)` 内吐**全新 id** 的 `ScheduleTimer` re-arm 实现（如 IM ping），
+/// 新 id 经 `register_effects_to_maps` 注册新条目，**绝不复用旧 id**。
+/// 因此 fire 后旧条目永远应回收：`engine` 在 `dispatch_reply` 后统一 `remove(fired_id)`。
+/// 不存在"同 id 复用且 fire 后不重新 ScheduleTimer"的模式（如未来要引入，须新增
+/// 显式 RecurringTimer 语义，而非偷偷复用 id；回放测试 + drift-review 守护）。
 #[derive(Default)]
 pub(crate) struct TimerMap {
     map: HashMap<TimerId, usize>,
@@ -109,16 +118,25 @@ impl TimerMap {
         self.map.insert(id, module_index);
     }
 
-    /// 只读查找（不移除）：recurring timer 触发后继续保留路由。
-    /// MIN-8：原名 `lookup` 语义不明，改为 `peek` 体现"只读不移除"。
+    /// 只读查路由（不移除）：派发前定位 module_index。
+    /// fire 后由 `engine` 在 `dispatch_reply` 之后统一 `remove(fired_id)` 回收
+    /// （one-shot-on-fire 语义，见 struct doc），故此处只读，移除职责归 engine。
     pub fn peek(&self, id: &TimerId) -> Option<usize> {
         self.map.get(id).copied()
     }
 
-    /// recurring timer：处理完毕后不移除（下次触发时继续路由）
-    /// one-shot timer：调用方手动 remove
+    /// 移除一条路由条目。两个调用点：
+    /// - `engine` 在 Timer 命中、派发完毕后回收已触发的 one-shot id（防永久泄漏）
+    /// - `register_effects_to_maps` 处理模块吐出的 `Effect::CancelTimer`
     pub fn remove(&mut self, id: &TimerId) {
         self.map.remove(id);
+    }
+
+    /// 测试探针：当前路由条目数。仅用于回放测试断言 timer_map 不随触发次数线性增长，
+    /// `#[cfg(test)]` 隔离不污染生产 API（不破坏 public-api 闸门）。
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 }
 

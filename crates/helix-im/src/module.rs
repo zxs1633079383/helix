@@ -837,24 +837,24 @@ impl ImModule {
                 "userName": "",
             },
         });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
             corr: h1_corr,
             req: HttpRequest {
                 method: "POST".to_string(),
                 url: format!("{}/posts/create", self.config.api_base_url),
                 headers: {
-                    // A3b：Content-Type + connectionId 身份头（hello 后 Some）
                     let mut h = vec![("Content-Type".to_string(), "application/json".to_string())];
                     h.extend(crate::acl::to_effect::connection_id_headers(
                         self.state.connection_id.as_deref(),
                     ));
                     h
                 },
-                body: Some(bytes::Bytes::from(serde_json::to_vec(&body).unwrap())),
+                body: Some(bytes::Bytes::from(body_bytes)),
             },
         });
 
-        // 3. ScheduleTimer{T1, 15s}
         out.push(Effect::ScheduleTimer {
             id: t1_timer,
             after_ms: self.config.send_timeout_ms,

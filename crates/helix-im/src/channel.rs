@@ -173,6 +173,13 @@ impl Channel {
             ops: vec![event_to_storage_op(&ev)],
         });
 
+        // ⑤：未读 bump（handler 算定，gate 单一发出点）。立即 apply 与 flush 共用此逻辑——
+        // 乱序经 buffer 的消息 flush 时同样补未读。`None`（echo / 非新消息 / sync）→ 不发。
+        // GuardedBump 守卫（create_at > last_root_post_at）兜底幂等，重复/旧消息不重复 +1。
+        if let Some(ref upd) = ev.unread_bump {
+            fx.push(crate::acl::to_effect::bump_channel_unread(upd));
+        }
+
         // 推进内存 cursor（WS 路径：直接 try_advance，不等 PortReply）
         // 理由：WS 顺序可靠，PersistFire 幂等（写 678 message 表，与 sync 路径同表同 PK）；
         // 异常落库失败时由 sync 路径从 cursor 重拉同事件覆盖恢复（两路径表名一致，恢复闭环成立）
@@ -258,6 +265,11 @@ impl Channel {
                 fx.push(Effect::PersistFire {
                     ops: vec![event_to_storage_op(&ev)],
                 });
+                // ⑤：乱序 post 经 buffer flush 时补未读——与立即 apply 同口径（gate 单一发出点，
+                // 修复偏差：原 flush 路径只落 message 不补 channel 未读）。`None`→不发。
+                if let Some(ref upd) = ev.unread_bump {
+                    fx.push(crate::acl::to_effect::bump_channel_unread(upd));
+                }
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
                 fx.push(emit_for_kind(&ev));
@@ -502,78 +514,5 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
 // ─── 单元测试 ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::Seq;
-    use crate::sync_session::{EventEnvelope, EventKind};
-    use helix_core::{Effect, EffectSink};
-
-    fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
-        EventEnvelope::new(
-            crate::state::test_channel_id(ch),
-            Seq(seq),
-            EventKind::PostUpsert,
-            crate::sync_session::PostFields::default(),
-        )
-    }
-
-    fn is_too_long_emit(e: &Effect) -> bool {
-        matches!(e, Effect::Emit { event }
-            if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))
-    }
-
-    /// 回归锚: E6 —— gate buffer 客户端上限。
-    ///
-    /// 制造永久缺口（全部 seq >= 2，缺 seq=1），持续灌入远超 MAX_GATE_BUFFER 的
-    /// 乱序事件。断言：① buffer 始终有界（永不超过上限）；② 越限时主动
-    /// emit im:sync:too_long；③ cursor 不被回退（安全网靠 sync 从 cursor+1 重拉）。
-    #[test]
-    fn test_gate_buffer_capped_proactive_too_long_e6() {
-        let mut ch = Channel::new(crate::state::test_channel_id(7), 0); // cursor=0 → expected=1，制造永久缺口
-        let mut fx = EffectSink::new();
-        let mut saw_too_long = false;
-
-        // 灌到越过上限 + 余量，确保触发至少一次主动恢复
-        for seq in 2..(MAX_GATE_BUFFER as u64 + 2 + 128) {
-            fx.clear();
-            ch.ingest(gapped_ev(7, seq), &mut fx, 1_000)
-                .expect("ingest gapped event");
-            assert!(
-                ch.buffer.len() <= MAX_GATE_BUFFER,
-                "buffer 必须有界（≤ 上限），实际 {}",
-                ch.buffer.len()
-            );
-            if fx.as_slice().iter().any(is_too_long_emit) {
-                saw_too_long = true;
-            }
-        }
-
-        assert!(
-            saw_too_long,
-            "越过 buffer 上限必须主动 emit im:sync:too_long（不再静等服务端）"
-        );
-        assert_eq!(
-            ch.cursor.value(),
-            Seq(0),
-            "E6 安全网不回退 cursor（缺口由后续 sync 从 cursor+1 重拉）"
-        );
-    }
-
-    /// 上限以内正常乱序堆积不误触发 too_long（不误伤承压合法 5000 缺口场景）。
-    #[test]
-    fn test_gate_buffer_under_cap_no_false_too_long_e6() {
-        let mut ch = Channel::new(crate::state::test_channel_id(3), 0);
-        let mut fx = EffectSink::new();
-
-        for seq in 2..=5001 {
-            // 承压同款 5000 缺口
-            ch.ingest(gapped_ev(3, seq), &mut fx, 1_000)
-                .expect("ingest");
-        }
-        assert_eq!(ch.buffer.len(), 5000, "5000 缺口应全部正常堆积");
-        assert!(
-            !fx.as_slice().iter().any(is_too_long_emit),
-            "上限以内不得误触发 too_long"
-        );
-    }
-}
+#[path = "channel_tests.rs"]
+mod tests;

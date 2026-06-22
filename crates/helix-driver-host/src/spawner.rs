@@ -142,7 +142,7 @@ impl<P: Send + 'static> BoundedSpawner<P> {
     pub async fn shutdown_with_timeout(self, limit: std::time::Duration) -> bool {
         let Self { tx, joins, .. } = self;
         drop(tx); // 关闭入队端 → worker recv None 后自然退出
-        // 先留存 abort handle（超时后 abort 残留 worker 用），再消费 JoinHandle 顺序 join。
+                  // 先留存 abort handle（超时后 abort 残留 worker 用），再消费 JoinHandle 顺序 join。
         let abort_handles: Vec<_> = joins.iter().map(|j| j.abort_handle()).collect();
         let join_fut = async move {
             for j in joins {

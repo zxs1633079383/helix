@@ -107,7 +107,8 @@ impl NativeTransport {
 
     async fn emit_disconnected_once(&self) {
         // 幂等去重：仅在「已连接且尚未发过 Disconnected」时发一次（内部可变，`&self`）。
-        if self.connected.load(Ordering::Relaxed) && !self.disconnected_emitted.load(Ordering::Relaxed)
+        if self.connected.load(Ordering::Relaxed)
+            && !self.disconnected_emitted.load(Ordering::Relaxed)
         {
             self.emit(Tick::Disconnected(self.id)).await;
             self.disconnected_emitted.store(true, Ordering::Relaxed);

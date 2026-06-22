@@ -292,5 +292,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     let _ = http_fire_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await;
     while reply_rx.try_recv().is_ok() {}
 
-    tracing::info!("helix engine loop exited (persists drained; 必达 http drained or aborted at limit)");
+    tracing::info!(
+        "helix engine loop exited (persists drained; 必达 http drained or aborted at limit)"
+    );
 }

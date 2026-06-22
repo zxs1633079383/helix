@@ -35,3 +35,5 @@ pub use transport::NativeTransport;
 pub use helix_driver_host::TimerRegistry;
 // 共享 host I/O 配置（ADR-010）：host 装配层构造 NativeHttp::with_config 需要，re-export 免直依 driver-host。
 pub use helix_driver_host::HostNetworkConfig;
+// P1.5 出站横切层：装配 NativeHttp::with_crosscut 时注入真鉴权 token 源（re-export 免直依 driver-host）。
+pub use helix_driver_host::AuthTokenRegistry;

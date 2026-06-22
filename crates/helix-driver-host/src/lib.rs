@@ -3,6 +3,7 @@
 pub mod codec;
 pub mod dispatch;
 pub mod engine;
+pub mod http_cross;
 pub mod http_envelope;
 pub mod network;
 pub mod ops;
@@ -14,6 +15,9 @@ pub mod timer;
 
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
 pub use engine::{run_engine_loop, BatchSink, EngineDeps, TransportTable};
+pub use http_cross::{
+    AuthTokenRegistry, CrossCuttingHttp, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE,
+};
 pub use http_envelope::{base64_encode, run_http_envelope};
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,

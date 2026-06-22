@@ -837,8 +837,6 @@ impl ImModule {
                 "userName": "",
             },
         });
-        // 边界零 unwrap（HX-C006 / 不变量#4）：序列化失败走 Result propagate，
-        // 不让 panic 越 extern "C" 边界。to_string 仅在冷错误分支触发，热路径零额外分配。
         let body_bytes =
             serde_json::to_vec(&body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
@@ -847,7 +845,6 @@ impl ImModule {
                 method: "POST".to_string(),
                 url: format!("{}/posts/create", self.config.api_base_url),
                 headers: {
-                    // A3b：Content-Type + connectionId 身份头（hello 后 Some）
                     let mut h = vec![("Content-Type".to_string(), "application/json".to_string())];
                     h.extend(crate::acl::to_effect::connection_id_headers(
                         self.state.connection_id.as_deref(),
@@ -858,7 +855,6 @@ impl ImModule {
             },
         });
 
-        // 3. ScheduleTimer{T1, 15s}
         out.push(Effect::ScheduleTimer {
             id: t1_timer,
             after_ms: self.config.send_timeout_ms,

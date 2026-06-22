@@ -64,12 +64,14 @@ async fn main() {
     let device = std::env::var("HELIX_DEVICE").unwrap_or_else(|_| "IOS".to_string());
     // deviceId 必须随 HTTP + WS 都带：对端 Java paas（/Users/mac28/workspace/java/x9/paas）
     // session 校验读 deviceId，nil → 判 session 过期 → grpc service fail → increment 不推帧（用户 debug 实证）。
-    // 解析优先级：① HELIX_DEVICE_ID env 显式覆盖（联调时手动指定可用）→ ② 从本机派生
-    // （macOS IOPlatformUUID / Linux machine-id / Windows MachineGuid）→ ③ 空（告警，不再
-    // 硬编码某台设备 id）。**铁律**：不默认绑死任何一台真实设备 id。
+    // 解析优先级：① HELIX_DEVICE_ID env 显式覆盖（联调手动指定）→ ② **固定联调 deviceId 兜底**
+    //（**故意例外**，见 docs/harness/decisions.md ADR-011：本机派生值过不了 Go session 校验，
+    // 联调必须用已知能过校验的固定真实 deviceId；仅 host-cli 这个 dev-bin、env 可覆盖、不入交付物，
+    // 用户 2026-06-21/06-22 两次拍板）→ ③ 本机派生 fallback → ④ 空告警。
     let device_id = std::env::var("HELIX_DEVICE_ID")
         .ok()
         .filter(|s| !s.is_empty())
+        // ADR-011 故意例外：固定联调 deviceId（本机派生过不了 Go session 校验，非生产凭据）。
         .or_else(|| Some("ED380414932542BAB4993E5AC3E07C64".to_string()))
         .or_else(machine_device_id)
         .unwrap_or_default();

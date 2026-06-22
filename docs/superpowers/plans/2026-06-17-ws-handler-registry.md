@@ -1,5 +1,7 @@
 # WS Handler Registry Implementation Plan
 
+> ✅ 已实现并入 main（ws/registry + handlers 策略表已落地）。本计划转历史归档，勿当待办。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `helix-im` WebSocket inbound `action` dispatch with a `linkme`-backed `action -> handler` registry so new WS message types can be added without changing the central dispatcher.

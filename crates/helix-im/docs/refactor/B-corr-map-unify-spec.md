@@ -1,5 +1,7 @@
 # B · 统一 corr 回报路由表（5 张分散结构 → 单 corr_map + CorrelationContext enum）
 
+> ✅ **已落地**（验于 `state.rs:250` `corr_map: HashMap<Correlation, CorrelationContext>` + `module.rs:195-216` 单表 `match CorrelationContext` 分发，取代旧 `corr_to_channel` 索引）。本 spec 转历史归档（设计依据留档）。
+
 > 重构 spec —— 仅 helix-im 内部，不改 helix-core 的 Effect/Tick。
 > 对应文件：`crates/helix-im/src/state.rs`、`crates/helix-im/src/module.rs`。
 > `acl/to_effect.rs` **不涉及**（它是纯 Effect 翻译，不持有 corr 路由表）。

@@ -5,6 +5,9 @@
 
 ## §0 终态记录
 
+✅ DONE **全树 .md 熵管理 + 进度同步**（2026-06-22 · 分支 `docs/entropy-2026-06-22`，未提交待审）| 4 read-only triage agent 扫 126 篇 .md + expert-panel-review 全树架构评审佐证 | 改 ~22 篇：① 落地真相 `crates/helix-im/docs/sync-v2-能力与缺口状态.md` 大改（cursor 真源 `_helix_monotonic`→`channel_event_cursor` 纠偏[与 arch-review #1 HIGH 同源] · §2/§3/§5 send-echo/sync-风暴/parser-post 全标已落地入 main · 删"未提交"假象）② 根 `README.md` 三栖→两端(ADR-006 wasm 归档)+修死链 ③ `ROADMAP.md` E9 拆 E9a✅/E9b open + cursor 注脚 ④ wasm `CLAUDE/AGENTS` 加归档 banner(镜像同步) ⑤ ffi design README F4 未接→已落地 ⑥ 11 篇历史稿(Bun-checklist/ws-registry-plan/merge-spec/sync-v2-report audit×5/迁移 01·02/下游域卡)加归档 banner ⑦ refactor A/B 状态标注(B 已落地·A 部分) ⑧ 修 9 条死链(eventbus/sync-v2 合并稿) ⑨ docs/README 对账日期 + HX-C 计数 C009→C012 | 验收：7 crate CLAUDE/AGENTS 镜像全 same · harness 索引 12 · structure-gate/gate.sh 全 PASS · 死链 0 | ⚠️ 另：`docs/entropy-sync` 死分支(merge-base 06-12·落后 main 250 commit·工作被 4a3edb8 取代)建议删；arch-review 另出 4 条代码 finding(timer_map 泄漏 HIGH 等)未在本轮改(属代码非文档)
+
+
 🎯 EXPECT Task4 P2/P3 audit + gate alignment @2026-06-22 16:28 +0800 | 赌注 中 | 可逆 是
   ↳ 可证伪预判：① 固定 `ED380414...` deviceId 只作为 host-cli dev-bin 默认兜底 + ADR/docs/历史联调证据出现，不进入 native/FFI/Tauri delivery 代码路径；② `scripts/gate.sh` 明确默认覆盖 PC native + Flutter FFI 仓内验证，并调用 `scripts/ffi-verify.sh --no-demo`；③ wasm 保持 ADR-006 archived/manual，不再作为默认交付 gate 必跑项；④ `cargo test -p helix-im --no-run` 无 `Harness::new` dead_code warning；⑤ `cargo test -p helix-im --no-run`、`scripts/ffi-verify.sh --no-demo`、`scripts/gate.sh` 结果可记录，GitNexus `detect_changes` 可运行或明确不可用。
 ✅ DONE Task4 P2/P3 audit + gate alignment @2026-06-22 16:48 +0800 | commit 本提交

@@ -21,6 +21,12 @@
   ↳ ⑥ cargo check 5 crate + cargo test core/im/host/native 全绿 · gate.sh + structure-gate 过（新 repl.rs / handler ≤300 行）
   ↳ 偏离即记 DRIFT-PRED：若需改 core Effect/ports / helix-im 反向依赖 driver / endpoint 编造非现网 / 测试非证伪 / src 文件 >300 行未拆 / 改根黑名单 → 偏离
 
+✅ DONE channel_close/nickname 补全 + host-cli↔Go e2e harness/workflow（事后补记·无开局 EXPECT：反应式纠错 + 用户中途请求展开）@2026-06-22 | commit 8b21ef9 + a6de5bf | helix/feat/sync-v2-report-on-adr007
+  ↳ 纠错：上轮误判「channel_close/nickname 无干净自 endpoint」——实查 full-map #27/#31 均有自服务 endpoint 且 broadcast 到 channelId（自己也收）→ **13 action 全 host-cli 自驱动，无一需第二 actor**。补 im_channel_close + im_update_member_nickname（commands.rs test 外迁 tests/outbound_commands.rs 守 ≤300）。
+  ↳ e2e 资产：`scripts/host-cli-go-e2e.sh`（逐 action 经 stdin 发命令 → grep HELIX_DUMP_FRAMES 入站帧 WS action 断言 → PASS/FAIL 表 + postId 链式 + 破坏性 leave/close 仅 CLOSE_CHANNEL_ID 给时跑）+ 具名 `Workflow({name:"host-cli-go-e2e"})`（Drive+Diagnose）+ main.rs emit 打印 event 名（im:*）便于断言。验的是**共享 driver-host I/O 栈**，跑一次（native/ffi 复用，端增量靠 smoke.cpp+F5）。
+  ↳ 验证：cargo test im+host-cli 全绿 · gate.sh + structure-gate PASS · bash -n + 缺前置 exit 2 + node --check 均过 · **未 live 跑（Go 未起）**。
+  ↳ ⚠️ 待办：起 Go(:8065)+grpc 后跑 e2e；host-cli main.rs:67 硬编码真 deviceId（drift-review 🟡 finding，留用户决定是否移 git-ignored 配置——见下 review 区间说明）。
+
 ✅ DONE host-cli stdin 遥控器 Tier0+Tier1（代码侧落地 + chassis 运行时实证）@2026-06-22 | commit 333e977(T0)+621f086(T1) | helix/feat/sync-v2-report-on-adr007（未 merge）
   ↳ Tier0：repl.rs(stdin→Tick::Command 复用 tick_tx 入泵·quit/EOF→shutdown) + host_env.rs(从 main 抽 db/deviceId) + main.rs 396→285 脱白名单。send/quit/help。
   ↳ Tier1：helix-im **新 commands.rs**(handle_outbound + is_outbound · 7 命令→Effect::Http POST 现网真源 endpoint) + module.rs dispatch is_outbound 分支 + from_tick accepts 扩；host-cli **新 cmd_parse.rs**(7 verb 解析，repl 320→拆 82+241)。命令：read/revoke/leave/schedule/cancel/create/makeTopic。

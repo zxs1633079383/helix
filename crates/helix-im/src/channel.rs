@@ -396,8 +396,8 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
 /// type=2 编辑：**仅覆盖内容列**，保留本地权威列（C2 真源 message_repo.rs:185-221
 /// `update_content_by_message_id`）。
 ///
-/// 真源 cses edit 走 `UPDATE message SET <17 内容列> WHERE id = msg_id`，**显式不含**
-/// `read_bits` / `send_status` / `segment_id`（本地权威列）+ 身份列（id/channel_id/user_id/
+/// 真源 cses edit 走 `UPDATE message SET <内容列> WHERE id = msg_id`，**显式不含**
+/// `read_bits` / `send_status`（本地权威列）+ 身份列（id/channel_id/user_id/
 /// create_at/temporary_id）——对齐 Telegram `applyEdit`「只改内容、不碰已读态」。
 ///
 /// 为何**不能**复用 `event_to_upsert_op`：后者全量 upsert（含 `read_bits=excluded.read_bits`），
@@ -415,7 +415,7 @@ pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -
         table: "message",
         key_col: "id",
         key_vals: vec![SqlValue::Text(msg_id.to_string())],
-        // 仅内容列；显式排除 read_bits / send_status / segment_id（本地权威）+ 身份列。
+        // 仅内容列；显式排除 read_bits / send_status（本地权威）+ 身份列。
         patch: vec![
             ("type".to_string(), SqlValue::Text(fields.msg_type.clone())),
             (

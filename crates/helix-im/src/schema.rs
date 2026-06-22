@@ -20,8 +20,14 @@
 ///
 /// 与现网 678 `~/Library/Application Support/com.jinqidongli.cses.dev/data/678/tenant.db`
 /// 的 `.schema` 幂等对齐 —— M2 接 cses-client 既有 tenant.db 时 IF NOT EXISTS 不冲突。
+///
+/// **678 对齐的有意例外（ADR-013）**：`message.segment_id` 列 + `idx_message_segment_id`
+/// 索引**不再镜像** —— bitmap segment 增量同步是现网 cses-client 的离线 backfill 机制，
+/// helix sync-v2 已由 `event_seq` cursor 取代（ADR-008），segment_id 在 helix 从无写路径
+/// （恒空）。M2 共享既有 678 tenant.db 时该列仍由 cses-client 持有、IF NOT EXISTS 跳过、
+/// helix 永不触碰，故移除零功能影响；fresh helix-only 库则不再建该列与无用索引。
 pub const IM_SCHEMA: &[&'static str] = &[
-    // ── message（发送路径权威表；PK = temporary_id，对齐 678）──────────────
+    // ── message（发送路径权威表；PK = temporary_id，对齐 678，除 segment_id 见上注）──
     "CREATE TABLE IF NOT EXISTS message (\
         temporary_id TEXT PRIMARY KEY,\
         id TEXT NOT NULL DEFAULT '',\
@@ -30,7 +36,6 @@ pub const IM_SCHEMA: &[&'static str] = &[
         type TEXT NOT NULL DEFAULT '',\
         message TEXT NOT NULL DEFAULT '',\
         props TEXT NOT NULL DEFAULT '',\
-        segment_id TEXT NOT NULL DEFAULT '',\
         viewers TEXT NOT NULL DEFAULT '',\
         user_snapshot TEXT NOT NULL DEFAULT '',\
         mentions TEXT NOT NULL DEFAULT '',\
@@ -51,7 +56,6 @@ pub const IM_SCHEMA: &[&'static str] = &[
     )",
     "CREATE INDEX IF NOT EXISTS idx_message_id ON message (id)",
     "CREATE INDEX IF NOT EXISTS idx_message_channel_id ON message (channel_id)",
-    "CREATE INDEX IF NOT EXISTS idx_message_segment_id ON message (segment_id)",
     // ── channel（M2 共享 tenant.db 必须存在；本轮 helix-im 无写路径，仅建表占位对齐）──
     // 注：channel 表 54 列，本轮 helix-im 不写它（OUT），但建表使 M2 接 cses-client 不缺表。
     // 完整 54 列与 678 对齐（此处全量落地）。

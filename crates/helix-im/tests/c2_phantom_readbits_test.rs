@@ -300,12 +300,12 @@ fn edit_event_content_update_when_in_map_noop_when_phantom() {
 /// 回归锚: C2 BLOCKING-1 —— edit(type2) 不得擦回本地 read_bits。
 ///
 /// 真源 cses `update_content_by_message_id`（message_repo.rs:185-221）显式只 UPDATE 内容列，
-/// **不含** read_bits/send_status/segment_id；对齐 Telegram applyEdit「只改内容不碰已读态」。
+/// **不含** read_bits/send_status；对齐 Telegram applyEdit「只改内容不碰已读态」。
 /// 反例（修复前）：edit 走 event_to_upsert_op 全量 upsert，edit body 空 readBits 经
 /// ON CONFLICT DO UPDATE `read_bits=excluded.read_bits` 把已落地行 read_bits(=1011) 擦成 ""。
 ///
-/// 本测试断言：edit 产出的 BatchUpdate patch **不含 read_bits 列**（也不含 send_status/
-/// segment_id），故无论 edit body 是否带 readBits，已落地行的本地已读位都不被触碰。
+/// 本测试断言：edit 产出的 BatchUpdate patch **不含 read_bits 列**（也不含 send_status），
+/// 故无论 edit body 是否带 readBits，已落地行的本地已读位都不被触碰。
 #[test]
 fn edit_event_does_not_overwrite_local_read_bits() {
     // edit body 不带 readBits（map 第三元组传空串 → readBits=""，典型 edit 形态）。
@@ -322,11 +322,11 @@ fn edit_event_does_not_overwrite_local_read_bits() {
     let StorageOp::BatchUpdate(spec) = &ops[0] else {
         panic!("edit 必须是 BatchUpdate（仅内容列），got {:?}", ops[0]);
     };
-    // 核心断言：patch 绝不含 read_bits / send_status / segment_id（本地权威列）。
-    for forbidden in ["read_bits", "send_status", "segment_id"] {
+    // 核心断言：patch 绝不含 read_bits / send_status（本地权威列）。
+    for forbidden in ["read_bits", "send_status"] {
         assert!(
             !spec.patch.iter().any(|(k, _)| k == forbidden),
-            "edit patch 不得含本地权威列 `{forbidden}`（擦回已读位/送达态/分段索引），patch={:?}",
+            "edit patch 不得含本地权威列 `{forbidden}`（擦回已读位/送达态），patch={:?}",
             spec.patch
         );
     }

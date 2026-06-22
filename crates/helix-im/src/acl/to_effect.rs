@@ -641,7 +641,7 @@ pub fn batch_upsert_events(events: &[EventEnvelope]) -> Vec<StorageOp> {
 ///   （真源 1071-1078）；`∉ map` → **phantom**：不产 StorageOp（cursor 由 commit_target 照推，
 ///   HX-C008 §1.6）。
 /// - **type2 edit**：`msg_id ∈ map` → `edit_content_op`（**仅覆盖内容列** UPDATE WHERE id，
-///   保留本地 read_bits/send_status/segment_id，真源 `update_content_by_message_id`）；`∉` → noop。
+///   保留本地 read_bits/send_status，真源 `update_content_by_message_id`）；`∉` → noop。
 ///   **不**走 upsert——避免 edit 空 readBits 经 ON CONFLICT 擦回已读位（C2 BLOCKING-1）。
 /// - **type3 revoke**：**无须** map body → 恒发 `revoke_op`（UPDATE revoke=1 WHERE id，真源 1086/1110）。
 /// - **type6 read**：读 `map[msg_id].read_bits` → `apply_read_op`（**单调覆盖** read_bits 列，
@@ -678,7 +678,7 @@ pub fn batch_upsert_events_with_messages(
                 // else: phantom（type1）→ 不落行，cursor 由调用方照推。
             }
             // type2 edit：命中 map → **仅覆盖内容列** UPDATE WHERE id（保留本地 read_bits/
-            // send_status/segment_id，真源 update_content_by_message_id）；∉ map → noop。
+            // send_status，真源 update_content_by_message_id）；∉ map → noop。
             // 关键：edit **不**走 event_to_upsert_op 全量 upsert——否则 edit body 空 readBits
             // 会经 ON CONFLICT DO UPDATE 把已落地行的 read_bits 擦成空串（丢已读位，C2 BLOCKING-1）。
             EventKind::PostEdit => {

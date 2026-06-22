@@ -74,6 +74,15 @@
 - **代码事实**：`scripts/gate.sh` 第 2 步为 PC/native + Flutter/FFI 双端 cargo check，不再默认 wasm target；第 8 步调用 `bash scripts/ffi-verify.sh --no-demo`。`scripts/ffi-verify.sh` 仍可独立运行，且用法说明标明默认 gate 与 demo/full 的边界。
 - **状态**：已定（2026-06-22，Task 4 gate alignment）。后续若网页端重新启动，需先新增 ADR 重新激活 wasm 维护目标和默认/CI 验收。
 
+## ADR-013 — helix 不采用 bitmap segment 增量同步；message.segment_id 列/索引移除
+
+- **决策**：helix-im 的 `message` 表**移除 `segment_id` 列 + `idx_message_segment_id` 索引**，并从 edit-patch 排除列文档/测试断言中删除 `segment_id`。helix **不实现** bitmap segment 增量同步机制。
+- **背景**：`segment_id` 列 + 索引 + 3 处 exclude 守卫 + 1 条测试断言，是早期镜像现网 cses-client `message` schema（678 tenant.db `.schema` 字符级对齐）时**跟着抄进来的 bitmap 残影**。现网 cses-client 确实用 `channel_bitmap` segment 做离线/冷启动乱序 backfill；但 helix sync-v2（ADR-008）已用 `event_seq` cursor + `increment`(push) + `sync/notify`(pull) 取代该机制（Telegram getDifference 式）。代码实测：全仓**无任何写路径给 `segment_id` 赋真实值**（恒为 `''`），也无 sync/gate 逻辑读它 → 是死列。
+- **代价（移除前）**：① `idx_message_segment_id` 建在恒空列上 = 纯写开销、零读收益（无选择性，查询规划器永不用它收窄），轻微违反 HX-C005 热路径纪律；② 3 处 exclude 守卫 + 1 测试 = 认知税（每加 content-patch 路径都得记得排除一个本就永远空的列）；③ 正是 §4.7 architecture-drift-review 该抓的漂移。
+- **678 对齐影响 = 零功能影响**：`CREATE TABLE IF NOT EXISTS` 只判表存在、不判列差异 → M2 共享既有 cses-client tenant.db 时该列仍由 cses-client 持有、IF NOT EXISTS 跳过、helix 永不触碰；fresh helix-only 库则不建该列与索引。helix 落库走具名列 upsert（`event_to_upsert_op`），从不依赖 segment_id，故双场景均无破坏。
+- **代码事实**：仅 helix-im（`schema.rs` 删列+索引+加例外注释；`channel.rs`/`acl/to_effect.rs` 删注释中 segment_id；`tests/c2_phantom_readbits_test.rs` 删 forbidden 列表中 segment_id）。core 无 channel/segment 概念，零运行时不受影响。
+- **状态**：已定（2026-06-22，用户拍板「清掉，确认弃用 bitmap」）。如未来要把 segment-based 离线同步引入 helix，需新增 ADR 重新激活该列与机制（按 ADR-008 的 event_seq cursor 优先，不默认回退 bitmap）。
+
 ---
 
 ## 过会拍板结论（原 helix-技术评审纪要，2026-06-17 折叠）

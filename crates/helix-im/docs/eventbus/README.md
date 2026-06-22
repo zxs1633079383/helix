@@ -1,6 +1,6 @@
 # helix-im · EventBus 文档
 
-> IM 模块 EventBus 的设计文档集。core 层通用契约见仓库根 [`docs/过会方案/helix-eventbus-下游能力契约.md`](../../../../docs/过会方案/helix-eventbus-下游能力契约.md)；本目录是 IM 侧落地。
+> IM 模块 EventBus 的设计文档集。core 层通用契约见仓库根 [`docs/过会方案/helix-eventbus-设计.md`](../../../../docs/过会方案/helix-eventbus-设计.md)；本目录是 IM 侧落地。
 
 | 文档 | 一句话 |
 |---|---|

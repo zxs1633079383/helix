@@ -147,10 +147,18 @@ impl ExecutionShell {
             Tick::Timer(timer_id) => {
                 match self.timer_map.peek(timer_id) {
                     Some(module_index) => {
-                        // recurring timer：不从 timer_map 移除（模块可重新 arm）
+                        // one-shot-on-fire 语义（HIGH 修复，2026-06-22）：timer 触发即作废。
+                        // 全仓无 recurring timer——"周期心跳"由模块吐**新 id** 的 ScheduleTimer
+                        // re-arm（如 IM ping），新 id 经 register_effects_to_maps 注册新条目，
+                        // 绝不复用旧 id。故 fire 后必须回收已触发条目，否则 timer_map 单调泄漏。
                         self.host
                             .dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
-                        // BLK-1a: Timer 产出的新 Effect（如 re-arm）注册到同一模块
+                        // 不变量：必须先 remove(已触发 id)、后 register 新 effect。
+                        // re-arm 用全新 id（不复用 timer_id）→ 两步互不干扰；
+                        // 若极端情况下 re-arm 复用了同一 id（当前全仓无此模式），
+                        // 此顺序会误删 —— 故顺序固定，新语义须显式 RecurringTimer 而非复用 id。
+                        self.timer_map.remove(timer_id);
+                        // Timer 产出的新 Effect（如 re-arm 的新 id ScheduleTimer）注册到同一模块
                         self.register_effects_to_maps(module_index, 0);
                     }
                     None => {
@@ -207,22 +215,20 @@ impl Default for ExecutionShell {
     }
 }
 
+#[cfg(test)]
+impl ExecutionShell {
+    /// 测试探针：当前 timer_map 路由条目数。
+    ///
+    /// 用于回放测试断言「连续 N 次 Timer 触发后 timer_map 不随 N 线性增长」
+    /// （one-shot 收敛到 0 / re-arm 新 id 稳定到 1，绝非 ==N）。
+    /// `#[cfg(test)]` 隔离，不污染生产 API（不破坏 public-api 闸门）。
+    pub(crate) fn timer_map_len(&self) -> usize {
+        self.timer_map.len()
+    }
+}
+
 // ─── 确定性单元测试（不依赖任何运行时）──────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 空 shell，step 任何 Inbound 都返回空 Effect（no-op）
-    #[test]
-    fn empty_shell_step_no_effects() {
-        let mut shell = ExecutionShell::new();
-        let effects = shell
-            .step(
-                Tick::Inbound(crate::tick::InboundBytes::from_static(b"hello")),
-                1_000_000,
-            )
-            .expect("step should not fail on empty shell");
-        assert!(effects.is_empty(), "empty shell should produce no effects");
-    }
-}
+#[path = "engine_tests.rs"]
+mod tests;

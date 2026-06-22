@@ -1,5 +1,7 @@
 # SPEC — sync-v2 全 parity re-port 到 dev-zlc(ADR-007)
 
+> 📦 历史归档（2026-06-17 sync-v2 re-port 审计）：源分支 feat/dev-zlc 已合并入 main 并删除；本审计枚举的 A/B/C/D 各 phase 改动均已落地入 main。保留作审计留痕，**非活跑 tracker**。
+
 > 目标：把 `feat/sync-v2-full-replacement`（真机验证，**参照源，不文本合并**）的 **整条 sync-v2 业务**
 > 逐项 re-port 到 `dev-zlc` 的 ADR-007 架构（engine 下沉 host、native/FFI 薄壳、http_envelope 信封契约），
 > 落到分支 `feat/sync-v2-report-on-adr007`（worktree `worktrees/sync-v2-report`）。

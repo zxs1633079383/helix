@@ -1,5 +1,7 @@
 # Merge Spec — main → dev-zlc 调和合并（WS registry × sync-v2 corr_map）
 
+> ✅ 已落地：dev-zlc 已合并入 main 且分支已删除。本 reconcile spec 转历史归档。
+
 > 文档类型：合并过程合成 spec（事后记录 + 决策依据 + 验证结论 + 回滚预案）
 > 日期：2026-06-17 · 分支：`integ/merge-main-2026-06-17` · merge-base：`994b9ee`
 > Ours/HEAD = dev-zlc 侧（`21c13ad`）· Theirs/MERGE_HEAD = main 侧（`559db4e`）

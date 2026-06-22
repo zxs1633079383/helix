@@ -55,6 +55,14 @@ pub struct EventEnvelope {
     /// 分离的 `messages` map（key=msgId）。`msg_id ∈ messages` → 落内容行；`∉` → phantom
     /// （cursor 推进但不落 message 行，HX-C008 §1.6）。`None` = 无 msgId（read 事件可空 / legacy）。
     pub msg_id: Option<String>,
+    /// ⑤ 未读 +1 决策（在边界 handler 用**原始帧 + auth + 完整 echo 判定**算定，gate 在
+    /// apply/flush **两路**统一发出）。`Some` = 该 PostUpsert 落库时一并 `GuardedBump` unread
+    /// （已含 sender 豁免 + 可见性 + echo 跳过）；`None` = 不 bump（echo / 非新消息 / 其它 kind /
+    /// sync 路径——sync 未读由 CAP-9 apply 自管，故默认 None 不重复 +1）。
+    ///
+    /// **乱序进 gate buffer 的事件同样携带本决策**，flush 时由 gate 发出——修复「乱序 post 经
+    /// buffer flush 不补未读」偏差（gate 成为未读 bump 的**单一发出点**，立即 apply 与 flush 同口径）。
+    pub unread_bump: Option<crate::channel_write::PostChannelUpdate>,
 }
 
 impl EventEnvelope {
@@ -80,6 +88,7 @@ impl EventEnvelope {
             kind,
             fields,
             msg_id,
+            unread_bump: None,
         }
     }
 
@@ -91,6 +100,16 @@ impl EventEnvelope {
         if let Some(id) = msg_id.filter(|s| !s.is_empty()) {
             self.msg_id = Some(id);
         }
+        self
+    }
+
+    /// 附加 ⑤ 未读 bump 决策（仅 `post` handler 对新消息算定后调用）。
+    /// gate 在 apply/flush 两路读取并发出——确保乱序经 buffer 的消息 flush 时也补未读。
+    pub fn with_unread_bump(
+        mut self,
+        bump: Option<crate::channel_write::PostChannelUpdate>,
+    ) -> Self {
+        self.unread_bump = bump;
         self
     }
 }

@@ -1,5 +1,7 @@
 # 重构 A · 合并二重分类（FrameClass + EventKind → 单 InboundEvent enum）设计 spec
 
+> ⏳ **部分落地 / 待核**：`FrameClass` 已从代码移除（`parser.rs` 现无该 enum），但「统一 `InboundEvent` 单 enum」尚未完全收口（`EventKind` 仍在 `sync_session`）。施工/续做前**以代码为准**重新核对本 spec 适用范围。
+
 > 范围：纯 helix-im 内部重构，**零行为变更**。不改 helix-core 的 Effect/Tick 变体。
 > 真源：与现网 cses-client im 行为有争议时以现网为准；回放测试保持全绿（断言不变）。
 

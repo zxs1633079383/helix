@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — helix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose", flowchart: { htmlLabels: true } });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 5 4; }
+      .deepbox { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .mermaid { font-size: 13px; }
+      .label { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+      <!-- HEADER -->
+      <header class="space-y-5 border-b border-slate-200 pb-8">
+        <div class="flex items-baseline justify-between flex-wrap gap-2">
+          <h1 class="text-3xl font-serif tracking-tight">Architecture review — <span class="text-indigo-700">helix</span></h1>
+          <span class="text-sm text-slate-500 font-mono">2026-06-22</span>
+        </div>
+        <p class="text-slate-600 max-w-3xl text-sm leading-relaxed">
+          Sans-IO 六边形内核。<strong>端口层是深的，无需动</strong> —— Transport / Storage / Clock / EventSink / HttpRequester / IdSource 都是小接口、真接缝、删除测试通过。
+          摩擦集中在 <strong>helix-im 的有状态心脏</strong>（gate / 效果生产 / 关联路由）与 <strong>core 的 Effect 表面</strong>（类型缺失的契约）。
+          下列候选都尊重既有 ADR 与 HX-C 不变量；与之冲突处单独标注。
+        </p>
+        <!-- legend -->
+        <div class="flex flex-wrap gap-5 text-xs text-slate-500 pt-1">
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 border-2 border-slate-400 bg-white"></span>module（模块）</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" class="seam" stroke="#475569" stroke-width="2"/></svg>seam（接缝）</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#dc2626" stroke-width="2"/><path d="M24 1 L28 4 L24 7 Z" fill="#dc2626"/></svg>leakage（泄漏）</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 deepbox"></span>deep module（深模块）</span>
+        </div>
+        <div class="flex flex-wrap gap-2 pt-1 text-xs">
+          <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800 font-medium">Strong</span>
+          <span class="px-2 py-1 rounded bg-amber-100 text-amber-800 font-medium">Worth exploring</span>
+          <span class="px-2 py-1 rounded bg-slate-200 text-slate-700 font-medium">Speculative</span>
+          <span class="text-slate-400 self-center">· 7 candidates · 1 top pick</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-16">
+
+        <!-- ============ CANDIDATE 1 — CHANNEL GATE ============ -->
+        <article id="c1" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">1 · 把 channel gate 收成一个深聚合</h2>
+            <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">channel.rs · module.rs (handle_timer) · ws/handlers/gate.rs · {post,posted,post_update,posts_update,post_read,post_schedule_created}.rs · channel_write/post.rs</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-rose-600 mb-2">Before — 不变量散落 6+ 文件</p>
+              <pre class="mermaid">
+flowchart TB
+  subgraph H["6 个 WS handler"]
+    P[post.rs]
+    PU[post_update.rs]
+    PR[post_read.rs]
+  end
+  CW[channel_write/post.rs<br/>unread_bump 决策]
+  M["module.rs<br/>handle_timer：O(N) 线性扫所有 channel<br/>找谁拥有 gate timer"]
+  G[ws/handlers/gate.rs<br/>纯转发壳]
+  C["channel.rs<br/>buffer + arm + flush + peek/commit"]
+  P -->|决定 bump| CW
+  P --> G --> C
+  PU --> G
+  PR --> G
+  M -.O(N) scan.-> C
+  CW -.bump 冻结在 envelope.-> C
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+  class M,CW leak
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-emerald-700 mb-2">After — 一个 ChannelGate 接缝</p>
+              <pre class="mermaid">
+flowchart TB
+  H["WS handlers<br/>(解析帧 → 调 gate)"]
+  S["sync 路径"]
+  subgraph DEEP["ChannelGate（深模块）"]
+    direction TB
+    I["ingest / advance / on_timer<br/>peek / commit"]
+    HID["内部：pending buffer · timer 反向索引<br/>flush_contiguous · unread-bump 应用"]
+  end
+  H --> I
+  S --> I
+  I --- HID
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class I deep
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div>
+              <p class="label text-slate-400 mb-1">Problem</p>
+              <p class="text-slate-700">cursor 单调性这个核心不变量没有 locality —— buffer、timer arm、flush、unread-bump 决策分散在 6+ 文件，timer 派发还是 O(N) 全扫。</p>
+            </div>
+            <div>
+              <p class="label text-slate-400 mb-1">Solution</p>
+              <p class="text-slate-700">把 gate 升成深聚合：对外只露 <span class="font-mono text-xs">ingest / advance / on_timer / peek / commit</span>，buffer + timer 反向索引 + flush + bump 应用全部藏进实现。</p>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-4">
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside">
+              <li>locality：不变量归一处</li>
+              <li>删除测试：现在跨 6 caller 复活</li>
+            </ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside">
+              <li>timer O(N) → O(1) 反向索引</li>
+              <li>测试打一个接缝，不用编排 4 文件</li>
+            </ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside">
+              <li>handler 退化成"解析+转交"</li>
+              <li>顺带消化 channel.rs 518 行超限债</li>
+            </ul>
+          </div>
+
+          <div class="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+            ✅ 与 ROADMAP <span class="font-mono">E8 timer 反向索引</span> 同向；与过会"头号风险（乱序 backfill proptest）"对齐 —— 收成单接缝后，那条 proptest 终于有干净的测试面可打。
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 2 — ACL EFFECT SEAM ============ -->
+        <article id="c2" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">2 · 统一 IM→Effect 的防腐接缝</h2>
+            <span class="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">acl/to_effect.rs (748) · acl/to_effect_s1.rs (207) · channel.rs (event_to_upsert_op / event_to_storage_op / edit_content_op / revoke_op / apply_read_op)</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-rose-600 mb-2">Before — 三个事实源，调用方各自 import</p>
+              <!-- mass diagram: three factories -->
+              <div class="space-y-3 pt-2">
+                <div class="flex items-center gap-3">
+                  <div class="w-32 text-xs font-mono text-slate-600">to_effect.rs</div>
+                  <div class="flex-1 h-8 bg-rose-100 border border-rose-300 rounded flex items-center px-2 text-xs">message upsert · cursor · sync_notify</div>
+                </div>
+                <div class="flex items-center gap-3">
+                  <div class="w-32 text-xs font-mono text-slate-600">to_effect_s1.rs</div>
+                  <div class="flex-1 h-8 bg-rose-100 border border-rose-300 rounded flex items-center px-2 text-xs">members · nickname · channel_set_cols</div>
+                </div>
+                <div class="flex items-center gap-3">
+                  <div class="w-32 text-xs font-mono text-slate-600">channel.rs</div>
+                  <div class="flex-1 h-8 bg-rose-100 border border-rose-300 rounded flex items-center px-2 text-xs">edit / revoke / read 的 op 工厂</div>
+                </div>
+                <p class="text-xs text-rose-700 pt-1">⚠ s1 文件因 300 行硬顶被迫切出，<strong>不是因内聚切出</strong>。kind→op 的 dispatch 在 channel.rs 又重复一次。</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-emerald-700 mb-2">After — 一个 kind-dispatched 入口</p>
+              <div class="pt-2 flex flex-col items-center justify-center h-full gap-3">
+                <div class="w-full deepbox text-slate-100 rounded p-3 text-center">
+                  <p class="font-mono text-sm">acl::to_effect(event) → Vec&lt;StorageOp&gt;</p>
+                  <p class="text-xs text-slate-400 mt-2">kind 1/2/3/6 + channel/member 内部按表分派</p>
+                </div>
+                <p class="text-xs text-slate-500">调用方一个 import，编译器保证 edit 帧走 edit op。</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div>
+              <p class="label text-slate-400 mb-1">Problem</p>
+              <p class="text-slate-700">同一职责（IM 概念 → core Effect）被切成 3 个事实源，kind→op 映射靠 caller 内联 match，没有类型保证覆盖完整。</p>
+            </div>
+            <div>
+              <p class="label text-slate-400 mb-1">Solution</p>
+              <p class="text-slate-700">一个 kind-dispatched 入口承担全部翻译；内部可再拆小文件，但接缝只有一个，调用方不挑工厂。</p>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-4">
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside">
+              <li>leverage：一个接缝，N 个 caller</li>
+            </ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside">
+              <li>kind 分派归一处，不再重复</li>
+            </ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside">
+              <li>read_bits 不被 edit 覆盖等坑收进实现</li>
+            </ul>
+          </div>
+          <div class="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            ⚠ 内部拆分仍须守 300 行硬顶（structure-gate WHITELIST）；接缝统一是目的，文件数不是。
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 3 — ImWsContext ============ -->
+        <article id="c3" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">3 · 给 WS handler 一个真接口（ImWsContext）</h2>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">in-process</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">ws/context.rs (35) · ws/registry.rs · module.rs (alloc_corr 闭包 ×4) · 17 个 handler</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-rose-600 mb-2">Before — 浅壳：接口 ≈ 实现</p>
+              <pre class="mermaid">
+flowchart LR
+  M["module.rs<br/>注入 alloc_corr 闭包 ×4"]
+  X["ImWsContext<br/>5 个 pub(crate) 字段"]
+  H["17 handler<br/>直接 .state.channels<br/>.state.pending_sends<br/>.state.corr_map"]
+  M -->|闭包| X
+  X -.裸 &amp;mut state.-> H
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+  class X,H leak
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-emerald-700 mb-2">After — 小接口托管不变量</p>
+              <pre class="mermaid">
+flowchart LR
+  H["17 handler"]
+  subgraph CTX["ImWsContext（深）"]
+    A["corr() · gate(channel) · now()"]
+  end
+  ST["ImState（藏在后面）"]
+  H --> A
+  A --- ST
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class A deep
+              </pre>
+            </div>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div>
+              <p class="label text-slate-400 mb-1">Problem</p>
+              <p class="text-slate-700">ImWsContext 是纯数据穿透，字段全 <span class="font-mono text-xs">pub(crate)</span>，corr 分配靠从 module.rs 注入 4 份相同闭包；handler 拿到无界 <span class="font-mono text-xs">&amp;mut state</span>，没法挂不变量检查。</p>
+            </div>
+            <div>
+              <p class="label text-slate-400 mb-1">Solution</p>
+              <p class="text-slate-700">给 context 一个小接口（<span class="font-mono text-xs">corr()</span> / <span class="font-mono text-xs">gate(id)</span> / <span class="font-mono text-xs">now()</span>），裸 state 藏到实现后；handler 只拿它需要的能力。</p>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>删 4 份重复闭包</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>不变量可在接口处断言</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>测 handler 不用塞全 state</li></ul>
+          </div>
+          <div class="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            ⚠ 依赖候选 1（gate 聚合）先落 —— <span class="font-mono">gate(id)</span> 才有东西可返回。建议接在候选 1 之后。
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 4 — EFFECT FULFILLMENT TYPES ============ -->
+        <article id="c4" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">4 · 把"必达 / fire" 编进类型，而非命名</h2>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">ports &amp; adapters</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">helix-core/src/effect.rs (304–400)</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-rose-600 mb-2">Before — 区分靠后缀 + 文档</p>
+              <div class="font-mono text-xs space-y-1 pt-2">
+                <p class="text-slate-700">Persist { corr, ops } <span class="text-rose-600">// 必达，等 PortReply</span></p>
+                <p class="text-slate-700">PersistFire { ops } <span class="text-rose-600">// fire，可丢</span></p>
+                <p class="text-slate-700">Http { corr, req } <span class="text-rose-600">// 必达</span></p>
+                <p class="text-slate-700">HttpFire { req } <span class="text-rose-600">// fire</span></p>
+                <p class="text-rose-700 pt-2 normal-case font-sans">区别只在后缀 + EFFECT-5 注释。写错无编译报错 → 静默丢数据 / 悬挂等待。</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-emerald-700 mb-2">After — 兑现语义进类型</p>
+              <div class="font-mono text-xs space-y-1 pt-2">
+                <p class="text-slate-100 deepbox rounded px-2 py-1">enum Fulfillment { MustReply(Correlation), Fire }</p>
+                <p class="text-slate-700 pt-1">Persist { how: Fulfillment, ops }</p>
+                <p class="text-slate-700">Http { how: Fulfillment, req }</p>
+                <p class="text-emerald-700 pt-2 normal-case font-sans">"是否必达"成为编译期事实，driver 的背压契约挂在 <span class="font-mono">Fulfillment</span> 上。</p>
+              </div>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div>
+              <p class="label text-slate-400 mb-1">Problem</p>
+              <p class="text-slate-700">必达 vs fire-and-forget、无序兑现、背压"绝不 drop"全是文档契约（EFFECT-2/5），不是类型属性；core↔前端唯一对话面缺类型护栏。</p>
+            </div>
+            <div>
+              <p class="label text-slate-400 mb-1">Solution</p>
+              <p class="text-slate-700">把兑现语义折进一个 <span class="font-mono text-xs">Fulfillment</span> 标签，让 Effect 变体减少、契约可被穷尽匹配。</p>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>Effect 变体收窄</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>契约从注释升类型</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>driver 兑现穷尽可查</li></ul>
+          </div>
+          <div class="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            ⚠ 触及 core 公开面 —— 过会拍板 #2「<span class="font-mono">cargo public-api</span> 冻结公开类型面」会红。须配套更新快照基线 + DomainEvent 契约版本化（拍板 #5）。这是收敛公开面、不是扩张，值得为它过一次基线。
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 5 — CORRELATION / IDSOURCE ============ -->
+        <article id="c5" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">5 · 关联 ID 走 core IdSource + 有类型的延续</h2>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">ports &amp; adapters</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">module.rs (next_corr=1 magic · alloc_corr 闭包 ×4 · handle_port_reply 4-way match) · state.rs (CorrelationContext)</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-rose-600 mb-2">Before — 防撞靠魔数 1</p>
+              <pre class="mermaid">
+flowchart TB
+  N["next_corr: u64 = 1<br/>// 注释：避免撞 engine corr"]
+  CL["4 处 inline 闭包<br/>捕获 &amp;mut next_corr"]
+  CM["corr_map: HashMap<br/>未映射的 reply → 静默 no-op"]
+  N --> CL --> CM
+  classDef leak stroke:#dc2626,stroke-width:2px,color:#dc2626;
+  class N,CM leak
+              </pre>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-emerald-700 mb-2">After — 端口出 id</p>
+              <pre class="mermaid">
+flowchart TB
+  ID["core IdSource 端口<br/>(已存在)"]
+  G["ctx.corr(Continuation)<br/>分配并登记一步完成"]
+  R["handle_port_reply<br/>按 Continuation 穷尽匹配"]
+  ID --> G --> R
+  classDef deep fill:#0f172a,color:#e2e8f0,stroke:#0f172a;
+  class G deep
+              </pre>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div>
+              <p class="label text-slate-400 mb-1">Problem</p>
+              <p class="text-slate-700">corr 唯一性靠"从 1 开始"魔数防撞（BLK-1b 自己标注稳健解是"core 统一 IdSource"）；alloc + 登记 context 分散在 8+ 处，未映射 reply 静默吞掉。</p>
+            </div>
+            <div>
+              <p class="label text-slate-400 mb-1">Solution</p>
+              <p class="text-slate-700">corr 来源收口到已有的 <span class="font-mono text-xs">IdSource</span> 端口；一次调用同时分配 id + 登记 <span class="font-mono text-xs">Continuation</span>，让 reply 路由可穷尽。</p>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>魔数防撞 → 端口保证</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>alloc+登记一步，删 4 闭包</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>第二个模块加入也不撞</li></ul>
+          </div>
+          <div class="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+            ✅ 这正是 BLK-1b 注释里写明的"更健壮方案"，且 core 的 IdSource 端口已经在那里 —— 接线即可，不新增公开类型。
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 6 — FFI HANDLE ============ -->
+        <article id="c6" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">6 · FFI handle 生命周期收成一个 owned 类型</h2>
+            <span class="px-2 py-1 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">FFI / ports &amp; adapters</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">helix-driver-ffi/src/api.rs (55–217, 733 lines)</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-rose-600 mb-2">Before — 6 步销毁协议漏给 C++</p>
+              <!-- cross-section -->
+              <div class="space-y-1 pt-2 text-xs font-mono">
+                <div class="h-7 border-l-4 border-rose-400 bg-rose-50 flex items-center px-2">tick_tx: Mutex&lt;Option&lt;Sender&gt;&gt;</div>
+                <div class="h-7 border-l-4 border-rose-400 bg-rose-50 flex items-center px-2">shutdown_tx: Mutex&lt;Option&lt;oneshot&gt;&gt;</div>
+                <div class="h-7 border-l-4 border-rose-400 bg-rose-50 flex items-center px-2">pump_thread: Mutex&lt;Option&lt;JoinHandle&gt;&gt;</div>
+                <div class="h-7 border-l-4 border-rose-400 bg-rose-50 flex items-center px-2">destroy()：take→take→join 严格时序</div>
+                <p class="text-rose-700 pt-2 normal-case font-sans">所有权散在三个 Mutex&lt;Option&gt;；销毁顺序 + "禁 panic"约束 + ctx 存活窗口全压给 C++ 调用方。</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-emerald-700 mb-2">After — 一个深生命周期类型</p>
+              <div class="pt-2 flex flex-col gap-2 h-full justify-center">
+                <div class="deepbox text-slate-100 rounded p-3 text-xs font-mono">
+                  struct PumpHandle { … }<br/>
+                  impl Drop → 有序收束（一处）
+                </div>
+                <p class="text-xs text-slate-500 normal-case">C-ABI 只露 create / command / destroy；时序不变量藏进 Drop，extern "C" 仅薄转发。</p>
+              </div>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div>
+              <p class="label text-slate-400 mb-1">Problem</p>
+              <p class="text-slate-700">opaque 指针的所有权语义没被藏住 —— 三个 <span class="font-mono text-xs">Mutex&lt;Option&lt;T&gt;&gt;</span> + 6 步销毁顺序泄漏成 C++ 调用方的责任（HX-C006 说应隐藏）。</p>
+            </div>
+            <div>
+              <p class="label text-slate-400 mb-1">Solution</p>
+              <p class="text-slate-700">把 tick/shutdown/thread 收进一个 owned <span class="font-mono text-xs">PumpHandle</span>，时序不变量落到 <span class="font-mono text-xs">Drop</span>；extern "C" 退成薄转发。</p>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-4">
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>销毁时序归一处</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>C++ 责任面缩小</li></ul>
+            <ul class="text-sm text-slate-700 space-y-1 list-disc list-inside"><li>顺带消化 api.rs 733 行债</li></ul>
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 7 — STORAGE SPEC (SPECULATIVE) ============ -->
+        <article id="c7" class="space-y-5">
+          <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-2xl font-serif">7 · Storage Spec 的列名 stringly-typing</h2>
+            <span class="px-2 py-1 rounded bg-slate-200 text-slate-700 text-xs font-medium">Speculative</span>
+            <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-mono">ports &amp; adapters</span>
+          </div>
+          <p class="font-mono text-sm text-slate-500">helix-core/src/effect.rs (104–290) — UpsertSpec / GuardedBumpSpec / Row = Vec&lt;(String, SqlValue)&gt;</p>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 bg-white p-4">
+              <p class="label text-slate-500 mb-2">观察 — Spec 是 SQL 参数容器</p>
+              <div class="font-mono text-xs space-y-1 pt-2 text-slate-700">
+                <p>UpsertSpec { table: &amp;str,</p>
+                <p class="pl-4">rows: Vec&lt;(String, SqlValue)&gt;,</p>
+                <p class="pl-4">conflict_key, exclude_from_update }</p>
+                <p class="text-slate-500 pt-2 normal-case font-sans">列名是裸 String，没有编译期 schema 校验；错列要到 driver SQL 执行才炸。helix-im 调用方必须背列名。</p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-300 bg-white p-4">
+              <p class="label text-slate-500 mb-2">张力 — 这是有意的通用原语</p>
+              <div class="text-sm text-slate-700 space-y-2 pt-2">
+                <p>GOAL §1.6 + ADR-004 明确：core 的 Spec <strong>故意通用</strong>，把业务 schema 挡在 core 外。</p>
+                <p>所以这不是"业务泄漏"，而是"SQL 形状 vs 类型安全"的取舍。深化（列名 newtype / 让 driver 从高层请求 codegen 出 spec）<strong>可能重新翻 ADR</strong>。</p>
+              </div>
+            </div>
+          </div>
+          <div class="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            ⚠ 与 GOAL §1.6 / ADR-004 张力 —— 仅当 helix-im 端真的频繁踩"错列运行时才炸"时才值得重开。否则维持现状。列为 Speculative，不建议现在动。
+          </div>
+        </article>
+
+      </section>
+
+      <!-- ============ NOT CANDIDATES ============ -->
+      <section class="space-y-3 border-t border-slate-200 pt-8">
+        <h2 class="text-xl font-serif text-slate-600">刻意不动（既有取舍，非摩擦）</h2>
+        <ul class="text-sm text-slate-600 space-y-2">
+          <li>• <span class="font-mono text-xs">ExecutionShell::step() → &amp;[Effect]</span> 借用 scratch：这是 <strong>HX-C005 热路径零分配</strong>的有意设计，返回 <span class="font-mono text-xs">Vec</span> 会违反铁律。保持借用语义。</li>
+          <li>• <strong>端口层全员</strong>（Transport / Storage trait / Clock / EventSink / Http / IdSource）：删除测试全过，真接缝（native + ffi + host 多适配器）。无需深化。</li>
+          <li>• <strong>helix-driver-host 共享存储/网络</strong>：已是深接缝，native/ffi 薄壳委托，ADR-007/010 兑现。模块注册归属的 native/ffi 不对称是文档问题，非代码重复。</li>
+          <li>• <strong>wasm 适配器</strong>：探查时被计入"适配器数"，但 ADR-006 已归档暂停维护 —— 不计入交付，也不作为深化对象。</li>
+        </ul>
+      </section>
+
+      <!-- ============ TOP RECOMMENDATION ============ -->
+      <section id="top-recommendation">
+        <div class="deepbox text-slate-100 rounded-xl p-8 space-y-3">
+          <p class="label text-indigo-300">Top recommendation</p>
+          <h2 class="text-2xl font-serif">先做 <a href="#c1" class="underline decoration-indigo-400 underline-offset-4">候选 1 — channel gate 深聚合</a></h2>
+          <p class="text-slate-300 text-sm leading-relaxed max-w-3xl">
+            它压住的是唯一被标 <strong>CRITICAL</strong> 的摩擦：cursor 单调不变量没有 locality，散在 6+ 文件、timer 还是 O(N)。
+            收成一个深接缝后，候选 3（context 接口）、候选 5（corr 路由）都有了干净落点，过会"头号风险"那条乱序 backfill proptest 也终于有单一测试面可打。
+            一个动作，concentrates 最多复杂度 —— 删除测试在这里失败得最响。
+          </p>
+          <p class="text-slate-400 text-xs pt-2">建议顺序：1 → 3 → 2 → 5 →（4 需过 public-api 基线）→ 6。候选 7 暂缓。</p>
+        </div>
+      </section>
+
+      <footer class="text-center text-xs text-slate-400 pt-6">
+        helix architecture review · vocabulary from /codebase-design · 尊重 GOAL §1/§2 · ADR-001..011 · HX-C001..C012
+      </footer>
+
+    </main>
+  </body>
+</html>

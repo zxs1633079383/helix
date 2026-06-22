@@ -54,13 +54,13 @@ if [ "$RUN_DEMO" = 1 ]; then
   if [ -d "$DEMO_DIR" ]; then
     echo "▶ [6/6] C++ shim + Dart console 全链（dart:ffi→shim→cdylib→listener）@ $DEMO_DIR"
     ( cd "$DEMO_DIR" && bash tool/build_native.sh && dart run bin/console_smoke.dart ) \
-      || fail "6 console_smoke（$DEMO_DIR）"
+      || fail "6 console_smoke（${DEMO_DIR}）"
   else
-    echo "⚠ [6/6] 跳过：仓外 demo 不存在（$DEMO_DIR）——设 HELIX_FFI_DEMO_DIR 或 --no-demo"
+    echo "⚠ [6/6] 跳过：仓外 demo 不存在（${DEMO_DIR}）——设 HELIX_FFI_DEMO_DIR 或 --no-demo"
   fi
 else
   echo "⏭ [6/6] 跳过（--no-demo）"
 fi
 
 LAYERS=$([ "$RUN_DEMO" = 1 ] && echo "1–6" || echo "1–5")
-echo "✅ FFI-VERIFY PASS（$LAYERS；7–8 Flutter UI/Maestro 需完整 Xcode，另跑 flutter test integration_test -d macos）"
+echo "✅ FFI-VERIFY PASS（${LAYERS}；7–8 Flutter UI/Maestro 需完整 Xcode，另跑 flutter test integration_test -d macos）"

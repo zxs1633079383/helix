@@ -36,6 +36,35 @@ Workflow({ name: "stress-verify", args: { claim: "push 落库热路径 O(1)", sc
 ] } })
 ```
 
+## Plan Gate（spec-before-edit · 动手前先出 spec 块 · 对标 Trend 1）
+
+> 来源：`2026 Agentic Coding Trends Report` **Trend 1「The software development lifecycle changes dramatically」**——agentic SDLC = `Express intent → Agent understands →【显式 spec】→ Agent implements → Human review`，关键差异「**Human guides, agent executes**」。配套本仓 `spec-driven-development` skill（SPECIFY→PLAN→TASKS→IMPLEMENT 门控）。
+> 核心一句话：**任何会改文件的 workflow 阶段，动手前必先产出一个 schema 强制的 spec 块**——把「Agent understands」固化成可审的工件，卡在「implements」之前，让 human 在对的高度 guide/review。
+
+### 铁律
+
+- **file-modifying 阶段 = 必须有 Plan gate**：任一 phase 的 agent 会 Edit/Write 文件 → 该 phase **之前**必须有一个 **Plan 阶段**，agent **只读+规划、绝不改文件**，按 `PLAN_GATE_SCHEMA` 产出 spec 块。spec 块 schema 强制（缺字段 = 该 agent FAIL），是可 grep 的工件（`/workflows` + 最终输出可见）。
+- **read-only workflow 豁免**：只查/只审/只跑测的不改文件 → 无需 plan gate。在册中 `architecture-drift-review`、`expert-panel-review`、`stress-verify`、`host-cli-go-e2e`（只跑脚本不改 src）**豁免**；`dual-track-fix`、`refactor-spec-then-build`、以及任何 implement/fix/refactor 编制**必须**有。
+- **openQuestions 非空 → 不动手**：spec 块里若有「需人类拍板」的未决项，该分片**停在 plan、不进 implement**，回主对话（对齐「Human guides」——歧义先澄清，不默默填）。
+- **implement 阶段按已出 spec 实现**：fix/build agent 拿到自己刚出的 spec，严格按 `filesToChange + approach` 改；偏离 spec 要在返回里说明（spec 是活契约，不是一次性摆设）。
+
+### `PLAN_GATE_SCHEMA`（可复用·新 file-modifying 编制照抄）
+
+字段对齐 `spec-driven-development` skill 的 6 核心域 + 任务模板（Files/Acceptance/Verify）：
+
+| 字段 | 含义（对应 spec skill） |
+|---|---|
+| `objective`（必）| 改什么 + 为什么（理解到的 intent，可证伪）= Objective |
+| `filesToChange[]{file,what}`（必）| 改哪些文件·每文件改什么（须在白名单内）= 任务模板 Files |
+| `approach`（必）| 怎么实现（技术方案，不是做什么）= Plan |
+| `assumptions[]` | 浮出的假设（默默填=最危险）= skill「先列假设」|
+| `acceptance[]{criterion,verify}`（必）| 可测成功条件 + 验证命令 = Acceptance/Verify |
+| `boundaries` | 绝不碰什么 + 风险 = Boundaries「Never do」|
+| `openQuestions[]` | 需人类拍板的（非空→回主对话）= Open Questions |
+
+> 参考实现：`dual-track-fix.workflow.js`（Plan→Fix→Review→Repair，Plan 阶段 schema 强制、openQuestions 非空则 `blocked-on-questions` 不动手）；`refactor-spec-then-build.workflow.js`（Spec→Review→Build，先出 spec.md+mmd 再实现）。
+> 主对话（非 workflow）侧的等价物 = `spec-driven-development` skill + 计划模式：出 spec → 用户 review → 再改。
+
 ## 约束与边界
 
 - workflow **不做 git merge / commit**（项目 §6 铁律：merge 由主对话做前置冲突分析后执行）。`dual-track-fix` 只产出 reviewed 改动 + merge-plan，主对话跑 `scripts/gate.sh` 终验后分 commit。

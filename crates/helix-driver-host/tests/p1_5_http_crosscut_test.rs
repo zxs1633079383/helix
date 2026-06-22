@@ -43,7 +43,12 @@ impl MockInner {
 
     /// 取内层实际收到的（横切改写后的）出站请求快照。
     fn last_seen(&self) -> HttpRequest {
-        self.seen.lock().unwrap().last().cloned().expect("a request")
+        self.seen
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .expect("a request")
     }
 }
 
@@ -165,7 +170,10 @@ async fn bot_intent_injects_bearer_token() {
     cross.request(req).await.expect("ok");
 
     let seen = inner.last_seen();
-    assert_eq!(header_value(&seen, "Authorization"), Some("Bearer mp_secret123"));
+    assert_eq!(
+        header_value(&seen, "Authorization"),
+        Some("Bearer mp_secret123")
+    );
     assert!(header_value(&seen, AUTH_KIND_HEADER).is_none());
 }
 
@@ -203,11 +211,17 @@ async fn status_401_emits_unauthorized() {
     let auth = AuthTokenRegistry::new();
     let (cross, sink) = build(inner, auth);
 
-    let resp = cross.request(req_with_headers(vec![])).await.expect("ok resp");
+    let resp = cross
+        .request(req_with_headers(vec![]))
+        .await
+        .expect("ok resp");
     assert_eq!(resp.status, 401);
 
     // emit 了 im:http:unauthorized（event 名 == to_bus_envelope channel）。
-    assert_eq!(sink.event_names(), vec![EVENT_HTTP_UNAUTHORIZED.to_string()]);
+    assert_eq!(
+        sink.event_names(),
+        vec![EVENT_HTTP_UNAUTHORIZED.to_string()]
+    );
     let ev = &sink.emitted()[0];
     assert_eq!(ev["event"], EVENT_HTTP_UNAUTHORIZED);
     assert_eq!(ev["data"]["status"], 401);
@@ -313,7 +327,11 @@ async fn injected_token_overrides_stale_same_name_header() {
         .filter(|(k, _)| k.eq_ignore_ascii_case("cookieId"))
         .map(|(_, v)| v.as_str())
         .collect();
-    assert_eq!(cookies, vec!["fresh"], "同名旧鉴权头须被真 token 顶替，不重复");
+    assert_eq!(
+        cookies,
+        vec!["fresh"],
+        "同名旧鉴权头须被真 token 顶替，不重复"
+    );
 }
 
 // ─── 7. registry clear：401 logout 后清凭据 → 后续不再注入 ────────────────────────

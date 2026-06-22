@@ -162,7 +162,10 @@ fn all_three_urgent_commands_hit_urgent_endpoints() {
         json!({ "post_id": "p", "channel_id": "c" }),
     ));
     for u in [&u1, &u2, &u3] {
-        assert!(u.contains("/posts/urgent"), "加急族 endpoint 应含 /posts/urgent: {u}");
+        assert!(
+            u.contains("/posts/urgent"),
+            "加急族 endpoint 应含 /posts/urgent: {u}"
+        );
     }
 }
 
@@ -212,7 +215,7 @@ fn update_post_props_builds_props_body() {
 fn update_post_props_requires_postid_and_object_props() {
     assert!(err("im_update_post_props", json!({ "props": {} }))); // 缺 post_id
     assert!(err("im_update_post_props", json!({ "post_id": "p" }))); // 缺 props
-    // props 非对象（Go map[string]interface{} 须 object，非 nil）
+                                                                     // props 非对象（Go map[string]interface{} 须 object，非 nil）
     assert!(err(
         "im_update_post_props",
         json!({ "post_id": "p", "props": "x" })
@@ -300,7 +303,10 @@ fn registry_covers_exactly_all_outbound_commands() {
         assert!(is_outbound(name), "{name} 应被 registry 认领");
     }
     // 非 outbound 命令不命中
-    assert!(!is_outbound("im_send_message"), "send 走 module.rs 不在 registry");
+    assert!(
+        !is_outbound("im_send_message"),
+        "send 走 module.rs 不在 registry"
+    );
     assert!(!is_outbound("bogus_cmd"));
     assert!(!is_outbound(""));
 }
@@ -332,8 +338,14 @@ fn every_registered_command_is_dispatchable() {
             "im_urgent_post",
             json!({ "channel_id": "c", "post_id": "p", "target_ids": ["u"] }),
         ),
-        ("im_urgent_confirm", json!({ "post_id": "p", "channel_id": "c" })),
-        ("im_urgent_cancel", json!({ "post_id": "p", "channel_id": "c" })),
+        (
+            "im_urgent_confirm",
+            json!({ "post_id": "p", "channel_id": "c" }),
+        ),
+        (
+            "im_urgent_cancel",
+            json!({ "post_id": "p", "channel_id": "c" }),
+        ),
         ("im_quick_reply", json!({ "post_id": "p", "emoji": "x" })),
         (
             "im_update_post_props",

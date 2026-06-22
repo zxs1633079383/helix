@@ -65,7 +65,10 @@ impl OutboundCommand for CreateScheduleCommand {
             .get("schedule_post_at")
             .and_then(Value::as_i64)
             .ok_or_else(|| {
-                ImError::Parse(format!("{}: 缺/坏 schedule_post_at（int64 毫秒）", self.name()))
+                ImError::Parse(format!(
+                    "{}: 缺/坏 schedule_post_at（int64 毫秒）",
+                    self.name()
+                ))
             })?;
         let mut post = json!({ "channelId": channel_id, "message": message });
         if let Some(tmp) = args.get("temporary_id").and_then(Value::as_str) {

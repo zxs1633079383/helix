@@ -31,7 +31,10 @@ impl OutboundCommand for UrgentPostCommand {
             .and_then(Value::as_array)
             .filter(|a| !a.is_empty() && a.iter().all(|v| v.is_string()))
             .ok_or_else(|| {
-                ImError::Parse(format!("{}: 缺/空 target_ids（非空字符串数组）", self.name()))
+                ImError::Parse(format!(
+                    "{}: 缺/空 target_ids（非空字符串数组）",
+                    self.name()
+                ))
             })?;
         let mut b = json!({
             "channelId": channel_id,

@@ -123,10 +123,7 @@ fn truncate_chars(text: &str) -> String {
 /// 返回 `true` = 应拦截（不发）。`text` 去首尾空白后为空、且 `props` 不是非空对象 → 拦截。
 fn should_intercept_empty(text: &str, props: &Value) -> bool {
     let has_valid_message = !text.trim().is_empty();
-    let has_valid_props = props
-        .as_object()
-        .map(|m| !m.is_empty())
-        .unwrap_or(false);
+    let has_valid_props = props.as_object().map(|m| !m.is_empty()).unwrap_or(false);
     !(has_valid_message || has_valid_props)
 }
 
@@ -203,10 +200,19 @@ pub fn optimistic_persist_op(temporary_id: &str, channel_id: &str, text: String)
     StorageOp::BatchUpsert(UpsertSpec {
         table: "message",
         rows: vec![vec![
-            ("temporary_id".to_string(), SqlValue::Text(temporary_id.to_string())),
-            ("channel_id".to_string(), SqlValue::Text(channel_id.to_string())),
+            (
+                "temporary_id".to_string(),
+                SqlValue::Text(temporary_id.to_string()),
+            ),
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(channel_id.to_string()),
+            ),
             ("message".to_string(), SqlValue::Text(text)),
-            ("send_status".to_string(), SqlValue::Text("sending".to_string())),
+            (
+                "send_status".to_string(),
+                SqlValue::Text("sending".to_string()),
+            ),
         ]],
         conflict_key: Some("temporary_id"),
         exclude_from_update: Vec::new(),

@@ -39,8 +39,9 @@ pub(crate) struct OutboundRegistration {
 #[distributed_slice]
 pub(crate) static OUTBOUND_COMMANDS: [OutboundRegistration];
 
-static OUTBOUND_MAP: OnceLock<Result<HashMap<&'static str, &'static dyn OutboundCommand>, ImError>> =
-    OnceLock::new();
+static OUTBOUND_MAP: OnceLock<
+    Result<HashMap<&'static str, &'static dyn OutboundCommand>, ImError>,
+> = OnceLock::new();
 
 fn registry() -> Result<&'static HashMap<&'static str, &'static dyn OutboundCommand>, ImError> {
     OUTBOUND_MAP
@@ -93,7 +94,13 @@ pub fn handle_outbound(
 
     let (path, body) = command.build(&args)?;
 
-    Ok(vec![http_post(api_base_url, path, body, connection_id, corr)])
+    Ok(vec![http_post(
+        api_base_url,
+        path,
+        body,
+        connection_id,
+        corr,
+    )])
 }
 
 /// 取必填字符串字段，缺/类型错/空 → `ImError::Parse`（边界零信任）。供各命令文件复用。
@@ -156,7 +163,8 @@ mod tests {
     /// build_registry 正常路径 + name/handler 一致校验通过。
     #[test]
     fn build_registry_ok() {
-        let entries: &'static [OutboundRegistration] = Box::leak(Box::new([reg("im_stub_a", &STUB_A)]));
+        let entries: &'static [OutboundRegistration] =
+            Box::leak(Box::new([reg("im_stub_a", &STUB_A)]));
         let map = build_registry(entries).expect("should build");
         assert!(map.contains_key("im_stub_a"));
     }
@@ -167,7 +175,10 @@ mod tests {
         let entries: &'static [OutboundRegistration] =
             Box::leak(Box::new([reg("wrong_name", &STUB_MISMATCH)]));
         match build_registry(entries) {
-            Err(ImError::InvalidWsHandlerRegistration { registered, handler }) => {
+            Err(ImError::InvalidWsHandlerRegistration {
+                registered,
+                handler,
+            }) => {
                 assert_eq!(registered, "wrong_name");
                 assert_eq!(handler, "handler_name");
             }
@@ -179,8 +190,10 @@ mod tests {
     /// 重复命令名 → DuplicateWsAction（registry.rs:65）。
     #[test]
     fn build_registry_rejects_duplicate() {
-        let entries: &'static [OutboundRegistration] =
-            Box::leak(Box::new([reg("im_stub_a", &STUB_A), reg("im_stub_a", &STUB_DUP)]));
+        let entries: &'static [OutboundRegistration] = Box::leak(Box::new([
+            reg("im_stub_a", &STUB_A),
+            reg("im_stub_a", &STUB_DUP),
+        ]));
         match build_registry(entries) {
             Err(ImError::DuplicateWsAction(name)) => assert_eq!(name, "im_stub_a"),
             Err(e) => panic!("expected DuplicateWsAction, got {e:?}"),

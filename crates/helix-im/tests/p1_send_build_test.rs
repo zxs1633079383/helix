@@ -87,7 +87,11 @@ fn build_viewers_nonempty_preserved() {
     let mut input = base_input("hi", 1);
     input.viewers = vec!["u_a".to_string(), "u_b".to_string()];
     let body = build_message_object(&input).unwrap();
-    assert_eq!(body["viewers"], json!(["u_a", "u_b"]), "非空 viewers 原样保留");
+    assert_eq!(
+        body["viewers"],
+        json!(["u_a", "u_b"]),
+        "非空 viewers 原样保留"
+    );
 }
 
 #[test]
@@ -125,7 +129,10 @@ fn build_truncates_to_2000_chars() {
 fn build_text_exactly_2000_not_truncated() {
     let exact: String = "x".repeat(MAX_MESSAGE_CHARS);
     let body = build_message_object(&base_input(&exact, 1)).unwrap();
-    assert_eq!(body["message"].as_str().unwrap().chars().count(), MAX_MESSAGE_CHARS);
+    assert_eq!(
+        body["message"].as_str().unwrap().chars().count(),
+        MAX_MESSAGE_CHARS
+    );
 }
 
 #[test]
@@ -220,7 +227,8 @@ fn build_from_command_empty_intercepted() {
 
 #[test]
 fn send_emits_http_body_with_create_at_not_created_at() {
-    let mut h = Harness::new_with_identity(&[1], "u_self", "team_x", "张立超", "后端开发", "技术部");
+    let mut h =
+        Harness::new_with_identity(&[1], "u_self", "team_x", "张立超", "后端开发", "技术部");
     let now = 1_700_000_000_123u64;
     let _ = h.step(send_message_cmd(1, "tmp_send", "hello world"), now);
 
@@ -263,11 +271,7 @@ fn send_empty_message_intercepted_no_effects() {
         effects.is_empty(),
         "空消息须拦截（零 Effect），got {effects:?}"
     );
-    assert_eq!(
-        h.module.pending_send_count(),
-        0,
-        "空消息不登记 PendingSend"
-    );
+    assert_eq!(h.module.pending_send_count(), 0, "空消息不登记 PendingSend");
 }
 
 #[test]

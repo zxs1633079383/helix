@@ -179,7 +179,10 @@ mod tests {
             headers: vec![],
             body: None,
         };
-        assert!(matches!(http.request(req).await, Err(PortError::Transport(_))));
+        assert!(matches!(
+            http.request(req).await,
+            Err(PortError::Transport(_))
+        ));
     }
 
     fn test_config() -> HostNetworkConfig {

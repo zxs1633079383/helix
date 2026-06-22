@@ -6,10 +6,29 @@
 ## §0 终态记录
 
 🧭 **续接一句话（新会话开局读这条·2026-06-22）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）—— sync-v2 **全 parity re-port + memberChange.leave 删行(StorageOp::BatchDelete) + 三未读/同步行为(冷启动 unread/在线增量/too_long-snapshot 覆盖式不删)** 全部落地，`cargo test` 全绿 + gate.sh/structure-gate 过，**真机冷启动路径已验收**（:8065 真连：increment 257 channel / 2275 member / member_count 实数 / 离线 backfill 950 msg / cursor 23）。
-  **➡️ 下一步（二选一）**：
-  - **A（推荐·小）**：给 `crates/helix-host-cli` 加 **stdin 命令入口**（敲 `send <ch> <text>` / `read` / `edit` / `leave` → 走 helix-im `im_send_message` 真发 Go → 收 echo/推送处理）= 真机 e2e「遥控器」，解锁**在线 13 action 真机验收**（post/posted-echo/post_update/posts_update/post_read/channel_created-makeTopic/channel_member_update/update_channel/channel_close/nickname/schedule×2/leave-Delete/too_long）。**非测试代码，是联调 bin 的真机驱动入口。**
-  - **B（大·M2 ROADMAP P0）**：Tauri 前端四接缝接入 + 灰度开关 —— emit 消费(`im:__bus__`)/读路径 S7(2D cursor 分页)/too_long 前端 getLatestPost 链 的唯一验法。
+  **✅ A 已完成（host-cli stdin 遥控器 Tier0+Tier1，commit 333e977+621f086）**：8 命令 `send/read/revoke/leave/schedule/cancel/create/makeTopic`(+quit/help) → helix-im `im_*` → `Effect::Http` POST 现网真源 endpoint。chassis 运行时已证（piped help/quit→优雅退出）。
+  **➡️ 下一步（三选一）**：
+  - **A'（小·收口 A）真机 13-action e2e**：起 Go(:8065) + grpc(`xpa-2-12-grpc`) → `scripts/dev-loop.sh` 跑 host-cli → stdin 敲命令观察 WS 回推（posted-echo/post_read/post_update/channel_member_update/leave→BatchDelete/channel_created/schedule×2）。channel_close/nickname 无干净自 endpoint → 第二 actor(真 cses-client)触发观察。**本会话未跑（Go 未起）**。
+  - **B（大·M2 ROADMAP P0）**：Tauri 前端四接缝接入 + 灰度开关 —— emit 消费(`im:__bus__`)/读路径 S7(2D cursor 分页)/too_long 前端 getLatestPost 链 的唯一验法。host-cli 是其同构参照（仅最外层 I/O 边界 stdin↔IPC 不同）。
   **真机连法**：`HELIX_DEVICE_ID` 已写死 `ED380414932542BAB4993E5AC3E07C64`（host-cli，env 可覆盖）· `scripts/dev-loop.sh` · 后端 grpc 服务名 = `xpa-2-12-grpc`（Go `grpcx9.go:66 CsesGrpc`，改名根因见 `docs/sync-v2-report/真机验收-grpc阻塞根因.md`）。**结构性未通**：Tauri 前端(M2)/FFI 手机端 IM e2e(M3-F4)/Snapshot(A2 服务端未实现不可达)。
+
+🎯 EXPECT host-cli stdin 遥控器(Tier0 chassis)+helix-im outbound 命令全集(Tier1)解锁 13-action 自驱动真机验收 @2026-06-22 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
+  ↳ 可证伪预判：① 改动文件集 = host-cli(main.rs + 新 repl.rs stdin 解析) + helix-im(module.rs dispatch 臂扩 · acl/from_tick.rs accepts 扩 · 新 outbound handler edit/leave/create/schedule/cancel · acl/to_effect* 新 HTTP builder) + tests；**不碰根 SESSION/CLAUDE/README · 不碰 core ports/effect**（预测复用 Effect::Http/Persist/Emit/ScheduleTimer，不新增 Effect 变体）
+  ↳ ② core 仍零运行时（`cargo tree -p helix-core` grep tokio/sqlx/reqwest/web-sys/tauri 空）· helix-im 不 import helix-driver-*（grep 验）· stdin 用 tokio::io 仅在 host-cli（host 层 ambient 合法）
+  ↳ ③ stdin chassis 与 Tick::Inbound **同一条 tick_tx** 串行入泵（零并发进 core，守 HX-C002）；坏命令行 → 打印用法**不崩泵**
+  ↳ ④ 每个 outbound 命令 = 解析 payload → `Effect::Http` POST 到 Go，**endpoint/method/body 取自现网 full-map backend HTTP 真源（§4.5），绝不编造**；找不到真源的 action → 文档化延后不猜；热路径无 RMW（HX-C005）
+  ↳ ⑤ 新增可证伪测试：每个 outbound 命令 → 断言产出对应 `Effect::Http(正确 url)`（删 push → 测 FAIL，HX-C011）· read/reconnect dispatch 接通（命令名 → 非 "unhandled" 分支）· 坏命令不崩
+  ↳ ⑥ cargo check 5 crate + cargo test core/im/host/native 全绿 · gate.sh + structure-gate 过（新 repl.rs / handler ≤300 行）
+  ↳ 偏离即记 DRIFT-PRED：若需改 core Effect/ports / helix-im 反向依赖 driver / endpoint 编造非现网 / 测试非证伪 / src 文件 >300 行未拆 / 改根黑名单 → 偏离
+
+✅ DONE host-cli stdin 遥控器 Tier0+Tier1（代码侧落地 + chassis 运行时实证）@2026-06-22 | commit 333e977(T0)+621f086(T1) | helix/feat/sync-v2-report-on-adr007（未 merge）
+  ↳ Tier0：repl.rs(stdin→Tick::Command 复用 tick_tx 入泵·quit/EOF→shutdown) + host_env.rs(从 main 抽 db/deviceId) + main.rs 396→285 脱白名单。send/quit/help。
+  ↳ Tier1：helix-im **新 commands.rs**(handle_outbound + is_outbound · 7 命令→Effect::Http POST 现网真源 endpoint) + module.rs dispatch is_outbound 分支 + from_tick accepts 扩；host-cli **新 cmd_parse.rs**(7 verb 解析，repl 320→拆 82+241)。命令：read/revoke/leave/schedule/cancel/create/makeTopic。
+  ↳ endpoint 锚现网（full-map partials/{1,2}）：post/read · posts/revoke · channel/member/leave · posts/createSchedule · posts/cancelSchedule · channel/create · posts/makeTopic。零编造。
+  ↳ 验证：cargo check 5 crate + cargo test im+host-cli 全绿（commands.rs 6 测锚 url+body·缺必填→Err·删 push→FAIL HX-C011；cmd_parse 6 测 verb→payload·动态键手建 Map·坏命令不崩）· gate.sh + structure-gate 全过 · core 零运行时空 · im 无 driver 依赖。**chassis 运行时实证**：piped `help/bogus/quit` → 用法打印 + 坏命令不崩 + quit→泵优雅 drain 退出 exit 0。
+  ↳ EXPECT 对账：②③④⑤⑥ 全 held（零运行时/同泵串行/真源 endpoint/可证伪测试/gate+≤300）。①**部分偏离**（见下 ⚡）。**未碰** core ports/effect（复用既有 Effect::Http，0 新变体）+ 未碰根黑名单 ✅。
+  ↳ ⚠️ **真机 13-action e2e 未跑**（本会话 Go/grpc 未起）——代码侧 + chassis 已证；真机待 Go 起后跑：`scripts/dev-loop.sh` 连 :8065，stdin 敲命令观察 WS 回推。channel_close/nickname 无干净自 endpoint → 走第二 actor 观察（已文档化延后，非编造）。
+⚡ DRIFT-PRED EXPECT① 文件集预判部分偏：(a) 预测 outbound handler 落 module.rs/acl/to_effect，实际**新建 commands.rs** 收口（更干净·避免再涨 1159 行 module.rs / 748 行 to_effect.rs 白名单文件）；(b) 预测「新 repl.rs」单文件，实际为守 300 硬顶**额外拆 cmd_parse.rs + host_env.rs**（repl 一度 320 超限）；(c) 「edit」语义落地为 **revoke**——现网无「纯文本编辑」endpoint 产 post_update，post_update 由 revoke/quickReply/updateProps 触发，选 revoke(撤回) 作最干净自驱动 → 候选教训：「outbound 命令 EXPECT 文件集应预留『新建 commands 模块 + ≤300 拆分溢出文件』；action 名（edit）须先核现网有无对应 endpoint 再写进 EXPECT」。已 type:surprise 落 logs，回放闸门待过（结构性偏离·非架构 drift，疑不达建卡阈值）。
 
 🎯 EXPECT #1/#2/#3 未读/同步三行为完整对齐现网 + 锁可证伪测试 @2026-06-22 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 现网真源裁定（rust-tauri-skeleton-dev）：①冷启动 unread = 服务端权威 `unreadCount`（Some→写/omit→回退本地，channel_state.rs:292）②在线增量 = +1 per 新消息 + sender 豁免 + `create_at>last_root_post_at` 时间闸防历史重算（message_service.rs:365）③**too_long/snapshot 不物理删 message**——覆盖式 upsert + cursor 重置 + emit，前端 getLatestPost 重拉（post.rs:931 + im-sync.service.ts:61）

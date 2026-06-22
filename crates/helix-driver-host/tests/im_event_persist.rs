@@ -21,6 +21,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 static DB_SEQ: AtomicUsize = AtomicUsize::new(0);
 
+fn cid(n: u64) -> String {
+    format!("chfixx{n:020x}")
+}
+
+fn channel_id(n: u64) -> ChannelId {
+    ChannelId::from_str(&cid(n)).expect("test channel id fixture must be valid Id26")
+}
+
 /// 以真 `IM_SCHEMA` 建库（含 message / channel / channel_member；cursor 真源是 _helix_monotonic）。
 async fn storage_with_im_schema() -> HostStorage {
     let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -50,7 +58,7 @@ fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) 
     let fields = PostFields {
         temporary_id: temporary_id.to_string(),
         id: id.to_string(),
-        channel_id: ChannelId::from_test_u64(channel).as_str().to_string(),
+        channel_id: cid(channel),
         user_id: "user-zhang".to_string(),
         msg_type: "P".to_string(),
         message: text.to_string(),
@@ -61,12 +69,7 @@ fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) 
         // A3：viewers（可见性受众）；本助手不测未读门控，留空 Vec。
         viewers: Vec::new(),
     };
-    EventEnvelope::new(
-        ChannelId::from_test_u64(channel),
-        Seq(seq),
-        EventKind::PostUpsert,
-        fields,
-    )
+    EventEnvelope::new(channel_id(channel), Seq(seq), EventKind::PostUpsert, fields)
 }
 
 async fn scan_message_rows(storage: &HostStorage) -> Vec<helix_core::effect::Row> {
@@ -121,10 +124,7 @@ async fn ws_event_persists_into_678_message_table() {
         "PK 取 temporary_id"
     );
     assert_eq!(col_text(row, "id"), "post-real-1");
-    assert_eq!(
-        col_text(row, "channel_id"),
-        ChannelId::from_test_u64(42).as_str()
-    );
+    assert_eq!(col_text(row, "channel_id"), cid(42));
     assert_eq!(col_text(row, "message"), "hello world");
     assert_eq!(col_text(row, "user_id"), "user-zhang");
 }
@@ -187,16 +187,11 @@ async fn event_without_temporary_id_falls_back_to_id_as_pk() {
     // 无 temporary_id（他人消息），仅有 id —— event_to_upsert_op 走 PK 回退到 id。
     let fields = PostFields {
         id: "server-post-id-only".to_string(),
-        channel_id: ChannelId::from_test_u64(7).as_str().to_string(),
+        channel_id: cid(7),
         message: "from someone else".to_string(),
         ..Default::default()
     };
-    let ev = EventEnvelope::new(
-        ChannelId::from_test_u64(7),
-        Seq(3),
-        EventKind::PostUpsert,
-        fields,
-    );
+    let ev = EventEnvelope::new(channel_id(7), Seq(3), EventKind::PostUpsert, fields);
 
     let op = event_to_upsert_op(&ev);
     storage

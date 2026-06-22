@@ -12,7 +12,7 @@ use helix_core::effect::{Correlation, TimerId};
 use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::{Effect, EffectSink, Tick};
 use helix_im::module::ImConfig;
-use helix_im::state::ChannelId;
+use helix_im::state::{ChannelId, ServerId};
 use helix_im::ImModule;
 
 // ─── Harness ────────────────────────────────────────────────────────────────
@@ -55,14 +55,31 @@ impl EffectKind {
     }
 }
 
-/// 测试桥接：数值 channel id → 真 wire 的 26 字符字符串（与 ChannelId::from_test_u64 一致）。
+/// 测试 fixture：数值索引 → 固定真实形态 26 字符 channel id。
 #[allow(dead_code)]
 pub fn cid(n: u64) -> String {
-    ChannelId::from_test_u64(n).as_str().to_string()
+    format!("chfixx{n:020x}")
+}
+
+/// 测试 fixture：数值索引 → 固定真实形态 26 字符 server id。
+#[allow(dead_code)]
+pub fn sid(n: u64) -> String {
+    format!("srvfix{n:020x}")
+}
+
+#[allow(dead_code)]
+pub fn channel_id(n: u64) -> ChannelId {
+    ChannelId::from_str(&cid(n)).expect("test channel id fixture must be valid Id26")
+}
+
+#[allow(dead_code)]
+pub fn server_id(n: u64) -> ServerId {
+    ServerId::from_str(&sid(n)).expect("test server id fixture must be valid Id26")
 }
 
 impl Harness {
     /// 创建 Harness，channel_ids 列表自动预注册（初始 cursor=0）
+    #[allow(dead_code)]
     pub fn new(channel_ids: &[u64]) -> Self {
         let config = ImConfig {
             ws_url: "ws://test".to_string(),
@@ -74,7 +91,7 @@ impl Harness {
         };
         let mut module = ImModule::new(config);
         for &id in channel_ids {
-            module.register_channel(ChannelId::from_test_u64(id), 0);
+            module.register_channel(channel_id(id), 0);
         }
         Self {
             module,

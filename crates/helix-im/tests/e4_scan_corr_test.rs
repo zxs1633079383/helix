@@ -206,9 +206,7 @@ fn scan_reply_loads_correct_cursors() {
     h.step(port_reply_with_body(scan_persist_corr, scan_body), 100);
 
     // 验证 channel 已注册且 cursor=99
-    let cursor = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(42));
+    let cursor = h.module.cursor_for(channel_id(42));
     assert_eq!(
         cursor,
         Some(99),
@@ -222,8 +220,7 @@ fn scan_reply_loads_correct_cursors() {
 fn scan_reply_does_not_overwrite_existing_channel() {
     // 预注册 channel=1，cursor=200
     let mut h = Harness::new(&[]);
-    h.module
-        .register_channel(helix_im::state::ChannelId::from_test_u64(1), 200);
+    h.module.register_channel(channel_id(1), 200);
 
     let start_effects = h.start(0);
     let scan_persist_corr = start_effects
@@ -242,9 +239,7 @@ fn scan_reply_does_not_overwrite_existing_channel() {
     h.step(port_reply_with_body(scan_persist_corr, scan_body), 100);
 
     // cursor 应保持 200（entry().or_insert_with 幂等，不覆盖已有值）
-    let cursor = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(1));
+    let cursor = h.module.cursor_for(channel_id(1));
     assert_eq!(
         cursor,
         Some(200),

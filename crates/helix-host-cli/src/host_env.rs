@@ -49,7 +49,7 @@ pub fn resolve_db_path(cookie_id: &str) -> String {
     dir.join("tenant.db").to_string_lossy().into_owned()
 }
 
-/// 从本机派生稳定 deviceId（**不再硬编码任何一台真实设备 id**）。
+/// 从本机派生稳定 deviceId；本函数自身不硬编码任何一台真实设备 id。
 ///
 /// - macOS：`ioreg` 的 `IOPlatformUUID`
 /// - Linux：`/etc/machine-id`（回退 `/var/lib/dbus/machine-id`）

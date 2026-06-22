@@ -16,7 +16,6 @@ use helix_core::tick::PortOutcome;
 use helix_core::{Correlation, Tick};
 use helix_im::acl::to_effect::batch_upsert_events_with_messages;
 use helix_im::parser::parse_sync_response;
-use helix_im::state::ChannelId;
 use helix_im::sync_session::SyncResponse;
 
 fn parse_evs(
@@ -26,7 +25,7 @@ fn parse_evs(
     Vec<helix_im::sync_session::EventEnvelope>,
     std::collections::HashMap<String, helix_im::sync_session::PostFields>,
 ) {
-    let ch = ChannelId::from_test_u64(channel_id);
+    let ch = common::channel_id(channel_id);
     match parse_sync_response(bytes.as_ref(), ch).expect("parse sync") {
         SyncResponse::Events {
             events, messages, ..
@@ -176,9 +175,9 @@ fn s4_persist_err_does_not_advance_cursor() {
         3100,
     );
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(0),
         "S4：persist 失败时 cursor 不推进（写库成功才 commit），got {:?}",
-        h.module.cursor_for(ChannelId::from_test_u64(1))
+        h.module.cursor_for(channel_id(1))
     );
 }

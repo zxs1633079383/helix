@@ -31,8 +31,10 @@ graduates_to:
 - 想"图方便"在 core 直接调 tokio::spawn / sqlx::query / reqwest::get / web_sys::* / tauri::*
 
 ## §2 背景（why）
-Helix 的全部价值在于 **core 一次实现、编译到 native/ffi/wasm 三端**。core 一旦 import 任一具体运行时：
-- `tokio`（multi-thread）在 `wasm32-unknown-unknown` 编不过 → wasm 端碎
+Helix 的全部价值在于 **core 一次实现，当前产品化复用到 PC Tauri/native 与 Flutter FFI 两端**。
+wasm/web 已按 ADR-006 归档为历史实验，不进入当前交付验收；但 core 仍不得被任何具体运行时污染，
+否则未来端扩展和现有双端复用都会碎。core 一旦 import 任一具体运行时：
+- `tokio`（multi-thread）把 core 绑到异步 runtime 假设上，破坏 FFI/单线程宿主边界
 - `sqlx` 拉 tokio/mio/getrandom → wasm 碎
 - `web_sys` 只在 wasm 有 → native 碎
 - `tauri` 把 core 绑死单一宿主 → ffi/wasm/移动全废
@@ -58,8 +60,10 @@ core 只能依赖：`serde` / `thiserror` / `futures-channel` / `bytes` 等**运
 ```bash
 cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri|mio'   # 期望: 空
 grep -rnE '^\s*use (tokio|sqlx|reqwest|web_sys|tauri)' crates/helix-core/src # 期望: 0
-# 三栖编译都必须绿（真正的证明）
-cargo check -p helix-core
+# 当前必跑产品目标：PC Tauri/native + Flutter FFI
+cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
+
+# 可选历史诊断：wasm/web 已归档，不进入当前交付验收或 CI 必跑矩阵
 cargo check -p helix-core --target wasm32-unknown-unknown
 ```
 CI gate：上述 `cargo tree | grep` 非空即 fail。

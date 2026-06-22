@@ -79,7 +79,6 @@ fn http6_raw_go_body_drives_persist_and_emit() {
 #[test]
 fn http6_legacy_envelope_is_silently_swallowed() {
     use helix_im::parser::parse_sync_response;
-    use helix_im::state::ChannelId;
     use helix_im::sync_session::SyncResponse;
 
     // 同样 3 条可见事件的裸 Go body，包成 ADR-007 信封。证「#6 bug 现场」：若**不**解层、直把信封
@@ -98,7 +97,7 @@ fn http6_legacy_envelope_is_silently_swallowed() {
     let envelope = enveloped(raw);
 
     // 裸 parser 吃信封：找不到 entries → NoChange（0 persist / 0 emit 的根因）。
-    let response = parse_sync_response(envelope.as_ref(), ChannelId::from_test_u64(1))
+    let response = parse_sync_response(envelope.as_ref(), channel_id(1))
         .expect("信封是合法 JSON，parser 不报错，只是找不到 entries");
     assert!(
         matches!(response, SyncResponse::NoChange),

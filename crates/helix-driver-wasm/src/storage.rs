@@ -1,4 +1,8 @@
-//! WasmStorage — sqlite-wasm-rs + OPFS
+//! WasmStorage — archived/experimental sqlite-wasm-rs + OPFS sketch
+//!
+//! Web/wasm is not a current Helix delivery target. This file remains only so
+//! the historical wasm crate tracks the `Storage` trait shape; it is not part
+//! of required CI, roadmap, or release validation. See ADR-006.
 //!
 //! ## OPFS 初始化约束（MAJ-3）
 //!
@@ -8,7 +12,7 @@
 //!
 //! `WasmStorage::new()` 在构造时检测上下文，若非 Worker 则返回 `Err` 让调用方决定降级。
 //!
-//! ## IndexedDB 备选
+//! ## IndexedDB 备选（未来若重启 Web 时再拍板）
 //!
 //! 若 OPFS 不可用（Safari 旧版 / 非 Worker 上下文），可降级为 IndexedDB 适配器。
 //! 替换此文件即可，port 契约不变。

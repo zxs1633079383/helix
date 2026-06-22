@@ -2,16 +2,19 @@
 //!
 //! ## 精简说明（审查意见2 S3 落实）
 //!
-//! 原草稿 6 方法精简为 4 方法：
-//! - 删除 `update`（语义 ⊆ `batch_update`，实现可内部委托）
-//! - 删除 `set`（经核查无独立 IM 调用点，等价于 `batch_upsert(rows=1, no_conflict_key)`）
-//! - 保留 `monotonic_upsert`（通用单调 MAX guard，独立语义，不可并入 batch_upsert）
-//! - 保留 `get`（读路径需要）
+//! 原草稿删掉单行 `update` / `set`，公开面收敛为少数批量/原子 port：
+//! `batch_upsert`、`batch_update`、`monotonic_upsert`、`guarded_bump`、`get`、`scan`、
+//! `batch_delete`。这些 spec 都是通用存储原语；表名/列名由业务模块提供，core 不理解业务 schema。
 //!
-//! ## 三端实现（ACL-2）
-//! - native: sqlx::SqlitePool (WAL，写池 max=1，读池 max=4)
-//! - wasm:   sqlite-wasm-rs + OPFS（需 RUSTFLAGS=atomics+bulk-memory，在 Worker 初始化）
-//! - ffi:    host SQLite handle via C ABI
+//! ## 当前产品边界
+//!
+//! `helix-driver-host` 提供共享的 rusqlite-backed Storage 实现（schema/migration、SQL 兑现、
+//! rows reply 编解码），PC Tauri/native 与 Flutter FFI 交付路径都复用这一个 host-driver
+//! 存储边界。`helix-driver-native` 只是兼容 Tauri 侧类型名的薄壳；`helix-driver-ffi` 的 pump
+//! 直接装配 `HostStorage`。
+//!
+//! `helix-driver-wasm` 是 archived/experimental 历史实验：只保留 trait shape 以免代码腐烂，
+//! 不属于当前 roadmap、CI 必跑矩阵或交付验收（见 ADR-006）。
 
 use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
@@ -85,5 +88,4 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
 }
 
 // The spec types are defined in crate::effect and imported above.
-// They are publicly re-exported through crate::ports::mod.rs which imports them
-// via `pub use storage::{Storage, UpsertSpec, MonotonicUpsertSpec, BatchUpdateSpec, GetSpec}`.
+// They are publicly re-exported through crate::ports::mod.rs.

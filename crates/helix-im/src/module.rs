@@ -1123,7 +1123,7 @@ mod handshake_tests {
 
     fn module_with_channel() -> ImModule {
         let mut m = ImModule::new(ImConfig::default());
-        m.register_channel(ChannelId::from_test_u64(1), 0);
+        m.register_channel(crate::state::test_channel_id(1), 0);
         m
     }
 

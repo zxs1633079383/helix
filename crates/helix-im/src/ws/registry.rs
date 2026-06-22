@@ -116,7 +116,7 @@ mod tests {
     }
 
     fn channel_id(n: u64) -> ChannelId {
-        ChannelId::from_test_u64(n)
+        crate::state::test_channel_id(n)
     }
 
     fn channel_id_string(n: u64) -> String {
@@ -124,7 +124,7 @@ mod tests {
     }
 
     fn server_id(n: u64) -> ServerId {
-        ServerId::from_test_u64(n)
+        crate::state::test_server_id(n)
     }
 
     fn server_id_string(n: u64) -> String {
@@ -491,7 +491,7 @@ mod tests {
     #[test]
     fn dispatch_ws_routes_legacy_no_action_event_through_registry() {
         let mut state = ImState::new();
-        let channel_id = ChannelId::from_test_u64(1);
+        let channel_id = crate::state::test_channel_id(1);
         state
             .channels
             .insert(channel_id, Channel::new(channel_id, 0));
@@ -525,7 +525,7 @@ mod tests {
     #[test]
     fn dispatch_ws_routes_hello_through_registry() {
         let mut state = ImState::new();
-        let channel_id = ChannelId::from_test_u64(7);
+        let channel_id = crate::state::test_channel_id(7);
         state
             .channels
             .insert(channel_id, Channel::new(channel_id, 42));

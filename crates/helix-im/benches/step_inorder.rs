@@ -12,7 +12,15 @@ use helix_im::module::ImConfig;
 use helix_im::state::ChannelId;
 use helix_im::ImModule;
 
-fn make_module(channel_id: u64) -> ImModule {
+fn cid(n: u64) -> String {
+    format!("chfixx{n:020x}")
+}
+
+fn channel_id(n: u64) -> ChannelId {
+    ChannelId::from_str(&cid(n)).expect("bench channel id fixture must be valid Id26")
+}
+
+fn make_module(channel_num: u64) -> ImModule {
     let mut module = ImModule::new(ImConfig {
         ws_url: "ws://bench".to_string(),
         api_base_url: "http://bench".to_string(),
@@ -20,15 +28,15 @@ fn make_module(channel_id: u64) -> ImModule {
         send_timeout_ms: 15_000,
         ..Default::default()
     });
-    module.register_channel(ChannelId(channel_id), 0);
+    module.register_channel(channel_id(channel_num), 0);
     module
 }
 
-fn make_inbound_tick(channel_id: u64, seq: u64) -> Tick {
+fn make_inbound_tick(channel_num: u64, seq: u64) -> Tick {
     let payload = serde_json::json!({
         "event": "posted",
         "data": {
-            "channel_id": channel_id,
+            "channel_id": cid(channel_num),
             "seq": seq,
             "event_type": 1,
             "msg_id": format!("msg_{}", seq),

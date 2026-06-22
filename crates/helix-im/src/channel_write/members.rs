@@ -23,14 +23,9 @@
 //! 本函数（四源 + join），消除 `channel_member_update.rs::parse_member_join`「只读 join 不读四源」
 //! 与本函数「只读四源不读 join」的同仓不一致。
 //!
-//! ⚠️ **memberChange.leave 偏离（已文档化 + ROADMAP-P）**：现网 `apply_member_change_tx:270`
-//! 对 leave 走物理 `DELETE FROM channel_member WHERE channel_id=? AND user_id IN(…)`。helix-core
-//! 的 `StorageOp` **无 Delete 变体**（仅 Upsert/MonotonicUpsert/Update/GuardedBump/Get/Scan），
-//! 表达 leave 需新增 core port 变体（触及三端 driver，见 helix-core CLAUDE.md「改 Effect 变体=
-//! 三端全适配」）。当前**有意不落 leave 删除**——本函数只收集应在册成员（join + 四源），离场成员
-//! 靠下次四源全量帧（`members[]` 不含离场者 → 但 helix 是 upsert 非 replace，残留行不会被清）。
-//! 真实收敛缺口记 ROADMAP-P（`docs/ROADMAP.md`「channel_member leave 物理删」）。
-//! `collect_member_leaves` 已就位（解析出离场 user_id 集），待 core 加 `BatchDelete` 后接通。
+//! `memberChange.leave` 对齐现网 `apply_member_change_tx:270`：解析离场 user_id 集后由调用方
+//! 生成 `StorageOp::BatchDelete(channel_member, scope=channel_id, key=user_id)`，走共享 host
+//! storage 的复合 PK 作用域删除，避免跨 channel 误删。
 
 use crate::acl::to_effect_s1::MemberRow;
 
@@ -40,8 +35,7 @@ use crate::acl::to_effect_s1::MemberRow;
 /// 语义，对齐现网 `dedupe_members` rev + 「增量后到达即覆盖」）。空集 → 空 `Vec`（调用方据此跳过
 /// 写库）。复杂度 O(n)（n=四源 + join 元素总数；冷路径，非每事件热路径）。
 ///
-/// ⚠️ leave 不在此处理（helix-core 无 Delete 变体，见模块头偏离说明）；调用方如需离场集用
-/// `collect_member_leaves`。
+/// leave 不在此函数处理；调用方如需离场集用 `collect_member_leaves` 并生成 `BatchDelete`。
 pub fn collect_members(data: &serde_json::Value) -> Vec<MemberRow> {
     let mut out: Vec<MemberRow> = Vec::new();
     collect_array(data.get("members"), "MEMBER", &mut out);
@@ -85,8 +79,7 @@ fn collect_member_change_join(data: &serde_json::Value, out: &mut Vec<MemberRow>
 /// `memberChange.leave[]` → 离场成员的 user_id 集（边界零信任，缺 id 跳该条）。
 ///
 /// 真源 `apply_member_change_tx:270` 的 `leave_list.filter_map(|item| item.id)`。
-/// ⚠️ 当前**无消费方**——helix-core 无 `StorageOp::Delete`（见模块头偏离说明），离场删除
-/// 待 ROADMAP-P 给 core 加 `BatchDelete` 后接通。先就位解析以备接力，并作 leave 契约的可测锚点。
+/// 调用方将结果接成 `StorageOp::BatchDelete(channel_member, scope=channel_id, key=user_id)`。
 pub fn collect_member_leaves(data: &serde_json::Value) -> Vec<String> {
     data.get("memberChange")
         .and_then(|m| m.get("leave"))

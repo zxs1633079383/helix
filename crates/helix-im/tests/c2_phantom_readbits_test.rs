@@ -21,7 +21,6 @@ use common::*;
 use helix_core::effect::{SqlValue, StorageOp};
 use helix_im::acl::to_effect::batch_upsert_events_with_messages;
 use helix_im::parser::parse_sync_response;
-use helix_im::state::ChannelId;
 use helix_im::sync_session::SyncResponse;
 
 // ─── 辅助：从 StorageOp 取列值 / 表名 ──────────────────────────────────────────
@@ -94,7 +93,7 @@ fn parse_events_and_messages(
     Vec<helix_im::sync_session::EventEnvelope>,
     std::collections::HashMap<String, helix_im::sync_session::PostFields>,
 ) {
-    let ch = ChannelId::from_test_u64(channel_id);
+    let ch = common::channel_id(channel_id);
     match parse_sync_response(bytes.as_ref(), ch).expect("parse sync response") {
         SyncResponse::Events {
             events, messages, ..
@@ -183,7 +182,7 @@ fn all_phantom_batch_still_advances_cursor() {
     // persist ok → cursor 推进到 nextSeq=5（phantom 不卡 cursor，HX-C008 §1.6）。
     h.step(port_reply_ok(persist_corr), 3100);
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(5),
         "全 phantom 批后 cursor 仍推进到服务端权威 nextSeq=5"
     );

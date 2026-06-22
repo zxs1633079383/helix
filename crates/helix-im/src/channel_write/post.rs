@@ -170,7 +170,7 @@ mod tests {
     use super::*;
 
     fn ch() -> ChannelId {
-        ChannelId::from_test_u64(7)
+        crate::state::test_channel_id(7)
     }
     const AUTH: &str = "00000000000000000000000001";
     const OTHER: &str = "00000000000000000000000002";

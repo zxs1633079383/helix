@@ -1,7 +1,7 @@
 # HostStorage 读写并发正确性规范
 
-> 真源：`src/storage.rs`（HostStorage / ReadPool）· `src/spawner.rs`（BoundedSpawner N=1）· `src/engine.rs`（run_engine_loop）  
-> 关联流程图：[`05-storage-rw-concurrency.mmd`](05-storage-rw-concurrency.mmd) · [`06-sync-v2-write-load.mmd`](06-sync-v2-write-load.mmd)  
+> 真源：`src/storage.rs`（HostStorage / ReadPool）· `src/spawner.rs`（BoundedSpawner N=1）· `src/engine.rs`（run_engine_loop）
+> 关联流程图：[`05-storage-rw-concurrency.mmd`](05-storage-rw-concurrency.mmd) · [`06-sync-v2-write-load.mmd`](06-sync-v2-write-load.mmd)
 > 关联约束：HX-C005 · HX-C006 · HX-C008 · 五不变量（engine.rs 头注）
 
 ---

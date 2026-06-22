@@ -1,5 +1,5 @@
 %% helix-core — Effect / StorageOp 分类树
-%% 真源：src/effect.rs (enum Effect 9 变体 · enum StorageOp 5 变体)
+%% 真源：src/effect.rs (enum Effect 9 变体 · enum StorageOp 7 变体)
 %% 关联：HX-C005(热路径零分配·&'static str) · HX-C007(Effect 跨边界批处理) · EFFECT-5(无序契约)
 flowchart TD
     classDef root fill:#e6f4ea,stroke:#34a853,color:#1a1a1a
@@ -31,9 +31,11 @@ flowchart TD
     %% ── StorageOp 子树（Persist / PersistFire 的 ops 元素）──
     A1 -.->|"ops: Vec<StorageOp>"| SOP
     B1 -.->|"ops: Vec<StorageOp>"| SOP
-    SOP["✅ enum StorageOp（5 变体）<br/>具体 SQL 由 driver Storage 实现构造"]:::op
+    SOP["✅ enum StorageOp（7 变体）<br/>具体 SQL 由 driver Storage 实现构造"]:::op
     SOP --> S1["✅ BatchUpsert(UpsertSpec)<br/>INSERT ON CONFLICT DO UPDATE<br/>table/conflict_key = &'static str（HX-C005 零分配）"]:::op
     SOP --> S2["✅ MonotonicUpsert(MonotonicUpsertSpec)<br/>单调 MAX-guard（严格 > 才写，CAS 语义）<br/>scope_key 运行时值，core 不解析"]:::op
     SOP --> S3["✅ BatchUpdate(BatchUpdateSpec)<br/>UPDATE SET patch WHERE key_col IN (...)"]:::op
-    SOP --> S4["✅ Get(GetSpec)<br/>SELECT 单行 WHERE key_col = val"]:::op
-    SOP --> S5["✅ Scan(ScanSpec)<br/>SELECT 多行 [LIMIT n]（on_start 载入水位）"]:::op
+    SOP --> S4["✅ GuardedBump(GuardedBumpSpec)<br/>UPDATE ... SET bump=bump+delta WHERE key=? AND guard 前进"]:::op
+    SOP --> S5["✅ Get(GetSpec)<br/>SELECT 单行 WHERE key_col = val"]:::op
+    SOP --> S6["✅ Scan(ScanSpec)<br/>SELECT 多行 [LIMIT n]（on_start 载入水位）"]:::op
+    SOP --> S7["✅ BatchDelete(BatchDeleteSpec)<br/>DELETE WHERE scope_col=? AND key_col IN (...)"]:::op

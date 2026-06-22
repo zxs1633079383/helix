@@ -79,7 +79,7 @@ makeTopic **没有独立 handler**——它复用 S1+S3 的两条既有路径，
 
 - **dev-zlc 现状**：
   - 续拉：`parser.rs:198 SYNC_EVENTS_PER_ENTRY=500` + `:264` 满批续拉注释 + `sync_session.rs:7-8/140` `needs_continuation`（实证）。
-  - too_long：`sync_session.rs:158 TooLong{reset_to}` + `:8` 注释「cursor=reset_to-1 + Emit(SyncTooLong) → 前端清表重拉」；`StorageOp` 枚举无 Delete 变体（类型层即排除 Rust 删消息）。
+  - too_long：`sync_session.rs:158 TooLong{reset_to}` + `:8` 注释「cursor=reset_to-1 + Emit(SyncTooLong) → 前端清表重拉」；当前测试断言不得产生任何 `message` 表写/删（Rust 侧不清 message 表）。
   - **diff 实证**：`sync_session.rs` feat vs dev-zlc **仅 +4 行**（新增 `PostFields.viewers` 可见性受众字段，A3/CAP-9 未读 +1 谓词用），sync 主体逻辑两边一致。
 - **缺**：`tests/s6_sync_internal_test.rs`(141)——钉死 ① too_long emit 但不写/删 message 表 ② increment_end fan-out 按 ChannelId 升序确定性。
 - **裁决**：**已合规**。唯一需搬的源码 = `PostFields.viewers` 字段（+4，随 S3/A3 未读链一起，见 §3 `sync_unread_bump_ops`）+ 该测试。
@@ -192,7 +192,7 @@ S1 新增 WS action 的 Effect 工厂（与 to_effect.rs 分文件守 ≤300 行
    4.1 判 `events.len() >= 500`（`SYNC_EVENTS_PER_ENTRY`）？ 真 wire 无显式 flag → 满批即视为「还有更多」。
    4.2 是 → 续拉（用新 cursor 再发 sync/notify，回步骤 1）直到 `len<500` 或 no_change（UC-3：cursor==服务端 maxSeq）。
    4.3 否 → 已追平，结束。
-5. **too_long**（gap>5000）→ ① cursor = `reset_to - 1` ② buffer.clear ③ emit `im:sync:too_long{channelId, resetTo}`。**Rust 侧零 message DELETE**（StorageOp 无 Delete 变体）；前端 `onRustTooLong` 清表 + `getLatestPost` 重拉首屏 + dispatch POST_INCREMENT。
+5. **too_long**（gap>5000）→ ① cursor = `reset_to - 1` ② buffer.clear ③ emit `im:sync:too_long{channelId, resetTo}`。**Rust 侧零 message DELETE**（即便已有 `BatchDelete`，也不得用于 message 表）；前端 `onRustTooLong` 清表 + `getLatestPost` 重拉首屏 + dispatch POST_INCREMENT。
 6. **snapshot**（A2 reserved）→ 未实现，占位。
 7. `increment_channel_end` → `proactive_resync_all_channels(increment_fetched − need_sync_skip)`：迭代前 **sort（HX-C010 确定性有序）** → 逐 channel 发 sync/notify，BoundedSpawner 限流（`HELIX_HTTP_MAX_INFLIGHT`，防冷启动 N channel 并发风暴）。
 

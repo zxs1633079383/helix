@@ -24,10 +24,10 @@
 - **代码事实（2026-06-10 起核实）**：`crates/helix-core` 内零处 `cursor_upsert`/`CursorUpsert`；`grep -i cursor crates/helix-core/src` 仅命中注释举例（非 API 名）。口径护栏：grep「零业务概念」的承诺对象只含 channel/message/temporaryId 三词，**不含 cursor**（不要声称 `grep cursor = 0`）。
 - **状态**：已定。配套 [架构设计 §3.2/§4.9](../过会方案/helix-core-im-架构设计.md) + 纪要拍板 #1。GOAL §3 同步。
 
-## ADR-005 — FFI 同步调用必须 spawn_blocking（storage 已落地，engine 接线待 M3-F4）
+## ADR-005 — FFI 同步调用必须 spawn_blocking（storage 由 shared host driver 继承）
 - **决策**：FFI driver 的同步 SQLite C 调用包 `spawn_blocking`；不许阻塞 tokio worker。
 - **理由**：MAJ-4。
-- **状态**：storage 端 `spawn_blocking` **已落地**于 `helix-driver-host/src/storage.rs` ×7（native/FFI 共享 host 存储栈，一次满足两端继承，ADR-007）；FFI 经 `FfiStorage` 薄壳委托即继承。**C-ABI 导出层 engine_loop 接线仍 stub（ROADMAP M3-F4，非架构偏移）**。契约 HX-C006 已守。
+- **状态**：storage 端 `spawn_blocking` **已落地**于 `helix-driver-host/src/storage.rs`（native/FFI 共享 host 存储栈，一次满足两端继承，ADR-007）。FFI pump 直接装配 `HostStorage`，不再有独立 `FfiStorage` SQL 实现；`BatchDelete` 等 `StorageOp` 语义由 host conformance 统一覆盖。契约 HX-C006 已守。
 
 ## ADR-006 — 产品维护目标收缩为 PC Tauri + Flutter，wasm/web 暂停维护
 - **决策**：Helix 当前产品化目标只覆盖两类客户端：PC 端 Tauri（`helix-driver-native`）与手机端 Flutter（`helix-driver-ffi`）。网页端暂不做，`helix-driver-wasm` 保留为历史实验/归档代码，不进入 roadmap、CI 必跑矩阵、交付验收或日常维护。
@@ -37,7 +37,7 @@
 ## ADR-007 — PC/Flutter 共享 Rust host driver 存储层
 - **决策**：新增 `helix-driver-host` 作为 PC Tauri 与 Flutter FFI 的共享 Rust host driver 层。SQLite schema/migration、rusqlite Storage 实现、`StorageOp -> PortOutcome` 兑现、`rows_to_reply_bytes` / `rows_from_reply_bytes` 统一维护在该 crate；`helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳与边界 API。
 - **理由**：Flutter 手机端选择 Rust 侧全包 I/O，Dart 只负责 UI、FFI 命令与事件流。若 native 继续 sqlx、ffi 单独 rusqlite，messages SQL、monotonic 表、StorageOp 语义和 row 编解码会出现双维护漂移。统一 rusqlite + blocking worker/shared queue 优先维护性，并直接服务 PC + Flutter 两端。
-- **状态**：已定（2026-06-15）。当前已落地共享 Storage/schema/StorageOp/rows 编解码；HTTP/WS 与更通用 engine loop 共享继续按不破坏平台壳边界增量推进。
+- **状态**：已定（2026-06-15）。当前已落地共享 Storage/schema/StorageOp/rows 编解码（含 `BatchDelete`）；HTTP/WS 与更通用 engine loop 共享继续按不破坏平台壳边界增量推进。
 
 ## ADR-008 — sync-v2：helix 适配现网 Go 真实 wire，不改 Go server
 - **决策**：sync-v2 落地时，helix（parser/sync_session/to_effect/im handler）**适配现网 Go 的真实 wire**——increment 走「`POST /api/cses/channels/load/increment` HTTP 触发 → 后台 goroutine → WS 单播 `increment_channel`×N + `increment_channel_end`」push 模型；离线对账走「`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}` → `entries[]`」pull 模型；游标字段为 `event_seq`（三级 fallback：data.event_seq → props.channel_event_seq → 顶层 channel_event_seq）；鉴权 `cookieId` header = userId。**Go server 零改动。**
@@ -47,9 +47,9 @@
 - **状态**：已定（2026-06-15）。落 `dev-zlc` 分支，A→B→C→D 分阶段全量实现。
 
 ## ADR-009 — mattermost ID（ChannelId 等）用 `[u8;26]` Copy newtype（Id26），非 u64/String
-- **决策**：helix-im 的 ChannelId（及后续 MsgId/ActorId 等 mattermost ID）底层用定长 `Id26([u8;26])` Copy newtype 表示，不用 u64（抽象 wire 残留）、不用 String（热路径分配）。`ChannelId(Id26)` 保持 newtype 不透明；`Id26::from_str` 边界零信任（仅恰 26 字节 ASCII 才 Some），`as_str` 走 `from_utf8_unchecked`（构造已验证 ASCII 的 SAFETY 不变量，零拷贝）。
+- **决策**：helix-im 的 ChannelId（及后续 MsgId/ActorId 等 mattermost ID）底层用定长 `Id26([u8;26])` Copy newtype 表示，不用 u64（抽象 wire 残留）、不用 String（热路径分配）。`ChannelId(Id26)` 保持 newtype 不透明；`Id26::from_str` 边界零信任（仅恰 26 字节且全为 `[a-z0-9]` 才 Some），`as_str` 走 `from_utf8_unchecked`（构造已验证为合法 UTF-8 的 SAFETY 不变量，零拷贝）。
 - **理由**：真 Go `channelId` 是 26 字符 base32（如 `5ffd465e263864787b87aa01`，真帧 broadcast.userId 实测印证）；helix 旧 `ChannelId(u64)` 是当初抽象简化 wire 的产物，对真 Go 不可用（Phase B 冒烟暴露）。ChannelId 是热路径 key（每事件命中、gates `HashMap<ChannelId,_>`、进每个 Effect），mattermost ID 恒为 26 char → 定长 `[u8;26]` 是 Copy、零分配（memcpy 26B，无 clone 成本）、FFI 跨界干净，对齐 HX-C005 热路径零分配；String 每次 clone 分配违背该铁律，Arc<str> 有原子引计微成本且非真 Copy。用户拍板取 `[u8;26]`。
-- **代码事实**：仅在 helix-im（core 无 channel 概念，GOAL §3 grep channel=0，迁移不碰 core 零运行时）。测试经 `ChannelId::from_test_u64` 桥接（数值 id 确定性映射 26 字符），纯类型替换零行为变更。
+- **代码事实**：仅在 helix-im（core 无 channel 概念，GOAL §3 grep channel=0，迁移不碰 core 零运行时）。生产公开 API 不暴露测试桥接；测试侧经 `tests/common.rs` / `#[cfg(test)]` fixture helper 把数值索引映射为固定 26 字符 `[a-z0-9]` ID。
 - **状态**：已定（2026-06-16）。Phase B0 迁移子相落地；MsgId/ActorId 等同款 Id26 在 Phase C（phantom/read_echo）按需扩。
 
 ## ADR-010 — PC/Flutter 共享 Rust host driver HTTP/WS client
@@ -67,6 +67,12 @@
 - **与全局 security 规矩的关系**：全局 `rules/common/security.md`「禁 checked-in secrets」对**交付物**仍硬约束；本 ADR 显式登记的例外**仅限 host-cli 这一个联调 bin** 的 deviceId/dev-userId，**不扩散**到任何交付 crate（core/im/driver/未来 Tauri src）。Tauri 正式接入时 deviceId 来源换成登录态/系统，本兜底值不进 Tauri 宿主（见根 CLAUDE.md「host-cli 是什么」身份分层）。
 - **代码事实**：仅 `crates/helix-host-cli/src/main.rs`（deviceId 三级解析链 + doc 头）；`main.rs` 注释已指向本 ADR，消除「反转铁律无登记」矛盾。
 - **状态**：已定（2026-06-22，用户拍板）。drift-review 2026-06-22 将其列为 🟡 凭据卫生 finding，经用户确认为故意例外 → 本 ADR 收口，**后续 drift-review 不再复报**。
+
+## ADR-012 — 默认 gate 对齐 PC native + Flutter FFI；FFI 仓内自验入默认门，wasm 保持归档手动
+- **决策**：`scripts/gate.sh` 的默认交付门只覆盖当前产品化目标：PC Tauri/native 与 Flutter FFI。默认门必须调用 `scripts/ffi-verify.sh --no-demo`，把 FFI 仓内 1–5 层（Rust e2e/clippy/零运行时/native↔ffi parity/C++ ABI smoke）纳入提交验证。第 6 层仓外 Flutter demo 由 `scripts/gate.sh --full` 或手动 `scripts/ffi-verify.sh` 触发；7–8 层 Flutter UI/Maestro 需完整 Xcode/设备，继续作为外部环境验收，不进入默认 gate。`helix-driver-wasm` 按 ADR-006 保持 archived/experimental，不作为默认交付 gate、CI 必跑矩阵或发布验收；需要历史 trait-shape 自检时手动跑 wasm target check。
+- **理由**：FFI 是当前产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。wasm/web 已由 ADR-006 明确暂停维护，默认 gate 若继续必跑 wasm target 会把归档端重新变成交付义务。
+- **代码事实**：`scripts/gate.sh` 第 2 步为 PC/native + Flutter/FFI 双端 cargo check，不再默认 wasm target；第 8 步调用 `bash scripts/ffi-verify.sh --no-demo`。`scripts/ffi-verify.sh` 仍可独立运行，且用法说明标明默认 gate 与 demo/full 的边界。
+- **状态**：已定（2026-06-22，Task 4 gate alignment）。后续若网页端重新启动，需先新增 ADR 重新激活 wasm 维护目标和默认/CI 验收。
 
 ---
 

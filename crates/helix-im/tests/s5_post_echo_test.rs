@@ -16,10 +16,10 @@ use common::*;
 use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::InboundBytes;
 use helix_core::Tick;
-use helix_im::state::{ChannelId, SendStatus, ServerId};
+use helix_im::state::SendStatus;
 
 fn sid(n: u64) -> String {
-    ServerId::from_test_u64(n).as_str().to_string()
+    server_id(n).as_str().to_string()
 }
 
 /// 真源 echo 帧：`action=="post"`（router.rs:40），data 带 temporary_id（自发回流标识）。
@@ -102,7 +102,7 @@ fn s5_post_action_echo_reconciles() {
     );
     // 5. cursor 独立推进到 echo seq=1。
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(1),
         "post-action echo 须推进 cursor 到 event_seq=1"
     );

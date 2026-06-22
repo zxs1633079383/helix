@@ -504,13 +504,13 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{ChannelId, Seq};
+    use crate::state::Seq;
     use crate::sync_session::{EventEnvelope, EventKind};
     use helix_core::{Effect, EffectSink};
 
     fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
         EventEnvelope::new(
-            ChannelId::from_test_u64(ch),
+            crate::state::test_channel_id(ch),
             Seq(seq),
             EventKind::PostUpsert,
             crate::sync_session::PostFields::default(),
@@ -529,7 +529,7 @@ mod tests {
     /// emit im:sync:too_long；③ cursor 不被回退（安全网靠 sync 从 cursor+1 重拉）。
     #[test]
     fn test_gate_buffer_capped_proactive_too_long_e6() {
-        let mut ch = Channel::new(ChannelId::from_test_u64(7), 0); // cursor=0 → expected=1，制造永久缺口
+        let mut ch = Channel::new(crate::state::test_channel_id(7), 0); // cursor=0 → expected=1，制造永久缺口
         let mut fx = EffectSink::new();
         let mut saw_too_long = false;
 
@@ -562,7 +562,7 @@ mod tests {
     /// 上限以内正常乱序堆积不误触发 too_long（不误伤承压合法 5000 缺口场景）。
     #[test]
     fn test_gate_buffer_under_cap_no_false_too_long_e6() {
-        let mut ch = Channel::new(ChannelId::from_test_u64(3), 0);
+        let mut ch = Channel::new(crate::state::test_channel_id(3), 0);
         let mut fx = EffectSink::new();
 
         for seq in 2..=5001 {

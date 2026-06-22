@@ -1179,6 +1179,75 @@ async fn host_storage_batch_delete_scoped_no_cross_channel_delete() {
     );
 }
 
+/// StorageOp dispatch 回归锚：engine/native/FFI 持久化路径都走 host `execute_storage_ops`，
+/// 这里证明 `StorageOp::BatchDelete` 兑现到同一个 `Storage::batch_delete` 实现。
+#[tokio::test]
+async fn execute_storage_ops_dispatches_batch_delete() {
+    let s = storage().await;
+    s.execute_raw(
+        "CREATE TABLE channel_member (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, \
+         PRIMARY KEY (channel_id, user_id))",
+    )
+    .await
+    .expect("create channel_member");
+
+    let mk = |cid: &str, uid: &str| {
+        vec![
+            ("channel_id".to_string(), SqlValue::Text(cid.to_string())),
+            ("user_id".to_string(), SqlValue::Text(uid.to_string())),
+        ]
+    };
+    s.batch_upsert(UpsertSpec {
+        table: "channel_member",
+        rows: vec![mk("c1", "u1"), mk("c1", "u2")],
+        conflict_key: Some("channel_id,user_id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed");
+
+    let outcome = execute_storage_ops(
+        &s,
+        &[helix_core::effect::StorageOp::BatchDelete(
+            BatchDeleteSpec {
+                table: "channel_member",
+                scope_col: "channel_id",
+                scope_val: SqlValue::Text("c1".to_string()),
+                key_col: "user_id",
+                key_vals: vec![SqlValue::Text("u1".to_string())],
+            },
+        )],
+    )
+    .await;
+    assert!(matches!(outcome, helix_core::tick::PortOutcome::Ok(_)));
+
+    let rows = s
+        .scan(ScanSpec {
+            table: "channel_member",
+            limit: None,
+        })
+        .await
+        .expect("scan");
+    let users: Vec<String> = rows
+        .iter()
+        .filter_map(
+            |r| match r.iter().find(|(k, _)| k == "user_id").map(|(_, v)| v) {
+                Some(SqlValue::Text(t)) => Some(t.clone()),
+                _ => None,
+            },
+        )
+        .collect();
+    assert_eq!(
+        users.len(),
+        1,
+        "only one member should remain, got {users:?}"
+    );
+    assert!(
+        users.contains(&"u2".to_string()),
+        "u2 should remain, got {users:?}"
+    );
+}
+
 /// 回归锚: #1 防历史重算 —— guarded_bump 守卫 FAIL（消息 create_at ≤ 当前 last_root_post_at =
 /// 已看过的历史/backfill 旧消息）→ unread **不动**（SQL `WHERE ? > guard_col` 严格大于不命中），
 /// 水位也不前进。删守卫 WHERE 子句 → 历史也 +1 → 本测 FAIL（HX-C011 可证伪）。

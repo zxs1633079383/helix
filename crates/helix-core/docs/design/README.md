@@ -5,17 +5,18 @@
 > 图例：`✅` 已具备 · `⚠️` driver 侧实现/部分接线 · `❌` 已归档（wasm，见 ADR-006）。
 >
 > **真源文件**：`src/{engine.rs, module_host.rs, tick.rs, effect.rs, platform.rs, error.rs, ports/*.rs}`
-> 改 port trait / Effect / Tick 变体 = 三端 driver + helix-im 全要适配（见本 crate `CLAUDE.md`）。
+> 改 port trait / Effect / Tick 变体 = PC Tauri/native + Flutter FFI 交付 driver 与 helix-im 全要适配；
+> wasm driver 仅归档跟随 trait shape（见本 crate `CLAUDE.md` / ADR-006）。
 
 ## 图清单
 
 | 文件 | 一句话 | 覆盖的真源 | 关联 HX-C 卡 / 不变量 |
 |---|---|---|---|
 | [`01-step-event-loop.mmd`](01-step-event-loop.mmd) | `ExecutionShell::step` 同步纯函数路由全景：6 Tick 进 → 三类路由（accepts 扫描 / corr_map O(1) / timer_map O(1)）→ `Module::handle` 吐 `Vec<Effect>` → 注册 corr/timer → 返回 `&[Effect]` | `engine.rs::step` / `register_effects_to_maps` · `module_host.rs::dispatch_*` | step() 零 await/IO/spawn · HX-C001(零运行时) · EFFECT-3 |
-| [`02-effect-storageop-taxonomy.mmd`](02-effect-storageop-taxonomy.mmd) | 9 个 `Effect` 变体按「带 corr 必达 / Fire-and-forget / 其余无 corr」三类 + 5 个 `StorageOp` 子树 | `effect.rs::Effect` / `StorageOp` / 各 `*Spec` | HX-C005(热路径零分配 `&'static str`) · HX-C007(Effect 批处理) · EFFECT-5(无序契约) |
+| [`02-effect-storageop-taxonomy.mmd`](02-effect-storageop-taxonomy.mmd) | 9 个 `Effect` 变体按「带 corr 必达 / Fire-and-forget / 其余无 corr」三类 + 7 个 `StorageOp` 子树 | `effect.rs::Effect` / `StorageOp` / 各 `*Spec` | HX-C005(热路径零分配 `&'static str`) · HX-C007(Effect 批处理) · EFFECT-5(无序契约) |
 | [`03-module-lifecycle-routing.mmd`](03-module-lifecycle-routing.mmd) | `Module` 生命周期（register → start_one/on_start → 运行期定向路由 → on_stop 逆序）+ 多模块 corr 定向（EFFECT-3 只扫新增区间） | `module_host.rs::Module` / `ModuleHost` / `start_one` · `engine.rs::start` | 开闭原则(加模块只 register) · EFFECT-3(防 PortReply 投错家) |
 | [`04-sans-io-boundary.mmd`](04-sans-io-boundary.mmd) | sans-IO 因果链时序：core 同步吐 Effect 意图 ──▶ driver async 兑现 ──▶ `PortReply` 经 corr 串联回灌 → 可回放确定性 | `engine.rs`(同步) + 6 ports(async 在 driver) + `effect.rs`(corr) | HX-C001(core 零运行时) · HX-C002(async port Send 边界) · 确定性/sans-IO |
-| [`05-ports-registry.mmd`](05-ports-registry.mmd) | 6 ports（Transport/Storage/Clock/EventSink/IdSource+Random/HttpRequester）抽象 + 三端实现去向 + `MaybeSend/MaybeSync` cfg 切 + 统一 `PortError` 对象安全 | `ports/*.rs` · `platform.rs` · `error.rs::PortError` | HX-C001(只定义 trait) · HX-C002(MaybeSend cfg) · 对象安全(无关联类型) |
+| [`05-ports-registry.mmd`](05-ports-registry.mmd) | 6 ports（Transport/Storage/Clock/EventSink/IdSource+Random/HttpRequester）抽象 + PC/Flutter 实现去向 + `MaybeSend/MaybeSync` cfg 切 + 统一 `PortError` 对象安全 | `ports/*.rs` · `platform.rs` · `error.rs::PortError` | HX-C001(只定义 trait) · HX-C002(MaybeSend cfg) · 对象安全(无关联类型) |
 
 ## 速记不变量（与图配套）
 

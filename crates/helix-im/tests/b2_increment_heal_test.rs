@@ -20,7 +20,7 @@ use common::*;
 
 use helix_core::effect::TransportId;
 use helix_core::{Effect, Tick};
-use helix_im::state::{ChannelId, Seq};
+use helix_im::state::Seq;
 use helix_im::sync_session::IncrementChannel;
 
 /// 收集本批所有 Http effect 的 (method, url)。
@@ -71,9 +71,9 @@ fn first_sync_from_seq(sink: &helix_core::EffectSink) -> u64 {
         .expect("应有 sync/notify Http 且含 fromSeq")
 }
 
-fn inc(channel_id: u64, last_event_seq: u64, need_sync: bool) -> IncrementChannel {
+fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool) -> IncrementChannel {
     IncrementChannel {
-        channel_id: ChannelId::from_test_u64(channel_id),
+        channel_id: channel_id(channel_num),
         last_event_seq: Seq(last_event_seq),
         need_sync,
         raw: bytes::Bytes::from("{}"),
@@ -96,7 +96,7 @@ fn connected_harness(preregistered: &[u64]) -> Harness {
 fn heal_resyncs_skipped_channel_lagging_behind_increment_watermark() {
     // 预注册 channel=7 cursor=20（冷启动只灌了首屏 20）。
     let mut h = connected_harness(&[]);
-    h.module.register_channel(ChannelId::from_test_u64(7), 20);
+    h.module.register_channel(channel_id(7), 20);
 
     // increment 帧：need_sync=false（服务端"已追平"），但水位=999 远超本地 cursor=20 → 卡死信号。
     h.module.ingest_increment(&inc(7, 999, false), &mut h.sink);
@@ -126,7 +126,7 @@ fn heal_resyncs_skipped_channel_lagging_behind_increment_watermark() {
 fn heal_skips_caughtup_channel() {
     // channel=8 cursor=500，水位也是 500（已追平，非卡死）。
     let mut h = connected_harness(&[]);
-    h.module.register_channel(ChannelId::from_test_u64(8), 500);
+    h.module.register_channel(channel_id(8), 500);
 
     h.module.ingest_increment(&inc(8, 500, false), &mut h.sink);
     h.sink.clear();
@@ -147,7 +147,7 @@ fn heal_skips_caughtup_channel() {
 fn heal_runs_once_per_session_batch() {
     // phantom-heavy 模拟：cursor=20 恒 < 水位=999（phantom 不推 cursor，HX-C008 §1.6）。
     let mut h = connected_harness(&[]);
-    h.module.register_channel(ChannelId::from_test_u64(9), 20);
+    h.module.register_channel(channel_id(9), 20);
     h.module.ingest_increment(&inc(9, 999, false), &mut h.sink);
 
     // 第一次 global-end → heal 补发一次。
@@ -175,7 +175,7 @@ fn heal_runs_once_per_session_batch() {
 #[test]
 fn heal_resets_and_runs_again_on_new_session() {
     let mut h = connected_harness(&[]);
-    h.module.register_channel(ChannelId::from_test_u64(11), 20);
+    h.module.register_channel(channel_id(11), 20);
     h.module.ingest_increment(&inc(11, 999, false), &mut h.sink);
     h.sink.clear();
     h.module.ingest_increment_end(None, &mut h.sink);
@@ -225,7 +225,7 @@ fn cold_start_brand_new_channel_syncs_from_zero_not_watermark() {
 
     // 注册即冷启动，内存 cursor 种子须 0（本地未确认任何 event），不是水位 999。
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(21)),
+        h.module.cursor_for(channel_id(21)),
         Some(0),
         "冷启动真新 channel cursor 种子须为 0，不得用 lastEventSeq(999)"
     );
@@ -255,7 +255,7 @@ fn cold_start_skipped_channel_healed_with_from_zero() {
     let mut h = connected_harness(&[]);
     h.module.ingest_increment(&inc(22, 999, false), &mut h.sink);
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(22)),
+        h.module.cursor_for(channel_id(22)),
         Some(0),
         "冷启动真新 channel cursor 种子须为 0"
     );
@@ -283,7 +283,7 @@ fn cold_start_skipped_channel_healed_with_from_zero() {
 fn heal_does_not_double_send_need_sync_true_channel() {
     // channel=13 need_sync=true cursor=20 < 水位 999：主 resync 已发 1 次。
     let mut h = connected_harness(&[]);
-    h.module.register_channel(ChannelId::from_test_u64(13), 20);
+    h.module.register_channel(channel_id(13), 20);
     h.module.ingest_increment(&inc(13, 999, true), &mut h.sink);
     h.sink.clear();
 

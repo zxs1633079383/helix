@@ -41,7 +41,7 @@ dev-zlc has NO `channel_write/` dir. Create all 5. Each ≤300-line hard cap (co
 | **`program.rs`** 🆕 | 231 | **path1** `program_full(data, auth_user_id, now_ms) -> Option<(Vec<ChannelCol>, Vec<&'static str> omit)>`: full-52-col upsert row + JSON rename + guard/local/placeholder cols → `omit` (ON CONFLICT exclude). id-invalid → None. | Returns `(row, omit)`; omit drives `exclude_from_update`. |
 | **`patch.rs`** 🆕 | 165 | **path2** `collect_present(data) -> Vec<ChannelCol>`: `update_channel` PATCH — only `Some` whitelist fields (STR/INT/BOOL/JSON maps); members/owner/admin/boss excluded. | Empty cols → upper layer no-op. |
 | **`post.rs`** 🆕 | 257 | **path3** `PostChannelUpdate` struct + `post_updates(...)` (online WS, eats `serde_json::Value`) + `post_updates_from_fields(...)` (offline sync, eats `PostFields`). visible + should_increment predicates → unread_delta {0,1}. | Has inline `#[cfg(test)] mod tests` (5 tests). |
-| **`members.rs`** 🆕 | 217 | **#2 members** `collect_members(data) -> Vec<MemberRow>` (4-source members/adminUsers/boss/owner + `memberChange.join`, role normalize, dedup keep-last) + `collect_member_leaves(data) -> Vec<String>` (parsed but NO consumer — core lacks Delete). | `MemberRow` is from `acl::to_effect_s1` (see 1c). |
+| **`members.rs`** 🆕 | 217 | **#2 members** `collect_members(data) -> Vec<MemberRow>` (4-source members/adminUsers/boss/owner + `memberChange.join`, role normalize, dedup keep-last) + `collect_member_leaves(data) -> Vec<String>` (consumed as `StorageOp::BatchDelete`). | `MemberRow` is from `acl::to_effect_s1` (see 1c). |
 
 `crates/helix-im/src/lib.rs`: add `pub mod channel_write;` (+1 line on feat).
 
@@ -55,9 +55,9 @@ dev-zlc has NO `channel_write/` dir. Create all 5. Each ≤300-line hard cap (co
   new members via `memberChange.join` → 43-person group landed only 3 sparse `members[]` rows.
 - **owner-as-MEMBER skip**: join entries where `user_id == owner_id && role==MEMBER` are skipped
   (owner already in 4-source as OWNER, not downgraded).
-- **`memberChange.leave`** (`collect_member_leaves`): parses leave user_id set but **has NO consumer** —
-  helix-core `StorageOp` has no `Delete` variant. Intentional deviation, tracked ROADMAP-P. Re-port the
-  function (test anchor) but wire-up waits for a future core `BatchDelete`.
+- **`memberChange.leave`** (`collect_member_leaves`): parses leave user_id set and is now consumed through
+  `StorageOp::BatchDelete` (`channel_member`, scope=`channel_id`, key=`user_id`). Host conformance verifies
+  scoped delete isolation; native/FFI inherit the shared host storage implementation.
 
 ### 1c. ACL effect factories (consumers of channel_write — re-port these too)
 
@@ -130,7 +130,7 @@ WS frame ──► parser ──► handler ──► channel_write (pure calc) 
    role normalize OWNER/ADMIN/BOSS/MEMBER). → mapping §0.2 (real members → channel_member table).
 8. `upsert_channel_members(channel_id, members)` → `BatchUpsert{ table:"channel_member",
    conflict_key:"channel_id,user_id" }` (composite PK). Empty → None (no-op).
-9. `memberChange.leave` → `collect_member_leaves` (parsed, NO consumer — core lacks Delete).
+9. `memberChange.leave` → `collect_member_leaves` → `StorageOp::BatchDelete(channel_member)`.
 
 **path2 — partial PATCH (update_channel)**
 10. WS `update_channel` frame → `data`.

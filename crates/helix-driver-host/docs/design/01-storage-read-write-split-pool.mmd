@@ -29,14 +29,14 @@ flowchart TD
     W --> MIGRATE
 
     subgraph ROUTE["StorageOp 按读/写分流路由"]
-        WRITE_OPS["写 op：batch_upsert / batch_update / monotonic_upsert"]
+        WRITE_OPS["写 op：batch_upsert / batch_update / batch_delete\nmonotonic_upsert / guarded_bump"]
         READ_OPS["读 op：get / scan（with_reader）"]
     end
 
     WRITE_OPS -->|"writer.lock() 串行"| W
     READ_OPS -->|"先 acquire permit → pop 借连接"| SEM
 
-    subgraph BLOCKING["spawn_blocking 隔离（×7 调用点）✅ HX-C006 / ADR-005"]
+    subgraph BLOCKING["spawn_blocking 隔离 ✅ HX-C006 / ADR-005"]
         SB["每个 rusqlite 同步 C 调用\n全包 tokio::task::spawn_blocking\n→ 不阻塞 tokio worker 线程"]
     end
     W --> BLOCKING

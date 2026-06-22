@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # ffi-verify.sh — driver-ffi 线独立自验闸门（1–6 层，全部无需 Xcode）。
 #
-# 为什么独立：driver-ffi 这条线（Flutter FFI 端）应能脱离 native/sync-v2 等其它线，
+# 为什么仍可独立运行：driver-ffi 这条线（Flutter FFI 端）应能脱离 native/sync-v2 等其它线，
 # 独立、自动化、无需 Xcode 地自验到「C++ shim + Dart console 全链」——这是并行开发
 # 支柱④「端线在自己 worktree 自验」对 ffi 线的兑现，也是未来 CI 的 ffi job。
+#
+# 默认 gate 对齐：`scripts/gate.sh` 会调用 `scripts/ffi-verify.sh --no-demo`，把仓内 1–5
+# 层纳入提交闸门。第 6 层依赖仓外 Flutter demo / Dart 环境，仍只在 `scripts/gate.sh --full`
+# 或手动运行本脚本时触发；7–8 层需要完整 Xcode，不属于默认 gate。
 #
 # 覆盖（金字塔 1–6，7–8 = Flutter UI / Maestro 需完整 Xcode，本脚本不含）：
 #   1 Rust 单测 + e2e（command→Emit→批回调 / pump lifecycle drain / batch wire）
@@ -14,7 +18,7 @@
 #   6 C++ shim + Dart console 全链（dart:ffi→shim→cdylib→pump→Emit→batch→listener）
 #
 # 用法: scripts/ffi-verify.sh [--no-demo]
-#   --no-demo : 只跑仓内 1–5 层（跳过仓外 Flutter demo；CI 仓内 job 用）
+#   --no-demo : 只跑仓内 1–5 层（跳过仓外 Flutter demo；默认 gate / CI 仓内 job 用）
 # 仓外 demo 路径可经 HELIX_FFI_DEMO_DIR 覆盖（默认 /workspace/flutterWorkspace/helix_ffi_demo）。
 # 退出码: 0=全过 / 1=某层 FAIL（输出哪层）。
 set -uo pipefail

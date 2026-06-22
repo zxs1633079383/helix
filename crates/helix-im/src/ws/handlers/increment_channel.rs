@@ -58,7 +58,7 @@ pub(crate) fn apply_increment(
         // 读路径 assemble_channel 再从该表重建主表 members/owner/admin_users/boss JSON 列。
         // 此前 `collect_members` 只读四源 → 真 Go 增量帧成员经 memberChange.join 交付时全丢
         // （43 人群仅落稀疏 members[] 的 3 行）；现 collect_members 已合并 join（members.rs）。
-        // leave 偏离（core 无 Delete 变体，不删离场成员）见 members.rs 模块头 + ROADMAP-P。
+        // leave 由 collect_member_leaves + BatchDelete 删除离场成员（复合 PK scope 防跨群误删）。
         let members = crate::channel_write::collect_members(&data);
         if let Some(eff) = crate::acl::to_effect_s1::upsert_channel_members(channel_id, members) {
             out.push(eff);

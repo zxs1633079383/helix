@@ -31,11 +31,10 @@ use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::InboundBytes;
 use helix_core::Tick;
 use helix_im::module::ImConfig;
-use helix_im::state::ChannelId;
 use helix_im::ImModule;
 
 /// 构造 Harness 并以指定 cursor 种子注册单个 channel（模拟 increment 种 cursor）。
-fn harness_with_seed(channel_id: u64, seed_cursor: u64) -> Harness {
+fn harness_with_seed(channel_num: u64, seed_cursor: u64) -> Harness {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
@@ -45,7 +44,7 @@ fn harness_with_seed(channel_id: u64, seed_cursor: u64) -> Harness {
         company_id: String::new(),
     };
     let mut module = ImModule::new(config);
-    module.register_channel(ChannelId::from_test_u64(channel_id), seed_cursor);
+    module.register_channel(channel_id(channel_num), seed_cursor);
     Harness {
         module,
         sink: helix_core::EffectSink::new(),
@@ -140,7 +139,7 @@ fn post_frame_at_cursor_plus_one_persists_and_advances() {
     );
     // 3. cursor 单调推进到 event_seq
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(40_113),
         "cursor must advance to event_seq=40113"
     );
@@ -229,7 +228,7 @@ fn post_frame_with_gap_buffers_and_arms_gate() {
     );
     // cursor 不动（仍在种子位）
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(40_112),
         "gapped post must not advance cursor"
     );
@@ -346,7 +345,7 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
 
     // (f) cursor 推进（与可见性解耦，HX-C008；reconcile 不重复推进）
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(40_113),
         "echo post advances cursor to event_seq (once, by gate)"
     );

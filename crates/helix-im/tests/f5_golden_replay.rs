@@ -31,6 +31,9 @@ use helix_im::module::ImConfig;
 use helix_im::state::ChannelId;
 use helix_im::ImModule;
 
+mod common;
+use common::channel_id;
+
 // ─── 固定时间戳（注入 step，保证确定性）────────────────────────────────────────
 const FIXED_NOW_MS: u64 = 1_700_000_000_000;
 
@@ -59,8 +62,8 @@ fn build_shell() -> ExecutionShell {
     };
     let mut module = ImModule::new(config);
 
-    // Tick 1 用的 channel（数值 id=1 → 26 字符 "00000000000000000000000001"）
-    module.register_channel(ChannelId::from_test_u64(1), 0);
+    // Tick 1 用的 channel（数值 id=1 → 固定 26 字符 [a-z0-9] fixture）
+    module.register_channel(channel_id(1), 0);
 
     // Tick 2 用的真帧 channel（post.json channelId=rmibkwkjwidhdx5xy8pyse6a3r，event_seq=40114）
     // cursor 预种 40113 → event_seq(40114)==cursor+1 → 立即 apply

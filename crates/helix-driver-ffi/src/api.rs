@@ -670,7 +670,7 @@ mod tests {
         // im_send_message：同步 push Effect::Emit(im:post:sending)（不依赖网络成功）。
         let name = b"im_send_message";
         let payload =
-            br#"{"channel_id":"01HQ0000000000000000000000","temporary_id":"tmp-1","text":"hi"}"#;
+            br#"{"channel_id":"01hq0000000000000000000000","temporary_id":"tmp-1","text":"hi"}"#;
         let status = unsafe {
             helix_command(
                 handle,

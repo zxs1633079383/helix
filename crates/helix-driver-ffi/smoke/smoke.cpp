@@ -42,7 +42,7 @@ int main() {
 
     const char* name = "im_send_message";
     const char* payload =
-        "{\"channel_id\":\"01HQ0000000000000000000000\",\"temporary_id\":\"tmp-1\",\"text\":\"hi\"}";
+        "{\"channel_id\":\"01hq0000000000000000000000\",\"temporary_id\":\"tmp-1\",\"text\":\"hi\"}";
     int32_t st = helix_command(
         h, reinterpret_cast<const uint8_t*>(name), std::strlen(name),
         reinterpret_cast<const uint8_t*>(payload), std::strlen(payload));

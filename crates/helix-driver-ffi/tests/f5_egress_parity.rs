@@ -78,6 +78,11 @@ const FIXED_NOW_MS: u64 = 1_700_000_000_000;
 
 // ─── 引擎组装（共享 setup，两路分别喂同 DomainEvent 序列）──────────────────────
 
+fn channel_id(n: u64) -> ChannelId {
+    let s = format!("chfixx{n:020x}");
+    ChannelId::from_str(&s).expect("test channel id fixture must be valid Id26")
+}
+
 fn build_shell() -> ExecutionShell {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
@@ -88,7 +93,7 @@ fn build_shell() -> ExecutionShell {
         company_id: String::new(),
     };
     let mut module = ImModule::new(config);
-    module.register_channel(ChannelId::from_test_u64(1), 0);
+    module.register_channel(channel_id(1), 0);
     let post_channel =
         ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
     module.register_channel(post_channel, 40113);

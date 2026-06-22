@@ -47,7 +47,15 @@ use helix_im::ImModule;
 
 // ─── 辅助构造（全部在 setup 阶段调用，不计入测量）──────────────────────────────
 
-fn make_module(channel_id: u64) -> ImModule {
+fn cid(n: u64) -> String {
+    format!("chfixx{n:020x}")
+}
+
+fn channel_id(n: u64) -> ChannelId {
+    ChannelId::from_str(&cid(n)).expect("bench channel id fixture must be valid Id26")
+}
+
+fn make_module(channel_num: u64) -> ImModule {
     let mut module = ImModule::new(ImConfig {
         ws_url: "ws://bench".to_string(),
         api_base_url: "http://bench".to_string(),
@@ -55,16 +63,16 @@ fn make_module(channel_id: u64) -> ImModule {
         send_timeout_ms: 15_000,
         ..Default::default()
     });
-    module.register_channel(ChannelId(channel_id), 0);
+    module.register_channel(channel_id(channel_num), 0);
     module
 }
 
 /// 构造 posted WS 帧（与 tests/common.rs::inbound_event 同构，payload 约 150 字节）
-fn make_inbound_tick(channel_id: u64, seq: u64) -> Tick {
+fn make_inbound_tick(channel_num: u64, seq: u64) -> Tick {
     let payload = serde_json::json!({
         "event": "posted",
         "data": {
-            "channel_id": channel_id,
+            "channel_id": cid(channel_num),
             "seq": seq,
             "event_type": 1,
             "msg_id": format!("msg_{}", seq),
@@ -81,9 +89,9 @@ fn make_inbound_tick(channel_id: u64, seq: u64) -> Tick {
 }
 
 /// 构造 im_send_message 命令 Tick（与 tests/common.rs::send_message_cmd 同构）
-fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick {
+fn send_message_cmd(channel_num: u64, temporary_id: &str, text: &str) -> Tick {
     let payload = serde_json::json!({
-        "channel_id": channel_id,
+        "channel_id": cid(channel_num),
         "temporary_id": temporary_id,
         "text": text
     });
@@ -95,11 +103,11 @@ fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick {
 
 /// 构造含 GAP events 的 sync 响应 bytes（与 stress_gap_5000_sync_backfill 同构）。
 /// 在 setup 阶段预构建，measured 闭包只 parse。
-fn build_sync_response(channel_id: u64, gap: u64) -> bytes::Bytes {
+fn build_sync_response(channel_num: u64, gap: u64) -> bytes::Bytes {
     let events: Vec<serde_json::Value> = (1..=gap)
         .map(|s| {
             serde_json::json!({
-                "channel_id": channel_id,
+                "channel_id": cid(channel_num),
                 "seq": s,
                 "event_type": 1,
                 "msg_id": format!("msg_{}", s),
@@ -110,12 +118,12 @@ fn build_sync_response(channel_id: u64, gap: u64) -> bytes::Bytes {
         })
         .collect();
     // 真 Go wire：{status:SUCCESS, data:{entries:[SyncEntry], serverTime}}。
-    // channelId 用 from_test_u64 同款 26 字符零填充形态，匹配注册的 ChannelId。
+    // channelId 用固定真实形态 26 字符 fixture，匹配注册的 ChannelId。
     let resp = serde_json::json!({
         "status": "SUCCESS",
         "data": {
             "entries": [{
-                "channelId": format!("{:026}", channel_id),
+                "channelId": cid(channel_num),
                 "kind": "events",
                 "events": events,
                 "nextSeq": gap,
@@ -216,7 +224,7 @@ fn bench_gate_backfill(c: &mut Criterion) {
                     .expect("persist ok");
 
                 // 防优化掉：黑盒消费 cursor（不进入测量统计语义，仅阻止 DCE）
-                criterion::black_box(module.cursor_for(ChannelId(1)));
+                criterion::black_box(module.cursor_for(channel_id(1)));
             },
             BatchSize::SmallInput,
         );

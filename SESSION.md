@@ -5,6 +5,24 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Task4 P2/P3 audit + gate alignment @2026-06-22 16:28 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪预判：① 固定 `ED380414...` deviceId 只作为 host-cli dev-bin 默认兜底 + ADR/docs/历史联调证据出现，不进入 native/FFI/Tauri delivery 代码路径；② `scripts/gate.sh` 明确默认覆盖 PC native + Flutter FFI 仓内验证，并调用 `scripts/ffi-verify.sh --no-demo`；③ wasm 保持 ADR-006 archived/manual，不再作为默认交付 gate 必跑项；④ `cargo test -p helix-im --no-run` 无 `Harness::new` dead_code warning；⑤ `cargo test -p helix-im --no-run`、`scripts/ffi-verify.sh --no-demo`、`scripts/gate.sh` 结果可记录，GitNexus `detect_changes` 可运行或明确不可用。
+✅ DONE Task4 P2/P3 audit + gate alignment @2026-06-22 16:48 +0800 | commit 本提交
+  ↳ 落地：deviceId 精确 audit 确认固定真值只在 `crates/helix-host-cli/src/main.rs` 作为 ADR-011 dev-bin 兜底；delivery crate 未引入该硬编码。新增 ADR-012，把默认 gate 明确为 PC native + Flutter FFI，`scripts/gate.sh` 纳入 `scripts/ffi-verify.sh --no-demo`，wasm 维持 ADR-006 archived/manual；`scripts/ffi-verify.sh` 同步说明默认 gate 与 demo/full 边界。`Harness::new` 已有窄 `#[allow(dead_code)]`，no-run 无 warning。
+  ↳ 验证：`cargo test -p helix-im --no-run` PASS；`scripts/ffi-verify.sh --no-demo` PASS（既有 core/im clippy warnings 非硬失败）；`scripts/gate.sh` PASS（cargo-public-api 未安装按既有逻辑跳过）；GitNexus `detect_changes(scope=staged)` low risk / 0 affected processes。
+
+🎯 EXPECT Task3 StorageOp::BatchDelete 跨端覆盖与 public-port 文档收口 @2026-06-22 16:00 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪预判：① 只改 Task3 范围内 storage/core/driver/docs/report 文件（不碰 .idea/AGENTS/CLAUDE/helix-im fixture/Task1-2 范围）；② host 真实 SQLite BatchDelete 覆盖已存在或只补真实缺口，native/ffi 通过 shared host-driver 边界有明确测试/文档证据；③ wasm 只保持 archived/experimental trait-shape，不进入交付/CI；④ `cargo test -p helix-core -p helix-driver-host -p helix-driver-native -p helix-driver-ffi`、`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` 通过，`cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 空；⑤ GitNexus `detect_changes` 可运行并显示改动范围符合预期。
+✅ DONE Task3 StorageOp::BatchDelete 跨端覆盖与 public-port 文档收口 @2026-06-22 16:55 +0800 | commit 本提交
+  ↳ 落地：补 host `execute_storage_ops` 分发 `StorageOp::BatchDelete` 真 SQLite 回归锚；确认 native/FFI 均复用 shared `HostStorage`，并把 storage port、host/core/ffi 设计图、ADR/ROADMAP/sync-v2 文档更新到 PC Tauri + Flutter FFI shared host-driver 事实；wasm storage 注明 archived/experimental trait-shape only；清理 BatchDelete 已接通后的 stale 注释；修正 FFI/C++ smoke 里因 Task1 严格 ID 校验暴露的旧大写 channel_id fixture。
+  ↳ 验证：GitNexus context(batch_delete/StorageOp) 已跑，`detect_changes(scope=all)` 可运行（全工作树含用户既有 AGENTS/CLAUDE dirty，报 high）；`cargo test -p helix-core -p helix-driver-host -p helix-driver-native -p helix-driver-ffi` PASS；`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` PASS；`cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 无输出/exit 1；`scripts/cpp-smoke.sh` PASS；`git diff --check` PASS。
+
+🎯 EXPECT 批次A修复 review P1-ID API 与 ID 校验 @2026-06-22 | 赌注 高 | 可逆 是
+  ↳ 可证伪预判：① 生产公开 API 不再暴露 `Id26::from_test_u64` / `ChannelId::from_test_u64` / `ServerId::from_test_u64`；② `Id26::from_str` 只接受 26 位 `[a-z0-9]`，拒绝空格/标点/大写/下划线；③ `s6_increment_end_fanout_deterministic_order` 改用固定真实形态 26 字符 fixture，不再依赖零填充数字的字典序；④ `cargo test -p helix-im` 通过；⑤ 本批不触碰 whitespace/gate/BatchDelete 实现。
+✅ DONE 批次A修复 review P1-ID API 与 ID 校验 @2026-06-22
+  ↳ 落地：生产公开 API 删除 `Id26/ChannelId/ServerId::from_test_u64`；`Id26::from_str` 收紧为 26 位 `[a-z0-9]`；helix-im/driver-host/driver-ffi 测试与 bench 改用固定真实形态 26 字符 fixture；S6 fan-out 排序测试改用非数值序 fixture；`Harness::new` dead_code warning 清理。
+  ↳ 验证：RED `cargo test -p helix-im id26_tests::from_str_rejects_invalid_ascii_alphabet` 先失败（旧实现接受 `!`）→ 修复后 PASS；`cargo test -p helix-im` PASS；`cargo test -p helix-driver-host --test im_event_persist` PASS；`cargo test -p helix-driver-ffi --test f5_egress_parity` PASS；`cargo check -p helix-im --benches` PASS；代码/测试/bench 范围 `rg from_test_u64` 0 命中；工作树级 `git diff --check` PASS。`fa07ff1..HEAD` 历史 docs whitespace 仍留批次B。
+
 🧭 **续接一句话（新会话开局读这条·2026-06-22）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）—— sync-v2 **全 parity re-port + memberChange.leave 删行(StorageOp::BatchDelete) + 三未读/同步行为(冷启动 unread/在线增量/too_long-snapshot 覆盖式不删)** 全部落地，`cargo test` 全绿 + gate.sh/structure-gate 过，**真机冷启动路径已验收**（:8065 真连：increment 257 channel / 2275 member / member_count 实数 / 离线 backfill 950 msg / cursor 23）。
   **✅ A 已完成（host-cli stdin 遥控器 Tier0+Tier1，commit 333e977+621f086）**：8 命令 `send/read/revoke/leave/schedule/cancel/create/makeTopic`(+quit/help) → helix-im `im_*` → `Effect::Http` POST 现网真源 endpoint。chassis 运行时已证（piped help/quit→优雅退出）。
   **➡️ 下一步（三选一）**：

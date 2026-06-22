@@ -226,7 +226,7 @@ fn real_go_status_change_frame_is_ignored() {
     let mut h = Harness::new(&[]);
     h.start(0);
 
-    let before_cursor = h.module.cursor_for(ChannelId::from_test_u64(1));
+    let before_cursor = h.module.cursor_for(channel_id(1));
 
     let effects = h.step(inbound(STATUS_CHANGE_JSON), 1000);
 
@@ -237,7 +237,7 @@ fn real_go_status_change_frame_is_ignored() {
     );
     // 无任何 channel 副作用（cursor 不变）。
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         before_cursor,
         "运维帧不得改动任何 channel 状态"
     );

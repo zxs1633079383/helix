@@ -30,12 +30,14 @@ use std::time::Instant;
 use helix_core::tick::{InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::{Effect, EffectSink, Module, Tick};
 use helix_im::module::ImConfig;
-use helix_im::state::ChannelId;
 use helix_im::ImModule;
+
+mod common;
+use common::channel_id;
 
 // ─── 辅助 ────────────────────────────────────────────────────────────────────
 
-fn make_module(channel_id: u64) -> ImModule {
+fn make_module(channel_num: u64) -> ImModule {
     let config = ImConfig {
         ws_url: "ws://stress".to_string(),
         api_base_url: "http://stress".to_string(),
@@ -45,13 +47,13 @@ fn make_module(channel_id: u64) -> ImModule {
         company_id: String::new(),
     };
     let mut module = ImModule::new(config);
-    module.register_channel(ChannelId::from_test_u64(channel_id), 0);
+    module.register_channel(channel_id(channel_num), 0);
     module
 }
 
 /// 测试桥接：数值 channel id → 真 wire 26 字符字符串。
 fn cid(n: u64) -> String {
-    ChannelId::from_test_u64(n).as_str().to_string()
+    channel_id(n).as_str().to_string()
 }
 
 /// 标准 base64 编码（与 host base64_encode 同表）。dev-zlc ADR-007 sync 信封 body 用。
@@ -128,7 +130,7 @@ fn stress_inorder_100k() {
     let elapsed = start.elapsed();
 
     assert_eq!(
-        module.cursor_for(ChannelId::from_test_u64(1)),
+        module.cursor_for(channel_id(1)),
         Some(N),
         "cursor must reach N"
     );
@@ -171,7 +173,7 @@ fn stress_gap_5000_ws_flush() {
     }
     let buf_elapsed = start_buf.elapsed();
     assert_eq!(
-        module.cursor_for(ChannelId::from_test_u64(1)),
+        module.cursor_for(channel_id(1)),
         Some(0),
         "cursor must NOT advance while gapped"
     );
@@ -186,7 +188,7 @@ fn stress_gap_5000_ws_flush() {
     let flush_elapsed = start_flush.elapsed();
 
     assert_eq!(
-        module.cursor_for(ChannelId::from_test_u64(1)),
+        module.cursor_for(channel_id(1)),
         Some(GAP + 1),
         "cursor must reach 5001"
     );
@@ -359,7 +361,7 @@ fn stress_gap_5000_sync_backfill() {
         })
         .expect("sync events must yield one Persist batch");
     assert_eq!(
-        module.cursor_for(ChannelId::from_test_u64(1)),
+        module.cursor_for(channel_id(1)),
         Some(0),
         "cursor must NOT advance before PortReply Ok"
     );
@@ -377,7 +379,7 @@ fn stress_gap_5000_sync_backfill() {
     let commit_elapsed = start_commit.elapsed();
 
     assert_eq!(
-        module.cursor_for(ChannelId::from_test_u64(1)),
+        module.cursor_for(channel_id(1)),
         Some(GAP + 1),
         "cursor must reach 5001 after commit + buffer flush"
     );

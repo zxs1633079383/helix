@@ -12,18 +12,22 @@ use std::collections::{HashMap, HashSet};
 
 // ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
 
-/// mattermost 风格定长 ID（26 字符 base32 ASCII）。
+/// mattermost 风格定长 ID（26 字符 `[a-z0-9]`）。
 ///
 /// Copy newtype，零分配热路径 key（HX-C005）；真 Go channelId/userId/msgId 恒为 26 char。
-/// 不透明：构造只经 `from_str`（边界零信任）/ `from_test_u64`（测试桥接）。ADR-009。
+/// 不透明：构造只经 `from_str`（边界零信任）。ADR-009。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Id26([u8; 26]);
 
 impl Id26 {
-    /// 边界零信任构造：仅当 `s` 恰 26 字节 ASCII 时 Some，否则 None（不 panic）。
+    /// 边界零信任构造：仅当 `s` 恰 26 字节且全部为 `[a-z0-9]` 时 Some，否则 None（不 panic）。
     pub fn from_str(s: &str) -> Option<Self> {
         let b = s.as_bytes();
-        if b.len() != 26 || !b.is_ascii() {
+        if b.len() != 26
+            || !b
+                .iter()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        {
             return None;
         }
         let mut arr = [0u8; 26];
@@ -33,8 +37,8 @@ impl Id26 {
 
     /// 零拷贝取字符串视图。
     pub fn as_str(&self) -> &str {
-        // SAFETY: 不变量——Id26 只能经 from_str（已验证恰 26 字节 ASCII）或
-        // from_test_u64（format!("{:026}") 全 ASCII 数字）构造，故内部恒为合法 UTF-8。
+        // SAFETY: 不变量——Id26 只能经 from_str（已验证恰 26 字节 [a-z0-9]）构造，
+        // 故内部恒为合法 UTF-8。
         unsafe { std::str::from_utf8_unchecked(&self.0) }
     }
 
@@ -50,13 +54,6 @@ impl Id26 {
             h = h.wrapping_mul(0x0000_0100_0000_01b3);
         }
         h
-    }
-
-    /// 测试桥接：数值 → 26 字符确定性 id（零填充十进制）。test-only（注释约束，非编译期）。
-    pub fn from_test_u64(n: u64) -> Self {
-        let mut arr = [0u8; 26];
-        arr.copy_from_slice(format!("{:026}", n).as_bytes());
-        Self(arr)
     }
 }
 
@@ -77,10 +74,6 @@ impl ChannelId {
     pub fn hash_u64(&self) -> u64 {
         self.0.hash_u64()
     }
-    /// 测试桥接：数值 → 26 字符 ChannelId。test-only。
-    pub fn from_test_u64(n: u64) -> Self {
-        Self(Id26::from_test_u64(n))
-    }
 }
 
 /// Server 消息 ID（echo 到时的真实 ID）——mattermost msgId 是 26 字符 base32 字符串
@@ -98,10 +91,18 @@ impl ServerId {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
-    /// 测试桥接：数值 → 26 字符 ServerId。test-only。
-    pub fn from_test_u64(n: u64) -> Self {
-        Self(Id26::from_test_u64(n))
-    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_channel_id(n: u64) -> ChannelId {
+    let s = format!("chfixx{n:020x}");
+    ChannelId::from_str(&s).expect("test channel id fixture must be valid Id26")
+}
+
+#[cfg(test)]
+pub(crate) fn test_server_id(n: u64) -> ServerId {
+    let s = format!("srvfix{n:020x}");
+    ServerId::from_str(&s).expect("test server id fixture must be valid Id26")
 }
 
 /// UI 注入的临时消息 ID（乐观落库 PK，不由内核生成）
@@ -335,7 +336,7 @@ impl Default for ImState {
 
 #[cfg(test)]
 mod id26_tests {
-    use super::{ChannelId, Id26};
+    use super::{test_channel_id, Id26};
 
     #[test]
     fn from_str_accepts_exactly_26_ascii_and_roundtrips() {
@@ -356,23 +357,34 @@ mod id26_tests {
     }
 
     #[test]
-    fn from_test_u64_is_26_ascii_and_distinct() {
-        let a = ChannelId::from_test_u64(1);
-        let b = ChannelId::from_test_u64(2);
+    fn from_str_rejects_invalid_ascii_alphabet() {
+        let invalid = [
+            "5ffd465e263864787b87aa012!",
+            "5ffd465e263864787b87aa012 ",
+            "5ffd465e263864787b87aa012_",
+            "5ffd465e263864787b87aa012A",
+        ];
+        for s in invalid {
+            assert_eq!(s.len(), 26);
+            assert!(Id26::from_str(s).is_none(), "must reject {s:?}");
+        }
+    }
+
+    #[test]
+    fn test_channel_id_is_26_alnum_and_distinct() {
+        let a = test_channel_id(1);
+        let b = test_channel_id(2);
         assert_eq!(a.as_str().len(), 26);
         assert_ne!(a, b);
-        assert_eq!(a, ChannelId::from_test_u64(1), "确定性");
-        // 经 from_str 再解析应等价（26 ASCII 数字）
-        assert_eq!(ChannelId::from_str(a.as_str()), Some(a));
+        assert_eq!(a, test_channel_id(1), "确定性");
+        // 经 from_str 再解析应等价（26 位 [a-z0-9] fixture）
+        assert_eq!(super::ChannelId::from_str(a.as_str()), Some(a));
     }
 
     #[test]
     fn hash_u64_deterministic() {
-        let a = ChannelId::from_test_u64(7);
+        let a = test_channel_id(7);
         assert_eq!(a.hash_u64(), a.hash_u64());
-        assert_ne!(
-            ChannelId::from_test_u64(7).hash_u64(),
-            ChannelId::from_test_u64(8).hash_u64()
-        );
+        assert_ne!(test_channel_id(7).hash_u64(), test_channel_id(8).hash_u64());
     }
 }

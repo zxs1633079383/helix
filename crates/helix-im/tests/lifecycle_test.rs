@@ -11,7 +11,7 @@ use common::*;
 
 use helix_core::effect::TransportId;
 use helix_core::{Effect, Tick};
-use helix_im::state::{ChannelId, Seq};
+use helix_im::state::Seq;
 use helix_im::sync_session::IncrementChannel;
 
 /// 收集本批所有 Http effect 的 (method, url)（断言 increment HTTP vs sync/notify）。
@@ -26,9 +26,9 @@ fn http_reqs(sink: &helix_core::EffectSink) -> Vec<(String, String)> {
 }
 
 /// 构造 IncrementChannel（数值 id → 26 字符）。
-fn inc(channel_id: u64, last_event_seq: u64, need_sync: bool) -> IncrementChannel {
+fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool) -> IncrementChannel {
     IncrementChannel {
-        channel_id: ChannelId::from_test_u64(channel_id),
+        channel_id: channel_id(channel_num),
         last_event_seq: Seq(last_event_seq),
         need_sync,
         raw: bytes::Bytes::from_static(b"{}"),

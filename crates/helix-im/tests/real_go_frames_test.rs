@@ -14,7 +14,6 @@ use helix_core::tick::InboundBytes;
 use helix_core::CoreError;
 use helix_core::Module;
 use helix_core::Tick;
-use helix_im::state::ChannelId;
 use helix_im::ImError;
 
 const REAL_FRAMES: &str = include_str!("fixtures/real_go_frames/connect_init.jsonl");
@@ -126,7 +125,7 @@ fn production_inbound_invalid_json_is_ignored_without_effects() {
         "invalid JSON should not produce effects"
     );
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(0),
         "invalid JSON should not advance cursor"
     );
@@ -135,7 +134,7 @@ fn production_inbound_invalid_json_is_ignored_without_effects() {
 #[test]
 fn production_inbound_explicit_ignored_actions_are_noop() {
     let mut h = Harness::new(&[1]);
-    let channel_id = cid(1);
+    let channel_id_text = cid(1);
 
     for action in [
         "status_change",
@@ -147,7 +146,7 @@ fn production_inbound_explicit_ignored_actions_are_noop() {
         let tick = inbound_json(serde_json::json!({
             "v": 1,
             "action": action,
-            "data": { "channel_id": channel_id }
+            "data": { "channel_id": channel_id_text }
         }));
 
         h.module
@@ -159,7 +158,7 @@ fn production_inbound_explicit_ignored_actions_are_noop() {
             "{action} should not produce effects"
         );
         assert_eq!(
-            h.module.cursor_for(ChannelId::from_test_u64(1)),
+            h.module.cursor_for(channel_id(1)),
             Some(0),
             "{action} should not advance cursor"
         );

@@ -14,7 +14,7 @@ use common::*;
 
 use helix_core::effect::TransportId;
 use helix_core::{Effect, Tick};
-use helix_im::state::{ChannelId, Seq};
+use helix_im::state::Seq;
 use helix_im::sync_session::IncrementChannel;
 
 // ─── 辅助：从 sink 取真 Http req（断言 method/url）────────────────────────────
@@ -30,9 +30,9 @@ fn http_reqs(sink: &helix_core::EffectSink) -> Vec<(String, String)> {
         .collect()
 }
 
-fn inc(channel_id: u64, last_event_seq: u64, need_sync: bool, raw: &str) -> IncrementChannel {
+fn inc(channel_num: u64, last_event_seq: u64, need_sync: bool, raw: &str) -> IncrementChannel {
     IncrementChannel {
-        channel_id: ChannelId::from_test_u64(channel_id),
+        channel_id: channel_id(channel_num),
         last_event_seq: Seq(last_event_seq),
         need_sync,
         raw: bytes::Bytes::from(raw.to_string()),
@@ -116,7 +116,7 @@ fn increment_channel_registers_and_seeds_cursor() {
 
     // 修 todo#1：冷启动真新 channel 已注册，但内存 cursor 种子 = 0（本地未确认任何 event），
     // **不是** LastEventSeq(42)。误种水位 → from_seq=cursor=max → Go no_change → 离线 backfill 永不触发。
-    let cursor = h.module.cursor_for(ChannelId::from_test_u64(77));
+    let cursor = h.module.cursor_for(channel_id(77));
     assert_eq!(
         cursor,
         Some(0),
@@ -125,8 +125,7 @@ fn increment_channel_registers_and_seeds_cursor() {
 
     // 记入 increment_fetched。
     assert!(
-        h.module
-            .increment_fetched_contains(ChannelId::from_test_u64(77)),
+        h.module.increment_fetched_contains(channel_id(77)),
         "increment 须记入 increment_fetched 集"
     );
 
@@ -142,7 +141,7 @@ fn increment_channel_registers_and_seeds_cursor() {
 #[test]
 fn increment_channel_does_not_rewind_existing_cursor() {
     let mut h = Harness::new(&[]);
-    h.module.register_channel(ChannelId::from_test_u64(5), 100);
+    h.module.register_channel(channel_id(5), 100);
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN_INC"), 200);
@@ -152,7 +151,7 @@ fn increment_channel_does_not_rewind_existing_cursor() {
     h.module
         .ingest_increment(&inc(5, 20, true, "{}"), &mut h.sink);
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(5)),
+        h.module.cursor_for(channel_id(5)),
         Some(100),
         "increment 不得回退已有 channel cursor"
     );
@@ -210,7 +209,7 @@ fn subtopic_increment_end_emits_update_no_sync() {
 
     h.sink.clear();
     h.module
-        .ingest_increment_end(Some(ChannelId::from_test_u64(99)), &mut h.sink);
+        .ingest_increment_end(Some(channel_id(99)), &mut h.sink);
 
     // 无 Http（不 sync）。
     assert!(
@@ -234,15 +233,12 @@ fn second_hello_resets_increment_batch() {
     h.step(hello_inbound("CONN_A"), 200);
     h.module
         .ingest_increment(&inc(33, 1, true, "{}"), &mut h.sink);
-    assert!(h
-        .module
-        .increment_fetched_contains(ChannelId::from_test_u64(33)));
+    assert!(h.module.increment_fetched_contains(channel_id(33)));
 
     // 第二次 hello（重连）→ 应清空上一会话残留集。
     h.step(hello_inbound("CONN_B"), 300);
     assert!(
-        !h.module
-            .increment_fetched_contains(ChannelId::from_test_u64(33)),
+        !h.module.increment_fetched_contains(channel_id(33)),
         "重连 hello 须 reset increment 批次集（防 sync 风暴）"
     );
 }

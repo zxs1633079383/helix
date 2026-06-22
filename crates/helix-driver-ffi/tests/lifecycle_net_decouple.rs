@@ -24,9 +24,7 @@
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 
-use helix_driver_ffi::api::{
-    helix_command, helix_create_with_network, helix_destroy, FFI_OK,
-};
+use helix_driver_ffi::api::{helix_command, helix_create_with_network, helix_destroy, FFI_OK};
 use helix_driver_ffi::vtable::CppHostVtable;
 
 extern "C" fn noop_events(_ctx: *mut std::ffi::c_void, _ptr: *const u8, _len: usize) {}
@@ -80,7 +78,7 @@ fn create_command_destroy_fast_when_unreachable() {
     // 发一条必达 Http 命令（im_send_message → Effect::Http POST /posts/create，连不上 reqwest 卡 30s）。
     let name = b"im_send_message";
     let payload =
-        br#"{"channel_id":"01HQ0000000000000000000000","temporary_id":"tmp-net-decouple","text":"hi"}"#;
+        br#"{"channel_id":"01hq0000000000000000000000","temporary_id":"tmp-net-decouple","text":"hi"}"#;
     // SAFETY: 同上，handle 来自 create，name/payload 指向测试栈上有效内存。
     let status = unsafe {
         helix_command(
@@ -191,7 +189,7 @@ fn destroy_not_blocked_by_inflight_mandatory_http() {
     // 发必达 Http 命令（im_send_message → Persist(乐观) + Http(POST /posts/create) + Timer + Emit）。
     let name = b"im_send_message";
     let payload =
-        br#"{"channel_id":"01HQ0000000000000000000000","temporary_id":"tmp-inflight-http","text":"hi"}"#;
+        br#"{"channel_id":"01hq0000000000000000000000","temporary_id":"tmp-inflight-http","text":"hi"}"#;
     // SAFETY: handle 来自 create，name/payload 指向测试栈上有效内存。
     let status = unsafe {
         helix_command(

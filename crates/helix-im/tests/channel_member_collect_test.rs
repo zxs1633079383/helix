@@ -2,7 +2,7 @@
 //!
 //! 回归锚: A1 —— increment / channel_created / channel_member_update 三路径统一的成员收集：
 //! 四源（members/adminUsers/boss/owner）+ `memberChange.join` 增量 → `channel_member` 行；
-//! `memberChange.leave` 解析出离场 user_id 集（暂无消费方，core 无 Delete 变体，见 members.rs 模块头）。
+//! `memberChange.leave` 解析出离场 user_id 集，调用方接成 `StorageOp::BatchDelete`。
 //!
 //! 行为真源：现网 cses-client `repo/channel_member_repo.rs`
 //! （`collect_members_from_channel_json:303` 四源 + `apply_member_change_tx:247` join/leave）。
@@ -173,8 +173,7 @@ fn collect_members_join_skips_owner_as_member() {
 }
 
 /// 回归锚: A1 —— `memberChange.leave` 解析出离场 user_id 集（缺 id 跳过；id ?? userId）。
-/// ⚠️ 此集当前无消费方（core 无 Delete 变体，见 members.rs 模块头 + ROADMAP-P）——
-/// 测试锚定 leave 契约，待 core 加 `BatchDelete` 后接通。
+/// 调用方将此集接成 `StorageOp::BatchDelete(channel_member, scope=channel_id, key=user_id)`。
 #[test]
 fn collect_member_leaves_extracts_user_ids() {
     let data = serde_json::json!({

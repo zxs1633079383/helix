@@ -491,7 +491,7 @@ fn channel_member_update_full_and_members_s1() {
 /// 且 B2 heal 的 cursor<target 永假（cursor==target==lastEventSeq）→ heal 连带废。
 #[test]
 fn channel_member_update_cold_start_cursor_seed_zero_hxc008() {
-    let ch = helix_im::state::ChannelId::from_test_u64(77);
+    let ch = channel_id(77);
     // 真新 channel（未预注册），帧带服务端水位 lastEventSeq=999。
     let mut h = Harness::new(&[]);
     let _ = h.step(

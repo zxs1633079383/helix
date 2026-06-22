@@ -23,7 +23,6 @@ use common::*;
 use helix_core::Effect;
 use helix_im::acl::to_effect::sync_mutation_emits;
 use helix_im::parser::parse_sync_response;
-use helix_im::state::ChannelId;
 use helix_im::sync_session::SyncResponse;
 
 // ─── 辅助：从 Emit Effect 取 event 名 ──────────────────────────────────────────
@@ -51,7 +50,7 @@ fn parse_events_and_messages(
     Vec<helix_im::sync_session::EventEnvelope>,
     std::collections::HashMap<String, helix_im::sync_session::PostFields>,
 ) {
-    let ch = ChannelId::from_test_u64(channel_id);
+    let ch = common::channel_id(channel_id);
     match parse_sync_response(bytes.as_ref(), ch).expect("parse sync response") {
         SyncResponse::Events {
             events, messages, ..
@@ -199,7 +198,7 @@ fn mixed_batch_emits_match_dispatch_table() {
 fn online_vs_offline_read_emit_names_differ() {
     use helix_im::acl::to_effect::{emit_channel_read_echo, emit_post_read};
 
-    let ch = ChannelId::from_test_u64(7);
+    let ch = channel_id(7);
     // 离线 sync 应用路径：im:channel:read_echo。
     let offline = emit_channel_read_echo(ch, 42, "m_read");
     // 在线 WS post_read 路径：im:post:read。
@@ -281,7 +280,7 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
         .expect("persist corr");
     h.step(port_reply_ok(persist_corr), 3100);
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(6)),
+        h.module.cursor_for(channel_id(6)),
         Some(2),
         "emit 不卡 cursor：persist ok 后 cursor 推进到 nextSeq=2"
     );

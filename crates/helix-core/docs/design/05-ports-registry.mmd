@@ -1,4 +1,4 @@
-%% helix-core — 6 ports 抽象 + 三端实现去向（依赖倒置 / ports & adapters）
+%% helix-core — 6 ports 抽象 + PC/Flutter 实现去向（依赖倒置 / ports & adapters）
 %% 真源：src/ports/{transport,storage,clock,event_sink,id,http}.rs + src/platform.rs
 %% 关联：HX-C001(core 只定义 trait) · HX-C002(MaybeSend/MaybeSync cfg 切) · 对象安全(统一 PortError)
 flowchart LR
@@ -12,7 +12,7 @@ flowchart LR
         direction TB
         PLAT["✅ platform.rs<br/>MaybeSend/MaybeSync = cfg 切<br/>native: Send/Sync · wasm: 空（单线程）"]:::core
         T["✅ Transport（async）<br/>connect/send/recv/close"]:::port
-        S["✅ Storage（async）<br/>batch_upsert/batch_update<br/>monotonic_upsert/get/scan"]:::port
+        S["✅ Storage（async）<br/>batch_upsert/batch_update/batch_delete<br/>monotonic_upsert/guarded_bump/get/scan"]:::port
         CL["✅ Clock（sync）<br/>now_ms()→u64 墙钟<br/>（std::Instant wasm 会 panic）"]:::port
         ES["✅ EventSink（sync）<br/>emit(DomainEventBytes) 非阻塞"]:::port
         ID["✅ IdSource + Random（sync）<br/>new_uuid / random_u64(jitter)"]:::port
@@ -26,9 +26,9 @@ flowchart LR
     PLAT -.-> HT
 
     %% ── native driver ──
-    T -->|"impl"| NT["⚠️ NativeTransport<br/>tokio-tungstenite"]:::native
-    S -->|"impl"| NS["⚠️ sqlx SqlitePool<br/>WAL · 写池 max=1 / 读池 max=4"]:::native
-    HT -->|"impl"| NH["⚠️ reqwest"]:::native
+    T -->|"impl"| NT["⚠️ NativeTransport<br/>SharedWsClient 薄壳"]:::native
+    S -->|"impl"| NS["⚠️ NativeStorage<br/>委托 helix-driver-host HostStorage"]:::native
+    HT -->|"impl"| NH["⚠️ NativeHttp<br/>SharedHttpClient 薄壳"]:::native
     CL -->|"impl"| NC["⚠️ SystemTime"]:::native
     ES -->|"impl"| NE["⚠️ Tauri AppHandle.emit"]:::native
 
@@ -37,8 +37,8 @@ flowchart LR
     S -.->|"impl（archived）"| WS["❌ sqlite-wasm-rs + OPFS"]:::wasm
 
     %% ── ffi driver（Flutter 手机端）──
-    T -->|"impl"| FT["⚠️ FfiTransport（C ABI 回调）"]:::ffi
-    S -->|"impl"| FS["⚠️ host SQLite handle（C ABI）"]:::ffi
-    HT -->|"impl"| FH["⚠️ host http 回调 + oneshot"]:::ffi
+    T -->|"impl"| FT["⚠️ FFI pump<br/>SharedWsClient 入站直推 Tick"]:::ffi
+    S -->|"impl"| FS["⚠️ FFI pump<br/>直接装配 HostStorage"]:::ffi
+    HT -->|"impl"| FH["⚠️ FfiHttpRequester<br/>SharedHttpClient"]:::ffi
 
     Note["依赖铁律：adapter → core 单向，永不反向<br/>cargo tree -p helix-core | grep tokio/sqlx/reqwest/web-sys/tauri 必须空"]:::core

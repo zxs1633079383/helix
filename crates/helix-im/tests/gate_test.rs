@@ -256,8 +256,7 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
     // persist ok → cursor 应跳到权威 nextSeq=50（不是 max(event.seq)=10）
     h.step(port_reply_ok(persist_corr), 2200);
     assert_eq!(
-        h.module
-            .cursor_for(helix_im::state::ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(50),
         "cursor must anchor to authoritative nextSeq=50, NOT max(event.seq)=10"
     );
@@ -307,10 +306,7 @@ fn sync_too_long_resets_cursor_and_emits() {
         effects
     );
     // cursor 应已复位（reset_to-1 = 99）
-    let cursor = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
-        .unwrap_or(0);
+    let cursor = h.module.cursor_for(channel_id(1)).unwrap_or(0);
     assert_eq!(
         cursor, 99,
         "cursor should be reset to reset_to-1 = 99, got: {}",
@@ -345,10 +341,7 @@ fn gate_buffer_flush_on_contiguous_arrival() {
     );
 
     // cursor 最终应为 3
-    let cursor = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
-        .unwrap_or(0);
+    let cursor = h.module.cursor_for(channel_id(1)).unwrap_or(0);
     assert_eq!(
         cursor, 3,
         "cursor should be 3 after flushing seq 1,2,3, got: {}",
@@ -365,26 +358,17 @@ fn cursor_never_decreases_under_any_input() {
     for seq in 1u64..=5 {
         h.step(inbound_event(1, seq, 1), seq * 1000);
     }
-    let cursor_after_5 = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
-        .unwrap_or(0);
+    let cursor_after_5 = h.module.cursor_for(channel_id(1)).unwrap_or(0);
     assert_eq!(cursor_after_5, 5, "cursor should be 5 after contiguous 1-5");
 
     // 再喂 seq=3（dup，seq < cursor）→ cursor 不变
     h.step(inbound_event(1, 3, 1), 6000);
-    let cursor_after_dup = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
-        .unwrap_or(0);
+    let cursor_after_dup = h.module.cursor_for(channel_id(1)).unwrap_or(0);
     assert_eq!(cursor_after_dup, 5, "cursor should not decrease on dup");
 
     // 喂旧 PortReply（stale，已无对应 pending_commit）→ cursor 不变
     h.step(port_reply_ok(99999), 7000);
-    let cursor_after_stale = h
-        .module
-        .cursor_for(helix_im::state::ChannelId::from_test_u64(1))
-        .unwrap_or(0);
+    let cursor_after_stale = h.module.cursor_for(channel_id(1)).unwrap_or(0);
     assert_eq!(
         cursor_after_stale, 5,
         "cursor should not decrease on stale PortReply"

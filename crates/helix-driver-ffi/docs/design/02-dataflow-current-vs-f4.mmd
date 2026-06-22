@@ -1,54 +1,49 @@
-%% helix-driver-ffi — 当前数据流 vs 目标 F4 数据流
-%% 左：现状（on_ws_frame → 拷贝 → TODO 断头，engine 泵缺）
-%% 右：目标 F4（→ Tick::Inbound → engine → Effect → on_domain_event → Dart Stream）
-%% 真源：api.rs:160/187 TODO · ROADMAP §一 M3 F4.2/F4.3
+%% helix-driver-ffi — F4 后数据流
+%% 真源：api.rs / pump.rs / event_sink.rs / helix-driver-host::engine
 
 flowchart TD
-    subgraph NOW["🚧 当前数据流（M3-F4 启动前 · 断头）"]
-        N1["宿主收 WS 帧<br/>调 helix_on_ws_frame · api.rs:148"]
-        N2["✅ 立即拷贝到 Rust 堆<br/>slice::from_raw_parts(...).to_vec()（ACL-3）"]
-        N3["❌ // TODO 包成 Tick::Inbound 发 engine_loop<br/>（api.rs:160 断头）"]
-        N4["宿主 HTTP 响应<br/>调 helix_on_http_response · api.rs:170"]
-        N5["✅ 立即拷贝 body 到 Rust 堆"]
-        N6["❌ // TODO 包成 PortReply{corr=req_id} 发 engine<br/>（api.rs:187 断头）"]
-        N1 --> N2 --> N3
-        N4 --> N5 --> N6
-        NX["⛔ engine 不被驱动<br/>无落库 / 无事件回 Dart"]
-        N3 -.-> NX
-        N6 -.-> NX
+    subgraph INPUT["输入源"]
+        CMD["C++/Flutter → helix_command<br/>name + payload 立即拷贝"]
+        WSIN["SharedWsClient 读任务<br/>入站 WS frame"]
+        TIMER["host engine timer"]
+        PORT["host dispatch PortReply<br/>Persist / Http"]
     end
 
-    subgraph F4["🎯 目标 F4 数据流（engine 接线后 · 闭环）"]
-        F_WS["宿主收 WS 帧 → helix_on_ws_frame"]
-        F_COPY["✅ 拷贝到 Rust 堆（保留 ACL-3）"]
-        F_TICK["Tick::Inbound → channel 投 engine（接 api.rs:160）"]
-        F_CMD["helix_command(send_message)<br/>→ Tick::Command（新增导出 F4.2）"]
-        F_HTTP["helix_on_http_response<br/>→ PortReply{corr=req_id}（接 api.rs:187）"]
-        F_PUMP["engine 泵 step<br/>ExecutionShell / engine_loop（F4.1 泵归属 ADR）"]
-        F_EFFECT["产出 Vec&lt;Effect&gt;<br/>Persist / Send / ScheduleTimer / Emit"]
-        F_STORE["Effect::Persist → FfiStorage → HostStorage 落库（F2 已具备）"]
-        F_SEND["Effect::Send → FfiTransport（Shared host WS）"]
-        F_EMIT["Effect::Emit → FfiEventSink（F4.3 待接）"]
-        F_CB["on_domain_event(ctx, bytes)<br/>（回调表已定义 callbacks.rs:30）"]
-        F_DART["Dart NativePort → Stream 上屏"]
-
-        F_WS --> F_COPY --> F_TICK --> F_PUMP
-        F_CMD --> F_PUMP
-        F_HTTP --> F_PUMP
-        F_PUMP --> F_EFFECT
-        F_EFFECT --> F_STORE
-        F_EFFECT --> F_SEND
-        F_EFFECT --> F_EMIT --> F_CB --> F_DART
+    subgraph TICK["Tick 队列"]
+        TCMD["Tick::Command"]
+        TIN["Tick::Inbound"]
+        TTIMER["Tick::Timer"]
+        TREPLY["Tick::PortReply"]
     end
 
-    classDef done fill:#d4edda,stroke:#28a745,color:#155724;
-    classDef stub fill:#fff3cd,stroke:#ffc107,color:#856404;
-    classDef gap fill:#f8d7da,stroke:#dc3545,color:#721c24;
-    classDef target fill:#cce5ff,stroke:#004085,color:#004085;
+    subgraph ENGINE["共享 host engine 核"]
+        SHELL["ExecutionShell::handle"]
+        EFFECTS["Vec<Effect>"]
+        DISPATCH["helix-driver-host dispatch<br/>按 StorageOp 表集合保序"]
+    end
 
-    class N2,N5 done;
-    class N1,N4 stub;
-    class N3,N6,NX gap;
-    class F_COPY,F_STORE done;
-    class F_TICK,F_CMD,F_HTTP,F_PUMP,F_EFFECT,F_SEND,F_EMIT,F_CB,F_DART target;
-    class F_WS done;
+    subgraph PORTS["FFI 装配的 port 实现"]
+        STORE["HostStorage<br/>rusqlite shared storage<br/>BatchDelete 等 StorageOp 单一真源"]
+        HTTP["FfiHttpRequester<br/>SharedHttpClient"]
+        WS["SharedWsClient<br/>Effect::Send"]
+        SINK["FfiEventSink<br/>step 末尾批量 flush"]
+    end
+
+    HOST["CppHostVtable::on_domain_events_batch<br/>一次回调携带整批事件"]
+
+    CMD --> TCMD
+    WSIN --> TIN
+    TIMER --> TTIMER
+    PORT --> TREPLY
+
+    TCMD --> SHELL
+    TIN --> SHELL
+    TTIMER --> SHELL
+    TREPLY --> SHELL
+    SHELL --> EFFECTS --> DISPATCH
+
+    DISPATCH -->|"Effect::Persist / PersistFire"| STORE
+    DISPATCH -->|"Effect::Http / HttpFire"| HTTP
+    DISPATCH -->|"Effect::Send"| WS
+    DISPATCH -->|"Effect::Emit"| SINK
+    SINK --> HOST

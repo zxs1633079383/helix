@@ -23,11 +23,11 @@ use common::*;
 use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::Module;
 use helix_core::Tick;
-use helix_im::state::{SendStatus, ServerId};
+use helix_im::state::SendStatus;
 
-/// 测试桥接：数值 → 26 字符 server id（与 ServerId::from_test_u64 一致）。
+/// 测试 fixture：数值索引 → 固定真实形态 26 字符 server id。
 fn sid(n: u64) -> String {
-    ServerId::from_test_u64(n).as_str().to_string()
+    server_id(n).as_str().to_string()
 }
 
 /// 构造 echo（posted 回声）帧：真 Go 信封 `{action:"posted", data:{...post...}}`。
@@ -108,7 +108,7 @@ fn echo_reconciles_pending_send() {
     );
 
     // 5. cursor 独立推进到 echo 帧 seq（HX-C008：与消息可见性解耦）
-    let cid1 = helix_im::state::ChannelId::from_test_u64(1);
+    let cid1 = channel_id(1);
     assert_eq!(
         h.module.cursor_for(cid1),
         Some(7),

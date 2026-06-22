@@ -5,10 +5,10 @@
 
 flowchart TD
     subgraph OWNER["① opaque ptr 单 owner（Box::into_raw / from_raw 各一次）"]
-        O1["helix_create_with_network<br/>Box::into_raw(Box::new(HelixHandle)) · api.rs:60"]
+        O1["helix_create_with_network<br/>Box::into_raw(Box::new(HelixHandle))"]
         O2["✅ 唯一所有权交给 C 侧<br/>（Rust 不再持有，C 持 *mut HelixHandle）"]
-        O3["C 侧把 ptr 回传后续每个 API<br/>set_header / on_ws_frame ... 仅 &*handle 借用，不夺所有权"]
-        O4["helix_destroy<br/>Box::from_raw 回收（唯一一次）· api.rs:71"]
+        O3["C 侧把 ptr 回传后续每个 API<br/>set_header / command / query ... 仅 &*handle 借用，不夺所有权"]
+        O4["helix_destroy<br/>Box::from_raw 回收（唯一一次）"]
         O5["✅ null-check 先行<br/>handle.is_null() → 提前 return，防 double-free / use-after-free"]
         O1 --> O2 --> O3 --> O4
         O5 -.->|每个导出入口先查| O3
@@ -22,10 +22,10 @@ flowchart TD
     end
 
     subgraph BUFFER["③ C 侧 buffer 立即拷贝不持有（ACL-3）"]
-        B1["helix_on_ws_frame(data, len)<br/>C 侧 buffer 回调返回后可能被复用"]
-        B2["✅ slice::from_raw_parts(data,len).to_vec()<br/>当场拷贝到 Rust 堆 · api.rs:159"]
+        B1["helix_command(name, payload)<br/>C 侧 buffer 返回后可能被复用"]
+        B2["✅ slice::from_raw_parts(...).to_vec / Bytes::copy_from_slice<br/>当场拷贝到 Rust 堆"]
         B3["✅ 不持有原始切片<br/>（owned Vec&lt;u8&gt; 才能跨 step 进 engine）"]
-        B4["helix_on_http_response(body, body_len)<br/>同款：body 非空分支 to_vec · api.rs:185"]
+        B4["helix_create_with_network / set_header<br/>URL/header 字节只在入口期读取并转 owned String"]
         B1 --> B2 --> B3
         B4 --> B2
     end

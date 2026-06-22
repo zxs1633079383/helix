@@ -18,8 +18,7 @@ use helix_im::state::ChannelId;
 
 /// 回归锚: S6 —— too_long 只 emit + 复位 cursor，**helix 侧不 DELETE message**（清表交前端）。
 ///
-/// 结构性保证：`StorageOp` 枚举无 Delete 变体，类型层即排除「Rust 侧删消息」。本测试断言
-/// too_long 批次产出的 Persist/PersistFire ops 中无任何 message 表写（不擦库），只 emit。
+/// 本测试断言 too_long 批次产出的 Persist/PersistFire ops 中无任何 message 表写/删（不擦库），只 emit。
 #[test]
 fn s6_too_long_emits_but_does_not_delete_message() {
     let mut h = Harness::new(&[1]);
@@ -72,7 +71,7 @@ fn s6_too_long_emits_but_does_not_delete_message() {
         "too_long emit 须带 resetTo=100 + channelId（前端 cursor 记账契约，对齐现网）"
     );
 
-    // 2. 不得产生任何 message 表写（无 DELETE 语义；StorageOp 也无 Delete 变体）。
+    // 2. 不得产生任何 message 表写/删；BatchDelete 只能用于其他有明确作用域的表。
     for e in h.sink.as_slice() {
         let ops: &[StorageOp] = match e {
             Effect::Persist { ops, .. } => ops,
@@ -98,7 +97,7 @@ fn s6_too_long_emits_but_does_not_delete_message() {
 
     // 3. cursor 复位 reset_to-1 = 99。
     assert_eq!(
-        h.module.cursor_for(ChannelId::from_test_u64(1)),
+        h.module.cursor_for(channel_id(1)),
         Some(99),
         "too_long 须复位 cursor 到 reset_to-1=99"
     );
@@ -111,9 +110,18 @@ fn s6_increment_end_fanout_deterministic_order() {
     use helix_im::state::Seq;
     use helix_im::sync_session::IncrementChannel;
 
-    fn inc(ch: u64, seq: u64) -> IncrementChannel {
+    const CH_HIGH: &str = "zzzzzz0000000000000000001e";
+    const CH_LOW: &str = "aaaaaa00000000000000000002";
+    const CH_MID: &str = "mmmmmm00000000000000000011";
+
+    fn ch(raw: &str) -> ChannelId {
+        assert_eq!(raw.len(), 26);
+        ChannelId::from_str(raw).expect("test channel id fixture must be valid Id26")
+    }
+
+    fn inc(channel_id: ChannelId, seq: u64) -> IncrementChannel {
         IncrementChannel {
-            channel_id: ChannelId::from_test_u64(ch),
+            channel_id,
             last_event_seq: Seq(seq),
             need_sync: true,
             raw: bytes::Bytes::from_static(b"{}"),
@@ -141,16 +149,15 @@ fn s6_increment_end_fanout_deterministic_order() {
 
     // 乱序 ingest（30, 2, 17）——HashSet 内部序不可预测；end 必须 sort 后发。
     h.sink.clear();
-    h.module.ingest_increment(&inc(30, 5), &mut h.sink);
-    h.module.ingest_increment(&inc(2, 5), &mut h.sink);
-    h.module.ingest_increment(&inc(17, 5), &mut h.sink);
+    h.module.ingest_increment(&inc(ch(CH_HIGH), 5), &mut h.sink);
+    h.module.ingest_increment(&inc(ch(CH_LOW), 5), &mut h.sink);
+    h.module.ingest_increment(&inc(ch(CH_MID), 5), &mut h.sink);
 
     h.sink.clear();
     h.module.ingest_increment_end(None, &mut h.sink);
 
     let order = fanout_channels(&h.sink);
-    // from_test_u64 零填充十进制 → 字典序==数值序；sorted = [2, 17, 30]。
-    let expected = vec![cid(2), cid(17), cid(30)];
+    let expected = vec![CH_LOW.to_string(), CH_MID.to_string(), CH_HIGH.to_string()];
     assert_eq!(
         order, expected,
         "S6 HX-C010：increment_end fan-out 须按 ChannelId 升序确定性发 sync，got {order:?}"

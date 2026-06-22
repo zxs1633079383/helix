@@ -105,7 +105,7 @@ flowchart TD
 **B0 cargo 门**：`cargo check -p helix-core -p helix-driver-native -p helix-driver-ffi -p helix-driver-host` + `cargo test -p helix-driver-host -p helix-driver-native` + `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` **必须空**。
 
 **B 业务**（B0 后）：前置基建（parser viewers/lastEventSeq-Optional/camel-snake；context.auth_user_id；ImConfig.auth_user_id；advance_cursor 改表 channel_event_cursor）→ channel_write/ 5 文件（每文件 ≤300 行硬顶）→ acl/to_effect_s1.rs(新)+to_effect.rs(+224)（**保持 s1 分文件，不回灌**）。
-**写策略**：member_count = path1 单行 ON CONFLICT(id) 守卫列（O(1) 冷路径）；unread = path3 `GuardedBump` SQL 自增（**唯一刻意偏离现网 RMW**，HX-C005 合规）；memberChange.leave 解析但无消费方（core 无 Delete，记 ROADMAP-P）。
+**写策略**：member_count = path1 单行 ON CONFLICT(id) 守卫列（O(1) 冷路径）；unread = path3 `GuardedBump` SQL 自增（**唯一刻意偏离现网 RMW**，HX-C005 合规）；memberChange.leave 解析后接 `StorageOp::BatchDelete(channel_member)`。
 
 ### Phase C — 10 个 WS handler（S1 全 14 对齐）+ S9 emit 命名
 
@@ -220,7 +220,7 @@ flowchart TD
 ## 4. 已知偏离 / 风险登记
 
 1. **B0 跨 5 crate**（最高风险）：core+host+native+ffi+wasm，HX-C001/C005 + FFI parity。单独 cargo 门控，native 测试零回归作安全网。
-2. **memberChange.leave 无消费方**：core 无 Delete，解析+测试锚但不删行，记 ROADMAP-P（勿事后误「修」）。
+2. **memberChange.leave 物理删行已接通**：`collect_member_leaves` → `StorageOp::BatchDelete(channel_member, scope=channel_id, key=user_id)`，host conformance 锁定跨 channel 隔离。
 3. **auth_user_id 空降级**：无身份 → 保守 count-in；§5 验收（self+0/echo 无 unread）仅在 host 注入真 auth 时成立。
 4. **#6 仅 SyncPull**：解信封禁碰 scan（scan reply 非信封）。
 5. **S9 统一命名是 bug**：A5/A4 分流是真机定位的前端零改动契约修复，必须落。

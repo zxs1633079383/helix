@@ -129,6 +129,15 @@ pub fn run(args: PumpArgs) {
         // 才 ScheduleTimer）。而 hello 经读任务 `Tick::Inbound` 进泵——读任务只在 connect 成功后才
         // 启动。故 connect 在途（未成功）时**无任何 Send 入泵**，锁无人争用；connect 成功瞬间锁即
         // 释放，其后的 Send 畅通。on_start 产 Scan/Http（不走此锁），亦不受影响。
+        //
+        // 🟡 drift-review(wf_efcf1ca4-759 #4) 收敛点：上述安全性靠**运行时时序不变量**（hello-gated
+        // Send），非类型强制——属架构脆弱点。类型安全的结构收敛 = 「connect 成功后再把 main_transport
+        // 插入 transports，连接期间表里无它，dispatch 走 None 兜底 warn」。但 `TransportTable<Tr>` =
+        // `HashMap`（engine.rs:79）**按值 move 进 `run_engine_loop`**（不可在 loop 启动后插入）——
+        // 该收敛需把 transports 改成跨 loop+连接任务共享形态（engine-core API 变更，native+ffi+pump 核
+        // 同改 + 每 Send 加锁的性价比评估）。**留 ROADMAP-P 排期**（docs/ROADMAP.md「FFI pump 连接-插表
+        // 时序类型化」），不在本 HX-C005 回正批内做风险重构。现状靠本注释 + 单线程 runtime + hello-gate
+        // 三重保障，无实测停顿（lifecycle_net_decouple 测覆盖 create/destroy 不阻塞）。
         tokio::spawn(async move {
             if let Err(e) = ws_handle.lock().await.connect().await {
                 tracing::error!(error = %e, "FFI pump 主 WS 后台连接失败——仍进泵，上行走 warn 兜底");

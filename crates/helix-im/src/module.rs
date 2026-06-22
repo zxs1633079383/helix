@@ -837,6 +837,10 @@ impl ImModule {
                 "userName": "",
             },
         });
+        // 边界零 unwrap（HX-C006 / 不变量#4）：序列化失败走 Result propagate，
+        // 不让 panic 越 extern "C" 边界。to_string 仅在冷错误分支触发，热路径零额外分配。
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
             corr: h1_corr,
             req: HttpRequest {
@@ -850,7 +854,7 @@ impl ImModule {
                     ));
                     h
                 },
-                body: Some(bytes::Bytes::from(serde_json::to_vec(&body).unwrap())),
+                body: Some(bytes::Bytes::from(body_bytes)),
             },
         });
 

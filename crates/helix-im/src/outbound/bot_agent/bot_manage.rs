@@ -2,7 +2,7 @@
 //!
 //! 含 query-param GET（#6 token/list `?botUserId=` bot_manage.go:76 / #11 visible-user/list
 //! bot_manage.go:157）——经 `bot_dyn_cmd!` 的 `path_override` 把 botUserId 插进 query string；
-//! method（GET）差异属 driver 接缝 P6（与 P5a teams/quit DELETE 同款，registry 恒 POST）。
+//! Task1 起 method 由 registry 按命令名集中产 GET。
 
 use serde_json::{json, Value};
 

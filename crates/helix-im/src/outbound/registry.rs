@@ -61,6 +61,11 @@ pub(crate) trait OutboundCommand: Sync {
         AuthKind::Session
     }
 
+    /// HTTP method（Task1：已知 GET/DELETE 命令按现网契约映射，其余默认 POST）。
+    fn method(&self) -> &'static str {
+        outbound_method(self.name())
+    }
+
     /// 是否**读族**命令（spec06 缺陷A）：读 = 无 WS 回声、HTTP 响应体即数据 → 读命令 override `true`，
     /// dispatch 注册 `OutboundReadReply` 回灌响应给前端。默认 `false`（写族走 WS 回声，HTTP 响应可丢）。
     fn is_read(&self) -> bool {
@@ -139,6 +144,26 @@ pub fn outbound_command_count() -> usize {
     registry().map(HashMap::len).unwrap_or(0)
 }
 
+fn outbound_method(name: &str) -> &'static str {
+    match name {
+        "im_team_quit"
+        | "im_bot_agent_config_delete"
+        | "im_bot_agent_channel_remove" => "DELETE",
+        "im_bot_list_visible"
+        | "im_bot_token_list"
+        | "im_bot_visible_user_list"
+        | "im_bot_agent_config_get"
+        | "im_bot_agent_configs_enabled"
+        | "im_bot_agent_channel_bots"
+        | "im_bot_agent_channel_available_bots"
+        | "im_bot_agent_info"
+        | "im_bot_agent_team_members"
+        | "im_bot_agent_get_user"
+        | "im_bot_agent_team_channel" => "GET",
+        _ => "POST",
+    }
+}
+
 /// 把一条 outbound 命令翻成 Effect 列表（当前恒为单条 `Effect::Http`）。
 ///
 /// 两个 base host 入参（spec06 第二网关，方案 A）：`api_base_url` = IM 网关（含 `/api/cses`）；
@@ -173,8 +198,9 @@ pub fn handle_outbound(
         Gateway::Default => default_api_base_url,
     };
 
-    Ok(vec![http_post(
+    Ok(vec![http_request(
         base,
+        command.method(),
         &path,
         body,
         command.auth_kind(),
@@ -191,12 +217,13 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空必填字段 '{key}'")))
 }
 
-/// 组装一条 `Effect::Http` POST（Content-Type + connectionId 身份头 + 鉴权意图头）。
+/// 组装一条 `Effect::Http` 请求（Content-Type + connectionId 身份头 + 鉴权意图头）。
 ///
 /// 鉴权意图（`X-Auth-Kind`）仅在非默认 `Bot` 时显式下标——`Session` 是 driver 横切层缺省，
 /// 不冗余写头（既省字节又保留「无头=session」语义）。真凭据由 driver 注入（C6，core 不拼）。
-fn http_post(
+fn http_request(
     base: &str,
+    method: &str,
     path: &str,
     body: Value,
     auth_kind: AuthKind,
@@ -211,7 +238,7 @@ fn http_post(
     Effect::Http {
         corr,
         req: HttpRequest {
-            method: "POST".to_string(),
+            method: method.to_string(),
             url: format!("{base}/{path}"),
             headers,
             body: Some(Bytes::from(serde_json::to_vec(&body).unwrap_or_default())),
@@ -220,5 +247,135 @@ fn http_post(
 }
 
 #[cfg(test)]
-#[path = "registry_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    struct StubCommand {
+        name: &'static str,
+    }
+
+    impl OutboundCommand for StubCommand {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn build(&self, _args: &Value) -> Result<(&'static str, Value), ImError> {
+            Ok(("stub/path", json!({ "ok": true })))
+        }
+    }
+
+    static STUB_A: StubCommand = StubCommand { name: "im_stub_a" };
+    static STUB_DUP: StubCommand = StubCommand { name: "im_stub_a" };
+    static STUB_MISMATCH: StubCommand = StubCommand {
+        name: "handler_name",
+    };
+
+    fn reg(name: &'static str, cmd: &'static dyn OutboundCommand) -> OutboundRegistration {
+        OutboundRegistration { name, command: cmd }
+    }
+
+    #[test]
+    fn build_registry_ok() {
+        let entries: &'static [OutboundRegistration] =
+            Box::leak(Box::new([reg("im_stub_a", &STUB_A)]));
+        let map = build_registry(entries).expect("should build");
+        assert!(map.contains_key("im_stub_a"));
+    }
+
+    #[test]
+    fn build_registry_rejects_name_mismatch() {
+        let entries: &'static [OutboundRegistration] =
+            Box::leak(Box::new([reg("wrong_name", &STUB_MISMATCH)]));
+        match build_registry(entries) {
+            Err(ImError::InvalidWsHandlerRegistration {
+                registered,
+                handler,
+            }) => {
+                assert_eq!(registered, "wrong_name");
+                assert_eq!(handler, "handler_name");
+            }
+            Err(e) => panic!("expected InvalidWsHandlerRegistration, got {e:?}"),
+            Ok(_) => panic!("expected InvalidWsHandlerRegistration, got Ok"),
+        }
+    }
+
+    #[test]
+    fn build_registry_rejects_duplicate() {
+        let entries: &'static [OutboundRegistration] = Box::leak(Box::new([
+            reg("im_stub_a", &STUB_A),
+            reg("im_stub_a", &STUB_DUP),
+        ]));
+        match build_registry(entries) {
+            Err(ImError::DuplicateWsAction(name)) => assert_eq!(name, "im_stub_a"),
+            Err(e) => panic!("expected DuplicateWsAction, got {e:?}"),
+            Ok(_) => panic!("expected DuplicateWsAction, got Ok"),
+        }
+    }
+
+    #[test]
+    fn require_str_paths() {
+        let args = json!({ "k": "v", "empty": "" });
+        assert_eq!(require_str(&args, "k", "cmd").unwrap(), "v");
+        assert!(require_str(&args, "missing", "cmd").is_err());
+        assert!(require_str(&args, "empty", "cmd").is_err());
+    }
+
+    #[test]
+    fn is_outbound_hits_registered() {
+        assert!(is_outbound("im_revoke"));
+        assert!(is_outbound("im_urgent_post"));
+        assert!(!is_outbound("not_a_command"));
+    }
+
+    #[test]
+    fn handle_outbound_dispatch_and_errors() {
+        let corr = Correlation::from_raw(1);
+        let payload = serde_json::to_vec(&json!({ "post_id": "p" })).unwrap();
+        let effects = handle_outbound(
+            "im_revoke",
+            &payload,
+            "http://h/api",
+            "http://default",
+            Some("c1"),
+            corr,
+        )
+        .expect("revoke should dispatch");
+        match &effects[0] {
+            Effect::Http { req, .. } => {
+                assert_eq!(req.method, "POST");
+                assert_eq!(req.url, "http://h/api/posts/revoke");
+                assert!(req
+                    .headers
+                    .iter()
+                    .any(|(k, v)| k == "Content-Type" && v == "application/json"));
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
+        assert!(handle_outbound(
+            "bogus",
+            &payload,
+            "http://h",
+            "http://default",
+            None,
+            corr
+        )
+        .is_err());
+        assert!(handle_outbound(
+            "im_revoke",
+            b"not-json",
+            "http://h",
+            "http://default",
+            None,
+            corr
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn outbound_method_maps_known_get_delete_and_defaults_post() {
+        assert_eq!(outbound_method("im_team_quit"), "DELETE");
+        assert_eq!(outbound_method("im_bot_token_list"), "GET");
+        assert_eq!(outbound_method("im_revoke"), "POST");
+    }
+}

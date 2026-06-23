@@ -136,9 +136,8 @@ misc_cmd!(
 );
 
 // #5 teams/member/quit：退出团队（HTTP DELETE，无响应体 = 现网源 bug，透传）。
-// 真源 QuitTeamReq{userId,teamId}（quit_team.go:3-6）。**注**：现网 Methods("DELETE")，body 仍带；
-// helix outbound 当前 registry 恒发 POST（http_post 单点）——method 差异属 driver 横切层关切，
-// P5a build 层只保证 endpoint+body 对齐；DELETE 语义 driver 接缝（P6）按命令名映射时校正。
+// 真源 QuitTeamReq{userId,teamId}（quit_team.go:3-6）。现网 Methods("DELETE") 且 body 仍带；
+// Task1 起 registry 按命令名产 DELETE，build 层仍只负责 endpoint+body。
 misc_cmd!(
     TeamQuitCommand,
     TEAM_QUIT_REG,

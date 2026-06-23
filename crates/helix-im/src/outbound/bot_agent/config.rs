@@ -1,7 +1,7 @@
 //! Bot-agent config + channel 管理 outbound（#12-21，session 鉴权，bot-agent/* bot_agent.go:25-46）。
 //!
 //! 含 path-param（`{botUserId}`/`{channelId}`，mux.Vars）+ GET/DELETE method——`bot_dyn_cmd!` 的
-//! `path_override` 把 path 段插进 path（endpoint 对齐现网），method 差异属 driver 接缝 P6。
+//! `path_override` 把 path 段插进 path（endpoint 对齐现网），Task1 起 method 由 registry 集中产出。
 //! #12 config req/resp 直接是 ent.BotAgentConfig（gap:24 未抽 DTO 技术债，透传整对象）。
 
 use serde_json::{json, Value};

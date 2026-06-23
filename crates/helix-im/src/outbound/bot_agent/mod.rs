@@ -21,9 +21,9 @@
 //! `Effect::Http` 带 `X-Auth-Kind: bot`，**真凭据由 driver 横切层注入**，core 绝不出现 bot 凭据
 //! 字面量 / 鉴权头名（C6 闸门：本 crate grep token 串必空）。其余命令走默认 `Session`。
 //!
-//! ## method / path-param / query-param（build 层只保证 endpoint+body，method 属 driver 接缝 P6）
-//! 现网本域含 GET(#3/6/11/13/14/18/19/22/25/26/27/36)/DELETE(#15/21)；registry 恒发 POST，
-//! method 差异由 driver 接缝（P6）按命令名映射校正（与 P5a teams/member/quit DELETE 同款裁决）。
+//! ## method / path-param / query-param（build 层只保证 endpoint+body；Task1 由 registry 集中出 method）
+//! 现网本域含 GET(#3/6/11/13/14/18/19/22/25/26/27/36)/DELETE(#15/21)；Task1 起 registry 按命令名
+//! 集中产 GET/DELETE，未列入映射者仍默认 POST（与 P5a teams/member/quit 同一收口点）。
 //! path param（`{botUserId}`/`{channelId}`/`{teamId}`/`{userId}`）+ query（`?botUserId=`）在
 //! build 层插值进 path 字符串（endpoint 对齐现网）。path 段做最小转义校验（拒空/拒含 `/` 防越权）。
 //!

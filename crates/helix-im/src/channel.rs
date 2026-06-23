@@ -498,16 +498,20 @@ pub fn event_to_storage_op(ev: &EventEnvelope) -> StorageOp {
 ///
 /// 真源 apply_event_with_messages 按 type emit 不同 im:post:* 事件。
 /// post=received / edit=updated / revoke=deleted / read=read；未知类型按 received 兜底。
+///
+/// **spec06 FixB**：传 `&ev.fields`（**在手数据**，与本事件正落库的 `event_to_storage_op(ev)` 同一份
+/// owned `PostFields`）给 fat emit 工厂 → 携完整可渲染 MessageItemData，前端零回读直渲。零额外读、零再解析。
 pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
     use crate::sync_session::EventKind;
     let msg_id = ev.msg_id.as_deref().unwrap_or("");
     let seq = ev.seq.0;
+    let f = &ev.fields;
     match ev.kind {
-        EventKind::PostUpsert => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id),
-        EventKind::PostEdit => crate::acl::to_effect::emit_post_updated(ev.id, seq, msg_id),
-        EventKind::PostRevoke => crate::acl::to_effect::emit_post_deleted(ev.id, seq, msg_id),
-        EventKind::PostRead => crate::acl::to_effect::emit_post_read(ev.id, seq, msg_id),
-        EventKind::Other(_) => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id),
+        EventKind::PostUpsert => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id, f),
+        EventKind::PostEdit => crate::acl::to_effect::emit_post_updated(ev.id, seq, msg_id, f),
+        EventKind::PostRevoke => crate::acl::to_effect::emit_post_deleted(ev.id, seq, msg_id, f),
+        EventKind::PostRead => crate::acl::to_effect::emit_post_read(ev.id, seq, msg_id, f),
+        EventKind::Other(_) => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id, f),
     }
 }
 

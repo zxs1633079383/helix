@@ -199,10 +199,12 @@ fn online_vs_offline_read_emit_names_differ() {
     use helix_im::acl::to_effect::{emit_channel_read_echo, emit_post_read};
 
     let ch = channel_id(7);
+    // spec06 FixB：fat 工厂签名携 &PostFields；本用例仅断言事件名分流，data 内容无关 → default 即可。
+    let fields = helix_im::sync_session::PostFields::default();
     // 离线 sync 应用路径：im:channel:read_echo。
-    let offline = emit_channel_read_echo(ch, 42, "m_read");
+    let offline = emit_channel_read_echo(ch, 42, "m_read", &fields);
     // 在线 WS post_read 路径：im:post:read。
-    let online = emit_post_read(ch, 42, "m_read");
+    let online = emit_post_read(ch, 42, "m_read", &fields);
 
     assert_eq!(
         emit_event_name(&offline).as_deref(),

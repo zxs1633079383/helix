@@ -16,12 +16,15 @@
 //! 必须同步改文档冻结表 + 本测试；测试红 = 漂移未同步，**禁直接改测试迁就代码**
 //! （先确认是有意契约变更）。
 //!
-//! ## 信号类 vs 透传类（§2）
+//! ## message-row fat vs channel-row thin vs 透传类（§2 · spec06 FixB 重写）
 //!
-//! - **信号类**（im:post:received 等）：严格 = `{channel_id,event_seq,msg_id}` 三键。多一个都是
-//!   漂移——若塞「半份 DialogItem」前端会用半份覆盖整份 → 破功。故信号类断言**精确等于**三键集。
-//! - **透传类**（im:channel:increment/created 等）：断言外层包装键集（载荷内部 wire 字段由现网契约保真，
-//!   不在本测试逐一断）。
+//! - **message-row fat 类**（im:post:received/updated/deleted/read / im:channel:read_echo）：携**完整
+//!   可渲染 MessageItemData 核心字段**（`message_item_data` 产物，数据在手零回读）。断言**精确等于**
+//!   完整集 `FAT_KEYS`——**缺**任一字段 = 前端回退「半份回读」蠢模式（缺陷B）→ fail（反转旧契约：旧
+//!   「多一即漂移」，新「**少一即漂移**」）。
+//! - **channel-row thin 类**（im:channel:update / update-by-post）：**故意留瘦**（完整 DialogItem 是累计
+//!   DB 行非在手，fat 会触发每事件热路径回读，违 SPEC §2 铁律）→ 断言瘦键集。
+//! - **透传类**（im:channel:increment/created 等）：断言外层包装键集（载荷内部 wire 字段由现网契约保真）。
 
 mod common;
 use common::channel_id;
@@ -30,6 +33,42 @@ use helix_core::Effect;
 use helix_im::acl::{to_effect, to_effect_s1};
 use helix_im::query;
 use helix_im::state::{ChannelId, Seq};
+use helix_im::sync_session::PostFields;
+
+/// spec06 FixB：message-row 信号的**完整可渲染键集**（= `to_effect::message_item_data` 产物）。
+/// 信号锚 snake（channel_id/event_seq/msg_id）+ 渲染核 camel（MessageItemData ∩ PostFields）。
+/// 缺任一 → message-row 信号断言 fail（前端回退回读蠢模式 = 缺陷B 复发）。
+const FAT_KEYS: &[&str] = &[
+    "channel_id",
+    "event_seq",
+    "msg_id",
+    "temporaryId",
+    "channelId",
+    "userId",
+    "type",
+    "message",
+    "props",
+    "createAt",
+    "updateAt",
+    "readBits",
+    "viewers",
+];
+
+/// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
+fn sample_fields() -> PostFields {
+    PostFields {
+        temporary_id: TMP_ID.to_string(),
+        id: MSG_ID.to_string(),
+        channel_id: "c".to_string(),
+        user_id: "u_sender".to_string(),
+        msg_type: "TEXT".to_string(),
+        message: "hello".to_string(),
+        props: r#"{"k":"v"}"#.to_string(),
+        create_at: 1_700_000_000,
+        read_bits: "11".to_string(),
+        viewers: vec!["all".to_string()],
+    }
+}
 
 // ─── 提取工具：从 Emit Effect 取 `data` 对象的键集 ────────────────────────────
 
@@ -76,58 +115,83 @@ fn ch() -> ChannelId {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §1. 信号类（精确 = {channel_id, event_seq, msg_id} 三键）—— C2 核心证伪点
+// §1a. message-row fat 类（精确 = FAT_KEYS 完整集）—— spec06 FixB 核心证伪点
+//      缺任一字段 = 前端回退回读蠢模式（缺陷B）→ fail（反转旧「多一即漂移」契约）。
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn im_post_received_freezes_signal_triplet() {
-    // C2 核心：前端按 msg_id 回读本地行渲染；三键齐即可定位，多一字段=漂移。
-    let e = to_effect::emit_post_received(ch(), SEQ, MSG_ID);
-    assert_frozen(
-        &e,
-        "im:post:received",
-        &["channel_id", "event_seq", "msg_id"],
+fn im_post_received_freezes_fat_renderable_row() {
+    // FixB 核心：前端 fat 直渲，零回读；完整集齐才能渲染，缺一字段=漂移（回退回读）。
+    let f = sample_fields();
+    let e = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f);
+    assert_frozen(&e, "im:post:received", FAT_KEYS);
+}
+
+#[test]
+fn im_post_read_freezes_fat_renderable_row() {
+    let f = sample_fields();
+    let e = to_effect::emit_post_read(ch(), SEQ, MSG_ID, &f);
+    assert_frozen(&e, "im:post:read", FAT_KEYS);
+}
+
+#[test]
+fn im_channel_read_echo_freezes_fat_renderable_row() {
+    let f = sample_fields();
+    let e = to_effect::emit_channel_read_echo(ch(), SEQ, MSG_ID, &f);
+    assert_frozen(&e, "im:channel:read_echo", FAT_KEYS);
+}
+
+#[test]
+fn im_post_updated_freezes_fat_renderable_row() {
+    let f = sample_fields();
+    let e = to_effect::emit_post_updated(ch(), SEQ, MSG_ID, &f);
+    assert_frozen(&e, "im:post:updated", FAT_KEYS);
+}
+
+#[test]
+fn im_post_deleted_freezes_fat_renderable_row() {
+    // 撤回路径 PostFields 通常稀疏，但 fat 形状一致（同 FAT_KEYS）——前端按 msg_id 标删，字段空串无碍。
+    let f = sample_fields();
+    let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f);
+    assert_frozen(&e, "im:post:deleted", FAT_KEYS);
+}
+
+/// 撤回稀疏 PostFields（default）→ fat 形状仍 == FAT_KEYS（键集不随内容稀疏而缺）。
+#[test]
+fn im_post_deleted_sparse_fields_still_fat_shape() {
+    let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &PostFields::default());
+    assert_frozen(&e, "im:post:deleted", FAT_KEYS);
+}
+
+/// fat 工厂真把**在手数据**吐出（非空字段透传）——证 message_item_data 不是空壳骨架。
+#[test]
+fn fat_emit_carries_in_hand_data() {
+    let f = sample_fields();
+    let e = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = &e else {
+        panic!("必产 Emit")
+    };
+    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &v["data"];
+    assert_eq!(data["userId"], "u_sender", "userId 来自在手 PostFields");
+    assert_eq!(data["message"], "hello", "message 来自在手 PostFields");
+    assert_eq!(data["readBits"], "11", "readBits 来自在手 PostFields");
+    assert_eq!(
+        data["createAt"], 1_700_000_000,
+        "createAt 来自在手 PostFields"
     );
+    // props 由 JSON 字符串 parse 回对象（前端 props:any 期望对象，非字符串）。
+    assert_eq!(data["props"]["k"], "v", "props parse 回对象");
+    assert_eq!(data["viewers"][0], "all", "viewers 数组直出");
 }
 
-#[test]
-fn im_post_read_freezes_signal_triplet() {
-    let e = to_effect::emit_post_read(ch(), SEQ, MSG_ID);
-    assert_frozen(&e, "im:post:read", &["channel_id", "event_seq", "msg_id"]);
-}
+// ════════════════════════════════════════════════════════════════════════════
+// §1b. channel-row thin 类（故意留瘦：完整 DialogItem 累计 DB 行非在手）
+// ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn im_channel_read_echo_freezes_signal_triplet() {
-    let e = to_effect::emit_channel_read_echo(ch(), SEQ, MSG_ID);
-    assert_frozen(
-        &e,
-        "im:channel:read_echo",
-        &["channel_id", "event_seq", "msg_id"],
-    );
-}
-
-#[test]
-fn im_post_updated_freezes_signal_triplet() {
-    let e = to_effect::emit_post_updated(ch(), SEQ, MSG_ID);
-    assert_frozen(
-        &e,
-        "im:post:updated",
-        &["channel_id", "event_seq", "msg_id"],
-    );
-}
-
-#[test]
-fn im_post_deleted_freezes_signal_triplet() {
-    let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID);
-    assert_frozen(
-        &e,
-        "im:post:deleted",
-        &["channel_id", "event_seq", "msg_id"],
-    );
-}
-
-#[test]
-fn im_channel_update_by_post_freezes_signal_triplet() {
+fn im_channel_update_by_post_stays_thin_signal_triplet() {
+    // channel-row 留瘦：fat 须回读累计 channel 行（每事件热路径，违 SPEC §2 铁律）→ 三键 + 前端低频回读。
     let e = to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID);
     assert_frozen(
         &e,
@@ -138,7 +202,7 @@ fn im_channel_update_by_post_freezes_signal_triplet() {
 
 #[test]
 fn im_channel_update_freezes_channel_id_only() {
-    // 批次结束信号：只携 channel_id，前端回读 dialogList 行刷新（C2 必测核心之一）。
+    // 批次结束信号：只携 channel_id，前端 batch 结束（debounced，非每消息）回读 dialogList 刷 badge。
     let e = to_effect::emit_channel_update(ch());
     assert_frozen(&e, "im:channel:update", &["channel_id"]);
 }
@@ -299,19 +363,20 @@ fn all_21_projection_factories_covered() {
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
     let posts = serde_json::json!([]);
+    let f = sample_fields();
     let effects: Vec<Effect> = vec![
-        to_effect::emit_post_received(ch(), SEQ, MSG_ID),
+        to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_sending(ch(), TMP_ID),
         to_effect::emit_sync_too_long(ch(), Seq(1)),
         to_effect::emit_connection_established("c"),
         to_effect::emit_channels_loaded(),
         to_effect::emit_channel_increment(ch(), &raw),
         to_effect::emit_channel_update(ch()),
-        to_effect::emit_post_read(ch(), SEQ, MSG_ID),
-        to_effect::emit_channel_read_echo(ch(), SEQ, MSG_ID),
-        to_effect::emit_post_updated(ch(), SEQ, MSG_ID),
+        to_effect::emit_post_read(ch(), SEQ, MSG_ID, &f),
+        to_effect::emit_channel_read_echo(ch(), SEQ, MSG_ID, &f),
+        to_effect::emit_post_updated(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_batch_updated(ch(), &posts),
-        to_effect::emit_post_deleted(ch(), SEQ, MSG_ID),
+        to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID),
         to_effect_s1::emit_channel_created(ch(), &raw),
         to_effect_s1::emit_channel_closed(ch(), 0),
@@ -367,7 +432,10 @@ fn reconnect_requested_is_control_signal() {
     );
     // 守边界：控制信号不撞 im:__ 总线前缀（防自环），也不混进 im:post/im:channel 投影命名空间。
     assert!(!name.starts_with("im:__"), "禁撞总线前缀：{name}");
-    assert!(name.starts_with("im:net:"), "连接控制族必 im:net: 前缀：{name}");
+    assert!(
+        name.starts_with("im:net:"),
+        "连接控制族必 im:net: 前缀：{name}"
+    );
 }
 
 /// 提取工具负路径（消除 never-taken 分支 → 覆盖率）：非 Emit Effect → None。

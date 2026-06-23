@@ -255,21 +255,76 @@ pub fn connection_id_headers(connection_id: Option<&str>) -> Vec<(String, String
     }
 }
 
+/// spec06 FixB：message-row 信号的**完整可渲染 payload** 构造（数据在手·零回读）。
+///
+/// **为何 fat（缺陷B 修复）**：此前 message-row 信号只吐三键 `{channel_id,event_seq,msg_id}` 瘦信号，
+/// 逼前端「按 msg_id 回读本地 DB 行」才能渲染——N 个渲染组件各回读一次 = N 次冗余 DB 读（蠢代码）。
+/// helix 在 gate apply / sync apply **写完 message 行那一刻，`PostFields` 就在手**（同一份数据正被
+/// `event_to_storage_op` 落库）——直接从在手数据吐**完整 MessageItemData 核心字段**，前端直接渲染，零回读。
+///
+/// **HX-C005 守约（SPEC §2 热路径回读铁律 line68-75）**：数据**全部来自在手 `PostFields`**——不发
+/// Storage 读 Effect、不 `serde_json::to_string(整条 wire 对象)`。`PostFields` 是 parser 阶段一次解析的
+/// owned typed 视图（落库所需），本函数仅把它**重组**成前端键名，零额外解析、零回读、零热路径再分配大对象。
+///
+/// **字段集**（真源 `type.d.ts MessageItemData` ∩ 在手 `PostFields`）：
+/// - 信号锚 `channel_id`/`event_seq`/`msg_id`（snake，保留——前端定位/对账/兼容既有 dispatcher）
+/// - 渲染核 `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`readBits`/`viewers`
+///   （camelCase，对齐前端 MessageItemData 消费契约）；`updateAt` 取 `createAt`（在手默认，首屏 == createAt，
+///   权威 updateAt 由后续 edit 帧/DB 列覆盖）。
+/// - **不在 `PostFields` 内**的字段（`replyId`/`threadId`/`userSnapshot`/`sendStatus`/`expediteMap`…）
+///   **不吐**——它们不在手，吐了须扩 `PostFields`（碰 parser 热路径）或回读 DB（违铁律）；前端这些字段
+///   走 DB 列权威（其值已由 send/sync 落库路径写入 message 表，前端按 msg_id 仅在需要这些少见字段时回读）。
+///
+/// `props` 在 `PostFields` 是 JSON 字符串（落库形态）→ 这里 parse 回 JSON 对象（前端 `props:any` 期望对象），
+/// 非法/空串降级 `{}`（边界零信任，不 panic）。`viewers` 是 owned `Vec<String>` 直出数组。
+fn message_item_data(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> serde_json::Value {
+    use serde_json::json;
+    // props 落库是 JSON 字符串 → parse 回对象（前端 props:any 期望对象）；空/非法降级 {}（零信任不 panic）。
+    let props: serde_json::Value = if fields.props.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(&fields.props).unwrap_or_else(|_| json!({}))
+    };
+    json!({
+        // 信号锚（snake，前端定位/对账/兼容）。
+        "channel_id": channel_id.as_str(),
+        "event_seq": event_seq,
+        "msg_id": msg_id,
+        // 渲染核（camelCase，对齐 MessageItemData）——全部来自在手 PostFields，零回读。
+        "temporaryId": fields.temporary_id.as_str(),
+        "channelId": channel_id.as_str(),
+        "userId": fields.user_id.as_str(),
+        "type": fields.msg_type.as_str(),
+        "message": fields.message.as_str(),
+        "props": props,
+        "createAt": fields.create_at,
+        "updateAt": fields.create_at,
+        "readBits": fields.read_bits.as_str(),
+        "viewers": fields.viewers,
+    })
+}
+
 /// 序列化 ImDomainEvent 为 DomainEventBytes（Emit 的载荷）
 ///
 /// 此处是 im:__bus__ event 名的唯一生成点。
 /// helix-core / helix-tauri 只接收已序列化的字节，不知道 "im:" 前缀。
-pub fn emit_post_received(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+///
+/// **spec06 FixB**：携完整可渲染 MessageItemData（`message_item_data`，数据在手零回读），前端直接渲染。
+pub fn emit_post_received(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> Effect {
     use serde_json::json;
-    // 信封对齐同批 post:updated/deleted/read（D2 收敛）+ 现网真源 cses post.rs:1252
-    // {channelId, eventSeq, msgId(字符串)}：msg_id 是 26 字符 Id26 字符串，非 event_seq 数字。
     let payload = json!({
         "event": "im:post:received",
-        "data": {
-            "channel_id": channel_id.as_str(),
-            "event_seq": event_seq,
-            "msg_id": msg_id,
-        }
+        "data": message_item_data(channel_id, event_seq, msg_id, fields),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -389,6 +444,10 @@ pub fn emit_channel_increment(channel_id: ChannelId, raw: &[u8]) -> Effect {
 }
 
 /// B-rest：发送 im:channel:update 事件（设计文档 §3 Phase 4，子 topic 批次结束）。
+///
+/// **spec06 FixB：channel-row 信号，故意留瘦**（仅 `channel_id`）。完整 DialogItem 是累计 DB 行非在手，
+/// 且本事件由 `increment_channel_end`（**批次结束**，debounced）触发 → 前端按 channel_id 回读 dialogList
+/// 一次刷 badge = **低频**回读（非每消息热路径），符合 SPEC §2 边界（line87-89）。详见 `emit_channel_update_by_post`。
 pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
     use serde_json::json;
     let payload = json!({
@@ -423,15 +482,18 @@ pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
 /// `emit_channel_read_echo` / `sync_mutation_emits`，真源 post.rs:1428）——A5 修复：两路径
 /// 按现网区分，不再统一命名（守 spec §0.3/§S9 前端零改动契约）。
 /// 服务端权威 read_bits 已经 C2 落库单调覆盖；本事件让前端刷新该 msg 的已读态 UI。
-pub fn emit_post_read(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+///
+/// **spec06 FixB**：携完整可渲染行（含权威 `readBits`，数据在手零回读）——前端直接更新该 msg 已读态 UI。
+pub fn emit_post_read(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:post:read",
-        "data": {
-            "channel_id": channel_id.as_str(),
-            "event_seq": event_seq,
-            "msg_id": msg_id,
-        }
+        "data": message_item_data(channel_id, event_seq, msg_id, fields),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -448,15 +510,18 @@ pub fn emit_post_read(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Ef
 /// **sync 应用**的 type6 read 发 `im:channel:read_echo`（post.rs:1428）。此前 helix
 /// `sync_mutation_emits` 统一发 `im:post:read`（违 spec §0.3/§S9 前端零改动契约——前端 read_echo
 /// 订阅分支收不到）。本工厂供 sync 应用路径专用，与在线路径分流。
-pub fn emit_channel_read_echo(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+///
+/// **spec06 FixB**：携完整可渲染行（含权威 `readBits`，数据在手零回读）。
+pub fn emit_channel_read_echo(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:channel:read_echo",
-        "data": {
-            "channel_id": channel_id.as_str(),
-            "event_seq": event_seq,
-            "msg_id": msg_id,
-        }
+        "data": message_item_data(channel_id, event_seq, msg_id, fields),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -483,15 +548,18 @@ pub fn emit_reconnect_requested() -> Effect {
 }
 
 /// C3：type=2 编辑 → `im:post:updated`（真源 post.rs:1337，**仅可见时** emit；phantom noop）。
-pub fn emit_post_updated(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+///
+/// **spec06 FixB**：携完整可渲染行（编辑后的新 `message`/`props`，数据在手零回读）——前端直接替换该行。
+pub fn emit_post_updated(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:post:updated",
-        "data": {
-            "channel_id": channel_id.as_str(),
-            "event_seq": event_seq,
-            "msg_id": msg_id,
-        }
+        "data": message_item_data(channel_id, event_seq, msg_id, fields),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -532,15 +600,20 @@ pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value)
 }
 
 /// C3：type=3 撤回 → `im:post:deleted`（真源 post.rs:1402，无须 body，有 msgId 即 emit）。
-pub fn emit_post_deleted(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+///
+/// **spec06 FixB**：与同族 message-row 信号同形（携完整 MessageItemData 键集，数据在手零回读）。撤回路径
+/// `PostFields` 通常稀疏（真源「无须 body」）→ fat 字段多为空串/默认值，前端仍按 `msg_id` 定位标删，无碍；
+/// 同形保证前端 dispatcher 对 post:* 族用统一渲染契约（不为撤回单独写「瘦」分支）。
+pub fn emit_post_deleted(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:post:deleted",
-        "data": {
-            "channel_id": channel_id.as_str(),
-            "event_seq": event_seq,
-            "msg_id": msg_id,
-        }
+        "data": message_item_data(channel_id, event_seq, msg_id, fields),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -556,6 +629,13 @@ pub fn emit_post_deleted(channel_id: ChannelId, event_seq: u64, msg_id: &str) ->
 /// 真源走 `update_channel_from_post`（内含 sender 豁免：msg_user_id != auth_id 才 +1）后
 /// emit `im:channel:update-by-post` 让 +N 落到前端 badge。helix-core 无 userId（不认识身份），
 /// sender 豁免归 driver/前端裁决——本事件仅透传 channel_id + msg_id，前端按 auth 决定是否 +N。
+///
+/// **spec06 FixB：本工厂是 channel-row 信号，**故意留瘦**（三键）**。完整 DialogItem（unreadCount/
+/// lastPost/mentionCount… ~50 列）是**跨多帧累计的 DB 行**，emit 时**不在手**（它是 channel 表 patch 的
+/// *结果*，非单事件载荷）。fat 化必须 server 端回读 channel 行——而 type1 是**每事件命中的热路径**，
+/// 违 SPEC §2 热路径回读铁律（line68-75：每事件回读 = 性能问题没消除只换地方 + 碰 HX-C005）。
+/// 故留瘦：前端按 `channel_id` 在 **batch 结束**（debounced，非每消息）回读一次 dialogList 行刷 badge。
+/// 判据（SPEC §2 边界 line87-89）：该事件渲染需「累计 DB 行」且在热路径 → 留瘦 + 前端低频回读。
 pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
     use serde_json::json;
     let payload = json!({
@@ -588,12 +668,19 @@ pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id
 ///
 /// 复杂度：每事件 O(1)（HashMap 查 + 1-2 个 Emit 构造），与落库批同遍历语义但分离关注点
 /// （落库 = 状态变更；emit = UI 通知）。两者 phantom 判定一致：可见才动 UI（HX-C008）。
+///
+/// **spec06 FixB**：message-row 信号（received/updated/deleted/read_echo）携完整可渲染行——内容取
+/// **在手的 `messages` map**（与 `batch_upsert_events_with_messages` 落库用同一份 `PostFields`，零额外读）。
+/// type1/type2/type6 命中 map → 用 `messages[msg_id]` fat emit；type3 撤回真源「无须 body」→ 用
+/// `PostFields::default()`（稀疏 fat，前端按 msg_id 标删）。channel-row 信号 `update_by_post` 留瘦（见其工厂注释）。
 pub fn sync_mutation_emits(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
 ) -> Vec<Effect> {
     use crate::sync_session::EventKind;
 
+    // 撤回路径无 body（真源 1402）→ 稀疏默认行（零分配单例引用语义：每事件复用同一栈值）。
+    let empty_fields = crate::sync_session::PostFields::default();
     let mut emits = Vec::new();
     for ev in events {
         let Some(msg_id) = ev.msg_id.as_deref() else {
@@ -601,28 +688,39 @@ pub fn sync_mutation_emits(
             continue;
         };
         match ev.kind {
-            // type1：可见（命中 map）才 emit received + channel update-by-post（离线未读 +N）。
+            // type1：可见（命中 map）才 emit received（fat，用 map 在手内容）+ channel update-by-post（留瘦）。
             EventKind::PostUpsert => {
-                if messages.contains_key(msg_id) {
-                    emits.push(emit_post_received(ev.channel_id, ev.seq.0, msg_id));
+                if let Some(fields) = messages.get(msg_id) {
+                    emits.push(emit_post_received(ev.channel_id, ev.seq.0, msg_id, fields));
                     emits.push(emit_channel_update_by_post(ev.channel_id, ev.seq.0, msg_id));
                 }
                 // else phantom → 不 emit（UI 不渲染，真源 1270-1280）。
             }
-            // type2：可见才 emit updated（phantom noop，真源 1346）。
+            // type2：可见才 emit updated（fat，用 map 在手编辑后内容；phantom noop，真源 1346）。
             EventKind::PostEdit => {
-                if messages.contains_key(msg_id) {
-                    emits.push(emit_post_updated(ev.channel_id, ev.seq.0, msg_id));
+                if let Some(fields) = messages.get(msg_id) {
+                    emits.push(emit_post_updated(ev.channel_id, ev.seq.0, msg_id, fields));
                 }
             }
-            // type3：无须 body，有 msgId 即 emit deleted（真源 1367/1402）。
+            // type3：无须 body，有 msgId 即 emit deleted（真源 1367/1402）；fat 用稀疏默认行（前端按 msgId 标删）。
             EventKind::PostRevoke => {
-                emits.push(emit_post_deleted(ev.channel_id, ev.seq.0, msg_id));
+                emits.push(emit_post_deleted(
+                    ev.channel_id,
+                    ev.seq.0,
+                    msg_id,
+                    &empty_fields,
+                ));
             }
-            // type6：无须 body，恒 emit read_echo（A5：sync 应用路径发 im:channel:read_echo，
-            // 真源 1428；与在线 post_read 的 im:post:read 分流）。
+            // type6：恒 emit read_echo（A5：sync 应用路径发 im:channel:read_echo，真源 1428；与在线
+            // post_read 的 im:post:read 分流）；fat 用 map 在手内容（含权威 read_bits），map 无则稀疏默认行。
             EventKind::PostRead => {
-                emits.push(emit_channel_read_echo(ev.channel_id, ev.seq.0, msg_id));
+                let fields = messages.get(msg_id).unwrap_or(&empty_fields);
+                emits.push(emit_channel_read_echo(
+                    ev.channel_id,
+                    ev.seq.0,
+                    msg_id,
+                    fields,
+                ));
             }
             // 前向兼容：未知类型不 emit（cursor 仍照推）。
             EventKind::Other(_) => {}

@@ -22,7 +22,7 @@ fail=0
 WHITELIST=(
   "crates/helix-im/src/module.rs 1318"
   "crates/helix-im/src/ws/registry.rs 783"
-  "crates/helix-im/src/acl/to_effect.rs 763"
+  "crates/helix-im/src/acl/to_effect.rs 861"
   "crates/helix-driver-ffi/src/api.rs 733"
   "crates/helix-im/src/channel.rs 579"
   "crates/helix-driver-host/src/storage.rs 578"

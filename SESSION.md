@@ -6,6 +6,10 @@
 
 ## §0 终态记录
 
+🎯 EXPECT load-older-context：新增 helix outbound/投影命令 `im_load_older_context` 解 D3 上拉翻页缺口（NEED_HELIX_FIX_PULL_REFRESH）。新建单文件 `crates/helix-im/src/older_context.rs`（纯逻辑 ≤300 行）+ `state.rs` 加 `CorrelationContext::LoadOlderContext{...}` 变体 + `module.rs` 接 dispatch（is_query/handle_query_command 风格）+ PortReply 多轮编排（每轮 postContext reply → 严格更早过滤 + temporary_id 去重 + pivot 推进，≤8 轮，凑够 target 或耗尽 → emit）+ `query.rs::is_query` 认领。emit `im:messages:older_loaded{channelId, messages[], hasMore}`（透传 wire Post camelCase createAt/temporaryId/id，不二次序列化业务数据 HX-C005）。可证伪断言：① 只动 older_context.rs(新) + state.rs + module.rs + query.rs + projection-schema.md，**不动 helix-core**（git diff -- crates/helix-core/ 空，HX-C001 守）；② `cargo test -p helix-im` 全绿；③ 多轮编排在 corr_map 续接（每轮单 Effect::Http，sans-IO 不阻塞）；④ TDD 先写 older_context_test 性质（严格更早过滤/去重/pivot/hasMore/clamp）。@2026-06-23 +0800 | 赌注 中 | 可逆 是
+
+🎯 EXPECT vote-score-5：vote_score.rs 补 5 个第二网关写命令（im_vote_do/im_vote_close/im_average_attend/im_average_close/im_average_publish），全 Gateway::Default + is_read=false；只动 crates/helix-im/src/outbound/vote_score.rs 单文件（distributed_slice 注册 + TDD 同文件）；不破 HX-C001（helix-core git diff 空）；`cargo test -p helix-im` 全绿；publish 走整 args 透传（字段多同 createVote），其余 4 走显式 body 组装 + require_str 零信任。@2026-06-23 +0800 | 赌注 低 | 可逆 是
+
 ⚠️ PARTIAL Phase B cses 纯 helix 全量替换（夜间自主）@2026-06-23 19:50 +0800 | cses `feat/helix-takeover-integ` 8cba55e4..e2f29b22 | **SHIPPABLE 判定:代码完成 + 连接层 e2e 验通 + 回归已修;数据路径 e2e 待真账号验证** | 分支隔离·main 未动
   ↳ **✅ 8/8 域全转纯纯 helix**（`if(isHelix())else{legacy}` 双写真删除,对抗 review 确认非残留）：D1 channel回读(1ec6ad40) · D2 posts写+announcement(776210f6) · D3 posts读(81eec676) · D4 channel写+permission/messageTop(86789ef0) · D5 user-misc(bd5232a5) · D6 bot-agent(d8e24122) · D7 连接控制(96aa77b7) · D8 vote(48928ab3) + helix vote gateway 方案A(helix main `5240d72`,CI 绿)。
   ↳ **✅ 真 e2e 连接层验通**：helix WS connect + hello 握手 + connectionId + 8 身份头 + ping/pong(serverName XPA-12) + emit im:connection:established/im:channels:loaded **全成功零 401**。证 helix 模式真连上后端。cargo build --features im_engine_helix PASS(2m01s) · 7 helix 域测试 65/65 绿 · message-v3 209 断言全过。

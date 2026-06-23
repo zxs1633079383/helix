@@ -70,6 +70,10 @@ impl ChannelId {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+    /// 零拷贝取 26 字节定长数组（allHash FNV 流式喂入等场景，零分配）。
+    pub fn as_bytes(&self) -> &[u8; 26] {
+        self.0.as_bytes()
+    }
     /// 派生确定性 u64（timer id 偏移等数值场景）。
     pub fn hash_u64(&self) -> u64 {
         self.0.hash_u64()

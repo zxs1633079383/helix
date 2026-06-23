@@ -894,9 +894,11 @@ impl ImModule {
         // 1. ping timer（self-arm 周期心跳）
         if self.state.ping_timer == Some(timer_id) {
             if self.state.conn == ConnState::Connected {
-                // ping WS 帧带单调 seq（Go websocket_router 拒 seq≤0）。
+                // ping WS 帧带单调 seq（Go websocket_router 拒 seq≤0）+ UC-4.4 心跳 gap 补偿
+                // piggyback（cursors/allHash）。cursor 快照确定性升序（HX-C010），allHash 在 ping_frame 内算。
                 let seq = self.state.next_client_seq();
-                out.push(crate::acl::to_effect::ping_frame(seq));
+                let roots = crate::sync_increment::heartbeat_root_cursors(&self.state);
+                out.push(crate::acl::to_effect::ping_frame(seq, &roots));
             }
             // 重新 arm（self-arm 实现无 tick() 的周期心跳）
             let new_timer = self.alloc_timer();

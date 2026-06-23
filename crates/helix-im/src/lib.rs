@@ -32,6 +32,7 @@ pub mod read_relay;
 pub mod schema;
 pub mod send_reconcile;
 pub mod state;
+pub mod sync_increment;
 pub mod sync_scheduler;
 pub mod sync_session;
 pub mod todo;

@@ -31,4 +31,12 @@ impl<'a> ImWsContext<'a> {
     pub(crate) fn alloc_corr(&mut self) -> Correlation {
         (self.alloc_corr)()
     }
+
+    /// 拆借：同时拿到 `&mut ImState` 与 corr 分配器（split borrow），供 SyncScheduler
+    /// `enqueue_and_drain` 用——避免 `|| ctx.alloc_corr()` 闭包整借 ctx 与 `ctx.state` 冲突。
+    pub(crate) fn split_state_alloc(
+        &mut self,
+    ) -> (&mut ImState, &mut (dyn FnMut() -> Correlation + 'a)) {
+        (self.state, self.alloc_corr)
+    }
 }

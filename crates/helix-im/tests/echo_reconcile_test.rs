@@ -30,17 +30,21 @@ fn sid(n: u64) -> String {
     server_id(n).as_str().to_string()
 }
 
-/// 构造 echo（posted 回声）帧：真 Go 信封 `{action:"posted", data:{...post...}}`。
+/// 构造 echo 回声帧：真 Go 信封 `{action:"post", data:{...post...}}`。
+///
+/// ⚠️ P4 dead-action 清理后 echo 真路径 = `action=="post"`（WebsocketEventPost），**非** `posted`
+/// （`posted` 已下线为 dead-action no-op，见 handlers/posted.rs）。`channelId`(camel) 对齐 post.rs
+/// parse_post_frame 探查口径。
 fn echo_frame(channel_id: u64, seq: u64, temporary_id: &str, server_id: u64) -> Tick {
     use helix_core::tick::InboundBytes;
     use serde_json::json;
     let payload = json!({
         "v": 1,
-        "action": "posted",
+        "action": "post",
         "data": {
             "id": sid(server_id),
             "temporary_id": temporary_id,
-            "channel_id": cid(channel_id),
+            "channelId": cid(channel_id),
             "event_seq": seq,
             "message": "hello",
         },
@@ -81,14 +85,22 @@ fn echo_reconciles_pending_send() {
         "before echo status is Local"
     );
 
-    // 2. echo 帧到达（带 temporary_id=tmp_1，server_id=42，seq=7）
-    let echo_effects = h.step(echo_frame(1, 7, "tmp_1", 42), 1100);
+    // 2. echo 帧到达（带 temporary_id=tmp_1，server_id=42，seq=1）。
+    //    post 真路径 cursor 走 channel gate（严格 +1，非旧 posted 的 MAX-jump）：channel 种子
+    //    cursor=0 → echo seq=1 = cursor+1 连续 → 立即 apply 推 cursor→1（HX-C008/§S6 gate 语义）。
+    let echo_effects = h.step(echo_frame(1, 1, "tmp_1", 42), 1100);
 
-    // 3. PendingSend 推进到 Sent
+    // 3. post echo 真路径对账后**移除** PendingSend（post.rs:245，与旧 posted 保留态不同）：
+    //    reconcile 内部已推 Sent + 吐 Persist/CancelTimer，落定后 remove 防 corr_map 泄漏。
     assert_eq!(
         h.module.pending_send_status("tmp_1"),
-        Some(SendStatus::Sent),
-        "echo reconcile should advance PendingSend to Sent"
+        None,
+        "post echo 对账落定后移除 PendingSend（真路径 post.rs，非旧 posted 保留态）"
+    );
+    assert_eq!(
+        h.module.pending_send_count(),
+        0,
+        "对账后无残留 pending send"
     );
 
     // 4. 应产出 Persist（message 表覆写）+ CancelTimer + advance_cursor 的 PersistFire
@@ -107,12 +119,12 @@ fn echo_reconciles_pending_send() {
         echo_effects
     );
 
-    // 5. cursor 独立推进到 echo 帧 seq（HX-C008：与消息可见性解耦）
+    // 5. cursor 经 gate apply 推进到 echo 帧 seq=1（连续，HX-C008：与消息可见性解耦）
     let cid1 = channel_id(1);
     assert_eq!(
         h.module.cursor_for(cid1),
-        Some(7),
-        "echo should advance cursor to event_seq=7"
+        Some(1),
+        "echo should advance cursor to event_seq=1 (contiguous gate apply)"
     );
 }
 
@@ -174,24 +186,25 @@ fn echo_before_timeout_keeps_sent_idempotent() {
     let send_effects = h.step(send_message_cmd(1, "tmp_2", "hello"), 1000);
     let timeout_timer = first_schedule_timer(&send_effects);
 
-    // echo 先到 → Sent
+    // echo 先到 → 对账落定后移除 pending（post 真路径，post.rs:245）。
     let _ = h.step(echo_frame(1, 3, "tmp_2", 9), 1100);
     assert_eq!(
         h.module.pending_send_status("tmp_2"),
-        Some(SendStatus::Sent)
+        None,
+        "post echo 对账后移除 pending（CancelTimer 已撤 15s timer）"
     );
 
-    // 迟到的 15s timer fire → 幂等忽略（已 Sent，不产出 PersistFire 标 unsend）
+    // 迟到的 15s timer fire → 幂等忽略（pending 已移除 + timer 已 Cancel，不产出 PersistFire 标 unsend）。
     let late = h.step(timer_tick(timeout_timer), 16_001);
     assert!(
         !late.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "timer after echo-Sent should be idempotent (no unsend), got: {:?}",
+        "timer after echo-reconcile should be idempotent (no unsend), got: {:?}",
         late
     );
     assert_eq!(
         h.module.pending_send_status("tmp_2"),
-        Some(SendStatus::Sent),
-        "status stays Sent after late timer"
+        None,
+        "pending stays removed after late timer (无复活)"
     );
 }
 

@@ -187,19 +187,14 @@ pub enum ConnState {
 ///
 /// ## 载体不变量（INVARIANT，承重前提，勿破）
 ///
-/// **所有写入 `corr_map` 的 `Correlation` 均出自同一单调分配器**
-/// （`ImModule::alloc_corr` / `alloc_corr_internal` 共用同一 `self.next_corr`，从 1 单调递增），
-/// 因此跨类别 corr 全局唯一、永不碰撞。单表合并（4 张分散 HashMap + scan 的 `Option` 并入
-/// 一张表）的正确性完全依赖这一点：若将来任一注册路径改用独立计数器、或由 host 注入可复用
-/// 的 corr 值，则不同类别的 corr 可能撞同一 key → 误路由（scan corr 撞 send corr 等）。
-/// 新增任何 corr 来源前，必须确认其仍由该单调分配器产出。
-///
-/// HX-C005 热路径：变体字段全部 owned/Copy（`ChannelId` Copy / `TemporaryId` 是已分配的
-/// String，移交所有权零额外分配），无 `&'a` 生命周期（HX-C002，要进 HashMap 跨 step 存活）。
+/// **所有写入 `corr_map` 的 `Correlation` 均出自同一单调分配器**（`ImModule::alloc_corr` /
+/// `alloc_corr_internal` 共用 `self.next_corr`，从 1 单调递增）→ 跨类别 corr 全局唯一永不碰撞。
+/// 单表合并（4 张 HashMap + scan `Option` 并一表）的正确性完全依赖此：若任一路径改用独立计数器或
+/// host 注入可复用 corr 值，则不同类别 corr 可能撞同一 key → 误路由。新增 corr 来源前必须确认仍由
+/// 该分配器产出。HX-C005：变体字段全 owned/Copy（无 `&'a`，要进 HashMap 跨 step 存活，HX-C002）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorrelationContext {
-    /// on_start `Scan(_helix_monotonic)` 的回报：载入 per-channel cursor + proactive resync。
-    /// （取代旧 `scan_corr: Option<Correlation>`——单值语义并入统一表，靠 corr 唯一性区分。）
+    /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
 
     /// channel sync **Persist** 回报：`channel.on_persist_ok(corr)` 推进 cursor。
@@ -212,13 +207,26 @@ pub enum CorrelationContext {
         wants_continuation: bool,
     },
 
-    /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`。
-    /// （取代旧 `corr_to_send`。）
+    /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
     OptimisticSend { temporary_id: TemporaryId },
 
-    /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析。
-    /// （取代旧 `corr_to_sync`。）
+    /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
     SyncPull { channel_id: ChannelId },
+
+    /// P6 投影查询 **Get** 回报：`im_query_messages_by_channel` 的 `Get(message WHERE channel_id)`
+    /// 回报 → 把行 emit 成 `im:messages:query_result` 投影（data 数组 → driver `{items:[]}` 包装）。
+    MessageQuery { channel_id: ChannelId },
+
+    /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
+    ///
+    /// 读命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声**，
+    /// HTTP **响应体本身就是数据**——故读族（且仅读族）alloc corr 时注册本上下文，
+    /// `handle_port_reply` 据此把响应体透传 emit 成 `im:read:result{req_id, body}`（前端 bridge 等
+    /// 该 req_id resolve 后直接渲染）。写命令不注册（fire-and-forget，数据走 WS 回声）。
+    ///
+    /// `req_id` 是前端 bridge 注入的请求标识（owned String，进 corr_map 跨 step 存活，HX-C002）；
+    /// 与 corr 解耦（前端不见 core 内部 corr）。透传不在 helix 改业务数据（后端权威，HX-C005）。
+    OutboundReadReply { req_id: String },
 }
 
 // ─── ImState ────────────────────────────────────────────────────────────────
@@ -270,14 +278,10 @@ pub struct ImState {
     /// 与 `increment_fetched` 同生命周期（hello 起点 clear）。
     pub need_sync_skip: HashSet<ChannelId>,
 
-    /// B2 冷启动自愈：本批次每个 increment_channel 帧带来的服务端权威水位
-    /// （`inc.last_event_seq`，单调 max 累计）。
-    ///
-    /// 真源 cses-client `heal_incomplete_backfill_once`（post.rs:666-715）：冷启动时
-    /// 「cursor 已推到 maxSeq 但本地只灌了首屏」的卡死 channel，靠「本地落后水位」识别后
-    /// 补发 sync 全量回填。helix sans-IO 核无直接读本地消息数的能力，故等价信号为
-    /// 「local cursor < 服务端 increment 水位」——记录于此。
-    /// 与 `increment_fetched` 同生命周期（hello 起点 clear），防跨会话残留误判。
+    /// B2 冷启动自愈：本批次每 increment_channel 帧带来的服务端权威水位（`inc.last_event_seq`，
+    /// 单调 max 累计）。真源 `heal_incomplete_backfill_once`（post.rs:666-715）：冷启动「cursor 已推
+    /// maxSeq 但本地只灌首屏」卡死 channel 靠「本地落后水位」识别补发全量；sans-IO 核等价信号 =
+    /// 「local cursor < 服务端水位」。与 `increment_fetched` 同生命周期（hello clear），防跨会话误判。
     pub increment_target: HashMap<ChannelId, Seq>,
 
     /// B2 冷启动自愈：本批次是否已跑过一次 heal（once-only 守卫）。
@@ -290,6 +294,10 @@ pub struct ImState {
     /// 出站 WS 消息单调序号（client→server）。现网 Go `websocket_router.go:34 if r.Seq <= 0`
     /// 拒绝 seq≤0（"Invalid sequence"）→ 关连接。每条出站 WS 帧（ping 等）必带 `seq = ++client_seq`。
     pub client_seq: u64,
+
+    /// B4 全局 sync 并发窗口（VecDeque + 在途上限 K）：解 257 channel 重连风暴。
+    /// 与 hello 会话同生命周期（`reset_increment_batch` 同步 reset）。详见 `sync_scheduler.rs`。
+    pub sync_scheduler: crate::sync_scheduler::SyncScheduler,
 }
 
 impl ImState {
@@ -315,6 +323,7 @@ impl ImState {
             increment_target: HashMap::new(),
             backfill_healed: false,
             client_seq: 0,
+            sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
         }
     }
 
@@ -325,6 +334,8 @@ impl ImState {
         self.need_sync_skip.clear();
         self.increment_target.clear();
         self.backfill_healed = false;
+        // B4：会话边界一并清 sync 调度窗口（防跨会话残留 pending / 悬挂在途计数）。
+        self.sync_scheduler.reset();
     }
 }
 

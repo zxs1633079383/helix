@@ -120,5 +120,30 @@ POST /api/cses/channel/close
 | member change | channel/member/change | ❓ 缺（只有 member/leave）| 核实是否新增 im_channel_member_change(join/leave) |
 | revoke | posts/revoke | ✅ 一致 | — |
 | close | channel/close | ✅ 一致 | — |
+| createPosts | posts/createPosts | ✅ 一致（camelCase `{posts,channelIds}`）| — |
 
 > 通用头待补：`appVersion` / `osVersion` / `device=Desktop` / `deviceId` 形态核对（host-cli main.rs）。
+
+---
+
+## 附录 A：createPosts（批量转发）—— **非真抓包，三方证据链定论**（F2 / gap-2，2026-06-23）
+
+> 用户记忆中「曾有含 createPosts 的 curl 集合」——**本文件上方 6 curl 实抓集合不含 createPosts**（已逐条确认）。
+> 全仓（cses-client / helix / mattermost）穷举搜索 `createPosts` + `curl `：**无任何 live-capture curl body** 留存。
+> 命中的是测试计划/回归框架文档（`mattermost/test-plan/无公司用户回归测试用例.md` PA-010、
+> `mattermost/docs/superpowers/specs/2026-04-08-regression-test-framework-design.md`），只列端点路径不含 body
+> ——这两份很可能就是用户记忆的「集合」，但它们是**用例清单**非抓包 curl。
+>
+> 虽无真抓包，端点路径 + body casing 由**三方源码证据闭环确证**（强度等价抓包，因前端 HTTP body 逐字透传）：
+>
+> | 证据腿 | 出处 | 结论 |
+> |---|---|---|
+> | ① 前端调用（= 上线真实 wire） | `message.service.ts:803` `post$('/posts/createPosts', params)` 逐字透传 params；两 caller 都构造 camelCase：`chat-content-base.component.ts:967 {posts,channelIds}` + `messageContainerShared.service.ts:245 {posts:[post],channelIds:[channelId]}` | 端点 `/posts/createPosts`（**双段均复数**）；body **camelCase** `{posts,channelIds}` |
+> | ② 后端路由 + handler | `csesapi/api.go:169` `BaseRoutes.Posts = APIRoot.PathPrefix("/posts").Subrouter()` + `posts.go:19` `Posts.Handle("/createPosts", createPosts)` → 全路径 `/posts/createPosts`；`posts.go:221 createPosts` 解构体 `{Posts *entity.Posts; ChannelIds []string}` **无 json tag** → Go case-insensitive，camelCase 实发可解 | handler 名 **createPosts（复数）**；端点 `/posts/createPosts`；PascalCase 仅 Go 字段名，从未上线 |
+> | ③ 前端用例 / 接口全景 / 对接契约 | `00-接口全景.md:18` `sendRelayMessages POST /posts/createPosts`；`6--client-usecases.md:92` body `{channelIds,posts}`；`CSES_CLIENT_对接All-case实践.md:89` | 三处独立佐证同端点 |
+>
+> **定论**：端点全路径 `/posts/createPosts`（**post 后缀 s · createPosts 后缀 s · 双段复数**）；wire body **camelCase** `{"posts":[<Post>...],"channelIds":[<id>...]}`。
+>
+> **helix 现状 ✅ 一致**：`outbound/posts_relay.rs::CreatePostsCommand` build → endpoint `"posts/createPosts"` + camelCase `{"posts","channelIds"}`，`im_create_posts`（registry 88）。与三方证据零偏差，**无需改码**；`cp_create_posts_test.rs` 7 用例断言此 casing（含 Go 解构体 case-insensitive 折叠比对、PascalCase 不泄漏）。
+>
+> 历史 D3 挂起项（02/04/05 文档「createPosts PascalCase 待真抓包」）**就此收口**：PascalCase 是误读（源于 Go 无 tag 字段名 = PascalCase），真实上线 wire = 前端构造的 camelCase。

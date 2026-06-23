@@ -81,13 +81,31 @@ impl Harness {
     /// 创建 Harness，channel_ids 列表自动预注册（初始 cursor=0）
     #[allow(dead_code)]
     pub fn new(channel_ids: &[u64]) -> Self {
+        Self::new_with_identity(channel_ids, "", "", "", "", "")
+    }
+
+    /// 带注入身份的 Harness（P1 send userSnapshot 断言用）。
+    ///
+    /// 身份字段对应 ImConfig：auth_user_id / company_id / user_name / org_name / dept_name。
+    #[allow(dead_code, clippy::too_many_arguments)]
+    pub fn new_with_identity(
+        channel_ids: &[u64],
+        auth_user_id: &str,
+        company_id: &str,
+        user_name: &str,
+        org_name: &str,
+        dept_name: &str,
+    ) -> Self {
         let config = ImConfig {
             ws_url: "ws://test".to_string(),
             api_base_url: "http://test".to_string(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
-            auth_user_id: String::new(),
-            company_id: String::new(),
+            auth_user_id: auth_user_id.to_string(),
+            company_id: company_id.to_string(),
+            user_name: user_name.to_string(),
+            org_name: org_name.to_string(),
+            dept_name: dept_name.to_string(),
         };
         let mut module = ImModule::new(config);
         for &id in channel_ids {
@@ -98,6 +116,27 @@ impl Harness {
             sink: EffectSink::new(),
             effect_log: Vec::new(),
         }
+    }
+
+    /// 取本批次最后一条 `Effect::Http` 的 body（解析为 JSON）。P1 send body 断言用。
+    #[allow(dead_code)]
+    pub fn last_http_body(&self) -> Option<serde_json::Value> {
+        self.sink.as_slice().iter().rev().find_map(|e| match e {
+            Effect::Http { req, .. } => req
+                .body
+                .as_ref()
+                .and_then(|b| serde_json::from_slice(b.as_ref()).ok()),
+            _ => None,
+        })
+    }
+
+    /// 取本批次最后一条 `Effect::Http` 的 body 原始字节（casing grep 断言用：直接搜 raw 文本）。
+    #[allow(dead_code)]
+    pub fn last_http_body_raw(&self) -> Option<Vec<u8>> {
+        self.sink.as_slice().iter().rev().find_map(|e| match e {
+            Effect::Http { req, .. } => req.body.as_ref().map(|b| b.as_ref().to_vec()),
+            _ => None,
+        })
     }
 
     /// 执行 on_start，收集 Effects
@@ -190,6 +229,13 @@ pub fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick
         "temporary_id": temporary_id,
         "text": text
     });
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    Tick::Command(AppCommand::new("im_send_message", bytes))
+}
+
+/// 构造 im_send_message 命令 Tick，载荷 = 任意 JSON（P1 viewers/replied/props/empty 用例）。
+#[allow(dead_code)]
+pub fn send_message_cmd_json(payload: serde_json::Value) -> Tick {
     let bytes = serde_json::to_vec(&payload).unwrap();
     Tick::Command(AppCommand::new("im_send_message", bytes))
 }

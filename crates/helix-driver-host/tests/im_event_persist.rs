@@ -77,6 +77,8 @@ async fn scan_message_rows(storage: &HostStorage) -> Vec<helix_core::effect::Row
         .scan(ScanSpec {
             table: "message",
             limit: None,
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan message table")

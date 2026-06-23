@@ -131,20 +131,6 @@ mod tests {
         server_id(n).as_str().to_string()
     }
 
-    fn posted_echo_frame(channel_id: ChannelId, seq: u64, temporary_id: &str) -> WsFrame {
-        frame_from_json(serde_json::json!({
-            "v": 1,
-            "action": "posted",
-            "data": {
-                "id": server_id_string(42),
-                "temporary_id": temporary_id,
-                "channel_id": channel_id.as_str(),
-                "event_seq": seq,
-                "message": "hello"
-            }
-        }))
-    }
-
     fn emit_body(effect: &Effect) -> Option<String> {
         match effect {
             Effect::Emit { event } => Some(String::from_utf8_lossy(event.0.as_ref()).into_owned()),
@@ -281,211 +267,63 @@ mod tests {
         }
     }
 
+    // ─── P4 dead-action（posted / post_urgent / post_edited）graceful no-op ─────
+    // P4 下线 `posted` reconcile（echo 真路径只走 `post`，见 handlers/posted.rs 头注）。
+    // 这三个遗留 action 现注册为 no-op：经 registry 路由不冒 UnsupportedWsAction，零 Effect。
     #[test]
-    fn dispatch_ws_posted_echo_reconciles_pending_send_and_advances_cursor() {
+    fn dispatch_ws_dead_actions_route_as_noop() {
         let mut state = ImState::new();
         let channel_id = channel_id(21);
         state
             .channels
             .insert(channel_id, Channel::new(channel_id, 3));
-        state.pending_sends.insert(
-            TemporaryId("tmp-registry".to_string()),
-            PendingSend::new(
-                TemporaryId("tmp-registry".to_string()),
-                helix_core::TimerId::from_raw(44),
-            ),
-        );
-
-        let mut next_corr = 501;
-        let mut alloc_corr = || {
-            let corr = helix_core::Correlation::from_raw(next_corr);
-            next_corr += 1;
-            corr
-        };
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let frame = posted_echo_frame(channel_id, 9, "tmp-registry");
-        let mut out = EffectSink::new();
-
-        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
-
-        let pending = ctx
-            .state
-            .pending_sends
-            .get(&TemporaryId("tmp-registry".to_string()))
-            .expect("pending send should remain tracked");
-        assert_eq!(pending.status, SendStatus::Sent);
-        assert_eq!(
-            ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
-            Seq(9)
-        );
-        assert!(
-            out.as_slice()
-                .iter()
-                .any(|effect| matches!(effect, Effect::Persist { corr, .. } if corr.raw() == 501)),
-            "echo should reconcile through PendingSend with allocated corr, got: {:?}",
-            out.as_slice()
-        );
-        assert!(
-            out.as_slice()
-                .iter()
-                .any(|effect| matches!(effect, Effect::CancelTimer { id } if id.raw() == 44)),
-            "echo should cancel pending send timeout, got: {:?}",
-            out.as_slice()
-        );
-        assert!(
-            out.as_slice()
-                .iter()
-                .any(|effect| matches!(effect, Effect::PersistFire { .. })),
-            "echo should push advance_cursor when channel exists, got: {:?}",
-            out.as_slice()
-        );
-    }
-
-    #[test]
-    fn dispatch_ws_posted_echo_advances_cursor_without_pending_send() {
-        let mut state = ImState::new();
-        let channel_id = channel_id(22);
-        state
-            .channels
-            .insert(channel_id, Channel::new(channel_id, 3));
+        // 在途 send：dead action posted 帧即便带 temporary_id 也**不得**对账（reconcile 已下线）。
+        let tmp_reg = TemporaryId("tmp-registry".to_string());
+        let ps = PendingSend::new(tmp_reg.clone(), helix_core::TimerId::from_raw(44), None);
+        state.pending_sends.insert(tmp_reg, ps);
 
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
         let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let frame = frame_from_json(serde_json::json!({
-            "v": 1,
-            "action": "posted",
-            "channel_event_seq": 99,
-            "data": {
-                "event_seq": 7,
-                "post": {
-                    "id": server_id_string(43),
-                    "temporaryId": "tmp-no-pending",
-                    "channelId": channel_id.as_str(),
-                    "props": { "channel_event_seq": 8 }
+
+        for action in ["posted", "post_urgent", "post_edited"] {
+            // 即便构造「最像 echo」的帧（带 temporary_id + 合法 server_id + event_seq），也 no-op。
+            let frame = frame_from_json(serde_json::json!({
+                "v": 1,
+                "action": action,
+                "data": {
+                    "id": server_id_string(42),
+                    "temporary_id": "tmp-registry",
+                    "channel_id": channel_id.as_str(),
+                    "event_seq": 9,
+                    "message": "hello"
                 }
-            }
-        }));
-        let mut out = EffectSink::new();
+            }));
+            let mut out = EffectSink::new();
 
-        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+            // 路由成功（不冒 UnsupportedWsAction），零 Effect。
+            dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+            assert!(
+                out.as_slice().is_empty(),
+                "{action} is a dead action → no-op, got: {:?}",
+                out.as_slice()
+            );
+        }
 
+        // pending send 不被对账（仍未推进，reconcile 真路径 = post.rs）。
         assert_eq!(
-            ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
-            Seq(7),
-            "data.event_seq must win over post.props and root channel_event_seq"
+            ctx.state
+                .pending_sends
+                .get(&TemporaryId("tmp-registry".to_string()))
+                .map(|ps| ps.status),
+            Some(SendStatus::Local),
+            "dead action posted must not reconcile pending send (echo 只走 post)"
         );
-        assert!(
-            out.as_slice()
-                .iter()
-                .any(|effect| matches!(effect, Effect::PersistFire { .. })),
-            "valid echo should advance cursor even without pending send, got: {:?}",
-            out.as_slice()
-        );
-    }
-
-    #[test]
-    fn dispatch_ws_posted_echo_missing_channel_is_noop_without_error() {
-        let mut state = ImState::new();
-        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let frame = frame_from_json(serde_json::json!({
-            "v": 1,
-            "action": "posted",
-            "channel_event_seq": 11,
-            "data": {
-                "post": {
-                    "id": server_id_string(44),
-                    "temporary_id": "tmp-missing-channel-state",
-                    "channel_id": channel_id_string(23)
-                }
-            }
-        }));
-        let mut out = EffectSink::new();
-
-        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
-
-        assert!(
-            out.as_slice().is_empty(),
-            "missing channel and pending send should produce no effects, got: {:?}",
-            out.as_slice()
-        );
-    }
-
-    #[test]
-    fn dispatch_ws_posted_non_echo_gracefully_ignored() {
-        let mut state = ImState::new();
-        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let frame = frame_from_json(serde_json::json!({
-            "v": 1,
-            "action": "posted",
-            "data": {
-                "id": server_id_string(42),
-                "channel_id": channel_id_string(1),
-                "event_seq": 4
-            }
-        }));
-        let mut out = EffectSink::new();
-
-        // 非 echo posted（无 temporary_id）→ 优雅忽略：Ok + 零 effect（对齐 dev Ignored 口径）
-        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
-
-        assert!(out.as_slice().is_empty());
-    }
-
-    #[test]
-    fn dispatch_ws_posted_missing_echo_required_fields_is_invalid_frame() {
-        let mut state = ImState::new();
-        let channel_id = channel_id(21);
-        state
-            .channels
-            .insert(channel_id, Channel::new(channel_id, 3));
-        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let frame = frame_from_json(serde_json::json!({
-            "v": 1,
-            "action": "posted",
-            "data": {
-                "id": server_id_string(42),
-                "temporary_id": "tmp-missing-seq",
-                "channel_id": channel_id.as_str(),
-                "eventSeq": 99
-            }
-        }));
-        let mut out = EffectSink::new();
-
-        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
-
-        assert!(matches!(err, ImError::InvalidWsFrame(msg) if msg.contains("posted echo")));
+        // cursor 不被 posted 帧推进。
         assert_eq!(
             ctx.state.channels.get(&channel_id).unwrap().cursor.value(),
             Seq(3),
-            "eventSeq compatibility field must not classify posted echo"
+            "dead action posted must not advance cursor"
         );
-        assert!(out.as_slice().is_empty());
-    }
-
-    #[test]
-    fn dispatch_ws_posted_invalid_echo_required_fields_is_invalid_frame() {
-        let mut state = ImState::new();
-        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
-        let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
-        let frame = frame_from_json(serde_json::json!({
-            "v": 1,
-            "action": "posted",
-            "data": {
-                "id": "not-a-server-id",
-                "temporary_id": "tmp-invalid",
-                "channel_id": channel_id_string(1),
-                "event_seq": 4
-            }
-        }));
-        let mut out = EffectSink::new();
-
-        let err = dispatch_ws(&mut ctx, &frame, &mut out).unwrap_err();
-
-        assert!(matches!(err, ImError::InvalidWsFrame(msg) if msg.contains("posted echo")));
-        assert!(out.as_slice().is_empty());
     }
 
     #[test]

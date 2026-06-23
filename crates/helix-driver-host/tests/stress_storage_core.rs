@@ -114,6 +114,8 @@ async fn stress_batch_upsert_39x100() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(10_000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan after 39x100");
@@ -167,6 +169,8 @@ async fn stress_batch_upsert_5000_single_batch() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(10_000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("scan after 5000 batch");
@@ -216,6 +220,8 @@ async fn stress_10k_flood_no_deadlock_all_landed() {
                 .scan(ScanSpec {
                     table: "messages",
                     limit: Some(10_000),
+                    filter: None,
+                    order_desc_col: None,
                 })
                 .await
                 .expect("flood scan");
@@ -242,6 +248,8 @@ async fn stress_10k_flood_no_deadlock_all_landed() {
         .scan(ScanSpec {
             table: "messages",
             limit: Some(20_000),
+            filter: None,
+            order_desc_col: None,
         })
         .await
         .expect("final scan after flood");

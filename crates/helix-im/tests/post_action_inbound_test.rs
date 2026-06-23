@@ -42,6 +42,9 @@ fn harness_with_seed(channel_num: u64, seed_cursor: u64) -> Harness {
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
         company_id: String::new(),
+        user_name: String::new(),
+        org_name: String::new(),
+        dept_name: String::new(),
     };
     let mut module = ImModule::new(config);
     module.register_channel(channel_id(channel_num), seed_cursor);
@@ -425,6 +428,9 @@ fn post_frame_unregistered_channel_silently_ignored() {
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
         company_id: String::new(),
+        user_name: String::new(),
+        org_name: String::new(),
+        dept_name: String::new(),
     };
     let mut h = Harness {
         module: ImModule::new(config),
@@ -471,6 +477,9 @@ fn echo_reconciles_even_when_channel_unregistered() {
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
         company_id: String::new(),
+        user_name: String::new(),
+        org_name: String::new(),
+        dept_name: String::new(),
     };
     let mut h = Harness {
         module: ImModule::new(config),

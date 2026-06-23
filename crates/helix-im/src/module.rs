@@ -18,7 +18,7 @@ use crate::pending_send::PendingSend;
 use crate::state::{
     ChannelId, ConnState, CorrelationContext, ImState, SendStatus, Seq, TemporaryId,
 };
-use helix_core::effect::{HttpRequest, ScanSpec, SqlValue, StorageOp, TimerId, UpsertSpec};
+use helix_core::effect::{HttpRequest, ScanSpec, StorageOp, TimerId};
 use helix_core::{CoreError, Effect, EffectSink, Module, Tick};
 
 /// IM 业务模块配置
@@ -40,10 +40,29 @@ pub struct ImConfig {
     /// §1 必填）。现网 `companyId` HTTP/WS 全局头与此同源（host 一处注入两处用）。空串 =
     /// 未注入（登录前），Go 侧 paas-grpc 可能业务失败——正常运行期 host 必须注入真值。
     pub company_id: String,
+    /// userSnapshot 三占位字段（userName/orgName/deptName）。P1 BLOCKER：现网取自
+    /// `this.ctx.userInfo`（ucenter 跨 feature 读）；helix-im 不认识 ucenter（HX-C001），由 host
+    /// 把登录态展开注入。缺这三非阻断字段不影响 Go 落库/推回声（主键身份是 userId/teamId，§1）。
+    pub user_name: String,
+    pub org_name: String,
+    pub dept_name: String,
     /// 心跳间隔（毫秒，默认 8000）
     pub ping_interval_ms: u64,
     /// 发送超时（毫秒，默认 15000）
     pub send_timeout_ms: u64,
+}
+
+impl ImConfig {
+    /// 当前登录用户身份视图（userSnapshot 注入源，posts/create body §1）。
+    pub fn user_identity(&self) -> crate::outbound::send_build::UserIdentity<'_> {
+        crate::outbound::send_build::UserIdentity {
+            user_id: &self.auth_user_id,
+            team_id: &self.company_id,
+            user_name: &self.user_name,
+            org_name: &self.org_name,
+            dept_name: &self.dept_name,
+        }
+    }
 }
 
 impl Default for ImConfig {
@@ -53,6 +72,9 @@ impl Default for ImConfig {
             api_base_url: String::new(),
             auth_user_id: String::new(),
             company_id: String::new(),
+            user_name: String::new(),
+            org_name: String::new(),
+            dept_name: String::new(),
             ping_interval_ms: 8_000,
             send_timeout_ms: 15_000,
         }
@@ -114,6 +136,14 @@ impl ImModule {
     /// 查询 pending_sends 数量（测试用）
     pub fn pending_send_count(&self) -> usize {
         self.state.pending_sends.len()
+    }
+
+    /// B4：全局在途 sync 数 + 待 dispatch 队列长（HX-C011 证伪性质测试结构化断言用）。
+    pub fn sync_inflight(&self) -> usize {
+        self.state.sync_scheduler.inflight()
+    }
+    pub fn sync_pending_len(&self) -> usize {
+        self.state.sync_scheduler.pending_len()
     }
 
     /// 查询某 temporary_id 的 PendingSend 状态（测试 / 诊断用）。
@@ -187,21 +217,12 @@ impl ImModule {
         crate::ws::handlers::increment_channel_end::apply_increment_end(&mut ctx, ch, out);
     }
 
-    /// 处理 PortReply（Persist/Http 的异步结果回报）
+    /// 处理 PortReply（Persist/Http 的异步结果回报）。
     ///
-    /// ## MAJ-1 修复
-    ///
-    /// 原实现在 `state.pending_commits` 中查找，但 `channel.pending_commits` 才是
-    /// cursor 推进的聚合根。修复（统一 `corr_map` 单表 + `match CorrelationContext` 分发，
-    /// 类别互斥靠 corr 全局唯一保证，见 state.rs `CorrelationContext` 不变量）：
-    /// 1. `corr_map.remove(corr)` 取出上下文（取代旧 `corr_to_channel` 路由索引）
-    /// 2. `ChannelPersist` 变体 → 委托 `channel.on_persist_ok(corr, fx)` 推进 cursor
-    /// 3. 15s 超时 timer → 通过 `pending_sends`/`OptimisticSend` 变体找 PendingSend
-    ///
-    /// ## E4 修复
-    ///
-    /// `ScanCursors` 变体：on_start 发出的 Scan{channel_event_cursor} PortReply
-    /// 在此解析 rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel + 批量发 proactive sync Http。
+    /// 统一 `corr_map` 单表 + `match CorrelationContext` 分发（类别互斥靠 corr 全局唯一，见 state.rs
+    /// `CorrelationContext` 不变量）：`remove(corr)` 取上下文 → `ChannelPersist` 委托
+    /// `channel.on_persist_ok` 推 cursor / `OptimisticSend` 找 PendingSend / `ScanCursors`（E4）解析
+    /// on_start Scan rows（channel_id TEXT + last_event_seq INTEGER）→ register_channel + proactive sync。
     fn handle_port_reply(
         &mut self,
         corr: helix_core::Correlation,
@@ -278,26 +299,63 @@ impl ImModule {
                 }
             },
 
-            // 路由：sync Http 回报（sync/notify 响应）
+            // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {
-                // B1 gate_inflight 清除：sync 回报到达，清除在途标记
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.inflight_sync = None;
                 }
+                // B4：释放 1 个全局 sync 窗口（Ok/Err 都释放——否则失败 sync 永久占窗 → 队列饿死）。
+                self.state.sync_scheduler.release_window();
                 match outcome {
                     PortOutcome::Ok(reply) => {
-                        self.handle_sync_reply(corr, channel_id, reply, out)?;
+                        self.handle_sync_reply(corr, channel_id, reply, out)?
                     }
-                    PortOutcome::Err(e) => {
-                        tracing::warn!(
-                            channel_id = channel_id.as_str(),
-                            corr = corr.raw(),
-                            error = ?e,
-                            "sync/notify failed"
-                        );
-                    }
+                    PortOutcome::Err(e) => tracing::warn!(
+                        channel_id = channel_id.as_str(), corr = corr.raw(), error = ?e,
+                        "sync/notify failed"
+                    ),
                 }
+                // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
+                self.drain_sync_queue(out);
             }
+
+            // P6 投影查询 **Scan** 回报：把消息行 emit 成 im:messages:query_result 投影
+            // （driver `{items:[]}` 包装）。Err → 空投影（前端拿空列表，不卡渲染）。
+            CorrelationContext::MessageQuery { channel_id } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    out.push(crate::query::emit_message_query_result(
+                        &channel_id,
+                        reply.0.as_ref(),
+                    ));
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(channel_id = channel_id.as_str(), error = ?e, "message query scan failed");
+                    out.push(crate::query::emit_message_query_result(&channel_id, b"[]"));
+                }
+            },
+
+            // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。
+            // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
+            // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，
+            // 前端 reject 而非永久挂起）。Err（网络/HTTP 层）→ emit `im:read:result{req_id, error}`。
+            CorrelationContext::OutboundReadReply { req_id } => match outcome {
+                PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+                    Ok(raw_body) => {
+                        out.push(crate::read_relay::emit_read_result(&req_id, raw_body.as_ref()));
+                    }
+                    Err(e) => {
+                        tracing::warn!(req_id = req_id.as_str(), error = ?e, "read reply envelope decode failed");
+                        out.push(crate::read_relay::emit_read_error(
+                            &req_id,
+                            "response envelope decode failed",
+                        ));
+                    }
+                },
+                PortOutcome::Err(e) => {
+                    tracing::warn!(req_id = req_id.as_str(), error = ?e, "read outbound http failed");
+                    out.push(crate::read_relay::emit_read_error(&req_id, "http request failed"));
+                }
+            },
         }
 
         Ok(())
@@ -499,6 +557,8 @@ impl ImModule {
         if let Some(ch) = self.state.channels.get_mut(&channel_id) {
             ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
         }
+        // B4：续拉重新占 1 个全局窗口（SyncPull 回报已 release），保持 inflight = 真在途数。
+        self.state.sync_scheduler.acquire_window();
         out.push(crate::acl::to_effect::sync_notify(
             &self.config.api_base_url,
             channel_id,
@@ -531,11 +591,9 @@ impl ImModule {
         use crate::parser::parse_sync_response;
         use crate::sync_session::SyncResponse;
 
-        // #6 信封解层（仅 SyncPull 路径，scan 路径不经此）：ADR-007 driver 把每条 2xx 响应包成
-        // `{status, headers, body: base64(raw_go_body)}` 信封（host run_http_envelope，native+FFI 共享）。
-        // 直接把信封喂 parse_sync_response → 找不到 data.entries → 静默 NoChange → 0 persist / 0 emit
-        // → 离线消息悄无声息丢失（#6 latent bug）。故此处先剥信封 + base64 decode 出裸 Go body 再解析。
-        // 边界零信任（HX-C 不变量 4）：信封 / base64 畸形走 Result::Err，不 unwrap、不 panic、不静默吞。
+        // #6 信封解层（仅 SyncPull 路径）：剥 ADR-007 `{status,headers,body:base64(raw_go_body)}` 信封
+        // + base64 decode 出裸 Go body 再解析（直喂信封会找不到 data.entries → 静默 NoChange 丢消息）。
+        // 边界零信任（HX-C 不变量 4）：信封 / base64 畸形走 Result::Err，不 unwrap / panic / 静默吞。
         let raw_body = unwrap_sync_envelope(reply.0.as_ref())?;
         let response = parse_sync_response(raw_body.as_ref(), channel_id)
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
@@ -562,20 +620,17 @@ impl ImModule {
                     return Ok(());
                 }
 
-                // peek/commit 三阶段：peek（只读预览，不推 cursor）
-                // 为整批事件分配一个 Persist corr（先分配，避免借用冲突）
-                // cursor 锚服务端权威 next_seq（跳过尾部稀疏/phantom 空洞，防 cursor 落后→sync 风暴）；
+                // B6/HX-C008 cursor 锚服务端权威 next_seq（跳尾部稀疏/phantom 空洞，防 cursor 落后→风暴）；
                 // 取 max(next_seq, 实际末条) 兜底异常响应（next_seq < 末条时不丢已落库事件）。
                 let max_event_seq = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
                 let commit_target = next_seq.max(max_event_seq);
                 let persist_corr = self.alloc_corr_internal();
-                // C2：按 messages map 落库（phantom 跳过 / readBits 单调覆盖 / edit / revoke）。
-                // persist_ops 可能 < events.len()（全 phantom = 空），但 cursor 仍推进到
-                // commit_target——phantom 不卡 cursor（HX-C008 §1.6，真源 post.rs:1271-1280）。
+                // C2：按 messages map 落库（phantom 跳过 / readBits 单调覆盖 / edit / revoke）；persist_ops
+                // 可能 < events.len()（全 phantom = 空），cursor 仍推进 commit_target（HX-C008 §1.6）。
                 let mut persist_ops =
                     crate::acl::to_effect::batch_upsert_events_with_messages(&events, &messages);
-                // A3/CAP-9：可见 type1 离线未读 +1 落 DB（并入同一 Persist 批，与消息落库同 corr →
-                // unread 列写成功后 cursor 才推进；不只 emit 把 +N 推前端）。真源 feat module.rs:563-571。
+                // A3/CAP-9：可见 type1 离线未读 +1 落 DB（并入同 Persist 批同 corr，unread 写成功 cursor
+                // 才推进，不只 emit 推前端）。真源 feat module.rs:563-571。
                 let auth_user_id = self.config.auth_user_id.as_str();
                 persist_ops.extend(crate::acl::to_effect::sync_unread_bump_ops(
                     &events,
@@ -589,8 +644,7 @@ impl ImModule {
                     corr: persist_corr,
                     ops: persist_ops,
                 });
-                // E3：续拉意图归并为 ChannelPersist 变体的 wants_continuation 字段
-                // （旧 corr_to_channel + continuation_pending 两张表合并为一条 entry）。
+                // E3：续拉意图归并为 ChannelPersist 变体的 wants_continuation 字段。
                 self.state.corr_map.insert(
                     persist_corr,
                     CorrelationContext::ChannelPersist {
@@ -598,11 +652,9 @@ impl ImModule {
                         wants_continuation: needs_continuation,
                     },
                 );
-                // C3-core：落库 Persist 入队后，逐事件 emit sync 驱动的 mutation 事件
-                // （post:received/updated/deleted/read + channel:update-by-post）。phantom-aware
-                // 与落库同口径（可见才动 UI）；真源 apply_event_with_messages（post.rs:1146-1448）。
-                // 落库与 emit 同批 step 内吐出，前端经 im:__bus__ 消费（HX-C008：emit 不卡 cursor，
-                // cursor 仍由 persist_corr 的 PortReply Ok 独立推进到 commit_target）。
+                // C3-core：落库 Persist 入队后逐事件 emit sync mutation（post:received/updated/deleted/
+                // read + channel:update-by-post），phantom-aware 同落库口径（可见才动 UI），真源
+                // post.rs:1146-1448。HX-C008：emit 不卡 cursor（cursor 由 persist_corr Ok 独立推进）。
                 for emit in crate::acl::to_effect::sync_mutation_emits(&events, &messages) {
                     out.push(emit);
                 }
@@ -624,11 +676,9 @@ impl ImModule {
             }
 
             SyncResponse::Snapshot(snap) => {
-                // Snapshot（A2-reserved）：wire 协议定义但**服务端未实现**（现网 sync.rs:71 「保留扩展」，
-                // 真帧从不产生此分支）。现网 Rust 把 `Events | Snapshot` 合并同分支治理、仅 Snapshot 不续拉
-                // （post.rs:931）。helix 对齐：**覆盖式 batch_upsert + cursor 跳 reset_to + 不续拉**，
-                // **绝不**物理 `DELETE FROM message`——「清旧」靠 ON CONFLICT 幂等覆盖（与 too_long 同语义，
-                // 现网 im-sync.service.ts 实证）。物理 DELETE 仅限 channel_member（成员全替换）/ event_cursor。
+                // Snapshot（A2-reserved）：wire 定义但服务端未实现（sync.rs:71，真帧不产生此分支）。对齐现网
+                // （post.rs:931）：覆盖式 batch_upsert + cursor 跳 reset_to + 不续拉；**绝不**物理 DELETE
+                // message（「清旧」靠 ON CONFLICT 幂等覆盖）。物理 DELETE 仅限 channel_member / event_cursor。
                 let persist_corr = self.alloc_corr_internal();
                 let reset_to = snap.reset_to;
                 let persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);
@@ -663,6 +713,48 @@ impl ImModule {
         let c = helix_core::Correlation::from_raw(self.next_corr);
         self.next_corr += 1;
         c
+    }
+
+    /// P6 投影/状态命令分发（薄壳，契约在 `crate::query`）。
+    ///
+    /// - `im_query_messages_by_channel`：吐 `Scan(message)` + 注册 `MessageQuery` corr 上下文；
+    ///   PortReply 回报后 `handle_port_reply` 的 MessageQuery 臂 emit 投影。
+    /// - `im_delete_all_dialogs`：清内存 channel gate + emit 刷新（物理 truncate 缺原语，见 query.rs）。
+    fn handle_query_command(
+        &mut self,
+        name: &str,
+        payload: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        match name {
+            "im_query_messages_by_channel" => {
+                let corr = self.alloc_corr_internal();
+                let (channel_id, effect) = crate::query::build_message_query(payload, corr)?;
+                self.state
+                    .corr_map
+                    .insert(corr, CorrelationContext::MessageQuery { channel_id });
+                out.push(effect);
+            }
+            "im_delete_all_dialogs" => {
+                // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。
+                self.state.channels.clear();
+                out.push(crate::query::emit_dialogs_cleared());
+            }
+            _ => tracing::debug!("im: query dispatch miss '{}'", name),
+        }
+        Ok(())
+    }
+
+    /// B4：drain SyncScheduler 队列至满窗（拆借 state + next_corr 分配器，避免 &mut self 双借）。
+    fn drain_sync_queue(&mut self, out: &mut EffectSink) {
+        let api_base_url = self.config.api_base_url.clone();
+        let next_corr = &mut self.next_corr;
+        let mut alloc = || {
+            let c = helix_core::Correlation::from_raw(*next_corr);
+            *next_corr += 1;
+            c
+        };
+        crate::sync_scheduler::drain(&mut self.state, &api_base_url, &mut alloc, out);
     }
 
     /// 处理 Timer 触发
@@ -758,7 +850,12 @@ impl ImModule {
     /// 2. Http{H1, POST /posts/create}
     /// 3. ScheduleTimer{T1, 15s}
     /// 4. Emit(im:post:sending)
-    fn handle_send_message(&mut self, payload: &[u8], out: &mut EffectSink) -> Result<(), ImError> {
+    fn handle_send_message(
+        &mut self,
+        payload: &[u8],
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
         // 解析命令载荷
         let cmd: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| ImError::Parse(format!("im_send_message payload: {}", e)))?;
@@ -771,72 +868,42 @@ impl ImModule {
             .as_str()
             .ok_or_else(|| ImError::Parse("missing temporary_id".to_string()))?
             .to_string();
-        let text = cmd["text"].as_str().unwrap_or("").to_string();
         let tmp_id = TemporaryId(tmp_id_str.clone());
+
+        // ── buildMessageObject 编排（P1 下沉）──────────────────────────────────
+        // 现网前端 service 的 wire body 组装下沉到 outbound::send_build（C1 纯渲染）。命令载荷
+        // （viewers/mentions/props/topic_id/replied/text）+ 注入身份/Clock → camelCase body。
+        // 空消息（trim 空 + props 空）→ None → 拦截不发（现网 validMessages.length===0 → return）。
+        let identity = self.config.user_identity();
+        let Some(body) = crate::outbound::send_build::build_from_command(
+            &cmd,
+            channel_id.as_str(),
+            &tmp_id_str,
+            now_ms,
+            &identity,
+        ) else {
+            return Ok(());
+        };
+        // 落库用的纯文本（与 body.message 同源：2000 截断后）。
+        let persisted_text = body["message"].as_str().unwrap_or("").to_string();
 
         // 分配 corr / timer
         let p1_corr = self.alloc_corr_internal();
         let h1_corr = self.alloc_corr_internal();
         let t1_timer = self.alloc_timer();
 
-        // 1. Persist{P1, 乐观落库 status=Sending}
-        // 表名 message（PK=temporary_id，对齐 678 真库；见 schema::IM_SCHEMA）
+        // 1. Persist{P1, 乐观落库 status=Sending}（PK=temporary_id，见 schema::IM_SCHEMA）。
         out.push(Effect::Persist {
             corr: p1_corr,
-            ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-                table: "message",
-                rows: vec![vec![
-                    (
-                        "temporary_id".to_string(),
-                        SqlValue::Text(tmp_id_str.clone()),
-                    ),
-                    (
-                        "channel_id".to_string(),
-                        SqlValue::Text(channel_id.as_str().to_string()),
-                    ),
-                    ("message".to_string(), SqlValue::Text(text.clone())),
-                    (
-                        "send_status".to_string(),
-                        SqlValue::Text("sending".to_string()),
-                    ),
-                ]],
-                conflict_key: Some("temporary_id"),
-                exclude_from_update: Vec::new(),
-            })],
+            ops: vec![crate::outbound::send_build::optimistic_persist_op(
+                &tmp_id_str,
+                channel_id.as_str(),
+                persisted_text,
+            )],
         });
 
-        // 2. Http{H1, POST /posts/create}
-        // body 逐字对齐现网真抓包（docs/csesapi-migration/真机curl真源.md §1）：
-        // 全 camelCase + 大量必填字段，否则 Go 收下但不处理/不推回声（send 无回声真因 = 体不对，
-        // 非 Pulsar）。WS 回声 action=`post`（非 `posted`），handlers/post.rs reconcile 对账。
-        //
-        // 身份字段（userId/teamId）：host 经 ImConfig 注入（auth_user_id / company_id），core/im
-        // 不自生成。userSnapshot：现网 5 字段 {orgName,deptName,userName,userId,teamId}，但 helix
-        // 无 org/dept/userName 登录态 → 先填最小 {userId,teamId,userName:""}（待 host 注入完整
-        // userSnapshot；缺这三非阻断字段不影响 Go 落库/推回声，主键身份是 userId/teamId）。
-        let user_id = self.config.auth_user_id.as_str();
-        let team_id = self.config.company_id.as_str();
-        let body = serde_json::json!({
-            "channelId": channel_id.as_str(),
-            "temporaryId": tmp_id_str,
-            "message": text,
-            "type": "TEXT",
-            "simpleMessage": text,
-            "viewers": ["all"],
-            "mentions": [],
-            "props": {},
-            "topicId": "",
-            "revoke": false,
-            "id": "",
-            "userId": user_id,
-            "teamId": team_id,
-            // TODO(host): userSnapshot 待 host 注入完整 {orgName,deptName,userName}（登录态）。
-            "userSnapshot": {
-                "userId": user_id,
-                "teamId": team_id,
-                "userName": "",
-            },
-        });
+        // 2. Http{H1, POST /posts/create}（body 由 send_build 组装，对齐真抓包 §1：全 camelCase
+        // + createAt 非 createdAt；体不对则 Go 不推回声。回声 action=`post`，post.rs reconcile）。
         let body_bytes =
             serde_json::to_vec(&body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
@@ -866,8 +933,10 @@ impl ImModule {
             &tmp_id_str,
         ));
 
-        // 注册 PendingSend（等待 echo 对账）
-        let mut ps = PendingSend::new(tmp_id.clone(), t1_timer);
+        // 注册 PendingSend（等待 echo 对账）。connection_id 维度（M1）：记录本条在哪个握手
+        // 会话下发，重连 increment 补回时按 temporaryId 去重不双份。
+        let conn = self.state.connection_id.clone();
+        let mut ps = PendingSend::new(tmp_id.clone(), t1_timer, conn);
         ps.status = SendStatus::Local;
         // R4-retain：回填本 send 的 P1 Persist corr，对账时按它 O(1) `corr_map.remove`，
         // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
@@ -883,12 +952,10 @@ impl ImModule {
         Ok(())
     }
 
-    /// `Tick::Inbound` 解析后的统一 dispatch：`WsFrame::parse` → WS registry by action。
-    ///
-    /// registry 策略注册表按顶层 `action` 路由到对应 handler（hello / increment_channel /
-    /// increment_channel_end / post / posted / 运维 ignored / 无 action 的 legacy event）。
-    /// 未知 action → `UnsupportedWsAction`（生产路径可观测）。各 handler 在 `ImWsContext`
-    /// 上操作 state，副作用经 `out.push(Effect::…)`，保持 handle 同步纯函数。
+    /// `Tick::Inbound` 解析后的统一 dispatch：`WsFrame::parse` → WS registry by `action`（hello /
+    /// increment_channel(_end) / post / 19 事件全集 / dead-action no-op / 无 action 的 legacy event）。
+    /// 未知 action → `UnsupportedWsAction`（可观测）。各 handler 在 `ImWsContext` 上操作 state，副作用
+    /// 经 `out.push(Effect::…)`，保持 handle 同步纯函数。
     fn dispatch_ws_frame(
         &mut self,
         frame: &crate::ws::WsFrame,
@@ -932,6 +999,18 @@ fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
         .map_err(|e| ImError::Parse(format!("sync envelope body base64 decode error: {}", e)))
 }
 
+/// spec06 缺陷A — 从读族命令 payload 抠前端 bridge 注入的 `req_id`（非空字符串）。
+///
+/// 缺/空/非字符串 → `None`（降级 fire-and-forget，不注册回灌上下文）。边界零信任：坏 JSON 不 panic，
+/// 返 `None`（命令本身仍 fire——`handle_outbound` 独立解析 build body，req_id 只管回灌关联）。
+fn read_req_id(payload: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    v.get("req_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 impl Module for ImModule {
     fn name(&self) -> &'static str {
         "helix-im"
@@ -956,11 +1035,17 @@ impl Module for ImModule {
 
             Tick::Command(cmd) => match cmd.name.as_ref() {
                 "im_send_message" => {
-                    self.handle_send_message(cmd.payload.as_ref(), out)
+                    self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {
                             module: self.name(),
                             source: Box::new(e),
                         })?;
+                }
+                // 连接控制（04 文档表 B `IMWS:reconnect`）：helix-im 是 sans-IO，不持 transport——
+                // 只 emit `im:net:reconnect_requested` 控制信号，由 driver 观察后重连 NativeTransport
+                // （连接生命周期归 driver）。payload 无须解析（无参控制信号）。
+                "im_reconnect" => {
+                    out.push(crate::acl::to_effect::emit_reconnect_requested());
                 }
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
@@ -977,13 +1062,33 @@ impl Module for ImModule {
                         module: self.name(),
                         source: Box::new(e),
                     })?;
+                    // spec06 缺陷A：读族（无 WS 回声、HTTP 响应体即数据）注册 OutboundReadReply
+                    // 回灌上下文——PortReply 回报时把响应透传 emit `im:read:result{req_id, body}`。
+                    // 写族不注册（fire-and-forget，数据走 WS 回声，HTTP 响应仅 ack 可丢）。
+                    // req_id 取自 payload（前端 bridge 注入）；缺则降级 fire-and-forget（不注册，
+                    // 无法关联响应——前端非 bridge 调用走旧 ack 语义，边界零信任不 panic）。
+                    if crate::commands::is_read(name) {
+                        if let Some(req_id) = read_req_id(cmd.payload.as_ref()) {
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::OutboundReadReply { req_id },
+                            );
+                        }
+                    }
                     for eff in effects {
                         out.push(eff);
                     }
                 }
-                _ => {
-                    tracing::debug!("im: unhandled command '{}'", cmd.name);
+                // P6 投影/状态命令（im_query_messages_by_channel / im_delete_all_dialogs）：
+                // 本地读/清，零 HTTP；契约在 crate::query（薄壳，与 outbound registry 解耦）。
+                name if crate::query::is_query(name) => {
+                    self.handle_query_command(name, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
                 }
+                _ => tracing::debug!("im: unhandled command '{}'", cmd.name),
             },
 
             Tick::PortReply { corr, outcome } => {
@@ -1062,6 +1167,8 @@ impl Module for ImModule {
             ops: vec![StorageOp::Scan(ScanSpec {
                 table: "channel_event_cursor",
                 limit: None,
+                filter: None,
+                order_desc_col: None,
             })],
         });
         self.state

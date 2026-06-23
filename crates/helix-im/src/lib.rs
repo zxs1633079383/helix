@@ -22,10 +22,14 @@ pub mod channel_write;
 pub mod commands;
 pub mod error;
 pub mod module;
+pub mod outbound;
 pub mod parser;
 pub mod pending_send;
+pub mod query;
+pub mod read_relay;
 pub mod schema;
 pub mod state;
+pub mod sync_scheduler;
 pub mod sync_session;
 pub(crate) mod ws;
 

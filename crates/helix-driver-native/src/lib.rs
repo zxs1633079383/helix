@@ -12,6 +12,7 @@
 //! 具体 I/O crate 错误在 driver/host 边界翻译为 helix_core::PortError，
 //! 不让具体类型穿透 port 边界。
 
+pub mod bus_guard;
 pub mod clock;
 pub mod engine_loop;
 pub mod event_sink;
@@ -20,6 +21,7 @@ pub mod storage;
 pub mod transport;
 
 // 公共 API 再导出（方便 helix-tauri / 测试直接 use helix_driver_native::*）
+pub use bus_guard::{guard_bus_envelope, is_emittable_channel, GuardedEnvelope};
 pub use clock::NativeClock;
 pub use engine_loop::{
     rows_from_reply_bytes, rows_to_reply_bytes, run_engine_loop, run_engine_loop_with_transports,
@@ -35,3 +37,8 @@ pub use transport::NativeTransport;
 pub use helix_driver_host::TimerRegistry;
 // 共享 host I/O 配置（ADR-010）：host 装配层构造 NativeHttp::with_config 需要，re-export 免直依 driver-host。
 pub use helix_driver_host::HostNetworkConfig;
+// P1.5 出站横切层：装配 NativeHttp::with_crosscut 时注入真鉴权 token 源（re-export 免直依 driver-host）。
+pub use helix_driver_host::AuthTokenRegistry;
+// 共享 HTTP client 句柄：host 装配 NativeHttp::with_crosscut 需先 SharedHttpClient::new(config)，
+// 再连同 event_sink + AuthTokenRegistry 包进横切层（re-export 免直依 driver-host）。
+pub use helix_driver_host::SharedHttpClient;

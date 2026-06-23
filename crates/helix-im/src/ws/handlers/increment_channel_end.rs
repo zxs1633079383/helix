@@ -2,7 +2,7 @@ use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::state::{ChannelId, CorrelationContext, InflightSync};
+use crate::state::ChannelId;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
@@ -34,35 +34,18 @@ pub(crate) fn apply_increment_end(
     }
 }
 
+/// B4：proactive resync 入口——不再逐 channel 直发，改为入 SyncScheduler 全局并发窗口
+/// （`pending_sync` VecDeque + 在途上限 K），解 257 channel 重连风暴。targets 由调用方确定性
+/// 排序锚定（HX-C010）；超 K 的留队列，等 sync 回报释放窗口续发（见 module.rs SyncPull 回报 drain）。
 pub(crate) fn emit_proactive_resync_for(
     ctx: &mut ImWsContext<'_>,
     targets: &[ChannelId],
     out: &mut EffectSink,
 ) {
-    let conn_id = ctx.state.connection_id.clone();
-    for &channel_id in targets {
-        let from_seq = match ctx.state.channels.get(&channel_id) {
-            Some(ch) if ch.inflight_sync.is_some() => continue,
-            Some(ch) => ch.cursor.value(),
-            None => continue,
-        };
-        let sync_corr = ctx.alloc_corr();
-        // 统一 corr_map 路由（取代旧 corr_to_sync）：sync/notify HTTP 回报走
-        // CorrelationContext::SyncPull 分发到 handle_sync_reply。
-        ctx.state
-            .corr_map
-            .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
-        if let Some(ch) = ctx.state.channels.get_mut(&channel_id) {
-            ch.inflight_sync = Some(InflightSync(sync_corr));
-        }
-        out.push(crate::acl::to_effect::sync_notify(
-            ctx.api_base_url,
-            channel_id,
-            from_seq,
-            sync_corr,
-            conn_id.as_deref(),
-        ));
-    }
+    // alloc_corr 经 ctx 拆借透传（与 corr_map 单调分配器不变量同源，state.rs CorrelationContext）。
+    let api_base_url = ctx.api_base_url;
+    let (state, alloc) = ctx.split_state_alloc();
+    crate::sync_scheduler::enqueue_and_drain(state, api_base_url, targets, alloc, out);
 }
 
 fn heal_incomplete_backfill_once(ctx: &mut ImWsContext<'_>, out: &mut EffectSink) {

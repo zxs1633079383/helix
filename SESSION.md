@@ -6,6 +6,12 @@
 
 ## §0 终态记录
 
+⚡ MILESTONE F1 核心发消息阻断根治 + 全量100% workflow 首轮 @2026-06-24 00:40 +0800 | helix main `5629422`(已push·CI绿) · cses `feat/helix-takeover-integ`(本地)
+  ↳ **🔴→✅ F1(核心 send 对账)**:`posts/create` 的 `h1_corr` 从不注册进 corr_map → HTTP 200 `{status:SUCCESS}`(消息真落库)被丢弃,对账只押 WS `post` 回声而真 Go 对发送者 self-omit → 永停 sending 15s。修(commit 63f6e69):加 `CorrelationContext::OutboundSendHttp` + HTTP 200 兜底标 sent(send_reconcile.rs 外提)+ 6 新测试(含无echo转sent/迟到echo幂等)全绿。**这是追了几轮的 send-echo,根因+修法落定。**
+  ↳ **全量100% workflow 首轮**(cses-fullmap-100-cutover):Phase1 helix命令补(im_load_older_context翻页投影 + vote/score补满10·outbound 94→104)· Phase2 U1-U10 多数下放纯渲染 · Phase3 **8/37 UC 真Go e2e验通**(定时/hello增量/needSync/建群/关退群/群昵称,真WS回声断言)。
+  ↳ **未达三表100%**(loop继续):29 UC 待真Go剧本(命令已wired,缺数据态)· F2 gate计数bug(WS实19/19误报)· structure-gate治理债(vote_score446/state366/module1319超基线,rust-dev外提回正中)。
+  ↳ 排除已落:全局搜索(集合七)+ createUser/status(goBlocked)。spec docs/superpowers/specs/2026-06-23-cses-full-helix-cutover-design.md · 闸 scripts/fullmap-coverage.sh · 台账 docs/review/uc-coverage-ledger.md(8✅)。
+
 ✅ DONE load-older-context：`im_load_older_context` 多轮 postContext 翻页投影落地 @2026-06-23 +0800 | 新增 older_context.rs(纯逻辑编排) + older_context_tests.rs + tests/p3c_load_older_context_test.rs(13 性质) + state.rs LoadOlderContext 变体 + module.rs dispatch/PortReply 多轮续接 + query.rs is_query 认领 + projection-schema §1.3 | cargo check -p helix-core..ffi PASS(exit 0) · lib 98 + p3c 13 全绿 · helix-core git diff 空(HX-C001 守) · core zero-runtime grep 空 | helix main | 未 push(待主对话统一验)
   ↳ 注:cp_create_posts_test 失败(104≠99)= **预存 vote-score-5 commit 5828c0f 后 outbound 计数漂移**,与本任务无关(本命令走 is_query 非 OUTBOUND_COMMANDS,零注册);工作树另含**并行会话未提交的 dialog_list 投影工作**(query.rs/module.rs/state.rs DialogListQuery + query_tests.rs/projection_schema_test.rs/read_relay.rs),与本命令同驻共改文件但非我所写——commit 一并带上(否则不编译),message 已声明归属。
   ↳ EXPECT 命中:① 仅动声明文件集 + 未动 helix-core(✅) ② cargo test 绿(✅,除预存 cp 漂移) ③ corr_map 续接多轮(✅) ④ TDD 先行(✅)。无 DRIFT-PRED。

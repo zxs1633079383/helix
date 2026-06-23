@@ -159,7 +159,8 @@ fn outbound_method(name: &str) -> &'static str {
         | "im_bot_agent_info"
         | "im_bot_agent_team_members"
         | "im_bot_agent_get_user"
-        | "im_bot_agent_team_channel" => "GET",
+        | "im_bot_agent_team_channel"
+        | "im_webhook_config_get" => "GET",
         _ => "POST",
     }
 }
@@ -376,6 +377,7 @@ mod tests {
     fn outbound_method_maps_known_get_delete_and_defaults_post() {
         assert_eq!(outbound_method("im_team_quit"), "DELETE");
         assert_eq!(outbound_method("im_bot_token_list"), "GET");
+        assert_eq!(outbound_method("im_webhook_config_get"), "GET");
         assert_eq!(outbound_method("im_revoke"), "POST");
     }
 }

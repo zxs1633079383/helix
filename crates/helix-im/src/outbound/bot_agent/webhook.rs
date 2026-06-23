@@ -2,7 +2,7 @@
 //!
 //! 响应走裸 `map[string]interface{}{"success","message"}`（**非 dto.CommonRes**，#35-37 特例）——
 //! 属**响应态**，outbound 只 build 请求体，响应信封解析在 driver/前端（文档断言锚边界）。
-//! #36 getWebhookConfig 无请求体（GET）；method 差异属 driver 接缝 P6。
+//! #36 getWebhookConfig 无请求体（GET）；Task1 起由 registry 按命令名集中产 method。
 
 use serde_json::{json, Value};
 

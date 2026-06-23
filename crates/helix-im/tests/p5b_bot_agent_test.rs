@@ -17,7 +17,7 @@
 //! auth 断言 FAIL；session 命令误加 bot 头 → FAIL；放松 path 段校验 → Err 断言 FAIL；删某命令注册 →
 //! registry 计数 + dispatch FAIL；误注册 timeline/cost → 排除断言 FAIL。
 
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, HttpRequest};
 use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
 use helix_im::commands::{handle_outbound, is_outbound};
 use serde_json::{json, Value};
@@ -31,11 +31,16 @@ fn corr() -> Correlation {
 /// 取出单条 Http 的 (url, body-json, headers)；非单条 Http → panic。
 fn one_http(effects: Vec<Effect>) -> (String, Value, Vec<(String, String)>) {
     assert_eq!(effects.len(), 1, "bot-agent 命令当前恒产单条 Effect::Http");
+    let req = one_http_req(effects);
+    let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
+    (req.url, body, req.headers)
+}
+
+/// 取出单条 Http request；用于 method / header 契约断言。
+fn one_http_req(effects: Vec<Effect>) -> HttpRequest {
+    assert_eq!(effects.len(), 1, "bot-agent 命令当前恒产单条 Effect::Http");
     match effects.into_iter().next().unwrap() {
-        Effect::Http { req, .. } => {
-            let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
-            (req.url, body, req.headers)
-        }
+        Effect::Http { req, .. } => req,
         other => panic!("expected Effect::Http, got {other:?}"),
     }
 }
@@ -71,9 +76,16 @@ fn has_bot_auth(headers: &[(String, String)]) -> bool {
         .any(|(k, v)| k == AUTH_KIND_HEADER && v == AuthKind::Bot.as_str())
 }
 
-/// headers 中是否带任何 `X-Auth-Kind`（session 命令应不带，driver 缺省 session）。
+/// headers 中是否带任何 `X-Auth-Kind`。
 fn has_any_auth_kind(headers: &[(String, String)]) -> bool {
     headers.iter().any(|(k, _)| k == AUTH_KIND_HEADER)
+}
+
+/// headers 中是否带 `X-Auth-Kind: session`（真 cookie/token 由 driver 注入）。
+fn has_session_auth(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .any(|(k, v)| k == AUTH_KIND_HEADER && v == AuthKind::Session.as_str())
 }
 
 // ── gateway（#1 createBot / #2 botCallback，session）─────────────────────────────────
@@ -92,10 +104,7 @@ fn create_bot_builds_camel_body() {
     assert_eq!(body["channelId"], "c1");
     assert_eq!(body["conversationType"], "direct");
     assert!(body.get("session_id").is_none(), "禁 snake");
-    assert!(
-        !has_any_auth_kind(&h),
-        "createBot session 命令不带 X-Auth-Kind"
-    );
+    assert!(has_session_auth(&h), "session 命令必须显式标 X-Auth-Kind: session");
     assert!(err("im_create_bot", json!({ "text": "x" }))); // 缺 session_id
     assert!(err("im_create_bot", json!({ "session_id": "s" }))); // 缺 text
 }
@@ -221,15 +230,20 @@ fn bot_manage_visible_user_add_remove() {
 #[test]
 fn bot_manage_query_param_endpoints_interpolate() {
     // #6 token/list?botUserId= + #11 visible-user/list?botUserId=（query param 插值进 path）
-    let (url, _body, _h) = one_http(run("im_bot_token_list", json!({ "bot_user_id": "b9" })));
-    assert_eq!(url, "http://x/api/cses/bot-manage/token/list?botUserId=b9");
+    let req = one_http_req(run("im_bot_token_list", json!({ "bot_user_id": "b9" })));
+    assert_eq!(req.method, "GET");
+    assert_eq!(
+        req.url,
+        "http://x/api/cses/bot-manage/token/list?botUserId=b9"
+    );
 
-    let (url, _body, _h) = one_http(run(
+    let req = one_http_req(run(
         "im_bot_visible_user_list",
         json!({ "bot_user_id": "b9" }),
     ));
+    assert_eq!(req.method, "GET");
     assert_eq!(
-        url,
+        req.url,
         "http://x/api/cses/bot-manage/scope/visible-user/list?botUserId=b9"
     );
     // path 段零信任：空/含 '/' → Err
@@ -258,17 +272,19 @@ fn bot_agent_config_create_passes_through_ent_object() {
 #[test]
 fn bot_agent_config_path_param_endpoints() {
     // #13 get / #15 delete / #16 regenerate / #17 test-webhook —— {botUserId} 插值
-    let (url, _b, _h) = one_http(run(
+    let req = one_http_req(run(
         "im_bot_agent_config_get",
         json!({ "bot_user_id": "b1" }),
     ));
-    assert_eq!(url, "http://x/api/cses/bot-agent/config/b1");
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.url, "http://x/api/cses/bot-agent/config/b1");
 
-    let (url, _b, _h) = one_http(run(
+    let req = one_http_req(run(
         "im_bot_agent_config_delete",
         json!({ "bot_user_id": "b1" }),
     ));
-    assert_eq!(url, "http://x/api/cses/bot-agent/config/b1");
+    assert_eq!(req.method, "DELETE");
+    assert_eq!(req.url, "http://x/api/cses/bot-agent/config/b1");
 
     let (url, _b, _h) = one_http(run(
         "im_bot_agent_regenerate_token",
@@ -302,24 +318,35 @@ fn bot_agent_configs_enabled_no_param() {
 #[test]
 fn bot_agent_channel_path_param_endpoints() {
     // #18 bots / #19 available-bots —— {channelId}
-    let (url, _b, _h) = one_http(run(
+    let req = one_http_req(run(
         "im_bot_agent_channel_bots",
         json!({ "channel_id": "c1" }),
     ));
-    assert_eq!(url, "http://x/api/cses/bot-agent/channel/c1/bots");
-    let (url, _b, _h) = one_http(run(
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.url, "http://x/api/cses/bot-agent/channel/c1/bots");
+    let req = one_http_req(run(
         "im_bot_agent_channel_available_bots",
         json!({ "channel_id": "c1" }),
     ));
-    assert_eq!(url, "http://x/api/cses/bot-agent/channel/c1/available-bots");
+    assert_eq!(req.method, "GET");
+    assert_eq!(
+        req.url,
+        "http://x/api/cses/bot-agent/channel/c1/available-bots"
+    );
 
     // #20 add / #21 remove —— {channelId}/bot/{botUserId} 双段
     for name in ["im_bot_agent_channel_add", "im_bot_agent_channel_remove"] {
-        let (url, _b, _h) = one_http(run(
+        let req = one_http_req(run(
             name,
             json!({ "channel_id": "c1", "bot_user_id": "b1" }),
         ));
-        assert_eq!(url, "http://x/api/cses/bot-agent/channel/c1/bot/b1");
+        let expected_method = if name == "im_bot_agent_channel_remove" {
+            "DELETE"
+        } else {
+            "POST"
+        };
+        assert_eq!(req.method, expected_method);
+        assert_eq!(req.url, "http://x/api/cses/bot-agent/channel/c1/bot/b1");
         assert!(err(name, json!({ "channel_id": "c1" }))); // 缺 bot_user_id
     }
 }
@@ -528,8 +555,10 @@ fn webhook_config_set_get_test() {
     )); // 缺 bot_user_ids
 
     // #36 config GET — 空 body
-    let (url, body, _h) = one_http(run("im_webhook_config_get", json!({})));
-    assert_eq!(url, "http://x/api/cses/webhook/config");
+    let req = one_http_req(run("im_webhook_config_get", json!({})));
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.url, "http://x/api/cses/webhook/config");
+    let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
     assert_eq!(body, json!({}));
 
     // #37 test — message 可选
@@ -538,6 +567,13 @@ fn webhook_config_set_get_test() {
     assert_eq!(body["message"], "ping");
     let (_u, body2, _h) = one_http(run("im_webhook_test", json!({})));
     assert_eq!(body2, json!({}), "message 可选，缺则空 body");
+}
+
+#[test]
+fn webhook_config_get_emits_get_method() {
+    let req = one_http_req(run("im_webhook_config_get", json!({})));
+    assert_eq!(req.method, "GET");
+    assert_eq!(req.url, "http://x/api/cses/webhook/config");
 }
 
 /// #35-37 响应裸 map（非 dto.CommonRes）属响应态——outbound 只 build 请求体，不含响应信封字段。

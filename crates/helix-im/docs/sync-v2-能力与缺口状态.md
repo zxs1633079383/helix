@@ -46,6 +46,8 @@
 
 引擎三件套(HTTP/WS/Storage)齐 + 678 持久化 + sync-v2 正确性层(C1/C2/C3)+B2 **实现完成并入 main**（单测+对抗审+回归全绿）。**代码能「连上·发出去对账·离线补齐(含 phantom/已读/编辑/撤回)·前端经 im:__bus__ 消费」**，且 **数据路径真 Go 端到端已验过**（curl 注入真消息 event_seq=40114 落 message 行，三层 blocker 全清，真机 e2e 8/8 wire-correct）。剩 golden fixtures 工具链(P1) + 功能性事件(schedule/member)。
 
+> **接管收官（2026-06-23）**：sync-v2 之上的**全量 HTTP+WS 接管**已落地——89 出站/写命令（含 createPosts/CP）+ 19 WS live 事件 + Tauri 四接缝 + `projection-schema.md` 冻结（21 投影工厂字段集 + 强制对账测试）。cses-client **接入 CI-1~CI-3 完成**（IM_ENGINE 灰度可逆，legacy 全程保留）；**CI-4 真机联调待 Go 后端环境**。详见 [`takeover-plan/`](takeover-plan/00-README.md)。
+
 ---
 
 ## 5. 待办

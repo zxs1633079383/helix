@@ -116,7 +116,9 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 | 文档 | 视角 | 一句话 |
 |---|---|---|
-| [`crates/helix-im/docs/sync-v2-能力与缺口状态.md`](crates/helix-im/docs/sync-v2-能力与缺口状态.md) | **落地真相（现在到哪了）** | 三件套引擎 ✅ + sync-v2 ~85% + C1/C2/C3/B2 实现完成；§5 = 今日必办（真 Go 数据路径端到端验证） |
+| [`crates/helix-im/docs/takeover-plan/00-README.md`](crates/helix-im/docs/takeover-plan/00-README.md) | **全量 HTTP+WS 接管剧本（P0-P7）** | 接管终态 = 89 出站/写命令 + 19 WS live + Tauri 四接缝 + `projection-schema.md` 冻结；cses-client 接入 CI-1~CI-3 已完成（灰度可逆），CI-4 真机联调待 Go |
+| [`crates/helix-im/docs/projection-schema.md`](crates/helix-im/docs/projection-schema.md) | **投影 payload 契约真源（C2 冻结）** | 21 个 `im:__bus__` 投影 emit 工厂字段集 + 信号/透传/控制三类 + 命名陷阱词典；配 `tests/projection_schema_test.rs` 强制对账 |
+| [`crates/helix-im/docs/sync-v2-能力与缺口状态.md`](crates/helix-im/docs/sync-v2-能力与缺口状态.md) | **落地真相（现在到哪了）** | 三件套引擎 ✅ + sync-v2 ~90% + C1/C2/C3/B2 实现完成 + 数据路径真 Go 端到端已验过 + 接管收官（§4） |
 | [`crates/helix-im/docs/csesapi-migration/真机curl真源.md`](crates/helix-im/docs/csesapi-migration/真机curl真源.md) | **outbound 请求体/头 ground truth（真抓包 > 源码推断）** | 现网 cses-client 实抓 6 个 curl（posts/create·makeTopic·revoke·channel/create·member/change·close）逐字 body+头；helix-im outbound 命令体必须对齐此处（send 无回声真因=体不对·非 Pulsar；普通发消息 WS 推 `post` 非 `posted`）|
 | [`crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md`](crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md) | **全量图谱总索引** | backend-\*（源端 HTTP/WS 清单）+ client-\*（前端用例/渲染/Tauri）+ gap-\* 三类导读 |
 | [`crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md`](crates/helix-im/docs/csesapi-migration/full-map/30-capability-gap-matrix.md) | **缺口矩阵** | covered 86 / partial 30 / missing 7 + 替代 mattermost 阻塞能力优先级 |

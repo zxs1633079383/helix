@@ -238,6 +238,7 @@ mod tests {
             "im_channel_change_permission",
             &payload,
             "http://h/api",
+            "http://h",
             Some("conn1"),
             corr,
         )
@@ -273,6 +274,7 @@ mod tests {
             "im_channel_change_permission",
             &payload,
             "http://h/api",
+            "http://h",
             None,
             corr,
         )

@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, oneshot};
 mod cmd_parse;
 mod host_env;
 mod repl;
-use host_env::{machine_device_id, resolve_db_path};
+use host_env::{default_api_base, machine_device_id, resolve_db_path};
 
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
@@ -52,9 +52,10 @@ async fn main() {
     // 真 Go 实测 `POST /api/cses/channels/load/increment` 返 200（B-rest 冒烟确认）。
     let api_base_url = std::env::var("HELIX_API_BASE")
         .unwrap_or_else(|_| "http://127.0.0.1:8065/api/cses".to_string());
-    // cookieId(=userId) + companyId 身份头：现网 sync-v2 鉴权两件套。
-    // companyId 经 web/handlers.go 注入 ctx → 传到对端 paas-grpc（loadTeamMap/ReadIdNameWithCompany）；
-    // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
+    let default_api_base_url = default_api_base(&api_base_url); // spec06 方案 A：vote/score 第二网关
+                                                                // cookieId(=userId) + companyId 身份头：现网 sync-v2 鉴权两件套。
+                                                                // companyId 经 web/handlers.go 注入 ctx → 传到对端 paas-grpc（loadTeamMap/ReadIdNameWithCompany）；
+                                                                // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
     let cookie_id = std::env::var("HELIX_COOKIE_ID").unwrap_or_default();
     let company_id = std::env::var("HELIX_COMPANY_ID").unwrap_or_default();
     // appType 是现网 app 身份头（Apifox 实测：HTTP increment + WS 都带 `appType: bct`）。
@@ -149,14 +150,15 @@ async fn main() {
     if !cookie_id.is_empty() {
         auth.set_session("cookieId", cookie_id.clone());
     }
-    let shared_client =
-        match SharedHttpClient::new(HostNetworkConfig::new(api_base_url.clone(), ws_url.clone())) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(error = %e, "构造共享 HTTP client 失败，退出");
-                return;
-            }
-        };
+    let mut net_config = HostNetworkConfig::new(api_base_url.clone(), ws_url.clone());
+    net_config.default_api_base_url = default_api_base_url.clone();
+    let shared_client = match SharedHttpClient::new(net_config) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "构造共享 HTTP client 失败，退出");
+            return;
+        }
+    };
     let http = NativeHttp::with_crosscut(shared_client, Arc::new(event_sink.clone()), auth);
     // 身份头单一真源（HTTP 全局头 + WS 握手头同源，host 注入；core/im 不认识 userId，
     // connectionId 才由 im 盖章见 A3b）。各头来源/缺失后果（真机curl真源 §0 通用头 +
@@ -185,9 +187,7 @@ async fn main() {
 
     // ── shell + IM 模块 ─────────────────────────────────────
     let mut shell = ExecutionShell::new();
-    // auth_user_id = cookieId(=userId)：host 注入确定性身份（id 作数据，core/im 不认识 userId 语义）。
-    // 缺它 → post_updates 退化「自己消息也计未读」（§5 离线未读偏高根因，todo #5）。
-    // 空串（未设 HELIX_COOKIE_ID）→ 保留无身份保守计入退化，不强行编造身份。
+    // auth_user_id = cookieId(=userId)：host 注入确定性身份；空串退化「自己消息也计未读」（§5，todo #5）。
     if cookie_id.is_empty() {
         tracing::warn!(
             "未设 HELIX_COOKIE_ID → ImConfig.auth_user_id 为空，post_updates 将退化为「自己消息也计未读」（离线未读偏高）"
@@ -196,6 +196,7 @@ async fn main() {
     shell.register(ImModule::new(ImConfig {
         ws_url: ws_url.clone(),
         api_base_url,
+        default_api_base_url, // spec06 方案 A：vote/score 第二网关
         auth_user_id: cookie_id.clone(),
         // companyId 之前只灌了 HTTP/WS 全局头，没进 ImConfig；现注入 → outbound posts/create
         // body 的 teamId/userSnapshot.teamId 才有真值（真机curl真源 §1，send 回声前置条件）。

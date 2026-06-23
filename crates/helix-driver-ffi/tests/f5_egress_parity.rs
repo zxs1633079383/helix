@@ -87,6 +87,7 @@ fn build_shell() -> ExecutionShell {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),

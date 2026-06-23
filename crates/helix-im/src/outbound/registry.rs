@@ -19,6 +19,20 @@ use serde_json::Value;
 
 use crate::error::ImError;
 
+/// 出站网关**意图**（spec06 vote/score 第二网关，方案 A）：core 只标「这条命令走哪个网关 base」，
+/// 真实 base host 由 host 经 config 注入（HX-C001：core 零 host 硬编码，base 仍 host 注入、确定性）。
+///
+/// 与 `AuthKind` 意图维度同构（命令标意图、driver/host 给真值），最小惊讶；既有 88 命令零改动
+/// （默认 `Im`）。两个 base host **不同**：IM 含 `/api/cses` 前缀，Default 是 `env.restHost` 无前缀。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Gateway {
+    /// IM 网关（既有全部命令）：base = `api_base_url`（= `http://host:8065/api/cses`，含 `/api/cses`）。
+    Im,
+    /// 第二（默认业务）网关：base = `default_api_base_url`（= `env.restHost`，**无** `/api/cses`）。
+    /// vote/score（`/vote/*` `/average/*`）走它（真源 docs/case/11-投票评分.md:119）。
+    Default,
+}
+
 /// 一个 outbound 应用命令：把通用入参（snake_case JSON）翻成现网 endpoint + camelCase Go body。
 ///
 /// 解析失败 / 缺必填 → `Err(ImError::Parse)`（边界零信任，HX-C 不变量 4），**不 panic**。
@@ -51,6 +65,12 @@ pub(crate) trait OutboundCommand: Sync {
     /// dispatch 注册 `OutboundReadReply` 回灌响应给前端。默认 `false`（写族走 WS 回声，HTTP 响应可丢）。
     fn is_read(&self) -> bool {
         false
+    }
+
+    /// 出站**网关意图**（spec06 vote/score 第二网关，方案 A）：默认 `Im`（既有 88 命令零改动）；
+    /// vote/score（`/vote/*` `/average/*`）override `Gateway::Default` 走第二 base。`http_post` 据此选 base。
+    fn gateway(&self) -> Gateway {
+        Gateway::Im
     }
 }
 
@@ -120,10 +140,16 @@ pub fn outbound_command_count() -> usize {
 }
 
 /// 把一条 outbound 命令翻成 Effect 列表（当前恒为单条 `Effect::Http`）。
+///
+/// 两个 base host 入参（spec06 第二网关，方案 A）：`api_base_url` = IM 网关（含 `/api/cses`）；
+/// `default_api_base_url` = 第二（默认业务）网关（`env.restHost`，无 `/api/cses`）。命令的 `gateway()`
+/// 意图决定拼哪个 base——既有命令默认 `Im`，vote/score override `Default`。两 base 均由 host 注入
+/// （HX-C001：core/im 零 host 硬编码）。
 pub fn handle_outbound(
     name: &str,
     payload: &[u8],
     api_base_url: &str,
+    default_api_base_url: &str,
     connection_id: Option<&str>,
     corr: Correlation,
 ) -> Result<Vec<Effect>, ImError> {
@@ -141,8 +167,14 @@ pub fn handle_outbound(
         None => std::borrow::Cow::Borrowed(static_path),
     };
 
+    // 网关意图 → 选 base（Im=IM 网关 / Default=第二网关）。base 真值 host 注入，core 仅按意图选。
+    let base = match command.gateway() {
+        Gateway::Im => api_base_url,
+        Gateway::Default => default_api_base_url,
+    };
+
     Ok(vec![http_post(
-        api_base_url,
+        base,
         &path,
         body,
         command.auth_kind(),
@@ -164,7 +196,7 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&
 /// 鉴权意图（`X-Auth-Kind`）仅在非默认 `Bot` 时显式下标——`Session` 是 driver 横切层缺省，
 /// 不冗余写头（既省字节又保留「无头=session」语义）。真凭据由 driver 注入（C6，core 不拼）。
 fn http_post(
-    api_base_url: &str,
+    base: &str,
     path: &str,
     body: Value,
     auth_kind: AuthKind,
@@ -180,7 +212,7 @@ fn http_post(
         corr,
         req: HttpRequest {
             method: "POST".to_string(),
-            url: format!("{api_base_url}/{path}"),
+            url: format!("{base}/{path}"),
             headers,
             body: Some(Bytes::from(serde_json::to_vec(&body).unwrap_or_default())),
         },
@@ -188,111 +220,5 @@ fn http_post(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    // 测试桩命令：build 直回固定 (path, body)（不涉真现网 body）。
-    struct StubCommand {
-        name: &'static str,
-    }
-    impl OutboundCommand for StubCommand {
-        fn name(&self) -> &'static str {
-            self.name
-        }
-        fn build(&self, _args: &Value) -> Result<(&'static str, Value), ImError> {
-            Ok(("stub/path", json!({ "ok": true })))
-        }
-    }
-
-    static STUB_A: StubCommand = StubCommand { name: "im_stub_a" };
-    static STUB_DUP: StubCommand = StubCommand { name: "im_stub_a" };
-    static STUB_MISMATCH: StubCommand = StubCommand {
-        name: "handler_name",
-    };
-
-    fn reg(name: &'static str, cmd: &'static dyn OutboundCommand) -> OutboundRegistration {
-        OutboundRegistration { name, command: cmd }
-    }
-
-    /// build_registry 正常路径 + name/handler 一致校验通过。
-    #[test]
-    fn build_registry_ok() {
-        let entries: &'static [OutboundRegistration] =
-            Box::leak(Box::new([reg("im_stub_a", &STUB_A)]));
-        let map = build_registry(entries).expect("should build");
-        assert!(map.contains_key("im_stub_a"));
-    }
-
-    /// 注册 name 与 command.name() 错配 → InvalidWsHandlerRegistration（registry.rs:59-60）。
-    #[test]
-    fn build_registry_rejects_name_mismatch() {
-        let entries: &'static [OutboundRegistration] =
-            Box::leak(Box::new([reg("wrong_name", &STUB_MISMATCH)]));
-        match build_registry(entries) {
-            Err(ImError::InvalidWsHandlerRegistration {
-                registered,
-                handler,
-            }) => {
-                assert_eq!(registered, "wrong_name");
-                assert_eq!(handler, "handler_name");
-            }
-            Err(e) => panic!("expected InvalidWsHandlerRegistration, got {e:?}"),
-            Ok(_) => panic!("expected InvalidWsHandlerRegistration, got Ok"),
-        }
-    }
-
-    /// 重复命令名 → DuplicateWsAction（registry.rs:65）。
-    #[test]
-    fn build_registry_rejects_duplicate() {
-        let entries: &'static [OutboundRegistration] = Box::leak(Box::new([
-            reg("im_stub_a", &STUB_A),
-            reg("im_stub_a", &STUB_DUP),
-        ]));
-        match build_registry(entries) {
-            Err(ImError::DuplicateWsAction(name)) => assert_eq!(name, "im_stub_a"),
-            Err(e) => panic!("expected DuplicateWsAction, got {e:?}"),
-            Ok(_) => panic!("expected DuplicateWsAction, got Ok"),
-        }
-    }
-
-    /// require_str：命中 / 缺失 / 空串 三路。
-    #[test]
-    fn require_str_paths() {
-        let args = json!({ "k": "v", "empty": "" });
-        assert_eq!(require_str(&args, "k", "cmd").unwrap(), "v");
-        assert!(require_str(&args, "missing", "cmd").is_err());
-        assert!(require_str(&args, "empty", "cmd").is_err());
-    }
-
-    /// is_outbound：真实注册表（distributed_slice 全集）命中既有命令、不命中未知。
-    #[test]
-    fn is_outbound_hits_registered() {
-        assert!(is_outbound("im_revoke"));
-        assert!(is_outbound("im_urgent_post"));
-        assert!(!is_outbound("not_a_command"));
-    }
-
-    /// handle_outbound：正常路径产单条 Http（覆盖 http_post）+ 未知命令 Err + 坏 payload Err。
-    #[test]
-    fn handle_outbound_dispatch_and_errors() {
-        let corr = Correlation::from_raw(1);
-        let payload = serde_json::to_vec(&json!({ "post_id": "p" })).unwrap();
-        let effects = handle_outbound("im_revoke", &payload, "http://h/api", Some("c1"), corr)
-            .expect("revoke should dispatch");
-        match &effects[0] {
-            Effect::Http { req, .. } => {
-                assert_eq!(req.url, "http://h/api/posts/revoke");
-                assert!(req
-                    .headers
-                    .iter()
-                    .any(|(k, v)| k == "Content-Type" && v == "application/json"));
-            }
-            other => panic!("expected Http, got {other:?}"),
-        }
-        // 未知命令 → Err
-        assert!(handle_outbound("bogus", &payload, "http://h", None, corr).is_err());
-        // 坏 JSON payload → Err（不 panic）
-        assert!(handle_outbound("im_revoke", b"not-json", "http://h", None, corr).is_err());
-    }
-}
+#[path = "registry_tests.rs"]
+mod tests;

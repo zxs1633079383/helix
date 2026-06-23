@@ -41,6 +41,7 @@ fn run(name: &str, payload: Value) -> Vec<Effect> {
         name,
         &serde_json::to_vec(&payload).unwrap(),
         BASE,
+        BASE,
         Some("conn-2"),
         corr(),
     )
@@ -51,6 +52,7 @@ fn err(name: &str, payload: Value) -> bool {
     handle_outbound(
         name,
         &serde_json::to_vec(&payload).unwrap(),
+        BASE,
         BASE,
         None,
         corr(),
@@ -289,12 +291,13 @@ fn handle_outbound_unknown_command_and_bad_payload_are_errors() {
         "im_not_registered",
         &serde_json::to_vec(&json!({})).unwrap(),
         BASE,
+        BASE,
         None,
         corr(),
     )
     .is_err());
     // 坏 JSON payload → Err(Parse "payload...")（map_err 闭包），不 panic
-    assert!(handle_outbound("im_revoke", b"{not json", BASE, None, corr()).is_err());
+    assert!(handle_outbound("im_revoke", b"{not json", BASE, BASE, None, corr()).is_err());
 }
 
 #[test]

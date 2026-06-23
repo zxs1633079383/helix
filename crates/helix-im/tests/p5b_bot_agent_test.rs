@@ -45,6 +45,7 @@ fn run(name: &str, payload: Value) -> Vec<Effect> {
         name,
         &serde_json::to_vec(&payload).unwrap(),
         BASE,
+        BASE,
         Some("conn-5b"),
         corr(),
     )
@@ -55,6 +56,7 @@ fn err(name: &str, payload: Value) -> bool {
     handle_outbound(
         name,
         &serde_json::to_vec(&payload).unwrap(),
+        BASE,
         BASE,
         None,
         corr(),
@@ -759,7 +761,7 @@ fn every_p5b_command_dispatchable_with_correct_auth() {
 /// handle_outbound 错误闭包路径（边界零信任，不 panic）：坏 JSON payload。
 #[test]
 fn handle_outbound_bad_payload_is_error_not_panic() {
-    assert!(handle_outbound("im_create_bot", b"{not json", BASE, None, corr()).is_err());
+    assert!(handle_outbound("im_create_bot", b"{not json", BASE, BASE, None, corr()).is_err());
 }
 
 /// 每条必填字段缺失 → Err（边界零信任，零 panic）。穷举每个 `require_str?`/`path_seg?` 失败分支

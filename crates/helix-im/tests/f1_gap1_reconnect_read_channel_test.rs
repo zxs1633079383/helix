@@ -54,7 +54,11 @@ fn im_reconnect_emits_control_signal() {
     let kinds = h.step(cmd("im_reconnect", serde_json::json!({})), 1_000);
 
     // 恰一条 Effect，且是 Emit（控制信号，无 Persist/Http/Send）。
-    assert_eq!(kinds.len(), 1, "im_reconnect 应吐恰一条 Effect（控制 Emit）");
+    assert_eq!(
+        kinds.len(),
+        1,
+        "im_reconnect 应吐恰一条 Effect（控制 Emit）"
+    );
     assert_eq!(kinds[0], EffectKind::Emit, "唯一 Effect 必为 Emit");
 
     let v = first_emit_json(&h).expect("应 emit 控制信号");
@@ -64,7 +68,10 @@ fn im_reconnect_emits_control_signal() {
     );
     // data 为空对象 {}：无参控制信号，不携业务渲染字段。
     let data = v["data"].as_object().expect("data 必为对象");
-    assert!(data.is_empty(), "reconnect 控制信号 data 必空（无参）：{data:?}");
+    assert!(
+        data.is_empty(),
+        "reconnect 控制信号 data 必空（无参）：{data:?}"
+    );
 }
 
 /// im_reconnect 不解析 payload：任意/缺字段 payload 都产同一控制信号（无参语义）。
@@ -73,10 +80,17 @@ fn im_reconnect_ignores_payload() {
     let mut h = Harness::new(&[1]);
     // 带噪声 payload —— 不应改变控制信号形态。
     let kinds = h.step(
-        cmd("im_reconnect", serde_json::json!({ "noise": "ignored", "n": 42 })),
+        cmd(
+            "im_reconnect",
+            serde_json::json!({ "noise": "ignored", "n": 42 }),
+        ),
         2_000,
     );
-    assert_eq!(kinds, vec![EffectKind::Emit], "噪声 payload 仍只产控制 Emit");
+    assert_eq!(
+        kinds,
+        vec![EffectKind::Emit],
+        "噪声 payload 仍只产控制 Emit"
+    );
     let v = first_emit_json(&h).expect("应 emit");
     assert_eq!(v["event"], "im:net:reconnect_requested");
     assert!(v["data"].as_object().unwrap().is_empty(), "data 仍空");
@@ -89,7 +103,10 @@ fn im_reconnect_ignores_payload() {
 /// im_read_channel 从 accepts_tick allowlist 删除 → 不再被放行（避免悬空命令落 unhandled no-op）。
 #[test]
 fn im_read_channel_no_longer_accepted() {
-    let tick = cmd("im_read_channel", serde_json::json!({ "channel_id": cid(1) }));
+    let tick = cmd(
+        "im_read_channel",
+        serde_json::json!({ "channel_id": cid(1) }),
+    );
     assert!(
         !accepts_tick(&tick),
         "im_read_channel 是 im_post_read 悬空别名，已删 allowlist，accepts 必拒"
@@ -114,6 +131,7 @@ fn im_read_channel_handle_is_noop() {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
@@ -128,7 +146,10 @@ fn im_read_channel_handle_is_noop() {
         use helix_core::Module;
         module
             .handle(
-                &cmd("im_read_channel", serde_json::json!({ "channel_id": cid(1) })),
+                &cmd(
+                    "im_read_channel",
+                    serde_json::json!({ "channel_id": cid(1) }),
+                ),
                 1_000,
                 &mut sink,
             )

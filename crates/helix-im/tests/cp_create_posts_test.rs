@@ -48,6 +48,7 @@ fn run(payload: Value) -> Vec<Effect> {
         "im_create_posts",
         &serde_json::to_vec(&payload).unwrap(),
         BASE,
+        BASE,
         Some("conn-cp"),
         corr(),
     )
@@ -58,6 +59,7 @@ fn err(payload: Value) -> bool {
     handle_outbound(
         "im_create_posts",
         &serde_json::to_vec(&payload).unwrap(),
+        BASE,
         BASE,
         None,
         corr(),
@@ -181,7 +183,7 @@ fn create_posts_rejects_invalid_input() {
 /// 坏 JSON payload → Err（不 panic）。
 #[test]
 fn create_posts_bad_json_payload_errs() {
-    assert!(handle_outbound("im_create_posts", b"not-json", BASE, None, corr()).is_err());
+    assert!(handle_outbound("im_create_posts", b"not-json", BASE, BASE, None, corr()).is_err());
 }
 
 /// registry 性质：is_outbound 命中 + 注册总数 == 88（CP 补齐后）。
@@ -196,8 +198,8 @@ fn create_posts_registered_and_total_is_88() {
     );
     assert_eq!(
         outbound_command_count(),
-        94,
-        "outbound registry 总数应为 94（含 backend-gaps 增补 + messageTop/messageUntop 置顶族；send 不在内）"
+        99,
+        "outbound registry 总数应为 99（94 + vote/score 第二网关族 5：createVote/readVote/deleteVote + average read/delete；send 不在内）"
     );
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));

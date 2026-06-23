@@ -14,11 +14,18 @@ use helix_core::effect::{HttpRequest, HttpResponse, TransportId};
 use helix_core::ports::{HttpRequester, Transport};
 use helix_core::tick::InboundBytes;
 use helix_core::{PortError, Tick};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, USER_AGENT};
-use reqwest::{Client, Method, Url};
+use reqwest::header::{HeaderMap, USER_AGENT};
+use reqwest::{Client, Method};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
+
+// URL/header 工具裂分到 sibling（按职责，structure-gate §1）。`use *` 复用 6 个 pub(super) helper。
+#[path = "network_util.rs"]
+mod network_util;
+use network_util::{
+    header_name, header_value, headers_to_strings, map_ws_err, resolve_http_url, validate_url,
+};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const WS_FRAME_BUFFER: usize = 64;
@@ -32,6 +39,8 @@ type WsSink = futures_util::stream::SplitSink<
 #[derive(Debug, Clone)]
 pub struct HostNetworkConfig {
     pub api_base_url: String,
+    /// 第二网关 base URL（spec06 方案 A）：= `env.restHost`（无 `/api/cses`）；vote/score 走它。空串=未注入。
+    pub default_api_base_url: String,
     pub ws_url: String,
     pub timeout: Duration,
     pub user_agent: Option<String>,
@@ -41,6 +50,7 @@ impl HostNetworkConfig {
     pub fn new(api_base_url: impl Into<String>, ws_url: impl Into<String>) -> Self {
         Self {
             api_base_url: api_base_url.into(),
+            default_api_base_url: String::new(),
             ws_url: ws_url.into(),
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             user_agent: None,
@@ -134,6 +144,10 @@ impl SharedHttpClient {
         headers: HostHeaderRegistry,
     ) -> Result<Self, PortError> {
         validate_url(&config.api_base_url, "api_base_url")?;
+        // 第二网关 base 仅在已注入（非空）时校验（空串 = vote/score 暂不用）。
+        if !config.default_api_base_url.is_empty() {
+            validate_url(&config.default_api_base_url, "default_api_base_url")?;
+        }
         let mut builder = Client::builder().timeout(config.timeout);
         if let Some(user_agent) = &config.user_agent {
             builder = builder.user_agent(user_agent);
@@ -417,47 +431,4 @@ impl Transport for SharedWsClient {
         *state = WsState::Disconnected;
         Ok(())
     }
-}
-
-fn header_name(name: &str) -> Result<HeaderName, PortError> {
-    HeaderName::from_bytes(name.as_bytes())
-        .map_err(|e| PortError::Http(format!("invalid header name '{name}': {e}")))
-}
-
-fn header_value(name: &str, value: &str) -> Result<HeaderValue, PortError> {
-    HeaderValue::from_str(value)
-        .map_err(|e| PortError::Http(format!("invalid header value for '{name}': {e}")))
-}
-
-fn validate_url(url: &str, field: &str) -> Result<(), PortError> {
-    Url::parse(url)
-        .map(|_| ())
-        .map_err(|e| PortError::Http(format!("invalid {field} '{url}': {e}")))
-}
-
-fn resolve_http_url(base: &str, req_url: &str) -> Result<String, PortError> {
-    if Url::parse(req_url).is_ok() {
-        return Ok(req_url.to_string());
-    }
-    let base = Url::parse(base)
-        .map_err(|e| PortError::Http(format!("invalid api_base_url '{base}': {e}")))?;
-    base.join(req_url)
-        .map(|url| url.to_string())
-        .map_err(|e| PortError::Http(format!("invalid request url '{req_url}': {e}")))
-}
-
-fn headers_to_strings(headers: &HeaderMap) -> BTreeMap<String, String> {
-    headers
-        .iter()
-        .map(|(name, value)| {
-            (
-                name.as_str().to_string(),
-                value.to_str().unwrap_or("<non-utf8>").to_string(),
-            )
-        })
-        .collect()
-}
-
-fn map_ws_err(e: impl std::fmt::Display) -> PortError {
-    PortError::Transport(e.to_string())
 }

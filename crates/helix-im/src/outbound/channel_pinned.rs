@@ -87,6 +87,7 @@ mod tests {
             "im_set_message_top",
             &payload,
             "http://h/api",
+            "http://h",
             Some("conn1"),
             corr,
         )
@@ -114,8 +115,15 @@ mod tests {
         assert!(is_outbound("im_set_message_untop"));
         let corr = Correlation::from_raw(2);
         let payload = serde_json::to_vec(&json!({ "channel_id": "c2", "post_id": "p2" })).unwrap();
-        let effects = handle_outbound("im_set_message_untop", &payload, "http://h/api", None, corr)
-            .expect("set_message_untop should dispatch");
+        let effects = handle_outbound(
+            "im_set_message_untop",
+            &payload,
+            "http://h/api",
+            "http://h",
+            None,
+            corr,
+        )
+        .expect("set_message_untop should dispatch");
         match &effects[0] {
             Effect::Http { req, .. } => {
                 assert!(
@@ -137,8 +145,14 @@ mod tests {
     fn set_message_top_missing_post_id_errors() {
         let corr = Correlation::from_raw(3);
         let payload = serde_json::to_vec(&json!({ "channel_id": "c1" })).unwrap();
-        assert!(
-            handle_outbound("im_set_message_top", &payload, "http://h/api", None, corr).is_err()
-        );
+        assert!(handle_outbound(
+            "im_set_message_top",
+            &payload,
+            "http://h/api",
+            "http://h",
+            None,
+            corr
+        )
+        .is_err());
     }
 }

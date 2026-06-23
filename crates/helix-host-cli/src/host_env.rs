@@ -3,6 +3,13 @@
 //! 全是 ambient API（`std::env`/`std::fs`/`std::process`）。host 是其合法落点
 //! （本 crate clippy `disallowed_methods=allow`）——core/im 才 deny。
 
+/// 派生第二（默认业务）网关 base（spec06 方案 A）：vote/score 走 env.restHost（无 `/api/cses`）。
+/// `HELIX_DEFAULT_API_BASE` env 覆盖 > `api_base` 去 `/api/cses` 尾段（host 注入网关拓扑，HX-C001）。
+pub fn default_api_base(api_base: &str) -> String {
+    std::env::var("HELIX_DEFAULT_API_BASE")
+        .unwrap_or_else(|_| api_base.trim_end_matches("/api/cses").to_string())
+}
+
 /// 派生 SQLite DB 绝对路径（多租户，对齐现网 678 真库目录）。
 ///
 /// 优先级（高 → 低）：

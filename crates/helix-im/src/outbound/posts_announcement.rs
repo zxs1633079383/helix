@@ -102,7 +102,7 @@ mod tests {
     fn dispatch(name: &str, args: &Value) -> (String, Value) {
         let corr = Correlation::from_raw(1);
         let payload = serde_json::to_vec(args).unwrap();
-        let effects = handle_outbound(name, &payload, "http://h/api", Some("c1"), corr)
+        let effects = handle_outbound(name, &payload, "http://h/api", "http://h", Some("c1"), corr)
             .expect("should dispatch");
         match &effects[0] {
             Effect::Http { req, .. } => {
@@ -148,6 +148,7 @@ mod tests {
             "im_announcement_delete",
             &payload,
             "http://h/api",
+            "http://h",
             None,
             corr
         )
@@ -168,8 +169,14 @@ mod tests {
     fn announcement_read_rejects_missing() {
         let corr = Correlation::from_raw(1);
         let payload = serde_json::to_vec(&json!({ "post_id": "p1" })).unwrap();
-        assert!(
-            handle_outbound("im_announcement_read", &payload, "http://h/api", None, corr).is_err()
-        );
+        assert!(handle_outbound(
+            "im_announcement_read",
+            &payload,
+            "http://h/api",
+            "http://h",
+            None,
+            corr
+        )
+        .is_err());
     }
 }

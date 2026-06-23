@@ -38,6 +38,7 @@ fn harness_with_seed(channel_num: u64, seed_cursor: u64) -> Harness {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
@@ -424,6 +425,7 @@ fn post_frame_unregistered_channel_silently_ignored() {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),
@@ -473,6 +475,7 @@ fn echo_reconciles_even_when_channel_unregistered() {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),

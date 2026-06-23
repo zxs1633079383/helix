@@ -53,6 +53,7 @@ fn run(name: &str, payload: Value) -> Vec<Effect> {
         name,
         &serde_json::to_vec(&payload).unwrap(),
         BASE,
+        BASE,
         Some("conn-5a"),
         corr(),
     )
@@ -63,6 +64,7 @@ fn err(name: &str, payload: Value) -> bool {
     handle_outbound(
         name,
         &serde_json::to_vec(&payload).unwrap(),
+        BASE,
         BASE,
         None,
         corr(),
@@ -344,5 +346,5 @@ fn every_p5a_misc_command_is_dispatchable() {
 /// handle_outbound 错误闭包路径（边界零信任，不 panic）：坏 JSON payload。
 #[test]
 fn handle_outbound_bad_payload_is_error_not_panic() {
-    assert!(handle_outbound("im_list_users", b"{not json", BASE, None, corr()).is_err());
+    assert!(handle_outbound("im_list_users", b"{not json", BASE, BASE, None, corr()).is_err());
 }

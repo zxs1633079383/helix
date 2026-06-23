@@ -31,6 +31,7 @@ fn run(name: &str, payload: Value) -> Vec<Effect> {
         name,
         &serde_json::to_vec(&payload).unwrap(),
         BASE,
+        BASE,
         Some("conn-1"),
         corr(),
     )
@@ -109,6 +110,7 @@ fn member_change_passthrough_body_with_real_endpoint() {
         "im_channel_member_change",
         &serde_json::to_vec(&json!({ "joinUsers": [] })).unwrap(),
         BASE,
+        BASE,
         None,
         corr(),
     )
@@ -139,6 +141,7 @@ fn missing_required_field_is_parse_error_not_panic() {
         "im_revoke",
         &serde_json::to_vec(&json!({})).unwrap(),
         BASE,
+        BASE,
         None,
         corr(),
     )
@@ -148,6 +151,7 @@ fn missing_required_field_is_parse_error_not_panic() {
         "im_create_schedule",
         &serde_json::to_vec(&json!({ "channel_id": "c", "message": "m" })).unwrap(),
         BASE,
+        BASE,
         None,
         corr(),
     )
@@ -156,6 +160,7 @@ fn missing_required_field_is_parse_error_not_panic() {
     assert!(handle_outbound(
         "im_channel_close",
         &serde_json::to_vec(&json!({})).unwrap(),
+        BASE,
         BASE,
         None,
         corr(),

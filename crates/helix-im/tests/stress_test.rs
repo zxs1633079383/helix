@@ -41,6 +41,7 @@ fn make_module(channel_num: u64) -> ImModule {
     let config = ImConfig {
         ws_url: "ws://stress".to_string(),
         api_base_url: "http://stress".to_string(),
+        default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
         auth_user_id: String::new(),

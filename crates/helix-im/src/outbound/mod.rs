@@ -39,6 +39,9 @@ pub mod user_misc;
 // calls(bot-token 调用 6，auth_kind=Bot) / agents(会话 5) / webhook(config 3)。
 // 排除 timeline/cost(#33/34 D7 废弃) + cross-repo demo(#38-40 非业务)。
 pub mod bot_agent;
+// vote/score 第二网关族（spec06 方案 A，5 命令 gateway()=Default 走 ImConfig.default_api_base_url）：
+// createVote/readVote/deleteVote + average/read·average/delete。独立文件零交集（仅 mod.rs append）。
+pub mod vote_score;
 
 // 对外单一入口：accepts_tick / module.rs dispatch / 集成测试都从此处取。
 pub use registry::{handle_outbound, is_outbound, is_read, outbound_command_count};

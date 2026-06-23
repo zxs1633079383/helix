@@ -27,6 +27,9 @@ pub struct ImConfig {
     pub ws_url: String,
     /// HTTP API base URL（如 "https://api.example.com"）
     pub api_base_url: String,
+    /// 第二（默认业务）网关 base URL（spec06 方案 A）：host 注入 = `env.restHost`（**无** `/api/cses`）。
+    /// 仅 vote/score（`Gateway::Default`）命令走它；既有命令走 `api_base_url`。空串 = 未注入（HX-C001）。
+    pub default_api_base_url: String,
     /// 当前登录用户 Id26（host 经同 `api_base_url` 机制注入，确定性身份）。
     ///
     /// 用途：① path3 未读 +1 的 sender 豁免（自己消息 +0）+ 可见性门控（viewers 不含自己 +0）；
@@ -70,6 +73,7 @@ impl Default for ImConfig {
         Self {
             ws_url: String::new(),
             api_base_url: String::new(),
+            default_api_base_url: String::new(),
             auth_user_id: String::new(),
             company_id: String::new(),
             user_name: String::new(),
@@ -341,7 +345,10 @@ impl ImModule {
             CorrelationContext::OutboundReadReply { req_id } => match outcome {
                 PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                     Ok(raw_body) => {
-                        out.push(crate::read_relay::emit_read_result(&req_id, raw_body.as_ref()));
+                        out.push(crate::read_relay::emit_read_result(
+                            &req_id,
+                            raw_body.as_ref(),
+                        ));
                     }
                     Err(e) => {
                         tracing::warn!(req_id = req_id.as_str(), error = ?e, "read reply envelope decode failed");
@@ -353,7 +360,10 @@ impl ImModule {
                 },
                 PortOutcome::Err(e) => {
                     tracing::warn!(req_id = req_id.as_str(), error = ?e, "read outbound http failed");
-                    out.push(crate::read_relay::emit_read_error(&req_id, "http request failed"));
+                    out.push(crate::read_relay::emit_read_error(
+                        &req_id,
+                        "http request failed",
+                    ));
                 }
             },
         }
@@ -1055,6 +1065,8 @@ impl Module for ImModule {
                         name,
                         cmd.payload.as_ref(),
                         self.config.api_base_url.as_str(),
+                        // 第二网关 base（spec06 方案 A）：vote/score 命令走它，既有命令忽略。
+                        self.config.default_api_base_url.as_str(),
                         self.state.connection_id.as_deref(),
                         corr,
                     )
@@ -1069,10 +1081,9 @@ impl Module for ImModule {
                     // 无法关联响应——前端非 bridge 调用走旧 ack 语义，边界零信任不 panic）。
                     if crate::commands::is_read(name) {
                         if let Some(req_id) = read_req_id(cmd.payload.as_ref()) {
-                            self.state.corr_map.insert(
-                                corr,
-                                CorrelationContext::OutboundReadReply { req_id },
-                            );
+                            self.state
+                                .corr_map
+                                .insert(corr, CorrelationContext::OutboundReadReply { req_id });
                         }
                     }
                     for eff in effects {
@@ -1221,98 +1232,7 @@ impl Module for ImModule {
     }
 }
 
-// ─── A4 hello 握手回放测试（in-crate：直接断言 pub(crate) state）────────────
+// ─── A4 hello 握手回放测试（外提 sibling，structure-gate 测试外提范本）────────────
 #[cfg(test)]
-mod handshake_tests {
-    use super::*;
-    use helix_core::effect::TransportId;
-    use helix_core::tick::InboundBytes;
-
-    fn module_with_channel() -> ImModule {
-        let mut m = ImModule::new(ImConfig::default());
-        m.register_channel(crate::state::test_channel_id(1), 0);
-        m
-    }
-
-    fn hello_frame(conn_id: &str) -> Tick {
-        let body = serde_json::json!({
-            "action": "hello",
-            "data": { "connectionId": conn_id, "serverVersion": "x", "pingInterval": 30000u64 }
-        });
-        Tick::Inbound(InboundBytes(serde_json::to_vec(&body).unwrap().into()))
-    }
-
-    fn has_http(sink: &EffectSink) -> bool {
-        sink.as_slice()
-            .iter()
-            .any(|e| matches!(e, Effect::Http { .. }))
-    }
-
-    /// Connected → conn 变 Connecting，且不产 resync Http（现网 Go 握手前 resync 会 401）。
-    #[test]
-    fn connected_sets_connecting_no_resync() {
-        let mut m = module_with_channel();
-        let mut sink = EffectSink::new();
-        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
-            .unwrap();
-        assert_eq!(m.state.conn, ConnState::Connecting);
-        assert!(!has_http(&sink), "握手前不得 resync");
-    }
-
-    /// hello Inbound → Connected + emit im:connection:established + resync Http + connectionId 存。
-    #[test]
-    fn hello_completes_handshake_and_resyncs() {
-        let mut m = module_with_channel();
-        let mut sink = EffectSink::new();
-        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
-            .unwrap();
-        sink.clear();
-        m.handle(&hello_frame("CONN_ABC"), 1001, &mut sink).unwrap();
-        assert_eq!(m.state.conn, ConnState::Connected);
-        assert_eq!(m.state.connection_id.as_deref(), Some("CONN_ABC"));
-        assert!(
-            sink.as_slice()
-                .iter()
-                .any(|e| matches!(e, Effect::Emit { .. })),
-            "应 emit im:connection:established"
-        );
-        assert!(has_http(&sink), "hello 后应 resync");
-    }
-
-    /// hello 后构造的 sync Http headers 含 ("connectionId", id)。
-    #[test]
-    fn sync_http_carries_connection_id_header() {
-        let mut m = module_with_channel();
-        let mut sink = EffectSink::new();
-        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
-            .unwrap();
-        sink.clear();
-        m.handle(&hello_frame("CONN_XYZ"), 1001, &mut sink).unwrap();
-        let req = sink
-            .as_slice()
-            .iter()
-            .find_map(|e| match e {
-                Effect::Http { req, .. } => Some(req),
-                _ => None,
-            })
-            .expect("应有 resync Http");
-        assert!(
-            req.headers
-                .iter()
-                .any(|(k, v)| k == "connectionId" && v == "CONN_XYZ"),
-            "sync Http 须带 connectionId 身份头"
-        );
-    }
-
-    /// 顺序不变性：先 Connected 后 hello，终态 Connected + connectionId 已存。
-    #[test]
-    fn order_connected_then_hello_terminal_connected() {
-        let mut m = module_with_channel();
-        let mut sink = EffectSink::new();
-        m.handle(&Tick::Connected(TransportId::from_raw(0)), 1000, &mut sink)
-            .unwrap();
-        m.handle(&hello_frame("C1"), 1001, &mut sink).unwrap();
-        assert_eq!(m.state.conn, ConnState::Connected);
-        assert_eq!(m.state.connection_id.as_deref(), Some("C1"));
-    }
-}
+#[path = "module_tests.rs"]
+mod handshake_tests;

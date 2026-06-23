@@ -12,7 +12,11 @@
 2. **19 WS 全处理**:helix 解析→投影,对齐 `5--backend-ws-events`（post/posted/posts_update/post_read/post_update/channel_created/channel_member_update/role_updated/update_channel/update_channel_notice/change_channel_approval/increment_channel/increment_channel_end/post_schedule_created/post_schedule_canceled/add_followers/add_mentions/channels）。
 3. **40 UC 全验证**:每 UC **真 Go e2e 跑绿**（invoke→helix→真 Go→WS 回声→helix 投影→前端渲染),非单测、非 demo。
 
-**唯一诚实 caveat**:gap 矩阵标 missing 的 **Go 物理缺 handler**（user-misc 真阻塞 createUser/status 等 2-3 条,Go 无 live handler）→ 标 `goBlocked` 如实列出,不计入"可覆盖 100%",不假装。其余全部 100% + 生产验证。
+**范围排除（用户 2026-06-23 拍板）**:
+- **全局搜索（UC 集合七 searchPost/User/Channel）不在本次范围** → 从 40 UC 移除,剩 ~37 UC;对应 HTTP 搜索接口不计入。
+- **createUser / status 接口 = goBlocked**（Go 物理缺 handler,user-misc 真阻塞）→ 标 goBlocked 如实列,不计入可覆盖 100%、不假装。
+
+**可覆盖 100% 验收**:除上述排除外,**全部 ~37 UC + ~78 HTTP + 19 WS 做到 100% + 真 Go e2e 生产验证**。
 
 ## 1. 架构（边界已拍板）
 

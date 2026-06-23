@@ -73,6 +73,21 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 触发语义，前端按 `data` 形态区分（有 `items` = 列表刷新信号 / 有 `reason` = 清库刷新信号）。
 > 这不是字段漂移，是**两个独立工厂复用同一 channel 名**——测试逐工厂冻结，各断各的键集。
 
+### 1.1 连接控制信号（**不计入** 21 投影集 · F1-gap1）
+
+`im_reconnect` 命令（04 文档表 B `IMWS:reconnect`，连接生命周期归 driver）经 `to_effect::emit_reconnect_requested`
+产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入上表 21 投影冻结集**，
+与既有 driver 侧横切信号 `im:net:offline`（断网）/ `im:http:unauthorized`（401，`http_cross.rs`）**同族**：
+`im:net:*` 控制事件通道，driver/前端**观察**后做连接生命周期动作（reconnect / 重登）。
+
+| 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 | 归属 |
+|---|---|---|---|---|
+| `to_effect::emit_reconnect_requested` | `im:net:reconnect_requested` | （空 `{}`，无参控制信号）| invoke `im_reconnect` | helix-im 产，driver 观察重连 |
+
+> **为何分开冻结**：21 投影集是「前端渲染靠的字段契约」（缺字段=补算=纯渲染破功），逐 channel 严格冻结键集。
+> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_21_projection_factories_covered`
+> 保持 21 不动（投影集纯净），控制信号由 `reconnect_requested_is_control_signal` 单独断言（channel/空 data）。
+
 ---
 
 ## 2. 信号类 vs 投影类（前端如何消费，回填闸门关键）

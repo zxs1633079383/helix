@@ -351,6 +351,25 @@ fn all_21_projection_factories_covered() {
     );
 }
 
+/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 21 投影集（无渲染字段，
+/// 走连接生命周期通道，与 driver 侧 im:net:offline 同族）。冻结：channel 名 + data 严格空对象。
+#[test]
+fn reconnect_requested_is_control_signal() {
+    let e = to_effect::emit_reconnect_requested();
+    let (name, keys) = emit_event_and_data_keys(&e).expect("控制信号必产 Emit{event,data:{}}");
+    assert_eq!(
+        name, "im:net:reconnect_requested",
+        "控制信号 channel 冻结（连接控制族）"
+    );
+    assert!(
+        keys.is_empty(),
+        "reconnect 控制信号 data 必空（无参，非投影渲染字段）：{keys:?}"
+    );
+    // 守边界：控制信号不撞 im:__ 总线前缀（防自环），也不混进 im:post/im:channel 投影命名空间。
+    assert!(!name.starts_with("im:__"), "禁撞总线前缀：{name}");
+    assert!(name.starts_with("im:net:"), "连接控制族必 im:net: 前缀：{name}");
+}
+
 /// 提取工具负路径（消除 never-taken 分支 → 覆盖率）：非 Emit Effect → None。
 #[test]
 fn extractor_returns_none_on_non_emit() {

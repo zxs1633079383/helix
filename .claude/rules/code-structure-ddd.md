@@ -36,9 +36,9 @@
 
 | 文件 | baseline 行 | 拆分方向（建议） |
 |---|---|---|
-| `helix-im/src/module.rs` | 1264 | dispatch 已部分挪进 `ws/` registry；继续把 handler 编排抽出（P6：query 分发 + MessageQuery corr 臂 +53，逻辑薄壳在 `query.rs`）|
+| `helix-im/src/module.rs` | 1270 | dispatch 已部分挪进 `ws/` registry；继续把 handler 编排抽出（P6：query 分发 +53；F1-gap1：im_reconnect 控制臂 +6）|
 | `helix-im/src/ws/registry.rs` | 783 | registry 骨架与各 handler 注册分文件 |
-| `helix-im/src/acl/to_effect.rs` | 748 | 按 Effect 族裂分（已有 `to_effect_s1.rs` 兄弟先例）|
+| `helix-im/src/acl/to_effect.rs` | 763 | 按 Effect 族裂分（已有 `to_effect_s1.rs` 兄弟先例；F1-gap1：emit_reconnect_requested 控制信号工厂 +15）|
 | `helix-driver-ffi/src/api.rs` | 733 | C ABI 导出按职责族裂分 |
 | `helix-im/src/channel.rs` | 579 | gate 三阶段（peek/persist/commit）可各成文件 |
 | `helix-driver-host/src/storage.rs` | 578 | 按 StorageOp 族裂分（P6：`scan()` 加 additive 过滤/降序投影 +18）|

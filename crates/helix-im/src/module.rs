@@ -1006,6 +1006,12 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                // 连接控制（04 文档表 B `IMWS:reconnect`）：helix-im 是 sans-IO，不持 transport——
+                // 只 emit `im:net:reconnect_requested` 控制信号，由 driver 观察后重连 NativeTransport
+                // （连接生命周期归 driver）。payload 无须解析（无参控制信号）。
+                "im_reconnect" => {
+                    out.push(crate::acl::to_effect::emit_reconnect_requested());
+                }
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
                 name if crate::commands::is_outbound(name) => {

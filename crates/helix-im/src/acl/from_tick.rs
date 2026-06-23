@@ -14,10 +14,14 @@ pub fn accepts_tick(tick: &Tick) -> bool {
     match tick {
         Tick::Inbound(_) => true,
         Tick::Command(cmd) => {
-            matches!(
-                cmd.name.as_ref(),
-                "im_send_message" | "im_read_channel" | "im_reconnect"
-            ) || crate::commands::is_outbound(cmd.name.as_ref())
+            // F1-gap1：`im_read_channel` 已从 allowlist 删除——它是 `im_post_read` 的悬空别名。
+            // 行为真源 cses-client/src-tauri/src/features/im/ 无 read_channel 概念：唯一「已读」
+            // outbound = `post/read`（= 已注册的 `im_post_read`，走 is_outbound 分支）；channel 级
+            // 已读回声 `im:channel:read_echo` 仅由 sync apply 路径（gate apply type6 read）产出，
+            // 不是命令。保留它只会让 accepts 放行一个 module.rs 无臂的悬空命令 → 必落 unhandled
+            // no-op。`im_reconnect` 是真连接控制命令（module.rs 有臂 emit 控制信号），保留。
+            matches!(cmd.name.as_ref(), "im_send_message" | "im_reconnect")
+                || crate::commands::is_outbound(cmd.name.as_ref())
         }
         // 连接状态变化：IM 要响应（cursor reset / proactive resync 策略在 im 层）
         Tick::Connected(_) | Tick::Disconnected(_) => true,

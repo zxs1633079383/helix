@@ -467,6 +467,21 @@ pub fn emit_channel_read_echo(channel_id: ChannelId, event_seq: u64, msg_id: &st
     }
 }
 
+/// 连接控制：`im_reconnect` → `im:net:reconnect_requested` 信号（PUB，`data:{}` 无参）。
+///
+/// 为何 Emit 而非新 Effect 变体：连接生命周期归 driver（04 表 B），helix-im sans-IO 不持
+/// transport，只**声明意图**，driver 观察后重连 `NativeTransport`。与 `im:net:offline`/
+/// `im:http:unauthorized`（`http_cross.rs`）同族 `im:net:*` 控制通道——零新增 Effect 变体/零改 driver。
+pub fn emit_reconnect_requested() -> Effect {
+    let payload = serde_json::json!({ "event": "im:net:reconnect_requested", "data": {} });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload).expect("emit_reconnect_requested: static JSON must not fail"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 /// C3：type=2 编辑 → `im:post:updated`（真源 post.rs:1337，**仅可见时** emit；phantom noop）。
 pub fn emit_post_updated(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
     use serde_json::json;

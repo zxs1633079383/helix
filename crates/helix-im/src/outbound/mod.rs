@@ -24,6 +24,8 @@ pub mod posts_announcement;
 pub mod channel_change;
 pub mod channel_create;
 pub mod channel_member_admin;
+// 消息置顶族（postPinned add/remove）：set/unset message top。注意与 channel_change 的对话置顶区分。
+pub mod channel_pinned;
 pub mod quick_reply;
 pub mod registry;
 pub mod template_received;

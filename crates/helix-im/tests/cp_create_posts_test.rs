@@ -167,9 +167,13 @@ fn create_posts_rejects_invalid_input() {
     // 缺 channel_ids
     assert!(err(json!({ "posts": [{ "message": "m" }] })));
     // 空 channel_ids 数组
-    assert!(err(json!({ "posts": [{ "message": "m" }], "channel_ids": [] })));
+    assert!(err(
+        json!({ "posts": [{ "message": "m" }], "channel_ids": [] })
+    ));
     // channel_ids 非数组
-    assert!(err(json!({ "posts": [{ "message": "m" }], "channel_ids": "c1" })));
+    assert!(err(
+        json!({ "posts": [{ "message": "m" }], "channel_ids": "c1" })
+    ));
     // 完全空对象
     assert!(err(json!({})));
 }
@@ -192,8 +196,8 @@ fn create_posts_registered_and_total_is_88() {
     );
     assert_eq!(
         outbound_command_count(),
-        88,
-        "outbound registry 总数应为 88（87 + createPosts；send 不在内）"
+        94,
+        "outbound registry 总数应为 94（含 backend-gaps 增补 + messageTop/messageUntop 置顶族；send 不在内）"
     );
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));

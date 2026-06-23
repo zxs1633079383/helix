@@ -181,49 +181,13 @@ impl Storage for HostStorage {
         let writer = Arc::clone(&self.writer);
         tokio::task::spawn_blocking(move || {
             let mut conn = writer.lock().map_err(map_lock_err)?;
-            // HX-C005 TODO（不过度工程）：batch_upsert 的 SQL 因 table + 动态列名 + conflict_key
-            // 形状各异，单 `&'static str` 不可行。若实测此路径成为分配热点，可按
-            // (table, col_count, has_conflict_key) 形状缓存 SQL 串（OnceCell/HashMap）。
-            // 现状：prepare_cached 已复用已编译语句，每次仅重建 SQL 字符串本身——
-            // batch_upsert 是「整批一事务」而非 per-message 单条，相对 monotonic cursor
-            // 冷得多，暂不缓存。
-            let col_names: Vec<&str> = spec.rows[0].iter().map(|(k, _)| k.as_str()).collect();
-            let cols_sql = col_names.join(", ");
-            let placeholders = col_names.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-
-            let sql = match spec.conflict_key {
-                Some(key) => {
-                    // ON CONFLICT 更新集排除：conflict_key 自身 + 调用方声明的 exclude_from_update
-                    // （守卫 / 本地维护列——冲突时保留既有值 = "回退本地"，HX-C005 无需先读后写）。
-                    let update_cols: Vec<String> = col_names
-                        .iter()
-                        .filter(|&&c| c != key && !spec.exclude_from_update.contains(&c))
-                        .map(|c| format!("{c} = excluded.{c}"))
-                        .collect();
-                    if update_cols.is_empty() {
-                        format!(
-                            "INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT({key}) DO NOTHING",
-                            table = spec.table,
-                            cols = cols_sql,
-                            placeholders = placeholders,
-                        )
-                    } else {
-                        format!(
-                            "INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT({key}) DO UPDATE SET {updates}",
-                            table = spec.table,
-                            cols = cols_sql,
-                            placeholders = placeholders,
-                            updates = update_cols.join(", "),
-                        )
-                    }
-                }
-                None => format!(
-                    "INSERT OR REPLACE INTO {table} ({cols}) VALUES ({placeholders})",
-                    table = spec.table,
-                    cols = cols_sql,
-                    placeholders = placeholders,
-                ),
-            };
+            // HX-C005（E9b）：batch_upsert 的 SQL 串因 table + 列名集 + conflict_key +
+            // exclude_from_update **形状**各异，单 `&'static str` 不可行。改用按形状 key 缓存
+            // 已建 SQL（thread-local `HashMap<UpsertShapeKey, String>`）：同形状第二次调用直接
+            // 复用缓存串，消除 per-call 的 `format!` / `join` / `Vec` 分配尾巴。
+            // 行为零变更——缓存的是 SQL 文本本身（值绑定仍走 `?` 参数，与原实现逐字一致）。
+            // spawn_blocking 跑在 tokio 阻塞线程池：thread-local 无锁、无跨线程共享，命中即免分配。
+            let sql = crate::upsert_sql::upsert_sql_for_shape(&spec);
 
             // E2 不变量：整批一事务，写放大 1x。中途失败 → 事务回滚（tx drop 未 commit 即回滚），整批不落。
             let tx = conn.transaction().map_err(map_sqlite_err)?;

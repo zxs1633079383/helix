@@ -23,8 +23,13 @@ ylw()  { printf '\033[33m%s\033[0m\n' "$*"; }
 [ -d "$PARTIALS" ] || { red "⛔ 缺 full-map partials 目录"; exit 2; }
 
 # ── ① HTTP:helix 注册的 outbound 命令端点数（distributed_slice 注册的 build 返回 endpoint）──
-http_registered=$(grep -rhoE 'Ok\(\("[a-z][a-z/_-]+"' crates/helix-im/src/outbound/ 2>/dev/null \
-  | grep -oE '"[a-z][a-z/_-]+"' | sort -u | grep -vE 'search|createUser|/status' | wc -l | tr -d ' ')
+# 端点真源 = `build()` 返回的 `(endpoint_path, body)` 首元字符串字面量。rustfmt 短返回写单行
+# `Ok(("ep", ...))`、长返回拆多行（`Ok((` 后 `"ep",` 独占下一行）；故抓 `Ok((` 当行**及紧邻下一行**
+# （`grep -A1`），再抽含 `/` 段的 endpoint-shaped 字面量（API 路径）。两形态精确命中、不误收 body
+# json 键（json 键不在 `Ok((` 上下文）。单段端点（users/groups）此处不计——它们均在排除集或非 helix 域。
+http_registered=$(grep -rhA1 'Ok((' crates/helix-im/src/outbound/ 2>/dev/null \
+  | grep -oE '"[a-z][a-zA-Z0-9/_-]+"' | grep -E '/' \
+  | tr -d '"' | sort -u | grep -vE 'search|createUser|/status' | wc -l | tr -d ' ')
 # full-map HTTP 全集（posts+channel+user-misc 三 partial 的真实端点）。
 # partials 1-2 用反引号 `` `/api/cses/x` ``、partial 3 裸写 `/api/cses/x`（表格行）→ 统一抽
 # `/api/cses/<path>` token、剥反引号、剥 `/api/cses/` 前缀归一成相对端点（与 http_registered 同形，

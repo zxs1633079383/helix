@@ -198,8 +198,8 @@ fn create_posts_registered_and_total_is_88() {
     );
     assert_eq!(
         outbound_command_count(),
-        105,
-        "outbound registry 总数应为 105（104 + user-misc notification/loadTarget 姊妹路由 im_load_target_notifications；send 不在内）"
+        121,
+        "outbound registry 总数应为 121（105 + channel 写族补全 7：displayName/orient/purpose/add·remove manger/enableApproval/view + channel 读族补全 8：load notice·postPinned·admin·incrementByChannelId/query/onlineStatus/members byIds/member snapshot + posts 审批 1：approval；send 不在内）"
     );
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));

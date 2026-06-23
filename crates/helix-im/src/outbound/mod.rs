@@ -13,6 +13,8 @@ pub mod send_build;
 pub mod channel_existing;
 pub mod post_props;
 pub mod posts_existing;
+// posts 审批写族（post/approval/approval，{postId}）：补齐 posts 域唯一缺失写命令。零交集独立文件。
+pub mod posts_approval;
 // CP：posts/createPosts 批量转发（补齐唯一挂起 outbound，88→89）。独立文件零交集。
 pub mod posts_relay;
 // P3a posts 读族（G1 并行，独立 distributed_slice 注册，与 channel* 零交集）。
@@ -22,8 +24,14 @@ pub mod posts_announcement;
 // P3b channel 写族（G1 并行，独立 distributed_slice 注册，与 posts_read 零交集）：
 // createSpecifyOwner / change(info/source/picture/notice/top) / member(role/notify)。
 pub mod channel_change;
+// channel 写族补全（HTTP-coverage 补齐，与 channel_change.rs 零交集）：专用单字段写路由
+// displayName/orient/purpose + add·remove/manger + enableApproval + channels/view（Go 各独立 handler）。
+pub mod channel_change_dedicated;
 pub mod channel_create;
+// channel 读族补全（is_read 回灌）：load notice/postPinned/admin/incrementByChannelId + query +
+// onlineStatus + channels/member/byIds + member/snapshot（HTTP 体即数据，无 WS 回声）。
 pub mod channel_member_admin;
+pub mod channel_read;
 // 消息置顶族（postPinned add/remove）：set/unset message top。注意与 channel_change 的对话置顶区分。
 pub mod channel_pinned;
 pub mod quick_reply;

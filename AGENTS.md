@@ -69,6 +69,25 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 - `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
 - **autonomous / sub-agent 模式**：自跑验证并回报；**单任务 prompt 模式**：输出命令让用户决定（除非用户说"你跑"）
 
+### 3.1 派 helix Rust agent / workflow 必注入的 Cargo 纪律（🔴 硬性 · 防反复编译空耗）
+
+> **触发**：任何派去改 Rust 的 agent / workflow，prompt **必须**含下面这段。
+> **Why**：cargo 编译是分钟级物理成本；不约束则 agent 陷入「改一行→cargo check→报错→改→再 check」循环——
+> 实测一个 FixA agent 因此耗 ~17min，70%+ 全在编译循环空耗（非思考）。机器没法 gate「数 cargo 次数」，
+> 故靠**强制 prompt 注入 + 本节**双落点硬化。
+
+```
+## Cargo 纪律（强约束·必守）
+- 中途编码**禁跑 cargo**：靠类型签名 + rust-analyzer 式自审，不每改一处就 check。
+- cargo **只在两处跑**：① 一个完整模块改完、准备 commit 前 `cargo check -p <crate>` 一次；
+  ② phase/任务完成 `cargo test`（或双端验收命令）一次。
+- **禁「失败→改→再 check」单点试错循环**：报错一次性读完、批量修完，再跑一次。
+- 目标：单 agent 全程 cargo 调用 **≤ 2-3 次**（不是 5-6 次）。
+```
+
+> 配套「共享编译缓存」：helix 是非 Tauri 纯 Rust → 用 **sccache**（artifact 缓存·分支无关·不 thrash）；
+> **禁 `CARGO_TARGET_DIR` 跨 worktree 共享**（不同分支不同代码 → 来回切全量重编，反向变慢，见全局 performance.md）。
+
 ---
 
 ## 4. 长运行任务约束 / Harness Engineering
@@ -101,6 +120,8 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C011 | 测试可证伪性铁律（压测/并发必带破坏即fail 证伪 · 禁墙钟下界断言，结构化/计数证不变量）| active |
 | HX-C012 | 实质任务（含 test/CI/harness ≥50 行或新源文件）须开局写 🎯 EXPECT，禁事后补记（堵 DRIFT-PRED 永空 audit 后门）| active |
 | HX-C013 | Workflow/fork agent 会动主仓 git ref（checkout/merge/branch 删）——派发前后校验 HEAD/分支/ref + 分片即时 commit | active |
+| HX-C014 | 分支身份固化进 SESSION §0（当前分支+upstream+该不该删）——`branch-identity.sh` 自陈不靠记忆，杜绝「你在哪个分支」反复问 | active |
+| HX-C015 | workflow/后台 agent 完成靠 task-notification 自动回灌，禁手工「等…报告结果」轮询；只外部不可追踪态才 /loop | active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 

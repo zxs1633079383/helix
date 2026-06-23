@@ -14,6 +14,8 @@
 | **编译** | clippy deny-list 拦截 | 🤖 自动 | `cargo clippy/check` 时 `clippy.toml` 生效 |
 | **开局新会话** | 提醒读 `ROADMAP §二 P0` + 本手册 + 列未完 P0 | 🤖 自动 | SessionStart hook |
 | **会话收尾** | 有未提交 `.rs`→提醒 `gate.sh`；有未提交 `.md`→提醒 `/helix-drift-check` | 🤖 自动 | Stop hook（只读 `git status`，不跑编译） |
+| **开局 / workflow·worktree 收尾 / 拿不准在哪个分支** | `scripts/branch-identity.sh --session` → 刷 SESSION §0 顶部 🧭 BRANCH-ID 唯一行（full 模式查可删候选）| 👤 人工（可挂 Stop hook 自动刷）| 命令（HX-C014）|
+| **派 `Workflow({name})` / `run_in_background` agent 后** | **不轮询**——等 `<task-notification>` 自动回灌再处理；外部不可追踪态（CI/deploy/queue）才 `/loop` | 🤖 自动（完成通知回灌）| 禁手工「等…报告结果」（HX-C015）|
 | **准备 commit** | `scripts/gate.sh`（七道闸门快门） | 👤 人工（push 时 pre-push 兜底自动） | 命令；或 `git push` 触发 pre-push |
 | **phase 完成 / 验收** | `/helix-acceptance`（跑全部结构+行为闸门汇总） | 👤 人工 | slash |
 | **加业务模块** | `/helix-new-module` | 👤 人工 | slash |

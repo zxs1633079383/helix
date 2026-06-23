@@ -42,8 +42,10 @@
 | [HX-C011](./HX-C011-test-falsifiability.md) | active | major | 测试可证伪性铁律：压测/并发不变量测试必带「破坏即 fail」证伪 · 禁墙钟下界断言（结构化/计数证不变量）| grep wall>=断言 + 破坏→fail 证明 | 3 | 2026-06-18 |
 | [HX-C012](./HX-C012-substantive-task-must-open-expect.md) | active | medium | 实质任务（含 test/CI/harness ≥50 行或新源文件）须开局写 🎯 EXPECT，禁事后补记（堵 DRIFT-PRED 永空 audit 后门）| grep DONE↔EXPECT 配对 | 3 | 2026-06-21 |
 | [HX-C013](./HX-C013-workflow-agent-git-ref-guard.md) | active | major | Workflow/fork agent 会动主仓 git ref（checkout/merge/branch 删）——派发前后校验 HEAD/分支/ref + 分片即时 commit | 锚点对比 + reflog 巡检 | 2 | 2026-06-22 |
+| [HX-C014](./HX-C014-branch-identity-in-session.md) | active | medium | 分支身份固化进 SESSION §0（当前分支+upstream+该不该删）——脚本自陈不靠记忆，杜绝「你在哪个分支」反复问 | `branch-identity.sh` + grep §0 唯一行 | 2 | 2026-06-23 |
+| [HX-C015](./HX-C015-workflow-done-via-notification-not-poll.md) | active | medium | workflow/后台 agent 完成靠 task-notification 自动回灌，禁手工轮询；只外部不可追踪态才 /loop | 日志 grep「等…报告结果」计数↓ | 2 | 2026-06-23 |
 
-> 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=13）。不等 = 漂移，立即修。
+> 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l` == CLAUDE.md §4 表行数（都应=15）。不等 = 漂移，立即修。
 
 ## 4. 目录结构
 
@@ -53,7 +55,7 @@ docs/harness/
 ├── TEMPLATE.md          ← 7 节卡片模板
 ├── decisions.md         ← 关键架构拍板记录（ADR-lite）
 ├── log.md               ← 跨卡复现日志
-└── HX-C001 .. HX-C013   ← 13 条（HX-C003 archived，余 active）
+└── HX-C001 .. HX-C015   ← 15 条（HX-C003 archived，余 active）
 ```
 
 ## 5. 生命周期

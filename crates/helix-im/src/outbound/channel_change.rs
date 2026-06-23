@@ -177,7 +177,105 @@ static CHANGE_TOP_REG: OutboundRegistration = OutboundRegistration {
     command: &CHANGE_TOP,
 };
 
+/// #?? POST /api/cses/channel/change/permission — 改群权限（@提醒/公告/置顶权限）→ update_channel。
+/// body = `{channelId, mentionPermission, noticePermission, topPermission}`（均 string，passthrough camelCase）。
+/// 三权限字段必填非空（边界零信任，HX-C 不变量 4）。
+struct ChangePermissionCommand;
+impl OutboundCommand for ChangePermissionCommand {
+    fn name(&self) -> &'static str {
+        "im_channel_change_permission"
+    }
+    fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        let channel_id = require_str(args, "channel_id", self.name())?;
+        let mention_permission = require_str(args, "mention_permission", self.name())?;
+        let notice_permission = require_str(args, "notice_permission", self.name())?;
+        let top_permission = require_str(args, "top_permission", self.name())?;
+        Ok((
+            "channel/change/permission",
+            json!({
+                "channelId": channel_id,
+                "mentionPermission": mention_permission,
+                "noticePermission": notice_permission,
+                "topPermission": top_permission,
+            }),
+        ))
+    }
+}
+static CHANGE_PERMISSION: ChangePermissionCommand = ChangePermissionCommand;
+#[distributed_slice(OUTBOUND_COMMANDS)]
+static CHANGE_PERMISSION_REG: OutboundRegistration = OutboundRegistration {
+    name: "im_channel_change_permission",
+    command: &CHANGE_PERMISSION,
+};
+
 // #15 change/props（UpdateCsesChannelProps）**故意不实现 outbound 命令 + 故意不补 WS handler**：
 // 真源 cses_channel.go:1226-1250 落库 Props 后**无 a.Publish**（与其他 change/* 不一致，迁移注意点 2）。
 // 前端若需改 props 经通用 store 路径，不走 IM WS 对账——此处不新增 im_update_channel_props，
 // 也**勿**为它补 update_channel WS handler（会凭空广播一个服务端不推的事件，破坏对账）。
+
+#[cfg(test)]
+mod tests {
+    use helix_core::effect::Effect;
+    use helix_core::Correlation;
+    use serde_json::json;
+
+    use super::super::registry::{handle_outbound, is_outbound};
+
+    /// im_channel_change_permission 正常路径：endpoint = channel/change/permission，
+    /// body 四字段 camelCase 透传（channelId/mentionPermission/noticePermission/topPermission）。
+    #[test]
+    fn change_permission_dispatch_and_body() {
+        assert!(is_outbound("im_channel_change_permission"));
+        let corr = Correlation::from_raw(1);
+        let payload = serde_json::to_vec(&json!({
+            "channel_id": "c1",
+            "mention_permission": "all",
+            "notice_permission": "owner",
+            "top_permission": "admin",
+        }))
+        .unwrap();
+        let effects = handle_outbound(
+            "im_channel_change_permission",
+            &payload,
+            "http://h/api",
+            Some("conn1"),
+            corr,
+        )
+        .expect("change_permission should dispatch");
+        match &effects[0] {
+            Effect::Http { req, .. } => {
+                assert!(
+                    req.url.ends_with("/channel/change/permission"),
+                    "url={}",
+                    req.url
+                );
+                let body: serde_json::Value =
+                    serde_json::from_slice(req.body.as_ref().expect("body")).unwrap();
+                assert_eq!(body["channelId"], "c1");
+                assert_eq!(body["mentionPermission"], "all");
+                assert_eq!(body["noticePermission"], "owner");
+                assert_eq!(body["topPermission"], "admin");
+            }
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    /// 缺任一必填权限字段 → Err（边界零信任，不 panic）。
+    #[test]
+    fn change_permission_missing_field_errors() {
+        let corr = Correlation::from_raw(2);
+        let payload = serde_json::to_vec(&json!({
+            "channel_id": "c1",
+            "mention_permission": "all",
+        }))
+        .unwrap();
+        assert!(handle_outbound(
+            "im_channel_change_permission",
+            &payload,
+            "http://h/api",
+            None,
+            corr,
+        )
+        .is_err());
+    }
+}

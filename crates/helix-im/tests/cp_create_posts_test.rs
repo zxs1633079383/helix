@@ -198,8 +198,8 @@ fn create_posts_registered_and_total_is_88() {
     );
     assert_eq!(
         outbound_command_count(),
-        99,
-        "outbound registry 总数应为 99（94 + vote/score 第二网关族 5：createVote/readVote/deleteVote + average read/delete；send 不在内）"
+        104,
+        "outbound registry 总数应为 104（94 + vote/score 第二网关族 10：create/read/delete/vote/closeVote + average read/delete/attend/close/publish；send 不在内）"
     );
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));

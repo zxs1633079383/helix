@@ -12,7 +12,7 @@ use crate::outbound::registry::require_str;
 
 // #3 GET /bot-manage/list — 从 session 取 userId/companyId，无请求体。
 bot_cmd!(
-    ListVisibleBotsCommand,
+    read ListVisibleBotsCommand,
     LIST_VISIBLE_BOTS_REG,
     "im_bot_list_visible",
     |_args, _cmd| { Ok(("bot-manage/list", json!({}))) }
@@ -58,7 +58,7 @@ bot_cmd!(
 
 // #6 GET /bot-manage/token/list?botUserId= — query param 必填（bot_manage.go:76）。
 bot_dyn_cmd!(
-    ListTokensCommand,
+    read ListTokensCommand,
     LIST_TOKENS_REG,
     "im_bot_token_list",
     "bot-manage/token/list",
@@ -124,7 +124,7 @@ bot_cmd!(
 
 // #11 GET /bot-manage/scope/visible-user/list?botUserId= — query param 必填（bot_manage.go:157）。
 bot_dyn_cmd!(
-    ListVisibleUsersCommand,
+    read ListVisibleUsersCommand,
     LIST_VISIBLE_USERS_REG,
     "im_bot_visible_user_list",
     "bot-manage/scope/visible-user/list",

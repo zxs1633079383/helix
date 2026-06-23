@@ -42,7 +42,7 @@ bot_cmd!(
 
 // #36 GET /webhook/config — 无请求体（响应裸 map，configured?）。
 bot_cmd!(
-    GetWebhookConfigCommand,
+    read GetWebhookConfigCommand,
     GET_WEBHOOK_CONFIG_REG,
     "im_webhook_config_get",
     |_args, _cmd| { Ok(("webhook/config", json!({}))) }

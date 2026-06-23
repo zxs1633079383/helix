@@ -37,7 +37,7 @@ bot_cmd!(
 
 // #13 GET /bot-agent/config/{botUserId} — path param。
 bot_dyn_cmd!(
-    BotAgentGetConfigCommand,
+    read BotAgentGetConfigCommand,
     BOT_AGENT_GET_CONFIG_REG,
     "im_bot_agent_config_get",
     "bot-agent/config",
@@ -50,7 +50,7 @@ bot_dyn_cmd!(
 
 // #14 GET /bot-agent/configs/enabled — 无参。
 bot_cmd!(
-    BotAgentEnabledConfigsCommand,
+    read BotAgentEnabledConfigsCommand,
     BOT_AGENT_ENABLED_CONFIGS_REG,
     "im_bot_agent_configs_enabled",
     |_args, _cmd| { Ok(("bot-agent/configs/enabled", json!({}))) }
@@ -97,7 +97,7 @@ bot_dyn_cmd!(
 
 // #18 GET /bot-agent/channel/{channelId}/bots — path param。
 bot_dyn_cmd!(
-    BotAgentChannelBotsCommand,
+    read BotAgentChannelBotsCommand,
     BOT_AGENT_CHANNEL_BOTS_REG,
     "im_bot_agent_channel_bots",
     "bot-agent/channel",
@@ -110,7 +110,7 @@ bot_dyn_cmd!(
 
 // #19 GET /bot-agent/channel/{channelId}/available-bots — path param。
 bot_dyn_cmd!(
-    BotAgentAvailableBotsCommand,
+    read BotAgentAvailableBotsCommand,
     BOT_AGENT_AVAILABLE_BOTS_REG,
     "im_bot_agent_channel_available_bots",
     "bot-agent/channel",

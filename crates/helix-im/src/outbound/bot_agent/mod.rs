@@ -48,10 +48,10 @@ pub(super) fn path_seg<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&'a 
 }
 
 /// 内部：注册三件套（struct + impl OutboundCommand + distributed_slice）。
-/// `$auth` = `Session`|`Bot`；`$path_ov` = 0（静态）|动态 path 闭包。
+/// `$auth` = `Session`|`Bot`；`$is_read:literal` = 读族标注（写族默认 false，读族 override true，spec06 缺陷A）。
 macro_rules! __outbound_impl {
-    // 静态 path 命令（build 产 (&'static str, body)）。
-    (static $cmd:ident, $reg:ident, $name:literal, $auth:ident, $build:expr) => {
+    // 静态 path 命令（build 产 (&'static str, body)）。`$is_read` 末尾标读写。
+    (static $cmd:ident, $reg:ident, $name:literal, $auth:ident, $is_read:literal, $build:expr) => {
         struct $cmd;
         impl $crate::outbound::registry::OutboundCommand for $cmd {
             fn name(&self) -> &'static str { $name }
@@ -62,11 +62,12 @@ macro_rules! __outbound_impl {
                 f(a, $name)
             }
             fn auth_kind(&self) -> ::helix_core::AuthKind { ::helix_core::AuthKind::$auth }
+            fn is_read(&self) -> bool { $is_read }
         }
         __outbound_impl!(@register $cmd, $reg, $name);
     };
-    // 动态 path 命令（build 产 (base_path, body)；path_override 产完整动态 path）。
-    (dyn $cmd:ident, $reg:ident, $name:literal, $base:literal, $auth:ident, $path:expr, $body:expr) => {
+    // 动态 path 命令（build 产 (base_path, body)；path_override 产完整动态 path）。`$is_read` 末尾标读写。
+    (dyn $cmd:ident, $reg:ident, $name:literal, $base:literal, $auth:ident, $is_read:literal, $path:expr, $body:expr) => {
         struct $cmd;
         impl $crate::outbound::registry::OutboundCommand for $cmd {
             fn name(&self) -> &'static str { $name }
@@ -83,6 +84,7 @@ macro_rules! __outbound_impl {
                 ::std::option::Option::Some(f(a, $name))
             }
             fn auth_kind(&self) -> ::helix_core::AuthKind { ::helix_core::AuthKind::$auth }
+            fn is_read(&self) -> bool { $is_read }
         }
         __outbound_impl!(@register $cmd, $reg, $name);
     };
@@ -94,27 +96,43 @@ macro_rules! __outbound_impl {
 }
 
 /// session 静态 path 命令。`$build`: `fn(&Value,&str)->Result<(&'static str,Value)>`。
+/// 默认写族（`is_read=false`，走 WS 回声）；读族用 `bot_cmd!(read ...)` 标 `is_read=true`。
 macro_rules! bot_cmd {
+    (read $cmd:ident, $reg:ident, $name:literal, $build:expr) => {
+        __outbound_impl!(static $cmd, $reg, $name, Session, true, $build);
+    };
     ($cmd:ident, $reg:ident, $name:literal, $build:expr) => {
-        __outbound_impl!(static $cmd, $reg, $name, Session, $build);
+        __outbound_impl!(static $cmd, $reg, $name, Session, false, $build);
     };
 }
 /// bot-token（auth=Bot）静态 path 命令（C6：core 只标 `X-Auth-Kind: bot` 意图，token 留 driver）。
+/// 默认写族；读族用 `bot_call_cmd!(read ...)` 标 `is_read=true`。
 macro_rules! bot_call_cmd {
+    (read $cmd:ident, $reg:ident, $name:literal, $build:expr) => {
+        __outbound_impl!(static $cmd, $reg, $name, Bot, true, $build);
+    };
     ($cmd:ident, $reg:ident, $name:literal, $build:expr) => {
-        __outbound_impl!(static $cmd, $reg, $name, Bot, $build);
+        __outbound_impl!(static $cmd, $reg, $name, Bot, false, $build);
     };
 }
 /// session 动态 path 命令。`$base`=静态 fallback；`$path`: args→Result<String>；`$body`: args→Result<Value>。
+/// 默认写族；读族用 `bot_dyn_cmd!(read ...)` 标 `is_read=true`。
 macro_rules! bot_dyn_cmd {
+    (read $cmd:ident, $reg:ident, $name:literal, $base:literal, $path:expr, $body:expr) => {
+        __outbound_impl!(dyn $cmd, $reg, $name, $base, Session, true, $path, $body);
+    };
     ($cmd:ident, $reg:ident, $name:literal, $base:literal, $path:expr, $body:expr) => {
-        __outbound_impl!(dyn $cmd, $reg, $name, $base, Session, $path, $body);
+        __outbound_impl!(dyn $cmd, $reg, $name, $base, Session, false, $path, $body);
     };
 }
 /// bot-token 动态 path 命令（auth=Bot + path_override）。
+/// 默认写族；读族用 `bot_call_dyn_cmd!(read ...)` 标 `is_read=true`。
 macro_rules! bot_call_dyn_cmd {
+    (read $cmd:ident, $reg:ident, $name:literal, $base:literal, $path:expr, $body:expr) => {
+        __outbound_impl!(dyn $cmd, $reg, $name, $base, Bot, true, $path, $body);
+    };
     ($cmd:ident, $reg:ident, $name:literal, $base:literal, $path:expr, $body:expr) => {
-        __outbound_impl!(dyn $cmd, $reg, $name, $base, Bot, $path, $body);
+        __outbound_impl!(dyn $cmd, $reg, $name, $base, Bot, false, $path, $body);
     };
 }
 
@@ -125,3 +143,48 @@ pub(super) mod calls;
 pub(super) mod config;
 pub(super) mod gateway;
 pub(super) mod webhook;
+
+#[cfg(test)]
+mod tests {
+    use crate::outbound::registry::is_read;
+
+    /// 12 个 GET 读命令标 `is_read()==true`（dispatch 据此回灌 OutboundReadReply）；
+    /// 写命令（create/send/callback/revoke/token-generate）保持 `false`（走 WS 回声）。
+    /// 真源：bot_agent gap §（spec06 缺陷A，bot 域读命令默认 false 漏标修正）。
+    #[test]
+    fn bot_agent_read_commands_marked_read() {
+        // 12 GET 读命令（webhook/config + bot-agent config/channel 读 + bot-token 调用读 + bot-manage 列表）。
+        for name in [
+            "im_webhook_config_get",               // webhook.rs #36
+            "im_bot_agent_config_get",             // config.rs #13
+            "im_bot_agent_configs_enabled",        // config.rs #14
+            "im_bot_agent_channel_bots",           // config.rs #18
+            "im_bot_agent_channel_available_bots", // config.rs #19
+            "im_bot_agent_info",                   // calls.rs #22
+            "im_bot_agent_team_members",           // calls.rs #25
+            "im_bot_agent_get_user",               // calls.rs #26
+            "im_bot_agent_team_channel",           // calls.rs #27
+            "im_bot_list_visible",                 // bot_manage.rs #3
+            "im_bot_token_list",                   // bot_manage.rs #6
+            "im_bot_visible_user_list",            // bot_manage.rs #11
+        ] {
+            assert!(is_read(name), "{name} 应标 is_read==true（读族）");
+        }
+    }
+
+    /// 写命令保持 `is_read()==false`（默认）——抽样 create/send/callback/revoke/token-generate 各域。
+    #[test]
+    fn bot_agent_write_commands_not_read() {
+        for name in [
+            "im_create_bot",            // gateway.rs #1 createBot（写）
+            "im_bot_callback",          // gateway.rs #2 callback（写）
+            "im_bot_create",            // bot_manage.rs #4 create（写）
+            "im_bot_token_generate",    // bot_manage.rs #5 token/generate（写）
+            "im_bot_token_revoke",      // bot_manage.rs #7 token/revoke（写）
+            "im_bot_agent_send_direct", // calls.rs #23 send（写）
+            "im_agent_callback",        // agents.rs #32 callback（写）
+        ] {
+            assert!(!is_read(name), "{name} 应保持 is_read==false（写族）");
+        }
+    }
+}

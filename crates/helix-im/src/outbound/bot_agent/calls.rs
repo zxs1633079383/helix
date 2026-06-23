@@ -16,7 +16,7 @@ use crate::outbound::registry::require_str;
 
 // #22 GET /bot-agent/info — 无 App 调用，从 ctx config 取（响应裸 map{id,username,displayName}，响应态）。
 bot_call_cmd!(
-    BotAgentInfoCommand,
+    read BotAgentInfoCommand,
     BOT_AGENT_INFO_REG,
     "im_bot_agent_info",
     |_args, _cmd| { Ok(("bot-agent/info", json!({}))) }
@@ -49,7 +49,7 @@ bot_call_cmd!(
 
 // #25 GET /bot-agent/teams/{team_id}/members?page=&per_page= — path + query param。
 bot_call_dyn_cmd!(
-    BotAgentTeamMembersCommand,
+    read BotAgentTeamMembersCommand,
     BOT_AGENT_TEAM_MEMBERS_REG,
     "im_bot_agent_team_members",
     "bot-agent/teams",
@@ -66,7 +66,7 @@ bot_call_dyn_cmd!(
 
 // #26 GET /bot-agent/teams/{team_id}/users/{user_id} — 双 path param。
 bot_call_dyn_cmd!(
-    BotAgentGetUserCommand,
+    read BotAgentGetUserCommand,
     BOT_AGENT_GET_USER_REG,
     "im_bot_agent_get_user",
     "bot-agent/teams",
@@ -80,7 +80,7 @@ bot_call_dyn_cmd!(
 
 // #27 GET /bot-agent/teams/{team_id}/channel — path param（默认 channel）。
 bot_call_dyn_cmd!(
-    BotAgentTeamChannelCommand,
+    read BotAgentTeamChannelCommand,
     BOT_AGENT_TEAM_CHANNEL_REG,
     "im_bot_agent_team_channel",
     "bot-agent/teams",

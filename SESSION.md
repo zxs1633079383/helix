@@ -5,6 +5,14 @@
 
 ## §0 终态记录
 
+✅ DONE FixA 读族回灌（spec06 缺陷A）——读族 outbound HTTP 响应回灌前端，杀 fire-and-forget 丢响应 @2026-06-23 +0800 | commit 本提交 | 425/425 helix-im + 13/13 helix-core 绿 | feat/im-takeover
+  ↳ 落地：① `state.rs` 新增 `CorrelationContext::OutboundReadReply { req_id: String }`（owned，进 corr_map 跨 step 存活，HX-C002；零改既有 5 变体）。② `outbound/registry.rs` `OutboundCommand` trait 加 `fn is_read(&self)->bool{false}` 默认非读 + pub `is_read(name)` O(1) 查表 API（commands.rs/outbound/mod.rs 同步 re-export）。③ posts_read.rs 17 命令 `read_cmd!` 宏 override `is_read=true`；user_misc.rs 改 `misc_cmd!` 收末参读写标注——读 7（list_users/get_user_statuses/get_all_modules/load_send_notifications/search_post/user/channel）标 true，写 3（team_upsert/member_add/quit）+ search_do（spec06 §4 Go 未实现，唯一合法暂不切）标 false；其余 60+ 命令默认 false 不动。④ `module.rs` outbound 分发臂：`commands::is_read(name)` 命中 → 取 payload `req_id`（新 `read_req_id` helper，缺则降级 fire-and-forget 不注册）→ `corr_map.insert(corr, OutboundReadReply{req_id})`；写族不注册（数据走 WS 回声）。⑤ `module.rs` `handle_port_reply` 加 `OutboundReadReply` 臂：Ok → `unwrap_sync_envelope` 剥 ADR-007 信封得裸后端 body → `read_relay::emit_read_result(req_id, body)` 透传（后端返回什么吐什么）；信封畸形/Err → `emit_read_error(req_id, ...)`（不丢 req_id，前端 reject 不挂起）。⑥ 新 `src/read_relay.rs`（read-reply 工厂独立文件，避 query.rs 超 300 硬顶）：`emit_read_result`/`emit_read_error` → `im:read:result{req_id,body|error}` Effect::Emit（走既有变体，零新 Effect 变体）+ 3 单测。⑦ `projection-schema.md` §1.2 把 `im:read:result` 标为读族回灌通道（不计入 21 投影集，body 不冻结字段=后端权威透传）。⑧ 新 `tests/read_relay_test.rs` 6 用例（读注册+透传 / 写不注册 / HTTP Err / 信封畸形 / 缺 req_id 降级 / is_read 注册表 31 命令覆盖）。
+  ↳ 验证：cargo test -p helix-im 425 passed 0 failed（含 read_relay_test 6 + read_relay 单测 3 + projection_schema 27 不变 + cp_create_posts 89 计数不变）；cargo test -p helix-core 13 passed；cargo check 五 crate exit 0（零 error）；**可证伪性实证（HX-C011）**：删 `module.rs` 的 `corr_map.insert(OutboundReadReply)` 行 → relay 三用例（透传/HTTP Err/信封畸形）如期 FAIL（响应查不到丢弃 = 缺陷A 现状），restore 后复绿；core 零运行时 grep 空（cargo tree + use import 双查）；im/src 确定性 grep（SystemTime/Instant::now/Utc::now/rand）空；structure-gate：my-files PASS（query.rs 复原 267 / registry 298 / posts_read 300 / read_relay 82 均 ≤300；module.rs 1270→1318 + state.rs 390→401 baseline 同步 bump + rule §1 表 + 注明 FixA 理由）——唯一 ✗ = to_effect.rs 786>763 属**前序会话未提交改动非本次引入**；写族 WS 回声不动；不动 IM_ENGINE。
+  ↳ 预期命中（无偏离开局 EXPECT，不追 ⚡ DRIFT-PRED）：① OutboundReadReply 变体 ✅ ② is_read trait+API ✅ ③ posts_read 17+user-misc 7 读标注 / search_do false ✅ ④ dispatch 读注册+写不注册 ✅ ⑤ handle_port_reply 回灌臂 ✅ ⑥ read_relay 工厂（偏离：原 EXPECT 写「to_effect/query」工厂，实落独立 `read_relay.rs` 为守 300 硬顶——同义优解非架构偏离，不计 drift）⑦ 测试 6 用例 + 证伪实证 ✅ ⑧ 五 crate 绿 + core 零运行时 ✅ ⑨ HX-C001/C005 守约 ✅。
+
+🎯 EXPECT FixA 读族回灌（spec06 缺陷A）——读族 outbound HTTP 响应回灌前端，杀「fire-and-forget 丢响应」@2026-06-23 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① `state.rs` 新增 `CorrelationContext::OutboundReadReply { req_id: String }`（owned，HX-C002 进 corr_map 跨 step 存活）——零改既有 4 变体；② `outbound/registry.rs` `OutboundCommand` trait 加 `fn is_read(&self) -> bool { false }` 默认非读 + pub `is_read(name)` 查表 API；posts_read.rs 17 命令 `read_cmd!` 宏 override `is_read=true`，写族保持默认 false；③ `module.rs` outbound 分发臂：读命令（`commands::is_read(name)`）alloc corr 后 `corr_map.insert(corr, OutboundReadReply{req_id})`（req_id 取 payload，缺则 fire-and-forget 不注册）；写命令保持现状不注册；④ `handle_port_reply` 加 `OutboundReadReply` 臂：Ok → `unwrap_sync_envelope` 解 base64 body → emit `im:read:result{req_id, body}`（后端返回什么吐什么，零改业务数据，走既有 Effect::Emit），Err → emit `im:read:result{req_id, error}`；⑤ 新 `to_effect`（或 query）`emit_read_result(req_id, raw_body)` 工厂 + `emit_read_error`；⑥ 新 `tests/read_relay_test.rs`：喂读命令 Tick → 断言注册 OutboundReadReply + 喂 PortReply(Http 信封) → 断言 emit im:read:result{req_id,body}；**证伪**：删 corr_map.insert 行 → 测试 FAIL（响应查不到丢弃）；⑦ gate：cargo test -p helix-im + -p helix-core 全绿 + cargo check 五 crate exit 0 + core 零运行时 grep 空；⑧ 守 HX-C001（core 零运行时·零新 Effect 变体）/ HX-C005（不在热路径瞎序列化，body 透传）；写族 WS 回声不动；不动 IM_ENGINE 默认。
+
 🎯 EXPECT F4 接管收尾全量 md 熵管理（helix 侧 takeover-plan/ + sync-v2 状态卡 + crate 索引终态化）@2026-06-23 +0800 | 赌注 低 | 可逆 是
   ↳ 可证伪断言：① 04 文档命令计数 88→**89**（createPosts/CP 已注册）+ §3.2/表 B/§5.5④/checklist 同步收口（无残留「D3 待真抓包 blocker」字样）；② 04 表 C `im_read_channel` 标「不实现/已删」+ `im_reconnect` 标「F1 已落地」；③ sync-v2 状态卡 §4 加接管收官段；④ helix-im CLAUDE.md/AGENTS.md + docs/README.md + 根 CLAUDE.md/AGENTS.md 文档索引挂上 takeover-plan/ + projection-schema.md（~85%→~90% 纠偏）；⑤ structure-gate 镜像闸 PASS（7 crate CLAUDE==AGENTS）；⑥ 索引指向文件全部存在、无断链；⑦ **零 .rs 改动**（doc-only）。
 
@@ -391,3 +399,34 @@
 3. ⏸ im_delete_all_dialogs 物理 truncate：core 缺 StorageOp::Truncate，P6 降级清内存+emit（YAGNI）
 
 ⚡ DRIFT-PRED P6 结构闸 baseline 又被上调（module.rs 1211→1264 query 分发 / storage.rs 560→578 scan additive）——与十二/十三轮 drift-review 反复点名的「baseline 棘轮后门复发」同根 → 候选教训：additive 原语扩展应优先拆文件回落 ≤baseline 而非抬 baseline 保绿；下次 drift-review 须复核 module.rs/storage.rs 拆分。type:surprise。
+
+## §0 会话续接（2026-06-23 真机联调收官 · 新会话从这接）
+
+> **一句话续接**：helix 全量接管 cses-client HTTP+WS（89命令+19WS）已落地 + cses-client 灰度接入（CI-1~3）+ 真机连 Go 联调 ①-⑤全绿+⑥nickname/⑦读族验过+#18单连接驱动重构完成；**剩 #4 gap-3(可选) / #13 灰度 / V6-member·V7往返·V8-bot(均需环境或工具扩展，非 helix bug)**。
+
+### 双仓分支（work 都在分支，主检出在 ci/test-harbor-runner 看不到）
+- helix 接管引擎：`feat/im-takeover`（worktree `worktrees/im-takeover/`）— P0-P7 接管 + projection-schema 冻结 + gap-1/2 修 + F1-F4 收尾
+- cses-client 接入：`feat/helix-takeover-integ`（worktree `cses-client/worktrees/helix-integ/`）— CI-1~3 灰度可逆接入
+
+### ✅ 已完成（21/22 task）
+- 接管：89 outbound + 19 WS + Tauri 四接缝 + projection-schema(26用例对账) + drift-review 净
+- 接入：git-dep 指分支 + IM_ENGINE 灰度开关 + 91 命令薄壳 + im:__bus__ 总线桥 + 前端核心路径切 helix
+- 真机联调（群主444连Go）：①连接 ②increment(45ch落库) ③sync(485msg落库) ④发消息echo对账 ⑤已读+撤回 ⑥群昵称 ⑦读族(Go响应+形态curl验) 全绿
+- #18：`scripts/host-cli-session.sh` 单连接 ping-pong 驱动(connect==1)，治好 thrashing，沉淀进 helix-loop-engine skill
+
+### ⏳ 待办（pending）
+- **#4 gap-3（可选·helix）**：query.rs ScanSpec.filter 补 viewers/NOTICE 可见性复合过滤
+- **#13 灰度上线**：IM_ENGINE=helix 白名单→10%→全量 + 决定引擎库正式形态(git-dep→vendor/发布) + 是否 merge feat/im-takeover→main
+- **V6 member/role/notify**：需真实成员对象 body（不臆造）；create/close 需可销毁靶
+- **V7 完整 host-cli 往返**：host-cli repl 不暴露读族命令 → 需扩展 repl（或继续 curl 旁证 + build 单测）
+- **V8 bot-agent**：后端 admins empty / system bot 未配 → 需后端配置才能真机验（helix build 单测已绿）
+
+### 2 个 finding（非 helix bug，环境/用例）
+- `posts.go:583 read post is empty`（读命令传空 postId·用例边界）
+- `post.go:2480 GetSystemBot admins empty`（后端 bot 配置缺）
+
+### 联调速查
+- Go 后端 `:8065`，日志 `/Users/mac28/workspace/mmlog/mattermost.log`
+- 联调驱动：`bash scripts/host-cli-session.sh`（单连接，命令经 stdin 每行一条）；方法论 = `/helix-loop-engine` skill
+- 账号：群主 444 / 用户 678·555 / COMPANY=64118eebd2b665246b7880eb / deviceId ADR-011 兜底
+- 测试矩阵：`crates/helix-im/docs/2026-06-23-helix-takeover-联调测试矩阵-CI4.md`（89命令↔HTTP↔WS）

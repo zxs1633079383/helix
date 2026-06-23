@@ -42,9 +42,13 @@ fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImErro
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
 }
 
-/// 注册一条命令的样板：`name` + `build` 闭包（与 posts_read.rs `read_cmd!` 同构，独立宏不跨文件耦合）。
+/// 注册一条命令的样板：`name` + `build` 闭包 + **读/写标注**（user-misc 域读写混存，
+/// 与纯读 posts_read.rs 不同，须逐命令标 `is_read`，spec06 缺陷A）。
+///
+/// 末参 `read` = `true`（读族：无 WS 回声，HTTP 响应即数据 → dispatch 注册 OutboundReadReply 回灌）/
+/// `false`（写族：数据走 WS 回声，HTTP 响应可丢 fire-and-forget）。
 macro_rules! misc_cmd {
-    ($cmd_struct:ident, $reg:ident, $name:literal, $build:expr) => {
+    ($cmd_struct:ident, $reg:ident, $name:literal, $is_read:literal, $build:expr) => {
         struct $cmd_struct;
         impl OutboundCommand for $cmd_struct {
             fn name(&self) -> &'static str {
@@ -53,6 +57,9 @@ macro_rules! misc_cmd {
             fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
                 let f: fn(&Value, &'static str) -> Result<(&'static str, Value), ImError> = $build;
                 f(args, $name)
+            }
+            fn is_read(&self) -> bool {
+                $is_read
             }
         }
         // 单元 struct 值经 const promotion 直接做 &'static dyn 注册目标（无需中间 static）。
@@ -71,6 +78,7 @@ misc_cmd!(
     ListUsersCommand,
     LIST_USERS_REG,
     "im_list_users",
+    true,
     |args, cmd| {
         let channel_id = require_str(args, "channel_id", cmd)?;
         Ok(("users/list", json!({ "channelId": channel_id })))
@@ -82,6 +90,7 @@ misc_cmd!(
     GetUserStatusesCommand,
     GET_USER_STATUSES_REG,
     "im_get_user_statuses",
+    true,
     |args, cmd| {
         let user_ids = require_str_array(args, "user_ids", cmd)?;
         Ok(("users/status/ids", json!({ "userIds": user_ids })))
@@ -96,6 +105,7 @@ misc_cmd!(
     TeamUpsertCommand,
     TEAM_UPSERT_REG,
     "im_team_upsert",
+    false,
     |args, cmd| {
         let team = args
             .get("team")
@@ -111,6 +121,7 @@ misc_cmd!(
     TeamMemberAddCommand,
     TEAM_MEMBER_ADD_REG,
     "im_team_member_add",
+    false,
     |args, cmd| {
         let event = args
             .get("event")
@@ -131,6 +142,7 @@ misc_cmd!(
     TeamQuitCommand,
     TEAM_QUIT_REG,
     "im_team_quit",
+    false,
     |args, cmd| {
         let user_id = require_str(args, "user_id", cmd)?;
         let team_id = require_str(args, "team_id", cmd)?;
@@ -149,6 +161,7 @@ misc_cmd!(
     GetAllModulesCommand,
     GET_ALL_MODULES_REG,
     "im_get_all_modules",
+    true,
     |_args, _cmd| { Ok(("modules/getAll", json!({}))) }
 );
 
@@ -161,6 +174,7 @@ misc_cmd!(
     LoadSendNotificationsCommand,
     LOAD_SEND_NOTIFICATIONS_REG,
     "im_load_send_notifications",
+    true,
     |args, cmd| {
         // page/size 必填（Page validate required,min=1）；state 可选。
         let page = args
@@ -217,6 +231,7 @@ misc_cmd!(
     SearchPostCommand,
     SEARCH_POST_REG,
     "im_search_post",
+    true,
     |args, cmd| { Ok(("search/post", do_search_body(args, cmd)?)) }
 );
 
@@ -225,6 +240,7 @@ misc_cmd!(
     SearchUserCommand,
     SEARCH_USER_REG,
     "im_search_user",
+    true,
     |args, cmd| { Ok(("search/user", do_search_body(args, cmd)?)) }
 );
 
@@ -233,13 +249,17 @@ misc_cmd!(
     SearchChannelCommand,
     SEARCH_CHANNEL_REG,
     "im_search_channel",
+    true,
     |args, cmd| { Ok(("search/channel", do_search_body(args, cmd)?)) }
 );
 
 // #11 search/do：聚合搜索（searchAll → channels/users/channelDetails 四 key 响应）。
+// spec06 §4：search_do = Go 未实现（Java 全局搜索遗留），唯一合法「暂不切」——前端走 legacy，
+// helix 不接读回灌（标 `false`，不注册 OutboundReadReply）。endpoint+body 仍保真（待 Go 补齐后切）。
 misc_cmd!(
     SearchDoCommand,
     SEARCH_DO_REG,
     "im_search_do",
+    false,
     |args, cmd| { Ok(("search/do", do_search_body(args, cmd)?)) }
 );

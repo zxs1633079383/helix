@@ -216,6 +216,17 @@ pub enum CorrelationContext {
     /// P6 投影查询 **Get** 回报：`im_query_messages_by_channel` 的 `Get(message WHERE channel_id)`
     /// 回报 → 把行 emit 成 `im:messages:query_result` 投影（data 数组 → driver `{items:[]}` 包装）。
     MessageQuery { channel_id: ChannelId },
+
+    /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
+    ///
+    /// 读命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声**，
+    /// HTTP **响应体本身就是数据**——故读族（且仅读族）alloc corr 时注册本上下文，
+    /// `handle_port_reply` 据此把响应体透传 emit 成 `im:read:result{req_id, body}`（前端 bridge 等
+    /// 该 req_id resolve 后直接渲染）。写命令不注册（fire-and-forget，数据走 WS 回声）。
+    ///
+    /// `req_id` 是前端 bridge 注入的请求标识（owned String，进 corr_map 跨 step 存活，HX-C002）；
+    /// 与 corr 解耦（前端不见 core 内部 corr）。透传不在 helix 改业务数据（后端权威，HX-C005）。
+    OutboundReadReply { req_id: String },
 }
 
 // ─── ImState ────────────────────────────────────────────────────────────────

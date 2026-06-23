@@ -88,6 +88,24 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_21_projection_factories_covered`
 > 保持 21 不动（投影集纯净），控制信号由 `reconnect_requested_is_control_signal` 单独断言（channel/空 data）。
 
+### 1.2 读族回灌通道（**不计入** 21 投影集 · spec06 缺陷A）
+
+读族 outbound 命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声、HTTP
+响应体本身就是数据**。dispatch 对读命令注册 `CorrelationContext::OutboundReadReply{req_id}`，HTTP
+回报时经 `query::emit_read_result` 把**后端响应体原样透传**回灌——它是 **request-response 传输通道**，
+**不是投影**（body 由后端定，helix 不冻结字段、不改业务数据，后端权威），故**不纳入 21 投影冻结集**。
+前端 bridge（仿 `helixQueryBridge`）`invoke(命令, {…, req_id})` 后等 `im:read:result{req_id}` resolve → 直接渲染。
+
+| 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
+|---|---|---|---|---|
+| `query::emit_read_result` | `im:read:result` | `{req_id, body}`（body=后端响应体透传，结构由后端定）| 读族 HTTP Ok 回报 | helix-im 透传，前端 bridge resolve |
+| `query::emit_read_error` | `im:read:result` | `{req_id, error}`（诊断字符串，无敏感数据）| 读族 HTTP Err / 信封畸形 | helix-im 产，前端 bridge reject |
+
+> **为何不冻结字段集**：读 = 后端权威透传（后端返回什么吐什么），body 形态随 endpoint 变（top20 返消息数组 /
+> bookmark 返书签列表 / status/ids 返状态 map…），逐 endpoint 不同——冻结统一字段集会破坏透传语义。
+> `data` **外层**键集恒为 `{req_id, body}`（成功）/ `{req_id, error}`（失败），由 `read_relay_test` 断言。
+> 写族保持 fire-and-forget（数据走 WS 回声），**不**走本通道。
+
 ---
 
 ## 2. 信号类 vs 投影类（前端如何消费，回填闸门关键）

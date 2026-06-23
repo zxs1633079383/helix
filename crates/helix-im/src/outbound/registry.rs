@@ -46,6 +46,12 @@ pub(crate) trait OutboundCommand: Sync {
     fn auth_kind(&self) -> AuthKind {
         AuthKind::Session
     }
+
+    /// 是否**读族**命令（spec06 缺陷A）：读 = 无 WS 回声、HTTP 响应体即数据 → 读命令 override `true`，
+    /// dispatch 注册 `OutboundReadReply` 回灌响应给前端。默认 `false`（写族走 WS 回声，HTTP 响应可丢）。
+    fn is_read(&self) -> bool {
+        false
+    }
 }
 
 /// 注册条目（`name` 与 `cmd.name()` 必须一致，build_registry 会校验）。
@@ -93,6 +99,16 @@ fn build_registry(
 /// 此处布尔判定不吞 `Result`（O(1) 查表）。
 pub fn is_outbound(name: &str) -> bool {
     registry().map(|m| m.contains_key(name)).unwrap_or(false)
+}
+
+/// 该命令是否**读族**（spec06 缺陷A）：查注册表命令的 `is_read()`。未认领/构建失败 → `false`
+/// （写族缺省，不误注册回灌）。O(1) 查表。dispatch 据此决定读命令是否注册 `OutboundReadReply`。
+pub fn is_read(name: &str) -> bool {
+    registry()
+        .ok()
+        .and_then(|m| m.get(name))
+        .map(|cmd| cmd.is_read())
+        .unwrap_or(false)
 }
 
 /// 注册表命令总数（`im_send_message` 不在内——它走 module.rs send arm，非 HTTP-fire outbound）。

@@ -1,11 +1,8 @@
 //! posts 读族 outbound 命令（P3a，parallelGroup=G1）。
 //!
-//! 纯**读** request/response：helix-im 只 build 正确 wire body，driver fire HTTP 后响应直接回灌
-//! await 的语义 invoke（前端纯渲染消费返回值）。**不**为每个读命令造 corr→projection 通路——
-//! response→投影属 WS 推送态（post:received 已在册）+ driver 投影命令（store_get_messages，P6）
-//! 两条路径，projection-schema 冻结后（C2）才接。与 P3b 真零交集：独立文件 + distributed_slice
-//! 注册，不碰 channel*/registry.rs（仅 mod.rs append）。
-//!
+//! 纯**读** request/response：helix-im 只 build 正确 wire body。读族无 WS 回声、HTTP 响应体即数据
+//! → `is_read=true`（spec06 缺陷A），dispatch 注册 `OutboundReadReply` 把响应透传回灌前端（read_relay）。
+//! 与 P3b 真零交集：独立文件 + distributed_slice 注册，不碰 channel*/registry.rs（仅 mod.rs append）。
 //! ## endpoint / body 真源（mattermost csesapi 逐字，不自造 fixture，C5）
 //! - posts/* 子路由 = `api/cses/posts`（api.go:169）；post/* = `api/cses/post`（api.go:171）；
 //!   post/bookmark/* = `api/cses/post/bookmark`（api.go:177）。
@@ -32,7 +29,7 @@ fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImErro
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
 }
 
-/// 注册一条读命令的样板：`name` + `build` 闭包。各命令用此宏收口注册三件套（struct/static/slice）。
+/// 注册读命令样板：`name` + `build` 闭包 → struct/static/slice 三件套（`is_read=true` 全读族）。
 macro_rules! read_cmd {
     ($cmd_struct:ident, $reg:ident, $name:literal, $build:expr) => {
         struct $cmd_struct;
@@ -43,6 +40,10 @@ macro_rules! read_cmd {
             fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
                 let f: fn(&Value, &'static str) -> Result<(&'static str, Value), ImError> = $build;
                 f(args, $name)
+            }
+            // 全读族（spec06 缺陷A）：无 WS 回声、HTTP 响应体即数据 → dispatch 注册回灌。
+            fn is_read(&self) -> bool {
+                true
             }
         }
         // 单元 struct 值（`$cmd_struct` 同名构造子）经 const promotion 直接做 &'static dyn 注册

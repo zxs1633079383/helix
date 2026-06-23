@@ -333,6 +333,29 @@ impl ImModule {
                     out.push(crate::query::emit_message_query_result(&channel_id, b"[]"));
                 }
             },
+
+            // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。
+            // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
+            // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，
+            // 前端 reject 而非永久挂起）。Err（网络/HTTP 层）→ emit `im:read:result{req_id, error}`。
+            CorrelationContext::OutboundReadReply { req_id } => match outcome {
+                PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+                    Ok(raw_body) => {
+                        out.push(crate::read_relay::emit_read_result(&req_id, raw_body.as_ref()));
+                    }
+                    Err(e) => {
+                        tracing::warn!(req_id = req_id.as_str(), error = ?e, "read reply envelope decode failed");
+                        out.push(crate::read_relay::emit_read_error(
+                            &req_id,
+                            "response envelope decode failed",
+                        ));
+                    }
+                },
+                PortOutcome::Err(e) => {
+                    tracing::warn!(req_id = req_id.as_str(), error = ?e, "read outbound http failed");
+                    out.push(crate::read_relay::emit_read_error(&req_id, "http request failed"));
+                }
+            },
         }
 
         Ok(())
@@ -976,6 +999,18 @@ fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
         .map_err(|e| ImError::Parse(format!("sync envelope body base64 decode error: {}", e)))
 }
 
+/// spec06 缺陷A — 从读族命令 payload 抠前端 bridge 注入的 `req_id`（非空字符串）。
+///
+/// 缺/空/非字符串 → `None`（降级 fire-and-forget，不注册回灌上下文）。边界零信任：坏 JSON 不 panic，
+/// 返 `None`（命令本身仍 fire——`handle_outbound` 独立解析 build body，req_id 只管回灌关联）。
+fn read_req_id(payload: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    v.get("req_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 impl Module for ImModule {
     fn name(&self) -> &'static str {
         "helix-im"
@@ -1027,6 +1062,19 @@ impl Module for ImModule {
                         module: self.name(),
                         source: Box::new(e),
                     })?;
+                    // spec06 缺陷A：读族（无 WS 回声、HTTP 响应体即数据）注册 OutboundReadReply
+                    // 回灌上下文——PortReply 回报时把响应透传 emit `im:read:result{req_id, body}`。
+                    // 写族不注册（fire-and-forget，数据走 WS 回声，HTTP 响应仅 ack 可丢）。
+                    // req_id 取自 payload（前端 bridge 注入）；缺则降级 fire-and-forget（不注册，
+                    // 无法关联响应——前端非 bridge 调用走旧 ack 语义，边界零信任不 panic）。
+                    if crate::commands::is_read(name) {
+                        if let Some(req_id) = read_req_id(cmd.payload.as_ref()) {
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::OutboundReadReply { req_id },
+                            );
+                        }
+                    }
                     for eff in effects {
                         out.push(eff);
                     }

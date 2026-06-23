@@ -71,6 +71,14 @@ pub(crate) fn apply_increment(
         }
     }
 
+    // UC-10：收集本群「about-me」post id（mention + urgent）累入会话缓冲——global-end 收尾时
+    // build queryTodoList 拉待办内容（真源 channel.rs:142-149）。零信任：缺/坏字段 → 空，不报错。
+    if let Ok(data) = serde_json::from_slice::<serde_json::Value>(inc.raw.as_ref()) {
+        ctx.state
+            .about_me_post_ids
+            .extend(crate::todo::collect_about_me_ids(&data));
+    }
+
     // 前端仍要 emit（透传 mentionList/urgentPostList，B-rest 契约不变）。
     out.push(crate::acl::to_effect::emit_channel_increment(
         channel_id,

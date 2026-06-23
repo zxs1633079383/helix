@@ -397,6 +397,25 @@ impl ImModule {
                 }
             },
 
+            // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
+            // `im:todo:updated{items}`（解 data.channels[].posts[]，真源 channel.rs:252-296）。
+            // Ok → 剥 ADR-007 信封得裸响应体 → emit_todo_updated（status≠SUCCESS/结构缺失 → 空
+            // items 仍 emit，前端无害刷新）。信封畸形 / Err → 不 emit（待办非关键路径，避免误清前端
+            // 已渲染待办；下次 hello 重连会重拉，边界零信任不 panic）。
+            CorrelationContext::TodoQuery => match outcome {
+                PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+                    Ok(raw_body) => {
+                        out.push(crate::todo::emit_todo_updated(raw_body.as_ref()));
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = ?e, "todo query reply envelope decode failed");
+                    }
+                },
+                PortOutcome::Err(e) => {
+                    tracing::warn!(error = ?e, "todo query outbound http failed");
+                }
+            },
+
             // D3 上拉翻页：postContext HTTP 回报 → ingest_round 推进 → 续（再发一轮 Http）/停（emit）。
             // Ok → 剥信封 → 取 data 数组喂 ingest_round；Continue 则 alloc 新 corr 重发 + 重注册，
             // Done 则 emit im:messages:older_loaded。Err / 信封畸形 → 用当前已收集态收尾 emit（前端拿

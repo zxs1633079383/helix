@@ -224,6 +224,10 @@ pub enum CorrelationContext {
     /// 与 corr 解耦（前端不见 core 内部 corr）。透传不在 helix 改业务数据（后端权威，HX-C005）。
     OutboundReadReply { req_id: String },
 
+    /// UC-10 通知/待办 **HTTP** 回报：global increment-end 触发的 `posts/queryTodoList` 回报 →
+    /// 装配 emit `im:todo:updated{items}`（`todo::emit_todo_updated`）。独立变体（装配非透传、内核自驱无 req_id）。
+    TodoQuery,
+
     /// D3 上拉翻页（`im_load_older_context`）**HTTP** 回报：多轮 `posts/postContext` 编排续接。
     /// 每轮回报 → `ingest_round` 决定续（alloc 新 corr 发下一轮 + 重注册）/停（emit older_loaded）；
     /// sans-IO「8 轮循环」靠 corr_map 续接非同步 `for`（HX-C001）。`state` owned 跨 PortReply（HX-C002）。
@@ -297,6 +301,11 @@ pub struct ImState {
     /// B4 全局 sync 并发窗口（VecDeque + 在途上限 K）：解 257 channel 重连风暴。
     /// 与 hello 会话同生命周期（`reset_increment_batch` 同步 reset）。详见 `sync_scheduler.rs`。
     pub sync_scheduler: crate::sync_scheduler::SyncScheduler,
+
+    /// UC-10：本 hello 会话累积的「about-me」post id（mention+urgent，逐 increment 帧攒）。global
+    /// increment-end 收尾 build `queryTodoList` 拉待办、装配 emit `im:todo:updated`、读完即清。
+    /// 与 increment 批次同生命周期（`reset_increment_batch` hello 起点 clear，防跨会话残留）。真源 `channel.rs:142-149/232-239`。
+    pub about_me_post_ids: Vec<String>,
 }
 
 impl ImState {
@@ -321,6 +330,7 @@ impl ImState {
             backfill_healed: false,
             client_seq: 0,
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
+            about_me_post_ids: Vec::new(),
         }
     }
 
@@ -333,6 +343,8 @@ impl ImState {
         self.backfill_healed = false;
         // B4：会话边界一并清 sync 调度窗口（防跨会话残留 pending / 悬挂在途计数）。
         self.sync_scheduler.reset();
+        // UC-10：会话边界清 about-me 待办缓冲（hello 起点归零，防上一会话 mention/urgent 残留）。
+        self.about_me_post_ids.clear();
     }
 }
 

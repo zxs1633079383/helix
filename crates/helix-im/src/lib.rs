@@ -34,6 +34,7 @@ pub mod send_reconcile;
 pub mod state;
 pub mod sync_scheduler;
 pub mod sync_session;
+pub mod todo;
 pub(crate) mod ws;
 
 pub use error::ImError;

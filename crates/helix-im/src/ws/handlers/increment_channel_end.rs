@@ -30,8 +30,48 @@ pub(crate) fn apply_increment_end(
             targets.sort_unstable();
             emit_proactive_resync_for(ctx, &targets, out);
             heal_incomplete_backfill_once(ctx, out);
+            // UC-10：hello 收尾——若本会话攒到 about-me（mention/urgent）post id，build
+            // queryTodoList 拉待办内容（装配 emit im:todo:updated）。读完即清缓冲（真源
+            // channel.rs:232-239 clear_about_me_post_ids）。
+            trigger_todo_query(ctx, out);
         }
     }
+}
+
+/// UC-10 待办触发（global increment-end 收尾）：缓冲非空 → build `posts/queryTodoList {postIds}`
+/// HTTP Effect + 注册 `CorrelationContext::TodoQuery`（回报装配 emit），随后**清空缓冲**。
+///
+/// 缓冲空 → no-op（无待办可拉）。HTTP body/headers 与 outbound 写命令同构（Content-Type +
+/// connectionId 身份头）；身份头复用 `connection_id_headers`（DRY，HX-C006）。
+fn trigger_todo_query(ctx: &mut ImWsContext<'_>, out: &mut EffectSink) {
+    if ctx.state.about_me_post_ids.is_empty() {
+        return;
+    }
+    let body = crate::todo::query_todo_body(&ctx.state.about_me_post_ids);
+    // 读完即清（真源 clear_about_me_post_ids）：本会话已发起拉取，缓冲归零防下轮 hello 残留。
+    ctx.state.about_me_post_ids.clear();
+
+    let corr = ctx.alloc_corr();
+    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
+    headers.extend(crate::acl::to_effect::connection_id_headers(
+        ctx.state.connection_id.as_deref(),
+    ));
+    out.push(helix_core::effect::Effect::Http {
+        corr,
+        req: helix_core::effect::HttpRequest {
+            method: "POST".to_string(),
+            url: format!("{}/posts/queryTodoList", ctx.api_base_url),
+            headers,
+            body: Some(bytes::Bytes::from(
+                serde_json::to_vec(&body).unwrap_or_default(),
+            )),
+        },
+    });
+    // 注册回报上下文：HTTP reply → 装配 emit im:todo:updated（module.rs handle_port_reply）。
+    ctx.state
+        .corr_map
+        .insert(corr, crate::state::CorrelationContext::TodoQuery);
+    tracing::info!("helix-im UC-10: hello 收尾触发 queryTodoList（待办内容拉取）");
 }
 
 /// B4：proactive resync 入口——不再逐 channel 直发，改为入 SyncScheduler 全局并发窗口

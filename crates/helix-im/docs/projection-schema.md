@@ -141,6 +141,23 @@ inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集
 > `hasMore` 语义：停因「凑够 target / 轮数耗尽」→ `true`（还有更早可拉）；停因「服务端无更早 / pivot 卡住 /
 > 空批」→ `false`（到顶）。多轮在 corr_map 续接（每轮单 `Effect::Http`，sans-IO 不阻塞，HX-C001）。
 
+### 1.4 通知/待办装配信号（**不计入** 21 投影集 · UC-10 通知/待办）
+
+`im:todo:updated` 是**内核自驱**（非前端命令发起）的待办列表装配信号：global `increment_channel_end`（hello
+收尾）触发 `posts/queryTodoList`，回报后解 `data.channels[].posts[]` 装配成 todo items emit。**外层** `data`
+键集恒为 `{items}`（object 包裹，**禁裸数组**——前端 Electron 多参兼容层 `Array.isArray→spread` 会误判，
+真源 `channel.rs:346-348`）；每 item = `{id:"{postId}_{messageType}", channel, post, type, canDel}`（channel/post
+后端权威透传，inner 不冻结；`id`/`type`/`canDel` 由 helix 按真源 `channel.rs:288-292` 装配）。
+
+| 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
+|---|---|---|---|---|
+| `todo::emit_todo_updated` | `im:todo:updated` | `{items:[{id, channel, post, type, canDel}]}`（channel/post 透传，id/type/canDel 装配）| hello 收尾 global increment-end → queryTodoList HTTP 回报 | helix-im 装配，前端 `getTodoUpdated$`→`INIT_TODO_LIST_DATA` |
+
+> **为何不冻结 inner 字段集**：item 的 `channel`/`post` = 后端 queryTodoList 返回的 wire 对象原样透传（同 §1.2/1.3）。
+> **外层** `{items}` + 每 item 的 `{id, channel, post, type, canDel}` 外层键集由 `tests/todo_assembly_test.rs` +
+> `src/todo_tests.rs` 断言。`status≠SUCCESS/200` 或结构缺失 → 空 `items` 仍 emit（前端无害刷新，不挂起）。
+> 内核自驱（无 req_id，非前端 bridge 发起）故独立 `CorrelationContext::TodoQuery`（区别 §1.2 透传 `OutboundReadReply`）。
+
 ---
 
 ## 2. message-row fat vs channel-row thin vs 透传类（前端如何消费 · spec06 FixB 重写）

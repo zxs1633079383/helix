@@ -78,20 +78,20 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [x] E5 monotonic_upsert DDL 出热路径（建表挪到 open()，monotonic_upsert 仅剩单 INSERT；回归锚 test_monotonic_table_created_at_open_e5）
 - [x] E6 gate buffer 上限+主动 too_long（MAX_GATE_BUFFER=16384，超限清 buffer + emit too_long + sync 重拉，cursor 不回退；回归锚 ×2）
 - [x] E7 broadcast lagged 可感知（接收侧 EventReceiver/RecvOutcome::Lagged 显式上报；纠正承压评估 emit 侧定位错误——send 侧感知不到 lagged；回归锚 ×2）
-- [ ] B6 UpsertSpec conflict 列语义文档
+- [x] **B6 UpsertSpec conflict 列语义文档**（commit 9009b1f `feat/p2-quality` 待审）：`core/ports/storage.rs` batch_upsert doc 补 ON CONFLICT 三形态 + exclude 守卫语义
 - [ ] golden fixtures 工具链（im_trace 导出 → Tick 剧本）
 
 **P2（性能尾巴 + 工程化）**
-- [ ] E8 timer 反向索引（O(1) 取消）
+- [x] **E8 timer 取消已 O(1)**（查证 no-op · 2026-06-23 · `feat/p2-quality`）：core `timer_map.peek/remove(id)` + host `timer.cancel` 均 HashMap O(1)；全仓 grep 无 retain/iter O(n) 取消扫描——**本就无活**，非「待加反向索引」（ROADMAP 旧描述误导）
 - [x] **E9a cursor 推进零分配** ✅（`615f2f3`，HX-C005 回正）：monotonic cursor 推进 SQL const 化（`Cow::Borrowed`）+ now_ms 条件化 + 未读 guarded_bump bump_delta 绑参
-- [ ] E9b 热路径分配尾巴（HX-C005）——**a0595607 遗留**：`helix-driver-host` batch_upsert SQL 按 (table, col_count, has_conflict) 形状缓存（cursor 部分已 const 化于 E9a）
+- [x] **E9b 热路径分配尾巴**（HX-C005 · commit 7661da4 `feat/p2-quality` 待审）：`helix-driver-host/upsert_sql.rs` thread-local 按 (table, col_count, has_conflict) 形状缓存 batch_upsert SQL，去 per-call 分配，零行为变更 +2 单测（driver-host 22 测全绿）
 - [ ] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate（§四）；public-api 基线含新增 `SqlValue::Blob`（M2）
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准**全链路覆盖完成**（median/CI/离群，回归判据 median>2x）：storage（`host_storage` 5000 行 5.16ms·39×100 6.08ms·monotonic cursor 28.5µs）+ **engine 泵**（`engine_loop/pump_roundtrip_1k` 40.2ms ≈ 24.9K roundtrips/s）+ **IM 乱序同步**（`gate/backfill_5000` 8.0ms ≈ 624K events/s·`send/echo_reconcile_1000` 2.39ms ≈ 418K/s）+ im_step ② 并发 parity 改「串行会超时」强证明（storage_conformance）。**仅剩**：bench 数字进 CI 留痕（待远端 GitLab runner）
 - [~] FFI MAJ-4：pump 路径同步 SQLite 经 host `HostStorage` spawn_blocking(×7)继承 ✅（HX-C006/ADR-005）；**剩** `helix_query` 同步读路径（infra 就位，待 IM 通用 query 路由后接 spawn_blocking + oneshot blocking_recv，禁 block_on worker）
 - [x] **FFI pump 连接-插表时序类型化**（drift-review wf_efcf1ca4-759 #4）✅ **已彻底解**（commit `34c54bd`，2026-06-22）：**注册通道**——连接期 transport 独占在 loop 外后台跑 connect（裸 ws·不在表），连成功才经 `transport_rx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（**类型层不可见**，不再靠 hello-gated 时序不变量）。`Transport::{send,recv,close}` 收紧 `&self`（connect 保 `&mut`，NativeTransport 状态机字段合法需要）；`TransportTable` 去外层 Mutex→`HashMap<TransportId,Arc<Tr>>`；biased select 第二臂 insert+continue（守 pump 5 不变量）。**不新增 per-Send 锁、不回退 create 非阻塞**。验：lifecycle_net_decouple 3/3 + 5-crate+wasm core check + driver 全测绿。
 - [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver CLAUDE.md「已知缺口」）
-- [ ] **双 `PortError` enum 统一**（tick.rs:56 vs error.rs:51 待合一——折叠自已删稿「完美过会指南」技术债）
+- [~] **双 `PortError` enum 改名消歧**（~~统一~~ 误诊已纠 · 查证 2026-06-23）：tick.rs:56 与 error.rs:51 **语义独立非重复**（`error.rs`=携 String 的 thiserror 边界错误；`tick.rs`=带状态码数字的重试分类 Timeout/Http(u16)/Storage(u32)/Network）——**折叠是回归**，正解是改名（tick::PortError→RetryClass/PortErrCode）消歧；干净改名须碰 helix-im 测试故 HOLD
 - [ ] **多模块并发写实测**（单写者池在多业务模块下零实测——折叠自「并发承压评估」开放项；承压稿已移 `docs/reports/`）
 
 **已销账**：A 全部 · B1 · C1-C4 · E1-E4 · **E5-E7** · M1 全部 · M2 的 driver/im 主体。

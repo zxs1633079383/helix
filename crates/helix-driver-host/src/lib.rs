@@ -11,6 +11,7 @@ pub mod pools;
 pub mod spawner;
 pub mod storage;
 pub mod timer;
+pub mod upsert_sql;
 
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
 pub use engine::{run_engine_loop, BatchSink, EngineDeps, TransportTable};

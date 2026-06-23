@@ -338,6 +338,18 @@ impl ImModule {
                 }
             },
 
+            // UC-3 dialogList 投影 **Scan** 回报：把 channel 行 emit 成 im:channels:projection
+            // 完整 dialogList（含 unread_count，前端零计算）。Err → 空 dialogList（不卡渲染）。
+            CorrelationContext::DialogListQuery => match outcome {
+                PortOutcome::Ok(reply) => {
+                    out.push(crate::query::emit_dialog_list_result(reply.0.as_ref()));
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(error = ?e, "dialog list scan failed");
+                    out.push(crate::query::emit_dialog_list_result(b"[]"));
+                }
+            },
+
             // spec06 缺陷A：读族 outbound HTTP 回报 → 透传响应体回灌前端（杀 fire-and-forget 丢响应）。
             // Ok → 剥 ADR-007 信封（base64 body）得裸后端响应体 → emit `im:read:result{req_id, body}`
             // （后端返回什么吐什么，零改业务数据）。信封畸形 → 当作 read error 回灌（不丢 req_id 关联，
@@ -364,6 +376,44 @@ impl ImModule {
                         &req_id,
                         "http request failed",
                     ));
+                }
+            },
+
+            // D3 上拉翻页：postContext HTTP 回报 → ingest_round 推进 → 续（再发一轮 Http）/停（emit）。
+            // Ok → 剥信封 → 取 data 数组喂 ingest_round；Continue 则 alloc 新 corr 重发 + 重注册，
+            // Done 则 emit im:messages:older_loaded。Err / 信封畸形 → 用当前已收集态收尾 emit（前端拿
+            // 部分历史 + hasMore，不永久挂起；边界零信任不 panic）。
+            CorrelationContext::LoadOlderContext { mut state } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    // 剥信封 → 取 wire Post 数组；信封/base64 畸形 → 空批 → stop（零信任不 panic）。
+                    let rows = unwrap_sync_envelope(reply.0.as_ref())
+                        .map(|raw| crate::older_context::extract_post_rows(&raw))
+                        .unwrap_or_default();
+                    match state.ingest_round(&rows) {
+                        crate::older_context::RoundDecision::Continue => {
+                            let next_corr = self.alloc_corr_internal();
+                            let (_, body) = crate::older_context::build_post_context_body(&state);
+                            out.push(crate::older_context::post_context_http(
+                                &self.config.api_base_url,
+                                &body,
+                                next_corr,
+                                self.state.connection_id.as_deref(),
+                            ));
+                            self.state
+                                .corr_map
+                                .insert(next_corr, CorrelationContext::LoadOlderContext { state });
+                        }
+                        crate::older_context::RoundDecision::Done => {
+                            out.push(crate::older_context::emit_older_loaded(&state));
+                        }
+                    }
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(error = ?e, "load_older_context postContext http failed");
+                    // 收尾：把当前已收集的更早消息（可能为空）emit，前端结束 loading。
+                    // 用空批喂一轮触发 stop(has_more=false) → 已收集态被 sort+truncate+定 has_more。
+                    state.ingest_round(&[]);
+                    out.push(crate::older_context::emit_older_loaded(&state));
                 }
             },
         }
@@ -745,10 +795,40 @@ impl ImModule {
                     .insert(corr, CorrelationContext::MessageQuery { channel_id });
                 out.push(effect);
             }
+            "im_query_dialog_list" => {
+                // UC-3：低频按需拉全量会话列表（off hot-path）→ Scan channel + 注册 DialogListQuery；
+                // PortReply 回报后 emit `im:channels:projection` 完整 dialogList（前端零计算）。
+                let corr = self.alloc_corr_internal();
+                let effect = crate::query::build_dialog_list_query(payload, corr)?;
+                self.state
+                    .corr_map
+                    .insert(corr, CorrelationContext::DialogListQuery);
+                out.push(effect);
+            }
             "im_delete_all_dialogs" => {
                 // 内存 channel gate 清空（core 拥有的状态；物理 DELETE 留待 truncate 原语，query.rs）。
                 self.state.channels.clear();
                 out.push(crate::query::emit_dialogs_cleared());
+            }
+            // D3 上拉翻页（NEED_HELIX_FIX_PULL_REFRESH）：解析锚点 → 发首轮 postContext Http +
+            // 注册 LoadOlderContext 续接态。多轮编排在 handle_port_reply 的 LoadOlderContext 臂（每轮
+            // 回报推进 anchor，凑够/耗尽 → emit im:messages:older_loaded）。
+            n if n == crate::older_context::LOAD_OLDER_CONTEXT => {
+                let st = crate::older_context::parse_request(payload)?;
+                let corr = self.alloc_corr_internal();
+                let (_, body) = crate::older_context::build_post_context_body(&st);
+                out.push(crate::older_context::post_context_http(
+                    &self.config.api_base_url,
+                    &body,
+                    corr,
+                    self.state.connection_id.as_deref(),
+                ));
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::LoadOlderContext {
+                        state: Box::new(st),
+                    },
+                );
             }
             _ => tracing::debug!("im: query dispatch miss '{}'", name),
         }

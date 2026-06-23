@@ -42,7 +42,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（21 工厂 → 20 distinct channel）
+## 1. 投影出口全集（22 工厂 → 21 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
 > 数据在手零回读，见 §2）。下表 message-row 行 data 键集已更新为完整集；channel-row 信号（channel:update /
@@ -72,7 +72,19 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `channelId` `hasSchedulePost` | WS `post_schedule_created` |
 | `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | `channelId` `hasSchedulePost` | WS `post_schedule_canceled` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
+| `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| invoke `im_query_dialog_list` |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
+
+> **`im:channels:projection` UC-3 完整会话列表投影（fat 但合规）**：`im_query_dialog_list` 是
+> **低频按需 invoke**（用户进 IM / 切会话一次性拉取，**非每事件热路径**）——`Scan(channel ORDER BY
+> last_post_at DESC)` 把整张 channel 表行投影成完整 `dialogList`（每行含 `unread_count`/`mention_count`/
+> `mention_count_root`/`last_post`/`unread_post_id`/`last_event_seq` 等，列名 = §4 DB 列）。**前端零计算
+> unread/badge、零回读**（UC-3 unread 计算下放 helix 达成，前端 messageDialog 的 unread 计算移除）。
+> 🔴 **HX-C005 守约**：本命令在 hot-path 外（spec06 §2 边界 line87-89「server 端回读仅限低频非每事件
+> 命中」），故 Scan channel 表合规——与 §2 channel-row 信号「故意留瘦」**不矛盾**：热路径 badge 信号
+> （`im:channel:update*`）每事件命中**必须瘦**（fat 会触发每事件回读违铁律）；完整 dialogList 由本**低频**
+> 命令补齐。两条路分工：热路径瘦信号触发前端「该刷了」，前端低频调本命令拉**完整**列表渲染。
+> 它**替代**前端原「按 channel_id 回读 dialogList + 自算 unread」蠢模式（spec06 P1 回正 line84）。
 
 > **`im:channels:loaded` 双形态**：hello 冷启动路径产 `{items:[]}`（`emit_channels_loaded`），
 > delete-all 路径产 `{reason:"delete_all_dialogs"}`（`emit_dialogs_cleared`）——同 channel 名两套
@@ -111,6 +123,23 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > bookmark 返书签列表 / status/ids 返状态 map…），逐 endpoint 不同——冻结统一字段集会破坏透传语义。
 > `data` **外层**键集恒为 `{req_id, body}`（成功）/ `{req_id, error}`（失败），由 `read_relay_test` 断言。
 > 写族保持 fire-and-forget（数据走 WS 回声），**不**走本通道。
+
+### 1.3 上拉翻页投影（**不计入** 21 投影集 · D3 NEED_HELIX_FIX_PULL_REFRESH）
+
+`im_load_older_context` 解上拉到顶的远端兜底翻页（UC-2.2）：多轮 `posts/postContext` 编排（moving anchor +
+严格更早过滤 + temporaryId 去重 + pivot 推进，≤8 轮，对齐 legacy `fetch_older_posts_by_context`），凑够
+`limit` 条严格更早 / 服务端耗尽 → emit `im:messages:older_loaded`。`messages[]` 是**严格更早 wire Post
+升序数组透传**（camelCase `createAt`/`temporaryId`/server `id`，**后端权威不改业务数据**，HX-C005），故
+inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集恒为 `{channelId, messages, hasMore}`。
+
+| 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
+|---|---|---|---|---|
+| `older_context::emit_older_loaded` | `im:messages:older_loaded` | `{channelId, messages, hasMore}`（messages=严格更早 wire Post 升序数组透传）| invoke `im_load_older_context` → 多轮 postContext HTTP 收尾 | helix-im 编排，前端 prepend |
+
+> **为何不冻结 inner 字段集**：messages 元素 = 后端 postContext 返回的 wire Post 原样透传（同读族），逐字段
+> 由后端定。**外层** `{channelId, messages, hasMore}` 由 `tests/p3c_load_older_context_test.rs` 断言。
+> `hasMore` 语义：停因「凑够 target / 轮数耗尽」→ `true`（还有更早可拉）；停因「服务端无更早 / pivot 卡住 /
+> 空批」→ `false`（到顶）。多轮在 corr_map 续接（每轮单 `Effect::Http`，sans-IO 不阻塞，HX-C001）。
 
 ---
 
@@ -164,6 +193,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 - `im:channel:created` / `im:channel:member-updated`（`channel` = 透传帧 data 原始 channel 对象）
 - `im:post:batch-updated`（`posts` = 透传 `posts_update` 帧的 posts 数组）
 - `im:messages:query_result`（`messages` = `Scan message` 的本地 DB 行数组，列名 = §4 DB 列）
+- `im:channels:projection`（`dialogList` = `Scan channel` 的本地 DB 行数组，**完整 DialogItem**·UC-3，列名 = §4 DB 列；低频按需 invoke，off hot-path）
 
 透传类**不解释字段**（parser 已在边界零信任解析，此处仅透传），故冻结的是**外层包装键**
 （`channel_id`+载荷键），载荷内部字段不在本文档逐一冻结（由现网 wire 契约保真）。
@@ -232,6 +262,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 im:post:received        → POST handler（**fat 直渲** message_item_data，零回读·spec06 FixB）
 im:channel:update       → UPDATE_CHANNEL handler（thin·按 channel_id batch 结束回读 dialogList 刷 badge）
 im:messages:query_result→ 投影 handler（直接渲染 messages 数组，{items:[]} 解包）
+im:channels:projection  → 会话列表 handler（直接渲染 dialogList，前端零计算 unread/badge·UC-3）
 im:sync:too_long        → onRustTooLong（按 channelId 清内存 buffer + cursor=resetTo-1）
 ...（其余 16 channel 同理；message-row 信号 fat 直渲 / channel-row 信号 thin 低频回读）
 ```

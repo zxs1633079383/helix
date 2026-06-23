@@ -6,7 +6,7 @@
 //!
 //! 前端退化为纯渲染：只 `listen("im:__bus__")` → dispatch → 渲染，**不算** unread/lastPost/
 //! readBits/cursor。前端能不能纯渲染，取决于**每个 channel 的 `payload.data` 字段是否齐**——
-//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 21 个 emit 工厂的 `data` 键集
+//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 22 个 emit 工厂的 `data` 键集
 //! **逐 channel 冻结**，断言 emit 出的键集 == `docs/projection-schema.md` §1 冻结集
 //! （**缺失或多余都 fail**）。
 //!
@@ -333,6 +333,23 @@ fn im_messages_query_result_invalid_reply_still_freezes_keys() {
     assert_frozen(&e, "im:messages:query_result", &["channel_id", "messages"]);
 }
 
+#[test]
+fn im_channels_projection_freezes_dialoglist() {
+    // UC-3：会话列表完整投影（前端零计算 unread/badge，直接渲染 dialogList）。
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {"id": "ch1", "display_name": "群A", "unread_count": 3, "mention_count": 1}
+    ]))
+    .unwrap();
+    let e = query::emit_dialog_list_result(&rows);
+    assert_frozen(&e, "im:channels:projection", &["dialogList"]);
+}
+
+#[test]
+fn im_channels_projection_invalid_reply_still_freezes_keys() {
+    let e = query::emit_dialog_list_result(b"garbage{");
+    assert_frozen(&e, "im:channels:projection", &["dialogList"]);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // §4. im:channels:loaded 双形态（同 channel 名两工厂，各冻各的键集）
 // ════════════════════════════════════════════════════════════════════════════
@@ -352,14 +369,14 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §5. 镜像完整性：21 工厂全覆盖 + 提取工具负路径
+// §5. 镜像完整性：22 工厂全覆盖 + 提取工具负路径
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 21。
+/// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 22。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
 #[test]
-fn all_21_projection_factories_covered() {
-    // 逐工厂构造一次，收集 (channel, keys)——证明 21 个出口全可达且产合法 Emit。
+fn all_22_projection_factories_covered() {
+    // 逐工厂构造一次，收集 (channel, keys)——证明 22 个出口全可达且产合法 Emit。
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
     let posts = serde_json::json!([]);
@@ -385,12 +402,13 @@ fn all_21_projection_factories_covered() {
         to_effect_s1::emit_schedule_created(ch()),
         to_effect_s1::emit_schedule_canceled(ch()),
         query::emit_message_query_result(&cid, b"[]"),
+        query::emit_dialog_list_result(b"[]"),
         query::emit_dialogs_cleared(),
     ];
     assert_eq!(
         effects.len(),
-        21,
-        "projection-schema.md §1 冻结 21 工厂——新增/删除工厂须同步本测试 + 文档表"
+        22,
+        "projection-schema.md §1 冻结 22 工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -402,7 +420,7 @@ fn all_21_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 20（im:channels:loaded 双工厂复用）。
+    // distinct channel 名 = 21（im:channels:loaded 双工厂复用 → 22 工厂收敛成 21 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -411,12 +429,12 @@ fn all_21_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        20,
-        "20 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用）"
+        21,
+        "21 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 22 工厂 → 21 channel）"
     );
 }
 
-/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 21 投影集（无渲染字段，
+/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 22 投影集（无渲染字段，
 /// 走连接生命周期通道，与 driver 侧 im:net:offline 同族）。冻结：channel 名 + data 严格空对象。
 #[test]
 fn reconnect_requested_is_control_signal() {

@@ -192,7 +192,9 @@ pub enum ConnState {
 /// 单表合并（4 张 HashMap + scan `Option` 并一表）的正确性完全依赖此：若任一路径改用独立计数器或
 /// host 注入可复用 corr 值，则不同类别 corr 可能撞同一 key → 误路由。新增 corr 来源前必须确认仍由
 /// 该分配器产出。HX-C005：变体字段全 owned/Copy（无 `&'a`，要进 HashMap 跨 step 存活，HX-C002）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+// 不 derive `Eq`：`LoadOlderContext` 内含 `serde_json::Value`（f64 非 `Eq`）；本枚举仅作 corr_map value
+// （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
+#[derive(Debug, Clone, PartialEq)]
 pub enum CorrelationContext {
     /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
     ScanCursors,
@@ -217,6 +219,11 @@ pub enum CorrelationContext {
     /// 回报 → 把行 emit 成 `im:messages:query_result` 投影（data 数组 → driver `{items:[]}` 包装）。
     MessageQuery { channel_id: ChannelId },
 
+    /// UC-3 投影查询 **Scan** 回报：`im_query_dialog_list` 的 `Scan(channel ORDER BY last_post_at)`
+    /// 回报 → 把整份 channel 行 emit 成 `im:channels:projection`（`data.dialogList` 完整 DialogItem
+    /// 数组，含 unread_count 等，前端零计算）。无 channel_id 字段（全量会话列表，非按群）。
+    DialogListQuery,
+
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///
     /// 读命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声**，
@@ -227,6 +234,13 @@ pub enum CorrelationContext {
     /// `req_id` 是前端 bridge 注入的请求标识（owned String，进 corr_map 跨 step 存活，HX-C002）；
     /// 与 corr 解耦（前端不见 core 内部 corr）。透传不在 helix 改业务数据（后端权威，HX-C005）。
     OutboundReadReply { req_id: String },
+
+    /// D3 上拉翻页（`im_load_older_context`）**HTTP** 回报：多轮 `posts/postContext` 编排续接。
+    /// 每轮回报 → `ingest_round` 决定续（alloc 新 corr 发下一轮 + 重注册）/停（emit older_loaded）；
+    /// sans-IO「8 轮循环」靠 corr_map 续接非同步 `for`（HX-C001）。`state` owned 跨 PortReply（HX-C002）。
+    LoadOlderContext {
+        state: Box<crate::older_context::LoadOlderState>,
+    },
 }
 
 // ─── ImState ────────────────────────────────────────────────────────────────

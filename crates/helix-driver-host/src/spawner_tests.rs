@@ -6,7 +6,7 @@
 use super::*;
 use helix_core::tick::ReplyBytes;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// ① HttpFire 满队列 DropNewest：泵不阻塞，溢出（最新来的）条目被丢，已入队的最终执行。
 #[tokio::test]
@@ -132,6 +132,95 @@ async fn test_bounded_spawner_n1_preserves_order() {
     assert_eq!(
         recorded, expected,
         "N=1 BoundedSpawner 必须保持入队序 == 执行序"
+    );
+}
+
+/// ④ 有上限 drain：在途 worker 卡死时 `shutdown_with_timeout` 必在 limit 内返回 false 并 abort。
+///
+/// 这是 `engine.rs` graceful drain「必达 Http drain 有上限」（HX-C001 五不变量⑤ / fix/lifecycle-net-decouple）
+/// 的**确定性**证——不依赖真 reqwest / blackhole / 墙钟，故不受并行测试负载抖动影响（对照
+/// `helix-driver-ffi/tests/lifecycle_net_decouple.rs` 的端到端墙钟界，那里只做粗 sanity）。
+/// worker park 60s（远大于 limit 50ms，1200x 余量 → 永不 flake）：limit 内 join 不完 → 必走超时 abort 分支。
+#[tokio::test]
+async fn shutdown_with_timeout_caps_and_aborts_inflight() {
+    let entered = Arc::new(AtomicU64::new(0));
+    let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+
+    let entered_c = Arc::clone(&entered);
+    let sp: BoundedSpawner<u64> =
+        BoundedSpawner::new(1, 1, Overflow::Block, reply_tx, move |_payload: u64| {
+            let entered = Arc::clone(&entered_c);
+            async move {
+                entered.fetch_add(1, Ordering::SeqCst);
+                // 模拟卡满网络 timeout 的在途必达 Http（连不上 host 的 reqwest）。
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                PortOutcome::Ok(ReplyBytes::default())
+            }
+        });
+
+    sp.submit(Job {
+        corr: Some(Correlation::from_raw(1)),
+        payload: 1,
+    })
+    .await;
+    // worker 已进入 60s sleep 后才 drain（否则可能 join 在 sleep 前秒回，测不到超时路径）。
+    for _ in 0..200 {
+        if entered.load(Ordering::SeqCst) == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        entered.load(Ordering::SeqCst),
+        1,
+        "worker 应已进入在途 sleep"
+    );
+
+    let t = Instant::now();
+    let all_drained = sp.shutdown_with_timeout(Duration::from_millis(50)).await;
+    let elapsed = t.elapsed();
+
+    assert!(
+        !all_drained,
+        "在途 worker 卡 60s，50ms 上限必超时返回 false（abort 在途，不等满）"
+    );
+    // 50ms 上限 vs 60s sleep：即便重载，elapsed 也远小于 worker sleep → 证明确实 abort 而非等满。
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "shutdown_with_timeout 必在远小于 worker 60s sleep 内返回（abort 在途），实际 {elapsed:?}"
+    );
+}
+
+/// ④附：在途全部 limit 内完成时，`shutdown_with_timeout` 返回 true（不误 abort 已落地 job）。
+#[tokio::test]
+async fn shutdown_with_timeout_returns_true_when_drained_in_limit() {
+    let executed = Arc::new(AtomicU64::new(0));
+    let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+
+    let executed_c = Arc::clone(&executed);
+    let sp: BoundedSpawner<u64> =
+        BoundedSpawner::new(1, 8, Overflow::Block, reply_tx, move |_payload: u64| {
+            let executed = Arc::clone(&executed_c);
+            async move {
+                executed.fetch_add(1, Ordering::SeqCst);
+                PortOutcome::Ok(ReplyBytes::default())
+            }
+        });
+
+    for i in 0..5u64 {
+        sp.submit(Job {
+            corr: None,
+            payload: i,
+        })
+        .await;
+    }
+    // 5 条秒级 job，5s 上限绰绰有余 → 全 join 完成 → true。
+    let all_drained = sp.shutdown_with_timeout(Duration::from_secs(5)).await;
+    assert!(all_drained, "秒级 job 在 5s 上限内必全部 drain 完成 → true");
+    assert_eq!(
+        executed.load(Ordering::SeqCst),
+        5,
+        "limit 内 drain：5 条必达 job 全部执行（不误 abort）"
     );
 }
 

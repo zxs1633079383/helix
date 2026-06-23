@@ -2,8 +2,19 @@
 
 > 跨会话状态可查。§0 记三类固定前缀行（均可 grep · 详见 CLAUDE.md §4.8）：
 > 开局 `🎯 EXPECT`（实质任务预判）· 收尾 `✅ DONE`（终态）· 偏离预期时 `⚡ DRIFT-PRED`（喂 §4.7 drift-review）。
+> 另置顶**唯一一条** `🧭 BRANCH-ID`（分支身份，HX-C014）——开局/收尾用 `scripts/branch-identity.sh --session` 刷新，别凭记忆答「你在哪个分支」。
 
 ## §0 终态记录
+
+🎯 EXPECT CI 镜像切 _with_tools + 修 lifecycle_net_decouple 墙钟 flake @2026-06-23 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① `.gitlab-ci.yml` image→`rust:1.95.0_with_tools` + before_script 去 `rustup component/target add`（已落 commit ba092a5）；② `destroy_not_blocked_by_inflight_mandatory_http` 的 `<4s` 墙钟上界是 flake 根因——drain 实为**两段 3s cap 顺序**（http_pool+http_fire_pool，engine.rs:285/292）+ 重载下 tokio timer 饥饿 → 实测 10.28s；③ 修法 = 把 cap 机制下沉到 host 层**确定性**单测（worker park 60s + `shutdown_with_timeout(50ms)` 返 false，无网络/无墙钟 flake），FFI e2e 墙钟界放宽到能稳分「capped≤~10s 重载」vs「uncapped reqwest 30s 回归」；④ 不改 drain 生产逻辑（HTTP_DRAIN_LIMIT/engine 顺序不动）——只补测试 + 改测试界；⑤ `cargo test -p helix-driver-host -p helix-driver-ffi` 全绿、`scripts/gate.sh` 9/9 绿、新 host 单测删 cap 调用即 RED（可证伪）。偏离即记 ⚡ DRIFT-PRED：若需改 engine drain 顺序/HTTP_DRAIN_LIMIT、或墙钟界仍 flake、或改 core/port → 偏离。
+✅ DONE CI 镜像切 _with_tools + 修 lifecycle_net_decouple 墙钟 flake @2026-06-23 +0800 | commit ba092a5(ci 镜像) + 本提交(测试) | ci/test-harbor-runner
+  ↳ 落地：① CI image→`rust:1.95.0_with_tools`，before_script 改自检（不联网 add，air-gapped 安全）；② host 层补两个**确定性** `shutdown_with_timeout` 单测（cap+abort / limit 内 drain，无网络无墙钟 flake，src≤300 走 spawner_tests.rs）；③ FFI `destroy_not_blocked_by_inflight_mandatory_http` 墙钟界 4s→20s + 注释写明「两段顺序 3s cap + 重载 timer 饥饿」真相、cap 精证已移 host 层。**零改 drain 生产逻辑**。
+  ↳ 验证：`scripts/gate.sh` 9/9 + FFI-VERIFY 1–5 + C++ 冒烟全绿（rustc 1.95.0 同 CI 版）；host shutdown_with_timeout 2/2、lifecycle_net_decouple 并行 3× 稳过(~3.4s)。
+  ↳ 预期命中（无偏离 EXPECT，不追 ⚡ DRIFT-PRED）：① 镜像/before_script ✅ ② 两段 cap 根因 ✅ ③ host 确定性测 + FFI 界放宽 ✅ ④ 未碰 drain 生产逻辑/HTTP_DRAIN_LIMIT ✅ ⑤ gate 9/9 + 可证伪 ✅。
+  ⚠️ 环境坑（实测·本会话）：并发进程（疑 night-loop）中途把本机 `1.95.0` toolchain 剥成只剩 clippy/rustfmt/wasm32（cargo/rustc 被删，bin/ mtime 11:00）→ `cargo` 一度报「not installed」。已 `rustup component add cargo rustc rust-std` 恢复。长跑 autonomous 链动 rustup 时需隔离，别和主对话抢同一 toolchain。
+
+🧭 BRANCH-ID @2026-06-23 10:09 +0800 | 当前 `ci/test-harbor-runner`@72a2fd0 ↑↓vsmain:↑3 ↓0 · upstream:origin/ci/test-harbor-runner | worktrees: .[ci/test-harbor-runner] ./worktrees/im-takeover[feat/im-takeover] | 可删候选:无（dev-zlc 已删；im-takeover 被 worktree 占用不可删）
 
 ✅ DONE **全树 .md 熵管理 + 进度同步**（2026-06-22 · 分支 `docs/entropy-2026-06-22`，未提交待审）| 4 read-only triage agent 扫 126 篇 .md + expert-panel-review 全树架构评审佐证 | 改 ~22 篇：① 落地真相 `crates/helix-im/docs/sync-v2-能力与缺口状态.md` 大改（cursor 真源 `_helix_monotonic`→`channel_event_cursor` 纠偏[与 arch-review #1 HIGH 同源] · §2/§3/§5 send-echo/sync-风暴/parser-post 全标已落地入 main · 删"未提交"假象）② 根 `README.md` 三栖→两端(ADR-006 wasm 归档)+修死链 ③ `ROADMAP.md` E9 拆 E9a✅/E9b open + cursor 注脚 ④ wasm `CLAUDE/AGENTS` 加归档 banner(镜像同步) ⑤ ffi design README F4 未接→已落地 ⑥ 11 篇历史稿(Bun-checklist/ws-registry-plan/merge-spec/sync-v2-report audit×5/迁移 01·02/下游域卡)加归档 banner ⑦ refactor A/B 状态标注(B 已落地·A 部分) ⑧ 修 9 条死链(eventbus/sync-v2 合并稿) ⑨ docs/README 对账日期 + HX-C 计数 C009→C012 | 验收：7 crate CLAUDE/AGENTS 镜像全 same · harness 索引 12 · structure-gate/gate.sh 全 PASS · 死链 0 | ⚠️ 另：`docs/entropy-sync` 死分支(merge-base 06-12·落后 main 250 commit·工作被 4a3edb8 取代)建议删；arch-review 另出 4 条代码 finding(timer_map 泄漏 HIGH 等)未在本轮改(属代码非文档)
 

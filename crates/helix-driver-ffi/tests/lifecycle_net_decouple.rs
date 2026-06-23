@@ -228,12 +228,19 @@ fn destroy_not_blocked_by_inflight_mandatory_http() {
     unsafe { helix_destroy(handle) };
     let destroy_elapsed = t_destroy.elapsed();
 
-    // drain 上限 HTTP_DRAIN_LIMIT=3s + join/线程余量 → 断言 destroy < 4s。
-    // 无上限（还原 `shutdown()`）会等满 reqwest connect（本机 OS TCP ~5s，reqwest timeout 上限 30s）
-    // → ≥5s → FAIL，与 3s 上限清晰区隔（非 flaky 边界）。
+    // 端到端 sanity 上界（粗界，不做精算）：cap 机制的**确定性精证**在 host 层
+    // `helix-driver-host/src/spawner_tests.rs::shutdown_with_timeout_caps_and_aborts_inflight`
+    // （无网络/无墙钟 flake）。这里只验「destroy 没被等满整条网络 timeout」。
+    //
+    // 为什么界放到 20s 而非 4s（修 flake，HX-C011）：graceful drain 实为**两段顺序 cap**——
+    // engine.rs 先 `http_pool.shutdown_with_timeout(3s)` 再 `http_fire_pool.shutdown_with_timeout(3s)`，
+    // 结构上最坏 ~6s；且并行测试套件下多个 current_thread runtime 抢核 → tokio timer 饥饿，
+    // 实测把 capped 路径拉到 ~10s（旧 4s 界 → 假阳 FAIL）。20s 仍**远小于** uncapped 回归
+    // （还原 `shutdown()` 等满 reqwest = DEFAULT_TIMEOUT_SECS 30s）→ 稳分 capped(≤~10s 重载) vs
+    // uncapped(30s)，不再 flaky。
     assert!(
-        destroy_elapsed < Duration::from_secs(4),
-        "destroy 不应被在途必达 Http 阻塞（drain 有上限 abort 在途），实际 {:?}",
+        destroy_elapsed < Duration::from_secs(20),
+        "destroy 不应被等满整条网络 timeout（drain 有上限 abort 在途；cap 精证见 host spawner_tests），实际 {:?}",
         destroy_elapsed
     );
 

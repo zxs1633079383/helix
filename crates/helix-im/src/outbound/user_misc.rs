@@ -8,7 +8,8 @@
 //! - users/* = `api/cses/users`（api.go:173）：`/list`（user.go:15）、`/status/ids`（user.go:16）。
 //! - teams/* = `api/cses/teams`（api.go:174）：`/upsert`、`/member/add`、`/member/quit`（team.go:13-15）。
 //! - modules/* = `api/cses/modules`（api.go:175）：`/getAll`（modules.go:11）。
-//! - notification/* = `api/cses/notification`（api.go:181）：`/loadSend`（notification.go:13）。
+//! - notification/* = `api/cses/notification`（api.go:181）：`/loadSend`（notification.go:13）、
+//!   `/loadTarget`（notification.go:14，姊妹路由，req=query.Page 无 state）。
 //! - search/* = `api/cses/search`（api.go:182）：`/post`、`/user`、`/channel`、`/do`（search.go:13-16）。
 //!
 //! ## presence（D2 已拍：helix 自建）
@@ -193,6 +194,28 @@ misc_cmd!(
     }
 );
 
+// #7b notification/loadTarget：拉接收侧通知（与 loadSend 同域的姊妹路由，真路由真 handler）。
+// 真源 query.Page（**handler 默认初始化 `{Page:0, Size:10}`**，notification.go:40-41）——与 loadSend
+// 用 NotificationReq{Page,state} 不同：loadTarget 仅 `{page,size}`，**无 state 字段**。
+// 缺省即取 Go handler 同款默认（page=0/size=10），与服务端 pre-init 对齐（前端可覆写）。
+// 现网命名混淆（handler loadReceive ↔ app LoadSend）+ store 返回 nil 属**响应态**——outbound 只
+// build 请求体不裁决（src bug 移植纪律，见文件头）。读族（无 WS 回声，HTTP 响应即数据）。
+misc_cmd!(
+    LoadTargetNotificationsCommand,
+    LOAD_TARGET_NOTIFICATIONS_REG,
+    "im_load_target_notifications",
+    true,
+    |args, _cmd| {
+        // query.Page 默认 {Page:0, Size:10}（notification.go:40）；前端可覆写。无 state 字段。
+        let page = args.get("page").and_then(Value::as_i64).unwrap_or(0);
+        let size = args.get("size").and_then(Value::as_i64).unwrap_or(10);
+        Ok((
+            "notification/loadTarget",
+            json!({ "page": page, "size": size }),
+        ))
+    }
+);
+
 // ── search 四件套（body = DoSearchRequest，camelCase tag）────────────────────────────
 //
 // DoSearchRequest（post_search_param.go:25-34）：keyword?/searchType?(int)/postType?/channelType?/
@@ -263,3 +286,7 @@ misc_cmd!(
     false,
     |args, cmd| { Ok(("search/do", do_search_body(args, cmd)?)) }
 );
+
+#[cfg(test)]
+#[path = "user_misc_tests.rs"]
+mod tests;

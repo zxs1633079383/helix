@@ -10,7 +10,7 @@
 //! - `im_query_messages_by_channel`：现网 `SELECT * FROM message WHERE channel_id=? ORDER BY
 //!   create_at DESC, temporary_id DESC LIMIT ?`（commands.rs，debug-only 原始行 dump）。helix 走
 //!   `Scan(message, filter=channel_id, order_desc=create_at, limit)` → PortReply 回报 → emit
-//!   `im:messages:query_result` 投影（data 数组，driver `{items:[]}` 包装）。
+//!   `im:messages:query_result` 投影（`data: { channel_id, messages }`）。
 //!   - **保真偏差（已记 P7 finalize）**：现网二级排序 `, temporary_id DESC` 同毫秒簇确定化未携带
 //!     （`ScanSpec.order_desc_col` 当前单列）——投影 dump 用途下同毫秒次序非语义关键；scroll 游标
 //!     分页（beforeId/afterId）是 `im_load_older_messages`（HTTP postContext）另一路，不在本投影命令。
@@ -87,8 +87,8 @@ pub fn build_message_query(
 /// PortReply 回报（`MessageQuery` 上下文 Ok）→ emit `im:messages:query_result` 投影。
 ///
 /// `reply_bytes` 是 engine 把 Scan rows 序列化的 JSON 数组 `[{col:val}, ...]`（rows↔bytes 约定，
-/// driver-host codec）。整组行作 `data`（数组）→ driver `guard_bus_envelope` 把数组包成 `{items:[]}`
-/// （M4 横切，本文件不做包装——单一包装点在 driver 出口）。零信任：非法 JSON → 空数组投影（不 panic）。
+/// driver-host codec）。这些行作为 `messages` 字段装入 `data` 对象，最终 emit 形状固定为
+/// `data: { channel_id, messages }`。零信任：非法 JSON → 空数组投影（不 panic）。
 pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> Effect {
     let rows: serde_json::Value =
         serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));

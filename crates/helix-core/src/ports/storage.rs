@@ -38,10 +38,43 @@ use crate::platform::{MaybeSend, MaybeSync};
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Storage: MaybeSend + MaybeSync + 'static {
-    /// batch upsert：INSERT ... ON CONFLICT DO UPDATE
+    /// batch upsert：整批一事务 INSERT，按 `conflict_key` 解决唯一冲突（B6 语义真源）。
     ///
-    /// `spec.conflict_key` 的具体值（如 "temporary_id"）由 ACL-1 提供，
-    /// driver 只把它拼进 SQL，不理解其业务含义。
+    /// ## ON CONFLICT 列语义（三种 SQL 形态，由 `UpsertSpec` 字段决定）
+    ///
+    /// 设 `cols` = `spec.rows[0]` 的列名集（行内列名顺序即 INSERT 列序与占位符序）：
+    ///
+    /// 1. **`conflict_key = Some(key)`，存在可更新列** → 冲突时更新非守卫列：
+    ///    ```sql
+    ///    INSERT INTO <table> (cols...) VALUES (?...) ON CONFLICT(key)
+    ///      DO UPDATE SET c = excluded.c, ...   -- c ∈ cols 且 c ≠ key 且 c ∉ exclude_from_update
+    ///    ```
+    ///    - **conflict target** = 唯一的 `conflict_key` 列（须为该表 PK / UNIQUE）。
+    ///    - **冲突时更新集** = `cols` 去掉 `conflict_key` 自身 + 去掉 `exclude_from_update` 列，
+    ///      其余列一律 `= excluded.<col>`（取本次传入的新值覆盖既有行）。
+    /// 2. **`conflict_key = Some(key)`，无可更新列**（`cols` 仅 `key`，或其余全被 exclude）→
+    ///    `ON CONFLICT(key) DO NOTHING`：行已存在则整行原样保留，新值不写。
+    /// 3. **`conflict_key = None`** → `INSERT OR REPLACE INTO <table> (cols...) VALUES (?...)`：
+    ///    按表自身 PK/UNIQUE 整行替换（无逐列保留语义）。
+    ///
+    /// ## `exclude_from_update`（守卫列 / 本地维护列）
+    ///
+    /// 列在 `exclude_from_update` 中时：INSERT **仍写**其传入字面值（新行可见），
+    /// 但 ON CONFLICT DO UPDATE **不**覆盖既有行的该列——即「新行用给定值，旧行保留本地值」。
+    /// 用途：服务器缺省 → 回退本地（如 read 位 / 本地草稿状态），在 upsert 层表达，
+    /// **无需先读后写**（守 HX-C005 热路径 O(1)）。
+    ///
+    /// ## 与 `monotonic_upsert` 的区别
+    ///
+    /// 本方法的冲突更新是**无条件覆盖**（`= excluded.col`），不带 `WHERE excluded > 现值` 守卫；
+    /// 需要单调不回退的 cursor / 水位语义请用 `monotonic_upsert`（MAX guard），非本方法。
+    ///
+    /// ## 不变量
+    ///
+    /// - 整批一事务（E2，写放大 ~1x）：中途任一行失败 → 整批回滚不落。
+    /// - `conflict_key` / 列名 / `exclude_from_update` 均 `&'static str` 编译期常量
+    ///   （如 "temporary_id" 由 ACL-1 提供），driver 只拼 SQL，不理解业务含义（守 HX-C001）。
+    /// - 空 `rows` → no-op（driver 入口短路）。
     async fn batch_upsert(&self, spec: UpsertSpec) -> Result<(), PortError>;
 
     /// batch update：UPDATE table SET patch WHERE key_col IN (key_vals)

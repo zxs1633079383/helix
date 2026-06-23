@@ -211,7 +211,8 @@ pub enum CorrelationContext {
 
     /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
     OptimisticSend { temporary_id: TemporaryId },
-
+    /// F1 `posts/create` **HTTP** 回报：HTTP 200 兜底对账（真 Go self-omit echo → 永 spinner；逻辑见 `send_reconcile`）。
+    OutboundSendHttp { temporary_id: TemporaryId },
     /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
     SyncPull { channel_id: ChannelId },
 

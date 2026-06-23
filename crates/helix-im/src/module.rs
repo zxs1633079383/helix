@@ -14,6 +14,7 @@
 use crate::acl;
 use crate::channel::Channel;
 use crate::error::ImError;
+use crate::http_envelope::unwrap_sync_envelope;
 use crate::pending_send::PendingSend;
 use crate::state::{
     ChannelId, ConnState, CorrelationContext, ImState, SendStatus, Seq, TemporaryId,
@@ -301,6 +302,24 @@ impl ImModule {
                         "P1 optimistic persist failed"
                     );
                 }
+            },
+
+            // F1：posts/create HTTP 200 兜底对账（真 Go self-omit echo，见 `send_reconcile`）。
+            CorrelationContext::OutboundSendHttp { temporary_id } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    let reconcile_corr = self.alloc_corr_internal();
+                    crate::send_reconcile::reconcile_send_http(
+                        &mut self.state,
+                        &temporary_id,
+                        reply.0.as_ref(),
+                        reconcile_corr,
+                        out,
+                    );
+                }
+                PortOutcome::Err(e) => tracing::warn!(
+                    tmp_id = ?temporary_id, error = ?e,
+                    "posts/create http failed, pending send not advanced (timer will mark unsend)"
+                ),
             },
 
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
@@ -1032,12 +1051,8 @@ impl ImModule {
         // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
         ps.persist_corr = Some(p1_corr);
         self.state.pending_sends.insert(tmp_id, ps);
-        self.state.corr_map.insert(
-            p1_corr,
-            CorrelationContext::OptimisticSend {
-                temporary_id: TemporaryId(tmp_id_str),
-            },
-        );
+        // 注册 P1(OptimisticSend)+H1(OutboundSendHttp) 两条 corr（F1：漏 H1 = 发消息永 spinner，见 `send_reconcile`）。
+        crate::send_reconcile::register_send_corrs(&mut self.state, p1_corr, h1_corr, tmp_id_str);
 
         Ok(())
     }
@@ -1073,20 +1088,6 @@ impl ImModule {
             source: Box::new(e),
         })
     }
-}
-
-/// 剥 ADR-007 HTTP 信封（仅 SyncPull 路径用）：`{status, headers, body: base64(raw_go_body)}`
-/// → 裸 Go body 字节。host `run_http_envelope` 的反序列化端，base64 decode 在 helix-im 内联
-/// （HX-C001：不依赖 helix-driver-host）。边界零信任：信封 / base64 畸形 → `Err`，不 panic。
-fn unwrap_sync_envelope(reply: &[u8]) -> Result<Vec<u8>, ImError> {
-    let env: serde_json::Value = serde_json::from_slice(reply)
-        .map_err(|e| ImError::Parse(format!("sync envelope JSON parse error: {}", e)))?;
-    let body_b64 = env
-        .get("body")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| ImError::Parse("sync envelope missing string `body` field".to_string()))?;
-    crate::base64::decode(body_b64)
-        .map_err(|e| ImError::Parse(format!("sync envelope body base64 decode error: {}", e)))
 }
 
 /// spec06 缺陷A — 从读族命令 payload 抠前端 bridge 注入的 `req_id`（非空字符串）。

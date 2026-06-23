@@ -92,6 +92,38 @@ impl PendingSend {
         self.status = SendStatus::Sent;
     }
 
+    /// F1：HTTP 200 `{status:SUCCESS}` 但响应无 server post id 时的兜底对账。
+    ///
+    /// 与 [`reconcile`] 区别：**不覆写 `id`**（无 serverId 可用），只把乐观行
+    /// `send_status='sent'`（ON CONFLICT temporary_id）+ 撤 15s 超时 + 推进 `Sent`。
+    /// serverId 由后续 history / WS echo 按 temporary_id 幂等补（后到 `reconcile` 覆盖同行无害）。
+    pub fn mark_sent_pending_server_id(&mut self, corr: Correlation, fx: &mut EffectSink) {
+        fx.push(Effect::Persist {
+            corr,
+            ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                table: "message",
+                rows: vec![vec![
+                    (
+                        "temporary_id".to_string(),
+                        SqlValue::Text(self.temporary_id.0.clone()),
+                    ),
+                    (
+                        "send_status".to_string(),
+                        SqlValue::Text("sent".to_string()),
+                    ),
+                ]],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+            })],
+        });
+
+        fx.push(Effect::CancelTimer {
+            id: self.timeout_timer,
+        });
+
+        self.status = SendStatus::Sent;
+    }
+
     /// 15s 超时触发 → 标 UnSend（无自动补发）。
     ///
     /// C006：若 echo 迟到（status 已为 Sent），幂等忽略。

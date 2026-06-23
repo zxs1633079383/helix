@@ -183,6 +183,16 @@ pub fn port_reply_ok(corr_raw: u64) -> Tick {
     }
 }
 
+/// 构造 PortReply Err Tick（用于回报 Http/Persist 失败，F1 反路验证）。
+#[allow(dead_code)]
+pub fn port_reply_err(corr_raw: u64) -> Tick {
+    use helix_core::tick::PortError;
+    Tick::PortReply {
+        corr: Correlation::from_raw(corr_raw),
+        outcome: PortOutcome::Err(PortError::Http(500)),
+    }
+}
+
 /// 构造 Timer Tick
 #[allow(dead_code)]
 pub fn timer_tick(id_raw: u64) -> Tick {

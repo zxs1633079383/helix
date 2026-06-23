@@ -39,9 +39,14 @@ pub trait Transport: MaybeSend + MaybeSync + 'static {
     /// 连接期类型层不可见，而非靠运行时时序不变量保证不阻塞）。
     async fn send(&self, frame: Bytes) -> Result<(), PortError>;
 
-    /// 接收下一帧（None = 连接已关闭）。`&self` 同 [`Transport::send`]。
+    /// 接收下一帧（None = 连接已关闭）。
+    ///
+    /// **并发契约（drift-review 十三轮收敛 · 勿过度泛化）**：`&self` 不等于「可任意并发」。
+    /// `recv` 实现可在内部持锁跨无界 await（如 host `SharedWsClient` 持 `state.lock` 跨 `frame_rx.recv()`），
+    /// 故 `recv` 与 `send`/`close`/彼此**互斥**，调用方负责不并发调用。当前由「单 reader task 调 recv +
+    /// `Effect::Send` 分流只调 send」**构造性**保证（生产 recv/close 零跨臂并发），非靠 `&self` 的类型层并发安全。
     async fn recv(&self) -> Result<Option<Bytes>, PortError>;
 
-    /// 关闭连接（发送 Close 帧）。`&self` 同 [`Transport::send`]。
+    /// 关闭连接（发送 Close 帧）。并发契约同 [`Transport::recv`]（与 send/recv 互斥，调用方不并发）。
     async fn close(&self) -> Result<(), PortError>;
 }

@@ -19,6 +19,9 @@ fail=0
 # 🔒 机器强制「只减不增」（drift-review wf_efcf1ca4-759 #1/#7 后门收敛）：闸门**读 baseline**——
 #    当前行数 > baseline 即 FAIL（baseline = 锁定时的当前行数，红线 = 不许再涨）。
 #    拆小到 ≤300 后从此表删除该行 → 重新受 300 硬顶。基线先锁(A)、实际拆分回正记 ROADMAP(B)。
+# ⚠️ 后门第二形态（本次 drift-review 复发收敛）：**把 baseline 数字往大改 == 新增超限 == 等价绕 FAIL**。
+#    超基线 → 唯一合法解是「测试外提 sibling / 拆文件」把行数压回 ≤baseline；**绝不允许上调 baseline 抹掉 FAIL**。
+#    baseline 只允许往**小**改（拆分回正后锁更低值）。范本：state.rs 390→测试外提 state_tests.rs→340（本次）。
 WHITELIST=(
   "crates/helix-im/src/module.rs 1211"
   "crates/helix-im/src/ws/registry.rs 783"
@@ -29,7 +32,7 @@ WHITELIST=(
   "crates/helix-driver-host/src/network.rs 463"
   "crates/helix-core/src/effect.rs 452"
   "crates/helix-im/src/parser.rs 430"
-  "crates/helix-im/src/state.rs 390"
+  "crates/helix-im/src/state.rs 340"
   "crates/helix-driver-native/src/event_sink.rs 321"
 )
 # 命中白名单 → stdout 回传 baseline + return 0；未命中 → return 1。

@@ -142,7 +142,10 @@
 
 1. **行数闸**：`src/**.rs` 超 300 行 → 检查（新增超限 = exit 1）。存量债走 WHITELIST，但 **WHITELIST 是
    `path baseline_lines` 映射、闸门读 baseline——当前行数 > baseline 即 exit 1**（机器强制「只减不增」，
-   drift-review #1/#7 后门收敛；不再是软注释）。
+   drift-review #1/#7 后门收敛；不再是软注释）。**⚠️ 后门第二形态（十三轮 drift-review 复发收敛）：把
+   baseline 数字往大改 == 新增超限 == 等价绕 FAIL**——超基线唯一合法解是「测试外提 sibling / 拆文件」压回
+   ≤baseline，**绝不允许上调 baseline 抹掉 FAIL**；baseline 只许往小改（拆分回正后锁更低值）。范本：
+   state.rs 390（曾被 d022310 上调 baseline）→ `mod id26_tests` 外提 `state_tests.rs` → 340（baseline 锁 340）。
 2. **镜像闸**：每个 `crates/*/` 必须有 CLAUDE.md + AGENTS.md 且 `diff` 为空（不一致 = exit 1）。
 3. **分叉闸** `scripts/branch-sync-gate.sh`（同族，drift-review #2 收敛）：当前分支落后集成分支（dev-zlc）
    ≥5 commit = exit 1（把 SESSION 的散文「分叉监控」硬化成退出码，可挂 pre-push / Stop hook）。

@@ -6,6 +6,12 @@
 
 ## §0 终态记录
 
+✅ DONE ADR-013 移除 message.segment_id 死列（schema/channel/to_effect + c2 测试）@commit 68b1da9 | **事后补记·无开局 EXPECT**（十三轮 drift-review 抓出 §4.8 问责真空·HX-C012 recurrence 第 4 条；诚实回溯不补假 EXPECT，守 HX-C012 §3）
+
+✅ DONE 十三轮 commit review 收敛（196c869..7b6ea55 · 🟡 轻 drift）@2026-06-23 +0800 | commit 本提交 | ci/test-harbor-runner
+  ↳ 1 medium 回正：structure-gate baseline state.rs 390→上调是 #1/#7 后门第二形态（d022310 改 baseline 抹 FAIL）→ `mod id26_tests` 外提 `state_tests.rs`(范本 9ca7d1d) → src 340 ≤ baseline，baseline 锁 340；rule §6 + 闸门头注写明「改 baseline 变大==FAIL」堵第二形态。
+  ↳ 3 low 记录：① Transport recv/close `&self` 并发契约 doc 显式化（互斥·构造性保证·非类型并发安全，transport.rs:42）② re-port call-site 审计候选 HOLD（单样本，不建卡）③ ADR-013 EXPECT 真空 = 上行诚实补记。回放闸门：两候选全 HOLD 无新建卡（防过拟合）。
+
 🎯 EXPECT CI 镜像切 _with_tools + 修 lifecycle_net_decouple 墙钟 flake @2026-06-23 +0800 | 赌注 中 | 可逆 是
   ↳ 可证伪断言：① `.gitlab-ci.yml` image→`rust:1.95.0_with_tools` + before_script 去 `rustup component/target add`（已落 commit ba092a5）；② `destroy_not_blocked_by_inflight_mandatory_http` 的 `<4s` 墙钟上界是 flake 根因——drain 实为**两段 3s cap 顺序**（http_pool+http_fire_pool，engine.rs:285/292）+ 重载下 tokio timer 饥饿 → 实测 10.28s；③ 修法 = 把 cap 机制下沉到 host 层**确定性**单测（worker park 60s + `shutdown_with_timeout(50ms)` 返 false，无网络/无墙钟 flake），FFI e2e 墙钟界放宽到能稳分「capped≤~10s 重载」vs「uncapped reqwest 30s 回归」；④ 不改 drain 生产逻辑（HTTP_DRAIN_LIMIT/engine 顺序不动）——只补测试 + 改测试界；⑤ `cargo test -p helix-driver-host -p helix-driver-ffi` 全绿、`scripts/gate.sh` 9/9 绿、新 host 单测删 cap 调用即 RED（可证伪）。偏离即记 ⚡ DRIFT-PRED：若需改 engine drain 顺序/HTTP_DRAIN_LIMIT、或墙钟界仍 flake、或改 core/port → 偏离。
 ✅ DONE CI 镜像切 _with_tools + 修 lifecycle_net_decouple 墙钟 flake @2026-06-23 +0800 | commit ba092a5(ci 镜像) + 本提交(测试) | ci/test-harbor-runner

@@ -1,10 +1,11 @@
 # Helix CI（Bun 对齐 3.5）—— 远端跑同一条 scripts/gate.sh，与本地 pre-push 闸门单一事实源。
 # 前提（runner 侧，详见 docs/ops/gitlab-ci-runner-交接说明.md + 本文件尾注）：
 #   1. 已注册 GitLab Runner（docker executor 推荐）；
-#   2. runner 能拉 rust:1.95.0（公网或私有 registry 镜像）；
+#   2. runner 能拉 harbor 私仓 rust:1.95.0_with_tools（已烤入 rustfmt/clippy/wasm32 + cargo-public-api 等）；
 #   3. 私有网若访问不了 crates.io，需配 cargo 镜像（见尾部注释）。
-# toolchain 版本由 rust-toolchain.toml 锁定（1.95.0 + rustfmt/clippy + wasm32），
-# rustup 镜像会据此自动对齐，无需在此写死。
+# toolchain 版本由 rust-toolchain.toml 锁定（1.95.0 + rustfmt/clippy + wasm32）。
+# 镜像 _with_tools 已预装 rustfmt/clippy/wasm32 target → 不再在 before_script 跑
+# `rustup component/target add`（air-gapped runner 连不上 static.rust-lang.org 会失败）。
 
 stages:
   - gate
@@ -16,7 +17,7 @@ variables:
   CARGO_INCREMENTAL: "0"                  # CI 关增量编译，缓存更稳
 
 default:
-  image: harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0
+  image: harbor.jinqidongli.com/infra-ops/gitlab/rust:1.95.0_with_tools
   tags:
     - docker                               # 命中 ops 注册的 project runner（bzoxCnA6·docker tag）
   cache:
@@ -29,8 +30,9 @@ default:
       - .cargo/git/db/
       - target/
   before_script:
-    - rustup component add rustfmt clippy
-    - rustup target add wasm32-unknown-unknown
+    # _with_tools 镜像已烤入 rustfmt/clippy/wasm32；仅自检不再联网 add（air-gapped 安全）
+    - rustup component list --installed
+    - cargo fmt --version && cargo clippy --version
 
 # ── 主闸门：三栖 check → clippy → test → 零运行时 → 零业务 → harness 索引 ──
 # gate.sh[7] public-api 在本 job 自动跳过（未装 cargo-public-api），不影响主闸门。
@@ -55,8 +57,10 @@ api-surface:
     paths:
       - .cargo/bin/
   before_script:
-    - rustup toolchain install nightly --component rust-docs-json 2>/dev/null || rustup toolchain install nightly
-    - command -v cargo-public-api >/dev/null 2>&1 || cargo install cargo-public-api --locked
+    # _with_tools 镜像已烤入 nightly + rust-docs-json + cargo-public-api 时，下面两步全跳过（air-gapped 安全）；
+    # 否则才尝试联网安装（本 job allow_failure，缺工具不挡 MR）。
+    - rustup toolchain list | grep -q nightly || rustup toolchain install nightly --component rust-docs-json 2>/dev/null || rustup toolchain install nightly || true
+    - command -v cargo-public-api >/dev/null 2>&1 || cargo install cargo-public-api --locked || true
   script:
     - mkdir -p docs/api-baseline
     - cargo +nightly public-api -p helix-core --simplified > /tmp/api.txt

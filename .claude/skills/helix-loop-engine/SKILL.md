@@ -54,3 +54,41 @@ description: 通用真 Go 联调 loop Engine —— 任意 sync-v2/IM 功能调�
 - HTTP api 前缀 `/api/cses`；WS 路由 `/api/v4/websocket`。
 - 信封 `{v,action,data,broadcast,seq}`，action 顶层、seq 是信封序号（非 event_seq）。
 - increment 是「HTTP 触发 → 后台 worker → WS 推 increment_channel×N+_end」非对称；worker 依赖 CsesGrpc `/Company/readIdNameWithCompany`（缺 company 数据 → `grpc service fail` 不推帧）。
+
+## autonomous 驱动 host-cli 实战坑（2026-06-23 CI-4 真机联调沉淀，照做免重栽）
+
+> dev-loop.sh 默认靠 TTY 喂 stdin；**autonomous / 后台 / 管道**场景 stdin 立即 EOF，必须显式保活。
+
+1. **stdin 必须保活，否则 host-cli 秒退（最坑·误判成 helix bug 前先查这个）**：host-cli repl 读 stdin 到 EOF 即 `quit` 优雅退出。`run_in_background` / `| tail` / `< /dev/null` 下 stdin 立即 EOF → host-cli 启动 ~1ms 就退、WS 刚连上就断（症状三连：Go 报 `close 1006 EOF` + helix `tick_rx closed, draining` + ③ 收帧=0）。
+   - 解：`{ sleep 4; echo "<命令>"; sleep 6; …; } | timeout 30 ./target/debug/helix-host-cli > LOG 2>&1`。首个 sleep 等 hello 握手盖 connectionId（否则首条命令在 connectionId=None 时发 → Go 401/无回推）；命令间 settle 等 WS 回推。纯连接/increment 观察用 `sleep 18 | host-cli`（只保活不发命令）。
+2. **收帧靠 `HELIX_DUMP_FRAMES=1`** 才打印 `RAW WS inbound … frame={…action…}`；RUST_LOG **必带 `helix_driver_host=debug`**（WS 传输/握手在该 crate，缺则误以为没连上）。完整：`RUST_LOG='info,helix_im=debug,helix_driver_host=debug'`。
+3. **DB 路径 quirk**：host-cli 用 `sqlite:{path}?mode=rwc`，真实文件名 **literally 含 `?mode=rwc`**（+`-wal`/`-shm`）。`ls /tmp/x.db` 找不到 → `ls /tmp/x.db*` 或直接 `sqlite3 "/tmp/x.db?mode=rwc" "…"`。表名**单数** `channel`/`message`/`channel_event_cursor`（cursor 列名是 `last_event_seq`）。
+4. **查 DB 用 `sqlite3 -header -column` 防读错列**：`SELECT id,temporary_id` 与 `SELECT temporary_id,id` 列序相反，无表头极易把 echo 对账正确态误读成 swap bug（实测自己栽一次）。
+5. **cursor 对账 phantom-aware**：`channel_event_cursor.last_event_seq`（如 554）> 该 channel message 行数（如 15）是**正常**——已读/编辑/删除/phantom 事件推 cursor 但不落 message。别拿 `cursor==msg_count` 当判据。
+
+> **send echo 对账正解（CI-4④ 实测绿，复用免重查）**：乐观落库 `temporary_id=tmp`(PK) → Go 回 `post` 帧 `{id:server, temporaryId:tmp}` → parser（`temporaryId`→f.temporary_id / `id`→f.id，`parser.rs:37-40` 正确）→ `event_to_upsert_op` conflict on `temporary_id` 覆写 `id=server` → 终态 `temporary_id=tmp · id=server · send_status=sent`。
+> **安全**：破坏性命令（create/close 建群解散）默认 SKIP，测试消息打清晰标记（如 `ci4-<phase>-<ts>`）；不改 Go（ADR-008）。
+
+### 单连接 ping-pong 保活驱动（2026-06-23 沉淀·替代「每命令一次 host-cli」）
+
+> **反模式**：`{ sleep;echo cmd; } | host-cli` 每条命令起一次 host-cli → 每次重连 + 重拉 increment(45ch)+sync。多命令时疯狂重连（实测 V6 一阶段 18 次重连、~14min thrashing）。
+> **正解**：`scripts/host-cli-session.sh`——mkfifo 占住 stdin 写端 → host-cli **一次** connect+increment → 命令逐条喂同一连接 → 自带心跳 ping(8s) ping-pong 保活 → 全程零重连。更接近真实长连客户端，顺带覆盖心跳/长连稳定性。
+
+```bash
+# 用法：命令列表经 stdin（每行一条）
+printf 'read CH\nnickname CH 新名\nsend CH hi\n' \
+  | HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=<cid> bash scripts/host-cli-session.sh
+```
+
+**fifo 单连接铁律**（脚本已封装，手搓时照此序）：
+```bash
+mkfifo "$FIFO"
+host-cli < "$FIFO" > LOG 2>&1 &   # 先起 reader（open 阻塞等 writer）
+exec 3>"$FIFO"                     # 再占住写端解锁；占住期间 host-cli stdin 永不 EOF
+sleep 7                            # 等唯一一次 connect+hello+increment+sync 落定
+echo "read CH" >&3; sleep 5        # 命令逐条喂同一连接，settle 等 WS 回推
+echo "nickname CH x" >&3; sleep 5
+printf 'quit\n' >&3; exec 3>&-     # 关写端 → host-cli EOF 优雅退出
+```
+
+**验收**：脚本尾部打 `connect 次数`——**单连接铁律 == 1**（旧法 N 命令 = N 次）。实测 read+nickname+send×2 四命令：connect=1 / loadIncrementChannel=1 / syncChannels=45×1（旧法 4×45=180）/ 心跳 ping=1。

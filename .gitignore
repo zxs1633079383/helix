@@ -5,3 +5,6 @@
 .superpowers/
 crates/helix-driver-ffi/smoke/build/
 /.idea/
+
+# Claude Code 机器本地配置(不进库)
+.claude/*.local.json

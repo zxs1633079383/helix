@@ -25,15 +25,31 @@ ylw()  { printf '\033[33m%s\033[0m\n' "$*"; }
 # ── ① HTTP:helix 注册的 outbound 命令端点数（distributed_slice 注册的 build 返回 endpoint）──
 http_registered=$(grep -rhoE 'Ok\(\("[a-z][a-z/_-]+"' crates/helix-im/src/outbound/ 2>/dev/null \
   | grep -oE '"[a-z][a-z/_-]+"' | sort -u | grep -vE 'search|createUser|/status' | wc -l | tr -d ' ')
-# full-map HTTP 全集（posts+channel+user-misc 的真实端点行,排除 bot/search/goBlocked）
-http_total=$(grep -rhoE '`/(posts?|channel|channels|user|team)[a-z/A-Z]+`' \
+# full-map HTTP 全集（posts+channel+user-misc 三 partial 的真实端点）。
+# partials 1-2 用反引号 `` `/api/cses/x` ``、partial 3 裸写 `/api/cses/x`（表格行）→ 统一抽
+# `/api/cses/<path>` token、剥反引号、剥 `/api/cses/` 前缀归一成相对端点（与 http_registered 同形，
+# 计数可比）；只取表格行（`^|`）避开正文散文里的 base-prefix 说明行。排除 search/status/health。
+# ⚠️ 旧正则 `` `/(posts?|channel...)` `` 不含 /api/cses 前缀 → 匹配 0/1（计数 bug，F2 修）。
+http_total=$(grep -hE '^\|' \
   "$PARTIALS"/1--backend-http-posts.md "$PARTIALS"/2--backend-http-channel-sync.md "$PARTIALS"/3--backend-http-user-misc.md 2>/dev/null \
-  | sort -u | grep -viE 'search|createUser|/status' | wc -l | tr -d ' ')
+  | grep -oE '/api/cses/[a-zA-Z0-9/_-]+' | sed -e 's/`//g' -e 's#^/api/cses/##' \
+  | sort -u | grep -viE 'search|/status|/health' | wc -l | tr -d ' ')
 
-# ── ② WS:helix 处理的 action vs 19 ──
-ws_handled=$(grep -rhoE '"(post|posted|posts_update|post_read|post_update|channel_created|channel_member_update|channel_member_role_updated|update_channel|update_channel_notice|change_channel_approval|increment_channel|increment_channel_end|post_schedule_created|post_schedule_canceled|add_followers|add_mentions|channels)"' \
-  crates/helix-im/src/ 2>/dev/null | sort -u | wc -l | tr -d ' ')
-ws_total=19
+# ── ② WS:helix 处理的 action vs full-map partial 5 的事件全集 ──
+# 动态从 partial 5 的「WS 事件分类总表」抽 action 名（每行 `| N | `action` …` 取首个反引号 token），
+# 去重后对每个 action 查 helix src 是否有对应字符串字面量处理 → handled/total。
+# ⚠️ 旧版硬编码 18 个 action 正则（漏 post_pin/quit_company/update_channel_member_nickName，且
+#    含已废弃的 add_followers/add_mentions/posted）+ ws_total=19 写死 → 计数失真（F2 修）。
+# ws_total = partial 5 去重后的「distinct action 数」（spec 称 19 推送，但 # 1 与 # 19 同为 `post`
+#   action〔首发 vs bot/agent 复用同 wire action〕→ 去重后 distinct action = 18，gate 按 action 集对账）。
+P5="$PARTIALS/5--backend-ws-events.md"
+ws_actions=$(grep -E '^\| [0-9]+ \|' "$P5" 2>/dev/null | sed -E 's/^\| [0-9]+ \| `([a-zA-Z_]+)`.*/\1/' | sort -u)
+ws_total=$(printf '%s\n' "$ws_actions" | grep -c . | tr -d ' ')
+ws_handled=0
+while IFS= read -r a; do
+  [ -z "$a" ] && continue
+  grep -rqE "\"$a\"" crates/helix-im/src/ 2>/dev/null && ws_handled=$((ws_handled+1))
+done < <(printf '%s\n' "$ws_actions")
 
 # ── ③ UC:台账 ✅e2e-verified vs ~37 ──
 uc_total=37

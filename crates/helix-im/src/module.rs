@@ -321,7 +321,6 @@ impl ImModule {
                     "posts/create http failed, pending send not advanced (timer will mark unsend)"
                 ),
             },
-
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {

@@ -4,7 +4,21 @@
 //! WHITELIST baseline 不得靠「上调数字」抹掉 FAIL（#1/#7 后门第二形态），src 测试外提回正。
 //! `super::` 指向 `state` 模块，故 `test_channel_id`/`Id26`/`ChannelId` 路径与内联时一致。
 
-use super::{test_channel_id, Id26};
+use super::{ChannelId, Id26, ServerId};
+
+/// 测试 fixture：产 26 位 `[a-z0-9]` 合法 ChannelId（`chfixx` 前缀 + 20 位 hex）。
+/// 从 `state.rs` 外提至此守 ≤351 baseline（结构闸 §1，drift-review 后门第二形态收敛）；
+/// state.rs 经 `#[cfg(test)] pub(crate) use id26_tests::{...}` 把路径 `crate::state::test_channel_id`
+/// 重导出回原位 → 同 crate 其余测试（channel_tests/sync_scheduler/ws::registry…）调用点零改动。
+pub(crate) fn test_channel_id(n: u64) -> ChannelId {
+    let s = format!("chfixx{n:020x}");
+    ChannelId::from_str(&s).expect("test channel id fixture must be valid Id26")
+}
+
+pub(crate) fn test_server_id(n: u64) -> ServerId {
+    let s = format!("srvfix{n:020x}");
+    ServerId::from_str(&s).expect("test server id fixture must be valid Id26")
+}
 
 #[test]
 fn from_str_accepts_exactly_26_ascii_and_roundtrips() {

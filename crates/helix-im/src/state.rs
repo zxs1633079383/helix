@@ -93,18 +93,6 @@ impl ServerId {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn test_channel_id(n: u64) -> ChannelId {
-    let s = format!("chfixx{n:020x}");
-    ChannelId::from_str(&s).expect("test channel id fixture must be valid Id26")
-}
-
-#[cfg(test)]
-pub(crate) fn test_server_id(n: u64) -> ServerId {
-    let s = format!("srvfix{n:020x}");
-    ServerId::from_str(&s).expect("test server id fixture must be valid Id26")
-}
-
 /// UI 注入的临时消息 ID（乐观落库 PK，不由内核生成）
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TemporaryId(pub String);
@@ -253,9 +241,8 @@ pub struct ImState {
     /// WS 连接状态机
     pub conn: ConnState,
 
-    /// 服务端 hello 帧回注的 connectionId（A4 握手完成后存入）。
-    /// A3b：作 IM HTTP 身份头（`connectionId`）盖章进 sync/notify、posts/create。
-    /// None = 尚未握手；现网前端凭 im:connection:established + 此值放行 pendingSends。
+    /// 服务端 hello 帧回注的 connectionId（A4 握手存入）。A3b：作 IM HTTP 身份头盖章进
+    /// sync/notify、posts/create。None = 尚未握手；前端凭 established + 此值放行 pendingSends。
     pub connection_id: Option<String>,
 
     /// per-channel 聚合（消息 + 游标 + gate）
@@ -265,12 +252,9 @@ pub struct ImState {
     /// 来自源码：乐观落库后等 echo 或 sync 对账，15s 超时 → unSend
     pub pending_sends: HashMap<TemporaryId, PendingSend>,
 
-    /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。
-    ///
-    /// 取代旧 4 张分散 HashMap（`corr_to_channel` / `corr_to_send` / `corr_to_sync` /
-    /// `continuation_pending`）+ 1 个 `Option`（`scan_corr`）。`PortReply` 到达时
-    /// 单次 `remove(corr)` 取出上下文，按变体 `match` 分发；一个 corr 恰对应一个变体，
-    /// 类别互斥由数据结构（一 key 一 value）+ corr 全局唯一（见 `CorrelationContext` 不变量）保证。
+    /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。取代旧
+    /// 4 张分散 HashMap + 1 个 `Option`（`scan_corr`）。`PortReply` 到达时单次 `remove(corr)` 取出
+    /// 按变体 `match` 分发；一 corr 恰一变体，互斥由一 key 一 value + corr 全局唯一（见枚举不变量）保证。
     pub corr_map: HashMap<helix_core::Correlation, CorrelationContext>,
 
     /// 退避 timer ID（当前重连倒计时）
@@ -321,9 +305,7 @@ impl ImState {
         self.client_seq += 1;
         self.client_seq
     }
-}
 
-impl ImState {
     pub fn new() -> Self {
         Self {
             conn: ConnState::Disconnected,
@@ -360,7 +342,10 @@ impl Default for ImState {
     }
 }
 
-// Id26 / fixture 单测外提到 sibling（守 ≤378 baseline；drift-review 收敛后门第二形态）。
+// Id26 单测 + 测试 fixture 外提 sibling（守 ≤351 baseline；drift-review 后门第二形态收敛）。
+// 再导出 fixture 路径回原位 → 同 crate 其余测试 `crate::state::test_channel_id` 调用点零改动。
 #[cfg(test)]
 #[path = "state_tests.rs"]
 mod id26_tests;
+#[cfg(test)]
+pub(crate) use id26_tests::{test_channel_id, test_server_id};

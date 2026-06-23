@@ -220,8 +220,8 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&
 
 /// 组装一条 `Effect::Http` 请求（Content-Type + connectionId 身份头 + 鉴权意图头）。
 ///
-/// 鉴权意图（`X-Auth-Kind`）仅在非默认 `Bot` 时显式下标——`Session` 是 driver 横切层缺省，
-/// 不冗余写头（既省字节又保留「无头=session」语义）。真凭据由 driver 注入（C6，core 不拼）。
+/// 鉴权意图（`X-Auth-Kind`）统一显式下标：session/bot 都只标意图、不拼真凭据；driver 横切层据此
+/// 注真 token 并在出网前 strip（C6，core 不拼 token）。
 fn http_request(
     base: &str,
     method: &str,
@@ -233,9 +233,7 @@ fn http_request(
 ) -> Effect {
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
-    if auth_kind == AuthKind::Bot {
-        headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
-    }
+    headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
     Effect::Http {
         corr,
         req: HttpRequest {

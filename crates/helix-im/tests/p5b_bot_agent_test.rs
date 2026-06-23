@@ -76,11 +76,6 @@ fn has_bot_auth(headers: &[(String, String)]) -> bool {
         .any(|(k, v)| k == AUTH_KIND_HEADER && v == AuthKind::Bot.as_str())
 }
 
-/// headers 中是否带任何 `X-Auth-Kind`。
-fn has_any_auth_kind(headers: &[(String, String)]) -> bool {
-    headers.iter().any(|(k, _)| k == AUTH_KIND_HEADER)
-}
-
 /// headers 中是否带 `X-Auth-Kind: session`（真 cookie/token 由 driver 注入）。
 fn has_session_auth(headers: &[(String, String)]) -> bool {
     headers
@@ -787,8 +782,8 @@ fn every_p5b_command_dispatchable_with_correct_auth() {
             );
         } else {
             assert!(
-                !has_any_auth_kind(&headers),
-                "{name} 是 session 命令，不应带 X-Auth-Kind（driver 缺省 session）"
+                has_session_auth(&headers),
+                "{name} 是 session 命令，必带 X-Auth-Kind: session"
             );
         }
     }

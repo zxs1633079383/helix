@@ -156,7 +156,6 @@ fn team_quit_builds_user_team_body() {
 }
 
 #[test]
-#[ignore = "Task 2: session auth crosscut 单独处理"]
 fn team_quit_marks_session_auth_kind() {
     let req = one_http_req(run(
         "im_team_quit",

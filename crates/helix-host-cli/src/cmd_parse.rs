@@ -7,6 +7,14 @@ use bytes::Bytes;
 use helix_core::tick::AppCommand;
 use helix_core::Tick;
 
+/// 成员管理 repl 解析（nickname/role/notify）——从本文件抽出守 ≤300 行（结构闸）。
+#[path = "cmd_parse_member.rs"]
+mod member_cmds;
+
+/// 通用命令逃生口（`cmd <name> <json>` 驱动任意 89 命令）——抽出守 ≤300 行（结构闸）。
+#[path = "cmd_parse_generic.rs"]
+mod generic;
+
 /// 一行的解析结果（tagged union，make-invalid-states-unrepresentable）。
 pub(crate) enum Parsed {
     /// 已构造好的应用命令，待入泵。
@@ -40,7 +48,9 @@ pub(crate) fn parse_line(line: &str, tmp_seq: &mut u64) -> Parsed {
         ),
         "schedule" => parse_schedule(rest),
         "close" => one_str_cmd("im_channel_close", "channel_id", rest, "close <channelId>"),
-        "nickname" => parse_nickname(rest),
+        "nickname" => member_cmds::parse_nickname(rest),
+        "role" => member_cmds::parse_role(rest),
+        "notify" => member_cmds::parse_notify(rest),
         "create" => parse_raw_json("im_create_channel", rest, "create <rawJSON body>"),
         "makeTopic" | "maketopic" => {
             parse_raw_json("im_make_topic", rest, "makeTopic <rawJSON 含 postId>")
@@ -50,6 +60,8 @@ pub(crate) fn parse_line(line: &str, tmp_seq: &mut u64) -> Parsed {
             rest,
             "member <rawJSON 含 channelId + joinUsers/leaveUsers>",
         ),
+        // 通用逃生口：驱动任意已注册命令（读族/编辑/bot 族无专用 verb 者经此，CI-4 工具缺口根治）。
+        "cmd" => generic::parse_generic(rest),
         other => Parsed::Bad(format!("未知命令 '{other}'（help 看用法）")),
     }
 }
@@ -76,18 +88,28 @@ fn parse_send(rest: &str, tmp_seq: &mut u64) -> Parsed {
     Parsed::Command(command("im_send_message", payload))
 }
 
-/// `read <channelId> [endTimeMs]` → im_post_read（post/read → post_read + update_channel）。
+/// `read <channelId> [postId|endTimeMs] ...` → im_post_read（post/read → post_read + update_channel）。
+///
+/// 第 2+ 参数歧义消解：纯数字 → 时间区间路径 `end_time`（备选，Go 还需 start_time）；
+/// 26 位 id-like（含非数字）→ posts 路径（现网主路径，Go IsPosts()=true）。多个 id 累积成 `posts` 数组。
 fn parse_read(rest: &str) -> Parsed {
     let mut it = rest.split_whitespace();
     let Some(channel) = it.next() else {
-        return Parsed::Bad("read 缺 channelId：用法 read <channelId> [endTimeMs]".into());
+        return Parsed::Bad(
+            "read 缺 channelId：用法 read <channelId> [postId...|endTimeMs]".into(),
+        );
     };
     let mut payload = serde_json::json!({ "channel_id": channel });
-    if let Some(end) = it.next() {
-        match end.parse::<i64>() {
+    let mut posts: Vec<serde_json::Value> = Vec::new();
+    for tok in it {
+        // 纯数字 → 时间戳（末个胜出）；否则当 postId 收进 posts 数组。
+        match tok.parse::<i64>() {
             Ok(ms) => payload["end_time"] = serde_json::json!(ms),
-            Err(_) => return Parsed::Bad(format!("read endTimeMs 非整数：'{end}'")),
+            Err(_) => posts.push(serde_json::Value::String(tok.to_string())),
         }
+    }
+    if !posts.is_empty() {
+        payload["posts"] = serde_json::Value::Array(posts);
     }
     Parsed::Command(command("im_post_read", payload))
 }
@@ -108,20 +130,6 @@ fn parse_schedule(rest: &str) -> Parsed {
     Parsed::Command(command(
         "im_create_schedule",
         serde_json::json!({ "channel_id": channel, "schedule_post_at": ms, "message": text }),
-    ))
-}
-
-/// `nickname <channelId> <新昵称...>` → im_update_member_nickname。
-/// 昵称允许空（清空昵称，Go 侧 trim 空→nil）；userId 缺省 → Go 用 session 兜底。
-fn parse_nickname(rest: &str) -> Parsed {
-    let mut it = rest.splitn(2, char::is_whitespace);
-    let Some(channel) = it.next().filter(|s| !s.is_empty()) else {
-        return Parsed::Bad("用法 nickname <channelId> <新昵称>".into());
-    };
-    let nick = it.next().unwrap_or("").trim();
-    Parsed::Command(command(
-        "im_update_member_nickname",
-        serde_json::json!({ "channel_id": channel, "nickname": nick }),
     ))
 }
 
@@ -244,11 +252,18 @@ mod tests {
         assert_eq!(v["schedule_post_at"], 999);
         assert_eq!(v["message"], "see you later"); // text 保留空格
 
-        // 非整数时间 → Bad，不崩
-        assert!(matches!(
-            parse_line("read ch_1 abc", &mut seq),
-            Parsed::Bad(_)
-        ));
+        // 非数字第 2 参 → 当 postId 收进 posts 数组（现网主路径：{channelId, posts:[postId]}）。
+        let (name, v) = unwrap_cmd(parse_line("read ch_1 p_abc26charsxxxxxxxxxxxxxx", &mut seq));
+        assert_eq!(name, "im_post_read");
+        assert_eq!(v["channel_id"], "ch_1");
+        assert_eq!(v["posts"][0], "p_abc26charsxxxxxxxxxxxxxx");
+
+        // 多 postId → 累积成数组；数字混入 → 末个胜出当 end_time。
+        let (_n, v) = unwrap_cmd(parse_line("read ch_1 pid_a pid_b 1700", &mut seq));
+        assert_eq!(v["posts"][0], "pid_a");
+        assert_eq!(v["posts"][1], "pid_b");
+        assert_eq!(v["end_time"], 1700);
+
         assert!(matches!(
             parse_line("schedule ch xx t", &mut seq),
             Parsed::Bad(_)

@@ -25,14 +25,12 @@ fail=0
 WHITELIST=(
   "crates/helix-im/src/module.rs 432"
   "crates/helix-im/src/ws/registry.rs 783"
-  "crates/helix-im/src/acl/to_effect.rs 748"
   "crates/helix-driver-ffi/src/api.rs 733"
   "crates/helix-im/src/channel.rs 579"
   "crates/helix-driver-host/src/storage.rs 560"
   "crates/helix-driver-host/src/network.rs 463"
   "crates/helix-core/src/effect.rs 452"
   "crates/helix-im/src/parser.rs 430"
-  "crates/helix-im/src/state.rs 299"
   "crates/helix-driver-native/src/event_sink.rs 321"
 )
 # 命中白名单 → stdout 回传 baseline + return 0；未命中 → return 1。

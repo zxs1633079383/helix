@@ -1,0 +1,110 @@
+//! Storage Effect factories.
+
+use crate::state::{ChannelId, Seq, TemporaryId};
+use helix_core::effect::{MonotonicUpsertSpec, Row, StorageOp, UpsertSpec};
+use helix_core::{Correlation, Effect};
+
+/// 乐观落库：INSERT INTO messages ON CONFLICT(temporary_id) DO UPDATE
+///
+/// `conflict_key = "temporary_id"` 是 IM 业务键名，由此函数提供给 core，
+/// core 只把它作为参数值传递，不理解其含义。
+pub fn upsert_message(_temporary_id: &TemporaryId, row: Row, corr: Correlation) -> Effect {
+    Effect::Persist {
+        corr,
+        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+            table: "message",
+            rows: vec![row],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+        })],
+    }
+}
+
+/// S3 path1：channel 全量 upsert（INSERT … ON CONFLICT(id) DO UPDATE，52 列）。
+pub fn upsert_channel_full(
+    cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
+    exclude_from_update: Vec<&'static str>,
+) -> Effect {
+    let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    Effect::PersistFire {
+        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel",
+            rows: vec![row],
+            conflict_key: Some("id"),
+            exclude_from_update,
+        })],
+    }
+}
+
+/// S3 path2/3：channel 部分更新（UPDATE channel SET <cols> WHERE id=?）。
+pub fn update_channel_partial(
+    channel_id: ChannelId,
+    cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
+) -> Option<Effect> {
+    if cols.is_empty() {
+        return None;
+    }
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    let patch: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    Some(Effect::PersistFire {
+        ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
+            table: "channel",
+            key_col: "id",
+            key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+            patch,
+        })],
+    })
+}
+
+/// S3 path3：新消息触发 channel 写——未读 +1 SQL 自增 + lastPost 组。
+pub fn bump_channel_unread(upd: &crate::channel_write::PostChannelUpdate) -> Effect {
+    Effect::PersistFire {
+        ops: vec![bump_channel_unread_op(upd)],
+    }
+}
+
+/// `bump_channel_unread` 的 StorageOp 内核，供 sync 应用路径并入同一 Persist 批。
+pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> StorageOp {
+    use helix_core::effect::{GuardedBumpSpec, SqlValue};
+    let mut set_cols: Row = Vec::with_capacity(3);
+    if let Some(ref pid) = upd.unread_post_id {
+        set_cols.push(("unread_post_id".to_string(), SqlValue::Text(pid.clone())));
+    }
+    if !upd.last_post.is_empty() {
+        set_cols.push((
+            "last_post".to_string(),
+            SqlValue::Text(upd.last_post.clone()),
+        ));
+    }
+    if upd.has_schedule_post {
+        set_cols.push(("has_schedule_post".to_string(), SqlValue::Integer(1)));
+    }
+    set_cols.push((
+        "last_root_post_at".to_string(),
+        SqlValue::Integer(upd.msg_create_at),
+    ));
+    StorageOp::GuardedBump(GuardedBumpSpec {
+        table: "channel",
+        key_col: "id",
+        key_val: SqlValue::Text(upd.channel_id.as_str().to_string()),
+        bump_col: "unread_count",
+        bump_delta: upd.unread_delta,
+        set_cols,
+        guard_col: "last_root_post_at",
+        guard_val: upd.msg_create_at,
+    })
+}
+
+/// advance_cursor：推进 per-channel 同步 cursor（fire-and-forget，写成功后调用）。
+pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
+    Effect::PersistFire {
+        ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            value_col: "last_event_seq",
+            touch_col: Some("updated_at"),
+            scope_key: channel_id.as_str().to_string(),
+            value: target_seq.0 as i64,
+        })],
+    }
+}

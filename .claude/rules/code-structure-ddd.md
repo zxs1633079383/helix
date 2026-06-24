@@ -44,7 +44,7 @@
 | `helix-driver-host/src/network.rs` | 463 | 按 port 实现职责裂分 |
 | `helix-core/src/effect.rs` | 452 | Effect/Spec 族裂分 |
 | `helix-im/src/parser.rs` | 430 | 临界，下次改动时收口 |
-| `helix-im/src/state.rs` | 401 | 临界（spec06-FixA：`CorrelationContext::OutboundReadReply` 变体 +11）|
+| `helix-im/src/state.rs` | 299 | ✅ 已拆回 ≤300（`CorrelationContext` enum 外提 sibling `correlation.rs`·baseline 锁 299·reclaim 新变体落 correlation.rs 不再压 state.rs；drift-review 后门第 3 次复发收敛）|
 | `helix-driver-native/src/event_sink.rs` | 321 | 临界 |
 
 > 注：`engine_loop.rs`（曾 ~1119）已拆至 168 行（FFI 生命周期解耦时），**已移出 WHITELIST 重新受 300 硬顶**。

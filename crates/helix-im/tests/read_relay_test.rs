@@ -50,7 +50,10 @@ fn emit_json(sink: &EffectSink) -> Option<serde_json::Value> {
 #[test]
 fn read_command_registers_relay_and_emits_result() {
     // 前置：is_read 真源——top20 是读族。
-    assert!(commands::is_read("im_top20"), "im_top20 必为读族（posts_read）");
+    assert!(
+        commands::is_read("im_top20"),
+        "im_top20 必为读族（posts_read）"
+    );
 
     let mut h = Harness::new(&[]);
 
@@ -96,7 +99,10 @@ fn read_command_registers_relay_and_emits_result() {
 #[test]
 fn write_command_does_not_register_relay() {
     // 前置：revoke 是写族（撤回，数据更新走 WS 回声）。
-    assert!(commands::is_outbound("im_revoke"), "im_revoke 必为 outbound");
+    assert!(
+        commands::is_outbound("im_revoke"),
+        "im_revoke 必为 outbound"
+    );
     assert!(!commands::is_read("im_revoke"), "im_revoke 必非读族（写）");
 
     let mut h = Harness::new(&[]);
@@ -118,10 +124,7 @@ fn write_command_does_not_register_relay() {
         !kinds.iter().any(|k| matches!(k, EffectKind::Emit)),
         "写命令 HTTP 回报不应 emit（fire-and-forget）"
     );
-    assert!(
-        emit_json(&h.sink).is_none(),
-        "写命令 HTTP 回报零 Emit"
-    );
+    assert!(emit_json(&h.sink).is_none(), "写命令 HTTP 回报零 Emit");
 }
 
 // ─── 不变量 3：HTTP 失败 / 信封畸形 → emit error（不丢 req_id）─────────────────────
@@ -145,7 +148,10 @@ fn read_http_error_emits_read_error() {
 
     let v = emit_json(&h.sink).expect("读 HTTP Err 必 emit im:read:result（带 error）");
     assert_eq!(v["event"], "im:read:result");
-    assert_eq!(v["data"]["req_id"], "rq-e", "失败路径也回填 req_id（前端 reject）");
+    assert_eq!(
+        v["data"]["req_id"], "rq-e",
+        "失败路径也回填 req_id（前端 reject）"
+    );
     assert!(v["data"].get("error").is_some(), "失败路径带 error 字段");
     assert!(v["data"].get("body").is_none(), "失败路径不带 body");
 }

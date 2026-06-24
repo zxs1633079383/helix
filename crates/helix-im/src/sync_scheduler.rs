@@ -23,13 +23,20 @@
 
 use crate::state::{ChannelId, CorrelationContext, ImState, InflightSync};
 use helix_core::{Correlation, EffectSink};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// 全局在途 sync 上限 K（B4 风暴闸门）。
 ///
 /// 真源风暴规模：现网实测重连 ~257 channel 同时 needSync。K 取保守小窗（驱动连接池友好），
 /// 大于 1 以保留并行度。注释凭据：HX-C011 证伪测试构造 N>K（N≫8）验证在途恒 ≤ K。
 pub const MAX_INFLIGHT_SYNC: usize = 8;
+
+/// 同一 channel 两次 pong gap 补偿的最小间隔（节流防风暴），毫秒。
+///
+/// 对齐现网 `sync_compensation.rs::MIN_COMPENSATE_INTERVAL = 5s`：心跳 8s/次，gap 命中后服务端
+/// 下个 ping 才重新评估，5s 足够覆盖单次 sync 往返去重。pong gap 与 hashMismatch 全量根群补偿
+/// **共享**此节流闸门（避免「gap 已补 + hashMismatch 又补」对同 channel 双拉）。
+pub const PONG_COMPENSATE_MIN_INTERVAL_MS: u64 = 5_000;
 
 /// SyncScheduler 全局调度态（并入 ImState，纯数据，无 I/O 句柄）。
 ///
@@ -43,6 +50,10 @@ pub struct SyncScheduler {
     enqueued: HashSet<ChannelId>,
     /// 全局在途 sync 计数（dispatch 时 +1，回报时 -1，恒 ≤ MAX_INFLIGHT_SYNC）。
     inflight: usize,
+    /// pong gap 补偿节流：channel → 上次补偿的 `now_ms`（test-and-set，防 pong 风暴）。
+    /// 与 `pending`/`enqueued` 正交：那两个管「待 sync 队列」，这个管「补偿冷却」。
+    /// 确定性：节流判定纯比 `now_ms`（host 注入），不读墙钟（HX-C011 / sans-IO）。
+    pong_throttle: HashMap<ChannelId, u64>,
 }
 
 impl SyncScheduler {
@@ -106,14 +117,30 @@ impl SyncScheduler {
         self.inflight += 1;
     }
 
-    /// 会话边界 reset（hello 起点）：清队列 + 去重集 + 在途计数，防跨会话残留误调度。
+    /// pong gap 补偿节流闸门（test-and-set）：返回 true=允许本次补偿（并记 `now_ms`），
+    /// false=距上次补偿 < `PONG_COMPENSATE_MIN_INTERVAL_MS` 跳过。
+    ///
+    /// 对齐现网 `heartbeat.should_compensate`（test-and-set 语义）：判定即记账，调用方拿到
+    /// true 后必然补偿。`now_ms` 由 host 注入（确定性，HX-C011 不读墙钟）。
+    pub fn should_pong_compensate(&mut self, channel_id: ChannelId, now_ms: u64) -> bool {
+        match self.pong_throttle.get(&channel_id) {
+            Some(&last) if now_ms.saturating_sub(last) < PONG_COMPENSATE_MIN_INTERVAL_MS => false,
+            _ => {
+                self.pong_throttle.insert(channel_id, now_ms);
+                true
+            }
+        }
+    }
+
+    /// 会话边界 reset（hello 起点）：清队列 + 去重集 + 在途计数 + pong 节流，防跨会话残留误调度。
     ///
     /// 与 `ImState::reset_increment_batch` 同生命周期（hello 窗口起点）：旧会话遗留的 pending
-    /// channel / 悬挂在途计数若不清，重连后会对错误 channel 调度或永久占满窗口。
+    /// channel / 悬挂在途计数 / 陈旧节流戳若不清，重连后会对错误 channel 调度或永久占满窗口。
     pub fn reset(&mut self) {
         self.pending.clear();
         self.enqueued.clear();
         self.inflight = 0;
+        self.pong_throttle.clear();
     }
 }
 
@@ -182,110 +209,5 @@ pub fn drain(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::channel::Channel;
-    use crate::state::{test_channel_id, InflightSync};
-    use helix_core::Correlation;
-
-    fn mk_corr() -> impl FnMut() -> Correlation {
-        let mut n = 1u64;
-        move || {
-            let c = Correlation::from_raw(n);
-            n += 1;
-            c
-        }
-    }
-
-    /// enqueue_and_drain 跳过不存在 channel（line 138 `None => continue`）+ 已在途 channel（line 136）。
-    #[test]
-    fn enqueue_and_drain_skips_missing_and_inflight_channels() {
-        let mut state = ImState::new();
-        let present = test_channel_id(1);
-        let missing = test_channel_id(2);
-        let inflight = test_channel_id(3);
-        state.channels.insert(present, Channel::new(present, 0));
-        let mut ch_inflight = Channel::new(inflight, 0);
-        ch_inflight.inflight_sync = Some(InflightSync(Correlation::from_raw(99)));
-        state.channels.insert(inflight, ch_inflight);
-
-        let mut out = EffectSink::new();
-        let mut alloc = mk_corr();
-        // missing 不在 channels → 跳；inflight 已在途 → 跳；只有 present 入队 + dispatch。
-        enqueue_and_drain(
-            &mut state,
-            "http://t",
-            &[present, missing, inflight],
-            &mut alloc,
-            &mut out,
-        );
-        assert_eq!(state.sync_scheduler.inflight(), 1, "只 present 应占窗");
-        assert_eq!(state.sync_scheduler.pending_len(), 0);
-    }
-
-    /// drain 队首在出队后被注销 → 跳过并归还窗口（line 164-166 `None => release+continue`）。
-    #[test]
-    fn drain_skips_and_releases_window_for_removed_channel() {
-        let mut state = ImState::new();
-        let ch = test_channel_id(1);
-        // 直接 enqueue 一个不在 channels 的 channel（模拟入队后被注销）。
-        state.sync_scheduler.enqueue(ch);
-        let mut out = EffectSink::new();
-        let mut alloc = mk_corr();
-        drain(&mut state, "http://t", &mut alloc, &mut out);
-        // 出队 → channels.get None → release_window 归还 → 在途归 0，无 Http。
-        assert_eq!(
-            state.sync_scheduler.inflight(),
-            0,
-            "removed channel 须归还窗口"
-        );
-        assert!(out.as_slice().is_empty(), "removed channel 不发 sync");
-    }
-
-    /// drain 队首出队后发现已另起在途 → 跳过并归还窗口（line 159-161）。
-    #[test]
-    fn drain_skips_and_releases_window_for_already_inflight_channel() {
-        let mut state = ImState::new();
-        let ch = test_channel_id(1);
-        let mut c = Channel::new(ch, 0);
-        c.inflight_sync = Some(InflightSync(Correlation::from_raw(7)));
-        state.channels.insert(ch, c);
-        state.sync_scheduler.enqueue(ch); // 直接入队（绕过 enqueue_and_drain 的在途前置过滤）。
-        let mut out = EffectSink::new();
-        let mut alloc = mk_corr();
-        drain(&mut state, "http://t", &mut alloc, &mut out);
-        assert_eq!(
-            state.sync_scheduler.inflight(),
-            0,
-            "已在途 channel 须归还窗口"
-        );
-        assert!(out.as_slice().is_empty(), "已在途 channel 不重发 sync");
-    }
-
-    /// 标量 API：acquire_window / release_window 饱和、has_window、reset、enqueue 去重。
-    #[test]
-    fn scheduler_scalar_api_invariants() {
-        let mut s = SyncScheduler::new();
-        let ch = test_channel_id(1);
-        assert!(s.has_window() && s.inflight() == 0 && s.pending_len() == 0);
-        assert!(s.enqueue(ch), "首次入队 true");
-        assert!(!s.enqueue(ch), "重复入队去重 false");
-        assert_eq!(s.pending_len(), 1);
-        s.acquire_window();
-        assert_eq!(s.inflight(), 1);
-        s.release_window();
-        s.release_window(); // 饱和减不下溢
-        assert_eq!(s.inflight(), 0);
-        // 占满窗 → has_window false。
-        for _ in 0..MAX_INFLIGHT_SYNC {
-            s.acquire_window();
-        }
-        assert!(
-            !s.has_window() && s.next_dispatch().is_none(),
-            "满窗不再 dispatch"
-        );
-        s.reset();
-        assert_eq!(s.inflight(), 0);
-        assert_eq!(s.pending_len(), 0);
-    }
-}
+#[path = "sync_scheduler_tests.rs"]
+mod tests;

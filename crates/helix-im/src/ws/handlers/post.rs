@@ -75,11 +75,21 @@ impl WsMessageHandler for PostHandler {
         };
         let ev = ev.with_unread_bump(unread_bump);
 
-        // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）门控 channel 注册：未注册 channel
-        // （driver 未通过 increment 种 cursor）静默忽略，与 legacy event 路径同口径（driver 路由问题）。
-        if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
-            ch.ingest(ev, out, ctx.now_ms)?;
-        }
+        // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）。**陌生 channel 自动注册**
+        // （Round-3 UC-4.5 偏差修复，对齐真源 `on_ws_event` 的 `gate_states.entry().or_insert_with`
+        // + `handle_new_post` **无条件**落库）：首次见到的新群 / 被拉入群的首条在线 push 在 increment
+        // 种 cursor 之前到达时，**不再整帧静默丢弃**——以 cursor=0 惰性注册（与 `increment_channel`
+        // 真新 channel 同口径：cursor=本地未确认，**不**误种服务端水位），随后由 gate 处理：
+        //   - event_seq==1（==cursor+1）→ 立即 apply：batch_upsert message + emit im:post:received + cursor→1；
+        //   - event_seq>1（缺口）→ buffer + arm 1s gate → sync 回拉补齐前置消息，首条不丢。
+        // on_start Scan 已把所有持久化 cursor 灌入 channels（handle_scan_reply），故「不在 channels」
+        // 严格等价「DB 无 cursor 的真新 channel」，seed=0 正确（HX-C008 单调，gate 缺口回拉兜底）。
+        let ch = ctx
+            .state
+            .channels
+            .entry(ev.channel_id)
+            .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
+        ch.ingest(ev, out, ctx.now_ms)?;
         Ok(())
     }
 }

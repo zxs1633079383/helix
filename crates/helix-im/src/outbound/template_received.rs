@@ -13,13 +13,18 @@ use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOU
 
 /// POST /api/cses/post/templateReceived — 模板消息已收到回执。真源 `{postId}`。
 /// 路径前缀 `post`（单数），勿写成 `posts`（命名陷阱：与同文件其余 posts/* 不同前缀）。
+///
+/// ⚠️ 入参键是 camelCase `postId`（非 snake `post_id`）：前端 `message.service.ts:528` invoke
+/// `helix:templateReceived` 发 `{postId}`（仅 UI 字段），bridge `paramNames:['payload']` 字节透传
+/// **不转 snake**（tauri.service.ts:1511）→ builder 必须读 camel，否则 `require_str(post_id)`=None →
+/// 命令永远 `ImError::Parse` 失败（UC-3.3 偏差修复，full-map #25 `{postId}`）。
 struct TemplateReceivedCommand;
 impl OutboundCommand for TemplateReceivedCommand {
     fn name(&self) -> &'static str {
         "im_template_received"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        let post_id = require_str(args, "post_id", self.name())?;
+        let post_id = require_str(args, "postId", self.name())?;
         Ok(("post/templateReceived", json!({ "postId": post_id })))
     }
 }

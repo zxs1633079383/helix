@@ -47,6 +47,42 @@ fn read_maps_to_post_read_with_channel_and_endtime() {
     assert_eq!(url, "http://x/api/cses/post/read");
     assert_eq!(body["channelId"], "ch1");
     assert_eq!(body["endTime"], 123);
+    // 区间模式：不带 posts → body 无 posts 键（entity.PostRead.Posts omitempty）
+    assert!(body.get("posts").is_none());
+}
+
+/// UC-3.2 单条/列表已读：前端 onPostRead 发 `{channel_id, posts:[postId]}`（按 posts 列表标记单条已读）。
+/// 真源 entity.PostRead.Posts []string `json:"posts,omitempty"`（post.go:381 / full-map #23）。
+/// 偏差修复前 builder 从不构建 posts → Go ReadPost 收到无 posts 无区间 → 标记错/不标记。
+#[test]
+fn read_carries_posts_list_for_single_post_read() {
+    let (url, body) = one_http(run(
+        "im_post_read",
+        json!({ "channel_id": "ch1", "posts": ["p-1", "p-2"] }),
+    ));
+    assert_eq!(url, "http://x/api/cses/post/read");
+    assert_eq!(body["channelId"], "ch1");
+    assert_eq!(body["posts"][0], "p-1");
+    assert_eq!(body["posts"][1], "p-2");
+    // posts 为 wire key（非 snake post_ids），且不带空 endTime
+    assert!(body.get("post_ids").is_none());
+    assert!(body.get("endTime").is_none());
+}
+
+/// posts 为空数组 / 非字符串数组 → 不注入 posts 键（区间模式兜底，不发坏 wire）。
+#[test]
+fn read_omits_posts_when_empty_or_invalid() {
+    let (_url, body) = one_http(run(
+        "im_post_read",
+        json!({ "channel_id": "ch1", "posts": [] }),
+    ));
+    assert!(body.get("posts").is_none(), "空 posts 数组不进 body");
+
+    let (_url, body) = one_http(run(
+        "im_post_read",
+        json!({ "channel_id": "ch1", "posts": "x" }),
+    ));
+    assert!(body.get("posts").is_none(), "非数组 posts 不进 body");
 }
 
 #[test]
@@ -58,10 +94,40 @@ fn revoke_leave_cancel_map_to_real_endpoints() {
     let (url, body) = one_http(run("im_channel_leave", json!({ "channel_id": "ch2" })));
     assert_eq!(url, "http://x/api/cses/channel/member/leave");
     assert_eq!(body["channelId"], "ch2");
+    // 仅自己退、无转让：不发空 userId/newCreator（Go *string / *struct omitempty）
+    assert!(body.get("userId").is_none(), "无 user_id 不进 body");
+    assert!(body.get("newCreator").is_none(), "无 new_creator 不进 body");
 
     let (url, body) = one_http(run("im_cancel_schedule", json!({ "channel_id": "ch3" })));
     assert_eq!(url, "http://x/api/cses/posts/cancelSchedule");
     assert_eq!(body["channelId"], "ch3");
+}
+
+/// UC-5.3 群主退群转让：full-map #33 entity.ChannelIdStruct{channelId, userId *string,
+/// newCreator *ChannelMemberMinimal}；L596「NewCreator 用于群主退群时转让群主」。
+/// 偏差修复前 build 只发 channelId，静默丢 newCreator/userId → 群主转让失效。
+/// 透传后 wire key 必须是 camelCase `newCreator` / `userId`（对齐 Go json tag）。
+#[test]
+fn leave_carries_new_creator_and_user_id_for_owner_transfer() {
+    let (url, body) = one_http(run(
+        "im_channel_leave",
+        json!({
+            "channel_id": "ch9",
+            "user_id": "u-self",
+            "new_creator": { "id": "u-heir", "teamId": "t1", "role": 0 }
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/channel/member/leave");
+    assert_eq!(body["channelId"], "ch9");
+    assert_eq!(body["userId"], "u-self");
+    // newCreator 整对象透传（ChannelMemberMinimal 结构由前端直供，build 不解构）
+    assert_eq!(body["newCreator"]["id"], "u-heir");
+    assert_eq!(body["newCreator"]["teamId"], "t1");
+    // 命名陷阱：是 newCreator（camelCase），不是 snake new_creator
+    assert!(
+        body.get("new_creator").is_none(),
+        "wire key 为 camelCase newCreator"
+    );
 }
 
 #[test]

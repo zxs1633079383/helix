@@ -17,7 +17,8 @@
 //!
 //! ## HX-C011 可证伪性（上界断言 · 禁下界）
 //!
-//! 本测试断言「连不上时 create→command→destroy 总耗时 **< 2s**」（上界）。当前 60s → FAIL（红）。
+//! 本测试断言「连不上时 create→command→destroy 总耗时 **< 20s**」（上界·界 << 30s 回归·HX-C011；
+//! 原 2s 在 gate.sh 满载并发下假阳 flake → 放宽到 20s，同兄弟 destroy_not_blocked 4s→20s 决策）。
 //! 还原任一阻塞 await（create 同步 connect / destroy 无超时 drain）→ 总耗时回到 ~30-60s → FAIL。
 //! 仅根治两处后才 PASS（绿）。配结构化证（见 `create_returns_before_ws_connected`）。
 
@@ -96,9 +97,13 @@ fn create_command_destroy_fast_when_unreachable() {
     unsafe { helix_destroy(handle) };
 
     let elapsed = t0.elapsed();
+    // 界放到 20s 而非 2s（修 CI 满载 flake·HX-C011·同兄弟 destroy_not_blocked 的 4s→20s 决策）：
+    // 本测试含 destroy graceful drain（两段顺序 cap·重载 timer 饥饿下实测可达 ~10s）+ gate.sh 并发
+    // 全 crate 测试满载 → 2s 上界假阳（实测 2.12s）。20s 仍**远小于** uncapped 回归（create 同步
+    // 30s connect / destroy 无超时 drain → 30-60s），证「生命周期不被网络阻塞」的不变量不丢。
     assert!(
-        elapsed < Duration::from_secs(2),
-        "连不上 host 时 create→command→destroy 总耗时应 < 2s（生命周期不被网络阻塞），实际 {:?}",
+        elapsed < Duration::from_secs(20),
+        "连不上 host 时 create→command→destroy 总耗时应 < 20s（生命周期不被网络阻塞·界 << 30s 回归），实际 {:?}",
         elapsed
     );
 }
@@ -126,9 +131,12 @@ fn create_returns_before_ws_connected() {
     };
     let create_elapsed = t0.elapsed();
     assert!(!handle.is_null(), "create 应成功返回（不可达 host 也进泵）");
+    // 界 10s 而非 2s（修 CI 满载 flake·HX-C011）：create 无 drain 本应 ~ms，但 gate.sh 并发满载下
+    // 调度抖动可超 2s（实测）。10s 仍**远小于** 30s connect 回归——若 connect 仍同步，create 自身
+    // 即 ~30s 必 FAIL，10s 界足以锚定「connect 异步化、不在装配同步路径」。
     assert!(
-        create_elapsed < Duration::from_secs(2),
-        "create 本身应秒级返回（connect 异步化，不在装配同步路径等 30s WS 连接），实际 {:?}",
+        create_elapsed < Duration::from_secs(10),
+        "create 本身应秒级返回（connect 异步化，不在装配同步路径等 30s WS 连接·界 << 30s 回归），实际 {:?}",
         create_elapsed
     );
 

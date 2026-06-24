@@ -233,7 +233,9 @@ fn update_post_props_requires_postid_and_object_props() {
 #[test]
 fn template_received_uses_singular_post_prefix() {
     // posts.go:53 → api.BaseRoutes.Post（/post 单数 subrouter，api.go:171）
-    let (url, body) = one_http(run("im_template_received", json!({ "post_id": "pt" })));
+    // UC-3.3 偏差修复：前端 invoke `helix:templateReceived` 发 camelCase `{postId}`（message.service.ts:528），
+    // bridge paramNames:['payload'] 字节透传不转 snake → builder 必须读 camel `postId`。
+    let (url, body) = one_http(run("im_template_received", json!({ "postId": "pt" })));
     assert_eq!(url, "http://x/api/cses/post/templateReceived");
     // 命名陷阱守护：前缀必须是 /post/ 而非 /posts/
     assert!(
@@ -245,7 +247,9 @@ fn template_received_uses_singular_post_prefix() {
 
 #[test]
 fn template_received_requires_postid() {
+    // 缺 postId（camel）→ Err；旧 snake `post_id` 已非契约键 → 同样 Err（前端不发 snake）
     assert!(err("im_template_received", json!({})));
+    assert!(err("im_template_received", json!({ "post_id": "pt" })));
 }
 
 // ── revoke（既有，posts 写族，验证迁移后仍正常）─────────────────────────────────
@@ -354,7 +358,7 @@ fn every_registered_command_is_dispatchable() {
             "im_update_post_props",
             json!({ "post_id": "p", "props": {} }),
         ),
-        ("im_template_received", json!({ "post_id": "p" })),
+        ("im_template_received", json!({ "postId": "p" })),
     ];
     // 注册集（ALL_OUTBOUND）与可 dispatch 集一一对应（无漏/无多）。
     assert_eq!(

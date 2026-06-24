@@ -307,7 +307,7 @@ fn bookmark_delete_builds_user_post_body() {
 
 #[test]
 fn bookmark_load_builds_channel_user_body() {
-    // {channelId, userId}（post_bookmark.go:17）
+    // {channelId, userId}（post_bookmark.go:17）+ 内嵌 entity.PageOpts 扁平分页字段。
     let (url, body) = one_http(run(
         "im_bookmark_load",
         json!({ "channel_id": "cLd", "user_id": "uLd" }),
@@ -315,8 +315,46 @@ fn bookmark_load_builds_channel_user_body() {
     assert_eq!(url, "http://x/api/cses/post/bookmark/load");
     assert_eq!(body["channelId"], "cLd");
     assert_eq!(body["userId"], "uLd");
+    // 分页缺省时不注入键（边界零信任：仅透传存在的入参，缺省由后端 PageOpts 零值兜底）
+    assert!(body.get("pageSize").is_none());
+    assert!(body.get("pageNumber").is_none());
+    assert!(body.get("offset").is_none());
     assert!(err("im_bookmark_load", json!({ "channel_id": "c" }))); // 缺 user_id
     assert!(err("im_bookmark_load", json!({ "user_id": "u" }))); // 缺 channel_id（覆盖 channel_id `?` 早退）
+}
+
+#[test]
+fn bookmark_load_carries_pagination_flat_camel() {
+    // full-map partials/1:543-553：loadPostBookmark 内嵌 entity.PageOpts（embedded struct
+    // → 扁平序列化），前端 queryBookMarks(:763) 透传 {channelId,userId,pageSize,pageNumber?,offset?}。
+    // 01-接口可达性清单.md:333 证 post_bookmark JOIN post raw SQL Limit N+1 主动消费分页 →
+    // pageSize 缺失 = SQL LIMIT≈0/1 = 书签面板最多回 1 条 + hasMore 失真 + 无限滚动断。
+    // 入参 snake_case（Tauri bridge 约定），出 wire 扁平 camelCase（对齐 PageOpts json tag）。
+    let (url, body) = one_http(run(
+        "im_bookmark_load",
+        json!({
+            "channel_id": "cP",
+            "user_id": "uP",
+            "page_size": 20,
+            "page_number": 2,
+            "offset": 40
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/post/bookmark/load");
+    assert_eq!(body["channelId"], "cP");
+    assert_eq!(body["userId"], "uP");
+    // 扁平（非嵌套）+ camelCase + 数值原值（不强转字符串）
+    assert_eq!(body["pageSize"], 20);
+    assert_eq!(body["pageNumber"], 2);
+    assert_eq!(body["offset"], 40);
+    // 部分分页：只给 pageSize（pageNumber/offset 缺省）→ 只透传存在的
+    let (_, body2) = one_http(run(
+        "im_bookmark_load",
+        json!({ "channel_id": "c", "user_id": "u", "page_size": 50 }),
+    ));
+    assert_eq!(body2["pageSize"], 50);
+    assert!(body2.get("pageNumber").is_none());
+    assert!(body2.get("offset").is_none());
 }
 
 // ── post/announcement/* 读族（endpoint 走 `post/`（单数））────────────────────────────

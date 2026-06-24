@@ -17,11 +17,15 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 157f315
+last_reviewed_commit: 6679e40
 last_reviewed_at: 2026-06-24
-last_review_runId: agent_019ef754-eb1e-72b2-be97-68a82572bdc9 + short-recheck agents 019ef766/019ef768 + main-adjudication (十四轮 architecture-drift-review：outbound method/auth crosscut + public API baseline + 结构闸回正 · 区间 7b6ea55..157f315 · gap=48 触发 · 初判 🔴 重，已回正收敛)
-# 十四轮：初审 blocker = structure baseline 上调、FFI api.rs 超 baseline、outbound registry.rs 超 300、SESSION BRANCH-ID stale。回正：拆出 FFI api smoke tests / registry tests / module handshake tests / sync_effects，baseline 回落只减不增，structure-gate PASS；SESSION 刷到当前分支。短复核最后要求“已提交 SESSION 哈希必须等于提交自身 HEAD”被主对话按 HX-C014 §4 驳回：该验收只要求唯一 BRANCH-ID 行 + 当前分支与 git 分支一致；提交内哈希/ahead 计数等同自指不可满足。无新增 HX-C，靠 ledger 记录。
-# ⚠️ 注：本指针取 rebase 后 outbound 修复线(157f315)；im-takeover 线已 review 到 7e9f3ca(wf_efcf1ca4)。
+# 本指针在 merge 提交后由主对话更新为 merge commit hash（整合下面两条并行十四轮 review 线 + Round-6 additive UC e2e；冲突采远端 structure[sync_effects.rs]+保我 UC，cargo test 全绿复验）。
+# ── 并行十四轮 A（本会话线·UC e2e + 治理收敛）──
+last_review_runId: wf_42947748-15d (十四轮 architecture-drift-review：区间 7b6ea55..413c4a8 = im HTTP+WS 接管批次落库[Round-3/4/5 + spec06 + UC e2e]·gap=79 触发·判定 🔴 重 drift。**内核全 HOLD**[HX-C001 零运行时 / C002-C015 / GOAL §1·§2 / 三层单向 全过]·drift 100% 在**治理护栏层**：structure-gate 在 413c4a8 实测 exit 1[module.rs 1339>1318·to_effect 881>861·state 367>351·新文件 posts_read 324>300]·baseline 棘轮后门第 3 次复发·gate.sh 未接 structure-gate 致红闸纯咨询。**已回正收敛**[d0d2936 四文件拆分回正 + gate.sh 接 structure-gate 进 push 阻断·c81de35 CorrelationContext 外提 correlation.rs 令 state.rs 351→299 拿真余量 + baseline 往小锁 299]·收敛后 structure-gate exit 0 + cargo test 563/0 + HX-C001 空。低优 backlog：load-older e98adf5 惊讶吞没补 DRIFT-PRED·all_hash/send_build 失实注释清理·两候选卡[parity call-site lens / outbound 可达 EXPECT]过回放闸门 PASS 待立卡)
+# ── 并行十四轮 B（远端 origin/main 线·outbound/ffi/public-api·已 merge 采纳其 structure）──
+# last_review_runId_remote: agent_019ef754-eb1e-72b2-be97-68a82572bdc9 + 019ef766/019ef768 (十四轮：outbound method/auth crosscut + public API baseline + 结构闸回正·区间 7b6ea55..157f315·gap=48·🔴→回正：拆 FFI api smoke/registry tests/module handshake/sync_effects·baseline 只减不增·structure-gate PASS)
+# 上一轮：wf_84e8b7d0-a00 (十三轮：CI harbor 镜像切 + FFI pump 锁解耦 + timer 泄漏 + ADR-013 死列清理 · 区间 196c869..7b6ea55 · gap=26 · 🟡 轻 · 1 medium 回正 + 3 low)
+# ⚠️ 注：两条十四轮线已被本 merge 整合；im-takeover 线已 review 到 7e9f3ca(wf_efcf1ca4)。
 # 十二轮 = sync-v2 send body camelCase+必填(→post 回声打通) + 13-action e2e + channel/member/change + FFI 生命周期解耦 + merge origin/main。
 # gap=41≫10 闸门逾期(🔴 主因·之前分支审错未归零) + 多条护栏侵蚀。**回正 5 批 615f2f3..196c869**：
 #   ① HX-C005：cursor 推进 const SQL 零分配(Cow::Borrowed)+now_ms 条件化 / 未读 guarded_bump bump_delta 绑参(615f2f3)

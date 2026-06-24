@@ -152,15 +152,33 @@ fn real_go_post_frame_persists_message_and_advances_cursor() {
     );
 }
 
-/// 边界：未注册 channel 收到真 post 帧 → 静默忽略（driver 路由问题，非 IM 错误），零 effect、零 panic。
+/// 边界（Round-3 UC-4.5 偏差修复）：未注册 channel 收到真 post 帧 → **自动注册**（cursor=0 seed），
+/// **不再静默丢弃**。对齐真源 `on_ws_event` 的 `gate_states.entry().or_insert_with` + `handle_new_post`
+/// 无条件落库。post.json 真帧 event_seq=40114 > 新注册 cursor+1(=1) → 缺口：自动注册 + arm 1s gate
+/// （sync 回拉前置消息）。首次见到的新群 / 被拉入群的首条在线 push 不丢。
 #[test]
-fn real_go_post_frame_on_unregistered_channel_is_silently_dropped() {
+fn real_go_post_frame_on_unregistered_channel_auto_registers_and_arms_gate() {
+    let channel =
+        ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
     let mut h = Harness::new(&[]);
     h.start(0);
+    assert_eq!(h.module.cursor_for(channel), None, "前置：channel 未注册");
+
     let effects = h.step(inbound(POST_JSON), 1000);
+
+    // 自动注册（cursor=0，未推进——缺口 40114 未填）：不再整帧丢弃。
+    assert_eq!(
+        h.module.cursor_for(channel),
+        Some(0),
+        "陌生 channel 真 post 帧应自动注册（cursor=0 seed），不丢弃，got {:?}",
+        effects
+    );
+    // event_seq(40114) > cursor+1(1) → 缺口：arm 1s gate（sync 回拉前置消息）。
     assert!(
-        effects.is_empty(),
-        "未注册 channel 的真 post 帧应静默忽略（零 effect），got {:?}",
+        effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
+        "陌生 channel 缺口 post 应 arm gate（缺口回拉），got {:?}",
         effects
     );
 }

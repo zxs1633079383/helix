@@ -11,7 +11,13 @@ use crate::error::ImError;
 use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
 
 /// #23 POST /api/cses/post/read — 标记已读 → update_channel + post_read。
-/// 真源 entity.PostRead{ChannelID, EndTime, ...}；UserId nil → Go 用 session 兜底。
+/// 真源 `entity.PostRead{ChannelID, EndTime, Posts[], StartTime, UserId}`（post.go:527-536）。
+/// 两种已读模式：① 按 `posts` 列表标记单条（UC-3.2）② 按 `channelId + 区间(start/end)`。
+/// `UserId` nil → Go 用 session 兜底。
+///
+/// ⚠️ UC-3.2 偏差修复：前端 `onPostRead` 发 `{channel_id, posts:[postId]}`（message.service.ts:247）
+/// 走 posts 列表模式标单条已读；旧 builder 从不构建 `posts` → Go ReadPost 收无 posts 无区间 →
+/// 标记范围错/不标记。`posts` 为 wire key（entity.PostRead.Posts `json:"posts,omitempty"`）。
 struct PostReadCommand;
 impl OutboundCommand for PostReadCommand {
     fn name(&self) -> &'static str {
@@ -22,6 +28,16 @@ impl OutboundCommand for PostReadCommand {
         let mut b = json!({ "channelId": channel_id });
         if let Some(end_time) = args.get("end_time").and_then(Value::as_i64) {
             b["endTime"] = json!(end_time);
+        }
+        if let Some(start_time) = args.get("start_time").and_then(Value::as_i64) {
+            b["startTime"] = json!(start_time);
+        }
+        // posts 列表模式：仅在非空字符串数组时注入（空/非数组 → 走区间模式，不发坏 wire）。
+        if let Some(arr) = args.get("posts").and_then(Value::as_array) {
+            let posts: Vec<&str> = arr.iter().filter_map(Value::as_str).collect();
+            if !posts.is_empty() && posts.len() == arr.len() {
+                b["posts"] = json!(posts);
+            }
         }
         Ok(("post/read", b))
     }

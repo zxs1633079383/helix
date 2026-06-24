@@ -21,7 +21,8 @@ use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::engine::{self, EngineDeps, TransportTable};
 use helix_driver_host::{
-    HostHeaderRegistry, HostNetworkConfig, HostStorage, SharedHttpClient, SharedWsClient,
+    AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig, HostStorage, SharedHttpClient,
+    SharedWsClient,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -48,6 +49,7 @@ pub struct QueryDeps {
 pub struct PumpArgs {
     pub config: HostNetworkConfig,
     pub headers: HostHeaderRegistry,
+    pub auth: AuthTokenRegistry,
     pub vtable: CppHostVtable,
     pub tick_tx: mpsc::Sender<Tick>,
     pub tick_rx: mpsc::Receiver<Tick>,
@@ -88,10 +90,13 @@ pub fn run(args: PumpArgs) {
             }
         };
 
+        // ── event sink（FFI 批处理 egress）先建：HTTP 横切层 401/断网回报复用同一出口。
+        let event_sink = Arc::new(FfiEventSink::new(args.vtable));
+
         // ── http / ws ports（Rust 持有，共享 header registry）──────────
         let http = match SharedHttpClient::with_registry(args.config.clone(), args.headers.clone())
         {
-            Ok(c) => FfiHttpRequester::new(c),
+            Ok(c) => FfiHttpRequester::new(c, Arc::clone(&event_sink), args.auth.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedHttpClient 失败");
                 let _ = args.ready_tx.send(None);
@@ -145,8 +150,7 @@ pub fn run(args: PumpArgs) {
             }
         });
 
-        // ── event sink（FFI 批处理 egress）+ clock（host 注入壁钟）────────
-        let event_sink = FfiEventSink::new(args.vtable);
+        // ── clock（host 注入壁钟）────────────────────────────────────
         let clock = FfiClock::new(args.vtable.now_ms, args.vtable.ctx);
 
         // ── shell + IM 模块 ─────────────────────────────────────────
@@ -163,7 +167,7 @@ pub fn run(args: PumpArgs) {
         let deps = EngineDeps {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
-            event_sink: Arc::new(event_sink),
+            event_sink,
             clock,
             max_http_inflight: args.max_http_inflight,
         };

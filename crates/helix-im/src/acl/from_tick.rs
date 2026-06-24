@@ -22,6 +22,10 @@ pub fn accepts_tick(tick: &Tick) -> bool {
             // no-op。`im_reconnect` 是真连接控制命令（module.rs 有臂 emit 控制信号），保留。
             matches!(cmd.name.as_ref(), "im_send_message" | "im_reconnect")
                 || crate::commands::is_outbound(cmd.name.as_ref())
+                // query 族（im_load_older_context / dialog_list 等纯读投影命令）：handle 分发
+                // 有臂（module.rs `is_query(name)` 分支），但此 accepts 闸原漏放行 → accept()==false
+                // 静默丢弃整族（Round-5 e2e 揪出 UC-2.2 上拉历史不可达·单测直调纯逻辑绕过本闸故漏网）。
+                || crate::query::is_query(cmd.name.as_ref())
         }
         // 连接状态变化：IM 要响应（cursor reset / proactive resync 策略在 im 层）
         Tick::Connected(_) | Tick::Disconnected(_) => true,

@@ -61,6 +61,10 @@ pub struct RepliedRef<'a> {
 pub struct BuildInput<'a> {
     pub channel_id: &'a str,
     pub temporary_id: &'a str,
+    /// 消息类型（`entity.Post.Type`，wire `type`）。默认 `"TEXT"`；DOCUMENT 等富媒体传真值——硬编 `"TEXT"` 降级纯文本（UC-1.2）。
+    pub msg_type: &'a str,
+    /// 消息 id（`entity.Post.ID`，wire `id`）。默认空串 = 新建；编辑传被编辑消息真 post id（非空 → Go update 而非 create，UC-1.6）。
+    pub post_id: &'a str,
     /// UI 纯文本（已是 snapshotToPlainText 结果；此处再做 2000 兜底截断）。
     pub text: &'a str,
     /// UI 选的可见性（空 → 补 `["all"]`）。
@@ -157,7 +161,13 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     body.insert("message".to_string(), json!(message));
     body.insert("mentions".to_string(), input.mentions.clone());
     body.insert("temporaryId".to_string(), json!(input.temporary_id));
-    body.insert("type".to_string(), json!("TEXT"));
+    // type：默认 "TEXT"，文档/图片等富媒体透传真值（UC-1.2）。空串容错为 "TEXT"。
+    let msg_type = if input.msg_type.is_empty() {
+        "TEXT"
+    } else {
+        input.msg_type
+    };
+    body.insert("type".to_string(), json!(msg_type));
     body.insert("simpleMessage".to_string(), json!(simple_message));
     body.insert("channelId".to_string(), json!(input.channel_id));
     body.insert("userId".to_string(), json!(id.user_id));
@@ -172,8 +182,9 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
             "teamId": id.team_id,
         }),
     );
-    // self message 本地 `id`=空串（现网 `id: ''`）。
-    body.insert("id".to_string(), json!(""));
+    // id：新建时空串（现网 self message `id: ''`）；编辑时传被编辑消息真 post id（非空 →
+    // Go 当 update 而非 create，UC-1.6）。透传 `input.post_id`，默认空串。
+    body.insert("id".to_string(), json!(input.post_id));
     body.insert("props".to_string(), input.props.clone());
     body.insert("topicId".to_string(), json!(input.topic_id));
     body.insert("revoke".to_string(), json!(false));
@@ -222,7 +233,8 @@ pub fn optimistic_persist_op(temporary_id: &str, channel_id: &str, text: String)
 /// 从 `im_send_message` 命令载荷 + 注入身份/时间组装 body（边界解析 + 调 `build_message_object`）。
 ///
 /// 命令载荷字段（前端只传 UI 字段，C1 纯渲染）：`text`（纯文本）/ `viewers`（空数组省略亦可）/
-/// `mentions` / `props` / `topic_id` / `replied{id,reply_id,reply_root_id,reply_first_level_id}`。
+/// `mentions` / `props` / `topic_id` / `type`（默认 `"TEXT"`，DOCUMENT 等富媒体）/ `id`（默认空串，
+/// 编辑时传被编辑消息真 post id）/ `replied{id,reply_id,reply_root_id,reply_first_level_id}`。
 /// 返回 `None` = 空消息拦截（不发）。`channel_id` / `temporary_id` 由调用方先校验（typed PK）后传入。
 pub fn build_from_command(
     cmd: &Value,
@@ -232,6 +244,9 @@ pub fn build_from_command(
     identity: &UserIdentity<'_>,
 ) -> Option<Value> {
     let text = cmd["text"].as_str().unwrap_or("");
+    // 零信任 default：缺 type → "TEXT"；缺 id → ""（新建）。前端 DOCUMENT/编辑时显式传。
+    let msg_type = cmd["type"].as_str().unwrap_or("TEXT");
+    let post_id = cmd["id"].as_str().unwrap_or("");
     let viewers: Vec<String> = cmd["viewers"]
         .as_array()
         .map(|a| {
@@ -264,6 +279,8 @@ pub fn build_from_command(
     build_message_object(&BuildInput {
         channel_id,
         temporary_id,
+        msg_type,
+        post_id,
         text,
         viewers,
         mentions,

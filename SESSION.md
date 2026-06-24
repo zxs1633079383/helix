@@ -6,6 +6,68 @@
 
 ## §0 终态记录
 
+✅ DONE structure-gate 四文件拆分回正 + gate.sh 接入结构闸 @2026-06-24 +0800 | commit d0d2936 | branch feat/cses-round3-conformance-e2e | 11 文件·287 增/226 减 | 未 push
+  ↳ A1 module.rs 1339→1295(≤1318)：handle_query_command 54 行→4 行委派，提取 module_query.rs 自由函数
+  ↳ A2 to_effect.rs 881→849(≤861)：sync_unread_bump_ops 外提 to_effect_s2.rs + pub use re-export
+  ↳ A3 state.rs 367→351(≤351)：CorrelationContext/ImState 冗余 doc 压缩 16 行
+  ↳ A4 posts_read.rs 325→216(≤300)：bookmark/announcement/post-read-list 7 命令外提 posts_read_ext.rs
+  ↳ B  scripts/gate.sh step [10/10] 接入 scripts/structure-gate.sh
+  ↳ 验证：structure-gate ✅PASS · cargo check 0 error · cargo test -p helix-im 0 failed(151+全套) · HX-C001 空 diff
+
+✅ DONE UC-2.2 上拉历史·一行修复 accept 闸漏 query 族 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | `acl/from_tick.rs` +4 行(补 `|| crate::query::is_query(name)`) + 台账/SESSION | 未 push
+  ↳ Round-5 e2e 揪出根因:accepts_tick Command 臂只放行 send/reconnect/is_outbound·漏 query::is_query → im_load_older_context accept()==false 静默丢弃(单测直调纯逻辑绕过 accepts→handle 闸故漏网)。
+  ↳ **e2e 实证**:`scripts/uc22-load-older-e2e.sh` 建史5条→`cmd im_load_older_context`→`DomainEvent emit event=im:messages:older_loaded bytes=2544` 真吐历史投影。一行同时解封全 4 query 族(load_older/query_messages/dialog_list/delete_all_dialogs)。
+  ↳ 验证:cargo check 3.19s + cargo test -p helix-im **全量 0 fail**(151 lib + integration 全绿)·`git diff -- crates/helix-core/` 空(HX-C001)。**UC 28→29/37**。
+
+🎯 EXPECT Round-5 P1·UC-1.6 编辑真相调查 @2026-06-24 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① 现网编辑真端点 = **不存在**(预判 cses-client 消息正文不可改·UI「编辑」是回填重发/定时重建·Go 全 posts 路由无 posts/update)；② helix **无命令可加**(目标端点不存在·非 wire-bug·Round-4「id 非空→Go update」系源码误读)；③ 真 Go e2e(send 原消息→复用 postId 再发)回声 action **非 post_update**(应零回声/仅 post 新建·因 SavePostsBySend CreateBulk 无 OnConflict → 重复 PK 冲突)；④ 不动 helix-core(`git diff -- crates/helix-core/` 空·HX-C001)；⑤ `cargo test -p helix-im` 仍绿(本任务无源码改动)。
+
+✅ DONE Round-5 P1·UC-1.6 编辑真相调查定论 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | docs(ledger+SESSION)+scripts(新增 e2e) scope·**零源码改动** | 未 push
+  ↳ **verdict：UC-1.6 = verified-not-a-capability**(现网消息正文不可改·无编辑端点·已 wire 实证不存在)。三证：① **行为真源**(cses-client `message-v3/service/claude.md:299`「post 更新·**非正文编辑——消息正文不可改**」;UI「编辑」= `reEdit()`(message-item:891·仅失败消息·派 RE_EDIT_MESSAGE → chat-input:208 `setInputValue` 回填输入框重发) + 定时消息编辑(取消旧定时+重建)·**均非正文改**)。② **端点穷举**(Go `handlers.go:34-62` 22 posts 路由 + 真抓包 `真机curl真源§1` 普通 send `id:""`·**无 posts/update / posts/edit / editPost**;唯一 update 形 = `updatePostProps`=props/投票非正文);Go `CreateCsesPost→PreSave`(post.go:187)仅 `ID==""` 铸新 id·**无 update 分支**;落库 `SavePostsBySend`(cses_post_store.go:152)= `Post.CreateBulk().Exec()` **无 OnConflict** → id 复用=重复 PK INSERT 冲突 → consumer tx 失败 → **零 WS 推送**。③ **真 Go e2e**(`scripts/host-cli-uc16-edit-e2e.sh`·444@:8065)实测：send 原消息得 `action=post` 回声(server id `mtot567t9irdfj64ankynf1r9h`)→ `cmd im_send_message id=<原postId> text=edited` → **零 post/post_update 回声**(仅无关 increment_channel 洪泛)·与「INSERT 冲突无推送」吻合。
+  ↳ **纠错**：Round-3/4 的 `send_build.rs:66「id 非空→Go 当 update（UC-1.6）」` = **源码误读**(把转发/createPosts 的 id 身份字段误当编辑开关)。**helix 无命令可加·非 wire-bug**。**台账 wire-bug 清零**(原 1.2 已 Round-4 翻 ✅·1.6 本轮翻 ✅-not-a-capability)。
+  ↳ **e2e RAW 证据**：原 send → `{"action":"post","data":{"id":"mtot567t9irdfj64ankynf1r9h","message":"uc16-orig-...","type":"TEXT",...,"event_seq":2}}`;「编辑」(复用 id 再发)→ **无 post/post_update 帧**(零回声)。
+  ↳ **验证**：本任务**零源码改动**(只新增 e2e 脚本 + 改 docs ledger/SESSION)·`git diff -- crates/helix-core/` 空(HX-C001 ✓)·`git diff -- crates/helix-im/src/` 空(无出站命令改动)。新增 `scripts/host-cli-uc16-edit-e2e.sh`(e2e harness·非源码)。
+
+⚠️ PARTIAL Round-5 收口·P2/P3 真 Go e2e 10 裁决翻台账(sync-gap+书签+待办+query族) @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | docs(ledger+SESSION)+scripts(新增 uc22 e2e) scope·**零源码改动** | 未 push
+  ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP **103/79** ✅满 · ② WS **18/18** ✅满 · ③ UC e2e-verified **33/37**(脚本含 header prose 多命中;**台账表格行真值 28/37**)。
+  ↳ **台账三态分布**(表格行 37 UC·主路径计)：**✅ e2e-verified 28** · **🔴 wire-bug 1**(2.2) · **⏭ data-dep 4**(1.5/2.1/5.6/5.7) · **⬜ untested/harness-gap 4**(1.3/2.3/2.4/4.3)。28+1+4+4=37。另有 4 条次路径 data-dep 嵌在 verified 行内(5.5 消息置顶 / 6.2 add_manger / 8 vote-readVote / 4.5 incrementByChannelId 读)。
+  ↳ **Round-5 净增 ✅**(22→28·+5·另 P1 把 1.6 翻 ✅-not-a-capability 已计在前)：**4.4 心跳 gap**(挂 11s→客户端 ping piggyback {cursors,allHash}→服务端 pong·RAW WS inbound 3 条 pong seq_reply=1/3/4 逐一锚定 ping 往返+hashMismatch:true 触全量根群补偿·出站 ping 帧 host 不落日志故以 pong 回声锚定) · **4.5 陌生 channel**(冷启动独立租户空 cursor·73 帧 increment_channel 全命中本地未知 channel→entry().or_insert_with 自动注册→73 次 im:channel:increment emit·入站=emit=73 零丢·bf25307 路径跑通) · **3.3 模板已收到**(post_update updateAt 1782279995599 从 createAt bump·props.template.userIds 含 444·im_template_received→Effect::Http /post/templateReceived) · **9 书签**(create/load/delete 三命令·im:read:result bytes 101/679/98 + 独立 curl 落库往返双证·load 回读到本轮 send 的 post·delete 后 re-load 空) · **10 通知/待办**(hello 收尾 increment_channel_end 触发 queryTodoList→im:todo:updated **bytes=226447**·反证空信封仅 47B·~4800x=真 items 装配)。
+  ↳ **新揪 🔴 wire-bug 1（2.2 上拉历史·真接线缺口·需改 helix）**：`acl/from_tick.rs::accepts_tick` Command 臂 = `matches!(name,"im_send_message"|"im_reconnect") || commands::is_outbound(name)` **漏 `query::is_query()`**;im_load_older_context 仅注册在 `query.rs:38 is_query()`(非 is_outbound)→ `module_host.rs:180` accepts()==false → 命令进 handle() 前**静默丢弃**(真 Go e2e `uc22-load-older-e2e.sh`:建史 5 条拿真回声→喂 cmd→**0 older_loaded emit / 0 postContext 出站 / 0 handle debug**·debug 复测确认 handle 从未进入)。handle()(module.rs:1196→853)+post_context_http 编排+emit_older_loaded **全实现且 p3c 单测过**(但单测只直调纯逻辑·不过 accepts 闸故漏网)。**影响面**:同缺陷使全 4 query 族(load_older/query_messages/query_dialog/delete_all_dialogs)经真命令路径不可达。**修 = Command 臂补 `|| crate::query::is_query(name)`**(留下轮·本轮 docs scope 不改源码)。
+  ↳ **剩余未达 100% 的 UC 及物理/数据阻因**：
+    · 🔴 **2.2 上拉历史** = accepts 闸漏 query 族·真接线缺口(上述·需改 helix-im 源码一行)；
+    · ⏭ **data-dep 4**(wire 对·回声依赖数据态/观察路径)：**1.5 撤回**(需先沉淀可读 post 再撤方观广播) / **2.1 切群首屏**(cold-start increment 见 4.1) / **5.6 群公告**(announcement/save 出站已发·窗内仅 increment 洪泛·announcement/list 读族走 HTTP sync reply 不产 WS push·host-cli 不打印 HTTP status) / **5.7 在线分组**(status_change 真帧已观测·分组态依赖数据)；
+    · ⬜ **untested/harness-gap 4**(物理/数据够不到)：**1.3 文件上传**(host-cli 无 processMessageFiles 上传管线·物理够不到·**需真前端**) / **2.3 postId 定位** + **2.4 回复列表**(缺专测剧本·sync-pull/HTTP 读路径) / **4.3 too_long 重拉**(host-cli 无注入落后 cursor 入口·冷启动 cursor=0 走 increment 不进 too_long 分支·代码侧实现完整有单测·=harness-gap 非 wire-bug)。
+  ↳ **验证**：`cargo test -p helix-im` **563/0** 绿 · HX-C001 `git diff -- crates/helix-core/` **空**(零 core 改动) · `git diff -- crates/helix-im/src/` **空**(零出站源码改动·revert 掉 e2e agent 跑出的 fmt-only 改动 read_relay/instrument/lib·保 docs+scripts scope 纯净) · 本 commit 仅动 docs(ledger+SESSION)+scripts(uc22 e2e)。
+
+⚠️ PARTIAL Round-4 收口·28 条 e2e 裁决翻台账 + P1 修翻 1.2 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | docs+scripts scope commit | 未 push
+  ↳ **卡在**:UC e2e 维度未达 in-scope 100%——受 1 条 wire-bug(1.6 编辑) + data-dep(回声依赖数据态) + untested(host-cli 物理够不到/缺剧本)阻。
+  ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP **103/79** ✅满 · ② WS **18/18** ✅满 · ③ UC e2e-verified **25/37**(脚本含 header 3 处 prose 命中;**台账表格行真值 22/37**)。
+  ↳ **台账三态分布**(表格行 37 UC,主路径计)：**✅ e2e-verified 22** · **🔴 wire-bug 1**(1.6) · **⏭ data-dep 4 纯**(1.5/2.1/5.6/5.7) · **⬜ untested 10**(1.3/2.2/2.3/2.4/3.3/4.3/4.4/4.5/9/10)。22+1+4+10=37。另有 4 条次路径 data-dep 嵌在 verified 行内(5.5 消息置顶/6.2 add_manger/8 vote-readVote)。
+  ↳ **Round-4 净增 ✅**(12→22,+10)：**1.2 DOCUMENT**(P1 修 type 透传后由 wire-bug 翻 ✅·RAW type=DOCUMENT 原样回声非降级) · **3.1 会话已读**(post_read readMap=100) · **3.4 未读数**(readBits/readMap 态转移) · **5.4 群属性**(update_channel + update_channel_notice) · **5.5 频道置顶**(channelIsTop per-member) · **6.1 拉踢**(留存 678 收 type=leave post) · **6.2 管理员**(channel_member_role_updated) · **6.4 成员快照**(curl HTTP200 + im:read:result) · **1.7 转发**(createPosts HTTP200·WS 广播 host-cli 够不到=harness-gap) · **8 average/read**(im:read:result 回灌)。
+  ↳ **剩余 UC 及物理/数据阻因**：① 🔴 **1.6 编辑** = 真接线缺口——id 透传代码改动真实存在(wire-level 可证)但真 Go 对 posts/create+id 非空**零回声**,send_build.rs「id 非空→Go 当 update」系源码推断**未经真抓包验证**,真 Go 不成立·禁判 verified。② ⏭ data-dep 8(纯4+次4) = wire 对·回声依赖数据态(1.5 撤回需先沉淀可读 post / 2.1 cold-start / 5.6 公告 / 5.7 在线分组 / 5.5 消息置顶 + 5.6 announcement/list + 8 vote/readVote 坏id恒500 + 6.2 add_manger 仅 increment 洪泛)或 **host-cli 物理够不到独立 WS 帧**(写族 fire-and-forget·pin 回声依赖 Go 落库后投影)。③ ⬜ untested 10 = **1.3 文件上传**(host-cli 无 processMessageFiles 上传管线·物理够不到) / 2.2-2.4 sync-pull 路径 / 3.3 模板已收到 / 4.3-4.5 sync 大 gap+心跳剧本 / 9 书签 / 10 待办 = 命令已 wired·缺 e2e 剧本/数据/上传路径。
+  ↳ **验证**：`cargo test -p helix-im` **563/0** 绿 · HX-C001 `git diff -- crates/helix-core/` 空(零 core 改动) · 本 commit 仅动 docs+scripts scope(台账 + SESSION,无源码改动)。
+
+✅ DONE Round-3 契约审计 + 6 场景真 Go e2e 翻台账 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | commit 7425acd..9e838a5(4 修复 commit) + 本次台账/SESSION | 未 push
+  ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP 103/79 ✅满 · ② WS 18/18 ✅满 · ③ UC e2e-verified 14/37(脚本含 header 2 处 prose 命中;**台账表格行真值 12/37**)。in-scope 100% 判据(排除 search 集合七 + createUser/status goBlocked)未达——UC e2e 维度受 wire-bug 2 + data-dep/untested 阻。
+  ↳ **台账三态分布**(表格行 37 UC)：**✅ e2e-verified 12** · **⏭ data-dep 8** · **🔴 wire-bug 2** · **⬜ untested 15**(12+8+2+15=37)。
+  ↳ **本轮真 Go e2e 净增**(tp 已通·WS hello 真洪泛·account 444 @ :8065·6 场景 33 裁决)：send 文本(1.1)/重发(1.4)/emoji 表态(1.8)/加急(1.9)/单条已读(3.2)/话题(5.2) **5 新 ✅**(1.10/5.1/5.3/6.3 上轮已 ✅)，RAW WS action 回声逐字断言。
+  ↳ **self-omit 误诊已纠**(证伪)：RAW WS inbound 实证发送者(444)自连接**会收自己消息 action=`post` 回声**(非 posted)·userId 444+本次 probe simpleMessage+真 postId 全命中→上轮 `🟡 go-self-omit`(「发送者不收回声」)假设作废;F1 的 HTTP-200 兜底标 sent 仍是正确加固。台账头部已改「误诊已纠」段。
+  ↳ **🔴 2 条 wire-bug**(需 helix 改出站,本轮未修)：**UC-1.2** send_build.rs:160 硬编 type=TEXT·im_send_message 不透传 type → DOCUMENT 降级纯文本(Go 回声 type 仍 TEXT);**UC-1.6** send_build.rs:175 硬编 id=""·丢 id → 编辑永走新建非 post_update·helix 无 posts/update 文本编辑出站命令。
+  ↳ **验证**：`cargo test -p helix-im` **555/0** 绿 · HX-C001 `git diff -- crates/helix-core/` 空 · 本 commit 仅动 docs scope(台账 + SESSION)。
+  ↳ **剩余未达 100% 的 UC**：① 🔴 wire-bug 2(1.2 type 不透传 / 1.6 编辑 id 丢弃)=真接线缺口需改 helix 出站;② ⏭ data-dep 8(1.5 撤回需先沉淀 post / 1.7 转发 self 即时窗无独立帧 / 3.1 会话已读 Go updated 空 / 2.1/3.4/5.7/6.1/6.4 需特定数据态或双账号广播)=wire 对·回声依赖数据态/观察路径;③ ⬜ untested 15(2.2 上拉历史 sync-pull / 1.3 文件上传管线 host-cli 不支持 / 4.3-4.5 sync 大 gap 剧本 / 5.4-5.6 群属性置顶公告 / 6.2 管理员 / 8 投票 / 9 书签 / 10 待办 / 2.3-2.4)=命令已 wired·缺 e2e 剧本/数据/上传路径。
+
+🎯 EXPECT Round-3 修 2 条 sync 真偏差(对抗式审计) @2026-06-24 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① **偏差1(UC-4.4 pong 消费侧缺失)**：新增 `src/ws/handlers/pong.rs`(synthetic `__pong__` action 路由) + `src/pong_compensate.rs`(gaps 去重 + 5s 节流 throttle 状态 + hashMismatch 全量根群 → sync_scheduler::enqueue_and_drain)；ping 不带 action·pong 无 action 故 `WsFrame::action()` 加 status==OK+gaps/hashMismatch → `__pong__` 合成。**附带修真**：sync_increment::all_hash_fnv1a 现用 raw 26B+8B BE 喂 FNV ≠ 现网 byte-exact 契约(`"id:seq"` join `\n` → 锚定向量 `a:5\nb:10→87da68614226ef44`)，改成字符串形态对齐(否则永久 hashMismatch→sync 风暴)。
+  ↳ ② **偏差2(UC-4.5 陌生 channel 丢帧)**：`ws/handlers/post.rs:78` `if let Some(ch)=get_mut` → `entry().or_insert_with(|| Channel::new(channel_id,0))`(自动注册+cursor=0 seed，对齐真源 `gate_states.entry().or_insert_with(default)` + handle_new_post 无条件落库)，使陌生 channel 仍 batch_upsert+emit im:post:received+gate 缺口回拉。
+  ↳ ③ 不动 helix-core(`git diff -- crates/helix-core/` 空)；④ `cargo check -p helix-im` 过 + `cargo test -p helix-im` 绿；⑤ structure-gate 不新增 RED(module.rs/to_effect.rs 不增长，新逻辑落新文件)。
+
+✅ DONE Round-3 修 2 条 sync 真偏差(对抗式审计·全代码) @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | 16 文件 +974/−147 | 未 push
+  ↳ **偏差1 UC-4.4 pong 消费侧补齐**：`ws/frame.rs`(无 action+status==OK+gaps/hashMismatch → 合成 `__pong__`) + `ws/handlers/pong.rs`(新·路由) + `pong_compensate.rs`(新·gaps 去重 + 5s 节流 + hashMismatch 全量根群确定性升序 → enqueue_and_drain) + `sync_scheduler.rs`(加 pong_throttle test-and-set·reset 清)。**附带修真**：`sync_increment::all_hash_fnv1a` raw 26B+8B BE → **字符串形态 `"<channelId>:<seq>"` join `\n`** byte-exact 对齐现网(锚定向量 `a:5\nb:10→87da68614226ef44` 已测)，否则永久 hashMismatch→sync 风暴。
+  ↳ **偏差2 UC-4.5 陌生 channel 不丢帧**：`ws/handlers/post.rs` `if let Some(ch)=get_mut` → `entry().or_insert_with(Channel::new(id,0))`——陌生 channel 自动注册(cursor=0 seed·不误种水位)，gate 接管：seq==1 立即 apply(落库+emit+cursor) / seq>1 缺口 arm gate 回拉。对齐真源 `on_ws_event` or_insert + `handle_new_post` 无条件落库。
+  ↳ **验证**：`cargo test -p helix-im` **553/0**(新增 uc44_pong 4 + uc45_unknown 2 + pong_compensate 9 + throttle 1)。四 crate `cargo check` 过 · HX-C001 `git diff -- crates/helix-core/` 空 + zero-runtime grep 空。3 个旧 golden/post 测试断言旧丢帧行为 → 改断言新正确行为(自动注册+落库)。
+  ↳ **structure-gate**：仅 3 个 round-2 旧 RED(to_effect 881/module 1339/state 367·均不在本 diff)；本次新逻辑全落新文件(pong_compensate 111 / pong.rs 69 / sync_scheduler 213·测试外提 sibling)，**零新增 RED**。
+  ↳ ⚡ DRIFT-PRED 三处出乎 EXPECT：① **附带挖出 allHash byte-exact 真 bug**(EXPECT 视产侧为正确·实测 raw-byte 形态 ≠ 现网 → 已一并修，原审计漏判产侧)；② sync_scheduler 加 throttle field 后 318>300 触新 RED(EXPECT 漏算)→ 外提 `sync_scheduler_tests.rs` sibling 压回 213；③ 3 个旧测试编码了被修的丢帧行为(EXPECT 未预见需改存量测试)。候选教训：审 UC 契约时**产侧锚定向量也要逐字复算**(不只审消费侧)；加 struct field 前先估行数闸。type:surprise 已落 log。
+
 🧭 HANDOFF 新会话开局必读 @2026-06-24 09:10 +0800 | helix main `35d212d`(已push·CI绿) · cses `feat/helix-takeover-integ`(本地未推·隔离)
   ↳ **这一程已完成(代码层全达成,无糊弄)**:
     · **Phase B**:cses 8 域纯 helix · **F1 核心 send 阻断根治**(commit 63f6e69:`OutboundSendHttp` corr + HTTP 200 兜底标 sent,不押真 Go self-omit 的 WS echo)

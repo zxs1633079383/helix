@@ -19,8 +19,9 @@ use helix_core::effect::{DomainEventBytes, Effect};
 /// body 优先按 JSON 原样嵌入（前端零二次 parse）；非 JSON（防御性，读族理论不会）→ lossy UTF-8
 /// 字符串占位（保 req_id 关联，不 panic）。
 pub fn emit_read_result(req_id: &str, raw_body: &[u8]) -> Effect {
-    let body: serde_json::Value = serde_json::from_slice(raw_body)
-        .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(raw_body).into_owned()));
+    let body: serde_json::Value = serde_json::from_slice(raw_body).unwrap_or_else(|_| {
+        serde_json::Value::String(String::from_utf8_lossy(raw_body).into_owned())
+    });
     emit_read(serde_json::json!({ "req_id": req_id, "body": body }))
 }
 

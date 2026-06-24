@@ -845,37 +845,5 @@ pub fn batch_upsert_events_with_messages(
     ops
 }
 
-/// A3/CAP-9：离线 sync 应用的可见 type1 新消息 → channel 未读 +1 **落 DB**（不只 emit）。
-///
-/// 真源 post.rs:1234 离线 sync apply 显式调 `update_channel_from_post`（内含 sender 豁免 +
-/// 可见性门控）把 `unread_count` +1 落库——否则离线 >N 事件重连后 `store_query channel` 读出的
-/// `unread_count` 列不含离线未读（UC-3 / 红点 +N 不达成）。此前 helix sync apply 仅 emit
-/// `im:channel:update-by-post`（把 +N 推前端裁决），**DB 列不增** = A3 缺口。
-///
-/// 与在线 `post.rs` handler 的 `bump_channel_unread` 同口径（CAP-9 在线/离线对单条事件互斥，
-/// 不重复 +1：在线帧已 reconcile 的本端 echo 不进 sync；他人消息在线已 +1 则 cursor 已过、
-/// 不会再进 sync 区间）。phantom（msg_id ∉ messages）= 不可见内容 → 不 bump（与落库一致）。
-/// 复杂度：每事件 O(1)（HashMap 查 + 谓词 + 单 GuardedBump 构造）。
-pub fn sync_unread_bump_ops(
-    events: &[EventEnvelope],
-    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
-    auth_user_id: &str,
-) -> Vec<StorageOp> {
-    use crate::sync_session::EventKind;
-
-    let mut ops = Vec::new();
-    for ev in events {
-        if !matches!(ev.kind, EventKind::PostUpsert) {
-            continue;
-        }
-        // 仅可见 type1（命中 messages map）才参与未读决策——与落库 / emit 同 phantom 口径。
-        let Some(fields) = ev.msg_id.as_deref().and_then(|id| messages.get(id)) else {
-            continue;
-        };
-        let upd =
-            crate::channel_write::post_updates_from_fields(ev.channel_id, fields, auth_user_id);
-        // delta==0（自己 / 不可见）仍可能写 lastPost 组；GuardedBump 守卫幂等，安全并入批。
-        ops.push(bump_channel_unread_op(&upd));
-    }
-    ops
-}
+// A3/CAP-9 sync 未读落 DB 工厂外提 sibling（守「只减不增」基线）。
+pub use super::to_effect_s2::sync_unread_bump_ops;

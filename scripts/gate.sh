@@ -65,4 +65,7 @@ if [ "${1:-}" = "--full" ]; then
   bash scripts/ffi-verify.sh
 fi
 
+echo "▶ [10/10] 结构闸门（单文件 ≤300 行 + CLAUDE.md/AGENTS.md 镜像不变量）"
+bash scripts/structure-gate.sh
+
 echo "✅ 全部闸门通过"

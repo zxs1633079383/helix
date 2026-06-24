@@ -19,14 +19,29 @@ use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOU
 
 // ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
 
-/// 取必填字符串数组（非空、元素全 string）。供 `{postIds:[]}` 类命令复用。
-fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
+/// 取必填字符串数组（非空、元素全 string）。供 `{postIds:[]}` 类命令复用（含 posts_read_ext）。
+pub(super) fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
     args.get(key)
         .and_then(Value::as_array)
         .filter(|a| !a.is_empty() && a.iter().all(Value::is_string))
         .cloned()
         .map(Value::Array)
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
+}
+
+/// 把入参 `in_key`（snake_case）原样透传成 wire 字段 `wire_key`（camelCase），仅当存在且非 null。
+/// 不强转类型——边界零信任只校验「存在」，数值/字符串原值由前端 bridge 保证（对齐 vote_score::carry_optional）。
+pub(super) fn carry_into(
+    body: &mut serde_json::Map<String, Value>,
+    args: &Value,
+    in_key: &str,
+    wire_key: &str,
+) {
+    if let Some(v) = args.get(in_key) {
+        if !v.is_null() {
+            body.insert(wire_key.to_string(), v.clone());
+        }
+    }
 }
 
 /// 注册读命令样板：`name` + `build` 闭包 → struct/static/slice 三件套（`is_read=true` 全读族）。
@@ -198,103 +213,4 @@ fn page_body(args: &Value, id_key: &'static str, id_val: &str) -> Value {
     b
 }
 
-// ── post/bookmark/* 读族（注意 endpoint 走 `post/`（单数）+ `/bookmark/` 子路由）────────
-
-// #11 bookmark/create：保存书签。真源 {channelId, userId, postIds:[]string}（post_bookmark.go:54）。
-read_cmd!(
-    BookmarkCreateCommand,
-    BOOKMARK_CREATE_REG,
-    "im_bookmark_create",
-    |args, cmd| {
-        let channel_id = require_str(args, "channel_id", cmd)?;
-        let user_id = require_str(args, "user_id", cmd)?;
-        let post_ids = require_str_array(args, "post_ids", cmd)?;
-        Ok((
-            "post/bookmark/create",
-            json!({ "channelId": channel_id, "userId": user_id, "postIds": post_ids }),
-        ))
-    }
-);
-
-// #12 bookmark/delete：删书签。真源 {userId, postId}（post_bookmark.go:36）。
-read_cmd!(
-    BookmarkDeleteCommand,
-    BOOKMARK_DELETE_REG,
-    "im_bookmark_delete",
-    |args, cmd| {
-        let user_id = require_str(args, "user_id", cmd)?;
-        let post_id = require_str(args, "post_id", cmd)?;
-        Ok((
-            "post/bookmark/delete",
-            json!({ "userId": user_id, "postId": post_id }),
-        ))
-    }
-);
-
-// #13 bookmark/load：拉书签列表。真源 {channelId, userId}（post_bookmark.go:17）。
-read_cmd!(
-    BookmarkLoadCommand,
-    BOOKMARK_LOAD_REG,
-    "im_bookmark_load",
-    |args, cmd| {
-        let channel_id = require_str(args, "channel_id", cmd)?;
-        let user_id = require_str(args, "user_id", cmd)?;
-        Ok((
-            "post/bookmark/load",
-            json!({ "channelId": channel_id, "userId": user_id }),
-        ))
-    }
-);
-
-// ── post/announcement/* 读族（走 `post/`（单数）子路由）────────────────────────────
-
-// #14 announcement/acceptList：公告接收列表。真源 {postId}（posts.go AnnouncementAcceptList）。
-read_cmd!(
-    AnnounceAcceptListCommand,
-    ANNOUNCE_ACCEPT_LIST_REG,
-    "im_announcement_accept_list",
-    |args, cmd| {
-        let post_id = require_str(args, "post_id", cmd)?;
-        Ok(("post/announcement/acceptList", json!({ "postId": post_id })))
-    }
-);
-
-// #15 announcement/list：公告列表。真源 {channelId,postId?}（AnnouncementList：channelId 空回退 postId，前端实测 postId 实传 channelId 见 公告功能-前端联调.md:214）。
-read_cmd!(
-    AnnounceListCommand,
-    ANNOUNCE_LIST_REG,
-    "im_announcement_list",
-    |args, cmd| {
-        let channel_id = require_str(args, "channel_id", cmd)?;
-        let mut b = json!({ "channelId": channel_id });
-        if let Some(post_id) = args.get("post_id").and_then(Value::as_str) {
-            b["postId"] = json!(post_id);
-        }
-        Ok(("post/announcement/list", b))
-    }
-);
-
-// #16 announcement/detail：公告详情（仅公告表）。真源 {postIds:[]string}（posts.go AnnouncementDetail）。
-read_cmd!(
-    AnnounceDetailCommand,
-    ANNOUNCE_DETAIL_REG,
-    "im_announcement_detail",
-    |args, cmd| {
-        let post_ids = require_str_array(args, "post_ids", cmd)?;
-        Ok(("post/announcement/detail", json!({ "postIds": post_ids })))
-    }
-);
-
-// ── post/read/list 已读位历史读（B1：非 bitmap，走 post/ 单数）───────────────────────
-
-// #17 post/read/list：批量取 post 已读位历史。真源 entity.PostReadListParam{postIds:[]string}
-// （post.go:554，postReadList → post/read/list 路由 posts.go:31）。
-read_cmd!(
-    PostReadListCommand,
-    POST_READ_LIST_REG,
-    "im_post_read_list",
-    |args, cmd| {
-        let post_ids = require_str_array(args, "post_ids", cmd)?;
-        Ok(("post/read/list", json!({ "postIds": post_ids })))
-    }
-);
+// ── post/bookmark/* / announcement/* / post/read/list 读族 → posts_read_ext.rs ──────

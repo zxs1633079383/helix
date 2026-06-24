@@ -412,15 +412,14 @@ fn post_echo_then_15s_timer_does_not_mark_unsend() {
 
 // ─── unregistered channel 的 post 帧静默忽略（不 panic，不落库）──────────────────
 
-/// 回归锚: C1 —— 未注册 channel（driver 未种 cursor）的 post 帧静默忽略，与 legacy Event 同口径。
+/// 回归锚: C1 + Round-3 UC-4.5 偏差修复 —— 未注册 channel 的 post 帧**自动注册**（不再静默丢弃）。
 ///
-/// 强化（reviewer minor）：锁定"静默忽略 = channel 查找未命中（post handler 的 get_mut 落空）"
-/// 这条**意图路径**——帧本身是合法 `action=="post"`（与上方多个 persist 用例同一 `post_frame`
-/// 构造器，已证其在已注册 channel 下能落库），此处静默忽略只可能源自 channel 未注册，而非解析失败。
-/// 合并后 dispatch 走 registry by action（`ws/handlers/post.rs`），不再有 `classify_inbound` 集中分类
-/// 可在集成测试侧内省；意图由"同构造器的正向 persist 用例 + 本用例无 persist"两侧夹逼锁定。
+/// 对齐真源 `on_ws_event` `gate_states.entry().or_insert_with(default)` + `handle_new_post` 无条件
+/// 落库：陌生 channel（首次见到的新群 / 被拉入群）的首条在线 push 在 increment 种 cursor 之前到达时
+/// 不丢——以 cursor=0 惰性注册，gate 接管：event_seq=1（==cursor+1）→ 立即 apply（PersistFire 落库）。
+/// 此用例同时锁住 echo 不变量：陌生 channel 的 post（无对应 in-flight send）仍**不创建** PendingSend。
 #[test]
-fn post_frame_unregistered_channel_silently_ignored() {
+fn post_frame_unregistered_channel_auto_registers_and_persists() {
     // channel 5 未注册
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
@@ -442,12 +441,18 @@ fn post_frame_unregistered_channel_silently_ignored() {
 
     let tick = post_frame(5, 1, "tmp_u", "7xq3r6nqrjrm8nydit6awaaaaa", "orphan");
     let effects = h.step(tick, 1_100);
+    // 自动注册 + 立即 apply（event_seq=1 == cursor+1）：陌生 channel 不再丢帧。
     assert!(
-        !effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "post for unregistered channel must not persist, got: {:?}",
+        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
+        "陌生 channel post（seq=1）应自动注册并 PersistFire 落库（不再静默丢弃），got: {:?}",
         effects
     );
-    // 未注册 channel 的 echo 帧也不得动发送态（无 pending → reconcile no-op，不 panic）。
+    assert_eq!(
+        h.module.cursor_for(channel_id(5)),
+        Some(1),
+        "陌生 channel 应自动注册（cursor=0 seed）并推进到 event_seq=1"
+    );
+    // 陌生 channel 的 post（无对应 in-flight send）仍不创建 PendingSend（echo 不变量保持）。
     assert_eq!(
         h.module.pending_send_count(),
         0,

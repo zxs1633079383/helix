@@ -41,6 +41,8 @@ fn base_input<'a>(text: &'a str, now_ms: u64) -> BuildInput<'a> {
     BuildInput {
         channel_id: "ch_1",
         temporary_id: "tmp_1",
+        msg_type: "TEXT",
+        post_id: "",
         text,
         viewers: Vec::new(),
         mentions: json!([]),
@@ -223,6 +225,74 @@ fn build_from_command_empty_intercepted() {
     assert!(build_from_command(&cmd, "ch", "tmp", 1, &identity()).is_none());
 }
 
+// ─── Round-4 P1：type/id 透传修复（UC-1.2 DOCUMENT 降级 + UC-1.6 编辑丢 id）─────────
+//
+// 回归锚: Round-4 P1（Round-3 审计实锤两 wire-bug）
+// - UC-1.2：硬编 type="TEXT" → 文档/图片消息降级纯文本（现网 entity.Post.Type 真值丢失）。
+// - UC-1.6：硬编 id="" → 编辑丢命令 post id，posts/create 永走新建而非 update。
+// 真源：full-map/partials/1（create 直 decode *entity.Post，Type/ID 顶层字段）
+//       + 真机curl真源.md §1（普通发消息 type="TEXT"、id=""）。
+
+#[test]
+fn build_document_type_passthrough() {
+    // UC-1.2：msg_type="DOCUMENT" 透传，不被硬编降级成 "TEXT"。
+    let mut input = base_input("文件名.pdf", 1);
+    input.msg_type = "DOCUMENT";
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(
+        body["type"],
+        json!("DOCUMENT"),
+        "DOCUMENT 须透传，不得硬编降级 TEXT（UC-1.2）"
+    );
+}
+
+#[test]
+fn build_default_msg_type_is_text() {
+    // 默认值不回归：未指定 msg_type（空串容错）→ "TEXT"。
+    let mut input = base_input("hi", 1);
+    input.msg_type = "";
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["type"], json!("TEXT"), "空 msg_type 容错为 TEXT");
+}
+
+#[test]
+fn build_edit_carries_real_post_id() {
+    // UC-1.6：post_id 非空（编辑）→ body.id 携真 post id（Go 当 update）。
+    let mut input = base_input("edited", 1);
+    input.post_id = "post_real_123";
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(
+        body["id"],
+        json!("post_real_123"),
+        "编辑时 id 须携真 post id（非空 → Go update，UC-1.6）"
+    );
+}
+
+#[test]
+fn build_default_post_id_empty_for_new() {
+    // 默认值不回归：未指定 post_id → "" = 新建（现网 self message id:''）。
+    let body = build_message_object(&base_input("new", 1)).unwrap();
+    assert_eq!(body["id"], json!(""), "新建消息 id 为空串");
+}
+
+#[test]
+fn build_from_command_parses_type_and_id() {
+    // 命令载荷零信任解析 type/id（前端 DOCUMENT/编辑显式传）。
+    let cmd = json!({ "text": "doc", "type": "DOCUMENT", "id": "post_edit_1" });
+    let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
+    assert_eq!(body["type"], json!("DOCUMENT"));
+    assert_eq!(body["id"], json!("post_edit_1"));
+}
+
+#[test]
+fn build_from_command_type_id_default_when_absent() {
+    // 缺 type/id → 默认 "TEXT" / ""（不回归普通发消息行为）。
+    let cmd = json!({ "text": "hi" });
+    let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
+    assert_eq!(body["type"], json!("TEXT"));
+    assert_eq!(body["id"], json!(""));
+}
+
 // ─── 端到端：handle_send_message 经 build_message_object ─────────────────────
 
 #[test]
@@ -288,6 +358,39 @@ fn send_viewers_from_command_preserved() {
     );
     let body = h.last_http_body().unwrap();
     assert_eq!(body["viewers"], json!(["u_a", "u_b"]));
+}
+
+#[test]
+fn send_document_and_edit_id_through_handler() {
+    // 端到端：handle_send_message 解析命令 type/id 透传进 body（UC-1.2 + UC-1.6）。
+    let mut h = Harness::new(&[1]);
+    let _ = h.step(
+        send_message_cmd_json(json!({
+            "channel_id": cid(1),
+            "temporary_id": "tmp_doc",
+            "text": "文件.pdf",
+            "type": "DOCUMENT",
+            "id": "post_edit_42"
+        })),
+        1000,
+    );
+    let body = h.last_http_body().unwrap();
+    assert_eq!(body["type"], json!("DOCUMENT"), "DOCUMENT 透传到 wire body");
+    assert_eq!(
+        body["id"],
+        json!("post_edit_42"),
+        "编辑 post id 透传到 wire body（Go update）"
+    );
+}
+
+#[test]
+fn send_default_type_text_id_empty_no_regression() {
+    // 默认值不回归：普通发消息（无 type/id）→ type=TEXT、id=""。
+    let mut h = Harness::new(&[1]);
+    let _ = h.step(send_message_cmd(1, "tmp_plain", "hi"), 1000);
+    let body = h.last_http_body().unwrap();
+    assert_eq!(body["type"], json!("TEXT"));
+    assert_eq!(body["id"], json!(""));
 }
 
 #[test]

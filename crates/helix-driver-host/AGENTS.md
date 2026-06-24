@@ -12,6 +12,7 @@ PC Tauri（native）与 Flutter FFI **共享**的 host driver 层（ADR-007）�
 `helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳：装配具体 ports + tick 源接线 + EventSink egress 特化（native=broadcast / ffi=批处理 vtable），共用此泛型 pump 核，不重复实现存储/泵。
 
 - **`BatchSink` egress 批处理钩子（`engine.rs`）**：`trait BatchSink: EventSink { fn flush(&self) {} }`（默认 no-op）。`run_engine_loop` 的 `E` bound = `BatchSink`，在**每次 `dispatch_effects`（本 step effects）之后**调一次 `flush()`。native `impl BatchSink for NativeEventSink {}`（broadcast 即时发，no-op）；ffi `FfiEventSink::flush` 把本 step 攒的整批 DomainEvent 编码成单 buffer，一次过 vtable 回调（HX-C007，绝不逐条过 FFI 边界）。flush 钩子在 host 不在 core——core 的 `EventSink` 不认识「批边界」运行时概念（HX-C001 边界）。
+- **`RecordingSink<S>` 外部宿主投影录放装饰器范例（`instrument.rs`，add-only）**：包任意 `S: BatchSink`，每条 `emit` 旁路给注入回调（录放/日志/对账）再透传，`flush` 原样透传（HX-C007 批边界不变）。**关键**：投影面装饰器必须同时 `impl EventSink + BatchSink`（引擎 `E` bound 是 `BatchSink` 非 `EventSink`，只实现 `EventSink` 装不进 `EngineDeps.event_sink`）。供 loopforge 等外部组装根抄形态抓 facet②。完整 recipe → [`docs/external-host-instrumentation-recipe.md`](docs/external-host-instrumentation-recipe.md)。
 
 ## 本 crate 不变量（破坏 = 双端存储/泵语义漂移）
 

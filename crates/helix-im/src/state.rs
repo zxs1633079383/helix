@@ -172,73 +172,11 @@ pub enum ConnState {
 }
 
 // ─── CorrelationContext ───────────────────────────────────────────────────────
-
-/// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
-/// 需要的全部上下文。tagged union 取代原 4 张 HashMap + 1 个 Option：
-/// 一个 corr 恰属于一个类别，类别互斥由类型系统保证（不再靠 if-let 试探顺序）。
-///
-/// ## 载体不变量（INVARIANT，承重前提，勿破）
-///
-/// **所有写入 `corr_map` 的 `Correlation` 均出自同一单调分配器**（`ImModule::alloc_corr` /
-/// `alloc_corr_internal` 共用 `self.next_corr`，从 1 单调递增）→ 跨类别 corr 全局唯一永不碰撞。
-/// 单表合并（4 张 HashMap + scan `Option` 并一表）的正确性完全依赖此：若任一路径改用独立计数器或
-/// host 注入可复用 corr 值，则不同类别 corr 可能撞同一 key → 误路由。新增 corr 来源前必须确认仍由
-/// 该分配器产出。HX-C005：变体字段全 owned/Copy（无 `&'a`，要进 HashMap 跨 step 存活，HX-C002）。
-// 不 derive `Eq`：`LoadOlderContext` 内含 `serde_json::Value`（f64 非 `Eq`）；本枚举仅作 corr_map value
-// （非 key），`PartialEq` 供 ws/registry 测试 `assert_eq!`，`Eq` 无用处（grep 实证）。
-#[derive(Debug, Clone, PartialEq)]
-pub enum CorrelationContext {
-    /// on_start `Scan(_helix_monotonic)` 回报：载入 per-channel cursor + proactive resync（取代旧 `scan_corr`）。
-    ScanCursors,
-
-    /// channel sync **Persist** 回报：`channel.on_persist_ok(corr)` 推进 cursor。
-    /// （取代旧 `corr_to_channel` + `continuation_pending` 两张表——续拉意图降为本变体的
-    /// `wants_continuation` 标志，因为它本就与同一 `persist_corr` 绑定，不是独立路由类别。）
-    ChannelPersist {
-        channel_id: ChannelId,
-        /// E3 续拉：该批 sync 响应 `needs_continuation=true` 时为 true；
-        /// on_persist_ok 推进 cursor 后据此决定是否 `maybe_continue_sync`。
-        wants_continuation: bool,
-    },
-
-    /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。
-    OptimisticSend { temporary_id: TemporaryId },
-    /// F1 `posts/create` **HTTP** 回报：HTTP 200 兜底对账（真 Go self-omit echo → 永 spinner；逻辑见 `send_reconcile`）。
-    OutboundSendHttp { temporary_id: TemporaryId },
-    /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
-    SyncPull { channel_id: ChannelId },
-
-    /// P6 投影查询 **Get** 回报：`im_query_messages_by_channel` 的 `Get(message WHERE channel_id)`
-    /// 回报 → 把行 emit 成 `im:messages:query_result` 投影（data 数组 → driver `{items:[]}` 包装）。
-    MessageQuery { channel_id: ChannelId },
-
-    /// UC-3 投影查询 **Scan** 回报：`im_query_dialog_list` 的 `Scan(channel ORDER BY last_post_at)`
-    /// 回报 → 把整份 channel 行 emit 成 `im:channels:projection`（`data.dialogList` 完整 DialogItem
-    /// 数组，含 unread_count 等，前端零计算）。无 channel_id 字段（全量会话列表，非按群）。
-    DialogListQuery,
-
-    /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
-    ///
-    /// 读命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声**，
-    /// HTTP **响应体本身就是数据**——故读族（且仅读族）alloc corr 时注册本上下文，
-    /// `handle_port_reply` 据此把响应体透传 emit 成 `im:read:result{req_id, body}`（前端 bridge 等
-    /// 该 req_id resolve 后直接渲染）。写命令不注册（fire-and-forget，数据走 WS 回声）。
-    ///
-    /// `req_id` 是前端 bridge 注入的请求标识（owned String，进 corr_map 跨 step 存活，HX-C002）；
-    /// 与 corr 解耦（前端不见 core 内部 corr）。透传不在 helix 改业务数据（后端权威，HX-C005）。
-    OutboundReadReply { req_id: String },
-
-    /// UC-10 通知/待办 **HTTP** 回报：global increment-end 触发的 `posts/queryTodoList` 回报 →
-    /// 装配 emit `im:todo:updated{items}`（`todo::emit_todo_updated`）。独立变体（装配非透传、内核自驱无 req_id）。
-    TodoQuery,
-
-    /// D3 上拉翻页（`im_load_older_context`）**HTTP** 回报：多轮 `posts/postContext` 编排续接。
-    /// 每轮回报 → `ingest_round` 决定续（alloc 新 corr 发下一轮 + 重注册）/停（emit older_loaded）；
-    /// sans-IO「8 轮循环」靠 corr_map 续接非同步 `for`（HX-C001）。`state` owned 跨 PortReply（HX-C002）。
-    LoadOlderContext {
-        state: Box<crate::older_context::LoadOlderState>,
-    },
-}
+// 外提 sibling `correlation.rs`（守结构闸 baseline + 给 reclaim 新增变体留余量；
+// drift-review baseline 棘轮后门收敛）。re-export → `crate::state::CorrelationContext` 调用点零改。
+#[path = "correlation.rs"]
+mod correlation;
+pub use correlation::CorrelationContext;
 
 // ─── ImState ────────────────────────────────────────────────────────────────
 
@@ -249,8 +187,7 @@ pub struct ImState {
     /// WS 连接状态机
     pub conn: ConnState,
 
-    /// 服务端 hello 帧回注的 connectionId（A4 握手存入）。A3b：作 IM HTTP 身份头盖章进
-    /// sync/notify、posts/create。None = 尚未握手；前端凭 established + 此值放行 pendingSends。
+    /// 服务端 hello 帧回注的 connectionId（A4 握手存入；A3b HTTP 身份头；None = 未握手）。
     pub connection_id: Option<String>,
 
     /// per-channel 聚合（消息 + 游标 + gate）
@@ -285,17 +222,12 @@ pub struct ImState {
     /// 与 `increment_fetched` 同生命周期（hello 起点 clear）。
     pub need_sync_skip: HashSet<ChannelId>,
 
-    /// B2 冷启动自愈：本批次每 increment_channel 帧带来的服务端权威水位（`inc.last_event_seq`，
-    /// 单调 max 累计）。真源 `heal_incomplete_backfill_once`（post.rs:666-715）：冷启动「cursor 已推
-    /// maxSeq 但本地只灌首屏」卡死 channel 靠「本地落后水位」识别补发全量；sans-IO 核等价信号 =
-    /// 「local cursor < 服务端水位」。与 `increment_fetched` 同生命周期（hello clear），防跨会话误判。
+    /// B2 冷启动自愈：每 increment_channel 帧的服务端水位（单调 max），识别「cursor 落后水位」
+    /// 补发全量（真源 `heal_incomplete_backfill_once` post.rs:666-715）。hello 起点 clear。
     pub increment_target: HashMap<ChannelId, Seq>,
 
-    /// B2 冷启动自愈：本批次是否已跑过一次 heal（once-only 守卫）。
-    ///
-    /// 对齐真源 sentinel `__im_backfill_heal_v1__`（post.rs:667/708）：phantom-heavy channel
-    /// 本地 cursor 恒 < 水位（HX-C008 §1.6：phantom 不推 cursor），若每次 global-end 都补发
-    /// 会进死循环 → 每批次只 heal 一次。hello 起点 reset 回 false（新会话允许再 heal 一次）。
+    /// B2 once-only heal 守卫（sentinel `__im_backfill_heal_v1__`）：防 phantom-heavy channel
+    /// 每次 global-end 循环补发；hello 起点 reset 回 false（新会话可再 heal 一次）。
     pub backfill_healed: bool,
 
     /// 出站 WS 消息单调序号（client→server）。现网 Go `websocket_router.go:34 if r.Seq <= 0`

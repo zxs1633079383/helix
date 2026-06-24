@@ -10,10 +10,12 @@
 
 - **症状**：`nc 127.0.0.1:8065` REST 可达，但 host-cli 连上 **WS hello 0 字节**（抓不到 `action:"hello"`）→ connectionId 不盖章 → 整条 echo 链死、e2e 第一步 create 就无 `channel_created`。
 - **真因**：hello 洪泛依赖 cluster 内 paas/x9 **gRPC（经 telepresence 隧道）**，隧道**随时间断**（实测一个长会话内：早些 hello 正常 → 几小时后 hello 0）。**不是 ping/pong**（host-cli `ping_interval_ms=8000` 心跳正常，比服务端 60s 要求更勤）。
+- **判据**：四段日志(`/tmp/loopforge/run-app.log`·`/tmp/cses-java.log`·`/tmp/mm-go.log`) 见 gRPC `no service available`(典型 `app/grpcx9.go:367`)/断/超时。**go-server(mattermost) 默认对·不怀疑它**·遇 gRPC 走隧道恢复。
+- **post 类整族 0 帧但 channel-control echo 正常 = gRPC/x9 隧道降级**(post-广播依赖 x9 gRPC·channel-control 不依赖)。
 - **恢复 playbook**（用户 2026-06-24 授权自动执行）：
-  1. `! /Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh`（**sudo·密码 `sh`**·含 route/killall）
-  2. 重启 `/workspace/java/cses`
-  3. host-cli probe（settle ≥4s 等编译+hello）抓到 `action:"hello"`+`connectionId` → 通
+  1. `sudo bash /Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh`（**密码输四个空格 `    `·不是 `sh`**·Clash Verge TUN+Telepresence 共存重建 k8s gRPC 路由·log `~/Library/Logs/tp-connect.log`）
+  2. `pkill -f cses` → `cd /Users/mac28/workspace/java/cses && ./gradlew bootRun > /tmp/cses-java.log 2>&1 &`·`tail /tmp/cses-java.log` 见 `started`
+  3. host-cli probe（settle ≥4s）抓 `action:"hello"`+`connectionId` **且 send 后出 `action:"post"` 帧**（post 链活才算真通）
   4. `telepresence status` 看 `Traffic Manager: Connected`
 
 ## ② 快 e2e harness 模式（`scripts/host-cli-FULL-uc-e2e.sh`）

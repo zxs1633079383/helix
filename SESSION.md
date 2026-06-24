@@ -6,6 +6,18 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Round-3 修 2 条 sync 真偏差(对抗式审计) @2026-06-24 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① **偏差1(UC-4.4 pong 消费侧缺失)**：新增 `src/ws/handlers/pong.rs`(synthetic `__pong__` action 路由) + `src/pong_compensate.rs`(gaps 去重 + 5s 节流 throttle 状态 + hashMismatch 全量根群 → sync_scheduler::enqueue_and_drain)；ping 不带 action·pong 无 action 故 `WsFrame::action()` 加 status==OK+gaps/hashMismatch → `__pong__` 合成。**附带修真**：sync_increment::all_hash_fnv1a 现用 raw 26B+8B BE 喂 FNV ≠ 现网 byte-exact 契约(`"id:seq"` join `\n` → 锚定向量 `a:5\nb:10→87da68614226ef44`)，改成字符串形态对齐(否则永久 hashMismatch→sync 风暴)。
+  ↳ ② **偏差2(UC-4.5 陌生 channel 丢帧)**：`ws/handlers/post.rs:78` `if let Some(ch)=get_mut` → `entry().or_insert_with(|| Channel::new(channel_id,0))`(自动注册+cursor=0 seed，对齐真源 `gate_states.entry().or_insert_with(default)` + handle_new_post 无条件落库)，使陌生 channel 仍 batch_upsert+emit im:post:received+gate 缺口回拉。
+  ↳ ③ 不动 helix-core(`git diff -- crates/helix-core/` 空)；④ `cargo check -p helix-im` 过 + `cargo test -p helix-im` 绿；⑤ structure-gate 不新增 RED(module.rs/to_effect.rs 不增长，新逻辑落新文件)。
+
+✅ DONE Round-3 修 2 条 sync 真偏差(对抗式审计·全代码) @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | 16 文件 +974/−147 | 未 push
+  ↳ **偏差1 UC-4.4 pong 消费侧补齐**：`ws/frame.rs`(无 action+status==OK+gaps/hashMismatch → 合成 `__pong__`) + `ws/handlers/pong.rs`(新·路由) + `pong_compensate.rs`(新·gaps 去重 + 5s 节流 + hashMismatch 全量根群确定性升序 → enqueue_and_drain) + `sync_scheduler.rs`(加 pong_throttle test-and-set·reset 清)。**附带修真**：`sync_increment::all_hash_fnv1a` raw 26B+8B BE → **字符串形态 `"<channelId>:<seq>"` join `\n`** byte-exact 对齐现网(锚定向量 `a:5\nb:10→87da68614226ef44` 已测)，否则永久 hashMismatch→sync 风暴。
+  ↳ **偏差2 UC-4.5 陌生 channel 不丢帧**：`ws/handlers/post.rs` `if let Some(ch)=get_mut` → `entry().or_insert_with(Channel::new(id,0))`——陌生 channel 自动注册(cursor=0 seed·不误种水位)，gate 接管：seq==1 立即 apply(落库+emit+cursor) / seq>1 缺口 arm gate 回拉。对齐真源 `on_ws_event` or_insert + `handle_new_post` 无条件落库。
+  ↳ **验证**：`cargo test -p helix-im` **553/0**(新增 uc44_pong 4 + uc45_unknown 2 + pong_compensate 9 + throttle 1)。四 crate `cargo check` 过 · HX-C001 `git diff -- crates/helix-core/` 空 + zero-runtime grep 空。3 个旧 golden/post 测试断言旧丢帧行为 → 改断言新正确行为(自动注册+落库)。
+  ↳ **structure-gate**：仅 3 个 round-2 旧 RED(to_effect 881/module 1339/state 367·均不在本 diff)；本次新逻辑全落新文件(pong_compensate 111 / pong.rs 69 / sync_scheduler 213·测试外提 sibling)，**零新增 RED**。
+  ↳ ⚡ DRIFT-PRED 三处出乎 EXPECT：① **附带挖出 allHash byte-exact 真 bug**(EXPECT 视产侧为正确·实测 raw-byte 形态 ≠ 现网 → 已一并修，原审计漏判产侧)；② sync_scheduler 加 throttle field 后 318>300 触新 RED(EXPECT 漏算)→ 外提 `sync_scheduler_tests.rs` sibling 压回 213；③ 3 个旧测试编码了被修的丢帧行为(EXPECT 未预见需改存量测试)。候选教训：审 UC 契约时**产侧锚定向量也要逐字复算**(不只审消费侧)；加 struct field 前先估行数闸。type:surprise 已落 log。
+
 🧭 HANDOFF 新会话开局必读 @2026-06-24 09:10 +0800 | helix main `35d212d`(已push·CI绿) · cses `feat/helix-takeover-integ`(本地未推·隔离)
   ↳ **这一程已完成(代码层全达成,无糊弄)**:
     · **Phase B**:cses 8 域纯 helix · **F1 核心 send 阻断根治**(commit 63f6e69:`OutboundSendHttp` corr + HTTP 200 兜底标 sent,不押真 Go self-omit 的 WS echo)

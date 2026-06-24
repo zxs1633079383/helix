@@ -6,6 +6,13 @@
 
 ## §0 终态记录
 
+✅ DONE 全 UC 快速 e2e 脚本逐命令 body 对准·真 Go PASS 10→33 @2026-06-24 19:20 +0800 | commit (pending·仅 `scripts/host-cli-FULL-uc-e2e.sh` + ledger) | 33/37 | main
+  ↳ 落地：`scripts/host-cli-FULL-uc-e2e.sh` 一脚本双持久连接(444/678)一趟真 Go @:8065 **PASS=33 FAIL=0 SKIP=4**(连续 2 轮稳定)。零生产源码改(git diff core 空)。
+  ↳ 三处决定性 harness 修复(10→33)：① 命令体键名对齐 outbound build()——大多 snake_case(`post_id`/`channel_id`/`user_ids`/`target_ids`/`reply_id`/`post_ids`/`start_time`/`end_time`)·旧脚本发 camelCase → `require_str` None → `ImError::Parse 缺/空必填` 命令静默丢弃(例外:im_template_received `{postId}`·im_channel_member_change `{channelId,leaveUsers}`)；② 读族命令必带 `req_id`(否则 fire-and-forget 不注册 OutboundReadReply → 零 im:read:result)；③ matcher 假阴:旧 `$(cat)`+多级管道在并发增长大文件+pipefail 偶发截断快照致风暴帧假 SKIP·改 `grep -cE` 直读文件 + `NO_COLOR=1` 关 tracing 着色(着色码曾插 `event=` 间致 emit 恒不匹配)。
+  ↳ 翻绿:1.5 撤回(send 抠真 postId→im_revoke{post_id}→posts_update) · 2.3 postId定位(im_load_older_context anchor 真 postId→older_loaded·非借 2.2) · 4.1/4.2/5.7 hello 风暴态(matcher 修复) · 1.8/1.9/3.2/2.4/5.4/5.5/5.6/6.2/6.4/9/8/4.5/3.3/4.4/3.1/6.1 等全族(键名/req_id 修复)。
+  ↳ 余 4 SKIP 真原因(非 wire-bug·命令体已对准)：**1.7 转发**=harness-gap(curl POST /posts/createPosts→HTTP200 SUCCESS 证执行·但同频道转发 Go 不旁推 post[omit-self/去重]·跨频道才推·host-cli 仅一靶频道够不到第二目标) · **4.3 too_long**=harness-gap(无 cursor 注入入口·代码侧有单测) · **1.3 文件上传**=物理够不到(无上传管线) · **1.6 编辑**=not-a-capability(现网正文不可改)。
+  ↳ 真 wire bug:无(本轮所有 SKIP 经 curl/源码确认命令体与真源契约一致·零 helix 生产改)。
+
 🎯 EXPECT Superpowers Codex 触发固化 @2026-06-24 16:13 +0800 | 赌注 低 | 可逆 是
   ↳ 可证伪断言：① `~/.codex/config.toml` 的 `[features]` 新增且仅新增 `multi_agent = true`；② `~/.codex/AGENTS.md` 追加全局 Superpowers 轻量触发规则；③ Helix `AGENTS.md` 与 `CLAUDE.md` 追加同一段项目级 Superpowers 触发规则，收尾 `cmp -s AGENTS.md CLAUDE.md` 仍为 0；④ 不改 Rust 源码、不改 harness/roadmap/commit 规范。
 

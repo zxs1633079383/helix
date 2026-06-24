@@ -23,7 +23,7 @@ fail=0
 #    超基线 → 唯一合法解是「测试外提 sibling / 拆文件」把行数压回 ≤baseline；**绝不允许上调 baseline 抹掉 FAIL**。
 #    baseline 只允许往**小**改（拆分回正后锁更低值）。范本：state.rs 390→测试外提 state_tests.rs→340（本次）。
 WHITELIST=(
-  "crates/helix-im/src/module.rs 1318"
+  "crates/helix-im/src/module.rs 432"
   "crates/helix-im/src/ws/registry.rs 783"
   "crates/helix-im/src/acl/to_effect.rs 748"
   "crates/helix-driver-ffi/src/api.rs 733"

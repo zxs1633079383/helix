@@ -6,6 +6,23 @@
 
 ## §0 终态记录
 
+⚠️ PARTIAL Round-6 定向夺回 6 裁决翻台账(B类e2e夺回+C类重标+诚实降级) @2026-06-24 +0800 | branch feat/cses-round6-uc-reclaim(worktree uc-reclaim 隔离) | docs(ledger+SESSION)+scripts(新增 uc24/uc15 e2e) scope·**零源码改动** | 未 push
+  ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP **103/79** ✅满 · ② WS **18/18** ✅满 · ③ UC e2e **38/37**(脚本含 header prose 多命中;**台账表格行真值 = ✅ 33 / ⏭ 1 / ⬜ 3 = 37**)。
+  ↳ **Round-6 净增**(台账行 ✅ 28→33·**+5 行级**·本轮夺回 4 + UC-2.4 commit 9c235cd 计入)：
+    · **UC-2.4 回复列表 → ✅ e2e-verified**(`im_get_replies` read-relay·真 Go 持久连接抠真 reply 根 postId=cq311uf4...→`im:read:result bytes=680`·0 read http failed warn·走 UC-9.2 书签同 relay 路径·commit 9c235cd)
+    · **UC-5.6 群公告 → ✅ verified-by-proxy**(`im_announcement_list` read-relay×2→`im:read:result bytes=152/153` 均>0·独立 curl /post/announcement/list HTTP200 SUCCESS data:[] 双证·announcement/save 写真公告需 ANNOUNCEMENT-typed post fixture host-cli 够不到=data-dep 子项)
+    · **UC-2.1 切群首屏 → ✅ verified-by-proxy**(同机制锚=UC-4.1/4.5 同一 increment_channel handler·entry().or_insert_with(Channel::new(_,0)) 冷启动 cursor=0 自动注册·73 帧零丢·全 24 handler 无独立首屏 handler)
+    · **UC-5.7 在线/分组 → ✅ verified-by-proxy**(在线子项=round-5 P0 probe 实观测 status_change online 帧+committed fixture FrameClass::Ignored 解析稳定·分组子项=独立 HTTP onlineStatus #28 host-cli 够不到 data-dep)
+  ↳ **诚实降级 2(拒橡皮章)**：
+    · ⏭ **UC-1.5 撤回 = data-dep**(隔离剧本 host-cli-uc15-revoke-e2e.sh 跑 2 次·send 仅 `im:post:sending bytes=109` 零 post self-echo→抠不到 THAT postId→revoke 无锚·canonical host-cli-go-chain 同环境同症(PASS=5 FAIL=1)·但 schedule/close/nickName 真帧正常流入证 harness 可用·唯 plain message echo 当前后端态缺席·**非 harness-gap**)
+    · ⬜ **UC-2.3 postId 定位 = harness-gap**(机制+命令路径已解封·与 UC-2.2 共用 im_load_older_context·但 send 建史断(零 post 回声)+sync 建史断(tenant.db 0 字节空文件)·拿不出绑定真 anchor postId 的帧·**拒借 UC-2.2 2544B 冒充**(语义不同:2.2=分页上拉/2.3=按 postId 定位))
+  ↳ **最终剩余未达 verified 的 UC 及阻因**(3 ⬜ + 1 ⏭)：
+    · ⬜ **1.3 文件上传** = host-cli 无 processMessageFiles 上传管线·**物理够不到·需真前端 e2e**
+    · ⬜ **2.3 postId 定位** = 建锚两路皆断(send/sync 建史均断)·**harness-gap 数据态够不到**
+    · ⬜ **4.3 too_long 重拉** = host-cli 无注入落后 cursor 入口·冷启动 cursor=0 走 increment 不进 too_long 分支·代码侧实现完整有单测·**harness-gap 触发态注入缺口**
+    · ⏭ **1.5 撤回** = send 无 post self-echo(当前后端/数据态)·**data-dep**
+  ↳ **验证**：`cargo test -p helix-im` **563/0** 绿 · HX-C001 `git diff -- crates/helix-core/` **空**(0 行) · `scripts/structure-gate.sh` **exit 0** PASS · 本轮仅动 docs(ledger+SESSION)+scripts(uc24/uc15 e2e harness)·**零生产源码改动**。Round-5 的 29 不回退。
+
 ✅ DONE structure-gate 四文件拆分回正 + gate.sh 接入结构闸 @2026-06-24 +0800 | commit d0d2936 | branch feat/cses-round3-conformance-e2e | 11 文件·287 增/226 减 | 未 push
   ↳ A1 module.rs 1339→1295(≤1318)：handle_query_command 54 行→4 行委派，提取 module_query.rs 自由函数
   ↳ A2 to_effect.rs 881→849(≤861)：sync_unread_bump_ops 外提 to_effect_s2.rs + pub use re-export

@@ -94,10 +94,40 @@ fn revoke_leave_cancel_map_to_real_endpoints() {
     let (url, body) = one_http(run("im_channel_leave", json!({ "channel_id": "ch2" })));
     assert_eq!(url, "http://x/api/cses/channel/member/leave");
     assert_eq!(body["channelId"], "ch2");
+    // 仅自己退、无转让：不发空 userId/newCreator（Go *string / *struct omitempty）
+    assert!(body.get("userId").is_none(), "无 user_id 不进 body");
+    assert!(body.get("newCreator").is_none(), "无 new_creator 不进 body");
 
     let (url, body) = one_http(run("im_cancel_schedule", json!({ "channel_id": "ch3" })));
     assert_eq!(url, "http://x/api/cses/posts/cancelSchedule");
     assert_eq!(body["channelId"], "ch3");
+}
+
+/// UC-5.3 群主退群转让：full-map #33 entity.ChannelIdStruct{channelId, userId *string,
+/// newCreator *ChannelMemberMinimal}；L596「NewCreator 用于群主退群时转让群主」。
+/// 偏差修复前 build 只发 channelId，静默丢 newCreator/userId → 群主转让失效。
+/// 透传后 wire key 必须是 camelCase `newCreator` / `userId`（对齐 Go json tag）。
+#[test]
+fn leave_carries_new_creator_and_user_id_for_owner_transfer() {
+    let (url, body) = one_http(run(
+        "im_channel_leave",
+        json!({
+            "channel_id": "ch9",
+            "user_id": "u-self",
+            "new_creator": { "id": "u-heir", "teamId": "t1", "role": 0 }
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/channel/member/leave");
+    assert_eq!(body["channelId"], "ch9");
+    assert_eq!(body["userId"], "u-self");
+    // newCreator 整对象透传（ChannelMemberMinimal 结构由前端直供，build 不解构）
+    assert_eq!(body["newCreator"]["id"], "u-heir");
+    assert_eq!(body["newCreator"]["teamId"], "t1");
+    // 命名陷阱：是 newCreator（camelCase），不是 snake new_creator
+    assert!(
+        body.get("new_creator").is_none(),
+        "wire key 为 camelCase newCreator"
+    );
 }
 
 #[test]

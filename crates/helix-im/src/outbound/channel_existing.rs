@@ -12,7 +12,11 @@ use crate::error::ImError;
 use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
 
 /// #33 POST /api/cses/channel/member/leave — 退群（仅自己）→ channel_member_update + post。
-/// 真源 entity.ChannelIdStruct{ChannelId}；UserId nil → session（Go 只允许自己退）。
+/// 真源 entity.ChannelIdStruct{ChannelId, UserId *string, NewCreator *ChannelMemberMinimal}
+/// （full-map #33，channel.go:609-613，三键全 camelCase json tag）。
+/// UC-5.3：群主退群仍是「自己退」(session.UserId==owner)，但需 NewCreator 指定继任群主——
+/// 若静默丢 newCreator 则群主转让失效。userId/newCreator 为 Go *指针（omitempty 语义），
+/// 故仅在前端供给时透传，不发空键。ChannelMemberMinimal 结构由前端直供，build 不解构透传整对象。
 struct ChannelLeaveCommand;
 impl OutboundCommand for ChannelLeaveCommand {
     fn name(&self) -> &'static str {
@@ -20,7 +24,18 @@ impl OutboundCommand for ChannelLeaveCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let channel_id = require_str(args, "channel_id", self.name())?;
-        Ok(("channel/member/leave", json!({ "channelId": channel_id })))
+        let mut b = json!({ "channelId": channel_id });
+        // userId *string：缺省 → Go 退 session 自己；显式给则透传（命名陷阱：userId camelCase）。
+        if let Some(uid) = args.get("user_id").and_then(Value::as_str) {
+            b["userId"] = json!(uid);
+        }
+        // newCreator *ChannelMemberMinimal：群主退群转让继任群主，整对象透传，build 不解构。
+        if let Some(nc) = args.get("new_creator") {
+            if !nc.is_null() {
+                b["newCreator"] = nc.clone();
+            }
+        }
+        Ok(("channel/member/leave", b))
     }
 }
 static CHANNEL_LEAVE: ChannelLeaveCommand = ChannelLeaveCommand;

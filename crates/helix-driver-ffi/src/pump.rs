@@ -14,6 +14,7 @@
 //! Effect::Send/Http/Persist/Timer 全走 host dispatch（已下沉）。
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
@@ -75,6 +76,8 @@ pub fn run(args: PumpArgs) {
     };
 
     runtime.block_on(async move {
+        // SHADOW-NOTE: 内层 async 块到 `engine::run_engine_loop().await` 结束即 graceful drain
+        // 完成；此后须 `shutdown_timeout` 收尾 runtime，绝不靠 Drop（见块末注释）。
         // ── storage（共享 host rusqlite）─────────────────────────────
         let storage = match HostStorage::open_sqlite_url(&args.db_url).await {
             Ok(s) => Arc::new(s),
@@ -181,4 +184,19 @@ pub fn run(args: PumpArgs) {
         )
         .await;
     });
+
+    // 🔴 lifecycle-net-decouple（生命周期绝不被网络 I/O 阻塞）：
+    //
+    // `run_engine_loop` 返回 = graceful drain 已完成（Persist 全落地 + 必达 Http 有上限 drain）。
+    // 但**装配阶段 spawn 的后台 WS connect 任务**可能仍卡在 `connect_async().await` 的 DNS 解析
+    // （`getaddrinfo` 经 tokio blocking pool）——连不上的 host 上单次解析可达系统 resolver 上限
+    // （实测 ~30s）。若直接让 `runtime` 走 `Drop`，current_thread runtime 的 Drop 会**同步等待
+    // 在途 blocking pool 线程结束** → `helix_destroy` 的 join pump 线程随之卡满 ~30s（cpp-smoke
+    // 30s ctest TIMEOUT 正中此处）。
+    //
+    // 故 drain 完成后**显式 `shutdown_timeout(0)`** 收尾：detach 仍在途的 getaddrinfo blocking
+    // 线程（进程随后整体释放 handle，孤儿 DNS 解析无副作用），pump 线程立即退出 → join 不阻塞。
+    // 这与 engine 五不变量⑤「必达 Http drain 有上限、生命周期不被网络阻塞」同源——把同一红线
+    // 补到 runtime 收尾这最后一环（drain 之后唯一可能残留的网络 I/O = 后台 connect 的 DNS）。
+    runtime.shutdown_timeout(Duration::ZERO);
 }

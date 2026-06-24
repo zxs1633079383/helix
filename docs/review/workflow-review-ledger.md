@@ -17,9 +17,10 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 7b6ea55
-last_reviewed_at: 2026-06-23
-last_review_runId: wf_84e8b7d0-a00 (十三轮 architecture-drift-review：CI harbor 镜像切 + FFI pump 锁解耦 + timer 泄漏 + ADR-013 死列清理 · 区间 196c869..7b6ea55 · gap=26 触发 · 判定 🟡 轻 drift · 1 medium 已回正 + 3 low 记录)
+last_reviewed_commit: c81de35
+last_reviewed_at: 2026-06-24
+last_review_runId: wf_42947748-15d (十四轮 architecture-drift-review：区间 7b6ea55..413c4a8 = im HTTP+WS 接管批次落库[Round-3/4/5 + spec06 + UC e2e]·gap=79 触发·判定 🔴 重 drift。**内核全 HOLD**[HX-C001 零运行时 / C002-C015 / GOAL §1·§2 / 三层单向 全过]·drift 100% 在**治理护栏层**：structure-gate 在 413c4a8 实测 exit 1[module.rs 1339>1318·to_effect 881>861·state 367>351·新文件 posts_read 324>300]·baseline 棘轮后门第 3 次复发·gate.sh 未接 structure-gate 致红闸纯咨询。**已回正收敛**[d0d2936 四文件拆分回正 + gate.sh 接 structure-gate 进 push 阻断·c81de35 CorrelationContext 外提 correlation.rs 令 state.rs 351→299 拿真余量 + baseline 往小锁 299]·收敛后 structure-gate exit 0 + cargo test 563/0 + HX-C001 空·故 last_reviewed 指向已收敛 c81de35 非红闸 413c4a8。低优 backlog：load-older e98adf5 惊讶吞没补 DRIFT-PRED·all_hash/send_build 失实注释清理·两候选卡[parity call-site lens / outbound 可达 EXPECT]过回放闸门 PASS 待立卡)
+# 上一轮：last_review_runId_prev: wf_84e8b7d0-a00 (十三轮：CI harbor 镜像切 + FFI pump 锁解耦 + timer 泄漏 + ADR-013 死列清理 · 区间 196c869..7b6ea55 · gap=26 · 🟡 轻 · 1 medium 回正 + 3 low)
 # ⚠️ 注：本指针取 main 线(7b6ea55)；im-takeover 线已 review 到 7e9f3ca(wf_efcf1ca4)。合并(im-takeover→main)本身未 review → 下次 gap 触发的 drift-review 须覆盖合并 + im-takeover 114 文件。
 # 十二轮 = sync-v2 send body camelCase+必填(→post 回声打通) + 13-action e2e + channel/member/change + FFI 生命周期解耦 + merge origin/main。
 # gap=41≫10 闸门逾期(🔴 主因·之前分支审错未归零) + 多条护栏侵蚀。**回正 5 批 615f2f3..196c869**：

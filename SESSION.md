@@ -6,6 +6,14 @@
 
 ## §0 终态记录
 
+✅ DONE structure-gate 四文件拆分回正 + gate.sh 接入结构闸 @2026-06-24 +0800 | commit d0d2936 | branch feat/cses-round3-conformance-e2e | 11 文件·287 增/226 减 | 未 push
+  ↳ A1 module.rs 1339→1295(≤1318)：handle_query_command 54 行→4 行委派，提取 module_query.rs 自由函数
+  ↳ A2 to_effect.rs 881→849(≤861)：sync_unread_bump_ops 外提 to_effect_s2.rs + pub use re-export
+  ↳ A3 state.rs 367→351(≤351)：CorrelationContext/ImState 冗余 doc 压缩 16 行
+  ↳ A4 posts_read.rs 325→216(≤300)：bookmark/announcement/post-read-list 7 命令外提 posts_read_ext.rs
+  ↳ B  scripts/gate.sh step [10/10] 接入 scripts/structure-gate.sh
+  ↳ 验证：structure-gate ✅PASS · cargo check 0 error · cargo test -p helix-im 0 failed(151+全套) · HX-C001 空 diff
+
 ✅ DONE UC-2.2 上拉历史·一行修复 accept 闸漏 query 族 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | `acl/from_tick.rs` +4 行(补 `|| crate::query::is_query(name)`) + 台账/SESSION | 未 push
   ↳ Round-5 e2e 揪出根因:accepts_tick Command 臂只放行 send/reconnect/is_outbound·漏 query::is_query → im_load_older_context accept()==false 静默丢弃(单测直调纯逻辑绕过 accepts→handle 闸故漏网)。
   ↳ **e2e 实证**:`scripts/uc22-load-older-e2e.sh` 建史5条→`cmd im_load_older_context`→`DomainEvent emit event=im:messages:older_loaded bytes=2544` 真吐历史投影。一行同时解封全 4 query 族(load_older/query_messages/dialog_list/delete_all_dialogs)。

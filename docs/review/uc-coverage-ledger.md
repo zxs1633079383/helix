@@ -11,6 +11,16 @@
 >
 > **2026-06-23 Phase 3 真 Go e2e 实跑**(account 444 @ :8065,4 独立会话复现):
 > create/close/nickname/schedule/cancel WS 回声全绿;send post 回声 0/4 会话(self-omit 已证)。
+>
+> **⚠️ 2026-06-24 Round-2 双闸复跑——WS 闸2 环境阻断(非 wire bug,非 helix 退化)**:
+> 本轮 telepresence Traffic-Manager **Not connected**(`tp status` 实测 Root Daemon not running) →
+> Go :8065 **REST 全活**(curl channel/create / posts/create / channel/query / load/notice 等
+> 11 端点 10×200 SUCCESS),但 **WS upgrade 101 后 0 字节 hello**(raw socket probe 实证:握手成功、
+> 服务端不推 hello/increment 洪泛)。根因 = hello 生成路径依赖 paas/x9 gRPC(cluster 内),tp 断连
+> → gRPC unknown → 静默无 hello → connectionId 不盖章 → 整条 WS echo 链死。**修复 = `tp-connect.sh`
+> (telepresence 重连,含 sudo route/killall,需交互授权) + 重启 cses**——本会话未自动执行(避免无授权动
+> 用户网络)。故本轮 **闸1 契约审计(REST 200)全过,闸2 WS echo e2e 暂阻**;ledger 既有 ✅ e2e-verified
+> 8 项系 tp 连通的上一会话所验,本轮未推翻。
 
 | UC | 描述 | 状态 |
 |---|---|---|

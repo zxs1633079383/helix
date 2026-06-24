@@ -195,8 +195,7 @@ fn create_vote_passthrough_body() {
     match &effects[0] {
         Effect::Http { req, .. } => {
             assert_eq!(req.url, "http://localhost:3399/vote/createVote");
-            let body: Value =
-                serde_json::from_slice(req.body.as_ref().unwrap().as_ref()).unwrap();
+            let body: Value = serde_json::from_slice(req.body.as_ref().unwrap().as_ref()).unwrap();
             assert_eq!(body["fromUserName"], json!("Alice"));
             assert_eq!(body["options"], json!(["A", "B"]));
         }

@@ -6,6 +6,20 @@
 
 ## §0 终态记录
 
+✅ DONE sync-increment UC-4.4 心跳 ping piggyback（cursors/allHash）@2026-06-24 +0800 | commit `6b35749`（branch feat/im-uc10-todo-assembly）| 6 文件 +376 行 | 未 push
+  ↳ 新增 src/sync_increment.rs(136·RootCursor + all_hash_fnv1a FNV-1a 64bit 入参顺序无关 + heartbeat_root_cursors 确定性升序快照) + acl/to_effect.rs(ping_frame 签名扩 (seq,&[RootCursor])·帧体加 data.{cursors,allHash?}) + module.rs(ping caller) + state.rs(ChannelId::as_bytes) + lib.rs(pub mod) + tests/uc4_sync_increment_test.rs(6 测)。
+  ↳ **契约审计真结论**：UC-4.1(hello 根群增量 increment_http_trigger)✅ · UC-4.2(sync/notify + SyncScheduler)✅ · UC-4.3(too_long emit_sync_too_long)✅ · **UC-4.5(incrementByChannelId 独立窗口兜底)✅ 并行会话已实现为 im_channel_load_increment_by_channel_id(channel_read.rs，endpoint/body/is_read 逐字对齐)——审计证实无需重造，仅加断言锚定** · **UC-4.4 ping piggyback 是唯一真缺口(ping_frame 原注释自陈 stub)→ 本 commit 落地**。
+  ↳ 验证：cargo test -p helix-im --test uc4_sync_increment_test 6/6 PASS + lib sync_increment 4/4 + cp_create count=120 不受影响 · cargo check helix-core/native/ffi PASS · HX-C001 git diff -- crates/helix-core/ 空 + zero-runtime grep 0 · sync_increment.rs=136≤300 硬顶 · outbound count 不变(ping 非注册命令)。
+  ↳ ⚡ DRIFT-PRED：EXPECT 原赌「新增 im_ensure_channel_loaded 令 outbound 104→105」→ 实际 UC-4.5 已由并行会话实现(命令名 im_channel_load_increment_by_channel_id)、count 实为 120(并行会话另落多命令)。撤回 duplicate 转契约审计。候选教训：派 outbound 任务前先 grep registry 全名 + SESSION 计数会因并行会话过时。type:surprise 已落 log。
+  ↳ 后续(未做)：UC-4.4 pong 入站 handler({gaps,hashMismatch}→逐 channel 补偿 sync 去重节流) + 根群/话题甄别(当前快照全量已知 channel)。
+
+✅ DONE UC-10 通知/待办装配链完整实现 @2026-06-24 +0800 | commit `73bd0a2`（branch feat/im-uc10-todo-assembly）| 9 文件 +529 行 | 未 push
+  ↳ 新增 src/todo.rs(117·collect_about_me_ids/query_todo_body/emit_todo_updated) + todo_tests.rs(11 单测) + tests/todo_assembly_test.rs(4 e2e) + state.rs(about_me_post_ids 字段+reset 清空+CorrelationContext::TodoQuery) + module.rs(TodoQuery PortReply arm) + ws/handlers/increment_channel.rs(逐帧 collect mention/urgent) + increment_channel_end.rs(global-end trigger queryTodoList+注册 corr+读完即清) + lib.rs(pub mod todo) + projection-schema §1.4。
+  ↳ 链路：increment 帧 mentionList/urgentPostList → about_me 缓冲 → hello 收尾 global increment-end → build `posts/queryTodoList {postIds}` HTTP + 注册 TodoQuery → 回报解 data.channels[].posts[] 装配 `{id:"{postId}_{messageType}",channel,post,type,canDel}` → emit `im:todo:updated{items}`。行为真源逐字对齐 cses-client handlers/channel.rs:142-355 + partials/1 §18。
+  ↳ 验证：隔离 commit（stash 并行 uc4 工作后）cargo test -p helix-im 509 passed/0 failed（含 11 todo 单测+4 e2e）· cargo check -p helix-core/helix-im PASS · HX-C001 git diff -- crates/helix-core/ 空 + zero-runtime grep 0 · todo.rs=117≤300 硬顶 · outbound_command_count 不变（TodoQuery 内核自驱非注册命令）。
+  ↳ EXPECT 命中：仅动 9 个 UC-10 文件、未带入并行 uc4 工作（hash-object 精确分片 staging）、未动 helix-core、TDD 先行。无 DRIFT-PRED。
+  ↳ 注：分支当前 HEAD=928c17f（并行 outbound session 在我 commit 73bd0a2 之上又叠了一 commit）；我 commit 自洽可独立编译验证（temp worktree 实测）。工作树另含并行 uc4/channel-dedicated 未提交工作（sync_increment.rs/to_effect.rs 等），非我所写、未带入本 commit。
+
 ⚡ MILESTONE F1 核心发消息阻断根治 + 全量100% workflow 首轮 @2026-06-24 00:40 +0800 | helix main `5629422`(已push·CI绿) · cses `feat/helix-takeover-integ`(本地)
   ↳ **🔴→✅ F1(核心 send 对账)**:`posts/create` 的 `h1_corr` 从不注册进 corr_map → HTTP 200 `{status:SUCCESS}`(消息真落库)被丢弃,对账只押 WS `post` 回声而真 Go 对发送者 self-omit → 永停 sending 15s。修(commit 63f6e69):加 `CorrelationContext::OutboundSendHttp` + HTTP 200 兜底标 sent(send_reconcile.rs 外提)+ 6 新测试(含无echo转sent/迟到echo幂等)全绿。**这是追了几轮的 send-echo,根因+修法落定。**
   ↳ **全量100% workflow 首轮**(cses-fullmap-100-cutover):Phase1 helix命令补(im_load_older_context翻页投影 + vote/score补满10·outbound 94→104)· Phase2 U1-U10 多数下放纯渲染 · Phase3 **8/37 UC 真Go e2e验通**(定时/hello增量/needSync/建群/关退群/群昵称,真WS回声断言)。

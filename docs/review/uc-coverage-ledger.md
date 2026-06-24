@@ -28,14 +28,20 @@
 > 真相:① cses-client `claude.md:299` 明文「消息正文不可改」·UI「编辑」= `reEdit()` 回填输入框重发 + 定时消息取消重建(均非正文改);
 > ② Go 全 posts 路由无 posts/update·`CreateCsesPost→PreSave` 无 update 分支·`SavePostsBySend` CreateBulk 无 OnConflict → id 复用 = 重复 PK 冲突报错零推送;
 > ③ e2e `host-cli-uc16-edit-e2e.sh`(原 send 得 post 回声→复用 postId 再发)实测**零 post/post_update 回声**,与「冲突无推送」一致。
-> **helix 无命令可加**(目标端点不存在·非 wire-bug);**1.6 不再算 wire-bug**(wire-bug 清零)。
+> **helix 无命令可加**(目标端点不存在·非 wire-bug)。
 > data-dep 诚实标注(命令达 Go·回声依赖数据态/host-cli 物理够不到):5.5 消息置顶 / 5.6 公告 / 8 vote/readVote(坏id 恒500) / 6.2 add_manger 次路径。
+>
+> **2026-06-24 Round-5 P2/P3 真 Go e2e 续跑(10 条裁决·sync-gap + 书签 + 待办 + query 族)**:
+> **新 ✅ e2e-verified 5**:**4.4 心跳 gap**(pong seq_reply 锚定 ping 往返 + hashMismatch 补偿) · **4.5 陌生 channel**(冷启动空 cursor·73 帧 increment 全自动注册·入站=emit=73 零丢) · **3.3 模板已收到**(post_update updateAt bump + props.template.userIds 含 444) · **9 书签**(create/load/delete 三命令·im:read:result + 独立 curl 落库往返双证) · **10 通知/待办**(hello 收尾 increment_channel_end 触发 queryTodoList → im:todo:updated bytes=226447·反证空信封仅 47B)。
+> **新揪 🔴 wire-bug 1**:**2.2 上拉历史**——`accepts_tick` Command 臂漏 `query::is_query()`·im_load_older_context 经真命令路径 accept()==false **静默丢弃**·拖累全 4 query 族命令(load_older/query_messages/query_dialog/delete_all_dialogs)不可达·单测只直调纯逻辑不过 accepts 闸故漏网·修 = Command 臂补 `\|\| crate::query::is_query(name)`。
+> **harness-gap 1**(物理够不到·非 wire-bug):**4.3 too_long 重拉**——host-cli 无注入落后 cursor 入口·冷启动 cursor=0 走 increment 不进 too_long 分支·代码侧实现完整有单测·e2e 触发态待注入入口/服务端构造超阈 gap。
+> **wire-bug 当前 = 1**(仅 2.2·1.6 已翻 ✅-not-a-capability)。
 
 | UC | 描述 | 状态 |
 |---|---|---|
 | UC-1.1 | 发送文本/富文本 | ✅ e2e-verified (RAW WS action=`post` self-echo·userId 444+本次 probe+真 postId·self-omit 误诊已证伪) |
 | UC-1.2 | 发送 DOCUMENT | ✅ e2e-verified (P1 修后·RAW WS action=`post` type=`DOCUMENT` 原样回声非降级 TEXT·temporaryId/channelId/message 全对齐·send_build.rs build_from_command 读 cmd type 默认 TEXT/DOCUMENT 透传真值) |
-| UC-1.3 | 发送图片/文件 | ⬜ untested (host-cli 无文件上传/processMessageFiles 管线·posts/create 底层路径已由 1.2/1.4 post 回声验证) |
+| UC-1.3 | 发送图片/文件 | ⬜ untested (**host-cli 物理够不到·需真前端**——host-cli 无文件上传/processMessageFiles 上传管线·无法构造 multipart/文件预处理链·posts/create 底层路径已由 1.2/1.4 post 回声间接验证·UI 上传链路需真前端 e2e) |
 | UC-1.4 | 重发失败 | ✅ e2e-verified (重发=重走 posts/create·文本锚 RAW 帧 action=`post` self-echo 命中) |
 | UC-1.5 | 撤回 | ⏭ data-dep (revoke 体逐字对齐真源§3·Go 有端点·全 log 零 revoke:true → 需先沉淀可读 post 再撤方能观测广播) |
 | UC-1.6 | 编辑 | ✅ verified-not-a-capability (Round-5 真相调查定论·**现网消息正文不可改·无编辑端点**) ── ① 行为真源 cses-client `message-v3/service/claude.md:299` 明文「**post 更新·非正文编辑——消息正文不可改**」;UI「编辑」实为两类**非正文编辑**:`reEdit()`(message-item:891·仅 `!isComplete` 失败消息·派 `RE_EDIT_MESSAGE`→`chat-input:208 setInputValue` **回填输入框重发**·非服务端改) + 定时消息编辑(chat-input:310·**取消旧定时+重建**·非改正文)。② 全 posts 路由(Go `handlers.go:34-62` 22 端点)+ 真抓包(`真机curl真源§1` 普通 send `id:""`)**无任何 posts/update / posts/edit / editPost 路由**;唯一 update 形 = `updatePostProps`(props/投票·非正文)。③ Go `CreateCsesPost→PreSave`(post.go:187)仅 `ID==""` 时铸新 id·**无 update 分支**;落库 `SavePostsBySend`(cses_post_store.go:152)= `Post.CreateBulk().Exec()` **无 OnConflict** → id 复用 = 重复 PK INSERT **冲突报错** → consumer tx 失败 → **零 WS 推送**。④ 真 Go e2e(`scripts/host-cli-uc16-edit-e2e.sh`·444@:8065·send 原消息得 `post` 回声 → `cmd im_send_message id=<原postId>` 复用 id)实测**零 post/post_update 回声**(仅无关 increment_channel 洪泛)·与「INSERT 冲突无推送」一致。**结论纠错**:Round-3/4 的 `send_build.rs:66「id 非空→Go 当 update」` 系**源码误读**(把 createPosts/转发的 id 身份字段误当编辑开关)·**非 helix wire-bug·helix 无命令可加**(目标端点根本不存在);UC-1.6 改判 = 产品无此能力·e2e 已 wire 实证不存在) |
@@ -44,18 +50,18 @@
 | UC-1.9 | 加急+加急已读 | ✅ e2e-verified (im_urgent_post→posts/urgentPost·RAW post_update 带 expediteMap.recipients{555,678}+sender 444) |
 | UC-1.10 | 定时消息 | ✅ e2e-verified (post_schedule_created + post_schedule_canceled 双回声命中) |
 | UC-2.1 | 切群首屏 | ⏭ data-dep (cold-start increment·见 4.1) |
-| UC-2.2 | 上拉历史 | ⬜ untested (im_load_older_context 已 wired·本 send-chain 脚本不覆盖 sync/HTTP pull 路径·需专测 HX-C008 cursor 续拉) |
+| UC-2.2 | 上拉历史 | 🔴 wire-bug (Round-5 真 Go e2e 揪出 accept 闸漏 query 族·`scripts/uc22-load-older-e2e.sh` 持久单连接建史 5 条拿真回声→喂 `cmd im_load_older_context {channel_id,anchor_post_id,anchor_create_at,limit}` 后 **0 条 im:messages:older_loaded emit / 0 条 posts/postContext 出站 / 0 条 handle-level debug**·RUST_LOG=helix_im=debug 复测确认 handle() 从未进入。**根因**:`acl/from_tick.rs::accepts_tick` Command 臂 = `matches!(name,"im_send_message"|"im_reconnect") \|\| commands::is_outbound(name)` **漏 query::is_query()**;im_load_older_context 仅注册在 `query.rs:38 is_query()`(非 is_outbound)→ `module_host.rs:180` accepts()==false → 命令进 handle() 前**静默丢弃**。handle()(module.rs:1196→853)+post_context_http 多轮编排+emit_older_loaded **全实现且 p3c_load_older_context_test.rs 单测通过**(但单测仅直调纯逻辑 parse/ingest/emit·**从不过 accepts→handle 闸**故漏网)。**影响面**:同缺陷使全部 4 query 族命令(im_load_older_context / im_query_messages_by_channel / im_query_dialog_list / im_delete_all_dialogs)经真命令路径**不可达**。修复 = accepts_tick Command 臂补 `\|\| crate::query::is_query(name)`) |
 | UC-2.3 | postId 定位 | ⬜ untested |
 | UC-2.4 | 回复列表 | ⬜ untested |
 | UC-3.1 | 会话已读 | ✅ e2e-verified (444 read postId=4ake7...·RAW WS action=`post_read` data.postId 逐字一致 readMap=100 seq=72·DomainEvent emit im:channel:read_echo read-relay 回灌) |
 | UC-3.2 | 单条已读 | ✅ e2e-verified (RAW WS action=`post_read`·reader 444 连接·data.postId 命中·seq=62) |
-| UC-3.3 | 模板已收到 | ⬜ untested |
+| UC-3.3 | 模板已收到 | ✅ e2e-verified (持久连接·一次 hello connectionId 已盖章·投喂 `cmd im_template_received {postId:c55yc4...}` 真 TEMPLATE 帖来自 sync 回填 channel zhrbsxbhgt817nnghsrik7113e。__TR_REAL__ marker 前 post_update=0·marker 后唯一帧 RAW WS action=`post_update` data.id=c55yc4... type=TEMPLATE channelId 命中·**updateAt 1782279995599 从 createAt 1775917225693 被刚 bump**·updateBy=SYS·**props.template.userIds 含 444**(Go TemplateReceived 把我 userId 写进已收回执列表)·seq=3。因果链:① im_template_received accept(无 unknown/unhandled)→ ② Effect::Http POST camelCase {postId} 到 /post/templateReceived(Round-3 c7a840c casing 修·/post 单数前缀 template_received.rs:28 对齐)→ ③ Go 处理 + WS post_update 旁推回声) |
 | UC-3.4 | 未读数 | ✅ e2e-verified (post 帧 data.readBits=`100` per-member 未读位图·read 后 post_read data.readMap=`100` 未读→已读态转移·RX increment_channel 携 unreadCount/mentionCount/lastEventSeq 离线对账) |
 | UC-4.1 | hello 增量 | ✅ e2e-verified (hello+channels+increment_channel data 真推) |
 | UC-4.2 | needSync | ✅ e2e-verified (increment_channel.needSync=true 真帧) |
-| UC-4.3 | too_long 重拉 | ⬜ untested (缺触发 too_long 的大 gap 剧本) |
-| UC-4.4 | 心跳 gap | ⬜ untested (ping piggyback 已实现·pong 补偿已 wired·缺 e2e 剧本) |
-| UC-4.5 | 陌生 channel | ⬜ untested (陌生 channel 自动注册不丢帧已实现·缺 e2e 剧本) |
+| UC-4.3 | too_long 重拉 | ⬜ harness-gap (Round-5 e2e 物理够不到·**非 wire-bug**·代码侧实现完整有单测) host-cli 无「注入本地历史落后 cursor」入口:冷启动 cursor=0 时服务端走 increment 直接补齐不进 sync too_long 分支·也无法把本地 cursor 顶到远落后服务端 seq 的态→物理/数据够不到诚实记 harness-gap 不假判。代码侧 channel.rs:223 emit_sync_too_long / sync_session.rs:181 TooLong{reset_to} / module.rs:760 清表 **由 helix-im 单测覆盖**·e2e 触发态待 host-cli 加注入入口或服务端构造超阈 gap) |
+| UC-4.4 | 心跳 gap | ✅ e2e-verified (持久连接挂 11s ≥ ping_interval 8s self-arm → 客户端 ping piggyback {cursors,allHash} → 服务端 ReconcileCursors 回 pong。RAW WS inbound 抓 3 条 pong:`{status:OK,seq_reply:1,data:{gaps:[],hashMismatch:false,text:pong}}` / seq_reply:3 / seq_reply:4——seq_reply 逐一锚定客户端 ping seq=1/3/4 证往返成功(触发 frame.rs __pong__ 合成 + pong_compensate 消费)。另一轮 probe 抓到 hashMismatch:true 的 pong 触发全量根群对账补偿。⚠️ 出站 ping 帧体 host 不落日志(network.rs 仅 dump RAW WS inbound)→ 以服务端 pong 回声 seq_reply 锚定为往返证据) |
+| UC-4.5 | 陌生 channel | ✅ e2e-verified (冷启动独立租户 DB·HELIX_DB=mktemp 空 cursor store → 服务端推的 increment_channel 帧命中本地未知 channel。RAW WS inbound 73 条 `{v:1,action:increment_channel,data:{id:15gcgoyf1jfcur614qydhs69ha,lastEventSeq:2,...}}` 全命中本地未知 channel → entry().or_insert_with(Channel::new(_,0)) 自动注册 → **73 次 DomainEvent emit event=im:channel:increment 零丢**(入站帧数=emit 数=73)·bf25307 增量自动注册路径 e2e 跑通。⏭ data-dep 子项:channel/load/incrementByChannelId HTTP 读 → im:read:result relay 在非 info 级 LOG 未显式可见·降级 data-dep 不假判·WS 自动注册主路径已独立证) |
 | UC-5.1 | 建群 | ✅ e2e-verified (RAW WS action=`channel_created` type:P·data.id 命中·真源体对齐§4) |
 | UC-5.2 | 话题 | ✅ e2e-verified (channel_created type:T displayName helix-e2e-topic rootId 关联 + post_update 旁推·真源体对齐§2) |
 | UC-5.3 | 关/退群 | ✅ e2e-verified (close 主动作 RAW action=`channel_close` self 收·member-leave 广播给被增减目标 678 非 self=broadcast-dep 子项) |
@@ -68,7 +74,7 @@
 | UC-6.3 | 群昵称 | ✅ e2e-verified (RAW WS action=`update_channel_member_nickName` camelN·data.channelId 命中) |
 | UC-6.4 | 成员快照 | ✅ e2e-verified (host-cli im_channel_member_snapshot req_id→DomainEvent emit im:read:result bytes=155 OutboundReadReply 透传回灌 + 直连 curl POST /channel/member/snapshot HTTP200 SUCCESS data[{userIds:[444,678,555]}]·channel_created 携 memberChange.join 全员快照) |
 | UC-8 | 投票/平均分 | ✅ e2e-verified average/read (im_average_read 读族·DomainEvent emit im:read:result 回灌·身份头+session 通过到第二网关:3399) / ⏭ data-dep vote/readVote (REQ POST /vote/readVote 达第二网关:3399·身份头通过非401·HTTP500 与直 curl ground-truth 一致=坏id 恒500·DomainEvent emit im:read:result bytes=190 对齐响应·需真 vote id 方见200) |
-| UC-9 | 书签 | ⬜ untested |
-| UC-10 | 通知/待办 | ⬜ untested |
+| UC-9 | 书签 | ✅ e2e-verified (持久连接·三命令读族 wire-path 静态确认 read_cmd! 宏 is_read()=true·module.rs:1184 read_req_id 命中 corr_map.insert(OutboundReadReply)。**9.1 create**:__BM_CREATE__ marker 后 DomainEvent emit im:read:result bytes=101·零 read http failed warn·独立 curl POST /post/bookmark/create {channelId,userId,postIds:[postId]}→HTTP200 {status:SUCCESS}。**9.2 load**:__BM_LOAD__ 后 emit im:read:result bytes=679(含真书签列表·>create/delete 的 101/98 ack)·独立 curl POST /post/bookmark/load→200 data.data[0]=本轮 send 的 post zumee8ci9frkbxrnxhxppciq8e(temporaryId hostcli_tmp_1)·hasMore:false 证 create 真落库+load 真回读·PageOpts 扁平 camelCase 透传对齐源契约。**9.3 delete**:__BM_DEL__ 后 emit im:read:result bytes=98·独立 curl POST /post/bookmark/delete {userId,postId}→200 SUCCESS·删除后 re-load→200 data.data:[] 空·证真删 DB 行非橡皮章) |
+| UC-10 | 通知/待办 | ✅ e2e-verified (持久单连接 444@:8065 真 Go。一次 hello → scan_corr loaded 45 channels。**收集** 74× RAW WS action=increment_channel 每帧带 mentionList/urgentPostList(74/74)·真帧示例 mentionList[13 个 postId]/urgentPostList[2 个]·about_me_post_ids 收集。**触发** 1× RAW WS action=increment_channel_end(global) → 日志 `ws::handlers::increment_channel_end: hello 收尾触发 queryTodoList` @05:36:56.722。**装配+emit** 405ms 后 @05:36:57.127 DomainEvent emit event=im:todo:updated **bytes=226447**。反证:空 {items:[]} 信封仅 47 字节(python3 实测)·实际 226447 = ~4800x → queryTodoList HTTP 命中 SUCCESS/200 门控并装配真 items(非空 fallback)·全链路 grep 无 error/401/fail/panic·数据态后端原生已存 444 真有 mention/urgent post 无需合成注入) |
 </content>
 </invoke>

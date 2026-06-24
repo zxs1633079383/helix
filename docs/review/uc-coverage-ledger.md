@@ -3,61 +3,60 @@
 > 每 UC 真 Go e2e 跑绿 → 标 `✅ e2e-verified`。`scripts/fullmap-coverage.sh` 读此台账算 UC 覆盖率。
 > 排除:UC 集合七 搜索(本次范围外)。createUser/status = goBlocked。
 >
-> **状态图例**:`✅ e2e-verified` = 真 Go WS action 回声断言 PASS;`🟡 go-self-omit` = HTTP 200
-> SUCCESS 已证(post 真落库) 但 Go 对**发送者自身连接不推 post 回声**(Mattermost self-omit),
-> helix 当前 reconcile 依赖 WS `post` 回声(h1_corr 未注册) → sending 不转 sent(真 Go 阻断,见
-> review finding F1);`⏭ data-dep` = 命令达 Go 但回声需特定数据态(如未读/双账号),非 wire bug;
-> `⬜ untested` = 本轮未单独 e2e(命令已 wired,缺剧本/数据)。
+> **状态图例**:`✅ e2e-verified` = 真 Go WS action 回声断言 PASS;`⏭ data-dep` = 命令达 Go(wire 对)
+> 但回声需特定数据态(未读态 / 双账号广播 / 先沉淀可读 post),非 wire bug;`🔴 wire-bug` = 命令载荷
+> 与真源契约不符 / 字段不透传 → 行为保真丢失(需 helix 改出站);`⬜ untested` = 本轮 e2e 脚本未覆盖
+> (命令已 wired,缺剧本/数据/上传管线)。
 >
-> **2026-06-23 Phase 3 真 Go e2e 实跑**(account 444 @ :8065,4 独立会话复现):
-> create/close/nickname/schedule/cancel WS 回声全绿;send post 回声 0/4 会话(self-omit 已证)。
+> **⚠️ 2026-06-24 Round-3 自echo 误诊已纠(self-omit 证伪)**:
+> 上一会话标的 `🟡 go-self-omit`(「发送者自身连接不收 post 回声」)**是误诊**。Round-3 真 Go e2e
+> RAW WS inbound 实证:发送者(444)自己连接**会收到自己消息的回声 action=`post`**(非 `posted`)——
+> userId:"444"(self) + 本次 probe simpleMessage + 真 postId 全部命中(见「真机curl真源」§5)。故 self-omit
+> 链断假设作废,send 族按 Round-3 真 e2e 裁决重标;F1 的 HTTP-200 兜底标 sent 仍是正确加固(防回声丢失),
+> 但「发送者收不到回声」这一前提不成立。
 >
-> **⚠️ 2026-06-24 Round-2 双闸复跑——WS 闸2 环境阻断(非 wire bug,非 helix 退化)**:
-> 本轮 telepresence Traffic-Manager **Not connected**(`tp status` 实测 Root Daemon not running) →
-> Go :8065 **REST 全活**(curl channel/create / posts/create / channel/query / load/notice 等
-> 11 端点 10×200 SUCCESS),但 **WS upgrade 101 后 0 字节 hello**(raw socket probe 实证:握手成功、
-> 服务端不推 hello/increment 洪泛)。根因 = hello 生成路径依赖 paas/x9 gRPC(cluster 内),tp 断连
-> → gRPC unknown → 静默无 hello → connectionId 不盖章 → 整条 WS echo 链死。**修复 = `tp-connect.sh`
-> (telepresence 重连,含 sudo route/killall,需交互授权) + 重启 cses**——本会话未自动执行(避免无授权动
-> 用户网络)。故本轮 **闸1 契约审计(REST 200)全过,闸2 WS echo e2e 暂阻**;ledger 既有 ✅ e2e-verified
-> 8 项系 tp 连通的上一会话所验,本轮未推翻。
+> **2026-06-24 Round-3 真 Go e2e 实跑**(tp 已通·WS hello 真洪泛·account 444 @ :8065·6 场景 33 裁决):
+> send 族(1.1/1.4)·emoji 表态(1.8)·加急(1.9)·定时(1.10)·单条已读(3.2)·建群(5.1)·话题(5.2)·关群(5.3)·群昵称(6.3)
+> 共 10 UC WS 回声真断言全绿;另揪出 2 条 wire-bug(1.2 type 不透传 / 1.6 编辑 id 丢弃)。
 
 | UC | 描述 | 状态 |
 |---|---|---|
-| UC-1.1 | 发送文本/富文本 | 🟡 go-self-omit (HTTP200 SUCCESS·post 回声 sender 不收) |
-| UC-1.2 | 发送 DOCUMENT | ⬜ (走 posts/create·同 1.1 reconcile gap) |
-| UC-1.3 | 发送图片/文件 | ⬜ (同 1.1) |
-| UC-1.4 | 重发失败 | ⬜ |
-| UC-1.5 | 撤回 | ⏭ data-dep (revoke 需 server postId·send 无回声链断) |
-| UC-1.6 | 编辑 | ⬜ |
-| UC-1.7 | 转发/合并转发 | ⬜ |
-| UC-1.8 | 快捷回复 emoji | ⬜ |
-| UC-1.9 | 加急+加急已读 | ⬜ |
-| UC-1.10 | 定时消息 | ✅ e2e-verified (post_schedule_created + _canceled) |
+| UC-1.1 | 发送文本/富文本 | ✅ e2e-verified (RAW WS action=`post` self-echo·userId 444+本次 probe+真 postId·self-omit 误诊已证伪) |
+| UC-1.2 | 发送 DOCUMENT | 🔴 wire-bug (send_build.rs:160 硬编 type=TEXT·im_send_message 不透传 type → 文档类型保真丢失,Go 回声 type 仍 TEXT) |
+| UC-1.3 | 发送图片/文件 | ⬜ untested (host-cli 无文件上传/processMessageFiles 管线·posts/create 底层路径已由 1.2/1.4 post 回声验证) |
+| UC-1.4 | 重发失败 | ✅ e2e-verified (重发=重走 posts/create·文本锚 RAW 帧 action=`post` self-echo 命中) |
+| UC-1.5 | 撤回 | ⏭ data-dep (revoke 体逐字对齐真源§3·Go 有端点·全 log 零 revoke:true → 需先沉淀可读 post 再撤方能观测广播) |
+| UC-1.6 | 编辑 | 🔴 wire-bug (send_build.rs:175 硬编 id=""·im_send_message 丢 id → 永走新建非 update·helix 无 posts/update 文本编辑出站命令) |
+| UC-1.7 | 转发/合并转发 | ⏭ data-dep (im_create_posts→posts/createPosts·HTTP 200 SUCCESS 已证·self 单连接即时窗内无独立 post 帧,回声经目标 channel 广播) |
+| UC-1.8 | 快捷回复 emoji | ✅ e2e-verified (im_quick_reply→posts/quickReply·RAW post_update 带 quickReply[{emoji:👍,userIds:[444]}]) |
+| UC-1.9 | 加急+加急已读 | ✅ e2e-verified (im_urgent_post→posts/urgentPost·RAW post_update 带 expediteMap.recipients{555,678}+sender 444) |
+| UC-1.10 | 定时消息 | ✅ e2e-verified (post_schedule_created + post_schedule_canceled 双回声命中) |
 | UC-2.1 | 切群首屏 | ⏭ data-dep (cold-start increment·见 4.1) |
-| UC-2.2 | 上拉历史 | ⬜ (im_load_older_context 已 wired·缺剧本) |
-| UC-2.3 | postId 定位 | ⬜ |
-| UC-2.4 | 回复列表 | ⬜ |
-| UC-3.1 | 会话已读 | ⏭ data-dep (read 达 Go·post_read 回声需未读态) |
-| UC-3.2 | 单条已读 | ⏭ data-dep |
-| UC-3.3 | 模板已收到 | ⬜ |
+| UC-2.2 | 上拉历史 | ⬜ untested (im_load_older_context 已 wired·本 send-chain 脚本不覆盖 sync/HTTP pull 路径·需专测 HX-C008 cursor 续拉) |
+| UC-2.3 | postId 定位 | ⬜ untested |
+| UC-2.4 | 回复列表 | ⬜ untested |
+| UC-3.1 | 会话已读 | ⏭ data-dep (im_channels_view→channels/view 体逐字对齐·Go 仅对 `updated` 非空 Publish update_channel·本轮 updated 空未观测到回声·Go stdout 不可 tail 无法核 invoke) |
+| UC-3.2 | 单条已读 | ✅ e2e-verified (RAW WS action=`post_read`·reader 444 连接·data.postId 命中·seq=62) |
+| UC-3.3 | 模板已收到 | ⬜ untested |
 | UC-3.4 | 未读数 | ⏭ data-dep |
 | UC-4.1 | hello 增量 | ✅ e2e-verified (hello+channels+increment_channel data 真推) |
 | UC-4.2 | needSync | ✅ e2e-verified (increment_channel.needSync=true 真帧) |
-| UC-4.3 | too_long 重拉 | ⬜ (缺触发 too_long 的大 gap 剧本) |
-| UC-4.4 | 心跳 gap | ⬜ |
-| UC-4.5 | 陌生 channel | ⬜ |
-| UC-5.1 | 建群 | ✅ e2e-verified (channel_created·真源体对齐) |
-| UC-5.2 | 话题 | ⏭ data-dep (makeTopic 需 send 的 postId·链断) |
-| UC-5.3 | 关/退群 | ✅ e2e-verified (channel_close·自建频道安全销) |
-| UC-5.4 | 群属性 | ⬜ (channel/change/info wired·缺 e2e) |
-| UC-5.5 | 消息置顶 | ⬜ (post_pin handler 有·缺 e2e) |
-| UC-5.6 | 群公告 | ⬜ (post/announcement/* wired·缺 e2e) |
+| UC-4.3 | too_long 重拉 | ⬜ untested (缺触发 too_long 的大 gap 剧本) |
+| UC-4.4 | 心跳 gap | ⬜ untested (ping piggyback 已实现·pong 补偿已 wired·缺 e2e 剧本) |
+| UC-4.5 | 陌生 channel | ⬜ untested (陌生 channel 自动注册不丢帧已实现·缺 e2e 剧本) |
+| UC-5.1 | 建群 | ✅ e2e-verified (RAW WS action=`channel_created` type:P·data.id 命中·真源体对齐§4) |
+| UC-5.2 | 话题 | ✅ e2e-verified (channel_created type:T displayName helix-e2e-topic rootId 关联 + post_update 旁推·真源体对齐§2) |
+| UC-5.3 | 关/退群 | ✅ e2e-verified (close 主动作 RAW action=`channel_close` self 收·member-leave 广播给被增减目标 678 非 self=broadcast-dep 子项) |
+| UC-5.4 | 群属性 | ⬜ untested (channel/change/info wired·缺 e2e) |
+| UC-5.5 | 消息置顶 | ⬜ untested (post_pin handler 有·缺 e2e) |
+| UC-5.6 | 群公告 | ⬜ untested (post/announcement/* wired·缺 e2e) |
 | UC-5.7 | 在线/分组 | ⏭ data-dep (status_change 真帧已观测) |
 | UC-6.1 | 拉踢 | ⏭ data-dep (member/change 达 Go·update 广播给被增减用户非 self) |
-| UC-6.2 | 管理员 | ⬜ (channel_member_role_updated handler 有·缺 e2e) |
-| UC-6.3 | 群昵称 | ✅ e2e-verified (update_channel_member_nickName camelN) |
+| UC-6.2 | 管理员 | ⬜ untested (channel_member_role_updated handler 有·缺 e2e) |
+| UC-6.3 | 群昵称 | ✅ e2e-verified (RAW WS action=`update_channel_member_nickName` camelN·data.channelId 命中) |
 | UC-6.4 | 成员快照 | ⏭ data-dep |
-| UC-8 | 投票/平均分 | ⬜ (vote/vote + average/* wired·缺 e2e) |
-| UC-9 | 书签 | ⬜ |
-| UC-10 | 通知/待办 | ⬜ |
+| UC-8 | 投票/平均分 | ⬜ untested (vote/vote + average/* wired·缺 e2e) |
+| UC-9 | 书签 | ⬜ untested |
+| UC-10 | 通知/待办 | ⬜ untested |
+</content>
+</invoke>

@@ -6,6 +6,15 @@
 
 ## §0 终态记录
 
+✅ DONE Round-3 契约审计 + 6 场景真 Go e2e 翻台账 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | commit 7425acd..9e838a5(4 修复 commit) + 本次台账/SESSION | 未 push
+  ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP 103/79 ✅满 · ② WS 18/18 ✅满 · ③ UC e2e-verified 14/37(脚本含 header 2 处 prose 命中;**台账表格行真值 12/37**)。in-scope 100% 判据(排除 search 集合七 + createUser/status goBlocked)未达——UC e2e 维度受 wire-bug 2 + data-dep/untested 阻。
+  ↳ **台账三态分布**(表格行 37 UC)：**✅ e2e-verified 12** · **⏭ data-dep 8** · **🔴 wire-bug 2** · **⬜ untested 15**(12+8+2+15=37)。
+  ↳ **本轮真 Go e2e 净增**(tp 已通·WS hello 真洪泛·account 444 @ :8065·6 场景 33 裁决)：send 文本(1.1)/重发(1.4)/emoji 表态(1.8)/加急(1.9)/单条已读(3.2)/话题(5.2) **5 新 ✅**(1.10/5.1/5.3/6.3 上轮已 ✅)，RAW WS action 回声逐字断言。
+  ↳ **self-omit 误诊已纠**(证伪)：RAW WS inbound 实证发送者(444)自连接**会收自己消息 action=`post` 回声**(非 posted)·userId 444+本次 probe simpleMessage+真 postId 全命中→上轮 `🟡 go-self-omit`(「发送者不收回声」)假设作废;F1 的 HTTP-200 兜底标 sent 仍是正确加固。台账头部已改「误诊已纠」段。
+  ↳ **🔴 2 条 wire-bug**(需 helix 改出站,本轮未修)：**UC-1.2** send_build.rs:160 硬编 type=TEXT·im_send_message 不透传 type → DOCUMENT 降级纯文本(Go 回声 type 仍 TEXT);**UC-1.6** send_build.rs:175 硬编 id=""·丢 id → 编辑永走新建非 post_update·helix 无 posts/update 文本编辑出站命令。
+  ↳ **验证**：`cargo test -p helix-im` **555/0** 绿 · HX-C001 `git diff -- crates/helix-core/` 空 · 本 commit 仅动 docs scope(台账 + SESSION)。
+  ↳ **剩余未达 100% 的 UC**：① 🔴 wire-bug 2(1.2 type 不透传 / 1.6 编辑 id 丢弃)=真接线缺口需改 helix 出站;② ⏭ data-dep 8(1.5 撤回需先沉淀 post / 1.7 转发 self 即时窗无独立帧 / 3.1 会话已读 Go updated 空 / 2.1/3.4/5.7/6.1/6.4 需特定数据态或双账号广播)=wire 对·回声依赖数据态/观察路径;③ ⬜ untested 15(2.2 上拉历史 sync-pull / 1.3 文件上传管线 host-cli 不支持 / 4.3-4.5 sync 大 gap 剧本 / 5.4-5.6 群属性置顶公告 / 6.2 管理员 / 8 投票 / 9 书签 / 10 待办 / 2.3-2.4)=命令已 wired·缺 e2e 剧本/数据/上传路径。
+
 🎯 EXPECT Round-3 修 2 条 sync 真偏差(对抗式审计) @2026-06-24 +0800 | 赌注 中 | 可逆 是
   ↳ 可证伪断言：① **偏差1(UC-4.4 pong 消费侧缺失)**：新增 `src/ws/handlers/pong.rs`(synthetic `__pong__` action 路由) + `src/pong_compensate.rs`(gaps 去重 + 5s 节流 throttle 状态 + hashMismatch 全量根群 → sync_scheduler::enqueue_and_drain)；ping 不带 action·pong 无 action 故 `WsFrame::action()` 加 status==OK+gaps/hashMismatch → `__pong__` 合成。**附带修真**：sync_increment::all_hash_fnv1a 现用 raw 26B+8B BE 喂 FNV ≠ 现网 byte-exact 契约(`"id:seq"` join `\n` → 锚定向量 `a:5\nb:10→87da68614226ef44`)，改成字符串形态对齐(否则永久 hashMismatch→sync 风暴)。
   ↳ ② **偏差2(UC-4.5 陌生 channel 丢帧)**：`ws/handlers/post.rs:78` `if let Some(ch)=get_mut` → `entry().or_insert_with(|| Channel::new(channel_id,0))`(自动注册+cursor=0 seed，对齐真源 `gate_states.entry().or_insert_with(default)` + handle_new_post 无条件落库)，使陌生 channel 仍 batch_upsert+emit im:post:received+gate 缺口回拉。

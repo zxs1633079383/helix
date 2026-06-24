@@ -6,6 +6,20 @@
 
 ## §0 终态记录
 
+🧭 HANDOFF 新会话开局必读 @2026-06-24 09:10 +0800 | helix main `35d212d`(已push·CI绿) · cses `feat/helix-takeover-integ`(本地未推·隔离)
+  ↳ **这一程已完成(代码层全达成,无糊弄)**:
+    · **Phase B**:cses 8 域纯 helix · **F1 核心 send 阻断根治**(commit 63f6e69:`OutboundSendHttp` corr + HTTP 200 兜底标 sent,不押真 Go self-omit 的 WS echo)
+    · **Round-1**:helix 命令补 + UC 下放 + 8 UC 真 e2e 验通
+    · **Round-2(全代码铁律·纠首轮偷懒)**:首轮 NEED→真实现(todo装配链/sync-increment/usermisc-write)、gap-only→真接线(U5.5置顶/U5.7在线/U3已读)、纯文档→契约审计证据。**grep `todo!()/unimplemented!()`=0** · 闸1 契约审计**全过零真实偏差** · `cargo test -p helix-im` **534/0** · outbound **105→121命令** · HTTP 103/79 · WS 18/18
+    · **FFI race 根治**(commit 35d212d:`runtime.shutdown_timeout(ZERO)` 脱离孤儿 getaddrinfo,cpp-smoke 30s→3s,潜伏自 lifecycle-net-decouple,非 round-2 逻辑)
+  ↳ **🎯 新会话两个任务**:
+    **任务A — review 已完成的全代码是否符合 UC**:35 UC(37−search 2)代码全完整,但需**逐 UC 闸1 契约审计 review**(端点/body字段集 vs full-map/partials+真机curl真源.md、命名陷阱 camelCase/createAt/unReadPostId/SYSTEN)。审 cses `feat/helix-takeover-integ` 8cba55e4..HEAD 的下放 commit + helix outbound 命令是否真符合 UC 契约(非只 wired)。
+    **任务B — 27 UC 行为 e2e(闸2)**:代码全 `⏸ code-complete`,只差真 Go e2e。**前置**:telepresence 断连了 → 先 `! /Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh`(sudo)+ 重启 `/workspace/java/cses` → 通了用 `host-cli-go-chain-e2e.sh`(账号 `HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=64118eebd2b665246b7880eb MEMBER_USERS_JSON='["678","555"]'` 自建群)逐 UC 跑 → 验通的台账标 `✅ conformant-verified`。
+  ↳ **关键资产**:spec `docs/superpowers/specs/2026-06-24-cses-round2-conformance-fullcode-design.md` · 台账 `docs/review/uc-coverage-ledger.md`(三态:✅verified 8 / ⏸code-complete 27 / 🔴goBlocked 2 createUser·status)· 闸 `scripts/fullmap-coverage.sh` · workflow `.claude/workflows/cses-round2-conformance-fullcode.workflow.js`(resumeFromRunId wf_02fe355d-0b5) · full-map 硬契约 `crates/helix-im/docs/csesapi-migration/full-map/partials/`
+  ↳ **排除**:全局搜索(集合七)+ createUser/status(Go物理缺handler·goBlocked)。其余全代码,无 exception。
+  ↳ **治理债**:structure-gate 4 RED(module.rs 1339/to_effect 881/state 367 超基线·round-2 feature 增长)。per-round 外提是治标——建议**专做一次 module.rs god-file 拆分**根治。
+  ↳ **CI 安全协议**(必守):push helix main 前 ① `git diff origin/main..HEAD -- crates/helix-core/` 空(api-surface保绿)② pre-push gate.sh 自动跑(red则拦)。本程 CI 三次拦下真问题(计数bug/FFI hang),main 一路没坏。
+
 ✅ DONE sync-increment UC-4.4 心跳 ping piggyback（cursors/allHash）@2026-06-24 +0800 | commit `6b35749`（branch feat/im-uc10-todo-assembly）| 6 文件 +376 行 | 未 push
   ↳ 新增 src/sync_increment.rs(136·RootCursor + all_hash_fnv1a FNV-1a 64bit 入参顺序无关 + heartbeat_root_cursors 确定性升序快照) + acl/to_effect.rs(ping_frame 签名扩 (seq,&[RootCursor])·帧体加 data.{cursors,allHash?}) + module.rs(ping caller) + state.rs(ChannelId::as_bytes) + lib.rs(pub mod) + tests/uc4_sync_increment_test.rs(6 测)。
   ↳ **契约审计真结论**：UC-4.1(hello 根群增量 increment_http_trigger)✅ · UC-4.2(sync/notify + SyncScheduler)✅ · UC-4.3(too_long emit_sync_too_long)✅ · **UC-4.5(incrementByChannelId 独立窗口兜底)✅ 并行会话已实现为 im_channel_load_increment_by_channel_id(channel_read.rs，endpoint/body/is_read 逐字对齐)——审计证实无需重造，仅加断言锚定** · **UC-4.4 ping piggyback 是唯一真缺口(ping_frame 原注释自陈 stub)→ 本 commit 落地**。

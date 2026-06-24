@@ -23,6 +23,7 @@ pub mod commands;
 pub mod error;
 pub mod http_envelope;
 pub mod module;
+pub(crate) mod module_query;
 pub mod older_context;
 pub mod outbound;
 pub mod parser;

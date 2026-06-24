@@ -19,6 +19,8 @@ pub mod posts_approval;
 pub mod posts_relay;
 // P3a posts 读族（G1 并行，独立 distributed_slice 注册，与 channel* 零交集）。
 pub mod posts_read;
+// posts 读族扩展（bookmark/announcement/post-read-list，守 posts_read.rs ≤300 行硬顶）。
+pub mod posts_read_ext;
 // 公告写族（save/delete/read，post/ 单数子路由，与 posts_read 公告读族同域）。
 pub mod posts_announcement;
 // P3b channel 写族（G1 并行，独立 distributed_slice 注册，与 posts_read 零交集）：

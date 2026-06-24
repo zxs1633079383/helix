@@ -6,6 +6,13 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Superpowers Codex 触发固化 @2026-06-24 16:13 +0800 | 赌注 低 | 可逆 是
+  ↳ 可证伪断言：① `~/.codex/config.toml` 的 `[features]` 新增且仅新增 `multi_agent = true`；② `~/.codex/AGENTS.md` 追加全局 Superpowers 轻量触发规则；③ Helix `AGENTS.md` 与 `CLAUDE.md` 追加同一段项目级 Superpowers 触发规则，收尾 `cmp -s AGENTS.md CLAUDE.md` 仍为 0；④ 不改 Rust 源码、不改 harness/roadmap/commit 规范。
+
+✅ DONE Superpowers Codex 触发固化 @2026-06-24 16:20 +0800 | 配置 `~/.codex/config.toml` + 全局 `~/.codex/AGENTS.md` + 项目 `AGENTS.md`/`CLAUDE.md`
+  ↳ 落地：`[features] multi_agent = true`；全局追加 debugging/verification/review reception/避免机械全流程；Helix 追加 §7 轻量桥接（systematic-debugging、verification-before-completion、receiving-code-review、writing-plans、subagent-driven-development、executing-plans、TDD/brainstorming 边界）。
+  ↳ 验证：`sed -n '270,280p' ~/.codex/config.toml` 显示 `multi_agent = true`；`cat ~/.codex/AGENTS.md` 显示 Superpowers 使用偏好；`cmp -s AGENTS.md CLAUDE.md` 返回 0；`rg` 命中全局/项目规则；未改 Rust 源码。注：`git diff` 中 GitNexus symbol/relationship 计数相对 HEAD 的变化为本轮前既存同文件差异，未回退。
+
 ✅ DONE sync-increment UC-4.4 心跳 ping piggyback（cursors/allHash）@2026-06-24 +0800 | commit `6b35749`（branch feat/im-uc10-todo-assembly）| 6 文件 +376 行 | 未 push
   ↳ 新增 src/sync_increment.rs(136·RootCursor + all_hash_fnv1a FNV-1a 64bit 入参顺序无关 + heartbeat_root_cursors 确定性升序快照) + acl/to_effect.rs(ping_frame 签名扩 (seq,&[RootCursor])·帧体加 data.{cursors,allHash?}) + module.rs(ping caller) + state.rs(ChannelId::as_bytes) + lib.rs(pub mod) + tests/uc4_sync_increment_test.rs(6 测)。
   ↳ **契约审计真结论**：UC-4.1(hello 根群增量 increment_http_trigger)✅ · UC-4.2(sync/notify + SyncScheduler)✅ · UC-4.3(too_long emit_sync_too_long)✅ · **UC-4.5(incrementByChannelId 独立窗口兜底)✅ 并行会话已实现为 im_channel_load_increment_by_channel_id(channel_read.rs，endpoint/body/is_read 逐字对齐)——审计证实无需重造，仅加断言锚定** · **UC-4.4 ping piggyback 是唯一真缺口(ping_frame 原注释自陈 stub)→ 本 commit 落地**。

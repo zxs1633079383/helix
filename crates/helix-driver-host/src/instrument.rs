@@ -123,11 +123,19 @@ mod tests {
         sink.flush();
 
         // 旁路观测看到 2 条
-        assert_eq!(observed.load(Ordering::Relaxed), 2, "observe 应看到每条 emit");
+        assert_eq!(
+            observed.load(Ordering::Relaxed),
+            2,
+            "observe 应看到每条 emit"
+        );
 
         // 透传给内层：内层 emit 2 次 + flush 1 次
         let inner = sink.into_inner();
-        assert_eq!(inner.emits.load(Ordering::Relaxed), 2, "内层应收到全部 emit");
+        assert_eq!(
+            inner.emits.load(Ordering::Relaxed),
+            2,
+            "内层应收到全部 emit"
+        );
         assert_eq!(inner.flushes.load(Ordering::Relaxed), 1, "flush 应透传内层");
     }
 }

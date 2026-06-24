@@ -29,6 +29,21 @@ fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImErro
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
 }
 
+/// 把入参 `in_key`（snake_case）原样透传成 wire 字段 `wire_key`（camelCase），仅当存在且非 null。
+/// 不强转类型——边界零信任只校验「存在」，数值/字符串原值由前端 bridge 保证（对齐 vote_score::carry_optional）。
+fn carry_into(
+    body: &mut serde_json::Map<String, Value>,
+    args: &Value,
+    in_key: &str,
+    wire_key: &str,
+) {
+    if let Some(v) = args.get(in_key) {
+        if !v.is_null() {
+            body.insert(wire_key.to_string(), v.clone());
+        }
+    }
+}
+
 /// 注册读命令样板：`name` + `build` 闭包 → struct/static/slice 三件套（`is_read=true` 全读族）。
 macro_rules! read_cmd {
     ($cmd_struct:ident, $reg:ident, $name:literal, $build:expr) => {
@@ -231,7 +246,12 @@ read_cmd!(
     }
 );
 
-// #13 bookmark/load：拉书签列表。真源 {channelId, userId}（post_bookmark.go:17）。
+// #13 bookmark/load：拉书签列表。真源 {channelId, userId} + 内嵌 entity.PageOpts
+// （loadPostBookmark L18-22，full-map partials/1:543-553）。PageOpts 为 Go embedded struct
+// → 扁平序列化（pageNumber/pageSize/offset 落 body 顶层，非嵌套）。
+// 分页被后端 post_bookmark JOIN post raw SQL Limit N+1 主动消费（01-接口可达性清单.md:333）：
+// pageSize 缺失 → SQL LIMIT≈0/1 → 书签面板最多回 1 条 + hasMore 失真 + 无限滚动断。
+// 入参 snake_case（Tauri bridge 约定），出 wire 扁平 camelCase（对齐 PageOpts json tag）。
 read_cmd!(
     BookmarkLoadCommand,
     BOOKMARK_LOAD_REG,
@@ -239,10 +259,14 @@ read_cmd!(
     |args, cmd| {
         let channel_id = require_str(args, "channel_id", cmd)?;
         let user_id = require_str(args, "user_id", cmd)?;
-        Ok((
-            "post/bookmark/load",
-            json!({ "channelId": channel_id, "userId": user_id }),
-        ))
+        let mut body = serde_json::Map::new();
+        body.insert("channelId".to_string(), json!(channel_id));
+        body.insert("userId".to_string(), json!(user_id));
+        // 透传分页（仅存在时；缺省由后端 PageOpts 零值兜底，不强造默认值）
+        carry_into(&mut body, args, "page_size", "pageSize");
+        carry_into(&mut body, args, "page_number", "pageNumber");
+        carry_into(&mut body, args, "offset", "offset");
+        Ok(("post/bookmark/load", Value::Object(body)))
     }
 );
 

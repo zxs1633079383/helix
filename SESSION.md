@@ -6,6 +6,11 @@
 
 ## §0 终态记录
 
+✅ DONE UC-2.2 上拉历史·一行修复 accept 闸漏 query 族 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | `acl/from_tick.rs` +4 行(补 `|| crate::query::is_query(name)`) + 台账/SESSION | 未 push
+  ↳ Round-5 e2e 揪出根因:accepts_tick Command 臂只放行 send/reconnect/is_outbound·漏 query::is_query → im_load_older_context accept()==false 静默丢弃(单测直调纯逻辑绕过 accepts→handle 闸故漏网)。
+  ↳ **e2e 实证**:`scripts/uc22-load-older-e2e.sh` 建史5条→`cmd im_load_older_context`→`DomainEvent emit event=im:messages:older_loaded bytes=2544` 真吐历史投影。一行同时解封全 4 query 族(load_older/query_messages/dialog_list/delete_all_dialogs)。
+  ↳ 验证:cargo check 3.19s + cargo test -p helix-im **全量 0 fail**(151 lib + integration 全绿)·`git diff -- crates/helix-core/` 空(HX-C001)。**UC 28→29/37**。
+
 🎯 EXPECT Round-5 P1·UC-1.6 编辑真相调查 @2026-06-24 +0800 | 赌注 中 | 可逆 是
   ↳ 可证伪断言：① 现网编辑真端点 = **不存在**(预判 cses-client 消息正文不可改·UI「编辑」是回填重发/定时重建·Go 全 posts 路由无 posts/update)；② helix **无命令可加**(目标端点不存在·非 wire-bug·Round-4「id 非空→Go update」系源码误读)；③ 真 Go e2e(send 原消息→复用 postId 再发)回声 action **非 post_update**(应零回声/仅 post 新建·因 SavePostsBySend CreateBulk 无 OnConflict → 重复 PK 冲突)；④ 不动 helix-core(`git diff -- crates/helix-core/` 空·HX-C001)；⑤ `cargo test -p helix-im` 仍绿(本任务无源码改动)。
 

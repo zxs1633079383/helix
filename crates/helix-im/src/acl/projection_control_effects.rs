@@ -1,0 +1,170 @@
+//! Thin, pass-through, and control projection emit factories.
+
+use crate::state::{ChannelId, Seq};
+use bytes::Bytes;
+use helix_core::effect::DomainEventBytes;
+use helix_core::Effect;
+
+/// 发送乐观上屏事件（im:post:sending）。
+pub fn emit_post_sending(channel_id: ChannelId, temporary_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:post:sending",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "temporary_id": temporary_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_sending: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// 发送 im:sync:too_long 事件。
+pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:sync:too_long",
+        "data": {
+            "channelId": channel_id.as_str(),
+            "resetTo": reset_to.0,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_sync_too_long: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// A4：发送 im:connection:established 事件（hello 握手完成信号）。
+pub fn emit_connection_established(connection_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:connection:established",
+        "data": {
+            "connectionId": connection_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_connection_established: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// B-rest：发送 im:channels:loaded 事件（hello 冷启动补齐信号）。
+pub fn emit_channels_loaded() -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channels:loaded",
+        "data": { "items": [] }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channels_loaded: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// B-rest：发送 im:channel:increment 事件（透传 increment_channel 帧 data）。
+pub fn emit_channel_increment(channel_id: ChannelId, raw: &[u8]) -> Effect {
+    use serde_json::json;
+    let inc_data: serde_json::Value =
+        serde_json::from_slice(raw).unwrap_or(serde_json::Value::Null);
+    let payload = json!({
+        "event": "im:channel:increment",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "increment": inc_data,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_increment: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// B-rest：发送 im:channel:update 事件（子 topic 批次结束）。
+pub fn emit_channel_update(channel_id: ChannelId) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channel:update",
+        "data": { "channel_id": channel_id.as_str() }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_update: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// 连接控制：`im_reconnect` → `im:net:reconnect_requested` 信号。
+pub fn emit_reconnect_requested() -> Effect {
+    let payload = serde_json::json!({ "event": "im:net:reconnect_requested", "data": {} });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload).expect("emit_reconnect_requested: static JSON must not fail"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// `posts_update`（批量编辑/撤回）→ `im:post:batch-updated`。
+pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value) -> Effect {
+    use serde_json::json;
+    let posts = if posts.is_array() {
+        posts.clone()
+    } else {
+        json!([])
+    };
+    let payload = json!({
+        "event": "im:post:batch-updated",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "posts": posts,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_batch_updated: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
+/// C3：type=1 可见新消息 → `im:channel:update-by-post`。
+pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:channel:update-by-post",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "event_seq": event_seq,
+            "msg_id": msg_id,
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_update_by_post: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}

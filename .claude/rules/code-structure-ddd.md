@@ -38,7 +38,6 @@
 |---|---|---|
 | `helix-im/src/module.rs` | 432 | 本轮已把 send/query/sync/lifecycle/port reply 编排拆到 `send_flow.rs` / `query_dispatch.rs` / `sync_flow.rs` / `lifecycle.rs` / `port_reply.rs`；后续继续只保留 ImModule 壳、Module trait 路由与少量装配，压到 ≤300 后移出 WHITELIST |
 | `helix-im/src/ws/registry.rs` | 783 | registry 骨架与各 handler 注册分文件 |
-| `helix-im/src/acl/to_effect.rs` | 861 | 按 Effect 族裂分（已有 `to_effect_s1.rs` 兄弟先例；F1-gap1：emit_reconnect_requested 控制信号工厂 +15；spec06-FixB：`message_item_data` fat 工厂 + 5 message-row 工厂改签名携 `&PostFields` + sync_mutation_emits 用在手 map +98）|
 | `helix-driver-ffi/src/api.rs` | 733 | C ABI 导出按职责族裂分 |
 | `helix-im/src/channel.rs` | 579 | gate 三阶段（peek/persist/commit）可各成文件 |
 | `helix-driver-host/src/storage.rs` | 578 | 按 StorageOp 族裂分（P6：`scan()` 加 additive 过滤/降序投影 +18）|
@@ -49,6 +48,9 @@
 | `helix-driver-native/src/event_sink.rs` | 321 | 临界 |
 
 > 注：`engine_loop.rs`（曾 ~1119）已拆至 168 行（FFI 生命周期解耦时），**已移出 WHITELIST 重新受 300 硬顶**。
+> `helix-im/src/acl/to_effect.rs`（曾 680）已拆为 facade + `transport_effects.rs` / `storage_effects.rs`
+> / `sync_http_effects.rs` / `projection_message_effects.rs` / `projection_control_effects.rs`，**已移出
+> WHITELIST 重新受 300 硬顶**。
 > 闸门接 §6；新代码必须 ≤ 300，存量超限文件「只减不增」由 baseline **机器断言**（先锁 A，实际拆分回正记
 > ROADMAP B）。
 

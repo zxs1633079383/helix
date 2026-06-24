@@ -1,6 +1,6 @@
 //! S1 新增 WS action（编辑 / 已读 / channel 维护 / 成员 / 排程）的 Effect 工厂。
 //!
-//! 与 `to_effect.rs` 分文件（§1 单文件 ≤300 行硬顶；to_effect.rs 已是存量超限文件「只减不增」）。
+//! 与 `to_effect.rs` 分文件（§1 单文件 ≤300 行硬顶；`to_effect.rs` 现在是 re-export facade）。
 //! 职责同 ACL-1：把 IM 概念翻译成 core 通用 Effect/StorageOp——表名 / 列名 / `im:` 前缀作**数据**
 //! 经 spec 传给 core，core 不解释（守 HX-C001）。
 //!

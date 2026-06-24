@@ -6,6 +6,13 @@
 
 ## §0 终态记录
 
+🎯 EXPECT to_effect.rs 结构闸白名单治理：只做 Effect 工厂职责拆分，不改业务语义。可证伪断言：① `crates/helix-im/src/acl/to_effect.rs` 从 680 行降到 ≤300 并移出 `scripts/structure-gate.sh` WHITELIST；② 新增 flat sibling Rust 文件均 ≤300 行，不新建需镜像的源码目录，不改 `crates/helix-core/**`；③ `acl::to_effect::*` 调用路径保持兼容，仅通过 facade re-export；④ projection emit 事件名、字段集、序列化语义不变，`cargo test -p helix-im --test projection_schema_test` 与 `cargo test -p helix-im --test uc4_sync_increment_test` 通过；⑤ 收尾 `./scripts/structure-gate.sh`、`cargo test -p helix-im`、`cargo test -p helix-core`、必要 cargo check 通过。@2026-06-24T16:47:50+0800 | 赌注 中 | 可逆 是
+
+✅ DONE to_effect.rs 结构闸白名单治理 @2026-06-24T17:04:00+0800 | `to_effect.rs` 680→24 行，已移出 WHITELIST
+  ↳ 拆分：`transport_effects.rs`(38) / `storage_effects.rs`(110) / `sync_http_effects.rs`(74) / `projection_message_effects.rs`(141) / `projection_control_effects.rs`(170)，均 ≤300；`acl::to_effect::*` 保持 facade re-export 兼容。同步 `scripts/structure-gate.sh` 删除 to_effect 白名单项，`.claude/rules/code-structure-ddd.md` 移除 debt 行并记录拆分，`to_effect_s1.rs` 注释更新为 facade 事实。
+  ↳ 验证：`./scripts/structure-gate.sh` PASS（存量豁免 10 个，to_effect 不再豁免）；`cargo test -p helix-im --test projection_schema_test` 31/31 PASS；`cargo test -p helix-im --test uc4_sync_increment_test` 6/6 PASS；`cargo test -p helix-im` PASS（既有 ChannelId unused import warning）；`cargo test -p helix-core` PASS；`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` PASS；`git diff --check` PASS；GitNexus `detect_changes(scope=all)` low risk / affected_processes=[]。`cargo fmt --check` 仍因本轮前既有格式漂移红，本轮 ACL 文件已单独 rustfmt。
+  ↳ EXPECT 命中：未改 `crates/helix-core/**`；未上调 baseline；未放松 structure-gate；未新建源码目录；projection schema 与 ping frame 测试保持绿。无 DRIFT-PRED。
+
 🎯 EXPECT Superpowers Codex 触发固化 @2026-06-24 16:13 +0800 | 赌注 低 | 可逆 是
   ↳ 可证伪断言：① `~/.codex/config.toml` 的 `[features]` 新增且仅新增 `multi_agent = true`；② `~/.codex/AGENTS.md` 追加全局 Superpowers 轻量触发规则；③ Helix `AGENTS.md` 与 `CLAUDE.md` 追加同一段项目级 Superpowers 触发规则，收尾 `cmp -s AGENTS.md CLAUDE.md` 仍为 0；④ 不改 Rust 源码、不改 harness/roadmap/commit 规范。
 

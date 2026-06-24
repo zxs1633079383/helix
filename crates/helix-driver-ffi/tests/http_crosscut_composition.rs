@@ -74,6 +74,8 @@ fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a s
 
 fn create_handle(api_base: &str) -> *mut helix_driver_ffi::api::HelixHandle {
     let ws_url = b"ws://127.0.0.1:1/api/v4/websocket";
+    // SAFETY: test passes valid byte pointers and lengths for the duration of
+    // the call, plus a static vtable whose callback functions outlive handle use.
     let handle = unsafe {
         helix_create_with_network(
             api_base.as_ptr(),
@@ -88,6 +90,8 @@ fn create_handle(api_base: &str) -> *mut helix_driver_ffi::api::HelixHandle {
 }
 
 fn set_header(handle: *mut helix_driver_ffi::api::HelixHandle, name: &str, value: &str) {
+    // SAFETY: handle is created by helix_create_with_network and remains owned
+    // by this test; name/value pointers are valid for the duration of the call.
     let set_status = unsafe {
         helix_set_header(
             handle,
@@ -101,11 +105,15 @@ fn set_header(handle: *mut helix_driver_ffi::api::HelixHandle, name: &str, value
 }
 
 fn remove_header(handle: *mut helix_driver_ffi::api::HelixHandle, name: &str) {
+    // SAFETY: handle is live and owned by this test; name pointer is valid for
+    // the duration of the call.
     let remove_status = unsafe { helix_remove_header(handle, name.as_ptr(), name.len()) };
     assert_eq!(remove_status, FFI_OK);
 }
 
 fn issue_command(handle: *mut helix_driver_ffi::api::HelixHandle, command: &[u8], payload: &[u8]) {
+    // SAFETY: handle is live and owned by this test; command and payload slices
+    // remain valid for the duration of the FFI call.
     let command_status = unsafe {
         helix_command(
             handle,
@@ -141,6 +149,7 @@ fn ffi_outbound_session_intent_injects_cookie_and_strips_internal_header() {
     let headers = captured
         .recv_timeout(Duration::from_secs(5))
         .expect("FFI command should issue one HTTP request");
+    // SAFETY: handle was created by this test and has not been destroyed yet.
     unsafe { helix_destroy(handle) };
 
     assert_eq!(header_value(&headers, "cookieId"), Some("user-session-1"));
@@ -162,6 +171,7 @@ fn ffi_remove_session_header_clears_session_auth_registry() {
     let headers = captured
         .recv_timeout(Duration::from_secs(5))
         .expect("FFI command should issue one HTTP request");
+    // SAFETY: handle was created by this test and has not been destroyed yet.
     unsafe { helix_destroy(handle) };
 
     assert!(header_value(&headers, "cookieId").is_none());
@@ -179,6 +189,7 @@ fn ffi_outbound_bot_intent_injects_authorization_and_strips_internal_header() {
     let headers = captured
         .recv_timeout(Duration::from_secs(5))
         .expect("FFI command should issue one HTTP request");
+    // SAFETY: handle was created by this test and has not been destroyed yet.
     unsafe { helix_destroy(handle) };
 
     assert_eq!(
@@ -200,6 +211,7 @@ fn ffi_remove_bot_header_clears_bot_auth_registry() {
     let headers = captured
         .recv_timeout(Duration::from_secs(5))
         .expect("FFI command should issue one HTTP request");
+    // SAFETY: handle was created by this test and has not been destroyed yet.
     unsafe { helix_destroy(handle) };
 
     assert!(header_value(&headers, "Authorization").is_none());

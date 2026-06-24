@@ -1,10 +1,4 @@
-//! ImState — ImModule 的全量状态（纯数据，无 I/O 句柄）
-//!
-//! 对应源码实测的核心状态字段：
-//! - channels: per-channel cursor + gate + buffer
-//! - pending_sends: temporaryId → PendingSend（等待 echo/sync 对账）
-//! - conn_state: WS 连接状态机
-//! - corr_map: 统一 corr 回报路由表（corr → CorrelationContext）
+//! ImState — ImModule 的全量纯数据状态；不持 I/O 句柄。
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
@@ -12,15 +6,12 @@ use std::collections::{HashMap, HashSet};
 
 // ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
 
-/// mattermost 风格定长 ID（26 字符 `[a-z0-9]`）。
-///
-/// Copy newtype，零分配热路径 key（HX-C005）；真 Go channelId/userId/msgId 恒为 26 char。
-/// 不透明：构造只经 `from_str`（边界零信任）。ADR-009。
+/// mattermost 26 字符 `[a-z0-9]` ID；Copy newtype，热路径零分配 key（HX-C005）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Id26([u8; 26]);
 
 impl Id26 {
-    /// 边界零信任构造：仅当 `s` 恰 26 字节且全部为 `[a-z0-9]` 时 Some，否则 None（不 panic）。
+    /// 边界零信任构造：仅恰 26 字节且全 `[a-z0-9]` 时 Some。
     pub fn from_str(s: &str) -> Option<Self> {
         let b = s.as_bytes();
         if b.len() != 26
@@ -80,9 +71,7 @@ impl ChannelId {
     }
 }
 
-/// Server 消息 ID（echo 到时的真实 ID）——mattermost msgId 是 26 字符 base32 字符串
-/// （含 a-z，非数字），同 ChannelId 用 Id26（ADR-009）；旧 u64 装不下真 Go msgId
-/// 会让 C1 echo→reconcile 整条死（expert-panel-review 2026-06-16 critical 确认）。
+/// Server 消息 ID（echo 到时的真实 ID）；真 Go msgId 是 26 字符串，不能用旧 u64。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ServerId(pub Id26);
 
@@ -111,21 +100,12 @@ impl Seq {
     }
 }
 
-/// 消息发送状态（4 态 enum）
-///
-/// ## 边界声明
-///
-/// helix-im v1 仅覆盖文字消息，不含文件上传状态（uploading）。
-/// 文件上传状态机在 helix 范围外，由宿主层（helix-tauri）处理。
+/// 消息发送状态；helix-im v1 仅覆盖文字消息，文件上传状态机由宿主处理。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendStatus {
-    /// 已乐观落库，未发送
     Local,
-    /// 已发出 HTTP POST，等待 echo
     Sending,
-    /// echo/sync 对账成功
     Sent,
-    /// 15s 超时，标记失败（无自动补发）
     UnSend,
 }
 
@@ -306,9 +286,7 @@ pub struct ImState {
     /// 与 hello 会话同生命周期（`reset_increment_batch` 同步 reset）。详见 `sync_scheduler.rs`。
     pub sync_scheduler: crate::sync_scheduler::SyncScheduler,
 
-    /// UC-10：本 hello 会话累积的「about-me」post id（mention+urgent，逐 increment 帧攒）。global
-    /// increment-end 收尾 build `queryTodoList` 拉待办、装配 emit `im:todo:updated`、读完即清。
-    /// 与 increment 批次同生命周期（`reset_increment_batch` hello 起点 clear，防跨会话残留）。真源 `channel.rs:142-149/232-239`。
+    /// UC-10：本 hello 会话累积 mention+urgent post id，global increment-end 拉 queryTodoList 后清空。
     pub about_me_post_ids: Vec<String>,
 }
 
@@ -338,16 +316,13 @@ impl ImState {
         }
     }
 
-    /// 会话边界 reset（§7 跨会话残留）：每个 hello 窗口起点清空 increment 批次集，
-    /// 避免上一会话残留让重连后对已追平 channel 误触发 sync 风暴。
+    /// 会话边界 reset：每个 hello 窗口起点清空 increment/sync/todo 批次状态。
     pub fn reset_increment_batch(&mut self) {
         self.increment_fetched.clear();
         self.need_sync_skip.clear();
         self.increment_target.clear();
         self.backfill_healed = false;
-        // B4：会话边界一并清 sync 调度窗口（防跨会话残留 pending / 悬挂在途计数）。
         self.sync_scheduler.reset();
-        // UC-10：会话边界清 about-me 待办缓冲（hello 起点归零，防上一会话 mention/urgent 残留）。
         self.about_me_post_ids.clear();
     }
 }
@@ -358,8 +333,7 @@ impl Default for ImState {
     }
 }
 
-// Id26 单测 + 测试 fixture 外提 sibling（守 ≤351 baseline；drift-review 后门第二形态收敛）。
-// 再导出 fixture 路径回原位 → 同 crate 其余测试 `crate::state::test_channel_id` 调用点零改动。
+// Id26 单测 + fixture 外提 sibling；re-export 保持旧测试调用点不变。
 #[cfg(test)]
 #[path = "state_tests.rs"]
 mod id26_tests;

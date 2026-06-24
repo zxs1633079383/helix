@@ -28,31 +28,16 @@ pub struct ImConfig {
     pub ws_url: String,
     /// HTTP API base URL（如 "https://api.example.com"）
     pub api_base_url: String,
-    /// 第二（默认业务）网关 base URL（spec06 方案 A）：host 注入 = `env.restHost`（**无** `/api/cses`）。
-    /// 仅 vote/score（`Gateway::Default`）命令走它；既有命令走 `api_base_url`。空串 = 未注入（HX-C001）。
+    /// 第二业务网关 base（host 注入 `env.restHost`，无 `/api/cses`）；仅 `Gateway::Default` 命令使用。
     pub default_api_base_url: String,
-    /// 当前登录用户 Id26（host 经同 `api_base_url` 机制注入，确定性身份）。
-    ///
-    /// 用途：① path3 未读 +1 的 sender 豁免（自己消息 +0）+ 可见性门控（viewers 不含自己 +0）；
-    /// ② path1 全量 upsert 写 channel `user_id` 列（频道归属）。空串 = 无身份（登录前 / 未注入）→
-    /// 退化为保守计入（不漏未读，sender 豁免下沉前端）——但**正常运行期 host 必须注入真值**，
-    /// 否则 §5 验收「自己 +0 / 不可见 +0 / echo 无 unread」不达成（BLOCKING-1 根因）。
+    /// 当前登录用户 Id26；host 注入，供未读 sender 豁免、可见性门控与 channel 归属列使用。
     pub auth_user_id: String,
-    /// 当前用户所属公司/团队 Id（host 注入，对齐 `auth_user_id` 模式）。
-    ///
-    /// 用途：outbound `posts/create` body 的 `teamId` + `userSnapshot.teamId`（现网真抓包
-    /// §1 必填）。现网 `companyId` HTTP/WS 全局头与此同源（host 一处注入两处用）。空串 =
-    /// 未注入（登录前），Go 侧 paas-grpc 可能业务失败——正常运行期 host 必须注入真值。
+    /// 当前用户所属公司/团队 Id；host 注入，供 `posts/create` 的 teamId/userSnapshot 使用。
     pub company_id: String,
-    /// userSnapshot 三占位字段（userName/orgName/deptName）。P1 BLOCKER：现网取自
-    /// `this.ctx.userInfo`（ucenter 跨 feature 读）；helix-im 不认识 ucenter（HX-C001），由 host
-    /// 把登录态展开注入。缺这三非阻断字段不影响 Go 落库/推回声（主键身份是 userId/teamId，§1）。
     pub user_name: String,
     pub org_name: String,
     pub dept_name: String,
-    /// 心跳间隔（毫秒，默认 8000）
     pub ping_interval_ms: u64,
-    /// 发送超时（毫秒，默认 15000）
     pub send_timeout_ms: u64,
 }
 
@@ -1262,17 +1247,10 @@ impl Module for ImModule {
         Ok(())
     }
 
-    /// 启动：读取 cursor + arm ping timer + 吐 Scan（§4.8 proactive resync 所需）
-    ///
-    /// Scan 吐 Persist{corr, ops:[Scan(channel_event_cursor)]}。
-    /// channel_event_cursor 是 advance_cursor（acl/to_effect.rs）写入的实际 cursor 表，
-    /// 列：channel_id TEXT PRIMARY KEY（= channel_id.as_str()）, last_event_seq INTEGER（= cursor seq）。
-    /// PortReply 回来后 handle_scan_reply 解析 channel_id→ChannelId + last_event_seq，注册 channel，
-    /// 然后对全部已知 channel 发 proactive sync Http（§4.8）。
+    /// 启动：Scan `channel_event_cursor` 载入 cursor，注册已知 channel 后触发 proactive sync。
     fn on_start(&mut self, out: &mut EffectSink) -> Result<(), CoreError> {
         // 1. 吐 Persist{corr, Scan(channel_event_cursor)} 载入全部 cursor
-        // 注意：此表由 schema migrate 建（schema.rs），首次启动（无任何 cursor 写过）时为空。
-        // driver scan 对 no such table 应降级返回 PortOutcome::Err，handle_scan_reply 处理降级。
+        // 首次启动表为空；driver scan no-table 降级为 Err，由 handle_scan_reply 处理。
         let scan_corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr: scan_corr,
@@ -1333,7 +1311,6 @@ impl Module for ImModule {
     }
 }
 
-// ─── A4 hello 握手回放测试（外提 sibling，structure-gate 测试外提范本）────────────
 #[cfg(test)]
 #[path = "module_tests.rs"]
 mod handshake_tests;

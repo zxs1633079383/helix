@@ -278,7 +278,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 ```
 im:post:received        → POST handler（**fat 直渲** message_item_data，零回读·spec06 FixB）
 im:channel:update       → UPDATE_CHANNEL handler（thin·按 channel_id batch 结束回读 dialogList 刷 badge）
-im:messages:query_result→ 投影 handler（直接渲染 messages 数组，{items:[]} 解包）
+im:messages:query_result→ 投影 handler（直接渲染 `{channel_id, messages:[...]}`，不走 `{items:[]}` 解包）
 im:channels:projection  → 会话列表 handler（直接渲染 dialogList，前端零计算 unread/badge·UC-3）
 im:sync:too_long        → onRustTooLong（按 channelId 清内存 buffer + cursor=resetTo-1）
 ...（其余 16 channel 同理；message-row 信号 fat 直渲 / channel-row 信号 thin 低频回读）

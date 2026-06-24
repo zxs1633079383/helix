@@ -1,22 +1,25 @@
-//! FFI HTTP requester — thin wrapper over shared host HTTP.
+//! FFI HTTP requester — thin wrapper over shared host HTTP crosscut semantics.
 
 use helix_core::effect::{HttpRequest, HttpResponse};
 use helix_core::ports::HttpRequester;
 use helix_core::PortError;
-use helix_driver_host::SharedHttpClient;
+use helix_driver_host::{AuthTokenRegistry, CrossCuttingHttp, SharedHttpClient};
 
-#[derive(Clone)]
+use crate::event_sink::FfiEventSink;
+
 pub struct FfiHttpRequester {
-    inner: SharedHttpClient,
+    inner: CrossCuttingHttp<SharedHttpClient, FfiEventSink>,
 }
 
 impl FfiHttpRequester {
-    pub fn new(inner: SharedHttpClient) -> Self {
-        Self { inner }
-    }
-
-    pub fn shared(&self) -> &SharedHttpClient {
-        &self.inner
+    pub fn new(
+        inner: SharedHttpClient,
+        event_sink: std::sync::Arc<FfiEventSink>,
+        auth: AuthTokenRegistry,
+    ) -> Self {
+        Self {
+            inner: CrossCuttingHttp::new(inner, event_sink, auth),
+        }
     }
 }
 

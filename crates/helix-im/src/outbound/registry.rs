@@ -61,6 +61,11 @@ pub(crate) trait OutboundCommand: Sync {
         AuthKind::Session
     }
 
+    /// HTTP method（Task1：已知 GET/DELETE 命令按现网契约映射，其余默认 POST）。
+    fn method(&self) -> &'static str {
+        outbound_method(self.name())
+    }
+
     /// 是否**读族**命令（spec06 缺陷A）：读 = 无 WS 回声、HTTP 响应体即数据 → 读命令 override `true`，
     /// dispatch 注册 `OutboundReadReply` 回灌响应给前端。默认 `false`（写族走 WS 回声，HTTP 响应可丢）。
     fn is_read(&self) -> bool {
@@ -139,6 +144,27 @@ pub fn outbound_command_count() -> usize {
     registry().map(HashMap::len).unwrap_or(0)
 }
 
+fn outbound_method(name: &str) -> &'static str {
+    match name {
+        "im_team_quit"
+        | "im_bot_agent_config_delete"
+        | "im_bot_agent_channel_remove" => "DELETE",
+        "im_bot_list_visible"
+        | "im_bot_token_list"
+        | "im_bot_visible_user_list"
+        | "im_bot_agent_config_get"
+        | "im_bot_agent_configs_enabled"
+        | "im_bot_agent_channel_bots"
+        | "im_bot_agent_channel_available_bots"
+        | "im_bot_agent_info"
+        | "im_bot_agent_team_members"
+        | "im_bot_agent_get_user"
+        | "im_bot_agent_team_channel"
+        | "im_webhook_config_get" => "GET",
+        _ => "POST",
+    }
+}
+
 /// 把一条 outbound 命令翻成 Effect 列表（当前恒为单条 `Effect::Http`）。
 ///
 /// 两个 base host 入参（spec06 第二网关，方案 A）：`api_base_url` = IM 网关（含 `/api/cses`）；
@@ -173,8 +199,9 @@ pub fn handle_outbound(
         Gateway::Default => default_api_base_url,
     };
 
-    Ok(vec![http_post(
+    Ok(vec![http_request(
         base,
+        command.method(),
         &path,
         body,
         command.auth_kind(),
@@ -191,12 +218,13 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空必填字段 '{key}'")))
 }
 
-/// 组装一条 `Effect::Http` POST（Content-Type + connectionId 身份头 + 鉴权意图头）。
+/// 组装一条 `Effect::Http` 请求（Content-Type + connectionId 身份头 + 鉴权意图头）。
 ///
-/// 鉴权意图（`X-Auth-Kind`）仅在非默认 `Bot` 时显式下标——`Session` 是 driver 横切层缺省，
-/// 不冗余写头（既省字节又保留「无头=session」语义）。真凭据由 driver 注入（C6，core 不拼）。
-fn http_post(
+/// 鉴权意图（`X-Auth-Kind`）统一显式下标：session/bot 都只标意图、不拼真凭据；driver 横切层据此
+/// 注真 token 并在出网前 strip（C6，core 不拼 token）。
+fn http_request(
     base: &str,
+    method: &str,
     path: &str,
     body: Value,
     auth_kind: AuthKind,
@@ -205,13 +233,11 @@ fn http_post(
 ) -> Effect {
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
-    if auth_kind == AuthKind::Bot {
-        headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
-    }
+    headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
     Effect::Http {
         corr,
         req: HttpRequest {
-            method: "POST".to_string(),
+            method: method.to_string(),
             url: format!("{base}/{path}"),
             headers,
             body: Some(Bytes::from(serde_json::to_vec(&body).unwrap_or_default())),

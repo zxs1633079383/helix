@@ -6,7 +6,8 @@
 //! 横切层注入（C6 闸门：本 crate 不出现 token 字面量 / 鉴权头名）。
 //!
 //! 含 path-param GET（#25/26/27 `{team_id}`/`{user_id}` + #25 query `?page=&per_page=`）+ POST send。
-//! method 差异属 driver 接缝 P6。send body = BotAgentSendMessageRequest（direct/channel 共用，camelCase）。
+//! Task1 起 method 由 registry 按命令名集中产出。send body = BotAgentSendMessageRequest（direct/channel
+//! 共用，camelCase）。
 
 use serde_json::{json, Value};
 

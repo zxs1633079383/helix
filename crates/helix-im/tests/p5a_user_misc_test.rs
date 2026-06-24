@@ -25,8 +25,8 @@
 //! / search 写 snake key / 让 search 下发 user_id → 断言 FAIL；删某命令注册 → registry 计数 +
 //! is_outbound FAIL；放松必填校验 → Err 断言 FAIL。
 
-use helix_core::effect::Effect;
-use helix_core::Correlation;
+use helix_core::effect::{Effect, HttpRequest};
+use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
 use helix_im::commands::{handle_outbound, is_outbound};
 use serde_json::{json, Value};
 
@@ -39,11 +39,16 @@ fn corr() -> Correlation {
 /// 取出单条 Http 的 (url, body-json)；非单条 Http → panic。
 fn one_http(effects: Vec<Effect>) -> (String, Value) {
     assert_eq!(effects.len(), 1, "user-misc 命令当前恒产单条 Effect::Http");
+    let req = one_http_req(effects);
+    let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
+    (req.url, body)
+}
+
+/// 取出单条 Http request；用于 method / header 契约断言。
+fn one_http_req(effects: Vec<Effect>) -> HttpRequest {
+    assert_eq!(effects.len(), 1, "user-misc 命令当前恒产单条 Effect::Http");
     match effects.into_iter().next().unwrap() {
-        Effect::Http { req, .. } => {
-            let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
-            (req.url, body)
-        }
+        Effect::Http { req, .. } => req,
         other => panic!("expected Effect::Http, got {other:?}"),
     }
 }
@@ -133,15 +138,35 @@ fn team_member_add_passes_through_event_object() {
 #[test]
 fn team_quit_builds_user_team_body() {
     // 真源 QuitTeamReq{userId,teamId}（quit_team.go:3-6）。无响应体是服务端 handler 态（透传不影响 build）。
-    let (url, body) = one_http(run(
+    // Task1 只验 method/url/body；session 鉴权意图单列到 Task2，避免把两个契约耦在同一个回归点里。
+    let req = one_http_req(run(
         "im_team_quit",
         json!({ "user_id": "uQ", "team_id": "tQ" }),
     ));
-    assert_eq!(url, "http://x/api/cses/teams/member/quit");
+    assert_eq!(
+        req.method, "DELETE",
+        "teams/member/quit 现网是 HTTP DELETE，不能继续由 registry 写死 POST"
+    );
+    let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
+    assert_eq!(req.url, "http://x/api/cses/teams/member/quit");
     assert_eq!(body["userId"], "uQ");
     assert_eq!(body["teamId"], "tQ");
     assert!(err("im_team_quit", json!({ "user_id": "u" }))); // 缺 team_id
     assert!(err("im_team_quit", json!({ "team_id": "t" }))); // 缺 user_id
+}
+
+#[test]
+fn team_quit_marks_session_auth_kind() {
+    let req = one_http_req(run(
+        "im_team_quit",
+        json!({ "user_id": "uQ", "team_id": "tQ" }),
+    ));
+    assert!(
+        req.headers
+            .iter()
+            .any(|(k, v)| k == AUTH_KIND_HEADER && v == AuthKind::Session.as_str()),
+        "默认 session outbound 必须显式标 X-Auth-Kind: session，供 host crosscut 注入真实 cookie"
+    );
 }
 
 // ── modules/* ─────────────────────────────────────────────────────────────────────

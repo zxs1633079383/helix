@@ -1,0 +1,939 @@
+pub mod helix_core
+pub mod helix_core::auth
+pub enum helix_core::auth::AuthKind
+pub helix_core::auth::AuthKind::Bot
+pub helix_core::auth::AuthKind::Session
+impl helix_core::auth::AuthKind
+pub const fn helix_core::auth::AuthKind::as_str(self) -> &'static str
+pub fn helix_core::auth::AuthKind::from_str(&str) -> core::option::Option<Self>
+impl core::clone::Clone for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::clone(&self) -> helix_core::auth::AuthKind
+impl core::cmp::Eq for helix_core::auth::AuthKind
+impl core::cmp::PartialEq for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::eq(&self, &helix_core::auth::AuthKind) -> bool
+impl core::fmt::Debug for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::auth::AuthKind
+impl core::marker::StructuralPartialEq for helix_core::auth::AuthKind
+impl core::marker::Freeze for helix_core::auth::AuthKind
+impl core::marker::Send for helix_core::auth::AuthKind
+impl core::marker::Sync for helix_core::auth::AuthKind
+impl core::marker::Unpin for helix_core::auth::AuthKind
+impl core::marker::UnsafeUnpin for helix_core::auth::AuthKind
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::auth::AuthKind
+impl core::panic::unwind_safe::UnwindSafe for helix_core::auth::AuthKind
+pub const helix_core::auth::AUTH_KIND_HEADER: &str
+pub mod helix_core::effect
+pub enum helix_core::effect::Effect
+pub helix_core::effect::Effect::CancelTimer
+pub helix_core::effect::Effect::CancelTimer::id: helix_core::effect::TimerId
+pub helix_core::effect::Effect::Emit
+pub helix_core::effect::Effect::Emit::event: helix_core::effect::DomainEventBytes
+pub helix_core::effect::Effect::Http
+pub helix_core::effect::Effect::Http::corr: helix_core::effect::Correlation
+pub helix_core::effect::Effect::Http::req: helix_core::effect::HttpRequest
+pub helix_core::effect::Effect::HttpFire
+pub helix_core::effect::Effect::HttpFire::req: helix_core::effect::HttpRequest
+pub helix_core::effect::Effect::Persist
+pub helix_core::effect::Effect::Persist::corr: helix_core::effect::Correlation
+pub helix_core::effect::Effect::Persist::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
+pub helix_core::effect::Effect::PersistFire
+pub helix_core::effect::Effect::PersistFire::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
+pub helix_core::effect::Effect::Request
+pub helix_core::effect::Effect::Request::corr: helix_core::effect::Correlation
+pub helix_core::effect::Effect::Request::kind: &'static str
+pub helix_core::effect::Effect::Request::payload: bytes::bytes::Bytes
+pub helix_core::effect::Effect::ScheduleTimer
+pub helix_core::effect::Effect::ScheduleTimer::after_ms: u64
+pub helix_core::effect::Effect::ScheduleTimer::id: helix_core::effect::TimerId
+pub helix_core::effect::Effect::Send
+pub helix_core::effect::Effect::Send::frame: bytes::bytes::Bytes
+pub helix_core::effect::Effect::Send::transport: helix_core::effect::TransportId
+impl core::fmt::Debug for helix_core::effect::Effect
+pub fn helix_core::effect::Effect::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::effect::Effect
+impl core::marker::Send for helix_core::effect::Effect
+impl core::marker::Sync for helix_core::effect::Effect
+impl core::marker::Unpin for helix_core::effect::Effect
+impl core::marker::UnsafeUnpin for helix_core::effect::Effect
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::Effect
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::Effect
+pub enum helix_core::effect::SqlValue
+pub helix_core::effect::SqlValue::Blob(alloc::vec::Vec<u8>)
+pub helix_core::effect::SqlValue::Integer(i64)
+pub helix_core::effect::SqlValue::Null
+pub helix_core::effect::SqlValue::Real(f64)
+pub helix_core::effect::SqlValue::Text(alloc::string::String)
+impl core::clone::Clone for helix_core::effect::SqlValue
+pub fn helix_core::effect::SqlValue::clone(&self) -> helix_core::effect::SqlValue
+impl core::fmt::Debug for helix_core::effect::SqlValue
+pub fn helix_core::effect::SqlValue::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::SqlValue
+impl core::marker::Send for helix_core::effect::SqlValue
+impl core::marker::Sync for helix_core::effect::SqlValue
+impl core::marker::Unpin for helix_core::effect::SqlValue
+impl core::marker::UnsafeUnpin for helix_core::effect::SqlValue
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::SqlValue
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::SqlValue
+pub enum helix_core::effect::StorageOp
+pub helix_core::effect::StorageOp::BatchDelete(helix_core::effect::BatchDeleteSpec)
+pub helix_core::effect::StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec)
+pub helix_core::effect::StorageOp::BatchUpsert(helix_core::effect::UpsertSpec)
+pub helix_core::effect::StorageOp::Get(helix_core::effect::GetSpec)
+pub helix_core::effect::StorageOp::GuardedBump(helix_core::effect::GuardedBumpSpec)
+pub helix_core::effect::StorageOp::MonotonicUpsert(helix_core::effect::MonotonicUpsertSpec)
+pub helix_core::effect::StorageOp::Scan(helix_core::effect::ScanSpec)
+impl core::clone::Clone for helix_core::effect::StorageOp
+pub fn helix_core::effect::StorageOp::clone(&self) -> helix_core::effect::StorageOp
+impl core::fmt::Debug for helix_core::effect::StorageOp
+pub fn helix_core::effect::StorageOp::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::StorageOp
+impl core::marker::Send for helix_core::effect::StorageOp
+impl core::marker::Sync for helix_core::effect::StorageOp
+impl core::marker::Unpin for helix_core::effect::StorageOp
+impl core::marker::UnsafeUnpin for helix_core::effect::StorageOp
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::StorageOp
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::StorageOp
+pub struct helix_core::effect::BatchDeleteSpec
+pub helix_core::effect::BatchDeleteSpec::key_col: &'static str
+pub helix_core::effect::BatchDeleteSpec::key_vals: alloc::vec::Vec<helix_core::effect::SqlValue>
+pub helix_core::effect::BatchDeleteSpec::scope_col: &'static str
+pub helix_core::effect::BatchDeleteSpec::scope_val: helix_core::effect::SqlValue
+pub helix_core::effect::BatchDeleteSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::BatchDeleteSpec
+pub fn helix_core::effect::BatchDeleteSpec::clone(&self) -> helix_core::effect::BatchDeleteSpec
+impl core::fmt::Debug for helix_core::effect::BatchDeleteSpec
+pub fn helix_core::effect::BatchDeleteSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::BatchDeleteSpec
+impl core::marker::Send for helix_core::effect::BatchDeleteSpec
+impl core::marker::Sync for helix_core::effect::BatchDeleteSpec
+impl core::marker::Unpin for helix_core::effect::BatchDeleteSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::BatchDeleteSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::BatchDeleteSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::BatchDeleteSpec
+pub struct helix_core::effect::BatchUpdateSpec
+pub helix_core::effect::BatchUpdateSpec::key_col: &'static str
+pub helix_core::effect::BatchUpdateSpec::key_vals: alloc::vec::Vec<helix_core::effect::SqlValue>
+pub helix_core::effect::BatchUpdateSpec::patch: helix_core::effect::Row
+pub helix_core::effect::BatchUpdateSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::BatchUpdateSpec
+pub fn helix_core::effect::BatchUpdateSpec::clone(&self) -> helix_core::effect::BatchUpdateSpec
+impl core::fmt::Debug for helix_core::effect::BatchUpdateSpec
+pub fn helix_core::effect::BatchUpdateSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::BatchUpdateSpec
+impl core::marker::Send for helix_core::effect::BatchUpdateSpec
+impl core::marker::Sync for helix_core::effect::BatchUpdateSpec
+impl core::marker::Unpin for helix_core::effect::BatchUpdateSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::BatchUpdateSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::BatchUpdateSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::BatchUpdateSpec
+pub struct helix_core::effect::Correlation(_)
+impl helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::from_raw(u64) -> Self
+pub fn helix_core::effect::Correlation::raw(self) -> u64
+impl core::clone::Clone for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::clone(&self) -> helix_core::effect::Correlation
+impl core::cmp::Eq for helix_core::effect::Correlation
+impl core::cmp::PartialEq for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::eq(&self, &helix_core::effect::Correlation) -> bool
+impl core::fmt::Debug for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::effect::Correlation
+impl core::marker::StructuralPartialEq for helix_core::effect::Correlation
+impl core::marker::Freeze for helix_core::effect::Correlation
+impl core::marker::Send for helix_core::effect::Correlation
+impl core::marker::Sync for helix_core::effect::Correlation
+impl core::marker::Unpin for helix_core::effect::Correlation
+impl core::marker::UnsafeUnpin for helix_core::effect::Correlation
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::Correlation
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::Correlation
+pub struct helix_core::effect::DomainEventBytes(pub bytes::bytes::Bytes)
+impl core::clone::Clone for helix_core::effect::DomainEventBytes
+pub fn helix_core::effect::DomainEventBytes::clone(&self) -> helix_core::effect::DomainEventBytes
+impl core::fmt::Debug for helix_core::effect::DomainEventBytes
+pub fn helix_core::effect::DomainEventBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::effect::DomainEventBytes
+impl core::marker::Send for helix_core::effect::DomainEventBytes
+impl core::marker::Sync for helix_core::effect::DomainEventBytes
+impl core::marker::Unpin for helix_core::effect::DomainEventBytes
+impl core::marker::UnsafeUnpin for helix_core::effect::DomainEventBytes
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::DomainEventBytes
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::DomainEventBytes
+pub struct helix_core::effect::EffectSink
+impl helix_core::effect::EffectSink
+pub fn helix_core::effect::EffectSink::as_slice(&self) -> &[helix_core::effect::Effect]
+pub fn helix_core::effect::EffectSink::clear(&mut self)
+pub fn helix_core::effect::EffectSink::is_empty(&self) -> bool
+pub fn helix_core::effect::EffectSink::new() -> Self
+pub fn helix_core::effect::EffectSink::push(&mut self, helix_core::effect::Effect)
+impl core::default::Default for helix_core::effect::EffectSink
+pub fn helix_core::effect::EffectSink::default() -> Self
+impl core::marker::Freeze for helix_core::effect::EffectSink
+impl core::marker::Send for helix_core::effect::EffectSink
+impl core::marker::Sync for helix_core::effect::EffectSink
+impl core::marker::Unpin for helix_core::effect::EffectSink
+impl core::marker::UnsafeUnpin for helix_core::effect::EffectSink
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::EffectSink
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::EffectSink
+pub struct helix_core::effect::GetSpec
+pub helix_core::effect::GetSpec::key_col: &'static str
+pub helix_core::effect::GetSpec::key_val: helix_core::effect::SqlValue
+pub helix_core::effect::GetSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::GetSpec
+pub fn helix_core::effect::GetSpec::clone(&self) -> helix_core::effect::GetSpec
+impl core::fmt::Debug for helix_core::effect::GetSpec
+pub fn helix_core::effect::GetSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::GetSpec
+impl core::marker::Send for helix_core::effect::GetSpec
+impl core::marker::Sync for helix_core::effect::GetSpec
+impl core::marker::Unpin for helix_core::effect::GetSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::GetSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::GetSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::GetSpec
+pub struct helix_core::effect::GuardedBumpSpec
+pub helix_core::effect::GuardedBumpSpec::bump_col: &'static str
+pub helix_core::effect::GuardedBumpSpec::bump_delta: i64
+pub helix_core::effect::GuardedBumpSpec::guard_col: &'static str
+pub helix_core::effect::GuardedBumpSpec::guard_val: i64
+pub helix_core::effect::GuardedBumpSpec::key_col: &'static str
+pub helix_core::effect::GuardedBumpSpec::key_val: helix_core::effect::SqlValue
+pub helix_core::effect::GuardedBumpSpec::set_cols: helix_core::effect::Row
+pub helix_core::effect::GuardedBumpSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::GuardedBumpSpec
+pub fn helix_core::effect::GuardedBumpSpec::clone(&self) -> helix_core::effect::GuardedBumpSpec
+impl core::fmt::Debug for helix_core::effect::GuardedBumpSpec
+pub fn helix_core::effect::GuardedBumpSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::GuardedBumpSpec
+impl core::marker::Send for helix_core::effect::GuardedBumpSpec
+impl core::marker::Sync for helix_core::effect::GuardedBumpSpec
+impl core::marker::Unpin for helix_core::effect::GuardedBumpSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::GuardedBumpSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::GuardedBumpSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::GuardedBumpSpec
+pub struct helix_core::effect::HttpRequest
+pub helix_core::effect::HttpRequest::body: core::option::Option<bytes::bytes::Bytes>
+pub helix_core::effect::HttpRequest::headers: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub helix_core::effect::HttpRequest::method: alloc::string::String
+pub helix_core::effect::HttpRequest::url: alloc::string::String
+impl core::clone::Clone for helix_core::effect::HttpRequest
+pub fn helix_core::effect::HttpRequest::clone(&self) -> helix_core::effect::HttpRequest
+impl core::fmt::Debug for helix_core::effect::HttpRequest
+pub fn helix_core::effect::HttpRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::effect::HttpRequest
+impl core::marker::Send for helix_core::effect::HttpRequest
+impl core::marker::Sync for helix_core::effect::HttpRequest
+impl core::marker::Unpin for helix_core::effect::HttpRequest
+impl core::marker::UnsafeUnpin for helix_core::effect::HttpRequest
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::HttpRequest
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::HttpRequest
+pub struct helix_core::effect::HttpResponse
+pub helix_core::effect::HttpResponse::body: bytes::bytes::Bytes
+pub helix_core::effect::HttpResponse::headers: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub helix_core::effect::HttpResponse::status: u16
+impl core::clone::Clone for helix_core::effect::HttpResponse
+pub fn helix_core::effect::HttpResponse::clone(&self) -> helix_core::effect::HttpResponse
+impl core::fmt::Debug for helix_core::effect::HttpResponse
+pub fn helix_core::effect::HttpResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::effect::HttpResponse
+impl core::marker::Send for helix_core::effect::HttpResponse
+impl core::marker::Sync for helix_core::effect::HttpResponse
+impl core::marker::Unpin for helix_core::effect::HttpResponse
+impl core::marker::UnsafeUnpin for helix_core::effect::HttpResponse
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::HttpResponse
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::HttpResponse
+pub struct helix_core::effect::MonotonicUpsertSpec
+pub helix_core::effect::MonotonicUpsertSpec::key_col: &'static str
+pub helix_core::effect::MonotonicUpsertSpec::scope_key: alloc::string::String
+pub helix_core::effect::MonotonicUpsertSpec::table: &'static str
+pub helix_core::effect::MonotonicUpsertSpec::touch_col: core::option::Option<&'static str>
+pub helix_core::effect::MonotonicUpsertSpec::value: i64
+pub helix_core::effect::MonotonicUpsertSpec::value_col: &'static str
+impl core::clone::Clone for helix_core::effect::MonotonicUpsertSpec
+pub fn helix_core::effect::MonotonicUpsertSpec::clone(&self) -> helix_core::effect::MonotonicUpsertSpec
+impl core::fmt::Debug for helix_core::effect::MonotonicUpsertSpec
+pub fn helix_core::effect::MonotonicUpsertSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::Send for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::Sync for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::Unpin for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::MonotonicUpsertSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::MonotonicUpsertSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::MonotonicUpsertSpec
+pub struct helix_core::effect::ScanSpec
+pub helix_core::effect::ScanSpec::filter: core::option::Option<(&'static str, helix_core::effect::SqlValue)>
+pub helix_core::effect::ScanSpec::limit: core::option::Option<u32>
+pub helix_core::effect::ScanSpec::order_desc_col: core::option::Option<&'static str>
+pub helix_core::effect::ScanSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::ScanSpec
+pub fn helix_core::effect::ScanSpec::clone(&self) -> helix_core::effect::ScanSpec
+impl core::fmt::Debug for helix_core::effect::ScanSpec
+pub fn helix_core::effect::ScanSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::ScanSpec
+impl core::marker::Send for helix_core::effect::ScanSpec
+impl core::marker::Sync for helix_core::effect::ScanSpec
+impl core::marker::Unpin for helix_core::effect::ScanSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::ScanSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::ScanSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::ScanSpec
+pub struct helix_core::effect::TimerId(_)
+impl helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::from_raw(u64) -> Self
+pub fn helix_core::effect::TimerId::raw(self) -> u64
+impl core::clone::Clone for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::clone(&self) -> helix_core::effect::TimerId
+impl core::cmp::Eq for helix_core::effect::TimerId
+impl core::cmp::PartialEq for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::eq(&self, &helix_core::effect::TimerId) -> bool
+impl core::fmt::Debug for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::effect::TimerId
+impl core::marker::StructuralPartialEq for helix_core::effect::TimerId
+impl core::marker::Freeze for helix_core::effect::TimerId
+impl core::marker::Send for helix_core::effect::TimerId
+impl core::marker::Sync for helix_core::effect::TimerId
+impl core::marker::Unpin for helix_core::effect::TimerId
+impl core::marker::UnsafeUnpin for helix_core::effect::TimerId
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::TimerId
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::TimerId
+pub struct helix_core::effect::TransportId(_)
+impl helix_core::effect::TransportId
+pub fn helix_core::effect::TransportId::from_raw(u32) -> Self
+pub fn helix_core::effect::TransportId::raw(self) -> u32
+impl core::clone::Clone for helix_core::effect::TransportId
+pub fn helix_core::effect::TransportId::clone(&self) -> helix_core::effect::TransportId
+impl core::cmp::Eq for helix_core::effect::TransportId
+impl core::cmp::PartialEq for helix_core::effect::TransportId
+pub fn helix_core::effect::TransportId::eq(&self, &helix_core::effect::TransportId) -> bool
+impl core::fmt::Debug for helix_core::effect::TransportId
+pub fn helix_core::effect::TransportId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::effect::TransportId
+pub fn helix_core::effect::TransportId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::effect::TransportId
+impl core::marker::StructuralPartialEq for helix_core::effect::TransportId
+impl core::marker::Freeze for helix_core::effect::TransportId
+impl core::marker::Send for helix_core::effect::TransportId
+impl core::marker::Sync for helix_core::effect::TransportId
+impl core::marker::Unpin for helix_core::effect::TransportId
+impl core::marker::UnsafeUnpin for helix_core::effect::TransportId
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::TransportId
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::TransportId
+pub struct helix_core::effect::UpsertSpec
+pub helix_core::effect::UpsertSpec::conflict_key: core::option::Option<&'static str>
+pub helix_core::effect::UpsertSpec::exclude_from_update: alloc::vec::Vec<&'static str>
+pub helix_core::effect::UpsertSpec::rows: alloc::vec::Vec<helix_core::effect::Row>
+pub helix_core::effect::UpsertSpec::table: &'static str
+impl helix_core::effect::UpsertSpec
+pub fn helix_core::effect::UpsertSpec::new(&'static str, alloc::vec::Vec<helix_core::effect::Row>, core::option::Option<&'static str>) -> Self
+impl core::clone::Clone for helix_core::effect::UpsertSpec
+pub fn helix_core::effect::UpsertSpec::clone(&self) -> helix_core::effect::UpsertSpec
+impl core::fmt::Debug for helix_core::effect::UpsertSpec
+pub fn helix_core::effect::UpsertSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::UpsertSpec
+impl core::marker::Send for helix_core::effect::UpsertSpec
+impl core::marker::Sync for helix_core::effect::UpsertSpec
+impl core::marker::Unpin for helix_core::effect::UpsertSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::UpsertSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::UpsertSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::UpsertSpec
+pub type helix_core::effect::Row = alloc::vec::Vec<(alloc::string::String, helix_core::effect::SqlValue)>
+pub mod helix_core::engine
+pub struct helix_core::engine::ExecutionShell
+impl helix_core::engine::ExecutionShell
+pub fn helix_core::engine::ExecutionShell::new() -> Self
+pub fn helix_core::engine::ExecutionShell::register(&mut self, impl helix_core::module_host::Module + 'static)
+pub fn helix_core::engine::ExecutionShell::start(&mut self) -> core::result::Result<&[helix_core::effect::Effect], helix_core::error::CoreError>
+pub fn helix_core::engine::ExecutionShell::step(&mut self, helix_core::tick::Tick, u64) -> core::result::Result<&[helix_core::effect::Effect], helix_core::error::CoreError>
+pub fn helix_core::engine::ExecutionShell::stop(&mut self) -> core::result::Result<&[helix_core::effect::Effect], helix_core::error::CoreError>
+impl core::default::Default for helix_core::engine::ExecutionShell
+pub fn helix_core::engine::ExecutionShell::default() -> Self
+impl core::marker::Freeze for helix_core::engine::ExecutionShell
+impl core::marker::Send for helix_core::engine::ExecutionShell
+impl !core::marker::Sync for helix_core::engine::ExecutionShell
+impl core::marker::Unpin for helix_core::engine::ExecutionShell
+impl core::marker::UnsafeUnpin for helix_core::engine::ExecutionShell
+impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::engine::ExecutionShell
+impl !core::panic::unwind_safe::UnwindSafe for helix_core::engine::ExecutionShell
+pub mod helix_core::error
+pub enum helix_core::error::CoreError
+pub helix_core::error::CoreError::ModuleError
+pub helix_core::error::CoreError::ModuleError::module: &'static str
+pub helix_core::error::CoreError::ModuleError::source: alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>
+pub helix_core::error::CoreError::NoHandler(&'static str)
+pub helix_core::error::CoreError::UnknownCorrelation(u64)
+impl core::error::Error for helix_core::error::CoreError
+pub fn helix_core::error::CoreError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for helix_core::error::CoreError
+pub fn helix_core::error::CoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for helix_core::error::CoreError
+pub fn helix_core::error::CoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::error::CoreError
+impl core::marker::Send for helix_core::error::CoreError
+impl core::marker::Sync for helix_core::error::CoreError
+impl core::marker::Unpin for helix_core::error::CoreError
+impl core::marker::UnsafeUnpin for helix_core::error::CoreError
+impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::error::CoreError
+impl !core::panic::unwind_safe::UnwindSafe for helix_core::error::CoreError
+pub enum helix_core::error::PortError
+pub helix_core::error::PortError::Clock(alloc::string::String)
+pub helix_core::error::PortError::Http(alloc::string::String)
+pub helix_core::error::PortError::IdSource(alloc::string::String)
+pub helix_core::error::PortError::Other(alloc::string::String)
+pub helix_core::error::PortError::Storage(alloc::string::String)
+pub helix_core::error::PortError::Transport(alloc::string::String)
+impl core::error::Error for helix_core::error::PortError
+impl core::fmt::Debug for helix_core::error::PortError
+pub fn helix_core::error::PortError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for helix_core::error::PortError
+pub fn helix_core::error::PortError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::error::PortError
+impl core::marker::Send for helix_core::error::PortError
+impl core::marker::Sync for helix_core::error::PortError
+impl core::marker::Unpin for helix_core::error::PortError
+impl core::marker::UnsafeUnpin for helix_core::error::PortError
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::error::PortError
+impl core::panic::unwind_safe::UnwindSafe for helix_core::error::PortError
+pub mod helix_core::module_host
+pub struct helix_core::module_host::ModuleHost
+impl helix_core::module_host::ModuleHost
+pub fn helix_core::module_host::ModuleHost::dispatch_inbound(&mut self, &helix_core::tick::Tick, u64, &mut helix_core::effect::EffectSink) -> core::result::Result<core::option::Option<usize>, helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::dispatch_reply(&mut self, usize, &helix_core::tick::Tick, u64, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::module_count(&self) -> usize
+pub fn helix_core::module_host::ModuleHost::new() -> Self
+pub fn helix_core::module_host::ModuleHost::register(&mut self, impl helix_core::module_host::Module + 'static)
+pub fn helix_core::module_host::ModuleHost::start_all(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::start_one(&mut self, usize, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::stop_all(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+impl core::default::Default for helix_core::module_host::ModuleHost
+pub fn helix_core::module_host::ModuleHost::default() -> Self
+impl core::marker::Freeze for helix_core::module_host::ModuleHost
+impl core::marker::Send for helix_core::module_host::ModuleHost
+impl !core::marker::Sync for helix_core::module_host::ModuleHost
+impl core::marker::Unpin for helix_core::module_host::ModuleHost
+impl core::marker::UnsafeUnpin for helix_core::module_host::ModuleHost
+impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::module_host::ModuleHost
+impl !core::panic::unwind_safe::UnwindSafe for helix_core::module_host::ModuleHost
+pub trait helix_core::module_host::Module: helix_core::platform::MaybeSend + 'static
+pub fn helix_core::module_host::Module::accepts(&self, &helix_core::tick::Tick) -> bool
+pub fn helix_core::module_host::Module::handle(&mut self, &helix_core::tick::Tick, u64, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::Module::name(&self) -> &'static str
+pub fn helix_core::module_host::Module::on_start(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::Module::on_stop(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub mod helix_core::platform
+pub trait helix_core::platform::MaybeSend: core::marker::Send
+impl<T: core::marker::Send> helix_core::platform::MaybeSend for T
+pub trait helix_core::platform::MaybeSync: core::marker::Sync
+impl<T: core::marker::Sync> helix_core::platform::MaybeSync for T
+pub mod helix_core::ports
+pub mod helix_core::ports::clock
+pub trait helix_core::ports::clock::Clock: core::clone::Clone + helix_core::platform::MaybeSend + 'static
+pub fn helix_core::ports::clock::Clock::now_ms(&self) -> u64
+pub mod helix_core::ports::event_sink
+pub trait helix_core::ports::event_sink::EventSink: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::event_sink::EventSink::emit(&self, helix_core::effect::DomainEventBytes)
+pub mod helix_core::ports::http
+pub trait helix_core::ports::http::HttpRequester: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::http::HttpRequester::request<'life0, 'async_trait>(&'life0 self, helix_core::effect::HttpRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::HttpResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub mod helix_core::ports::id
+pub trait helix_core::ports::id::IdSource: helix_core::platform::MaybeSend + 'static
+pub fn helix_core::ports::id::IdSource::new_uuid(&self) -> core::result::Result<[u8; 16], helix_core::error::PortError>
+pub trait helix_core::ports::id::Random: helix_core::platform::MaybeSend + 'static
+pub fn helix_core::ports::id::Random::random_u64(&self, u64) -> u64
+pub mod helix_core::ports::storage
+pub trait helix_core::ports::storage::Storage: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::storage::Storage::batch_delete<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchDeleteSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::storage::Storage::batch_update<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchUpdateSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::storage::Storage::batch_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::UpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::storage::Storage::get<'life0, 'async_trait>(&'life0 self, helix_core::effect::GetSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<core::option::Option<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::storage::Storage::guarded_bump<'life0, 'async_trait>(&'life0 self, helix_core::effect::GuardedBumpSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::storage::Storage::monotonic_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::MonotonicUpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::storage::Storage::scan<'life0, 'async_trait>(&'life0 self, helix_core::effect::ScanSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<alloc::vec::Vec<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub mod helix_core::ports::transport
+pub trait helix_core::ports::transport::Transport: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::transport::Transport::close<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::transport::Transport::connect<'life0, 'async_trait>(&'life0 mut self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::transport::Transport::recv<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<core::option::Option<bytes::bytes::Bytes>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::transport::Transport::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub struct helix_core::ports::BatchDeleteSpec
+pub helix_core::ports::BatchDeleteSpec::key_col: &'static str
+pub helix_core::ports::BatchDeleteSpec::key_vals: alloc::vec::Vec<helix_core::effect::SqlValue>
+pub helix_core::ports::BatchDeleteSpec::scope_col: &'static str
+pub helix_core::ports::BatchDeleteSpec::scope_val: helix_core::effect::SqlValue
+pub helix_core::ports::BatchDeleteSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::BatchDeleteSpec
+pub fn helix_core::effect::BatchDeleteSpec::clone(&self) -> helix_core::effect::BatchDeleteSpec
+impl core::fmt::Debug for helix_core::effect::BatchDeleteSpec
+pub fn helix_core::effect::BatchDeleteSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::BatchDeleteSpec
+impl core::marker::Send for helix_core::effect::BatchDeleteSpec
+impl core::marker::Sync for helix_core::effect::BatchDeleteSpec
+impl core::marker::Unpin for helix_core::effect::BatchDeleteSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::BatchDeleteSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::BatchDeleteSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::BatchDeleteSpec
+pub struct helix_core::ports::BatchUpdateSpec
+pub helix_core::ports::BatchUpdateSpec::key_col: &'static str
+pub helix_core::ports::BatchUpdateSpec::key_vals: alloc::vec::Vec<helix_core::effect::SqlValue>
+pub helix_core::ports::BatchUpdateSpec::patch: helix_core::effect::Row
+pub helix_core::ports::BatchUpdateSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::BatchUpdateSpec
+pub fn helix_core::effect::BatchUpdateSpec::clone(&self) -> helix_core::effect::BatchUpdateSpec
+impl core::fmt::Debug for helix_core::effect::BatchUpdateSpec
+pub fn helix_core::effect::BatchUpdateSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::BatchUpdateSpec
+impl core::marker::Send for helix_core::effect::BatchUpdateSpec
+impl core::marker::Sync for helix_core::effect::BatchUpdateSpec
+impl core::marker::Unpin for helix_core::effect::BatchUpdateSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::BatchUpdateSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::BatchUpdateSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::BatchUpdateSpec
+pub struct helix_core::ports::GetSpec
+pub helix_core::ports::GetSpec::key_col: &'static str
+pub helix_core::ports::GetSpec::key_val: helix_core::effect::SqlValue
+pub helix_core::ports::GetSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::GetSpec
+pub fn helix_core::effect::GetSpec::clone(&self) -> helix_core::effect::GetSpec
+impl core::fmt::Debug for helix_core::effect::GetSpec
+pub fn helix_core::effect::GetSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::GetSpec
+impl core::marker::Send for helix_core::effect::GetSpec
+impl core::marker::Sync for helix_core::effect::GetSpec
+impl core::marker::Unpin for helix_core::effect::GetSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::GetSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::GetSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::GetSpec
+pub struct helix_core::ports::GuardedBumpSpec
+pub helix_core::ports::GuardedBumpSpec::bump_col: &'static str
+pub helix_core::ports::GuardedBumpSpec::bump_delta: i64
+pub helix_core::ports::GuardedBumpSpec::guard_col: &'static str
+pub helix_core::ports::GuardedBumpSpec::guard_val: i64
+pub helix_core::ports::GuardedBumpSpec::key_col: &'static str
+pub helix_core::ports::GuardedBumpSpec::key_val: helix_core::effect::SqlValue
+pub helix_core::ports::GuardedBumpSpec::set_cols: helix_core::effect::Row
+pub helix_core::ports::GuardedBumpSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::GuardedBumpSpec
+pub fn helix_core::effect::GuardedBumpSpec::clone(&self) -> helix_core::effect::GuardedBumpSpec
+impl core::fmt::Debug for helix_core::effect::GuardedBumpSpec
+pub fn helix_core::effect::GuardedBumpSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::GuardedBumpSpec
+impl core::marker::Send for helix_core::effect::GuardedBumpSpec
+impl core::marker::Sync for helix_core::effect::GuardedBumpSpec
+impl core::marker::Unpin for helix_core::effect::GuardedBumpSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::GuardedBumpSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::GuardedBumpSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::GuardedBumpSpec
+pub struct helix_core::ports::MonotonicUpsertSpec
+pub helix_core::ports::MonotonicUpsertSpec::key_col: &'static str
+pub helix_core::ports::MonotonicUpsertSpec::scope_key: alloc::string::String
+pub helix_core::ports::MonotonicUpsertSpec::table: &'static str
+pub helix_core::ports::MonotonicUpsertSpec::touch_col: core::option::Option<&'static str>
+pub helix_core::ports::MonotonicUpsertSpec::value: i64
+pub helix_core::ports::MonotonicUpsertSpec::value_col: &'static str
+impl core::clone::Clone for helix_core::effect::MonotonicUpsertSpec
+pub fn helix_core::effect::MonotonicUpsertSpec::clone(&self) -> helix_core::effect::MonotonicUpsertSpec
+impl core::fmt::Debug for helix_core::effect::MonotonicUpsertSpec
+pub fn helix_core::effect::MonotonicUpsertSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::Send for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::Sync for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::Unpin for helix_core::effect::MonotonicUpsertSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::MonotonicUpsertSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::MonotonicUpsertSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::MonotonicUpsertSpec
+pub struct helix_core::ports::ScanSpec
+pub helix_core::ports::ScanSpec::filter: core::option::Option<(&'static str, helix_core::effect::SqlValue)>
+pub helix_core::ports::ScanSpec::limit: core::option::Option<u32>
+pub helix_core::ports::ScanSpec::order_desc_col: core::option::Option<&'static str>
+pub helix_core::ports::ScanSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::ScanSpec
+pub fn helix_core::effect::ScanSpec::clone(&self) -> helix_core::effect::ScanSpec
+impl core::fmt::Debug for helix_core::effect::ScanSpec
+pub fn helix_core::effect::ScanSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::ScanSpec
+impl core::marker::Send for helix_core::effect::ScanSpec
+impl core::marker::Sync for helix_core::effect::ScanSpec
+impl core::marker::Unpin for helix_core::effect::ScanSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::ScanSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::ScanSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::ScanSpec
+pub struct helix_core::ports::UpsertSpec
+pub helix_core::ports::UpsertSpec::conflict_key: core::option::Option<&'static str>
+pub helix_core::ports::UpsertSpec::exclude_from_update: alloc::vec::Vec<&'static str>
+pub helix_core::ports::UpsertSpec::rows: alloc::vec::Vec<helix_core::effect::Row>
+pub helix_core::ports::UpsertSpec::table: &'static str
+impl helix_core::effect::UpsertSpec
+pub fn helix_core::effect::UpsertSpec::new(&'static str, alloc::vec::Vec<helix_core::effect::Row>, core::option::Option<&'static str>) -> Self
+impl core::clone::Clone for helix_core::effect::UpsertSpec
+pub fn helix_core::effect::UpsertSpec::clone(&self) -> helix_core::effect::UpsertSpec
+impl core::fmt::Debug for helix_core::effect::UpsertSpec
+pub fn helix_core::effect::UpsertSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::effect::UpsertSpec
+impl core::marker::Send for helix_core::effect::UpsertSpec
+impl core::marker::Sync for helix_core::effect::UpsertSpec
+impl core::marker::Unpin for helix_core::effect::UpsertSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::UpsertSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::UpsertSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::UpsertSpec
+pub trait helix_core::ports::Clock: core::clone::Clone + helix_core::platform::MaybeSend + 'static
+pub fn helix_core::ports::Clock::now_ms(&self) -> u64
+pub trait helix_core::ports::EventSink: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::EventSink::emit(&self, helix_core::effect::DomainEventBytes)
+pub trait helix_core::ports::HttpRequester: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::HttpRequester::request<'life0, 'async_trait>(&'life0 self, helix_core::effect::HttpRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::HttpResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub trait helix_core::ports::IdSource: helix_core::platform::MaybeSend + 'static
+pub fn helix_core::ports::IdSource::new_uuid(&self) -> core::result::Result<[u8; 16], helix_core::error::PortError>
+pub trait helix_core::ports::Random: helix_core::platform::MaybeSend + 'static
+pub fn helix_core::ports::Random::random_u64(&self, u64) -> u64
+pub trait helix_core::ports::Storage: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::Storage::batch_delete<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchDeleteSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Storage::batch_update<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchUpdateSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Storage::batch_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::UpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Storage::get<'life0, 'async_trait>(&'life0 self, helix_core::effect::GetSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<core::option::Option<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Storage::guarded_bump<'life0, 'async_trait>(&'life0 self, helix_core::effect::GuardedBumpSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Storage::monotonic_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::MonotonicUpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Storage::scan<'life0, 'async_trait>(&'life0 self, helix_core::effect::ScanSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<alloc::vec::Vec<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub trait helix_core::ports::Transport: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::Transport::close<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Transport::connect<'life0, 'async_trait>(&'life0 mut self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Transport::recv<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<core::option::Option<bytes::bytes::Bytes>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::Transport::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub mod helix_core::tick
+pub enum helix_core::tick::PortError
+pub helix_core::tick::PortError::Http(u16)
+pub helix_core::tick::PortError::Network
+pub helix_core::tick::PortError::Other(u32)
+pub helix_core::tick::PortError::Storage(u32)
+pub helix_core::tick::PortError::Timeout
+impl core::clone::Clone for helix_core::tick::PortError
+pub fn helix_core::tick::PortError::clone(&self) -> helix_core::tick::PortError
+impl core::cmp::Eq for helix_core::tick::PortError
+impl core::cmp::PartialEq for helix_core::tick::PortError
+pub fn helix_core::tick::PortError::eq(&self, &helix_core::tick::PortError) -> bool
+impl core::fmt::Debug for helix_core::tick::PortError
+pub fn helix_core::tick::PortError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for helix_core::tick::PortError
+impl core::marker::Freeze for helix_core::tick::PortError
+impl core::marker::Send for helix_core::tick::PortError
+impl core::marker::Sync for helix_core::tick::PortError
+impl core::marker::Unpin for helix_core::tick::PortError
+impl core::marker::UnsafeUnpin for helix_core::tick::PortError
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::PortError
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::PortError
+pub enum helix_core::tick::PortOutcome
+pub helix_core::tick::PortOutcome::Err(helix_core::tick::PortError)
+pub helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes)
+impl core::clone::Clone for helix_core::tick::PortOutcome
+pub fn helix_core::tick::PortOutcome::clone(&self) -> helix_core::tick::PortOutcome
+impl core::fmt::Debug for helix_core::tick::PortOutcome
+pub fn helix_core::tick::PortOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::tick::PortOutcome
+impl core::marker::Send for helix_core::tick::PortOutcome
+impl core::marker::Sync for helix_core::tick::PortOutcome
+impl core::marker::Unpin for helix_core::tick::PortOutcome
+impl core::marker::UnsafeUnpin for helix_core::tick::PortOutcome
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::PortOutcome
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::PortOutcome
+pub enum helix_core::tick::Tick
+pub helix_core::tick::Tick::Command(helix_core::tick::AppCommand)
+pub helix_core::tick::Tick::Connected(helix_core::effect::TransportId)
+pub helix_core::tick::Tick::Disconnected(helix_core::effect::TransportId)
+pub helix_core::tick::Tick::Inbound(helix_core::tick::InboundBytes)
+pub helix_core::tick::Tick::PortReply
+pub helix_core::tick::Tick::PortReply::corr: helix_core::effect::Correlation
+pub helix_core::tick::Tick::PortReply::outcome: helix_core::tick::PortOutcome
+pub helix_core::tick::Tick::Timer(helix_core::effect::TimerId)
+impl core::clone::Clone for helix_core::tick::Tick
+pub fn helix_core::tick::Tick::clone(&self) -> helix_core::tick::Tick
+impl core::fmt::Debug for helix_core::tick::Tick
+pub fn helix_core::tick::Tick::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::tick::Tick
+impl core::marker::Send for helix_core::tick::Tick
+impl core::marker::Sync for helix_core::tick::Tick
+impl core::marker::Unpin for helix_core::tick::Tick
+impl core::marker::UnsafeUnpin for helix_core::tick::Tick
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::Tick
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::Tick
+pub struct helix_core::tick::AppCommand
+pub helix_core::tick::AppCommand::name: alloc::borrow::Cow<'static, str>
+pub helix_core::tick::AppCommand::payload: bytes::bytes::Bytes
+impl helix_core::tick::AppCommand
+pub fn helix_core::tick::AppCommand::new(&'static str, impl core::convert::Into<bytes::bytes::Bytes>) -> Self
+impl core::clone::Clone for helix_core::tick::AppCommand
+pub fn helix_core::tick::AppCommand::clone(&self) -> helix_core::tick::AppCommand
+impl core::fmt::Debug for helix_core::tick::AppCommand
+pub fn helix_core::tick::AppCommand::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::tick::AppCommand
+impl core::marker::Send for helix_core::tick::AppCommand
+impl core::marker::Sync for helix_core::tick::AppCommand
+impl core::marker::Unpin for helix_core::tick::AppCommand
+impl core::marker::UnsafeUnpin for helix_core::tick::AppCommand
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::AppCommand
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::AppCommand
+pub struct helix_core::tick::InboundBytes(pub bytes::bytes::Bytes)
+impl helix_core::tick::InboundBytes
+pub fn helix_core::tick::InboundBytes::as_bytes(&self) -> &[u8]
+pub fn helix_core::tick::InboundBytes::from_static(&'static [u8]) -> Self
+impl core::clone::Clone for helix_core::tick::InboundBytes
+pub fn helix_core::tick::InboundBytes::clone(&self) -> helix_core::tick::InboundBytes
+impl core::fmt::Debug for helix_core::tick::InboundBytes
+pub fn helix_core::tick::InboundBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::tick::InboundBytes
+impl core::marker::Send for helix_core::tick::InboundBytes
+impl core::marker::Sync for helix_core::tick::InboundBytes
+impl core::marker::Unpin for helix_core::tick::InboundBytes
+impl core::marker::UnsafeUnpin for helix_core::tick::InboundBytes
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::InboundBytes
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::InboundBytes
+pub struct helix_core::tick::ReplyBytes(pub bytes::bytes::Bytes)
+impl core::clone::Clone for helix_core::tick::ReplyBytes
+pub fn helix_core::tick::ReplyBytes::clone(&self) -> helix_core::tick::ReplyBytes
+impl core::default::Default for helix_core::tick::ReplyBytes
+pub fn helix_core::tick::ReplyBytes::default() -> helix_core::tick::ReplyBytes
+impl core::fmt::Debug for helix_core::tick::ReplyBytes
+pub fn helix_core::tick::ReplyBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::tick::ReplyBytes
+impl core::marker::Send for helix_core::tick::ReplyBytes
+impl core::marker::Sync for helix_core::tick::ReplyBytes
+impl core::marker::Unpin for helix_core::tick::ReplyBytes
+impl core::marker::UnsafeUnpin for helix_core::tick::ReplyBytes
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::ReplyBytes
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::ReplyBytes
+pub enum helix_core::AuthKind
+pub helix_core::AuthKind::Bot
+pub helix_core::AuthKind::Session
+impl helix_core::auth::AuthKind
+pub const fn helix_core::auth::AuthKind::as_str(self) -> &'static str
+pub fn helix_core::auth::AuthKind::from_str(&str) -> core::option::Option<Self>
+impl core::clone::Clone for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::clone(&self) -> helix_core::auth::AuthKind
+impl core::cmp::Eq for helix_core::auth::AuthKind
+impl core::cmp::PartialEq for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::eq(&self, &helix_core::auth::AuthKind) -> bool
+impl core::fmt::Debug for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::auth::AuthKind
+pub fn helix_core::auth::AuthKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::auth::AuthKind
+impl core::marker::StructuralPartialEq for helix_core::auth::AuthKind
+impl core::marker::Freeze for helix_core::auth::AuthKind
+impl core::marker::Send for helix_core::auth::AuthKind
+impl core::marker::Sync for helix_core::auth::AuthKind
+impl core::marker::Unpin for helix_core::auth::AuthKind
+impl core::marker::UnsafeUnpin for helix_core::auth::AuthKind
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::auth::AuthKind
+impl core::panic::unwind_safe::UnwindSafe for helix_core::auth::AuthKind
+pub enum helix_core::CoreError
+pub helix_core::CoreError::ModuleError
+pub helix_core::CoreError::ModuleError::module: &'static str
+pub helix_core::CoreError::ModuleError::source: alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>
+pub helix_core::CoreError::NoHandler(&'static str)
+pub helix_core::CoreError::UnknownCorrelation(u64)
+impl core::error::Error for helix_core::error::CoreError
+pub fn helix_core::error::CoreError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for helix_core::error::CoreError
+pub fn helix_core::error::CoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for helix_core::error::CoreError
+pub fn helix_core::error::CoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::error::CoreError
+impl core::marker::Send for helix_core::error::CoreError
+impl core::marker::Sync for helix_core::error::CoreError
+impl core::marker::Unpin for helix_core::error::CoreError
+impl core::marker::UnsafeUnpin for helix_core::error::CoreError
+impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::error::CoreError
+impl !core::panic::unwind_safe::UnwindSafe for helix_core::error::CoreError
+pub enum helix_core::Effect
+pub helix_core::Effect::CancelTimer
+pub helix_core::Effect::CancelTimer::id: helix_core::effect::TimerId
+pub helix_core::Effect::Emit
+pub helix_core::Effect::Emit::event: helix_core::effect::DomainEventBytes
+pub helix_core::Effect::Http
+pub helix_core::Effect::Http::corr: helix_core::effect::Correlation
+pub helix_core::Effect::Http::req: helix_core::effect::HttpRequest
+pub helix_core::Effect::HttpFire
+pub helix_core::Effect::HttpFire::req: helix_core::effect::HttpRequest
+pub helix_core::Effect::Persist
+pub helix_core::Effect::Persist::corr: helix_core::effect::Correlation
+pub helix_core::Effect::Persist::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
+pub helix_core::Effect::PersistFire
+pub helix_core::Effect::PersistFire::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
+pub helix_core::Effect::Request
+pub helix_core::Effect::Request::corr: helix_core::effect::Correlation
+pub helix_core::Effect::Request::kind: &'static str
+pub helix_core::Effect::Request::payload: bytes::bytes::Bytes
+pub helix_core::Effect::ScheduleTimer
+pub helix_core::Effect::ScheduleTimer::after_ms: u64
+pub helix_core::Effect::ScheduleTimer::id: helix_core::effect::TimerId
+pub helix_core::Effect::Send
+pub helix_core::Effect::Send::frame: bytes::bytes::Bytes
+pub helix_core::Effect::Send::transport: helix_core::effect::TransportId
+impl core::fmt::Debug for helix_core::effect::Effect
+pub fn helix_core::effect::Effect::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::effect::Effect
+impl core::marker::Send for helix_core::effect::Effect
+impl core::marker::Sync for helix_core::effect::Effect
+impl core::marker::Unpin for helix_core::effect::Effect
+impl core::marker::UnsafeUnpin for helix_core::effect::Effect
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::Effect
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::Effect
+pub enum helix_core::PortError
+pub helix_core::PortError::Clock(alloc::string::String)
+pub helix_core::PortError::Http(alloc::string::String)
+pub helix_core::PortError::IdSource(alloc::string::String)
+pub helix_core::PortError::Other(alloc::string::String)
+pub helix_core::PortError::Storage(alloc::string::String)
+pub helix_core::PortError::Transport(alloc::string::String)
+impl core::error::Error for helix_core::error::PortError
+impl core::fmt::Debug for helix_core::error::PortError
+pub fn helix_core::error::PortError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for helix_core::error::PortError
+pub fn helix_core::error::PortError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for helix_core::error::PortError
+impl core::marker::Send for helix_core::error::PortError
+impl core::marker::Sync for helix_core::error::PortError
+impl core::marker::Unpin for helix_core::error::PortError
+impl core::marker::UnsafeUnpin for helix_core::error::PortError
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::error::PortError
+impl core::panic::unwind_safe::UnwindSafe for helix_core::error::PortError
+pub enum helix_core::Tick
+pub helix_core::Tick::Command(helix_core::tick::AppCommand)
+pub helix_core::Tick::Connected(helix_core::effect::TransportId)
+pub helix_core::Tick::Disconnected(helix_core::effect::TransportId)
+pub helix_core::Tick::Inbound(helix_core::tick::InboundBytes)
+pub helix_core::Tick::PortReply
+pub helix_core::Tick::PortReply::corr: helix_core::effect::Correlation
+pub helix_core::Tick::PortReply::outcome: helix_core::tick::PortOutcome
+pub helix_core::Tick::Timer(helix_core::effect::TimerId)
+impl core::clone::Clone for helix_core::tick::Tick
+pub fn helix_core::tick::Tick::clone(&self) -> helix_core::tick::Tick
+impl core::fmt::Debug for helix_core::tick::Tick
+pub fn helix_core::tick::Tick::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::tick::Tick
+impl core::marker::Send for helix_core::tick::Tick
+impl core::marker::Sync for helix_core::tick::Tick
+impl core::marker::Unpin for helix_core::tick::Tick
+impl core::marker::UnsafeUnpin for helix_core::tick::Tick
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::tick::Tick
+impl core::panic::unwind_safe::UnwindSafe for helix_core::tick::Tick
+pub struct helix_core::Correlation(_)
+impl helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::from_raw(u64) -> Self
+pub fn helix_core::effect::Correlation::raw(self) -> u64
+impl core::clone::Clone for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::clone(&self) -> helix_core::effect::Correlation
+impl core::cmp::Eq for helix_core::effect::Correlation
+impl core::cmp::PartialEq for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::eq(&self, &helix_core::effect::Correlation) -> bool
+impl core::fmt::Debug for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::effect::Correlation
+pub fn helix_core::effect::Correlation::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::effect::Correlation
+impl core::marker::StructuralPartialEq for helix_core::effect::Correlation
+impl core::marker::Freeze for helix_core::effect::Correlation
+impl core::marker::Send for helix_core::effect::Correlation
+impl core::marker::Sync for helix_core::effect::Correlation
+impl core::marker::Unpin for helix_core::effect::Correlation
+impl core::marker::UnsafeUnpin for helix_core::effect::Correlation
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::Correlation
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::Correlation
+pub struct helix_core::DomainEventBytes(pub bytes::bytes::Bytes)
+impl core::clone::Clone for helix_core::effect::DomainEventBytes
+pub fn helix_core::effect::DomainEventBytes::clone(&self) -> helix_core::effect::DomainEventBytes
+impl core::fmt::Debug for helix_core::effect::DomainEventBytes
+pub fn helix_core::effect::DomainEventBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl !core::marker::Freeze for helix_core::effect::DomainEventBytes
+impl core::marker::Send for helix_core::effect::DomainEventBytes
+impl core::marker::Sync for helix_core::effect::DomainEventBytes
+impl core::marker::Unpin for helix_core::effect::DomainEventBytes
+impl core::marker::UnsafeUnpin for helix_core::effect::DomainEventBytes
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::DomainEventBytes
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::DomainEventBytes
+pub struct helix_core::EffectSink
+impl helix_core::effect::EffectSink
+pub fn helix_core::effect::EffectSink::as_slice(&self) -> &[helix_core::effect::Effect]
+pub fn helix_core::effect::EffectSink::clear(&mut self)
+pub fn helix_core::effect::EffectSink::is_empty(&self) -> bool
+pub fn helix_core::effect::EffectSink::new() -> Self
+pub fn helix_core::effect::EffectSink::push(&mut self, helix_core::effect::Effect)
+impl core::default::Default for helix_core::effect::EffectSink
+pub fn helix_core::effect::EffectSink::default() -> Self
+impl core::marker::Freeze for helix_core::effect::EffectSink
+impl core::marker::Send for helix_core::effect::EffectSink
+impl core::marker::Sync for helix_core::effect::EffectSink
+impl core::marker::Unpin for helix_core::effect::EffectSink
+impl core::marker::UnsafeUnpin for helix_core::effect::EffectSink
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::EffectSink
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::EffectSink
+pub struct helix_core::ExecutionShell
+impl helix_core::engine::ExecutionShell
+pub fn helix_core::engine::ExecutionShell::new() -> Self
+pub fn helix_core::engine::ExecutionShell::register(&mut self, impl helix_core::module_host::Module + 'static)
+pub fn helix_core::engine::ExecutionShell::start(&mut self) -> core::result::Result<&[helix_core::effect::Effect], helix_core::error::CoreError>
+pub fn helix_core::engine::ExecutionShell::step(&mut self, helix_core::tick::Tick, u64) -> core::result::Result<&[helix_core::effect::Effect], helix_core::error::CoreError>
+pub fn helix_core::engine::ExecutionShell::stop(&mut self) -> core::result::Result<&[helix_core::effect::Effect], helix_core::error::CoreError>
+impl core::default::Default for helix_core::engine::ExecutionShell
+pub fn helix_core::engine::ExecutionShell::default() -> Self
+impl core::marker::Freeze for helix_core::engine::ExecutionShell
+impl core::marker::Send for helix_core::engine::ExecutionShell
+impl !core::marker::Sync for helix_core::engine::ExecutionShell
+impl core::marker::Unpin for helix_core::engine::ExecutionShell
+impl core::marker::UnsafeUnpin for helix_core::engine::ExecutionShell
+impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::engine::ExecutionShell
+impl !core::panic::unwind_safe::UnwindSafe for helix_core::engine::ExecutionShell
+pub struct helix_core::ModuleHost
+impl helix_core::module_host::ModuleHost
+pub fn helix_core::module_host::ModuleHost::dispatch_inbound(&mut self, &helix_core::tick::Tick, u64, &mut helix_core::effect::EffectSink) -> core::result::Result<core::option::Option<usize>, helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::dispatch_reply(&mut self, usize, &helix_core::tick::Tick, u64, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::module_count(&self) -> usize
+pub fn helix_core::module_host::ModuleHost::new() -> Self
+pub fn helix_core::module_host::ModuleHost::register(&mut self, impl helix_core::module_host::Module + 'static)
+pub fn helix_core::module_host::ModuleHost::start_all(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::start_one(&mut self, usize, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::module_host::ModuleHost::stop_all(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+impl core::default::Default for helix_core::module_host::ModuleHost
+pub fn helix_core::module_host::ModuleHost::default() -> Self
+impl core::marker::Freeze for helix_core::module_host::ModuleHost
+impl core::marker::Send for helix_core::module_host::ModuleHost
+impl !core::marker::Sync for helix_core::module_host::ModuleHost
+impl core::marker::Unpin for helix_core::module_host::ModuleHost
+impl core::marker::UnsafeUnpin for helix_core::module_host::ModuleHost
+impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::module_host::ModuleHost
+impl !core::panic::unwind_safe::UnwindSafe for helix_core::module_host::ModuleHost
+pub struct helix_core::TimerId(_)
+impl helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::from_raw(u64) -> Self
+pub fn helix_core::effect::TimerId::raw(self) -> u64
+impl core::clone::Clone for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::clone(&self) -> helix_core::effect::TimerId
+impl core::cmp::Eq for helix_core::effect::TimerId
+impl core::cmp::PartialEq for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::eq(&self, &helix_core::effect::TimerId) -> bool
+impl core::fmt::Debug for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for helix_core::effect::TimerId
+pub fn helix_core::effect::TimerId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for helix_core::effect::TimerId
+impl core::marker::StructuralPartialEq for helix_core::effect::TimerId
+impl core::marker::Freeze for helix_core::effect::TimerId
+impl core::marker::Send for helix_core::effect::TimerId
+impl core::marker::Sync for helix_core::effect::TimerId
+impl core::marker::Unpin for helix_core::effect::TimerId
+impl core::marker::UnsafeUnpin for helix_core::effect::TimerId
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::TimerId
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::TimerId
+pub const helix_core::AUTH_KIND_HEADER: &str
+pub trait helix_core::MaybeSend: core::marker::Send
+impl<T: core::marker::Send> helix_core::platform::MaybeSend for T
+pub trait helix_core::MaybeSync: core::marker::Sync
+impl<T: core::marker::Sync> helix_core::platform::MaybeSync for T
+pub trait helix_core::Module: helix_core::platform::MaybeSend + 'static
+pub fn helix_core::Module::accepts(&self, &helix_core::tick::Tick) -> bool
+pub fn helix_core::Module::handle(&mut self, &helix_core::tick::Tick, u64, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::Module::name(&self) -> &'static str
+pub fn helix_core::Module::on_start(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::Module::on_stop(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>

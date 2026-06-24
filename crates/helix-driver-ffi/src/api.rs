@@ -19,7 +19,8 @@ use std::borrow::Cow;
 
 use bytes::Bytes;
 use helix_core::tick::{AppCommand, Tick};
-use helix_driver_host::{HostHeaderRegistry, HostNetworkConfig};
+use helix_core::AuthKind;
+use helix_driver_host::{AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::pump::{self, PumpArgs, QueryDeps};
@@ -54,6 +55,8 @@ pub const FFI_UNIMPLEMENTED: i32 = -5;
 /// - `query`：pump 装配成功后回传的 runtime handle + storage，供 `helix_query`（当前 stub）。
 pub struct HelixHandle {
     pub(crate) headers: HostHeaderRegistry,
+    /// HTTP 鉴权凭据 registry：`X-Auth-Kind` 只选路由，真凭据在 driver 侧热更新。
+    pub(crate) auth: AuthTokenRegistry,
     /// tick channel 发送端。Sender 非 Sync，用 Mutex 包住允许 &self 送 tick。
     pub(crate) tick_tx: parking_lot::Mutex<Option<mpsc::Sender<Tick>>>,
     /// graceful drain 信号端；destroy 取出 send(()) 一次（与 tick_tx drop 双触发，任一即 drain）。
@@ -100,6 +103,7 @@ pub unsafe extern "C" fn helix_create_with_network(
     let mut config = HostNetworkConfig::new(api_base_url, ws_url);
     config.default_api_base_url = default_api_base_url;
     let headers = HostHeaderRegistry::default();
+    let auth = AuthTokenRegistry::new();
 
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
@@ -119,6 +123,7 @@ pub unsafe extern "C" fn helix_create_with_network(
     let pump_args = PumpArgs {
         config,
         headers: headers.clone(),
+        auth: auth.clone(),
         vtable,
         tick_tx: tick_tx.clone(),
         tick_rx,
@@ -152,6 +157,7 @@ pub unsafe extern "C" fn helix_create_with_network(
 
     Box::into_raw(Box::new(HelixHandle {
         headers,
+        auth,
         tick_tx: parking_lot::Mutex::new(Some(tick_tx)),
         shutdown_tx: parking_lot::Mutex::new(Some(shutdown_tx)),
         pump_thread: parking_lot::Mutex::new(Some(pump_thread)),
@@ -252,9 +258,9 @@ pub unsafe extern "C" fn helix_set_header(
 
     // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
     let handle = unsafe { &*handle };
-    match handle.headers.set_header_sync(&name, &value) {
+    match set_runtime_header(handle, &name, &value) {
         Ok(()) => FFI_OK,
-        Err(_) => FFI_INVALID,
+        Err(()) => FFI_INVALID,
     }
 }
 
@@ -281,10 +287,39 @@ pub unsafe extern "C" fn helix_remove_header(
 
     // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
     let handle = unsafe { &*handle };
-    match handle.headers.remove_header_sync(&name) {
+    match remove_runtime_header(handle, &name) {
         Ok(()) => FFI_OK,
-        Err(_) => FFI_INVALID,
+        Err(()) => FFI_INVALID,
     }
+}
+
+fn set_runtime_header(handle: &HelixHandle, name: &str, value: &str) -> Result<(), ()> {
+    if name.eq_ignore_ascii_case("Authorization") {
+        handle.auth.set_bot(name.to_string(), value.to_string());
+        return Ok(());
+    }
+
+    handle
+        .headers
+        .set_header_sync(name, value)
+        .map_err(|_| ())?;
+    if name.eq_ignore_ascii_case("cookieId") {
+        handle.auth.set_session(name.to_string(), value.to_string());
+    }
+    Ok(())
+}
+
+fn remove_runtime_header(handle: &HelixHandle, name: &str) -> Result<(), ()> {
+    if name.eq_ignore_ascii_case("Authorization") {
+        handle.auth.clear(AuthKind::Bot);
+        return Ok(());
+    }
+
+    handle.headers.remove_header_sync(name).map_err(|_| ())?;
+    if name.eq_ignore_ascii_case("cookieId") {
+        handle.auth.clear(AuthKind::Session);
+    }
+    Ok(())
 }
 
 // ── helix_command ────────────────────────────────────────────────────────────

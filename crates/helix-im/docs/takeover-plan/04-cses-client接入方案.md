@@ -69,7 +69,7 @@ driver P1.5 横切层 emit（grep `crates/helix-driver-host/src/`）：`im:http:
 
 总线本身：`im:__bus__`（Tauri event 名；业务 channel 禁撞 `im:__` 前缀，`bus_guard` 守护防自环）。
 
-> **数组 payload 横切约束（M4）**：投影/列表事件（如 `im:messages:query_result`）的 data 若为 JSON 数组，driver `guard_bus_envelope` 统一包成 `{"items":[...]}`——前端 dispatcher 按对象解构，不为「裸数组 vs 对象」两套分支。前端订阅这些事件时**按 `{items:[]}` 解**。
+> **数组 payload 横切约束（M4）**：投影/列表事件（如 `im:channels:loaded`）的 data 若为 JSON 数组，driver `guard_bus_envelope` 统一包成 `{"items":[...]}`——前端 dispatcher 按对象解构，不为「裸数组 vs 对象」两套分支。前端订阅这类数组事件时**按 `{items:[]}` 解**。
 
 #### 3.2 出站命令全集真源（87 outbound + 1 send，分域）
 

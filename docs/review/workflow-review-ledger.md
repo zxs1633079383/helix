@@ -17,7 +17,7 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: MERGE-PENDING
+last_reviewed_commit: 6679e40
 last_reviewed_at: 2026-06-24
 # 本指针在 merge 提交后由主对话更新为 merge commit hash（整合下面两条并行十四轮 review 线 + Round-6 additive UC e2e；冲突采远端 structure[sync_effects.rs]+保我 UC，cargo test 全绿复验）。
 # ── 并行十四轮 A（本会话线·UC e2e + 治理收敛）──

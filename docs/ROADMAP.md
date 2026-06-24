@@ -71,7 +71,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [x] **UC-1 前置 4 块**（panel-review 2026-06-12 揪出）：① hello 握手 ✅ · ② B4 event_seq fallback ✅ · ③ B5 phantom+离线落库 ✅（`20334d2`）· ④ echo→reconcile ✅（`20334d2`，handle_echo 激活）
 - [x] B2 increment_end 冷启动自愈（`20334d2` heal_incomplete_backfill_once）
 - [x] UC-1 数据路径真 Go smoke ✅（2026-06-17 真消息端到端验过，见上「已完成」）
-- [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）
+- [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）。**首个落地处 = 独立仓 `loopforge-tauri-im`**（内嵌 helix 引擎作 Tauri 后端）：投影面（接缝③ EventSink → `app.emit('im:__bus__')`）的录放/对账装饰器集成方式已给权威 recipe → `crates/helix-driver-host/docs/external-host-instrumentation-recipe.md`（结论：装 `BatchSink` 非 `EventSink`；本仓已落地 `RecordingSink` 范例 + re-export，loopforge 走「直连 host 泛型壳 + RecordingSink 包 NativeEventSink」路径，零改 helix 引擎逻辑）
 - [x] `helix-driver-host` shared HTTP/WS client 边界阶段落地：native/ffi Rust 侧只留薄壳，业务模块不拥有网络 client，登录鉴权只作为 `HostNetworkConfig` + header/token 配置输入（剩余：真 Go smoke、WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback 完整接线）
 
 **P1（质量与性能）**
@@ -79,7 +79,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [x] E6 gate buffer 上限+主动 too_long（MAX_GATE_BUFFER=16384，超限清 buffer + emit too_long + sync 重拉，cursor 不回退；回归锚 ×2）
 - [x] E7 broadcast lagged 可感知（接收侧 EventReceiver/RecvOutcome::Lagged 显式上报；纠正承压评估 emit 侧定位错误——send 侧感知不到 lagged；回归锚 ×2）
 - [x] **B6 UpsertSpec conflict 列语义文档**（commit 9009b1f `feat/p2-quality` 待审）：`core/ports/storage.rs` batch_upsert doc 补 ON CONFLICT 三形态 + exclude 守卫语义
-- [ ] golden fixtures 工具链（im_trace 导出 → Tick 剧本）
+- [ ] golden fixtures 工具链（im_trace 导出 → Tick 剧本）。**金标帧（golden frame）P1 由 `loopforge-tauri-im` 推进**：loopforge 用投影录放装饰器（`RecordingSink`，见上 P0 recipe）抓真实运行的 input/output 对落金标帧，回灌本仓 `tests/fixtures/` 做录放回归
 
 **P2（性能尾巴 + 工程化）**
 - [x] **E8 timer 取消已 O(1)**（查证 no-op · 2026-06-23 · `feat/p2-quality`）：core `timer_map.peek/remove(id)` + host `timer.cancel` 均 HashMap O(1)；全仓 grep 无 retain/iter O(n) 取消扫描——**本就无活**，非「待加反向索引」（ROADMAP 旧描述误导）

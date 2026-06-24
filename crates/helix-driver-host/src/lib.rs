@@ -4,6 +4,7 @@ pub mod codec;
 pub mod dispatch;
 pub mod engine;
 pub mod http_cross;
+pub mod instrument;
 pub mod http_envelope;
 pub mod network;
 pub mod ops;
@@ -20,6 +21,7 @@ pub use http_cross::{
     AuthTokenRegistry, CrossCuttingHttp, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE,
 };
 pub use http_envelope::{base64_encode, run_http_envelope};
+pub use instrument::RecordingSink;
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,
 };

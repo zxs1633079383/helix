@@ -6,6 +6,14 @@
 
 ## §0 终态记录
 
+⚠️ PARTIAL Round-4 收口·28 条 e2e 裁决翻台账 + P1 修翻 1.2 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | docs+scripts scope commit | 未 push
+  ↳ **卡在**:UC e2e 维度未达 in-scope 100%——受 1 条 wire-bug(1.6 编辑) + data-dep(回声依赖数据态) + untested(host-cli 物理够不到/缺剧本)阻。
+  ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP **103/79** ✅满 · ② WS **18/18** ✅满 · ③ UC e2e-verified **25/37**(脚本含 header 3 处 prose 命中;**台账表格行真值 22/37**)。
+  ↳ **台账三态分布**(表格行 37 UC,主路径计)：**✅ e2e-verified 22** · **🔴 wire-bug 1**(1.6) · **⏭ data-dep 4 纯**(1.5/2.1/5.6/5.7) · **⬜ untested 10**(1.3/2.2/2.3/2.4/3.3/4.3/4.4/4.5/9/10)。22+1+4+10=37。另有 4 条次路径 data-dep 嵌在 verified 行内(5.5 消息置顶/6.2 add_manger/8 vote-readVote)。
+  ↳ **Round-4 净增 ✅**(12→22,+10)：**1.2 DOCUMENT**(P1 修 type 透传后由 wire-bug 翻 ✅·RAW type=DOCUMENT 原样回声非降级) · **3.1 会话已读**(post_read readMap=100) · **3.4 未读数**(readBits/readMap 态转移) · **5.4 群属性**(update_channel + update_channel_notice) · **5.5 频道置顶**(channelIsTop per-member) · **6.1 拉踢**(留存 678 收 type=leave post) · **6.2 管理员**(channel_member_role_updated) · **6.4 成员快照**(curl HTTP200 + im:read:result) · **1.7 转发**(createPosts HTTP200·WS 广播 host-cli 够不到=harness-gap) · **8 average/read**(im:read:result 回灌)。
+  ↳ **剩余 UC 及物理/数据阻因**：① 🔴 **1.6 编辑** = 真接线缺口——id 透传代码改动真实存在(wire-level 可证)但真 Go 对 posts/create+id 非空**零回声**,send_build.rs「id 非空→Go 当 update」系源码推断**未经真抓包验证**,真 Go 不成立·禁判 verified。② ⏭ data-dep 8(纯4+次4) = wire 对·回声依赖数据态(1.5 撤回需先沉淀可读 post / 2.1 cold-start / 5.6 公告 / 5.7 在线分组 / 5.5 消息置顶 + 5.6 announcement/list + 8 vote/readVote 坏id恒500 + 6.2 add_manger 仅 increment 洪泛)或 **host-cli 物理够不到独立 WS 帧**(写族 fire-and-forget·pin 回声依赖 Go 落库后投影)。③ ⬜ untested 10 = **1.3 文件上传**(host-cli 无 processMessageFiles 上传管线·物理够不到) / 2.2-2.4 sync-pull 路径 / 3.3 模板已收到 / 4.3-4.5 sync 大 gap+心跳剧本 / 9 书签 / 10 待办 = 命令已 wired·缺 e2e 剧本/数据/上传路径。
+  ↳ **验证**：`cargo test -p helix-im` **563/0** 绿 · HX-C001 `git diff -- crates/helix-core/` 空(零 core 改动) · 本 commit 仅动 docs+scripts scope(台账 + SESSION,无源码改动)。
+
 ✅ DONE Round-3 契约审计 + 6 场景真 Go e2e 翻台账 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | commit 7425acd..9e838a5(4 修复 commit) + 本次台账/SESSION | 未 push
   ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP 103/79 ✅满 · ② WS 18/18 ✅满 · ③ UC e2e-verified 14/37(脚本含 header 2 处 prose 命中;**台账表格行真值 12/37**)。in-scope 100% 判据(排除 search 集合七 + createUser/status goBlocked)未达——UC e2e 维度受 wire-bug 2 + data-dep/untested 阻。
   ↳ **台账三态分布**(表格行 37 UC)：**✅ e2e-verified 12** · **⏭ data-dep 8** · **🔴 wire-bug 2** · **⬜ untested 15**(12+8+2+15=37)。

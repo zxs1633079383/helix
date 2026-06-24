@@ -6,6 +6,13 @@
 
 ## §0 终态记录
 
+🎯 EXPECT module.rs 结构闸白名单治理：只做等价结构拆分，不改业务语义。可证伪断言：① 新增/修改文件限定为 helix-im module 职责拆分文件、`crates/helix-im/src/lib.rs`、`crates/helix-im/src/module.rs`、`scripts/structure-gate.sh`、`.claude/rules/code-structure-ddd.md`、`SESSION.md`、superpowers spec/plan 文档；② 不改 `crates/helix-core/**`，core 零运行时边界不触碰；③ 每个新 `crates/helix-im/src/*.rs` 文件 ≤300 行，`module.rs` 行数从 1316 显著下降，structure-gate baseline 只下调不上调；④ `./scripts/structure-gate.sh`、`cargo test -p helix-im`、`cargo test -p helix-core` 通过；⑤ `cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` 必要时通过。@2026-06-24 +0800 | 赌注 中 | 可逆 是
+
+✅ DONE module.rs 结构闸白名单治理 @2026-06-24 +0800 | branch `codex/module-structure-gate` worktree `worktrees/codex-module-structure-gate` | 未提交
+  ↳ `crates/helix-im/src/module.rs` 从 1316 行降到 432 行，baseline 从 1318 下调到 432（仍在 WHITELIST，未到 ≤300）。拆出 `send_flow.rs`(113) / `query_dispatch.rs`(66) / `sync_flow.rs`(201) / `lifecycle.rs`(291) / `port_reply.rs`(251)，全部 ≤300；`module.rs` 保留 ImModule 壳、分配器、WS dispatch、read_req_id、Module trait 路由与薄生命周期委托。
+  ↳ 验证：`./scripts/structure-gate.sh` PASS；`cargo test -p helix-im` PASS（仅既有 channel_tests unused import warning）；`cargo test -p helix-core` PASS；`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` PASS；`git diff --check` PASS；GitNexus `detect_changes(scope=all, worktree=...)` high risk 命中 handle_port_reply 主链，符合结构搬运预期；gpt-5.5 final review Approved / 无 blocking findings。
+  ↳ EXPECT 命中：未改 `crates/helix-core/**`；未上调 baseline；未放松 structure-gate；新 src 文件均 ≤300；行为等价靠原测试矩阵覆盖。无 DRIFT-PRED。
+
 ✅ DONE sync-increment UC-4.4 心跳 ping piggyback（cursors/allHash）@2026-06-24 +0800 | commit `6b35749`（branch feat/im-uc10-todo-assembly）| 6 文件 +376 行 | 未 push
   ↳ 新增 src/sync_increment.rs(136·RootCursor + all_hash_fnv1a FNV-1a 64bit 入参顺序无关 + heartbeat_root_cursors 确定性升序快照) + acl/to_effect.rs(ping_frame 签名扩 (seq,&[RootCursor])·帧体加 data.{cursors,allHash?}) + module.rs(ping caller) + state.rs(ChannelId::as_bytes) + lib.rs(pub mod) + tests/uc4_sync_increment_test.rs(6 测)。
   ↳ **契约审计真结论**：UC-4.1(hello 根群增量 increment_http_trigger)✅ · UC-4.2(sync/notify + SyncScheduler)✅ · UC-4.3(too_long emit_sync_too_long)✅ · **UC-4.5(incrementByChannelId 独立窗口兜底)✅ 并行会话已实现为 im_channel_load_increment_by_channel_id(channel_read.rs，endpoint/body/is_read 逐字对齐)——审计证实无需重造，仅加断言锚定** · **UC-4.4 ping piggyback 是唯一真缺口(ping_frame 原注释自陈 stub)→ 本 commit 落地**。

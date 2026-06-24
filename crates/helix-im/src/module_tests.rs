@@ -4,6 +4,7 @@
 use super::*;
 use helix_core::effect::TransportId;
 use helix_core::tick::InboundBytes;
+use helix_core::Effect;
 
 fn module_with_channel() -> ImModule {
     let mut m = ImModule::new(ImConfig::default());

@@ -6,6 +6,15 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Round-5 P1·UC-1.6 编辑真相调查 @2026-06-24 +0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① 现网编辑真端点 = **不存在**(预判 cses-client 消息正文不可改·UI「编辑」是回填重发/定时重建·Go 全 posts 路由无 posts/update)；② helix **无命令可加**(目标端点不存在·非 wire-bug·Round-4「id 非空→Go update」系源码误读)；③ 真 Go e2e(send 原消息→复用 postId 再发)回声 action **非 post_update**(应零回声/仅 post 新建·因 SavePostsBySend CreateBulk 无 OnConflict → 重复 PK 冲突)；④ 不动 helix-core(`git diff -- crates/helix-core/` 空·HX-C001)；⑤ `cargo test -p helix-im` 仍绿(本任务无源码改动)。
+
+✅ DONE Round-5 P1·UC-1.6 编辑真相调查定论 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | docs(ledger+SESSION)+scripts(新增 e2e) scope·**零源码改动** | 未 push
+  ↳ **verdict：UC-1.6 = verified-not-a-capability**(现网消息正文不可改·无编辑端点·已 wire 实证不存在)。三证：① **行为真源**(cses-client `message-v3/service/claude.md:299`「post 更新·**非正文编辑——消息正文不可改**」;UI「编辑」= `reEdit()`(message-item:891·仅失败消息·派 RE_EDIT_MESSAGE → chat-input:208 `setInputValue` 回填输入框重发) + 定时消息编辑(取消旧定时+重建)·**均非正文改**)。② **端点穷举**(Go `handlers.go:34-62` 22 posts 路由 + 真抓包 `真机curl真源§1` 普通 send `id:""`·**无 posts/update / posts/edit / editPost**;唯一 update 形 = `updatePostProps`=props/投票非正文);Go `CreateCsesPost→PreSave`(post.go:187)仅 `ID==""` 铸新 id·**无 update 分支**;落库 `SavePostsBySend`(cses_post_store.go:152)= `Post.CreateBulk().Exec()` **无 OnConflict** → id 复用=重复 PK INSERT 冲突 → consumer tx 失败 → **零 WS 推送**。③ **真 Go e2e**(`scripts/host-cli-uc16-edit-e2e.sh`·444@:8065)实测：send 原消息得 `action=post` 回声(server id `mtot567t9irdfj64ankynf1r9h`)→ `cmd im_send_message id=<原postId> text=edited` → **零 post/post_update 回声**(仅无关 increment_channel 洪泛)·与「INSERT 冲突无推送」吻合。
+  ↳ **纠错**：Round-3/4 的 `send_build.rs:66「id 非空→Go 当 update（UC-1.6）」` = **源码误读**(把转发/createPosts 的 id 身份字段误当编辑开关)。**helix 无命令可加·非 wire-bug**。**台账 wire-bug 清零**(原 1.2 已 Round-4 翻 ✅·1.6 本轮翻 ✅-not-a-capability)。
+  ↳ **e2e RAW 证据**：原 send → `{"action":"post","data":{"id":"mtot567t9irdfj64ankynf1r9h","message":"uc16-orig-...","type":"TEXT",...,"event_seq":2}}`;「编辑」(复用 id 再发)→ **无 post/post_update 帧**(零回声)。
+  ↳ **验证**：本任务**零源码改动**(只新增 e2e 脚本 + 改 docs ledger/SESSION)·`git diff -- crates/helix-core/` 空(HX-C001 ✓)·`git diff -- crates/helix-im/src/` 空(无出站命令改动)。新增 `scripts/host-cli-uc16-edit-e2e.sh`(e2e harness·非源码)。
+
 ⚠️ PARTIAL Round-4 收口·28 条 e2e 裁决翻台账 + P1 修翻 1.2 @2026-06-24 +0800 | branch feat/cses-round3-conformance-e2e | docs+scripts scope commit | 未 push
   ↳ **卡在**:UC e2e 维度未达 in-scope 100%——受 1 条 wire-bug(1.6 编辑) + data-dep(回声依赖数据态) + untested(host-cli 物理够不到/缺剧本)阻。
   ↳ **三表覆盖**(scripts/fullmap-coverage.sh)：① HTTP **103/79** ✅满 · ② WS **18/18** ✅满 · ③ UC e2e-verified **25/37**(脚本含 header 3 处 prose 命中;**台账表格行真值 22/37**)。

@@ -22,7 +22,13 @@
 > **2026-06-24 Round-4 真 Go e2e 续跑 + P1 修复翻台账**(28 条裁决,同环境 444 @ :8065):
 > P1 修 type 透传后 **UC-1.2 DOCUMENT** 由 wire-bug 翻 ✅(type 原样回声非降级);新 e2e-verified:
 > **3.1 会话已读·3.4 未读数·5.4 群属性(info+notice)·5.5 频道置顶·6.1 拉踢·6.2 管理员 member_role·6.4 成员快照·1.7 转发·8 average/read**。
-> **UC-1.6 编辑仍 🔴 wire-bug**:id 透传代码改动真实存在但真 Go 对 posts/create+id 非空零回声(源码推断未经真抓包),禁判 verified。
+> **2026-06-24 Round-5 UC-1.6 真相调查定论**(行为真源 cses-client + Go 路由/落库 + 真 Go e2e 三证):
+> **现网消息正文不可改·无编辑端点** → UC-1.6 改判 ✅ **verified-not-a-capability**(产品无此能力·已 wire 实证不存在)。
+> 纠 Round-3/4 误读:`send_build.rs:66「id 非空→Go 当 update」` = 把转发/createPosts 的 id 身份字段误当编辑开关;
+> 真相:① cses-client `claude.md:299` 明文「消息正文不可改」·UI「编辑」= `reEdit()` 回填输入框重发 + 定时消息取消重建(均非正文改);
+> ② Go 全 posts 路由无 posts/update·`CreateCsesPost→PreSave` 无 update 分支·`SavePostsBySend` CreateBulk 无 OnConflict → id 复用 = 重复 PK 冲突报错零推送;
+> ③ e2e `host-cli-uc16-edit-e2e.sh`(原 send 得 post 回声→复用 postId 再发)实测**零 post/post_update 回声**,与「冲突无推送」一致。
+> **helix 无命令可加**(目标端点不存在·非 wire-bug);**1.6 不再算 wire-bug**(wire-bug 清零)。
 > data-dep 诚实标注(命令达 Go·回声依赖数据态/host-cli 物理够不到):5.5 消息置顶 / 5.6 公告 / 8 vote/readVote(坏id 恒500) / 6.2 add_manger 次路径。
 
 | UC | 描述 | 状态 |
@@ -32,7 +38,7 @@
 | UC-1.3 | 发送图片/文件 | ⬜ untested (host-cli 无文件上传/processMessageFiles 管线·posts/create 底层路径已由 1.2/1.4 post 回声验证) |
 | UC-1.4 | 重发失败 | ✅ e2e-verified (重发=重走 posts/create·文本锚 RAW 帧 action=`post` self-echo 命中) |
 | UC-1.5 | 撤回 | ⏭ data-dep (revoke 体逐字对齐真源§3·Go 有端点·全 log 零 revoke:true → 需先沉淀可读 post 再撤方能观测广播) |
-| UC-1.6 | 编辑 | 🔴 wire-bug (Round-4 两轮真测·id 透传代码改动真实存在 wire-level 可证·但 posts/create+id 非空真 Go **零回声**·revoke 旁证连接链路完好·send_build.rs 注释「id 非空→Go 当 update」系源码推断未经真抓包·真 Go 不成立·端到端 wire 契约缺失→禁判 verified) |
+| UC-1.6 | 编辑 | ✅ verified-not-a-capability (Round-5 真相调查定论·**现网消息正文不可改·无编辑端点**) ── ① 行为真源 cses-client `message-v3/service/claude.md:299` 明文「**post 更新·非正文编辑——消息正文不可改**」;UI「编辑」实为两类**非正文编辑**:`reEdit()`(message-item:891·仅 `!isComplete` 失败消息·派 `RE_EDIT_MESSAGE`→`chat-input:208 setInputValue` **回填输入框重发**·非服务端改) + 定时消息编辑(chat-input:310·**取消旧定时+重建**·非改正文)。② 全 posts 路由(Go `handlers.go:34-62` 22 端点)+ 真抓包(`真机curl真源§1` 普通 send `id:""`)**无任何 posts/update / posts/edit / editPost 路由**;唯一 update 形 = `updatePostProps`(props/投票·非正文)。③ Go `CreateCsesPost→PreSave`(post.go:187)仅 `ID==""` 时铸新 id·**无 update 分支**;落库 `SavePostsBySend`(cses_post_store.go:152)= `Post.CreateBulk().Exec()` **无 OnConflict** → id 复用 = 重复 PK INSERT **冲突报错** → consumer tx 失败 → **零 WS 推送**。④ 真 Go e2e(`scripts/host-cli-uc16-edit-e2e.sh`·444@:8065·send 原消息得 `post` 回声 → `cmd im_send_message id=<原postId>` 复用 id)实测**零 post/post_update 回声**(仅无关 increment_channel 洪泛)·与「INSERT 冲突无推送」一致。**结论纠错**:Round-3/4 的 `send_build.rs:66「id 非空→Go 当 update」` 系**源码误读**(把 createPosts/转发的 id 身份字段误当编辑开关)·**非 helix wire-bug·helix 无命令可加**(目标端点根本不存在);UC-1.6 改判 = 产品无此能力·e2e 已 wire 实证不存在) |
 | UC-1.7 | 转发/合并转发 | ✅ e2e-verified (直连 curl 真源 POST /posts/createPosts HTTP200 SUCCESS·helix posts_relay CreatePostsCommand Effect::Http 已触发·WS post 广播 host-cli 物理够不到=harness-gap 非 wire-bug·HTTP200 为转发执行硬证) |
 | UC-1.8 | 快捷回复 emoji | ✅ e2e-verified (im_quick_reply→posts/quickReply·RAW post_update 带 quickReply[{emoji:👍,userIds:[444]}]) |
 | UC-1.9 | 加急+加急已读 | ✅ e2e-verified (im_urgent_post→posts/urgentPost·RAW post_update 带 expediteMap.recipients{555,678}+sender 444) |

@@ -69,10 +69,26 @@ grep -rn 'Send + .static' crates/helix-core/src/ports
 cargo check -p helix-core && cargo check -p helix-core --target wasm32-unknown-unknown
 ```
 
+## §4.5 ffi = native-target **单线程运行时**（非编译期 Send 放松，G-16）
+
+**防误传**：driver-ffi 的 pump 在 `current_thread` tokio runtime 单线程跑 core（`pump.rs`），这是
+**运行时**单线程，**不是编译期 Send 放松**：
+
+- **ffi 编译 target = native**（`aarch64-apple-darwin` 等经 C ABI），host engine bound 仍是
+  `MaybeSend = Send`（与 native multi-thread 同一份编译）。**单线程是怎么跑（current_thread），不是
+  类型签名怎么写**。
+- **禁因「ffi 单线程」放松 Send / 改 `MaybeSend`**：放松 Send 仅 `wasm32`（已归档，ADR-006）。ffi 与
+  native 共用同一 host 泛型核（`run_engine_loop`），改 Send bound 会同时影响 native，破双端复用。
+- 同理 **PI-3 五不变量③「同 key 写序」靠 `BoundedSpawner` N=1 单消费者保证**，与线程模型无关——
+  current_thread 下并发 worker task 仍交错 await，**禁因「单线程」放宽 N=1**（否则写序 bug）。
+- `FfiEventSink`/`FfiClock` 仍 `unsafe impl Send + Sync`（vtable 函数指针 + 不透明 ctx 线程无关），
+  满足 native-target 的 `EventSink: Send + Sync` bound——这是**满足**编译期 bound，不是放松它。
+
 ## §5 Recurrence Log
 | 日期 | session/commit | 现象 | 根因 |
 |---|---|---|---|
 | 2026-06-08 | review BLK-2 fix | timer send 被注释、触发路径断 | `Tick<'a>` 满足不了 `Sender<Tick<'static>>` → 改 bytes::Bytes |
+| 2026-06-25 | driver-ffi 全量接管 SPEC | 防「ffi 单线程→可放松 Send」误传 | ffi=native-target，单线程是运行时形态非编译期 Send 放松；放松 Send 仅 wasm32（已归档）|
 
 ## §6 关联
 - 上游：rules/runtime-agnostic-core.md §3 §4

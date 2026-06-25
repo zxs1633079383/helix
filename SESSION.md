@@ -6,6 +6,8 @@
 
 ## §0 终态记录
 
+🎯 EXPECT driver-ffi 全量接管 SPEC（§8 Phase 0-6）落地 + 自验证 + 出 Flutter 可 link 产物。可证伪断言：① `cargo check -p helix-driver-ffi` + `cargo clippy -p helix-driver-ffi -- -D warnings` + `cargo test -p helix-driver-ffi` 全过；② `cargo tree -p helix-core | grep -iE 'tokio\|sqlx\|reqwest\|web-sys\|tauri'` 仍空（HX-C001 零运行时不破）；③ `cargo test -p helix-driver-native -p helix-driver-host` 回归全过（native 零破坏）；④ `bash scripts/cpp-smoke.sh` PASS；⑤ **不新增任何 `extern "C"` 符号**（7 符号冻结：grep `pub unsafe extern "C"\|pub extern "C"` 计数不变）；⑥ `crates/helix-driver-ffi/src/api.rs` ≤733（baseline 不涨）+ 新测试放 `tests/` 独立文件 ≤300；⑦ 产出 `target/release/libhelix_driver_ffi.dylib` + `crates/helix-driver-ffi/helix.hpp`；⑧ event_sink.rs:72-79 借出契约 + vtable.now_ms 字段均不改 ABI（G-1/G-2 仅文档/注释）。@2026-06-25 +0800 | 赌注 中 | 可逆 是
+
 ✅ DONE 全 UC 快速 e2e 脚本逐命令 body 对准·真 Go PASS 10→33 @2026-06-24 19:20 +0800 | commit (pending·仅 `scripts/host-cli-FULL-uc-e2e.sh` + ledger) | 33/37 | main
   ↳ 落地：`scripts/host-cli-FULL-uc-e2e.sh` 一脚本双持久连接(444/678)一趟真 Go @:8065 **PASS=33 FAIL=0 SKIP=4**(连续 2 轮稳定)。零生产源码改(git diff core 空)。
   ↳ 三处决定性 harness 修复(10→33)：① 命令体键名对齐 outbound build()——大多 snake_case(`post_id`/`channel_id`/`user_ids`/`target_ids`/`reply_id`/`post_ids`/`start_time`/`end_time`)·旧脚本发 camelCase → `require_str` None → `ImError::Parse 缺/空必填` 命令静默丢弃(例外:im_template_received `{postId}`·im_channel_member_change `{channelId,leaveUsers}`)；② 读族命令必带 `req_id`(否则 fire-and-forget 不注册 OutboundReadReply → 零 im:read:result)；③ matcher 假阴:旧 `$(cat)`+多级管道在并发增长大文件+pipefail 偶发截断快照致风暴帧假 SKIP·改 `grep -cE` 直读文件 + `NO_COLOR=1` 关 tracing 着色(着色码曾插 `event=` 间致 emit 恒不匹配)。

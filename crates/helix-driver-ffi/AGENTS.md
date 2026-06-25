@@ -2,6 +2,7 @@
 
 > 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
 > 📱 **Flutter FFI 桌面 Demo（F4.5 · 仓外工程指针）→ [`docs/flutter-demo-pointer.md`](docs/flutter-demo-pointer.md)**（Flutter 工程在仓外 `/workspace/flutterWorkspace/helix_ffi_demo`，本仓不含 Dart/C++ 代码；含 B 模型链路图 + ptr 生命周期/销毁 6 步 + 阶段状态）。
+> 📜 **全量接管 SPEC（native → 全量 driver-ffi · all UC + HTTP + WS 冻结契约 + Gap 台账 + 分阶段实现计划）→ [`docs/SPEC-full-takeover.md`](docs/SPEC-full-takeover.md)**（已过 5-lens 对抗 review 修订，2026-06-25）。第一性原则：**driver-ffi 只导出 C ABI（helix.hpp + cdylib）；逻辑全在 core/im；手机端只渲染**。核心结论：**C ABI 面不随 UC 增长**（7 函数冻结，**89 出站/写命令 = 88 outbound + im_send_message**，是数据=name+JSON 非 C 符号）· **指令集合 = 数据契约** · vtable `now_ms`/`on_domain_events_batch` 由 **C++ shim host** 提供（非 Dart 直连）· **投影批=借出契约**（ptr 仅回调期间有效，shim memcpy 稳定化吸收 Dart 异步，**不加 free 符号**）· 性能不变量 PI-1..11 · Gap G-1..17。**review 关键修正**：G-1/G-2/G-4 从「P0 Rust 改码」降级为「契约澄清」（漏判 C++ shim host 层 → 误判 UAF/now_ms 方向）；真改码仅剩 max_blocking_threads 封顶 + PI-3/PI-6 守门测试 + PI-4 scratch 复用。实现 8 阶段**中途禁 cargo·最末统一验证**。
 
 ## 本 crate 是什么（C++ 直连薄壳 pump）
 

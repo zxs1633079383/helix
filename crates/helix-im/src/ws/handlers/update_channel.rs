@@ -48,6 +48,12 @@ impl WsMessageHandler for UpdateChannelHandler {
         let cols = crate::channel_write::collect_present(data);
         if let Some(eff) = crate::acl::to_effect::update_channel_partial(channel_id, cols) {
             out.push(eff);
+            // 独立 update_channel 推送（per-member 改群属性如对话置顶 channel/change/top·改群名/公告
+            // 等定向本人 PATCH）落库后须 emit `im:channel:update`（thin·{channel_id}）通知前端重查
+            // dialogList——否则前端拿不到信号，CL 区行不刷新（data-channel-top / -display-name 永停旧值）。
+            // 注：随 increment 批次而来的 channel 更新由 `increment_channel_end` 收尾统一 emit（本路径是
+            // 批次外的独立直推 frame，自身须配 emit）。emit 幂等（thin 信号仅触发重查·重复无害）。
+            out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         Ok(())
     }

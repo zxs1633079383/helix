@@ -67,6 +67,10 @@ pub struct PumpArgs {
 pub fn run(args: PumpArgs) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all() // 漏 enable_all → spawn_blocking await / timer park 异常
+        // blocking pool 上限封顶（PI-9 / G-11）：current_thread 默认 512，移动端弱网下 getaddrinfo
+        // DNS 解析 + rusqlite spawn_blocking 高并发可让线程暴涨。32 ≈ READ_POOL + max_http_inflight
+        // + 余量（防 DNS 风暴线程暴涨，非性能调优——封顶是安全闸，不是吞吐目标）。
+        .max_blocking_threads(32)
         .build()
     {
         Ok(rt) => rt,

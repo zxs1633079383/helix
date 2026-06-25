@@ -126,6 +126,20 @@ pub fn is_outbound(name: &str) -> bool {
     registry().map(|m| m.contains_key(name)).unwrap_or(false)
 }
 
+/// 返回闭集内该命令名的 **interned `&'static str`**（命中），否则 `None`（G-6 / PI-1）。
+///
+/// 闭集 = `OUTBOUND_COMMANDS` 注册的全部 88 命令名（registry 的 key 本就是 `&'static str`，
+/// 由各命令 `#[distributed_slice]` 注册时的 `&'static` 字面量提供）。FFI driver 边界据此把
+/// C 侧传入的命令名零分配映射成 `Cow::Borrowed`（命中），miss 走 `Cow::Owned` fallback（仍正确）。
+/// O(1) 查表（复用 cached `registry()` map）。`im_send_message`/`im_reconnect`/query 名不在 88
+/// outbound 闭集内 → miss → owned（低频，不影响热路径写命令的零分配保证）。
+pub fn canonical_command_name(name: &str) -> Option<&'static str> {
+    registry()
+        .ok()
+        .and_then(|m| m.get_key_value(name))
+        .map(|(k, _)| *k)
+}
+
 /// 该命令是否**读族**（spec06 缺陷A）：查注册表命令的 `is_read()`。未认领/构建失败 → `false`
 /// （写族缺省，不误注册回灌）。O(1) 查表。dispatch 据此决定读命令是否注册 `OutboundReadReply`。
 pub fn is_read(name: &str) -> bool {
@@ -146,9 +160,7 @@ pub fn outbound_command_count() -> usize {
 
 fn outbound_method(name: &str) -> &'static str {
     match name {
-        "im_team_quit"
-        | "im_bot_agent_config_delete"
-        | "im_bot_agent_channel_remove" => "DELETE",
+        "im_team_quit" | "im_bot_agent_config_delete" | "im_bot_agent_channel_remove" => "DELETE",
         "im_bot_list_visible"
         | "im_bot_token_list"
         | "im_bot_visible_user_list"

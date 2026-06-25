@@ -54,4 +54,6 @@ pub mod bot_agent;
 pub mod vote_score;
 
 // 对外单一入口：accepts_tick / module.rs dispatch / 集成测试都从此处取。
-pub use registry::{handle_outbound, is_outbound, is_read, outbound_command_count};
+pub use registry::{
+    canonical_command_name, handle_outbound, is_outbound, is_read, outbound_command_count,
+};

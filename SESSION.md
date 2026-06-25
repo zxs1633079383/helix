@@ -6,6 +6,17 @@
 
 ## §0 终态记录
 
+✅ DONE driver-ffi 全量接管 SPEC 实现+自验证+出产物 @2026-06-25 18:35 +0800 | commit b0e177c..76c7c1b | 5 阶段(Phase0-6) | helix/feat/ffi-full-uc-http-ws-contract
+  ↳ **5 commit**：b0e177c(Phase0 PERF-INVARIANTS+EXPECT) · d2d5d4d(P1契约澄清+name闭集免分配G-6+blocking封顶G-11+scratch复用PI-4+query清零G-10) · e988903(P3 cbindgen双配置 helix.h G-8) · cbfc72f(P5 守门测试 PI-3/PI-6/PI-11) · 76c7c1b(P6 HX-C002/C006 增补 G-16/G-1/G-5)。
+  ↳ **真改码**（局限 ffi + helix-im 1个pub fn）：event_sink scratch复用 · batch.rs encode_batch_into · pump max_blocking_threads(32) · api.rs canonical_command_name→Cow::Borrowed + helix_query out清零 · registry.rs +canonical_command_name(88命令闭集intern,O(1)复用cached map)。**零新增 extern C 符号**（7 冻结：create_with_network/destroy/set_header/remove_header/command/query/query_free，nm 实证）。
+  ↳ **G-1/G-2 仅文档**（review 修正不走回头路）：event_sink.rs:72-79 借出契约不动 · vtable.now_ms 字段保留 · host=C++ shim 写清 · 不加 helix_free_batch · 不改 ownership-transfer。
+  ↳ **验证全绿**：① `cargo check -p helix-driver-ffi` PASS(18s) ② `cargo tree -p helix-core | grep tokio/sqlx/reqwest/web-sys/tauri` 空(HX-C001) ③ `cargo test -p helix-driver-ffi` PASS(含 pi3_pi6_gate 2/2 · pi11_lifecycle_leak 2/2 · f5_egress_parity 2/2 · 全 34 测) ④ `cargo test -p helix-driver-native -p helix-driver-host -p helix-im` 回归全过(88 outbound count 不漂移) ⑤ `bash scripts/cpp-smoke.sh` PASS(0.05s,真 C++ link release cdylib+#include helix.hpp 端到端) ⑥ structure-gate PASS(api.rs 482≤733 · 镜像闸 OK) ⑦ 我的文件 clippy 零告警。
+  ↳ **产物**（绝对路径）：`target/release/libhelix_driver_ffi.dylib`(3.1MB) + `libhelix_driver_ffi.a`(49MB) + `crates/helix-driver-ffi/helix.hpp`(C++,9KB) + `crates/helix-driver-ffi/helix.h`(C 供 ffigen,8.6KB,含 typedef opaque + uintptr_t)。
+  ↳ **降级/标注**：G-8 cbindgen 双配置已落（生成 helix.h），但 ffigen 实测在仓外 Flutter 工程（本仓只保证 C 头语法干净）。G-3 lagged parity / PI-10 CPU 预算锚 M2。**真 android/ios 交叉编译 .so/.a 是仓外 NDK/toolchain 步骤**——host macOS dylib 仅证「Flutter 能 link 并驱动命令」，非已交叉编译。
+  ↳ **Flutter 现在能拿走**：release cdylib + helix.h（ffigen 可解析的 C 头）→ 仓外 Dart 用 NativeCallable 填 vtable(on_domain_events_batch shim memcpy 稳定化 + now_ms shim 同步)，经 7 个 C 符号驱动全部 89 出站命令 + WS + 投影回流，UI 全 Flutter 渲染、逻辑 100% Rust。
+
+⚡ DRIFT-PRED EXPECT 断言①含 `cargo clippy -p helix-driver-ffi -- -D warnings` 过，实际**该命令失败**——但失败源 = helix-core 既有 debt（auth.rs:44 from_str + engine.rs:124/144/172 needless_return，origin/main 上逐字预存，我未触碰 helix-core），`-p helix-driver-ffi -- -D warnings` 把 dep helix-core 的 lint 提为 error。我的 ffi/im 改动文件 clippy 零告警（已实证）。→ 候选教训：`cargo clippy -p <crate> -- -D warnings` 会把**依赖 crate** 的既有 lint 提为 error，验收命令若含 `-D warnings` 须先确认依赖树 clippy 干净 / 或限定 `--no-deps`，否则非本轮引入的上游 debt 会让验收假红。EXPECT 写「clippy 过」时未预见此（赌注中，可逆是）。
+
 🎯 EXPECT driver-ffi 全量接管 SPEC（§8 Phase 0-6）落地 + 自验证 + 出 Flutter 可 link 产物。可证伪断言：① `cargo check -p helix-driver-ffi` + `cargo clippy -p helix-driver-ffi -- -D warnings` + `cargo test -p helix-driver-ffi` 全过；② `cargo tree -p helix-core | grep -iE 'tokio\|sqlx\|reqwest\|web-sys\|tauri'` 仍空（HX-C001 零运行时不破）；③ `cargo test -p helix-driver-native -p helix-driver-host` 回归全过（native 零破坏）；④ `bash scripts/cpp-smoke.sh` PASS；⑤ **不新增任何 `extern "C"` 符号**（7 符号冻结：grep `pub unsafe extern "C"\|pub extern "C"` 计数不变）；⑥ `crates/helix-driver-ffi/src/api.rs` ≤733（baseline 不涨）+ 新测试放 `tests/` 独立文件 ≤300；⑦ 产出 `target/release/libhelix_driver_ffi.dylib` + `crates/helix-driver-ffi/helix.hpp`；⑧ event_sink.rs:72-79 借出契约 + vtable.now_ms 字段均不改 ABI（G-1/G-2 仅文档/注释）。@2026-06-25 +0800 | 赌注 中 | 可逆 是
 
 ✅ DONE 全 UC 快速 e2e 脚本逐命令 body 对准·真 Go PASS 10→33 @2026-06-24 19:20 +0800 | commit (pending·仅 `scripts/host-cli-FULL-uc-e2e.sh` + ledger) | 33/37 | main

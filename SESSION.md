@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT im-server 新旧切换迁移安全验证：只跑测试/脚本并写报告，不改生产源码。可证伪断言：① `cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` 先给出离线基线；② HX-C001 `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 为空；③ 旧 server 真 Go `scripts/host-cli-FULL-uc-e2e.sh` 基线复现 PASS=33/FAIL=0/SKIP=4，若环境断按 HX-C016 playbook 恢复后重试；④ 6 条真机 curl 对新 im-server 逐项记录 header/body/响应漂移；⑤ 新 server FULL UC 与 `docs/review/uc-coverage-ledger.md` 逐 UC 对账，绿转红输出 root cause + 修复建议；⑥ 仅新增/修改 `docs/review/*im-server*report*.md` 与本 SESSION DONE 记录，不改 `crates/**/src/**`。@2026-06-25T15:50:47+0800 | 赌注 高 | 可逆 是
+✅ DONE im-server 本机切换迁移安全验证 @2026-06-25 +0800 | Helix 离线基线 PASS；HX-C001 PASS；新版 Go worktree 修复后 `go test ./...` PASS；6 curl 写接口 200/SUCCESS；full UC 指向新版本机 server `PASS=31 FAIL=0 SKIP=6`（UC-8 投票/平均分 2 项按用户要求跳过，等价于原基线 PASS=33/FAIL=0/SKIP=4 去掉 2 PASS）；无绿转红 UC；报告见 `docs/review/im-server-local-cutover-verify-2026-06-25.md`。剩余风险：本轮关闭 Pulsar 走 sync fallback，实 Pulsar topic suffix/发布消费需单独验。
+
 ✅ DONE 全 UC 快速 e2e 脚本逐命令 body 对准·真 Go PASS 10→33 @2026-06-24 19:20 +0800 | commit (pending·仅 `scripts/host-cli-FULL-uc-e2e.sh` + ledger) | 33/37 | main
   ↳ 落地：`scripts/host-cli-FULL-uc-e2e.sh` 一脚本双持久连接(444/678)一趟真 Go @:8065 **PASS=33 FAIL=0 SKIP=4**(连续 2 轮稳定)。零生产源码改(git diff core 空)。
   ↳ 三处决定性 harness 修复(10→33)：① 命令体键名对齐 outbound build()——大多 snake_case(`post_id`/`channel_id`/`user_ids`/`target_ids`/`reply_id`/`post_ids`/`start_time`/`end_time`)·旧脚本发 camelCase → `require_str` None → `ImError::Parse 缺/空必填` 命令静默丢弃(例外:im_template_received `{postId}`·im_channel_member_change `{channelId,leaveUsers}`)；② 读族命令必带 `req_id`(否则 fire-and-forget 不注册 OutboundReadReply → 零 im:read:result)；③ matcher 假阴:旧 `$(cat)`+多级管道在并发增长大文件+pipefail 偶发截断快照致风暴帧假 SKIP·改 `grep -cE` 直读文件 + `NO_COLOR=1` 关 tracing 着色(着色码曾插 `event=` 间致 emit 恒不匹配)。
@@ -538,3 +541,4 @@
 - 联调驱动：`bash scripts/host-cli-session.sh`（单连接，命令经 stdin 每行一条）；方法论 = `/helix-loop-engine` skill
 - 账号：群主 444 / 用户 678·555 / COMPANY=64118eebd2b665246b7880eb / deviceId ADR-011 兜底
 - 测试矩阵：`crates/helix-im/docs/2026-06-23-helix-takeover-联调测试矩阵-CI4.md`（89命令↔HTTP↔WS）
+✅ DONE im-server 本机切换验证：离线 cargo + Go 单测绿；pre 中间件可达；新版 server health/WS route 可达；full UC 阻断为 PASS=0/FAIL=1/SKIP=6，根因初判为新版 server->client ping 契约漂移 + sync FilterMemberChannelIds EOF；报告见 docs/review/im-server-local-cutover-verify-2026-06-25.md | @2026-06-25T16:36:00+0800

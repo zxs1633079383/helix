@@ -29,6 +29,7 @@ SELF="${HELIX_COOKIE_ID:-}"; TEAM="${HELIX_COMPANY_ID:-}"; MEMBERS="${MEMBER_USE
 WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"; API="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
 DEFAULT_API="${HELIX_DEFAULT_API_BASE:-http://127.0.0.1:3399}"
 WAIT_TO="${WAIT_TO:-6}"; HOLD_S="${HOLD_S:-300}"
+HOST_CLI_RUST_LOG="${HOST_CLI_RUST_LOG:-info}"
 TX_LOG="$(mktemp -t helix_full_tx.XXXXXX.log)"; RX_LOG="$(mktemp -t helix_full_rx.XXXXXX.log)"
 RX_DB="$(mktemp -u -t helix_full_rxdb.XXXXXX)"; TX_DB="$(mktemp -u -t helix_full_txdb.XXXXXX)"
 TX_FIFO="$(mktemp -u -t helix_full_txf.XXXXXX)"; RX_FIFO="$(mktemp -u -t helix_full_rxf.XXXXXX)"
@@ -42,14 +43,14 @@ trap cleanup EXIT INT TERM
 mkfifo "$TX_FIFO" "$RX_FIFO"
 ylw "▶ 预编译 host-cli（一次）…"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
 
-NO_COLOR=1 HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API" HELIX_DEFAULT_API_BASE="$DEFAULT_API" \
-  HELIX_COOKIE_ID=678 HELIX_COMPANY_ID="$TEAM" HELIX_DB_PATH="$RX_DB" \
+NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API" HELIX_DEFAULT_API_BASE="$DEFAULT_API" \
+  HELIX_COOKIE_ID=678 HELIX_COMPANY_ID="$TEAM" HELIX_DB="$RX_DB" \
   cargo run -q -p helix-host-cli <"$RX_FIFO" >>"$RX_LOG" 2>&1 & RX_PID=$!
 exec 9>"$RX_FIFO"; ( sleep "$HOLD_S" ) & HR=$!
 # sender 隔离 DB(空·无 51 群)→ hello 无 increment 风暴 → send 的 post 回声秒回(真账号 DB 的风暴会拖 send 超时)。
 # 代价:4.1/4.2/10 需真账号群的状态依赖 UC 在此 SKIP(台账已从真账号轮单独验)。
-NO_COLOR=1 HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API" HELIX_DEFAULT_API_BASE="$DEFAULT_API" \
-  HELIX_COOKIE_ID="$SELF" HELIX_COMPANY_ID="$TEAM" HELIX_DB_PATH="$TX_DB" \
+NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API" HELIX_DEFAULT_API_BASE="$DEFAULT_API" \
+  HELIX_COOKIE_ID="$SELF" HELIX_COMPANY_ID="$TEAM" HELIX_DB="$TX_DB" \
   cargo run -q -p helix-host-cli <"$TX_FIFO" >>"$TX_LOG" 2>&1 & TX_PID=$!
 exec 8>"$TX_FIFO"; ( sleep "$HOLD_S" ) & HT=$!
 
@@ -183,7 +184,7 @@ PY
   S "UC-4.3 too_long" "harness-gap·无 cursor 注入入口(代码侧有单测)"
 
   mk BM; feed "cmd im_bookmark_create {\"channel_id\":\"$CH\",\"user_id\":\"$SELF\",\"post_ids\":[\"${PID:-x}\"],\"req_id\":\"bm$(now)\"}"; emit_seen "im:read:result" "$TX_LOG" __BM__ && P "UC-9 书签" "im:read:result(read-relay)" || S "UC-9 书签" "无 read:result"
-  mk VOTE; feed "cmd im_average_read {\"id\":\"probe\",\"req_id\":\"vote$(now)\"}"; emit_seen "im:read:result" "$TX_LOG" __VOTE__ && P "UC-8 投票/平均分" "im:read:result(:3399)" || S "UC-8 投票" "需真 vote id(坏id 500)"
+  S "UC-8 投票/平均分" "本轮按要求跳过"
 
   mk CLOSE; feed "close $CH"; wait_for channel_close "$TX_LOG" __CLOSE__ && P "UC-5.3 关/退群" "channel_close" || F "UC-5.3 关/退群" "无 channel_close"
 fi

@@ -1,0 +1,41 @@
+# cbindgen-c.toml — helix-driver-ffi **C** 头生成配置（供 Dart ffigen 消费，G-8）。
+#
+# 与 cbindgen.toml（C++，cpp-smoke 用）并存：
+#   - helix.hpp（language="C++"）：C++ 直连 smoke（scripts/cpp-smoke.sh）。
+#   - helix.h  （language="C"  ）：Dart `ffigen` 走 libclang 解析 C 头生成绑定——C++ 头会带
+#     `<ostream>/<new>` 等 C++ 污染让 ffigen 困惑，故单独出一份干净 C 头。
+#
+# ⚠️ 仓外 TODO（未在本仓实测）：Dart 侧 ffigen 对本 helix.h 的消费**需 Flutter 工程实测确认**
+#   （ffigen 配置 + `ffi.Size` 映射 usize，见 SPEC §5/§7-G14）。本仓只保证 C 头**语法干净可被
+#   libclang 解析**（cpp-smoke 不覆盖 C 头，C 头仅 ffigen 用）。
+#
+# ## HelixHandle 不透明处理（C 语法，与 C++ 不同）
+#
+# C 模式下 opaque pointer 用 typedef + forward-decl：
+#   typedef struct HelixHandle HelixHandle;
+# cbindgen exclude 后，函数签名里的 HelixHandle* 需要 after_includes 提供此声明才能编译。
+
+language = "C"
+
+# C 头用 include guard（pragma_once 在老 C 编译器不通用；ffigen/libclang 两者都吃，取保守）
+pragma_once = true
+
+# doc 注释风格：C 行注释
+documentation_style = "c"
+
+includes = []
+
+# HelixHandle 不透明 typedef（C 语法）：typedef struct 让函数签名中的 HelixHandle* 可编译。
+after_includes = "typedef struct HelixHandle HelixHandle;"
+
+[export]
+exclude = ["HelixHandle"]
+
+[fn]
+rename_args = "None"
+
+[struct]
+rename_fields = "None"
+
+[enum]
+rename_variants = "None"

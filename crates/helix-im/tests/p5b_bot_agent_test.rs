@@ -99,7 +99,10 @@ fn create_bot_builds_camel_body() {
     assert_eq!(body["channelId"], "c1");
     assert_eq!(body["conversationType"], "direct");
     assert!(body.get("session_id").is_none(), "禁 snake");
-    assert!(has_session_auth(&h), "session 命令必须显式标 X-Auth-Kind: session");
+    assert!(
+        has_session_auth(&h),
+        "session 命令必须显式标 X-Auth-Kind: session"
+    );
     assert!(err("im_create_bot", json!({ "text": "x" }))); // 缺 session_id
     assert!(err("im_create_bot", json!({ "session_id": "s" }))); // 缺 text
 }

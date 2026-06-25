@@ -57,11 +57,36 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
-    let props = post
-        .get("props")
-        .or_else(|| root.get("props"))
-        .map(|v| v.to_string())
-        .unwrap_or_default();
+    //
+    // UC-1.8 快捷回复：服务端 `post.ToMap()`（copy_post.go:72）把 emoji 反应作**顶层** `quickReply`
+    // 字段下发（`[{emoji, userIds:[...]}]`·post_update WS echo），不在 post.props 内。投影 fat 集只
+    // 携 props（13 键固定·projection-schema），故把顶层 quickReply **合并进 props.quickReply**——让
+    // 反应数据搭 props 顺风车进投影（契约 13 键不变·quickReply 寄生 props），前端从 props.quickReply
+    // 渲染 data-reactions。非 quickReply 类 post echo 顶层无此字段 → props 原样不动（零副作用）。
+    let props = {
+        let base = post
+            .get("props")
+            .or_else(|| root.get("props"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+        let quick_reply = post
+            .get("quickReply")
+            .or_else(|| root.get("quickReply"))
+            .filter(|v| !v.is_null());
+        match (base, quick_reply) {
+            (serde_json::Value::Object(mut map), Some(qr)) => {
+                map.insert("quickReply".to_string(), qr.clone());
+                serde_json::Value::Object(map).to_string()
+            }
+            (base, _) => {
+                if base.is_null() {
+                    String::new()
+                } else {
+                    base.to_string()
+                }
+            }
+        }
+    };
     // read_bits（C2 / type=6 真源 post.rs:1088 `readBits`）：服务端权威已读位字符串。
     // 兼容 readBits（Go camelCase wire）/ read_bits（snake 测试帧）；缺省空串。
     let read_bits = pick_str("readBits")

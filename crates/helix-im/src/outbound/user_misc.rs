@@ -29,7 +29,10 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use super::registry::{
+    build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
+    OUTBOUND_COMMANDS,
+};
 
 // ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
 
@@ -100,19 +103,35 @@ misc_cmd!(
 
 // ── teams/*（personal user → 403 PERSONAL_USER_FORBIDDEN，响应态，outbound 不裁决）─────────
 
-// #3 teams/upsert：维护公司大群（非 team 表）。真源 r.Body 原样透传（team.go:63 `UpsertTeam(session, r.Body)`）。
-// 现网前端传整个 team 对象 body；helix 直透传 `team`（不拆字段，由前端给完整 wire 对象）。
+// #3 teams/upsert：维护公司大群（非 team 表）。真源 r.Body = CreateChannelSpecifyOwner（team.go:63
+// `UpsertTeam(session, r.Body)`，wire body 即 team 对象，无外层包裹）。
+//
+// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{display_name, team_id, self_id,
+// member_ids:[]}`；team 对象 + users[] + owner(CREATOR) 业务赋值在此拼成，对齐真机curl真源 partials/3
+// §4：`{teamId, displayName, orient:"", type:"P", picturetype:"USER", picture:{userIds:[...]},
+// users:[{id,teamId,role}], forceCreate:true, owner:{id,teamId,role:"CREATOR"}}`。不携 `id` →
+// server 走建群分支（CreateCsesChannel·触 channel_created）。
 misc_cmd!(
     TeamUpsertCommand,
     TEAM_UPSERT_REG,
     "im_team_upsert",
     false,
     |args, cmd| {
-        let team = args
-            .get("team")
-            .filter(|v| v.is_object())
-            .cloned()
-            .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/坏 team（对象）")))?;
+        let display_name = require_str(args, "display_name", cmd)?;
+        let self_id = require_str(args, "self_id", cmd)?;
+        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+        let (users, user_ids) = build_creator_member_users(args, cmd)?;
+        let team = json!({
+            "teamId": team_id,
+            "displayName": display_name,
+            "orient": "",
+            "type": "P",
+            "picturetype": "USER",
+            "picture": { "userIds": user_ids },
+            "users": users,
+            "forceCreate": true,
+            "owner": { "id": self_id, "teamId": team_id, "role": "CREATOR" },
+        });
         Ok(("teams/upsert", team))
     }
 );

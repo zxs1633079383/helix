@@ -218,6 +218,42 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&
         .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空必填字段 '{key}'")))
 }
 
+/// 拼建群 / 话题 / 公司大群成员数组（业务赋值下沉 helix：self=CREATOR + 其他=MEMBER）。
+///
+/// 入参 snake_case 结构化 args（壳只传身份/列表，不拼 wire body）：`self_id`（必填·自身 cookieId）/
+/// `team_id`（可选·缺省 ""·companyId）/ `member_ids`（可选·其他成员 userId 列表·过滤空与自身）。
+/// 返回 `(users:[{id,teamId,role}], user_ids:[id,...])`——`user_ids` 供 `picture.userIds` 复用。
+/// role 赋值（CREATOR/MEMBER）属业务，在此收口；建群（channel/create）、话题（posts/makeTopic）、
+/// 公司大群（teams/upsert）三命令共用，对齐真机curl真源 §2/§4。
+pub(crate) fn build_creator_member_users(
+    args: &Value,
+    cmd: &str,
+) -> Result<(Vec<Value>, Vec<String>), ImError> {
+    let self_id = require_str(args, "self_id", cmd)?;
+    let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+    let mut users = vec![serde_json::json!({
+        "id": self_id,
+        "teamId": team_id,
+        "role": "CREATOR",
+    })];
+    let mut user_ids = vec![self_id.to_string()];
+    if let Some(arr) = args.get("member_ids").and_then(Value::as_array) {
+        for m in arr {
+            if let Some(mid) = m.as_str() {
+                if !mid.is_empty() && mid != self_id {
+                    users.push(serde_json::json!({
+                        "id": mid,
+                        "teamId": team_id,
+                        "role": "MEMBER",
+                    }));
+                    user_ids.push(mid.to_string());
+                }
+            }
+        }
+    }
+    Ok((users, user_ids))
+}
+
 /// 组装一条 `Effect::Http` 请求（Content-Type + connectionId 身份头 + 鉴权意图头）。
 ///
 /// 鉴权意图（`X-Auth-Kind`）统一显式下标：session/bot 都只标意图、不拼真凭据；driver 横切层据此

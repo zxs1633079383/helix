@@ -145,6 +145,43 @@ static REMOVE_MANGER_REG: OutboundRegistration = OutboundRegistration {
     command: &RemoveMangerCommand,
 };
 
+// ── UC-6.2 channel/add|remove/manger — 设/撤管理员（单命令·role + endpoint 路由下沉）──────
+/// **body + endpoint 路由成形下沉 helix（薄壳合规）**：壳只传结构化 args `{channel_id, user_id,
+/// team_id, set:bool}`；role 业务赋值（set=true→ADMIN / set=false→MEMBER）+ endpoint 路由
+/// （set=true→`channel/add/manger` / set=false→`channel/remove/manger`）+ users 单成员定点拼装
+/// 在此收口。users 四键 `{id,name,role,teamId}` 全 camelCase（id 定点键·name 仅展示留空·真源
+/// §19/§20）。与既有 Add/RemoveMangerCommand（直供 users[] 透传）并存：本命令是壳实际走的路由，
+/// 既有两条保留注册（无害·壳不再用）。
+struct SetMangerCommand;
+impl OutboundCommand for SetMangerCommand {
+    fn name(&self) -> &'static str {
+        "im_channel_set_manger"
+    }
+    fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        let channel_id = require_str(args, "channel_id", self.name())?;
+        let user_id = require_str(args, "user_id", self.name())?;
+        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+        let set = args
+            .get("set")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| ImError::Parse(format!("{}: 缺 set（bool）", self.name())))?;
+        // role 随设/撤切换（设=ADMIN·撤=MEMBER·与 WS channel_member_role_updated echo data.role 对齐）。
+        let role = if set { "ADMIN" } else { "MEMBER" };
+        let endpoint = if set {
+            "channel/add/manger"
+        } else {
+            "channel/remove/manger"
+        };
+        let users = json!([{ "id": user_id, "name": "", "role": role, "teamId": team_id }]);
+        Ok((endpoint, json!({ "channelId": channel_id, "users": users })))
+    }
+}
+#[distributed_slice(OUTBOUND_COMMANDS)]
+static SET_MANGER_REG: OutboundRegistration = OutboundRegistration {
+    name: "im_channel_set_manger",
+    command: &SetMangerCommand,
+};
+
 // ── #3 channels/enableApproval — 开/关群审批 → change_channel_approval ──────────────
 struct EnableApprovalCommand;
 impl OutboundCommand for EnableApprovalCommand {

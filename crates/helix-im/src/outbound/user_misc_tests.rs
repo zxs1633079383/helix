@@ -69,18 +69,23 @@ fn read_write_flags_correct() {
 
 // ── 既有写族 body 契约回归（camelCase 对齐现网）─────────────────────────────────────
 
-/// teams/upsert：整 team 对象透传（不拆字段）。
+/// teams/upsert：body 成形下沉 helix——壳传结构化 args，helix 拼 team 对象（owner CREATOR）。
 #[test]
-fn team_upsert_passthrough() {
+fn team_upsert_builds_team_object() {
     let (url, body) = dispatch(
         "im_team_upsert",
-        json!({ "team": { "id": "t1", "name": "公司大群", "users": [] } }),
+        json!({ "display_name": "公司大群", "self_id": "u1", "team_id": "t1", "member_ids": [] }),
     );
     assert_eq!(url, "http://h/api/cses/teams/upsert");
-    assert_eq!(body, json!({ "id": "t1", "name": "公司大群", "users": [] }));
+    assert_eq!(body["displayName"], "公司大群");
+    assert_eq!(body["teamId"], "t1");
+    assert_eq!(body["type"], "P");
+    assert_eq!(body["owner"]["role"], "CREATOR");
+    assert_eq!(body["users"][0]["role"], "CREATOR");
+    assert_eq!(body["forceCreate"], true);
 }
 
-/// teams/upsert：缺 team → Err（边界零信任，不 panic）。
+/// teams/upsert：缺 display_name/self_id → Err（边界零信任，不 panic）。
 #[test]
 fn team_upsert_rejects_missing() {
     let corr = Correlation::from_raw(1);

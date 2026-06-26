@@ -144,37 +144,67 @@ fn schedule_nests_post_and_schedulepostat() {
 }
 
 #[test]
-fn create_and_make_topic_passthrough_body_with_real_endpoint() {
+fn create_and_make_topic_build_body_with_real_endpoint() {
+    // body 成形下沉 helix：壳传结构化 args，helix 拼 wire body（role 业务赋值 self CREATOR）。
     let (url, body) = one_http(run(
         "im_create_channel",
-        json!({ "displayName": "g", "users": [{ "id": "u1" }] }),
+        json!({ "display_name": "g", "self_id": "u1", "team_id": "t1", "member_ids": [] }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
     assert_eq!(body["displayName"], "g");
+    assert_eq!(body["type"], "P");
+    assert_eq!(body["users"][0]["role"], "CREATOR");
+    assert_eq!(body["users"][0]["id"], "u1");
+    assert_eq!(body["forceCreate"], true);
 
-    let (url, body) = one_http(run("im_make_topic", json!({ "postId": "p1" })));
+    let (url, body) = one_http(run(
+        "im_make_topic",
+        json!({ "root_id": "r1", "post_id": "p1", "display_name": "话题", "self_id": "u1", "team_id": "t1", "member_ids": [] }),
+    ));
     assert_eq!(url, "http://x/api/cses/posts/makeTopic");
     assert_eq!(body["postId"], "p1");
+    assert_eq!(body["rootId"], "r1");
+    assert_eq!(body["type"], "T");
+    assert_eq!(body["users"][0]["role"], "CREATOR");
+
+    // 缺 post_id → Err（边界零信任，不崩）。
+    assert!(handle_outbound(
+        "im_make_topic",
+        &serde_json::to_vec(&json!({ "root_id": "r1", "display_name": "t", "self_id": "u1" })).unwrap(),
+        BASE,
+        BASE,
+        None,
+        corr(),
+    )
+    .is_err());
 }
 
 #[test]
-fn member_change_passthrough_body_with_real_endpoint() {
-    // 真机curl真源 §5：{channelId, joinUsers/leaveUsers} 直传，endpoint channel/member/change。
+fn member_change_build_body_with_real_endpoint() {
+    // body 成形下沉 helix：壳传 {channel_id, team_id, self_id, join_user_ids}，helix 拼 joinUsers[]。
     let (url, body) = one_http(run(
         "im_channel_member_change",
         json!({
-            "channelId": "ch_m",
-            "joinUsers": [{ "id": "u9", "teamId": "t1", "role": "MEMBER" }],
+            "channel_id": "ch_m",
+            "team_id": "t1",
+            "self_id": "me",
+            "join_user_ids": ["u9", "me"],
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/member/change");
     assert_eq!(body["channelId"], "ch_m");
+    // join 排除自身（me 被过滤），仅 u9 入 joinUsers，role=MEMBER。
+    assert_eq!(body["joinUsers"].as_array().unwrap().len(), 1);
     assert_eq!(body["joinUsers"][0]["id"], "u9");
+    assert_eq!(body["joinUsers"][0]["role"], "MEMBER");
+    assert_eq!(body["joinUsers"][0]["teamId"], "t1");
+    // 空 leave 集 → 字段省略（不发空数组）。
+    assert!(body.get("leaveUsers").is_none());
 
-    // 缺 channelId → Err（边界零信任，不崩）。
+    // 缺 channel_id → Err（边界零信任，不崩）。
     assert!(handle_outbound(
         "im_channel_member_change",
-        &serde_json::to_vec(&json!({ "joinUsers": [] })).unwrap(),
+        &serde_json::to_vec(&json!({ "join_user_ids": [] })).unwrap(),
         BASE,
         BASE,
         None,

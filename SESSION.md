@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+✅ DONE helix 联调/e2e 全面切 cses-im-server :8066 + host-cli 配置去 env 化（单一 helix.config.yaml / serde_norway）@2026-06-26 +0800 | helix `ee9fa8b..5db0d15`（ffi 全量接管 + uc-reclaim 修复挑 2 cherry-pick + backend-switch 去env/切:8066 + structure-gate 收口）· cses-im-server `c1cd3b2..de6e214`（A1 devLogFile+MultiWriter 日志同步 + 团队 GitLab CI 整合 + 清 NEED_FIX）| 两仓**已 push** | B3 连接 PASS（host-cli 经新 config 连 :8066，cses-im-server 日志 websocket connected + userId 444 + connectionId）· B4 首验：传输/HTTP/sync 切换通，`channel_created` 等 WS 广播 = **cses-im-server server-gap**（create 返 200 无广播，归档 cses/go/cses-im-server#3）| GitLab issue helix #2-#7 全关 · cses-im#1 关 | helix/main
+🔜 NEXT 「两端联调」端2 = **cses-im-server :8066**（连接参数单一真源 `helix.config.yaml`，dev-loop/e2e 经 `scripts/lib-config.sh` yq 读；server 用 `config.yaml.devLogFile` 自动写 `/tmp/cses-im-server.log`；**无 grpc/tp 隧道**，旧 mattermost:8065 已弃）。**待 cses-im#3（channel_created WS 广播）server 团队修复后，重跑 `bash scripts/host-cli-FULL-uc-e2e.sh` 全量 UC 应从 SKIP 转绿**。记忆见 [[helix-two-end-loop-debug]]。
+
 🎯 EXPECT scripts/lib-config.sh + ~13 脚本切 :8066 + 读 helix.config.yaml（GitLab issue cses/go/helix#4）@2026-06-26 +0800 | 赌注 中 | 可逆 是
   可证伪断言：① 新建 `scripts/lib-config.sh`，`bash -n scripts/lib-config.sh` PASS；② ~13 脚本均含 `source .*/lib-config.sh` 且 `bash -n` 全 PASS；③ `grep -rn '8065' scripts/` 仅余注释/文档行，无 active 默认值；④ `git diff --name-only HEAD -- crates/helix-core crates/helix-im crates/helix-driver-native crates/helix-driver-ffi` 空（引擎零改动）；⑤ host-cli 所有调用点均含 `--config "$HELIX_CONFIG_PATH"`。
 ✅ DONE scripts/lib-config.sh + ~13 脚本切 :8066 + 读 helix.config.yaml（GitLab issue cses/go/helix#4）@2026-06-26 +0800 | commit fc64821 | 14 files / 256(+) 181(-) | worktrees/backend-switch @feat/backend-switch-cses-im-server

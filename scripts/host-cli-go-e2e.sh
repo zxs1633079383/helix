@@ -5,16 +5,15 @@
 # 跑一次即可——native/ffi 复用同一栈，端的增量靠 smoke.cpp(边界) + F5(parity) 覆盖，不重跑本套。
 #
 # 前置（外部状态，脚本起不了，须你先起）：
-#   - Go mattermost :8065 + Java paas/x9 grpc(xpa-2-12-grpc) UP（见 SESSION §0 grpc 根因文档）
+#   - cses-im-server :8066 UP（IDEA 右击 run 或 go run ./cmd/server）
 #   - 一个真 channelId（冷启动落库的 257 之一）作非破坏操作靶
 # 用法：
-#   CHANNEL_ID=<真channelId> HELIX_COOKIE_ID=<userId> HELIX_COMPANY_ID=<companyId> \
-#     bash scripts/host-cli-go-e2e.sh
+#   CHANNEL_ID=<真channelId> bash scripts/host-cli-go-e2e.sh
+#   # 身份/端口从 helix.config.yaml 读取；覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID
 # 可选 env：
 #   CLOSE_CHANNEL_ID=<另一个可销毁channelId>   # 设了才跑 leave/close（破坏性，默认跳过防误删主靶）
 #   CREATE_BODY='{"displayName":"e2e","type":"P","users":[{"id":"<uid>","name":"x","role":"MEMBER","teamId":""}]}'
 #                                              # 设了才跑 create（需现网成员对象，脚本不臆造）
-#   HELIX_WS_URL / HELIX_API_BASE              # 默认 ws://127.0.0.1:8065/api/v4/websocket·http://127.0.0.1:8065/api/cses
 #   SETTLE_MS=2500                             # 每命令后等 WS 回推的毫秒（慢网调大）
 #
 # 断言：grep host-cli 日志里 `HELIX_DUMP_FRAMES` 的 `RAW WS inbound … frame=<Go JSON>` 行的 WS action 字符串
@@ -23,10 +22,13 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_e2e.XXXXXX.log)"
 SETTLE_MS="${SETTLE_MS:-2500}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -35,13 +37,10 @@ ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 # ── 前置检查 ────────────────────────────────────────────────
 fail_pre=0
 if [ -z "${CHANNEL_ID:-}" ]; then red "⛔ 缺 CHANNEL_ID（真 channelId 作非破坏操作靶）"; fail_pre=1; fi
-if [ -z "${HELIX_COOKIE_ID:-}" ]; then red "⛔ 缺 HELIX_COOKIE_ID（=userId 身份头，缺则 Go 判 session 过期）"; fail_pre=1; fi
 # Go 可达性：纯 TCP 端口探测（cses 不走 HTTP ping——ping 是 WS 推送，cses-client 无 ping 接口）。
-# 只确认 :8065 在监听即可；真正的「业务就绪」由 host-cli WS connect + hello 握手证（运行时自然暴露）。
-ws_host_port="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_host_port%%:*}"; ws_port="${ws_host_port##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-if ! nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null; then
-  red "⛔ Go WS 端口不可达：${ws_host}:${ws_port} —— 先起 mattermost :8065 + grpc(xpa-2-12-grpc)"; fail_pre=1
+# 只确认端口在监听即可；真正的「业务就绪」由 host-cli WS connect + hello 握手证（运行时自然暴露）。
+if ! nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null; then
+  red "⛔ Go WS 端口不可达：:$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1
 fi
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止（未跑任何命令）"; exit 2; }
 
@@ -52,14 +51,14 @@ now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 settle() { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }
 
 # 跑一组命令（逐行喂 host-cli，行间 settle 等 WS 回推），append 到 $LOG。
-# host-cli 读 stdin 到 quit/EOF；HELIX_DUMP_FRAMES=1 打印入站帧。
+# host-cli 读 stdin 到 quit/EOF；dump_frames=true 已在 helix.config.yaml 中设置。
 drive() {
   # ⚠️ 首个 settle 在命令**之前**：等 WS connect + hello 握手盖 connectionId 落定，
   # 否则第一条命令（如 send）会在 connectionId=None 时发 HTTP → Go 401/403 无回推
   #（对齐现网前端 pendingSends/businessReady gate：握手前不发业务请求）。
   { settle; for line in "$@"; do printf '%s\n' "$line"; settle; done; printf 'quit\n'; } \
-    | HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-      cargo run -q -p helix-host-cli >>"$LOG" 2>&1
+    | cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+        --cookie-id "$HELIX_COOKIE_ID" --company-id "$HELIX_COMPANY_ID" >>"$LOG" 2>&1
 }
 
 # 断言：日志里 RAW WS inbound 帧的 `"action": "<exact>"` = Go 真推了该 action。

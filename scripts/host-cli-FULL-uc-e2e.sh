@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # host-cli ↔ Go 全 UC 快速 e2e —— **单脚本 / 双持久连接 / wait_for 命中即返**。
-# 实跑 **PASS=33 / FAIL=0 / SKIP=4**（2026-06-24 连续 2 轮稳定·真 Go 444@:8065）。
+# 实跑 **PASS=33 / FAIL=0 / SKIP=4**（2026-06-24 连续 2 轮稳定·真 Go 444@:8066）。
 #
 # command/endpoint/body/expected 全部源自权威映射表(agent 源码核实·见 HX-C016)：
 #   - 读族(is_read)抓 `DomainEvent emit event=im:read:result`(非 WS action): 2.4/5.6/6.4/8/9/4.5
@@ -22,19 +22,24 @@
 #      → 风暴帧明明在盘上仍连续判空 = **假 SKIP**(4.1/4.2/5.7 长期误判)。改单次 `grep -cE` 直读文件即稳。
 #   配套 NO_COLOR=1 关 tracing fmt 着色（否则 `event\x1b[..m=\x1b[..m<name>` 着色码插在 `event=` 间·emit 匹配恒失败）。
 #
-# 用法: HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=<teamId> MEMBER_USERS_JSON='["678","555"]' WAIT_TO=8 bash scripts/host-cli-FULL-uc-e2e.sh
+# 用法: [HELIX_COOKIE_ID=444] [HELIX_COMPANY_ID=<teamId>] [MEMBER_USERS_JSON='["678","555"]'] [WAIT_TO=8] bash scripts/host-cli-FULL-uc-e2e.sh
+#   身份/端口默认从 helix.config.yaml 读取（lib-config.sh）
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
-SELF="${HELIX_COOKIE_ID:-}"; TEAM="${HELIX_COMPANY_ID:-}"; MEMBERS="${MEMBER_USERS_JSON:-[\"678\",\"555\"]}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"; API="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-DEFAULT_API="${HELIX_DEFAULT_API_BASE:-http://127.0.0.1:3399}"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
+SELF="${HELIX_COOKIE_ID}"; TEAM="${HELIX_COMPANY_ID}"; MEMBERS="${MEMBER_USERS_JSON:-[\"678\",\"555\"]}"
 WAIT_TO="${WAIT_TO:-6}"; HOLD_S="${HOLD_S:-300}"
 HOST_CLI_RUST_LOG="${HOST_CLI_RUST_LOG:-info}"
 TX_LOG="$(mktemp -t helix_full_tx.XXXXXX.log)"; RX_LOG="$(mktemp -t helix_full_rx.XXXXXX.log)"
 RX_DB="$(mktemp -u -t helix_full_rxdb.XXXXXX)"; TX_DB="$(mktemp -u -t helix_full_txdb.XXXXXX)"
 TX_FIFO="$(mktemp -u -t helix_full_txf.XXXXXX)"; RX_FIFO="$(mktemp -u -t helix_full_rxf.XXXXXX)"
 red(){ printf '\033[31m%s\033[0m\n' "$*"; }; grn(){ printf '\033[32m%s\033[0m\n' "$*"; }; ylw(){ printf '\033[33m%s\033[0m\n' "$*"; }
-[ -z "$SELF" ] && { red "缺 HELIX_COOKIE_ID"; exit 2; }; [ -z "$TEAM" ] && { red "缺 HELIX_COMPANY_ID"; exit 2; }
+[ -z "$SELF" ] && { red "缺 HELIX_COOKIE_ID（config 或 env）"; exit 2; }; [ -z "$TEAM" ] && { red "缺 HELIX_COMPANY_ID（config 或 env）"; exit 2; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 不可达 :$HELIX_GO_PORT —— ${HELIX_START_HINT}"; exit 2; }
 now(){ python3 -c 'import time;print(int(time.time()*1000))'; }
 
 TX_PID=""; RX_PID=""; HT=""; HR=""
@@ -43,15 +48,15 @@ trap cleanup EXIT INT TERM
 mkfifo "$TX_FIFO" "$RX_FIFO"
 ylw "▶ 预编译 host-cli（一次）…"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
 
-NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API" HELIX_DEFAULT_API_BASE="$DEFAULT_API" \
-  HELIX_COOKIE_ID=678 HELIX_COMPANY_ID="$TEAM" HELIX_DB="$RX_DB" \
-  cargo run -q -p helix-host-cli <"$RX_FIFO" >>"$RX_LOG" 2>&1 & RX_PID=$!
+NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DB="$RX_DB" \
+  cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id 678 --company-id "$TEAM" <"$RX_FIFO" >>"$RX_LOG" 2>&1 & RX_PID=$!
 exec 9>"$RX_FIFO"; ( sleep "$HOLD_S" ) & HR=$!
 # sender 隔离 DB(空·无 51 群)→ hello 无 increment 风暴 → send 的 post 回声秒回(真账号 DB 的风暴会拖 send 超时)。
 # 代价:4.1/4.2/10 需真账号群的状态依赖 UC 在此 SKIP(台账已从真账号轮单独验)。
-NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API" HELIX_DEFAULT_API_BASE="$DEFAULT_API" \
-  HELIX_COOKIE_ID="$SELF" HELIX_COMPANY_ID="$TEAM" HELIX_DB="$TX_DB" \
-  cargo run -q -p helix-host-cli <"$TX_FIFO" >>"$TX_LOG" 2>&1 & TX_PID=$!
+NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DB="$TX_DB" \
+  cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id "$SELF" --company-id "$TEAM" <"$TX_FIFO" >>"$TX_LOG" 2>&1 & TX_PID=$!
 exec 8>"$TX_FIFO"; ( sleep "$HOLD_S" ) & HT=$!
 
 feed(){ printf '%s\n' "$1" >&8; }; rfeed(){ printf '%s\n' "$1" >&9; }

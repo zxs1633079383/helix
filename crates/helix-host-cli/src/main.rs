@@ -3,12 +3,6 @@
 //! 把 `ExecutionShell` + `ImModule` + `NativeTransport` 接成端到端可跑闭环，
 //! 验证 `Effect::Send` 真正发到 WS（解锁「真连 Go」的上行半边）。
 //!
-//! ## A1 临时选择（见设计文档 §7 待决）
-//! - **host 主动 connect** 主 WS（`TransportId(0)`）。connect 触发模型
-//!   （`Effect::Connect` 意图 vs host 主动）留 **A2** 决策。
-//! - `cookieId`(=userId) 当前**只读不注入** header；身份头注入留 **A3**。
-//! - 入站 WS 帧 → `Tick::Inbound` 的 recv 接线留 **A2**（本 bin 只证上行）。
-//!
 //! ## 用法（去 env 化，PRD §4.1/§4.2）
 //! ```bash
 //! # 默认读 repo 根 ./helix.config.yaml（指 cses-im-server :8066）
@@ -246,7 +240,10 @@ async fn main() {
     } else {
         8
     };
-    tracing::info!(max_http_inflight, "Http 并发闸 N（runtime.http_max_inflight）");
+    tracing::info!(
+        max_http_inflight,
+        "Http 并发闸 N（runtime.http_max_inflight）"
+    );
 
     let config = EngineConfig {
         storage,

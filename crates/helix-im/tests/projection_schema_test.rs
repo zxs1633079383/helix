@@ -269,9 +269,26 @@ fn im_channel_update_freezes_channel_id_only() {
 
 #[test]
 fn im_post_sending_freezes_channel_and_temporary_id() {
-    // 乐观上屏：temporary_id 是 message 表 PK（前端按它定位乐观行）。
-    let e = to_effect::emit_post_sending(ch(), TMP_ID);
-    assert_frozen(&e, "im:post:sending", &["channel_id", "temporary_id"]);
+    // 乐观上屏：temporary_id 是 message 表 PK（前端按它定位乐观行）。S6（issue #55·C013）补
+    // render-ready 乐观终态行字段（msgId/temporaryId/channelId/eventSeq/sendStatus/readBits/text/type）→
+    // 前端 applyPostSending 退纯绑定（不再取 pendingText/pendingType）。snake 锚 channel_id/temporary_id 保留。
+    let e = to_effect::emit_post_sending(ch(), TMP_ID, "hello", "TEXT");
+    assert_frozen(
+        &e,
+        "im:post:sending",
+        &[
+            "channel_id",
+            "temporary_id",
+            "msgId",
+            "temporaryId",
+            "channelId",
+            "eventSeq",
+            "sendStatus",
+            "readBits",
+            "text",
+            "type",
+        ],
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -443,7 +460,7 @@ fn all_22_projection_factories_covered() {
     let f = sample_fields();
     let effects: Vec<Effect> = vec![
         to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f),
-        to_effect::emit_post_sending(ch(), TMP_ID),
+        to_effect::emit_post_sending(ch(), TMP_ID, "", "TEXT"),
         to_effect::emit_sync_too_long(ch(), Seq(1)),
         to_effect::emit_connection_established("c"),
         to_effect::emit_channels_loaded(),

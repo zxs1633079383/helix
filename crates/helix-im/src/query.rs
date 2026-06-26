@@ -94,9 +94,11 @@ pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> 
         serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));
     let payload = serde_json::json!({
         "event": "im:messages:query_result",
+        // messages 元素整形成 render-ready 终态行（S6·issue #55·C013）：前端 1:1 绑定，
+        // 不再壳内抽 DB snake 列 / 归一 readBits / dedup。外层键集 {channel_id, messages} 不变。
         "data": {
             "channel_id": channel_id.as_str(),
-            "messages": rows,
+            "messages": crate::render_ready::shape_message_rows(&rows),
         }
     });
     let bytes = Bytes::from(

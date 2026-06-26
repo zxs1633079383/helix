@@ -70,7 +70,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
 | `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `temporaryId` `channelId` `userId` `type` `message` `props` `createAt` `updateAt` `readBits` `viewers` `sendStatus` `reactions` `templateReceived` `systemNotice`）| WS `post` echo / sync type1 可见 |
-| `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` | 发送乐观上屏 |
+| `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `readBits` `text` `type`（S6·render-ready 乐观终态行·前端纯绑定）| 发送乐观上屏 |
 | `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` | sync kind=too_long |
 | `to_effect::emit_connection_established` | `im:connection:established` | `connectionId` | hello 握手完成 |
 | `to_effect::emit_channels_loaded` | `im:channels:loaded` | `items` | hello 冷启动补齐 |

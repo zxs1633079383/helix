@@ -34,6 +34,7 @@ pub mod query;
 mod query_dialog_render;
 mod query_dispatch;
 pub mod read_relay;
+pub mod render_ready;
 pub mod schema;
 mod send_flow;
 pub mod send_reconcile;

@@ -283,7 +283,7 @@ pub fn emit_older_loaded(state: &LoadOlderState) -> Effect {
         "event": "im:messages:older_loaded",
         "data": {
             "channelId": state.channel_id.as_str(),
-            "messages": messages,
+            "messages": crate::render_ready::shape_message_rows(&serde_json::Value::Array(messages)),
             "hasMore": state.has_more,
         }
     });

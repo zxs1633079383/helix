@@ -188,6 +188,50 @@ impl ImModule {
                 }
             },
 
+            // S7（issue #56）：byIds 成员快照读族回报 → 双 emit。
+            // Ok → ① 照旧透传 im:read:result{req_id, body}（UC-6.4 ② 冻结契约面）；
+            //       ② 解析 byIds body（map[channelId][]）逐 channel emit render-ready im:channel:members
+            //       （壳退纯绑定·载族自愈）。信封畸形 / Err → 仅回灌 read error（不丢 req_id，前端 reject）。
+            CorrelationContext::OutboundMembersByIds { req_id } => match outcome {
+                PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+                    Ok(raw_body) => {
+                        out.push(crate::read_relay::emit_read_result(
+                            &req_id,
+                            raw_body.as_ref(),
+                        ));
+                        let body: serde_json::Value = serde_json::from_slice(raw_body.as_ref())
+                            .unwrap_or(serde_json::Value::Null);
+                        for (cid, members) in
+                            crate::render_ready_members::members_from_byids_body(&body)
+                        {
+                            out.push(crate::render_ready_members::emit_channel_members(
+                                &cid,
+                                members,
+                                Vec::new(),
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            req_id = req_id.as_str(),
+                            error = ?e,
+                            "byIds members reply envelope decode failed"
+                        );
+                        out.push(crate::read_relay::emit_read_error(
+                            &req_id,
+                            "response envelope decode failed",
+                        ));
+                    }
+                },
+                PortOutcome::Err(e) => {
+                    tracing::warn!(req_id = req_id.as_str(), error = ?e, "byIds members http failed");
+                    out.push(crate::read_relay::emit_read_error(
+                        &req_id,
+                        "http request failed",
+                    ));
+                }
+            },
+
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
             // `im:todo:updated{items}`（解 data.channels[].posts[]，真源 channel.rs:252-296）。
             // Ok → 剥 ADR-007 信封得裸响应体 → emit_todo_updated（status≠SUCCESS/结构缺失 → 空

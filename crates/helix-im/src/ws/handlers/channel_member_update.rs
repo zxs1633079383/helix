@@ -53,6 +53,20 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
         out.push(crate::acl::to_effect_s1::emit_channel_member_updated(
             channel_id, &raw,
         ));
+
+        // S7（issue #56·C013 纯渲染壳）：额外 emit render-ready `im:channel:members`——把
+        // `role→admin` 业务规则 + 四源/join 合并下沉 helix，前端 `applyChannelMembers` 退纯绑定
+        // （keyed upsert + leaves 删行）。冻结的 `im:channel:member-updated`{channel_id,channel}
+        // 上面照旧 emit（UC-6.1 ② 契约面不变）；本投影是额外 render-ready 渲染通道。
+        let members = crate::render_ready_members::members_from_rows(
+            crate::channel_write::collect_members(data),
+        );
+        let leaves = crate::channel_write::collect_member_leaves(data);
+        out.push(crate::render_ready_members::emit_channel_members(
+            channel_id.as_str(),
+            members,
+            leaves,
+        ));
         Ok(())
     }
 }

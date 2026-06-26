@@ -321,16 +321,16 @@ impl Module for ImModule {
                         module: self.name(),
                         source: Box::new(e),
                     })?;
-                    // spec06 缺陷A：读族（无 WS 回声、HTTP 响应体即数据）注册 OutboundReadReply
-                    // 回灌上下文——PortReply 回报时把响应透传 emit `im:read:result{req_id, body}`。
-                    // 写族不注册（fire-and-forget，数据走 WS 回声，HTTP 响应仅 ack 可丢）。
-                    // req_id 取自 payload（前端 bridge 注入）；缺则降级 fire-and-forget（不注册，
-                    // 无法关联响应——前端非 bridge 调用走旧 ack 语义，边界零信任不 panic）。
+                    // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
+                    // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
                         if let Some(req_id) = read_req_id(cmd.payload.as_ref()) {
-                            self.state
-                                .corr_map
-                                .insert(corr, CorrelationContext::OutboundReadReply { req_id });
+                            let ctx = if name == "im_channels_members_by_ids" {
+                                CorrelationContext::OutboundMembersByIds { req_id }
+                            } else {
+                                CorrelationContext::OutboundReadReply { req_id }
+                            };
+                            self.state.corr_map.insert(corr, ctx);
                         }
                     }
                     for eff in effects {

@@ -242,8 +242,11 @@ fn emit_message_query_result_wraps_rows_under_messages() {
     let v = emit_json(emit_message_query_result(&cid, &rows)).expect("emit");
     assert_eq!(v["event"], "im:messages:query_result");
     assert_eq!(v["data"]["channel_id"], "ch00000000000000000000000a");
-    assert_eq!(v["data"]["messages"][0]["temporary_id"], "t1");
-    assert_eq!(v["data"]["messages"][1]["message"], "yo");
+    // S6（issue #55·C013）：messages 元素已整形成 render-ready 终态行（camelCase·前端 1:1 绑定）——
+    // 断言对齐 shape_message_rows 字段集：temporary_id→temporaryId·message→text·msgId 缺 server id 退 tmp。
+    assert_eq!(v["data"]["messages"][0]["temporaryId"], "t1");
+    assert_eq!(v["data"]["messages"][0]["msgId"], "t1");
+    assert_eq!(v["data"]["messages"][1]["text"], "yo");
 }
 
 #[test]

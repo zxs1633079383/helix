@@ -31,6 +31,7 @@ mod parser_post_props;
 pub mod pending_send;
 pub mod pong_compensate;
 mod port_reply;
+mod port_reply_emit;
 pub mod query;
 mod query_dialog_render;
 mod query_dispatch;

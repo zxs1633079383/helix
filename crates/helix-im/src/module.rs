@@ -327,6 +327,9 @@ impl Module for ImModule {
                         if let Some(req_id) = read_req_id(cmd.payload.as_ref()) {
                             let ctx = if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
+                            } else if name == "im_get_replies" || name == "im_get_reply_branch" {
+                                // S8：回复族 → 双 emit（im:read:result 冻结 + im:channel:replies render-ready）。
+                                CorrelationContext::OutboundReplies { req_id }
                             } else {
                                 CorrelationContext::OutboundReadReply { req_id }
                             };

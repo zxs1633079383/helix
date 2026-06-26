@@ -59,6 +59,13 @@ pub enum CorrelationContext {
     /// 与 `OutboundReadReply` 分变体仅为携带「这是 byIds 成员快照」语义（generic 读族不解析 body）。
     OutboundMembersByIds { req_id: String },
 
+    /// S8 回复族（UC-2.4·issue #57）：`im_get_replies` / `im_get_reply_branch` HTTP 回报。
+    ///
+    /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` **双 emit**：
+    /// `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）+ `im:channel:replies{reqId,
+    /// replyIds}`（render-ready 渲染通道·壳纯绑定）。`req_id` 前端 bridge 注入（与 corr 解耦·HX-C002）。
+    OutboundReplies { req_id: String },
+
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,
 

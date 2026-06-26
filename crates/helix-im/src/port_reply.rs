@@ -232,6 +232,48 @@ impl ImModule {
                 }
             },
 
+            // S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → **双 emit**。
+            // Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
+            //   + emit `im:channel:replies{reqId, replyIds}`（render-ready·helix 抽好 postId·壳纯绑定）。
+            // 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
+            CorrelationContext::OutboundReplies { req_id } => match outcome {
+                PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+                    Ok(raw_body) => {
+                        out.push(crate::read_relay::emit_read_result(
+                            &req_id,
+                            raw_body.as_ref(),
+                        ));
+                        let body: serde_json::Value = serde_json::from_slice(raw_body.as_ref())
+                            .unwrap_or(serde_json::Value::Null);
+                        let ids = crate::render_ready_replies::extract_reply_ids(&body);
+                        out.push(crate::render_ready_replies::emit_channel_replies(&req_id, ids));
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            req_id = req_id.as_str(),
+                            error = ?e,
+                            "replies reply envelope decode failed"
+                        );
+                        out.push(crate::read_relay::emit_read_error(
+                            &req_id,
+                            "response envelope decode failed",
+                        ));
+                        out.push(crate::render_ready_replies::emit_channel_replies(
+                            &req_id,
+                            Vec::new(),
+                        ));
+                    }
+                },
+                PortOutcome::Err(e) => {
+                    tracing::warn!(req_id = req_id.as_str(), error = ?e, "replies http failed");
+                    out.push(crate::read_relay::emit_read_error(&req_id, "http request failed"));
+                    out.push(crate::render_ready_replies::emit_channel_replies(
+                        &req_id,
+                        Vec::new(),
+                    ));
+                }
+            },
+
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
             // `im:todo:updated{items}`（解 data.channels[].posts[]，真源 channel.rs:252-296）。
             // Ok → 剥 ADR-007 信封得裸响应体 → emit_todo_updated（status≠SUCCESS/结构缺失 → 空

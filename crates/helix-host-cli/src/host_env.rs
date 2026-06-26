@@ -1,31 +1,35 @@
 //! host 环境派生（DB 路径 + 设备 id）—— 从 `main.rs` 抽出，守 src ≤300 行（structure-gate §1）。
 //!
+//! 配置去 env 化后（PRD §4.2）这里**不再读 `HELIX_*` 配置 env**：网关拓扑 / DB / tenant
+//! 由调用方从 `Config` 派生后传入。仅保留 `HOME`（OS 级 env，非 HELIX 配置）+ 设备 id 探测。
 //! 全是 ambient API（`std::env`/`std::fs`/`std::process`）。host 是其合法落点
 //! （本 crate clippy `disallowed_methods=allow`）——core/im 才 deny。
 
-/// 派生第二（默认业务）网关 base（spec06 方案 A）：vote/score 走 env.restHost（无 `/api/cses`）。
-/// `HELIX_DEFAULT_API_BASE` env 覆盖 > `api_base` 去 `/api/cses` 尾段（host 注入网关拓扑，HX-C001）。
-pub fn default_api_base(api_base: &str) -> String {
-    std::env::var("HELIX_DEFAULT_API_BASE")
-        .unwrap_or_else(|_| api_base.trim_end_matches("/api/cses").to_string())
+/// 派生第二（默认业务）网关 base（spec06 方案 A）：vote/score 走 restHost（无 `/api/cses`）。
+/// `configured`（= `connection.default_api_base`）非空则用之 > `api_base` 去 `/api/cses` 尾段
+/// （host 注入网关拓扑，HX-C001）。
+pub fn default_api_base(api_base: &str, configured: &str) -> String {
+    if !configured.is_empty() {
+        configured.to_string()
+    } else {
+        api_base.trim_end_matches("/api/cses").to_string()
+    }
 }
 
 /// 派生 SQLite DB 绝对路径（多租户，对齐现网 678 真库目录）。
 ///
 /// 优先级（高 → 低）：
-/// 1. `HELIX_DB` env 显式设置 → 直接返回（测试/调试逃生口，保留旧 `/tmp` 能力）。
+/// 1. `configured_db`（= `runtime.db`）非空 → 直接返回（显式覆盖，保留旧 `/tmp` 能力）。
 /// 2. 派生路径 `~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db`：
 ///    - bundle identifier `com.jinqidongli.cses.dev` 硬编码（与 678 真库目录一致）。
-///    - `<tenant>` 取值（高 → 低）：`HELIX_TENANT` > `cookie_id`(=userId，对齐 cses-client
-///      tenant_key = userId) > 字面 `"default"`。
+///    - `<tenant>` 取值（高 → 低）：`configured_tenant`（= `identity.tenant`）>
+///      `cookie_id`(=userId，对齐 cses-client tenant_key = userId) > 字面 `"default"`。
 ///    - 返回前 `create_dir_all` 父目录（失败则退回 `/tmp` 兜底）。
 /// 3. 取不到 `$HOME` → `/tmp/helix_host_cli.db` 兜底。
-pub fn resolve_db_path(cookie_id: &str) -> String {
-    // ① HELIX_DB 显式覆盖（铁律：设置即用，跳过派生）。
-    if let Ok(explicit) = std::env::var("HELIX_DB") {
-        if !explicit.is_empty() {
-            return explicit;
-        }
+pub fn resolve_db_path(cookie_id: &str, configured_db: &str, configured_tenant: &str) -> String {
+    // ① 显式 db 覆盖（铁律：设置即用，跳过派生）。
+    if !configured_db.is_empty() {
+        return configured_db.to_string();
     }
 
     // ② 派生 base_dir = ~/Library/Application Support/com.jinqidongli.cses.dev
@@ -35,11 +39,13 @@ pub fn resolve_db_path(cookie_id: &str) -> String {
         return "/tmp/helix_host_cli.db".to_string();
     };
 
-    let tenant = std::env::var("HELIX_TENANT")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| (!cookie_id.is_empty()).then(|| cookie_id.to_string()))
-        .unwrap_or_else(|| "default".to_string());
+    let tenant = if !configured_tenant.is_empty() {
+        configured_tenant.to_string()
+    } else if !cookie_id.is_empty() {
+        cookie_id.to_string()
+    } else {
+        "default".to_string()
+    };
 
     let dir = std::path::Path::new(&home)
         .join("Library")

@@ -10,23 +10,25 @@
 #     host-cli 无 status 打印，记 data-dep（HTTP 出站已发，回声依赖数据/落库后投影）。
 #   - 全在**自建一次性频道**上跑，destructive 安全（close 只销自建的）。
 #
-# 前置：Go mattermost :8065 + Java paas/x9 grpc UP。
+# 前置：cses-im-server :8066 UP（IDEA 右击 run 或 go run ./cmd/server）。
 # 用法：
-#   HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=64118eebd2b665246b7880eb \
-#     MEMBER_USERS_JSON='["678","555"]' SETTLE_MS=2800 \
-#     bash scripts/host-cli-channel-admin-e2e.sh
+#   [MEMBER_USERS_JSON='["678","555"]'] SETTLE_MS=2800 bash scripts/host-cli-channel-admin-e2e.sh
+#   # 身份/端口从 helix.config.yaml 读取；覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID
 #
 # **只读 / 只抓帧脚本，不改生产代码 / 不改台账 / 不 push**。
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_chadmin_e2e.XXXXXX.log)"
 SETTLE_MS="${SETTLE_MS:-2800}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"
-SELF_ID="${HELIX_COOKIE_ID:-}"
+TEAM_ID="${HELIX_COMPANY_ID}"
+SELF_ID="${HELIX_COOKIE_ID}"
 MEMBER_USERS_JSON="${MEMBER_USERS_JSON:-[\"678\",\"555\"]}"
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -34,11 +36,9 @@ grn() { printf '\033[32m%s\033[0m\n' "$*"; }
 ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 fail_pre=0
-[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（=userId 身份头）"; fail_pre=1; }
-[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（=teamId）"; fail_pre=1; }
-ws_host_port="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_host_port%%:*}"; ws_port="${ws_host_port##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 不可达：${ws_host}:${ws_port}"; fail_pre=1; }
+[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; fail_pre=1; }
+[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; fail_pre=1; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 不可达：:$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1; }
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止"; exit 2; }
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
@@ -46,9 +46,9 @@ settle() { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }
 
 drive() {
   { settle; for line in "$@"; do printf '%s\n' "$line"; settle; done; printf 'quit\n'; } \
-    | HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-      RUST_LOG='info,helix_im=debug,helix_driver_host=debug' \
-      cargo run -q -p helix-host-cli >>"${LOG}" 2>&1
+    | RUST_LOG='info,helix_im=debug,helix_driver_host=debug' \
+      cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+        --cookie-id "$SELF_ID" --company-id "$TEAM_ID" >>"${LOG}" 2>&1
 }
 
 declare -a RESULTS

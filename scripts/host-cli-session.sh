@@ -7,26 +7,30 @@
 #
 # 用法：命令列表经 stdin（每行一条），或管道：
 #   printf 'read CH\nnickname CH 新名\nsend CH hi\n' | scripts/host-cli-session.sh
-# env：HELIX_COOKIE_ID/COMPANY_ID（必给身份）/ WS_URL/API_BASE / SETTLE_SEC(默认5) / WARMUP_SEC(默认7) / HLOG / HELIX_DB
+# env：SETTLE_SEC(默认5) / WARMUP_SEC(默认7) / HLOG / HELIX_DB
+#      身份/端口从 helix.config.yaml 读取（覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID）
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-GOLOG="${GOLOG:-/Users/mac28/workspace/mmlog/mattermost.log}"
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
+GOLOG="${HELIX_GO_LOG}"
 SETTLE="${SETTLE_SEC:-5}"; WARMUP="${WARMUP_SEC:-7}"
-export HELIX_DUMP_FRAMES=1
 export RUST_LOG="${RUST_LOG:-info,helix_im=debug,helix_driver_host=debug}"
 TS=$(date +%s)
 export HELIX_DB="${HELIX_DB:-/tmp/helix_session_${TS}.db}"
 HLOG="${HLOG:-/tmp/helix_session_${TS}.log}"
 
-lsof -nP -iTCP:8065 -sTCP:LISTEN -t >/dev/null 2>&1 || { echo "⛔ Go :8065 未监听"; exit 2; }
+lsof -nP -iTCP:"$HELIX_GO_PORT" -sTCP:LISTEN -t >/dev/null 2>&1 || { echo "⛔ Go :$HELIX_GO_PORT 未监听 — ${HELIX_START_HINT}"; exit 2; }
 echo "▶ 构建 host-cli"; cargo build -p helix-host-cli --quiet || { echo "⛔ build 失败"; exit 1; }
 GOBASE=$(wc -l < "$GOLOG" 2>/dev/null || echo 0)
 
 FIFO=$(mktemp -u /tmp/helix_fifo.XXXXXX); mkfifo "$FIFO"
 # 单连接铁律：先起 reader（host-cli < fifo，open 阻塞等 writer），再 exec 3>fifo 占住写端解锁。
 # 占住写端期间 host-cli stdin 永不 EOF → 连接靠心跳 ping-pong 保活，命令逐条喂。
-timeout 180 ./target/debug/helix-host-cli < "$FIFO" > "$HLOG" 2>&1 &
+timeout 180 ./target/debug/helix-host-cli --config "$HELIX_CONFIG_PATH" < "$FIFO" > "$HLOG" 2>&1 &
 HPID=$!
 exec 3>"$FIFO"
 echo "▶ 等 ${WARMUP}s：一次 connect+hello+increment(45ch)+sync 落定（全程仅此一次）"

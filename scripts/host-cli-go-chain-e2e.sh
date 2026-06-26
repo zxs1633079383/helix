@@ -10,25 +10,26 @@
 # 定位：验「helix-im 各 outbound 请求体已对齐现网真源（真机curl真源.md）」后，真连 Go 看 13 action 全绿。
 #
 # 前置（外部状态，脚本起不了，须你先起）：
-#   - Go mattermost :8065 + Java paas/x9 grpc UP
+#   - cses-im-server :8066 UP（IDEA 右击 run 或 go run ./cmd/server）
 # 用法：
-#   HELIX_COOKIE_ID=<userId> HELIX_COMPANY_ID=<teamId> \
-#     [SEND_CHANNEL_ID=<现成可发频道>] \
-#     bash scripts/host-cli-go-chain-e2e.sh
+#   [SEND_CHANNEL_ID=<现成可发频道>] bash scripts/host-cli-go-chain-e2e.sh
+#   # 身份/端口从 helix.config.yaml 读取；覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID
 # 可选 env：
 #   MEMBER_USERS_JSON='["0212fb861cea5be6","444"]'   # 建群/转话题/改成员的同公司成员 userId 列表
-#   HELIX_WS_URL / HELIX_API_BASE
 #   SETTLE_MS=2500
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_chain_e2e.XXXXXX.log)"
 SETTLE_MS="${SETTLE_MS:-2500}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"
-SELF_ID="${HELIX_COOKIE_ID:-}"
+TEAM_ID="${HELIX_COMPANY_ID}"
+SELF_ID="${HELIX_COOKIE_ID}"
 MEMBER_USERS_JSON="${MEMBER_USERS_JSON:-[\"0212fb861cea5be6\",\"444\"]}"
 SEND_CHANNEL_ID="${SEND_CHANNEL_ID:-}"   # 现成可发频道（非破坏靶，type P）；create 失败时作 fallback 跑后续
 
@@ -38,11 +39,9 @@ ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 # ── 前置检查 ────────────────────────────────────────────────
 fail_pre=0
-[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（=userId 身份头）"; fail_pre=1; }
-[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（=teamId，create body / paas-grpc 必需）"; fail_pre=1; }
-ws_host_port="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_host_port%%:*}"; ws_port="${ws_host_port##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 端口不可达：${ws_host}:${ws_port}"; fail_pre=1; }
+[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; fail_pre=1; }
+[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; fail_pre=1; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 端口不可达：:$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1; }
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止"; exit 2; }
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
@@ -51,8 +50,8 @@ settle() { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }
 # 逐行喂 host-cli（行间 settle 等 WS 回推），append 到 ${LOG}。首 settle 在命令**之前**等 hello 握手。
 drive() {
   { settle; for line in "$@"; do printf '%s\n' "$line"; settle; done; printf 'quit\n'; } \
-    | HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-      cargo run -q -p helix-host-cli >>"${LOG}" 2>&1
+    | cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+        --cookie-id "$SELF_ID" --company-id "$TEAM_ID" >>"${LOG}" 2>&1
 }
 
 # 精确匹配 RAW WS inbound 帧的 `"action": "<exact>"`；action 支持 `a|b` 备选。

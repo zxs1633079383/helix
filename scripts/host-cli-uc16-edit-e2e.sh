@@ -8,23 +8,25 @@
 # postId 作 body.id（模拟「编辑」）③ 观察真回声 action —— 若仍 `post`（新建）或零回声而非 `post_update`，
 # 证实「编辑 = 不存在的能力 / 至多新建」。
 #
-#   HELIX_COOKIE_ID=<userId> HELIX_COMPANY_ID=<teamId> \
-#     [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-uc16-edit-e2e.sh
+#   [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-uc16-edit-e2e.sh
+#   # 身份/端口从 helix.config.yaml 读取；覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_uc16.XXXXXX.log)"
 SETTLE_MS="${SETTLE_MS:-1500}"; WAIT_TO="${WAIT_TO:-12}"; IDLE_HOLD_S="${IDLE_HOLD_S:-180}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"; SELF_ID="${HELIX_COOKIE_ID:-}"
+TEAM_ID="${HELIX_COMPANY_ID}"; SELF_ID="${HELIX_COOKIE_ID}"
 MEMBER_USERS_JSON="${MEMBER_USERS_JSON:-[\"678\",\"555\"]}"
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
 ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
-[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID"; exit 2; }
-[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID"; exit 2; }
-ws_hp="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"; ws_host="${ws_hp%%:*}"; ws_port="${ws_hp##*:}"
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 不可达 ${ws_host}:${ws_port}"; exit 2; }
+[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; exit 2; }
+[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; exit 2; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 不可达 :$HELIX_GO_PORT —— ${HELIX_START_HINT}"; exit 2; }
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
 settle()  { python3 -c "import time;time.sleep(${SETTLE_MS}/1000)"; }
 TX_FIFO="$(mktemp -u -t helix_uc16_fifo.XXXXXX)"; CLI_PID=""; HOLDER_PID=""
@@ -33,9 +35,8 @@ cleanup() { exec 9>&- 2>/dev/null || true; [ -n "$HOLDER_PID" ] && kill "$HOLDER
 trap cleanup EXIT INT TERM
 mkfifo "$TX_FIFO"
 ylw "▶ 预编译 host-cli"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
-HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-  HELIX_COOKIE_ID="$SELF_ID" HELIX_COMPANY_ID="$TEAM_ID" \
-  cargo run -q -p helix-host-cli <"$TX_FIFO" >>"$LOG" 2>&1 &
+cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id "$SELF_ID" --company-id "$TEAM_ID" <"$TX_FIFO" >>"$LOG" 2>&1 &
 CLI_PID=$!; exec 9>"$TX_FIFO"; ( sleep "$IDLE_HOLD_S" ) & HOLDER_PID=$!
 feed() { printf '%s\n' "$1" >&9; }
 wait_for() { local act="$1" to="${2:-$WAIT_TO}" marker="${3:-}" t=0 src

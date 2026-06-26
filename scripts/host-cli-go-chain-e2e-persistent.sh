@@ -8,21 +8,24 @@
 #   - 额外收益：① 砍掉 N-1 次 hello-settle 重连税 ② 迟到回声落同一 LOG（短连版迟到帧要靠"下次重连补灌"）
 #     ③ `wait_for` 回声即返，比固定 SETTLE_MS 盲等更快更稳。
 #
-# 前置 + 用法 + 账号同短连版：
-#   HELIX_COOKIE_ID=<userId> HELIX_COMPANY_ID=<teamId> \
-#     [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-go-chain-e2e-persistent.sh
+# 前置 + 用法：
+#   [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-go-chain-e2e-persistent.sh
+#   # 身份/端口从 helix.config.yaml 读取；覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_chain_persist.XXXXXX.log)"
 SETTLE_MS="${SETTLE_MS:-1200}"          # 持久连接下只用于 fire-and-forget 命令的最小等；有回声的走 wait_for
 WAIT_TO="${WAIT_TO:-10}"                # wait_for 单次回声等待上限（秒）
 IDLE_HOLD_S="${IDLE_HOLD_S:-180}"       # holder 兜底持开 FIFO 写端的上限
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"
-SELF_ID="${HELIX_COOKIE_ID:-}"
+TEAM_ID="${HELIX_COMPANY_ID}"
+SELF_ID="${HELIX_COOKIE_ID}"
 MEMBER_USERS_JSON="${MEMBER_USERS_JSON:-[\"0212fb861cea5be6\",\"444\"]}"
 SEND_CHANNEL_ID="${SEND_CHANNEL_ID:-}"
 
@@ -32,11 +35,9 @@ ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 # ── 前置检查 ────────────────────────────────────────────────
 fail_pre=0
-[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID"; fail_pre=1; }
-[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID"; fail_pre=1; }
-ws_hp="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_hp%%:*}"; ws_port="${ws_hp##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 不可达 ${ws_host}:${ws_port}"; fail_pre=1; }
+[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; fail_pre=1; }
+[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; fail_pre=1; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 不可达 :$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1; }
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止"; exit 2; }
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
@@ -57,9 +58,8 @@ mkfifo "$TX_FIFO"
 # ── 启 host-cli：读 FIFO（持久 stdin），dump 帧到 LOG ──────────
 ylw "▶ 预编译 host-cli（cargo build -q）…"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
 ylw "▶ 起持久连接 host-cli（一条 WS 跑完整链）"
-HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-  HELIX_COOKIE_ID="$SELF_ID" HELIX_COMPANY_ID="$TEAM_ID" \
-  cargo run -q -p helix-host-cli <"$TX_FIFO" >>"$LOG" 2>&1 &
+cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id "$SELF_ID" --company-id "$TEAM_ID" <"$TX_FIFO" >>"$LOG" 2>&1 &
 CLI_PID=$!
 exec 9>"$TX_FIFO"                           # 持开写端（holder fd 9）→ host-cli stdin 永不 EOF 直到 cleanup
 ( sleep "$IDLE_HOLD_S" ) & HOLDER_PID=$!     # 兜底：异常退出时 holder 也会被 cleanup kill

@@ -9,18 +9,21 @@
 //! - `cookieId`(=userId) 当前**只读不注入** header；身份头注入留 **A3**。
 //! - 入站 WS 帧 → `Tick::Inbound` 的 recv 接线留 **A2**（本 bin 只证上行）。
 //!
-//! ## 用法
+//! ## 用法（去 env 化，PRD §4.1/§4.2）
 //! ```bash
-//! HELIX_WS_URL=ws://127.0.0.1:8065/api/v4/websocket \
-//! HELIX_COOKIE_ID=5ffd465e263864787b87aa01 \
+//! # 默认读 repo 根 ./helix.config.yaml（指 cses-im-server :8066）
 //! cargo run -p helix-host-cli
+//! # 自定义路径 + 双账号 e2e 身份覆盖
+//! cargo run -p helix-host-cli -- --config helix.config.yaml --cookie-id 444 --company-id 64118...
 //! ```
+//! debug 构建保留 `HELIX_<FIELD>` env 逃生口（覆盖对应 config 值，不文档化）。
 
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
 mod cmd_parse;
+mod config;
 mod host_env;
 mod repl;
 use host_env::{default_api_base, machine_device_id, resolve_db_path};
@@ -45,64 +48,64 @@ async fn main() {
         )
         .init();
 
-    let ws_url = std::env::var("HELIX_WS_URL")
-        .unwrap_or_else(|_| "ws://127.0.0.1:8065/api/v4/websocket".to_string());
-    // HTTP api base 含 /api/cses 前缀：现网 cses-client imHttp base 即含此前缀，
-    // helix-im to_effect 用 {api_base}/channels/load/increment、{api_base}/channel/sync/notify。
-    // 真 Go 实测 `POST /api/cses/channels/load/increment` 返 200（B-rest 冒烟确认）。
-    let api_base_url = std::env::var("HELIX_API_BASE")
-        .unwrap_or_else(|_| "http://127.0.0.1:8065/api/cses".to_string());
-    let default_api_base_url = default_api_base(&api_base_url); // spec06 方案 A：vote/score 第二网关
-                                                                // cookieId(=userId) + companyId 身份头：现网 sync-v2 鉴权两件套。
-                                                                // companyId 经 web/handlers.go 注入 ctx → 传到对端 paas-grpc（loadTeamMap/ReadIdNameWithCompany）；
-                                                                // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
-    let cookie_id = std::env::var("HELIX_COOKIE_ID").unwrap_or_default();
-    let company_id = std::env::var("HELIX_COMPANY_ID").unwrap_or_default();
-    // appType 是现网 app 身份头（Apifox 实测：HTTP increment + WS 都带 `appType: bct`）。
-    // 缺 appType → 对端 Java Company 服务判 session 过期 → grpc service fail → increment 不推帧。
-    // device/deviceId/language 是 WS 全局头（Apifox WS 带 device:IOS/deviceId/language:zh）。
-    let app_type = std::env::var("HELIX_APP_TYPE").unwrap_or_else(|_| "bct".to_string());
-    let device = std::env::var("HELIX_DEVICE").unwrap_or_else(|_| "IOS".to_string());
-    // deviceId 必须随 HTTP + WS 都带：对端 Java paas（/Users/mac28/workspace/java/x9/paas）
-    // session 校验读 deviceId，nil → 判 session 过期 → grpc service fail → increment 不推帧（用户 debug 实证）。
-    // 解析优先级：① HELIX_DEVICE_ID env 显式覆盖（联调手动指定）→ ② **固定联调 deviceId 兜底**
-    //（**故意例外**，见 docs/harness/decisions.md ADR-011：本机派生值过不了 Go session 校验，
-    // 联调必须用已知能过校验的固定真实 deviceId；仅 host-cli 这个 dev-bin、env 可覆盖、不入交付物，
-    // 用户 2026-06-21/06-22 两次拍板）→ ③ 本机派生 fallback → ④ 空告警。
-    let device_id = std::env::var("HELIX_DEVICE_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
+    // ── 配置加载（去 env 化，PRD §4.1/§4.2）─────────────────────────────
+    // 单一 YAML 真源 helix.config.yaml（默认 repo 根，--config 覆盖路径）。覆盖链（低→高）：
+    // YAML < HELIX_<FIELD> env 逃生口（仅 debug 构建，release no-op）< --cookie-id/--company-id flag。
+    let cli = config::parse_args(std::env::args().skip(1));
+    let mut cfg = match config::Config::load(&cli.config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, path = %cli.config_path,
+                "读配置失败，回退内置默认（指 cses-im-server :8066）");
+            config::Config::default()
+        }
+    };
+    cfg.apply_env_overrides(); // debug 逃生口（release 为 no-op，彻底去 env）
+    cfg.apply_cli_overrides(&cli); // 双账号 e2e：flag 覆盖 identity（最高优先级）
+
+    let ws_url = cfg.connection.ws_url.clone();
+    // HTTP api base 含 /api/cses 前缀（helix-im to_effect 拼 channels/load/increment 等）。
+    let api_base_url = cfg.connection.api_base.clone();
+    // spec06 方案 A：vote/score 第二网关（connection.default_api_base 空则派生）。
+    let default_api_base_url = default_api_base(&api_base_url, &cfg.connection.default_api_base);
+    // cookieId(=userId) + companyId 身份头：现网 sync-v2 鉴权两件套。
+    // companyId 经 web/handlers.go 注入 ctx → 传到对端 paas-grpc（loadTeamMap/ReadIdNameWithCompany）；
+    // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
+    let cookie_id = cfg.identity.cookie_id.clone();
+    let company_id = cfg.identity.company_id.clone();
+    // appType 是现网 app 身份头（HTTP increment + WS 都带 `appType: bct`）。缺 → Java 判 session 过期。
+    let app_type = cfg.client.app_type.clone();
+    let device = cfg.client.device.clone();
+    // deviceId 随 HTTP + WS 都带：对端 Java paas session 校验读 deviceId，nil → 判 session 过期。
+    // 优先级：① config.client.device_id 显式 → ② 固定联调 deviceId 兜底（**故意例外** ADR-011：
+    // 本机派生过不了 Go session 校验，仅此 dev-bin、不入交付物）→ ③ 本机派生 → ④ 空告警。
+    let device_id = (!cfg.client.device_id.is_empty())
+        .then(|| cfg.client.device_id.clone())
         // ADR-011 故意例外：固定联调 deviceId（本机派生过不了 Go session 校验，非生产凭据）。
         .or_else(|| Some("ED380414932542BAB4993E5AC3E07C64".to_string()))
         .or_else(machine_device_id)
         .unwrap_or_default();
     if device_id.is_empty() {
         tracing::warn!(
-            "未能从本机派生 deviceId（可设 HELIX_DEVICE_ID 覆盖）；HTTP/WS 将不带 deviceId，对端可能判 session 过期"
+            "未能派生 deviceId（config client.device_id 可设）；HTTP/WS 将不带 deviceId，对端可能判 session 过期"
         );
     } else {
-        tracing::info!(
-            device_id_present = true,
-            "deviceId 已解析（本机派生 / env 覆盖）"
-        );
+        tracing::info!(device_id_present = true, "deviceId 已解析（config / 派生）");
     }
-    let language = std::env::var("HELIX_LANGUAGE").unwrap_or_else(|_| "zh".to_string());
+    let language = cfg.client.language.clone();
     // appVersion/osVersion 是现网通用请求头（真机curl真源 §0：所有 outbound 都带）。
-    // host-cli 之前不发这两个头；补上对齐桌面端真值（默认值取真抓包示例，env 可覆盖）。
-    let app_version = std::env::var("HELIX_APP_VERSION").unwrap_or_else(|_| "1.2.56".to_string());
-    let os_version =
-        std::env::var("HELIX_OS_VERSION").unwrap_or_else(|_| "macos-14.5.0".to_string());
+    let app_version = cfg.client.app_version.clone();
+    let os_version = cfg.client.os_version.clone();
     // P6 blocker(a)：userSnapshot 三占位转真值（现网取自 ucenter `this.ctx.userInfo`，helix-im
-    // 不认识 ucenter HX-C001 → host 展开注入 ImConfig；host-cli 走 env，Tauri 壳走登录态）。
-    let user_name = std::env::var("HELIX_USER_NAME").unwrap_or_default();
-    let org_name = std::env::var("HELIX_ORG_NAME").unwrap_or_default();
-    let dept_name = std::env::var("HELIX_DEPT_NAME").unwrap_or_default();
+    // 不认识 ucenter HX-C001 → host 展开注入 ImConfig；host-cli 走 config，Tauri 壳走登录态）。
+    let user_name = cfg.identity.user_name.clone();
+    let org_name = cfg.identity.org_name.clone();
+    let dept_name = cfg.identity.dept_name.clone();
     // ── DB 路径派生（多租户，对齐现网 678 真库目录）───────────────────────
-    // 优先级：HELIX_DB env 显式覆盖（测试/调试逃生口，含旧 /tmp 能力）> 派生路径 > /tmp 兜底。
+    // 优先级：runtime.db 显式覆盖 > 派生路径 > /tmp 兜底。
     // 派生形态：~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db
-    // <tenant> 来源（高→低）：HELIX_TENANT > cookie_id(=userId，对齐 cses-client tenant_key) > "default"。
-    // 目录不存在则 create_dir_all。
-    let db_path = resolve_db_path(&cookie_id);
+    // <tenant> 来源（高→低）：identity.tenant > cookie_id(=userId) > "default"。
+    let db_path = resolve_db_path(&cookie_id, &cfg.runtime.db, &cfg.identity.tenant);
 
     tracing::info!(
         %ws_url,
@@ -112,7 +115,7 @@ async fn main() {
     );
 
     // ── ports ───────────────────────────────────────────────
-    tracing::info!(db_path = %db_path, "DB 绝对路径（派生 / HELIX_DB 覆盖）");
+    tracing::info!(db_path = %db_path, "DB 绝对路径（派生 / runtime.db 覆盖）");
     let storage = match NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc")).await {
         Ok(s) => s,
         Err(e) => {
@@ -190,7 +193,7 @@ async fn main() {
     // auth_user_id = cookieId(=userId)：host 注入确定性身份；空串退化「自己消息也计未读」（§5，todo #5）。
     if cookie_id.is_empty() {
         tracing::warn!(
-            "未设 HELIX_COOKIE_ID → ImConfig.auth_user_id 为空，post_updates 将退化为「自己消息也计未读」（离线未读偏高）"
+            "identity.cookie_id 为空 → ImConfig.auth_user_id 为空，post_updates 将退化为「自己消息也计未读」（离线未读偏高）"
         );
     }
     shell.register(ImModule::new(ImConfig {
@@ -237,16 +240,13 @@ async fn main() {
     let mut transports = TransportTable::new();
     transports.insert(main_transport, Arc::new(transport));
 
-    // Http 并发上限：env 注入（probe 可不重编译扫不同 N）。解析失败/缺省/非正 → 默认 8。
-    let max_http_inflight = std::env::var("HELIX_HTTP_MAX_INFLIGHT")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(8);
-    tracing::info!(
-        max_http_inflight,
-        "Http 并发闸 N（HELIX_HTTP_MAX_INFLIGHT）"
-    );
+    // Http 并发上限：runtime.http_max_inflight（0/缺省 → 默认 8）。
+    let max_http_inflight = if cfg.runtime.http_max_inflight > 0 {
+        cfg.runtime.http_max_inflight
+    } else {
+        8
+    };
+    tracing::info!(max_http_inflight, "Http 并发闸 N（runtime.http_max_inflight）");
 
     let config = EngineConfig {
         storage,

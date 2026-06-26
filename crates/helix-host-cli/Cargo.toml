@@ -21,6 +21,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # stdin 遥控器：命令行 → JSON payload → Tick::Command（host 层装配，非 core/im）
 serde_json         = { workspace = true }
 bytes              = { workspace = true }
+# 配置去 env 化（PRD §4.2）：单一 helix.config.yaml 真源。
+# serde_norway = 维护中的 serde_yaml 继任者（serde_yaml 已 archived，不用）。
+serde              = { workspace = true }
+serde_norway       = "0.9"
 
 # host/driver 层是 ambient API（SystemTime/线程/打印）的合法落点
 [lints.clippy]

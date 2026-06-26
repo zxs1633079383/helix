@@ -8,19 +8,22 @@
 # verdict 判据：LOG 出现 `DomainEvent emit event="im:read:result"` 且 bytes>0（marker 之后）。
 #   （getReplies 对无回复的 post 仍返 HTTP200 + 空 data 列表 → relay 透传成非空信封 → bytes>0）。
 #
-# 账号同 chain-persistent：HELIX_COOKIE_ID / HELIX_COMPANY_ID [/ MEMBER_USERS_JSON]。
+# 账号同 chain-persistent；身份/端口从 helix.config.yaml 读取（覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID）。
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_uc24.XXXXXX.log)"
 SETTLE_MS="${SETTLE_MS:-1200}"
 WAIT_TO="${WAIT_TO:-12}"
 IDLE_HOLD_S="${IDLE_HOLD_S:-180}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"
-SELF_ID="${HELIX_COOKIE_ID:-}"
+TEAM_ID="${HELIX_COMPANY_ID}"
+SELF_ID="${HELIX_COOKIE_ID}"
 MEMBER_USERS_JSON="${MEMBER_USERS_JSON:-[\"678\",\"555\"]}"
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -28,11 +31,9 @@ grn() { printf '\033[32m%s\033[0m\n' "$*"; }
 ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 fail_pre=0
-[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID"; fail_pre=1; }
-[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID"; fail_pre=1; }
-ws_hp="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_hp%%:*}"; ws_port="${ws_hp##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 不可达 ${ws_host}:${ws_port}"; fail_pre=1; }
+[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; fail_pre=1; }
+[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; fail_pre=1; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 不可达 :$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1; }
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止"; exit 2; }
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
@@ -51,9 +52,8 @@ mkfifo "$TX_FIFO"
 
 ylw "▶ 预编译 host-cli"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
 ylw "▶ 起持久连接 host-cli"
-HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-  HELIX_COOKIE_ID="$SELF_ID" HELIX_COMPANY_ID="$TEAM_ID" \
-  cargo run -q -p helix-host-cli <"$TX_FIFO" >>"$LOG" 2>&1 &
+cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id "$SELF_ID" --company-id "$TEAM_ID" <"$TX_FIFO" >>"$LOG" 2>&1 &
 CLI_PID=$!
 exec 9>"$TX_FIFO"
 ( sleep "$IDLE_HOLD_S" ) & HOLDER_PID=$!

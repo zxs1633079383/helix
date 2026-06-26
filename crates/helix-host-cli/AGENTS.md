@@ -29,14 +29,15 @@
 2. **TransportId 由 host 集中分配**：`0 = 主 WS 连接`；第二模块/多端口（如 3399）用 1、2…，host 是唯一知道全部连接的地方（设计见 `docs/过会方案/helix-core-im-架构设计.md §4.4`）。
 3. **身份头分层**：`cookieId=userId` 由 host 注入——**WS 握手头**（`with_handshake_headers`，Go 升级阶段建 session）**与** HTTP 全局头（`set_global_header`）两处都要带；`connectionId` 由 helix-im 收 hello 后盖章（core/im 不认识 userId）。
 4. **connect 触发**：A1/A2 选 host 主动 `connect()`（连不上不退，进泵走 Send-warn 兜底）。`Effect::Connect` 意图驱动是后续可选项（未引入）。
-5. 配置走 env：`HELIX_WS_URL` / `HELIX_API_BASE` / `HELIX_COOKIE_ID` / `HELIX_COMPANY_ID` / `HELIX_DB`；联调抓帧 `HELIX_DUMP_FRAMES=1`。
-6. **P6 userSnapshot（ucenter 展开）**：`HELIX_USER_NAME` / `HELIX_ORG_NAME` / `HELIX_DEPT_NAME` 注入 `ImConfig.user_name/org_name/dept_name`（P1 占位转真值，posts/create body 的 userSnapshot 三字段）；缺省空（非阻断，Go 落库主键 = userId/teamId）。Tauri 壳改从登录态展开注入，driver 代码不变。
+5. **配置去 env 化（PRD §4.2，`src/config.rs`）**：单一 YAML 真源 `helix.config.yaml`（repo 根，默认 `./helix.config.yaml`，`--config <path>` 覆盖）。分组 `connection`(ws_url/api_base/default_api_base) · `identity`(cookie_id/company_id/tenant/user_name/org_name/dept_name) · `client`(app_type/device/device_id/language/app_version/os_version) · `runtime`(db/http_max_inflight/dump_frames)。覆盖链（低→高）：YAML < `HELIX_<FIELD>` env 逃生口（**仅 debug 构建**，release no-op，不文档化）< `--cookie-id`/`--company-id` flag（双账号 e2e）。`go_log`/`go_port`/`start_hint` 仅脚本（yq）用，serde 默认忽略。
+6. **P6 userSnapshot（ucenter 展开）**：`identity.user_name/org_name/dept_name` 注入 `ImConfig.user_name/org_name/dept_name`（P1 占位转真值，posts/create body 的 userSnapshot 三字段）；缺省空（非阻断，Go 落库主键 = userId/teamId）。Tauri 壳改从登录态展开注入，driver 代码不变。
 7. **P6 出站横切层激活**：HTTP 走 `NativeHttp::with_crosscut`（非裸 `with_config`）——session 凭据 = `cookieId`(=userId) 经 `AuthTokenRegistry::set_session` 注入；横切层接 401→`im:http:unauthorized` / 断网→`im:net:offline` / traceparent 透传（P1.5 装配就绪 → P6 接泵，drift-review finding① 收敛）。通用身份头仍走 `set_global_header`（registry 句柄保留，不互扰）。
 
 ## 改动验收
 
 ```bash
 cargo check -p helix-host-cli
-# 真连 Go 冒烟（需起 Go 服务端 + 真 userId）
-HELIX_COOKIE_ID=<userId> cargo run -p helix-host-cli   # 看 hello handshake complete + im:connection:established
+cargo test  -p helix-host-cli --bin helix-host-cli config   # config.rs 单测
+# 真连 Go 冒烟（需起 cses-im-server + helix.config.yaml 配真 cookie_id；双账号用 --cookie-id 覆盖）
+cargo run -p helix-host-cli -- --config helix.config.yaml   # 看 hello handshake complete + im:connection:established
 ```

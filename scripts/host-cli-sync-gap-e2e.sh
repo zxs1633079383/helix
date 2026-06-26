@@ -19,22 +19,25 @@
 #       构造「本地 cursor 落后服务端足够多」的态（冷启动 cursor=0 时服务端 increment 直接补齐，
 #       不进 too_long；且无注入历史落后 cursor 的入口）→ 诚实记 **harness-gap**，不假判。
 #
-# 用法 / 账号（同 host-cli-go-chain-e2e-persistent.sh）：
-#   HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=64118eebd2b665246b7880eb \
-#     [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-sync-gap-e2e.sh
+# 用法：
+#   [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-sync-gap-e2e.sh
+#   # 身份/端口从 helix.config.yaml 读取；覆盖：HELIX_COOKIE_ID / HELIX_COMPANY_ID
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 LOG="$(mktemp -t helix_sync_gap.XXXXXX.log)"
 WAIT_TO="${WAIT_TO:-12}"                 # wait_for 单次回声等待上限（秒）
 IDLE_HOLD_S="${IDLE_HOLD_S:-60}"         # holder 兜底持开 FIFO 写端上限
 # UC-4.4：必须 ≥ helix-im ConfigDefault ping_interval_ms(8000) + 服务端往返裕量。给 11s。
 PING_HOLD_S="${PING_HOLD_S:-11}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"
-SELF_ID="${HELIX_COOKIE_ID:-}"
+TEAM_ID="${HELIX_COMPANY_ID}"
+SELF_ID="${HELIX_COOKIE_ID}"
 # 冷启动空 cursor store：独立租户 DB 路径，确保本地无任何 channel cursor（UC-4.5 触发前提）。
 FRESH_DB="${HELIX_DB:-$(mktemp -u -t helix_sync_gap_db.XXXXXX).sqlite}"
 
@@ -44,11 +47,9 @@ ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 # ── 前置检查 ────────────────────────────────────────────────
 fail_pre=0
-[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID"; fail_pre=1; }
-[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID"; fail_pre=1; }
-ws_hp="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_hp%%:*}"; ws_port="${ws_hp##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 不可达 ${ws_host}:${ws_port}"; fail_pre=1; }
+[ -z "$SELF_ID" ] && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; fail_pre=1; }
+[ -z "$TEAM_ID" ] && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; fail_pre=1; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 不可达 :$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1; }
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止"; exit 2; }
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
@@ -68,10 +69,9 @@ mkfifo "$TX_FIFO"
 # ── 起持久连接 host-cli（一条 WS / 一次 hello / 冷启动空 DB）──────
 ylw "▶ 预编译 host-cli（cargo build -q）…"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
 ylw "▶ 起持久连接 host-cli（冷启动空 cursor store：DB=${FRESH_DB}）"
-HELIX_DUMP_FRAMES=1 RUST_LOG='info,helix_im=info,helix_driver_host=info' \
-  HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" HELIX_DB="$FRESH_DB" \
-  HELIX_COOKIE_ID="$SELF_ID" HELIX_COMPANY_ID="$TEAM_ID" \
-  cargo run -q -p helix-host-cli <"$TX_FIFO" >>"$LOG" 2>&1 &
+RUST_LOG='info,helix_im=info,helix_driver_host=info' HELIX_DB="$FRESH_DB" \
+  cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id "$SELF_ID" --company-id "$TEAM_ID" <"$TX_FIFO" >>"$LOG" 2>&1 &
 CLI_PID=$!
 exec 9>"$TX_FIFO"
 ( sleep "$IDLE_HOLD_S" ) & HOLDER_PID=$!

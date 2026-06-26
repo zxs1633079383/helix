@@ -15,15 +15,13 @@
 #   必须双账号：444 操作，678 第二连接收 update/member/post_read 广播。
 #
 # 前置（外部状态，脚本起不了，须你先起）：
-#   - Go mattermost :8065 + Java paas/x9 grpc UP（见 SESSION §0 grpc 根因文档）
+#   - cses-im-server :8066 UP（IDEA 右击 run 或 go run ./cmd/server）
 #   - 444 与 678 均为同公司（HELIX_COMPANY_ID）真实 userId；444 有建群权限，678 可被拉入群。
 # 用法：
-#   HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=64118eebd2b665246b7880eb \
-#     MEMBER_USERS_JSON='["678","555"]' \
-#     bash scripts/host-cli-dual-account-e2e.sh
+#   [MEMBER_USERS_JSON='["678","555"]'] bash scripts/host-cli-dual-account-e2e.sh
+#   # 身份/端口从 helix.config.yaml 读取；发送方=HELIX_COOKIE_ID(默认444)；接收方=RECEIVER_ID(默认678)
 # 可选 env：
 #   RECEIVER_ID=678                 # 接收方 userId（第二连接，被拉入群、收广播）
-#   HELIX_WS_URL / HELIX_API_BASE
 #   SETTLE_MS=2800                  # 每动作后等 WS 广播扩散的毫秒（双账号扩散比自回声慢，调大）
 #   IDLE_HOLD_S=60                  # 接收方 idle 保持连接的秒数上限（兜底，正常发送方跑完即收）
 #
@@ -39,12 +37,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# ── 读配置（helix.config.yaml）───────────────────────────────────────────
+# shellcheck source=lib-config.sh
+source "$(dirname "$0")/lib-config.sh"
+
 SETTLE_MS="${SETTLE_MS:-2800}"
 IDLE_HOLD_S="${IDLE_HOLD_S:-60}"
-WS_URL="${HELIX_WS_URL:-ws://127.0.0.1:8065/api/v4/websocket}"
-API_BASE="${HELIX_API_BASE:-http://127.0.0.1:8065/api/cses}"
-TEAM_ID="${HELIX_COMPANY_ID:-}"
-SENDER_ID="${HELIX_COOKIE_ID:-444}"
+TEAM_ID="${HELIX_COMPANY_ID}"
+SENDER_ID="${HELIX_COOKIE_ID}"
 RECEIVER_ID="${RECEIVER_ID:-678}"
 MEMBER_USERS_JSON="${MEMBER_USERS_JSON:-[\"678\",\"555\"]}"
 
@@ -70,12 +70,10 @@ trap cleanup EXIT INT TERM
 
 # ── 前置检查 ────────────────────────────────────────────────
 fail_pre=0
-[ -z "$SENDER_ID" ]  && { red "⛔ 缺 HELIX_COOKIE_ID（=发送方 444 userId 身份头）"; fail_pre=1; }
-[ -z "$TEAM_ID" ]    && { red "⛔ 缺 HELIX_COMPANY_ID（=teamId，create body / paas-grpc 必需）"; fail_pre=1; }
-[ -z "$RECEIVER_ID" ] && { red "⛔ 缺 RECEIVER_ID（=接收方 678 userId，第二连接）"; fail_pre=1; }
-ws_host_port="$(printf '%s' "$WS_URL" | sed -E 's#^wss?://([^/]+).*#\1#')"
-ws_host="${ws_host_port%%:*}"; ws_port="${ws_host_port##*:}"; [ "$ws_port" = "$ws_host" ] && ws_port=80
-nc -z -w3 "$ws_host" "$ws_port" 2>/dev/null || { red "⛔ Go WS 端口不可达：${ws_host}:${ws_port}"; fail_pre=1; }
+[ -z "$SENDER_ID" ]   && { red "⛔ 缺 HELIX_COOKIE_ID（config 或 env）"; fail_pre=1; }
+[ -z "$TEAM_ID" ]     && { red "⛔ 缺 HELIX_COMPANY_ID（config 或 env）"; fail_pre=1; }
+[ -z "$RECEIVER_ID" ] && { red "⛔ 缺 RECEIVER_ID（第二连接 userId）"; fail_pre=1; }
+nc -z -w3 127.0.0.1 "$HELIX_GO_PORT" 2>/dev/null || { red "⛔ Go WS 端口不可达：:$HELIX_GO_PORT —— ${HELIX_START_HINT}"; fail_pre=1; }
 [ "$fail_pre" = 1 ] && { red "前置不满足，中止（未起任何连接）"; exit 2; }
 
 now_ms() { python3 -c 'import time;print(int(time.time()*1000))'; }
@@ -94,9 +92,9 @@ mkfifo "${RX_FIFO}"
 ( exec 3>"${RX_FIFO}"; sleep "${IDLE_HOLD_S}" ) &
 RX_HOLD_PID=$!
 # 接收方 host-cli：读 FIFO（永不 EOF 直到 holder 死），dump 帧。独立 RX_DB 防 cursor 串。
-HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-  HELIX_COOKIE_ID="$RECEIVER_ID" HELIX_COMPANY_ID="$TEAM_ID" HELIX_DB="$RX_DB" \
-  cargo run -q -p helix-host-cli <"${RX_FIFO}" >>"${RX_LOG}" 2>&1 &
+HELIX_DB="$RX_DB" \
+  cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+  --cookie-id "$RECEIVER_ID" --company-id "$TEAM_ID" <"${RX_FIFO}" >>"${RX_LOG}" 2>&1 &
 RX_PID=$!
 
 # 给接收方 WS connect + hello 握手盖 connectionId 落定的时间（握手前广播收不全）。
@@ -108,9 +106,9 @@ settle; settle
 # 首 settle 在命令之前等发送方自身握手（对齐 pendingSends/businessReady gate）。
 tx_drive() {
   { settle; for line in "$@"; do printf '%s\n' "$line"; settle; done; printf 'quit\n'; } \
-    | HELIX_DUMP_FRAMES=1 HELIX_WS_URL="$WS_URL" HELIX_API_BASE="$API_BASE" \
-        HELIX_COOKIE_ID="$SENDER_ID" HELIX_COMPANY_ID="$TEAM_ID" HELIX_DB="$TX_DB" \
-        cargo run -q -p helix-host-cli >>"${TX_LOG}" 2>&1
+    | HELIX_DB="$TX_DB" \
+        cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
+        --cookie-id "$SENDER_ID" --company-id "$TEAM_ID" >>"${TX_LOG}" 2>&1
 }
 
 # ── 发送方 Phase 0：建群（真源 §4 body，含 678 入群）────────────

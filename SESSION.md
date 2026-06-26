@@ -6,6 +6,18 @@
 
 ## §0 终态记录
 
+🎯 EXPECT scripts/lib-config.sh + ~13 脚本切 :8066 + 读 helix.config.yaml（GitLab issue cses/go/helix#4）@2026-06-26 +0800 | 赌注 中 | 可逆 是
+  可证伪断言：① 新建 `scripts/lib-config.sh`，`bash -n scripts/lib-config.sh` PASS；② ~13 脚本均含 `source .*/lib-config.sh` 且 `bash -n` 全 PASS；③ `grep -rn '8065' scripts/` 仅余注释/文档行，无 active 默认值；④ `git diff --name-only HEAD -- crates/helix-core crates/helix-im crates/helix-driver-native crates/helix-driver-ffi` 空（引擎零改动）；⑤ host-cli 所有调用点均含 `--config "$HELIX_CONFIG_PATH"`。
+✅ DONE scripts/lib-config.sh + ~13 脚本切 :8066 + 读 helix.config.yaml（GitLab issue cses/go/helix#4）@2026-06-26 +0800 | commit fc64821 | 14 files / 256(+) 181(-) | worktrees/backend-switch @feat/backend-switch-cses-im-server
+  ↳ 新建 lib-config.sh(68行) yq v4 读 helix.config.yaml 导出 9 个 HELIX_* 变量；13 脚本各追 source lib-config.sh + 删 :8065 散落默认值 + host-cli 调用改 --config/$HELIX_CONFIG_PATH + --cookie-id/--company-id
+  ↳ bash -n 全 14 脚本 PASS；grep '8065' scripts/ → NONE；引擎 crates diff 空。issue#4 → status::review。
+
+✅ DONE host-cli 配置去 env 化（GitLab issue cses/go/helix#3，PRD §4.1/§4.2）@2026-06-26 +0800 | commit c462918 | worktrees/backend-switch @feat/backend-switch-cses-im-server
+  ↳ 单一 helix.config.yaml 真源（connection/identity/client/runtime 四分组，指 cses-im-server :8066）退役 ~18 个 HELIX_* env 主路径；新增 `src/config.rs`(268)+`config_tests.rs`(161)，`serde_norway` 0.9 反序列化（非已归档 serde_yaml）。覆盖链：YAML < HELIX_<FIELD> env 逃生口（仅 debug 构建·release no-op·不文档化）< --cookie-id/--company-id flag。
+  ↳ TDD RED→GREEN：RED 11/11 fail（todo!() panic）→ GREEN `cargo test -p helix-host-cli --bin helix-host-cli` 24 passed（11 config + 13 cmd_parse）。
+  ↳ 引擎不变量 PASS：`git diff --name-only HEAD -- core/im/driver-*` 空（切配置纯 host 层，零引擎改动）。structure-gate PASS（main.rs=300≤300 + CLAUDE/AGENTS 镜像一致）。issue#3 → status::review。
+  ↳ 后续（Stage 2 主对话在环）：脚本侧 lib-config.sh + ~13 脚本改读 config 另起；33 UC 真 Go 回归矩阵指 :8066。
+
 🎯 EXPECT im-server 新旧切换迁移安全验证：只跑测试/脚本并写报告，不改生产源码。可证伪断言：① `cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` 先给出离线基线；② HX-C001 `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 为空；③ 旧 server 真 Go `scripts/host-cli-FULL-uc-e2e.sh` 基线复现 PASS=33/FAIL=0/SKIP=4，若环境断按 HX-C016 playbook 恢复后重试；④ 6 条真机 curl 对新 im-server 逐项记录 header/body/响应漂移；⑤ 新 server FULL UC 与 `docs/review/uc-coverage-ledger.md` 逐 UC 对账，绿转红输出 root cause + 修复建议；⑥ 仅新增/修改 `docs/review/*im-server*report*.md` 与本 SESSION DONE 记录，不改 `crates/**/src/**`。@2026-06-25T15:50:47+0800 | 赌注 高 | 可逆 是
 ✅ DONE im-server 本机切换迁移安全验证 @2026-06-25 +0800 | Helix 离线基线 PASS；HX-C001 PASS；新版 Go worktree 修复后 `go test ./...` PASS；6 curl 写接口 200/SUCCESS；full UC 指向新版本机 server `PASS=31 FAIL=0 SKIP=6`（UC-8 投票/平均分 2 项按用户要求跳过，等价于原基线 PASS=33/FAIL=0/SKIP=4 去掉 2 PASS）；无绿转红 UC；报告见 `docs/review/im-server-local-cutover-verify-2026-06-25.md`。剩余风险：本轮关闭 Pulsar 走 sync fallback，实 Pulsar topic suffix/发布消费需单独验。
 ✅ DONE driver-ffi 全量接管 SPEC 实现+自验证+出产物 @2026-06-25 18:35 +0800 | commit b0e177c..76c7c1b | 5 阶段(Phase0-6) | helix/feat/ffi-full-uc-http-ws-contract

@@ -6,6 +6,12 @@
 
 ## §0 终态记录
 
+🎯 EXPECT scripts/lib-config.sh + ~13 脚本切 :8066 + 读 helix.config.yaml（GitLab issue cses/go/helix#4）@2026-06-26 +0800 | 赌注 中 | 可逆 是
+  可证伪断言：① 新建 `scripts/lib-config.sh`，`bash -n scripts/lib-config.sh` PASS；② ~13 脚本均含 `source .*/lib-config.sh` 且 `bash -n` 全 PASS；③ `grep -rn '8065' scripts/` 仅余注释/文档行，无 active 默认值；④ `git diff --name-only HEAD -- crates/helix-core crates/helix-im crates/helix-driver-native crates/helix-driver-ffi` 空（引擎零改动）；⑤ host-cli 所有调用点均含 `--config "$HELIX_CONFIG_PATH"`。
+✅ DONE scripts/lib-config.sh + ~13 脚本切 :8066 + 读 helix.config.yaml（GitLab issue cses/go/helix#4）@2026-06-26 +0800 | commit fc64821 | 14 files / 256(+) 181(-) | worktrees/backend-switch @feat/backend-switch-cses-im-server
+  ↳ 新建 lib-config.sh(68行) yq v4 读 helix.config.yaml 导出 9 个 HELIX_* 变量；13 脚本各追 source lib-config.sh + 删 :8065 散落默认值 + host-cli 调用改 --config/$HELIX_CONFIG_PATH + --cookie-id/--company-id
+  ↳ bash -n 全 14 脚本 PASS；grep '8065' scripts/ → NONE；引擎 crates diff 空。issue#4 → status::review。
+
 ✅ DONE host-cli 配置去 env 化（GitLab issue cses/go/helix#3，PRD §4.1/§4.2）@2026-06-26 +0800 | commit c462918 | worktrees/backend-switch @feat/backend-switch-cses-im-server
   ↳ 单一 helix.config.yaml 真源（connection/identity/client/runtime 四分组，指 cses-im-server :8066）退役 ~18 个 HELIX_* env 主路径；新增 `src/config.rs`(268)+`config_tests.rs`(161)，`serde_norway` 0.9 反序列化（非已归档 serde_yaml）。覆盖链：YAML < HELIX_<FIELD> env 逃生口（仅 debug 构建·release no-op·不文档化）< --cookie-id/--company-id flag。
   ↳ TDD RED→GREEN：RED 11/11 fail（todo!() panic）→ GREEN `cargo test -p helix-host-cli --bin helix-host-cli` 24 passed（11 config + 13 cmd_parse）。

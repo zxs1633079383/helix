@@ -108,6 +108,61 @@ fn emit_dialog_list_result_wraps_rows_under_dialoglist_with_full_fields() {
 }
 
 #[test]
+fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
+    // S5（issue #54）：CL 行升 render-ready 终态——前端零 normalize/零 ++。
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {
+            "id":"ch1","display_name":"群A","is_top":1,"create_at":1700000000000_i64,
+            "unread_count":3,"mention_count":1,
+            // last_post = 整帧 post JSON（含 message + 加急标）
+            "last_post":"{\"message\":\"最后一条\",\"props\":{\"expedite\":\"m1\"}}",
+            "notice":"{\"text\":\"公告内容\"}"
+        },
+        {
+            "id":"ch2","display_name":"群B","is_top":0,"create_at":1700000000001_i64,
+            "unread_count":0,"mention_count":0,"mention_count_root":0,
+            "last_post":"纯文本兜底","notice":"裸文本公告"
+        }
+    ]))
+    .unwrap();
+    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let r0 = &v["data"]["dialogList"][0];
+    // ch1：render-ready 终态键齐全。
+    assert_eq!(r0["displayName"], "群A");
+    assert_eq!(r0["notice"], "公告内容"); // {text} 归一抽取
+    assert_eq!(r0["isTop"], true); // is_top:1 → bool
+    assert_eq!(r0["createAt"], 1700000000000_i64);
+    assert_eq!(r0["unread"], 3); // 终值（前端不 ++）
+    assert_eq!(r0["mention"], true); // mention_count>0
+    assert_eq!(r0["lastMessage"], "最后一条"); // last_post.message 预览
+    assert_eq!(r0["urgent"], true); // props.expedite 命中
+    // 原始列保留（向后兼容）。
+    assert_eq!(r0["unread_count"], 3);
+    let r1 = &v["data"]["dialogList"][1];
+    assert_eq!(r1["isTop"], false); // is_top:0
+    assert_eq!(r1["unread"], 0);
+    assert_eq!(r1["mention"], false);
+    assert_eq!(r1["lastMessage"], "纯文本兜底"); // 非 JSON 兜底整串
+    assert_eq!(r1["urgent"], false);
+    assert_eq!(r1["notice"], "裸文本公告"); // 非 JSON notice 原样透传
+}
+
+#[test]
+fn emit_dialog_list_result_empty_last_post_and_notice_yield_null_s5() {
+    // 边界：last_post/notice 空 → lastMessage/notice = null（前端行不带该属性）。
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch3","display_name":"群C","last_post":"","notice":"","unread_count":0}
+    ]))
+    .unwrap();
+    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let r = &v["data"]["dialogList"][0];
+    assert!(r["lastMessage"].is_null());
+    assert!(r["notice"].is_null());
+    assert_eq!(r["urgent"], false);
+    assert_eq!(r["mention"], false);
+}
+
+#[test]
 fn emit_dialog_list_result_invalid_reply_yields_empty_dialoglist() {
     let v = emit_json(emit_dialog_list_result(b"garbage{")).expect("emit");
     assert_eq!(v["event"], "im:channels:projection");

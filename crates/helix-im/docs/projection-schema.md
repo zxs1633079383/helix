@@ -57,6 +57,15 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 不在壳判 echo 来没来）；`reactions`=预解 props.quickReply 的 emoji 串（无→null）；`templateReceived`=props.template.userIds
 > 非空 bool；`systemNotice`=type∈NOTICE_TYPES bool；`type` 空串容错 `"TEXT"`。**这 4 个字段都从在手 PostFields/props 派生，
 > 不触 PostFields 扩字段、不碰 parser 热路径**（守 HX-C005·与「加急 expediteMap 不吐」同理：那个要扩 PostFields，故仍 DB 权威）。
+>
+> **issue #54（S5 频道列表族·C013 纯渲染壳·授权契约演进）**：`emit_dialog_list_result` 每行（低频按需 invoke·
+> off hot-path）在保留原始 DB 列之上，叠加 8 个 render-ready 终态键供前端 CL 行 1:1 绑定 data-*：
+> `displayName`（← display_name）、`notice`（归一·`{"text":..}`→text / 纯文本原样 / 空→null·前端删 normalizeNotice）、
+> `isTop`（← is_top INTEGER → bool·前端删 normalizeIsTop）、`createAt`（← create_at·CL 升序键）、
+> `unread`（← unread_count **终值**·前端 badge 直绑·**不再壳 ++**）、`mention`（← mention_count>0 ‖ mention_count_root>0 bool·艾特 badge）、
+> `lastMessage`（← last_post 解析取 message/content/text 预览·非 JSON 兜底整串·空→null）、`urgent`（← last_post 的
+> isUrgent/isExpedite/props.expedite/props.urgent 任一非空 bool·加急 badge）。实现外提 `query_dialog_render.rs`（守 structure-gate）。
+> 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影，非 channel:update-by-post 瘦信号（后者维持 §2 铁律留瘦）。
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|

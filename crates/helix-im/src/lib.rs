@@ -31,6 +31,7 @@ pub mod pending_send;
 pub mod pong_compensate;
 mod port_reply;
 pub mod query;
+mod query_dialog_render;
 mod query_dispatch;
 pub mod read_relay;
 pub mod schema;

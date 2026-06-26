@@ -23,14 +23,16 @@
 
 use bytes::Bytes;
 
-/// 把一批 `DomainEventBytes` 原文编码成单 buffer（见模块头 wire layout）。
+/// 把一批 `DomainEventBytes` 原文编码进**复用的** `buf`（PI-4 稳态零分配 / PI-5 单次预估零 realloc）。
 ///
-/// 返回 owned `Vec<u8>`；调用方（FfiEventSink::flush）取其 `as_ptr()/len()` 传 C++ 回调，
-/// buffer 生命周期由调用方栈帧持有到回调返回后再 drop（C++ 不得逃逸指针）。
-pub fn encode_batch(events: &[Bytes]) -> Vec<u8> {
-    // 预估容量：4(count) + 每条 4(len) + payload，单次分配避免 realloc（热路径）。
+/// `buf` 由调用方（FfiEventSink）持有跨 step 复用：本函数先 `clear()`（保留容量）+ `reserve` 精确
+/// 容量（命中既有容量 → 零分配），再写入。调用方取 `buf.as_ptr()/len()` 传 C++ 回调，buffer 生命周期
+/// 由调用方持有到回调返回后再复用（**借出契约**：C++ 不得逃逸指针，shim 回调线程内 memcpy 稳定化）。
+pub fn encode_batch_into(events: &[Bytes], buf: &mut Vec<u8>) {
+    buf.clear();
+    // 预估容量：4(count) + 每条 4(len) + payload，单次 reserve 避免 realloc（热路径，PI-5）。
     let payload_total: usize = events.iter().map(|e| e.len()).sum();
-    let mut buf = Vec::with_capacity(4 + events.len() * 4 + payload_total);
+    buf.reserve(4 + events.len() * 4 + payload_total);
 
     // count 截断保护：理论上一个 step 不会有 >u32::MAX 条事件；超出按 u32 截断（不会发生）。
     let count = events.len() as u32;
@@ -42,6 +44,12 @@ pub fn encode_batch(events: &[Bytes]) -> Vec<u8> {
         buf.extend_from_slice(&len.to_le_bytes());
         buf.extend_from_slice(ev.as_ref());
     }
+}
+
+/// 一次性编码成新 `Vec<u8>`（测试 / f5 parity 用）。生产热路径走 [`encode_batch_into`] 复用 scratch。
+pub fn encode_batch(events: &[Bytes]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    encode_batch_into(events, &mut buf);
     buf
 }
 

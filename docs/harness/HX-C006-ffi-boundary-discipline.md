@@ -76,10 +76,35 @@ grep -rn 'panic = "abort"' Cargo.toml crates/helix-driver-ffi/Cargo.toml
 ```
 > 残留：当前 spawn_blocking 包装是 `todo!()`，FFI driver 落地（接 Swift/Kotlin 冒烟）前必须实现。
 
+## §4.5 投影批 buffer 所有权 = **借出契约**（不新增 free 符号；2026-06-25 SPEC 接管补）
+
+driver-ffi 把一个 step 的多条 `Effect::Emit` 编码成单 buffer，经 `on_domain_events_batch(ctx, ptr, len)`
+**一次**回调过边界（HX-C007）。**buffer 所有权模型 = 借出（lending），冻结**：
+
+- `ptr..ptr+len` 由 **Rust own**，**仅在 `cb` 回调期间有效**，回调返回后 Rust 就地复用/drop。**无 UAF**。
+- **host = C++ shim**（与 pump 同进程），**不是 Dart 直连**。Dart 异步如何吸收：C++ shim 在**回调线程内
+  `malloc + memcpy`** 到稳定堆，再投递给 Dart isolate（`docs/flutter-demo-pointer.md` ①稳定化）。
+- **禁改 ownership-transfer、禁新增 `helix_free_batch`/`helix_shim_free_batch` 等 Rust 导出符号**——破
+  §1.3 七符号冻结。稳定化是 **shim 层**的事（`malloc/free` 在仓外 C++），非 Rust 导出。
+- **反模式（曾误判，已对抗证伪）**：「Dart listener 异步下 buffer UAF → 要 Rust 改 ownership-transfer +
+  加第 8 个 free 符号」——漏判 C++ shim 中间层得出的错误结论。shim memcpy 即解，Rust 侧零改动。
+- 配套：`now_ms` 同理由 **C++ shim 同步填**（vtable 字段保留，确定性注入 GOAL §1.2；禁移除字段让 Rust
+  SystemTime 成正路）。
+
+## §4.6 panic profile 安全边界（G-5，FFI 安全仅 release 保证）
+
+- **FFI 边界安全仅 `release`（`panic="abort"`）保证**：workspace `[profile.release]` 已设 `panic="abort"`
+  （跨 FFI panic 是 UB，abort 是正确边界行为）。
+- **`dev`/`test`/staticlib-dev-link 是 `panic="unwind"`** → 仅供 **rlib Rust 集成测试**（`tests/` 用
+  `helix_driver_ffi::*`），**非 FFI 安全构建**。cpp-smoke / ffigen-smoke **必须用 release** 跑真 C++ link。
+- 禁「dev 也安全」的混说：dev 下无 catch_unwind 的导出若 panic 越界 = UB；本仓策略是 release abort（非逐
+  导出 catch_unwind），故 dev 构建不作 FFI 安全承诺。
+
 ## §5 Recurrence Log
 | 日期 | session/commit | 现象 | 根因 |
 |---|---|---|---|
 | 2026-06-08 | review MAJ-4 | FFI 同步 SQLite 未包 spawn_blocking，阻塞 tokio worker | 同步调用混进 async runtime；已文档化待实现 |
+| 2026-06-25 | driver-ffi 全量接管 SPEC | 误判投影批 UAF → 拟加第 8 个 free 符号破七符号冻结 | 漏判 C++ shim host 中间层；shim 回调线程 memcpy 即解，借出契约正确，Rust 零改动 |
 
 ## §6 关联
 - 上游：rules/runtime-agnostic-core.md §7

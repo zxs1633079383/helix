@@ -1,8 +1,10 @@
 //! FfiClock — host 注入壁钟（确定性，GOAL §1.2 / HX-C002）。
 //!
 //! core 的 `step()` 前壁钟由 host 提供：pump 调 `Clock::now_ms()` → 转调
-//! `CppHostVtable.now_ms(ctx)`。host 不提供（`now_ms == None`）时 fallback `SystemTime`
-//! 并 warn——fallback 破坏「时间全由 host 注入」的确定性，仅作健壮性兜底，生产应填 vtable。
+//! `CppHostVtable.now_ms(ctx)`。**host = C++ shim**（与 pump 同进程、回调线程内同步返回 epoch ms），
+//! 非 Dart——确定性注入靠此链路成立（GOAL §1.2）。host 不提供（`now_ms == None`）时 fallback
+//! `SystemTime` 并 warn——fallback 破坏「时间全由 host 注入」的确定性，仅作健壮性兜底，生产应填 vtable。
+//! 测试用 mock `now_ms` fn 跑确定性回放（同输入同输出）。
 
 use std::ffi::c_void;
 

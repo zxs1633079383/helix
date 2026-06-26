@@ -26,8 +26,15 @@ fn create_handle() -> *mut helix_driver_ffi::api::HelixHandle {
     let ws = b"wss://ws.example.test/socket";
     // SAFETY: byte pointers and lengths are valid for the call duration; vtable
     // callbacks are static test functions.
-    let handle =
-        unsafe { helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), test_vtable()) };
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
     assert!(!handle.is_null());
     handle
 }
@@ -204,8 +211,9 @@ fn command_emits_domain_event_through_batch_callback() {
     let ws = b"wss://ws.example.test/socket";
     // SAFETY: byte pointers and lengths are valid for the call duration; vtable
     // callbacks and ctx remain valid until after helix_destroy.
-    let handle =
-        unsafe { helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable) };
+    let handle = unsafe {
+        helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable)
+    };
     assert!(!handle.is_null(), "create 应成功");
 
     let name = b"im_send_message";

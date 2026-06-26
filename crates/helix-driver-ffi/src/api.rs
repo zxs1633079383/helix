@@ -362,8 +362,15 @@ pub unsafe extern "C" fn helix_command(
         Bytes::copy_from_slice(unsafe { std::slice::from_raw_parts(payload, payload_len) })
     };
 
+    // G-6 / PI-1：name 命中 outbound 闭集（88 命令）→ `Cow::Borrowed` 静态名免堆分配（热路径写命令
+    // 净分配仅 payload 1 次）；miss（im_send_message/im_reconnect/query 名）→ `Cow::Owned` fallback
+    // （低频，仍正确）。闭集真源在 helix-im registry（driver 不复制清单，避免漂移）。
+    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(&name_str) {
+        Some(static_name) => Cow::Borrowed(static_name),
+        None => Cow::Owned(name_str),
+    };
     let cmd = AppCommand {
-        name: Cow::Owned(name_str),
+        name,
         payload: payload_bytes,
     };
 
@@ -416,6 +423,14 @@ pub unsafe extern "C" fn helix_query(
 ) -> i32 {
     if handle.is_null() || out_ptr.is_null() || out_len.is_null() {
         return FFI_NULL;
+    }
+    // G-10：返回 FFI_UNIMPLEMENTED 前先清零 out 参数——C++ 侧若误读 *out_ptr/*out_len（无视返回码）
+    // 得到 (null, 0) 而非未初始化栈垃圾，杜绝对随机指针 helix_query_free（UB）。out_ptr/out_len 非 null
+    // 已确认。
+    // SAFETY: out_ptr/out_len 非 null 已检查；调用方契约保证各指向其分配的可写存储位置。
+    unsafe {
+        *out_ptr = std::ptr::null_mut();
+        *out_len = 0;
     }
     // honest stub：infra（runtime handle + storage）已在 HelixHandle.query 就位；
     // 缺 query_name→Spec 映射（IM 领域语义），填充会泄漏 schema 进 driver → 暂不实现（见 doc）。

@@ -36,12 +36,19 @@ constexpr static const int32_t FFI_UNIMPLEMENTED = -5;
 struct CppHostVtable {
   /// 领域事件批回调。
   ///
-  /// pump（M3-F4）在一个 step 产出的所有 `Effect::Emit` 序列化为单个 byte buffer 后，
-  /// **整批一次**调用此函数（HX-C007）。本轮 pump 未建，此字段仅声明契约。
+  /// pump 在一个 step 产出的所有 `Effect::Emit` 序列化为单个 byte buffer 后，**整批一次**调用
+  /// 此函数（HX-C007，绝不逐条过边界）。
   ///
   /// - `ctx`：透传 host 自定义 context，Rust 不解引用。
-  /// - `ptr`：指向序列化后的 DomainEventBytes 批数据；仅在本次回调期间有效。
+  /// - `ptr`：指向序列化后的 DomainEventBytes 批数据；**仅在本次回调期间有效**（借出契约）。
   /// - `len`：批数据字节长度。
+  ///
+  /// ## buffer 所有权 = 借出契约（冻结，不新增 free 符号）
+  ///
+  /// `ptr..ptr+len` 由 Rust own，仅在 `cb` 回调期间有效，回调返回后 Rust 就地 drop。**这是正确
+  /// 边界，无 UAF**——不改 ownership-transfer、不新增 `helix_free_batch`（保 §1.3 七符号冻结）。
+  /// Dart 异步如何吸收：**C++ shim 在回调线程内 `malloc + memcpy`** 到稳定堆，再投递给 Dart
+  /// isolate（`docs/flutter-demo-pointer.md` ①稳定化）。稳定化是 shim 层的事，非 Rust 导出。
   ///
   /// # Safety（C++ 侧）
   ///
@@ -49,8 +56,10 @@ struct CppHostVtable {
   void (*on_domain_events_batch)(void *ctx, const uint8_t *ptr, uintptr_t len);
   /// 壁钟时间（Unix epoch 毫秒）。
   ///
-  /// pump（M3-F4）在每次 `ExecutionShell::step()` 前调用，注入确定性时间（HX-C002）。
-  /// 本轮 pump 未建，此字段仅声明契约。
+  /// pump 在每次 `ExecutionShell::step()` 前同步调用，注入确定性时间（HX-C002 / GOAL §1.2）。
+  /// **由 C++ shim host 同步提供**（shim 与 pump 同进程，回调线程内同步返回 epoch ms）——确定性
+  /// 注入靠此字段成立。**禁移除字段让 Rust SystemTime 成正路**（那会使 FFI 端比 native 更不确定）。
+  /// 测试用 mock now_ms 跑确定性回放。None 时 clock.rs fallback SystemTime（仅健壮性兜底 + warn）。
   uint64_t (*now_ms)(void *ctx);
   /// 用户自定义 context，Rust 不解引用、不拥有，仅原样回传给回调函数。
   void *ctx;

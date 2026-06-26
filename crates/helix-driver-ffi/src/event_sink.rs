@@ -19,15 +19,18 @@ use helix_core::effect::DomainEventBytes;
 use helix_core::ports::EventSink;
 use helix_driver_host::BatchSink;
 
-use crate::batch::encode_batch;
+use crate::batch::encode_batch_into;
 use crate::vtable::CppHostVtable;
 
 /// FFI 领域事件 sink：攒本 step 的 Emit，flush 时整批一次回调 C++。
 pub struct FfiEventSink {
     /// C++ 回调表（含 `on_domain_events_batch` + ctx）。Copy，整体持有。
     vtable: CppHostVtable,
-    /// 本 step 攒下的 DomainEvent 原文缓冲；flush 后清空。
+    /// 本 step 攒下的 DomainEvent 原文缓冲；flush 后 take（容量复用 std::mem::take 后保留在 guard）。
     buffer: Mutex<Vec<Bytes>>,
+    /// 编码 scratch buffer（PI-4 稳态零分配）：flush 把整批编码进它，回调返回即可复用——
+    /// 借出契约下 buffer 始终 Rust own、回调消费完即空闲，故不每 step 新 Vec。
+    scratch: Mutex<Vec<u8>>,
 }
 
 impl FfiEventSink {
@@ -35,6 +38,7 @@ impl FfiEventSink {
         Self {
             vtable,
             buffer: Mutex::new(Vec::new()),
+            scratch: Mutex::new(Vec::new()),
         }
     }
 }
@@ -69,13 +73,17 @@ impl BatchSink for FfiEventSink {
             return;
         };
 
-        let buf = encode_batch(&events);
-        // SAFETY: cb 由 host 经 vtable 提供，契约保证 helix_destroy 返回前有效（vtable.rs ctx 生命周期）。
-        // buf 在本调用栈帧存活到回调返回后才 drop → ptr/len 在回调期间始终有效；
-        // C++ 侧契约（vtable.rs 头注）保证不把 ptr 逃逸到回调返回之后。ctx 原样回传不解引用。
+        // scratch 复用（PI-4）：编码进持有的 scratch buffer，回调返回即可复用（借出契约下 buffer
+        // 始终 Rust own、回调消费完即空闲 → 稳态零分配，不每 step 新 Vec）。
+        let mut scratch = self.scratch.lock();
+        encode_batch_into(&events, &mut scratch);
+        // SAFETY: cb 由 host(C++ shim) 经 vtable 提供，契约保证 helix_destroy 返回前有效（vtable.rs
+        // ctx 生命周期）。scratch ptr/len 在 cb 回调期间始终有效（持锁存活到回调返回）；**借出契约**：
+        // ptr 仅回调期间有效，C++ shim 在回调线程内 memcpy 稳定化吸收 Dart 异步（不逃逸 ptr，不新增
+        // free 符号，vtable.rs 头注契约）。ctx 原样回传不解引用。
         unsafe {
-            cb(self.vtable.ctx, buf.as_ptr(), buf.len());
+            cb(self.vtable.ctx, scratch.as_ptr(), scratch.len());
         }
-        // buf 在此 drop（回调已返回）。
+        // scratch 保留容量供下个 step 复用（lock 在此释放；buffer 不 drop）。
     }
 }

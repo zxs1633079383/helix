@@ -1,55 +1,59 @@
-/// build.rs — 生成 helix.hpp（C++ 头文件，供 C++ host 包含）
+/// build.rs — 生成 **两份** cbindgen 头（G-8 双配置）：
+///   - `helix.hpp`（C++，cbindgen.toml）：C++ 直连 smoke（scripts/cpp-smoke.sh）。
+///   - `helix.h` （C  ，cbindgen-c.toml）：Dart `ffigen` 走 libclang 解析的干净 C 头
+///     （C++ 头带 `<ostream>/<new>` 等污染让 ffigen 困惑，故单出一份 C 头）。
 ///
-/// cbindgen 扫描 src/，提取所有 `repr(C)` 类型和 `#[no_mangle] pub extern "C"` 函数，
-/// 输出 C++ 头（pragma_once，HelixHandle 作不透明前向声明）到 OUT_DIR/helix.hpp。
+/// cbindgen 扫描 src/，提取所有 `repr(C)` 类型和 `#[no_mangle] pub extern "C"` 函数。
 ///
 /// ## 触发条件
 ///
-/// cargo 在以下情况重新运行 build.rs（收窄到实际影响导出的文件，不监听整个 src/，
-/// 避免无关 .rs 改动触发重跑 + 脏化已跟踪的 helix.hpp）：
+/// cargo 只在以下变化时重跑（收窄到实际影响导出的文件，不监听整个 src/，避免无关 .rs 改动脏化头）：
 ///   - 影响 C ABI 导出 / repr(C) 类型的源文件（api.rs / vtable.rs / lib.rs）
-///   - cbindgen.toml 变化
+///   - 两份 cbindgen 配置（cbindgen.toml / cbindgen-c.toml）
 ///
-/// ## helix.hpp 位置
+/// ## 头文件位置
 ///
-/// OUT_DIR/helix.hpp（cargo 编译输出目录，通常为
-/// `target/<profile>/build/helix-driver-ffi-<hash>/out/helix.hpp`）。
-/// C++ 构建系统通过 `$(cargo metadata)` 或硬链接到已知路径取得此文件。
+/// OUT_DIR/<name>（cargo 编译输出目录）+ crate 根副本（git 跟踪，供 C++/ffigen 引用）。
 fn main() {
-    // 重新运行触发条件：只监听实际决定 C ABI 表面的文件（导出函数 / repr(C) 类型 /
-    // 模块根），不监听整个 src/——否则任何内部实现改动都重跑 cbindgen 并脏化 helix.hpp。
     println!("cargo:rerun-if-changed=src/api.rs");
     println!("cargo:rerun-if-changed=src/vtable.rs");
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");
+    println!("cargo:rerun-if-changed=cbindgen-c.toml");
 
     let crate_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
-    let out_file = std::path::PathBuf::from(&out_dir).join("helix.hpp");
 
-    let config =
-        cbindgen::Config::from_file(std::path::PathBuf::from(&crate_dir).join("cbindgen.toml"))
-            .expect("failed to read cbindgen.toml");
+    // C++ 头（cpp-smoke 用）+ C 头（ffigen 用），同一 ABI 表面两种语言投影。
+    generate_header(&crate_dir, &out_dir, "cbindgen.toml", "helix.hpp");
+    generate_header(&crate_dir, &out_dir, "cbindgen-c.toml", "helix.h");
+}
+
+/// 用 `config_name` 生成头到 OUT_DIR/`out_name` + crate 根副本（仅内容有差异时改写，避免脏化工作树）。
+fn generate_header(crate_dir: &str, out_dir: &str, config_name: &str, out_name: &str) {
+    let config = cbindgen::Config::from_file(std::path::PathBuf::from(crate_dir).join(config_name))
+        .unwrap_or_else(|e| panic!("failed to read {config_name}: {e}"));
 
     let generated = cbindgen::Builder::new()
-        .with_crate(&crate_dir)
+        .with_crate(crate_dir)
         .with_config(config)
         .generate()
-        .expect("cbindgen failed to generate helix.hpp");
+        .unwrap_or_else(|e| panic!("cbindgen failed to generate {out_name}: {e}"));
 
     // OUT_DIR 内是正式产物，每次都写。
+    let out_file = std::path::PathBuf::from(out_dir).join(out_name);
     generated.write_to_file(&out_file);
 
-    // crate 根目录副本（git 已跟踪，供 C++ 侧引用）：仅在内容**确有差异**时才写，
-    // 避免无谓改写脏化工作树（rerun 时若 ABI 未变，新产物与现有一致 → 不动文件）。
-    // 比对源用刚写出的 OUT_DIR 产物（即本次生成结果），不重新 generate。
-    let new_bytes = std::fs::read(&out_file).expect("failed to read generated OUT_DIR helix.hpp");
-    let dev_file = std::path::PathBuf::from(&crate_dir).join("helix.hpp");
+    // crate 根副本（git 跟踪）：仅在内容**确有差异**时才写（rerun 时若 ABI 未变 → 不动文件）。
+    let new_bytes = std::fs::read(&out_file)
+        .unwrap_or_else(|e| panic!("failed to read OUT_DIR {out_name}: {e}"));
+    let dev_file = std::path::PathBuf::from(crate_dir).join(out_name);
     let differs = match std::fs::read(&dev_file) {
         Ok(existing) => existing != new_bytes,
         Err(_) => true, // 不存在 / 读失败 → 写出
     };
     if differs {
-        std::fs::write(&dev_file, &new_bytes).expect("failed to write crate-root helix.hpp");
+        std::fs::write(&dev_file, &new_bytes)
+            .unwrap_or_else(|e| panic!("failed to write crate-root {out_name}: {e}"));
     }
 }

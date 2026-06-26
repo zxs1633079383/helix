@@ -238,7 +238,7 @@ SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后�
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **helix** (5467 symbols, 13155 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **helix** (5649 symbols, 13623 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -278,3 +278,20 @@ This project is indexed by GitNexus as **helix** (5467 symbols, 13155 relationsh
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Agent skills
+
+> Configured by `setup-matt-pocock-skills` for the mattpocock engineering skill set
+> (`to-prd`, `to-issues`, `triage`, `qa`, `domain-modeling`, …).
+
+### Issue tracker
+
+Self-hosted **GitLab** at `git.yundiz.com`, project `cses/go/helix`, via the `glab` CLI over HTTP. External merge requests are **not** a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`); GitLab auto-creates them on first use. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context. ADRs live in `docs/harness/decisions.md` (not `docs/adr/`); domain language in `docs/GOAL.md` + `docs/harness/`. See `docs/agents/domain.md`.

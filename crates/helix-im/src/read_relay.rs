@@ -43,6 +43,18 @@ fn emit_read(data: serde_json::Value) -> Effect {
     }
 }
 
+/// spec06 缺陷A — 从读族命令 payload 抠前端 bridge 注入的 `req_id`（非空字符串）。
+///
+/// 缺/空/非字符串 → `None`（降级 fire-and-forget，不注册回灌上下文）。边界零信任：坏 JSON 不 panic，
+/// 返 `None`（命令本身仍 fire——`handle_outbound` 独立解析 build body，req_id 只管回灌关联）。
+pub(crate) fn read_req_id(payload: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    v.get("req_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

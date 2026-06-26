@@ -45,9 +45,13 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     let user_id = pick_str("user_id")
         .or_else(|| pick_str("userId"))
         .unwrap_or_default();
+    // type 空串容错 "TEXT"（render-ready 下沉·与 outbound send_build.rs:165 一致·issue #53）：
+    // WS 帧/sync 事件缺 type（纯文本不带 type）→ 入站即归一 "TEXT"，使落库 + 投影 type 恒非空，
+    // 前端壳不再 `d.type || "TEXT"` 兜底（C013 纯渲染壳·业务默认下沉 helix）。
     let msg_type = pick_str("type")
         .or_else(|| pick_str("post_type"))
-        .unwrap_or_default();
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "TEXT".to_string());
     let message = pick_str("message").unwrap_or_default();
     let create_at = post
         .get("create_at")

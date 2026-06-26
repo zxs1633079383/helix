@@ -48,11 +48,19 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 数据在手零回读，见 §2）。下表 message-row 行 data 键集已更新为完整集；channel-row 信号（channel:update /
 > channel:update-by-post）**故意留瘦**（完整 DialogItem 是累计 DB 行非在手，fat 会触发每事件热路径回读 → 违
 > SPEC §2 铁律）。**fat 完整集 = `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
-> + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）。
+> + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）
+> + `sendStatus`/`reactions`/`templateReceived`/`systemNotice`（**render-ready 终态**·issue #53 授权演进）。
+>
+> **issue #53（S4 首条竖切·C013 纯渲染壳·授权契约演进）**：fat 在渲染核之外补 4 个 render-ready 终态字段，
+> 把原本前端壳里做的 shaping（extractReactions / extractTemplateReceived / isSystemNotice / `type||"TEXT"` 兜底）
+> 下沉 helix，前端退化为纯绑定（第二北极星）。`sendStatus`=已对账态恒 `"sent"`（入库成功=消息收到·前端收到即取消转圈，
+> 不在壳判 echo 来没来）；`reactions`=预解 props.quickReply 的 emoji 串（无→null）；`templateReceived`=props.template.userIds
+> 非空 bool；`systemNotice`=type∈NOTICE_TYPES bool；`type` 空串容错 `"TEXT"`。**这 4 个字段都从在手 PostFields/props 派生，
+> 不触 PostFields 扩字段、不碰 parser 热路径**（守 HX-C005·与「加急 expediteMap 不吐」同理：那个要扩 PostFields，故仍 DB 权威）。
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
-| `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `temporaryId` `channelId` `userId` `type` `message` `props` `createAt` `updateAt` `readBits` `viewers`）| WS `post` echo / sync type1 可见 |
+| `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `temporaryId` `channelId` `userId` `type` `message` `props` `createAt` `updateAt` `readBits` `viewers` `sendStatus` `reactions` `templateReceived` `systemNotice`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` | 发送乐观上屏 |
 | `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` | sync kind=too_long |
 | `to_effect::emit_connection_established` | `im:connection:established` | `connectionId` | hello 握手完成 |

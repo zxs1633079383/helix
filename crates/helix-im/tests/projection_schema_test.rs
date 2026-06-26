@@ -52,6 +52,11 @@ const FAT_KEYS: &[&str] = &[
     "updateAt",
     "readBits",
     "viewers",
+    // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——
+    "sendStatus",
+    "reactions",
+    "templateReceived",
+    "systemNotice",
 ];
 
 /// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
@@ -183,6 +188,61 @@ fn fat_emit_carries_in_hand_data() {
     // props 由 JSON 字符串 parse 回对象（前端 props:any 期望对象，非字符串）。
     assert_eq!(data["props"]["k"], "v", "props parse 回对象");
     assert_eq!(data["viewers"][0], "all", "viewers 数组直出");
+    // render-ready 终态字段（issue #53）：sample_fields 无 quickReply/template·type=TEXT →
+    // sendStatus=sent / reactions=null / templateReceived=false / systemNotice=false。
+    assert_eq!(data["sendStatus"], "sent", "sendStatus 恒 sent（已对账态）");
+    assert!(data["reactions"].is_null(), "无 quickReply → reactions=null");
+    assert_eq!(
+        data["templateReceived"], false,
+        "无 template → templateReceived=false"
+    );
+    assert_eq!(
+        data["systemNotice"], false,
+        "type=TEXT 非 NOTICE → systemNotice=false"
+    );
+}
+
+/// render-ready 字段真按业务数据派生（非空壳常量）——quickReply→reactions / template→templateReceived /
+/// NOTICE type→systemNotice 三条下沉规则可证伪（issue #53·C013 业务下沉 helix 的回归锚）。
+#[test]
+fn render_ready_fields_derive_from_business_data() {
+    let mut f = sample_fields();
+    f.props = r#"{"quickReply":[{"emoji":"👍","userIds":["u1"]}],"template":{"userIds":["u_self"]}}"#
+        .to_string();
+    f.msg_type = "NOTICE".to_string();
+    let e = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = &e else {
+        panic!("必产 Emit")
+    };
+    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &v["data"];
+    assert_eq!(data["reactions"], "👍", "quickReply.emoji → reactions 预解串");
+    assert_eq!(
+        data["templateReceived"], true,
+        "template.userIds 非空 → templateReceived=true"
+    );
+    assert_eq!(
+        data["systemNotice"], true,
+        "type=NOTICE ∈ NOTICE_TYPES → systemNotice=true"
+    );
+    assert_eq!(data["type"], "NOTICE", "NOTICE type 原样透传");
+}
+
+/// type 空串容错 "TEXT"（render-ready 下沉·前端不再 `d.type || "TEXT"` 兜底·issue #53）。
+#[test]
+fn empty_type_defaults_to_text() {
+    let mut f = sample_fields();
+    f.msg_type = String::new();
+    let e = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = &e else {
+        panic!("必产 Emit")
+    };
+    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(v["data"]["type"], "TEXT", "空 type → TEXT");
+    assert_eq!(
+        v["data"]["systemNotice"], false,
+        "TEXT 默认非系统通知"
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════════

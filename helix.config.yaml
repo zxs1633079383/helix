@@ -1,0 +1,29 @@
+# helix 联调/e2e 单一配置真源（去 env 化，PRD §4.1）。
+# 切后端 = 改 connection 块。无密钥：dev endpoint + 测试账号 id。
+# host-cli 默认读 repo 根 ./helix.config.yaml，`--config <path>` 覆盖；
+# `--cookie-id`/`--company-id` flag 覆盖 identity；debug 构建保留 HELIX_<FIELD> env 逃生口（不文档化）。
+connection:
+  ws_url:   "ws://127.0.0.1:8066/api/v4/websocket"   # 路径不变，仅 8065→8066
+  api_base: "http://127.0.0.1:8066/api/cses"          # 前缀 /api/cses 不变
+  default_api_base: ""                                 # 空 = 自动 = api_base 去 /api/cses 尾段（vote/score 第二网关）
+  go_log:   "/tmp/cses-im-server.log"                  # cses-im-server devLogFile 同路径（脚本 yq 读，host-cli 不用）
+  go_port:  8066                                        # 脚本 lsof 就绪检查用（host-cli 不用）
+  start_hint: "IDEA 右击 run 或 go run ./cmd/server（依赖 PG/Pulsar/Redis 自起；无需 grpc）"  # 脚本错误提示（host-cli 不用）
+identity:                 # 默认联调账号；双账号 e2e 用 --cookie-id/--company-id 覆盖
+  cookie_id:  "444"
+  company_id: "64118eebd2b665246b7880eb"
+  tenant:     ""          # 空 = 取 cookie_id（DB 多租户目录派生）
+  user_name:  ""          # userSnapshot（ucenter 展开，posts/create body）；空非阻断
+  org_name:   ""
+  dept_name:  ""
+client:                   # 端身份（很少改）
+  app_type:    "bct"
+  device:      "IOS"
+  device_id:   ""         # 空 = ADR-011 固定联调 deviceId → 本机派生 fallback
+  language:    "zh"
+  app_version: "1.2.56"
+  os_version:  "macos-14.5.0"
+runtime:
+  db:                ""    # 空 = 派生多租户路径
+  http_max_inflight: 0     # 0 = 默认 8
+  dump_frames:       true

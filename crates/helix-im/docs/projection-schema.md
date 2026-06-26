@@ -197,6 +197,26 @@ keyed upsert + `leaves` 删行，零 extract / 零 role 判 / 零四源合并）
 > 已是 keyed 单行 upsert·纯绑定·不经本通道——helix 该 WS 帧无全量名册可吐）。
 > 内核自驱（无 req_id，非前端 bridge 发起）故独立 `CorrelationContext::TodoQuery`（区别 §1.2 透传 `OutboundReadReply`）。
 
+### 1.6 回复族 render-ready 渲染通道（**不计入** 21 投影集 · issue #57 S8·C013 纯渲染壳·终局切）
+
+`im:channel:replies` 是把**回复链 postId 抽取**（`getReplies`/`getReplyBranch` 透传 body 的 `rootPost`/
+`replies`/`data`/`list` 探针 + 去重保序）从渲染壳下沉 helix-im 后**额外**emit 的 render-ready 渲染通道——
+前端 `applyChannelReplies` 退化为**纯绑定**（直接把 `replyIds` 1:1 绑到 AX reply-drawer 的 `data-reply-id`，
+零 extract / 零 body 探针 / 零 shape 兼容）。`getReplies`/`getReplyBranch` 读族回报（`OutboundReplies`）在
+冻结 `im:read:result`{req_id,body} 之后**额外**emit 本通道（`render_ready_replies::extract_reply_ids` 抽好
+postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义·清抽屉）。
+
+| 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
+|---|---|---|---|---|
+| `render_ready_replies::emit_channel_replies` | `im:channel:replies` | `{reqId, replyIds:[postId]}`（render-ready·去重保序）| getReplies/getReplyBranch HTTP 回报（`OutboundReplies` 双 emit）| helix-im 整形，前端 `applyChannelReplies` 纯绑定 |
+
+> **为何额外通道而非改既有投影**：冻结的 `im:read:result`（`{req_id, body}`·严格二键）键集**不可加 replyIds 键**
+> （UC-2.4 ② 契约面「缺/多即 fail」·body verbatim 透传）。故本通道**额外**emit，既有冻结投影原样保留、其 ②
+> 契约面照旧裁定 verbatim body。`im:channel:replies` data 外层键集（`{reqId, replyIds}`）由
+> `src/render_ready_replies_tests.rs` 断言。**待办族**（§1.4 `im:todo:updated`）S8 同步补 render-ready 终态键
+> `todoId`/`todoType`（每 item 在冻结-记录的 `{id, channel, post, type, canDel}` 之上**额外**加·inner 不冻结·
+> 外层 `{items}` 键集照旧）→ 前端 `applyTodoUpdated` 退纯绑定（1:1 取 todoId/todoType/canDel·不 rename）。
+
 ---
 
 ## 2. message-row fat vs channel-row thin vs 透传类（前端如何消费 · spec06 FixB 重写）

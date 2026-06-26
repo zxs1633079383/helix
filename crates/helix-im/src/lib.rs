@@ -27,6 +27,7 @@ pub mod module;
 pub mod older_context;
 pub mod outbound;
 pub mod parser;
+mod parser_post_props;
 pub mod pending_send;
 pub mod pong_compensate;
 mod port_reply;

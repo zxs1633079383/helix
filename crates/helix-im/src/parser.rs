@@ -56,12 +56,9 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .or_else(|| root.get("createAt"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
-    // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）。
-    let props = post
-        .get("props")
-        .or_else(|| root.get("props"))
-        .map(|v| v.to_string())
-        .unwrap_or_default();
+    // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）+ UC-1.8 顶层 quickReply
+    // emoji 反应合并进 props.quickReply（逻辑外提收口行数基线，详见 parser_post_props）。
+    let props = crate::parser_post_props::merge_props_with_quickreply(post, root);
     // read_bits（C2 / type=6 真源 post.rs:1088 `readBits`）：服务端权威已读位字符串。
     // 兼容 readBits（Go camelCase wire）/ read_bits（snake 测试帧）；缺省空串。
     let read_bits = pick_str("readBits")

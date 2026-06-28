@@ -97,6 +97,23 @@ impl Channel {
         now_ms: u64,
     ) -> Result<(), ImError> {
         let expected = Seq(self.cursor.value().0 + 1);
+        // —— HOP③ 常驻日志（全链 echo 诊断·③ helix 输出/gate 决策）————————————————
+        // 关键区分：收到帧后 gate 是 apply-emit / dup-drop / buffer-gap（buffer 即「收到但不吐投影」
+        // = DOM 永不更新的根因）。落 run-app.log，让「断在 gate buffer 这跳」一眼可证。
+        let decision = match ev.seq.cmp(&expected) {
+            std::cmp::Ordering::Equal => "apply-emit",
+            std::cmp::Ordering::Less => "dup-drop",
+            std::cmp::Ordering::Greater => "buffer-gap(no-emit)",
+        };
+        tracing::info!(
+            hop = "3-gate",
+            ch = %self.id.as_str(),
+            seq = ev.seq.0,
+            cursor = self.cursor.value().0,
+            kind = ev.kind.type_num(),
+            decision,
+            "HOP3 channel gate decision"
+        );
         match ev.seq.cmp(&expected) {
             std::cmp::Ordering::Equal => self.apply_and_flush_contiguous(ev, fx, now_ms),
             std::cmp::Ordering::Less => Ok(()), // dup drop，幂等

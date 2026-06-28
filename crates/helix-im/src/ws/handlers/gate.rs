@@ -53,7 +53,40 @@ pub(super) fn gate_ingest_content_event(
     };
     let ev = EventEnvelope::new(channel_id, seq, kind, fields).with_msg_id(msg_id);
     if let Some(ch) = ctx.state.channels.get_mut(&channel_id) {
+        // —— edit echo 在 cursor gap 下兜底 emit（对齐 post.rs echo_settle·全链 echo 修复）——————
+        // 真源对偶（post.rs:101-134）：post（type1）echo 在 seq≫cursor+1（冷启动 cursor 落后）下被
+        // gate buffer → 投影不发 → 乐观行/DOM 永停。post handler 已加 self-echo 兜底 emit；但
+        // **post_update（type2 编辑：模板已收到 / 快捷回复 / 公告写）echo 走本 gate 入口未加兜底**
+        // → 同款 cursor-gate buffer bug：收到 post_update 帧但 seq≠cursor+1 → buffer → 永不 emit
+        // im:post:updated → DOM data-template-received / data-reactions 永不更新（UC-3.3/1.8/5.6w 红根因）。
+        //
+        // 修复：编辑 echo 是「对既有行的就地更新」，其投影与 channel 事件**排序无关**（壳按 msg_id
+        // 幂等覆盖）。当 gate 不会自然 apply-emit（seq≠cursor+1）时，用在手 ev.fields 兜底 emit 一次
+        // im:post:updated 结算 DOM。守 HX-C008：**不推 cursor**（cursor 仍由 ch.ingest 严格 +1 推进，
+        // gap 经 buffer/sync 回补）；buffer 后续 flush 时会再 emit 同投影（壳幂等·无害）。
+        // 仅 PostEdit（type2）兜底——撤回（type3）/已读（type6）语义不同，不在此兜底。
+        let edit_settle = if matches!(ev.kind, EventKind::PostEdit)
+            && ev.seq.0 != ch.cursor.value().0 + 1
+        {
+            let msg_id_ref = ev
+                .msg_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(ev.fields.id.as_str());
+            Some(crate::acl::to_effect::emit_post_updated(
+                channel_id,
+                ev.seq.0,
+                msg_id_ref,
+                &ev.fields,
+            ))
+        } else {
+            None
+        };
         ch.ingest(ev, out, ctx.now_ms)?;
+        // gate buffer/drop 下编辑 echo 的 DOM 兜底结算（apply 路径已自然 emit → edit_settle=None）。
+        if let Some(eff) = edit_settle {
+            out.push(eff);
+        }
     }
     Ok(())
 }

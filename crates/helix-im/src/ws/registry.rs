@@ -67,9 +67,21 @@ pub(crate) fn dispatch_ws(
     frame: &WsFrame,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
+    // —— HOP② 常驻日志（全链 echo 诊断·② helix 收到）——————————————————————————
+    // 真源：native engine_loop 经 Tick::Inbound 直泵 helix-im，**绕过** Recording::recv() 的
+    // ws-recv tee（helix-driver-native/transport.rs:8）→ run.jsonl 永无 ws-recv 帧（②面盲点）。
+    // 在 dispatch 入口常驻 tracing 一行，让「后端是否把帧推到了 helix」可观测（落 run-app.log）。
+    let action = frame.action();
+    tracing::info!(
+        hop = "2-ws-recv",
+        action = %action,
+        event_seq = frame.event_seq().map(|s| s.0),
+        "HOP2 ws frame received by helix dispatch"
+    );
+
     let handler = registry()?
-        .get(frame.action())
-        .ok_or_else(|| ImError::UnsupportedWsAction(frame.action().to_string()))?;
+        .get(action)
+        .ok_or_else(|| ImError::UnsupportedWsAction(action.to_string()))?;
 
     handler.handle(ctx, frame, out)
 }

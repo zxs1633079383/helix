@@ -233,26 +233,14 @@ fn stress_gap_5000_sync_backfill() {
     let mut module = make_module(1);
     let mut sink = EffectSink::new();
 
-    // 1. 喂一条远端 seq=5001（缺口 1..=5000）→ buffer + arm gate timer
+    // 1. 喂一条远端 seq=5001（缺口 1..=5000）→ buffer + **立即** backfill resync（根治
+    //    fix/im-sync-cursor-catchup·gap=5000 ≫ 阈值）：sync/notify Http 在 ingest 当步即发出，
+    //    不再等 1s gate timer fire（gate timer 仍 arm 作兜底，但 cursor 由 immediate sync 追平）。
     let far_tick = make_inbound_tick(1, GAP + 1);
     sink.clear();
     module
         .handle(&far_tick, 1_000_000, &mut sink)
         .expect("handle far event");
-    let gate_timer = sink
-        .as_slice()
-        .iter()
-        .find_map(|e| match e {
-            Effect::ScheduleTimer { id, .. } => Some(*id),
-            _ => None,
-        })
-        .expect("gate timer must be armed");
-
-    // 2. gate timer 超时 → 模块吐 Http{sync/notify}
-    sink.clear();
-    module
-        .handle(&Tick::Timer(gate_timer), 1_001_000, &mut sink)
-        .expect("gate timeout");
     let sync_corr = sink
         .as_slice()
         .iter()
@@ -260,7 +248,7 @@ fn stress_gap_5000_sync_backfill() {
             Effect::Http { corr, .. } => Some(*corr),
             _ => None,
         })
-        .expect("sync/notify Http must be emitted");
+        .expect("大缺口 ingest 当步即发 sync/notify Http（立即 backfill）");
 
     // 3. 构造 5000 events 的 sync 响应（~600KB JSON），PortReply 灌入
     //    度量：JSON parse + 分桶排序 + 5000 个 BatchUpsert op 构造

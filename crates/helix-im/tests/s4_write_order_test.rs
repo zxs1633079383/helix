@@ -131,23 +131,16 @@ fn s4_four_bucket_strict_order() {
 #[test]
 fn s4_persist_err_does_not_advance_cursor() {
     let mut h = Harness::new(&[1]);
-    // 触发 gate → sync Http corr。
+    // 大缺口（seq=99 / cursor=0）→ **立即** backfill resync（根治 fix/im-sync-cursor-catchup）：
+    // sync Http 在 ingest 当步即发出，不再等 1s gate timer fire。
     let gate = h.step(inbound_event(1, 99, 1), 1000);
-    let gate_timer = gate
-        .iter()
-        .find_map(|e| match e {
-            EffectKind::ScheduleTimer(id) => Some(*id),
-            _ => None,
-        })
-        .expect("gate timer");
-    let sync = h.step(timer_tick(gate_timer), 2001);
-    let sync_corr = sync
+    let sync_corr = gate
         .iter()
         .find_map(|e| match e {
             EffectKind::Http(c) => Some(*c),
             _ => None,
         })
-        .expect("sync Http corr");
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）");
 
     // 服务端回报 events（seq 1-3，nextSeq=3）→ 产 Persist{corr}。
     let reply = sync_reply_events_with_messages(

@@ -22,22 +22,16 @@ use helix_im::state::ChannelId;
 #[test]
 fn s6_too_long_emits_but_does_not_delete_message() {
     let mut h = Harness::new(&[1]);
+    // 大缺口（seq=5 / cursor=0 / gap=5 > 阈值）→ **立即** backfill resync（根治
+    // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
     let gate = h.step(inbound_event(1, 5, 1), 1000);
-    let gate_timer = gate
-        .iter()
-        .find_map(|e| match e {
-            EffectKind::ScheduleTimer(id) => Some(*id),
-            _ => None,
-        })
-        .expect("gate timer");
-    let sync = h.step(timer_tick(gate_timer), 2001);
-    let sync_corr = sync
+    let sync_corr = gate
         .iter()
         .find_map(|e| match e {
             EffectKind::Http(c) => Some(*c),
             _ => None,
         })
-        .expect("sync Http corr");
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）");
 
     // 服务端回报 too_long（resetTo=100）。
     h.step(

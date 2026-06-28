@@ -32,20 +32,10 @@ use helix_core::Tick;
 // ─── 辅助：触发一次 gate sync（进入初始 sync 状态）──────────────────────────────
 
 fn setup_initial_sync(h: &mut Harness) -> u64 {
-    // 触发 gate：arm 乱序事件，fire gate timer，得到第一个 sync Http corr
+    // 大缺口（cursor=0 / seq=99）→ **立即** backfill resync（根治 echo gate-gap·
+    // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer fire。
     let gate_effects = h.step(inbound_event(1, 99, 1), 1000);
-    let gate_timer = gate_effects
-        .iter()
-        .find_map(|e| {
-            if let EffectKind::ScheduleTimer(id) = e {
-                Some(*id)
-            } else {
-                None
-            }
-        })
-        .expect("gate timer");
-    let sync_effects = h.step(timer_tick(gate_timer), 2001);
-    sync_effects
+    gate_effects
         .iter()
         .find_map(|e| {
             if let EffectKind::Http(c) = e {
@@ -54,7 +44,7 @@ fn setup_initial_sync(h: &mut Harness) -> u64 {
                 None
             }
         })
-        .expect("sync Http corr")
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill·不等 1s timer）")
 }
 
 // ─── 核心验收：3 批续拉，cursor 最终=1500，第 4 次不再发 ────────────────────────

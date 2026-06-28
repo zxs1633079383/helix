@@ -20,21 +20,15 @@ use common::*;
 
 /// 触发一次 gate sync，返回 sync-pull 的 Http corr（与 e3/s6 测试同构）。
 fn drive_sync_pull(h: &mut Harness) -> u64 {
+    // 大缺口（seq=99 / cursor=0）→ **立即** backfill resync（根治 fix/im-sync-cursor-catchup）：
+    // sync Http 在 ingest 当步即发出，不再等 1s gate timer fire。
     let gate = h.step(inbound_event(1, 99, 1), 1000);
-    let gate_timer = gate
-        .iter()
-        .find_map(|e| match e {
-            EffectKind::ScheduleTimer(id) => Some(*id),
-            _ => None,
-        })
-        .expect("gate timer");
-    let sync = h.step(timer_tick(gate_timer), 2001);
-    sync.iter()
+    gate.iter()
         .find_map(|e| match e {
             EffectKind::Http(c) => Some(*c),
             _ => None,
         })
-        .expect("sync Http corr")
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）")
 }
 
 #[test]

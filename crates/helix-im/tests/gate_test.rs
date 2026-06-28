@@ -111,8 +111,10 @@ fn gate_second_out_of_order_no_double_arm() {
 #[test]
 fn gate_timer_fires_sync_http() {
     let mut h = Harness::new(&[1]);
-    // arm gate by sending out-of-order
-    let gate_effects = h.step(inbound_event(1, 3, 1), 1000);
+    // arm gate by sending **小缺口**（seq=2 / cursor=0 / gap=2 ≤ 阈值）→ 不触发立即 backfill resync
+    // （根治 fix/im-sync-cursor-catchup 仅对 gap>2 的大缺口立即发 sync），保留 1s gate timer 作为
+    // 缺口兜底触发点——本测专验「小缺口走 1s gate timer fire → sync/notify」这条路径仍成立。
+    let gate_effects = h.step(inbound_event(1, 2, 1), 1000);
     let gate_timer_id = gate_effects
         .iter()
         .find_map(|e| {
@@ -149,22 +151,10 @@ fn gate_timer_fires_sync_http() {
 #[test]
 fn sync_success_path_peek_then_commit_cursor() {
     let mut h = Harness::new(&[1]);
-    // arm gate
+    // 大缺口（seq=3 / cursor=0 / gap=3 > 阈值）→ **立即** backfill resync（根治
+    // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不等 1s gate timer。
     let gate_effects = h.step(inbound_event(1, 3, 1), 1000);
-    let gate_timer_id = gate_effects
-        .iter()
-        .find_map(|e| {
-            if let EffectKind::ScheduleTimer(id) = e {
-                Some(*id)
-            } else {
-                None
-            }
-        })
-        .expect("gate timer");
-
-    // fire gate → Http
-    let sync_effects = h.step(timer_tick(gate_timer_id), 2001);
-    let sync_corr = sync_effects
+    let sync_corr = gate_effects
         .iter()
         .find_map(|e| {
             if let EffectKind::Http(c) = e {
@@ -173,7 +163,7 @@ fn sync_success_path_peek_then_commit_cursor() {
                 None
             }
         })
-        .expect("sync Http corr");
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）");
 
     // driver 回报 sync/notify 成功，带回 3 个事件（seq 1,2,3）——真 Go wire SyncEntry
     let reply_bytes = ReplyBytes(enveloped(sync_reply_events(1, &[1, 2, 3])));
@@ -215,20 +205,10 @@ fn sync_success_path_peek_then_commit_cursor() {
 #[test]
 fn sync_cursor_anchors_to_next_seq_not_max_event() {
     let mut h = Harness::new(&[1]);
-    // arm gate（喂乱序 seq=99 → buffer + arm timer）
+    // 大缺口（喂乱序 seq=99 → buffer + 立即 backfill resync·根治 fix/im-sync-cursor-catchup）：
+    // sync Http 在 ingest 当步即发出（不等 1s gate timer）。
     let gate_effects = h.step(inbound_event(1, 99, 1), 1000);
-    let gate_timer_id = gate_effects
-        .iter()
-        .find_map(|e| {
-            if let EffectKind::ScheduleTimer(id) = e {
-                Some(*id)
-            } else {
-                None
-            }
-        })
-        .expect("gate timer");
-    let sync_effects = h.step(timer_tick(gate_timer_id), 2001);
-    let sync_corr = sync_effects
+    let sync_corr = gate_effects
         .iter()
         .find_map(|e| {
             if let EffectKind::Http(c) = e {
@@ -237,7 +217,7 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
                 None
             }
         })
-        .expect("sync Http corr");
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）");
 
     // 下发 events seq 1..=10，但权威 nextSeq=50（尾部 11..=50 稀疏，不在 events 数组）
     let reply = sync_reply_events_with_next(1, &(1..=10).collect::<Vec<_>>(), 50);
@@ -267,20 +247,9 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
 #[test]
 fn sync_too_long_resets_cursor_and_emits() {
     let mut h = Harness::new(&[1]);
-    // arm gate
+    // 大缺口（seq=3 / gap=3 > 阈值）→ **立即** backfill resync（根治 fix/im-sync-cursor-catchup）。
     let gate_effects = h.step(inbound_event(1, 3, 1), 1000);
-    let gate_timer_id = gate_effects
-        .iter()
-        .find_map(|e| {
-            if let EffectKind::ScheduleTimer(id) = e {
-                Some(*id)
-            } else {
-                None
-            }
-        })
-        .expect("gate timer");
-    let sync_effects = h.step(timer_tick(gate_timer_id), 2001);
-    let sync_corr = sync_effects
+    let sync_corr = gate_effects
         .iter()
         .find_map(|e| {
             if let EffectKind::Http(c) = e {
@@ -289,7 +258,7 @@ fn sync_too_long_resets_cursor_and_emits() {
                 None
             }
         })
-        .expect("sync Http corr");
+        .expect("大缺口 ingest 当步即发 sync Http（立即 backfill）");
 
     // 服务端返回 too_long（真 Go wire SyncEntry，resetTo=100）
     let reply_bytes = ReplyBytes(enveloped(sync_reply_too_long(1, 100)));
@@ -372,5 +341,89 @@ fn cursor_never_decreases_under_any_input() {
     assert_eq!(
         cursor_after_stale, 5,
         "cursor should not decrease on stale PortReply"
+    );
+}
+
+// ─── 根治回归：大缺口 echo → 立即 backfill → cursor 追平 → buffered echo flush emit ──────
+//
+// 回归锚: fix/im-sync-cursor-catchup。根因——活动频道本地 cursor 落后服务端 high-water
+// （cursor=2 / echo seq=5·gap=3），echo 被 gate buffer 且**不推 cursor**；旧路仅 1s gate timer
+// 超时后才发 sync 追平（慢于 e2e 静默/认领窗口 → buffered echo 永不在窗口内 emit·UC-1.7/5.6w 红）。
+// 根治：大缺口 ingest **当步**即触发 per-channel proactive resync → sync 回拉中间缺口（seq 3,4）
+// + cursor 经 on_persist_ok commit 追平 → buffered echo（seq 5）自然 flush emit im:post:received。
+// 守 HX-C008：cursor 仍由 sync commit **严格推进**，不绕 gate / 不破排序（缺口真填上，非放行）。
+#[test]
+fn large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo() {
+    let mut h = Harness::new(&[1]);
+    // 前置：连续 seq 1,2 → cursor=2。
+    h.step(inbound_event(1, 1, 1), 1000);
+    h.step(inbound_event(1, 2, 1), 1001);
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(2), "前置 cursor=2");
+
+    // 大缺口 echo（seq=5 / gap=3 > 阈值）→ buffer（不 emit·不推 cursor）+ **立即** backfill sync。
+    let echo = h.step(inbound_event(1, 5, 1), 1002);
+    let sync_corr = echo
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::Http(c) => Some(*c),
+            _ => None,
+        })
+        .expect("大缺口 echo ingest 当步即发 backfill sync Http（立即·不等 1s timer）");
+    assert!(
+        !echo.iter().any(|e| matches!(e, EffectKind::Emit)),
+        "大缺口 echo 当步不得 emit（仍 buffer·守 gate 排序），got {echo:?}"
+    );
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(2),
+        "echo 仅 buffer·不推 cursor（HX-C008·cursor 由 sync commit 推进）"
+    );
+
+    // 防风暴：同 channel 在途 sync 期间再来一帧大缺口 echo（seq=8）→ inflight_sync 守卫 → **不**重发 sync。
+    let echo2 = h.step(inbound_event(1, 8, 1), 1003);
+    assert!(
+        !echo2.iter().any(|e| matches!(e, EffectKind::Http(_))),
+        "在途 sync 期间同 channel 不得重复发 sync（防风暴·inflight_sync 守卫），got {echo2:?}"
+    );
+
+    // 服务端 backfill 回报：中间缺口 seq 3,4（可见），nextSeq=4。
+    let reply = sync_reply_events_with_messages(
+        1,
+        &[ev(3, 1, "msg_3"), ev(4, 1, "msg_4")],
+        &[("msg_3", "a", ""), ("msg_4", "b", "")],
+        4,
+    );
+    let p = h.step(port_reply_with_body(sync_corr, enveloped(reply)), 2000);
+    let persist_corr = p
+        .iter()
+        .find_map(|e| match e {
+            EffectKind::Persist(c) => Some(*c),
+            _ => None,
+        })
+        .expect("backfill 回报产 Persist");
+
+    // persist ok → commit cursor 到 4 → flush_contiguous 放行 buffered seq=5 → cursor=5 + emit。
+    h.step(port_reply_ok(persist_corr), 2100);
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(5),
+        "cursor 经 backfill commit(4) + buffered echo flush(5) 追平到 5"
+    );
+    let received = h.sink.as_slice().iter().any(|e| match e {
+        helix_core::Effect::Emit { event } => {
+            serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                .ok()
+                .and_then(|v| {
+                    v.get("event")
+                        .and_then(|s| s.as_str())
+                        .map(|s| s == "im:post:received")
+                })
+                .unwrap_or(false)
+        }
+        _ => false,
+    });
+    assert!(
+        received,
+        "buffered echo（seq 5）flush 时须 emit im:post:received（活动频道 echo 终于渲染）"
     );
 }

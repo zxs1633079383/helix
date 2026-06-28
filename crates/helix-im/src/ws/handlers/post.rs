@@ -46,6 +46,14 @@ impl WsMessageHandler for PostHandler {
         // 仅当 temporary_id 命中在途 send 时才实际对账（内部门控）。
         let echo_tmp_id = ev.fields.temporary_id.clone();
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
+        // self-echo 判定（与 reconcile_post_echo 内部门控同口径）：命中在途 send + 合法 server id。
+        // 用于决定是否需「DOM 兜底结算投影」——见下 echo_settle。
+        let is_self_echo = !echo_tmp_id.is_empty()
+            && echo_server_id.is_some()
+            && ctx
+                .state
+                .pending_sends
+                .contains_key(&TemporaryId(echo_tmp_id.clone()));
         reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
 
         // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
@@ -89,7 +97,41 @@ impl WsMessageHandler for PostHandler {
             .channels
             .entry(ev.channel_id)
             .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
+
+        // —— self-echo DOM 兜底结算（fix/im-send-echo-reconcile·路 2 DOM 面）————————————
+        // 乐观行 tmp→server 覆写 + status=sent 的 DOM 渲染由 `im:post:received` 投影驱动
+        // （壳 im-store 按 temporaryId upsert）。该投影**仅在 gate apply（seq==cursor+1）时**由
+        // ch.ingest emit；本端 echo 在 cursor 落后（gap，seq≫cursor+1）下被 buffer → 投影不发 →
+        // 乐观行永停 sending（DB 的 id 已由 reconcile_post_echo 落定，但 DOM 是纯渲染壳，必须靠投影）。
+        //
+        // 修复：self-echo 是「发送者自己消息回流」，其乐观行结算与 channel 事件**排序无关**（应像
+        // reconcile_post_echo 落 DB 一样**不过 gate**）。故当 gate 不会自然 apply-emit（seq≠cursor+1）
+        // 时，用在手 ev.fields 兜底 emit 一次 `im:post:received` 结算乐观行。
+        // 守不变量：**不推 cursor**（HX-C008——cursor 仍由 ch.ingest 的 gate 严格 +1 推进，gap 经
+        // buffer/sync 回补；本兜底只发投影）。buffer 后续 flush 时会再 emit 同投影（壳按 temporaryId
+        // 幂等 upsert·无害）。字段集走冻结 message_item_data（C004 不改契约）。
+        let echo_settle = if is_self_echo && ev.seq.0 != ch.cursor.value().0 + 1 {
+            let msg_id = ev
+                .msg_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(ev.fields.id.as_str());
+            Some(crate::acl::to_effect::emit_post_received(
+                ev.channel_id,
+                ev.seq.0,
+                msg_id,
+                &ev.fields,
+            ))
+        } else {
+            None
+        };
+
         ch.ingest(ev, out, ctx.now_ms)?;
+
+        // gate buffer/drop 下 self-echo 的乐观行 DOM 结算（gate apply 路径已自然 emit → echo_settle=None）。
+        if let Some(eff) = echo_settle {
+            out.push(eff);
+        }
         Ok(())
     }
 }

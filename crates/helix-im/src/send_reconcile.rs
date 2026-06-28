@@ -46,12 +46,14 @@ pub(crate) fn register_send_corrs(
 ///   → `pending_send.reconcile(server_id)`（吐 Persist `id=serverId,status=sent` + CancelTimer，
 ///   推进 `Sent`）。
 /// - `status == "SUCCESS"` 但无可解 serverId → `mark_sent_pending_server_id`（仅 `status=sent`
-///   + CancelTimer + `Sent`；serverId 后续 history/WS echo 按 temporary_id 幂等补）。
+///   + CancelTimer + `Sent`），**保留 pending_sends 不清栈**：serverId 由随后 WS echo 按
+///   temporary_id 幂等补写 id 列并在 `reconcile_post_echo` 清栈（修 9 个 send spec 红根因）。
 /// - `status != "SUCCESS"`（含 4xx body 误判）/ 信封畸形 → 不标 Sent（边界零信任不 panic，
 ///   留 15s timer 兜底标 UnSend）。
 ///
-/// `reconcile_corr` 由调用方分配（单调分配器，HX-C005）。对账落定后清理 pending_sends + corr_map
-/// （防泄漏，对齐 echo 路径）。
+/// `reconcile_corr` 由调用方分配（单调分配器，HX-C005）。
+/// **清栈口径**：仅「HTTP 响应已含 serverId」分支在此清 pending_sends + corr_map；「SUCCESS 无
+/// serverId」分支不清（留待 WS echo 路径清，避免 echo 到达时 contains_key=false 提前 return）。
 pub(crate) fn reconcile_send_http(
     state: &mut ImState,
     temporary_id: &TemporaryId,
@@ -80,26 +82,40 @@ pub(crate) fn reconcile_send_http(
         return;
     }
 
-    // R4-retain：取出该 send 的 P1 Persist corr（清 corr_map 用）。
-    let persist_corr = state
-        .pending_sends
-        .get(temporary_id)
-        .and_then(|ps| ps.persist_corr);
-
     if let Some(server_id) = extract_post_server_id(&body) {
         // 含 serverId → reconcile：Persist(id=serverId,status=sent) + CancelTimer + Sent。
+        // serverId 已在 HTTP 响应落定 → 无需再等 WS echo，**此处即清栈**（pending_sends + corr_map），
+        // 与 echo 路径终态一致（后到 echo 因 contains_key=false no-op，幂等无害）。
+        // R4-retain：取出该 send 的 P1 Persist corr（清 corr_map 用）。
+        let persist_corr = state
+            .pending_sends
+            .get(temporary_id)
+            .and_then(|ps| ps.persist_corr);
         if let Some(ps) = state.pending_sends.get_mut(temporary_id) {
             ps.reconcile(server_id, reconcile_corr, out);
         }
+        state.pending_sends.remove(temporary_id);
+        if let Some(corr) = persist_corr {
+            state.corr_map.remove(&corr);
+        }
     } else if let Some(ps) = state.pending_sends.get_mut(temporary_id) {
-        // SUCCESS 但无 serverId → 仅标 Sent + persist 乐观行 status=sent（serverId 后补）+ 撤 timer。
+        // SUCCESS 但无 serverId（cses post 经 Pulsar 异步建，posts/create HTTP 200 体仅 `{status}`）
+        // → 仅标 Sent + persist 乐观行 send_status=sent + 撤 15s timer（停 spinner）。
+        //
+        // **根因修复（fix/im-send-echo-reconcile）**：此分支**绝不**清 pending_sends / corr_map。
+        // serverId 由随后携带 server id 的 WS `post` echo 经
+        // `ws/handlers/post.rs::reconcile_post_echo` 按 temporary_id 幂等补写
+        // （ON CONFLICT(temporary_id) 覆盖 id 列 → 乐观行 id: temporary_id→server_id），
+        // **并在那里清栈**（pending_sends + corr_map[persist_corr]，见 reconcile_post_echo 尾部）。
+        //
+        // 旧实现在此无条件 `pending_sends.remove` → echo 到达时 contains_key=false →
+        // reconcile_post_echo 提前 return → server_id 永不落乐观行 id 列（9 个 send 类 spec 红的根因）。
+        //
+        // 泄漏边界：timer 已被 mark_sent_pending_server_id 内 CancelTimer 撤销（不会误标 UnSend），
+        // 行已 Sent（UI 正确）。echo 永不到达的极端边界下残留 1 条 pending_send；这与既有失败路
+        // （status != SUCCESS 早返 + on_timeout 不清栈）同档，非本次新增的不可控泄漏。常态下 WS echo
+        // 必达（cses-im-server 实测真广播 echo 给发送者）→ reconcile_post_echo 即时清栈，无泄漏。
         ps.mark_sent_pending_server_id(reconcile_corr, out);
-    }
-
-    // 对账落定 → 清理 pending_sends + corr_map（防泄漏，对齐 echo 路径；late timer 已 CancelTimer）。
-    state.pending_sends.remove(temporary_id);
-    if let Some(corr) = persist_corr {
-        state.corr_map.remove(&corr);
     }
 }
 

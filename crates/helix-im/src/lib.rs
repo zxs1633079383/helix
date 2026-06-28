@@ -23,6 +23,7 @@ pub mod commands;
 pub mod error;
 pub mod http_envelope;
 mod lifecycle;
+mod lifecycle_scan;
 pub mod module;
 pub mod older_context;
 pub mod outbound;

@@ -122,6 +122,46 @@ fn post_read_overwrites_read_bits_and_emits_s1() {
     );
 }
 
+/// 回归锚: S1 —— post_read **缺 event_seq**（后端真形态：read 是幂等全量覆盖回执，不产 sequenced
+/// channel_event）仍须覆盖式写 read_bits + emit im:post:read（issue #14 L2 read-receipt 根因修复）。
+///
+/// 旧实现走 channel gate（`frame.event_seq()==None` → no-op），read echo 帧永不落库/永不 emit →
+/// L2 ②④ 永红。新实现 post_read 走专用直路（绕 gate），缺 event_seq 也直接 apply_read_op + emit。
+/// 守可证伪：把直路改回走 gate（要求 event_seq）→ 本测试 storage/emit 断言 FAIL。
+#[test]
+fn post_read_without_event_seq_still_writes_and_emits_s1() {
+    let mut h = Harness::new(&[1]);
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "post_read",
+            // 后端 post_read 广播帧真形态：data 仅 {channelId, postId, readMap, createAt, updateAt}，
+            // **无任何 event_seq**（顶层 / data / props 都没有）。
+            "data": {
+                "channelId": cid(1),
+                "postId": "00000000000000000000000077",
+                "readMap": "1101",
+                "createAt": 1_782_619_679_459_i64,
+                "updateAt": 1_782_619_679_604_i64
+            }
+        })),
+        1_000,
+    );
+
+    let ops = storage_ops(&h.sink);
+    assert!(
+        has_write_to_table(&ops, "message"),
+        "缺 event_seq 的 post_read echo 仍须写 message 表（#14 根因），ops: {ops:?}"
+    );
+    assert!(
+        matches!(patch_value(&ops, "message", "read_bits"), Some(helix_core::effect::SqlValue::Text(s)) if s == "1101"),
+        "read_bits 覆盖式写入帧 readMap 值，ops: {ops:?}"
+    );
+    assert!(
+        emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
+        "缺 event_seq 的 post_read echo 仍须 emit im:post:read（#14 根因）"
+    );
+}
+
 /// 回归锚: S1 —— post_read 缺 postId → 不写 message（边界零信任 noop），仍可 emit。
 #[test]
 fn post_read_missing_post_id_no_message_write_s1() {

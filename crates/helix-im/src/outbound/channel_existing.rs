@@ -9,7 +9,10 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use super::registry::{
+    build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
+    OUTBOUND_COMMANDS,
+};
 
 /// #33 POST /api/cses/channel/member/leave — 退群（仅自己）→ channel_member_update + post。
 /// 真源 entity.ChannelIdStruct{ChannelId, UserId *string, NewCreator *ChannelMemberMinimal}
@@ -46,15 +49,34 @@ static CHANNEL_LEAVE_REG: OutboundRegistration = OutboundRegistration {
 };
 
 /// #7 POST /api/cses/channel/create — 建群 → channel_created + channel_member_update + post。
-/// 真源 CreateChannelSpecifyOwner（内嵌 *ent.Channel + Users[]ChannelMemberMinimal）字段多，
-/// 由前端直供 raw body（args 即 Go body 直传，helix-im 只认领 endpoint）。
+/// 真源 CreateChannelSpecifyOwner（内嵌 *ent.Channel + Users[]ChannelMemberMinimal）。
+///
+/// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{display_name, team_id, self_id,
+/// member_ids:[]}`（身份/列表，非 wire body）；wire body + role 业务赋值（self CREATOR + 他人
+/// MEMBER）在此拼成，对齐真机curl真源 §4：`{teamId, displayName, orient:"", type:"P",
+/// users:[{id,teamId,role}], picturetype:"USER", picture:{userIds:[...]}, forceCreate:true}`。
 struct CreateChannelCommand;
 impl OutboundCommand for CreateChannelCommand {
     fn name(&self) -> &'static str {
         "im_create_channel"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        Ok(("channel/create", args.clone()))
+        let display_name = require_str(args, "display_name", self.name())?;
+        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+        let (users, user_ids) = build_creator_member_users(args, self.name())?;
+        Ok((
+            "channel/create",
+            json!({
+                "teamId": team_id,
+                "displayName": display_name,
+                "orient": "",
+                "type": "P",
+                "users": users,
+                "picturetype": "USER",
+                "picture": { "userIds": user_ids },
+                "forceCreate": true,
+            }),
+        ))
     }
 }
 static CREATE_CHANNEL: CreateChannelCommand = CreateChannelCommand;
@@ -65,16 +87,38 @@ static CREATE_CHANNEL_REG: OutboundRegistration = OutboundRegistration {
 };
 
 /// #17 POST /api/cses/posts/makeTopic — 消息转话题 → channel_created + post_update。
-/// 真源 {PostId, 内嵌 CreateChannelSpecifyOwner}；前端直供 raw body（须含 postId）。
+/// 真源 {PostId, 内嵌 CreateChannelSpecifyOwner}。
+///
+/// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{root_id, post_id, display_name,
+/// team_id, self_id, member_ids:[]}`；wire body + role 业务赋值在此拼成，对齐真机curl真源 §2：
+/// `{rootId, teamId, postId, displayName, type:"T", users:[{id,teamId,role}], picturetype:"USER",
+/// picture:{userIds:[...]}, forceCreate:true}`。与建群（§4）同形态，差异 endpoint + rootId/postId
+/// + type=T（话题）+ 无 orient。
 struct MakeTopicCommand;
 impl OutboundCommand for MakeTopicCommand {
     fn name(&self) -> &'static str {
         "im_make_topic"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        // 至少校验 postId 存在（边界零信任），其余字段直传。
-        require_str(args, "postId", self.name())?;
-        Ok(("posts/makeTopic", args.clone()))
+        let root_id = require_str(args, "root_id", self.name())?;
+        let post_id = require_str(args, "post_id", self.name())?;
+        let display_name = require_str(args, "display_name", self.name())?;
+        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+        let (users, user_ids) = build_creator_member_users(args, self.name())?;
+        Ok((
+            "posts/makeTopic",
+            json!({
+                "rootId": root_id,
+                "teamId": team_id,
+                "postId": post_id,
+                "displayName": display_name,
+                "type": "T",
+                "users": users,
+                "picturetype": "USER",
+                "picture": { "userIds": user_ids },
+                "forceCreate": true,
+            }),
+        ))
     }
 }
 static MAKE_TOPIC: MakeTopicCommand = MakeTopicCommand;
@@ -86,16 +130,46 @@ static MAKE_TOPIC_REG: OutboundRegistration = OutboundRegistration {
 
 /// POST /api/cses/channel/member/change — 加/退成员 → channel_member_update。
 /// 真源（真机curl真源 §5）：{channelId, joinUsers?:[{id,teamId,role}], leaveUsers?:[...]}，
-/// joinUsers/leaveUsers 两者可同时非空。成员对象结构较复杂，由前端直供 raw body；至少校验
-/// channelId 存在。注意：与 #33 `channel/member/leave`（自己退群）是两条——本条 admin 增减成员。
+/// joinUsers/leaveUsers 两者可同时非空。注意：与 #33 `channel/member/leave`（自己退群）是两条——
+/// 本条 admin 增减成员。
+///
+/// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{channel_id, team_id, self_id,
+/// join_user_ids:[], leave_user_ids:[]}`；joinUsers/leaveUsers 数组 + role=MEMBER 业务赋值在此
+/// 拼成。join 排除自身（拉别人进群·自身已在）；空集对应字段省略（不发空数组·与 joinUsers/leaveUsers
+/// 可同时非 nil 语义对齐）。
 struct MemberChangeCommand;
 impl OutboundCommand for MemberChangeCommand {
     fn name(&self) -> &'static str {
         "im_channel_member_change"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        require_str(args, "channelId", self.name())?;
-        Ok(("channel/member/change", args.clone()))
+        let channel_id = require_str(args, "channel_id", self.name())?;
+        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+        let self_id = args.get("self_id").and_then(Value::as_str).unwrap_or("");
+        // 拼成员对象数组（三键 id/teamId/role 全 camelCase·role=MEMBER）。过滤空 id；join 额外排除自身。
+        let build_users = |key: &str, exclude_self: bool| -> Vec<Value> {
+            args.get(key)
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|uid| !(uid.trim().is_empty() || exclude_self && *uid == self_id))
+                        .map(|uid| json!({ "id": uid, "teamId": team_id, "role": "MEMBER" }))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let mut body = serde_json::Map::new();
+        body.insert("channelId".into(), Value::String(channel_id.to_string()));
+        let joins = build_users("join_user_ids", true);
+        if !joins.is_empty() {
+            body.insert("joinUsers".into(), Value::Array(joins));
+        }
+        let leaves = build_users("leave_user_ids", false);
+        if !leaves.is_empty() {
+            body.insert("leaveUsers".into(), Value::Array(leaves));
+        }
+        Ok(("channel/member/change", Value::Object(body)))
     }
 }
 static MEMBER_CHANGE: MemberChangeCommand = MemberChangeCommand;

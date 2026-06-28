@@ -44,6 +44,8 @@ pub mod urgent;
 // users(list/status) / teams(upsert/member add/quit) / modules/getAll / notification/loadSend /
 // search 四件套（post/user/channel/do）。presence（D2 自建）= users/status/ids 接管。
 pub mod user_misc;
+// P5a build 层 helper 外提（user_misc.rs 行数基线收口·纯函数零行为变更）：
+mod user_misc_helpers;
 // P5b bot-agent 域（G2 并行，目录模块 6 子族独立 distributed_slice 注册，与 P5a user_misc 零交集）：
 // gateway(createBot/botCallback) / bot_manage(CRUD 9) / config(config+channel 10) /
 // calls(bot-token 调用 6，auth_kind=Bot) / agents(会话 5) / webhook(config 3)。

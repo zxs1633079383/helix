@@ -45,9 +45,9 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     let user_id = pick_str("user_id")
         .or_else(|| pick_str("userId"))
         .unwrap_or_default();
-    let msg_type = pick_str("type")
-        .or_else(|| pick_str("post_type"))
-        .unwrap_or_default();
+    // type 空→"TEXT"（render-ready 下沉·C013 业务默认下沉 helix·与 send_build.rs:165 一致·#53）
+    let msg_type = pick_str("type").or_else(|| pick_str("post_type"))
+        .filter(|s| !s.is_empty()).unwrap_or_else(|| "TEXT".to_string());
     let message = pick_str("message").unwrap_or_default();
     let create_at = post
         .get("create_at")

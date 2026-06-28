@@ -77,6 +77,38 @@ fn add_and_remove_manger_channel_id_key_and_users() {
 }
 
 #[test]
+fn set_manger_routes_endpoint_and_role_by_set_flag() {
+    // set=true → ADMIN + channel/add/manger（role 业务赋值 + endpoint 路由下沉 helix）。
+    let (url, body) = dispatch(
+        "im_channel_set_manger",
+        json!({ "channel_id": "c1", "user_id": "u1", "team_id": "t1", "set": true }),
+    );
+    assert!(url.ends_with("/channel/add/manger"), "url={url}");
+    assert_eq!(body["channelId"], "c1");
+    assert_eq!(body["users"][0]["id"], "u1");
+    assert_eq!(body["users"][0]["name"], "");
+    assert_eq!(body["users"][0]["role"], "ADMIN");
+    assert_eq!(body["users"][0]["teamId"], "t1");
+
+    // set=false → MEMBER + channel/remove/manger。
+    let (url2, body2) = dispatch(
+        "im_channel_set_manger",
+        json!({ "channel_id": "c1", "user_id": "u1", "team_id": "t1", "set": false }),
+    );
+    assert!(url2.ends_with("/channel/remove/manger"), "url={url2}");
+    assert_eq!(body2["users"][0]["role"], "MEMBER");
+
+    // 缺 set/user_id → Err（边界零信任，不 panic）。
+    let corr = Correlation::from_raw(3);
+    let p = serde_json::to_vec(&json!({ "channel_id": "c1", "user_id": "u1" })).unwrap();
+    assert!(
+        handle_outbound("im_channel_set_manger", &p, "http://h/api", "http://h", None, corr)
+            .is_err(),
+        "缺 set → Err"
+    );
+}
+
+#[test]
 fn enable_approval_bool_and_channel_id() {
     let (url, body) = dispatch(
         "im_channel_enable_approval",

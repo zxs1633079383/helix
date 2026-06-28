@@ -111,16 +111,24 @@ fn get_user_statuses_builds_userids_array_presence() {
 // ── teams/* ───────────────────────────────────────────────────────────────────────
 
 #[test]
-fn team_upsert_passes_through_team_object() {
-    // 真源 r.Body 原样透传（team.go:63 UpsertTeam(session, r.Body)）
-    let team = json!({ "id": "t1", "name": "公司大群", "members": ["a"] });
-    let (url, body) = one_http(run("im_team_upsert", json!({ "team": team })));
+fn team_upsert_builds_team_object_from_structured_args() {
+    // body 成形下沉 helix（薄壳合规）：壳传 {display_name,self_id,team_id,member_ids}，helix 拼
+    // CreateChannelSpecifyOwner team 对象（无外层包裹·wire body 即 team·team.go:63）。
+    let (url, body) = one_http(run(
+        "im_team_upsert",
+        json!({ "display_name": "公司大群", "self_id": "u1", "team_id": "t1", "member_ids": ["a"] }),
+    ));
     assert_eq!(url, "http://x/api/cses/teams/upsert");
-    assert_eq!(body["id"], "t1");
-    assert_eq!(body["name"], "公司大群");
-    assert_eq!(body["members"][0], "a");
-    assert!(err("im_team_upsert", json!({}))); // 缺 team
-    assert!(err("im_team_upsert", json!({ "team": "not-object" }))); // 非对象
+    assert_eq!(body["displayName"], "公司大群");
+    assert_eq!(body["teamId"], "t1");
+    assert_eq!(body["type"], "P");
+    assert_eq!(body["owner"]["id"], "u1");
+    assert_eq!(body["owner"]["role"], "CREATOR");
+    assert_eq!(body["users"][0]["role"], "CREATOR"); // self
+    assert_eq!(body["users"][1]["id"], "a"); // member
+    assert_eq!(body["forceCreate"], true);
+    assert!(err("im_team_upsert", json!({}))); // 缺 display_name/self_id
+    assert!(err("im_team_upsert", json!({ "display_name": "g" }))); // 缺 self_id
 }
 
 #[test]
@@ -294,7 +302,10 @@ fn search_rejects_frontend_user_id_json_dash() {
 /// 验证方式：teams/* 命令正常 build 不依赖/不产出该字符串（响应态与请求态解耦）。
 #[test]
 fn personal_user_forbidden_is_response_side_not_in_outbound_body() {
-    let (_url, body) = one_http(run("im_team_upsert", json!({ "team": { "id": "t" } })));
+    let (_url, body) = one_http(run(
+        "im_team_upsert",
+        json!({ "display_name": "t", "self_id": "u" }),
+    ));
     assert!(
         !body.to_string().contains("PERSONAL_USER_FORBIDDEN"),
         "PERSONAL_USER_FORBIDDEN 是 403 响应态，不应出现在 outbound 请求体"
@@ -324,7 +335,10 @@ fn health_and_channel_details_are_response_side_not_outbound_commands() {
 const ALL_P5A_MISC: &[(&str, fn() -> Value)] = &[
     ("im_list_users", || json!({ "channel_id": "c" })),
     ("im_get_user_statuses", || json!({ "user_ids": ["u"] })),
-    ("im_team_upsert", || json!({ "team": { "id": "t" } })),
+    (
+        "im_team_upsert",
+        || json!({ "display_name": "t", "self_id": "u" }),
+    ),
     (
         "im_team_member_add",
         || json!({ "event": { "channelId": "c" } }),

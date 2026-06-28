@@ -6,13 +6,30 @@ use helix_core::effect::DomainEventBytes;
 use helix_core::Effect;
 
 /// 发送乐观上屏事件（im:post:sending）。
-pub fn emit_post_sending(channel_id: ChannelId, temporary_id: &str) -> Effect {
+pub fn emit_post_sending(
+    channel_id: ChannelId,
+    temporary_id: &str,
+    text: &str,
+    msg_type: &str,
+) -> Effect {
     use serde_json::json;
+    // type 空串容错 "TEXT"（render-ready·前端不再 pendingType 兜底）。
+    let msg_type = if msg_type.is_empty() { "TEXT" } else { msg_type };
     let payload = json!({
         "event": "im:post:sending",
         "data": {
+            // 信号锚（snake·历史兼容）。
             "channel_id": channel_id.as_str(),
             "temporary_id": temporary_id,
+            // —— render-ready 乐观终态行（S6·issue #55·壳不造乐观·壳直绑·不再取 pendingText/pendingType）——
+            "msgId": temporary_id,
+            "temporaryId": temporary_id,
+            "channelId": channel_id.as_str(),
+            "eventSeq": serde_json::Value::Null,
+            "sendStatus": "sending",
+            "readBits": "",
+            "text": text,
+            "type": msg_type,
         }
     });
     let bytes = Bytes::from(

@@ -364,56 +364,55 @@ fn member_notify_accepts_int_enum_and_requires_fields() {
     )); // notify null
 }
 
-// ── makeTopic / create 补字段：真 curl §2/§4 verbatim 经 raw 透传保真 ──────────────────
+// ── makeTopic / create body 成形下沉 helix：壳传结构化 args → helix 拼真 curl §2/§4 wire body ──
 
 #[test]
-fn make_topic_passthrough_preserves_real_curl_fields() {
-    // 真 curl §2 verbatim（rootId/teamId/postId/displayName/type/users[]/picturetype/picture/forceCreate）。
-    // 既有 im_make_topic（channel_existing.rs）raw 透传 → 前端直供补字段保真。
+fn make_topic_builds_real_curl_fields_from_structured_args() {
+    // body 成形下沉 helix（薄壳合规）：壳传 {root_id,post_id,display_name,self_id,team_id,member_ids}，
+    // helix 拼真 curl §2 wire body（rootId/teamId/postId/displayName/type=T/users[]/picture/forceCreate）。
     let (url, body) = one_http(run(
         "im_make_topic",
         json!({
-            "rootId": "r1",
-            "teamId": "t1",
-            "postId": "p1",
-            "displayName": "1",
-            "type": "T",
-            "users": [{ "id": "u1", "role": "CREATOR", "teamId": "t1" }],
-            "picturetype": "USER",
-            "picture": { "userIds": ["u1", "u2"] },
-            "forceCreate": true
+            "root_id": "r1",
+            "post_id": "p1",
+            "display_name": "1",
+            "self_id": "u1",
+            "team_id": "t1",
+            "member_ids": ["u2"]
         }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/makeTopic");
-    // makeTopic 补字段（rootId/users[]/picture/forceCreate）经透传保真。
+    // helix 拼出的 wire body（rootId/users[]/picture/forceCreate/type）保真真 curl §2。
     assert_eq!(body["rootId"], "r1");
-    assert_eq!(body["users"][0]["role"], "CREATOR");
+    assert_eq!(body["postId"], "p1");
+    assert_eq!(body["type"], "T");
+    assert_eq!(body["users"][0]["role"], "CREATOR"); // self
+    assert_eq!(body["users"][1]["role"], "MEMBER"); // u2
     assert_eq!(body["picture"]["userIds"][1], "u2");
     assert_eq!(body["forceCreate"], true);
 }
 
 #[test]
-fn create_channel_passthrough_preserves_real_curl_fields() {
-    // 真 curl §4 verbatim（teamId/displayName/orient/type/users[]/picturetype/picture.userIds/forceCreate）。
+fn create_channel_builds_real_curl_fields_from_structured_args() {
+    // body 成形下沉 helix：壳传 {display_name,self_id,team_id,member_ids}，helix 拼真 curl §4 wire body
+    // （teamId/displayName/orient/type=P/users[]/picturetype/picture.userIds/forceCreate·role 业务赋值）。
     let (url, body) = one_http(run(
         "im_create_channel",
         json!({
-            "teamId": "t1",
-            "displayName": "群",
-            "orient": "",
-            "type": "P",
-            "users": [
-                { "id": "u1", "teamId": "t1", "role": "CREATOR" },
-                { "id": "u2", "teamId": "t1", "role": "MEMBER" }
-            ],
-            "picturetype": "USER",
-            "picture": { "userIds": ["u1", "u2"] },
-            "forceCreate": true
+            "display_name": "群",
+            "self_id": "u1",
+            "team_id": "t1",
+            "member_ids": ["u2"]
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
+    assert_eq!(body["teamId"], "t1");
+    assert_eq!(body["displayName"], "群");
+    assert_eq!(body["type"], "P");
     assert_eq!(body["users"][0]["role"], "CREATOR");
     assert_eq!(body["users"][1]["role"], "MEMBER");
+    assert_eq!(body["picture"]["userIds"][0], "u1");
+    assert_eq!(body["picture"]["userIds"][1], "u2");
     assert_eq!(body["forceCreate"], true);
 }
 

@@ -104,8 +104,10 @@ fn query_messages_reply_emits_projection() {
     let v: serde_json::Value = serde_json::from_slice(emit.as_ref()).unwrap();
     assert_eq!(v["event"], "im:messages:query_result");
     assert_eq!(v["data"]["channel_id"], cid(2));
-    assert_eq!(v["data"]["messages"][0]["temporary_id"], "t1");
-    assert_eq!(v["data"]["messages"][1]["create_at"], 100);
+    // S6（issue #55·C013）：messages 整形成 render-ready 终态行（camelCase）——
+    // temporary_id→temporaryId·message→text·create_at→createAt（断言对齐 shape_message_rows 字段集）。
+    assert_eq!(v["data"]["messages"][0]["temporaryId"], "t1");
+    assert_eq!(v["data"]["messages"][1]["createAt"], 100);
 }
 
 /// im_delete_all_dialogs → 清内存 channel gate（channels 空）+ emit im:channels:loaded。

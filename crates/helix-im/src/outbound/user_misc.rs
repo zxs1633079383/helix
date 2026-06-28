@@ -29,19 +29,12 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
-
-// ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
-
-/// 取必填字符串数组（非空、元素全 string）。供 `{userIds:[]}` 类命令复用。
-fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
-    args.get(key)
-        .and_then(Value::as_array)
-        .filter(|a| !a.is_empty() && a.iter().all(Value::is_string))
-        .cloned()
-        .map(Value::Array)
-        .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空 {key}（非空字符串数组）")))
-}
+use super::registry::{
+    build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
+    OUTBOUND_COMMANDS,
+};
+// build 层 helper 外提 sibling（收口行数基线，纯函数零行为变更）。
+use super::user_misc_helpers::{do_search_body, require_str_array};
 
 /// 注册一条命令的样板：`name` + `build` 闭包 + **读/写标注**（user-misc 域读写混存，
 /// 与纯读 posts_read.rs 不同，须逐命令标 `is_read`，spec06 缺陷A）。
@@ -100,19 +93,35 @@ misc_cmd!(
 
 // ── teams/*（personal user → 403 PERSONAL_USER_FORBIDDEN，响应态，outbound 不裁决）─────────
 
-// #3 teams/upsert：维护公司大群（非 team 表）。真源 r.Body 原样透传（team.go:63 `UpsertTeam(session, r.Body)`）。
-// 现网前端传整个 team 对象 body；helix 直透传 `team`（不拆字段，由前端给完整 wire 对象）。
+// #3 teams/upsert：维护公司大群（非 team 表）。真源 r.Body = CreateChannelSpecifyOwner（team.go:63
+// `UpsertTeam(session, r.Body)`，wire body 即 team 对象，无外层包裹）。
+//
+// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{display_name, team_id, self_id,
+// member_ids:[]}`；team 对象 + users[] + owner(CREATOR) 业务赋值在此拼成，对齐真机curl真源 partials/3
+// §4：`{teamId, displayName, orient:"", type:"P", picturetype:"USER", picture:{userIds:[...]},
+// users:[{id,teamId,role}], forceCreate:true, owner:{id,teamId,role:"CREATOR"}}`。不携 `id` →
+// server 走建群分支（CreateCsesChannel·触 channel_created）。
 misc_cmd!(
     TeamUpsertCommand,
     TEAM_UPSERT_REG,
     "im_team_upsert",
     false,
     |args, cmd| {
-        let team = args
-            .get("team")
-            .filter(|v| v.is_object())
-            .cloned()
-            .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/坏 team（对象）")))?;
+        let display_name = require_str(args, "display_name", cmd)?;
+        let self_id = require_str(args, "self_id", cmd)?;
+        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
+        let (users, user_ids) = build_creator_member_users(args, cmd)?;
+        let team = json!({
+            "teamId": team_id,
+            "displayName": display_name,
+            "orient": "",
+            "type": "P",
+            "picturetype": "USER",
+            "picture": { "userIds": user_ids },
+            "users": users,
+            "forceCreate": true,
+            "owner": { "id": self_id, "teamId": team_id, "role": "CREATOR" },
+        });
         Ok(("teams/upsert", team))
     }
 );
@@ -220,33 +229,7 @@ misc_cmd!(
 // DoSearchRequest（post_search_param.go:25-34）：keyword?/searchType?(int)/postType?/channelType?/
 // channelId/teamId?/isAll/userId(`json:"-"` 服务端从 session 注入，前端**不传**)。
 // search/do = searchAll → 响应含 channels/users/**channelDetails** 第四 key（cses_search.go:42-54），
-// 属响应态；P5a build 层只产请求体。
-
-/// 组装 DoSearchRequest wire body（仅下发显式给出的字段，全 camelCase；userId 由服务端注入不传）。
-/// channelId 必填（DoSearchRequest.ChannelId 非指针），其余可选。
-fn do_search_body(args: &Value, cmd: &str) -> Result<Value, ImError> {
-    let channel_id = args.get("channel_id").and_then(Value::as_str).unwrap_or("");
-    let mut b = json!({ "channelId": channel_id });
-    if let Some(keyword) = args.get("keyword").and_then(Value::as_str) {
-        b["keyword"] = json!(keyword);
-    }
-    if let Some(search_type) = args.get("search_type").and_then(Value::as_i64) {
-        b["searchType"] = json!(search_type);
-    }
-    if let Some(team_id) = args.get("team_id").and_then(Value::as_str) {
-        b["teamId"] = json!(team_id);
-    }
-    if let Some(is_all) = args.get("is_all").and_then(Value::as_bool) {
-        b["isAll"] = json!(is_all);
-    }
-    // userId 是 `json:"-"`（服务端 session 注入）；前端传了也禁止下发（防契约漂移）。
-    if args.get("user_id").is_some() {
-        return Err(ImError::Parse(format!(
-            "{cmd}: user_id 由服务端 session 注入，禁前端下发（DoSearchRequest.UserId json:\"-\"）"
-        )));
-    }
-    Ok(b)
-}
+// 属响应态；P5a build 层只产请求体。`do_search_body` 组装逻辑外提 user_misc_helpers（收口行数基线）。
 
 // #8 search/post：消息搜索。
 misc_cmd!(

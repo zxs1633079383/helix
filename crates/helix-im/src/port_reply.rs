@@ -188,6 +188,22 @@ impl ImModule {
                 }
             },
 
+            // S7（issue #56）：byIds 成员快照读族回报 → 双 emit。
+            // Ok → ① 照旧透传 im:read:result{req_id, body}（UC-6.4 ② 冻结契约面）；
+            //       ② 解析 byIds body（map[channelId][]）逐 channel emit render-ready im:channel:members
+            //       （壳退纯绑定·载族自愈）。信封畸形 / Err → 仅回灌 read error（不丢 req_id，前端 reject）。
+            CorrelationContext::OutboundMembersByIds { req_id } => {
+                crate::port_reply_emit::emit_members_by_ids(&req_id, outcome, out);
+            }
+
+            // S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → **双 emit**。
+            // Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
+            //   + emit `im:channel:replies{reqId, replyIds}`（render-ready·helix 抽好 postId·壳纯绑定）。
+            // 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
+            CorrelationContext::OutboundReplies { req_id } => {
+                crate::port_reply_emit::emit_replies(&req_id, outcome, out);
+            }
+
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
             // `im:todo:updated{items}`（解 data.channels[].posts[]，真源 channel.rs:252-296）。
             // Ok → 剥 ADR-007 信封得裸响应体 → emit_todo_updated（status≠SUCCESS/结构缺失 → 空

@@ -88,13 +88,21 @@ fn parse_todo_items(raw_body: &[u8]) -> Vec<Value> {
                 .unwrap_or("");
             let id = post.get("id").and_then(Value::as_str).unwrap_or("");
             // id 装配契约（真源 channel.rs:288）：`"{postId}_{messageType}"`。
+            let assembled_id = format!("{id}_{message_type}");
+            // S8（issue #57·C013）：额外吐 render-ready 终态键 `todoId`/`todoType`（与 `canDel` 一致
+            // camelCase 成品）→ 壳 applyTodoUpdated 退**纯绑定**（直接 1:1 取 todoId/todoType/canDel·
+            // 零 rename·零 wire 探针）。冻结-记录的 {id, channel, post, type} 原样保留（inner 不冻结·
+            // UC-10.1 ② dataKeys=["items"] 外层照旧裁定·额外内层键不破契约）。
             items.push(json!({
-                "id": format!("{id}_{message_type}"),
+                "id": assembled_id,
                 "channel": channel,
                 "post": post,
                 "type": message_type,
                 // canDel：仅 mention 可删（真源 channel.rs:292）。
                 "canDel": message_type == "mention",
+                // render-ready 终态行（壳直绑）：
+                "todoId": assembled_id,
+                "todoType": message_type,
             }));
         }
     }

@@ -74,10 +74,15 @@ fn emit_assembles_items_with_id_type_candel() {
     assert_eq!(items[0]["canDel"], true);
     assert_eq!(items[0]["channel"]["id"], "chA");
     assert_eq!(items[0]["post"]["id"], "post1");
+    // S8 render-ready 终态键（壳纯绑定·issue #57）：todoId=id、todoType=messageType。
+    assert_eq!(items[0]["todoId"], "post1_mention");
+    assert_eq!(items[0]["todoType"], "mention");
 
     // item2：urgent → canDel=false（仅 mention 可删）。
     assert_eq!(items[1]["id"], "post2_urgent");
     assert_eq!(items[1]["canDel"], false);
+    assert_eq!(items[1]["todoId"], "post2_urgent");
+    assert_eq!(items[1]["todoType"], "urgent");
 }
 
 #[test]

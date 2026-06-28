@@ -94,9 +94,11 @@ pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> 
         serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));
     let payload = serde_json::json!({
         "event": "im:messages:query_result",
+        // messages 元素整形成 render-ready 终态行（S6·issue #55·C013）：前端 1:1 绑定，
+        // 不再壳内抽 DB snake 列 / 归一 readBits / dedup。外层键集 {channel_id, messages} 不变。
         "data": {
             "channel_id": channel_id.as_str(),
-            "messages": rows,
+            "messages": crate::render_ready::shape_message_rows(&rows),
         }
     });
     let bytes = Bytes::from(
@@ -146,9 +148,23 @@ pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effe
 /// 等渲染所需全字段**，前端直接渲染会话列表 + badge，**零计算零回读**（UC-3 unread 计算下放达成）。
 ///
 /// 零信任：非法 JSON → 空 dialogList（前端拿空列表，不卡渲染）。
+///
+/// S5（issue #54·C013 业务规则下沉 helix·前端纯绑定）：每行升 **render-ready 终态 CL 行**——
+/// 在保留原始 DB 列（向后兼容）之上，补 8 个 render-ready 派生键供前端 1:1 绑定：
+/// `displayName`/`notice`(归一)/`isTop`(bool)/`createAt`/`unread`(终值)/`mention`(bool)/
+/// `lastMessage`(预览)/`urgent`(bool)。前端壳删 normalizeNotice/normalizeIsTop/unread++ shaping。
 pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
-    let rows: serde_json::Value =
+    let raw: serde_json::Value =
         serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));
+    let rows: serde_json::Value = match raw {
+        serde_json::Value::Array(items) => serde_json::Value::Array(
+            items
+                .into_iter()
+                .map(crate::query_dialog_render::render_ready_dialog_row)
+                .collect(),
+        ),
+        _ => serde_json::json!([]),
+    };
     let payload = serde_json::json!({
         "event": "im:channels:projection",
         "data": {

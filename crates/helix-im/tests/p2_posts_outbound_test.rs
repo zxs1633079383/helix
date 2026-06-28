@@ -333,9 +333,12 @@ fn every_registered_command_is_dispatchable() {
             json!({ "channel_id": "c", "message": "m", "schedule_post_at": 1 }),
         ),
         ("im_cancel_schedule", json!({ "channel_id": "c" })),
-        ("im_create_channel", json!({ "displayName": "g" })),
-        ("im_make_topic", json!({ "postId": "p" })),
-        ("im_channel_member_change", json!({ "channelId": "c" })),
+        ("im_create_channel", json!({ "display_name": "g", "self_id": "u1" })),
+        (
+            "im_make_topic",
+            json!({ "root_id": "r", "post_id": "p", "display_name": "t", "self_id": "u1" }),
+        ),
+        ("im_channel_member_change", json!({ "channel_id": "c" })),
         ("im_channel_close", json!({ "channel_id": "c" })),
         (
             "im_update_member_nickname",

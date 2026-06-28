@@ -133,6 +133,85 @@ fn s5_core_echo_conservatively_bumps_unread_sender_exemption_deferred() {
     );
 }
 
+/// 回归锚: fix/im-send-echo-reconcile —— 本端 self-echo 在 cursor gap（seq≫cursor+1·被 gate
+/// buffer）下，仍**兜底 emit `im:post:received`** 结算乐观行 DOM（壳纯渲染靠投影；DB 已由
+/// reconcile_post_echo 落 id）。守不变量：cursor **不**被该兜底推进（仍卡在 gap 前）。
+#[test]
+fn s5_self_echo_under_gap_still_emits_post_received_for_dom_settle() {
+    let mut h = Harness::new(&[1]);
+    let _ = h.step(send_message_cmd(1, "tmp_gap", "hello"), 1000);
+    // HTTP 200 无 server id（cses Pulsar 异步建）→ 标 Sent 但保留 pending（path1 修复）。
+    // 直接打 echo 即可验 path2 DOM 兜底（pending 仍在）。
+
+    // echo seq=9 ≫ cursor(0)+1 → ch.ingest buffer（不 apply-emit）。
+    let echo = h.step(post_echo_frame(1, 9, "tmp_gap", 55), 1100);
+
+    // 兜底 emit：sink 中须有 im:post:received，data.temporaryId==tmp_gap·id==server_id·sendStatus==sent。
+    let settle = h.sink.as_slice().iter().find_map(|e| match e {
+        Effect::Emit { event } => {
+            let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+            if v.get("event").and_then(|x| x.as_str()) == Some("im:post:received") {
+                Some(v)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    });
+    let v = settle.expect("self-echo under gap 须兜底 emit im:post:received（DOM 结算），否则乐观行永停 sending");
+    let data = v.get("data").expect("im:post:received 须含 data");
+    assert_eq!(
+        data.get("temporaryId").and_then(|x| x.as_str()),
+        Some("tmp_gap"),
+        "兜底投影须按 temporaryId 结算乐观行"
+    );
+    assert_eq!(
+        data.get("msg_id").and_then(|x| x.as_str()),
+        Some(sid(55).as_str()),
+        "兜底投影 msg_id 须为 server_id（tmp→server 覆写）"
+    );
+    assert_eq!(
+        data.get("sendStatus").and_then(|x| x.as_str()),
+        Some("sent"),
+        "兜底投影 sendStatus 须 sent"
+    );
+
+    // 不变量：cursor 不被兜底推进（gap 未填→仍卡 0；HX-C008 单调由 gate 严格 +1 守）。
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(0),
+        "DOM 兜底投影**不**推 cursor（cursor 仍卡在 gap 前，待 sync 回补）"
+    );
+    let _ = echo;
+}
+
+/// 回归锚: fix/im-send-echo-reconcile —— 连续 echo（seq==cursor+1·gate apply）下**不**双发
+/// im:post:received（gate apply 自然 emit 一次 → echo_settle=None·防双发）。
+#[test]
+fn s5_self_echo_contiguous_does_not_double_emit_post_received() {
+    let mut h = Harness::new(&[1]);
+    let _ = h.step(send_message_cmd(1, "tmp_c", "hello"), 1000);
+    let _ = h.step(post_echo_frame(1, 1, "tmp_c", 66), 1100); // seq=1==cursor+1 连续
+
+    let count = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter(|e| match e {
+            Effect::Emit { event } => serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                .ok()
+                .and_then(|v| v.get("event").and_then(|x| x.as_str()).map(str::to_string))
+                .as_deref()
+                == Some("im:post:received"),
+            _ => false,
+        })
+        .count();
+    assert_eq!(
+        count, 1,
+        "连续 echo 须恰发 1 次 im:post:received（gate apply 一次·无兜底双发），got {count}"
+    );
+}
+
 /// 回归锚: S5 —— `post` 帧无 temporary_id（他人推送新消息）→ 非 echo，不动 pending_send。
 #[test]
 fn s5_post_action_without_temp_id_is_not_echo() {

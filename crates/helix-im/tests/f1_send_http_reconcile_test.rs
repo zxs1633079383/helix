@@ -126,8 +126,10 @@ fn send_http_success_without_server_id_still_marks_sent() {
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} }));
     let reply_effects = h.step(reply, 1100);
 
-    // 仍兜底标 Sent：吐 Persist(status=sent，不覆写 id) + CancelTimer + 清 pending。serverId 后续
-    // history/WS echo 按 temporary_id 幂等补。残留 None 反证已对账（非永停 Sending）。
+    // 仍兜底标 Sent：吐 Persist(status=sent，不覆写 id) + CancelTimer。serverId 后续 WS echo
+    // 按 temporary_id 幂等补 → **pending_sends 保留**（不清栈），待 echo 落 id 后由
+    // reconcile_post_echo 清栈。（fix/im-send-echo-reconcile：旧实现此处 remove → echo 到达
+    // contains_key=false → server_id 永不落 id 列；改为保留以让 echo 补 id。）
     assert!(
         reply_effects
             .iter()
@@ -144,8 +146,119 @@ fn send_http_success_without_server_id_still_marks_sent() {
     );
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
+        Some(SendStatus::Sent),
+        "SUCCESS without serverId marks Sent but RETAINS pending (awaiting WS echo to backfill id)"
+    );
+}
+
+// ─── 根因回归：HTTP 200 无 serverId → 后到 WS echo 补 server_id 到乐观行 id 列 ────
+//
+// fix/im-send-echo-reconcile：cses post 经 Pulsar 异步建，posts/create HTTP 200 体仅 `{status}`
+// 无 server id → 旧实现 mark Sent 后**无条件 remove pending_sends** → 携带 server id 的 WS
+// `post` echo 到达时 `reconcile_post_echo` 因 contains_key=false 提前 return → server_id 永不落
+// 乐观行 id 列（9 个 send 类 spec 红根因）。修复后保留 pending_sends 让 echo 幂等补 id。
+
+/// 构造真 Go `action=="post"` echo 帧（带 temporary_id + server id + event_seq）。
+fn echo_frame(channel_id: u64, seq: u64, temporary_id: &str, server_id: u64) -> Tick {
+    use helix_core::tick::InboundBytes;
+    let payload = json!({
+        "v": 1,
+        "action": "post",
+        "data": {
+            "id": sid(server_id),
+            "temporary_id": temporary_id,
+            "channelId": cid(channel_id),
+            "event_seq": seq,
+            "message": "hello",
+        },
+        "broadcast": {},
+        "seq": 99
+    });
+    Tick::Inbound(InboundBytes(serde_json::to_vec(&payload).unwrap().into()))
+}
+
+/// 从 sink 找 message 表 BatchUpsert（reconcile 覆写 id 用），返回 id 列值（若有）。
+fn echo_persisted_id(h: &Harness, tmp: &str) -> Option<String> {
+    use helix_core::effect::{Effect, SqlValue, StorageOp};
+    h.sink.as_slice().iter().rev().find_map(|e| match e {
+        Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                let row = spec.rows.first()?;
+                let keyed_tmp = row
+                    .iter()
+                    .any(|(k, v)| k == "temporary_id" && matches!(v, SqlValue::Text(t) if t == tmp));
+                if !keyed_tmp {
+                    return None;
+                }
+                row.iter().find_map(|(k, v)| match (k.as_str(), v) {
+                    ("id", SqlValue::Text(t)) => Some(t.clone()),
+                    _ => None,
+                })
+            }
+            _ => None,
+        }),
+        _ => None,
+    })
+}
+
+#[test]
+fn send_http_no_server_id_then_ws_echo_backfills_id() {
+    let mut h = Harness::new(&[1]);
+    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = http_corr(&effects);
+
+    // HTTP 200 SUCCESS 但无 server id（cses Pulsar 异步建）→ 标 Sent + 保留 pending（修复点）。
+    let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} }));
+    let _ = h.step(reply, 1100);
+    assert_eq!(
+        h.module.pending_send_status("tmp_f1"),
+        Some(SendStatus::Sent),
+        "no-serverId SUCCESS must RETAIN pending (else echo can't backfill id)"
+    );
+
+    // 携带 server id 的 WS echo 到达（event_seq=1 == cursor+1 连续）→ reconcile_post_echo 补 id。
+    h.sink.clear();
+    let _ = h.step(echo_frame(1, 1, "tmp_f1", 42), 1200);
+
+    // 断言 ①：乐观行 id 被覆写为 server_id（temporary_id→server_id），证 reconcile 真落 id。
+    assert_eq!(
+        echo_persisted_id(&h, "tmp_f1"),
+        Some(sid(42)),
+        "WS echo must overwrite optimistic row id with server_id (the 9-spec root-cause fix)"
+    );
+    // 断言 ②：pending_sends 最终清空无泄漏（reconcile_post_echo 落定后 remove）。
+    assert_eq!(
+        h.module.pending_send_status("tmp_f1"),
         None,
-        "SUCCESS without serverId should still reconcile + clear pending (not stuck Sending)"
+        "after echo reconcile, pending_sends must be cleared (no leak)"
+    );
+    assert_eq!(h.module.pending_send_count(), 0, "no residual pending send");
+}
+
+#[test]
+fn send_http_no_server_id_then_gapped_echo_still_backfills_id() {
+    // 证 path2（cursor gate）不挡 id 补写：echo seq=9 ≫ cursor(0)+1（gap）→ 消息行落库进 buffer
+    // 等回补，但 reconcile_post_echo 在 gate 之前**无条件**跑 → id 仍按 temporary_id 幂等补写。
+    let mut h = Harness::new(&[1]);
+    let effects = h.step(send_message_cmd(1, "tmp_g", "hello"), 1000);
+    let h1 = http_corr(&effects);
+    let _ = h.step(
+        posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} })),
+        1100,
+    );
+
+    h.sink.clear();
+    let _ = h.step(echo_frame(1, 9, "tmp_g", 88), 1200); // seq=9 制造 cursor gap
+
+    assert_eq!(
+        echo_persisted_id(&h, "tmp_g"),
+        Some(sid(88)),
+        "gapped echo must STILL backfill id (reconcile ungated, runs before channel gate)"
+    );
+    assert_eq!(
+        h.module.pending_send_status("tmp_g"),
+        None,
+        "gapped echo still clears pending (reconcile independent of cursor gap)"
     );
 }
 

@@ -123,6 +123,10 @@ pub fn batch_upsert_events_with_messages(
     ops
 }
 
+#[cfg(test)]
+#[path = "sync_effects_tests.rs"]
+mod tests;
+
 /// A3/CAP-9：离线 sync 应用的可见 type1 新消息，按在线同口径落 channel 未读/lastPost。
 pub fn sync_unread_bump_ops(
     events: &[EventEnvelope],

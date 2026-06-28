@@ -73,19 +73,30 @@ pub(super) fn gate_ingest_content_event(
                 .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(ev.fields.id.as_str());
-            Some(crate::acl::to_effect::emit_post_updated(
-                channel_id,
-                ev.seq.0,
-                msg_id_ref,
-                &ev.fields,
+            // 两面兜底（对齐 post.rs：echo_settle 发投影 + reconcile_post_echo 落库都不过 gate）：
+            //   ④ 落库：edit_content_op（UPDATE WHERE id·幂等·保留本地 read_bits）让 storage 面成立；
+            //   ② 投影：im:post:updated 让 projection + DOM 面成立。
+            // 二者均**不推 cursor**（HX-C008：cursor 仍由 ch.ingest 严格 +1·gap 经 buffer/sync 回补；
+            // buffer flush 时会再落同 op + 发同投影·均幂等无害）。
+            Some((
+                helix_core::Effect::PersistFire {
+                    ops: vec![crate::channel::event_to_storage_op(&ev)],
+                },
+                crate::acl::to_effect::emit_post_updated(
+                    channel_id,
+                    ev.seq.0,
+                    msg_id_ref,
+                    &ev.fields,
+                ),
             ))
         } else {
             None
         };
         ch.ingest(ev, out, ctx.now_ms)?;
-        // gate buffer/drop 下编辑 echo 的 DOM 兜底结算（apply 路径已自然 emit → edit_settle=None）。
-        if let Some(eff) = edit_settle {
-            out.push(eff);
+        // gate buffer/drop 下编辑 echo 的落库 + DOM 兜底结算（apply 路径已自然落库+emit → None）。
+        if let Some((persist, emit)) = edit_settle {
+            out.push(persist);
+            out.push(emit);
         }
     }
     Ok(())

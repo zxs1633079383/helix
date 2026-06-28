@@ -51,6 +51,21 @@ impl ImModule {
             .map(|(id, _)| *id);
 
         if let Some(channel_id) = maybe_channel {
+            // 防风暴（根治配套）：若该 channel 已有在途 sync（大缺口立即 backfill 已发起，
+            // 见 ws/handlers/gate.rs::trigger_backfill_if_large_gap），1s gate timer **不再重复发**
+            // sync/notify——仅清 gate（在途 sync 回报会 commit 追平 cursor + flush buffer；若追平后
+            // 仍有缺口，后续帧/续拉会重新 arm gate）。避免双发 sync + corr_map/窗口计数漂移。
+            if self
+                .state
+                .channels
+                .get(&channel_id)
+                .is_some_and(|ch| ch.inflight_sync.is_some())
+            {
+                if let Some(ch) = self.state.channels.get_mut(&channel_id) {
+                    ch.gate = None;
+                }
+                return Ok(());
+            }
             // gate 超时：吐 Http{sync/notify}
             let from_seq = self.state.channels[&channel_id].cursor.value();
             let sync_corr = self.alloc_corr_internal();

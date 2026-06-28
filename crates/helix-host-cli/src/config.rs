@@ -183,7 +183,10 @@ impl Config {
     pub fn apply_env_overrides(&mut self) {
         env_str(&mut self.connection.ws_url, "HELIX_WS_URL");
         env_str(&mut self.connection.api_base, "HELIX_API_BASE");
-        env_str(&mut self.connection.default_api_base, "HELIX_DEFAULT_API_BASE");
+        env_str(
+            &mut self.connection.default_api_base,
+            "HELIX_DEFAULT_API_BASE",
+        );
         env_str(&mut self.identity.cookie_id, "HELIX_COOKIE_ID");
         env_str(&mut self.identity.company_id, "HELIX_COMPANY_ID");
         env_str(&mut self.identity.tenant, "HELIX_TENANT");

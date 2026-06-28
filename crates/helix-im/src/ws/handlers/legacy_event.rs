@@ -23,9 +23,12 @@ impl WsMessageHandler for LegacyEventHandler {
         // 复用 WsFrame::parse 已解析的 root Value，消除第二趟 from_slice（重构 A「痛点 1」）。
         match crate::parser::parse_inbound_value(frame.root()) {
             Ok(ev) => {
+                let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
                 if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
                     ch.ingest(ev, out, ctx.now_ms)?;
                 }
+                // 根治：legacy 内容帧大缺口同样立即 backfill 追平 cursor。
+                super::gate::trigger_backfill_if_large_gap(ctx, ingest_channel, ingest_seq, out);
                 Ok(())
             }
             Err(ImError::Parse(msg)) => {

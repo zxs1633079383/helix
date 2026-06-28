@@ -126,12 +126,20 @@ impl WsMessageHandler for PostHandler {
             None
         };
 
+        // 捕获 backfill 触发所需键（ev 即将 move 进 ch.ingest）。
+        let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
+
         ch.ingest(ev, out, ctx.now_ms)?;
 
         // gate buffer/drop 下 self-echo 的乐观行 DOM 结算（gate apply 路径已自然 emit → echo_settle=None）。
         if let Some(eff) = echo_settle {
             out.push(eff);
         }
+
+        // 根治 echo gate-gap 整类：post（type1·含转发他频道 / 他人消息）在大缺口下被 gate buffer
+        // 时，立即触发该 channel proactive resync 追平 cursor → buffered post 自然 flush emit。
+        // 创可贴 echo_settle 只救 self-echo；本路覆盖转发他频道 / 他人消息（守 HX-C008·不绕 gate）。
+        super::gate::trigger_backfill_if_large_gap(ctx, ingest_channel, ingest_seq, out);
         Ok(())
     }
 }

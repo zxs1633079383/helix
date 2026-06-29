@@ -39,6 +39,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 2. **确定性**：时间 / 随机 / ID 一律由 host 注入（不在 core 调 `Instant::now` / `rand` / 生成 id）。同输入同输出，可回放、可测试。
 3. **并发不进 core**：tokio multi-thread / Flutter FFI 宿主线程模型都属于驱动层。core 必须能在单线程跑。
 4. **YAGNI 但边界要对**：通用性靠「≥1 真实模块跑通 + 第二模块插得进」挣，不预建插件框架。但 **YAGNI 边界必须在「PC Tauri + Flutter 手机端目标集合」下画** —— 单平台假设仍会砍错双端必需的抽象（见 harness `HX-C001`/`HX-C002` 教训）。
+5. **可观测性逐跳完整（多跳诊断前提·强约束）**：事件穿过的**每个 port/层边界**（入站帧 → core → Effect 出站/Emit → 渲染）必须有结构化 hop 探针（corr_key 串联）。**任何绕过装饰器 / `Recording` 的旁路（`Tick::Inbound` 直泵 / `Tick::Command` / 内核自驱 effect）新增即同步补探针**——缺一跳 ≠ 丢 1/N 信息，而是丢掉**大部分**诊断力（歧义横跨多假设）。**铁律：诊断难度与逻辑复杂度不成比例时，先怀疑可观测性盲点，再怀疑逻辑。** 真实代价 + 机制 + 可执行验证见 loopforge harness `docs/harness/C015-observability-hop-coverage.md`（2026-06-29 echo gate-gap：WS 入站走 `Tick::Inbound` 绕过 `Recording::recv` tee → ②盲点 → send-echo 误诊 5 agent → 补 HOP2/HOP3 后同类一遍定位）。
 
 ---
 

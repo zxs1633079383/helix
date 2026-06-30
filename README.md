@@ -70,6 +70,32 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 | `helix-driver-host` | 共享 rusqlite Storage/network/event_sink（native+ffi 复用，ADR-007/010） | helix-core + 运行时 crate |
 | `helix-driver-wasm` | ⚠️ **archived**（ADR-006，网页端暂停维护，不进 roadmap/CI/交付） | — |
 
+## 顶层目录地图
+
+| 目录 | 作用 |
+|---|---|
+| `crates/` | 全部 Rust 源码，按「业务模块层 / core 层 / 平台驱动层」三层组织（见上「Crate 结构」） |
+| `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`（drift-review 台账）、`agents/`（issue tracker / triage 约定） |
+| `scripts/` | 工程闸门与端到端验证脚本：`gate.sh` / `structure-gate.sh` / `review-gap.sh` / `branch-sync-gate.sh` 四道闸 + 一批 `host-cli-*-e2e.sh` 真链路用例 |
+| `tools/` | 杂项工具（当前仅 `md2html.py`） |
+
+## helix-im 内部业务模块
+
+> IM 是跑在 core 上的第一个、当前唯一的业务模块；core 层本身不认识任何业务概念。
+
+| 模块 / 目录 | 作用 |
+|---|---|
+| `module.rs` + `*_flow.rs` | IM 模块壳与编排：`send_flow`（发消息）/ `query_dispatch`（查询·对话渲染）/ `sync_flow`（同步）/ `lifecycle`（生命周期）/ `port_reply`（端口响应回灌） |
+| `parser.rs` / `http_envelope.rs` | **防腐层（ACL 边界）**：WS 帧 / HTTP 响应 → 强类型 `InboundEvent`，边界零信任、零 `unwrap` |
+| `acl/` | InboundEvent / Tick → `Effect` 翻译层，按职责裂分：transport / storage / sync_http / 投影 message / 投影 control effects |
+| `channel.rs` + `channel_write/` | **聚合根 = channel gate**：封装 cursor 单调不回退不变量，三阶段 peek→persist→commit；`channel_write/` 落库 post / members / patch |
+| `outbound/` | **出站命令族**（对齐现网写命令）：发帖 / 已读 / 频道增删改 / 成员管理 / 置顶 / 投票 / 紧急 / 模板已收到 / `bot_agent` 等，经 `registry.rs` 分发 |
+| `sync_*.rs` | 增量同步引擎：`sync_session` / `sync_increment` / `sync_scheduler`——offline catch-up + online push 双轨，cursor 锚 nextSeq（HX-C008） |
+| `ws/` | WS 运行时：`registry.rs` 策略注册表 + `handlers/` 各 action handler + `frame` / `context` |
+| `render_ready*.rs` / `query*.rs` | 投影面：内核状态 → 前端可渲染 payload（消息 / 成员 / 回复 / 对话），经 EventSink emit `im:__bus__` |
+| `state.rs` / `schema.rs` | IM 内存状态机 + SQLite schema（热路径 O(1) 写） |
+| 其余 | `read_relay`（已读转发）/ `pending_send` + `send_reconcile`（乐观发送对账）/ `pong_compensate`（心跳补偿）/ `older_context`（历史回溯）/ `todo`（待办）/ `correlation`（corr_key 逐跳探针，HX-C015 可观测性） |
+
 ## 关键设计决策（摘要）
 
 1. **helix-core 零运行时依赖**：`tokio::spawn` 在 driver，不在 core（审查意见1 P0）

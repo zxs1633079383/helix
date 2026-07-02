@@ -18,14 +18,12 @@
 pub mod acl;
 pub(crate) mod base64;
 pub mod channel;
-pub mod channel_write;
+pub use channel::older_context;
+pub use channel::write as channel_write;
 pub mod commands;
 pub mod error;
 pub mod http_envelope;
-mod lifecycle;
-mod lifecycle_scan;
 pub mod module;
-pub mod older_context;
 pub mod outbound;
 pub mod parser;
 mod parser_post_props;

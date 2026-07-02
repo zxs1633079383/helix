@@ -535,5 +535,5 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
 // ─── 单元测试 ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-#[path = "channel_tests.rs"]
+#[path = "gate_tests.rs"]
 mod tests;

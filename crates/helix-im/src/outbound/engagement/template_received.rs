@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// POST /api/cses/post/templateReceived — 模板消息已收到回执。真源 `{postId}`。
 /// 路径前缀 `post`（单数），勿写成 `posts`（命名陷阱：与同文件其余 posts/* 不同前缀）。

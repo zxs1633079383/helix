@@ -37,7 +37,7 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{
+use crate::outbound::registry::{
     require_str, Gateway, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
 };
 

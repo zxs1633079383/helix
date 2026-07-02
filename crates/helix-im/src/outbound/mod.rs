@@ -25,10 +25,12 @@ pub use posts::props as post_props;
 pub use posts::read as posts_read;
 pub use posts::read_ext as posts_read_ext;
 pub use posts::relay as posts_relay;
-pub mod quick_reply;
+pub mod engagement;
+pub use engagement::quick_reply;
+pub use engagement::template_received;
+pub use engagement::urgent;
+pub use engagement::vote_score;
 pub mod registry;
-pub mod template_received;
-pub mod urgent;
 // P5a user-misc 域（G2 并行，独立 distributed_slice 注册，与 P5b bot_agent 零交集）：
 // users(list/status) / teams(upsert/member add/quit) / modules/getAll / notification/loadSend /
 // search 四件套（post/user/channel/do）。presence（D2 自建）= users/status/ids 接管。
@@ -40,10 +42,6 @@ mod user_misc_helpers;
 // calls(bot-token 调用 6，auth_kind=Bot) / agents(会话 5) / webhook(config 3)。
 // 排除 timeline/cost(#33/34 D7 废弃) + cross-repo demo(#38-40 非业务)。
 pub mod bot_agent;
-// vote/score 第二网关族（spec06 方案 A，5 命令 gateway()=Default 走 ImConfig.default_api_base_url）：
-// createVote/readVote/deleteVote + average/read·average/delete。独立文件零交集（仅 mod.rs append）。
-pub mod vote_score;
-
 // 对外单一入口：accepts_tick / module.rs dispatch / 集成测试都从此处取。
 pub use registry::{
     canonical_command_name, handle_outbound, is_outbound, is_read, outbound_command_count,

@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// POST /api/cses/posts/urgentPost — 消息加急 → post_update。
 /// 真源 UrgentPostVO：targetIds 非空校验在 Go `Validate()`（"请选择用户后再操作"）→ 本地也校验

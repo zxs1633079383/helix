@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// POST /api/cses/posts/quickReply — emoji 快捷回复。真源 `{postId, userId, emoji}`。
 struct QuickReplyCommand;

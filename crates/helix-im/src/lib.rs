@@ -25,8 +25,9 @@ pub mod error;
 pub mod http_envelope;
 pub mod module;
 pub mod outbound;
-pub mod parser;
-mod parser_post_props;
+pub mod parser {
+    pub use crate::ws::parser::core::*;
+}
 mod port_reply;
 mod port_reply_emit;
 pub mod query;

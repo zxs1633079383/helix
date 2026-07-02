@@ -191,7 +191,7 @@ fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
         })?);
 
     // post 帧恒为新消息 upsert（type1）；字段复用既有提取（宽松回退，含 temporary_id/id/message/props/readBits）。
-    let fields = crate::parser::extract_post_fields(data);
+    let fields = crate::ws::parser::extract_post_fields(data);
 
     // msg_id 宽松取（缺省 None → with_msg_id 内部回退 fields 派生的 id/temporary_id）。
     // **不**硬校验 26 字符（现网 handle_new_post 对 id 不 gate）。

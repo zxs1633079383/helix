@@ -30,7 +30,7 @@ WHITELIST=(
   "crates/helix-driver-host/src/storage.rs 560"
   "crates/helix-driver-host/src/network.rs 463"
   "crates/helix-core/src/effect.rs 452"
-  "crates/helix-im/src/parser.rs 430"
+  "crates/helix-im/src/ws/parser/core.rs 430"
   "crates/helix-driver-native/src/event_sink.rs 321"
 )
 # 命中白名单 → stdout 回传 baseline + return 0；未命中 → return 1。

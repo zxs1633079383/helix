@@ -43,7 +43,7 @@
 | `helix-driver-host/src/storage.rs` | 578 | 按 StorageOp 族裂分（P6：`scan()` 加 additive 过滤/降序投影 +18）|
 | `helix-driver-host/src/network.rs` | 463 | 按 port 实现职责裂分 |
 | `helix-core/src/effect.rs` | 452 | Effect/Spec 族裂分 |
-| `helix-im/src/parser.rs` | 430 | 临界，下次改动时收口 |
+| `helix-im/src/ws/parser/core.rs` | 430 | 临界，下次改动时收口 |
 | `helix-driver-native/src/event_sink.rs` | 321 | 临界 |
 
 > 注：`engine_loop.rs`（曾 ~1119）已拆至 168 行（FFI 生命周期解耦时），**已移出 WHITELIST 重新受 300 硬顶**。

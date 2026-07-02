@@ -1,4 +1,4 @@
-//! `parser::extract_post_fields` 的 props 合并 helper（从 parser.rs 外提，收口 parser.rs 行数基线）。
+//! `ws::parser::extract_post_fields` 的 props 合并 helper（从 core.rs 外提，收口 core.rs 行数基线）。
 
 use serde_json::Value;
 

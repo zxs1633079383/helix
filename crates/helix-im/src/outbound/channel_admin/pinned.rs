@@ -20,7 +20,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// POST /api/cses/channel/add/postPinned — 置顶一条消息。
 /// body = `{channelId, postId}`（两者必填非空，边界零信任 HX-C 不变量 4）。
@@ -74,7 +76,7 @@ mod tests {
     use helix_core::Correlation;
     use serde_json::json;
 
-    use super::super::registry::{handle_outbound, is_outbound};
+    use crate::outbound::registry::{handle_outbound, is_outbound};
 
     /// im_set_message_top 正常路径：endpoint = channel/add/postPinned，
     /// body camelCase 透传（channelId/postId）。

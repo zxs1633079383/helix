@@ -9,8 +9,14 @@
 
 pub mod send_build;
 
-// P2 registry 骨架 + 既有 10 命令迁移 + posts 写族新增（每命令独立语义 + distributed_slice 注册）。
-pub mod channel_existing;
+pub mod channel_admin;
+pub use channel_admin::change as channel_change;
+pub use channel_admin::change_dedicated as channel_change_dedicated;
+pub use channel_admin::create as channel_create;
+pub use channel_admin::existing as channel_existing;
+pub use channel_admin::member_admin as channel_member_admin;
+pub use channel_admin::pinned as channel_pinned;
+pub use channel_admin::read as channel_read;
 pub mod post_props;
 pub mod posts_existing;
 // posts 审批写族（post/approval/approval，{postId}）：补齐 posts 域唯一缺失写命令。零交集独立文件。
@@ -23,19 +29,6 @@ pub mod posts_read;
 pub mod posts_read_ext;
 // 公告写族（save/delete/read，post/ 单数子路由，与 posts_read 公告读族同域）。
 pub mod posts_announcement;
-// P3b channel 写族（G1 并行，独立 distributed_slice 注册，与 posts_read 零交集）：
-// createSpecifyOwner / change(info/source/picture/notice/top) / member(role/notify)。
-pub mod channel_change;
-// channel 写族补全（HTTP-coverage 补齐，与 channel_change.rs 零交集）：专用单字段写路由
-// displayName/orient/purpose + add·remove/manger + enableApproval + channels/view（Go 各独立 handler）。
-pub mod channel_change_dedicated;
-pub mod channel_create;
-// channel 读族补全（is_read 回灌）：load notice/postPinned/admin/incrementByChannelId + query +
-// onlineStatus + channels/member/byIds + member/snapshot（HTTP 体即数据，无 WS 回声）。
-pub mod channel_member_admin;
-pub mod channel_read;
-// 消息置顶族（postPinned add/remove）：set/unset message top。注意与 channel_change 的对话置顶区分。
-pub mod channel_pinned;
 pub mod quick_reply;
 pub mod registry;
 pub mod template_received;

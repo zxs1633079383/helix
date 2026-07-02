@@ -24,7 +24,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// 取必填字符串数组（channelIds 类，非空、元素全 string）。
 fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
@@ -191,5 +193,5 @@ read_cmd!(
 );
 
 #[cfg(test)]
-#[path = "channel_read_tests.rs"]
+#[path = "read_tests.rs"]
 mod tests;

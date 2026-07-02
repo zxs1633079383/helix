@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{
+use crate::outbound::registry::{
     build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
     OUTBOUND_COMMANDS,
 };

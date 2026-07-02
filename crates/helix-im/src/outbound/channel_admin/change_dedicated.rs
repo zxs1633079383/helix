@@ -24,7 +24,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// 取必填 `users` 数组（add/remove manger 用 `[{id,name,role,teamId}]`，非空、元素全 object）。
 /// 边界零信任：缺/空/类型错 → Err（HX-C 不变量 4），不 panic。
@@ -240,5 +242,5 @@ static VIEW_CHANNELS_REG: OutboundRegistration = OutboundRegistration {
 };
 
 #[cfg(test)]
-#[path = "channel_change_dedicated_tests.rs"]
+#[path = "change_dedicated_tests.rs"]
 mod tests;

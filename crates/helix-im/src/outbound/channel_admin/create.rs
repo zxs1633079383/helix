@@ -17,7 +17,9 @@ use serde_json::Value;
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// #8 POST /api/cses/channel/createSpecifyOwner — 指定 owner 建群 →
 /// channel_created + channel_member_update + post（系统加群消息）。

@@ -4,7 +4,7 @@ use helix_core::effect::Effect;
 use helix_core::Correlation;
 use serde_json::json;
 
-use super::super::registry::{handle_outbound, is_outbound};
+use crate::outbound::registry::{handle_outbound, is_outbound};
 
 /// 调度一条命令，断言单 Http effect 并返回 (url, body)。
 fn dispatch(name: &str, args: serde_json::Value) -> (String, serde_json::Value) {

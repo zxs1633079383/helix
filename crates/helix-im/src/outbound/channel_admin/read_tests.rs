@@ -4,7 +4,7 @@ use helix_core::effect::Effect;
 use helix_core::Correlation;
 use serde_json::json;
 
-use super::super::registry::{handle_outbound, is_outbound, is_read};
+use crate::outbound::registry::{handle_outbound, is_outbound, is_read};
 
 fn dispatch(name: &str, args: serde_json::Value) -> (String, serde_json::Value) {
     let corr = Correlation::from_raw(1);

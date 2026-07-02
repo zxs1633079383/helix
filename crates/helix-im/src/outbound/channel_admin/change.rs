@@ -21,7 +21,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// 把可选字符串字段按 camelCase 透传进 body（仅 Some 时写入，对齐 Go `omitempty` 指针语义）。
 fn put_opt_str(body: &mut Value, args: &Value, src_key: &str, wire_key: &str) {
@@ -219,7 +221,7 @@ mod tests {
     use helix_core::Correlation;
     use serde_json::json;
 
-    use super::super::registry::{handle_outbound, is_outbound};
+    use crate::outbound::registry::{handle_outbound, is_outbound};
 
     /// im_channel_change_permission 正常路径：endpoint = channel/change/permission，
     /// body 四字段 camelCase 透传（channelId/mentionPermission/noticePermission/topPermission）。

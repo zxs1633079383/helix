@@ -21,7 +21,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// #29 POST /api/cses/channel/member/change/role — 改成员角色 → channel_member_role_updated。
 /// 真源 `{channelId, userIds:[]string(非空), role}`，OwnerId 后端 session 覆盖。

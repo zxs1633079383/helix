@@ -121,5 +121,5 @@ fn emit_todo(data: Value) -> Effect {
 }
 
 #[cfg(test)]
-#[path = "todo_tests.rs"]
+#[path = "core_tests.rs"]
 mod tests;

@@ -480,6 +480,21 @@ pub fn apply_read_op(msg_id: &str, read_bits: &str) -> StorageOp {
     })
 }
 
+/// post_pin 置顶态：按 message id 幂等 patch props.pinned。
+///
+/// 本地 message 表无独立 pinned 列，且 post_pin 帧只携 `{postId, channelId, operation}`，没有完整
+/// post body；因此只写最小 render-ready 元数据，不复用 `edit_content_op`，避免把正文/type 覆盖为空。
+pub fn pin_state_op(msg_id: &str, pinned: bool) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    let props = serde_json::json!({ "pinned": pinned }).to_string();
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "message",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(msg_id.to_string())],
+        patch: vec![("props".to_string(), SqlValue::Text(props))],
+    })
+}
+
 /// kind-aware 落库映射：按 `ev.kind` 分派到对应 StorageOp（gate apply/flush 用，BLOCKING-2）。
 ///
 /// 现网真源 `apply_event_with_messages`（post.rs:1146）按 event_type 分发：type1=全量 upsert /

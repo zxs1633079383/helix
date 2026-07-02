@@ -222,6 +222,99 @@ fn post_update_edits_content_only_and_emits_s1() {
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:post:updated"));
 }
 
+// ─── post_pin（消息置顶/取消置顶）──────────────────────────────────────────────
+
+#[test]
+fn post_pin_updates_pinned_props_and_emits_s1() {
+    let mut h = Harness::new(&[2]);
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "post_pin",
+            "data": {
+                "channelId": cid(2),
+                "postId": "00000000000000000000000055",
+                "operation": "add"
+            }
+        })),
+        1_000,
+    );
+
+    let ops = storage_ops(&h.sink);
+    assert!(
+        has_write_to_table(&ops, "message"),
+        "post_pin 须 patch message 表，ops: {ops:?}"
+    );
+    assert!(
+        matches!(patch_value(&ops, "message", "props"), Some(helix_core::effect::SqlValue::Text(s)) if s.contains("\"pinned\":true")),
+        "post_pin 须把 pinned=true 写入 props，ops: {ops:?}"
+    );
+    assert!(
+        emit_names(&h.sink).iter().any(|n| n == "im:post:updated"),
+        "post_pin 须 emit im:post:updated"
+    );
+    let has_pinned_projection = h.sink.as_slice().iter().any(|e| match e {
+        Effect::Emit { event } => {
+            let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+            v["event"] == "im:post:updated" && v["data"]["pinned"] == true
+        }
+        _ => false,
+    });
+    assert!(has_pinned_projection, "post_pin 投影须携 pinned=true");
+}
+
+#[test]
+fn post_notice_add_post_pin_updates_target_pinned_s1() {
+    let target = "00000000000000000000000056";
+    let mut h = Harness::new(&[2]);
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "post",
+            "data": {
+                "id": "00000000000000000000000057",
+                "channelId": cid(2),
+                "event_seq": 1,
+                "type": "NOTICE",
+                "message": "",
+                "temporaryId": "00000000000000000000000057",
+                "props": {
+                    "channel_event_seq": 1,
+                    "type": "addPostPin",
+                    "content": serde_json::json!({
+                        "id": target,
+                        "channelId": cid(2),
+                        "temporaryId": "tmp-pin-target",
+                        "type": "TEXT",
+                        "message": "pinned target"
+                    }).to_string()
+                },
+                "readBits": "00",
+                "userId": "SYS",
+                "viewers": ["all"]
+            }
+        })),
+        1_000,
+    );
+
+    let ops = storage_ops(&h.sink);
+    assert!(
+        matches!(patch_value(&ops, "message", "props"), Some(helix_core::effect::SqlValue::Text(s)) if s.contains("\"pinned\":true")),
+        "addPostPin 系统通知须把目标消息 pinned=true 写入 props，ops: {ops:?}"
+    );
+    let has_target_update = h.sink.as_slice().iter().any(|e| match e {
+        Effect::Emit { event } => {
+            let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+            v["event"] == "im:post:updated"
+                && v["data"]["msg_id"] == target
+                && v["data"]["pinned"] == true
+        }
+        _ => false,
+    });
+    assert!(
+        has_target_update,
+        "addPostPin 系统通知须额外 emit 目标消息 im:post:updated pinned=true"
+    );
+}
+
 // ─── posts_update（批量编辑 / 撤回）────────────────────────────────────────────
 
 /// 回归锚: S1 —— posts_update 逐 post：revoke=true→revoke_op；否则 edit_content_op。

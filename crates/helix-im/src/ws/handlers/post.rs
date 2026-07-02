@@ -16,7 +16,7 @@ use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq, ServerId, TemporaryId};
-use crate::sync_session::{EventEnvelope, EventKind};
+use crate::sync_session::{EventEnvelope, EventKind, PostFields};
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 use super::post_echo_settle::{is_echo_frame, reconcile_post_echo};
@@ -128,6 +128,7 @@ impl WsMessageHandler for PostHandler {
         };
 
         // 捕获 backfill 触发所需键（ev 即将 move 进 ch.ingest）。
+        let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
 
         ch.ingest(ev, out, ctx.now_ms)?;
@@ -135,6 +136,10 @@ impl WsMessageHandler for PostHandler {
         // gate buffer/drop 下 self-echo 的乐观行 DOM 结算（gate apply 路径已自然 emit → echo_settle=None）。
         if let Some(eff) = echo_settle {
             out.push(eff);
+        }
+        if let Some((persist, emit)) = pin_effect {
+            out.push(persist);
+            out.push(emit);
         }
 
         // 根治 echo gate-gap 整类：post（type1·含转发他频道 / 他人消息）在大缺口下被 gate buffer
@@ -210,6 +215,49 @@ fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
 fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
     let data = frame.data()?;
     Some(data.get("post").unwrap_or(data))
+}
+
+/// Go 真实 post pin 写族当前回声形态是 `action=post` 系统通知：
+/// `type=NOTICE + props.type=addPostPin/removePostPin + props.content=<被操作 post JSON>`。
+/// 这里在 helix 归一为目标消息 pinned patch，保持前端纯绑定 `data-pinned`。
+fn post_pin_effect_from_notice(
+    ev: &EventEnvelope,
+) -> Option<(helix_core::Effect, helix_core::Effect)> {
+    if !ev.fields.msg_type.eq_ignore_ascii_case("NOTICE") || ev.fields.props.is_empty() {
+        return None;
+    }
+    let props: serde_json::Value = serde_json::from_str(&ev.fields.props).ok()?;
+    let prop_type = props.get("type").and_then(serde_json::Value::as_str)?;
+    let pinned = match prop_type {
+        "addPostPin" => true,
+        "removePostPin" => false,
+        _ => return None,
+    };
+    let target_post: serde_json::Value =
+        serde_json::from_str(props.get("content").and_then(serde_json::Value::as_str)?).ok()?;
+    let post_id = target_post
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())?;
+    let channel_id = target_post
+        .get("channelId")
+        .or_else(|| target_post.get("channel_id"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(ChannelId::from_str)
+        .unwrap_or(ev.channel_id);
+
+    let fields = PostFields {
+        id: post_id.to_string(),
+        channel_id: channel_id.as_str().to_string(),
+        props: serde_json::json!({ "pinned": pinned }).to_string(),
+        ..PostFields::default()
+    };
+    Some((
+        helix_core::Effect::PersistFire {
+            ops: vec![crate::channel::pin_state_op(post_id, pinned)],
+        },
+        crate::acl::to_effect::emit_post_updated(channel_id, ev.seq.0, post_id, &fields),
+    ))
 }
 
 static POST_HANDLER: PostHandler = PostHandler;

@@ -57,6 +57,7 @@ const FAT_KEYS: &[&str] = &[
     "reactions",
     "templateReceived",
     "systemNotice",
+    "pinned",
 ];
 
 /// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
@@ -191,7 +192,10 @@ fn fat_emit_carries_in_hand_data() {
     // render-ready 终态字段（issue #53）：sample_fields 无 quickReply/template·type=TEXT →
     // sendStatus=sent / reactions=null / templateReceived=false / systemNotice=false。
     assert_eq!(data["sendStatus"], "sent", "sendStatus 恒 sent（已对账态）");
-    assert!(data["reactions"].is_null(), "无 quickReply → reactions=null");
+    assert!(
+        data["reactions"].is_null(),
+        "无 quickReply → reactions=null"
+    );
     assert_eq!(
         data["templateReceived"], false,
         "无 template → templateReceived=false"
@@ -200,6 +204,7 @@ fn fat_emit_carries_in_hand_data() {
         data["systemNotice"], false,
         "type=TEXT 非 NOTICE → systemNotice=false"
     );
+    assert!(data["pinned"].is_null(), "无 pinned props → pinned=null");
 }
 
 /// render-ready 字段真按业务数据派生（非空壳常量）——quickReply→reactions / template→templateReceived /
@@ -207,8 +212,9 @@ fn fat_emit_carries_in_hand_data() {
 #[test]
 fn render_ready_fields_derive_from_business_data() {
     let mut f = sample_fields();
-    f.props = r#"{"quickReply":[{"emoji":"👍","userIds":["u1"]}],"template":{"userIds":["u_self"]}}"#
-        .to_string();
+    f.props =
+        r#"{"quickReply":[{"emoji":"👍","userIds":["u1"]}],"template":{"userIds":["u_self"]}}"#
+            .to_string();
     f.msg_type = "NOTICE".to_string();
     let e = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f);
     let Effect::Emit { event } = &e else {
@@ -216,7 +222,10 @@ fn render_ready_fields_derive_from_business_data() {
     };
     let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     let data = &v["data"];
-    assert_eq!(data["reactions"], "👍", "quickReply.emoji → reactions 预解串");
+    assert_eq!(
+        data["reactions"], "👍",
+        "quickReply.emoji → reactions 预解串"
+    );
     assert_eq!(
         data["templateReceived"], true,
         "template.userIds 非空 → templateReceived=true"
@@ -225,7 +234,20 @@ fn render_ready_fields_derive_from_business_data() {
         data["systemNotice"], true,
         "type=NOTICE ∈ NOTICE_TYPES → systemNotice=true"
     );
+    assert!(data["pinned"].is_null(), "无 pinned props → pinned=null");
     assert_eq!(data["type"], "NOTICE", "NOTICE type 原样透传");
+}
+
+#[test]
+fn render_ready_pinned_derives_from_props() {
+    let mut f = sample_fields();
+    f.props = r#"{"pinned":true}"#.to_string();
+    let e = to_effect::emit_post_updated(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = &e else {
+        panic!("必产 Emit")
+    };
+    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(v["data"]["pinned"], true, "props.pinned → data.pinned");
 }
 
 /// type 空串容错 "TEXT"（render-ready 下沉·前端不再 `d.type || "TEXT"` 兜底·issue #53）。
@@ -239,10 +261,7 @@ fn empty_type_defaults_to_text() {
     };
     let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(v["data"]["type"], "TEXT", "空 type → TEXT");
-    assert_eq!(
-        v["data"]["systemNotice"], false,
-        "TEXT 默认非系统通知"
-    );
+    assert_eq!(v["data"]["systemNotice"], false, "TEXT 默认非系统通知");
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -63,6 +63,14 @@ fn resolve_template_received(props: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+/// 预解 props.pinned 成消息置顶态（UC-5.5b·data-pinned 渲染源）。
+///
+/// post_pin 帧只携 `{postId, channelId, operation}`，handler 将 operation 归一为 props.pinned。
+/// 普通消息事件不携 pinned → None → JSON null，前端保持既有 pinned 状态不被普通 echo 清空。
+fn resolve_pinned(props: &serde_json::Value) -> Option<bool> {
+    props.get("pinned").and_then(|v| v.as_bool())
+}
+
 /// spec06 FixB：message-row 信号的完整可渲染 payload 构造（数据在手，零回读）。
 ///
 /// issue #53（S4 首条竖切·C013 纯渲染壳）：在 fat 渲染核之外补 4 个 **render-ready 终态字段**——
@@ -107,6 +115,7 @@ fn message_item_data(
         "reactions": resolve_reactions(&props),
         "templateReceived": resolve_template_received(&props),
         "systemNotice": is_system_notice(msg_type),
+        "pinned": resolve_pinned(&props),
     })
 }
 

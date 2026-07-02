@@ -39,6 +39,7 @@ const FAT_KEYS_17: &[&str] = &[
     "reactions",
     "templateReceived",
     "systemNotice",
+    "pinned",
 ];
 
 fn ch() -> ChannelId {
@@ -80,14 +81,20 @@ fn revoke_replay_emits_post_deleted_fat_17_keys_even_without_messages() {
 
     let deleted = find_emit(&emits, "im:post:deleted")
         .expect("PostRevoke 必产 im:post:deleted（断在 sync_mutation_emits gate→投影这跳）");
-    let data = deleted.get("data").and_then(|d| d.as_object()).expect("data 为对象");
+    let data = deleted
+        .get("data")
+        .and_then(|d| d.as_object())
+        .expect("data 为对象");
 
     // 键集严格对齐冻结 17 键（多/缺即偏离 projection-schema）。
     let mut got: Vec<&str> = data.keys().map(String::as_str).collect();
     got.sort_unstable();
     let mut want: Vec<&str> = FAT_KEYS_17.to_vec();
     want.sort_unstable();
-    assert_eq!(got, want, "im:post:deleted 必须是 17 键 fat MessageItemData");
+    assert_eq!(
+        got, want,
+        "im:post:deleted 必须是 17 键 fat MessageItemData"
+    );
 
     // 领域锚：msg_id / channel_id / event_seq 对齐输入。
     assert_eq!(data["msg_id"], serde_json::json!(MSG));
@@ -110,7 +117,10 @@ fn upsert_then_revoke_emits_received_before_deleted() {
         .collect();
     let recv = events.iter().position(|e| e == "im:post:received");
     let del = events.iter().position(|e| e == "im:post:deleted");
-    assert!(recv.is_some(), "PostUpsert(在 messages 内) 必产 im:post:received");
+    assert!(
+        recv.is_some(),
+        "PostUpsert(在 messages 内) 必产 im:post:received"
+    );
     assert!(del.is_some(), "PostRevoke 必产 im:post:deleted");
     assert!(recv.unwrap() < del.unwrap(), "received 必先于 deleted");
 }

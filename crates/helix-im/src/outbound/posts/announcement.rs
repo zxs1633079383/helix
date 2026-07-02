@@ -14,7 +14,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 // ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
 

@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// #32 post/approval/approval — 审批一条待审消息。body = `{postId}`（camelCase 单字段）。
 struct ApprovalPostCommand;
@@ -34,7 +36,7 @@ mod tests {
     use helix_core::Correlation;
     use serde_json::json;
 
-    use super::super::registry::{handle_outbound, is_outbound};
+    use crate::outbound::registry::{handle_outbound, is_outbound};
 
     #[test]
     fn approval_post_endpoint_and_body() {

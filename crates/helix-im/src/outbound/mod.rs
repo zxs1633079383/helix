@@ -17,18 +17,14 @@ pub use channel_admin::existing as channel_existing;
 pub use channel_admin::member_admin as channel_member_admin;
 pub use channel_admin::pinned as channel_pinned;
 pub use channel_admin::read as channel_read;
-pub mod post_props;
-pub mod posts_existing;
-// posts 审批写族（post/approval/approval，{postId}）：补齐 posts 域唯一缺失写命令。零交集独立文件。
-pub mod posts_approval;
-// CP：posts/createPosts 批量转发（补齐唯一挂起 outbound，88→89）。独立文件零交集。
-pub mod posts_relay;
-// P3a posts 读族（G1 并行，独立 distributed_slice 注册，与 channel* 零交集）。
-pub mod posts_read;
-// posts 读族扩展（bookmark/announcement/post-read-list，守 posts_read.rs ≤300 行硬顶）。
-pub mod posts_read_ext;
-// 公告写族（save/delete/read，post/ 单数子路由，与 posts_read 公告读族同域）。
-pub mod posts_announcement;
+pub mod posts;
+pub use posts::announcement as posts_announcement;
+pub use posts::approval as posts_approval;
+pub use posts::existing as posts_existing;
+pub use posts::props as post_props;
+pub use posts::read as posts_read;
+pub use posts::read_ext as posts_read_ext;
+pub use posts::relay as posts_relay;
 pub mod quick_reply;
 pub mod registry;
 pub mod template_received;

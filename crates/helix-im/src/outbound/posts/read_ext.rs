@@ -7,10 +7,12 @@
 use linkme::distributed_slice;
 use serde_json::{json, Value};
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 use crate::error::ImError;
 // helpers 经 pub(super) 从 posts_read 引入
-use super::posts_read::{carry_into, require_str_array};
+use super::read::{carry_into, require_str_array};
 
 /// 注册读命令样板（与 posts_read.rs 的 read_cmd! 同构，is_read=true）。
 macro_rules! read_cmd {

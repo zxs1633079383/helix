@@ -38,7 +38,7 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
 
 /// 取必填**非空数组**字段，缺/类型错/空 → `ImError::Parse`（边界零信任，HX-C 不变量 4）。
 fn require_nonempty_array<'a>(

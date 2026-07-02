@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// POST /api/cses/posts/updatePostProps — 更新 post props（投票态等）。
 /// 真源 `{postId, props}`；props 必须是非 null object（Go `props == nil` 拒）。

@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{
+    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
+};
 
 /// #23 POST /api/cses/post/read — 标记已读 → update_channel + post_read。
 /// 真源 `entity.PostRead{ChannelID, EndTime, Posts[], StartTime, UserId}`（post.go:527-536）。

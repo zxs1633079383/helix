@@ -70,5 +70,5 @@ pub fn emit_channel_replies(req_id: &str, reply_ids: Vec<String>) -> Effect {
 }
 
 #[cfg(test)]
-#[path = "render_ready_replies_tests.rs"]
+#[path = "replies_tests.rs"]
 mod tests;

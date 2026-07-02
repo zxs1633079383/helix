@@ -108,5 +108,5 @@ pub fn shape_message_rows(rows: &Value) -> Value {
 }
 
 #[cfg(test)]
-#[path = "render_ready_tests.rs"]
+#[path = "core_tests.rs"]
 mod tests;

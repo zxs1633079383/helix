@@ -160,7 +160,7 @@ pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
         serde_json::Value::Array(items) => serde_json::Value::Array(
             items
                 .into_iter()
-                .map(crate::query_dialog_render::render_ready_dialog_row)
+                .map(crate::query::dialog_render::render_ready_dialog_row)
                 .collect(),
         ),
         _ => serde_json::json!([]),
@@ -200,5 +200,5 @@ pub fn emit_dialogs_cleared() -> Effect {
 }
 
 #[cfg(test)]
-#[path = "query_tests.rs"]
+#[path = "core_tests.rs"]
 mod tests;

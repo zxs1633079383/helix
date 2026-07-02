@@ -120,5 +120,5 @@ pub fn emit_channel_members(
 }
 
 #[cfg(test)]
-#[path = "render_ready_members_tests.rs"]
+#[path = "members_tests.rs"]
 mod tests;

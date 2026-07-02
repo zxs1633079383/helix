@@ -29,12 +29,12 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use super::registry::{
+use crate::outbound::registry::{
     build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
     OUTBOUND_COMMANDS,
 };
 // build 层 helper 外提 sibling（收口行数基线，纯函数零行为变更）。
-use super::user_misc_helpers::{do_search_body, require_str_array};
+use super::helpers::{do_search_body, require_str_array};
 
 /// 注册一条命令的样板：`name` + `build` 闭包 + **读/写标注**（user-misc 域读写混存，
 /// 与纯读 posts_read.rs 不同，须逐命令标 `is_read`，spec06 缺陷A）。
@@ -270,5 +270,5 @@ misc_cmd!(
 );
 
 #[cfg(test)]
-#[path = "user_misc_tests.rs"]
+#[path = "core_tests.rs"]
 mod tests;

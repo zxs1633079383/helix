@@ -42,10 +42,10 @@ pub mod schema;
 mod send_flow;
 pub mod send_reconcile;
 pub mod state;
-mod sync_flow;
-pub mod sync_increment;
-pub mod sync_scheduler;
-pub mod sync_session;
+pub mod sync;
+pub use sync::increment as sync_increment;
+pub use sync::scheduler as sync_scheduler;
+pub use sync::session as sync_session;
 pub mod todo;
 pub(crate) mod ws;
 

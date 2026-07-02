@@ -209,5 +209,5 @@ pub fn drain(
 }
 
 #[cfg(test)]
-#[path = "sync_scheduler_tests.rs"]
+#[path = "scheduler_tests.rs"]
 mod tests;

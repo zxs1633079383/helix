@@ -348,26 +348,44 @@ pub unsafe extern "C" fn helix_command(
         return FFI_NULL;
     }
     // SAFETY: 调用方契约保证 name 指向至少 name_len 字节有效 UTF-8 内存。
-    let name_str = match unsafe { ffi_str(name, name_len) } {
+    let public_name = match unsafe { ffi_str(name, name_len) } {
         Ok(s) => s,
         Err(code) => return code,
     };
 
     // 立即拷贝 payload（ACL-3：C 侧 buffer 调用返回后可能被复用）
-    let payload_bytes: Bytes = if payload.is_null() || payload_len == 0 {
-        Bytes::new()
+    let payload_vec = if payload.is_null() || payload_len == 0 {
+        Vec::new()
     } else {
         // SAFETY: payload 非 null 已确认；调用方契约保证指向至少 payload_len 字节、
         // 在本调用期间有效的内存——立即 copy_from_slice 拷贝，不持有原始指针。
-        Bytes::copy_from_slice(unsafe { std::slice::from_raw_parts(payload, payload_len) })
+        unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec()
     };
+    let normalized_payload = match helix_im::mobile_contract::normalize_command_payload(
+        public_name.as_str(),
+        &payload_vec,
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(
+                command = public_name.as_str(),
+                ?error,
+                "mobile command payload rejected"
+            );
+            return FFI_INVALID;
+        }
+    };
+    let payload_bytes = Bytes::from(normalized_payload);
+
+    let core_name =
+        helix_im::mobile_contract::command_alias(public_name.as_str()).unwrap_or(public_name.as_str());
 
     // G-6 / PI-1：name 命中 outbound 闭集（88 命令）→ `Cow::Borrowed` 静态名免堆分配（热路径写命令
     // 净分配仅 payload 1 次）；miss（im_send_message/im_reconnect/query 名）→ `Cow::Owned` fallback
     // （低频，仍正确）。闭集真源在 helix-im registry（driver 不复制清单，避免漂移）。
-    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(&name_str) {
+    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(core_name) {
         Some(static_name) => Cow::Borrowed(static_name),
-        None => Cow::Owned(name_str),
+        None => Cow::Owned(core_name.to_string()),
     };
     let cmd = AppCommand {
         name,

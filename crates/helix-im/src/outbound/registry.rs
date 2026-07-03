@@ -158,6 +158,15 @@ pub fn outbound_command_count() -> usize {
     registry().map(HashMap::len).unwrap_or(0)
 }
 
+/// 稳定导出当前 outbound 命令名闭集（排序后）。
+pub fn outbound_command_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = registry()
+        .map(|m| m.keys().copied().collect())
+        .unwrap_or_default();
+    names.sort_unstable();
+    names
+}
+
 fn outbound_method(name: &str) -> &'static str {
     match name {
         "im_team_quit" | "im_bot_agent_config_delete" | "im_bot_agent_channel_remove" => "DELETE",

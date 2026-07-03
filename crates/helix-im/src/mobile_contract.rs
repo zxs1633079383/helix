@@ -61,7 +61,7 @@ pub fn normalize_command_payload(public: &str, payload: &[u8]) -> Result<Vec<u8>
 }
 
 pub fn capabilities_json() -> Vec<u8> {
-    let mut commands = crate::outbound::registry::outbound_command_names();
+    let mut commands = crate::outbound::outbound_command_names();
     commands.push("im_send");
     commands.push("im_reconnect");
     commands.extend_from_slice(crate::query::query_command_names());
@@ -134,5 +134,13 @@ mod tests {
         assert!(events.iter().any(|e| e == "im:post:sending"));
         assert!(events.iter().any(|e| e == "im:post:received"));
         assert!(!events.iter().any(|e| e == "im:post:send-failed"));
+    }
+
+    #[test]
+    fn outbound_command_names_is_publicly_reexported() {
+        assert_eq!(
+            crate::outbound::outbound_command_names(),
+            crate::outbound::registry::outbound_command_names()
+        );
     }
 }

@@ -67,3 +67,16 @@
 ## 疑虑
 
 - 当前写入白名单不包含 `crates/helix-im/src/outbound/mod.rs`，所以新加的命令名导出能力实际落点是 `helix_im::outbound::registry::outbound_command_names()`；如果后续要求公开路径严格平铺为 `helix_im::outbound::outbound_command_names()`，需要额外放开该文件做一次 re-export。
+
+## 导出路径修复记录（2026-07-03）
+
+- 修复点：
+  - 将 `crates/helix-im/src/outbound/mod.rs` 的 `pub use registry::{...}` 补上 `outbound_command_names`
+  - 将 `crates/helix-im/src/mobile_contract.rs` 中的能力清单来源切到 `crate::outbound::outbound_command_names()`
+  - 增加一个最小测试，锚定公开路径与 registry 路径一致
+- 命令：
+  - `cargo test -p helix-im mobile_contract -- --nocapture`
+  - `cargo check -p helix-im`
+- 结果：
+  - `cargo test -p helix-im mobile_contract -- --nocapture` 通过，`3 passed; 0 failed`
+  - `cargo check -p helix-im` 通过，`Finished 'dev' profile [unoptimized + debuginfo] target(s) in 4.87s`

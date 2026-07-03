@@ -16,8 +16,10 @@
 //! - 每个 unsafe 块必须有 // SAFETY: 注释（clippy deny undocumented_unsafe_blocks）
 
 use std::borrow::Cow;
+use std::time::Duration;
 
 use bytes::Bytes;
+use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
 use helix_driver_host::{AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig};
@@ -439,8 +441,8 @@ pub unsafe extern "C" fn helix_query(
     handle: *mut HelixHandle,
     query_name: *const u8,
     query_name_len: usize,
-    _query_payload: *const u8,
-    _query_payload_len: usize,
+    query_payload: *const u8,
+    query_payload_len: usize,
     out_ptr: *mut *mut u8,
     out_len: *mut usize,
 ) -> i32 {
@@ -460,6 +462,12 @@ pub unsafe extern "C" fn helix_query(
         Ok(s) => s,
         Err(code) => return code,
     };
+    let query_payload = if query_payload.is_null() || query_payload_len == 0 {
+        &[][..]
+    } else {
+        // SAFETY: query_payload 指针/长度由调用方保证在本调用期间有效。
+        unsafe { std::slice::from_raw_parts(query_payload, query_payload_len) }
+    };
 
     match query_name.as_str() {
         "helix_capabilities" => unsafe {
@@ -468,9 +476,39 @@ pub unsafe extern "C" fn helix_query(
         "helix_version" => unsafe {
             write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len)
         },
-        // honest stub：infra（runtime handle + storage）已在 HelixHandle.query 就位；
-        // 缺 query_name→Spec 映射（IM 领域语义），填充会泄漏 schema 进 driver → 暂不实现（见 doc）。
-        _ => FFI_UNIMPLEMENTED,
+        _ => {
+            let plan = match helix_im::mobile_query::plan(query_name.as_str(), query_payload) {
+                Ok(plan) => plan,
+                Err(_) => return FFI_UNIMPLEMENTED,
+            };
+            // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
+            let handle_ref = unsafe { &*handle };
+            let runtime = handle_ref.query.runtime.clone();
+            let storage = handle_ref.query.storage.clone();
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            runtime.spawn(async move {
+                let result = match plan {
+                    helix_im::mobile_query::MobileQueryPlan::Scan { spec, shape } => storage
+                        .scan(spec)
+                        .await
+                        .map(|rows| helix_im::mobile_query::shape_json(shape, rows)),
+                };
+                let _ = tx.send(result);
+            });
+
+            match rx.recv_timeout(Duration::from_secs(3)) {
+                Ok(Ok(bytes)) => unsafe { write_query_bytes(bytes, out_ptr, out_len) },
+                Ok(Err(error)) => {
+                    tracing::warn!(
+                        query = query_name.as_str(),
+                        error = ?error,
+                        "mobile sync query storage failed"
+                    );
+                    FFI_INVALID
+                }
+                Err(_) => FFI_BUSY,
+            }
+        }
     }
 }
 

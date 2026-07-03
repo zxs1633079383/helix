@@ -4,7 +4,9 @@ use helix_driver_ffi::api::{
 };
 use helix_driver_ffi::batch::decode_batch;
 use helix_driver_ffi::vtable::CppHostVtable;
-use std::sync::Mutex;
+use helix_driver_host::HostStorage;
+use helix_im::IM_SCHEMA;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 type Recorder = Mutex<Vec<Vec<u8>>>;
@@ -28,6 +30,7 @@ extern "C" fn record_batch(ctx: *mut std::ffi::c_void, ptr: *const u8, len: usiz
 }
 
 fn create_recording_handle(recorder: &Recorder) -> *mut HelixHandle {
+    let _ = ensure_test_db();
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";
     let vtable = CppHostVtable {
@@ -40,6 +43,32 @@ fn create_recording_handle(recorder: &Recorder) -> *mut HelixHandle {
         unsafe { helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable) };
     assert!(!handle.is_null(), "create 应成功");
     handle
+}
+
+fn ensure_test_db() -> &'static str {
+    static DB_PATH: OnceLock<String> = OnceLock::new();
+    DB_PATH.get_or_init(|| {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "helix-mobile-contract-test-{}.db",
+            std::process::id()
+        ));
+        let db_path = path.to_string_lossy().into_owned();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime");
+        runtime.block_on(async {
+            let storage = HostStorage::open_sqlite_url(&db_path)
+                .await
+                .expect("open test db");
+            for sql in IM_SCHEMA {
+                storage.execute_raw(sql).await.expect("apply IM schema");
+            }
+        });
+        std::env::set_var("HELIX_DB", &db_path);
+        db_path
+    })
 }
 
 fn wait_for_event(recorder: &Recorder, needle: &str) -> String {
@@ -155,6 +184,79 @@ fn helix_version_query_returns_abi_json() {
     let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
     let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     assert_eq!(json, serde_json::json!({ "abi": 1 }));
+
+    // SAFETY: freeing the exact buffer returned by helix_query is required.
+    unsafe { helix_query_free(out_ptr, out_len) };
+    // SAFETY: handle was created by this test and not yet destroyed.
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn local_dialog_list_query_returns_projection_json() {
+    let recorder = Recorder::new(Vec::new());
+    let handle = create_recording_handle(&recorder);
+    let query_name = b"im_query_dialog_list";
+    let query_payload = br#"{"limit":10}"#;
+    let mut out_ptr: *mut u8 = std::ptr::null_mut();
+    let mut out_len: usize = 0;
+
+    // SAFETY: handle is live; query pointers and out-params are valid for the
+    // call duration.
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_OK);
+
+    // SAFETY: out_ptr/out_len are owned by the successful helix_query result.
+    let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
+    let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert_eq!(json["event"], "im:channels:projection");
+    assert!(json["data"]["dialogList"].is_array());
+
+    // SAFETY: freeing the exact buffer returned by helix_query is required.
+    unsafe { helix_query_free(out_ptr, out_len) };
+    // SAFETY: handle was created by this test and not yet destroyed.
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn local_message_query_returns_projection_json() {
+    let recorder = Recorder::new(Vec::new());
+    let handle = create_recording_handle(&recorder);
+    let query_name = b"im_query_messages_by_channel";
+    let query_payload = br#"{"channelId":"01hq0000000000000000000000","limit":25}"#;
+    let mut out_ptr: *mut u8 = std::ptr::null_mut();
+    let mut out_len: usize = 0;
+
+    // SAFETY: handle is live; query pointers and out-params are valid for the
+    // call duration.
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_OK);
+
+    // SAFETY: out_ptr/out_len are owned by the successful helix_query result.
+    let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
+    let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert_eq!(json["event"], "im:messages:query_result");
+    assert_eq!(json["data"]["channel_id"], "01hq0000000000000000000000");
+    assert!(json["data"]["messages"].is_array());
 
     // SAFETY: freeing the exact buffer returned by helix_query is required.
     unsafe { helix_query_free(out_ptr, out_len) };

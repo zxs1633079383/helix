@@ -407,7 +407,7 @@ pub unsafe extern "C" fn helix_command(
 
 // ── helix_query / helix_query_free ───────────────────────────────────────────
 
-/// 同步读取 engine 状态（**honest stub**：返回 `FFI_UNIMPLEMENTED`，基础设施已就位）。
+/// 同步读取 engine 状态。
 ///
 /// ## 为什么仍是 stub（取舍说明）
 ///
@@ -417,7 +417,12 @@ pub unsafe extern "C" fn helix_command(
 /// HX-C006 §5）。**缺的是 `query_name → ScanSpec/GetSpec` 的映射**——那是 IM 领域语义
 /// （哪个表、哪些列、WHERE 谓词），属 helix-im 关注点。在 FFI 层硬编码该映射会把 IM schema
 /// 泄漏进 driver（违反 runtime-agnostic-core.md §6「Storage trait 不许泄漏业务 schema」）。
-/// 故保留 honest stub，待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，不在此越界。
+/// 当前仅开放与业务表无关的本地元信息查询：
+/// - `helix_capabilities`：返回移动端公开契约能力集 JSON
+/// - `helix_version`：返回 `{"abi":1}`
+///
+/// 其余 query 仍保留 honest stub：待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，
+/// 不在此越界。
 ///
 /// ## 配对约定（填充后生效）
 ///
@@ -432,8 +437,8 @@ pub unsafe extern "C" fn helix_command(
 #[no_mangle]
 pub unsafe extern "C" fn helix_query(
     handle: *mut HelixHandle,
-    _query_name: *const u8,
-    _query_name_len: usize,
+    query_name: *const u8,
+    query_name_len: usize,
     _query_payload: *const u8,
     _query_payload_len: usize,
     out_ptr: *mut *mut u8,
@@ -450,9 +455,23 @@ pub unsafe extern "C" fn helix_query(
         *out_ptr = std::ptr::null_mut();
         *out_len = 0;
     }
-    // honest stub：infra（runtime handle + storage）已在 HelixHandle.query 就位；
-    // 缺 query_name→Spec 映射（IM 领域语义），填充会泄漏 schema 进 driver → 暂不实现（见 doc）。
-    FFI_UNIMPLEMENTED
+    // SAFETY: query_name 指针/长度由调用方保证在本调用期间有效，且 name 必须是 UTF-8。
+    let query_name = match unsafe { ffi_str(query_name, query_name_len) } {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+
+    match query_name.as_str() {
+        "helix_capabilities" => unsafe {
+            write_query_bytes(helix_im::mobile_contract::capabilities_json(), out_ptr, out_len)
+        },
+        "helix_version" => unsafe {
+            write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len)
+        },
+        // honest stub：infra（runtime handle + storage）已在 HelixHandle.query 就位；
+        // 缺 query_name→Spec 映射（IM 领域语义），填充会泄漏 schema 进 driver → 暂不实现（见 doc）。
+        _ => FFI_UNIMPLEMENTED,
+    }
 }
 
 /// 释放 `helix_query` 返回的 boxed slice。
@@ -475,6 +494,19 @@ pub unsafe extern "C" fn helix_query_free(ptr: *mut u8, len: usize) {
     // len 由调用方通过 out_len 取得，与 boxed_slice 长度完全一致。
     // slice_from_raw_parts_mut + Box::from_raw 重建 Box<[u8]> 后 drop 正确释放。
     drop(unsafe { Box::from_raw(slice) });
+}
+
+unsafe fn write_query_bytes(bytes: Vec<u8>, out_ptr: *mut *mut u8, out_len: *mut usize) -> i32 {
+    let mut boxed = bytes.into_boxed_slice();
+    let len = boxed.len();
+    let ptr = boxed.as_mut_ptr();
+    std::mem::forget(boxed);
+    // SAFETY: out_ptr/out_len 已由调用者提供且在 helix_query 中检查非 null；这里仅写回 boxed slice 元信息。
+    unsafe {
+        *out_ptr = ptr;
+        *out_len = len;
+    }
+    FFI_OK
 }
 
 // ── 内部工具 ─────────────────────────────────────────────────────────────────

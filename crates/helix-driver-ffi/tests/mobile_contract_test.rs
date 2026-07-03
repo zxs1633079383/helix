@@ -1,4 +1,7 @@
-use helix_driver_ffi::api::{FFI_OK, HelixHandle, helix_command, helix_create_with_network, helix_destroy};
+use helix_driver_ffi::api::{
+    FFI_OK, FFI_UNIMPLEMENTED, HelixHandle, helix_command, helix_create_with_network, helix_destroy,
+    helix_query, helix_query_free,
+};
 use helix_driver_ffi::batch::decode_batch;
 use helix_driver_ffi::vtable::CppHostVtable;
 use std::sync::Mutex;
@@ -74,6 +77,116 @@ fn mobile_im_send_alias_accepts_camelcase_payload_and_emits_sending() {
     assert!(event.contains("tmp-mobile-1"));
     assert!(event.contains("01hq0000000000000000000000"));
     assert!(!event.contains("im:post:send-failed"));
+
+    // SAFETY: handle was created by this test and not yet destroyed.
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn helix_capabilities_query_returns_mobile_contract_json() {
+    let recorder = Recorder::new(Vec::new());
+    let handle = create_recording_handle(&recorder);
+    let query_name = b"helix_capabilities";
+    let query_payload = b"{}";
+    let mut out_ptr: *mut u8 = std::ptr::null_mut();
+    let mut out_len: usize = 0;
+
+    // SAFETY: handle is live; query pointers and out-params are valid for the
+    // call duration.
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_OK);
+    assert!(!out_ptr.is_null());
+    assert!(out_len > 0);
+
+    // SAFETY: out_ptr/out_len are owned by the successful helix_query result.
+    let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
+    let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert_eq!(json["abi"], 1);
+    assert_eq!(json["bus"], "im:__bus__");
+    assert_eq!(json["features"]["pendingSendTimeoutUnsend"], true);
+    assert!(json["commands"].as_array().unwrap().iter().any(|v| v == "im_send"));
+    assert!(!json["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "im:post:send-failed"));
+
+    // SAFETY: freeing the exact buffer returned by helix_query is required.
+    unsafe { helix_query_free(out_ptr, out_len) };
+    // SAFETY: handle was created by this test and not yet destroyed.
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn helix_version_query_returns_abi_json() {
+    let recorder = Recorder::new(Vec::new());
+    let handle = create_recording_handle(&recorder);
+    let query_name = b"helix_version";
+    let query_payload = b"{}";
+    let mut out_ptr: *mut u8 = std::ptr::null_mut();
+    let mut out_len: usize = 0;
+
+    // SAFETY: handle is live; query pointers and out-params are valid for the
+    // call duration.
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_OK);
+
+    // SAFETY: out_ptr/out_len are owned by the successful helix_query result.
+    let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
+    let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert_eq!(json, serde_json::json!({ "abi": 1 }));
+
+    // SAFETY: freeing the exact buffer returned by helix_query is required.
+    unsafe { helix_query_free(out_ptr, out_len) };
+    // SAFETY: handle was created by this test and not yet destroyed.
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn unknown_query_returns_unimplemented_and_clears_out_params() {
+    let recorder = Recorder::new(Vec::new());
+    let handle = create_recording_handle(&recorder);
+    let query_name = b"not_a_query";
+    let query_payload = b"{}";
+    let mut out_ptr: *mut u8 = std::ptr::dangling_mut::<u8>();
+    let mut out_len: usize = 999;
+
+    // SAFETY: handle is live; query pointers and out-params are valid for the
+    // call duration.
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_UNIMPLEMENTED);
+    assert!(out_ptr.is_null());
+    assert_eq!(out_len, 0);
 
     // SAFETY: handle was created by this test and not yet destroyed.
     unsafe { helix_destroy(handle) };

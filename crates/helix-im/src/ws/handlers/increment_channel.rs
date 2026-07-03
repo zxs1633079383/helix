@@ -102,7 +102,7 @@ impl WsMessageHandler for IncrementChannelHandler {
         let Ok(data) = frame.data_required() else {
             return Ok(());
         };
-        let Some(inc) = crate::parser::parse_increment_channel(data) else {
+        let Some(inc) = crate::ws::parser::parse_increment_channel(data) else {
             return Ok(());
         };
 

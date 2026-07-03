@@ -17,11 +17,11 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 6679e40
-last_reviewed_at: 2026-06-24
+last_reviewed_commit: 2dd0d2e
+last_reviewed_at: 2026-07-02
 # 本指针在 merge 提交后由主对话更新为 merge commit hash（整合下面两条并行十四轮 review 线 + Round-6 additive UC e2e；冲突采远端 structure[sync_effects.rs]+保我 UC，cargo test 全绿复验）。
 # ── 并行十四轮 A（本会话线·UC e2e + 治理收敛）──
-last_review_runId: wf_42947748-15d (十四轮 architecture-drift-review：区间 7b6ea55..413c4a8 = im HTTP+WS 接管批次落库[Round-3/4/5 + spec06 + UC e2e]·gap=79 触发·判定 🔴 重 drift。**内核全 HOLD**[HX-C001 零运行时 / C002-C015 / GOAL §1·§2 / 三层单向 全过]·drift 100% 在**治理护栏层**：structure-gate 在 413c4a8 实测 exit 1[module.rs 1339>1318·to_effect 881>861·state 367>351·新文件 posts_read 324>300]·baseline 棘轮后门第 3 次复发·gate.sh 未接 structure-gate 致红闸纯咨询。**已回正收敛**[d0d2936 四文件拆分回正 + gate.sh 接 structure-gate 进 push 阻断·c81de35 CorrelationContext 外提 correlation.rs 令 state.rs 351→299 拿真余量 + baseline 往小锁 299]·收敛后 structure-gate exit 0 + cargo test 563/0 + HX-C001 空。低优 backlog：load-older e98adf5 惊讶吞没补 DRIFT-PRED·all_hash/send_build 失实注释清理·两候选卡[parity call-site lens / outbound 可达 EXPECT]过回放闸门 PASS 待立卡)
+last_review_runId: manual-self-check-2026-07-02-helix-im-ddd-9-17 (手工 architecture-drift-review equivalent：区间 6679e40..2dd0d2e / 本 worktree main..HEAD 覆盖 DDD #9-#17；判定 🟢 无 drift。未派 subagent/workflow，因为当前工具策略禁止未获用户明确要求时派生 agent。复核证据：git diff 仅 helix-im 目录/模块迁移 + 结构闸门/DDD 文档；未触碰 helix-core/driver/Cargo；HX-C001 core runtime grep clean；ddd-structure-gate #9-#17 + structure-gate + 四 crate cargo check green；每 issue helix-im tests green，仅保留既有 ChannelId unused-import warning。)
 # ── 并行十四轮 B（远端 origin/main 线·outbound/ffi/public-api·已 merge 采纳其 structure）──
 # last_review_runId_remote: agent_019ef754-eb1e-72b2-be97-68a82572bdc9 + 019ef766/019ef768 (十四轮：outbound method/auth crosscut + public API baseline + 结构闸回正·区间 7b6ea55..157f315·gap=48·🔴→回正：拆 FFI api smoke/registry tests/module handshake/sync_effects·baseline 只减不增·structure-gate PASS)
 # 上一轮：wf_84e8b7d0-a00 (十三轮：CI harbor 镜像切 + FFI pump 锁解耦 + timer 泄漏 + ADR-013 死列清理 · 区间 196c869..7b6ea55 · gap=26 · 🟡 轻 · 1 medium 回正 + 3 low)
@@ -107,6 +107,7 @@ threshold: 10
 
 | 日期 | review 到 commit | 区间(from..to) | workflow runId | drift 判定 | 关键发现 / 收敛动作 |
 |---|---|---|---|---|---|
+| 2026-07-02 | 2dd0d2e | 6679e40..2dd0d2e (manual window main..HEAD: #9-#17 DDD package split) | manual-self-check-2026-07-02-helix-im-ddd-9-17 | 🟢 无 drift | helix-im DDD package split #9-#17。纯目录/模块迁移 + structural TDD gate；未触碰 helix-core/driver/Cargo。HX-C001 runtime grep clean；ddd-structure-gate 9-17 + structure-gate + four-crate check + per-issue helix-im tests green。既有 ChannelId test warning 未在本批引入。 |
 | 2026-06-16 | 8c69f25 | — (基线) | — | 🟢 baseline | 规则生效锚点；无 review，仅设基线 |
 | 2026-06-16 | 3c5324f | 8c69f25..3c5324f | wf_ee61a139-68b | 🟡 轻 drift | 2 条真 drift（8 报告去重）：[medium] event_to_upsert_op 热路径二/三次 serde + per-event alloc（违 HX-C005，6d83ad5 引入）；[low] channel_event_cursor 死表占位 vs 运行时 _helix_monotonic。均非阻塞 → 登记 todo（已于 cff383f 收敛）|
 | 2026-06-16 | 6b2fd52 | 3c5324f..6b2fd52 (10 commits) | wf_703e8a49-178 | 🟡 轻 drift | merge main→dev-zlc 收口。5 条真 drift（11 报告去重）：D1 FFI 句柄类型不一致(medium)；D2 NativeHttp::new 活墓碑+live bench caller(medium)；D3 native·FFI registry 不对称(medium)；D4 ADR-008→010 三处文档引用漂移(low)；D5 decisions.md:62 transport 适配滞后注(low)。无机制破坏、core 零运行时仍成立。D2/D4/D5 即修，D1/D3 登记前置触发 todo |

@@ -39,11 +39,11 @@
 | `helix-im/src/module.rs` | 432 | 本轮已把 send/query/sync/lifecycle/port reply 编排拆到 `send_flow.rs` / `query_dispatch.rs` / `sync_flow.rs` / `lifecycle.rs` / `port_reply.rs`；后续继续只保留 ImModule 壳、Module trait 路由与少量装配，压到 ≤300 后移出 WHITELIST |
 | `helix-im/src/ws/registry.rs` | 783 | registry 骨架与各 handler 注册分文件 |
 | `helix-driver-ffi/src/api.rs` | 733 | C ABI 导出按职责族裂分 |
-| `helix-im/src/channel.rs` | 579 | gate 三阶段（peek/persist/commit）可各成文件 |
+| `helix-im/src/channel/gate.rs` | 579 | gate 三阶段（peek/persist/commit）可各成文件 |
 | `helix-driver-host/src/storage.rs` | 578 | 按 StorageOp 族裂分（P6：`scan()` 加 additive 过滤/降序投影 +18）|
 | `helix-driver-host/src/network.rs` | 463 | 按 port 实现职责裂分 |
 | `helix-core/src/effect.rs` | 452 | Effect/Spec 族裂分 |
-| `helix-im/src/parser.rs` | 430 | 临界，下次改动时收口 |
+| `helix-im/src/ws/parser/core.rs` | 430 | 临界，下次改动时收口 |
 | `helix-driver-native/src/event_sink.rs` | 321 | 临界 |
 
 > 注：`engine_loop.rs`（曾 ~1119）已拆至 168 行（FFI 生命周期解耦时），**已移出 WHITELIST 重新受 300 硬顶**。

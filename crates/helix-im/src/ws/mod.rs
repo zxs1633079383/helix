@@ -2,6 +2,7 @@
 
 mod context;
 mod frame;
+pub mod parser;
 mod registry;
 
 pub(crate) mod handlers;

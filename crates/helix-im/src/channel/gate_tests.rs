@@ -1,0 +1,144 @@
+use super::*;
+use crate::state::Seq;
+use crate::sync_session::{EventEnvelope, EventKind};
+use helix_core::{Effect, EffectSink};
+
+fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
+    EventEnvelope::new(
+        crate::state::test_channel_id(ch),
+        Seq(seq),
+        EventKind::PostUpsert,
+        crate::sync_session::PostFields::default(),
+    )
+}
+
+fn is_too_long_emit(e: &Effect) -> bool {
+    matches!(e, Effect::Emit { event }
+            if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))
+}
+
+/// 回归锚: E6 —— gate buffer 客户端上限。
+///
+/// 制造永久缺口（全部 seq >= 2，缺 seq=1），持续灌入远超 MAX_GATE_BUFFER 的
+/// 乱序事件。断言：① buffer 始终有界（永不超过上限）；② 越限时主动
+/// emit im:sync:too_long；③ cursor 不被回退（安全网靠 sync 从 cursor+1 重拉）。
+#[test]
+fn test_gate_buffer_capped_proactive_too_long_e6() {
+    let mut ch = Channel::new(crate::state::test_channel_id(7), 0); // cursor=0 → expected=1，制造永久缺口
+    let mut fx = EffectSink::new();
+    let mut saw_too_long = false;
+
+    // 灌到越过上限 + 余量，确保触发至少一次主动恢复
+    for seq in 2..(MAX_GATE_BUFFER as u64 + 2 + 128) {
+        fx.clear();
+        ch.ingest(gapped_ev(7, seq), &mut fx, 1_000)
+            .expect("ingest gapped event");
+        assert!(
+            ch.buffer.len() <= MAX_GATE_BUFFER,
+            "buffer 必须有界（≤ 上限），实际 {}",
+            ch.buffer.len()
+        );
+        if fx.as_slice().iter().any(is_too_long_emit) {
+            saw_too_long = true;
+        }
+    }
+
+    assert!(
+        saw_too_long,
+        "越过 buffer 上限必须主动 emit im:sync:too_long（不再静等服务端）"
+    );
+    assert_eq!(
+        ch.cursor.value(),
+        Seq(0),
+        "E6 安全网不回退 cursor（缺口由后续 sync 从 cursor+1 重拉）"
+    );
+}
+
+/// 上限以内正常乱序堆积不误触发 too_long（不误伤承压合法 5000 缺口场景）。
+#[test]
+fn test_gate_buffer_under_cap_no_false_too_long_e6() {
+    let mut ch = Channel::new(crate::state::test_channel_id(3), 0);
+    let mut fx = EffectSink::new();
+
+    for seq in 2..=5001 {
+        // 承压同款 5000 缺口
+        ch.ingest(gapped_ev(3, seq), &mut fx, 1_000)
+            .expect("ingest");
+    }
+    assert_eq!(ch.buffer.len(), 5000, "5000 缺口应全部正常堆积");
+    assert!(
+        !fx.as_slice().iter().any(is_too_long_emit),
+        "上限以内不得误触发 too_long"
+    );
+}
+
+/// 携 unread_bump（delta=1 他人可见）的 PostUpsert 事件构造器。
+fn bump_ev(ch: u64, seq: u64) -> EventEnvelope {
+    let upd = crate::channel_write::PostChannelUpdate {
+        channel_id: crate::state::test_channel_id(ch),
+        unread_delta: 1,
+        unread_post_id: Some("p".to_string()),
+        last_post: "x".to_string(),
+        has_schedule_post: false,
+        msg_create_at: 1_000,
+    };
+    EventEnvelope::new(
+        crate::state::test_channel_id(ch),
+        Seq(seq),
+        EventKind::PostUpsert,
+        crate::sync_session::PostFields::default(),
+    )
+    .with_unread_bump(Some(upd))
+}
+
+fn is_unread_bump(e: &Effect) -> bool {
+    matches!(e, Effect::PersistFire { ops }
+            if ops.iter().any(|op| matches!(op, StorageOp::GuardedBump(_))))
+}
+
+/// 回归锚: ⑤ —— 乱序 post 经 buffer flush 时补未读（gate 单一发出点）。
+///
+/// 证伪点：原实现未读 +1 只在 handler 的「立即 apply」路径触发，乱序经 buffer flush 丢未读。
+/// 修复后 gate 在 apply 与 flush **两路**都发出携带的 unread_bump。
+/// 制造缺口：cursor=0（expected=1），先 ingest seq=2（>expected → 进 buffer，未 apply）→
+/// 不应提前 bump；再 ingest seq=1（==expected → apply seq=1 + flush seq=2）→ 两条各补一次。
+#[test]
+fn test_out_of_order_post_bumps_unread_on_flush_5() {
+    let mut ch = Channel::new(crate::state::test_channel_id(9), 0);
+    let mut fx = EffectSink::new();
+
+    // seq=2 乱序 → buffer，携 unread_bump 但未 apply → 不得提前 bump 未读。
+    ch.ingest(bump_ev(9, 2), &mut fx, 1_000)
+        .expect("buffer gapped");
+    assert!(
+        !fx.as_slice().iter().any(is_unread_bump),
+        "乱序未 apply 不应提前 bump 未读"
+    );
+
+    // seq=1 填平 → apply(seq=1) + flush(seq=2)：gate 两路各发一次未读 bump。
+    fx.clear();
+    ch.ingest(bump_ev(9, 1), &mut fx, 1_000)
+        .expect("apply + flush");
+    let bumps = fx.as_slice().iter().filter(|e| is_unread_bump(e)).count();
+    assert_eq!(
+        bumps, 2,
+        "apply(seq=1) + flush(seq=2) 各补一次未读（gate 两路同口径，flush 不再丢未读）"
+    );
+}
+
+/// 回归锚: ⑤ —— `unread_bump=None`（echo / sync 路径）的事件 flush 时**不**补未读。
+/// 防回归：gate 只发出携带的决策，不擅自为无决策事件 +1（避免双计或 echo 误计）。
+#[test]
+fn test_none_unread_bump_does_not_increment_5() {
+    let mut ch = Channel::new(crate::state::test_channel_id(11), 0);
+    let mut fx = EffectSink::new();
+    // 默认 unread_bump=None（EventEnvelope::new）。
+    ch.ingest(gapped_ev(11, 2), &mut fx, 1_000).expect("buffer");
+    fx.clear();
+    ch.ingest(gapped_ev(11, 1), &mut fx, 1_000)
+        .expect("apply + flush");
+    assert!(
+        !fx.as_slice().iter().any(is_unread_bump),
+        "unread_bump=None 的事件 apply/flush 都不得 bump 未读"
+    );
+}

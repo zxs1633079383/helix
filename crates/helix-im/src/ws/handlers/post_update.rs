@@ -16,7 +16,7 @@ use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::parser::extract_post_fields;
+use crate::ws::parser::extract_post_fields;
 use crate::state::ChannelId;
 use crate::sync_session::EventKind;
 

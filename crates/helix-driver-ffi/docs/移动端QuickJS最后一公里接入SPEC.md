@@ -64,7 +64,7 @@ Android / iOS / QuickJS 编译产物
 当前外部项目根建议：
 
 ```text
-/workspace/c/quickjs
+/workspace/c/mobile-qucik-c++
 ```
 
 未来如果迁到新的移动端集成项目，必须把本文复制到新项目的 `docs/` 或项目现有文档目录中。
@@ -74,8 +74,8 @@ Android / iOS / QuickJS 编译产物
 下面是建议结构，不要求现在一次性创建所有文件：
 
 ```text
-/workspace/c/quickjs/
-  doc/移动端QuickJS最后一公里接入SPEC.md
+/workspace/c/mobile-qucik-c++/
+  docs/移动端QuickJS最后一公里接入SPEC.md
   cpp/
     CoreBridge.hpp
     CoreBridge.cpp
@@ -370,7 +370,7 @@ sequenceDiagram
 
 位置：移动端集成项目或正式移动端仓。
 
-当前如果本机缺 Android / iOS / Flutter e2e 环境，先列为 TODO。
+当前如果本机缺 Android / iOS / Flutter e2e 环境，先记录为环境缺口；S0-S2 仍可先完成最后一公里前置验收。
 
 验收目标：
 
@@ -382,9 +382,9 @@ sequenceDiagram
 - Go WS echo 后 Rust 产生 `im:post:received`。
 - Flutter UI 从事件批完成乐观行对账。
 
-## 10. TODO
+## 10. 后续执行清单
 
-- [ ] 在 `/workspace/c/quickjs` 或未来移动端集成项目中创建外部实现计划。
+- [ ] 外部实现计划已创建到 `/workspace/c/mobile-qucik-c++/docs/移动端QuickJS外部联调实现计划.md`，后续按该计划执行。
 - [ ] 确认 QuickJS 使用源码嵌入、静态库还是系统库。
 - [ ] 确认 Android NDK / iOS Xcode 本机环境。
 - [ ] 确认 Flutter 与 QuickJS 的事件调度边界。

@@ -126,18 +126,81 @@ fn scan_reply_after_connected_immediately_triggers_sync() {
         hello_reqs[0].1
     );
 
-    // 然后 scan 回报（已握手完成/Connected）→ E4 路径仍立即对 3 个 scan 载入 channel 发 sync Http
+    // 然后 scan 回报（已握手完成/Connected）→ 先补发 1 个带 cursor 的 bootstrap increment，
+    // E4 路径仍立即对 3 个 scan 载入 channel 发 sync Http 作为兜底。
     let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
     let scan_port_reply = port_reply_with_body(scan_persist_corr, scan_body);
     let reply_effects = h.step(scan_port_reply, 200);
-    let http_count = reply_effects
+    let reqs = http_reqs(&h.sink);
+    let increment_count = reqs
         .iter()
-        .filter(|e| matches!(e, EffectKind::Http(_)))
+        .filter(|(_, url)| url.ends_with("/channels/load/increment"))
+        .count();
+    let sync_count = reqs
+        .iter()
+        .filter(|(_, url)| url.ends_with("/channel/sync/notify"))
         .count();
     assert_eq!(
-        http_count, 3,
-        "scan reply after Connected should emit 3 Http sync immediately, got: {:?}",
+        (increment_count, sync_count),
+        (1, 3),
+        "scan reply after Connected should retry increment once and emit 3 sync Http, got reqs={reqs:?}, effects={reply_effects:?}"
+    );
+}
+
+#[test]
+fn scan_reply_after_empty_hello_retries_increment_with_loaded_cursors() {
+    let mut h = Harness::new(&[]);
+    let start_effects = h.start(0);
+    let scan_persist_corr = start_effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Persist(c) = e {
+                Some(*c)
+            } else {
+                None
+            }
+        })
+        .expect("on_start should emit Persist(Scan)");
+
+    h.step(Tick::Connected(TransportId::from_raw(0)), 100);
+    h.step(hello_inbound("CONN_1"), 150);
+    let hello_body = h
+        .last_http_body()
+        .expect("hello should emit increment HTTP");
+    assert_eq!(
+        hello_body["cursors"].as_array().map(Vec::len),
+        Some(0),
+        "pre-scan hello reproduces the empty-cursor bootstrap race"
+    );
+
+    let scan_body = scan_reply(&[(1, 10), (2, 20), (3, 30)]);
+    let reply_effects = h.step(port_reply_with_body(scan_persist_corr, scan_body), 200);
+    let reqs: Vec<_> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Http { req, .. } => Some(req),
+            _ => None,
+        })
+        .collect();
+    let retry = reqs
+        .iter()
+        .find(|req| req.url.ends_with("/channels/load/increment"))
+        .expect("scan reply should retry bootstrap increment with loaded cursors");
+    let retry_body: serde_json::Value =
+        serde_json::from_slice(retry.body.as_ref().unwrap()).unwrap();
+    let cursors = retry_body["cursors"]
+        .as_array()
+        .expect("retry cursors should be an array");
+    assert_eq!(cursors.len(), 3, "retry must carry scanned channel cursors");
+    assert_eq!(cursors[0]["channelId"], cid(1));
+    assert_eq!(cursors[0]["fromSeq"], 10);
+    assert!(
         reply_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::Http(_))),
+        "scan reply should emit retry/sync Http effects"
     );
 }
 

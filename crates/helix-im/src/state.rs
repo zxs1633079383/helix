@@ -220,6 +220,11 @@ pub struct ImState {
 
     /// UC-10：本 hello 会话累积 mention+urgent post id，global increment-end 拉 queryTodoList 后清空。
     pub about_me_post_ids: Vec<String>,
+
+    /// hello 早于 cursor scan 回包时，首个 `/channels/load/increment` 只能带空 cursors。
+    /// scan 回包加载持久 cursor 后需补发一次 bootstrap increment，避免冷启动只走 sync/notify
+    /// 而缺失 `increment_channel` / `im:channel:increment`。
+    pub pending_increment_bootstrap_after_scan: bool,
 }
 
 impl ImState {
@@ -245,6 +250,7 @@ impl ImState {
             client_seq: 0,
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
             about_me_post_ids: Vec::new(),
+            pending_increment_bootstrap_after_scan: false,
         }
     }
 
@@ -256,6 +262,7 @@ impl ImState {
         self.backfill_healed = false;
         self.sync_scheduler.reset();
         self.about_me_post_ids.clear();
+        self.pending_increment_bootstrap_after_scan = false;
     }
 }
 

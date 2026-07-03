@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    participant User as 用户
+    participant Flutter as Flutter UI
+    participant JS as JS sendMessage
+    participant QJS as QuickJS Runtime
+    participant Bridge as CoreBridge JS Class
+    participant Cpp as C++ Native Bridge
+    participant FFI as helix-driver-ffi
+    participant Rust as helix-core / helix-im
+    participant Go as Go Server
+    participant Batch as Projection Batch Callback
+
+    User->>Flutter: 点击发送消息
+    Flutter->>JS: 调用 sendMessage(conversationId, text)
+    JS->>JS: 生成 client_msg_id 和 payload JSON
+    JS->>QJS: 执行 core.call("im_send_message", payload)
+    QJS->>Bridge: 分发到注册的 native class 方法
+    Bridge->>Cpp: call(name, payloadJson)
+    Cpp->>Cpp: 校验 handle / name / payload / 线程
+    Cpp->>FFI: helix_command(handle, name_ptr, name_len, payload_ptr, payload_len)
+    FFI->>FFI: 拷贝输入 buffer，转换为 Rust command
+    FFI->>Rust: 投递 im_send_message command
+    Rust->>Rust: 执行 IM 用例，生成本地 pending 投影
+    Rust->>Go: 发送消息请求
+    Go-->>Rust: 返回 ack / message id / server time
+    Rust->>Rust: 收敛 ack，更新消息状态
+    Rust-->>FFI: 输出 projection event
+    FFI-->>Batch: on_domain_events_batch(ptr, len)
+    Batch-->>Cpp: callback 期间 borrowed pointer 有效
+    Cpp->>Cpp: 立即 memcpy batch，避免 callback 后悬垂指针
+    Cpp-->>Bridge: 分发事件或刷新查询结果
+    Bridge-->>JS: 通知 message_pending / message_sent / message_failed
+    JS-->>Flutter: 返回可渲染状态
+    Flutter-->>User: 渲染本地消息、发送中、已发送或失败状态
+
+    Note over Rust,Go: Rust core 直接对接 Go Server，Flutter 不直接处理 Go 协议。
+    Note over Cpp,FFI: command 返回值只表示 native 投递是否成功，业务结果通过 projection event batch 回流。
+    Note over Batch,Cpp: C++ 必须在 callback 内复制事件数据，不能保存 borrowed pointer。

@@ -1,0 +1,41 @@
+flowchart TD
+    User["用户操作<br/>点击、输入、滚动"] --> Flutter["Flutter UI<br/>只负责渲染和交互采集"]
+    Flutter --> Runtime["QuickJS Runtime<br/>移动端内嵌 JS 执行容器"]
+    Runtime --> JSAPI["JS API / 脚本<br/>轻量编排，不承载 IM 领域规则"]
+    JSAPI --> JSClass["CoreBridge JS Class<br/>call/query/version/dispose"]
+    JSClass --> CppBridge["C++ Native Bridge<br/>持有 Rust handle<br/>管理生命周期、线程、内存"]
+    CppBridge --> Header["helix.hpp / C ABI<br/>create/destroy/header/command/query/free"]
+    Header --> DriverFfi["helix-driver-ffi<br/>稳定 native 接入层"]
+    DriverFfi --> RustCore["helix-core / helix-im<br/>业务规则、用例、状态机、投影"]
+    RustCore --> GoServer["Go Server<br/>HTTP / WS / 同步协议"]
+
+    GoServer --> RustCore
+    RustCore --> EventBatch["Projection Event Batch<br/>raw event/data JSON batch"]
+    EventBatch --> DriverFfi
+    DriverFfi --> Callback["on_domain_events_batch<br/>borrowed pointer callback"]
+    Callback --> CppMemcpy["C++ shim 立即 memcpy<br/>稳定化事件数据"]
+    CppMemcpy --> JSNotify["JS 事件分发 / 查询刷新"]
+    JSNotify --> FlutterRender["Flutter 根据投影结果重新渲染"]
+
+    subgraph Ownership["职责边界"]
+        OwnRust["我们侧<br/>Rust core + driver-ffi + C++ bridge + QuickJS 注册 + smoke/验收"]
+        OwnMobile["移动端侧<br/>Flutter UI + 平台集成 + 真机包 + UI 验收"]
+    end
+
+    OwnRust -.-> DriverFfi
+    OwnRust -.-> CppBridge
+    OwnRust -.-> JSClass
+    OwnMobile -.-> Flutter
+    OwnMobile -.-> Runtime
+
+    subgraph AbiRule["ABI 原则"]
+        Rule1["业务方法不新增 C ABI symbol"]
+        Rule2["command/query 以 name + JSON 传入"]
+        Rule3["事件通过 batch callback 回流"]
+        Rule4["Rust 直接对接 Go Server，Flutter 不碰 Go 协议"]
+    end
+
+    Rule1 -.-> Header
+    Rule2 -.-> Header
+    Rule3 -.-> Callback
+    Rule4 -.-> RustCore

@@ -19,7 +19,7 @@
 | `dual-track-fix` | 分类(分片)+扇出+对抗+回炉+gate 过滤 | 按 crate 分片(白名单零交集)并行修复 → 专家对抗 review → blocking 回炉；主对话跑 `gate.sh` + 分 commit | `{ shards:[{crate,whitelist,task,lens?}], baseline? }` |
 | `stress-verify` | 生成-过滤 + 对抗验证 | 多场景实测出数字 → core-dev+rust-dev 对抗审方法学；无数字/方法学不成立不收 | `{ claim, scenarios:[{name,cmd,expect?}] }` |
 | `architecture-drift-review` | 扇出-综合 + 对抗验证 | 对 `<last_reviewed_commit>..HEAD` 的 diff **+ SESSION §0 的 ⚡ DRIFT-PRED 预期对账信号**（§4.8）查架构偏移（HX-C001..C008 + GOAL §1/§2 + 全流程合理性），对抗证伪 → drift 判定 + **候选约束回放闸门** + 收敛 todo + ledger 更新指令。**强制节律**：gap≥10 commit 必跑（见 `.claude/rules/agent-review-cadence.md`）| `{ base? }`（缺省读 ledger） |
-| `host-cli-go-e2e` | 驱动-断言 + 失败诊断 | host-cli 真连 Go 跑 13-action e2e（包 `scripts/host-cli-go-e2e.sh`）：逐 action 经 host-cli stdin 发命令→grep `HELIX_DUMP_FRAMES` 入站帧的 WS action 断言→PASS/FAIL 表；失败则诊断 agent 读日志定位根因。**前置：Go(:8065)+grpc up**（外部状态，workflow 起不了）。验的是共享 driver-host I/O 栈 + wire 契约（跑一次，native/ffi 复用，端增量靠 smoke.cpp+F5） | `{ channelId(必), cookieId(必), companyId?, closeChannelId?, createBody?, wsUrl?, apiBase?, settleMs? }` |
+| `host-cli-go-e2e` | 驱动-断言 + 失败诊断 | legacy workflow 名称；实际跑 `scripts/host-cli-FULL-uc-e2e.sh`，失败则诊断 agent 读日志定位根因。**前置：cses-im-server(:8066) up**（外部状态，workflow 起不了）。验的是共享 driver-host I/O 栈 + wire 契约（跑一次，native/ffi 复用，端增量靠 smoke.cpp+F5） | `{ cookieId?, companyId?, waitTo? }` |
 
 ## 调用示例
 

@@ -12,7 +12,7 @@ export const meta = {
 const WT = '/Users/mac28/workspace/rustWorkspace/helix/worktrees/uc-reclaim'
 const BRANCH = 'feat/cses-round6-uc-reclaim'
 const LEDGER = 'docs/review/uc-coverage-ledger.md'
-const PERSIST = 'scripts/host-cli-go-chain-e2e-persistent.sh'
+const PERSIST = 'scripts/host-cli-session.sh'
 const E2E_ENV = `HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=64118eebd2b665246b7880eb MEMBER_USERS_JSON='["678","555"]'`
 
 const DOCTRINE = `

@@ -152,13 +152,13 @@ const E2E_DOCTRINE = `
 - **send族验证**(UC-1.x):发送者自己连接看到 action=post 回声 = verified。
 - **广播族验证**(UC-6.1拉踢/6.2管理员/6.4快照等"广播给被操作方非self"):用双账号——主连接(444)操作,**第二连接(678)** 收 update/member 广播 = verified。需起两个 host-cli 连接。
 - **data-dep族**(已读UC-3.x需未读态):双账号造未读态(678发→444读→看 post_read/未读数回声)。
-- 跑法:host-cli 逐行喂命令(参考 scripts/host-cli-go-chain-e2e.sh),HELIX_DUMP_FRAMES=1 抓 RAW WS inbound 帧,grep "action":"<期待>"。账号 ${E2E_ENV}。
+- 跑法:host-cli 逐行喂命令(参考 scripts/host-cli-session.sh),HELIX_DUMP_FRAMES=1 抓 RAW WS inbound 帧,grep "action":"<期待>"。账号 ${E2E_ENV}。
 - **不改台账**(P4收口统一写)。不commit。每UC给 verdict+RAW帧证据。
 - 遇 gRPC unknown/无hello → 报环境阻断(不假判 wire-bug)。
 `
 const SCENARIOS = [
   { key: 'core-chain', ucs: 'UC-1.1发送·UC-1.5撤回·UC-2.2上拉·UC-5.1建群·UC-5.2话题·UC-5.3关退群·UC-6.3群昵称·UC-1.10定时',
-    how: '直接跑 bash scripts/host-cli-go-chain-e2e.sh(13动作自建群链),解析RAW帧逐动作判 verdict。' },
+    how: '直接跑 bash scripts/host-cli-FULL-uc-e2e.sh，必要时用 scripts/host-cli-session.sh 现构自建群链，解析RAW帧逐动作判 verdict。' },
   { key: 'send-family', ucs: 'UC-1.2 DOCUMENT·UC-1.3图片文件·UC-1.4重发·UC-1.6编辑·UC-1.7转发·UC-1.8 emoji·UC-1.9加急',
     how: '自建群后,逐类型 send(走posts/create或对应端点),看发送者 post 回声;编辑走 updateMessage 看回声;加急看 urgent 字段帧。' },
   { key: 'read-unread', ucs: 'UC-3.1会话已读·UC-3.2单条已读·UC-3.3模板已收到·UC-3.4未读数',

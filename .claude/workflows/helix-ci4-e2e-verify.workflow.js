@@ -18,7 +18,7 @@ const COMMON =
   `- 真频道靶:${CH}\n\n` +
   `## 必读脚手架(双端日志机制)\n` +
   `- ${HWT}/scripts/dev-loop.sh(三层取证:① helix Effect/emit ② Go 日志 delta ③ helix 收帧)\n` +
-  `- ${HWT}/scripts/host-cli-go-e2e.sh(drive() 逐行喂 host-cli + settle 等回推的范式)\n` +
+  `- ${HWT}/scripts/host-cli-session.sh(drive() 逐行喂 host-cli + settle 等回推的范式)\n` +
   `- helix-loop-engine skill 方法论:跑→三层取证→定位失败层→修helix/报Go→复验\n` +
   `- 测试矩阵(本阶段命令↔HTTP↔WS↔断言点真源):${MATRIX}\n\n` +
   `## 实战铁律(已踩坑,务必照做)\n` +
@@ -86,7 +86,7 @@ const results = []
 for (const p of PHASES) {
   const r = await agent(
     `${COMMON}\n\n## 你的阶段 = ${p.id} — ${p.title}\n${p.detail}\n\n` +
-    `流程:Read 脚手架(dev-loop.sh/host-cli-go-e2e.sh)+ 矩阵本阶段节 → 驱动(stdin 保活)→ 三层取证 → 逐命令判 PASS/FAIL/SKIP + 证据 → 返回结构化结果。`,
+    `流程:Read 脚手架(dev-loop.sh/host-cli-session.sh/host-cli-FULL-uc-e2e.sh)+ 矩阵本阶段节 → 驱动(stdin 保活)→ 三层取证 → 逐命令判 PASS/FAIL/SKIP + 证据 → 返回结构化结果。`,
     { label: `e2e-${p.id}`, phase: 'CI4-e2e', schema: SCHEMA, effort: 'high' })
   results.push(r)
   if (r) log(`${r.allPassed ? '✅' : '⚠️'} ${p.id}: ${(r.cases || []).map(c => c.verdict).join('/')}`)

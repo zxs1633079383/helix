@@ -73,7 +73,7 @@ const verify = await agent(
   `# Phase 3 全量验收(真 Go e2e·full-map 三表对账)\n` +
   `cwd ${HELIX}。真后端栈已起(Go:8065 + cses java + telepresence)。账号 ${E2E_ENV}。\n` +
   `## 三件:\n` +
-  `1. **逐 UC 真 Go e2e**:对 docs/review/uc-coverage-ledger.md 的 37 UC,用 host-cli-go-chain-e2e.sh / host-cli-go-e2e.sh(自建群)逐 UC 跑真 Go,WS 回声 action + 投影字段断言。遇 gRPC+"unknown" → /Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh + 重启 /workspace/java/cses。**跑绿的 UC 在台账标 ✅ e2e-verified**(Edit ledger)。\n` +
+  `1. **逐 UC 真 Go e2e**:对 docs/review/uc-coverage-ledger.md 的 37 UC,用 scripts/host-cli-FULL-uc-e2e.sh 跑全量，必要时用 scripts/host-cli-session.sh 现构序列补证，WS 回声 action + 投影字段断言。遇 gRPC+"unknown" → /Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh + 重启 /workspace/java/cses。**跑绿的 UC 在台账标 ✅ e2e-verified**(Edit ledger)。\n` +
   `2. **full-map 三表对账**:bash scripts/fullmap-coverage.sh + 人工核 84HTTP/19WS/37UC 覆盖,列未覆盖项。\n` +
   `3. **对抗 review**:git diff 逐 UC commit——转纯真删legacy / endpoint·body对齐full-map/真机curl / 命名陷阱 / 无假wiring / helix-core零运行时不破。\n` +
   `产出:**完整性矩阵**(HTTP/WS/UC 各 x/total)+ **DONE判定**(三表100%?)+ 每UC e2e PASS/FAIL/goBlocked + 未覆盖项清单(下一轮 resumeFromRunId 续)+ review findings。`,

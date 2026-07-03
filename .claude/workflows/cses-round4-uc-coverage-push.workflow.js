@@ -73,7 +73,7 @@ log(`P1 wire-bug 修复完成`)
 phase('建双账号harness')
 const harness = await agent(
   `# Round-4 P2 建双账号 e2e harness\ncwd ${HELIX}(分支 ${BRANCH})。\n` +
-  `新建 scripts/host-cli-dual-account-e2e.sh(参考现有 scripts/host-cli-go-chain-e2e.sh 结构):\n` +
+  `维护 scripts/host-cli-dual-account-e2e.sh(参考 scripts/host-cli-session.sh 的持久会话结构):\n` +
   `- 起**两个并发 host-cli 连接**:接收方(678)先连、idle 持续抓 RAW 帧到 RX_LOG;发送方(444)自建群+拉678入群,在群里 send/拉踢/改成员,各动作后 settle。\n` +
   `- 断言:接收方 RX_LOG 出现广播帧(post / member_change / update_channel / post_read),发送方自身回声照常。\n` +
   `- 账号 ${E2E_ENV};接收方用 HELIX_COOKIE_ID=678。两连接独立 HELIX_DB_PATH(避免 cursor 串)。\n` +

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # host-cli **双账号并发** e2e —— 验广播帧（非自回声）真达「第二连接」。
 #
-# 与同目录两个单连接 e2e 的区别：
-#   - host-cli-go-e2e.sh / host-cli-go-chain-e2e.sh：**单连接**，只能看**发送者自己**的回声
+# 与单连接 e2e 的区别：
+#   - host-cli-session.sh / host-cli-FULL-uc-e2e.sh：**单连接**，只能看**发送者自己**的回声
 #     （send 的 post 自 echo、create 的 channel_created 自 echo）。
 #   - 本脚本：**两个并发 host-cli 连接**——
 #       · 接收方（678）先连、**idle 持续抓 RAW 帧**到 RX_LOG（保持 stdin 开不退）。

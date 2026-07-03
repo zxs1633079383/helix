@@ -16,7 +16,7 @@ const BRANCH = 'feat/cses-round3-conformance-e2e'
 const PARTIALS = 'crates/helix-im/docs/csesapi-migration/full-map/partials'
 const CURL = 'crates/helix-im/docs/csesapi-migration/真机curl真源.md'
 const LEDGER = 'docs/review/uc-coverage-ledger.md'
-const PERSIST = 'scripts/host-cli-go-chain-e2e-persistent.sh'
+const PERSIST = 'scripts/host-cli-session.sh'
 const E2E_ENV = `HELIX_COOKIE_ID=444 HELIX_COMPANY_ID=64118eebd2b665246b7880eb MEMBER_USERS_JSON='["678","555"]'`
 
 const NAMING = `## 命名陷阱:camelCase·createAt(非createdAt)·unReadPostId(大写R)·messageType值 SYSTEN·temporaryId。`
@@ -71,7 +71,7 @@ phase('sync-gap剧本')
 const gapScript = await agent(
   `# Round-5 P2:sync-gap e2e 剧本(4.3 too_long / 4.4 心跳 / 4.5 陌生channel)\ncwd ${HELIX}(分支 ${BRANCH})。\n` +
   `这三个 UC 代码已实现(Round-3 bf25307:4.4 pong消费+4.5陌生channel不丢帧;4.3 emit_sync_too_long),缺的是**构造触发态的 e2e 剧本**。\n` +
-  `新建 scripts/host-cli-sync-gap-e2e.sh(参考 ${PERSIST} 的持久连接+FIFO+wait_for):\n` +
+  `不要新增一次性脚本；参考 ${PERSIST} 的持久连接+FIFO+wait_for，直接现构 sync-gap 命令序列并把证据写回台账:\n` +
   `- **4.5 陌生 channel**:对一个**本地cursor store没有**的 channelId 触发 im_channel_load_increment_by_channel_id → 看 increment_channel 帧不丢(自动注册)。\n` +
   `- **4.4 心跳 gap**:持久连接挂住 → 等 ping 周期(或手动触发)→ 看 ping 帧体带 cursors/allHash piggyback(sync_increment.rs)。\n` +
   `- **4.3 too_long**:构造大 cursor gap(本地 cursor 远落后服务端 seq)→ hello/increment 触发 → 看 too_long 帧 + 重拉。若 host-cli 无法构造足够大 gap → 诚实记 harness-gap(不假判)。\n` +

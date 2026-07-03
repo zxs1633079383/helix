@@ -3,8 +3,8 @@ export const meta = {
   description: 'merge(e869a0d) 后全量 e2e 重验三表(确认 codex 结构重构没破行为) + 重跑 4.3/2.3/1.5。已有 e2e 脚本逐簇真 Go 重走·回归检查 vs 台账33。',
   whenToUse: 'merge origin/main 后·代码层已验绿(cargo 64 suite/HX-C001)·live 环境 UP(hello洪泛)·跑全量行为 e2e 防 merge 回归',
   phases: [
-    { title: '核心链重验', detail: '持久 chain + uc22(2.2) + uc24(2.4)·确认 merge 后核心 UC 行为不回归' },
-    { title: 'sync+群管+广播重验', detail: 'sync-gap(4.3/4.4/4.5) + channel-admin(5.4-5.6/6.2) + dual-account(3.x/6.1/6.4)' },
+    { title: '核心链重验', detail: 'FULL UC + session 补证·确认 merge 后核心 UC 行为不回归' },
+    { title: 'sync+群管+广播重验', detail: 'session 现构 sync/admin + dual-account(3.x/6.1/6.4)' },
     { title: '3重跑+书签待办', detail: 'uc15-revoke(1.5) + 2.3 postId定位 + 4.3 too_long注入 + bookmark(9)+todo(10)' },
     { title: '三表对账+回归报告', detail: 'fullmap-coverage + 逐UC对比台账33·标 merge 是否引入回归 + 3重跑结果' },
   ],
@@ -49,8 +49,8 @@ const E2E_SCHEMA = {
 phase('核心链重验')
 const coreR = await agent(
   `# Round-7 P1 核心链重验(merge 后回归检查)\ncwd ${HELIX}(分支 ${BRANCH})。\n` +
-  `跑 ① bash scripts/host-cli-go-chain-e2e-persistent.sh(持久链:create/send/read/revoke/makeTopic/member/nickname/schedule/cancel/close)` +
-  ` ② bash scripts/uc22-load-older-e2e.sh(UC-2.2) ③ bash scripts/host-cli-uc24-replies-e2e.sh(UC-2.4)。\n` +
+  `跑 ① bash scripts/host-cli-FULL-uc-e2e.sh(全量 UC) ` +
+  `② 用 scripts/host-cli-session.sh 现构 UC-2.2/2.4 补证序列。\n` +
   `覆盖 UC:1.1/1.5链内/2.2/2.4/5.1/5.2/5.3/6.3/1.10。每个用隔离 HELIX_DB_PATH=$(mktemp)。\n${DOCTRINE}\n` +
   `逐 UC verdict + ledger_was(查 ${LEDGER} 原状态)。**台账✅但本轮挂→标 REGRESSION 高优**。`,
   { label: 'reverify:core-chain', phase: '核心链重验', agentType: 'rust-tauri-skeleton-dev', effort: 'high', schema: E2E_SCHEMA }
@@ -61,7 +61,7 @@ log(`P1 核心链: ${coreR ? (coreR.results || []).filter((r) => r.verdict === '
 phase('sync+群管+广播重验')
 const scenR = await agent(
   `# Round-7 P2 sync/群管/广播重验\ncwd ${HELIX}(分支 ${BRANCH})。\n` +
-  `跑 ① bash scripts/host-cli-sync-gap-e2e.sh(UC-4.3/4.4/4.5) ② bash scripts/host-cli-channel-admin-e2e.sh(UC-5.4/5.5/5.6/6.2)` +
+  `跑 ① 用 scripts/host-cli-session.sh 现构 sync-gap(UC-4.3/4.4/4.5) 与 channel-admin(UC-5.4/5.5/5.6/6.2) ` +
   ` ③ bash scripts/host-cli-dual-account-e2e.sh(UC-3.1/3.4/6.1/6.4 广播·双账号)。各隔离 DB。\n${DOCTRINE}\n` +
   `逐 UC verdict + ledger_was。台账✅本轮挂→REGRESSION。`,
   { label: 'reverify:sync-admin-broadcast', phase: 'sync+群管+广播重验', agentType: 'rust-tauri-skeleton-dev', effort: 'high', schema: E2E_SCHEMA }
@@ -73,9 +73,9 @@ phase('3重跑+书签待办')
 const reclaimR = await agent(
   `# Round-7 P3 三重跑(4.3/2.3/1.5) + 书签待办重验\ncwd ${HELIX}(分支 ${BRANCH})。\n` +
   `## 用户点名重跑 3 个(之前卡环境/harness):\n` +
-  `- **1.5 撤回**:bash scripts/host-cli-uc15-revoke-e2e.sh(持久链 send→拿postId→revoke→断言 post_update 带该 postId)。send 回声现在通→大概率夺回。\n` +
+  `- **1.5 撤回**:用 scripts/host-cli-session.sh 现构 send→拿postId→revoke→断言 post_update 带该 postId。send 回声现在通→大概率夺回。\n` +
   `- **2.3 postId 定位**:持久 host-cli 建史几条→cmd im_load_older_context {anchor_post_id:<某条真postId>} 或 im_query_messages_by_channel→看 im:messages:older_loaded/查询投影 bytes>0 含定位锚。accepts 已解封(from_tick is_query)。\n` +
-  `- **4.3 too_long**:bash scripts/host-cli-sync-gap-e2e.sh 的 too_long 段;若仍 harness-gap(无 cursor 注入入口)→如实标 harness-gap 不假判(注入钩子是另一任务)。\n` +
+  `- **4.3 too_long**:用 scripts/host-cli-session.sh 现构 too_long 段;若仍 harness-gap(无 cursor 注入入口)→如实标 harness-gap 不假判(注入钩子是另一任务)。\n` +
   `## 顺带重验:bash scripts/(书签 UC-9 / 待办 UC-10 相关·若有独立脚本则跑·否则持久链触发 queryTodoList 看 im:todo:updated)。\n${DOCTRINE}\n` +
   `逐 UC verdict + ledger_was。1.5/2.3 此轮夺回则 e2e-verified·仍卡如实标。`,
   { label: 'reverify:3reruns+bookmark-todo', phase: '3重跑+书签待办', agentType: 'rust-tauri-skeleton-dev', effort: 'high', schema: E2E_SCHEMA }
@@ -86,7 +86,7 @@ log(`P3 重跑: ${reclaimR ? (reclaimR.results || []).filter((r) => r.verdict ==
 phase('补漏全覆盖')
 const gapR = await agent(
   `# Round-7 P3.5 补漏：现成脚本够不到的 12 UC（早轮 ad-hoc 验过·无保存脚本）\ncwd ${HELIX}(分支 ${BRANCH})。\n` +
-  `**真·全量**要求这 12 个也在 merge 后 main 重验。用持久 host-cli（参考 host-cli-go-chain-e2e-persistent.sh 的 FIFO 持连+wait_for）现构序列，隔离 HELIX_DB_PATH=$(mktemp)：\n` +
+  `**真·全量**要求这 12 个也在 merge 后 main 重验。用持久 host-cli（参考 scripts/host-cli-session.sh 的 FIFO 持连+wait_for）现构序列，隔离 HELIX_DB_PATH=$(mktemp)：\n` +
   `- **1.2 DOCUMENT**：自建群→cmd im_send_message {type:"DOCUMENT",...}→看 post 回声 type=DOCUMENT 原样。\n` +
   `- **1.4 重发**：send 一条→看 post 回声（重发=重走 posts/create·文本锚命中即 verified）。\n` +
   `- **1.7 转发**：im_relay_messages/createPosts {posts,channelIds}→HTTP200 SUCCESS（self 即时窗无独立帧·HTTP200 为硬证）。\n` +

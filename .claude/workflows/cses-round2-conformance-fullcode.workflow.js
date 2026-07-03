@@ -66,7 +66,7 @@ const verify = await agent(
   `# Round-2 双闸验收(契约审计 + 行为e2e)cwd ${HELIX}。真后端栈已起。账号 ${E2E}。\n` +
   `## 逐 UC 走双闸(docs/review/uc-coverage-ledger.md 的 37 UC,排除search 2):\n` +
   `**闸1 契约审计(always)**:每UC 比 full-map/partials 规格——端点/body字段集(vs真机curl真源)/命名陷阱。出偏差列出。\n` +
-  `**闸2 行为e2e(有数据态)**:host-cli-go-chain-e2e.sh 自建群跑UC,WS回声+投影断言。遇gRPC+unknown→/Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh+重启/workspace/java/cses。\n` +
+  `**闸2 行为e2e(有数据态)**:scripts/host-cli-FULL-uc-e2e.sh 跑全量，必要时用 scripts/host-cli-session.sh 自建群补 UC，WS回声+投影断言。遇gRPC+unknown→/Users/mac28/workspace/java/zlc_ai/GenericAgent/tp-connect.sh+重启/workspace/java/cses。\n` +
   `## 台账三态(Edit ledger)**禁gap-only态**:\n` +
   `- ✅ conformant-verified(闸1+闸2全过) · ⏸ code-complete(全代码+闸1过,e2e缺数据) · 🔴 goBlocked(仅search/createUser/status)\n` +
   `## 验本轮 helix/cses commit 有无骨架/gap-only/纯docs偷懒(git diff 审):有 todo!()/空实现/纯结论→列为 finding 退回。\n` +

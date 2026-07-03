@@ -67,6 +67,26 @@ impl ImModule {
             rows.len()
         );
 
+        // 若 hello 早于 scan 回包，首个 bootstrap increment 已经以空 cursors 发出。
+        // scan 载入 cursor 后补发一次带真实游标的 `/channels/load/increment`，让 Go 回推
+        // `increment_channel` 分片，恢复 UC-4.1 的 `im:channel:increment` 契约面。
+        if self.state.conn == crate::state::ConnState::Connected
+            && self.state.pending_increment_bootstrap_after_scan
+        {
+            self.state.pending_increment_bootstrap_after_scan = false;
+            if !self.state.channels.is_empty() {
+                let conn_id = self.state.connection_id.clone();
+                let cursors = self.channel_cursors();
+                let inc_corr = self.alloc_corr_internal();
+                out.push(crate::acl::to_effect::increment_http_trigger(
+                    &self.config.api_base_url,
+                    &cursors,
+                    inc_corr,
+                    conn_id.as_deref(),
+                ));
+            }
+        }
+
         // 仅在已连接时触发 proactive resync（复用 Connected 路径逻辑）
         // 若此时尚未连接，Connected 事件到来后会自行 resync
         if self.state.conn == crate::state::ConnState::Connected {

@@ -36,12 +36,14 @@ impl WsMessageHandler for HelloHandler {
             connection_id,
         ));
 
-        let cursors: Vec<(ChannelId, Seq)> = ctx
+        let mut cursors: Vec<(ChannelId, Seq)> = ctx
             .state
             .channels
             .iter()
             .map(|(&id, ch)| (id, ch.cursor.value()))
             .collect();
+        cursors.sort_unstable_by_key(|(id, _)| *id);
+        ctx.state.pending_increment_bootstrap_after_scan = cursors.is_empty();
         let inc_corr = ctx.alloc_corr();
         out.push(crate::acl::to_effect::increment_http_trigger(
             ctx.api_base_url,

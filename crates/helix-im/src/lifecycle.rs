@@ -5,6 +5,17 @@ use helix_core::effect::{ScanSpec, StorageOp, TimerId};
 use helix_core::{Effect, EffectSink};
 
 impl ImModule {
+    pub(crate) fn channel_cursors(&self) -> Vec<(ChannelId, Seq)> {
+        let mut cursors: Vec<(ChannelId, Seq)> = self
+            .state
+            .channels
+            .iter()
+            .map(|(&id, ch)| (id, ch.cursor.value()))
+            .collect();
+        cursors.sort_unstable_by_key(|(id, _)| *id);
+        cursors
+    }
+
     /// 处理 Timer 触发
     pub(crate) fn handle_timer(
         &mut self,
@@ -130,12 +141,8 @@ impl ImModule {
 
         // B-rest：触发 increment HTTP（带已知 channel 游标）。HTTP 仅 ack 无数据。
         let conn_id = self.state.connection_id.clone();
-        let cursors: Vec<(ChannelId, Seq)> = self
-            .state
-            .channels
-            .iter()
-            .map(|(&id, ch)| (id, ch.cursor.value()))
-            .collect();
+        let cursors = self.channel_cursors();
+        self.state.pending_increment_bootstrap_after_scan = cursors.is_empty();
         let inc_corr = self.alloc_corr_internal();
         out.push(crate::acl::to_effect::increment_http_trigger(
             &self.config.api_base_url,

@@ -470,9 +470,11 @@ pub unsafe extern "C" fn helix_query(
     };
 
     match query_name.as_str() {
+        // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_capabilities" => unsafe {
             write_query_bytes(helix_im::mobile_contract::capabilities_json(), out_ptr, out_len)
         },
+        // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_version" => unsafe {
             write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len)
         },
@@ -497,6 +499,7 @@ pub unsafe extern "C" fn helix_query(
             });
 
             match rx.recv_timeout(Duration::from_secs(3)) {
+                // SAFETY: out_ptr/out_len 非 null 已检查；bytes 所有权在此转交给 write_query_bytes 封装成返回缓冲区。
                 Ok(Ok(bytes)) => unsafe { write_query_bytes(bytes, out_ptr, out_len) },
                 Ok(Err(error)) => {
                     tracing::warn!(

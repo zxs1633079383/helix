@@ -1,12 +1,6 @@
 //! Outbound 命令注册表（`linkme` distributed_slice，对齐 `ws/registry.rs` Strategy 模式）。
-//!
-//! P2-C4 收口：把 `commands.rs::is_outbound` 的单 `match` 拆成**分布式注册**——每个 outbound
-//! 命令一个 `OutboundCommand` 实现 + 一条 `#[distributed_slice(OUTBOUND_COMMANDS)]` 注册，
-//! 各命令文件**零交集**（P3a/P3b 可各加独立注册文件并行，不再共改一处 match）。
-//!
-//! 命令只产 `(endpoint_path, wire_body)`（业务契约 / ubiquitous language 在各命令文件，锚现网
-//! Go 真源）；身份头（connectionId）+ Content-Type + Effect 组装在本文件单点收口（DRY），
-//! 各命令不碰 `Effect`/headers。
+//! P2-C4 收口：单 `match` 改为分布式注册；命令只产 `(endpoint_path, wire_body)`，
+//! 身份头 / Content-Type / `Effect` 组装在本文件单点收口（DRY），各命令不碰 `Effect`/headers。
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -19,8 +13,7 @@ use serde_json::Value;
 
 use crate::error::ImError;
 
-/// 出站网关**意图**（spec06 vote/score 第二网关，方案 A）：core 只标「这条命令走哪个网关 base」，
-/// 真实 base host 由 host 经 config 注入（HX-C001：core 零 host 硬编码，base 仍 host 注入、确定性）。
+/// 出站网关**意图**（spec06 vote/score 第二网关，方案 A）：core 只标「这条命令走哪个网关 base」，真实 base host 由 host 经 config 注入（HX-C001：core 零 host 硬编码，base 仍 host 注入、确定性）。
 ///
 /// 与 `AuthKind` 意图维度同构（命令标意图、driver/host 给真值），最小惊讶；既有 88 命令零改动
 /// （默认 `Im`）。两个 base host **不同**：IM 含 `/api/cses` 前缀，Default 是 `env.restHost` 无前缀。

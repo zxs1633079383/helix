@@ -165,7 +165,7 @@ int32_t helix_command(HelixHandle *handle,
                       uintptr_t payload_len);
 
 /*
- 同步读取 engine 状态（**honest stub**：返回 `FFI_UNIMPLEMENTED`，基础设施已就位）。
+ 同步读取 engine 状态。
 
  ## 为什么仍是 stub（取舍说明）
 
@@ -175,7 +175,12 @@ int32_t helix_command(HelixHandle *handle,
  HX-C006 §5）。**缺的是 `query_name → ScanSpec/GetSpec` 的映射**——那是 IM 领域语义
  （哪个表、哪些列、WHERE 谓词），属 helix-im 关注点。在 FFI 层硬编码该映射会把 IM schema
  泄漏进 driver（违反 runtime-agnostic-core.md §6「Storage trait 不许泄漏业务 schema」）。
- 故保留 honest stub，待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，不在此越界。
+ 当前仅开放与业务表无关的本地元信息查询：
+ - `helix_capabilities`：返回移动端公开契约能力集 JSON
+ - `helix_version`：返回 `{"abi":1}`
+
+ 其余 query 仍保留 honest stub：待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，
+ 不在此越界。
 
  ## 配对约定（填充后生效）
 
@@ -189,10 +194,10 @@ int32_t helix_command(HelixHandle *handle,
  - `out_ptr` / `out_len`：非 null，指向调用方分配的存储位置。
  */
 int32_t helix_query(HelixHandle *handle,
-                    const uint8_t *_query_name,
-                    uintptr_t _query_name_len,
-                    const uint8_t *_query_payload,
-                    uintptr_t _query_payload_len,
+                    const uint8_t *query_name,
+                    uintptr_t query_name_len,
+                    const uint8_t *query_payload,
+                    uintptr_t query_payload_len,
                     uint8_t **out_ptr,
                     uintptr_t *out_len);
 

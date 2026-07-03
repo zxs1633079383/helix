@@ -10,11 +10,12 @@
 
 ## 验证摘要
 
-- Task 1-4 focused tests passed per reports.
-- Task 6 final verification pending.
+- Task 1-4 聚焦测试已按各自报告通过。
+- Task 6 最终验证仍待补做。
 
 ## 备注
 
 - 本次只改允许的四个落点。
 - 工作树里现有的 `crates/helix-driver-ffi/helix.h` / `helix.hpp` 生成文件未纳入本次写入范围。
 - 另有一份未纳入本任务的计划文件仍保留在工作树中，未做处理。
+- 修复记录：已把 Task 5 的终态记录与验证摘要统一改为中文表达，保留必要技术名词与仓库边界说明。

@@ -6,7 +6,7 @@
 
 ## §0 终态记录
 
-✅ DONE mobile QuickJS contract Rust-side implementation @2026-07-03T14:06:56+0800 | helix only: command alias+payload normalization, capabilities/version, local sync queries, Rust/FFI contract tests | external project owns C++ bridge + QuickJS + platform artifacts | send-failed remains non-P0 | verification: Task 1-4 focused tests passed per reports; Task 6 final verification pending | main
+✅ DONE 移动端 QuickJS 契约 Rust 侧实现 @2026-07-03T14:06:56+0800 | 仅 helix：命令别名 + 载荷归一、capabilities/version、本地同步查询、Rust/FFI 契约测试 | C++ bridge、QuickJS、平台产物由外部项目负责 | send-failed 仍非 P0 | 验证：Task 1-4 聚焦测试已按报告通过；Task 6 最终验证待补 | main
 
 🎯 EXPECT 移动端 QuickJS Rust 侧契约实现：按 `docs/superpowers/plans/2026-07-03-mobile-quickjs-contract.md` 执行 Task 1-6，采用 TDD + 子 agent 驱动。可证伪断言：① 新增 `crates/helix-im/src/mobile_contract.rs`、`crates/helix-im/src/mobile_query.rs`、`crates/helix-driver-ffi/tests/mobile_contract_test.rs`；② `helix_command` 支持 `im_send -> im_send_message` 与 camelCase 载荷归一，`helix_query` 支持 `helix_capabilities` / `helix_version` 与本地同步查询；③ 不在 helix 仓创建 C++ bridge / QuickJS wrapper / 移动端编译产物；④ 聚焦测试和 `git diff --check` 通过；⑤ Rust 源码改动只落在计划列出的 helix-im / helix-driver-ffi 文件。@2026-07-03T13:30:02+0800 | 赌注 高 | 可逆 是
 

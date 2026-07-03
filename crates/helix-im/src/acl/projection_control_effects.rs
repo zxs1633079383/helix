@@ -45,6 +45,29 @@ pub fn emit_post_sending(
     }
 }
 
+/// 发送失败渲染补丁（im:post:send-failed）。
+///
+/// HTTP PortError 真实失败路径触发，按 temporaryId 锚定已有乐观行；DB 终态仍是
+/// `send_status='unsend'`，UI 渲染值为 `sendStatus='failed'`。
+pub fn emit_post_send_failed(channel_id: &str, temporary_id: &str) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:post:send-failed",
+        "data": {
+            "channelId": channel_id,
+            "temporaryId": temporary_id,
+            "sendStatus": "failed",
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_post_send_failed: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 /// 发送 im:sync:too_long 事件。
 pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
     use serde_json::json;

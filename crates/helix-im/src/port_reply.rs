@@ -99,10 +99,19 @@ impl ImModule {
                         out,
                     );
                 }
-                PortOutcome::Err(e) => tracing::warn!(
-                    tmp_id = ?temporary_id, error = ?e,
-                    "posts/create http failed, pending send not advanced (timer will mark unsend)"
-                ),
+                PortOutcome::Err(e) => {
+                    tracing::warn!(
+                        tmp_id = ?temporary_id, error = ?e,
+                        "posts/create http failed, marking pending send failed immediately"
+                    );
+                    if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
+                        ps.mark_failed_immediately(out);
+                    }
+                    out.push(crate::acl::to_effect::emit_post_send_failed(
+                        "",
+                        temporary_id.0.as_str(),
+                    ));
+                }
             },
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {

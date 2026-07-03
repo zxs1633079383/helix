@@ -1061,10 +1061,14 @@ git commit -m "fix(ffi): 收口移动端契约验收"
 - 封装 `helix.h` / `helix.hpp` 的 C++ `CoreBridge` 类
 - QuickJS 原生类注册
 - 暴露 `CoreBridge.call/query/capabilities/onEvents/dispose` 的 JS 封装层
+- 暴露 `im.send(...)` / `xxx.send(...)` 这类业务糖衣 API；移动端调用方不需要知道 `helix_command`、`im_send` / `im_send_message`、字段归一或发送对账细节
 - Android / iOS 构建脚本与原生产物打包
 - 链接真实 `helix-driver-ffi` 的 C++ 直连冒烟
 - 覆盖每个公开封装方法的 QuickJS 冒烟
+- 覆盖业务糖衣方法的 QuickJS 冒烟，至少证明 `im.send(...)` 触发 `im:post:sending` 事件批
 - 通过 JS 与事件批驱动的 Flutter 发消息端到端验证
+
+若本机暂时缺 Android / iOS / Flutter e2e 环境，外部计划应把真机 e2e 标记为环境依赖 TODO，先完成“最后一公里前置验收”：在移动端集成项目中用 QuickJS runtime + 真实 `helix-driver-ffi` 跑 `CoreBridge` 与 `im.send(...)` smoke。
 
 不要在 `helix` 中实现这些文件。
 

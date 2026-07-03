@@ -6,7 +6,7 @@
 //!
 //! 前端退化为纯渲染：只 `listen("im:__bus__")` → dispatch → 渲染，**不算** unread/lastPost/
 //! readBits/cursor。前端能不能纯渲染，取决于**每个 channel 的 `payload.data` 字段是否齐**——
-//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 22 个 emit 工厂的 `data` 键集
+//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 23 个 emit 工厂的 `data` 键集
 //! **逐 channel 冻结**，断言 emit 出的键集 == `docs/projection-schema.md` §1 冻结集
 //! （**缺失或多余都 fail**）。
 //!
@@ -310,6 +310,18 @@ fn im_post_sending_freezes_channel_and_temporary_id() {
     );
 }
 
+#[test]
+fn im_post_send_failed_freezes_temporary_id_failed_patch() {
+    // HTTP PortError 真实失败路径：按 temporaryId 锚定乐观行，UI 只直绑 sendStatus="failed"。
+    let channel_id = ch();
+    let e = to_effect::emit_post_send_failed(channel_id.as_str(), TMP_ID);
+    assert_frozen(
+        &e,
+        "im:post:send-failed",
+        &["channelId", "sendStatus", "temporaryId"],
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // §2. wire camelCase 信号/控制类（透传现网 emit payload 形态）
 // ════════════════════════════════════════════════════════════════════════════
@@ -465,14 +477,14 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §5. 镜像完整性：22 工厂全覆盖 + 提取工具负路径
+// §5. 镜像完整性：23 工厂全覆盖 + 提取工具负路径
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 22。
+/// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 23。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
 #[test]
-fn all_22_projection_factories_covered() {
-    // 逐工厂构造一次，收集 (channel, keys)——证明 22 个出口全可达且产合法 Emit。
+fn all_23_projection_factories_covered() {
+    // 逐工厂构造一次，收集 (channel, keys)——证明 23 个出口全可达且产合法 Emit。
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
     let posts = serde_json::json!([]);
@@ -480,6 +492,7 @@ fn all_22_projection_factories_covered() {
     let effects: Vec<Effect> = vec![
         to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_sending(ch(), TMP_ID, "", "TEXT"),
+        to_effect::emit_post_send_failed(ch().as_str(), TMP_ID),
         to_effect::emit_sync_too_long(ch(), Seq(1)),
         to_effect::emit_connection_established("c"),
         to_effect::emit_channels_loaded(),
@@ -503,8 +516,8 @@ fn all_22_projection_factories_covered() {
     ];
     assert_eq!(
         effects.len(),
-        22,
-        "projection-schema.md §1 冻结 22 工厂——新增/删除工厂须同步本测试 + 文档表"
+        23,
+        "projection-schema.md §1 冻结 23 工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -516,7 +529,7 @@ fn all_22_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 21（im:channels:loaded 双工厂复用 → 22 工厂收敛成 21 distinct channel）。
+    // distinct channel 名 = 22（im:channels:loaded 双工厂复用 → 23 工厂收敛成 22 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -525,12 +538,12 @@ fn all_22_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        21,
-        "21 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 22 工厂 → 21 channel）"
+        22,
+        "22 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 23 工厂 → 22 channel）"
     );
 }
 
-/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 22 投影集（无渲染字段，
+/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 23 投影工厂集（无渲染字段，
 /// 走连接生命周期通道，与 driver 侧 im:net:offline 同族）。冻结：channel 名 + data 严格空对象。
 #[test]
 fn reconnect_requested_is_control_signal() {

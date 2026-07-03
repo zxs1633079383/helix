@@ -88,7 +88,10 @@ impl ImModule {
             },
 
             // F1：posts/create HTTP 200 兜底对账（真 Go self-omit echo，见 `send_reconcile`）。
-            CorrelationContext::OutboundSendHttp { temporary_id } => match outcome {
+            CorrelationContext::OutboundSendHttp {
+                channel_id,
+                temporary_id,
+            } => match outcome {
                 PortOutcome::Ok(reply) => {
                     let reconcile_corr = self.alloc_corr_internal();
                     crate::send_reconcile::reconcile_send_http(
@@ -99,10 +102,19 @@ impl ImModule {
                         out,
                     );
                 }
-                PortOutcome::Err(e) => tracing::warn!(
-                    tmp_id = ?temporary_id, error = ?e,
-                    "posts/create http failed, pending send not advanced (timer will mark unsend)"
-                ),
+                PortOutcome::Err(e) => {
+                    tracing::warn!(
+                        tmp_id = ?temporary_id, error = ?e,
+                        "posts/create http failed, marking pending send failed immediately"
+                    );
+                    if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
+                        ps.mark_failed_immediately(out);
+                    }
+                    out.push(crate::acl::to_effect::emit_post_send_failed(
+                        channel_id.as_str(),
+                        temporary_id.0.as_str(),
+                    ));
+                }
             },
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {

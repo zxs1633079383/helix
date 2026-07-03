@@ -124,6 +124,22 @@ impl PendingSend {
         self.status = SendStatus::Sent;
     }
 
+    /// HTTP 发送失败立即终结 → 标 UnSend + 撤 15s 超时。
+    ///
+    /// 与 [`on_timeout`] 写同一个 DB 终态（`send_status='unsend'`），但不等待墙钟；
+    /// UC-1.4 的失败态由真实 HTTP PortError 立即驱动。
+    pub fn mark_failed_immediately(&mut self, fx: &mut EffectSink) {
+        // 幂等：已对账或已失败的终态不重复写。
+        if self.status == SendStatus::Sent || self.status == SendStatus::UnSend {
+            return;
+        }
+
+        self.persist_unsend(fx);
+        fx.push(Effect::CancelTimer {
+            id: self.timeout_timer,
+        });
+    }
+
     /// 15s 超时触发 → 标 UnSend（无自动补发）。
     ///
     /// C006：若 echo 迟到（status 已为 Sent），幂等忽略。
@@ -133,6 +149,10 @@ impl PendingSend {
             return;
         }
 
+        self.persist_unsend(fx);
+    }
+
+    fn persist_unsend(&mut self, fx: &mut EffectSink) {
         self.status = SendStatus::UnSend;
 
         // PersistFire：batch_update send_status = unsend（幂等）

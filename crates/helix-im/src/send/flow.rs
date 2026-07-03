@@ -108,7 +108,13 @@ impl ImModule {
         ps.persist_corr = Some(p1_corr);
         self.state.pending_sends.insert(tmp_id, ps);
         // 注册 P1(OptimisticSend)+H1(OutboundSendHttp) 两条 corr（F1：漏 H1 = 发消息永 spinner，见 `send_reconcile`）。
-        crate::send_reconcile::register_send_corrs(&mut self.state, p1_corr, h1_corr, tmp_id_str);
+        crate::send_reconcile::register_send_corrs(
+            &mut self.state,
+            p1_corr,
+            h1_corr,
+            channel_id,
+            tmp_id_str,
+        );
 
         Ok(())
     }

@@ -9,6 +9,54 @@
 mod common;
 use common::*;
 
+use helix_core::effect::{Effect, SqlValue, StorageOp};
+use helix_im::state::SendStatus;
+use serde_json::Value;
+
+fn http_corr(effects: &[EffectKind]) -> u64 {
+    effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::Http(corr) = e {
+                Some(*corr)
+            } else {
+                None
+            }
+        })
+        .expect("send should emit Http(H1)")
+}
+
+fn unsend_persist_fire_for_tmp(h: &Harness, tmp: &str) -> bool {
+    h.sink.as_slice().iter().any(|e| match e {
+        Effect::PersistFire { ops } => ops.iter().any(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                spec.conflict_key == Some("temporary_id")
+                    && spec.rows.iter().any(|row| {
+                        let has_tmp = row.iter().any(|(k, v)| {
+                            k == "temporary_id" && matches!(v, SqlValue::Text(t) if t == tmp)
+                        });
+                        let has_unsend = row.iter().any(|(k, v)| {
+                            k == "send_status" && matches!(v, SqlValue::Text(s) if s == "unsend")
+                        });
+                        has_tmp && has_unsend
+                    })
+            }
+            _ => false,
+        }),
+        _ => false,
+    })
+}
+
+fn failed_projection_for_tmp(h: &Harness, tmp: &str) -> Option<Value> {
+    h.sink.as_slice().iter().find_map(|e| match e {
+        Effect::Emit { event } => {
+            let v: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+            (v["event"] == "im:post:send-failed" && v["data"]["temporaryId"] == tmp).then_some(v)
+        }
+        _ => None,
+    })
+}
+
 // ─── 发送命令产出 4 个 Effect ─────────────────────────────────────────────────
 
 #[test]
@@ -171,6 +219,46 @@ fn send_timeout_marks_unsend() {
             .any(|e| matches!(e, EffectKind::PersistFire)),
         "timeout should emit PersistFire to mark unsend, got: {:?}",
         timeout_effects
+    );
+}
+
+#[test]
+fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projection() {
+    let mut h = Harness::new(&[1]);
+    let effects = h.step(send_message_cmd(1, "tmp_fail", "hello"), 1000);
+    let h1 = http_corr(&effects);
+    let timeout_timer = effects
+        .iter()
+        .find_map(|e| {
+            if let EffectKind::ScheduleTimer(id) = e {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+        .expect("send should schedule timeout timer");
+
+    let failed_effects = h.step(port_reply_err(h1), 1100);
+
+    assert!(
+        unsend_persist_fire_for_tmp(&h, "tmp_fail"),
+        "HTTP Err must immediately persist send_status='unsend', got: {:?}",
+        h.sink.as_slice()
+    );
+    assert!(
+        failed_effects
+            .iter()
+            .any(|e| *e == EffectKind::CancelTimer(timeout_timer)),
+        "HTTP Err must cancel the pending send timeout, got: {failed_effects:?}"
+    );
+    let projection = failed_projection_for_tmp(&h, "tmp_fail")
+        .expect("HTTP Err must emit im:post:send-failed anchored by temporaryId");
+    assert_eq!(projection["data"]["sendStatus"], "failed");
+    assert_eq!(projection["data"]["channelId"], cid(1));
+    assert_eq!(
+        h.module.pending_send_status("tmp_fail"),
+        Some(SendStatus::UnSend),
+        "failed send remains retained as terminal UnSend until any later echo/backfill"
     );
 }
 

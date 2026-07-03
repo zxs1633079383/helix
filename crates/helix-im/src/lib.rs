@@ -24,6 +24,8 @@ pub mod commands;
 pub mod error;
 pub mod http_envelope;
 pub mod module;
+pub mod mobile_contract;
+pub mod mobile_query;
 pub mod outbound;
 pub mod parser {
     pub use crate::ws::parser::core::*;

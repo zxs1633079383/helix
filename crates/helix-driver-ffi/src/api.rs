@@ -16,8 +16,10 @@
 //! - 每个 unsafe 块必须有 // SAFETY: 注释（clippy deny undocumented_unsafe_blocks）
 
 use std::borrow::Cow;
+use std::time::Duration;
 
 use bytes::Bytes;
+use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
 use helix_driver_host::{AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig};
@@ -348,26 +350,44 @@ pub unsafe extern "C" fn helix_command(
         return FFI_NULL;
     }
     // SAFETY: 调用方契约保证 name 指向至少 name_len 字节有效 UTF-8 内存。
-    let name_str = match unsafe { ffi_str(name, name_len) } {
+    let public_name = match unsafe { ffi_str(name, name_len) } {
         Ok(s) => s,
         Err(code) => return code,
     };
 
     // 立即拷贝 payload（ACL-3：C 侧 buffer 调用返回后可能被复用）
-    let payload_bytes: Bytes = if payload.is_null() || payload_len == 0 {
-        Bytes::new()
+    let payload_vec = if payload.is_null() || payload_len == 0 {
+        Vec::new()
     } else {
         // SAFETY: payload 非 null 已确认；调用方契约保证指向至少 payload_len 字节、
         // 在本调用期间有效的内存——立即 copy_from_slice 拷贝，不持有原始指针。
-        Bytes::copy_from_slice(unsafe { std::slice::from_raw_parts(payload, payload_len) })
+        unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec()
     };
+    let normalized_payload = match helix_im::mobile_contract::normalize_command_payload(
+        public_name.as_str(),
+        &payload_vec,
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(
+                command = public_name.as_str(),
+                ?error,
+                "mobile command payload rejected"
+            );
+            return FFI_INVALID;
+        }
+    };
+    let payload_bytes = Bytes::from(normalized_payload);
+
+    let core_name =
+        helix_im::mobile_contract::command_alias(public_name.as_str()).unwrap_or(public_name.as_str());
 
     // G-6 / PI-1：name 命中 outbound 闭集（88 命令）→ `Cow::Borrowed` 静态名免堆分配（热路径写命令
     // 净分配仅 payload 1 次）；miss（im_send_message/im_reconnect/query 名）→ `Cow::Owned` fallback
     // （低频，仍正确）。闭集真源在 helix-im registry（driver 不复制清单，避免漂移）。
-    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(&name_str) {
+    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(core_name) {
         Some(static_name) => Cow::Borrowed(static_name),
-        None => Cow::Owned(name_str),
+        None => Cow::Owned(core_name.to_string()),
     };
     let cmd = AppCommand {
         name,
@@ -389,19 +409,22 @@ pub unsafe extern "C" fn helix_command(
 
 // ── helix_query / helix_query_free ───────────────────────────────────────────
 
-/// 同步读取 engine 状态（**honest stub**：返回 `FFI_UNIMPLEMENTED`，基础设施已就位）。
+/// 同步读取 engine 状态。
 ///
-/// ## 为什么仍是 stub（取舍说明）
+/// ## 查询边界
 ///
-/// 同步读的**运行时基础设施已接好**（`HelixHandle.query` = pump runtime `Handle` + 共享
-/// `HostStorage`；C 同步线程可 `handle.spawn(async { storage.scan/get })` + `blocking_recv`
-/// 等结果，阻塞 C 线程合规——它不是 tokio worker，HostStorage 内部已 `spawn_blocking`，不违
-/// HX-C006 §5）。**缺的是 `query_name → ScanSpec/GetSpec` 的映射**——那是 IM 领域语义
-/// （哪个表、哪些列、WHERE 谓词），属 helix-im 关注点。在 FFI 层硬编码该映射会把 IM schema
-/// 泄漏进 driver（违反 runtime-agnostic-core.md §6「Storage trait 不许泄漏业务 schema」）。
-/// 故保留 honest stub，待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，不在此越界。
+/// 元信息 query 由 FFI 直接返回：
+/// - `helix_capabilities`：返回移动端公开契约能力集 JSON
+/// - `helix_version`：返回 `{"abi":1}`
 ///
-/// ## 配对约定（填充后生效）
+/// IM 本地同步 query 由 `helix-im` 负责 `query_name → ScanSpec + response shape`：
+/// - `im_query_dialog_list`
+/// - `im_query_messages_by_channel`
+///
+/// `driver-ffi` 只执行 helix-im 产出的 Storage scan 计划并封装返回 buffer，不在 driver 层硬编码
+/// IM 表名/列名/WHERE 语义，避免业务 schema 泄漏进平台驱动。
+///
+/// ## 配对约定
 ///
 /// 成功（返回 0）时，`*out_ptr` 指向 Rust 分配的 boxed slice；
 /// C++ 侧**必须**调用 `helix_query_free(*out_ptr, *out_len)` 释放，禁止 free() / delete[]。
@@ -414,10 +437,10 @@ pub unsafe extern "C" fn helix_command(
 #[no_mangle]
 pub unsafe extern "C" fn helix_query(
     handle: *mut HelixHandle,
-    _query_name: *const u8,
-    _query_name_len: usize,
-    _query_payload: *const u8,
-    _query_payload_len: usize,
+    query_name: *const u8,
+    query_name_len: usize,
+    query_payload: *const u8,
+    query_payload_len: usize,
     out_ptr: *mut *mut u8,
     out_len: *mut usize,
 ) -> i32 {
@@ -432,9 +455,62 @@ pub unsafe extern "C" fn helix_query(
         *out_ptr = std::ptr::null_mut();
         *out_len = 0;
     }
-    // honest stub：infra（runtime handle + storage）已在 HelixHandle.query 就位；
-    // 缺 query_name→Spec 映射（IM 领域语义），填充会泄漏 schema 进 driver → 暂不实现（见 doc）。
-    FFI_UNIMPLEMENTED
+    // SAFETY: query_name 指针/长度由调用方保证在本调用期间有效，且 name 必须是 UTF-8。
+    let query_name = match unsafe { ffi_str(query_name, query_name_len) } {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let query_payload = if query_payload.is_null() || query_payload_len == 0 {
+        &[][..]
+    } else {
+        // SAFETY: query_payload 指针/长度由调用方保证在本调用期间有效。
+        unsafe { std::slice::from_raw_parts(query_payload, query_payload_len) }
+    };
+
+    match query_name.as_str() {
+        // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
+        "helix_capabilities" => unsafe {
+            write_query_bytes(helix_im::mobile_contract::capabilities_json(), out_ptr, out_len)
+        },
+        // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
+        "helix_version" => unsafe {
+            write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len)
+        },
+        _ => {
+            let plan = match helix_im::mobile_query::plan(query_name.as_str(), query_payload) {
+                Ok(plan) => plan,
+                Err(_) => return FFI_UNIMPLEMENTED,
+            };
+            // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
+            let handle_ref = unsafe { &*handle };
+            let runtime = handle_ref.query.runtime.clone();
+            let storage = handle_ref.query.storage.clone();
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            runtime.spawn(async move {
+                let result = match plan {
+                    helix_im::mobile_query::MobileQueryPlan::Scan { spec, shape } => storage
+                        .scan(spec)
+                        .await
+                        .map(|rows| helix_im::mobile_query::shape_json(shape, rows)),
+                };
+                let _ = tx.send(result);
+            });
+
+            match rx.recv_timeout(Duration::from_secs(3)) {
+                // SAFETY: out_ptr/out_len 非 null 已检查；bytes 所有权在此转交给 write_query_bytes 封装成返回缓冲区。
+                Ok(Ok(bytes)) => unsafe { write_query_bytes(bytes, out_ptr, out_len) },
+                Ok(Err(error)) => {
+                    tracing::warn!(
+                        query = query_name.as_str(),
+                        error = ?error,
+                        "mobile sync query storage failed"
+                    );
+                    FFI_INVALID
+                }
+                Err(_) => FFI_BUSY,
+            }
+        }
+    }
 }
 
 /// 释放 `helix_query` 返回的 boxed slice。
@@ -457,6 +533,19 @@ pub unsafe extern "C" fn helix_query_free(ptr: *mut u8, len: usize) {
     // len 由调用方通过 out_len 取得，与 boxed_slice 长度完全一致。
     // slice_from_raw_parts_mut + Box::from_raw 重建 Box<[u8]> 后 drop 正确释放。
     drop(unsafe { Box::from_raw(slice) });
+}
+
+unsafe fn write_query_bytes(bytes: Vec<u8>, out_ptr: *mut *mut u8, out_len: *mut usize) -> i32 {
+    let mut boxed = bytes.into_boxed_slice();
+    let len = boxed.len();
+    let ptr = boxed.as_mut_ptr();
+    std::mem::forget(boxed);
+    // SAFETY: out_ptr/out_len 已由调用者提供且在 helix_query 中检查非 null；这里仅写回 boxed slice 元信息。
+    unsafe {
+        *out_ptr = ptr;
+        *out_len = len;
+    }
+    FFI_OK
 }
 
 // ── 内部工具 ─────────────────────────────────────────────────────────────────

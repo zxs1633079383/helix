@@ -43,4 +43,5 @@ pub mod bot_agent;
 // 对外单一入口：accepts_tick / module.rs dispatch / 集成测试都从此处取。
 pub use registry::{
     canonical_command_name, handle_outbound, is_outbound, is_read, outbound_command_count,
+    outbound_command_names,
 };

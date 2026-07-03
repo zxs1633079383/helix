@@ -29,14 +29,19 @@ use crate::error::ImError;
 use crate::state::ChannelId;
 
 /// 投影/状态查询命令名集合（dispatch 据此路由，与 outbound registry 解耦）。
+pub const QUERY_COMMAND_NAMES: &[&str] = &[
+    "im_query_messages_by_channel",
+    "im_delete_all_dialogs",
+    "im_query_dialog_list",
+    crate::older_context::LOAD_OLDER_CONTEXT,
+];
+
+pub fn query_command_names() -> &'static [&'static str] {
+    QUERY_COMMAND_NAMES
+}
+
 pub fn is_query(name: &str) -> bool {
-    matches!(
-        name,
-        "im_query_messages_by_channel"
-            | "im_delete_all_dialogs"
-            | "im_query_dialog_list"
-            | crate::older_context::LOAD_OLDER_CONTEXT
-    )
+    QUERY_COMMAND_NAMES.contains(&name)
 }
 
 /// 投影查询单条上限（对齐现网 `clamp(1, 500)`）。

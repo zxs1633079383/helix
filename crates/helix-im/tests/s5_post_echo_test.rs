@@ -158,7 +158,9 @@ fn s5_self_echo_under_gap_still_emits_post_received_for_dom_settle() {
         }
         _ => None,
     });
-    let v = settle.expect("self-echo under gap 须兜底 emit im:post:received（DOM 结算），否则乐观行永停 sending");
+    let v = settle.expect(
+        "self-echo under gap 须兜底 emit im:post:received（DOM 结算），否则乐观行永停 sending",
+    );
     let data = v.get("data").expect("im:post:received 须含 data");
     assert_eq!(
         data.get("temporaryId").and_then(|x| x.as_str()),
@@ -198,11 +200,13 @@ fn s5_self_echo_contiguous_does_not_double_emit_post_received() {
         .as_slice()
         .iter()
         .filter(|e| match e {
-            Effect::Emit { event } => serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
-                .ok()
-                .and_then(|v| v.get("event").and_then(|x| x.as_str()).map(str::to_string))
-                .as_deref()
-                == Some("im:post:received"),
+            Effect::Emit { event } => {
+                serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                    .ok()
+                    .and_then(|v| v.get("event").and_then(|x| x.as_str()).map(str::to_string))
+                    .as_deref()
+                    == Some("im:post:received")
+            }
             _ => false,
         })
         .count();

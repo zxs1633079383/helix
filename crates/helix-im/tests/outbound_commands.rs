@@ -170,7 +170,8 @@ fn create_and_make_topic_build_body_with_real_endpoint() {
     // 缺 post_id → Err（边界零信任，不崩）。
     assert!(handle_outbound(
         "im_make_topic",
-        &serde_json::to_vec(&json!({ "root_id": "r1", "display_name": "t", "self_id": "u1" })).unwrap(),
+        &serde_json::to_vec(&json!({ "root_id": "r1", "display_name": "t", "self_id": "u1" }))
+            .unwrap(),
         BASE,
         BASE,
         None,

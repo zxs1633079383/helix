@@ -17,7 +17,10 @@ pub(crate) fn emit_members_by_ids(req_id: &str, outcome: &PortOutcome, out: &mut
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
-                out.push(crate::read_relay::emit_read_result(req_id, raw_body.as_ref()));
+                out.push(crate::read_relay::emit_read_result(
+                    req_id,
+                    raw_body.as_ref(),
+                ));
                 let body: serde_json::Value =
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
                 for (cid, members) in crate::render_ready_members::members_from_byids_body(&body) {
@@ -38,7 +41,10 @@ pub(crate) fn emit_members_by_ids(req_id: &str, outcome: &PortOutcome, out: &mut
         },
         PortOutcome::Err(e) => {
             tracing::warn!(req_id, error = ?e, "byIds members http failed");
-            out.push(crate::read_relay::emit_read_error(req_id, "http request failed"));
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "http request failed",
+            ));
         }
     }
 }
@@ -51,11 +57,16 @@ pub(crate) fn emit_replies(req_id: &str, outcome: &PortOutcome, out: &mut Effect
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
-                out.push(crate::read_relay::emit_read_result(req_id, raw_body.as_ref()));
+                out.push(crate::read_relay::emit_read_result(
+                    req_id,
+                    raw_body.as_ref(),
+                ));
                 let body: serde_json::Value =
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
                 let ids = crate::render_ready_replies::extract_reply_ids(&body);
-                out.push(crate::render_ready_replies::emit_channel_replies(req_id, ids));
+                out.push(crate::render_ready_replies::emit_channel_replies(
+                    req_id, ids,
+                ));
             }
             Err(e) => {
                 tracing::warn!(req_id, error = ?e, "replies reply envelope decode failed");
@@ -63,13 +74,22 @@ pub(crate) fn emit_replies(req_id: &str, outcome: &PortOutcome, out: &mut Effect
                     req_id,
                     "response envelope decode failed",
                 ));
-                out.push(crate::render_ready_replies::emit_channel_replies(req_id, Vec::new()));
+                out.push(crate::render_ready_replies::emit_channel_replies(
+                    req_id,
+                    Vec::new(),
+                ));
             }
         },
         PortOutcome::Err(e) => {
             tracing::warn!(req_id, error = ?e, "replies http failed");
-            out.push(crate::read_relay::emit_read_error(req_id, "http request failed"));
-            out.push(crate::render_ready_replies::emit_channel_replies(req_id, Vec::new()));
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "http request failed",
+            ));
+            out.push(crate::render_ready_replies::emit_channel_replies(
+                req_id,
+                Vec::new(),
+            ));
         }
     }
 }

@@ -184,9 +184,9 @@ fn echo_persisted_id(h: &Harness, tmp: &str) -> Option<String> {
         Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
             StorageOp::BatchUpsert(spec) if spec.table == "message" => {
                 let row = spec.rows.first()?;
-                let keyed_tmp = row
-                    .iter()
-                    .any(|(k, v)| k == "temporary_id" && matches!(v, SqlValue::Text(t) if t == tmp));
+                let keyed_tmp = row.iter().any(|(k, v)| {
+                    k == "temporary_id" && matches!(v, SqlValue::Text(t) if t == tmp)
+                });
                 if !keyed_tmp {
                     return None;
                 }

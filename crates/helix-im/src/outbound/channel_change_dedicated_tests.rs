@@ -102,8 +102,15 @@ fn set_manger_routes_endpoint_and_role_by_set_flag() {
     let corr = Correlation::from_raw(3);
     let p = serde_json::to_vec(&json!({ "channel_id": "c1", "user_id": "u1" })).unwrap();
     assert!(
-        handle_outbound("im_channel_set_manger", &p, "http://h/api", "http://h", None, corr)
-            .is_err(),
+        handle_outbound(
+            "im_channel_set_manger",
+            &p,
+            "http://h/api",
+            "http://h",
+            None,
+            corr
+        )
+        .is_err(),
         "缺 set → Err"
     );
 }

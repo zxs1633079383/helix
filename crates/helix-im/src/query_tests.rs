@@ -136,7 +136,7 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
     assert_eq!(r0["mention"], true); // mention_count>0
     assert_eq!(r0["lastMessage"], "最后一条"); // last_post.message 预览
     assert_eq!(r0["urgent"], true); // props.expedite 命中
-    // 原始列保留（向后兼容）。
+                                    // 原始列保留（向后兼容）。
     assert_eq!(r0["unread_count"], 3);
     let r1 = &v["data"]["dialogList"][1];
     assert_eq!(r1["isTop"], false); // is_top:0

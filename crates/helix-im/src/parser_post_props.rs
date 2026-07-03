@@ -77,7 +77,10 @@ mod tests {
         let out = merge_props_with_quickreply(&post, &json!({}));
         let parsed: serde_json::Value = serde_json::from_str(&out).expect("props 应为合法 JSON");
         assert_eq!(parsed["channel_event_seq"], 7);
-        assert!(parsed.get("quickReply").is_none(), "无反应数据时不应注入 quickReply 键");
+        assert!(
+            parsed.get("quickReply").is_none(),
+            "无反应数据时不应注入 quickReply 键"
+        );
     }
 
     /// 缺省 props（无键）+ 无 quickReply → `"{}"`（参考实现 e1a9c99/5db0d15 行为）；

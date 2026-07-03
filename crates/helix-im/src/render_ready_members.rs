@@ -61,7 +61,9 @@ pub fn members_from_byids_body(body: &serde_json::Value) -> Vec<(String, Vec<Ren
         let mut members: Vec<RenderMember> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in arr {
-            let Some(obj) = item.as_object() else { continue };
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
             let Some(id) = obj
                 .get("id")
                 .and_then(serde_json::Value::as_str)
@@ -77,7 +79,10 @@ pub fn members_from_byids_body(body: &serde_json::Value) -> Vec<(String, Vec<Ren
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            let role = obj.get("role").and_then(serde_json::Value::as_str).unwrap_or("");
+            let role = obj
+                .get("role")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
             members.push(RenderMember {
                 member_id: id.to_string(),
                 nickname,
@@ -112,7 +117,8 @@ pub fn emit_channel_members(
         "data": { "channelId": channel_id, "members": members_json, "leaves": leaves },
     });
     let bytes = Bytes::from(
-        serde_json::to_vec(&payload).expect("emit_channel_members: static JSON shape must serialize"),
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_members: static JSON shape must serialize"),
     );
     Effect::Emit {
         event: DomainEventBytes(bytes),

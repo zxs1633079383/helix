@@ -14,7 +14,11 @@ pub fn emit_post_sending(
 ) -> Effect {
     use serde_json::json;
     // type 空串容错 "TEXT"（render-ready·前端不再 pendingType 兜底）。
-    let msg_type = if msg_type.is_empty() { "TEXT" } else { msg_type };
+    let msg_type = if msg_type.is_empty() {
+        "TEXT"
+    } else {
+        msg_type
+    };
     let payload = json!({
         "event": "im:post:sending",
         "data": {

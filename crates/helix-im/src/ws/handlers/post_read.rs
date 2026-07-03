@@ -94,7 +94,10 @@ impl WsMessageHandler for PostReadHandler {
         //   ② emit `im:post:read`（fat·event_seq=0：read 不参与消息序列，投影 event_seq 仅占位键）。
         // WS 路径用 PersistFire（幂等）。cursor 不推进（read 是旁路回执，非序列事件）。
         out.push(Effect::PersistFire {
-            ops: vec![crate::channel::apply_read_op(&post_id, fields.read_bits.as_str())],
+            ops: vec![crate::channel::apply_read_op(
+                &post_id,
+                fields.read_bits.as_str(),
+            )],
         });
         out.push(crate::acl::to_effect::emit_post_read(
             channel_id, 0, &post_id, &fields,

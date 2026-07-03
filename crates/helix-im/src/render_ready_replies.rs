@@ -62,7 +62,8 @@ pub fn emit_channel_replies(req_id: &str, reply_ids: Vec<String>) -> Effect {
         "data": { "reqId": req_id, "replyIds": reply_ids },
     });
     let bytes = Bytes::from(
-        serde_json::to_vec(&payload).expect("emit_channel_replies: static JSON shape must serialize"),
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_replies: static JSON shape must serialize"),
     );
     Effect::Emit {
         event: DomainEventBytes(bytes),

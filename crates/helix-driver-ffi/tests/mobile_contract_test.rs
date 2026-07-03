@@ -71,6 +71,35 @@ fn ensure_test_db() -> &'static str {
     })
 }
 
+fn seed_mobile_query_rows() {
+    let _ = ensure_test_db();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+    runtime.block_on(async {
+        let db_path = std::env::var("HELIX_DB").expect("HELIX_DB");
+        let storage = HostStorage::open_sqlite_url(&db_path)
+            .await
+            .expect("open test db");
+        storage
+            .execute_raw(
+                "INSERT OR REPLACE INTO channel \
+                 (id, display_name, unread_count, mention_count, last_post, last_post_at, create_by) \
+                 VALUES \
+                 ('01hq0000000000000000000000', 'Mobile General', 7, 1, \
+                  '{\"message\":\"seed last\",\"props\":{\"urgent\":\"u1\"}}', 1700000000010, 'mobile-test');
+                 INSERT OR REPLACE INTO message \
+                 (temporary_id, id, channel_id, user_id, type, message, create_at, update_at) \
+                 VALUES \
+                 ('tmp-mobile-seed', 'server-mobile-seed', '01hq0000000000000000000000', \
+                  'user-mobile', 'TEXT', 'seed hello', 1700000000001, 1700000000002);",
+            )
+            .await
+            .expect("seed mobile query rows");
+    });
+}
+
 fn wait_for_event(recorder: &Recorder, needle: &str) -> String {
     let start = Instant::now();
     loop {
@@ -144,6 +173,13 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
     assert_eq!(json["bus"], "im:__bus__");
     assert_eq!(json["features"]["pendingSendTimeoutUnsend"], true);
     assert!(json["commands"].as_array().unwrap().iter().any(|v| v == "im_send"));
+    let queries = json["queries"].as_array().unwrap();
+    assert!(queries.iter().any(|v| v == "helix_capabilities"));
+    assert!(queries.iter().any(|v| v == "helix_version"));
+    assert!(queries.iter().any(|v| v == "im_query_dialog_list"));
+    assert!(queries
+        .iter()
+        .any(|v| v == "im_query_messages_by_channel"));
     assert!(!json["events"]
         .as_array()
         .unwrap()
@@ -193,6 +229,7 @@ fn helix_version_query_returns_abi_json() {
 
 #[test]
 fn local_dialog_list_query_returns_projection_json() {
+    seed_mobile_query_rows();
     let recorder = Recorder::new(Vec::new());
     let handle = create_recording_handle(&recorder);
     let query_name = b"im_query_dialog_list";
@@ -220,6 +257,17 @@ fn local_dialog_list_query_returns_projection_json() {
     let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     assert_eq!(json["event"], "im:channels:projection");
     assert!(json["data"]["dialogList"].is_array());
+    let dialog = json["data"]["dialogList"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "01hq0000000000000000000000")
+        .expect("seeded dialog");
+    assert_eq!(dialog["displayName"], "Mobile General");
+    assert_eq!(dialog["unread"], 7);
+    assert_eq!(dialog["mention"], true);
+    assert_eq!(dialog["lastMessage"], "seed last");
+    assert_eq!(dialog["urgent"], true);
 
     // SAFETY: freeing the exact buffer returned by helix_query is required.
     unsafe { helix_query_free(out_ptr, out_len) };
@@ -229,6 +277,7 @@ fn local_dialog_list_query_returns_projection_json() {
 
 #[test]
 fn local_message_query_returns_projection_json() {
+    seed_mobile_query_rows();
     let recorder = Recorder::new(Vec::new());
     let handle = create_recording_handle(&recorder);
     let query_name = b"im_query_messages_by_channel";
@@ -256,7 +305,16 @@ fn local_message_query_returns_projection_json() {
     let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
     assert_eq!(json["event"], "im:messages:query_result");
     assert_eq!(json["data"]["channel_id"], "01hq0000000000000000000000");
-    assert!(json["data"]["messages"].is_array());
+    let messages = json["data"]["messages"].as_array().unwrap();
+    let message = messages
+        .iter()
+        .find(|item| item["temporaryId"] == "tmp-mobile-seed")
+        .expect("seeded message");
+    assert_eq!(message["msgId"], "server-mobile-seed");
+    assert_eq!(message["channelId"], "01hq0000000000000000000000");
+    assert_eq!(message["text"], "seed hello");
+    assert_eq!(message["type"], "TEXT");
+    assert_eq!(message["createAt"], 1700000000001i64);
 
     // SAFETY: freeing the exact buffer returned by helix_query is required.
     unsafe { helix_query_free(out_ptr, out_len) };

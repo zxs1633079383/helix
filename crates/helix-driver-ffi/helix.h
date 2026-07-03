@@ -167,22 +167,20 @@ int32_t helix_command(HelixHandle *handle,
 /*
  同步读取 engine 状态。
 
- ## 为什么仍是 stub（取舍说明）
+ ## 查询边界
 
- 同步读的**运行时基础设施已接好**（`HelixHandle.query` = pump runtime `Handle` + 共享
- `HostStorage`；C 同步线程可 `handle.spawn(async { storage.scan/get })` + `blocking_recv`
- 等结果，阻塞 C 线程合规——它不是 tokio worker，HostStorage 内部已 `spawn_blocking`，不违
- HX-C006 §5）。**缺的是 `query_name → ScanSpec/GetSpec` 的映射**——那是 IM 领域语义
- （哪个表、哪些列、WHERE 谓词），属 helix-im 关注点。在 FFI 层硬编码该映射会把 IM schema
- 泄漏进 driver（违反 runtime-agnostic-core.md §6「Storage trait 不许泄漏业务 schema」）。
- 当前仅开放与业务表无关的本地元信息查询：
+ 元信息 query 由 FFI 直接返回：
  - `helix_capabilities`：返回移动端公开契约能力集 JSON
  - `helix_version`：返回 `{"abi":1}`
 
- 其余 query 仍保留 honest stub：待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，
- 不在此越界。
+ IM 本地同步 query 由 `helix-im` 负责 `query_name → ScanSpec + response shape`：
+ - `im_query_dialog_list`
+ - `im_query_messages_by_channel`
 
- ## 配对约定（填充后生效）
+ `driver-ffi` 只执行 helix-im 产出的 Storage scan 计划并封装返回 buffer，不在 driver 层硬编码
+ IM 表名/列名/WHERE 语义，避免业务 schema 泄漏进平台驱动。
+
+ ## 配对约定
 
  成功（返回 0）时，`*out_ptr` 指向 Rust 分配的 boxed slice；
  C++ 侧**必须**调用 `helix_query_free(*out_ptr, *out_len)` 释放，禁止 free() / delete[]。

@@ -313,7 +313,8 @@ fn im_post_sending_freezes_channel_and_temporary_id() {
 #[test]
 fn im_post_send_failed_freezes_temporary_id_failed_patch() {
     // HTTP PortError 真实失败路径：按 temporaryId 锚定乐观行，UI 只直绑 sendStatus="failed"。
-    let e = to_effect::emit_post_send_failed("", TMP_ID);
+    let channel_id = ch();
+    let e = to_effect::emit_post_send_failed(channel_id.as_str(), TMP_ID);
     assert_frozen(
         &e,
         "im:post:send-failed",
@@ -491,7 +492,7 @@ fn all_23_projection_factories_covered() {
     let effects: Vec<Effect> = vec![
         to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_sending(ch(), TMP_ID, "", "TEXT"),
-        to_effect::emit_post_send_failed("", TMP_ID),
+        to_effect::emit_post_send_failed(ch().as_str(), TMP_ID),
         to_effect::emit_sync_too_long(ch(), Seq(1)),
         to_effect::emit_connection_established("c"),
         to_effect::emit_channels_loaded(),

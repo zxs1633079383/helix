@@ -254,7 +254,7 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
     let projection = failed_projection_for_tmp(&h, "tmp_fail")
         .expect("HTTP Err must emit im:post:send-failed anchored by temporaryId");
     assert_eq!(projection["data"]["sendStatus"], "failed");
-    assert_eq!(projection["data"]["channelId"], "");
+    assert_eq!(projection["data"]["channelId"], cid(1));
     assert_eq!(
         h.module.pending_send_status("tmp_fail"),
         Some(SendStatus::UnSend),

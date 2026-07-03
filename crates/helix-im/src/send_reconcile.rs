@@ -24,6 +24,7 @@ pub(crate) fn register_send_corrs(
     state: &mut ImState,
     p1_corr: Correlation,
     h1_corr: Correlation,
+    channel_id: crate::state::ChannelId,
     temporary_id: String,
 ) {
     state.corr_map.insert(
@@ -35,6 +36,7 @@ pub(crate) fn register_send_corrs(
     state.corr_map.insert(
         h1_corr,
         CorrelationContext::OutboundSendHttp {
+            channel_id,
             temporary_id: TemporaryId(temporary_id),
         },
     );

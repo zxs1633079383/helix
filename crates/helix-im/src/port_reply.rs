@@ -88,7 +88,10 @@ impl ImModule {
             },
 
             // F1：posts/create HTTP 200 兜底对账（真 Go self-omit echo，见 `send_reconcile`）。
-            CorrelationContext::OutboundSendHttp { temporary_id } => match outcome {
+            CorrelationContext::OutboundSendHttp {
+                channel_id,
+                temporary_id,
+            } => match outcome {
                 PortOutcome::Ok(reply) => {
                     let reconcile_corr = self.alloc_corr_internal();
                     crate::send_reconcile::reconcile_send_http(
@@ -108,7 +111,7 @@ impl ImModule {
                         ps.mark_failed_immediately(out);
                     }
                     out.push(crate::acl::to_effect::emit_post_send_failed(
-                        "",
+                        channel_id.as_str(),
                         temporary_id.0.as_str(),
                     ));
                 }

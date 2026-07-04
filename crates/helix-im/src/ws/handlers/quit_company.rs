@@ -6,13 +6,15 @@
 //! 实际由配套发的 `channel_close` / `channel_member_update`（memberChange.leave 物理删）覆盖，
 //! 本帧无独立落库副作用。
 //!
-//! 故 helix 对齐真源：graceful no-op（经 registry 路由不冒 `UnsupportedWsAction`，无业务 Effect）。
-//! YAGNI：现网前端不单独消费此帧 → 不实现业务逻辑（CLAUDE.md §1.4）。
+//! helix 不伪造成员表写入：本帧只把 Go `channels[]` 转成移动端 render 所需的
+//! `im:channel:member-updated` thin signal；离群本地态仍由配套 channel_close /
+//! channel_member_update 覆盖。
 
 use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
+use crate::state::ChannelId;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
@@ -28,10 +30,28 @@ impl WsMessageHandler for QuitCompanyHandler {
     fn handle(
         &self,
         _ctx: &mut ImWsContext<'_>,
-        _frame: &WsFrame,
-        _out: &mut EffectSink,
+        frame: &WsFrame,
+        out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 真源 default vec![]：no-op（离群态由配套 channel_close / channel_member_update 覆盖）。
+        let Ok(data) = frame.data_required() else {
+            return Ok(());
+        };
+        let raw = serde_json::to_vec(data).unwrap_or_default();
+        if let Some(channels) = data.get("channels").and_then(serde_json::Value::as_array) {
+            for item in channels {
+                if let Some(channel_id) = item
+                    .get("channelId")
+                    .or_else(|| item.get("channel_id"))
+                    .or_else(|| item.get("id"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(ChannelId::from_str)
+                {
+                    out.push(crate::acl::to_effect_s1::emit_channel_member_updated(
+                        channel_id, &raw,
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 }

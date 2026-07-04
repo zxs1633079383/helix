@@ -1,17 +1,16 @@
 //! `update_channel_notice` action handler（群公告变更，WS 全量 19 事件补齐，P4）。
 //!
-//! 行为真源：cses-client `router.rs` 未单列此 arm → 落 `_ => vec![]` no-op（router.rs:46）。
 //! 后端 `cses_channel.go:1190 publishChangeChannelNotice` 推 `WebsocketEventUpdateChannelNotice`，
-//! wire `data` 含 `{channelId, content}`（见 full-map partials/5 §2.15）；群公告本地态实际经
-//! `update_channel`（path2 PATCH，notice 列）刷新，本帧无独立落库副作用。
+//! wire `data` 含 `{channelId, content}`（见 full-map partials/5 §2.15）。
 //!
-//! 故 helix 对齐真源：graceful no-op（经 registry 路由不冒 `UnsupportedWsAction`，无业务 Effect）。
-//! YAGNI：现网前端不单独消费此帧 → 不实现业务逻辑（CLAUDE.md §1.4）。
+//! 移动端契约要求该帧转为 `im:channel:update` thin 信号，通知 UI 重查 dialog projection。
+//! 公告正文仍以后端 / SQLite 投影为准，本 handler 不伪造 channel 行，只发领域更新信号。
 
 use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
+use crate::state::ChannelId;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
@@ -27,10 +26,23 @@ impl WsMessageHandler for UpdateChannelNoticeHandler {
     fn handle(
         &self,
         _ctx: &mut ImWsContext<'_>,
-        _frame: &WsFrame,
-        _out: &mut EffectSink,
+        frame: &WsFrame,
+        out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 真源 default vec![]：no-op（公告态由 update_channel PATCH 刷新）。
+        let Ok(data) = frame.data_required() else {
+            return Ok(());
+        };
+        let Some(channel_id) = data
+            .get("channelId")
+            .or_else(|| data.get("channel_id"))
+            .or_else(|| data.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChannelId::from_str)
+        else {
+            return Ok(());
+        };
+
+        out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         Ok(())
     }
 }

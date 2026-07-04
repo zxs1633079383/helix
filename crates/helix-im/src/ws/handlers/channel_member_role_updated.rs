@@ -1,17 +1,16 @@
 //! `channel_member_role_updated` action handler（更新群成员角色，WS 全量 19 事件补齐，P4）。
 //!
-//! 行为真源：cses-client `router.rs` 未单列此 arm → 落 `_ => vec![]` no-op（router.rs:46）。
 //! 后端 `cses_channel.go:1448` 推 `WebsocketEventChannelMemberRoleUpdated`，wire `data` =
-//! `{channelId, userIds:[], role}`（见 full-map partials/5 §2.12）；角色变更的本地态实际由
-//! 后续 `channel_member_update`（全量 path1 upsert，含 role 列）覆盖，本帧无独立落库副作用。
+//! `{channelId, userIds:[], role}`（见 full-map partials/5 §2.12）。
 //!
-//! 故 helix 对齐真源：graceful no-op（经 registry 路由不冒 `UnsupportedWsAction`，无业务 Effect）。
-//! YAGNI：现网前端不单独消费此帧 → 不实现业务逻辑（CLAUDE.md §1.4）。
+//! 移动端契约要求该帧转为 `im:channel:member-updated`。本 handler 不伪造成员表写入，
+//! 只透传 raw role update 作为 thin bus 信号；权威成员表仍由 byIds / member_update 投影兑现。
 
 use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
+use crate::state::ChannelId;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
@@ -27,10 +26,26 @@ impl WsMessageHandler for RoleUpdatedHandler {
     fn handle(
         &self,
         _ctx: &mut ImWsContext<'_>,
-        _frame: &WsFrame,
-        _out: &mut EffectSink,
+        frame: &WsFrame,
+        out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 真源 default vec![]：no-op（role 态由 channel_member_update 全量 upsert 覆盖）。
+        let Ok(data) = frame.data_required() else {
+            return Ok(());
+        };
+        let Some(channel_id) = data
+            .get("channelId")
+            .or_else(|| data.get("channel_id"))
+            .or_else(|| data.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChannelId::from_str)
+        else {
+            return Ok(());
+        };
+
+        let raw = serde_json::to_vec(data).unwrap_or_default();
+        out.push(crate::acl::to_effect_s1::emit_channel_member_updated(
+            channel_id, &raw,
+        ));
         Ok(())
     }
 }

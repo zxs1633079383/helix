@@ -16,9 +16,9 @@ use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::ws::parser::extract_post_fields;
 use crate::state::ChannelId;
 use crate::sync_session::EventKind;
+use crate::ws::parser::extract_post_fields;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 
@@ -54,12 +54,15 @@ impl WsMessageHandler for PostUpdateHandler {
 pub(super) fn apply_post_update(
     ctx: &mut ImWsContext<'_>,
     frame: &WsFrame,
-    post: &serde_json::Value,
+    data: &serde_json::Value,
     out: &mut EffectSink,
 ) {
+    let post = data.get("post").unwrap_or(data);
     let Some(channel_id) = post
         .get("channelId")
         .or_else(|| post.get("channel_id"))
+        .or_else(|| data.get("channelId"))
+        .or_else(|| data.get("channel_id"))
         .and_then(serde_json::Value::as_str)
         .and_then(ChannelId::from_str)
     else {
@@ -68,12 +71,24 @@ pub(super) fn apply_post_update(
 
     let msg_id = post
         .get("id")
+        .or_else(|| post.get("postId"))
+        .or_else(|| post.get("post_id"))
         .and_then(serde_json::Value::as_str)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
     // type=2 fields 取自该 post 子树；经 gate ingest（落库 patch + emit + cursor 一并 kind-aware）。
     let fields = extract_post_fields(post);
+    if frame.event_seq().is_none() {
+        let msg_id_ref = msg_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(fields.id.as_str());
+        out.push(crate::acl::to_effect::emit_post_updated(
+            channel_id, 0, msg_id_ref, &fields,
+        ));
+        return;
+    }
     let _ = super::gate::gate_ingest_content_event(
         ctx,
         frame,

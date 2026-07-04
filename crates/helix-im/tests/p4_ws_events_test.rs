@@ -15,7 +15,7 @@ mod common;
 use common::*;
 
 use helix_core::tick::InboundBytes;
-use helix_core::{Module, Tick};
+use helix_core::{Effect, Module, Tick};
 use serde_json::json;
 
 /// 构造任意 action 的 WS 帧。
@@ -32,6 +32,19 @@ fn dispatch(
     let tick = ws_frame(value);
     h.sink.clear();
     h.module.handle(&tick, now, &mut h.sink)
+}
+
+fn emit_names(sink: &helix_core::EffectSink) -> Vec<String> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Emit { event } => {
+                let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                v.get("event").and_then(|s| s.as_str()).map(str::to_string)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 // ─── ① 19 事件全集：每个 wire action 经 registry 正常路由（不冒 UnsupportedWsAction）────
@@ -91,17 +104,11 @@ fn all_19_wire_actions_route_through_registry_without_error() {
     }
 }
 
-// ─── ② 5 个 P4 新补 action 各单独验证 no-op（不破坏既有状态）─────────────────────
+// ─── ② P4 新补 action 验证：dead/no-op 与 mobile thin bus 分开断言 ─────────────────
 #[test]
 fn p4_new_actions_are_graceful_noop() {
     let cid1 = cid(1);
-    let new_actions: &[&str] = &[
-        "post_pin",
-        "channel_member_role_updated",
-        "update_channel_notice",
-        "change_channel_approval",
-        "quit_company",
-    ];
+    let new_actions: &[&str] = &["post_pin", "change_channel_approval"];
     let mut h = Harness::new(&[1]);
     let before = h.module.cursor_for(channel_id(1));
 
@@ -123,6 +130,81 @@ fn p4_new_actions_are_graceful_noop() {
         h.module.cursor_for(channel_id(1)),
         before,
         "no-op action 不得推进 cursor"
+    );
+}
+
+#[test]
+fn p4_mobile_thin_actions_emit_bus_without_cursor_advance() {
+    let cid1 = cid(1);
+    let mut h = Harness::new(&[1]);
+    let before = h.module.cursor_for(channel_id(1));
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1, "action": "update_channel_notice",
+            "data": { "channelId": cid1, "content": "notice" }
+        }),
+        1_000,
+    )
+    .expect("update_channel_notice must route Ok");
+    assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        before,
+        "thin bus action 不得推进 cursor"
+    );
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1, "action": "channel_member_role_updated",
+            "data": { "channelId": cid1, "userIds": ["u1"], "role": "ADMIN" }
+        }),
+        1_000,
+    )
+    .expect("channel_member_role_updated must route Ok");
+    assert!(emit_names(&h.sink)
+        .iter()
+        .any(|n| n == "im:channel:member-updated"));
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        before,
+        "thin bus action 不得推进 cursor"
+    );
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1, "action": "update_channel",
+            "data": { "channel": { "id": cid1, "displayName": "renamed" } }
+        }),
+        1_000,
+    )
+    .expect("nested update_channel must route Ok");
+    assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:update"));
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        before,
+        "nested update_channel thin bus 不得推进 cursor"
+    );
+
+    dispatch(
+        &mut h,
+        json!({
+            "v": 1, "action": "quit_company",
+            "data": { "channels": [{ "channelId": cid1, "userId": "u1" }] }
+        }),
+        1_000,
+    )
+    .expect("quit_company must route Ok");
+    assert!(emit_names(&h.sink)
+        .iter()
+        .any(|n| n == "im:channel:member-updated"));
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        before,
+        "quit_company thin bus 不得推进 cursor"
     );
 }
 

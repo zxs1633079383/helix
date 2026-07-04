@@ -212,12 +212,21 @@ mod tests {
         let dialog_value: Value = serde_json::from_slice(&dialog_bytes).expect("json");
         assert_eq!(dialog_value["event"], "im:channels:projection");
         assert_eq!(dialog_value["data"]["dialogList"][0]["id"], "ch1");
-        assert_eq!(dialog_value["data"]["dialogList"][0]["displayName"], "General");
+        assert_eq!(
+            dialog_value["data"]["dialogList"][0]["displayName"],
+            "General"
+        );
         assert_eq!(dialog_value["data"]["dialogList"][0]["unread"], 3);
         assert_eq!(dialog_value["data"]["dialogList"][0]["mention"], true);
-        assert_eq!(dialog_value["data"]["dialogList"][0]["lastMessage"], Value::Null);
+        assert_eq!(
+            dialog_value["data"]["dialogList"][0]["lastMessage"],
+            Value::Null
+        );
         assert_eq!(dialog_value["data"]["dialogList"][0]["notice"], Value::Null);
         assert_eq!(dialog_value["data"]["dialogList"][0]["urgent"], false);
-        assert_eq!(dialog_value["data"]["dialogList"][0]["mention_count"], json!(1));
+        assert_eq!(
+            dialog_value["data"]["dialogList"][0]["mention_count"],
+            json!(1)
+        );
     }
 }

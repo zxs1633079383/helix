@@ -33,11 +33,14 @@ impl WsMessageHandler for UpdateChannelHandler {
         let Ok(data) = frame.data_required() else {
             return Ok(());
         };
+        let channel = data.get("channel").unwrap_or(data);
         // channel id 硬 gate（缺 / 非 26 字符 → no-op，边界零信任，helix-im 不变量 4）。
-        let Some(channel_id) = data
+        let Some(channel_id) = channel
             .get("id")
             .or_else(|| data.get("channelId"))
             .or_else(|| data.get("channel_id"))
+            .or_else(|| channel.get("channelId"))
+            .or_else(|| channel.get("channel_id"))
             .and_then(serde_json::Value::as_str)
             .and_then(ChannelId::from_str)
         else {
@@ -45,16 +48,15 @@ impl WsMessageHandler for UpdateChannelHandler {
         };
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
-        let cols = crate::channel_write::collect_present(data);
+        let cols = crate::channel_write::collect_present(channel);
         if let Some(eff) = crate::acl::to_effect::update_channel_partial(channel_id, cols) {
             out.push(eff);
-            // 独立 update_channel 推送（per-member 改群属性如对话置顶 channel/change/top·改群名/公告
-            // 等定向本人 PATCH）落库后须 emit `im:channel:update`（thin·{channel_id}）通知前端重查
-            // dialogList——否则前端拿不到信号，CL 区行不刷新（data-channel-top / -display-name 永停旧值）。
-            // 注：随 increment 批次而来的 channel 更新由 `increment_channel_end` 收尾统一 emit（本路径是
-            // 批次外的独立直推 frame，自身须配 emit）。emit 幂等（thin 信号仅触发重查·重复无害）。
-            out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
+        // 独立 update_channel 推送（per-member 改群属性如对话置顶 channel/change/top·改群名/公告
+        // 等定向本人 PATCH）落库后须 emit `im:channel:update`（thin·{channel_id}）通知前端重查
+        // dialogList。真实 Go 有时只给最小 channel 对象或把字段包在 data.channel 下；即使空 PATCH，
+        // thin 信号仍是移动端所需的 render trigger，且不伪造 channel 行。
+        out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         Ok(())
     }
 }

@@ -15,7 +15,7 @@ use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::state::{ChannelId, Seq, ServerId, TemporaryId};
+use crate::state::{ChannelId, Seq, ServerId};
 use crate::sync_session::{EventEnvelope, EventKind, PostFields};
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
@@ -36,8 +36,10 @@ impl WsMessageHandler for PostHandler {
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        // 解析失败（缺 channelId / event_seq）→ no-op（边界零信任，不误报；与他人推送同口径）。
+        // 解析失败（缺 channelId / event_seq）→ 若仍有 post/channelId，则发 render-only thin bus，
+        // 不推进 cursor；否则 no-op。
         let Some(ev) = parse_post_frame(frame) else {
+            emit_unsequenced_post(frame, out);
             return Ok(());
         };
 
@@ -47,14 +49,6 @@ impl WsMessageHandler for PostHandler {
         // 仅当 temporary_id 命中在途 send 时才实际对账（内部门控）。
         let echo_tmp_id = ev.fields.temporary_id.clone();
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
-        // self-echo 判定（与 reconcile_post_echo 内部门控同口径）：命中在途 send + 合法 server id。
-        // 用于决定是否需「DOM 兜底结算投影」——见下 echo_settle。
-        let is_self_echo = !echo_tmp_id.is_empty()
-            && echo_server_id.is_some()
-            && ctx
-                .state
-                .pending_sends
-                .contains_key(&TemporaryId(echo_tmp_id.clone()));
         reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
 
         // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
@@ -99,19 +93,19 @@ impl WsMessageHandler for PostHandler {
             .entry(ev.channel_id)
             .or_insert_with(|| crate::channel::Channel::new(ev.channel_id, 0));
 
-        // —— self-echo DOM 兜底结算（fix/im-send-echo-reconcile·路 2 DOM 面）————————————
+        // —— gap DOM 兜底结算（fix/im-send-echo-reconcile·路 2 DOM 面）————————————
         // 乐观行 tmp→server 覆写 + status=sent 的 DOM 渲染由 `im:post:received` 投影驱动
         // （壳 im-store 按 temporaryId upsert）。该投影**仅在 gate apply（seq==cursor+1）时**由
         // ch.ingest emit；本端 echo 在 cursor 落后（gap，seq≫cursor+1）下被 buffer → 投影不发 →
         // 乐观行永停 sending（DB 的 id 已由 reconcile_post_echo 落定，但 DOM 是纯渲染壳，必须靠投影）。
         //
-        // 修复：self-echo 是「发送者自己消息回流」，其乐观行结算与 channel 事件**排序无关**（应像
-        // reconcile_post_echo 落 DB 一样**不过 gate**）。故当 gate 不会自然 apply-emit（seq≠cursor+1）
-        // 时，用在手 ev.fields 兜底 emit 一次 `im:post:received` 结算乐观行。
+        // 修复：self-echo 是「发送者自己消息回流」，转发 / 他人消息则是移动端入栈真消息。二者的
+        // render 投影与 channel cursor 推进解耦：当 gate 不会自然 apply-emit（seq≠cursor+1）时，
+        // 用在手 ev.fields 兜底 emit 一次 `im:post:received` 结算渲染面。
         // 守不变量：**不推 cursor**（HX-C008——cursor 仍由 ch.ingest 的 gate 严格 +1 推进，gap 经
-        // buffer/sync 回补；本兜底只发投影）。buffer 后续 flush 时会再 emit 同投影（壳按 temporaryId
+        // buffer/sync 回补；本兜底只发投影）。buffer 后续 flush 时会再 emit 同投影（壳按 msgId
         // 幂等 upsert·无害）。字段集走冻结 message_item_data（C004 不改契约）。
-        let echo_settle = if is_self_echo && ev.seq.0 != ch.cursor.value().0 + 1 {
+        let post_settle = if ev.seq.0 != ch.cursor.value().0 + 1 {
             let msg_id = ev
                 .msg_id
                 .as_deref()
@@ -133,8 +127,8 @@ impl WsMessageHandler for PostHandler {
 
         ch.ingest(ev, out, ctx.now_ms)?;
 
-        // gate buffer/drop 下 self-echo 的乐观行 DOM 结算（gate apply 路径已自然 emit → echo_settle=None）。
-        if let Some(eff) = echo_settle {
+        // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
+        if let Some(eff) = post_settle {
             out.push(eff);
         }
         if let Some((persist, emit)) = pin_effect {
@@ -215,6 +209,36 @@ fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
 fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
     let data = frame.data()?;
     Some(data.get("post").unwrap_or(data))
+}
+
+/// 真实 Go 的部分 post-like 回声（如 createPosts/relay）可能不携带 event_seq。移动端仍需要
+/// `im:post:received` 入栈信号，但缺序帧不能推进 channel cursor。这里仅发 render-only bus。
+fn emit_unsequenced_post(frame: &WsFrame, out: &mut EffectSink) {
+    let Some(data) = frame.data() else {
+        return;
+    };
+    let post = data.get("post").unwrap_or(data);
+    let Some(channel_id) = post
+        .get("channelId")
+        .or_else(|| post.get("channel_id"))
+        .or_else(|| data.get("channelId"))
+        .or_else(|| data.get("channel_id"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(ChannelId::from_str)
+    else {
+        return;
+    };
+    let fields = crate::ws::parser::extract_post_fields(post);
+    let msg_id = post
+        .get("id")
+        .or_else(|| post.get("postId"))
+        .or_else(|| post.get("post_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fields.id.as_str());
+    out.push(crate::acl::to_effect::emit_post_received(
+        channel_id, 0, msg_id, &fields,
+    ));
 }
 
 /// Go 真实 post pin 写族当前回声形态是 `action=post` 系统通知：

@@ -22,7 +22,9 @@ use bytes::Bytes;
 use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
-use helix_driver_host::{AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig};
+use helix_driver_host::{
+    AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, TraceCarrier,
+};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::pump::{self, PumpArgs, QueryDeps};
@@ -59,6 +61,8 @@ pub struct HelixHandle {
     pub(crate) headers: HostHeaderRegistry,
     /// HTTP 鉴权凭据 registry：`X-Auth-Kind` 只选路由，真凭据在 driver 侧热更新。
     pub(crate) auth: AuthTokenRegistry,
+    /// `Tick::Command` 的 host-local trace sidecar FIFO（每个命令一槽，None/Some 都占位保序）。
+    pub(crate) command_traces: CommandTraceQueue,
     /// tick channel 发送端。Sender 非 Sync，用 Mutex 包住允许 &self 送 tick。
     pub(crate) tick_tx: parking_lot::Mutex<Option<mpsc::Sender<Tick>>>,
     /// graceful drain 信号端；destroy 取出 send(()) 一次（与 tick_tx drop 双触发，任一即 drain）。
@@ -106,6 +110,7 @@ pub unsafe extern "C" fn helix_create_with_network(
     config.default_api_base_url = default_api_base_url;
     let headers = HostHeaderRegistry::default();
     let auth = AuthTokenRegistry::new();
+    let command_traces = CommandTraceQueue::default();
 
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
@@ -126,6 +131,7 @@ pub unsafe extern "C" fn helix_create_with_network(
         config,
         headers: headers.clone(),
         auth: auth.clone(),
+        command_traces: command_traces.clone(),
         vtable,
         tick_tx: tick_tx.clone(),
         tick_rx,
@@ -160,6 +166,7 @@ pub unsafe extern "C" fn helix_create_with_network(
     Box::into_raw(Box::new(HelixHandle {
         headers,
         auth,
+        command_traces,
         tick_tx: parking_lot::Mutex::new(Some(tick_tx)),
         shutdown_tx: parking_lot::Mutex::new(Some(shutdown_tx)),
         pump_thread: parking_lot::Mutex::new(Some(pump_thread)),
@@ -354,15 +361,70 @@ pub unsafe extern "C" fn helix_command(
         Ok(s) => s,
         Err(code) => return code,
     };
-
-    // 立即拷贝 payload（ACL-3：C 侧 buffer 调用返回后可能被复用）
-    let payload_vec = if payload.is_null() || payload_len == 0 {
-        Vec::new()
-    } else {
-        // SAFETY: payload 非 null 已确认；调用方契约保证指向至少 payload_len 字节、
-        // 在本调用期间有效的内存——立即 copy_from_slice 拷贝，不持有原始指针。
-        unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec()
+    let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
+    let cmd = match build_app_command(public_name, payload_vec) {
+        Ok(cmd) => cmd,
+        Err(code) => return code,
     };
+
+    // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
+    let handle_ref = unsafe { &*handle };
+    send_command_tick(handle_ref, cmd, None)
+}
+
+/// 向 engine 发送带 trace sidecar 的应用命令（移动端 `__trace` / host sidecar 入口）。
+///
+/// 与 [`helix_command`] 共享完全相同的命令名别名和 payload 归一化路径；差别只在于多一个
+/// driver-owned trace sidecar 槽位，供 host trace hook 在 `Tick::Command` 边界消费。
+/// `Tick::Command` 结构本身保持不变，trace 不进入业务 payload。
+///
+/// # Safety
+///
+/// - `handle`：有效指针或 null。
+/// - `name` / `payload` / `trace_json`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
+/// - `trace_json` 必须是合法 UTF-8 的 JSON 文本；当前解析 W3C `traceparent` / `baggage`。
+#[no_mangle]
+pub unsafe extern "C" fn helix_command_with_trace(
+    handle: *mut HelixHandle,
+    name: *const u8,
+    name_len: usize,
+    payload: *const u8,
+    payload_len: usize,
+    trace_json: *const u8,
+    trace_json_len: usize,
+) -> i32 {
+    if handle.is_null() {
+        return FFI_NULL;
+    }
+    // SAFETY: 调用方契约保证 name / trace_json 指向至少对应 len 字节有效 UTF-8 内存。
+    let public_name = match unsafe { ffi_str(name, name_len) } {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    // SAFETY: 同上。
+    let trace_json = match unsafe { ffi_str(trace_json, trace_json_len) } {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let carrier = match TraceCarrier::from_json_str(&trace_json) {
+        Ok(carrier) => carrier,
+        Err(error) => {
+            tracing::warn!(?error, "trace sidecar rejected");
+            return FFI_INVALID;
+        }
+    };
+    let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
+    let cmd = match build_app_command(public_name, payload_vec) {
+        Ok(cmd) => cmd,
+        Err(code) => return code,
+    };
+
+    // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
+    let handle_ref = unsafe { &*handle };
+    send_command_tick(handle_ref, cmd, Some(carrier))
+}
+
+fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCommand, i32> {
     let normalized_payload = match helix_im::mobile_contract::normalize_command_payload(
         public_name.as_str(),
         &payload_vec,
@@ -374,13 +436,13 @@ pub unsafe extern "C" fn helix_command(
                 ?error,
                 "mobile command payload rejected"
             );
-            return FFI_INVALID;
+            return Err(FFI_INVALID);
         }
     };
     let payload_bytes = Bytes::from(normalized_payload);
 
-    let core_name =
-        helix_im::mobile_contract::command_alias(public_name.as_str()).unwrap_or(public_name.as_str());
+    let core_name = helix_im::mobile_contract::command_alias(public_name.as_str())
+        .unwrap_or(public_name.as_str());
 
     // G-6 / PI-1：name 命中 outbound 闭集（88 命令）→ `Cow::Borrowed` 静态名免堆分配（热路径写命令
     // 净分配仅 payload 1 次）；miss（im_send_message/im_reconnect/query 名）→ `Cow::Owned` fallback
@@ -389,21 +451,31 @@ pub unsafe extern "C" fn helix_command(
         Some(static_name) => Cow::Borrowed(static_name),
         None => Cow::Owned(core_name.to_string()),
     };
-    let cmd = AppCommand {
+    Ok(AppCommand {
         name,
         payload: payload_bytes,
+    })
+}
+
+fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceCarrier>) -> i32 {
+    let guard = handle.tick_tx.lock();
+    let Some(tx) = guard.as_ref() else {
+        return FFI_NULL;
     };
 
-    // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
-    let handle_ref = unsafe { &*handle };
-    let guard = handle_ref.tick_tx.lock();
-    match guard.as_ref() {
-        None => FFI_NULL, // helix_destroy 已调用，channel 已关闭
-        Some(tx) => match tx.try_send(Tick::Command(cmd)) {
-            Ok(()) => FFI_OK,
-            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => FFI_BUSY,
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => FFI_NULL,
-        },
+    // `tick_tx` 的锁把「trace slot 入队 + command try_send」序列化成同一临界区，保证 mixed
+    // `helix_command` / `helix_command_with_trace` 并发时 FIFO 与 channel 入队顺序一致。
+    handle.command_traces.push_slot(trace);
+    match tx.try_send(Tick::Command(cmd)) {
+        Ok(()) => FFI_OK,
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            handle.command_traces.rollback_last();
+            FFI_BUSY
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            handle.command_traces.rollback_last();
+            FFI_NULL
+        }
     }
 }
 
@@ -470,12 +542,14 @@ pub unsafe extern "C" fn helix_query(
     match query_name.as_str() {
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_capabilities" => unsafe {
-            write_query_bytes(helix_im::mobile_contract::capabilities_json(), out_ptr, out_len)
+            write_query_bytes(
+                helix_im::mobile_contract::capabilities_json(),
+                out_ptr,
+                out_len,
+            )
         },
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
-        "helix_version" => unsafe {
-            write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len)
-        },
+        "helix_version" => unsafe { write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len) },
         _ => {
             let plan = match helix_im::mobile_query::plan(query_name.as_str(), query_payload) {
                 Ok(plan) => plan,
@@ -564,6 +638,14 @@ unsafe fn ffi_str(ptr: *const u8, len: usize) -> Result<String, i32> {
     std::str::from_utf8(bytes)
         .map(str::to_owned)
         .map_err(|_| FFI_UTF8)
+}
+
+unsafe fn ffi_payload_to_vec(ptr: *const u8, len: usize) -> Vec<u8> {
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    // SAFETY: ptr 非 null 且调用方契约保证指向至少 len 字节有效内存；这里立即拷贝，不持有原指针。
+    unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
 }
 
 #[cfg(test)]

@@ -21,8 +21,8 @@ use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::engine::{self, EngineDeps, TransportTable};
 use helix_driver_host::{
-    AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig, HostStorage, SharedHttpClient,
-    SharedWsClient,
+    AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostStorage,
+    SharedHttpClient, SharedWsClient, TraceHooks,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -50,6 +50,7 @@ pub struct PumpArgs {
     pub config: HostNetworkConfig,
     pub headers: HostHeaderRegistry,
     pub auth: AuthTokenRegistry,
+    pub command_traces: CommandTraceQueue,
     pub vtable: CppHostVtable,
     pub tick_tx: mpsc::Sender<Tick>,
     pub tick_rx: mpsc::Receiver<Tick>,
@@ -173,6 +174,7 @@ pub fn run(args: PumpArgs) {
             http: Arc::new(http),
             event_sink,
             clock,
+            trace: TraceHooks::noop().with_command_traces(args.command_traces),
             max_http_inflight: args.max_http_inflight,
         };
         let _ = args.ready_tx.send(Some(QueryDeps {

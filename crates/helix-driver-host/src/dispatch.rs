@@ -19,6 +19,7 @@ use crate::pools::get_or_spawn_persist;
 use crate::spawner::{BoundedSpawner, Job};
 use crate::table_set_key;
 use crate::timer::TimerRegistry;
+use crate::trace::TraceHooks;
 
 /// 把一批 OwnedEffect 分流兑现（async，BoundedSpawner submit，Block 满时等待）。
 #[allow(clippy::too_many_arguments)]
@@ -33,6 +34,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
     reply_tx: &mpsc::UnboundedSender<Tick>,
     persist_workers: &mut HashMap<String, BoundedSpawner<Vec<StorageOp>>>,
     transports: &TransportTable<Tr>,
+    trace: &TraceHooks,
 ) where
     S: Storage + Send + Sync + 'static,
     E: EventSink,
@@ -42,6 +44,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
         match effect {
             // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
+                trace.on_storage_dispatch(Some(corr), &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
                     persist_workers,
@@ -59,6 +62,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
+                trace.on_storage_dispatch(None, &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
                     persist_workers,
@@ -74,7 +78,8 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             }
 
             // ── Http（必达，Block 溢出，带 corr 回报，走 reply_tx）──────────
-            OwnedEffect::Http { corr, req } => {
+            OwnedEffect::Http { corr, mut req } => {
+                trace.on_http_dispatch(Some(corr), &mut req);
                 http_pool
                     .submit(Job {
                         corr: Some(corr),
@@ -84,7 +89,8 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             }
 
             // ── HttpFire（可丢，DropNewest 溢出，无 corr 不回报）────────────
-            OwnedEffect::HttpFire { req } => {
+            OwnedEffect::HttpFire { mut req } => {
+                trace.on_http_dispatch(None, &mut req);
                 http_fire_pool
                     .submit(Job {
                         corr: None,
@@ -95,8 +101,12 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── Send（查路由表 → Transport::send 真发 WS）──────────────────
             // inline await（WS send 快）。失败/未注册只 warn，绝不让泵崩。
-            OwnedEffect::Send { transport, frame } => match transports.get(&transport) {
+            OwnedEffect::Send {
+                transport,
+                mut frame,
+            } => match transports.get(&transport) {
                 Some(t) => {
+                    trace.on_ws_send(transport, &mut frame);
                     // 表内 `Arc<Tr>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
                     // transport 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
                     if let Err(e) = t.send(frame).await {
@@ -133,6 +143,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── Emit（同步非阻塞）─────────────────────────────────────────
             OwnedEffect::Emit { event } => {
+                trace.on_event_emit(&event);
                 event_sink.emit(event);
             }
 

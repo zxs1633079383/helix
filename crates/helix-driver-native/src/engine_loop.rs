@@ -21,6 +21,7 @@
 use std::sync::Arc;
 
 use helix_driver_host::engine::{self, EngineDeps};
+use helix_driver_host::TraceHooks;
 // rows↔bytes 编解码：host 单一真源，native re-export（helix-im 反序列化端对齐 host codec）。
 pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
@@ -68,6 +69,7 @@ impl EngineConfig {
             http: Arc::new(self.http),
             event_sink: Arc::new(self.event_sink),
             clock: NativeClock,
+            trace: TraceHooks::noop(),
             max_http_inflight: self.max_http_inflight,
         }
     }

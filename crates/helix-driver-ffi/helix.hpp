@@ -137,6 +137,25 @@ int32_t helix_command(HelixHandle *handle,
                       const uint8_t *payload,
                       uintptr_t payload_len);
 
+/// 向 engine 发送带 trace sidecar 的应用命令（移动端 `__trace` / host sidecar 入口）。
+///
+/// 与 [`helix_command`] 共享完全相同的命令名别名和 payload 归一化路径；差别只在于多一个
+/// driver-owned trace sidecar 槽位，供 host trace hook 在 `Tick::Command` 边界消费。
+/// `Tick::Command` 结构本身保持不变，trace 不进入业务 payload。
+///
+/// # Safety
+///
+/// - `handle`：有效指针或 null。
+/// - `name` / `payload` / `trace_json`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
+/// - `trace_json` 必须是合法 UTF-8 的 JSON 文本；当前解析 W3C `traceparent` / `baggage`。
+int32_t helix_command_with_trace(HelixHandle *handle,
+                                 const uint8_t *name,
+                                 uintptr_t name_len,
+                                 const uint8_t *payload,
+                                 uintptr_t payload_len,
+                                 const uint8_t *trace_json,
+                                 uintptr_t trace_json_len);
+
 /// 同步读取 engine 状态。
 ///
 /// ## 查询边界

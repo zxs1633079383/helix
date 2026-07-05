@@ -82,6 +82,53 @@ fn partial_group_keeps_per_field_defaults() {
 }
 
 #[test]
+fn parses_observability_otel_config() {
+    let c = Config::from_yaml_str(
+        r#"
+observability:
+  otel:
+    enabled: true
+    serviceName: "helix-host-cli"
+    endpoint: "http://127.0.0.1:4317"
+    protocol: "grpc"
+    sampler:
+      type: "parentbased_traceidratio"
+      ratio: 1.0
+    facets:
+      command: true
+      core: true
+      http: true
+      ws: true
+      storage: true
+      portReply: true
+      event: true
+      native: true
+      ffi: true
+"#,
+    )
+    .expect("otel config parses");
+
+    assert!(c.observability.otel.enabled);
+    assert_eq!(c.observability.otel.service_name, "helix-host-cli");
+    assert_eq!(c.observability.otel.endpoint, "http://127.0.0.1:4317");
+    assert_eq!(c.observability.otel.protocol, "grpc");
+    assert_eq!(
+        c.observability.otel.sampler.kind,
+        "parentbased_traceidratio"
+    );
+    assert_eq!(c.observability.otel.sampler.ratio, 1.0);
+    assert!(c.observability.otel.facets.command);
+    assert!(c.observability.otel.facets.core);
+    assert!(c.observability.otel.facets.http);
+    assert!(c.observability.otel.facets.ws);
+    assert!(c.observability.otel.facets.storage);
+    assert!(c.observability.otel.facets.port_reply);
+    assert!(c.observability.otel.facets.event);
+    assert!(c.observability.otel.facets.native);
+    assert!(c.observability.otel.facets.ffi);
+}
+
+#[test]
 fn malformed_yaml_errors_not_panics() {
     let r = Config::from_yaml_str("connection: [this is: not a map");
     assert!(matches!(r, Err(ConfigError::Parse(_))));

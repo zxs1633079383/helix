@@ -147,6 +147,75 @@ fn command_enqueues_successfully() {
 }
 
 #[test]
+fn command_with_trace_accepts_valid_w3c_sidecar() {
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+    assert!(!handle.is_null());
+
+    let name = b"send_message";
+    let payload = b"{\"text\":\"hello\"}";
+    let trace_json =
+        br#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","baggage":"tenant=im"}"#;
+    let status = unsafe {
+        helix_command_with_trace(
+            handle,
+            name.as_ptr(),
+            name.len(),
+            payload.as_ptr(),
+            payload.len(),
+            trace_json.as_ptr(),
+            trace_json.len(),
+        )
+    };
+    assert_eq!(status, FFI_OK);
+
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn command_with_trace_rejects_invalid_trace_json() {
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+    assert!(!handle.is_null());
+
+    let name = b"send_message";
+    let payload = b"{\"text\":\"hello\"}";
+    let trace_json = b"{not-json";
+    let status = unsafe {
+        helix_command_with_trace(
+            handle,
+            name.as_ptr(),
+            name.len(),
+            payload.as_ptr(),
+            payload.len(),
+            trace_json.as_ptr(),
+            trace_json.len(),
+        )
+    };
+    assert_eq!(status, FFI_INVALID);
+
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
 fn query_returns_unimplemented() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";

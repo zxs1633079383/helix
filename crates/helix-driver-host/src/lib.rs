@@ -13,6 +13,7 @@ pub mod pools;
 pub mod spawner;
 pub mod storage;
 pub mod timer;
+pub mod trace;
 pub mod upsert_sql;
 
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
@@ -30,6 +31,9 @@ pub use owned_effect::{consume_effects, OwnedEffect};
 pub use spawner::{BoundedSpawner, Job, Overflow};
 pub use storage::HostStorage;
 pub use timer::TimerRegistry;
+pub use trace::{
+    CommandTraceQueue, TraceCarrier, TraceCarrierError, TraceHooks, TraceHooksImpl, TraceScope,
+};
 
 /// per-table-set Persist worker 的有界 job 队列深度上限。
 ///

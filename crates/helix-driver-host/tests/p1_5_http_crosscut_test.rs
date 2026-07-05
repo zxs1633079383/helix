@@ -203,6 +203,36 @@ async fn traceparent_passes_through_unchanged() {
     );
 }
 
+#[tokio::test]
+async fn trace_headers_survive_auth_intent_rewrite() {
+    let inner = MockInner::ok(200);
+    let auth = AuthTokenRegistry::new();
+    auth.set_session("cookieId", "u1");
+    let (cross, _sink) = build(inner.clone(), auth);
+
+    let req = req_with_headers(vec![
+        (AUTH_KIND_HEADER, AuthKind::Session.as_str()),
+        (
+            "traceparent",
+            "00-0000000000000000000000000000000a-000000000000000b-01",
+        ),
+        ("baggage", "tenant=im,channel=general"),
+    ]);
+    cross.request(req).await.expect("ok");
+
+    let seen = inner.last_seen();
+    assert_eq!(header_value(&seen, "cookieId"), Some("u1"));
+    assert!(header_value(&seen, AUTH_KIND_HEADER).is_none());
+    assert_eq!(
+        header_value(&seen, "traceparent"),
+        Some("00-0000000000000000000000000000000a-000000000000000b-01")
+    );
+    assert_eq!(
+        header_value(&seen, "baggage"),
+        Some("tenant=im,channel=general")
+    );
+}
+
 // ─── 3. 401 → emit im:http:unauthorized ──────────────────────────────────────────
 
 #[tokio::test]

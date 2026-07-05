@@ -63,6 +63,7 @@ use crate::owned_effect::consume_effects;
 use crate::pools::spawn_http_pool;
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
+use crate::trace::TraceHooks;
 
 /// graceful drain 时「必达 Http」在途请求的 join 上限（fix/lifecycle-net-decouple）。
 ///
@@ -95,6 +96,7 @@ pub struct EngineDeps<S, H, E, C> {
     pub http: Arc<H>,
     pub event_sink: Arc<E>,
     pub clock: C,
+    pub trace: TraceHooks,
     /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。`0` → `.max(1)` 兜底 1。
     pub max_http_inflight: usize,
 }
@@ -141,6 +143,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     let storage = deps.storage;
     let http = deps.http;
     let event_sink = deps.event_sink;
+    let trace = deps.trace;
     let http_n = deps.max_http_inflight.max(1);
     let mut timer_registry = TimerRegistry::new();
 
@@ -188,6 +191,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
             &reply_tx,
             &mut persist_workers,
             &transports,
+            &trace,
         )
         .await;
         // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
@@ -233,6 +237,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
             }
         };
 
+        let _trace_scope = trace.on_tick_start(&tick);
         let now_ms = clock.now_ms();
         let owned = match shell.step(tick, now_ms) {
             Ok(effects) => consume_effects(effects),
@@ -254,6 +259,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
                 &reply_tx,
                 &mut persist_workers,
                 &transports,
+                &trace,
             )
             .await;
             // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。

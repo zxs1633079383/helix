@@ -27,3 +27,25 @@ runtime:
   db:                ""    # 空 = 派生多租户路径
   http_max_inflight: 0     # 0 = 默认 8
   dump_frames:       true
+
+observability:
+  otel:
+    enabled: true
+    serviceName: "helix-host-cli"
+    endpoint: "http://127.0.0.1:4317"
+    protocol: "grpc"
+    sampler:
+      type: "parentbased_traceidratio"
+      ratio: 1.0
+    attributes:
+      deployment.environment: "local"
+    facets:
+      command: true
+      core: true
+      http: true
+      ws: true
+      storage: true
+      portReply: true
+      event: true
+      native: true
+      ffi: true

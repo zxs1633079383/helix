@@ -11,38 +11,41 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-echo "▶ [1/9] whitespace 闸门（git diff --check + --cached --check）"
+echo "▶ [1/11] whitespace 闸门（git diff --check + --cached --check）"
 git diff --check
 git diff --cached --check
 
-echo "▶ [2/9] 双端 cargo check（PC native + Flutter FFI；wasm 归档见 ADR-006）"
+echo "▶ [2/11] 双端 cargo check（PC native + Flutter FFI；wasm 归档见 ADR-006）"
 cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
 
-echo "▶ [3/9] clippy（deny-list 生效）"
+echo "▶ [3/11] clippy（deny-list 生效）"
 cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet -- -D warnings 2>/dev/null \
   || cargo clippy -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-host --quiet
 
-echo "▶ [4/9] 测试（五 crate：core/im/driver-native/driver-host + driver-ffi 含 f5 parity/e2e）"
+echo "▶ [4/11] 测试（五 crate：core/im/driver-native/driver-host + driver-ffi 含 f5 parity/e2e）"
 cargo test -p helix-core -p helix-im -p helix-driver-native -p helix-driver-host -p helix-driver-ffi --quiet
 
-echo "▶ [5/9] 零运行时闸门（HX-C001）"
+echo "▶ [5/11] 零运行时闸门（HX-C001）"
 if cargo tree -p helix-core | grep -qiE 'tokio|sqlx|reqwest|web-sys|tauri'; then
   echo "❌ helix-core 依赖树出现运行时依赖"; exit 1
 fi
 
-echo "▶ [6/9] 零业务概念闸门"
+echo "▶ [6/11] trace 静态漂移 / 安全闸门"
+bash scripts/trace-static-gate.sh
+
+echo "▶ [7/11] 零业务概念闸门"
 # grep 零命中退出码为 1 是期望结果——用 || true 防 pipefail 误杀
 HITS=$( (grep -rn 'channel\|message\|temporaryId' crates/helix-core/src/ || true) | (grep -v '//' || true) | wc -l | tr -d ' ')
 [ "$HITS" -eq 0 ] || { echo "❌ helix-core 出现 IM 语义词 ($HITS 处)"; exit 1; }
 
-echo "▶ [7/9] harness 索引不变量"
+echo "▶ [8/11] harness 索引不变量"
 IDX=$(grep -c '^| HX-C' CLAUDE.md || true); FILES=$(ls docs/harness/HX-C*.md | wc -l | tr -d ' ')
 [ "$IDX" -eq "$FILES" ] || { echo "❌ harness 索引漂移：CLAUDE.md $IDX 行 vs 文件 $FILES 个"; exit 1; }
 
-echo "▶ [8/9] Flutter FFI 仓内自验（1–5 层，无 Xcode / 无仓外 demo）"
+echo "▶ [9/11] Flutter FFI 仓内自验（1–5 层，无 Xcode / 无仓外 demo）"
 bash scripts/ffi-verify.sh --no-demo
 
-echo "▶ [9/9] public-api 面闸门（纪要拍板 #2）"
+echo "▶ [10/11] public-api 面闸门（纪要拍板 #2）"
 if command -v cargo-public-api >/dev/null 2>&1; then
   mkdir -p docs/api-baseline
   cargo public-api -p helix-core --simplified > /tmp/helix-core-api.txt
@@ -65,7 +68,7 @@ if [ "${1:-}" = "--full" ]; then
   bash scripts/ffi-verify.sh
 fi
 
-echo "▶ [10/10] 结构闸门（单文件 ≤300 行 + CLAUDE.md/AGENTS.md 镜像不变量）"
+echo "▶ [11/11] 结构闸门（单文件 ≤300 行 + CLAUDE.md/AGENTS.md 镜像不变量）"
 bash scripts/structure-gate.sh
 
 echo "✅ 全部闸门通过"

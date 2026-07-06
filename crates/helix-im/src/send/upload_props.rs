@@ -26,8 +26,8 @@ pub fn build_upload_plan(
     mut props: Value,
 ) -> Result<UploadPlan, ImError> {
     match msg_type {
-        "rich" => build_rich_plan(&mut props),
-        "file" => build_file_plan(message, &mut props),
+        "rich" => build_rich_plan(&mut props).map(|targets| UploadPlan { props, targets }),
+        "file" => build_file_plan(message, &mut props).map(|targets| UploadPlan { props, targets }),
         _ => Ok(UploadPlan {
             props,
             targets: Vec::new(),
@@ -35,7 +35,7 @@ pub fn build_upload_plan(
     }
 }
 
-fn build_rich_plan(props: &mut Value) -> Result<UploadPlan, ImError> {
+fn build_rich_plan(props: &mut Value) -> Result<Vec<UploadTarget>, ImError> {
     if props.get("file").is_some() {
         return Err(ImError::Parse("rich message must not contain props.file".to_string()));
     }
@@ -63,13 +63,10 @@ fn build_rich_plan(props: &mut Value) -> Result<UploadPlan, ImError> {
         set_status(image, "uploading")?;
         targets.push(UploadTarget::RichImage { index });
     }
-    Ok(UploadPlan {
-        props: props.clone(),
-        targets,
-    })
+    Ok(targets)
 }
 
-fn build_file_plan(message: &str, props: &mut Value) -> Result<UploadPlan, ImError> {
+fn build_file_plan(message: &str, props: &mut Value) -> Result<Vec<UploadTarget>, ImError> {
     if !message.trim().is_empty() {
         return Err(ImError::Parse(
             "file message must not contain message text".to_string(),
@@ -85,10 +82,7 @@ fn build_file_plan(message: &str, props: &mut Value) -> Result<UploadPlan, ImErr
         .ok_or_else(|| ImError::Parse("file message requires props.file".to_string()))?;
     validate_upload_node(file, "file")?;
     set_status(file, "uploading")?;
-    Ok(UploadPlan {
-        props: props.clone(),
-        targets: vec![UploadTarget::File],
-    })
+    Ok(vec![UploadTarget::File])
 }
 
 fn validate_upload_node(node: &Value, label: &str) -> Result<(), ImError> {

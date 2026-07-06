@@ -68,6 +68,30 @@ fn rich_single_image_cmd(tmp: &str) -> Tick {
     }))
 }
 
+fn file_cmd(tmp: &str) -> Tick {
+    send_message_cmd_json(json!({
+        "channel_id": cid(1),
+        "temporary_id": tmp,
+        "type": "file",
+        "text": "",
+        "props": {
+            "file": {
+                "localPath": "/tmp/doc.pdf",
+                "name": "doc.pdf",
+                "upload": {
+                    "method": "PUT",
+                    "url": "https://upload/doc",
+                    "headers": {"x-oss-doc": "1"},
+                    "objectKey": "im/doc.pdf",
+                    "contentType": "application/pdf",
+                    "size": 9
+                }
+            },
+            "frontendCustom": {"keep": true}
+        }
+    }))
+}
+
 fn upload_reply(object_key: &str, url: &str, etag: &str) -> Tick {
     port_reply_with_body(
         0,
@@ -169,6 +193,24 @@ fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
 fn props_from_spec(spec: &UpsertSpec) -> Value {
     let row = spec.rows.first().expect("message row");
     serde_json::from_str(row_text(row, "props").expect("props column")).expect("props json")
+}
+
+fn assert_no_unsend_persist_fire(h: &Harness) {
+    assert!(
+        h.sink.as_slice().iter().all(|effect| {
+            !matches!(
+                effect,
+                Effect::PersistFire { ops }
+                    if ops.iter().any(|op| match op {
+                        StorageOp::BatchUpsert(spec) if spec.table == "message" => spec.rows.iter().any(|row| {
+                            row_text(row, "send_status") == Some("unsend")
+                        }),
+                        _ => false,
+                    })
+            )
+        }),
+        "must not persist send_status=unsend"
+    );
 }
 
 #[test]
@@ -302,19 +344,119 @@ fn upload_failure_send_timer_does_not_mark_post_unsend() {
         Some(SendStatus::Sending),
         "upload failure must remain separate from post send timeout"
     );
-    assert!(
-        h.sink.as_slice().iter().all(|effect| {
-            !matches!(
-                effect,
-                Effect::PersistFire { ops }
-                    if ops.iter().any(|op| match op {
-                        StorageOp::BatchUpsert(spec) if spec.table == "message" => spec.rows.iter().any(|row| {
-                            row_text(row, "send_status") == Some("unsend")
-                        }),
-                        _ => false,
-                    })
-            )
-        }),
-        "timer after upload failure must not persist send_status=unsend"
+    assert_no_unsend_persist_fire(&h);
+}
+
+#[test]
+fn file_initial_step_uploads_then_posts_create_after_success_without_reply_object_key() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(file_cmd("tmp-file-ok"), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
+
+    assert_eq!(upload_effect_corrs(&h).len(), 1, "file should upload once");
+    assert_eq!(posts_create_count(&h), 0, "file should defer posts/create");
+    let initial_spec = last_message_upsert(&h);
+    let initial_row = initial_spec.rows.first().expect("message row");
+    assert_eq!(row_text(initial_row, "type"), Some("file"));
+    let initial_props = props_from_spec(&initial_spec);
+    assert_eq!(initial_props["file"]["upload"]["status"], "uploading");
+    assert_eq!(initial_props["frontendCustom"]["keep"], true);
+
+    h.step(port_reply_ok(p1), 1010);
+    h.step(
+        Tick::PortReply {
+            corr: helix_core::Correlation::from_raw(upload_corr),
+            outcome: match port_reply_with_body(
+                0,
+                Bytes::from(
+                    serde_json::to_vec(&json!({
+                        "url": "https://cdn/doc.pdf",
+                        "etag": "etag-doc"
+                    }))
+                    .expect("upload reply json"),
+                ),
+            ) {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            },
+        },
+        1020,
     );
+
+    let success_props = props_from_spec(&last_message_upsert(&h));
+    assert_eq!(success_props["file"]["upload"]["status"], "success");
+    assert_eq!(success_props["file"]["upload"]["objectKey"], "im/doc.pdf");
+    assert_eq!(posts_create_count(&h), 1, "success should emit posts/create");
+    let body = last_posts_create_body(&h);
+    assert_eq!(body["type"], "file");
+    assert_eq!(body["props"]["file"]["upload"]["status"], "success");
+    assert_eq!(body["props"]["file"]["upload"]["objectKey"], "im/doc.pdf");
+    assert_eq!(body["props"]["file"]["upload"]["etag"], "etag-doc");
+    assert_eq!(body["props"]["frontendCustom"]["keep"], true);
+}
+
+#[test]
+fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
+    let cases = [
+        (
+            "tmp-file-bad-reply",
+            true,
+            Tick::PortReply {
+                corr: helix_core::Correlation::from_raw(0),
+                outcome: match port_reply_with_body(0, Bytes::from_static(b"{bad json")) {
+                    Tick::PortReply { outcome, .. } => outcome,
+                    _ => unreachable!(),
+                },
+            },
+        ),
+        (
+            "tmp-file-err",
+            false,
+            common::port_reply_err(0),
+        ),
+    ];
+
+    for (tmp_id, malformed, mut failure_tick) in cases {
+        let mut h = Harness::new(&[1]);
+
+        h.step(file_cmd(tmp_id), 1000);
+        let p1 = persist_corr(&h);
+        let timer_id = send_timer_id(&h);
+        let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
+
+        h.step(port_reply_ok(p1), 1010);
+        if let Tick::PortReply { corr, .. } = &mut failure_tick {
+            *corr = helix_core::Correlation::from_raw(upload_corr);
+        }
+        h.step(failure_tick, 1020);
+
+        assert_eq!(
+            posts_create_count(&h),
+            0,
+            "failure must not send posts/create: {tmp_id}"
+        );
+        let props = props_from_spec(&last_message_upsert(&h));
+        assert_eq!(props["file"]["upload"]["status"], "failed");
+        assert_eq!(props["file"]["upload"]["objectKey"], "im/doc.pdf");
+        assert_eq!(props["frontendCustom"]["keep"], true);
+        assert_eq!(
+            h.module.pending_send_status(tmp_id),
+            Some(SendStatus::Sending),
+            "failure must not map to UnSend: {tmp_id}"
+        );
+
+        h.step(timer_tick(timer_id), 16_000);
+
+        assert_eq!(
+            h.module.pending_send_status(tmp_id),
+            Some(SendStatus::Sending),
+            "timer after failure must keep send state: {tmp_id}"
+        );
+        assert_no_unsend_persist_fire(&h);
+        if malformed {
+            assert_eq!(props["file"]["upload"]["status"], "failed");
+        }
+    }
 }

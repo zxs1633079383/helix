@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Task 3 fix worker：只修 reviewer 阻断项 ① malformed upload reply/缺 objectKey 不再逃逸模块错误，统一降级为 `mark_upload_failed(...)`；② `type=file` 补 send-flow focused contract tests。可证伪断言：① 代码改动只落 `crates/helix-im/src/{port_reply.rs,send/upload_props.rs}`、`crates/helix-im/tests/rich_file_upload_contract_test.rs`、Task 3 报告与本 SESSION；② 不新增 top-level `attachments`，不新增/改名 `SendStatus` 变体；③ file 用例覆盖初始 `uploading`、成功后 `posts/create`、坏回包或 Err 后仅 `props.file.upload.status=failed` 且 timer 不写 `send_status=unsend`；④ 仅跑 `cargo test -p helix-im --test rich_file_upload_contract_test -- --nocapture` 与 `cargo test -p helix-im upload_props -- --nocapture`；⑤ 提交一个 fix commit。@2026-07-06T17:36:52+0800 | 赌注 中 | 可逆 是
+✅ DONE Task 3 fix worker：malformed upload reply 降级为 upload failed，`type=file` send-flow contract 覆盖补齐 @2026-07-06T17:43:00+0800 | commit 本提交 | 改 `port_reply.rs`/`send/upload_props.rs`/`rich_file_upload_contract_test.rs` + Task 3 报告/SESSION；上传成功不再强依赖回包 `objectKey`，格式坏回包与 `PortOutcome::Err` 都只落 `props.file.upload.status=failed`，timer 不写 `send_status=unsend` | 验证：`cargo test -p helix-im --test rich_file_upload_contract_test -- --nocapture` = 6 passed；`cargo test -p helix-im upload_props -- --nocapture` = 5 passed。
+
 🎯 EXPECT rich/file 消息上传发送实现：按 `docs/superpowers/plans/2026-07-06-rich-file-message-upload.md` 执行 Task 1-5，采用 Subagent-Driven + 隔离 worktree。可证伪断言：① 新增/修改文件限定在 plan 的 rich/file props、UploadFile effect/host uploader、send flow upload gating、retry_upload、测试/SESSION/SDD 账本范围；② 不新增/重命名 `SendStatus` 变体，不新增 post 顶层 `attachments`；③ 文件上传状态只写入 `props.images[i].upload.status` 或 `props.file.upload.status`，Post send status 仍只用 `Local/Sending/Sent/UnSend`；④ `helix-core` 不引入 tokio/reqwest/sqlx/tauri/web-sys/阿里云 SDK；⑤ focused tests、双端 cargo check、`cargo test -p helix-core`、HX-C001 零运行时 grep、`git diff --check` 通过。@2026-07-06T16:37:44+0800 | 赌注 高 | 可逆 是
 
 🎯 EXPECT rich/file 消息上传发送实施计划（只写 plan，不改实现）@2026-07-06T16:24:00+0800 | 赌注 中 | 可逆 是

@@ -23,7 +23,7 @@ pub struct PendingUpload {
 
 #[derive(Debug, Clone)]
 pub struct UploadSuccess {
-    pub object_key: String,
+    pub object_key: Option<String>,
     pub url: Option<String>,
     pub etag: Option<String>,
 }
@@ -144,7 +144,9 @@ pub fn mark_upload_success(
         .and_then(Value::as_object_mut)
         .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?;
     upload.insert("status".to_string(), json!("success"));
-    upload.insert("objectKey".to_string(), json!(result.object_key));
+    if let Some(object_key) = &result.object_key {
+        upload.insert("objectKey".to_string(), json!(object_key));
+    }
     if let Some(url) = &result.url {
         upload.insert("url".to_string(), json!(url));
     }
@@ -383,7 +385,7 @@ mod tests {
             &mut props,
             &UploadTarget::RichImage { index: 1 },
             &UploadSuccess {
-                object_key: "im/b.png".to_string(),
+                object_key: Some("im/b.png".to_string()),
                 url: Some("https://cdn/b.png".to_string()),
                 etag: Some("etag-b".to_string()),
             },

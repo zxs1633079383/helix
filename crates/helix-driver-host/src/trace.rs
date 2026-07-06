@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::otel::{HostOtelRuntime, TraceDirection};
 use helix_core::effect::{Correlation, DomainEventBytes, HttpRequest, StorageOp, TransportId};
 use helix_core::Tick;
 
@@ -24,6 +25,29 @@ impl TraceCarrier {
             traceparent: wire.traceparent.filter(|v| !v.is_empty()),
             baggage: wire.baggage.filter(|v| !v.is_empty()),
             raw_json: Some(raw.to_string()),
+        })
+    }
+
+    pub fn from_headers(headers: &[(String, String)]) -> Option<Self> {
+        let traceparent = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("traceparent"))
+            .map(|(_, value)| value.clone())
+            .filter(|value| !value.is_empty());
+        let baggage = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("baggage"))
+            .map(|(_, value)| value.clone())
+            .filter(|value| !value.is_empty());
+
+        if traceparent.is_none() && baggage.is_none() {
+            return None;
+        }
+
+        Some(Self {
+            traceparent,
+            baggage,
+            raw_json: None,
         })
     }
 }
@@ -88,6 +112,20 @@ impl TraceScope {
             end: Some(Box::new(end)),
         }
     }
+
+    pub fn with_guard<G>(guard: G) -> Self
+    where
+        G: Send + 'static,
+    {
+        Self::new(move || drop(guard))
+    }
+
+    pub fn chain(self, other: Self) -> Self {
+        Self::new(move || {
+            drop(other);
+            drop(self);
+        })
+    }
 }
 
 impl Drop for TraceScope {
@@ -102,6 +140,7 @@ impl Drop for TraceScope {
 pub struct TraceHooks {
     inner: Arc<dyn TraceHooksImpl + Send + Sync>,
     command_traces: Option<CommandTraceQueue>,
+    otel: Option<HostOtelRuntime>,
 }
 
 impl TraceHooks {
@@ -109,15 +148,21 @@ impl TraceHooks {
         Self {
             inner: Arc::new(inner),
             command_traces: None,
+            otel: None,
         }
     }
 
     pub fn noop() -> Self {
-        Self::new(NoopTraceHooks)
+        Self::new(NoopTraceHooks).with_otel(HostOtelRuntime::from_env("helix-driver-host"))
     }
 
     pub fn with_command_traces(mut self, command_traces: CommandTraceQueue) -> Self {
         self.command_traces = Some(command_traces);
+        self
+    }
+
+    pub fn with_otel(mut self, otel: HostOtelRuntime) -> Self {
+        self.otel = if otel.is_enabled() { Some(otel) } else { None };
         self
     }
 
@@ -129,10 +174,29 @@ impl TraceHooks {
                 .and_then(CommandTraceQueue::pop_next),
             _ => None,
         };
-        self.inner.on_tick_start(tick, carrier)
+        let scope = self.inner.on_tick_start(tick, carrier.clone());
+        let Some(runtime) = self.otel.as_ref() else {
+            return scope;
+        };
+
+        let (name, direction) = match tick {
+            Tick::Command(_) => ("helix.command.accept", TraceDirection::Inbound),
+            Tick::Inbound(_) => ("helix.ws.recv", TraceDirection::Inbound),
+            _ => ("helix.core.step", TraceDirection::Internal),
+        };
+
+        scope.chain(TraceScope::with_guard(runtime.span(
+            name,
+            direction,
+            carrier.as_ref(),
+        )))
     }
 
     pub fn on_storage_dispatch(&self, corr: Option<Correlation>, ops: &[StorageOp]) {
+        let _scope = self.otel.as_ref().and_then(|runtime| {
+            (!ops.is_empty())
+                .then(|| runtime.span("helix.storage.persist", TraceDirection::Internal, None))
+        });
         self.inner.on_storage_dispatch(corr, ops);
     }
 
@@ -145,6 +209,10 @@ impl TraceHooks {
     }
 
     pub fn on_event_emit(&self, event: &DomainEventBytes) {
+        let _scope = self
+            .otel
+            .as_ref()
+            .map(|runtime| runtime.span("helix.event.emit", TraceDirection::Outbound, None));
         self.inner.on_event_emit(event);
     }
 }

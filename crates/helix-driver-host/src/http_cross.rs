@@ -29,6 +29,8 @@ use bytes::Bytes;
 use parking_lot::RwLock; // 无 poison：panic 不静默丢 token（对齐 network.rs HostHeaderRegistry）
 use serde_json::json;
 
+use crate::otel::{HostOtelRuntime, TraceDirection};
+use crate::trace::TraceCarrier;
 use helix_core::auth::AuthKind;
 use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse};
 use helix_core::ports::{EventSink, HttpRequester};
@@ -96,6 +98,7 @@ pub struct CrossCuttingHttp<H, E> {
     inner: H,
     event_sink: Arc<E>,
     auth: AuthTokenRegistry,
+    otel: Option<HostOtelRuntime>,
 }
 
 impl<H, E> CrossCuttingHttp<H, E>
@@ -108,7 +111,14 @@ where
             inner,
             event_sink,
             auth,
+            otel: Some(HostOtelRuntime::from_env("helix-driver-host"))
+                .filter(|runtime| runtime.is_enabled()),
         }
+    }
+
+    pub fn with_otel(mut self, otel: HostOtelRuntime) -> Self {
+        self.otel = Some(otel).filter(|runtime| runtime.is_enabled());
+        self
     }
 
     /// 鉴权头注入意图的纯函数（无 I/O）：读 `X-Auth-Kind` → 注真 token → strip 意图头。
@@ -157,6 +167,14 @@ where
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
         let (prepared, _kind) = self.apply_auth(req);
         let url = prepared.url.clone();
+        let carrier = TraceCarrier::from_headers(&prepared.headers);
+        let _scope = self.otel.as_ref().map(|runtime| {
+            runtime.span(
+                "helix.http.request",
+                TraceDirection::Outbound,
+                carrier.as_ref(),
+            )
+        });
 
         match self.inner.request(prepared).await {
             Ok(resp) => {

@@ -23,7 +23,8 @@ use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
 use helix_driver_host::{
-    AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, TraceCarrier,
+    AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime,
+    TraceCarrier, TraceDirection,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -63,6 +64,8 @@ pub struct HelixHandle {
     pub(crate) auth: AuthTokenRegistry,
     /// `Tick::Command` 的 host-local trace sidecar FIFO（每个命令一槽，None/Some 都占位保序）。
     pub(crate) command_traces: CommandTraceQueue,
+    /// FFI 边界的可选 OTel 运行时（默认 env 控制；禁用时为 None）。
+    pub(crate) otel: Option<HostOtelRuntime>,
     /// tick channel 发送端。Sender 非 Sync，用 Mutex 包住允许 &self 送 tick。
     pub(crate) tick_tx: parking_lot::Mutex<Option<mpsc::Sender<Tick>>>,
     /// graceful drain 信号端；destroy 取出 send(()) 一次（与 tick_tx drop 双触发，任一即 drain）。
@@ -111,6 +114,8 @@ pub unsafe extern "C" fn helix_create_with_network(
     let headers = HostHeaderRegistry::default();
     let auth = AuthTokenRegistry::new();
     let command_traces = CommandTraceQueue::default();
+    let otel =
+        Some(HostOtelRuntime::from_env("helix-driver-ffi")).filter(|runtime| runtime.is_enabled());
 
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
@@ -167,6 +172,7 @@ pub unsafe extern "C" fn helix_create_with_network(
         headers,
         auth,
         command_traces,
+        otel,
         tick_tx: parking_lot::Mutex::new(Some(tick_tx)),
         shutdown_tx: parking_lot::Mutex::new(Some(shutdown_tx)),
         pump_thread: parking_lot::Mutex::new(Some(pump_thread)),
@@ -423,6 +429,13 @@ pub unsafe extern "C" fn helix_command_with_trace(
 
     // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
     let handle_ref = unsafe { &*handle };
+    let _scope = handle_ref.otel.as_ref().map(|runtime| {
+        runtime.span(
+            "mobile.ffi.command",
+            TraceDirection::Inbound,
+            Some(&carrier),
+        )
+    });
     send_command_tick(handle_ref, cmd, Some(carrier))
 }
 

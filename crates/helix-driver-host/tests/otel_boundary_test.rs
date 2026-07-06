@@ -1,0 +1,123 @@
+use std::sync::Arc;
+
+use bytes::Bytes;
+use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse};
+use helix_core::ports::{EventSink, HttpRequester};
+use helix_core::tick::AppCommand;
+use helix_core::{PortError, Tick};
+use helix_driver_host::{
+    AuthTokenRegistry, CommandTraceQueue, CrossCuttingHttp, HostOtelConfig, HostOtelRuntime,
+    TraceCarrier, TraceDirection, TraceHooks,
+};
+
+#[test]
+fn host_otel_runtime_extracts_traceparent_and_starts_child_span() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let carrier = TraceCarrier::from_json_str(
+        r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","baggage":"client=test"}"#,
+    )
+    .expect("carrier");
+
+    let scope = runtime.span(
+        "helix.command.accept",
+        TraceDirection::Inbound,
+        Some(&carrier),
+    );
+    assert_eq!(
+        scope.trace_id_for_test().as_deref(),
+        Some("00000000000000000000000000000001")
+    );
+    assert_eq!(scope.name_for_test(), "helix.command.accept");
+}
+
+#[test]
+fn trace_hooks_consume_command_trace_sidecar_at_host_boundary() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let queue = CommandTraceQueue::default();
+    queue.push_slot(Some(
+        TraceCarrier::from_json_str(
+            r#"{"traceparent":"00-00000000000000000000000000000002-0000000000000003-01"}"#,
+        )
+        .expect("carrier"),
+    ));
+    let hooks = TraceHooks::noop()
+        .with_otel(runtime.clone())
+        .with_command_traces(queue);
+
+    let tick = Tick::Command(AppCommand::new("send_message", Bytes::from_static(b"{}")));
+    let _scope = hooks.on_tick_start(&tick);
+
+    let span = runtime.last_span_for_test().expect("span");
+    assert_eq!(span.name, "helix.command.accept");
+    assert_eq!(span.direction, TraceDirection::Inbound);
+    assert_eq!(
+        span.trace_id.as_deref(),
+        Some("00000000000000000000000000000002")
+    );
+}
+
+#[derive(Clone, Default)]
+struct NoopSink;
+
+impl EventSink for NoopSink {
+    fn emit(&self, _: DomainEventBytes) {}
+}
+
+#[derive(Clone)]
+struct MockHttp;
+
+#[async_trait::async_trait]
+impl HttpRequester for MockHttp {
+    async fn request(&self, _: HttpRequest) -> Result<HttpResponse, PortError> {
+        Ok(HttpResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: Bytes::new(),
+        })
+    }
+}
+
+#[tokio::test]
+async fn crosscutting_http_starts_outbound_http_span() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let http = CrossCuttingHttp::new(MockHttp, Arc::new(NoopSink), AuthTokenRegistry::new())
+        .with_otel(runtime.clone());
+
+    let response = http
+        .request(HttpRequest {
+            method: "POST".to_string(),
+            url: "https://example.test/im".to_string(),
+            headers: vec![(
+                "traceparent".to_string(),
+                "00-00000000000000000000000000000004-0000000000000005-01".to_string(),
+            )],
+            body: Some(Bytes::from_static(br#"{"ok":true}"#)),
+        })
+        .await
+        .expect("request ok");
+
+    assert_eq!(response.status, 200);
+
+    let span = runtime.last_span_for_test().expect("span");
+    assert_eq!(span.name, "helix.http.request");
+    assert_eq!(span.direction, TraceDirection::Outbound);
+    assert_eq!(
+        span.trace_id.as_deref(),
+        Some("00000000000000000000000000000004")
+    );
+}

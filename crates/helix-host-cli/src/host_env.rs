@@ -5,6 +5,13 @@
 //! 全是 ambient API（`std::env`/`std::fs`/`std::process`）。host 是其合法落点
 //! （本 crate clippy `disallowed_methods=allow`）——core/im 才 deny。
 
+use helix_driver_host::{BackendScope, LocalStoreIdentity, LocalStoreLocator};
+use std::path::{Path, PathBuf};
+
+const APP_NAMESPACE: &str = "com.jinqidongli.cses.dev";
+const TMP_STORE_BASE: &str = "/tmp/helix_host_cli";
+const MISSING_COMPANY_SENTINEL: &str = "__missing_company__";
+
 /// 派生第二（默认业务）网关 base（spec06 方案 A）：vote/score 走 restHost（无 `/api/cses`）。
 /// `configured`（= `connection.default_api_base`）非空则用之 > `api_base` 去 `/api/cses` 尾段
 /// （host 注入网关拓扑，HX-C001）。
@@ -16,50 +23,105 @@ pub fn default_api_base(api_base: &str, configured: &str) -> String {
     }
 }
 
-/// 派生 SQLite DB 绝对路径（多租户，对齐现网 678 真库目录）。
-///
-/// 优先级（高 → 低）：
-/// 1. `configured_db`（= `runtime.db`）非空 → 直接返回（显式覆盖，保留旧 `/tmp` 能力）。
-/// 2. 派生路径 `~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db`：
-///    - bundle identifier `com.jinqidongli.cses.dev` 硬编码（与 678 真库目录一致）。
-///    - `<tenant>` 取值（高 → 低）：`configured_tenant`（= `identity.tenant`）>
-///      `cookie_id`(=userId，对齐 cses-client tenant_key = userId) > 字面 `"default"`。
-///    - 返回前 `create_dir_all` 父目录（失败则退回 `/tmp` 兜底）。
-/// 3. 取不到 `$HOME` → `/tmp/helix_host_cli.db` 兜底。
-pub fn resolve_db_path(cookie_id: &str, configured_db: &str, configured_tenant: &str) -> String {
+/// 派生 SQLite DB 绝对路径：runtime.db 显式覆盖优先；否则按 app/backend/company/account/schema
+/// 生成 `<store-key>`，落到 `.../data/<store-key>/tenant.db`。无 `$HOME` 或主目录失败时，
+/// 也退到 `/tmp/helix_host_cli/data/<store-key>/tenant.db`，避免 444/678 兜底时重新合库。
+pub struct DbPathInputs<'a> {
+    pub cookie_id: &'a str,
+    pub company_id: &'a str,
+    pub configured_db: &'a str,
+    pub configured_tenant: &'a str,
+    pub api_base_url: &'a str,
+    pub ws_url: &'a str,
+}
+
+pub fn resolve_db_path(inputs: DbPathInputs<'_>) -> String {
     // ① 显式 db 覆盖（铁律：设置即用，跳过派生）。
-    if !configured_db.is_empty() {
-        return configured_db.to_string();
+    if !inputs.configured_db.is_empty() {
+        return inputs.configured_db.to_string();
     }
 
     // ② 派生 base_dir = ~/Library/Application Support/com.jinqidongli.cses.dev
-    let home = std::env::var("HOME").ok().filter(|s| !s.is_empty());
-    let Some(home) = home else {
-        tracing::warn!("$HOME 未设置，DB 退回 /tmp 兜底");
-        return "/tmp/helix_host_cli.db".to_string();
-    };
-
-    let tenant = if !configured_tenant.is_empty() {
-        configured_tenant.to_string()
-    } else if !cookie_id.is_empty() {
-        cookie_id.to_string()
+    let account_id = if !inputs.configured_tenant.is_empty() {
+        inputs.configured_tenant.to_string()
+    } else if !inputs.cookie_id.is_empty() {
+        inputs.cookie_id.to_string()
     } else {
         "default".to_string()
     };
 
-    let dir = std::path::Path::new(&home)
-        .join("Library")
-        .join("Application Support")
-        .join("com.jinqidongli.cses.dev")
-        .join("data")
-        .join(&tenant);
+    let identity = local_store_identity(inputs, &account_id);
+    let primary_base = match std::env::var("HOME").ok().filter(|s| !s.is_empty()) {
+        Some(home) => Path::new(&home)
+            .join("Library")
+            .join("Application Support")
+            .join(APP_NAMESPACE),
+        None => {
+            tracing::warn!("$HOME 未设置，DB 退回 /tmp 多租户目录兜底");
+            PathBuf::from(TMP_STORE_BASE)
+        }
+    };
 
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::warn!(error = %e, dir = %dir.display(), "创建 DB 目录失败，退回 /tmp 兜底");
-        return "/tmp/helix_host_cli.db".to_string();
+    match LocalStoreLocator::new(&primary_base).resolve(&identity) {
+        Ok(paths) => paths.db_path.to_string_lossy().into_owned(),
+        Err(e) => {
+            tracing::warn!(error = %e, dir = %primary_base.display(), "派生 DB 路径失败，退回 /tmp 多租户目录兜底");
+            match LocalStoreLocator::new(TMP_STORE_BASE).resolve(&identity) {
+                Ok(paths) => paths.db_path.to_string_lossy().into_owned(),
+                Err(e) => {
+                    tracing::warn!(error = %e, "派生 /tmp DB 路径仍失败，退回账号隔离路径");
+                    isolated_tmp_fallback_path(&account_id)
+                        .to_string_lossy()
+                        .into_owned()
+                }
+            }
+        }
     }
+}
 
-    dir.join("tenant.db").to_string_lossy().into_owned()
+fn local_store_identity(inputs: DbPathInputs<'_>, account_id: &str) -> LocalStoreIdentity {
+    let company_id = if inputs.company_id.trim().is_empty() {
+        MISSING_COMPANY_SENTINEL
+    } else {
+        inputs.company_id.trim()
+    };
+    LocalStoreIdentity {
+        app_namespace: APP_NAMESPACE.to_string(),
+        backend: BackendScope {
+            environment: "dev".to_string(),
+            api_base_url: inputs.api_base_url.to_string(),
+            ws_url: inputs.ws_url.to_string(),
+        },
+        company_id: company_id.to_string(),
+        account_id: account_id.to_string(),
+        tenant_hint: Some(account_id.to_string()),
+        schema_family: "helix-im-v1".to_string(),
+    }
+}
+
+fn isolated_tmp_fallback_path(account_id: &str) -> PathBuf {
+    Path::new(TMP_STORE_BASE)
+        .join("data")
+        .join(format!("fallback_{}", safe_path_segment(account_id)))
+        .join("tenant.db")
+}
+
+fn safe_path_segment(input: &str) -> String {
+    let out: String = input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if out.is_empty() {
+        "default".to_string()
+    } else {
+        out
+    }
 }
 
 /// 从本机派生稳定 deviceId；本函数自身不硬编码任何一台真实设备 id。
@@ -130,4 +192,106 @@ fn raw_machine_id() -> Option<String> {
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn raw_machine_id() -> Option<String> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn temp_home(label: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("helix_host_env_{label}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        path
+    }
+
+    fn with_home<T>(home: Option<&Path>, f: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let old = std::env::var("HOME").ok();
+        match home {
+            Some(path) => std::env::set_var("HOME", path),
+            None => std::env::remove_var("HOME"),
+        }
+        let out = f();
+        match old {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+        out
+    }
+
+    fn inputs<'a>(
+        cookie_id: &'a str,
+        company_id: &'a str,
+        configured_db: &'a str,
+    ) -> DbPathInputs<'a> {
+        DbPathInputs {
+            cookie_id,
+            company_id,
+            configured_db,
+            configured_tenant: "",
+            api_base_url: "http://127.0.0.1:8066/api/cses",
+            ws_url: "ws://127.0.0.1:8066/api/cses/websocket",
+        }
+    }
+
+    #[test]
+    fn explicit_runtime_db_still_wins() {
+        let got = with_home(None, || {
+            resolve_db_path(inputs("444", "64118", "/tmp/explicit-runtime.db"))
+        });
+        assert_eq!(got, "/tmp/explicit-runtime.db");
+    }
+
+    #[test]
+    fn users_444_and_678_resolve_to_different_tenant_db_paths() {
+        let home = temp_home("two_users");
+        let (path_444, path_678) = with_home(Some(&home), || {
+            (
+                resolve_db_path(inputs("444", "64118", "")),
+                resolve_db_path(inputs("678", "64118", "")),
+            )
+        });
+
+        assert_ne!(path_444, path_678);
+        assert!(path_444.ends_with("/tenant.db"));
+        assert!(path_678.ends_with("/tenant.db"));
+        assert!(path_444.contains("/data/s_"));
+        assert!(path_678.contains("/data/s_"));
+    }
+
+    #[test]
+    fn missing_home_falls_back_to_tmp_and_keeps_users_split() {
+        let (path_444, path_678) = with_home(None, || {
+            (
+                resolve_db_path(inputs("444", "64118", "")),
+                resolve_db_path(inputs("678", "64118", "")),
+            )
+        });
+
+        assert_ne!(path_444, path_678);
+        assert!(path_444.starts_with("/tmp/helix_host_cli/data/s_"));
+        assert!(path_678.starts_with("/tmp/helix_host_cli/data/s_"));
+        assert!(path_444.ends_with("/tenant.db"));
+        assert!(path_678.ends_with("/tenant.db"));
+    }
+
+    #[test]
+    fn missing_company_still_keeps_users_split() {
+        let home = temp_home("missing_company");
+        let (path_444, path_678) = with_home(Some(&home), || {
+            (
+                resolve_db_path(inputs("444", "", "")),
+                resolve_db_path(inputs("678", "", "")),
+            )
+        });
+
+        assert_ne!(path_444, path_678);
+        assert!(path_444.ends_with("/tenant.db"));
+        assert!(path_678.ends_with("/tenant.db"));
+    }
 }

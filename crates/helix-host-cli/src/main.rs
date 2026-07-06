@@ -20,7 +20,7 @@ mod cmd_parse;
 mod config;
 mod host_env;
 mod repl;
-use host_env::{default_api_base, machine_device_id, resolve_db_path};
+use host_env::{default_api_base, machine_device_id, resolve_db_path, DbPathInputs};
 
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
@@ -98,9 +98,16 @@ async fn main() {
     let dept_name = cfg.identity.dept_name.clone();
     // ── DB 路径派生（多租户，对齐现网 678 真库目录）───────────────────────
     // 优先级：runtime.db 显式覆盖 > 派生路径 > /tmp 兜底。
-    // 派生形态：~/Library/Application Support/com.jinqidongli.cses.dev/data/<tenant>/tenant.db
-    // <tenant> 来源（高→低）：identity.tenant > cookie_id(=userId) > "default"。
-    let db_path = resolve_db_path(&cookie_id, &cfg.runtime.db, &cfg.identity.tenant);
+    // 派生形态：~/Library/Application Support/com.jinqidongli.cses.dev/data/<store-key>/tenant.db
+    // <store-key> 由 app/backend/company/account/schema 归一后 hash 得出。
+    let db_path = resolve_db_path(DbPathInputs {
+        cookie_id: &cookie_id,
+        company_id: &company_id,
+        configured_db: &cfg.runtime.db,
+        configured_tenant: &cfg.identity.tenant,
+        api_base_url: &api_base_url,
+        ws_url: &ws_url,
+    });
 
     tracing::info!(
         %ws_url,

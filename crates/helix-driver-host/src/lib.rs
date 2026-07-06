@@ -7,6 +7,7 @@ pub mod engine;
 pub mod http_cross;
 pub mod http_envelope;
 pub mod instrument;
+pub mod local_store;
 pub mod network;
 pub mod ops;
 pub mod otel;
@@ -27,6 +28,9 @@ pub use http_cross::{
 };
 pub use http_envelope::{base64_encode, run_http_envelope};
 pub use instrument::RecordingSink;
+pub use local_store::{
+    BackendScope, LocalStoreError, LocalStoreIdentity, LocalStoreLocator, LocalStorePaths,
+};
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,
 };

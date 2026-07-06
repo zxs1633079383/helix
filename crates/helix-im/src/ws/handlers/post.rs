@@ -64,17 +64,32 @@ impl WsMessageHandler for PostHandler {
         // 「乱序自端 echo」无需依赖额外假设。重复/旧消息（seq<=cursor）由 gate dup-drop 不 apply →
         // 不发；GuardedBump 守卫（create_at > last_root_post_at）再兜底幂等。
         let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
+        let post_channel_update = parse_post_data(frame).map(|data| {
+            crate::channel_write::post_updates(
+                ev.channel_id,
+                data,
+                ctx.auth_user_id,
+                ev.fields.create_at,
+            )
+        });
         let unread_bump = if is_echo {
             None
         } else {
-            parse_post_data(frame).map(|data| {
-                crate::channel_write::post_updates(
-                    ev.channel_id,
-                    data,
-                    ctx.auth_user_id,
-                    ev.fields.create_at,
-                )
+            post_channel_update.clone()
+        };
+        let echo_channel_change = if is_echo {
+            post_channel_update.map(|mut upd| {
+                upd.unread_delta = 0;
+                upd.unread_post_id = None;
+                let msg_id = ev
+                    .msg_id
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(ev.fields.id.as_str());
+                crate::acl::to_effect::emit_channel_changed_by_post(&upd, ev.seq.0, msg_id)
             })
+        } else {
+            None
         };
         let ev = ev.with_unread_bump(unread_bump);
 
@@ -129,6 +144,9 @@ impl WsMessageHandler for PostHandler {
 
         // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
         if let Some(eff) = post_settle {
+            out.push(eff);
+        }
+        if let Some(eff) = echo_channel_change {
             out.push(eff);
         }
         if let Some((persist, emit)) = pin_effect {

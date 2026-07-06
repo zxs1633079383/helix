@@ -42,12 +42,12 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（23 工厂 → 22 distinct channel）
+## 1. 投影出口全集（24 工厂 → 23 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
-> 数据在手零回读，见 §2）。下表 message-row 行 data 键集已更新为完整集；channel-row 信号（channel:update /
-> channel:update-by-post）**故意留瘦**（完整 DialogItem 是累计 DB 行非在手，fat 会触发每事件热路径回读 → 违
-> SPEC §2 铁律）。**fat 完整集 = `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
+> 数据在手零回读，见 §2）。下表 message-row 行 data 键集已更新为完整集；channel-row 热路径新增
+> `im:channel:changed` 单会话 patch（来自写入意图，零回读）；`channel:update*` 仅保留为兼容/控制信号。
+> **fat 完整集 = `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）
 > + `sendStatus`/`reactions`/`templateReceived`/`systemNotice`/`pinned`（**render-ready 终态**·issue #53 授权演进）。
 >
@@ -65,7 +65,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `unread`（← unread_count **终值**·前端 badge 直绑·**不再壳 ++**）、`mention`（← mention_count>0 ‖ mention_count_root>0 bool·艾特 badge）、
 > `lastMessage`（← last_post 解析取 message/content/text 预览·非 JSON 兜底整串·空→null）、`urgent`（← last_post 的
 > isUrgent/isExpedite/props.expedite/props.urgent 任一非空 bool·加急 badge）。实现外提 `query_dialog_render.rs`（守 structure-gate）。
-> 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影，非 channel:update-by-post 瘦信号（后者维持 §2 铁律留瘦）。
+> 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影；发消息 / sync type1 的热路径改走
+> `im:channel:changed` 单会话 patch，避免每条消息刷新整份 `dialogList`。
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
@@ -83,6 +84,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
 | `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `channel_id` `event_seq` `msg_id`（**留瘦**·channel-row）| sync type1 可见（离线未读 +N）|
+| `to_effect::emit_channel_changed_by_post` | `im:channel:changed` | `channel_id` `channelId` `id` `event_seq` `msg_id` `reason` `patch`（**单会话增量 patch**）| WS `post` / sync type1 可见，更新对应会话行 |
 | `to_effect_s1::emit_channel_created` | `im:channel:created` | `channel_id` `channel` | WS `channel_created` |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `channelId` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
@@ -99,9 +101,9 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `mention_count_root`/`last_post`/`unread_post_id`/`last_event_seq` 等，列名 = §4 DB 列）。**前端零计算
 > unread/badge、零回读**（UC-3 unread 计算下放 helix 达成，前端 messageDialog 的 unread 计算移除）。
 > 🔴 **HX-C005 守约**：本命令在 hot-path 外（spec06 §2 边界 line87-89「server 端回读仅限低频非每事件
-> 命中」），故 Scan channel 表合规——与 §2 channel-row 信号「故意留瘦」**不矛盾**：热路径 badge 信号
-> （`im:channel:update*`）每事件命中**必须瘦**（fat 会触发每事件回读违铁律）；完整 dialogList 由本**低频**
-> 命令补齐。两条路分工：热路径瘦信号触发前端「该刷了」，前端低频调本命令拉**完整**列表渲染。
+> 命中」），故 Scan channel 表合规。热路径不再用瘦信号触发整表回读；发消息 / sync type1 直接吐
+> `im:channel:changed` 单会话 patch（lastMessage / last_post / unreadDelta 等），完整 dialogList 只由本**低频**
+> 命令补齐。两条路分工：热路径 patch 更新单行，显式进入列表 / 冷启动才拉**完整**列表渲染。
 > 它**替代**前端原「按 channel_id 回读 dialogList + 自算 unread」蠢模式（spec06 P1 回正 line84）。
 
 > **`im:channels:loaded` 双形态**：hello 冷启动路径产 `{items:[]}`（`emit_channels_loaded`），
@@ -109,10 +111,10 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 触发语义，前端按 `data` 形态区分（有 `items` = 列表刷新信号 / 有 `reason` = 清库刷新信号）。
 > 这不是字段漂移，是**两个独立工厂复用同一 channel 名**——测试逐工厂冻结，各断各的键集。
 
-### 1.1 连接控制信号（**不计入** 22 投影集 · F1-gap1）
+### 1.1 连接控制信号（**不计入** 23 投影集 · F1-gap1）
 
 `im_reconnect` 命令（04 文档表 B `IMWS:reconnect`，连接生命周期归 driver）经 `to_effect::emit_reconnect_requested`
-产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入上表 22 投影冻结集**，
+产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入上表 23 投影冻结集**，
 与既有 driver 侧横切信号 `im:net:offline`（断网）/ `im:http:unauthorized`（401，`http_cross.rs`）**同族**：
 `im:net:*` 控制事件通道，driver/前端**观察**后做连接生命周期动作（reconnect / 重登）。
 
@@ -120,16 +122,16 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 |---|---|---|---|---|
 | `to_effect::emit_reconnect_requested` | `im:net:reconnect_requested` | （空 `{}`，无参控制信号）| invoke `im_reconnect` | helix-im 产，driver 观察重连 |
 
-> **为何分开冻结**：22 投影集是「前端渲染靠的字段契约」（缺字段=补算=纯渲染破功），逐 channel 严格冻结键集。
-> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_23_projection_factories_covered`
-> 保持 23 个投影工厂 / 22 个 distinct channel，控制信号由 `reconnect_requested_is_control_signal` 单独断言（channel/空 data）。
+> **为何分开冻结**：23 投影集是「前端渲染靠的字段契约」（缺字段=补算=纯渲染破功），逐 channel 严格冻结键集。
+> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_24_projection_factories_covered`
+> 保持 24 个投影工厂 / 23 个 distinct channel，控制信号由 `reconnect_requested_is_control_signal` 单独断言（channel/空 data）。
 
-### 1.2 读族回灌通道（**不计入** 22 投影集 · spec06 缺陷A）
+### 1.2 读族回灌通道（**不计入** 23 投影集 · spec06 缺陷A）
 
 读族 outbound 命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声、HTTP
 响应体本身就是数据**。dispatch 对读命令注册 `CorrelationContext::OutboundReadReply{req_id}`，HTTP
 回报时经 `query::emit_read_result` 把**后端响应体原样透传**回灌——它是 **request-response 传输通道**，
-**不是投影**（body 由后端定，helix 不冻结字段、不改业务数据，后端权威），故**不纳入 22 投影冻结集**。
+**不是投影**（body 由后端定，helix 不冻结字段、不改业务数据，后端权威），故**不纳入 23 投影冻结集**。
 前端 bridge（仿 `helixQueryBridge`）`invoke(命令, {…, req_id})` 后等 `im:read:result{req_id}` resolve → 直接渲染。
 
 | 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
@@ -142,7 +144,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `data` **外层**键集恒为 `{req_id, body}`（成功）/ `{req_id, error}`（失败），由 `read_relay_test` 断言。
 > 写族保持 fire-and-forget（数据走 WS 回声），**不**走本通道。
 
-### 1.3 上拉翻页投影（**不计入** 22 投影集 · D3 NEED_HELIX_FIX_PULL_REFRESH）
+### 1.3 上拉翻页投影（**不计入** 23 投影集 · D3 NEED_HELIX_FIX_PULL_REFRESH）
 
 `im_load_older_context` 解上拉到顶的远端兜底翻页（UC-2.2）：多轮 `posts/postContext` 编排（moving anchor +
 严格更早过滤 + temporaryId 去重 + pivot 推进，≤8 轮，对齐 legacy `fetch_older_posts_by_context`），凑够
@@ -159,7 +161,7 @@ inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集
 > `hasMore` 语义：停因「凑够 target / 轮数耗尽」→ `true`（还有更早可拉）；停因「服务端无更早 / pivot 卡住 /
 > 空批」→ `false`（到顶）。多轮在 corr_map 续接（每轮单 `Effect::Http`，sans-IO 不阻塞，HX-C001）。
 
-### 1.4 通知/待办装配信号（**不计入** 22 投影集 · UC-10 通知/待办）
+### 1.4 通知/待办装配信号（**不计入** 23 投影集 · UC-10 通知/待办）
 
 `im:todo:updated` 是**内核自驱**（非前端命令发起）的待办列表装配信号：global `increment_channel_end`（hello
 收尾）触发 `posts/queryTodoList`，回报后解 `data.channels[].posts[]` 装配成 todo items emit。**外层** `data`
@@ -175,7 +177,7 @@ inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集
 > **外层** `{items}` + 每 item 的 `{id, channel, post, type, canDel}` 外层键集由 `tests/todo_assembly_test.rs` +
 > `src/todo_tests.rs` 断言。`status≠SUCCESS/200` 或结构缺失 → 空 `items` 仍 emit（前端无害刷新，不挂起）。
 
-### 1.5 成员族 render-ready 渲染通道（**不计入** 22 投影集 · issue #56 S7·C013 纯渲染壳）
+### 1.5 成员族 render-ready 渲染通道（**不计入** 23 投影集 · issue #56 S7·C013 纯渲染壳）
 
 `im:channel:members` 是把**成员渲染整形**（`role→admin` 业务规则 + 四源/byIds 解析重组）从渲染壳下沉
 helix-im 后**额外**emit 的 render-ready 渲染通道——前端 `applyChannelMembers` 退化为**纯绑定**（按 `memberId`
@@ -198,7 +200,7 @@ keyed upsert + `leaves` 删行，零 extract / 零 role 判 / 零四源合并）
 > 已是 keyed 单行 upsert·纯绑定·不经本通道——helix 该 WS 帧无全量名册可吐）。
 > 内核自驱（无 req_id，非前端 bridge 发起）故独立 `CorrelationContext::TodoQuery`（区别 §1.2 透传 `OutboundReadReply`）。
 
-### 1.6 回复族 render-ready 渲染通道（**不计入** 22 投影集 · issue #57 S8·C013 纯渲染壳·终局切）
+### 1.6 回复族 render-ready 渲染通道（**不计入** 23 投影集 · issue #57 S8·C013 纯渲染壳·终局切）
 
 `im:channel:replies` 是把**回复链 postId 抽取**（`getReplies`/`getReplyBranch` 透传 body 的 `rootPost`/
 `replies`/`data`/`list` 探针 + 去重保序）从渲染壳下沉 helix-im 后**额外**emit 的 render-ready 渲染通道——
@@ -220,13 +222,14 @@ postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义�
 
 ---
 
-## 2. message-row fat vs channel-row thin vs 透传类（前端如何消费 · spec06 FixB 重写）
+## 2. message-row fat vs channel-row patch vs 透传类（前端如何消费 · spec06 FixB 重写）
 
 > **spec06 缺陷B 修复（用户拍板）**：原 §2 把所有 `im:post:*`/`im:channel:*` 信号一律设计成「三键瘦信号 +
 > 前端按 id 回读本地 DB」——但 message-row 事件 helix **写完那行时数据就在手**（同一份 `PostFields` 正落库），
 > 却只吐个信号逼前端二次查库（N 个渲染组件各查一次 = N 次冗余 DB 读）= **蠢代码**。修复：**message-row 信号
 > 一次吐完整可渲染行（fat），UI 直渲零回读**。原「瘦信号防塞半份」的顾虑是针对「**部分**数据」——吐**完整**
-> 数据无覆盖问题，顾虑自解。**但 channel-row 信号留瘦**（理由见下，hot-path 回读铁律）。
+> 数据无覆盖问题，顾虑自解。channel-row 的完整 DialogItem 仍不允许每事件回读；新消息路径改为吐
+> **单会话 patch**（在手 last_post/unreadDelta），UI 合并到已有会话行。
 
 helix emit 分三类，决定前端「拿到事件后做什么」：
 
@@ -250,19 +253,20 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 > 完整字段 → 前端拿不到 = 回退「半份回读」蠢模式 → 测试 fail（`projection_schema_test` 注入缺字段证伪）。
 > 与旧契约相反：旧契约「多一字段即漂移」，新契约「**少一字段即漂移**」（完整才是正解）。
 
-### channel-row thin 类（留瘦三键/单键，前端 debounced 回读累计 DB 行）
+### channel-row patch 类（热路径单会话增量，禁止整表 dialogList 刷新）
 
-`im:channel:update`（`{channel_id}`）/ `im:channel:update-by-post`（`{channel_id, event_seq, msg_id}`）。
+`im:channel:changed`（`{channel_id, channelId, id, event_seq, msg_id, reason, patch}`）是发消息 / sync type1
+的主渲染信号；`im:channel:update-by-post`（`{channel_id, event_seq, msg_id}`）保留给旧消费方兼容。
+`im:channel:update`（`{channel_id}`）仍用于批次结束 / 群属性变更等控制类刷新触发。
 
-这些事件的渲染对象是 **DialogItem（channel 行，~50 列：unreadCount/lastPost/mentionCount/…）**——它是
-**跨多帧 `increment_channel` 累计 + `lastPost` join 出的 DB 行**，emit 时**不在手**（是 channel 表 patch 的
-*结果*，非单事件载荷）。**故意留瘦**：
+完整 DialogItem（channel 行，~50 列：unreadCount/lastPost/mentionCount/…）是**跨多帧 `increment_channel`
+累计 + 本地列 shaping 的 DB 行**，不允许在每条消息热路径上为它回读 SQLite。但新消息路径已经在手有
+`PostChannelUpdate`：`last_post` / `last_root_post_at` / `unread_delta` / `unread_post_id` / `has_schedule_post`。
+因此 `im:channel:changed` 吐的是**单会话 patch**，不是完整行：UI 用 `channelId/id` 定位已有行，只更新
+`lastMessage`、`lastPost`、`lastRootPostAt`、`unreadDelta` 等字段。
 
-> 🔴 **为何不 fat（SPEC §2 热路径回读铁律 line68-75）**：fat 化 channel-row 必须 server 端回读 channel 行。
-> 而 `update-by-post`（sync type1）/ `increment_channel`(end) 是**每事件命中的热路径**——每事件回读 =
-> 「前端 N 次回查」搬成「helix 每事件回读」，**性能问题没消除只换地方，还碰 HX-C005**。判据（SPEC §2 边界
-> line87-89）：该事件渲染需「累计 DB 行」且在热路径 → **留瘦**。前端按 `channel_id` 在 **batch 结束**
-> （`increment_channel_end` debounced，**非每消息**）回读一次 dialogList 行刷 badge = **低频**回读（可接受）。
+> 🔴 **HX-C005 守约**：`im:channel:changed` 不发 Storage Scan，不重组完整 DialogItem；它只序列化写入时在手的
+> `PostChannelUpdate`。完整 `im:channels:projection` 仍只用于显式 `im_query_dialog_list` / 冷启动 / 进入会话列表页。
 
 ### 透传/投影类（携完整 wire 数据或 DB 行，前端直接消费）
 
@@ -287,7 +291,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 | DialogItem 字段 | helix 供给路径 | 备注 |
 |---|---|---|
 | `id` `displayName` `type` `teamId` | `channel` 表列（patch.rs 写）→ dialogList 读 | wire camelCase → DB snake（§4）|
-| `unreadCount` `mentionCount` `mentionCountRoot` | `channel` 表列 + `im:channel:update*` 信号触发回读 | **禁前端算**：权威在 DB 列 |
+| `unreadCount` `mentionCount` `mentionCountRoot` | `channel` 表列 + `im:channel:changed.patch.unreadDelta` 增量 | **禁前端重算业务规则**：增量由 helix 给出 |
 | `unreadPostId` | `channel.unread_post_id` 列（patch.rs:32）| ⚠️ 命名陷阱见 §6（前端 `unReadPostId` 大写R 与声明 `unreadPostId` 并存）|
 | `lastPost` `lastPostAt` `lastRootPostAt` | `channel` 表列（patch.rs）| `lastPost` 整对象进单列 |
 | `hasUrgentPost` `hasSchedulePost` `urgentPostList` | `channel` 表列 + `im:channel:schedule-*` 信号 | bool/json 列 |
@@ -311,7 +315,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 
 ## 4. DB 列对齐（patch.rs wire→column，供前端回读理解）
 
-`im:channel:update*` 信号触发前端回读的 `channel` 行，列名由 helix-im `channel_write/patch.rs`
+显式 `im_query_dialog_list` / 兼容回读拿到的 `channel` 行，列名由 helix-im `channel_write/patch.rs`
 的 wire→column 映射决定（前端 dialogList 读时按 DB 列名拿，driver codec 序列化 rows→JSON）。
 **冻结点 = patch.rs 的 STR_MAP/INT_MAP/BOOL_MAP/JSON_MAP**（已有 `channel_write_program_test.rs`
 + `patch.rs` 单测守，本文档不重复断言，仅索引）。关键陷阱列：
@@ -337,11 +341,12 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 
 ```
 im:post:received        → POST handler（**fat 直渲** message_item_data，零回读·spec06 FixB）
-im:channel:update       → UPDATE_CHANNEL handler（thin·按 channel_id batch 结束回读 dialogList 刷 badge）
+im:channel:changed      → CHANNEL handler（按 channelId/id 合并单会话 patch；发消息不刷整表 dialogList）
+im:channel:update       → UPDATE_CHANNEL handler（thin·兼容/控制信号；不作为每消息全量列表刷新依据）
 im:messages:query_result→ 投影 handler（直接渲染 `{channel_id, messages:[...]}`，不走 `{items:[]}` 解包）
 im:channels:projection  → 会话列表 handler（直接渲染 dialogList，前端零计算 unread/badge·UC-3）
 im:sync:too_long        → onRustTooLong（按 channelId 清内存 buffer + cursor=resetTo-1）
-...（其余 16 channel 同理；message-row 信号 fat 直渲 / channel-row 信号 thin 低频回读）
+...（其余 channel 同理；message-row 信号 fat 直渲 / channel-row 新消息走 patch）
 ```
 
 **任何一条 channel 的 data 键集若与本表不符 → 前端对应 handler 拿不到期望字段 → 渲染破功**。

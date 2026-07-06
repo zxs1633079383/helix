@@ -10,7 +10,8 @@
 use bytes::Bytes;
 
 use helix_core::effect::{
-    Correlation, DomainEventBytes, Effect, HttpRequest, StorageOp, TimerId, TransportId,
+    Correlation, DomainEventBytes, Effect, FileUploadRequest, HttpRequest, StorageOp, TimerId,
+    TransportId,
 };
 
 /// `Effect` 的 owned 镜像：脱离 `shell.scratch` 借用后承载到 async 兑现阶段。
@@ -29,6 +30,10 @@ pub enum OwnedEffect {
     Http {
         corr: Correlation,
         req: HttpRequest,
+    },
+    UploadFile {
+        corr: Correlation,
+        req: FileUploadRequest,
     },
     HttpFire {
         req: HttpRequest,
@@ -68,6 +73,10 @@ pub fn consume_effects(effects: &[Effect]) -> Vec<OwnedEffect> {
             },
             Effect::PersistFire { ops } => OwnedEffect::PersistFire { ops: ops.clone() },
             Effect::Http { corr, req } => OwnedEffect::Http {
+                corr: *corr,
+                req: req.clone(),
+            },
+            Effect::UploadFile { corr, req } => OwnedEffect::UploadFile {
                 corr: *corr,
                 req: req.clone(),
             },

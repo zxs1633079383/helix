@@ -27,7 +27,8 @@ use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_native::{
     run_engine_loop_with_transports, AuthTokenRegistry, EngineConfig, HostNetworkConfig,
-    NativeEventSink, NativeHttp, NativeStorage, NativeTransport, SharedHttpClient, TransportTable,
+    NativeEventSink, NativeHttp, NativeStorage, NativeTransport, SharedFileUploader,
+    SharedHttpClient, TransportTable,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -248,6 +249,7 @@ async fn main() {
     let config = EngineConfig {
         storage,
         http,
+        uploader: SharedFileUploader::default(),
         event_sink,
         max_http_inflight,
     };

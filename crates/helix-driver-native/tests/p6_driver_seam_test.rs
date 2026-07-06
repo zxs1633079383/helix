@@ -84,6 +84,7 @@ async fn run_with(emit: Vec<&'static [u8]>, db: &str) -> (mpsc::Sender<Tick>, Na
     let config = EngineConfig {
         storage,
         http,
+        uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
         max_http_inflight: 8,
     };

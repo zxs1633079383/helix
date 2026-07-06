@@ -17,6 +17,7 @@ pub mod http;
 pub mod id;
 pub mod storage;
 pub mod transport;
+pub mod upload;
 
 pub use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
@@ -30,3 +31,4 @@ pub use http::HttpRequester;
 pub use id::{IdSource, Random};
 pub use storage::Storage;
 pub use transport::Transport;
+pub use upload::FileUploader;

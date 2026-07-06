@@ -136,6 +136,7 @@ async fn setup_engine() -> (
     let config = EngineConfig {
         storage,
         http,
+        uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
         max_http_inflight: 8,
     };

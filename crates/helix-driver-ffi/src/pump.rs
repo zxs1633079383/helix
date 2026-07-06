@@ -22,7 +22,7 @@ use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::engine::{self, EngineDeps, TransportTable};
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostStorage,
-    SharedHttpClient, SharedWsClient, TraceHooks,
+    SharedFileUploader, SharedHttpClient, SharedWsClient, TraceHooks,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -172,6 +172,7 @@ pub fn run(args: PumpArgs) {
         let deps = EngineDeps {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
+            uploader: Arc::new(SharedFileUploader::default()),
             event_sink,
             clock,
             trace: TraceHooks::noop().with_command_traces(args.command_traces),

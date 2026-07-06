@@ -1,6 +1,6 @@
 use helix_driver_ffi::api::{
-    FFI_OK, FFI_UNIMPLEMENTED, HelixHandle, helix_command, helix_create_with_network, helix_destroy,
-    helix_query, helix_query_free,
+    helix_command, helix_create_with_network, helix_destroy, helix_query, helix_query_free,
+    HelixHandle, FFI_OK, FFI_UNIMPLEMENTED,
 };
 use helix_driver_ffi::batch::decode_batch;
 use helix_driver_ffi::vtable::CppHostVtable;
@@ -39,8 +39,9 @@ fn create_recording_handle(recorder: &Recorder) -> *mut HelixHandle {
         ctx: recorder as *const Recorder as *mut std::ffi::c_void,
     };
     // SAFETY: input byte slices and callback vtable stay valid for the call.
-    let handle =
-        unsafe { helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable) };
+    let handle = unsafe {
+        helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable)
+    };
     assert!(!handle.is_null(), "create 应成功");
     handle
 }
@@ -113,7 +114,10 @@ fn wait_for_event(recorder: &Recorder, needle: &str) -> String {
         {
             return found;
         }
-        assert!(start.elapsed() < Duration::from_secs(3), "missing event {needle}");
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "missing event {needle}"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -127,8 +131,15 @@ fn mobile_im_send_alias_accepts_camelcase_payload_and_emits_sending() {
         br#"{"channelId":"01hq0000000000000000000000","temporaryId":"tmp-mobile-1","text":"hi","type":"TEXT"}"#;
 
     // SAFETY: handle is live and the input buffers stay valid for this call.
-    let status =
-        unsafe { helix_command(handle, name.as_ptr(), name.len(), payload.as_ptr(), payload.len()) };
+    let status = unsafe {
+        helix_command(
+            handle,
+            name.as_ptr(),
+            name.len(),
+            payload.as_ptr(),
+            payload.len(),
+        )
+    };
     assert_eq!(status, FFI_OK);
 
     let event = wait_for_event(&recorder, "im:post:sending");
@@ -172,14 +183,16 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
     assert_eq!(json["abi"], 1);
     assert_eq!(json["bus"], "im:__bus__");
     assert_eq!(json["features"]["pendingSendTimeoutUnsend"], true);
-    assert!(json["commands"].as_array().unwrap().iter().any(|v| v == "im_send"));
+    assert!(json["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "im_send"));
     let queries = json["queries"].as_array().unwrap();
     assert!(queries.iter().any(|v| v == "helix_capabilities"));
     assert!(queries.iter().any(|v| v == "helix_version"));
     assert!(queries.iter().any(|v| v == "im_query_dialog_list"));
-    assert!(queries
-        .iter()
-        .any(|v| v == "im_query_messages_by_channel"));
+    assert!(queries.iter().any(|v| v == "im_query_messages_by_channel"));
     assert!(!json["events"]
         .as_array()
         .unwrap()

@@ -1,5 +1,6 @@
 //! Shared host driver pieces for PC Tauri and Flutter FFI.
 
+pub mod batch_sink;
 pub mod codec;
 pub mod dispatch;
 pub mod engine;
@@ -16,8 +17,9 @@ pub mod timer;
 pub mod trace;
 pub mod upsert_sql;
 
+pub use batch_sink::BatchSink;
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
-pub use engine::{run_engine_loop, BatchSink, EngineDeps, TransportTable};
+pub use engine::{run_engine_loop, EngineDeps, TransportTable};
 pub use http_cross::{
     AuthTokenRegistry, CrossCuttingHttp, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE,
 };

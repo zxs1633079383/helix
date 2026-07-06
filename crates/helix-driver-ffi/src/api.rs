@@ -361,6 +361,7 @@ pub unsafe extern "C" fn helix_command(
         Ok(s) => s,
         Err(code) => return code,
     };
+    // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
     let cmd = match build_app_command(public_name, payload_vec) {
         Ok(cmd) => cmd,
@@ -413,6 +414,7 @@ pub unsafe extern "C" fn helix_command_with_trace(
             return FFI_INVALID;
         }
     };
+    // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
     let cmd = match build_app_command(public_name, payload_vec) {
         Ok(cmd) => cmd,
@@ -651,3 +653,7 @@ unsafe fn ffi_payload_to_vec(ptr: *const u8, len: usize) -> Vec<u8> {
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "api_e2e_tests.rs"]
+mod e2e_tests;

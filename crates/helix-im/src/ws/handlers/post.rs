@@ -64,30 +64,15 @@ impl WsMessageHandler for PostHandler {
         // 「乱序自端 echo」无需依赖额外假设。重复/旧消息（seq<=cursor）由 gate dup-drop 不 apply →
         // 不发；GuardedBump 守卫（create_at > last_root_post_at）再兜底幂等。
         let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
-        let post_channel_update = parse_post_data(frame).map(|data| {
-            crate::channel_write::post_updates(
-                ev.channel_id,
-                data,
-                ctx.auth_user_id,
-                ev.fields.create_at,
-            )
-        });
+        let post_channel_update =
+            super::post_channel_change::post_channel_update(frame, &ev, ctx.auth_user_id);
         let unread_bump = if is_echo {
             None
         } else {
             post_channel_update.clone()
         };
         let echo_channel_change = if is_echo {
-            post_channel_update.map(|mut upd| {
-                upd.unread_delta = 0;
-                upd.unread_post_id = None;
-                let msg_id = ev
-                    .msg_id
-                    .as_deref()
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or(ev.fields.id.as_str());
-                crate::acl::to_effect::emit_channel_changed_by_post(&upd, ev.seq.0, msg_id)
-            })
+            super::post_channel_change::echo_channel_change_effect(post_channel_update, &ev)
         } else {
             None
         };
@@ -218,15 +203,6 @@ fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
         .map(str::to_string);
 
     Some(EventEnvelope::new(channel_id, seq, EventKind::PostUpsert, fields).with_msg_id(msg_id))
-}
-
-/// 取 `post` 帧的 post 数据子树（path3 谓词用：type/viewers/isSchedule/userId/postId）。
-///
-/// 与 `parse_post_frame` 同源探查：post 字段可能在 `data.post` 子对象或 `data` 顶层。
-/// 缺 data → None（边界零信任，path3 写跳过；message 落库仍走 ingest）。
-fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
-    let data = frame.data()?;
-    Some(data.get("post").unwrap_or(data))
 }
 
 /// 真实 Go 的部分 post-like 回声（如 createPosts/relay）可能不携带 event_seq。移动端仍需要

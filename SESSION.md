@@ -6,6 +6,10 @@
 
 ## §0 终态记录
 
+🎯 EXPECT rich/file 消息上传发送设计 spec（只写文档，不改实现）@2026-07-06T16:06:36+0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① 新增 `docs/superpowers/specs/2026-07-06-rich-file-message-upload-design.md`；② 不修改 `crates/**/src/**`；③ spec 明确 Post 四态不扩展、文件上传状态仅在 props 内、driver 不改库、helix-im 负责编排；④ `git diff --name-only` 仅含 SESSION.md + 该 spec（忽略既有未跟踪目录）。
+✅ DONE rich/file 消息上传发送设计 spec @2026-07-06T16:15:00+0800 | commit 本提交 | 新增 `docs/superpowers/specs/2026-07-06-rich-file-message-upload-design.md`，明确 rich/file 类型、props开放契约、Post四态不扩、UploadFile effect/driver边界、pending_uploads、重试/取消/限流与测试计划 | 未改 `crates/**/src/**` | 验证：spec 无 TBD/TODO/FIXME；`git diff --check` PASS；Rust源码diff空。
+
 🎯 EXPECT 多端 OTel 全链路 trace 实施计划：按已确认 spec 生成 `docs/superpowers/plans/2026-07-05-multiplatform-otel-trace.md`，拆成基础设施、Go、Helix host/driver、PC Tauri、移动 QuickJS/C++、端到端验收任务。可证伪断言：① plan 文件存在且以 Superpowers writing-plans 标准 header 开头；② 每个任务列出精确仓库路径、文件清单、接口产物、测试命令和提交边界；③ 计划明确配置主路径仍是 JSON/YAML/Consul，不以环境变量作为 trace 开关真源；④ 计划明确 `helix-core` 不引入 OTel 依赖；⑤ 本轮只改计划/SESSION，不改四仓业务实现源码、不新增依赖、不启动服务。@2026-07-05T18:33:13+0800 | 赌注 中 | 可逆 是
 ✅ DONE 多端 OTel 全链路 trace 实施计划 @2026-07-05T18:39:56+0800 | commit c8c6e46..HEAD | 1/1 plan | 新增 `docs/superpowers/plans/2026-07-05-multiplatform-otel-trace.md`（1783 行），按基础设施→Go→Helix→PC Tauri→移动 QuickJS/C++→E2E gate→静态 gate 拆 8 个任务，列明文件、接口、测试命令和提交边界 | 本轮只改计划/SESSION，未改四仓业务实现源码、未新增依赖、未启动服务 | codex/mobile-real-chain-ws
 🎯 EXPECT 多端 OTel 全链路 trace 设计 SPEC：按 superpowers brainstorming 定稿，沉淀 PC Tauri / mobile QuickJS+C++ / helix / cses-im-server 的 OpenTelemetry 全量接入方案。可证伪断言：① 新增 `docs/superpowers/specs/2026-07-05-multiplatform-otel-trace-design.md`；② spec 明确本地 OTel Collector + Jaeger 拓扑、W3C traceparent/baggage 传播、HTTP/WS/Tauri invoke/FFI command carrier；③ spec 明确配置主路径不用环境变量，分别落 `helix.config.yaml`、loopforge `config/*.json`、mobile `config/mobile-local.json`、cses-im-server `config.yaml + Consul KV`；④ spec 覆盖 helix http/ws/event/core/storage、Go http/ws/function boundary、PC Tauri、移动 QuickJS/C++ 的 span 矩阵和首条 `im.send` 验收链；⑤ 本轮不改 Rust/Go/C++/TS 实现源码、不新增依赖、不启动服务。@2026-07-05T18:20:00+0800 | 赌注 中 | 可逆 是

@@ -2,8 +2,7 @@ mod common;
 
 use bytes::Bytes;
 use common::{
-    cid, command_json, port_reply_ok, port_reply_with_body, send_message_cmd_json, timer_tick,
-    Harness,
+    cid, command_json, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness,
 };
 use helix_core::effect::{Effect, SqlValue, StorageOp, UpsertSpec};
 use helix_core::{EffectSink, Module, Tick};
@@ -141,15 +140,15 @@ fn persist_corr(h: &Harness) -> u64 {
         .expect("persist corr")
 }
 
-fn send_timer_id(h: &Harness) -> u64 {
+fn send_timer_ids(h: &Harness) -> Vec<u64> {
     h.sink
         .as_slice()
         .iter()
-        .find_map(|effect| match effect {
+        .filter_map(|effect| match effect {
             Effect::ScheduleTimer { id, .. } => Some(id.raw()),
             _ => None,
         })
-        .expect("send timer")
+        .collect()
 }
 
 fn posts_create_count(h: &Harness) -> usize {
@@ -242,6 +241,10 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
         0,
         "posts/create must wait for uploads"
     );
+    assert!(
+        send_timer_ids(&h).is_empty(),
+        "upload-gated initial step must not arm post timer"
+    );
 
     let spec = last_message_upsert(&h);
     let row = spec.rows.first().expect("message row");
@@ -293,12 +296,18 @@ fn rich_uploads_only_post_after_all_success() {
             _ => unreachable!(),
         },
     };
-    h.step(second_ok, 1030);
+    let final_effects = h.step(second_ok, 1030);
 
     assert_eq!(
         posts_create_count(&h),
         1,
         "all uploads success should emit one posts/create"
+    );
+    assert!(
+        final_effects
+            .iter()
+            .any(|effect| matches!(effect, common::EffectKind::ScheduleTimer(_))),
+        "last upload success should arm post timer in the same step"
     );
     let body = last_posts_create_body(&h);
     assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
@@ -394,7 +403,7 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
     assert_eq!(retry_props["frontendCustom"]["keep"], true);
 
     let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
-    h.step(
+    let final_effects = h.step(
         Tick::PortReply {
             corr: helix_core::Correlation::from_raw(retry_corr),
             outcome: match upload_reply("im/b.png", "https://cdn/b.png", "etag-b") {
@@ -409,6 +418,12 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
         posts_create_count(&h),
         1,
         "retry success should reuse upload reply flow and emit posts/create"
+    );
+    assert!(
+        final_effects
+            .iter()
+            .any(|effect| matches!(effect, common::EffectKind::ScheduleTimer(_))),
+        "retry success should re-arm post timer with posts/create"
     );
     let body = last_posts_create_body(&h);
     assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
@@ -459,7 +474,7 @@ fn retry_failed_file_emits_one_upload_without_posts_create() {
     assert_eq!(retry_props["frontendCustom"]["keep"], true);
 
     let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
-    h.step(
+    let final_effects = h.step(
         Tick::PortReply {
             corr: helix_core::Correlation::from_raw(retry_corr),
             outcome: match upload_reply("im/doc.pdf", "https://cdn/doc.pdf", "etag-doc-retry") {
@@ -474,6 +489,12 @@ fn retry_failed_file_emits_one_upload_without_posts_create() {
         posts_create_count(&h),
         1,
         "retry success should reuse upload reply flow and emit posts/create"
+    );
+    assert!(
+        final_effects
+            .iter()
+            .any(|effect| matches!(effect, common::EffectKind::ScheduleTimer(_))),
+        "retry success should re-arm post timer with posts/create"
     );
     let body = last_posts_create_body(&h);
     assert_eq!(body["props"]["file"]["upload"]["status"], "success");
@@ -530,17 +551,19 @@ fn upload_failure_send_timer_does_not_mark_post_unsend() {
 
     h.step(rich_single_image_cmd("tmp-rich-fail-timer"), 1000);
     let p1 = persist_corr(&h);
-    let timer_id = send_timer_id(&h);
     let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
 
     h.step(port_reply_ok(p1), 1010);
     h.step(common::port_reply_err(upload_corr), 1020);
-    h.step(timer_tick(timer_id), 16_000);
 
     assert_eq!(
         h.module.pending_send_status("tmp-rich-fail-timer"),
         Some(SendStatus::Sending),
         "upload failure must remain separate from post send timeout"
+    );
+    assert!(
+        send_timer_ids(&h).is_empty(),
+        "upload phase must not arm post timer"
     );
     assert_no_unsend_persist_fire(&h);
 }
@@ -621,7 +644,6 @@ fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
 
         h.step(file_cmd(tmp_id), 1000);
         let p1 = persist_corr(&h);
-        let timer_id = send_timer_id(&h);
         let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
 
         h.step(port_reply_ok(p1), 1010);
@@ -644,13 +666,9 @@ fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
             Some(SendStatus::Sending),
             "failure must not map to UnSend: {tmp_id}"
         );
-
-        h.step(timer_tick(timer_id), 16_000);
-
-        assert_eq!(
-            h.module.pending_send_status(tmp_id),
-            Some(SendStatus::Sending),
-            "timer after failure must keep send state: {tmp_id}"
+        assert!(
+            send_timer_ids(&h).is_empty(),
+            "upload-gated failure path must not arm post timer: {tmp_id}"
         );
         assert_no_unsend_persist_fire(&h);
         if malformed {

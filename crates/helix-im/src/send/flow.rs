@@ -9,11 +9,13 @@ use serde_json::json;
 impl ImModule {
     /// 处理 im_send_message 命令（§4.5 发送链路）
     ///
-    /// 吐四个 Effect：
+    /// 固定先吐：
     /// 1. Persist{P1, 乐观落库 Sending}
-    /// 2. Http{H1, POST /posts/create}
-    /// 3. ScheduleTimer{T1, 15s}
-    /// 4. Emit(im:post:sending)
+    /// 2. Emit(im:post:sending)
+    ///
+    /// 普通文本会在同一步继续吐 `Http{H1, POST /posts/create}` + `ScheduleTimer{T1, 15s}`；
+    /// rich/file 若存在上传门控，则先吐若干 `UploadFile`，等最后一个上传成功并真正发
+    /// `posts/create` 时才 arm Post timer。
     pub(crate) fn handle_send_message(
         &mut self,
         payload: &[u8],
@@ -61,7 +63,8 @@ impl ImModule {
         let props_json = serde_json::to_string(&upload_plan.props)
             .map_err(|e| ImError::Serialize(e.to_string()))?;
 
-        // 分配 corr / timer
+        // 分配 corr / timer。timer 始终绑定这条 Post send，但 upload-gated 路径要等真正 emit
+        // `posts/create` 时才 arm；否则上传耗时会误写 `send_status=unsend`。
         let p1_corr = self.alloc_corr_internal();
         let t1_timer = self.alloc_timer();
 
@@ -75,11 +78,6 @@ impl ImModule {
                 msg_type.as_str(),
                 props_json,
             )],
-        });
-
-        out.push(Effect::ScheduleTimer {
-            id: t1_timer,
-            after_ms: self.config.send_timeout_ms,
         });
 
         // 4. Emit(im:post:sending)（render-ready 乐观行：text/type 由 helix 吐·壳直绑不取 pendingText）。
@@ -156,6 +154,21 @@ impl ImModule {
                 },
                 body: Some(bytes::Bytes::from(body_bytes)),
             },
+        });
+        let timeout_timer = self
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .map(|ps| ps.timeout_timer)
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "missing pending send while emitting posts/create: {}",
+                    temporary_id.0
+                ))
+            })?;
+        out.push(Effect::ScheduleTimer {
+            id: timeout_timer,
+            after_ms: self.config.send_timeout_ms,
         });
         crate::send_reconcile::register_outbound_send_http_corr(
             &mut self.state,

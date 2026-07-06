@@ -1,7 +1,7 @@
 use crate::error::ImError;
 use crate::module::ImModule;
 use crate::pending_send::PendingSend;
-use crate::state::{ChannelId, CorrelationContext, SendStatus, TemporaryId};
+use crate::state::{ChannelId, SendStatus, TemporaryId};
 use helix_core::effect::HttpRequest;
 use helix_core::{Effect, EffectSink};
 use serde_json::json;
@@ -58,8 +58,8 @@ impl ImModule {
 
         // 落库用的纯文本（与 body.message 同源：2000 截断后）。
         let persisted_text = body["message"].as_str().unwrap_or("").to_string();
-        let props_json =
-            serde_json::to_string(&upload_plan.props).map_err(|e| ImError::Serialize(e.to_string()))?;
+        let props_json = serde_json::to_string(&upload_plan.props)
+            .map_err(|e| ImError::Serialize(e.to_string()))?;
 
         // 分配 corr / timer
         let p1_corr = self.alloc_corr_internal();
@@ -103,11 +103,10 @@ impl ImModule {
             ps.remaining_uploads = upload_plan.targets.len();
         }
         self.state.pending_sends.insert(tmp_id.clone(), ps);
-        self.state.corr_map.insert(
+        crate::send_reconcile::register_optimistic_send_corr(
+            &mut self.state,
             p1_corr,
-            CorrelationContext::OptimisticSend {
-                temporary_id: tmp_id.clone(),
-            },
+            tmp_id.clone(),
         );
 
         if upload_plan.targets.is_empty() {
@@ -115,7 +114,8 @@ impl ImModule {
         } else {
             for target in upload_plan.targets {
                 let upload_corr = self.alloc_corr_internal();
-                let req = crate::send::upload_props::file_upload_request(&upload_plan.props, &target)?;
+                let req =
+                    crate::send::upload_props::file_upload_request(&upload_plan.props, &target)?;
                 self.state.pending_uploads.insert(
                     upload_corr,
                     crate::send::upload_props::PendingUpload {
@@ -141,8 +141,7 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let h1_corr = self.alloc_corr_internal();
-        let body_bytes =
-            serde_json::to_vec(body).map_err(|e| ImError::Serialize(e.to_string()))?;
+        let body_bytes = serde_json::to_vec(body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
             corr: h1_corr,
             req: HttpRequest {
@@ -158,12 +157,11 @@ impl ImModule {
                 body: Some(bytes::Bytes::from(body_bytes)),
             },
         });
-        self.state.corr_map.insert(
+        crate::send_reconcile::register_outbound_send_http_corr(
+            &mut self.state,
             h1_corr,
-            CorrelationContext::OutboundSendHttp {
-                channel_id,
-                temporary_id,
-            },
+            channel_id,
+            temporary_id,
         );
         Ok(())
     }

@@ -1,7 +1,9 @@
 mod common;
 
 use bytes::Bytes;
-use common::{cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness};
+use common::{
+    cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, timer_tick, Harness,
+};
 use helix_core::effect::{Effect, SqlValue, StorageOp, UpsertSpec};
 use helix_core::Tick;
 use helix_im::state::SendStatus;
@@ -102,6 +104,17 @@ fn persist_corr(h: &Harness) -> u64 {
         .expect("persist corr")
 }
 
+fn send_timer_id(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ScheduleTimer { id, .. } => Some(id.raw()),
+            _ => None,
+        })
+        .expect("send timer")
+}
+
 fn posts_create_count(h: &Harness) -> usize {
     h.sink
         .as_slice()
@@ -134,22 +147,23 @@ fn last_message_upsert(h: &Harness) -> UpsertSpec {
         .iter()
         .rev()
         .find_map(|effect| match effect {
-            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => ops.iter().find_map(|op| {
-                match op {
+            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
+                ops.iter().find_map(|op| match op {
                     StorageOp::BatchUpsert(spec) if spec.table == "message" => Some(spec.clone()),
                     _ => None,
-                }
-            }),
+                })
+            }
             _ => None,
         })
         .expect("message upsert")
 }
 
 fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
-    row.iter().find_map(|(column, value)| match (column.as_str(), value) {
-        (c, SqlValue::Text(text)) if c == key => Some(text.as_str()),
-        _ => None,
-    })
+    row.iter()
+        .find_map(|(column, value)| match (column.as_str(), value) {
+            (c, SqlValue::Text(text)) if c == key => Some(text.as_str()),
+            _ => None,
+        })
 }
 
 fn props_from_spec(spec: &UpsertSpec) -> Value {
@@ -163,8 +177,16 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
 
     let _effects = h.step(rich_two_image_cmd(), 1000);
 
-    assert_eq!(upload_effect_corrs(&h).len(), 2, "should emit two UploadFile effects");
-    assert_eq!(posts_create_count(&h), 0, "posts/create must wait for uploads");
+    assert_eq!(
+        upload_effect_corrs(&h).len(),
+        2,
+        "should emit two UploadFile effects"
+    );
+    assert_eq!(
+        posts_create_count(&h),
+        0,
+        "posts/create must wait for uploads"
+    );
 
     let spec = last_message_upsert(&h);
     let row = spec.rows.first().expect("message row");
@@ -173,7 +195,7 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
     assert_eq!(props["images"][0]["upload"]["status"], "uploading");
     assert_eq!(props["images"][1]["upload"]["status"], "uploading");
     assert_eq!(props["frontendCustom"]["keep"], true);
-  }
+}
 
 #[test]
 fn rich_uploads_only_post_after_all_success() {
@@ -199,7 +221,11 @@ fn rich_uploads_only_post_after_all_success() {
         },
     };
     h.step(first_ok, 1020);
-    assert_eq!(posts_create_count(&h), 0, "one upload success is not enough");
+    assert_eq!(
+        posts_create_count(&h),
+        0,
+        "one upload success is not enough"
+    );
     let first_props = props_from_spec(&last_message_upsert(&h));
     assert_eq!(first_props["images"][0]["upload"]["status"], "success");
     assert_eq!(first_props["images"][1]["upload"]["status"], "uploading");
@@ -214,7 +240,11 @@ fn rich_uploads_only_post_after_all_success() {
     };
     h.step(second_ok, 1030);
 
-    assert_eq!(posts_create_count(&h), 1, "all uploads success should emit one posts/create");
+    assert_eq!(
+        posts_create_count(&h),
+        1,
+        "all uploads success should emit one posts/create"
+    );
     let body = last_posts_create_body(&h);
     assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
     assert_eq!(body["props"]["images"][1]["upload"]["status"], "success");
@@ -239,7 +269,11 @@ fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
 
     h.step(common::port_reply_err(upload_corr), 1020);
 
-    assert_eq!(posts_create_count(&h), 0, "upload failure must not send posts/create");
+    assert_eq!(
+        posts_create_count(&h),
+        0,
+        "upload failure must not send posts/create"
+    );
     let props = props_from_spec(&last_message_upsert(&h));
     assert_eq!(props["images"][0]["upload"]["status"], "failed");
     assert_eq!(props["frontendCustom"]["keep"], true);
@@ -247,5 +281,40 @@ fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
         h.module.pending_send_status("tmp-rich-fail"),
         Some(SendStatus::Sending),
         "upload failure must not map to UnSend"
+    );
+}
+
+#[test]
+fn upload_failure_send_timer_does_not_mark_post_unsend() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(rich_single_image_cmd("tmp-rich-fail-timer"), 1000);
+    let p1 = persist_corr(&h);
+    let timer_id = send_timer_id(&h);
+    let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
+
+    h.step(port_reply_ok(p1), 1010);
+    h.step(common::port_reply_err(upload_corr), 1020);
+    h.step(timer_tick(timer_id), 16_000);
+
+    assert_eq!(
+        h.module.pending_send_status("tmp-rich-fail-timer"),
+        Some(SendStatus::Sending),
+        "upload failure must remain separate from post send timeout"
+    );
+    assert!(
+        h.sink.as_slice().iter().all(|effect| {
+            !matches!(
+                effect,
+                Effect::PersistFire { ops }
+                    if ops.iter().any(|op| match op {
+                        StorageOp::BatchUpsert(spec) if spec.table == "message" => spec.rows.iter().any(|row| {
+                            row_text(row, "send_status") == Some("unsend")
+                        }),
+                        _ => false,
+                    })
+            )
+        }),
+        "timer after upload failure must not persist send_status=unsend"
     );
 }

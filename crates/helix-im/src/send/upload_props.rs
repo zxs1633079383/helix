@@ -1,5 +1,5 @@
-use crate::ImError;
 use crate::state::TemporaryId;
+use crate::ImError;
 use helix_core::effect::FileUploadRequest;
 use serde_json::{json, Value};
 
@@ -168,7 +168,10 @@ pub fn mark_upload_failed(
     Ok(())
 }
 
-pub fn file_upload_request(props: &Value, target: &UploadTarget) -> Result<FileUploadRequest, ImError> {
+pub fn file_upload_request(
+    props: &Value,
+    target: &UploadTarget,
+) -> Result<FileUploadRequest, ImError> {
     let node = target_node(props, target)?;
     let upload = node
         .get("upload")

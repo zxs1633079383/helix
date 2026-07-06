@@ -331,13 +331,23 @@ impl ImModule {
     ) -> Result<(), ImError> {
         let persist_corr = self.alloc_corr_internal();
         let mut ready_body = None;
-        if let Some(ps) = self.state.pending_sends.get_mut(&pending_upload.temporary_id) {
+        if let Some(ps) = self
+            .state
+            .pending_sends
+            .get_mut(&pending_upload.temporary_id)
+        {
             let Some(body) = ps.body.as_mut() else {
-                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload success without cached send body");
+                tracing::warn!(
+                    tmp_id = pending_upload.temporary_id.0.as_str(),
+                    "upload success without cached send body"
+                );
                 return Ok(());
             };
             let Some(props) = body.get_mut("props") else {
-                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload success without props");
+                tracing::warn!(
+                    tmp_id = pending_upload.temporary_id.0.as_str(),
+                    "upload success without props"
+                );
                 return Ok(());
             };
             crate::send::upload_props::mark_upload_success(props, &pending_upload.target, success)?;
@@ -377,14 +387,24 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let persist_corr = self.alloc_corr_internal();
-        if let Some(ps) = self.state.pending_sends.get_mut(&pending_upload.temporary_id) {
+        if let Some(ps) = self
+            .state
+            .pending_sends
+            .get_mut(&pending_upload.temporary_id)
+        {
             ps.upload_failed = true;
             let Some(body) = ps.body.as_mut() else {
-                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload failure without cached send body");
+                tracing::warn!(
+                    tmp_id = pending_upload.temporary_id.0.as_str(),
+                    "upload failure without cached send body"
+                );
                 return Ok(());
             };
             let Some(props) = body.get_mut("props") else {
-                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload failure without props");
+                tracing::warn!(
+                    tmp_id = pending_upload.temporary_id.0.as_str(),
+                    "upload failure without props"
+                );
                 return Ok(());
             };
             crate::send::upload_props::mark_upload_failed(props, &pending_upload.target, error)?;

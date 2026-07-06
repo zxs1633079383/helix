@@ -138,7 +138,7 @@ pub fn mark_upload_success(
 pub fn mark_upload_failed(
     props: &mut Value,
     target: &UploadTarget,
-    error: &str,
+    _error: &str,
 ) -> Result<(), ImError> {
     let node = target_node_mut(props, target)?;
     let upload = node
@@ -146,7 +146,6 @@ pub fn mark_upload_failed(
         .and_then(Value::as_object_mut)
         .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?;
     upload.insert("status".to_string(), json!("failed"));
-    upload.insert("error".to_string(), json!(error));
     Ok(())
 }
 
@@ -200,11 +199,47 @@ mod tests {
         let err = build_upload_plan(
             "rich",
             "hello",
-            json!({"textPosition":"top","images":[],"file":{"localPath":"/tmp/a.pdf"}}),
+            json!({
+                "textPosition":"top",
+                "images":[
+                    {
+                        "localPath":"/tmp/a.png",
+                        "upload":{"method":"PUT","url":"https://upload","headers":{},"objectKey":"im/a.png"}
+                    }
+                ],
+                "file":{"localPath":"/tmp/a.pdf"}
+            }),
         )
         .unwrap_err();
 
         assert!(err.to_string().contains("rich"));
+    }
+
+    #[test]
+    fn mark_failed_updates_only_target_upload_node() {
+        let mut props = json!({
+            "textPosition":"bottom",
+            "images":[
+                {"localPath":"/tmp/a.png","upload":{"status":"uploading","objectKey":"im/a.png"}},
+                {"localPath":"/tmp/b.png","upload":{"status":"uploading","objectKey":"im/b.png"}}
+            ],
+            "file":{"localPath":"/tmp/doc.pdf","upload":{"status":"uploading","objectKey":"im/doc.pdf"}},
+            "frontendCustom":{"keep":true}
+        });
+
+        mark_upload_failed(
+            &mut props,
+            &UploadTarget::RichImage { index: 0 },
+            "timeout",
+        )
+        .expect("failed mutation");
+
+        assert_eq!(props["images"][0]["upload"]["status"], "failed");
+        assert!(props["images"][0]["upload"].get("error").is_none());
+        assert_eq!(props["images"][1]["upload"]["status"], "uploading");
+        assert_eq!(props["file"]["upload"]["status"], "uploading");
+        assert_eq!(props["frontendCustom"]["keep"], true);
+        assert_eq!(props["images"][1]["upload"]["objectKey"], "im/b.png");
     }
 
     #[test]

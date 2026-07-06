@@ -195,7 +195,10 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
     )
     .await;
 
-    let reply = reply_rx.recv().await.expect("upload should emit a PortReply");
+    let reply = reply_rx
+        .recv()
+        .await
+        .expect("upload should emit a PortReply");
 
     upload_pool.shutdown().await;
     http_pool.shutdown().await;

@@ -286,6 +286,13 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                "im_retry_upload" => {
+                    crate::send::retry_upload::handle_retry_upload(self, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 // 连接控制（04 文档表 B `IMWS:reconnect`）：helix-im 是 sans-IO，不持 transport——
                 // 只 emit `im:net:reconnect_requested` 控制信号，由 driver 观察后重连 NativeTransport
                 // （连接生命周期归 driver）。payload 无须解析（无参控制信号）。

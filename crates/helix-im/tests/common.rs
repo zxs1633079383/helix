@@ -253,6 +253,13 @@ pub fn send_message_cmd_json(payload: serde_json::Value) -> Tick {
     Tick::Command(AppCommand::new("im_send_message", bytes))
 }
 
+/// 构造任意命令 Tick（retry/upload 等非 send 命令）。
+#[allow(dead_code)]
+pub fn command_json(name: &'static str, payload: serde_json::Value) -> Tick {
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    Tick::Command(AppCommand::new(name, bytes))
+}
+
 /// 构造 PortReply Ok，带自定义 ReplyBytes（用于 scan / sync 回报）
 #[allow(dead_code)]
 pub fn port_reply_with_body(corr_raw: u64, body: bytes::Bytes) -> Tick {

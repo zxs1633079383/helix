@@ -2,10 +2,11 @@ mod common;
 
 use bytes::Bytes;
 use common::{
-    cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, timer_tick, Harness,
+    cid, command_json, port_reply_ok, port_reply_with_body, send_message_cmd_json, timer_tick,
+    Harness,
 };
 use helix_core::effect::{Effect, SqlValue, StorageOp, UpsertSpec};
-use helix_core::Tick;
+use helix_core::{EffectSink, Module, Tick};
 use helix_im::state::SendStatus;
 use serde_json::{json, Value};
 
@@ -115,6 +116,18 @@ fn upload_effect_corrs(h: &Harness) -> Vec<u64> {
             _ => None,
         })
         .collect()
+}
+
+fn last_upload_request(h: &Harness) -> helix_core::effect::FileUploadRequest {
+    h.sink
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|effect| match effect {
+            Effect::UploadFile { req, .. } => Some(req.clone()),
+            _ => None,
+        })
+        .expect("upload request")
 }
 
 fn persist_corr(h: &Harness) -> u64 {
@@ -327,6 +340,184 @@ fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
 }
 
 #[test]
+fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(rich_two_image_cmd(), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corrs = upload_effect_corrs(&h);
+
+    h.step(port_reply_ok(p1), 1010);
+    h.step(
+        Tick::PortReply {
+            corr: helix_core::Correlation::from_raw(upload_corrs[0]),
+            outcome: match upload_reply("im/a.png", "https://cdn/a.png", "etag-a") {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            },
+        },
+        1020,
+    );
+    h.step(common::port_reply_err(upload_corrs[1]), 1030);
+
+    let effects = h.step(
+        command_json(
+            "im_retry_upload",
+            json!({
+                "temporary_id": "tmp-rich-1",
+                "target": {"kind": "rich_image", "index": 1}
+            }),
+        ),
+        1040,
+    );
+
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, common::EffectKind::UploadFile(_)))
+            .count(),
+        1,
+        "retry must emit exactly one UploadFile"
+    );
+    assert_eq!(
+        posts_create_count(&h),
+        0,
+        "retry must not emit posts/create"
+    );
+    let req = last_upload_request(&h);
+    assert_eq!(req.local_path, "/tmp/b.png");
+    assert_eq!(req.object_key, "im/b.png");
+    assert_eq!(req.url, "https://upload/b");
+
+    let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
+    h.step(
+        Tick::PortReply {
+            corr: helix_core::Correlation::from_raw(retry_corr),
+            outcome: match upload_reply("im/b.png", "https://cdn/b.png", "etag-b") {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            },
+        },
+        1050,
+    );
+
+    assert_eq!(
+        posts_create_count(&h),
+        1,
+        "retry success should reuse upload reply flow and emit posts/create"
+    );
+    let body = last_posts_create_body(&h);
+    assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
+    assert_eq!(body["props"]["images"][1]["upload"]["status"], "success");
+}
+
+#[test]
+fn retry_failed_file_emits_one_upload_without_posts_create() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(file_cmd("tmp-file-retry"), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
+
+    h.step(port_reply_ok(p1), 1010);
+    h.step(common::port_reply_err(upload_corr), 1020);
+
+    let effects = h.step(
+        command_json(
+            "im_retry_upload",
+            json!({
+                "temporary_id": "tmp-file-retry",
+                "target": {"kind": "file"}
+            }),
+        ),
+        1030,
+    );
+
+    assert_eq!(
+        effects
+            .iter()
+            .filter(|effect| matches!(effect, common::EffectKind::UploadFile(_)))
+            .count(),
+        1,
+        "retry must emit exactly one UploadFile"
+    );
+    assert_eq!(
+        posts_create_count(&h),
+        0,
+        "retry must not emit posts/create"
+    );
+    let req = last_upload_request(&h);
+    assert_eq!(req.local_path, "/tmp/doc.pdf");
+    assert_eq!(req.object_key, "im/doc.pdf");
+    assert_eq!(req.url, "https://upload/doc");
+
+    let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
+    h.step(
+        Tick::PortReply {
+            corr: helix_core::Correlation::from_raw(retry_corr),
+            outcome: match upload_reply("im/doc.pdf", "https://cdn/doc.pdf", "etag-doc-retry") {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            },
+        },
+        1040,
+    );
+
+    assert_eq!(
+        posts_create_count(&h),
+        1,
+        "retry success should reuse upload reply flow and emit posts/create"
+    );
+    let body = last_posts_create_body(&h);
+    assert_eq!(body["props"]["file"]["upload"]["status"], "success");
+    assert_eq!(body["props"]["file"]["upload"]["etag"], "etag-doc-retry");
+}
+
+#[test]
+fn retry_failed_target_requires_failed_status() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(rich_two_image_cmd(), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corrs = upload_effect_corrs(&h);
+
+    h.step(port_reply_ok(p1), 1010);
+    h.step(
+        Tick::PortReply {
+            corr: helix_core::Correlation::from_raw(upload_corrs[0]),
+            outcome: match upload_reply("im/a.png", "https://cdn/a.png", "etag-a") {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            },
+        },
+        1020,
+    );
+    h.step(common::port_reply_err(upload_corrs[1]), 1030);
+
+    let retry_success_target = command_json(
+        "im_retry_upload",
+        json!({
+            "temporary_id": "tmp-rich-1",
+            "target": {"kind": "rich_image", "index": 0}
+        }),
+    );
+    let mut out = EffectSink::new();
+    let err = h
+        .module
+        .handle(&retry_success_target, 1040, &mut out)
+        .expect_err("retrying success target must error");
+
+    assert!(
+        format!("{err}").contains("upload retry target is not failed"),
+        "unexpected error: {err}"
+    );
+    assert!(
+        out.as_slice().is_empty(),
+        "error path must not emit effects"
+    );
+}
+
+#[test]
 fn upload_failure_send_timer_does_not_mark_post_unsend() {
     let mut h = Harness::new(&[1]);
 
@@ -388,7 +579,11 @@ fn file_initial_step_uploads_then_posts_create_after_success_without_reply_objec
     let success_props = props_from_spec(&last_message_upsert(&h));
     assert_eq!(success_props["file"]["upload"]["status"], "success");
     assert_eq!(success_props["file"]["upload"]["objectKey"], "im/doc.pdf");
-    assert_eq!(posts_create_count(&h), 1, "success should emit posts/create");
+    assert_eq!(
+        posts_create_count(&h),
+        1,
+        "success should emit posts/create"
+    );
     let body = last_posts_create_body(&h);
     assert_eq!(body["type"], "file");
     assert_eq!(body["props"]["file"]["upload"]["status"], "success");
@@ -411,11 +606,7 @@ fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
                 },
             },
         ),
-        (
-            "tmp-file-err",
-            false,
-            common::port_reply_err(0),
-        ),
+        ("tmp-file-err", false, common::port_reply_err(0)),
     ];
 
     for (tmp_id, malformed, mut failure_tick) in cases {

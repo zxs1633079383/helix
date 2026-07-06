@@ -22,6 +22,7 @@ use bytes::Bytes;
 use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
+use helix_driver_host::trace::TRACE_CARRIER_JSON_MAX_BYTES;
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime,
     TraceCarrier, TraceDirection,
@@ -408,6 +409,14 @@ pub unsafe extern "C" fn helix_command_with_trace(
         Ok(s) => s,
         Err(code) => return code,
     };
+    if trace_json_len > TRACE_CARRIER_JSON_MAX_BYTES {
+        tracing::warn!(
+            trace_json_len,
+            max = TRACE_CARRIER_JSON_MAX_BYTES,
+            "trace sidecar rejected before copy"
+        );
+        return FFI_INVALID;
+    }
     // SAFETY: 同上。
     let trace_json = match unsafe { ffi_str(trace_json, trace_json_len) } {
         Ok(s) => s,

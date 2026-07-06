@@ -5,6 +5,7 @@ use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse};
 use helix_core::ports::{EventSink, HttpRequester};
 use helix_core::tick::AppCommand;
 use helix_core::{PortError, Tick};
+use helix_driver_host::trace::{TRACEPARENT_BYTES, TRACE_BAGGAGE_MAX_BYTES};
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, CrossCuttingHttp, HostOtelConfig, HostOtelRuntime,
     TraceCarrier, TraceDirection, TraceHooks,
@@ -120,4 +121,27 @@ async fn crosscutting_http_starts_outbound_http_span() {
         span.trace_id.as_deref(),
         Some("00000000000000000000000000000004")
     );
+}
+
+#[test]
+fn trace_headers_drop_malformed_and_oversized_fields() {
+    let malformed = vec![
+        (
+            "traceparent".to_string(),
+            "00-00000000000000000000000000000000-0000000000000001-01".to_string(),
+        ),
+        ("baggage".to_string(), "client=test".to_string()),
+    ];
+    let carrier = TraceCarrier::from_headers(&malformed).expect("valid baggage remains");
+    assert_eq!(carrier.traceparent, None);
+    assert_eq!(carrier.baggage.as_deref(), Some("client=test"));
+
+    let oversized = vec![
+        ("traceparent".to_string(), "0".repeat(TRACEPARENT_BYTES + 1)),
+        (
+            "baggage".to_string(),
+            "a".repeat(TRACE_BAGGAGE_MAX_BYTES + 1),
+        ),
+    ];
+    assert_eq!(TraceCarrier::from_headers(&oversized), None);
 }

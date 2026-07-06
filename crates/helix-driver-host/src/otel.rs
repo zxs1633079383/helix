@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::trace::TraceCarrier;
+use crate::trace::{parse_trace_id, TraceCarrier};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostOtelConfig {
@@ -121,15 +121,4 @@ fn env_flag(name: &str) -> bool {
             )
         })
         .unwrap_or(false)
-}
-
-fn parse_trace_id(traceparent: &str) -> Option<String> {
-    let mut parts = traceparent.split('-');
-    let _version = parts.next()?;
-    let trace_id = parts.next()?;
-    if trace_id.len() == 32 {
-        Some(trace_id.to_string())
-    } else {
-        None
-    }
 }

@@ -10,6 +10,10 @@ use crate::otel::{HostOtelRuntime, TraceDirection};
 use helix_core::effect::{Correlation, DomainEventBytes, HttpRequest, StorageOp, TransportId};
 use helix_core::Tick;
 
+pub const TRACE_CARRIER_JSON_MAX_BYTES: usize = 16 * 1024;
+pub const TRACEPARENT_BYTES: usize = 55;
+pub const TRACE_BAGGAGE_MAX_BYTES: usize = 8 * 1024;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TraceCarrier {
     pub traceparent: Option<String>,
@@ -19,11 +23,41 @@ pub struct TraceCarrier {
 
 impl TraceCarrier {
     pub fn from_json_str(raw: &str) -> Result<Self, TraceCarrierError> {
+        if raw.len() > TRACE_CARRIER_JSON_MAX_BYTES {
+            return Err(TraceCarrierError::TooLarge {
+                field: "trace_json",
+                max: TRACE_CARRIER_JSON_MAX_BYTES,
+                actual: raw.len(),
+            });
+        }
         let wire: TraceCarrierWire =
             serde_json::from_str(raw).map_err(|e| TraceCarrierError::Parse(e.to_string()))?;
+        let traceparent = match wire.traceparent.filter(|v| !v.is_empty()) {
+            Some(value) if value.len() > TRACEPARENT_BYTES => {
+                return Err(TraceCarrierError::TooLarge {
+                    field: "traceparent",
+                    max: TRACEPARENT_BYTES,
+                    actual: value.len(),
+                });
+            }
+            Some(value) if parse_trace_id(&value).is_none() => {
+                return Err(TraceCarrierError::InvalidTraceparent);
+            }
+            value => value,
+        };
+        let baggage = match wire.baggage.filter(|v| !v.is_empty()) {
+            Some(value) if value.len() > TRACE_BAGGAGE_MAX_BYTES => {
+                return Err(TraceCarrierError::TooLarge {
+                    field: "baggage",
+                    max: TRACE_BAGGAGE_MAX_BYTES,
+                    actual: value.len(),
+                });
+            }
+            value => value,
+        };
         Ok(Self {
-            traceparent: wire.traceparent.filter(|v| !v.is_empty()),
-            baggage: wire.baggage.filter(|v| !v.is_empty()),
+            traceparent,
+            baggage,
             raw_json: Some(raw.to_string()),
         })
     }
@@ -32,13 +66,11 @@ impl TraceCarrier {
         let traceparent = headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("traceparent"))
-            .map(|(_, value)| value.clone())
-            .filter(|value| !value.is_empty());
+            .and_then(|(_, value)| bounded_traceparent(value));
         let baggage = headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("baggage"))
-            .map(|(_, value)| value.clone())
-            .filter(|value| !value.is_empty());
+            .and_then(|(_, value)| bounded_baggage(value));
 
         if traceparent.is_none() && baggage.is_none() {
             return None;
@@ -56,6 +88,14 @@ impl TraceCarrier {
 pub enum TraceCarrierError {
     #[error("trace sidecar JSON parse failed: {0}")]
     Parse(String),
+    #[error("{field} exceeds {max} bytes: {actual}")]
+    TooLarge {
+        field: &'static str,
+        max: usize,
+        actual: usize,
+    },
+    #[error("traceparent is not valid W3C version 00 format")]
+    InvalidTraceparent,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,6 +104,56 @@ struct TraceCarrierWire {
     traceparent: Option<String>,
     #[serde(default)]
     baggage: Option<String>,
+}
+
+pub(crate) fn parse_trace_id(traceparent: &str) -> Option<String> {
+    if !is_valid_w3c_traceparent(traceparent) {
+        return None;
+    }
+    Some(traceparent[3..35].to_string())
+}
+
+fn bounded_traceparent(value: &str) -> Option<String> {
+    if value.len() > TRACEPARENT_BYTES || parse_trace_id(value).is_none() {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn bounded_baggage(value: &str) -> Option<String> {
+    if value.is_empty() || value.len() > TRACE_BAGGAGE_MAX_BYTES {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn is_valid_w3c_traceparent(value: &str) -> bool {
+    if value.len() != TRACEPARENT_BYTES {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    if &bytes[0..2] != b"00" || bytes[2] != b'-' || bytes[35] != b'-' || bytes[52] != b'-' {
+        return false;
+    }
+
+    let trace_id = &value[3..35];
+    let parent_id = &value[36..52];
+    let flags = &value[53..55];
+    all_lower_hex(trace_id)
+        && all_lower_hex(parent_id)
+        && all_lower_hex(flags)
+        && !all_zero(trace_id)
+        && !all_zero(parent_id)
+}
+
+fn all_lower_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn all_zero(value: &str) -> bool {
+    value.bytes().all(|b| b == b'0')
 }
 
 #[derive(Clone, Debug, Default)]
@@ -260,11 +350,94 @@ mod tests {
     }
 
     #[test]
+    fn trace_carrier_rejects_invalid_w3c_traceparent_json() {
+        for traceparent in [
+            "00-1-2-01",
+            "00-00000000000000000000000000000000-0000000000000001-01",
+            "00-00000000000000000000000000000001-0000000000000000-01",
+            "00-0000000000000000000000000000000A-0000000000000002-01",
+        ] {
+            let raw = format!(r#"{{"traceparent":"{traceparent}"}}"#);
+            assert!(
+                matches!(
+                    TraceCarrier::from_json_str(&raw),
+                    Err(TraceCarrierError::InvalidTraceparent)
+                ),
+                "{traceparent} should be rejected"
+            );
+        }
+
+        let extra_segment =
+            r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01-extra"}"#;
+        assert!(matches!(
+            TraceCarrier::from_json_str(extra_segment),
+            Err(TraceCarrierError::TooLarge {
+                field: "traceparent",
+                ..
+            })
+        ));
+        assert!(
+            parse_trace_id("00-00000000000000000000000000000001-0000000000000002-01-extra")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn trace_carrier_enforces_json_and_baggage_bounds() {
+        let oversized_json = "x".repeat(TRACE_CARRIER_JSON_MAX_BYTES + 1);
+        assert!(matches!(
+            TraceCarrier::from_json_str(&oversized_json),
+            Err(TraceCarrierError::TooLarge {
+                field: "trace_json",
+                ..
+            })
+        ));
+
+        let raw = format!(
+            r#"{{"baggage":"{}"}}"#,
+            "a".repeat(TRACE_BAGGAGE_MAX_BYTES + 1)
+        );
+        assert!(matches!(
+            TraceCarrier::from_json_str(&raw),
+            Err(TraceCarrierError::TooLarge {
+                field: "baggage",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn trace_carrier_drops_invalid_or_oversized_headers() {
+        let headers = vec![
+            (
+                "traceparent".to_string(),
+                "00-00000000000000000000000000000000-0000000000000001-01".to_string(),
+            ),
+            ("baggage".to_string(), "tenant=im".to_string()),
+        ];
+        let carrier = TraceCarrier::from_headers(&headers).expect("baggage survives");
+        assert_eq!(carrier.traceparent, None);
+        assert_eq!(carrier.baggage.as_deref(), Some("tenant=im"));
+
+        let oversized = vec![
+            ("traceparent".to_string(), "0".repeat(TRACEPARENT_BYTES + 1)),
+            (
+                "baggage".to_string(),
+                "a".repeat(TRACE_BAGGAGE_MAX_BYTES + 1),
+            ),
+        ];
+        assert_eq!(TraceCarrier::from_headers(&oversized), None);
+    }
+
+    #[test]
     fn command_trace_queue_preserves_plain_and_traced_slots() {
         let queue = CommandTraceQueue::default();
         queue.push_slot(None);
         queue.push_slot(Some(
-            TraceCarrier::from_json_str(r#"{"traceparent":"00-1-2-01"}"#).expect("carrier"),
+            TraceCarrier::from_json_str(
+                r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01"}"#,
+            )
+            .expect("carrier"),
         ));
 
         assert_eq!(queue.len_for_test(), 2);
@@ -272,7 +445,7 @@ mod tests {
         assert_eq!(queue.len_for_test(), 1);
         assert_eq!(
             queue.pop_next().and_then(|carrier| carrier.traceparent),
-            Some("00-1-2-01".to_string())
+            Some("00-00000000000000000000000000000001-0000000000000002-01".to_string())
         );
     }
 
@@ -305,7 +478,10 @@ mod tests {
         let queue = CommandTraceQueue::default();
         queue.push_slot(None);
         queue.push_slot(Some(
-            TraceCarrier::from_json_str(r#"{"traceparent":"00-aa-bb-01"}"#).expect("carrier"),
+            TraceCarrier::from_json_str(
+                r#"{"traceparent":"00-00000000000000000000000000000002-0000000000000003-01"}"#,
+            )
+            .expect("carrier"),
         ));
         let hooks = TraceHooks::new(recording).with_command_traces(queue);
 
@@ -315,6 +491,12 @@ mod tests {
         let _plain_scope = hooks.on_tick_start(&plain);
         let _traced_scope = hooks.on_tick_start(&traced);
 
-        assert_eq!(*seen.lock(), vec![None, Some("00-aa-bb-01".to_string())]);
+        assert_eq!(
+            *seen.lock(),
+            vec![
+                None,
+                Some("00-00000000000000000000000000000002-0000000000000003-01".to_string())
+            ]
+        );
     }
 }

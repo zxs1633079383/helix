@@ -37,7 +37,9 @@ pub fn build_upload_plan(
 
 fn build_rich_plan(props: &mut Value) -> Result<Vec<UploadTarget>, ImError> {
     if props.get("file").is_some() {
-        return Err(ImError::Parse("rich message must not contain props.file".to_string()));
+        return Err(ImError::Parse(
+            "rich message must not contain props.file".to_string(),
+        ));
     }
     match props.get("textPosition").and_then(Value::as_str) {
         Some("top" | "bottom") => {}
@@ -86,14 +88,24 @@ fn build_file_plan(message: &str, props: &mut Value) -> Result<Vec<UploadTarget>
 }
 
 fn validate_upload_node(node: &Value, label: &str) -> Result<(), ImError> {
-    if node.get("localPath").and_then(Value::as_str).unwrap_or("").is_empty() {
+    if node
+        .get("localPath")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .is_empty()
+    {
         return Err(ImError::Parse(format!("{label} requires localPath")));
     }
     let upload = node
         .get("upload")
         .ok_or_else(|| ImError::Parse(format!("{label} requires upload")))?;
     for key in ["method", "url", "objectKey"] {
-        if upload.get(key).and_then(Value::as_str).unwrap_or("").is_empty() {
+        if upload
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .is_empty()
+        {
             return Err(ImError::Parse(format!("{label} upload requires {key}")));
         }
     }
@@ -106,8 +118,7 @@ fn validate_upload_node(node: &Value, label: &str) -> Result<(), ImError> {
 }
 
 fn set_status(node: &mut Value, status: &str) -> Result<(), ImError> {
-    node
-        .get_mut("upload")
+    node.get_mut("upload")
         .and_then(Value::as_object_mut)
         .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?
         .insert("status".to_string(), json!(status));
@@ -149,7 +160,10 @@ pub fn mark_upload_failed(
     Ok(())
 }
 
-fn target_node_mut<'a>(props: &'a mut Value, target: &UploadTarget) -> Result<&'a mut Value, ImError> {
+fn target_node_mut<'a>(
+    props: &'a mut Value,
+    target: &UploadTarget,
+) -> Result<&'a mut Value, ImError> {
     match target {
         UploadTarget::RichImage { index } => props
             .get_mut("images")
@@ -227,12 +241,8 @@ mod tests {
             "frontendCustom":{"keep":true}
         });
 
-        mark_upload_failed(
-            &mut props,
-            &UploadTarget::RichImage { index: 0 },
-            "timeout",
-        )
-        .expect("failed mutation");
+        mark_upload_failed(&mut props, &UploadTarget::RichImage { index: 0 }, "timeout")
+            .expect("failed mutation");
 
         assert_eq!(props["images"][0]["upload"]["status"], "failed");
         assert!(props["images"][0]["upload"].get("error").is_none());

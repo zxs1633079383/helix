@@ -102,7 +102,7 @@ where
                             "url": resp.url,
                             "etag": resp.etag,
                         }))
-                        .unwrap_or_default();
+                        .expect("upload response JSON serialization cannot fail");
                         PortOutcome::Ok(ReplyBytes(Bytes::from(bytes)))
                     }
                     Err(e) => PortOutcome::Err(classify_port_error(e)),

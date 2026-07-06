@@ -6,7 +6,9 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use thiserror::Error;
 
-use helix_core::effect::{Correlation, DomainEventBytes, HttpRequest, StorageOp, TransportId};
+use helix_core::effect::{
+    Correlation, DomainEventBytes, FileUploadRequest, HttpRequest, StorageOp, TransportId,
+};
 use helix_core::Tick;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -70,6 +72,7 @@ pub trait TraceHooksImpl {
     fn on_tick_start(&self, tick: &Tick, carrier: Option<TraceCarrier>) -> TraceScope;
     fn on_storage_dispatch(&self, corr: Option<Correlation>, ops: &[StorageOp]);
     fn on_http_dispatch(&self, corr: Option<Correlation>, req: &mut HttpRequest);
+    fn on_upload_dispatch(&self, corr: Option<Correlation>, req: &FileUploadRequest);
     fn on_ws_send(&self, transport: TransportId, frame: &mut Bytes);
     fn on_event_emit(&self, event: &DomainEventBytes);
 }
@@ -140,6 +143,10 @@ impl TraceHooks {
         self.inner.on_http_dispatch(corr, req);
     }
 
+    pub fn on_upload_dispatch(&self, corr: Option<Correlation>, req: &FileUploadRequest) {
+        self.inner.on_upload_dispatch(corr, req);
+    }
+
     pub fn on_ws_send(&self, transport: TransportId, frame: &mut Bytes) {
         self.inner.on_ws_send(transport, frame);
     }
@@ -159,6 +166,8 @@ impl TraceHooksImpl for NoopTraceHooks {
     fn on_storage_dispatch(&self, _: Option<Correlation>, _: &[StorageOp]) {}
 
     fn on_http_dispatch(&self, _: Option<Correlation>, _: &mut HttpRequest) {}
+
+    fn on_upload_dispatch(&self, _: Option<Correlation>, _: &FileUploadRequest) {}
 
     fn on_ws_send(&self, _: TransportId, _: &mut Bytes) {}
 
@@ -224,6 +233,8 @@ mod tests {
         fn on_storage_dispatch(&self, _: Option<Correlation>, _: &[StorageOp]) {}
 
         fn on_http_dispatch(&self, _: Option<Correlation>, _: &mut HttpRequest) {}
+
+        fn on_upload_dispatch(&self, _: Option<Correlation>, _: &FileUploadRequest) {}
 
         fn on_ws_send(&self, _: TransportId, _: &mut Bytes) {}
 

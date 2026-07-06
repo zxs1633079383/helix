@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 0002 - Tick 到 Effect 再到 Dispatch</title>
+    <link rel="stylesheet" href="../assets/course.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Lesson 0002</p>
+      <h1>Helix 的主循环：喂 Tick，吐 Effect</h1>
+      <p class="lede">上一题你答对了：新增 IM 业务命令先看 <code>helix-im</code>。这一课把原因讲透：业务模块不直接 I/O，它只把“意图”吐成 <code>Effect</code>，再由 host driver 兑现。</p>
+
+      <div class="callout">
+        <p><strong>本课目标：</strong>读任务时能判断它落在 <code>Tick</code>、<code>Module</code>、<code>Effect</code>、还是 <code>dispatch</code>。这是 Helix 最核心的一条链。</p>
+      </div>
+
+      <h2>四段链路</h2>
+      <div class="deck">
+        <section class="card">
+          <h3>1. Tick</h3>
+          <p>外部世界进入内核的输入。UI 命令是 <code>Tick::Command</code>，WS 帧是 <code>Tick::Inbound</code>，HTTP/DB 回包是 <code>Tick::PortReply</code>。</p>
+        </section>
+        <section class="card">
+          <h3>2. Module</h3>
+          <p>业务模块处理 Tick。这里必须同步、纯粹、不 await、不 I/O。IM 模块在这里决定“要发请求”“要落库”“要 emit”。</p>
+        </section>
+        <section class="card">
+          <h3>3. Effect</h3>
+          <p>模块吐出的副作用意图。<code>Effect::Http</code> 不是已经发了 HTTP，只是声明“请宿主发这个 HTTP”。</p>
+        </section>
+        <section class="card">
+          <h3>4. Dispatch</h3>
+          <p><code>helix-driver-host</code> 的分流兑现层。这里把 Effect 真正交给 Storage、HTTP、Transport、EventSink、Timer。</p>
+        </section>
+      </div>
+
+      <h2>为什么业务命令先看 helix-im</h2>
+      <p>像 <code>im_mark_channel_read</code> 这种命令，它的问题不是“Rust 怎么发 HTTP”，而是业务上要发哪个后端接口、带什么 body、成功后更新什么本地状态、向 UI 投影什么事件。这些都属于 <code>helix-im</code>。</p>
+      <p>但 <code>helix-im</code> 不应该直接调用 HTTP client。它应该吐出 <code>Effect::Http { corr, req }</code>。driver-host 收到后发 HTTP，完成后回灌 <code>Tick::PortReply { corr, outcome }</code>。IM 再根据回包吐 <code>Effect::Emit</code> 或后续 <code>Persist</code>。</p>
+
+      <h2>关键代码锚点</h2>
+      <ul class="compact-list">
+        <li><code>crates/helix-core/src/tick.rs</code>：<code>Tick</code> 输入集合。</li>
+        <li><code>crates/helix-core/src/module_host.rs</code>：<code>Module::handle</code> 的纯函数约束。</li>
+        <li><code>crates/helix-core/src/effect.rs</code>：<code>Effect</code> 意图集合。</li>
+        <li><code>crates/helix-driver-host/src/engine.rs</code>：<code>run_engine_loop</code> 主泵。</li>
+        <li><code>crates/helix-driver-host/src/dispatch.rs</code>：<code>dispatch_effects</code> 真正兑现。</li>
+      </ul>
+
+      <h2>一个微型剧本</h2>
+      <pre><code>UI/FFI/Tauri
+  -> Tick::Command("im_mark_channel_read")
+  -> helix-im accepts + handle
+  -> Effect::Http { corr, req }
+  -> driver-host dispatch 发 HTTP
+  -> Tick::PortReply { corr, outcome }
+  -> helix-im handle 回包
+  -> Effect::Emit(DomainEvent)
+  -> driver-host EventSink
+  -> native broadcast / ffi batch / loopforge app.emit("im:__bus__")</code></pre>
+
+      <h2>三个容易搞错的点</h2>
+      <section class="priority">
+        <div class="rank">错 1</div>
+        <div>
+          <h3>把 Effect 当成 I/O 已经发生</h3>
+          <p>Effect 只是意图。真正发 HTTP、写 DB、发 WS，在 driver-host 的 dispatch 里。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">错 2</div>
+        <div>
+          <h3>依赖同一批 Effect 的顺序</h3>
+          <p><code>effect.rs</code> 明确说同一个 step 产出的 <code>Vec&lt;Effect&gt;</code> 之间无兑现顺序保证。需要因果就用 <code>Correlation</code> 串起来，等 <code>PortReply</code>。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">错 3</div>
+        <div>
+          <h3>为了一个业务命令去改 core</h3>
+          <p>新增 IM 命令通常不改 core。只有新增一种通用能力或抽象形状，比如新的 port/effect/tick 类型，才考虑 core。</p>
+        </div>
+      </section>
+
+      <h2>练习</h2>
+      <section class="quiz" data-answer="effect">
+        <h3>需求：IM 处理完命令后要让宿主发 HTTP。模块应该直接调用 HTTP client，还是吐什么？</h3>
+        <button type="button" data-choice="direct">直接调用 HTTP</button>
+        <button type="button" data-choice="effect">吐出 Effect::Http</button>
+        <button type="button" data-choice="driver">修改 driver-native</button>
+        <p class="answer"></p>
+      </section>
+
+      <section class="quiz" data-answer="dispatch">
+        <h3>需求：HTTP 并发池、背压、回包变成 PortReply，主要看哪里？</h3>
+        <button type="button" data-choice="im">helix-im outbound</button>
+        <button type="button" data-choice="core">helix-core tick</button>
+        <button type="button" data-choice="dispatch">driver-host dispatch</button>
+        <p class="answer"></p>
+      </section>
+
+      <section class="quiz" data-answer="corr">
+        <h3>需求：必须等 HTTP 成功后再 emit 投影事件，靠什么表达因果？</h3>
+        <button type="button" data-choice="corr">Correlation + PortReply</button>
+        <button type="button" data-choice="order">Vec Effect 顺序</button>
+        <button type="button" data-choice="sleep">sleep 100ms 等待</button>
+        <p class="answer"></p>
+      </section>
+
+      <h2>主资源</h2>
+      <p>本课主资源是 <a href="../reference/0002-tick-effect-dispatch-map.html">Tick -> Effect -> Dispatch 速查</a>，对应源码是 <code>crates/helix-core/src/tick.rs</code>、<code>crates/helix-core/src/effect.rs</code> 和 <code>crates/helix-driver-host/src/dispatch.rs</code>。Rust 语法上，先补 <a href="https://doc.rust-lang.org/book/ch06-00-enums.html">enum</a>、<a href="https://doc.rust-lang.org/book/ch10-02-traits.html">trait</a>、<a href="https://doc.rust-lang.org/book/ch09-00-error-handling.html">Result</a>。</p>
+
+      <p class="warning">下一课建议：专门拆 <code>Correlation</code>，因为它是“异步 I/O 回到确定性 core”的关键纽扣。</p>
+
+      <p><a href="./0001-helix-system-priority-map.html">返回上一课</a></p>
+    </main>
+    <script>
+      for (const quiz of document.querySelectorAll(".quiz")) {
+        const answer = quiz.dataset.answer;
+        const output = quiz.querySelector(".answer");
+        for (const button of quiz.querySelectorAll("button")) {
+          button.addEventListener("click", () => {
+            const ok = button.dataset.choice === answer;
+            output.textContent = ok
+              ? "对。先表达意图，再由宿主兑现。"
+              : "再想一下：业务模块不能直接 I/O，因果也不能靠 Effect 顺序碰运气。";
+          });
+        }
+      }
+    </script>
+  </body>
+</html>

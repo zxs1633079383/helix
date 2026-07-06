@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Correlation + PortReply 速查</title>
+    <link rel="stylesheet" href="../assets/course.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Reference 0003</p>
+      <h1>Correlation + PortReply 速查</h1>
+      <p class="lede">Correlation 是异步 I/O 的回执小票：谁发起，谁收回包。</p>
+
+      <section class="priority">
+        <div class="rank">1</div>
+        <div>
+          <h2>什么时候需要 Correlation</h2>
+          <p><code>Effect::Persist</code>、<code>Effect::Http</code>、<code>Effect::Request</code> 需要未来回包，所以带 <code>corr</code>。<code>Emit</code>、<code>Send</code>、<code>PersistFire</code>、<code>HttpFire</code> 不靠它。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">2</div>
+        <div>
+          <h2>core 的 corr_map</h2>
+          <p><code>ExecutionShell</code> 扫描本次 step 新吐出的 Effect，把 <code>Correlation -> module_index</code> 注册进 core 的 <code>corr_map</code>。以后 <code>Tick::PortReply</code> 回来，就能投回原模块。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">3</div>
+        <div>
+          <h2>driver 的 reply_tx</h2>
+          <p><code>helix-driver-host</code> worker 执行完 Storage/HTTP 后，用独立 unbounded <code>reply_tx</code> 发 <code>Tick::PortReply { corr, outcome }</code>。这条通道必须不阻塞。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">4</div>
+        <div>
+          <h2>IM 自己也有 corr_map</h2>
+          <p><code>helix-im</code> 还维护业务上下文：同一个 corr 对应 <code>SyncPull</code>、<code>OutboundSendHttp</code>、<code>MessageQuery</code> 等。core 只知道“回哪个模块”，IM 才知道“这张小票代表什么业务”。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">5</div>
+        <div>
+          <h2>未知 corr 怎么办</h2>
+          <p>core 收到未知 <code>PortReply</code> 会忽略；IM 收到未知业务 corr 也 no-op。这是边界零信任：迟到响应、已取消请求、断线后回包都不能把状态机打崩。</p>
+        </div>
+      </section>
+
+      <section class="callout">
+        <h2>口诀</h2>
+        <p><code>Correlation</code> 管“这是谁的回包”，<code>CorrelationContext</code> 管“这个回包要继续哪段业务”。</p>
+      </section>
+    </main>
+  </body>
+</html>

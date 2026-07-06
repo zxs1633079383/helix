@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Helix 学习优先级速查</title>
+    <link rel="stylesheet" href="../assets/course.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Reference 0001</p>
+      <h1>Helix 学习优先级速查</h1>
+      <p class="lede">先学判断边界，再学代码细节。Rust 语法跟着 Helix 的真实接口学，不先背一整本。</p>
+
+      <section class="priority">
+        <div class="rank">P0</div>
+        <div>
+          <h2>指令与北极星</h2>
+          <p>先读 <code>docs/GOAL.md</code>、<code>docs/ROADMAP.md</code> §二 P0、<code>docs/harness/OPERATING.md</code>、根 <code>AGENTS.md</code>。目标是知道什么不能偏离、现在卡在哪、该调什么验证。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">P1</div>
+        <div>
+          <h2>Core 心智模型</h2>
+          <p><code>helix-core</code> 只定义 ports、module host、tick、effect、error，不做 I/O、不认 IM、不依赖运行时。关键词：<code>Module</code>、<code>Tick</code>、<code>Effect</code>、<code>Storage</code>、<code>Transport</code>、<code>EventSink</code>。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">P2</div>
+        <div>
+          <h2>Host Driver 共享泵</h2>
+          <p><code>helix-driver-host</code> 是 native 与 FFI 共同的执行泵和 I/O 兑现层。重点看 <code>run_engine_loop</code>、<code>EngineDeps</code>、<code>BatchSink</code>、<code>RecordingSink</code>、StorageOp、rows codec、HTTP envelope、BoundedSpawner。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">P3</div>
+        <div>
+          <h2>IM 业务模块</h2>
+          <p><code>helix-im</code> 是第一个业务模块。先按目录职责读：<code>acl</code>、<code>channel</code>、<code>send</code>、<code>sync</code>、<code>query</code>、<code>todo</code>、<code>outbound</code>、<code>ws</code>。命令体看真抓包文档，投影看 projection schema。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">P4</div>
+        <div>
+          <h2>端 Driver 分工</h2>
+          <p><code>driver-native</code> 是 PC/Tauri 壳；<code>driver-ffi</code> 是 C ABI + C++ shim host 壳。两者都不该复制 core 或 IM 业务，只装配 host pump、ports、事件出口与生命周期。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">P5</div>
+        <div>
+          <h2>边界坑卡</h2>
+          <p>按 HX-C 卡学反例：core 零运行时、Send 边界、features additive、热路径 O(1)、FFI 不 unwind、批量过边界、测试可证伪、观测逐跳完整。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">P6</div>
+        <div>
+          <h2>Rust 语法补点</h2>
+          <p>按代码需求补：trait/generic bound、enum + pattern match、Result 错误、owned vs borrow、cfg/features、async channel 边界、unsafe extern C、raw pointer ownership。</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

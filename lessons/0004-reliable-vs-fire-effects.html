@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 0004 - 必达与可丢 Effect</title>
+    <link rel="stylesheet" href="../assets/course.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Lesson 0004</p>
+      <h1>必达 vs 可丢：别把状态机交给运气</h1>
+      <p class="lede">上一课你学了 <code>Correlation</code>：需要回包的 I/O 会带一张小票。本课只解决一个判断：什么时候必须要小票，什么时候可以 fire-and-forget。</p>
+
+      <div class="callout">
+        <p><strong>本课目标：</strong>看到 <code>Persist</code>、<code>PersistFire</code>、<code>Http</code>、<code>HttpFire</code> 时，能立刻判断它是不是 load-bearing。</p>
+      </div>
+
+      <h2>核心分界线</h2>
+      <p><strong>Fire 不是“异步”。</strong>Helix 的 driver 本来就会异步兑现 I/O。Fire 的真正意思是：这件事没有 <code>Correlation</code>，不会产生 <code>PortReply</code>，core 和模块都不会等它回来继续业务。</p>
+      <p>所以判断标准很简单：如果结果要推进状态机、清 inflight gate、拿响应体、推进 cursor，不能 fire。</p>
+
+      <h2>四种 Effect 怎么选</h2>
+      <div class="deck">
+        <section class="card">
+          <h3>Persist</h3>
+          <p>本地写成功后才能继续。带 <code>corr</code>，driver 必须回 <code>PortReply</code>。比如 sync 拉回一批消息，写成功后才推进 cursor。</p>
+        </section>
+        <section class="card">
+          <h3>PersistFire</h3>
+          <p>幂等、可重算、丢了不破坏主流程的写。无 <code>corr</code>，无回包。比如主写确认后做单调 cursor 补写。</p>
+        </section>
+        <section class="card">
+          <h3>Http</h3>
+          <p>默认 HTTP 选择。带 <code>corr</code>，响应会回来。发消息、同步、增量拉取都属于这里。</p>
+        </section>
+        <section class="card">
+          <h3>HttpFire</h3>
+          <p>极少数 HTTP 才能用：不需要响应、丢失可自愈、没有 inflight 闸。当前 <code>helix-im</code> 基本没有真实生产者。</p>
+        </section>
+      </div>
+
+      <h2>背压也是语义</h2>
+      <p><code>helix-driver-host</code> 里，必达请求用 <code>Overflow::Block</code>：队列满就等，慢一点，但不丢。因为它的 <code>PortReply</code> 承载了后续业务。</p>
+      <p><code>HttpFire</code> 用 <code>Overflow::DropNewest</code>：队列满就丢当前这条。这个策略只有在“丢了也能靠 cursor-gate / 重连 / proactive resync 补回来”时才成立。</p>
+
+      <h2>代码里的判断模板</h2>
+      <pre><code>if needs_response_body || clears_inflight || advances_cursor {
+    Effect::Http { corr, req }      // 必达，慢而不丢
+} else if idempotent && loss_self_heals {
+    Effect::HttpFire { req }        // 可丢，显式 opt-in
+} else {
+    // 先别写 Effect：这个需求还没把可靠性讲清楚
+}</code></pre>
+
+      <section class="priority">
+        <div class="rank">例 1</div>
+        <div>
+          <h3>发消息 posts/create</h3>
+          <p>必须 <code>Effect::Http</code>。它需要服务端响应、失败处理、pending 状态对账。丢了不是“省事”，是把用户消息扔进黑洞。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">例 2</div>
+        <div>
+          <h3>sync/notify 增量同步</h3>
+          <p>必须 <code>Effect::Http</code>。回包里有数据，且 <code>PortReply</code> 要清 inflight gate、决定是否续拉、推进游标。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">例 3</div>
+        <div>
+          <h3>单调 cursor 补写</h3>
+          <p>可用 <code>PersistFire</code>，前提是主数据已经可靠落地，并且这个写是幂等的 monotonic upsert。重复写没事，漏了下次还能从旧 cursor 恢复。</p>
+        </div>
+      </section>
+
+      <h2>练习</h2>
+      <section class="quiz" data-answer="http">
+        <h3><code>posts/create</code> 需要响应体和失败对账，选哪个？</h3>
+        <button type="button" data-choice="fire">HttpFire</button>
+        <button type="button" data-choice="http">Http 必达</button>
+        <button type="button" data-choice="emit">Emit 事件</button>
+        <p class="answer"></p>
+      </section>
+
+      <section class="quiz" data-answer="persist-fire">
+        <h3>主写已成功，只推进幂等单调 cursor，选哪个？</h3>
+        <button type="button" data-choice="persist">Persist</button>
+        <button type="button" data-choice="persist-fire">PersistFire</button>
+        <button type="button" data-choice="http">Http</button>
+        <p class="answer"></p>
+      </section>
+
+      <section class="quiz" data-answer="block">
+        <h3>必达 HTTP 队列满了，driver 正确行为是什么？</h3>
+        <button type="button" data-choice="drop">DropNewest</button>
+        <button type="button" data-choice="block">Block 背压</button>
+        <button type="button" data-choice="ignore">Ignore 回包</button>
+        <p class="answer"></p>
+      </section>
+
+      <section class="quiz" data-answer="no">
+        <h3>一个请求要靠 PortReply 清 inflight gate，可以用 Fire 吗？</h3>
+        <button type="button" data-choice="yes">可以使用</button>
+        <button type="button" data-choice="no">不能使用</button>
+        <button type="button" data-choice="maybe">看心情用</button>
+        <p class="answer"></p>
+      </section>
+
+      <h2>主资源</h2>
+      <p>本课主资源是 <a href="../reference/0004-reliable-vs-fire-effects-map.html">必达 vs 可丢 Effect 速查</a>。源码锚点：<code>crates/helix-core/src/effect.rs</code> 的四个 Effect 注释、<code>crates/helix-driver-host/src/dispatch.rs</code> 的 <code>corr: Some/None</code> 分派、<code>crates/helix-driver-host/src/spawner.rs</code> 的 <code>Overflow::Block</code> / <code>DropNewest</code>。</p>
+
+      <p class="warning">下一课建议：进入 <code>EffectSink</code> 和同一 step 的 <code>Vec&lt;Effect&gt;</code> 顺序陷阱，解释为什么因果必须靠 <code>PortReply</code> 串起来。</p>
+
+      <p><a href="./0003-correlation-portreply.html">返回上一课</a></p>
+    </main>
+    <script>
+      for (const quiz of document.querySelectorAll(".quiz")) {
+        const answer = quiz.dataset.answer;
+        const output = quiz.querySelector(".answer");
+        for (const button of quiz.querySelectorAll("button")) {
+          button.addEventListener("click", () => {
+            const ok = button.dataset.choice === answer;
+            output.textContent = ok
+              ? "对。需要回执就必达；可重算才可丢。"
+              : "再想一下：Fire 没有 corr，也不会有 PortReply，所以不能承载清闸、响应体或 cursor 推进。";
+          });
+        }
+      }
+    </script>
+  </body>
+</html>

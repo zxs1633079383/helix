@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>必达 vs 可丢 Effect 速查</title>
+    <link rel="stylesheet" href="../assets/course.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Reference 0004</p>
+      <h1>必达 vs 可丢 Effect 速查</h1>
+      <p class="lede">判断一个 Effect 能不能 fire，不看“是不是异步”，只看“丢了会不会破坏状态机”。</p>
+
+      <section class="priority">
+        <div class="rank">1</div>
+        <div>
+          <h2>需要回包推进业务</h2>
+          <p>用 <code>Effect::Persist</code> 或 <code>Effect::Http</code>。它们带 <code>Correlation</code>，driver 必须回灌 <code>Tick::PortReply</code>。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">2</div>
+        <div>
+          <h2>只做幂等补写</h2>
+          <p>才考虑 <code>Effect::PersistFire</code>。典型是已经确认主写成功后，推进单调 cursor / status patch 这类可重复、可重算的写。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">3</div>
+        <div>
+          <h2>HTTP 默认必达</h2>
+          <p><code>posts/create</code>、<code>sync/notify</code>、<code>increment</code> 这类请求必须用 <code>Effect::Http</code>。它们的响应体、inflight 清闸或 cursor 推进都是 load-bearing。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">4</div>
+        <div>
+          <h2>HttpFire 是显式放松</h2>
+          <p><code>Effect::HttpFire</code> 不带 corr，不回 PortReply，队满可丢当前请求。只有“不需要响应、丢失可自愈、无 inflight 闸”的请求能用。当前 <code>helix-im</code> 基本没有真实生产者。</p>
+        </div>
+      </section>
+
+      <section class="priority">
+        <div class="rank">5</div>
+        <div>
+          <h2>driver 背压规则</h2>
+          <p><code>Persist</code> / <code>Http</code> 使用 <code>Overflow::Block</code>：慢下来，不丢。<code>HttpFire</code> 使用 <code>Overflow::DropNewest</code>：满了丢本条，靠后续同步自愈。</p>
+        </div>
+      </section>
+
+      <section class="callout">
+        <h2>一句口诀</h2>
+        <p>要回执就必达；可重算才可丢。</p>
+      </section>
+    </main>
+  </body>
+</html>

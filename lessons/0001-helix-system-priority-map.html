@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 0001 - Helix 系统学习优先级</title>
+    <link rel="stylesheet" href="../assets/course.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Lesson 0001</p>
+      <h1>先学会判断“这件事归谁管”</h1>
+      <p class="lede">Helix 的第一课不是 Rust 语法，而是边界判断。只要能判断一件事属于 core、IM、host driver、native、FFI、还是外部 Tauri 宿主，后面的代码就不会散成一团。</p>
+
+      <div class="callout">
+        <p><strong>本课目标：</strong>用 7 层优先级给当前系统排学习顺序，并能回答一个问题：我现在遇到的需求，应该先看哪个文件/哪条不变量？</p>
+      </div>
+
+      <h2>一张脑内地图</h2>
+      <div class="deck">
+        <section class="card">
+          <h3>core</h3>
+          <p><code>helix-core</code> 是纯状态机和 ports。它不做 I/O、不认识 IM、不碰 tokio/sqlx/tauri。</p>
+        </section>
+        <section class="card">
+          <h3>im</h3>
+          <p><code>helix-im</code> 是业务模块。它把命令、WS、sync、projection、query 转成 core 能吐出的 Effect。</p>
+        </section>
+        <section class="card">
+          <h3>host driver</h3>
+          <p><code>helix-driver-host</code> 兑现 Storage/HTTP/WS，提供 shared pump，让 native 与 FFI 共用一套执行语义。</p>
+        </section>
+        <section class="card">
+          <h3>端壳</h3>
+          <p><code>driver-native</code> 面向 PC/Tauri，<code>driver-ffi</code> 面向手机/C++ shim。端壳只装配，不复制业务。</p>
+        </section>
+      </div>
+
+      <h2>学习优先级</h2>
+      <section class="priority">
+        <div class="rank">P0</div>
+        <div>
+          <h3>先背北极星和当前 P0</h3>
+          <p>读 <code>docs/GOAL.md</code> 的一段话定义和硬约束，再读 <code>docs/ROADMAP.md</code> §二 P0。现在最该盯的是 Tauri 四接缝、golden fixtures 工具链、双端 check、feature 拆分、多模块并发写实测。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">P1</div>
+        <div>
+          <h3>学 core 的输入输出协议</h3>
+          <p>只抓四个词：<code>Tick</code> 是输入，<code>Module</code> 处理状态，<code>Effect</code> 是输出，ports 是外部能力的抽象。core 的价值是确定性和可回放。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">P2</div>
+        <div>
+          <h3>学 host pump 如何兑现 Effect</h3>
+          <p><code>run_engine_loop</code> 把 core/im 吐出的 Effect 分发给 storage/http/timer/event sink。这里要重点懂五个泵不变量：回灌必达、主循环不等 I/O、同 key 写顺序、回灌优先、graceful drain。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">P3</div>
+        <div>
+          <h3>学 helix-im 的业务分层</h3>
+          <p>按目录记职责，不按文件名硬背。<code>outbound</code> 组 HTTP，<code>ws</code> 吃 live 帧，<code>sync</code> 管 cursor/补拉，<code>send</code> 管 pending/echo，对 UI 的投影看 <code>projection-schema.md</code>。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">P4</div>
+        <div>
+          <h3>学 native 与 FFI 的不同出口</h3>
+          <p>native 事件可以 broadcast；FFI 事件必须 batch，一次过 C++ vtable。FFI 还要把 raw pointer、panic、destroy join、buffer 生命周期当红线。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">P5</div>
+        <div>
+          <h3>学边界情况，不学“漂亮抽象”</h3>
+          <p>每个边界坑都对应 HX-C 卡：零运行时、Send、features、热路径、FFI、批处理、确定性、测试可证伪、hop 观测。它们是防止系统偏航的护栏。</p>
+        </div>
+      </section>
+      <section class="priority">
+        <div class="rank">P6</div>
+        <div>
+          <h3>最后补 Rust 语法</h3>
+          <p>语法按 Helix 需求补：trait bound 读 ports，enum/match 读 Effect，Result 读外部输入，owned 数据读 async 边界，unsafe extern C 读 FFI，cfg/features 读双端编译。</p>
+        </div>
+      </section>
+
+      <h2>第一轮练习</h2>
+      <section class="quiz" data-answer="host">
+        <h3>需求：给 Tauri 投影事件加录放对账，应该优先看哪层？</h3>
+        <button type="button" data-choice="core">helix-core</button>
+        <button type="button" data-choice="host">helix-driver-host</button>
+        <button type="button" data-choice="ffi">helix-driver-ffi</button>
+        <p class="answer"></p>
+      </section>
+      <section class="quiz" data-answer="im">
+        <h3>需求：修一个 HTTP 出站命令体字段，应该优先看哪层？</h3>
+        <button type="button" data-choice="native">helix-driver-native</button>
+        <button type="button" data-choice="im">helix-im outbound</button>
+        <button type="button" data-choice="core">helix-core ports</button>
+        <p class="answer"></p>
+      </section>
+      <section class="quiz" data-answer="ffi">
+        <h3>需求：手机端事件回调不能逐条过边界，应该优先看哪层？</h3>
+        <button type="button" data-choice="ffi">helix-driver-ffi</button>
+        <button type="button" data-choice="wasm">helix-driver-wasm</button>
+        <button type="button" data-choice="query">helix-im query</button>
+        <p class="answer"></p>
+      </section>
+
+      <h2>今日只读清单</h2>
+      <ul class="compact-list">
+        <li><code>docs/GOAL.md</code> §0-§2：把不变量先压进脑子。</li>
+        <li><code>docs/ROADMAP.md</code> §二 P0：知道现在最值钱的学习入口。</li>
+        <li><code>crates/helix-core/AGENTS.md</code>：core 不变量。</li>
+        <li><code>crates/helix-driver-host/AGENTS.md</code>：shared pump 和 BatchSink。</li>
+        <li><code>crates/helix-im/AGENTS.md</code>：业务目录职责。</li>
+      </ul>
+
+      <h2>主资源</h2>
+      <p>本课主资源是本仓 <a href="../docs/GOAL.md"><code>docs/GOAL.md</code></a>。Rust 语法补点以 <a href="https://doc.rust-lang.org/book/">The Rust Book</a> 为主，遇到 FFI/unsafe 再查 <a href="https://doc.rust-lang.org/nomicon/">Rustonomicon</a>。</p>
+
+      <p class="warning">下一课建议：拆开 <code>Tick → Module::step → Effect → host dispatch</code>，用一个最小剧本把 core 与 driver 的边界跑一遍。任何看不懂的点，直接问我，我会按当前 repo 文件继续拆。</p>
+    </main>
+    <script>
+      for (const quiz of document.querySelectorAll(".quiz")) {
+        const answer = quiz.dataset.answer;
+        const output = quiz.querySelector(".answer");
+        for (const button of quiz.querySelectorAll("button")) {
+          button.addEventListener("click", () => {
+            const ok = button.dataset.choice === answer;
+            output.textContent = ok
+              ? "对。先找拥有这个边界的层，再看具体文件。"
+              : "还差一点。先问：这件事是在表达业务、兑现 I/O，还是跨端边界？";
+          });
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -6,6 +6,8 @@
 
 ## §0 终态记录
 
+🎯 EXPECT rich/file 消息上传发送实现：按 `docs/superpowers/plans/2026-07-06-rich-file-message-upload.md` 执行 Task 1-5，采用 Subagent-Driven + 隔离 worktree。可证伪断言：① 新增/修改文件限定在 plan 的 rich/file props、UploadFile effect/host uploader、send flow upload gating、retry_upload、测试/SESSION/SDD 账本范围；② 不新增/重命名 `SendStatus` 变体，不新增 post 顶层 `attachments`；③ 文件上传状态只写入 `props.images[i].upload.status` 或 `props.file.upload.status`，Post send status 仍只用 `Local/Sending/Sent/UnSend`；④ `helix-core` 不引入 tokio/reqwest/sqlx/tauri/web-sys/阿里云 SDK；⑤ focused tests、双端 cargo check、`cargo test -p helix-core`、HX-C001 零运行时 grep、`git diff --check` 通过。@2026-07-06T16:37:44+0800 | 赌注 高 | 可逆 是
+
 🎯 EXPECT rich/file 消息上传发送实施计划（只写 plan，不改实现）@2026-07-06T16:24:00+0800 | 赌注 中 | 可逆 是
   ↳ 可证伪断言：① 新增 `docs/superpowers/plans/2026-07-06-rich-file-message-upload.md`；② plan 覆盖 rich/file props 校验、UploadFile effect/driver 上传、send flow 编排、失败重试、验收命令；③ 不修改 `crates/**/src/**`；④ `git diff --name-only` 仅含 SESSION.md + 该 plan（忽略既有未跟踪目录）。
 ✅ DONE rich/file 消息上传发送实施计划 @2026-07-06T16:37:00+0800 | commit 本提交 | 新增 `docs/superpowers/plans/2026-07-06-rich-file-message-upload.md`，拆 5 个任务：props 解析校验、UploadFile effect/host port、send flow 上传门控、retry_upload、跨 crate 验收 | 未改 `crates/**/src/**` | 验证：plan 无 TBD/TODO/FIXME/占位词；`git diff --check` PASS；Rust源码diff空。
@@ -160,7 +162,7 @@
   ↳ 预期命中（无偏离 EXPECT，不追 ⚡ DRIFT-PRED）：① 镜像/before_script ✅ ② 两段 cap 根因 ✅ ③ host 确定性测 + FFI 界放宽 ✅ ④ 未碰 drain 生产逻辑/HTTP_DRAIN_LIMIT ✅ ⑤ gate 9/9 + 可证伪 ✅。
   ⚠️ 环境坑（实测·本会话）：并发进程（疑 night-loop）中途把本机 `1.95.0` toolchain 剥成只剩 clippy/rustfmt/wasm32（cargo/rustc 被删，bin/ mtime 11:00）→ `cargo` 一度报「not installed」。已 `rustup component add cargo rustc rust-std` 恢复。长跑 autonomous 链动 rustup 时需隔离，别和主对话抢同一 toolchain。
 
-🧭 BRANCH-ID @2026-06-24 10:37 +0800 | 当前 `main`@4bcf5f8 ↑↓vsmain:↑0 ↓0 · upstream:origin/main | worktrees: .[main] | 可删候选:无
+🧭 BRANCH-ID @2026-07-06 16:37 +0800 | 当前 `codex/rich-file-message-upload`@f9e9d1c ↑↓vsmain:↑2 ↓0 · upstream:无 upstream | worktrees: /Users/mac17/workspace/rust/helix[main] .[codex/rich-file-message-upload]
 🎯 EXPECT FixB 完整投影（spec06 缺陷B）——message-row 信号 fat emit·channel-row 留瘦·杀「瘦信号逼前端回读」@2026-06-23 +0800 | 赌注 中 | 可逆 是
   ↳ 可证伪断言：① message-row 信号工厂（`emit_post_received`/`emit_post_updated`/`emit_post_deleted`/`emit_post_read`/`emit_channel_read_echo`）改签名携 `&PostFields`（在手数据，零回读），emit `data` 完整核心 MessageItemData 键集 = `{channelId,eventSeq,msgId,temporaryId,userId,type,message,props,createAt,readBits,viewers}`（来自 PostFields 全字段映射，非 DB 回读；HX-C005 不扩 PostFields/不碰 parser 热路径）；② call site `channel.rs::emit_for_kind(ev)` + `to_effect.rs::sync_mutation_emits` 传 `&ev.fields`（已在手，零额外读）；③ channel-row 信号（`emit_channel_update`/`emit_channel_update_by_post`）**保持瘦**——完整 DialogItem 是累计 DB 行非在手，fat 必触发每事件热路径回读（违 SPEC §2 铁律 line68-75）→ 留瘦 + 文档标注「前端 debounced 回读（低频，batch 结束触发非每消息）」；④ `projection-schema.md` §2 重写契约（message-row=fat 逐字段全集 / channel-row=thin 标注理由）+ §1 表同步键集；⑤ `tests/projection_schema_test.rs` message-row 断言改完整集，注入缺字段→FAIL 证伪（HX-C011），channel-row 保持三键断言；⑥ `cargo test -p helix-im` + `-p helix-core` 全绿 + `cargo check` 五 crate exit 0 + core 零运行时 grep 空 + im/src 确定性 grep 空；⑦ 守 HX-C001（零新 Effect 变体，走既有 `Effect::Emit`）/ HX-C005（fat 数据全来自在手 PostFields，零回读零再序列化整 wire 对象）；写族 WS 回声不动；不动 IM_ENGINE；⑧ 前序 CI-4⑤ 未提交改动（post_read/posts_existing/to_effect emit_post_read_by_id）stash 隔离，FixB commit 不含，commit 后 pop 还原。
 

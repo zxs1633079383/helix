@@ -6,6 +6,10 @@
 
 ## §0 终态记录
 
+🎯 EXPECT rich/file 消息上传发送实施计划（只写 plan，不改实现）@2026-07-06T16:24:00+0800 | 赌注 中 | 可逆 是
+  ↳ 可证伪断言：① 新增 `docs/superpowers/plans/2026-07-06-rich-file-message-upload.md`；② plan 覆盖 rich/file props 校验、UploadFile effect/driver 上传、send flow 编排、失败重试、验收命令；③ 不修改 `crates/**/src/**`；④ `git diff --name-only` 仅含 SESSION.md + 该 plan（忽略既有未跟踪目录）。
+✅ DONE rich/file 消息上传发送实施计划 @2026-07-06T16:37:00+0800 | commit 本提交 | 新增 `docs/superpowers/plans/2026-07-06-rich-file-message-upload.md`，拆 5 个任务：props 解析校验、UploadFile effect/host port、send flow 上传门控、retry_upload、跨 crate 验收 | 未改 `crates/**/src/**` | 验证：plan 无 TBD/TODO/FIXME/占位词；`git diff --check` PASS；Rust源码diff空。
+
 🎯 EXPECT rich/file 消息上传发送设计 spec（只写文档，不改实现）@2026-07-06T16:06:36+0800 | 赌注 中 | 可逆 是
   ↳ 可证伪断言：① 新增 `docs/superpowers/specs/2026-07-06-rich-file-message-upload-design.md`；② 不修改 `crates/**/src/**`；③ spec 明确 Post 四态不扩展、文件上传状态仅在 props 内、driver 不改库、helix-im 负责编排；④ `git diff --name-only` 仅含 SESSION.md + 该 spec（忽略既有未跟踪目录）。
 ✅ DONE rich/file 消息上传发送设计 spec @2026-07-06T16:15:00+0800 | commit 本提交 | 新增 `docs/superpowers/specs/2026-07-06-rich-file-message-upload-design.md`，明确 rich/file 类型、props开放契约、Post四态不扩、UploadFile effect/driver边界、pending_uploads、重试/取消/限流与测试计划 | 未改 `crates/**/src/**` | 验证：spec 无 TBD/TODO/FIXME；`git diff --check` PASS；Rust源码diff空。

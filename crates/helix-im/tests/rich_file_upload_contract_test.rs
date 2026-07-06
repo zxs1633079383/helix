@@ -1,0 +1,251 @@
+mod common;
+
+use bytes::Bytes;
+use common::{cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness};
+use helix_core::effect::{Effect, SqlValue, StorageOp, UpsertSpec};
+use helix_core::Tick;
+use helix_im::state::SendStatus;
+use serde_json::{json, Value};
+
+fn rich_two_image_cmd() -> Tick {
+    send_message_cmd_json(json!({
+        "channel_id": cid(1),
+        "temporary_id": "tmp-rich-1",
+        "type": "rich",
+        "text": "hello",
+        "props": {
+            "textPosition": "bottom",
+            "images": [
+                {
+                    "localPath": "/tmp/a.png",
+                    "width": 800,
+                    "upload": {
+                        "method": "PUT",
+                        "url": "https://upload/a",
+                        "headers": {"x-oss-a": "1"},
+                        "objectKey": "im/a.png",
+                        "contentType": "image/png",
+                        "size": 3
+                    }
+                },
+                {
+                    "localPath": "/tmp/b.png",
+                    "height": 600,
+                    "upload": {
+                        "method": "PUT",
+                        "url": "https://upload/b",
+                        "headers": {"x-oss-b": "2"},
+                        "objectKey": "im/b.png"
+                    }
+                }
+            ],
+            "frontendCustom": {"keep": true}
+        }
+    }))
+}
+
+fn rich_single_image_cmd(tmp: &str) -> Tick {
+    send_message_cmd_json(json!({
+        "channel_id": cid(1),
+        "temporary_id": tmp,
+        "type": "rich",
+        "text": "hello",
+        "props": {
+            "textPosition": "bottom",
+            "images": [{
+                "localPath": "/tmp/a.png",
+                "upload": {
+                    "method": "PUT",
+                    "url": "https://upload/a",
+                    "headers": {},
+                    "objectKey": "im/a.png"
+                }
+            }],
+            "frontendCustom": {"keep": true}
+        }
+    }))
+}
+
+fn upload_reply(object_key: &str, url: &str, etag: &str) -> Tick {
+    port_reply_with_body(
+        0,
+        Bytes::from(
+            serde_json::to_vec(&json!({
+                "objectKey": object_key,
+                "url": url,
+                "etag": etag
+            }))
+            .expect("upload reply json"),
+        ),
+    )
+}
+
+fn upload_effect_corrs(h: &Harness) -> Vec<u64> {
+    h.sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::UploadFile { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn persist_corr(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("persist corr")
+}
+
+fn posts_create_count(h: &Harness) -> usize {
+    h.sink
+        .as_slice()
+        .iter()
+        .filter(|effect| match effect {
+            Effect::Http { req, .. } => req.url.ends_with("/posts/create"),
+            _ => false,
+        })
+        .count()
+}
+
+fn last_posts_create_body(h: &Harness) -> Value {
+    h.sink
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|effect| match effect {
+            Effect::Http { req, .. } if req.url.ends_with("/posts/create") => req
+                .body
+                .as_ref()
+                .and_then(|body| serde_json::from_slice(body.as_ref()).ok()),
+            _ => None,
+        })
+        .expect("posts/create body")
+}
+
+fn last_message_upsert(h: &Harness) -> UpsertSpec {
+    h.sink
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|effect| match effect {
+            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => ops.iter().find_map(|op| {
+                match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "message" => Some(spec.clone()),
+                    _ => None,
+                }
+            }),
+            _ => None,
+        })
+        .expect("message upsert")
+}
+
+fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
+    row.iter().find_map(|(column, value)| match (column.as_str(), value) {
+        (c, SqlValue::Text(text)) if c == key => Some(text.as_str()),
+        _ => None,
+    })
+}
+
+fn props_from_spec(spec: &UpsertSpec) -> Value {
+    let row = spec.rows.first().expect("message row");
+    serde_json::from_str(row_text(row, "props").expect("props column")).expect("props json")
+}
+
+#[test]
+fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create() {
+    let mut h = Harness::new(&[1]);
+
+    let _effects = h.step(rich_two_image_cmd(), 1000);
+
+    assert_eq!(upload_effect_corrs(&h).len(), 2, "should emit two UploadFile effects");
+    assert_eq!(posts_create_count(&h), 0, "posts/create must wait for uploads");
+
+    let spec = last_message_upsert(&h);
+    let row = spec.rows.first().expect("message row");
+    assert_eq!(row_text(row, "type"), Some("rich"));
+    let props = props_from_spec(&spec);
+    assert_eq!(props["images"][0]["upload"]["status"], "uploading");
+    assert_eq!(props["images"][1]["upload"]["status"], "uploading");
+    assert_eq!(props["frontendCustom"]["keep"], true);
+  }
+
+#[test]
+fn rich_uploads_only_post_after_all_success() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(rich_two_image_cmd(), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corrs = upload_effect_corrs(&h);
+    assert_eq!(upload_corrs.len(), 2, "need two upload corrs");
+
+    h.step(port_reply_ok(p1), 1010);
+    assert_eq!(
+        h.module.pending_send_status("tmp-rich-1"),
+        Some(SendStatus::Sending),
+        "p1 ok should still advance send status"
+    );
+
+    let first_ok = Tick::PortReply {
+        corr: helix_core::Correlation::from_raw(upload_corrs[0]),
+        outcome: match upload_reply("im/a.png", "https://cdn/a.png", "etag-a") {
+            Tick::PortReply { outcome, .. } => outcome,
+            _ => unreachable!(),
+        },
+    };
+    h.step(first_ok, 1020);
+    assert_eq!(posts_create_count(&h), 0, "one upload success is not enough");
+    let first_props = props_from_spec(&last_message_upsert(&h));
+    assert_eq!(first_props["images"][0]["upload"]["status"], "success");
+    assert_eq!(first_props["images"][1]["upload"]["status"], "uploading");
+    assert_eq!(first_props["frontendCustom"]["keep"], true);
+
+    let second_ok = Tick::PortReply {
+        corr: helix_core::Correlation::from_raw(upload_corrs[1]),
+        outcome: match upload_reply("im/b.png", "https://cdn/b.png", "etag-b") {
+            Tick::PortReply { outcome, .. } => outcome,
+            _ => unreachable!(),
+        },
+    };
+    h.step(second_ok, 1030);
+
+    assert_eq!(posts_create_count(&h), 1, "all uploads success should emit one posts/create");
+    let body = last_posts_create_body(&h);
+    assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
+    assert_eq!(body["props"]["images"][1]["upload"]["status"], "success");
+    assert_eq!(body["props"]["images"][0]["width"], 800);
+    assert_eq!(body["props"]["images"][1]["height"], 600);
+    assert_eq!(body["props"]["frontendCustom"]["keep"], true);
+}
+
+#[test]
+fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(rich_single_image_cmd("tmp-rich-fail"), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
+
+    h.step(port_reply_ok(p1), 1010);
+    assert_eq!(
+        h.module.pending_send_status("tmp-rich-fail"),
+        Some(SendStatus::Sending)
+    );
+
+    h.step(common::port_reply_err(upload_corr), 1020);
+
+    assert_eq!(posts_create_count(&h), 0, "upload failure must not send posts/create");
+    let props = props_from_spec(&last_message_upsert(&h));
+    assert_eq!(props["images"][0]["upload"]["status"], "failed");
+    assert_eq!(props["frontendCustom"]["keep"], true);
+    assert_eq!(
+        h.module.pending_send_status("tmp-rich-fail"),
+        Some(SendStatus::Sending),
+        "upload failure must not map to UnSend"
+    );
+}

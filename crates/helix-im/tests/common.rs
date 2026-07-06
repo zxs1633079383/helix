@@ -36,6 +36,7 @@ pub enum EffectKind {
     Emit,
     ScheduleTimer(u64), // timer_id.raw()
     CancelTimer(u64),   // timer_id.raw()
+    UploadFile(u64),    // corr.raw()
     Send,
 }
 
@@ -50,6 +51,7 @@ impl EffectKind {
             Effect::Emit { .. } => EffectKind::Emit,
             Effect::ScheduleTimer { id, .. } => EffectKind::ScheduleTimer(id.raw()),
             Effect::CancelTimer { id } => EffectKind::CancelTimer(id.raw()),
+            Effect::UploadFile { corr, .. } => EffectKind::UploadFile(corr.raw()),
             Effect::Send { .. } => EffectKind::Send,
         }
     }

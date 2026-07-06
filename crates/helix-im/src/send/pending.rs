@@ -15,6 +15,7 @@
 use crate::state::{SendStatus, ServerId, TemporaryId};
 use helix_core::effect::{SqlValue, StorageOp, UpsertSpec};
 use helix_core::{Correlation, Effect, EffectSink, TimerId};
+use serde_json::Value;
 
 /// 待对账的单条消息发送记录
 pub struct PendingSend {
@@ -31,6 +32,12 @@ pub struct PendingSend {
     /// `temporary_id`（HashMap key）天然去重不双份；本字段记录「这条是哪个 connectionId 下发的」，
     /// 让重连后能判定「跨会话补回 vs 本会话 echo」（None = 发送时尚未握手，无 connectionId）。
     pub connection_id: Option<String>,
+    /// rich/file 上传完成后才真正发 posts/create；普通文本无此缓存。
+    pub body: Option<Value>,
+    /// 仍待成功的上传数；归零后才发 posts/create。
+    pub remaining_uploads: usize,
+    /// 上传失败与 Post send status 分离：失败只改 props.upload.status，不走 unsend/timer 失败态。
+    pub upload_failed: bool,
 }
 
 impl PendingSend {
@@ -48,6 +55,9 @@ impl PendingSend {
             timeout_timer,
             persist_corr: None,
             connection_id,
+            body: None,
+            remaining_uploads: 0,
+            upload_failed: false,
         }
     }
 
@@ -144,6 +154,9 @@ impl PendingSend {
     ///
     /// C006：若 echo 迟到（status 已为 Sent），幂等忽略。
     pub fn on_timeout(&mut self, fx: &mut EffectSink) {
+        if self.upload_failed {
+            return;
+        }
         // 幂等：已对账（Sent）或已标记 UnSend 的，重复 timer fire 忽略
         if self.status == SendStatus::Sent || self.status == SendStatus::UnSend {
             return;
@@ -174,4 +187,50 @@ impl PendingSend {
             })],
         });
     }
+}
+
+pub fn optimistic_message_persist_op(
+    temporary_id: &str,
+    channel_id: &str,
+    text: String,
+    msg_type: &str,
+    props_json: String,
+) -> StorageOp {
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "message",
+        rows: vec![vec![
+            (
+                "temporary_id".to_string(),
+                SqlValue::Text(temporary_id.to_string()),
+            ),
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(channel_id.to_string()),
+            ),
+            ("message".to_string(), SqlValue::Text(text)),
+            ("type".to_string(), SqlValue::Text(msg_type.to_string())),
+            ("props".to_string(), SqlValue::Text(props_json)),
+            (
+                "send_status".to_string(),
+                SqlValue::Text("sending".to_string()),
+            ),
+        ]],
+        conflict_key: Some("temporary_id"),
+        exclude_from_update: Vec::new(),
+    })
+}
+
+pub fn props_persist_op(temporary_id: &TemporaryId, props_json: String) -> StorageOp {
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "message",
+        rows: vec![vec![
+            (
+                "temporary_id".to_string(),
+                SqlValue::Text(temporary_id.0.clone()),
+            ),
+            ("props".to_string(), SqlValue::Text(props_json)),
+        ]],
+        conflict_key: Some("temporary_id"),
+        exclude_from_update: Vec::new(),
+    })
 }

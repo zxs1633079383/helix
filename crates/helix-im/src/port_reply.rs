@@ -1,7 +1,7 @@
 use crate::error::ImError;
 use crate::http_envelope::unwrap_sync_envelope;
 use crate::module::ImModule;
-use crate::state::{CorrelationContext, SendStatus};
+use crate::state::{ChannelId, CorrelationContext, SendStatus};
 use helix_core::EffectSink;
 
 impl ImModule {
@@ -19,6 +19,10 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
+
+        if let Some(pending_upload) = self.state.pending_uploads.remove(&corr) {
+            return self.handle_upload_port_reply(pending_upload, outcome, out);
+        }
 
         // 单次 remove 取出上下文（取代原 4 张表逐一 if-let 试探）。
         // 未命中（late/未知 corr）→ no-op，边界零信任（等价原"无人认领 → Ok(())"）。
@@ -274,6 +278,126 @@ impl ImModule {
             },
         }
 
+        Ok(())
+    }
+
+    fn handle_upload_port_reply(
+        &mut self,
+        pending_upload: crate::send::upload_props::PendingUpload,
+        outcome: &helix_core::tick::PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        use helix_core::tick::PortOutcome;
+
+        match outcome {
+            PortOutcome::Ok(reply) => {
+                let parsed: serde_json::Value = serde_json::from_slice(reply.0.as_ref())
+                    .map_err(|e| ImError::Parse(format!("upload reply: {e}")))?;
+                let object_key = parsed
+                    .get("objectKey")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| ImError::Parse("upload reply missing objectKey".to_string()))?;
+                let success = crate::send::upload_props::UploadSuccess {
+                    object_key: object_key.to_string(),
+                    url: parsed
+                        .get("url")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    etag: parsed
+                        .get("etag")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                };
+                self.mark_upload_success(pending_upload, &success, out)?;
+            }
+            PortOutcome::Err(e) => {
+                tracing::warn!(
+                    tmp_id = pending_upload.temporary_id.0.as_str(),
+                    error = ?e,
+                    "upload failed"
+                );
+                self.mark_upload_failed(pending_upload, &format!("{e:?}"), out)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn mark_upload_success(
+        &mut self,
+        pending_upload: crate::send::upload_props::PendingUpload,
+        success: &crate::send::upload_props::UploadSuccess,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let persist_corr = self.alloc_corr_internal();
+        let mut ready_body = None;
+        if let Some(ps) = self.state.pending_sends.get_mut(&pending_upload.temporary_id) {
+            let Some(body) = ps.body.as_mut() else {
+                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload success without cached send body");
+                return Ok(());
+            };
+            let Some(props) = body.get_mut("props") else {
+                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload success without props");
+                return Ok(());
+            };
+            crate::send::upload_props::mark_upload_success(props, &pending_upload.target, success)?;
+            let props_json =
+                serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
+            out.push(helix_core::Effect::Persist {
+                corr: persist_corr,
+                ops: vec![crate::pending_send::props_persist_op(
+                    &pending_upload.temporary_id,
+                    props_json,
+                )],
+            });
+            if ps.remaining_uploads > 0 {
+                ps.remaining_uploads -= 1;
+            }
+            if ps.remaining_uploads == 0 && !ps.upload_failed {
+                ready_body = Some(body.clone());
+            }
+        }
+
+        if let Some(body) = ready_body {
+            let channel_id = body
+                .get("channelId")
+                .and_then(serde_json::Value::as_str)
+                .and_then(ChannelId::from_str)
+                .ok_or_else(|| ImError::Parse("upload-gated send missing channelId".to_string()))?;
+            self.emit_posts_create_http(channel_id, pending_upload.temporary_id, &body, out)?;
+        }
+
+        Ok(())
+    }
+
+    fn mark_upload_failed(
+        &mut self,
+        pending_upload: crate::send::upload_props::PendingUpload,
+        error: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let persist_corr = self.alloc_corr_internal();
+        if let Some(ps) = self.state.pending_sends.get_mut(&pending_upload.temporary_id) {
+            ps.upload_failed = true;
+            let Some(body) = ps.body.as_mut() else {
+                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload failure without cached send body");
+                return Ok(());
+            };
+            let Some(props) = body.get_mut("props") else {
+                tracing::warn!(tmp_id = pending_upload.temporary_id.0.as_str(), "upload failure without props");
+                return Ok(());
+            };
+            crate::send::upload_props::mark_upload_failed(props, &pending_upload.target, error)?;
+            let props_json =
+                serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
+            out.push(helix_core::Effect::Persist {
+                corr: persist_corr,
+                ops: vec![crate::pending_send::props_persist_op(
+                    &pending_upload.temporary_id,
+                    props_json,
+                )],
+            });
+        }
         Ok(())
     }
 }

@@ -388,6 +388,10 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
     assert_eq!(req.local_path, "/tmp/b.png");
     assert_eq!(req.object_key, "im/b.png");
     assert_eq!(req.url, "https://upload/b");
+    let retry_props = props_from_spec(&last_message_upsert(&h));
+    assert_eq!(retry_props["images"][0]["upload"]["status"], "success");
+    assert_eq!(retry_props["images"][1]["upload"]["status"], "uploading");
+    assert_eq!(retry_props["frontendCustom"]["keep"], true);
 
     let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
     h.step(
@@ -450,6 +454,9 @@ fn retry_failed_file_emits_one_upload_without_posts_create() {
     assert_eq!(req.local_path, "/tmp/doc.pdf");
     assert_eq!(req.object_key, "im/doc.pdf");
     assert_eq!(req.url, "https://upload/doc");
+    let retry_props = props_from_spec(&last_message_upsert(&h));
+    assert_eq!(retry_props["file"]["upload"]["status"], "uploading");
+    assert_eq!(retry_props["frontendCustom"]["keep"], true);
 
     let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
     h.step(

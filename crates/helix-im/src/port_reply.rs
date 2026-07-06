@@ -290,21 +290,19 @@ impl ImModule {
         use helix_core::tick::PortOutcome;
 
         match outcome {
-            PortOutcome::Ok(reply) => {
-                match parse_upload_success_reply(reply.0.as_ref()) {
-                    Ok(success) => {
-                        self.mark_upload_success(pending_upload, &success, out)?;
-                    }
-                    Err(reason) => {
-                        tracing::warn!(
-                            tmp_id = pending_upload.temporary_id.0.as_str(),
-                            error = reason.as_str(),
-                            "upload reply malformed, downgrading to upload failed"
-                        );
-                        self.mark_upload_failed(pending_upload, reason.as_str(), out)?;
-                    }
+            PortOutcome::Ok(reply) => match parse_upload_success_reply(reply.0.as_ref()) {
+                Ok(success) => {
+                    self.mark_upload_success(pending_upload, &success, out)?;
                 }
-            }
+                Err(reason) => {
+                    tracing::warn!(
+                        tmp_id = pending_upload.temporary_id.0.as_str(),
+                        error = reason.as_str(),
+                        "upload reply malformed, downgrading to upload failed"
+                    );
+                    self.mark_upload_failed(pending_upload, reason.as_str(), out)?;
+                }
+            },
             PortOutcome::Err(e) => {
                 tracing::warn!(
                     tmp_id = pending_upload.temporary_id.0.as_str(),
@@ -417,7 +415,9 @@ impl ImModule {
     }
 }
 
-fn parse_upload_success_reply(bytes: &[u8]) -> Result<crate::send::upload_props::UploadSuccess, String> {
+fn parse_upload_success_reply(
+    bytes: &[u8],
+) -> Result<crate::send::upload_props::UploadSuccess, String> {
     let parsed: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|e| format!("upload reply: {e}"))?;
     let obj = parsed

@@ -38,7 +38,7 @@ pub(crate) fn handle_retry_upload(
     let temporary_id = TemporaryId(cmd.temporary_id);
     let target = cmd.target.into_upload_target();
 
-    let req = {
+    let (req, props_json) = {
         let pending_send = module
             .state
             .pending_sends
@@ -55,8 +55,20 @@ pub(crate) fn handle_retry_upload(
         set_target_status(props, &target, "uploading")?;
         pending_send.upload_failed = has_failed_target(props);
 
-        file_upload_request(props, &target)?
+        let req = file_upload_request(props, &target)?;
+        let props_json =
+            serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
+        (req, props_json)
     };
+
+    let persist_corr = module.alloc_corr_internal();
+    out.push(Effect::Persist {
+        corr: persist_corr,
+        ops: vec![crate::pending_send::props_persist_op(
+            &temporary_id,
+            props_json,
+        )],
+    });
 
     let corr = module.alloc_corr_internal();
     module.state.pending_uploads.insert(

@@ -1,8 +1,9 @@
 # Helix 文档地图（docs/ 总索引）
 
 > docs/ 的**单一入口**：先看这页，再进具体文档。
-> **2026-06-17 大缩减（熵管理）**：55 → 29 个。删除 00-05 baseline 草稿 / 过会 presentation 稿（大白话/技术过会方案/完美过会指南/回到原点）/ two-layer 长稿 / 三端科普 / superpowers 临时稿；决策权威「评审纪要」7 条过会拍板已**并入 `harness/decisions.md`**；`eventbus` 两稿合一、`sync-v2` 两稿合一。目的：AI 广读的「叙事/设计」集压到 10 个，杜绝读到过时稿。
-> 维护规则见文末「§ 熵管理」。最近对账：**2026-06-22**（sync-v2 落地真相/README 两端化/FFI F4 落地/cursor 表真源/wasm 归档同步）。
+> **2026-07-07 熵减对账**：当前仓库可扫 Markdown 约 169 个，本页维护的是**常读 canonical 入口**，不是仓库 Markdown 总量清单。历史报告、worker report、SDD 执行包、模块深层 spec 不等于当前事实。
+> **2026-06-17 大缩减（历史记录）**：曾将广读叙事稿 55 → 29 个。该数字只代表当时 docs 入口收敛，不代表今天仓库 Markdown 总量。
+> 维护规则见文末「§ 熵管理」。最近对账：**2026-07-07**（文档入口熵减：计数口径、历史证据、移动端 FFI / real-chain / trace-scope 边界）。
 
 ---
 
@@ -13,7 +14,7 @@
 | **设计理念 / 不变量（北极星）** | [`GOAL.md`](./GOAL.md) | L2 常量，每次会话开局必读；§1 设计理念 / §2 硬约束不可偏离 |
 | **决策（ADR + 过会拍板）** | [`harness/decisions.md`](./harness/decisions.md) | ADR-001..010 + **7 条过会拍板**（原「评审纪要」已并入，决策唯一事实源） |
 | **机制事实（IM 全链路）** | [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) | 内核 + 四能力 + IM 模块 + 三端接入；含 Effect 模型(Http/HttpFire) / BoundedSpawner / sync-v2 已验证 |
-| **可执行护栏** | [`harness/`](./harness/README.md) | HX-C001..C013 = 把 GOAL §1/§2 编译成 grep/CI 闸门（HX-C003 已随 ADR-006 归档） |
+| **可执行护栏** | [`harness/`](./harness/README.md) | HX-C001..C016+ = 把 GOAL §1/§2 编译成 grep/CI 闸门；具体 active/archived 状态以 harness README 为准 |
 | **代码本身** | `crates/helix-{core,im,driver-native,driver-host,driver-ffi}` | trait/effect 冲突时，**代码 > 任何设计稿** |
 | **架构 review 台账** | [`review/workflow-review-ledger.md`](./review/workflow-review-ledger.md) | drift-review 收敛记录（§4.7 闸门） |
 
@@ -21,7 +22,7 @@
 
 ---
 
-## 二、文档清单（29 · 按层）
+## 二、文档清单（canonical 入口 · 按层）
 
 ### 北极星 / 进度（常读）
 | 文档 | 作用 |
@@ -41,7 +42,15 @@
 | [`helix-crux-参照对照.md`](./过会方案/helix-crux-参照对照.md) | Crux 能力边界三分法 + 还能从 Crux 取的方向 |
 
 ### harness/（护栏层 · 按需 grep，非广读）
-→ [`harness/README.md`](./harness/README.md)：HX-C001..C013（12 active 不变量卡 + HX-C003 archived）+ [`OPERATING.md`](./harness/OPERATING.md)（什么事→调什么）+ [`decisions.md`](./harness/decisions.md)（ADR + 过会拍板）+ [`log.md`](./harness/log.md)（踩坑流水）。
+→ [`harness/README.md`](./harness/README.md)：active/archived harness 的唯一索引 + [`OPERATING.md`](./harness/OPERATING.md)（什么事→调什么）+ [`decisions.md`](./harness/decisions.md)（ADR + 过会拍板）+ [`log.md`](./harness/log.md)（踩坑流水）。
+
+### 模块级 spec / 执行记录（按需读，不能冒充当前 green）
+| 文档族 | 当前路由 |
+|---|---|
+| `crates/helix-im/docs/uc-automation/` | `uc-command-set-spec.md` 是 UC/command 当前入口；`uc-test-order-spec.md` 是历史 DAG 参照 |
+| `crates/helix-driver-ffi/docs/` | 移动端契约以 `移动端Command-Query-Event契约SPEC.md` 为主；QuickJS 接入文档是移动端联调说明 |
+| `.superpowers/sdd/*.md` | worker brief/report/progress，只能作为执行线索和审查材料，不是 current green |
+| `docs/sync-v2-report/*` / `docs/reports/*` | 历史审计/战报，保留 provenance；需要当前事实时回到代码、gate、collector 证据 |
 
 ### reports/（战报 + 性能留痕）
 | 文档 | 作用 |

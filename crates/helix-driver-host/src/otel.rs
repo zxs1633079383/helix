@@ -54,7 +54,7 @@ struct RuntimeInner {
 #[derive(Debug)]
 struct OtlpExporter {
     exporter: Arc<opentelemetry_otlp::SpanExporter>,
-    runtime: tokio::runtime::Runtime,
+    runtime: Mutex<Option<tokio::runtime::Runtime>>,
     scope: InstrumentationScope,
 }
 
@@ -164,11 +164,13 @@ impl HostOtelRuntime {
             return;
         };
         let span_exporter = Arc::clone(&exporter.exporter);
-        exporter.runtime.spawn(async move {
-            if let Err(error) = span_exporter.export(vec![span]).await {
-                tracing::warn!(error = %error, "helix otel span export failed");
-            }
-        });
+        if let Some(runtime) = exporter.runtime.lock().as_ref() {
+            runtime.spawn(async move {
+                if let Err(error) = span_exporter.export(vec![span]).await {
+                    tracing::warn!(error = %error, "helix otel span export failed");
+                }
+            });
+        }
     }
 }
 
@@ -213,13 +215,29 @@ impl OtlpExporter {
         };
 
         let endpoint = config.endpoint.clone();
-        let mut exporter = match runtime.block_on(async move {
-            opentelemetry_otlp::SpanExporter::builder()
-                .with_tonic()
-                .with_endpoint(endpoint)
-                .with_timeout(Duration::from_secs(5))
-                .build()
-        }) {
+        let init_result = match std::thread::Builder::new()
+            .name("helix-otel-init".to_string())
+            .spawn(move || {
+                let init_runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|error| error.to_string())?;
+                init_runtime.block_on(async move {
+                    opentelemetry_otlp::SpanExporter::builder()
+                        .with_tonic()
+                        .with_endpoint(endpoint)
+                        .with_timeout(Duration::from_secs(5))
+                        .build()
+                        .map_err(|error| error.to_string())
+                })
+            }) {
+            Ok(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("otel exporter init thread panicked".to_string())),
+            Err(error) => Err(error.to_string()),
+        };
+
+        let mut exporter = match init_result {
             Ok(exporter) => exporter,
             Err(error) => {
                 tracing::warn!(error = %error, "helix otel exporter disabled: exporter init failed");
@@ -234,9 +252,17 @@ impl OtlpExporter {
 
         Some(Self {
             exporter: Arc::new(exporter),
-            runtime,
+            runtime: Mutex::new(Some(runtime)),
             scope: InstrumentationScope::builder(config.service_name.clone()).build(),
         })
+    }
+}
+
+impl Drop for OtlpExporter {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.lock().take() {
+            runtime.shutdown_background();
+        }
     }
 }
 

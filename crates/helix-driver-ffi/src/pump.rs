@@ -94,6 +94,17 @@ pub fn run(args: PumpArgs) {
                 return;
             }
         };
+        for sql in helix_im::IM_SCHEMA {
+            if let Err(e) = storage.execute_raw(sql).await {
+                tracing::error!(
+                    error = %e,
+                    db = %args.db_url,
+                    "FFI pump 初始化 IM schema 失败"
+                );
+                let _ = args.ready_tx.send(None);
+                return;
+            }
+        }
 
         // ── event sink（FFI 批处理 egress）先建：HTTP 横切层 401/断网回报复用同一出口。
         let event_sink = Arc::new(FfiEventSink::new(args.vtable));

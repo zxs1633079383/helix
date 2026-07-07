@@ -20,6 +20,9 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
 parking_lot = "0.12" # HostHeaderRegistry 用：无 poison（panic 不静默丢头），对齐现网 cses-client
 tracing     = { workspace = true }
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["trace"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "grpc-tonic"] }
 
 # driver 层是 ambient API（SystemTime/线程）的合法落点 → 不开 disallowed deny
 [lints.clippy]

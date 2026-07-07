@@ -9,6 +9,7 @@ pub mod http_envelope;
 pub mod instrument;
 pub mod network;
 pub mod ops;
+pub mod otel;
 pub mod owned_effect;
 pub mod pools;
 pub mod spawner;
@@ -30,6 +31,7 @@ pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,
 };
 pub use ops::{classify_port_error, execute_storage_ops, table_set_key};
+pub use otel::{HostOtelConfig, HostOtelRuntime, HostSpanSnapshot, TraceDirection};
 pub use owned_effect::{consume_effects, OwnedEffect};
 pub use spawner::{BoundedSpawner, Job, Overflow};
 pub use storage::HostStorage;

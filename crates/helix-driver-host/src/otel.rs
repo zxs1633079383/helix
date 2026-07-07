@@ -111,10 +111,13 @@ impl HostOtelRuntime {
         carrier: Option<&TraceCarrier>,
         attributes: Vec<(&'static str, String)>,
     ) -> HostSpanScope {
-        let span_id = self.next_span_id();
         let parent_span_id = carrier
             .and_then(|value| value.traceparent.as_deref())
             .and_then(parse_parent_span_id);
+        let mut span_id = self.next_span_id();
+        if parent_span_id.as_deref() == Some(span_id.as_str()) {
+            span_id = self.next_span_id();
+        }
         let trace_id = carrier
             .and_then(|value| value.traceparent.as_deref())
             .and_then(parse_trace_id)
@@ -157,7 +160,14 @@ impl HostOtelRuntime {
     }
 
     fn next_span_id(&self) -> String {
-        format!("{:016x}", self.inner.seq.fetch_add(1, Ordering::Relaxed))
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        let seq = self.inner.seq.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id() as u64;
+        let id = mix_span_seed(nanos ^ seq.rotate_left(17) ^ pid.rotate_left(33));
+        format!("{:016x}", id.max(1))
     }
 
     fn next_trace_id(&self) -> String {
@@ -181,8 +191,18 @@ impl HostOtelRuntime {
         let span_exporter = Arc::clone(&exporter.exporter);
         if let Some(runtime) = exporter.runtime.lock().as_ref() {
             runtime.spawn(async move {
-                if let Err(error) = span_exporter.export(vec![span]).await {
-                    tracing::warn!(error = %error, "helix otel span export failed");
+                let mut last_error = None;
+                for attempt in 1..=8 {
+                    match span_exporter.export(vec![span.clone()]).await {
+                        Ok(()) => return,
+                        Err(error) => {
+                            last_error = Some(error);
+                            tokio::time::sleep(Duration::from_millis(250 * attempt)).await;
+                        }
+                    }
+                }
+                if let Some(error) = last_error {
+                    tracing::warn!(error = %error, "helix otel span export failed after retries");
                 }
             });
         }
@@ -276,9 +296,16 @@ impl OtlpExporter {
 impl Drop for OtlpExporter {
     fn drop(&mut self) {
         if let Some(runtime) = self.runtime.lock().take() {
-            runtime.shutdown_background();
+            runtime.shutdown_timeout(Duration::from_secs(5));
         }
     }
+}
+
+fn mix_span_seed(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e3779b97f4a7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    value ^ (value >> 31)
 }
 
 fn span_data_from_snapshot(

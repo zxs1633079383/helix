@@ -38,6 +38,31 @@ fn host_otel_runtime_extracts_traceparent_and_starts_child_span() {
 }
 
 #[test]
+fn host_otel_runtime_uses_non_colliding_span_ids() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let carrier = TraceCarrier::from_json_str(
+        r#"{"traceparent":"00-00000000000000000000000000000001-0000000000000001-01"}"#,
+    )
+    .expect("carrier");
+
+    let _scope = runtime.span(
+        "helix.command.accept",
+        TraceDirection::Inbound,
+        Some(&carrier),
+    );
+    let span = runtime.last_span_for_test().expect("span");
+
+    assert_eq!(span.span_id.len(), 16);
+    assert_ne!(span.span_id, "0000000000000001");
+    assert_ne!(span.parent_span_id.as_deref(), Some(span.span_id.as_str()));
+}
+
+#[test]
 fn trace_hooks_consume_command_trace_sidecar_at_host_boundary() {
     let runtime = HostOtelRuntime::new(HostOtelConfig {
         enabled: true,

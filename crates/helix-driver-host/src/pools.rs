@@ -19,9 +19,15 @@ use helix_core::Tick;
 use crate::http_envelope::run_http_envelope;
 use crate::ops::classify_port_error;
 use crate::spawner::{BoundedSpawner, Overflow};
+use crate::storage::{with_storage_trace_context, StorageTraceContext};
 use crate::{execute_storage_ops, PERSIST_QUEUE_CAP};
 
 use crate::HTTP_QUEUE_CAP;
+
+pub struct PersistJobPayload {
+    pub ops: Vec<StorageOp>,
+    pub trace: Option<StorageTraceContext>,
+}
 
 /// 启动（或复用）某 table-set 对应的 Persist BoundedSpawner（N=1 单消费者保序）。
 ///
@@ -30,11 +36,11 @@ use crate::HTTP_QUEUE_CAP;
 /// 同 key 内所有 Persist/PersistFire 严格按入队顺序执行（N=1 → 单 worker 单消费者）。
 /// job queue 有界（`PERSIST_QUEUE_CAP`），超限时 caller `.await` 阻塞，背压传导到 tick_tx。
 pub fn get_or_spawn_persist<S>(
-    workers: &mut HashMap<String, BoundedSpawner<Vec<StorageOp>>>,
+    workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
     table_key: String,
     storage: Arc<S>,
     reply_tx: mpsc::UnboundedSender<Tick>,
-) -> &BoundedSpawner<Vec<StorageOp>>
+) -> &BoundedSpawner<PersistJobPayload>
 where
     S: Storage + Send + Sync + 'static,
 {
@@ -45,9 +51,20 @@ where
             PERSIST_QUEUE_CAP,
             Overflow::Block,
             reply_tx,
-            move |ops: Vec<StorageOp>| {
+            move |payload: PersistJobPayload| {
                 let storage = Arc::clone(&storage);
-                async move { execute_storage_ops(storage.as_ref(), &ops).await }
+                async move {
+                    match payload.trace {
+                        Some(trace) => {
+                            with_storage_trace_context(
+                                trace,
+                                execute_storage_ops(storage.as_ref(), &payload.ops),
+                            )
+                            .await
+                        }
+                        None => execute_storage_ops(storage.as_ref(), &payload.ops).await,
+                    }
+                }
             },
         )
     })

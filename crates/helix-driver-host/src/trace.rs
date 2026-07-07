@@ -7,6 +7,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::otel::{HostOtelRuntime, TraceDirection};
+use crate::storage::StorageTraceContext;
 use helix_core::effect::{
     Correlation, DomainEventBytes, FileUploadRequest, HttpRequest, StorageOp, TransportId,
 };
@@ -310,6 +311,12 @@ impl TraceHooks {
             })
         });
         self.inner.on_storage_dispatch(corr, ops);
+    }
+
+    pub fn storage_trace_context(&self) -> Option<StorageTraceContext> {
+        self.otel
+            .as_ref()
+            .map(|runtime| StorageTraceContext::new(runtime.clone(), self.active_carrier()))
     }
 
     pub fn on_http_dispatch(&self, corr: Option<Correlation>, req: &mut HttpRequest) {

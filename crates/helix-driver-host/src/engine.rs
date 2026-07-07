@@ -32,14 +32,14 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use helix_core::effect::{StorageOp, TransportId};
+use helix_core::effect::TransportId;
 use helix_core::ports::{Clock, FileUploader, HttpRequester, Storage, Transport};
 use helix_core::{ExecutionShell, Tick};
 
 pub use crate::batch_sink::BatchSink;
 use crate::dispatch::dispatch_effects;
 use crate::owned_effect::consume_effects;
-use crate::pools::{spawn_http_pool, spawn_upload_pool};
+use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
 use crate::trace::TraceHooks;
@@ -133,7 +133,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
 
     // per-table-set Persist BoundedSpawner 映射（table_set_key → BoundedSpawner，N=1 保写序）。
-    let mut persist_workers: HashMap<String, BoundedSpawner<Vec<StorageOp>>> = HashMap::new();
+    let mut persist_workers: HashMap<String, BoundedSpawner<PersistJobPayload>> = HashMap::new();
 
     // Http(必达)：N=http_n，Block 溢出（旧 Semaphore 并发闸收敛进 N 个 worker）。
     let http_pool = spawn_http_pool(http_n, Arc::clone(&http), reply_tx.clone(), Overflow::Block);

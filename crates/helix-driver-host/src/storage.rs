@@ -24,6 +24,7 @@
 //! - 连接 flags 用 `SQLITE_OPEN_NO_MUTEX`（B2）：连接已被 Rust Mutex/只读池独占管理，
 //!   消除 SQLite 内部串行化锁的双重开销。
 
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
@@ -34,10 +35,16 @@ use helix_core::ports::Storage;
 use helix_core::PortError;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params_from_iter, Connection, OpenFlags};
+use serde_json::json;
 use tokio::sync::Semaphore;
+
+use crate::base64_encode;
+use crate::otel::{HostOtelRuntime, HostSpanScope, TraceDirection};
+use crate::trace::TraceCarrier;
 
 /// 只读连接池大小（恢复 native 旧三池中「读 ×4」并发度）。
 const READ_POOL_SIZE: usize = 4;
+const SQL_TRACE_MAX_BYTES: usize = 16 * 1024;
 
 /// 内存数据库（`mode=memory` / `:memory:`）无法被第二个连接以 READ_ONLY 重开成同一份
 /// 数据（每个 `Connection::open` 得到独立的空库），除非走 `cache=shared`。文件 WAL
@@ -58,6 +65,33 @@ struct ReadPool {
     permits: Arc<Semaphore>,
     /// 空闲只读连接栈。permit 持有者保证 pop 必有连接（容量与 permit 数一致）。
     idle: Mutex<Vec<Connection>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StorageTraceContext {
+    runtime: HostOtelRuntime,
+    carrier: Option<TraceCarrier>,
+}
+
+impl StorageTraceContext {
+    pub fn new(runtime: HostOtelRuntime, carrier: Option<TraceCarrier>) -> Self {
+        Self { runtime, carrier }
+    }
+}
+
+tokio::task_local! {
+    static STORAGE_TRACE_CONTEXT: StorageTraceContext;
+}
+
+pub async fn with_storage_trace_context<F>(context: StorageTraceContext, future: F) -> F::Output
+where
+    F: Future,
+{
+    STORAGE_TRACE_CONTEXT.scope(context, future).await
+}
+
+fn current_storage_trace_context() -> Option<StorageTraceContext> {
+    STORAGE_TRACE_CONTEXT.try_with(Clone::clone).ok()
 }
 
 impl HostStorage {
@@ -98,8 +132,10 @@ impl HostStorage {
 
     pub async fn execute_raw(&self, sql: &'static str) -> Result<(), PortError> {
         let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
         tokio::task::spawn_blocking(move || {
             let conn = writer.lock().map_err(map_lock_err)?;
+            let _span = trace_sql(&trace, "EXECUTE", None, sql, &[]);
             conn.execute_batch(sql).map_err(map_sqlite_err)
         })
         .await
@@ -179,6 +215,7 @@ impl Storage for HostStorage {
         }
 
         let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
         tokio::task::spawn_blocking(move || {
             let mut conn = writer.lock().map_err(map_lock_err)?;
             // HX-C005（E9b）：batch_upsert 的 SQL 串因 table + 列名集 + conflict_key +
@@ -195,6 +232,7 @@ impl Storage for HostStorage {
                 let mut stmt = tx.prepare_cached(&sql).map_err(map_sqlite_err)?;
                 for row in &spec.rows {
                     let values = sql_values(row.iter().map(|(_, value)| value));
+                    let _span = trace_sql(&trace, "UPSERT", Some(spec.table), &sql, &values);
                     stmt.execute(params_from_iter(values.iter()))
                         .map_err(map_sqlite_err)?;
                 }
@@ -217,6 +255,7 @@ impl Storage for HostStorage {
         }
 
         let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
         let table = table.to_string();
         let key_col = key_col.to_string();
         tokio::task::spawn_blocking(move || {
@@ -231,6 +270,7 @@ impl Storage for HostStorage {
 
             let mut values = sql_values(patch.iter().map(|(_, value)| value));
             values.extend(sql_values(key_vals.iter()));
+            let _span = trace_sql(&trace, "UPDATE", Some(&table), &sql, &values);
             conn.execute(&sql, params_from_iter(values.iter()))
                 .map(|_| ())
                 .map_err(map_sqlite_err)
@@ -288,15 +328,25 @@ impl Storage for HostStorage {
             None => 0,
         };
         let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
         tokio::task::spawn_blocking(move || {
             let conn = writer.lock().map_err(map_lock_err)?;
             let mut stmt = conn.prepare_cached(sql.as_ref()).map_err(map_sqlite_err)?;
-            match spec.touch_col {
-                Some(_) => stmt.execute((&spec.scope_key, spec.value, now_ms)),
-                None => stmt.execute((&spec.scope_key, spec.value)),
-            }
-            .map(|_| ())
-            .map_err(map_sqlite_err)
+            let params = match spec.touch_col {
+                Some(_) => vec![
+                    Value::Text(spec.scope_key.clone()),
+                    Value::Integer(spec.value),
+                    Value::Integer(now_ms),
+                ],
+                None => vec![
+                    Value::Text(spec.scope_key.clone()),
+                    Value::Integer(spec.value),
+                ],
+            };
+            let _span = trace_sql(&trace, "UPSERT", Some(spec.table), sql.as_ref(), &params);
+            stmt.execute(params_from_iter(params.iter()))
+                .map(|_| ())
+                .map_err(map_sqlite_err)
         })
         .await
         .map_err(map_join_err)?
@@ -309,6 +359,7 @@ impl Storage for HostStorage {
         // 乱序到达均在 SQL 层幂等不污染计数。表名 / 列名都是 spec 的 `&'static str`（上层编译期
         // 常量，driver 不解释含义，守 HX-C001），prepare_cached 复用同形状语句。
         let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
         tokio::task::spawn_blocking(move || {
             // SET 片段：先自增列（delta 走**绑定参数** `?`，非内插 SQL 文本——HX-C005：SQL 文本
             // 不随 bump_delta 值变 → prepare_cached 同形状命中，零 per-delta 重编译），再可选绝对列。
@@ -330,6 +381,7 @@ impl Storage for HostStorage {
             ))));
             let conn = writer.lock().map_err(map_lock_err)?;
             let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
+            let _span = trace_sql(&trace, "UPDATE", Some(spec.table), &sql, &params);
             stmt.execute(params_from_iter(params.iter()))
                 .map(|_| ())
                 .map_err(map_sqlite_err)
@@ -339,6 +391,7 @@ impl Storage for HostStorage {
     }
 
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {
+        let trace = current_storage_trace_context();
         self.with_reader(move |conn| {
             let sql = format!(
                 "SELECT * FROM {table} WHERE {key_col} = ?",
@@ -347,6 +400,7 @@ impl Storage for HostStorage {
             );
             let values = sql_values(std::iter::once(&spec.key_val));
             let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
+            let _span = trace_sql(&trace, "SELECT", Some(spec.table), &sql, &values);
             let mut rows = stmt
                 .query(params_from_iter(values.iter()))
                 .map_err(map_sqlite_err)?;
@@ -360,6 +414,7 @@ impl Storage for HostStorage {
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<HelixRow>, PortError> {
         const HARD_LIMIT: u32 = 10_000;
+        let trace = current_storage_trace_context();
         self.with_reader(move |conn| {
             let limit = spec.limit.unwrap_or(HARD_LIMIT).min(HARD_LIMIT);
             // 可选过滤/排序（P6 投影；None=旧全表语义零行为改变）。列名 core 编译期 `&'static str`
@@ -380,6 +435,7 @@ impl Storage for HostStorage {
                 .as_ref()
                 .map_or_else(Vec::new, |(_, val)| sql_values(std::iter::once(val)));
             let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
+            let _span = trace_sql(&trace, "SELECT", Some(spec.table), &sql, &bind);
             let mut rows = stmt
                 .query(params_from_iter(bind.iter()))
                 .map_err(map_sqlite_err)?;
@@ -405,6 +461,7 @@ impl Storage for HostStorage {
         }
 
         let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
         let table = table.to_string();
         let scope_col = scope_col.to_string();
         let key_col = key_col.to_string();
@@ -420,6 +477,7 @@ impl Storage for HostStorage {
             // 绑定顺序与占位一致：scope_val → key_vals…
             let mut values = sql_values(std::iter::once(&scope_val));
             values.extend(sql_values(key_vals.iter()));
+            let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
             conn.execute(&sql, params_from_iter(values.iter()))
                 .map(|_| ())
                 .map_err(map_sqlite_err)
@@ -506,6 +564,66 @@ fn sql_values<'a>(values: impl IntoIterator<Item = &'a SqlValue>) -> Vec<Value> 
             SqlValue::Null => Value::Null,
         })
         .collect()
+}
+
+fn trace_sql<'a>(
+    trace: &'a Option<StorageTraceContext>,
+    operation: &'static str,
+    table: Option<&str>,
+    statement: &str,
+    params: &[Value],
+) -> Option<HostSpanScope> {
+    let context = trace.as_ref()?;
+    let mut attrs = vec![
+        ("db.system", "sqlite".to_string()),
+        ("db.operation", operation.to_string()),
+        ("db.statement", bounded_attr(statement)),
+        ("db.parameters", bounded_attr(&sql_params_json(params))),
+    ];
+    if let Some(table) = table {
+        attrs.push(("db.sql.table", table.to_string()));
+    }
+    Some(context.runtime.span_with_attributes(
+        "helix.storage.sqlite.query",
+        TraceDirection::Internal,
+        context.carrier.as_ref(),
+        attrs,
+    ))
+}
+
+fn sql_params_json(params: &[Value]) -> String {
+    let json_values: Vec<_> = params
+        .iter()
+        .map(|value| match value {
+            Value::Null => json!(null),
+            Value::Integer(v) => json!(v),
+            Value::Real(v) => json!(v),
+            Value::Text(v) => json!(v),
+            Value::Blob(v) => json!({
+                "type": "blob",
+                "bytes": v.len(),
+                "base64": bounded_attr(&base64_encode(v)),
+            }),
+        })
+        .collect();
+    serde_json::to_string(&json_values).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn bounded_attr(value: &str) -> String {
+    if value.len() <= SQL_TRACE_MAX_BYTES {
+        return value.to_string();
+    }
+    let boundary = value
+        .char_indices()
+        .map(|(idx, _)| idx)
+        .take_while(|idx| *idx <= SQL_TRACE_MAX_BYTES)
+        .last()
+        .unwrap_or(0);
+    format!(
+        "{}...[truncated {} bytes]",
+        &value[..boundary],
+        value.len() - boundary
+    )
 }
 
 fn convert_row(row: &rusqlite::Row<'_>) -> Result<HelixRow, PortError> {

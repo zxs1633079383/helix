@@ -35,6 +35,7 @@ pub struct HostSpanSnapshot {
     pub trace_id: Option<String>,
     pub span_id: String,
     pub parent_span_id: Option<String>,
+    pub attributes: Vec<(String, String)>,
     pub exported: bool,
 }
 
@@ -100,6 +101,16 @@ impl HostOtelRuntime {
         direction: TraceDirection,
         carrier: Option<&TraceCarrier>,
     ) -> HostSpanScope {
+        self.span_with_attributes(name, direction, carrier, Vec::new())
+    }
+
+    pub fn span_with_attributes(
+        &self,
+        name: &'static str,
+        direction: TraceDirection,
+        carrier: Option<&TraceCarrier>,
+        attributes: Vec<(&'static str, String)>,
+    ) -> HostSpanScope {
         let span_id = self.next_span_id();
         let parent_span_id = carrier
             .and_then(|value| value.traceparent.as_deref())
@@ -114,6 +125,10 @@ impl HostOtelRuntime {
             trace_id: Some(trace_id),
             span_id,
             parent_span_id,
+            attributes: attributes
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect(),
             exported: self.inner.exporter.is_some(),
         };
 
@@ -287,6 +302,12 @@ fn span_data_from_snapshot(
     if let Some(baggage) = baggage {
         attributes.push(KeyValue::new("baggage", baggage));
     }
+    attributes.extend(
+        snapshot
+            .attributes
+            .iter()
+            .map(|(key, value)| KeyValue::new(key.clone(), value.clone())),
+    );
 
     Some(SpanData {
         span_context: SpanContext::new(

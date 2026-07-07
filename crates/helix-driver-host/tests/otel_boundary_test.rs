@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse};
-use helix_core::ports::{EventSink, HttpRequester};
+use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse, SqlValue, UpsertSpec};
+use helix_core::ports::{EventSink, HttpRequester, Storage};
 use helix_core::tick::AppCommand;
 use helix_core::{PortError, Tick};
+use helix_driver_host::storage::{with_storage_trace_context, StorageTraceContext};
 use helix_driver_host::trace::{TRACEPARENT_BYTES, TRACE_BAGGAGE_MAX_BYTES};
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, CrossCuttingHttp, HostOtelConfig, HostOtelRuntime,
-    TraceCarrier, TraceDirection, TraceHooks,
+    HostStorage, TraceCarrier, TraceDirection, TraceHooks,
 };
 
 #[test]
@@ -121,6 +122,70 @@ async fn crosscutting_http_starts_outbound_http_span() {
         span.trace_id.as_deref(),
         Some("00000000000000000000000000000004")
     );
+}
+
+#[tokio::test]
+async fn sqlite_storage_span_carries_trace_context_statement_and_params() {
+    let runtime = HostOtelRuntime::new(HostOtelConfig {
+        enabled: true,
+        service_name: "helix-test".to_string(),
+        endpoint: "noop".to_string(),
+        protocol: "noop".to_string(),
+    });
+    let carrier = TraceCarrier::from_json_str(
+        r#"{"traceparent":"00-00000000000000000000000000000008-0000000000000009-01","baggage":"client=test"}"#,
+    )
+    .expect("carrier");
+    let storage =
+        HostStorage::open_sqlite_url("sqlite:file:helix_sql_trace?mode=memory&cache=shared")
+            .await
+            .expect("open sqlite");
+    storage
+        .execute_raw(
+            "CREATE TABLE IF NOT EXISTS messages \
+             (id INTEGER PRIMARY KEY, body TEXT NOT NULL, channel_id TEXT NOT NULL);",
+        )
+        .await
+        .expect("create table");
+
+    with_storage_trace_context(
+        StorageTraceContext::new(runtime.clone(), Some(carrier)),
+        async {
+            storage
+                .batch_upsert(UpsertSpec {
+                    table: "messages",
+                    rows: vec![vec![
+                        ("id".to_string(), SqlValue::Integer(7)),
+                        (
+                            "body".to_string(),
+                            SqlValue::Text("hello trace".to_string()),
+                        ),
+                        ("channel_id".to_string(), SqlValue::Text("c-1".to_string())),
+                    ]],
+                    conflict_key: Some("id"),
+                    exclude_from_update: Vec::new(),
+                })
+                .await
+        },
+    )
+    .await
+    .expect("upsert under trace context");
+
+    let span = runtime.last_span_for_test().expect("sqlite span");
+    assert_eq!(span.name, "helix.storage.sqlite.query");
+    assert_eq!(span.direction, TraceDirection::Internal);
+    assert_eq!(
+        span.trace_id.as_deref(),
+        Some("00000000000000000000000000000008")
+    );
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(k, v)| k == "db.statement" && v.contains("INSERT INTO messages")));
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(k, v)| k == "db.parameters" && v.contains("hello trace")));
 }
 
 #[test]

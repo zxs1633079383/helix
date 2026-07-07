@@ -9,13 +9,13 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
-use helix_core::effect::{FileUploadRequest, HttpRequest, StorageOp};
+use helix_core::effect::{FileUploadRequest, HttpRequest};
 use helix_core::ports::{EventSink, Storage, Transport};
 use helix_core::Tick;
 
 use crate::engine::TransportTable;
 use crate::owned_effect::OwnedEffect;
-use crate::pools::get_or_spawn_persist;
+use crate::pools::{get_or_spawn_persist, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Job};
 use crate::table_set_key;
 use crate::timer::TimerRegistry;
@@ -33,7 +33,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
     event_sink: &Arc<E>,
     timer_registry: &mut TimerRegistry,
     reply_tx: &mpsc::UnboundedSender<Tick>,
-    persist_workers: &mut HashMap<String, BoundedSpawner<Vec<StorageOp>>>,
+    persist_workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
     transports: &TransportTable<Tr>,
     trace: &TraceHooks,
 ) where
@@ -56,7 +56,10 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                 // Block submit：队列满时 .await 阻塞主循环，背压传导到 tick_tx（不变量2）。
                 sp.submit(Job {
                     corr: Some(corr),
-                    payload: ops,
+                    payload: PersistJobPayload {
+                        ops,
+                        trace: trace.storage_trace_context(),
+                    },
                 })
                 .await;
             }
@@ -73,7 +76,10 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                 );
                 sp.submit(Job {
                     corr: None,
-                    payload: ops,
+                    payload: PersistJobPayload {
+                        ops,
+                        trace: trace.storage_trace_context(),
+                    },
                 })
                 .await;
             }

@@ -172,7 +172,8 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
     let seen_uploads = Arc::clone(&recording.uploads);
     let trace = TraceHooks::new(recording);
     let mut timer_registry = TimerRegistry::new();
-    let mut persist_workers: HashMap<String, BoundedSpawner<Vec<StorageOp>>> = HashMap::new();
+    let mut persist_workers: HashMap<String, BoundedSpawner<crate::pools::PersistJobPayload>> =
+        HashMap::new();
     let transports: TransportTable<DummyTransport> = HashMap::new();
     let corr = Correlation::from_raw(88);
 

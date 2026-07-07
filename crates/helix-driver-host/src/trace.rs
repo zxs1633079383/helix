@@ -270,14 +270,15 @@ impl TraceHooks {
                 .and_then(CommandTraceQueue::pop_next),
             _ => None,
         };
+        let previous = self.active_carrier();
         *self.active_carrier.lock() = carrier.clone();
         let scope = self.inner.on_tick_start(tick, carrier.clone());
         let active_carrier = Arc::clone(&self.active_carrier);
-        let clear_scope = TraceScope::new(move || {
-            *active_carrier.lock() = None;
+        let restore_scope = TraceScope::new(move || {
+            *active_carrier.lock() = previous;
         });
         let Some(runtime) = self.otel.as_ref() else {
-            return scope.chain(clear_scope);
+            return scope.chain(restore_scope);
         };
 
         let (name, direction) = match tick {
@@ -287,7 +288,7 @@ impl TraceHooks {
         };
 
         scope
-            .chain(clear_scope)
+            .chain(restore_scope)
             .chain(TraceScope::with_guard(runtime.span(
                 name,
                 direction,
@@ -333,7 +334,7 @@ impl TraceHooks {
                 req.headers.push(("traceparent".to_string(), traceparent));
             }
         }
-        let carrier = TraceCarrier::from_headers(&req.headers).or(active);
+        let carrier = TraceCarrier::from_headers(&req.headers).or_else(|| active.clone());
         let _scope = self.otel.as_ref().map(|runtime| {
             runtime.span(
                 "helix.http.dispatch",

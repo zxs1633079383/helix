@@ -133,6 +133,7 @@ async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
     let config = EngineConfig {
         storage,
         http,
+        uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
         max_http_inflight: 8,
     };
@@ -182,6 +183,7 @@ async fn setup_engine_with_handle(
     let config = EngineConfig {
         storage,
         http,
+        uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
         max_http_inflight: 8,
     };
@@ -531,6 +533,7 @@ async fn stress_engine_mixed_write_read_flood() {
     let config = helix_driver_native::engine_loop::EngineConfig {
         storage,
         http,
+        uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
         max_http_inflight: 8,
     };

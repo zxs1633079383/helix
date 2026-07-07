@@ -192,6 +192,7 @@ impl ExecutionShell {
             match effect {
                 Effect::Persist { corr, .. }
                 | Effect::Http { corr, .. }
+                | Effect::UploadFile { corr, .. }
                 | Effect::Request { corr, .. } => {
                     self.corr_map.register(*corr, module_index);
                 }

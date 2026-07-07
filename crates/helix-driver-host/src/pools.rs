@@ -7,13 +7,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use bytes::Bytes;
+use serde_json::json;
 use tokio::sync::mpsc;
 
-use helix_core::effect::{HttpRequest, StorageOp};
-use helix_core::ports::{HttpRequester, Storage};
+use helix_core::effect::{FileUploadRequest, HttpRequest, StorageOp};
+use helix_core::ports::{FileUploader, HttpRequester, Storage};
+use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::Tick;
 
 use crate::http_envelope::run_http_envelope;
+use crate::ops::classify_port_error;
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::{execute_storage_ops, PERSIST_QUEUE_CAP};
 
@@ -69,6 +73,41 @@ where
         move |req: HttpRequest| {
             let http = Arc::clone(&http);
             async move { run_http_envelope(http.as_ref(), req).await }
+        },
+    )
+}
+
+/// 构造 Upload BoundedSpawner（必达 Block）。
+pub fn spawn_upload_pool<U>(
+    concurrency: usize,
+    uploader: Arc<U>,
+    reply_tx: mpsc::UnboundedSender<Tick>,
+    overflow: Overflow,
+) -> BoundedSpawner<FileUploadRequest>
+where
+    U: FileUploader + Send + Sync + 'static,
+{
+    BoundedSpawner::new(
+        concurrency,
+        HTTP_QUEUE_CAP,
+        overflow,
+        reply_tx,
+        move |req: FileUploadRequest| {
+            let uploader = Arc::clone(&uploader);
+            async move {
+                match uploader.upload(req).await {
+                    Ok(resp) => {
+                        let bytes = serde_json::to_vec(&json!({
+                            "objectKey": resp.object_key,
+                            "url": resp.url,
+                            "etag": resp.etag,
+                        }))
+                        .expect("upload response JSON serialization cannot fail");
+                        PortOutcome::Ok(ReplyBytes(Bytes::from(bytes)))
+                    }
+                    Err(e) => PortOutcome::Err(classify_port_error(e)),
+                }
+            }
         },
     )
 }

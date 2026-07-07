@@ -2,6 +2,7 @@
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
+use crate::send::upload_props::PendingUpload;
 use std::collections::{HashMap, HashSet};
 
 // ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
@@ -177,6 +178,9 @@ pub struct ImState {
     /// 来自源码：乐观落库后等 echo 或 sync 对账，15s 超时 → unSend
     pub pending_sends: HashMap<TemporaryId, PendingSend>,
 
+    /// 本地上传回包路由：upload corr → 目标消息/附件节点。
+    pub pending_uploads: HashMap<helix_core::Correlation, PendingUpload>,
+
     /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。取代旧
     /// 4 张分散 HashMap + 1 个 `Option`（`scan_corr`）。`PortReply` 到达时单次 `remove(corr)` 取出
     /// 按变体 `match` 分发；一 corr 恰一变体，互斥由一 key 一 value + corr 全局唯一（见枚举不变量）保证。
@@ -240,6 +244,7 @@ impl ImState {
             connection_id: None,
             channels: HashMap::new(),
             pending_sends: HashMap::new(),
+            pending_uploads: HashMap::new(),
             corr_map: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,

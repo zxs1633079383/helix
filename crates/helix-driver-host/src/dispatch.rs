@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
-use helix_core::effect::{HttpRequest, StorageOp};
+use helix_core::effect::{FileUploadRequest, HttpRequest, StorageOp};
 use helix_core::ports::{EventSink, Storage, Transport};
 use helix_core::Tick;
 
@@ -28,6 +28,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
     tick_tx: &mpsc::Sender<Tick>,
     storage: &Arc<S>,
     http_pool: &BoundedSpawner<HttpRequest>,
+    upload_pool: &BoundedSpawner<FileUploadRequest>,
     http_fire_pool: &BoundedSpawner<HttpRequest>,
     event_sink: &Arc<E>,
     timer_registry: &mut TimerRegistry,
@@ -81,6 +82,17 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             OwnedEffect::Http { corr, mut req } => {
                 trace.on_http_dispatch(Some(corr), &mut req);
                 http_pool
+                    .submit(Job {
+                        corr: Some(corr),
+                        payload: req,
+                    })
+                    .await;
+            }
+
+            // ── UploadFile（必达，Block 溢出，带 corr 回报，走 reply_tx）────────
+            OwnedEffect::UploadFile { corr, req } => {
+                trace.on_upload_dispatch(Some(corr), &req);
+                upload_pool
                     .submit(Job {
                         corr: Some(corr),
                         payload: req,
@@ -159,3 +171,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "dispatch_tests.rs"]
+mod tests;

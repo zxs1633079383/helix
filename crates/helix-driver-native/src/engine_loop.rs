@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use helix_driver_host::engine::{self, EngineDeps};
-use helix_driver_host::TraceHooks;
+use helix_driver_host::{SharedFileUploader, TraceHooks};
 // rows↔bytes 编解码：host 单一真源，native re-export（helix-im 反序列化端对齐 host codec）。
 pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
@@ -51,6 +51,7 @@ pub type TransportTable = HashMap<TransportId, Arc<NativeTransport>>;
 pub struct EngineConfig {
     pub storage: NativeStorage,
     pub http: NativeHttp,
+    pub uploader: SharedFileUploader,
     pub event_sink: NativeEventSink,
     /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。
     ///
@@ -63,10 +64,14 @@ pub struct EngineConfig {
 
 impl EngineConfig {
     /// 转成 host 泛型壳所需的 [`EngineDeps`]（注入 `NativeClock`）。
-    fn into_deps(self) -> EngineDeps<NativeStorage, NativeHttp, NativeEventSink, NativeClock> {
+    fn into_deps(
+        self,
+    ) -> EngineDeps<NativeStorage, NativeHttp, SharedFileUploader, NativeEventSink, NativeClock>
+    {
         EngineDeps {
             storage: Arc::new(self.storage),
             http: Arc::new(self.http),
+            uploader: Arc::new(self.uploader),
             event_sink: Arc::new(self.event_sink),
             clock: NativeClock,
             trace: TraceHooks::noop(),
@@ -84,7 +89,13 @@ impl EngineConfig {
 /// ```rust,ignore
 /// let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
 /// let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-/// let config = EngineConfig { storage, http, event_sink, max_http_inflight: 8 };
+/// let config = EngineConfig {
+///     storage,
+///     http,
+///     uploader: helix_driver_host::SharedFileUploader::default(),
+///     event_sink,
+///     max_http_inflight: 8,
+/// };
 /// tokio::spawn(run_engine_loop(shell, tick_rx, tick_tx.clone(), config, shutdown_rx));
 /// ```
 ///

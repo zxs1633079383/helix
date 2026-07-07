@@ -6,7 +6,7 @@
 //!
 //! 前端退化为纯渲染：只 `listen("im:__bus__")` → dispatch → 渲染，**不算** unread/lastPost/
 //! readBits/cursor。前端能不能纯渲染，取决于**每个 channel 的 `payload.data` 字段是否齐**——
-//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 24 个 emit 工厂的 `data` 键集
+//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 23 个 emit 工厂的 `data` 键集
 //! **逐 channel 冻结**，断言 emit 出的键集 == `docs/projection-schema.md` §1 冻结集
 //! （**缺失或多余都 fail**）。
 //!
@@ -16,14 +16,14 @@
 //! 必须同步改文档冻结表 + 本测试；测试红 = 漂移未同步，**禁直接改测试迁就代码**
 //! （先确认是有意契约变更）。
 //!
-//! ## message-row fat vs channel-row patch vs 透传类（§2 · spec06 FixB 重写）
+//! ## message-row fat vs channel-row thin vs 透传类（§2 · spec06 FixB 重写）
 //!
 //! - **message-row fat 类**（im:post:received/updated/deleted/read / im:channel:read_echo）：携**完整
 //!   可渲染 MessageItemData 核心字段**（`message_item_data` 产物，数据在手零回读）。断言**精确等于**
 //!   完整集 `FAT_KEYS`——**缺**任一字段 = 前端回退「半份回读」蠢模式（缺陷B）→ fail（反转旧契约：旧
 //!   「多一即漂移」，新「**少一即漂移**」）。
-//! - **channel-row 增量类**：`im:channel:update-by-post` 保留瘦兼容信号；`im:channel:changed`
-//!   携单会话 patch（写入意图在手，零回读），避免发消息后刷新整份 `im:channels:projection`。
+//! - **channel-row thin 类**（im:channel:update / update-by-post）：**故意留瘦**（完整 DialogItem 是累计
+//!   DB 行非在手，fat 会触发每事件热路径回读，违 SPEC §2 铁律）→ 断言瘦键集。
 //! - **透传类**（im:channel:increment/created 等）：断言外层包装键集（载荷内部 wire 字段由现网契约保真）。
 
 mod common;
@@ -265,12 +265,12 @@ fn empty_type_defaults_to_text() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §1b. channel-row 增量类（热路径单会话 patch，避免整表 dialogList）
+// §1b. channel-row thin 类（故意留瘦：完整 DialogItem 累计 DB 行非在手）
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn im_channel_update_by_post_stays_thin_signal_triplet() {
-    // 兼容旧消费方的瘦信号；新 UI 应优先消费 im:channel:changed 单会话 patch。
+    // channel-row 留瘦：fat 须回读累计 channel 行（每事件热路径，违 SPEC §2 铁律）→ 三键 + 前端低频回读。
     let e = to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID);
     assert_frozen(
         &e,
@@ -280,40 +280,8 @@ fn im_channel_update_by_post_stays_thin_signal_triplet() {
 }
 
 #[test]
-fn im_channel_changed_by_post_freezes_single_dialog_patch() {
-    let upd = helix_im::channel_write::PostChannelUpdate {
-        channel_id: ch(),
-        unread_delta: 0,
-        unread_post_id: None,
-        last_post: r#"{"message":"hello patch"}"#.to_string(),
-        has_schedule_post: false,
-        msg_create_at: 123,
-    };
-    let e = to_effect::emit_channel_changed_by_post(&upd, SEQ, MSG_ID);
-    assert_frozen(
-        &e,
-        "im:channel:changed",
-        &[
-            "channel_id",
-            "channelId",
-            "id",
-            "event_seq",
-            "msg_id",
-            "reason",
-            "patch",
-        ],
-    );
-    let Effect::Emit { event } = &e else {
-        panic!("必产 Emit")
-    };
-    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    assert_eq!(v["data"]["patch"]["lastMessage"], "hello patch");
-    assert_eq!(v["data"]["patch"]["unreadDelta"], 0);
-}
-
-#[test]
 fn im_channel_update_freezes_channel_id_only() {
-    // 批次结束信号：只携 channel_id，保留给兼容/控制类刷新触发。
+    // 批次结束信号：只携 channel_id，前端 batch 结束（debounced，非每消息）回读 dialogList 刷 badge。
     let e = to_effect::emit_channel_update(ch());
     assert_frozen(&e, "im:channel:update", &["channel_id"]);
 }
@@ -509,26 +477,18 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §5. 镜像完整性：24 工厂全覆盖 + 提取工具负路径
+// §5. 镜像完整性：23 工厂全覆盖 + 提取工具负路径
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 24。
+/// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 23。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
 #[test]
-fn all_24_projection_factories_covered() {
-    // 逐工厂构造一次，收集 (channel, keys)——证明 24 个出口全可达且产合法 Emit。
+fn all_23_projection_factories_covered() {
+    // 逐工厂构造一次，收集 (channel, keys)——证明 23 个出口全可达且产合法 Emit。
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
     let posts = serde_json::json!([]);
     let f = sample_fields();
-    let upd = helix_im::channel_write::PostChannelUpdate {
-        channel_id: ch(),
-        unread_delta: 1,
-        unread_post_id: Some(MSG_ID.to_string()),
-        last_post: r#"{"message":"hello"}"#.to_string(),
-        has_schedule_post: false,
-        msg_create_at: 123,
-    };
     let effects: Vec<Effect> = vec![
         to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_sending(ch(), TMP_ID, "", "TEXT"),
@@ -544,7 +504,6 @@ fn all_24_projection_factories_covered() {
         to_effect::emit_post_batch_updated(ch(), &posts),
         to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID),
-        to_effect::emit_channel_changed_by_post(&upd, SEQ, MSG_ID),
         to_effect_s1::emit_channel_created(ch(), &raw),
         to_effect_s1::emit_channel_closed(ch(), 0),
         to_effect_s1::emit_channel_member_updated(ch(), &raw),
@@ -557,8 +516,8 @@ fn all_24_projection_factories_covered() {
     ];
     assert_eq!(
         effects.len(),
-        24,
-        "projection-schema.md §1 冻结 24 工厂——新增/删除工厂须同步本测试 + 文档表"
+        23,
+        "projection-schema.md §1 冻结 23 工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -570,7 +529,7 @@ fn all_24_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 23（im:channels:loaded 双工厂复用 → 24 工厂收敛成 23 distinct channel）。
+    // distinct channel 名 = 22（im:channels:loaded 双工厂复用 → 23 工厂收敛成 22 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -579,12 +538,12 @@ fn all_24_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        23,
-        "23 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 24 工厂 → 23 channel）"
+        22,
+        "22 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 23 工厂 → 22 channel）"
     );
 }
 
-/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 24 投影工厂集（无渲染字段，
+/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 23 投影工厂集（无渲染字段，
 /// 走连接生命周期通道，与 driver 侧 im:net:offline 同族）。冻结：channel 名 + data 严格空对象。
 #[test]
 fn reconnect_requested_is_control_signal() {

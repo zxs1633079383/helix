@@ -36,6 +36,7 @@ pub enum EffectKind {
     Emit,
     ScheduleTimer(u64), // timer_id.raw()
     CancelTimer(u64),   // timer_id.raw()
+    UploadFile(u64),    // corr.raw()
     Send,
 }
 
@@ -50,6 +51,7 @@ impl EffectKind {
             Effect::Emit { .. } => EffectKind::Emit,
             Effect::ScheduleTimer { id, .. } => EffectKind::ScheduleTimer(id.raw()),
             Effect::CancelTimer { id } => EffectKind::CancelTimer(id.raw()),
+            Effect::UploadFile { corr, .. } => EffectKind::UploadFile(corr.raw()),
             Effect::Send { .. } => EffectKind::Send,
         }
     }
@@ -249,6 +251,13 @@ pub fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick
 pub fn send_message_cmd_json(payload: serde_json::Value) -> Tick {
     let bytes = serde_json::to_vec(&payload).unwrap();
     Tick::Command(AppCommand::new("im_send_message", bytes))
+}
+
+/// 构造任意命令 Tick（retry/upload 等非 send 命令）。
+#[allow(dead_code)]
+pub fn command_json(name: &'static str, payload: serde_json::Value) -> Tick {
+    let bytes = serde_json::to_vec(&payload).unwrap();
+    Tick::Command(AppCommand::new(name, bytes))
 }
 
 /// 构造 PortReply Ok，带自定义 ReplyBytes（用于 scan / sync 回报）

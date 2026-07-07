@@ -15,6 +15,7 @@ pub mod spawner;
 pub mod storage;
 pub mod timer;
 pub mod trace;
+pub mod upload;
 pub mod upsert_sql;
 
 pub use batch_sink::BatchSink;
@@ -36,6 +37,7 @@ pub use timer::TimerRegistry;
 pub use trace::{
     CommandTraceQueue, TraceCarrier, TraceCarrierError, TraceHooks, TraceHooksImpl, TraceScope,
 };
+pub use upload::SharedFileUploader;
 
 /// per-table-set Persist worker 的有界 job 队列深度上限。
 ///

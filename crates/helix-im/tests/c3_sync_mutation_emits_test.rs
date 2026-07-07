@@ -6,8 +6,7 @@
 //!
 //! sync `events` 路径逐事件 dispatch，按 event_type + 是否命中 messages map（phantom 判定）
 //! emit 对应 `im:*` 业务事件：
-//! - type1 new：`msgId ∈ messages`（可见）→ im:post:received + im:channel:update-by-post（兼容信号）
-//!   + im:channel:changed（单会话 UI patch，替代全量 dialogList 刷新）；
+//! - type1 new：`msgId ∈ messages`（可见）→ im:post:received + im:channel:update-by-post（未读 +N）；
 //!   `∉`（phantom）→ 不 emit（UI 不渲染，真源 1270-1280）。
 //! - type2 edit：`msgId ∈ messages` → im:post:updated；phantom → noop（真源 1346）。
 //! - type3 revoke：有 msgId → im:post:deleted（无须 body，真源 1402）。
@@ -73,7 +72,7 @@ fn read_event_emits_channel_read_echo() {
         20,
     );
     let (events, messages) = parse_events_and_messages(&reply, 2);
-    let emits = sync_mutation_emits(&events, &messages, "");
+    let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(emit_names(&emits), vec!["im:channel:read_echo"]);
 }
 
@@ -82,7 +81,7 @@ fn read_event_emits_channel_read_echo() {
 fn read_event_emits_even_when_phantom() {
     let reply = sync_reply_events_with_messages(2, &[ev(21, 6, "msg_read_phantom")], &[], 21);
     let (events, messages) = parse_events_and_messages(&reply, 2);
-    let emits = sync_mutation_emits(&events, &messages, "");
+    let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
         vec!["im:channel:read_echo"],
@@ -101,7 +100,7 @@ fn edit_event_emits_post_updated_when_visible_noop_when_phantom() {
         41,
     );
     let (events, messages) = parse_events_and_messages(&reply, 4);
-    let emits = sync_mutation_emits(&events, &messages, "");
+    let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
         vec!["im:post:updated"],
@@ -115,7 +114,7 @@ fn edit_event_emits_post_updated_when_visible_noop_when_phantom() {
 fn revoke_event_emits_post_deleted_regardless_of_messages() {
     let reply = sync_reply_events_with_messages(3, &[ev(30, 3, "msg_gone")], &[], 30);
     let (events, messages) = parse_events_and_messages(&reply, 3);
-    let emits = sync_mutation_emits(&events, &messages, "");
+    let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
         vec!["im:post:deleted"],
@@ -134,15 +133,11 @@ fn new_visible_emits_received_and_channel_update() {
         10,
     );
     let (events, messages) = parse_events_and_messages(&reply, 1);
-    let emits = sync_mutation_emits(&events, &messages, "");
+    let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
-        vec![
-            "im:post:received",
-            "im:channel:update-by-post",
-            "im:channel:changed"
-        ],
-        "可见 new emit received + 兼容信号 + 单会话 patch"
+        vec!["im:post:received", "im:channel:update-by-post"],
+        "可见 new emit received + 未读 +N 信号"
     );
 }
 
@@ -150,7 +145,7 @@ fn new_visible_emits_received_and_channel_update() {
 fn new_phantom_emits_nothing() {
     let reply = sync_reply_events_with_messages(1, &[ev(11, 1, "msg_phantom")], &[], 11);
     let (events, messages) = parse_events_and_messages(&reply, 1);
-    let emits = sync_mutation_emits(&events, &messages, "");
+    let emits = sync_mutation_emits(&events, &messages);
     assert!(
         emit_names(&emits).is_empty(),
         "phantom new 不 emit（UI 不渲染），got {:?}",
@@ -179,15 +174,14 @@ fn mixed_batch_emits_match_dispatch_table() {
     let types: Vec<u8> = events.iter().map(|e| e.kind.type_num()).collect();
     assert_eq!(types, vec![1, 1, 3, 6]);
 
-    let emits = sync_mutation_emits(&events, &messages, "");
-    // type1 可见 → received + update-by-post + changed；type1 phantom → 无；type3 → deleted；
+    let emits = sync_mutation_emits(&events, &messages);
+    // type1 可见 → received + update-by-post；type1 phantom → 无；type3 → deleted；
     // type6 → channel:read_echo（A5 sync 应用路径）。
     assert_eq!(
         emit_names(&emits),
         vec![
             "im:post:received",
             "im:channel:update-by-post",
-            "im:channel:changed",
             "im:post:deleted",
             "im:channel:read_echo",
         ]
@@ -263,10 +257,6 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
     assert!(
         names.iter().any(|n| n == "im:channel:update-by-post"),
         "应 emit im:channel:update-by-post，got {names:?}"
-    );
-    assert!(
-        names.iter().any(|n| n == "im:channel:changed"),
-        "应 emit im:channel:changed 单会话 patch，got {names:?}"
     );
     assert!(
         names.iter().any(|n| n == "im:channel:read_echo"),

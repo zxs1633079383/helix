@@ -207,12 +207,6 @@ impl Channel {
 
         // Emit 通知前端（kind-aware：post=received / edit=updated / revoke=deleted / read=read）。
         fx.push(emit_for_kind(&ev));
-        if let Some(ref upd) = ev.unread_bump {
-            let msg_id = ev.msg_id.as_deref().unwrap_or("");
-            fx.push(crate::acl::to_effect::emit_channel_changed_by_post(
-                upd, ev.seq.0, msg_id,
-            ));
-        }
 
         // 尝试放行 buffer 中紧接着的连续段
         self.flush_contiguous_from_buffer(fx)?;

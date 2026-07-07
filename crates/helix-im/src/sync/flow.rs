@@ -147,9 +147,7 @@ impl ImModule {
                         wants_continuation: needs_continuation,
                     },
                 );
-                for emit in
-                    crate::acl::to_effect::sync_mutation_emits(&events, &messages, auth_user_id)
-                {
+                for emit in crate::acl::to_effect::sync_mutation_emits(&events, &messages) {
                     out.push(emit);
                 }
             }

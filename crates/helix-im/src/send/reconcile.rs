@@ -15,29 +15,34 @@ use helix_core::{Correlation, EffectSink};
 
 use crate::state::{CorrelationContext, ImState, ServerId, TemporaryId};
 
-/// 注册一条 send 的两条 corr 路由：P1 `OptimisticSend`（乐观落库回报）+ H1 `OutboundSendHttp`
-/// （posts/create HTTP 200 兜底对账）。
-///
-/// **F1 修复点**：两条都注册——H1 漏注册时 posts/create HTTP 200 回报 `corr_map.remove(h1_corr)`
-/// 返 None → 响应静默丢弃 → 真 Go self-omit echo 下乐观行永停 `Sending` 到 15s spinner。
-pub(crate) fn register_send_corrs(
+/// 注册 P1 `OptimisticSend` 路由（乐观落库回报）。
+pub(crate) fn register_optimistic_send_corr(
     state: &mut ImState,
     p1_corr: Correlation,
+    temporary_id: TemporaryId,
+) {
+    state
+        .corr_map
+        .insert(p1_corr, CorrelationContext::OptimisticSend { temporary_id });
+}
+
+/// 注册 H1 `OutboundSendHttp` 路由（posts/create HTTP 200 兜底对账）。
+///
+/// **F1 修复点**：H1 必须注册——漏注册时 posts/create HTTP 200 回报
+/// `corr_map.remove(h1_corr)` 返 None → 响应静默丢弃 → 真 Go self-omit echo 下乐观行永停
+/// `Sending` 到 15s spinner。rich/file 上传门控下，H1 只能在全部上传成功、真正发出
+/// posts/create 时注册。
+pub(crate) fn register_outbound_send_http_corr(
+    state: &mut ImState,
     h1_corr: Correlation,
     channel_id: crate::state::ChannelId,
-    temporary_id: String,
+    temporary_id: TemporaryId,
 ) {
-    state.corr_map.insert(
-        p1_corr,
-        CorrelationContext::OptimisticSend {
-            temporary_id: TemporaryId(temporary_id.clone()),
-        },
-    );
     state.corr_map.insert(
         h1_corr,
         CorrelationContext::OutboundSendHttp {
             channel_id,
-            temporary_id: TemporaryId(temporary_id),
+            temporary_id,
         },
     );
 }

@@ -77,7 +77,7 @@ fn find_emit<'a>(emits: &'a [Effect], event: &str) -> Option<serde_json::Value> 
 #[test]
 fn revoke_replay_emits_post_deleted_fat_17_keys_even_without_messages() {
     // messages 空：撤回不依赖 body（empty_fields 路径）——这正是离线 increment-replay 的真形态。
-    let emits = sync_mutation_emits(&[revoke_ev(3)], &HashMap::new(), "");
+    let emits = sync_mutation_emits(&[revoke_ev(3)], &HashMap::new());
 
     let deleted = find_emit(&emits, "im:post:deleted")
         .expect("PostRevoke 必产 im:post:deleted（断在 sync_mutation_emits gate→投影这跳）");
@@ -109,7 +109,7 @@ fn upsert_then_revoke_emits_received_before_deleted() {
     let mut messages = HashMap::new();
     messages.insert(MSG.to_string(), PostFields::default());
     // 输入序与 sort_events_by_bucket 一致（type1 先于 type3）。
-    let emits = sync_mutation_emits(&[upsert_ev(2), revoke_ev(3)], &messages, "");
+    let emits = sync_mutation_emits(&[upsert_ev(2), revoke_ev(3)], &messages);
 
     let events: Vec<String> = emits
         .iter()
@@ -130,7 +130,7 @@ fn upsert_then_revoke_emits_received_before_deleted() {
 fn no_revoke_event_means_no_post_deleted() {
     let mut messages = HashMap::new();
     messages.insert(MSG.to_string(), PostFields::default());
-    let emits = sync_mutation_emits(&[upsert_ev(2)], &messages, "");
+    let emits = sync_mutation_emits(&[upsert_ev(2)], &messages);
     assert!(
         find_emit(&emits, "im:post:deleted").is_none(),
         "无 PostRevoke 事件不得发出 im:post:deleted（守可证伪·非 tautology）"

@@ -294,6 +294,26 @@ pub struct HttpResponse {
     pub body: Bytes,
 }
 
+/// 本地文件上传请求（driver 读取本地路径并执行真实上传）。
+#[derive(Debug, Clone)]
+pub struct FileUploadRequest {
+    pub local_path: String,
+    pub object_key: String,
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub content_type: Option<String>,
+    pub size: Option<u64>,
+}
+
+/// 文件上传结果（driver 包装后通过 PortReply 回传）。
+#[derive(Debug, Clone)]
+pub struct FileUploadResponse {
+    pub object_key: String,
+    pub url: Option<String>,
+    pub etag: Option<String>,
+}
+
 /// 模块吐出的 I/O 意图声明（tagged union，非法组合不可表达）。
 ///
 /// **执行顺序契约（EFFECT-5）**：同一个 step 产出的 `Vec<Effect>` 之间**无兑现顺序保证**——
@@ -341,6 +361,14 @@ pub enum Effect {
     /// inflight-gate 清除 / cursor 推进都依赖它。
     /// 「满即丢本条」降级为显式 opt-in（见 `HttpFire`），不再是 Http 的全局默认。
     Http { corr: Correlation, req: HttpRequest },
+
+    /// 本地文件上传（**必达**语义）：带 Correlation。
+    /// driver 读取 `local_path` 指向的本地文件并执行真实上传后，**必须**产出
+    /// `Tick::PortReply{corr, outcome=Ok(resp)/Err}`。
+    UploadFile {
+        corr: Correlation,
+        req: FileUploadRequest,
+    },
 
     /// 幂等 fire-and-forget HTTP（**可丢弃·丢失可自愈**）：不带 Correlation，不产出 PortReply。
     ///
@@ -448,5 +476,39 @@ impl EffectSink {
 impl Default for EffectSink {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_file_effect_carries_path_not_bytes() {
+        let req = FileUploadRequest {
+            local_path: "/tmp/a.png".to_string(),
+            object_key: "im/a.png".to_string(),
+            method: "PUT".to_string(),
+            url: "https://upload.example.com/im/a.png".to_string(),
+            headers: vec![("x-oss-meta".to_string(), "1".to_string())],
+            content_type: Some("image/png".to_string()),
+            size: Some(123),
+        };
+
+        let effect = Effect::UploadFile {
+            corr: Correlation::from_raw(9),
+            req,
+        };
+
+        match effect {
+            Effect::UploadFile { corr, req } => {
+                assert_eq!(corr.raw(), 9);
+                assert_eq!(req.local_path, "/tmp/a.png");
+                assert_eq!(req.object_key, "im/a.png");
+                assert_eq!(req.method, "PUT");
+                assert_eq!(req.size, Some(123));
+            }
+            _ => panic!("expected upload effect"),
+        }
     }
 }

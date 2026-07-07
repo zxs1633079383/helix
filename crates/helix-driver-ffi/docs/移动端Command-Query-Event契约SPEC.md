@@ -217,8 +217,7 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 | `im:channels:loaded` | `{items}` 或 `{reason}` | 冷启动/清库信号 |
 | `im:channel:increment` | `{channel_id, increment}` | 注册/更新频道增量 |
 | `im:channel:update` | `{channel_id}` | 触发 dialogList 刷新 |
-| `im:channel:update-by-post` | `{channel_id, event_seq, msg_id}` | 兼容信号 |
-| `im:channel:changed` | `{channel_id, channelId, id, event_seq, msg_id, reason, patch}` | 单会话增量 patch；发消息后优先更新对应会话，不全量刷新 Channel |
+| `im:channel:update-by-post` | `{channel_id, event_seq, msg_id}` | 未读 / 徽标信号 |
 | `im:channel:created` | `{channel_id, channel}` | 插入或更新频道 |
 | `im:channel:closed` | `{channelId, deleteAt}` | 删除/隐藏频道 |
 | `im:channel:schedule-created` | `{channelId, hasSchedulePost}` | 定时徽标为 true |

@@ -33,13 +33,13 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 use helix_core::effect::{StorageOp, TransportId};
-use helix_core::ports::{Clock, HttpRequester, Storage, Transport};
+use helix_core::ports::{Clock, FileUploader, HttpRequester, Storage, Transport};
 use helix_core::{ExecutionShell, Tick};
 
 pub use crate::batch_sink::BatchSink;
 use crate::dispatch::dispatch_effects;
 use crate::owned_effect::consume_effects;
-use crate::pools::spawn_http_pool;
+use crate::pools::{spawn_http_pool, spawn_upload_pool};
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
 use crate::trace::TraceHooks;
@@ -70,9 +70,10 @@ pub type TransportTable<Tr> = HashMap<TransportId, Arc<Tr>>;
 /// 事件泵依赖聚合（泛型 ports + 配置）。
 ///
 /// native / ffi 各自构造此结构（注入自家 EventSink egress），调 [`run_engine_loop`]。
-pub struct EngineDeps<S, H, E, C> {
+pub struct EngineDeps<S, H, U, E, C> {
     pub storage: Arc<S>,
     pub http: Arc<H>,
+    pub uploader: Arc<U>,
     pub event_sink: Arc<E>,
     pub clock: C,
     pub trace: TraceHooks,
@@ -102,17 +103,18 @@ pub struct EngineDeps<S, H, E, C> {
 /// `shutdown_rx` 收到 `()` 或 `tick_rx` 关闭 → graceful drain：等全部已接收 Persist
 /// + 必达 Http 落地后返回。
 #[allow(clippy::too_many_arguments)]
-pub async fn run_engine_loop<S, H, E, Tr, C>(
+pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     mut shell: ExecutionShell,
     mut tick_rx: mpsc::Receiver<Tick>,
     tick_tx: mpsc::Sender<Tick>,
-    deps: EngineDeps<S, H, E, C>,
+    deps: EngineDeps<S, H, U, E, C>,
     mut shutdown_rx: oneshot::Receiver<()>,
     mut transports: TransportTable<Tr>,
     mut transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Tr>)>,
 ) where
     S: Storage + Send + Sync + 'static,
     H: HttpRequester + Send + Sync + 'static,
+    U: FileUploader + Send + Sync + 'static,
     E: BatchSink + Send + Sync + 'static,
     // `Send + Sync`：`Arc<Tr>` 经 `transport_rx` 跨后台 connect 任务边界共享。
     Tr: Transport + Send + Sync + 'static,
@@ -121,6 +123,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     let clock = deps.clock;
     let storage = deps.storage;
     let http = deps.http;
+    let uploader = deps.uploader;
     let event_sink = deps.event_sink;
     let trace = deps.trace;
     let http_n = deps.max_http_inflight.max(1);
@@ -134,6 +137,12 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
 
     // Http(必达)：N=http_n，Block 溢出（旧 Semaphore 并发闸收敛进 N 个 worker）。
     let http_pool = spawn_http_pool(http_n, Arc::clone(&http), reply_tx.clone(), Overflow::Block);
+    let upload_pool = spawn_upload_pool(
+        http_n,
+        Arc::clone(&uploader),
+        reply_tx.clone(),
+        Overflow::Block,
+    );
     // HttpFire(可丢)：N=http_n，DropNewest 溢出（满即丢当前条目，丢失靠 cursor-gate 重发自愈）。
     // ⚠️ 有意取舍：当前零生产者（IM 三 Http 均必达）；为类型对称 eager 建，N worker park 近零成本。
     // 拆除/重审触发：第二个业务模块接入时（见 native CLAUDE.md「跨模块公平性」）。
@@ -164,6 +173,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
             &tick_tx,
             &storage,
             &http_pool,
+            &upload_pool,
             &http_fire_pool,
             &event_sink,
             &mut timer_registry,
@@ -232,6 +242,7 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
                 &tick_tx,
                 &storage,
                 &http_pool,
+                &upload_pool,
                 &http_fire_pool,
                 &event_sink,
                 &mut timer_registry,
@@ -251,17 +262,25 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     //
     // 正确关闭顺序（每个 BoundedSpawner.shutdown 内部：drop tx → worker recv None → join）：
     // 1. shutdown 全部 Persist（必达落地——本地 DB 写，无网络，无上限 join）
-    // 2. shutdown Http(必达)（**有上限** drain：不被在途网络阻塞，超时 abort 在途 reqwest）
-    // 3. shutdown HttpFire（尽力 join，可丢，不纳入「必达落地」保证；同样有上限）
-    // 4. drain reply_rx（捡走写完后才回灌的最后一批 PortReply）
+    // 2. shutdown UploadFile（**有上限** drain：本地读+上传不阻塞生命周期）
+    // 3. shutdown Http(必达)（**有上限** drain：不被在途网络阻塞，超时 abort 在途 reqwest）
+    // 4. shutdown HttpFire（尽力 join，可丢，不纳入「必达落地」保证；同样有上限）
+    // 5. drain reply_rx（捡走写完后才回灌的最后一批 PortReply）
     tracing::info!(
-        "helix engine loop: tick_rx closed, draining {} persist + http pools",
+        "helix engine loop: tick_rx closed, draining {} persist + io pools",
         persist_workers.len()
     );
 
     // Persist：本地 SQLite 写，毫秒级，无网络不可控性 → 无上限 join（保「同 key 写顺序+全落地」）。
     for (_, sp) in persist_workers.drain() {
         sp.shutdown().await;
+    }
+    // UploadFile：同样封顶（本地读+上传）；超时直接 abort 在途任务，不阻塞生命周期退出。
+    if !upload_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
+        tracing::warn!(
+            limit_ms = HTTP_DRAIN_LIMIT.as_millis(),
+            "UploadFile drain 超上限——abort 在途上传任务"
+        );
     }
     // 必达 Http：给上限（HTTP_DRAIN_LIMIT）。在途 reqwest 连不上 host 时单条卡满
     // DEFAULT_TIMEOUT_SECS（~30s），无上限会让 graceful drain（→ helix_destroy）等满该 timeout。
@@ -278,6 +297,6 @@ pub async fn run_engine_loop<S, H, E, Tr, C>(
     while reply_rx.try_recv().is_ok() {}
 
     tracing::info!(
-        "helix engine loop exited (persists drained; 必达 http drained or aborted at limit)"
+        "helix engine loop exited (persists drained; 必达 upload/http drained or aborted at limit)"
     );
 }

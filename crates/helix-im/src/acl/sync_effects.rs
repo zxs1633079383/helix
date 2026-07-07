@@ -8,7 +8,6 @@ use helix_core::Effect;
 pub fn sync_mutation_emits(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
-    auth_user_id: &str,
 ) -> Vec<Effect> {
     use crate::sync_session::EventKind;
 
@@ -32,16 +31,6 @@ pub fn sync_mutation_emits(
                         ev.seq.0,
                         msg_id,
                     ));
-                    let upd = crate::channel_write::post_updates_from_fields(
-                        ev.channel_id,
-                        fields,
-                        auth_user_id,
-                    );
-                    if !upd.last_post.is_empty() {
-                        emits.push(super::to_effect::emit_channel_changed_by_post(
-                            &upd, ev.seq.0, msg_id,
-                        ));
-                    }
                 }
             }
             EventKind::PostEdit => {

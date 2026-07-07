@@ -88,3 +88,48 @@ fn command_emits_domain_event_through_batch_callback() {
 
     unsafe { helix_destroy(handle) };
 }
+
+#[test]
+fn create_applies_im_schema_before_mobile_query() {
+    let recorder: Box<Recorder> = Box::new(StdMutex::new(Vec::new()));
+    let ctx = &*recorder as *const Recorder as *mut std::ffi::c_void;
+    let vtable = CppHostVtable {
+        on_domain_events_batch: Some(recording_events),
+        now_ms: Some(fixed_now_ms),
+        ctx,
+    };
+
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(api.as_ptr(), api.len(), ws.as_ptr(), ws.len(), vtable)
+    };
+    assert!(!handle.is_null(), "create 应成功并应用 IM schema");
+
+    let query = b"im_query_dialog_list";
+    let payload = b"{}";
+    let mut out_ptr: *mut u8 = std::ptr::null_mut();
+    let mut out_len: usize = 0;
+    let status = unsafe {
+        helix_query(
+            handle,
+            query.as_ptr(),
+            query.len(),
+            payload.as_ptr(),
+            payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(
+        status, FFI_OK,
+        "空库 dialog query 也应成功，不能因缺 IM 表 rc=-3"
+    );
+    let out = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
+    let text = std::str::from_utf8(out).expect("query result utf8");
+    assert!(text.contains("dialogList"), "query result = {text}");
+    unsafe {
+        helix_query_free(out_ptr, out_len);
+        helix_destroy(handle);
+    }
+}

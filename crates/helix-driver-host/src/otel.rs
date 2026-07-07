@@ -250,27 +250,19 @@ impl OtlpExporter {
         };
 
         let endpoint = config.endpoint.clone();
-        let init_result = match std::thread::Builder::new()
-            .name("helix-otel-init".to_string())
-            .spawn(move || {
-                let init_runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|error| error.to_string())?;
-                init_runtime.block_on(async move {
-                    opentelemetry_otlp::SpanExporter::builder()
-                        .with_tonic()
-                        .with_endpoint(endpoint)
-                        .with_timeout(Duration::from_secs(5))
-                        .build()
-                        .map_err(|error| error.to_string())
-                })
-            }) {
-            Ok(handle) => handle
-                .join()
-                .unwrap_or_else(|_| Err("otel exporter init thread panicked".to_string())),
-            Err(error) => Err(error.to_string()),
-        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        runtime.spawn(async move {
+            let result = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(endpoint)
+                .with_timeout(Duration::from_secs(5))
+                .build()
+                .map_err(|error| error.to_string());
+            let _ = tx.send(result);
+        });
+        let init_result = rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|error| Err(error.to_string()));
 
         let mut exporter = match init_result {
             Ok(exporter) => exporter,

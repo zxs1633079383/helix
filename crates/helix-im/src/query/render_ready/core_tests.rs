@@ -14,6 +14,7 @@ fn db_snake_row_shaped_to_render_ready() {
         "message": "hi",
         "read_bits": 5,
         "revoke": 1,
+        "props": { "template": { "userIds": ["u9"] } },
         "create_at": 1700,
         "user_id": "u9"
     }]);
@@ -26,6 +27,7 @@ fn db_snake_row_shaped_to_render_ready() {
     assert_eq!(r["type"], "DOCUMENT");
     assert_eq!(r["readBits"], "5"); // number→string 归一
     assert_eq!(r["revoked"], true); // revoke 1→true
+    assert_eq!(r["templateReceived"], true);
     assert_eq!(r["createAt"], 1700);
     assert_eq!(r["userId"], "u9");
     assert_eq!(r["sendStatus"], "sent");
@@ -42,6 +44,7 @@ fn wire_camel_row_shaped_to_same_shape() {
         "type": "",
         "message": "yo",
         "readBits": "3",
+        "templateReceived": true,
         "createAt": 1800,
         "userId": "u8"
     }]);
@@ -54,7 +57,19 @@ fn wire_camel_row_shaped_to_same_shape() {
     assert_eq!(r["type"], "TEXT"); // 空 type 容错
     assert_eq!(r["readBits"], "3");
     assert_eq!(r["revoked"], false); // 无 revoke 列→false
+    assert_eq!(r["templateReceived"], true);
     assert_eq!(r["createAt"], 1800);
+}
+
+#[test]
+fn template_received_derived_from_props_json_string() {
+    let rows = json!([{
+        "temporary_id": "lf-template",
+        "message": "template",
+        "props": "{\"template\":{\"user_ids\":[\"u1\"]}}"
+    }]);
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["templateReceived"], true);
 }
 
 #[test]

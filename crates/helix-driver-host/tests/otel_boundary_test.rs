@@ -216,7 +216,7 @@ impl HttpRequester for MockHttp {
 }
 
 #[tokio::test]
-async fn crosscutting_http_starts_outbound_http_span() {
+async fn crosscutting_http_starts_response_span_with_status() {
     let runtime = HostOtelRuntime::new(HostOtelConfig {
         enabled: true,
         service_name: "helix-test".to_string(),
@@ -242,12 +242,16 @@ async fn crosscutting_http_starts_outbound_http_span() {
     assert_eq!(response.status, 200);
 
     let span = runtime.last_span_for_test().expect("span");
-    assert_eq!(span.name, "helix.http.request");
-    assert_eq!(span.direction, TraceDirection::Outbound);
+    assert_eq!(span.name, "helix.http.response");
+    assert_eq!(span.direction, TraceDirection::Inbound);
     assert_eq!(
         span.trace_id.as_deref(),
         Some("00000000000000000000000000000004")
     );
+    assert!(span
+        .attributes
+        .iter()
+        .any(|(k, v)| k == "http.response.status_code" && v == "200"));
 }
 
 #[tokio::test]

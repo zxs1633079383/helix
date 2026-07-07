@@ -178,6 +178,14 @@ where
 
         match self.inner.request(prepared).await {
             Ok(resp) => {
+                let _response_scope = self.otel.as_ref().map(|runtime| {
+                    runtime.span_with_attributes(
+                        "helix.http.response",
+                        TraceDirection::Inbound,
+                        carrier.as_ref(),
+                        vec![("http.response.status_code", resp.status.to_string())],
+                    )
+                });
                 // 401 → 鉴权失效，回报让前端 logout（业务下沉，前端不再自判）。
                 if resp.status == 401 {
                     self.emit_event(

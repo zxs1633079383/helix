@@ -288,7 +288,18 @@ impl OtlpExporter {
 impl Drop for OtlpExporter {
     fn drop(&mut self) {
         if let Some(runtime) = self.runtime.lock().take() {
-            runtime.shutdown_timeout(Duration::from_secs(5));
+            if tokio::runtime::Handle::try_current().is_ok() {
+                let _ = std::thread::Builder::new()
+                    .name("helix-otel-shutdown".to_string())
+                    .spawn(move || runtime.shutdown_timeout(Duration::from_secs(5)))
+                    .and_then(|handle| {
+                        handle
+                            .join()
+                            .map_err(|_| std::io::Error::other("helix otel shutdown panicked"))
+                    });
+            } else {
+                runtime.shutdown_timeout(Duration::from_secs(5));
+            }
         }
     }
 }

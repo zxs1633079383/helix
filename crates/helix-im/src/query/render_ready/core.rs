@@ -44,6 +44,26 @@ fn revoke_bool(row: &Value) -> bool {
     }
 }
 
+fn props_value(row: &Value) -> Value {
+    match row.get("props") {
+        Some(Value::Object(_)) => row["props"].clone(),
+        Some(Value::String(s)) => serde_json::from_str(s).unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
+fn template_received_bool(row: &Value) -> bool {
+    if let Some(b) = row.get("templateReceived").and_then(|v| v.as_bool()) {
+        return b;
+    }
+    props_value(row)
+        .get("template")
+        .and_then(|v| v.get("userIds").or_else(|| v.get("user_ids")))
+        .and_then(|v| v.as_array())
+        .map(|ids| !ids.is_empty())
+        .unwrap_or(false)
+}
+
 /// 单行整形：DB snake 列 / wire camel Post → render-ready 终态行（camelCase·前端 1:1 绑定）。
 fn shape_row(row: &Value) -> Value {
     let temporary_id = get_str(row, &["temporary_id", "temporaryId"]);
@@ -77,6 +97,7 @@ fn shape_row(row: &Value) -> Value {
         "text": text,
         "type": msg_type,
         "revoked": revoke_bool(row),
+        "templateReceived": template_received_bool(row),
         "createAt": create_at,
         "userId": user_id,
     })

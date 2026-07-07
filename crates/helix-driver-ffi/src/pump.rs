@@ -94,7 +94,7 @@ pub fn run(args: PumpArgs) {
                 return;
             }
         };
-        for sql in helix_im::IM_SCHEMA {
+        for &sql in helix_im::IM_SCHEMA {
             if let Err(e) = storage.execute_raw(sql).await {
                 tracing::error!(
                     error = %e,

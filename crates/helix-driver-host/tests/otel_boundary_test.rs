@@ -1,12 +1,17 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse, SqlValue, UpsertSpec};
+use helix_core::effect::{
+    Correlation, DomainEventBytes, FileUploadRequest, HttpRequest, HttpResponse, SqlValue,
+    StorageOp, TimerId, TransportId, UpsertSpec,
+};
 use helix_core::ports::{EventSink, HttpRequester, Storage};
 use helix_core::tick::AppCommand;
 use helix_core::{PortError, Tick};
 use helix_driver_host::storage::{with_storage_trace_context, StorageTraceContext};
-use helix_driver_host::trace::{TRACEPARENT_BYTES, TRACE_BAGGAGE_MAX_BYTES};
+use helix_driver_host::trace::{
+    TraceHooksImpl, TraceScope, TRACEPARENT_BYTES, TRACE_BAGGAGE_MAX_BYTES,
+};
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, CrossCuttingHttp, HostOtelConfig, HostOtelRuntime,
     HostStorage, TraceCarrier, TraceDirection, TraceHooks,
@@ -90,6 +95,102 @@ fn trace_hooks_consume_command_trace_sidecar_at_host_boundary() {
     assert_eq!(
         span.trace_id.as_deref(),
         Some("00000000000000000000000000000002")
+    );
+}
+
+#[test]
+fn nested_tick_scope_restores_outer_command_trace_for_http_dispatch() {
+    let queue = CommandTraceQueue::default();
+    let traceparent = "00-00000000000000000000000000000011-0000000000000011-01";
+    queue.push_slot(Some(
+        TraceCarrier::from_json_str(&format!(r#"{{"traceparent":"{traceparent}"}}"#))
+            .expect("carrier"),
+    ));
+    let hooks = TraceHooks::noop().with_command_traces(queue);
+
+    let command_tick = Tick::Command(AppCommand::new("im_send", Bytes::from_static(b"{}")));
+    let background_tick = Tick::Timer(TimerId::from_raw(7));
+
+    let command_scope = hooks.on_tick_start(&command_tick);
+    let background_scope = hooks.on_tick_start(&background_tick);
+    drop(background_scope);
+
+    let mut req = HttpRequest {
+        method: "GET".to_string(),
+        url: "https://example.test/sync".to_string(),
+        headers: Vec::new(),
+        body: None,
+    };
+    hooks.on_http_dispatch(None, &mut req);
+    drop(command_scope);
+
+    assert_eq!(
+        req.headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("traceparent"))
+            .map(|(_, value)| value.as_str()),
+        Some(traceparent)
+    );
+}
+
+#[derive(Default)]
+struct RecordingTraceHooks {
+    seen: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+impl TraceHooksImpl for RecordingTraceHooks {
+    fn on_tick_start(&self, _: &Tick, carrier: Option<TraceCarrier>) -> TraceScope {
+        self.seen
+            .lock()
+            .expect("seen mutex")
+            .push(carrier.and_then(|c| c.traceparent));
+        TraceScope::noop()
+    }
+
+    fn on_storage_dispatch(&self, _: Option<Correlation>, _: &[StorageOp]) {}
+
+    fn on_http_dispatch(&self, _: Option<Correlation>, _: &mut HttpRequest) {}
+
+    fn on_upload_dispatch(&self, _: Option<Correlation>, _: &FileUploadRequest) {}
+
+    fn on_ws_send(&self, _: TransportId, _: &mut Bytes) {}
+
+    fn on_event_emit(&self, _: &DomainEventBytes) {}
+}
+
+#[test]
+fn command_trace_scope_does_not_leak_to_plain_tick() {
+    let queue = CommandTraceQueue::default();
+    queue.push_slot(Some(
+        TraceCarrier::from_json_str(
+            r#"{"traceparent":"00-00000000000000000000000000000012-0000000000000012-01"}"#,
+        )
+        .expect("carrier"),
+    ));
+    queue.push_slot(None);
+
+    let recording = RecordingTraceHooks::default();
+    let seen = Arc::clone(&recording.seen);
+    let hooks = TraceHooks::new(recording).with_command_traces(queue);
+
+    let traced_tick = Tick::Command(AppCommand::new("im_send", Bytes::from_static(b"{}")));
+    let plain_tick = Tick::Command(AppCommand::new(
+        "im_sync_channels",
+        Bytes::from_static(b"{}"),
+    ));
+
+    let traced_scope = hooks.on_tick_start(&traced_tick);
+    drop(traced_scope);
+    let plain_scope = hooks.on_tick_start(&plain_tick);
+    drop(plain_scope);
+
+    let rows = seen.lock().expect("seen mutex");
+    assert_eq!(
+        rows.as_slice(),
+        &[
+            Some("00-00000000000000000000000000000012-0000000000000012-01".to_string()),
+            None,
+        ]
     );
 }
 

@@ -281,19 +281,28 @@ impl TraceHooks {
             return scope.chain(restore_scope);
         };
 
-        let (name, direction) = match tick {
-            Tick::Command(_) => ("helix.command.accept", TraceDirection::Inbound),
-            Tick::Inbound(_) => ("helix.ws.recv", TraceDirection::Inbound),
-            _ => ("helix.core.step", TraceDirection::Internal),
+        let traced_scope =
+            scope
+                .chain(restore_scope)
+                .chain(TraceScope::with_guard(runtime.span(
+                    "helix.core.step",
+                    TraceDirection::Internal,
+                    carrier.as_ref(),
+                )));
+
+        let Some((name, direction)) = (match tick {
+            Tick::Command(_) => Some(("helix.command.accept", TraceDirection::Inbound)),
+            Tick::Inbound(_) => Some(("helix.ws.recv", TraceDirection::Inbound)),
+            _ => None,
+        }) else {
+            return traced_scope;
         };
 
-        scope
-            .chain(restore_scope)
-            .chain(TraceScope::with_guard(runtime.span(
-                name,
-                direction,
-                carrier.as_ref(),
-            )))
+        traced_scope.chain(TraceScope::with_guard(runtime.span(
+            name,
+            direction,
+            carrier.as_ref(),
+        )))
     }
 
     fn active_carrier(&self) -> Option<TraceCarrier> {

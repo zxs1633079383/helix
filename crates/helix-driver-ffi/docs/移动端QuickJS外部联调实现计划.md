@@ -30,7 +30,7 @@
 - `crates/helix-driver-ffi/docs/移动端QuickJS最后一公里接入SPEC.md`
   最后一公里 SPEC 真源，记录边界、事件模型、验收分层。
 
-- `docs/superpowers/plans/2026-07-03-mobile-quickjs-external-integration.md`
+- 移动端实现计划已迁移到 `/System/Volumes/Data/workspace/c/mobile-qucik-c++/docs/移动端QuickJS外部联调实现计划.md`；helix 仓只保留 FFI 契约与边界文档。
   本实现计划真源。
 
 ### `/workspace/c/mobile-qucik-c++` 外部项目新增

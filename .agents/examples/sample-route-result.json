@@ -1,0 +1,18 @@
+{
+  "notes": [
+    "示例：发送链路任务必须区分 HTTP/WS/projection/storage 证据"
+  ],
+  "primary_agents": [
+    "modules/im-agent",
+    "domains/im-message-domain-agent"
+  ],
+  "required_references": [
+    "projection-schema-lock",
+    "csesapi-consumption-truth"
+  ],
+  "reviewer_agents": [
+    "reviewers/contract-reviewer-agent",
+    "reviewers/test-reviewer-agent"
+  ],
+  "workflow": "adversarial-workflow"
+}

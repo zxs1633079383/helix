@@ -1,0 +1,171 @@
+{
+  "domains": {
+    "harness-governance": {
+      "agent": "domains/harness-governance-domain-agent",
+      "constraints": [
+        "roadmap-p0-live-ledger",
+        "harness-index-invariant",
+        "hxc012-expect-for-substantial-task",
+        "review-gap-cadence"
+      ],
+      "diagram": ".agents/diagrams/domains/harness-governance.mmd",
+      "modules": [
+        "governance",
+        "host-cli",
+        "core",
+        "im"
+      ],
+      "paths": [
+        "docs/harness",
+        "docs/ROADMAP.md",
+        "scripts"
+      ]
+    },
+    "host-io": {
+      "agent": "domains/host-io-domain-agent",
+      "constraints": [
+        "hxc005-hot-path",
+        "local-store-identity-boundary",
+        "trace-sidecar-no-business-payload"
+      ],
+      "diagram": ".agents/diagrams/domains/host-io.mmd",
+      "modules": [
+        "driver-host",
+        "driver-ffi",
+        "driver-native",
+        "host-cli"
+      ],
+      "paths": [
+        "crates/helix-driver-host"
+      ]
+    },
+    "im-channel": {
+      "agent": "domains/im-channel-domain-agent",
+      "constraints": [
+        "projection-schema-lock",
+        "tauri-four-seams-p0"
+      ],
+      "diagram": ".agents/diagrams/domains/im-channel.mmd",
+      "modules": [
+        "im",
+        "driver-host",
+        "driver-native"
+      ],
+      "paths": [
+        "crates/helix-im/src/channel",
+        "crates/helix-im/src/outbound/channel_admin"
+      ]
+    },
+    "im-message": {
+      "agent": "domains/im-message-domain-agent",
+      "constraints": [
+        "csesapi-consumption-truth",
+        "projection-schema-lock",
+        "hxc010-deterministic-effect-order"
+      ],
+      "diagram": ".agents/diagrams/domains/im-message.mmd",
+      "modules": [
+        "im",
+        "driver-host",
+        "host-cli"
+      ],
+      "paths": [
+        "crates/helix-im/src/send",
+        "crates/helix-im/src/outbound/posts"
+      ]
+    },
+    "im-sync": {
+      "agent": "domains/im-sync-domain-agent",
+      "constraints": [
+        "hxc008-sync-cursor-nextseq",
+        "hxc010-deterministic-effect-order",
+        "hxc016-real-go-e2e-playbook"
+      ],
+      "diagram": ".agents/diagrams/domains/im-sync.mmd",
+      "modules": [
+        "im",
+        "driver-host",
+        "host-cli"
+      ],
+      "paths": [
+        "crates/helix-im/src/sync",
+        "crates/helix-im/src/ws"
+      ]
+    },
+    "mobile-ffi": {
+      "agent": "domains/mobile-ffi-domain-agent",
+      "constraints": [
+        "hxc006-ffi-boundary",
+        "hxc007-ffi-effect-batching",
+        "mobile-contract-dual-doc-sync"
+      ],
+      "diagram": ".agents/diagrams/domains/mobile-ffi.mmd",
+      "modules": [
+        "driver-ffi",
+        "im",
+        "driver-host"
+      ],
+      "paths": [
+        "crates/helix-driver-ffi",
+        "crates/helix-im/src/mobile_contract.rs"
+      ]
+    },
+    "native-tauri": {
+      "agent": "domains/native-tauri-domain-agent",
+      "constraints": [
+        "tauri-four-seams-p0",
+        "recording-sink-batch-boundary",
+        "native-thin-shell"
+      ],
+      "diagram": ".agents/diagrams/domains/native-tauri.mmd",
+      "modules": [
+        "driver-native",
+        "driver-host",
+        "im"
+      ],
+      "paths": [
+        "crates/helix-driver-native",
+        "crates/helix-driver-host/docs/external-host-instrumentation-recipe.md"
+      ]
+    },
+    "projection-observability": {
+      "agent": "domains/projection-observability-domain-agent",
+      "constraints": [
+        "recording-sink-batch-boundary",
+        "trace-sidecar-no-business-payload",
+        "hxc015-task-notification-no-polling"
+      ],
+      "diagram": ".agents/diagrams/domains/projection-observability.mmd",
+      "modules": [
+        "im",
+        "driver-host",
+        "driver-native",
+        "governance"
+      ],
+      "paths": [
+        "crates/helix-im/docs/projection-schema.md",
+        "crates/helix-driver-host/src/instrument.rs",
+        "crates/helix-driver-host/src/trace.rs"
+      ]
+    },
+    "runtime-core": {
+      "agent": "domains/runtime-core-domain-agent",
+      "constraints": [
+        "hxc001-core-zero-runtime",
+        "hxc002-send-lifetime",
+        "runtime-core-no-business-schema"
+      ],
+      "diagram": ".agents/diagrams/domains/runtime-core.mmd",
+      "modules": [
+        "core",
+        "driver-ffi",
+        "driver-host",
+        "driver-native"
+      ],
+      "paths": [
+        "crates/helix-core",
+        "docs/GOAL.md"
+      ]
+    }
+  }
+}

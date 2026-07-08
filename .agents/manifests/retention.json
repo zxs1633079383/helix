@@ -1,0 +1,14 @@
+{
+  "retention": {
+    "cleanup_command": ".agents/scripts/agent-clean-runs --dry-run",
+    "default_days": 14,
+    "keep_reports_with_status": [
+      "blocked",
+      "needs_review"
+    ],
+    "runtime_paths": [
+      ".agents/runs",
+      ".agents/tmp"
+    ]
+  }
+}

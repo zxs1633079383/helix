@@ -1,0 +1,64 @@
+{
+  "references": [
+    {
+      "id": "goal",
+      "kind": "north-star",
+      "path": "docs/GOAL.md",
+      "when": "任何跨 crate、core、driver、port、平台边界任务开局必读"
+    },
+    {
+      "id": "roadmap-p0",
+      "kind": "live-ledger",
+      "path": "docs/ROADMAP.md",
+      "when": "开局确认 P0 活账和当前阻塞"
+    },
+    {
+      "id": "operating",
+      "kind": "runbook",
+      "path": "docs/harness/OPERATING.md",
+      "when": "决定调哪个 skill/workflow/gate 时读取"
+    },
+    {
+      "id": "harness-index",
+      "kind": "constraint-index",
+      "path": "docs/harness/README.md",
+      "when": "新增/修改约束或审查 HX-C 时读取"
+    },
+    {
+      "id": "decisions",
+      "kind": "adr",
+      "path": "docs/harness/decisions.md",
+      "when": "wasm/ADR/架构争议需要拍板依据时读取"
+    },
+    {
+      "id": "commit-convention",
+      "kind": "commit",
+      "path": "docs/COMMIT_CONVENTION.md",
+      "when": "准备提交或报告提交策略时读取"
+    },
+    {
+      "id": "projection-schema",
+      "kind": "contract",
+      "path": "crates/helix-im/docs/projection-schema.md",
+      "when": "触碰 im:__bus__、投影 payload、EventSink/BatchSink 时读取"
+    },
+    {
+      "id": "external-host-instrumentation",
+      "kind": "recipe",
+      "path": "crates/helix-driver-host/docs/external-host-instrumentation-recipe.md",
+      "when": "loopforge/Tauri 接入 RecordingSink 或投影录放时读取"
+    },
+    {
+      "id": "takeover-plan",
+      "kind": "migration-map",
+      "path": "crates/helix-im/docs/takeover-plan/00-README.md",
+      "when": "IM 全接管、HTTP/WS/UC 能力映射任务读取"
+    },
+    {
+      "id": "full-map-index",
+      "kind": "source-truth-index",
+      "path": "crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md",
+      "when": "csesapi 迁移和能力缺口对账读取"
+    }
+  ]
+}

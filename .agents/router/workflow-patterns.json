@@ -1,0 +1,40 @@
+{
+  "patterns": {
+    "adversarial-workflow": {
+      "team": "primary agents plus reviewers",
+      "triggers": [
+        "high risk"
+      ]
+    },
+    "classify-and-act": {
+      "team": "one primary agent",
+      "triggers": [
+        "single boundary"
+      ]
+    },
+    "generate-and-filter": {
+      "team": "candidate agents plus filter reviewer",
+      "triggers": [
+        "unclear implementation choices"
+      ]
+    },
+    "long-tail-store": {
+      "team": "docs or memory agent",
+      "triggers": [
+        "low frequency knowledge"
+      ]
+    },
+    "route-and-synthesize": {
+      "team": "multiple agents plus synthesis",
+      "triggers": [
+        "multiple boundaries"
+      ]
+    },
+    "tournament": {
+      "team": "competing agents plus judge",
+      "triggers": [
+        "competing designs"
+      ]
+    }
+  }
+}

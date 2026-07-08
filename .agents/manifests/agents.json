@@ -1,0 +1,492 @@
+{
+  "agents": {
+    "domains/harness-governance-domain-agent": {
+      "constraints": [
+        "roadmap-p0-live-ledger",
+        "harness-index-invariant",
+        "hxc012-expect-for-substantial-task",
+        "review-gap-cadence"
+      ],
+      "diagram": ".agents/diagrams/domains/harness-governance.mmd",
+      "file": ".agents/agents/domains/harness-governance-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "governance",
+        "host-cli",
+        "core",
+        "im"
+      ],
+      "owned_paths": [
+        "docs/harness",
+        "docs/ROADMAP.md",
+        "scripts"
+      ],
+      "triggers": [
+        "HX-C",
+        "gate",
+        "acceptance",
+        "review"
+      ]
+    },
+    "domains/host-io-domain-agent": {
+      "constraints": [
+        "hxc005-hot-path",
+        "local-store-identity-boundary",
+        "trace-sidecar-no-business-payload"
+      ],
+      "diagram": ".agents/diagrams/domains/host-io.mmd",
+      "file": ".agents/agents/domains/host-io-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "driver-host",
+        "driver-ffi",
+        "driver-native",
+        "host-cli"
+      ],
+      "owned_paths": [
+        "crates/helix-driver-host"
+      ],
+      "triggers": [
+        "storage",
+        "http",
+        "ws",
+        "shared-io"
+      ]
+    },
+    "domains/im-channel-domain-agent": {
+      "constraints": [
+        "projection-schema-lock",
+        "tauri-four-seams-p0"
+      ],
+      "diagram": ".agents/diagrams/domains/im-channel.mmd",
+      "file": ".agents/agents/domains/im-channel-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "im",
+        "driver-host",
+        "driver-native"
+      ],
+      "owned_paths": [
+        "crates/helix-im/src/channel",
+        "crates/helix-im/src/outbound/channel_admin"
+      ],
+      "triggers": [
+        "channel",
+        "member",
+        "readBits"
+      ]
+    },
+    "domains/im-message-domain-agent": {
+      "constraints": [
+        "csesapi-consumption-truth",
+        "projection-schema-lock",
+        "hxc010-deterministic-effect-order"
+      ],
+      "diagram": ".agents/diagrams/domains/im-message.mmd",
+      "file": ".agents/agents/domains/im-message-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "im",
+        "driver-host",
+        "host-cli"
+      ],
+      "owned_paths": [
+        "crates/helix-im/src/send",
+        "crates/helix-im/src/outbound/posts"
+      ],
+      "triggers": [
+        "message",
+        "post",
+        "temporaryId",
+        "send"
+      ]
+    },
+    "domains/im-sync-domain-agent": {
+      "constraints": [
+        "hxc008-sync-cursor-nextseq",
+        "hxc010-deterministic-effect-order",
+        "hxc016-real-go-e2e-playbook"
+      ],
+      "diagram": ".agents/diagrams/domains/im-sync.mmd",
+      "file": ".agents/agents/domains/im-sync-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "im",
+        "driver-host",
+        "host-cli"
+      ],
+      "owned_paths": [
+        "crates/helix-im/src/sync",
+        "crates/helix-im/src/ws"
+      ],
+      "triggers": [
+        "sync",
+        "cursor",
+        "event_seq",
+        "websocket"
+      ]
+    },
+    "domains/mobile-ffi-domain-agent": {
+      "constraints": [
+        "hxc006-ffi-boundary",
+        "hxc007-ffi-effect-batching",
+        "mobile-contract-dual-doc-sync"
+      ],
+      "diagram": ".agents/diagrams/domains/mobile-ffi.mmd",
+      "file": ".agents/agents/domains/mobile-ffi-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "driver-ffi",
+        "im",
+        "driver-host"
+      ],
+      "owned_paths": [
+        "crates/helix-driver-ffi",
+        "crates/helix-im/src/mobile_contract.rs"
+      ],
+      "triggers": [
+        "ffi",
+        "flutter",
+        "quickjs",
+        "mobile"
+      ]
+    },
+    "domains/native-tauri-domain-agent": {
+      "constraints": [
+        "tauri-four-seams-p0",
+        "recording-sink-batch-boundary",
+        "native-thin-shell"
+      ],
+      "diagram": ".agents/diagrams/domains/native-tauri.mmd",
+      "file": ".agents/agents/domains/native-tauri-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "driver-native",
+        "driver-host",
+        "im"
+      ],
+      "owned_paths": [
+        "crates/helix-driver-native",
+        "crates/helix-driver-host/docs/external-host-instrumentation-recipe.md"
+      ],
+      "triggers": [
+        "tauri",
+        "native",
+        "loopforge"
+      ]
+    },
+    "domains/projection-observability-domain-agent": {
+      "constraints": [
+        "recording-sink-batch-boundary",
+        "trace-sidecar-no-business-payload",
+        "hxc015-task-notification-no-polling"
+      ],
+      "diagram": ".agents/diagrams/domains/projection-observability.mmd",
+      "file": ".agents/agents/domains/projection-observability-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "im",
+        "driver-host",
+        "driver-native",
+        "governance"
+      ],
+      "owned_paths": [
+        "crates/helix-im/docs/projection-schema.md",
+        "crates/helix-driver-host/src/instrument.rs",
+        "crates/helix-driver-host/src/trace.rs"
+      ],
+      "triggers": [
+        "projection",
+        "RecordingSink",
+        "trace",
+        "bus-event"
+      ]
+    },
+    "domains/runtime-core-domain-agent": {
+      "constraints": [
+        "hxc001-core-zero-runtime",
+        "hxc002-send-lifetime",
+        "runtime-core-no-business-schema"
+      ],
+      "diagram": ".agents/diagrams/domains/runtime-core.mmd",
+      "file": ".agents/agents/domains/runtime-core-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "core",
+        "driver-ffi",
+        "driver-host",
+        "driver-native"
+      ],
+      "owned_paths": [
+        "crates/helix-core",
+        "docs/GOAL.md"
+      ],
+      "triggers": [
+        "sans-io",
+        "deterministic",
+        "ports",
+        "effect"
+      ]
+    },
+    "modules/core-agent": {
+      "constraints": [
+        "hxc001-core-zero-runtime",
+        "hxc002-send-lifetime",
+        "hxc004-features-additive",
+        "hxc005-hot-path",
+        "runtime-core-no-business-schema"
+      ],
+      "diagram": ".agents/diagrams/modules/core.mmd",
+      "domains": [
+        "runtime-core"
+      ],
+      "file": ".agents/agents/modules/core-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-core"
+      ],
+      "triggers": [
+        "core",
+        "ports",
+        "effect",
+        "module",
+        "sans-io"
+      ]
+    },
+    "modules/driver-ffi-agent": {
+      "constraints": [
+        "hxc006-ffi-boundary",
+        "hxc007-ffi-effect-batching",
+        "mobile-contract-dual-doc-sync"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-ffi.mmd",
+      "domains": [
+        "mobile-ffi",
+        "host-io",
+        "runtime-core"
+      ],
+      "file": ".agents/agents/modules/driver-ffi-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-driver-ffi"
+      ],
+      "triggers": [
+        "ffi",
+        "flutter",
+        "mobile",
+        "c-abi"
+      ]
+    },
+    "modules/driver-host-agent": {
+      "constraints": [
+        "hxc005-hot-path",
+        "recording-sink-batch-boundary",
+        "trace-sidecar-no-business-payload",
+        "local-store-identity-boundary"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-host.mmd",
+      "domains": [
+        "host-io",
+        "projection-observability",
+        "native-tauri",
+        "mobile-ffi"
+      ],
+      "file": ".agents/agents/modules/driver-host-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-driver-host"
+      ],
+      "triggers": [
+        "host",
+        "storage",
+        "http",
+        "websocket",
+        "trace",
+        "instrumentation"
+      ]
+    },
+    "modules/driver-native-agent": {
+      "constraints": [
+        "native-thin-shell",
+        "recording-sink-batch-boundary",
+        "tauri-four-seams-p0"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-native.mmd",
+      "domains": [
+        "native-tauri",
+        "host-io",
+        "projection-observability"
+      ],
+      "file": ".agents/agents/modules/driver-native-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-driver-native"
+      ],
+      "triggers": [
+        "native",
+        "tauri",
+        "pc",
+        "event-sink"
+      ]
+    },
+    "modules/driver-wasm-agent": {
+      "constraints": [
+        "wasm-archived-adr006",
+        "hxc004-features-additive"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-wasm.mmd",
+      "domains": [
+        "runtime-core"
+      ],
+      "file": ".agents/agents/modules/driver-wasm-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-driver-wasm"
+      ],
+      "triggers": [
+        "wasm",
+        "archived",
+        "experimental"
+      ]
+    },
+    "modules/governance-agent": {
+      "constraints": [
+        "harness-index-invariant",
+        "review-gap-cadence",
+        "docs-drift-check",
+        "commit-convention-harness-section"
+      ],
+      "diagram": ".agents/diagrams/modules/governance.mmd",
+      "domains": [
+        "harness-governance",
+        "projection-observability"
+      ],
+      "file": ".agents/agents/modules/governance-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "docs",
+        "scripts",
+        ".claude"
+      ],
+      "triggers": [
+        "harness",
+        "roadmap",
+        "gate",
+        "acceptance",
+        "review"
+      ]
+    },
+    "modules/host-cli-agent": {
+      "constraints": [
+        "host-cli-config-single-source",
+        "hxc016-real-go-e2e-playbook",
+        "harness-evidence-boundary"
+      ],
+      "diagram": ".agents/diagrams/modules/host-cli.mmd",
+      "domains": [
+        "host-io",
+        "im-sync",
+        "harness-governance"
+      ],
+      "file": ".agents/agents/modules/host-cli-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-host-cli"
+      ],
+      "triggers": [
+        "cli",
+        "e2e",
+        "config",
+        "script"
+      ]
+    },
+    "modules/im-agent": {
+      "constraints": [
+        "hxc010-deterministic-effect-order",
+        "hxc012-expect-for-substantial-task",
+        "projection-schema-lock",
+        "csesapi-consumption-truth"
+      ],
+      "diagram": ".agents/diagrams/modules/im.mmd",
+      "domains": [
+        "im-message",
+        "im-channel",
+        "im-sync",
+        "projection-observability",
+        "runtime-core"
+      ],
+      "file": ".agents/agents/modules/im-agent.md",
+      "kind": "module",
+      "owned_paths": [
+        "crates/helix-im"
+      ],
+      "triggers": [
+        "im",
+        "message",
+        "channel",
+        "sync",
+        "outbound",
+        "ws",
+        "projection"
+      ]
+    },
+    "project/project-agent": {
+      "file": ".agents/agents/project/project-agent.md",
+      "full_constraints": true,
+      "kind": "project",
+      "triggers": [
+        "helix",
+        "router",
+        "swarm"
+      ]
+    },
+    "reviewers/contract-reviewer-agent": {
+      "file": ".agents/agents/reviewers/contract-reviewer-agent.md",
+      "full_constraints": true,
+      "kind": "reviewer",
+      "triggers": [
+        "contract",
+        "wire",
+        "api",
+        "schema",
+        "ABI"
+      ]
+    },
+    "reviewers/evidence-reviewer-agent": {
+      "file": ".agents/agents/reviewers/evidence-reviewer-agent.md",
+      "full_constraints": true,
+      "kind": "reviewer",
+      "triggers": [
+        "evidence",
+        "proof",
+        "green",
+        "DONE",
+        "trace"
+      ]
+    },
+    "reviewers/harness-reviewer-agent": {
+      "file": ".agents/agents/reviewers/harness-reviewer-agent.md",
+      "full_constraints": true,
+      "kind": "reviewer",
+      "triggers": [
+        "constraint",
+        "harness",
+        "HX-C",
+        "ROADMAP",
+        "GOAL"
+      ]
+    },
+    "reviewers/test-reviewer-agent": {
+      "file": ".agents/agents/reviewers/test-reviewer-agent.md",
+      "full_constraints": true,
+      "kind": "reviewer",
+      "triggers": [
+        "test",
+        "build",
+        "coverage",
+        "fixture",
+        "e2e"
+      ]
+    }
+  }
+}

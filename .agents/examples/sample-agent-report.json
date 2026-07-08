@@ -1,0 +1,16 @@
+{
+  "agent": "modules/im-agent",
+  "changed_files": [
+    "crates/helix-im/src/send/example.rs"
+  ],
+  "evidence": [
+    "cargo test -p helix-im send_example PASS"
+  ],
+  "risks": [
+    "projection schema 变更需 contract reviewer 复核"
+  ],
+  "status": "needs_review",
+  "unverified": [
+    "未跑真实 Go WS/DOM 链路"
+  ]
+}

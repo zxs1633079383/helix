@@ -1,0 +1,198 @@
+{
+  "modules": {
+    "core": {
+      "agent": "modules/core-agent",
+      "constraints": [
+        "hxc001-core-zero-runtime",
+        "hxc002-send-lifetime",
+        "hxc004-features-additive",
+        "hxc005-hot-path",
+        "runtime-core-no-business-schema"
+      ],
+      "diagram": ".agents/diagrams/modules/core.mmd",
+      "domains": [
+        "runtime-core"
+      ],
+      "paths": [
+        "crates/helix-core"
+      ],
+      "risks": [
+        "core",
+        "ports",
+        "effect",
+        "module",
+        "sans-io"
+      ]
+    },
+    "driver-ffi": {
+      "agent": "modules/driver-ffi-agent",
+      "constraints": [
+        "hxc006-ffi-boundary",
+        "hxc007-ffi-effect-batching",
+        "mobile-contract-dual-doc-sync"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-ffi.mmd",
+      "domains": [
+        "mobile-ffi",
+        "host-io",
+        "runtime-core"
+      ],
+      "paths": [
+        "crates/helix-driver-ffi"
+      ],
+      "risks": [
+        "ffi",
+        "flutter",
+        "mobile",
+        "c-abi"
+      ]
+    },
+    "driver-host": {
+      "agent": "modules/driver-host-agent",
+      "constraints": [
+        "hxc005-hot-path",
+        "recording-sink-batch-boundary",
+        "trace-sidecar-no-business-payload",
+        "local-store-identity-boundary"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-host.mmd",
+      "domains": [
+        "host-io",
+        "projection-observability",
+        "native-tauri",
+        "mobile-ffi"
+      ],
+      "paths": [
+        "crates/helix-driver-host"
+      ],
+      "risks": [
+        "host",
+        "storage",
+        "http",
+        "websocket",
+        "trace",
+        "instrumentation"
+      ]
+    },
+    "driver-native": {
+      "agent": "modules/driver-native-agent",
+      "constraints": [
+        "native-thin-shell",
+        "recording-sink-batch-boundary",
+        "tauri-four-seams-p0"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-native.mmd",
+      "domains": [
+        "native-tauri",
+        "host-io",
+        "projection-observability"
+      ],
+      "paths": [
+        "crates/helix-driver-native"
+      ],
+      "risks": [
+        "native",
+        "tauri",
+        "pc",
+        "event-sink"
+      ]
+    },
+    "driver-wasm": {
+      "agent": "modules/driver-wasm-agent",
+      "constraints": [
+        "wasm-archived-adr006",
+        "hxc004-features-additive"
+      ],
+      "diagram": ".agents/diagrams/modules/driver-wasm.mmd",
+      "domains": [
+        "runtime-core"
+      ],
+      "paths": [
+        "crates/helix-driver-wasm"
+      ],
+      "risks": [
+        "wasm",
+        "archived",
+        "experimental"
+      ]
+    },
+    "governance": {
+      "agent": "modules/governance-agent",
+      "constraints": [
+        "harness-index-invariant",
+        "review-gap-cadence",
+        "docs-drift-check",
+        "commit-convention-harness-section"
+      ],
+      "diagram": ".agents/diagrams/modules/governance.mmd",
+      "domains": [
+        "harness-governance",
+        "projection-observability"
+      ],
+      "paths": [
+        "docs",
+        "scripts",
+        ".claude"
+      ],
+      "risks": [
+        "harness",
+        "roadmap",
+        "gate",
+        "acceptance",
+        "review"
+      ]
+    },
+    "host-cli": {
+      "agent": "modules/host-cli-agent",
+      "constraints": [
+        "host-cli-config-single-source",
+        "hxc016-real-go-e2e-playbook",
+        "harness-evidence-boundary"
+      ],
+      "diagram": ".agents/diagrams/modules/host-cli.mmd",
+      "domains": [
+        "host-io",
+        "im-sync",
+        "harness-governance"
+      ],
+      "paths": [
+        "crates/helix-host-cli"
+      ],
+      "risks": [
+        "cli",
+        "e2e",
+        "config",
+        "script"
+      ]
+    },
+    "im": {
+      "agent": "modules/im-agent",
+      "constraints": [
+        "hxc010-deterministic-effect-order",
+        "hxc012-expect-for-substantial-task",
+        "projection-schema-lock",
+        "csesapi-consumption-truth"
+      ],
+      "diagram": ".agents/diagrams/modules/im.mmd",
+      "domains": [
+        "im-message",
+        "im-channel",
+        "im-sync",
+        "projection-observability",
+        "runtime-core"
+      ],
+      "paths": [
+        "crates/helix-im"
+      ],
+      "risks": [
+        "im",
+        "message",
+        "channel",
+        "sync",
+        "outbound",
+        "ws",
+        "projection"
+      ]
+    }
+  }
+}

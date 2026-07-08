@@ -1,0 +1,396 @@
+{
+  "constraints": {
+    "hxc001-core-zero-runtime": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-core"
+        ]
+      },
+      "keywords": [
+        "core",
+        "runtime",
+        "tokio",
+        "sqlx",
+        "tauri",
+        "web-sys"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C001-core-zero-runtime-dep.md",
+      "status": "active",
+      "summary": "helix-core 不得引入 tokio/sqlx/reqwest/web-sys/tauri 等 runtime/platform 依赖。"
+    },
+    "hxc002-send-lifetime": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-core",
+          "crates/helix-driver-ffi",
+          "crates/helix-driver-host"
+        ]
+      },
+      "keywords": [
+        "Send",
+        "async",
+        "lifetime",
+        "ffi",
+        "owned"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C002-async-send-boundary-no-lifetime.md",
+      "status": "active",
+      "summary": "默认 Unsync，FFI/单线程宿主不得被硬 Send 约束；状态不要带 async 生命周期。"
+    },
+    "hxc004-features-additive": {
+      "applies_to": {
+        "paths": [
+          "Cargo.toml",
+          "crates"
+        ]
+      },
+      "keywords": [
+        "feature",
+        "cfg",
+        "wasm",
+        "native"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C004-features-additive.md",
+      "status": "active",
+      "summary": "features 必须 additive，禁止互斥 feature 破坏 feature unification。"
+    },
+    "hxc005-hot-path": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-core",
+          "crates/helix-im",
+          "crates/helix-driver-host"
+        ]
+      },
+      "keywords": [
+        "hot",
+        "O(1)",
+        "allocation",
+        "storage",
+        "write"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C005-hotpath-zero-alloc.md",
+      "status": "active",
+      "summary": "热路径 O(1)、零无谓堆分配、单 INSERT/UPDATE WHERE PK，禁 read-modify-write。"
+    },
+    "hxc006-ffi-boundary": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-ffi"
+        ]
+      },
+      "keywords": [
+        "ffi",
+        "panic",
+        "opaque",
+        "spawn_blocking",
+        "C ABI"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C006-ffi-boundary-discipline.md",
+      "status": "active",
+      "summary": "panic 不跨 extern C；opaque ptr 单 owner；同步 SQLite C 调用走阻塞边界。"
+    },
+    "hxc007-ffi-effect-batching": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-ffi",
+          "crates/helix-core"
+        ]
+      },
+      "keywords": [
+        "ffi",
+        "batch",
+        "effect",
+        "event"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C007-effect-batch-across-boundary.md",
+      "status": "active",
+      "summary": "FFI 边界批量过 effect/event，不逐条跨边界。"
+    },
+    "hxc008-sync-cursor-nextseq": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-im/src/sync",
+          "crates/helix-im/src/ws"
+        ]
+      },
+      "keywords": [
+        "sync",
+        "cursor",
+        "nextSeq",
+        "event_seq"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/evidence-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C008-sync-pull-wire-contract.md",
+      "status": "active",
+      "summary": "sync/notify pull 契约 cursor 锚 nextSeq，续拉看 len>=500，不按 max event 自判。"
+    },
+    "hxc010-deterministic-effect-order": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-im",
+          "crates/helix-core"
+        ]
+      },
+      "keywords": [
+        "deterministic",
+        "HashMap",
+        "sort",
+        "effect"
+      ],
+      "reviewers": [
+        "reviewers/test-reviewer-agent",
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C010-deterministic-effect-ordering-from-collections.md",
+      "status": "active",
+      "summary": "集合迭代生成 Effect 必须稳定有序，防随机哈希顺序污染回放。"
+    },
+    "hxc012-expect-for-substantial-task": {
+      "applies_to": {
+        "paths": [
+          "SESSION.md",
+          "docs",
+          "crates"
+        ]
+      },
+      "keywords": [
+        "EXPECT",
+        "SESSION",
+        "substantial",
+        "drift"
+      ],
+      "reviewers": [
+        "reviewers/evidence-reviewer-agent",
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C012-substantive-task-must-open-expect.md",
+      "status": "active",
+      "summary": "实质任务开局写可证伪 EXPECT，收尾 DONE 对账，偏离记录 DRIFT-PRED。"
+    },
+    "hxc015-task-notification-no-polling": {
+      "applies_to": {
+        "paths": [
+          ".agents",
+          ".claude/workflows",
+          "docs/harness"
+        ]
+      },
+      "keywords": [
+        "workflow",
+        "background",
+        "notification",
+        "cron"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C015-workflow-done-via-notification-not-poll.md",
+      "status": "active",
+      "summary": "workflow/后台 agent 完成靠 task-notification 回灌；除外部不可追踪态外禁手工短轮询。"
+    },
+    "hxc016-real-go-e2e-playbook": {
+      "applies_to": {
+        "paths": [
+          "scripts",
+          "crates/helix-host-cli",
+          "docs/review"
+        ]
+      },
+      "keywords": [
+        "Go",
+        "e2e",
+        "WS",
+        "hello",
+        "UC"
+      ],
+      "reviewers": [
+        "reviewers/evidence-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C016-e2e-env-recovery-and-fast-harness.md",
+      "status": "active",
+      "summary": "真 Go e2e 用单脚本双持久连接 wait_for，不把 HTTP 成功当 WS/projection 成功。"
+    },
+    "mobile-contract-dual-doc-sync": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-ffi",
+          "crates/helix-im/src/mobile_contract.rs"
+        ]
+      },
+      "keywords": [
+        "mobile",
+        "QuickJS",
+        "command",
+        "query",
+        "event"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/evidence-reviewer-agent"
+      ],
+      "source": "crates/helix-driver-ffi/docs/移动端Command-Query-Event契约SPEC.md",
+      "status": "active",
+      "summary": "移动 public command/query/event 新增或变更需同步 helix FFI 文档与 mobile 集成仓契约文档。"
+    },
+    "projection-schema-lock": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-im/src",
+          "crates/helix-im/docs/projection-schema.md"
+        ]
+      },
+      "keywords": [
+        "projection",
+        "payload",
+        "im:__bus__",
+        "render"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "source": "crates/helix-im/docs/projection-schema.md",
+      "status": "active",
+      "summary": "投影 payload 契约真源在 projection-schema.md 和对应测试，字段变更必须同步对账。"
+    },
+    "recording-sink-batch-boundary": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-host",
+          "crates/helix-driver-native",
+          "crates/helix-im/docs/projection-schema.md"
+        ]
+      },
+      "keywords": [
+        "RecordingSink",
+        "BatchSink",
+        "EventSink",
+        "loopforge",
+        "im:__bus__"
+      ],
+      "reviewers": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/evidence-reviewer-agent"
+      ],
+      "source": "crates/helix-driver-host/docs/external-host-instrumentation-recipe.md",
+      "status": "active",
+      "summary": "外部 host 投影录放装饰器装在 BatchSink，不装 EventSink；loopforge 零改引擎逻辑。"
+    },
+    "roadmap-p0-live-ledger": {
+      "applies_to": {
+        "paths": [
+          "docs/ROADMAP.md",
+          "crates/helix-driver-native",
+          "crates/helix-driver-host",
+          "crates/helix-im"
+        ]
+      },
+      "keywords": [
+        "P0",
+        "Tauri",
+        "golden",
+        "feature",
+        "release"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent",
+        "reviewers/evidence-reviewer-agent"
+      ],
+      "source": "docs/ROADMAP.md",
+      "status": "active",
+      "summary": "开局只按 §二 P0 活账判断当前阻塞，不能把 P1/P2 误标成 P0。"
+    },
+    "tauri-four-seams-p0": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-native",
+          "crates/helix-driver-host",
+          "crates/helix-im"
+        ]
+      },
+      "keywords": [
+        "Tauri",
+        "loopforge",
+        "four-seams",
+        "readBits",
+        "store"
+      ],
+      "reviewers": [
+        "reviewers/evidence-reviewer-agent",
+        "reviewers/contract-reviewer-agent"
+      ],
+      "source": "docs/ROADMAP.md",
+      "status": "active",
+      "summary": "Tauri 四接缝接入仍是 P0，首个落地处是 loopforge-tauri-im。"
+    },
+    "trace-sidecar-no-business-payload": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-host/src/trace.rs",
+          "crates/helix-driver-host/src/instrument.rs"
+        ]
+      },
+      "keywords": [
+        "trace",
+        "otel",
+        "payload",
+        "redaction",
+        "hop"
+      ],
+      "reviewers": [
+        "reviewers/evidence-reviewer-agent",
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/GOAL.md",
+      "status": "active",
+      "summary": "trace 走 sidecar，不记录业务 body/message/text/token/cookie；每个边界保留 hop 探针。"
+    },
+    "wasm-archived-adr006": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-wasm"
+        ]
+      },
+      "keywords": [
+        "wasm",
+        "web",
+        "archived",
+        "ADR-006"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent"
+      ],
+      "source": "docs/harness/decisions.md",
+      "status": "active",
+      "summary": "wasm/web 暂停维护，不进入 roadmap/CI 必跑/交付验收；重启需新 ADR。"
+    }
+  }
+}

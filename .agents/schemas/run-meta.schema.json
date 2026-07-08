@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "status",
+    "created_at",
+    "updated_at",
+    "retention"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,165 @@
+{
+  "routes": [
+    {
+      "id": "core-runtime-boundary",
+      "match": {
+        "keywords": [
+          "core",
+          "ports",
+          "effect",
+          "sans-io"
+        ],
+        "paths": [
+          "crates/helix-core"
+        ]
+      },
+      "primary_agents": [
+        "modules/core-agent",
+        "domains/runtime-core-domain-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/harness-reviewer-agent",
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "im-business",
+      "match": {
+        "keywords": [
+          "im",
+          "message",
+          "channel",
+          "sync",
+          "projection"
+        ],
+        "paths": [
+          "crates/helix-im"
+        ]
+      },
+      "primary_agents": [
+        "modules/im-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "workflow": "route-and-synthesize"
+    },
+    {
+      "id": "host-io",
+      "match": {
+        "keywords": [
+          "storage",
+          "http",
+          "ws",
+          "trace",
+          "RecordingSink"
+        ],
+        "paths": [
+          "crates/helix-driver-host"
+        ]
+      },
+      "primary_agents": [
+        "modules/driver-host-agent",
+        "domains/host-io-domain-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/evidence-reviewer-agent"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "ffi-mobile",
+      "match": {
+        "keywords": [
+          "ffi",
+          "flutter",
+          "mobile",
+          "QuickJS"
+        ],
+        "paths": [
+          "crates/helix-driver-ffi"
+        ]
+      },
+      "primary_agents": [
+        "modules/driver-ffi-agent",
+        "domains/mobile-ffi-domain-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "native-tauri-loopforge",
+      "match": {
+        "keywords": [
+          "tauri",
+          "loopforge",
+          "native",
+          "Tauri"
+        ],
+        "paths": [
+          "crates/helix-driver-native"
+        ]
+      },
+      "primary_agents": [
+        "modules/driver-native-agent",
+        "domains/native-tauri-domain-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/evidence-reviewer-agent",
+        "reviewers/contract-reviewer-agent"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "harness-docs-gate",
+      "match": {
+        "keywords": [
+          "HX-C",
+          "gate",
+          "acceptance",
+          "ROADMAP"
+        ],
+        "paths": [
+          "docs/harness",
+          "docs/ROADMAP.md",
+          "scripts"
+        ]
+      },
+      "primary_agents": [
+        "modules/governance-agent",
+        "domains/harness-governance-domain-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/harness-reviewer-agent",
+        "reviewers/evidence-reviewer-agent"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "wasm-archive",
+      "match": {
+        "keywords": [
+          "wasm",
+          "web"
+        ],
+        "paths": [
+          "crates/helix-driver-wasm"
+        ]
+      },
+      "primary_agents": [
+        "modules/driver-wasm-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/harness-reviewer-agent"
+      ],
+      "workflow": "classify-and-act"
+    }
+  ]
+}

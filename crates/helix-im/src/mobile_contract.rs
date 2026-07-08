@@ -10,10 +10,88 @@ pub struct CommandAlias {
     pub core: &'static str,
 }
 
-pub const COMMAND_ALIASES: &[CommandAlias] = &[CommandAlias {
-    public: "im_send",
-    core: "im_send_message",
-}];
+pub const COMMAND_ALIASES: &[CommandAlias] = &[
+    CommandAlias {
+        public: "im_send",
+        core: "im_send_message",
+    },
+    CommandAlias {
+        public: "im_relay_messages",
+        core: "im_create_posts",
+    },
+    CommandAlias {
+        public: "im_read_channel",
+        core: "im_post_read",
+    },
+    CommandAlias {
+        public: "im_sync_channels",
+        core: "im_channel_load_increment_by_channel_id",
+    },
+    CommandAlias {
+        public: "im_ensure_channel_loaded",
+        core: "im_channel_load_increment_by_channel_id",
+    },
+    CommandAlias {
+        public: "im_channel_create",
+        core: "im_create_channel",
+    },
+    CommandAlias {
+        public: "im_member_leave",
+        core: "im_channel_leave",
+    },
+    CommandAlias {
+        public: "im_channel_settings",
+        core: "im_channel_change_info",
+    },
+    CommandAlias {
+        public: "im_post_pin",
+        core: "im_set_message_top",
+    },
+    CommandAlias {
+        public: "im_announcement_write",
+        core: "im_announcement_save",
+    },
+    CommandAlias {
+        public: "im_online_status",
+        core: "im_channel_online_status",
+    },
+    CommandAlias {
+        public: "im_channel_admin_change",
+        core: "im_channel_member_role",
+    },
+    CommandAlias {
+        public: "im_member_nickname_change",
+        core: "im_update_member_nickname",
+    },
+    CommandAlias {
+        public: "im_todo_query",
+        core: "im_query_todo_list",
+    },
+    CommandAlias {
+        public: "im_system_notice_query",
+        core: "im_load_target_notifications",
+    },
+    CommandAlias {
+        public: "im_module_read",
+        core: "im_get_all_modules",
+    },
+    CommandAlias {
+        public: "im_module_read_all",
+        core: "im_get_all_modules",
+    },
+    CommandAlias {
+        public: "im_company_group_upsert",
+        core: "im_team_upsert",
+    },
+    CommandAlias {
+        public: "im_company_group_maintain",
+        core: "im_team_member_add",
+    },
+    CommandAlias {
+        public: "im_company_exit",
+        core: "im_team_quit",
+    },
+];
 
 pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:sending",

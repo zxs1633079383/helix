@@ -67,6 +67,25 @@ const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 /// 证明无锁争用，而非靠「hello 之后才产 Send」的运行时时序不变量）。
 pub type TransportTable<Tr> = HashMap<TransportId, Arc<Tr>>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportLifecycleEvent {
+    Disconnected {
+        transport_id: TransportId,
+        reason: &'static str,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransportTraceEvent {
+    pub transport_id: TransportId,
+    pub name: &'static str,
+    pub action: &'static str,
+    pub attempt: Option<u32>,
+    pub delay_ms: Option<u64>,
+    pub reason: Option<&'static str>,
+    pub error_class: Option<String>,
+}
+
 /// 事件泵依赖聚合（泛型 ports + 配置）。
 ///
 /// native / ffi 各自构造此结构（注入自家 EventSink egress），调 [`run_engine_loop`]。
@@ -79,6 +98,8 @@ pub struct EngineDeps<S, H, U, E, C> {
     pub trace: TraceHooks,
     /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。`0` → `.max(1)` 兜底 1。
     pub max_http_inflight: usize,
+    pub transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
+    pub transport_trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
 }
 
 /// 运行 ExecutionShell 的 tokio 事件泵（泛型壳）。
@@ -120,6 +141,8 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     Tr: Transport + Send + Sync + 'static,
     C: Clock,
 {
+    let transport_lifecycle_tx = deps.transport_lifecycle_tx.clone();
+    let transport_trace_tx = deps.transport_trace_tx.clone();
     let clock = deps.clock;
     let storage = deps.storage;
     let http = deps.http;
@@ -225,6 +248,28 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                 }
             }
         };
+
+        if let Tick::Disconnected(transport_id) = &tick {
+            if let Some(tx) = &transport_lifecycle_tx {
+                tx.send(TransportLifecycleEvent::Disconnected {
+                    transport_id: *transport_id,
+                    reason: "reader_closed_or_error",
+                })
+                .ok();
+            }
+            if let Some(tx) = &transport_trace_tx {
+                tx.send(TransportTraceEvent {
+                    transport_id: *transport_id,
+                    name: "helix.ws.disconnect",
+                    action: "disconnect",
+                    attempt: None,
+                    delay_ms: None,
+                    reason: Some("reader_closed_or_error"),
+                    error_class: None,
+                })
+                .ok();
+            }
+        }
 
         let _trace_scope = trace.on_tick_start(&tick);
         let now_ms = clock.now_ms();

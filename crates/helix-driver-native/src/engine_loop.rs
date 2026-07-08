@@ -76,6 +76,8 @@ impl EngineConfig {
             clock: NativeClock,
             trace: TraceHooks::noop(),
             max_http_inflight: self.max_http_inflight,
+            transport_lifecycle_tx: None,
+            transport_trace_tx: None,
         }
     }
 }

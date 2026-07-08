@@ -252,6 +252,10 @@ impl TraceHooks {
         Self::new(NoopTraceHooks).with_otel(HostOtelRuntime::from_env("helix-driver-host"))
     }
 
+    pub fn noop_without_otel() -> Self {
+        Self::new(NoopTraceHooks)
+    }
+
     pub fn with_command_traces(mut self, command_traces: CommandTraceQueue) -> Self {
         self.command_traces = Some(command_traces);
         self
@@ -281,14 +285,13 @@ impl TraceHooks {
             return scope.chain(restore_scope);
         };
 
-        let traced_scope =
-            scope
-                .chain(restore_scope)
-                .chain(TraceScope::with_guard(runtime.span(
-                    "helix.core.step",
-                    TraceDirection::Internal,
-                    carrier.as_ref(),
-                )));
+        let traced_scope = scope
+            .chain(restore_scope)
+            .chain(TraceScope::with_guard(runtime.span(
+                "helix.core.step",
+                TraceDirection::Internal,
+                carrier.as_ref(),
+            )));
 
         let Some((name, direction)) = (match tick {
             Tick::Command(_) => Some(("helix.command.accept", TraceDirection::Inbound)),

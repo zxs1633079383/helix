@@ -255,7 +255,7 @@ pub fn run(args: PumpArgs) {
             uploader: Arc::new(SharedFileUploader::default()),
             event_sink,
             clock,
-            trace: TraceHooks::noop().with_command_traces(args.command_traces),
+            trace: TraceHooks::noop_without_otel().with_command_traces(args.command_traces),
             max_http_inflight: args.max_http_inflight,
             transport_lifecycle_tx: Some(transport_lifecycle_tx),
             transport_trace_tx: Some(transport_trace_tx),

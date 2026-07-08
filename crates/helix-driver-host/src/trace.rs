@@ -252,6 +252,10 @@ impl TraceHooks {
         Self::new(NoopTraceHooks).with_otel(HostOtelRuntime::from_env("helix-driver-host"))
     }
 
+    pub fn noop_without_otel() -> Self {
+        Self::new(NoopTraceHooks)
+    }
+
     pub fn with_command_traces(mut self, command_traces: CommandTraceQueue) -> Self {
         self.command_traces = Some(command_traces);
         self

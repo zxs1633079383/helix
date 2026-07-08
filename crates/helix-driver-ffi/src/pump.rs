@@ -19,10 +19,11 @@ use std::time::Duration;
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
-use helix_driver_host::engine::{self, EngineDeps, TransportTable};
+use helix_driver_host::engine::{self, EngineDeps, TransportTable, TransportTraceEvent};
 use helix_driver_host::{
-    AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostStorage,
-    SharedFileUploader, SharedHttpClient, SharedWsClient, TraceHooks,
+    spawn_reconnect_supervisor, AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry,
+    HostNetworkConfig, HostOtelRuntime, HostStorage, ReconnectPolicy, ReconnectTraceSink,
+    SharedFileUploader, SharedHttpClient, SharedWsClient, TraceDirection, TraceHooks,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -35,6 +36,48 @@ use crate::vtable::CppHostVtable;
 
 /// 主 WS TransportId（host 集中分配；FFI 单连接固定 0，对齐 host-cli 约定）。
 const MAIN_TRANSPORT: u32 = 0;
+
+fn transport_trace_attributes(event: &TransportTraceEvent) -> Vec<(&'static str, String)> {
+    let mut attrs = vec![
+        ("transport.id", event.transport_id.raw().to_string()),
+        ("ws.lifecycle.action", event.action.to_string()),
+    ];
+
+    if let Some(attempt) = event.attempt {
+        attrs.push(("ws.reconnect.attempt", attempt.to_string()));
+    }
+    if let Some(delay_ms) = event.delay_ms {
+        attrs.push(("ws.reconnect.delay_ms", delay_ms.to_string()));
+    }
+    if let Some(next_delay_ms) = event.next_delay_ms {
+        attrs.push(("ws.reconnect.next_delay_ms", next_delay_ms.to_string()));
+    }
+    if let Some(reason) = event.reason {
+        attrs.push(("ws.lifecycle.reason", reason.to_string()));
+    }
+    if let Some(error_class) = &event.error_class {
+        attrs.push(("ws.error.class", error_class.clone()));
+    }
+
+    attrs
+}
+
+fn spawn_transport_trace_exporter(rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("helix-ffi-trace-exporter".to_string())
+        .spawn(move || export_transport_trace_events(rx))
+    {
+        tracing::warn!(error = %error, "FFI pump 启动 trace exporter 线程失败，跳过 transport trace 导出");
+    }
+}
+
+fn export_transport_trace_events(mut rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
+    let runtime = HostOtelRuntime::from_env("helix-driver-host");
+    while let Some(event) = rx.blocking_recv() {
+        let attrs = transport_trace_attributes(&event);
+        let _span = runtime.span_with_attributes(event.name, TraceDirection::Internal, None, attrs);
+    }
+}
 
 /// pump 线程回传给 `HelixHandle` 的查询依赖（helix_query 用）。
 ///
@@ -144,16 +187,20 @@ pub fn run(args: PumpArgs) {
         // 把 `Arc::new(ws)` 投进泵，loop 的 biased select 第二臂 insert 进表。
         let (transport_tx, transport_rx) =
             mpsc::unbounded_channel::<(TransportId, Arc<SharedWsClient>)>();
+        let (transport_lifecycle_tx, transport_lifecycle_rx) = mpsc::unbounded_channel();
+        let (transport_trace_tx, transport_trace_rx) = mpsc::unbounded_channel();
+        spawn_transport_trace_exporter(transport_trace_rx);
         let transports: TransportTable<SharedWsClient> = TransportTable::new();
         // 后台连接任务：与泵核同跑此 current_thread runtime（spawn 进同 runtime 域）。
         // 连不上仅 warn——上行走 dispatch 的 warn 兜底，句柄不投表（YAGNI：当前不内建退避重连，
         // 对齐「连不上仍进泵」最简语义；重连留 IM 层 im_reconnect 命令驱动）。
+        let initial_transport_tx = transport_tx.clone();
         tokio::spawn(async move {
             let mut ws = ws; // connect 是 &mut self → 后台任务独占持有
             match ws.connect().await {
                 Ok(()) => {
                     // 连成功 → 投递共享句柄进泵（loop insert 进路由表，Effect::Send 始畅通）。
-                    if transport_tx
+                    if initial_transport_tx
                         .send((main_transport, Arc::new(ws)))
                         .is_err()
                     {
@@ -165,6 +212,28 @@ pub fn run(args: PumpArgs) {
                 }
             }
         });
+        let reconnect_transport_tx = transport_tx.clone();
+        let reconnect_config = args.config.clone();
+        let reconnect_headers = args.headers.clone();
+        let reconnect_tick_tx = args.tick_tx.clone();
+        let _reconnect_handle = spawn_reconnect_supervisor(
+            main_transport,
+            ReconnectPolicy::default(),
+            transport_lifecycle_rx,
+            reconnect_transport_tx,
+            ReconnectTraceSink::new(Some(transport_trace_tx.clone())),
+            move || {
+                let config = reconnect_config.clone();
+                let headers = reconnect_headers.clone();
+                let tick_tx = reconnect_tick_tx.clone();
+                async move {
+                    let mut ws = SharedWsClient::with_registry(config, headers)?
+                        .with_inbound_tick(main_transport, tick_tx);
+                    ws.connect().await?;
+                    Ok(ws)
+                }
+            },
+        );
 
         // ── clock（host 注入壁钟）────────────────────────────────────
         let clock = FfiClock::new(args.vtable.now_ms, args.vtable.ctx);
@@ -186,10 +255,10 @@ pub fn run(args: PumpArgs) {
             uploader: Arc::new(SharedFileUploader::default()),
             event_sink,
             clock,
-            trace: TraceHooks::noop().with_command_traces(args.command_traces),
+            trace: TraceHooks::noop_without_otel().with_command_traces(args.command_traces),
             max_http_inflight: args.max_http_inflight,
-            transport_lifecycle_tx: None,
-            transport_trace_tx: None,
+            transport_lifecycle_tx: Some(transport_lifecycle_tx),
+            transport_trace_tx: Some(transport_trace_tx),
         };
         let _ = args.ready_tx.send(Some(QueryDeps {
             runtime: tokio::runtime::Handle::current(),
@@ -223,4 +292,52 @@ pub fn run(args: PumpArgs) {
     // 这与 engine 五不变量⑤「必达 Http drain 有上限、生命周期不被网络阻塞」同源——把同一红线
     // 补到 runtime 收尾这最后一环（drain 之后唯一可能残留的网络 I/O = 后台 connect 的 DNS）。
     runtime.shutdown_timeout(Duration::ZERO);
+}
+
+#[cfg(test)]
+mod tests {
+    use helix_core::effect::TransportId;
+    use helix_driver_host::engine::TransportTraceEvent;
+
+    use super::transport_trace_attributes;
+
+    #[test]
+    fn transport_trace_attributes_are_safe_and_complete() {
+        let attrs = transport_trace_attributes(&TransportTraceEvent {
+            transport_id: TransportId::from_raw(7),
+            name: "helix.ws.reconnect.schedule",
+            action: "reconnect_schedule",
+            attempt: Some(2),
+            delay_ms: Some(400),
+            next_delay_ms: Some(800),
+            reason: Some("reader_closed_or_error"),
+            error_class: Some("transport".to_string()),
+        });
+
+        assert!(attrs.contains(&("transport.id", "7".to_string())));
+        assert!(attrs.contains(&("ws.lifecycle.action", "reconnect_schedule".to_string())));
+        assert!(attrs.contains(&("ws.reconnect.attempt", "2".to_string())));
+        assert!(attrs.contains(&("ws.reconnect.delay_ms", "400".to_string())));
+        assert!(attrs.contains(&("ws.reconnect.next_delay_ms", "800".to_string())));
+        assert!(attrs.contains(&("ws.lifecycle.reason", "reader_closed_or_error".to_string())));
+        assert!(attrs.contains(&("ws.error.class", "transport".to_string())));
+
+        let serialized = format!("{attrs:?}").to_lowercase();
+        for forbidden in [
+            "cookie",
+            "cookieid",
+            "authorization",
+            "token",
+            "body",
+            "message",
+            "text",
+            "raw_payload",
+            "raw_error",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "transport trace attributes leaked forbidden key: {forbidden}"
+            );
+        }
+    }
 }

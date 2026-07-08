@@ -21,7 +21,7 @@
 - 领域事件批回调
 
 业务用例全部通过 `name + JSON payload` 进入 Rust 内核。QuickJS 可以在 JS 层包出
-`im.sendMessage()`、`im.loadReplies()` 这样的糖衣方法，但原生层不随业务膨胀。
+`im.send()`、`im.loadReplies()` 这样的移动端方法，但原生层不随业务膨胀。
 
 Flutter 只负责 UI 渲染和交互采集；QuickJS 只做轻量编排；IM 业务规则、线协议请求体
 成形、身份补齐、对账、状态收敛和投影整形都在 `helix-core / helix-im`。
@@ -293,16 +293,16 @@ FFI / C++ / JS 三层都必须保留稳定错误码，不靠字符串做业务�
 `im:post:sending` 乐观行、WS `post` 回声对账为已发送、发送超时后持久化为 `unsend`。
 移动端不得用 JS catch 或错误字符串自行判定消息 failed。
 
-## 9. 外部移动端 JS 封装层建议
+## 9. 外部移动端 native im.* 封装建议
 
-QuickJS 可在移动端集成项目中提供糖衣 API，但所有糖衣必须只做字段转交，不承载 IM 业务规则。
+QuickJS 可在移动端集成项目中注入 native `im.*` API，但所有公开方法必须只做字段转交，不承载 IM 业务规则。
 以下代码是外部项目实现参考，不应作为源码落到 helix 仓：
 
 ```ts
 class MobileIm {
   constructor(private core: CoreBridge) {}
 
-  sendMessage(input: { channelId: string; text: string; temporaryId: string }) {
+  send(input: { channelId: string; text: string; temporaryId: string }) {
     return this.core.call("im_send", {
       channelId: input.channelId,
       text: input.text,

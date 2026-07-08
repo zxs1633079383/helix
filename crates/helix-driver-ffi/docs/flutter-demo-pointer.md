@@ -16,7 +16,7 @@ Flutter UI → 最小 C++ shim → helix cdylib →（pump 线程 step → Effec
 ```
 
 全链路正是 e2e 测试 `command_emits_domain_event_through_batch_callback`（`tests/.../api` 已验证路径）的真实消费：
-`helix_create_with_network` 起 pump 线程 → `helix_command(im_send_message)` → pump step → `Effect::Emit(im:post:sending)` → `FfiEventSink` 攒批 → `on_domain_events_batch`（HX-C007 整批一次）→ `helix_destroy`（join pump）。
+`helix_create_with_network` 起 pump 线程 → `helix_command(im_send)`（FFI alias 到内部 send handler）→ pump step → `Effect::Emit(im:post:sending)` → `FfiEventSink` 攒批 → `on_domain_events_batch`（HX-C007 整批一次）→ `helix_destroy`（join pump）。
 demo 是 **emit 冒烟、不读状态**，`helix_query` 仍 honest stub（`FFI_UNIMPLEMENTED`）→ 不触达 → **本 crate 零改动**（headless 守卫兑现）。
 
 ---

@@ -7,8 +7,8 @@
 ```text
 Flutter UI
   -> QuickJS runtime
-    -> JS 脚本 / JS API
-      -> C++ native bridge
+    -> JS UserCase 脚本调用 native im.*
+      -> C++ MobileImSdk / CoreBridge
         -> helix-driver-ffi
           -> helix-core / helix-im
             -> Go Server
@@ -26,9 +26,9 @@ Flutter UI
 
 `helix-driver-ffi` 是移动端原生接入层。它不重新实现业务，只把 Rust 内核以稳定 C ABI 暴露给 C++ 适配层，并通过宿主虚表接收时间、事件回调、网络/平台能力等外部注入。
 
-C++ 原生桥接是移动端运行时适配层。它负责持有 Rust handle、管理生命周期、把 C ABI 封装成 C++ 类、处理内存拷贝和线程约束，并把这层能力注册给 QuickJS。
+C++ 原生桥接是移动端运行时适配层。它负责持有 Rust handle、管理生命周期、把 C ABI 封装成 C++ 类、处理内存拷贝和线程约束，并把 `MobileImSdk` / `im.*` 这层能力注册给 QuickJS。
 
-QuickJS 是 JS 业务脚本运行容器。移动端可以通过 JS 脚本热更新/热替换业务编排入口，但 JS 不应该重新承载 IM 领域规则；JS 只是调用 Rust 内核的公开命令、查询和订阅结果。
+QuickJS 是 JS UserCase / 业务脚本运行容器。JS 不应该重新承载 IM 领域规则，也不再通过 `js/im_api.js` / `createImApi(core)` 包一层业务 facade；JS 只调用注入的 native `im.*` 方法、编写使用步骤和断言。
 
 Flutter 是 UI 层。它只做页面渲染、输入收集、动效、导航、平台权限和最终展示，不直接写 IM 业务规则。
 
@@ -38,14 +38,14 @@ helix 仓负责到“可被移动端集成项目稳定消费”的 Rust FFI 边�
 
 - Rust 内核公开移动端所需的 command / query / event 契约。
 - `helix-driver-ffi` 输出稳定 C ABI、hpp / 头文件、native library。
-- 给出 C++ 适配层 / QuickJS wrapper 必须遵守的创建、销毁、命令、查询、回调、错误和线程模型。
+- 给出 C++ 适配层 / QuickJS native binding 必须遵守的创建、销毁、命令、查询、回调、错误和线程模型。
 - 提供 Rust / FFI 层契约测试、ABI smoke、发送消息链路验收说明。
 - 给出内存安全、生命周期、性能和错误处理验收脚本或验收说明。
 
 移动端集成项目负责：
 
 - 创建 C++ `CoreBridge` 类或等价封装。
-- 注册 QuickJS 原生类和 JS `CoreBridge` API。
+- 注册 QuickJS 原生类和 native `im.*` API。
 - 创建 C++ 直调 smoke、JS 直调 smoke、发送消息全链路 demo。
 - 产出 Android / iOS 平台编译产物、加载脚本、真机验收报告。
 
@@ -71,32 +71,29 @@ helix 仓负责到“可被移动端集成项目稳定消费”的 Rust FFI 边�
 
 底层 C ABI 继续保持少量稳定函数，例如创建、销毁、设置 header、删除 header、执行命令、执行查询、释放查询结果。业务用例作为数据通过 `name + JSON payload` 进入 `helix_command` 或 `helix_query`，新增业务不新增 C ABI 符号。
 
-JS 层可以提供更友好的包装：
+移动端 UserCase 层面对 Flutter / 测试脚本的公开调用面可以是：
 
 ```js
-const core = new CoreBridge();
-
-core.call("im_send_message", JSON.stringify({
-  conversation_id: "c1",
-  client_msg_id: "local-001",
+var receipt = im.send({
+  channelId: "c1",
+  temporaryId: "local-001",
   text: "hello"
-}));
+});
 
-const snapshot = core.query("im_conversation_snapshot", JSON.stringify({
-  conversation_id: "c1"
-}));
-
-core.dispose();
+im.waitForEvent("im:post:sending", { temporaryId: receipt.temporaryId });
 ```
 
-如果移动端希望“像调用类方法一样调用”，可以在 JS 封装层上继续生成糖衣方法：
+底层仍走统一命令 / 查询通道，但业务命名和字段归一由 C++ SDK / Rust 契约承接：
 
-```js
-await im.sendMessage({ conversationId: "c1", text: "hello" });
-await im.loadConversation({ conversationId: "c1" });
+```text
+im.send(input)
+  -> MobileImSdk::send(input)
+  -> CoreBridge.call("im_send", payload)
+  -> helix_command("im_send", payload)
+  -> helix-im 内部 alias / handler
 ```
 
-但原生层仍建议保持统一命令 / 查询通道，避免 C ABI 随业务增长而膨胀。
+禁止在 JS 中重新拼 Go 请求体、补身份字段、等待 HTTP 字符串或合成发送失败事件。
 
 ## 5. 交付物
 
@@ -119,7 +116,7 @@ await im.loadConversation({ conversationId: "c1" });
 ### 5.3 QuickJS 产物（移动端集成项目）
 
 - QuickJS 原生类注册代码。
-- JS 侧 `CoreBridge` API。
+- JS 侧 native `im.*` API。
 - JS 直调所有公开命令 / 查询的冒烟脚本。
 - 发送消息完整链路 demo。
 - 错误路径 demo：未知命令、非法 JSON、空 handle、destroy 后调用、busy/backpressure。
@@ -143,9 +140,9 @@ await im.loadConversation({ conversationId: "c1" });
 
 ### 6.3 JS 直调验收
 
-- JS 能创建 `CoreBridge`。
-- JS 能调用全部移动端公开命令。
-- JS 能调用全部移动端公开查询。
+- JS 能使用注入的 native `im.*`。
+- JS 能通过 native `im.*` 调用全部移动端公开命令。
+- JS 能通过 native `im.*` 调用全部移动端公开查询。
 - JS 能接收或拉取 Rust 侧投影结果。
 - JS 脚本异常不会破坏 Rust handle 生命周期。
 
@@ -155,16 +152,19 @@ await im.loadConversation({ conversationId: "c1" });
 
 ```text
 Flutter 点击发送
-  -> JS sendMessage
-    -> QuickJS CoreBridge.call("im_send_message", payload)
-      -> C++ bridge
-        -> helix_command
+  -> JS im.send(...)
+    -> QuickJS native im.* binding
+      -> C++ MobileImSdk::send
+        -> CoreBridge.call("im_send", payload)
+          -> helix_command("im_send", payload)
           -> Rust IM usecase
+            -> im:post:sending optimistic event
             -> Go Server
-              -> Rust 收敛 ack / ws echo
-                -> projection event batch
-                  -> C++ callback memcpy
-                    -> JS / Flutter 更新 UI
+              -> WS post echo
+                -> Rust temporaryId 对账
+                  -> im:post:received projection event batch
+                    -> C++ callback memcpy
+                      -> JS / Flutter 更新 UI
 ```
 
 具体流程图见：[发送消息完整链路流程图.mmd](./发送消息完整链路流程图.mmd)。
@@ -191,7 +191,7 @@ Flutter 点击发送
 
 建议至少记录：
 
-- 单次 `im_send_message` 从 JS 调用到 Rust 命令接收的耗时。
+- 单次 `im.send(...)` / `im_send` 从 JS 调用到 Rust 命令接收的耗时。
 - 从 Rust 投影批到 Flutter 可渲染数据的耗时。
 - 连续 N 次命令 / 查询的平均耗时、P95、P99。
 - create/destroy N 次后的内存增长。

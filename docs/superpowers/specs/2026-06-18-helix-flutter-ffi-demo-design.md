@@ -31,7 +31,7 @@
 
 helix-driver-ffi 已导出完整 C ABI（`cdylib + staticlib + rlib`），cpp→rust→cpp 冒烟（`smoke/smoke.cpp` + CMake/CTest）已通过。demo 全链路正是 e2e 测试 `command_emits_domain_event_through_batch_callback`（`api.rs:651`）已验证的路径：
 
-- `helix_create_with_network` 起 pump 线程 → `helix_command(im_send_message)` → pump step → `Effect::Emit(im:post:sending)` → `FfiEventSink` 攒批 → `on_domain_events_batch` → `helix_destroy`（join pump）。
+- `helix_create_with_network` 起 pump 线程 → `helix_command(im_send)`（FFI alias 到内部 send handler）→ pump step → `Effect::Emit(im:post:sending)` → `FfiEventSink` 攒批 → `on_domain_events_batch` → `helix_destroy`（join pump）。
 - `now_ms` 固定值 = `clock.rs` 既有 `FfiClock`（vtable 字段已就位）。
 - 批 wire = `batch.rs` 既有格式，无需新导出。
 - offline optimistic emit 不依赖网络（连不上 WS 仍进泵，`pump.rs:110`）→ 离线可跑。

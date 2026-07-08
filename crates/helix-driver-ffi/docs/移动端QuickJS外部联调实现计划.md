@@ -1,5 +1,13 @@
 # Mobile QuickJS External Integration Implementation Plan
 
+> 历史说明：本文是 2026-07-03 旧外部联调计划快照，保留用于追溯最早的 C++/QuickJS
+> 接入步骤。2026-07-06 后当前执行真源已收敛为 **QuickJS native `im.*` +
+> C++ `MobileImSdk` / SDK hpp**：不得再按本文旧任务创建 `js/im_api.js`、
+> `createImApi(core)` 或 JS 业务 facade。现行边界以
+> [`移动端QuickJS最后一公里接入SPEC.md`](./移动端QuickJS最后一公里接入SPEC.md)、
+> [`移动端Command-Query-Event契约SPEC.md`](./移动端Command-Query-Event契约SPEC.md)、
+> [`多端联调测试指南.md`](./多端联调测试指南.md) 为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 `/workspace/c/mobile-qucik-c++` 中实现移动端最后一公里：C++ `CoreBridge` 直连真实 `helix-driver-ffi`，注册到 QuickJS，并通过 JS `im.send(...)` 驱动发送链路 smoke。

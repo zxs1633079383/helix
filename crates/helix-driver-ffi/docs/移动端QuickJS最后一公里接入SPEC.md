@@ -11,21 +11,19 @@
 最后一公里分三层：
 
 1. **C++ `CoreBridge`**：唯一直接持有 `HelixHandle*`，封装 `helix.h` / `helix.hpp`。
-2. **QuickJS native class**：把 C++ `CoreBridge` 注册成 JS 可见类，暴露 `call/query/capabilities/onEvents/dispose`。
-3. **JS 业务 facade**：把低层 `core.call("im_send", payload)` 包成 `im.send({ ... })`，隐藏业务细节。
+2. **C++ `MobileImSdk` / SDK hpp**：承接移动端 public API、载荷归一、事件等待与错误码映射。
+3. **QuickJS native `im.*` binding**：把 SDK 方法注入 JS runtime，JS 直接调用 `im.send({ ... })`，不再用 JS facade 承载业务行为。
 
-移动端调用方只面对 JS facade：
+移动端调用方只面对 native 注入的 `im.*`：
 
 ```js
-const im = createImApi(core);
-
-const receipt = await im.send({
+const receipt = im.send({
   channelId: "01hq0000000000000000000000",
   text: "hello",
   type: "TEXT"
 });
 
-console.log(receipt.temporaryId);
+im.waitForEvent("im:post:sending", { temporaryId: receipt.temporaryId });
 ```
 
 `receipt` 只表示 Rust 已接收命令并产生乐观事件，不表示 Go Server 已经发送成功。
@@ -45,7 +43,8 @@ helix 仓负责：
 
 - C++ `CoreBridge` 类。
 - QuickJS 原生类注册。
-- JS wrapper / facade。
+- C++ `MobileImSdk` / SDK hpp。
+- QuickJS native `im.*` binding。
 - Android / iOS 构建脚本和原生产物打包。
 - C++ 直连真实 `helix-driver-ffi` 冒烟。
 - QuickJS 冒烟。
@@ -81,10 +80,7 @@ Android / iOS / QuickJS 编译产物
     CoreBridge.cpp
     HelixEventQueue.hpp
   quickjs/
-    bind_core_bridge.cpp
-  js/
-    core_bridge.js
-    im_api.js
+    bind_mobile_im.cpp
   smoke/
     cpp_core_bridge_smoke.cpp
     quickjs_core_bridge_smoke.js
@@ -141,42 +137,31 @@ FFI 回调铁律：
 1. Rust FFI 回调进入 C++。
 2. C++ 立即 memcpy 事件批。
 3. C++ 写入 `HelixEventQueue`。
-4. JS 通过 `core.drainEvents()` 或宿主调度触发事件分发。
-5. Flutter 从 JS facade 订阅业务事件。
+4. `MobileImSdk` 通过 `drainEvents()` / `waitForEvent()` 读取事件。
+5. QuickJS native `im.*` 把可渲染结果交回 JS / Flutter。
 
 ## 5. QuickJS native class 契约
 
-QuickJS 侧必须注册等价类：
+QuickJS 侧必须注册等价对象：
 
 ```ts
-declare class CoreBridge {
-  constructor(config?: CoreBridgeConfig);
+declare const im: {
   version(): VersionInfo;
   capabilities(): CapabilitySet;
-  call(name: string, payload?: Record<string, unknown>): Promise<Accepted>;
-  query(name: string, payload?: Record<string, unknown>): Promise<unknown>;
-  onEvents(listener: (batch: BusEnvelope[]) => void): () => void;
+  send(input: SendInput): SendReceipt;
+  waitForEvent(name: string, spec?: Record<string, unknown>): BusEnvelope;
   drainEvents(): BusEnvelope[];
   dispose(): void;
-}
-```
-
-如果当前 QuickJS 集成不方便实现 Promise，可以先用同步方法，但 JS facade 对外仍建议保持 `async`：
-
-```js
-async function call(name, payload) {
-  return core.call(name, payload);
-}
+};
 ```
 
 QuickJS 注册必须覆盖：
 
-- 构造 / 析构。
-- `call`。
-- `query`。
+- runtime/context 生命周期。
+- `im.send`。
 - `capabilities`。
 - `version`。
-- `onEvents` 或 `drainEvents`。
+- `waitForEvent` 或 `drainEvents`。
 - `dispose`。
 
 错误必须统一成 JS 对象：
@@ -191,26 +176,7 @@ QuickJS 注册必须覆盖：
 
 JS 不应通过解析错误字符串判断业务状态。
 
-## 6. JS facade 契约
-
-第一批 facade 只做最小业务门面：
-
-```js
-export function createImApi(core) {
-  const events = createEventBus(core);
-
-  return {
-    send(input) {
-      return sendMessage(core, events, input);
-    },
-    on: events.on,
-    dispose() {
-      events.dispose();
-      core.dispose();
-    }
-  };
-}
-```
+## 6. native im.* 契约
 
 `im.send(...)` 输入：
 
@@ -225,7 +191,7 @@ type SendInput = {
 
 `im.send(...)` 行为：
 
-1. 如果 Flutter 没传 `temporaryId`，JS facade 生成一个。
+1. 如果 Flutter 没传 `temporaryId`，C++ `MobileImSdk` / native `im.*` 生成一个。
 2. 调用 `core.call("im_send", { channelId, temporaryId, text, type })`。
 3. 等待或监听匹配 `temporaryId` 的 `im:post:sending`。
 4. 返回 optimistic receipt。
@@ -247,6 +213,7 @@ type SendReceipt = {
 - 不在 JS 中声明发送成功。
 - 不在 JS catch 中合成 `im:post:send-failed`。
 - 不把 IM 业务规则搬到 Flutter。
+- 不恢复 `js/im_api.js`、`createImApi(core)` 或同类 JS 业务 facade。
 
 `xxx.send(...)` 可以作为未来多业务命名空间形式；P0 建议先落 `im.send(...)`。
 
@@ -281,15 +248,14 @@ const caps = core.capabilities();
 sequenceDiagram
   participant Flutter as Flutter UI
   participant JS as JS im.send
-  participant QJS as QuickJS CoreBridge
+  participant QJS as QuickJS native im.*
   participant CPP as C++ CoreBridge
   participant Rust as helix-driver-ffi/helix-im
   participant Go as cses-im-server
 
   Flutter->>JS: im.send({channelId,text,type})
-  JS->>JS: ensure temporaryId
-  JS->>QJS: core.call("im_send", payload)
-  QJS->>CPP: CoreBridge.call
+  JS->>QJS: native im.send(input)
+  QJS->>CPP: MobileImSdk::send -> CoreBridge.call
   CPP->>Rust: helix_command("im_send", json)
   Rust-->>CPP: accepted
   Rust-->>CPP: event batch im:post:sending
@@ -329,27 +295,25 @@ sequenceDiagram
 - `query("im_query_messages_by_channel", payload)` 返回 JSON。
 - `dispose()` 后调用稳定失败，不崩溃。
 
-### S1：QuickJS CoreBridge smoke
+### S1：QuickJS native im.* smoke
 
 位置：移动端集成项目。
 
 验收：
 
-- JS 能 `new CoreBridge()`。
-- JS 能调用 `version()`。
-- JS 能调用 `capabilities()`。
-- JS 能调用 `call()`。
-- JS 能调用 `query()`。
-- JS 能通过 `onEvents` 或 `drainEvents` 读取事件批。
-- JS 能调用 `dispose()`。
+- JS runtime 能完成 native `im.*` 注入。
+- JS 能调用 `im.version()`。
+- JS 能调用 `im.capabilities()`。
+- JS 能调用 `im.send(...)`。
+- JS 能通过 `im.waitForEvent()` 或 `im.drainEvents()` 读取事件批。
+- JS 能调用 `im.dispose()`。
 
-### S2：QuickJS facade smoke
+### S2：QuickJS UserCase smoke
 
 位置：移动端集成项目。
 
 验收：
 
-- `createImApi(core)` 成功。
 - `im.send({ channelId, text, type })` 不暴露 `im_send` 给 Flutter 调用方。
 - `im.send(...)` 返回 `{ temporaryId, status: "sending" }`。
 - 事件批中出现匹配 `temporaryId` 的 `im:post:sending`。
@@ -376,7 +340,7 @@ sequenceDiagram
 
 - Flutter 点击发送。
 - 调到 JS `im.send(...)`。
-- JS 调 QuickJS native `CoreBridge.call`。
+- JS 调 QuickJS native `im.send`。
 - C++ 调 Rust FFI。
 - Rust 产生 `im:post:sending`。
 - Go WS echo 后 Rust 产生 `im:post:received`。
@@ -389,9 +353,9 @@ sequenceDiagram
 - [ ] 确认 Android NDK / iOS Xcode 本机环境。
 - [ ] 确认 Flutter 与 QuickJS 的事件调度边界。
 - [ ] 实现 C++ `CoreBridge`。
-- [ ] 注册 QuickJS native class。
-- [ ] 实现 JS `createImApi(core)` 与 `im.send(...)`。
+- [ ] 实现 C++ `MobileImSdk` / SDK hpp。
+- [ ] 注册 QuickJS native `im.*`。
 - [ ] 跑 S0 C++ 直连真实 helix 冒烟。
-- [ ] 跑 S1 QuickJS CoreBridge 冒烟。
-- [ ] 跑 S2 QuickJS facade 冒烟。
+- [ ] 跑 S1 QuickJS native `im.*` 冒烟。
+- [ ] 跑 S2 QuickJS UserCase 冒烟。
 - [ ] 环境就绪后补 S3 / S4。

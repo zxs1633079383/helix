@@ -13,6 +13,7 @@ pub mod ops;
 pub mod otel;
 pub mod owned_effect;
 pub mod pools;
+pub mod reconnect;
 pub mod spawner;
 pub mod storage;
 pub mod timer;
@@ -37,6 +38,7 @@ pub use network::{
 pub use ops::{classify_port_error, execute_storage_ops, table_set_key};
 pub use otel::{HostOtelConfig, HostOtelRuntime, HostSpanSnapshot, TraceDirection};
 pub use owned_effect::{consume_effects, OwnedEffect};
+pub use reconnect::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
 pub use spawner::{BoundedSpawner, Job, Overflow};
 pub use storage::HostStorage;
 pub use timer::TimerRegistry;

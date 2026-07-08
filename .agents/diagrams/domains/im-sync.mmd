@@ -1,0 +1,26 @@
+flowchart TB
+  D["IM 同步/WS 领域"]
+  S["sync-v2 cursor、event_seq、WS 事件 parser/handler、冷启动自愈和续拉策略。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-im/src/sync"]
+    D --> P0
+    P1["crates/helix-im/src/ws"]
+    D --> P1
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-im 模块"]
+    D --> M0
+    M1["helix-driver-host 模块"]
+    D --> M1
+    M2["helix-host-cli 模块"]
+    D --> M2
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["hxc008-sync-cursor-nextseq"]
+    D -.-> C0
+    C1["hxc010-deterministic-effect-order"]
+    D -.-> C1
+    C2["hxc016-real-go-e2e-playbook"]
+    D -.-> C2
+  end

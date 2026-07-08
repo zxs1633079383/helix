@@ -1,0 +1,26 @@
+flowchart TB
+  D["移动端 FFI 契约领域"]
+  S["Flutter/QuickJS 侧 command/query/event 契约、C ABI、批量事件、header 注入与 dispose 生命周期。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-driver-ffi"]
+    D --> P0
+    P1["crates/helix-im/src/mobile_contract.rs"]
+    D --> P1
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-driver-ffi 模块"]
+    D --> M0
+    M1["helix-im 模块"]
+    D --> M1
+    M2["helix-driver-host 模块"]
+    D --> M2
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["hxc006-ffi-boundary"]
+    D -.-> C0
+    C1["hxc007-ffi-effect-batching"]
+    D -.-> C1
+    C2["mobile-contract-dual-doc-sync"]
+    D -.-> C2
+  end

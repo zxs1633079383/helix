@@ -1,0 +1,30 @@
+flowchart LR
+  M["helix-driver-ffi 模块"]
+  subgraph Paths["owned paths"]
+    P0["crates/helix-driver-ffi"]
+    M --> P0
+  end
+  subgraph Domains["domains"]
+    D0["移动端 FFI 契约领域"]
+    M --> D0
+    D1["共享 Host I/O 领域"]
+    M --> D1
+    D2["运行时无关确定性内核领域"]
+    M --> D2
+  end
+  subgraph Constraints["hard constraints"]
+    C0["hxc006-ffi-boundary"]
+    M -.-> C0
+    C1["hxc007-ffi-effect-batching"]
+    M -.-> C1
+    C2["mobile-contract-dual-doc-sync"]
+    M -.-> C2
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/contract-reviewer-agent"]
+    M --> R0
+    R1["reviewers/test-reviewer-agent"]
+    M --> R1
+    R2["reviewers/harness-reviewer-agent"]
+    M --> R2
+  end

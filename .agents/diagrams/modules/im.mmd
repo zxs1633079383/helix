@@ -1,0 +1,36 @@
+flowchart LR
+  M["helix-im 模块"]
+  subgraph Paths["owned paths"]
+    P0["crates/helix-im"]
+    M --> P0
+  end
+  subgraph Domains["domains"]
+    D0["IM 消息发送领域"]
+    M --> D0
+    D1["IM 会话/成员/已读领域"]
+    M --> D1
+    D2["IM 同步/WS 领域"]
+    M --> D2
+    D3["投影与可观测性领域"]
+    M --> D3
+    D4["运行时无关确定性内核领域"]
+    M --> D4
+  end
+  subgraph Constraints["hard constraints"]
+    C0["hxc010-deterministic-effect-order"]
+    M -.-> C0
+    C1["hxc012-expect-for-substantial-task"]
+    M -.-> C1
+    C2["projection-schema-lock"]
+    M -.-> C2
+    C3["csesapi-consumption-truth"]
+    M -.-> C3
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/contract-reviewer-agent"]
+    M --> R0
+    R1["reviewers/evidence-reviewer-agent"]
+    M --> R1
+    R2["reviewers/test-reviewer-agent"]
+    M --> R2
+  end

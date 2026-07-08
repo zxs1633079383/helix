@@ -1,0 +1,32 @@
+flowchart LR
+  M["治理/文档/脚本模块"]
+  subgraph Paths["owned paths"]
+    P0["docs"]
+    M --> P0
+    P1["scripts"]
+    M --> P1
+    P2[".claude"]
+    M --> P2
+  end
+  subgraph Domains["domains"]
+    D0["Harness / Roadmap / Evidence 治理领域"]
+    M --> D0
+    D1["投影与可观测性领域"]
+    M --> D1
+  end
+  subgraph Constraints["hard constraints"]
+    C0["harness-index-invariant"]
+    M -.-> C0
+    C1["review-gap-cadence"]
+    M -.-> C1
+    C2["docs-drift-check"]
+    M -.-> C2
+    C3["commit-convention-harness-section"]
+    M -.-> C3
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/harness-reviewer-agent"]
+    M --> R0
+    R1["reviewers/evidence-reviewer-agent"]
+    M --> R1
+  end

@@ -1,0 +1,28 @@
+flowchart TB
+  D["运行时无关确定性内核领域"]
+  S["确保 core 只定义 ports/Effect/Module，时间、ID、随机、I/O 全由 host 注入。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-core"]
+    D --> P0
+    P1["docs/GOAL.md"]
+    D --> P1
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-core 模块"]
+    D --> M0
+    M1["helix-driver-ffi 模块"]
+    D --> M1
+    M2["helix-driver-host 模块"]
+    D --> M2
+    M3["helix-driver-native 模块"]
+    D --> M3
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["hxc001-core-zero-runtime"]
+    D -.-> C0
+    C1["hxc002-send-lifetime"]
+    D -.-> C1
+    C2["runtime-core-no-business-schema"]
+    D -.-> C2
+  end

@@ -1,0 +1,30 @@
+flowchart LR
+  M["helix-core 模块"]
+  subgraph Paths["owned paths"]
+    P0["crates/helix-core"]
+    M --> P0
+  end
+  subgraph Domains["domains"]
+    D0["运行时无关确定性内核领域"]
+    M --> D0
+  end
+  subgraph Constraints["hard constraints"]
+    C0["hxc001-core-zero-runtime"]
+    M -.-> C0
+    C1["hxc002-send-lifetime"]
+    M -.-> C1
+    C2["hxc004-features-additive"]
+    M -.-> C2
+    C3["hxc005-hot-path"]
+    M -.-> C3
+    C4["runtime-core-no-business-schema"]
+    M -.-> C4
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/harness-reviewer-agent"]
+    M --> R0
+    R1["reviewers/contract-reviewer-agent"]
+    M --> R1
+    R2["reviewers/test-reviewer-agent"]
+    M --> R2
+  end

@@ -1,0 +1,26 @@
+flowchart TB
+  D["PC/Tauri 接缝领域"]
+  S["Tauri 四接缝、loopforge 内嵌 helix 引擎、NativeEventSink/RecordingSink 组装和灰度开关。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-driver-native"]
+    D --> P0
+    P1["crates/helix-driver-host/docs/external-host-instrumentation-recipe.md"]
+    D --> P1
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-driver-native 模块"]
+    D --> M0
+    M1["helix-driver-host 模块"]
+    D --> M1
+    M2["helix-im 模块"]
+    D --> M2
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["tauri-four-seams-p0"]
+    D -.-> C0
+    C1["recording-sink-batch-boundary"]
+    D -.-> C1
+    C2["native-thin-shell"]
+    D -.-> C2
+  end

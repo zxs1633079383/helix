@@ -1,0 +1,58 @@
+flowchart TB
+  subgraph North["Helix 北极星"]
+    GOAL["docs/GOAL.md\nruntime-agnostic deterministic core"]
+    P0["docs/ROADMAP.md §二 P0\n当前阻塞活账"]
+  end
+  subgraph Layers["三层架构"]
+    Core["helix-core\nports + Effect + Module host"]
+    IM["helix-im\n首个业务模块"]
+    Host["helix-driver-host\nshared host I/O"]
+    Native["helix-driver-native\nPC/Tauri thin shell"]
+    FFI["helix-driver-ffi\nFlutter/mobile C ABI"]
+    CLI["helix-host-cli\nreal Go e2e harness"]
+  end
+    Wasm["helix-driver-wasm\narchived experiment"]
+    Gov["docs/scripts/.claude\ngovernance gates"]
+  Core --> IM
+  Host --> Core
+  Native --> Host
+  FFI --> Host
+  CLI --> Host
+  subgraph Domains["领域 agents"]
+    runtime_core["运行时无关确定性内核领域"]
+    im_message["IM 消息发送领域"]
+    im_channel["IM 会话/成员/已读领域"]
+    im_sync["IM 同步/WS 领域"]
+    host_io["共享 Host I/O 领域"]
+    projection_observability["投影与可观测性领域"]
+    mobile_ffi["移动端 FFI 契约领域"]
+    native_tauri["PC/Tauri 接缝领域"]
+    harness_governance["Harness / Roadmap / Evidence 治理领域"]
+  end
+  Core -.-> runtime_core
+  IM -.-> im_message
+  IM -.-> im_channel
+  IM -.-> im_sync
+  IM -.-> projection_observability
+  IM -.-> runtime_core
+  Host -.-> host_io
+  Host -.-> projection_observability
+  Host -.-> native_tauri
+  Host -.-> mobile_ffi
+  Native -.-> native_tauri
+  Native -.-> host_io
+  Native -.-> projection_observability
+  FFI -.-> mobile_ffi
+  FFI -.-> host_io
+  FFI -.-> runtime_core
+  CLI -.-> host_io
+  CLI -.-> im_sync
+  CLI -.-> harness_governance
+  Wasm -.-> runtime_core
+  Gov -.-> harness_governance
+  Gov -.-> projection_observability
+  GOAL --> Core
+  P0 --> Native
+  P0 --> Host
+  P0 --> IM
+  Domains --> Reviewers["reviewer agents\nharness/evidence/contract/test"]

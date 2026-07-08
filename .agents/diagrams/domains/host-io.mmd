@@ -1,0 +1,26 @@
+flowchart TB
+  D["共享 Host I/O 领域"]
+  S["SQLite storage、HTTP requester、WS transport、local store locator 与 host 层并发/阻塞边界。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-driver-host"]
+    D --> P0
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-driver-host 模块"]
+    D --> M0
+    M1["helix-driver-ffi 模块"]
+    D --> M1
+    M2["helix-driver-native 模块"]
+    D --> M2
+    M3["helix-host-cli 模块"]
+    D --> M3
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["hxc005-hot-path"]
+    D -.-> C0
+    C1["local-store-identity-boundary"]
+    D -.-> C1
+    C2["trace-sidecar-no-business-payload"]
+    D -.-> C2
+  end

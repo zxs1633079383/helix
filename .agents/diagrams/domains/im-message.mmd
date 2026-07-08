@@ -1,0 +1,26 @@
+flowchart TB
+  D["IM 消息发送领域"]
+  S["发送状态机、temporaryId、posts/create outbound、echo 对账与 rich/file 上传门控。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-im/src/send"]
+    D --> P0
+    P1["crates/helix-im/src/outbound/posts"]
+    D --> P1
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-im 模块"]
+    D --> M0
+    M1["helix-driver-host 模块"]
+    D --> M1
+    M2["helix-host-cli 模块"]
+    D --> M2
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["csesapi-consumption-truth"]
+    D -.-> C0
+    C1["projection-schema-lock"]
+    D -.-> C1
+    C2["hxc010-deterministic-effect-order"]
+    D -.-> C2
+  end

@@ -1,0 +1,28 @@
+flowchart LR
+  M["helix-driver-native 模块"]
+  subgraph Paths["owned paths"]
+    P0["crates/helix-driver-native"]
+    M --> P0
+  end
+  subgraph Domains["domains"]
+    D0["PC/Tauri 接缝领域"]
+    M --> D0
+    D1["共享 Host I/O 领域"]
+    M --> D1
+    D2["投影与可观测性领域"]
+    M --> D2
+  end
+  subgraph Constraints["hard constraints"]
+    C0["native-thin-shell"]
+    M -.-> C0
+    C1["recording-sink-batch-boundary"]
+    M -.-> C1
+    C2["tauri-four-seams-p0"]
+    M -.-> C2
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/contract-reviewer-agent"]
+    M --> R0
+    R1["reviewers/evidence-reviewer-agent"]
+    M --> R1
+  end

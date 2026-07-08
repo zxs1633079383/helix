@@ -1,0 +1,24 @@
+flowchart TB
+  D["IM 会话/成员/已读领域"]
+  S["channel、member、readBits、B7 store:* 对齐和会话写侧命令。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-im/src/channel"]
+    D --> P0
+    P1["crates/helix-im/src/outbound/channel_admin"]
+    D --> P1
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-im 模块"]
+    D --> M0
+    M1["helix-driver-host 模块"]
+    D --> M1
+    M2["helix-driver-native 模块"]
+    D --> M2
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["projection-schema-lock"]
+    D -.-> C0
+    C1["tauri-four-seams-p0"]
+    D -.-> C1
+  end

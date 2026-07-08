@@ -1,0 +1,32 @@
+flowchart TB
+  D["Harness / Roadmap / Evidence 治理领域"]
+  S["P0 活账、HX-C 卡、gate/acceptance、review-gap、EXPECT/DONE 证据边界和文档熵管理。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["docs/harness"]
+    D --> P0
+    P1["docs/ROADMAP.md"]
+    D --> P1
+    P2["scripts"]
+    D --> P2
+  end
+  subgraph Modules["participating modules"]
+    M0["治理/文档/脚本模块"]
+    D --> M0
+    M1["helix-host-cli 模块"]
+    D --> M1
+    M2["helix-core 模块"]
+    D --> M2
+    M3["helix-im 模块"]
+    D --> M3
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["roadmap-p0-live-ledger"]
+    D -.-> C0
+    C1["harness-index-invariant"]
+    D -.-> C1
+    C2["hxc012-expect-for-substantial-task"]
+    D -.-> C2
+    C3["review-gap-cadence"]
+    D -.-> C3
+  end

@@ -1,0 +1,30 @@
+flowchart TB
+  D["投影与可观测性领域"]
+  S["im:__bus__ 投影契约、RecordingSink/BatchSink 接缝、trace sidecar 与 hop coverage。"]
+  D --> S
+  subgraph Sources["source paths"]
+    P0["crates/helix-im/docs/projection-schema.md"]
+    D --> P0
+    P1["crates/helix-driver-host/src/instrument.rs"]
+    D --> P1
+    P2["crates/helix-driver-host/src/trace.rs"]
+    D --> P2
+  end
+  subgraph Modules["participating modules"]
+    M0["helix-im 模块"]
+    D --> M0
+    M1["helix-driver-host 模块"]
+    D --> M1
+    M2["helix-driver-native 模块"]
+    D --> M2
+    M3["治理/文档/脚本模块"]
+    D --> M3
+  end
+  subgraph Gates["evidence and constraints"]
+    C0["recording-sink-batch-boundary"]
+    D -.-> C0
+    C1["trace-sidecar-no-business-payload"]
+    D -.-> C1
+    C2["hxc015-task-notification-no-polling"]
+    D -.-> C2
+  end

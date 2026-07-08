@@ -1,0 +1,28 @@
+flowchart LR
+  M["helix-host-cli 模块"]
+  subgraph Paths["owned paths"]
+    P0["crates/helix-host-cli"]
+    M --> P0
+  end
+  subgraph Domains["domains"]
+    D0["共享 Host I/O 领域"]
+    M --> D0
+    D1["IM 同步/WS 领域"]
+    M --> D1
+    D2["Harness / Roadmap / Evidence 治理领域"]
+    M --> D2
+  end
+  subgraph Constraints["hard constraints"]
+    C0["host-cli-config-single-source"]
+    M -.-> C0
+    C1["hxc016-real-go-e2e-playbook"]
+    M -.-> C1
+    C2["harness-evidence-boundary"]
+    M -.-> C2
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/evidence-reviewer-agent"]
+    M --> R0
+    R1["reviewers/test-reviewer-agent"]
+    M --> R1
+  end

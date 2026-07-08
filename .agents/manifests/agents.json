@@ -26,7 +26,9 @@
         "gate",
         "acceptance",
         "review"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/harness-governance/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/harness-governance/CLAUDE.md"
     },
     "domains/host-io-domain-agent": {
       "constraints": [
@@ -51,7 +53,9 @@
         "http",
         "ws",
         "shared-io"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/host-io/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/host-io/CLAUDE.md"
     },
     "domains/im-channel-domain-agent": {
       "constraints": [
@@ -74,7 +78,9 @@
         "channel",
         "member",
         "readBits"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/im-channel/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/im-channel/CLAUDE.md"
     },
     "domains/im-message-domain-agent": {
       "constraints": [
@@ -99,7 +105,9 @@
         "post",
         "temporaryId",
         "send"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/im-message/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/im-message/CLAUDE.md"
     },
     "domains/im-sync-domain-agent": {
       "constraints": [
@@ -124,7 +132,9 @@
         "cursor",
         "event_seq",
         "websocket"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/im-sync/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/im-sync/CLAUDE.md"
     },
     "domains/mobile-ffi-domain-agent": {
       "constraints": [
@@ -149,7 +159,9 @@
         "flutter",
         "quickjs",
         "mobile"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/mobile-ffi/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/mobile-ffi/CLAUDE.md"
     },
     "domains/native-tauri-domain-agent": {
       "constraints": [
@@ -173,7 +185,9 @@
         "tauri",
         "native",
         "loopforge"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/native-tauri/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/native-tauri/CLAUDE.md"
     },
     "domains/projection-observability-domain-agent": {
       "constraints": [
@@ -200,7 +214,9 @@
         "RecordingSink",
         "trace",
         "bus-event"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/projection-observability/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/projection-observability/CLAUDE.md"
     },
     "domains/runtime-core-domain-agent": {
       "constraints": [
@@ -226,7 +242,9 @@
         "deterministic",
         "ports",
         "effect"
-      ]
+      ],
+      "boundary_file": ".agents/agents/domains/runtime-core/AGENTS.md",
+      "boundary_mirror": ".agents/agents/domains/runtime-core/CLAUDE.md"
     },
     "modules/core-agent": {
       "constraints": [
@@ -251,7 +269,9 @@
         "effect",
         "module",
         "sans-io"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/core/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/core/CLAUDE.md"
     },
     "modules/driver-ffi-agent": {
       "constraints": [
@@ -275,7 +295,9 @@
         "flutter",
         "mobile",
         "c-abi"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/driver-ffi/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/driver-ffi/CLAUDE.md"
     },
     "modules/driver-host-agent": {
       "constraints": [
@@ -303,7 +325,9 @@
         "websocket",
         "trace",
         "instrumentation"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/driver-host/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/driver-host/CLAUDE.md"
     },
     "modules/driver-native-agent": {
       "constraints": [
@@ -327,7 +351,9 @@
         "tauri",
         "pc",
         "event-sink"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/driver-native/CLAUDE.md"
     },
     "modules/driver-wasm-agent": {
       "constraints": [
@@ -347,7 +373,9 @@
         "wasm",
         "archived",
         "experimental"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/driver-wasm/CLAUDE.md"
     },
     "modules/governance-agent": {
       "constraints": [
@@ -374,7 +402,9 @@
         "gate",
         "acceptance",
         "review"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/governance/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/governance/CLAUDE.md"
     },
     "modules/host-cli-agent": {
       "constraints": [
@@ -398,7 +428,9 @@
         "e2e",
         "config",
         "script"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/host-cli/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/host-cli/CLAUDE.md"
     },
     "modules/im-agent": {
       "constraints": [
@@ -428,7 +460,9 @@
         "outbound",
         "ws",
         "projection"
-      ]
+      ],
+      "boundary_file": ".agents/agents/modules/im/AGENTS.md",
+      "boundary_mirror": ".agents/agents/modules/im/CLAUDE.md"
     },
     "project/project-agent": {
       "file": ".agents/agents/project/project-agent.md",

@@ -62,9 +62,18 @@ fn transport_trace_attributes(event: &TransportTraceEvent) -> Vec<(&'static str,
     attrs
 }
 
-async fn export_transport_trace_events(mut rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
+fn spawn_transport_trace_exporter(rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("helix-ffi-trace-exporter".to_string())
+        .spawn(move || export_transport_trace_events(rx))
+    {
+        tracing::warn!(error = %error, "FFI pump 启动 trace exporter 线程失败，跳过 transport trace 导出");
+    }
+}
+
+fn export_transport_trace_events(mut rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
     let runtime = HostOtelRuntime::from_env("helix-driver-host");
-    while let Some(event) = rx.recv().await {
+    while let Some(event) = rx.blocking_recv() {
         let attrs = transport_trace_attributes(&event);
         let _span = runtime.span_with_attributes(event.name, TraceDirection::Internal, None, attrs);
     }
@@ -180,7 +189,7 @@ pub fn run(args: PumpArgs) {
             mpsc::unbounded_channel::<(TransportId, Arc<SharedWsClient>)>();
         let (transport_lifecycle_tx, transport_lifecycle_rx) = mpsc::unbounded_channel();
         let (transport_trace_tx, transport_trace_rx) = mpsc::unbounded_channel();
-        tokio::spawn(export_transport_trace_events(transport_trace_rx));
+        spawn_transport_trace_exporter(transport_trace_rx);
         let transports: TransportTable<SharedWsClient> = TransportTable::new();
         // 后台连接任务：与泵核同跑此 current_thread runtime（spawn 进同 runtime 域）。
         // 连不上仅 warn——上行走 dispatch 的 warn 兜底，句柄不投表（YAGNI：当前不内建退避重连，
@@ -300,16 +309,18 @@ mod tests {
             action: "reconnect_schedule",
             attempt: Some(2),
             delay_ms: Some(400),
-            next_delay_ms: None,
+            next_delay_ms: Some(800),
             reason: Some("reader_closed_or_error"),
-            error_class: None,
+            error_class: Some("transport".to_string()),
         });
 
         assert!(attrs.contains(&("transport.id", "7".to_string())));
         assert!(attrs.contains(&("ws.lifecycle.action", "reconnect_schedule".to_string())));
         assert!(attrs.contains(&("ws.reconnect.attempt", "2".to_string())));
         assert!(attrs.contains(&("ws.reconnect.delay_ms", "400".to_string())));
+        assert!(attrs.contains(&("ws.reconnect.next_delay_ms", "800".to_string())));
         assert!(attrs.contains(&("ws.lifecycle.reason", "reader_closed_or_error".to_string())));
+        assert!(attrs.contains(&("ws.error.class", "transport".to_string())));
 
         let serialized = format!("{attrs:?}").to_lowercase();
         for forbidden in [

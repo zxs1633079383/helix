@@ -184,4 +184,4 @@ v<base>-final                       最后一个 phase 完成
 
 ---
 
-> 本仓配套:`scripts/gate.sh`(提交闸门链) + `.git/hooks/pre-push`(push 前自动跑 gate)。提交前结构闸门见 [`ROADMAP.md` §三](./ROADMAP.md)。
+> 本仓配套：`scripts/gate.sh`（提交闸门链）+ 已安装的 `.git/hooks/pre-push`（push 前自动跑 gate）。hook 不进版本库；新 clone / 当前 checkout 先跑 `test -f .git/hooks/pre-push || scripts/install-hooks.sh`。提交前结构闸门见 [`ROADMAP.md` §三](./ROADMAP.md)。

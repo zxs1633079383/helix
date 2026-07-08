@@ -3,9 +3,10 @@
 > 2026-06-12 · 基于：技术过会方案 §6（M0-M4）+ 评审 D 系调整（+3 周）+ 实际进度对账。
 > 2026-06-15 更新：按 ADR-006/ADR-010，网页端/wasm 暂停维护；产品化路线只保留 PC Tauri + Flutter 手机端；HTTP/WS client 与 Storage 一样走 shared Rust host driver，前端只负责命令、事件与渲染。
 > 2026-06-16 更新：shared HTTP/WS client 代码边界已阶段落地到 `helix-driver-host`；native/ffi Rust 侧复用同一套 client 与 header registry。真 Go smoke、WS reconnect/backoff 与 proxy/TLS/cert knobs 仍按后续联调项推进。
-> 2026-06-18 更新：**M2 ~90% 完**（native 真 Go 联调 + sync-v2 全链路 + shared host I/O + WS registry + 背压根治 + 基座最优性/北极星双 review 收口全落 main）；**M2 唯一剩余 = Tauri 四接缝接入（D1-3 接缝①②）**。**M3：F1 主体 ✅(query stub) / F2·F3 ✅ / F4 ✅ 端到端接通**。
+> 2026-06-18 更新：**M2 ~90% 完**（native 真 Go 联调 + sync-v2 全链路 + shared host I/O + WS registry + 背压根治 + 基座最优性/北极星双 review 收口全落 main）；**M2 唯一剩余 = Tauri 四接缝接入（D1-3 接缝①②）**。**M3：F1 主体 ✅ / F2·F3 ✅ / F4 ✅ 端到端接通**。
 > 2026-06-18 更新②：**M3-F4 完成并 merge dev-zlc（c229531）**。架构 pivot：原计划 Dart-host（Dart 喂帧 + `on_domain_event`→Dart Stream）→ **用户拍板 C++-host 直连**（cpp→rust→cpp：Rust 持 WS、事件批回 C++ vtable、Dart 只在 UI 层收 C++ 转发）。pump 核下沉 `helix-driver-host`，native(1119→168)+ffi 共用薄壳 **parity by construction**。八轮 branch drift-review 判 light/0 blocking。剩 F4.5 Flutter 真机冒烟 + F5 跨端 byte-level 验收。
 > 当前位置：**M2 收尾（Tauri 四接缝）+ M3-F4 ✅，下一站 F5 跨端验收 / Flutter 冒烟**（M1 全 + M2 主体 + M3 F1 主体/F2/F3/F4 已完）。
+> 2026-07-08 对账：本文件是**活账 + 验收清单**，不是最近所有工程进展的流水账。近期开出的 OTel/trace scope、多租户本地 DB、rich/file upload 等能力必须以各自 gate / reviewer / collector 证据为准，未自动等价为本 Roadmap 绿勾。当前机器事实：双端 `cargo check` PASS；`scripts/structure-gate.sh` FAIL；`scripts/review-gap.sh` 红（gap 92/10）；`.git/hooks/pre-push` 缺失；本机未安装 `cargo-public-api`。
 
 ---
 
@@ -25,11 +26,11 @@
 - [~] **D3-4 接缝③④**：同库同表灰度共存 ❌ + B7 store:\*/imDataSource SQL 语义对齐 ❌ + **B3 readBits 单调覆盖 ✅**（sync-v2 C2 落地）。〔验收〕开关切换 + 秒级回退演练
 - [x] **D5 `helix-driver-host` shared HTTP/WS client 边界落地** ✅：`HostNetworkConfig` + shared header registry + native/ffi 薄壳复用，header/token 不进 IM。〔残〕真 Go smoke ✅、WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback 完整接线
 
-### AI 工程化补课（0.5 周，可与上面并行——见 §四差距）
+### AI 工程化硬化（已闭合，见 §四；本段保留为历史对照）
 
 CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md → cargo public-api gate（优先级从左到右）。wasm CI 不再作为必跑项，除非未来 ADR 重新激活网页端。
 
-- [x] **F1 Flutter FFI API 最小面** ✅(query stub)：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 仍 honest stub**（`name→ScanSpec` 属 IM 域，待 IM 暴露通用 query 路由）
+- [x] **F1 Flutter FFI API 最小面** ✅：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 已接 IM 本地查询路由**（`helix_im::mobile_query::{plan,shape_json}` → `ScanSpec` → SQLite-backed read），剩余验收放入 F5 Flutter demo / native-vs-FFI parity
 - [x] **F2 host storage 复用** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 覆盖；**pump 直接用 `HostStorage`**（F4 后 `FfiStorage` 冗余薄壳已 git rm）
 - [x] **F3 shared HTTP/WS client + header API** ✅：pump 用 `SharedWsClient`(with_inbound_tick) + `FfiHttpRequester` + `helix_set_header`/`helix_remove_header`（F4 后 `FfiTransport`/Callback 模式已删，Rust 自持 WS/HTTP）
 - [x] **F4 engine 接线 + 事件批回 C++**（C++-host 直连 · merge c229531）✅：pump 核下沉 host，FFI 薄壳端到端接通——命令真跑 + 事件批回 C++ vtable。拆解见下 ↓
@@ -60,7 +61,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 
 > **2026-06-16 进展**：B1/B2 主体 + **B3 sync 真 wire**（commit 6d83ad5，HX-C008）+ **持久化层 678 对齐**（IM_SCHEMA/多租户 tenant.db/IM cursor=`channel_event_cursor`，`_helix_monotonic` 仅 core 通用原语）+ **merge main（ADR-010 共享 HTTP/WS client）**（fcf3222）均落地；交付 crate 全测绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连）。详见 `docs/过会方案/helix-sync-v2-设计.md`（合并自 real-go-wire + 完成-spec）。
 
-> **2026-06-17 进展**：sync-v2 **Phase C（C1 echo 对账 / C2 phantom+离线落库+readBits / C3 mutation 事件+im:__bus__）+ B2 冷启动自愈** 实现完成（commit `20334d2`，单测+对抗审+`gate.sh` 7 闸门全绿）。详见 `crates/helix-im/docs/sync-v2-能力与缺口状态.md`。
+> **2026-06-17 进展**：sync-v2 **Phase C（C1 echo 对账 / C2 phantom+离线落库+readBits / C3 mutation 事件+im:__bus__）+ B2 冷启动自愈** 实现完成（commit `20334d2`，当时 gate 全绿）。注意：当前 `scripts/gate.sh` 已扩展为 11 步默认门，勿再按旧「7 闸门」理解。详见 `crates/helix-im/docs/sync-v2-能力与缺口状态.md`。
 
 **✅ 已完成（2026-06-17）**
 - [x] **sync-v2 数据路径真 Go 端到端验证通过**：真消息 curl→Go post→WS `post` 帧→parser 认 post→gate apply→message 表落真实内容行 + temporary_id↔server_id 对账 + read_bits + cursor 推进 + post:received DomainEvent。**三层 blocker 全清**（grpc-deviceId / sync 风暴-BoundedSpawner 并发闸 / WS-post-action-parser）。详见 `crates/helix-im/docs/sync-v2-能力与缺口状态.md`。
@@ -78,17 +79,17 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [x] E5 monotonic_upsert DDL 出热路径（建表挪到 open()，monotonic_upsert 仅剩单 INSERT；回归锚 test_monotonic_table_created_at_open_e5）
 - [x] E6 gate buffer 上限+主动 too_long（MAX_GATE_BUFFER=16384，超限清 buffer + emit too_long + sync 重拉，cursor 不回退；回归锚 ×2）
 - [x] E7 broadcast lagged 可感知（接收侧 EventReceiver/RecvOutcome::Lagged 显式上报；纠正承压评估 emit 侧定位错误——send 侧感知不到 lagged；回归锚 ×2）
-- [x] **B6 UpsertSpec conflict 列语义文档**（commit 9009b1f `feat/p2-quality` 待审）：`core/ports/storage.rs` batch_upsert doc 补 ON CONFLICT 三形态 + exclude 守卫语义
+- [x] **B6 UpsertSpec conflict 列语义文档**（commit 9009b1f，经 `feat/p2-quality` 合入 main）：`core/ports/storage.rs` batch_upsert doc 补 ON CONFLICT 三形态 + exclude 守卫语义
 - [ ] golden fixtures 工具链（im_trace 导出 → Tick 剧本）。**金标帧（golden frame）P1 由 `loopforge-tauri-im` 推进**：loopforge 用投影录放装饰器（`RecordingSink`，见上 P0 recipe）抓真实运行的 input/output 对落金标帧，回灌本仓 `tests/fixtures/` 做录放回归
 
 **P2（性能尾巴 + 工程化）**
 - [x] **E8 timer 取消已 O(1)**（查证 no-op · 2026-06-23 · `feat/p2-quality`）：core `timer_map.peek/remove(id)` + host `timer.cancel` 均 HashMap O(1)；全仓 grep 无 retain/iter O(n) 取消扫描——**本就无活**，非「待加反向索引」（ROADMAP 旧描述误导）
 - [x] **E9a cursor 推进零分配** ✅（`615f2f3`，HX-C005 回正）：monotonic cursor 推进 SQL const 化（`Cow::Borrowed`）+ now_ms 条件化 + 未读 guarded_bump bump_delta 绑参
-- [x] **E9b 热路径分配尾巴**（HX-C005 · commit 7661da4 `feat/p2-quality` 待审）：`helix-driver-host/upsert_sql.rs` thread-local 按 (table, col_count, has_conflict) 形状缓存 batch_upsert SQL，去 per-call 分配，零行为变更 +2 单测（driver-host 22 测全绿）
-- [ ] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate（§四）；public-api 基线含新增 `SqlValue::Blob`（M2）
+- [x] **E9b 热路径分配尾巴**（HX-C005 · commit 7661da4，经 `feat/p2-quality` 合入 main）：`helix-driver-host/upsert_sql.rs` thread-local 按 (table, col_count, has_conflict) 形状缓存 batch_upsert SQL，去 per-call 分配，零行为变更 +2 单测（driver-host 22 测全绿）
+- [x] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate 已闭合（证据见 §四）。本机若未安装 `cargo-public-api` 会跳过本地 diff，CI `api-surface` job 与 `docs/api-baseline/helix-core.txt` 是当前公开面基线入口。
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准**全链路覆盖完成**（median/CI/离群，回归判据 median>2x）：storage（`host_storage` 5000 行 5.16ms·39×100 6.08ms·monotonic cursor 28.5µs）+ **engine 泵**（`engine_loop/pump_roundtrip_1k` 40.2ms ≈ 24.9K roundtrips/s）+ **IM 乱序同步**（`gate/backfill_5000` 8.0ms ≈ 624K events/s·`send/echo_reconcile_1000` 2.39ms ≈ 418K/s）+ im_step ② 并发 parity 改「串行会超时」强证明（storage_conformance）。**仅剩**：bench 数字进 CI 留痕（待远端 GitLab runner）
-- [~] FFI MAJ-4：pump 路径同步 SQLite 经 host `HostStorage` spawn_blocking(×7)继承 ✅（HX-C006/ADR-005）；**剩** `helix_query` 同步读路径（infra 就位，待 IM 通用 query 路由后接 spawn_blocking + oneshot blocking_recv，禁 block_on worker）
+- [~] FFI MAJ-4：pump 路径同步 SQLite 经 host `HostStorage` spawn_blocking(×7)继承 ✅（HX-C006/ADR-005）；`helix_query` 已走 IM 本地查询路由 + SQLite-backed read ✅；**剩** Flutter 真机 demo 与同一 Tick 剧本 native-vs-FFI byte-level parity，把同步读阻塞语义放在 F5 验收里实证
 - [x] **FFI pump 连接-插表时序类型化**（drift-review wf_efcf1ca4-759 #4）✅ **已彻底解**（commit `34c54bd`，2026-06-22）：**注册通道**——连接期 transport 独占在 loop 外后台跑 connect（裸 ws·不在表），连成功才经 `transport_rx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（**类型层不可见**，不再靠 hello-gated 时序不变量）。`Transport::{send,recv,close}` 收紧 `&self`（connect 保 `&mut`，NativeTransport 状态机字段合法需要）；`TransportTable` 去外层 Mutex→`HashMap<TransportId,Arc<Tr>>`；biased select 第二臂 insert+continue（守 pump 5 不变量）。**不新增 per-Send 锁、不回退 create 非阻塞**。验：lifecycle_net_decouple 3/3 + 5-crate+wasm core check + driver 全测绿。
 - [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver CLAUDE.md「已知缺口」）
 - [~] **双 `PortError` enum 改名消歧**（~~统一~~ 误诊已纠 · 查证 2026-06-23）：tick.rs:56 与 error.rs:51 **语义独立非重复**（`error.rs`=携 String 的 thiserror 边界错误；`tick.rs`=带状态码数字的重试分类 Timeout/Http(u16)/Storage(u32)/Network）——**折叠是回归**，正解是改名（tick::PortError→RetryClass/PortErrCode）消歧；干净改名须碰 helix-im 测试故 HOLD
@@ -100,13 +101,15 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 
 ## 三、最终验收 Checklist（全部 machine-checkable，过一项勾一项）
 
+> **2026-07-08 对账**：本节是最终验收清单，不等于当前全绿状态。最新同跑证据：`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` PASS；`scripts/structure-gate.sh` FAIL（新增/增长超 300 行项：`effect.rs`、`engine.rs`、`otel.rs`、`storage.rs`、`trace.rs`、`host-cli/main.rs`、`module.rs`、`port_reply.rs`、`send/upload_props.rs`）；本机 `cargo-public-api` 未安装，公开面 diff 未本机验证。
+
 **结构闸门（每次 merge 必跑）**
-- [ ] `cargo check` 双端产品目标（core/im/driver-native/driver-ffi）= 0 error
-- [ ] `cargo test --release` workspace 全绿（当前基线 85，只增不减）
+- [x] `cargo check` 双端产品目标（core/im/driver-native/driver-ffi）= 0 error（2026-07-08 本机 PASS）
+- [ ] `cargo test --release` workspace 全绿（以当前 `scripts/gate.sh`/CI 输出为准；本轮未跑，不能声称基线全绿）
 - [ ] `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` = 空
 - [ ] `grep -rn 'channel\|message\|temporaryId' crates/helix-core/src/ | grep -v '//'` = 0
 - [ ] harness 索引不变量：CLAUDE.md 表行数 == `ls docs/harness/HX-C*.md | wc -l`
-- [ ] （落地后）`cargo public-api -p helix-core` diff 对 allowlist = 0
+- [ ] `cargo public-api -p helix-core` diff 对 allowlist = 0（本机工具缺失时不可声称已验；CI `api-surface` job 为远端入口）
 
 **行为闸门（承压基线，压测三件套）**
 - [ ] proptest 乱序不变量 5 条绿（cursor 单调 / 不丢消息 / 确定性）

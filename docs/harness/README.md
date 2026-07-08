@@ -56,7 +56,7 @@ docs/harness/
 ├── TEMPLATE.md          ← 7 节卡片模板
 ├── decisions.md         ← 关键架构拍板记录（ADR-lite）
 ├── log.md               ← 跨卡复现日志
-└── HX-C001 .. HX-C015   ← 15 条（HX-C003 archived，余 active）
+└── HX-C001 .. HX-C016   ← 16 条（HX-C003 archived，余 active）
 ```
 
 ## 5. 生命周期

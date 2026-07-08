@@ -12,7 +12,7 @@
 | 维度 | 权威源 | 说明 |
 |---|---|---|
 | **设计理念 / 不变量（北极星）** | [`GOAL.md`](./GOAL.md) | L2 常量，每次会话开局必读；§1 设计理念 / §2 硬约束不可偏离 |
-| **决策（ADR + 过会拍板）** | [`harness/decisions.md`](./harness/decisions.md) | ADR-001..010 + **7 条过会拍板**（原「评审纪要」已并入，决策唯一事实源） |
+| **决策（ADR + 过会拍板）** | [`harness/decisions.md`](./harness/decisions.md) | ADR-001..013 + **7 条过会拍板**（原「评审纪要」已并入，决策唯一事实源） |
 | **机制事实（IM 全链路）** | [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) | 内核 + 四能力 + IM 模块 + 三端接入；含 Effect 模型(Http/HttpFire) / BoundedSpawner / sync-v2 已验证 |
 | **可执行护栏** | [`harness/`](./harness/README.md) | HX-C001..C016+ = 把 GOAL §1/§2 编译成 grep/CI 闸门；具体 active/archived 状态以 harness README 为准 |
 | **代码本身** | `crates/helix-{core,im,driver-native,driver-host,driver-ffi}` | trait/effect 冲突时，**代码 > 任何设计稿** |

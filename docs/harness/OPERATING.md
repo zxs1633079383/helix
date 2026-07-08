@@ -12,11 +12,11 @@
 |---|---|---|---|
 | **存盘 `.rs`** | `cargo fmt` | 🤖 自动 | PostToolUse hook（`.claude/settings.json`），每次 Edit/Write `.rs` |
 | **编译** | clippy deny-list 拦截 | 🤖 自动 | `cargo clippy/check` 时 `clippy.toml` 生效 |
-| **开局新会话** | 提醒读 `ROADMAP §二 P0` + 本手册 + 列未完 P0 | 🤖 自动 | SessionStart hook |
+| **开局新会话** | 提醒读 `ROADMAP §二 P0` + 本手册 + 只列 P0 段未完项 | 🤖 自动 | SessionStart hook（必须用 P0 段截断，禁止 `grep -A40` 把 P1/P2 误标成 P0） |
 | **会话收尾** | 有未提交 `.rs`→提醒 `gate.sh`；有未提交 `.md`→提醒 `/helix-drift-check` | 🤖 自动 | Stop hook（只读 `git status`，不跑编译） |
 | **开局 / workflow·worktree 收尾 / 拿不准在哪个分支** | `scripts/branch-identity.sh --session` → 刷 SESSION §0 顶部 🧭 BRANCH-ID 唯一行（full 模式查可删候选）| 👤 人工（可挂 Stop hook 自动刷）| 命令（HX-C014）|
 | **派 `Workflow({name})` / `run_in_background` agent 后** | **不轮询**——等 `<task-notification>` 自动回灌再处理；外部不可追踪态（CI/deploy/queue）才 `/loop` | 🤖 自动（完成通知回灌）| 禁手工「等…报告结果」（HX-C015）|
-| **准备 commit** | `scripts/gate.sh`（七道闸门快门） | 👤 人工（push 时 pre-push 兜底自动） | 命令；或 `git push` 触发 pre-push |
+| **准备 commit** | `scripts/gate.sh`（当前 11 步默认门：双端 check / clippy / tests / runtime / trace / business-word / harness / FFI / public-api / structure 等） | 👤 人工（push 时 pre-push 兜底自动，但只在 `.git/hooks/pre-push` 已安装时生效） | 命令；新 clone / 当前 checkout 先 `test -f .git/hooks/pre-push || scripts/install-hooks.sh` |
 | **phase 完成 / 验收** | `/helix-acceptance`（跑全部结构+行为闸门汇总） | 👤 人工 | slash |
 | **加业务模块** | `/helix-new-module` | 👤 人工 | slash |
 | **写回放测试** | `/helix-replay-test` | 👤 人工 | slash |
@@ -28,7 +28,7 @@
 | **现网对齐·IPC 契约·Tauri 接缝** | `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | 👤 人工 | 判断触发 |
 | **内核循环·Effect 批次·调度** | `dioxus-dev`（仅 core 经验，禁渲染层） ↔ `/dioxus-knowledge` | 👤 人工 | 判断触发 |
 | **文档↔代码漂移（熵管理）** | `/helix-drift-check` + 更新状态文档 + 查 harness 索引不变量 | 👤 人工（可挂 cron） | slash |
-| **架构偏移收敛（gap≥10 commit，仅 commit 检查点）** | `scripts/review-gap.sh` 命中 → `Workflow({name:"architecture-drift-review"})` → 更新 `docs/review/workflow-review-ledger.md` | 🤖 可自动（commit 检查点触发，绝不中途；可挂 hook 兜底）| 闸门脚本 + workflow（见 `.claude/rules/agent-review-cadence.md`）|
+| **架构偏移收敛（gap≥10 commit，仅 commit 检查点）** | `scripts/review-gap.sh` 命中 → `Workflow({name:"architecture-drift-review"})` → 更新 `docs/review/workflow-review-ledger.md` | 🤖 可自动（commit 检查点触发，绝不中途；可挂 hook 兜底）| 闸门脚本 + workflow（见 `.claude/rules/agent-review-cadence.md`）；命中红灯前不继续开新 feature |
 | **同根因≥3 / 用户拍板 / Spec** | 新建 `docs/harness/HX-C{NNN}` + 同步索引三处 | 👤 人工 | 三铁律（README §1） |
 
 ---
@@ -49,7 +49,7 @@
 
 ## 3. 已修的两个「实际坏了」（2026-06-12）
 
-- **pre-push 没装** → `scripts/install-hooks.sh` 跑一次即生效（新 clone 必跑）。**钩子不进版本库，必须 installer**。
+- **pre-push 没装** → 先 `test -f .git/hooks/pre-push`；缺失时 `scripts/install-hooks.sh` 跑一次即生效（新 clone / 当前 checkout 必查）。**钩子不进版本库，必须 installer**。
 - **workflow `args` 调不起来** → 本运行时把 `args` 当 **JSON 字符串**注入（实测 `typeof args === "string"`），脚本旧代码 `args.target` 在字符串上取属性返回 undefined。三个在册脚本已加归一化 shim（parse-if-string），`Workflow({name, args:{...}})` 现可用。详见 [`.claude/workflows/README.md`](../../.claude/workflows/README.md)。
 
 ---
@@ -75,4 +75,4 @@ Workflow({ name: "stress-verify", args: { claim: "...", scenarios: [{ name, cmd,
 
 ## 5. 索引
 
-本手册 ↔ 根 [`CLAUDE.md`](../../CLAUDE.md) §4.6（专家注册表）+ [`README.md`](./README.md)（坑卡库）+ [`.claude/workflows/README.md`](../../.claude/workflows/README.md)（编排脚本）三处互链。改触发器（加 hook / 加 workflow / 加 skill）→ 同步本表。
+本手册 ↔ 根 [`CLAUDE.md`](../../CLAUDE.md) §4.6（专家注册表）+ [`README.md`](./README.md)（坑卡库）+ [`.claude/workflows/README.md`](../../.claude/workflows/README.md)（编排脚本）三处互链。改触发器（加 hook / 加 workflow / 加 skill / 改 `scripts/gate.sh` 步数或语义）→ 同步本表与 slash command 文案。

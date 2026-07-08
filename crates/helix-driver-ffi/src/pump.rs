@@ -188,6 +188,8 @@ pub fn run(args: PumpArgs) {
             clock,
             trace: TraceHooks::noop().with_command_traces(args.command_traces),
             max_http_inflight: args.max_http_inflight,
+            transport_lifecycle_tx: None,
+            transport_trace_tx: None,
         };
         let _ = args.ready_tx.send(Some(QueryDeps {
             runtime: tokio::runtime::Handle::current(),

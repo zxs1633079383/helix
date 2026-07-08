@@ -170,6 +170,7 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
             action: "disconnect",
             attempt: None,
             delay_ms: None,
+            next_delay_ms: None,
             reason: Some("reader_closed_or_error"),
             error_class: None,
         }

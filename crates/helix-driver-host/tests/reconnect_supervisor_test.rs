@@ -36,6 +36,7 @@ fn reconnect_trace_sink_emits_safe_payload_shape() {
         action: "reconnect_schedule",
         attempt: Some(2),
         delay_ms: Some(400),
+        next_delay_ms: None,
         reason: Some("reader_closed_or_error"),
         error_class: None,
     });
@@ -46,6 +47,7 @@ fn reconnect_trace_sink_emits_safe_payload_shape() {
     assert_eq!(event.action, "reconnect_schedule");
     assert_eq!(event.attempt, Some(2));
     assert_eq!(event.delay_ms, Some(400));
+    assert_eq!(event.next_delay_ms, None);
     assert_eq!(event.reason, Some("reader_closed_or_error"));
     assert!(event.error_class.is_none());
 }
@@ -115,9 +117,12 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
     assert_eq!(events[0].attempt, Some(1));
     assert_eq!(events[0].delay_ms, Some(10));
     assert_eq!(events[0].reason, Some("reader_closed_or_error"));
+    assert_eq!(events[1].delay_ms, Some(10));
     assert_eq!(events[2].error_class.as_deref(), Some("transport"));
+    assert_eq!(events[2].next_delay_ms, Some(20));
     assert_eq!(events[3].attempt, Some(2));
     assert_eq!(events[3].delay_ms, Some(20));
+    assert_eq!(events[4].delay_ms, Some(20));
     assert!(events.iter().all(trace_event_payload_is_safe));
 
     drop(lifecycle_tx);

@@ -98,7 +98,7 @@ where
                 emit_schedule(&trace_sink, transport_id, attempt, delay, reason);
                 tokio::time::sleep(delay).await;
 
-                emit_attempt(&trace_sink, transport_id, attempt);
+                emit_attempt(&trace_sink, transport_id, attempt, delay);
                 match make_transport().await {
                     Ok(transport) => {
                         if register_tx
@@ -110,8 +110,17 @@ where
                         break;
                     }
                     Err(error) => {
-                        emit_failed(&trace_sink, transport_id, attempt, &error);
-                        attempt = attempt.saturating_add(1);
+                        let next_attempt = attempt.saturating_add(1);
+                        let next_delay = if policy
+                            .max_attempts
+                            .is_some_and(|max_attempts| next_attempt > max_attempts)
+                        {
+                            None
+                        } else {
+                            Some(policy.delay_for_attempt(next_attempt))
+                        };
+                        emit_failed(&trace_sink, transport_id, attempt, next_delay, &error);
+                        attempt = next_attempt;
                     }
                 }
             }
@@ -132,18 +141,25 @@ fn emit_schedule(
         action: "reconnect_schedule",
         attempt: Some(attempt),
         delay_ms: Some(duration_millis(delay)),
+        next_delay_ms: None,
         reason: Some(reason),
         error_class: None,
     });
 }
 
-fn emit_attempt(trace_sink: &ReconnectTraceSink, transport_id: TransportId, attempt: u32) {
+fn emit_attempt(
+    trace_sink: &ReconnectTraceSink,
+    transport_id: TransportId,
+    attempt: u32,
+    delay: Duration,
+) {
     trace_sink.emit(TransportTraceEvent {
         transport_id,
         name: "helix.ws.reconnect.attempt",
         action: "reconnect_attempt",
         attempt: Some(attempt),
-        delay_ms: None,
+        delay_ms: Some(duration_millis(delay)),
+        next_delay_ms: None,
         reason: None,
         error_class: None,
     });
@@ -153,6 +169,7 @@ fn emit_failed(
     trace_sink: &ReconnectTraceSink,
     transport_id: TransportId,
     attempt: u32,
+    next_delay: Option<Duration>,
     error: &PortError,
 ) {
     trace_sink.emit(TransportTraceEvent {
@@ -161,6 +178,7 @@ fn emit_failed(
         action: "reconnect_failed",
         attempt: Some(attempt),
         delay_ms: None,
+        next_delay_ms: next_delay.map(duration_millis),
         reason: None,
         error_class: Some(classify_port_error(error)),
     });
@@ -173,6 +191,7 @@ fn emit_success(trace_sink: &ReconnectTraceSink, transport_id: TransportId, atte
         action: "reconnect_success",
         attempt: Some(attempt),
         delay_ms: None,
+        next_delay_ms: None,
         reason: None,
         error_class: None,
     });

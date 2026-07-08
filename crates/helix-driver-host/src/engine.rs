@@ -82,6 +82,7 @@ pub struct TransportTraceEvent {
     pub action: &'static str,
     pub attempt: Option<u32>,
     pub delay_ms: Option<u64>,
+    pub next_delay_ms: Option<u64>,
     pub reason: Option<&'static str>,
     pub error_class: Option<String>,
 }
@@ -264,6 +265,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                     action: "disconnect",
                     attempt: None,
                     delay_ms: None,
+                    next_delay_ms: None,
                     reason: Some("reader_closed_or_error"),
                     error_class: None,
                 })

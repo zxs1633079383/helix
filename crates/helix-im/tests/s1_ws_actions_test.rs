@@ -36,6 +36,20 @@ fn emit_names(sink: &helix_core::EffectSink) -> Vec<String> {
         .collect()
 }
 
+fn emit_data(sink: &helix_core::EffectSink, event_name: &str) -> Vec<serde_json::Value> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Emit { event } => {
+                let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                (v.get("event").and_then(|s| s.as_str()) == Some(event_name))
+                    .then(|| v.get("data").cloned().unwrap_or_default())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// 取本批所有 StorageOp（展开 Persist/PersistFire 的 ops）。
 fn storage_ops(sink: &helix_core::EffectSink) -> Vec<StorageOp> {
     sink.as_slice()
@@ -81,6 +95,79 @@ fn upsert_row_value<'a>(
             .and_then(|row| row.iter().find(|(k, _)| k == col).map(|(_, v)| v)),
         _ => None,
     })
+}
+
+// ─── update_channel（member 维度 dialog 绝对态）───────────────────────────────
+
+/// 回归锚: member-dialog —— Go `update_channel` 定向推送是当前用户 member 维度绝对态。
+#[test]
+fn update_channel_writes_member_dialog_absolute_and_emits_projection() {
+    let mut h = Harness::new_with_identity(&[], "u-self", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "update_channel",
+            "data": {
+                "channel": {
+                    "id": cid(18),
+                    "userId": "u-self",
+                    "unreadCount": 7,
+                    "mentionCount": 2,
+                    "mentionCountRoot": 1,
+                    "mentionList": ["post-a", "post-b"],
+                    "urgentCount": 1,
+                    "urgentPostList": ["post-u"],
+                    "msgCount": 42,
+                    "lastReadSeq": 9,
+                    "lastPost": {
+                        "id": "post-last",
+                        "userId": "u-sender",
+                        "message": "hello member"
+                    }
+                }
+            }
+        })),
+        1_000,
+    );
+
+    let ops = storage_ops(&h.sink);
+    assert!(
+        matches!(
+            upsert_row_value(&ops, "channel_member", "unread_count"),
+            Some(helix_core::effect::SqlValue::Integer(7))
+        ),
+        "update_channel member 绝对 unread 须写 channel_member，ops: {ops:?}"
+    );
+    assert!(
+        matches!(
+            upsert_row_value(&ops, "channel_member", "mention_count"),
+            Some(helix_core::effect::SqlValue::Integer(2))
+        ),
+        "mention_count 是 member 维度，不能只写 channel，ops: {ops:?}"
+    );
+    assert!(
+        matches!(
+            upsert_row_value(&ops, "channel_member", "urgent_mention_count"),
+            Some(helix_core::effect::SqlValue::Integer(1))
+        ),
+        "urgent_count 须映射 channel_member.urgent_mention_count，ops: {ops:?}"
+    );
+    let composite = ops.iter().any(|op| matches!(
+        op, StorageOp::BatchUpsert(s) if s.table == "channel_member" && s.conflict_key == Some("channel_id,user_id")
+    ));
+    assert!(composite, "member dialog patch 须用复合 PK，ops: {ops:?}");
+
+    let updates = emit_data(&h.sink, "im:channel:update-by-post");
+    assert!(
+        updates.iter().any(|data| {
+            data["op"] == "dialog.patchByMember"
+                && data["projectionAuthority"] == "server-member-absolute"
+                && data["dialogPatch"]["unreadCount"] == 7
+                && data["dialogPatch"]["mentionCount"] == 2
+                && data["dialogPatch"]["urgentCount"] == 1
+                && data["senderUserId"] == "u-sender"
+        }),
+        "update_channel 须 emit 指令化 member dialog 投影，updates: {updates:?}"
+    );
 }
 
 // ─── post_read（type=6 覆盖式 read_bits）─────────────────────────────────────

@@ -56,6 +56,25 @@ pub fn update_channel_partial(
     })
 }
 
+/// `update_channel` 后端 per-member 绝对态补丁 → `channel_member` 复合 PK upsert。
+///
+/// 这是「当前登录用户在某 channel 的 dialog badge 真值」，不是全群 `channel` 公共字段。
+/// Go 后端会按可见性/mention/urgent 计算 member 维度计数后定向广播 `update_channel`，
+/// Helix 只覆盖帧中出现的字段，不把 member 计数写回 channel 行。
+pub fn upsert_channel_member_dialog(row: Row) -> Option<Effect> {
+    if row.is_empty() {
+        return None;
+    }
+    Some(Effect::PersistFire {
+        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+            table: "channel_member",
+            rows: vec![row],
+            conflict_key: Some("channel_id,user_id"),
+            exclude_from_update: Vec::new(),
+        })],
+    })
+}
+
 /// S3 path3：新消息触发 channel 写——未读 +1 SQL 自增 + lastPost 组。
 pub fn bump_channel_unread(upd: &crate::channel_write::PostChannelUpdate) -> Effect {
     Effect::PersistFire {

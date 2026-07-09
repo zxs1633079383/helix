@@ -53,4 +53,4 @@ pub(crate) mod ws;
 
 pub use error::ImError;
 pub use module::ImModule;
-pub use schema::IM_SCHEMA;
+pub use schema::{IM_SCHEMA, IM_SCHEMA_MIGRATIONS};

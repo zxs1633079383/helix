@@ -125,6 +125,22 @@ pub const IM_SCHEMA: &[&'static str] = &[
         nick_name TEXT,\
         joined_at INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0,\
+        unread_count INTEGER NOT NULL DEFAULT 0,\
+        unread_post_id TEXT NOT NULL DEFAULT '',\
+        last_post TEXT NOT NULL DEFAULT '',\
+        last_post_at INTEGER NOT NULL DEFAULT 0,\
+        last_root_post_at INTEGER NOT NULL DEFAULT 0,\
+        mention_count INTEGER NOT NULL DEFAULT 0,\
+        mention_count_root INTEGER NOT NULL DEFAULT 0,\
+        mention_list TEXT NOT NULL DEFAULT '',\
+        mention_user TEXT NOT NULL DEFAULT '',\
+        urgent_mention_count INTEGER NOT NULL DEFAULT 0,\
+        urgent_post_list TEXT NOT NULL DEFAULT '',\
+        urgent_mention_user TEXT NOT NULL DEFAULT '',\
+        msg_count INTEGER NOT NULL DEFAULT 0,\
+        msg_count_root INTEGER NOT NULL DEFAULT 0,\
+        msg_count_private INTEGER NOT NULL DEFAULT 0,\
+        last_read_seq INTEGER NOT NULL DEFAULT 0,\
         PRIMARY KEY (channel_id, user_id)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_channel_member_user ON channel_member(user_id)",
@@ -147,4 +163,25 @@ pub const IM_SCHEMA: &[&'static str] = &[
         last_event_seq INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0\
     )",
+];
+
+/// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `channel_member`
+/// 补列，故 host/ffi 装配层需逐条执行并忽略 SQLite `duplicate column name`。
+pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
+    "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN last_post_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN last_root_post_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN mention_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN mention_count_root INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN mention_list TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN mention_user TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN urgent_mention_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN urgent_post_list TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN urgent_mention_user TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel_member ADD COLUMN msg_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN msg_count_root INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN msg_count_private INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_member ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
 ];

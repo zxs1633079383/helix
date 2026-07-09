@@ -262,10 +262,13 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 - `senderUserId`：`userSnapshot.userId` 优先，回退 `userId`；
 - `lastPost` / `lastMessage`：来自当前可见 post，在手输出，不依赖额外 `update_channel`；
 - `unreadDelta` / `mentionDelta` / `urgentDelta`：本事件增量，仅作调试/兼容信号，不作为前端累计源；
-- `dialogPatch.unreadCount` / `mentionCount` / `urgentCount`：来自 `GuardedBump` 写后 `Get(channel)` 的累计终值；
+- `dialogPatch.unreadCount` / `mentionCount` / `urgentCount`：`dialog.patchByPost` 来自 `GuardedBump`
+  写后 `Get(channel)` 的本地累计终值；`dialog.patchByMember` 来自后端 `update_channel` 定向单播的
+  `channel_member` 绝对态，带 `projectionAuthority="server-member-absolute"`，用于覆盖前者；
 - `mentionList` / `urgentPostList`：来自写后 `channel` 行的 set-union 结果，语义是绝对覆盖，不是 `[当前 post_id]`；
 - `mentionedUserIds` / `urgentUserIds`：当前事件命中的 userId 列表（先用 userId，不做成员名解析）；
-- `readLastSeq` / `msgCount`：当前 Helix `channel_member` schema/write path 尚未闭环，render-ready patch 暂不输出这些字段；见根目录 `NEED_HELIX_CHANNEL_MEMBER_FIX.md`。
+- `readLastSeq` / `msgCount`：当前由 `update_channel` member 绝对态写入 `channel_member` 并在
+  `dialog.patchByMember` 中输出；普通 `dialog.patchByPost` 不凭空补这些 member 字段。
 
 > 🔴 **HX-C005 守约**：该 patch 使用当前 post 的在手 `PostFields` + `PostChannelUpdate` 计算事件语义，
 > 再通过同一 Persist 批次里的 `GuardedBump -> Get(channel)` 取得写后累计终值。I/O 仍是 Effect/StorageOp，

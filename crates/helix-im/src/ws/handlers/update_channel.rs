@@ -26,7 +26,7 @@ impl WsMessageHandler for UpdateChannelHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -51,6 +51,20 @@ impl WsMessageHandler for UpdateChannelHandler {
         let cols = crate::channel_write::collect_present(channel);
         if let Some(eff) = crate::acl::to_effect::update_channel_partial(channel_id, cols) {
             out.push(eff);
+        }
+        if let Some((row, projection)) = crate::dialog_patch::member_dialog_from_update_channel(
+            data,
+            channel_id,
+            ctx.auth_user_id,
+        ) {
+            if let Some(eff) = crate::acl::to_effect::upsert_channel_member_dialog(row) {
+                out.push(eff);
+            }
+            out.push(crate::acl::to_effect::emit_channel_update_by_member_dialog(
+                channel_id,
+                &projection,
+                UPDATE_CHANNEL_ACTION,
+            ));
         }
         // 独立 update_channel 推送（per-member 改群属性如对话置顶 channel/change/top·改群名/公告
         // 等定向本人 PATCH）落库后须 emit `im:channel:update`（thin·{channel_id}）通知前端重查

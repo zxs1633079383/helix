@@ -264,6 +264,121 @@ pub fn emit_channel_update_by_post(
     }
 }
 
+/// 后端 `update_channel` 定向成员绝对态 → 左侧 Dialog 行 badge/lastPost 指令。
+pub fn emit_channel_update_by_member_dialog(
+    channel_id: ChannelId,
+    projection: &crate::dialog_patch::MemberDialogProjection,
+    source: &str,
+) -> Effect {
+    use serde_json::json;
+    let last_post = projection
+        .last_post
+        .clone()
+        .unwrap_or(serde_json::Value::Null);
+    let sender_user_id = last_post
+        .get("userId")
+        .or_else(|| last_post.get("user_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let last_post_id = last_post
+        .get("id")
+        .or_else(|| last_post.get("postId"))
+        .and_then(|v| v.as_str());
+    let urgent_hit = last_post_id
+        .and_then(|id| {
+            projection
+                .urgent_post_list
+                .as_ref()
+                .map(|items| items.iter().any(|item| item == id))
+        })
+        .unwrap_or(false);
+    let mention_hit = last_post_id
+        .and_then(|id| {
+            projection
+                .mention_list
+                .as_ref()
+                .map(|items| items.iter().any(|item| item == id))
+        })
+        .unwrap_or(false)
+        || last_post
+            .get("mentions")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .any(|item| item.as_str() == Some(&projection.user_id))
+            })
+            .unwrap_or(false);
+    let message_class = match (mention_hit, urgent_hit) {
+        (true, true) => "mention_urgent",
+        (true, false) => "mention",
+        (false, true) => "urgent",
+        (false, false) => "normal",
+    };
+    let last_message = last_post
+        .get("message")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let dialog_patch = json!({
+        "id": channel_id.as_str(),
+        "channelId": channel_id.as_str(),
+        "userId": projection.user_id.clone(),
+        "projectionAuthority": "server-member-absolute",
+        "memberScope": "current_user",
+        "lastPost": last_post,
+        "lastMessage": last_message.clone(),
+        "unreadCount": projection.unread_count,
+        "unread": projection.unread_count,
+        "unreadPostId": projection.unread_post_id.clone(),
+        "mentionCount": projection.mention_count,
+        "mentionCountRoot": projection.mention_count_root,
+        "mentionList": projection.mention_list.clone(),
+        "mentionUser": projection.mention_user.clone(),
+        "urgentCount": projection.urgent_count,
+        "urgentPostList": projection.urgent_post_list.clone(),
+        "urgentMentionUser": projection.urgent_mention_user.clone(),
+        "msgCount": projection.msg_count,
+        "msgCountRoot": projection.msg_count_root,
+        "msgCountPrivate": projection.msg_count_private,
+        "lastReadSeq": projection.last_read_seq,
+        "lastPostAt": projection.last_post_at,
+        "lastRootPostAt": projection.last_root_post_at,
+    });
+    let data = json!({
+        "op": "dialog.patchByMember",
+        "source": source,
+        "projectionAuthority": "server-member-absolute",
+        "memberScope": "current_user",
+        "channel_id": channel_id.as_str(),
+        "channelId": channel_id.as_str(),
+        "userId": projection.user_id.clone(),
+        "messageClass": message_class,
+        "senderUserId": sender_user_id,
+        "lastPost": projection.last_post.clone().unwrap_or(serde_json::Value::Null),
+        "lastMessage": last_message,
+        "unreadCount": projection.unread_count,
+        "mentionCount": projection.mention_count,
+        "urgentCount": projection.urgent_count,
+        "mentionList": projection.mention_list.clone(),
+        "urgentPostList": projection.urgent_post_list.clone(),
+        "msgCount": projection.msg_count,
+        "lastReadSeq": projection.last_read_seq,
+        "dialogPatch": dialog_patch,
+    });
+    let payload = json!({
+        "event": "im:channel:update-by-post",
+        "data": data,
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_channel_update_by_member_dialog: static JSON shape must serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 fn post_fields_json(
     channel_id: ChannelId,
     event_seq: u64,

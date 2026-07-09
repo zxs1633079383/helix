@@ -129,6 +129,7 @@ parse post
 | `dialogPatch.unreadCount` | Helix storage 最终值，不允许前端 `+1` |
 | `dialogPatch.mentionCount` | Helix storage 最终值，不允许前端从 mentions 自增 |
 | `dialogPatch.urgentCount` | Helix storage 最终值，不允许前端从 props 自增 |
+| `dialogPatch.readLastSeq/msgCount` | 当前不输出；等 `NEED_HELIX_CHANNEL_MEMBER_FIX.md` 完成 `channel_member` schema/write path 后再恢复，消费者不得默认 `0` |
 
 ## 4. MessageClass 与 count 计算
 

@@ -130,11 +130,18 @@ async fn main() {
     // execute_raw 签名 &'static str —— IM_SCHEMA 每条都是 string literal，天然满足。
     {
         let mut ok = 0usize;
-        let total = helix_im::IM_SCHEMA.len();
+        let total = helix_im::IM_SCHEMA.len() + helix_im::IM_SCHEMA_MIGRATIONS.len();
         for sql in helix_im::IM_SCHEMA {
             match storage.execute_raw(sql).await {
                 Ok(()) => ok += 1,
                 Err(e) => tracing::error!(error = %e, "建 IM 表失败（继续尝试其余语句）"),
+            }
+        }
+        for sql in helix_im::IM_SCHEMA_MIGRATIONS {
+            match storage.execute_raw(sql).await {
+                Ok(()) => ok += 1,
+                Err(e) if is_duplicate_column_error(&e) => ok += 1,
+                Err(e) => tracing::error!(error = %e, "迁移 IM 表失败（继续尝试其余语句）"),
             }
         }
         if ok == total {
@@ -303,4 +310,8 @@ async fn main() {
     )
     .await;
     tracing::info!("engine loop 退出");
+}
+
+fn is_duplicate_column_error(e: &impl std::fmt::Display) -> bool {
+    e.to_string().contains("duplicate column name")
 }

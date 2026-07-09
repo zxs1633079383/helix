@@ -148,6 +148,19 @@ pub fn run(args: PumpArgs) {
                 return;
             }
         }
+        for &sql in helix_im::IM_SCHEMA_MIGRATIONS {
+            if let Err(e) = storage.execute_raw(sql).await {
+                if !is_duplicate_column_error(&e) {
+                    tracing::error!(
+                        error = %e,
+                        db = %args.db_url,
+                        "FFI pump 初始化 IM schema migration 失败"
+                    );
+                    let _ = args.ready_tx.send(None);
+                    return;
+                }
+            }
+        }
 
         // ── event sink（FFI 批处理 egress）先建：HTTP 横切层 401/断网回报复用同一出口。
         let event_sink = Arc::new(FfiEventSink::new(args.vtable));
@@ -292,6 +305,10 @@ pub fn run(args: PumpArgs) {
     // 这与 engine 五不变量⑤「必达 Http drain 有上限、生命周期不被网络阻塞」同源——把同一红线
     // 补到 runtime 收尾这最后一环（drain 之后唯一可能残留的网络 I/O = 后台 connect 的 DNS）。
     runtime.shutdown_timeout(Duration::ZERO);
+}
+
+fn is_duplicate_column_error(e: &impl std::fmt::Display) -> bool {
+    e.to_string().contains("duplicate column name")
 }
 
 #[cfg(test)]

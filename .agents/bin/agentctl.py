@@ -113,7 +113,106 @@ def any_keyword(words: list[str], candidates: list[str]) -> bool:
     return any(word.lower() in lowered for word in words)
 
 
+def codebase_project(root: Path) -> str:
+    if os.environ.get("AGENT_SWARM_CODEBASE_PROJECT"):
+        return os.environ["AGENT_SWARM_CODEBASE_PROJECT"]
+    return "-".join(part for part in root.as_posix().strip("/").split("/") if part)
+
+
+def codebase_search_graph(root: Path, summary: str) -> dict | None:
+    binary = shutil.which("codebase-memory-mcp")
+    if not binary or not summary.strip():
+        return None
+    payload = {
+        "project": codebase_project(root),
+        "query": summary,
+        "limit": 25,
+        "include_connected": True,
+    }
+    try:
+        out = subprocess.check_output(
+            [binary, "cli", "search_graph", json.dumps(payload, ensure_ascii=False)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return json.loads(out)
+    except Exception:
+        return None
+
+
+def codebase_trace_path(root: Path, qualified_name: str) -> dict | None:
+    binary = shutil.which("codebase-memory-mcp")
+    if not binary or not qualified_name:
+        return None
+    payload = {
+        "project": codebase_project(root),
+        "function_name": qualified_name,
+        "direction": "both",
+    }
+    try:
+        out = subprocess.check_output(
+            [binary, "cli", "trace_path", json.dumps(payload, ensure_ascii=False)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return json.loads(out)
+    except Exception:
+        return None
+
+
+def add_graph_items(paths: list[str], symbols: list[str], labels: list[str], graph: dict) -> None:
+    for key in ("results", "nodes", "callers", "callees", "paths"):
+        items = graph.get(key, [])
+        if isinstance(items, dict):
+            items = list(items.values())
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("file_path"):
+                paths.append(item["file_path"])
+            if item.get("qualified_name"):
+                symbols.append(item["qualified_name"])
+            if item.get("label"):
+                labels.append(str(item["label"]).lower())
+
+
+def collect_codebase_context(root: Path, summary: str) -> dict | None:
+    graph = codebase_search_graph(root, summary)
+    if not graph:
+        return None
+    paths = []
+    symbols = []
+    labels = []
+    add_graph_items(paths, symbols, labels, graph)
+    for symbol in normalize(symbols)[:5]:
+        trace = codebase_trace_path(root, symbol)
+        if trace:
+            add_graph_items(paths, symbols, labels, trace)
+    paths = normalize(paths)
+    symbols = normalize(symbols)
+    if not paths and not symbols:
+        return None
+    keywords = split_keywords(summary)
+    for path in paths:
+        keywords.extend(split_keywords(path))
+    for symbol in symbols:
+        keywords.extend(split_keywords(symbol))
+    keywords.extend(labels)
+    return {
+        "source": "codebase-memory",
+        "summary": summary,
+        "paths": paths,
+        "symbols": symbols,
+        "keywords": normalize(keywords),
+    }
+
+
 def collect_context(summary: str, paths: list[str]) -> dict:
+    root = repo_root()
+    if not paths:
+        codebase_context = collect_codebase_context(root, summary)
+        if codebase_context:
+            return codebase_context
     keywords = split_keywords(summary)
     for path in paths:
         keywords.extend(split_keywords(path))

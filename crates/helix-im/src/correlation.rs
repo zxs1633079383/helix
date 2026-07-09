@@ -31,6 +31,26 @@ pub enum CorrelationContext {
         /// E3 续拉：该批 sync 响应 `needs_continuation=true` 时为 true；
         /// on_persist_ok 推进 cursor 后据此决定是否 `maybe_continue_sync`。
         wants_continuation: bool,
+        /// sync events 中需要在 channel 写后读回累计行再 emit 的 DialogPatch。
+        dialog_patches: Vec<crate::dialog_patch::PendingDialogPatch>,
+    },
+
+    /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后 emit
+    /// `im:channel:update-by-post`。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
+    DialogPatchByPost {
+        pending: crate::dialog_patch::PendingDialogPatch,
+    },
+
+    /// too_long 后 Helix 主动发起 getLatestPost 首屏重拉的 HTTP 回报。
+    TooLongReload {
+        channel_id: ChannelId,
+        reset_to: crate::state::Seq,
+    },
+
+    /// too_long 首屏重拉落库 + channel 写后读回。
+    TooLongReloadPersist {
+        channel_id: ChannelId,
+        dialog_patches: Vec<crate::dialog_patch::PendingDialogPatch>,
     },
 
     /// P1 乐观落库 **Persist** 回报：把对应 `PendingSend` 状态推进到 `Sending`（取代旧 `corr_to_send`）。

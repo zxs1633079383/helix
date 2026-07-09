@@ -28,8 +28,8 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
+    MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -361,10 +361,61 @@ impl Storage for HostStorage {
         let writer = Arc::clone(&self.writer);
         let trace = current_storage_trace_context();
         tokio::task::spawn_blocking(move || {
+            let mut set_cols = spec.set_cols;
+            let conn = writer.lock().map_err(map_lock_err)?;
+
+            if !spec.json_list_appends.is_empty() {
+                let select_cols = std::iter::once(spec.guard_col)
+                    .chain(spec.json_list_appends.iter().map(|append| append.list_col))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let select_sql = format!(
+                    "SELECT {select_cols} FROM {table} WHERE {key} = ?",
+                    table = spec.table,
+                    key = spec.key_col,
+                );
+                let key_values = sql_values(std::iter::once(&spec.key_val));
+                let mut stmt = conn.prepare_cached(&select_sql).map_err(map_sqlite_err)?;
+                let _span = trace_sql(&trace, "SELECT", Some(spec.table), &select_sql, &key_values);
+                let mut rows = stmt
+                    .query(params_from_iter(key_values.iter()))
+                    .map_err(map_sqlite_err)?;
+                let Some(row) = rows.next().map_err(map_sqlite_err)? else {
+                    return Ok(());
+                };
+                let current_guard: i64 = row.get(0).unwrap_or(0);
+                if spec.guard_val <= current_guard {
+                    return Ok(());
+                }
+
+                for (idx, append) in spec.json_list_appends.iter().enumerate() {
+                    if append.value.is_empty() {
+                        continue;
+                    }
+                    let current: Option<String> = row.get(idx + 1).unwrap_or(None);
+                    let merged = merge_json_text_list(current.as_deref(), append.value.as_str());
+                    let count = merged.len() as i64;
+                    set_cols.push((
+                        append.list_col.to_string(),
+                        SqlValue::Text(
+                            serde_json::to_string(&merged).unwrap_or_else(|_| "[]".to_string()),
+                        ),
+                    ));
+                    if let Some(count_col) = append.count_col {
+                        set_cols.push((count_col.to_string(), SqlValue::Integer(count)));
+                    }
+                }
+            }
+
             // SET 片段：先自增列（delta 走**绑定参数** `?`，非内插 SQL 文本——HX-C005：SQL 文本
             // 不随 bump_delta 值变 → prepare_cached 同形状命中，零 per-delta 重编译），再可选绝对列。
             let mut set_parts = vec![format!("{bump} = {bump} + ?", bump = spec.bump_col)];
-            set_parts.extend(spec.set_cols.iter().map(|(k, _)| format!("{k} = ?")));
+            set_parts.extend(
+                spec.extra_bumps
+                    .iter()
+                    .map(|(bump, _)| format!("{bump} = {bump} + ?")),
+            );
+            set_parts.extend(set_cols.iter().map(|(k, _)| format!("{k} = ?")));
             let sql = format!(
                 "UPDATE {table} SET {set} WHERE {key} = ? AND ? > {guard}",
                 table = spec.table,
@@ -372,14 +423,18 @@ impl Storage for HostStorage {
                 key = spec.key_col,
                 guard = spec.guard_col,
             );
-            // 绑定顺序与 SQL 占位一致：bump_delta → set_cols 值… → key_val → guard_val。
+            // 绑定顺序与 SQL 占位一致：bump_delta → extra_bumps delta… → set_cols 值… → key_val → guard_val。
             let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
-            params.extend(sql_values(spec.set_cols.iter().map(|(_, v)| v)));
+            params.extend(
+                spec.extra_bumps
+                    .iter()
+                    .map(|(_, delta)| Value::Integer(*delta)),
+            );
+            params.extend(sql_values(set_cols.iter().map(|(_, v)| v)));
             params.extend(sql_values(std::iter::once(&spec.key_val)));
             params.extend(sql_values(std::iter::once(&SqlValue::Integer(
                 spec.guard_val,
             ))));
-            let conn = writer.lock().map_err(map_lock_err)?;
             let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
             let _span = trace_sql(&trace, "UPDATE", Some(spec.table), &sql, &params);
             stmt.execute(params_from_iter(params.iter()))
@@ -485,6 +540,39 @@ impl Storage for HostStorage {
         .await
         .map_err(map_join_err)?
     }
+
+    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
+        let DeleteWhereSpec {
+            table,
+            key_col,
+            key_val,
+        } = spec;
+        let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
+        let table = table.to_string();
+        let key_col = key_col.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = writer.lock().map_err(map_lock_err)?;
+            let sql = format!("DELETE FROM {table} WHERE {key_col} = ?");
+            let values = sql_values(std::iter::once(&key_val));
+            let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
+            conn.execute(&sql, params_from_iter(values.iter()))
+                .map(|_| ())
+                .map_err(map_sqlite_err)
+        })
+        .await
+        .map_err(map_join_err)?
+    }
+}
+
+fn merge_json_text_list(current: Option<&str>, value: &str) -> Vec<String> {
+    let mut out = current
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+        .unwrap_or_default();
+    if !out.iter().any(|item| item == value) {
+        out.push(value.to_string());
+    }
+    out
 }
 
 /// 打开写连接：READ_WRITE | CREATE，NO_MUTEX（B2，连接被 Rust Mutex 独占）+ URI。

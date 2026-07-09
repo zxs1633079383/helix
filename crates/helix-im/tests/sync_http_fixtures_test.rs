@@ -95,7 +95,7 @@ fn too_long_fixture_parses_to_too_long_with_reset_to() {
         SyncResponse::TooLong { reset_to } => {
             assert_eq!(
                 reset_to.0, 40114,
-                "too_long 的 resetTo 锚 maxSeq（清内存不清表）"
+                "too_long 的 resetTo 锚 maxSeq（后续应用层 drop 本地消息并重拉）"
             );
         }
         other => panic!("kind=too_long 应解析为 SyncResponse::TooLong，实得 {other:?}"),

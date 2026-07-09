@@ -65,8 +65,9 @@ pub fn bump_channel_unread(upd: &crate::channel_write::PostChannelUpdate) -> Eff
 
 /// `bump_channel_unread` 的 StorageOp 内核，供 sync 应用路径并入同一 Persist 批。
 pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> StorageOp {
-    use helix_core::effect::{GuardedBumpSpec, SqlValue};
+    use helix_core::effect::{GuardedBumpSpec, JsonListAppendSpec, SqlValue};
     let mut set_cols: Row = Vec::with_capacity(3);
+    let mut json_list_appends = Vec::new();
     if let Some(ref pid) = upd.unread_post_id {
         set_cols.push(("unread_post_id".to_string(), SqlValue::Text(pid.clone())));
     }
@@ -79,6 +80,25 @@ pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> 
     if upd.has_schedule_post {
         set_cols.push(("has_schedule_post".to_string(), SqlValue::Integer(1)));
     }
+    if upd.mention_hit && !upd.post_id.is_empty() {
+        json_list_appends.push(JsonListAppendSpec {
+            list_col: "mention_list",
+            value: upd.post_id.clone(),
+            count_col: Some("mention_count"),
+        });
+        set_cols.push((
+            "mention_user".to_string(),
+            SqlValue::Text(serde_json::json!(upd.mentions).to_string()),
+        ));
+    }
+    if upd.urgent_hit && !upd.post_id.is_empty() {
+        json_list_appends.push(JsonListAppendSpec {
+            list_col: "urgent_post_list",
+            value: upd.post_id.clone(),
+            count_col: Some("urgent_count"),
+        });
+        set_cols.push(("has_urgent_post".to_string(), SqlValue::Integer(1)));
+    }
     set_cols.push((
         "last_root_post_at".to_string(),
         SqlValue::Integer(upd.msg_create_at),
@@ -89,9 +109,22 @@ pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> 
         key_val: SqlValue::Text(upd.channel_id.as_str().to_string()),
         bump_col: "unread_count",
         bump_delta: upd.unread_delta,
+        extra_bumps: Vec::new(),
+        json_list_appends,
         set_cols,
         guard_col: "last_root_post_at",
         guard_val: upd.msg_create_at,
+    })
+}
+
+/// 读取写后的 channel 投影行。通常跟在 `GuardedBump` 之后放入同一 `Persist{corr}` 批次，
+/// 由 driver 顺序执行并把最后一个 `Get` 的 row 回给 Helix 组装累计 DialogPatch。
+pub fn get_channel_row_op(channel_id: ChannelId) -> StorageOp {
+    use helix_core::effect::{GetSpec, SqlValue};
+    StorageOp::Get(GetSpec {
+        table: "channel",
+        key_col: "id",
+        key_val: SqlValue::Text(channel_id.as_str().to_string()),
     })
 }
 
@@ -107,4 +140,39 @@ pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
             value: target_seq.0 as i64,
         })],
     }
+}
+
+/// too_long drop-and-reload：丢弃该 channel 的本地消息派生视图。
+pub fn drop_channel_messages_op(channel_id: ChannelId) -> StorageOp {
+    use helix_core::effect::{DeleteWhereSpec, SqlValue};
+    StorageOp::DeleteWhere(DeleteWhereSpec {
+        table: "message",
+        key_col: "channel_id",
+        key_val: SqlValue::Text(channel_id.as_str().to_string()),
+    })
+}
+
+/// too_long drop-and-reload：清理 channel 上由消息增量派生的 Dialog 字段。
+pub fn reset_channel_dialog_op(channel_id: ChannelId) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "channel",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+        patch: vec![
+            ("last_post".to_string(), SqlValue::Text(String::new())),
+            ("unread_post_id".to_string(), SqlValue::Text(String::new())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("mention_count".to_string(), SqlValue::Integer(0)),
+            ("mention_list".to_string(), SqlValue::Text(String::new())),
+            ("mention_user".to_string(), SqlValue::Text(String::new())),
+            ("urgent_count".to_string(), SqlValue::Integer(0)),
+            (
+                "urgent_post_list".to_string(),
+                SqlValue::Text(String::new()),
+            ),
+            ("has_urgent_post".to_string(), SqlValue::Integer(0)),
+            ("has_more".to_string(), SqlValue::Integer(1)),
+        ],
+    })
 }

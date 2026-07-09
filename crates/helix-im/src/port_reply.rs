@@ -50,10 +50,16 @@ impl ImModule {
             CorrelationContext::ChannelPersist {
                 channel_id,
                 wants_continuation,
+                dialog_patches,
             } => match outcome {
-                PortOutcome::Ok(_) => {
+                PortOutcome::Ok(reply) => {
                     if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                         ch.on_persist_ok(corr, out)?;
+                    }
+                    for pending in dialog_patches {
+                        if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
+                            out.push(effect);
+                        }
                     }
                     // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
                     if wants_continuation {
@@ -71,6 +77,65 @@ impl ImModule {
                     if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                         ch.last_sync_from_seq = None;
                     }
+                }
+            },
+
+            CorrelationContext::DialogPatchByPost { pending } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
+                        out.push(effect);
+                    } else {
+                        tracing::warn!(
+                            channel_id = pending.channel_id.as_str(),
+                            corr = corr.raw(),
+                            "dialog patch channel row readback empty; skip emit to avoid delta-as-total"
+                        );
+                    }
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(
+                        channel_id = pending.channel_id.as_str(),
+                        corr = corr.raw(),
+                        error = ?e,
+                        "dialog patch channel write/read failed"
+                    );
+                }
+            },
+
+            CorrelationContext::TooLongReload {
+                channel_id,
+                reset_to,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    self.handle_too_long_reload_reply(channel_id, reset_to, reply, out)?;
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        reset_to = reset_to.0,
+                        error = ?e,
+                        "too_long getLatestPost reload failed"
+                    );
+                }
+            },
+
+            CorrelationContext::TooLongReloadPersist {
+                channel_id,
+                dialog_patches,
+            } => match outcome {
+                PortOutcome::Ok(reply) => {
+                    for pending in dialog_patches {
+                        if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
+                            out.push(effect);
+                        }
+                    }
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        error = ?e,
+                        "too_long reload persist failed"
+                    );
                 }
             },
 
@@ -281,6 +346,109 @@ impl ImModule {
         Ok(())
     }
 
+    fn handle_too_long_reload_reply(
+        &mut self,
+        channel_id: ChannelId,
+        reset_to: crate::state::Seq,
+        reply: &helix_core::tick::ReplyBytes,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let raw_body = match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw) => raw,
+            Err(e) => {
+                tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    error = ?e,
+                    "too_long getLatestPost reply envelope decode failed"
+                );
+                return Ok(());
+            }
+        };
+        let mut posts = extract_latest_posts(raw_body.as_ref());
+        if posts.is_empty() {
+            return Ok(());
+        }
+        posts.sort_by_key(|post| {
+            post_event_seq(post).unwrap_or_else(|| {
+                post.get("createAt")
+                    .or_else(|| post.get("create_at"))
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(reset_to.0)
+            })
+        });
+
+        let auth_user_id = self.config.auth_user_id.as_str();
+        let mut ops = Vec::new();
+        let mut dialog_patches = Vec::new();
+        for post in posts {
+            let mut fields = crate::ws::parser::extract_post_fields(&post);
+            if fields.channel_id.is_empty() {
+                fields.channel_id = channel_id.as_str().to_string();
+            }
+            let seq = post_event_seq(&post).unwrap_or(reset_to.0);
+            let msg_id = post
+                .get("id")
+                .or_else(|| post.get("postId"))
+                .or_else(|| post.get("post_id"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(fields.id.as_str())
+                .to_string();
+            let update =
+                crate::channel_write::post_updates_from_fields(channel_id, &fields, auth_user_id);
+            if !update.visible {
+                continue;
+            }
+            let ev = crate::sync_session::EventEnvelope::new(
+                channel_id,
+                crate::state::Seq(seq),
+                crate::sync_session::EventKind::PostUpsert,
+                fields.clone(),
+            )
+            .with_msg_id(Some(msg_id.clone()));
+            ops.push(crate::channel::event_to_upsert_op(&ev));
+            dialog_patches.push(crate::dialog_patch::PendingDialogPatch::new(
+                channel_id,
+                seq,
+                msg_id.as_str(),
+                &fields,
+                &update,
+                "too_long_reload",
+            ));
+        }
+
+        for pending in &dialog_patches {
+            ops.push(crate::acl::to_effect::bump_channel_unread_op(
+                &pending.update,
+            ));
+        }
+        if !dialog_patches.is_empty() {
+            ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
+        }
+        if ops.is_empty() {
+            return Ok(());
+        }
+
+        let persist_corr = self.alloc_corr_internal();
+        let emit_dialog_patches = dialog_patches
+            .last()
+            .cloned()
+            .into_iter()
+            .collect::<Vec<_>>();
+        out.push(helix_core::Effect::Persist {
+            corr: persist_corr,
+            ops,
+        });
+        self.state.corr_map.insert(
+            persist_corr,
+            CorrelationContext::TooLongReloadPersist {
+                channel_id,
+                dialog_patches: emit_dialog_patches,
+            },
+        );
+        Ok(())
+    }
+
     fn handle_upload_port_reply(
         &mut self,
         pending_upload: crate::send::upload_props::PendingUpload,
@@ -413,6 +581,40 @@ impl ImModule {
         }
         Ok(())
     }
+}
+
+fn extract_latest_posts(raw_body: &[u8]) -> Vec<serde_json::Value> {
+    let Ok(root) = serde_json::from_slice::<serde_json::Value>(raw_body) else {
+        return Vec::new();
+    };
+    for candidate in [
+        root.pointer("/data/posts"),
+        root.pointer("/data/items"),
+        root.pointer("/data/list"),
+        root.pointer("/data"),
+        root.get("posts"),
+        root.get("items"),
+    ] {
+        if let Some(serde_json::Value::Array(items)) = candidate {
+            return items
+                .iter()
+                .filter(|item| item.is_object())
+                .cloned()
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+fn post_event_seq(post: &serde_json::Value) -> Option<u64> {
+    post.get("eventSeq")
+        .or_else(|| post.get("event_seq"))
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| {
+            post.get("props")
+                .and_then(|props| props.get("channel_event_seq"))
+                .and_then(serde_json::Value::as_u64)
+        })
 }
 
 fn parse_upload_success_reply(

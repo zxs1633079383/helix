@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::Seq;
 use crate::sync_session::{EventEnvelope, EventKind};
+use helix_core::effect::StorageOp;
 use helix_core::{Effect, EffectSink};
 
 fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
@@ -17,6 +18,15 @@ fn is_too_long_emit(e: &Effect) -> bool {
             if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))
 }
 
+fn is_message_drop(e: &Effect) -> bool {
+    matches!(e, Effect::PersistFire { ops }
+    if ops.iter().any(|op| matches!(
+        op,
+        StorageOp::DeleteWhere(spec)
+            if spec.table == "message" && spec.key_col == "channel_id"
+    )))
+}
+
 /// 回归锚: E6 —— gate buffer 客户端上限。
 ///
 /// 制造永久缺口（全部 seq >= 2，缺 seq=1），持续灌入远超 MAX_GATE_BUFFER 的
@@ -27,6 +37,7 @@ fn test_gate_buffer_capped_proactive_too_long_e6() {
     let mut ch = Channel::new(crate::state::test_channel_id(7), 0); // cursor=0 → expected=1，制造永久缺口
     let mut fx = EffectSink::new();
     let mut saw_too_long = false;
+    let mut saw_message_drop = false;
 
     // 灌到越过上限 + 余量，确保触发至少一次主动恢复
     for seq in 2..(MAX_GATE_BUFFER as u64 + 2 + 128) {
@@ -41,11 +52,18 @@ fn test_gate_buffer_capped_proactive_too_long_e6() {
         if fx.as_slice().iter().any(is_too_long_emit) {
             saw_too_long = true;
         }
+        if fx.as_slice().iter().any(is_message_drop) {
+            saw_message_drop = true;
+        }
     }
 
     assert!(
         saw_too_long,
         "越过 buffer 上限必须主动 emit im:sync:too_long（不再静等服务端）"
+    );
+    assert!(
+        saw_message_drop,
+        "越过 buffer 上限必须同步 drop local channel messages，不能只发 too_long 控制事件"
     );
     assert_eq!(
         ch.cursor.value(),
@@ -81,6 +99,14 @@ fn bump_ev(ch: u64, seq: u64) -> EventEnvelope {
         last_post: "x".to_string(),
         has_schedule_post: false,
         msg_create_at: 1_000,
+        visible: true,
+        sender_user_id: "other".to_string(),
+        post_id: "p".to_string(),
+        last_message: "x".to_string(),
+        mentions: Vec::new(),
+        urgent_user_ids: Vec::new(),
+        mention_hit: false,
+        urgent_hit: false,
     };
     EventEnvelope::new(
         crate::state::test_channel_id(ch),

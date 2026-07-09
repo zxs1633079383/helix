@@ -24,7 +24,7 @@ use helix_core::effect::SqlValue;
 
 pub use members::{collect_member_leaves, collect_members};
 pub use patch::collect_present;
-pub use post::{post_updates, post_updates_from_fields, PostChannelUpdate};
+pub use post::{message_class, post_updates, post_updates_from_fields, PostChannelUpdate};
 pub use program::program_full;
 
 /// 一列（列名 `&'static str` 编译期常量，值 owned）。

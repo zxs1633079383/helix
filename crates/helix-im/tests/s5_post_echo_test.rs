@@ -108,28 +108,29 @@ fn s5_post_action_echo_reconciles() {
     );
 }
 
-/// 回归锚: S5 —— sender 豁免下沉 driver：core 无身份 → echo 保守产 unread bump=1。
+/// 回归锚: S5 —— temporaryId 命中 pending send 即可识别 own echo，core 无身份也不能加 unread。
 ///
-/// 钉死分层契约：helix-core **不**在内核做 sender 豁免（避免引入身份）；auth_user_id 空 →
-/// 保守计入（不漏未读），故 echo 仍产 GuardedBump unread+1；真正的「自己发的不计未读」由
-/// driver 注入真 auth_user_id 后裁决（与 emit 路径把 sender 豁免下沉前端同策略）。
+/// 钉死分层契约：身份归属仍不进 helix-core；但 `temporaryId` 命中在途 send 是本端 echo 的强信号，
+/// Helix 应直接把 unread_delta 置 0，同时保留 GuardedBump 写 lastPost，前端不再做 +1/-1 补偿。
 #[test]
-fn s5_core_echo_conservatively_bumps_unread_sender_exemption_deferred() {
+fn s5_core_echo_temporary_id_hit_does_not_increment_unread() {
     let mut h = Harness::new(&[1]);
     let _ = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
     let _ = h.step(post_echo_frame(1, 1, "tmp_e", 42), 1100);
 
     let bump = h.sink.as_slice().iter().find_map(|e| match e {
-        Effect::PersistFire { ops } => ops.iter().find_map(|op| match op {
-            StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => Some(s.bump_delta),
-            _ => None,
-        }),
+        Effect::PersistFire { ops } | Effect::Persist { ops, .. } => {
+            ops.iter().find_map(|op| match op {
+                StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => Some(s.bump_delta),
+                _ => None,
+            })
+        }
         _ => None,
     });
     assert_eq!(
         bump,
-        Some(1),
-        "S5/分层：core 无身份 → echo 保守产 unread bump=1（sender 豁免下沉 driver），got {bump:?}"
+        Some(0),
+        "temporaryId 命中 pending send 的 own echo 不得增加 unread_count，got {bump:?}"
     );
 }
 

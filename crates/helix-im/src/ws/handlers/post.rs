@@ -49,6 +49,7 @@ impl WsMessageHandler for PostHandler {
         // 仅当 temporary_id 命中在途 send 时才实际对账（内部门控）。
         let echo_tmp_id = ev.fields.temporary_id.clone();
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
+        let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
         reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
 
         // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
@@ -60,22 +61,22 @@ impl WsMessageHandler for PostHandler {
         // BLOCKING-1：auth_user_id 由 host 经 ctx 注入真值。`post_updates` 据此做 ① sender 豁免
         // （自己消息 +0，真源 message_service.rs:342）② 可见性门控（viewers 不含自己 → +0）。
         // echo 帧（本端回流）显式跳过（temporary_id 命中在途 send 或 user_id==self），即便落库也绝不
-        // bump（§5 验收：echo 无 unread）；此判定在 handler（有 ctx）做，对**乱序帧同样有效**，故
+        // bump（own echo 无 unread，temp_id 命中不依赖 auth）；此判定在 handler（有 ctx）做，对**乱序帧同样有效**，故
         // 「乱序自端 echo」无需依赖额外假设。重复/旧消息（seq<=cursor）由 gate dup-drop 不 apply →
         // 不发；GuardedBump 守卫（create_at > last_root_post_at）再兜底幂等。
-        let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
-        let unread_bump = if is_echo {
-            None
-        } else {
-            parse_post_data(frame).map(|data| {
-                crate::channel_write::post_updates(
-                    ev.channel_id,
-                    data,
-                    ctx.auth_user_id,
-                    ev.fields.create_at,
-                )
-            })
-        };
+        let unread_bump = parse_post_data(frame).map(|data| {
+            let mut update = crate::channel_write::post_updates(
+                ev.channel_id,
+                data,
+                ctx.auth_user_id,
+                ev.fields.create_at,
+            );
+            if is_echo {
+                update.unread_delta = 0;
+                update.unread_post_id = None;
+            }
+            update
+        });
         let ev = ev.with_unread_bump(unread_bump);
 
         // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）。**陌生 channel 自动注册**
@@ -105,7 +106,12 @@ impl WsMessageHandler for PostHandler {
         // 守不变量：**不推 cursor**（HX-C008——cursor 仍由 ch.ingest 的 gate 严格 +1 推进，gap 经
         // buffer/sync 回补；本兜底只发投影）。buffer 后续 flush 时会再 emit 同投影（壳按 msgId
         // 幂等 upsert·无害）。字段集走冻结 message_item_data（C004 不改契约）。
-        let post_settle = if ev.seq.0 != ch.cursor.value().0 + 1 {
+        let post_visible = ev
+            .unread_bump
+            .as_ref()
+            .map(|update| update.visible)
+            .unwrap_or(true);
+        let post_settle = if post_visible && ev.seq.0 != ch.cursor.value().0 + 1 {
             let msg_id = ev
                 .msg_id
                 .as_deref()
@@ -125,11 +131,25 @@ impl WsMessageHandler for PostHandler {
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
 
-        ch.ingest(ev, out, ctx.now_ms)?;
+        let recent_start = out.as_slice().len();
+        let mut dialog_patches = Vec::new();
+        ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut dialog_patches)?;
+        super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
 
         // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
         if let Some(eff) = post_settle {
             out.push(eff);
+        }
+        for pending in dialog_patches {
+            let corr = ctx.alloc_corr();
+            out.push(helix_core::Effect::Persist {
+                corr,
+                ops: pending.storage_ops(),
+            });
+            ctx.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::DialogPatchByPost { pending },
+            );
         }
         if let Some((persist, emit)) = pin_effect {
             out.push(persist);

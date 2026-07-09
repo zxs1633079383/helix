@@ -45,9 +45,10 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 ## 1. 投影出口全集（23 工厂 → 22 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
-> 数据在手零回读，见 §2）。下表 message-row 行 data 键集已更新为完整集；channel-row 信号（channel:update /
-> channel:update-by-post）**故意留瘦**（完整 DialogItem 是累计 DB 行非在手，fat 会触发每事件热路径回读 → 违
-> SPEC §2 铁律）。**fat 完整集 = `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
+> 数据在手零回读，见 §2）。`im:channel:update-by-post` 在 2026-07-09 Dialog 指令化投影中升级为
+> **render-ready Dialog patch**：普通/艾特/加急分类、sender、lastPost/lastMessage、事件 delta
+> 与 Helix storage 写后累计 Dialog 终值随事件输出，前端可直接覆盖会话行；`im:channel:update` 仍是批次结束瘦信号。**fat 完整集 =
+> `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）
 > + `sendStatus`/`reactions`/`templateReceived`/`systemNotice`/`pinned`（**render-ready 终态**·issue #53 授权演进）。
 >
@@ -65,14 +66,15 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `unread`（← unread_count **终值**·前端 badge 直绑·**不再壳 ++**）、`mention`（← mention_count>0 ‖ mention_count_root>0 bool·艾特 badge）、
 > `lastMessage`（← last_post 解析取 message/content/text 预览·非 JSON 兜底整串·空→null）、`urgent`（← last_post 的
 > isUrgent/isExpedite/props.expedite/props.urgent 任一非空 bool·加急 badge）。实现外提 `query_dialog_render.rs`（守 structure-gate）。
-> 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影，非 channel:update-by-post 瘦信号（后者维持 §2 铁律留瘦）。
+> 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影；热路径 `channel:update-by-post`
+> 只在 `GuardedBump` 写后追加 `Get(channel)` 读回单行累计 Dialog 字段，不让前端按事件 delta 自增。
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
 | `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `temporaryId` `channelId` `userId` `type` `message` `props` `createAt` `updateAt` `readBits` `viewers` `sendStatus` `reactions` `templateReceived` `systemNotice` `pinned`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `readBits` `text` `type`（S6·render-ready 乐观终态行·前端纯绑定）| 发送乐观上屏 |
 | `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus`（`sendStatus="failed"`·按 temporaryId patch 乐观行）| `posts/create` HTTP PortError 立即失败 |
-| `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` | sync kind=too_long |
+| `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` `mode` `dropLocalMessages` | sync kind=too_long / gate buffer overflow（drop local messages + reload） |
 | `to_effect::emit_connection_established` | `im:connection:established` | `connectionId` | hello 握手完成 |
 | `to_effect::emit_channels_loaded` | `im:channels:loaded` | `items` | hello 冷启动补齐 |
 | `to_effect::emit_channel_increment` | `im:channel:increment` | `channel_id` `increment` | WS `increment_channel` |
@@ -82,7 +84,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_updated` | `im:post:updated` | **fat**（同 `emit_post_received` 完整集）| sync type2 编辑（可见）|
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
-| `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `channel_id` `event_seq` `msg_id`（**留瘦**·channel-row）| sync type1 可见（离线未读 +N）|
+| `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
 | `to_effect_s1::emit_channel_created` | `im:channel:created` | `channel_id` `channel` | WS `channel_created` |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `channelId` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
@@ -99,9 +101,9 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `mention_count_root`/`last_post`/`unread_post_id`/`last_event_seq` 等，列名 = §4 DB 列）。**前端零计算
 > unread/badge、零回读**（UC-3 unread 计算下放 helix 达成，前端 messageDialog 的 unread 计算移除）。
 > 🔴 **HX-C005 守约**：本命令在 hot-path 外（spec06 §2 边界 line87-89「server 端回读仅限低频非每事件
-> 命中」），故 Scan channel 表合规——与 §2 channel-row 信号「故意留瘦」**不矛盾**：热路径 badge 信号
-> （`im:channel:update*`）每事件命中**必须瘦**（fat 会触发每事件回读违铁律）；完整 dialogList 由本**低频**
-> 命令补齐。两条路分工：热路径瘦信号触发前端「该刷了」，前端低频调本命令拉**完整**列表渲染。
+> 命中」），故 Scan channel 表合规——与 §2 `im:channel:update-by-post` 的热路径 patch **不矛盾**：
+> 热路径只吐本事件 delta，不回读整行；完整 dialogList 由本**低频**命令补齐。两条路分工：
+> 热路径 patch 让前端先直改当前会话行，低频查询再校准完整累计列表。
 > 它**替代**前端原「按 channel_id 回读 dialogList + 自算 unread」蠢模式（spec06 P1 回正 line84）。
 
 > **`im:channels:loaded` 双形态**：hello 冷启动路径产 `{items:[]}`（`emit_channels_loaded`），
@@ -220,13 +222,14 @@ postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义�
 
 ---
 
-## 2. message-row fat vs channel-row thin vs 透传类（前端如何消费 · spec06 FixB 重写）
+## 2. message-row fat vs Dialog patch vs 透传类（前端如何消费 · spec06 FixB 重写）
 
 > **spec06 缺陷B 修复（用户拍板）**：原 §2 把所有 `im:post:*`/`im:channel:*` 信号一律设计成「三键瘦信号 +
 > 前端按 id 回读本地 DB」——但 message-row 事件 helix **写完那行时数据就在手**（同一份 `PostFields` 正落库），
 > 却只吐个信号逼前端二次查库（N 个渲染组件各查一次 = N 次冗余 DB 读）= **蠢代码**。修复：**message-row 信号
 > 一次吐完整可渲染行（fat），UI 直渲零回读**。原「瘦信号防塞半份」的顾虑是针对「**部分**数据」——吐**完整**
-> 数据无覆盖问题，顾虑自解。**但 channel-row 信号留瘦**（理由见下，hot-path 回读铁律）。
+> 数据无覆盖问题，顾虑自解。2026-07-09 Dialog 侧再把 `im:channel:update-by-post` 升级为
+> **指令化 patch**：只吐本事件可确定的 Dialog patch/delta，不在热路径回读整行累计值。
 
 helix emit 分三类，决定前端「拿到事件后做什么」：
 
@@ -250,19 +253,29 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 > 完整字段 → 前端拿不到 = 回退「半份回读」蠢模式 → 测试 fail（`projection_schema_test` 注入缺字段证伪）。
 > 与旧契约相反：旧契约「多一字段即漂移」，新契约「**少一字段即漂移**」（完整才是正解）。
 
-### channel-row thin 类（留瘦三键/单键，前端 debounced 回读累计 DB 行）
+### Dialog patch 类（可见 post 直接 patch 会话行）
 
-`im:channel:update`（`{channel_id}`）/ `im:channel:update-by-post`（`{channel_id, event_seq, msg_id}`）。
+`im:channel:update-by-post` 保留 legacy `channel_id/event_seq/msg_id` anchor，同时增加 render-ready
+`dialogPatch`：
 
-这些事件的渲染对象是 **DialogItem（channel 行，~50 列：unreadCount/lastPost/mentionCount/…）**——它是
-**跨多帧 `increment_channel` 累计 + `lastPost` join 出的 DB 行**，emit 时**不在手**（是 channel 表 patch 的
-*结果*，非单事件载荷）。**故意留瘦**：
+- `messageClass`：`normal` / `mention` / `urgent` / `mention_urgent`；
+- `senderUserId`：`userSnapshot.userId` 优先，回退 `userId`；
+- `lastPost` / `lastMessage`：来自当前可见 post，在手输出，不依赖额外 `update_channel`；
+- `unreadDelta` / `mentionDelta` / `urgentDelta`：本事件增量，仅作调试/兼容信号，不作为前端累计源；
+- `dialogPatch.unreadCount` / `mentionCount` / `urgentCount`：来自 `GuardedBump` 写后 `Get(channel)` 的累计终值；
+- `mentionList` / `urgentPostList`：来自写后 `channel` 行的 set-union 结果，语义是绝对覆盖，不是 `[当前 post_id]`；
+- `mentionedUserIds` / `urgentUserIds`：当前事件命中的 userId 列表（先用 userId，不做成员名解析）；
+- `readLastSeq` / `msgCount`：当前 Helix `channel_member` schema/write path 尚未闭环，render-ready patch 暂不输出这些字段；见根目录 `NEED_HELIX_CHANNEL_MEMBER_FIX.md`。
 
-> 🔴 **为何不 fat（SPEC §2 热路径回读铁律 line68-75）**：fat 化 channel-row 必须 server 端回读 channel 行。
-> 而 `update-by-post`（sync type1）/ `increment_channel`(end) 是**每事件命中的热路径**——每事件回读 =
-> 「前端 N 次回查」搬成「helix 每事件回读」，**性能问题没消除只换地方，还碰 HX-C005**。判据（SPEC §2 边界
-> line87-89）：该事件渲染需「累计 DB 行」且在热路径 → **留瘦**。前端按 `channel_id` 在 **batch 结束**
-> （`increment_channel_end` debounced，**非每消息**）回读一次 dialogList 行刷 badge = **低频**回读（可接受）。
+> 🔴 **HX-C005 守约**：该 patch 使用当前 post 的在手 `PostFields` + `PostChannelUpdate` 计算事件语义，
+> 再通过同一 Persist 批次里的 `GuardedBump -> Get(channel)` 取得写后累计终值。I/O 仍是 Effect/StorageOp，
+> core 不理解 IM 业务列；前端只接收覆盖投影，不做 read-modify-render。
+
+### channel-row thin 类（批次结束单键，前端可低频回读累计 DB 行）
+
+`im:channel:update`（`{channel_id}`）仍是批次结束瘦信号。完整 DialogItem（channel 行，~50 列：
+`unreadCount/lastPost/mentionCount/…`）是跨多帧累计结果，不在该事件手上；前端若要校准累计终值，
+应按 batch / 低频 invoke 回读 `dialogList`，而不是每条 post 回读。
 
 ### 透传/投影类（携完整 wire 数据或 DB 行，前端直接消费）
 
@@ -340,7 +353,7 @@ im:post:received        → POST handler（**fat 直渲** message_item_data，�
 im:channel:update       → UPDATE_CHANNEL handler（thin·按 channel_id batch 结束回读 dialogList 刷 badge）
 im:messages:query_result→ 投影 handler（直接渲染 `{channel_id, messages:[...]}`，不走 `{items:[]}` 解包）
 im:channels:projection  → 会话列表 handler（直接渲染 dialogList，前端零计算 unread/badge·UC-3）
-im:sync:too_long        → onRustTooLong（按 channelId 清内存 buffer + cursor=resetTo-1）
+im:sync:too_long        → onRustTooLong（按 channelId drop local messages + cursor=resetTo-1 + reload 首屏）
 ...（其余 16 channel 同理；message-row 信号 fat 直渲 / channel-row 信号 thin 低频回读）
 ```
 

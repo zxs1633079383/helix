@@ -3,7 +3,7 @@
 //! 回归锚: S6（SPEC-sync-v2-full-replacement.md §S6）
 //!
 //! 补齐既有 gate_test / increment_flow_test 未显式锁定的契约：
-//! - too_long **不在 Rust DELETE message**（只 emit + 复位 cursor，清表交前端）；
+//! - too_long 在 Rust 侧 drop channel 本地 message，并 emit drop_and_reload；
 //! - increment_end fan-out 对 (fetched − skip) **确定性有序**（HX-C010，ChannelId: Ord）。
 //!
 //! 注：续拉（events.len()>=500 → no_change）已由 e3_continuation_test 覆盖（UC-3）。
@@ -16,11 +16,49 @@ use helix_core::tick::{PortOutcome, ReplyBytes};
 use helix_core::{Correlation, Tick};
 use helix_im::state::ChannelId;
 
-/// 回归锚: S6 —— too_long 只 emit + 复位 cursor，**helix 侧不 DELETE message**（清表交前端）。
+fn latest_post_body(channel_id: u64, msg_id: &str, event_seq: u64) -> bytes::Bytes {
+    use serde_json::json;
+    let body = json!({
+        "status": "SUCCESS",
+        "data": {
+            "posts": [{
+                "id": msg_id,
+                "channelId": cid(channel_id),
+                "eventSeq": event_seq,
+                "userId": "other-user",
+                "type": "TEXT",
+                "message": "reload body",
+                "simpleMessage": "reload body",
+                "viewers": ["all"],
+                "mentions": [],
+                "expediteMap": {},
+                "createAt": 1_700_000_100_i64
+            }]
+        }
+    });
+    bytes::Bytes::from(serde_json::to_vec(&body).unwrap())
+}
+
+fn channel_row_reply(channel_id: u64, unread_count: i64, msg_id: &str) -> bytes::Bytes {
+    use serde_json::json;
+    let row = json!([{
+        "id": cid(channel_id),
+        "unread_count": unread_count,
+        "mention_count": 0,
+        "urgent_count": 0,
+        "mention_list": [],
+        "urgent_post_list": [],
+        "unread_post_id": msg_id,
+        "last_root_post_at": 1_700_000_100_i64,
+    }]);
+    bytes::Bytes::from(serde_json::to_vec(&row).unwrap())
+}
+
+/// 回归锚: S6 —— too_long drop-and-reload，Helix 侧按 channel 丢弃本地 message 派生视图。
 ///
-/// 本测试断言 too_long 批次产出的 Persist/PersistFire ops 中无任何 message 表写/删（不擦库），只 emit。
+/// 本测试断言 too_long 批次产出 `DeleteWhere(message WHERE channel_id=...)`，而不是让前端自清。
 #[test]
-fn s6_too_long_emits_but_does_not_delete_message() {
+fn s6_too_long_drops_channel_messages_and_emits_reload() {
     let mut h = Harness::new(&[1]);
     // 大缺口（seq=5 / cursor=0 / gap=5 > 阈值）→ **立即** backfill resync（根治
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
@@ -50,22 +88,43 @@ fn s6_too_long_emits_but_does_not_delete_message() {
     });
     assert!(saw_emit, "too_long 须 emit im:sync:too_long");
 
-    // 1b. emit payload 须含 resetTo（=服务端 reset_to 100）+ channelId（对齐现网 post.rs:918，
-    // 前端 onRustTooLong 按此做 cursor=resetTo-1 记账 + getLatestPost 重拉）。删 resetTo → FAIL。
+    // 1b. emit payload 须含 resetTo + channelId + drop_and_reload。
     let emit_has_resetto = h.sink.as_slice().iter().any(|e| {
         matches!(e, Effect::Emit { event } if {
             let s = String::from_utf8_lossy(event.0.as_ref());
             s.contains("im:sync:too_long")
                 && s.contains("\"resetTo\":100")
                 && s.contains("\"channelId\"")
+                && s.contains("\"mode\":\"drop_and_reload\"")
+                && s.contains("\"dropLocalMessages\":true")
         })
     });
     assert!(
         emit_has_resetto,
-        "too_long emit 须带 resetTo=100 + channelId（前端 cursor 记账契约，对齐现网）"
+        "too_long emit 须带 resetTo=100 + channelId + drop_and_reload"
     );
 
-    // 2. 不得产生任何 message 表写/删；BatchDelete 只能用于其他有明确作用域的表。
+    // 1c. Critical：不能只 drop/reset + emit，Helix 必须主动发起首屏覆盖重拉。
+    let reload_http = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
+                let body: serde_json::Value =
+                    serde_json::from_slice(req.body.as_ref().expect("reload body").as_ref())
+                        .expect("reload body json");
+                Some((corr.raw(), req.url.clone(), body))
+            }
+            _ => None,
+        })
+        .expect("too_long 后必须由 Helix 主动 Effect::Http getLatestPost 重拉首屏");
+    assert!(reload_http.1.ends_with("/posts/getLatestPost"));
+    assert_eq!(reload_http.2["channelId"], cid(1));
+    assert_eq!(reload_http.2["timestamp"], 0);
+
+    // 2. 必须按 channel 删除 message 派生行；禁止变成全表删或前端自清。
+    let mut saw_message_drop = false;
     for e in h.sink.as_slice() {
         let ops: &[StorageOp] = match e {
             Effect::Persist { ops, .. } => ops,
@@ -73,21 +132,18 @@ fn s6_too_long_emits_but_does_not_delete_message() {
             _ => continue,
         };
         for op in ops {
-            let touches_message = match op {
-                StorageOp::BatchUpsert(s) => s.table == "message",
-                StorageOp::BatchUpdate(s) => s.table == "message",
-                StorageOp::GuardedBump(s) => s.table == "message",
-                StorageOp::MonotonicUpsert(s) => s.table == "message",
-                StorageOp::Scan(s) => s.table == "message",
-                StorageOp::Get(s) => s.table == "message",
-                StorageOp::BatchDelete(s) => s.table == "message",
-            };
-            assert!(
-                !touches_message,
-                "S6：too_long 不得在 Rust 侧写/删 message 表（清表交前端），got op {op:?}"
-            );
+            if let StorageOp::DeleteWhere(s) = op {
+                if s.table == "message" && s.key_col == "channel_id" {
+                    saw_message_drop = true;
+                }
+            }
         }
     }
+    assert!(
+        saw_message_drop,
+        "S6：too_long 须由 Helix drop channel 本地 message，got {:?}",
+        h.sink.as_slice()
+    );
 
     // 3. cursor 复位 reset_to-1 = 99。
     assert_eq!(
@@ -95,6 +151,47 @@ fn s6_too_long_emits_but_does_not_delete_message() {
         Some(99),
         "too_long 须复位 cursor 到 reset_to-1=99"
     );
+
+    // 4. 首屏回包后必须可落库，并在 channel 写后读回后 emit 覆盖 Dialog 投影。
+    h.step(
+        port_reply_with_body(
+            reload_http.0,
+            enveloped(latest_post_body(1, "reload-msg", 100)),
+        ),
+        2200,
+    );
+    let reload_persist = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|e| match e {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
+                ) && ops.iter().any(|op| matches!(op, StorageOp::GuardedBump(_)))
+                    && ops.iter().any(
+                        |op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"),
+                    ) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("getLatestPost 回包后必须落 message + bump channel + Get(channel)");
+
+    h.step(
+        port_reply_with_body(reload_persist, channel_row_reply(1, 1, "reload-msg")),
+        2300,
+    );
+    let reload_patch = h.sink.as_slice().iter().any(|e| {
+        matches!(e, Effect::Emit { event } if {
+            let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+            value["event"] == "im:channel:update-by-post"
+                && value["data"]["source"] == "too_long_reload"
+                && value["data"]["dialogPatch"]["unreadCount"] == 1
+        })
+    });
+    assert!(reload_patch, "重拉落库写后读回后必须 emit 覆盖 DialogPatch");
 }
 
 /// 回归锚: S6 —— increment_end(None global) fan-out 对 (fetched − skip) **确定性有序**

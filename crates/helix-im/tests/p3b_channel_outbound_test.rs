@@ -452,10 +452,11 @@ fn other_user_post_frame(channel_id: u64, seq: u64, post_id: u64) -> Tick {
 
 /// **反 RMW 性质（B5 / HX-C005）**：他人 post 帧 → unread bump 走单条 `GuardedBump`
 /// （SET unread_count=unread_count+1 WHERE id=? AND guard>last_root_post_at）——
-/// **非** read-modify-write（无先 SELECT 读出再写回），**非**全列 upsert。
+/// **非** read-modify-write（无先 SELECT 读出再写回），**非**全列 upsert。DialogPatch 允许在同一
+/// Persist 批次里 `GuardedBump` 之后追加 `Get(channel)`，该读只用于写后累计投影，不参与 +1 计算。
 ///
 /// 可证伪：若把 unread +1 改成「BatchUpsert 全列覆盖」或先 Get 再 BatchUpdate 绝对值 → 本测试
-/// 找不到 GuardedBump（或找到额外 Get/BatchUpsert）→ FAIL。
+/// 找不到 GuardedBump（或找到 Get-before-write / BatchUpsert）→ FAIL。
 #[test]
 fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
     // 无身份（auth 空）→ 保守计入未读（sender 豁免下沉前端）；channel 预注册 cursor=0。
@@ -464,7 +465,9 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
 
     // 收集本批所有 StorageOp（Persist/PersistFire）。
     let mut guarded_bumps = Vec::new();
-    let mut has_get = false;
+    let mut has_get_before_write = false;
+    let mut saw_write_after_get = false;
+    let mut saw_write_after_get_batch = false;
     let mut full_col_upserts_on_channel = 0;
     for e in h.sink.as_slice() {
         let ops: &[StorageOp] = match e {
@@ -473,9 +476,15 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
             // Get 走独立 Effect::Request（scan/get 读路径）——unread bump 路径不该有读。
             _ => &[],
         };
+        let mut wrote_channel_bump = false;
+        let mut saw_channel_get = false;
         for op in ops {
             match op {
                 StorageOp::GuardedBump(spec) if spec.table == "channel" => {
+                    if saw_channel_get {
+                        saw_write_after_get = true;
+                    }
+                    wrote_channel_bump = true;
                     guarded_bumps.push(spec.clone());
                 }
                 StorageOp::BatchUpsert(spec) if spec.table == "channel" => {
@@ -483,7 +492,15 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
                     let _ = spec;
                     full_col_upserts_on_channel += 1;
                 }
-                StorageOp::Get(_) => has_get = true,
+                StorageOp::BatchUpdate(spec) if spec.table == "channel" && saw_channel_get => {
+                    saw_write_after_get_batch = true;
+                }
+                StorageOp::Get(spec) if spec.table == "channel" => {
+                    if !wrote_channel_bump {
+                        has_get_before_write = true;
+                    }
+                    saw_channel_get = true;
+                }
                 _ => {}
             }
         }
@@ -502,8 +519,12 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
         "前进守卫列 = last_root_post_at（防重复/旧消息回退）"
     );
     assert!(
-        !has_get,
-        "unread bump 路径禁 Get 读（RMW 反模式：读出 +1 写回）"
+        !has_get_before_write,
+        "unread bump 路径禁 Get-before-write（RMW 反模式：读出 +1 写回）"
+    );
+    assert!(
+        !saw_write_after_get && !saw_write_after_get_batch,
+        "Get(channel) 只能在 GuardedBump 后用于投影读回，不能读后再写 channel"
     );
     assert_eq!(
         full_col_upserts_on_channel, 0,

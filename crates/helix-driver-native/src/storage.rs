@@ -6,8 +6,8 @@
 //! implementation details.
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
+    MonotonicUpsertSpec, Row as HelixRow, ScanSpec, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -58,5 +58,9 @@ impl Storage for NativeStorage {
 
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
         self.inner.batch_delete(spec).await
+    }
+
+    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
+        self.inner.delete_where(spec).await
     }
 }

@@ -69,10 +69,30 @@ fn sample_fields() -> PostFields {
         user_id: "u_sender".to_string(),
         msg_type: "TEXT".to_string(),
         message: "hello".to_string(),
+        simple_message: "hello".to_string(),
         props: r#"{"k":"v"}"#.to_string(),
+        user_snapshot: r#"{"userId":"u_sender"}"#.to_string(),
         create_at: 1_700_000_000,
         read_bits: "11".to_string(),
         viewers: vec!["all".to_string()],
+        mentions: vec!["u_me".to_string()],
+        expedite_map: r#"{"u_me":true}"#.to_string(),
+    }
+}
+
+fn sample_post_update() -> helix_im::channel_write::PostChannelUpdate {
+    helix_im::channel_write::post_updates_from_fields(ch(), &sample_fields(), "u_me")
+}
+
+fn sample_dialog_projection() -> helix_im::dialog_patch::DialogPatchProjection {
+    helix_im::dialog_patch::DialogPatchProjection {
+        unread_count: 3,
+        mention_count: 1,
+        urgent_count: 1,
+        mention_list: vec![MSG_ID.to_string()],
+        urgent_post_list: vec![MSG_ID.to_string()],
+        unread_post_id: Some(MSG_ID.to_string()),
+        last_root_post_at: 1_700_000_000,
     }
 }
 
@@ -265,17 +285,49 @@ fn empty_type_defaults_to_text() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §1b. channel-row thin 类（故意留瘦：完整 DialogItem 累计 DB 行非在手）
+// §1b. channel-row DialogPatch 类（保留 legacy anchor，并补 render-ready patch）
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn im_channel_update_by_post_stays_thin_signal_triplet() {
-    // channel-row 留瘦：fat 须回读累计 channel 行（每事件热路径，违 SPEC §2 铁律）→ 三键 + 前端低频回读。
-    let e = to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID);
+fn im_channel_update_by_post_is_render_ready_dialog_patch() {
+    let f = sample_fields();
+    let update = sample_post_update();
+    let projection = sample_dialog_projection();
+    let e = to_effect::emit_channel_update_by_post(
+        ch(),
+        SEQ,
+        MSG_ID,
+        &f,
+        &update,
+        &projection,
+        "online_post",
+    );
     assert_frozen(
         &e,
         "im:channel:update-by-post",
-        &["channel_id", "event_seq", "msg_id"],
+        &[
+            "op",
+            "source",
+            "channel_id",
+            "channelId",
+            "event_seq",
+            "eventSeq",
+            "msg_id",
+            "msgId",
+            "messageClass",
+            "visible",
+            "senderUserId",
+            "lastPost",
+            "lastMessage",
+            "unreadDelta",
+            "mentionDelta",
+            "urgentDelta",
+            "mentionedUserIds",
+            "urgentUserIds",
+            "mentionList",
+            "urgentPostList",
+            "dialogPatch",
+        ],
     );
 }
 
@@ -330,7 +382,11 @@ fn im_post_send_failed_freezes_temporary_id_failed_patch() {
 fn im_sync_too_long_freezes_channelid_resetto_camelcase() {
     // 命名陷阱（§6）：channelId/resetTo 是 camelCase（对齐现网 post.rs:918），非 snake。
     let e = to_effect::emit_sync_too_long(ch(), Seq(100));
-    assert_frozen(&e, "im:sync:too_long", &["channelId", "resetTo"]);
+    assert_frozen(
+        &e,
+        "im:sync:too_long",
+        &["channelId", "resetTo", "mode", "dropLocalMessages"],
+    );
 }
 
 #[test]
@@ -503,7 +559,15 @@ fn all_23_projection_factories_covered() {
         to_effect::emit_post_updated(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_batch_updated(ch(), &posts),
         to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f),
-        to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID),
+        to_effect::emit_channel_update_by_post(
+            ch(),
+            SEQ,
+            MSG_ID,
+            &f,
+            &sample_post_update(),
+            &sample_dialog_projection(),
+            "online_post",
+        ),
         to_effect_s1::emit_channel_created(ch(), &raw),
         to_effect_s1::emit_channel_closed(ch(), 0),
         to_effect_s1::emit_channel_member_updated(ch(), &raw),

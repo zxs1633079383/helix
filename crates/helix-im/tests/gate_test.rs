@@ -283,6 +283,49 @@ fn sync_too_long_resets_cursor_and_emits() {
     );
 }
 
+#[test]
+fn proactive_too_long_requests_latest_post_reload_e6() {
+    let mut h = Harness::new(&[7]);
+    let mut saw_too_long = false;
+    let mut saw_reload = false;
+
+    for seq in 2..(16_384_u64 + 2 + 128) {
+        let effects = h.step(inbound_event(7, seq, 1), 1_000 + seq);
+        let step_saw_too_long = h.sink.as_slice().iter().any(|effect| {
+            matches!(effect, helix_core::Effect::Emit { event }
+                if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))
+        });
+        if !step_saw_too_long {
+            continue;
+        }
+        saw_too_long = true;
+        saw_reload = h.sink.as_slice().iter().any(|effect| {
+            let helix_core::Effect::Http { req, .. } = effect else {
+                return false;
+            };
+            if !req.url.contains("posts/getLatestPost") {
+                return false;
+            }
+            let Some(body) = req.body.as_ref() else {
+                return false;
+            };
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(body.as_ref()) else {
+                return false;
+            };
+            value["channelId"] == cid(7)
+        });
+        assert!(
+            effects.iter().any(|e| matches!(e, EffectKind::Http(_))),
+            "proactive too_long 当前 step 必须追加 getLatestPost reload Http，got {:?}",
+            effects
+        );
+        break;
+    }
+
+    assert!(saw_too_long, "应命中 proactive too_long");
+    assert!(saw_reload, "proactive too_long 后必须请求 channel 7 的 getLatestPost");
+}
+
 // ─── 多帧背压：buffer → flush 后连续 ─────────────────────────────────────────
 
 #[test]

@@ -40,7 +40,7 @@ golden fixtures 把「测试用帧」从「手写猜测」升级为「现网真�
 | `connect_init.jsonl`（既有） | `hello` + 运维帧 | 握手 + status_change/multiple_channels_viewed | 见 `real_go_frames_test.rs` |
 | `sync_no_change.json` ⚠️占位 | HTTP `no_change` | `/channel/sync/notify` reply，kind=no_change / nextSeq=maxSeq | `sync_http_fixtures_test.rs`：parse→NoChange |
 | `sync_events.json` ⚠️占位 | HTTP `events` | reply，kind=events / eventSeq 单调 / nextSeq=末条 seq | parse→Events{next_seq,!needs_continuation} |
-| `sync_too_long.json` ⚠️占位 | HTTP `too_long` | reply，kind=too_long / resetTo=maxSeq | parse→TooLong{reset_to}（清内存不清表） |
+| `sync_too_long.json` ⚠️占位 | HTTP `too_long` | reply，kind=too_long / resetTo=maxSeq | parse→TooLong{reset_to}（应用层 drop 本地消息并重拉） |
 
 > ⚠️占位 = PLACEHOLDER：非真 Go 抓帧，按 `parser::parse_sync_response` 文档 wire 形态手填，头注释带
 > 「待真抓」+ 真抓法。`sync_http_fixtures_test.rs` 喂**真 parser** 锁 wire 形态——真帧抓到覆盖文件后

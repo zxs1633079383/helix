@@ -9,6 +9,8 @@
 
 不进入本轮：`bot/agent`、`search`、`vote/average`。
 
+> 2026-07-10 修正：`mentionCount` / `urgentCount` / `unreadCount` 的权威事实源是当前用户的 `channel_member` 行，不是 channel 全局行。本文中“本地 set/bump 计算 count”的描述只允许作为 Helix-derived 快速投影；后端 `update_channel` 单播到达后必须按 member 维度绝对值覆盖。详见 `docs/specs/2026-07-10-member-dialog-projection-e2e-spec.md`。
+
 当前基线：
 
 | 仓库 | worktree | baseline |

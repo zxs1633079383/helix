@@ -14,7 +14,7 @@
 #   HELIX_COOKIE_ID     — identity.cookie_id（默认联调账号；--cookie-id flag 覆盖）
 #   HELIX_COMPANY_ID    — identity.company_id（默认联调公司 id；--company-id flag 覆盖）
 #
-# 前置：yq v4 已装（brew install yq）；helix.config.yaml 在 repo 根。
+# 前置：优先 yq v4；未安装时用内置 Python 轻量解析器读取本仓简单 YAML。
 
 _HELIX_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _HELIX_REPO_ROOT="$(cd "$_HELIX_SCRIPTS_DIR/.." && pwd)"
@@ -27,15 +27,37 @@ if [ ! -f "$HELIX_CONFIG_PATH" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
-if ! command -v yq >/dev/null 2>&1; then
-  echo "⚠️  lib-config.sh: yq 未安装（brew install yq）；脚本变量未设置" >&2
-  return 0 2>/dev/null || exit 0
-fi
-
 # 内部读取辅助（静默，空/null 均返空字符串）
 _hx_yq() {
   local val
-  val=$(yq "$1" "$HELIX_CONFIG_PATH" 2>/dev/null)
+  if command -v yq >/dev/null 2>&1; then
+    val=$(yq "$1" "$HELIX_CONFIG_PATH" 2>/dev/null)
+  else
+    val=$(python3 - "$HELIX_CONFIG_PATH" "$1" <<'PY'
+import sys
+path, expr = sys.argv[1], sys.argv[2].lstrip(".")
+parts = [p for p in expr.split(".") if p]
+stack = []
+values = {}
+for raw in open(path, encoding="utf-8"):
+    line = raw.split("#", 1)[0].rstrip()
+    if not line.strip() or ":" not in line:
+        continue
+    indent = len(line) - len(line.lstrip(" "))
+    key, val = line.strip().split(":", 1)
+    while stack and stack[-1][0] >= indent:
+        stack.pop()
+    stack.append((indent, key.strip()))
+    full = ".".join(k for _, k in stack)
+    val = val.strip()
+    if val:
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        values[full] = val
+print(values.get(".".join(parts), ""))
+PY
+)
+  fi
   [ "$val" = "null" ] && val=""
   printf '%s' "$val"
 }

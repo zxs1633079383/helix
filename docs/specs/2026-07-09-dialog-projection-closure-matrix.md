@@ -12,9 +12,9 @@
 |---|---|---|---|---|---|
 | post `eventSeq/event_seq` | 在线 `publishPostEvent` 同时发 camelCase `eventSeq` 与 snake_case `event_seq`，保留兼容锚点 | `emit_channel_update_by_post` / `emit_dialog_patch_for_post` 同时消费在线 post 与 sync type1 口径 | 只校验 schema 并透传，不做 seq 补算 | 只消费/渲染，不自行补齐 seq | PASS |
 | viewers / phantom | WS fanout 用 `viewers + sender` 收窄；sync 只过滤 `messages` map，不过滤 `events` | gate 与 sync 本地二次可见性复核；phantom 只推进 cursor，不落可见 message / DialogPatch | 不做可见性业务计算，只接收 Helix 结果 | 不做可见性业务计算，只渲染 Helix 投影 | PASS |
-| unread / mention / urgent counts | 提供 `channel_member` / `channel` 事实源与事件上下文 | 写后读 channel 累计终值后再 emit `dialogPatch`，不把 delta 伪装成累计值 | render-only；字段存在则落本地 VM，不 `+1` | render-only；字段存在则直接渲染，不 `+1` | PASS |
+| unread / mention / urgent counts | 权威事实源是当前用户 `channel_member` 行；`update_channel` 单播给 member 绝对 badge | `post` 路径先产 Helix-derived 快速投影；`update_channel` 路径写 `channel_member` 并产 `server-member-absolute` 覆盖投影 | render-only；字段存在则落本地 VM，不 `+1` | render-only；字段存在则直接渲染，不 `+1` | PASS |
 | `too_long` | sync gap 超阈值时返回 `kind=too_long` 与 `resetTo=maxSeq` | drop local messages + emit `im:sync:too_long(mode=drop_and_reload)` + 主动 `getLatestPost` reload | 只执行 loading/reset UI 语义，不发 HTTP 拼装 | 只执行 loading/reset UI 语义，不发 HTTP 拼装 | PASS |
-| `readLastSeq` / `msgCount` | 来源仍在 `channel_member` 事实层 | `NEED_HELIX_CHANNEL_MEMBER_FIX.md` pending；当前 render-ready `dialogPatch` 故意不输出 | 仅 optional 透传；缺字段合法，不伪造 `0` | 仅 optional 透传；缺字段合法，不伪造 `0` | PARTIAL |
+| `readLastSeq` / `msgCount` | 来源仍在 `channel_member` 事实层 | `update_channel` member 绝对态会写入 `channel_member.last_read_seq/msg_count*` 并在 `dialog.patchByMember` 透出；普通 post 快速投影不伪造 | 仅 optional 透传；缺字段合法，不伪造 `0` | 仅 optional 透传；缺字段合法，不伪造 `0` | PASS |
 
 ## 验证命令矩阵
 

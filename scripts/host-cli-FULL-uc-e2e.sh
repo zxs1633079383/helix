@@ -48,13 +48,13 @@ trap cleanup EXIT INT TERM
 mkfifo "$TX_FIFO" "$RX_FIFO"
 ylw "▶ 预编译 host-cli（一次）…"; cargo build -q -p helix-host-cli || { red "build 失败"; exit 1; }
 
-NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DB="$RX_DB" \
+NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DUMP_FRAMES="${HELIX_DUMP_FRAMES:-1}" HELIX_DB="$RX_DB" \
   cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
   --cookie-id 678 --company-id "$TEAM" <"$RX_FIFO" >>"$RX_LOG" 2>&1 & RX_PID=$!
 exec 9>"$RX_FIFO"; ( sleep "$HOLD_S" ) & HR=$!
 # sender 隔离 DB(空·无 51 群)→ hello 无 increment 风暴 → send 的 post 回声秒回(真账号 DB 的风暴会拖 send 超时)。
 # 代价:4.1/4.2/10 需真账号群的状态依赖 UC 在此 SKIP(台账已从真账号轮单独验)。
-NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DB="$TX_DB" \
+NO_COLOR=1 RUST_LOG="$HOST_CLI_RUST_LOG" HELIX_DUMP_FRAMES="${HELIX_DUMP_FRAMES:-1}" HELIX_DB="$TX_DB" \
   cargo run -q -p helix-host-cli -- --config "$HELIX_CONFIG_PATH" \
   --cookie-id "$SELF" --company-id "$TEAM" <"$TX_FIFO" >>"$TX_LOG" 2>&1 & TX_PID=$!
 exec 8>"$TX_FIFO"; ( sleep "$HOLD_S" ) & HT=$!
@@ -75,7 +75,7 @@ grep_poll(){ local pat="$1" log="${2:-$TX_LOG}" to="${3:-$WAIT_TO}" t=0 n; while
     n=$(grep -cE "$pat" "$log" 2>/dev/null); [ "${n:-0}" -gt 0 ] && return 0
     python3 -c 'import time;time.sleep(0.2)'; t=$((t+1)); done; return 1; }
 wait_for(){ local act="$1" log="${2:-$TX_LOG}" mk="${3:-}" to="${4:-$WAIT_TO}" t=0; while [ "$t" -lt "$((to*5))" ]; do
-    _match "$log" "$mk" "RAW WS inbound.*\"action\": ?\"($act)\"" && return 0
+    { _match "$log" "$mk" "RAW WS inbound.*\"action\": ?\"($act)\"" || _match "$log" "$mk" "HOP2 ws frame received.*action=($act)"; } && return 0
     python3 -c 'import time;time.sleep(0.2)'; t=$((t+1)); done; return 1; }
 # emit_seen: tracing fmt 写成 `DomainEvent emit event=<name>`（NO_COLOR 后无色），值后跟空格+bytes=。
 emit_seen(){ local ev="$1" log="${2:-$TX_LOG}" mk="${3:-}" to="${4:-$WAIT_TO}" t=0; while [ "$t" -lt "$((to*5))" ]; do
@@ -100,8 +100,7 @@ mk CREATE
 CB="$(python3 - "$SELF" "$TEAM" "$MEMBERS" <<'PY'
 import json,sys
 s,t,m=sys.argv[1],sys.argv[2],json.loads(sys.argv[3])
-u=[{"id":s,"teamId":t,"role":"CREATOR"}]+[{"id":x,"teamId":t,"role":"MEMBER"} for x in m]
-print(json.dumps({"teamId":t,"displayName":"helix-full-e2e","orient":"","type":"P","users":u,"picturetype":"USER","picture":{"userIds":[s]+list(m)},"forceCreate":True},ensure_ascii=False,separators=(",",":")))
+print(json.dumps({"display_name":"helix-full-e2e","team_id":t,"self_id":s,"member_ids":list(m)},ensure_ascii=False,separators=(",",":")))
 PY
 )"
 feed "create $CB"; wait_for channel_created "$TX_LOG" __CREATE__ && P "UC-5.1 建群" "channel_created" || F "UC-5.1 建群" "无 channel_created"
@@ -129,8 +128,7 @@ if [ "$CH" != "__none__" ]; then
     MKB="$(python3 - "$CH" "$PID" "$SELF" "$TEAM" "$MEMBERS" <<'PY'
 import json,sys
 c,p,s,t,m=sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4],json.loads(sys.argv[5])
-u=[{"id":s,"teamId":t,"role":"CREATOR"}]+[{"id":x,"teamId":t,"role":"MEMBER"} for x in m]
-print(json.dumps({"rootId":c,"teamId":t,"postId":p,"displayName":"helix-topic","type":"T","users":u,"picturetype":"USER","picture":{"userIds":[s]+list(m)},"forceCreate":True},ensure_ascii=False,separators=(",",":")))
+print(json.dumps({"root_id":c,"post_id":p,"display_name":"helix-topic","team_id":t,"self_id":s,"member_ids":list(m)},ensure_ascii=False,separators=(",",":")))
 PY
 )"
     mk TOPIC; feed "makeTopic $MKB"; wait_for 'channel_created|post_update' "$TX_LOG" __TOPIC__ && P "UC-5.2 话题" "channel_created/post_update" || S "UC-5.2 话题" "无回声"

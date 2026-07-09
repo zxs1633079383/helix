@@ -32,16 +32,33 @@
 | Helix | `cargo test -p helix-driver-ffi --test mobile_contract_test mobile_im_send_alias -- --nocapture` | PASS | Task 2 `im_send` alias 归一 |
 | Helix | `cargo test -p helix-driver-ffi --test mobile_contract_test -- --nocapture` | PASS | Task 3 `helix_capabilities` / `helix_version` |
 | Helix | `cargo check -p helix-driver-ffi` | PASS | FFI 边界编译检查 |
-| Go | `go test ./internal/app -run 'TestPublishPostEvent_IncludesHelixProjectionFields&#124;TestBuildMessagesMap_NilPostSkip&#124;TestSyncChannels_(TooLongMock&#124;ReadEventNoMessageBodyMock)$' -count=1` | PASS | 在线 post / messages map / read / too_long mock |
+| Go | `G1` 在线 post / messages map / read / too_long mock | PASS | 见下方 Go 命令块 |
 | Go | `go test ./internal/app/sync -run TestPostToSyncMessage_KeepsHelixProjectionFields -count=1` | PASS | sync message 保留 Helix 需要字段 |
-| Go | `go test ./internal/ws -run 'TestResolveViewers_(AllBranches&#124;PointerStringSlice&#124;PqStringArray&#124;UnknownShape)$' -count=1` | PASS | viewers fanout 收窄 |
-| Go | `if [ -n "$CSES_IM_TEST_DSN" ]; then go test ./internal/app -run 'TestSyncChannels_(KindEvents&#124;KindTooLong&#124;EventsEmptyMessages)$' -count=1 -v; else echo 'SKIP: CSES_IM_TEST_DSN is not set'; fi` | SKIP | 未配置 `CSES_IM_TEST_DSN`，只能记为 DB integration SKIP，不是 live green |
+| Go | `G2` viewers fanout 收窄 | PASS | 见下方 Go 命令块 |
+| Go | `G3` DB integration 条件验证 | SKIP | 未配置 `CSES_IM_TEST_DSN`，只能记为 DB integration SKIP，不是 live green |
 | mobile | `./scripts/run-gtest-js-spec.sh` | PASS | DialogProjection JS/C++ focused gate |
 | mobile | `make real-chain-manifest` | PASS | manifest 46/46 + dialog projection cases |
 | mobile | `make gtest-js-spec` | CONCERN | pinned Helix rev 与共享 checkout 不一致，脚本主动拒绝；非本轮 contract 失败 |
 | cses-client | `npm test -- --runTestsByPath src/pages/message-v4/__tests__/projection-store.service.test.ts src/pages/message-v4/__tests__/projection-handler.registry.test.ts --runInBand` | PASS | render-only focused store / registry tests |
 | cses-client | `/System/Volumes/Data/workspace/angular/cses-client/node_modules/@playwright/test/node_modules/.bin/playwright test -c tests/e2e message-helix-hard-cut.spec.ts` | PASS | message-v4 静态 gate |
 | All relevant repos | `git diff --check` | PASS | Helix / Go / mobile / cses-client 本轮 focused diff 均过格式检查 |
+
+### Go 命令原文
+
+```bash
+# G1
+go test ./internal/app -run 'TestPublishPostEvent_IncludesHelixProjectionFields|TestBuildMessagesMap_NilPostSkip|TestSyncChannels_(TooLongMock|ReadEventNoMessageBodyMock)$' -count=1
+
+# G2
+go test ./internal/ws -run 'TestResolveViewers_(AllBranches|PointerStringSlice|PqStringArray|UnknownShape)$' -count=1
+
+# G3
+if [ -n "$CSES_IM_TEST_DSN" ]; then
+  go test ./internal/app -run 'TestSyncChannels_(KindEvents|KindTooLong|EventsEmptyMessages)$' -count=1 -v
+else
+  echo 'SKIP: CSES_IM_TEST_DSN is not set'
+fi
+```
 
 ## Pending / Concerns
 

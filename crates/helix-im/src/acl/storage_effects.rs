@@ -79,16 +79,41 @@ pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> 
     if upd.has_schedule_post {
         set_cols.push(("has_schedule_post".to_string(), SqlValue::Integer(1)));
     }
+    if upd.mention_hit && !upd.post_id.is_empty() {
+        set_cols.push((
+            "mention_list".to_string(),
+            SqlValue::Text(serde_json::json!([upd.post_id]).to_string()),
+        ));
+        set_cols.push((
+            "mention_user".to_string(),
+            SqlValue::Text(serde_json::json!(upd.mentions).to_string()),
+        ));
+    }
+    if upd.urgent_hit && !upd.post_id.is_empty() {
+        set_cols.push((
+            "urgent_post_list".to_string(),
+            SqlValue::Text(serde_json::json!([upd.post_id]).to_string()),
+        ));
+        set_cols.push(("has_urgent_post".to_string(), SqlValue::Integer(1)));
+    }
     set_cols.push((
         "last_root_post_at".to_string(),
         SqlValue::Integer(upd.msg_create_at),
     ));
+    let mut extra_bumps = Vec::new();
+    if upd.mention_hit {
+        extra_bumps.push(("mention_count", 1));
+    }
+    if upd.urgent_hit {
+        extra_bumps.push(("urgent_count", 1));
+    }
     StorageOp::GuardedBump(GuardedBumpSpec {
         table: "channel",
         key_col: "id",
         key_val: SqlValue::Text(upd.channel_id.as_str().to_string()),
         bump_col: "unread_count",
         bump_delta: upd.unread_delta,
+        extra_bumps,
         set_cols,
         guard_col: "last_root_post_at",
         guard_val: upd.msg_create_at,
@@ -107,4 +132,39 @@ pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
             value: target_seq.0 as i64,
         })],
     }
+}
+
+/// too_long drop-and-reload：丢弃该 channel 的本地消息派生视图。
+pub fn drop_channel_messages_op(channel_id: ChannelId) -> StorageOp {
+    use helix_core::effect::{DeleteWhereSpec, SqlValue};
+    StorageOp::DeleteWhere(DeleteWhereSpec {
+        table: "message",
+        key_col: "channel_id",
+        key_val: SqlValue::Text(channel_id.as_str().to_string()),
+    })
+}
+
+/// too_long drop-and-reload：清理 channel 上由消息增量派生的 Dialog 字段。
+pub fn reset_channel_dialog_op(channel_id: ChannelId) -> StorageOp {
+    use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "channel",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+        patch: vec![
+            ("last_post".to_string(), SqlValue::Text(String::new())),
+            ("unread_post_id".to_string(), SqlValue::Text(String::new())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("mention_count".to_string(), SqlValue::Integer(0)),
+            ("mention_list".to_string(), SqlValue::Text(String::new())),
+            ("mention_user".to_string(), SqlValue::Text(String::new())),
+            ("urgent_count".to_string(), SqlValue::Integer(0)),
+            (
+                "urgent_post_list".to_string(),
+                SqlValue::Text(String::new()),
+            ),
+            ("has_urgent_post".to_string(), SqlValue::Integer(0)),
+            ("has_more".to_string(), SqlValue::Integer(1)),
+        ],
+    })
 }

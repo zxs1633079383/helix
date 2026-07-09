@@ -27,8 +27,12 @@ pub struct PostFields {
     pub user_id: String,
     pub msg_type: String,
     pub message: String,
+    /// 短预览文本（Go wire `simpleMessage` / `simple_message`），用于 Dialog lastMessage。
+    pub simple_message: String,
     /// 服务端原始 props 对象的字符串形态（业务扩展透传）。
     pub props: String,
+    /// 服务端原始 userSnapshot 对象的字符串形态，用于 senderUserId 优先级与渲染透传。
+    pub user_snapshot: String,
     pub create_at: i64,
     /// 服务端权威已读位（C2 / type=6 真源 post.rs:1087-1089）。
     /// 缺省空串=该 post 无已读信息；落库时**单调覆盖** message.read_bits 列（非累加）。
@@ -37,6 +41,10 @@ pub struct PostFields {
     /// message_service.rs:323-333——`viewers` 含 `"all"` 或当前 auth_id 即可见）。
     /// 缺省空 Vec（无堆分配）；NOTICE 类型恒可见不依赖此字段。
     pub viewers: Vec<String>,
+    /// `mentions` 用户 id 列表，供 Rust 侧计算 Dialog mention patch。
+    pub mentions: Vec<String>,
+    /// 服务端原始 expediteMap / expedite_map 对象字符串，供 urgent 判定和存储透传。
+    pub expedite_map: String,
 }
 
 /// 解析后的强类型入站事件（14 类 WS type 的产物）

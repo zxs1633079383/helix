@@ -51,6 +51,9 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "TEXT".to_string());
     let message = pick_str("message").unwrap_or_default();
+    let simple_message = pick_str("simple_message")
+        .or_else(|| pick_str("simpleMessage"))
+        .unwrap_or_else(|| message.clone());
     let create_at = post
         .get("create_at")
         .or_else(|| post.get("createAt"))
@@ -61,6 +64,13 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）+ UC-1.8 顶层 quickReply
     // emoji 反应合并进 props.quickReply（逻辑外提收口行数基线，详见 ws::parser::post_props）。
     let props = super::post_props::merge_props_with_quickreply(post, root);
+    let user_snapshot = post
+        .get("userSnapshot")
+        .or_else(|| post.get("user_snapshot"))
+        .or_else(|| root.get("userSnapshot"))
+        .or_else(|| root.get("user_snapshot"))
+        .map(serde_json::Value::to_string)
+        .unwrap_or_default();
     // read_bits（C2 / type=6 真源 post.rs:1088 `readBits`）：服务端权威已读位字符串。
     // 兼容 readBits（Go camelCase wire）/ read_bits（snake 测试帧）；缺省空串。
     let read_bits = pick_str("readBits")
@@ -78,6 +88,18 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
                 .collect()
         })
         .unwrap_or_default();
+    let mentions = post
+        .get("mentions")
+        .or_else(|| root.get("mentions"))
+        .map(collect_string_values)
+        .unwrap_or_default();
+    let expedite_map = post
+        .get("expediteMap")
+        .or_else(|| post.get("expedite_map"))
+        .or_else(|| root.get("expediteMap"))
+        .or_else(|| root.get("expedite_map"))
+        .map(serde_json::Value::to_string)
+        .unwrap_or_default();
 
     PostFields {
         temporary_id,
@@ -86,10 +108,25 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         user_id,
         msg_type,
         message,
+        simple_message,
         props,
+        user_snapshot,
         create_at,
         read_bits,
         viewers,
+        mentions,
+        expedite_map,
+    }
+}
+
+fn collect_string_values(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+        serde_json::Value::String(s) if !s.is_empty() => vec![s.clone()],
+        _ => Vec::new(),
     }
 }
 

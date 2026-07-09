@@ -147,7 +147,11 @@ impl ImModule {
                         wants_continuation: needs_continuation,
                     },
                 );
-                for emit in crate::acl::to_effect::sync_mutation_emits(&events, &messages) {
+                for emit in crate::acl::to_effect::sync_mutation_emits_with_auth(
+                    &events,
+                    &messages,
+                    auth_user_id,
+                ) {
                     out.push(emit);
                 }
             }
@@ -159,6 +163,12 @@ impl ImModule {
                     ch.cursor = crate::state::Cursor::new(reset_cursor);
                     ch.last_sync_from_seq = None;
                 }
+                out.push(Effect::PersistFire {
+                    ops: vec![
+                        crate::acl::to_effect::drop_channel_messages_op(channel_id),
+                        crate::acl::to_effect::reset_channel_dialog_op(channel_id),
+                    ],
+                });
                 out.push(crate::acl::to_effect::emit_sync_too_long(
                     channel_id, reset_to,
                 ));

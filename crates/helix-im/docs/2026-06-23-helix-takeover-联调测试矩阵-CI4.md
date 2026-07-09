@@ -278,7 +278,7 @@
 | 客户端按 `last_event_seq` 调 `POST /api/v4/channels/sync` 拉 channel_event 增量 | 收 sync 响应（type1 可见/type2 编辑/type3 撤回/type6 已读）| `[ ]` 收到 sync 响应 |
 | cursor 锚点 | 续拉锚 **nextSeq**（非 max event）；续拉判据看 **len≥500**（真 wire 无显式 flag，HX-C008）| `[ ]` cursor 锚 nextSeq；len≥500 才续拉 |
 | 落库 message | type1/type2/type3 落 `message` 表（gate peek→persist→commit，cursor 单调不回退）| `[ ]` `message` 表新增对应行 |
-| too_long 兜底 | gap > 阈值 → `im:sync:too_long`{channelId,resetTo}（清内存 buffer 不清表）| `[ ]` too_long 时 cursor=resetTo-1，**不**清 message 表 |
+| too_long 兜底 | gap > 阈值 → `im:sync:too_long`{channelId,resetTo,mode,dropLocalMessages}（清内存 buffer + drop 本地消息派生行 + 重拉）| `[ ]` too_long 时 cursor=resetTo-1，message 表按 channel 清理后等待后续首屏/全量投影 |
 | 观察 `im:__bus__` | type1→`im:channel:update-by-post`{channel_id,event_seq,msg_id}；type2→`im:post:updated`；type3→`im:post:deleted`；type6→`im:channel:read_echo` | `[ ]` 各 sync 类型投影 channel 命中 |
 
 > **信号类铁律**：sync 信号事件只携 `channel_id`+`event_seq`+`msg_id` 三字段（权威行已落 DB），前端按 id 回读，**禁**塞半份 DialogItem（projection §2 C2 证伪点）。

@@ -27,6 +27,22 @@ pub struct PostChannelUpdate {
     pub has_schedule_post: bool,
     /// 守卫值 = msg_create_at（仅当 > 当前 last_root_post_at 才命中整行更新）。
     pub msg_create_at: i64,
+    /// 本地复核可见性；不可见 post 不应落成 Dialog UI patch。
+    pub visible: bool,
+    /// 发送者用户 id；userSnapshot.userId 优先，回退 userId。
+    pub sender_user_id: String,
+    /// 当前 post id，用于 dialog patch / mention_list / urgent_post_list。
+    pub post_id: String,
+    /// Dialog lastMessage 预览文本。
+    pub last_message: String,
+    /// 本消息 @ 的 userId 列表。
+    pub mentions: Vec<String>,
+    /// 本消息加急目标 userId 列表（字段不足时为空）。
+    pub urgent_user_ids: Vec<String>,
+    /// 当前登录用户是否被 @。
+    pub mention_hit: bool,
+    /// 当前登录用户是否被加急。
+    pub urgent_hit: bool,
 }
 
 /// path3 纯函数：从新消息字段计算 `PostChannelUpdate`（CAP-9 在线/离线同口径）。
@@ -46,35 +62,15 @@ pub fn post_updates(
 ) -> PostChannelUpdate {
     let msg_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    // visible_to_user
-    let visible = if msg_type == "NOTICE" {
-        true
-    } else if auth_user_id.is_empty() {
-        // 无身份：保守可见（不漏 last_post / 未读；sender 豁免下沉 driver/前端）。
-        true
-    } else {
-        data.get("viewers")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter().any(|x| {
-                    let s = x.as_str().unwrap_or("");
-                    s == "all" || s == auth_user_id
-                })
-            })
-            .unwrap_or(false)
-    };
+    let viewers = string_array(data.get("viewers"));
+    let visible = visible_to_user(msg_type, &viewers, auth_user_id);
 
     // should_increment：sender != auth（自己消息 +0）。无身份 → 计入（不漏未读）。
-    let sender = data
-        .get("userSnapshot")
-        .and_then(|s| s.get("userId"))
-        .and_then(|v| v.as_str())
-        .or_else(|| data.get("userId").and_then(|v| v.as_str()))
-        .unwrap_or("");
+    let sender = sender_user_id_from_value(data);
     let should_increment = if auth_user_id.is_empty() {
         true
     } else {
-        !sender.is_empty() && sender != auth_user_id
+        !sender.is_empty() && sender.as_str() != auth_user_id
     };
 
     let post_id = data
@@ -83,8 +79,18 @@ pub fn post_updates(
         .or_else(|| data.get("id").and_then(|v| v.as_str()))
         .unwrap_or("")
         .to_string();
+    let mentions = string_array(data.get("mentions"));
+    let (urgent_hit, urgent_user_ids) = urgent_from_value(data, auth_user_id);
+    let mention_hit = !auth_user_id.is_empty() && mentions.iter().any(|id| id == auth_user_id);
 
     let last_post = data.to_string();
+    let last_message = data
+        .get("simpleMessage")
+        .or_else(|| data.get("simple_message"))
+        .or_else(|| data.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let has_schedule_post = data
         .get("isSchedule")
         .and_then(serde_json::Value::as_bool)
@@ -92,7 +98,7 @@ pub fn post_updates(
 
     let unread_delta = if visible && should_increment { 1 } else { 0 };
     let unread_post_id = if unread_delta > 0 && !post_id.is_empty() {
-        Some(post_id)
+        Some(post_id.clone())
     } else {
         None
     };
@@ -104,6 +110,14 @@ pub fn post_updates(
         last_post: if visible { last_post } else { String::new() },
         has_schedule_post,
         msg_create_at,
+        visible,
+        sender_user_id: sender,
+        post_id,
+        last_message,
+        mentions,
+        urgent_user_ids,
+        mention_hit: visible && mention_hit,
+        urgent_hit: visible && urgent_hit,
     }
 }
 
@@ -128,12 +142,7 @@ pub fn post_updates_from_fields(
     auth_user_id: &str,
 ) -> PostChannelUpdate {
     // NOTICE 恒可见；无身份保守可见（不漏未读，sender 豁免下沉前端，与在线 post_updates 同策略）。
-    let visible = fields.msg_type == "NOTICE"
-        || auth_user_id.is_empty()
-        || fields
-            .viewers
-            .iter()
-            .any(|v| v == "all" || v == auth_user_id);
+    let visible = visible_to_user(&fields.msg_type, &fields.viewers, auth_user_id);
 
     let should_increment = if auth_user_id.is_empty() {
         true
@@ -142,9 +151,12 @@ pub fn post_updates_from_fields(
     };
 
     let post_id = fields.id.clone();
+    let (urgent_hit, urgent_user_ids) = urgent_from_fields(fields, auth_user_id);
+    let mention_hit =
+        !auth_user_id.is_empty() && fields.mentions.iter().any(|id| id == auth_user_id);
     let unread_delta = if visible && should_increment { 1 } else { 0 };
     let unread_post_id = if unread_delta > 0 && !post_id.is_empty() {
-        Some(post_id)
+        Some(post_id.clone())
     } else {
         None
     };
@@ -155,14 +167,155 @@ pub fn post_updates_from_fields(
         unread_post_id,
         // sync 路径无整帧 JSON：可见时用消息内容兜底 last_post（守卫命中才落）。
         last_post: if visible {
-            fields.message.clone()
+            sync_last_post_json(fields)
         } else {
             String::new()
         },
         // sync events 不带 isSchedule（排程经独立 schedule action），恒 false。
         has_schedule_post: false,
         msg_create_at: fields.create_at,
+        visible,
+        sender_user_id: fields.user_id.clone(),
+        post_id,
+        last_message: if fields.simple_message.is_empty() {
+            fields.message.clone()
+        } else {
+            fields.simple_message.clone()
+        },
+        mentions: fields.mentions.clone(),
+        urgent_user_ids,
+        mention_hit: visible && mention_hit,
+        urgent_hit: visible && urgent_hit,
     }
+}
+
+pub fn message_class(upd: &PostChannelUpdate) -> &'static str {
+    match (upd.mention_hit, upd.urgent_hit) {
+        (true, true) => "mention_urgent",
+        (true, false) => "mention",
+        (false, true) => "urgent",
+        (false, false) => "normal",
+    }
+}
+
+fn visible_to_user(msg_type: &str, viewers: &[String], auth_user_id: &str) -> bool {
+    if msg_type == "NOTICE" || auth_user_id.is_empty() || viewers.is_empty() {
+        return true;
+    }
+    viewers
+        .iter()
+        .any(|viewer| viewer == "all" || viewer == auth_user_id)
+}
+
+fn sender_user_id_from_value(data: &serde_json::Value) -> String {
+    data.get("userSnapshot")
+        .and_then(|s| s.get("userId"))
+        .and_then(|v| v.as_str())
+        .or_else(|| data.get("userId").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string()
+}
+
+fn string_array(value: Option<&serde_json::Value>) -> Vec<String> {
+    match value {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+        Some(serde_json::Value::String(s)) if !s.is_empty() => vec![s.clone()],
+        _ => Vec::new(),
+    }
+}
+
+fn urgent_from_fields(
+    fields: &crate::sync_session::PostFields,
+    auth_user_id: &str,
+) -> (bool, Vec<String>) {
+    let mut candidates = Vec::new();
+    if let Ok(expedite) = serde_json::from_str::<serde_json::Value>(&fields.expedite_map) {
+        collect_urgent_targets(&expedite, &mut candidates);
+    }
+    if let Ok(props) = serde_json::from_str::<serde_json::Value>(&fields.props) {
+        collect_urgent_from_props(&props, &mut candidates);
+    }
+    urgent_hit_from_candidates(candidates, auth_user_id)
+}
+
+fn urgent_from_value(data: &serde_json::Value, auth_user_id: &str) -> (bool, Vec<String>) {
+    let mut candidates = Vec::new();
+    if let Some(expedite) = data.get("expediteMap").or_else(|| data.get("expedite_map")) {
+        collect_urgent_targets(expedite, &mut candidates);
+    }
+    if let Some(props) = data.get("props") {
+        collect_urgent_from_props(props, &mut candidates);
+    }
+    urgent_hit_from_candidates(candidates, auth_user_id)
+}
+
+fn collect_urgent_from_props(props: &serde_json::Value, out: &mut Vec<String>) {
+    for key in ["expedite", "urgent", "urgentUsers", "urgentUserIds"] {
+        if let Some(value) = props.get(key) {
+            collect_urgent_targets(value, out);
+        }
+    }
+}
+
+fn collect_urgent_targets(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) if !s.is_empty() => out.push(s.clone()),
+        serde_json::Value::Bool(true) => out.push("all".to_string()),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_urgent_targets(item, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                if key == "users" || key == "userIds" || key == "targets" {
+                    collect_urgent_targets(value, out);
+                } else if value.as_bool().unwrap_or(true) {
+                    out.push(key.clone());
+                    collect_urgent_targets(value, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn urgent_hit_from_candidates(
+    mut candidates: Vec<String>,
+    auth_user_id: &str,
+) -> (bool, Vec<String>) {
+    candidates.retain(|id| !id.is_empty());
+    candidates.sort();
+    candidates.dedup();
+    let hit = if auth_user_id.is_empty() {
+        !candidates.is_empty()
+    } else {
+        candidates
+            .iter()
+            .any(|id| id == "all" || id == auth_user_id)
+    };
+    (hit, candidates)
+}
+
+fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> String {
+    serde_json::json!({
+        "id": fields.id.clone(),
+        "temporaryId": fields.temporary_id.clone(),
+        "channelId": fields.channel_id.clone(),
+        "userId": fields.user_id.clone(),
+        "type": fields.msg_type.clone(),
+        "message": fields.message.clone(),
+        "simpleMessage": fields.simple_message.clone(),
+        "props": serde_json::from_str::<serde_json::Value>(&fields.props).unwrap_or(serde_json::Value::Null),
+        "viewers": fields.viewers.clone(),
+        "mentions": fields.mentions.clone(),
+        "expediteMap": serde_json::from_str::<serde_json::Value>(&fields.expedite_map).unwrap_or(serde_json::Value::Null),
+        "createAt": fields.create_at,
+    })
+    .to_string()
 }
 
 #[cfg(test)]

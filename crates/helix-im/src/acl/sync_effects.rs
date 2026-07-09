@@ -9,6 +9,14 @@ pub fn sync_mutation_emits(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
 ) -> Vec<Effect> {
+    sync_mutation_emits_with_auth(events, messages, "")
+}
+
+pub fn sync_mutation_emits_with_auth(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+) -> Vec<Effect> {
     use crate::sync_session::EventKind;
 
     let empty_fields = crate::sync_session::PostFields::default();
@@ -20,6 +28,11 @@ pub fn sync_mutation_emits(
         match ev.kind {
             EventKind::PostUpsert => {
                 if let Some(fields) = messages.get(msg_id) {
+                    let update = crate::channel_write::post_updates_from_fields(
+                        ev.channel_id,
+                        fields,
+                        auth_user_id,
+                    );
                     emits.push(super::to_effect::emit_post_received(
                         ev.channel_id,
                         ev.seq.0,
@@ -30,6 +43,9 @@ pub fn sync_mutation_emits(
                         ev.channel_id,
                         ev.seq.0,
                         msg_id,
+                        fields,
+                        &update,
+                        "sync_events",
                     ));
                 }
             }

@@ -64,18 +64,19 @@ impl WsMessageHandler for PostHandler {
         // 「乱序自端 echo」无需依赖额外假设。重复/旧消息（seq<=cursor）由 gate dup-drop 不 apply →
         // 不发；GuardedBump 守卫（create_at > last_root_post_at）再兜底幂等。
         let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
-        let unread_bump = if is_echo {
-            None
-        } else {
-            parse_post_data(frame).map(|data| {
-                crate::channel_write::post_updates(
-                    ev.channel_id,
-                    data,
-                    ctx.auth_user_id,
-                    ev.fields.create_at,
-                )
-            })
-        };
+        let unread_bump = parse_post_data(frame).map(|data| {
+            let mut update = crate::channel_write::post_updates(
+                ev.channel_id,
+                data,
+                ctx.auth_user_id,
+                ev.fields.create_at,
+            );
+            if is_echo && !ctx.auth_user_id.is_empty() {
+                update.unread_delta = 0;
+                update.unread_post_id = None;
+            }
+            update
+        });
         let ev = ev.with_unread_bump(unread_bump);
 
         // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）。**陌生 channel 自动注册**
@@ -105,7 +106,12 @@ impl WsMessageHandler for PostHandler {
         // 守不变量：**不推 cursor**（HX-C008——cursor 仍由 ch.ingest 的 gate 严格 +1 推进，gap 经
         // buffer/sync 回补；本兜底只发投影）。buffer 后续 flush 时会再 emit 同投影（壳按 msgId
         // 幂等 upsert·无害）。字段集走冻结 message_item_data（C004 不改契约）。
-        let post_settle = if ev.seq.0 != ch.cursor.value().0 + 1 {
+        let post_visible = ev
+            .unread_bump
+            .as_ref()
+            .map(|update| update.visible)
+            .unwrap_or(true);
+        let post_settle = if post_visible && ev.seq.0 != ch.cursor.value().0 + 1 {
             let msg_id = ev
                 .msg_id
                 .as_deref()

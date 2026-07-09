@@ -28,8 +28,8 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
+    MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -364,6 +364,11 @@ impl Storage for HostStorage {
             // SET 片段：先自增列（delta 走**绑定参数** `?`，非内插 SQL 文本——HX-C005：SQL 文本
             // 不随 bump_delta 值变 → prepare_cached 同形状命中，零 per-delta 重编译），再可选绝对列。
             let mut set_parts = vec![format!("{bump} = {bump} + ?", bump = spec.bump_col)];
+            set_parts.extend(
+                spec.extra_bumps
+                    .iter()
+                    .map(|(bump, _)| format!("{bump} = {bump} + ?")),
+            );
             set_parts.extend(spec.set_cols.iter().map(|(k, _)| format!("{k} = ?")));
             let sql = format!(
                 "UPDATE {table} SET {set} WHERE {key} = ? AND ? > {guard}",
@@ -372,8 +377,13 @@ impl Storage for HostStorage {
                 key = spec.key_col,
                 guard = spec.guard_col,
             );
-            // 绑定顺序与 SQL 占位一致：bump_delta → set_cols 值… → key_val → guard_val。
+            // 绑定顺序与 SQL 占位一致：bump_delta → extra_bumps delta… → set_cols 值… → key_val → guard_val。
             let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
+            params.extend(
+                spec.extra_bumps
+                    .iter()
+                    .map(|(_, delta)| Value::Integer(*delta)),
+            );
             params.extend(sql_values(spec.set_cols.iter().map(|(_, v)| v)));
             params.extend(sql_values(std::iter::once(&spec.key_val)));
             params.extend(sql_values(std::iter::once(&SqlValue::Integer(
@@ -477,6 +487,29 @@ impl Storage for HostStorage {
             // 绑定顺序与占位一致：scope_val → key_vals…
             let mut values = sql_values(std::iter::once(&scope_val));
             values.extend(sql_values(key_vals.iter()));
+            let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
+            conn.execute(&sql, params_from_iter(values.iter()))
+                .map(|_| ())
+                .map_err(map_sqlite_err)
+        })
+        .await
+        .map_err(map_join_err)?
+    }
+
+    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
+        let DeleteWhereSpec {
+            table,
+            key_col,
+            key_val,
+        } = spec;
+        let writer = Arc::clone(&self.writer);
+        let trace = current_storage_trace_context();
+        let table = table.to_string();
+        let key_col = key_col.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = writer.lock().map_err(map_lock_err)?;
+            let sql = format!("DELETE FROM {table} WHERE {key_col} = ?");
+            let values = sql_values(std::iter::once(&key_val));
             let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
             conn.execute(&sql, params_from_iter(values.iter()))
                 .map(|_| ())

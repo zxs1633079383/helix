@@ -17,8 +17,8 @@
 //! 不属于当前 roadmap、CI 必跑矩阵或交付验收（见 ADR-006）。
 
 use crate::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
+    MonotonicUpsertSpec, Row, ScanSpec, UpsertSpec,
 };
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
@@ -118,6 +118,12 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     /// O(k) 单语句；scope 等值约束**绝不跨作用域误删**。列名都是 `&'static str` 编译期常量
     /// （由上层提供，driver 不解释含义，守 HX-C001）。`key_vals` 空 → 上层应不产 op（driver 也兜底跳过）。
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError>;
+
+    /// delete where：`DELETE FROM table WHERE key_col = ?`。
+    ///
+    /// 用于按单一作用域列删除整段派生数据，典型场景是 sync too_long 后按 channel 清理本地消息。
+    /// 表名/列名由业务模块提供，driver 只绑定值并执行通用 SQL。
+    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError>;
 }
 
 // The spec types are defined in crate::effect and imported above.

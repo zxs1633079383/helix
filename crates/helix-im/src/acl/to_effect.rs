@@ -13,12 +13,12 @@ pub use super::projection_message_effects::{
     emit_post_updated,
 };
 pub use super::storage_effects::{
-    advance_cursor, bump_channel_unread, bump_channel_unread_op, update_channel_partial,
-    upsert_channel_full, upsert_message,
+    advance_cursor, bump_channel_unread, bump_channel_unread_op, drop_channel_messages_op,
+    reset_channel_dialog_op, update_channel_partial, upsert_channel_full, upsert_message,
 };
 pub use super::sync_effects::{
     batch_upsert_events, batch_upsert_events_with_messages, sync_mutation_emits,
-    sync_unread_bump_ops,
+    sync_mutation_emits_with_auth, sync_unread_bump_ops,
 };
 pub use super::sync_http_effects::{connection_id_headers, increment_http_trigger, sync_notify};
 pub use super::transport_effects::ping_frame;

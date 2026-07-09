@@ -76,6 +76,8 @@ pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
         "data": {
             "channelId": channel_id.as_str(),
             "resetTo": reset_to.0,
+            "mode": "drop_and_reload",
+            "dropLocalMessages": true,
         }
     });
     let bytes = Bytes::from(
@@ -194,14 +196,60 @@ pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value)
 }
 
 /// C3：type=1 可见新消息 → `im:channel:update-by-post`。
-pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id: &str) -> Effect {
+pub fn emit_channel_update_by_post(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    update: &crate::channel_write::PostChannelUpdate,
+    source: &str,
+) -> Effect {
     use serde_json::json;
+    let last_post = post_fields_json(channel_id, event_seq, msg_id, fields);
+    let message_class = crate::channel_write::message_class(update);
+    let mention_delta = if update.mention_hit { 1 } else { 0 };
+    let urgent_delta = if update.urgent_hit { 1 } else { 0 };
     let payload = json!({
         "event": "im:channel:update-by-post",
         "data": {
+            "op": "dialog.patchByPost",
+            "source": source,
             "channel_id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
             "event_seq": event_seq,
+            "eventSeq": event_seq,
             "msg_id": msg_id,
+            "msgId": msg_id,
+            "messageClass": message_class,
+            "visible": update.visible,
+            "senderUserId": update.sender_user_id.clone(),
+            "lastPost": last_post.clone(),
+            "lastMessage": update.last_message.clone(),
+            "unreadDelta": update.unread_delta,
+            "mentionDelta": mention_delta,
+            "urgentDelta": urgent_delta,
+            "mentionedUserIds": update.mentions.clone(),
+            "urgentUserIds": update.urgent_user_ids.clone(),
+            "dialogPatch": {
+                "id": channel_id.as_str(),
+                "channelId": channel_id.as_str(),
+                "lastPost": last_post,
+                "lastMessage": update.last_message.clone(),
+                "unread": update.unread_delta,
+                "unreadCount": update.unread_delta,
+                "mention": update.mention_hit,
+                "mentionCount": mention_delta,
+                "urgent": update.urgent_hit,
+                "urgentCount": urgent_delta,
+                "unreadPostId": update.unread_post_id.clone(),
+                "lastPostAt": update.msg_create_at,
+                "lastRootPostAt": update.msg_create_at,
+                "lastEventSeq": event_seq,
+                "readLastSeq": serde_json::Value::Null,
+                "msgCount": serde_json::Value::Null,
+                "mentionedUserIds": update.mentions.clone(),
+                "urgentUserIds": update.urgent_user_ids.clone(),
+            },
         }
     });
     let bytes = Bytes::from(
@@ -211,4 +259,38 @@ pub fn emit_channel_update_by_post(channel_id: ChannelId, event_seq: u64, msg_id
     Effect::Emit {
         event: DomainEventBytes(bytes),
     }
+}
+
+fn post_fields_json(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+) -> serde_json::Value {
+    let props = serde_json::from_str::<serde_json::Value>(&fields.props)
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let user_snapshot = serde_json::from_str::<serde_json::Value>(&fields.user_snapshot)
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let expedite_map = serde_json::from_str::<serde_json::Value>(&fields.expedite_map)
+        .unwrap_or_else(|_| serde_json::json!({}));
+    serde_json::json!({
+        "id": if fields.id.is_empty() { msg_id } else { fields.id.as_str() },
+        "temporaryId": fields.temporary_id.clone(),
+        "channelId": if fields.channel_id.is_empty() {
+            channel_id.as_str()
+        } else {
+            fields.channel_id.as_str()
+        },
+        "userId": fields.user_id.clone(),
+        "type": fields.msg_type.clone(),
+        "message": fields.message.clone(),
+        "simpleMessage": fields.simple_message.clone(),
+        "props": props,
+        "viewers": fields.viewers.clone(),
+        "mentions": fields.mentions.clone(),
+        "expediteMap": expedite_map,
+        "userSnapshot": user_snapshot,
+        "createAt": fields.create_at,
+        "eventSeq": event_seq,
+    })
 }

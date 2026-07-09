@@ -1,6 +1,6 @@
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
-    SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
+    MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -923,6 +923,7 @@ async fn channel_like_storage() -> HostStorage {
         .execute_raw(
             "CREATE TABLE IF NOT EXISTS channel (\
              id TEXT PRIMARY KEY, unread_count INTEGER NOT NULL DEFAULT 0, \
+             mention_count INTEGER NOT NULL DEFAULT 0, urgent_count INTEGER NOT NULL DEFAULT 0, \
              unread_post_id TEXT NOT NULL DEFAULT '', last_post TEXT NOT NULL DEFAULT '', \
              last_root_post_at INTEGER NOT NULL DEFAULT 0, purpose TEXT NOT NULL DEFAULT '')",
         )
@@ -956,6 +957,7 @@ async fn guarded_bump_increments_when_guard_passes_s3() {
             key_val: SqlValue::Text("c1".to_string()),
             bump_col: "unread_count",
             bump_delta: 1,
+            extra_bumps: Vec::new(),
             set_cols: vec![
                 (
                     "unread_post_id".to_string(),
@@ -1024,6 +1026,7 @@ async fn guarded_bump_noop_when_guard_fails_s3() {
         key_val: SqlValue::Text("c2".to_string()),
         bump_col: "unread_count",
         bump_delta: 1,
+        extra_bumps: Vec::new(),
         set_cols: vec![(
             "unread_post_id".to_string(),
             SqlValue::Text("stale".to_string()),
@@ -1051,6 +1054,135 @@ async fn guarded_bump_noop_when_guard_fails_s3() {
         matches!(unread, Some(SqlValue::Integer(5))),
         "守卫不过 → unread 不变 (5)，got {unread:?}"
     );
+}
+
+/// 回归锚: Dialog patch —— unread/mention/urgent 计数必须在同一前进 guard 下原子自增。
+#[tokio::test]
+async fn guarded_bump_extra_counts_share_the_same_guard_s3() {
+    let st = channel_like_storage().await;
+    st.batch_upsert(UpsertSpec {
+        table: "channel",
+        rows: vec![vec![
+            ("id".to_string(), SqlValue::Text("c-extra".to_string())),
+            ("unread_count".to_string(), SqlValue::Integer(0)),
+            ("mention_count".to_string(), SqlValue::Integer(0)),
+            ("urgent_count".to_string(), SqlValue::Integer(0)),
+            ("last_root_post_at".to_string(), SqlValue::Integer(100)),
+        ]],
+        conflict_key: Some("id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed");
+
+    st.guarded_bump(GuardedBumpSpec {
+        table: "channel",
+        key_col: "id",
+        key_val: SqlValue::Text("c-extra".to_string()),
+        bump_col: "unread_count",
+        bump_delta: 1,
+        extra_bumps: vec![("mention_count", 1), ("urgent_count", 1)],
+        set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(200))],
+        guard_col: "last_root_post_at",
+        guard_val: 200,
+    })
+    .await
+    .expect("first bump");
+
+    // 旧消息重复到达：同一 guard 应拦住 unread 与 extra_bumps，不能只拦主计数。
+    st.guarded_bump(GuardedBumpSpec {
+        table: "channel",
+        key_col: "id",
+        key_val: SqlValue::Text("c-extra".to_string()),
+        bump_col: "unread_count",
+        bump_delta: 1,
+        extra_bumps: vec![("mention_count", 1), ("urgent_count", 1)],
+        set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(150))],
+        guard_col: "last_root_post_at",
+        guard_val: 150,
+    })
+    .await
+    .expect("stale bump");
+
+    let row = st
+        .get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text("c-extra".to_string()),
+        })
+        .await
+        .expect("get")
+        .expect("row");
+    let value = |col: &str| row.iter().find(|(k, _)| k == col).map(|(_, v)| v);
+    assert!(matches!(value("unread_count"), Some(SqlValue::Integer(1))));
+    assert!(matches!(value("mention_count"), Some(SqlValue::Integer(1))));
+    assert!(matches!(value("urgent_count"), Some(SqlValue::Integer(1))));
+    assert!(matches!(
+        value("last_root_post_at"),
+        Some(SqlValue::Integer(200))
+    ));
+}
+
+/// 回归锚: too_long drop-and-reload —— 按 channel_id 删除本地 message 派生行。
+#[tokio::test]
+async fn delete_where_deletes_only_matching_scope_rows() {
+    let st = storage().await;
+    st.execute_raw(
+        "CREATE TABLE message (\
+         temporary_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, message TEXT NOT NULL)",
+    )
+    .await
+    .expect("create message");
+    st.batch_upsert(UpsertSpec {
+        table: "message",
+        rows: vec![
+            vec![
+                ("temporary_id".to_string(), SqlValue::Text("a1".to_string())),
+                ("channel_id".to_string(), SqlValue::Text("c1".to_string())),
+                ("message".to_string(), SqlValue::Text("drop me".to_string())),
+            ],
+            vec![
+                ("temporary_id".to_string(), SqlValue::Text("a2".to_string())),
+                ("channel_id".to_string(), SqlValue::Text("c1".to_string())),
+                (
+                    "message".to_string(),
+                    SqlValue::Text("drop me too".to_string()),
+                ),
+            ],
+            vec![
+                ("temporary_id".to_string(), SqlValue::Text("b1".to_string())),
+                ("channel_id".to_string(), SqlValue::Text("c2".to_string())),
+                ("message".to_string(), SqlValue::Text("keep me".to_string())),
+            ],
+        ],
+        conflict_key: Some("temporary_id"),
+        exclude_from_update: Vec::new(),
+    })
+    .await
+    .expect("seed");
+
+    st.delete_where(DeleteWhereSpec {
+        table: "message",
+        key_col: "channel_id",
+        key_val: SqlValue::Text("c1".to_string()),
+    })
+    .await
+    .expect("delete where");
+
+    let remaining = st
+        .scan(ScanSpec {
+            table: "message",
+            limit: None,
+            filter: None,
+            order_desc_col: None,
+        })
+        .await
+        .expect("scan");
+    assert_eq!(remaining.len(), 1, "只应保留其他 channel 的消息");
+    let row = &remaining[0];
+    assert!(row
+        .iter()
+        .any(|(k, v)| k == "temporary_id" && matches!(v, SqlValue::Text(id) if id == "b1")));
 }
 
 /// 回归锚: S3 path1 —— exclude_from_update：冲突时守卫/本地列保留既有值，其余列覆盖。
@@ -1298,6 +1430,7 @@ async fn guarded_bump_does_not_increment_when_guard_fails_historical_s3() {
             key_val: SqlValue::Text("c1".to_string()),
             bump_col: "unread_count",
             bump_delta: 1,
+            extra_bumps: Vec::new(),
             set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(ts))],
             guard_col: "last_root_post_at",
             guard_val: ts,

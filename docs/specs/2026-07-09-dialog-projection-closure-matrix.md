@@ -39,7 +39,7 @@
 | mobile | `./scripts/run-gtest-js-spec.sh` | PASS | DialogProjection JS/C++ focused gate |
 | mobile | `make real-chain-manifest` | PASS | manifest 46/46 + dialog projection cases |
 | mobile | `make gtest-js-spec` | CONCERN | pinned Helix rev 与共享 checkout 不一致，脚本主动拒绝；非本轮 contract 失败 |
-| cses-client | `npm test -- --runTestsByPath src/pages/message-v4/__tests__/projection-store.service.test.ts src/pages/message-v4/__tests__/projection-handler.registry.test.ts --runInBand` | PASS | render-only focused store / registry tests |
+| cses-client | `npm test -- --runTestsByPath src/pages/message-v4/__tests__/projection-store.service.test.ts src/pages/message-v4/__tests__/projection-handler.registry.test.ts --runInBand` | FAIL | `projection-store.service.test.ts` PASS；`projection-handler.registry.test.ts` 因 TS/Jest globals 未识别 FAIL，客户端 projection handler/dispatch 不能记绿 |
 | cses-client | `/System/Volumes/Data/workspace/angular/cses-client/node_modules/@playwright/test/node_modules/.bin/playwright test -c tests/e2e message-helix-hard-cut.spec.ts` | PASS | message-v4 静态 gate |
 | All relevant repos | `git diff --check` | PASS | Helix / Go / mobile / cses-client 本轮 focused diff 均过格式检查 |
 
@@ -71,4 +71,5 @@ fi
 ## 结论
 
 - 四仓在 `eventSeq/event_seq`、viewers/phantom、累计计数、`too_long` 四条主契约上已收口，可作为 merge 前 contract 对照表。
+- 验收层仍为 `PARTIAL`：`cses-client` handler registry gate 失败、Go DB integration 未跑 live、mobile pinned rev gate 有环境 concern。
 - `readLastSeq/msgCount` 仍是显式 `PARTIAL`，消费者只能 optional-only；在 Helix 补齐 `channel_member` schema / send-read-sync 写路径前，任何 live green 结论都不成立。

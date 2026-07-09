@@ -131,8 +131,10 @@ impl WsMessageHandler for PostHandler {
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
 
+        let recent_start = out.as_slice().len();
         let mut dialog_patches = Vec::new();
         ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut dialog_patches)?;
+        super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
 
         // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
         if let Some(eff) = post_settle {

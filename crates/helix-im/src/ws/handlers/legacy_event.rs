@@ -25,7 +25,14 @@ impl WsMessageHandler for LegacyEventHandler {
             Ok(ev) => {
                 let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
                 if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
+                    let recent_start = out.as_slice().len();
                     ch.ingest(ev, out, ctx.now_ms)?;
+                    super::gate::schedule_reload_if_recent_too_long(
+                        ctx,
+                        ingest_channel,
+                        recent_start,
+                        out,
+                    )?;
                 }
                 // 根治：legacy 内容帧大缺口同样立即 backfill 追平 cursor。
                 super::gate::trigger_backfill_if_large_gap(ctx, ingest_channel, ingest_seq, out);

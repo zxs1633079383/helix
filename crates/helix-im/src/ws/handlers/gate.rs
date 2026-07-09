@@ -20,7 +20,7 @@
 //! type2 内容 patch（保留本地 read_bits）/ type3 撤回 / type6 已读位覆盖，各按语义落库 + emit，
 //! 故落库 + emit 全由 gate 完成——调用方**不再**自行 push 内容 op / emit / advance_cursor。
 
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq};
@@ -84,6 +84,86 @@ pub(super) fn trigger_backfill_if_large_gap(
     }
 }
 
+fn recent_effects_emitted_sync_too_long(effects: &[Effect], channel_id: ChannelId) -> bool {
+    effects.iter().any(|effect| {
+        matches!(effect, Effect::Emit { event } if {
+            let s = String::from_utf8_lossy(event.0.as_ref());
+            s.contains("\"event\":\"im:sync:too_long\"")
+                && s.contains("\"mode\":\"drop_and_reload\"")
+                && s.contains(channel_id.as_str())
+        })
+    })
+}
+
+fn recent_effects_already_request_latest_post(effects: &[Effect], channel_id: ChannelId) -> bool {
+    effects.iter().any(|effect| {
+        let Effect::Http { req, .. } = effect else {
+            return false;
+        };
+        if !req.url.contains("posts/getLatestPost") {
+            return false;
+        }
+        let Some(body) = req.body.as_ref() else {
+            return false;
+        };
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(body.as_ref()) else {
+            return false;
+        };
+        value["channelId"] == channel_id.as_str()
+    })
+}
+
+pub(super) fn schedule_reload_if_recent_too_long(
+    ctx: &mut ImWsContext<'_>,
+    channel_id: ChannelId,
+    recent_start: usize,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    let Some(recent) = out.as_slice().get(recent_start..) else {
+        return Ok(());
+    };
+    if !recent_effects_emitted_sync_too_long(recent, channel_id)
+        || recent_effects_already_request_latest_post(recent, channel_id)
+    {
+        return Ok(());
+    }
+
+    let Some(reset_to) = ctx
+        .state
+        .channels
+        .get(&channel_id)
+        .map(|ch| Seq(ch.cursor.value().0 + 1))
+    else {
+        return Ok(());
+    };
+    let connection_id = ctx.state.connection_id.clone();
+    let corr = ctx.alloc_corr();
+    let payload = serde_json::json!({
+        "channel_id": channel_id.as_str(),
+        "timestamp": 0,
+    });
+    let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+    let effects = crate::commands::handle_outbound(
+        "im_get_latest_post",
+        payload_bytes.as_ref(),
+        ctx.api_base_url,
+        ctx.api_base_url,
+        connection_id.as_deref(),
+        corr,
+    )?;
+    ctx.state.corr_map.insert(
+        corr,
+        crate::state::CorrelationContext::TooLongReload {
+            channel_id,
+            reset_to,
+        },
+    );
+    for effect in effects {
+        out.push(effect);
+    }
+    Ok(())
+}
+
 /// 把内容类事件经 channel gate ingest（严格 +1 / drop / buffer+gate）。
 ///
 /// - `channel_id`：cursor 推进锚（已 parse 校验的 Id26）；
@@ -109,6 +189,7 @@ pub(super) fn gate_ingest_content_event(
     };
     let ev = EventEnvelope::new(channel_id, seq, kind, fields).with_msg_id(msg_id);
     if let Some(ch) = ctx.state.channels.get_mut(&channel_id) {
+        let recent_start = out.as_slice().len();
         // —— edit echo 在 cursor gap 下兜底 emit（对齐 post.rs echo_settle·全链 echo 修复）——————
         // 真源对偶（post.rs:101-134）：post（type1）echo 在 seq≫cursor+1（冷启动 cursor 落后）下被
         // gate buffer → 投影不发 → 乐观行/DOM 永停。post handler 已加 self-echo 兜底 emit；但
@@ -145,6 +226,7 @@ pub(super) fn gate_ingest_content_event(
                 None
             };
         ch.ingest(ev, out, ctx.now_ms)?;
+        schedule_reload_if_recent_too_long(ctx, channel_id, recent_start, out)?;
         // gate buffer/drop 下编辑 echo 的落库 + DOM 兜底结算（apply 路径已自然落库+emit → None）。
         if let Some((persist, emit)) = edit_settle {
             out.push(persist);

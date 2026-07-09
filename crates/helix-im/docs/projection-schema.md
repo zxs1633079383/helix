@@ -46,8 +46,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
 > 数据在手零回读，见 §2）。`im:channel:update-by-post` 在 2026-07-09 Dialog 指令化投影中升级为
-> **render-ready Dialog patch**：普通/艾特/加急分类、sender、lastPost/lastMessage、未读/@/加急 delta
-> 都随事件输出，前端可直接 patch 会话行；`im:channel:update` 仍是批次结束瘦信号。**fat 完整集 =
+> **render-ready Dialog patch**：普通/艾特/加急分类、sender、lastPost/lastMessage、事件 delta
+> 与 Helix storage 写后累计 Dialog 终值随事件输出，前端可直接覆盖会话行；`im:channel:update` 仍是批次结束瘦信号。**fat 完整集 =
 > `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）
 > + `sendStatus`/`reactions`/`templateReceived`/`systemNotice`/`pinned`（**render-ready 终态**·issue #53 授权演进）。
@@ -67,7 +67,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `lastMessage`（← last_post 解析取 message/content/text 预览·非 JSON 兜底整串·空→null）、`urgent`（← last_post 的
 > isUrgent/isExpedite/props.expedite/props.urgent 任一非空 bool·加急 badge）。实现外提 `query_dialog_render.rs`（守 structure-gate）。
 > 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影；热路径 `channel:update-by-post`
-> 只吐当前事件可确定的 Dialog patch/delta，不回读整行累计值。
+> 只在 `GuardedBump` 写后追加 `Get(channel)` 读回单行累计 Dialog 字段，不让前端按事件 delta 自增。
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
@@ -84,7 +84,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_updated` | `im:post:updated` | **fat**（同 `emit_post_received` 完整集）| sync type2 编辑（可见）|
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
-| `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
+| `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
 | `to_effect_s1::emit_channel_created` | `im:channel:created` | `channel_id` `channel` | WS `channel_created` |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `channelId` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
@@ -261,13 +261,15 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 - `messageClass`：`normal` / `mention` / `urgent` / `mention_urgent`；
 - `senderUserId`：`userSnapshot.userId` 优先，回退 `userId`；
 - `lastPost` / `lastMessage`：来自当前可见 post，在手输出，不依赖额外 `update_channel`；
-- `unreadDelta` / `mentionDelta` / `urgentDelta`：本事件增量；`dialogPatch.unreadCount` 等当前也是 delta 语义；
+- `unreadDelta` / `mentionDelta` / `urgentDelta`：本事件增量，仅作调试/兼容信号，不作为前端累计源；
+- `dialogPatch.unreadCount` / `mentionCount` / `urgentCount`：来自 `GuardedBump` 写后 `Get(channel)` 的累计终值；
+- `mentionList` / `urgentPostList`：来自写后 `channel` 行的 set-union 结果，语义是绝对覆盖，不是 `[当前 post_id]`；
 - `mentionedUserIds` / `urgentUserIds`：当前事件命中的 userId 列表（先用 userId，不做成员名解析）；
-- `readLastSeq` / `msgCount`：当前 post patch 没有写后累计行，先输出 `null`，由后续 read/member 投影补齐。
+- `readLastSeq` / `msgCount`：当前 Helix `channel_member` schema/write path 尚未闭环，render-ready patch 暂不输出这些字段；见根目录 `NEED_HELIX_CHANNEL_MEMBER_FIX.md`。
 
-> 🔴 **HX-C005 守约**：该 patch 只使用当前 post 的在手 `PostFields` + `PostChannelUpdate` 计算结果；
-> 不发 Storage 读、不回读 channel 整行。若需要写后累计终值，必须另走低频 projection 查询或新增明确的
-> returning/Get(channel) 效果链，不能把热路径变成 read-modify-render。
+> 🔴 **HX-C005 守约**：该 patch 使用当前 post 的在手 `PostFields` + `PostChannelUpdate` 计算事件语义，
+> 再通过同一 Persist 批次里的 `GuardedBump -> Get(channel)` 取得写后累计终值。I/O 仍是 Effect/StorageOp，
+> core 不理解 IM 业务列；前端只接收覆盖投影，不做 read-modify-render。
 
 ### channel-row thin 类（批次结束单键，前端可低频回读累计 DB 行）
 

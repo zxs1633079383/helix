@@ -33,20 +33,14 @@ pub fn sync_mutation_emits_with_auth(
                         fields,
                         auth_user_id,
                     );
-                    emits.push(super::to_effect::emit_post_received(
-                        ev.channel_id,
-                        ev.seq.0,
-                        msg_id,
-                        fields,
-                    ));
-                    emits.push(super::to_effect::emit_channel_update_by_post(
-                        ev.channel_id,
-                        ev.seq.0,
-                        msg_id,
-                        fields,
-                        &update,
-                        "sync_events",
-                    ));
+                    if update.visible {
+                        emits.push(super::to_effect::emit_post_received(
+                            ev.channel_id,
+                            ev.seq.0,
+                            msg_id,
+                            fields,
+                        ));
+                    }
                 }
             }
             EventKind::PostEdit => {
@@ -95,6 +89,14 @@ pub fn batch_upsert_events_with_messages(
     events: &[EventEnvelope],
     messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
 ) -> Vec<StorageOp> {
+    batch_upsert_events_with_messages_and_auth(events, messages, "")
+}
+
+pub fn batch_upsert_events_with_messages_and_auth(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+) -> Vec<StorageOp> {
     use crate::sync_session::EventKind;
 
     let mut ops = Vec::with_capacity(events.len());
@@ -103,6 +105,14 @@ pub fn batch_upsert_events_with_messages(
         match ev.kind {
             EventKind::PostUpsert => {
                 if let Some(fields) = msg_id.and_then(|id| messages.get(id)) {
+                    let update = crate::channel_write::post_updates_from_fields(
+                        ev.channel_id,
+                        fields,
+                        auth_user_id,
+                    );
+                    if !update.visible {
+                        continue;
+                    }
                     let ev_with_body = crate::sync_session::EventEnvelope::new(
                         ev.channel_id,
                         ev.seq,
@@ -161,7 +171,45 @@ pub fn sync_unread_bump_ops(
         };
         let upd =
             crate::channel_write::post_updates_from_fields(ev.channel_id, fields, auth_user_id);
+        if !upd.visible {
+            continue;
+        }
         ops.push(super::to_effect::bump_channel_unread_op(&upd));
     }
     ops
+}
+
+pub fn sync_dialog_patch_plans(
+    events: &[EventEnvelope],
+    messages: &std::collections::HashMap<String, crate::sync_session::PostFields>,
+    auth_user_id: &str,
+) -> Vec<crate::dialog_patch::PendingDialogPatch> {
+    use crate::sync_session::EventKind;
+
+    let mut plans = Vec::new();
+    for ev in events {
+        if !matches!(ev.kind, EventKind::PostUpsert) {
+            continue;
+        }
+        let Some(msg_id) = ev.msg_id.as_deref() else {
+            continue;
+        };
+        let Some(fields) = messages.get(msg_id) else {
+            continue;
+        };
+        let update =
+            crate::channel_write::post_updates_from_fields(ev.channel_id, fields, auth_user_id);
+        if !update.visible {
+            continue;
+        }
+        plans.push(crate::dialog_patch::PendingDialogPatch::new(
+            ev.channel_id,
+            ev.seq.0,
+            msg_id,
+            fields,
+            &update,
+            "sync_events",
+        ));
+    }
+    plans
 }

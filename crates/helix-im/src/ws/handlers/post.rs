@@ -49,6 +49,7 @@ impl WsMessageHandler for PostHandler {
         // 仅当 temporary_id 命中在途 send 时才实际对账（内部门控）。
         let echo_tmp_id = ev.fields.temporary_id.clone();
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
+        let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
         reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
 
         // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
@@ -60,10 +61,9 @@ impl WsMessageHandler for PostHandler {
         // BLOCKING-1：auth_user_id 由 host 经 ctx 注入真值。`post_updates` 据此做 ① sender 豁免
         // （自己消息 +0，真源 message_service.rs:342）② 可见性门控（viewers 不含自己 → +0）。
         // echo 帧（本端回流）显式跳过（temporary_id 命中在途 send 或 user_id==self），即便落库也绝不
-        // bump（§5 验收：echo 无 unread）；此判定在 handler（有 ctx）做，对**乱序帧同样有效**，故
+        // bump（own echo 无 unread，temp_id 命中不依赖 auth）；此判定在 handler（有 ctx）做，对**乱序帧同样有效**，故
         // 「乱序自端 echo」无需依赖额外假设。重复/旧消息（seq<=cursor）由 gate dup-drop 不 apply →
         // 不发；GuardedBump 守卫（create_at > last_root_post_at）再兜底幂等。
-        let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
         let unread_bump = parse_post_data(frame).map(|data| {
             let mut update = crate::channel_write::post_updates(
                 ev.channel_id,
@@ -71,7 +71,7 @@ impl WsMessageHandler for PostHandler {
                 ctx.auth_user_id,
                 ev.fields.create_at,
             );
-            if is_echo && !ctx.auth_user_id.is_empty() {
+            if is_echo {
                 update.unread_delta = 0;
                 update.unread_post_id = None;
             }
@@ -131,11 +131,23 @@ impl WsMessageHandler for PostHandler {
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
 
-        ch.ingest(ev, out, ctx.now_ms)?;
+        let mut dialog_patches = Vec::new();
+        ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut dialog_patches)?;
 
         // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
         if let Some(eff) = post_settle {
             out.push(eff);
+        }
+        for pending in dialog_patches {
+            let corr = ctx.alloc_corr();
+            out.push(helix_core::Effect::Persist {
+                corr,
+                ops: pending.storage_ops(),
+            });
+            ctx.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::DialogPatchByPost { pending },
+            );
         }
         if let Some((persist, emit)) = pin_effect {
             out.push(persist);

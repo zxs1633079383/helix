@@ -20,10 +20,14 @@
 mod common;
 use common::*;
 
+use helix_core::effect::StorageOp;
 use helix_core::Effect;
-use helix_im::acl::to_effect::sync_mutation_emits;
+use helix_im::acl::to_effect::{
+    batch_upsert_events_with_messages_and_auth, sync_dialog_patch_plans, sync_mutation_emits,
+    sync_mutation_emits_with_auth, sync_unread_bump_ops,
+};
 use helix_im::parser::parse_sync_response;
-use helix_im::sync_session::SyncResponse;
+use helix_im::sync_session::{EventEnvelope, EventKind, PostFields, SyncResponse};
 
 // ─── 辅助：从 Emit Effect 取 event 名 ──────────────────────────────────────────
 
@@ -56,6 +60,43 @@ fn parse_events_and_messages(
             events, messages, ..
         } => (events, messages),
         other => panic!("expected Events, got {other:?}"),
+    }
+}
+
+fn channel_row_reply(channel_id: u64, unread_count: i64) -> bytes::Bytes {
+    let row = serde_json::json!([{
+        "id": cid(channel_id),
+        "unread_count": unread_count,
+        "mention_count": 0,
+        "urgent_count": 0,
+        "mention_list": [],
+        "urgent_post_list": [],
+        "unread_post_id": "m_a",
+        "last_root_post_at": 1_700_000_001_i64,
+    }]);
+    bytes::Bytes::from(serde_json::to_vec(&row).unwrap())
+}
+
+fn sync_post_event(channel_num: u64, seq: u64, msg_id: &str) -> EventEnvelope {
+    EventEnvelope::new(
+        channel_id(channel_num),
+        helix_im::state::Seq(seq),
+        EventKind::PostUpsert,
+        PostFields::default(),
+    )
+    .with_msg_id(Some(msg_id.to_string()))
+}
+
+fn sync_post_fields(msg_id: &str, sender: &str, viewers: &[&str]) -> PostFields {
+    PostFields {
+        id: msg_id.to_string(),
+        user_id: sender.to_string(),
+        msg_type: "TEXT".to_string(),
+        message: format!("body-{msg_id}"),
+        simple_message: format!("body-{msg_id}"),
+        create_at: 1_700_000_000,
+        viewers: viewers.iter().map(|v| (*v).to_string()).collect(),
+        ..PostFields::default()
     }
 }
 
@@ -136,8 +177,8 @@ fn new_visible_emits_received_and_channel_update() {
     let emits = sync_mutation_emits(&events, &messages);
     assert_eq!(
         emit_names(&emits),
-        vec!["im:post:received", "im:channel:update-by-post"],
-        "可见 new emit received + 未读 +N 信号"
+        vec!["im:post:received"],
+        "可见 new 先 emit received；DialogPatch 改为 Persist 写后读回累计 channel 行再 emit"
     );
 }
 
@@ -151,6 +192,74 @@ fn new_phantom_emits_nothing() {
         "phantom new 不 emit（UI 不渲染），got {:?}",
         emit_names(&emits)
     );
+}
+
+#[test]
+fn sync_type1_body_still_rechecks_viewers_gate_locally() {
+    let events = vec![sync_post_event(1, 12, "msg_private")];
+    let mut messages = std::collections::HashMap::new();
+    messages.insert(
+        "msg_private".to_string(),
+        sync_post_fields("msg_private", "sender-user", &["other-viewer"]),
+    );
+
+    let emits = sync_mutation_emits_with_auth(&events, &messages, "auth-user");
+    let upserts = batch_upsert_events_with_messages_and_auth(&events, &messages, "auth-user");
+    let bumps = sync_unread_bump_ops(&events, &messages, "auth-user");
+    let plans = sync_dialog_patch_plans(&events, &messages, "auth-user");
+
+    assert!(
+        emit_names(&emits).is_empty(),
+        "messages map 即使带 body，本地 viewers 不含 auth 也不能发 UI patch"
+    );
+    assert!(
+        !upserts
+            .iter()
+            .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message")),
+        "不可见 type1 不能落可见 message"
+    );
+    assert!(bumps.is_empty(), "不可见 type1 不能更新 Dialog unread");
+    assert!(plans.is_empty(), "不可见 type1 不能生成 DialogPatch 计划");
+}
+
+#[test]
+fn sync_type1_sender_self_visible_exception_but_unread_zero() {
+    let events = vec![sync_post_event(1, 13, "msg_self")];
+    let mut messages = std::collections::HashMap::new();
+    messages.insert(
+        "msg_self".to_string(),
+        sync_post_fields("msg_self", "auth-user", &["other-viewer"]),
+    );
+
+    let emits = sync_mutation_emits_with_auth(&events, &messages, "auth-user");
+    let upserts = batch_upsert_events_with_messages_and_auth(&events, &messages, "auth-user");
+    let bumps = sync_unread_bump_ops(&events, &messages, "auth-user");
+    let plans = sync_dialog_patch_plans(&events, &messages, "auth-user");
+
+    assert_eq!(
+        emit_names(&emits),
+        vec!["im:post:received"],
+        "sender 自己发的消息即使 viewers 不含 auth 也可见"
+    );
+    assert!(
+        upserts
+            .iter()
+            .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message")),
+        "sender 自己消息需要落可见 message"
+    );
+    assert_eq!(bumps.len(), 1, "own echo 仍更新 lastPost/channel row");
+    match &bumps[0] {
+        StorageOp::GuardedBump(spec) => {
+            assert_eq!(spec.bump_delta, 0, "own echo 不增加 unread_count");
+        }
+        other => panic!("expected GuardedBump, got {other:?}"),
+    }
+    assert_eq!(
+        plans.len(),
+        1,
+        "own echo 仍需写后读回 DialogPatch 刷新 lastPost"
+    );
+    assert_eq!(plans[0].update.unread_delta, 0);
 }
 
 // ─── 5. 混合批：分桶顺序 + phantom 混入 ───────────────────────────────────────
@@ -175,13 +284,12 @@ fn mixed_batch_emits_match_dispatch_table() {
     assert_eq!(types, vec![1, 1, 3, 6]);
 
     let emits = sync_mutation_emits(&events, &messages);
-    // type1 可见 → received + update-by-post；type1 phantom → 无；type3 → deleted；
+    // type1 可见 → received；DialogPatch 由 Persist 写后读回链路发出；type1 phantom → 无；type3 → deleted；
     // type6 → channel:read_echo（A5 sync 应用路径）。
     assert_eq!(
         emit_names(&emits),
         vec![
             "im:post:received",
-            "im:channel:update-by-post",
             "im:post:deleted",
             "im:channel:read_echo",
         ]
@@ -248,15 +356,15 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
     );
     h.step(port_reply_with_body(sync_corr, enveloped(reply)), 3000);
 
-    // 同 step 内：sink 含 mutation emits（received + update-by-post + read）。
+    // 同 step 内：sink 含即时 mutation emits（received + read），DialogPatch 等 channel 写后读回。
     let names = emit_names(h.sink.as_slice());
     assert!(
         names.iter().any(|n| n == "im:post:received"),
         "应 emit im:post:received，got {names:?}"
     );
     assert!(
-        names.iter().any(|n| n == "im:channel:update-by-post"),
-        "应 emit im:channel:update-by-post，got {names:?}"
+        !names.iter().any(|n| n == "im:channel:update-by-post"),
+        "DialogPatch 必须等 Persist 写后 Get(channel) 回包，不能在事件 delta 阶段 emit，got {names:?}"
     );
     assert!(
         names.iter().any(|n| n == "im:channel:read_echo"),
@@ -269,11 +377,27 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            Effect::Persist { corr, .. } => Some(corr.raw()),
+            Effect::Persist { corr, ops }
+                if ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Get(s) if s.table == "channel")) =>
+            {
+                Some(corr.raw())
+            }
             _ => None,
         })
-        .expect("persist corr");
-    h.step(port_reply_ok(persist_corr), 3100);
+        .expect("sync DialogPatch persist corr");
+    h.step(
+        port_reply_with_body(persist_corr, channel_row_reply(6, 1)),
+        3100,
+    );
+    let names_after_persist = emit_names(h.sink.as_slice());
+    assert!(
+        names_after_persist
+            .iter()
+            .any(|n| n == "im:channel:update-by-post"),
+        "写后 channel row 回包后应 emit im:channel:update-by-post，got {names_after_persist:?}"
+    );
     assert_eq!(
         h.module.cursor_for(channel_id(6)),
         Some(2),

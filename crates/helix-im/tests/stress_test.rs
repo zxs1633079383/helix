@@ -324,7 +324,7 @@ fn stress_gap_5000_sync_backfill() {
         .find_map(|e| match e {
             Effect::Persist { corr, ops } => {
                 // A3/CAP-9：全 5000 条可见 type1 → 5000 message upsert + 5000 channel 未读 +1
-                // GuardedBump（离线未读落 DB，非仅 emit）= 10000 ops。
+                // GuardedBump（离线未读落 DB，非仅 emit）+ 1 个写后 Get(channel) 读回累计 DialogPatch。
                 use helix_core::effect::StorageOp;
                 let msg_upserts = ops
                     .iter()
@@ -333,6 +333,10 @@ fn stress_gap_5000_sync_backfill() {
                 let unread_bumps = ops
                     .iter()
                     .filter(|op| matches!(op, StorageOp::GuardedBump(s) if s.table == "channel"))
+                    .count();
+                let channel_gets = ops
+                    .iter()
+                    .filter(|op| matches!(op, StorageOp::Get(s) if s.table == "channel"))
                     .count();
                 assert_eq!(
                     msg_upserts, GAP as usize,
@@ -344,8 +348,12 @@ fn stress_gap_5000_sync_backfill() {
                 );
                 assert_eq!(
                     ops.len(),
-                    (GAP as usize) * 2,
-                    "persist batch = 5000 msg + 5000 bump"
+                    (GAP as usize) * 2 + 1,
+                    "persist batch = 5000 msg + 5000 bump + 1 Get(channel)"
+                );
+                assert_eq!(
+                    channel_gets, 1,
+                    "DialogPatch 只需批尾 1 次写后 Get(channel)"
                 );
                 Some(*corr)
             }

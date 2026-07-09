@@ -62,12 +62,16 @@ fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) 
         user_id: "user-zhang".to_string(),
         msg_type: "P".to_string(),
         message: text.to_string(),
+        simple_message: text.to_string(),
         props: serde_json::json!({ "channel_event_seq": seq }).to_string(),
         create_at: 1_700_000_000_000_i64 + seq as i64,
         // C2：PostFields 新增 read_bits 字段（type6 已读位 / type1 落库列）。本助手不测已读，留空。
         read_bits: String::new(),
         // A3：viewers（可见性受众）；本助手不测未读门控，留空 Vec。
         viewers: Vec::new(),
+        mentions: Vec::new(),
+        expedite_map: String::new(),
+        user_snapshot: String::new(),
     };
     EventEnvelope::new(channel_id(channel), Seq(seq), EventKind::PostUpsert, fields)
 }

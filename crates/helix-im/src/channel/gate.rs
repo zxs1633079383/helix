@@ -96,6 +96,23 @@ impl Channel {
         fx: &mut EffectSink,
         now_ms: u64,
     ) -> Result<(), ImError> {
+        let mut dialog_patches = Vec::new();
+        self.ingest_collecting_dialog_patches(ev, fx, now_ms, &mut dialog_patches)?;
+        for pending in dialog_patches {
+            fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
+        }
+        Ok(())
+    }
+
+    /// 生产路径使用的 `ingest` 变体：DialogPatch 需要 channel 写后读回累计行，
+    /// 因此这里只收集待注册的 correlated Persist，不在同 step 内直接 emit delta patch。
+    pub fn ingest_collecting_dialog_patches(
+        &mut self,
+        ev: EventEnvelope,
+        fx: &mut EffectSink,
+        now_ms: u64,
+        dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+    ) -> Result<(), ImError> {
         let expected = Seq(self.cursor.value().0 + 1);
         // —— HOP③ 常驻日志（全链 echo 诊断·③ helix 输出/gate 决策）————————————————
         // 关键区分：收到帧后 gate 是 apply-emit / dup-drop / buffer-gap（buffer 即「收到但不吐投影」
@@ -115,7 +132,9 @@ impl Channel {
             "HOP3 channel gate decision"
         );
         match ev.seq.cmp(&expected) {
-            std::cmp::Ordering::Equal => self.apply_and_flush_contiguous(ev, fx, now_ms),
+            std::cmp::Ordering::Equal => {
+                self.apply_and_flush_contiguous(ev, fx, now_ms, dialog_patches)
+            }
             std::cmp::Ordering::Less => Ok(()), // dup drop，幂等
             std::cmp::Ordering::Greater => self.buffer_and_arm_gate(ev, fx),
         }
@@ -140,7 +159,11 @@ impl Channel {
             std::cmp::Ordering::Equal => {
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
-                self.flush_contiguous_from_buffer(fx)?;
+                let mut dialog_patches = Vec::new();
+                self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;
+                for pending in dialog_patches {
+                    fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
+                }
                 // 缺口已被本帧填平 → 若无后续缺口，gate 由 flush 后的连续性自然失效；
                 // 这里不主动 cancel gate（与 ingest 一致，gate timer 触发时再判定 still-stuck）。
                 Ok(())
@@ -164,7 +187,11 @@ impl Channel {
         if let Some(target_seq) = self.pending_commits.remove(&corr) {
             self.commit_cursor(target_seq, fx)?;
             // 尝试放行 buffer 中已就绪的连续段
-            self.flush_contiguous_from_buffer(fx)?;
+            let mut dialog_patches = Vec::new();
+            self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;
+            for pending in dialog_patches {
+                fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
+            }
         }
         Ok(())
     }
@@ -180,6 +207,7 @@ impl Channel {
         ev: EventEnvelope,
         fx: &mut EffectSink,
         _now_ms: u64,
+        dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
     ) -> Result<(), ImError> {
         let seq = ev.seq;
 
@@ -196,11 +224,7 @@ impl Channel {
         // ⑤：未读 bump（handler 算定，gate 单一发出点）。立即 apply 与 flush 共用此逻辑——
         // 乱序经 buffer 的消息 flush 时同样补未读。`None`（echo / 非新消息 / sync）→ 不发。
         // GuardedBump 守卫（create_at > last_root_post_at）兜底幂等，重复/旧消息不重复 +1。
-        if visible_post {
-            if let Some(ref upd) = ev.unread_bump {
-                fx.push(crate::acl::to_effect::bump_channel_unread(upd));
-            }
-        }
+        collect_dialog_patch_for_post(&ev, "online_post", dialog_patches);
 
         // 推进内存 cursor（WS 路径：直接 try_advance，不等 PortReply）
         // 理由：WS 顺序可靠，PersistFire 幂等（写 678 message 表，与 sync 路径同表同 PK）；
@@ -213,13 +237,10 @@ impl Channel {
         if visible_post {
             // Emit 通知前端（kind-aware：post=received / edit=updated / revoke=deleted / read=read）。
             fx.push(emit_for_kind(&ev));
-            if let Some(effect) = emit_dialog_patch_for_post(&ev, "online_post") {
-                fx.push(effect);
-            }
         }
 
         // 尝试放行 buffer 中紧接着的连续段
-        self.flush_contiguous_from_buffer(fx)?;
+        self.flush_contiguous_from_buffer(fx, dialog_patches)?;
 
         Ok(())
     }
@@ -290,7 +311,11 @@ impl Channel {
     ///
     /// 每次 cursor 推进后调用：尝试将 buffer 中从 cursor+1 开始的连续段
     /// 一次性全部放行，每个事件走 PersistFire（幂等）。
-    fn flush_contiguous_from_buffer(&mut self, fx: &mut EffectSink) -> Result<(), ImError> {
+    fn flush_contiguous_from_buffer(
+        &mut self,
+        fx: &mut EffectSink,
+        dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+    ) -> Result<(), ImError> {
         loop {
             let next_expected = Seq(self.cursor.value().0 + 1);
             if let Some(ev) = self.buffer.remove(&next_expected) {
@@ -304,18 +329,11 @@ impl Channel {
                 }
                 // ⑤：乱序 post 经 buffer flush 时补未读——与立即 apply 同口径（gate 单一发出点，
                 // 修复偏差：原 flush 路径只落 message 不补 channel 未读）。`None`→不发。
-                if visible_post {
-                    if let Some(ref upd) = ev.unread_bump {
-                        fx.push(crate::acl::to_effect::bump_channel_unread(upd));
-                    }
-                }
+                collect_dialog_patch_for_post(&ev, "online_post", dialog_patches);
                 self.cursor.try_advance(seq);
                 fx.push(crate::acl::to_effect::advance_cursor(self.id, seq));
                 if visible_post {
                     fx.push(emit_for_kind(&ev));
-                    if let Some(effect) = emit_dialog_patch_for_post(&ev, "online_post") {
-                        fx.push(effect);
-                    }
                 }
             } else {
                 break;
@@ -594,23 +612,29 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
     }
 }
 
-fn emit_dialog_patch_for_post(ev: &EventEnvelope, source: &str) -> Option<Effect> {
+fn collect_dialog_patch_for_post(
+    ev: &EventEnvelope,
+    source: &str,
+    out: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
+) {
     use crate::sync_session::EventKind;
     if !matches!(ev.kind, EventKind::PostUpsert) {
-        return None;
+        return;
     }
-    let update = ev.unread_bump.as_ref()?;
+    let Some(update) = ev.unread_bump.as_ref() else {
+        return;
+    };
     if !update.visible {
-        return None;
+        return;
     }
     let msg_id = ev
         .msg_id
         .as_deref()
         .filter(|id| !id.is_empty())
         .unwrap_or(ev.fields.id.as_str());
-    Some(crate::acl::to_effect::emit_channel_update_by_post(
+    out.push(crate::dialog_patch::PendingDialogPatch::new(
         ev.id, ev.seq.0, msg_id, &ev.fields, update, source,
-    ))
+    ));
 }
 
 fn visible_post_for_storage(ev: &EventEnvelope) -> bool {

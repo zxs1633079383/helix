@@ -125,14 +125,26 @@ impl ImModule {
                 let max_event_seq = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
                 let commit_target = next_seq.max(max_event_seq);
                 let persist_corr = self.alloc_corr_internal();
-                let mut persist_ops =
-                    crate::acl::to_effect::batch_upsert_events_with_messages(&events, &messages);
                 let auth_user_id = self.config.auth_user_id.as_str();
-                persist_ops.extend(crate::acl::to_effect::sync_unread_bump_ops(
+                let dialog_patches = crate::acl::to_effect::sync_dialog_patch_plans(
                     &events,
                     &messages,
                     auth_user_id,
-                ));
+                );
+                let mut persist_ops =
+                    crate::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+                        &events,
+                        &messages,
+                        auth_user_id,
+                    );
+                for pending in &dialog_patches {
+                    persist_ops.push(crate::acl::to_effect::bump_channel_unread_op(
+                        &pending.update,
+                    ));
+                }
+                if !dialog_patches.is_empty() {
+                    persist_ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
+                }
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.insert(persist_corr, commit_target);
                 }
@@ -145,6 +157,7 @@ impl ImModule {
                     CorrelationContext::ChannelPersist {
                         channel_id,
                         wants_continuation: needs_continuation,
+                        dialog_patches,
                     },
                 );
                 for emit in crate::acl::to_effect::sync_mutation_emits_with_auth(
@@ -172,6 +185,31 @@ impl ImModule {
                 out.push(crate::acl::to_effect::emit_sync_too_long(
                     channel_id, reset_to,
                 ));
+                let reload_corr = self.alloc_corr_internal();
+                let payload = serde_json::json!({
+                    "channel_id": channel_id.as_str(),
+                    "timestamp": 0,
+                });
+                let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
+                if let Ok(effects) = crate::commands::handle_outbound(
+                    "im_get_latest_post",
+                    payload_bytes.as_ref(),
+                    self.config.api_base_url.as_str(),
+                    self.config.default_api_base_url.as_str(),
+                    self.state.connection_id.as_deref(),
+                    reload_corr,
+                ) {
+                    self.state.corr_map.insert(
+                        reload_corr,
+                        CorrelationContext::TooLongReload {
+                            channel_id,
+                            reset_to,
+                        },
+                    );
+                    for effect in effects {
+                        out.push(effect);
+                    }
+                }
             }
             SyncResponse::Snapshot(snap) => {
                 let persist_corr = self.alloc_corr_internal();
@@ -192,6 +230,7 @@ impl ImModule {
                     CorrelationContext::ChannelPersist {
                         channel_id,
                         wants_continuation: false,
+                        dialog_patches: Vec::new(),
                     },
                 );
             }

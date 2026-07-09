@@ -21,6 +21,7 @@ pub mod channel;
 pub use channel::older_context;
 pub use channel::write as channel_write;
 pub mod commands;
+pub mod dialog_patch;
 pub mod error;
 pub mod http_envelope;
 pub mod mobile_contract;

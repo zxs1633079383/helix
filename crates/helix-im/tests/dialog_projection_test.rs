@@ -88,6 +88,46 @@ fn has_message_upsert(h: &Harness) -> bool {
     })
 }
 
+fn dialog_persist_corr(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Get(s) if s.table == "channel")) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("DialogPatch 必须注册写后 Get(channel) 的 Persist corr")
+}
+
+fn channel_row_reply(
+    channel_id: u64,
+    unread_count: i64,
+    mention_count: i64,
+    urgent_count: i64,
+    mention_list: &[&str],
+    urgent_post_list: &[&str],
+    unread_post_id: &str,
+    last_root_post_at: i64,
+) -> bytes::Bytes {
+    let row = serde_json::json!([{
+        "id": cid(channel_id),
+        "unread_count": unread_count,
+        "mention_count": mention_count,
+        "urgent_count": urgent_count,
+        "mention_list": mention_list,
+        "urgent_post_list": urgent_post_list,
+        "unread_post_id": unread_post_id,
+        "last_root_post_at": last_root_post_at,
+    }]);
+    bytes::Bytes::from(serde_json::to_vec(&row).unwrap())
+}
+
 #[test]
 fn visible_post_emits_render_ready_dialog_patch() {
     let mut h = Harness::new_with_identity(&[1], AUTH, "", "", "", "");
@@ -106,6 +146,28 @@ fn visible_post_emits_render_ready_dialog_patch() {
     );
 
     assert!(has_message_upsert(&h), "可见 post 必须落 message");
+    let corr = dialog_persist_corr(&h);
+    assert!(
+        emit_payloads(&h, "im:channel:update-by-post").is_empty(),
+        "Dialog patch 不能在写前用 delta 直接 emit"
+    );
+
+    h.step(
+        port_reply_with_body(
+            corr,
+            channel_row_reply(
+                1,
+                7,
+                2,
+                1,
+                &["old", "msg-1-1"],
+                &["u1"],
+                "msg-1-1",
+                1_700_000_001,
+            ),
+        ),
+        1_100,
+    );
     let patch = emit_payloads(&h, "im:channel:update-by-post");
     assert_eq!(patch.len(), 1, "可见 post 必须发 Dialog patch");
     let data = &patch[0]["data"];
@@ -117,9 +179,10 @@ fn visible_post_emits_render_ready_dialog_patch() {
     assert_eq!(data["unreadDelta"], 1);
     assert_eq!(data["dialogPatch"]["channelId"], cid(1));
     assert_eq!(data["dialogPatch"]["lastMessage"], "hello dialog");
-    assert_eq!(data["dialogPatch"]["unreadCount"], 1);
-    assert_eq!(data["dialogPatch"]["mentionCount"], 0);
-    assert_eq!(data["dialogPatch"]["urgentCount"], 0);
+    assert_eq!(data["dialogPatch"]["unreadCount"], 7);
+    assert_eq!(data["dialogPatch"]["mentionCount"], 2);
+    assert_eq!(data["dialogPatch"]["urgentCount"], 1);
+    assert_eq!(data["dialogPatch"]["mentionList"][1], "msg-1-1");
     assert_eq!(data["lastPost"]["message"], "hello dialog");
 }
 
@@ -140,16 +203,24 @@ fn own_echo_updates_last_post_without_unread_delta() {
         1_000,
     );
 
+    let bumps = guarded_bumps(&h);
+    assert_eq!(bumps.len(), 1, "lastPost 仍由同一 GuardedBump 原语落库");
+    assert_eq!(bumps[0].bump_delta, 0, "自己的 echo 不增加 unread_count");
+
+    let corr = dialog_persist_corr(&h);
+    h.step(
+        port_reply_with_body(
+            corr,
+            channel_row_reply(2, 0, 0, 0, &[], &[], "", 1_700_000_001),
+        ),
+        1_100,
+    );
     let patch = emit_payloads(&h, "im:channel:update-by-post");
     assert_eq!(patch.len(), 1, "自己的 echo 仍要刷新 lastPost");
     let data = &patch[0]["data"];
     assert_eq!(data["senderUserId"], AUTH);
     assert_eq!(data["unreadDelta"], 0);
     assert_eq!(data["dialogPatch"]["unreadCount"], 0);
-
-    let bumps = guarded_bumps(&h);
-    assert_eq!(bumps.len(), 1, "lastPost 仍由同一 GuardedBump 原语落库");
-    assert_eq!(bumps[0].bump_delta, 0, "自己的 echo 不增加 unread_count");
 }
 
 #[test]
@@ -167,19 +238,30 @@ fn mentions_and_urgent_posts_classify_and_bump_dialog_counts() {
         ),
         1_000,
     );
+    let mention_bump = guarded_bumps(&mention).remove(0);
+    let mention_corr = dialog_persist_corr(&mention);
+    mention.step(
+        port_reply_with_body(
+            mention_corr,
+            channel_row_reply(3, 1, 1, 0, &["msg-3-1"], &[], "msg-3-1", 1_700_000_001),
+        ),
+        1_100,
+    );
     let mention_patch = emit_payloads(&mention, "im:channel:update-by-post");
     let mention_data = &mention_patch[0]["data"];
     assert_eq!(mention_data["messageClass"], "mention");
     assert_eq!(mention_data["mentionDelta"], 1);
     assert_eq!(mention_data["dialogPatch"]["mention"], true);
+    assert_eq!(mention_data["dialogPatch"]["mentionCount"], 1);
+    assert_eq!(mention_data["dialogPatch"]["mentionList"][0], "msg-3-1");
     assert_eq!(mention_data["mentionedUserIds"][0], AUTH);
-    let mention_bump = guarded_bumps(&mention).remove(0);
     assert!(
         mention_bump
-            .extra_bumps
+            .json_list_appends
             .iter()
-            .any(|(col, delta)| *col == "mention_count" && *delta == 1),
-        "@ 当前用户时必须在同一 guard 下累加 mention_count"
+            .any(|append| append.list_col == "mention_list"
+                && append.count_col == Some("mention_count")),
+        "@ 当前用户时必须在同一 guard 下 set-union mention_list 并写回 mention_count=set size"
     );
 
     let mut urgent = Harness::new_with_identity(&[4], AUTH, "", "", "", "");
@@ -195,19 +277,30 @@ fn mentions_and_urgent_posts_classify_and_bump_dialog_counts() {
         ),
         1_000,
     );
+    let urgent_bump = guarded_bumps(&urgent).remove(0);
+    let urgent_corr = dialog_persist_corr(&urgent);
+    urgent.step(
+        port_reply_with_body(
+            urgent_corr,
+            channel_row_reply(4, 1, 0, 1, &[], &["msg-4-1"], "msg-4-1", 1_700_000_001),
+        ),
+        1_100,
+    );
     let urgent_patch = emit_payloads(&urgent, "im:channel:update-by-post");
     let urgent_data = &urgent_patch[0]["data"];
     assert_eq!(urgent_data["messageClass"], "urgent");
     assert_eq!(urgent_data["urgentDelta"], 1);
     assert_eq!(urgent_data["dialogPatch"]["urgent"], true);
+    assert_eq!(urgent_data["dialogPatch"]["urgentCount"], 1);
+    assert_eq!(urgent_data["dialogPatch"]["urgentPostList"][0], "msg-4-1");
     assert_eq!(urgent_data["urgentUserIds"][0], AUTH);
-    let urgent_bump = guarded_bumps(&urgent).remove(0);
     assert!(
         urgent_bump
-            .extra_bumps
+            .json_list_appends
             .iter()
-            .any(|(col, delta)| *col == "urgent_count" && *delta == 1),
-        "加急命中当前用户时必须在同一 guard 下累加 urgent_count"
+            .any(|append| append.list_col == "urgent_post_list"
+                && append.count_col == Some("urgent_count")),
+        "加急命中当前用户时必须在同一 guard 下 set-union urgent_post_list 并写回 urgent_count=set size"
     );
 }
 

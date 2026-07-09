@@ -62,11 +62,11 @@ pub fn post_updates(
 ) -> PostChannelUpdate {
     let msg_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    let viewers = string_array(data.get("viewers"));
-    let visible = visible_to_user(msg_type, &viewers, auth_user_id);
-
     // should_increment：sender != auth（自己消息 +0）。无身份 → 计入（不漏未读）。
     let sender = sender_user_id_from_value(data);
+    let viewers = string_array(data.get("viewers"));
+    let visible = visible_to_user(msg_type, &viewers, auth_user_id)
+        || (!auth_user_id.is_empty() && sender == auth_user_id);
     let should_increment = if auth_user_id.is_empty() {
         true
     } else {
@@ -142,7 +142,8 @@ pub fn post_updates_from_fields(
     auth_user_id: &str,
 ) -> PostChannelUpdate {
     // NOTICE 恒可见；无身份保守可见（不漏未读，sender 豁免下沉前端，与在线 post_updates 同策略）。
-    let visible = visible_to_user(&fields.msg_type, &fields.viewers, auth_user_id);
+    let visible = visible_to_user(&fields.msg_type, &fields.viewers, auth_user_id)
+        || (!auth_user_id.is_empty() && fields.user_id == auth_user_id);
 
     let should_increment = if auth_user_id.is_empty() {
         true

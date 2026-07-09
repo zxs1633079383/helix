@@ -22,7 +22,8 @@ use super::super::{ImWsContext, WsFrame};
 ///   1. `temporary_id` 命中在途 `PendingSend`：本端乐观发送的占位消息回流（最强信号，PK 对账键）；
 ///   2. `user_id == auth_user_id`（host 注入真身份且非空时）：sender 即自己。
 ///
-/// 无身份（auth 空串）时仅靠路 1（temporary_id）——保守不漏未读（与 `post_updates` 退化同策略）。
+/// 无身份（auth 空串）时仍可用路 1（temporary_id）识别本端 echo；命中 pending send 即可安全走
+/// own-echo unread=0，避免前端再做 +1/-1 业务补偿。
 /// 边界零信任：纯只读判定，不改状态、不 panic。
 pub(super) fn is_echo_frame(
     ctx: &ImWsContext<'_>,

@@ -84,6 +84,18 @@ fn sample_post_update() -> helix_im::channel_write::PostChannelUpdate {
     helix_im::channel_write::post_updates_from_fields(ch(), &sample_fields(), "u_me")
 }
 
+fn sample_dialog_projection() -> helix_im::dialog_patch::DialogPatchProjection {
+    helix_im::dialog_patch::DialogPatchProjection {
+        unread_count: 3,
+        mention_count: 1,
+        urgent_count: 1,
+        mention_list: vec![MSG_ID.to_string()],
+        urgent_post_list: vec![MSG_ID.to_string()],
+        unread_post_id: Some(MSG_ID.to_string()),
+        last_root_post_at: 1_700_000_000,
+    }
+}
+
 // ─── 提取工具：从 Emit Effect 取 `data` 对象的键集 ────────────────────────────
 
 /// 从 `Effect::Emit` 解出 `{event, data}`，返回 (event_name, data_keys_sorted)。
@@ -280,7 +292,16 @@ fn empty_type_defaults_to_text() {
 fn im_channel_update_by_post_is_render_ready_dialog_patch() {
     let f = sample_fields();
     let update = sample_post_update();
-    let e = to_effect::emit_channel_update_by_post(ch(), SEQ, MSG_ID, &f, &update, "online_post");
+    let projection = sample_dialog_projection();
+    let e = to_effect::emit_channel_update_by_post(
+        ch(),
+        SEQ,
+        MSG_ID,
+        &f,
+        &update,
+        &projection,
+        "online_post",
+    );
     assert_frozen(
         &e,
         "im:channel:update-by-post",
@@ -303,6 +324,8 @@ fn im_channel_update_by_post_is_render_ready_dialog_patch() {
             "urgentDelta",
             "mentionedUserIds",
             "urgentUserIds",
+            "mentionList",
+            "urgentPostList",
             "dialogPatch",
         ],
     );
@@ -542,6 +565,7 @@ fn all_23_projection_factories_covered() {
             MSG_ID,
             &f,
             &sample_post_update(),
+            &sample_dialog_projection(),
             "online_post",
         ),
         to_effect_s1::emit_channel_created(ch(), &raw),

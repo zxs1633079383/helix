@@ -49,7 +49,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > **render-ready Dialog patch**：普通/艾特/加急分类、sender、lastPost/lastMessage、事件 delta
 > 与 Helix storage 写后累计 Dialog 终值随事件输出，前端可直接覆盖会话行；`im:channel:update` 仍是批次结束瘦信号。**fat 完整集 =
 > `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
-> + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）
+> + `id`/`msgId`/`eventSeq`/`text`/`createdAt`（与本地消息查询一致的 canonical render-ready aliases）
+> + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容渲染核）
 > + `sendStatus`/`reactions`/`templateReceived`/`systemNotice`/`pinned`（**render-ready 终态**·issue #53 授权演进）。
 >
 > **issue #53（S4 首条竖切·C013 纯渲染壳·授权契约演进）**：fat 在渲染核之外补 4 个 render-ready 终态字段，
@@ -71,7 +72,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
-| `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `temporaryId` `channelId` `userId` `type` `message` `props` `createAt` `updateAt` `readBits` `viewers` `sendStatus` `reactions` `templateReceived` `systemNotice` `pinned`）| WS `post` echo / sync type1 可见 |
+| `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `id` `msgId` `temporaryId` `channelId` `eventSeq` `userId` `type` `message` `text` `props` `createAt` `createdAt` `updateAt` `readBits` `viewers` `sendStatus` `reactions` `templateReceived` `systemNotice` `pinned`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `readBits` `text` `type`（S6·render-ready 乐观终态行·前端纯绑定）| 发送乐观上屏 |
 | `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus`（`sendStatus="failed"`·按 temporaryId patch 乐观行）| `posts/create` HTTP PortError 立即失败 |
 | `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` `mode` `dropLocalMessages` | sync kind=too_long / gate buffer overflow（drop local messages + reload） |
@@ -240,8 +241,9 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 这些事件的渲染对象是**单条消息行**——helix 在 gate apply / sync apply **写完 message 行那一刻，
 `PostFields` 就在手**（与 `event_to_storage_op(ev)` 落库用同一份 owned 数据）。`to_effect::message_item_data`
 把它**重组**成完整可渲染 `data`（真源 `type.d.ts MessageItemData` ∩ 在手 `PostFields`）：
-`channel_id`/`event_seq`/`msg_id`（信号锚 snake，定位/对账/兼容）+ `temporaryId`/`channelId`/`userId`/
-`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（渲染核 camel）。**前端直接渲染，零回读**。
+`channel_id`/`event_seq`/`msg_id`（信号锚 snake，定位/对账/兼容）+ `id`/`msgId`/`eventSeq`/`text`/
+`createdAt`（与 `im:messages:query_result` 相同的 canonical aliases）+ `temporaryId`/`channelId`/`userId`/
+`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容字段）。**前端直接渲染，零回读**。
 
 > 🔴 **HX-C005 守约（SPEC §2 热路径回读铁律）**：fat 数据**全部来自在手 `PostFields`**——不发 Storage 读
 > Effect、不 `serde_json::to_string(整条 wire 对象)`。这是「完整投影」的**唯一正道**：写入时手上的数据直接吐。
@@ -371,7 +373,7 @@ im:sync:too_long        → onRustTooLong（按 channelId drop local messages + 
 |---|---|---|
 | **`unReadPostId` 大写 R** | 前端代码两套并存：`unReadPostId`（大写R）11 处 + `unreadPostId`（小写r）85 处；DialogItem interface **声明 `unreadPostId`**（小写）。helix patch.rs 写 `unreadPostId`（小写，对齐声明）。**消费侧若读大写R 分支会拿不到值** | `type.d.ts:45` / patch.rs:32 / 前端 grep |
 | **`messageType` SYSTEN 拼写** | 系统消息类型枚举有 `SYSTEM`（47 处正确）与 `SYSTEN`（2 处拼写错，漏 M→N）并存于前端；helix 透传 wire `type`/`messageType` 不改写，**SYSTEN 拼写错误保真透传**（改了反而对不上现网那 2 处） | 前端 grep `SYSTE[NM]` |
-| **`createAt` 非 `createdAt`/`created_at`** | wire/前端字段是 `createAt`（camelCase，漏 d→`creat`+`At`）；DB 列是 `created_at`（含 d）。patch.rs INT_MAP 显式映射 `("created_at","createAt")`——**helix emit/wire 侧用 `createAt`，DB 列用 `created_at`**，两边都对，别统一 | `type.d.ts:7,130` / patch.rs:45 |
+| **`createAt` 与 `createdAt`** | 现网 wire/旧前端字段是 `createAt`（漏 d），DB 列是 `created_at`；render-ready 消息投影同时提供 canonical `createdAt`，两者同源。业务写入仍按 `createAt`→`created_at` 映射，纯渲染壳优先绑定 `createdAt` | `type.d.ts:7,130` / patch.rs:45 / `query/render_ready/core.rs` |
 | **`segmentId` 恒空串** | bitmap segment 方案已下线（ADR-013），`segmentId` 字段保留仅为兼容 Rust serde，值**始终空字符串**——禁碰 bitmap/segment（任务铁律） | `type.d.ts:144` |
 | **`channelId` vs `channel_id`** | helix emit 信号类用 `channel_id`（snake，自造信号字段）；透传 wire 类用 `channelId`（camel，对齐现网 emit payload）——见 §0/§1 表，逐 channel 不同，不可假设统一 | §1 表 |
 

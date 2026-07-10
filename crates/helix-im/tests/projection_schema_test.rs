@@ -36,19 +36,25 @@ use helix_im::state::{ChannelId, Seq};
 use helix_im::sync_session::PostFields;
 
 /// spec06 FixB：message-row 信号的**完整可渲染键集**（= `to_effect::message_item_data` 产物）。
-/// 信号锚 snake（channel_id/event_seq/msg_id）+ 渲染核 camel（MessageItemData ∩ PostFields）。
+/// 信号锚 snake（channel_id/event_seq/msg_id）+ canonical render-ready camel aliases
+///（id/msgId/eventSeq/text/createdAt）+ 兼容现网 MessageItemData 字段。
 /// 缺任一 → message-row 信号断言 fail（前端回退回读蠢模式 = 缺陷B 复发）。
 const FAT_KEYS: &[&str] = &[
     "channel_id",
     "event_seq",
     "msg_id",
+    "id",
+    "msgId",
     "temporaryId",
     "channelId",
+    "eventSeq",
     "userId",
     "type",
     "message",
+    "text",
     "props",
     "createAt",
+    "createdAt",
     "updateAt",
     "readBits",
     "viewers",
@@ -201,10 +207,18 @@ fn fat_emit_carries_in_hand_data() {
     let data = &v["data"];
     assert_eq!(data["userId"], "u_sender", "userId 来自在手 PostFields");
     assert_eq!(data["message"], "hello", "message 来自在手 PostFields");
+    assert_eq!(data["id"], MSG_ID, "id 使用服务端消息锚");
+    assert_eq!(data["msgId"], MSG_ID, "msgId 与 id 使用同一服务端消息锚");
+    assert_eq!(data["eventSeq"], SEQ, "eventSeq 与 event_seq 同源");
+    assert_eq!(data["text"], "hello", "text 与 message 同源");
     assert_eq!(data["readBits"], "11", "readBits 来自在手 PostFields");
     assert_eq!(
         data["createAt"], 1_700_000_000,
         "createAt 来自在手 PostFields"
+    );
+    assert_eq!(
+        data["createdAt"], 1_700_000_000,
+        "createdAt 与 createAt 同源"
     );
     // props 由 JSON 字符串 parse 回对象（前端 props:any 期望对象，非字符串）。
     assert_eq!(data["props"]["k"], "v", "props parse 回对象");

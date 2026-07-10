@@ -32,6 +32,8 @@ pub struct PendingSend {
     /// `temporary_id`（HashMap key）天然去重不双份；本字段记录「这条是哪个 connectionId 下发的」，
     /// 让重连后能判定「跨会话补回 vs 本会话 echo」（None = 发送时尚未握手，无 connectionId）。
     pub connection_id: Option<String>,
+    /// 调用方请求关联 ID；仅作为 HTTP 横切追踪头透传，不参与业务判断。
+    pub request_id: Option<String>,
     /// rich/file 上传完成后才真正发 posts/create；普通文本无此缓存。
     pub body: Option<Value>,
     /// 仍待成功的上传数；归零后才发 posts/create。
@@ -55,6 +57,7 @@ impl PendingSend {
             timeout_timer,
             persist_corr: None,
             connection_id,
+            request_id: None,
             body: None,
             remaining_uploads: 0,
             upload_failed: false,

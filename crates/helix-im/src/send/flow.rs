@@ -93,6 +93,11 @@ impl ImModule {
         let conn = self.state.connection_id.clone();
         let mut ps = PendingSend::new(tmp_id.clone(), t1_timer, conn);
         ps.status = SendStatus::Local;
+        ps.request_id = cmd
+            .get("req_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         // R4-retain：回填本 send 的 P1 Persist corr，对账时按它 O(1) `corr_map.remove`，
         // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
         ps.persist_corr = Some(p1_corr);
@@ -150,6 +155,14 @@ impl ImModule {
                     h.extend(crate::acl::to_effect::connection_id_headers(
                         self.state.connection_id.as_deref(),
                     ));
+                    if let Some(request_id) = self
+                        .state
+                        .pending_sends
+                        .get(&temporary_id)
+                        .and_then(|pending| pending.request_id.as_deref())
+                    {
+                        h.push(("Cses-Track-Id".to_string(), request_id.to_string()));
+                    }
                     h
                 },
                 body: Some(bytes::Bytes::from(body_bytes)),

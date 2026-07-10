@@ -99,6 +99,34 @@ fn send_message_emits_four_effects() {
     );
 }
 
+#[test]
+fn send_message_forwards_request_id_as_trace_header() {
+    let mut h = Harness::new(&[1]);
+    h.step(
+        send_message_cmd_json(serde_json::json!({
+            "channel_id": cid(1),
+            "temporary_id": "tmp_trace_1",
+            "text": "hello",
+            "req_id": "mrc-run:G-03:req-1"
+        })),
+        1000,
+    );
+
+    let request = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { req, .. } if req.url.ends_with("/posts/create") => Some(req),
+            _ => None,
+        })
+        .expect("send should emit posts/create");
+    assert!(request
+        .headers
+        .iter()
+        .any(|(name, value)| name == "Cses-Track-Id" && value == "mrc-run:G-03:req-1"));
+}
+
 // ─── 两条消息各自独立 ────────────────────────────────────────────────────────
 
 #[test]

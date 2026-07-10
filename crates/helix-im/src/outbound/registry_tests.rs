@@ -90,7 +90,11 @@ fn is_outbound_hits_registered() {
 #[test]
 fn handle_outbound_dispatch_and_errors() {
     let corr = Correlation::from_raw(1);
-    let payload = serde_json::to_vec(&json!({ "post_id": "p" })).unwrap();
+    let payload = serde_json::to_vec(&json!({
+        "post_id": "p",
+        "req_id": "mrc-run:G-01:req-1"
+    }))
+    .unwrap();
     let effects = handle_outbound(
         "im_revoke",
         &payload,
@@ -107,6 +111,10 @@ fn handle_outbound_dispatch_and_errors() {
                 .headers
                 .iter()
                 .any(|(k, v)| k == "Content-Type" && v == "application/json"));
+            assert!(req
+                .headers
+                .iter()
+                .any(|(k, v)| k == "Cses-Track-Id" && v == "mrc-run:G-01:req-1"));
         }
         other => panic!("expected Http, got {other:?}"),
     }

@@ -13,6 +13,8 @@ use serde_json::Value;
 
 use crate::error::ImError;
 
+const CSES_TRACK_ID_HEADER: &str = "Cses-Track-Id";
+
 /// 出站网关**意图**（spec06 vote/score 第二网关，方案 A）：core 只标「这条命令走哪个网关 base」，真实 base host 由 host 经 config 注入（HX-C001：core 零 host 硬编码，base 仍 host 注入、确定性）。
 ///
 /// 与 `AuthKind` 意图维度同构（命令标意图、driver/host 给真值），最小惊讶；既有 88 命令零改动
@@ -199,6 +201,7 @@ pub fn handle_outbound(
 
     let args: Value = serde_json::from_slice(payload)
         .map_err(|e| ImError::Parse(format!("{name} payload: {e}")))?;
+    let request_id = args.get("req_id").and_then(Value::as_str);
 
     let (static_path, body) = command.build(&args)?;
     // 动态 path（REST path/query param）优先；缺省回落静态模板（零分配，零 ripple）。
@@ -220,6 +223,7 @@ pub fn handle_outbound(
         body,
         command.auth_kind(),
         connection_id,
+        request_id,
         corr,
     )])
 }
@@ -279,11 +283,15 @@ fn http_request(
     body: Value,
     auth_kind: AuthKind,
     connection_id: Option<&str>,
+    request_id: Option<&str>,
     corr: Correlation,
 ) -> Effect {
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
     headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
+    if let Some(request_id) = request_id.filter(|value| !value.is_empty()) {
+        headers.push((CSES_TRACK_ID_HEADER.to_string(), request_id.to_string()));
+    }
     Effect::Http {
         corr,
         req: HttpRequest {

@@ -154,33 +154,6 @@ impl ImModule {
             .map(|seq| seq.0)
     }
 
-    /// B-rest 测试 / driver 入口：直接喂一个解析好的 `increment_channel` 帧。
-    ///
-    /// 真路径是 `Tick::Inbound` → `WsFrame::parse` → WS registry；本 pub 包装让
-    /// 上层（driver / 回放测试）能直接驱动 increment 流程。
-    pub fn ingest_increment(
-        &mut self,
-        inc: &crate::sync_session::IncrementChannel,
-        out: &mut EffectSink,
-    ) {
-        let api_base_url = self.config.api_base_url.as_str();
-        let auth_user_id = self.config.auth_user_id.as_str();
-        let next_corr = &mut self.next_corr;
-        let mut alloc_corr = || {
-            let corr = helix_core::Correlation::from_raw(*next_corr);
-            *next_corr += 1;
-            corr
-        };
-        let mut ctx = crate::ws::ImWsContext::new(
-            &mut self.state,
-            0,
-            api_base_url,
-            auth_user_id,
-            &mut alloc_corr,
-        );
-        crate::ws::handlers::increment_channel::apply_increment(&mut ctx, inc, out);
-    }
-
     /// B-rest 测试 / driver 入口：直接喂 `increment_channel_end` 信号。
     /// `Some(ch)`=子 topic 结束；`None`=global end（触发增量群 sync）。
     pub fn ingest_increment_end(&mut self, ch: Option<ChannelId>, out: &mut EffectSink) {
@@ -293,6 +266,13 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                "im_retry_send" => {
+                    crate::send::retry_send::handle_retry_send(self, cmd.payload.as_ref(), out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 // 连接控制（04 文档表 B `IMWS:reconnect`）：helix-im 是 sans-IO，不持 transport——
                 // 只 emit `im:net:reconnect_requested` 控制信号，由 driver 观察后重连 NativeTransport
                 // （连接生命周期归 driver）。payload 无须解析（无参控制信号）。
@@ -320,11 +300,22 @@ impl Module for ImModule {
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
                         if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
-                            let ctx = if name == "im_channels_members_by_ids" {
+                            let ctx = if name == "im_channel_load_increment_by_channel_id" {
+                                CorrelationContext::OutboundIncrementHydration { req_id }
+                            } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
                                 // S8：回复族 → 双 emit（im:read:result 冻结 + im:channel:replies render-ready）。
                                 CorrelationContext::OutboundReplies { req_id }
+                            } else if name == "im_get_posts"
+                                && serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                                    .ok()
+                                    .and_then(|value| {
+                                        value.get("locate").and_then(|flag| flag.as_bool())
+                                    })
+                                    .unwrap_or(false)
+                            {
+                                CorrelationContext::OutboundLocatePost { req_id }
                             } else {
                                 CorrelationContext::OutboundReadReply { req_id }
                             };

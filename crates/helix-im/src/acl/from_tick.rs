@@ -20,7 +20,10 @@ pub fn accepts_tick(tick: &Tick) -> bool {
             // 已读回声 `im:channel:read_echo` 仅由 sync apply 路径（gate apply type6 read）产出，
             // 不是命令。保留它只会让 accepts 放行一个 module.rs 无臂的悬空命令 → 必落 unhandled
             // no-op。`im_reconnect` 是真连接控制命令（module.rs 有臂 emit 控制信号），保留。
-            matches!(cmd.name.as_ref(), "im_send_message" | "im_reconnect")
+            matches!(
+                cmd.name.as_ref(),
+                "im_send_message" | "im_retry_send" | "im_retry_upload" | "im_reconnect"
+            )
                 || crate::commands::is_outbound(cmd.name.as_ref())
                 // query 族（im_load_older_context / dialog_list 等纯读投影命令）：handle 分发
                 // 有臂（module.rs `is_query(name)` 分支），但此 accepts 闸原漏放行 → accept()==false

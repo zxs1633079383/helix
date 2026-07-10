@@ -88,6 +88,7 @@ fn shape_row(row: &Value) -> Value {
         server_id
     };
     json!({
+        "id": msg_id,
         "msgId": msg_id,
         "temporaryId": temporary_id,
         "channelId": channel_id,
@@ -96,9 +97,12 @@ fn shape_row(row: &Value) -> Value {
         "readBits": read_bits_str(row),
         "text": text,
         "type": msg_type,
+        "props": props_value(row),
+        "revoke": revoke_bool(row),
         "revoked": revoke_bool(row),
         "templateReceived": template_received_bool(row),
         "createAt": create_at,
+        "createdAt": create_at,
         "userId": user_id,
     })
 }

@@ -76,6 +76,19 @@ pub enum CorrelationContext {
     /// `req_id` 前端 bridge 注入（owned String，跨 step 存活，HX-C002；与 corr 解耦）。
     OutboundReadReply { req_id: String },
 
+    /// UC-4.5 陌生 channel 单频道 hydration 的首段 HTTP 回报。
+    ///
+    /// 仍保留 `im:read:result` 通用回灌；额外把 `data=*IncrementChannel` 送入既有 increment
+    /// parser/application 规则，并把 channel/member 写提升为有回报的 Persist，避免未落稳即拉 sync。
+    OutboundIncrementHydration { req_id: String },
+
+    /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。
+    /// 成功后才启动单频道 sync；`need_sync=false` 则直接读回本地投影。
+    IncrementHydrationPersist {
+        channel_id: ChannelId,
+        need_sync: bool,
+    },
+
     /// S7（issue #56）：byIds 成员快照读族 **HTTP** 回报。回报时**双 emit**——
     /// ① `im:read:result{req_id, body}`（UC-6.4 ② 冻结契约面照旧透传）；
     /// ② 解析 body 逐 channel emit render-ready `im:channel:members`（壳退纯绑定·载族自愈）。
@@ -88,6 +101,9 @@ pub enum CorrelationContext {
     /// `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）+ `im:channel:replies{reqId,
     /// replyIds}`（render-ready 渲染通道·壳纯绑定）。`req_id` 前端 bridge 注入（与 corr 解耦·HX-C002）。
     OutboundReplies { req_id: String },
+
+    /// G-11 定位消息读回：HTTP `posts/get` 返回后由 Helix 整形成 highlighted 消息投影。
+    OutboundLocatePost { req_id: String },
 
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,

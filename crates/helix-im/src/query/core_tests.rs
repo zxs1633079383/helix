@@ -133,6 +133,10 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
     assert_eq!(r0["isTop"], true); // is_top:1 → bool
     assert_eq!(r0["createAt"], 1700000000000_i64);
     assert_eq!(r0["unread"], 3); // 终值（前端不 ++）
+    assert_eq!(r0["unreadCount"], 3);
+    assert_eq!(r0["mentionCount"], 1);
+    assert_eq!(r0["urgentCount"], 0);
+    assert_eq!(r0["top"], true);
     assert_eq!(r0["mention"], true); // mention_count>0
     assert_eq!(r0["lastMessage"], "最后一条"); // last_post.message 预览
     assert_eq!(r0["urgent"], true); // props.expedite 命中

@@ -262,6 +262,49 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
     );
 }
 
+#[test]
+fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
+    let mut h = Harness::new(&[1]);
+    let effects = h.step(send_message_cmd(1, "tmp_retry_send", "hello retry"), 1000);
+    let h1 = http_corr(&effects);
+    let first_body = h.last_http_body().expect("first posts/create body");
+    h.step(port_reply_err(h1), 1100);
+    assert_eq!(
+        h.module.pending_send_status("tmp_retry_send"),
+        Some(SendStatus::UnSend)
+    );
+    let retry_effects = h.step(
+        command_json(
+            "im_retry_send",
+            serde_json::json!({ "message_id": "tmp_retry_send" }),
+        ),
+        1200,
+    );
+
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "retry must emit a real posts/create Http effect: {retry_effects:?}"
+    );
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::ScheduleTimer(_))),
+        "retry must arm a fresh timeout: {retry_effects:?}"
+    );
+    assert_eq!(
+        h.module.pending_send_status("tmp_retry_send"),
+        Some(SendStatus::Sending)
+    );
+    let retry_body = h.last_http_body().expect("retry posts/create body");
+    assert_eq!(
+        retry_body, first_body,
+        "retry must reuse the original Helix body"
+    );
+    assert_eq!(retry_body["temporaryId"], "tmp_retry_send");
+}
+
 // ─── echo 先到（reconcile）→ CancelTimer + Persist + 清除 pending_send ──────
 
 #[test]

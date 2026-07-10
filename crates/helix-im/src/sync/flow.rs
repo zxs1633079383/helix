@@ -105,7 +105,9 @@ impl ImModule {
             .map_err(|e| ImError::Parse(format!("sync response parse error: {}", e)))?;
 
         match response {
-            SyncResponse::NoChange => {}
+            SyncResponse::NoChange => {
+                self.finish_increment_hydration(channel_id, out)?;
+            }
             SyncResponse::Events {
                 events,
                 messages,
@@ -119,6 +121,7 @@ impl ImModule {
                             "needs_continuation=true but events is empty, stopping continuation to prevent infinite loop"
                         );
                     }
+                    self.finish_increment_hydration(channel_id, out)?;
                     return Ok(());
                 }
 

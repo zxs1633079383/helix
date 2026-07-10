@@ -28,9 +28,12 @@ use helix_im::commands::{handle_outbound, is_outbound, is_read};
 use helix_im::state::{ChannelId, Seq};
 use helix_im::sync_increment::{all_hash_fnv1a, RootCursor};
 
-use helix_core::effect::Effect;
+use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::Correlation;
 use serde_json::{json, Value};
+
+mod common;
+use common::*;
 
 const BASE: &str = "http://x/api/cses";
 
@@ -203,4 +206,251 @@ fn all_hash_known_vector() {
     assert!(h
         .chars()
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+}
+
+fn emit_value(effect: &Effect) -> Option<Value> {
+    match effect {
+        Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+        _ => None,
+    }
+}
+
+fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
+    row.iter().find_map(|(column, value)| {
+        (column == key)
+            .then_some(value)
+            .and_then(|value| match value {
+                SqlValue::Text(value) => Some(value.as_str()),
+                _ => None,
+            })
+    })
+}
+
+#[test]
+fn increment_by_channel_id_reply_hydrates_storage_before_render_ready_projection() {
+    let mut h = Harness::new_with_identity(&[], "viewer-user", "", "", "", "");
+    let command_effects = h.step(
+        command_json(
+            "im_channel_load_increment_by_channel_id",
+            json!({ "channel_id": cid(45), "req_id": "req-uc45" }),
+        ),
+        1_000,
+    );
+    let increment_corr = command_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("incrementByChannelId 应发 HTTP");
+
+    let increment_body = bytes::Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {
+                "id": cid(45),
+                "displayName": "陌生频道",
+                "type": "O",
+                "lastEventSeq": 2,
+                "needSync": true,
+                "unreadCount": 1,
+                "mentionCount": 1,
+                "urgentCount": 1,
+                "lastPost": "{\"message\":\"hydrated hello\",\"props\":{\"expedite\":\"m45\"}}",
+                "members": [{ "id": "member-a", "nickName": "成员A" }],
+                "owner": { "id": "owner-a", "nickName": "群主" }
+            }
+        }))
+        .unwrap(),
+    );
+    h.step(
+        port_reply_with_body(increment_corr, enveloped(increment_body)),
+        1_100,
+    );
+
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| {
+                value["event"] == "im:read:result"
+                    && value["data"]["req_id"] == "req-uc45"
+                    && value["data"]["body"]["data"]["id"] == cid(45)
+            }),
+        "通用 im:read:result 必须继续兼容"
+    );
+    let (increment_persist_corr, increment_ops) = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel"),
+                ) =>
+            {
+                Some((corr.raw(), ops))
+            }
+            _ => None,
+        })
+        .expect("HTTP IncrementChannel 必须先用相关 Persist 落 channel/channel_member");
+    let channel_row = increment_ops
+        .iter()
+        .find_map(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "channel" => spec.rows.first(),
+            _ => None,
+        })
+        .expect("channel upsert row");
+    assert_eq!(row_text(channel_row, "id"), Some(cid(45).as_str()));
+    assert_eq!(row_text(channel_row, "display_name"), Some("陌生频道"));
+    assert!(increment_ops
+        .iter()
+        .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_member")));
+    assert!(
+        !h.sink.as_slice().iter().any(
+            |effect| matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/channel/sync/notify"))
+        ),
+        "channel/member 未确认落库前不得启动消息 sync"
+    );
+
+    h.step(port_reply_ok(increment_persist_corr), 1_200);
+    let sync_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => {
+                let body: Value = serde_json::from_slice(req.body.as_ref()?.as_ref()).ok()?;
+                assert_eq!(body["cursors"][0]["channelId"], cid(45));
+                assert_eq!(body["cursors"][0]["fromSeq"], 0);
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("channel/member 落库后必须复用 sync/notify 增量规则拉消息");
+
+    let sync_body = sync_reply_events_with_messages(
+        45,
+        &[ev(2, 1, "message-hydrated")],
+        &[("message-hydrated", "hydrated hello", "10")],
+        2,
+    );
+    h.step(port_reply_with_body(sync_corr, enveloped(sync_body)), 1_300);
+    let message_persist_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
+                ) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("sync 回包必须落 message");
+
+    let channel_readback = bytes::Bytes::from(
+        serde_json::to_vec(&json!([{
+            "id": cid(45),
+            "display_name": "陌生频道",
+            "is_top": 0,
+            "create_at": 1_700_000_000_000_i64,
+            "unread_count": 1,
+            "mention_count": 1,
+            "urgent_count": 1,
+            "last_event_seq": 2,
+            "last_post": "{\"message\":\"hydrated hello\",\"props\":{\"expedite\":\"m45\"}}"
+        }]))
+        .unwrap(),
+    );
+    h.step(
+        port_reply_with_body(message_persist_corr, channel_readback.clone()),
+        1_400,
+    );
+    assert!(
+        h.sink.as_slice().iter().any(|effect| {
+            matches!(effect, Effect::PersistFire { ops }
+            if ops.iter().any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
+                if spec.table == "channel_event_cursor"
+                    && spec.scope_key == cid(45)
+                    && spec.value == 2)))
+        }),
+        "message commit 后必须推进本地 cursor"
+    );
+
+    let readback_scans: Vec<(u64, &'static str)> = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Persist { corr, ops } => ops.iter().find_map(|op| match op {
+                StorageOp::Scan(spec) if spec.table == "channel" || spec.table == "message" => {
+                    Some((corr.raw(), spec.table))
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(readback_scans.len(), 2, "落库后必须读回 dialog + messages");
+
+    let message_readback = bytes::Bytes::from(
+        serde_json::to_vec(&json!([{
+            "temporary_id": "message-hydrated",
+            "server_id": "message-hydrated",
+            "channel_id": cid(45),
+            "message": "hydrated hello",
+            "type": "TEXT",
+            "props": "{\"document\":{\"id\":\"doc-hydrated\"}}",
+            "read_bits": "10",
+            "event_seq": 2,
+            "create_at": 1_700_000_000_100_i64
+        }]))
+        .unwrap(),
+    );
+    let mut dialog_projection = None;
+    let mut messages_projection = None;
+    for (corr, table) in readback_scans {
+        let reply = if table == "channel" {
+            channel_readback.clone()
+        } else {
+            message_readback.clone()
+        };
+        h.step(port_reply_with_body(corr, reply), 1_500);
+        for value in h.sink.as_slice().iter().filter_map(emit_value) {
+            match value["event"].as_str() {
+                Some("im:channels:projection") => dialog_projection = Some(value),
+                Some("im:messages:query_result") => messages_projection = Some(value),
+                _ => {}
+            }
+        }
+    }
+
+    let dialog = dialog_projection.expect("本地 channel 读回应产 render-ready dialog 投影");
+    let row = &dialog["data"]["dialogList"][0];
+    assert_eq!(row["id"], cid(45));
+    assert_eq!(row["displayName"], "陌生频道");
+    assert_eq!(row["unread"], 1);
+    assert_eq!(row["unreadCount"], 1);
+    assert_eq!(row["mentionCount"], 1);
+    assert_eq!(row["urgentCount"], 1);
+    assert_eq!(row["eventSeq"], 2);
+    assert_eq!(row["mention"], true);
+    assert_eq!(row["urgent"], true);
+    assert_eq!(row["lastMessage"], "hydrated hello");
+
+    let messages = messages_projection.expect("本地 message 读回应产 render-ready messages 投影");
+    assert_eq!(messages["data"]["channel_id"], cid(45));
+    assert_eq!(messages["data"]["messages"][0]["msgId"], "message-hydrated");
+    assert_eq!(messages["data"]["messages"][0]["text"], "hydrated hello");
+    assert_eq!(messages["data"]["messages"][0]["readBits"], "10");
+    assert_eq!(
+        messages["data"]["messages"][0]["props"]["document"]["id"],
+        "doc-hydrated"
+    );
+    assert!(messages["data"]["messages"][0]["eventSeq"].is_null());
 }

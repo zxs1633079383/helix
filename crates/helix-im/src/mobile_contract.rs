@@ -32,6 +32,10 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
         core: "im_channel_load_increment_by_channel_id",
     },
     CommandAlias {
+        public: "im_locate_post",
+        core: "im_get_posts",
+    },
+    CommandAlias {
         public: "im_channel_create",
         core: "im_create_channel",
     },
@@ -116,6 +120,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:memberNickname",
     "im:channel:members",
     "im:channel:replies",
+    "im:post:located",
     "im:read:result",
     "im:todo:updated",
     "im:health:result",
@@ -134,15 +139,20 @@ pub fn command_alias(public: &str) -> Option<&'static str> {
 }
 
 pub fn normalize_command_payload(public: &str, payload: &[u8]) -> Result<Vec<u8>, ImError> {
-    match public {
-        "im_send" => normalize_im_send_payload(payload),
-        _ => Ok(payload.to_vec()),
-    }
+    let mut value: Value = serde_json::from_slice(payload)
+        .map_err(|e| ImError::Parse(format!("{public} payload: {e}")))?;
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| ImError::Parse(format!("{public} payload must be object")))?;
+    normalize_top_level_keys(obj);
+    normalize_public_semantics(public, obj)?;
+    serde_json::to_vec(&value).map_err(|e| ImError::Serialize(e.to_string()))
 }
 
 pub fn capabilities_json() -> Vec<u8> {
     let mut commands = crate::outbound::outbound_command_names();
     commands.push("im_send");
+    commands.push("im_retry_send");
     commands.push("im_reconnect");
     commands.sort_unstable();
     commands.dedup();
@@ -168,15 +178,73 @@ pub fn capabilities_json() -> Vec<u8> {
     serde_json::to_vec(&value).expect("static capabilities JSON must serialize")
 }
 
-fn normalize_im_send_payload(payload: &[u8]) -> Result<Vec<u8>, ImError> {
-    let mut value: Value = serde_json::from_slice(payload)
-        .map_err(|e| ImError::Parse(format!("im_send payload: {e}")))?;
-    let obj = value
-        .as_object_mut()
-        .ok_or_else(|| ImError::Parse("im_send payload must be object".into()))?;
-    move_key(obj, "channelId", "channel_id");
-    move_key(obj, "temporaryId", "temporary_id");
-    serde_json::to_vec(&value).map_err(|e| ImError::Serialize(e.to_string()))
+fn normalize_top_level_keys(obj: &mut Map<String, Value>) {
+    let keys: Vec<String> = obj.keys().cloned().collect();
+    for key in keys {
+        let normalized = camel_to_snake(&key);
+        if normalized != key {
+            move_key(obj, &key, &normalized);
+        }
+    }
+}
+
+fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Result<(), ImError> {
+    match public {
+        "im_send_quick_reply" => move_key(obj, "reaction", "emoji"),
+        "im_mark_read" => {
+            if !obj.contains_key("posts") {
+                if let Some(post_id) = obj.get("post_id").and_then(Value::as_str) {
+                    obj.insert("posts".to_string(), json!([post_id]));
+                }
+            }
+        }
+        "im_get_replies" => move_key(obj, "post_id", "reply_id"),
+        "im_get_reply_branch" => move_key(obj, "post_id", "reply_first_level_id"),
+        "im_locate_post" => {
+            if !obj.contains_key("post_ids") {
+                if let Some(post_id) = obj.get("post_id").and_then(Value::as_str) {
+                    obj.insert("post_ids".to_string(), json!([post_id]));
+                }
+            }
+            obj.insert("locate".to_string(), Value::Bool(true));
+        }
+        "im_create_schedule" => {
+            if !obj.contains_key("schedule_post_at") {
+                move_key(obj, "send_at", "schedule_post_at");
+            }
+            if let Some(post) = obj.get("post").and_then(Value::as_object).cloned() {
+                if !obj.contains_key("message") {
+                    if let Some(message) = post.get("message").cloned() {
+                        obj.insert("message".to_string(), message);
+                    }
+                }
+                if !obj.contains_key("temporary_id") {
+                    if let Some(temporary_id) = post
+                        .get("temporaryId")
+                        .or_else(|| post.get("temporary_id"))
+                        .cloned()
+                    {
+                        obj.insert("temporary_id".to_string(), temporary_id);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn camel_to_snake(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_ascii_uppercase() {
+            normalized.push('_');
+            normalized.push(ch.to_ascii_lowercase());
+        } else {
+            normalized.push(ch);
+        }
+    }
+    normalized
 }
 
 fn move_key(obj: &mut Map<String, Value>, from: &str, to: &str) {
@@ -208,11 +276,66 @@ mod tests {
     }
 
     #[test]
+    fn public_commands_normalize_only_top_level_keys_and_keep_props_opaque() {
+        let input = br#"{"channelId":"ch1","postId":"p1","props":{"temporaryId":"opaque"}}"#;
+        let normalized = normalize_command_payload("im_revoke", input).expect("normalize");
+        let v: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+        assert_eq!(v["channel_id"], "ch1");
+        assert_eq!(v["post_id"], "p1");
+        assert_eq!(v["props"]["temporaryId"], "opaque");
+    }
+
+    #[test]
+    fn public_command_semantics_adapt_ui_intents_inside_helix() {
+        let quick =
+            normalize_command_payload("im_send_quick_reply", br#"{"postId":"p1","reaction":"ok"}"#)
+                .unwrap();
+        let quick: Value = serde_json::from_slice(&quick).unwrap();
+        assert_eq!(quick["post_id"], "p1");
+        assert_eq!(quick["emoji"], "ok");
+
+        let read = normalize_command_payload("im_mark_read", br#"{"postId":"p1"}"#).unwrap();
+        let read: Value = serde_json::from_slice(&read).unwrap();
+        assert_eq!(read["posts"], json!(["p1"]));
+
+        let replies = normalize_command_payload("im_get_replies", br#"{"postId":"p1"}"#).unwrap();
+        let replies: Value = serde_json::from_slice(&replies).unwrap();
+        assert_eq!(replies["reply_id"], "p1");
+
+        let branch =
+            normalize_command_payload("im_get_reply_branch", br#"{"postId":"p2"}"#).unwrap();
+        let branch: Value = serde_json::from_slice(&branch).unwrap();
+        assert_eq!(branch["reply_first_level_id"], "p2");
+
+        let locate = normalize_command_payload("im_locate_post", br#"{"postId":"p3"}"#).unwrap();
+        let locate: Value = serde_json::from_slice(&locate).unwrap();
+        assert_eq!(locate["post_ids"], json!(["p3"]));
+        assert_eq!(locate["locate"], true);
+    }
+
+    #[test]
+    fn schedule_intent_is_shaped_for_the_core_builder_without_touching_post_props() {
+        let normalized = normalize_command_payload(
+            "im_create_schedule",
+            br#"{"channelId":"ch1","post":{"message":"later","temporaryId":"tmp1","props":{"sendAt":7}},"sendAt":1700000000000}"#,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&normalized).unwrap();
+        assert_eq!(value["channel_id"], "ch1");
+        assert_eq!(value["message"], "later");
+        assert_eq!(value["temporary_id"], "tmp1");
+        assert_eq!(value["schedule_post_at"], 1_700_000_000_000_i64);
+        assert_eq!(value["post"]["props"]["sendAt"], 7);
+    }
+
+    #[test]
     fn capabilities_do_not_advertise_send_failed_as_p0() {
         let caps: serde_json::Value = serde_json::from_slice(&capabilities_json()).unwrap();
         assert_eq!(caps["abi"], 1);
         assert_eq!(caps["bus"], "im:__bus__");
         assert_eq!(caps["features"]["pendingSendTimeoutUnsend"], true);
+        let commands = caps["commands"].as_array().unwrap();
+        assert!(commands.iter().any(|q| q == "im_retry_send"));
         let queries = caps["queries"].as_array().unwrap();
         assert!(queries.iter().any(|q| q == "helix_capabilities"));
         assert!(queries.iter().any(|q| q == "helix_version"));

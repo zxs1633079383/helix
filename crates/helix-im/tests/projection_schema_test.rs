@@ -398,7 +398,11 @@ fn im_connection_established_freezes_connectionid() {
 #[test]
 fn im_channel_closed_freezes_channelid_deleteat_camelcase() {
     let e = to_effect_s1::emit_channel_closed(ch(), 1_700_000_000);
-    assert_frozen(&e, "im:channel:closed", &["channelId", "deleteAt"]);
+    assert_frozen(
+        &e,
+        "im:channel:closed",
+        &["channelId", "closed", "deleteAt", "id"],
+    );
 }
 
 #[test]
@@ -417,7 +421,7 @@ fn im_schedule_created_freezes_channelid_hasschedulepost() {
     assert_frozen(
         &e,
         "im:channel:schedule-created",
-        &["channelId", "hasSchedulePost"],
+        &["channelId", "hasSchedulePost", "id"],
     );
 }
 
@@ -427,7 +431,7 @@ fn im_schedule_canceled_freezes_channelid_hasschedulepost() {
     assert_frozen(
         &e,
         "im:channel:schedule-canceled",
-        &["channelId", "hasSchedulePost"],
+        &["channelId", "hasSchedulePost", "id"],
     );
 }
 
@@ -450,10 +454,36 @@ fn im_channel_increment_invalid_raw_still_freezes_keys() {
 }
 
 #[test]
-fn im_channel_created_freezes_channel_id_and_channel() {
-    let raw = serde_json::to_vec(&serde_json::json!({"displayName": "群"})).unwrap();
+fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
+    let raw = serde_json::to_vec(&serde_json::json!({
+        "displayName": "群",
+        "memberCount": 2,
+        "type": "T"
+    }))
+    .unwrap();
     let e = to_effect_s1::emit_channel_created(ch(), &raw);
-    assert_frozen(&e, "im:channel:created", &["channel", "channel_id"]);
+    assert_frozen(
+        &e,
+        "im:channel:created",
+        &[
+            "channel",
+            "channelId",
+            "channel_id",
+            "displayName",
+            "group",
+            "id",
+            "memberCount",
+            "props",
+        ],
+    );
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(payload["data"]["displayName"], "群");
+    assert_eq!(payload["data"]["group"], "topic");
+    assert_eq!(payload["data"]["memberCount"], 2);
+    assert_eq!(payload["data"]["props"]["type"], "T");
 }
 
 #[test]

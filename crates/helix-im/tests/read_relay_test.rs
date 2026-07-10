@@ -45,6 +45,16 @@ fn emit_json(sink: &EffectSink) -> Option<serde_json::Value> {
     })
 }
 
+fn emit_jsons(sink: &EffectSink) -> Vec<serde_json::Value> {
+    sink.as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            _ => None,
+        })
+        .collect()
+}
+
 // ─── 不变量 1：读命令注册回灌 + emit 透传 body ──────────────────────────────────
 
 #[test]
@@ -92,6 +102,31 @@ fn read_command_registers_relay_and_emits_result() {
     assert_eq!(v["data"]["body"]["data"][1]["message"], "yo");
     // 无 error 字段（成功路径）。
     assert!(v["data"].get("error").is_none(), "成功路径不带 error");
+}
+
+#[test]
+fn locate_post_emits_read_result_and_render_ready_highlighted_projection() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_get_posts",
+            serde_json::json!({ "post_ids": ["p1"], "req_id": "locate-1", "locate": true }),
+        ),
+        1000,
+    );
+    let corr = http_corr(&h.sink).expect("locate dispatch must emit Http");
+    let raw = bytes::Bytes::from(
+        br#"{"data":[{"id":"p1","channelId":"ch00000000000000000000000a","userId":"u1","type":"TEXT","message":"target"}]}"#
+            .to_vec(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 1001);
+
+    let emits = emit_jsons(&h.sink);
+    assert_eq!(emits.len(), 2);
+    assert_eq!(emits[0]["event"], "im:read:result");
+    assert_eq!(emits[1]["event"], "im:post:located");
+    assert_eq!(emits[1]["data"]["id"], "p1");
+    assert_eq!(emits[1]["data"]["highlighted"], true);
 }
 
 // ─── 不变量 2：写命令不注册回灌（fire-and-forget）────────────────────────────────

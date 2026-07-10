@@ -96,8 +96,8 @@ impl ImModule {
         // R4-retain：回填本 send 的 P1 Persist corr，对账时按它 O(1) `corr_map.remove`，
         // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
         ps.persist_corr = Some(p1_corr);
+        ps.body = Some(body.clone());
         if !upload_plan.targets.is_empty() {
-            ps.body = Some(body.clone());
             ps.remaining_uploads = upload_plan.targets.len();
         }
         self.state.pending_sends.insert(tmp_id.clone(), ps);

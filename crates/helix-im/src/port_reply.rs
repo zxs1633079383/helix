@@ -15,7 +15,7 @@ impl ImModule {
         &mut self,
         corr: helix_core::Correlation,
         outcome: &helix_core::tick::PortOutcome,
-        _now_ms: u64,
+        now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
@@ -64,6 +64,8 @@ impl ImModule {
                     // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
                     if wants_continuation {
                         self.maybe_continue_sync(channel_id, out);
+                    } else {
+                        self.finish_increment_hydration(channel_id, out)?;
                     }
                 }
                 PortOutcome::Err(e) => {
@@ -79,6 +81,11 @@ impl ImModule {
                     }
                 }
             },
+
+            CorrelationContext::IncrementHydrationPersist {
+                channel_id,
+                need_sync,
+            } => self.handle_increment_hydration_persist(channel_id, need_sync, outcome, out)?,
 
             CorrelationContext::DialogPatchByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
@@ -129,6 +136,7 @@ impl ImModule {
                             out.push(effect);
                         }
                     }
+                    self.finish_increment_hydration(channel_id, out)?;
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(
@@ -269,6 +277,12 @@ impl ImModule {
                 }
             },
 
+            // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有
+            // increment 应用规则，相关落 channel/member 后再进入单频道 sync hydration。
+            CorrelationContext::OutboundIncrementHydration { req_id } => {
+                self.handle_increment_hydration_reply(&req_id, outcome, now_ms, out)?;
+            }
+
             // S7（issue #56）：byIds 成员快照读族回报 → 双 emit。
             // Ok → ① 照旧透传 im:read:result{req_id, body}（UC-6.4 ② 冻结契约面）；
             //       ② 解析 byIds body（map[channelId][]）逐 channel emit render-ready im:channel:members
@@ -283,6 +297,10 @@ impl ImModule {
             // 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
             CorrelationContext::OutboundReplies { req_id } => {
                 crate::port_reply_emit::emit_replies(&req_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundLocatePost { req_id } => {
+                crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
             }
 
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
@@ -366,6 +384,7 @@ impl ImModule {
         };
         let mut posts = extract_latest_posts(raw_body.as_ref());
         if posts.is_empty() {
+            self.finish_increment_hydration(channel_id, out)?;
             return Ok(());
         }
         posts.sort_by_key(|post| {
@@ -426,6 +445,7 @@ impl ImModule {
             ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
         }
         if ops.is_empty() {
+            self.finish_increment_hydration(channel_id, out)?;
             return Ok(());
         }
 

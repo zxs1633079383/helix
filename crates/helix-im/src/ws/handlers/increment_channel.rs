@@ -1,4 +1,4 @@
-use helix_core::EffectSink;
+use helix_core::{Correlation, Effect, EffectSink};
 use linkme::distributed_slice;
 
 use crate::channel::Channel;
@@ -15,6 +15,43 @@ pub(crate) fn apply_increment(
     inc: &IncrementChannel,
     out: &mut EffectSink,
 ) {
+    for effect in apply_increment_effects(ctx, inc) {
+        out.push(effect);
+    }
+}
+
+/// UC-4.5 HTTP 单频道 hydration：复用与 WS `increment_channel` 完全相同的解析后应用规则，
+/// 仅把其中幂等 `PersistFire` 写合并提升为带 corr 的 `Persist`。调用方据此等待
+/// channel/channel_member 确认落库后再启动 sync，避免 HTTP 与本地写并发导致投影读回竞态。
+pub(crate) fn apply_increment_hydration(
+    ctx: &mut ImWsContext<'_>,
+    inc: &IncrementChannel,
+    corr: Correlation,
+    out: &mut EffectSink,
+) -> bool {
+    let mut persist_ops = Vec::new();
+    let mut remaining = Vec::new();
+    for effect in apply_increment_effects(ctx, inc) {
+        match effect {
+            Effect::PersistFire { ops } => persist_ops.extend(ops),
+            other => remaining.push(other),
+        }
+    }
+    let has_persist = !persist_ops.is_empty();
+    if has_persist {
+        out.push(Effect::Persist {
+            corr,
+            ops: persist_ops,
+        });
+    }
+    for effect in remaining {
+        out.push(effect);
+    }
+    has_persist
+}
+
+fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) -> Vec<Effect> {
+    let mut effects = Vec::with_capacity(4);
     let channel_id = inc.channel_id;
     // 冷启动真新 channel（DB 无 cursor，on_start Scan 未载入）首次注册时，内存 cursor 种子
     // 必须是 0（= 本地未确认任何 event），不是帧的 lastEventSeq（服务端水位）。
@@ -49,7 +86,7 @@ pub(crate) fn apply_increment(
         if let Some((cols, exclude)) =
             crate::channel_write::program_full(&data, ctx.auth_user_id, ctx.now_ms)
         {
-            out.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+            effects.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
         }
 
         // A1 修复：从帧四源 `members/owner/adminUsers/boss` **+ `memberChange.join`** 写
@@ -61,13 +98,13 @@ pub(crate) fn apply_increment(
         // leave 物理删已接通（core 有 BatchDelete，见下 :67 + members.rs 模块头）。
         let members = crate::channel_write::collect_members(&data);
         if let Some(eff) = crate::acl::to_effect_s1::upsert_channel_members(channel_id, members) {
-            out.push(eff);
+            effects.push(eff);
         }
 
         // memberChange.leave → 删离场成员（复合 PK 作用域删，scope=channel_id 不跨群）。
         let leaves = crate::channel_write::collect_member_leaves(&data);
         if let Some(eff) = crate::acl::to_effect_s1::delete_channel_members(channel_id, leaves) {
-            out.push(eff);
+            effects.push(eff);
         }
     }
 
@@ -80,10 +117,11 @@ pub(crate) fn apply_increment(
     }
 
     // 前端仍要 emit（透传 mentionList/urgentPostList，B-rest 契约不变）。
-    out.push(crate::acl::to_effect::emit_channel_increment(
+    effects.push(crate::acl::to_effect::emit_channel_increment(
         channel_id,
         inc.raw.as_ref(),
     ));
+    effects
 }
 
 struct IncrementChannelHandler;

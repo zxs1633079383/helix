@@ -323,7 +323,10 @@ fn proactive_too_long_requests_latest_post_reload_e6() {
     }
 
     assert!(saw_too_long, "应命中 proactive too_long");
-    assert!(saw_reload, "proactive too_long 后必须请求 channel 7 的 getLatestPost");
+    assert!(
+        saw_reload,
+        "proactive too_long 后必须请求 channel 7 的 getLatestPost"
+    );
 }
 
 // ─── 多帧背压：buffer → flush 后连续 ─────────────────────────────────────────

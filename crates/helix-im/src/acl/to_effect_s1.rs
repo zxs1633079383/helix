@@ -36,9 +36,32 @@ fn emit(event: &'static str, data: serde_json::Value) -> Effect {
 /// 透传帧 `data` 原始字节（含 owner/members/picture 等，前端直接消费）；非法 JSON 降级 null。
 pub fn emit_channel_created(channel_id: ChannelId, raw: &[u8]) -> Effect {
     let channel: serde_json::Value = serde_json::from_slice(raw).unwrap_or(serde_json::Value::Null);
+    let display_name = channel
+        .get("displayName")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(channel_id.as_str());
+    let group = match channel.get("type").and_then(serde_json::Value::as_str) {
+        Some("T") => "topic",
+        Some("D") => "direct",
+        _ => "group",
+    };
+    let member_count = channel
+        .get("memberCount")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
     emit(
         "im:channel:created",
-        serde_json::json!({ "channel_id": channel_id.as_str(), "channel": channel }),
+        serde_json::json!({
+            "id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "channel_id": channel_id.as_str(),
+            "displayName": display_name,
+            "group": group,
+            "memberCount": member_count,
+            "props": channel,
+            "channel": channel,
+        }),
     )
 }
 
@@ -46,7 +69,12 @@ pub fn emit_channel_created(channel_id: ChannelId, raw: &[u8]) -> Effect {
 pub fn emit_channel_closed(channel_id: ChannelId, delete_at: i64) -> Effect {
     emit(
         "im:channel:closed",
-        serde_json::json!({ "channelId": channel_id.as_str(), "deleteAt": delete_at }),
+        serde_json::json!({
+            "id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "closed": true,
+            "deleteAt": delete_at,
+        }),
     )
 }
 
@@ -79,7 +107,11 @@ pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &st
 pub fn emit_schedule_created(channel_id: ChannelId) -> Effect {
     emit(
         "im:channel:schedule-created",
-        serde_json::json!({ "channelId": channel_id.as_str(), "hasSchedulePost": true }),
+        serde_json::json!({
+            "id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "hasSchedulePost": true,
+        }),
     )
 }
 
@@ -87,7 +119,11 @@ pub fn emit_schedule_created(channel_id: ChannelId) -> Effect {
 pub fn emit_schedule_canceled(channel_id: ChannelId) -> Effect {
     emit(
         "im:channel:schedule-canceled",
-        serde_json::json!({ "channelId": channel_id.as_str(), "hasSchedulePost": false }),
+        serde_json::json!({
+            "id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "hasSchedulePost": false,
+        }),
     )
 }
 

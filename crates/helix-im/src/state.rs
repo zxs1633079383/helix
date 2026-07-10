@@ -229,6 +229,10 @@ pub struct ImState {
     /// scan 回包加载持久 cursor 后需补发一次 bootstrap increment，避免冷启动只走 sync/notify
     /// 而缺失 `increment_channel` / `im:channel:increment`。
     pub pending_increment_bootstrap_after_scan: bool,
+
+    /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
+    /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
+    pub hydration_pending: HashSet<ChannelId>,
 }
 
 impl ImState {
@@ -256,6 +260,7 @@ impl ImState {
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
+            hydration_pending: HashSet::new(),
         }
     }
 
@@ -268,6 +273,7 @@ impl ImState {
         self.sync_scheduler.reset();
         self.about_me_post_ids.clear();
         self.pending_increment_bootstrap_after_scan = false;
+        self.hydration_pending.clear();
     }
 }
 

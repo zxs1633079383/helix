@@ -8,8 +8,8 @@ use serde_json::Value;
 /// 把一行原始 channel 扫描结果升成 render-ready CL 行。
 ///
 /// 保留原始列（向后兼容旧消费方），叠加 8 个派生终态键：
-/// displayName / notice(归一) / isTop(bool) / createAt / unread(终值) / mention(bool) /
-/// lastMessage(预览) / urgent(bool)。非对象行 → 原样返回（零信任不 panic）。
+/// displayName / notice(归一) / top(bool) / createAt / unreadCount / mentionCount /
+/// urgentCount / lastMessage。非对象行 → 原样返回（零信任不 panic）。
 pub(crate) fn render_ready_dialog_row(row: Value) -> Value {
     let Value::Object(mut obj) = row else {
         return row;
@@ -22,24 +22,44 @@ pub(crate) fn render_ready_dialog_row(row: Value) -> Value {
     // notice ← 归一（notice 列可能是 JSON `{"text":".."}` 或纯文本·空→null·前端删 normalizeNotice）。
     obj.insert("notice".into(), normalize_notice_value(obj.get("notice")));
     // isTop ← is_top（INTEGER/bool/字符串 → bool·前端删 normalizeIsTop）。
-    obj.insert("isTop".into(), Value::Bool(truthy(obj.get("is_top"))));
+    let top = truthy(obj.get("is_top"));
+    obj.insert("isTop".into(), Value::Bool(top));
+    obj.insert("top".into(), Value::Bool(top));
     // createAt ← create_at（毫秒·CL 升序排序键·snake→camel 归一）。
     if let Some(n) = as_i64(obj.get("create_at")) {
         obj.insert("createAt".into(), Value::from(n));
     }
     // unread ← unread_count 终值（前端不再 ++·badge 直绑）。
-    obj.insert(
-        "unread".into(),
-        Value::from(as_i64(obj.get("unread_count")).unwrap_or(0)),
-    );
+    let unread_count = as_i64(obj.get("unread_count")).unwrap_or(0);
+    obj.insert("unread".into(), Value::from(unread_count));
+    obj.insert("unreadCount".into(), Value::from(unread_count));
     // mention ← mention_count>0 || mention_count_root>0（艾特 badge·bool 终值）。
-    let mention = as_i64(obj.get("mention_count")).unwrap_or(0) > 0
-        || as_i64(obj.get("mention_count_root")).unwrap_or(0) > 0;
+    let mention_count = as_i64(obj.get("mention_count")).unwrap_or(0);
+    let mention_count_root = as_i64(obj.get("mention_count_root")).unwrap_or(0);
+    let mention = mention_count > 0 || mention_count_root > 0;
     obj.insert("mention".into(), Value::Bool(mention));
+    obj.insert("mentionCount".into(), Value::from(mention_count));
+    obj.insert("mentionCountRoot".into(), Value::from(mention_count_root));
+    let urgent_count = as_i64(obj.get("urgent_count")).unwrap_or(0);
+    obj.insert("urgentCount".into(), Value::from(urgent_count));
+    if let Some(count) = as_i64(obj.get("member_count")) {
+        obj.insert("memberCount".into(), Value::from(count));
+    }
+    if let Some(seq) = as_i64(obj.get("last_event_seq")) {
+        obj.insert("eventSeq".into(), Value::from(seq));
+    }
+    obj.insert(
+        "hasSchedulePost".into(),
+        Value::Bool(truthy(obj.get("has_schedule_post"))),
+    );
+    let closed = as_i64(obj.get("delete_at")).unwrap_or(0) > 0
+        || matches!(obj.get("is_active"), Some(Value::Bool(false)))
+        || matches!(obj.get("is_active"), Some(Value::Number(n)) if n.as_i64() == Some(0));
+    obj.insert("closed".into(), Value::Bool(closed));
     // lastMessage / urgent ← last_post（整帧 post JSON 或内容兜底字符串·解析取预览 + 加急标）。
     let (last_message, urgent) = derive_last_post(obj.get("last_post"));
     obj.insert("lastMessage".into(), last_message);
-    obj.insert("urgent".into(), Value::Bool(urgent));
+    obj.insert("urgent".into(), Value::Bool(urgent || urgent_count > 0));
     Value::Object(obj)
 }
 

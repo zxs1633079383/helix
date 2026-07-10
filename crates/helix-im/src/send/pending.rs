@@ -234,3 +234,21 @@ pub fn props_persist_op(temporary_id: &TemporaryId, props_json: String) -> Stora
         exclude_from_update: Vec::new(),
     })
 }
+
+pub fn send_status_persist_op(temporary_id: &TemporaryId, status: &str) -> StorageOp {
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "message",
+        rows: vec![vec![
+            (
+                "temporary_id".to_string(),
+                SqlValue::Text(temporary_id.0.clone()),
+            ),
+            (
+                "send_status".to_string(),
+                SqlValue::Text(status.to_string()),
+            ),
+        ]],
+        conflict_key: Some("temporary_id"),
+        exclude_from_update: Vec::new(),
+    })
+}

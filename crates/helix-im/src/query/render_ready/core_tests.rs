@@ -14,24 +14,37 @@ fn db_snake_row_shaped_to_render_ready() {
         "message": "hi",
         "read_bits": 5,
         "revoke": 1,
-        "props": { "template": { "userIds": ["u9"] } },
+        "props": {
+            "document": { "id": "doc-1" },
+            "template": { "userIds": ["u9"] }
+        },
         "create_at": 1700,
         "user_id": "u9"
     }]);
     let out = shape_message_rows(&rows);
     let r = &out[0];
     assert_eq!(r["msgId"], "srv1"); // server id 优先
+    assert_eq!(r["id"], "srv1");
     assert_eq!(r["temporaryId"], "lf-t1");
     assert_eq!(r["channelId"], "ch1");
     assert_eq!(r["text"], "hi");
     assert_eq!(r["type"], "DOCUMENT");
     assert_eq!(r["readBits"], "5"); // number→string 归一
     assert_eq!(r["revoked"], true); // revoke 1→true
+    assert_eq!(r["revoke"], true);
     assert_eq!(r["templateReceived"], true);
     assert_eq!(r["createAt"], 1700);
+    assert_eq!(r["createdAt"], 1700);
     assert_eq!(r["userId"], "u9");
     assert_eq!(r["sendStatus"], "sent");
     assert!(r["eventSeq"].is_null());
+    assert_eq!(
+        r["props"],
+        serde_json::json!({
+            "document": {"id":"doc-1"},
+            "template": {"userIds":["u9"]}
+        })
+    );
 }
 
 #[test]

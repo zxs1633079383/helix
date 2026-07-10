@@ -263,6 +263,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 - `messageClass`：`normal` / `mention` / `urgent` / `mention_urgent`；
 - `senderUserId`：`userSnapshot.userId` 优先，回退 `userId`；
 - `lastPost` / `lastMessage`：来自当前可见 post，在手输出，不依赖额外 `update_channel`；
+- `dialogPatch.eventSeq`：当前频道游标的 canonical UI 字段；`lastEventSeq` 继续保留给旧消费方；
 - `unreadDelta` / `mentionDelta` / `urgentDelta`：本事件增量，仅作调试/兼容信号，不作为前端累计源；
 - `dialogPatch.unreadCount` / `mentionCount` / `urgentCount`：`dialog.patchByPost` 来自 `GuardedBump`
   写后 `Get(channel)` 的本地累计终值；`dialog.patchByMember` 来自后端 `update_channel` 定向单播的

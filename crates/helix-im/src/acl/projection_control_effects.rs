@@ -210,6 +210,27 @@ pub fn emit_channel_update_by_post(
     let message_class = crate::channel_write::message_class(update);
     let mention_delta = if update.mention_hit { 1 } else { 0 };
     let urgent_delta = if update.urgent_hit { 1 } else { 0 };
+    let dialog_patch = json!({
+        "id": channel_id.as_str(),
+        "channelId": channel_id.as_str(),
+        "lastPost": last_post.clone(),
+        "lastMessage": update.last_message.clone(),
+        "unread": projection.unread_count,
+        "unreadCount": projection.unread_count,
+        "mention": update.mention_hit,
+        "mentionCount": projection.mention_count,
+        "urgent": update.urgent_hit,
+        "urgentCount": projection.urgent_count,
+        "unreadPostId": projection.unread_post_id.clone(),
+        "lastPostAt": update.msg_create_at,
+        "lastRootPostAt": projection.last_root_post_at,
+        "eventSeq": event_seq,
+        "lastEventSeq": event_seq,
+        "mentionedUserIds": update.mentions.clone(),
+        "urgentUserIds": update.urgent_user_ids.clone(),
+        "mentionList": projection.mention_list.clone(),
+        "urgentPostList": projection.urgent_post_list.clone(),
+    });
     let payload = json!({
         "event": "im:channel:update-by-post",
         "data": {
@@ -233,26 +254,7 @@ pub fn emit_channel_update_by_post(
                 "urgentUserIds": update.urgent_user_ids.clone(),
                 "mentionList": projection.mention_list.clone(),
                 "urgentPostList": projection.urgent_post_list.clone(),
-                "dialogPatch": {
-                    "id": channel_id.as_str(),
-                    "channelId": channel_id.as_str(),
-                    "lastPost": last_post,
-                    "lastMessage": update.last_message.clone(),
-                    "unread": projection.unread_count,
-                    "unreadCount": projection.unread_count,
-                    "mention": update.mention_hit,
-                    "mentionCount": projection.mention_count,
-                    "urgent": update.urgent_hit,
-                    "urgentCount": projection.urgent_count,
-                    "unreadPostId": projection.unread_post_id.clone(),
-                    "lastPostAt": update.msg_create_at,
-                    "lastRootPostAt": projection.last_root_post_at,
-                    "lastEventSeq": event_seq,
-                    "mentionedUserIds": update.mentions.clone(),
-                    "urgentUserIds": update.urgent_user_ids.clone(),
-                    "mentionList": projection.mention_list.clone(),
-                    "urgentPostList": projection.urgent_post_list.clone(),
-                },
+                "dialogPatch": dialog_patch,
         }
     });
     let bytes = Bytes::from(

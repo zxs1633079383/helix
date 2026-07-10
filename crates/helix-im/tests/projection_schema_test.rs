@@ -343,6 +343,13 @@ fn im_channel_update_by_post_is_render_ready_dialog_patch() {
             "dialogPatch",
         ],
     );
+    let Effect::Emit { event } = &e else {
+        panic!("projection must emit JSON");
+    };
+    let value: serde_json::Value =
+        serde_json::from_slice(event.0.as_ref()).expect("projection JSON");
+    assert_eq!(value["data"]["dialogPatch"]["eventSeq"], SEQ);
+    assert_eq!(value["data"]["dialogPatch"]["lastEventSeq"], SEQ);
 }
 
 #[test]

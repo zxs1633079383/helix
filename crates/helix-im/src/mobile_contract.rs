@@ -60,6 +60,10 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
         core: "im_channel_online_status",
     },
     CommandAlias {
+        public: "im_members_by_ids",
+        core: "im_channels_members_by_ids",
+    },
+    CommandAlias {
         public: "im_channel_admin_change",
         core: "im_channel_member_role",
     },
@@ -386,6 +390,19 @@ mod tests {
         assert_eq!(value["header"], "群规则");
         assert_eq!(value["expected_version"], 7);
         assert!(value.get("settings").is_none());
+    }
+
+    #[test]
+    fn member_directory_alias_reuses_render_ready_by_ids_projection() {
+        let normalized =
+            normalize_command_payload("im_members_by_ids", br#"{"channelIds":["ch1","ch2"]}"#)
+                .expect("normalize member directory");
+        let value: Value = serde_json::from_slice(&normalized).expect("decode members request");
+        assert_eq!(
+            command_alias("im_members_by_ids"),
+            Some("im_channels_members_by_ids")
+        );
+        assert_eq!(value["channel_ids"], json!(["ch1", "ch2"]));
     }
 
     #[test]

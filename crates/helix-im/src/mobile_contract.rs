@@ -21,7 +21,7 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
     },
     CommandAlias {
         public: "im_read_channel",
-        core: "im_post_read",
+        core: "im_channels_view",
     },
     CommandAlias {
         public: "im_sync_channels",
@@ -191,6 +191,17 @@ fn normalize_top_level_keys(obj: &mut Map<String, Value>) {
 fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Result<(), ImError> {
     match public {
         "im_send_quick_reply" => move_key(obj, "reaction", "emoji"),
+        "im_read_channel" => {
+            let channel_id = obj
+                .get("channel_id")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ImError::Parse("im_read_channel: 缺 channel_id".to_string()))?;
+            obj.insert(
+                "channels".to_string(),
+                json!([{ "id": channel_id, "isRoot": true }]),
+            );
+        }
         "im_mark_read" => {
             if !obj.contains_key("posts") {
                 if let Some(post_id) = obj.get("post_id").and_then(Value::as_str) {
@@ -297,6 +308,15 @@ mod tests {
         let read = normalize_command_payload("im_mark_read", br#"{"postId":"p1"}"#).unwrap();
         let read: Value = serde_json::from_slice(&read).unwrap();
         assert_eq!(read["posts"], json!(["p1"]));
+
+        let channel_read =
+            normalize_command_payload("im_read_channel", br#"{"channelId":"ch1"}"#).unwrap();
+        let channel_read: Value = serde_json::from_slice(&channel_read).unwrap();
+        assert_eq!(command_alias("im_read_channel"), Some("im_channels_view"));
+        assert_eq!(
+            channel_read["channels"],
+            json!([{"id":"ch1","isRoot":true}])
+        );
 
         let replies = normalize_command_payload("im_get_replies", br#"{"postId":"p1"}"#).unwrap();
         let replies: Value = serde_json::from_slice(&replies).unwrap();

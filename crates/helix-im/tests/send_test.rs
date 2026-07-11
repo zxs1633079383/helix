@@ -296,6 +296,47 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
 }
 
 #[test]
+fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
+    let mut h = Harness::new(&[1]);
+    let effects = h.step(send_message_cmd(1, "tmp_late_p1", "hello"), 1000);
+    let p1 = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("P1 corr");
+    let h1 = http_corr(&effects);
+
+    h.step(port_reply_err(h1), 1050);
+    assert_eq!(
+        h.module.pending_send_status("tmp_late_p1"),
+        Some(SendStatus::UnSend)
+    );
+
+    h.step(port_reply_ok(p1), 1100);
+    assert_eq!(
+        h.module.pending_send_status("tmp_late_p1"),
+        Some(SendStatus::UnSend),
+        "late P1 must not overwrite the terminal retryable state"
+    );
+
+    let retry_effects = h.step(
+        command_json(
+            "im_retry_send",
+            serde_json::json!({ "message_id": "tmp_late_p1" }),
+        ),
+        1200,
+    );
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "the failed send must remain retryable after a late P1 reply"
+    );
+}
+
+#[test]
 fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_retry_send", "hello retry"), 1000);

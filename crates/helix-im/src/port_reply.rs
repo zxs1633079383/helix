@@ -150,9 +150,12 @@ impl ImModule {
             // 路由：发送 Persist 回报（P1 乐观落库）
             CorrelationContext::OptimisticSend { temporary_id } => match outcome {
                 PortOutcome::Ok(_) => {
-                    // P1 落库成功：将 PendingSend 状态推进到 Sending
+                    // P1 可能晚于 HTTP 失败回报；只允许初始 Local 推进，不能把
+                    // 已终结的 UnSend/Sent 倒退回 Sending。
                     if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
-                        ps.status = SendStatus::Sending;
+                        if ps.status == SendStatus::Local {
+                            ps.status = SendStatus::Sending;
+                        }
                     }
                 }
                 PortOutcome::Err(e) => {

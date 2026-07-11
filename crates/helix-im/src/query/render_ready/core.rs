@@ -95,13 +95,18 @@ fn shape_row(row: &Value) -> Value {
     } else {
         server_id
     };
+    let send_status = match get_str(row, &["send_status", "sendStatus"]) {
+        "unsend" | "failed" => "failed",
+        "sending" => "sending",
+        _ => "sent",
+    };
     json!({
         "id": msg_id,
         "msgId": msg_id,
         "temporaryId": temporary_id,
         "channelId": channel_id,
         "eventSeq": Value::Null,
-        "sendStatus": "sent",
+        "sendStatus": send_status,
         "readBits": read_bits_str(row),
         "text": text,
         "type": msg_type,

@@ -54,6 +54,21 @@ fn db_snake_row_shaped_to_render_ready() {
 }
 
 #[test]
+fn durable_unsend_is_rendered_as_retryable_failed_after_restart() {
+    let rows = json!([{
+        "temporary_id": "tmp-failed",
+        "id": "",
+        "channel_id": "ch1",
+        "type": "TEXT",
+        "message": "retry me",
+        "send_status": "unsend"
+    }]);
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["id"], "tmp-failed");
+    assert_eq!(out[0]["sendStatus"], "failed");
+}
+
+#[test]
 fn wire_camel_row_shaped_to_same_shape() {
     // 上拉 postContext 的 wire camel Post（无 revoke 列·空 type 容错 TEXT）。
     let rows = json!([{

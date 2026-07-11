@@ -25,7 +25,7 @@ impl WsMessageHandler for RoleUpdatedHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -41,6 +41,13 @@ impl WsMessageHandler for RoleUpdatedHandler {
         else {
             return Ok(());
         };
+
+        crate::channel_capabilities::remember_role_update(
+            ctx.state,
+            channel_id,
+            data,
+            ctx.auth_user_id,
+        );
 
         let raw = serde_json::to_vec(data).unwrap_or_default();
         out.push(crate::acl::to_effect_s1::emit_channel_member_updated(

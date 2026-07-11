@@ -41,6 +41,10 @@ pub fn emit_post_sending(
                 "canCreateTopic": false,
                 "canRevoke": false,
                 "canRetry": false,
+                "canUrgentConfirm": false,
+                "canMarkRead": false,
+                "canViewReceipt": false,
+                "canTemplateConfirm": false,
             },
             "readBits": "",
             "text": text,
@@ -78,6 +82,10 @@ pub fn emit_post_send_failed(channel_id: &str, temporary_id: &str) -> Effect {
                 "canCreateTopic": false,
                 "canRevoke": false,
                 "canRetry": true,
+                "canUrgentConfirm": false,
+                "canMarkRead": false,
+                "canViewReceipt": false,
+                "canTemplateConfirm": false,
             },
         }
     });

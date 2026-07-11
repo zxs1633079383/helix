@@ -109,6 +109,12 @@ pub enum CorrelationContext {
     /// G-11 定位消息读回：HTTP `posts/get` 返回后由 Helix 整形成 highlighted 消息投影。
     OutboundLocatePost { req_id: String },
 
+    /// G-05 多目标转发 HTTP 接收结果；accepted 不是 delivered，最终送达继续等逐目标 WS post。
+    OutboundCreatePosts { req_id: String },
+
+    /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。
+    OutboundPostReaders { req_id: String },
+
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,
 

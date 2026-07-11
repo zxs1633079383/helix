@@ -46,6 +46,12 @@ impl WsMessageHandler for UpdateChannelHandler {
         else {
             return Ok(());
         };
+        crate::channel_capabilities::remember_viewer_role(
+            ctx.state,
+            channel_id,
+            channel,
+            ctx.auth_user_id,
+        );
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
         let cols = crate::channel_write::collect_present(channel);
@@ -71,10 +77,26 @@ impl WsMessageHandler for UpdateChannelHandler {
         // dialogList。真实 Go 有时只给最小 channel 对象或把字段包在 data.channel 下；即使空 PATCH，
         // thin 信号仍是移动端所需的 render trigger，且不伪造 channel 行。
         out.push(crate::acl::to_effect::emit_channel_update(channel_id));
+        let setting_version = channel
+            .get("settingVersion")
+            .or_else(|| data.get("settingVersion"))
+            .and_then(serde_json::Value::as_u64)
+            .or_else(|| frame.event_seq().map(|seq| seq.0))
+            .unwrap_or(0);
+        let role = ctx
+            .state
+            .viewer_channel_roles
+            .get(&channel_id)
+            .map(String::as_str);
+        let matrix = channel
+            .get("capabilitiesByRole")
+            .or_else(|| data.get("capabilitiesByRole"));
+        let capabilities = crate::channel_capabilities::for_viewer(matrix, role);
         if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
             channel_id,
             channel,
-            frame.event_seq().map(|seq| seq.0).unwrap_or(0),
+            setting_version,
+            capabilities,
         ) {
             out.push(effect);
         }

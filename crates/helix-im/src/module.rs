@@ -316,10 +316,18 @@ impl Module for ImModule {
                                     .unwrap_or(false)
                             {
                                 CorrelationContext::OutboundLocatePost { req_id }
+                            } else if name == "im_post_read_list" {
+                                CorrelationContext::OutboundPostReaders { req_id }
                             } else {
                                 CorrelationContext::OutboundReadReply { req_id }
                             };
                             self.state.corr_map.insert(corr, ctx);
+                        }
+                    } else if name == "im_create_posts" {
+                        if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
+                            self.state
+                                .corr_map
+                                .insert(corr, CorrelationContext::OutboundCreatePosts { req_id });
                         }
                     } else if name == "im_channel_leave" {
                         if let Some(channel_id) =

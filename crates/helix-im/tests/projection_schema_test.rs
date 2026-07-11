@@ -319,6 +319,26 @@ fn message_action_capabilities_are_viewer_relative_and_fail_closed() {
     assert_eq!(data["isSelf"], true);
     assert_eq!(data["actionCapabilities"]["canRevoke"], true);
     assert_eq!(data["actionCapabilities"]["canRetry"], false);
+    assert_eq!(data["actionCapabilities"]["canViewReceipt"], true);
+    assert_eq!(data["actionCapabilities"]["canMarkRead"], false);
+}
+
+#[test]
+fn message_interaction_capabilities_use_viewer_facts() {
+    let mut f = sample_fields();
+    f.user_id = "sender".to_string();
+    f.props = r#"{"template":{"userIds":[]}}"#.to_string();
+    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    let e = to_effect::emit_post_received_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let capabilities = &value["data"]["actionCapabilities"];
+    assert_eq!(capabilities["canUrgentConfirm"], true);
+    assert_eq!(capabilities["canMarkRead"], true);
+    assert_eq!(capabilities["canViewReceipt"], false);
+    assert_eq!(capabilities["canTemplateConfirm"], true);
 }
 
 #[test]
@@ -525,12 +545,18 @@ fn im_channel_settings_updated_freezes_render_ready_settings_and_version() {
         ch(),
         &serde_json::json!({"displayName":"新群名","purpose":"简介"}),
         77,
+        serde_json::json!({"canCloseChannel":false}),
     )
     .expect("存在设置字段应 emit");
     assert_frozen(
         &e,
         "im:channel:settings-updated",
-        &["channelId", "settings", "settingVersion"],
+        &[
+            "channelCapabilities",
+            "channelId",
+            "settings",
+            "settingVersion",
+        ],
     );
 }
 
@@ -724,6 +750,7 @@ fn all_24_projection_factories_covered() {
             ch(),
             &serde_json::json!({"displayName":"群"}),
             1,
+            serde_json::json!({"canCloseChannel":false}),
         )
         .unwrap(),
         to_effect_s1::emit_member_nickname(ch(), "u", "n"),

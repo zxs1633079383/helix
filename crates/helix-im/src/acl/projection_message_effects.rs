@@ -167,6 +167,14 @@ fn message_item_data(
     };
     let is_self = !viewer_user_id.is_empty() && fields.user_id == viewer_user_id;
     let has_server_id = !msg_id.is_empty();
+    let action_capabilities = crate::message_capabilities::build(
+        has_server_id,
+        is_self,
+        viewer_user_id,
+        &props,
+        &expedite_map,
+        false,
+    );
     let (urgent_target_count, urgent_confirmed_count) = resolve_urgent_counts(&expedite_map);
     // type 空串容错 "TEXT"（render-ready·前端不再 `d.type || "TEXT"` 兜底）。
     let msg_type = if fields.msg_type.is_empty() {
@@ -199,15 +207,7 @@ fn message_item_data(
         "sendStatus": "sent",
         "serverId": if has_server_id { serde_json::Value::String(msg_id.to_string()) } else { serde_json::Value::Null },
         "isSelf": is_self,
-        "actionCapabilities": {
-            "canReply": has_server_id,
-            "canForward": has_server_id,
-            "canReact": has_server_id,
-            "canUrgent": has_server_id,
-            "canCreateTopic": has_server_id,
-            "canRevoke": has_server_id && is_self,
-            "canRetry": false,
-        },
+        "actionCapabilities": action_capabilities,
         "reactions": resolve_reactions(&props),
         "reactionCount": resolve_reaction_count(&props),
         "urgent": resolve_urgent(&fields.expedite_map),

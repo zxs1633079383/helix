@@ -174,6 +174,9 @@ pub struct ImState {
     /// per-channel 聚合（消息 + 游标 + gate）
     pub channels: HashMap<ChannelId, Channel>,
 
+    /// 当前登录用户在各频道的服务端角色事实；每次 hello 清空，由增量/成员帧重新建立。
+    pub viewer_channel_roles: HashMap<ChannelId, String>,
+
     /// 待对账的发送（temporaryId → PendingSend）
     /// 来自源码：乐观落库后等 echo 或 sync 对账，15s 超时 → unSend
     pub pending_sends: HashMap<TemporaryId, PendingSend>,
@@ -247,6 +250,7 @@ impl ImState {
             conn: ConnState::Disconnected,
             connection_id: None,
             channels: HashMap::new(),
+            viewer_channel_roles: HashMap::new(),
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             corr_map: HashMap::new(),
@@ -274,6 +278,7 @@ impl ImState {
         self.about_me_post_ids.clear();
         self.pending_increment_bootstrap_after_scan = false;
         self.hydration_pending.clear();
+        self.viewer_channel_roles.clear();
     }
 }
 

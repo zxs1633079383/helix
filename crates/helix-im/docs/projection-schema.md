@@ -82,7 +82,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_channels_loaded` | `im:channels:loaded` | `items` | hello 冷启动补齐 |
 | `to_effect::emit_channel_increment` | `im:channel:increment` | `channel_id` `increment` | WS `increment_channel` |
 | `to_effect::emit_channel_update` | `im:channel:update` | `channel_id`（**留瘦**·channel-row）| WS `increment_channel_end` 批次结束 |
-| `to_effect_s1::emit_channel_settings_updated` | `im:channel:settings-updated` | `channelId` `settings` `settingVersion` | WS `update_channel` 携群名/简介/导向等设置回声 |
+| `to_effect_s1::emit_channel_settings_updated` | `im:channel:settings-updated` | `channelId` `settings` `settingVersion` `channelCapabilities` | WS `update_channel` 携群名/简介/导向、服务端 capability 矩阵和当前 viewer role 回声 |
 | `to_effect::emit_post_read` | `im:post:read` | **fat**（同 `emit_post_received` 完整集）| 在线 WS `post_read`（type6）|
 | `to_effect::emit_channel_read_echo` | `im:channel:read_echo` | **fat**（同 `emit_post_received` 完整集）| 离线 sync 应用 type6 read |
 | `to_effect::emit_post_updated` | `im:post:updated` | **fat**（同 `emit_post_received` 完整集）| sync type2 编辑（可见）|
@@ -223,6 +223,18 @@ postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义�
 > `src/render_ready_replies_tests.rs` 断言。**待办族**（§1.4 `im:todo:updated`）S8 同步补 render-ready 终态键
 > `todoId`/`todoType`（每 item 在冻结-记录的 `{id, channel, post, type, canDel}` 之上**额外**加·inner 不冻结·
 > 外层 `{items}` 键集照旧）→ 前端 `applyTodoUpdated` 退纯绑定（1:1 取 todoId/todoType/canDel·不 rename）。
+
+### 1.7 转发批结果与回执人员 render-ready 通道
+
+| channel | data 键集 | 权威边界 |
+|---|---|---|
+| `im:posts:batch-result` | `{reqId,batchStatus,acceptedCount,failedCount,deliveryAuthority,targets:[{channelId,acceptanceStatus,deliveryStatus,error}]}` | HTTP 只证明 `accepted/failed`；accepted 的 `deliveryStatus=pending`，最终送达只认逐目标 WS `post` |
+| `im:post:readers` | `{reqId,receipts:[{postId,readerCount,readerIds,readers:[{userId}]}]}` | 只消费 Go `readerIds/readers`；不透出也不解释 `readBits` |
+
+消息 `actionCapabilities` 额外冻结四个布尔值：`canUrgentConfirm`、`canMarkRead`、
+`canViewReceipt`、`canTemplateConfirm`。它们仅由 serverId、viewer 身份、加急 recipients 和模板确认列表生成；
+事实不足时为 false。频道 `channelCapabilities` 则由 Go `capabilitiesByRole` 与 Helix 已记忆的当前 viewer
+成员角色相交生成，Angular 不接触角色字符串或能力矩阵。
 
 ---
 

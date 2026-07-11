@@ -126,3 +126,61 @@ pub(crate) fn emit_located_post(req_id: &str, outcome: &PortOutcome, out: &mut E
         }
     }
 }
+
+pub(crate) fn emit_create_posts_result(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+    match outcome {
+        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw_body) => {
+                let body =
+                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                out.push(crate::query::render_ready::batch_result::emit(
+                    req_id, &body,
+                ));
+            }
+            Err(_) => out.push(crate::query::render_ready::batch_result::emit_error(
+                req_id,
+                "response envelope decode failed",
+            )),
+        },
+        PortOutcome::Err(_) => out.push(crate::query::render_ready::batch_result::emit_error(
+            req_id,
+            "http request failed",
+        )),
+    }
+}
+
+pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+    match outcome {
+        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw_body) => {
+                out.push(crate::read_relay::emit_read_result(
+                    req_id,
+                    raw_body.as_ref(),
+                ));
+                let body =
+                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                out.push(crate::query::render_ready::receipts::emit(req_id, &body));
+            }
+            Err(_) => {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "response envelope decode failed",
+                ));
+                out.push(crate::query::render_ready::receipts::emit_error(
+                    req_id,
+                    "response envelope decode failed",
+                ));
+            }
+        },
+        PortOutcome::Err(_) => {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "http request failed",
+            ));
+            out.push(crate::query::render_ready::receipts::emit_error(
+                req_id,
+                "http request failed",
+            ));
+        }
+    }
+}

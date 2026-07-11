@@ -18,6 +18,7 @@
 pub mod acl;
 pub(crate) mod base64;
 pub mod channel;
+mod channel_capabilities;
 pub use channel::older_context;
 pub use channel::write as channel_write;
 pub mod commands;
@@ -25,6 +26,7 @@ pub mod dialog_patch;
 pub mod error;
 pub mod http_envelope;
 mod increment_hydration;
+mod message_capabilities;
 pub mod mobile_contract;
 pub mod mobile_query;
 pub mod module;

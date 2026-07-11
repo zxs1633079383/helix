@@ -156,6 +156,14 @@ fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         .unwrap_or_else(|| json!({}));
     let is_self = !viewer_user_id.is_empty() && user_id == viewer_user_id;
     let has_server_id = !server_id.is_empty();
+    let action_capabilities = crate::message_capabilities::build(
+        has_server_id,
+        is_self,
+        viewer_user_id,
+        &props,
+        &expedite_map,
+        send_status == "failed",
+    );
     let (reaction_count, template_confirmed_count, urgent_target_count, urgent_confirmed_count) =
         interaction_counts(&props, &expedite_map);
     json!({
@@ -176,15 +184,7 @@ fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "templateConfirmedCount": template_confirmed_count,
         "serverId": if has_server_id { Value::String(server_id.to_string()) } else { Value::Null },
         "isSelf": is_self,
-        "actionCapabilities": {
-            "canReply": has_server_id,
-            "canForward": has_server_id,
-            "canReact": has_server_id,
-            "canUrgent": has_server_id,
-            "canCreateTopic": has_server_id,
-            "canRevoke": has_server_id && is_self,
-            "canRetry": send_status == "failed",
-        },
+        "actionCapabilities": action_capabilities,
         "reactionCount": reaction_count,
         "expediteMap": expedite_map,
         "urgent": urgent_target_count > 0,

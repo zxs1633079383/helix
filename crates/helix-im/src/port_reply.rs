@@ -328,6 +328,14 @@ impl ImModule {
                 crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
             }
 
+            CorrelationContext::OutboundCreatePosts { req_id } => {
+                crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundPostReaders { req_id } => {
+                crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);
+            }
+
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
             // `im:todo:updated{items}`（解 data.channels[].posts[]，真源 channel.rs:252-296）。
             // Ok → 剥 ADR-007 信封得裸响应体 → emit_todo_updated（status≠SUCCESS/结构缺失 → 空

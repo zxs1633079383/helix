@@ -488,24 +488,31 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
 /// 双重不一致）。改用 `BatchUpdate`（WHERE id IN）做**字段级 patch**，read_bits 列不在 patch
 /// 中 → 已读位保留。本地无此行 → no-op（真源 0 行命中=未覆盖，留段查询/远端补拉）。
 ///
-/// patch 范围 = helix `message` 表中 PostFields 携带的内容列：`type` / `message` / `props`
-/// （schema.rs 其余内容列如 viewers/mentions/... PostFields 当前不解析 → 不进 patch，避免把
-/// 未解析的空值覆盖回库）。复杂度 O(1)（UPDATE WHERE id，idx_message_id 命中）。
+/// patch 范围 = helix `message` 表中 PostFields 携带的内容列：`type` / `message` / `props`，
+/// 以及仅在 wire 明确携带时更新的 `expedite_map`。后者承载 G-07 加急/确认终态；缺字段时不写，
+/// 避免普通编辑把既有加急状态擦空。复杂度 O(1)（UPDATE WHERE id，idx_message_id 命中）。
 pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -> StorageOp {
     use helix_core::effect::{BatchUpdateSpec, SqlValue};
+    let mut patch = vec![
+        ("type".to_string(), SqlValue::Text(fields.msg_type.clone())),
+        (
+            "message".to_string(),
+            SqlValue::Text(fields.message.clone()),
+        ),
+        ("props".to_string(), SqlValue::Text(fields.props.clone())),
+    ];
+    if !fields.expedite_map.is_empty() {
+        patch.push((
+            "expedite_map".to_string(),
+            SqlValue::Text(fields.expedite_map.clone()),
+        ));
+    }
     StorageOp::BatchUpdate(BatchUpdateSpec {
         table: "message",
         key_col: "id",
         key_vals: vec![SqlValue::Text(msg_id.to_string())],
         // 仅内容列；显式排除 read_bits / send_status（本地权威）+ 身份列。
-        patch: vec![
-            ("type".to_string(), SqlValue::Text(fields.msg_type.clone())),
-            (
-                "message".to_string(),
-                SqlValue::Text(fields.message.clone()),
-            ),
-            ("props".to_string(), SqlValue::Text(fields.props.clone())),
-        ],
+        patch,
     })
 }
 

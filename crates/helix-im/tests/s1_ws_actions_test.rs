@@ -284,6 +284,7 @@ fn post_update_edits_content_only_and_emits_s1() {
                 "channelId": cid(2),
                 "message": "edited text",
                 "props": "{}",
+                "expediteMap": {"recipients":{"444":{"status":0}}},
                 "event_seq": 1
             }
         })),
@@ -305,6 +306,14 @@ fn post_update_edits_content_only_and_emits_s1() {
     assert!(
         is_edit_update,
         "post_update 须用 edit_content_op（不擦 read_bits），ops: {ops:?}"
+    );
+    assert!(
+        ops.iter().any(|op| matches!(
+            op, StorageOp::BatchUpdate(s) if s.table == "message"
+                && s.patch.iter().any(|(k, v)| k == "expedite_map"
+                    && matches!(v, helix_core::effect::SqlValue::Text(t) if t.contains("444")))
+        )),
+        "post_update 明确携带 expediteMap 时必须持久化，ops: {ops:?}"
     );
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:post:updated"));
 }

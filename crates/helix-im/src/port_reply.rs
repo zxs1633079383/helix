@@ -336,11 +336,12 @@ impl ImModule {
                         crate::older_context::RoundDecision::Continue => {
                             let next_corr = self.alloc_corr_internal();
                             let (_, body) = crate::older_context::build_post_context_body(&state);
-                            out.push(crate::older_context::post_context_http(
+                            out.push(crate::older_context::post_context_http_tracked(
                                 &self.config.api_base_url,
                                 &body,
                                 next_corr,
                                 self.state.connection_id.as_deref(),
+                                state.request_id(),
                             ));
                             self.state
                                 .corr_map

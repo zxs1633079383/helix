@@ -46,11 +46,12 @@ impl ImModule {
                 let st = crate::older_context::parse_request(payload)?;
                 let corr = self.alloc_corr_internal();
                 let (_, body) = crate::older_context::build_post_context_body(&st);
-                out.push(crate::older_context::post_context_http(
+                out.push(crate::older_context::post_context_http_tracked(
                     &self.config.api_base_url,
                     &body,
                     corr,
                     self.state.connection_id.as_deref(),
+                    st.request_id(),
                 ));
                 self.state.corr_map.insert(
                     corr,

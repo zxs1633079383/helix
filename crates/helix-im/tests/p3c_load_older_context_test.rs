@@ -9,7 +9,8 @@
 //! - emit 投影 `im:messages:older_loaded{channelId, messages[], hasMore}`（透传 wire Post camelCase）
 
 use helix_im::older_context::{
-    build_post_context_body, emit_older_loaded, parse_request, LoadOlderState, RoundDecision,
+    build_post_context_body, emit_older_loaded, parse_request, post_context_http_tracked,
+    LoadOlderState, RoundDecision,
 };
 use helix_im::state::ChannelId;
 use serde_json::json;
@@ -44,6 +45,7 @@ fn parse_request_extracts_anchor_and_clamps_target() {
         "channel_id": CH,
         "anchor_post_id": "p-anchor",
         "anchor_create_at": 1_000_i64,
+        "req_id": "mrc-g10a:req-1",
         "limit": 20
     }))
     .unwrap();
@@ -52,6 +54,7 @@ fn parse_request_extracts_anchor_and_clamps_target() {
     assert_eq!(st.anchor_create_at(), 1_000);
     assert_eq!(st.target(), 20);
     assert_eq!(st.pivot_id(), "p-anchor");
+    assert_eq!(st.request_id(), Some("mrc-g10a:req-1"));
 }
 
 #[test]
@@ -104,6 +107,35 @@ fn build_post_context_body_uses_pivot_and_batch_50() {
     // 真源 body {postId, before:int}（http.rs:96 batch=50）。
     assert_eq!(body["postId"], "p-anchor");
     assert_eq!(body["before"], 50);
+}
+
+#[test]
+fn post_context_http_carries_current_run_track_id() {
+    let st = parse_request(
+        &serde_json::to_vec(&json!({
+            "channel_id": CH,
+            "anchor_post_id": "p-anchor",
+            "anchor_create_at": 1_000_i64,
+            "req_id": "mrc-g10a:req-1"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let (_, body) = build_post_context_body(&st);
+    let effect = post_context_http_tracked(
+        "http://127.0.0.1:8066/api/cses",
+        &body,
+        helix_core::Correlation::from_raw(7),
+        Some("conn-1"),
+        st.request_id(),
+    );
+    let helix_core::effect::Effect::Http { req, .. } = effect else {
+        panic!("expected Http")
+    };
+    assert!(req
+        .headers
+        .iter()
+        .any(|(name, value)| name == "Cses-Track-Id" && value == "mrc-g10a:req-1"));
 }
 
 // ── ingest_round：严格更早 + 去重 + pivot + 续停判定 ──────────────────────────

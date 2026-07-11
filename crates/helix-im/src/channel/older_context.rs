@@ -50,6 +50,8 @@ pub enum RoundDecision {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadOlderState {
     channel_id: ChannelId,
+    /// 当前 UI intent 的关联键；每一轮 postContext 都复用，供 Go/trace 归并同一 UC Run。
+    request_id: String,
     /// 锚点 createAt——只收 `createAt < anchor_create_at` 的严格更早。
     anchor_create_at: i64,
     /// 要凑够的严格更早条数（已 clamp）。
@@ -78,6 +80,7 @@ impl LoadOlderState {
     ) -> Self {
         Self {
             channel_id,
+            request_id: String::new(),
             anchor_create_at,
             target: target.clamp(TARGET_MIN, TARGET_MAX),
             pivot_id: anchor_post_id,
@@ -91,6 +94,9 @@ impl LoadOlderState {
 
     pub fn channel_id(&self) -> &ChannelId {
         &self.channel_id
+    }
+    pub fn request_id(&self) -> Option<&str> {
+        (!self.request_id.is_empty()).then_some(self.request_id.as_str())
     }
     pub fn anchor_create_at(&self) -> i64 {
         self.anchor_create_at
@@ -219,12 +225,13 @@ pub fn parse_request(payload: &[u8]) -> Result<LoadOlderState, ImError> {
         .and_then(Value::as_u64)
         .map(|l| (l as u32).clamp(TARGET_MIN, TARGET_MAX))
         .unwrap_or(TARGET_DEFAULT);
-    Ok(LoadOlderState::new(
-        channel_id,
-        anchor_post_id,
-        anchor_create_at,
-        target,
-    ))
+    let mut state = LoadOlderState::new(channel_id, anchor_post_id, anchor_create_at, target);
+    state.request_id = v
+        .get("req_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(state)
 }
 
 /// 从剥信封后的裸 postContext body 取 wire Post 数组（喂 [`LoadOlderState::ingest_round`]）。
@@ -258,8 +265,23 @@ pub fn post_context_http(
     corr: Correlation,
     connection_id: Option<&str>,
 ) -> Effect {
+    post_context_http_tracked(base_url, body, corr, connection_id, None)
+}
+
+/// 与 [`post_context_http`] 相同，但把 UI intent `req_id` 贯穿为 Go `Cses-Track-Id`。
+/// 多轮翻页复用同一 track id，correlation 由 corr_map 继续区分每一轮 PortReply。
+pub fn post_context_http_tracked(
+    base_url: &str,
+    body: &Value,
+    corr: Correlation,
+    connection_id: Option<&str>,
+    request_id: Option<&str>,
+) -> Effect {
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
+    if let Some(request_id) = request_id.filter(|value| !value.is_empty()) {
+        headers.push(("Cses-Track-Id".to_string(), request_id.to_string()));
+    }
     Effect::Http {
         corr,
         req: HttpRequest {

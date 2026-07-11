@@ -447,6 +447,18 @@ fn im_channel_closed_freezes_channelid_deleteat_camelcase() {
 }
 
 #[test]
+fn im_channel_left_is_distinct_from_closed() {
+    let e = to_effect_s1::emit_channel_left(ch());
+    assert_frozen(&e, "im:channel:left", &["channelId", "id", "left"]);
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(payload["data"]["left"], true);
+    assert!(payload["data"].get("closed").is_none());
+}
+
+#[test]
 fn im_channel_member_nickname_freezes_camelcase_triplet() {
     let e = to_effect_s1::emit_member_nickname(ch(), "u123", "小明");
     assert_frozen(

@@ -96,6 +96,7 @@ fn emit_channel_members_shape_camelcase() {
     let v = emit_json(e);
     assert_eq!(v["event"], "im:channel:members");
     assert_eq!(v["data"]["channelId"], "ch1");
+    assert_eq!(v["data"]["memberCount"], 1);
     assert_eq!(v["data"]["members"][0]["memberId"], "u1");
     assert_eq!(v["data"]["members"][0]["nickname"], "n");
     assert_eq!(v["data"]["members"][0]["admin"], true);

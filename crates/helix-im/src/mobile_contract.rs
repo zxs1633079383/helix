@@ -117,6 +117,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:schedule-created",
     "im:channel:schedule-canceled",
     "im:channel:member-updated",
+    "im:channel:left",
     "im:channel:memberNickname",
     "im:channel:members",
     "im:channel:replies",

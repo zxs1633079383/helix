@@ -321,6 +321,22 @@ impl Module for ImModule {
                             };
                             self.state.corr_map.insert(corr, ctx);
                         }
+                    } else if name == "im_channel_leave" {
+                        if let Some(channel_id) =
+                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                                .ok()
+                                .and_then(|value| {
+                                    value
+                                        .get("channel_id")
+                                        .and_then(|id| id.as_str())
+                                        .map(str::to_string)
+                                })
+                                .and_then(|id| ChannelId::from_str(&id))
+                        {
+                            self.state
+                                .corr_map
+                                .insert(corr, CorrelationContext::OutboundLeave { channel_id });
+                        }
                     }
                     for eff in effects {
                         out.push(eff);

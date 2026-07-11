@@ -78,6 +78,18 @@ pub fn emit_channel_closed(channel_id: ChannelId, delete_at: i64) -> Effect {
     )
 }
 
+/// 自己退群成功的 render-ready 终态；与 channel closed 严格区分。
+pub fn emit_channel_left(channel_id: ChannelId) -> Effect {
+    emit(
+        "im:channel:left",
+        serde_json::json!({
+            "id": channel_id.as_str(),
+            "channelId": channel_id.as_str(),
+            "left": true,
+        }),
+    )
+}
+
 /// `channel_member_update` → `im:channel:member-updated`（真源 channel.rs:626）。
 ///
 /// 透传帧 `data`（含 memberChange）原始字节；非法 JSON 降级 null。

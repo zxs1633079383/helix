@@ -277,6 +277,23 @@ impl ImModule {
                 }
             },
 
+            CorrelationContext::OutboundLeave { channel_id } => match outcome {
+                PortOutcome::Ok(_) => {
+                    out.push(crate::acl::to_effect_s1::channel_set_cols(
+                        channel_id,
+                        vec![("is_remove", helix_core::effect::SqlValue::Integer(1))],
+                    ));
+                    out.push(crate::acl::to_effect_s1::emit_channel_left(channel_id));
+                }
+                PortOutcome::Err(e) => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        error = ?e,
+                        "channel leave http failed; local dialog remains active"
+                    );
+                }
+            },
+
             // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有
             // increment 应用规则，相关落 channel/member 后再进入单频道 sync hydration。
             CorrelationContext::OutboundIncrementHydration { req_id } => {

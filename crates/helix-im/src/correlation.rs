@@ -76,6 +76,10 @@ pub enum CorrelationContext {
     /// `req_id` 前端 bridge 注入（owned String，跨 step 存活，HX-C002；与 corr 解耦）。
     OutboundReadReply { req_id: String },
 
+    /// 自己退群写族 HTTP 回报。成功后本地标记 channel.is_remove=1 并发 render-ready left 投影；
+    /// 剩余成员的 member delete 仍由服务端 channel_member_update WS 权威驱动。
+    OutboundLeave { channel_id: ChannelId },
+
     /// UC-4.5 陌生 channel 单频道 hydration 的首段 HTTP 回报。
     ///
     /// 仍保留 `im:read:result` 通用回灌；额外把 `data=*IncrementChannel` 送入既有 increment

@@ -102,6 +102,7 @@ pub fn emit_channel_members(
     members: Vec<RenderMember>,
     leaves: Vec<String>,
 ) -> Effect {
+    let member_count = members.len();
     let members_json: Vec<serde_json::Value> = members
         .into_iter()
         .map(|m| {
@@ -114,7 +115,12 @@ pub fn emit_channel_members(
         .collect();
     let payload = serde_json::json!({
         "event": "im:channel:members",
-        "data": { "channelId": channel_id, "members": members_json, "leaves": leaves },
+        "data": {
+            "channelId": channel_id,
+            "memberCount": member_count,
+            "members": members_json,
+            "leaves": leaves
+        },
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

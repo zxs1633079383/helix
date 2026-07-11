@@ -624,7 +624,13 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
     let seq = ev.seq.0;
     let f = &ev.fields;
     match ev.kind {
-        EventKind::PostUpsert => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id, f),
+        EventKind::PostUpsert => crate::acl::to_effect::emit_post_received_for_viewer(
+            ev.id,
+            seq,
+            msg_id,
+            f,
+            ev.viewer_user_id.as_str(),
+        ),
         EventKind::PostEdit => crate::acl::to_effect::emit_post_updated(ev.id, seq, msg_id, f),
         EventKind::PostRevoke => crate::acl::to_effect::emit_post_deleted(ev.id, seq, msg_id, f),
         EventKind::PostRead => crate::acl::to_effect::emit_post_read(ev.id, seq, msg_id, f),

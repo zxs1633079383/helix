@@ -101,6 +101,41 @@ pub fn emit_channel_member_updated(channel_id: ChannelId, raw: &[u8]) -> Effect 
     )
 }
 
+/// 群属性保存回声的 render-ready 终态；仅复制服务端实际携带的设置字段。
+pub fn emit_channel_settings_updated(
+    channel_id: ChannelId,
+    channel: &serde_json::Value,
+    setting_version: u64,
+) -> Option<Effect> {
+    let mut settings = serde_json::Map::new();
+    for key in [
+        "displayName",
+        "header",
+        "purpose",
+        "orient",
+        "module",
+        "source",
+        "pictureType",
+        "picture",
+        "notice",
+    ] {
+        if let Some(value) = channel.get(key) {
+            settings.insert(key.to_string(), value.clone());
+        }
+    }
+    if settings.is_empty() {
+        return None;
+    }
+    Some(emit(
+        "im:channel:settings-updated",
+        serde_json::json!({
+            "channelId": channel_id.as_str(),
+            "settings": settings,
+            "settingVersion": setting_version,
+        }),
+    ))
+}
+
 /// `update_channel_member_nickName` → `im:channel:memberNickname`（真源 channel.rs:757）。
 pub fn emit_member_nickname(channel_id: ChannelId, user_id: &str, nick_name: &str) -> Effect {
     emit(

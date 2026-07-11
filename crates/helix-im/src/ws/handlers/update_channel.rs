@@ -71,6 +71,13 @@ impl WsMessageHandler for UpdateChannelHandler {
         // dialogList。真实 Go 有时只给最小 channel 对象或把字段包在 data.channel 下；即使空 PATCH，
         // thin 信号仍是移动端所需的 render trigger，且不伪造 channel 行。
         out.push(crate::acl::to_effect::emit_channel_update(channel_id));
+        if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
+            channel_id,
+            channel,
+            frame.event_seq().map(|seq| seq.0).unwrap_or(0),
+        ) {
+            out.push(effect);
+        }
         Ok(())
     }
 }

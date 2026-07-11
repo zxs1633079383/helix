@@ -34,11 +34,12 @@ pub fn sync_mutation_emits_with_auth(
                         auth_user_id,
                     );
                     if update.visible {
-                        emits.push(super::to_effect::emit_post_received(
+                        emits.push(super::to_effect::emit_post_received_for_viewer(
                             ev.channel_id,
                             ev.seq.0,
                             msg_id,
                             fields,
+                            auth_user_id,
                         ));
                     }
                 }

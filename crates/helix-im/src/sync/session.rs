@@ -78,6 +78,8 @@ pub struct EventEnvelope {
     /// **乱序进 gate buffer 的事件同样携带本决策**，flush 时由 gate 发出——修复「乱序 post 经
     /// buffer flush 不补未读」偏差（gate 成为未读 bump 的**单一发出点**，立即 apply 与 flush 同口径）。
     pub unread_bump: Option<crate::channel_write::PostChannelUpdate>,
+    /// 当前投影视角用户；仅用于生成 `isSelf` 与消息动作 capability，不参与存储。
+    pub viewer_user_id: String,
 }
 
 impl EventEnvelope {
@@ -104,6 +106,7 @@ impl EventEnvelope {
             fields,
             msg_id,
             unread_bump: None,
+            viewer_user_id: String::new(),
         }
     }
 
@@ -125,6 +128,11 @@ impl EventEnvelope {
         bump: Option<crate::channel_write::PostChannelUpdate>,
     ) -> Self {
         self.unread_bump = bump;
+        self
+    }
+
+    pub fn with_viewer_user_id(mut self, viewer_user_id: &str) -> Self {
+        self.viewer_user_id = viewer_user_id.to_string();
         self
     }
 }

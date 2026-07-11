@@ -1,6 +1,6 @@
 //! render_ready.rs 单测（issue #55·S6）：DB snake / wire camel → 同一 render-ready 形态 + 批内去重保序。
 
-use super::shape_message_rows;
+use super::{shape_message_rows, shape_message_rows_for_viewer};
 use serde_json::json;
 
 #[test]
@@ -66,6 +66,28 @@ fn durable_unsend_is_rendered_as_retryable_failed_after_restart() {
     let out = shape_message_rows(&rows);
     assert_eq!(out[0]["id"], "tmp-failed");
     assert_eq!(out[0]["sendStatus"], "failed");
+    assert_eq!(out[0]["actionCapabilities"]["canRetry"], true);
+}
+
+#[test]
+fn viewer_relative_actions_and_absolute_interaction_counts_are_render_ready() {
+    let rows = json!([{
+        "temporary_id": "tmp-1",
+        "id": "server-1",
+        "user_id": "444",
+        "props": {
+            "quickReply": [{"emoji":"👍","userIds":["444","678"]}],
+            "template": {"userIds":["444","678"]}
+        },
+        "expedite_map": "{\"recipients\":{\"444\":{\"status\":1},\"678\":{\"status\":0}}}"
+    }]);
+    let out = shape_message_rows_for_viewer(&rows, "444");
+    assert_eq!(out[0]["isSelf"], true);
+    assert_eq!(out[0]["actionCapabilities"]["canRevoke"], true);
+    assert_eq!(out[0]["reactionCount"], 2);
+    assert_eq!(out[0]["templateConfirmedCount"], 2);
+    assert_eq!(out[0]["urgentTargetCount"], 2);
+    assert_eq!(out[0]["urgentConfirmedCount"], 1);
 }
 
 #[test]

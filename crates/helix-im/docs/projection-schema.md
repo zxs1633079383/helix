@@ -42,7 +42,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（23 工厂 → 22 distinct channel）
+## 1. 投影出口全集（24 工厂 → 23 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
 > 数据在手零回读，见 §2）。`im:channel:update-by-post` 在 2026-07-09 Dialog 指令化投影中升级为
@@ -51,7 +51,9 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
 > + `id`/`msgId`/`eventSeq`/`text`/`createdAt`（与本地消息查询一致的 canonical render-ready aliases）
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容渲染核）
-> + `sendStatus`/`reactions`/`templateReceived`/`systemNotice`/`pinned`（**render-ready 终态**·issue #53 授权演进）。
+> + `sendStatus`/`serverId`/`isSelf`/`actionCapabilities`/`reactions`/`reactionCount`/
+> `templateReceived`/`templateConfirmedCount`/`urgentTargetCount`/`urgentConfirmedCount`/
+> `expediteMap`/`systemNotice`/`pinned`（**render-ready 终态**·message-v4 纯渲染授权演进）。
 >
 > **issue #53（S4 首条竖切·C013 纯渲染壳·授权契约演进）**：fat 在渲染核之外补 4 个 render-ready 终态字段，
 > 把原本前端壳里做的 shaping（extractReactions / extractTemplateReceived / isSystemNotice / `type||"TEXT"` 兜底）
@@ -72,14 +74,15 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
-| `to_effect::emit_post_received` | `im:post:received` | **fat**（`channel_id` `event_seq` `msg_id` `id` `msgId` `temporaryId` `channelId` `eventSeq` `userId` `type` `message` `text` `props` `createAt` `createdAt` `updateAt` `readBits` `viewers` `sendStatus` `reactions` `templateReceived` `systemNotice` `pinned`）| WS `post` echo / sync type1 可见 |
-| `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `readBits` `text` `type`（S6·render-ready 乐观终态行·前端纯绑定）| 发送乐观上屏 |
-| `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus`（`sendStatus="failed"`·按 temporaryId patch 乐观行）| `posts/create` HTTP PortError 立即失败 |
+| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgentTargetCount` `urgentConfirmedCount` `expediteMap`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
+| `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `serverId` `isSelf` `actionCapabilities` `readBits` `text` `type`（render-ready 乐观终态行）| 发送乐观上屏 |
+| `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus` `serverId` `isSelf` `actionCapabilities`（`canRetry=true`）| `posts/create` HTTP PortError 立即失败 |
 | `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` `mode` `dropLocalMessages` | sync kind=too_long / gate buffer overflow（drop local messages + reload） |
 | `to_effect::emit_connection_established` | `im:connection:established` | `connectionId` | hello 握手完成 |
 | `to_effect::emit_channels_loaded` | `im:channels:loaded` | `items` | hello 冷启动补齐 |
 | `to_effect::emit_channel_increment` | `im:channel:increment` | `channel_id` `increment` | WS `increment_channel` |
 | `to_effect::emit_channel_update` | `im:channel:update` | `channel_id`（**留瘦**·channel-row）| WS `increment_channel_end` 批次结束 |
+| `to_effect_s1::emit_channel_settings_updated` | `im:channel:settings-updated` | `channelId` `settings` `settingVersion` | WS `update_channel` 携群名/简介/导向等设置回声 |
 | `to_effect::emit_post_read` | `im:post:read` | **fat**（同 `emit_post_received` 完整集）| 在线 WS `post_read`（type6）|
 | `to_effect::emit_channel_read_echo` | `im:channel:read_echo` | **fat**（同 `emit_post_received` 完整集）| 离线 sync 应用 type6 read |
 | `to_effect::emit_post_updated` | `im:post:updated` | **fat**（同 `emit_post_received` 完整集）| sync type2 编辑（可见）|
@@ -124,7 +127,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_reconnect_requested` | `im:net:reconnect_requested` | （空 `{}`，无参控制信号）| invoke `im_reconnect` | helix-im 产，driver 观察重连 |
 
 > **为何分开冻结**：22 投影集是「前端渲染靠的字段契约」（缺字段=补算=纯渲染破功），逐 channel 严格冻结键集。
-> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_23_projection_factories_covered`
+> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_24_projection_factories_covered`
 > 保持 23 个投影工厂 / 22 个 distinct channel，控制信号由 `reconnect_requested_is_control_signal` 单独断言（channel/空 data）。
 
 ### 1.2 读族回灌通道（**不计入** 22 投影集 · spec06 缺陷A）

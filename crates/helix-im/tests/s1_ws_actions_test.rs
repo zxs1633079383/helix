@@ -170,6 +170,31 @@ fn update_channel_writes_member_dialog_absolute_and_emits_projection() {
     );
 }
 
+#[test]
+fn update_channel_emits_render_ready_settings_with_server_version() {
+    let mut h = Harness::new_with_identity(&[], "444", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "update_channel",
+            "data": {
+                "event_seq": 77,
+                "channel": {
+                    "id": cid(18),
+                    "displayName": "新的群名",
+                    "purpose": "真实回声简介",
+                    "orient": "产品"
+                }
+            }
+        })),
+        1_000,
+    );
+    let updates = emit_data(&h.sink, "im:channel:settings-updated");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["settingVersion"], 77);
+    assert_eq!(updates[0]["settings"]["displayName"], "新的群名");
+    assert_eq!(updates[0]["settings"]["purpose"], "真实回声简介");
+}
+
 // ─── post_read（type=6 覆盖式 read_bits）─────────────────────────────────────
 
 /// 回归锚: S1 —— post_read 覆盖式写 read_bits（UPDATE message SET read_bits WHERE id）+ emit。

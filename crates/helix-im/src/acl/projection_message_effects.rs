@@ -49,6 +49,25 @@ fn resolve_reactions(props: &serde_json::Value) -> Option<String> {
     }
 }
 
+fn resolve_reaction_count(props: &serde_json::Value) -> usize {
+    props
+        .get("quickReply")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    item.get("userIds")
+                        .or_else(|| item.get("user_ids"))
+                        .and_then(|value| value.as_array())
+                        .map(Vec::len)
+                        .unwrap_or(0)
+                })
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 /// 把持久化的 expedite_map 预解为消息加急终态。空/null/空容器均为 false，
 /// 其余形态为 true；Angular 只绑定结果，不解析 sender/recipients 业务结构。
 fn resolve_urgent(expedite_map: &str) -> bool {
@@ -79,6 +98,35 @@ fn resolve_template_received(props: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+fn resolve_template_confirmed_count(props: &serde_json::Value) -> usize {
+    props
+        .get("template")
+        .and_then(|value| value.get("userIds").or_else(|| value.get("user_ids")))
+        .and_then(|value| value.as_array())
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
+fn resolve_urgent_counts(expedite_map: &serde_json::Value) -> (usize, usize) {
+    let Some(recipients) = expedite_map
+        .get("recipients")
+        .and_then(|value| value.as_object())
+    else {
+        return (0, 0);
+    };
+    let confirmed = recipients
+        .values()
+        .filter(|recipient| {
+            recipient
+                .get("status")
+                .and_then(|value| value.as_i64())
+                .unwrap_or_default()
+                > 0
+        })
+        .count();
+    (recipients.len(), confirmed)
+}
+
 /// 预解 props.pinned 成消息置顶态（UC-5.5b·data-pinned 渲染源）。
 ///
 /// post_pin 帧只携 `{postId, channelId, operation}`，handler 将 operation 归一为 props.pinned。
@@ -99,6 +147,7 @@ fn message_item_data(
     event_seq: u64,
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
 ) -> serde_json::Value {
     use serde_json::json;
     let props: serde_json::Value = if fields.props.is_empty() {
@@ -111,6 +160,14 @@ fn message_item_data(
     } else {
         serde_json::from_str(&fields.topic).unwrap_or_else(|_| json!({}))
     };
+    let expedite_map: serde_json::Value = if fields.expedite_map.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(&fields.expedite_map).unwrap_or_else(|_| json!({}))
+    };
+    let is_self = !viewer_user_id.is_empty() && fields.user_id == viewer_user_id;
+    let has_server_id = !msg_id.is_empty();
+    let (urgent_target_count, urgent_confirmed_count) = resolve_urgent_counts(&expedite_map);
     // type 空串容错 "TEXT"（render-ready·前端不再 `d.type || "TEXT"` 兜底）。
     let msg_type = if fields.msg_type.is_empty() {
         "TEXT"
@@ -140,9 +197,25 @@ fn message_item_data(
         "viewers": fields.viewers,
         // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——
         "sendStatus": "sent",
+        "serverId": if has_server_id { serde_json::Value::String(msg_id.to_string()) } else { serde_json::Value::Null },
+        "isSelf": is_self,
+        "actionCapabilities": {
+            "canReply": has_server_id,
+            "canForward": has_server_id,
+            "canReact": has_server_id,
+            "canUrgent": has_server_id,
+            "canCreateTopic": has_server_id,
+            "canRevoke": has_server_id && is_self,
+            "canRetry": false,
+        },
         "reactions": resolve_reactions(&props),
+        "reactionCount": resolve_reaction_count(&props),
         "urgent": resolve_urgent(&fields.expedite_map),
+        "urgentTargetCount": urgent_target_count,
+        "urgentConfirmedCount": urgent_confirmed_count,
+        "expediteMap": expedite_map,
         "templateReceived": resolve_template_received(&props),
+        "templateConfirmedCount": resolve_template_confirmed_count(&props),
         "systemNotice": is_system_notice(msg_type),
         "pinned": resolve_pinned(&props),
     })
@@ -155,10 +228,20 @@ pub fn emit_post_received(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
 ) -> Effect {
+    emit_post_received_for_viewer(channel_id, event_seq, msg_id, fields, "")
+}
+
+pub fn emit_post_received_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:post:received",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -179,7 +262,7 @@ pub fn emit_post_read(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:read",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -200,7 +283,7 @@ pub fn emit_channel_read_echo(
     use serde_json::json;
     let payload = json!({
         "event": "im:channel:read_echo",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -221,7 +304,7 @@ pub fn emit_post_updated(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:updated",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -242,7 +325,7 @@ pub fn emit_post_deleted(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:deleted",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

@@ -39,7 +39,7 @@ impl WsMessageHandler for PostHandler {
         // 解析失败（缺 channelId / event_seq）→ 若仍有 post/channelId，则发 render-only thin bus，
         // 不推进 cursor；否则 no-op。
         let Some(ev) = parse_post_frame(frame) else {
-            emit_unsequenced_post(frame, out);
+            emit_unsequenced_post(frame, ctx.auth_user_id, out);
             return Ok(());
         };
 
@@ -77,7 +77,9 @@ impl WsMessageHandler for PostHandler {
             }
             update
         });
-        let ev = ev.with_unread_bump(unread_bump);
+        let ev = ev
+            .with_unread_bump(unread_bump)
+            .with_viewer_user_id(ctx.auth_user_id);
 
         // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）。**陌生 channel 自动注册**
         // （Round-3 UC-4.5 偏差修复，对齐真源 `on_ws_event` 的 `gate_states.entry().or_insert_with`
@@ -117,11 +119,12 @@ impl WsMessageHandler for PostHandler {
                 .as_deref()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(ev.fields.id.as_str());
-            Some(crate::acl::to_effect::emit_post_received(
+            Some(crate::acl::to_effect::emit_post_received_for_viewer(
                 ev.channel_id,
                 ev.seq.0,
                 msg_id,
                 &ev.fields,
+                ctx.auth_user_id,
             ))
         } else {
             None
@@ -233,7 +236,7 @@ fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
 
 /// 真实 Go 的部分 post-like 回声（如 createPosts/relay）可能不携带 event_seq。移动端仍需要
 /// `im:post:received` 入栈信号，但缺序帧不能推进 channel cursor。这里仅发 render-only bus。
-fn emit_unsequenced_post(frame: &WsFrame, out: &mut EffectSink) {
+fn emit_unsequenced_post(frame: &WsFrame, viewer_user_id: &str, out: &mut EffectSink) {
     let Some(data) = frame.data() else {
         return;
     };
@@ -256,8 +259,12 @@ fn emit_unsequenced_post(frame: &WsFrame, out: &mut EffectSink) {
         .and_then(serde_json::Value::as_str)
         .filter(|s| !s.is_empty())
         .unwrap_or(fields.id.as_str());
-    out.push(crate::acl::to_effect::emit_post_received(
-        channel_id, 0, msg_id, &fields,
+    out.push(crate::acl::to_effect::emit_post_received_for_viewer(
+        channel_id,
+        0,
+        msg_id,
+        &fields,
+        viewer_user_id,
     ));
 }
 

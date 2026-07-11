@@ -31,6 +31,17 @@ pub fn emit_post_sending(
             "channelId": channel_id.as_str(),
             "eventSeq": serde_json::Value::Null,
             "sendStatus": "sending",
+            "serverId": serde_json::Value::Null,
+            "isSelf": true,
+            "actionCapabilities": {
+                "canReply": false,
+                "canForward": false,
+                "canReact": false,
+                "canUrgent": false,
+                "canCreateTopic": false,
+                "canRevoke": false,
+                "canRetry": false,
+            },
             "readBits": "",
             "text": text,
             "type": msg_type,
@@ -57,6 +68,17 @@ pub fn emit_post_send_failed(channel_id: &str, temporary_id: &str) -> Effect {
             "channelId": channel_id,
             "temporaryId": temporary_id,
             "sendStatus": "failed",
+            "serverId": serde_json::Value::Null,
+            "isSelf": true,
+            "actionCapabilities": {
+                "canReply": false,
+                "canForward": false,
+                "canReact": false,
+                "canUrgent": false,
+                "canCreateTopic": false,
+                "canRevoke": false,
+                "canRetry": true,
+            },
         }
     });
     let bytes = Bytes::from(

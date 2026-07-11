@@ -96,6 +96,14 @@ pub fn build_message_query(
 /// 再作为 `messages` 字段装入 `data` 对象。最终 emit 形状固定为
 /// `data: { channel_id, messages }`。零信任：非法 JSON → 空数组投影（不 panic）。
 pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> Effect {
+    emit_message_query_result_for_viewer(channel_id, reply_bytes, "")
+}
+
+pub fn emit_message_query_result_for_viewer(
+    channel_id: &ChannelId,
+    reply_bytes: &[u8],
+    viewer_user_id: &str,
+) -> Effect {
     let rows = match serde_json::from_slice::<serde_json::Value>(reply_bytes) {
         Ok(serde_json::Value::Array(mut items)) => {
             items.reverse();
@@ -109,7 +117,7 @@ pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> 
         // 不再壳内抽 DB snake 列 / 归一 readBits / dedup。外层键集 {channel_id, messages} 不变。
         "data": {
             "channel_id": channel_id.as_str(),
-            "messages": crate::render_ready::shape_message_rows(&rows),
+            "messages": crate::render_ready::shape_message_rows_for_viewer(&rows, viewer_user_id),
         }
     });
     let bytes = Bytes::from(

@@ -299,13 +299,20 @@ pub fn post_context_http_tracked(
 /// **emit 是唯一权威排序点**（createAt 升序 + 同毫秒 temporaryId 确定化，HX-C010）——不依赖调用前
 /// `stop()` 是否已排（防中途 emit / Err 收尾路径漏排）；对已排序输入幂等。空集合 → `messages:[]`，不 panic。
 pub fn emit_older_loaded(state: &LoadOlderState) -> Effect {
+    emit_older_loaded_for_viewer(state, "")
+}
+
+pub fn emit_older_loaded_for_viewer(state: &LoadOlderState, viewer_user_id: &str) -> Effect {
     let mut messages = state.older.clone();
     messages.sort_by_key(sort_key);
     let payload = json!({
         "event": "im:messages:older_loaded",
         "data": {
             "channelId": state.channel_id.as_str(),
-            "messages": crate::render_ready::shape_message_rows(&serde_json::Value::Array(messages)),
+            "messages": crate::render_ready::shape_message_rows_for_viewer(
+                &serde_json::Value::Array(messages),
+                viewer_user_id,
+            ),
             "hasMore": state.has_more,
         }
     });

@@ -220,9 +220,10 @@ impl ImModule {
             // （driver `{items:[]}` 包装）。Err → 空投影（前端拿空列表，不卡渲染）。
             CorrelationContext::MessageQuery { channel_id } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    out.push(crate::query::emit_message_query_result(
+                    out.push(crate::query::emit_message_query_result_for_viewer(
                         &channel_id,
                         reply.0.as_ref(),
+                        self.config.auth_user_id.as_str(),
                     ));
                 }
                 PortOutcome::Err(e) => {
@@ -231,7 +232,11 @@ impl ImModule {
                         error = ?e,
                         "message query scan failed"
                     );
-                    out.push(crate::query::emit_message_query_result(&channel_id, b"[]"));
+                    out.push(crate::query::emit_message_query_result_for_viewer(
+                        &channel_id,
+                        b"[]",
+                        self.config.auth_user_id.as_str(),
+                    ));
                 }
             },
 
@@ -368,7 +373,10 @@ impl ImModule {
                                 .insert(next_corr, CorrelationContext::LoadOlderContext { state });
                         }
                         crate::older_context::RoundDecision::Done => {
-                            out.push(crate::older_context::emit_older_loaded(&state));
+                            out.push(crate::older_context::emit_older_loaded_for_viewer(
+                                &state,
+                                self.config.auth_user_id.as_str(),
+                            ));
                         }
                     }
                 }
@@ -377,7 +385,10 @@ impl ImModule {
                     // 收尾：把当前已收集的更早消息（可能为空）emit，前端结束 loading。
                     // 用空批喂一轮触发 stop(has_more=false) → 已收集态被 sort+truncate+定 has_more。
                     state.ingest_round(&[]);
-                    out.push(crate::older_context::emit_older_loaded(&state));
+                    out.push(crate::older_context::emit_older_loaded_for_viewer(
+                        &state,
+                        self.config.auth_user_id.as_str(),
+                    ));
                 }
             },
         }

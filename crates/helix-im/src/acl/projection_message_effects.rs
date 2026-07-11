@@ -49,6 +49,22 @@ fn resolve_reactions(props: &serde_json::Value) -> Option<String> {
     }
 }
 
+/// 把持久化的 expedite_map 预解为消息加急终态。空/null/空容器均为 false，
+/// 其余形态为 true；Angular 只绑定结果，不解析 sender/recipients 业务结构。
+fn resolve_urgent(expedite_map: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(expedite_map) else {
+        return false;
+    };
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(value) => value,
+        serde_json::Value::String(value) => !value.is_empty(),
+        serde_json::Value::Array(value) => !value.is_empty(),
+        serde_json::Value::Object(value) => !value.is_empty(),
+        serde_json::Value::Number(value) => value.as_i64().unwrap_or_default() != 0,
+    }
+}
+
 /// 预解 props.template.userIds 成模板已收到态（UC-3.3·data-template-received 渲染源）。
 ///
 /// server templateReceived 回执后 post_update echo 把已收到回执列表携进 props.template.userIds。
@@ -119,6 +135,7 @@ fn message_item_data(
         // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——
         "sendStatus": "sent",
         "reactions": resolve_reactions(&props),
+        "urgent": resolve_urgent(&fields.expedite_map),
         "templateReceived": resolve_template_received(&props),
         "systemNotice": is_system_notice(msg_type),
         "pinned": resolve_pinned(&props),

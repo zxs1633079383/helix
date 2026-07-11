@@ -43,6 +43,7 @@ const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "viewers",
     "sendStatus",
     "reactions",
+    "urgent",
     "templateReceived",
     "systemNotice",
     "pinned",

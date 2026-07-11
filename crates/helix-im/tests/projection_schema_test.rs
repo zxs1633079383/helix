@@ -61,6 +61,7 @@ const FAT_KEYS: &[&str] = &[
     // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——
     "sendStatus",
     "reactions",
+    "urgent",
     "templateReceived",
     "systemNotice",
     "pinned",
@@ -230,6 +231,7 @@ fn fat_emit_carries_in_hand_data() {
         data["reactions"].is_null(),
         "无 quickReply → reactions=null"
     );
+    assert_eq!(data["urgent"], true, "非空 expedite_map → urgent=true");
     assert_eq!(
         data["templateReceived"], false,
         "无 template → templateReceived=false"
@@ -282,6 +284,18 @@ fn render_ready_pinned_derives_from_props() {
     };
     let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(v["data"]["pinned"], true, "props.pinned → data.pinned");
+}
+
+#[test]
+fn render_ready_urgent_is_false_for_empty_expedite_map() {
+    let mut f = sample_fields();
+    f.expedite_map = "{}".to_string();
+    let e = to_effect::emit_post_updated(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = &e else {
+        panic!("必产 Emit")
+    };
+    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(v["data"]["urgent"], false, "空 expedite_map → urgent=false");
 }
 
 /// type 空串容错 "TEXT"（render-ready 下沉·前端不再 `d.type || "TEXT"` 兜底·issue #53）。

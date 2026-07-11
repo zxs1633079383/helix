@@ -25,6 +25,12 @@ use helix_core::effect::{DomainEventBytes, Effect};
 /// 取 rootPost.id + replies[].id + data[].id + list[].id + 顶层数组[].id。去重保序·仅非空 string。
 /// body 缺/非对象（失败回灌 `{req_id, error}` 或畸形）→ 返空数组（前端 reject 语义·清抽屉）。
 pub fn extract_reply_ids(body: &serde_json::Value) -> Vec<String> {
+    // Go HTTP 统一 CommonRes 会把业务结果包在 `data`；先剥一层信封，再按两类业务结果抽取。
+    // getReplyBranch 的业务结果自身仍有 `data:[Post]`，下方循环继续处理该数组。
+    let body = body
+        .get("data")
+        .filter(|value| value.is_object() || value.is_array())
+        .unwrap_or(body);
     let mut out: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut push = |v: &serde_json::Value| {

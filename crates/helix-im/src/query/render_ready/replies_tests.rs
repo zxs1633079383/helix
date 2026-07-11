@@ -25,6 +25,24 @@ fn getreplies_body_extracts_rootpost_then_replies_in_order() {
 }
 
 #[test]
+fn common_response_envelope_is_unwrapped_for_replies_and_branch() {
+    let replies = serde_json::json!({
+        "status": "SUCCESS",
+        "data": {
+            "rootPost": {"id": "root"},
+            "replies": [{"id": "first"}]
+        }
+    });
+    assert_eq!(extract_reply_ids(&replies), vec!["root", "first"]);
+
+    let branch = serde_json::json!({
+        "status": "SUCCESS",
+        "data": {"data": [{"id": "nested"}], "hasMore": false}
+    });
+    assert_eq!(extract_reply_ids(&branch), vec!["nested"]);
+}
+
+#[test]
 fn getreplybranch_body_data_and_list_and_toplevel_array() {
     // getReplyBranch 形态：HasMorePage[Post]（{data:[]} / {list:[]} / 顶层数组）。
     let data_form = serde_json::json!({"data": [{"id": "a"}, {"id": "b"}]});

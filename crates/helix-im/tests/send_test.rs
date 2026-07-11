@@ -248,6 +248,11 @@ fn send_timeout_marks_unsend() {
         "timeout should emit PersistFire to mark unsend, got: {:?}",
         timeout_effects
     );
+    assert!(
+        failed_projection_for_tmp(&h, "tmp_1").is_some(),
+        "timeout must project the durable unsend row as retryable failed, got: {:?}",
+        timeout_effects
+    );
 }
 
 #[test]

@@ -109,8 +109,27 @@ impl ImModule {
             .map(|(id, _)| id.clone());
 
         if let Some(tmp_id) = maybe_tmp {
+            let failed_channel_id = self
+                .state
+                .pending_sends
+                .get(&tmp_id)
+                .filter(|pending| {
+                    pending.status != crate::state::SendStatus::Sent
+                        && pending.status != crate::state::SendStatus::UnSend
+                        && !pending.upload_failed
+                })
+                .and_then(|pending| pending.body.as_ref())
+                .and_then(|body| body.get("channelId"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
             if let Some(ps) = self.state.pending_sends.get_mut(&tmp_id) {
                 ps.on_timeout(out);
+            }
+            if let Some(channel_id) = failed_channel_id {
+                out.push(crate::acl::to_effect::emit_post_send_failed(
+                    &channel_id,
+                    tmp_id.0.as_str(),
+                ));
             }
             return Ok(());
         }

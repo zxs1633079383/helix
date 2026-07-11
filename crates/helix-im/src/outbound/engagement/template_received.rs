@@ -16,17 +16,15 @@ use crate::outbound::registry::{
 /// POST /api/cses/post/templateReceived — 模板消息已收到回执。真源 `{postId}`。
 /// 路径前缀 `post`（单数），勿写成 `posts`（命名陷阱：与同文件其余 posts/* 不同前缀）。
 ///
-/// ⚠️ 入参键是 camelCase `postId`（非 snake `post_id`）：前端 `message.service.ts:528` invoke
-/// `helix:templateReceived` 发 `{postId}`（仅 UI 字段），bridge `paramNames:['payload']` 字节透传
-/// **不转 snake**（tauri.service.ts:1511）→ builder 必须读 camel，否则 `require_str(post_id)`=None →
-/// 命令永远 `ImError::Parse` 失败（UC-3.3 偏差修复，full-map #25 `{postId}`）。
+/// 公共命令先经过 `mobile_contract::normalize_command_payload`，顶层 camelCase 会归一为
+/// snake_case，因此 builder 读取 `post_id`，wire body 再映射回 Go 所需的 `postId`。
 struct TemplateReceivedCommand;
 impl OutboundCommand for TemplateReceivedCommand {
     fn name(&self) -> &'static str {
         "im_template_received"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        let post_id = require_str(args, "postId", self.name())?;
+        let post_id = require_str(args, "post_id", self.name())?;
         Ok(("post/templateReceived", json!({ "postId": post_id })))
     }
 }
@@ -36,3 +34,23 @@ static TEMPLATE_RECEIVED_REG: OutboundRegistration = OutboundRegistration {
     name: "im_template_received",
     command: &TEMPLATE_RECEIVED,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalized_public_payload_builds_go_wire_body() {
+        let normalized = crate::mobile_contract::normalize_command_payload(
+            "im_template_received",
+            br#"{"postId":"post-1"}"#,
+        )
+        .expect("normalize public payload");
+        let args: Value = serde_json::from_slice(&normalized).expect("decode normalized payload");
+        let (path, body) = TEMPLATE_RECEIVED
+            .build(&args)
+            .expect("build outbound request");
+        assert_eq!(path, "post/templateReceived");
+        assert_eq!(body, json!({ "postId": "post-1" }));
+    }
+}

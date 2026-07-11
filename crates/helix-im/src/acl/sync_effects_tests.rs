@@ -7,7 +7,8 @@
 //! body，用 `PostFields::default()` 填 fat MessageItemData）。
 //!
 //! 守 HX-C011 可证伪：每个「绿」断言配「破坏即红」对偶——
-//!   - 撤回事件 → 必有 `im:post:deleted`（17 键 fat·按 msg_id/channel_id/event_seq 锚）；
+//!   - 撤回事件 → 必有 `im:post:deleted`（render-ready fat schema，按
+//!     msg_id/channel_id/event_seq 锚）；
 //!   - 去掉撤回事件 → 必无 `im:post:deleted`（不会凭空发出）。
 
 use super::sync_mutation_emits;
@@ -19,19 +20,24 @@ use std::collections::HashMap;
 const CH: &str = "a9h5hrdsy3873dmg375a6ntqiw";
 const MSG: &str = "g8wh1bx4mty47qhduyqhm4eaaa";
 
-/// projection-schema §1 离线撤回 fat MessageItemData 的冻结 17 键集（与
-/// `test/expect/uc-1.5-offline.expect.json` projection.dataKeys 同源·缺/多即偏离）。
-const FAT_KEYS_17: &[&str] = &[
+/// projection-schema §1 离线撤回 fat MessageItemData 的冻结键集。snake_case
+/// 字段保留 Helix/存储合同，camelCase 和 render aliases 直接供薄客户端消费。
+const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "channel_id",
     "event_seq",
     "msg_id",
     "temporaryId",
     "channelId",
+    "eventSeq",
+    "msgId",
+    "id",
     "userId",
     "type",
     "message",
+    "text",
     "props",
     "createAt",
+    "createdAt",
     "updateAt",
     "readBits",
     "viewers",
@@ -73,9 +79,9 @@ fn find_emit<'a>(emits: &'a [Effect], event: &str) -> Option<serde_json::Value> 
 }
 
 /// 绿：离线 replay 撤回（msg 不在 messages 快照）→ 无条件 emit `im:post:deleted`，
-/// 17 键 fat·按 msg_id/channel_id/event_seq 锚定。
+/// render-ready fat schema·按 msg_id/channel_id/event_seq 锚定。
 #[test]
-fn revoke_replay_emits_post_deleted_fat_17_keys_even_without_messages() {
+fn revoke_replay_emits_post_deleted_fat_schema_even_without_messages() {
     // messages 空：撤回不依赖 body（empty_fields 路径）——这正是离线 increment-replay 的真形态。
     let emits = sync_mutation_emits(&[revoke_ev(3)], &HashMap::new());
 
@@ -86,14 +92,14 @@ fn revoke_replay_emits_post_deleted_fat_17_keys_even_without_messages() {
         .and_then(|d| d.as_object())
         .expect("data 为对象");
 
-    // 键集严格对齐冻结 17 键（多/缺即偏离 projection-schema）。
+    // 键集严格对齐冻结 schema（多/缺即偏离 projection-schema）。
     let mut got: Vec<&str> = data.keys().map(String::as_str).collect();
     got.sort_unstable();
-    let mut want: Vec<&str> = FAT_KEYS_17.to_vec();
+    let mut want: Vec<&str> = FAT_MESSAGE_ITEM_KEYS.to_vec();
     want.sort_unstable();
     assert_eq!(
         got, want,
-        "im:post:deleted 必须是 17 键 fat MessageItemData"
+        "im:post:deleted 必须匹配 render-ready fat MessageItemData"
     );
 
     // 领域锚：msg_id / channel_id / event_seq 对齐输入。

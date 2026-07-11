@@ -175,7 +175,7 @@ pub fn emit_reconnect_requested() -> Effect {
 pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value) -> Effect {
     use serde_json::json;
     let posts = if posts.is_array() {
-        posts.clone()
+        crate::render_ready::shape_message_rows(posts)
     } else {
         json!([])
     };
@@ -194,6 +194,10 @@ pub fn emit_post_batch_updated(channel_id: ChannelId, posts: &serde_json::Value)
         event: DomainEventBytes(bytes),
     }
 }
+
+#[cfg(test)]
+#[path = "projection_control_effects_tests.rs"]
+mod tests;
 
 /// C3：type=1 可见新消息 → `im:channel:update-by-post`。
 pub fn emit_channel_update_by_post(

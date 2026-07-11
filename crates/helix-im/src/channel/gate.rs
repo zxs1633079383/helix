@@ -463,6 +463,7 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
                 "expedite_map".to_string(),
                 SqlValue::Text(f.expedite_map.clone()),
             ),
+            ("topic".to_string(), SqlValue::Text(f.topic.clone())),
             (
                 "simple_message".to_string(),
                 SqlValue::Text(f.simple_message.clone()),
@@ -515,6 +516,9 @@ pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -
             "expedite_map".to_string(),
             SqlValue::Text(fields.expedite_map.clone()),
         ));
+    }
+    if !fields.topic.is_empty() {
+        patch.push(("topic".to_string(), SqlValue::Text(fields.topic.clone())));
     }
     StorageOp::BatchUpdate(BatchUpdateSpec {
         table: "message",

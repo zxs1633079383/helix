@@ -397,6 +397,8 @@ fn post_fields_json(
         .unwrap_or_else(|_| serde_json::json!({}));
     let expedite_map = serde_json::from_str::<serde_json::Value>(&fields.expedite_map)
         .unwrap_or_else(|_| serde_json::json!({}));
+    let topic = serde_json::from_str::<serde_json::Value>(&fields.topic)
+        .unwrap_or_else(|_| serde_json::json!({}));
     serde_json::json!({
         "id": if fields.id.is_empty() { msg_id } else { fields.id.as_str() },
         "temporaryId": fields.temporary_id.clone(),
@@ -413,6 +415,7 @@ fn post_fields_json(
         "viewers": fields.viewers.clone(),
         "mentions": fields.mentions.clone(),
         "expediteMap": expedite_map,
+        "topic": topic,
         "replyId": fields.reply_id.clone(),
         "replyRootId": fields.reply_root_id.clone(),
         "replyFirstLevelId": fields.reply_first_level_id.clone(),

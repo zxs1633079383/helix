@@ -106,6 +106,11 @@ fn message_item_data(
     } else {
         serde_json::from_str(&fields.props).unwrap_or_else(|_| json!({}))
     };
+    let topic: serde_json::Value = if fields.topic.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_str(&fields.topic).unwrap_or_else(|_| json!({}))
+    };
     // type 空串容错 "TEXT"（render-ready·前端不再 `d.type || "TEXT"` 兜底）。
     let msg_type = if fields.msg_type.is_empty() {
         "TEXT"
@@ -127,6 +132,7 @@ fn message_item_data(
         "message": fields.message.as_str(),
         "text": fields.message.as_str(),
         "props": props,
+        "topic": topic,
         "createAt": fields.create_at,
         "createdAt": fields.create_at,
         "updateAt": fields.create_at,

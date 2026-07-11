@@ -52,6 +52,14 @@ fn props_value(row: &Value) -> Value {
     }
 }
 
+fn topic_value(row: &Value) -> Value {
+    match row.get("topic") {
+        Some(Value::Object(_)) => row["topic"].clone(),
+        Some(Value::String(s)) => serde_json::from_str(s).unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
 fn template_received_bool(row: &Value) -> bool {
     if let Some(b) = row.get("templateReceived").and_then(|v| v.as_bool()) {
         return b;
@@ -98,6 +106,7 @@ fn shape_row(row: &Value) -> Value {
         "text": text,
         "type": msg_type,
         "props": props_value(row),
+        "topic": topic_value(row),
         "revoke": revoke_bool(row),
         "revoked": revoke_bool(row),
         "templateReceived": template_received_bool(row),

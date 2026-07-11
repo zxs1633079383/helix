@@ -36,6 +36,7 @@ const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "message",
     "text",
     "props",
+    "topic",
     "createAt",
     "createdAt",
     "updateAt",

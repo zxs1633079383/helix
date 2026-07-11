@@ -65,6 +65,7 @@ const FAT_KEYS: &[&str] = &[
     "templateReceived",
     "systemNotice",
     "pinned",
+    "topic",
 ];
 
 /// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
@@ -84,6 +85,7 @@ fn sample_fields() -> PostFields {
         viewers: vec!["all".to_string()],
         mentions: vec!["u_me".to_string()],
         expedite_map: r#"{"u_me":true}"#.to_string(),
+        topic: r#"{"channelId":"topic-1"}"#.to_string(),
         reply_id: "root-1".to_string(),
         reply_root_id: "root-1".to_string(),
         reply_first_level_id: "first-1".to_string(),
@@ -226,6 +228,7 @@ fn fat_emit_carries_in_hand_data() {
     );
     // props 由 JSON 字符串 parse 回对象（前端 props:any 期望对象，非字符串）。
     assert_eq!(data["props"]["k"], "v", "props parse 回对象");
+    assert_eq!(data["topic"]["channelId"], "topic-1", "topic parse 回对象");
     assert_eq!(data["viewers"][0], "all", "viewers 数组直出");
     // render-ready 终态字段（issue #53）：sample_fields 无 quickReply/template·type=TEXT →
     // sendStatus=sent / reactions=null / templateReceived=false / systemNotice=false。

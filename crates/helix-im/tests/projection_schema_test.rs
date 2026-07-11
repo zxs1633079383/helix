@@ -84,6 +84,9 @@ fn sample_fields() -> PostFields {
         viewers: vec!["all".to_string()],
         mentions: vec!["u_me".to_string()],
         expedite_map: r#"{"u_me":true}"#.to_string(),
+        reply_id: "root-1".to_string(),
+        reply_root_id: "root-1".to_string(),
+        reply_first_level_id: "first-1".to_string(),
     }
 }
 

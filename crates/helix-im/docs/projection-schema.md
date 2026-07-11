@@ -247,9 +247,9 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 
 > 🔴 **HX-C005 守约（SPEC §2 热路径回读铁律）**：fat 数据**全部来自在手 `PostFields`**——不发 Storage 读
 > Effect、不 `serde_json::to_string(整条 wire 对象)`。这是「完整投影」的**唯一正道**：写入时手上的数据直接吐。
-> **不在 `PostFields` 内**的 MessageItemData 字段（`replyId`/`threadId`/`userSnapshot`/`sendStatus`/
-> `expediteMap`…）**不吐**——它们不在手，吐了须扩 `PostFields`（碰 parser 热路径，违 HX-C005）或回读 DB
-> （违铁律）。前端这些少见字段仍走 DB 列权威（已由 send/sync 落库写入 message 表），需要时按 msg_id 回读。
+> `replyId`/`replyRootId`/`replyFirstLevelId` 已在 parser 单次提取时进入 `PostFields` 并随 message 行落库；
+> 首屏/刷新查询把三者整形成 render-ready camel 字段。在线 fat 信号仍不扩键，避免无关事件契约膨胀；
+> 回复交互在需要层级锚时走本地消息查询，前端只透传锚，不计算回复树。
 
 > ⚠️ **C2 证伪点（FixB 反转）**：message-row 信号冻结集 = `message_item_data` 完整集（§1 表）。**缺**任一
 > 完整字段 → 前端拿不到 = 回退「半份回读」蠢模式 → 测试 fail（`projection_schema_test` 注入缺字段证伪）。

@@ -19,7 +19,10 @@ fn db_snake_row_shaped_to_render_ready() {
             "template": { "userIds": ["u9"] }
         },
         "create_at": 1700,
-        "user_id": "u9"
+        "user_id": "u9",
+        "reply_id": "root-1",
+        "reply_root_id": "root-1",
+        "reply_first_level_id": "first-1"
     }]);
     let out = shape_message_rows(&rows);
     let r = &out[0];
@@ -37,6 +40,9 @@ fn db_snake_row_shaped_to_render_ready() {
     assert_eq!(r["createdAt"], 1700);
     assert_eq!(r["userId"], "u9");
     assert_eq!(r["sendStatus"], "sent");
+    assert_eq!(r["replyId"], "root-1");
+    assert_eq!(r["replyRootId"], "root-1");
+    assert_eq!(r["replyFirstLevelId"], "first-1");
     assert!(r["eventSeq"].is_null());
     assert_eq!(
         r["props"],
@@ -59,7 +65,10 @@ fn wire_camel_row_shaped_to_same_shape() {
         "readBits": "3",
         "templateReceived": true,
         "createAt": 1800,
-        "userId": "u8"
+        "userId": "u8",
+        "replyId": "root-2",
+        "replyRootId": "root-2",
+        "replyFirstLevelId": "first-2"
     }]);
     let out = shape_message_rows(&rows);
     let r = &out[0];
@@ -72,6 +81,9 @@ fn wire_camel_row_shaped_to_same_shape() {
     assert_eq!(r["revoked"], false); // 无 revoke 列→false
     assert_eq!(r["templateReceived"], true);
     assert_eq!(r["createAt"], 1800);
+    assert_eq!(r["replyId"], "root-2");
+    assert_eq!(r["replyRootId"], "root-2");
+    assert_eq!(r["replyFirstLevelId"], "first-2");
 }
 
 #[test]

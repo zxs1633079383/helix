@@ -467,6 +467,15 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
                 "simple_message".to_string(),
                 SqlValue::Text(f.simple_message.clone()),
             ),
+            ("reply_id".to_string(), SqlValue::Text(f.reply_id.clone())),
+            (
+                "reply_root_id".to_string(),
+                SqlValue::Text(f.reply_root_id.clone()),
+            ),
+            (
+                "reply_first_level_id".to_string(),
+                SqlValue::Text(f.reply_first_level_id.clone()),
+            ),
             ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
             ("create_at".to_string(), SqlValue::Integer(f.create_at)),
         ]],

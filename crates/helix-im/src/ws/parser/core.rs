@@ -100,6 +100,15 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .or_else(|| root.get("expedite_map"))
         .map(serde_json::Value::to_string)
         .unwrap_or_default();
+    let reply_id = pick_str("replyId")
+        .or_else(|| pick_str("reply_id"))
+        .unwrap_or_default();
+    let reply_root_id = pick_str("replyRootId")
+        .or_else(|| pick_str("reply_root_id"))
+        .unwrap_or_default();
+    let reply_first_level_id = pick_str("replyFirstLevelId")
+        .or_else(|| pick_str("reply_first_level_id"))
+        .unwrap_or_default();
 
     PostFields {
         temporary_id,
@@ -116,6 +125,9 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         viewers,
         mentions,
         expedite_map,
+        reply_id,
+        reply_root_id,
+        reply_first_level_id,
     }
 }
 

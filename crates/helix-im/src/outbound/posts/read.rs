@@ -204,15 +204,57 @@ read_cmd!(
 );
 
 /// 组装分页 body：`{<id_key>: <id_val>, pageNumber, pageSize}`，可选 `revoke`（GetPostOpts.Revoke）。
-/// pageNumber/pageSize 缺省 0（Go int 零值），revoke 仅在显式 bool 时下发。
+/// pageNumber/pageSize 缺省 1/20（与 Go PageOpts.Init 一致）。Go 的 reply branch handler 不主动
+/// Init；若传 0，会在“多取一条判 hasMore”后截断为 0 条，因此默认值必须由 Helix 业务层补齐。
 fn page_body(args: &Value, id_key: &'static str, id_val: &str) -> Value {
-    let page_number = args.get("page_number").and_then(Value::as_i64).unwrap_or(0);
-    let page_size = args.get("page_size").and_then(Value::as_i64).unwrap_or(0);
+    let page_number = args
+        .get("page_number")
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
+        .unwrap_or(1);
+    let page_size = args
+        .get("page_size")
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
+        .unwrap_or(20);
     let mut b = json!({ id_key: id_val, "pageNumber": page_number, "pageSize": page_size });
     if let Some(revoke) = args.get("revoke").and_then(Value::as_bool) {
         b["revoke"] = json!(revoke);
     }
     b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::page_body;
+    use serde_json::json;
+
+    #[test]
+    fn reply_page_defaults_match_go_page_opts() {
+        let body = page_body(&json!({}), "replyFirstLevelId", "first-1");
+        assert_eq!(body["replyFirstLevelId"], "first-1");
+        assert_eq!(body["pageNumber"], 1);
+        assert_eq!(body["pageSize"], 20);
+    }
+
+    #[test]
+    fn reply_page_rejects_non_positive_values_and_keeps_positive_values() {
+        let defaults = page_body(
+            &json!({"page_number": 0, "page_size": -1}),
+            "replyId",
+            "root-1",
+        );
+        assert_eq!(defaults["pageNumber"], 1);
+        assert_eq!(defaults["pageSize"], 20);
+
+        let explicit = page_body(
+            &json!({"page_number": 2, "page_size": 50}),
+            "replyId",
+            "root-1",
+        );
+        assert_eq!(explicit["pageNumber"], 2);
+        assert_eq!(explicit["pageSize"], 50);
+    }
 }
 
 // ── post/bookmark/* / announcement/* / post/read/list 读族 → posts_read_ext.rs ──────

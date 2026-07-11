@@ -1,0 +1,1 @@
+{"tools":[{"capability":"helix.sqlite.inspect","kind":"command","runner":"cargo","inputSchema":".agents/tools/schemas/store-inspect-input.schema.json","outputSchema":".agents/tools/schemas/store-inspect-output.schema.json","timeoutSeconds":120,"owner":"helix"}]}

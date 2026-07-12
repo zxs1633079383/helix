@@ -240,6 +240,14 @@ impl ImModule {
                 }
             },
 
+            CorrelationContext::ForwardSourceLookup { assembly } => {
+                if let Err(error) =
+                    crate::forward::handle_lookup_reply(self, *assembly, outcome, out)
+                {
+                    tracing::warn!(error = ?error, "forward source assembly failed");
+                }
+            }
+
             // UC-3 dialogList 投影 **Scan** 回报：把 channel 行 emit 成 im:channels:projection
             // 完整 dialogList（含 unread_count，前端零计算）。Err → 空 dialogList（不卡渲染）。
             CorrelationContext::DialogListQuery => match outcome {
@@ -314,6 +322,10 @@ impl ImModule {
             //       （壳退纯绑定·载族自愈）。信封畸形 / Err → 仅回灌 read error（不丢 req_id，前端 reject）。
             CorrelationContext::OutboundMembersByIds { req_id } => {
                 crate::port_reply_emit::emit_members_by_ids(&req_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundContactCandidates { req_id } => {
+                crate::port_reply_emit::emit_contact_candidates(&req_id, outcome, out);
             }
 
             // S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → **双 emit**。

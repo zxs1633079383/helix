@@ -64,6 +64,10 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
         core: "im_channels_members_by_ids",
     },
     CommandAlias {
+        public: "im_list_candidate_users",
+        core: "im_user_candidates",
+    },
+    CommandAlias {
         public: "im_channel_admin_change",
         core: "im_channel_member_role",
     },
@@ -129,6 +133,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:members",
     "im:channel:replies",
     "im:post:located",
+    "im:user:candidates",
     "im:read:result",
     "im:todo:updated",
     "im:health:result",
@@ -333,6 +338,17 @@ mod tests {
         assert_eq!(v["channel_id"], "ch1");
         assert_eq!(v["post_id"], "p1");
         assert_eq!(v["props"]["temporaryId"], "opaque");
+    }
+
+    #[test]
+    fn aliases_candidate_directory_without_requiring_ui_wire_fields() {
+        let normalized = normalize_command_payload("im_list_candidate_users", br#"{}"#).unwrap();
+        let value: Value = serde_json::from_slice(&normalized).unwrap();
+        assert!(value.as_object().is_some_and(Map::is_empty));
+        assert_eq!(
+            command_alias("im_list_candidate_users"),
+            Some("im_user_candidates")
+        );
     }
 
     #[test]

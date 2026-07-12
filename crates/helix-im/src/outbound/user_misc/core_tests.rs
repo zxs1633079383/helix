@@ -1,4 +1,4 @@
-//! `user_misc.rs` 的 12 命令注册 / body / 读写族单测（经 `#[cfg(test)] #[path] mod tests;` 挂回）。
+//! `user_misc.rs` 的 13 命令注册 / body / 读写族单测（经 `#[cfg(test)] #[path] mod tests;` 挂回）。
 //!
 //! 从 `user_misc.rs` 外提守 ≤300 硬顶（结构闸 §1，测试外提范本，同 vote_score_tests.rs）。
 //! `super::*` 指向 `user_misc` 模块；`handle_outbound`/`is_outbound`/`is_read` 从 registry 取。
@@ -23,12 +23,13 @@ fn dispatch(cmd: &str, body: Value) -> (String, Value) {
     }
 }
 
-/// 12 命令全注册（11 既有 + loadTarget 新增）。
+/// 13 命令全注册（含 loadTarget 与 fresh-account candidate directory）。
 #[test]
 fn all_user_misc_commands_registered() {
     for n in [
         "im_list_users",
         "im_get_user_statuses",
+        "im_user_candidates",
         "im_team_upsert",
         "im_team_member_add",
         "im_team_quit",
@@ -58,6 +59,7 @@ fn read_write_flags_correct() {
     for r in [
         "im_list_users",
         "im_get_user_statuses",
+        "im_user_candidates",
         "im_get_all_modules",
         "im_load_send_notifications",
         "im_load_target_notifications",

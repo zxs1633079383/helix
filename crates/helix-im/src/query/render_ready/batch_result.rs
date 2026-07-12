@@ -58,6 +58,29 @@ pub(crate) fn emit_error(req_id: &str, error: &str) -> Effect {
     }))
 }
 
+pub(crate) fn emit_target_error(req_id: &str, channel_ids: &[String], error: &str) -> Effect {
+    let targets: Vec<Value> = channel_ids
+        .iter()
+        .map(|channel_id| {
+            json!({
+                "channelId": channel_id,
+                "acceptanceStatus": "failed",
+                "deliveryStatus": "not-applicable",
+                "error": error,
+            })
+        })
+        .collect();
+    emit_value(json!({
+        "reqId": req_id,
+        "batchStatus": "failed",
+        "acceptedCount": 0,
+        "failedCount": targets.len(),
+        "deliveryAuthority": "ws-post",
+        "targets": targets,
+        "error": error,
+    }))
+}
+
 fn emit_value(data: Value) -> Effect {
     let payload = json!({ "event": "im:posts:batch-result", "data": data });
     Effect::Emit {

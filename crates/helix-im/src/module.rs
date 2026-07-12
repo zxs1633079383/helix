@@ -279,6 +279,14 @@ impl Module for ImModule {
                 "im_reconnect" => {
                     out.push(crate::acl::to_effect::emit_reconnect_requested());
                 }
+                "im_create_posts" if crate::forward::is_source_id_request(cmd.payload.as_ref()) => {
+                    crate::forward::start(self, cmd.payload.as_ref(), now_ms, out).map_err(
+                        |e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        },
+                    )?;
+                }
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
                 name if crate::commands::is_outbound(name) => {
@@ -304,6 +312,8 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundIncrementHydration { req_id }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
+                            } else if name == "im_user_candidates" {
+                                CorrelationContext::OutboundContactCandidates { req_id }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
                                 // S8：回复族 → 双 emit（im:read:result 冻结 + im:channel:replies render-ready）。
                                 CorrelationContext::OutboundReplies { req_id }

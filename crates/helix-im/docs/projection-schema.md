@@ -77,6 +77,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgentTargetCount` `urgentConfirmedCount` `expediteMap`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `serverId` `isSelf` `actionCapabilities` `readBits` `text` `type`（render-ready 乐观终态行）| 发送乐观上屏 |
 | `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus` `serverId` `isSelf` `actionCapabilities`（`canRetry=true`）| `posts/create` HTTP PortError 立即失败 |
+| `render_ready_candidates::emit` | `im:user:candidates` | `reqId` `users[]`（`userId` `username` `nickname` `displayName` `deptId` `deptName` `orgId` `orgName`）| fresh-account 建群候选目录 HTTP 回报 |
 | `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` `mode` `dropLocalMessages` | sync kind=too_long / gate buffer overflow（drop local messages + reload） |
 | `to_effect::emit_connection_established` | `im:connection:established` | `connectionId` | hello 握手完成 |
 | `to_effect::emit_channels_loaded` | `im:channels:loaded` | `items` | hello 冷启动补齐 |

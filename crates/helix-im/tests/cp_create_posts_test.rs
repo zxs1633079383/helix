@@ -15,7 +15,7 @@
 //! - casing fail-hard：body 含 `"posts"`/`"channelIds"`，**不含** PascalCase `"Posts"`/`"ChannelIds"`。
 //! - 真 Go fixture 比对：body 顶层 key 集 == Go 解构体期望（case-insensitive 下 camelCase 形态）。
 //! - 边界零信任：缺/空 posts、缺/空 channel_ids、非数组 → Err 不 panic。
-//! - registry 性质：is_outbound 命中 + 注册总数 == 88（CP 补齐后；send 不在内）。
+//! - registry 性质：is_outbound 命中 + 注册总数跟随新增候选目录闭集更新（send 不在内）。
 //!
 //! 可证伪（HX-C011）：把 body 拼成 PascalCase → casing 断言 FAIL；改 endpoint → url 断言 FAIL；
 //! 删注册 → is_outbound + 计数断言 FAIL；放松必填校验 → Err 断言 FAIL。
@@ -186,20 +186,17 @@ fn create_posts_bad_json_payload_errs() {
     assert!(handle_outbound("im_create_posts", b"not-json", BASE, BASE, None, corr()).is_err());
 }
 
-/// registry 性质：is_outbound 命中 + 注册总数 == 88（CP 补齐后）。
-///
-/// 88 = 原 87 outbound（registry）+ createPosts；`im_send_message` 不在 registry（走 send arm）。
-/// 加上 send 命令 = 89 出站/写命令（04 文档表 B 口径）。
+/// registry 性质：is_outbound 命中 + 注册总数包含 fresh-account 候选目录。
 #[test]
-fn create_posts_registered_and_total_is_88() {
+fn create_posts_registered_and_total_is_current() {
     assert!(
         is_outbound("im_create_posts"),
         "im_create_posts 应被 registry 认领"
     );
     assert_eq!(
         outbound_command_count(),
-        122,
-        "outbound registry 总数应为 122（121 + UC-6.2 设/撤管理员单命令 im_channel_set_manger·role+endpoint 路由下沉 helix；既有 add·remove manger 直透两条保留）"
+        123,
+        "outbound registry 总数应为 123（既有 122 + fresh-account users/candidates）"
     );
     // send 命令不在 outbound registry（走 module.rs send arm，带乐观落库/timer）。
     assert!(!is_outbound("im_send_message"));

@@ -168,6 +168,27 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
 }
 
 #[test]
+fn emit_dialog_list_result_does_not_treat_inactive_as_closed_after_restart() {
+    // 回归：新建频道落库默认 is_active=0；冷启动 Scan 时不能因此从 dialogList 消失。
+    // 解散(delete_at)和自己退群(is_remove)仍保持两个独立事实。
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch-new","is_active":0,"is_remove":0,"delete_at":0},
+        {"id":"ch-left","is_active":0,"is_remove":1,"delete_at":0},
+        {"id":"ch-closed","is_active":0,"is_remove":0,"delete_at":1700000000000_i64}
+    ]))
+    .unwrap();
+
+    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let dialogs = v["data"]["dialogList"].as_array().expect("dialogList");
+
+    assert_eq!(dialogs[0]["closed"], false);
+    assert_eq!(dialogs[0]["isActive"], 0);
+    assert_eq!(dialogs[1]["closed"], false);
+    assert_eq!(dialogs[1]["isRemove"], 1);
+    assert_eq!(dialogs[2]["closed"], true);
+}
+
+#[test]
 fn emit_dialog_list_result_empty_last_post_and_notice_yield_null_s5() {
     // 边界：last_post/notice 空 → lastMessage/notice = null（前端行不带该属性）。
     let rows = serde_json::to_vec(&serde_json::json!([

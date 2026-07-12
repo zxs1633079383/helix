@@ -53,9 +53,9 @@ pub(crate) fn render_ready_dialog_row(row: Value) -> Value {
         "hasSchedulePost".into(),
         Value::Bool(truthy(obj.get("has_schedule_post"))),
     );
-    let closed = as_i64(obj.get("delete_at")).unwrap_or(0) > 0
-        || matches!(obj.get("is_active"), Some(Value::Bool(false)))
-        || matches!(obj.get("is_active"), Some(Value::Number(n)) if n.as_i64() == Some(0));
+    // is_active 只是当前窗口激活态，新建频道默认 0；解散事实只由 delete_at 表示。
+    // 自己退群则保留独立 isRemove 语义，不能混成 closed。
+    let closed = as_i64(obj.get("delete_at")).unwrap_or(0) > 0;
     obj.insert("closed".into(), Value::Bool(closed));
     let group = match obj.get("type").and_then(Value::as_str) {
         Some("T") => "topic",

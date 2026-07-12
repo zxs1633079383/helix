@@ -9,6 +9,7 @@ pub(crate) fn build(
     props: &Value,
     expedite_map: &Value,
     can_retry: bool,
+    revoked: bool,
 ) -> Value {
     let can_mark_read = has_server_id && !is_self;
     let can_view_receipt = has_server_id && is_self;
@@ -36,6 +37,7 @@ pub(crate) fn build(
         && !viewer_user_id.is_empty()
         && template.is_some()
         && !already_confirmed;
+    let can_locate = has_server_id && !revoked;
 
     json!({
         "canReply": has_server_id,
@@ -49,5 +51,6 @@ pub(crate) fn build(
         "canMarkRead": can_mark_read,
         "canViewReceipt": can_view_receipt,
         "canTemplateConfirm": can_template_confirm,
+        "canLocate": can_locate,
     })
 }

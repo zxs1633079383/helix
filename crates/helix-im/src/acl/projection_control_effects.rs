@@ -45,6 +45,7 @@ pub fn emit_post_sending(
                 "canMarkRead": false,
                 "canViewReceipt": false,
                 "canTemplateConfirm": false,
+                "canLocate": false,
             },
             "readBits": "",
             "text": text,
@@ -86,6 +87,7 @@ pub fn emit_post_send_failed(channel_id: &str, temporary_id: &str) -> Effect {
                 "canMarkRead": false,
                 "canViewReceipt": false,
                 "canTemplateConfirm": false,
+                "canLocate": false,
             },
         }
     });

@@ -247,6 +247,7 @@ fn fat_emit_carries_in_hand_data() {
         "无 viewer 身份时 fail-closed 为非本人"
     );
     assert_eq!(data["actionCapabilities"]["canForward"], true);
+    assert_eq!(data["actionCapabilities"]["canLocate"], true);
     assert_eq!(data["actionCapabilities"]["canRevoke"], false);
     assert!(
         data["reactions"].is_null(),
@@ -321,6 +322,18 @@ fn message_action_capabilities_are_viewer_relative_and_fail_closed() {
     assert_eq!(data["actionCapabilities"]["canRetry"], false);
     assert_eq!(data["actionCapabilities"]["canViewReceipt"], true);
     assert_eq!(data["actionCapabilities"]["canMarkRead"], false);
+    assert_eq!(data["actionCapabilities"]["canLocate"], true);
+}
+
+#[test]
+fn revoked_message_does_not_advertise_locate() {
+    let f = sample_fields();
+    let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(value["data"]["actionCapabilities"]["canLocate"], false);
 }
 
 #[test]

@@ -148,6 +148,7 @@ fn message_item_data(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
     viewer_user_id: &str,
+    revoked: bool,
 ) -> serde_json::Value {
     use serde_json::json;
     let props: serde_json::Value = if fields.props.is_empty() {
@@ -174,6 +175,7 @@ fn message_item_data(
         &props,
         &expedite_map,
         false,
+        revoked,
     );
     let (urgent_target_count, urgent_confirmed_count) = resolve_urgent_counts(&expedite_map);
     // type 空串容错 "TEXT"（render-ready·前端不再 `d.type || "TEXT"` 兜底）。
@@ -241,7 +243,7 @@ pub fn emit_post_received_for_viewer(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:received",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -262,7 +264,7 @@ pub fn emit_post_read(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:read",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", false),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -283,7 +285,7 @@ pub fn emit_channel_read_echo(
     use serde_json::json;
     let payload = json!({
         "event": "im:channel:read_echo",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", false),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -304,7 +306,7 @@ pub fn emit_post_updated(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:updated",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", false),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
@@ -325,7 +327,7 @@ pub fn emit_post_deleted(
     use serde_json::json;
     let payload = json!({
         "event": "im:post:deleted",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, ""),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", true),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

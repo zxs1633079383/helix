@@ -163,6 +163,7 @@ fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         &props,
         &expedite_map,
         send_status == "failed",
+        revoke_bool(row),
     );
     let (reaction_count, template_confirmed_count, urgent_target_count, urgent_confirmed_count) =
         interaction_counts(&props, &expedite_map);

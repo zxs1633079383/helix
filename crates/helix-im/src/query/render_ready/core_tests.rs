@@ -35,6 +35,7 @@ fn db_snake_row_shaped_to_render_ready() {
     assert_eq!(r["readBits"], "5"); // number→string 归一
     assert_eq!(r["revoked"], true); // revoke 1→true
     assert_eq!(r["revoke"], true);
+    assert_eq!(r["actionCapabilities"]["canLocate"], false);
     assert_eq!(r["templateReceived"], true);
     assert_eq!(r["createAt"], 1700);
     assert_eq!(r["createdAt"], 1700);
@@ -116,6 +117,7 @@ fn wire_camel_row_shaped_to_same_shape() {
     assert_eq!(r["type"], "TEXT"); // 空 type 容错
     assert_eq!(r["readBits"], "3");
     assert_eq!(r["revoked"], false); // 无 revoke 列→false
+    assert_eq!(r["actionCapabilities"]["canLocate"], true);
     assert_eq!(r["templateReceived"], true);
     assert_eq!(r["createAt"], 1800);
     assert_eq!(r["replyId"], "root-2");

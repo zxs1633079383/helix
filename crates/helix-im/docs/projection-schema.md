@@ -231,8 +231,9 @@ postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义�
 | `im:posts:batch-result` | `{reqId,batchStatus,acceptedCount,failedCount,deliveryAuthority,targets:[{channelId,acceptanceStatus,deliveryStatus,error}]}` | HTTP 只证明 `accepted/failed`；accepted 的 `deliveryStatus=pending`，最终送达只认逐目标 WS `post` |
 | `im:post:readers` | `{reqId,receipts:[{postId,readerCount,readerIds,readers:[{userId}]}]}` | 只消费 Go `readerIds/readers`；不透出也不解释 `readBits` |
 
-消息 `actionCapabilities` 额外冻结四个布尔值：`canUrgentConfirm`、`canMarkRead`、
-`canViewReceipt`、`canTemplateConfirm`。它们仅由 serverId、viewer 身份、加急 recipients 和模板确认列表生成；
+消息 `actionCapabilities` 额外冻结五个布尔值：`canUrgentConfirm`、`canMarkRead`、
+`canViewReceipt`、`canTemplateConfirm`、`canLocate`。其中 `canLocate` 仅在消息具备 serverId 且未撤回时为真；
+其余能力仅由 serverId、viewer 身份、加急 recipients 和模板确认列表生成；
 事实不足时为 false。频道 `channelCapabilities` 则由 Go `capabilitiesByRole` 与 Helix 已记忆的当前 viewer
 成员角色相交生成，Angular 不接触角色字符串或能力矩阵。
 

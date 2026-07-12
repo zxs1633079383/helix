@@ -379,6 +379,183 @@ fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
     assert_eq!(retry_body["temporaryId"], "tmp_retry_send");
 }
 
+#[test]
+fn retry_send_rehydrates_failed_message_after_native_restart() {
+    let mut h = Harness::new(&[1]);
+    let lookup_effects = h.step(
+        command_json(
+            "im_retry_send",
+            serde_json::json!({
+                "message_id": "tmp_durable_retry",
+                "req_id": "mrc:G-03a:retry"
+            }),
+        ),
+        2_000,
+    );
+    let lookup_corr = lookup_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("cold retry must query durable message");
+    assert!(
+        !lookup_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "posts/create must wait for the durable row"
+    );
+    let get = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+            StorageOp::Get(spec) => Some(spec),
+            _ => None,
+        }),
+        _ => None,
+    });
+    assert!(
+        matches!(get, Some(spec) if spec.table == "message" && spec.key_col == "temporary_id"),
+        "cold retry first lookup must use the message PK"
+    );
+
+    let row = serde_json::json!([{
+        "temporary_id": "tmp_durable_retry",
+        "id": "",
+        "channel_id": cid(1),
+        "user_id": "user-before-restart",
+        "type": "TEXT",
+        "message": "durable hello",
+        "props": "{\"vote\":{\"id\":\"v1\"}}",
+        "viewers": "[\"u2\"]",
+        "mentions": "[\"u2\"]",
+        "user_snapshot": "{\"userId\":\"user-before-restart\",\"teamId\":\"team-1\"}",
+        "topic": "topic-1",
+        "reply_id": "reply-1",
+        "reply_root_id": "root-1",
+        "reply_first_level_id": "first-1",
+        "create_at": 1234,
+        "send_status": "unsend"
+    }]);
+    let retry_effects = h.step(
+        port_reply_with_body(
+            lookup_corr,
+            bytes::Bytes::from(serde_json::to_vec(&row).unwrap()),
+        ),
+        2_010,
+    );
+
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::PersistFire)),
+        "rehydrated retry must persist sending"
+    );
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Emit)),
+        "rehydrated retry must emit the optimistic sending projection"
+    );
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Http(_))),
+        "rehydrated retry must continue to the real posts/create HTTP"
+    );
+    assert!(
+        retry_effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::ScheduleTimer(_))),
+        "rehydrated retry must arm a fresh timeout"
+    );
+    assert_eq!(
+        h.module.pending_send_status("tmp_durable_retry"),
+        Some(SendStatus::Sending)
+    );
+    let retry_body = h.last_http_body().expect("rehydrated posts/create body");
+    assert_eq!(retry_body["temporaryId"], "tmp_durable_retry");
+    assert_eq!(retry_body["channelId"], cid(1));
+    assert_eq!(retry_body["message"], "durable hello");
+    assert_eq!(retry_body["viewers"], serde_json::json!(["u2"]));
+    assert_eq!(retry_body["mentions"], serde_json::json!(["u2"]));
+    assert_eq!(retry_body["props"]["vote"]["id"], "v1");
+    assert_eq!(retry_body["topicId"], "topic-1");
+    assert_eq!(retry_body["replyId"], "reply-1");
+    assert_eq!(retry_body["replyRootId"], "root-1");
+    assert_eq!(retry_body["replyFirstLevelId"], "first-1");
+    assert_eq!(retry_body["createAt"], 1234);
+    let track = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Http { req, .. } => req
+            .headers
+            .iter()
+            .find(|(key, _)| key == "Cses-Track-Id")
+            .map(|(_, value)| value.as_str()),
+        _ => None,
+    });
+    assert_eq!(track, Some("mrc:G-03a:retry"));
+}
+
+#[test]
+fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
+    let mut h = Harness::new(&[1]);
+    let first = h.step(
+        command_json(
+            "im_retry_send",
+            serde_json::json!({ "message_id": "server-id-anchor" }),
+        ),
+        3_000,
+    );
+    let first_corr = first
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("temporary_id lookup corr");
+    let second = h.step(port_reply_with_body(first_corr, bytes::Bytes::new()), 3_010);
+    let second_corr = second
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("id fallback lookup corr");
+    let get = h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+            StorageOp::Get(spec) => Some(spec),
+            _ => None,
+        }),
+        _ => None,
+    });
+    assert!(
+        matches!(get, Some(spec) if spec.key_col == "id"),
+        "second durable retry lookup must fall back to indexed server id"
+    );
+
+    let row = serde_json::json!([{
+        "temporary_id": "tmp-from-server-id",
+        "id": "server-id-anchor",
+        "channel_id": cid(1),
+        "type": "TEXT",
+        "message": "fallback",
+        "props": "{}",
+        "send_status": "unsend"
+    }]);
+    let retry = h.step(
+        port_reply_with_body(
+            second_corr,
+            bytes::Bytes::from(serde_json::to_vec(&row).unwrap()),
+        ),
+        3_020,
+    );
+    assert!(retry
+        .iter()
+        .any(|effect| matches!(effect, EffectKind::Http(_))));
+    assert_eq!(
+        h.last_http_body().unwrap()["temporaryId"],
+        "tmp-from-server-id"
+    );
+}
+
 // ─── echo 先到（reconcile）→ CancelTimer + Persist + 清除 pending_send ──────
 
 #[test]

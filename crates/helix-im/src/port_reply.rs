@@ -196,6 +196,22 @@ impl ImModule {
                     ));
                 }
             },
+            CorrelationContext::RetrySendRehydrate {
+                message_id,
+                requested_at_ms,
+                request_id,
+                lookup_by_id,
+            } => {
+                crate::send::retry_send::handle_rehydrate_reply(
+                    self,
+                    message_id,
+                    requested_at_ms,
+                    request_id,
+                    lookup_by_id,
+                    outcome,
+                    out,
+                )?;
+            }
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
@@ -220,9 +236,10 @@ impl ImModule {
             // （driver `{items:[]}` 包装）。Err → 空投影（前端拿空列表，不卡渲染）。
             CorrelationContext::MessageQuery { channel_id } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    out.push(crate::query::emit_message_query_result(
+                    out.push(crate::query::emit_message_query_result_for_viewer(
                         &channel_id,
                         reply.0.as_ref(),
+                        self.config.auth_user_id.as_str(),
                     ));
                 }
                 PortOutcome::Err(e) => {
@@ -231,9 +248,21 @@ impl ImModule {
                         error = ?e,
                         "message query scan failed"
                     );
-                    out.push(crate::query::emit_message_query_result(&channel_id, b"[]"));
+                    out.push(crate::query::emit_message_query_result_for_viewer(
+                        &channel_id,
+                        b"[]",
+                        self.config.auth_user_id.as_str(),
+                    ));
                 }
             },
+
+            CorrelationContext::ForwardSourceLookup { assembly } => {
+                if let Err(error) =
+                    crate::forward::handle_lookup_reply(self, *assembly, outcome, out)
+                {
+                    tracing::warn!(error = ?error, "forward source assembly failed");
+                }
+            }
 
             // UC-3 dialogList 投影 **Scan** 回报：把 channel 行 emit 成 im:channels:projection
             // 完整 dialogList（含 unread_count，前端零计算）。Err → 空 dialogList（不卡渲染）。
@@ -311,6 +340,10 @@ impl ImModule {
                 crate::port_reply_emit::emit_members_by_ids(&req_id, outcome, out);
             }
 
+            CorrelationContext::OutboundContactCandidates { req_id } => {
+                crate::port_reply_emit::emit_contact_candidates(&req_id, outcome, out);
+            }
+
             // S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → **双 emit**。
             // Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
             //   + emit `im:channel:replies{reqId, replyIds}`（render-ready·helix 抽好 postId·壳纯绑定）。
@@ -321,6 +354,14 @@ impl ImModule {
 
             CorrelationContext::OutboundLocatePost { req_id } => {
                 crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundCreatePosts { req_id } => {
+                crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundPostReaders { req_id } => {
+                crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);
             }
 
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
@@ -368,7 +409,10 @@ impl ImModule {
                                 .insert(next_corr, CorrelationContext::LoadOlderContext { state });
                         }
                         crate::older_context::RoundDecision::Done => {
-                            out.push(crate::older_context::emit_older_loaded(&state));
+                            out.push(crate::older_context::emit_older_loaded_for_viewer(
+                                &state,
+                                self.config.auth_user_id.as_str(),
+                            ));
                         }
                     }
                 }
@@ -377,7 +421,10 @@ impl ImModule {
                     // 收尾：把当前已收集的更早消息（可能为空）emit，前端结束 loading。
                     // 用空批喂一轮触发 stop(has_more=false) → 已收集态被 sort+truncate+定 has_more。
                     state.ingest_round(&[]);
-                    out.push(crate::older_context::emit_older_loaded(&state));
+                    out.push(crate::older_context::emit_older_loaded_for_viewer(
+                        &state,
+                        self.config.auth_user_id.as_str(),
+                    ));
                 }
             },
         }

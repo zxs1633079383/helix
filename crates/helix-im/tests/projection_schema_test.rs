@@ -60,9 +60,18 @@ const FAT_KEYS: &[&str] = &[
     "viewers",
     // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——
     "sendStatus",
+    "serverId",
+    "isSelf",
+    "actionCapabilities",
     "reactions",
+    "reactionCount",
     "urgent",
+    "urgentTargetCount",
+    "urgentConfirmedCount",
+    "expediteMap",
     "templateReceived",
+    "templateConfirmedCount",
+    "readerIds",
     "systemNotice",
     "pinned",
     "topic",
@@ -233,6 +242,14 @@ fn fat_emit_carries_in_hand_data() {
     // render-ready 终态字段（issue #53）：sample_fields 无 quickReply/template·type=TEXT →
     // sendStatus=sent / reactions=null / templateReceived=false / systemNotice=false。
     assert_eq!(data["sendStatus"], "sent", "sendStatus 恒 sent（已对账态）");
+    assert_eq!(data["serverId"], MSG_ID, "serverId 使用服务端消息锚");
+    assert_eq!(
+        data["isSelf"], false,
+        "无 viewer 身份时 fail-closed 为非本人"
+    );
+    assert_eq!(data["actionCapabilities"]["canForward"], true);
+    assert_eq!(data["actionCapabilities"]["canLocate"], true);
+    assert_eq!(data["actionCapabilities"]["canRevoke"], false);
     assert!(
         data["reactions"].is_null(),
         "无 quickReply → reactions=null"
@@ -242,6 +259,9 @@ fn fat_emit_carries_in_hand_data() {
         data["templateReceived"], false,
         "无 template → templateReceived=false"
     );
+    assert_eq!(data["templateConfirmedCount"], 0);
+    assert_eq!(data["urgentTargetCount"], 0);
+    assert_eq!(data["urgentConfirmedCount"], 0);
     assert_eq!(
         data["systemNotice"], false,
         "type=TEXT 非 NOTICE → systemNotice=false"
@@ -273,11 +293,91 @@ fn render_ready_fields_derive_from_business_data() {
         "template.userIds 非空 → templateReceived=true"
     );
     assert_eq!(
+        data["reactionCount"], 1,
+        "reactionCount 必须是绝对 userIds 总数"
+    );
+    assert_eq!(
+        data["templateConfirmedCount"], 1,
+        "模板确认必须输出绝对计数"
+    );
+    assert_eq!(
         data["systemNotice"], true,
         "type=NOTICE ∈ NOTICE_TYPES → systemNotice=true"
     );
     assert!(data["pinned"].is_null(), "无 pinned props → pinned=null");
     assert_eq!(data["type"], "NOTICE", "NOTICE type 原样透传");
+}
+
+#[test]
+fn message_action_capabilities_are_viewer_relative_and_fail_closed() {
+    let mut f = sample_fields();
+    f.user_id = "viewer-444".to_string();
+    let e = to_effect::emit_post_received_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-444");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &v["data"];
+    assert_eq!(data["isSelf"], true);
+    assert_eq!(data["actionCapabilities"]["canRevoke"], true);
+    assert_eq!(data["actionCapabilities"]["canRetry"], false);
+    assert_eq!(data["actionCapabilities"]["canViewReceipt"], true);
+    assert_eq!(data["actionCapabilities"]["canMarkRead"], false);
+    assert_eq!(data["actionCapabilities"]["canLocate"], true);
+}
+
+#[test]
+fn revoked_message_does_not_advertise_locate() {
+    let f = sample_fields();
+    let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f);
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(value["data"]["actionCapabilities"]["canLocate"], false);
+}
+
+#[test]
+fn message_interaction_capabilities_use_viewer_facts() {
+    let mut f = sample_fields();
+    f.user_id = "sender".to_string();
+    f.props = r#"{"template":{"userIds":[]}}"#.to_string();
+    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    let e = to_effect::emit_post_received_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let capabilities = &value["data"]["actionCapabilities"];
+    assert_eq!(capabilities["canUrgentConfirm"], true);
+    assert_eq!(capabilities["canMarkRead"], true);
+    assert_eq!(capabilities["canViewReceipt"], false);
+    assert_eq!(capabilities["canTemplateConfirm"], true);
+}
+
+#[test]
+fn post_updated_keeps_viewer_capabilities_and_template_reader_ids() {
+    let mut f = sample_fields();
+    f.user_id = "sender".to_string();
+    f.props = r#"{"template":{"userIds":["viewer-678"]}}"#.to_string();
+    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    let e = to_effect::emit_post_updated_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(
+        value["data"]["readerIds"],
+        serde_json::json!(["viewer-678"])
+    );
+    assert_eq!(
+        value["data"]["actionCapabilities"]["canUrgentConfirm"],
+        true
+    );
+    assert_eq!(
+        value["data"]["actionCapabilities"]["canTemplateConfirm"],
+        false
+    );
 }
 
 #[test]
@@ -396,6 +496,9 @@ fn im_post_sending_freezes_channel_and_temporary_id() {
             "channelId",
             "eventSeq",
             "sendStatus",
+            "serverId",
+            "isSelf",
+            "actionCapabilities",
             "readBits",
             "text",
             "type",
@@ -411,7 +514,14 @@ fn im_post_send_failed_freezes_temporary_id_failed_patch() {
     assert_frozen(
         &e,
         "im:post:send-failed",
-        &["channelId", "sendStatus", "temporaryId"],
+        &[
+            "channelId",
+            "sendStatus",
+            "temporaryId",
+            "serverId",
+            "isSelf",
+            "actionCapabilities",
+        ],
     );
 }
 
@@ -465,6 +575,27 @@ fn im_channel_member_nickname_freezes_camelcase_triplet() {
         &e,
         "im:channel:memberNickname",
         &["channelId", "nickName", "userId"],
+    );
+}
+
+#[test]
+fn im_channel_settings_updated_freezes_render_ready_settings_and_version() {
+    let e = to_effect_s1::emit_channel_settings_updated(
+        ch(),
+        &serde_json::json!({"displayName":"新群名","purpose":"简介"}),
+        77,
+        serde_json::json!({"canCloseChannel":false}),
+    )
+    .expect("存在设置字段应 emit");
+    assert_frozen(
+        &e,
+        "im:channel:settings-updated",
+        &[
+            "channelCapabilities",
+            "channelId",
+            "settings",
+            "settingVersion",
+        ],
     );
 }
 
@@ -584,11 +715,36 @@ fn im_messages_query_result_invalid_reply_still_freezes_keys() {
 fn im_channels_projection_freezes_dialoglist() {
     // UC-3：会话列表完整投影（前端零计算 unread/badge，直接渲染 dialogList）。
     let rows = serde_json::to_vec(&serde_json::json!([
-        {"id": "ch1", "display_name": "群A", "unread_count": 3, "mention_count": 1}
+        {
+            "id": "ch1",
+            "display_name": "群A",
+            "type": "P",
+            "team_id": "team-1",
+            "unread_count": 3,
+            "mention_count": 1,
+            "member_count": 2,
+            "last_event_seq": 7,
+            "props": "{\"canEdit\":true}"
+        }
     ]))
     .unwrap();
     let e = query::emit_dialog_list_result(&rows);
     assert_frozen(&e, "im:channels:projection", &["dialogList"]);
+    let Effect::Emit { event } = e else {
+        panic!("dialog query 必产 Emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let dialog = &payload["data"]["dialogList"][0];
+    assert_eq!(dialog["id"], "ch1");
+    assert_eq!(dialog["channelId"], "ch1");
+    assert_eq!(dialog["displayName"], "群A");
+    assert_eq!(dialog["group"], "group");
+    assert_eq!(dialog["teamId"], "team-1");
+    assert_eq!(dialog["unreadCount"], 3);
+    assert_eq!(dialog["mentionCount"], 1);
+    assert_eq!(dialog["memberCount"], 2);
+    assert_eq!(dialog["eventSeq"], 7);
+    assert_eq!(dialog["props"], serde_json::json!({"canEdit": true}));
 }
 
 #[test]
@@ -616,13 +772,13 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §5. 镜像完整性：23 工厂全覆盖 + 提取工具负路径
+// §5. 镜像完整性：24 工厂全覆盖 + 提取工具负路径
 // ════════════════════════════════════════════════════════════════════════════
 
 /// 冻结全集计数：本测试覆盖的 distinct (工厂调用) 数 == projection-schema.md §1 表行数 == 23。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
 #[test]
-fn all_23_projection_factories_covered() {
+fn all_24_projection_factories_covered() {
     // 逐工厂构造一次，收集 (channel, keys)——证明 23 个出口全可达且产合法 Emit。
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
@@ -654,6 +810,13 @@ fn all_23_projection_factories_covered() {
         to_effect_s1::emit_channel_created(ch(), &raw),
         to_effect_s1::emit_channel_closed(ch(), 0),
         to_effect_s1::emit_channel_member_updated(ch(), &raw),
+        to_effect_s1::emit_channel_settings_updated(
+            ch(),
+            &serde_json::json!({"displayName":"群"}),
+            1,
+            serde_json::json!({"canCloseChannel":false}),
+        )
+        .unwrap(),
         to_effect_s1::emit_member_nickname(ch(), "u", "n"),
         to_effect_s1::emit_schedule_created(ch()),
         to_effect_s1::emit_schedule_canceled(ch()),
@@ -663,8 +826,8 @@ fn all_23_projection_factories_covered() {
     ];
     assert_eq!(
         effects.len(),
-        23,
-        "projection-schema.md §1 冻结 23 工厂——新增/删除工厂须同步本测试 + 文档表"
+        24,
+        "projection-schema.md §1 冻结 24 工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -676,7 +839,7 @@ fn all_23_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 22（im:channels:loaded 双工厂复用 → 23 工厂收敛成 22 distinct channel）。
+    // distinct channel 名 = 23（im:channels:loaded 双工厂复用 → 24 工厂收敛成 23 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -685,8 +848,8 @@ fn all_23_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        22,
-        "22 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 23 工厂 → 22 channel）"
+        23,
+        "23 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 24 工厂 → 23 channel）"
     );
 }
 

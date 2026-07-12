@@ -96,6 +96,14 @@ pub fn build_message_query(
 /// 再作为 `messages` 字段装入 `data` 对象。最终 emit 形状固定为
 /// `data: { channel_id, messages }`。零信任：非法 JSON → 空数组投影（不 panic）。
 pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> Effect {
+    emit_message_query_result_for_viewer(channel_id, reply_bytes, "")
+}
+
+pub fn emit_message_query_result_for_viewer(
+    channel_id: &ChannelId,
+    reply_bytes: &[u8],
+    viewer_user_id: &str,
+) -> Effect {
     let rows = match serde_json::from_slice::<serde_json::Value>(reply_bytes) {
         Ok(serde_json::Value::Array(mut items)) => {
             items.reverse();
@@ -109,7 +117,7 @@ pub fn emit_message_query_result(channel_id: &ChannelId, reply_bytes: &[u8]) -> 
         // 不再壳内抽 DB snake 列 / 归一 readBits / dedup。外层键集 {channel_id, messages} 不变。
         "data": {
             "channel_id": channel_id.as_str(),
-            "messages": crate::render_ready::shape_message_rows(&rows),
+            "messages": crate::render_ready::shape_message_rows_for_viewer(&rows, viewer_user_id),
         }
     });
     let bytes = Bytes::from(
@@ -189,6 +197,28 @@ pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
     Effect::Emit {
         event: DomainEventBytes(bytes),
     }
+}
+
+/// 单频道 hydration 的即时 render-ready 投影。
+///
+/// `incrementByChannelId` 已返回完整 channel wire 数据时，先发布这一行解除前端 unknown 状态；
+/// terminal sync 后仍会执行 [`emit_dialog_list_result`] 全量读回，以本地持久化终态覆盖即时值。
+pub fn emit_hydrated_dialog_result(channel_bytes: &[u8]) -> Option<Effect> {
+    let channel: serde_json::Value = serde_json::from_slice(channel_bytes).ok()?;
+    let dialog = crate::query::dialog_wire::render_ready_dialog_wire_row(channel)?;
+    let payload = serde_json::json!({
+        "event": "im:channels:projection",
+        "data": {
+            "dialogList": [dialog],
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_hydrated_dialog_result: static JSON shape must serialize"),
+    );
+    Some(Effect::Emit {
+        event: DomainEventBytes(bytes),
+    })
 }
 
 /// `im_delete_all_dialogs`（测试用）：emit `im:channels:loaded` 刷新信号。

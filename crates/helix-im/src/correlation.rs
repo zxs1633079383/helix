@@ -60,11 +60,24 @@ pub enum CorrelationContext {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
     },
+    /// G-03a Native 重启后的失败消息重试：先按 temporary_id 查 durable message，
+    /// 未命中再按 id 回退。读回后重建 PendingSend 与 posts/create body，复用既有发送链。
+    RetrySendRehydrate {
+        message_id: String,
+        requested_at_ms: u64,
+        request_id: Option<String>,
+        lookup_by_id: bool,
+    },
     /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
     SyncPull { channel_id: ChannelId },
 
     /// P6 `im_query_messages_by_channel` Get 回报 → emit `im:messages:query_result` 投影。
     MessageQuery { channel_id: ChannelId },
+
+    /// G-05 ID 转发的本地消息逐条 Get 回报；全部组装完成后才发 createPosts HTTP。
+    ForwardSourceLookup {
+        assembly: Box<crate::forward::ForwardAssembly>,
+    },
 
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit `im:channels:projection` 完整 dialogList。
     DialogListQuery,
@@ -87,7 +100,8 @@ pub enum CorrelationContext {
     OutboundIncrementHydration { req_id: String },
 
     /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。
-    /// 成功后才启动单频道 sync；`need_sync=false` 则直接读回本地投影。
+    /// `need_sync` 已合并服务端提示与本地 cursor 落后事实；成功后才启动单频道 sync，
+    /// 两侧均确认无需拉取时才直接读回本地投影。
     IncrementHydrationPersist {
         channel_id: ChannelId,
         need_sync: bool,
@@ -99,6 +113,9 @@ pub enum CorrelationContext {
     /// 与 `OutboundReadReply` 分变体仅为携带「这是 byIds 成员快照」语义（generic 读族不解析 body）。
     OutboundMembersByIds { req_id: String },
 
+    /// G-15a fresh-account 建群候选目录 HTTP 回报 → render-ready 用户投影。
+    OutboundContactCandidates { req_id: String },
+
     /// S8 回复族（UC-2.4·issue #57）：`im_get_replies` / `im_get_reply_branch` HTTP 回报。
     ///
     /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` **双 emit**：
@@ -108,6 +125,12 @@ pub enum CorrelationContext {
 
     /// G-11 定位消息读回：HTTP `posts/get` 返回后由 Helix 整形成 highlighted 消息投影。
     OutboundLocatePost { req_id: String },
+
+    /// G-05 多目标转发 HTTP 接收结果；accepted 不是 delivered，最终送达继续等逐目标 WS post。
+    OutboundCreatePosts { req_id: String },
+
+    /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。
+    OutboundPostReaders { req_id: String },
 
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,

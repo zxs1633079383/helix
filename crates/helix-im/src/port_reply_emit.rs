@@ -49,6 +49,26 @@ pub(crate) fn emit_members_by_ids(req_id: &str, outcome: &PortOutcome, out: &mut
     }
 }
 
+pub(crate) fn emit_contact_candidates(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+    match outcome {
+        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw_body) => {
+                let body: serde_json::Value =
+                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                out.push(crate::render_ready_candidates::emit(req_id, &body));
+            }
+            Err(_) => out.push(crate::render_ready_candidates::emit_error(
+                req_id,
+                "response envelope decode failed",
+            )),
+        },
+        PortOutcome::Err(_) => out.push(crate::render_ready_candidates::emit_error(
+            req_id,
+            "http request failed",
+        )),
+    }
+}
+
 /// S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → 双 emit。
 /// Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
 ///   + emit `im:channel:replies{reqId, replyIds}`（render-ready·helix 抽好 postId·壳纯绑定）。
@@ -120,6 +140,64 @@ pub(crate) fn emit_located_post(req_id: &str, outcome: &PortOutcome, out: &mut E
         PortOutcome::Err(e) => {
             tracing::warn!(req_id, error = ?e, "locate post http failed");
             out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "http request failed",
+            ));
+        }
+    }
+}
+
+pub(crate) fn emit_create_posts_result(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+    match outcome {
+        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw_body) => {
+                let body =
+                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                out.push(crate::query::render_ready::batch_result::emit(
+                    req_id, &body,
+                ));
+            }
+            Err(_) => out.push(crate::query::render_ready::batch_result::emit_error(
+                req_id,
+                "response envelope decode failed",
+            )),
+        },
+        PortOutcome::Err(_) => out.push(crate::query::render_ready::batch_result::emit_error(
+            req_id,
+            "http request failed",
+        )),
+    }
+}
+
+pub(crate) fn emit_post_readers(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+    match outcome {
+        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
+            Ok(raw_body) => {
+                out.push(crate::read_relay::emit_read_result(
+                    req_id,
+                    raw_body.as_ref(),
+                ));
+                let body =
+                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                out.push(crate::query::render_ready::receipts::emit(req_id, &body));
+            }
+            Err(_) => {
+                out.push(crate::read_relay::emit_read_error(
+                    req_id,
+                    "response envelope decode failed",
+                ));
+                out.push(crate::query::render_ready::receipts::emit_error(
+                    req_id,
+                    "response envelope decode failed",
+                ));
+            }
+        },
+        PortOutcome::Err(_) => {
+            out.push(crate::read_relay::emit_read_error(
+                req_id,
+                "http request failed",
+            ));
+            out.push(crate::query::render_ready::receipts::emit_error(
                 req_id,
                 "http request failed",
             ));

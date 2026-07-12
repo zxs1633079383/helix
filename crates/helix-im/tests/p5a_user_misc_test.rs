@@ -329,11 +329,12 @@ fn health_and_channel_details_are_response_side_not_outbound_commands() {
     );
 }
 
-// ── registry 性质：11 命令全 is_outbound 命中 + 全可 dispatch ─────────────────────
+// ── registry 性质：12 命令全 is_outbound 命中 + 全可 dispatch ─────────────────────
 
-/// P5a user-misc 全集（11）。改这个列表必须同步 user_misc.rs 注册文件。
+/// P5a user-misc 全集（12）。改这个列表必须同步 user_misc.rs 注册文件。
 const ALL_P5A_MISC: &[(&str, fn() -> Value)] = &[
     ("im_list_users", || json!({ "channel_id": "c" })),
+    ("im_user_candidates", || json!({})),
     ("im_get_user_statuses", || json!({ "user_ids": ["u"] })),
     (
         "im_team_upsert",
@@ -371,7 +372,7 @@ fn registry_covers_all_p5a_misc_commands() {
 /// 任一命令 distributed_slice 注册重复 name → registry 构建 Err → handle_outbound 全 Err → 本测试 FAIL。
 #[test]
 fn every_p5a_misc_command_is_dispatchable() {
-    assert_eq!(ALL_P5A_MISC.len(), 11, "P5a user-misc 应为 11 命令");
+    assert_eq!(ALL_P5A_MISC.len(), 12, "P5a user-misc 应为 12 命令");
     for (name, mk) in ALL_P5A_MISC {
         let effects = run(name, mk());
         assert_eq!(effects.len(), 1, "{name} 应产单条 Effect::Http");

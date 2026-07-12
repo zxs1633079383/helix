@@ -72,8 +72,64 @@ fn template_received_bool(row: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn array_len_at(value: &Value, first: &str, second: &str) -> usize {
+    value
+        .get(first)
+        .or_else(|| value.get(second))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
+fn interaction_counts(props: &Value, expedite_map: &Value) -> (usize, usize, usize, usize) {
+    let reaction_count = props
+        .get("quickReply")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| array_len_at(item, "userIds", "user_ids"))
+                .sum()
+        })
+        .unwrap_or(0);
+    let template_count = props
+        .get("template")
+        .map(|template| array_len_at(template, "userIds", "user_ids"))
+        .unwrap_or(0);
+    let recipients = expedite_map.get("recipients").and_then(Value::as_object);
+    let urgent_target_count = recipients.map(|value| value.len()).unwrap_or(0);
+    let urgent_confirmed_count = recipients
+        .map(|value| {
+            value
+                .values()
+                .filter(|recipient| {
+                    recipient.get("status").and_then(Value::as_i64).unwrap_or(0) > 0
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    (
+        reaction_count,
+        template_count,
+        urgent_target_count,
+        urgent_confirmed_count,
+    )
+}
+
+fn template_reader_ids(props: &Value) -> Vec<&str> {
+    props
+        .get("template")
+        .and_then(|template| template.get("userIds").or_else(|| template.get("user_ids")))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
 /// 单行整形：DB snake 列 / wire camel Post → render-ready 终态行（camelCase·前端 1:1 绑定）。
-fn shape_row(row: &Value) -> Value {
+fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     let temporary_id = get_str(row, &["temporary_id", "temporaryId"]);
     let server_id = get_str(row, &["id"]);
     let channel_id = get_str(row, &["channel_id", "channelId"]);
@@ -100,6 +156,29 @@ fn shape_row(row: &Value) -> Value {
         "sending" => "sending",
         _ => "sent",
     };
+    let props = props_value(row);
+    let expedite_map = row
+        .get("expedite_map")
+        .or_else(|| row.get("expediteMap"))
+        .cloned()
+        .and_then(|value| match value {
+            Value::String(raw) => serde_json::from_str(&raw).ok(),
+            other => Some(other),
+        })
+        .unwrap_or_else(|| json!({}));
+    let is_self = !viewer_user_id.is_empty() && user_id == viewer_user_id;
+    let has_server_id = !server_id.is_empty();
+    let action_capabilities = crate::message_capabilities::build(
+        has_server_id,
+        is_self,
+        viewer_user_id,
+        &props,
+        &expedite_map,
+        send_status == "failed",
+        revoke_bool(row),
+    );
+    let (reaction_count, template_confirmed_count, urgent_target_count, urgent_confirmed_count) =
+        interaction_counts(&props, &expedite_map);
     json!({
         "id": msg_id,
         "msgId": msg_id,
@@ -110,11 +189,21 @@ fn shape_row(row: &Value) -> Value {
         "readBits": read_bits_str(row),
         "text": text,
         "type": msg_type,
-        "props": props_value(row),
+        "props": props,
         "topic": topic_value(row),
         "revoke": revoke_bool(row),
         "revoked": revoke_bool(row),
         "templateReceived": template_received_bool(row),
+        "templateConfirmedCount": template_confirmed_count,
+        "readerIds": template_reader_ids(&props),
+        "serverId": if has_server_id { Value::String(server_id.to_string()) } else { Value::Null },
+        "isSelf": is_self,
+        "actionCapabilities": action_capabilities,
+        "reactionCount": reaction_count,
+        "expediteMap": expedite_map,
+        "urgent": urgent_target_count > 0,
+        "urgentTargetCount": urgent_target_count,
+        "urgentConfirmedCount": urgent_confirmed_count,
         "replyId": get_str(row, &["reply_id", "replyId"]),
         "replyRootId": get_str(row, &["reply_root_id", "replyRootId"]),
         "replyFirstLevelId": get_str(row, &["reply_first_level_id", "replyFirstLevelId"]),
@@ -129,6 +218,10 @@ fn shape_row(row: &Value) -> Value {
 /// **批内按 `msgId` 去重·保序**（dedup 下沉 helix·前端不再 findIndex 全表扫去重）；非对象 / 无锚行跳过。
 /// 上拉路径 emit 前已 `createAt` 升序，本函数保序（不重排），保证「更早在前」prepend 语义。
 pub fn shape_message_rows(rows: &Value) -> Value {
+    shape_message_rows_for_viewer(rows, "")
+}
+
+pub fn shape_message_rows_for_viewer(rows: &Value, viewer_user_id: &str) -> Value {
     let arr = match rows.as_array() {
         Some(a) => a,
         None => return json!([]),
@@ -139,7 +232,7 @@ pub fn shape_message_rows(rows: &Value) -> Value {
         if !row.is_object() {
             continue;
         }
-        let shaped = shape_row(row);
+        let shaped = shape_row(row, viewer_user_id);
         let id = shaped["msgId"].as_str().unwrap_or("").to_string();
         if id.is_empty() || !seen.insert(id) {
             continue;

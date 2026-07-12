@@ -7,13 +7,14 @@ use serde_json::Value;
 
 /// 把一行原始 channel 扫描结果升成 render-ready CL 行。
 ///
-/// 保留原始列（向后兼容旧消费方），叠加 8 个派生终态键：
-/// displayName / notice(归一) / top(bool) / createAt / unreadCount / mentionCount /
-/// urgentCount / lastMessage。非对象行 → 原样返回（零信任不 panic）。
+/// 保留原始列（向后兼容旧消费方），同时把 channel 表字段完整升成 camelCase，并叠加
+/// render-ready 终态键。前端只消费 camelCase contract，不需要理解 SQLite snake_case。
+/// 非对象行 → 原样返回（零信任不 panic）。
 pub(crate) fn render_ready_dialog_row(row: Value) -> Value {
     let Value::Object(mut obj) = row else {
         return row;
     };
+    copy_camel_case_channel_fields(&mut obj);
     // displayName ← display_name（render-ready·前端不再 snake 抽）。
     if let Some(Value::String(s)) = obj.get("display_name") {
         let s = s.clone();
@@ -52,15 +53,108 @@ pub(crate) fn render_ready_dialog_row(row: Value) -> Value {
         "hasSchedulePost".into(),
         Value::Bool(truthy(obj.get("has_schedule_post"))),
     );
-    let closed = as_i64(obj.get("delete_at")).unwrap_or(0) > 0
-        || matches!(obj.get("is_active"), Some(Value::Bool(false)))
-        || matches!(obj.get("is_active"), Some(Value::Number(n)) if n.as_i64() == Some(0));
+    // is_active 只是当前窗口激活态，新建频道默认 0；解散事实只由 delete_at 表示。
+    // 自己退群则保留独立 isRemove 语义，不能混成 closed。
+    let closed = as_i64(obj.get("delete_at")).unwrap_or(0) > 0;
     obj.insert("closed".into(), Value::Bool(closed));
+    let group = match obj.get("type").and_then(Value::as_str) {
+        Some("T") => "topic",
+        Some("D") => "direct",
+        _ => "group",
+    };
+    obj.insert("group".into(), Value::String(group.into()));
     // lastMessage / urgent ← last_post（整帧 post JSON 或内容兜底字符串·解析取预览 + 加急标）。
     let (last_message, urgent) = derive_last_post(obj.get("last_post"));
     obj.insert("lastMessage".into(), last_message);
     obj.insert("urgent".into(), Value::Bool(urgent || urgent_count > 0));
     Value::Object(obj)
+}
+
+/// channel 表公开投影的 casing 边界。这里显式列出列名而不是让 UI 猜 snake_case；新增 DB 列
+/// 若需要公开，必须同时在此登记并补 projection contract 测试。
+fn copy_camel_case_channel_fields(obj: &mut serde_json::Map<String, Value>) {
+    const FIELD_ALIASES: &[(&str, &str)] = &[
+        ("display_name", "displayName"),
+        ("user_id", "userId"),
+        ("team_id", "teamId"),
+        ("is_active", "isActive"),
+        ("is_remove", "isRemove"),
+        ("is_top", "isTop"),
+        ("unread_count", "unreadCount"),
+        ("unread_post_id", "unreadPostId"),
+        ("mention_count", "mentionCount"),
+        ("mention_list", "mentionList"),
+        ("mention_user", "mentionUser"),
+        ("urgent_count", "urgentCount"),
+        ("urgent_post_list", "urgentPostList"),
+        ("last_post", "lastPost"),
+        ("last_post_at", "lastPostAt"),
+        ("delete_at", "deleteAt"),
+        ("created_at", "createdAt"),
+        ("updated_at", "updatedAt"),
+        ("admin_users", "adminUsers"),
+        ("target_users", "targetUsers"),
+        ("picture_type", "pictureType"),
+        ("root_id", "rootId"),
+        ("root_post_id", "rootPostId"),
+        ("notify_props", "notifyProps"),
+        ("mention_permission", "mentionPermission"),
+        ("notice_permission", "noticePermission"),
+        ("top_permission", "topPermission"),
+        ("last_event_seq", "lastEventSeq"),
+        ("thread_count", "threadCount"),
+        ("top_count", "topCount"),
+        ("topic_msg_count", "topicMsgCount"),
+        ("admin_max_count", "adminMaxCount"),
+        ("mention_count_root", "mentionCountRoot"),
+        ("has_more", "hasMore"),
+        ("has_urgent_post", "hasUrgentPost"),
+        ("has_schedule_post", "hasSchedulePost"),
+        ("create_by", "createBy"),
+        ("update_by", "updateBy"),
+        ("last_root_post_at", "lastRootPostAt"),
+        ("urgent_current_name", "urgentCurrentName"),
+        ("member_count", "memberCount"),
+        ("subtopics_loaded_at", "subtopicsLoadedAt"),
+    ];
+    for (source, target) in FIELD_ALIASES {
+        if let Some(value) = obj.get(*source).cloned() {
+            obj.insert((*target).into(), value);
+        }
+    }
+
+    // JSON text columns become structured values on the public contract; the original DB columns
+    // stay untouched for compatibility, but Angular never needs to parse them.
+    for key in [
+        "props",
+        "members",
+        "owner",
+        "adminUsers",
+        "boss",
+        "targetUsers",
+        "picture",
+        "mentionList",
+        "urgentPostList",
+    ] {
+        if let Some(Value::String(raw)) = obj.get(key) {
+            if let Ok(value) = serde_json::from_str::<Value>(raw) {
+                obj.insert(key.into(), value);
+            }
+        }
+    }
+
+    if let Some(id) = obj.get("id").cloned() {
+        obj.insert("channelId".into(), id);
+    }
+    if let Some(created_at) = obj.get("createdAt").cloned() {
+        obj.insert("createAt".into(), created_at);
+    }
+    if let Some(last_event_seq) = obj.get("lastEventSeq").cloned() {
+        obj.insert("eventSeq".into(), last_event_seq);
+    }
+    if let Some(topic_count) = obj.get("topicMsgCount").cloned() {
+        obj.insert("topicCount".into(), topic_count);
+    }
 }
 
 /// notice 列归一：JSON `{"text":".."}` → text；纯文本 → 原样；空/缺/非串 → null。
@@ -85,7 +179,7 @@ fn normalize_notice_value(v: Option<&Value>) -> Value {
 }
 
 /// last_post 解析：整帧 post JSON → (message 预览, urgent 标)；纯字符串兜底 → (该串, false)。
-fn derive_last_post(v: Option<&Value>) -> (Value, bool) {
+pub(super) fn derive_last_post(v: Option<&Value>) -> (Value, bool) {
     let Some(Value::String(s)) = v else {
         return (Value::Null, false);
     };
@@ -116,7 +210,7 @@ fn derive_last_post(v: Option<&Value>) -> (Value, bool) {
 }
 
 /// 宽松真值判定（INTEGER!=0 / bool / "1"/"true" / 非空对象-数组）→ bool。
-fn truthy(v: Option<&Value>) -> bool {
+pub(super) fn truthy(v: Option<&Value>) -> bool {
     match v {
         Some(Value::Bool(b)) => *b,
         Some(Value::Number(n)) => n.as_i64().map(|i| i != 0).unwrap_or(false),
@@ -141,7 +235,7 @@ fn nonempty(v: Option<&Value>) -> bool {
 }
 
 /// 宽松整数抽取（Number / 数字字符串）→ i64。
-fn as_i64(v: Option<&Value>) -> Option<i64> {
+pub(super) fn as_i64(v: Option<&Value>) -> Option<i64> {
     match v {
         Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
         Some(Value::String(s)) => s.parse::<i64>().ok(),

@@ -84,8 +84,12 @@ pub(super) fn apply_post_update(
             .as_deref()
             .filter(|s| !s.is_empty())
             .unwrap_or(fields.id.as_str());
-        out.push(crate::acl::to_effect::emit_post_updated(
-            channel_id, 0, msg_id_ref, &fields,
+        out.push(crate::acl::to_effect::emit_post_updated_for_viewer(
+            channel_id,
+            0,
+            msg_id_ref,
+            &fields,
+            ctx.auth_user_id,
         ));
         return;
     }

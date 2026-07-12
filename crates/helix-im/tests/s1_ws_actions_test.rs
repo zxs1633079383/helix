@@ -170,6 +170,31 @@ fn update_channel_writes_member_dialog_absolute_and_emits_projection() {
     );
 }
 
+#[test]
+fn update_channel_emits_render_ready_settings_with_server_version() {
+    let mut h = Harness::new_with_identity(&[], "444", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "update_channel",
+            "data": {
+                "event_seq": 77,
+                "channel": {
+                    "id": cid(18),
+                    "displayName": "新的群名",
+                    "purpose": "真实回声简介",
+                    "orient": "产品"
+                }
+            }
+        })),
+        1_000,
+    );
+    let updates = emit_data(&h.sink, "im:channel:settings-updated");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["settingVersion"], 77);
+    assert_eq!(updates[0]["settings"]["displayName"], "新的群名");
+    assert_eq!(updates[0]["settings"]["purpose"], "真实回声简介");
+}
+
 // ─── post_read（type=6 覆盖式 read_bits）─────────────────────────────────────
 
 /// 回归锚: S1 —— post_read 覆盖式写 read_bits（UPDATE message SET read_bits WHERE id）+ emit。
@@ -275,7 +300,7 @@ fn post_read_missing_post_id_no_message_write_s1() {
 /// （== cursor+1）才走立即 apply 路径落库 + emit（gate 已 kind-aware 用 edit_content_op patch）。
 #[test]
 fn post_update_edits_content_only_and_emits_s1() {
-    let mut h = Harness::new(&[2]);
+    let mut h = Harness::new_with_identity(&[2], "444", "team", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
             "action": "post_update",
@@ -316,6 +341,11 @@ fn post_update_edits_content_only_and_emits_s1() {
         "post_update 明确携带 expediteMap 时必须持久化，ops: {ops:?}"
     );
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:post:updated"));
+    let updated = emit_data(&h.sink, "im:post:updated");
+    assert_eq!(
+        updated[0]["actionCapabilities"]["canUrgentConfirm"], true,
+        "post_update 必须按当前 viewer=444 计算加急确认能力"
+    );
 }
 
 // ─── post_pin（消息置顶/取消置顶）──────────────────────────────────────────────

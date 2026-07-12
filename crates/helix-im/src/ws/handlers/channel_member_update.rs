@@ -79,6 +79,12 @@ pub(super) fn apply_channel_full_and_members(
     data: &serde_json::Value,
     out: &mut EffectSink,
 ) {
+    crate::channel_capabilities::remember_viewer_role(
+        ctx.state,
+        channel_id,
+        data,
+        ctx.auth_user_id,
+    );
     // HX-C008：内存 cursor 是「本地已确认处理的 event_seq」，**不是**服务端水位。
     // 冷启动真新 channel（DB 无 cursor → on_start Scan 未载入 → or_insert_with 触发）必须种子 0，
     // 绝不拿帧的 lastEventSeq（服务端 max）当种子——与 increment_channel.rs:34 完全对齐。

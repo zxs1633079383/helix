@@ -267,17 +267,30 @@ impl Module for ImModule {
                         })?;
                 }
                 "im_retry_send" => {
-                    crate::send::retry_send::handle_retry_send(self, cmd.payload.as_ref(), out)
-                        .map_err(|e| CoreError::ModuleError {
-                            module: self.name(),
-                            source: Box::new(e),
-                        })?;
+                    crate::send::retry_send::handle_retry_send(
+                        self,
+                        cmd.payload.as_ref(),
+                        now_ms,
+                        out,
+                    )
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?;
                 }
                 // 连接控制（04 文档表 B `IMWS:reconnect`）：helix-im 是 sans-IO，不持 transport——
                 // 只 emit `im:net:reconnect_requested` 控制信号，由 driver 观察后重连 NativeTransport
                 // （连接生命周期归 driver）。payload 无须解析（无参控制信号）。
                 "im_reconnect" => {
                     out.push(crate::acl::to_effect::emit_reconnect_requested());
+                }
+                "im_create_posts" if crate::forward::is_source_id_request(cmd.payload.as_ref()) => {
+                    crate::forward::start(self, cmd.payload.as_ref(), now_ms, out).map_err(
+                        |e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        },
+                    )?;
                 }
                 // Tier 1 outbound 自驱动命令（read/revoke/leave/schedule/cancel/create/makeTopic）：
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
@@ -304,6 +317,8 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundIncrementHydration { req_id }
                             } else if name == "im_channels_members_by_ids" {
                                 CorrelationContext::OutboundMembersByIds { req_id }
+                            } else if name == "im_user_candidates" {
+                                CorrelationContext::OutboundContactCandidates { req_id }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
                                 // S8：回复族 → 双 emit（im:read:result 冻结 + im:channel:replies render-ready）。
                                 CorrelationContext::OutboundReplies { req_id }
@@ -316,10 +331,18 @@ impl Module for ImModule {
                                     .unwrap_or(false)
                             {
                                 CorrelationContext::OutboundLocatePost { req_id }
+                            } else if name == "im_post_read_list" {
+                                CorrelationContext::OutboundPostReaders { req_id }
                             } else {
                                 CorrelationContext::OutboundReadReply { req_id }
                             };
                             self.state.corr_map.insert(corr, ctx);
+                        }
+                    } else if name == "im_create_posts" {
+                        if let Some(req_id) = crate::read_relay::read_req_id(cmd.payload.as_ref()) {
+                            self.state
+                                .corr_map
+                                .insert(corr, CorrelationContext::OutboundCreatePosts { req_id });
                         }
                     } else if name == "im_channel_leave" {
                         if let Some(channel_id) =

@@ -72,6 +72,7 @@ fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) 
         mentions: Vec::new(),
         expedite_map: String::new(),
         user_snapshot: String::new(),
+        ..Default::default()
     };
     EventEnvelope::new(channel_id(channel), Seq(seq), EventKind::PostUpsert, fields)
 }
@@ -133,6 +134,64 @@ async fn ws_event_persists_into_678_message_table() {
     assert_eq!(col_text(row, "channel_id"), cid(42));
     assert_eq!(col_text(row, "message"), "hello world");
     assert_eq!(col_text(row, "user_id"), "user-zhang");
+    assert_eq!(
+        col_text(row, "send_status"),
+        "sent",
+        "服务端确认的新 WS 行必须持久化为 sent，不能依赖查询层空值回退"
+    );
+}
+
+/// WS echo 命中本地乐观行时，gate 只覆盖服务端字段，不越权改本地发送状态。
+///
+/// 实际发送对账随后由 PendingSend::reconcile 显式写 sent 并撤 timer；这里锁住
+/// `exclude_from_update=[send_status]`，防止普通重放把 failed/unsend 静默翻回 sent。
+#[tokio::test]
+async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
+    use helix_core::effect::{StorageOp, UpsertSpec};
+
+    let storage = storage_with_im_schema().await;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "message",
+            rows: vec![vec![
+                (
+                    "temporary_id".to_string(),
+                    SqlValue::Text("tmp-optimistic".to_string()),
+                ),
+                (
+                    "send_status".to_string(),
+                    SqlValue::Text("sending".to_string()),
+                ),
+            ]],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+        })
+        .await
+        .expect("seed optimistic row");
+
+    let op = event_to_upsert_op(&post_event(
+        42,
+        8,
+        "tmp-optimistic",
+        "post-server-echo",
+        "settled body",
+    ));
+    storage
+        .batch_upsert(match op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("echo upsert must update server fields");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(col_text(&rows[0], "id"), "post-server-echo");
+    assert_eq!(
+        col_text(&rows[0], "send_status"),
+        "sending",
+        "gate 冲突更新必须保留本地发送态，终态只由 PendingSend reconcile 决定"
+    );
 }
 
 /// sync 路径 `batch_upsert_events` 同样真落 message 表（与 WS 路径同表同 PK）。
@@ -214,5 +273,126 @@ async fn event_without_temporary_id_falls_back_to_id_as_pk() {
         col_text(&rows[0], "temporary_id"),
         "server-post-id-only",
         "无 temporary_id 时回退 id 作 PK"
+    );
+}
+
+/// G-03a：Native 重启后 pending_sends 为空，失败消息仍能从真 SQLite 恢复并续发 HTTP。
+#[tokio::test]
+async fn durable_failed_message_rehydrates_retry_after_module_restart() {
+    use helix_core::effect::UpsertSpec;
+    use helix_core::tick::{AppCommand, PortOutcome};
+    use helix_core::{Effect, EffectSink, Module, Tick};
+    use helix_driver_host::execute_storage_ops;
+    use helix_im::module::ImConfig;
+    use helix_im::ImModule;
+
+    let storage = storage_with_im_schema().await;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "message",
+            rows: vec![vec![
+                (
+                    "temporary_id".to_string(),
+                    SqlValue::Text("tmp-restart-retry".to_string()),
+                ),
+                ("id".to_string(), SqlValue::Text(String::new())),
+                ("channel_id".to_string(), SqlValue::Text(cid(1))),
+                (
+                    "message".to_string(),
+                    SqlValue::Text("retry after restart".to_string()),
+                ),
+                ("type".to_string(), SqlValue::Text("TEXT".to_string())),
+                ("props".to_string(), SqlValue::Text("{}".to_string())),
+                (
+                    "viewers".to_string(),
+                    SqlValue::Text("[\"all\"]".to_string()),
+                ),
+                ("mentions".to_string(), SqlValue::Text("[]".to_string())),
+                (
+                    "send_status".to_string(),
+                    SqlValue::Text("unsend".to_string()),
+                ),
+                ("create_at".to_string(), SqlValue::Integer(1_234)),
+            ]],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+        })
+        .await
+        .expect("seed durable failed message");
+
+    let mut module = ImModule::new(ImConfig {
+        api_base_url: "http://go.test/api/cses".to_string(),
+        auth_user_id: "user-after-restart".to_string(),
+        company_id: "team-after-restart".to_string(),
+        send_timeout_ms: 15_000,
+        ..Default::default()
+    });
+    let mut sink = EffectSink::new();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "message_id": "tmp-restart-retry",
+        "req_id": "mrc:G-03a:sqlite"
+    }))
+    .unwrap();
+    module
+        .handle(
+            &Tick::Command(AppCommand::new("im_retry_send", payload)),
+            5_000,
+            &mut sink,
+        )
+        .expect("retry command");
+
+    let (lookup_corr, lookup_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("restart retry must query storage");
+    let outcome = execute_storage_ops(&storage, &lookup_ops).await;
+    assert!(matches!(outcome, PortOutcome::Ok(_)));
+
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: lookup_corr,
+                outcome,
+            },
+            5_010,
+            &mut sink,
+        )
+        .expect("durable retry reply");
+
+    let http_body = sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Http { req, .. } => req
+            .body
+            .as_ref()
+            .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok()),
+        _ => None,
+    });
+    let http_body = http_body.expect("rehydrated retry must emit posts/create HTTP");
+    assert_eq!(http_body["temporaryId"], "tmp-restart-retry");
+    assert_eq!(http_body["channelId"], cid(1));
+    assert_eq!(http_body["message"], "retry after restart");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::ScheduleTimer { .. })),
+        "rehydrated retry must arm a fresh timeout"
+    );
+
+    for effect in sink.as_slice() {
+        if let Effect::PersistFire { ops } = effect {
+            let result = execute_storage_ops(&storage, ops).await;
+            assert!(matches!(result, PortOutcome::Ok(_)));
+        }
+    }
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        col_text(&rows[0], "send_status"),
+        "sending",
+        "真实 SQLite 失败行必须在续发时恢复 sending"
     );
 }

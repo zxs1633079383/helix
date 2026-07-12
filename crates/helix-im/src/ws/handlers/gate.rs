@@ -187,7 +187,9 @@ pub(super) fn gate_ingest_content_event(
     let Some(seq) = frame.event_seq() else {
         return Ok(());
     };
-    let ev = EventEnvelope::new(channel_id, seq, kind, fields).with_msg_id(msg_id);
+    let ev = EventEnvelope::new(channel_id, seq, kind, fields)
+        .with_msg_id(msg_id)
+        .with_viewer_user_id(ctx.auth_user_id);
     if let Some(ch) = ctx.state.channels.get_mut(&channel_id) {
         let recent_start = out.as_slice().len();
         // —— edit echo 在 cursor gap 下兜底 emit（对齐 post.rs echo_settle·全链 echo 修复）——————
@@ -218,8 +220,12 @@ pub(super) fn gate_ingest_content_event(
                     helix_core::Effect::PersistFire {
                         ops: vec![crate::channel::event_to_storage_op(&ev)],
                     },
-                    crate::acl::to_effect::emit_post_updated(
-                        channel_id, ev.seq.0, msg_id_ref, &ev.fields,
+                    crate::acl::to_effect::emit_post_updated_for_viewer(
+                        channel_id,
+                        ev.seq.0,
+                        msg_id_ref,
+                        &ev.fields,
+                        ev.viewer_user_id.as_str(),
                     ),
                 ))
             } else {

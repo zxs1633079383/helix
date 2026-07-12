@@ -60,6 +60,14 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
         core: "im_channel_online_status",
     },
     CommandAlias {
+        public: "im_members_by_ids",
+        core: "im_channels_members_by_ids",
+    },
+    CommandAlias {
+        public: "im_list_candidate_users",
+        core: "im_user_candidates",
+    },
+    CommandAlias {
         public: "im_channel_admin_change",
         core: "im_channel_member_role",
     },
@@ -101,7 +109,9 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:sending",
     "im:post:received",
     "im:post:updated",
+    "im:posts:batch-result",
     "im:post:read",
+    "im:post:readers",
     "im:channel:read_echo",
     "im:post:deleted",
     "im:post:batch-updated",
@@ -117,11 +127,13 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:schedule-created",
     "im:channel:schedule-canceled",
     "im:channel:member-updated",
+    "im:channel:settings-updated",
     "im:channel:left",
     "im:channel:memberNickname",
     "im:channel:members",
     "im:channel:replies",
     "im:post:located",
+    "im:user:candidates",
     "im:read:result",
     "im:todo:updated",
     "im:health:result",
@@ -241,9 +253,40 @@ fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Res
                 }
             }
         }
+        "im_channel_settings" => {
+            let settings = obj
+                .remove("settings")
+                .and_then(|value| value.as_object().cloned())
+                .ok_or_else(|| ImError::Parse("im_channel_settings: 缺 settings".to_string()))?;
+            copy_setting(
+                &settings,
+                obj,
+                &["displayName", "display_name"],
+                "display_name",
+            );
+            copy_setting(&settings, obj, &["description", "purpose"], "purpose");
+            copy_setting(&settings, obj, &["rules", "header"], "header");
+            copy_setting(
+                &settings,
+                obj,
+                &["expectedVersion", "expected_version"],
+                "expected_version",
+            );
+        }
         _ => {}
     }
     Ok(())
+}
+
+fn copy_setting(
+    settings: &Map<String, Value>,
+    target: &mut Map<String, Value>,
+    keys: &[&str],
+    target_key: &str,
+) {
+    if let Some(value) = keys.iter().find_map(|key| settings.get(*key)).cloned() {
+        target.insert(target_key.to_string(), value);
+    }
 }
 
 fn camel_to_snake(value: &str) -> String {
@@ -298,6 +341,17 @@ mod tests {
     }
 
     #[test]
+    fn aliases_candidate_directory_without_requiring_ui_wire_fields() {
+        let normalized = normalize_command_payload("im_list_candidate_users", br#"{}"#).unwrap();
+        let value: Value = serde_json::from_slice(&normalized).unwrap();
+        assert!(value.as_object().is_some_and(Map::is_empty));
+        assert_eq!(
+            command_alias("im_list_candidate_users"),
+            Some("im_user_candidates")
+        );
+    }
+
+    #[test]
     fn public_command_semantics_adapt_ui_intents_inside_helix() {
         let quick =
             normalize_command_payload("im_send_quick_reply", br#"{"postId":"p1","reaction":"ok"}"#)
@@ -332,6 +386,39 @@ mod tests {
         let locate: Value = serde_json::from_slice(&locate).unwrap();
         assert_eq!(locate["post_ids"], json!(["p3"]));
         assert_eq!(locate["locate"], true);
+    }
+
+    #[test]
+    fn channel_settings_intent_maps_render_fields_to_go_channel_fields() {
+        let normalized = normalize_command_payload(
+            "im_channel_settings",
+            r#"{"channelId":"ch1","settings":{"displayName":"新群名","description":"群说明","rules":"群规则","expectedVersion":7}}"#.as_bytes(),
+        )
+        .expect("normalize settings");
+        let value: Value = serde_json::from_slice(&normalized).expect("decode settings");
+        assert_eq!(
+            command_alias("im_channel_settings"),
+            Some("im_channel_change_info")
+        );
+        assert_eq!(value["channel_id"], "ch1");
+        assert_eq!(value["display_name"], "新群名");
+        assert_eq!(value["purpose"], "群说明");
+        assert_eq!(value["header"], "群规则");
+        assert_eq!(value["expected_version"], 7);
+        assert!(value.get("settings").is_none());
+    }
+
+    #[test]
+    fn member_directory_alias_reuses_render_ready_by_ids_projection() {
+        let normalized =
+            normalize_command_payload("im_members_by_ids", br#"{"channelIds":["ch1","ch2"]}"#)
+                .expect("normalize member directory");
+        let value: Value = serde_json::from_slice(&normalized).expect("decode members request");
+        assert_eq!(
+            command_alias("im_members_by_ids"),
+            Some("im_channels_members_by_ids")
+        );
+        assert_eq!(value["channel_ids"], json!(["ch1", "ch2"]));
     }
 
     #[test]

@@ -91,6 +91,39 @@ misc_cmd!(
     }
 );
 
+// 建群前置候选目录：userIds 空时由 Go 根据 company 身份列同公司用户并排除 self。
+misc_cmd!(
+    UserCandidatesCommand,
+    USER_CANDIDATES_REG,
+    "im_user_candidates",
+    true,
+    |args, cmd| {
+        let user_ids: Vec<String> = match args.get("user_ids") {
+            None => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|item| {
+                    item.as_str()
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_string)
+                        .ok_or_else(|| ImError::Parse(format!("{cmd}: user_ids 含空值")))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err(ImError::Parse(format!("{cmd}: user_ids 必须为字符串数组"))),
+        };
+        let keyword = args.get("keyword").and_then(Value::as_str).unwrap_or("");
+        let limit = args
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|value| value.clamp(1, 100))
+            .unwrap_or(50);
+        Ok((
+            "users/candidates",
+            json!({ "userIds": user_ids, "keyword": keyword, "limit": limit }),
+        ))
+    }
+);
+
 // ── teams/*（personal user → 403 PERSONAL_USER_FORBIDDEN，响应态，outbound 不裁决）─────────
 
 // #3 teams/upsert：维护公司大群（非 team 表）。真源 r.Body = CreateChannelSpecifyOwner（team.go:63

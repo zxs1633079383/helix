@@ -10,6 +10,10 @@ edition = "2021"
 name = "helix-host-cli"
 path = "src/main.rs"
 
+[[bin]]
+name = "helix-store-inspect"
+path = "src/store_inspect_main.rs"
+
 [dependencies]
 helix-core          = { path = "../helix-core" }
 helix-im            = { path = "../helix-im" }
@@ -26,6 +30,9 @@ bytes              = { workspace = true }
 # serde_norway = 维护中的 serde_yaml 继任者（serde_yaml 已 archived，不用）。
 serde              = { workspace = true }
 serde_norway       = "0.9"
+rusqlite           = { version = "0.32.1", features = ["bundled"] }
+sha2               = "0.10"
+thiserror          = { workspace = true }
 
 # host/driver 层是 ambient API（SystemTime/线程/打印）的合法落点
 [lints.clippy]

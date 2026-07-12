@@ -54,6 +54,7 @@ const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "expediteMap",
     "templateReceived",
     "templateConfirmedCount",
+    "readerIds",
     "systemNotice",
     "pinned",
 ];

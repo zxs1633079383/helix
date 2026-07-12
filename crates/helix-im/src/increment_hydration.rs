@@ -77,6 +77,8 @@ impl ImModule {
                         );
                         return Ok(());
                     };
+                    let hydrated_dialog =
+                        crate::query::emit_hydrated_dialog_result(increment.raw.as_ref());
                     let persist_corr = self.alloc_corr_internal();
                     if self.ingest_increment_hydration(&increment, persist_corr, now_ms, out) {
                         self.state.corr_map.insert(
@@ -92,6 +94,9 @@ impl ImModule {
                             increment.need_sync,
                             out,
                         )?;
+                    }
+                    if let Some(effect) = hydrated_dialog {
+                        out.push(effect);
                     }
                 }
                 Err(e) => {

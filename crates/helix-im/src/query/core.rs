@@ -199,6 +199,28 @@ pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
     }
 }
 
+/// 单频道 hydration 的即时 render-ready 投影。
+///
+/// `incrementByChannelId` 已返回完整 channel wire 数据时，先发布这一行解除前端 unknown 状态；
+/// terminal sync 后仍会执行 [`emit_dialog_list_result`] 全量读回，以本地持久化终态覆盖即时值。
+pub fn emit_hydrated_dialog_result(channel_bytes: &[u8]) -> Option<Effect> {
+    let channel: serde_json::Value = serde_json::from_slice(channel_bytes).ok()?;
+    let dialog = crate::query::dialog_wire::render_ready_dialog_wire_row(channel)?;
+    let payload = serde_json::json!({
+        "event": "im:channels:projection",
+        "data": {
+            "dialogList": [dialog],
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_hydrated_dialog_result: static JSON shape must serialize"),
+    );
+    Some(Effect::Emit {
+        event: DomainEventBytes(bytes),
+    })
+}
+
 /// `im_delete_all_dialogs`（测试用）：emit `im:channels:loaded` 刷新信号。
 ///
 /// 见模块头注「核原语缺口」：core 无 truncate 原语，物理 `DELETE FROM channel/channel_member`

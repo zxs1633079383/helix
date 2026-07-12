@@ -113,7 +113,11 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
     let rows = serde_json::to_vec(&serde_json::json!([
         {
             "id":"ch1","display_name":"群A","is_top":1,"create_at":1700000000000_i64,
-            "unread_count":3,"mention_count":1,
+            "type":"P","team_id":"team-1","root_id":"","root_post_id":"",
+            "unread_count":3,"unread_post_id":"post-unread","mention_count":1,
+            "mention_list":"[\"u1\"]","urgent_post_list":"[\"p1\"]",
+            "member_count":9,"topic_msg_count":2,"last_event_seq":42,
+            "has_schedule_post":1,"props":"{\"canEdit\":true}",
             // last_post = 整帧 post JSON（含 message + 加急标）
             "last_post":"{\"message\":\"最后一条\",\"props\":{\"expedite\":\"m1\"}}",
             "notice":"{\"text\":\"公告内容\"}"
@@ -140,7 +144,19 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
     assert_eq!(r0["mention"], true); // mention_count>0
     assert_eq!(r0["lastMessage"], "最后一条"); // last_post.message 预览
     assert_eq!(r0["urgent"], true); // props.expedite 命中
-                                    // 原始列保留（向后兼容）。
+                                    // SQLite snake_case 行必须在 Helix 边界升成完整 camelCase dialog，UI 不做 casing/JSON 猜测。
+    assert_eq!(r0["channelId"], "ch1");
+    assert_eq!(r0["group"], "group");
+    assert_eq!(r0["teamId"], "team-1");
+    assert_eq!(r0["unreadPostId"], "post-unread");
+    assert_eq!(r0["mentionList"], serde_json::json!(["u1"]));
+    assert_eq!(r0["urgentPostList"], serde_json::json!(["p1"]));
+    assert_eq!(r0["memberCount"], 9);
+    assert_eq!(r0["topicCount"], 2);
+    assert_eq!(r0["eventSeq"], 42);
+    assert_eq!(r0["hasSchedulePost"], true);
+    assert_eq!(r0["props"], serde_json::json!({"canEdit": true}));
+    // 原始列保留（向后兼容）。
     assert_eq!(r0["unread_count"], 3);
     let r1 = &v["data"]["dialogList"][1];
     assert_eq!(r1["isTop"], false); // is_top:0
@@ -171,6 +187,40 @@ fn emit_dialog_list_result_invalid_reply_yields_empty_dialoglist() {
     let v = emit_json(emit_dialog_list_result(b"garbage{")).expect("emit");
     assert_eq!(v["event"], "im:channels:projection");
     assert_eq!(v["data"]["dialogList"], serde_json::json!([]));
+}
+
+#[test]
+fn emit_hydrated_dialog_result_is_immediately_render_ready() {
+    let channel = serde_json::to_vec(&serde_json::json!({
+        "id": "ch-hydrated",
+        "displayName": "陌生群",
+        "type": "P",
+        "teamId": "team-1",
+        "unreadCount": 2,
+        "mentionCount": 1,
+        "urgentCount": 1,
+        "lastEventSeq": 9,
+        "memberCount": 3,
+        "hasSchedulePost": true,
+        "lastPost": "{\"message\":\"最后消息\"}"
+    }))
+    .unwrap();
+    let v = emit_json(emit_hydrated_dialog_result(&channel).expect("valid channel")).expect("emit");
+    let dialog = &v["data"]["dialogList"][0];
+    assert_eq!(v["event"], "im:channels:projection");
+    assert_eq!(dialog["id"], "ch-hydrated");
+    assert_eq!(dialog["channelId"], "ch-hydrated");
+    assert_eq!(dialog["displayName"], "陌生群");
+    assert_eq!(dialog["group"], "group");
+    assert_eq!(dialog["unreadCount"], 2);
+    assert_eq!(dialog["mention"], true);
+    assert_eq!(dialog["urgent"], true);
+    assert_eq!(dialog["eventSeq"], 9);
+    assert_eq!(dialog["memberCount"], 3);
+    assert_eq!(dialog["hasSchedulePost"], true);
+    assert_eq!(dialog["lastMessage"], "最后消息");
+    assert_eq!(dialog["loading"], false);
+    assert_eq!(dialog["unknown"], false);
 }
 
 #[test]

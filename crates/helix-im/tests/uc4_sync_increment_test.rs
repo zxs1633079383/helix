@@ -280,6 +280,20 @@ fn increment_by_channel_id_reply_hydrates_storage_before_render_ready_projection
             }),
         "通用 im:read:result 必须继续兼容"
     );
+    let immediate_dialog = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(emit_value)
+        .find(|value| value["event"] == "im:channels:projection")
+        .expect("单频道 hydration 应立即发布 render-ready dialog，不等待全表 Scan");
+    let immediate_row = &immediate_dialog["data"]["dialogList"][0];
+    assert_eq!(immediate_row["id"], cid(45));
+    assert_eq!(immediate_row["channelId"], cid(45));
+    assert_eq!(immediate_row["displayName"], "陌生频道");
+    assert_eq!(immediate_row["group"], "group");
+    assert_eq!(immediate_row["loading"], false);
+    assert_eq!(immediate_row["unknown"], false);
     let (increment_persist_corr, increment_ops) = h
         .sink
         .as_slice()

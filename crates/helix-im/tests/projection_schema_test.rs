@@ -715,11 +715,36 @@ fn im_messages_query_result_invalid_reply_still_freezes_keys() {
 fn im_channels_projection_freezes_dialoglist() {
     // UC-3：会话列表完整投影（前端零计算 unread/badge，直接渲染 dialogList）。
     let rows = serde_json::to_vec(&serde_json::json!([
-        {"id": "ch1", "display_name": "群A", "unread_count": 3, "mention_count": 1}
+        {
+            "id": "ch1",
+            "display_name": "群A",
+            "type": "P",
+            "team_id": "team-1",
+            "unread_count": 3,
+            "mention_count": 1,
+            "member_count": 2,
+            "last_event_seq": 7,
+            "props": "{\"canEdit\":true}"
+        }
     ]))
     .unwrap();
     let e = query::emit_dialog_list_result(&rows);
     assert_frozen(&e, "im:channels:projection", &["dialogList"]);
+    let Effect::Emit { event } = e else {
+        panic!("dialog query 必产 Emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let dialog = &payload["data"]["dialogList"][0];
+    assert_eq!(dialog["id"], "ch1");
+    assert_eq!(dialog["channelId"], "ch1");
+    assert_eq!(dialog["displayName"], "群A");
+    assert_eq!(dialog["group"], "group");
+    assert_eq!(dialog["teamId"], "team-1");
+    assert_eq!(dialog["unreadCount"], 3);
+    assert_eq!(dialog["mentionCount"], 1);
+    assert_eq!(dialog["memberCount"], 2);
+    assert_eq!(dialog["eventSeq"], 7);
+    assert_eq!(dialog["props"], serde_json::json!({"canEdit": true}));
 }
 
 #[test]

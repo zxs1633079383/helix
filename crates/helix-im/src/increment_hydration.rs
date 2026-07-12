@@ -80,20 +80,32 @@ impl ImModule {
                     let hydrated_dialog =
                         crate::query::emit_hydrated_dialog_result(increment.raw.as_ref());
                     let persist_corr = self.alloc_corr_internal();
-                    if self.ingest_increment_hydration(&increment, persist_corr, now_ms, out) {
+                    let has_persist =
+                        self.ingest_increment_hydration(&increment, persist_corr, now_ms, out);
+                    // needSync 是服务端按其会话水位给的提示，不能覆盖本端持久化事实。独立窗口
+                    // 首次见到频道时本地 cursor=0；只要仍落后 lastEventSeq，就必须从本地 cursor
+                    // 拉 sync，把 events/messages 与 cursor 在同一 commit 链落稳后再做终态投影。
+                    let local_cursor = self
+                        .state
+                        .channels
+                        .get(&increment.channel_id)
+                        .map(|channel| channel.cursor.value())
+                        .unwrap_or(crate::state::Seq(0));
+                    let requires_sync =
+                        increment.need_sync || local_cursor < increment.last_event_seq;
+                    if requires_sync {
+                        self.state.need_sync_skip.remove(&increment.channel_id);
+                    }
+                    if has_persist {
                         self.state.corr_map.insert(
                             persist_corr,
                             CorrelationContext::IncrementHydrationPersist {
                                 channel_id: increment.channel_id,
-                                need_sync: increment.need_sync,
+                                need_sync: requires_sync,
                             },
                         );
                     } else {
-                        self.after_increment_persist(
-                            increment.channel_id,
-                            increment.need_sync,
-                            out,
-                        )?;
+                        self.after_increment_persist(increment.channel_id, requires_sync, out)?;
                     }
                     if let Some(effect) = hydrated_dialog {
                         out.push(effect);

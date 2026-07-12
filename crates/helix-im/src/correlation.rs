@@ -100,7 +100,8 @@ pub enum CorrelationContext {
     OutboundIncrementHydration { req_id: String },
 
     /// UC-4.5 IncrementChannel 的 channel/channel_member 相关 Persist 回报。
-    /// 成功后才启动单频道 sync；`need_sync=false` 则直接读回本地投影。
+    /// `need_sync` 已合并服务端提示与本地 cursor 落后事实；成功后才启动单频道 sync，
+    /// 两侧均确认无需拉取时才直接读回本地投影。
     IncrementHydrationPersist {
         channel_id: ChannelId,
         need_sync: bool,

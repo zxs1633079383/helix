@@ -227,7 +227,7 @@ fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
 }
 
 #[test]
-fn increment_by_channel_id_reply_hydrates_storage_before_render_ready_projection() {
+fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection() {
     let mut h = Harness::new_with_identity(&[], "viewer-user", "", "", "", "");
     let command_effects = h.step(
         command_json(
@@ -252,7 +252,8 @@ fn increment_by_channel_id_reply_hydrates_storage_before_render_ready_projection
                 "displayName": "陌生频道",
                 "type": "O",
                 "lastEventSeq": 2,
-                "needSync": true,
+                // 服务端提示已追平不能覆盖本端事实：独立窗口本地 cursor 仍为 0。
+                "needSync": false,
                 "unreadCount": 1,
                 "mentionCount": 1,
                 "urgentCount": 1,
@@ -342,7 +343,7 @@ fn increment_by_channel_id_reply_hydrates_storage_before_render_ready_projection
             }
             _ => None,
         })
-        .expect("channel/member 落库后必须复用 sync/notify 增量规则拉消息");
+        .expect("本地 cursor 落后服务端水位时必须复用 sync/notify 拉消息，即使 needSync=false");
 
     let sync_body = sync_reply_events_with_messages(
         45,

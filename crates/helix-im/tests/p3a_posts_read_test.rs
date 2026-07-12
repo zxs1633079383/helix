@@ -179,8 +179,8 @@ fn get_replies_builds_page_body() {
 #[test]
 fn get_replies_page_defaults_and_revoke_omitted_and_requires_id() {
     let (_url, body) = one_http(run("im_get_replies", json!({ "reply_id": "r" })));
-    assert_eq!(body["pageNumber"], 0);
-    assert_eq!(body["pageSize"], 0);
+    assert_eq!(body["pageNumber"], 1);
+    assert_eq!(body["pageSize"], 20);
     assert!(body.get("revoke").is_none(), "revoke 仅显式 bool 时下发");
     assert!(err("im_get_replies", json!({}))); // 缺 reply_id
 }

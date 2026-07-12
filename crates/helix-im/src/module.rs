@@ -267,11 +267,16 @@ impl Module for ImModule {
                         })?;
                 }
                 "im_retry_send" => {
-                    crate::send::retry_send::handle_retry_send(self, cmd.payload.as_ref(), out)
-                        .map_err(|e| CoreError::ModuleError {
-                            module: self.name(),
-                            source: Box::new(e),
-                        })?;
+                    crate::send::retry_send::handle_retry_send(
+                        self,
+                        cmd.payload.as_ref(),
+                        now_ms,
+                        out,
+                    )
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?;
                 }
                 // 连接控制（04 文档表 B `IMWS:reconnect`）：helix-im 是 sans-IO，不持 transport——
                 // 只 emit `im:net:reconnect_requested` 控制信号，由 driver 观察后重连 NativeTransport

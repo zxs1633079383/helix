@@ -60,6 +60,14 @@ pub enum CorrelationContext {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
     },
+    /// G-03a Native 重启后的失败消息重试：先按 temporary_id 查 durable message，
+    /// 未命中再按 id 回退。读回后重建 PendingSend 与 posts/create body，复用既有发送链。
+    RetrySendRehydrate {
+        message_id: String,
+        requested_at_ms: u64,
+        request_id: Option<String>,
+        lookup_by_id: bool,
+    },
     /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
     SyncPull { channel_id: ChannelId },
 

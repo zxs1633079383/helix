@@ -275,3 +275,124 @@ async fn event_without_temporary_id_falls_back_to_id_as_pk() {
         "无 temporary_id 时回退 id 作 PK"
     );
 }
+
+/// G-03a：Native 重启后 pending_sends 为空，失败消息仍能从真 SQLite 恢复并续发 HTTP。
+#[tokio::test]
+async fn durable_failed_message_rehydrates_retry_after_module_restart() {
+    use helix_core::effect::UpsertSpec;
+    use helix_core::tick::{AppCommand, PortOutcome};
+    use helix_core::{Effect, EffectSink, Module, Tick};
+    use helix_driver_host::execute_storage_ops;
+    use helix_im::module::ImConfig;
+    use helix_im::ImModule;
+
+    let storage = storage_with_im_schema().await;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "message",
+            rows: vec![vec![
+                (
+                    "temporary_id".to_string(),
+                    SqlValue::Text("tmp-restart-retry".to_string()),
+                ),
+                ("id".to_string(), SqlValue::Text(String::new())),
+                ("channel_id".to_string(), SqlValue::Text(cid(1))),
+                (
+                    "message".to_string(),
+                    SqlValue::Text("retry after restart".to_string()),
+                ),
+                ("type".to_string(), SqlValue::Text("TEXT".to_string())),
+                ("props".to_string(), SqlValue::Text("{}".to_string())),
+                (
+                    "viewers".to_string(),
+                    SqlValue::Text("[\"all\"]".to_string()),
+                ),
+                ("mentions".to_string(), SqlValue::Text("[]".to_string())),
+                (
+                    "send_status".to_string(),
+                    SqlValue::Text("unsend".to_string()),
+                ),
+                ("create_at".to_string(), SqlValue::Integer(1_234)),
+            ]],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+        })
+        .await
+        .expect("seed durable failed message");
+
+    let mut module = ImModule::new(ImConfig {
+        api_base_url: "http://go.test/api/cses".to_string(),
+        auth_user_id: "user-after-restart".to_string(),
+        company_id: "team-after-restart".to_string(),
+        send_timeout_ms: 15_000,
+        ..Default::default()
+    });
+    let mut sink = EffectSink::new();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "message_id": "tmp-restart-retry",
+        "req_id": "mrc:G-03a:sqlite"
+    }))
+    .unwrap();
+    module
+        .handle(
+            &Tick::Command(AppCommand::new("im_retry_send", payload)),
+            5_000,
+            &mut sink,
+        )
+        .expect("retry command");
+
+    let (lookup_corr, lookup_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("restart retry must query storage");
+    let outcome = execute_storage_ops(&storage, &lookup_ops).await;
+    assert!(matches!(outcome, PortOutcome::Ok(_)));
+
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: lookup_corr,
+                outcome,
+            },
+            5_010,
+            &mut sink,
+        )
+        .expect("durable retry reply");
+
+    let http_body = sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Http { req, .. } => req
+            .body
+            .as_ref()
+            .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok()),
+        _ => None,
+    });
+    let http_body = http_body.expect("rehydrated retry must emit posts/create HTTP");
+    assert_eq!(http_body["temporaryId"], "tmp-restart-retry");
+    assert_eq!(http_body["channelId"], cid(1));
+    assert_eq!(http_body["message"], "retry after restart");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::ScheduleTimer { .. })),
+        "rehydrated retry must arm a fresh timeout"
+    );
+
+    for effect in sink.as_slice() {
+        if let Effect::PersistFire { ops } = effect {
+            let result = execute_storage_ops(&storage, ops).await;
+            assert!(matches!(result, PortOutcome::Ok(_)));
+        }
+    }
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        col_text(&rows[0], "send_status"),
+        "sending",
+        "真实 SQLite 失败行必须在续发时恢复 sending"
+    );
+}

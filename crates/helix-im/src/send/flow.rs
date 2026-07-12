@@ -58,11 +58,6 @@ impl ImModule {
         )?;
         body["props"] = upload_plan.props.clone();
 
-        // 落库用的纯文本（与 body.message 同源：2000 截断后）。
-        let persisted_text = body["message"].as_str().unwrap_or("").to_string();
-        let props_json = serde_json::to_string(&upload_plan.props)
-            .map_err(|e| ImError::Serialize(e.to_string()))?;
-
         // 分配 corr / timer。timer 始终绑定这条 Post send，但 upload-gated 路径要等真正 emit
         // `posts/create` 时才 arm；否则上传耗时会误写 `send_status=unsend`。
         let p1_corr = self.alloc_corr_internal();
@@ -74,9 +69,7 @@ impl ImModule {
             ops: vec![crate::pending_send::optimistic_message_persist_op(
                 &tmp_id_str,
                 channel_id.as_str(),
-                persisted_text,
-                msg_type.as_str(),
-                props_json,
+                &body,
             )],
         });
 

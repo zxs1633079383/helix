@@ -196,6 +196,22 @@ impl ImModule {
                     ));
                 }
             },
+            CorrelationContext::RetrySendRehydrate {
+                message_id,
+                requested_at_ms,
+                request_id,
+                lookup_by_id,
+            } => {
+                crate::send::retry_send::handle_rehydrate_reply(
+                    self,
+                    message_id,
+                    requested_at_ms,
+                    request_id,
+                    lookup_by_id,
+                    outcome,
+                    out,
+                )?;
+            }
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
             CorrelationContext::SyncPull { channel_id } => {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {

@@ -197,6 +197,16 @@ fn post_frame_upsert_row_fields_aligned() {
         "row read_bits should carry wire readBits, got: {:?}",
         get("read_bits")
     );
+    // 服务端 WS post 是已送达事实：全新远端/转发行不得在 SQLite 留空发送态。
+    assert!(
+        matches!(get("send_status"), Some(SqlValue::Text(t)) if t == "sent"),
+        "new server-confirmed post row should persist send_status=sent, got: {:?}",
+        get("send_status")
+    );
+    assert!(
+        spec.exclude_from_update.contains(&"send_status"),
+        "send_status must be INSERT-only here; optimistic-row conflicts are settled by reconcile"
+    );
 }
 
 // ─── post 帧 event_seq > cursor+1 → buffer + arm gate（不立即落库）──────────────
@@ -256,7 +266,8 @@ fn first_schedule_timer(effects: &[EffectKind]) -> u64 {
 /// 本端先 send（注册 tmp_echo 乐观行 + 15s timer），随后真 Go `post` echo 帧（同 temporary_id）
 /// 到达 → 经 gate apply（cursor + 落库），**并额外 reconcile PendingSend**：
 ///   - 落库 upsert：PK=temporary_id 覆写乐观行，server id 落库（gate 路径）；
-///   - reconcile Persist：send_status='sent' 覆写（PK 修法不写该列，必须额外补）；
+///   - gate INSERT：服务端确认的新行写 send_status='sent'，冲突时不覆盖本地发送态；
+///   - reconcile Persist：命中乐观行时显式 send_status='sent' 覆写；
 ///   - CancelTimer 撤 15s 发送超时（否则 15s 后误标 UnSend）；
 ///   - PendingSend 落定移除（无泄漏，status 查询返回 None）。
 #[test]
@@ -326,12 +337,11 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
         "echo upsert must overwrite id with server post.id"
     );
 
-    // (e) reconcile Persist 写了 send_status='sent'（gate upsert 不含该列 → 必须额外补）
+    // (e) reconcile 的 correlated Persist 必须仍显式写 send_status='sent'。gate upsert 对
+    // 冲突更新排除此列，只负责让全新的服务端 WS 行初始即为 sent。
     let sent_status_written = h.sink.as_slice().iter().any(|e| {
-        let ops = match e {
-            Effect::Persist { ops, .. } => ops,
-            Effect::PersistFire { ops } => ops,
-            _ => return false,
+        let Effect::Persist { ops, .. } = e else {
+            return false;
         };
         ops.iter().any(|op| match op {
             StorageOp::BatchUpsert(s) if s.table == "message" => s.rows.iter().any(|r| {
@@ -344,7 +354,7 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
     });
     assert!(
         sent_status_written,
-        "echo reconcile must write send_status='sent' (gate upsert omits the column)"
+        "echo reconcile must explicitly write send_status='sent' for the optimistic-row conflict"
     );
 
     // (f) cursor 推进（与可见性解耦，HX-C008；reconcile 不重复推进）

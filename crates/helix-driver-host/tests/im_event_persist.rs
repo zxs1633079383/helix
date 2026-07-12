@@ -72,6 +72,7 @@ fn post_event(channel: u64, seq: u64, temporary_id: &str, id: &str, text: &str) 
         mentions: Vec::new(),
         expedite_map: String::new(),
         user_snapshot: String::new(),
+        ..Default::default()
     };
     EventEnvelope::new(channel_id(channel), Seq(seq), EventKind::PostUpsert, fields)
 }
@@ -133,6 +134,64 @@ async fn ws_event_persists_into_678_message_table() {
     assert_eq!(col_text(row, "channel_id"), cid(42));
     assert_eq!(col_text(row, "message"), "hello world");
     assert_eq!(col_text(row, "user_id"), "user-zhang");
+    assert_eq!(
+        col_text(row, "send_status"),
+        "sent",
+        "服务端确认的新 WS 行必须持久化为 sent，不能依赖查询层空值回退"
+    );
+}
+
+/// WS echo 命中本地乐观行时，gate 只覆盖服务端字段，不越权改本地发送状态。
+///
+/// 实际发送对账随后由 PendingSend::reconcile 显式写 sent 并撤 timer；这里锁住
+/// `exclude_from_update=[send_status]`，防止普通重放把 failed/unsend 静默翻回 sent。
+#[tokio::test]
+async fn ws_event_conflict_preserves_local_send_status_until_reconcile() {
+    use helix_core::effect::{StorageOp, UpsertSpec};
+
+    let storage = storage_with_im_schema().await;
+    storage
+        .batch_upsert(UpsertSpec {
+            table: "message",
+            rows: vec![vec![
+                (
+                    "temporary_id".to_string(),
+                    SqlValue::Text("tmp-optimistic".to_string()),
+                ),
+                (
+                    "send_status".to_string(),
+                    SqlValue::Text("sending".to_string()),
+                ),
+            ]],
+            conflict_key: Some("temporary_id"),
+            exclude_from_update: Vec::new(),
+        })
+        .await
+        .expect("seed optimistic row");
+
+    let op = event_to_upsert_op(&post_event(
+        42,
+        8,
+        "tmp-optimistic",
+        "post-server-echo",
+        "settled body",
+    ));
+    storage
+        .batch_upsert(match op {
+            StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("echo upsert must update server fields");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(col_text(&rows[0], "id"), "post-server-echo");
+    assert_eq!(
+        col_text(&rows[0], "send_status"),
+        "sending",
+        "gate 冲突更新必须保留本地发送态，终态只由 PendingSend reconcile 决定"
+    );
 }
 
 /// sync 路径 `batch_upsert_events` 同样真落 message 表（与 WS 路径同表同 PK）。

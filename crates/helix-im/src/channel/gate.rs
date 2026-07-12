@@ -478,10 +478,17 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
                 SqlValue::Text(f.reply_first_level_id.clone()),
             ),
             ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
+            (
+                "send_status".to_string(),
+                SqlValue::Text("sent".to_string()),
+            ),
             ("create_at".to_string(), SqlValue::Integer(f.create_at)),
         ]],
         conflict_key: Some("temporary_id"),
-        exclude_from_update: Vec::new(),
+        // 服务端 WS post 已是权威送达事实：新行直接写 sent。若 temporary_id 命中本地
+        // 乐观行，则保留本地发送态，由 PendingSend::reconcile 在同一处理链显式落定 sent
+        // 并撤销超时 timer，避免普通回放/重放越权覆盖 failed/unsend。
+        exclude_from_update: vec!["send_status"],
     })
 }
 

@@ -64,9 +64,9 @@ pub(super) fn is_echo_frame(
 /// `post` 帧的发送对账（BLOCKING 修复）。
 ///
 /// 真 Go 在线广播（含本端 echo）统一发 `action=="post"`，由 `parse_post_frame` 喂 `ch.ingest`
-/// 完成 cursor 推进 + 落库（ON CONFLICT temporary_id 覆盖乐观行）。但 `event_to_upsert_op`
-/// **不写 send_status 列**、**不取消 15s timer**——这两件事是 helix 把现网前端的乐观态/超时
-/// 下沉进 core 后新增的职责。本函数补齐：
+/// 完成 cursor 推进 + 落库（ON CONFLICT temporary_id 覆盖乐观行）。`event_to_upsert_op`
+/// 会为服务端确认的新行写 `send_status='sent'`，但冲突更新显式排除该本地权威列，也不会取消
+/// 15s timer——这两件事是 helix 把现网前端的乐观态/超时下沉进 core 后新增的职责。本函数补齐：
 ///
 /// - `temporary_id` 命中在途 `PendingSend` 时 → `ps.reconcile`（吐 Persist 覆写
 ///   `send_status='sent'` + `id=server_id` ON CONFLICT(temporary_id) + CancelTimer 撤 15s，

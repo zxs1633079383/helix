@@ -71,6 +71,7 @@ const FAT_KEYS: &[&str] = &[
     "expediteMap",
     "templateReceived",
     "templateConfirmedCount",
+    "readerIds",
     "systemNotice",
     "pinned",
     "topic",
@@ -352,6 +353,31 @@ fn message_interaction_capabilities_use_viewer_facts() {
     assert_eq!(capabilities["canMarkRead"], true);
     assert_eq!(capabilities["canViewReceipt"], false);
     assert_eq!(capabilities["canTemplateConfirm"], true);
+}
+
+#[test]
+fn post_updated_keeps_viewer_capabilities_and_template_reader_ids() {
+    let mut f = sample_fields();
+    f.user_id = "sender".to_string();
+    f.props = r#"{"template":{"userIds":["viewer-678"]}}"#.to_string();
+    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    let e = to_effect::emit_post_updated_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(
+        value["data"]["readerIds"],
+        serde_json::json!(["viewer-678"])
+    );
+    assert_eq!(
+        value["data"]["actionCapabilities"]["canUrgentConfirm"],
+        true
+    );
+    assert_eq!(
+        value["data"]["actionCapabilities"]["canTemplateConfirm"],
+        false
+    );
 }
 
 #[test]

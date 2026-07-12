@@ -107,6 +107,18 @@ fn resolve_template_confirmed_count(props: &serde_json::Value) -> usize {
         .unwrap_or(0)
 }
 
+fn resolve_template_reader_ids(props: &serde_json::Value) -> Vec<&str> {
+    props
+        .get("template")
+        .and_then(|value| value.get("userIds").or_else(|| value.get("user_ids")))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
 fn resolve_urgent_counts(expedite_map: &serde_json::Value) -> (usize, usize) {
     let Some(recipients) = expedite_map
         .get("recipients")
@@ -218,6 +230,7 @@ fn message_item_data(
         "expediteMap": expedite_map,
         "templateReceived": resolve_template_received(&props),
         "templateConfirmedCount": resolve_template_confirmed_count(&props),
+        "readerIds": resolve_template_reader_ids(&props),
         "systemNotice": is_system_notice(msg_type),
         "pinned": resolve_pinned(&props),
     })
@@ -303,10 +316,20 @@ pub fn emit_post_updated(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
 ) -> Effect {
+    emit_post_updated_for_viewer(channel_id, event_seq, msg_id, fields, "")
+}
+
+pub fn emit_post_updated_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:post:updated",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", false),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

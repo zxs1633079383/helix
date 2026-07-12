@@ -220,8 +220,12 @@ pub(super) fn gate_ingest_content_event(
                     helix_core::Effect::PersistFire {
                         ops: vec![crate::channel::event_to_storage_op(&ev)],
                     },
-                    crate::acl::to_effect::emit_post_updated(
-                        channel_id, ev.seq.0, msg_id_ref, &ev.fields,
+                    crate::acl::to_effect::emit_post_updated_for_viewer(
+                        channel_id,
+                        ev.seq.0,
+                        msg_id_ref,
+                        &ev.fields,
+                        ev.viewer_user_id.as_str(),
                     ),
                 ))
             } else {

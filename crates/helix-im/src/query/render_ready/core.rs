@@ -116,6 +116,18 @@ fn interaction_counts(props: &Value, expedite_map: &Value) -> (usize, usize, usi
     )
 }
 
+fn template_reader_ids(props: &Value) -> Vec<&str> {
+    props
+        .get("template")
+        .and_then(|template| template.get("userIds").or_else(|| template.get("user_ids")))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
 /// 单行整形：DB snake 列 / wire camel Post → render-ready 终态行（camelCase·前端 1:1 绑定）。
 fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     let temporary_id = get_str(row, &["temporary_id", "temporaryId"]);
@@ -183,6 +195,7 @@ fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "revoked": revoke_bool(row),
         "templateReceived": template_received_bool(row),
         "templateConfirmedCount": template_confirmed_count,
+        "readerIds": template_reader_ids(&props),
         "serverId": if has_server_id { Value::String(server_id.to_string()) } else { Value::Null },
         "isSelf": is_self,
         "actionCapabilities": action_capabilities,

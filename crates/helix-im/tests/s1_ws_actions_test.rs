@@ -300,7 +300,7 @@ fn post_read_missing_post_id_no_message_write_s1() {
 /// （== cursor+1）才走立即 apply 路径落库 + emit（gate 已 kind-aware 用 edit_content_op patch）。
 #[test]
 fn post_update_edits_content_only_and_emits_s1() {
-    let mut h = Harness::new(&[2]);
+    let mut h = Harness::new_with_identity(&[2], "444", "team", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
             "action": "post_update",
@@ -341,6 +341,11 @@ fn post_update_edits_content_only_and_emits_s1() {
         "post_update 明确携带 expediteMap 时必须持久化，ops: {ops:?}"
     );
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:post:updated"));
+    let updated = emit_data(&h.sink, "im:post:updated");
+    assert_eq!(
+        updated[0]["actionCapabilities"]["canUrgentConfirm"], true,
+        "post_update 必须按当前 viewer=444 计算加急确认能力"
+    );
 }
 
 // ─── post_pin（消息置顶/取消置顶）──────────────────────────────────────────────

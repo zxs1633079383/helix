@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Web W0.1 纯模型与脱敏合同：只新增 `tools/web-w0-probe/{probe-model.mjs,probe-model.test.mjs}` 并更新 SESSION，不发真实网络、不读取账号、不创建 Web driver。可证伪断言：① 分类覆盖 HTTP 2xx+hello pass、open 无 hello、CORS preflight、1006、401/403；② page/api/ws origin 缺失或非纯 origin 时拒绝；③ forbidden key、Bearer/JWT、敏感 query 值进入导出时拒绝；④ `node --test tools/web-w0-probe/probe-model.test.mjs` 全绿；⑤临时破坏一条分类断言时测试必须红；⑥ `git diff --check` 通过。@2026-07-13T16:31:00+0800 | 赌注 中 | 可逆 是
+✅ DONE Web W0.1 纯模型与脱敏合同：新增纯函数分类、origin 形状校验、递归导出安全检查与安全导出准备函数；13 个 `node:test` 覆盖 pass、CORS、auth、1006、open 无 hello、缺失/非纯 origin、敏感字段和凭据形值。破坏反证把 pass 故意期望为 fail-http 后触发 `ERR_ASSERTION`（actual pass），证明分类测试可证伪；未发网络、未读秘密、未新增依赖或 Web driver。验证：`node --test` 13/13、`node --check`、`git diff --check` PASS。@2026-07-13T16:38:00+0800
+
 🎯 EXPECT Web W0 开发基线去阻塞：在 `codex/web-w0-development` 删除 `review-gap` 强制 review 与全仓 300 行 `structure-gate` 的执行脚本、gate/hook/CI 间接接线、当前规则和 agent 约束订阅；保留 cargo check/test、HX-C001、FFI、trace、业务边界和 public API 等功能/安全验证。可证伪断言：① `scripts/review-gap.sh`、`scripts/structure-gate.sh` 与 review ledger 删除；② `scripts/gate.sh` 不再执行行数检查且仍执行其余 10 步；③ pre-push 不再设置 `HELIX_STRUCTURE_BASE`；④ AGENTS、当前 ROADMAP/W0 spec、OPERATING 与 `.agents` 不再把两者声明为生效约束；⑤ shell/JSON/agent constraint/DDD gate 与 `git diff --check` 通过；⑥ 不修改 Rust 业务源码，不恢复其他会话删除的文档。@2026-07-13T16:05:00+0800 | 赌注 中 | 可逆 是
 ✅ DONE Web W0 开发基线去阻塞：分支 `codex/web-w0-development` 已删除 `scripts/{review-gap,structure-gate}.sh` 与 review ledger，移除 gate/hook/SessionStart/AGENTS/ROADMAP/W0 spec/harness/agent manifests 的全部生效接线；pre-push 已刷新为只执行保留的 `scripts/gate.sh`。验证：活跃入口旧脚本/ledger/constraint/环境变量引用 0；JSON、shell syntax、agent constraints 18/18、DDD structure、harness 16/16、`git diff --check` PASS；新 10 步 `scripts/gate.sh` 全绿（五 crate check/test、HX-C001、trace、业务边界、FFI Rust+C++、public API），Rust 业务源码零改动；`.codebase-memory/` 与 `outputs/` 未触碰。@2026-07-13T16:28:00+0800
 

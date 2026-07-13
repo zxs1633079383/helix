@@ -3,6 +3,7 @@
 > ⚠️ **Flutter 工程在仓外** `/workspace/flutterWorkspace/helix_ffi_demo`。
 > **本仓（helix）不含任何 Dart / C++ demo 代码** —— helix 保持 headless（沿用 GOAL §1 sans-IO + AGENTS.md §0 三层架构守卫）。
 > 本文件只是**指针**：把仓外 demo 工程指回本 crate 已导出的 C ABI，并摘录跨边界的内存/销毁不变量。
+> **当前真源 →** [`SPEC-full-takeover.md`](./SPEC-full-takeover.md)（FFI 接管边界）+ [`移动端Command-Query-Event契约SPEC.md`](./移动端Command-Query-Event契约SPEC.md)（对外契约）。已删除的 2026-06-18 阶段稿只保留在 Git 历史。
 > 本文保留仍有效的架构、ABI 与生命周期不变量；实现事实以当前 C ABI 源码和测试为准。
 
 ---

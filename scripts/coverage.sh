@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # coverage.sh — helix-im 覆盖率度量（im-takeover P0 基线工具链）
 #
-# 工具：cargo-llvm-cov（精度高于 tarpaulin，支持分支覆盖，见 docs/takeover-plan/03-测试策略.md §1）。
+# 工具：cargo-llvm-cov（精度高于 tarpaulin，支持分支覆盖）。
 # 用法：
 #   scripts/coverage.sh                    全量 summary（写终端 + docs/review/coverage-baseline.md 不动）
 #   scripts/coverage.sh --baseline         重写 docs/review/coverage-baseline.md 基线快照

@@ -1,6 +1,6 @@
 //! P1 SendPosts 编排下沉 —— `outbound/send_build.rs` + `handle_send_message` 回放测试。
 //!
-//! 回归锚: P1（takeover-plan/02-分阶段路线 §P1 + 03-测试策略 矩阵 P1 行）
+//! 回归锚: G-01 / UC-1.1（前端 UC 投影清单 §2：发送文本）
 //!
 //! 覆盖维度（含 fail-hard 断言）：
 //! - 正常 + 空消息 trim 拦截 + viewers 空补['all'] + 回复 root 合并 + userSnapshot 注入

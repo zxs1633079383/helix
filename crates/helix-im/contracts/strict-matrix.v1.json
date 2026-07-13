@@ -1,0 +1,3154 @@
+{
+  "schema_version": "helix-im-strict-matrix/v1",
+  "contract_epoch": 2,
+  "source_documents": [
+    "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
+    "docs/uc-automation/uc-command-set-spec.md",
+    "docs/uc-automation/uc-test-contracts.md",
+    "docs/projection-schema.md"
+  ],
+  "evidence_facets": [
+    "command",
+    "effect",
+    "transport",
+    "local_store",
+    "remote_store",
+    "projection",
+    "dom",
+    "trace"
+  ],
+  "forbidden_aliases": [
+    "im_send",
+    "im_send_quick_reply",
+    "im_mark_read",
+    "im_read_channel",
+    "im_ensure_channel_loaded",
+    "im_locate_post",
+    "im_channel_create",
+    "im_member_leave",
+    "im_channel_settings",
+    "im_post_pin",
+    "im_announcement_write",
+    "im_online_status",
+    "im_members_by_ids",
+    "im_list_candidate_users",
+    "im_channel_admin_change",
+    "im_member_nickname_change",
+    "im_todo_query",
+    "im_system_notice_query",
+    "im_module_read",
+    "im_company_group_upsert",
+    "im_company_exit"
+  ],
+  "coverage": {
+    "minimum_gate_count": 46,
+    "required_gate_ids": [
+      "G-S1",
+      "G-S2",
+      "G-S3",
+      "G-S4",
+      "G-01",
+      "G-02",
+      "G-03",
+      "G-03a",
+      "G-04",
+      "G-04a",
+      "G-05",
+      "G-06",
+      "G-07",
+      "G-08",
+      "G-09",
+      "G-10",
+      "G-10a",
+      "G-11",
+      "G-12",
+      "G-13",
+      "G-14",
+      "G-14a",
+      "G-15a",
+      "G-15",
+      "G-16",
+      "G-16b",
+      "G-16c",
+      "G-17",
+      "G-18",
+      "G-18a",
+      "G-18b",
+      "G-19",
+      "G-20",
+      "G-20a",
+      "G-20b",
+      "G-21",
+      "G-22",
+      "G-23",
+      "G-24",
+      "G-25",
+      "G-26",
+      "G-26a",
+      "G-26b",
+      "G-26c",
+      "G-26d",
+      "G-27"
+    ]
+  },
+  "render_protocol": {
+    "name": "RenderNode",
+    "version": 1,
+    "envelope_fields": [
+      "entity_id",
+      "entity_revision",
+      "render_kind",
+      "props",
+      "allowed_actions",
+      "correlation"
+    ],
+    "render_kinds": [
+      {
+        "kind": "system.sync.v1",
+        "required_props": [
+          "state",
+          "recovery"
+        ]
+      },
+      {
+        "kind": "dialog.list.v1",
+        "required_props": [
+          "items",
+          "active_channel_id"
+        ]
+      },
+      {
+        "kind": "channel.row.v1",
+        "required_props": [
+          "channel_id",
+          "display_name",
+          "unread_count",
+          "member_revision"
+        ]
+      },
+      {
+        "kind": "message.row.v1",
+        "required_props": [
+          "message_id",
+          "channel_id",
+          "author",
+          "body",
+          "lifecycle",
+          "reply",
+          "receipt",
+          "visibility"
+        ]
+      },
+      {
+        "kind": "reply.tree.v1",
+        "required_props": [
+          "root_message_id",
+          "nodes",
+          "reply_count"
+        ]
+      },
+      {
+        "kind": "read.receipt.v1",
+        "required_props": [
+          "message_id",
+          "reader_count",
+          "read_bits"
+        ]
+      },
+      {
+        "kind": "member.row.v1",
+        "required_props": [
+          "channel_id",
+          "user_id",
+          "member_state",
+          "profile_revision"
+        ]
+      },
+      {
+        "kind": "announcement.card.v1",
+        "required_props": [
+          "announcement_id",
+          "read_state"
+        ]
+      },
+      {
+        "kind": "participation.card.v1",
+        "required_props": [
+          "entity_id",
+          "state"
+        ]
+      },
+      {
+        "kind": "todo.card.v1",
+        "required_props": [
+          "todo_id",
+          "state"
+        ]
+      },
+      {
+        "kind": "module.card.v1",
+        "required_props": [
+          "module_id",
+          "read_state"
+        ]
+      },
+      {
+        "kind": "company.group.v1",
+        "required_props": [
+          "team_id",
+          "state"
+        ]
+      },
+      {
+        "kind": "search.result.v1",
+        "required_props": [
+          "items",
+          "query"
+        ]
+      }
+    ]
+  },
+  "case_defaults": {
+    "owner": {
+      "business_state": "helix",
+      "host": "transport-storage-only",
+      "ui": "intent-and-render-only"
+    },
+    "evidence": {
+      "required_facets": [
+        "command",
+        "effect",
+        "transport",
+        "local_store",
+        "remote_store",
+        "projection",
+        "dom",
+        "trace"
+      ],
+      "correlation_keys": [
+        "run_id",
+        "gate_id",
+        "operation_id",
+        "req_id",
+        "channel_id"
+      ]
+    }
+  },
+  "uc_cases": [
+    {
+      "gate_id": "G-S1",
+      "uc_id": "UC-4.1",
+      "title": "hello 全量增量",
+      "phase": "P0",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_query_dialog_list",
+          "input": {
+            "required": [],
+            "optional": [
+              "limit"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "local_scan",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "channel_member",
+        "channel_event_cursor"
+      ],
+      "projections": [
+        {
+          "event": "im:channels:loaded",
+          "render_kind": "dialog.list.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_channel"
+      ],
+      "negative_assertions": [
+        "Tauri 不得生成业务 ready 或 sync 状态"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channels/load/increment` body `{timestamp,cursors:[{channelId,fromSeq}]}`；单频道 `POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`",
+        "response": "BLOCKED：endpoint 与 response ABI 未冻结，禁止假设 CommonRes 或晋升 Green"
+      },
+      "ws": {
+        "events": "`hello`, `increment_channel`, `increment_channel_end`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_member",
+          "channel_event",
+          "post"
+        ],
+        "contract": "`channel.loadIncrementChannel`, `channel.loadSingleIncrementChannel`；`channel`, `channel_member`, `channel_event`, `post`"
+      }
+    },
+    {
+      "gate_id": "G-S2",
+      "uc_id": "UC-4.2",
+      "title": "sync notify",
+      "phase": "P0",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_sync_channels",
+          "input": {
+            "required": [
+              "reason"
+            ],
+            "optional": [
+              "channel_id",
+              "event_seq"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "sync_request",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_event_cursor",
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:update-by-post",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "driver 不得维护 gap 状态机或补偿队列"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`；内部 gap 可触发 `POST /api/cses/channel/sync/notify` body `{cursors}`",
+        "response": "BLOCKED：第二网关 response ABI 与持久化尚未核验，不得套用 cses-im-server CommonRes 结论"
+      },
+      "ws": {
+        "events": "`post`, `increment_channel_end`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_event",
+          "post",
+          "channel",
+          "channel_member"
+        ],
+        "contract": "`channel.loadSingleIncrementChannel`, `sync.syncChannels`；`channel_event`, `post`, `channel`, `channel_member`"
+      }
+    },
+    {
+      "gate_id": "G-S3",
+      "uc_id": "UC-4.4",
+      "title": "心跳 gap 补偿",
+      "phase": "P0",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_sync_channels",
+          "input": {
+            "required": [
+              "reason"
+            ],
+            "optional": [
+              "channel_id",
+              "event_seq"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "sync_request",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_event_cursor",
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:sync:state",
+          "render_kind": "system.sync.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "宿主健康事件不得伪装成 im:sync 业务投影"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`",
+        "response": "BLOCKED：第二网关 response ABI 与持久化尚未核验，不得套用 cses-im-server CommonRes 结论"
+      },
+      "ws": {
+        "events": "`pong`; 补偿后同 `post` / `posts_update` / `increment_channel_end`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_event",
+          "post",
+          "channel"
+        ],
+        "contract": "`sync.syncChannels`；`channel_event`, `post`, `channel`"
+      }
+    },
+    {
+      "gate_id": "G-S4",
+      "uc_id": "UC-4.5",
+      "title": "陌生 channel 兜底",
+      "phase": "P0",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_load_increment_by_channel_id",
+          "input": {
+            "required": [
+              "channel_id",
+              "req_id"
+            ],
+            "optional": [
+              "is_read"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "channel_member",
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:increment",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_channel"
+      ],
+      "negative_assertions": [
+        "UI 不得自行补齐未知频道"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS；后续可能收到 `increment_channel`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_member",
+          "post"
+        ],
+        "contract": "`channel.loadSingleIncrementChannel`；`channel`, `channel_member`, `post`"
+      }
+    },
+    {
+      "gate_id": "G-01",
+      "uc_id": "UC-1.1",
+      "title": "发文本",
+      "phase": "P2",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_send_message",
+          "input": {
+            "required": [
+              "channel_id",
+              "text",
+              "type"
+            ],
+            "optional": [
+              "props",
+              "reply_to_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "storage_upsert",
+            "http_write",
+            "timer",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "pending_send"
+      ],
+      "projections": [
+        {
+          "event": "im:post:sending",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:post:received",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "retry_send",
+        "revoke",
+        "reply",
+        "react"
+      ],
+      "negative_assertions": [
+        "UI 不得生成 temporary_id 或发送态"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/create` body `{viewers,message,mentions,temporaryId,type,simpleMessage,channelId,userId,teamId,userSnapshot,id,props,topicId,revoke,createAt,replyId?,replyRootId?,replyFirstLevelId?}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "正常发送主推 `post`；`update_channel` 不是普通发送主链路单独推送，仅在读标记/频道变更/撤回最后一条/加急等副链出现；错误本地 `im:post:send-failed`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.createPost`, `app.SendPosts`；`post`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-02",
+      "uc_id": "UC-1.2",
+      "title": "发文档",
+      "phase": "P2",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_send_message",
+          "input": {
+            "required": [
+              "channel_id",
+              "type",
+              "props"
+            ],
+            "optional": [
+              "text",
+              "reply_to_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "upload",
+            "storage_upsert",
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "pending_send"
+      ],
+      "projections": [
+        {
+          "event": "im:post:received",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "retry_send",
+        "revoke",
+        "reply"
+      ],
+      "negative_assertions": [
+        "附件展示字段不得由 UI 猜测"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage=\"【文档】 http://doc.cses7.com/doc/abc123\"`，`props.document={version:1,url:\"http://doc.cses7.com/doc/abc123\",title:\"打开文档\",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.createPost`, `app.SendPosts`；`post`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-03",
+      "uc_id": "UC-1.3",
+      "title": "发图片/文件/媒体",
+      "phase": "P2",
+      "lifecycle": "deferred-by-user",
+      "contract_state": "blocked",
+      "commands": [
+        {
+          "name": "im_send_message",
+          "input": {
+            "required": [
+              "channel_id",
+              "type",
+              "props"
+            ],
+            "optional": [
+              "text"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "upload",
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "pending_send"
+      ],
+      "projections": [
+        {
+          "event": "im:post:received",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "retry_send"
+      ],
+      "negative_assertions": [
+        "用户豁免上传前不得晋升 Green"
+      ],
+      "http": {
+        "request": "上传由 driver；最终 `POST /api/cses/posts/create`，body 同发送，`props` 写入上传结果",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "media",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.createPost`, 上传适配层；`post`, `media`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-03a",
+      "uc_id": "UC-1.4",
+      "title": "重发失败",
+      "phase": "P2",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_retry_send",
+          "input": {
+            "required": [
+              "message_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "storage_read",
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "pending_send"
+      ],
+      "projections": [
+        {
+          "event": "im:post:sending",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:post:send-failed",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "retry_send"
+      ],
+      "negative_assertions": [
+        "UI 不得重建原 payload 或 temporary_id"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/create`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post` 回声；失败为本地 emit"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel_event"
+        ],
+        "contract": "`post.createPost`；`post`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-04",
+      "uc_id": "UC-1.5",
+      "title": "撤回",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_revoke",
+          "input": {
+            "required": [
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:post:batch-updated",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:post:deleted",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "UI 不得自行替换撤回文案或生命周期"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/revoke` body `{postId}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`posts_update`, `post_update`, `update_channel`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.revoke`；`post`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-04a",
+      "uc_id": "UC-1.5-offline",
+      "title": "离线撤回重放",
+      "phase": "P0",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_sync_channels",
+          "input": {
+            "required": [
+              "reason"
+            ],
+            "optional": [
+              "channel_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "sync_request",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "channel_event_cursor"
+      ],
+      "projections": [
+        {
+          "event": "im:post:deleted",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "离线恢复不得依赖 UI 内存态"
+      ],
+      "http": {
+        "request": "无 UI 主动 HTTP；由 `channels/load/increment` / `sync/notify` 拉到事件",
+        "response": "N/A：必须以 trace 与 HTTP 计数证明本次 operation 未发起远端请求"
+      },
+      "ws": {
+        "events": "`increment_channel`, `posts_update`, sync events"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_event",
+          "post"
+        ],
+        "contract": "`channel.loadIncrementChannel`, `sync.syncChannels`；`channel_event`, `post`"
+      }
+    },
+    {
+      "gate_id": "G-05",
+      "uc_id": "UC-1.7",
+      "title": "转发/合并转发",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_relay_messages",
+          "input": {
+            "required": [
+              "post_ids",
+              "target_channel_ids",
+              "mode"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "storage_read",
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "channel"
+      ],
+      "projections": [
+        {
+          "event": "im:post:received",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "reply",
+        "react"
+      ],
+      "negative_assertions": [
+        "UI 不得按目标频道展开业务 HTTP"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/createPosts` body `{posts:[Post...],channelIds:[...]}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post` per target channel"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.createPosts`, `app.CreateCsesPosts`；`post`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-06",
+      "uc_id": "UC-1.8",
+      "title": "快捷回复 emoji",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_quick_reply",
+          "input": {
+            "required": [
+              "post_id",
+              "emoji",
+              "user_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:post:updated",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "react"
+      ],
+      "negative_assertions": [
+        "不得使用 im_send_quick_reply alias 或 reaction 转 emoji"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/quickReply` body `{postId,emoji,userId?}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel_event"
+        ],
+        "contract": "`post.quickReply`；`post`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-07",
+      "uc_id": "UC-1.9",
+      "title": "加急 + 确认",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_urgent_post",
+          "input": {
+            "required": [
+              "post_id",
+              "target_ids"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_urgent_confirm",
+          "input": {
+            "required": [
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "message_receipt"
+      ],
+      "projections": [
+        {
+          "event": "im:post:updated",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:post:readers",
+          "render_kind": "read.receipt.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "urgent_confirm"
+      ],
+      "negative_assertions": [
+        "确认人数与可见性不得由 UI 计数"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/urgentPost` body `{channelId,postId,targetIds,message?}`；`POST /api/cses/posts/urgentConfirm` body `{postId,channelId}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_update`, `update_channel`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.urgentPost`, `post.urgentConfirm`, `post.urgentCancel`；`post`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-08",
+      "uc_id": "UC-1.10",
+      "title": "定时消息",
+      "phase": "P2",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_create_schedule",
+          "input": {
+            "required": [
+              "channel_id",
+              "message",
+              "schedule_post_at"
+            ],
+            "optional": [
+              "type",
+              "props"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_schedule"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:schedule-created",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "cancel_schedule"
+      ],
+      "negative_assertions": [
+        "UI 不得只写本地定时 badge"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/createSchedule` body `{post:{channelId,message,temporaryId?},schedulePostAt}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_schedule_created`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post_schedule",
+          "channel",
+          "post"
+        ],
+        "contract": "`post.createScheduledPost`；`post_schedule`, `channel`, `post`"
+      }
+    },
+    {
+      "gate_id": "G-09",
+      "uc_id": "UC-1.10-cancel",
+      "title": "取消定时",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_cancel_schedule",
+          "input": {
+            "required": [
+              "schedule_post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_schedule"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:schedule-canceled",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "create_schedule"
+      ],
+      "negative_assertions": [
+        "取消后 UI 不得手动覆盖频道状态"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/cancelSchedule` body `{channelId}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_schedule_canceled`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post_schedule",
+          "channel",
+          "channel_member"
+        ],
+        "contract": "`post.cancelScheduledPost`；`post_schedule`, `channel`, `channel_member`"
+      }
+    },
+    {
+      "gate_id": "G-10",
+      "uc_id": "UC-2.1",
+      "title": "切群首屏",
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_query_messages_by_channel",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [
+              "limit"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "local_scan",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:messages:query_result",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "load_older",
+        "reply"
+      ],
+      "negative_assertions": [
+        "UI 不得 merge 或排序 message 业务字段"
+      ],
+      "http": {
+        "request": "无远端 HTTP；读 Helix 本地 message 表",
+        "response": "N/A：必须以 trace 与 HTTP 计数证明本次 operation 未发起远端请求"
+      },
+      "ws": {
+        "events": "无"
+      },
+      "remote_store": {
+        "database": "N/A",
+        "tables": [],
+        "contract": "无后端接口；无直接后端表"
+      }
+    },
+    {
+      "gate_id": "G-10a",
+      "uc_id": "UC-2.2",
+      "title": "上拉更早历史",
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_load_older_context",
+          "input": {
+            "required": [
+              "channel_id",
+              "anchor_post_id"
+            ],
+            "optional": [
+              "before"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:messages:older_loaded",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "load_older"
+      ],
+      "negative_assertions": [
+        "UI 仅保持滚动锚点，不得计算历史窗口业务分页"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/postContext` body `{postId,before}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "`post.getPostContext`；`post`"
+      }
+    },
+    {
+      "gate_id": "G-11",
+      "uc_id": "UC-2.3",
+      "title": "按 postId 定位",
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_get_posts",
+          "input": {
+            "required": [
+              "post_ids",
+              "req_id"
+            ],
+            "optional": [
+              "locate"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:post:located",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_message"
+      ],
+      "negative_assertions": [
+        "定位和高亮语义必须来自 Helix RenderNode"
+      ],
+      "http": {
+        "request": "本地优先；远端可用 `POST /api/cses/posts/get` body `{postIds:[...]}` / `posts/postContext`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "`post.getPost`, `post.getPostContext`；`post`"
+      }
+    },
+    {
+      "gate_id": "G-12",
+      "uc_id": "UC-2.4",
+      "title": "回复列表/分支",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_get_replies",
+          "input": {
+            "required": [
+              "reply_id",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_get_reply_branch",
+          "input": {
+            "required": [
+              "reply_first_level_id",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "reply_tree"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:replies",
+          "render_kind": "reply.tree.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "reply",
+        "open_reply_tree"
+      ],
+      "negative_assertions": [
+        "reply 层级、数量和父子关系不得由 UI 推导"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/getReplies` body `{replyId,pageNumber,pageSize,revoke?}`；`POST /api/cses/posts/getReplyBranch` body `{replyFirstLevelId,pageNumber,pageSize,revoke?}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "`post.getReplies`, `post.getReplyBranch`；`post`"
+      }
+    },
+    {
+      "gate_id": "G-13",
+      "uc_id": "UC-3.1",
+      "title": "会话已读",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channels_view",
+          "input": {
+            "required": [
+              "channels"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "message_receipt"
+      ],
+      "projections": [
+        {
+          "event": "im:post:read",
+          "render_kind": "read.receipt.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:channel:update",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "未读清零不得由 UI 先行写入"
+      ],
+      "http": {
+        "request": "`POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel_member",
+          "channel",
+          "channel_event"
+        ],
+        "contract": "`post.postRead`, `channel.viewChannels`；`post`, `channel_member`, `channel`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-14",
+      "uc_id": "UC-3.2",
+      "title": "单条已读",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_post_read",
+          "input": {
+            "required": [
+              "channel_id",
+              "posts"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message_receipt"
+      ],
+      "projections": [
+        {
+          "event": "im:post:read",
+          "render_kind": "read.receipt.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "不得使用 im_mark_read 或 post_id 转 posts"
+      ],
+      "http": {
+        "request": "`POST /api/cses/post/read` body `{channelId,posts:[postId]}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_read`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.postRead`；`post`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-14a",
+      "uc_id": "UC-3.3",
+      "title": "模板已收到",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_template_received",
+          "input": {
+            "required": [
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message_receipt"
+      ],
+      "projections": [
+        {
+          "event": "im:post:updated",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "template_received"
+      ],
+      "negative_assertions": [
+        "template receipt 不得由 UI 本地标记"
+      ],
+      "http": {
+        "request": "`POST /api/cses/post/templateReceived` body `{postId}`；注意 Helix 入参读 camel `postId`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel_event"
+        ],
+        "contract": "`post.templateReceived`；`post`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-15a",
+      "uc_id": "UC-5.1",
+      "title": "创建群聊",
+      "phase": "P1",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_create_channel",
+          "input": {
+            "required": [
+              "type",
+              "user_ids",
+              "display_name",
+              "picture",
+              "force_create"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:created",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:channel:members",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_channel",
+        "send_message"
+      ],
+      "negative_assertions": [
+        "千人选人和批处理仅可在 Helix 执行"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/create` body `{teamId,displayName,orient,type,users,picturetype,picture,forceCreate}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_created`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_member",
+          "channel_members_snapshot",
+          "channel_event",
+          "post"
+        ],
+        "contract": "`channel.createChannel`；`channel`, `channel_member`, `channel_members_snapshot`, `channel_event`, `post`（系统欢迎消息）"
+      }
+    },
+    {
+      "gate_id": "G-15",
+      "uc_id": "UC-5.2",
+      "title": "创建话题",
+      "phase": "P3",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_make_topic",
+          "input": {
+            "required": [
+              "root_id",
+              "user_ids",
+              "picture"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "message",
+        "reply_tree"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:created",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:channel:replies",
+          "render_kind": "reply.tree.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "open_reply_tree"
+      ],
+      "negative_assertions": [
+        "topic root 和 reply 关系不得由 UI 拼接"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,teamId,postId,displayName,type,users,picturetype,picture,forceCreate}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_created`, `post_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_member",
+          "channel_topic",
+          "post",
+          "channel_event"
+        ],
+        "contract": "`post.makeTopic`；`channel`, `channel_member`, `channel_topic`, `post`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-16",
+      "uc_id": "UC-5.3",
+      "title": "关闭/退出群",
+      "phase": "P7",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_close",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_channel_leave",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:closed",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        },
+        {
+          "event": "im:channel:left",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "close 与 leave 不能由同一 UI 分支假定"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/close` body `{channelId}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_close`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`channel.channelClose`；`channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-16b",
+      "uc_id": "UC-5.3b",
+      "title": "member leave 广播",
+      "phase": "L2",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_leave",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "transport_broadcast",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:members",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "观察者成员状态必须来自 Helix 投影"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/member/leave` body `{channelId,userId?,newCreator?}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_member_update`, `quit_company`（公司域也可能推）"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_member",
+          "channel",
+          "channel_event",
+          "post"
+        ],
+        "contract": "`channel.channelMemberLeave`；`channel_member`, `channel`, `channel_event`, `post`（系统消息）"
+      }
+    },
+    {
+      "gate_id": "G-16c",
+      "uc_id": "UC-5.4",
+      "title": "群属性修改",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_change_display_name",
+          "input": {
+            "required": [
+              "channel_id",
+              "display_name"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_channel_change_notice",
+          "input": {
+            "required": [
+              "channel_id",
+              "notice"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_channel_change_info",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [
+              "purpose",
+              "header",
+              "expected_version"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:settings-updated",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "edit_channel_settings"
+      ],
+      "negative_assertions": [
+        "不得使用 settings 对象转换或 im_channel_settings alias"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`update_channel`, `update_channel_notice`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_event",
+          "post"
+        ],
+        "contract": "`channel.changeChannelInfo`, `changeChannelNotice/Picture/Source/...`；`channel`, `channel_event`, `post`（系统消息）"
+      }
+    },
+    {
+      "gate_id": "G-17",
+      "uc_id": "UC-5.5",
+      "title": "频道置顶",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_change_top",
+          "input": {
+            "required": [
+              "channel_id",
+              "top"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:update",
+          "render_kind": "channel.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "set_channel_top"
+      ],
+      "negative_assertions": [
+        "UI 不得自行重排业务会话列表"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/change/top` body `{channelId,top}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`update_channel`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_member",
+          "channel"
+        ],
+        "contract": "`channel.changeChannelTop`；`channel_member`（个人置顶态）, `channel`"
+      }
+    },
+    {
+      "gate_id": "G-18",
+      "uc_id": "UC-5.5b",
+      "title": "消息置顶",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_set_message_top",
+          "input": {
+            "required": [
+              "channel_id",
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_set_message_untop",
+          "input": {
+            "required": [
+              "channel_id",
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:post:updated",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "set_message_top"
+      ],
+      "negative_assertions": [
+        "不得使用 im_post_pin alias"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/add/postPinned` body `{channelId,postId}`；取消为 `channel/remove/postPinned` body 同",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_pin`, `post_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post_pinned",
+          "post",
+          "channel_event"
+        ],
+        "contract": "`channel.addChannelPostPinned`, `deleteChannelPostPinned`；`post_pinned`, `post`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-18a",
+      "uc_id": "UC-5.6r/w",
+      "title": "公告读写",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_announcement_list",
+          "input": {
+            "required": [
+              "channel_id",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_announcement_save",
+          "input": {
+            "required": [
+              "channel_id",
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_announcement_read",
+          "input": {
+            "required": [
+              "announcement_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "announcement",
+        "message_receipt"
+      ],
+      "projections": [
+        {
+          "event": "im:announcement:updated",
+          "render_kind": "announcement.card.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "read_announcement",
+        "write_announcement"
+      ],
+      "negative_assertions": [
+        "公告状态不得由 UI 本地回填"
+      ],
+      "http": {
+        "request": "`POST /api/cses/post/announcement/read` body `{postId,channelId}`；`POST /api/cses/post/announcement/save` body = 完整 Post args；读列表/详情为 `announcement/list/detail/acceptList`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`post_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post_announcements",
+          "post",
+          "channel_event"
+        ],
+        "contract": "`post.announcementRead`, `announcementSave`, `announcementList/Detail/AcceptList`；`post_announcements`, `post`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-18b",
+      "uc_id": "UC-5.7",
+      "title": "在线状态",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_online_status",
+          "input": {
+            "required": [
+              "channel_ids",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:members",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "不得使用 im_online_status alias"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/onlineStatus` body `{channelIds:[...]}`；用户状态命令 `POST /api/cses/users/status/ids` body `{userIds:[...]}` 也存在",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS；presence 来自连接态"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_member",
+          "users"
+        ],
+        "contract": "`channel.channelOnlineStatus`, `user.userStatusByIds`；`channel_member`, `users`（只读）, presence 内存态"
+      }
+    },
+    {
+      "gate_id": "G-19",
+      "uc_id": "UC-5.8",
+      "title": "条件查频道",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_query",
+          "input": {
+            "required": [
+              "req_id",
+              "page",
+              "condition"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel"
+      ],
+      "projections": [
+        {
+          "event": "im:read:result",
+          "render_kind": "search.result.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_channel"
+      ],
+      "negative_assertions": [
+        "UI 不得本地过滤替代服务端条件查询"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/query` body = `condition` 平铺 + `{pageNumber,pageSize,offset}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel",
+          "channel_member"
+        ],
+        "contract": "`channel.channelQuery`；`channel`, `channel_member`"
+      }
+    },
+    {
+      "gate_id": "G-20",
+      "uc_id": "UC-6.1",
+      "title": "拉/踢人",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_member_change",
+          "input": {
+            "required": [
+              "channel_id",
+              "join_users",
+              "leave_users"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:members",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "add_member",
+        "remove_member"
+      ],
+      "negative_assertions": [
+        "千人级用户选择集不可在 Angular 分批或串行发送"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/member/change` body `{channelId,joinUsers?:[{id,teamId,role}],leaveUsers?:[...]}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_member_update`, topic 下可能 `post_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_member",
+          "channel",
+          "channel_event",
+          "post"
+        ],
+        "contract": "`channel.channelMemberChange`；`channel_member`, `channel`, `channel_event`, `post`（系统消息）"
+      }
+    },
+    {
+      "gate_id": "G-20a",
+      "uc_id": "UC-6.2",
+      "title": "设/撤管理员",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_member_role",
+          "input": {
+            "required": [
+              "channel_id",
+              "user_ids",
+              "role"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:member-updated",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "set_member_role"
+      ],
+      "negative_assertions": [
+        "不得使用 im_channel_admin_change alias"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/member/change/role` body `{channelId,userIds,role}`；兼容 `channel/add/manger` / `channel/remove/manger` body `{channelId,users}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_member_role_updated`, `channel_member_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_member",
+          "channel_admin_history",
+          "channel_event"
+        ],
+        "contract": "`channel.updateChannelMemberRole`, `addChannelManger`, `deleteChannelManger`；`channel_member`, `channel_admin_history`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-20b",
+      "uc_id": "UC-6.3",
+      "title": "改群昵称",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_update_member_nickname",
+          "input": {
+            "required": [
+              "channel_id",
+              "user_id",
+              "nick_name"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:members",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "edit_member_nickname"
+      ],
+      "negative_assertions": [
+        "不得使用 im_member_nickname_change alias"
+      ],
+      "http": {
+        "request": "`POST /api/cses/channel/member/change/nickname` body `{channelId,nickname,userId?}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`update_channel_member_nickName`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`channel.updateChannelMemberNickname`；`channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-21",
+      "uc_id": "UC-6.4",
+      "title": "成员快照/全量修复",
+      "phase": "P5",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_channel_member_snapshot",
+          "input": {
+            "required": [
+              "channel_id",
+              "req_id"
+            ],
+            "optional": [
+              "known_member_revision",
+              "known_member_digest"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_replace",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_channels_members_by_ids",
+          "input": {
+            "required": [
+              "channel_ids",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel_member",
+        "user_profile",
+        "member_digest"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:members",
+          "render_kind": "member.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "open_member_directory"
+      ],
+      "negative_assertions": [
+        "首次快照后仅 Helix 可按 member_revision/member_digest 触发全量修复"
+      ],
+      "http": {
+        "request": "snapshot: `POST /api/cses/channel/member/snapshot` body `{channelId,startTime,endTime}`；byIds: `POST /api/cses/channels/member/byIds` body `{channelIds}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "channel_members_snapshot",
+          "channel_member",
+          "users"
+        ],
+        "contract": "`channel.getMembersSnapshot`, `channel.loadChannelMembersByIds`；`channel_members_snapshot`, `channel_member`, `users`"
+      }
+    },
+    {
+      "gate_id": "G-22",
+      "uc_id": "UC-7.x",
+      "title": "搜索",
+      "phase": "P6",
+      "lifecycle": "excluded",
+      "contract_state": "blocked",
+      "commands": [
+        {
+          "name": "im_search_post",
+          "input": {
+            "required": [
+              "query",
+              "req_id"
+            ],
+            "optional": [
+              "channel_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "search_index"
+      ],
+      "projections": [
+        {
+          "event": "im:read:result",
+          "render_kind": "search.result.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_message"
+      ],
+      "negative_assertions": [
+        "excluded UC 不得借 placeholder 宣称真实链路 green"
+      ],
+      "http": {
+        "request": "未接通：搜索 UC 当前保持 excluded，imv2/ES endpoint 与 response ABI 尚未冻结",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "N/A：excluded；不得以无 WS 证据晋升"
+      },
+      "remote_store": {
+        "database": "external-unverified",
+        "tables": [],
+        "contract": "未冻结；搜索存储边界未核验"
+      }
+    },
+    {
+      "gate_id": "G-23",
+      "uc_id": "UC-8.x-vote",
+      "title": "投票 CRUD",
+      "phase": "P6",
+      "lifecycle": "excluded",
+      "contract_state": "blocked",
+      "commands": [
+        {
+          "name": "im_vote_create",
+          "input": {
+            "required": [
+              "channel_id",
+              "options"
+            ],
+            "optional": [
+              "req_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_vote_read",
+          "input": {
+            "required": [
+              "id",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:post:updated",
+          "render_kind": "participation.card.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "vote"
+      ],
+      "negative_assertions": [
+        "excluded UC 不得凭静态 DOM 提升真实链路状态"
+      ],
+      "http": {
+        "request": "第二网关 /vote/*（:3399）；不属于已核验 cses-im-server /api/cses 合同",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "预期 post_update；当前 excluded，未形成可发布证据"
+      },
+      "remote_store": {
+        "database": "external-unverified",
+        "tables": [],
+        "contract": "Default gateway vote service；第二网关数据库未核验，不得记为 imv2"
+      }
+    },
+    {
+      "gate_id": "G-24",
+      "uc_id": "UC-8.x-average",
+      "title": "平均分 CRUD",
+      "phase": "P6",
+      "lifecycle": "excluded",
+      "contract_state": "blocked",
+      "commands": [
+        {
+          "name": "im_average_publish",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [
+              "req_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_average_read",
+          "input": {
+            "required": [
+              "id",
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:post:updated",
+          "render_kind": "participation.card.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "attend_average"
+      ],
+      "negative_assertions": [
+        "excluded UC 不得凭静态 DOM 提升真实链路状态"
+      ],
+      "http": {
+        "request": "第二网关 /average/*（:3399）；不属于已核验 cses-im-server /api/cses 合同",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "预期 post_update；当前 excluded，未形成可发布证据"
+      },
+      "remote_store": {
+        "database": "external-unverified",
+        "tables": [],
+        "contract": "Default gateway average service；第二网关数据库未核验，不得记为 imv2"
+      }
+    },
+    {
+      "gate_id": "G-25",
+      "uc_id": "UC-9.x",
+      "title": "书签",
+      "phase": "P6",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_bookmark_create",
+          "input": {
+            "required": [
+              "post_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "projection"
+          ]
+        },
+        {
+          "name": "im_bookmark_load",
+          "input": {
+            "required": [
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "bookmark"
+      ],
+      "projections": [
+        {
+          "event": "im:read:result",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "create_bookmark",
+        "delete_bookmark"
+      ],
+      "negative_assertions": [
+        "书签状态不得由 UI 单独缓存为业务真相"
+      ],
+      "http": {
+        "request": "create `POST /api/cses/post/bookmark/create` body `{channelId,userId,postIds}`；delete `{userId,postId}`；load `{channelId,userId,pageSize?,pageNumber?,offset?}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post_bookmark",
+          "post"
+        ],
+        "contract": "`post.createPostBookmark`, `deletePostBookmark`, `loadPostBookmark`；`post_bookmark`, `post`"
+      }
+    },
+    {
+      "gate_id": "G-26",
+      "uc_id": "UC-10.1",
+      "title": "待办列表",
+      "phase": "P6",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_query_todo_list",
+          "input": {
+            "required": [
+              "req_id"
+            ],
+            "optional": [
+              "channel_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "todo"
+      ],
+      "projections": [
+        {
+          "event": "im:todo:updated",
+          "render_kind": "todo.card.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "complete_todo",
+        "delete_todo"
+      ],
+      "negative_assertions": [
+        "待办类别和可删除性必须由 Helix 投影计算"
+      ],
+      "http": {
+        "request": "`POST /api/cses/posts/queryTodoList` body `{postIds:[...]}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "hello 收尾 `increment_channel_end` 触发自驱；无业务 WS"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel"
+        ],
+        "contract": "`post.queryTodoList`；`post`, `channel`"
+      }
+    },
+    {
+      "gate_id": "G-26a",
+      "uc_id": "UC-10.2",
+      "title": "系统通知",
+      "phase": "P6",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_load_target_notifications",
+          "input": {
+            "required": [
+              "req_id"
+            ],
+            "optional": [
+              "channel_id"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "system_notice"
+      ],
+      "projections": [
+        {
+          "event": "im:system-notice:updated",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "open_notice"
+      ],
+      "negative_assertions": [
+        "系统通知样式和状态不由 UI 解析旧 payload"
+      ],
+      "http": {
+        "request": "Helix 目标 `POST /api/cses/notification/loadTarget` body `{page,size}`；Go 当前仅注册 `POST /api/cses/notification/loadSend`，`loadTarget` 未迁移/未注册",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无直接 WS"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "notification",
+          "notification_recipient"
+        ],
+        "contract": "Go 当前缺 `loadTarget`; `notification.loadSendNotifications` 仅发送侧；`notification`, `notification_recipient`"
+      }
+    },
+    {
+      "gate_id": "G-26b",
+      "uc_id": "UC-10.3",
+      "title": "全模块读",
+      "phase": "P6",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_get_all_modules",
+          "input": {
+            "required": [
+              "req_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "module"
+      ],
+      "projections": [
+        {
+          "event": "im:module:read",
+          "render_kind": "module.card.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "open_module"
+      ],
+      "negative_assertions": [
+        "模块可见性由 Helix 计算"
+      ],
+      "http": {
+        "request": "`POST /api/cses/modules/getAll` body `{}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "无"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "modules"
+        ],
+        "contract": "`modules.getAllModules`；`modules`"
+      }
+    },
+    {
+      "gate_id": "G-26c",
+      "uc_id": "UC-11.1",
+      "title": "维护公司大群",
+      "phase": "P1",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_team_upsert",
+          "input": {
+            "required": [
+              "team_id",
+              "display_name"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:channel:created",
+          "render_kind": "company.group.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "select_channel"
+      ],
+      "negative_assertions": [
+        "不得使用 im_company_group_upsert alias"
+      ],
+      "http": {
+        "request": "`POST /api/cses/teams/upsert` body `{teamId,displayName,orient,type,picturetype,picture,users,forceCreate,owner}`；`POST /api/cses/teams/member/add` body = event",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`channel_created`, `channel_member_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "team",
+          "team_member",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`team.upsertTeam`, `team.addTeamMember`；`team`, `team_member`, `channel`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-26d",
+      "uc_id": "UC-11.2",
+      "title": "退出公司",
+      "phase": "P7",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_team_quit",
+          "input": {
+            "required": [
+              "team_id"
+            ],
+            "optional": [],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "channel",
+        "channel_member"
+      ],
+      "projections": [
+        {
+          "event": "im:company-group:updated",
+          "render_kind": "company.group.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "不得使用 im_company_exit alias"
+      ],
+      "http": {
+        "request": "`DELETE /api/cses/teams/member/quit` body `{userId,teamId}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "`quit_company`, `channel_member_update`"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "team_member",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`team.quitTeam`；`team_member`, `channel_member`, `channel_event`"
+      }
+    },
+    {
+      "gate_id": "G-27",
+      "uc_id": "US-17",
+      "title": "他人发消息收推送",
+      "phase": "L2",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "commands": [
+        {
+          "name": "im_send_message",
+          "input": {
+            "required": [
+              "channel_id",
+              "text",
+              "type"
+            ],
+            "optional": [
+              "props"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_write",
+            "transport_broadcast",
+            "projection"
+          ]
+        }
+      ],
+      "persistence": [
+        "message",
+        "channel_event_cursor"
+      ],
+      "projections": [
+        {
+          "event": "im:post:received",
+          "render_kind": "message.row.v1",
+          "schema": "RenderNode/v1"
+        }
+      ],
+      "allowed_actions": [
+        "reply",
+        "react"
+      ],
+      "negative_assertions": [
+        "观察者 UI 不得依据发送端 intent 合成消息"
+      ],
+      "http": {
+        "request": "B 端同 UC-1.1 `POST /api/cses/posts/create`; A 端无 HTTP",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+      },
+      "ws": {
+        "events": "A 收 `post`; A 也可能经 `sync/notify` 拉 events"
+      },
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel",
+          "channel_member",
+          "channel_event"
+        ],
+        "contract": "`post.createPost`, `app.SendPosts`；`post`, `channel`, `channel_member`, `channel_event`"
+      }
+    }
+  ]
+}

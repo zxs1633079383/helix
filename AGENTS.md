@@ -121,6 +121,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C014 | 分支身份固化进 SESSION §0（当前分支+upstream+该不该删）——`branch-identity.sh` 自陈不靠记忆，杜绝「你在哪个分支」反复问 | active |
 | HX-C015 | workflow/后台 agent 完成靠 task-notification 自动回灌，禁手工「等…报告结果」轮询；只外部不可追踪态才 /loop | active |
 | HX-C016 | 真Go e2e:WS hello 依赖 tp/gRPC 隧道会随时间断(恢复 playbook·sudo密码sh)+全UC用单脚本双持久连接 wait_for(~3min)非LLM-workflow+快smoke(~13)vs精确per-UC(全33)取舍 | active |
+| HX-C017 | 性能证据保持逐跳 correlation、确定性顺序与负载/观察窗口边界；冷热领域键分测 | active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 

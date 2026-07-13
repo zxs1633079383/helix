@@ -224,19 +224,6 @@ SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后�
 
 **提交代码前必读 → [`docs/COMMIT_CONVENTION.md`](docs/COMMIT_CONVENTION.md)**：Conventional Commits（中文 description/body）+ 触发条件命中时的 5 段结构化 body（影响范围 / 改动影响面 / 功能改进 / Harness 更新 / 验证）+ PR / Tag 策略。本仓有 `docs/harness/` → Harness 一节必填。配套 `scripts/gate.sh` + pre-push hook。
 
-## 7. Superpowers 触发规则（轻量桥接）
-
-> 本节只负责提高 Codex 对 Superpowers skill 的触发概率；不得覆盖本文件上方 Helix 架构铁律、EXPECT/harness 规则、Cargo 纪律或提交规范。
-
-- 遇到 bug、测试失败、构建失败、线上异常或行为不符合预期时，优先使用 `superpowers:systematic-debugging`：先复现、读错误、查最近变更、定位根因，再提出修复。
-- 在声称“完成 / 修好 / 测试通过 / 可以提交 / 可以合并”前，必须使用 `superpowers:verification-before-completion`：运行能证明结论的最新验证命令，并在回复里说明命令和结果。
-- 收到代码 review 或外部建议时，先使用 `superpowers:receiving-code-review` 判断建议是否符合当前代码库和既有架构，再决定实现或反驳。
-- 若任务命中以下任一条件，先使用 `superpowers:writing-plans` 生成计划，再实现：跨 crate / 跨 driver / 改 port 或核心 Effect 契约；预计改动 ≥3 文件或净增删 ≥50 行；涉及 FFI、Storage、Transport、同步协议、热路径、harness/ADR；用户明确要求 plan / 设计 / 分阶段执行。
-- 若已有 `docs/superpowers/plans/*.md` 且用户要求执行计划，必须优先使用 `superpowers:subagent-driven-development`。如果当前会话没有可用 multi-agent 工具，必须明说并改用 `superpowers:executing-plans`，不要静默手工降级。
-- 对窄范围 bugfix，默认顺序是：`superpowers:systematic-debugging` → `superpowers:test-driven-development`（仅当能写出有意义的回归测试）→ `superpowers:verification-before-completion`。
-- `superpowers:brainstorming` 只用于需求不清、方案空间较大、用户要求设计、或新增复杂能力；不要让它阻塞明确的小修、小文档、小配置改动。
-
-
 ## Agent skills
 
 > Configured by `setup-matt-pocock-skills` for the mattpocock engineering skill set

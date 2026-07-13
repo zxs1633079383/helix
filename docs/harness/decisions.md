@@ -12,10 +12,10 @@
 - **理由**：本仓 BLK-2（`Tick<'a>` 满足不了 `Sender<Tick<'static>>`）+ Dioxus `Scope<'a>` 生命周期地狱教训。
 - **状态**：已定。配套 HX-C002。
 
-## ADR-003 — wasm driver 误链守护 + CI 三栖 matrix
+## ADR-003 — wasm driver 误链守护 + CI 三栖 matrix（历史方案，待 W1 重建）
 - **决策**：helix-driver-wasm 顶部 `#[cfg(not(wasm32))] compile_error!`；CI 必 per-target check（workspace 排除 wasm crate + wasm crate 单独 --target）。
 - **理由**：cfg 分支只在对应 target type-check（MAJ-2）；防 wasm 符号误链 native。
-- **状态**：已归档（2026-06-15 被 ADR-006 覆盖）。配套 HX-C003 作为历史护栏保留；当前产品 CI 不要求 wasm target。
+- **状态**：历史方案已归档；ADR-014 已于 2026-07-13 重启 Web W0，但 HX-C003 在正式 `helix-driver-web` 壳进入 W1 前仍保持 archived，当前产品 CI 不要求 wasm target。W1 应按新产品壳重建守护并升为 active，不直接把历史骨架恢复成必跑项。
 
 ## ADR-004 — CursorUpsert 是否算 core 通用原语（已闭环）
 - **背景**：review 后实测 `grep channel/message/temporary crates/helix-core` = 0（纯 IM 概念隔离干净），但 `cursor`（`CursorUpsert` effect）进了 core（5 处）。
@@ -68,11 +68,11 @@
 - **代码事实**：仅 `crates/helix-host-cli/src/main.rs`（deviceId 三级解析链 + doc 头）；`main.rs` 注释已指向本 ADR，消除「反转铁律无登记」矛盾。
 - **状态**：已定（2026-06-22，用户拍板）。drift-review 2026-06-22 将其列为 🟡 凭据卫生 finding，经用户确认为故意例外 → 本 ADR 收口，**后续 drift-review 不再复报**。
 
-## ADR-012 — 默认 gate 对齐 PC native + Flutter FFI；FFI 仓内自验入默认门，wasm 保持归档手动
-- **决策**：`scripts/gate.sh` 的默认交付门只覆盖当前产品化目标：PC Tauri/native 与 Flutter FFI。默认门必须调用 `scripts/ffi-verify.sh --no-demo`，把 FFI 仓内 1–5 层（Rust e2e/clippy/零运行时/native↔ffi parity/C++ ABI smoke）纳入提交验证。第 6 层仓外 Flutter demo 由 `scripts/gate.sh --full` 或手动 `scripts/ffi-verify.sh` 触发；7–8 层 Flutter UI/Maestro 需完整 Xcode/设备，继续作为外部环境验收，不进入默认 gate。`helix-driver-wasm` 按 ADR-006 保持 archived/experimental，不作为默认交付 gate、CI 必跑矩阵或发布验收；需要历史 trait-shape 自检时手动跑 wasm target check。
-- **理由**：FFI 是当前产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。wasm/web 已由 ADR-006 明确暂停维护，默认 gate 若继续必跑 wasm target 会把归档端重新变成交付义务。
+## ADR-012 — 默认 gate 对齐 PC native + Flutter FFI；Web W0 期间不伪造 wasm 交付门
+- **决策**：`scripts/gate.sh` 的默认交付门在 Web W0 期间仍只覆盖已产品化目标：PC Tauri/native 与 Flutter FFI。默认门必须调用 `scripts/ffi-verify.sh --no-demo`，把 FFI 仓内 1–5 层（Rust e2e/clippy/零运行时/native↔ffi parity/C++ ABI smoke）纳入提交验证。第 6 层仓外 Flutter demo 由 `scripts/gate.sh --full` 或手动 `scripts/ffi-verify.sh` 触发；7–8 层 Flutter UI/Maestro 需完整 Xcode/设备，继续作为外部环境验收，不进入默认 gate。历史 `helix-driver-wasm` 继续 archived/experimental，不作为默认交付 gate；ADR-014 的 W1 建立正式 `helix-driver-web` 后，再把 wasm type-check、跨端 parity 与浏览器 smoke 纳入 CI。
+- **理由**：FFI 是当前已产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。Web 当前只是 W0，正式 crate 和真实浏览器验收尚未建立；此时把历史 wasm 骨架恢复成默认 gate，既不能证明 Web 可交付，也会制造错误的完成感。
 - **代码事实**：`scripts/gate.sh` 第 2 步为 PC/native + Flutter/FFI 双端 cargo check，不再默认 wasm target；第 8 步调用 `bash scripts/ffi-verify.sh --no-demo`。`scripts/ffi-verify.sh` 仍可独立运行，且用法说明标明默认 gate 与 demo/full 的边界。
-- **状态**：已定（2026-06-22，Task 4 gate alignment）。后续若网页端重新启动，需先新增 ADR 重新激活 wasm 维护目标和默认/CI 验收。
+- **状态**：已定（2026-06-22，Task 4 gate alignment），并由 ADR-014 校准 Web 重启后的阶段边界：W0 继续双端 gate，W1 再扩为多端 gate。
 
 ## ADR-013 — helix 不采用 bitmap segment 增量同步；message.segment_id 列/索引移除
 
@@ -111,7 +111,7 @@
 | 3 | **四能力解耦定性 = 行为级（A）** | Tick/Effect 提供的是**行为解耦**（模块只 emit 自己需要的 Effect），**非编译级裁剪**；「feature additive / 单独构建 / 编译级互不依赖」措辞全部校准为「行为级解耦」。唯一保留的编译级口子（B）：wasm 包体积——若 wasm size 真咬人，再为 wasm 单独拆 `Effect` 子枚举。`Effect` 仍是**单一 enum**。 |
 | 4 | **重试归 driver** | helix-im 不重试、失败只标 UnSend（源码 `ports/http.rs` 注释为准）；重试 / 退避是 driver 私有责任。 |
 | 5 | **DomainEvent 契约必须版本化** | 业务逻辑全进 Rust 后，core 与前端唯一对话面是 DomainEvent 事件流；该契约**必须版本化**（信封带 `v`），否则「业务回调地狱」会换成「事件 schema 对不齐地狱」。 |
-| 6 | **三端说法诚实校准** | 措辞从「三端在跑」改为「**两端在跑**（桌面 Tauri/Angular + 移动 Flutter）+ 浏览器在路上」。（注：浏览器端后被 ADR-006 进一步收缩为暂停维护。） |
+| 6 | **三端说法诚实校准** | 措辞从「三端在跑」改为「**两端在跑**（桌面 Tauri/Angular + 移动 Flutter）+ 浏览器在路上」。（历史上浏览器端曾被 ADR-006 暂停；2026-07-13 起由 ADR-014 重启为 W0，仍不得表述为已交付。） |
 | 7 | **driver 方法体当前全是 `todo!()`** | 流程图 / 序列图是「编译期类型验证为真的契约意图」，运行时兑现待 M2。（注：本条为 2026-06-17 折叠时的状态；之后 native transport/http/storage 主路径已逐步落地，见 ADR-007/008/010。） |
 
 **头号技术风险（主动上桌）**：乱序增量同步（断线重连 backfill）尚未验证——架构在最干净的发消息链上已证，但在最脏的「乱序帧缓冲 + gap 检测 + 按序补齐」链上一字未证。

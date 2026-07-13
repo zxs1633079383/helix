@@ -7,7 +7,7 @@
 > 2026-06-18 更新②：**M3-F4 完成并 merge dev-zlc（c229531）**。架构 pivot：原计划 Dart-host（Dart 喂帧 + `on_domain_event`→Dart Stream）→ **用户拍板 C++-host 直连**（cpp→rust→cpp：Rust 持 WS、事件批回 C++ vtable、Dart 只在 UI 层收 C++ 转发）。pump 核下沉 `helix-driver-host`，native(1119→168)+ffi 共用薄壳 **parity by construction**。八轮 branch drift-review 判 light/0 blocking。剩 F4.5 Flutter 真机冒烟 + F5 跨端 byte-level 验收。
 > 当前位置：**M2 收尾（Tauri 四接缝）+ M3-F4 ✅，下一站 F5 跨端验收 / Flutter 冒烟**（M1 全 + M2 主体 + M3 F1 主体/F2/F3/F4 已完）。
 > 2026-07-08 对账：本文件是**活账 + 验收清单**，不是最近所有工程进展的流水账。近期开出的 OTel/trace scope、多租户本地 DB、rich/file upload 等能力必须以各自 gate / reviewer / collector 证据为准，未自动等价为本 Roadmap 绿勾。当前机器事实：双端 `cargo check` PASS；本机未安装 `cargo-public-api`。
-> 2026-07-13 更新：用户拍板 ADR-014，Web 重新进入产品目标，但当前只到 **W0 浏览器可达性/鉴权契约验证**，尚未交付。三端共享 `helix-core + helix-im` 的业务语义；PC/Flutter 保持完整 SQLite，Web 采用 session state + bounded cache；正式产品壳规划为 `helix-driver-web`，历史 `helix-driver-wasm` 继续归档。
+> 2026-07-13 更新：Web 仍是产品目标，但原 **W0 浏览器探针 → W1-W4 Web 壳/缓存**执行路线已撤销。当前先拍板新的 Rust 架构：三端统一业务门面、PC/Flutter 默认 host 能力、Web 平台适配能力，以及 local-first/remote fallback 与 WS 物理连接/业务协议边界；拍板前不实施新 Web driver。历史 `helix-driver-wasm` 继续归档。
 
 ---
 
@@ -29,7 +29,7 @@
 
 ### AI 工程化硬化（已闭合，见 §四；本段保留为历史对照）
 
-当前 CI 仍是已交付双端 matrix（native + FFI）→ clippy deny-list → per-crate AGENTS.md → cargo public-api gate。Web 在 W1 产生可编译正式壳后追加 wasm type-check/browser smoke；W0 不用历史骨架伪造绿色 gate。
+当前 CI 仍是已交付双端 matrix（native + FFI）→ clippy deny-list → per-crate AGENTS.md → cargo public-api gate。Web 新 Rust 接入层落地后再按实际边界追加 target/type-check 与契约测试；当前不用历史骨架伪造绿色 gate。
 
 - [x] **F1 Flutter FFI API 最小面** ✅：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 已接 IM 本地查询路由**（`helix_im::mobile_query::{plan,shape_json}` → `ScanSpec` → SQLite-backed read），剩余验收放入 F5 Flutter demo / native-vs-FFI parity
 - [x] **F2 host storage 复用** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 覆盖；**pump 直接用 `HostStorage`**（F4 后 `FfiStorage` 冗余薄壳已 git rm）
@@ -52,15 +52,11 @@
 
 **关键路径**：F4.1–F4.4 ✅ 端到端接通并 merge（c229531）。**采纳「抽取共享」而非「FFI 自写泵」**——native+ffi 共用 host `run_engine_loop`，parity by construction。**剩 F4.5/F5** = Flutter 真机冒烟 + native↔FFI byte-level 跨端一致验收。**headless 守卫兑现**：全程 core/helix-im 零改（cargo tree -p helix-core 零运行时复证），改动落 `helix-driver-{ffi,host,native}`；同一份 core 跑 ffi 零改 ✅。
 
-### M4 —— Web 产品化（ADR-014 · 当前 W0）
+### M4 —— Web 产品化（ADR-014 · 架构方案重拟中）
 
-> **边界**：Web 复用 `helix-core + helix-im` 的协议、WS 帧处理、sequence/cursor、echo、已读和补偿同步；不复制 IM 状态机。PC/Flutter 的完整 SQLite/SharedWsClient 不强行搬进浏览器。正式壳为 `helix-driver-web`；历史 `crates/helix-driver-wasm` 继续归档，W1 审计后只迁移被证明可用的片段。
+> **仍有效的边界**：Web 复用 `helix-core + helix-im` 的业务语义，不复制 IM 状态机；PC/Flutter 的完整 SQLite/SharedWsClient 不强行搬进浏览器。旧 W0→W4 任务、浏览器 probe、Dedicated Worker/session store 方案均已撤销。
 
-- [ ] **W0 浏览器可达性闸门**（[执行 spec](./specs/web-w0-browser-reachability-spec.md)）：用真实浏览器验证 HTTP CORS、Cookie/session、WS 握手和现网 `cookieId/deviceId/companyId/appType` 约束；对比同源 BFF/WS gateway、Go Cookie/短期 ticket、连接后认证帧。〔验收〕真实 `open/message/close` 证据 + 方案/风险/部署影响，经用户另行拍板；未通过不得进入持久化实现。
-- [ ] **W1 WASM 行为复用证明**：让现有 `helix-core + helix-im` 面向 wasm 编译，不搬业务类型进 core；建立 `helix-driver-web` Dedicated Worker 最小壳。〔验收〕同一 Tick 剧本 native/FFI/Web 输出同业务 Effect/DomainEvent；HX-C001 保持零平台依赖；HX-C003 升 active 并进 CI。
-- [ ] **W2 在线 Web MVP**：Browser WebSocket/Fetch/Timer/EventSink + Web session store 兑现现有 ports；主线程只发命令/生命周期事件并批量接收 DomainEvent。〔验收〕hello→收帧→发送→echo→断线补偿同步真链路；刷新允许冷启动，不承诺离线。
-- [ ] **W3 有界缓存**：IndexedDB 只保存近期消息、会话摘要、草稿、UI 偏好等可淘汰投影；服务端仍是权威。〔硬约束〕禁止消息未持久化但 cursor 单独持久化；跨刷新恢复必须联合记录 cursor + cache coverage/window，或明确冷启动重同步。〔验收〕TTL/LRU/容量、账号隔离、清站点数据、缓存 miss 回源测试。
-- [ ] **W4 产品验收**：浏览器矩阵、生命周期恢复、多标签页 single-owner/leader、WS 鉴权安全、包体积与真 Go E2E。〔验收〕Web 未把业务 fetch/WS parser/sync/cursor/echo 逻辑复制到 UI/JS；关键 Tick 剧本三端 parity。
+- [ ] **A0 三端适配架构拍板**：讨论并冻结统一 Rust 业务门面、PC/Flutter 默认 Rust host、Web 平台适配器、local-first/remote fallback、HTTP 执行与 WS 物理连接/业务处理边界。〔验收〕形成新的 ADR 与可执行分阶段计划后，才重建 M4 实现任务和 Web gate。
 
 ---
 
@@ -137,12 +133,7 @@
 - [ ] `helix-driver-host` storage conformance 测试覆盖 native/ffi 共享 SQLite 语义
 
 **M4 追加（Web）**
-- [ ] W0 真实浏览器 HTTP/WS 鉴权与 CORS 可达，涉及 Go/BFF 路线已有独立拍板
-- [ ] `helix-core + helix-im` wasm target 编译通过；`helix-core` 仍零 `web-sys`/具体 runtime
-- [ ] 同一 Tick 剧本 native/FFI/Web 输出同业务 Effect/DomainEvent
-- [ ] Web session store 满足当前 StorageOp 行为；bounded cache 不冒充权威库
-- [ ] 消息/投影未持久化时不保留超前 cursor；跨刷新恢复有 coverage/window 证据或冷启动重同步
-- [ ] Browser WS 只负责物理连接，帧解析/sequence/echo/sync 仍由共享 `helix-im` 处理
+- [ ] 新架构方案拍板后重建 Web 验收清单；当前不沿用旧 W0→W4 条目
 
 ---
 

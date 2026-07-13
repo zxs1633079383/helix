@@ -46,7 +46,6 @@
 ### 模块级 spec（按需读，不能冒充当前 green）
 | 文档族 | 当前路由 |
 |---|---|
-| [`specs/web-w0-browser-reachability-spec.md`](./specs/web-w0-browser-reachability-spec.md) | **Web W0 唯一执行入口**：真实浏览器 HTTP/CORS/WS/hello 鉴权证据、脱敏合同、拍板停止点；W0 不实现 WASM/持久化 |
 | `crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md` | **UC 消费视角真源**：command / projection / HTTP / WS / Go DB / Helix storage 一表对齐 |
 | `crates/helix-im/docs/Strict Matrix/README.md` | **UC 发布证据入口**：契约、生成矩阵、远端存储真源与 fail-closed 判定 |
 | `crates/helix-im/docs/uc-automation/` | `uc-command-set-spec.md` 是 UC/command 当前入口；`uc-test-order-spec.md` 是历史 DAG 参照 |

@@ -6,6 +6,10 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 撤销旧 Web W0 浏览器探针方案：删除 probe/spec 及 gate、ROADMAP、GOAL、ADR/harness 中的 W0→W1 生效接线，只保留已确认的三端产品目标、共享业务语义与平台能力可不同；不写新架构实现、不改 Rust 源码、不恢复其他会话删除内容。可证伪断言：① `tools/web-w0-probe` 与旧 spec 不存在；② 当前文档不再把 W0 浏览器探针、Dedicated Worker、W0-W4 当实施路线；③ ADR-014 明确区分仍有效原则与已撤销执行细节；④ `gate-fast.sh` 不再含 Node probe 特判；⑤ `.codebase-memory/` 与 `outputs/` 保持未触碰。@2026-07-13T17:20:00+0800 | 赌注 中 | 可逆 是
+✅ DONE 撤销旧 Web W0 浏览器探针方案：删除仓内 spec、两份 JS probe、快速门 Node 特判与外部 369 行旧架构方案；AGENTS/GOAL/ROADMAP/ADR/harness 已统一为“原则保留、旧执行路线失效、新架构待拍板”，Rust 源码零改。验证：旧文件与活跃引用不存在；`git diff --check`、全 scripts `bash -n`、`gate-fast.sh` PASS；harness 16=16；`.codebase-memory/` 与 `outputs/` 保持未跟踪未修改。@2026-07-13T17:37:33+0800
+⚡ DRIFT-PRED 先前把 Web 启动点收敛成浏览器 probe/W0→W4，偏离了用户明确的“只实现 Rust、先改三端业务门面与能力适配架构”优先级 → 候选教训：Web 目标确认不等于 Web 执行路线已确认，架构未拍板前不应先落平台探针。@2026-07-13T17:37:33+0800
+
 🎯 EXPECT 本地快速门与完整交付门分层：新增 `scripts/gate-fast.sh`，pre-push 改跑 scope-aware 快速门，`scripts/gate.sh` 仅作为 CI/合并前完整门。可证伪断言：① Web W0 probe 改动只跑 Node syntax/test + whitespace；② scripts 改动跑 shell syntax；③ helix-im/host-cli 只跑对应 crate check/test；④ Cargo、core、任一 driver 或未识别 Rust 改动升级完整 gate；⑤ CI 继续执行 `scripts/gate.sh`；⑥ `--dry-run` 可验证路由而不触发 Cargo；⑦ 不改 Rust 业务源码、不触碰 `.codebase-memory/` 与 `outputs/`。@2026-07-13T16:52:00+0800 | 赌注 中 | 可逆 是
 ✅ DONE 本地快速门与完整交付门分层：新增可按 upstream/origin-HEAD/显式 base 收集改动的 `gate-fast.sh`，支持显式路径与 `--dry-run`；pre-push 已改接快速门，GitLab CI 继续执行完整 `gate.sh`。路由实证：Web→node check+13 tests，scripts→bash -n，im→对应 cargo check/test，core→完整 gate，docs→whitespace only；当前分支真实快速门只跑 shell/JSON/Node 且 PASS，未触发 Cargo。同步 README/OPERATING/CI 注释与 ADR-014 W0 口径；Rust 业务源码、`.codebase-memory/`、`outputs/` 未改。@2026-07-13T17:04:00+0800
 

@@ -97,17 +97,6 @@ if matches '^\.agents/manifests/.*\.json$'; then
   done
 fi
 
-if matches '^tools/web-w0-probe/.*\.m?js$'; then
-  while IFS= read -r file; do
-    if [ -f "$file" ]; then
-      run_cmd node --check "$file"
-    fi
-  done < <(printf '%s\n' "$CHANGED" | grep -E '^tools/web-w0-probe/.*\.m?js$')
-  if compgen -G 'tools/web-w0-probe/*.test.mjs' >/dev/null; then
-    run_cmd node --test tools/web-w0-probe/*.test.mjs
-  fi
-fi
-
 if matches '^crates/helix-im/'; then
   run_cmd cargo check -p helix-im --quiet
   run_cmd cargo test -p helix-im --quiet

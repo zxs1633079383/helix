@@ -2,7 +2,7 @@
 
 > Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，产品目标集合为三端：
 > **native（Tauri 桌面 / PC）· FFI（Flutter 手机端）· Web**。
-> 当前交付事实：native/FFI 已产品化；Web 已按 ADR-014 进入 W0 可达性与契约验证，尚未交付。正式 Web 壳规划为 `helix-driver-web`；历史 `helix-driver-wasm` 继续归档，不自动转正。
+> 当前交付事实：native/FFI 已产品化；Web 仍是产品目标但尚未交付。ADR-014 保留三端共享业务语义、平台能力允许不同的原则；原 W0 浏览器探针与 W0→W4 执行路线已撤销，新的 Rust 架构方案待拍板。历史 `helix-driver-wasm` 继续归档，不自动转正。
 > IM 只是跑在它上面的**第一个业务模块**；core layer 本身不认识任何业务。
 > 概念祖先：Bun（runtime 跑 JS）/ Dioxus core（headless 核跑 6 端）。
 
@@ -10,7 +10,7 @@
 > 任何改动若与 GOAL.md §1 设计理念 / §2 硬约束冲突 → **先停下问，不偏离**。
 
 > 📋 **实现阶段待办 → [`docs/ROADMAP.md`](docs/ROADMAP.md) §二 P0/P1/P2 活账**
-> （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。Web 重启路线见 ADR-014 + ROADMAP M4；W0 未通过前不进入持久化实现。）**进实现阶段前先扫一眼 ROADMAP 活账。**
+> （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。Web 当前只保留 ADR-014 的原则边界，实施路线见 ROADMAP M4 的待拍板项。）**进实现阶段前先扫一眼 ROADMAP 活账。**
 
 ---
 
@@ -23,7 +23,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
     ▲ 实现 ports（依赖方向单向：adapter → core，永不反向）
 平台驱动层   helix-driver-host(shared rusqlite Storage/StorageOp) · helix-driver-native(PC/Tauri 壳)
              helix-driver-ffi(Flutter FFI 壳)
-             helix-driver-web = planned（Web 正式产品壳，W0；Dedicated Worker + Browser APIs）
+             Web Rust 接入层 = pending design（复用业务内核，平台 I/O 由适配器兑现）
              helix-driver-wasm = archived/experimental（历史骨架，不作为正式 Web 壳）
 ```
 
@@ -49,9 +49,9 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **Web 分阶段激活**：ADR-014 已重启 Web 产品目标；W0 先验证浏览器鉴权/CORS/WS 握手，W1 再创建 `helix-driver-web` 并激活 wasm CI/HX-C003。历史 `helix-driver-wasm` 只作参考，不原地冒充交付实现。
-- [ ] **Web 轻持久化**：PC/Flutter 可完整 SQLite；Web 默认 session state + bounded cache。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
-- [ ] **WebSocket 边界**：三端共享 `helix-im` 的帧处理与协议生命周期；真实 socket、重连执行、浏览器 online/visibility/page 生命周期和鉴权接线留平台 driver。
+- [ ] **Web 方案待拍板**：原 W0 浏览器探针与 W0→W4 路线已撤销；新方案确定前不创建正式 Web driver、不激活 wasm CI/HX-C003。历史 `helix-driver-wasm` 只作参考，不原地冒充交付实现。
+- [ ] **Web 持久化可降级**：PC/Flutter 可完整 SQLite；Web 可以无本地持久化或只保留明确受限的缓存。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
+- [ ] **WebSocket 边界**：三端共享 `helix-im` 的帧处理与协议生命周期；PC/Flutter 可复用 Rust 默认连接实现，Web 的真实 socket、重连执行、浏览器生命周期与鉴权接线由 Web 平台适配器兑现。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）
 - [ ] **热路径零分配 O(1)**：`&'static str` 不 `String`、复用 buffer、单 INSERT/UPDATE WHERE PK、禁 read-modify-write（`HX-C005`）
 - [ ] **FFI 边界铁律**：不许 unwind 跨 `extern "C"`——策略二选一：生产 cdylib `panic="abort"`（无需 catch_unwind）/ dev unwind 时逐导出 `catch_unwind`，禁两者混说；opaque ptr 单一 owner（`Box::into_raw`/`from_raw` 各一次）；同步 SQLite C 调用包 `spawn_blocking`（`HX-C006`）
@@ -62,7 +62,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 ## 3. 编译 / 测试 cadence
 
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
-- **已交付双端验收**（phase 完成前 / 改 port 或 driver 后必跑；Web W1 后追加 wasm/browser gate）：
+- **已交付双端验收**（phase 完成前 / 改 port 或 driver 后必跑；Web 新方案落地后再追加对应 gate）：
   ```bash
   cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
   cargo test -p helix-core
@@ -110,7 +110,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 |---|---|---|
 | HX-C001 | helix-core 零运行时 / 零平台依赖（grep gate）| active |
 | HX-C002 | async port Send 边界 + 状态禁 `&'a`（双端 + 生命周期）| active |
-| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（Web W1 建正式壳后升 active，见 ADR-014） |
+| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（新 Web Rust 接入层落地时再评估激活） |
 | HX-C004 | features 必须 additive，禁互斥 | active |
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
@@ -160,7 +160,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 |---|---|---|
 | `rust-dev` ↔ `/rust-knowledge` | Rust 语言与工程全栈（所有权/async/性能/unsafe） | 借用·Send 报错、热路径审查、trait 设计争议 |
 | `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | Tauri 2 桌面骨架端到端，**参考仓 = 现网 cses-client** | 现网对齐核验（唯一权威）、IPC 契约、M2 Tauri 接缝 |
-| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+FFI+Web（cfg/Send/wasm） | 多端边界守门、Flutter FFI / Web W1 |
+| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+FFI+Web（cfg/Send/wasm） | 多端边界守门、Flutter FFI / Web Rust 接入层 |
 | `dioxus-dev` ↔ `/dioxus-knowledge` | **仅取 core 内核经验**（step 循环/Effect 批处理/调度），**禁渲染层/RSX 话题** | 内核循环设计对照、批次边界、调度公平性 |
 
 本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。

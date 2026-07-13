@@ -35,7 +35,7 @@ default:
     - cargo fmt --version && cargo clippy --version
 
 # ── 主闸门：三栖 check → clippy → test → 零运行时 → 零业务 → harness 索引 ──
-# gate.sh[7] public-api 在本 job 自动跳过（未装 cargo-public-api），不影响主闸门。
+# gate.sh 的 public-api 步骤在本 job 未装工具时自动跳过，不影响主闸门；独立 job 负责公开面。
 gate:
   stage: gate
   script:

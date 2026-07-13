@@ -76,7 +76,7 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 |---|---|
 | `crates/` | 全部 Rust 源码，按「业务模块层 / core 层 / 平台驱动层」三层组织（见上「Crate 结构」） |
 | `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`、`agents/`（issue tracker / triage 约定） |
-| `scripts/` | 工程验证与端到端脚本：`gate.sh` / `branch-sync-gate.sh` / `ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
+| `scripts/` | 工程验证与端到端脚本：本地 `gate-fast.sh`、CI/合并 `gate.sh`、`branch-sync-gate.sh`、`ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
 | `tools/` | 杂项工具（当前仅 `md2html.py`） |
 
 ## helix-im 内部业务模块

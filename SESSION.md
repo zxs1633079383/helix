@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 本地快速门与完整交付门分层：新增 `scripts/gate-fast.sh`，pre-push 改跑 scope-aware 快速门，`scripts/gate.sh` 仅作为 CI/合并前完整门。可证伪断言：① Web W0 probe 改动只跑 Node syntax/test + whitespace；② scripts 改动跑 shell syntax；③ helix-im/host-cli 只跑对应 crate check/test；④ Cargo、core、任一 driver 或未识别 Rust 改动升级完整 gate；⑤ CI 继续执行 `scripts/gate.sh`；⑥ `--dry-run` 可验证路由而不触发 Cargo；⑦ 不改 Rust 业务源码、不触碰 `.codebase-memory/` 与 `outputs/`。@2026-07-13T16:52:00+0800 | 赌注 中 | 可逆 是
+✅ DONE 本地快速门与完整交付门分层：新增可按 upstream/origin-HEAD/显式 base 收集改动的 `gate-fast.sh`，支持显式路径与 `--dry-run`；pre-push 已改接快速门，GitLab CI 继续执行完整 `gate.sh`。路由实证：Web→node check+13 tests，scripts→bash -n，im→对应 cargo check/test，core→完整 gate，docs→whitespace only；当前分支真实快速门只跑 shell/JSON/Node 且 PASS，未触发 Cargo。同步 README/OPERATING/CI 注释与 ADR-014 W0 口径；Rust 业务源码、`.codebase-memory/`、`outputs/` 未改。@2026-07-13T17:04:00+0800
+
 🎯 EXPECT Web W0.1 纯模型与脱敏合同：只新增 `tools/web-w0-probe/{probe-model.mjs,probe-model.test.mjs}` 并更新 SESSION，不发真实网络、不读取账号、不创建 Web driver。可证伪断言：① 分类覆盖 HTTP 2xx+hello pass、open 无 hello、CORS preflight、1006、401/403；② page/api/ws origin 缺失或非纯 origin 时拒绝；③ forbidden key、Bearer/JWT、敏感 query 值进入导出时拒绝；④ `node --test tools/web-w0-probe/probe-model.test.mjs` 全绿；⑤临时破坏一条分类断言时测试必须红；⑥ `git diff --check` 通过。@2026-07-13T16:31:00+0800 | 赌注 中 | 可逆 是
 ✅ DONE Web W0.1 纯模型与脱敏合同：新增纯函数分类、origin 形状校验、递归导出安全检查与安全导出准备函数；13 个 `node:test` 覆盖 pass、CORS、auth、1006、open 无 hello、缺失/非纯 origin、敏感字段和凭据形值。破坏反证把 pass 故意期望为 fail-http 后触发 `ERR_ASSERTION`（actual pass），证明分类测试可证伪；未发网络、未读秘密、未新增依赖或 Web driver。验证：`node --test` 13/13、`node --check`、`git diff --check` PASS。@2026-07-13T16:38:00+0800
 

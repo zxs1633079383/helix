@@ -8,7 +8,8 @@
 |---|---|---|
 | 保存 Rust 文件 | `cargo fmt --all --quiet` | Codex PostToolUse hook |
 | 新会话 | 由 `scripts/session-start-context.sh` 读取 `docs/ROADMAP.md` P0、本手册与前端 UC 投影真源 | Codex SessionStart hook |
-| 准备提交或 push | `scripts/gate.sh` | 人工；pre-push hook 兜底 |
+| 准备提交或 push | `scripts/gate-fast.sh` | 人工；pre-push hook 兜底，按改动范围验证 |
+| 合并前 / GitLab CI | `scripts/gate.sh` | native + FFI 完整交付门 |
 | 分支身份核对 | `scripts/branch-identity.sh --session` | 开局、worktree 收尾或身份不清时 |
 | FFI 仓内验收 | `scripts/ffi-verify.sh --no-demo` | gate 第 9 步 |
 | 真 Go 全 UC | `scripts/host-cli-FULL-uc-e2e.sh` | 环境就绪后人工触发 |

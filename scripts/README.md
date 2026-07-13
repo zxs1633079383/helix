@@ -6,7 +6,8 @@ top-level scripts.
 
 ## Core Gates
 
-- `gate.sh` - local pre-commit/pre-push style aggregate gate.
+- `gate-fast.sh` - scope-aware local/pre-push gate; Web probe, scripts and low-risk crates run only relevant checks.
+- `gate.sh` - full CI/merge delivery gate for native + FFI.
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
 - `ddd-structure-gate.sh` - DDD/package boundary structure gate.

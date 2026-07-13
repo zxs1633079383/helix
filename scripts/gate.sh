@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Helix 提交闸门链（Bun 对齐 3.5）—— ROADMAP §三「结构闸门」全自动化。
-# 用法：scripts/gate.sh          （默认交付门：PC native + Flutter FFI 仓内验证）
+# Helix 完整交付门（Bun 对齐 3.5）——由 GitLab CI 与合并前验收执行。
+# 用法：scripts/gate.sh          （PC native + Flutter FFI 完整仓内验证）
 #       scripts/gate.sh --full   （追加 release 压测三件套 + FFI demo 层，若仓外 demo 存在）
 #
 # Gate alignment:
 # - 默认门必须覆盖当前产品化目标：PC Tauri/native + Flutter FFI。
 # - FFI 仓内 1–5 层由 `scripts/ffi-verify.sh --no-demo` 纳入默认门。
-# - ADR-006: wasm/web 已归档，不作为默认交付 gate；需要历史 trait-shape 自检时手动跑：
+# - Web 当前处于 ADR-014 W0 浏览器探针阶段，不进入 Rust 交付门；W1 正式壳建立后追加独立 Web gate。
+# - 历史 wasm 骨架仍归档；需要 trait-shape 自检时手动跑：
 #   `cargo check --target wasm32-unknown-unknown -p helix-core -p helix-driver-wasm`。
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"

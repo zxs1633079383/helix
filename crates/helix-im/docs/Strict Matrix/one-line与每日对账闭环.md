@@ -8,7 +8,7 @@ Strict Matrix 是发布合同真源，one-line Supervisor 是跨仓执行控制�
 | --- | --- | --- |
 | Strict Matrix | 定义每个 UC 在七个证据平面的期望 | 不运行测试、不自证 Green |
 | one-line Supervisor | 按 Operation 修复 UI/Helix/Go/Native 并发布 durable evidence | 不凭 spec、代码或旧截图直接改 Green |
-| 每日对账 Task | 检查合同漂移、证据过期、跨仓版本和运行环境 | 不自动修改业务代码、不占用 Native 槽跑全量回归 |
+| 每日对账 Task | 检查合同漂移、证据过期、跨仓版本和运行环境，封存 repair capsule | 扫描阶段不修改业务代码、不改变 canonical 状态 |
 
 ## 四端对账范围
 
@@ -38,8 +38,8 @@ Strict Matrix 是发布合同真源，one-line Supervisor 是跨仓执行控制�
 flowchart LR
   A["Strict Matrix 合同"] --> B["每日只读对账"]
   B -->|"无漂移"| C["保持当前状态"]
-  B -->|"Red / Drift"| D["Repair Capsule"]
-  D --> E["one-line run.repair"]
+  B -->|"Red / Drift"| D["封存 Repair Capsule"]
+  D --> E["独立 one-line run.repair"]
   E --> F["runtime-doctor"]
   F --> G["scenario-compile"]
   G --> H["Operation 真实链路"]
@@ -67,3 +67,16 @@ flowchart LR
 - 发布候选前：显式启动 one-line release profile，必须达到 100% UC/执行覆盖和 `releaseEligible=true`。
 
 每日对账报告不直接改 Strict Matrix 状态。只有 one-line 真实运行产出的 durable bundle 通过 `evidence-verify`，再由 `matrix-sync` 更新 canonical status。
+
+## 自治修复边界
+
+同一个北京时间 08:30 定时任务可以顺序编排两个隔离阶段：
+
+1. **日审阶段**只读扫描并原子封存 `daily-audit-report.json`；不能边扫描边改代码。
+2. **修复阶段**由 one-line 消费已封存的 repair capsule，按责任仓创建 worktree、生成或关联 Issue、实现、验证并提交 PR/MR。
+
+只有 `confidence=high + executionClass=AFK + risk=reversible`，且根因、责任仓、验收和回滚都明确的 capsule 才允许自动实现。产品语义不清、不可逆数据库迁移、安全/权限变化、公开协议破坏或跨仓 owner 争议统一标记 HITL，只建 Issue 或 Draft PR/MR。
+
+单一 capsule 可以直接作为窄垂直 Issue；同一根因涉及多个 Gate 时，按 `prd-to-issues` 的 tracer-bullet 方法拆分，再在责任仓调用 `implement`。自动化可以提交、推送和创建 PR/MR，但不得批准或合并自己的变更。人工保留需求合理性 Review、代码 Review 和最终合并权。
+
+PR/MR 通过不等于 Strict Matrix Green。需要真实运行的 Gate 仍必须产生绑定合同 hash 与四仓版本的 durable evidence，最终裁决权始终属于 Strict Matrix。

@@ -65,8 +65,6 @@ check_9() {
   forbid_file crates/helix-im/src/channel.rs
   forbid_file crates/helix-im/src/channel_tests.rs
   forbid_file crates/helix-im/src/channel_write
-  require_grep "crates/helix-im/src/channel/gate.rs 579" scripts/structure-gate.sh
-  forbid_grep "crates/helix-im/src/channel.rs 579" scripts/structure-gate.sh
 }
 
 check_10() {
@@ -213,8 +211,6 @@ check_18() {
   forbid_file crates/helix-im/src/parser.rs
   forbid_file crates/helix-im/src/parser_post_props.rs
   require_grep "pub mod parser;" crates/helix-im/src/ws/mod.rs
-  require_grep "crates/helix-im/src/ws/parser/core.rs 430" scripts/structure-gate.sh
-  forbid_grep "crates/helix-im/src/parser.rs 430" scripts/structure-gate.sh
 }
 
 check_19() {

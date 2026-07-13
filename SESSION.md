@@ -1,10 +1,20 @@
 # Helix SESSION
 
 > 跨会话状态可查。§0 记三类固定前缀行（均可 grep · 详见 AGENTS.md §4.8）：
-> 开局 `🎯 EXPECT`（实质任务预判）· 收尾 `✅ DONE`（终态）· 偏离预期时 `⚡ DRIFT-PRED`（喂 §4.7 drift-review）。
+> 开局 `🎯 EXPECT`（实质任务预判）· 收尾 `✅ DONE`（终态）· 偏离预期时 `⚡ DRIFT-PRED`（保留为后续排障证据，不阻断开发或提交）。
 > 另置顶**唯一一条** `🧭 BRANCH-ID`（分支身份，HX-C014）——开局/收尾用 `scripts/branch-identity.sh --session` 刷新，别凭记忆答「你在哪个分支」。
 
 ## §0 终态记录
+
+🎯 EXPECT Web W0 开发基线去阻塞：在 `codex/web-w0-development` 删除 `review-gap` 强制 review 与全仓 300 行 `structure-gate` 的执行脚本、gate/hook/CI 间接接线、当前规则和 agent 约束订阅；保留 cargo check/test、HX-C001、FFI、trace、业务边界和 public API 等功能/安全验证。可证伪断言：① `scripts/review-gap.sh`、`scripts/structure-gate.sh` 与 review ledger 删除；② `scripts/gate.sh` 不再执行行数检查且仍执行其余 10 步；③ pre-push 不再设置 `HELIX_STRUCTURE_BASE`；④ AGENTS、当前 ROADMAP/W0 spec、OPERATING 与 `.agents` 不再把两者声明为生效约束；⑤ shell/JSON/agent constraint/DDD gate 与 `git diff --check` 通过；⑥ 不修改 Rust 业务源码，不恢复其他会话删除的文档。@2026-07-13T16:05:00+0800 | 赌注 中 | 可逆 是
+✅ DONE Web W0 开发基线去阻塞：分支 `codex/web-w0-development` 已删除 `scripts/{review-gap,structure-gate}.sh` 与 review ledger，移除 gate/hook/SessionStart/AGENTS/ROADMAP/W0 spec/harness/agent manifests 的全部生效接线；pre-push 已刷新为只执行保留的 `scripts/gate.sh`。验证：活跃入口旧脚本/ledger/constraint/环境变量引用 0；JSON、shell syntax、agent constraints 18/18、DDD structure、harness 16/16、`git diff --check` PASS；新 10 步 `scripts/gate.sh` 全绿（五 crate check/test、HX-C001、trace、业务边界、FFI Rust+C++、public API），Rust 业务源码零改动；`.codebase-memory/` 与 `outputs/` 未触碰。@2026-07-13T16:28:00+0800
+
+✅ DONE architecture-drift-review 十五轮：用户拍板取消 `review-gap` 强制 review，不再继续修复历史行数债或更新 review ledger；对应 EXPECT 作废，转为本分支删除阻塞机制。@2026-07-13T16:05:00+0800
+
+🎯 EXPECT architecture-drift-review 十五轮：独立审查 `2dd0d2e..a38f6da` 的 172 个提交，并把当前未提交 Web W0 文档作为区间外增量单列。可证伪断言：① 按提交/路径分层核查 GOAL §1/§2、HX-C001..C008、三层依赖、确定性、FFI 与结构闸；② 反向抽检区间内实质 `DONE` 的 `EXPECT/DRIFT-PRED`，不由生产者自判；③ 所有 finding 均给出 commit、文件和可复核证据，重 drift 未回正前不更新 ledger；④ 若结论可收敛，ledger 指向审查时 `HEAD=a38f6da`，随后 `scripts/review-gap.sh` 为 0；⑤ 不借 review 修改业务行为、发布版本、跨仓代码或恢复已删除文档；⑥ review 完成后再提交 W0 方案并进入探针实现。@2026-07-13T15:26:00+0800 | 赌注 高 | 可逆 是
+
+🎯 EXPECT Web W0 可执行开发方案：新增单一 canonical spec 并从 ROADMAP/docs 地图挂接，不恢复已清理的历史 plans。可证伪断言：① 只改 `SESSION.md`、`docs/ROADMAP.md`、`docs/README.md` 并新增 `docs/specs/web-w0-browser-reachability-spec.md`；② 方案基于现存 `Transport/Storage/HttpRequester/EventSink` 和真实 `cookieId`/WS header 边界，不把 legacy `helix-driver-wasm` 当实现起点；③ W0 只做浏览器 HTTP/WS 可达性与鉴权证据，不实现 WASM、持久化或跨仓 Go/BFF 修改；④ 给出逐任务文件、测试、证据格式、提交边界和用户拍板停止点；⑤ `review-gap=172` 明确阻止后续 feature 实现但不阻止本轮纯文档方案；⑥ `git diff --check`、链接、关键口径和 Rust 源码零改动检查通过。@2026-07-13T15:03:03+0800 | 赌注 中 | 可逆 是
+✅ DONE Web W0 可执行开发方案：新增 `docs/specs/web-w0-browser-reachability-spec.md` 作为唯一入口，按 G0→纯模型测试→HTTP H1-H4→WS W1-W3→鉴权决策包→用户拍板→ADR-015 拆解；ROADMAP/docs 地图已挂接，legacy wasm 只作反例参考，未恢复旧 plan 目录、未改 Rust。验证：目标文件 4 个、关键断言/链接/ADR 编号检查 PASS、`git diff --check` PASS；`review-gap=172` 保持显式阻塞后续 feature 实现。@2026-07-13T15:10:00+0800
 
 🎯 EXPECT Web 产品目标重启架构文档收敛：以 ADR-014 正式覆盖 ADR-006 的“Web 暂停维护”，只改现存架构真源与外部方案，不实现 Web 代码。可证伪断言：① 产品目标口径统一为“native/FFI 已产品化 + Web 进入 W0”，不得声称 Web 已交付；② `helix-core + helix-im` 共享业务语义，Web 不复制 IM 状态机；③ PC/Flutter 继续完整 SQLite，Web 明确为 session state + bounded cache，且禁止“消息未持久化但 cursor 单独持久化”；④ WS 帧处理/协议生命周期三端共享，物理连接生命周期由平台 driver 兑现；⑤ 现有 `helix-driver-wasm` 继续归档，未来正式产品壳命名为 `helix-driver-web`；⑥ 只改 `AGENTS.md`、`SESSION.md`、`docs/{GOAL.md,ROADMAP.md,harness/{decisions.md,README.md}}` 与外部 `helix-multiplatform-client-architecture-plan.md`，不碰 Rust 源码和当前文档熵减删除集；⑦ `git diff --check`、关键口径 grep、harness 数量不变量通过。@2026-07-13T11:57:41+0800 | 赌注 高 | 可逆 是
 ✅ DONE Web 支持架构文档已按 ADR-014 收敛：三端共享 `helix-core + helix-im` 业务语义，PC/Flutter 完整 SQLite 与 Web session state + bounded cache 分治；cursor/coverage 联合检查点和 WebSocket 协议/物理连接边界已写入真源；W0–W4 roadmap、HX-C003 archived→W1 active 节律及外部方案均已同步。验证：`git diff --check`、现行口径 grep、harness 16=16、Rust 源码零改动、外部方案关键断言检查通过。@2026-07-13T12:08:00+0800

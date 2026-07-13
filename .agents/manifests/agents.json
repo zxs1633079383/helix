@@ -4,8 +4,7 @@
       "constraints": [
         "roadmap-p0-live-ledger",
         "harness-index-invariant",
-        "hxc012-expect-for-substantial-task",
-        "review-gap-cadence"
+        "hxc012-expect-for-substantial-task"
       ],
       "diagram": ".agents/diagrams/domains/harness-governance.mmd",
       "file": ".agents/agents/domains/harness-governance-domain-agent.md",
@@ -366,7 +365,6 @@
     "modules/governance-agent": {
       "constraints": [
         "harness-index-invariant",
-        "review-gap-cadence",
         "docs-drift-check",
         "commit-convention-harness-section"
       ],

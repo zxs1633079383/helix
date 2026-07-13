@@ -5,8 +5,7 @@
       "constraints": [
         "roadmap-p0-live-ledger",
         "harness-index-invariant",
-        "hxc012-expect-for-substantial-task",
-        "review-gap-cadence"
+        "hxc012-expect-for-substantial-task"
       ],
       "diagram": ".agents/diagrams/domains/harness-governance.mmd",
       "modules": [

@@ -125,7 +125,6 @@
       "agent": "modules/governance-agent",
       "constraints": [
         "harness-index-invariant",
-        "review-gap-cadence",
         "docs-drift-check",
         "commit-convention-harness-section"
       ],

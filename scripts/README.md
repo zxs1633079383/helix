@@ -9,8 +9,6 @@ top-level scripts.
 - `gate.sh` - local pre-commit/pre-push style aggregate gate.
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
-- `review-gap.sh` - architecture review cadence gate.
-- `structure-gate.sh` - Rust file/module structure gate.
 - `ddd-structure-gate.sh` - DDD/package boundary structure gate.
 - `coverage.sh` - Rust coverage entrypoint.
 - `fullmap-coverage.sh` - IM migration coverage table check.

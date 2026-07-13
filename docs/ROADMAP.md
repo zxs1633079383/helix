@@ -6,7 +6,7 @@
 > 2026-06-18 更新：**M2 ~90% 完**（native 真 Go 联调 + sync-v2 全链路 + shared host I/O + WS registry + 背压根治 + 基座最优性/北极星双 review 收口全落 main）；**M2 唯一剩余 = Tauri 四接缝接入（D1-3 接缝①②）**。**M3：F1 主体 ✅ / F2·F3 ✅ / F4 ✅ 端到端接通**。
 > 2026-06-18 更新②：**M3-F4 完成并 merge dev-zlc（c229531）**。架构 pivot：原计划 Dart-host（Dart 喂帧 + `on_domain_event`→Dart Stream）→ **用户拍板 C++-host 直连**（cpp→rust→cpp：Rust 持 WS、事件批回 C++ vtable、Dart 只在 UI 层收 C++ 转发）。pump 核下沉 `helix-driver-host`，native(1119→168)+ffi 共用薄壳 **parity by construction**。八轮 branch drift-review 判 light/0 blocking。剩 F4.5 Flutter 真机冒烟 + F5 跨端 byte-level 验收。
 > 当前位置：**M2 收尾（Tauri 四接缝）+ M3-F4 ✅，下一站 F5 跨端验收 / Flutter 冒烟**（M1 全 + M2 主体 + M3 F1 主体/F2/F3/F4 已完）。
-> 2026-07-08 对账：本文件是**活账 + 验收清单**，不是最近所有工程进展的流水账。近期开出的 OTel/trace scope、多租户本地 DB、rich/file upload 等能力必须以各自 gate / reviewer / collector 证据为准，未自动等价为本 Roadmap 绿勾。当前机器事实：双端 `cargo check` PASS；`scripts/structure-gate.sh` FAIL；`scripts/review-gap.sh` 红（gap 92/10）；`.git/hooks/pre-push` 缺失；本机未安装 `cargo-public-api`。
+> 2026-07-08 对账：本文件是**活账 + 验收清单**，不是最近所有工程进展的流水账。近期开出的 OTel/trace scope、多租户本地 DB、rich/file upload 等能力必须以各自 gate / reviewer / collector 证据为准，未自动等价为本 Roadmap 绿勾。当前机器事实：双端 `cargo check` PASS；本机未安装 `cargo-public-api`。
 > 2026-07-13 更新：用户拍板 ADR-014，Web 重新进入产品目标，但当前只到 **W0 浏览器可达性/鉴权契约验证**，尚未交付。三端共享 `helix-core + helix-im` 的业务语义；PC/Flutter 保持完整 SQLite，Web 采用 session state + bounded cache；正式产品壳规划为 `helix-driver-web`，历史 `helix-driver-wasm` 继续归档。
 
 ---
@@ -56,7 +56,7 @@
 
 > **边界**：Web 复用 `helix-core + helix-im` 的协议、WS 帧处理、sequence/cursor、echo、已读和补偿同步；不复制 IM 状态机。PC/Flutter 的完整 SQLite/SharedWsClient 不强行搬进浏览器。正式壳为 `helix-driver-web`；历史 `crates/helix-driver-wasm` 继续归档，W1 审计后只迁移被证明可用的片段。
 
-- [ ] **W0 浏览器可达性闸门**：用真实浏览器验证 HTTP CORS、Cookie/session、WS 握手和现网 `cookieId/deviceId/companyId/appType` 约束；对比同源 BFF/WS gateway、Go Cookie/短期 ticket、连接后认证帧。〔验收〕真实 `open/message/close` 证据 + 方案/风险/部署影响，经用户另行拍板；未通过不得进入持久化实现。
+- [ ] **W0 浏览器可达性闸门**（[执行 spec](./specs/web-w0-browser-reachability-spec.md)）：用真实浏览器验证 HTTP CORS、Cookie/session、WS 握手和现网 `cookieId/deviceId/companyId/appType` 约束；对比同源 BFF/WS gateway、Go Cookie/短期 ticket、连接后认证帧。〔验收〕真实 `open/message/close` 证据 + 方案/风险/部署影响，经用户另行拍板；未通过不得进入持久化实现。
 - [ ] **W1 WASM 行为复用证明**：让现有 `helix-core + helix-im` 面向 wasm 编译，不搬业务类型进 core；建立 `helix-driver-web` Dedicated Worker 最小壳。〔验收〕同一 Tick 剧本 native/FFI/Web 输出同业务 Effect/DomainEvent；HX-C001 保持零平台依赖；HX-C003 升 active 并进 CI。
 - [ ] **W2 在线 Web MVP**：Browser WebSocket/Fetch/Timer/EventSink + Web session store 兑现现有 ports；主线程只发命令/生命周期事件并批量接收 DomainEvent。〔验收〕hello→收帧→发送→echo→断线补偿同步真链路；刷新允许冷启动，不承诺离线。
 - [ ] **W3 有界缓存**：IndexedDB 只保存近期消息、会话摘要、草稿、UI 偏好等可淘汰投影；服务端仍是权威。〔硬约束〕禁止消息未持久化但 cursor 单独持久化；跨刷新恢复必须联合记录 cursor + cache coverage/window，或明确冷启动重同步。〔验收〕TTL/LRU/容量、账号隔离、清站点数据、缓存 miss 回源测试。
@@ -68,7 +68,7 @@
 
 > **2026-06-16 进展**：B1/B2 主体 + **B3 sync 真 wire**（commit 6d83ad5，HX-C008）+ **持久化层 678 对齐**（IM_SCHEMA/多租户 tenant.db/IM cursor=`channel_event_cursor`，`_helix_monotonic` 仅 core 通用原语）+ **merge main（ADR-010 共享 HTTP/WS client）**（fcf3222）均落地；交付 crate 全测绿 + 真 Go :8065 直连冒烟通过（握手/increment/0 断连）。详见 `docs/过会方案/helix-sync-v2-设计.md`（合并自 real-go-wire + 完成-spec）。
 
-> **2026-06-17 进展**：sync-v2 **Phase C（C1 echo 对账 / C2 phantom+离线落库+readBits / C3 mutation 事件+im:__bus__）+ B2 冷启动自愈** 实现完成（commit `20334d2`，当时 gate 全绿）。注意：当前 `scripts/gate.sh` 已扩展为 11 步默认门，勿再按旧「7 闸门」理解。当前 UC 链路口径见 [`前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](../crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)。
+> **2026-06-17 进展**：sync-v2 **Phase C（C1 echo 对账 / C2 phantom+离线落库+readBits / C3 mutation 事件+im:__bus__）+ B2 冷启动自愈** 实现完成（commit `20334d2`，当时 gate 全绿）。当前 `scripts/gate.sh` 是 10 步默认门，覆盖双端 check/test、HX-C001、trace、业务边界、harness、FFI 与 public API。当前 UC 链路口径见 [`前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](../crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md)。
 
 **✅ 已完成（2026-06-17）**
 - [x] **sync-v2 数据路径真 Go 端到端验证通过**：真消息 curl→Go post→WS `post` 帧→parser 认 post→gate apply→message 表落真实内容行 + temporary_id↔server_id 对账 + read_bits + cursor 推进 + post:received DomainEvent。**三层 blocker 全清**（grpc-deviceId / sync 风暴-BoundedSpawner 并发闸 / WS-post-action-parser）。机制见 [`helix-sync-v2-设计.md`](./过会方案/helix-sync-v2-设计.md)，当前 UC 缺口见前端 UC 投影清单 §3-§4。
@@ -108,9 +108,9 @@
 
 ## 三、最终验收 Checklist（全部 machine-checkable，过一项勾一项）
 
-> **2026-07-08 对账**：本节是最终验收清单，不等于当前全绿状态。最新同跑证据：`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` PASS；`scripts/structure-gate.sh` FAIL（新增/增长超 300 行项：`effect.rs`、`engine.rs`、`otel.rs`、`storage.rs`、`trace.rs`、`host-cli/main.rs`、`module.rs`、`port_reply.rs`、`send/upload_props.rs`）；本机 `cargo-public-api` 未安装，公开面 diff 未本机验证。
+> **2026-07-08 对账**：本节是最终验收清单，不等于当前全绿状态。最新同跑证据：`cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi` PASS；本机 `cargo-public-api` 未安装，公开面 diff 未本机验证。
 
-**结构闸门（每次 merge 必跑）**
+**交付闸门（每次 merge 必跑）**
 - [x] `cargo check` 双端产品目标（core/im/driver-native/driver-ffi）= 0 error（2026-07-08 本机 PASS）
 - [ ] `cargo test --release` workspace 全绿（以当前 `scripts/gate.sh`/CI 输出为准；本轮未跑，不能声称基线全绿）
 - [ ] `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` = 空

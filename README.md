@@ -68,15 +68,15 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 | `helix-driver-native` | tokio/sqlx/tungstenite/reqwest 实现（PC Tauri） | helix-core + 运行时 crate |
 | `helix-driver-ffi` | C ABI/uniffi 实现（手机端 Flutter） | helix-core + 系统 crate |
 | `helix-driver-host` | 共享 rusqlite Storage/network/event_sink（native+ffi 复用，ADR-007/010） | helix-core + 运行时 crate |
-| `helix-driver-wasm` | ⚠️ **archived**（ADR-006，网页端暂停维护，不进 roadmap/CI/交付） | — |
+| `helix-driver-wasm` | ⚠️ **archived/experimental**（历史骨架，不作为正式 Web 壳） | — |
 
 ## 顶层目录地图
 
 | 目录 | 作用 |
 |---|---|
 | `crates/` | 全部 Rust 源码，按「业务模块层 / core 层 / 平台驱动层」三层组织（见上「Crate 结构」） |
-| `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`（drift-review 台账）、`agents/`（issue tracker / triage 约定） |
-| `scripts/` | 工程闸门与端到端验证脚本：`gate.sh` / `structure-gate.sh` / `review-gap.sh` / `branch-sync-gate.sh` 四道闸 + 一批 `host-cli-*-e2e.sh` 真链路用例 |
+| `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`、`agents/`（issue tracker / triage 约定） |
+| `scripts/` | 工程验证与端到端脚本：`gate.sh` / `branch-sync-gate.sh` / `ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
 | `tools/` | 杂项工具（当前仅 `md2html.py`） |
 
 ## helix-im 内部业务模块

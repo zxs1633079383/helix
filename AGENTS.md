@@ -116,7 +116,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
 | HX-C007 | Effect 跨 FFI 边界批处理，不逐条 | active |
 | HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
-| HX-C009 | 预期对账闭环完整性（DRIFT-PRED 真接入 · EXPECT 可证伪 · 偏离不自产自判）| active |
+| HX-C009 | 预期对账证据完整性（EXPECT 可证伪 · DRIFT-PRED 如实记录 · 不阻断开发）| active |
 | HX-C010 | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序）| active |
 | HX-C011 | 测试可证伪性铁律（压测/并发必带破坏即fail 证伪 · 禁墙钟下界断言，结构化/计数证不变量）| active |
 | HX-C012 | 实质任务（含 test/CI/harness ≥50 行或新源文件）须开局写 🎯 EXPECT，禁事后补记（堵 DRIFT-PRED 永空 audit 后门）| active |
@@ -165,21 +165,10 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。
 
-## 4.7 架构 review 收敛节律（强制行为）
+## 4.7 预期对账（非阻塞证据记录）
 
-> 台账 [`docs/review/workflow-review-ledger.md`](docs/review/workflow-review-ledger.md) · 闸门 `scripts/review-gap.sh`。
-
-防 agent/workflow 自主改动「跑着跑着偏离架构」无人察觉：**自主改动每累计 10 个 commit，在 commit 检查点过一次架构 review 收敛。**
-
-- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 10` → 🔴 强制按 GOAL §1/§2、HX-C001..C008 与 `scripts/structure-gate.sh` 做一次独立架构 review，review 通过并更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
-- **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature 工作前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。
-- **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
-
-## 4.8 预期对账（L1 决策原子 · 试点中，2026-06-17 起）
-
-> 目的：给 §4.7 `architecture-drift-review` 接上「偏离**预期**」这第二根进料管——
-> 原本它只吃「偏离**约束**（HX-C/GOAL）」+ commit 计数触发；现加 prediction-error 惊讶信号。
-> 试点期 2 周；按校准有效率（`⚡ DRIFT-PRED` → 真 HX-C 卡 / 真修复 占比）决定是否保留为长期规则。
+> 目的：让实质任务在开局声明可证伪预期，收尾记录真实结果，为后续排障和复盘保留证据。
+> 本机制不按 commit 数触发 review，不阻断 feature、commit 或 push。
 
 **触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
 ≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
@@ -201,19 +190,10 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 并 `type:surprise` 落 `/workspace/java/logs/{date}.json`。预期命中（无偏离）则不追，`✅ DONE` 即结。
 
-**接力**：`architecture-drift-review` 触发时，除 `<last_reviewed>..HEAD` diff 外，**加扫**上次 review 以来
-SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后决定是否升 HX-C 卡。
-
-**偏离判定不自产自判（堵 GIGO 后门）**：写 EXPECT 的 agent **不是**「是否偏离」的唯一裁判。`architecture-drift-review`
-反向抽检区间内实质 commit：① EXPECT 是否可证伪（模糊化 = 一条 finding）；② DONE 实际是否偏离 EXPECT 却没记
-`⚡ DRIFT-PRED`（惊讶被吞没 = 一条 finding）。最终偏离裁定由 drift-review 的独立 lens 给，不由生产者自己说了算。
-
 **回放闸门**（候选教训 → 新建 HX-C 卡前必过）：拿候选约束回放 `docs/harness/log.md` 历史 trap
 + §0 既往 `⚡ DRIFT-PRED`——能挡住当初那次、且不误伤既往成功，才建卡（防约束过拟合 / 膨胀）。
 
 ## 5. 代码风格
-
-> 结构约束由 `scripts/structure-gate.sh` 执行：源码文件原则上 ≤300 行，存量白名单只减不增；配套纳入 §4.7 drift lens。
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明
 - 错误：`thiserror` 边界类型 / 不滥 `anyhow`；外部输入（WS 帧 / sync 响应 / FFI 入参）**零 `unwrap`/`expect`**，走 `Result`

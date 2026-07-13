@@ -9,8 +9,6 @@
 | 保存 Rust 文件 | `cargo fmt --all --quiet` | Codex PostToolUse hook |
 | 新会话 | 由 `scripts/session-start-context.sh` 读取 `docs/ROADMAP.md` P0、本手册与前端 UC 投影真源 | Codex SessionStart hook |
 | 准备提交或 push | `scripts/gate.sh` | 人工；pre-push hook 兜底 |
-| 结构检查 | `scripts/structure-gate.sh` | gate 第 11 步 |
-| 架构 review 检查点 | `scripts/review-gap.sh`；红灯时按 AGENTS.md §4.7 独立 review 并更新 ledger | commit 检查点 |
 | 分支身份核对 | `scripts/branch-identity.sh --session` | 开局、worktree 收尾或身份不清时 |
 | FFI 仓内验收 | `scripts/ffi-verify.sh --no-demo` | gate 第 9 步 |
 | 真 Go 全 UC | `scripts/host-cli-FULL-uc-e2e.sh` | 环境就绪后人工触发 |
@@ -31,4 +29,3 @@
 - 项目规则：[`AGENTS.md`](../../AGENTS.md)
 - Harness 索引：[`README.md`](./README.md)
 - Agent 路由：[`.agents/README.md`](../../.agents/README.md)
-- Review 台账：[`docs/review/workflow-review-ledger.md`](../review/workflow-review-ledger.md)

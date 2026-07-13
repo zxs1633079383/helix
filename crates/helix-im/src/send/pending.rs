@@ -256,6 +256,22 @@ pub fn optimistic_message_persist_op(
                 SqlValue::Text(string("replyFirstLevelId")),
             ),
             (
+                "replied_message".to_string(),
+                SqlValue::Text(json_text("repliedMessage", "")),
+            ),
+            (
+                "reply_messages".to_string(),
+                SqlValue::Text(json_text("replyMessages", "[]")),
+            ),
+            (
+                "reply_count".to_string(),
+                SqlValue::Integer(
+                    body.get("replyCount")
+                        .and_then(Value::as_i64)
+                        .unwrap_or_default(),
+                ),
+            ),
+            (
                 "create_at".to_string(),
                 SqlValue::Integer(
                     body.get("createAt")

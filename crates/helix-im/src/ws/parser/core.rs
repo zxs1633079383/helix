@@ -114,6 +114,27 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     let reply_first_level_id = pick_str("replyFirstLevelId")
         .or_else(|| pick_str("reply_first_level_id"))
         .unwrap_or_default();
+    let replied_message = post
+        .get("repliedMessage")
+        .or_else(|| post.get("replied_message"))
+        .or_else(|| root.get("repliedMessage"))
+        .or_else(|| root.get("replied_message"))
+        .map(serde_json::Value::to_string)
+        .unwrap_or_default();
+    let reply_messages = post
+        .get("replyMessages")
+        .or_else(|| post.get("reply_messages"))
+        .or_else(|| root.get("replyMessages"))
+        .or_else(|| root.get("reply_messages"))
+        .map(serde_json::Value::to_string)
+        .unwrap_or_default();
+    let reply_count = post
+        .get("replyCount")
+        .or_else(|| post.get("reply_count"))
+        .or_else(|| root.get("replyCount"))
+        .or_else(|| root.get("reply_count"))
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or_default();
 
     PostFields {
         temporary_id,
@@ -134,6 +155,9 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         reply_id,
         reply_root_id,
         reply_first_level_id,
+        replied_message,
+        reply_messages,
+        reply_count,
     }
 }
 

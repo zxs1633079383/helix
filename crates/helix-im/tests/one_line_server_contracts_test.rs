@@ -188,7 +188,7 @@ fn relay_merged_mode_assembles_one_chat_record_after_all_local_lookups() {
 }
 
 #[test]
-fn post_read_list_emits_render_ready_readers_without_read_bits() {
+fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
     let mut h = Harness::new(&[]);
     h.step(
         command_json(
@@ -199,15 +199,41 @@ fn post_read_list_emits_render_ready_readers_without_read_bits() {
     );
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
-        br#"{"status":"SUCCESS","data":[{"postId":"p1","readBits":{"Data":[128],"Len":2},"readerIds":["444","678"],"readers":[{"userId":"444"},{"userId":"678"}]}]}"#.to_vec(),
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"101","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678","555"],"readerIds":["legacy-wrong"]}]}"#.to_vec(),
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 2);
 
     let data = &emits(&h, "im:post:readers")[0];
     assert_eq!(data["reqId"], "receipt-1");
-    assert_eq!(data["receipts"][0]["readerCount"], 2);
-    assert_eq!(data["receipts"][0]["readers"][1]["userId"], "678");
+    assert_eq!(data["receipts"][0]["state"], "ready");
+    assert_eq!(data["receipts"][0]["snapshotId"], "snapshot-1");
+    assert_eq!(data["receipts"][0]["readerCount"], 1);
+    assert_eq!(data["receipts"][0]["unreadCount"], 1);
+    assert_eq!(data["receipts"][0]["readers"][0]["userId"], "555");
+    assert_eq!(data["receipts"][0]["unreaders"][0]["userId"], "678");
     assert!(data["receipts"][0].get("readBits").is_none());
+}
+
+#[test]
+fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        command_json(
+            "im_post_read_list",
+            serde_json::json!({"req_id":"receipt-invalid","post_ids":["p1"]}),
+        ),
+        1,
+    );
+    let corr = http_corr(&h);
+    let raw = bytes::Bytes::from(
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"1","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678"]}]}"#.to_vec(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 2);
+
+    let receipt = &emits(&h, "im:post:readers")[0]["receipts"][0];
+    assert_eq!(receipt["state"], "unavailable");
+    assert_eq!(receipt["readerCount"], 0);
+    assert_eq!(receipt["unreadCount"], 0);
 }
 
 #[test]

@@ -321,7 +321,21 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundContactCandidates { req_id }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
                                 // S8：回复族 → 双 emit（im:read:result 冻结 + im:channel:replies render-ready）。
-                                CorrelationContext::OutboundReplies { req_id }
+                                let request = crate::render_ready_replies::ReplyProjectionRequest::from_command(
+                                    name,
+                                    cmd.payload.as_ref(),
+                                    corr.raw(),
+                                )
+                                .expect("reply command with req_id must build projection request");
+                                if request.mode
+                                    == crate::render_ready_replies::ReplyProjectionMode::Snapshot
+                                    && !request.root_hint.is_empty()
+                                {
+                                    self.state
+                                        .reply_projection_revisions
+                                        .insert(request.root_hint.clone(), request.revision);
+                                }
+                                CorrelationContext::OutboundReplies { request }
                             } else if name == "im_get_posts"
                                 && serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
                                     .ok()

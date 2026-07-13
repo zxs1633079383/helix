@@ -413,6 +413,20 @@ fn send_reply_merges_root_fields() {
     let body = h.last_http_body().unwrap();
     assert_eq!(body["replyId"], json!("m_root"));
     assert_eq!(body["replyRootId"], json!("m_root"));
+    let sending = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                .ok()
+                .filter(|value| value["event"] == "im:post:sending"),
+            _ => None,
+        })
+        .expect("回复发送必须立即给 UI 一条带关系锚的乐观投影");
+    assert_eq!(sending["data"]["replyId"], "m_root");
+    assert_eq!(sending["data"]["replyRootId"], "m_root");
+    assert_eq!(sending["data"]["replyFirstLevelId"], "");
 }
 
 // ─── fail-hard ①：普通发消息 echo 锚 `post` 非 `posted`（B3，真 Go WebsocketEventPost）───

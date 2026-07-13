@@ -60,6 +60,20 @@ fn topic_value(row: &Value) -> Value {
     }
 }
 
+fn json_value(row: &Value, keys: &[&str], fallback: Value) -> Value {
+    keys.iter()
+        .find_map(|key| row.get(*key))
+        .map(|value| match value {
+            Value::String(raw) => serde_json::from_str::<Value>(raw)
+                .ok()
+                .filter(|parsed| !parsed.is_null())
+                .unwrap_or_else(|| fallback.clone()),
+            Value::Null => fallback.clone(),
+            other => other.clone(),
+        })
+        .unwrap_or(fallback)
+}
+
 fn template_received_bool(row: &Value) -> bool {
     if let Some(b) = row.get("templateReceived").and_then(|v| v.as_bool()) {
         return b;
@@ -129,7 +143,7 @@ fn template_reader_ids(props: &Value) -> Vec<&str> {
 }
 
 /// 单行整形：DB snake 列 / wire camel Post → render-ready 终态行（camelCase·前端 1:1 绑定）。
-fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
+pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     let temporary_id = get_str(row, &["temporary_id", "temporaryId"]);
     let server_id = get_str(row, &["id"]);
     let channel_id = get_str(row, &["channel_id", "channelId"]);
@@ -207,6 +221,12 @@ fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "replyId": get_str(row, &["reply_id", "replyId"]),
         "replyRootId": get_str(row, &["reply_root_id", "replyRootId"]),
         "replyFirstLevelId": get_str(row, &["reply_first_level_id", "replyFirstLevelId"]),
+        "repliedMessage": json_value(row, &["replied_message", "repliedMessage"], Value::Null),
+        "replyMessages": json_value(row, &["reply_messages", "replyMessages"], json!([])),
+        "replyCount": row.get("reply_count")
+            .or_else(|| row.get("replyCount"))
+            .and_then(Value::as_i64)
+            .unwrap_or_default(),
         "createAt": create_at,
         "createdAt": create_at,
         "userId": user_id,

@@ -57,6 +57,12 @@ const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "readerIds",
     "systemNotice",
     "pinned",
+    "replyId",
+    "replyRootId",
+    "replyFirstLevelId",
+    "repliedMessage",
+    "replyMessages",
+    "replyCount",
 ];
 
 fn ch() -> ChannelId {

@@ -192,11 +192,18 @@ fn continue_retry(
             "sending",
         )],
     });
-    out.push(crate::acl::to_effect::emit_post_sending(
+    out.push(crate::acl::to_effect::emit_post_sending_with_reply(
         channel_id,
         &temporary_id.0,
         body.get("message").and_then(Value::as_str).unwrap_or(""),
         body.get("type").and_then(Value::as_str).unwrap_or("TEXT"),
+        body.get("replyId").and_then(Value::as_str).unwrap_or(""),
+        body.get("replyRootId")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        body.get("replyFirstLevelId")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
     ));
     module.emit_posts_create_http(channel_id, temporary_id, &body, out)
 }

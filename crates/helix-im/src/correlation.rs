@@ -119,9 +119,11 @@ pub enum CorrelationContext {
     /// S8 回复族（UC-2.4·issue #57）：`im_get_replies` / `im_get_reply_branch` HTTP 回报。
     ///
     /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` **双 emit**：
-    /// `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）+ `im:channel:replies{reqId,
-    /// replyIds}`（render-ready 渲染通道·壳纯绑定）。`req_id` 前端 bridge 注入（与 corr 解耦·HX-C002）。
-    OutboundReplies { req_id: String },
+    /// `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）+ 显式 snapshot/append、
+    /// revision、分页元数据的 `im:channel:replies`。请求上下文来自 command+payload，不猜 reqId。
+    OutboundReplies {
+        request: crate::render_ready_replies::ReplyProjectionRequest,
+    },
 
     /// G-11 定位消息读回：HTTP `posts/get` 返回后由 Helix 整形成 highlighted 消息投影。
     OutboundLocatePost { req_id: String },

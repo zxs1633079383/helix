@@ -74,11 +74,14 @@ impl ImModule {
         });
 
         // 4. Emit(im:post:sending)（render-ready 乐观行：text/type 由 helix 吐·壳直绑不取 pendingText）。
-        out.push(crate::acl::to_effect::emit_post_sending(
+        out.push(crate::acl::to_effect::emit_post_sending_with_reply(
             channel_id,
             &tmp_id_str,
             body["message"].as_str().unwrap_or(""),
             body["type"].as_str().unwrap_or("TEXT"),
+            body["replyId"].as_str().unwrap_or(""),
+            body["replyRootId"].as_str().unwrap_or(""),
+            body["replyFirstLevelId"].as_str().unwrap_or(""),
         ));
 
         // 注册 PendingSend（等待 echo 对账）。connection_id 维度（M1）：记录本条在哪个握手

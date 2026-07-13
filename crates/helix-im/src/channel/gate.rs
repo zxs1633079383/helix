@@ -477,6 +477,15 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
                 "reply_first_level_id".to_string(),
                 SqlValue::Text(f.reply_first_level_id.clone()),
             ),
+            (
+                "replied_message".to_string(),
+                SqlValue::Text(f.replied_message.clone()),
+            ),
+            (
+                "reply_messages".to_string(),
+                SqlValue::Text(f.reply_messages.clone()),
+            ),
+            ("reply_count".to_string(), SqlValue::Integer(f.reply_count)),
             ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
             (
                 "send_status".to_string(),
@@ -526,6 +535,40 @@ pub fn edit_content_op(msg_id: &str, fields: &crate::sync_session::PostFields) -
     }
     if !fields.topic.is_empty() {
         patch.push(("topic".to_string(), SqlValue::Text(fields.topic.clone())));
+    }
+    if !fields.reply_id.is_empty() {
+        patch.push((
+            "reply_id".to_string(),
+            SqlValue::Text(fields.reply_id.clone()),
+        ));
+    }
+    if !fields.reply_root_id.is_empty() {
+        patch.push((
+            "reply_root_id".to_string(),
+            SqlValue::Text(fields.reply_root_id.clone()),
+        ));
+    }
+    if !fields.reply_first_level_id.is_empty() {
+        patch.push((
+            "reply_first_level_id".to_string(),
+            SqlValue::Text(fields.reply_first_level_id.clone()),
+        ));
+    }
+    if !fields.replied_message.is_empty() {
+        patch.push((
+            "replied_message".to_string(),
+            SqlValue::Text(fields.replied_message.clone()),
+        ));
+    }
+    if !fields.reply_messages.is_empty() {
+        patch.push((
+            "reply_messages".to_string(),
+            SqlValue::Text(fields.reply_messages.clone()),
+        ));
+        patch.push((
+            "reply_count".to_string(),
+            SqlValue::Integer(fields.reply_count),
+        ));
     }
     StorageOp::BatchUpdate(BatchUpdateSpec {
         table: "message",

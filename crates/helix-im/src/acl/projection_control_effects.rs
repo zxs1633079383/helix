@@ -12,6 +12,18 @@ pub fn emit_post_sending(
     text: &str,
     msg_type: &str,
 ) -> Effect {
+    emit_post_sending_with_reply(channel_id, temporary_id, text, msg_type, "", "", "")
+}
+
+pub fn emit_post_sending_with_reply(
+    channel_id: ChannelId,
+    temporary_id: &str,
+    text: &str,
+    msg_type: &str,
+    reply_id: &str,
+    reply_root_id: &str,
+    reply_first_level_id: &str,
+) -> Effect {
     use serde_json::json;
     // type 空串容错 "TEXT"（render-ready·前端不再 pendingType 兜底）。
     let msg_type = if msg_type.is_empty() {
@@ -50,6 +62,11 @@ pub fn emit_post_sending(
             "readBits": "",
             "text": text,
             "type": msg_type,
+            "replyId": reply_id,
+            "replyRootId": reply_root_id,
+            "replyFirstLevelId": reply_first_level_id,
+            "replyCount": 0,
+            "replyMessages": [],
         }
     });
     let bytes = Bytes::from(
@@ -451,6 +468,11 @@ fn post_fields_json(
         "replyId": fields.reply_id.clone(),
         "replyRootId": fields.reply_root_id.clone(),
         "replyFirstLevelId": fields.reply_first_level_id.clone(),
+        "repliedMessage": serde_json::from_str::<serde_json::Value>(&fields.replied_message)
+            .unwrap_or(serde_json::Value::Null),
+        "replyMessages": serde_json::from_str::<serde_json::Value>(&fields.reply_messages)
+            .unwrap_or_else(|_| serde_json::json!([])),
+        "replyCount": fields.reply_count,
         "userSnapshot": user_snapshot,
         "createAt": fields.create_at,
         "eventSeq": event_seq,

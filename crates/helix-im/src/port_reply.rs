@@ -346,10 +346,16 @@ impl ImModule {
 
             // S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → **双 emit**。
             // Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
-            //   + emit `im:channel:replies{reqId, replyIds}`（render-ready·helix 抽好 postId·壳纯绑定）。
+            //   + emit `im:channel:replies`（显式 snapshot/append + revision + 分页元数据）。
             // 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
-            CorrelationContext::OutboundReplies { req_id } => {
-                crate::port_reply_emit::emit_replies(&req_id, outcome, out);
+            CorrelationContext::OutboundReplies { request } => {
+                crate::port_reply_emit::emit_replies(
+                    &request,
+                    outcome,
+                    &mut self.state.reply_projection_revisions,
+                    &mut self.state.reply_projection_seen_ids,
+                    out,
+                );
             }
 
             CorrelationContext::OutboundLocatePost { req_id } => {

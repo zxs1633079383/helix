@@ -57,6 +57,21 @@ fn failed_projection_for_tmp(h: &Harness, tmp: &str) -> Option<Value> {
     })
 }
 
+fn sending_projection_for_tmp(h: &Harness, tmp: &str) -> Option<Value> {
+    h.sink
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|effect| match effect {
+            Effect::Emit { event } => {
+                let value: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                (value["event"] == "im:post:sending" && value["data"]["temporaryId"] == tmp)
+                    .then_some(value)
+            }
+            _ => None,
+        })
+}
+
 // ─── 发送命令产出 4 个 Effect ─────────────────────────────────────────────────
 
 #[test]
@@ -380,6 +395,40 @@ fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
 }
 
 #[test]
+fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
+    let mut h = Harness::new(&[1]);
+    let effects = h.step(
+        send_message_cmd_json(serde_json::json!({
+            "channel_id": cid(1),
+            "temporary_id": "tmp_retry_reply",
+            "text": "回复重试",
+            "replied": {
+                "id": "reply-target",
+                "reply_id": "parent-message",
+                "reply_root_id": "root-message",
+                "reply_first_level_id": "first-level"
+            }
+        })),
+        1_000,
+    );
+    h.step(port_reply_err(http_corr(&effects)), 1_100);
+
+    h.step(
+        command_json(
+            "im_retry_send",
+            serde_json::json!({ "message_id": "tmp_retry_reply" }),
+        ),
+        1_200,
+    );
+
+    let sending = sending_projection_for_tmp(&h, "tmp_retry_reply")
+        .expect("retry must emit a render-ready optimistic row");
+    assert_eq!(sending["data"]["replyId"], "reply-target");
+    assert_eq!(sending["data"]["replyRootId"], "root-message");
+    assert_eq!(sending["data"]["replyFirstLevelId"], "first-level");
+}
+
+#[test]
 fn retry_send_rehydrates_failed_message_after_native_restart() {
     let mut h = Harness::new(&[1]);
     let lookup_effects = h.step(
@@ -482,6 +531,11 @@ fn retry_send_rehydrates_failed_message_after_native_restart() {
     assert_eq!(retry_body["replyId"], "reply-1");
     assert_eq!(retry_body["replyRootId"], "root-1");
     assert_eq!(retry_body["replyFirstLevelId"], "first-1");
+    let sending = sending_projection_for_tmp(&h, "tmp_durable_retry")
+        .expect("durable retry must emit a render-ready optimistic row");
+    assert_eq!(sending["data"]["replyId"], "reply-1");
+    assert_eq!(sending["data"]["replyRootId"], "root-1");
+    assert_eq!(sending["data"]["replyFirstLevelId"], "first-1");
     assert_eq!(retry_body["createAt"], 1234);
     let track = h.sink.as_slice().iter().find_map(|effect| match effect {
         Effect::Http { req, .. } => req

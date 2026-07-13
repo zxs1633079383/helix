@@ -52,6 +52,11 @@ pub struct PostFields {
     pub reply_id: String,
     pub reply_root_id: String,
     pub reply_first_level_id: String,
+    /// 被引用消息与回复摘要由服务端直接给出，Helix 只做一次解析/投影。
+    /// JSON 字段保留字符串形态落库，避免 UI 再探测 snake/camel 或重组树。
+    pub replied_message: String,
+    pub reply_messages: String,
+    pub reply_count: i64,
 }
 
 /// 解析后的强类型入站事件（14 类 WS type 的产物）

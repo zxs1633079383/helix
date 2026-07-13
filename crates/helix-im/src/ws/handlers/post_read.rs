@@ -87,6 +87,11 @@ impl WsMessageHandler for PostReadHandler {
                 fields.read_bits = rm.to_string();
             }
         }
+        let receipt_revision = data
+            .get("updateAt")
+            .or_else(|| data.get("update_at"))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or_default();
 
         // 专用直路（不经 gate）：
         //   ① 覆盖式落 read_bits（O(1) `UPDATE message SET read_bits WHERE id=postId`；既存行命中，
@@ -99,8 +104,12 @@ impl WsMessageHandler for PostReadHandler {
                 fields.read_bits.as_str(),
             )],
         });
-        out.push(crate::acl::to_effect::emit_post_read(
-            channel_id, 0, &post_id, &fields,
+        out.push(crate::acl::to_effect::emit_post_read_with_receipt_revision(
+            channel_id,
+            0,
+            &post_id,
+            &fields,
+            receipt_revision,
         ));
         Ok(())
     }

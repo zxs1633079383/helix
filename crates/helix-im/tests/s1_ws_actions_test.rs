@@ -272,6 +272,12 @@ fn post_read_without_event_seq_still_writes_and_emits_s1() {
         emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
         "缺 event_seq 的 post_read echo 仍须 emit im:post:read（#14 根因）"
     );
+    let reads = emit_data(&h.sink, "im:post:read");
+    assert_eq!(reads[0]["receiptRevision"], 1_782_619_679_604_i64);
+    assert!(
+        reads[0]["receiptRevision"].as_i64().is_some(),
+        "Helix 必须提供不透明回执版本，Angular 不得用 readBits 判断刷新"
+    );
 }
 
 /// 回归锚: S1 —— post_read 缺 postId → 不写 message（边界零信任 noop），仍可 emit。

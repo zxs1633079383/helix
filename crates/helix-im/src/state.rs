@@ -189,6 +189,12 @@ pub struct ImState {
     /// 按变体 `match` 分发；一 corr 恰一变体，互斥由一 key 一 value + corr 全局唯一（见枚举不变量）保证。
     pub corr_map: HashMap<helix_core::Correlation, CorrelationContext>,
 
+    /// 同一回复根的最新请求 revision；旧 HTTP 回报不得覆盖新投影。
+    pub reply_projection_revisions: HashMap<String, u64>,
+
+    /// 已投影回复 id 集；append 在 Helix 内跨页去重，Angular 只绑定结果。
+    pub reply_projection_seen_ids: HashMap<String, HashSet<String>>,
+
     /// 退避 timer ID（当前重连倒计时）
     pub backoff_timer: Option<helix_core::TimerId>,
 
@@ -254,6 +260,8 @@ impl ImState {
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             corr_map: HashMap::new(),
+            reply_projection_revisions: HashMap::new(),
+            reply_projection_seen_ids: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,
             increment_fetched: HashSet::new(),
@@ -279,6 +287,8 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.hydration_pending.clear();
         self.viewer_channel_roles.clear();
+        self.reply_projection_revisions.clear();
+        self.reply_projection_seen_ids.clear();
     }
 }
 

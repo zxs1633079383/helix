@@ -147,6 +147,17 @@ fn resolve_pinned(props: &serde_json::Value) -> Option<bool> {
     props.get("pinned").and_then(|v| v.as_bool())
 }
 
+fn parse_json_field(raw: &str, fallback: serde_json::Value) -> serde_json::Value {
+    if raw.is_empty() {
+        fallback
+    } else {
+        serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .filter(|value| !value.is_null())
+            .unwrap_or(fallback)
+    }
+}
+
 /// spec06 FixB：message-row 信号的完整可渲染 payload 构造（数据在手，零回读）。
 ///
 /// issue #53（S4 首条竖切·C013 纯渲染壳）：在 fat 渲染核之外补 4 个 **render-ready 终态字段**——
@@ -233,6 +244,12 @@ fn message_item_data(
         "readerIds": resolve_template_reader_ids(&props),
         "systemNotice": is_system_notice(msg_type),
         "pinned": resolve_pinned(&props),
+        "replyId": fields.reply_id.as_str(),
+        "replyRootId": fields.reply_root_id.as_str(),
+        "replyFirstLevelId": fields.reply_first_level_id.as_str(),
+        "repliedMessage": parse_json_field(&fields.replied_message, serde_json::Value::Null),
+        "replyMessages": parse_json_field(&fields.reply_messages, json!([])),
+        "replyCount": fields.reply_count,
     })
 }
 
@@ -274,10 +291,25 @@ pub fn emit_post_read(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
 ) -> Effect {
+    emit_post_read_with_receipt_revision(channel_id, event_seq, msg_id, fields, 0)
+}
+
+/// 在线 `post_read` 的 render-ready 回执失效版本。
+///
+/// Angular 只比较这个不透明版本决定是否重取人员回执，不接触或解释 `readBits`。
+pub fn emit_post_read_with_receipt_revision(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    receipt_revision: i64,
+) -> Effect {
     use serde_json::json;
+    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, "", false);
+    data["receiptRevision"] = json!(receipt_revision);
     let payload = json!({
         "event": "im:post:read",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", false),
+        "data": data,
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

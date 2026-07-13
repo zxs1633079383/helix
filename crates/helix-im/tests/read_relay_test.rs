@@ -237,6 +237,81 @@ fn read_command_without_req_id_degrades_to_fire_and_forget() {
     );
 }
 
+#[test]
+fn reply_query_without_req_id_never_emits_uncorrelated_projection() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_get_replies",
+            serde_json::json!({"reply_id":"root","channel_id":"c1"}),
+        ),
+        1000,
+    );
+    let corr = http_corr(&h.sink).expect("缺 req_id 仍可发 HTTP，但不得注册投影回灌");
+    let raw = bytes::Bytes::from(
+        br#"{"data":{"rootPost":{"id":"root","channelId":"c1"},"replies":[]}}"#.to_vec(),
+    );
+    let effects = h.step(port_reply_with_body(corr, enveloped(raw)), 1001);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Emit)),
+        "无 req_id 无法关联抽屉，必须 fail-closed 为零投影"
+    );
+}
+
+#[test]
+fn stale_reply_snapshot_only_emits_correlated_read_result() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_get_replies",
+            serde_json::json!({
+                "reply_id":"root",
+                "channel_id":"c1",
+                "req_id":"old"
+            }),
+        ),
+        1000,
+    );
+    let old_corr = http_corr(&h.sink).unwrap();
+    h.step(
+        outbound_cmd(
+            "im_get_replies",
+            serde_json::json!({
+                "reply_id":"root",
+                "channel_id":"c1",
+                "req_id":"new"
+            }),
+        ),
+        1001,
+    );
+    let new_corr = http_corr(&h.sink).unwrap();
+
+    let latest = bytes::Bytes::from(
+        br#"{"data":{"rootPost":{"id":"root","channelId":"c1"},"replies":[{"id":"r2","channelId":"c1","replyRootId":"root"}]}}"#.to_vec(),
+    );
+    h.step(port_reply_with_body(new_corr, enveloped(latest)), 1002);
+    let latest_emits = emit_jsons(&h.sink);
+    assert_eq!(latest_emits.len(), 2);
+    assert_eq!(latest_emits[1]["event"], "im:channel:replies");
+    assert_eq!(latest_emits[1]["data"]["projectionMode"], "snapshot");
+    assert_eq!(latest_emits[1]["data"]["revision"], new_corr);
+
+    let stale = bytes::Bytes::from(
+        br#"{"data":{"rootPost":{"id":"root","channelId":"c1"},"replies":[{"id":"r1","channelId":"c1","replyRootId":"root"}]}}"#.to_vec(),
+    );
+    h.step(port_reply_with_body(old_corr, enveloped(stale)), 1003);
+    let stale_emits = emit_jsons(&h.sink);
+    assert_eq!(
+        stale_emits.len(),
+        1,
+        "旧 revision 只保留 req_id 对应的 read result"
+    );
+    assert_eq!(stale_emits[0]["event"], "im:read:result");
+    assert_eq!(stale_emits[0]["data"]["req_id"], "old");
+}
+
 // ─── is_read 注册表覆盖（读族标注正确性，防漂移）──────────────────────────────────
 
 #[test]

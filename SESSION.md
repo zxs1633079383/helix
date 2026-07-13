@@ -6,6 +6,11 @@
 
 ## §0 终态记录
 
+🎯 EXPECT Web 产品目标重启架构文档收敛：以 ADR-014 正式覆盖 ADR-006 的“Web 暂停维护”，只改现存架构真源与外部方案，不实现 Web 代码。可证伪断言：① 产品目标口径统一为“native/FFI 已产品化 + Web 进入 W0”，不得声称 Web 已交付；② `helix-core + helix-im` 共享业务语义，Web 不复制 IM 状态机；③ PC/Flutter 继续完整 SQLite，Web 明确为 session state + bounded cache，且禁止“消息未持久化但 cursor 单独持久化”；④ WS 帧处理/协议生命周期三端共享，物理连接生命周期由平台 driver 兑现；⑤ 现有 `helix-driver-wasm` 继续归档，未来正式产品壳命名为 `helix-driver-web`；⑥ 只改 `AGENTS.md`、`SESSION.md`、`docs/{GOAL.md,ROADMAP.md,harness/{decisions.md,README.md}}` 与外部 `helix-multiplatform-client-architecture-plan.md`，不碰 Rust 源码和当前文档熵减删除集；⑦ `git diff --check`、关键口径 grep、harness 数量不变量通过。@2026-07-13T11:57:41+0800 | 赌注 高 | 可逆 是
+
+🎯 EXPECT 第一批文档熵减：删除 `docs/superpowers/**`、`.superpowers/sdd/**`、`docs/sync-v2-report/**`、已被当前真源取代的旧 reports 与合并过程 spec；保留 GOAL/ROADMAP/ADR/harness、当前迁移真源和唯一性能实测报告。可证伪断言：① 上述三个历史执行目录无 tracked 文件；② `docs/README.md` 不再索引已删材料；③ 当前文档无指向已删文件的相对链接；④ 不修改 Rust 源码与业务契约；⑤ 文档总量净减超过 10000 行。@2026-07-13T12:10:00+0800 | 赌注 中 | 可逆 是
+✅ DONE 第一批文档熵减 @2026-07-13T12:18:00+0800 | 50 个 tracked 文件变化，净删 13130 行；删除 41 个 tracked 历史文件与 21 个未跟踪 Superpowers 运行残留；保留唯一性能实测报告、GOAL/ROADMAP/ADR/harness 和当前迁移真源；修正 FFI query/Flutter 指针与 HX-C016 链接 | 验证：Superpowers/sync-v2-report 工作树文件=0；当前文档相关残留引用=0；Markdown 相对链接全量扫描 0 断链；`git diff --check` PASS；Rust 源码 diff 为空。
+
 🎯 EXPECT 移除 Claude 仓库资产与镜像约束：删除全部 `CLAUDE.md` 和 `.claude/**`，保留单一 `AGENTS.md` 指令链，并同步移除 structure gate、agent manifest、当前导航中的镜像/Claude 依赖。可证伪断言：① `git ls-files '*CLAUDE.md' '.claude/**'` 为空；② `scripts/structure-gate.sh` 不再检查镜像且行数闸仍可运行；③ `.agents/manifests` 无 `boundary_mirror`；④ crate/agent 当前边界只指向 `AGENTS.md`；⑤ agent constraint/route、JSON 解析、shell 语法、结构闸与残留引用检查通过；不改 Rust 业务行为。@2026-07-13T11:30:00+0800 | 赌注 中 | 可逆 是
 ✅ DONE 移除 Claude 仓库资产与镜像约束 @2026-07-13T11:33:39+0800 | 62 个文件删除，156 文件总影响，净删 5182 行 | 删除 26 个 `CLAUDE.md`、`.claude/**` 33 个文件、Claude night-loop 两件与过期 helix-query 设计稿；AGENTS 成为单一指令源；structure/gate、agent manifest/router、Codex hook、harness/ROADMAP/提交规范均已转接 | 验证：工作树 `CLAUDE.md`=0、`.claude` 文件=0、`boundary_mirror`=0；JSON PASS；shell syntax PASS；harness 16=16；agent constraints 18/18；agent route PASS；DDD structure gate PASS；`git diff --check` PASS；完整 `structure-gate.sh` 仍因既有 Rust 行数债 FAIL（未扩散修复）
 ⚡ DRIFT-PRED 预期完整结构闸可通过，但当前主线已有多项源码行数债（如 effect.rs 554>452、storage.rs 748>560），与本轮 Claude 清理无关；本轮只验证镜像检查已移除，并以 DDD structure gate PASS 证明 AGENTS 单源接线有效。→ 候选教训：文档/治理清理的 EXPECT 应区分“目标接线验证”与“仓库既有全局 gate 基线”。
@@ -351,7 +356,7 @@
   **➡️ 下一步（三选一）**：
   - **A'（小·收口 A）真机 13-action e2e**：起 Go(:8065) + grpc(`xpa-2-12-grpc`) → `scripts/dev-loop.sh` 跑 host-cli → stdin 敲命令观察 WS 回推（posted-echo/post_read/post_update/channel_member_update/leave→BatchDelete/channel_created/schedule×2）。channel_close/nickname 无干净自 endpoint → 第二 actor(真 cses-client)触发观察。**本会话未跑（Go 未起）**。
   - **B（大·M2 ROADMAP P0）**：Tauri 前端四接缝接入 + 灰度开关 —— emit 消费(`im:__bus__`)/读路径 S7(2D cursor 分页)/too_long 前端 getLatestPost 链 的唯一验法。host-cli 是其同构参照（仅最外层 I/O 边界 stdin↔IPC 不同）。
-  **真机连法**：`HELIX_DEVICE_ID` 已写死 `ED380414932542BAB4993E5AC3E07C64`（host-cli，env 可覆盖）· `scripts/dev-loop.sh` · 后端 grpc 服务名 = `xpa-2-12-grpc`（Go `grpcx9.go:66 CsesGrpc`，改名根因见 `docs/sync-v2-report/真机验收-grpc阻塞根因.md`）。**结构性未通**：Tauri 前端(M2)/FFI 手机端 IM e2e(M3-F4)/Snapshot(A2 服务端未实现不可达)。
+  **真机连法**：`HELIX_DEVICE_ID` 已写死 `ED380414932542BAB4993E5AC3E07C64`（host-cli，env 可覆盖）· `scripts/dev-loop.sh` · 后端 grpc 服务名 = `xpa-2-12-grpc`（环境恢复见 `docs/harness/HX-C016-e2e-env-recovery-and-fast-harness.md`）。**结构性未通**：Tauri 前端(M2)/FFI 手机端 IM e2e(M3-F4)/Snapshot(A2 服务端未实现不可达)。
 
 🎯 EXPECT host-cli stdin 遥控器(Tier0 chassis)+helix-im outbound 命令全集(Tier1)解锁 13-action 自驱动真机验收 @2026-06-22 | 赌注 中 | 可逆 是（branch feat/sync-v2-report-on-adr007 未 merge）
   ↳ 可证伪预判：① 改动文件集 = host-cli(main.rs + 新 repl.rs stdin 解析) + helix-im(module.rs dispatch 臂扩 · acl/from_tick.rs accepts 扩 · 新 outbound handler edit/leave/create/schedule/cancel · acl/to_effect* 新 HTTP builder) + tests；**不碰根 SESSION/CLAUDE/README · 不碰 core ports/effect**（预测复用 Effect::Http/Persist/Emit/ScheduleTimer，不新增 Effect 变体）
@@ -427,7 +432,7 @@
 ✅ DONE 真机在线+离线 parity 验收**通过** @2026-06-21 | helix/feat/sync-v2-report-on-adr007 真连 localhost:8065（EXPECT⑥ 真机部分现 held）
   ↳ 落库实证（fresh DB 冷启动 = 离线 fromSeq=0 backfill）：**channel 257 行** · **channel_member 2275 行**（MEMBER 2058/OWNER 214/BOSS 3，四源+memberChange.join role normalize）· **message 950 行**（离线 backfill）· **channel_event_cursor 23**（max seq 554）· **member_count 实数 599/598/41/40…**（原卡 0 现真值）· Go「Increment worker completed」· increment_channel handler ×257 dispatch
   ↳ 全 parity 闭环点亮：#1 cursor 种子0 + #6 解信封 → 离线 backfill 真落 950 msg · B0 GuardedBump + channel_write → 257 channel · #2 成员 → 2275 member · member_count → 实数 · S2 cursor → 23 行
-  ↳ 阻塞根因（非 re-port · 详 [`docs/sync-v2-report/真机验收-grpc阻塞根因.md`](docs/sync-v2-report/真机验收-grpc阻塞根因.md)）：后端 grpc serviceName 改名 `xpa-12-grpc`→`xpa-2-12-grpc`（consul 0 实例 → 用户起服务+改 Go `grpcx9.go:66` const 后修复）。deviceId 写死 `ED380…`（host-cli env 可覆盖，d966250）
+  ↳ 阻塞根因（非 re-port · 环境恢复见 [`HX-C016`](docs/harness/HX-C016-e2e-env-recovery-and-fast-harness.md)）：后端 grpc serviceName 改名 `xpa-12-grpc`→`xpa-2-12-grpc`（consul 0 实例 → 用户起服务+改 Go `grpcx9.go:66` const 后修复）。deviceId 写死 `ED380…`（host-cli env 可覆盖，d966250）
 
 🧭 **续接一句话（新会话开局读这条）**：在 worktree `worktrees/sync-v2-report`（分支 `feat/sync-v2-report-on-adr007`，off dev-zlc）把 feat 的 **sync-v2 整条业务实现 re-port 到 dev-zlc 的 ADR-007 架构，目标 = feat 全 parity（不只 6 个 fix）**。参照源 = `feat/sync-v2-full-replacement`（已真机验证，**不文本合并**，逐项 re-port）。
 

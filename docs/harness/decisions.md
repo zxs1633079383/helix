@@ -32,7 +32,7 @@
 ## ADR-006 — 产品维护目标收缩为 PC Tauri + Flutter，wasm/web 暂停维护
 - **决策**：Helix 当前产品化目标只覆盖两类客户端：PC 端 Tauri（`helix-driver-native`）与手机端 Flutter（`helix-driver-ffi`）。网页端暂不做，`helix-driver-wasm` 保留为历史实验/归档代码，不进入 roadmap、CI 必跑矩阵、交付验收或日常维护。
 - **理由**：用户已拍板优先保证 PC + 手机端同步更新并降低维护成本；浏览器端 IndexedDB/OPFS/Worker/wasm 包体积会引入额外平台复杂度，当前不是产品需求。业务逻辑仍保持 runtime-agnostic、sans-IO、可回放，避免把未来 Web 可能性彻底写死，但不为未维护端付实现和验收成本。
-- **状态**：已定（2026-06-15）。后续代码变更不得为了 wasm/web 额外扩 scope；如重新启动网页端，需新增 ADR 重新激活 `helix-driver-wasm` 和对应验收。
+- **状态**：已被 ADR-014 覆盖（2026-07-13）。本 ADR 仍保留为 2026-06-15 至 2026-07-13 的阶段性产品边界记录；历史 `helix-driver-wasm` 不因 Web 重启自动转正。
 
 ## ADR-007 — PC/Flutter 共享 Rust host driver 存储层
 - **决策**：新增 `helix-driver-host` 作为 PC Tauri 与 Flutter FFI 的共享 Rust host driver 层。SQLite schema/migration、rusqlite Storage 实现、`StorageOp -> PortOutcome` 兑现、`rows_to_reply_bytes` / `rows_from_reply_bytes` 统一维护在该 crate；`helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳与边界 API。
@@ -82,6 +82,17 @@
 - **678 对齐影响 = 零功能影响**：`CREATE TABLE IF NOT EXISTS` 只判表存在、不判列差异 → M2 共享既有 cses-client tenant.db 时该列仍由 cses-client 持有、IF NOT EXISTS 跳过、helix 永不触碰；fresh helix-only 库则不建该列与索引。helix 落库走具名列 upsert（`event_to_upsert_op`），从不依赖 segment_id，故双场景均无破坏。
 - **代码事实**：仅 helix-im（`schema.rs` 删列+索引+加例外注释；`channel.rs`/`acl/to_effect.rs` 删注释中 segment_id；`tests/c2_phantom_readbits_test.rs` 删 forbidden 列表中 segment_id）。core 无 channel/segment 概念，零运行时不受影响。
 - **状态**：已定（2026-06-22，用户拍板「清掉，确认弃用 bitmap」）。如未来要把 segment-based 离线同步引入 helix，需新增 ADR 重新激活该列与机制（按 ADR-008 的 event_seq cursor 优先，不默认回退 bitmap）。
+
+## ADR-014 — Web 重新进入产品目标：共享业务语义，采用轻持久化与浏览器 Transport
+
+- **决策**：Helix 产品目标集合扩为 PC Tauri、Flutter 手机端与 Web 三端。当前交付事实仍是 native/FFI 已产品化、Web 处于 W0 可达性与契约验证阶段，禁止把“进入 roadmap”写成“已经交付”。Web 复用同一份 `helix-core + helix-im`，不复制协议解析、WS 消息处理、sequence/cursor、echo、已读、撤回、编辑、补偿同步或发送状态机。
+- **存储边界**：三端共享 `Storage` 行为契约，不要求共享相同物理数据库或持久化数据量。PC/Flutter 继续复用 `helix-driver-host` 的完整 SQLite；Web 默认采用“会话内权威状态 + 有界可淘汰缓存”——运行期 `StorageOp` 由 Web session store 兑现，跨刷新只保存经明确选择的近期消息、会话摘要、草稿或 UI 偏好。Web 缓存不是服务端权威库。**禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor**；若未来要跨刷新恢复，必须把 cursor 与 cache coverage/window 作为联合检查点，或冷启动重新 bootstrap/sync。
+- **WebSocket 边界**：WS 帧进入后的业务处理与协议生命周期属于共享 `helix-im`；真实 socket 的创建、open/message/error/close 回调、浏览器 online/visibility/page 生命周期、重连执行与鉴权接线属于 Web driver。Rust WASM 可以通过浏览器 API 管理 WebSocket 对象，但浏览器拥有底层 TCP/TLS、握手能力与最终执行上下文生命周期。平台事件统一翻译为 `Tick::Connected/Inbound/Disconnected`，共享模块继续输出 `Effect::Send/Http/Emit/...`。
+- **产品壳与历史代码**：正式 Web 产品壳规划命名为 `helix-driver-web`，运行于 Dedicated Worker，主线程只发送命令、生命周期事件并批量接收 DomainEvent。现有 `helix-driver-wasm` 继续作为历史实验/trait-shape 参考，不原地视为可交付实现；是否迁移可复用片段在 W1 代码审计后决定。
+- **鉴权闸门**：W0 必须先用真实浏览器验证 CORS、Cookie/session、WS 握手与现网 `cookieId/deviceId/companyId/appType` 约束。浏览器不能任意设置 WS 握手 header，候选路线为同源 BFF/WS gateway、Go 原生 Cookie/短期 ticket 或连接后认证帧；涉及 Go/部署的选择另行拍板，未通过 W0 不进入持久化实现。
+- **CI/harness 激活节律**：ADR-012 的 native/FFI 默认 gate 在 W0 期间保持不变。W1 创建可编译的正式 Web 壳后，必须把 wasm target type-check、同 Tick 剧本跨端 Effect/DomainEvent parity 和浏览器 smoke 纳入 CI，并把 HX-C003 从 archived 升为 active；在此之前不得伪造一个永远红或只检查历史骨架的 Web gate。
+- **理由**：Web 产品通常以服务端为权威、弱离线和有界缓存为主，不适合复制 PC/手机端的大体量本地库；但 WS 消息语义与业务状态机若另写会导致三端行为漂移。把“业务语义复用”与“平台能力差异”分离，既守住 runtime-agnostic/sans-IO 原点，也允许浏览器在存储量、连接存活和鉴权能力上诚实降级。
+- **状态**：已定（2026-07-13，用户拍板）。覆盖 ADR-006 的“Web 暂停维护”产品结论；不覆盖 ADR-007/010 的 PC/Flutter shared host 实现，也不宣称现有 wasm 骨架已完成。
 
 ---
 

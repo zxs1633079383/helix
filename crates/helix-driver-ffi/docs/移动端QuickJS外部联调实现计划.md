@@ -8,8 +8,6 @@
 > [`移动端Command-Query-Event契约SPEC.md`](./移动端Command-Query-Event契约SPEC.md)、
 > [`多端联调测试指南.md`](./多端联调测试指南.md) 为准。
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 在 `/workspace/c/mobile-qucik-c++` 中实现移动端最后一公里：C++ `CoreBridge` 直连真实 `helix-driver-ffi`，注册到 QuickJS，并通过 JS `im.send(...)` 驱动发送链路 smoke。
 
 **Architecture:** `helix` 继续只提供 Rust FFI ABI、`helix.h` / `helix.hpp`、native library、command/query/event 契约与 Rust 验收；外部项目 `/workspace/c/mobile-qucik-c++` 承接 C++、QuickJS、JS facade、Android/iOS 打包与移动端 smoke。事件跨 FFI 边界必须批量交付，C++ 回调内立即拷贝，QuickJS 线程通过队列拉取事件。

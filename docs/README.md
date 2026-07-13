@@ -1,9 +1,9 @@
 # Helix 文档地图（docs/ 总索引）
 
 > docs/ 的**单一入口**：先看这页，再进具体文档。
-> **2026-07-07 熵减对账**：当前仓库可扫 Markdown 约 169 个，本页维护的是**常读 canonical 入口**，不是仓库 Markdown 总量清单。历史报告、worker report、SDD 执行包、模块深层 spec 不等于当前事实。
+> **2026-07-13 熵减对账**：本页只维护**常读 canonical 入口**。一次性计划、worker report、SDD 执行包和已完成的合并过程记录由 Git 历史留存，不再常驻工作树。
 > **2026-06-17 大缩减（历史记录）**：曾将广读叙事稿 55 → 29 个。该数字只代表当时 docs 入口收敛，不代表今天仓库 Markdown 总量。
-> 维护规则见文末「§ 熵管理」。最近对账：**2026-07-07**（文档入口熵减：计数口径、历史证据、移动端 FFI / real-chain / trace-scope 边界）。
+> 维护规则见文末「§ 熵管理」。最近对账：**2026-07-13**（删除历史执行包与重复战报，保留当前真源和性能实测）。
 
 ---
 
@@ -44,20 +44,16 @@
 ### harness/（护栏层 · 按需 grep，非广读）
 → [`harness/README.md`](./harness/README.md)：active/archived harness 的唯一索引 + [`OPERATING.md`](./harness/OPERATING.md)（什么事→调什么）+ [`decisions.md`](./harness/decisions.md)（ADR + 过会拍板）+ [`log.md`](./harness/log.md)（踩坑流水）。
 
-### 模块级 spec / 执行记录（按需读，不能冒充当前 green）
+### 模块级 spec（按需读，不能冒充当前 green）
 | 文档族 | 当前路由 |
 |---|---|
 | `crates/helix-im/docs/uc-automation/` | `uc-command-set-spec.md` 是 UC/command 当前入口；`uc-test-order-spec.md` 是历史 DAG 参照 |
 | `crates/helix-driver-ffi/docs/` | 移动端契约以 `移动端Command-Query-Event契约SPEC.md` 为主；QuickJS 接入文档是移动端联调说明 |
-| `.superpowers/sdd/*.md` | worker brief/report/progress，只能作为执行线索和审查材料，不是 current green |
-| `docs/sync-v2-report/*` / `docs/reports/*` | 历史审计/战报，保留 provenance；需要当前事实时回到代码、gate、collector 证据 |
 
-### reports/（战报 + 性能留痕）
+### reports/（性能实测留痕）
 | 文档 | 作用 |
 |---|---|
 | [`helix-并发承压评估-2026-06-11.md`](./reports/helix-并发承压评估-2026-06-11.md) | **唯一实测性能 ground truth**（内核/gate/写放大数字 + E1-E10 瓶颈含开放项），缩减时移存于此 |
-| [`fix-e1-e2-driver-native.md`](./reports/fix-e1-e2-driver-native.md) · [`fix-e3-e4-helix-im.md`](./reports/fix-e3-e4-helix-im.md) | E1-E4 修复战报 |
-| [`2026-06-16-retro-持久化与merge.md`](./reports/2026-06-16-retro-持久化与merge.md) | 30 分钟复盘留痕 |
 
 ---
 

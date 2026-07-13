@@ -130,9 +130,8 @@ POST /api/cses/channel/close
 
 > 用户记忆中「曾有含 createPosts 的 curl 集合」——**本文件上方 6 curl 实抓集合不含 createPosts**（已逐条确认）。
 > 全仓（cses-client / helix / mattermost）穷举搜索 `createPosts` + `curl `：**无任何 live-capture curl body** 留存。
-> 命中的是测试计划/回归框架文档（`mattermost/test-plan/无公司用户回归测试用例.md` PA-010、
-> `mattermost/docs/superpowers/specs/2026-04-08-regression-test-framework-design.md`），只列端点路径不含 body
-> ——这两份很可能就是用户记忆的「集合」，但它们是**用例清单**非抓包 curl。
+> 命中的是测试计划/回归框架文档，只列端点路径不含 body；它们很可能就是用户记忆的
+> 「集合」，但属于**用例清单**而非抓包 curl。
 >
 > 虽无真抓包，端点路径 + body casing 由**三方源码证据闭环确证**（强度等价抓包，因前端 HTTP body 逐字透传）：
 >

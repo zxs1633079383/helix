@@ -75,6 +75,12 @@ const FAT_KEYS: &[&str] = &[
     "systemNotice",
     "pinned",
     "topic",
+    "replyId",
+    "replyRootId",
+    "replyFirstLevelId",
+    "repliedMessage",
+    "replyMessages",
+    "replyCount",
 ];
 
 /// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
@@ -98,6 +104,9 @@ fn sample_fields() -> PostFields {
         reply_id: "root-1".to_string(),
         reply_root_id: "root-1".to_string(),
         reply_first_level_id: "first-1".to_string(),
+        replied_message: r#"{"id":"root-1","message":"原消息"}"#.to_string(),
+        reply_messages: r#"[{"id":"reply-1","message":"回复"}]"#.to_string(),
+        reply_count: 1,
     }
 }
 
@@ -178,7 +187,9 @@ fn im_post_received_freezes_fat_renderable_row() {
 fn im_post_read_freezes_fat_renderable_row() {
     let f = sample_fields();
     let e = to_effect::emit_post_read(ch(), SEQ, MSG_ID, &f);
-    assert_frozen(&e, "im:post:read", FAT_KEYS);
+    let mut keys = FAT_KEYS.to_vec();
+    keys.push("receiptRevision");
+    assert_frozen(&e, "im:post:read", &keys);
 }
 
 #[test]
@@ -239,6 +250,12 @@ fn fat_emit_carries_in_hand_data() {
     assert_eq!(data["props"]["k"], "v", "props parse 回对象");
     assert_eq!(data["topic"]["channelId"], "topic-1", "topic parse 回对象");
     assert_eq!(data["viewers"][0], "all", "viewers 数组直出");
+    assert_eq!(data["replyId"], "root-1");
+    assert_eq!(data["replyRootId"], "root-1");
+    assert_eq!(data["replyFirstLevelId"], "first-1");
+    assert_eq!(data["repliedMessage"]["message"], "原消息");
+    assert_eq!(data["replyMessages"][0]["message"], "回复");
+    assert_eq!(data["replyCount"], 1);
     // render-ready 终态字段（issue #53）：sample_fields 无 quickReply/template·type=TEXT →
     // sendStatus=sent / reactions=null / templateReceived=false / systemNotice=false。
     assert_eq!(data["sendStatus"], "sent", "sendStatus 恒 sent（已对账态）");
@@ -502,6 +519,11 @@ fn im_post_sending_freezes_channel_and_temporary_id() {
             "readBits",
             "text",
             "type",
+            "replyId",
+            "replyRootId",
+            "replyFirstLevelId",
+            "replyCount",
+            "replyMessages",
         ],
     );
 }
@@ -690,6 +712,37 @@ fn im_post_batch_updated_non_array_posts_degrades_to_empty_keeps_keys() {
     let posts = serde_json::json!({"not": "array"});
     let e = to_effect::emit_post_batch_updated(ch(), &posts);
     assert_frozen(&e, "im:post:batch-updated", &["channel_id", "posts"]);
+}
+
+#[test]
+fn im_channel_replies_freezes_explicit_merge_and_paging_contract() {
+    let projection = helix_im::render_ready_replies::FlatReplyProjection {
+        channel_id: "c1".to_string(),
+        root_message_id: "root".to_string(),
+        projection_mode: helix_im::render_ready_replies::ReplyProjectionMode::Snapshot,
+        revision: 7,
+        reply_ids: vec!["r1".to_string()],
+        nodes: vec![serde_json::json!({"msgId":"r1"})],
+        reply_count: 1,
+        has_more: false,
+    };
+    let effect = helix_im::render_ready_replies::emit_channel_replies("req-1", projection);
+    assert_frozen(
+        &effect,
+        "im:channel:replies",
+        &[
+            "reqId",
+            "channelId",
+            "rootMessageId",
+            "projectionMode",
+            "revision",
+            "replyIds",
+            "nodes",
+            "replyCount",
+            "cursor",
+            "hasMore",
+        ],
+    );
 }
 
 #[test]

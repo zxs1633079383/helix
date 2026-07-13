@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 2,
+  "contract_epoch": 4,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -142,9 +142,15 @@
       {
         "kind": "reply.tree.v1",
         "required_props": [
+          "channel_id",
           "root_message_id",
           "nodes",
-          "reply_count"
+          "reply_count",
+          "ordered_reply_ids",
+          "projection_mode",
+          "revision",
+          "cursor",
+          "has_more"
         ]
       },
       {
@@ -152,7 +158,11 @@
         "required_props": [
           "message_id",
           "reader_count",
-          "read_bits"
+          "unread_count",
+          "readers",
+          "unreaders",
+          "snapshot_id",
+          "snapshot_version"
         ]
       },
       {
@@ -1360,7 +1370,13 @@
               "reply_id",
               "req_id"
             ],
-            "optional": [],
+            "optional": [
+              "channel_id",
+              "root_message_id",
+              "page_number",
+              "page_size",
+              "revoke"
+            ],
             "forbid_unknown": true
           },
           "effect": [
@@ -1375,7 +1391,12 @@
               "reply_first_level_id",
               "req_id"
             ],
-            "optional": [],
+            "optional": [
+              "channel_id",
+              "root_message_id",
+              "page_number",
+              "page_size"
+            ],
             "forbid_unknown": true
           },
           "effect": [
@@ -1392,7 +1413,20 @@
         {
           "event": "im:channel:replies",
           "render_kind": "reply.tree.v1",
-          "schema": "RenderNode/v1"
+          "schema": "RenderNode/v1",
+          "required_data_fields": [
+            "reqId",
+            "channelId",
+            "rootMessageId",
+            "projectionMode",
+            "revision",
+            "replyIds",
+            "nodes",
+            "replyCount",
+            "cursor",
+            "hasMore"
+          ],
+          "merge_contract": "Helix 按 command 冻结 snapshot/append；同 root 旧 revision 静默丢弃；snapshot 权威替换，append 跨页去重保序；Go 暂无 opaque cursor 时 cursor=null，hasMore 缺省 false"
         }
       ],
       "allowed_actions": [
@@ -1400,7 +1434,9 @@
         "open_reply_tree"
       ],
       "negative_assertions": [
-        "reply 层级、数量和父子关系不得由 UI 推导"
+        "reply 层级、数量和父子关系不得由 UI 推导",
+        "UI 不得通过 reqId 前缀猜 projectionMode，也不得让旧 revision 覆盖新快照",
+        "缺 req_id 的 reply query 不得产生无关联 im:channel:replies 投影"
       ],
       "http": {
         "request": "`POST /api/cses/posts/getReplies` body `{replyId,pageNumber,pageSize,revoke?}`；`POST /api/cses/posts/getReplyBranch` body `{replyFirstLevelId,pageNumber,pageSize,revoke?}`",

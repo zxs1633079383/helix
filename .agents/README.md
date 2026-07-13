@@ -15,8 +15,8 @@
 - `helix-core` 永远只接受运行时无关、sans-IO、业务无关的任务。
 - `helix-im` 拥有 IM 业务真相；driver/native/ffi/host-cli 只做适配和验证。
 - `helix-driver-wasm` 是 archived/experimental；不要把它作为当前交付目标。
-- crate 级 `AGENTS.md`/`CLAUDE.md` 仍是源码目录的就近镜像文件。
-- `.agents/agents/modules/<module>/AGENTS.md` 与 `.agents/agents/domains/<domain>/AGENTS.md` 是蜂群内部的模块/领域边界文件；每个都必须有同内容 `CLAUDE.md` 镜像。
+- crate 级 `AGENTS.md` 是源码目录的就近指令文件。
+- `.agents/agents/modules/<module>/AGENTS.md` 与 `.agents/agents/domains/<domain>/AGENTS.md` 是蜂群内部的模块/领域边界文件。
 
 ## 图谱
 

@@ -67,7 +67,6 @@ check_9() {
   forbid_file crates/helix-im/src/channel_write
   require_grep "crates/helix-im/src/channel/gate.rs 579" scripts/structure-gate.sh
   forbid_grep "crates/helix-im/src/channel.rs 579" scripts/structure-gate.sh
-  require_grep "helix-im/src/channel/gate.rs" .claude/rules/code-structure-ddd.md
 }
 
 check_10() {
@@ -216,23 +215,21 @@ check_18() {
   require_grep "pub mod parser;" crates/helix-im/src/ws/mod.rs
   require_grep "crates/helix-im/src/ws/parser/core.rs 430" scripts/structure-gate.sh
   forbid_grep "crates/helix-im/src/parser.rs 430" scripts/structure-gate.sh
-  require_grep "helix-im/src/ws/parser/core.rs" .claude/rules/code-structure-ddd.md
 }
 
 check_19() {
   echo "DDD-STRUCT #19 helix-im instructions"
-  diff -u crates/helix-im/CLAUDE.md crates/helix-im/AGENTS.md >/dev/null 2>&1 || mark_fail "CLAUDE.md and AGENTS.md differ"
-  require_grep "channel/" crates/helix-im/CLAUDE.md
-  require_grep "send/" crates/helix-im/CLAUDE.md
-  require_grep "sync/" crates/helix-im/CLAUDE.md
-  require_grep "query/" crates/helix-im/CLAUDE.md
-  require_grep "todo/" crates/helix-im/CLAUDE.md
-  require_grep "outbound/" crates/helix-im/CLAUDE.md
-  require_grep "ws/" crates/helix-im/CLAUDE.md
-  require_grep "acl/" crates/helix-im/CLAUDE.md
-  require_grep "职责" crates/helix-im/CLAUDE.md
-  require_grep "怎么用" crates/helix-im/CLAUDE.md
-  require_grep "依赖" crates/helix-im/CLAUDE.md
+  require_grep "channel/" crates/helix-im/AGENTS.md
+  require_grep "send/" crates/helix-im/AGENTS.md
+  require_grep "sync/" crates/helix-im/AGENTS.md
+  require_grep "query/" crates/helix-im/AGENTS.md
+  require_grep "todo/" crates/helix-im/AGENTS.md
+  require_grep "outbound/" crates/helix-im/AGENTS.md
+  require_grep "ws/" crates/helix-im/AGENTS.md
+  require_grep "acl/" crates/helix-im/AGENTS.md
+  require_grep "职责" crates/helix-im/AGENTS.md
+  require_grep "怎么用" crates/helix-im/AGENTS.md
+  require_grep "依赖" crates/helix-im/AGENTS.md
 }
 
 check_20() {

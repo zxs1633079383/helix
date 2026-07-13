@@ -3,7 +3,7 @@
 > Flutter FFI 端 driver（C-ABI / uniffi）的结构与数据流沉淀。
 > 图以 mermaid `.mmd` 落盘，真源 = `crates/helix-driver-ffi/src/{api.rs,pump.rs,event_sink.rs,http.rs,lib.rs}`。
 > F4 已落地：FFI pump 线程直接装配 shared host `run_engine_loop`、`HostStorage`、`SharedHttpClient`
-> 与 `SharedWsClient`，C++ 侧只通过 C ABI 发命令和接收批量事件。crate 行为真源 = [`../../CLAUDE.md`](../../CLAUDE.md)。
+> 与 `SharedWsClient`，C++ 侧只通过 C ABI 发命令和接收批量事件。crate 行为真源 = [`../../AGENTS.md`](../../AGENTS.md)。
 > ⚠️ 下方 `.mmd` 图为 F4 落地前快照，「左现状断头 / engine 不被驱动」部分已过时，待重绘（图例见文末）。
 
 ## 图清单

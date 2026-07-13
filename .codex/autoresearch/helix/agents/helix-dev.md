@@ -71,7 +71,7 @@ Use `scripts/gate.sh` before committing behavior changes when feasible.
 
 - For knowledge-only tasks, modify only `.codex/autoresearch/helix/**`.
 - For code tasks, keep changes in the owning layer and avoid opportunistic refactors.
-- If editing `AGENTS.md` or `CLAUDE.md` in the same directory, keep them mirrored.
+- Treat same-directory `AGENTS.md` as the sole local instruction source.
 - Do not revert unrelated dirty work.
 - Ask before public ABI changes, command/event schema changes, storage schema changes, or wasm/web target reactivation.
 

@@ -21,7 +21,7 @@ trigger_keywords:
 related:
   - HX-C005
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C007 — Effect 跨边界批处理

@@ -198,7 +198,6 @@
       "applies_to": {
         "paths": [
           ".agents",
-          ".claude/workflows",
           "docs/harness"
         ]
       },

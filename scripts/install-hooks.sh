@@ -5,6 +5,12 @@ cd "$(git rev-parse --show-toplevel)"
 mkdir -p .git/hooks
 cat > .git/hooks/pre-push <<'HOOK'
 #!/usr/bin/env bash
+
+if upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null); then
+  export HELIX_STRUCTURE_BASE
+  HELIX_STRUCTURE_BASE=$(git merge-base HEAD "$upstream")
+fi
+
 exec scripts/gate.sh
 HOOK
 chmod +x .git/hooks/pre-push scripts/gate.sh

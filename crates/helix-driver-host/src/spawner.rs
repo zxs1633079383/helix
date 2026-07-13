@@ -77,7 +77,7 @@ impl<P: Send + 'static> BoundedSpawner<P> {
                         // Receiver 是单消费者（recv 要 &mut self），N worker 共享须互斥。空队列时
                         // 仅一个 worker 持锁 park 在 recv，新 job 唤醒它即出块 drop 锁、下一 worker 接力
                         // （经 mutex 串行交接，非瞬时 N 名额）。真并发在锁外的 run().await(下)，故
-                        // N 路 I/O 不受队列锁串行化影响——死锁安全见 CLAUDE.md「Block 模式」节。
+                        // N 路 I/O 不受队列锁串行化影响——死锁安全见 AGENTS.md「Block 模式」节。
                         let job = {
                             let mut guard = rx.lock().await;
                             guard.recv().await
@@ -138,7 +138,7 @@ impl<P: Send + 'static> BoundedSpawner<P> {
     /// 为何需上限：必达 Http reqwest 单条可卡满网络 timeout（连不上 ~30s），无上限会让
     /// `helix_destroy` graceful drain 等满。**不丢保证**由乐观态持久化(status=Sending) + 重连重发
     /// 对账承担，不由「drain 必等满网络」承担——abort 在途 Http 不丢数据（消息仍 status=Sending
-    /// 留库，靠重连兜底）。完整语义见 `engine.rs` 五不变量⑤ + driver CLAUDE.md。
+    /// 留库，靠重连兜底）。完整语义见 `engine.rs` 五不变量⑤ + driver AGENTS.md。
     pub async fn shutdown_with_timeout(self, limit: std::time::Duration) -> bool {
         let Self { tx, joins, .. } = self;
         drop(tx); // 关闭入队端 → worker recv None 后自然退出

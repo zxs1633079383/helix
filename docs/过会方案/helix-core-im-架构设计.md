@@ -186,7 +186,7 @@ flowchart TB
 | **Crux**（Red Badger） | `/workspace/rustWorkspace/crux` | 方向 A 的**参照实现**：Rust sans-IO core + `App{Model,update,view,ViewModel}` + Bridge(bincode FFI) + typegen(Swift/Kotlin/TS)。core-view / 三端边界映射直接对照它（见 [方向A设计 §1.1](./helix-core-view-方向A设计.md)） |
 | **现网 cses-client** | `/Users/mac28/workspace/angular/cses-client` | **行为真源 + 现状对照**：Angular 20 + Tauri 2 IM 桌面端；`src-tauri/features/im`(业务①已在 Rust) + message-v3(展示②在 TS)。目标态的 IM 机制逐节对齐它 |
 | **Dioxus core** | （上游 crate） | 内核经验来源：step 循环 / Effect 跨边界批处理（sledgehammer → `HX-C007`）/ `Scope<'a>` 生命周期教训（→ `HX-C002`）。**仅取内核，禁渲染层/RSX**（GOAL §6 方向 B 红线） |
-| **Bun**（runtime 跑 JS） | — | 概念祖先：runtime 无关 + reference 行为真源方法论（见 CLAUDE.md §4.5） |
+| **Bun**（runtime 跑 JS） | — | 概念祖先：runtime 无关 + reference 行为真源方法论（见 AGENTS.md §4.5） |
 
 ---
 

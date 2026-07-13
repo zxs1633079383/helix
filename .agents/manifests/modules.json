@@ -23,8 +23,7 @@
         "module",
         "sans-io"
       ],
-      "boundary_file": ".agents/agents/modules/core/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/core/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/core/AGENTS.md"
     },
     "driver-ffi": {
       "agent": "modules/driver-ffi-agent",
@@ -48,8 +47,7 @@
         "mobile",
         "c-abi"
       ],
-      "boundary_file": ".agents/agents/modules/driver-ffi/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-ffi/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-ffi/AGENTS.md"
     },
     "driver-host": {
       "agent": "modules/driver-host-agent",
@@ -77,8 +75,7 @@
         "trace",
         "instrumentation"
       ],
-      "boundary_file": ".agents/agents/modules/driver-host/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-host/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-host/AGENTS.md"
     },
     "driver-native": {
       "agent": "modules/driver-native-agent",
@@ -102,8 +99,7 @@
         "pc",
         "event-sink"
       ],
-      "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-native/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md"
     },
     "driver-wasm": {
       "agent": "modules/driver-wasm-agent",
@@ -123,8 +119,7 @@
         "archived",
         "experimental"
       ],
-      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-wasm/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md"
     },
     "governance": {
       "agent": "modules/governance-agent",
@@ -142,7 +137,7 @@
       "paths": [
         "docs",
         "scripts",
-        ".claude"
+        ".agents"
       ],
       "risks": [
         "harness",
@@ -151,8 +146,7 @@
         "acceptance",
         "review"
       ],
-      "boundary_file": ".agents/agents/modules/governance/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/governance/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/governance/AGENTS.md"
     },
     "host-cli": {
       "agent": "modules/host-cli-agent",
@@ -176,8 +170,7 @@
         "config",
         "script"
       ],
-      "boundary_file": ".agents/agents/modules/host-cli/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/host-cli/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/host-cli/AGENTS.md"
     },
     "im": {
       "agent": "modules/im-agent",
@@ -207,8 +200,7 @@
         "ws",
         "projection"
       ],
-      "boundary_file": ".agents/agents/modules/im/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/im/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/im/AGENTS.md"
     }
   }
 }

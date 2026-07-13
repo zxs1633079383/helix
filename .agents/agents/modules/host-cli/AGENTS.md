@@ -1,6 +1,6 @@
 # helix-host-cli 模块边界
 
-> 本文件是 `host-cli` 模块的目录级 agent 边界。角色协议见 `.agents/agents/modules/host-cli-agent.md`；本文件与 `CLAUDE.md` 必须保持完全一致。
+> 本文件是 `host-cli` 模块的目录级 agent 边界。角色协议见 `.agents/agents/modules/host-cli-agent.md`。
 
 ## 语言与可读性
 

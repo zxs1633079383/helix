@@ -54,7 +54,7 @@ Run `scripts/gate.sh` for default pre-commit behavioral verification when code c
 - Start with `docs/GOAL.md`, `docs/ROADMAP.md`, and `docs/harness/OPERATING.md`.
 - Prefer code graph tools for symbol discovery, shell search for docs/config/literals.
 - Do not touch `crates/**` for knowledge-only tasks.
-- If changing same-directory `AGENTS.md` or `CLAUDE.md`, mirror both exactly.
+- Treat same-directory `AGENTS.md` as the sole local instruction source.
 - Ask for human review on ABI, storage schema, public command/event schema, and cross-repo cutover changes.
 
 For exhaustive detail, see `../../knowledge/helix_knowledge.md`.

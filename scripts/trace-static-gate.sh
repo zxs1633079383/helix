@@ -48,7 +48,6 @@ rg -l "$TRACE_FILE_RE" \
   --glob '!SESSION.md' \
   --glob '!scripts/trace-static-gate.sh' \
   --glob '!**/AGENTS.md' \
-  --glob '!**/CLAUDE.md' \
   --glob '!**/*.h' \
   --glob '!**/*.hpp' \
   --glob '!**/*.md' \

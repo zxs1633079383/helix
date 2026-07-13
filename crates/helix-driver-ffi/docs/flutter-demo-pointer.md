@@ -1,7 +1,7 @@
 # Flutter FFI 桌面 Demo — 仓外指针（F4.5 · C 路线）
 
 > ⚠️ **Flutter 工程在仓外** `/workspace/flutterWorkspace/helix_ffi_demo`。
-> **本仓（helix）不含任何 Dart / C++ demo 代码** —— helix 保持 headless（沿用 GOAL §1 sans-IO + CLAUDE.md §0 三层架构守卫）。
+> **本仓（helix）不含任何 Dart / C++ demo 代码** —— helix 保持 headless（沿用 GOAL §1 sans-IO + AGENTS.md §0 三层架构守卫）。
 > 本文件只是**指针**：把仓外 demo 工程指回本 crate 已导出的 C ABI，并摘录跨边界的内存/销毁不变量。
 > **真源（设计 spec）→** [`docs/superpowers/specs/2026-06-18-helix-flutter-ffi-demo-design.md`](../../../docs/superpowers/specs/2026-06-18-helix-flutter-ffi-demo-design.md)（架构 / ABI / 不变量 / 修正 / 目录 / 分阶段，以 spec 为准）。
 

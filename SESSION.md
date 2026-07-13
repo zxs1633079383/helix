@@ -1,10 +1,14 @@
 # Helix SESSION
 
-> 跨会话状态可查。§0 记三类固定前缀行（均可 grep · 详见 CLAUDE.md §4.8）：
+> 跨会话状态可查。§0 记三类固定前缀行（均可 grep · 详见 AGENTS.md §4.8）：
 > 开局 `🎯 EXPECT`（实质任务预判）· 收尾 `✅ DONE`（终态）· 偏离预期时 `⚡ DRIFT-PRED`（喂 §4.7 drift-review）。
 > 另置顶**唯一一条** `🧭 BRANCH-ID`（分支身份，HX-C014）——开局/收尾用 `scripts/branch-identity.sh --session` 刷新，别凭记忆答「你在哪个分支」。
 
 ## §0 终态记录
+
+🎯 EXPECT 移除 Claude 仓库资产与镜像约束：删除全部 `CLAUDE.md` 和 `.claude/**`，保留单一 `AGENTS.md` 指令链，并同步移除 structure gate、agent manifest、当前导航中的镜像/Claude 依赖。可证伪断言：① `git ls-files '*CLAUDE.md' '.claude/**'` 为空；② `scripts/structure-gate.sh` 不再检查镜像且行数闸仍可运行；③ `.agents/manifests` 无 `boundary_mirror`；④ crate/agent 当前边界只指向 `AGENTS.md`；⑤ agent constraint/route、JSON 解析、shell 语法、结构闸与残留引用检查通过；不改 Rust 业务行为。@2026-07-13T11:30:00+0800 | 赌注 中 | 可逆 是
+✅ DONE 移除 Claude 仓库资产与镜像约束 @2026-07-13T11:33:39+0800 | 62 个文件删除，156 文件总影响，净删 5182 行 | 删除 26 个 `CLAUDE.md`、`.claude/**` 33 个文件、Claude night-loop 两件与过期 helix-query 设计稿；AGENTS 成为单一指令源；structure/gate、agent manifest/router、Codex hook、harness/ROADMAP/提交规范均已转接 | 验证：工作树 `CLAUDE.md`=0、`.claude` 文件=0、`boundary_mirror`=0；JSON PASS；shell syntax PASS；harness 16=16；agent constraints 18/18；agent route PASS；DDD structure gate PASS；`git diff --check` PASS；完整 `structure-gate.sh` 仍因既有 Rust 行数债 FAIL（未扩散修复）
+⚡ DRIFT-PRED 预期完整结构闸可通过，但当前主线已有多项源码行数债（如 effect.rs 554>452、storage.rs 748>560），与本轮 Claude 清理无关；本轮只验证镜像检查已移除，并以 DDD structure gate PASS 证明 AGENTS 单源接线有效。→ 候选教训：文档/治理清理的 EXPECT 应区分“目标接线验证”与“仓库既有全局 gate 基线”。
 
 🎯 EXPECT Helix `.agents` 模块/领域 AGENTS 边界补齐：把上一轮“每个模块/领域有 mmd”的产物修正为“每个模块/领域有目录级 `AGENTS.md` + `CLAUDE.md` 镜像边界”，不改 Rust 业务代码。可证伪断言：① `.agents/agents/modules/*/AGENTS.md` 恰好覆盖 8 个模块且都有同内容 `CLAUDE.md`；② `.agents/agents/domains/*/AGENTS.md` 恰好覆盖 9 个领域且都有同内容 `CLAUDE.md`；③ `.agents/manifests/{agents,modules,domains}.json` 能指向这些边界文件；④ repo-local swarm review、constraint check、route smoke、镜像 diff、`git diff --check` 全部通过。@2026-07-08T20:12:58+0800 | 赌注 中 | 可逆 是
 ✅ DONE Helix `.agents` 模块/领域 AGENTS 边界补齐 @2026-07-08T20:16:00+0800 | commit 待提交 | 4/4 boundary tasks | 新增 8 个模块目录级 `AGENTS.md`/`CLAUDE.md` 与 9 个领域目录级 `AGENTS.md`/`CLAUDE.md`，manifest 增加 `boundary_file`/`boundary_mirror`，README 与 `.agents` 根边界说明同步；未改 Rust 业务代码 | 验证：`review_instance.py --repo "$PWD"` PASS 39/39；`.agents/scripts/agent-check-constraints` PASS 18/18；`.agents/scripts/agent-route --summary "ffi mobile command query event" --paths crates/helix-driver-ffi/src/lib.rs` 路由到 mobile-ffi + driver-ffi；`.agents/scripts/agent-check-report --sample` PASS；`.agents/scripts/agent-clean-runs --dry-run` PASS；全仓 `AGENTS.md`/`CLAUDE.md` 镜像 26 对 PASS；`git diff --check` PASS；`scripts/review-gap.sh` 仍显示既有 gap=109>=10，需要后续 architecture-drift-review 收敛。

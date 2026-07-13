@@ -18,7 +18,7 @@ trigger_keywords:
 related:
   - HX-C001
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C004 — features 必须 additive

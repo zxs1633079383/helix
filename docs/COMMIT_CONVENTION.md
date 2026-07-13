@@ -1,7 +1,7 @@
 # Helix 提交规范（Commit / PR / Tag）
 
-> **本仓所有贡献者（人 + Codex / Claude Code 等 agent）提交代码必须遵守本规范。**
-> 来源：团队全局规范 `~/.claude/rules/common/git-workflow.md`，抽进仓内供任何拿到本仓的人/agent 就近遵守（Codex 读 `AGENTS.md`、CC 读 `CLAUDE.md`，两者均指向本文）。
+> **本仓所有贡献者（人 + agent）提交代码必须遵守本规范。**
+> 本文件是仓内提交规范真源，由根 `AGENTS.md` 指向，供任何拿到本仓的人或 agent 就近遵守。
 > ⚠️ helix **有 `docs/harness/` 文件夹** → 结构化 body 的「Harness 更新」一节**必填**（不省略）。
 
 ---
@@ -82,7 +82,7 @@
 # Harness 更新（helix 有 docs/harness/ → 必填）
 - 是否新增 harness card（三铁律：≥ 3 次同根因 / 用户明确 / Spec 拍板）
 - 更新了哪些现有 HX-C{NNN}-*.md
-- 更新了哪些索引（CLAUDE.md 表 / docs/harness/README.md）
+- 更新了哪些索引（AGENTS.md 表 / docs/harness/README.md）
 
 # 验证
 - cargo check（三栖/双端）/ cargo test / scripts/gate.sh / 端到端手工验证清单

@@ -1,4 +1,4 @@
-# helix-im 局部指令（就近优先，全局见根 CLAUDE.md）
+# helix-im 局部指令（就近优先，全局见根 AGENTS.md）
 
 > 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
 
@@ -10,7 +10,7 @@
 - **🟢 UC 自动化编排谱（依赖序 + 数据流）** → [`docs/uc-automation/uc-test-order-spec.md`](docs/uc-automation/uc-test-order-spec.md)：搭自动化测试用的执行顺序真源——DAG（连接→建群→发消息→操作→历史/管理→终结）+ 变量提取登记表（上游产出 post_id/channel_id 等→下游输入）+ 分阶段 UC×HTTP×WS 表 + 5 条防本末倒置铁律。排除 bot/agent+Notification。
 - **🔴 outbound 请求体真源（真抓包）** → [`docs/csesapi-migration/真机curl真源.md`](docs/csesapi-migration/真机curl真源.md)：现网实抓 6 curl 逐字 body+头 + 附录 A createPosts 三方证据定论；改任何 outbound 命令体（send/makeTopic/create/revoke/close/member/createPosts）前**必读**。真抓包 > 源码推断。
 - **csesapi → cses-im-server 迁移全量图谱** → [`docs/csesapi-migration/full-map/00-README-index.md`](docs/csesapi-migration/full-map/00-README-index.md)：现网后端 HTTP(124)/WS(19 事件) + 前端 message-v3 用例/UI 渲染/src-tauri Tauri 交互全清单 + 三态缺口矩阵（[`30-capability-gap-matrix.md`](docs/csesapi-migration/full-map/30-capability-gap-matrix.md)）。接口可达性 + 蓝图见 [`csesapi-migration/01-接口可达性清单.md`](docs/csesapi-migration/01-接口可达性清单.md) · [`02-迁移蓝图.md`](docs/csesapi-migration/02-迁移蓝图.md)。
-- 根 CLAUDE.md/AGENTS.md §4.5.1 已挂同一索引（每次对话自动加载）。
+- 根 AGENTS.md §4.5.1 已挂同一索引（每次对话自动加载）。
 
 ## 本 crate 不变量
 

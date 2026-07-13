@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; echo '🧭 Helix 开局：① 读 docs/ROADMAP.md §二 P0 活账（当前阻塞）② 触发速查 docs/harness/OPERATING.md（什么事→调什么）③ 闸门 scripts/gate.sh · 验收 /helix-acceptance · 文档对账 /helix-drift-check'; OPEN=$( (grep -A40 'P0（M2 收官阻塞）' docs/ROADMAP.md 2>/dev/null || true) | grep -E '^- \\[ \\]' | head -6); [ -n \"$OPEN\" ] && printf '── 未完 P0 ──\\n%s\\n' \"$OPEN\"; exit 0"
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; echo '🧭 Helix 开局：① 读 docs/ROADMAP.md §二 P0 活账（当前阻塞）② 触发速查 docs/harness/OPERATING.md（什么事→调什么）③ 闸门 scripts/gate.sh · 结构 scripts/structure-gate.sh · review scripts/review-gap.sh'; OPEN=$( (grep -A40 'P0（M2 收官阻塞）' docs/ROADMAP.md 2>/dev/null || true) | grep -E '^- \\[ \\]' | head -6); [ -n \"$OPEN\" ] && printf '── 未完 P0 ──\\n%s\\n' \"$OPEN\"; exit 0"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; DIRTY=$(git status --porcelain 2>/dev/null); RS=$(printf '%s' \"$DIRTY\" | grep -cE '\\.rs$' || true); DOC=$(printf '%s' \"$DIRTY\" | grep -cE '\\.md$' || true); MSG=''; [ \"${RS:-0}\" -gt 0 ] && MSG=\"$MSG⚠️ 未提交 .rs($RS)—commit/push 前 scripts/gate.sh 先验。 \"; [ \"${DOC:-0}\" -gt 0 ] && MSG=\"$MSG📄 未提交 .md($DOC)—状态变更跑 /helix-drift-check + 查 harness 索引不变量。\"; [ -n \"$MSG\" ] && echo \"$MSG\"; exit 0"
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; DIRTY=$(git status --porcelain 2>/dev/null); RS=$(printf '%s' \"$DIRTY\" | grep -cE '\\.rs$' || true); DOC=$(printf '%s' \"$DIRTY\" | grep -cE '\\.md$' || true); MSG=''; [ \"${RS:-0}\" -gt 0 ] && MSG=\"$MSG⚠️ 未提交 .rs($RS)—commit/push 前 scripts/gate.sh 先验。 \"; [ \"${DOC:-0}\" -gt 0 ] && MSG=\"$MSG📄 未提交 .md($DOC)—状态变更查 docs/README.md + harness 索引不变量。\"; [ -n \"$MSG\" ] && echo \"$MSG\"; exit 0"
           }
         ]
       }

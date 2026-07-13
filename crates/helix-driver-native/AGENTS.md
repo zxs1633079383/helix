@@ -1,4 +1,4 @@
-# helix-driver-native 局部指令（就近优先，全局见根 CLAUDE.md）
+# helix-driver-native 局部指令（就近优先，全局见根 AGENTS.md）
 
 > 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
 

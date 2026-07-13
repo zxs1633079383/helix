@@ -27,8 +27,7 @@
         "acceptance",
         "review"
       ],
-      "boundary_file": ".agents/agents/domains/harness-governance/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/harness-governance/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/harness-governance/AGENTS.md"
     },
     "domains/host-io-domain-agent": {
       "constraints": [
@@ -54,8 +53,7 @@
         "ws",
         "shared-io"
       ],
-      "boundary_file": ".agents/agents/domains/host-io/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/host-io/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/host-io/AGENTS.md"
     },
     "domains/im-channel-domain-agent": {
       "constraints": [
@@ -79,8 +77,7 @@
         "member",
         "readBits"
       ],
-      "boundary_file": ".agents/agents/domains/im-channel/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/im-channel/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/im-channel/AGENTS.md"
     },
     "domains/im-message-domain-agent": {
       "constraints": [
@@ -106,8 +103,7 @@
         "temporaryId",
         "send"
       ],
-      "boundary_file": ".agents/agents/domains/im-message/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/im-message/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/im-message/AGENTS.md"
     },
     "domains/im-sync-domain-agent": {
       "constraints": [
@@ -133,8 +129,7 @@
         "event_seq",
         "websocket"
       ],
-      "boundary_file": ".agents/agents/domains/im-sync/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/im-sync/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/im-sync/AGENTS.md"
     },
     "domains/mobile-ffi-domain-agent": {
       "constraints": [
@@ -160,8 +155,7 @@
         "quickjs",
         "mobile"
       ],
-      "boundary_file": ".agents/agents/domains/mobile-ffi/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/mobile-ffi/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/mobile-ffi/AGENTS.md"
     },
     "domains/native-tauri-domain-agent": {
       "constraints": [
@@ -186,8 +180,7 @@
         "native",
         "loopforge"
       ],
-      "boundary_file": ".agents/agents/domains/native-tauri/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/native-tauri/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/native-tauri/AGENTS.md"
     },
     "domains/projection-observability-domain-agent": {
       "constraints": [
@@ -215,8 +208,7 @@
         "trace",
         "bus-event"
       ],
-      "boundary_file": ".agents/agents/domains/projection-observability/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/projection-observability/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/projection-observability/AGENTS.md"
     },
     "domains/runtime-core-domain-agent": {
       "constraints": [
@@ -243,8 +235,7 @@
         "ports",
         "effect"
       ],
-      "boundary_file": ".agents/agents/domains/runtime-core/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/runtime-core/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/runtime-core/AGENTS.md"
     },
     "modules/core-agent": {
       "constraints": [
@@ -270,8 +261,7 @@
         "module",
         "sans-io"
       ],
-      "boundary_file": ".agents/agents/modules/core/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/core/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/core/AGENTS.md"
     },
     "modules/driver-ffi-agent": {
       "constraints": [
@@ -296,8 +286,7 @@
         "mobile",
         "c-abi"
       ],
-      "boundary_file": ".agents/agents/modules/driver-ffi/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-ffi/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-ffi/AGENTS.md"
     },
     "modules/driver-host-agent": {
       "constraints": [
@@ -326,8 +315,7 @@
         "trace",
         "instrumentation"
       ],
-      "boundary_file": ".agents/agents/modules/driver-host/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-host/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-host/AGENTS.md"
     },
     "modules/driver-native-agent": {
       "constraints": [
@@ -352,8 +340,7 @@
         "pc",
         "event-sink"
       ],
-      "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-native/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md"
     },
     "modules/driver-wasm-agent": {
       "constraints": [
@@ -374,8 +361,7 @@
         "archived",
         "experimental"
       ],
-      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/driver-wasm/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md"
     },
     "modules/governance-agent": {
       "constraints": [
@@ -394,7 +380,7 @@
       "owned_paths": [
         "docs",
         "scripts",
-        ".claude"
+        ".agents"
       ],
       "triggers": [
         "harness",
@@ -403,8 +389,7 @@
         "acceptance",
         "review"
       ],
-      "boundary_file": ".agents/agents/modules/governance/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/governance/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/governance/AGENTS.md"
     },
     "modules/host-cli-agent": {
       "constraints": [
@@ -429,8 +414,7 @@
         "config",
         "script"
       ],
-      "boundary_file": ".agents/agents/modules/host-cli/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/host-cli/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/host-cli/AGENTS.md"
     },
     "modules/im-agent": {
       "constraints": [
@@ -461,8 +445,7 @@
         "ws",
         "projection"
       ],
-      "boundary_file": ".agents/agents/modules/im/AGENTS.md",
-      "boundary_mirror": ".agents/agents/modules/im/CLAUDE.md"
+      "boundary_file": ".agents/agents/modules/im/AGENTS.md"
     },
     "project/project-agent": {
       "file": ".agents/agents/project/project-agent.md",

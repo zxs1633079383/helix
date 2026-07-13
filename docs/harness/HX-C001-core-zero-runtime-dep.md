@@ -20,7 +20,7 @@ related:
   - HX-C002
   - HX-C006
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C001 — helix-core 零运行时 / 零平台依赖
@@ -74,7 +74,7 @@ CI gate：上述 `cargo tree | grep` 非空即 fail。
 | 2026-06-08 | review 合成阶段 | 初版设计曾把 tokio/sqlx/tungstenite bake 进"im_core" | 单平台假设；本轮 review 拆出三层后锁定本不变量 |
 
 ## §6 关联
-- 上游：CLAUDE.md §0 依赖铁律 / rules/runtime-agnostic-core.md §2
+- 上游：AGENTS.md §0 依赖铁律 / rules/runtime-agnostic-core.md §2
 - 兄弟：HX-C002（Send 边界）、HX-C006（FFI）
 - 对照：Dioxus dioxus-core headless（不依赖 dioxus-signals/平台）
 

@@ -28,7 +28,7 @@
 
 ### AI 工程化硬化（已闭合，见 §四；本段保留为历史对照）
 
-CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md → cargo public-api gate（优先级从左到右）。wasm CI 不再作为必跑项，除非未来 ADR 重新激活网页端。
+CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate AGENTS.md → cargo public-api gate（优先级从左到右）。wasm CI 不再作为必跑项，除非未来 ADR 重新激活网页端。
 
 - [x] **F1 Flutter FFI API 最小面** ✅：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 已接 IM 本地查询路由**（`helix_im::mobile_query::{plan,shape_json}` → `ScanSpec` → SQLite-backed read），剩余验收放入 F5 Flutter demo / native-vs-FFI parity
 - [x] **F2 host storage 复用** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 覆盖；**pump 直接用 `HostStorage`**（F4 后 `FfiStorage` 冗余薄壳已 git rm）
@@ -86,12 +86,12 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [x] **E8 timer 取消已 O(1)**（查证 no-op · 2026-06-23 · `feat/p2-quality`）：core `timer_map.peek/remove(id)` + host `timer.cancel` 均 HashMap O(1)；全仓 grep 无 retain/iter O(n) 取消扫描——**本就无活**，非「待加反向索引」（ROADMAP 旧描述误导）
 - [x] **E9a cursor 推进零分配** ✅（`615f2f3`，HX-C005 回正）：monotonic cursor 推进 SQL const 化（`Cow::Borrowed`）+ now_ms 条件化 + 未读 guarded_bump bump_delta 绑参
 - [x] **E9b 热路径分配尾巴**（HX-C005 · commit 7661da4，经 `feat/p2-quality` 合入 main）：`helix-driver-host/upsert_sql.rs` thread-local 按 (table, col_count, has_conflict) 形状缓存 batch_upsert SQL，去 per-call 分配，零行为变更 +2 单测（driver-host 22 测全绿）
-- [x] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate CLAUDE / public-api gate 已闭合（证据见 §四）。本机若未安装 `cargo-public-api` 会跳过本地 diff，CI `api-surface` job 与 `docs/api-baseline/helix-core.txt` 是当前公开面基线入口。
+- [x] AI 工程化四件：CI 双端 matrix / clippy deny / per-crate AGENTS / public-api gate 已闭合（证据见 §四）。本机若未安装 `cargo-public-api` 会跳过本地 diff，CI `api-surface` job 与 `docs/api-baseline/helix-core.txt` 是当前公开面基线入口。
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准**全链路覆盖完成**（median/CI/离群，回归判据 median>2x）：storage（`host_storage` 5000 行 5.16ms·39×100 6.08ms·monotonic cursor 28.5µs）+ **engine 泵**（`engine_loop/pump_roundtrip_1k` 40.2ms ≈ 24.9K roundtrips/s）+ **IM 乱序同步**（`gate/backfill_5000` 8.0ms ≈ 624K events/s·`send/echo_reconcile_1000` 2.39ms ≈ 418K/s）+ im_step ② 并发 parity 改「串行会超时」强证明（storage_conformance）。**仅剩**：bench 数字进 CI 留痕（待远端 GitLab runner）
 - [~] FFI MAJ-4：pump 路径同步 SQLite 经 host `HostStorage` spawn_blocking(×7)继承 ✅（HX-C006/ADR-005）；`helix_query` 已走 IM 本地查询路由 + SQLite-backed read ✅；**剩** Flutter 真机 demo 与同一 Tick 剧本 native-vs-FFI byte-level parity，把同步读阻塞语义放在 F5 验收里实证
 - [x] **FFI pump 连接-插表时序类型化**（drift-review wf_efcf1ca4-759 #4）✅ **已彻底解**（commit `34c54bd`，2026-06-22）：**注册通道**——连接期 transport 独占在 loop 外后台跑 connect（裸 ws·不在表），连成功才经 `transport_rx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（**类型层不可见**，不再靠 hello-gated 时序不变量）。`Transport::{send,recv,close}` 收紧 `&self`（connect 保 `&mut`，NativeTransport 状态机字段合法需要）；`TransportTable` 去外层 Mutex→`HashMap<TransportId,Arc<Tr>>`；biased select 第二臂 insert+continue（守 pump 5 不变量）。**不新增 per-Send 锁、不回退 create 非阻塞**。验：lifecycle_net_decouple 3/3 + 5-crate+wasm core check + driver 全测绿。
-- [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver CLAUDE.md「已知缺口」）
+- [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver AGENTS.md「已知缺口」）
 - [~] **双 `PortError` enum 改名消歧**（~~统一~~ 误诊已纠 · 查证 2026-06-23）：tick.rs:56 与 error.rs:51 **语义独立非重复**（`error.rs`=携 String 的 thiserror 边界错误；`tick.rs`=带状态码数字的重试分类 Timeout/Http(u16)/Storage(u32)/Network）——**折叠是回归**，正解是改名（tick::PortError→RetryClass/PortErrCode）消歧；干净改名须碰 helix-im 测试故 HOLD
 - [ ] **多模块并发写实测**（单写者池在多业务模块下零实测——折叠自「并发承压评估」开放项；承压稿已移 `docs/reports/`）
 
@@ -108,7 +108,7 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 - [ ] `cargo test --release` workspace 全绿（以当前 `scripts/gate.sh`/CI 输出为准；本轮未跑，不能声称基线全绿）
 - [ ] `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` = 空
 - [ ] `grep -rn 'channel\|message\|temporaryId' crates/helix-core/src/ | grep -v '//'` = 0
-- [ ] harness 索引不变量：CLAUDE.md 表行数 == `ls docs/harness/HX-C*.md | wc -l`
+- [ ] harness 索引不变量：AGENTS.md 表行数 == `ls docs/harness/HX-C*.md | wc -l`
 - [ ] `cargo public-api -p helix-core` diff 对 allowlist = 0（本机工具缺失时不可声称已验；CI `api-surface` job 为远端入口）
 
 **行为闸门（承压基线，压测三件套）**
@@ -140,10 +140,10 @@ CI 双端 matrix（native + FFI）→ clippy deny-list → per-crate CLAUDE.md �
 |---|---|---|
 | 护栏 | clippy.toml deny-list | ✅ 根 `clippy.toml` deny `Instant::now`/`SystemTime::now`/`thread::spawn`/`println`/`eprintln`（带 reason）；`helix-core`/`helix-im` Cargo.toml `[lints.clippy] disallowed_methods=deny`+`unwrap_used=warn`；driver 三 crate allow（ambient 合法落点） |
 | 验证 | CI 多 job 闸门链 | ✅ `.gitlab-ci.yml`（非 GitHub）`gate` stage（双端 check + cargo tree 零运行时 + grep 零业务 + test）+ `api-surface` stage（public-api gate）；`scripts/gate.sh` + `install-hooks.sh` pre-push |
-| 指令 | 嵌套 CLAUDE.md ×N（就近继承） | ✅ 7 crate 全配 per-crate CLAUDE.md（core/im/driver-{host,native,ffi,wasm}/host-cli；后两个 2026-06-16 补齐）+ `.claude/rules/`（runtime-agnostic-core / expert-dispatch） |
-| 流程 | skills/commands（pattern 即代码） | ✅ `.claude/workflows/` 3 可重放脚本（expert-panel-review / dual-track-fix / stress-verify）+ `/helix-new-module`·`/helix-replay-test`·`/helix-stress-verify` skills + 7 张 HX-C 坑卡 |
+| 指令 | 嵌套 AGENTS.md ×N（就近继承） | ✅ 7 crate 全配 per-crate AGENTS.md（core/im/driver-{host,native,ffi,wasm}/host-cli） |
+| 流程 | repo-local agent 路由 + skills | ✅ `.agents/` 路由/约束订阅 + `/helix-new-module`·`/helix-replay-test`·`/helix-stress-verify` skills + HX-C 坑卡 |
 | 锁定 | toolchain pinning | ✅ `rust-toolchain.toml` + `rustfmt.toml` |
-| 参照 | Zig-as-reference（行为真源） | ✅ root CLAUDE.md §4.5「现网 `cses-client/src-tauri/.../im` 对应 handler 是 source of truth」+ ADR |
+| 参照 | Zig-as-reference（行为真源） | ✅ root AGENTS.md §4.5「现网 `cses-client/src-tauri/.../im` 对应 handler 是 source of truth」+ ADR |
 | 验证 | bench + 无数字性能主张自动拒 | ✅ criterion 全链路覆盖（storage/engine 泵/IM 乱序 gate，§二 P2 销账）+ `stress-verify` workflow（无数字不收） |
 
 **结对齐（一并已具备）**：结构化 commit + 模块化 tag、对抗 review（4 专家 workflow）、回放测试基建、待办清单销账制——全在。

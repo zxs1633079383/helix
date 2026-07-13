@@ -1,6 +1,6 @@
 # helix-driver-ffi 模块边界
 
-> 本文件是 `driver-ffi` 模块的目录级 agent 边界。角色协议见 `.agents/agents/modules/driver-ffi-agent.md`；本文件与 `CLAUDE.md` 必须保持完全一致。
+> 本文件是 `driver-ffi` 模块的目录级 agent 边界。角色协议见 `.agents/agents/modules/driver-ffi-agent.md`。
 
 ## 语言与可读性
 

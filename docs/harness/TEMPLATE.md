@@ -16,7 +16,7 @@ trigger_keywords:
 related:
   - HX-CXXX
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 inline_target:          # merged 后指向 rules/ 锚点
 ---
 
@@ -47,7 +47,7 @@ inline_target:          # merged 后指向 rules/ 锚点
 | 2026-MM-DD | <id/sha> | <一句话> | <一句话> |
 
 ## §6 关联
-- 上游：CLAUDE.md §X / rules/runtime-agnostic-core.md §Y
+- 上游：AGENTS.md §X / rules/runtime-agnostic-core.md §Y
 - 兄弟 harness：HX-CNN
 - Dioxus / cses 对照（如有）
 

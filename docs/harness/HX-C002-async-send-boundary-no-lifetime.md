@@ -22,7 +22,7 @@ trigger_keywords:
 related:
   - HX-C001
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C002 — async Send 边界 + 状态禁 `&'a`

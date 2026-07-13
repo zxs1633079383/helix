@@ -1,4 +1,4 @@
-# helix-driver-host 局部指令（就近优先，全局见根 CLAUDE.md）
+# helix-driver-host 局部指令（就近优先，全局见根 AGENTS.md）
 
 > 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
 
@@ -22,7 +22,7 @@ PC Tauri（native）与 Flutter FFI **共享**的 host driver 层（ADR-007）�
 4. **migration 不可逆**：只增不改历史 migration；schema 演进加新 migration，不回改旧的。
 5. **driver 层 ambient 合法**：rusqlite 同步 C 调用、SystemTime 等在此/上层 allow；FFI 侧同步调用须 `spawn_blocking` 包裹（HX-C006/ADR-005，不阻塞 tokio worker）。
 
-## 事件泵五不变量（真源在 `engine.rs` 头注，破坏须同步改本节 + native CLAUDE.md）
+## 事件泵五不变量（真源在 `engine.rs` 头注，破坏须同步改本节 + native AGENTS.md）
 
 1. **回灌必达**：PortReply 走独立 unbounded reply_tx（🔴 绝不改有界，否则 Block 死锁环回来）。
 2. **主循环不等 I/O**：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx（🔴 抽水绝不放泵循环）。HttpFire DropNewest（满即丢当前条目，泵不阻塞）。

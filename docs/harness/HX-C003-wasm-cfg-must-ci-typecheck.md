@@ -20,7 +20,7 @@ trigger_keywords:
 related:
   - HX-C001
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C003 — wasm cfg 代码必须进 CI 三栖 type-check

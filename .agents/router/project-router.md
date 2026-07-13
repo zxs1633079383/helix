@@ -1,6 +1,6 @@
 # Helix Project Router
 
-Router 把用户任务、影响路径、关键词和约束订阅转成 agent 队形。它不替代项目 AGENTS/CLAUDE/GOAL；它只决定应该把哪些上下文交给哪些 worker/reviewer。
+Router 把用户任务、影响路径、关键词和约束订阅转成 agent 队形。它不替代项目 AGENTS/GOAL；它只决定应该把哪些上下文交给哪些 worker/reviewer。
 
 ## 语言与可读性
 
@@ -24,7 +24,7 @@ Router 把用户任务、影响路径、关键词和约束订阅转成 agent 队
 - 不允许把重连/HTTP/WS/SQLite 业务实现塞进 `helix-core`。
 - 不允许把 `helix-driver-wasm` 当作当前 roadmap/CI 交付目标。
 - 不允许把 HTTP 200、WS、projection/storage、DOM 证据混为一个绿色结论。
-- 不允许 worker 覆盖 crate 级 `AGENTS.md`/`CLAUDE.md` 镜像文件；若确需修改，必须成对同步。
+- 不允许 worker 无授权覆盖 crate 级 `AGENTS.md`；确需修改时必须遵守对应目录边界。
 
 ## 输出契约
 

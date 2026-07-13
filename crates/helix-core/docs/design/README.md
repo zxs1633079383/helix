@@ -6,7 +6,7 @@
 >
 > **真源文件**：`src/{engine.rs, module_host.rs, tick.rs, effect.rs, platform.rs, error.rs, ports/*.rs}`
 > 改 port trait / Effect / Tick 变体 = PC Tauri/native + Flutter FFI 交付 driver 与 helix-im 全要适配；
-> wasm driver 仅归档跟随 trait shape（见本 crate `CLAUDE.md` / ADR-006）。
+> wasm driver 仅归档跟随 trait shape（见本 crate `AGENTS.md` / ADR-006）。
 
 ## 图清单
 

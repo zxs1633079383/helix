@@ -1,7 +1,7 @@
 %% helix-driver-native — BoundedSpawner 统一背压模型（刀2-driver）
 %% 真源：src/engine_loop.rs struct BoundedSpawner / Overflow / submit
 %% 一个原语三态实例化：有界 mpsc(cap=K) + N worker + 溢出策略 + 独立 unbounded reply_tx
-%% 五不变量见 crate CLAUDE.md；🔴 = 死锁红线
+%% 五不变量见 crate AGENTS.md；🔴 = 死锁红线
 flowchart TD
     PUMP["事件泵主循环（单生产者）<br/>dispatch_effects 内 submit"]
 

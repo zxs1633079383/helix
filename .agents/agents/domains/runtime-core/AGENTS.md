@@ -1,6 +1,6 @@
 # 运行时无关内核领域边界
 
-> 本文件是 `runtime-core` 领域的目录级 agent 边界。角色协议见 `.agents/agents/domains/runtime-core-domain-agent.md`；本文件与 `CLAUDE.md` 必须保持完全一致。
+> 本文件是 `runtime-core` 领域的目录级 agent 边界。角色协议见 `.agents/agents/domains/runtime-core-domain-agent.md`。
 
 ## 语言与可读性
 

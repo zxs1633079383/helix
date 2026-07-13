@@ -39,8 +39,8 @@ HITS=$( (grep -rn 'channel\|message\|temporaryId' crates/helix-core/src/ || true
 [ "$HITS" -eq 0 ] || { echo "❌ helix-core 出现 IM 语义词 ($HITS 处)"; exit 1; }
 
 echo "▶ [8/11] harness 索引不变量"
-IDX=$(grep -c '^| HX-C' CLAUDE.md || true); FILES=$(ls docs/harness/HX-C*.md | wc -l | tr -d ' ')
-[ "$IDX" -eq "$FILES" ] || { echo "❌ harness 索引漂移：CLAUDE.md $IDX 行 vs 文件 $FILES 个"; exit 1; }
+IDX=$(grep -c '^| HX-C' AGENTS.md || true); FILES=$(ls docs/harness/HX-C*.md | wc -l | tr -d ' ')
+[ "$IDX" -eq "$FILES" ] || { echo "❌ harness 索引漂移：AGENTS.md $IDX 行 vs 文件 $FILES 个"; exit 1; }
 
 echo "▶ [9/11] Flutter FFI 仓内自验（1–5 层，无 Xcode / 无仓外 demo）"
 bash scripts/ffi-verify.sh --no-demo
@@ -68,7 +68,11 @@ if [ "${1:-}" = "--full" ]; then
   bash scripts/ffi-verify.sh
 fi
 
-echo "▶ [11/11] 结构闸门（单文件 ≤300 行 + CLAUDE.md/AGENTS.md 镜像不变量）"
-bash scripts/structure-gate.sh
+echo "▶ [11/11] 结构闸门（单文件 ≤300 行）"
+if [ -n "${HELIX_STRUCTURE_BASE:-}" ]; then
+  bash scripts/structure-gate.sh --changed-since "$HELIX_STRUCTURE_BASE"
+else
+  bash scripts/structure-gate.sh
+fi
 
 echo "✅ 全部闸门通过"

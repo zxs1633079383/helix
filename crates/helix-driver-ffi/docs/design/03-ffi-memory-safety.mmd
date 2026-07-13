@@ -1,7 +1,7 @@
 %% helix-driver-ffi — FFI 内存安全边界（HX-C006）
 %% opaque ptr 单 owner + panic=abort + C 侧 buffer 立即拷贝 + 单 owner 生命周期
 %% 真源：api.rs（Box::into_raw/from_raw · to_vec 拷贝 · ffi_str null/utf8 守卫）
-%% 局部铁律：crates/helix-driver-ffi/CLAUDE.md「FFI 铁律」+ 根 .claude/rules HX-C006
+%% 局部铁律：crates/helix-driver-ffi/AGENTS.md「FFI 铁律」+ 根 AGENTS.md HX-C006
 
 flowchart TD
     subgraph OWNER["① opaque ptr 单 owner（Box::into_raw / from_raw 各一次）"]

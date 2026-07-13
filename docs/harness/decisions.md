@@ -64,7 +64,7 @@
 ## ADR-011 — host-cli 固定联调 deviceId/userId 为**故意例外**（dev-bin 凭据，非交付物）
 - **决策**：`helix-host-cli`（本机联调宿主 bin，**非交付目标**，不入 native/FFI 驱动集与 CI 必跑矩阵）允许在 `main.rs` 把现网真实 deviceId（`ED380414…`）作为 `HELIX_DEVICE_ID` env 之后的**默认兜底值**写进源码；doc/注释里的 dev `userId` 同属固定联调身份。`HELIX_DEVICE_ID` env 始终可覆盖。这是 commit d966250 引入、用户 **2026-06-21 + 2026-06-22 两次明确拍板**的故意例外——**不是**「无 ADR 反转铁律」。
 - **理由**：现网 Go 的 session 校验强依赖 deviceId 头——① HTTP/WS 多处请求若漏带 deviceId，Go 判 session 过期 → grpc service fail → increment 不推帧（联调反复踩）；② **从本机派生（IOPlatformUUID / machine-id 等）的 deviceId 过不了 Go 的 session 校验环节（实测）**。故联调必须用一个「已知能过校验」的固定真实 deviceId 兜底，否则每次联调都得手动设 env 且本地派生值无效。host-cli 仅本机 dev 用、env 可覆盖、不入产物 → 风险局限本机联调，非生产凭据泄漏。
-- **与全局 security 规矩的关系**：全局 `rules/common/security.md`「禁 checked-in secrets」对**交付物**仍硬约束；本 ADR 显式登记的例外**仅限 host-cli 这一个联调 bin** 的 deviceId/dev-userId，**不扩散**到任何交付 crate（core/im/driver/未来 Tauri src）。Tauri 正式接入时 deviceId 来源换成登录态/系统，本兜底值不进 Tauri 宿主（见根 CLAUDE.md「host-cli 是什么」身份分层）。
+- **与全局 security 规矩的关系**：`AGENTS.md` 的「禁 checked-in secrets」对**交付物**仍是硬约束；本 ADR 显式登记的例外**仅限 host-cli 这一个联调 bin** 的 deviceId/dev-userId，**不扩散**到任何交付 crate（core/im/driver/未来 Tauri src）。Tauri 正式接入时 deviceId 来源换成登录态/系统，本兜底值不进 Tauri 宿主（见根 AGENTS.md「host-cli 是什么」身份分层）。
 - **代码事实**：仅 `crates/helix-host-cli/src/main.rs`（deviceId 三级解析链 + doc 头）；`main.rs` 注释已指向本 ADR，消除「反转铁律无登记」矛盾。
 - **状态**：已定（2026-06-22，用户拍板）。drift-review 2026-06-22 将其列为 🟡 凭据卫生 finding，经用户确认为故意例外 → 本 ADR 收口，**后续 drift-review 不再复报**。
 

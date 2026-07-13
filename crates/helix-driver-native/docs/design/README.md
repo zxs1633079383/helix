@@ -2,7 +2,7 @@
 
 > PC / Tauri 端 driver（平台驱动层）的事件泵与背压模型流程图。
 > 真源 = `crates/helix-driver-native/src/`（1981 行）；本目录是从代码沉淀的 mermaid 设计图，**代码改了请同步更新**。
-> 契约真源仍是 `crates/helix-driver-native/CLAUDE.md` 的 engine_loop 五不变量，本图只是其可视化。
+> 契约真源仍是 `crates/helix-driver-native/AGENTS.md` 的 engine_loop 五不变量，本图只是其可视化。
 
 ## 这个 crate 是什么
 
@@ -20,7 +20,7 @@ WS 协议 / HTTP / SQLite 的真正执行已下沉 `helix-driver-host`（ADR-007
 | [`02-bounded-spawner-backpressure.mmd`](02-bounded-spawner-backpressure.mmd) | **统一背压原语 BoundedSpawner 三态**：Persist(N=1 Block 保写序) / Http(N=8 Block 必达不丢) / HttpFire(N=8 DropNewest 可丢·满即丢当前条目)；有界队列 cap=1024 + 独立 unbounded reply_tx。🔴 红线①(reply_tx 永不有界) + 红线②(抽水绝不放泵循环)·单向 DAG 死锁安全证明 | `engine_loop.rs` struct BoundedSpawner / Overflow / submit / get_or_spawn_persist / spawn_http_pool |
 | [`03-effect-dispatch-routing.mmd`](03-effect-dispatch-routing.mmd) | **Effect 兑现路由**：9 种 Effect 各自怎么被 native 兑现——Send→WS / Persist·PersistFire→spawner→host SQLite / Http·HttpFire→spawner→reqwest / Emit→broadcast event_sink / Schedule·CancelTimer→TimerRegistry / Request→deferred stub | `engine_loop.rs` dispatch_effects match + consume_effects |
 
-## 五不变量（破坏须同步改图 + CLAUDE.md）
+## 五不变量（破坏须同步改图 + AGENTS.md）
 
 刀2-driver：Persist / Http(必达) / HttpFire(可丢) 统一成 `BoundedSpawner`（有界 mpsc + N worker + 溢出策略 + 独立 unbounded reply_tx）。
 

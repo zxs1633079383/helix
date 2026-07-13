@@ -21,7 +21,7 @@ related:
   - HX-C013
   - HX-C012
 graduates_to:
-  - ~/.claude/rules/git-workflow.md
+  - AGENTS.md
 inline_target:
 ---
 
@@ -78,9 +78,9 @@ inline_target:
 
 - 兄弟：HX-C013（workflow agent 动 git ref）——同属「git 状态不可查」病；C013 管 ref 漂移，C014 管身份迷失。
 - 配套脚本：`scripts/branch-identity.sh`（自陈）+ `scripts/branch-sync-gate.sh`（分叉闸门）。
-- 上游：`~/.claude/CLAUDE.md` §6（worktree 并行）+ `rules/common/git-workflow.md`（终态行哲学，本卡是其分支维度延伸）。
+- 上游：`AGENTS.md` §6（worktree 并行）+ `rules/common/git-workflow.md`（终态行哲学，本卡是其分支维度延伸）。
 
 ## §7 历史与演进
 
 - drafting → active：2026-06-23，第二次命中（06-22 ≥6 次 + 06-23 误判）达建卡阈值（同根因 ≥2 + 用户明确要求实现）。
-- merged 条件：`branch-identity.sh --session` 接入 Stop hook 自动刷 SESSION §0 顶行、30 天零「你在哪个分支」复问后晋升 `~/.claude/rules/git-workflow.md`。
+- merged 条件：`branch-identity.sh --session` 接入 Stop hook 自动刷 SESSION §0 顶行、30 天零「你在哪个分支」复问后晋升 `AGENTS.md`。

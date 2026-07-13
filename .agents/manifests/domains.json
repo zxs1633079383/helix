@@ -20,8 +20,7 @@
         "docs/ROADMAP.md",
         "scripts"
       ],
-      "boundary_file": ".agents/agents/domains/harness-governance/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/harness-governance/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/harness-governance/AGENTS.md"
     },
     "host-io": {
       "agent": "domains/host-io-domain-agent",
@@ -40,8 +39,7 @@
       "paths": [
         "crates/helix-driver-host"
       ],
-      "boundary_file": ".agents/agents/domains/host-io/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/host-io/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/host-io/AGENTS.md"
     },
     "im-channel": {
       "agent": "domains/im-channel-domain-agent",
@@ -59,8 +57,7 @@
         "crates/helix-im/src/channel",
         "crates/helix-im/src/outbound/channel_admin"
       ],
-      "boundary_file": ".agents/agents/domains/im-channel/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/im-channel/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/im-channel/AGENTS.md"
     },
     "im-message": {
       "agent": "domains/im-message-domain-agent",
@@ -79,8 +76,7 @@
         "crates/helix-im/src/send",
         "crates/helix-im/src/outbound/posts"
       ],
-      "boundary_file": ".agents/agents/domains/im-message/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/im-message/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/im-message/AGENTS.md"
     },
     "im-sync": {
       "agent": "domains/im-sync-domain-agent",
@@ -99,8 +95,7 @@
         "crates/helix-im/src/sync",
         "crates/helix-im/src/ws"
       ],
-      "boundary_file": ".agents/agents/domains/im-sync/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/im-sync/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/im-sync/AGENTS.md"
     },
     "mobile-ffi": {
       "agent": "domains/mobile-ffi-domain-agent",
@@ -119,8 +114,7 @@
         "crates/helix-driver-ffi",
         "crates/helix-im/src/mobile_contract.rs"
       ],
-      "boundary_file": ".agents/agents/domains/mobile-ffi/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/mobile-ffi/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/mobile-ffi/AGENTS.md"
     },
     "native-tauri": {
       "agent": "domains/native-tauri-domain-agent",
@@ -139,8 +133,7 @@
         "crates/helix-driver-native",
         "crates/helix-driver-host/docs/external-host-instrumentation-recipe.md"
       ],
-      "boundary_file": ".agents/agents/domains/native-tauri/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/native-tauri/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/native-tauri/AGENTS.md"
     },
     "projection-observability": {
       "agent": "domains/projection-observability-domain-agent",
@@ -161,8 +154,7 @@
         "crates/helix-driver-host/src/instrument.rs",
         "crates/helix-driver-host/src/trace.rs"
       ],
-      "boundary_file": ".agents/agents/domains/projection-observability/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/projection-observability/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/projection-observability/AGENTS.md"
     },
     "runtime-core": {
       "agent": "domains/runtime-core-domain-agent",
@@ -182,8 +174,7 @@
         "crates/helix-core",
         "docs/GOAL.md"
       ],
-      "boundary_file": ".agents/agents/domains/runtime-core/AGENTS.md",
-      "boundary_mirror": ".agents/agents/domains/runtime-core/CLAUDE.md"
+      "boundary_file": ".agents/agents/domains/runtime-core/AGENTS.md"
     }
   }
 }

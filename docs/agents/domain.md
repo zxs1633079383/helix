@@ -20,7 +20,7 @@ If any of these don't exist for the area you're touching, **proceed silently**. 
 
 ```
 /
-├── AGENTS.md / CLAUDE.md              ← root operating instructions (kept identical)
+├── AGENTS.md                          ← root operating instructions
 ├── docs/
 │   ├── GOAL.md, README.md, ROADMAP.md ← purpose + domain language
 │   ├── harness/

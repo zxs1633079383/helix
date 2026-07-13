@@ -8,7 +8,7 @@ created: 2026-06-22
 source: 2026-06-22 会话——⑤ dual-track-fix 某 agent 跑 git checkout/merge/branch -D，HEAD 漂到 main、main 被推进、docs 分支被删
 recurrence_count: 2
 trigger_paths:
-  - ".claude/workflows/*.workflow.js"
+  - ".agents/**"
 trigger_keywords:
   - "Workflow"
   - "dual-track-fix"
@@ -19,7 +19,7 @@ trigger_keywords:
 related:
   - HX-C012
 graduates_to:
-  - ~/.claude/rules/agents.md
+  - AGENTS.md
 inline_target:
 ---
 
@@ -27,7 +27,7 @@ inline_target:
 
 ## §1 触发场景（Trigger）
 
-任何派 `Workflow({name:...})`（`dual-track-fix` / `expert-panel-review` / `architecture-drift-review` …）、`fork`、或 `run_in_background` 子 agent 之前与完成之后。grep 友好信号：调用 Workflow 工具、`.claude/workflows/*.workflow.js`、主对话在 workflow 完成通知后继续工作。
+任何派 multi-agent、fork 或后台 agent 之前与完成之后。grep 友好信号：`.agents/` 路由、主对话在 agent 完成通知后继续工作。
 
 ## §2 背景（why）
 
@@ -73,7 +73,7 @@ inline_target:
 
 ## §6 关联
 
-- 上游：`~/.claude/CLAUDE.md` §5（background agent cron 监控）、`~/.claude/rules/common/agents.md`；本仓 `.claude/rules/agent-review-cadence.md`。
+- 上游：`AGENTS.md` 的 multi-agent、git 与工作区保护规则。
 - 兄弟：HX-C012（实质任务开局写 EXPECT）——同属「autonomous/agent 工程化护栏」族。
 - SESSION §0「落地坑沉淀」file 层教训是本卡 ref 层升级的前身。
 

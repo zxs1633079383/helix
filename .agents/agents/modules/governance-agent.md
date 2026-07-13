@@ -16,7 +16,7 @@ ROADMAP、HX-C harness、acceptance、review cadence、slash/workflow 文档和�
 
 - `docs`
 - `scripts`
-- `.claude`
+- `.agents`
 
 ## 触发词
 
@@ -49,6 +49,6 @@ ROADMAP、HX-C harness、acceptance、review cadence、slash/workflow 文档和�
 
 ## 工作规则
 
-- 先读取 Router 给出的 required references，再读本模块就近 AGENTS/CLAUDE。
+- 先读取 Router 给出的 required references，再读本模块就近 AGENTS。
 - 不把本模块便利实现推入错误层级；跨层变化必须显式请求对应 domain agent。
 - 报告中分清已验证、未验证、风险和下一步。

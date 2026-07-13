@@ -1,6 +1,6 @@
 # 治理与 harness 模块边界
 
-> 本文件是 `governance` 模块的目录级 agent 边界。角色协议见 `.agents/agents/modules/governance-agent.md`；本文件与 `CLAUDE.md` 必须保持完全一致。
+> 本文件是 `governance` 模块的目录级 agent 边界。角色协议见 `.agents/agents/modules/governance-agent.md`。
 
 ## 语言与可读性
 
@@ -20,7 +20,7 @@
 
 - `docs`
 - `scripts`
-- `.claude`
+- `.agents`
 
 ## 对应领域
 

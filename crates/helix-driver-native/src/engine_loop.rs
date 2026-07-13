@@ -16,7 +16,7 @@
 //! ## 五不变量真源
 //!
 //! 五不变量（回灌必达 / 主循环不等 I/O / 同 key 写序 / 回灌优先 / graceful drain）
-//! 的实现与文档真源现在在 `helix-driver-host::engine` 头注 + 本 crate CLAUDE.md。
+//! 的实现与文档真源现在在 `helix-driver-host::engine` 头注 + 本 crate AGENTS.md。
 
 use std::sync::Arc;
 

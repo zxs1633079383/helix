@@ -20,7 +20,7 @@ trigger_keywords:
 related:
   - HX-C001
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C006 — FFI 边界铁律
@@ -113,4 +113,4 @@ driver-ffi 把一个 step 的多条 `Effect::Emit` 编码成单 buffer，经 `on
 
 ## §7 历史与演进
 - drafting → active：2026-06-08，MAJ-4 文档化 + spawn_blocking 占位后确立（实现待补）。
-- 2026-06-10 勘误（四专家 review，待办 C4）：原「catch_unwind + panic=abort」并列表述自相矛盾，改为二选一策略；同步修正项目 CLAUDE.md §2 与 .claude/rules/runtime-agnostic-core.md §7。
+- 2026-06-10 勘误（四专家 review，待办 C4）：原「catch_unwind + panic=abort」并列表述自相矛盾，改为二选一策略；同步修正项目 AGENTS.md §2 与 AGENTS.md §7。

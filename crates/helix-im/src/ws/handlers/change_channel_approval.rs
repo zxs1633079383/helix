@@ -10,7 +10,7 @@
 //! （approval 列）刷新，本帧无独立落库副作用。
 //!
 //! 故 helix 对齐真源：graceful no-op（经 registry 路由不冒 `UnsupportedWsAction`，无业务 Effect）。
-//! YAGNI：现网前端不单独消费此帧 → 不实现业务逻辑（CLAUDE.md §1.4）。
+//! YAGNI：现网前端不单独消费此帧 → 不实现业务逻辑（AGENTS.md §1.4）。
 
 use helix_core::EffectSink;
 use linkme::distributed_slice;

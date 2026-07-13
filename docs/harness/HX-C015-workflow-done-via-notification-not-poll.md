@@ -8,7 +8,7 @@ created: 2026-06-23
 source: 2026-06-22 会话——「等 workflow 跑完报告结果 / 等 drift-review 跑完报告结果」手工催 ≥5 次（日志复盘实测）
 recurrence_count: 2
 trigger_paths:
-  - ".claude/workflows/*.workflow.js"
+  - ".agents/**"
 trigger_keywords:
   - "等 workflow"
   - "等 workflow 跑完"
@@ -19,7 +19,7 @@ trigger_keywords:
 related:
   - HX-C013
 graduates_to:
-  - ~/.claude/rules/agents.md
+  - AGENTS.md
 inline_target:
 ---
 
@@ -33,7 +33,7 @@ inline_target:
 
 2026-06-22 日志复盘：「等 workflow 跑完报告结果」「等 drift-review 跑完报告结果」手工催 **≥5 次**。这是纯浪费——
 
-- **harness 已对 `Workflow` 与 `run_in_background` agent 在完成时自动发 `<task-notification>` 重新唤起主对话**（见本仓顶层 Context management + Agent 工具说明 + 全局 CLAUDE.md §5）。完成信号**不需要轮询**，到点自动回灌。
+- **harness 已对 `Workflow` 与 `run_in_background` agent 在完成时自动发 `<task-notification>` 重新唤起主对话**（见本仓顶层 Context management + Agent 工具说明 + 全局 AGENTS.md §5）。完成信号**不需要轮询**，到点自动回灌。
 - 手工「等…报告结果」的代价：① 占一轮对话什么都没干；② 主对话空转/反复 Read output 文件抖动；③ `ScheduleWakeup` 工具说明明确「不要为 harness 能追踪的后台工作挂短周期轮询」。
 
 判据一句话（与全局 §5 一致）：**harness 能自动通知完成的 → 等通知 + 必要时长心跳兜底；harness 追不到的外部状态（CI run / 远程部署 / 队列）→ 才 `/loop` 主动轮询。**
@@ -74,7 +74,7 @@ inline_target:
 
 ## §6 关联
 
-- 上游：`~/.claude/CLAUDE.md` §5（事件驱动 + 异常告警，砍固定 10min 空转）——本卡是其 helix 项目级落地。
+- 上游：`AGENTS.md` §5（事件驱动 + 异常告警，砍固定 10min 空转）——本卡是其 helix 项目级落地。
 - 工具说明：`ScheduleWakeup`（缓存窗口与 delaySeconds 选择）+ Agent / Workflow（完成自动 task-notification）。
 - 兄弟：HX-C013（workflow agent git ref 护栏）——同属「autonomous/agent 工程化护栏」族。
 - 手册：`OPERATING.md` §1 新增「派 workflow 后怎么等」行。
@@ -82,4 +82,4 @@ inline_target:
 ## §7 历史与演进
 
 - drafting → active：2026-06-23，第二次命中（06-07 密集 cron 空转 + 06-22 手工催 ≥5 次）达建卡阈值（同根因 ≥2 + 用户明确要求实现）。
-- merged 条件：30 天日志零「等 workflow…报告结果」复现后晋升 `~/.claude/rules/agents.md`。
+- merged 条件：30 天日志零「等 workflow…报告结果」复现后晋升 `AGENTS.md`。

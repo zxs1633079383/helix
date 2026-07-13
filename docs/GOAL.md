@@ -2,7 +2,7 @@
 
 > 这是 Helix 的**最高层目标与设计理念锚点**（harness 母本四件套之 GOAL.md，L2 常量）。
 > 任何改动若与本文 §1 设计理念不变量 / §2 硬约束冲突 → **先停下问，不偏离**。
-> 每次会话开局必读（加载顺序：~/.claude/CLAUDE.md → 本项目 CLAUDE.md → **docs/GOAL.md** → SESSION → harness/README）。
+> 每次会话开局必读（加载顺序：本项目 AGENTS.md → **docs/GOAL.md** → SESSION → harness/README）。
 
 ---
 
@@ -65,7 +65,7 @@
 ## §5 不偏离机制
 
 - **本文** = L2 常量，每次会话开局必读（设计理念锚点）。
-- **CLAUDE.md 顶部北极星指针** → 每次必加载，指回本文。
+- **AGENTS.md 顶部北极星指针** → 每次必加载，指回本文。
 - **7 张 HX-C harness 卡** = 把 §1/§2 编译成 grep/CI/正反对照的**可执行护栏**（docs/harness/）。
 - **decisions.md** = 已拍板的 ADR（防反复推导）。
 - 改动与本文冲突 → 停下问；新决策 → 追加本文 §4 或 decisions.md。

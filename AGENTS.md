@@ -12,8 +12,6 @@
 > 📋 **实现阶段待办 → [`docs/ROADMAP.md`](docs/ROADMAP.md) §二 P0/P1/P2 活账**
 > （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。wasm/IndexedDB 项已被 ADR-006 取代——当前只维护 PC Tauri + Flutter。）**进实现阶段前先扫一眼 ROADMAP 活账。**
 
-> 🔁 **指令文件同步铁律**：本仓所有同目录的 `CLAUDE.md` 与 `AGENTS.md` 是镜像文件；任何修改必须同时落到两者，内容保持完全同步。新增 / 删除某一级指令文件也必须成对处理。
-
 ---
 
 ## 0. 三层架构（铁律，不可变）
@@ -45,8 +43,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 ## 2. 双端边界条件 checklist（写 core / 改 port / 加 driver 前过一遍）
 
-> 完整规则 + 代码 + 坑词典见 [`.claude/rules/runtime-agnostic-core.md`](.claude/rules/runtime-agnostic-core.md)（按需 Read）。
-> 下面是开局必记的速查：
+> 下面是开局必记的速查；可执行护栏见对应 `HX-C00*` 卡与 `scripts/gate.sh`。
 
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
@@ -95,7 +92,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 > 本项目长运行任务（跨会话 / 跨 Phase / autonomous 模式）的工程化约束体系。
 > 完整方法论见 [`/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md`](/Users/mac28/workspace/angular/cses-client/docs/harness-Engineer最佳实战.md)
-> （**不要把全文拷进本 CLAUDE.md** —— 按下方触发条件**按需** Read）。
+> （**不要把全文拷进本 AGENTS.md** —— 按下方触发条件**按需** Read）。
 
 **三个即时同步铁律**：
 1. 踩坑 → 即时写 `/workspace/java/logs/{YYYY-MM-DD}.json`
@@ -153,8 +150,8 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 ## 4.6 专家 Agent / Skill 注册表（按需调用 · 渐进式披露）
 
-> 完整调度规则 + 编制配方见 [`.claude/rules/expert-dispatch.md`](.claude/rules/expert-dispatch.md)（按需 Read）。
-> 阶梯：**L0 就近文件 → L1 Skill 拉知识 → L2 单 Agent 派活/审查 → L3 Workflow 编制**——能低不高，升级要有触发条件。
+> 仓内 agent 路由与约束订阅见 [`.agents/README.md`](.agents/README.md)。
+> 阶梯：**L0 就近文件 → L1 Skill 拉知识 → L2 单 Agent 派活/审查 → L3 多 Agent 编制**——能低不高，升级要有触发条件。
 
 | 专家 Agent ↔ Knowledge Skill | 领域一句话 | 何时调 |
 |---|---|---|
@@ -167,19 +164,19 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 ## 4.7 架构 review 收敛节律（强制行为）
 
-> 完整规则见 [`.claude/rules/agent-review-cadence.md`](.claude/rules/agent-review-cadence.md)（按需 Read）。台账 [`docs/review/workflow-review-ledger.md`](docs/review/workflow-review-ledger.md) · 闸门 `scripts/review-gap.sh`。
+> 台账 [`docs/review/workflow-review-ledger.md`](docs/review/workflow-review-ledger.md) · 闸门 `scripts/review-gap.sh`。
 
 防 agent/workflow 自主改动「跑着跑着偏离架构」无人察觉：**自主改动每累计 10 个 commit，在 commit 检查点过一次架构 review 收敛。**
 
-- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 10` → 🔴 强制先派 `Workflow({name:"architecture-drift-review"})`（查 HX-C001..C008 + GOAL §1/§2 + 全流程合理性 → 对抗证伪 → drift 判定），review 通过 + 更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
-- **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature workflow 前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。命中**可自动派**（无需问用户，token 高性价比）。
+- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 10` → 🔴 强制按 GOAL §1/§2、HX-C001..C008 与 `scripts/structure-gate.sh` 做一次独立架构 review，review 通过并更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
+- **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature 工作前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。
 - **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
 
 ## 4.8 预期对账（L1 决策原子 · 试点中，2026-06-17 起）
 
 > 目的：给 §4.7 `architecture-drift-review` 接上「偏离**预期**」这第二根进料管——
 > 原本它只吃「偏离**约束**（HX-C/GOAL）」+ commit 计数触发；现加 prediction-error 惊讶信号。
-> 试点期 2 周；按校准有效率（`⚡ DRIFT-PRED` → 真 HX-C 卡 / 真修复 占比）决定是否晋升全局 CLAUDE.md。
+> 试点期 2 周；按校准有效率（`⚡ DRIFT-PRED` → 真 HX-C 卡 / 真修复 占比）决定是否保留为长期规则。
 
 **触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
 ≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
@@ -213,7 +210,7 @@ SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后�
 
 ## 5. 代码风格
 
-> 完整结构约束（单文件 ≤300 行 / 设计模式解耦 / 复杂度升序 / DDD 映射 / 每文件夹双文档镜像）见 [`.claude/rules/code-structure-ddd.md`](.claude/rules/code-structure-ddd.md)（按需 Read）。配套闸门 `scripts/structure-gate.sh`（纳入 §4.7 drift lens）。
+> 结构约束由 `scripts/structure-gate.sh` 执行：源码文件原则上 ≤300 行，存量白名单只减不增；配套纳入 §4.7 drift lens。
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明
 - 错误：`thiserror` 边界类型 / 不滥 `anyhow`；外部输入（WS 帧 / sync 响应 / FFI 入参）**零 `unwrap`/`expect`**，走 `Result`

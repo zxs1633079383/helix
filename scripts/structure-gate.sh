@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# structure-gate.sh —— 代码结构约束闸门（.claude/rules/code-structure-ddd.md 的可执行护栏）
+# structure-gate.sh —— 代码结构约束闸门
 #
-# 两道检查（与 gate.sh / review-gap.sh 同族，纳入 §4.7 drift-review lens）：
-#   ① 行数闸：crates/**/src/**.rs 硬顶 300 行；存量债走 WHITELIST 豁免（只减不增——
-#             改小到 ≤300 后请从 WHITELIST 删除该行，使其重新受闸）。新增超限文件 = 失败。
-#   ② 镜像闸：每个 crates/*/ 必须有 CLAUDE.md + AGENTS.md 且内容完全一致（codex 镜像）。
+# 检查：crates/**/src/**.rs 硬顶 300 行；存量债走 WHITELIST 豁免（只减不增——
+# 改小到 ≤300 后请从 WHITELIST 删除该行，使其重新受闸）。新增超限文件 = 失败。
 #
 # 退出码：0 = 通过 / 1 = 违规。输出可 grep 前缀：STRUCT-GATE。
 set -euo pipefail
@@ -14,6 +12,10 @@ cd "$ROOT"
 
 MAX_LINES=300
 fail=0
+CHANGED_SINCE=""
+if [ "${1:-}" = "--changed-since" ]; then
+  CHANGED_SINCE="${2:?--changed-since 需要基准 commit}"
+fi
 
 # ── 存量债白名单（src/ 已超 300 行，待拆 backlog；见 rule §1）：`path baseline_lines` ──
 # 🔒 机器强制「只减不增」（drift-review wf_efcf1ca4-759 #1/#7 后门收敛）：闸门**读 baseline**——
@@ -42,7 +44,24 @@ whitelist_baseline() {
   return 1
 }
 
-echo "STRUCT-GATE ① 行数闸（src/**.rs ≤ ${MAX_LINES}，存量豁免 ${#WHITELIST[@]} 个·基线只减不增）"
+if [ -n "$CHANGED_SINCE" ]; then
+  echo "STRUCT-GATE 增量行数闸（${CHANGED_SINCE}..HEAD，新增 ≤ ${MAX_LINES}，存量只减不增）"
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    lines=$(wc -l < "$f" | tr -d ' ')
+    if git cat-file -e "${CHANGED_SINCE}:${f}" 2>/dev/null; then
+      base_lines=$(git show "${CHANGED_SINCE}:${f}" | wc -l | tr -d ' ')
+    else
+      base_lines=0
+    fi
+    if [ "$lines" -le "$MAX_LINES" ] || { [ "$base_lines" -gt "$MAX_LINES" ] && [ "$lines" -le "$base_lines" ]; }; then
+      continue
+    fi
+    echo "STRUCT-GATE   ✗ 增量超限 $f = $lines 行（基准 ${base_lines}）"
+    fail=1
+  done < <(git diff --name-only --diff-filter=ACMR "$CHANGED_SINCE"..HEAD -- 'crates/*/src/**/*.rs')
+else
+  echo "STRUCT-GATE 行数闸（src/**.rs ≤ ${MAX_LINES}，存量豁免 ${#WHITELIST[@]} 个·基线只减不增）"
 while IFS= read -r f; do
   lines=$(wc -l < "$f" | tr -d ' ')
   [ "$lines" -le "$MAX_LINES" ] && continue
@@ -58,16 +77,7 @@ while IFS= read -r f; do
     fail=1
   fi
 done < <(find crates -path '*/src/*' -name '*.rs' -not -path '*/target/*' | sort)
-
-echo "STRUCT-GATE ② 镜像闸（每 crates/*/ 须有 CLAUDE.md + AGENTS.md 且一致）"
-for d in crates/*/; do
-  c="${d}CLAUDE.md"; a="${d}AGENTS.md"
-  if [ ! -f "$c" ]; then echo "STRUCT-GATE   ✗ 缺 $c"; fail=1; continue; fi
-  if [ ! -f "$a" ]; then echo "STRUCT-GATE   ✗ 缺 ${a}（AGENTS.md 是 codex 镜像，cp 自 CLAUDE.md）"; fail=1; continue; fi
-  if ! diff -q "$c" "$a" >/dev/null 2>&1; then
-    echo "STRUCT-GATE   ✗ 不一致 ${c} ↔ ${a}（镜像必须完全相同）"; fail=1
-  fi
-done
+fi
 
 if [ "$fail" -eq 0 ]; then
   echo "STRUCT-GATE ✅ PASS"

@@ -1,4 +1,4 @@
-# helix-driver-ffi 局部指令（就近优先，全局见根 CLAUDE.md）
+# helix-driver-ffi 局部指令（就近优先，全局见根 AGENTS.md）
 
 > 📐 **设计图（当前能力 + 流程）→ [`docs/design/`](docs/design/)**（mermaid 流程图，先读其 `README.md` 索引）。
 > 📱 **Flutter FFI 桌面 Demo（F4.5 · 仓外工程指针）→ [`docs/flutter-demo-pointer.md`](docs/flutter-demo-pointer.md)**（Flutter 工程在仓外 `/workspace/flutterWorkspace/helix_ffi_demo`，本仓不含 Dart/C++ 代码；含 B 模型链路图 + ptr 生命周期/销毁 6 步 + 阶段状态）。

@@ -14,7 +14,7 @@
 //! - `Tr: Transport`      —— `Effect::Send` 出站路由（TransportTable）
 //! - `C: Clock`           —— `now_ms` 注入（确定性）
 //!
-//! ## 五不变量（破坏须同步改 helix-driver-native CLAUDE.md / 本头注）
+//! ## 五不变量（破坏须同步改 helix-driver-native AGENTS.md / 本头注）
 //!
 //! 1. 回灌必达：PortReply 走独立 unbounded reply_tx（🔴 绝不改有界）。
 //! 2. 主循环不等 I/O：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx
@@ -169,7 +169,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     );
     // HttpFire(可丢)：N=http_n，DropNewest 溢出（满即丢当前条目，丢失靠 cursor-gate 重发自愈）。
     // ⚠️ 有意取舍：当前零生产者（IM 三 Http 均必达）；为类型对称 eager 建，N worker park 近零成本。
-    // 拆除/重审触发：第二个业务模块接入时（见 native CLAUDE.md「跨模块公平性」）。
+    // 拆除/重审触发：第二个业务模块接入时（见 native AGENTS.md「跨模块公平性」）。
     let http_fire_pool = spawn_http_pool(
         http_n,
         Arc::clone(&http),
@@ -332,7 +332,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     // 必达 Http：给上限（HTTP_DRAIN_LIMIT）。在途 reqwest 连不上 host 时单条卡满
     // DEFAULT_TIMEOUT_SECS（~30s），无上限会让 graceful drain（→ helix_destroy）等满该 timeout。
     // 超时则 abort 在途——乐观态 status=Sending 已落库（真源），不丢，靠重连重发对账兜底
-    // （不变量5 改写：见本文件头注「五不变量⑤」+ helix-driver-{host,native} CLAUDE.md）。
+    // （不变量5 改写：见本文件头注「五不变量⑤」+ helix-driver-{host,native} AGENTS.md）。
     if !http_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
         tracing::warn!(
             limit_ms = HTTP_DRAIN_LIMIT.as_millis(),

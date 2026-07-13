@@ -20,7 +20,7 @@ trigger_keywords:
 related:
   - HX-C007
 graduates_to:
-  - ~/.claude/rules/rust/runtime-agnostic-core.md
+  - AGENTS.md
 ---
 
 # HX-C005 — 热路径零分配 O(1)
@@ -69,7 +69,7 @@ grep -rn '"[a-z_]*"\.to_string()' crates/helix-im/src crates/helix-driver-*/src/
 | 2026-06-16 | 6d83ad5 / drift-review wf_ee61a139-68b | `event_to_upsert_op`（channel.rs:296-353）持久化列对齐时改成 WS 每事件 `serde_json::from_slice(raw)` 全量重解析 + ~14 次 String 堆分配；sync 路径 parse→reserialize→parse 三趟（独立 drift-review 揪出，self-review 漏）| B3 字段提取误放热路径调用点而非 parser → 待修：提取上移 parser（与 B5 同源）+ 列名 &'static str + 注释诚实化。count 2→3 达 graduate 评估线 |
 
 ## §6 关联
-- 上游：~/.claude/rules/common/performance.md（热路径 O(1)）/ CLAUDE.md §2
+- 上游：AGENTS.md（热路径 O(1)）/ AGENTS.md §2
 - 兄弟：HX-C007（边界批处理）
 
 ## §7 历史与演进

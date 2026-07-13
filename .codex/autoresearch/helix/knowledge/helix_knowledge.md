@@ -285,7 +285,7 @@ Modification boundaries:
 
 - Default safe write area for knowledge updates is `.codex/autoresearch/helix/`.
 - Do not touch `crates/**` unless the user asks for code changes or a plan explicitly requires implementation.
-- Do not touch root `AGENTS.md` or `CLAUDE.md` unless changing instructions; if one changes, mirror the other exactly.
+- Do not touch root `AGENTS.md` unless changing project instructions.
 - Do not revert unrelated dirty worktree changes.
 - Do not revive `helix-driver-wasm` delivery scope without an ADR.
 

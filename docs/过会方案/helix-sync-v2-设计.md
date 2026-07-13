@@ -250,7 +250,7 @@ sync fan-out（一次对 N 个 channel 发 `/sync/notify`）是 Http 高并发�
 
 ### 8.3 [medium] one-shot timer 必须模块自清（core 无 one-shot 语义）
 - **发现**：core 的 TimerMap 把**所有** timer 当 recurring（`Tick::Timer` 只 peek 不移除，唯一移除入口是模块发 `Effect::CancelTimer`）。one-shot timer 若**自然触发**而 handler 不补 CancelTimer → timer id 永久滞留 map（慢泄漏）。
-- **落地铁律**（回链 core CLAUDE.md §4「one-shot timer 须 CancelTimer」）：
+- **落地铁律**（回链 core AGENTS.md §4「one-shot timer 须 CancelTimer」）：
 
 | timer 用途 | kind | arm 点 | 清除点 |
 |---|---|---|---|

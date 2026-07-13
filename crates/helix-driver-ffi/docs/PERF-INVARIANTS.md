@@ -1,7 +1,7 @@
 # helix-driver-ffi 性能不变量（可证伪压测清单 · PI-1..11）
 
 > 派生自 [`SPEC-full-takeover.md`](SPEC-full-takeover.md) §6。所有断言用**计数 / 结构 / 单调性**，
-> **禁墙钟下界断言**（HX-C011）。纳入根 CLAUDE.md §4.7 drift-review lens。
+> **禁墙钟下界断言**（HX-C011）。纳入根 AGENTS.md §4.7 drift-review lens。
 >
 > 一句话：FFI 边界的性能保证不靠「跑得快」的墙钟，而靠**结构性不变量 + 破坏即 fail 的证伪测试**——
 > 任何「破坏机制后测试仍绿」的 PI 都是假达成。

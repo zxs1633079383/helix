@@ -1,6 +1,6 @@
 # IM 同步/WS 领域边界
 
-> 本文件是 `im-sync` 领域的目录级 agent 边界。角色协议见 `.agents/agents/domains/im-sync-domain-agent.md`；本文件与 `CLAUDE.md` 必须保持完全一致。
+> 本文件是 `im-sync` 领域的目录级 agent 边界。角色协议见 `.agents/agents/domains/im-sync-domain-agent.md`。
 
 ## 语言与可读性
 

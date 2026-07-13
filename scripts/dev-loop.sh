@@ -3,7 +3,7 @@
 #
 # 不绑定任何具体功能。任意功能调试都用它：自检/恢复环境 → 跑 helix 真连 Go →
 # 抓三层（helix Effect/emit ＋ Go 日志 delta ＋ helix 收帧）→ 按 FOCUS 关键词关联打印。
-# 配套「loop Engine」驱动法见 .claude/skills/helix-loop-engine/SKILL.md（固定通用 prompt）。
+# 配套「loop Engine」驱动法见 .agents/skills/helix-loop-engine/SKILL.md（固定通用 prompt）。
 #
 # 用法：
 #   scripts/dev-loop.sh [秒数]

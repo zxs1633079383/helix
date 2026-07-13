@@ -6,7 +6,7 @@
 //! channel_member_update / update_channel_member_nickName / post_schedule_created /
 //! post_schedule_canceled。每个：构造 WS 帧 → 断言 Effect 序列（落库 StorageOp + emit）。
 //!
-//! 行为真源：现网 cses-client `handlers/{post,channel,schedule}.rs`（根 CLAUDE.md §4.5）。
+//! 行为真源：现网 cses-client `handlers/{post,channel,schedule}.rs`（根 AGENTS.md §4.5）。
 
 mod common;
 use common::*;

@@ -24,7 +24,7 @@ related:
   - HX-C005
   - HX-C009
 graduates_to:
-  - ~/.claude/rules/common/testing.md
+  - AGENTS.md
 ---
 
 # HX-C011 — 测试可证伪性铁律（压测 / 并发 / 不变量）

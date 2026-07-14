@@ -83,6 +83,28 @@ const FAT_KEYS: &[&str] = &[
     "replyCount",
 ];
 
+/// 撤回是时间线系统事件；在旧 fat MessageItemData 上 additive 增加 render-ready 合同。
+const RECALL_SYSTEM_KEYS: &[&str] = &[
+    "actorAvailable",
+    "actorId",
+    "displayText",
+    "eventId",
+    "kind",
+    "occurredAt",
+    "previewText",
+    "recalledMsgId",
+    "subjectMemberIds",
+    "system",
+    "systemEvent",
+    "targetMsgId",
+];
+
+fn recall_keys() -> Vec<&'static str> {
+    let mut keys = FAT_KEYS.to_vec();
+    keys.extend_from_slice(RECALL_SYSTEM_KEYS);
+    keys
+}
+
 /// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
 fn sample_fields() -> PostFields {
     PostFields {
@@ -208,17 +230,78 @@ fn im_post_updated_freezes_fat_renderable_row() {
 
 #[test]
 fn im_post_deleted_freezes_fat_renderable_row() {
-    // 撤回路径 PostFields 通常稀疏，但 fat 形状一致（同 FAT_KEYS）——前端按 msg_id 标删，字段空串无碍。
+    // 旧 fat 行仍在，系统事件字段 additive 增加，前端可先判 system 再走专用 renderer。
     let f = sample_fields();
     let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f);
-    assert_frozen(&e, "im:post:deleted", FAT_KEYS);
+    assert_frozen(&e, "im:post:deleted", &recall_keys());
 }
 
 /// 撤回稀疏 PostFields（default）→ fat 形状仍 == FAT_KEYS（键集不随内容稀疏而缺）。
 #[test]
 fn im_post_deleted_sparse_fields_still_fat_shape() {
     let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &PostFields::default());
-    assert_frozen(&e, "im:post:deleted", FAT_KEYS);
+    assert_frozen(&e, "im:post:deleted", &recall_keys());
+}
+
+#[test]
+fn recall_projection_is_viewer_ready_without_reusing_message_author_as_actor() {
+    let mut f = sample_fields();
+    f.user_id = "original-author".to_string();
+    let e = to_effect::emit_post_deleted_for_viewer(
+        ch(),
+        SEQ,
+        MSG_ID,
+        &f,
+        &format!("revoke:{}:{SEQ}", ch().as_str()),
+        "viewer-444",
+        1_700_000_042,
+        "viewer-444",
+    );
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &value["data"];
+    assert_eq!(data["type"], "system");
+    assert_eq!(data["kind"], "system");
+    assert_eq!(data["system"], true);
+    assert_eq!(data["systemEvent"], "message-recalled");
+    assert_eq!(data["eventId"], format!("revoke:{}:{SEQ}", ch().as_str()));
+    assert_eq!(data["actorId"], "viewer-444");
+    assert_eq!(data["targetMsgId"], MSG_ID);
+    assert_eq!(data["recalledMsgId"], MSG_ID);
+    assert_eq!(data["occurredAt"], 1_700_000_042_i64);
+    assert_eq!(data["displayText"], "你撤回了一条消息");
+    assert_eq!(data["previewText"], "你撤回了一条消息");
+    assert_eq!(data["isSelf"], true, "isSelf 必须按撤回 actor 计算");
+    assert_ne!(
+        data["actorId"], data["userId"],
+        "不得用原消息作者冒充撤回 actor"
+    );
+}
+
+#[test]
+fn recall_projection_without_actor_is_visible_but_never_claims_self() {
+    let mut f = sample_fields();
+    f.user_id = "viewer-444".to_string();
+    let e = to_effect::emit_post_deleted_for_viewer(ch(), SEQ, MSG_ID, &f, "", "", 0, "viewer-444");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &value["data"];
+    assert_eq!(data["actorAvailable"], false);
+    assert_eq!(data["actorId"], "");
+    assert_eq!(data["displayText"], "某人撤回了一条消息");
+    assert_eq!(
+        data["isSelf"], false,
+        "actor 缺失时不得拿原消息作者推断自己撤回"
+    );
+    assert_eq!(
+        data["eventId"],
+        format!("revoke:{}:{SEQ}", ch().as_str()),
+        "缺 eventId 时仍需生成确定性 identity"
+    );
 }
 
 /// fat 工厂真把**在手数据**吐出（非空字段透传）——证 message_item_data 不是空壳骨架。

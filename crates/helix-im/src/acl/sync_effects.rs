@@ -55,11 +55,15 @@ pub fn sync_mutation_emits_with_auth(
                 }
             }
             EventKind::PostRevoke => {
-                emits.push(super::to_effect::emit_post_deleted(
+                emits.push(super::to_effect::emit_post_deleted_for_viewer(
                     ev.channel_id,
                     ev.seq.0,
                     msg_id,
                     &empty_fields,
+                    ev.event_id.as_str(),
+                    ev.actor_id.as_str(),
+                    ev.occurred_at,
+                    auth_user_id,
                 ));
             }
             EventKind::PostRead => {

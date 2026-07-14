@@ -509,6 +509,84 @@ fn posts_update_batch_revoke_and_edit_s1() {
     assert!(bus_has_posts, "batch-updated payload 须含 posts 数组");
 }
 
+#[test]
+fn posts_update_revoke_emits_viewer_ready_system_event_from_optional_event_metadata() {
+    let mut h = Harness::new_with_identity(&[3], "viewer-444", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "posts_update",
+            "data": {
+                "channelId": cid(3),
+                "event_seq": 12,
+                "posts": [{
+                    "id": "00000000000000000000000010",
+                    "channelId": cid(3),
+                    "userId": "original-author",
+                    "revoke": true
+                }],
+                "actor_id": "viewer-444",
+                "target_msg_id": "00000000000000000000000010",
+                "event_id": format!("revoke:{}:12", cid(3)),
+                "occurred_at": 1_700_000_012_i64,
+                "system_event": {
+                    "type": "system",
+                    "kind": "system",
+                    "system": true,
+                    "systemEvent": "message-recalled",
+                    "eventId": format!("revoke:{}:12", cid(3)),
+                    "eventSeq": 12,
+                    "channelId": cid(3),
+                    "actorId": "viewer-444",
+                    "targetMsgId": "00000000000000000000000010",
+                    "recalledMsgId": "00000000000000000000000010",
+                    "occurredAt": 1_700_000_012_i64
+                }
+            }
+        })),
+        1_000,
+    );
+    let deleted = emit_data(&h.sink, "im:post:deleted");
+    assert_eq!(deleted.len(), 1);
+    let data = &deleted[0];
+    assert_eq!(data["systemEvent"], "message-recalled");
+    assert_eq!(data["eventId"], format!("revoke:{}:12", cid(3)));
+    assert_eq!(data["eventSeq"], 12);
+    assert_eq!(data["actorId"], "viewer-444");
+    assert_eq!(data["targetMsgId"], "00000000000000000000000010");
+    assert_eq!(data["displayText"], "你撤回了一条消息");
+    assert_ne!(
+        data["actorId"], data["userId"],
+        "原消息作者不得冒充撤回 actor"
+    );
+}
+
+#[test]
+fn posts_update_revoke_without_actor_metadata_falls_back_visible_and_not_self() {
+    let mut h = Harness::new_with_identity(&[3], "original-author", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "posts_update",
+            "data": {
+                "channelId": cid(3),
+                "event_seq": 13,
+                "posts": [{
+                    "id": "00000000000000000000000010",
+                    "channelId": cid(3),
+                    "userId": "original-author",
+                    "revoke": true
+                }]
+            }
+        })),
+        1_000,
+    );
+    let deleted = emit_data(&h.sink, "im:post:deleted");
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0]["actorAvailable"], false);
+    assert_eq!(deleted[0]["actorId"], "");
+    assert_eq!(deleted[0]["displayText"], "某人撤回了一条消息");
+    assert_eq!(deleted[0]["isSelf"], false);
+}
+
 /// 回归锚: S1 —— posts_update 缺 posts 数组 → 整体 noop（不可识别 payload 静默忽略）。
 #[test]
 fn posts_update_missing_posts_array_noop_s1() {

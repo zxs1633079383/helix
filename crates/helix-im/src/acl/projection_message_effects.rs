@@ -379,10 +379,61 @@ pub fn emit_post_deleted(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
 ) -> Effect {
+    emit_post_deleted_for_viewer(channel_id, event_seq, msg_id, fields, "", "", 0, "")
+}
+
+/// 撤回 viewer-ready 系统事件。旧 `im:post:deleted` 事件名与 fat MessageItemData 保持兼容，
+/// 系统事件字段 additive 增加；actor 缺失时明确 unavailable，绝不从原消息 `userId` 推断。
+#[allow(clippy::too_many_arguments)]
+pub fn emit_post_deleted_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    event_id: &str,
+    actor_id: &str,
+    occurred_at: i64,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
+    let actor_available = !actor_id.is_empty();
+    let is_self = actor_available && actor_id == viewer_user_id;
+    let display_text = if is_self {
+        "你撤回了一条消息"
+    } else {
+        "某人撤回了一条消息"
+    };
+    let stable_event_id = if event_id.starts_with("revoke:") {
+        event_id.to_string()
+    } else {
+        // 离线 ChannelEvent.id 是数据库行 ID；在线 Go 合同以 channel+seq 派生跨面 eventId。
+        format!("revoke:{}:{}", channel_id.as_str(), event_seq)
+    };
+    // viewer 置空，阻断 message_item_data 按原消息作者计算 isSelf；随后只按 actor 重写。
+    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, "", true);
+    let object = data
+        .as_object_mut()
+        .expect("recall projection starts from a static JSON object");
+    object.insert("type".to_string(), json!("system"));
+    object.insert("message".to_string(), json!(display_text));
+    object.insert("text".to_string(), json!(display_text));
+    object.insert("systemNotice".to_string(), json!(true));
+    object.insert("isSelf".to_string(), json!(is_self));
+    object.insert("kind".to_string(), json!("system"));
+    object.insert("system".to_string(), json!(true));
+    object.insert("systemEvent".to_string(), json!("message-recalled"));
+    object.insert("eventId".to_string(), json!(stable_event_id));
+    object.insert("actorId".to_string(), json!(actor_id));
+    object.insert("actorAvailable".to_string(), json!(actor_available));
+    object.insert("subjectMemberIds".to_string(), json!([]));
+    object.insert("occurredAt".to_string(), json!(occurred_at.max(0)));
+    object.insert("displayText".to_string(), json!(display_text));
+    object.insert("previewText".to_string(), json!(display_text));
+    object.insert("recalledMsgId".to_string(), json!(msg_id));
+    object.insert("targetMsgId".to_string(), json!(msg_id));
     let payload = json!({
         "event": "im:post:deleted",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", true),
+        "data": data,
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

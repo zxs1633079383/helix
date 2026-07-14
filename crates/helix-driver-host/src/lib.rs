@@ -8,6 +8,7 @@ pub mod http_cross;
 pub mod http_envelope;
 pub mod instrument;
 pub mod local_store;
+pub mod metrics;
 pub mod network;
 mod network_debug;
 #[cfg(test)]
@@ -34,6 +35,12 @@ pub use http_envelope::{base64_encode, run_http_envelope};
 pub use instrument::RecordingSink;
 pub use local_store::{
     BackendScope, LocalStoreError, LocalStoreIdentity, LocalStoreLocator, LocalStorePaths,
+};
+pub use metrics::{
+    AsyncMetricSink, BatchMetricExporter, BoundedMetricRuntime, LabelKey, MetricEvent,
+    MetricExporterState, MetricId, MetricKind, MetricLabel, MetricLabels, MetricRuntimeConfig,
+    MetricRuntimeSnapshot, NoopMetricSink, RecordOutcome, ShutdownOutcome, ALLOWED_LABEL_KEYS,
+    REQUIRED_METRIC_IDS,
 };
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,

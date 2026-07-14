@@ -40,20 +40,16 @@ use crate::owned_effect::consume_effects;
 use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
+mod perf_metrics;
+mod shutdown;
 mod types;
+use perf_metrics::EngineMetricRecorder;
+use shutdown::drain_pools;
 
 pub use types::{
     EngineDeps, TransportLifecycleEvent, TransportTable, TransportTraceEvent, TransportTraceSink,
     TransportTraceStats, TRANSPORT_TRACE_QUEUE_CAPACITY,
 };
-
-/// graceful drain 时「必达 Http」在途请求的 join 上限（fix/lifecycle-net-decouple）。
-///
-/// 必达 Http reqwest 单条可卡满 `DEFAULT_TIMEOUT_SECS`（连不上 host ~30s）。drain 给此上限：
-/// 超时 abort 在途请求，让生命周期（helix_destroy）快速退出，而非等满网络 timeout。
-/// 不丢保证由「乐观态持久化 + 重连重发对账」承担（见五不变量⑤ + `shutdown_with_timeout` doc）。
-/// 取 3s：足够覆盖正常 LAN 内 POST /posts/create 往返（毫秒级），又远小于 30s 网络 timeout。
-const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// 运行 ExecutionShell 的 tokio 事件泵（泛型壳）。
 ///
@@ -102,6 +98,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     let uploader = deps.uploader;
     let event_sink = deps.event_sink;
     let trace = deps.trace;
+    let mut perf_metrics = EngineMetricRecorder::new(deps.metrics);
     let http_n = deps.max_http_inflight.max(1);
     let mut timer_registry = TimerRegistry::new();
 
@@ -157,6 +154,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
             &mut persist_workers,
             &transports,
             &trace,
+            perf_metrics.sink(),
         )
         .await;
         // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
@@ -170,6 +168,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     // 完成后该分支永久解除武装。
     let mut shutdown_armed = true;
     loop {
+        perf_metrics.record_queue_snapshot(tick_rx.len(), tick_rx.max_capacity());
         let tick = tokio::select! {
             biased;
 
@@ -202,6 +201,8 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
             }
         };
 
+        let metric_context = perf_metrics.on_tick(&tick);
+
         if let Tick::Disconnected(transport_id) = &tick {
             if let Some(tx) = &transport_lifecycle_tx {
                 tx.send(TransportLifecycleEvent::Disconnected {
@@ -226,13 +227,16 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
 
         let _trace_scope = trace.on_tick_start(&tick);
         let now_ms = clock.now_ms();
+        let step_started = std::time::Instant::now();
         let owned = match shell.step(tick, now_ms) {
             Ok(effects) => consume_effects(effects),
             Err(e) => {
+                perf_metrics.on_step_error(&metric_context);
                 tracing::error!("engine step error: {}", e);
                 continue;
             }
         };
+        perf_metrics.on_step_complete(&metric_context, step_started.elapsed(), &owned);
 
         if !owned.is_empty() {
             dispatch_effects(
@@ -248,51 +252,24 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                 &mut persist_workers,
                 &transports,
                 &trace,
+                perf_metrics.sink(),
             )
             .await;
             // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。
             // owned 为空时无 Emit、无需 flush（避免空批跨 FFI 边界的无谓回调）。
             event_sink.flush();
+            perf_metrics.on_dispatch_complete(&metric_context);
         }
     }
 
-    // ── Graceful drain（不变量5）──────────────────────────────────────────
-    //
-    // 正确关闭顺序（每个 BoundedSpawner.shutdown 内部：drop tx → worker recv None → join）：
-    // 1. shutdown 全部 Persist（必达落地——本地 DB 写，无网络，无上限 join）
-    // 2. shutdown UploadFile（**有上限** drain：本地读+上传不阻塞生命周期）
-    // 3. shutdown Http(必达)（**有上限** drain：不被在途网络阻塞，超时 abort 在途 reqwest）
-    // 4. shutdown HttpFire（尽力 join，可丢，不纳入「必达落地」保证；同样有上限）
-    // 5. drain reply_rx（捡走写完后才回灌的最后一批 PortReply）
-    tracing::info!(
-        "helix engine loop: tick_rx closed, draining {} persist + io pools",
-        persist_workers.len()
-    );
-
-    // Persist：本地 SQLite 写，毫秒级，无网络不可控性 → 无上限 join（保「同 key 写顺序+全落地」）。
-    for (_, sp) in persist_workers.drain() {
-        sp.shutdown().await;
-    }
-    // UploadFile：同样封顶（本地读+上传）；超时直接 abort 在途任务，不阻塞生命周期退出。
-    if !upload_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
-        tracing::warn!(
-            limit_ms = HTTP_DRAIN_LIMIT.as_millis(),
-            "UploadFile drain 超上限——abort 在途上传任务"
-        );
-    }
-    // 必达 Http：给上限（HTTP_DRAIN_LIMIT）。在途 reqwest 连不上 host 时单条卡满
-    // DEFAULT_TIMEOUT_SECS（~30s），无上限会让 graceful drain（→ helix_destroy）等满该 timeout。
-    // 超时则 abort 在途——乐观态 status=Sending 已落库（真源），不丢，靠重连重发对账兜底
-    // （不变量5 改写：见本文件头注「五不变量⑤」+ helix-driver-{host,native} AGENTS.md）。
-    if !http_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
-        tracing::warn!(
-            limit_ms = HTTP_DRAIN_LIMIT.as_millis(),
-            "必达 Http drain 超上限——abort 在途请求（乐观态已持久化，靠重连重发对账兜底）"
-        );
-    }
-    // HttpFire：可丢，同样封顶（不阻塞退出）。
-    let _ = http_fire_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await;
-    while reply_rx.try_recv().is_ok() {}
+    drain_pools(
+        persist_workers,
+        upload_pool,
+        http_pool,
+        http_fire_pool,
+        reply_rx,
+    )
+    .await;
 
     tracing::info!(
         "helix engine loop exited (persists drained; 必达 upload/http drained or aborted at limit)"

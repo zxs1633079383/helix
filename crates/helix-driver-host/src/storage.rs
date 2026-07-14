@@ -24,6 +24,7 @@ mod values;
 mod write;
 
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
@@ -32,6 +33,10 @@ use helix_core::effect::{
 use helix_core::ports::Storage;
 use helix_core::PortError;
 use rusqlite::Connection;
+
+use crate::metrics::{
+    AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
+};
 
 use connection::{
     map_join_err, map_lock_err, map_sqlite_err, open_reader, open_writer, sqlite_target_from_url,
@@ -47,6 +52,7 @@ pub use trace::{with_storage_trace_context, StorageTraceContext};
 pub struct HostStorage {
     writer: Arc<Mutex<Connection>>,
     readers: Option<Arc<ReadPool>>,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl HostStorage {
@@ -76,9 +82,15 @@ impl HostStorage {
         let storage = Self {
             writer: Arc::new(Mutex::new(writer)),
             readers,
+            metrics: Arc::new(NoopMetricSink),
         };
         storage.migrate().await?;
         Ok(storage)
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     pub async fn execute_raw(&self, sql: &'static str) -> Result<(), PortError> {
@@ -153,30 +165,93 @@ impl HostStorage {
 #[async_trait::async_trait]
 impl Storage for HostStorage {
     async fn batch_upsert(&self, spec: UpsertSpec) -> Result<(), PortError> {
-        write::batch_upsert(self, spec).await
+        let rows = spec.rows.len();
+        let started = Instant::now();
+        let result = write::batch_upsert(self, spec).await;
+        self.record_storage_result("batch_upsert", rows, started, &result);
+        result
     }
 
     async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError> {
-        write::batch_update(self, spec).await
+        let rows = spec.key_vals.len();
+        let started = Instant::now();
+        let result = write::batch_update(self, spec).await;
+        self.record_storage_result("batch_update", rows, started, &result);
+        result
     }
 
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {
-        write::monotonic_upsert(self, spec).await
+        let started = Instant::now();
+        let result = write::monotonic_upsert(self, spec).await;
+        self.record_storage_result("monotonic_upsert", 1, started, &result);
+        result
     }
 
     async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError> {
-        write::guarded_bump(self, spec).await
+        let started = Instant::now();
+        let result = write::guarded_bump(self, spec).await;
+        self.record_storage_result("guarded_bump", 1, started, &result);
+        result
     }
 
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {
-        read::get(self, spec).await
+        let started = Instant::now();
+        let result = read::get(self, spec).await;
+        let rows = result
+            .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
+            .map_or(0, |_| 1);
+        self.record_storage_result("get", rows, started, &result);
+        result
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<HelixRow>, PortError> {
-        read::scan(self, spec).await
+        let started = Instant::now();
+        let result = read::scan(self, spec).await;
+        let rows = result.as_ref().map_or(0, Vec::len);
+        self.record_storage_result("scan", rows, started, &result);
+        result
     }
 
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
-        write::batch_delete(self, spec).await
+        let rows = spec.key_vals.len();
+        let started = Instant::now();
+        let result = write::batch_delete(self, spec).await;
+        self.record_storage_result("batch_delete", rows, started, &result);
+        result
+    }
+}
+
+impl HostStorage {
+    fn record_storage_result<T>(
+        &self,
+        operation: &'static str,
+        rows: usize,
+        started: Instant,
+        result: &Result<T, PortError>,
+    ) {
+        let status = if result.is_ok() { "ok" } else { "error" };
+        let labels = MetricLabels::one(LabelKey::Stage, "storage")
+            .with(LabelKey::StorageOp, operation)
+            .with(LabelKey::Status, status);
+        let _ = self.metrics.try_record(MetricEvent::histogram(
+            MetricId::StorageTxDurationSeconds,
+            started.elapsed().as_secs_f64(),
+            labels,
+        ));
+        if result.is_ok() {
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::StorageRowsTotal,
+                rows as f64,
+                labels,
+            ));
+        } else {
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::ErrorsTotal,
+                1.0,
+                labels.with(LabelKey::ErrorKind, "storage_failed"),
+            ));
+        }
     }
 }

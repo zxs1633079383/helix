@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 
@@ -14,6 +15,7 @@ use helix_core::ports::{EventSink, Storage, Transport};
 use helix_core::Tick;
 
 use crate::engine::TransportTable;
+use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 use crate::owned_effect::OwnedEffect;
 use crate::pools::{get_or_spawn_persist, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Job};
@@ -36,6 +38,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
     persist_workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
     transports: &TransportTable<Tr>,
     trace: &TraceHooks,
+    metrics: &dyn AsyncMetricSink,
 ) where
     S: Storage + Send + Sync + 'static,
     E: EventSink,
@@ -45,6 +48,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
         match effect {
             // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
+                record_operation(metrics, "persist", "ok");
                 trace.on_storage_dispatch(Some(corr), &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
@@ -54,6 +58,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     reply_tx.clone(),
                 );
                 // Block submit：队列满时 .await 阻塞主循环，背压传导到 tick_tx（不变量2）。
+                let queued_at = Instant::now();
                 sp.submit(Job {
                     corr: Some(corr),
                     payload: PersistJobPayload {
@@ -62,10 +67,17 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     },
                 })
                 .await;
+                record_wait(
+                    metrics,
+                    MetricId::PersistQueueWaitSeconds,
+                    queued_at,
+                    "persist",
+                );
             }
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
+                record_operation(metrics, "persist_fire", "ok");
                 trace.on_storage_dispatch(None, &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
@@ -74,6 +86,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     Arc::clone(storage),
                     reply_tx.clone(),
                 );
+                let queued_at = Instant::now();
                 sp.submit(Job {
                     corr: None,
                     payload: PersistJobPayload {
@@ -82,21 +95,31 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     },
                 })
                 .await;
+                record_wait(
+                    metrics,
+                    MetricId::PersistQueueWaitSeconds,
+                    queued_at,
+                    "persist_fire",
+                );
             }
 
             // ── Http（必达，Block 溢出，带 corr 回报，走 reply_tx）──────────
             OwnedEffect::Http { corr, mut req } => {
+                record_operation(metrics, "http", "ok");
                 trace.on_http_dispatch(Some(corr), &mut req);
+                let queued_at = Instant::now();
                 http_pool
                     .submit(Job {
                         corr: Some(corr),
                         payload: req,
                     })
                     .await;
+                record_wait(metrics, MetricId::HttpQueueWaitSeconds, queued_at, "http");
             }
 
             // ── UploadFile（必达，Block 溢出，带 corr 回报，走 reply_tx）────────
             OwnedEffect::UploadFile { corr, req } => {
+                record_operation(metrics, "upload_file", "ok");
                 trace.on_upload_dispatch(Some(corr), &req);
                 upload_pool
                     .submit(Job {
@@ -108,13 +131,21 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── HttpFire（可丢，DropNewest 溢出，无 corr 不回报）────────────
             OwnedEffect::HttpFire { mut req } => {
+                record_operation(metrics, "http_fire", "ok");
                 trace.on_http_dispatch(None, &mut req);
+                let queued_at = Instant::now();
                 http_fire_pool
                     .submit(Job {
                         corr: None,
                         payload: req,
                     })
                     .await;
+                record_wait(
+                    metrics,
+                    MetricId::HttpQueueWaitSeconds,
+                    queued_at,
+                    "http_fire",
+                );
             }
 
             // ── Send（查路由表 → Transport::send 真发 WS）──────────────────
@@ -124,10 +155,12 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                 mut frame,
             } => match transports.get(&transport) {
                 Some(t) => {
+                    record_operation(metrics, "ws_send", "ok");
                     trace.on_ws_send(transport, &mut frame);
                     // 表内 `Arc<Tr>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
                     // transport 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
                     if let Err(e) = t.send(frame).await {
+                        record_error(metrics, "ws_send_failed");
                         tracing::warn!(
                             transport_id = transport.raw(),
                             error = %e,
@@ -136,6 +169,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     }
                 }
                 None => {
+                    record_error(metrics, "ws_transport_missing");
                     tracing::warn!(
                         transport_id = transport.raw(),
                         frame_len = frame.len(),
@@ -151,6 +185,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                 kind,
                 payload,
             } => {
+                record_operation(metrics, "request", "deferred");
                 tracing::warn!(
                     corr = corr.raw(),
                     kind,
@@ -161,21 +196,55 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── Emit（同步非阻塞）─────────────────────────────────────────
             OwnedEffect::Emit { event } => {
+                record_operation(metrics, "event_emit", "ok");
                 trace.on_event_emit(&event);
                 event_sink.emit(event);
             }
 
             // ── ScheduleTimer（timer fires → 往 tick_tx 有界发送）─────────
             OwnedEffect::ScheduleTimer { id, after_ms } => {
+                record_operation(metrics, "schedule_timer", "ok");
                 timer_registry.schedule(id, after_ms, tick_tx.clone());
             }
 
             // ── CancelTimer（幂等）────────────────────────────────────────
             OwnedEffect::CancelTimer { id } => {
+                record_operation(metrics, "cancel_timer", "ok");
                 timer_registry.cancel(id);
             }
         }
     }
+}
+
+fn record_operation(metrics: &dyn AsyncMetricSink, operation: &'static str, status: &'static str) {
+    let _ = metrics.try_record(MetricEvent::counter(
+        MetricId::OperationsTotal,
+        1.0,
+        MetricLabels::one(LabelKey::Stage, "effect_dispatch")
+            .with(LabelKey::Operation, operation)
+            .with(LabelKey::Status, status),
+    ));
+}
+
+fn record_error(metrics: &dyn AsyncMetricSink, error_kind: &'static str) {
+    let _ = metrics.try_record(MetricEvent::counter(
+        MetricId::ErrorsTotal,
+        1.0,
+        MetricLabels::one(LabelKey::Stage, "effect_dispatch").with(LabelKey::ErrorKind, error_kind),
+    ));
+}
+
+fn record_wait(
+    metrics: &dyn AsyncMetricSink,
+    id: MetricId,
+    queued_at: Instant,
+    operation: &'static str,
+) {
+    let _ = metrics.try_record(MetricEvent::histogram(
+        id,
+        queued_at.elapsed().as_secs_f64(),
+        MetricLabels::one(LabelKey::Stage, "effect_queue").with(LabelKey::Operation, operation),
+    ));
 }
 
 #[cfg(test)]

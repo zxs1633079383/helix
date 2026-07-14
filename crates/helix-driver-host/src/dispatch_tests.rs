@@ -197,6 +197,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         &mut persist_workers,
         &transports,
         &trace,
+        &crate::metrics::NoopMetricSink,
     )
     .await;
 

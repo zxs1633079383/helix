@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::metrics::AsyncMetricSink;
 use crate::trace::TraceHooks;
 use helix_core::effect::TransportId;
 
@@ -91,6 +92,8 @@ pub struct EngineDeps<S, H, U, E, C> {
     pub event_sink: Arc<E>,
     pub clock: C,
     pub trace: TraceHooks,
+    /// Host 边界共享异步指标出口；热路径只执行有界 `try_record`。
+    pub metrics: Arc<dyn AsyncMetricSink>,
     /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。`0` → `.max(1)` 兜底 1。
     pub max_http_inflight: usize,
     pub transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,

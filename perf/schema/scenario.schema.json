@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helix.local/perf/scenario.schema.json",
+  "type": "object",
+  "required": ["schema_version", "run", "windows", "topology", "thresholds"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run": {
+      "type": "object",
+      "required": ["scenario", "platform", "channel_shape", "rate", "rate_unit", "payload_bucket"]
+    },
+    "windows": {
+      "type": "object",
+      "required": ["warmup", "load", "drain", "observation"]
+    },
+    "topology": {"type": "object", "required": ["channels", "senders", "receivers"]},
+    "thresholds": {"type": "object", "required": ["profile"]}
+  },
+  "additionalProperties": false
+}

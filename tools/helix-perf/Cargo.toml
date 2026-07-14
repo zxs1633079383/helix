@@ -1,0 +1,30 @@
+[package]
+name = "helix-perf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+# 合并 metrics 分支后由主协调启用；适配代码集中在 metric_sink.rs。
+sdk-metrics = ["dep:helix-driver-host"]
+
+[dependencies]
+bytes = { workspace = true }
+futures-util = "0.3"
+hdrhistogram = "7"
+helix-core = { path = "../../crates/helix-core" }
+helix-im = { path = "../../crates/helix-im" }
+helix-driver-host = { path = "../../crates/helix-driver-host", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "io-util"] }
+tokio-tungstenite = "0.24"
+toml = "0.8"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"

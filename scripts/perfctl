@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNNER=(cargo run -q -p helix-perf --)
+
+die() {
+  printf '%s\n' "$1" >&2
+  exit 2
+}
+
+require_executable() {
+  local path="$1"
+  local code="$2"
+  [[ -x "$path" ]] || die "$code: 缺少可执行编排脚本 $path"
+}
+
+runner() {
+  (cd "$ROOT" && CARGO_INCREMENTAL=0 "${RUNNER[@]}" "$@")
+}
+
+telemetry() {
+  require_executable "$ROOT/perf/telemetry/telemetry.sh" PERF_PRE_TELEMETRY_UNAVAILABLE
+  "$ROOT/perf/telemetry/telemetry.sh" "$@"
+}
+
+dashboard() {
+  require_executable "$ROOT/perf/grafana/dashboard.sh" PERF_GRAFANA_APPLY_FAILED
+  "$ROOT/perf/grafana/dashboard.sh" "$@"
+}
+
+usage() {
+  cat <<'EOF'
+用法：scripts/perfctl <command>
+  preflight                  只读校验本地合同与 L1/L2 前置
+  l1                         运行纯 core/Effect 基线
+  l2                         运行 HTTP/WS/SQLite/Event/FFI 混合与遥测对照
+  run --scenario <ID>        运行单一 L1/L2 场景
+  telemetry up|verify|down   编排本地 Collector 到 pre Prometheus
+  dashboard apply|verify     幂等发布/回读 Grafana Dashboard
+  run all                    preflight -> telemetry -> dashboard -> L1 -> L2
+EOF
+}
+
+command="${1:-help}"
+case "$command" in
+  preflight)
+    runner preflight
+    ;;
+  l1|l2)
+    runner "$command"
+    ;;
+  telemetry)
+    [[ $# -eq 2 ]] || die "PERF_CONFIG_INVALID: telemetry 需要 up|verify|down"
+    telemetry "$2"
+    ;;
+  dashboard)
+    [[ $# -eq 2 ]] || die "PERF_CONFIG_INVALID: dashboard 需要 apply|verify"
+    dashboard "$2"
+    ;;
+  run)
+    if [[ "${2:-}" == "all" ]]; then
+      runner preflight
+      telemetry up
+      trap 'telemetry down >/dev/null 2>&1 || true' EXIT
+      telemetry verify
+      dashboard apply
+      dashboard verify
+      runner l1
+      runner l2
+    else
+      shift
+      runner run "$@"
+    fi
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    usage >&2
+    die "PERF_CONFIG_INVALID: 未知命令 $command"
+    ;;
+esac

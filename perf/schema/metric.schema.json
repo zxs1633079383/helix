@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helix.local/perf/metric.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "tsUnixNs", "name", "kind", "unit", "value", "labels"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "runId": {"type": "string", "minLength": 8},
+    "tsUnixNs": {"type": "integer", "minimum": 1},
+    "name": {"type": "string", "pattern": "^helix_[a-z0-9_]+$"},
+    "kind": {"enum": ["counter", "histogram", "gauge"]},
+    "unit": {"type": "string", "minLength": 1},
+    "value": {"type": "number"},
+    "labels": {"type": "object"},
+    "traceRef": {"type": "string"}
+  },
+  "additionalProperties": false
+}

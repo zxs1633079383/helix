@@ -1195,6 +1195,8 @@
           },
           "effect": [
             "local_scan",
+            "http_read",
+            "storage_upsert",
             "projection"
           ]
         }
@@ -1214,19 +1216,24 @@
         "reply"
       ],
       "negative_assertions": [
-        "UI 不得 merge 或排序 message 业务字段"
+        "UI 不得 merge 或排序 message 业务字段",
+        "Complete 分支不得发 HTTP；Partial/Miss/Unsupported 分支不得把本地行数冒充完整覆盖",
+        "远端 HTTP 或后端状态失败必须 emit im:post:increment-failed，不得用空 im:messages:query_result 冒充成功"
       ],
       "http": {
-        "request": "无远端 HTTP；读 Helix 本地 message 表",
-        "response": "N/A：必须以 trace 与 HTTP 计数证明本次 operation 未发起远端请求"
+        "request": "条件回源：`POST /api/cses/posts/getLatestPost` body `{channelId,timestamp:0}`；仅 Complete 分支不出网",
+        "response": "回源分支要求 HTTP 200 application/json 且 CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账；Complete 分支必须以 trace 与 HTTP 计数反证零出网"
       },
       "ws": {
         "events": "无"
       },
       "remote_store": {
-        "database": "N/A",
-        "tables": [],
-        "contract": "无后端接口；无直接后端表"
+        "database": "mattermost-imv2",
+        "tables": [
+          "post",
+          "channel"
+        ],
+        "contract": "`post.getLatestPost`；`post`, `channel`（当前用户可见最近 20 条，满窗口时可补同 segment）"
       }
     },
     {

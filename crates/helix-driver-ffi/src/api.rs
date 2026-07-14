@@ -54,7 +54,7 @@ pub const FFI_UNIMPLEMENTED: i32 = -5;
 ///   `Mutex` 防 Sender 并发写（Sender 非 Sync）；**禁 Arc**——HelixHandle 本身即 Box opaque ptr。
 /// - `shutdown_tx`：graceful drain 触发端（`Option`，destroy 时 take + send 一次）。
 /// - `pump_thread`：pump 线程 JoinHandle（`Option`，destroy 时 take + join）。
-/// - `query`：pump 装配成功后回传的 runtime handle + storage，供 `helix_query`（当前 stub）。
+/// - `query`：pump 装配成功后回传的 runtime handle + storage，供 A5 前 compatibility `helix_query`。
 pub struct HelixHandle {
     pub(crate) headers: HostHeaderRegistry,
     /// HTTP 鉴权凭据 registry：`X-Auth-Kind` 只选路由，真凭据在 driver 侧热更新。
@@ -67,7 +67,7 @@ pub struct HelixHandle {
     pub(crate) shutdown_tx: parking_lot::Mutex<Option<oneshot::Sender<()>>>,
     /// pump 线程句柄；destroy 取出 join，确保 on_domain_events_batch 回调在 ctx 释放前全部完成。
     pub(crate) pump_thread: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// 查询依赖（runtime handle + 共享 storage）。helix_query 当前为 honest stub，字段已就位。
+    /// 查询依赖（runtime handle + 共享 storage）。业务解析/ScanSpec/shape 由 helix-im 提供。
     #[allow(dead_code)]
     pub(crate) query: QueryDeps,
 }
@@ -525,9 +525,12 @@ pub unsafe extern "C" fn helix_query(
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_version" => unsafe { write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len) },
         _ => {
+            if !helix_im::mobile_query::supports(query_name.as_str()) {
+                return FFI_UNIMPLEMENTED;
+            }
             let plan = match helix_im::mobile_query::plan(query_name.as_str(), query_payload) {
                 Ok(plan) => plan,
-                Err(_) => return FFI_UNIMPLEMENTED,
+                Err(_) => return FFI_INVALID,
             };
             // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
             let handle_ref = unsafe { &*handle };

@@ -54,12 +54,12 @@
 
 **关键路径**：F4.1–F4.4 ✅ 端到端接通并 merge（c229531）。**采纳「抽取共享」而非「FFI 自写泵」**——native+ffi 共用 host `run_engine_loop`，parity by construction。**剩 F4.5/F5** = Flutter 真机冒烟 + native↔FFI byte-level 跨端一致验收。**headless 守卫兑现**：全程 core/helix-im 零改（cargo tree -p helix-core 零运行时复证），改动落 `helix-driver-{ffi,host,native}`；同一份 core 跑 ffi 零改 ✅。
 
-### M4 —— Web 产品化（ADR-014 · A1 已完成）
+### M4 —— Web 产品化（ADR-014 · A1/A2 已完成）
 
 > **边界**：Web 复用 `helix-core + helix-im` 的业务门面和状态机；PC/Flutter 的完整 SQLite/SharedWsClient 不搬进浏览器。旧 W0→W4、浏览器 probe、Dedicated Worker/IndexedDB 预设均继续失效。详细文件/类型/验收见 [当前实施真源](./过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
 - [x] **A1 统一 `helix-im::client_api`**：alias/normalization/canonical name/capabilities/`AppCommand` 构造已提升为共享真源；`mobile_contract` 保持兼容 re-export，FFI 只余错误码映射。native 尚无同形公开入口，未新增空壳 wrapper。〔验收〕共享/兼容路径字节一致；known borrowed、fallback owned、非法 payload 与 FFI ABI 均有回归测试；core/im/FFI 全量测试 0 failure。
-- [ ] **A2 查询旁路收口 + local-first**：以现有 `helix-im::query` 异步路径为唯一真源，引入 Durable/Session/Disabled 与 Complete/Partial/Miss/Unsupported，远端 fallback 仍产 `Effect::Http`。〔验收〕6 类可证伪回放全绿；FFI `mobile_query` 仅余 compatibility，业务旁路为 0。
+- [x] **A2 查询旁路收口 + local-first**：以现有 `helix-im::query` 异步路径为唯一真源，引入 Durable/Session/Disabled 与 Complete/Partial/Miss/Unsupported，远端 fallback 仍产 `Effect::Http`。〔验收〕11 条端到端回放 + 8 条 coverage 单测覆盖本地直出、回源合并、缓存顺序、失败、coverage 反证、会话隔离与陈旧行清理；FFI `mobile_query` 仅保留同步 compatibility，payload 解析、ScanSpec 与 shape 重复真源为 0，ABI 在 A5 删除。
 - [ ] **A3 WS port 缩窄**：新增 core `FrameSender`，host engine/dispatch 只依赖 send；connect/recv/close/reconnect 下沉 host 私有连接边界。〔验收〕native/FFI 相同 Tick 剧本输出不变，core 零 runtime，旧 `Transport` 最终删除。
 - [ ] **A4 新建 `helix-driver-web`**：纯 Rust 实现 Browser Fetch、有界内存 session store、ExternalWsBridge、timer 与批量 EventSink，不写前端页面。〔验收〕wasm target 通过，同 Tick 剧本三端 parity，Web 无业务 fetch/WS parser/sync/cursor 副本。
 - [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003。〔验收〕清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路，浏览器矩阵和真 Go E2E 通过。
@@ -140,7 +140,7 @@
 
 **M4 追加（Web）**
 - [ ] 三端 command/query 全部经过 `helix-im::client_api`，driver 业务旁路 = 0
-- [ ] local-first 对 Complete/Partial/Miss/Unsupported 均有可证伪回放
+- [x] local-first 对 Complete/Partial/Miss/Unsupported 均有可证伪回放
 - [ ] core WS public port 只保留 outbound frame，仍零 runtime/platform 依赖
 - [ ] PC/Flutter 继续共用 host SQLite/HTTP/WS；native/FFI parity 零回归
 - [ ] Web HTTP 由 Rust Browser Fetch 执行；物理 WS bridge 不解析业务帧

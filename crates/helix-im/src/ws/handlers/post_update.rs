@@ -68,6 +68,7 @@ pub(super) fn apply_post_update(
     else {
         return;
     };
+    ctx.state.invalidate_recent_message_coverage(channel_id);
 
     let msg_id = post
         .get("id")

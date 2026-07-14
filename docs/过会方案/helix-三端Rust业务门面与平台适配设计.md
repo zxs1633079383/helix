@@ -148,7 +148,9 @@ crates/helix-im/src/query/
 新增：
 
 ```text
-crates/helix-im/src/query/local_first.rs
+crates/helix-im/src/query/
+├── local_first.rs
+└── local_first/data.rs
 ```
 
 核心类型放在 `helix-im`，不污染 core：
@@ -187,10 +189,23 @@ GetRecentMessages
 正确性要求：
 
 - 空 rows 只能派生 `Miss`，不能表示 `Complete` 或 `Unsupported`；
+- `Complete` 必须有当前连接会话内的显式窗口证明：成功取得权威远端窗口、cache Persist 成功，
+  且下一次本地 Scan 的消息身份序列与该窗口相符；“本地行数达到 limit”本身不是证明；
+- 已知 `cursor < increment_target`、channel 仍有 inflight sync 或 gate buffer 时，即使身份相符也只能
+  判 `Partial`；hello/disconnect 会清空 proof，旧 HTTP/Persist 晚回包不得污染新会话；
 - Web 刷新后 session coverage 清空，必须走远端；
 - cursor 与 coverage 同属 IM 状态，不能由 Web 单独持久化一个超前 cursor；
 - remote fallback 仍由 `helix-im` 生成 `Effect::Http`，driver 不拼业务 URL/body；
 - 本地与远端结果最终走同一投影函数和同一 DomainEvent schema。
+
+当前最近消息远端真源固定为 `POST /posts/getLatestPost`：服务端先取当前用户可见的最近 20 条，
+满 20 时可能补齐同 segment，所以响应可多于 20。现有 query ABI 仍兼容 `limit ≤ 500`，但单次
+远端响应只证明最近 20 基础窗口：`limit > 20` 时可以返回本地与远端的去重合并结果，却不得把它
+记录成 `Complete`；只有服务端明确返回不足 20（证明频道已耗尽）时，较大 limit 才可能完整。
+
+`im_query_dialog_list` 暂不套用 HTTP fallback：`/channels/load/increment` 的真实数据经 WS 异步推送，
+`/channel/query` 又不等价当前用户的 unread/mention dialog projection。会话列表继续走本地/会话投影，
+待 WS `increment_channel_end` 能形成显式 dialog coverage 后再扩展，禁止伪造同步远端接口。
 
 ### 4.4 `helix-driver-host`：固定为 PC/Flutter 默认执行器
 
@@ -302,10 +317,14 @@ take_platform_actions / on_send_frame
 保持 borrowed、控制/未知 command 保持 owned fallback；非法 payload 映射 `FFI_INVALID`；现有
 command/event contract 全绿。
 
-### A2：查询旁路收口 + local-first 状态机
+### A2：查询旁路收口 + local-first 状态机 ✅（2026-07-14）
 
-修改：`query/local_first.rs`、`query/dispatch.rs`、`correlation.rs`、`port_reply.rs`、`state.rs`、
-`mobile_query.rs` 和 FFI compatibility query。
+修改：`query/local_first.rs`、`query/local_first/data.rs`、`query/dispatch.rs`、`correlation.rs`、
+`port_reply.rs`、`state.rs`、`mobile_query.rs` 和 FFI compatibility query。
+
+实现边界：FFI 同步 `helix_query` 在 A5 消费方迁移前仍直接执行 Storage，但 payload 解析、ScanSpec、
+结果 shape 必须委托 `helix-im::query`；它不在同步 ABI 内另造 HTTP 编排。真正的 local-first 只走
+`Tick::Command → Effect → PortReply → DomainEvent` 异步主路径。
 
 验收剧本至少覆盖：
 
@@ -315,6 +334,14 @@ command/event contract 全绿。
 - Disabled/Unsupported：不发 Storage effect，直接 HTTP；
 - HTTP 失败：返回明确业务错误/状态，不把空列表冒充成功；
 - 破坏 coverage 判定时测试必须失败。
+
+落地结果：异步查询已形成 `Scan → coverage → 可选 Http → 可选 cache Persist → Emit` 单一路径；
+远端不足 20 条才可证明当前用户可见集合耗尽，满 20 后的同 segment 扩展行不扩大 coverage。
+hello/disconnect、消息写入、sync 与乐观发送都会撤销旧 proof；旧会话 Scan/HTTP/Persist 晚回包均丢弃。
+FFI 同步 compatibility 只复用共享 parser/ScanSpec/shape，不复制 HTTP 编排，按计划留到 A5 删除。
+
+验证：五 crate `cargo check` 通过；`scripts/gate.sh` 10/10 通过，含全 workspace 测试、HX-C001、
+trace/业务边界、harness、FFI 1–5 层、native↔FFI byte parity、C++ 直连 ABI 冒烟与 public API 闸门。
 
 ### A3：WS port 缩窄
 

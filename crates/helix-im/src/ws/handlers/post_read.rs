@@ -43,7 +43,7 @@ impl WsMessageHandler for PostReadHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -73,6 +73,7 @@ impl WsMessageHandler for PostReadHandler {
         else {
             return Ok(());
         };
+        ctx.state.invalidate_recent_message_coverage(channel_id);
 
         // type6 fields：read_bits 取 readMap（post_read 专用键）→ readBits → read_bits 兜底。
         // extract_post_fields 不识别 readMap，故先抽 read_bits 覆盖进 fields（边界零信任，缺省空串

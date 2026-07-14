@@ -30,6 +30,8 @@ impl ImModule {
             .as_str()
             .and_then(ChannelId::from_str)
             .ok_or_else(|| ImError::Parse("missing/invalid channel_id".to_string()))?;
+        // 乐观消息先进入内存业务事实，不能在 SQLite 写完成前让旧窗口 proof 命中假 Complete。
+        self.state.invalidate_recent_message_coverage(channel_id);
         let tmp_id_str = cmd["temporary_id"]
             .as_str()
             .ok_or_else(|| ImError::Parse("missing temporary_id".to_string()))?

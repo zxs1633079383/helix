@@ -28,7 +28,7 @@
 | `channel/` | channel gate、生命周期、older context 与写模型 | channel 状态推进、成员/帖子写入程序先找这里 | 可被 `module/`、`sync/`、`ws/` 调用；不反向依赖 outbound |
 | `send/` | 发送状态机、pending、echo reconcile、pong 补偿 | 发消息乐观状态和回声对账先找这里 | 可依赖 `state/`、`channel/` 基础类型；不做 HTTP 组包 |
 | `sync/` | sync 响应解析、增量哈希、补拉调度与会话状态 | cursor、水位、补偿拉取策略先找这里 | 可产出 `Effect`/落库计划；不直接 I/O |
-| `query/` | 本地投影查询、render-ready 组装、读命令 relay | UI 读侧投影和查询结果 emit 先找这里 | 只消费 port reply/rows；不发网络 |
+| `query/` | 投影查询、local-first、render-ready 组装、读命令 relay | UI 读侧投影、最近消息 coverage/remote fallback 和查询结果 emit 先找这里 | 远端只产 `Effect::Http` 并复用 outbound wire 真源；不直接 I/O、不在 driver 复制 URL/merge/shape |
 | `todo/` | TODO/mention/urgent 聚合与投影 emit | 待办入口和增量触发聚合先找这里 | 依赖 `state/` 与投影 schema；不改 channel gate |
 | `outbound/` | HTTP 出站命令注册、组包、读写标记 | 新增/修正 csesapi 命令体先找对应子域：`posts/`、`channel_admin/`、`engagement/`、`user_misc/` | 只构造 HTTP intent；不处理 WS echo 和本地落库 |
 | `ws/` | WS frame、parser、registry、handlers | 新增 live 事件先过 `ws/parser/` + `ws/handlers/` + registry | 只处理入站帧到状态机/effect；不直接调用 driver |

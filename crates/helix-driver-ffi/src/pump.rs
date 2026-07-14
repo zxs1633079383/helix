@@ -26,6 +26,7 @@ use helix_driver_host::{
     SharedFileUploader, SharedHttpClient, SharedWsClient, TraceDirection, TraceHooks,
 };
 use helix_im::module::ImConfig;
+use helix_im::query::LocalStoreMode;
 use helix_im::ImModule;
 use tokio::sync::{mpsc, oneshot};
 
@@ -253,13 +254,16 @@ pub fn run(args: PumpArgs) {
 
         // ── shell + IM 模块 ─────────────────────────────────────────
         let mut shell = ExecutionShell::new();
-        shell.register(ImModule::new(ImConfig {
-            ws_url: args.config.ws_url.clone(),
-            api_base_url: args.config.api_base_url.clone(),
-            // 第二网关 base（spec06 方案 A）：vote/score outbound 走它（HostNetworkConfig 已派生注入）。
-            default_api_base_url: args.config.default_api_base_url.clone(),
-            ..Default::default()
-        }));
+        shell.register(ImModule::new_with_local_store(
+            ImConfig {
+                ws_url: args.config.ws_url.clone(),
+                api_base_url: args.config.api_base_url.clone(),
+                // 第二网关 base（spec06 方案 A）：vote/score outbound 走它（HostNetworkConfig 已派生注入）。
+                default_api_base_url: args.config.default_api_base_url.clone(),
+                ..Default::default()
+            },
+            LocalStoreMode::Durable,
+        ));
 
         // 装配成功 → 回传 QueryDeps（runtime handle + storage 共享给 helix_query）。
         let deps = EngineDeps {

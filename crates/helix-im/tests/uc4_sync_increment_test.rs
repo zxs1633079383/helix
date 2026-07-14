@@ -416,7 +416,7 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
     let message_readback = bytes::Bytes::from(
         serde_json::to_vec(&json!([{
             "temporary_id": "message-hydrated",
-            "server_id": "message-hydrated",
+            "id": "message-hydrated",
             "channel_id": cid(45),
             "message": "hydrated hello",
             "type": "TEXT",
@@ -428,22 +428,78 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
         .unwrap(),
     );
     let mut dialog_projection = None;
-    let mut messages_projection = None;
-    for (corr, table) in readback_scans {
+    let mut message_http_corr = None;
+    for (index, (corr, table)) in readback_scans.into_iter().enumerate() {
         let reply = if table == "channel" {
             channel_readback.clone()
         } else {
             message_readback.clone()
         };
-        h.step(port_reply_with_body(corr, reply), 1_500);
+        h.step(
+            port_reply_with_body(corr, reply),
+            1_500 + index as u64 * 100,
+        );
+        message_http_corr = message_http_corr.or_else(|| {
+            h.sink.as_slice().iter().find_map(|effect| match effect {
+                Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
+                    Some(corr.raw())
+                }
+                _ => None,
+            })
+        });
         for value in h.sink.as_slice().iter().filter_map(emit_value) {
             match value["event"].as_str() {
                 Some("im:channels:projection") => dialog_projection = Some(value),
-                Some("im:messages:query_result") => messages_projection = Some(value),
                 _ => {}
             }
         }
     }
+
+    let message_http_corr = message_http_corr.expect("无窗口 proof 的本地消息必须远端补齐");
+    let latest = bytes::Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": [{
+                "id": "message-hydrated",
+                "temporaryId": "message-hydrated",
+                "channelId": cid(45),
+                "userId": "user-other",
+                "type": "TEXT",
+                "message": "hydrated hello",
+                "props": {"document":{"id":"doc-hydrated"}},
+                "readBits": "10",
+                "viewers": ["all"],
+                "createAt": 1_700_000_000_100_i64
+            }]
+        }))
+        .unwrap(),
+    );
+    h.step(
+        port_reply_with_body(message_http_corr, enveloped(latest)),
+        1_800,
+    );
+    let cache_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
+                ) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("远端首屏必须先缓存");
+    h.step(port_reply_ok(cache_corr), 1_900);
+    let messages_projection = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(emit_value)
+        .find(|value| value["event"] == "im:messages:query_result");
 
     let dialog = dialog_projection.expect("本地 channel 读回应产 render-ready dialog 投影");
     let row = &dialog["data"]["dialogList"][0];

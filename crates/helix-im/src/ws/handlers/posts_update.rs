@@ -82,6 +82,7 @@ impl WsMessageHandler for PostsUpdateHandler {
         // （emit 由本 handler 统一 batch-updated 一次）。
         // A4：事件名 + payload 形态对齐现网 handle_batch_update（im:post:batch-updated + {posts:[...]}）。
         if let Some(cid) = channel_id {
+            ctx.state.invalidate_recent_message_coverage(cid);
             super::gate::gate_advance_cursor_only(ctx, frame, cid, out)?;
             out.push(crate::acl::to_effect::emit_post_batch_updated(
                 cid,

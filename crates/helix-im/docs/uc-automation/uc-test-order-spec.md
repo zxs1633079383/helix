@@ -110,7 +110,7 @@
 | 5.2 创建话题 | `im_make_topic {rootId}`→`posts/makeTopic` | `channel_created`(T)+`post_update` | root `post_server_id` | **`topic_channel_id`(T)** | 吃一个 post |
 
 ### P4 · 历史（吃累积消息 + anchor）
-| 2.1 切群首屏 | `im_query_messages_by_channel`(本地 Scan) | `emit_message_query_result`(透传) | `channel_id` | — | 需先有消息 |
+| 2.1 切群首屏 | `im_query_messages_by_channel`（local-first：Complete 本地 Scan；其余→`posts/getLatestPost`） | 成功 `emit_message_query_result`；远端失败 `im:post:increment-failed` | `channel_id` | — | Complete 路径需先有当前会话窗口 proof；其余路径断言条件出网 |
 | 2.2 上拉更早 | `im_load_older_context {channel_id,anchor_post_id,before:50}`→`posts/postContext` | `im:messages:older_loaded`(3键) | `channel_id`/anchor `post_server_id` | — | |
 | 2.3 按 postId 定位 | `im_load_older_context {anchor_post_id}` | `emit_message_query_result`+高亮 | anchor `post_server_id` | — | |
 

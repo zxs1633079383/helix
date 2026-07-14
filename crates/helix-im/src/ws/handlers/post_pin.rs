@@ -24,7 +24,7 @@ impl WsMessageHandler for PostPinHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -39,6 +39,7 @@ impl WsMessageHandler for PostPinHandler {
         else {
             return Ok(());
         };
+        ctx.state.invalidate_recent_message_coverage(channel_id);
         let Some(post_id) = data
             .get("postId")
             .or_else(|| data.get("post_id"))

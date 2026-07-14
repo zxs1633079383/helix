@@ -2,8 +2,8 @@
 //!
 //! 接管架构表 A：现网 `imDataSource:*` 拦截垫片 + `store_get_messages` 直查语义下沉 Rust。
 //! 前端退化为纯渲染（C1/C2）：不再前端 SQL 直查，改 invoke 语义命令 → core 出 `Effect` →
-//! driver 兑现 → emit 投影。本文件是这些命令的**薄壳**（解析参数 → 产 Effect / 注册 corr 上下文），
-//! 业务 endpoint 不涉（纯本地读，零 HTTP）。
+//! driver 兑现 → emit 投影。本文件收口三端共享的请求解析、ScanSpec 与投影 shape；
+//! local-first/remote fallback 编排见 `local_first`。
 //!
 //! ## 命令集（对齐现网 boot.rs 真实注册的投影面）
 //!
@@ -45,48 +45,103 @@ pub fn is_query(name: &str) -> bool {
 }
 
 /// 投影查询单条上限（对齐现网 `clamp(1, 500)`）。
-const QUERY_MESSAGES_DEFAULT: u32 = 50;
-const QUERY_MESSAGES_MAX: u32 = 500;
+pub(crate) const QUERY_MESSAGES_DEFAULT: u32 = 50;
+pub(crate) const QUERY_MESSAGES_MAX: u32 = 500;
 
 /// dialogList 投影单次上限（会话列表全量，宽于消息分页；对齐现网根群可达数千会话上限护栏）。
-const QUERY_DIALOGS_DEFAULT: u32 = 500;
-const QUERY_DIALOGS_MAX: u32 = 2000;
+pub(crate) const QUERY_DIALOGS_DEFAULT: u32 = 500;
+pub(crate) const QUERY_DIALOGS_MAX: u32 = 2000;
+
+/// 三端共享的最近消息业务查询；平台 driver 不解释表名、过滤列或响应 shape。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageQueryRequest {
+    pub channel_id: ChannelId,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DialogListQueryRequest {
+    pub limit: u32,
+}
+
+/// compatibility query 与异步 query 共用的响应类型。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueryResponseShape {
+    MessagesByChannel { channel_id: String },
+    DialogList,
+}
+
+pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImError> {
+    let value: serde_json::Value = serde_json::from_slice(payload)
+        .map_err(|e| ImError::Parse(format!("im_query_messages_by_channel payload: {e}")))?;
+    let channel = value
+        .get("channel_id")
+        .or_else(|| value.get("channelId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse("im_query_messages_by_channel 缺 channel_id".into()))?;
+    let channel_id = ChannelId::from_str(channel)
+        .ok_or_else(|| ImError::Parse(format!("非法 channel_id: {channel}")))?;
+    let limit = value
+        .get("limit")
+        .and_then(serde_json::Value::as_u64)
+        .map(|value| value.clamp(1, u64::from(QUERY_MESSAGES_MAX)) as u32)
+        .unwrap_or(QUERY_MESSAGES_DEFAULT);
+    Ok(MessageQueryRequest { channel_id, limit })
+}
+
+pub fn message_scan_spec(request: &MessageQueryRequest) -> ScanSpec {
+    ScanSpec {
+        table: "message",
+        limit: Some(request.limit),
+        filter: Some((
+            "channel_id",
+            SqlValue::Text(request.channel_id.as_str().to_string()),
+        )),
+        order_desc_col: Some("create_at"),
+    }
+}
+
+pub fn parse_dialog_list_query(payload: &[u8]) -> DialogListQueryRequest {
+    let limit = serde_json::from_slice::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|value| value.get("limit").and_then(serde_json::Value::as_u64))
+        .map(|value| value.clamp(1, u64::from(QUERY_DIALOGS_MAX)) as u32)
+        .unwrap_or(QUERY_DIALOGS_DEFAULT);
+    DialogListQueryRequest { limit }
+}
+
+pub fn dialog_list_scan_spec(request: DialogListQueryRequest) -> ScanSpec {
+    ScanSpec {
+        table: "channel",
+        limit: Some(request.limit),
+        filter: None,
+        order_desc_col: Some("last_post_at"),
+    }
+}
 
 /// 构造 `im_query_messages_by_channel` 的 `Scan(message WHERE channel_id ORDER BY create_at DESC)`。
 ///
-/// 返回 `(channel_id, Effect::Persist{Scan})`——调用方（module.rs）alloc corr + 注册
-/// `CorrelationContext::MessageQuery{channel_id}`，PortReply 回报后 [`emit_message_query_result`]
-/// 把行投影成 emit。`limit` 取 payload `limit`（缺省 50，clamp ≤500）。
+/// 返回 `(channel_id, Effect::Persist{Scan})`；异步业务入口会注册 local-first correlation，
+/// 根据显式 coverage 决定本地投影或 `getLatestPost` fallback。`limit` 取 payload `limit`
+/// （缺省 50，clamp ≤500）。
 pub fn build_message_query(
     payload: &[u8],
     corr: Correlation,
 ) -> Result<(ChannelId, Effect), ImError> {
-    let v: serde_json::Value = serde_json::from_slice(payload)
-        .map_err(|e| ImError::Parse(format!("im_query_messages_by_channel payload: {e}")))?;
-    let channel_str = v
-        .get("channel_id")
-        .and_then(|c| c.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| ImError::Parse("im_query_messages_by_channel 缺 channel_id".into()))?;
-    let channel_id = ChannelId::from_str(channel_str)
-        .ok_or_else(|| ImError::Parse(format!("非法 channel_id: {channel_str}")))?;
-    let limit = v
-        .get("limit")
-        .and_then(|l| l.as_u64())
-        .map(|l| (l as u32).clamp(1, QUERY_MESSAGES_MAX))
-        .unwrap_or(QUERY_MESSAGES_DEFAULT);
+    let request = parse_message_query(payload)?;
+    let effect = build_message_query_from_request(&request, corr);
+    Ok((request.channel_id, effect))
+}
 
-    let effect = Effect::Persist {
+pub(crate) fn build_message_query_from_request(
+    request: &MessageQueryRequest,
+    corr: Correlation,
+) -> Effect {
+    Effect::Persist {
         corr,
-        ops: vec![StorageOp::Scan(ScanSpec {
-            table: "message",
-            limit: Some(limit),
-            // 等值过滤 channel_id（绑定参数，防注入）+ create_at 降序（取最近 N 条，对齐现网）。
-            filter: Some(("channel_id", SqlValue::Text(channel_str.to_string()))),
-            order_desc_col: Some("create_at"),
-        })],
-    };
-    Ok((channel_id, effect))
+        ops: vec![StorageOp::Scan(message_scan_spec(request))],
+    }
 }
 
 /// PortReply 回报（`MessageQuery` 上下文 Ok）→ emit `im:messages:query_result` 投影。
@@ -104,6 +159,28 @@ pub fn emit_message_query_result_for_viewer(
     reply_bytes: &[u8],
     viewer_user_id: &str,
 ) -> Effect {
+    Effect::Emit {
+        event: DomainEventBytes(Bytes::from(message_query_result_bytes_for_viewer(
+            channel_id,
+            reply_bytes,
+            viewer_user_id,
+        ))),
+    }
+}
+
+pub(crate) fn message_query_result_bytes_for_viewer(
+    channel_id: &ChannelId,
+    reply_bytes: &[u8],
+    viewer_user_id: &str,
+) -> Vec<u8> {
+    message_query_result_bytes(channel_id.as_str(), reply_bytes, viewer_user_id)
+}
+
+pub(crate) fn message_query_result_bytes(
+    channel_id: &str,
+    reply_bytes: &[u8],
+    viewer_user_id: &str,
+) -> Vec<u8> {
     let rows = match serde_json::from_slice::<serde_json::Value>(reply_bytes) {
         Ok(serde_json::Value::Array(mut items)) => {
             items.reverse();
@@ -116,17 +193,11 @@ pub fn emit_message_query_result_for_viewer(
         // messages 元素整形成 render-ready 终态行（S6·issue #55·C013）：前端 1:1 绑定，
         // 不再壳内抽 DB snake 列 / 归一 readBits / dedup。外层键集 {channel_id, messages} 不变。
         "data": {
-            "channel_id": channel_id.as_str(),
+            "channel_id": channel_id,
             "messages": crate::render_ready::shape_message_rows_for_viewer(&rows, viewer_user_id),
         }
     });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_message_query_result: static JSON shape must serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
+    serde_json::to_vec(&payload).expect("message query static JSON shape must serialize")
 }
 
 /// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY last_post_at DESC LIMIT)`。
@@ -140,22 +211,11 @@ pub fn emit_message_query_result_for_viewer(
 ///
 /// **HX-C005**：低频按需调用（off hot-path），整表 scan 合规——见模块头注与 spec06 §2 边界。
 pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effect, ImError> {
-    // 零信任：payload 可缺省（前端 invoke 可不带参全量拉）。非法 JSON → 走默认 limit（不 panic）。
-    let limit = serde_json::from_slice::<serde_json::Value>(payload)
-        .ok()
-        .and_then(|v| v.get("limit").and_then(|l| l.as_u64()))
-        .map(|l| (l as u32).clamp(1, QUERY_DIALOGS_MAX))
-        .unwrap_or(QUERY_DIALOGS_DEFAULT);
+    let request = parse_dialog_list_query(payload);
 
     Ok(Effect::Persist {
         corr,
-        ops: vec![StorageOp::Scan(ScanSpec {
-            table: "channel",
-            limit: Some(limit),
-            // 全量会话列表：无等值过滤；按最近活跃（last_post_at）降序，前端零再排序。
-            filter: None,
-            order_desc_col: Some("last_post_at"),
-        })],
+        ops: vec![StorageOp::Scan(dialog_list_scan_spec(request))],
     })
 }
 
@@ -173,6 +233,12 @@ pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effe
 /// `displayName`/`notice`(归一)/`isTop`(bool)/`createAt`/`unread`(终值)/`mention`(bool)/
 /// `lastMessage`(预览)/`urgent`(bool)。前端壳删 normalizeNotice/normalizeIsTop/unread++ shaping。
 pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
+    Effect::Emit {
+        event: DomainEventBytes(Bytes::from(dialog_list_result_bytes(reply_bytes))),
+    }
+}
+
+pub(crate) fn dialog_list_result_bytes(reply_bytes: &[u8]) -> Vec<u8> {
     let raw: serde_json::Value =
         serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));
     let rows: serde_json::Value = match raw {
@@ -190,13 +256,7 @@ pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
             "dialogList": rows,
         }
     });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_dialog_list_result: static JSON shape must serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
+    serde_json::to_vec(&payload).expect("dialog list static JSON shape must serialize")
 }
 
 /// 单频道 hydration 的即时 render-ready 投影。

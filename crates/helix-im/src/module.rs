@@ -70,6 +70,8 @@ impl Default for ImConfig {
 pub struct ImModule {
     pub(crate) config: ImConfig,
     pub(crate) state: ImState,
+    /// 平台注入的本地存储寿命/能力；覆盖完整性仍由 query 状态机逐次证明。
+    pub(crate) local_store_mode: crate::query::LocalStoreMode,
     /// Correlation 分配器（自增）
     ///
     /// BLK-1b：模块从 1 开始，避免与 engine 的 Correlation 冲突。
@@ -82,13 +84,27 @@ pub struct ImModule {
 }
 
 impl ImModule {
+    /// PC/Flutter 兼容构造器：默认使用 durable host store。
     pub fn new(config: ImConfig) -> Self {
+        Self::new_with_local_store(config, crate::query::LocalStoreMode::Durable)
+    }
+
+    /// 三端统一构造入口；Web 可明确注入 Session/Disabled，业务 query API 不变。
+    pub fn new_with_local_store(
+        config: ImConfig,
+        local_store_mode: crate::query::LocalStoreMode,
+    ) -> Self {
         Self {
             config,
             state: ImState::new(),
+            local_store_mode,
             next_corr: 1,
             next_timer: 100,
         }
+    }
+
+    pub fn local_store_mode(&self) -> crate::query::LocalStoreMode {
+        self.local_store_mode
     }
 
     pub fn alloc_corr(&mut self) -> helix_core::Correlation {
@@ -365,8 +381,8 @@ impl Module for ImModule {
                         out.push(eff);
                     }
                 }
-                // P6 投影/状态命令（im_query_messages_by_channel / im_delete_all_dialogs）：
-                // 本地读/清，零 HTTP；契约在 crate::query（薄壳，与 outbound registry 解耦）。
+                // P6/A2 投影/状态命令：最近消息 local-first 的 HTTP fallback 由 helix-im 内部编排；
+                // 调用端仍只见业务命令，不接触表名或 endpoint。
                 name if crate::query::is_query(name) => {
                     self.handle_query_command(name, cmd.payload.as_ref(), out)
                         .map_err(|e| CoreError::ModuleError {
@@ -404,6 +420,7 @@ impl Module for ImModule {
 
             Tick::Disconnected(_transport) => {
                 self.state.conn = ConnState::Disconnected;
+                self.state.reset_recent_query_coverage();
                 // 清除所有 channel 的 inflight_sync（连接断开，所有在途 Http 不会回报）
                 // 若不清除，重连后 proactive resync 会被 B1 守卫全部跳过
                 for ch in self.state.channels.values_mut() {

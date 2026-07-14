@@ -80,7 +80,7 @@
 | 单条已读 | `im_mark_read` | `im_post_read` | `post/read` | 3.2 | 写* |
 | 会话已读 | `im_read_channel` | `im_channels_view` | `channels/view` | 3.1 | 写* |
 | 批量已读查 | — | `im_post_read_list` | `post/read/list` | 3.2 | 读 |
-| 切群首屏（本地） | `im_query_messages_by_channel` | (本地 Scan) | — | 2.1 | 读 |
+| 切群首屏（local-first） | `im_query_messages_by_channel` | 本地 Scan；coverage 非 Complete 时 `im_get_latest_post` | Complete: —；其余: `posts/getLatestPost` | 2.1 | 读 |
 | 上拉更早 | `im_load_older_context` | `im_post_context` | `posts/postContext`×N | 2.2 | 读 |
 | 按 postId 定位 | `im_load_older_context` | `im_get_posts`/`im_get_posts_after_index` | `posts/get`·`getPostsAfterIndex` | 2.3 | 读 |
 | 一级回复 | `im_get_replies` | `im_get_replies` | `posts/getReplies` | 2.4 | 读 |

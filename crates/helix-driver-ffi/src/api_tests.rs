@@ -282,6 +282,43 @@ fn query_returns_unimplemented() {
 }
 
 #[test]
+fn known_query_with_invalid_payload_returns_invalid() {
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+    assert!(!handle.is_null());
+
+    let query_name = b"im_query_messages_by_channel";
+    let query_payload = br#"{"limit":20}"#;
+    let mut out_ptr: *mut u8 = std::ptr::dangling_mut();
+    let mut out_len = 999;
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_INVALID);
+    assert!(out_ptr.is_null());
+    assert_eq!(out_len, 0);
+
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
 fn query_free_handles_null() {
     // null ptr → no-op, must not crash
     unsafe { helix_query_free(std::ptr::null_mut(), 0) };

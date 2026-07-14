@@ -3,11 +3,8 @@ use serde_json::Value;
 
 use crate::ImError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MobileQueryShape {
-    MessagesByChannel { channel_id: String },
-    DialogList,
-}
+/// A5 删除同步 ABI 前的兼容名；真实 shape 定义只在 `query::core`。
+pub type MobileQueryShape = crate::query::QueryResponseShape;
 
 #[derive(Debug, Clone)]
 pub enum MobileQueryPlan {
@@ -17,10 +14,12 @@ pub enum MobileQueryPlan {
     },
 }
 
-const QUERY_MESSAGES_DEFAULT: u32 = 50;
-const QUERY_MESSAGES_MAX: u32 = 500;
-const QUERY_DIALOGS_DEFAULT: u32 = 500;
-const QUERY_DIALOGS_MAX: u32 = 2000;
+pub fn supports(name: &str) -> bool {
+    matches!(
+        name,
+        "im_query_messages_by_channel" | "im_query_dialog_list"
+    )
+}
 
 pub fn plan(name: &str, payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
     match name {
@@ -34,69 +33,32 @@ pub fn plan(name: &str, payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
 
 pub fn shape_json(shape: MobileQueryShape, rows: Vec<Row>) -> Vec<u8> {
     let rows_json = rows_to_json(rows);
-    let payload = match shape {
-        MobileQueryShape::MessagesByChannel { channel_id } => serde_json::json!({
-            "event": "im:messages:query_result",
-            "data": {
-                "channel_id": channel_id,
-                "messages": crate::render_ready::shape_message_rows(&rows_json),
-            }
-        }),
-        MobileQueryShape::DialogList => serde_json::json!({
-            "event": "im:channels:projection",
-            "data": {
-                "dialogList": shape_dialog_rows(rows_json),
-            }
-        }),
-    };
-    serde_json::to_vec(&payload).expect("mobile query JSON shape must serialize")
+    let reply_bytes =
+        serde_json::to_vec(&rows_json).expect("SQL rows converted to JSON Value must serialize");
+    match shape {
+        MobileQueryShape::MessagesByChannel { channel_id } => {
+            crate::query::core::message_query_result_bytes(&channel_id, &reply_bytes, "")
+        }
+        MobileQueryShape::DialogList => crate::query::core::dialog_list_result_bytes(&reply_bytes),
+    }
 }
 
 fn message_query_plan(payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
-    let value: Value = serde_json::from_slice(payload)
-        .map_err(|e| ImError::Parse(format!("im_query_messages_by_channel payload: {e}")))?;
-    let channel_id = value
-        .get("channelId")
-        .or_else(|| value.get("channel_id"))
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| ImError::Parse("im_query_messages_by_channel 缺 channelId".into()))?
-        .to_string();
-    let limit = value
-        .get("limit")
-        .and_then(Value::as_u64)
-        .map(|n| (n as u32).clamp(1, QUERY_MESSAGES_MAX))
-        .unwrap_or(QUERY_MESSAGES_DEFAULT);
+    let request = crate::query::parse_message_query(payload)?;
 
     Ok(MobileQueryPlan::Scan {
-        spec: ScanSpec {
-            table: "message",
-            limit: Some(limit),
-            filter: Some(("channel_id", SqlValue::Text(channel_id.clone()))),
-            order_desc_col: Some("create_at"),
+        spec: crate::query::message_scan_spec(&request),
+        shape: MobileQueryShape::MessagesByChannel {
+            channel_id: request.channel_id.as_str().to_string(),
         },
-        shape: MobileQueryShape::MessagesByChannel { channel_id },
     })
 }
 
 fn dialog_list_plan(payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
-    let limit = if payload.is_empty() {
-        QUERY_DIALOGS_DEFAULT
-    } else {
-        serde_json::from_slice::<Value>(payload)
-            .ok()
-            .and_then(|value| value.get("limit").and_then(Value::as_u64))
-            .map(|n| (n as u32).clamp(1, QUERY_DIALOGS_MAX))
-            .unwrap_or(QUERY_DIALOGS_DEFAULT)
-    };
+    let request = crate::query::parse_dialog_list_query(payload);
 
     Ok(MobileQueryPlan::Scan {
-        spec: ScanSpec {
-            table: "channel",
-            limit: Some(limit),
-            filter: None,
-            order_desc_col: Some("last_post_at"),
-        },
+        spec: crate::query::dialog_list_scan_spec(request),
         shape: MobileQueryShape::DialogList,
     })
 }
@@ -113,18 +75,6 @@ fn rows_to_json(rows: Vec<Row>) -> Value {
             })
             .collect(),
     )
-}
-
-fn shape_dialog_rows(rows: Value) -> Value {
-    match rows {
-        Value::Array(items) => Value::Array(
-            items
-                .into_iter()
-                .map(crate::query::dialog_render::render_ready_dialog_row)
-                .collect(),
-        ),
-        _ => Value::Array(Vec::new()),
-    }
 }
 
 fn sql_value_to_json(value: SqlValue) -> Value {
@@ -144,9 +94,10 @@ mod tests {
 
     #[test]
     fn message_query_plan_keeps_schema_inside_helix_im() {
+        let channel_id = "ch00000000000000000000000a";
         let plan = plan(
             "im_query_messages_by_channel",
-            br#"{"channelId":"ch1","limit":25}"#,
+            format!(r#"{{"channelId":"{channel_id}","limit":25}}"#).as_bytes(),
         )
         .expect("plan");
         match plan {
@@ -156,12 +107,12 @@ mod tests {
                 assert_eq!(
                     shape,
                     MobileQueryShape::MessagesByChannel {
-                        channel_id: "ch1".into()
+                        channel_id: channel_id.into()
                     }
                 );
                 assert!(matches!(
                     spec.filter,
-                    Some(("channel_id", SqlValue::Text(ref s))) if s == "ch1"
+                    Some(("channel_id", SqlValue::Text(ref s))) if s == channel_id
                 ));
             }
         }
@@ -173,7 +124,7 @@ mod tests {
         match plan {
             MobileQueryPlan::Scan { spec, shape } => {
                 assert_eq!(spec.table, "channel");
-                assert_eq!(spec.limit, Some(QUERY_DIALOGS_DEFAULT));
+                assert_eq!(spec.limit, Some(500));
                 assert!(spec.filter.is_none());
                 assert_eq!(spec.order_desc_col, Some("last_post_at"));
                 assert_eq!(shape, MobileQueryShape::DialogList);
@@ -228,5 +179,26 @@ mod tests {
             dialog_value["data"]["dialogList"][0]["mention_count"],
             json!(1)
         );
+    }
+
+    #[test]
+    fn compatibility_shape_is_byte_identical_to_async_query_truth() {
+        let channel_id = "ch00000000000000000000000a";
+        let rows = vec![vec![
+            ("id".into(), SqlValue::Text("server-new".into())),
+            ("temporary_id".into(), SqlValue::Text("tmp-new".into())),
+            ("channel_id".into(), SqlValue::Text(channel_id.into())),
+            ("message".into(), SqlValue::Text("new".into())),
+            ("create_at".into(), SqlValue::Integer(200)),
+        ]];
+        let compatibility = shape_json(
+            MobileQueryShape::MessagesByChannel {
+                channel_id: channel_id.into(),
+            },
+            rows.clone(),
+        );
+        let reply = serde_json::to_vec(&rows_to_json(rows)).unwrap();
+        let async_truth = crate::query::core::message_query_result_bytes(channel_id, &reply, "");
+        assert_eq!(compatibility, async_truth);
     }
 }

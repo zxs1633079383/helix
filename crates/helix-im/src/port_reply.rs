@@ -114,6 +114,7 @@ impl ImModule {
                 reset_to,
             } => match outcome {
                 PortOutcome::Ok(reply) => {
+                    self.state.invalidate_recent_message_coverage(channel_id);
                     self.handle_too_long_reload_reply(channel_id, reset_to, reply, out)?;
                 }
                 PortOutcome::Err(e) => {
@@ -221,6 +222,7 @@ impl ImModule {
                 self.state.sync_scheduler.release_window();
                 match outcome {
                     PortOutcome::Ok(reply) => {
+                        self.state.invalidate_recent_message_coverage(channel_id);
                         self.handle_sync_reply(corr, channel_id, reply, out)?
                     }
                     PortOutcome::Err(e) => tracing::warn!(
@@ -232,29 +234,42 @@ impl ImModule {
                 self.drain_sync_queue(out);
             }
 
-            // P6 投影查询 **Scan** 回报：把消息行 emit 成 im:messages:query_result 投影
-            // （driver `{items:[]}` 包装）。Err → 空投影（前端拿空列表，不卡渲染）。
-            CorrelationContext::MessageQuery { channel_id } => match outcome {
-                PortOutcome::Ok(reply) => {
-                    out.push(crate::query::emit_message_query_result_for_viewer(
-                        &channel_id,
-                        reply.0.as_ref(),
-                        self.config.auth_user_id.as_str(),
-                    ));
-                }
-                PortOutcome::Err(e) => {
-                    tracing::warn!(
-                        channel_id = channel_id.as_str(),
-                        error = ?e,
-                        "message query scan failed"
-                    );
-                    out.push(crate::query::emit_message_query_result_for_viewer(
-                        &channel_id,
-                        b"[]",
-                        self.config.auth_user_id.as_str(),
-                    ));
-                }
-            },
+            CorrelationContext::MessageQueryLocal {
+                request,
+                query_session_epoch,
+            } => {
+                self.handle_message_query_local_reply(*request, query_session_epoch, outcome, out)?;
+            }
+
+            CorrelationContext::MessageQueryRemote {
+                request,
+                local_rows_desc,
+                query_session_epoch,
+            } => {
+                self.handle_message_query_remote_reply(
+                    *request,
+                    *local_rows_desc,
+                    query_session_epoch,
+                    outcome,
+                    out,
+                )?;
+            }
+
+            CorrelationContext::MessageQueryCache {
+                request,
+                merged_rows_desc,
+                coverage,
+                query_session_epoch,
+            } => {
+                self.handle_message_query_cache_reply(
+                    *request,
+                    *merged_rows_desc,
+                    coverage,
+                    query_session_epoch,
+                    outcome,
+                    out,
+                )?;
+            }
 
             CorrelationContext::ForwardSourceLookup { assembly } => {
                 if let Err(error) =
@@ -450,13 +465,24 @@ impl ImModule {
                 return Ok(());
             }
         };
-        let mut posts = extract_latest_posts(raw_body.as_ref());
+        let mut posts = match crate::query::local_first::parse_latest_posts_body(raw_body.as_ref())
+        {
+            Ok(posts) => posts,
+            Err(error) => {
+                tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    error = ?error,
+                    "too_long getLatestPost body decode failed"
+                );
+                return Ok(());
+            }
+        };
         if posts.is_empty() {
             self.finish_increment_hydration(channel_id, out)?;
             return Ok(());
         }
         posts.sort_by_key(|post| {
-            post_event_seq(post).unwrap_or_else(|| {
+            crate::query::local_first::post_event_seq(post).unwrap_or_else(|| {
                 post.get("createAt")
                     .or_else(|| post.get("create_at"))
                     .and_then(serde_json::Value::as_u64)
@@ -472,7 +498,7 @@ impl ImModule {
             if fields.channel_id.is_empty() {
                 fields.channel_id = channel_id.as_str().to_string();
             }
-            let seq = post_event_seq(&post).unwrap_or(reset_to.0);
+            let seq = crate::query::local_first::post_event_seq(&post).unwrap_or(reset_to.0);
             let msg_id = post
                 .get("id")
                 .or_else(|| post.get("postId"))
@@ -669,40 +695,6 @@ impl ImModule {
         }
         Ok(())
     }
-}
-
-fn extract_latest_posts(raw_body: &[u8]) -> Vec<serde_json::Value> {
-    let Ok(root) = serde_json::from_slice::<serde_json::Value>(raw_body) else {
-        return Vec::new();
-    };
-    for candidate in [
-        root.pointer("/data/posts"),
-        root.pointer("/data/items"),
-        root.pointer("/data/list"),
-        root.pointer("/data"),
-        root.get("posts"),
-        root.get("items"),
-    ] {
-        if let Some(serde_json::Value::Array(items)) = candidate {
-            return items
-                .iter()
-                .filter(|item| item.is_object())
-                .cloned()
-                .collect();
-        }
-    }
-    Vec::new()
-}
-
-fn post_event_seq(post: &serde_json::Value) -> Option<u64> {
-    post.get("eventSeq")
-        .or_else(|| post.get("event_seq"))
-        .and_then(serde_json::Value::as_u64)
-        .or_else(|| {
-            post.get("props")
-                .and_then(|props| props.get("channel_event_seq"))
-                .and_then(serde_json::Value::as_u64)
-        })
 }
 
 fn parse_upload_success_reply(

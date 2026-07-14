@@ -12,6 +12,7 @@ use helix_core::effect::{Correlation, TimerId};
 use helix_core::tick::{AppCommand, InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::{Effect, EffectSink, Tick};
 use helix_im::module::ImConfig;
+use helix_im::query::LocalStoreMode;
 use helix_im::state::{ChannelId, ServerId};
 use helix_im::ImModule;
 
@@ -84,6 +85,26 @@ impl Harness {
     #[allow(dead_code)]
     pub fn new(channel_ids: &[u64]) -> Self {
         Self::new_with_identity(channel_ids, "", "", "", "", "")
+    }
+
+    /// 以显式平台本地存储模式创建回放 harness（A2 三端 local-first）。
+    #[allow(dead_code)]
+    pub fn new_with_store_mode(channel_ids: &[u64], mode: LocalStoreMode) -> Self {
+        let config = ImConfig {
+            ws_url: "ws://test".to_string(),
+            api_base_url: "http://test".to_string(),
+            default_api_base_url: "http://localhost:3399".to_string(),
+            ..Default::default()
+        };
+        let mut module = ImModule::new_with_local_store(config, mode);
+        for &id in channel_ids {
+            module.register_channel(channel_id(id), 0);
+        }
+        Self {
+            module,
+            sink: EffectSink::new(),
+            effect_log: Vec::new(),
+        }
     }
 
     /// 带注入身份的 Harness（P1 send userSnapshot 断言用）。

@@ -13,6 +13,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:read_echo",
     "im:post:deleted",
     "im:post:batch-updated",
+    "im:post:increment-failed",
     "im:messages:query_result",
     "im:messages:older_loaded",
     "im:channels:projection",
@@ -92,6 +93,7 @@ mod tests {
         let events = caps["events"].as_array().unwrap();
         assert!(events.iter().any(|e| e == "im:post:sending"));
         assert!(events.iter().any(|e| e == "im:post:received"));
+        assert!(events.iter().any(|e| e == "im:post:increment-failed"));
         assert!(!events.iter().any(|e| e == "im:post:send-failed"));
     }
 }

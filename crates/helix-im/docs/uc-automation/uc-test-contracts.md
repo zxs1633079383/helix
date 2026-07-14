@@ -387,13 +387,15 @@ phase: P4
 preconditions: [channel_id]
 invoke: { command: im_query_messages_by_channel, args: { channel_id: "$channel_id" } }
 expect:
-  outbound: null   # 本地 Scan·无 HTTP
+  outbound: { method: POST, path: /api/cses/posts/getLatestPost, gateway: Im, body_keys: [channelId, timestamp], when: "coverage=Partial|Miss|Unsupported" }
   ws: []
-  projection: [ { channel: "im:messages:query_result", class: passthrough } ]
+  projection:
+    - { channel: "im:messages:query_result", class: passthrough }
+    - { channel: "im:post:increment-failed", class: control, when: "remote failed" }
   dom: [ { selector: "[data-msg-id]", assert: {}, count: ">0" } ]
 outputs: {}
 status: green
-notes: "三面（无①）；too_long 兜底走 top20/getLatestPost"
+notes: "local-first 条件出网：Complete 必须以 trace/HTTP 计数证明零 HTTP；Partial/Miss/Unsupported 才走 getLatestPost。远端失败不得以空 query_result 冒充成功"
 ```
 
 ### 2.2 上拉更早

@@ -39,9 +39,12 @@ impl WsMessageHandler for PostHandler {
         // 解析失败（缺 channelId / event_seq）→ 若仍有 post/channelId，则发 render-only thin bus，
         // 不推进 cursor；否则 no-op。
         let Some(ev) = parse_post_frame(frame) else {
-            emit_unsequenced_post(frame, ctx.auth_user_id, out);
+            if let Some(channel_id) = emit_unsequenced_post(frame, ctx.auth_user_id, out) {
+                ctx.state.invalidate_recent_message_coverage(channel_id);
+            }
             return Ok(());
         };
+        ctx.state.invalidate_recent_message_coverage(ev.channel_id);
 
         // R4-echo-gate：echo 对账与 channel gate **解耦**——reconcile 只读 pending_sends/corr_map，
         // 从不读 channels，故必须**无条件**先做。否则冷启动 send-before-cursor-seed 乱序下，本端帧因
@@ -236,21 +239,20 @@ fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
 
 /// 真实 Go 的部分 post-like 回声（如 createPosts/relay）可能不携带 event_seq。移动端仍需要
 /// `im:post:received` 入栈信号，但缺序帧不能推进 channel cursor。这里仅发 render-only bus。
-fn emit_unsequenced_post(frame: &WsFrame, viewer_user_id: &str, out: &mut EffectSink) {
-    let Some(data) = frame.data() else {
-        return;
-    };
+fn emit_unsequenced_post(
+    frame: &WsFrame,
+    viewer_user_id: &str,
+    out: &mut EffectSink,
+) -> Option<ChannelId> {
+    let data = frame.data()?;
     let post = data.get("post").unwrap_or(data);
-    let Some(channel_id) = post
+    let channel_id = post
         .get("channelId")
         .or_else(|| post.get("channel_id"))
         .or_else(|| data.get("channelId"))
         .or_else(|| data.get("channel_id"))
         .and_then(serde_json::Value::as_str)
-        .and_then(ChannelId::from_str)
-    else {
-        return;
-    };
+        .and_then(ChannelId::from_str)?;
     let fields = crate::ws::parser::extract_post_fields(post);
     let msg_id = post
         .get("id")
@@ -266,6 +268,7 @@ fn emit_unsequenced_post(frame: &WsFrame, viewer_user_id: &str, out: &mut Effect
         &fields,
         viewer_user_id,
     ));
+    Some(channel_id)
 }
 
 /// Go 真实 post pin 写族当前回声形态是 `action=post` 系统通知：

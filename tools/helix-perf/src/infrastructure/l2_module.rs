@@ -37,15 +37,17 @@ impl Module for PerfModule {
                     .unwrap_or(u64::MAX) as usize;
                 let seq = value.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
                 let operation = value.get("operation").and_then(|v| v.as_u64()).unwrap_or(0);
-                self.oracle.observe_dequeue(channel, seq);
+                self.oracle.observe_dequeue(operation, channel, seq);
                 let persist_corr = helix_core::Correlation::from_raw(
                     operation.saturating_mul(2).saturating_add(1),
                 );
                 let http_corr = helix_core::Correlation::from_raw(
                     operation.saturating_mul(2).saturating_add(2),
                 );
-                self.oracle.mark_port(persist_corr.raw(), "storage");
-                self.oracle.mark_port(http_corr.raw(), "http");
+                self.oracle
+                    .mark_port(persist_corr.raw(), operation, "storage_port_roundtrip");
+                self.oracle
+                    .mark_port(http_corr.raw(), operation, "http_port_roundtrip");
                 self.oracle.mark_event(operation);
                 out.push(Effect::Persist {
                     corr: persist_corr,

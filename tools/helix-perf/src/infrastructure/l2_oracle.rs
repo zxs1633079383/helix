@@ -11,7 +11,7 @@ pub struct L2Oracle {
     seen: Mutex<HashSet<(usize, u64)>>,
     last_seq: Mutex<HashMap<usize, u64>>,
     enqueued: Mutex<HashMap<(usize, u64), Instant>>,
-    port_started: Mutex<HashMap<u64, (Instant, &'static str)>>,
+    port_started: Mutex<HashMap<u64, (Instant, u64, &'static str)>>,
     port_latency: Mutex<BTreeMap<&'static str, Histogram<u64>>>,
     event_started: Mutex<HashMap<u64, Instant>>,
     event_delivery: Mutex<Histogram<u64>>,
@@ -38,8 +38,14 @@ impl L2Oracle {
             enqueued: Mutex::new(HashMap::new()),
             port_started: Mutex::new(HashMap::new()),
             port_latency: Mutex::new(BTreeMap::from([
-                ("http", Histogram::new(3).map_err(|e| e.to_string())?),
-                ("storage", Histogram::new(3).map_err(|e| e.to_string())?),
+                (
+                    "http_port_roundtrip",
+                    Histogram::new(3).map_err(|e| e.to_string())?,
+                ),
+                (
+                    "storage_port_roundtrip",
+                    Histogram::new(3).map_err(|e| e.to_string())?,
+                ),
             ])),
             event_started: Mutex::new(HashMap::new()),
             event_delivery: Mutex::new(Histogram::new(3).map_err(|e| e.to_string())?),
@@ -65,7 +71,7 @@ impl L2Oracle {
             .insert((channel, seq), Instant::now());
     }
 
-    pub fn observe_dequeue(&self, channel: usize, seq: u64) {
+    pub fn observe_dequeue(&self, operation: u64, channel: usize, seq: u64) {
         if channel >= self.channels {
             self.wrong_channel.fetch_add(1, Ordering::Relaxed);
         }
@@ -104,15 +110,16 @@ impl L2Oracle {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(json!({
-                "channel": channel, "seq": seq, "stage": "engine.dequeue"
+                "operation": operation, "channel": channel, "seq": seq,
+                "hop": "core.dequeue", "elapsedUs": 0
             }));
     }
 
-    pub fn mark_port(&self, correlation: u64, stage: &'static str) {
+    pub fn mark_port(&self, correlation: u64, operation: u64, stage: &'static str) {
         self.port_started
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(correlation, (Instant::now(), stage));
+            .insert(correlation, (Instant::now(), operation, stage));
     }
 
     pub fn observe_port_reply(&self, correlation: u64) {
@@ -121,15 +128,17 @@ impl L2Oracle {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&correlation);
-        if let Some((started, stage)) = started {
+        if let Some((started, operation, stage)) = started {
+            let elapsed = started.elapsed();
             if let Some(histogram) = self
                 .port_latency
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get_mut(stage)
             {
-                let _ = histogram.record(started.elapsed().as_micros().max(1) as u64);
+                let _ = histogram.record(elapsed.as_micros().max(1) as u64);
             }
+            self.trace_hop(operation, stage, elapsed);
         }
     }
 
@@ -138,6 +147,7 @@ impl L2Oracle {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(operation, Instant::now());
+        self.trace_hop(operation, "event.emit", std::time::Duration::ZERO);
     }
 
     pub fn observe_event_delivery(&self, operation: u64) {
@@ -147,11 +157,13 @@ impl L2Oracle {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&operation)
         {
+            let elapsed = started.elapsed();
             let _ = self
                 .event_delivery
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .record(started.elapsed().as_micros().max(1) as u64);
+                .record(elapsed.as_micros().max(1) as u64);
+            self.trace_hop(operation, "event.dispatch", elapsed);
         }
     }
 
@@ -192,13 +204,6 @@ impl L2Oracle {
         ])
     }
 
-    pub fn take_queue_wait(&self) -> Histogram<u64> {
-        self.queue_wait
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-    }
-
     pub fn observe_ffi_callback(&self, elapsed: std::time::Duration) {
         let _ = self
             .ffi_callback
@@ -207,26 +212,47 @@ impl L2Oracle {
             .record(elapsed.as_micros().max(1) as u64);
     }
 
-    pub fn take_ffi_callback(&self) -> Histogram<u64> {
-        self.ffi_callback
+    pub fn attach_histograms(&self, histograms: &mut BTreeMap<String, Histogram<u64>>) {
+        for (stage, histogram) in self
+            .port_latency
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .iter()
+        {
+            histograms.insert((*stage).into(), histogram.clone());
+        }
+        histograms.insert(
+            "event_dispatch".into(),
+            self.event_delivery
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        );
+        histograms.insert(
+            "ffi_callback".into(),
+            self.ffi_callback
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        );
+        histograms.insert(
+            "tick_queue_wait".into(),
+            self.queue_wait
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+        );
     }
 
-    pub fn take_port_latency(&self, stage: &'static str) -> Option<Histogram<u64>> {
-        self.port_latency
+    pub fn trace_hop(&self, operation: u64, hop: &'static str, elapsed: std::time::Duration) {
+        self.trace
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .get(stage)
-            .cloned()
-    }
-
-    pub fn take_event_delivery(&self) -> Histogram<u64> {
-        self.event_delivery
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .push(json!({
+                "operation": operation,
+                "hop": hop,
+                "elapsedUs": elapsed.as_micros()
+            }));
     }
 
     pub fn trace(&self) -> Vec<Value> {

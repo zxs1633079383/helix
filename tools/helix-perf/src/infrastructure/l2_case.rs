@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use hdrhistogram::Histogram;
 use helix_core::effect::{ScanSpec, TransportId};
 use helix_core::ports::{Storage, Transport};
 use helix_core::tick::InboundBytes;
@@ -44,6 +43,8 @@ pub async fn run_case(
     let expected = (config.run.rate.saturating_mul(windows[1]) / 1_000).max(1);
     let channels = config.topology.channels;
     let oracle = Arc::new(L2Oracle::new(channels)?);
+    let metric_probe = MetricProbe::new(mode);
+    let metrics = metric_probe.sink();
     let (http_url, http_shutdown, http_requests) = start_http_server().await?;
     let (ws_url, ws_shutdown, ws_frames) = start_ws_server().await?;
     let db_path = std::env::temp_dir().join(format!("helix-perf-{run_id}-{suffix}.sqlite"));
@@ -51,7 +52,8 @@ pub async fn run_case(
     let storage = Arc::new(
         HostStorage::open_sqlite_url(&db_url)
             .await
-            .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: SQLite open: {e}"))?,
+            .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: SQLite open: {e}"))?
+            .with_metric_sink(Arc::clone(&metrics)),
     );
     storage
         .execute_raw(
@@ -66,21 +68,23 @@ pub async fn run_case(
         .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: SQLite schema: {e}"))?;
 
     let (event_sink, event_rx) = NativeEventSink::new_with_capacity(8_192);
-    let ffi_probe = Arc::new(FfiProbe::new());
+    let event_sink = event_sink.with_metric_sink(Arc::clone(&metrics));
+    let ffi_probe = Arc::new(FfiProbe::new(Arc::clone(&metrics)));
     let event_task = spawn_event_consumer(
         event_rx,
         Arc::clone(&ffi_probe),
         Arc::clone(&oracle),
         expected,
     );
-    let metric_probe = MetricProbe::new(mode);
     let network = HostNetworkConfig::new(http_url, ws_url).with_timeout(Duration::from_secs(3));
     let http = Arc::new(
         SharedHttpClient::new(network.clone())
-            .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: HTTP client: {e}"))?,
+            .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: HTTP client: {e}"))?
+            .with_metric_sink(Arc::clone(&metrics)),
     );
     let mut ws = SharedWsClient::new(network)
-        .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: WS client: {e}"))?;
+        .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: WS client: {e}"))?
+        .with_metric_sink(Arc::clone(&metrics));
     ws.connect()
         .await
         .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: WS connect: {e}"))?;
@@ -99,7 +103,7 @@ pub async fn run_case(
         event_sink: Arc::new(event_sink.clone()),
         clock: NativeClock,
         trace: TraceHooks::noop_without_otel(),
-        metrics: metric_probe.sink(),
+        metrics,
         max_http_inflight: 8,
         transport_lifecycle_tx: None,
         transport_trace_tx: None,
@@ -150,13 +154,17 @@ pub async fn run_case(
             .await
             .map_err(|e| format!("PERF_LOAD_ABORTED: WS recv: {e}"))?
             .ok_or("PERF_LOAD_ABORTED: WS closed before echo")?;
-        record(&mut histograms, "ws", ws_started.elapsed())?;
+        let ws_elapsed = ws_started.elapsed();
+        record(&mut histograms, "ws_rtt", ws_elapsed)?;
+        oracle.trace_hop(operation, "ws.roundtrip", ws_elapsed);
         oracle.mark_enqueued(channel, seq);
         tick_tx
             .send(Tick::Inbound(InboundBytes(echoed)))
             .await
             .map_err(|_| "PERF_LOAD_ABORTED: engine tick channel closed")?;
-        record(&mut histograms, "mixed", operation_started.elapsed())?;
+        let adapter_elapsed = operation_started.elapsed();
+        record(&mut histograms, "adapter_submit", adapter_elapsed)?;
+        oracle.trace_hop(operation, "adapter.submit", adapter_elapsed);
     }
     let elapsed_seconds = load_started.elapsed().as_secs_f64();
 
@@ -172,7 +180,7 @@ pub async fn run_case(
         .map_err(|e| format!("PERF_LOAD_ABORTED: event consumer join: {e}"))??;
     tokio::time::sleep(Duration::from_millis(windows[3])).await;
 
-    attach_observed_histograms(&oracle, &mut histograms);
+    oracle.attach_histograms(&mut histograms);
     let rows = storage
         .scan(ScanSpec {
             table: "perf_events",
@@ -239,22 +247,6 @@ pub async fn run_case(
     })
 }
 
-fn attach_observed_histograms(
-    oracle: &L2Oracle,
-    histograms: &mut BTreeMap<String, Histogram<u64>>,
-) {
-    if let Some(http) = oracle.take_port_latency("http") {
-        histograms.insert("http".into(), http);
-    }
-    if let Some(storage) = oracle.take_port_latency("storage") {
-        histograms.insert("storage".into(), storage);
-    }
-    histograms.insert("event".into(), oracle.take_event_delivery());
-    histograms.insert("ffi".into(), oracle.take_ffi_callback());
-    histograms.insert("tick_queue_wait".into(), oracle.take_queue_wait());
-    histograms.insert("ffi_callback".into(), oracle.take_ffi_callback());
-}
-
 fn spawn_event_consumer(
     mut receiver: broadcast::Receiver<helix_core::effect::DomainEventBytes>,
     ffi: Arc<FfiProbe>,
@@ -275,7 +267,9 @@ fn spawn_event_consumer(
             oracle.native_events.fetch_add(1, Ordering::Relaxed);
             let started = Instant::now();
             ffi.forward(event);
-            oracle.observe_ffi_callback(started.elapsed());
+            let elapsed = started.elapsed();
+            oracle.observe_ffi_callback(elapsed);
+            oracle.trace_hop(operation, "ffi.callback", elapsed);
             oracle.ffi_events.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())

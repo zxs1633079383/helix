@@ -57,12 +57,12 @@ pub(super) mod sdk {
         let saturation = run_saturation(config.thresholds.min_saturation_drops);
         let off_p99 = disabled
             .stats
-            .get("mixed")
+            .get("adapter_submit")
             .map(|s| s.p99_ms)
             .unwrap_or(f64::MAX);
         let on_p99 = enabled
             .stats
-            .get("mixed")
+            .get("adapter_submit")
             .map(|s| s.p99_ms)
             .unwrap_or(f64::MAX);
         let overhead = on_p99 / off_p99.max(0.000_001);

@@ -7,6 +7,7 @@ use helix_core::effect::DomainEventBytes;
 use helix_core::ports::EventSink;
 use helix_driver_ffi::event_sink::FfiEventSink;
 use helix_driver_ffi::vtable::CppHostVtable;
+use helix_driver_host::metrics::AsyncMetricSink;
 use helix_driver_host::BatchSink;
 
 struct CallbackState {
@@ -48,7 +49,7 @@ pub struct FfiProbe {
 }
 
 impl FfiProbe {
-    pub fn new() -> Self {
+    pub fn new(metrics: std::sync::Arc<dyn AsyncMetricSink>) -> Self {
         let state = Box::into_raw(Box::new(CallbackState {
             callbacks: AtomicU64::new(0),
             events: AtomicU64::new(0),
@@ -59,7 +60,8 @@ impl FfiProbe {
             on_domain_events_batch: Some(on_batch),
             now_ms: None,
             ctx: state.cast(),
-        });
+        })
+        .with_metric_sink(metrics);
         Self {
             sink: Some(sink),
             state,

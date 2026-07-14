@@ -159,6 +159,7 @@ impl MetricProbe {
         };
         let config = MetricRuntimeConfig {
             enabled,
+            service_name: "helix-perf".to_string(),
             queue_capacity: capacity,
             batch_max: 64,
             export_interval: Duration::from_millis(5),
@@ -167,9 +168,12 @@ impl MetricProbe {
             max_backoff: Duration::from_millis(10),
             ..MetricRuntimeConfig::default()
         };
-        let runtime =
-            BoundedMetricRuntime::start_with_exporter(config, ProbeExporter { pause_worker })
-                .expect("metric SDK probe worker must start");
+        let runtime = if pause_worker {
+            BoundedMetricRuntime::start_with_exporter(config, ProbeExporter)
+        } else {
+            BoundedMetricRuntime::start_otlp(config)
+        }
+        .expect("metric SDK worker must start");
         let sink = runtime.sink();
         Self {
             runtime: Some(runtime),
@@ -219,16 +223,12 @@ impl MetricProbe {
 }
 
 #[cfg(feature = "sdk-metrics")]
-struct ProbeExporter {
-    pause_worker: bool,
-}
+struct ProbeExporter;
 
 #[cfg(feature = "sdk-metrics")]
 impl BatchMetricExporter for ProbeExporter {
     fn export_batch(&mut self, _batch: &[MetricEvent]) -> Result<(), MetricExportError> {
-        if self.pause_worker {
-            std::thread::sleep(Duration::from_millis(250));
-        }
+        std::thread::sleep(Duration::from_millis(250));
         Ok(())
     }
 }

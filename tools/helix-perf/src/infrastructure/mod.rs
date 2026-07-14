@@ -3,6 +3,7 @@ mod ffi_probe;
 mod hdr;
 mod l1_driver;
 mod l1_metrics;
+mod l1_oracle;
 mod l2_case;
 mod l2_driver;
 mod l2_fixture;

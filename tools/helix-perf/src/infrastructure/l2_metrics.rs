@@ -10,7 +10,7 @@ use super::ProbeSnapshot;
 use crate::domain::{MetricPoint, ScenarioConfig};
 
 pub fn new_histograms() -> Result<BTreeMap<String, Histogram<u64>>, String> {
-    ["mixed", "http", "ws", "storage", "event", "ffi"]
+    ["adapter_submit", "ws_rtt"]
         .into_iter()
         .map(|name| {
             Histogram::new(3)
@@ -41,12 +41,12 @@ pub fn metric_points(
 ) -> Vec<MetricPoint> {
     let mut points = Vec::new();
     let mappings = [
-        ("ws", "helix_port_roundtrip_seconds"),
+        ("ws_rtt", "helix_port_roundtrip_seconds"),
+        ("http_port_roundtrip", "helix_port_roundtrip_seconds"),
+        ("storage_port_roundtrip", "helix_port_roundtrip_seconds"),
         ("tick_queue_wait", "helix_tick_queue_wait_seconds"),
-        ("http", "helix_http_request_duration_seconds"),
-        ("storage", "helix_storage_tx_duration_seconds"),
-        ("event", "helix_ws_ingress_to_event_seconds"),
-        ("ffi", "helix_ffi_callback_duration_seconds"),
+        ("event_dispatch", "helix_ws_ingress_to_event_seconds"),
+        ("ffi_callback", "helix_ffi_callback_duration_seconds"),
     ];
     for (stage, metric) in mappings {
         if let Some(stats) = result.stats.get(stage) {

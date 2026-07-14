@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use super::hdr::encode_histograms;
 use super::l1_metrics::{l1_metric_points, zero_correctness};
+use super::l1_oracle::canonical_effect_bytes;
 use crate::domain::{MetricPoint, RunArtifacts, RunSummary, SampleStats, ScenarioConfig, Verdict};
 
 pub fn execute_l1(
@@ -44,10 +45,8 @@ pub fn execute_l1(
             .map_err(|error| format!("PERF_LOAD_ABORTED: L1 load: {error}"))?;
         let elapsed_us = started.elapsed().as_micros().max(1) as u64;
         let effect_count = effects.len() as u64;
-        let effect_bytes = effects
-            .iter()
-            .map(|effect| format!("{effect:?}").len() as u64)
-            .sum::<u64>();
+        let canonical = canonical_effect_bytes(effects, sequence);
+        let effect_bytes = canonical.as_ref().map_or(0, |value| value.len() as u64);
         latency
             .record(elapsed_us)
             .map_err(|error| error.to_string())?;
@@ -58,12 +57,13 @@ pub fn execute_l1(
             .record(effect_bytes.max(1))
             .map_err(|error| error.to_string())?;
         total_effects += effect_count;
-        if effect_count != 3 {
+        if canonical.is_err() {
             effect_mismatch += 1;
         }
-        trace.push(
-            serde_json::json!({"seq": sequence, "stage": "core.step", "effects": effect_count}),
-        );
+        trace.push(serde_json::json!({
+            "seq": sequence, "stage": "core.step", "effects": effect_count,
+            "canonical": canonical.is_ok(), "error": canonical.err()
+        }));
     }
     let load_elapsed = load_start.elapsed().as_secs_f64();
 
@@ -167,9 +167,13 @@ fn inbound_tick(sequence: u64, payload_bucket: &str) -> Tick {
             "seq": sequence,
             "event_type": 1,
             "msg_id": format!("perf-{sequence}"),
+            "temporary_id": format!("perf-{sequence}"),
+            "id": format!("perf-{sequence}"),
+            "user_id": "00000000000000000000000002",
             "actor_id": "00000000000000000000000002",
-            "created_at": 1_000_000_u64 + sequence,
-            "payload": payload
+            "type": "TEXT",
+            "create_at": 1_000_000_u64 + sequence,
+            "message": payload
         }
     });
     let bytes = serde_json::to_vec(&frame).unwrap_or_default();
@@ -184,9 +188,25 @@ fn deterministic_probe(iterations: u64, payload_bucket: &str) -> Result<bool, St
             let effects = shell
                 .step(inbound_tick(sequence, payload_bucket), sequence)
                 .map_err(|error| error.to_string())?;
-            hash.update(format!("{effects:?}").as_bytes());
+            hash.update(canonical_effect_bytes(effects, sequence)?);
         }
         Ok(hash.finalize().to_vec())
     }
     Ok(digest(iterations, payload_bucket)? == digest(iterations, payload_bucket)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_oracle_checks_real_effect_order_and_sequence_payload() {
+        let mut shell = make_shell().expect("shell");
+        let effects = shell.step(inbound_tick(1, "256B"), 1).expect("step");
+        assert!(!canonical_effect_bytes(effects, 1)
+            .expect("canonical")
+            .is_empty());
+        assert!(canonical_effect_bytes(effects, 2).is_err());
+        assert!(deterministic_probe(8, "256B").expect("digest"));
+    }
 }

@@ -111,3 +111,39 @@
 - G-05 的 HTTP accepted 仍需逐目标 WS `post` 才能转 delivered；本轮明确保持 pending，不越权推断。
 - G-03 对象存储上传计划仍无服务端 owner，本轮未触碰。
 - 未运行 444/678 Native 双账号活体与 Angular DOM，因此本轮仍不是 `canonical-green`。
+
+---
+
+## HX-C005 review-gap 回正
+
+### 身份与调用链
+
+- worktree：`worktrees/review-gap-hxc005`
+- branch：`codex/review-gap-hxc005`
+- baseline：`be28042e503c1f16e5eefdeb2f37dc64d522b44e`
+- 调用链：`post_updates -> bump_channel_unread_op -> StorageOp::GuardedBump -> HostStorage::guarded_bump -> Get(channel) -> DialogPatch`。
+
+### 回正结果
+
+删除 `JsonListAppendSpec` 及 host 端 SELECT、JSON parse、Vec 线性去重、serialize
+读改写。mention/urgent 命中恢复为同一条 guarded UPDATE 内原子自增 count，并把
+对应列表设为当前 `post_id` 的 singleton JSON。`last_root_post_at` 严格前进守卫继续
+拦截重复和乱序旧事件。
+
+单次事件恢复为按主键单行 UPDATE：时间 O(1)，额外数据空间 O(1)；不再随历史列表
+长度增长为 O(N) 单次、O(N²) 累计。
+
+### 静态验证
+
+- `rustfmt --edition 2021 <5 个改动 Rust 文件>`：PASS。
+- `git diff --check`：PASS。
+- `rg 'JsonListAppendSpec|json_list_appends|merge_json_text_list' crates --glob '*.rs'`：PASS，源码零残留。
+- `scripts/structure-gate.sh`：FAIL，全仓仍有其他 review-gap 结构债；本分支把
+  `effect.rs` 从 554 行降至 537 行、`storage.rs` 从 748 行降至 693 行，未上调 baseline。
+- Cargo：按主任务统一验证约束未运行，由主对话合并后一次执行。
+
+### 白名单边界
+
+- 未触碰 `SESSION.md`、`AGENTS.md`、`README.md`、Cargo 文件或 structure gate。
+- 白名单外 `docs/api-baseline/helix-core.txt` 仍记录已删除 API，需主对话刷新。
+- 历史 `REPORT_HELIX.md:66` 仍描述旧 set-union 结论，需主对话决定是否勘误。

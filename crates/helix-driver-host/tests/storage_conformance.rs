@@ -1,6 +1,6 @@
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
-    JsonListAppendSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
+    MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -959,7 +959,6 @@ async fn guarded_bump_increments_when_guard_passes_s3() {
             bump_col: "unread_count",
             bump_delta: 1,
             extra_bumps: Vec::new(),
-            json_list_appends: Vec::new(),
             set_cols: vec![
                 (
                     "unread_post_id".to_string(),
@@ -1029,7 +1028,6 @@ async fn guarded_bump_noop_when_guard_fails_s3() {
         bump_col: "unread_count",
         bump_delta: 1,
         extra_bumps: Vec::new(),
-        json_list_appends: Vec::new(),
         set_cols: vec![(
             "unread_post_id".to_string(),
             SqlValue::Text("stale".to_string()),
@@ -1059,9 +1057,10 @@ async fn guarded_bump_noop_when_guard_fails_s3() {
     );
 }
 
-/// 回归锚: Dialog patch —— unread/mention/urgent 计数必须在同一前进 guard 下原子自增。
+/// 回归锚: Dialog patch —— unread/mention/urgent 计数和当前消息 singleton 列表必须在
+/// 同一条 guarded UPDATE 下原子推进；旧消息不得二次增加或覆盖当前列表。
 #[tokio::test]
-async fn guarded_bump_extra_counts_share_the_same_guard_s3() {
+async fn guarded_bump_extra_counts_and_singleton_lists_share_the_same_guard_s3() {
     let st = channel_like_storage().await;
     st.batch_upsert(UpsertSpec {
         table: "channel",
@@ -1085,8 +1084,17 @@ async fn guarded_bump_extra_counts_share_the_same_guard_s3() {
         bump_col: "unread_count",
         bump_delta: 1,
         extra_bumps: vec![("mention_count", 1), ("urgent_count", 1)],
-        json_list_appends: Vec::new(),
-        set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(200))],
+        set_cols: vec![
+            (
+                "mention_list".to_string(),
+                SqlValue::Text(r#"["current-post"]"#.to_string()),
+            ),
+            (
+                "urgent_post_list".to_string(),
+                SqlValue::Text(r#"["current-post"]"#.to_string()),
+            ),
+            ("last_root_post_at".to_string(), SqlValue::Integer(200)),
+        ],
         guard_col: "last_root_post_at",
         guard_val: 200,
     })
@@ -1101,8 +1109,17 @@ async fn guarded_bump_extra_counts_share_the_same_guard_s3() {
         bump_col: "unread_count",
         bump_delta: 1,
         extra_bumps: vec![("mention_count", 1), ("urgent_count", 1)],
-        json_list_appends: Vec::new(),
-        set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(150))],
+        set_cols: vec![
+            (
+                "mention_list".to_string(),
+                SqlValue::Text(r#"["stale-post"]"#.to_string()),
+            ),
+            (
+                "urgent_post_list".to_string(),
+                SqlValue::Text(r#"["stale-post"]"#.to_string()),
+            ),
+            ("last_root_post_at".to_string(), SqlValue::Integer(150)),
+        ],
         guard_col: "last_root_post_at",
         guard_val: 150,
     })
@@ -1123,106 +1140,17 @@ async fn guarded_bump_extra_counts_share_the_same_guard_s3() {
     assert!(matches!(value("mention_count"), Some(SqlValue::Integer(1))));
     assert!(matches!(value("urgent_count"), Some(SqlValue::Integer(1))));
     assert!(matches!(
+        value("mention_list"),
+        Some(SqlValue::Text(list)) if list == r#"["current-post"]"#
+    ));
+    assert!(matches!(
+        value("urgent_post_list"),
+        Some(SqlValue::Text(list)) if list == r#"["current-post"]"#
+    ));
+    assert!(matches!(
         value("last_root_post_at"),
         Some(SqlValue::Integer(200))
     ));
-}
-
-/// 回归锚: Dialog patch —— mention/urgent 列表必须是 set/绝对覆盖后的持久化集合，
-/// count_col 来自集合长度，不能只把当前 post_id 覆盖成单元素数组。
-#[tokio::test]
-async fn guarded_bump_json_list_appends_are_set_union_and_counted_s3() {
-    let st = channel_like_storage().await;
-    st.batch_upsert(UpsertSpec {
-        table: "channel",
-        rows: vec![vec![
-            ("id".to_string(), SqlValue::Text("c-list".to_string())),
-            ("unread_count".to_string(), SqlValue::Integer(0)),
-            ("mention_count".to_string(), SqlValue::Integer(1)),
-            (
-                "mention_list".to_string(),
-                SqlValue::Text(r#"["old-post"]"#.to_string()),
-            ),
-            ("urgent_count".to_string(), SqlValue::Integer(0)),
-            (
-                "urgent_post_list".to_string(),
-                SqlValue::Text(String::new()),
-            ),
-            ("last_root_post_at".to_string(), SqlValue::Integer(100)),
-        ]],
-        conflict_key: Some("id"),
-        exclude_from_update: Vec::new(),
-    })
-    .await
-    .expect("seed");
-
-    st.guarded_bump(GuardedBumpSpec {
-        table: "channel",
-        key_col: "id",
-        key_val: SqlValue::Text("c-list".to_string()),
-        bump_col: "unread_count",
-        bump_delta: 1,
-        extra_bumps: Vec::new(),
-        json_list_appends: vec![
-            JsonListAppendSpec {
-                list_col: "mention_list",
-                value: "new-post".to_string(),
-                count_col: Some("mention_count"),
-            },
-            JsonListAppendSpec {
-                list_col: "urgent_post_list",
-                value: "new-post".to_string(),
-                count_col: Some("urgent_count"),
-            },
-        ],
-        set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(200))],
-        guard_col: "last_root_post_at",
-        guard_val: 200,
-    })
-    .await
-    .expect("append");
-
-    st.guarded_bump(GuardedBumpSpec {
-        table: "channel",
-        key_col: "id",
-        key_val: SqlValue::Text("c-list".to_string()),
-        bump_col: "unread_count",
-        bump_delta: 1,
-        extra_bumps: Vec::new(),
-        json_list_appends: vec![JsonListAppendSpec {
-            list_col: "mention_list",
-            value: "new-post".to_string(),
-            count_col: Some("mention_count"),
-        }],
-        set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(300))],
-        guard_col: "last_root_post_at",
-        guard_val: 300,
-    })
-    .await
-    .expect("dedupe");
-
-    let row = st
-        .get(GetSpec {
-            table: "channel",
-            key_col: "id",
-            key_val: SqlValue::Text("c-list".to_string()),
-        })
-        .await
-        .expect("get")
-        .expect("row");
-    let value = |col: &str| row.iter().find(|(k, _)| k == col).map(|(_, v)| v);
-    let mention_list = match value("mention_list") {
-        Some(SqlValue::Text(s)) => serde_json::from_str::<Vec<String>>(s).expect("mention list"),
-        other => panic!("mention_list must be text json array, got {other:?}"),
-    };
-    let urgent_list = match value("urgent_post_list") {
-        Some(SqlValue::Text(s)) => serde_json::from_str::<Vec<String>>(s).expect("urgent list"),
-        other => panic!("urgent_post_list must be text json array, got {other:?}"),
-    };
-    assert_eq!(mention_list, vec!["old-post", "new-post"]);
-    assert_eq!(urgent_list, vec!["new-post"]);
-    assert!(matches!(value("mention_count"), Some(SqlValue::Integer(2))));
-    assert!(matches!(value("urgent_count"), Some(SqlValue::Integer(1))));
 }
 
 /// 回归锚: too_long drop-and-reload —— 按 channel_id 删除本地 message 派生行。
@@ -1533,7 +1461,6 @@ async fn guarded_bump_does_not_increment_when_guard_fails_historical_s3() {
             bump_col: "unread_count",
             bump_delta: 1,
             extra_bumps: Vec::new(),
-            json_list_appends: Vec::new(),
             set_cols: vec![("last_root_post_at".to_string(), SqlValue::Integer(ts))],
             guard_col: "last_root_post_at",
             guard_val: ts,

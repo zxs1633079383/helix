@@ -85,6 +85,26 @@ typedef struct CppHostVtable {
 } CppHostVtable;
 
 /*
+ 向 engine 发送应用命令（UI → engine）。
+
+ 立即将 `name` / `payload` 拷贝到 Rust 堆（ACL-3），构造 `Tick::Command`，
+ 并 **非阻塞** 尝试送入 tick channel（pump 线程 rx 端消费 → step → Effect → 批回 C++）：
+   - channel 满 → 返回 `FFI_BUSY`（C++ 侧应稍后重试，禁静默丢弃）。
+   - destroy 后 channel 已关闭 → 返回 `FFI_NULL`。
+
+ # Safety
+
+ - `handle`：有效指针或 null。
+ - `name` / `payload`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
+   `name` 必须是合法 UTF-8；`payload` 为任意字节（不强要求 UTF-8）。
+ */
+int32_t helix_command(HelixHandle *handle,
+                      const uint8_t *name,
+                      uintptr_t name_len,
+                      const uint8_t *payload,
+                      uintptr_t payload_len);
+
+/*
  创建带 shared host network client 的 Helix 句柄（C++ 直连模型）。
 
  返回不透明指针；宿主必须持有并传给所有后续 API 调用，最终调用 `helix_destroy` 释放。
@@ -143,26 +163,6 @@ int32_t helix_set_header(HelixHandle *handle,
  - `name`：指向至少 `name_len` 字节有效 UTF-8 内存，在本调用期间有效。
  */
 int32_t helix_remove_header(HelixHandle *handle, const uint8_t *name, uintptr_t name_len);
-
-/*
- 向 engine 发送应用命令（UI → engine）。
-
- 立即将 `name` / `payload` 拷贝到 Rust 堆（ACL-3），构造 `Tick::Command`，
- 并 **非阻塞** 尝试送入 tick channel（pump 线程 rx 端消费 → step → Effect → 批回 C++）：
-   - channel 满 → 返回 `FFI_BUSY`（C++ 侧应稍后重试，禁静默丢弃）。
-   - destroy 后 channel 已关闭 → 返回 `FFI_NULL`。
-
- # Safety
-
- - `handle`：有效指针或 null。
- - `name` / `payload`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
-   `name` 必须是合法 UTF-8；`payload` 为任意字节（不强要求 UTF-8）。
- */
-int32_t helix_command(HelixHandle *handle,
-                      const uint8_t *name,
-                      uintptr_t name_len,
-                      const uint8_t *payload,
-                      uintptr_t payload_len);
 
 /*
  同步读取 engine 状态。

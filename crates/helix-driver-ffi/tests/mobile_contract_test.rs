@@ -193,7 +193,7 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
     assert!(queries.iter().any(|v| v == "helix_version"));
     assert!(queries.iter().any(|v| v == "im_query_dialog_list"));
     assert!(queries.iter().any(|v| v == "im_query_messages_by_channel"));
-    assert!(!json["events"]
+    assert!(json["events"]
         .as_array()
         .unwrap()
         .iter()

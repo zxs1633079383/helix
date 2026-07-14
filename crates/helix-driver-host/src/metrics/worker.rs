@@ -48,6 +48,7 @@ pub(super) fn run_worker<E: BatchMetricExporter>(
                 }
             }
         }
+        rx.close();
         while let Ok(event) = rx.try_recv() {
             stats.depth.fetch_sub(1, Ordering::Relaxed);
             batch.push(event);
@@ -87,9 +88,6 @@ async fn export_batch<E: BatchMetricExporter>(
     self_cursor: &mut SelfMetricCursor,
     batch: &mut Vec<MetricEvent>,
 ) {
-    if batch.is_empty() {
-        return;
-    }
     append_self_metrics(batch, stats, self_cursor);
     let event_count = batch.len() as u64;
     let start = std::time::Instant::now();
@@ -98,14 +96,29 @@ async fn export_batch<E: BatchMetricExporter>(
         if result.is_ok() {
             break;
         }
+        if start.elapsed() >= config.export_timeout {
+            break;
+        }
         stats
             .state
             .store(MetricExporterState::Backoff as u64, Ordering::Relaxed);
         let shift = attempt.min(16);
-        let backoff =
-            Duration::from_millis(100_u64.saturating_mul(1_u64 << shift)).min(config.max_backoff);
-        tokio::time::sleep(backoff).await;
-        result = exporter.export_batch(batch);
+        let jitter_ms = u64::from(attempt.wrapping_mul(17) % 41);
+        let backoff = Duration::from_millis(
+            100_u64
+                .saturating_mul(1_u64 << shift)
+                .saturating_add(jitter_ms),
+        )
+        .min(config.max_backoff);
+        let remaining = config.export_timeout.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            break;
+        }
+        tokio::time::sleep(backoff.min(remaining)).await;
+        if start.elapsed() >= config.export_timeout {
+            break;
+        }
+        result = exporter.retry_flush();
     }
     stats.duration_ns.store(
         start.elapsed().as_nanos().min(u64::MAX as u128) as u64,

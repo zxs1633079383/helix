@@ -742,6 +742,7 @@ dependencies = [
  "futures-util",
  "helix-core",
  "helix-im",
+ "libc",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

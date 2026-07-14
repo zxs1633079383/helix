@@ -14,6 +14,9 @@ pub struct MetricRuntimeConfig {
     pub enabled: bool,
     pub service_name: String,
     pub endpoint: String,
+    pub deployment_environment: String,
+    pub platform: String,
+    pub run_context: String,
     pub queue_capacity: usize,
     pub batch_max: usize,
     pub export_interval: Duration,
@@ -28,6 +31,9 @@ impl Default for MetricRuntimeConfig {
             enabled: false,
             service_name: "helix-driver-host".to_string(),
             endpoint: "http://127.0.0.1:4317".to_string(),
+            deployment_environment: "local".to_string(),
+            platform: "host".to_string(),
+            run_context: "default".to_string(),
             queue_capacity: 8192,
             batch_max: 512,
             export_interval: Duration::from_secs(5),
@@ -81,6 +87,12 @@ pub enum MetricRuntimeError {
 
 pub trait BatchMetricExporter: Send + 'static {
     fn export_batch(&mut self, batch: &[MetricEvent]) -> Result<(), MetricExportError>;
+
+    fn retry_flush(&mut self) -> Result<(), MetricExportError> {
+        Err(MetricExportError {
+            message: "exporter does not support record-once flush retry".to_string(),
+        })
+    }
 
     fn shutdown(&mut self, _timeout: Duration) -> Result<(), MetricExportError> {
         Ok(())

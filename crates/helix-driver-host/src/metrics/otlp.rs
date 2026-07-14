@@ -68,6 +68,15 @@ impl BatchMetricExporter for OtlpMetricExporter {
             })
     }
 
+    fn retry_flush(&mut self) -> Result<(), MetricExportError> {
+        self.pipeline()?
+            .provider
+            .force_flush()
+            .map_err(|error| MetricExportError {
+                message: error.to_string(),
+            })
+    }
+
     fn shutdown(&mut self, timeout: Duration) -> Result<(), MetricExportError> {
         let Some(pipeline) = self.pipeline.take() else {
             return Ok(());
@@ -95,6 +104,14 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
         .build();
     let resource = Resource::builder()
         .with_service_name(config.service_name.clone())
+        .with_attributes([
+            KeyValue::new(
+                "deployment.environment",
+                config.deployment_environment.clone(),
+            ),
+            KeyValue::new("platform", config.platform.clone()),
+            KeyValue::new("run.context", config.run_context.clone()),
+        ])
         .build();
     let provider = SdkMeterProvider::builder()
         .with_reader(reader)

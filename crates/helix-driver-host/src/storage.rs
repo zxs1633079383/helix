@@ -165,6 +165,9 @@ impl HostStorage {
 #[async_trait::async_trait]
 impl Storage for HostStorage {
     async fn batch_upsert(&self, spec: UpsertSpec) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::batch_upsert(self, spec).await;
+        }
         let rows = spec.rows.len();
         let started = Instant::now();
         let result = write::batch_upsert(self, spec).await;
@@ -173,6 +176,9 @@ impl Storage for HostStorage {
     }
 
     async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::batch_update(self, spec).await;
+        }
         let rows = spec.key_vals.len();
         let started = Instant::now();
         let result = write::batch_update(self, spec).await;
@@ -181,6 +187,9 @@ impl Storage for HostStorage {
     }
 
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::monotonic_upsert(self, spec).await;
+        }
         let started = Instant::now();
         let result = write::monotonic_upsert(self, spec).await;
         self.record_storage_result("monotonic_upsert", 1, started, &result);
@@ -188,6 +197,9 @@ impl Storage for HostStorage {
     }
 
     async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::guarded_bump(self, spec).await;
+        }
         let started = Instant::now();
         let result = write::guarded_bump(self, spec).await;
         self.record_storage_result("guarded_bump", 1, started, &result);
@@ -195,6 +207,9 @@ impl Storage for HostStorage {
     }
 
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {
+        if !self.metrics.is_enabled() {
+            return read::get(self, spec).await;
+        }
         let started = Instant::now();
         let result = read::get(self, spec).await;
         let rows = result
@@ -207,6 +222,9 @@ impl Storage for HostStorage {
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<HelixRow>, PortError> {
+        if !self.metrics.is_enabled() {
+            return read::scan(self, spec).await;
+        }
         let started = Instant::now();
         let result = read::scan(self, spec).await;
         let rows = result.as_ref().map_or(0, Vec::len);
@@ -215,6 +233,9 @@ impl Storage for HostStorage {
     }
 
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::batch_delete(self, spec).await;
+        }
         let rows = spec.key_vals.len();
         let started = Instant::now();
         let result = write::batch_delete(self, spec).await;

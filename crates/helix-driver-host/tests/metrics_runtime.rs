@@ -23,6 +23,35 @@ struct PausedExporter {
     resume: Option<mpsc::Receiver<()>>,
 }
 
+#[derive(Clone, Default)]
+struct RetryState {
+    recorded_operation_batches: Arc<Mutex<usize>>,
+    flush_attempts: Arc<Mutex<usize>>,
+}
+
+struct FlushFailsOnceExporter {
+    state: RetryState,
+}
+
+impl BatchMetricExporter for FlushFailsOnceExporter {
+    fn export_batch(&mut self, batch: &[MetricEvent]) -> Result<(), MetricExportError> {
+        if batch
+            .iter()
+            .any(|event| event.id == MetricId::OperationsTotal)
+        {
+            *self.state.recorded_operation_batches.lock().unwrap() += 1;
+        }
+        Err(MetricExportError {
+            message: "first flush failed".to_string(),
+        })
+    }
+
+    fn retry_flush(&mut self) -> Result<(), MetricExportError> {
+        *self.state.flush_attempts.lock().unwrap() += 1;
+        Ok(())
+    }
+}
+
 impl BatchMetricExporter for PausedExporter {
     fn export_batch(&mut self, _batch: &[MetricEvent]) -> Result<(), MetricExportError> {
         if let Some(resume) = self.resume.take() {
@@ -145,4 +174,36 @@ fn paused_worker_drops_metrics_without_blocking_caller() {
         runtime.shutdown(Duration::from_secs(1)),
         ShutdownOutcome::Drained
     );
+}
+
+#[test]
+fn retry_flush_does_not_record_batch_twice() {
+    let state = RetryState::default();
+    let mut config = enabled_config();
+    config.batch_max = 1;
+    config.retry_max = 1;
+    config.export_timeout = Duration::from_secs(1);
+    let runtime = BoundedMetricRuntime::start_with_exporter(
+        config,
+        FlushFailsOnceExporter {
+            state: state.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        runtime.sink().try_record(operation()),
+        RecordOutcome::Accepted
+    );
+    for _ in 0..50 {
+        if runtime.snapshot().exported_batches_total > 0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        runtime.shutdown(Duration::from_secs(1)),
+        ShutdownOutcome::Drained
+    );
+    assert_eq!(*state.recorded_operation_batches.lock().unwrap(), 1);
+    assert!(*state.flush_attempts.lock().unwrap() >= 1);
 }

@@ -9,11 +9,9 @@ use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::tick::InboundBytes;
 use helix_core::{PortError, Tick};
-use parking_lot::RwLock; // 无 poison：panic 时不静默丢头（HTTP-4，对齐现网 cses-client）
-use reqwest::header::{HeaderMap, USER_AGENT};
+use reqwest::header::USER_AGENT;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -25,100 +23,20 @@ use crate::metrics::{
 // URL/header 工具裂分到 sibling（按职责，structure-gate §1）。`use *` 复用 6 个 pub(super) helper。
 #[path = "network_util.rs"]
 mod network_util;
-use network_util::{header_name, header_value, headers_to_strings, map_ws_err, validate_url};
+use network_util::{header_value, headers_to_strings, map_ws_err, validate_url};
+
+mod config;
+pub use config::{HostHeaderRegistry, HostNetworkConfig};
 
 mod http;
 pub use http::{PreparedHttpRequest, SharedHttpClient};
 
-const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const WS_FRAME_BUFFER: usize = 64;
 
 type WsSink = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
-
-/// Platform-provided network initialization material.
-#[derive(Debug, Clone)]
-pub struct HostNetworkConfig {
-    pub api_base_url: String,
-    /// 第二网关 base URL（spec06 方案 A）：= `env.restHost`（无 `/api/cses`）；vote/score 走它。空串=未注入。
-    pub default_api_base_url: String,
-    pub ws_url: String,
-    pub timeout: Duration,
-    pub user_agent: Option<String>,
-}
-
-impl HostNetworkConfig {
-    pub fn new(api_base_url: impl Into<String>, ws_url: impl Into<String>) -> Self {
-        Self {
-            api_base_url: api_base_url.into(),
-            default_api_base_url: String::new(),
-            ws_url: ws_url.into(),
-            timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
-            user_agent: None,
-        }
-    }
-
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.user_agent = Some(user_agent.into());
-        self
-    }
-}
-
-/// Shared mutable header registry used by HTTP requests and WS handshakes.
-#[derive(Clone, Default)]
-pub struct HostHeaderRegistry {
-    inner: Arc<RwLock<HeaderMap>>,
-}
-
-impl HostHeaderRegistry {
-    pub async fn set_header(&self, name: &str, value: &str) -> Result<(), PortError> {
-        self.set_header_sync(name, value)
-    }
-
-    pub fn set_header_sync(&self, name: &str, value: &str) -> Result<(), PortError> {
-        let name = header_name(name)?;
-        let value = header_value(name.as_str(), value)?;
-        self.inner.write().insert(name, value);
-        Ok(())
-    }
-
-    pub async fn remove_header(&self, name: &str) -> Result<(), PortError> {
-        self.remove_header_sync(name)
-    }
-
-    pub fn remove_header_sync(&self, name: &str) -> Result<(), PortError> {
-        let name = header_name(name)?;
-        self.inner.write().remove(name);
-        Ok(())
-    }
-
-    pub async fn replace_headers<I, K, V>(&self, headers: I) -> Result<(), PortError>
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: AsRef<str>,
-        V: AsRef<str>,
-    {
-        let mut next = HeaderMap::new();
-        for (name, value) in headers {
-            let name = header_name(name.as_ref())?;
-            let value = header_value(name.as_str(), value.as_ref())?;
-            next.insert(name, value);
-        }
-        *self.inner.write() = next;
-        Ok(())
-    }
-
-    pub async fn snapshot(&self) -> HeaderMap {
-        self.inner.read().clone()
-    }
-}
 
 enum WsState {
     Disconnected,
@@ -229,14 +147,16 @@ impl Transport for SharedWsClient {
 
                 if let Ok(bytes) = &frame {
                     crate::network_debug::dump_ws_inbound(bytes);
-                    let _ = metrics.try_record(MetricEvent::counter(
-                        MetricId::OperationsTotal,
-                        1.0,
-                        MetricLabels::one(LabelKey::Stage, "ws_ingress")
-                            .with(LabelKey::Protocol, "ws")
-                            .with(LabelKey::Direction, "inbound")
-                            .with(LabelKey::Status, "ok"),
-                    ));
+                    if metrics.is_enabled() {
+                        let _ = metrics.try_record(MetricEvent::counter(
+                            MetricId::OperationsTotal,
+                            1.0,
+                            MetricLabels::one(LabelKey::Stage, "ws_ingress")
+                                .with(LabelKey::Protocol, "ws")
+                                .with(LabelKey::Direction, "inbound")
+                                .with(LabelKey::Status, "ok"),
+                        ));
+                    }
                 }
 
                 match &inbound {
@@ -306,20 +226,24 @@ impl Transport for SharedWsClient {
         if result.is_err() {
             notify_disconnected(&self.inbound, &self.disconnect_notified);
         }
-        let status = if result.is_ok() { "ok" } else { "error" };
-        let labels = MetricLabels::one(LabelKey::Stage, "ws_egress")
-            .with(LabelKey::Protocol, "ws")
-            .with(LabelKey::Direction, "outbound")
-            .with(LabelKey::Status, status);
-        let _ =
-            self.metrics
-                .try_record(MetricEvent::counter(MetricId::OperationsTotal, 1.0, labels));
-        if result.is_err() {
+        if self.metrics.is_enabled() {
+            let status = if result.is_ok() { "ok" } else { "error" };
+            let labels = MetricLabels::one(LabelKey::Stage, "ws_egress")
+                .with(LabelKey::Protocol, "ws")
+                .with(LabelKey::Direction, "outbound")
+                .with(LabelKey::Status, status);
             let _ = self.metrics.try_record(MetricEvent::counter(
-                MetricId::ErrorsTotal,
+                MetricId::OperationsTotal,
                 1.0,
-                labels.with(LabelKey::ErrorKind, "ws_send_failed"),
+                labels,
             ));
+            if result.is_err() {
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::ErrorsTotal,
+                    1.0,
+                    labels.with(LabelKey::ErrorKind, "ws_send_failed"),
+                ));
+            }
         }
         result
     }

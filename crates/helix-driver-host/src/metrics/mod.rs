@@ -15,8 +15,8 @@ pub use event::MetricEvent;
 pub use labels::{LabelKey, MetricLabel, MetricLabels, ALLOWED_LABEL_KEYS};
 pub use registry::{MetricDescriptor, MetricId, MetricKind, ALL_METRIC_IDS, REQUIRED_METRIC_IDS};
 pub use runtime::{
-    BatchMetricExporter, BoundedMetricRuntime, MetricExportError, MetricRuntimeConfig,
-    MetricExporterState, MetricRuntimeError, MetricRuntimeSnapshot, ShutdownOutcome,
+    BatchMetricExporter, BoundedMetricRuntime, MetricExportError, MetricExporterState,
+    MetricRuntimeConfig, MetricRuntimeError, MetricRuntimeSnapshot, ShutdownOutcome,
 };
 pub use sink::{AsyncMetricSink, NoopMetricSink, RecordOutcome};
 

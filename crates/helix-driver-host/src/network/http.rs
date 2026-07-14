@@ -112,48 +112,51 @@ impl SharedHttpClient {
             PortError::Http(e.to_string())
         }
     }
+
+    async fn execute(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
+        let prepared = self.prepare(req).await?;
+        crate::network_debug::dump_http_request(&prepared);
+        let method = Method::from_bytes(prepared.method.as_bytes())
+            .map_err(|e| PortError::Http(format!("invalid method '{}': {e}", prepared.method)))?;
+        let mut builder = self.client.request(method, &prepared.url);
+        for (name, value) in &prepared.headers {
+            builder = builder.header(name, value);
+        }
+        if let Some(body) = prepared.body {
+            builder = builder.body(body);
+        }
+        let resp = builder.send().await.map_err(|e| Self::classify_error(&e))?;
+        let status = resp.status().as_u16();
+        let headers = resp
+            .headers()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_string(),
+                    v.to_str().unwrap_or("<non-utf8>").to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let body = resp.bytes().await.map_err(|e| Self::classify_error(&e))?;
+        crate::network_debug::dump_http_response(status, &headers, &body);
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
+    }
 }
 
 #[async_trait::async_trait]
 impl HttpRequester for SharedHttpClient {
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
+        if !self.metrics.is_enabled() {
+            return self.execute(req).await;
+        }
         let started = Instant::now();
         let inflight = self.inflight.fetch_add(1, Ordering::Relaxed) + 1;
         record_http_gauge(self.metrics.as_ref(), inflight);
-        let result = async {
-            let prepared = self.prepare(req).await?;
-            crate::network_debug::dump_http_request(&prepared);
-            let method = Method::from_bytes(prepared.method.as_bytes()).map_err(|e| {
-                PortError::Http(format!("invalid method '{}': {e}", prepared.method))
-            })?;
-            let mut builder = self.client.request(method, &prepared.url);
-            for (name, value) in &prepared.headers {
-                builder = builder.header(name, value);
-            }
-            if let Some(body) = prepared.body {
-                builder = builder.body(body);
-            }
-            let resp = builder.send().await.map_err(|e| Self::classify_error(&e))?;
-            let status = resp.status().as_u16();
-            let headers = resp
-                .headers()
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        k.as_str().to_string(),
-                        v.to_str().unwrap_or("<non-utf8>").to_string(),
-                    )
-                })
-                .collect::<Vec<_>>();
-            let body = resp.bytes().await.map_err(|e| Self::classify_error(&e))?;
-            crate::network_debug::dump_http_response(status, &headers, &body);
-            Ok(HttpResponse {
-                status,
-                headers,
-                body,
-            })
-        }
-        .await;
+        let result = self.execute(req).await;
         let remaining = self
             .inflight
             .fetch_sub(1, Ordering::Relaxed)

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use helix_core::Tick;
 
@@ -9,7 +9,9 @@ use crate::owned_effect::OwnedEffect;
 
 pub(super) struct EngineMetricRecorder {
     sink: Arc<dyn AsyncMetricSink>,
+    enabled: bool,
     port_started: HashMap<u64, Instant>,
+    port_order: VecDeque<u64>,
 }
 
 pub(super) struct TickMetricContext {
@@ -20,9 +22,12 @@ pub(super) struct TickMetricContext {
 
 impl EngineMetricRecorder {
     pub(super) fn new(sink: Arc<dyn AsyncMetricSink>) -> Self {
+        let enabled = sink.is_enabled();
         Self {
             sink,
+            enabled,
             port_started: HashMap::new(),
+            port_order: VecDeque::new(),
         }
     }
 
@@ -31,12 +36,18 @@ impl EngineMetricRecorder {
     }
 
     pub(super) fn record_queue_snapshot(&self, depth: usize, capacity: usize) {
+        if !self.enabled {
+            return;
+        }
         let labels = MetricLabels::one(LabelKey::Stage, "tick_queue");
         self.gauge(MetricId::TickQueueDepth, depth as f64, labels);
         self.gauge(MetricId::TickQueueCapacity, capacity as f64, labels);
     }
 
     pub(super) fn on_tick(&mut self, tick: &Tick) -> TickMetricContext {
+        if !self.enabled {
+            return TickMetricContext::disabled();
+        }
         if let Tick::PortReply { corr, .. } = tick {
             if let Some(started) = self.port_started.remove(&corr.raw()) {
                 self.histogram(
@@ -54,6 +65,9 @@ impl EngineMetricRecorder {
     }
 
     pub(super) fn on_step_error(&self, context: &TickMetricContext) {
+        if !self.enabled {
+            return;
+        }
         self.counter(
             MetricId::ErrorsTotal,
             1.0,
@@ -66,16 +80,19 @@ impl EngineMetricRecorder {
     pub(super) fn on_step_complete(
         &mut self,
         context: &TickMetricContext,
-        duration: Duration,
+        started: Option<Instant>,
         effects: &[OwnedEffect],
     ) {
+        let Some(started) = started else {
+            return;
+        };
         let labels = MetricLabels::one(LabelKey::Layer, "L2")
             .with(LabelKey::Stage, "core_step")
             .with(LabelKey::TickKind, context.tick_kind)
             .with(LabelKey::Status, "ok");
         self.histogram(
             MetricId::CoreStepDurationSeconds,
-            duration.as_secs_f64(),
+            started.elapsed().as_secs_f64(),
             labels,
         );
         self.counter(
@@ -95,6 +112,9 @@ impl EngineMetricRecorder {
     }
 
     pub(super) fn on_dispatch_complete(&self, context: &TickMetricContext) {
+        if !self.enabled {
+            return;
+        }
         if let Some(started) = context.ingress_started {
             self.histogram(
                 MetricId::WsIngressToEventSeconds,
@@ -121,8 +141,49 @@ impl EngineMetricRecorder {
                 _ => None,
             };
             if let Some(corr) = corr {
-                self.port_started.insert(corr, Instant::now());
+                self.remember_port_start(corr);
             }
+        }
+    }
+
+    fn remember_port_start(&mut self, corr: u64) {
+        const MAX_PENDING: usize = 4096;
+        if self.port_started.contains_key(&corr) {
+            self.port_started.insert(corr, Instant::now());
+            return;
+        }
+        while self.port_started.len() >= MAX_PENDING {
+            let Some(evicted) = self.port_order.pop_front() else {
+                break;
+            };
+            if self.port_started.remove(&evicted).is_some() {
+                break;
+            }
+        }
+        self.port_started.insert(corr, Instant::now());
+        self.port_order.push_back(corr);
+    }
+
+    pub(super) fn start_timer(&self) -> Option<Instant> {
+        self.enabled.then(Instant::now)
+    }
+
+    pub(super) fn on_shutdown(&self, started: Option<Instant>) {
+        if self.enabled {
+            if let Some(rss_bytes) = process_resident_memory_bytes() {
+                self.gauge(
+                    MetricId::ProcessResidentMemoryBytes,
+                    rss_bytes as f64,
+                    MetricLabels::one(LabelKey::Stage, "engine_shutdown"),
+                );
+            }
+        }
+        if let Some(started) = started {
+            self.histogram(
+                MetricId::ShutdownDrainSeconds,
+                started.elapsed().as_secs_f64(),
+                MetricLabels::one(LabelKey::Stage, "engine_shutdown"),
+            );
         }
     }
 
@@ -162,6 +223,37 @@ impl EngineMetricRecorder {
     }
 }
 
+#[cfg(unix)]
+fn process_resident_memory_bytes() -> Option<u64> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: getrusage 在成功返回前完整初始化调用方提供的 rusage 指针；指针来自有效栈内存。
+    let result = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if result != 0 {
+        return None;
+    }
+    // SAFETY: 仅在 getrusage 返回 0 后读取，POSIX 契约保证结构体已初始化。
+    let max_rss = unsafe { usage.assume_init() }.ru_maxrss.max(0) as u64;
+    #[cfg(target_vendor = "apple")]
+    return Some(max_rss);
+    #[cfg(not(target_vendor = "apple"))]
+    return max_rss.checked_mul(1024);
+}
+
+#[cfg(not(unix))]
+fn process_resident_memory_bytes() -> Option<u64> {
+    None
+}
+
+impl TickMetricContext {
+    fn disabled() -> Self {
+        Self {
+            tick_kind: "disabled",
+            ingress_started: None,
+            command_started: None,
+        }
+    }
+}
+
 fn tick_kind(tick: &Tick) -> &'static str {
     match tick {
         Tick::Inbound(_) => "inbound",
@@ -186,5 +278,21 @@ fn effect_bytes(effect: &OwnedEffect) -> usize {
         OwnedEffect::Request { payload, .. } => payload.len(),
         OwnedEffect::Emit { event } => event.0.len(),
         OwnedEffect::ScheduleTimer { .. } | OwnedEffect::CancelTimer { .. } => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::NoopMetricSink;
+
+    #[test]
+    fn pending_port_correlation_is_strictly_bounded() {
+        let mut recorder = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
+        for corr in 0..5000 {
+            recorder.remember_port_start(corr);
+        }
+        assert_eq!(recorder.port_started.len(), 4096);
+        assert_eq!(recorder.port_order.len(), 4096);
     }
 }

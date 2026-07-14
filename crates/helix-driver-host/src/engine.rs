@@ -227,7 +227,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
 
         let _trace_scope = trace.on_tick_start(&tick);
         let now_ms = clock.now_ms();
-        let step_started = std::time::Instant::now();
+        let step_started = perf_metrics.start_timer();
         let owned = match shell.step(tick, now_ms) {
             Ok(effects) => consume_effects(effects),
             Err(e) => {
@@ -236,7 +236,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                 continue;
             }
         };
-        perf_metrics.on_step_complete(&metric_context, step_started.elapsed(), &owned);
+        perf_metrics.on_step_complete(&metric_context, step_started, &owned);
 
         if !owned.is_empty() {
             dispatch_effects(
@@ -262,6 +262,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
         }
     }
 
+    let shutdown_started = perf_metrics.start_timer();
     drain_pools(
         persist_workers,
         upload_pool,
@@ -270,6 +271,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
         reply_rx,
     )
     .await;
+    perf_metrics.on_shutdown(shutdown_started);
 
     tracing::info!(
         "helix engine loop exited (persists drained; 必达 upload/http drained or aborted at limit)"

@@ -58,7 +58,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     reply_tx.clone(),
                 );
                 // Block submit：队列满时 .await 阻塞主循环，背压传导到 tick_tx（不变量2）。
-                let queued_at = Instant::now();
+                let queued_at = metrics.is_enabled().then(Instant::now);
                 sp.submit(Job {
                     corr: Some(corr),
                     payload: PersistJobPayload {
@@ -86,7 +86,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     Arc::clone(storage),
                     reply_tx.clone(),
                 );
-                let queued_at = Instant::now();
+                let queued_at = metrics.is_enabled().then(Instant::now);
                 sp.submit(Job {
                     corr: None,
                     payload: PersistJobPayload {
@@ -107,7 +107,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             OwnedEffect::Http { corr, mut req } => {
                 record_operation(metrics, "http", "ok");
                 trace.on_http_dispatch(Some(corr), &mut req);
-                let queued_at = Instant::now();
+                let queued_at = metrics.is_enabled().then(Instant::now);
                 http_pool
                     .submit(Job {
                         corr: Some(corr),
@@ -133,7 +133,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             OwnedEffect::HttpFire { mut req } => {
                 record_operation(metrics, "http_fire", "ok");
                 trace.on_http_dispatch(None, &mut req);
-                let queued_at = Instant::now();
+                let queued_at = metrics.is_enabled().then(Instant::now);
                 http_fire_pool
                     .submit(Job {
                         corr: None,
@@ -217,6 +217,9 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 }
 
 fn record_operation(metrics: &dyn AsyncMetricSink, operation: &'static str, status: &'static str) {
+    if !metrics.is_enabled() {
+        return;
+    }
     let _ = metrics.try_record(MetricEvent::counter(
         MetricId::OperationsTotal,
         1.0,
@@ -227,6 +230,9 @@ fn record_operation(metrics: &dyn AsyncMetricSink, operation: &'static str, stat
 }
 
 fn record_error(metrics: &dyn AsyncMetricSink, error_kind: &'static str) {
+    if !metrics.is_enabled() {
+        return;
+    }
     let _ = metrics.try_record(MetricEvent::counter(
         MetricId::ErrorsTotal,
         1.0,
@@ -237,9 +243,12 @@ fn record_error(metrics: &dyn AsyncMetricSink, error_kind: &'static str) {
 fn record_wait(
     metrics: &dyn AsyncMetricSink,
     id: MetricId,
-    queued_at: Instant,
+    queued_at: Option<Instant>,
     operation: &'static str,
 ) {
+    let Some(queued_at) = queued_at else {
+        return;
+    };
     let _ = metrics.try_record(MetricEvent::histogram(
         id,
         queued_at.elapsed().as_secs_f64(),

@@ -18,7 +18,7 @@ helix-driver-ffi    ─┴──► helix-core ◄── helix-im ◄── (hel
 - **helix-im**：IM 业务模块，只依赖 helix-core，不含任何运行时 crate
 - **helix-driver-***：各平台的 port 实现（tokio/sqlx 在此，不在 core）
 
-详细架构见 [`docs/README.md`](docs/README.md)（文档地图）与 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)（机制权威源）。
+当前代码阅读从 [`docs/架构索引/README.md`](docs/架构索引/README.md) 开始；机制设计真源见 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)，全量文档地图见 [`docs/README.md`](docs/README.md)。
 
 ## 两端 Build 命令
 

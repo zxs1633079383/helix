@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 基于当前 `main@e0252dc` 建立全仓架构阅读体系：在 `docs/架构索引/` 提供系统总览、按推荐顺序编排的模块索引，以及覆盖全部生产 crate、源码文件夹和工程支撑目录的类图与中文业务流程图。可证伪断言：① 7 个 workspace crate 与所有 `crates/*/src` 子文件夹均在覆盖清单中有唯一文档锚点；② 每个 crate 和每个源码文件夹章节都同时包含 `classDiagram` 与 `flowchart`/`stateDiagram-v2`；③ 所有状态迁移和流程边标签使用中文；④ 全部 Mermaid fence 经解析器校验通过；⑤ 文档链接、路径存在性、`git diff --check` 全部通过；不改 Rust 运行时代码。@2026-07-14T08:30:00+0800 | 赌注 高 | 可逆 是
+✅ DONE 基于 `main@e0252dc` 建立 Helix 全仓架构索引 @2026-07-14T08:52:41+0800 | 7/7 crate、25/25 生产源码目录、10 篇文档、144 张 Mermaid 图 | 覆盖 core、IM、shared host、native/host-cli、FFI、归档 wasm 与工程支撑，提供三轮阅读顺序、逐目录锚点和中文业务流 | 验证：Mermaid CLI 144/144 PASS；模块/目录图对完整性 PASS；中文迁移标签 PASS；Markdown 相对链接 PASS；源码目录对账 PASS；`git diff --check` PASS；未改 Rust 运行时代码
+
 🎯 EXPECT 移除 Claude 仓库资产与镜像约束：删除全部 `CLAUDE.md` 和 `.claude/**`，保留单一 `AGENTS.md` 指令链，并同步移除 structure gate、agent manifest、当前导航中的镜像/Claude 依赖。可证伪断言：① `git ls-files '*CLAUDE.md' '.claude/**'` 为空；② `scripts/structure-gate.sh` 不再检查镜像且行数闸仍可运行；③ `.agents/manifests` 无 `boundary_mirror`；④ crate/agent 当前边界只指向 `AGENTS.md`；⑤ agent constraint/route、JSON 解析、shell 语法、结构闸与残留引用检查通过；不改 Rust 业务行为。@2026-07-13T11:30:00+0800 | 赌注 中 | 可逆 是
 ✅ DONE 移除 Claude 仓库资产与镜像约束 @2026-07-13T11:33:39+0800 | 62 个文件删除，156 文件总影响，净删 5182 行 | 删除 26 个 `CLAUDE.md`、`.claude/**` 33 个文件、Claude night-loop 两件与过期 helix-query 设计稿；AGENTS 成为单一指令源；structure/gate、agent manifest/router、Codex hook、harness/ROADMAP/提交规范均已转接 | 验证：工作树 `CLAUDE.md`=0、`.claude` 文件=0、`boundary_mirror`=0；JSON PASS；shell syntax PASS；harness 16=16；agent constraints 18/18；agent route PASS；DDD structure gate PASS；`git diff --check` PASS；完整 `structure-gate.sh` 仍因既有 Rust 行数债 FAIL（未扩散修复）
 ⚡ DRIFT-PRED 预期完整结构闸可通过，但当前主线已有多项源码行数债（如 effect.rs 554>452、storage.rs 748>560），与本轮 Claude 清理无关；本轮只验证镜像检查已移除，并以 DDD structure gate PASS 证明 AGENTS 单源接线有效。→ 候选教训：文档/治理清理的 EXPECT 应区分“目标接线验证”与“仓库既有全局 gate 基线”。

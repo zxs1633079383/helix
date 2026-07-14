@@ -20,6 +20,7 @@ pub mod pools;
 pub mod reconnect;
 pub mod spawner;
 pub mod storage;
+mod tick_ingress;
 pub mod timer;
 pub mod trace;
 pub mod upload;
@@ -27,7 +28,7 @@ pub mod upsert_sql;
 
 pub use batch_sink::BatchSink;
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
-pub use engine::{run_engine_loop, EngineDeps, TransportTable};
+pub use engine::{run_engine_loop, run_engine_loop_stamped, EngineDeps, TransportTable};
 pub use http_cross::{
     AuthTokenRegistry, CrossCuttingHttp, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE,
 };
@@ -51,6 +52,7 @@ pub use owned_effect::{consume_effects, OwnedEffect};
 pub use reconnect::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
 pub use spawner::{BoundedSpawner, Job, Overflow};
 pub use storage::HostStorage;
+pub use tick_ingress::{tick_ingress_channel, TickIngressReceiver, TickIngressSender};
 pub use timer::TimerRegistry;
 pub use trace::{
     CommandTraceQueue, TraceCarrier, TraceCarrierError, TraceHooks, TraceHooksImpl, TraceScope,

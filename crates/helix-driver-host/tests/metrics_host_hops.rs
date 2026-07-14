@@ -1,8 +1,11 @@
 use std::sync::{Arc, Mutex};
 
-use helix_core::effect::{SqlValue, UpsertSpec};
-use helix_core::ports::Storage;
-use helix_driver_host::{AsyncMetricSink, HostStorage, MetricEvent, MetricId, RecordOutcome};
+use helix_core::effect::{HttpRequest, SqlValue, UpsertSpec};
+use helix_core::ports::{HttpRequester, Storage};
+use helix_driver_host::{
+    AsyncMetricSink, HostNetworkConfig, HostStorage, LabelKey, MetricEvent, MetricId,
+    RecordOutcome, SharedHttpClient,
+};
 
 #[derive(Clone, Default)]
 struct RecordingMetricSink(Arc<Mutex<Vec<MetricEvent>>>);
@@ -45,4 +48,90 @@ async fn host_storage_records_duration_and_rows_at_real_port_boundary() {
     assert!(events
         .iter()
         .any(|event| event.id == MetricId::StorageRowsTotal && event.value == 1.0));
+    assert!(events.iter().any(|event| {
+        event.id == MetricId::OperationsTotal
+            && has_label(event, LabelKey::Status, "ok")
+            && has_label(event, LabelKey::Operation, "batch_upsert")
+    }));
+}
+
+#[tokio::test]
+async fn storage_failure_records_one_error_operation_and_error_counter() {
+    let storage = HostStorage::open_sqlite_url("sqlite::memory:")
+        .await
+        .expect("open sqlite");
+    let metrics = RecordingMetricSink::default();
+    let recorded = Arc::clone(&metrics.0);
+    let storage = storage.with_metric_sink(Arc::new(metrics));
+    let result = storage
+        .batch_upsert(UpsertSpec {
+            table: "missing_table",
+            rows: vec![vec![("id".to_string(), SqlValue::Integer(1))]],
+            conflict_key: Some("id"),
+            exclude_from_update: Vec::new(),
+        })
+        .await;
+    assert!(result.is_err(), "破坏表名必须令 storage 失败");
+    let events = recorded.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| {
+                event.id == MetricId::OperationsTotal && has_label(event, LabelKey::Status, "error")
+            })
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.id == MetricId::ErrorsTotal)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn http_prepare_failure_records_one_error_operation_and_error_counter() {
+    let metrics = RecordingMetricSink::default();
+    let recorded = Arc::clone(&metrics.0);
+    let client = SharedHttpClient::new(HostNetworkConfig::new(
+        "http://127.0.0.1:1",
+        "ws://127.0.0.1:1",
+    ))
+    .expect("valid config")
+    .with_metric_sink(Arc::new(metrics));
+    let result = client
+        .request(HttpRequest {
+            method: "bad method".to_string(),
+            url: "/test".to_string(),
+            headers: Vec::new(),
+            body: None,
+        })
+        .await;
+    assert!(result.is_err(), "非法 method 必须在真实 HTTP port 边界失败");
+    let events = recorded.lock().unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| {
+                event.id == MetricId::OperationsTotal && has_label(event, LabelKey::Status, "error")
+            })
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.id == MetricId::ErrorsTotal)
+            .count(),
+        1
+    );
+}
+
+fn has_label(event: &MetricEvent, key: LabelKey, value: &str) -> bool {
+    event
+        .labels
+        .iter()
+        .any(|label| label.key == key && label.value == value)
 }

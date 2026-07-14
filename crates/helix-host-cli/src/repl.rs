@@ -7,14 +7,14 @@
 //! host 是 ambient API 合法落点（stdin/println allow，clippy disallowed_methods=allow）。
 //! 命令解析在 [`crate::cmd_parse`]（纯函数 + 单测）；本文件只管 stdin I/O 循环 + 用法打印。
 
-use helix_core::Tick;
+use helix_driver_host::TickIngressSender;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::cmd_parse::{parse_line, Parsed};
 
 /// 启动 stdin 读取任务。`shutdown_tx` 在 `quit`/EOF 时 fire，让泵优雅退出。
-pub fn spawn_stdin_repl(tick_tx: mpsc::Sender<Tick>, shutdown_tx: oneshot::Sender<()>) {
+pub fn spawn_stdin_repl(tick_tx: TickIngressSender, shutdown_tx: oneshot::Sender<()>) {
     tokio::spawn(async move {
         let mut shutdown_tx = Some(shutdown_tx);
         let mut tmp_seq: u64 = 0;

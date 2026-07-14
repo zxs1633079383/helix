@@ -19,6 +19,7 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::metrics::{
     AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
 };
+use crate::tick_ingress::TickIngressSender;
 
 // URL/header 工具裂分到 sibling（按职责，structure-gate §1）。`use *` 复用 6 个 pub(super) helper。
 #[path = "network_util.rs"]
@@ -37,6 +38,28 @@ type WsSink = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
+
+#[derive(Clone)]
+pub(crate) enum InboundTickSender {
+    Raw(mpsc::Sender<Tick>),
+    Stamped(TickIngressSender),
+}
+
+impl InboundTickSender {
+    async fn send(&self, tick: Tick) -> Result<(), Tick> {
+        match self {
+            Self::Raw(tx) => tx.send(tick).await.map_err(|error| error.0),
+            Self::Stamped(tx) => tx.send(tick).await,
+        }
+    }
+
+    fn try_send(&self, tick: Tick) -> Result<(), mpsc::error::TrySendError<Tick>> {
+        match self {
+            Self::Raw(tx) => tx.try_send(tick),
+            Self::Stamped(tx) => tx.try_send(tick),
+        }
+    }
+}
 
 enum WsState {
     Disconnected,
@@ -59,7 +82,7 @@ pub struct SharedWsClient {
     headers: HostHeaderRegistry,
     state: Arc<Mutex<WsState>>,
     /// 可选入站推送通道：Some 时读任务发 `Tick::Inbound`/`Disconnected`（native 路径）。
-    inbound: Option<(TransportId, mpsc::Sender<Tick>)>,
+    inbound: Option<(TransportId, InboundTickSender)>,
     disconnect_notified: Arc<AtomicBool>,
     metrics: Arc<dyn AsyncMetricSink>,
 }
@@ -93,7 +116,16 @@ impl SharedWsClient {
     /// 设置后，connect 的读任务把数据帧作 `Tick::Inbound` 直发 `tick_tx`、
     /// 连接关闭/出错作 `Tick::Disconnected(id)`，而非塞内部 `frame_rx`。
     pub fn with_inbound_tick(mut self, id: TransportId, tick_tx: mpsc::Sender<Tick>) -> Self {
-        self.inbound = Some((id, tick_tx));
+        self.inbound = Some((id, InboundTickSender::Raw(tick_tx)));
+        self
+    }
+
+    pub fn with_stamped_inbound_tick(
+        mut self,
+        id: TransportId,
+        tick_tx: TickIngressSender,
+    ) -> Self {
+        self.inbound = Some((id, InboundTickSender::Stamped(tick_tx)));
         self
     }
 
@@ -271,7 +303,7 @@ impl Transport for SharedWsClient {
     }
 }
 pub(super) fn notify_disconnected(
-    inbound: &Option<(TransportId, mpsc::Sender<Tick>)>,
+    inbound: &Option<(TransportId, InboundTickSender)>,
     notified: &AtomicBool,
 ) {
     if notified

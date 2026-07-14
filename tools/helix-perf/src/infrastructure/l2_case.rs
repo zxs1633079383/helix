@@ -11,16 +11,17 @@ use helix_core::ports::{Storage, Transport};
 use helix_core::tick::InboundBytes;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::{
-    run_engine_loop, EngineDeps, HostNetworkConfig, HostStorage, MetricId, SharedFileUploader,
-    SharedHttpClient, SharedWsClient, TraceHooks, TransportTable,
+    run_engine_loop_stamped, tick_ingress_channel, EngineDeps, HostNetworkConfig, HostStorage,
+    MetricId, SharedFileUploader, SharedHttpClient, SharedWsClient, TraceHooks, TransportTable,
 };
 use helix_driver_native::{NativeClock, NativeEventSink};
 use serde_json::json;
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use super::ffi_probe::FfiProbe;
 use super::hdr::encode_histograms;
 use super::l2_driver::sdk::CaseResult;
+use super::l2_event_consumer::spawn as spawn_event_consumer;
 use super::l2_fixture::{
     cleanup_sqlite, payload_size, sqlite_residue, start_http_server, start_ws_server,
 };
@@ -28,6 +29,9 @@ use super::l2_metrics::{new_histograms, record};
 use super::l2_module::PerfModule;
 use super::l2_oracle::L2Oracle;
 use super::metric_sink::{MetricProbe, TelemetryMode};
+use super::process_profile::{
+    delta as profile_delta, export_metrics as export_profile_metrics, snapshot as profile_snapshot,
+};
 use crate::domain::{SampleStats, ScenarioConfig};
 
 pub async fn run_case(
@@ -41,6 +45,14 @@ pub async fn run_case(
         return Err("PERF_PROVIDER_MISSING: L2 当前真实 provider 要求 receivers=1".into());
     }
     let expected = (config.run.rate.saturating_mul(windows[1]) / 1_000).max(1);
+    let profile_started = profile_snapshot();
+    let saturation_mode = matches!(
+        mode,
+        TelemetryMode::Enabled {
+            pause_worker: true,
+            ..
+        }
+    );
     let channels = config.topology.channels;
     let oracle = Arc::new(L2Oracle::new(channels)?);
     let metric_probe = MetricProbe::new(mode);
@@ -90,7 +102,7 @@ pub async fn run_case(
         .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: WS connect: {e}"))?;
     let ws = Arc::new(ws);
 
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel(256);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (_transport_tx, transport_rx) =
         mpsc::unbounded_channel::<(TransportId, Arc<SharedWsClient>)>();
@@ -110,7 +122,7 @@ pub async fn run_case(
     };
     let tick_tx_for_loop = tick_tx.clone();
     let engine_task = tokio::spawn(async move {
-        run_engine_loop(
+        run_engine_loop_stamped(
             shell,
             tick_rx,
             tick_tx_for_loop,
@@ -157,7 +169,7 @@ pub async fn run_case(
         let ws_elapsed = ws_started.elapsed();
         record(&mut histograms, "ws_rtt", ws_elapsed)?;
         oracle.trace_hop(operation, "ws.roundtrip", ws_elapsed);
-        oracle.mark_enqueued(channel, seq);
+        oracle.mark_enqueued(operation);
         tick_tx
             .send(Tick::Inbound(InboundBytes(echoed)))
             .await
@@ -168,7 +180,12 @@ pub async fn run_case(
     }
     let elapsed_seconds = load_started.elapsed().as_secs_f64();
 
-    wait_for_replies(&oracle, expected.saturating_mul(2)).await?;
+    if !oracle
+        .wait_complete(expected, Duration::from_secs(10))
+        .await
+    {
+        return Err("PERF_LOAD_ABORTED: end-to-end oracle completion timeout".into());
+    }
     shutdown_tx.send(()).ok();
     engine_task
         .await
@@ -181,10 +198,20 @@ pub async fn run_case(
     tokio::time::sleep(Duration::from_millis(windows[3])).await;
 
     oracle.attach_histograms(&mut histograms);
-    let queue_wait = histograms
-        .get("tick_queue_wait")
-        .ok_or("PERF_EVIDENCE_CORRUPT: tick queue histogram missing")?;
-    metric_probe.record_duration_histogram(MetricId::TickQueueWaitSeconds, queue_wait, "core")?;
+    histograms.insert(
+        "tick_queue_wait".into(),
+        metric_probe.queue_wait_histogram(),
+    );
+    let end_to_end = histograms
+        .get("end_to_end")
+        .ok_or("PERF_EVIDENCE_CORRUPT: end-to-end histogram missing")?;
+    if !saturation_mode {
+        metric_probe.record_duration_histogram(
+            MetricId::WsIngressToEventSeconds,
+            end_to_end,
+            "event",
+        )?;
+    }
     let rows = storage
         .scan(ScanSpec {
             table: "perf_events",
@@ -200,12 +227,14 @@ pub async fn run_case(
     let http_count = http_requests.load(Ordering::Relaxed);
     let ws_count = ws_frames.load(Ordering::Relaxed);
     let reply_ok = oracle.port_replies_ok.load(Ordering::Relaxed);
+    let completed = oracle.completed();
     let mismatch = expected.abs_diff(native_events)
         + expected.abs_diff(ffi_events)
         + expected.abs_diff(ffi_callbacks)
         + expected.abs_diff(http_count)
         + expected.abs_diff(ws_count)
-        + expected.saturating_mul(2).abs_diff(reply_ok);
+        + expected.saturating_mul(2).abs_diff(reply_ok)
+        + expected.abs_diff(completed);
     oracle
         .projection_mismatch
         .store(mismatch, Ordering::Relaxed);
@@ -219,7 +248,11 @@ pub async fn run_case(
     let cleanup_residue = sqlite_residue(&db_path);
     let correctness = oracle.correctness(expected, rows, cleanup_residue);
     let errors = oracle.port_replies_err.load(Ordering::Relaxed) + ffi_malformed;
-    metric_probe.record_final(&correctness, errors)?;
+    let profile = profile_delta(profile_started, expected);
+    if !saturation_mode {
+        export_profile_metrics(metric_probe.sink().as_ref(), &profile)?;
+        metric_probe.record_final(&correctness, errors)?;
+    }
     let stats = histograms
         .iter()
         .map(|(name, histogram)| {
@@ -249,47 +282,6 @@ pub async fn run_case(
         trace,
         cleanup_residue,
         sdk_drained,
+        profile,
     })
-}
-
-fn spawn_event_consumer(
-    mut receiver: broadcast::Receiver<helix_core::effect::DomainEventBytes>,
-    ffi: Arc<FfiProbe>,
-    oracle: Arc<L2Oracle>,
-    expected: u64,
-) -> tokio::task::JoinHandle<Result<(), String>> {
-    tokio::spawn(async move {
-        while oracle.native_events.load(Ordering::Relaxed) < expected {
-            let event = receiver
-                .recv()
-                .await
-                .map_err(|e| format!("PERF_CORRECTNESS_VIOLATION: native event recv: {e}"))?;
-            let operation = serde_json::from_slice::<serde_json::Value>(&event.0)
-                .ok()
-                .and_then(|value| value.get("operation").and_then(|value| value.as_u64()))
-                .ok_or("PERF_CORRECTNESS_VIOLATION: event operation missing")?;
-            oracle.observe_event_delivery(operation);
-            oracle.native_events.fetch_add(1, Ordering::Relaxed);
-            let started = Instant::now();
-            ffi.forward(event);
-            let elapsed = started.elapsed();
-            oracle.observe_ffi_callback(elapsed);
-            oracle.trace_hop(operation, "ffi.callback", elapsed);
-            oracle.ffi_events.fetch_add(1, Ordering::Relaxed);
-        }
-        Ok(())
-    })
-}
-
-async fn wait_for_replies(oracle: &L2Oracle, expected: u64) -> Result<(), String> {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while oracle.port_replies_ok.load(Ordering::Relaxed)
-            + oracle.port_replies_err.load(Ordering::Relaxed)
-            < expected
-        {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .map_err(|_| "PERF_LOAD_ABORTED: port reply drain timeout".to_string())
 }

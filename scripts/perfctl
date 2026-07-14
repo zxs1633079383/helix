@@ -9,6 +9,12 @@ die() {
   exit 2
 }
 
+if [[ "${HELIX_PERF_USE_BUILT_BINARY:-0}" == "1" ]]; then
+  [[ -x "$ROOT/target/debug/helix-perf" ]] \
+    || die "PERF_PROFILE_TOOL_UNAVAILABLE: HELIX_PERF_USE_BUILT_BINARY=1 但 binary 不存在"
+  RUNNER=("$ROOT/target/debug/helix-perf")
+fi
+
 require_executable() {
   local path="$1"
   local code="$2"
@@ -29,12 +35,98 @@ dashboard() {
   "$ROOT/perf/grafana/dashboard.sh" "$@"
 }
 
+profile_l2() {
+  command -v jq >/dev/null 2>&1 || die "PERF_PROFILE_TOOL_UNAVAILABLE: 缺少 jq"
+  [[ -x /usr/bin/sample ]] \
+    || die "PERF_PROFILE_TOOL_UNAVAILABLE: 本机无 /usr/bin/sample；拒绝伪造业务线程栈 PASS"
+
+  local temp_dir runner_pid perf_pid status run_id evidence_dir sample_file business_file
+  temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/helix-perf-profile.XXXXXX")
+  sample_file="$temp_dir/process.sample.txt"
+  business_file="$temp_dir/business-threads.txt"
+  (
+    cd "$ROOT"
+    CARGO_INCREMENTAL=0 "${RUNNER[@]}" l2
+  ) >"$temp_dir/l2.log" 2>&1 &
+  runner_pid=$!
+  perf_pid=""
+  for _ in $(seq 1 300); do
+    perf_pid=$(pgrep -P "$runner_pid" -x helix-perf 2>/dev/null | head -1 || true)
+    [[ -n "$perf_pid" ]] && break
+    kill -0 "$runner_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if [[ -z "$perf_pid" ]]; then
+    wait "$runner_pid" || true
+    cat "$temp_dir/l2.log"
+    rm -rf "$temp_dir"
+    die "PERF_PROFILE_TOOL_UNAVAILABLE: 未在 30s 内定位 helix-perf 子进程"
+  fi
+
+  if ! /usr/bin/sample "$perf_pid" 2 5 -file "$sample_file" >/dev/null 2>&1; then
+    wait "$runner_pid" || true
+    cat "$temp_dir/l2.log"
+    rm -rf "$temp_dir"
+    die "PERF_PROFILE_TOOL_UNAVAILABLE: sample 无法采集 helix-perf PID=$perf_pid"
+  fi
+  status=0
+  wait "$runner_pid" || status=$?
+  cat "$temp_dir/l2.log"
+  [[ "$status" -eq 0 ]] || {
+    rm -rf "$temp_dir"
+    die "PERF_LOAD_ABORTED: profiled L2 退出码 $status"
+  }
+  run_id=$(sed -n 's/.*run_id=\([^ ]*\).*/\1/p' "$temp_dir/l2.log" | tail -1)
+  [[ -n "$run_id" ]] || {
+    rm -rf "$temp_dir"
+    die "PERF_EVIDENCE_CORRUPT: L2 输出缺少 run_id"
+  }
+  evidence_dir="$ROOT/perf/reports/$run_id"
+  [[ -f "$evidence_dir/manifest.json" ]] || {
+    rm -rf "$temp_dir"
+    die "PERF_EVIDENCE_CORRUPT: 缺少 $evidence_dir/manifest.json"
+  }
+
+  awk '
+    /^Call graph:/ { graph=1; next }
+    /^Total number in stack/ { graph=0 }
+    graph && /^    [0-9]+ Thread_/ { keep=($0 !~ /helix-metrics-(otlp|worker)/) }
+    graph && keep { print }
+  ' "$sample_file" >"$business_file"
+  [[ -s "$business_file" ]] || {
+    cp "$sample_file" "$evidence_dir/stack-sample.txt"
+    rm -rf "$temp_dir"
+    die "PERF_PROFILE_EVIDENCE_FAIL: sample 未提取到业务线程栈"
+  }
+  local forbidden='opentelemetry[_:]?otlp|tonic::|hickory|trust[_-]?dns|rustls|remote[_-]?write'
+  local forbidden_hits=0
+  if grep -Eiq "$forbidden" "$business_file"; then
+    forbidden_hits=$(grep -Eic "$forbidden" "$business_file")
+  fi
+  cp "$sample_file" "$evidence_dir/stack-sample.txt"
+  cp "$business_file" "$evidence_dir/business-threads.txt"
+  jq -n \
+    --arg tool "/usr/bin/sample" \
+    --arg runId "$run_id" \
+    --arg scope "除 helix-metrics-otlp/worker 外的 main 与 tokio 业务线程" \
+    --arg forbidden "$forbidden" \
+    --argjson forbiddenHits "$forbidden_hits" \
+    '{schemaVersion:1,runId:$runId,tool:$tool,durationSeconds:2,sampleIntervalMs:5,scope:$scope,forbiddenPattern:$forbidden,forbiddenHits:$forbiddenHits,pass:($forbiddenHits==0),raw:"stack-sample.txt",businessThreads:"business-threads.txt"}' \
+    >"$evidence_dir/hotpath-stack.json"
+  rm -rf "$temp_dir"
+  [[ "$forbidden_hits" -eq 0 ]] \
+    || die "PERF_PROFILE_EVIDENCE_FAIL: 业务线程命中 OTLP/tonic/DNS/TLS/remote-write 栈，证据=$evidence_dir/hotpath-stack.json"
+  printf 'PERF_PROFILE_COMPLETE verdict=PASS evidence=%s\n' "$evidence_dir/hotpath-stack.json"
+}
+
 usage() {
   cat <<'EOF'
 用法：scripts/perfctl <command>
   preflight                  只读校验本地合同与 L1/L2 前置
   l1                         运行纯 core/Effect 基线
   l2                         运行 HTTP/WS/SQLite/Event/FFI 混合与遥测对照
+  l2-profile                 运行 L2 并采样业务线程栈（工具缺失即失败）
+  faults                     注入 Collector/DNS/拒绝/超时四类故障
   run --scenario <ID>        运行单一 L1/L2 场景
   telemetry up|verify|down   编排本地 Collector 到 pre Prometheus
   dashboard apply|verify     幂等发布/回读 Grafana Dashboard
@@ -49,6 +141,12 @@ case "$command" in
     ;;
   l1|l2)
     runner "$command"
+    ;;
+  l2-profile)
+    profile_l2
+    ;;
+  faults)
+    runner faults
     ;;
   telemetry)
     [[ $# -eq 2 ]] || die "PERF_CONFIG_INVALID: telemetry 需要 up|verify|down"
@@ -67,7 +165,8 @@ case "$command" in
       dashboard apply
       dashboard verify
       runner l1
-      runner l2
+      profile_l2
+      runner faults
     else
       shift
       runner run "$@"

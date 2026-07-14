@@ -6,7 +6,7 @@
 
 ### C ABI 面
 
-当前导出 8 个函数：`helix_create_with_network`、`helix_destroy`、`helix_set_header`、`helix_remove_header`、`helix_command`、`helix_command_with_trace`、`helix_query`、`helix_query_free`。
+当前导出 7 个冻结函数：`helix_create_with_network`、`helix_destroy`、`helix_set_header`、`helix_remove_header`、`helix_command`、`helix_query`、`helix_query_free`。W3C trace carrier 通过 `helix_command` payload 的保留 `__trace` metadata 传入，driver 入队前剥离，不增加 ABI 符号，也不进入业务 payload。
 
 ### crate 类图
 

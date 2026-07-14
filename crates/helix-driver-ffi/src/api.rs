@@ -363,6 +363,10 @@ pub unsafe extern "C" fn helix_command(
     };
     // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
+    let (payload_vec, trace) = match extract_trace_sidecar(payload_vec) {
+        Ok(parts) => parts,
+        Err(code) => return code,
+    };
     let cmd = match build_app_command(public_name, payload_vec) {
         Ok(cmd) => cmd,
         Err(code) => return code,
@@ -370,60 +374,41 @@ pub unsafe extern "C" fn helix_command(
 
     // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
     let handle_ref = unsafe { &*handle };
-    send_command_tick(handle_ref, cmd, None)
+    send_command_tick(handle_ref, cmd, trace)
 }
 
-/// 向 engine 发送带 trace sidecar 的应用命令（移动端 `__trace` / host sidecar 入口）。
-///
-/// 与 [`helix_command`] 共享完全相同的命令名别名和 payload 归一化路径；差别只在于多一个
-/// driver-owned trace sidecar 槽位，供 host trace hook 在 `Tick::Command` 边界消费。
-/// `Tick::Command` 结构本身保持不变，trace 不进入业务 payload。
-///
-/// # Safety
-///
-/// - `handle`：有效指针或 null。
-/// - `name` / `payload` / `trace_json`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
-/// - `trace_json` 必须是合法 UTF-8 的 JSON 文本；当前解析 W3C `traceparent` / `baggage`。
-#[no_mangle]
-pub unsafe extern "C" fn helix_command_with_trace(
-    handle: *mut HelixHandle,
-    name: *const u8,
-    name_len: usize,
-    payload: *const u8,
-    payload_len: usize,
-    trace_json: *const u8,
-    trace_json_len: usize,
-) -> i32 {
-    if handle.is_null() {
-        return FFI_NULL;
+fn extract_trace_sidecar(payload: Vec<u8>) -> Result<(Vec<u8>, Option<TraceCarrier>), i32> {
+    const TRACE_KEY: &[u8] = b"\"__trace\"";
+    if !payload
+        .windows(TRACE_KEY.len())
+        .any(|window| window == TRACE_KEY)
+    {
+        return Ok((payload, None));
     }
-    // SAFETY: 调用方契约保证 name / trace_json 指向至少对应 len 字节有效 UTF-8 内存。
-    let public_name = match unsafe { ffi_str(name, name_len) } {
-        Ok(s) => s,
-        Err(code) => return code,
-    };
-    // SAFETY: 同上。
-    let trace_json = match unsafe { ffi_str(trace_json, trace_json_len) } {
-        Ok(s) => s,
-        Err(code) => return code,
-    };
-    let carrier = match TraceCarrier::from_json_str(&trace_json) {
-        Ok(carrier) => carrier,
-        Err(error) => {
-            tracing::warn!(?error, "trace sidecar rejected");
-            return FFI_INVALID;
-        }
-    };
-    // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
-    let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
-    let cmd = match build_app_command(public_name, payload_vec) {
-        Ok(cmd) => cmd,
-        Err(code) => return code,
-    };
 
-    // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
-    let handle_ref = unsafe { &*handle };
-    send_command_tick(handle_ref, cmd, Some(carrier))
+    let mut value: serde_json::Value = serde_json::from_slice(&payload).map_err(|error| {
+        tracing::warn!(?error, "command payload with trace sidecar is invalid JSON");
+        FFI_INVALID
+    })?;
+    let Some(trace) = value
+        .as_object_mut()
+        .and_then(|object| object.remove("__trace"))
+    else {
+        return Ok((payload, None));
+    };
+    let trace_json = serde_json::to_string(&trace).map_err(|error| {
+        tracing::warn!(?error, "trace sidecar serialization failed");
+        FFI_INVALID
+    })?;
+    let carrier = TraceCarrier::from_json_str(&trace_json).map_err(|error| {
+        tracing::warn!(?error, "trace sidecar rejected");
+        FFI_INVALID
+    })?;
+    let payload = serde_json::to_vec(&value).map_err(|error| {
+        tracing::warn!(?error, "command payload serialization failed");
+        FFI_INVALID
+    })?;
+    Ok((payload, Some(carrier)))
 }
 
 fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCommand, i32> {
@@ -466,7 +451,7 @@ fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceC
     };
 
     // `tick_tx` 的锁把「trace slot 入队 + command try_send」序列化成同一临界区，保证 mixed
-    // `helix_command` / `helix_command_with_trace` 并发时 FIFO 与 channel 入队顺序一致。
+    // trace slot 入队 + command try_send 在同一临界区，FIFO 与 channel 入队顺序一致。
     handle.command_traces.push_slot(trace);
     match tx.try_send(Tick::Command(cmd)) {
         Ok(()) => FFI_OK,

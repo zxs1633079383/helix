@@ -1,0 +1,24 @@
+groups:
+  - name: helix-runtime-performance-pre
+    interval: 30s
+    rules:
+      - record: otel:helix_operations:rate5m
+        expr: sum by (service_name, platform, scenario, channel_shape, stage, operation, status) (rate(otel_helix_operations_total[5m]))
+      - record: otel:helix_http:rps5m
+        expr: sum by (service_name, platform, scenario, operation, status) (rate(otel_helix_operations_total{stage="http"}[5m]))
+      - record: otel:helix_ws:rps5m
+        expr: sum by (service_name, platform, scenario, direction, operation, status) (rate(otel_helix_operations_total{stage="ws"}[5m]))
+      - record: otel:helix_storage:qps5m
+        expr: sum by (service_name, platform, scenario, storage_op, status) (rate(otel_helix_operations_total{stage="storage"}[5m]))
+      - record: otel:helix_event:rps5m
+        expr: sum by (service_name, platform, scenario, operation, status) (rate(otel_helix_operations_total{stage="event"}[5m]))
+      - record: otel:helix_errors:rate5m
+        expr: sum by (service_name, platform, scenario, stage, operation, error_kind) (rate(otel_helix_errors_total[5m]))
+      - record: otel:helix_errors:ratio5m
+        expr: sum by (service_name, platform, scenario, stage, operation) (rate(otel_helix_operations_total{status="error"}[5m])) / clamp_min(sum by (service_name, platform, scenario, stage, operation) (rate(otel_helix_operations_total[5m])), 0.000001)
+      - record: otel:helix_http_duration:p95_5m
+        expr: histogram_quantile(0.95, sum by (service_name, platform, scenario, operation, le) (rate(otel_helix_http_request_duration_seconds_bucket[5m])))
+      - record: otel:helix_http_duration:p99_5m
+        expr: histogram_quantile(0.99, sum by (service_name, platform, scenario, operation, le) (rate(otel_helix_http_request_duration_seconds_bucket[5m])))
+      - record: otel:helix_correctness:increase30m
+        expr: sum by (service_name, platform, scenario, __name__) (increase({__name__=~"otel_helix_(lost|duplicate|order_violation|wrong_channel|cursor_regression|projection_mismatch|persist_remaining|cleanup_residue)_total"}[30m]))

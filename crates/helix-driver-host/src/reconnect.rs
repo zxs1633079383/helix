@@ -1,11 +1,9 @@
 use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
 
 use helix_core::effect::TransportId;
-use helix_core::ports::FrameSender;
 use helix_core::PortError;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::engine::{TransportLifecycleEvent, TransportTraceEvent};
 
@@ -61,21 +59,30 @@ impl ReconnectTraceSink {
     }
 }
 
-pub fn spawn_reconnect_supervisor<Tr, Make, Fut>(
+/// 在断线事件后重试一个完整的“连接 → 注册 → 激活”动作。
+///
+/// supervisor 不再自行注册 sender；只有完整动作返回成功，才记录 reconnect success。
+pub fn spawn_reconnect_supervisor<Reconnect, Fut>(
     transport_id: TransportId,
     policy: ReconnectPolicy,
     mut lifecycle_rx: mpsc::UnboundedReceiver<TransportLifecycleEvent>,
-    register_tx: mpsc::UnboundedSender<(TransportId, Arc<Tr>)>,
+    mut shutdown_rx: watch::Receiver<bool>,
     trace_sink: ReconnectTraceSink,
-    mut make_transport: Make,
+    mut reconnect: Reconnect,
 ) -> tokio::task::JoinHandle<()>
 where
-    Tr: FrameSender + Send + Sync + 'static,
-    Make: FnMut() -> Fut + Send + 'static,
-    Fut: Future<Output = Result<Tr, PortError>> + Send + 'static,
+    Reconnect: FnMut() -> Fut + Send + 'static,
+    Fut: Future<Output = Result<(), PortError>> + Send + 'static,
 {
     tokio::spawn(async move {
-        while let Some(event) = lifecycle_rx.recv().await {
+        loop {
+            let event = tokio::select! {
+                event = lifecycle_rx.recv() => {
+                    let Some(event) = event else { return };
+                    event
+                }
+                _ = wait_for_shutdown(&mut shutdown_rx) => return,
+            };
             let TransportLifecycleEvent::Disconnected {
                 transport_id: event_transport_id,
                 reason,
@@ -87,6 +94,9 @@ where
 
             let mut attempt = 1u32;
             loop {
+                if *shutdown_rx.borrow() {
+                    return;
+                }
                 if policy
                     .max_attempts
                     .is_some_and(|max_attempts| attempt > max_attempts)
@@ -96,17 +106,23 @@ where
 
                 let delay = policy.delay_for_attempt(attempt);
                 emit_schedule(&trace_sink, transport_id, attempt, delay, reason);
-                tokio::time::sleep(delay).await;
+                let delay_elapsed = tokio::time::sleep(delay);
+                tokio::pin!(delay_elapsed);
+                tokio::select! {
+                    _ = &mut delay_elapsed => {}
+                    _ = wait_for_shutdown(&mut shutdown_rx) => return,
+                }
 
                 emit_attempt(&trace_sink, transport_id, attempt, delay);
-                match make_transport().await {
-                    Ok(transport) => {
-                        if register_tx
-                            .send((transport_id, Arc::new(transport)))
-                            .is_ok()
-                        {
-                            emit_success(&trace_sink, transport_id, attempt);
-                        }
+                let reconnect_attempt = reconnect();
+                tokio::pin!(reconnect_attempt);
+                let reconnect_result = tokio::select! {
+                    result = &mut reconnect_attempt => result,
+                    _ = wait_for_shutdown(&mut shutdown_rx) => return,
+                };
+                match reconnect_result {
+                    Ok(()) => {
+                        emit_success(&trace_sink, transport_id, attempt);
                         break;
                     }
                     Err(error) => {
@@ -126,6 +142,17 @@ where
             }
         }
     })
+}
+
+async fn wait_for_shutdown(shutdown_rx: &mut watch::Receiver<bool>) {
+    loop {
+        if *shutdown_rx.borrow() {
+            return;
+        }
+        if shutdown_rx.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 fn emit_schedule(

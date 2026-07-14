@@ -58,8 +58,8 @@
 - **初始化边界**：shared HTTP/WS client 的代码只有一份，但初始化材料由端壳或登录模块提供：`api_base_url`、`ws_url`、默认 headers、WS 握手 headers、user-agent、timeout/proxy/TLS 等平台配置。Helix 不负责登录/刷新 token，只提供 `HostNetworkConfig` 与 header registry/update API（如 `set_header` / `remove_header` / `replace_headers`），由 shared client 在 HTTP 请求与 WS connect/重连时统一读取并注入。
 - **边界**：业务模块（如 `helix-im`，未来 presence/meeting/notify）只组装业务请求意图、解析业务帧、维护业务状态机；它们不拥有网络 client，也不直接读写 token/header。登录/鉴权不纳入 Helix 业务边界，Helix 只消费外部已获得的 token/header/session 配置，并由 shared HTTP/WS client 统一注入到后续请求/连接。平台必须使用系统网络栈、证书代理或后台能力时，可保留 host callback 作为逃生口，但不是 PC/Flutter 产品主路径。
 - **理由**：IM 只是第一个业务模块，若每个模块或每个端都各写 HTTP/WS，会导致重连、超时、header 注入、连接复用、错误分类和事件回灌语义漂移。共享 client 让“一个逻辑”落到真实工程结构：业务协议一份、I/O 执行一份、平台壳多份。
-- **状态**：已定并阶段落地（2026-06-16；2026-07-14 A3 收窄 WS port）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；`helix-driver-native` 改为薄壳复用 shared client；`helix-driver-ffi` 的 Rust 侧主路径复用 shared client，并暴露 `helix_set_header` / `helix_remove_header`。core 旧 `Transport` 已删除，只保留 send-only `FrameSender`。保留项：WS reconnect/backoff、proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
-> ✅ transport.rs 已适配本 ADR（6b2fd52）：`NativeTransport` 薄壳复用 `SharedWsClient`，tokio-tungstenite 降为 dev-dep（仅集成测试）；真 Go 硬修保住（Text 帧 / 握手头灌 registry / 不回客户端 hello / 入站 `Tick::Inbound` 推送 via `with_inbound_tick`），真 Go :8065 直连 22s 回归通过（0 个 8s 断连）。保留项：WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback、native·FFI 共享 registry 对称化（drift D3 待修）。
+- **状态**：已定并阶段落地（2026-06-16；2026-07-14 A3 收窄 WS port、A3.1 收口真实生命周期）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；native/FFI 共用一次性 activation、Connected→reader 发布屏障与每连接断线去重。native 先预填 sender 表再 activation，FFI 动态注册则等待 engine insert ack 后 activation。core 旧 `Transport` 已删除，只保留 send-only `FrameSender`。保留项：proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
+> ✅ transport.rs 已适配本 ADR（6b2fd52）：`NativeTransport` 薄壳复用 `SharedWsClient`，tokio-tungstenite 降为 dev-dep（仅集成测试）；真 Go 硬修保住（Text 帧 / 握手头灌 registry / 不回客户端 hello / 入站 `Tick::Inbound` 推送 via `with_inbound_tick`），真 Go :8065 直连 22s 回归通过（0 个 8s 断连）。保留项：proxy/TLS/cert knobs、旧 callback fallback、native·FFI 共享 registry 对称化（drift D3 待修）。
 
 ## ADR-011 — host-cli 固定联调 deviceId/userId 为**故意例外**（dev-bin 凭据，非交付物）
 - **决策**：`helix-host-cli`（本机联调宿主 bin，**非交付目标**，不入 native/FFI 驱动集与 CI 必跑矩阵）允许在 `main.rs` 把现网真实 deviceId（`ED380414…`）作为 `HELIX_DEVICE_ID` env 之后的**默认兜底值**写进源码；doc/注释里的 dev `userId` 同属固定联调身份。`HELIX_DEVICE_ID` env 始终可覆盖。这是 commit d966250 引入、用户 **2026-06-21 + 2026-06-22 两次明确拍板**的故意例外——**不是**「无 ADR 反转铁律」。
@@ -92,7 +92,7 @@
 - **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。现有 `helix-driver-wasm` 继续作为历史实验，不自动转正。
 - **仍有效的数据正确性底线**：若 Web 最终选择跨刷新缓存，禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor；必须联合记录可证明的数据覆盖范围，或明确冷启动重新同步。
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
-- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1 统一门面、A2 local-first、A3 send-only WS port 已落地，下一步 A4 Web Rust 平台壳；旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)，ROADMAP M4 按 A1-A5 推进。
+- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1 统一门面、A2 local-first、A3 send-only WS port 与 A3.1 真实 adapter 生命周期已落地，下一步 A4 Web Rust 平台壳；旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)，ROADMAP M4 按 A1-A5 推进。
 
 ---
 

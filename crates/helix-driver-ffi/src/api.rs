@@ -22,6 +22,7 @@ use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, TraceCarrier,
+    TraceHooks,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -129,7 +130,7 @@ pub unsafe extern "C" fn helix_create_with_network(
         config,
         headers: headers.clone(),
         auth: auth.clone(),
-        command_traces: command_traces.clone(),
+        trace: TraceHooks::noop_without_otel().with_command_traces(command_traces.clone()),
         vtable,
         tick_tx: tick_tx.clone(),
         tick_rx,

@@ -23,7 +23,9 @@ pub mod upsert_sql;
 
 pub use batch_sink::BatchSink;
 pub use codec::{rows_from_reply_bytes, rows_to_reply_bytes};
-pub use engine::{run_engine_loop, EngineDeps, TransportTable};
+pub use engine::{
+    register_transport, run_engine_loop, EngineDeps, TransportRegistration, TransportTable,
+};
 pub use http_cross::{
     AuthTokenRegistry, CrossCuttingHttp, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE,
 };
@@ -34,6 +36,7 @@ pub use local_store::{
 };
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,
+    WsConnectionActivation,
 };
 pub use ops::{classify_port_error, execute_storage_ops, table_set_key};
 pub use otel::{HostOtelConfig, HostOtelRuntime, HostSpanSnapshot, TraceDirection};

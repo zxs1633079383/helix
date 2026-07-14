@@ -236,17 +236,29 @@ async fn main() {
         .with_handshake_headers(ws_headers);
     // A1 临时：host 主动 connect（A2 改为 Effect::Connect 意图驱动）。
     // 连不上不退出——仍进泵，Effect::Send 走「发送失败 warn」兜底，证明接线存在。
-    match transport.connect().await {
-        Ok(()) => tracing::info!(transport_id = main_transport.raw(), "主 WS 已连接"),
-        Err(e) => tracing::error!(
-            error = %e,
-            "主 WS 连接失败（Go 未起？）——仍进泵，上行 Send 将走 warn 兜底"
-        ),
-    }
-    // host-cli 走「预填表」路径：上面已同步 connect 好，直接放共享句柄进表（去外层 Mutex，
-    // 对齐 send/recv/close 的 `&self`）。FFI 端因 create 不能 await connect 才用注册通道。
+    let activation = match transport.connect().await {
+        Ok(activation) => Some(activation),
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "主 WS 连接失败（Go 未起？）——仍进泵，上行 Send 将走 warn 兜底"
+            );
+            None
+        }
+    };
+    // host-cli 走「预填表」路径：握手后先放共享 sender 进表，再发布 Connected/放行 reader。
+    // 因 engine 尚未启动，Connected 只会排队，启动处理时 sender 已确定可见。
     let mut transports = TransportTable::new();
     transports.insert(main_transport, Arc::new(transport));
+    if let Some(activation) = activation {
+        match activation.activate().await {
+            Ok(()) => tracing::info!(transport_id = main_transport.raw(), "主 WS 已注册并激活"),
+            Err(e) => tracing::error!(
+                error = %e,
+                "主 WS 已连接但激活失败——reader 未放行"
+            ),
+        }
+    }
 
     // Http 并发上限：runtime.http_max_inflight（0/缺省 → 默认 8）。
     let max_http_inflight = if cfg.runtime.http_max_inflight > 0 {

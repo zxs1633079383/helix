@@ -34,7 +34,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use helix_core::effect::TransportId;
 use helix_core::ports::{Clock, FileUploader, FrameSender, HttpRequester, Storage};
-use helix_core::{ExecutionShell, Tick};
+use helix_core::{ExecutionShell, PortError, Tick};
 
 pub use crate::batch_sink::BatchSink;
 use crate::dispatch::dispatch_effects;
@@ -66,6 +66,35 @@ const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
 /// 连接期间该句柄不在表内、`Effect::Send` 的 `transports.get()` 看不到它（**类型/可见性层**
 /// 证明无锁争用，而非靠「hello 之后才产 Send」的运行时时序不变量）。
 pub type TransportTable<Fs> = HashMap<TransportId, Arc<Fs>>;
+
+/// 动态 sender 注册消息：engine 完成路由表 insert 后才回 ack。
+///
+/// 平台连接任务必须等待 ack，再发布 `Tick::Connected` 并放行 reader；这样 Connected
+/// 产生的首个 `Effect::Send` 不会落入“物理已连、路由表尚不可见”的窗口。
+pub struct TransportRegistration<Fs> {
+    id: TransportId,
+    sender: Arc<Fs>,
+    registered_tx: oneshot::Sender<()>,
+}
+
+/// 注册 sender 并等待 engine 确认其已进入私有路由表。
+pub async fn register_transport<Fs>(
+    registration_tx: &mpsc::UnboundedSender<TransportRegistration<Fs>>,
+    id: TransportId,
+    sender: Arc<Fs>,
+) -> Result<(), PortError> {
+    let (registered_tx, registered_rx) = oneshot::channel();
+    registration_tx
+        .send(TransportRegistration {
+            id,
+            sender,
+            registered_tx,
+        })
+        .map_err(|_| PortError::Transport("transport registration channel closed".to_string()))?;
+    registered_rx.await.map_err(|_| {
+        PortError::Transport("transport registration was not acknowledged".to_string())
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportLifecycleEvent {
@@ -111,14 +140,15 @@ pub struct EngineDeps<S, H, U, E, C> {
 /// 路径填表：① 预填（host-cli 启动前同步 connect 好直接放入，CLI 可阻塞）；② 注册通道
 /// （FFI：create 不能 await connect，否则卡满 `DEFAULT_TIMEOUT_SECS`——见 fix/lifecycle-net-decouple）。
 /// 路径②下，装配端 spawn 后台任务对**独占 move 进去的裸句柄**跑 `connect().await`，连成功后经
-/// `transport_rx` 投递 `(id, Arc<Fs>)`，本 loop 的 biased select 第二臂收到即 `insert`。
+/// `transport_rx` 投递 `TransportRegistration`，本 loop 的 biased select 第二臂先 `insert`，
+/// 再回注册确认；平台收到确认后才发布 Connected/放行 reader。
 ///
 /// **死锁/停顿安全（类型层论证，非时序不变量）**：连接在途时句柄**根本不在 `transports` 表内**，
 /// `Effect::Send` 的 `transports.get()` 返回 `None` → 走既有 warn 兜底；连接期间不存在任何「会被
 /// Send 路径争用、且被某任务持有跨 `connect().await` 的锁」（表内 `Arc<Fs>` 无外层锁，并发 send
 /// 由 transport 内部 state 锁串行化，那把锁本就存在、非新增）。`transport_rx` 是 unbounded（同
-/// `reply_tx` 哲学）→ 后台 connect 任务投递句柄永不阻塞 → 依赖链单向 DAG（loop 等 channel，
-/// channel 不等 loop）无环。
+/// `reply_tx` 哲学）→ 后台 connect 任务投递句柄不阻塞；随后只等 engine 的 O(1) insert ack，
+/// engine 不反等连接任务，依赖链仍无环。
 ///
 /// ## Shutdown 语义
 ///
@@ -132,7 +162,7 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
     deps: EngineDeps<S, H, U, E, C>,
     mut shutdown_rx: oneshot::Receiver<()>,
     mut transports: TransportTable<Fs>,
-    mut transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Fs>)>,
+    mut transport_rx: mpsc::UnboundedReceiver<TransportRegistration<Fs>>,
 ) where
     S: Storage + Send + Sync + 'static,
     H: HttpRequester + Send + Sync + 'static,
@@ -228,9 +258,11 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
             // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
             // I/O」）。排在 reply_rx 之后保「回灌优先」（不变量4）；排在 shutdown/tick 之前确保
             // 连接成功的句柄尽快可见，缩短「连上但句柄未入表」窗口（μs 级）。
-            Some((id, tr)) = transport_rx.recv() => {
+            Some(registration) = transport_rx.recv() => {
+                let TransportRegistration { id, sender, registered_tx } = registration;
                 tracing::info!(transport_id = id.raw(), "transport 连接成功，注册入路由表");
-                transports.insert(id, tr);
+                transports.insert(id, sender);
+                registered_tx.send(()).ok();
                 continue;
             }
 

@@ -1,40 +1,27 @@
 //! Native WebSocket thin shell over the shared host client.
 //!
 //! WS 协议执行（连接/收发/Text 出站/入站读任务）统一在 `helix-driver-host` 的
-//! `SharedWsClient`（ADR-007 双端共享）。native 只保留 engine-loop 生命周期 Tick 接线
-//! 与现网兼容构造器：
+//! `SharedWsClient`（ADR-007 双端共享）。native 只保留预填表激活接缝与现网兼容构造器：
 //! - **握手头**（`with_handshake_headers`）：现网 Go 在 WS 升级阶段按 `cookieId=userId` 建 session，
 //!   session 空则不发 hello、~5s 超时关连接，故身份头必须随 upgrade 请求带（灌进共享 header registry）。
 //! - **入站推送**（`SharedWsClient::with_inbound_tick`）：native engine_loop 从不调 `recv()`，
 //!   入站帧全靠读任务作 `Tick::Inbound` 直发泵（A2 不变量）。
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytes::Bytes;
 use helix_core::effect::TransportId;
 use helix_core::ports::FrameSender;
 use helix_core::PortError;
 use helix_core::Tick;
-use helix_driver_host::{HostNetworkConfig, SharedWsClient};
+use helix_driver_host::{HostNetworkConfig, SharedWsClient, WsConnectionActivation};
 use tokio::sync::mpsc;
 
 /// PC/Tauri transport wrapper.
 ///
-/// WebSocket protocol execution lives in `helix-driver-host`; native keeps only
-/// engine-loop lifecycle tick wiring and compatibility constructors.
+/// WebSocket protocol execution and per-connection lifecycle live in `helix-driver-host`;
+/// native keeps only compatibility constructors and the host-cli prefilled-table seam.
 pub struct NativeTransport {
-    id: TransportId,
     inner: Option<SharedWsClient>,
     init_error: Option<String>,
-    tick_tx: Option<mpsc::Sender<Tick>>,
-    /// 连接生命周期标记（内部可变）。
-    ///
-    /// send/recv/close 已收紧为 `&self`（消除外层锁跨 await）；recv/close 路径仍需
-    /// 推进「已连接 / 已发过 Disconnected」状态做幂等去重 → 用 `AtomicBool` 内部可变（单线程
-    /// current_thread/native 单 transport 下无真并发，`Ordering::Relaxed` 足够）。connect 仍 `&mut self`
-    /// 可直写，但统一走原子设值保一致。
-    connected: AtomicBool,
-    disconnected_emitted: AtomicBool,
     /// WS upgrade 握手头（如现网 Go 鉴权 `cookieId=userId`）。
     /// 现网 Go 在 HTTP 升级中间件按 header 建 session，session 空则不发 hello、超时关连接，
     /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。connect 前灌进共享 registry。
@@ -51,12 +38,8 @@ impl NativeTransport {
         match Self::with_config(config, id, tick_tx) {
             Ok(transport) => transport,
             Err(e) => Self {
-                id,
                 inner: None,
                 init_error: Some(e.to_string()),
-                tick_tx: None,
-                connected: AtomicBool::new(false),
-                disconnected_emitted: AtomicBool::new(false),
                 handshake_headers: Vec::new(),
             },
         }
@@ -74,45 +57,24 @@ impl NativeTransport {
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Result<Self, PortError> {
-        let mut inner = SharedWsClient::new(config)?;
-        // A2：tick_tx=Some（生产 native 路径）→ 共享读任务作 Tick::Inbound 直发泵；
-        // tick_tx=None（单测手动驱动）→ 不注入，读任务回退 frame_rx，由 recv() 拉取。
-        if let Some(tx) = &tick_tx {
-            inner = inner.with_inbound_tick(id, tx.clone());
-        }
+        let inner = SharedWsClient::new(config)?;
         Ok(Self::from_shared(inner, id, tick_tx))
     }
 
     pub fn from_shared(
-        inner: SharedWsClient,
+        mut inner: SharedWsClient,
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Self {
+        // 生产 native 路径把 Connected/Inbound/Disconnected 全部交给 shared client 的
+        // 每连接生命周期；pull 单测不注入 tick，仍从 frame_rx 拉取。
+        if let Some(tx) = tick_tx {
+            inner = inner.with_inbound_tick(id, tx);
+        }
         Self {
-            id,
             inner: Some(inner),
             init_error: None,
-            tick_tx,
-            connected: AtomicBool::new(false),
-            disconnected_emitted: AtomicBool::new(false),
             handshake_headers: Vec::new(),
-        }
-    }
-
-    async fn emit(&self, tick: Tick) {
-        if let Some(tx) = &self.tick_tx {
-            tx.send(tick).await.ok();
-        }
-    }
-
-    async fn emit_disconnected_once(&self) {
-        // 幂等去重：仅在「已连接且尚未发过 Disconnected」时发一次（内部可变，`&self`）。
-        if self.connected.load(Ordering::Relaxed)
-            && !self.disconnected_emitted.load(Ordering::Relaxed)
-        {
-            self.emit(Tick::Disconnected(self.id)).await;
-            self.disconnected_emitted.store(true, Ordering::Relaxed);
-            self.connected.store(false, Ordering::Relaxed);
         }
     }
 
@@ -143,7 +105,8 @@ impl NativeTransport {
 }
 
 impl NativeTransport {
-    pub async fn connect(&mut self) -> Result<(), PortError> {
+    /// 完成握手并返回一次性激活令牌；此时 sender 已可用，但 reader 尚未放行。
+    pub async fn connect(&mut self) -> Result<WsConnectionActivation, PortError> {
         // 握手头灌进共享 header registry：SharedWsClient::connect 会把 registry 快照
         // 逐条注入 WS upgrade 请求（现网 Go cookieId=userId 建 session 依赖此）。
         if !self.handshake_headers.is_empty() {
@@ -153,11 +116,7 @@ impl NativeTransport {
                 .await?;
         }
 
-        self.inner_mut()?.connect().await?;
-        self.connected.store(true, Ordering::Relaxed);
-        self.disconnected_emitted.store(false, Ordering::Relaxed);
-        self.emit(Tick::Connected(self.id)).await;
-        Ok(())
+        self.inner_mut()?.connect().await
     }
 
     async fn send_frame(&self, frame: Bytes) -> Result<(), PortError> {
@@ -168,17 +127,11 @@ impl NativeTransport {
     pub async fn recv(&self) -> Result<Option<Bytes>, PortError> {
         // 生产 native 路径（tick_tx=Some）入站走 Tick::Inbound，engine_loop 不调本方法；
         // 此方法仅服务单测手动驱动路径（tick_tx=None → SharedWsClient frame_rx 拉取）。
-        let result = self.inner()?.recv().await?;
-        if result.is_none() {
-            self.emit_disconnected_once().await;
-        }
-        Ok(result)
+        self.inner()?.recv().await
     }
 
     pub async fn close(&self) -> Result<(), PortError> {
-        let result = self.inner()?.close().await;
-        self.emit_disconnected_once().await;
-        result
+        self.inner()?.close().await
     }
 }
 

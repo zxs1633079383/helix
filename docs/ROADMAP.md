@@ -54,15 +54,16 @@
 
 **关键路径**：F4.1–F4.4 ✅ 端到端接通并 merge（c229531）。**采纳「抽取共享」而非「FFI 自写泵」**——native+ffi 共用 host `run_engine_loop`，parity by construction。**剩 F4.5/F5** = Flutter 真机冒烟 + native↔FFI byte-level 跨端一致验收。**headless 守卫兑现**：全程 core/helix-im 零改（cargo tree -p helix-core 零运行时复证），改动落 `helix-driver-{ffi,host,native}`；同一份 core 跑 ffi 零改 ✅。
 
-### M4 —— Web 产品化（ADR-014 · A1/A2/A3 已完成）
+### M4 —— Web 产品化（ADR-014 · A1/A2/A3/A3.1 已完成）
 
 > **边界**：Web 复用 `helix-core + helix-im` 的业务门面和状态机；PC/Flutter 的完整 SQLite/SharedWsClient 不搬进浏览器。旧 W0→W4、浏览器 probe、Dedicated Worker/IndexedDB 预设均继续失效。详细文件/类型/验收见 [当前实施真源](./过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
 - [x] **A1 统一 `helix-im::client_api`**：alias/normalization/canonical name/capabilities/`AppCommand` 构造已提升为共享真源；`mobile_contract` 保持兼容 re-export，FFI 只余错误码映射。native 尚无同形公开入口，未新增空壳 wrapper。〔验收〕共享/兼容路径字节一致；known borrowed、fallback owned、非法 payload 与 FFI ABI 均有回归测试；core/im/FFI 全量测试 0 failure。
 - [x] **A2 查询旁路收口 + local-first**：以现有 `helix-im::query` 异步路径为唯一真源，引入 Durable/Session/Disabled 与 Complete/Partial/Miss/Unsupported，远端 fallback 仍产 `Effect::Http`。〔验收〕11 条端到端回放 + 8 条 coverage 单测覆盖本地直出、回源合并、缓存顺序、失败、coverage 反证、会话隔离与陈旧行清理；FFI `mobile_query` 仅保留同步 compatibility，payload 解析、ScanSpec 与 shape 重复真源为 0，ABI 在 A5 删除。
 - [x] **A3 WS port 缩窄**：core 只暴露 send-only `FrameSender`；host engine/dispatch 只依赖发帧，`SharedWsClient`/`NativeTransport` 以具体类型管理 connect/recv/close，reconnect 留在 host；旧 core `Transport` 已删除。〔验收〕只实现 send 的 dyn-safe 契约、精确 TransportId/bytes 路由、动态注册后发送、native 受控本地 WS 的三类 Tick/reader 内部顺序、两份独立 shell 对相同**注入**生命周期 Tick 的逐步业务输出一致；core 零 runtime。这里不声称 native/FFI 物理生产者已 parity。
+- [x] **A3.1 真实 WS 生命周期收口**：`SharedWsClient::connect` 只完成握手并返回一次性 activation；host 动态注册先 insert sender 再回 ack，native 预填表与 FFI 初连/重连均在 sender 可路由后发布 Connected，随后才放行 reader。reader/显式 close 共用每连接 `Prepared → Active → Finished` 状态，remote-close + cleanup-close 只产一次 Disconnected。〔验收〕host Connected 即 Send 命中注册 sender；native 本地 WS 严格 `Connected → Inbound → Disconnected` 且 cleanup 无尾随 Tick；FFI 真实 pump 两代连接严格 `Connected → Inbound → Disconnected → Connected → Inbound`。
 - [ ] **A4 新建 `helix-driver-web`**：纯 Rust 实现 Browser Fetch、有界内存 session store、ExternalWsBridge、timer 与批量 EventSink，不写前端页面。〔验收〕wasm target 通过，同 Tick 剧本三端 parity，Web 无业务 fetch/WS parser/sync/cursor 副本。
-- [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003；同时收口既有 native/FFI 物理发布时序：连接成功后先注册 sender，再发布 Connected，最后放行 reader，且 remote-close + cleanup-close 只产一次 Disconnected。〔验收〕真实 adapter Tick 顺序/去重回归、清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路，浏览器矩阵和真 Go E2E 通过。
+- [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003；清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路。〔验收〕浏览器矩阵和真 Go E2E 通过，且继续复用 A3.1 的真实 adapter Tick 顺序/去重合同。
 
 ---
 

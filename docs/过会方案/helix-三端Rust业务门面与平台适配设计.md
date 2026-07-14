@@ -1,6 +1,6 @@
 # Helix 三端 Rust 业务门面与平台适配设计
 
-> 状态：2026-07-14 用户拍板，待按阶段实施。
+> 状态：2026-07-14 用户拍板；A1-A3.1 已落地，下一阶段 A4。
 >
 > 决策真源：[`../harness/decisions.md`](../harness/decisions.md) ADR-014。
 >
@@ -27,7 +27,7 @@ PC/Flutter 继续使用 `helix-driver-host` 的默认 SQLite/HTTP/WS 实现，We
 - `Tick::Connected/Inbound/Disconnected` 已能表达平台连接事件，WS 业务处理无需重写。
 - `helix-driver-host::run_engine_loop` 已被 native/FFI 共用，是 PC/Flutter 的有效默认实现。
 
-### 2.2 拍板时需要修正的部分（A1-A3 已收口）
+### 2.2 拍板时需要修正的部分（A1-A3.1 已收口）
 
 1. ✅ A2：`helix-driver-ffi::helix_query` 曾通过 `helix-im::mobile_query` 直接执行 Storage scan，
    与 `helix-im::query` 形成第二条查询真源；local-first/remote fallback 无法三端共享。
@@ -37,8 +37,8 @@ PC/Flutter 继续使用 `helix-driver-host` 的默认 SQLite/HTTP/WS 实现，We
    `send`，物理连接生命周期不应成为所有平台必须实现的 core 能力。
 4. host pump 依赖 tokio、`Send + Sync`、rusqlite、reqwest 和 tungstenite，适合 PC/Flutter，
    不应为了 Web 改造成大量 `cfg` 的万能执行器。
-5. 本地读取只有 rows，没有显式能力/覆盖状态；空数组不能同时代表“真无数据”“缓存 miss”
-   和“平台不支持本地存储”。
+5. ✅ A2：本地读取曾只有 rows，没有显式能力/覆盖状态；现已用 `LocalStoreMode` 与
+   `LocalReadCoverage` 区分真无数据、缓存 miss 和平台不支持本地存储。
 
 ## 3. 目标模块图
 
@@ -353,13 +353,21 @@ sender 后继续发送；native 受控本地 WS 产出 Connected、原字节 Inb
 并守住 reader 内部 Inbound→Disconnected；两份独立 shell 对相同**注入**生命周期 Tick 逐 step
 产出一致并带非空业务锚；host reconnect 回归保留。
 
-边界说明：A3 证明的是“平台把同一 Tick 剧本喂入后，业务输出一致”，不声称 native/FFI
-物理连接时序相同。native `connect` 主动注入 Connected，FFI 初连仍先注册 sender；这些平台
-生命周期映射由各自 adapter 负责，不能反向扩大 core port。
+边界说明：A3 证明的是“平台把同一 Tick 剧本喂入后，业务输出一致”，当时不声称 native/FFI
+物理连接时序相同；这个刻意保留的缺口已由下方 A3.1 以真实 adapter 收口，仍未反向扩大 core port。
 
-已知真实 adapter 缺口登记到 A5：FFI 初连/重连成功当前只注册 sender、未产 Connected；
-SharedWsClient reader 在 connect 返回前启动，首帧可能早于 Connected/注册入表；reader 断线后再显式
-close 也尚未用同一状态源去重。A3 不静默改变这些既有时序，A5 以真链路一次收口发布屏障与去重。
+### A3.1：真实 WS 生命周期发布屏障 ✅
+
+`SharedWsClient::connect` 现在只完成物理握手并返回一次性 activation：sender 已可发送，但 reader
+等待 gate，不会抢跑。host 动态注册消息携带 oneshot ack，engine 严格先 `transports.insert` 再回 ack；
+FFI 初连与 reconnect 复用同一个 `connect_register_activate`，收到 ack 后由 activation 先发布
+Connected，再放行 reader。native host-cli 走同义的预填表路径：先 insert `Arc<NativeTransport>`，
+再消费 activation。
+
+每条物理连接的生命周期只有一份 `Prepared → Active → Finished` 状态，reader remote-close 与显式
+cleanup close 都调用同一个 finish-once；close 调用方被取消或 Close 帧写失败也不再跳过
+reader/state/lifecycle 清理。host engine 合同测试冻结动态注册确认；native/FFI 真实本地 WS 测试
+分别冻结严格 Tick 顺序、关闭取消安全/去重，以及初连→断线→重连的两代 Tick 顺序。
 
 ### A4：创建 Web Rust 平台壳
 
@@ -372,9 +380,9 @@ fetch/WS parser 副本。
 ### A5：真实链路与清理
 
 用最小平台 glue 验证 hello → 收帧 → query → HTTP fallback → send → echo → disconnect/reconnect；
-激活 HX-C003/CI 后删除历史 wasm crate 和 FFI `mobile_query` 旁路。同时对真实 adapter 建立
-“注册 sender → 发布 Connected → 放行 reader”的发布屏障，并让 remote-close + cleanup-close
-共享单一去重状态源；验收不能再用手工 Tick 剧本替代物理生产者。
+激活 HX-C003/CI 后删除历史 wasm crate 和 FFI `mobile_query` 旁路。真实 adapter 的
+“注册 sender → 发布 Connected → 放行 reader”与断线去重已经由 A3.1 冻结；A5 只需在 Web
+真链路继续复用该合同，不能退回手工 Tick 剧本替代物理生产者。
 
 ## 6. 提交边界
 

@@ -11,10 +11,10 @@ use helix_core::effect::{
     Row, ScanSpec, TransportId, UpsertSpec,
 };
 use helix_core::ports::{Clock, EventSink, FileUploader, FrameSender, HttpRequester, Storage};
-use helix_core::tick::AppCommand;
 use helix_core::{CoreError, Effect, EffectSink, ExecutionShell, Module, PortError, Tick};
 use helix_driver_host::engine::{
-    run_engine_loop, EngineDeps, TransportLifecycleEvent, TransportTraceEvent,
+    register_transport, run_engine_loop, EngineDeps, TransportLifecycleEvent,
+    TransportRegistration, TransportTraceEvent,
 };
 use helix_driver_host::{BatchSink, TraceHooks};
 
@@ -112,17 +112,17 @@ impl FrameSender for RecordingFrameSender {
     }
 }
 
-struct SendOnCommand {
+struct SendOnConnected {
     transport_id: TransportId,
 }
 
-impl Module for SendOnCommand {
+impl Module for SendOnConnected {
     fn name(&self) -> &'static str {
-        "send-on-command"
+        "send-on-connected"
     }
 
     fn accepts(&self, tick: &Tick) -> bool {
-        matches!(tick, Tick::Command(_))
+        matches!(tick, Tick::Connected(id) if *id == self.transport_id)
     }
 
     fn handle(&mut self, _: &Tick, _: u64, out: &mut EffectSink) -> Result<(), CoreError> {
@@ -139,7 +139,8 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
     let transport_id = TransportId::from_raw(42);
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(8);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    let (_transport_tx, transport_rx) = mpsc::unbounded_channel();
+    let (_transport_tx, transport_rx) =
+        mpsc::unbounded_channel::<TransportRegistration<UnusedFrameSender>>();
     let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded_channel();
     let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
     let tick_tx_for_loop = tick_tx.clone();
@@ -212,28 +213,13 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
 }
 
 #[tokio::test]
-async fn registered_sender_is_used_by_next_send_effect() {
+async fn registration_ack_makes_sender_visible_to_connected_effect() {
     let target_id = TransportId::from_raw(2);
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(8);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (transport_tx, transport_rx) = mpsc::unbounded_channel();
     let (other_frame_tx, mut other_frame_rx) = mpsc::unbounded_channel();
     let (target_frame_tx, mut target_frame_rx) = mpsc::unbounded_channel();
-
-    transport_tx
-        .send((
-            TransportId::from_raw(1),
-            Arc::new(RecordingFrameSender { tx: other_frame_tx }),
-        ))
-        .expect("register non-target sender");
-    transport_tx
-        .send((
-            target_id,
-            Arc::new(RecordingFrameSender {
-                tx: target_frame_tx,
-            }),
-        ))
-        .expect("register target sender");
 
     let deps = EngineDeps {
         storage: Arc::new(UnusedStorage),
@@ -247,7 +233,7 @@ async fn registered_sender_is_used_by_next_send_effect() {
         transport_trace_tx: None,
     };
     let mut shell = ExecutionShell::new();
-    shell.register(SendOnCommand {
+    shell.register(SendOnConnected {
         transport_id: target_id,
     });
     let tick_tx_for_loop = tick_tx.clone();
@@ -264,12 +250,29 @@ async fn registered_sender_is_used_by_next_send_effect() {
         .await;
     });
 
-    tick_tx
-        .send(Tick::Command(AppCommand::new("send", Vec::new())))
-        .await
-        .expect("send command tick");
+    register_transport(
+        &transport_tx,
+        TransportId::from_raw(1),
+        Arc::new(RecordingFrameSender { tx: other_frame_tx }),
+    )
+    .await
+    .expect("engine should ack non-target sender after insert");
+    register_transport(
+        &transport_tx,
+        target_id,
+        Arc::new(RecordingFrameSender {
+            tx: target_frame_tx,
+        }),
+    )
+    .await
+    .expect("engine should ack target sender after insert");
 
-    let frame = tokio::time::timeout(Duration::from_millis(500), target_frame_rx.recv())
+    tick_tx
+        .send(Tick::Connected(target_id))
+        .await
+        .expect("publish connected tick after registration ack");
+
+    let frame = tokio::time::timeout(Duration::from_secs(3), target_frame_rx.recv())
         .await
         .expect("target sender should receive frame")
         .expect("target sender channel should stay open");

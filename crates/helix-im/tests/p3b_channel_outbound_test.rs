@@ -118,13 +118,14 @@ fn create_specify_owner_requires_display_name() {
 // ── change/info（#11，channelId 键 + 可选字段 omitempty 透传）───────────────────────
 
 #[test]
-fn change_info_builds_channel_id_key_with_optional_fields() {
+fn channel_settings_change_info_builds_channel_id_key_with_optional_fields() {
     let (url, body) = one_http(run(
         "im_channel_change_info",
         json!({
             "channel_id": "cI",
             "display_name": "新名",
             "purpose": "新简介",
+            "expected_version": 77,
             "picture": { "userIds": ["u1"] }
         }),
     ));
@@ -135,6 +136,10 @@ fn change_info_builds_channel_id_key_with_optional_fields() {
         "display_name → camelCase displayName"
     );
     assert_eq!(body["purpose"], "新简介");
+    assert_eq!(
+        body["expectedVersion"], 77,
+        "CAS 版本必须进入 outbound wire"
+    );
     assert_eq!(body["picture"]["userIds"][0], "u1");
     // 未提供的可选字段不下发（Go 指针 omitempty）。
     assert!(body.get("name").is_none());
@@ -152,6 +157,18 @@ fn change_info_builds_channel_id_key_with_optional_fields() {
         body2.get("source").is_none(),
         "显式 null 的 source 不下发（put_opt_val is_null 跳过分支）"
     );
+}
+
+#[test]
+fn channel_settings_change_info_rejects_invalid_expected_version() {
+    assert!(err(
+        "im_channel_change_info",
+        json!({ "channel_id": "cI", "expected_version": "77" })
+    ));
+    assert!(err(
+        "im_channel_change_info",
+        json!({ "channel_id": "cI", "expected_version": -1 })
+    ));
 }
 
 #[test]

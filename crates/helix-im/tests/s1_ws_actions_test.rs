@@ -182,7 +182,8 @@ fn update_channel_emits_render_ready_settings_with_server_version() {
                     "id": cid(18),
                     "displayName": "新的群名",
                     "purpose": "真实回声简介",
-                    "orient": "产品"
+                    "orient": "产品",
+                    "settingVersion": 91
                 }
             }
         })),
@@ -190,7 +191,10 @@ fn update_channel_emits_render_ready_settings_with_server_version() {
     );
     let updates = emit_data(&h.sink, "im:channel:settings-updated");
     assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0]["settingVersion"], 77);
+    assert_eq!(
+        updates[0]["settingVersion"], 91,
+        "服务端 settingVersion 优先于 event_seq"
+    );
     assert_eq!(updates[0]["settings"]["displayName"], "新的群名");
     assert_eq!(updates[0]["settings"]["purpose"], "真实回声简介");
 }

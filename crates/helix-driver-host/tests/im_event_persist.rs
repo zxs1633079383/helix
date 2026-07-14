@@ -29,7 +29,29 @@ fn channel_id(n: u64) -> ChannelId {
     ChannelId::from_str(&cid(n)).expect("test channel id fixture must be valid Id26")
 }
 
-/// 以真 `IM_SCHEMA` 建库（含 message / channel / channel_member；cursor 真源是 _helix_monotonic）。
+fn is_duplicate_column_error(error: &impl std::fmt::Display) -> bool {
+    error.to_string().contains("duplicate column name")
+}
+
+async fn apply_im_schema(storage: &HostStorage) {
+    for &sql in helix_im::IM_SCHEMA {
+        storage
+            .execute_raw(sql)
+            .await
+            .unwrap_or_else(|e| panic!("execute_raw IM_SCHEMA failed for {sql:?}: {e:?}"));
+    }
+    for &sql in helix_im::IM_SCHEMA_MIGRATIONS {
+        if let Err(error) = storage.execute_raw(sql).await {
+            assert!(
+                is_duplicate_column_error(&error),
+                "execute_raw IM_SCHEMA_MIGRATIONS failed for {sql:?}: {error:?}"
+            );
+        }
+    }
+}
+
+/// 以真 `IM_SCHEMA` + additive migrations 建库（含 message / channel / channel_member；
+/// cursor 真源是 _helix_monotonic）。
 async fn storage_with_im_schema() -> HostStorage {
     let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
     let db = format!(
@@ -40,14 +62,74 @@ async fn storage_with_im_schema() -> HostStorage {
     let storage = HostStorage::open_sqlite_url(&db)
         .await
         .expect("open storage");
-    // host-cli 启动同款：migrate 后 loop execute_raw 叠加 IM_SCHEMA。
-    for &sql in helix_im::IM_SCHEMA {
-        storage
-            .execute_raw(sql)
-            .await
-            .unwrap_or_else(|e| panic!("execute_raw IM_SCHEMA failed for {sql:?}: {e:?}"));
-    }
+    // host-cli / FFI 启动同款：建表后执行 additive migrations，并忽略已存在列。
+    apply_im_schema(&storage).await;
     storage
+}
+
+/// 旧库的 `CREATE TABLE IF NOT EXISTS` 不会补新增列；启动 migration 必须把
+/// `reply_count` 加回，随后同一 WS upsert 才能成功。
+#[tokio::test]
+async fn existing_message_table_adds_reply_count_before_event_persist() {
+    let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
+    let db = format!(
+        "file:helix_im_legacy_persist_{}_{}?mode=memory&cache=shared",
+        std::process::id(),
+        seq
+    );
+    let storage = HostStorage::open_sqlite_url(&db)
+        .await
+        .expect("open legacy storage");
+    storage
+        .execute_raw(
+            "CREATE TABLE message (\
+                temporary_id TEXT PRIMARY KEY,\
+                id TEXT NOT NULL DEFAULT '',\
+                channel_id TEXT NOT NULL DEFAULT '',\
+                user_id TEXT NOT NULL DEFAULT '',\
+                type TEXT NOT NULL DEFAULT '',\
+                message TEXT NOT NULL DEFAULT '',\
+                props TEXT NOT NULL DEFAULT '',\
+                viewers TEXT NOT NULL DEFAULT '',\
+                user_snapshot TEXT NOT NULL DEFAULT '',\
+                mentions TEXT NOT NULL DEFAULT '',\
+                replied_message TEXT NOT NULL DEFAULT '',\
+                reply_messages TEXT NOT NULL DEFAULT '',\
+                reply_id TEXT NOT NULL DEFAULT '',\
+                reply_root_id TEXT NOT NULL DEFAULT '',\
+                reply_first_level_id TEXT NOT NULL DEFAULT '',\
+                expedite_map TEXT NOT NULL DEFAULT '',\
+                topic TEXT NOT NULL DEFAULT '',\
+                quick_reply TEXT NOT NULL DEFAULT '',\
+                simple_message TEXT NOT NULL DEFAULT '',\
+                read_bits TEXT NOT NULL DEFAULT '',\
+                send_status TEXT NOT NULL DEFAULT '',\
+                revoke INTEGER NOT NULL DEFAULT 0,\
+                create_at INTEGER NOT NULL DEFAULT 0,\
+                update_at INTEGER NOT NULL DEFAULT 0\
+            )",
+        )
+        .await
+        .expect("create legacy message table without reply_count");
+
+    apply_im_schema(&storage).await;
+    let mut event = post_event(42, 6, "tmp-legacy", "post-legacy", "legacy migrated");
+    event.fields.reply_count = 3;
+    let op = event_to_upsert_op(&event);
+    storage
+        .batch_upsert(match op {
+            helix_core::effect::StorageOp::BatchUpsert(spec) => spec,
+            other => panic!("expected BatchUpsert, got {other:?}"),
+        })
+        .await
+        .expect("migration must add reply_count before event persist");
+
+    let rows = scan_message_rows(&storage).await;
+    assert_eq!(rows.len(), 1);
+    match col(&rows[0], "reply_count") {
+        Some(SqlValue::Integer(value)) => assert_eq!(*value, 3),
+        other => panic!("reply_count expected Integer(3), got {other:?}"),
+    }
 }
 
 /// 造一条 type=1 PostUpsert 事件（fields = parser 提取后的 owned typed 视图，含真 post 字段）。

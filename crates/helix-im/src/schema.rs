@@ -41,6 +41,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         mentions TEXT NOT NULL DEFAULT '',\
         replied_message TEXT NOT NULL DEFAULT '',\
         reply_messages TEXT NOT NULL DEFAULT '',\
+        reply_count INTEGER NOT NULL DEFAULT 0,\
         reply_id TEXT NOT NULL DEFAULT '',\
         reply_root_id TEXT NOT NULL DEFAULT '',\
         reply_first_level_id TEXT NOT NULL DEFAULT '',\
@@ -165,9 +166,11 @@ pub const IM_SCHEMA: &[&'static str] = &[
     )",
 ];
 
-/// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `channel_member`
-/// 补列，故 host/ffi 装配层需逐条执行并忽略 SQLite `duplicate column name`。
+/// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `message` /
+/// `channel_member` 补列，故 host/ffi 装配层需逐条执行并忽略 SQLite
+/// `duplicate column name`。
 pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
+    "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",

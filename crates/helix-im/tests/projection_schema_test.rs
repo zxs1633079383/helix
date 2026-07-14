@@ -705,23 +705,67 @@ fn im_channel_settings_updated_freezes_render_ready_settings_and_version() {
 }
 
 #[test]
-fn im_schedule_created_freezes_channelid_hasschedulepost() {
-    let e = to_effect_s1::emit_schedule_created(ch());
+fn im_schedule_created_freezes_render_ready_schedule_fields() {
+    let e = to_effect_s1::emit_schedule_created(
+        ch(),
+        &serde_json::json!({
+            "scheduleId": "schedule-1",
+            "sendAt": 1_700_000_000_000_i64,
+            "status": "scheduled",
+            "revision": 7,
+            "messagePreview": "稍后发送"
+        }),
+        None,
+        true,
+    );
     assert_frozen(
         &e,
         "im:channel:schedule-created",
-        &["channelId", "hasSchedulePost", "id"],
+        &[
+            "channelId",
+            "hasSchedulePost",
+            "id",
+            "messagePreview",
+            "revision",
+            "scheduleId",
+            "sendAt",
+            "status",
+        ],
     );
 }
 
 #[test]
-fn im_schedule_canceled_freezes_channelid_hasschedulepost() {
-    let e = to_effect_s1::emit_schedule_canceled(ch());
+fn im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_leak() {
+    let e = to_effect_s1::emit_schedule_canceled(
+        ch(),
+        &serde_json::json!({
+            "schedule_id": "schedule-1",
+            "send_at": 1_700_000_000_000_i64,
+            "revision": 8,
+            "message_preview": "不得泄露"
+        }),
+        None,
+        false,
+    );
     assert_frozen(
         &e,
         "im:channel:schedule-canceled",
-        &["channelId", "hasSchedulePost", "id"],
+        &[
+            "channelId",
+            "hasSchedulePost",
+            "id",
+            "messagePreview",
+            "revision",
+            "scheduleId",
+            "sendAt",
+            "status",
+        ],
     );
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert!(payload["data"]["messagePreview"].is_null());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -954,8 +998,8 @@ fn all_24_projection_factories_covered() {
         )
         .unwrap(),
         to_effect_s1::emit_member_nickname(ch(), "u", "n"),
-        to_effect_s1::emit_schedule_created(ch()),
-        to_effect_s1::emit_schedule_canceled(ch()),
+        to_effect_s1::emit_schedule_created(ch(), &serde_json::json!({}), None, false),
+        to_effect_s1::emit_schedule_canceled(ch(), &serde_json::json!({}), None, false),
         query::emit_message_query_result(&cid, b"[]"),
         query::emit_dialog_list_result(b"[]"),
         query::emit_dialogs_cleared(),

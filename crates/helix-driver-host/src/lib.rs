@@ -9,6 +9,9 @@ pub mod http_envelope;
 pub mod instrument;
 pub mod local_store;
 pub mod network;
+mod network_debug;
+#[cfg(test)]
+mod network_lifecycle_tests;
 pub mod ops;
 pub mod otel;
 pub mod owned_effect;

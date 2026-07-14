@@ -20,8 +20,10 @@
 
 use std::sync::Arc;
 
-use helix_driver_host::engine::{self, EngineDeps};
-use helix_driver_host::{SharedFileUploader, TraceHooks};
+use helix_driver_host::engine::{self, EngineDeps, TransportLifecycleEvent, TransportTraceEvent};
+use helix_driver_host::{
+    spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, TraceHooks,
+};
 // rows↔bytes 编解码：host 单一真源，native re-export（helix-im 反序列化端对齐 host codec）。
 pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
@@ -66,6 +68,8 @@ impl EngineConfig {
     /// 转成 host 泛型壳所需的 [`EngineDeps`]（注入 `NativeClock`）。
     fn into_deps(
         self,
+        transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
+        transport_trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
     ) -> EngineDeps<NativeStorage, NativeHttp, SharedFileUploader, NativeEventSink, NativeClock>
     {
         EngineDeps {
@@ -76,8 +80,8 @@ impl EngineConfig {
             clock: NativeClock,
             trace: TraceHooks::noop(),
             max_http_inflight: self.max_http_inflight,
-            transport_lifecycle_tx: None,
-            transport_trace_tx: None,
+            transport_lifecycle_tx,
+            transport_trace_tx,
         }
     }
 }
@@ -136,20 +140,112 @@ pub async fn run_engine_loop_with_transports(
     shutdown_rx: oneshot::Receiver<()>,
     transports: TransportTable,
 ) {
-    // native（host-cli）走「预填表」路径：装配端启动前同步 connect 好直接放进 `transports`
-    // （CLI 可阻塞，约束3不约束此端）。故注册通道留空、`transport_rx` 永不收到任何句柄——
-    // 仅为对齐 host 泛型壳签名而构造（无害；FFI 端才用它做连接成功后投递，见 pump.rs）。
-    let (_transport_tx, transport_rx) = mpsc::unbounded_channel();
+    let NativeReconnectRuntime {
+        transport_rx,
+        lifecycle_tx,
+        trace_tx,
+        tasks,
+    } = start_native_reconnect(&transports);
     engine::run_engine_loop(
         shell,
         tick_rx,
         tick_tx,
-        config.into_deps(),
+        config.into_deps(lifecycle_tx, trace_tx),
         shutdown_rx,
         transports,
         transport_rx,
     )
-    .await
+    .await;
+    for task in tasks {
+        task.abort();
+    }
+}
+
+struct NativeReconnectRuntime {
+    transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<NativeTransport>)>,
+    lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
+    trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+fn start_native_reconnect(transports: &TransportTable) -> NativeReconnectRuntime {
+    let (register_tx, register_rx) = mpsc::unbounded_channel();
+    let mut lifecycle_routes = HashMap::new();
+    let (trace_tx, trace_rx) = mpsc::unbounded_channel();
+    let mut tasks = Vec::new();
+
+    for (&transport_id, transport) in transports {
+        let Some(factory) = transport.reconnect_factory() else {
+            continue;
+        };
+        let (route_tx, route_rx) = mpsc::unbounded_channel();
+        lifecycle_routes.insert(transport_id, route_tx);
+        let register_tx = register_tx.clone();
+        let trace_sink = ReconnectTraceSink::new(Some(trace_tx.clone()));
+        tasks.push(spawn_reconnect_supervisor(
+            transport_id,
+            ReconnectPolicy::default(),
+            route_rx,
+            register_tx,
+            trace_sink,
+            move || {
+                let factory = factory.clone();
+                async move {
+                    let mut transport = factory.build()?;
+                    helix_core::ports::Transport::connect(&mut transport).await?;
+                    Ok(transport)
+                }
+            },
+        ));
+    }
+    drop(register_tx);
+
+    if lifecycle_routes.is_empty() {
+        return NativeReconnectRuntime {
+            transport_rx: register_rx,
+            lifecycle_tx: None,
+            trace_tx: None,
+            tasks,
+        };
+    }
+
+    let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded_channel();
+    tasks.push(tokio::spawn(async move {
+        while let Some(event) = lifecycle_rx.recv().await {
+            let TransportLifecycleEvent::Disconnected { transport_id, .. } = event;
+            if let Some(route) = lifecycle_routes.get(&transport_id) {
+                route.send(event).ok();
+            }
+        }
+    }));
+    tasks.push(spawn_transport_trace_logger(trace_rx));
+
+    NativeReconnectRuntime {
+        transport_rx: register_rx,
+        lifecycle_tx: Some(lifecycle_tx),
+        trace_tx: Some(trace_tx),
+        tasks,
+    }
+}
+
+fn spawn_transport_trace_logger(
+    mut rx: mpsc::UnboundedReceiver<TransportTraceEvent>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            tracing::info!(
+                target: "helix_ws_lifecycle",
+                transport_id = event.transport_id.raw(),
+                action = event.action,
+                attempt = ?event.attempt,
+                delay_ms = ?event.delay_ms,
+                next_delay_ms = ?event.next_delay_ms,
+                reason = ?event.reason,
+                error_class = ?event.error_class,
+                "Helix WebSocket lifecycle"
+            );
+        }
+    })
 }
 
 // ─── 单元测试（native 装配层 smoke；pump 核原语测试已随下沉到 host）──────────────

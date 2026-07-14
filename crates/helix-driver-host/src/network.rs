@@ -3,19 +3,19 @@
 //! Login/auth remains outside Helix. Platform shells provide config and update
 //! headers; these clients only inject the latest header snapshot into requests.
 
-use parking_lot::RwLock; // 无 poison：panic 时不静默丢头（HTTP-4，对齐现网 cses-client）
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Duration;
-
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use helix_core::effect::{HttpRequest, HttpResponse, TransportId};
 use helix_core::ports::{HttpRequester, Transport};
 use helix_core::tick::InboundBytes;
 use helix_core::{PortError, Tick};
+use parking_lot::RwLock; // 无 poison：panic 时不静默丢头（HTTP-4，对齐现网 cses-client）
 use reqwest::header::{HeaderMap, USER_AGENT};
 use reqwest::{Client, Method};
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -211,6 +211,7 @@ impl SharedHttpClient {
 impl HttpRequester for SharedHttpClient {
     async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
         let prepared = self.prepare(req).await?;
+        crate::network_debug::dump_http_request(&prepared);
         let method = Method::from_bytes(prepared.method.as_bytes())
             .map_err(|e| PortError::Http(format!("invalid method '{}': {e}", prepared.method)))?;
         let mut builder = self.client.request(method, &prepared.url);
@@ -224,7 +225,7 @@ impl HttpRequester for SharedHttpClient {
 
         let resp = builder.send().await.map_err(|e| Self::classify_error(&e))?;
         let status = resp.status().as_u16();
-        let headers = resp
+        let headers: Vec<(String, String)> = resp
             .headers()
             .iter()
             .map(|(k, v)| {
@@ -235,6 +236,7 @@ impl HttpRequester for SharedHttpClient {
             })
             .collect();
         let body = resp.bytes().await.map_err(|e| Self::classify_error(&e))?;
+        crate::network_debug::dump_http_response(status, &headers, &body);
 
         Ok(HttpResponse {
             status,
@@ -266,6 +268,7 @@ pub struct SharedWsClient {
     state: Arc<Mutex<WsState>>,
     /// 可选入站推送通道：Some 时读任务发 `Tick::Inbound`/`Disconnected`（native 路径）。
     inbound: Option<(TransportId, mpsc::Sender<Tick>)>,
+    disconnect_notified: Arc<AtomicBool>,
 }
 
 impl SharedWsClient {
@@ -283,6 +286,7 @@ impl SharedWsClient {
             headers,
             state: Arc::new(Mutex::new(WsState::Disconnected)),
             inbound: None,
+            disconnect_notified: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -317,6 +321,8 @@ impl Transport for SharedWsClient {
                 .headers_mut()
                 .insert(USER_AGENT, header_value("user-agent", user_agent)?);
         }
+        let handshake_headers = headers_to_strings(request.headers());
+        crate::network_debug::dump_ws_handshake(&self.config.ws_url, &handshake_headers);
 
         let (ws, _resp) = tokio_tungstenite::connect_async(request)
             .await
@@ -324,9 +330,9 @@ impl Transport for SharedWsClient {
         let (sink, mut stream) = ws.split();
         let (frame_tx, frame_rx) = mpsc::channel::<Result<Bytes, PortError>>(WS_FRAME_BUFFER);
 
-        // 联调工具：HELIX_DUMP_FRAMES 置位时打印每条入站原始帧（抓真 Go wire 做 golden fixtures）。
-        let dump_frames = std::env::var("HELIX_DUMP_FRAMES").is_ok();
+        self.disconnect_notified.store(false, Ordering::Release);
         let inbound = self.inbound.clone();
+        let disconnect_notified = Arc::clone(&self.disconnect_notified);
 
         let reader = tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
@@ -339,15 +345,8 @@ impl Transport for SharedWsClient {
                     Err(e) => Err(map_ws_err(e)),
                 };
 
-                if dump_frames {
-                    if let Ok(bytes) = &frame {
-                        tracing::info!(
-                            target: "helix_ws_frames",
-                            len = bytes.len(),
-                            frame = %String::from_utf8_lossy(bytes),
-                            "RAW WS inbound"
-                        );
-                    }
+                if let Ok(bytes) = &frame {
+                    crate::network_debug::dump_ws_inbound(bytes);
                 }
 
                 match &inbound {
@@ -377,9 +376,7 @@ impl Transport for SharedWsClient {
 
             // push 路径在读任务结束（Close/出错/泵关）时补发 Disconnected，
             // 与 native 旧实现等价（pull 路径靠 recv 返回 None 触发 Disconnected）。
-            if let Some((id, tick_tx)) = &inbound {
-                tick_tx.send(Tick::Disconnected(*id)).await.ok();
-            }
+            notify_disconnected(&inbound, &disconnect_notified);
         });
 
         *self.state.lock().await = WsState::Connected {
@@ -397,8 +394,9 @@ impl Transport for SharedWsClient {
     /// 解 `{`(0x7b) 失败：`msgpack: unexpected code=7b decoding map length` → 关连接
     /// （真 Go dev-loop 三测实测定位的 ~8s 断连根因，c823701）。双端（PC+Flutter）共享此修。
     async fn send(&self, frame: Bytes) -> Result<(), PortError> {
+        crate::network_debug::dump_ws_outbound(&frame);
         let mut state = self.state.lock().await;
-        match &mut *state {
+        let result = match &mut *state {
             WsState::Connected { sink, .. } => {
                 let text = String::from_utf8(frame.to_vec())
                     .map_err(|e| PortError::Transport(format!("non-utf8 ws frame: {e}")))?;
@@ -407,7 +405,18 @@ impl Transport for SharedWsClient {
             WsState::Disconnected => Err(PortError::Transport(
                 "send on disconnected transport".to_string(),
             )),
+        };
+        if result.is_err() {
+            let previous = std::mem::replace(&mut *state, WsState::Disconnected);
+            if let WsState::Connected { reader, .. } = previous {
+                reader.abort();
+            }
         }
+        drop(state);
+        if result.is_err() {
+            notify_disconnected(&self.inbound, &self.disconnect_notified);
+        }
+        result
     }
 
     async fn recv(&self) -> Result<Option<Bytes>, PortError> {
@@ -430,5 +439,25 @@ impl Transport for SharedWsClient {
         }
         *state = WsState::Disconnected;
         Ok(())
+    }
+}
+pub(super) fn notify_disconnected(
+    inbound: &Option<(TransportId, mpsc::Sender<Tick>)>,
+    notified: &AtomicBool,
+) {
+    if notified
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+    if let Some((id, tick_tx)) = inbound {
+        let tick = Tick::Disconnected(*id);
+        if let Err(mpsc::error::TrySendError::Full(tick)) = tick_tx.try_send(tick) {
+            let tick_tx = tick_tx.clone();
+            tokio::spawn(async move {
+                tick_tx.send(tick).await.ok();
+            });
+        }
     }
 }

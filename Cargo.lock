@@ -766,6 +766,7 @@ dependencies = [
  "futures-util",
  "helix-core",
  "helix-driver-host",
+ "helix-im",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

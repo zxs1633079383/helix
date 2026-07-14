@@ -17,6 +17,19 @@ if [ "${1:-}" = "--changed-since" ]; then
   CHANGED_SINCE="${2:?--changed-since 需要基准 commit}"
 fi
 
+is_rust_source() {
+  [[ "$1" =~ ^crates/[^/]+/src/.+\.rs$ ]]
+}
+
+if [ "${1:-}" = "--self-test-path-filter" ]; then
+  is_rust_source "crates/helix-core/src/effect.rs"
+  is_rust_source "crates/helix-im/src/ws/parser/core.rs"
+  ! is_rust_source "crates/helix-im/tests/projection_schema_test.rs"
+  ! is_rust_source "docs/example.rs"
+  echo "STRUCT-GATE ✅ path filter self-test PASS"
+  exit 0
+fi
+
 # ── 存量债白名单（src/ 已超 300 行，待拆 backlog；见 rule §1）：`path baseline_lines` ──
 # 🔒 机器强制「只减不增」（drift-review wf_efcf1ca4-759 #1/#7 后门收敛）：闸门**读 baseline**——
 #    当前行数 > baseline 即 FAIL（baseline = 锁定时的当前行数，红线 = 不许再涨）。
@@ -47,6 +60,7 @@ whitelist_baseline() {
 if [ -n "$CHANGED_SINCE" ]; then
   echo "STRUCT-GATE 增量行数闸（${CHANGED_SINCE}..HEAD，新增 ≤ ${MAX_LINES}，存量只减不增）"
   while IFS= read -r f; do
+    is_rust_source "$f" || continue
     [ -f "$f" ] || continue
     lines=$(wc -l < "$f" | tr -d ' ')
     if git cat-file -e "${CHANGED_SINCE}:${f}" 2>/dev/null; then
@@ -59,7 +73,7 @@ if [ -n "$CHANGED_SINCE" ]; then
     fi
     echo "STRUCT-GATE   ✗ 增量超限 $f = $lines 行（基准 ${base_lines}）"
     fail=1
-  done < <(git diff --name-only --diff-filter=ACMR "$CHANGED_SINCE"..HEAD -- 'crates/*/src/**/*.rs')
+  done < <(git diff --name-only --diff-filter=ACMR "$CHANGED_SINCE"..HEAD -- crates)
 else
   echo "STRUCT-GATE 行数闸（src/**.rs ≤ ${MAX_LINES}，存量豁免 ${#WHITELIST[@]} 个·基线只减不增）"
 while IFS= read -r f; do

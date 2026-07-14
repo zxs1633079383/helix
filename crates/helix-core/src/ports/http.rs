@@ -1,6 +1,6 @@
 //! HttpRequester port — HTTP 客户端抽象
 //!
-//! ## 为什么 Transport 和 HttpRequester 分开
+//! ## 为什么 FrameSender 和 HttpRequester 分开
 //!
 //! IM 发送主路径走 HTTP POST（/posts/create 直发），
 //! gate fire 走 HTTP（/sync/notify），WS 是另一路。

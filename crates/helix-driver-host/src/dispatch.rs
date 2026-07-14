@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use helix_core::effect::{FileUploadRequest, HttpRequest};
-use helix_core::ports::{EventSink, Storage, Transport};
+use helix_core::ports::{EventSink, FrameSender, Storage};
 use helix_core::Tick;
 
 use crate::engine::TransportTable;
@@ -23,7 +23,7 @@ use crate::trace::TraceHooks;
 
 /// 把一批 OwnedEffect 分流兑现（async，BoundedSpawner submit，Block 满时等待）。
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn dispatch_effects<S, E, Tr>(
+pub(crate) async fn dispatch_effects<S, E, Fs>(
     effects: Vec<OwnedEffect>,
     tick_tx: &mpsc::Sender<Tick>,
     storage: &Arc<S>,
@@ -34,12 +34,12 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
     timer_registry: &mut TimerRegistry,
     reply_tx: &mpsc::UnboundedSender<Tick>,
     persist_workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
-    transports: &TransportTable<Tr>,
+    transports: &TransportTable<Fs>,
     trace: &TraceHooks,
 ) where
     S: Storage + Send + Sync + 'static,
     E: EventSink,
-    Tr: Transport + Send + 'static,
+    Fs: FrameSender + Send + 'static,
 {
     for effect in effects {
         match effect {
@@ -117,7 +117,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     .await;
             }
 
-            // ── Send（查路由表 → Transport::send 真发 WS）──────────────────
+            // ── Send（查路由表 → FrameSender::send 真发 WS）────────────────
             // inline await（WS send 快）。失败/未注册只 warn，绝不让泵崩。
             OwnedEffect::Send {
                 transport,
@@ -125,8 +125,8 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
             } => match transports.get(&transport) {
                 Some(t) => {
                     trace.on_ws_send(transport, &mut frame);
-                    // 表内 `Arc<Tr>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
-                    // transport 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
+                    // 表内 `Arc<Fs>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
+                    // sender 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
                     if let Err(e) = t.send(frame).await {
                         tracing::warn!(
                             transport_id = transport.raw(),

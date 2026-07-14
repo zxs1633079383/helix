@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use helix_core::effect::TransportId;
-use helix_core::ports::Transport;
+use helix_core::ports::FrameSender;
 use helix_core::PortError;
 use helix_driver_host::engine::{TransportLifecycleEvent, TransportTraceEvent};
 use helix_driver_host::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
@@ -163,20 +163,8 @@ fn trace_event_payload_is_safe(event: &TransportTraceEvent) -> bool {
 struct TestTransport;
 
 #[async_trait::async_trait]
-impl Transport for TestTransport {
-    async fn connect(&mut self) -> Result<(), PortError> {
-        Ok(())
-    }
-
+impl FrameSender for TestTransport {
     async fn send(&self, _: Bytes) -> Result<(), PortError> {
-        Ok(())
-    }
-
-    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
-        Ok(None)
-    }
-
-    async fn close(&self) -> Result<(), PortError> {
         Ok(())
     }
 }

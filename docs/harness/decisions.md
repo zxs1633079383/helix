@@ -54,11 +54,11 @@
 
 ## ADR-010 — PC/Flutter 共享 Rust host driver HTTP/WS client
 > 📌 merge 注：本 ADR 在 main 分支原编号 ADR-008，与 dev-zlc 的 ADR-008（sync-v2）号撞；2026-06-16 merge main→dev-zlc 时改号 ADR-010（内容不变，避免双 008）。
-- **决策**：HTTP client 与 WebSocket client 不属于 IM 模块，也不按端各写一套；它们是 `helix-driver-host` 的共享 host I/O 能力。`helix-driver-native` 与 `helix-driver-ffi` 只负责平台壳职责（Tauri command/event、FFI ABI、路径、生命周期、打包、灰度开关），通过同一套 shared HTTP/WS runtime 兑现 core 的 `HttpRequester` / `Transport` port。Flutter/Dart 与 Tauri 前端都只调用命令、订阅事件、渲染，不直接写业务 HTTP、IM sync、WS 长连、cursor、echo 对账或消息 SQL。
+- **决策**：HTTP client 与 WebSocket client 不属于 IM 模块，也不按端各写一套；它们是 `helix-driver-host` 的共享 host I/O 能力。`helix-driver-native` 与 `helix-driver-ffi` 只负责平台壳职责（Tauri command/event、FFI ABI、路径、生命周期、打包、灰度开关），通过同一套 shared HTTP/WS runtime 兑现 core 的 `HttpRequester` / `FrameSender` port；连接、收帧、关闭和重连仍由 host/native/FFI 具体生命周期管理。Flutter/Dart 与 Tauri 前端都只调用命令、订阅事件、渲染，不直接写业务 HTTP、IM sync、WS 长连、cursor、echo 对账或消息 SQL。
 - **初始化边界**：shared HTTP/WS client 的代码只有一份，但初始化材料由端壳或登录模块提供：`api_base_url`、`ws_url`、默认 headers、WS 握手 headers、user-agent、timeout/proxy/TLS 等平台配置。Helix 不负责登录/刷新 token，只提供 `HostNetworkConfig` 与 header registry/update API（如 `set_header` / `remove_header` / `replace_headers`），由 shared client 在 HTTP 请求与 WS connect/重连时统一读取并注入。
 - **边界**：业务模块（如 `helix-im`，未来 presence/meeting/notify）只组装业务请求意图、解析业务帧、维护业务状态机；它们不拥有网络 client，也不直接读写 token/header。登录/鉴权不纳入 Helix 业务边界，Helix 只消费外部已获得的 token/header/session 配置，并由 shared HTTP/WS client 统一注入到后续请求/连接。平台必须使用系统网络栈、证书代理或后台能力时，可保留 host callback 作为逃生口，但不是 PC/Flutter 产品主路径。
 - **理由**：IM 只是第一个业务模块，若每个模块或每个端都各写 HTTP/WS，会导致重连、超时、header 注入、连接复用、错误分类和事件回灌语义漂移。共享 client 让“一个逻辑”落到真实工程结构：业务协议一份、I/O 执行一份、平台壳多份。
-- **状态**：已定并阶段落地（2026-06-16）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；`helix-driver-native` 改为薄壳复用 shared client；`helix-driver-ffi` 的 Rust 侧主路径复用 shared client，并暴露 `helix_set_header` / `helix_remove_header`。保留项：WS reconnect/backoff、proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
+- **状态**：已定并阶段落地（2026-06-16；2026-07-14 A3 收窄 WS port）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；`helix-driver-native` 改为薄壳复用 shared client；`helix-driver-ffi` 的 Rust 侧主路径复用 shared client，并暴露 `helix_set_header` / `helix_remove_header`。core 旧 `Transport` 已删除，只保留 send-only `FrameSender`。保留项：WS reconnect/backoff、proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
 > ✅ transport.rs 已适配本 ADR（6b2fd52）：`NativeTransport` 薄壳复用 `SharedWsClient`，tokio-tungstenite 降为 dev-dep（仅集成测试）；真 Go 硬修保住（Text 帧 / 握手头灌 registry / 不回客户端 hello / 入站 `Tick::Inbound` 推送 via `with_inbound_tick`），真 Go :8065 直连 22s 回归通过（0 个 8s 断连）。保留项：WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback、native·FFI 共享 registry 对称化（drift D3 待修）。
 
 ## ADR-011 — host-cli 固定联调 deviceId/userId 为**故意例外**（dev-bin 凭据，非交付物）
@@ -88,11 +88,11 @@
 - **仍有效的决策**：Helix 产品目标集合为 PC Tauri、Flutter 手机端与 Web 三端；native/FFI 已产品化，Web 尚未交付。三端复用同一份 `helix-core + helix-im` 业务语义，不复制协议解析、WS 消息处理、sequence/cursor、echo、已读、撤回、编辑、补偿同步或发送状态机。
 - **业务门面决策**：三端统一经过 `helix-im::client_api` 归一化业务 command/query；现有 `helix-im::query` 异步 command → Effect → PortReply → DomainEvent 路径是唯一查询真源。`mobile_contract` 先兼容 re-export，`mobile_query` 与 FFI 同步直查 Storage 旁路在消费方迁移后删除；driver 不保留 alias、query SQL、remote fallback 或投影 shape 副本。
 - **能力边界决策**：PC/Flutter 继续复用 `helix-driver-host` 的完整 SQLite/HTTP/WS 默认实现；Web 使用独立 `helix-driver-web`，首版兑现 Rust 有界内存 session store、Rust Browser Fetch 与浏览器物理 WS bridge，不依赖 `helix-driver-host`，不做 IndexedDB/OPFS。local-first/remote fallback 只在 `helix-im`，以 `LocalStoreMode` + `LocalReadCoverage` 明确区分 Complete/Partial/Miss/Unsupported，空 rows 不得冒充完整或不支持。最近消息 `Complete` 必须由当前连接会话内成功远端读取 + cache Persist 后记录的消息身份窗口证明；hello/disconnect 清 proof，已知 sync gap 降为 Partial。`getLatestPost` 只证明最近 20 基础窗口，`limit>20` 不得凭单次响应伪装完整。dialogList 没有等价同步 HTTP，继续由本地投影 + WS increment 兑现。
-- **WebSocket port 决策**：core 新增只含 outbound `send(frame)` 的 `FrameSender`；`helix-driver-host` 的 engine/dispatch 只依赖该能力。`connect/recv/close/reconnect` 移到 host 私有连接生命周期边界；Web 通过平台 bridge 把 connected/frame/disconnected 喂成既有 Tick，并消费 outbound frame action。迁移完成后删除 core 旧 `Transport`。
+- **WebSocket port 决策**：core 只保留 outbound `send(frame)` 的 `FrameSender`；`helix-driver-host` 的 engine/dispatch 只依赖该能力。`connect/recv/close/reconnect` 位于 host/native/FFI 的具体连接生命周期边界；Web 通过平台 bridge 把 connected/frame/disconnected 喂成既有 Tick，并消费 outbound frame action。A3 已完成迁移并删除 core 旧 `Transport`。
 - **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。现有 `helix-driver-wasm` 继续作为历史实验，不自动转正。
 - **仍有效的数据正确性底线**：若 Web 最终选择跨刷新缓存，禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor；必须联合记录可证明的数据覆盖范围，或明确冷启动重新同步。
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
-- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)，ROADMAP M4 按 A1-A5 推进。
+- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1 统一门面、A2 local-first、A3 send-only WS port 已落地，下一步 A4 Web Rust 平台壳；旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)，ROADMAP M4 按 A1-A5 推进。
 
 ---
 

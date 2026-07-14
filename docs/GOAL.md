@@ -57,7 +57,7 @@
 | 否定的方案 | 为什么否 |
 |---|---|
 | 把 tokio/sqlx/tungstenite bake 进 core（初版 im_core）| 单平台假设，wasm 立刻碎；已拆三层 |
-| 单平台 YAGNI 砍掉 Storage/Clock/Transport 抽象 | PC + Flutter + Web 目标下那三个仍是命根子；YAGNI 边界必须在目标平台集合下画 |
+| 单平台 YAGNI 砍掉 Storage/Clock/FrameSender 抽象 | PC + Flutter + Web 目标下这些能力边界仍是命根子；YAGNI 边界必须在目标平台集合下画 |
 | core 强加 Send bound | 会把单线程/FFI 宿主形态锁死；默认 Unsync + 跨线程 opt-in Sync |
 | Effect 逐条过边界 | 固定开销线性叠加；Dioxus sledgehammer 批处理 |
 | 互斥 feature（native/wasm 二选一）| feature unification 单调性必爆 |

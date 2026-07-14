@@ -46,7 +46,7 @@
 
 | 子任务 | 交付 | 验收 | 风险/依赖 |
 |---|---|---|---|
-| **F4.1 engine 泵归属决策** ✅ | **抽取共享（采纳推荐）**：pump 核（`run_engine_loop` 泛型壳 over Storage/Http/EventSink/Transport/Clock + `BoundedSpawner` + `dispatch` + `run_http_envelope` + `TimerRegistry` + `consume_effects`）下沉 `helix-driver-host`；native `engine_loop` 1119→168 薄壳复用 | ✅ native 重构**零回归**（cargo test 64 全绿 + stress 3+4）；接缝 = `EngineDeps` + `BatchSink` egress 钩子 | 🔴 已解：连接管理留各端薄壳（native broadcast / ffi vtable），泵核共享 |
+| **F4.1 engine 泵归属决策** ✅ | **抽取共享（采纳推荐）**：pump 核（`run_engine_loop` 泛型壳 over Storage/Http/EventSink/FrameSender/Clock + `BoundedSpawner` + `dispatch` + `run_http_envelope` + `TimerRegistry` + `consume_effects`）下沉 `helix-driver-host`；native `engine_loop` 1119→168 薄壳复用 | ✅ native 重构**零回归**（cargo test 64 全绿 + stress 3+4）；接缝 = `EngineDeps` + `BatchSink` egress 钩子 | 🔴 已解：连接管理留各端薄壳（native broadcast / ffi vtable），泵核共享 |
 | **F4.2 FFI engine runtime + Tick 入队** ✅ | `helix_create_with_network` 起专用 std::thread + current_thread runtime(`.enable_all`) + `register(ImModule)` + `start()`；`helix_command`→`Tick::Command` ✅；**入站改 `SharedWsClient::with_inbound_tick`→`Tick::Inbound`**（C++-host 模型 Rust 自持 WS，`on_ws_frame`/`on_http_response` 已删）；HTTP/PortReply 走 host dispatch internal | ✅ e2e `command_emits_domain_event_through_batch_callback` 命令→step→Effect 通；core 单线程跑（GOAL §1.3）| current_thread（不在 Dart isolate，C++ host 自管线程）|
 | **F4.3 事件批回 C++（原"回 Dart Stream"已 pivot）** ✅ | `FfiEventSink impl EventSink`（经 host `BatchSink::flush` 钩子）：每 step 攒本批 Emit→单 buffer→**一次** `CppHostVtable::on_domain_events_batch`（HX-C007，绝不逐条）；C++ 再转发 Dart UI | ✅ 批回调 e2e + 批 wire layout(len-prefixed)单测；egress 在 host 参数化、core EventSink 零改 | flush 钩子 host 非 core（HX-C001 边界）|
 | **F4.4 panic=abort + spawn_blocking 终核（MAJ-4）** ✅ | `panic="abort"` 最终 cdylib ✅；pump 同步阻塞经 host `HostStorage` spawn_blocking 继承；无新增裸阻塞 tokio worker；pump 线程 panic 在线程边界隔离 | ✅ clippy ffi 0 警告 + 边界测试 + destroy join 不挂 | HX-C006 全 HOLD（八轮 drift-review 复核）|
@@ -54,15 +54,15 @@
 
 **关键路径**：F4.1–F4.4 ✅ 端到端接通并 merge（c229531）。**采纳「抽取共享」而非「FFI 自写泵」**——native+ffi 共用 host `run_engine_loop`，parity by construction。**剩 F4.5/F5** = Flutter 真机冒烟 + native↔FFI byte-level 跨端一致验收。**headless 守卫兑现**：全程 core/helix-im 零改（cargo tree -p helix-core 零运行时复证），改动落 `helix-driver-{ffi,host,native}`；同一份 core 跑 ffi 零改 ✅。
 
-### M4 —— Web 产品化（ADR-014 · A1/A2 已完成）
+### M4 —— Web 产品化（ADR-014 · A1/A2/A3 已完成）
 
 > **边界**：Web 复用 `helix-core + helix-im` 的业务门面和状态机；PC/Flutter 的完整 SQLite/SharedWsClient 不搬进浏览器。旧 W0→W4、浏览器 probe、Dedicated Worker/IndexedDB 预设均继续失效。详细文件/类型/验收见 [当前实施真源](./过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
 - [x] **A1 统一 `helix-im::client_api`**：alias/normalization/canonical name/capabilities/`AppCommand` 构造已提升为共享真源；`mobile_contract` 保持兼容 re-export，FFI 只余错误码映射。native 尚无同形公开入口，未新增空壳 wrapper。〔验收〕共享/兼容路径字节一致；known borrowed、fallback owned、非法 payload 与 FFI ABI 均有回归测试；core/im/FFI 全量测试 0 failure。
 - [x] **A2 查询旁路收口 + local-first**：以现有 `helix-im::query` 异步路径为唯一真源，引入 Durable/Session/Disabled 与 Complete/Partial/Miss/Unsupported，远端 fallback 仍产 `Effect::Http`。〔验收〕11 条端到端回放 + 8 条 coverage 单测覆盖本地直出、回源合并、缓存顺序、失败、coverage 反证、会话隔离与陈旧行清理；FFI `mobile_query` 仅保留同步 compatibility，payload 解析、ScanSpec 与 shape 重复真源为 0，ABI 在 A5 删除。
-- [ ] **A3 WS port 缩窄**：新增 core `FrameSender`，host engine/dispatch 只依赖 send；connect/recv/close/reconnect 下沉 host 私有连接边界。〔验收〕native/FFI 相同 Tick 剧本输出不变，core 零 runtime，旧 `Transport` 最终删除。
+- [x] **A3 WS port 缩窄**：core 只暴露 send-only `FrameSender`；host engine/dispatch 只依赖发帧，`SharedWsClient`/`NativeTransport` 以具体类型管理 connect/recv/close，reconnect 留在 host；旧 core `Transport` 已删除。〔验收〕只实现 send 的 dyn-safe 契约、精确 TransportId/bytes 路由、动态注册后发送、native 受控本地 WS 的三类 Tick/reader 内部顺序、两份独立 shell 对相同**注入**生命周期 Tick 的逐步业务输出一致；core 零 runtime。这里不声称 native/FFI 物理生产者已 parity。
 - [ ] **A4 新建 `helix-driver-web`**：纯 Rust 实现 Browser Fetch、有界内存 session store、ExternalWsBridge、timer 与批量 EventSink，不写前端页面。〔验收〕wasm target 通过，同 Tick 剧本三端 parity，Web 无业务 fetch/WS parser/sync/cursor 副本。
-- [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003。〔验收〕清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路，浏览器矩阵和真 Go E2E 通过。
+- [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003；同时收口既有 native/FFI 物理发布时序：连接成功后先注册 sender，再发布 Connected，最后放行 reader，且 remote-close + cleanup-close 只产一次 Disconnected。〔验收〕真实 adapter Tick 顺序/去重回归、清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路，浏览器矩阵和真 Go E2E 通过。
 
 ---
 
@@ -99,7 +99,7 @@
 - [ ] 四能力 feature 拆分（§7 技术债：driver-native optional dep）
 - [~] bench 常态化（criterion 化 stress 三件套，数字进 CI 留痕）——**stress-verify 2026-06-15 REJECT 落实**：① criterion 严格基准**全链路覆盖完成**（median/CI/离群，回归判据 median>2x）：storage（`host_storage` 5000 行 5.16ms·39×100 6.08ms·monotonic cursor 28.5µs）+ **engine 泵**（`engine_loop/pump_roundtrip_1k` 40.2ms ≈ 24.9K roundtrips/s）+ **IM 乱序同步**（`gate/backfill_5000` 8.0ms ≈ 624K events/s·`send/echo_reconcile_1000` 2.39ms ≈ 418K/s）+ im_step ② 并发 parity 改「串行会超时」强证明（storage_conformance）。**仅剩**：bench 数字进 CI 留痕（待远端 GitLab runner）
 - [~] FFI MAJ-4：pump 路径同步 SQLite 经 host `HostStorage` spawn_blocking(×7)继承 ✅（HX-C006/ADR-005）；`helix_query` 已走 IM 本地查询路由 + SQLite-backed read ✅；**剩** Flutter 真机 demo 与同一 Tick 剧本 native-vs-FFI byte-level parity，把同步读阻塞语义放在 F5 验收里实证
-- [x] **FFI pump 连接-插表时序类型化**（drift-review wf_efcf1ca4-759 #4）✅ **已彻底解**（commit `34c54bd`，2026-06-22）：**注册通道**——连接期 transport 独占在 loop 外后台跑 connect（裸 ws·不在表），连成功才经 `transport_rx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（**类型层不可见**，不再靠 hello-gated 时序不变量）。`Transport::{send,recv,close}` 收紧 `&self`（connect 保 `&mut`，NativeTransport 状态机字段合法需要）；`TransportTable` 去外层 Mutex→`HashMap<TransportId,Arc<Tr>>`；biased select 第二臂 insert+continue（守 pump 5 不变量）。**不新增 per-Send 锁、不回退 create 非阻塞**。验：lifecycle_net_decouple 3/3 + 5-crate+wasm core check + driver 全测绿。
+- [x] **FFI pump 连接-插表时序类型化**（drift-review wf_efcf1ca4-759 #4）✅ **已彻底解**（commit `34c54bd`，2026-06-22；A3 于 2026-07-14 收窄 port）：**注册通道**——连接期 transport 独占在 loop 外后台跑 connect（裸 ws·不在表），连成功才经 `transport_rx` channel 投进 loop 私有 `mut transports` 表 → 连接期 `transports.get()=None` 走 dispatch warn 兜底（**类型层不可见**，不再靠 hello-gated 时序不变量）。当前 core 只要求 `FrameSender::send(&self)`；`recv/close` 与 `connect` 都是具体连接类型的方法，`TransportTable` 为 `HashMap<TransportId,Arc<Tr>>`；biased select 第二臂 insert+continue（守 pump 5 不变量）。**不新增 per-Send 锁、不回退 create 非阻塞**。验：lifecycle_net_decouple 3/3 + 5-crate+wasm core check + driver 全测绿。
 - [x] **背压根治**（2026-06-17）：Effect `Http`(必达)/`HttpFire`(可丢自愈) 二分 + driver 统一 `BoundedSpawner`（Persist/Http/HttpFire 共用，翻默认 Block 传导回源、DropOldest 只给 HttpFire）；**跨模块公平性 tripwire 待第二业务模块接入再做**（不预建调度器，见 driver AGENTS.md「已知缺口」）
 - [~] **双 `PortError` enum 改名消歧**（~~统一~~ 误诊已纠 · 查证 2026-06-23）：tick.rs:56 与 error.rs:51 **语义独立非重复**（`error.rs`=携 String 的 thiserror 边界错误；`tick.rs`=带状态码数字的重试分类 Timeout/Http(u16)/Storage(u32)/Network）——**折叠是回归**，正解是改名（tick::PortError→RetryClass/PortErrCode）消歧；干净改名须碰 helix-im 测试故 HOLD
 - [ ] **多模块并发写实测**（单写者池在多业务模块下零实测——折叠自「并发承压评估」开放项；承压稿已移 `docs/reports/`）
@@ -141,7 +141,7 @@
 **M4 追加（Web）**
 - [ ] 三端 command/query 全部经过 `helix-im::client_api`，driver 业务旁路 = 0
 - [x] local-first 对 Complete/Partial/Miss/Unsupported 均有可证伪回放
-- [ ] core WS public port 只保留 outbound frame，仍零 runtime/platform 依赖
+- [x] core WS public port 只保留 outbound frame，仍零 runtime/platform 依赖
 - [ ] PC/Flutter 继续共用 host SQLite/HTTP/WS；native/FFI parity 零回归
 - [ ] Web HTTP 由 Rust Browser Fetch 执行；物理 WS bridge 不解析业务帧
 - [ ] Web session store 不跨刷新，cursor 不脱离 coverage 单独恢复

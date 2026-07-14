@@ -1,7 +1,8 @@
-//! WasmTransport — web-sys WebSocket（+ futures-channel 手桥）
+//! WasmTransport — archived web-sys WebSocket skeleton.
 //!
-//! 优先使用 web-sys WebSocket + futures-channel 手桥（不依赖 ws_stream_wasm）。
-//! ws_stream_wasm 可作备选，更换时只改此文件，port 契约不变。
+//! This historical crate is not the product Web driver. It only follows the
+//! current send-only core port so deleting the old lifecycle port does not
+//! leave a stale contract behind.
 
 use bytes::Bytes;
 use helix_core::PortError;
@@ -16,30 +17,30 @@ impl WasmTransport {
     pub fn new(url: impl Into<String>) -> Self {
         Self { url: url.into() }
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn connect(&mut self) -> Result<(), PortError> {
+        // TODO: browser-owned lifecycle adapter creates and wires WebSocket.
+        let _ = &self.url;
+        todo!("WasmTransport::connect")
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn recv(&self) -> Result<Option<Bytes>, PortError> {
+        todo!("WasmTransport::recv")
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn close(&self) -> Result<(), PortError> {
+        todo!("WasmTransport::close")
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[async_trait::async_trait(?Send)]
-impl helix_core::ports::Transport for WasmTransport {
-    async fn connect(&mut self) -> Result<(), PortError> {
-        // TODO: web_sys::WebSocket::new(&self.url)
-        //       注册 onmessage / onerror / onclose 回调，
-        //       回调里把帧 push 到 futures_channel::mpsc::Sender<Bytes>
-        todo!("WasmTransport::connect")
-    }
-
-    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
+impl helix_core::ports::FrameSender for WasmTransport {
+    async fn send(&self, _frame: Bytes) -> Result<(), PortError> {
         // TODO: self.ws.send_with_u8_array(&frame)
         todo!("WasmTransport::send")
-    }
-
-    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
-        // TODO: self.recv_rx.next().await
-        todo!("WasmTransport::recv")
-    }
-
-    async fn close(&self) -> Result<(), PortError> {
-        // TODO: self.ws.close()
-        todo!("WasmTransport::close")
     }
 }

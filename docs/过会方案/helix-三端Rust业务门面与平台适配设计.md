@@ -27,13 +27,13 @@ PC/Flutter 继续使用 `helix-driver-host` 的默认 SQLite/HTTP/WS 实现，We
 - `Tick::Connected/Inbound/Disconnected` 已能表达平台连接事件，WS 业务处理无需重写。
 - `helix-driver-host::run_engine_loop` 已被 native/FFI 共用，是 PC/Flutter 的有效默认实现。
 
-### 2.2 需要修正的部分
+### 2.2 拍板时需要修正的部分（A1-A3 已收口）
 
-1. `helix-driver-ffi::helix_query` 通过 `helix-im::mobile_query` 直接执行 Storage scan，
+1. ✅ A2：`helix-driver-ffi::helix_query` 曾通过 `helix-im::mobile_query` 直接执行 Storage scan，
    与 `helix-im::query` 形成第二条查询真源；local-first/remote fallback 无法三端共享。
-2. `mobile_contract` 的命令别名、payload 归一化已经是公共客户端契约，却以 mobile 命名，
+2. ✅ A1：`mobile_contract` 的命令别名、payload 归一化已经是公共客户端契约，却以 mobile 命名，
    native/Web 无法自然把它当三端唯一入口。
-3. core `Transport` 同时包含 `connect/send/recv/close`；业务 Effect 实际只需要 outbound
+3. ✅ A3：core 旧 `Transport` 同时包含 `connect/send/recv/close`；业务 Effect 实际只需要 outbound
    `send`，物理连接生命周期不应成为所有平台必须实现的 core 能力。
 4. host pump 依赖 tokio、`Send + Sync`、rusqlite、reqwest 和 tungstenite，适合 PC/Flutter，
    不应为了 Web 改造成大量 `cfg` 的万能执行器。
@@ -85,7 +85,7 @@ UI                    → 业务 HTTP / WS parser / cursor / sync
 
 ### 4.1 `helix-core`：缩窄 WS port，不引入 Web 逻辑
 
-新增：
+已新增：
 
 ```text
 crates/helix-core/src/ports/frame_sender.rs
@@ -99,13 +99,13 @@ pub trait FrameSender: MaybeSend + MaybeSync + 'static {
 }
 ```
 
-迁移规则：
+落地结果：
 
-1. 先新增 `FrameSender`；为现有 host transport 提供兼容实现。
-2. `helix-driver-host::TransportTable`、`dispatch_effects` 和 `run_engine_loop` 的泛型约束
-   从 `Transport` 改为 `FrameSender`。
-3. `connect/recv/close` 移出 core，在 host driver 内形成私有 `ManagedConnection` 或具体实现。
-4. native、FFI、host-cli 全部迁移后，删除 core 旧 `Transport`。
+1. core `FrameSender` 只定义 `send(frame)`，并保持 native `Send` / wasm `?Send` 的 additive cfg。
+2. `helix-driver-host::TransportTable`、`dispatch_effects` 和 `run_engine_loop` 只约束 `FrameSender`。
+3. `SharedWsClient` 与 `NativeTransport` 以具体类型的 inherent 方法管理 `connect/recv/close`，
+   reconnect 继续属于 host；未为尚不存在的第二套生命周期预建 `ManagedConnection` trait。
+4. native、FFI、host-cli 与归档 wasm 骨架已迁移，core 旧 `Transport` 已删除。
 
 core 不新增 tokio、web-sys、浏览器生命周期、重连退避或鉴权逻辑。
 
@@ -343,13 +343,23 @@ FFI 同步 compatibility 只复用共享 parser/ScanSpec/shape，不复制 HTTP 
 验证：五 crate `cargo check` 通过；`scripts/gate.sh` 10/10 通过，含全 workspace 测试、HX-C001、
 trace/业务边界、harness、FFI 1–5 层、native↔FFI byte parity、C++ 直连 ABI 冒烟与 public API 闸门。
 
-### A3：WS port 缩窄
+### A3：WS port 缩窄 ✅
 
-先新增 `FrameSender`，迁移 host engine/dispatch，再迁移 native/FFI/host-cli，最后删除旧
-core `Transport`。
+已新增 send-only `FrameSender`，迁移 host engine/dispatch、native/FFI/host-cli 与归档 wasm
+骨架，并删除 core 旧 `Transport`。连接、收帧、关闭是具体连接类型的方法，reconnect 留在 host。
 
-验收：相同 Connected/Inbound/Disconnected 剧本的 Effect/DomainEvent 与迁移前一致；
-host reconnect 行为不变；core 依赖树仍零运行时。
+验收覆盖：只实现 send 的 dyn-safe core 契约；精确 TransportId/bytes 的 Send 路由；动态注册
+sender 后继续发送；native 受控本地 WS 产出 Connected、原字节 Inbound 与 reader-side Disconnected，
+并守住 reader 内部 Inbound→Disconnected；两份独立 shell 对相同**注入**生命周期 Tick 逐 step
+产出一致并带非空业务锚；host reconnect 回归保留。
+
+边界说明：A3 证明的是“平台把同一 Tick 剧本喂入后，业务输出一致”，不声称 native/FFI
+物理连接时序相同。native `connect` 主动注入 Connected，FFI 初连仍先注册 sender；这些平台
+生命周期映射由各自 adapter 负责，不能反向扩大 core port。
+
+已知真实 adapter 缺口登记到 A5：FFI 初连/重连成功当前只注册 sender、未产 Connected；
+SharedWsClient reader 在 connect 返回前启动，首帧可能早于 Connected/注册入表；reader 断线后再显式
+close 也尚未用同一状态源去重。A3 不静默改变这些既有时序，A5 以真链路一次收口发布屏障与去重。
 
 ### A4：创建 Web Rust 平台壳
 
@@ -362,7 +372,9 @@ fetch/WS parser 副本。
 ### A5：真实链路与清理
 
 用最小平台 glue 验证 hello → 收帧 → query → HTTP fallback → send → echo → disconnect/reconnect；
-激活 HX-C003/CI 后删除历史 wasm crate 和 FFI `mobile_query` 旁路。
+激活 HX-C003/CI 后删除历史 wasm crate 和 FFI `mobile_query` 旁路。同时对真实 adapter 建立
+“注册 sender → 发布 Connected → 放行 reader”的发布屏障，并让 remote-close + cleanup-close
+共享单一去重状态源；验收不能再用手工 Tick 剧本替代物理生产者。
 
 ## 6. 提交边界
 

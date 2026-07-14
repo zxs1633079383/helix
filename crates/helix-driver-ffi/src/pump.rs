@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use helix_core::effect::TransportId;
-use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::engine::{self, EngineDeps, TransportTable, TransportTraceEvent};
 use helix_driver_host::{

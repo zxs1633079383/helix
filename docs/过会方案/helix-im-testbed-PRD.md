@@ -58,13 +58,17 @@
 - **新 crate `helix-driver-instrument`**（建议落在 helix workspace 或 testbed repo，只依赖 helix-core 的 port trait）：提供 `Recording<P>` 装饰器 + tape 读写 + LogSink。
 - **helix-core / helix-im / helix-driver-native：零改**（守 HX-C001 sans-IO；装饰器只在组装根 debug 构建包一层）。
 
-### 主缝 = port 装饰器（唯一新缝，最高点）
+### 主缝 = outbound port 装饰 + inbound Tick 注入（两条 test-only 缝）
 
-四面要看的每一面都已是 helix 的一个 port，仪表化 = 用 Decorator 模式包现有 port：
+可兑现的 I/O 面用 Decorator 包既有 port；入站 WS 不再属于 core port，单独在 host reader →
+`Tick::Inbound` 边界录制，并在 Replay 时直接注入 Tick。两条缝都只在 debug/test 组装根接入，
+不新增 core port：
 
 | 面 | port | 装饰器职责 |
 |---|---|---|
-| ① 出站命令体 + 录/放 go 帧 | `Transport` | Live 透传真 go + tee 日志；Record 旁路存 tape；Replay 不调 inner、从 tape 喂 |
+| ① 出站命令体 | `FrameSender` | Live/Record 透传 outbound frame + tee 日志；Replay 对照期望但不伪造入站 |
+| 入站 go 帧 | host reader → `Tick::Inbound` 接缝 | Record 把真实入站 Tick 存 tape；Replay 不起 socket，按 tape 把 Tick 喂给 engine |
+| HTTP 请求/回包 | `HttpRequester` | Live/Record 透传请求并存请求/响应；Replay 从 tape 返回响应，经既有 PortReply 回灌 |
 | ② 投影 envelope | `EventSink` | tee 日志（投影抵达 Tauri emit 之前就抓到，比 IPC 层更早全） |
 | ④ DB 落库行 | `Storage` | tee 日志（或直接查库，二选一） |
 | 回放确定性 | `Clock` / `IdSource` | Replay 喂录好的时钟/id，helix 才能字节级复现 |
@@ -75,7 +79,8 @@
 ```rust
 enum Mode { Live, Record, Replay }
 struct Recording<P> { inner: P, sink: LogSink, mode: Mode, tape: Option<Tape> }
-// impl Transport for Recording<P>：Live 透传+tee；Record +存 tape；Replay 从 tape 供、不触 inner
+// impl FrameSender for Recording<P>：Live/Record 透传+tee；Replay 仅录制并校验 outbound
+// 入站回放是独立 Tick tape injection seam，不塞回 FrameSender
 // EventSink / Storage / Clock / IdSource 各一个同款 impl
 ```
 
@@ -90,7 +95,7 @@ struct Recording<P> { inner: P, sink: LogSink, mode: Mode, tape: Option<Tape> }
 
 ### 双轨确定性源
 
-- **金标帧（日常·确定性）**：先真 go 跑一次，经 `Transport`/`Clock`/`IdSource` 装饰器把 go 回的 WS/HTTP 帧 + 时钟/id 录成 tape（落 `tests/fixtures/...`）；之后回放 tape，经真实 Tauri + WKWebView + WebdriverIO 跑——验整个客户端栈，输入端确定性。**顺手把 helix 仓 P1 golden fixtures 工具链做掉。**
+- **金标帧（日常·确定性）**：先真 go 跑一次，经 host reader 的 `Tick::Inbound` 录制缝与 `HttpRequester` / `FrameSender` / `Clock` / `IdSource` 装饰器，把入站 WS 帧、HTTP 请求/回包、出站 WS 帧与时钟/id 录成 tape（落 `tests/fixtures/...`）；之后回放时不启真实 socket，WS 按 tape 喂 Tick、HTTP 从 tape 返回响应，经真实 Tauri + WKWebView + WebdriverIO 跑——验整个客户端栈，输入端确定性。**顺手把 helix 仓 P1 golden fixtures 工具链做掉。**
 - **真 go（夜间/按需）**：连真 go 抓后端行为漂移。
 - 金标帧化 **test-only**，production 不带。
 
@@ -134,7 +139,7 @@ struct Recording<P> { inner: P, sink: LogSink, mode: Mode, tape: Option<Tape> }
 ## Further Notes
 
 - **与 helix 路线对齐**：testbed = M2「Tauri 四接缝接入」首个落地处（helix P0 活账）；金标帧工具链 = helix P1 golden fixtures 工具链。两个开放项被本 PRD 顺手收口。
-- **架构守恒证明**：净增 1 条新缝（port 装饰器）+ 复用 1 条 WebDriver 缝；helix-core/im/driver-native 零改，HX-C001 sans-IO 守住，HX-C004 additive（装饰器 feature/构建门控），HX-C009/C011/C012 落到修复闭环护栏。
+- **架构守恒证明**：净增 2 条 test-only 缝（outbound port 装饰 + inbound Tick tape 注入）并复用 1 条 WebDriver 缝；不新增 core port，helix-core/im/driver-native 零改，HX-C001 sans-IO 守住，HX-C004 additive（装饰器 feature/构建门控），HX-C009/C011/C012 落到修复闭环护栏。
 - **命名**：`helix-im-testbed` 为工作名；它是一个真实轻量 IM 成品（五脏俱全），可后续正式命名。
 
 ---

@@ -6,7 +6,7 @@ flowchart TD
 
     subgraph WASM["helix-driver-wasm（📦 archived，ports 当前 todo!()）"]
         direction TB
-        WS["Transport：web-sys WebSocket<br/>（替代 tokio-tungstenite）"]
+        WS["FrameSender：send-only 骨架<br/>connect/recv/close 为归档具体类型方法"]
         STORE["Storage：OPFS / IndexedDB<br/>⚠️ OPFS 仅 DedicatedWorker 内<br/>⚠️ SAHPool 无读池无并发"]
         SPAWN["执行器：wasm_bindgen_futures::spawn_local<br/>（无 tokio，单线程 !Send）"]
         HTTP["Http：gloo-net / fetch<br/>（无流式/无自定义 TLS）"]

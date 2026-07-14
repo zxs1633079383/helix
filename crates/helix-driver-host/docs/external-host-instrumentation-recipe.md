@@ -156,7 +156,7 @@ let sink = RecordingSink::new(
 
 ## 5. 其余三个 port 怎么装饰（一句话）
 
-Storage / HttpRequester / Transport / Clock 都是 **core 的 trait**（无 host supertrait 这道坎），
+Storage / HttpRequester / FrameSender / Clock 都是 **core 的 trait**（无 host supertrait 这道坎），
 loopforge 直接 `impl CoreTrait for Recording<Inner>` 透传 + 旁路即可，不需要本仓提供 helper。
 投影面是**唯一**因为 `BatchSink` supertrait 而需要特别说明的 facet——本文档专门为它而写。
 

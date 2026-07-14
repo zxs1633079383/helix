@@ -1,14 +1,14 @@
 %% helix-core — sans-IO 边界因果链（core 吐意图 → driver 兑现 → PortReply 回灌）
 %% 真源：src/engine.rs (step 同步) + 6 ports (async 在 driver 侧) + src/effect.rs(Effect/corr)
 %% 关联：HX-C001(core 零运行时) · HX-C002(async port Send 边界) · AGENTS.md §1 sans-IO/确定性
-%% 6 ports：Transport / Storage / Clock / EventSink / IdSource(+Random) / HttpRequester
+%% 6 ports：FrameSender / Storage / Clock / EventSink / IdSource(+Random) / HttpRequester
 sequenceDiagram
     autonumber
     participant H as Host / UI<br/>(Tauri / Flutter FFI)
     participant D as driver engine_loop<br/>（async · 持运行时）
     participant C as helix-core ExecutionShell<br/>（✅ 同步 · 零 I/O · 确定性）
     participant M as Module（helix-im）<br/>（✅ handle 纯函数）
-    participant P as Ports 实现（driver 侧）<br/>Transport/Storage/Http/Clock...
+    participant P as Ports 实现（driver 侧）<br/>FrameSender/Storage/Http/Clock...
 
     Note over C,M: ── core 域：同步纯函数，不持 tokio/sqlx/reqwest（HX-C001）──
     Note over D,P: ── driver 域：async 兑现，Send 边界 cfg 切（HX-C002）──

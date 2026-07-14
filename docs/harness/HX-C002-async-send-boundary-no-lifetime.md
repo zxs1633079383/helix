@@ -55,7 +55,7 @@ struct Tick<'a> { payload: &'a [u8] }
 let tx: Sender<Tick<'static>> = ...;           // 借用满足不了 → 路径断
 
 // ❌ 在跨 wasm 的 port async 签名硬加 Send
-trait Transport { async fn recv(&self) -> Msg where Self: Send; } // wasm !Send 冲突
+trait FrameSender { async fn send(&self, msg: Msg) where Self: Send; } // wasm !Send 冲突
 ```
 **默认 Unsync（!Send）+ 跨线程才 opt-in Sync**；native 把 !Send 的 core 跑在专属单线程（`spawn_local`+`LocalSet`），并发归驱动。
 

@@ -362,7 +362,7 @@ pub struct FileUploadResponse {
 /// 不可依赖 `Vec` 下标顺序。
 #[derive(Debug)]
 pub enum Effect {
-    /// 发送 WS 帧（driver 调用 Transport::send）
+    /// 发送 WS 帧（driver 调用 FrameSender::send）
     Send {
         transport: TransportId,
         frame: Bytes,

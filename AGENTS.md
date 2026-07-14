@@ -19,7 +19,7 @@
 ```
 业务模块层   [helix-im] [将来 presence / notify ...]   只依赖 helix-core 的 ports，不碰 tokio/sqlx/web-sys
     ▲ 实现 Module trait + register()
-core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSource) + Module 宿主 + Effect/事件 + sans-IO 执行壳
+core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSource) + Module 宿主 + Effect/事件 + sans-IO 执行壳
     ▲ 实现 ports（依赖方向单向：adapter → core，永不反向）
 平台驱动层   helix-driver-host(shared rusqlite Storage/StorageOp) · helix-driver-native(PC/Tauri 壳)
              helix-driver-ffi(Flutter FFI 壳)
@@ -49,7 +49,7 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **Web 方案实施中**：A1 `helix-im::client_api` 与 A2 local-first 查询已落地；下一步按 A3 把 core WS port 收敛为 outbound frame，再创建 `helix-driver-web`。不得跳过共享边界直接写 Web 壳；历史 `helix-driver-wasm` 只作参考，不原地冒充交付实现。
+- [ ] **Web 方案实施中**：A1 `helix-im::client_api`、A2 local-first 查询与 A3 send-only `FrameSender` 已落地；下一步按 A4 创建 `helix-driver-web`。不得跳过共享边界直接写 Web 壳；历史 `helix-driver-wasm` 只作参考，不原地冒充交付实现。
 - [ ] **Web 持久化可降级**：PC/Flutter 可完整 SQLite；Web 可以无本地持久化或只保留明确受限的缓存。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
 - [ ] **WebSocket 边界**：core port 只保留 outbound frame；三端共享 `helix-im` 的帧处理与协议生命周期。PC/Flutter 复用 Rust 默认连接实现，Web 的真实 socket、重连执行、浏览器生命周期与鉴权接线由 Web 平台适配器兑现。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）

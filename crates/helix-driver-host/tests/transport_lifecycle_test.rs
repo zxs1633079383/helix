@@ -10,8 +10,9 @@ use helix_core::effect::{
     FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec,
     Row, ScanSpec, TransportId, UpsertSpec,
 };
-use helix_core::ports::{Clock, EventSink, FileUploader, HttpRequester, Storage, Transport};
-use helix_core::{ExecutionShell, PortError, Tick};
+use helix_core::ports::{Clock, EventSink, FileUploader, FrameSender, HttpRequester, Storage};
+use helix_core::tick::AppCommand;
+use helix_core::{CoreError, Effect, EffectSink, ExecutionShell, Module, PortError, Tick};
 use helix_driver_host::engine::{
     run_engine_loop, EngineDeps, TransportLifecycleEvent, TransportTraceEvent,
 };
@@ -89,24 +90,47 @@ impl Clock for FixedClock {
     }
 }
 
-struct UnusedTransport;
+struct UnusedFrameSender;
 
 #[async_trait::async_trait]
-impl Transport for UnusedTransport {
-    async fn connect(&mut self) -> Result<(), PortError> {
-        unreachable!("transport should not be used")
-    }
-
+impl FrameSender for UnusedFrameSender {
     async fn send(&self, _: Bytes) -> Result<(), PortError> {
-        unreachable!("transport should not be used")
+        unreachable!("frame sender should not be used")
+    }
+}
+
+struct RecordingFrameSender {
+    tx: mpsc::UnboundedSender<Bytes>,
+}
+
+#[async_trait::async_trait]
+impl FrameSender for RecordingFrameSender {
+    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
+        self.tx
+            .send(frame)
+            .map_err(|_| PortError::Transport("recording receiver closed".to_string()))
+    }
+}
+
+struct SendOnCommand {
+    transport_id: TransportId,
+}
+
+impl Module for SendOnCommand {
+    fn name(&self) -> &'static str {
+        "send-on-command"
     }
 
-    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
-        unreachable!("transport should not be used")
+    fn accepts(&self, tick: &Tick) -> bool {
+        matches!(tick, Tick::Command(_))
     }
 
-    async fn close(&self) -> Result<(), PortError> {
-        unreachable!("transport should not be used")
+    fn handle(&mut self, _: &Tick, _: u64, out: &mut EffectSink) -> Result<(), CoreError> {
+        out.push(Effect::Send {
+            transport: self.transport_id,
+            frame: Bytes::from_static(br#"{"action":"ping"}"#),
+        });
+        Ok(())
     }
 }
 
@@ -133,7 +157,7 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
     };
 
     let loop_handle = tokio::spawn(async move {
-        run_engine_loop::<_, _, _, _, UnusedTransport, _>(
+        run_engine_loop::<_, _, _, _, UnusedFrameSender, _>(
             ExecutionShell::new(),
             tick_rx,
             tick_tx_for_loop,
@@ -179,6 +203,78 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
             error_class: None,
         }
     );
+
+    shutdown_tx.send(()).ok();
+    tokio::time::timeout(Duration::from_secs(1), loop_handle)
+        .await
+        .expect("engine loop should stop after shutdown")
+        .expect("engine loop task should not panic");
+}
+
+#[tokio::test]
+async fn registered_sender_is_used_by_next_send_effect() {
+    let target_id = TransportId::from_raw(2);
+    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(8);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let (transport_tx, transport_rx) = mpsc::unbounded_channel();
+    let (other_frame_tx, mut other_frame_rx) = mpsc::unbounded_channel();
+    let (target_frame_tx, mut target_frame_rx) = mpsc::unbounded_channel();
+
+    transport_tx
+        .send((
+            TransportId::from_raw(1),
+            Arc::new(RecordingFrameSender { tx: other_frame_tx }),
+        ))
+        .expect("register non-target sender");
+    transport_tx
+        .send((
+            target_id,
+            Arc::new(RecordingFrameSender {
+                tx: target_frame_tx,
+            }),
+        ))
+        .expect("register target sender");
+
+    let deps = EngineDeps {
+        storage: Arc::new(UnusedStorage),
+        http: Arc::new(UnusedHttp),
+        uploader: Arc::new(UnusedUploader),
+        event_sink: Arc::new(NoopSink),
+        clock: FixedClock,
+        trace: TraceHooks::noop(),
+        max_http_inflight: 1,
+        transport_lifecycle_tx: None,
+        transport_trace_tx: None,
+    };
+    let mut shell = ExecutionShell::new();
+    shell.register(SendOnCommand {
+        transport_id: target_id,
+    });
+    let tick_tx_for_loop = tick_tx.clone();
+    let loop_handle = tokio::spawn(async move {
+        run_engine_loop(
+            shell,
+            tick_rx,
+            tick_tx_for_loop,
+            deps,
+            shutdown_rx,
+            HashMap::new(),
+            transport_rx,
+        )
+        .await;
+    });
+
+    tick_tx
+        .send(Tick::Command(AppCommand::new("send", Vec::new())))
+        .await
+        .expect("send command tick");
+
+    let frame = tokio::time::timeout(Duration::from_millis(500), target_frame_rx.recv())
+        .await
+        .expect("target sender should receive frame")
+        .expect("target sender channel should stay open");
+    assert_eq!(frame, Bytes::from_static(br#"{"action":"ping"}"#));
+    assert!(other_frame_rx.try_recv().is_err());
 
     shutdown_tx.send(()).ok();
     tokio::time::timeout(Duration::from_secs(1), loop_handle)

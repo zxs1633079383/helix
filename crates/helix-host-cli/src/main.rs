@@ -23,7 +23,6 @@ mod repl;
 use host_env::{default_api_base, machine_device_id, resolve_db_path, DbPathInputs};
 
 use helix_core::effect::TransportId;
-use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_native::{
     run_engine_loop_with_transports, AuthTokenRegistry, EngineConfig, HostNetworkConfig,

@@ -27,7 +27,8 @@
 //! ## ws_stream_wasm 维护状态
 //!
 //! ws_stream_wasm 最后活跃提交 2021 年。备选：`web-sys WebSocket + futures-channel 手桥`。
-//! 评估后选择备选方案时，替换 WasmTransport 实现即可，port 契约不变。
+//! 本 crate 保持归档；正式 Web driver 不从这里原地转正。当前仅跟随 core 的
+//! send-only `FrameSender` 边界，物理连接生命周期不属于 core port。
 
 // MAJ-2: 非 wasm32 target 时立即编译失败，防止误链接
 #[cfg(not(target_arch = "wasm32"))]

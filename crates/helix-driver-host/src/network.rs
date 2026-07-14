@@ -11,7 +11,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use helix_core::effect::{HttpRequest, HttpResponse, TransportId};
-use helix_core::ports::{HttpRequester, Transport};
+use helix_core::ports::{FrameSender, HttpRequester};
 use helix_core::tick::InboundBytes;
 use helix_core::{PortError, Tick};
 use reqwest::header::{HeaderMap, USER_AGENT};
@@ -259,7 +259,7 @@ enum WsState {
 /// - **push（native engine_loop）**：注入 `(id, tick_tx)` → 读任务把数据帧作 `Tick::Inbound`
 ///   直接喂泵，连接关闭/出错作 `Tick::Disconnected`。native engine_loop 从不调 `recv()`，
 ///   入站全靠此通道（A2，HX 入站不变量）。读任务独立持 stream 半边，不碰 send 锁。
-/// - **pull（FFI / 单测）**：无 `inbound` → 读任务塞内部 `frame_rx`，由 `Transport::recv()` 拉取。
+/// - **pull（兼容 / 单测）**：无 `inbound` → 读任务塞内部 `frame_rx`，由平台生命周期 API 拉取。
 pub struct SharedWsClient {
     config: HostNetworkConfig,
     headers: HostHeaderRegistry,
@@ -300,9 +300,8 @@ impl SharedWsClient {
     }
 }
 
-#[async_trait::async_trait]
-impl Transport for SharedWsClient {
-    async fn connect(&mut self) -> Result<(), PortError> {
+impl SharedWsClient {
+    pub async fn connect(&mut self) -> Result<(), PortError> {
         let mut request = self
             .config
             .ws_url
@@ -366,7 +365,7 @@ impl Transport for SharedWsClient {
                         // 入站读出错（如非法帧）：视为连接异常，下面 loop 退出补 Disconnected。
                         Err(_) => break,
                     },
-                    // pull 路径（FFI / 单测）：塞 frame_rx 供 recv 拉取。
+                    // pull 路径（无 inbound bridge 的兼容/单测）：塞 frame_rx 供 recv 拉取。
                     None => {
                         if frame_tx.send(frame).await.is_err() {
                             break; // 接收端已关闭
@@ -396,7 +395,7 @@ impl Transport for SharedWsClient {
     /// helix 出站帧是 JSON（hello/ping/业务），必须发 **Text**——发 Binary 则 Go 用 msgpack
     /// 解 `{`(0x7b) 失败：`msgpack: unexpected code=7b decoding map length` → 关连接
     /// （真 Go dev-loop 三测实测定位的 ~8s 断连根因，c823701）。双端（PC+Flutter）共享此修。
-    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
+    async fn send_frame(&self, frame: Bytes) -> Result<(), PortError> {
         let mut state = self.state.lock().await;
         match &mut *state {
             WsState::Connected { sink, .. } => {
@@ -410,7 +409,7 @@ impl Transport for SharedWsClient {
         }
     }
 
-    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
+    pub async fn recv(&self) -> Result<Option<Bytes>, PortError> {
         let mut state = self.state.lock().await;
         match &mut *state {
             WsState::Connected { frame_rx, .. } => match frame_rx.recv().await {
@@ -422,7 +421,7 @@ impl Transport for SharedWsClient {
         }
     }
 
-    async fn close(&self) -> Result<(), PortError> {
+    pub async fn close(&self) -> Result<(), PortError> {
         let mut state = self.state.lock().await;
         if let WsState::Connected { sink, reader, .. } = &mut *state {
             sink.send(Message::Close(None)).await.map_err(map_ws_err)?;
@@ -430,5 +429,12 @@ impl Transport for SharedWsClient {
         }
         *state = WsState::Disconnected;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl FrameSender for SharedWsClient {
+    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
+        self.send_frame(frame).await
     }
 }

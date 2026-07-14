@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use helix_core::effect::TransportId;
-use helix_core::ports::Transport;
+use helix_core::ports::FrameSender;
 use helix_core::PortError;
 use tokio::sync::mpsc;
 
@@ -70,7 +70,7 @@ pub fn spawn_reconnect_supervisor<Tr, Make, Fut>(
     mut make_transport: Make,
 ) -> tokio::task::JoinHandle<()>
 where
-    Tr: Transport + Send + Sync + 'static,
+    Tr: FrameSender + Send + Sync + 'static,
     Make: FnMut() -> Fut + Send + 'static,
     Fut: Future<Output = Result<Tr, PortError>> + Send + 'static,
 {

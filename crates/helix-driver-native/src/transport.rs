@@ -15,7 +15,7 @@ use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::PortError;
 use helix_core::Tick;
-use helix_driver_host::{HostNetworkConfig, SharedWsClient};
+use helix_driver_host::{HostHeaderRegistry, HostNetworkConfig, SharedWsClient};
 use tokio::sync::mpsc;
 
 /// PC/Tauri transport wrapper.
@@ -39,6 +39,30 @@ pub struct NativeTransport {
     /// 现网 Go 在 HTTP 升级中间件按 header 建 session，session 空则不发 hello、超时关连接，
     /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。connect 前灌进共享 registry。
     handshake_headers: Vec<(String, String)>,
+    reconnect: Option<NativeReconnectFactory>,
+}
+
+#[derive(Clone)]
+pub(crate) struct NativeReconnectFactory {
+    config: HostNetworkConfig,
+    headers: HostHeaderRegistry,
+    id: TransportId,
+    tick_tx: Option<mpsc::Sender<Tick>>,
+}
+
+impl NativeReconnectFactory {
+    pub(crate) fn build(&self) -> Result<NativeTransport, PortError> {
+        let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?;
+        if let Some(tx) = &self.tick_tx {
+            inner = inner.with_inbound_tick(self.id, tx.clone());
+        }
+        Ok(NativeTransport::from_shared_parts(
+            inner,
+            self.id,
+            self.tick_tx.clone(),
+            Some(self.clone()),
+        ))
+    }
 }
 
 impl NativeTransport {
@@ -58,6 +82,7 @@ impl NativeTransport {
                 connected: AtomicBool::new(false),
                 disconnected_emitted: AtomicBool::new(false),
                 handshake_headers: Vec::new(),
+                reconnect: None,
             },
         }
     }
@@ -74,19 +99,35 @@ impl NativeTransport {
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Result<Self, PortError> {
-        let mut inner = SharedWsClient::new(config)?;
+        let headers = HostHeaderRegistry::default();
+        let mut inner = SharedWsClient::with_registry(config.clone(), headers.clone())?;
         // A2：tick_tx=Some（生产 native 路径）→ 共享读任务作 Tick::Inbound 直发泵；
         // tick_tx=None（单测手动驱动）→ 不注入，读任务回退 frame_rx，由 recv() 拉取。
         if let Some(tx) = &tick_tx {
             inner = inner.with_inbound_tick(id, tx.clone());
         }
-        Ok(Self::from_shared(inner, id, tick_tx))
+        let reconnect = NativeReconnectFactory {
+            config,
+            headers,
+            id,
+            tick_tx: tick_tx.clone(),
+        };
+        Ok(Self::from_shared_parts(inner, id, tick_tx, Some(reconnect)))
     }
 
     pub fn from_shared(
         inner: SharedWsClient,
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
+    ) -> Self {
+        Self::from_shared_parts(inner, id, tick_tx, None)
+    }
+
+    fn from_shared_parts(
+        inner: SharedWsClient,
+        id: TransportId,
+        tick_tx: Option<mpsc::Sender<Tick>>,
+        reconnect: Option<NativeReconnectFactory>,
     ) -> Self {
         Self {
             id,
@@ -96,7 +137,12 @@ impl NativeTransport {
             connected: AtomicBool::new(false),
             disconnected_emitted: AtomicBool::new(false),
             handshake_headers: Vec::new(),
+            reconnect,
         }
+    }
+
+    pub(crate) fn reconnect_factory(&self) -> Option<NativeReconnectFactory> {
+        self.reconnect.clone()
     }
 
     async fn emit(&self, tick: Tick) {

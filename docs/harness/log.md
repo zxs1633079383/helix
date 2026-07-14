@@ -11,3 +11,4 @@
 | 2026-06-21 | HX-C012 | 本会话「修复候选和f5」3418ac7/2664cfd | 新建 HX-C012（实质任务须开局 EXPECT·用户拍板）+ **建卡当会话即自指复发**：修复任务自身漏写开局 EXPECT | 建卡；recurrence 即记 2→3（finalize+a80cc49+本次自指）；如实记非补假 EXPECT（守 §3）；同根达 3 部分缓解回放闸门 HOLD |
 | 2026-06-23 | HX-C014 | 早安日志复盘（06-22 198 条）| 分支身份迷失：「你在哪个分支/dev-zlc 能合吗/删这个分支」一天 ≥6 次；本会话又误判主仓在 main（实际 ci/test-harbor-runner）| 新建 HX-C014 + `scripts/branch-identity.sh`（自陈，full/--session 两模式）+ SESSION §0 置顶 🧭 BRANCH-ID 唯一行；用户明确要求实现 |
 | 2026-06-23 | HX-C015 | 早安日志复盘（06-22 198 条 + 06-07 cron 119 次）| 「等 workflow/drift-review 跑完报告结果」手工催 ≥5 次 + 历史固定 10min cron 110+ 空转 | 新建 HX-C015；harness 完成自动 task-notification 回灌，禁手工轮询；外部不可追踪态才 /loop；用户明确要求实现 |
+| 2026-07-14 | HX-C003 | A4 Web Rust platform driver | `linkme` 在 native 正常，`wasm32-unknown-unknown` final build 才暴露不支持 constructors | 注册单轨迁到 `inventory`；HX-C003 激活为 native test + wasm final build + 双目标依赖边界守护 |

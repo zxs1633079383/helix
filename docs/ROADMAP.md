@@ -10,7 +10,7 @@
 > 2026-07-13 更新：Web 仍是产品目标，但原 **W0 浏览器探针 → W1-W4 Web 壳/缓存**执行路线已撤销。当前先拍板新的 Rust 架构：三端统一业务门面、PC/Flutter 默认 host 能力、Web 平台适配能力，以及 local-first/remote fallback 与 WS 物理连接/业务协议边界；拍板前不实施新 Web driver。历史 `helix-driver-wasm` 继续归档。
 > 2026-07-14 更新：用户拍板新的 [三端 Rust 业务门面与平台适配设计](./过会方案/helix-三端Rust业务门面与平台适配设计.md)。不新增共享大 crate：先收口 `helix-im::client_api` 与异步 query 真源，再缩窄 core WS port，最后建立独立 `helix-driver-web`。PC/Flutter 保持 shared host 默认实现；Web 首版为 Rust 内存 session store + Browser Fetch + 浏览器物理 WS bridge。
 > 2026-07-14 A1：`helix-im::client_api` 已成为 alias、payload normalization、capabilities 与 `AppCommand` 构造真源；`mobile_contract` 仅兼容 re-export，FFI 已删除本地业务构造逻辑。native 当前没有 public-name/payload/Tauri invoke 边界，本阶段不凭空增加 wrapper，真实入口出现时直接复用共享门面。
-> 2026-07-14 A4：`helix-driver-web` Rust 平台壳已落地；Browser Fetch、page-session store、外部 WS bridge、browser timer、有界 event batch v2 与 WASM API 均通过构建/测试，同 Tick native/FFI/Web parity 通过。HTTP 结果到业务事件的策略由 `helix-im` 单一持有，host/Web 只注入 observer；事件/动作/运行时问题轮询队列均有硬上限和显式丢弃/失败语义。真浏览器/真 Go glue、正式 Web CI/HX-C003 激活和历史 wasm 清理仍属 A5。
+> 2026-07-14 A4：`helix-driver-web` Rust 平台壳已落地；Browser Fetch、page-session store、外部 WS bridge、browser timer、有界 event batch v2 与 WASM API 均通过构建/测试，同 Tick native/FFI/Web parity 通过。HTTP 结果到业务事件的策略由 `helix-im` 单一持有，host/Web 只注入 observer；事件/动作/运行时问题轮询队列均有硬上限和显式丢弃/失败语义。A5 已激活正式 Web CI/HX-C003；真浏览器/真 Go glue 与历史 wasm 独立清理继续推进。
 
 ---
 
@@ -32,7 +32,7 @@
 
 ### AI 工程化硬化（已闭合，见 §四；本段保留为历史对照）
 
-当前 CI 仍是已产品化双端 matrix（native + FFI）→ clippy deny-list → per-crate AGENTS.md → cargo public-api gate。A4 Web Rust 壳已单独通过 wasm build 与契约测试；正式 Web target/type-check gate 和 HX-C003 留到 A5 真浏览器链路激活，当前不用历史骨架伪造绿色 gate。
+当前 CI 是 native + FFI + Web Rust 三端门：Web 同时执行 native test、wasm final build、双目标 strict clippy 与 host runtime 依赖泄漏守护；浏览器 E2E 仍由独立环境执行，不能用 WASM build 伪造真链路绿色。
 
 - [x] **F1 Flutter FFI API 最小面** ✅：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 已接 IM 本地查询路由**（`helix_im::mobile_query::{plan,shape_json}` → `ScanSpec` → SQLite-backed read），剩余验收放入 F5 Flutter demo / native-vs-FFI parity
 - [x] **F2 host storage 复用** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 覆盖；**pump 直接用 `HostStorage`**（F4 后 `FfiStorage` 冗余薄壳已 git rm）
@@ -64,7 +64,7 @@
 - [x] **A3 WS port 缩窄**：core 只暴露 send-only `FrameSender`；host engine/dispatch 只依赖发帧，`SharedWsClient`/`NativeTransport` 以具体类型管理 connect/recv/close，reconnect 留在 host；旧 core `Transport` 已删除。〔验收〕只实现 send 的 dyn-safe 契约、精确 TransportId/bytes 路由、动态注册后发送、native 受控本地 WS 的三类 Tick/reader 内部顺序、两份独立 shell 对相同**注入**生命周期 Tick 的逐步业务输出一致；core 零 runtime。这里不声称 native/FFI 物理生产者已 parity。
 - [x] **A3.1 真实 WS 生命周期收口**：`SharedWsClient::connect` 只完成握手并返回一次性 activation；host 动态注册先 insert sender 再回 ack，native 预填表与 FFI 初连/重连均在 sender 可路由后发布 Connected，随后才放行 reader。reader/显式 close 共用每连接 `Prepared → Active → Finished` 状态，remote-close + cleanup-close 只产一次 Disconnected。〔验收〕host Connected 即 Send 命中注册 sender；native 本地 WS 严格 `Connected → Inbound → Disconnected` 且 cleanup 无尾随 Tick；FFI 真实 pump 两代连接严格 `Connected → Inbound → Disconnected → Connected → Inbound`。
 - [x] **A4 新建 `helix-driver-web`**：纯 Rust 实现 Browser Fetch（完整 body、timeout、shutdown abort）、有界 page-session store、ExternalWsBridge、browser timer、有界 event batch v2 与 WASM API，不写前端页面；`helix-im` 注册机制由不支持该 wasm target 的 `linkme` 单轨迁为 `inventory`，仅 Web final artifact 负责初始化 WASM constructors。HTTP outcome 业务策略在 `helix-im` 单一持有，host/Web 经 observer 复用；所有 JS 轮询输出队列都有硬上限，event batch 用 gap/drop 计数报告丢弃。〔验收〕`wasm32-unknown-unknown` build 通过，相关六 crate 全测通过，同 Tick 剧本三端 parity 通过；Web 未复制业务 fetch/WS parser/sync/cursor。
-- [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003；清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路。〔验收〕浏览器矩阵和真 Go E2E 通过，且继续复用 A3.1 的真实 adapter Tick 顺序/去重合同。
+- [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；正式 Web gate/HX-C003 已激活；历史 `helix-driver-wasm` 独立删除。FFI `mobile_query` 仅在真实 Flutter 消费方完成异步 query 迁移并给出证据后删除，当前保留 compatibility。〔验收〕浏览器矩阵和真 Go E2E 通过，且继续复用 A3.1 的真实 adapter Tick 顺序/去重合同。
 
 ---
 

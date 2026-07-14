@@ -1,6 +1,6 @@
 # Helix 三端 Rust 业务门面与平台适配设计
 
-> 状态：2026-07-14 用户拍板；A1-A4 已落地，下一阶段 A5 真链路与清理。
+> 状态：2026-07-14 用户拍板；A1-A4 已落地，A5 浏览器 glue、Go query 鉴权、正式 Web gate 与历史清理实施中。
 >
 > 决策真源：[`../harness/decisions.md`](../harness/decisions.md) ADR-014。
 >
@@ -295,6 +295,11 @@ take_platform_actions / on_send_frame
 
 这些是基础设施接线，不是业务接口；它们不得解析 IM 帧或维护 cursor/echo/sync。
 
+浏览器原生 `WebSocket` 不设置自定义握手 Header。A5 平台 glue 用 `URLSearchParams` 在 `ws_url`
+追加 `cookieId=authUserId`；Go WS handler 保留 header 优先，在 header 缺失时从 query 的
+`userId → cookieId` 回落。query 身份值进入 raw trace/日志前必须遮罩。该约定只解决物理 WS 鉴权，
+HTTP 仍由 Rust Browser Fetch 通过已有 session/header 配置执行。
+
 首版明确不做 IndexedDB/OPFS。若以后增加跨刷新缓存，必须另行拍板容量、coverage 与 cursor
 联合检查点，不改变 `helix-im` 的业务接口。
 
@@ -312,12 +317,12 @@ WASM constructors 的显式初始化只属于 `helix-driver-web` final artifact/
 
 ### 4.8 历史 `helix-driver-wasm`
 
-不在原 crate 上继续开发。A4 `helix-driver-web` 已通过 Rust/WASM 验收；以下清理仍留到 A5
-真链路与正式 CI gate 一并完成：
+不在原 crate 上继续开发。A4 `helix-driver-web` 已通过 Rust/WASM 验收；正式 CI/HX-C003 已在 A5
+切到新 driver，历史 crate 按独立提交删除：
 
 1. 审计历史代码，只迁移被测试证明可复用的无业务片段；
 2. 单独提交删除 `helix-driver-wasm`；
-3. HX-C003 改为守护正式 `helix-driver-web`，不再指向历史骨架。
+3. HX-C003 改为守护正式 `helix-driver-web`，不再指向历史骨架。✅
 
 ## 5. 分阶段实施
 
@@ -400,7 +405,8 @@ HTTP outcome 业务策略由 `helix-im` 单一持有，host/Web 只注入 observ
 ### A5：真实链路与清理
 
 用最小平台 glue 验证 hello → 收帧 → query → HTTP fallback → send → echo → disconnect/reconnect；
-激活 HX-C003/CI 后删除历史 wasm crate 和 FFI `mobile_query` 旁路。真实 adapter 的
+正式 HX-C003/CI 已激活，历史 wasm crate 独立删除。FFI `mobile_query` 只有在真实 Flutter 消费方
+完成异步 query 迁移并提供证据后才能删除，当前保留 compatibility。真实 adapter 的
 “注册 sender → 发布 Connected → 放行 reader”与断线去重已经由 A3.1 冻结；A5 只需在 Web
 真链路继续复用该合同，不能退回手工 Tick 剧本替代物理生产者。
 
@@ -428,4 +434,4 @@ HTTP outcome 业务策略由 `helix-im` 单一持有，host/Web 只注入 observ
 - WS 帧解析、sequence/cursor、echo、sync 三端只有一份；
 - Web 刷新不保留无法由数据 coverage 证明的 cursor；
 - `helix-core` 仍零 runtime/platform 依赖；
-- 历史 `helix-driver-wasm` 与 `mobile_query` 重复旁路完成清理。
+- 历史 `helix-driver-wasm` 完成清理；移动端迁移证据到位后再清理 `mobile_query` 重复旁路。

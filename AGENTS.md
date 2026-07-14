@@ -49,7 +49,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **Web 方案实施中**：A1 `helix-im::client_api`、A2 local-first 查询、A3 send-only `FrameSender`、A3.1 真实 WS 生命周期发布屏障与 A4 `helix-driver-web` Rust 平台壳均已落地；下一步只按 A5 接真浏览器/真 Go glue、激活正式 Web gate，再清理历史旁路。历史 `helix-driver-wasm` 继续归档，不原地冒充交付实现。
+- [ ] **Web 方案实施中**：A1 `helix-im::client_api`、A2 local-first 查询、A3 send-only `FrameSender`、A3.1 真实 WS 生命周期发布屏障与 A4 `helix-driver-web` Rust 平台壳均已落地；A5 正在接最小浏览器 glue，正式 Web gate/HX-C003 已激活。历史 `helix-driver-wasm` 只允许独立删除；FFI `mobile_query` 在移动端迁移证据出现前保留兼容，不以“仓内无调用”冒充已迁移。
 - [ ] **Web 持久化可降级**：PC/Flutter 可完整 SQLite；Web 可以无本地持久化或只保留明确受限的缓存。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
 - [ ] **WebSocket 边界**：core port 只保留 outbound frame；三端共享 `helix-im` 的帧处理与协议生命周期。PC/Flutter 复用 Rust 默认连接实现，Web 的真实 socket、重连执行、浏览器生命周期与鉴权接线由 Web 平台适配器兑现。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）
@@ -62,9 +62,9 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 ## 3. 编译 / 测试 cadence
 
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
-- **已产品化双端验收**（phase 完成前 / 改 port 或 driver 后必跑；A4 Web Rust 壳当前另跑 wasm 验证，正式 Web gate 待 A5）：
+- **三端 Rust 验收**（phase 完成前 / 改 port 或 driver 后必跑；真浏览器 E2E 另行执行）：
   ```bash
-  cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
+  cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
   cargo test -p helix-core
   cargo build --target wasm32-unknown-unknown -p helix-driver-web
   ```
@@ -111,7 +111,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 |---|---|---|
 | HX-C001 | helix-core 零运行时 / 零平台依赖（grep gate）| active |
 | HX-C002 | async port Send 边界 + 状态禁 `&'a`（双端 + 生命周期）| active |
-| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（A4 已落地；待 A5 真链路时激活为正式 Web gate） |
+| HX-C003 | Web 双目标代码须 native test + wasm final build，禁止 host runtime 泄漏 | active |
 | HX-C004 | features 必须 additive，禁互斥 | active |
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |

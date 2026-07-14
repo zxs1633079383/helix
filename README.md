@@ -54,7 +54,7 @@ rustup target add wasm32-unknown-unknown
 cargo build --target wasm32-unknown-unknown -p helix-driver-web
 ```
 
-这只验证 Rust/WASM 平台壳；浏览器 bootstrap、真 Go E2E 和正式 CI gate 属于 A5，不能据此宣称 Web 产品已经交付。
+这条构建已纳入正式 CI/HX-C003，并与 native 单测、双目标 clippy、Web 依赖边界一起执行；它仍不能冒充浏览器 bootstrap 或真 Go E2E，不能据此宣称 Web 产品已经交付。
 
 ## 验收红线（CI 强制）
 

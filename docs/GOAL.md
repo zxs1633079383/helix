@@ -41,7 +41,7 @@
 ## §3 成功标准（measurable）
 
 - ✅ `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 输出为空
-- ✅ 已产品化双端编译全绿；A4 `helix-driver-web` 已通过 `wasm32-unknown-unknown` 构建，正式 Web CI/HX-C003 待 A5 真链路激活
+- ✅ 已产品化双端编译全绿；A4 `helix-driver-web` 已通过 `wasm32-unknown-unknown` 构建，正式 Web CI/HX-C003 已在 A5 激活为 native + wasm final artifact 双目标门
 - ✅ `grep channel/message/temporaryId crates/helix-core` = 0（纯 IM 概念隔离；cursor 概念归 helix-im，core 只有通用 `monotonic_upsert` 单调原语——ADR-004 已闭环，见 [decisions.md](./harness/decisions.md#adr-004) / 纪要拍板 #1）
 - ✅ 加新业务模块 = 实现 `Module` trait + `register()`，**core 一行不改**（开闭原则）
 - ✅ 加新平台 = 实现 ports，**core/模块一行不改**

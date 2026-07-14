@@ -1,6 +1,6 @@
 # helix-driver-web 局部指令（就近优先，全局见根 AGENTS.md）
 
-> A4 Rust 平台壳已交付；A5 真浏览器/真 Go glue 与正式 CI gate 尚未交付。本 crate 不包含前端页面。
+> A4 Rust 平台壳已交付；A5 正在接最小浏览器/真 Go glue，正式 CI/HX-C003 已激活。本 crate 不包含前端页面。
 
 ## 冻结边界
 
@@ -20,4 +20,4 @@ cargo build --target wasm32-unknown-unknown -p helix-driver-web
 cargo test -p helix-driver-web
 ```
 
-涉及业务 Tick/Effect 时，还必须保留 native/FFI/Web 同剧本 parity；真浏览器链路与 HX-C003 激活按 A5 推进。
+涉及业务 Tick/Effect 时，还必须保留 native/FFI/Web 同剧本 parity；HX-C003 只证明双目标制品与依赖边界，真浏览器链路仍按 A5 独立验收。

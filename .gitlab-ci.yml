@@ -32,9 +32,10 @@ default:
   before_script:
     # _with_tools 镜像已烤入 rustfmt/clippy/wasm32；仅自检不再联网 add（air-gapped 安全）
     - rustup component list --installed
+    - rustup target list --installed | grep -qx wasm32-unknown-unknown
     - cargo fmt --version && cargo clippy --version
 
-# ── 主闸门：三栖 check → clippy → test → 零运行时 → 零业务 → harness 索引 ──
+# ── 主闸门：三端 Rust check → Web final build → clippy/test → 依赖边界 → harness 索引 ──
 # gate.sh 的 public-api 步骤在本 job 未装工具时自动跳过，不影响主闸门；独立 job 负责公开面。
 gate:
   stage: gate

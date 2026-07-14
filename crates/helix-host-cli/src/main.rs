@@ -7,7 +7,9 @@ use tokio::sync::{mpsc, oneshot};
 
 mod cmd_parse;
 mod config;
+mod event_observer;
 mod host_env;
+mod metric_runtime;
 mod repl;
 use host_env::{default_api_base, machine_device_id, resolve_db_path, DbPathInputs};
 
@@ -22,7 +24,6 @@ use helix_driver_native::{
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
-use tokio::sync::broadcast::error::RecvError;
 
 #[tokio::main]
 async fn main() {
@@ -46,24 +47,8 @@ async fn main() {
     cfg.apply_env_overrides(); // debug 逃生口（release 为 no-op，彻底去 env）
     cfg.apply_cli_overrides(&cli); // 双账号 e2e：flag 覆盖 identity（最高优先级）
     let otel = cfg.observability.otel_runtime();
-    let metric_config = cfg.observability.metrics_config();
-    let metric_shutdown_timeout =
-        std::time::Duration::from_millis(cfg.observability.metrics.shutdown_timeout_ms);
-    let mut metric_runtime =
-        match helix_driver_host::BoundedMetricRuntime::start_otlp(metric_config) {
-            Ok(runtime) => Some(runtime),
-            Err(error) => {
-                tracing::error!(%error, "host-cli 指标 worker 启动失败，降级为 Noop");
-                None
-            }
-        };
-    let metrics = metric_runtime.as_ref().map_or_else(
-        || {
-            Arc::new(helix_driver_host::NoopMetricSink)
-                as Arc<dyn helix_driver_host::AsyncMetricSink>
-        },
-        helix_driver_host::BoundedMetricRuntime::sink,
-    );
+    let metric_runtime = metric_runtime::HostMetricRuntime::start(&cfg);
+    let metrics = metric_runtime.sink();
 
     let ws_url = cfg.connection.ws_url.clone();
     // api base 含 /api/cses；default_api_base 承载 vote/score 第二网关。
@@ -153,7 +138,7 @@ async fn main() {
     }
     // EventSink 先于 HTTP：P6 blocker(b) 横切层 401/断网回报经它 emit，故 with_crosscut 前先建。
     // Clone 是 Arc-backed O(1)：一份给横切回报，原件随后进 EngineConfig（同一 broadcast）。
-    let (event_sink, mut event_rx) = NativeEventSink::new();
+    let (event_sink, event_rx) = NativeEventSink::new();
     let event_sink = event_sink.with_metric_sink(Arc::clone(&metrics));
 
     // 横切层负责鉴权意图、401/断网事件与 trace；凭据留 driver，core 零 token（C6）。
@@ -273,28 +258,7 @@ async fn main() {
     let trace = TraceHooks::noop().with_otel(otel);
 
     // ── 观察 emit 出口（领域事件打印，验证 EventSink 兑现）──
-    tokio::spawn(async move {
-        loop {
-            match event_rx.recv().await {
-                // 解出事件名供 e2e 断言；解析失败回退长度，不崩。
-                Ok(ev) => {
-                    match serde_json::from_slice::<serde_json::Value>(&ev.0)
-                        .ok()
-                        .and_then(|v| v.get("event").and_then(|e| e.as_str()).map(str::to_owned))
-                    {
-                        Some(name) => {
-                            tracing::info!(event = %name, bytes = ev.0.len(), "DomainEvent emit")
-                        }
-                        None => tracing::info!(bytes = ev.0.len(), "DomainEvent emit (unparsed)"),
-                    }
-                }
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!(dropped = n, "EventSink 落后丢事件（应触发重拉）")
-                }
-                Err(RecvError::Closed) => break,
-            }
-        }
-    });
+    event_observer::spawn(event_rx);
 
     // ── 跑泵 ────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -312,10 +276,7 @@ async fn main() {
         transports,
     )
     .await;
-    if let Some(runtime) = metric_runtime.take() {
-        let outcome = runtime.shutdown(metric_shutdown_timeout);
-        tracing::info!(?outcome, "host-cli 指标 worker 已关闭");
-    }
+    metric_runtime.shutdown();
     tracing::info!("engine loop 退出");
 }
 

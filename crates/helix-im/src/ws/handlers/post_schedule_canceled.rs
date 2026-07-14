@@ -26,7 +26,7 @@ impl WsMessageHandler for ScheduleCanceledHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -46,7 +46,14 @@ impl WsMessageHandler for ScheduleCanceledHandler {
             channel_id,
             vec![("has_schedule_post", SqlValue::Integer(0))],
         ));
-        out.push(crate::acl::to_effect_s1::emit_schedule_canceled(channel_id));
+        let can_view_preview =
+            crate::acl::to_effect_s1::schedule_preview_authorized(data, ctx.auth_user_id);
+        out.push(crate::acl::to_effect_s1::emit_schedule_canceled(
+            channel_id,
+            data,
+            frame.event_seq().map(|seq| seq.0),
+            can_view_preview,
+        ));
         Ok(())
     }
 }

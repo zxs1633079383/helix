@@ -832,11 +832,20 @@ fn nickname_update_missing_user_id_noop_s1() {
 /// 回归锚: S1 —— post_schedule_created 置 has_schedule_post=1 + emit。
 #[test]
 fn schedule_created_sets_flag_s1() {
-    let mut h = Harness::new(&[9]);
+    let mut h = Harness::new_with_identity(&[9], "u-self", "", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
             "action": "post_schedule_created",
-            "data": { "channelId": cid(9) }
+            "eventSeq": 21,
+            "data": {
+                "channelId": cid(9),
+                "scheduleId": "schedule-9",
+                "sendAt": 1_700_000_000_000_i64,
+                "status": "scheduled",
+                "revision": 7,
+                "scheduleOwnerUserId": "u-self",
+                "messagePreview": "下午三点发送"
+            }
         })),
         1_000,
     );
@@ -851,16 +860,30 @@ fn schedule_created_sets_flag_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:schedule-created"));
+    let updates = emit_data(&h.sink, "im:channel:schedule-created");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["scheduleId"], "schedule-9");
+    assert_eq!(updates[0]["sendAt"], 1_700_000_000_000_i64);
+    assert_eq!(updates[0]["status"], "scheduled");
+    assert_eq!(updates[0]["revision"], 7);
+    assert_eq!(updates[0]["messagePreview"], "下午三点发送");
 }
 
 /// 回归锚: S1 —— post_schedule_canceled 置 has_schedule_post=0 + emit。
 #[test]
 fn schedule_canceled_clears_flag_s1() {
-    let mut h = Harness::new(&[9]);
+    let mut h = Harness::new_with_identity(&[9], "u-observer", "", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
             "action": "post_schedule_canceled",
-            "data": { "channelId": cid(9) }
+            "eventSeq": 22,
+            "data": {
+                "channel_id": cid(9),
+                "schedule_id": "schedule-9",
+                "send_at": 1_700_000_000_000_i64,
+                "schedule_owner_user_id": "u-owner",
+                "message_preview": "观察者不可见正文"
+            }
         })),
         1_000,
     );
@@ -875,4 +898,13 @@ fn schedule_canceled_clears_flag_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:schedule-canceled"));
+    let updates = emit_data(&h.sink, "im:channel:schedule-canceled");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["scheduleId"], "schedule-9");
+    assert_eq!(updates[0]["status"], "canceled");
+    assert_eq!(
+        updates[0]["revision"], 22,
+        "缺 revision 时回退服务端 event_seq"
+    );
+    assert!(updates[0]["messagePreview"].is_null());
 }

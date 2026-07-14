@@ -140,9 +140,20 @@ pub(super) mod sdk {
             },
         };
         let metrics = metric_points(config, run_id, &enabled, saturation, overhead);
+        let mut trace = enabled.trace;
+        trace.push(json!({
+            "stage": "telemetry.compare",
+            "offP99Ms": off_p99,
+            "onP99Ms": on_p99,
+            "overheadRatio": overhead,
+            "budgetRatio": config.thresholds.max_telemetry_p99_overhead_ratio,
+            "ratedDropRatio": rated_drop_ratio,
+            "ratedDropBudget": config.thresholds.max_drop_ratio_rated,
+            "saturationDrops": saturation.dropped,
+        }));
         let artifacts = RunArtifacts {
             hdr: enabled.hdr,
-            trace_index: enabled.trace,
+            trace_index: trace,
             sqlite: json!({"rows": enabled.rows, "wal": true, "pathRedacted": true}),
             cleanup: json!({"residue": enabled.cleanup_residue, "status": if enabled.cleanup_residue == 0 { "clean" } else { "dirty" }}),
         };

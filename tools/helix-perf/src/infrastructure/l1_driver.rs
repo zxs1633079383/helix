@@ -11,7 +11,7 @@ use helix_im::ImModule;
 use sha2::{Digest, Sha256};
 
 use super::hdr::encode_histograms;
-use super::l1_metrics::{l1_metric_points, zero_correctness};
+use super::l1_metrics::{export_l1_histograms, l1_metric_points, zero_correctness};
 use super::l1_oracle::canonical_effect_bytes;
 use crate::domain::{MetricPoint, RunArtifacts, RunSummary, SampleStats, ScenarioConfig, Verdict};
 
@@ -124,6 +124,14 @@ pub fn execute_l1(
         &effects_hist,
         &bytes_hist,
     );
+    export_l1_histograms(
+        config,
+        load_iterations,
+        lost,
+        &latency,
+        &effects_hist,
+        &bytes_hist,
+    )?;
     let histograms = BTreeMap::from([
         ("core_step".into(), latency),
         ("effects_per_tick".into(), effects_hist),

@@ -11,7 +11,7 @@ use helix_core::ports::{Storage, Transport};
 use helix_core::tick::InboundBytes;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::{
-    run_engine_loop, EngineDeps, HostNetworkConfig, HostStorage, SharedFileUploader,
+    run_engine_loop, EngineDeps, HostNetworkConfig, HostStorage, MetricId, SharedFileUploader,
     SharedHttpClient, SharedWsClient, TraceHooks, TransportTable,
 };
 use helix_driver_native::{NativeClock, NativeEventSink};
@@ -181,12 +181,16 @@ pub async fn run_case(
     tokio::time::sleep(Duration::from_millis(windows[3])).await;
 
     oracle.attach_histograms(&mut histograms);
+    let queue_wait = histograms
+        .get("tick_queue_wait")
+        .ok_or("PERF_EVIDENCE_CORRUPT: tick queue histogram missing")?;
+    metric_probe.record_duration_histogram(MetricId::TickQueueWaitSeconds, queue_wait, "core")?;
     let rows = storage
         .scan(ScanSpec {
             table: "perf_events",
             limit: None,
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .map_err(|e| format!("PERF_EVIDENCE_CORRUPT: SQLite scan: {e}"))?
@@ -215,6 +219,7 @@ pub async fn run_case(
     let cleanup_residue = sqlite_residue(&db_path);
     let correctness = oracle.correctness(expected, rows, cleanup_residue);
     let errors = oracle.port_replies_err.load(Ordering::Relaxed) + ffi_malformed;
+    metric_probe.record_final(&correctness, errors)?;
     let stats = histograms
         .iter()
         .map(|(name, histogram)| {

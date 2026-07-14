@@ -5,6 +5,14 @@ use hdrhistogram::Histogram;
 
 use crate::domain::{MetricPoint, SampleStats, ScenarioConfig};
 
+#[cfg(feature = "sdk-metrics")]
+use helix_driver_host::metrics::{
+    AsyncMetricSink, BoundedMetricRuntime, LabelKey, MetricEvent, MetricId, MetricLabels,
+    MetricRuntimeConfig, RecordOutcome, ShutdownOutcome,
+};
+#[cfg(feature = "sdk-metrics")]
+use std::time::Duration;
+
 pub fn l1_metric_points(
     config: &ScenarioConfig,
     run_id: &str,
@@ -110,4 +118,131 @@ pub fn zero_correctness() -> BTreeMap<String, u64> {
     .into_iter()
     .map(|name| (name.to_string(), 0))
     .collect()
+}
+
+#[cfg(feature = "sdk-metrics")]
+pub fn export_l1_histograms(
+    config: &ScenarioConfig,
+    operations: u64,
+    errors: u64,
+    latency: &Histogram<u64>,
+    effects: &Histogram<u64>,
+    effect_bytes: &Histogram<u64>,
+) -> Result<(), String> {
+    let runtime = BoundedMetricRuntime::start_otlp(MetricRuntimeConfig {
+        enabled: true,
+        service_name: "helix-perf".to_string(),
+        deployment_environment: "pre".to_string(),
+        platform: "native".to_string(),
+        scenario: "l1_core".to_string(),
+        channel_shape: bounded_channel_shape(&config.run.channel_shape).to_string(),
+        profile: "steady".to_string(),
+        queue_capacity: 32_768,
+        batch_max: 512,
+        export_interval: Duration::from_millis(10),
+        ..MetricRuntimeConfig::default()
+    })
+    .map_err(|error| format!("PERF_TELEMETRY_UNAVAILABLE: {error}"))?;
+    let sink = runtime.sink();
+    let base = MetricLabels::one(LabelKey::Layer, "L1")
+        .with(LabelKey::Stage, "core")
+        .with(LabelKey::Operation, "step")
+        .with(LabelKey::Status, "ok");
+    record(
+        sink.as_ref(),
+        MetricEvent::counter(MetricId::OperationsTotal, operations as f64, base),
+    )?;
+    record(
+        sink.as_ref(),
+        MetricEvent::counter(MetricId::ErrorsTotal, errors as f64, base),
+    )?;
+    record_histogram(
+        sink.as_ref(),
+        MetricId::CoreStepDurationSeconds,
+        latency,
+        1_000_000.0,
+        base,
+    )?;
+    record_histogram(sink.as_ref(), MetricId::EffectsPerTick, effects, 1.0, base)?;
+    record_histogram(
+        sink.as_ref(),
+        MetricId::EffectAmplificationRatio,
+        effects,
+        1.0,
+        base,
+    )?;
+    record_histogram(
+        sink.as_ref(),
+        MetricId::EffectBytesPerTick,
+        effect_bytes,
+        1.0,
+        base,
+    )?;
+    for id in [
+        MetricId::LostTotal,
+        MetricId::DuplicateTotal,
+        MetricId::OrderViolationTotal,
+        MetricId::WrongChannelTotal,
+        MetricId::CursorRegressionTotal,
+        MetricId::ProjectionMismatchTotal,
+        MetricId::PersistRemainingTotal,
+        MetricId::CleanupResidueTotal,
+    ] {
+        record(sink.as_ref(), MetricEvent::counter(id, 0.0, base))?;
+    }
+    match runtime.shutdown(Duration::from_secs(10)) {
+        ShutdownOutcome::Drained => Ok(()),
+        outcome => Err(format!(
+            "PERF_TELEMETRY_UNAVAILABLE: L1 聚合指标未排空: {outcome:?}"
+        )),
+    }
+}
+
+#[cfg(feature = "sdk-metrics")]
+fn record_histogram(
+    sink: &dyn AsyncMetricSink,
+    id: MetricId,
+    histogram: &Histogram<u64>,
+    divisor: f64,
+    labels: MetricLabels,
+) -> Result<(), String> {
+    for value in histogram.iter_recorded() {
+        let sample = value.value_iterated_to() as f64 / divisor;
+        for _ in 0..value.count_since_last_iteration() {
+            record(sink, MetricEvent::histogram(id, sample, labels))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sdk-metrics")]
+fn record(sink: &dyn AsyncMetricSink, event: MetricEvent) -> Result<(), String> {
+    match sink.try_record(event) {
+        RecordOutcome::Accepted => Ok(()),
+        outcome => Err(format!(
+            "PERF_TELEMETRY_UNAVAILABLE: L1 指标入队失败: {outcome:?}"
+        )),
+    }
+}
+
+#[cfg(feature = "sdk-metrics")]
+fn bounded_channel_shape(value: &str) -> &'static str {
+    match value {
+        "hot-1" => "hot-1",
+        "parallel-50" => "parallel-50",
+        "fan-in-50-to-1-client" => "fan-in-50-to-1-client",
+        _ => "unknown",
+    }
+}
+
+#[cfg(not(feature = "sdk-metrics"))]
+pub fn export_l1_histograms(
+    _config: &ScenarioConfig,
+    _operations: u64,
+    _errors: u64,
+    _latency: &Histogram<u64>,
+    _effects: &Histogram<u64>,
+    _effect_bytes: &Histogram<u64>,
+) -> Result<(), String> {
+    Ok(())
 }

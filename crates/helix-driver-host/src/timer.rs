@@ -21,6 +21,8 @@ use helix_core::TimerId;
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
 
+use crate::tick_ingress::EngineTickSender;
+
 pub struct TimerRegistry {
     handles: HashMap<TimerId, JoinHandle<()>>,
     /// one-shot 自清理回灌通道：spawn 闭包 fire 完毕后把自身 id 送回，`reap()` 据此惰性回收。
@@ -64,12 +66,7 @@ impl TimerRegistry {
     ///
     /// `tick_tx` 是 engine_loop 的入站通道，timer 触发与其他 Tick 源（WS/HTTP/Command）
     /// 统一汇入同一 mpsc，由串行事件泵顺序处理。
-    pub fn schedule(
-        &mut self,
-        id: TimerId,
-        after_ms: u64,
-        tick_tx: tokio::sync::mpsc::Sender<Tick>,
-    ) {
+    pub(crate) fn schedule(&mut self, id: TimerId, after_ms: u64, tick_tx: EngineTickSender) {
         // 先惰性回收已自然到期的 one-shot 条目（必须先于本次对 handles 的写入，
         // 防止下方 insert 的新 handle 被同批旧 done 信号误删——见 reap 护栏）。
         self.reap();
@@ -130,7 +127,7 @@ mod tests {
         let mut registry = TimerRegistry::new();
 
         let id = TimerId::from_raw(42);
-        registry.schedule(id, 10, tx); // 10ms 后触发
+        registry.schedule(id, 10, EngineTickSender::Raw(tx)); // 10ms 后触发
 
         let tick = tokio::time::timeout(tokio::time::Duration::from_millis(200), rx.recv())
             .await
@@ -147,7 +144,7 @@ mod tests {
 
         let id = TimerId::from_raw(99);
         // 10s timer — 立即 cancel 后，在 50ms 窗口内不应收到 Tick::Timer
-        registry.schedule(id, 10_000, tx.clone()); // clone tx 保持通道开放
+        registry.schedule(id, 10_000, EngineTickSender::Raw(tx.clone())); // clone tx 保持通道开放
         registry.cancel(id);
         // tx 仍然 alive（clone 持有），rx.recv() 会阻塞（而非立即返回 None）
         // 因此 timeout 50ms 后应超时（Err），而非收到消息（Ok）
@@ -170,8 +167,8 @@ mod tests {
         let mut registry = TimerRegistry::new();
 
         let id = TimerId::from_raw(7);
-        registry.schedule(id, 10_000, tx.clone()); // 10s timer
-        registry.schedule(id, 10, tx); // 10ms 覆盖
+        registry.schedule(id, 10_000, EngineTickSender::Raw(tx.clone())); // 10s timer
+        registry.schedule(id, 10, EngineTickSender::Raw(tx)); // 10ms 覆盖
 
         let tick = tokio::time::timeout(tokio::time::Duration::from_millis(200), rx.recv())
             .await
@@ -197,7 +194,7 @@ mod tests {
         let mut registry = TimerRegistry::new();
 
         let id = TimerId::from_raw(123);
-        registry.schedule(id, 10, tx); // 10ms 后触发的一次性 timer
+        registry.schedule(id, 10, EngineTickSender::Raw(tx)); // 10ms 后触发的一次性 timer
 
         // 等待 timer 自然触发
         let tick = tokio::time::timeout(tokio::time::Duration::from_millis(200), rx.recv())

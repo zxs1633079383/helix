@@ -162,7 +162,11 @@ impl HttpRequester for SharedHttpClient {
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
         record_http_gauge(self.metrics.as_ref(), remaining);
-        let status = if result.is_ok() { "ok" } else { "error" };
+        let failed = match &result {
+            Ok(response) => response.status >= 400,
+            Err(_) => true,
+        };
+        let status = if failed { "error" } else { "ok" };
         let labels = MetricLabels::one(LabelKey::Stage, "http")
             .with(LabelKey::Protocol, "http")
             .with(LabelKey::Operation, "request")
@@ -172,11 +176,19 @@ impl HttpRequester for SharedHttpClient {
             started.elapsed().as_secs_f64(),
             labels,
         ));
-        if result.is_err() {
+        let _ =
+            self.metrics
+                .try_record(MetricEvent::counter(MetricId::OperationsTotal, 1.0, labels));
+        if failed {
+            let error_kind = if result.is_err() {
+                "http_request_failed"
+            } else {
+                "http_status_error"
+            };
             let _ = self.metrics.try_record(MetricEvent::counter(
                 MetricId::ErrorsTotal,
                 1.0,
-                labels.with(LabelKey::ErrorKind, "http_request_failed"),
+                labels.with(LabelKey::ErrorKind, error_kind),
             ));
         }
         result

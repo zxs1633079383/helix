@@ -14,12 +14,14 @@ use helix_core::effect::{FileUploadRequest, HttpRequest};
 use helix_core::ports::{EventSink, Storage, Transport};
 use helix_core::Tick;
 
+use crate::engine::perf_metrics::EngineMetricRecorder;
 use crate::engine::TransportTable;
 use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 use crate::owned_effect::OwnedEffect;
 use crate::pools::{get_or_spawn_persist, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Job};
 use crate::table_set_key;
+use crate::tick_ingress::EngineTickSender;
 use crate::timer::TimerRegistry;
 use crate::trace::TraceHooks;
 
@@ -27,7 +29,7 @@ use crate::trace::TraceHooks;
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_effects<S, E, Tr>(
     effects: Vec<OwnedEffect>,
-    tick_tx: &mpsc::Sender<Tick>,
+    tick_tx: &EngineTickSender,
     storage: &Arc<S>,
     http_pool: &BoundedSpawner<HttpRequest>,
     upload_pool: &BoundedSpawner<FileUploadRequest>,
@@ -38,17 +40,18 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
     persist_workers: &mut HashMap<String, BoundedSpawner<PersistJobPayload>>,
     transports: &TransportTable<Tr>,
     trace: &TraceHooks,
-    metrics: &dyn AsyncMetricSink,
+    perf_metrics: &mut EngineMetricRecorder,
 ) where
     S: Storage + Send + Sync + 'static,
     E: EventSink,
     Tr: Transport + Send + 'static,
 {
     for effect in effects {
+        perf_metrics.on_effect_dispatch(&effect);
+        let metrics = perf_metrics.sink();
         match effect {
             // ── Persist（带 corr，写完后通过 reply_tx 回报）────────────────
             OwnedEffect::Persist { corr, ops } => {
-                record_operation(metrics, "persist", "ok");
                 trace.on_storage_dispatch(Some(corr), &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
@@ -77,7 +80,6 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── PersistFire（fire-and-forget，不产出 PortReply）────────────
             OwnedEffect::PersistFire { ops } => {
-                record_operation(metrics, "persist_fire", "ok");
                 trace.on_storage_dispatch(None, &ops);
                 let key = table_set_key(&ops);
                 let sp = get_or_spawn_persist(
@@ -105,7 +107,6 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── Http（必达，Block 溢出，带 corr 回报，走 reply_tx）──────────
             OwnedEffect::Http { corr, mut req } => {
-                record_operation(metrics, "http", "ok");
                 trace.on_http_dispatch(Some(corr), &mut req);
                 let queued_at = metrics.is_enabled().then(Instant::now);
                 http_pool
@@ -119,7 +120,6 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── UploadFile（必达，Block 溢出，带 corr 回报，走 reply_tx）────────
             OwnedEffect::UploadFile { corr, req } => {
-                record_operation(metrics, "upload_file", "ok");
                 trace.on_upload_dispatch(Some(corr), &req);
                 upload_pool
                     .submit(Job {
@@ -131,7 +131,6 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
 
             // ── HttpFire（可丢，DropNewest 溢出，无 corr 不回报）────────────
             OwnedEffect::HttpFire { mut req } => {
-                record_operation(metrics, "http_fire", "ok");
                 trace.on_http_dispatch(None, &mut req);
                 let queued_at = metrics.is_enabled().then(Instant::now);
                 http_fire_pool
@@ -155,12 +154,10 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                 mut frame,
             } => match transports.get(&transport) {
                 Some(t) => {
-                    record_operation(metrics, "ws_send", "ok");
                     trace.on_ws_send(transport, &mut frame);
                     // 表内 `Arc<Tr>`（无外层锁）→ 直接 `t.send()`（`&self`）。并发 send 由
                     // transport 内部 state 锁串行化（既有锁，非本路径新增 per-Send 锁，守 HX-C005）。
                     if let Err(e) = t.send(frame).await {
-                        record_error(metrics, "ws_send_failed");
                         tracing::warn!(
                             transport_id = transport.raw(),
                             error = %e,
@@ -169,6 +166,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                     }
                 }
                 None => {
+                    record_operation(metrics, "ws_send", "error");
                     record_error(metrics, "ws_transport_missing");
                     tracing::warn!(
                         transport_id = transport.raw(),
@@ -185,7 +183,7 @@ pub(crate) async fn dispatch_effects<S, E, Tr>(
                 kind,
                 payload,
             } => {
-                record_operation(metrics, "request", "deferred");
+                record_error(metrics, "request_deferred");
                 tracing::warn!(
                     corr = corr.raw(),
                     kind,

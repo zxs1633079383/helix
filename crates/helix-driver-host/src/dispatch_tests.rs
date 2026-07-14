@@ -23,6 +23,9 @@ use crate::timer::TimerRegistry;
 use crate::trace::{TraceCarrier, TraceHooks, TraceHooksImpl, TraceScope};
 
 use super::dispatch_effects;
+use crate::engine::perf_metrics::EngineMetricRecorder;
+use crate::metrics::NoopMetricSink;
+use crate::tick_ingress::EngineTickSender;
 
 struct UnusedStorage;
 
@@ -180,13 +183,14 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         HashMap::new();
     let transports: TransportTable<DummyTransport> = HashMap::new();
     let corr = Correlation::from_raw(88);
+    let mut perf_metrics = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
 
     dispatch_effects(
         vec![OwnedEffect::UploadFile {
             corr,
             req: make_upload_request(),
         }],
-        &tick_tx,
+        &EngineTickSender::Raw(tick_tx),
         &storage,
         &http_pool,
         &upload_pool,
@@ -197,7 +201,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         &mut persist_workers,
         &transports,
         &trace,
-        &crate::metrics::NoopMetricSink,
+        &mut perf_metrics,
     )
     .await;
 

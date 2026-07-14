@@ -36,11 +36,14 @@ use helix_core::{ExecutionShell, Tick};
 
 pub use crate::batch_sink::BatchSink;
 use crate::dispatch::dispatch_effects;
-use crate::owned_effect::consume_effects;
+use crate::owned_effect::consume_effect_batch;
 use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
+use crate::tick_ingress::{
+    EngineTickReceiver, EngineTickSender, TickIngressReceiver, TickIngressSender,
+};
 use crate::timer::TimerRegistry;
-mod perf_metrics;
+pub(crate) mod perf_metrics;
 mod rss;
 mod shutdown;
 mod types;
@@ -75,9 +78,69 @@ pub use types::{
 /// + 必达 Http 落地后返回。
 #[allow(clippy::too_many_arguments)]
 pub async fn run_engine_loop<S, H, U, E, Tr, C>(
-    mut shell: ExecutionShell,
-    mut tick_rx: mpsc::Receiver<Tick>,
+    shell: ExecutionShell,
+    tick_rx: mpsc::Receiver<Tick>,
     tick_tx: mpsc::Sender<Tick>,
+    deps: EngineDeps<S, H, U, E, C>,
+    shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable<Tr>,
+    transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Tr>)>,
+) where
+    S: Storage + Send + Sync + 'static,
+    H: HttpRequester + Send + Sync + 'static,
+    U: FileUploader + Send + Sync + 'static,
+    E: BatchSink + Send + Sync + 'static,
+    // `Send + Sync`：`Arc<Tr>` 经 `transport_rx` 跨后台 connect 任务边界共享。
+    Tr: Transport + Send + Sync + 'static,
+    C: Clock,
+{
+    run_engine_loop_inner(
+        shell,
+        EngineTickReceiver::Raw(tick_rx),
+        EngineTickSender::Raw(tick_tx),
+        deps,
+        shutdown_rx,
+        transports,
+        transport_rx,
+    )
+    .await;
+}
+
+/// 生产入口：Tick 与入队时间戳同处一个有界 channel 元素，容量与背压语义不变。
+#[allow(clippy::too_many_arguments)]
+pub async fn run_engine_loop_stamped<S, H, U, E, Tr, C>(
+    shell: ExecutionShell,
+    tick_rx: TickIngressReceiver,
+    tick_tx: TickIngressSender,
+    deps: EngineDeps<S, H, U, E, C>,
+    shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable<Tr>,
+    transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Tr>)>,
+) where
+    S: Storage + Send + Sync + 'static,
+    H: HttpRequester + Send + Sync + 'static,
+    U: FileUploader + Send + Sync + 'static,
+    E: BatchSink + Send + Sync + 'static,
+    Tr: Transport + Send + Sync + 'static,
+    C: Clock,
+{
+    run_engine_loop_inner(
+        shell,
+        EngineTickReceiver::Stamped(tick_rx),
+        EngineTickSender::Stamped(tick_tx),
+        deps,
+        shutdown_rx,
+        transports,
+        transport_rx,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
+    mut shell: ExecutionShell,
+    mut tick_rx: EngineTickReceiver,
+    tick_tx: EngineTickSender,
     deps: EngineDeps<S, H, U, E, C>,
     mut shutdown_rx: oneshot::Receiver<()>,
     mut transports: TransportTable<Tr>,
@@ -87,7 +150,6 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     H: HttpRequester + Send + Sync + 'static,
     U: FileUploader + Send + Sync + 'static,
     E: BatchSink + Send + Sync + 'static,
-    // `Send + Sync`：`Arc<Tr>` 经 `transport_rx` 跨后台 connect 任务边界共享。
     Tr: Transport + Send + Sync + 'static,
     C: Clock,
 {
@@ -100,6 +162,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     let event_sink = deps.event_sink;
     let trace = deps.trace;
     let mut perf_metrics = EngineMetricRecorder::new(deps.metrics);
+    let rss_sampler = perf_metrics.spawn_rss_sampler();
     let http_n = deps.max_http_inflight.max(1);
     let mut timer_registry = TimerRegistry::new();
 
@@ -128,8 +191,8 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     );
 
     // 初始化：触发 on_start。
-    let initial_effects = match shell.start() {
-        Ok(effects) => consume_effects(effects),
+    let initial_batch = match shell.start() {
+        Ok(effects) => consume_effect_batch(effects),
         Err(e) => {
             tracing::error!("helix engine start failed: {}", e);
             return;
@@ -137,13 +200,13 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     };
     tracing::info!(
         "helix engine started, {} initial effects",
-        initial_effects.len()
+        initial_batch.effects.len()
     );
 
     // 与主循环同门控：有初始 effect 才 dispatch + flush（避免空批跨 FFI 边界的无谓回调）。
-    if !initial_effects.is_empty() {
+    if !initial_batch.effects.is_empty() {
         dispatch_effects(
-            initial_effects,
+            initial_batch.effects,
             &tick_tx,
             &storage,
             &http_pool,
@@ -155,7 +218,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
             &mut persist_workers,
             &transports,
             &trace,
-            perf_metrics.sink(),
+            &mut perf_metrics,
         )
         .await;
         // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
@@ -170,11 +233,11 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     let mut shutdown_armed = true;
     loop {
         perf_metrics.record_queue_snapshot(tick_rx.len(), tick_rx.max_capacity());
-        let tick = tokio::select! {
+        let (tick, queue_wait) = tokio::select! {
             biased;
 
             // 优先：PortReply 回灌
-            Some(reply) = reply_rx.recv() => reply,
+            Some(reply) = reply_rx.recv() => (reply, None),
 
             // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
             // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
@@ -194,15 +257,15 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
             }
 
             // 三选：入站 Tick（Command / Inbound / Timer / …）
-            tick = tick_rx.recv() => {
-                match tick {
+            queued = tick_rx.recv() => {
+                match queued {
                     Some(t) => t,
                     None => break, // tick 通道关闭，进入 graceful drain
                 }
             }
         };
 
-        let metric_context = perf_metrics.on_tick(&tick);
+        let metric_context = perf_metrics.on_tick(&tick, queue_wait);
 
         if let Tick::Disconnected(transport_id) = &tick {
             if let Some(tx) = &transport_lifecycle_tx {
@@ -229,19 +292,19 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
         let _trace_scope = trace.on_tick_start(&tick);
         let now_ms = clock.now_ms();
         let step_started = perf_metrics.start_timer();
-        let owned = match shell.step(tick, now_ms) {
-            Ok(effects) => consume_effects(effects),
+        let batch = match shell.step(tick, now_ms) {
+            Ok(effects) => consume_effect_batch(effects),
             Err(e) => {
                 perf_metrics.on_step_error(&metric_context);
                 tracing::error!("engine step error: {}", e);
                 continue;
             }
         };
-        perf_metrics.on_step_complete(&metric_context, step_started, &owned);
+        perf_metrics.on_step_complete(&metric_context, step_started, batch.summary);
 
-        if !owned.is_empty() {
+        if !batch.effects.is_empty() {
             dispatch_effects(
-                owned,
+                batch.effects,
                 &tick_tx,
                 &storage,
                 &http_pool,
@@ -253,7 +316,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                 &mut persist_workers,
                 &transports,
                 &trace,
-                perf_metrics.sink(),
+                &mut perf_metrics,
             )
             .await;
             // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。
@@ -273,6 +336,9 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
     )
     .await;
     perf_metrics.on_shutdown(shutdown_started);
+    if let Some(rss_sampler) = rss_sampler {
+        rss_sampler.abort();
+    }
 
     tracing::info!(
         "helix engine loop exited (persists drained; 必达 upload/http drained or aborted at limit)"

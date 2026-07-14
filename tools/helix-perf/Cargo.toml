@@ -7,7 +7,7 @@ publish = false
 [features]
 default = []
 # 合并 metrics 分支后由主协调启用；适配代码集中在 metric_sink.rs。
-sdk-metrics = ["dep:helix-driver-host"]
+sdk-metrics = ["dep:helix-driver-host", "dep:helix-driver-native", "dep:helix-driver-ffi"]
 
 [dependencies]
 bytes = { workspace = true }
@@ -16,8 +16,9 @@ hdrhistogram = "7"
 helix-core = { path = "../../crates/helix-core" }
 helix-im = { path = "../../crates/helix-im" }
 helix-driver-host = { path = "../../crates/helix-driver-host", optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-rusqlite = { version = "0.32.1", features = ["bundled"] }
+helix-driver-native = { path = "../../crates/helix-driver-native", optional = true }
+helix-driver-ffi = { path = "../../crates/helix-driver-ffi", optional = true }
+jsonschema = "0.33"
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"

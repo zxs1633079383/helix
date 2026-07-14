@@ -27,11 +27,11 @@ async fn dispatch() -> Result<(), String> {
         "run" => {
             let scenario = value_after(&args, "--scenario")
                 .ok_or("PERF_CONFIG_INVALID: run 缺少 --scenario")?;
-            if scenario.starts_with("L1-") {
+            if scenario == "L1-STEP-INORDER" {
                 let mut config = load_config(&root, "l1.toml")?;
                 config.run.scenario = scenario.to_string();
                 run_l1(&root, config).await
-            } else if scenario.starts_with("L2-") {
+            } else if scenario == "L2-ENGINE-MIXED" {
                 let mut config = load_config(&root, "l2.toml")?;
                 config.run.scenario = scenario.to_string();
                 run_l2(&root, config).await

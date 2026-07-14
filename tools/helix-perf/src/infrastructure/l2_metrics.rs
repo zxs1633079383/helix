@@ -1,9 +1,11 @@
+#![cfg(feature = "sdk-metrics")]
+
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hdrhistogram::Histogram;
 
-use super::l2_driver::CaseResult;
+use super::l2_driver::sdk::CaseResult;
 use super::ProbeSnapshot;
 use crate::domain::{MetricPoint, ScenarioConfig};
 
@@ -35,14 +37,15 @@ pub fn metric_points(
     run_id: &str,
     result: &CaseResult,
     saturation: ProbeSnapshot,
-    overhead: f64,
+    _overhead: f64,
 ) -> Vec<MetricPoint> {
     let mut points = Vec::new();
     let mappings = [
+        ("ws", "helix_port_roundtrip_seconds"),
+        ("tick_queue_wait", "helix_tick_queue_wait_seconds"),
         ("http", "helix_http_request_duration_seconds"),
-        ("ws", "helix_ws_ingress_to_event_seconds"),
         ("storage", "helix_storage_tx_duration_seconds"),
-        ("event", "helix_port_roundtrip_seconds"),
+        ("event", "helix_ws_ingress_to_event_seconds"),
         ("ffi", "helix_ffi_callback_duration_seconds"),
     ];
     for (stage, metric) in mappings {
@@ -58,14 +61,20 @@ pub fn metric_points(
             ));
         }
     }
-    for stage in ["http", "ws", "storage", "event", "ffi"] {
+    for (stage, operations) in [
+        ("http", result.http_requests),
+        ("ws", result.ws_frames),
+        ("storage", result.rows),
+        ("event", result.events),
+        ("ffi", result.ffi_callbacks),
+    ] {
         points.push(point(
             config,
             run_id,
             "helix_operations_total",
             "counter",
             "operations",
-            result.operations as f64,
+            operations as f64,
             stage,
         ));
     }
@@ -86,7 +95,13 @@ pub fn metric_points(
         ),
         ("helix_event_batch_size", "histogram", "count", 1.0, "event"),
         ("helix_ffi_batch_events", "histogram", "count", 1.0, "ffi"),
-        ("helix_ffi_batch_bytes", "histogram", "bytes", 32.0, "ffi"),
+        (
+            "helix_ffi_batch_bytes",
+            "histogram",
+            "bytes",
+            result.ffi_bytes as f64 / result.ffi_callbacks.max(1) as f64,
+            "ffi",
+        ),
         (
             "helix_metrics_queue_capacity",
             "gauge",
@@ -105,28 +120,14 @@ pub fn metric_points(
             "helix_metrics_export_batch_size",
             "histogram",
             "count",
-            result.probe.exported as f64,
+            result.probe.exported as f64 / result.probe.batches.max(1) as f64,
             "telemetry",
         ),
         (
             "helix_metrics_queue_depth",
             "gauge",
             "count",
-            result.probe.accepted.saturating_sub(result.probe.exported) as f64,
-            "telemetry",
-        ),
-        (
-            "helix_effect_amplification_ratio",
-            "histogram",
-            "ratio",
-            5.0,
-            "effect",
-        ),
-        (
-            "helix_telemetry_p99_overhead_ratio",
-            "gauge",
-            "ratio",
-            overhead,
+            result.probe.depth as f64,
             "telemetry",
         ),
     ] {
@@ -164,20 +165,4 @@ fn point(
             ("status".into(), "ok".into()),
         ]),
     }
-}
-
-pub fn zero_correctness() -> BTreeMap<String, u64> {
-    [
-        "helix_lost_total",
-        "helix_duplicate_total",
-        "helix_order_violation_total",
-        "helix_wrong_channel_total",
-        "helix_cursor_regression_total",
-        "helix_projection_mismatch_total",
-        "helix_persist_remaining_total",
-        "helix_cleanup_residue_total",
-    ]
-    .into_iter()
-    .map(|name| (name.to_string(), 0))
-    .collect()
 }

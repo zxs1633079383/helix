@@ -1,5 +1,6 @@
 use hdrhistogram::Histogram;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,4 +69,11 @@ pub struct RunSummary {
     pub correctness: BTreeMap<String, u64>,
     pub assertions: BTreeMap<String, bool>,
     pub errors: Vec<String>,
+}
+
+pub struct RunArtifacts {
+    pub hdr: Vec<u8>,
+    pub trace_index: Vec<Value>,
+    pub sqlite: Value,
+    pub cleanup: Value,
 }

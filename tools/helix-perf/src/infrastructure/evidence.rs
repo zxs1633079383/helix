@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::domain::{MetricPoint, RunSummary, ScenarioConfig};
+use crate::domain::{MetricPoint, RunArtifacts, RunSummary, ScenarioConfig, Verdict};
 
 pub struct EvidenceWriter {
     directory: PathBuf,
@@ -25,22 +25,22 @@ impl EvidenceWriter {
         config: &ScenarioConfig,
         summary: &RunSummary,
         metrics: &[MetricPoint],
+        artifacts: &RunArtifacts,
     ) -> Result<(), String> {
-        atomic_json(&self.directory.join("summary.json"), summary)?;
+        let summary_value = serde_json::to_value(summary).map_err(evidence_error)?;
+        atomic_json(&self.directory.join("summary.json"), &summary_value)?;
         atomic_json(
             &self.directory.join("correctness.json"),
             &summary.correctness,
         )?;
-        atomic_json(
-            &self.directory.join("cleanup.json"),
-            &json!({"runId": summary.run_id, "residue": 0, "status": "clean"}),
-        )?;
+        atomic_json(&self.directory.join("cleanup.json"), &artifacts.cleanup)?;
+        atomic_json(&self.directory.join("sqlite.json"), &artifacts.sqlite)?;
         atomic_jsonl(&self.directory.join("metrics.jsonl"), metrics)?;
-        atomic_bytes(
-            &self.directory.join("histograms.hdr"),
-            b"HDR evidence summarized in summary.json\n",
+        atomic_bytes(&self.directory.join("histograms.hdr"), &artifacts.hdr)?;
+        atomic_values_jsonl(
+            &self.directory.join("trace-index.jsonl"),
+            &artifacts.trace_index,
         )?;
-        atomic_bytes(&self.directory.join("trace-index.jsonl"), b"")?;
 
         let windows = config.windows_ms()?;
         let manifest = json!({
@@ -67,11 +67,35 @@ impl EvidenceWriter {
             "evidence": {
                 "metrics": "metrics.jsonl", "histograms": "histograms.hdr",
                 "traces": "trace-index.jsonl", "correctness": "correctness.json",
-                "cleanup": "cleanup.json", "summary": "summary.json"
+                "cleanup": "cleanup.json", "sqlite": "sqlite.json", "summary": "summary.json"
             },
             "errors": summary.errors
         });
+        validate_value(&manifest, &self.directory, "run", config)?;
+        for metric in metrics {
+            let value = serde_json::to_value(metric).map_err(evidence_error)?;
+            validate_schema_value(&value, &workspace_from_directory(&self.directory), "metric")?;
+        }
         // manifest 最后落盘；此前任一证据失败都不会留下完整 run 的假象。
+        atomic_json(&self.directory.join("manifest.json"), &manifest)
+    }
+
+    pub fn write_failure(
+        &self,
+        config: &ScenarioConfig,
+        run_id: &str,
+        error: &str,
+    ) -> Result<(), String> {
+        let manifest = json!({
+            "schemaVersion": 1, "runId": run_id, "scenarioId": config.run.scenario,
+            "verdict": Verdict::Fail, "git": git_snapshot(), "runtime": runtime_snapshot(),
+            "scenario": {"channelShape": config.run.channel_shape, "rate": config.run.rate,
+                "rateUnit": config.run.rate_unit, "payloadBucket": config.run.payload_bucket},
+            "windows": {"warmupMs": 0, "loadMs": 0, "drainMs": 0, "observationMs": 0},
+            "telemetry": {"mode": "failed", "dashboardUid": "helix-runtime-performance-pre"},
+            "evidence": {}, "errors": [error]
+        });
+        validate_schema_value(&manifest, &workspace_from_directory(&self.directory), "run")?;
         atomic_json(&self.directory.join("manifest.json"), &manifest)
     }
 }
@@ -91,14 +115,8 @@ pub fn validate_json_contracts(root: &Path) -> Result<(), String> {
             .map_err(|error| format!("PERF_EVIDENCE_CORRUPT: {}: {error}", path.display()))?;
         let value: Value = serde_json::from_str(&text)
             .map_err(|error| format!("PERF_EVIDENCE_CORRUPT: {}: {error}", path.display()))?;
-        if value.get("$schema").is_none()
-            || value.get("type") != Some(&Value::String("object".into()))
-        {
-            return Err(format!(
-                "PERF_EVIDENCE_CORRUPT: {} 缺少 schema/type",
-                path.display()
-            ));
-        }
+        jsonschema::validator_for(&value)
+            .map_err(|error| format!("PERF_EVIDENCE_CORRUPT: {}: {error}", path.display()))?;
     }
     Ok(())
 }
@@ -120,6 +138,47 @@ fn atomic_jsonl(path: &Path, values: &[MetricPoint]) -> Result<(), String> {
     writer.flush().map_err(evidence_error)?;
     writer.get_ref().sync_all().map_err(evidence_error)?;
     fs::rename(tmp, path).map_err(evidence_error)
+}
+
+fn atomic_values_jsonl(path: &Path, values: &[Value]) -> Result<(), String> {
+    let tmp = path.with_extension("jsonl.tmp");
+    let file = File::create(&tmp).map_err(evidence_error)?;
+    let mut writer = BufWriter::new(file);
+    for value in values {
+        serde_json::to_writer(&mut writer, value).map_err(evidence_error)?;
+        writer.write_all(b"\n").map_err(evidence_error)?;
+    }
+    writer.flush().map_err(evidence_error)?;
+    writer.get_ref().sync_all().map_err(evidence_error)?;
+    fs::rename(tmp, path).map_err(evidence_error)
+}
+
+fn validate_value(
+    value: &Value,
+    directory: &Path,
+    schema: &str,
+    _config: &ScenarioConfig,
+) -> Result<(), String> {
+    validate_schema_value(value, &workspace_from_directory(directory), schema)
+}
+
+fn validate_schema_value(value: &Value, root: &Path, schema: &str) -> Result<(), String> {
+    let schema_path = root.join(format!("perf/schema/{schema}.schema.json"));
+    let schema_value: Value =
+        serde_json::from_slice(&fs::read(&schema_path).map_err(evidence_error)?)
+            .map_err(evidence_error)?;
+    let validator = jsonschema::validator_for(&schema_value).map_err(evidence_error)?;
+    validator
+        .validate(value)
+        .map_err(|error| format!("PERF_EVIDENCE_CORRUPT: {schema}: {error}"))
+}
+
+fn workspace_from_directory(directory: &Path) -> PathBuf {
+    directory
+        .ancestors()
+        .find(|path| path.join("Cargo.toml").exists() && path.join("perf/schema").exists())
+        .unwrap_or(directory)
+        .to_path_buf()
 }
 
 fn atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {

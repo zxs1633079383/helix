@@ -61,6 +61,10 @@ impl ScenarioConfig {
         if self.schema_version != 1 || self.run.rate == 0 {
             return Err("PERF_CONFIG_INVALID: schema_version 必须为 1 且 rate > 0".into());
         }
+        if self.topology.channels == 0 || self.topology.senders == 0 || self.topology.receivers == 0
+        {
+            return Err("PERF_CONFIG_INVALID: topology 各维度必须 > 0".into());
+        }
         if !matches!(
             self.run.channel_shape.as_str(),
             "hot-1" | "parallel-50" | "fan-in-50-to-1-client" | "multi-module"

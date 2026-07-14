@@ -18,6 +18,8 @@ pub struct ProbeSnapshot {
     pub accepted: u64,
     pub dropped: u64,
     pub exported: u64,
+    pub batches: u64,
+    pub depth: usize,
     pub capacity: usize,
 }
 
@@ -116,6 +118,11 @@ impl MetricProbe {
             accepted: self.accepted.load(Ordering::Relaxed),
             dropped: self.dropped.load(Ordering::Relaxed),
             exported: self.exported.load(Ordering::Relaxed),
+            batches: self.exported.load(Ordering::Relaxed),
+            depth: self
+                .accepted
+                .load(Ordering::Relaxed)
+                .saturating_sub(self.exported.load(Ordering::Relaxed)) as usize,
             capacity: self.capacity,
         }
     }
@@ -136,7 +143,7 @@ use helix_driver_host::metrics::{
 
 #[cfg(feature = "sdk-metrics")]
 pub struct MetricProbe {
-    runtime: BoundedMetricRuntime,
+    runtime: Option<BoundedMetricRuntime>,
     sink: Arc<dyn AsyncMetricSink>,
 }
 
@@ -164,7 +171,10 @@ impl MetricProbe {
             BoundedMetricRuntime::start_with_exporter(config, ProbeExporter { pause_worker })
                 .expect("metric SDK probe worker must start");
         let sink = runtime.sink();
-        Self { runtime, sink }
+        Self {
+            runtime: Some(runtime),
+            sink,
+        }
     }
 
     #[inline]
@@ -178,13 +188,33 @@ impl MetricProbe {
     }
 
     pub fn snapshot(&self) -> ProbeSnapshot {
-        let snapshot = self.runtime.snapshot();
+        let snapshot = self.runtime.as_ref().expect("runtime present").snapshot();
         ProbeSnapshot {
-            accepted: snapshot.exported_events_total + snapshot.queue_depth as u64,
+            accepted: snapshot.exported_events_total
+                + snapshot.queue_depth as u64
+                + snapshot.dropped_total,
             dropped: snapshot.dropped_total,
             exported: snapshot.exported_events_total,
+            batches: snapshot.exported_batches_total,
+            depth: snapshot.queue_depth,
             capacity: snapshot.queue_capacity,
         }
+    }
+
+    pub fn sink(&self) -> Arc<dyn AsyncMetricSink> {
+        Arc::clone(&self.sink)
+    }
+
+    pub fn shutdown(mut self) -> (ProbeSnapshot, bool) {
+        let snapshot = self.snapshot();
+        let drained = self.runtime.take().is_some_and(|runtime| {
+            matches!(
+                runtime.shutdown(Duration::from_secs(1)),
+                helix_driver_host::metrics::ShutdownOutcome::Drained
+                    | helix_driver_host::metrics::ShutdownOutcome::Disabled
+            )
+        });
+        (snapshot, drained)
     }
 }
 

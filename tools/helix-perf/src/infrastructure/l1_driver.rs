@@ -10,13 +10,14 @@ use helix_im::state::ChannelId;
 use helix_im::ImModule;
 use sha2::{Digest, Sha256};
 
+use super::hdr::encode_histograms;
 use super::l1_metrics::{l1_metric_points, zero_correctness};
-use crate::domain::{MetricPoint, RunSummary, SampleStats, ScenarioConfig, Verdict};
+use crate::domain::{MetricPoint, RunArtifacts, RunSummary, SampleStats, ScenarioConfig, Verdict};
 
 pub fn execute_l1(
     config: &ScenarioConfig,
     run_id: &str,
-) -> Result<(RunSummary, Vec<MetricPoint>), String> {
+) -> Result<(RunSummary, Vec<MetricPoint>, RunArtifacts), String> {
     let windows = config.windows_ms()?;
     let warmup_iterations = ((config.run.rate * windows[0]) / 1_000).max(10);
     let load_iterations = ((config.run.rate * windows[1]) / 1_000).max(100);
@@ -31,6 +32,8 @@ pub fn execute_l1(
     let mut effects_hist = Histogram::<u64>::new(3).map_err(|error| error.to_string())?;
     let mut bytes_hist = Histogram::<u64>::new(3).map_err(|error| error.to_string())?;
     let mut total_effects = 0_u64;
+    let mut effect_mismatch = 0_u64;
+    let mut trace = Vec::new();
     let load_start = Instant::now();
     for offset in 1..=load_iterations {
         let sequence = warmup_iterations + offset;
@@ -55,6 +58,12 @@ pub fn execute_l1(
             .record(effect_bytes.max(1))
             .map_err(|error| error.to_string())?;
         total_effects += effect_count;
+        if effect_count != 3 {
+            effect_mismatch += 1;
+        }
+        trace.push(
+            serde_json::json!({"seq": sequence, "stage": "core.step", "effects": effect_count}),
+        );
     }
     let load_elapsed = load_start.elapsed().as_secs_f64();
 
@@ -64,7 +73,7 @@ pub fn execute_l1(
     correctness.insert("helix_lost_total".into(), lost);
     correctness.insert(
         "helix_projection_mismatch_total".into(),
-        u64::from(!deterministic),
+        u64::from(!deterministic).saturating_add(effect_mismatch),
     );
     let correct = correctness.values().all(|value| *value == 0);
 
@@ -115,7 +124,18 @@ pub fn execute_l1(
         &effects_hist,
         &bytes_hist,
     );
-    Ok((summary, metrics))
+    let histograms = BTreeMap::from([
+        ("core_step".into(), latency),
+        ("effects_per_tick".into(), effects_hist),
+        ("effect_bytes_per_tick".into(), bytes_hist),
+    ]);
+    let artifacts = RunArtifacts {
+        hdr: encode_histograms(&histograms)?,
+        trace_index: trace,
+        sqlite: serde_json::json!({"applicable": false, "reason": "L1 pure core"}),
+        cleanup: serde_json::json!({"residue": 0, "status": "clean", "resources": []}),
+    };
+    Ok((summary, metrics, artifacts))
 }
 
 fn make_shell() -> Result<ExecutionShell, String> {

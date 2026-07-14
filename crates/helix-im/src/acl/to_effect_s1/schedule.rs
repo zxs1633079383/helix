@@ -11,7 +11,7 @@ fn schedule_field<'a>(data: &'a serde_json::Value, keys: &[&str]) -> Option<&'a 
         .or_else(|| keys.iter().find_map(|key| data.get(*key)))
 }
 
-/// schedule preview 只在服务端明确授权，或 owner 与当前登录用户一致时开放。
+/// schedule 全文和摘要只在服务端明确授权，或 owner 与当前登录用户一致时开放。
 pub fn schedule_preview_authorized(data: &serde_json::Value, auth_user_id: &str) -> bool {
     let explicitly_allowed = schedule_field(
         data,
@@ -45,7 +45,7 @@ fn schedule_projection(
     channel_id: ChannelId,
     data: &serde_json::Value,
     revision_fallback: Option<u64>,
-    can_view_preview: bool,
+    can_view_content: bool,
     status_fallback: &'static str,
     has_schedule_post: bool,
 ) -> serde_json::Value {
@@ -65,15 +65,29 @@ fn schedule_projection(
     )
     .and_then(serde_json::Value::as_i64)
     .map_or(serde_json::Value::Null, |value| serde_json::json!(value));
-    let status = schedule_field(data, &["status"])
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(status_fallback);
+    let status = if has_schedule_post {
+        schedule_field(data, &["status"])
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(status_fallback)
+    } else {
+        // canceled 事件是终态，不允许迟到或错误的 wire status 把 UI 恢复成 scheduled。
+        status_fallback
+    };
     let revision = schedule_field(data, &["revision"])
         .and_then(serde_json::Value::as_u64)
         .or(revision_fallback)
         .unwrap_or(0);
-    let message_preview = if can_view_preview {
+    let message = if can_view_content {
+        schedule_field(data, &["message"])
+            .and_then(serde_json::Value::as_str)
+            .map_or(serde_json::Value::Null, |value| {
+                serde_json::Value::String(value.to_string())
+            })
+    } else {
+        serde_json::Value::Null
+    };
+    let message_preview = if can_view_content {
         schedule_field(data, &["messagePreview", "message_preview"])
             .and_then(serde_json::Value::as_str)
             .map(|value| value.chars().take(96).collect::<String>())
@@ -87,9 +101,14 @@ fn schedule_projection(
         "hasSchedulePost": has_schedule_post,
         "scheduleId": schedule_id,
         "sendAt": send_at,
+        "scheduleSendAt": send_at,
         "status": status,
+        "scheduleStatus": status,
         "revision": revision,
+        "scheduleRevision": revision,
+        "scheduleMessage": message,
         "messagePreview": message_preview,
+        "scheduleMessagePreview": message_preview,
     })
 }
 
@@ -98,7 +117,7 @@ pub fn emit_schedule_created(
     channel_id: ChannelId,
     data: &serde_json::Value,
     revision_fallback: Option<u64>,
-    can_view_preview: bool,
+    can_view_content: bool,
 ) -> Effect {
     emit(
         "im:channel:schedule-created",
@@ -106,7 +125,7 @@ pub fn emit_schedule_created(
             channel_id,
             data,
             revision_fallback,
-            can_view_preview,
+            can_view_content,
             "scheduled",
             true,
         ),
@@ -118,7 +137,7 @@ pub fn emit_schedule_canceled(
     channel_id: ChannelId,
     data: &serde_json::Value,
     revision_fallback: Option<u64>,
-    can_view_preview: bool,
+    can_view_content: bool,
 ) -> Effect {
     emit(
         "im:channel:schedule-canceled",
@@ -126,7 +145,7 @@ pub fn emit_schedule_canceled(
             channel_id,
             data,
             revision_fallback,
-            can_view_preview,
+            can_view_content,
             "canceled",
             false,
         ),

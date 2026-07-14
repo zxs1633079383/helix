@@ -51,13 +51,18 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
             }
             let mut reader_ids = Vec::with_capacity(member_ids.len());
             let mut unread_ids = Vec::with_capacity(member_ids.len());
+            let mut recipient_user_ids = Vec::with_capacity(member_ids.len());
+            let mut recipient_read_bits = String::with_capacity(member_ids.len());
             // canonical: memberIds 已排作者；legacy: 作者恰好出现一次且 bitmap 与原序列等长。
             // 两者都在同一线性扫描中归一为纯接收者序列，保持服务端快照顺序。
             for (index, user_id) in member_ids.into_iter().enumerate() {
                 if user_id == author_user_id {
                     continue;
                 }
-                if read_bits.as_bytes()[index] == b'1' {
+                let bit = read_bits.as_bytes()[index];
+                recipient_user_ids.push(user_id);
+                recipient_read_bits.push(char::from(bit));
+                if bit == b'1' {
                     reader_ids.push(user_id);
                 } else {
                     unread_ids.push(user_id);
@@ -78,6 +83,10 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
                 "snapshotVersion": snapshot_version,
                 "readerCount": reader_ids.len(),
                 "unreadCount": unread_ids.len(),
+                "recipientUserIds": recipient_user_ids,
+                "readBits": recipient_read_bits,
+                "authorExcluded": true,
+                "contractVersion": 2,
                 "readerIds": reader_ids,
                 "unreadIds": unread_ids,
                 "readers": readers,
@@ -96,6 +105,10 @@ fn unavailable_receipt(post_id: &str, snapshot_id: &str, snapshot_version: i64) 
         "snapshotVersion": snapshot_version,
         "readerCount": 0,
         "unreadCount": 0,
+        "recipientUserIds": [],
+        "readBits": "",
+        "authorExcluded": true,
+        "contractVersion": 2,
         "readerIds": [],
         "unreadIds": [],
         "readers": [],

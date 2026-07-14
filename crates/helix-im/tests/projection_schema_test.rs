@@ -766,6 +766,7 @@ fn im_schedule_created_freezes_render_ready_schedule_fields() {
             "sendAt": 1_700_000_000_000_i64,
             "status": "scheduled",
             "revision": 7,
+            "message": "下午三点发送完整正文，不得用摘要代替",
             "messagePreview": "稍后发送"
         }),
         None,
@@ -781,10 +782,27 @@ fn im_schedule_created_freezes_render_ready_schedule_fields() {
             "messagePreview",
             "revision",
             "scheduleId",
+            "scheduleMessage",
+            "scheduleMessagePreview",
+            "scheduleRevision",
+            "scheduleSendAt",
+            "scheduleStatus",
             "sendAt",
             "status",
         ],
     );
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(
+        payload["data"]["scheduleMessage"],
+        "下午三点发送完整正文，不得用摘要代替"
+    );
+    assert_eq!(payload["data"]["scheduleMessagePreview"], "稍后发送");
+    assert_eq!(payload["data"]["scheduleSendAt"], 1_700_000_000_000_i64);
+    assert_eq!(payload["data"]["scheduleRevision"], 7);
+    assert_eq!(payload["data"]["scheduleStatus"], "scheduled");
 }
 
 #[test]
@@ -795,6 +813,8 @@ fn im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_lea
             "schedule_id": "schedule-1",
             "send_at": 1_700_000_000_000_i64,
             "revision": 8,
+            "status": "scheduled",
+            "message": "不得泄露完整正文",
             "message_preview": "不得泄露"
         }),
         None,
@@ -810,6 +830,11 @@ fn im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_lea
             "messagePreview",
             "revision",
             "scheduleId",
+            "scheduleMessage",
+            "scheduleMessagePreview",
+            "scheduleRevision",
+            "scheduleSendAt",
+            "scheduleStatus",
             "sendAt",
             "status",
         ],
@@ -818,7 +843,30 @@ fn im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_lea
         panic!("必须 emit")
     };
     let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert!(payload["data"]["scheduleMessage"].is_null());
     assert!(payload["data"]["messagePreview"].is_null());
+    assert!(payload["data"]["scheduleMessagePreview"].is_null());
+    assert_eq!(payload["data"]["scheduleStatus"], "canceled");
+}
+
+#[test]
+fn im_schedule_created_never_uses_preview_as_editable_message_fallback() {
+    let e = to_effect_s1::emit_schedule_created(
+        ch(),
+        &serde_json::json!({
+            "scheduleId": "schedule-preview-only",
+            "sendAt": 1_700_000_000_000_i64,
+            "messagePreview": "只有摘要"
+        }),
+        None,
+        true,
+    );
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert!(payload["data"]["scheduleMessage"].is_null());
+    assert_eq!(payload["data"]["scheduleMessagePreview"], "只有摘要");
 }
 
 // ════════════════════════════════════════════════════════════════════════════

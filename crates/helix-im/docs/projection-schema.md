@@ -96,8 +96,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
 | `to_effect_s1::emit_member_nickname` | `im:channel:memberNickname` | `channelId` `userId` `nickName` | WS `update_channel_member_nickName` |
-| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` | WS `post_schedule_created` |
-| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | `id` `channelId` `hasSchedulePost` | WS `post_schedule_canceled` |
+| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` `scheduleId` `scheduleMessage` `scheduleMessagePreview` `scheduleSendAt` `scheduleRevision` `scheduleStatus`（同时保留通用 schedule 字段） | WS `post_schedule_created`；全文仅 owner/服务端授权可见，preview 不得替代全文 |
+| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | 同 created，且 `hasSchedulePost=false` `scheduleStatus=canceled` | WS `post_schedule_canceled`；取消为终态，未授权时正文与摘要均为 `null` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
 | `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| invoke `im_query_dialog_list` |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
@@ -235,7 +235,7 @@ cursor，因此合同冻结 `cursor:null`；`hasMore` 透传响应字段，缺�
 | channel | data 键集 | 权威边界 |
 |---|---|---|
 | `im:posts:batch-result` | `{reqId,batchStatus,acceptedCount,failedCount,deliveryAuthority,targets:[{channelId,acceptanceStatus,deliveryStatus,error}]}` | HTTP 只证明 `accepted/failed`；accepted 的 `deliveryStatus=pending`，最终送达只认逐目标 WS `post` |
-| `im:post:readers` | `{reqId,receipts:[{postId,state,snapshotId,snapshotVersion,readerCount,unreadCount,readerIds,unreadIds,readers:[{userId}],unreaders:[{userId}]}]}` | Helix 按消息发送时 `memberIds` 快照顺序解释 `readBits`，排除发送者后输出已读/未读 render model；前端不接触 bitmap |
+| `im:post:readers` | `{reqId,receipts:[{postId,state,snapshotId,snapshotVersion,readerCount,unreadCount,recipientUserIds,readBits,authorExcluded,contractVersion,readerIds,unreadIds,readers:[{userId}],unreaders:[{userId}]}]}` | Helix 按消息发送时 `memberIds` 快照顺序解释 `readBits`；canonical 保持接收者序列，legacy 在线性扫描中剔除作者位，固定输出 `authorExcluded=true`、`contractVersion=2`，非法形态 fail closed |
 
 消息 `actionCapabilities` 额外冻结五个布尔值：`canUrgentConfirm`、`canMarkRead`、
 `canViewReceipt`、`canTemplateConfirm`、`canLocate`。其中 `canLocate` 仅在消息具备 serverId 且未撤回时为真；

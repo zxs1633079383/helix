@@ -70,7 +70,7 @@
 
 ## ADR-012 — 默认 gate 对齐 PC native + Flutter FFI；Web 方案落地前不伪造交付门
 - **决策**：`scripts/gate.sh` 的默认交付门只覆盖已产品化目标：PC Tauri/native 与 Flutter FFI。默认门必须调用 `scripts/ffi-verify.sh --no-demo`，把 FFI 仓内 1–5 层（Rust e2e/clippy/零运行时/native↔ffi parity/C++ ABI smoke）纳入提交验证。第 6 层仓外 Flutter demo 由 `scripts/gate.sh --full` 或手动 `scripts/ffi-verify.sh` 触发；7–8 层 Flutter UI/Maestro 需完整 Xcode/设备，继续作为外部环境验收，不进入默认 gate。历史 `helix-driver-wasm` 继续 archived/experimental，不作为默认交付 gate；新的 Web Rust 接入层与验收合同落地后，再按实际边界扩展 CI。
-- **理由**：FFI 是当前已产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。Web 新架构尚未拍板，正式 crate 和验收合同尚未建立；此时恢复历史 wasm 骨架或保留旧 probe gate，既不能证明 Web 可交付，也会制造错误的完成感。
+- **理由**：FFI 是当前已产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。Web 新架构虽已于 2026-07-14 拍板，但正式 crate 和验收合同尚未落地；此时恢复历史 wasm 骨架或保留旧 probe gate，既不能证明 Web 可交付，也会制造错误的完成感。
 - **代码事实**：`scripts/gate.sh` 第 2 步为 PC/native + Flutter/FFI 双端 cargo check，不再默认 wasm target；第 8 步调用 `bash scripts/ffi-verify.sh --no-demo`。`scripts/ffi-verify.sh` 仍可独立运行，且用法说明标明默认 gate 与 demo/full 的边界。
 - **状态**：已定（2026-06-22，Task 4 gate alignment）；2026-07-13 撤销旧 Web W0→W1 路线后，仍保持双端 gate，待新方案落地再扩展。
 
@@ -86,11 +86,13 @@
 ## ADR-014 — Web 重新进入产品目标：共享业务语义，平台能力允许不同
 
 - **仍有效的决策**：Helix 产品目标集合为 PC Tauri、Flutter 手机端与 Web 三端；native/FFI 已产品化，Web 尚未交付。三端复用同一份 `helix-core + helix-im` 业务语义，不复制协议解析、WS 消息处理、sequence/cursor、echo、已读、撤回、编辑、补偿同步或发送状态机。
-- **仍有效的能力边界**：PC/Flutter 可以继续复用 `helix-driver-host` 的完整 SQLite/HTTP/WS 默认实现；Web 不被强迫复制 SQLite 或 Rust 物理 WebSocket 生命周期，可以由平台适配器提供无持久化/受限持久化、HTTP 执行与物理 WS 连接能力。三端对外应只暴露 Rust 业务接口，业务 HTTP 编排、WS 帧后的业务处理与 local-first/remote fallback 不泄漏给 UI；具体 port/trait 形状待新架构方案拍板。
+- **业务门面决策**：三端统一经过 `helix-im::client_api` 归一化业务 command/query；现有 `helix-im::query` 异步 command → Effect → PortReply → DomainEvent 路径是唯一查询真源。`mobile_contract` 先兼容 re-export，`mobile_query` 与 FFI 同步直查 Storage 旁路在消费方迁移后删除；driver 不保留 alias、query SQL、remote fallback 或投影 shape 副本。
+- **能力边界决策**：PC/Flutter 继续复用 `helix-driver-host` 的完整 SQLite/HTTP/WS 默认实现；Web 使用独立 `helix-driver-web`，首版兑现 Rust 有界内存 session store、Rust Browser Fetch 与浏览器物理 WS bridge，不依赖 `helix-driver-host`，不做 IndexedDB/OPFS。local-first/remote fallback 只在 `helix-im`，以 `LocalStoreMode` + `LocalReadCoverage` 明确区分 Complete/Partial/Miss/Unsupported，空 rows 不得冒充完整或不支持。
+- **WebSocket port 决策**：core 新增只含 outbound `send(frame)` 的 `FrameSender`；`helix-driver-host` 的 engine/dispatch 只依赖该能力。`connect/recv/close/reconnect` 移到 host 私有连接生命周期边界；Web 通过平台 bridge 把 connected/frame/disconnected 喂成既有 Tick，并消费 outbound frame action。迁移完成后删除 core 旧 `Transport`。
 - **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。现有 `helix-driver-wasm` 继续作为历史实验，不自动转正。
 - **仍有效的数据正确性底线**：若 Web 最终选择跨刷新缓存，禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor；必须联合记录可证明的数据覆盖范围，或明确冷启动重新同步。
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
-- **状态**：原则部分已定；旧执行方案于 2026-07-13 撤销。新的架构修改方案尚未拍板，ROADMAP M4 只保留 A0 讨论项。
+- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)，ROADMAP M4 按 A1-A5 推进。
 
 ---
 

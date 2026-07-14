@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 三端 Rust 业务门面与平台适配架构方案落账：只新增一份 canonical 设计并同步 ADR-014、ROADMAP、GOAL/AGENTS 当前口径与 docs 地图，不改 Rust 实现。可证伪断言：① 方案明确不新增共享大 crate，业务门面落 `helix-im`；② 现有 `query` 异步主路径成为三端真源，`mobile_query`/FFI 同步查询仅作迁移兼容并最终删除重复；③ core WS port 收敛为 outbound frame，connect/recv/close 下沉平台 driver；④ PC/Flutter 继续复用 host 默认 SQLite/HTTP/WS，Web 使用内存 session store + Rust Browser Fetch + 浏览器物理 WS bridge；⑤ local-first 以显式 coverage/capability 判定，不让空数组冒充完整；⑥ 分阶段列出文件、类型、测试与兼容边界；⑦ Rust 源码零改、旧 W0 probe 路线不复活、`.codebase-memory/` 与 `outputs/` 不触碰。@2026-07-14T11:50:38+0800 | 赌注 高 | 可逆 是
+✅ DONE 三端 Rust 业务门面与平台适配架构方案落账：新增 canonical 设计，ADR-014、ROADMAP M4 A1-A5、GOAL/AGENTS、docs/harness 与 gate 口径已同步；明确 `helix-im::client_api`、现有异步 query 真源、coverage 驱动 local-first、outbound-only `FrameSender`、PC/Flutter shared host 与独立 Web Rust driver。验证：`scripts/gate-fast.sh` PASS；专项断言 Rust diff=0、harness=16/16/16、canonical 索引=7、旧待拍板口径=0、旧 probe 路径引用/目录=0；`.codebase-memory/` 与 `outputs/` 保持未跟踪未修改。@2026-07-14T11:57:36+0800
+
 🎯 EXPECT 撤销旧 Web W0 浏览器探针方案：删除 probe/spec 及 gate、ROADMAP、GOAL、ADR/harness 中的 W0→W1 生效接线，只保留已确认的三端产品目标、共享业务语义与平台能力可不同；不写新架构实现、不改 Rust 源码、不恢复其他会话删除内容。可证伪断言：① `tools/web-w0-probe` 与旧 spec 不存在；② 当前文档不再把 W0 浏览器探针、Dedicated Worker、W0-W4 当实施路线；③ ADR-014 明确区分仍有效原则与已撤销执行细节；④ `gate-fast.sh` 不再含 Node probe 特判；⑤ `.codebase-memory/` 与 `outputs/` 保持未触碰。@2026-07-13T17:20:00+0800 | 赌注 中 | 可逆 是
 ✅ DONE 撤销旧 Web W0 浏览器探针方案：删除仓内 spec、两份 JS probe、快速门 Node 特判与外部 369 行旧架构方案；AGENTS/GOAL/ROADMAP/ADR/harness 已统一为“原则保留、旧执行路线失效、新架构待拍板”，Rust 源码零改。验证：旧文件与活跃引用不存在；`git diff --check`、全 scripts `bash -n`、`gate-fast.sh` PASS；harness 16=16；`.codebase-memory/` 与 `outputs/` 保持未跟踪未修改。@2026-07-13T17:37:33+0800
 ⚡ DRIFT-PRED 先前把 Web 启动点收敛成浏览器 probe/W0→W4，偏离了用户明确的“只实现 Rust、先改三端业务门面与能力适配架构”优先级 → 候选教训：Web 目标确认不等于 Web 执行路线已确认，架构未拍板前不应先落平台探针。@2026-07-13T17:37:33+0800

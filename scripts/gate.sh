@@ -6,7 +6,7 @@
 # Gate alignment:
 # - 默认门必须覆盖当前产品化目标：PC Tauri/native + Flutter FFI。
 # - FFI 仓内 1–5 层由 `scripts/ffi-verify.sh --no-demo` 纳入默认门。
-# - Web 的新 Rust 架构方案尚未拍板，当前不进入交付门；方案确定后再新增对应 gate。
+# - Web 新 Rust 架构已拍板但正式 crate 尚未落地，当前不进入交付门；A4/A5 后新增独立 Web gate。
 # - 历史 wasm 骨架仍归档；需要 trait-shape 自检时手动跑：
 #   `cargo check --target wasm32-unknown-unknown -p helix-core -p helix-driver-wasm`。
 set -euo pipefail

@@ -3,101 +3,55 @@
 //! ## 读写分离（B1 回归修复）
 //!
 //! 旧实现（commit a0595607 重构后）把 native 三池塌成单个 `Arc<Mutex<Connection>>`，
-//! 导致 get/scan 与任何 op 串行在同一把锁 —— ADR-007/engine_loop §3 宣称的「跨组并发」
-//! 成了摆设。本实现恢复读写分离：
+//! 导致 get/scan 与任何 op 串行在同一把锁。本实现恢复读写分离：
 //!
-//! - **1 个写连接**（`Mutex<Connection>`，`SQLITE_OPEN_READ_WRITE | CREATE`）：
-//!   batch_upsert / batch_update / monotonic_upsert 路由到这里。SQLite WAL 是单写者，
-//!   写串行本就正确，单写连接不损失正确性。
-//! - **N=4 个只读连接池**（每个 `SQLITE_OPEN_READ_ONLY` 打开同一 WAL 文件）：
-//!   get / scan 路由到这里，可并发（WAL 允许多读者与单写者并发）。
-//!   池用 tokio `Semaphore`（限并发到 N）+ `Mutex<Vec<Connection>>`（借还空闲连接）实现。
-//!
-//! WAL 模式下读者读快照、不阻塞写者，写者也不阻塞读者 → 真并发。
+//! - 1 个写连接：batch_upsert / batch_update / monotonic_upsert 串行兑现。
+//! - N=4 个只读连接：get / scan 在 WAL 下与写者及其他读者并发。
+//! - 不支持共享连接的内存数据库回退到写连接读取，语义优先。
 //!
 //! ## 不变量（不可破）
 //!
 //! - batch_upsert 单事务（E2 写放大 1x）
-//! - monotonic MAX guard（`ON CONFLICT ... WHERE excluded.value > value`，E5）
+//! - monotonic MAX guard（E5）与 GuardedBump 单条 UPDATE（HX-C005）
 //! - `_helix_monotonic` 表在 open()/migrate() 建（不在热路径）
-//! - PRAGMA journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000（写、读连接都设）
-//! - 连接 flags 用 `SQLITE_OPEN_NO_MUTEX`（B2）：连接已被 Rust Mutex/只读池独占管理，
-//!   消除 SQLite 内部串行化锁的双重开销。
+//! - PRAGMA journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000
+//! - SQL trace 的 statement、parameters、table 与错误映射保持一致
 
-use std::future::Future;
+mod connection;
+mod read;
+mod trace;
+mod values;
+mod write;
+
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+    Row as HelixRow, ScanSpec, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
-use rusqlite::types::{Value, ValueRef};
-use rusqlite::{params_from_iter, Connection, OpenFlags};
-use serde_json::json;
-use tokio::sync::Semaphore;
+use rusqlite::Connection;
 
-use crate::base64_encode;
-use crate::otel::{HostOtelRuntime, HostSpanScope, TraceDirection};
-use crate::trace::TraceCarrier;
+use connection::{
+    map_join_err, map_lock_err, map_sqlite_err, open_reader, open_writer, sqlite_target_from_url,
+    target_supports_shared_readers, ReadPool, READ_POOL_SIZE,
+};
+use trace::{current_storage_trace_context, trace_sql};
 
-/// 只读连接池大小（恢复 native 旧三池中「读 ×4」并发度）。
-const READ_POOL_SIZE: usize = 4;
-const SQL_TRACE_MAX_BYTES: usize = 16 * 1024;
+pub use trace::{with_storage_trace_context, StorageTraceContext};
 
-/// 内存数据库（`mode=memory` / `:memory:`）无法被第二个连接以 READ_ONLY 重开成同一份
-/// 数据（每个 `Connection::open` 得到独立的空库），除非走 `cache=shared`。文件 WAL
-/// 库才天然支持多连接共享。因此只读池仅对「可被多连接共享的目标」开启；其余目标
-/// （独占内存库等）回退到写连接做读，保证语义正确（牺牲并发度，但这类目标本就无并发需求）。
+/// 内存数据库若未启用 shared cache，第二个连接会得到独立空库；文件 WAL 库与显式
+/// `cache=shared` 的内存库才启用只读池。
 #[derive(Clone)]
 pub struct HostStorage {
-    /// 单写连接：所有写 op 串行（WAL 单写者本就如此）。
-    writer: Arc<Mutex<Connection>>,
-    /// 只读连接池：get/scan 并发借还；None = 目标不支持多连接共享，读回退到 writer。
-    readers: Option<Arc<ReadPool>>,
-}
-
-/// 只读连接池：Semaphore 限并发 + Mutex<Vec> 借还空闲连接。
-struct ReadPool {
-    /// 限制同时在用的只读连接数 == 池容量；`acquire().await` 在满载时异步挂起
-    /// （不阻塞线程，背压自然传导）。持有 permit 即保证 idle 栈必有一个空闲连接。
-    permits: Arc<Semaphore>,
-    /// 空闲只读连接栈。permit 持有者保证 pop 必有连接（容量与 permit 数一致）。
-    idle: Mutex<Vec<Connection>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct StorageTraceContext {
-    runtime: HostOtelRuntime,
-    carrier: Option<TraceCarrier>,
-}
-
-impl StorageTraceContext {
-    pub fn new(runtime: HostOtelRuntime, carrier: Option<TraceCarrier>) -> Self {
-        Self { runtime, carrier }
-    }
-}
-
-tokio::task_local! {
-    static STORAGE_TRACE_CONTEXT: StorageTraceContext;
-}
-
-pub async fn with_storage_trace_context<F>(context: StorageTraceContext, future: F) -> F::Output
-where
-    F: Future,
-{
-    STORAGE_TRACE_CONTEXT.scope(context, future).await
-}
-
-fn current_storage_trace_context() -> Option<StorageTraceContext> {
-    STORAGE_TRACE_CONTEXT.try_with(Clone::clone).ok()
+    pub(super) writer: Arc<Mutex<Connection>>,
+    pub(super) readers: Option<Arc<ReadPool>>,
 }
 
 impl HostStorage {
     pub async fn open_sqlite_url(db_url: &str) -> Result<Self, PortError> {
         let target = sqlite_target_from_url(db_url);
-        // 只读池仅对可被多连接共享的目标开启（文件库，或显式 cache=shared 的内存库）。
         let shareable = target_supports_shared_readers(&target);
 
         let target_for_blocking = target.clone();
@@ -109,10 +63,7 @@ impl HostStorage {
                 for _ in 0..READ_POOL_SIZE {
                     conns.push(open_reader(&target_for_blocking)?);
                 }
-                Some(Arc::new(ReadPool {
-                    permits: Arc::new(Semaphore::new(READ_POOL_SIZE)),
-                    idle: Mutex::new(conns),
-                }))
+                Some(Arc::new(ReadPool::new(conns)))
             } else {
                 None
             };
@@ -143,7 +94,6 @@ impl HostStorage {
     }
 
     async fn migrate(&self) -> Result<(), PortError> {
-        // 写连接建表 + 设 PRAGMA。WAL 是库级持久属性，读连接 open 后亦生效。
         self.execute_raw(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
@@ -154,18 +104,14 @@ impl HostStorage {
         .await
     }
 
-    /// 在只读连接上跑闭包（无可共享只读池时回退到写连接）。
-    ///
-    /// get/scan 走这里 → WAL 下可与写者及其他读者并发。
-    async fn with_reader<T, F>(&self, f: F) -> Result<T, PortError>
+    /// 在只读连接上跑闭包；无可共享只读池时回退到写连接。
+    pub(super) async fn with_reader<T, F>(&self, f: F) -> Result<T, PortError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection) -> Result<T, PortError> + Send + 'static,
     {
         match &self.readers {
             Some(pool) => {
-                // 先 async 取 permit（满载时异步挂起，不占线程，背压自然传导）；
-                // 持有 permit ⇒ idle 栈必有一个空闲连接可借。
                 let permit = Arc::clone(&pool.permits)
                     .acquire_owned()
                     .await
@@ -177,13 +123,11 @@ impl HostStorage {
                         idle.pop()
                     };
                     let Some(conn) = conn else {
-                        // permit 与连接数一致，理论不可达；防御性报错而非 panic。
                         return Err(PortError::Storage(
                             "read pool permit/conn mismatch".to_string(),
                         ));
                     };
                     let out = f(&conn);
-                    // 归还连接（即便 f 出错连接仍可用），随后 drop permit 释放并发额度。
                     if let Ok(mut idle) = pool.idle.lock() {
                         idle.push(conn);
                     }
@@ -194,7 +138,6 @@ impl HostStorage {
                 .map_err(map_join_err)?
             }
             None => {
-                // 无可共享只读池（独占内存库等）→ 在写连接上读，串行但正确。
                 let writer = Arc::clone(&self.writer);
                 tokio::task::spawn_blocking(move || {
                     let conn = writer.lock().map_err(map_lock_err)?;
@@ -210,461 +153,30 @@ impl HostStorage {
 #[async_trait::async_trait]
 impl Storage for HostStorage {
     async fn batch_upsert(&self, spec: UpsertSpec) -> Result<(), PortError> {
-        if spec.rows.is_empty() {
-            return Ok(());
-        }
-
-        let writer = Arc::clone(&self.writer);
-        let trace = current_storage_trace_context();
-        tokio::task::spawn_blocking(move || {
-            let mut conn = writer.lock().map_err(map_lock_err)?;
-            // HX-C005（E9b）：batch_upsert 的 SQL 串因 table + 列名集 + conflict_key +
-            // exclude_from_update **形状**各异，单 `&'static str` 不可行。改用按形状 key 缓存
-            // 已建 SQL（thread-local `HashMap<UpsertShapeKey, String>`）：同形状第二次调用直接
-            // 复用缓存串，消除 per-call 的 `format!` / `join` / `Vec` 分配尾巴。
-            // 行为零变更——缓存的是 SQL 文本本身（值绑定仍走 `?` 参数，与原实现逐字一致）。
-            // spawn_blocking 跑在 tokio 阻塞线程池：thread-local 无锁、无跨线程共享，命中即免分配。
-            let sql = crate::upsert_sql::upsert_sql_for_shape(&spec);
-
-            // E2 不变量：整批一事务，写放大 1x。中途失败 → 事务回滚（tx drop 未 commit 即回滚），整批不落。
-            let tx = conn.transaction().map_err(map_sqlite_err)?;
-            {
-                let mut stmt = tx.prepare_cached(&sql).map_err(map_sqlite_err)?;
-                for row in &spec.rows {
-                    let values = sql_values(row.iter().map(|(_, value)| value));
-                    let _span = trace_sql(&trace, "UPSERT", Some(spec.table), &sql, &values);
-                    stmt.execute(params_from_iter(values.iter()))
-                        .map_err(map_sqlite_err)?;
-                }
-            }
-            tx.commit().map_err(map_sqlite_err)
-        })
-        .await
-        .map_err(map_join_err)?
+        write::batch_upsert(self, spec).await
     }
 
     async fn batch_update(&self, spec: BatchUpdateSpec) -> Result<(), PortError> {
-        let BatchUpdateSpec {
-            table,
-            key_col,
-            key_vals,
-            patch,
-        } = spec;
-        if key_vals.is_empty() || patch.is_empty() {
-            return Ok(());
-        }
-
-        let writer = Arc::clone(&self.writer);
-        let trace = current_storage_trace_context();
-        let table = table.to_string();
-        let key_col = key_col.to_string();
-        tokio::task::spawn_blocking(move || {
-            let conn = writer.lock().map_err(map_lock_err)?;
-            let set_clause: Vec<String> = patch.iter().map(|(k, _)| format!("{k} = ?")).collect();
-            let in_placeholders: Vec<&str> = key_vals.iter().map(|_| "?").collect();
-            let sql = format!(
-                "UPDATE {table} SET {set} WHERE {key_col} IN ({in_vals})",
-                set = set_clause.join(", "),
-                in_vals = in_placeholders.join(", "),
-            );
-
-            let mut values = sql_values(patch.iter().map(|(_, value)| value));
-            values.extend(sql_values(key_vals.iter()));
-            let _span = trace_sql(&trace, "UPDATE", Some(&table), &sql, &values);
-            conn.execute(&sql, params_from_iter(values.iter()))
-                .map(|_| ())
-                .map_err(map_sqlite_err)
-        })
-        .await
-        .map_err(map_join_err)?
+        write::batch_update(self, spec).await
     }
 
     async fn monotonic_upsert(&self, spec: MonotonicUpsertSpec) -> Result<(), PortError> {
-        // HX-C005 热路径零分配 / O(1)：cursor 推进是每条 WS 消息触发的最热路径。
-        // SQL 由 spec 的 `&'static str` 表名 / 列名拼装（表名 / 列名都是编译期常量，
-        // 由上层业务模块提供——守 HX-C001，core/driver 不解释含义），配合 prepare_cached
-        // 复用已编译语句（同一组常量 → 同一 SQL 串 → 同一 cache 槽），消除 per-call parse 开销。
-        // 单条 INSERT … ON CONFLICT DO UPDATE = O(1)，无 read-modify-write。
-        //
-        // MAX guard（E5 / S2 不变量）：`WHERE excluded.value > <table>.<value_col>` —— 仅当严格
-        // 大于现值才前进（防 cursor 回退）。`touch_col`（如 updated_at）由本 driver 的 ambient
-        // 时钟写穿（driver 层合法，见本 crate 不变量 #5），**不**参与 MAX guard——它是非权威镜像
-        // 列；即便 MAX guard 因无进展不更新 value，updated_at 仍随 excluded 覆盖（对齐现网
-        // channel_event_cursor.rs:55-56 `updated_at = excluded.updated_at`）。
-        //
-        // HX-C005 零分配：唯一热 shape（advance_cursor：channel_event_cursor / channel_id /
-        // last_event_seq / updated_at）→ `&'static str` 常量 SQL，per-call **不分配 String**
-        // （`Cow::Borrowed`）。其余 shape（当前运行时无调用，保泛型 API）才走 `format!` 兜底。
-        // 对齐现网 channel_event_cursor.rs:54-56：value 走 MAX guard（不回退）；touch（updated_at）
-        // 恒随 excluded 覆盖（MAX 已防 value 回退，updated_at 每写刷新，与现网 Utc::now 写穿一致）。
-        const CURSOR_ADVANCE_UPSERT_SQL: &str =
-            "INSERT INTO channel_event_cursor (channel_id, last_event_seq, updated_at) \
-             VALUES (?, ?, ?) ON CONFLICT(channel_id) DO UPDATE SET \
-             last_event_seq = MAX(channel_event_cursor.last_event_seq, excluded.last_event_seq), \
-             updated_at = excluded.updated_at";
-        let sql: std::borrow::Cow<'static, str> =
-            match (spec.table, spec.key_col, spec.value_col, spec.touch_col) {
-                ("channel_event_cursor", "channel_id", "last_event_seq", Some("updated_at")) => {
-                    std::borrow::Cow::Borrowed(CURSOR_ADVANCE_UPSERT_SQL)
-                }
-                (table, key, val, Some(touch)) => std::borrow::Cow::Owned(format!(
-                    "INSERT INTO {table} ({key}, {val}, {touch}) VALUES (?, ?, ?) \
-                     ON CONFLICT({key}) DO UPDATE SET \
-                     {val} = MAX({table}.{val}, excluded.{val}), {touch} = excluded.{touch}",
-                )),
-                (table, key, val, None) => std::borrow::Cow::Owned(format!(
-                    "INSERT INTO {table} ({key}, {val}) VALUES (?, ?) \
-                     ON CONFLICT({key}) DO UPDATE SET {val} = excluded.{val} \
-                     WHERE excluded.{val} > {table}.{val}",
-                )),
-            };
-        // updated_at 由 driver ambient 时钟提供（毫秒，对齐现网 Utc::now().timestamp_millis()）。
-        // 仅 touch_col=Some 才需 → 无 touch 列不调 SystemTime::now() syscall（HX-C005）。
-        let now_ms = match spec.touch_col {
-            Some(_) => std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0),
-            None => 0,
-        };
-        let writer = Arc::clone(&self.writer);
-        let trace = current_storage_trace_context();
-        tokio::task::spawn_blocking(move || {
-            let conn = writer.lock().map_err(map_lock_err)?;
-            let mut stmt = conn.prepare_cached(sql.as_ref()).map_err(map_sqlite_err)?;
-            let params = match spec.touch_col {
-                Some(_) => vec![
-                    Value::Text(spec.scope_key.clone()),
-                    Value::Integer(spec.value),
-                    Value::Integer(now_ms),
-                ],
-                None => vec![
-                    Value::Text(spec.scope_key.clone()),
-                    Value::Integer(spec.value),
-                ],
-            };
-            let _span = trace_sql(&trace, "UPSERT", Some(spec.table), sql.as_ref(), &params);
-            stmt.execute(params_from_iter(params.iter()))
-                .map(|_| ())
-                .map_err(map_sqlite_err)
-        })
-        .await
-        .map_err(map_join_err)?
+        write::monotonic_upsert(self, spec).await
     }
 
     async fn guarded_bump(&self, spec: GuardedBumpSpec) -> Result<(), PortError> {
-        // HX-C005 热路径 O(1)：未读 +1 等计数路径——单条 UPDATE WHERE PK，**无 read-modify-write**。
-        // SQL：`SET bump_col = bump_col + ? [, set_cols = ?…] WHERE key = ? AND ? > guard_col`。
-        // 守卫占位 `?` 绑定 guard_val（严格 > guard_col 现值才命中）——同一消息重复投递 / 旧消息
-        // 乱序到达均在 SQL 层幂等不污染计数。表名 / 列名都是 spec 的 `&'static str`（上层编译期
-        // 常量，driver 不解释含义，守 HX-C001），prepare_cached 复用同形状语句。
-        let writer = Arc::clone(&self.writer);
-        let trace = current_storage_trace_context();
-        tokio::task::spawn_blocking(move || {
-            // SET 片段：先自增列（delta 走**绑定参数** `?`，非内插 SQL 文本——HX-C005：SQL 文本
-            // 不随 bump_delta 值变 → prepare_cached 同形状命中，零 per-delta 重编译），再可选绝对列。
-            let mut set_parts = vec![format!("{bump} = {bump} + ?", bump = spec.bump_col)];
-            set_parts.extend(
-                spec.extra_bumps
-                    .iter()
-                    .map(|(bump, _)| format!("{bump} = {bump} + ?")),
-            );
-            set_parts.extend(spec.set_cols.iter().map(|(k, _)| format!("{k} = ?")));
-            let sql = format!(
-                "UPDATE {table} SET {set} WHERE {key} = ? AND ? > {guard}",
-                table = spec.table,
-                set = set_parts.join(", "),
-                key = spec.key_col,
-                guard = spec.guard_col,
-            );
-            // 绑定顺序与 SQL 占位一致：bump_delta → extra_bumps delta… → set_cols 值… → key_val → guard_val。
-            let mut params = sql_values(std::iter::once(&SqlValue::Integer(spec.bump_delta)));
-            params.extend(
-                spec.extra_bumps
-                    .iter()
-                    .map(|(_, delta)| Value::Integer(*delta)),
-            );
-            params.extend(sql_values(spec.set_cols.iter().map(|(_, v)| v)));
-            params.extend(sql_values(std::iter::once(&spec.key_val)));
-            params.extend(sql_values(std::iter::once(&SqlValue::Integer(
-                spec.guard_val,
-            ))));
-            let conn = writer.lock().map_err(map_lock_err)?;
-            let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
-            let _span = trace_sql(&trace, "UPDATE", Some(spec.table), &sql, &params);
-            stmt.execute(params_from_iter(params.iter()))
-                .map(|_| ())
-                .map_err(map_sqlite_err)
-        })
-        .await
-        .map_err(map_join_err)?
+        write::guarded_bump(self, spec).await
     }
 
     async fn get(&self, spec: GetSpec) -> Result<Option<HelixRow>, PortError> {
-        let trace = current_storage_trace_context();
-        self.with_reader(move |conn| {
-            let sql = format!(
-                "SELECT * FROM {table} WHERE {key_col} = ?",
-                table = spec.table,
-                key_col = spec.key_col,
-            );
-            let values = sql_values(std::iter::once(&spec.key_val));
-            let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
-            let _span = trace_sql(&trace, "SELECT", Some(spec.table), &sql, &values);
-            let mut rows = stmt
-                .query(params_from_iter(values.iter()))
-                .map_err(map_sqlite_err)?;
-            match rows.next().map_err(map_sqlite_err)? {
-                Some(row) => convert_row(row).map(Some),
-                None => Ok(None),
-            }
-        })
-        .await
+        read::get(self, spec).await
     }
 
     async fn scan(&self, spec: ScanSpec) -> Result<Vec<HelixRow>, PortError> {
-        const HARD_LIMIT: u32 = 10_000;
-        let trace = current_storage_trace_context();
-        self.with_reader(move |conn| {
-            let limit = spec.limit.unwrap_or(HARD_LIMIT).min(HARD_LIMIT);
-            // 可选过滤/排序（P6 投影；None=旧全表语义零行为改变）。列名 core 编译期 `&'static str`
-            // （HX-C001 列名作数据）；过滤值走绑定参数防注入。
-            let where_clause = spec
-                .filter
-                .as_ref()
-                .map_or(String::new(), |(c, _)| format!(" WHERE {c} = ?"));
-            let order_clause = spec
-                .order_desc_col
-                .map_or(String::new(), |c| format!(" ORDER BY {c} DESC"));
-            let sql = format!(
-                "SELECT * FROM {table}{where_clause}{order_clause} LIMIT {limit}",
-                table = spec.table,
-            );
-            let bind: Vec<Value> = spec
-                .filter
-                .as_ref()
-                .map_or_else(Vec::new, |(_, val)| sql_values(std::iter::once(val)));
-            let mut stmt = conn.prepare_cached(&sql).map_err(map_sqlite_err)?;
-            let _span = trace_sql(&trace, "SELECT", Some(spec.table), &sql, &bind);
-            let mut rows = stmt
-                .query(params_from_iter(bind.iter()))
-                .map_err(map_sqlite_err)?;
-            let mut out = Vec::new();
-            while let Some(row) = rows.next().map_err(map_sqlite_err)? {
-                out.push(convert_row(row)?);
-            }
-            Ok(out)
-        })
-        .await
+        read::scan(self, spec).await
     }
 
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
-        let BatchDeleteSpec {
-            table,
-            scope_col,
-            scope_val,
-            key_col,
-            key_vals,
-        } = spec;
-        if key_vals.is_empty() {
-            return Ok(());
-        }
-
-        let writer = Arc::clone(&self.writer);
-        let trace = current_storage_trace_context();
-        let table = table.to_string();
-        let scope_col = scope_col.to_string();
-        let key_col = key_col.to_string();
-        tokio::task::spawn_blocking(move || {
-            let conn = writer.lock().map_err(map_lock_err)?;
-            let in_placeholders: Vec<&str> = key_vals.iter().map(|_| "?").collect();
-            // DELETE FROM <table> WHERE <scope_col> = ? AND <key_col> IN (?…)
-            // scope 等值约束（复合 PK 第一段）定位单作用域，绝不跨作用域误删；O(k) 单语句。
-            let sql = format!(
-                "DELETE FROM {table} WHERE {scope_col} = ? AND {key_col} IN ({in_vals})",
-                in_vals = in_placeholders.join(", "),
-            );
-            // 绑定顺序与占位一致：scope_val → key_vals…
-            let mut values = sql_values(std::iter::once(&scope_val));
-            values.extend(sql_values(key_vals.iter()));
-            let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
-            conn.execute(&sql, params_from_iter(values.iter()))
-                .map(|_| ())
-                .map_err(map_sqlite_err)
-        })
-        .await
-        .map_err(map_join_err)?
+        write::batch_delete(self, spec).await
     }
-}
-
-/// 打开写连接：READ_WRITE | CREATE，NO_MUTEX（B2，连接被 Rust Mutex 独占）+ URI。
-fn open_writer(target: &str) -> Result<Connection, PortError> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-        | OpenFlags::SQLITE_OPEN_CREATE
-        | OpenFlags::SQLITE_OPEN_URI
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    Connection::open_with_flags(target, flags).map_err(map_sqlite_err)
-}
-
-/// 打开只读连接：READ_ONLY（同一 WAL 文件可多连接并发读）+ NO_MUTEX（B2，连接被只读池独占）+ URI。
-fn open_reader(target: &str) -> Result<Connection, PortError> {
-    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
-        | OpenFlags::SQLITE_OPEN_URI
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = Connection::open_with_flags(target, flags).map_err(map_sqlite_err)?;
-    // 读连接也设 busy_timeout，避免极短窗口内 WAL checkpoint 引起的瞬时 SQLITE_BUSY。
-    conn.busy_timeout(std::time::Duration::from_millis(5000))
-        .map_err(map_sqlite_err)?;
-    Ok(conn)
-}
-
-/// 判断目标是否支持多连接共享同一份数据（决定是否启用只读池）。
-///
-/// - 文件库（含 `file:...` URI 指向真实路径、普通路径）→ 支持。
-/// - `cache=shared` 的内存库 → 支持（多连接共享同一内存页缓存）。
-/// - 独占内存库（`:memory:` / `mode=memory` 无 `cache=shared`）→ 不支持，
-///   第二个连接会得到独立空库，必须回退到写连接做读。
-fn target_supports_shared_readers(target: &str) -> bool {
-    let is_memory = target.contains(":memory:") || target.contains("mode=memory");
-    if !is_memory {
-        // 文件库（或临时文件）天然支持多连接 WAL 并发读。
-        return true;
-    }
-    // 内存库仅在显式 cache=shared 时可被多连接共享。
-    target.contains("cache=shared")
-}
-
-fn sqlite_target_from_url(db_url: &str) -> String {
-    let Some(rest) = db_url.strip_prefix("sqlite:") else {
-        return db_url.to_string();
-    };
-
-    if rest.starts_with("file:") {
-        return rest.to_string();
-    }
-
-    // M1 修复：不在 '?' 处截断 URL —— 保留 query（?cache=shared / ?mode=memory /
-    // 未来 ?vfs= 等）并连同 SQLITE_OPEN_URI 一起透传给 Connection::open_with_flags。
-    // 只做纯路径前缀的 '///' → '/' 归一（不碰 query 段）。
-    let (path, query) = match rest.split_once('?') {
-        Some((p, q)) => (p, Some(q)),
-        None => (rest, None),
-    };
-
-    let normalized_path = if path.starts_with("///") {
-        format!("/{}", path.trim_start_matches('/'))
-    } else {
-        path.to_string()
-    };
-
-    match query {
-        Some(q) => format!("{normalized_path}?{q}"),
-        None => normalized_path,
-    }
-}
-
-fn sql_values<'a>(values: impl IntoIterator<Item = &'a SqlValue>) -> Vec<Value> {
-    values
-        .into_iter()
-        .map(|value| match value {
-            SqlValue::Text(s) => Value::Text(s.clone()),
-            SqlValue::Integer(i) => Value::Integer(*i),
-            SqlValue::Real(f) => Value::Real(*f),
-            SqlValue::Blob(b) => Value::Blob(b.clone()),
-            SqlValue::Null => Value::Null,
-        })
-        .collect()
-}
-
-fn trace_sql<'a>(
-    trace: &'a Option<StorageTraceContext>,
-    operation: &'static str,
-    table: Option<&str>,
-    statement: &str,
-    params: &[Value],
-) -> Option<HostSpanScope> {
-    let context = trace.as_ref()?;
-    let mut attrs = vec![
-        ("db.system", "sqlite".to_string()),
-        ("db.operation", operation.to_string()),
-        ("db.statement", bounded_attr(statement)),
-        ("db.parameters", bounded_attr(&sql_params_json(params))),
-    ];
-    if let Some(table) = table {
-        attrs.push(("db.sql.table", table.to_string()));
-    }
-    Some(context.runtime.span_with_attributes(
-        "helix.storage.sqlite.query",
-        TraceDirection::Internal,
-        context.carrier.as_ref(),
-        attrs,
-    ))
-}
-
-fn sql_params_json(params: &[Value]) -> String {
-    let json_values: Vec<_> = params
-        .iter()
-        .map(|value| match value {
-            Value::Null => json!(null),
-            Value::Integer(v) => json!(v),
-            Value::Real(v) => json!(v),
-            Value::Text(v) => json!(v),
-            Value::Blob(v) => json!({
-                "type": "blob",
-                "bytes": v.len(),
-                "base64": bounded_attr(&base64_encode(v)),
-            }),
-        })
-        .collect();
-    serde_json::to_string(&json_values).unwrap_or_else(|_| "[]".to_string())
-}
-
-fn bounded_attr(value: &str) -> String {
-    if value.len() <= SQL_TRACE_MAX_BYTES {
-        return value.to_string();
-    }
-    let boundary = value
-        .char_indices()
-        .map(|(idx, _)| idx)
-        .take_while(|idx| *idx <= SQL_TRACE_MAX_BYTES)
-        .last()
-        .unwrap_or(0);
-    format!(
-        "{}...[truncated {} bytes]",
-        &value[..boundary],
-        value.len() - boundary
-    )
-}
-
-fn convert_row(row: &rusqlite::Row<'_>) -> Result<HelixRow, PortError> {
-    let row_ref = row.as_ref();
-    let mut out = Vec::with_capacity(row_ref.column_count());
-    for idx in 0..row_ref.column_count() {
-        let name = row_ref
-            .column_name(idx)
-            .map_err(map_sqlite_err)?
-            .to_string();
-        let value = match row.get_ref(idx).map_err(map_sqlite_err)? {
-            ValueRef::Null => SqlValue::Null,
-            ValueRef::Integer(i) => SqlValue::Integer(i),
-            ValueRef::Real(f) => SqlValue::Real(f),
-            ValueRef::Text(s) => SqlValue::Text(String::from_utf8_lossy(s).into_owned()),
-            // M2：BLOB 无损携带为 SqlValue::Blob，禁 from_utf8_lossy 静默损坏二进制。
-            ValueRef::Blob(b) => SqlValue::Blob(b.to_vec()),
-        };
-        out.push((name, value));
-    }
-    Ok(out)
-}
-
-fn map_sqlite_err(e: impl std::fmt::Display) -> PortError {
-    PortError::Storage(e.to_string())
-}
-
-fn map_lock_err<T>(_: std::sync::PoisonError<T>) -> PortError {
-    PortError::Storage("sqlite connection lock poisoned".to_string())
-}
-
-fn map_join_err(e: tokio::task::JoinError) -> PortError {
-    PortError::Storage(format!("sqlite blocking worker failed: {e}"))
 }

@@ -17,11 +17,15 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 2dd0d2e
-last_reviewed_at: 2026-07-02
+last_reviewed_commit: d864963
+last_reviewed_at: 2026-07-14
+last_review_runId: manual-dual-review-2026-07-14-review-gap-182
+# 本轮冻结审查窗口 2dd0d2e..be28042（182 commits），由 drift_standards_review 与
+# drift_behavior_review 两个独立 reviewer 分别按架构约束和行为链路审查；随后主线把
+# blocker 回正并验证到 d864963。ledger 提交本身不纳入自指针，因此提交后诚实 gap=1。
 # 本指针在 merge 提交后由主对话更新为 merge commit hash（整合下面两条并行十四轮 review 线 + Round-6 additive UC e2e；冲突采远端 structure[sync_effects.rs]+保我 UC，cargo test 全绿复验）。
 # ── 并行十四轮 A（本会话线·UC e2e + 治理收敛）──
-last_review_runId: manual-self-check-2026-07-02-helix-im-ddd-9-17 (手工 architecture-drift-review equivalent：区间 6679e40..2dd0d2e / 本 worktree main..HEAD 覆盖 DDD #9-#17；判定 🟢 无 drift。未派 subagent/workflow，因为当前工具策略禁止未获用户明确要求时派生 agent。复核证据：git diff 仅 helix-im 目录/模块迁移 + 结构闸门/DDD 文档；未触碰 helix-core/driver/Cargo；HX-C001 core runtime grep clean；ddd-structure-gate #9-#17 + structure-gate + 四 crate cargo check green；每 issue helix-im tests green，仅保留既有 ChannelId unused-import warning。)
+# previous_review_runId: manual-self-check-2026-07-02-helix-im-ddd-9-17 (手工 architecture-drift-review equivalent：区间 6679e40..2dd0d2e / 本 worktree main..HEAD 覆盖 DDD #9-#17；判定 🟢 无 drift。未派 subagent/workflow，因为当前工具策略禁止未获用户明确要求时派生 agent。复核证据：git diff 仅 helix-im 目录/模块迁移 + 结构闸门/DDD 文档；未触碰 helix-core/driver/Cargo；HX-C001 core runtime grep clean；ddd-structure-gate #9-#17 + structure-gate + 四 crate cargo check green；每 issue helix-im tests green，仅保留既有 ChannelId unused-import warning。)
 # ── 并行十四轮 B（远端 origin/main 线·outbound/ffi/public-api·已 merge 采纳其 structure）──
 # last_review_runId_remote: agent_019ef754-eb1e-72b2-be97-68a82572bdc9 + 019ef766/019ef768 (十四轮：outbound method/auth crosscut + public API baseline + 结构闸回正·区间 7b6ea55..157f315·gap=48·🔴→回正：拆 FFI api smoke/registry tests/module handshake/sync_effects·baseline 只减不增·structure-gate PASS)
 # 上一轮：wf_84e8b7d0-a00 (十三轮：CI harbor 镜像切 + FFI pump 锁解耦 + timer 泄漏 + ADR-013 死列清理 · 区间 196c869..7b6ea55 · gap=26 · 🟡 轻 · 1 medium 回正 + 3 low)
@@ -107,6 +111,7 @@ threshold: 10
 
 | 日期 | review 到 commit | 区间(from..to) | workflow runId | drift 判定 | 关键发现 / 收敛动作 |
 |---|---|---|---|---|---|
+| 2026-07-14 | d864963 | 2dd0d2e..be28042 (182 commits)；回正 be28042..d864963 | manual-dual-review-2026-07-14-review-gap-182 | 🔴 重 → 已回正收敛 | **十五轮 = 超期 review-gap 全量收敛**。两个独立 reviewer 分别审架构约束与 HTTP/WS/Effect/Storage/FFI 行为链。确认并修复：结构闸顶层源码漏检、JSON list RMW/O(n²)、OTel 默认开启及无界逐 span 任务、FFI 7→8 ABI 漂移、too_long 错删本地历史、移动合同漏 `im:post:send-failed`、上传 PUT URL 当长期读取 URL、Strict Matrix G09 字段漂移、OTel native/FFI 装配缺口。为满足单文件 ≤300 行同步按职责拆分 core/im/host/native/ffi 源码，未改变三层依赖方向。`HELIX_STRUCTURE_BASE=2dd0d2e scripts/gate.sh` 11/11 PASS（public-api 工具未安装，脚本按设计显式 SKIP）；HX-C001 零运行时、trace 静态安全、五 crate 测试、FFI C++ 冒烟、结构闸均绿。无新增 HX-C；真实 Collector/预发 Prometheus/Grafana 与真实 OSS 链路保留给压测执行阶段验收。 |
 | 2026-07-02 | 2dd0d2e | 6679e40..2dd0d2e (manual window main..HEAD: #9-#17 DDD package split) | manual-self-check-2026-07-02-helix-im-ddd-9-17 | 🟢 无 drift | helix-im DDD package split #9-#17。纯目录/模块迁移 + structural TDD gate；未触碰 helix-core/driver/Cargo。HX-C001 runtime grep clean；ddd-structure-gate 9-17 + structure-gate + four-crate check + per-issue helix-im tests green。既有 ChannelId test warning 未在本批引入。 |
 | 2026-06-16 | 8c69f25 | — (基线) | — | 🟢 baseline | 规则生效锚点；无 review，仅设基线 |
 | 2026-06-16 | 3c5324f | 8c69f25..3c5324f | wf_ee61a139-68b | 🟡 轻 drift | 2 条真 drift（8 报告去重）：[medium] event_to_upsert_op 热路径二/三次 serde + per-event alloc（违 HX-C005，6d83ad5 引入）；[low] channel_event_cursor 死表占位 vs 运行时 _helix_monotonic。均非阻塞 → 登记 todo（已于 cff383f 收敛）|

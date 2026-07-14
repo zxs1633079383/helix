@@ -618,6 +618,9 @@ fn channel_created_full_upsert_and_members_s1() {
                 "id": cid(5),
                 "type": "O",
                 "displayName": "新群",
+                "created_at": 1_700_000_000_000_i64,
+                "last_post_at": 1_700_000_100_000_i64,
+                "is_top": 1,
                 "memberChange": { "join": [
                     { "id": "u-aaa", "teamId": "t1", "role": "MEMBER", "nickName": "甲" }
                 ]}
@@ -641,6 +644,10 @@ fn channel_created_full_upsert_and_members_s1() {
     assert_eq!(created[0]["channelType"], "O");
     assert_eq!(created[0]["channelKind"], "company");
     assert_eq!(created[0]["group"], "company");
+    assert_eq!(created[0]["createdAt"], 1_700_000_000_000_i64);
+    assert_eq!(created[0]["lastActivityAt"], 1_700_000_100_000_i64);
+    assert_eq!(created[0]["top"], true);
+    assert_eq!(created[0]["projectionSource"], "channel_created");
 }
 
 /// 回归锚: member-leave —— memberChange.leave → BatchDelete channel_member 删离场成员

@@ -892,7 +892,9 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
     let raw = serde_json::to_vec(&serde_json::json!({
         "displayName": "群",
         "memberCount": 2,
-        "type": "O"
+        "type": "O",
+        "createdAt": 1_700_000_000_000_i64,
+        "isTop": false
     }))
     .unwrap();
     let e = to_effect_s1::emit_channel_created(ch(), &raw);
@@ -905,11 +907,15 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
             "channelKind",
             "channelType",
             "channel_id",
+            "createdAt",
             "displayName",
             "group",
             "id",
+            "lastActivityAt",
             "memberCount",
+            "projectionSource",
             "props",
+            "top",
         ],
     );
     let Effect::Emit { event } = e else {
@@ -921,6 +927,13 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
     assert_eq!(payload["data"]["channelType"], "O");
     assert_eq!(payload["data"]["channelKind"], "company");
     assert_eq!(payload["data"]["memberCount"], 2);
+    assert_eq!(payload["data"]["createdAt"], 1_700_000_000_000_i64);
+    assert_eq!(
+        payload["data"]["lastActivityAt"], 1_700_000_000_000_i64,
+        "缺 lastPostAt 时必须回退 createdAt"
+    );
+    assert_eq!(payload["data"]["top"], false);
+    assert_eq!(payload["data"]["projectionSource"], "channel_created");
     assert_eq!(payload["data"]["props"]["type"], "O");
 }
 

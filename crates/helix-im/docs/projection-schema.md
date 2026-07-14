@@ -92,7 +92,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
 | `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
-| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `channelType` `channelKind` `memberCount` `props` `channel` | WS `channel_created` |
+| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `channelType` `channelKind` `memberCount` `createdAt` `lastActivityAt` `top` `projectionSource=channel_created` `props` `channel` | WS `channel_created`；新群即时列表直接消费顶层排序事实，不解析嵌套 raw channel |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
 | `to_effect_s1::emit_member_nickname` | `im:channel:memberNickname` | `channelId` `userId` `nickName` | WS `update_channel_member_nickName` |

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 mod cmd_parse;
 mod config;
@@ -15,12 +15,12 @@ use host_env::{default_api_base, machine_device_id, resolve_db_path, DbPathInput
 
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
-use helix_core::{ExecutionShell, Tick};
+use helix_core::ExecutionShell;
 use helix_driver_host::TraceHooks;
 use helix_driver_native::{
-    run_engine_loop_with_transports_and_trace, AuthTokenRegistry, EngineConfig, HostNetworkConfig,
-    NativeEventSink, NativeHttp, NativeStorage, NativeTransport, SharedFileUploader,
-    SharedHttpClient, TransportTable,
+    run_engine_loop_with_transports_and_trace_stamped, tick_ingress_channel, AuthTokenRegistry,
+    EngineConfig, HostNetworkConfig, NativeEventSink, NativeHttp, NativeStorage, NativeTransport,
+    SharedFileUploader, SharedHttpClient, TransportTable,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -208,7 +208,7 @@ async fn main() {
     }));
 
     // ── tick 通道（入站有界 cap=256）────────────────────────
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel(256);
 
     // ── 主 WS transport ─────────────────────────────────────
     // TransportId 约定：0 = 主连接（多端口/第二模块用 1、2…，host 集中分配）。
@@ -219,9 +219,10 @@ async fn main() {
         .iter()
         .map(|(name, value)| (name.to_string(), value.to_string()))
         .collect();
-    let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
-        .with_handshake_headers(ws_headers)
-        .with_metric_sink(Arc::clone(&metrics));
+    let mut transport =
+        NativeTransport::new_stamped(ws_url.clone(), main_transport, Some(tick_tx.clone()))
+            .with_handshake_headers(ws_headers)
+            .with_metric_sink(Arc::clone(&metrics));
     // A1 临时：host 主动 connect（A2 改为 Effect::Connect 意图驱动）。
     // 连不上不退出——仍进泵，Effect::Send 走「发送失败 warn」兜底，证明接线存在。
     match transport.connect().await {
@@ -266,7 +267,7 @@ async fn main() {
     repl::spawn_stdin_repl(tick_tx.clone(), shutdown_tx);
     let tick_tx_for_loop = tick_tx.clone();
     tracing::info!("进入 engine loop（stdin 遥控器已就绪，敲 help 看命令）");
-    run_engine_loop_with_transports_and_trace(
+    run_engine_loop_with_transports_and_trace_stamped(
         shell,
         tick_rx,
         tick_tx_for_loop,

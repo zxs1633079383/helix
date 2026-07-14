@@ -18,12 +18,13 @@ use std::time::Duration;
 
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
-use helix_core::{ExecutionShell, Tick};
+use helix_core::ExecutionShell;
 use helix_driver_host::engine::{self, EngineDeps, TransportTable};
 use helix_driver_host::{
     spawn_reconnect_supervisor, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
     CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime, HostStorage,
     ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, SharedHttpClient, SharedWsClient,
+    TickIngressReceiver, TickIngressSender,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -56,8 +57,8 @@ pub struct PumpArgs {
     pub auth: AuthTokenRegistry,
     pub command_traces: CommandTraceQueue,
     pub vtable: CppHostVtable,
-    pub tick_tx: mpsc::Sender<Tick>,
-    pub tick_rx: mpsc::Receiver<Tick>,
+    pub tick_tx: TickIngressSender,
+    pub tick_rx: TickIngressReceiver,
     pub shutdown_rx: oneshot::Receiver<()>,
     /// 装配成功后回传 QueryDeps（storage 打开/runtime handle）；失败回传 None。
     pub ready_tx: std::sync::mpsc::SyncSender<Option<QueryDeps>>,
@@ -151,7 +152,7 @@ pub fn run(args: PumpArgs) {
         let ws = match SharedWsClient::with_registry(args.config.clone(), args.headers.clone()) {
             Ok(c) => c
                 .with_metric_sink(Arc::clone(&args.metrics))
-                .with_inbound_tick(main_transport, args.tick_tx.clone()),
+                .with_stamped_inbound_tick(main_transport, args.tick_tx.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedWsClient 失败");
                 let _ = args.ready_tx.send(None);
@@ -216,7 +217,7 @@ pub fn run(args: PumpArgs) {
                 async move {
                     let mut ws = SharedWsClient::with_registry(config, headers)?
                         .with_metric_sink(metrics)
-                        .with_inbound_tick(main_transport, tick_tx);
+                        .with_stamped_inbound_tick(main_transport, tick_tx);
                     ws.connect().await?;
                     Ok(ws)
                 }
@@ -255,7 +256,7 @@ pub fn run(args: PumpArgs) {
         }));
 
         // ── 跑 host 泛型泵核（graceful drain：shutdown_rx 或 tick_rx 关闭）──
-        engine::run_engine_loop(
+        engine::run_engine_loop_stamped(
             shell,
             args.tick_rx,
             args.tick_tx,

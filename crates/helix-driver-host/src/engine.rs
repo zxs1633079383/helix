@@ -39,16 +39,17 @@ use crate::dispatch::dispatch_effects;
 use crate::owned_effect::consume_effect_batch;
 use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
-use crate::tick_ingress::{
-    EngineTickReceiver, EngineTickSender, TickIngressReceiver, TickIngressSender,
-};
+use crate::tick_ingress::{EngineTickReceiver, EngineTickSender};
 use crate::timer::TimerRegistry;
+mod entrypoints;
 pub(crate) mod perf_metrics;
 mod rss;
 mod shutdown;
 mod types;
 use perf_metrics::EngineMetricRecorder;
 use shutdown::drain_pools;
+
+pub use entrypoints::{run_engine_loop, run_engine_loop_stamped};
 
 pub use types::{
     EngineDeps, TransportLifecycleEvent, TransportTable, TransportTraceEvent, TransportTraceSink,
@@ -77,67 +78,7 @@ pub use types::{
 /// `shutdown_rx` 收到 `()` 或 `tick_rx` 关闭 → graceful drain：等全部已接收 Persist
 /// + 必达 Http 落地后返回。
 #[allow(clippy::too_many_arguments)]
-pub async fn run_engine_loop<S, H, U, E, Tr, C>(
-    shell: ExecutionShell,
-    tick_rx: mpsc::Receiver<Tick>,
-    tick_tx: mpsc::Sender<Tick>,
-    deps: EngineDeps<S, H, U, E, C>,
-    shutdown_rx: oneshot::Receiver<()>,
-    transports: TransportTable<Tr>,
-    transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Tr>)>,
-) where
-    S: Storage + Send + Sync + 'static,
-    H: HttpRequester + Send + Sync + 'static,
-    U: FileUploader + Send + Sync + 'static,
-    E: BatchSink + Send + Sync + 'static,
-    // `Send + Sync`：`Arc<Tr>` 经 `transport_rx` 跨后台 connect 任务边界共享。
-    Tr: Transport + Send + Sync + 'static,
-    C: Clock,
-{
-    run_engine_loop_inner(
-        shell,
-        EngineTickReceiver::Raw(tick_rx),
-        EngineTickSender::Raw(tick_tx),
-        deps,
-        shutdown_rx,
-        transports,
-        transport_rx,
-    )
-    .await;
-}
-
-/// 生产入口：Tick 与入队时间戳同处一个有界 channel 元素，容量与背压语义不变。
-#[allow(clippy::too_many_arguments)]
-pub async fn run_engine_loop_stamped<S, H, U, E, Tr, C>(
-    shell: ExecutionShell,
-    tick_rx: TickIngressReceiver,
-    tick_tx: TickIngressSender,
-    deps: EngineDeps<S, H, U, E, C>,
-    shutdown_rx: oneshot::Receiver<()>,
-    transports: TransportTable<Tr>,
-    transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<Tr>)>,
-) where
-    S: Storage + Send + Sync + 'static,
-    H: HttpRequester + Send + Sync + 'static,
-    U: FileUploader + Send + Sync + 'static,
-    E: BatchSink + Send + Sync + 'static,
-    Tr: Transport + Send + Sync + 'static,
-    C: Clock,
-{
-    run_engine_loop_inner(
-        shell,
-        EngineTickReceiver::Stamped(tick_rx),
-        EngineTickSender::Stamped(tick_tx),
-        deps,
-        shutdown_rx,
-        transports,
-        transport_rx,
-    )
-    .await;
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
+pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     mut shell: ExecutionShell,
     mut tick_rx: EngineTickReceiver,
     tick_tx: EngineTickSender,

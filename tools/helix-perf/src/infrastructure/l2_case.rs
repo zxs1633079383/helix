@@ -259,6 +259,16 @@ pub async fn run_case(
     let errors = oracle.port_replies_err.load(Ordering::Relaxed) + ffi_malformed;
     let profile = profile_delta(profile_started, expected);
     if !saturation_mode {
+        let elapsed = elapsed_seconds.max(0.000_001);
+        metric_probe.record_throughput(&[
+            ("core", "tick", "ok", expected as f64 / elapsed),
+            ("core", "tick", "error", errors as f64 / elapsed),
+            ("http", "request", "ok", http_count as f64 / elapsed),
+            ("ws", "inbound", "ok", ws_count as f64 / elapsed),
+            ("storage", "transaction", "ok", rows as f64 / elapsed),
+            ("event", "emit", "ok", native_events as f64 / elapsed),
+            ("ffi", "callback", "ok", ffi_callbacks as f64 / elapsed),
+        ])?;
         export_profile_metrics(metric_probe.sink().as_ref(), &profile)?;
         metric_probe.record_final(&correctness, errors)?;
     }

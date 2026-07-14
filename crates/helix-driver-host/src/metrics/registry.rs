@@ -10,6 +10,8 @@ pub enum MetricAvailability {
     Runtime,
     /// 仅由显式 allocator/profile harness 采集，不冒充常驻进程指标。
     ProfileOnly,
+    /// 仅由有限时长压测在收尾阶段发布，避免抓取周期吞掉突发吞吐率。
+    HarnessOnly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +36,7 @@ macro_rules! metric_registry {
             pub const fn availability(self) -> MetricAvailability {
                 match self {
                     Self::AllocCountPerOp | Self::AllocBytesPerOp => MetricAvailability::ProfileOnly,
+                    Self::RunThroughputPerSecond => MetricAvailability::HarnessOnly,
                     _ => MetricAvailability::Runtime,
                 }
             }
@@ -99,6 +102,7 @@ metric_registry! {
     PersistRemainingTotal => ("helix_persist_remaining_total", Counter, "1"),
     CleanupResidueTotal => ("helix_cleanup_residue_total", Counter, "1"),
     TelemetryCanaryTotal => ("helix_telemetry_canary_total", Counter, "1"),
+    RunThroughputPerSecond => ("helix_run_throughput_per_second", Gauge, "1/s"),
 }
 
 pub const REQUIRED_METRIC_IDS: &[MetricId] = &[
@@ -181,7 +185,7 @@ mod tests {
 
     #[test]
     fn total_registry_includes_correctness_and_canary() {
-        assert_eq!(ALL_METRIC_IDS.len(), 47);
+        assert_eq!(ALL_METRIC_IDS.len(), 48);
         assert_eq!(
             MetricId::TelemetryCanaryTotal.descriptor().name,
             "helix_telemetry_canary_total"
@@ -200,6 +204,10 @@ mod tests {
             vec![MetricId::AllocCountPerOp, MetricId::AllocBytesPerOp]
         );
         assert_eq!(production_metric_ids().count(), 36);
+        assert_eq!(
+            MetricId::RunThroughputPerSecond.availability(),
+            MetricAvailability::HarnessOnly
+        );
     }
 
     #[test]

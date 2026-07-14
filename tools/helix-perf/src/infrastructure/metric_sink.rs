@@ -310,6 +310,29 @@ impl MetricProbe {
         Ok(())
     }
 
+    pub fn record_throughput(
+        &self,
+        samples: &[(&'static str, &'static str, &'static str, f64)],
+    ) -> Result<(), String> {
+        if !self.sink.is_enabled() {
+            return Ok(());
+        }
+        for &(stage, operation, status, value) in samples {
+            record_required(
+                self.sink.as_ref(),
+                MetricEvent::gauge(
+                    MetricId::RunThroughputPerSecond,
+                    value,
+                    MetricLabels::one(LabelKey::Layer, "L2")
+                        .with(LabelKey::Stage, stage)
+                        .with(LabelKey::Operation, operation)
+                        .with(LabelKey::Status, status),
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn shutdown(mut self) -> (ProbeSnapshot, bool) {
         let snapshot = self.snapshot();
         let drained = self.runtime.take().is_some_and(|runtime| {

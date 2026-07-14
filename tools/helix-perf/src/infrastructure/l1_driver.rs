@@ -127,7 +127,9 @@ pub fn execute_l1(
     export_l1_histograms(
         config,
         load_iterations,
+        total_effects,
         lost,
+        load_elapsed,
         &latency,
         &effects_hist,
         &bytes_hist,

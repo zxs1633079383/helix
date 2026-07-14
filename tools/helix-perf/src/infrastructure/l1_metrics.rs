@@ -124,7 +124,9 @@ pub fn zero_correctness() -> BTreeMap<String, u64> {
 pub fn export_l1_histograms(
     config: &ScenarioConfig,
     operations: u64,
+    total_effects: u64,
     errors: u64,
+    elapsed_seconds: f64,
     latency: &Histogram<u64>,
     effects: &Histogram<u64>,
     effect_bytes: &Histogram<u64>,
@@ -156,6 +158,38 @@ pub fn export_l1_histograms(
         sink.as_ref(),
         MetricEvent::counter(MetricId::ErrorsTotal, errors as f64, base),
     )?;
+    for (stage, operation, value, status) in [
+        (
+            "core",
+            "step",
+            operations as f64 / elapsed_seconds.max(0.000_001),
+            "ok",
+        ),
+        (
+            "effect",
+            "emit",
+            total_effects as f64 / elapsed_seconds.max(0.000_001),
+            "ok",
+        ),
+        (
+            "core",
+            "step",
+            errors as f64 / elapsed_seconds.max(0.000_001),
+            "error",
+        ),
+    ] {
+        record(
+            sink.as_ref(),
+            MetricEvent::gauge(
+                MetricId::RunThroughputPerSecond,
+                value,
+                MetricLabels::one(LabelKey::Layer, "L1")
+                    .with(LabelKey::Stage, stage)
+                    .with(LabelKey::Operation, operation)
+                    .with(LabelKey::Status, status),
+            ),
+        )?;
+    }
     record_histogram(
         sink.as_ref(),
         MetricId::CoreStepDurationSeconds,
@@ -239,7 +273,9 @@ fn bounded_channel_shape(value: &str) -> &'static str {
 pub fn export_l1_histograms(
     _config: &ScenarioConfig,
     _operations: u64,
+    _total_effects: u64,
     _errors: u64,
+    _elapsed_seconds: f64,
     _latency: &Histogram<u64>,
     _effects: &Histogram<u64>,
     _effect_bytes: &Histogram<u64>,

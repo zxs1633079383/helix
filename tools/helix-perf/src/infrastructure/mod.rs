@@ -1,3 +1,4 @@
+mod captured_metric_sink;
 mod evidence;
 mod fault_injection;
 mod ffi_probe;

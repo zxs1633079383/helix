@@ -136,6 +136,8 @@ impl Drop for MetricProbe {
 }
 
 #[cfg(feature = "sdk-metrics")]
+use super::captured_metric_sink::{self, QueueWaitCapture};
+#[cfg(feature = "sdk-metrics")]
 use helix_driver_host::metrics::{
     AsyncMetricSink, BatchMetricExporter, BoundedMetricRuntime, LabelKey, MetricEvent,
     MetricExportError, MetricId, MetricLabels, MetricRuntimeConfig,
@@ -145,6 +147,7 @@ use helix_driver_host::metrics::{
 pub struct MetricProbe {
     runtime: Option<BoundedMetricRuntime>,
     sink: Arc<dyn AsyncMetricSink>,
+    queue_wait_capture: QueueWaitCapture,
 }
 
 #[cfg(feature = "sdk-metrics")]
@@ -166,8 +169,14 @@ impl MetricProbe {
             channel_shape: "parallel-50".to_string(),
             profile: "steady".to_string(),
             queue_capacity: capacity,
-            batch_max: 512,
-            export_interval: Duration::from_millis(100),
+            // 额定链在 load window 只做有界入队，OTLP flush 留到 observation/shutdown；
+            // saturation 则用单元素慢 exporter 持续制造真实队满。
+            batch_max: if pause_worker { 1 } else { capacity.max(512) },
+            export_interval: if pause_worker {
+                Duration::from_millis(10)
+            } else {
+                Duration::from_secs(5)
+            },
             export_timeout: Duration::from_millis(100),
             retry_max: 0,
             max_backoff: Duration::from_millis(10),
@@ -179,10 +188,11 @@ impl MetricProbe {
             BoundedMetricRuntime::start_otlp(config)
         }
         .expect("metric SDK worker must start");
-        let sink = runtime.sink();
+        let (sink, queue_wait_capture) = captured_metric_sink::wrap(runtime.sink());
         Self {
             runtime: Some(runtime),
             sink,
+            queue_wait_capture,
         }
     }
 
@@ -202,6 +212,10 @@ impl MetricProbe {
 
     pub fn sink(&self) -> Arc<dyn AsyncMetricSink> {
         Arc::clone(&self.sink)
+    }
+
+    pub fn queue_wait_histogram(&self) -> hdrhistogram::Histogram<u64> {
+        captured_metric_sink::snapshot(&self.queue_wait_capture)
     }
 
     pub fn record_final(

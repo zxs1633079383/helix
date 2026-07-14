@@ -11,8 +11,8 @@ use helix_core::ports::{Storage, Transport};
 use helix_core::tick::InboundBytes;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::{
-    run_engine_loop, EngineDeps, HostNetworkConfig, HostStorage, MetricId, SharedFileUploader,
-    SharedHttpClient, SharedWsClient, TraceHooks, TransportTable,
+    run_engine_loop_stamped, tick_ingress_channel, EngineDeps, HostNetworkConfig, HostStorage,
+    MetricId, SharedFileUploader, SharedHttpClient, SharedWsClient, TraceHooks, TransportTable,
 };
 use helix_driver_native::{NativeClock, NativeEventSink};
 use serde_json::json;
@@ -102,7 +102,7 @@ pub async fn run_case(
         .map_err(|e| format!("PERF_FIXTURE_UNAVAILABLE: WS connect: {e}"))?;
     let ws = Arc::new(ws);
 
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel(256);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (_transport_tx, transport_rx) =
         mpsc::unbounded_channel::<(TransportId, Arc<SharedWsClient>)>();
@@ -122,7 +122,7 @@ pub async fn run_case(
     };
     let tick_tx_for_loop = tick_tx.clone();
     let engine_task = tokio::spawn(async move {
-        run_engine_loop(
+        run_engine_loop_stamped(
             shell,
             tick_rx,
             tick_tx_for_loop,
@@ -169,7 +169,7 @@ pub async fn run_case(
         let ws_elapsed = ws_started.elapsed();
         record(&mut histograms, "ws_rtt", ws_elapsed)?;
         oracle.trace_hop(operation, "ws.roundtrip", ws_elapsed);
-        oracle.mark_enqueued(operation, channel, seq);
+        oracle.mark_enqueued(operation);
         tick_tx
             .send(Tick::Inbound(InboundBytes(echoed)))
             .await
@@ -198,18 +198,14 @@ pub async fn run_case(
     tokio::time::sleep(Duration::from_millis(windows[3])).await;
 
     oracle.attach_histograms(&mut histograms);
-    let queue_wait = histograms
-        .get("tick_queue_wait")
-        .ok_or("PERF_EVIDENCE_CORRUPT: tick queue histogram missing")?;
+    histograms.insert(
+        "tick_queue_wait".into(),
+        metric_probe.queue_wait_histogram(),
+    );
     let end_to_end = histograms
         .get("end_to_end")
         .ok_or("PERF_EVIDENCE_CORRUPT: end-to-end histogram missing")?;
     if !saturation_mode {
-        metric_probe.record_duration_histogram(
-            MetricId::TickQueueWaitSeconds,
-            queue_wait,
-            "core",
-        )?;
         metric_probe.record_duration_histogram(
             MetricId::WsIngressToEventSeconds,
             end_to_end,

@@ -11,13 +11,11 @@ pub struct L2Oracle {
     channels: usize,
     seen: Mutex<HashSet<(usize, u64)>>,
     last_seq: Mutex<HashMap<usize, u64>>,
-    enqueued: Mutex<HashMap<(usize, u64), Instant>>,
     completion: CompletionOracle,
     port_started: Mutex<HashMap<u64, (Instant, u64, &'static str)>>,
     port_latency: Mutex<BTreeMap<&'static str, Histogram<u64>>>,
     event_started: Mutex<HashMap<u64, Instant>>,
     event_delivery: Mutex<Histogram<u64>>,
-    queue_wait: Mutex<Histogram<u64>>,
     ffi_callback: Mutex<Histogram<u64>>,
     trace: Mutex<Vec<Value>>,
     pub port_replies_ok: AtomicU64,
@@ -37,7 +35,6 @@ impl L2Oracle {
             channels,
             seen: Mutex::new(HashSet::new()),
             last_seq: Mutex::new(HashMap::new()),
-            enqueued: Mutex::new(HashMap::new()),
             completion: CompletionOracle::new()?,
             port_started: Mutex::new(HashMap::new()),
             port_latency: Mutex::new(BTreeMap::from([
@@ -52,7 +49,6 @@ impl L2Oracle {
             ])),
             event_started: Mutex::new(HashMap::new()),
             event_delivery: Mutex::new(Histogram::new(3).map_err(|e| e.to_string())?),
-            queue_wait: Mutex::new(Histogram::new(3).map_err(|e| e.to_string())?),
             ffi_callback: Mutex::new(Histogram::new(3).map_err(|e| e.to_string())?),
             trace: Mutex::new(Vec::new()),
             port_replies_ok: AtomicU64::new(0),
@@ -67,12 +63,8 @@ impl L2Oracle {
         })
     }
 
-    pub fn mark_enqueued(&self, operation: u64, channel: usize, seq: u64) {
+    pub fn mark_enqueued(&self, operation: u64) {
         let started = Instant::now();
-        self.enqueued
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert((channel, seq), started);
         self.completion.mark_started(operation, started);
     }
 
@@ -99,18 +91,6 @@ impl L2Oracle {
         }
         last.insert(channel, seq.max(expected.saturating_sub(1)));
         drop(last);
-        if let Some(started) = self
-            .enqueued
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&key)
-        {
-            let _ = self
-                .queue_wait
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .record(started.elapsed().as_micros().max(1) as u64);
-        }
         self.trace
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -272,13 +252,6 @@ impl L2Oracle {
                 .clone(),
         );
         histograms.insert("end_to_end".into(), self.completion.histogram());
-        histograms.insert(
-            "tick_queue_wait".into(),
-            self.queue_wait
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
-        );
     }
 
     pub fn trace_hop(&self, operation: u64, hop: &'static str, elapsed: std::time::Duration) {

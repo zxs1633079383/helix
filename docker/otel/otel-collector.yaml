@@ -26,7 +26,7 @@ exporters:
     tls:
       insecure: true
   otlp/pre:
-    endpoint: host.docker.internal:14317
+    endpoint: ${env:HELIX_PRE_OTLP_ENDPOINT}
     tls:
       insecure: true
     timeout: 5s

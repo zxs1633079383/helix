@@ -13,6 +13,10 @@ services:
       - "--config=/etc/otelcol/otel-collector.yaml"
     volumes:
       - "./otel-collector.yaml:/etc/otelcol/otel-collector.yaml:ro"
+    extra_hosts:
+      - "helix-host:host-gateway"
+    environment:
+      HELIX_PRE_OTLP_ENDPOINT: ${HELIX_PRE_OTLP_ENDPOINT:-192.168.65.254:14317}
     ports:
       - "4317:4317"
       - "4318:4318"

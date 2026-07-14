@@ -3,7 +3,9 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 STATE_DIR=${HELIX_PERF_TELEMETRY_STATE_DIR:-"$ROOT/.perf/telemetry"}
-COMPOSE_FILE="$ROOT/docker/otel/docker-compose.yaml"
+SOURCE_OTEL_DIR="$ROOT/docker/otel"
+RUNTIME_OTEL_DIR=${HELIX_PERF_OTEL_RUNTIME_DIR:-"$HOME/.helix-perf/otel"}
+COMPOSE_FILE="$RUNTIME_OTEL_DIR/docker-compose.yaml"
 COMPOSE_PROJECT=helix-perf-telemetry
 EXPECTED_CONTEXT=${HELIX_PRE_KUBE_CONTEXT:-kubernetes-admin@kubernetes}
 NAMESPACE=${HELIX_PRE_NAMESPACE:-monitoring}
@@ -28,7 +30,9 @@ port_is_listening() {
 }
 
 assert_port_free() {
-  port_is_listening "$1" && die "本机端口 $1 已被占用，拒绝接管"
+  if port_is_listening "$1"; then
+    die "本机端口 $1 已被占用，拒绝接管"
+  fi
 }
 
 prom_query() {
@@ -75,6 +79,13 @@ write_state() {
   date -u +%Y-%m-%dT%H:%M:%SZ >"$STATE_DIR/started-at"
 }
 
+prepare_runtime_files() {
+  rm -rf "$RUNTIME_OTEL_DIR"
+  mkdir -p "$RUNTIME_OTEL_DIR"
+  cp "$SOURCE_OTEL_DIR/docker-compose.yaml" "$SOURCE_OTEL_DIR/otel-collector.yaml" \
+    "$RUNTIME_OTEL_DIR/"
+}
+
 up() {
   [[ ! -e "$STATE_DIR/port-forward.pid" ]] || die "检测到已有 run-owned 状态；请先执行 down"
   preflight
@@ -82,10 +93,11 @@ up() {
   assert_port_free "$LOCAL_OTLP_GRPC_PORT"
   assert_port_free "$LOCAL_OTLP_HTTP_PORT"
   assert_port_free "$LOCAL_PROM_PORT"
+  prepare_runtime_files
 
   mkdir -p "$STATE_DIR"
-  kubectl -n "$NAMESPACE" port-forward "svc/$COLLECTOR_SERVICE" \
-    "$TUNNEL_PORT:4317" >"$STATE_DIR/port-forward.log" 2>&1 &
+  nohup kubectl -n "$NAMESPACE" port-forward --address=0.0.0.0 "svc/$COLLECTOR_SERVICE" \
+    "$TUNNEL_PORT:4317" </dev/null >"$STATE_DIR/port-forward.log" 2>&1 &
   local pf_pid=$!
   for _ in $(seq 1 30); do
     port_is_listening "$TUNNEL_PORT" && break
@@ -123,7 +135,9 @@ verify_owned_port_forward() {
   [[ -f "$STATE_DIR/port-forward.pid" ]] || die "缺少 run-owned port-forward 状态"
   pid=$(cat "$STATE_DIR/port-forward.pid")
   kill -0 "$pid" 2>/dev/null || die "run-owned port-forward 已退出"
-  ps -p "$pid" -o command= | grep -Fq "port-forward svc/$COLLECTOR_SERVICE $TUNNEL_PORT:4317" \
+  local command
+  command=$(ps -p "$pid" -o command=)
+  [[ "$command" == *"port-forward"*"svc/$COLLECTOR_SERVICE"*"$TUNNEL_PORT:4317"* ]] \
     || die "PID $pid 不再属于本次 port-forward，拒绝继续"
 }
 
@@ -145,7 +159,7 @@ emit_canary() {
   local now_ns start_ns body
   now_ns=$(($(date +%s) * 1000000000))
   start_ns=$((now_ns - 1000000000))
-  body=$(printf '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"helix-perf-canary"}},{"key":"deployment.environment","value":{"stringValue":"pre"}},{"key":"platform","value":{"stringValue":"native-macos"}}]},"scopeMetrics":[{"scope":{"name":"helix-perf-canary"},"metrics":[{"name":"helix_telemetry_canary","unit":"operations","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[{"attributes":[{"key":"scenario","value":{"stringValue":"P0-CANARY"}},{"key":"stage","value":{"stringValue":"telemetry"}},{"key":"operation","value":{"stringValue":"emit_canary"}},{"key":"status","value":{"stringValue":"ok"}},{"key":"channel_shape","value":{"stringValue":"none"}}],"startTimeUnixNano":"%s","timeUnixNano":"%s","asInt":"1"}]}}]}]}]}' "$start_ns" "$now_ns")
+  body=$(printf '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"helix-perf-canary"}},{"key":"deployment.environment","value":{"stringValue":"pre"}},{"key":"platform","value":{"stringValue":"native-macos"}}]},"scopeMetrics":[{"scope":{"name":"helix-perf-canary"},"metrics":[{"name":"helix_telemetry_canary_total","unit":"1","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[{"attributes":[{"key":"scenario","value":{"stringValue":"P0-CANARY"}},{"key":"stage","value":{"stringValue":"telemetry"}},{"key":"operation","value":{"stringValue":"emit_canary"}},{"key":"status","value":{"stringValue":"ok"}},{"key":"channel_shape","value":{"stringValue":"none"}}],"startTimeUnixNano":"%s","timeUnixNano":"%s","asInt":"1"}]}}]}]}]}' "$start_ns" "$now_ns")
   curl --fail --silent --show-error \
     -H 'Content-Type: application/json' \
     --data-binary "$body" \
@@ -183,8 +197,8 @@ down() {
   if [[ -f "$STATE_DIR/port-forward.pid" ]]; then
     local pid
     pid=$(cat "$STATE_DIR/port-forward.pid")
-    if kill -0 "$pid" 2>/dev/null && \
-      ps -p "$pid" -o command= | grep -Fq "port-forward svc/$COLLECTOR_SERVICE $TUNNEL_PORT:4317"; then
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -p "$pid" -o command=)" == \
+      *"port-forward"*"svc/$COLLECTOR_SERVICE"*"$TUNNEL_PORT:4317"* ]]; then
       kill "$pid"
       wait "$pid" 2>/dev/null || true
     fi
@@ -195,6 +209,7 @@ down() {
     docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" down >/dev/null
   fi
   rm -rf "$STATE_DIR"
+  rm -rf "$RUNTIME_OTEL_DIR"
   printf 'telemetry down PASS: 仅清理本次创建的 port-forward/container\n'
 }
 

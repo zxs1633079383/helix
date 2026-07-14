@@ -15,13 +15,17 @@ use helix_core::EffectSink;
 use linkme::distributed_slice;
 
 use crate::error::ImError;
-use crate::state::{ChannelId, Seq, ServerId};
-use crate::sync_session::{EventEnvelope, EventKind, PostFields};
+use crate::state::ServerId;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
 use super::post_echo_settle::{is_echo_frame, reconcile_post_echo};
 
 const POST_ACTION: &str = "post";
+
+mod parse;
+mod pin;
+use parse::{emit_unsequenced_post, parse_post_data, parse_post_frame};
+use pin::post_pin_effect_from_notice;
 
 struct PostHandler;
 
@@ -165,150 +169,6 @@ impl WsMessageHandler for PostHandler {
         super::gate::trigger_backfill_if_large_gap(ctx, ingest_channel, ingest_seq, out);
         Ok(())
     }
-}
-
-/// 解析真 Go `action=="post"` 在线广播帧 → `EventEnvelope`（喂 channel gate）。
-///
-/// 硬 gate（缺则 None → no-op，边界零信任不 panic，helix-im 不变量 4）：
-///   1. `channel_id`：`data.channelId` ?? `data.channel_id`（26 字符 Id26）——cursor 推进锚；
-///   2. `seq`：event_seq 三级 fallback（**data.event_seq 优先**，与 `parse_inbound`/§1.5 同源）：
-///      ① `data.event_seq`（权威 int64，post_core.go:424 注入顶层 data）
-///      → ② per-post `data.props.channel_event_seq`（单帧冗余兜底，与顶层同值）
-///      → ③ 顶层 `channel_event_seq`（legacy 键名）。零信任只取 `as_u64`。
-///
-/// 宽松字段（**不**硬校验 26 字符 id——现网 handle_new_post 对 id 不卡
-/// `message_service.rs:55 unwrap_or("unknown")`）：
-///   - `kind`：恒 `PostUpsert`（type1；post 帧恒为新消息 upsert）；
-///   - `fields`：`extract_post_fields(data)`（复用既有提取，全程安全回退）；
-///   - `msg_id`：宽松取 `data.id` / `data.post.id`（缺省 None，with_msg_id 内部回退 fields 派生）。
-fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
-    let data = frame.data()?;
-    // post 字段可能嵌在 data 顶层或 data.post 子对象下（与 extract_post_fields 同源探查）。
-    let post = data.get("post").unwrap_or(data);
-
-    // channel_id 硬 gate（cursor 推进锚）：兼容 camel/snake；缺/非 26 字符 → None。
-    let channel_id = data
-        .get("channelId")
-        .or_else(|| data.get("channel_id"))
-        .or_else(|| post.get("channelId"))
-        .or_else(|| post.get("channel_id"))
-        .and_then(serde_json::Value::as_str)
-        .and_then(ChannelId::from_str)?;
-
-    // event_seq 三级 fallback（§1.5，data.event_seq 优先，与 parse_inbound 同源）：
-    //   ① data.event_seq（权威 int64）→ ② per-post props.channel_event_seq → ③ 顶层 channel_event_seq。
-    let seq = Seq(data
-        .get("event_seq")
-        .and_then(serde_json::Value::as_u64)
-        .or_else(|| {
-            post.get("props")
-                .and_then(|props| props.get("channel_event_seq"))
-                .and_then(serde_json::Value::as_u64)
-        })
-        .or_else(|| {
-            frame
-                .root()
-                .get("channel_event_seq")
-                .and_then(serde_json::Value::as_u64)
-        })?);
-
-    // post 帧恒为新消息 upsert（type1）；字段复用既有提取（宽松回退，含 temporary_id/id/message/props/readBits）。
-    let fields = crate::ws::parser::extract_post_fields(data);
-
-    // msg_id 宽松取（缺省 None → with_msg_id 内部回退 fields 派生的 id/temporary_id）。
-    // **不**硬校验 26 字符（现网 handle_new_post 对 id 不 gate）。
-    let msg_id = post
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
-
-    Some(EventEnvelope::new(channel_id, seq, EventKind::PostUpsert, fields).with_msg_id(msg_id))
-}
-
-/// 取 `post` 帧的 post 数据子树（path3 谓词用：type/viewers/isSchedule/userId/postId）。
-///
-/// 与 `parse_post_frame` 同源探查：post 字段可能在 `data.post` 子对象或 `data` 顶层。
-/// 缺 data → None（边界零信任，path3 写跳过；message 落库仍走 ingest）。
-fn parse_post_data(frame: &WsFrame) -> Option<&serde_json::Value> {
-    let data = frame.data()?;
-    Some(data.get("post").unwrap_or(data))
-}
-
-/// 真实 Go 的部分 post-like 回声（如 createPosts/relay）可能不携带 event_seq。移动端仍需要
-/// `im:post:received` 入栈信号，但缺序帧不能推进 channel cursor。这里仅发 render-only bus。
-fn emit_unsequenced_post(frame: &WsFrame, viewer_user_id: &str, out: &mut EffectSink) {
-    let Some(data) = frame.data() else {
-        return;
-    };
-    let post = data.get("post").unwrap_or(data);
-    let Some(channel_id) = post
-        .get("channelId")
-        .or_else(|| post.get("channel_id"))
-        .or_else(|| data.get("channelId"))
-        .or_else(|| data.get("channel_id"))
-        .and_then(serde_json::Value::as_str)
-        .and_then(ChannelId::from_str)
-    else {
-        return;
-    };
-    let fields = crate::ws::parser::extract_post_fields(post);
-    let msg_id = post
-        .get("id")
-        .or_else(|| post.get("postId"))
-        .or_else(|| post.get("post_id"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(fields.id.as_str());
-    out.push(crate::acl::to_effect::emit_post_received_for_viewer(
-        channel_id,
-        0,
-        msg_id,
-        &fields,
-        viewer_user_id,
-    ));
-}
-
-/// Go 真实 post pin 写族当前回声形态是 `action=post` 系统通知：
-/// `type=NOTICE + props.type=addPostPin/removePostPin + props.content=<被操作 post JSON>`。
-/// 这里在 helix 归一为目标消息 pinned patch，保持前端纯绑定 `data-pinned`。
-fn post_pin_effect_from_notice(
-    ev: &EventEnvelope,
-) -> Option<(helix_core::Effect, helix_core::Effect)> {
-    if !ev.fields.msg_type.eq_ignore_ascii_case("NOTICE") || ev.fields.props.is_empty() {
-        return None;
-    }
-    let props: serde_json::Value = serde_json::from_str(&ev.fields.props).ok()?;
-    let prop_type = props.get("type").and_then(serde_json::Value::as_str)?;
-    let pinned = match prop_type {
-        "addPostPin" => true,
-        "removePostPin" => false,
-        _ => return None,
-    };
-    let target_post: serde_json::Value =
-        serde_json::from_str(props.get("content").and_then(serde_json::Value::as_str)?).ok()?;
-    let post_id = target_post
-        .get("id")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())?;
-    let channel_id = target_post
-        .get("channelId")
-        .or_else(|| target_post.get("channel_id"))
-        .and_then(serde_json::Value::as_str)
-        .and_then(ChannelId::from_str)
-        .unwrap_or(ev.channel_id);
-
-    let fields = PostFields {
-        id: post_id.to_string(),
-        channel_id: channel_id.as_str().to_string(),
-        props: serde_json::json!({ "pinned": pinned }).to_string(),
-        ..PostFields::default()
-    };
-    Some((
-        helix_core::Effect::PersistFire {
-            ops: vec![crate::channel::pin_state_op(post_id, pinned)],
-        },
-        crate::acl::to_effect::emit_post_updated(channel_id, ev.seq.0, post_id, &fields),
-    ))
 }
 
 static POST_HANDLER: PostHandler = PostHandler;

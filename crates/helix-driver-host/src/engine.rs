@@ -42,7 +42,9 @@ use crate::owned_effect::consume_effects;
 use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
-use crate::trace::TraceHooks;
+mod types;
+
+pub use types::{EngineDeps, TransportLifecycleEvent, TransportTable, TransportTraceEvent};
 
 /// graceful drain 时「必达 Http」在途请求的 join 上限（fix/lifecycle-net-decouple）。
 ///
@@ -51,57 +53,6 @@ use crate::trace::TraceHooks;
 /// 不丢保证由「乐观态持久化 + 重连重发对账」承担（见五不变量⑤ + `shutdown_with_timeout` doc）。
 /// 取 3s：足够覆盖正常 LAN 内 POST /posts/create 往返（毫秒级），又远小于 30s 网络 timeout。
 const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// `TransportId → 实际连接` 路由表（泛型 over Transport 实现）。
-///
-/// host 装配阶段填入（或经 `transport_rx` 注册通道在连接成功后投递入表）；`Effect::Send`
-/// 分支按 id 查表调 `Transport::send`（`&self`）。
-///
-/// ## 为什么 `Arc<Tr>`（无外层 `Mutex`）
-///
-/// `Transport::send/recv/close` 已收紧为 `&self`（driver 内部用自有锁串行化，如
-/// `SharedWsClient::state`）→ 表里只需共享句柄 `Arc<Tr>`，dispatch 走 `t.send().await`。
-/// 去掉外层 `Mutex` 消除「连接期外层锁跨 `connect().await`」这一架构脆弱点：connect 在
-/// loop 外对**独占 move 进后台任务的裸句柄**跑，连成功才经 `transport_rx` 投进表 →
-/// 连接期间该句柄不在表内、`Effect::Send` 的 `transports.get()` 看不到它（**类型/可见性层**
-/// 证明无锁争用，而非靠「hello 之后才产 Send」的运行时时序不变量）。
-pub type TransportTable<Tr> = HashMap<TransportId, Arc<Tr>>;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransportLifecycleEvent {
-    Disconnected {
-        transport_id: TransportId,
-        reason: &'static str,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TransportTraceEvent {
-    pub transport_id: TransportId,
-    pub name: &'static str,
-    pub action: &'static str,
-    pub attempt: Option<u32>,
-    pub delay_ms: Option<u64>,
-    pub next_delay_ms: Option<u64>,
-    pub reason: Option<&'static str>,
-    pub error_class: Option<String>,
-}
-
-/// 事件泵依赖聚合（泛型 ports + 配置）。
-///
-/// native / ffi 各自构造此结构（注入自家 EventSink egress），调 [`run_engine_loop`]。
-pub struct EngineDeps<S, H, U, E, C> {
-    pub storage: Arc<S>,
-    pub http: Arc<H>,
-    pub uploader: Arc<U>,
-    pub event_sink: Arc<E>,
-    pub clock: C,
-    pub trace: TraceHooks,
-    /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。`0` → `.max(1)` 兜底 1。
-    pub max_http_inflight: usize,
-    pub transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
-    pub transport_trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
-}
 
 /// 运行 ExecutionShell 的 tokio 事件泵（泛型壳）。
 ///

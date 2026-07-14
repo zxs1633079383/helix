@@ -18,7 +18,7 @@ pub(super) mod sdk {
     use crate::domain::{SampleStats, Verdict};
     use crate::infrastructure::l2_case::run_case;
     use crate::infrastructure::l2_metrics::metric_points;
-    use crate::infrastructure::metric_sink::{MetricProbe, ProbeSnapshot, TelemetryMode};
+    use crate::infrastructure::metric_sink::{ProbeSnapshot, TelemetryMode};
 
     pub(crate) struct CaseResult {
         pub stats: BTreeMap<String, SampleStats>,
@@ -37,6 +37,7 @@ pub(super) mod sdk {
         pub trace: Vec<serde_json::Value>,
         pub cleanup_residue: u64,
         pub sdk_drained: bool,
+        pub profile: crate::infrastructure::process_profile::ProcessProfile,
     }
 
     pub async fn execute(
@@ -54,29 +55,41 @@ pub(super) mod sdk {
             "on",
         )
         .await?;
-        let saturation = run_saturation(config.thresholds.min_saturation_drops);
+        let saturation = run_case(
+            config,
+            run_id,
+            TelemetryMode::Enabled {
+                capacity: 1,
+                pause_worker: true,
+            },
+            "saturation",
+        )
+        .await?;
         let off_p99 = disabled
             .stats
-            .get("adapter_submit")
+            .get("end_to_end")
             .map(|s| s.p99_ms)
             .unwrap_or(f64::MAX);
         let on_p99 = enabled
             .stats
-            .get("adapter_submit")
+            .get("end_to_end")
             .map(|s| s.p99_ms)
             .unwrap_or(f64::MAX);
         let overhead = on_p99 / off_p99.max(0.000_001);
         let telemetry_ok = overhead <= config.thresholds.max_telemetry_p99_overhead_ratio;
-        let saturation_ok = saturation.dropped >= config.thresholds.min_saturation_drops;
+        let saturation_ok = saturation.probe.dropped >= config.thresholds.min_saturation_drops;
         let queue_wait_ok = enabled
             .stats
             .get("tick_queue_wait")
             .is_some_and(|stats| stats.p99_ms <= config.thresholds.max_queue_wait_p99_ms);
         let rated_drop_ratio = enabled.probe.dropped as f64 / enabled.probe.accepted.max(1) as f64;
         let rated_drop_ok = rated_drop_ratio <= config.thresholds.max_drop_ratio_rated;
+        let saturation_correctness_ok =
+            saturation.correctness.values().all(|value| *value == 0) && saturation.errors == 0;
         let correctness_ok = enabled.correctness.values().all(|value| *value == 0)
-            && disabled.correctness.values().all(|value| *value == 0);
-        let errors = disabled.errors + enabled.errors;
+            && disabled.correctness.values().all(|value| *value == 0)
+            && saturation_correctness_ok;
+        let errors = disabled.errors + enabled.errors + saturation.errors;
         let errors_zero = errors == 0;
         let hard_ok = telemetry_ok
             && saturation_ok
@@ -85,16 +98,21 @@ pub(super) mod sdk {
             && correctness_ok
             && errors_zero
             && disabled.sdk_drained
-            && enabled.sdk_drained;
+            && enabled.sdk_drained
+            && saturation.sdk_drained;
         let assertions = BTreeMap::from([
             ("correctness_zero".into(), correctness_ok),
             ("telemetry_overhead_within_budget".into(), telemetry_ok),
             ("queue_saturation_increases_drops".into(), saturation_ok),
+            (
+                "queue_saturation_preserves_business_correctness".into(),
+                saturation_correctness_ok,
+            ),
             ("tick_queue_wait_within_budget".into(), queue_wait_ok),
             ("rated_metrics_drop_within_budget".into(), rated_drop_ok),
             (
                 "metrics_shutdown_drained".into(),
-                disabled.sdk_drained && enabled.sdk_drained,
+                disabled.sdk_drained && enabled.sdk_drained && saturation.sdk_drained,
             ),
             ("errors_zero".into(), errors_zero),
             ("host_driver_harness".into(), true),
@@ -130,7 +148,7 @@ pub(super) mod sdk {
             error_count: errors,
             error_rate: errors as f64 / (disabled.elapsed_seconds + enabled.elapsed_seconds),
             error_ratio: errors as f64 / (disabled.operations + enabled.operations).max(1) as f64,
-            dropped: enabled.probe.dropped + saturation.dropped,
+            dropped: enabled.probe.dropped + saturation.probe.dropped,
             correctness: enabled.correctness.clone(),
             assertions,
             errors: if hard_ok {
@@ -139,7 +157,7 @@ pub(super) mod sdk {
                 vec!["PERF_SLO_VIOLATION".into()]
             },
         };
-        let metrics = metric_points(config, run_id, &enabled, saturation, overhead);
+        let metrics = metric_points(config, run_id, &enabled, saturation.probe, overhead);
         let mut trace = enabled.trace;
         trace.push(json!({
             "stage": "telemetry.compare",
@@ -149,27 +167,28 @@ pub(super) mod sdk {
             "budgetRatio": config.thresholds.max_telemetry_p99_overhead_ratio,
             "ratedDropRatio": rated_drop_ratio,
             "ratedDropBudget": config.thresholds.max_drop_ratio_rated,
-            "saturationDrops": saturation.dropped,
+            "comparisonMetric": "end_to_end",
+            "startBoundary": "tick_enqueued",
+            "completionBoundary": "http_reply+storage_reply+event_ffi_callback",
+            "saturationDrops": saturation.probe.dropped,
+            "saturationOperations": saturation.operations,
+            "saturationCorrectness": saturation.correctness,
+            "saturationErrors": saturation.errors,
         }));
         let artifacts = RunArtifacts {
             hdr: enabled.hdr,
             trace_index: trace,
             sqlite: json!({"rows": enabled.rows, "wal": true, "pathRedacted": true}),
             cleanup: json!({"residue": enabled.cleanup_residue, "status": if enabled.cleanup_residue == 0 { "clean" } else { "dirty" }}),
+            profile: json!({
+                "mode": "rated-load-process-sampling",
+                "allocatorScope": "helix-perf-binary-only",
+                "off": disabled.profile,
+                "on": enabled.profile,
+                "saturation": saturation.profile,
+            }),
         };
         Ok((summary, metrics, artifacts))
-    }
-
-    fn run_saturation(minimum: u64) -> ProbeSnapshot {
-        let probe = MetricProbe::new(TelemetryMode::Enabled {
-            capacity: 1,
-            pause_worker: true,
-        });
-        for sequence in 0..minimum.saturating_add(100) {
-            probe.try_record(sequence);
-        }
-        let (snapshot, _) = probe.shutdown();
-        snapshot
     }
 }
 

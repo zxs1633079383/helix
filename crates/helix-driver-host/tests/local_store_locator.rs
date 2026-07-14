@@ -153,7 +153,7 @@ async fn scan_table(storage: &HostStorage, table: &'static str) -> Vec<helix_cor
             table,
             limit: None,
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .unwrap_or_else(|e| panic!("scan {table}: {e:?}"))

@@ -1,4 +1,4 @@
-use helix_core::effect::{Row, ScanSpec, SqlValue};
+use helix_core::effect::{Row, ScanOrder, ScanSpec, SqlValue};
 use serde_json::Value;
 
 use crate::ImError;
@@ -21,6 +21,7 @@ const QUERY_MESSAGES_DEFAULT: u32 = 50;
 const QUERY_MESSAGES_MAX: u32 = 500;
 const QUERY_DIALOGS_DEFAULT: u32 = 500;
 const QUERY_DIALOGS_MAX: u32 = 2000;
+const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[ScanOrder::desc("create_at")];
 
 pub fn plan(name: &str, payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
     match name {
@@ -73,7 +74,7 @@ fn message_query_plan(payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
             table: "message",
             limit: Some(limit),
             filter: Some(("channel_id", SqlValue::Text(channel_id.clone()))),
-            order_desc_col: Some("create_at"),
+            order_by: MESSAGE_QUERY_ORDER,
         },
         shape: MobileQueryShape::MessagesByChannel { channel_id },
     })
@@ -95,7 +96,7 @@ fn dialog_list_plan(payload: &[u8]) -> Result<MobileQueryPlan, ImError> {
             table: "channel",
             limit: Some(limit),
             filter: None,
-            order_desc_col: Some("last_post_at"),
+            order_by: crate::query::core::DIALOG_QUERY_ORDER,
         },
         shape: MobileQueryShape::DialogList,
     })
@@ -175,7 +176,14 @@ mod tests {
                 assert_eq!(spec.table, "channel");
                 assert_eq!(spec.limit, Some(QUERY_DIALOGS_DEFAULT));
                 assert!(spec.filter.is_none());
-                assert_eq!(spec.order_desc_col, Some("last_post_at"));
+                assert_eq!(
+                    spec.order_by,
+                    &[
+                        ScanOrder::desc("is_top"),
+                        ScanOrder::desc("last_post_at"),
+                        ScanOrder::desc("create_at"),
+                    ]
+                );
                 assert_eq!(shape, MobileQueryShape::DialogList);
             }
         }
@@ -205,6 +213,7 @@ mod tests {
             vec![vec![
                 ("id".into(), SqlValue::Text("ch1".into())),
                 ("display_name".into(), SqlValue::Text("General".into())),
+                ("type".into(), SqlValue::Text("O".into())),
                 ("unread_count".into(), SqlValue::Integer(3)),
                 ("mention_count".into(), SqlValue::Integer(1)),
             ]],
@@ -217,6 +226,11 @@ mod tests {
             "General"
         );
         assert_eq!(dialog_value["data"]["dialogList"][0]["unread"], 3);
+        assert_eq!(dialog_value["data"]["dialogList"][0]["channelType"], "O");
+        assert_eq!(
+            dialog_value["data"]["dialogList"][0]["channelKind"],
+            "company"
+        );
         assert_eq!(dialog_value["data"]["dialogList"][0]["mention"], true);
         assert_eq!(
             dialog_value["data"]["dialogList"][0]["lastMessage"],

@@ -95,7 +95,7 @@ fn array_len_at(value: &Value, first: &str, second: &str) -> usize {
         .unwrap_or(0)
 }
 
-fn interaction_counts(props: &Value, expedite_map: &Value) -> (usize, usize, usize, usize) {
+fn interaction_counts(props: &Value) -> (usize, usize) {
     let reaction_count = props
         .get("quickReply")
         .and_then(Value::as_array)
@@ -110,24 +110,7 @@ fn interaction_counts(props: &Value, expedite_map: &Value) -> (usize, usize, usi
         .get("template")
         .map(|template| array_len_at(template, "userIds", "user_ids"))
         .unwrap_or(0);
-    let recipients = expedite_map.get("recipients").and_then(Value::as_object);
-    let urgent_target_count = recipients.map(|value| value.len()).unwrap_or(0);
-    let urgent_confirmed_count = recipients
-        .map(|value| {
-            value
-                .values()
-                .filter(|recipient| {
-                    recipient.get("status").and_then(Value::as_i64).unwrap_or(0) > 0
-                })
-                .count()
-        })
-        .unwrap_or(0);
-    (
-        reaction_count,
-        template_count,
-        urgent_target_count,
-        urgent_confirmed_count,
-    )
+    (reaction_count, template_count)
 }
 
 fn template_reader_ids(props: &Value) -> Vec<&str> {
@@ -171,6 +154,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         _ => "sent",
     };
     let props = props_value(row);
+    let forward_detail = super::forward::detail(msg_type, &props);
     let expedite_map = row
         .get("expedite_map")
         .or_else(|| row.get("expediteMap"))
@@ -191,9 +175,20 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         send_status == "failed",
         revoke_bool(row),
     );
-    let (reaction_count, template_confirmed_count, urgent_target_count, urgent_confirmed_count) =
-        interaction_counts(&props, &expedite_map);
-    json!({
+    let (reaction_count, template_confirmed_count) = interaction_counts(&props);
+    let urgent = super::urgent::project(&expedite_map, viewer_user_id, has_server_id);
+    let urgent_fields = json!({
+        "urgent": urgent.required_count > 0,
+        "urgentTargetCount": urgent.required_count,
+        "urgentConfirmedCount": urgent.confirmed_ids.len(),
+        "urgentRequesterId": urgent.requester_id,
+        "urgentTargetIds": urgent.target_ids,
+        "urgentConfirmedIds": urgent.confirmed_ids,
+        "urgentRequiredCount": urgent.required_count,
+        "urgentState": urgent.state,
+        "canConfirmUrgent": urgent.can_confirm,
+    });
+    let mut data = json!({
         "id": msg_id,
         "msgId": msg_id,
         "temporaryId": temporary_id,
@@ -204,6 +199,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "text": text,
         "type": msg_type,
         "props": props,
+        "forwardDetail": forward_detail,
         "topic": topic_value(row),
         "revoke": revoke_bool(row),
         "revoked": revoke_bool(row),
@@ -215,9 +211,6 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "actionCapabilities": action_capabilities,
         "reactionCount": reaction_count,
         "expediteMap": expedite_map,
-        "urgent": urgent_target_count > 0,
-        "urgentTargetCount": urgent_target_count,
-        "urgentConfirmedCount": urgent_confirmed_count,
         "replyId": get_str(row, &["reply_id", "replyId"]),
         "replyRootId": get_str(row, &["reply_root_id", "replyRootId"]),
         "replyFirstLevelId": get_str(row, &["reply_first_level_id", "replyFirstLevelId"]),
@@ -230,7 +223,11 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "createAt": create_at,
         "createdAt": create_at,
         "userId": user_id,
-    })
+    });
+    if let (Value::Object(data), Value::Object(urgent_fields)) = (&mut data, urgent_fields) {
+        data.extend(urgent_fields);
+    }
+    data
 }
 
 /// 历史消息行批整形：读族行数组（DB snake 或 wire camel）→ render-ready 行数组。

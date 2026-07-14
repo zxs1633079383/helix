@@ -53,6 +53,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容渲染核）
 > + `sendStatus`/`serverId`/`isSelf`/`actionCapabilities`/`reactions`/`reactionCount`/
 > `templateReceived`/`templateConfirmedCount`/`urgentTargetCount`/`urgentConfirmedCount`/
+> `urgentRequesterId`/`urgentTargetIds`/`urgentConfirmedIds`/`urgentRequiredCount`/`urgentState`/
+> `canConfirmUrgent`/`forwardDetail`/
 > `expediteMap`/`systemNotice`/`pinned`（**render-ready 终态**·message-v4 纯渲染授权演进）。
 >
 > **issue #53（S4 首条竖切·C013 纯渲染壳·授权契约演进）**：fat 在渲染核之外补 4 个 render-ready 终态字段，
@@ -74,7 +76,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
-| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgentTargetCount` `urgentConfirmedCount` `expediteMap`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
+| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgent*` 双视角字段 `expediteMap` `forwardDetail`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `serverId` `isSelf` `actionCapabilities` `readBits` `text` `type`（render-ready 乐观终态行）| 发送乐观上屏 |
 | `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus` `serverId` `isSelf` `actionCapabilities`（`canRetry=true`）| `posts/create` HTTP PortError 立即失败 |
 | `render_ready_candidates::emit` | `im:user:candidates` | `reqId` `users[]`（`userId` `username` `nickname` `displayName` `deptId` `deptName` `orgId` `orgName`）| fresh-account 建群候选目录 HTTP 回报 |
@@ -90,12 +92,12 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
 | `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
-| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `memberCount` `props` `channel` | WS `channel_created` |
+| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `channelType` `channelKind` `memberCount` `createdAt` `lastActivityAt` `top` `projectionSource=channel_created` `props` `channel` | WS `channel_created`；新群即时列表直接消费顶层排序事实，不解析嵌套 raw channel |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
 | `to_effect_s1::emit_member_nickname` | `im:channel:memberNickname` | `channelId` `userId` `nickName` | WS `update_channel_member_nickName` |
-| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` | WS `post_schedule_created` |
-| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | `id` `channelId` `hasSchedulePost` | WS `post_schedule_canceled` |
+| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` `scheduleId` `scheduleMessage` `scheduleMessagePreview` `scheduleSendAt` `scheduleRevision` `scheduleStatus`（同时保留通用 schedule 字段） | WS `post_schedule_created`；全文仅 owner/服务端授权可见，preview 不得替代全文 |
+| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | 同 created，且 `hasSchedulePost=false` `scheduleStatus=canceled` | WS `post_schedule_canceled`；取消为终态，未授权时正文与摘要均为 `null` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
 | `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| invoke `im_query_dialog_list` |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
@@ -233,7 +235,7 @@ cursor，因此合同冻结 `cursor:null`；`hasMore` 透传响应字段，缺�
 | channel | data 键集 | 权威边界 |
 |---|---|---|
 | `im:posts:batch-result` | `{reqId,batchStatus,acceptedCount,failedCount,deliveryAuthority,targets:[{channelId,acceptanceStatus,deliveryStatus,error}]}` | HTTP 只证明 `accepted/failed`；accepted 的 `deliveryStatus=pending`，最终送达只认逐目标 WS `post` |
-| `im:post:readers` | `{reqId,receipts:[{postId,state,snapshotId,snapshotVersion,readerCount,unreadCount,readerIds,unreadIds,readers:[{userId}],unreaders:[{userId}]}]}` | Helix 按消息发送时 `memberIds` 快照顺序解释 `readBits`，排除发送者后输出已读/未读 render model；前端不接触 bitmap |
+| `im:post:readers` | `{reqId,receipts:[{postId,state,snapshotId,snapshotVersion,readerCount,unreadCount,recipientUserIds,readBits,authorExcluded,contractVersion,readerIds,unreadIds,readers:[{userId}],unreaders:[{userId}]}]}` | Helix 按消息发送时 `memberIds` 快照顺序解释 `readBits`；canonical 保持接收者序列，legacy 在线性扫描中剔除作者位，固定输出 `authorExcluded=true`、`contractVersion=2`，非法形态 fail closed |
 
 消息 `actionCapabilities` 额外冻结五个布尔值：`canUrgentConfirm`、`canMarkRead`、
 `canViewReceipt`、`canTemplateConfirm`、`canLocate`。其中 `canLocate` 仅在消息具备 serverId 且未撤回时为真；

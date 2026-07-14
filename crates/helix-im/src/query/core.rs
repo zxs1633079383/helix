@@ -11,9 +11,8 @@
 //!   create_at DESC, temporary_id DESC LIMIT ?`（commands.rs，debug-only 原始行 dump）。helix 走
 //!   `Scan(message, filter=channel_id, order_desc=create_at, limit)` → PortReply 回报 → 反转最近 N 条
 //!   为时间正序 → emit `im:messages:query_result` 投影（`data: { channel_id, messages }`）。
-//!   - **保真偏差（已记 P7 finalize）**：现网二级排序 `, temporary_id DESC` 同毫秒簇确定化未携带
-//!     （`ScanSpec.order_desc_col` 当前单列）——投影 dump 用途下同毫秒次序非语义关键；scroll 游标
-//!     分页（beforeId/afterId）是 `im_load_older_messages`（HTTP postContext）另一路，不在本投影命令。
+//!   - scroll 游标分页（beforeId/afterId）是 `im_load_older_messages`（HTTP postContext）另一路，
+//!     不在本投影命令。
 //! - `im_delete_all_dialogs`：现网 `DELETE FROM channel` + `DELETE FROM channel_member`（测试用）。
 //!   - **核原语缺口（已记 P7 blocker）**：core 无无条件 truncate 原语（`BatchDelete` 需 scope+IN
 //!     列表，表达不了「删全表」）。本命令清 **core 内存 channel gate 状态** + emit `im:channels:loaded`
@@ -23,7 +22,9 @@
 //! 已于 P7 finalize 勘误）——凭空补会引入前端不调用的死命令。
 
 use bytes::Bytes;
-use helix_core::effect::{Correlation, DomainEventBytes, Effect, ScanSpec, SqlValue, StorageOp};
+use helix_core::effect::{
+    Correlation, DomainEventBytes, Effect, ScanOrder, ScanSpec, SqlValue, StorageOp,
+};
 
 use crate::error::ImError;
 use crate::state::ChannelId;
@@ -51,6 +52,13 @@ const QUERY_MESSAGES_MAX: u32 = 500;
 /// dialogList 投影单次上限（会话列表全量，宽于消息分页；对齐现网根群可达数千会话上限护栏）。
 const QUERY_DIALOGS_DEFAULT: u32 = 500;
 const QUERY_DIALOGS_MAX: u32 = 2000;
+
+const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[ScanOrder::desc("create_at")];
+pub(crate) const DIALOG_QUERY_ORDER: &[ScanOrder] = &[
+    ScanOrder::desc("is_top"),
+    ScanOrder::desc("last_post_at"),
+    ScanOrder::desc("create_at"),
+];
 
 /// 构造 `im_query_messages_by_channel` 的 `Scan(message WHERE channel_id ORDER BY create_at DESC)`。
 ///
@@ -83,7 +91,7 @@ pub fn build_message_query(
             limit: Some(limit),
             // 等值过滤 channel_id（绑定参数，防注入）+ create_at 降序（取最近 N 条，对齐现网）。
             filter: Some(("channel_id", SqlValue::Text(channel_str.to_string()))),
-            order_desc_col: Some("create_at"),
+            order_by: MESSAGE_QUERY_ORDER,
         })],
     };
     Ok((channel_id, effect))
@@ -129,14 +137,14 @@ pub fn emit_message_query_result_for_viewer(
     }
 }
 
-/// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY last_post_at DESC LIMIT)`。
+/// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY is_top,last_post_at,create_at DESC LIMIT)`。
 ///
 /// 返回 `Effect::Persist{Scan}`——调用方（module.rs）alloc corr + 注册
 /// `CorrelationContext::DialogListQuery`，PortReply 回报后 [`emit_dialog_list_result`] 把整份
 /// channel 行投影成完整 dialogList emit。`limit` 取 payload `limit`（缺省 500，clamp ≤2000）。
 ///
-/// **无 channel_id 过滤**（会话列表是全量，非按群）：scan 整张 channel 表。`last_post_at DESC`
-/// 让最近活跃会话排前（对齐现网 dialogList 排序），前端零再排序。
+/// **无 channel_id 过滤**（会话列表是全量，非按群）：scan 整张 channel 表。置顶优先；同组按
+/// `last_post_at DESC, create_at DESC`，所以新建且尚无消息的会话也能稳定进入 LIMIT 窗口。
 ///
 /// **HX-C005**：低频按需调用（off hot-path），整表 scan 合规——见模块头注与 spec06 §2 边界。
 pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effect, ImError> {
@@ -152,9 +160,9 @@ pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effe
         ops: vec![StorageOp::Scan(ScanSpec {
             table: "channel",
             limit: Some(limit),
-            // 全量会话列表：无等值过滤；按最近活跃（last_post_at）降序，前端零再排序。
+            // 置顶优先；非置顶/同组再按活跃时间、创建时间降序。LIMIT 必须在完整排序后执行。
             filter: None,
-            order_desc_col: Some("last_post_at"),
+            order_by: DIALOG_QUERY_ORDER,
         })],
     })
 }

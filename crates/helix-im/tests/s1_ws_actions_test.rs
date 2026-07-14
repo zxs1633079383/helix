@@ -616,8 +616,11 @@ fn channel_created_full_upsert_and_members_s1() {
             "action": "channel_created",
             "data": {
                 "id": cid(5),
-                "type": "P",
+                "type": "O",
                 "displayName": "新群",
+                "created_at": 1_700_000_000_000_i64,
+                "last_post_at": 1_700_000_100_000_i64,
+                "is_top": 1,
                 "memberChange": { "join": [
                     { "id": "u-aaa", "teamId": "t1", "role": "MEMBER", "nickName": "甲" }
                 ]}
@@ -637,6 +640,14 @@ fn channel_created_full_upsert_and_members_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:created"));
+    let created = emit_data(&h.sink, "im:channel:created");
+    assert_eq!(created[0]["channelType"], "O");
+    assert_eq!(created[0]["channelKind"], "company");
+    assert_eq!(created[0]["group"], "company");
+    assert_eq!(created[0]["createdAt"], 1_700_000_000_000_i64);
+    assert_eq!(created[0]["lastActivityAt"], 1_700_000_100_000_i64);
+    assert_eq!(created[0]["top"], true);
+    assert_eq!(created[0]["projectionSource"], "channel_created");
 }
 
 /// 回归锚: member-leave —— memberChange.leave → BatchDelete channel_member 删离场成员
@@ -926,6 +937,7 @@ fn schedule_created_sets_flag_s1() {
                 "status": "scheduled",
                 "revision": 7,
                 "scheduleOwnerUserId": "u-self",
+                "message": "下午三点发送完整正文",
                 "messagePreview": "下午三点发送"
             }
         })),
@@ -949,6 +961,11 @@ fn schedule_created_sets_flag_s1() {
     assert_eq!(updates[0]["status"], "scheduled");
     assert_eq!(updates[0]["revision"], 7);
     assert_eq!(updates[0]["messagePreview"], "下午三点发送");
+    assert_eq!(updates[0]["scheduleMessage"], "下午三点发送完整正文");
+    assert_eq!(updates[0]["scheduleMessagePreview"], "下午三点发送");
+    assert_eq!(updates[0]["scheduleSendAt"], 1_700_000_000_000_i64);
+    assert_eq!(updates[0]["scheduleRevision"], 7);
+    assert_eq!(updates[0]["scheduleStatus"], "scheduled");
 }
 
 /// 回归锚: S1 —— post_schedule_canceled 置 has_schedule_post=0 + emit。
@@ -964,6 +981,8 @@ fn schedule_canceled_clears_flag_s1() {
                 "schedule_id": "schedule-9",
                 "send_at": 1_700_000_000_000_i64,
                 "schedule_owner_user_id": "u-owner",
+                "status": "scheduled",
+                "message": "观察者不可见完整正文",
                 "message_preview": "观察者不可见正文"
             }
         })),
@@ -988,5 +1007,8 @@ fn schedule_canceled_clears_flag_s1() {
         updates[0]["revision"], 22,
         "缺 revision 时回退服务端 event_seq"
     );
+    assert!(updates[0]["scheduleMessage"].is_null());
     assert!(updates[0]["messagePreview"].is_null());
+    assert!(updates[0]["scheduleMessagePreview"].is_null());
+    assert_eq!(updates[0]["scheduleStatus"], "canceled");
 }

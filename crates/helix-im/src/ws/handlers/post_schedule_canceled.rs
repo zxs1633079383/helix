@@ -46,13 +46,13 @@ impl WsMessageHandler for ScheduleCanceledHandler {
             channel_id,
             vec![("has_schedule_post", SqlValue::Integer(0))],
         ));
-        let can_view_preview =
+        let can_view_content =
             crate::acl::to_effect_s1::schedule_preview_authorized(data, ctx.auth_user_id);
         out.push(crate::acl::to_effect_s1::emit_schedule_canceled(
             channel_id,
             data,
             frame.event_seq().map(|seq| seq.0),
-            can_view_preview,
+            can_view_content,
         ));
         Ok(())
     }

@@ -27,6 +27,28 @@ pub(super) fn emit(event: &'static str, data: serde_json::Value) -> Effect {
     }
 }
 
+fn first_i64(data: &serde_json::Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| match data.get(*key) {
+        Some(serde_json::Value::Number(value)) => value.as_i64(),
+        Some(serde_json::Value::String(value)) => value.parse::<i64>().ok(),
+        _ => None,
+    })
+}
+
+fn first_bool(data: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    keys.iter().find_map(|key| match data.get(*key) {
+        Some(serde_json::Value::Bool(value)) => Some(*value),
+        Some(serde_json::Value::Number(value)) => value.as_i64().map(|value| value != 0),
+        Some(serde_json::Value::String(value)) if value == "1" => Some(true),
+        Some(serde_json::Value::String(value)) if value == "0" => Some(false),
+        Some(serde_json::Value::String(value)) if value.eq_ignore_ascii_case("true") => Some(true),
+        Some(serde_json::Value::String(value)) if value.eq_ignore_ascii_case("false") => {
+            Some(false)
+        }
+        _ => None,
+    })
+}
+
 // ─── channel 维护事件（created / closed / member-updated / memberNickname）──────
 
 /// `channel_created` → `im:channel:created`（真源 channel.rs:569）。
@@ -39,15 +61,16 @@ pub fn emit_channel_created(channel_id: ChannelId, raw: &[u8]) -> Effect {
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.is_empty())
         .unwrap_or(channel_id.as_str());
-    let group = match channel.get("type").and_then(serde_json::Value::as_str) {
-        Some("T") => "topic",
-        Some("D") => "direct",
-        _ => "group",
-    };
+    let channel_type = crate::channel_kind::channel_type(&channel);
+    let channel_kind = crate::channel_kind::channel_kind(channel_type);
     let member_count = channel
         .get("memberCount")
         .and_then(serde_json::Value::as_i64)
         .unwrap_or(0);
+    let created_at = first_i64(&channel, &["createdAt", "createAt", "created_at"]).unwrap_or(0);
+    let last_activity_at =
+        first_i64(&channel, &["lastPostAt", "last_post_at"]).unwrap_or(created_at);
+    let top = first_bool(&channel, &["channelIsTop", "isTop", "is_top"]).unwrap_or(false);
     emit(
         "im:channel:created",
         serde_json::json!({
@@ -55,8 +78,14 @@ pub fn emit_channel_created(channel_id: ChannelId, raw: &[u8]) -> Effect {
             "channelId": channel_id.as_str(),
             "channel_id": channel_id.as_str(),
             "displayName": display_name,
-            "group": group,
+            "group": channel_kind,
+            "channelType": channel_type,
+            "channelKind": channel_kind,
             "memberCount": member_count,
+            "createdAt": created_at,
+            "lastActivityAt": last_activity_at,
+            "top": top,
+            "projectionSource": "channel_created",
             "props": channel,
             "channel": channel,
         }),

@@ -58,16 +58,23 @@ fn is_query_recognizes_projection_commands() {
 }
 
 #[test]
-fn build_dialog_list_query_scans_channel_table_desc_by_last_post_at() {
+fn build_dialog_list_query_sorts_top_activity_and_creation_before_limit() {
     // 带 limit。
     let payload = serde_json::to_vec(&serde_json::json!({ "limit": 100 })).unwrap();
     let effect = build_dialog_list_query(&payload, corr()).expect("build ok");
     let spec = scan_of(effect).expect("Persist+Scan");
     assert_eq!(spec.table, "channel");
     assert_eq!(spec.limit, Some(100));
-    // 全量会话：无 channel_id 过滤；按 last_post_at 降序（最近活跃排前）。
+    // 全量会话：置顶优先；同组按活跃、创建时间降序。
     assert!(spec.filter.is_none());
-    assert_eq!(spec.order_desc_col, Some("last_post_at"));
+    assert_eq!(
+        spec.order_by,
+        &[
+            ScanOrder::desc("is_top"),
+            ScanOrder::desc("last_post_at"),
+            ScanOrder::desc("create_at"),
+        ]
+    );
 }
 
 #[test]
@@ -147,6 +154,8 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
                                     // SQLite snake_case 行必须在 Helix 边界升成完整 camelCase dialog，UI 不做 casing/JSON 猜测。
     assert_eq!(r0["channelId"], "ch1");
     assert_eq!(r0["group"], "group");
+    assert_eq!(r0["channelType"], "P");
+    assert_eq!(r0["channelKind"], "group");
     assert_eq!(r0["teamId"], "team-1");
     assert_eq!(r0["unreadPostId"], "post-unread");
     assert_eq!(r0["mentionList"], serde_json::json!(["u1"]));
@@ -233,6 +242,8 @@ fn emit_hydrated_dialog_result_is_immediately_render_ready() {
     assert_eq!(dialog["channelId"], "ch-hydrated");
     assert_eq!(dialog["displayName"], "陌生群");
     assert_eq!(dialog["group"], "group");
+    assert_eq!(dialog["channelType"], "P");
+    assert_eq!(dialog["channelKind"], "group");
     assert_eq!(dialog["unreadCount"], 2);
     assert_eq!(dialog["mention"], true);
     assert_eq!(dialog["urgent"], true);
@@ -242,6 +253,30 @@ fn emit_hydrated_dialog_result_is_immediately_render_ready() {
     assert_eq!(dialog["lastMessage"], "最后消息");
     assert_eq!(dialog["loading"], false);
     assert_eq!(dialog["unknown"], false);
+}
+
+#[test]
+fn dialog_projection_preserves_all_channel_types_and_kinds() {
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"topic","type":"T"},
+        {"id":"company","type":"O"},
+        {"id":"group","type":"P"},
+        {"id":"direct","type":"D"}
+    ]))
+    .unwrap();
+    let value = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let dialogs = value["data"]["dialogList"].as_array().expect("dialogs");
+    let expected = [
+        ("T", "topic"),
+        ("O", "company"),
+        ("P", "group"),
+        ("D", "direct"),
+    ];
+    for (dialog, (channel_type, channel_kind)) in dialogs.iter().zip(expected) {
+        assert_eq!(dialog["channelType"], channel_type);
+        assert_eq!(dialog["channelKind"], channel_kind);
+        assert_eq!(dialog["group"], channel_kind);
+    }
 }
 
 #[test]

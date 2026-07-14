@@ -19,6 +19,7 @@ pub mod acl;
 pub(crate) mod base64;
 pub mod channel;
 mod channel_capabilities;
+mod channel_kind;
 pub use channel::older_context;
 pub use channel::write as channel_write;
 pub mod commands;

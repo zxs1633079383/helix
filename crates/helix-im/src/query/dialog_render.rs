@@ -57,12 +57,11 @@ pub(crate) fn render_ready_dialog_row(row: Value) -> Value {
     // 自己退群则保留独立 isRemove 语义，不能混成 closed。
     let closed = as_i64(obj.get("delete_at")).unwrap_or(0) > 0;
     obj.insert("closed".into(), Value::Bool(closed));
-    let group = match obj.get("type").and_then(Value::as_str) {
-        Some("T") => "topic",
-        Some("D") => "direct",
-        _ => "group",
-    };
-    obj.insert("group".into(), Value::String(group.into()));
+    let channel_type = crate::channel_kind::channel_type_from_object(&obj).to_string();
+    let channel_kind = crate::channel_kind::channel_kind(&channel_type);
+    obj.insert("group".into(), Value::String(channel_kind.into()));
+    obj.insert("channelType".into(), Value::String(channel_type));
+    obj.insert("channelKind".into(), Value::String(channel_kind.into()));
     // lastMessage / urgent ← last_post（整帧 post JSON 或内容兜底字符串·解析取预览 + 加急标）。
     let (last_message, urgent) = derive_last_post(obj.get("last_post"));
     obj.insert("lastMessage".into(), last_message);

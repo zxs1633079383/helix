@@ -1,6 +1,6 @@
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
-    SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanOrder,
+    ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -10,6 +10,11 @@ use helix_driver_host::{
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static DB_SEQ: AtomicUsize = AtomicUsize::new(0);
+const DIALOG_SCAN_ORDER: &[ScanOrder] = &[
+    ScanOrder::desc("is_top"),
+    ScanOrder::desc("last_post_at"),
+    ScanOrder::desc("create_at"),
+];
 
 async fn storage() -> HostStorage {
     let seq = DB_SEQ.fetch_add(1, Ordering::Relaxed);
@@ -173,11 +178,53 @@ async fn host_storage_matches_native_upsert_update_get_scan_semantics() {
             table: "messages",
             limit: Some(1),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("scan");
     assert_eq!(rows.len(), 1);
+}
+
+#[tokio::test]
+async fn host_storage_scan_applies_structured_multi_order_before_limit() {
+    let storage = storage().await;
+    storage
+        .execute_raw(
+            "CREATE TABLE dialog_sort (\
+             id TEXT PRIMARY KEY, is_top INTEGER NOT NULL, \
+             last_post_at INTEGER NOT NULL, create_at INTEGER NOT NULL)",
+        )
+        .await
+        .expect("create dialog_sort");
+    storage
+        .execute_raw(
+            "INSERT INTO dialog_sort VALUES \
+             ('old-pinned',1,10,10),\
+             ('active',0,100,20),\
+             ('new-empty',0,0,90),\
+             ('old-empty',0,0,30)",
+        )
+        .await
+        .expect("seed dialog_sort");
+
+    let rows = storage
+        .scan(ScanSpec {
+            table: "dialog_sort",
+            limit: Some(3),
+            filter: None,
+            order_by: DIALOG_SCAN_ORDER,
+        })
+        .await
+        .expect("multi-order scan");
+    let ids: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| match row.iter().find(|(key, _)| key == "id") {
+            Some((_, SqlValue::Text(id))) => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(ids, ["old-pinned", "active", "new-empty"]);
 }
 
 #[tokio::test]
@@ -375,7 +422,7 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
                     table: "messages",
                     limit: Some(100),
                     filter: None,
-                    order_desc_col: None,
+                    order_by: &[],
                 })
                 .await
                 .expect("concurrent scan");
@@ -406,7 +453,7 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
             table: "messages",
             limit: Some(1000),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("final scan messages");
@@ -420,7 +467,7 @@ async fn concurrent_writes_and_reads_do_not_deadlock_and_stay_correct() {
             table: "notes",
             limit: Some(1000),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("final scan notes");
@@ -466,7 +513,7 @@ async fn reads_proceed_while_write_holds_connection() {
             table: "messages",
             limit: Some(1000),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("baseline scan");
@@ -512,7 +559,7 @@ async fn reads_proceed_while_write_holds_connection() {
                 table: "messages",
                 limit: Some(1000),
                 filter: None,
-                order_desc_col: None,
+                order_by: &[],
             })
             .await
             .expect("concurrent scan during write")
@@ -638,7 +685,7 @@ async fn batch_upsert_rolls_back_entire_batch_on_midway_failure() {
             table: "strict_tbl",
             limit: Some(100),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("scan strict_tbl");
@@ -690,7 +737,7 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
             table: "messages",
             limit: Some(1000),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("baseline scan")
@@ -708,7 +755,7 @@ async fn read_read_concurrency_n_gt_pool_semaphore_backpressure() {
                 table: "messages",
                 limit: Some(1000),
                 filter: None,
-                order_desc_col: None,
+                order_by: &[],
             })
             .await
             .expect("concurrent scan N>4")
@@ -1268,7 +1315,7 @@ async fn host_storage_batch_delete_scoped_no_cross_channel_delete() {
             table: "channel_member",
             limit: None,
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("scan");
@@ -1346,7 +1393,7 @@ async fn execute_storage_ops_dispatches_batch_delete() {
             table: "channel_member",
             limit: None,
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("scan");

@@ -209,9 +209,73 @@ fn post_read_list_derives_render_ready_read_and_unread_members_from_snapshot() {
     assert_eq!(data["receipts"][0]["snapshotId"], "snapshot-1");
     assert_eq!(data["receipts"][0]["readerCount"], 1);
     assert_eq!(data["receipts"][0]["unreadCount"], 1);
+    assert_eq!(
+        data["receipts"][0]["recipientUserIds"],
+        serde_json::json!(["678", "555"])
+    );
+    assert_eq!(data["receipts"][0]["readBits"], "01");
+    assert_eq!(data["receipts"][0]["authorExcluded"], true);
+    assert_eq!(data["receipts"][0]["contractVersion"], 2);
     assert_eq!(data["receipts"][0]["readers"][0]["userId"], "555");
     assert_eq!(data["receipts"][0]["unreaders"][0]["userId"], "678");
-    assert!(data["receipts"][0].get("readBits").is_none());
+}
+
+#[test]
+fn post_read_list_accepts_canonical_snapshot_without_author() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        command_json(
+            "im_post_read_list",
+            serde_json::json!({"req_id":"receipt-canonical","post_ids":["p1"]}),
+        ),
+        1,
+    );
+    let corr = http_corr(&h);
+    let raw = bytes::Bytes::from(
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"01","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["678","555"]}]}"#.to_vec(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 2);
+
+    let receipt = &emits(&h, "im:post:readers")[0]["receipts"][0];
+    assert_eq!(receipt["state"], "ready");
+    assert_eq!(receipt["readerIds"], serde_json::json!(["555"]));
+    assert_eq!(receipt["unreadIds"], serde_json::json!(["678"]));
+    assert_eq!(receipt["readerCount"], 1);
+    assert_eq!(receipt["unreadCount"], 1);
+    assert_eq!(
+        receipt["recipientUserIds"],
+        serde_json::json!(["678", "555"])
+    );
+    assert_eq!(receipt["readBits"], "01");
+    assert_eq!(receipt["authorExcluded"], true);
+    assert_eq!(receipt["contractVersion"], 2);
+}
+
+#[test]
+fn post_read_list_rejects_repeated_author_and_illegal_bitmap() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        command_json(
+            "im_post_read_list",
+            serde_json::json!({"req_id":"receipt-invalid-shapes","post_ids":["p1","p2"]}),
+        ),
+        1,
+    );
+    let corr = http_corr(&h);
+    let raw = bytes::Bytes::from(
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","readBits":"101","snapshotId":"snapshot-1","snapshotVersion":1001,"memberIds":["444","678","444"]},{"postId":"p2","authorUserId":"444","readBits":"02","snapshotId":"snapshot-2","snapshotVersion":1002,"memberIds":["678","555"]}]}"#.to_vec(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 2);
+
+    let data = &emits(&h, "im:post:readers")[0];
+    assert_eq!(data["receipts"][0]["state"], "unavailable");
+    assert_eq!(data["receipts"][1]["state"], "unavailable");
+    for receipt in data["receipts"].as_array().expect("receipts") {
+        assert_eq!(receipt["recipientUserIds"], serde_json::json!([]));
+        assert_eq!(receipt["readBits"], "");
+        assert_eq!(receipt["authorExcluded"], true);
+        assert_eq!(receipt["contractVersion"], 2);
+    }
 }
 
 #[test]
@@ -234,6 +298,10 @@ fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
     assert_eq!(receipt["state"], "unavailable");
     assert_eq!(receipt["readerCount"], 0);
     assert_eq!(receipt["unreadCount"], 0);
+    assert_eq!(receipt["recipientUserIds"], serde_json::json!([]));
+    assert_eq!(receipt["readBits"], "");
+    assert_eq!(receipt["authorExcluded"], true);
+    assert_eq!(receipt["contractVersion"], 2);
 }
 
 #[test]

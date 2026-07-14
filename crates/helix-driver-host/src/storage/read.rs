@@ -1,4 +1,4 @@
-use helix_core::effect::{GetSpec, Row as HelixRow, ScanSpec};
+use helix_core::effect::{GetSpec, Row as HelixRow, ScanSpec, SortDirection};
 use helix_core::PortError;
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
@@ -47,9 +47,23 @@ pub(super) async fn scan(
                 .filter
                 .as_ref()
                 .map_or(String::new(), |(c, _)| format!(" WHERE {c} = ?"));
-            let order_clause = spec
-                .order_desc_col
-                .map_or(String::new(), |c| format!(" ORDER BY {c} DESC"));
+            let order_clause = if spec.order_by.is_empty() {
+                String::new()
+            } else {
+                let terms = spec
+                    .order_by
+                    .iter()
+                    .map(|order| {
+                        let direction = match order.direction {
+                            SortDirection::Asc => "ASC",
+                            SortDirection::Desc => "DESC",
+                        };
+                        format!("{} {direction}", order.column)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" ORDER BY {terms}")
+            };
             let sql = format!(
                 "SELECT * FROM {table}{where_clause}{order_clause} LIMIT {limit}",
                 table = spec.table,

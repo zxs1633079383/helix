@@ -79,6 +79,38 @@ write_state() {
   date -u +%Y-%m-%dT%H:%M:%SZ >"$STATE_DIR/started-at"
 }
 
+launchd_job_pid() {
+  local label=$1
+  launchctl print "gui/$(id -u)/$label" 2>/dev/null \
+    | awk '/^[[:space:]]*pid = [0-9]+/ { print $3; exit }'
+}
+
+start_port_forward() {
+  local log_file=$1
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v launchctl >/dev/null 2>&1; then
+    local label="com.helix.perf.telemetry.$(id -u).$$"
+    launchctl submit -l "$label" -o "$log_file" -e "$log_file" -- \
+      "$(command -v kubectl)" -n "$NAMESPACE" port-forward --address=0.0.0.0 \
+      "svc/$COLLECTOR_SERVICE" "$TUNNEL_PORT:4317"
+    printf '%s\n' "$label" >"$STATE_DIR/port-forward.launchd-label"
+    for _ in $(seq 1 30); do
+      local pid
+      pid=$(launchd_job_pid "$label")
+      if [[ -n "$pid" ]]; then
+        printf '%s\n' "$pid"
+        return
+      fi
+      sleep 0.1
+    done
+    launchctl remove "$label" 2>/dev/null || true
+    die "launchd port-forward 未在预算内产生 PID"
+  fi
+
+  nohup kubectl -n "$NAMESPACE" port-forward --address=0.0.0.0 \
+    "svc/$COLLECTOR_SERVICE" "$TUNNEL_PORT:4317" </dev/null >"$log_file" 2>&1 &
+  printf '%s\n' "$!"
+}
+
 prepare_runtime_files() {
   rm -rf "$RUNTIME_OTEL_DIR"
   mkdir -p "$RUNTIME_OTEL_DIR"
@@ -96,9 +128,8 @@ up() {
   prepare_runtime_files
 
   mkdir -p "$STATE_DIR"
-  nohup kubectl -n "$NAMESPACE" port-forward --address=0.0.0.0 "svc/$COLLECTOR_SERVICE" \
-    "$TUNNEL_PORT:4317" </dev/null >"$STATE_DIR/port-forward.log" 2>&1 &
-  local pf_pid=$!
+  local pf_pid
+  pf_pid=$(start_port_forward "$STATE_DIR/port-forward.log")
   for _ in $(seq 1 30); do
     port_is_listening "$TUNNEL_PORT" && break
     kill -0 "$pf_pid" 2>/dev/null || die "kubectl port-forward 提前退出"
@@ -134,6 +165,13 @@ verify_owned_port_forward() {
   local pid
   [[ -f "$STATE_DIR/port-forward.pid" ]] || die "缺少 run-owned port-forward 状态"
   pid=$(cat "$STATE_DIR/port-forward.pid")
+  if [[ -f "$STATE_DIR/port-forward.launchd-label" ]]; then
+    local label current_pid
+    label=$(cat "$STATE_DIR/port-forward.launchd-label")
+    current_pid=$(launchd_job_pid "$label")
+    [[ -n "$current_pid" && "$current_pid" == "$pid" ]] \
+      || die "run-owned launchd port-forward 已退出或 PID 漂移"
+  fi
   kill -0 "$pid" 2>/dev/null || die "run-owned port-forward 已退出"
   local command
   command=$(ps -p "$pid" -o command=)
@@ -174,11 +212,14 @@ verify_canary() {
   deadline=$((SECONDS + 95))
   while ((SECONDS < deadline)); do
     response=$(prom_query 'otel_helix_telemetry_canary_total{service_name="helix-perf-canary"}') || true
-    if jq -e '.status == "success" and (.data.result | length > 0)' <<<"${response:-{}}" >/dev/null 2>&1; then
+    [[ -n "${response:-}" ]] || response='{}'
+    if jq -e '.status == "success" and (.data.result | length > 0)' \
+      <<<"$response" >/dev/null 2>&1; then
       metadata=$(curl --fail --silent --show-error \
         "$PROMETHEUS_URL/api/v1/metadata?metric=otel_helix_telemetry_canary_total") || true
+      [[ -n "${metadata:-}" ]] || metadata='{}'
       jq -e '.status == "success" and (.data | has("otel_helix_telemetry_canary_total"))' \
-        <<<"${metadata:-{}}" >/dev/null 2>&1 \
+        <<<"$metadata" >/dev/null 2>&1 \
         || die "canary 有样本但 metadata 缺失，拒绝仅按命名推断 PASS"
       printf 'telemetry verify PASS: canary 已进入 pre Prometheus\n'
       return
@@ -194,7 +235,11 @@ down() {
     return
   }
 
-  if [[ -f "$STATE_DIR/port-forward.pid" ]]; then
+  if [[ -f "$STATE_DIR/port-forward.launchd-label" ]]; then
+    local label
+    label=$(cat "$STATE_DIR/port-forward.launchd-label")
+    launchctl remove "$label" 2>/dev/null || true
+  elif [[ -f "$STATE_DIR/port-forward.pid" ]]; then
     local pid
     pid=$(cat "$STATE_DIR/port-forward.pid")
     if kill -0 "$pid" 2>/dev/null && [[ "$(ps -p "$pid" -o command=)" == \

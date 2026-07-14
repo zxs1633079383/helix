@@ -45,8 +45,8 @@ pub use trace::{with_storage_trace_context, StorageTraceContext};
 /// `cache=shared` 的内存库才启用只读池。
 #[derive(Clone)]
 pub struct HostStorage {
-    pub(super) writer: Arc<Mutex<Connection>>,
-    pub(super) readers: Option<Arc<ReadPool>>,
+    writer: Arc<Mutex<Connection>>,
+    readers: Option<Arc<ReadPool>>,
 }
 
 impl HostStorage {

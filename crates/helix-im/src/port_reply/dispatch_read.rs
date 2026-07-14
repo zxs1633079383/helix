@@ -45,7 +45,7 @@ impl ImModule {
             PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
                 Ok(raw_body) => {
                     out.push(crate::read_relay::emit_read_result(
-                        req_id = req_id.as_str(),
+                        req_id.as_str(),
                         raw_body.as_ref(),
                     ));
                 }

@@ -1,14 +1,13 @@
 //! Channel ingest and contiguous-buffer state machine.
 
-use super::{
-    collect_dialog_patch_for_post, emit_for_kind, event_to_storage_op, visible_post_for_storage,
-    Channel, Gate, MAX_GATE_BUFFER,
-};
+use super::projection::{collect_dialog_patch_for_post, visible_post_for_storage};
+use super::{emit_for_kind, event_to_storage_op, Channel, Gate, MAX_GATE_BUFFER};
 use crate::error::ImError;
-use crate::state::Seq;
+use crate::state::{ChannelId, Cursor, Seq};
 use crate::sync_session::EventEnvelope;
-use helix_core::effect::{StorageOp, TimerId};
+use helix_core::effect::TimerId;
 use helix_core::{Correlation, Effect, EffectSink};
+use std::collections::BTreeMap;
 
 impl Channel {
     pub fn new(id: ChannelId, initial_cursor: u64) -> Self {

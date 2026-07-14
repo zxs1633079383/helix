@@ -26,7 +26,7 @@ impl SharedFileUploader {
         Self { client }
     }
 
-    fn classify_error(e: &reqwest::Error) -> PortError {
+    fn classify_error(e: reqwest::Error) -> PortError {
         let is_timeout = e.is_timeout();
         let is_network = e.is_connect() || e.is_request();
         // reqwest 错误默认可能携带完整 URL；先剥离，避免签名查询串进入 PortError/trace/log。
@@ -103,7 +103,7 @@ impl FileUploader for SharedFileUploader {
             .body(body)
             .send()
             .await
-            .map_err(|e| Self::classify_error(&e))?;
+            .map_err(Self::classify_error)?;
         let status = response.status();
         if !status.is_success() {
             return Err(PortError::Http(format!(

@@ -1139,7 +1139,7 @@
           "name": "im_cancel_schedule",
           "input": {
             "required": [
-              "schedule_post_id"
+              "channel_id"
             ],
             "optional": [],
             "forbid_unknown": true

@@ -255,29 +255,12 @@ pub struct GuardedBumpSpec {
     /// 用于 unread/mention/urgent 等多个派生计数必须在同一条新消息守卫下同时推进的场景。
     /// 列名仍是编译期常量；delta 使用绑定参数，不参与 SQL 字符串拼接。
     pub extra_bumps: Vec<(&'static str, i64)>,
-    /// 同一前进守卫下的 JSON 字符串列表 set-union 写。
-    ///
-    /// 用于「列表是绝对 set，计数是 set size」的通用投影场景。driver 在守卫命中时读取当前
-    /// JSON 文本列表，把 `value` 作为 set 元素加入（已存在则不重复），并可同步把 `count_col`
-    /// 写成合并后的 set size。表名/列名仍是上层提供的编译期常量，core 不理解业务语义。
-    pub json_list_appends: Vec<JsonListAppendSpec>,
     /// 与自增同事务写入的绝对值列（列名编译期常量，值运行时）；空 = 纯自增。
     pub set_cols: Row,
     /// 前进守卫列名（编译期常量）：仅当 `guard_val > <guard_col> 当前值` 才更新整行。
     pub guard_col: &'static str,
     /// 守卫比较值（运行时）：严格大于现值才命中（防重复 / 旧值回退）。
     pub guard_val: i64,
-}
-
-/// `GuardedBumpSpec` 的 JSON 列表 set-union 子规格。
-#[derive(Debug, Clone)]
-pub struct JsonListAppendSpec {
-    /// JSON 文本列表列名。
-    pub list_col: &'static str,
-    /// 要加入 set 的字符串值；空串由 driver 忽略。
-    pub value: String,
-    /// 可选计数列，写为合并后 set size。
-    pub count_col: Option<&'static str>,
 }
 
 /// get 规格（单行；MAJ-5：`table`/`key_col` = `&'static str`）。

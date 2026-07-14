@@ -84,9 +84,8 @@ pub fn bump_channel_unread(upd: &crate::channel_write::PostChannelUpdate) -> Eff
 
 /// `bump_channel_unread` 的 StorageOp 内核，供 sync 应用路径并入同一 Persist 批。
 pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> StorageOp {
-    use helix_core::effect::{GuardedBumpSpec, JsonListAppendSpec, SqlValue};
+    use helix_core::effect::{GuardedBumpSpec, SqlValue};
     let mut set_cols: Row = Vec::with_capacity(3);
-    let mut json_list_appends = Vec::new();
     if let Some(ref pid) = upd.unread_post_id {
         set_cols.push(("unread_post_id".to_string(), SqlValue::Text(pid.clone())));
     }
@@ -100,36 +99,40 @@ pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> 
         set_cols.push(("has_schedule_post".to_string(), SqlValue::Integer(1)));
     }
     if upd.mention_hit && !upd.post_id.is_empty() {
-        json_list_appends.push(JsonListAppendSpec {
-            list_col: "mention_list",
-            value: upd.post_id.clone(),
-            count_col: Some("mention_count"),
-        });
+        set_cols.push((
+            "mention_list".to_string(),
+            SqlValue::Text(serde_json::json!([upd.post_id]).to_string()),
+        ));
         set_cols.push((
             "mention_user".to_string(),
             SqlValue::Text(serde_json::json!(upd.mentions).to_string()),
         ));
     }
     if upd.urgent_hit && !upd.post_id.is_empty() {
-        json_list_appends.push(JsonListAppendSpec {
-            list_col: "urgent_post_list",
-            value: upd.post_id.clone(),
-            count_col: Some("urgent_count"),
-        });
+        set_cols.push((
+            "urgent_post_list".to_string(),
+            SqlValue::Text(serde_json::json!([upd.post_id]).to_string()),
+        ));
         set_cols.push(("has_urgent_post".to_string(), SqlValue::Integer(1)));
     }
     set_cols.push((
         "last_root_post_at".to_string(),
         SqlValue::Integer(upd.msg_create_at),
     ));
+    let mut extra_bumps = Vec::new();
+    if upd.mention_hit {
+        extra_bumps.push(("mention_count", 1));
+    }
+    if upd.urgent_hit {
+        extra_bumps.push(("urgent_count", 1));
+    }
     StorageOp::GuardedBump(GuardedBumpSpec {
         table: "channel",
         key_col: "id",
         key_val: SqlValue::Text(upd.channel_id.as_str().to_string()),
         bump_col: "unread_count",
         bump_delta: upd.unread_delta,
-        extra_bumps: Vec::new(),
-        json_list_appends,
+        extra_bumps,
         set_cols,
         guard_col: "last_root_post_at",
         guard_val: upd.msg_create_at,

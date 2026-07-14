@@ -28,7 +28,7 @@
 | Helix | `cargo test -p helix-im test_gate_buffer_capped_proactive_too_long_e6 -- --nocapture` | PASS | proactive too_long gate |
 | Helix | `cargo test -p helix-im proactive_too_long_requests_latest_post_reload_e6 -- --nocapture` | PASS | too_long 主动 reload |
 | Helix | `cargo test -p helix-driver-host --test storage_conformance guarded_bump_extra_counts_share_the_same_guard_s3 -- --nocapture` | PASS | 同 guard 计数累计 |
-| Helix | `cargo test -p helix-driver-host --test storage_conformance delete_where_deletes_only_matching_scope_rows -- --nocapture` | PASS | drop local messages 只删目标 scope |
+| Helix | `cargo test -p helix-im --test s6_sync_internal_test s6_too_long_preserves_messages_and_emits_reload -- --nocapture` | 待 2026-07-14 统一复验 | 不删本地历史，重拉成功后覆盖式 upsert |
 | Helix | `cargo test -p helix-driver-ffi --test mobile_contract_test mobile_im_send_alias -- --nocapture` | PASS | Task 2 `im_send` alias 归一 |
 | Helix | `cargo test -p helix-driver-ffi --test mobile_contract_test -- --nocapture` | PASS | Task 3 `helix_capabilities` / `helix_version` |
 | Helix | `cargo check -p helix-driver-ffi` | PASS | FFI 边界编译检查 |

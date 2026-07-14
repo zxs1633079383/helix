@@ -169,7 +169,6 @@ classDiagram
     -readers
     +batch_upsert()
     +scan()
-    +delete_where()
   }
   class ReadPool {
     -connections

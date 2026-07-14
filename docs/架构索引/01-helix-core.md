@@ -81,7 +81,7 @@ flowchart TD
 | `platform.rs` | `MaybeSend`、`MaybeSync` | 按目标平台约束 Send/Sync |
 | `engine_tests.rs` | 测试模块 | 验证一次性 timer 与空壳行为 |
 
-当前 `Effect` 有 10 个顶层变体：`Send`、`Persist`、`PersistFire`、`Http`、`UploadFile`、`HttpFire`、`Request`、`Emit`、`ScheduleTimer`、`CancelTimer`。当前 `StorageOp` 有 8 个变体：`BatchUpsert`、`MonotonicUpsert`、`BatchUpdate`、`GuardedBump`、`Get`、`Scan`、`BatchDelete`、`DeleteWhere`。
+当前 `Effect` 有 10 个顶层变体：`Send`、`Persist`、`PersistFire`、`Http`、`UploadFile`、`HttpFire`、`Request`、`Emit`、`ScheduleTimer`、`CancelTimer`。当前 `StorageOp` 有 7 个变体：`BatchUpsert`、`MonotonicUpsert`、`BatchUpdate`、`GuardedBump`、`Get`、`Scan`、`BatchDelete`。
 
 ### `src/` 类图
 
@@ -122,7 +122,6 @@ classDiagram
     Get
     Scan
     BatchDelete
-    DeleteWhere
   }
   class Correlation
   class TimerId
@@ -237,7 +236,6 @@ classDiagram
     +get()
     +scan()
     +batch_delete()
-    +delete_where()
   }
   class Transport {
     <<interface>>

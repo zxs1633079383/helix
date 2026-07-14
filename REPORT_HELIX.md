@@ -1,5 +1,10 @@
 # REPORT_HELIX
 
+> ⚠️ 历史报告：其中 `too_long drop-and-reload`、`DeleteWhere` 与
+> `JsonListAppendSpec` 结论已在 2026-07-14 architecture drift review 中被判定为
+> 违反现网覆盖式同步真源与 HX-C005，并已回正。当前真源以代码、
+> `docs/specs/2026-07-09-dialog-projection-and-sync-reset-spec.md` 的回正说明及最新 review ledger 为准。
+
 ## 启动自检
 
 - pwd: `/System/Volumes/Data/workspace/rust/helix/worktrees/dialog-projection-sync-spec-20260709`

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use helix_driver_host::engine::{self, EngineDeps, TransportLifecycleEvent, TransportTraceSink};
 use helix_driver_host::{AsyncMetricSink, NoopMetricSink, SharedFileUploader, TraceHooks};
+use helix_driver_host::{TickIngressReceiver, TickIngressSender};
 // rows↔bytes 编解码：host 单一真源，native re-export（helix-im 反序列化端对齐 host codec）。
 pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
@@ -154,6 +155,26 @@ pub async fn run_engine_loop(
     .await
 }
 
+/// 生产指标入口：保持单一有界队列，在元素内携带真实入队时间戳。
+pub async fn run_engine_loop_stamped(
+    shell: ExecutionShell,
+    tick_rx: TickIngressReceiver,
+    tick_tx: TickIngressSender,
+    config: EngineConfig,
+    shutdown_rx: oneshot::Receiver<()>,
+) {
+    run_engine_loop_with_transports_and_trace_stamped(
+        shell,
+        tick_rx,
+        tick_tx,
+        config,
+        TraceHooks::noop(),
+        shutdown_rx,
+        TransportTable::new(),
+    )
+    .await;
+}
+
 /// 带 transport 路由表的事件泵入口（A1）。
 ///
 /// 与 [`run_engine_loop`] 唯一区别：`transports` 把 `TransportId → NativeTransport`
@@ -198,6 +219,43 @@ pub async fn run_engine_loop_with_transports_and_trace(
         tasks,
     } = start_native_reconnect(&transports);
     engine::run_engine_loop(
+        shell,
+        tick_rx,
+        tick_tx,
+        config.into_deps(trace, lifecycle_tx, trace_sink),
+        shutdown_rx,
+        transports,
+        transport_rx,
+    )
+    .await;
+    if let Some(stats) = trace_stats {
+        let dropped = stats.dropped_count();
+        if dropped > 0 {
+            tracing::warn!(dropped, "native transport trace 有界队列发生丢弃");
+        }
+    }
+    for task in tasks {
+        task.abort();
+    }
+}
+
+pub async fn run_engine_loop_with_transports_and_trace_stamped(
+    shell: ExecutionShell,
+    tick_rx: TickIngressReceiver,
+    tick_tx: TickIngressSender,
+    config: EngineConfig,
+    trace: TraceHooks,
+    shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable,
+) {
+    let NativeReconnectRuntime {
+        transport_rx,
+        lifecycle_tx,
+        trace_sink,
+        trace_stats,
+        tasks,
+    } = start_native_reconnect(&transports);
+    engine::run_engine_loop_stamped(
         shell,
         tick_rx,
         tick_tx,

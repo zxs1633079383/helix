@@ -2,7 +2,21 @@ use bytes::Bytes;
 use helix_core::effect::HttpRequest;
 use helix_core::ports::Transport;
 use helix_core::PortError;
-use helix_driver_host::{HostHeaderRegistry, HostNetworkConfig, SharedHttpClient, SharedWsClient};
+use helix_driver_host::{
+    AsyncMetricSink, HostHeaderRegistry, HostNetworkConfig, LabelKey, MetricEvent, MetricId,
+    RecordOutcome, SharedHttpClient, SharedWsClient,
+};
+use std::sync::{Arc, Mutex};
+
+#[derive(Default)]
+struct RecordingMetricSink(Arc<Mutex<Vec<MetricEvent>>>);
+
+impl AsyncMetricSink for RecordingMetricSink {
+    fn try_record(&self, event: MetricEvent) -> RecordOutcome {
+        self.0.lock().unwrap().push(event);
+        RecordOutcome::Accepted
+    }
+}
 
 #[tokio::test]
 async fn header_registry_updates_and_removes_headers() {
@@ -74,9 +88,23 @@ async fn shared_http_resolves_relative_urls_and_keeps_request_headers_explicit()
 #[tokio::test]
 async fn shared_ws_send_before_connect_reports_transport_error() {
     let config = HostNetworkConfig::new("https://api.example.test", "wss://ws.example.test/socket");
-    let mut ws = SharedWsClient::new(config).unwrap();
+    let metrics = RecordingMetricSink::default();
+    let recorded = Arc::clone(&metrics.0);
+    let ws = SharedWsClient::new(config)
+        .unwrap()
+        .with_metric_sink(Arc::new(metrics));
 
     let result = ws.send(Bytes::from_static(b"hello")).await;
 
     assert!(matches!(result, Err(PortError::Transport(_))));
+    let events = recorded.lock().unwrap();
+    let operations: Vec<_> = events
+        .iter()
+        .filter(|event| event.id == MetricId::OperationsTotal)
+        .collect();
+    assert_eq!(operations.len(), 1, "WS 完成边界只能记一次 operation");
+    assert!(operations[0]
+        .labels
+        .iter()
+        .any(|label| label.key == LabelKey::Status && label.value == "error"));
 }

@@ -1,10 +1,10 @@
-use helix_core::tick::Tick;
 use helix_driver_host::{
-    AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime, CommandTraceQueue,
-    HostHeaderRegistry, HostNetworkConfig, MetricRuntimeConfig, NoopMetricSink,
+    tick_ingress_channel, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
+    CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, MetricRuntimeConfig, NoopMetricSink,
+    TickIngressSender,
 };
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 use crate::pump::{self, PumpArgs, QueryDeps};
 use crate::vtable::CppHostVtable;
@@ -33,7 +33,7 @@ pub struct HelixHandle {
     /// 非阻塞指标入口；disabled 时为真 Noop，不创建 worker、不读时钟。
     pub(crate) metrics: Arc<dyn AsyncMetricSink>,
     /// tick channel 发送端。Sender 非 Sync，用 Mutex 包住允许 &self 送 tick。
-    pub(crate) tick_tx: parking_lot::Mutex<Option<mpsc::Sender<Tick>>>,
+    pub(crate) tick_tx: parking_lot::Mutex<Option<TickIngressSender>>,
     /// graceful drain 信号端；destroy 取出 send(()) 一次（与 tick_tx drop 双触发，任一即 drain）。
     pub(crate) shutdown_tx: parking_lot::Mutex<Option<oneshot::Sender<()>>>,
     /// pump 线程句柄；destroy 取出 join，确保 on_domain_events_batch 回调在 ctx 释放前全部完成。
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn helix_create_with_network(
         .unwrap_or_else(|| Arc::new(NoopMetricSink));
 
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel(256);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     // 装配回传通道（同步 rendezvous，容量 1）：pump 线程开 storage / 建 ports 后回传 QueryDeps。
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Option<QueryDeps>>(1);

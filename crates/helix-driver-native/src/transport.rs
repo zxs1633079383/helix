@@ -18,8 +18,31 @@ use helix_core::PortError;
 use helix_core::Tick;
 use helix_driver_host::{
     AsyncMetricSink, HostHeaderRegistry, HostNetworkConfig, NoopMetricSink, SharedWsClient,
+    TickIngressSender,
 };
 use tokio::sync::mpsc;
+
+#[derive(Clone)]
+enum NativeTickSender {
+    Raw(mpsc::Sender<Tick>),
+    Stamped(TickIngressSender),
+}
+
+impl NativeTickSender {
+    async fn send(&self, tick: Tick) -> Result<(), Tick> {
+        match self {
+            Self::Raw(tx) => tx.send(tick).await.map_err(|error| error.0),
+            Self::Stamped(tx) => tx.send(tick).await,
+        }
+    }
+
+    fn attach(&self, client: SharedWsClient, id: TransportId) -> SharedWsClient {
+        match self {
+            Self::Raw(tx) => client.with_inbound_tick(id, tx.clone()),
+            Self::Stamped(tx) => client.with_stamped_inbound_tick(id, tx.clone()),
+        }
+    }
+}
 
 /// PC/Tauri transport wrapper.
 ///
@@ -29,7 +52,7 @@ pub struct NativeTransport {
     id: TransportId,
     inner: Option<SharedWsClient>,
     init_error: Option<String>,
-    tick_tx: Option<mpsc::Sender<Tick>>,
+    tick_tx: Option<NativeTickSender>,
     /// 连接生命周期标记（内部可变）。
     ///
     /// send/recv/close 已收紧为 `&self`（Transport port，消除外层锁跨 await）；recv/close 路径仍需
@@ -50,7 +73,7 @@ pub(crate) struct NativeReconnectFactory {
     config: HostNetworkConfig,
     headers: HostHeaderRegistry,
     id: TransportId,
-    tick_tx: Option<mpsc::Sender<Tick>>,
+    tick_tx: Option<NativeTickSender>,
     metrics: Arc<dyn AsyncMetricSink>,
 }
 
@@ -59,7 +82,7 @@ impl NativeReconnectFactory {
         let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?
             .with_metric_sink(Arc::clone(&self.metrics));
         if let Some(tx) = &self.tick_tx {
-            inner = inner.with_inbound_tick(self.id, tx.clone());
+            inner = tx.attach(inner, self.id);
         }
         Ok(NativeTransport::from_shared_parts(
             inner,
@@ -92,6 +115,27 @@ impl NativeTransport {
         }
     }
 
+    pub fn new_stamped(
+        url: impl Into<String>,
+        id: TransportId,
+        tick_tx: Option<TickIngressSender>,
+    ) -> Self {
+        let config = HostNetworkConfig::new("", url.into());
+        match Self::with_config_parts(config, id, tick_tx.map(NativeTickSender::Stamped)) {
+            Ok(transport) => transport,
+            Err(e) => Self {
+                id,
+                inner: None,
+                init_error: Some(e.to_string()),
+                tick_tx: None,
+                connected: AtomicBool::new(false),
+                disconnected_emitted: AtomicBool::new(false),
+                handshake_headers: Vec::new(),
+                reconnect: None,
+            },
+        }
+    }
+
     /// 注入 WS upgrade 握手头（builder）。现网 Go：`cookieId=userId`（+ 可选 companyId 等）。
     /// 头在 `connect` 前灌进 `SharedWsClient` 的共享 header registry，随 upgrade 请求带出。
     pub fn with_handshake_headers(mut self, headers: Vec<(String, String)>) -> Self {
@@ -104,12 +148,20 @@ impl NativeTransport {
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Result<Self, PortError> {
+        Self::with_config_parts(config, id, tick_tx.map(NativeTickSender::Raw))
+    }
+
+    fn with_config_parts(
+        config: HostNetworkConfig,
+        id: TransportId,
+        tick_tx: Option<NativeTickSender>,
+    ) -> Result<Self, PortError> {
         let headers = HostHeaderRegistry::default();
         let mut inner = SharedWsClient::with_registry(config.clone(), headers.clone())?;
         // A2：tick_tx=Some（生产 native 路径）→ 共享读任务作 Tick::Inbound 直发泵；
         // tick_tx=None（单测手动驱动）→ 不注入，读任务回退 frame_rx，由 recv() 拉取。
         if let Some(tx) = &tick_tx {
-            inner = inner.with_inbound_tick(id, tx.clone());
+            inner = tx.attach(inner, id);
         }
         let reconnect = NativeReconnectFactory {
             config,
@@ -126,7 +178,7 @@ impl NativeTransport {
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Self {
-        Self::from_shared_parts(inner, id, tick_tx, None)
+        Self::from_shared_parts(inner, id, tick_tx.map(NativeTickSender::Raw), None)
     }
 
     pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
@@ -142,7 +194,7 @@ impl NativeTransport {
     fn from_shared_parts(
         inner: SharedWsClient,
         id: TransportId,
-        tick_tx: Option<mpsc::Sender<Tick>>,
+        tick_tx: Option<NativeTickSender>,
         reconnect: Option<NativeReconnectFactory>,
     ) -> Self {
         Self {
@@ -253,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_on_disconnected_returns_err() {
         let (tx, _rx) = mpsc::channel(8);
-        let mut transport =
+        let transport =
             NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(1), Some(tx));
 
         let result = transport.send(Bytes::from_static(b"hello")).await;
@@ -263,7 +315,7 @@ mod tests {
     #[tokio::test]
     async fn test_recv_on_disconnected_returns_none() {
         let (tx, _rx) = mpsc::channel(8);
-        let mut transport =
+        let transport =
             NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(2), Some(tx));
 
         let result = transport.recv().await.expect("recv should not error");
@@ -273,7 +325,7 @@ mod tests {
     #[tokio::test]
     async fn test_close_on_disconnected_is_ok() {
         let (tx, _rx) = mpsc::channel(8);
-        let mut transport =
+        let transport =
             NativeTransport::new("ws://127.0.0.1:0/never", TransportId::from_raw(3), Some(tx));
         transport.close().await.ok();
     }

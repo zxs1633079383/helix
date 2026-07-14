@@ -261,6 +261,11 @@ impl HostStorage {
             started.elapsed().as_secs_f64(),
             labels,
         ));
+        let _ = self.metrics.try_record(MetricEvent::counter(
+            MetricId::OperationsTotal,
+            1.0,
+            labels.with(LabelKey::Operation, operation),
+        ));
         if result.is_ok() {
             let _ = self.metrics.try_record(MetricEvent::counter(
                 MetricId::StorageRowsTotal,

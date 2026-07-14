@@ -82,7 +82,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (operation, status) (rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"http\"}[$rate_window]))",
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"http\",status=\"ok\"}[$rate_window]))",
           "legendFormat": "{{operation}} / {{status}}"
         }
       ]
@@ -134,8 +134,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (direction, operation, status) (rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"ws\"}[$rate_window]))",
-          "legendFormat": "{{direction}} / {{operation}} / {{status}}"
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"ws\",status=\"ok\"}[$rate_window]))",
+          "legendFormat": "{{operation}} / {{status}}"
         }
       ]
     },
@@ -186,8 +186,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (storage_op, status) (rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"storage\"}[$rate_window]))",
-          "legendFormat": "{{storage_op}} / {{status}}"
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"storage\",status=\"ok\"}[$rate_window]))",
+          "legendFormat": "{{operation}} / {{status}}"
         }
       ]
     },
@@ -238,7 +238,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (operation, status) (rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"event\"}[$rate_window]))",
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"event\",status=\"ok\"}[$rate_window]))",
           "legendFormat": "{{operation}} / {{status}}"
         }
       ]
@@ -290,7 +290,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (stage, operation, error_kind) (increase(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "expr": "sum by (stage, operation, error_kind) (last_over_time(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
           "legendFormat": "{{stage}} / {{operation}} / {{error_kind}}"
         }
       ]
@@ -342,8 +342,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (stage, operation, error_kind) (rate(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
-          "legendFormat": "{{stage}} / {{operation}} / {{error_kind}}"
+          "expr": "sum(last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"core\",status=\"error\"}[$rate_window]))",
+          "legendFormat": "ERROR_RATE"
         }
       ]
     },
@@ -394,7 +394,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",status=\"error\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"core\",status=\"error\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"core\"}[$rate_window])), 0.000001)",
           "legendFormat": "ERROR_RATIO"
         }
       ]
@@ -453,6 +453,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -513,6 +518,11 @@
         },
         {
           "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "D",
           "expr": "sum(rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",status=\"error\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "ERROR_RATIO"
         }
@@ -578,27 +588,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_core_step_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_core_step_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_core_step_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_core_step_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -650,27 +660,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_effects_per_tick_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_effects_per_tick_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_effects_per_tick_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_effects_per_tick_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -722,27 +732,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_effect_bytes_per_tick_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_effect_bytes_per_tick_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_effect_bytes_per_tick_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_effect_bytes_per_tick_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -794,27 +804,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_effect_amplification_ratio_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_effect_amplification_ratio_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_effect_amplification_ratio_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_effect_amplification_ratio_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -879,27 +889,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_tick_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_tick_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_tick_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_tick_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1075,27 +1085,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_persist_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_persist_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_persist_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_persist_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1160,27 +1170,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_http_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_http_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_http_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_http_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1232,27 +1242,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_http_request_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_http_request_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_http_request_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_http_request_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1379,27 +1389,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_storage_tx_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_storage_tx_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_storage_tx_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_storage_tx_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1458,6 +1468,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_storage_rows_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_storage_rows_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -1508,27 +1523,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_port_roundtrip_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_port_roundtrip_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_port_roundtrip_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_port_roundtrip_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1593,27 +1608,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_ws_ingress_to_effect_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_ws_ingress_to_effect_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_ws_ingress_to_effect_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ws_ingress_to_effect_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1665,27 +1680,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_ws_ingress_to_event_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_ws_ingress_to_event_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_ws_ingress_to_event_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ws_ingress_to_event_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1750,27 +1765,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_command_to_projection_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_command_to_projection_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_command_to_projection_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_command_to_projection_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -1829,6 +1844,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_event_lagged_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_event_lagged_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -1886,6 +1906,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_event_no_receiver_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_event_no_receiver_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -1936,27 +1961,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_event_batch_size_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_event_batch_size_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_event_batch_size_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_event_batch_size_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2021,27 +2046,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_ffi_batch_events_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_ffi_batch_events_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_ffi_batch_events_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ffi_batch_events_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2093,27 +2118,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_ffi_batch_bytes_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_ffi_batch_bytes_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_ffi_batch_bytes_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ffi_batch_bytes_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2165,27 +2190,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_ffi_callback_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_ffi_callback_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_ffi_callback_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ffi_callback_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2244,6 +2269,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_ffi_busy_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_ffi_busy_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -2307,27 +2337,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_alloc_count_per_op_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_alloc_count_per_op_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_alloc_count_per_op_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_alloc_count_per_op_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2379,27 +2409,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_alloc_bytes_per_op_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_alloc_bytes_per_op_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_alloc_bytes_per_op_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_alloc_bytes_per_op_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2513,27 +2543,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_shutdown_drain_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_shutdown_drain_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_shutdown_drain_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_shutdown_drain_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2729,6 +2759,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_metrics_dropped_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_metrics_dropped_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -2779,27 +2814,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_metrics_export_batch_size_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_metrics_export_batch_size_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_metrics_export_batch_size_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_metrics_export_batch_size_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2851,27 +2886,27 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P90"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P95"
         },
         {
           "refId": "D",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
           "legendFormat": "P99"
         },
         {
           "refId": "E",
-          "expr": "sum(rate(otel_helix_metrics_export_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_metrics_export_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "expr": "sum(last_over_time(otel_helix_metrics_export_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_metrics_export_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
           "legendFormat": "AVG"
         }
       ]
@@ -2930,6 +2965,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_metrics_export_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_metrics_export_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3137,6 +3177,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_lost_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_lost_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3207,6 +3252,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_duplicate_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_duplicate_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3277,6 +3327,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_order_violation_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_order_violation_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3347,6 +3402,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_wrong_channel_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_wrong_channel_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3417,6 +3477,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_cursor_regression_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_cursor_regression_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3487,6 +3552,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_projection_mismatch_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_projection_mismatch_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3557,6 +3627,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_persist_remaining_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_persist_remaining_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },
@@ -3627,6 +3702,11 @@
           "refId": "B",
           "expr": "sum by (stage, operation, status) (increase(otel_helix_cleanup_residue_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
           "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_cleanup_residue_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
         }
       ]
     },

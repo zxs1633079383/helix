@@ -55,14 +55,15 @@ for (const metric of contract.requiredMetrics) {
 }
 
 for (const metric of contract.correctnessMetrics) check(metricTargets(metric).length > 0, `正确性指标 ${metric} 未覆盖`);
+for (const metric of contract.supportMetrics) check(metricTargets(metric).length > 0, `辅助指标 ${metric} 未覆盖`);
 check(metricTargets(contract.canaryMetric).length > 0, "canary 指标未覆盖");
-check(expressions.some((expr) => expr.includes('stage="http"') && expr.includes("rate(")), "缺少 HTTP RPS");
-check(expressions.some((expr) => expr.includes('stage="ws"') && expr.includes("direction")), "缺少 WS inbound/outbound RPS");
-check(expressions.some((expr) => expr.includes('stage="storage"') && expr.includes("rate(")), "缺少 Storage QPS");
-check(expressions.some((expr) => expr.includes('stage="event"') && expr.includes("rate(")), "缺少 Event RPS");
+check(expressions.some((expr) => expr.includes('stage="http"') && expr.includes("helix_run_throughput_per_second")), "缺少 HTTP RPS");
+check(expressions.some((expr) => expr.includes('stage="ws"') && expr.includes("helix_run_throughput_per_second")), "缺少 WS inbound/outbound RPS");
+check(expressions.some((expr) => expr.includes('stage="storage"') && expr.includes("helix_run_throughput_per_second")), "缺少 Storage QPS");
+check(expressions.some((expr) => expr.includes('stage="event"') && expr.includes("helix_run_throughput_per_second")), "缺少 Event RPS");
 check(expressions.some((expr) => expr.includes("status=\"error\"") && expr.includes("clamp_min")), "缺少错误率");
-check(expressions.some((expr) => expr.includes("otel_helix_errors_total") && expr.includes("increase(")), "缺少错误总数");
-check(expressions.some((expr) => expr.includes("otel_helix_errors_total") && expr.includes("rate(")), "缺少错误速率");
+check(expressions.some((expr) => expr.includes("otel_helix_errors_total") && expr.includes("last_over_time(")), "缺少突发压测错误总数");
+check(expressions.some((expr) => expr.includes("helix_run_throughput_per_second") && expr.includes('status="error"')), "缺少突发压测错误速率");
 for (const panel of panels) check(panel.datasource?.uid === contract.datasourceUid, `面板 ${panel.title} datasource UID 错误`);
 
 const queryDigest = crypto.createHash("sha256").update([...expressions].sort().join("\n")).digest("hex");

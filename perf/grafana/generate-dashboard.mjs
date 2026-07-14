@@ -74,13 +74,13 @@ function basePanel(title, type = "timeseries") {
 function histogramPanel(metric, title) {
   const p = basePanel(title);
   const metricName = promName(metric);
-  const grouped = `sum by (le) (rate(${metricName}_bucket{${selector}}[$rate_window]))`;
+  const grouped = `sum by (le) (last_over_time(${metricName}_bucket{${selector}}[$rate_window]))`;
   p.targets = [
     ["P50", "0.50"], ["P90", "0.90"], ["P95", "0.95"], ["P99", "0.99"]
   ].map(([legend, q], index) => ({ refId: String.fromCharCode(65 + index), expr: `histogram_quantile(${q}, ${grouped})`, legendFormat: legend }));
   p.targets.push({
     refId: "E",
-    expr: `sum(rate(${metricName}_sum{${selector}}[$rate_window])) / clamp_min(sum(rate(${metricName}_count{${selector}}[$rate_window])), 0.000001)`,
+    expr: `sum(last_over_time(${metricName}_sum{${selector}}[$rate_window])) / clamp_min(sum(last_over_time(${metricName}_count{${selector}}[$rate_window])), 0.000001)`,
     legendFormat: "AVG"
   });
   if (metric.endsWith("_seconds")) p.fieldConfig.defaults.unit = "s";
@@ -94,11 +94,12 @@ function counterPanel(metric, title) {
   const metricName = promName(metric);
   p.targets = [
     { refId: "A", expr: `sum by (stage, operation, status) (rate(${metricName}{${selector}}[$rate_window]))`, legendFormat: "RATE {{stage}} / {{operation}} / {{status}}" },
-    { refId: "B", expr: `sum by (stage, operation, status) (increase(${metricName}{${selector}}[$__range]))`, legendFormat: "INCREASE {{stage}} / {{operation}} / {{status}}" }
+    { refId: "B", expr: `sum by (stage, operation, status) (increase(${metricName}{${selector}}[$__range]))`, legendFormat: "INCREASE {{stage}} / {{operation}} / {{status}}" },
+    { refId: "C", expr: `sum by (stage, operation, status) (last_over_time(${metricName}{${selector}}[$rate_window]))`, legendFormat: "TOTAL {{stage}} / {{operation}} / {{status}}" }
   ];
   if (metric === "helix_errors_total") {
     p.targets.push({
-      refId: "C",
+      refId: "D",
       expr: `sum(rate(otel_helix_operations_total{${selector},status="error"}[$rate_window])) / clamp_min(sum(rate(otel_helix_operations_total{${selector}}[$rate_window])), 0.000001)`,
       legendFormat: "ERROR_RATIO"
     });
@@ -132,13 +133,14 @@ function overviewPanel(title, expr, legend, unit = "ops") {
 
 const panels = [];
 panels.push(row("00 总览"));
-panels.push(overviewPanel("HTTP RPS", `sum by (operation, status) (rate(otel_helix_operations_total{${selector},stage="http"}[$rate_window]))`, "{{operation}} / {{status}}"));
-panels.push(overviewPanel("WebSocket 入站/出站 RPS", `sum by (direction, operation, status) (rate(otel_helix_operations_total{${selector},stage="ws"}[$rate_window]))`, "{{direction}} / {{operation}} / {{status}}"));
-panels.push(overviewPanel("Storage QPS", `sum by (storage_op, status) (rate(otel_helix_operations_total{${selector},stage="storage"}[$rate_window]))`, "{{storage_op}} / {{status}}"));
-panels.push(overviewPanel("Event RPS", `sum by (operation, status) (rate(otel_helix_operations_total{${selector},stage="event"}[$rate_window]))`, "{{operation}} / {{status}}"));
-panels.push(overviewPanel("错误总数", `sum by (stage, operation, error_kind) (increase(otel_helix_errors_total{${selector}}[$__range]))`, "{{stage}} / {{operation}} / {{error_kind}}", "short"));
-panels.push(overviewPanel("错误速率", `sum by (stage, operation, error_kind) (rate(otel_helix_errors_total{${selector}}[$rate_window]))`, "{{stage}} / {{operation}} / {{error_kind}}"));
-panels.push(overviewPanel("错误率", `sum(rate(otel_helix_operations_total{${selector},status="error"}[$rate_window])) / clamp_min(sum(rate(otel_helix_operations_total{${selector}}[$rate_window])), 0.000001)`, "ERROR_RATIO", "percentunit"));
+const throughput = "otel_helix_run_throughput_per_second";
+panels.push(overviewPanel("HTTP RPS", `max by (operation, status) (last_over_time(${throughput}{${selector},stage="http",status="ok"}[$rate_window]))`, "{{operation}} / {{status}}"));
+panels.push(overviewPanel("WebSocket 入站/出站 RPS", `max by (operation, status) (last_over_time(${throughput}{${selector},stage="ws",status="ok"}[$rate_window]))`, "{{operation}} / {{status}}"));
+panels.push(overviewPanel("Storage QPS", `max by (operation, status) (last_over_time(${throughput}{${selector},stage="storage",status="ok"}[$rate_window]))`, "{{operation}} / {{status}}"));
+panels.push(overviewPanel("Event RPS", `max by (operation, status) (last_over_time(${throughput}{${selector},stage="event",status="ok"}[$rate_window]))`, "{{operation}} / {{status}}"));
+panels.push(overviewPanel("错误总数", `sum by (stage, operation, error_kind) (last_over_time(otel_helix_errors_total{${selector}}[$rate_window]))`, "{{stage}} / {{operation}} / {{error_kind}}", "short"));
+panels.push(overviewPanel("错误速率", `sum(last_over_time(${throughput}{${selector},stage="core",status="error"}[$rate_window]))`, "ERROR_RATE"));
+panels.push(overviewPanel("错误率", `sum(last_over_time(${throughput}{${selector},stage="core",status="error"}[$rate_window])) / clamp_min(sum(last_over_time(${throughput}{${selector},stage="core"}[$rate_window])), 0.000001)`, "ERROR_RATIO", "percentunit"));
 
 for (const rowName of [...new Set(contract.requiredMetrics.map((m) => m.row))]) {
   if (rowName !== "00 总览") panels.push(row(rowName));

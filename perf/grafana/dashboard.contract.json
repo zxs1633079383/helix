@@ -63,6 +63,9 @@
     "helix_persist_remaining_total",
     "helix_cleanup_residue_total"
   ],
+  "supportMetrics": [
+    "helix_run_throughput_per_second"
+  ],
   "canaryMetric": "helix_telemetry_canary_total",
   "histogramStatistics": ["P50", "P90", "P95", "P99", "AVG"],
   "counterStatistics": ["RATE", "INCREASE"],

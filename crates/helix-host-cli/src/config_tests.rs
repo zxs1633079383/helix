@@ -134,6 +134,25 @@ fn default_observability_does_not_install_otel() {
     let c = Config::from_yaml_str("{}").expect("parse ok");
     let hooks = TraceHooks::noop().with_otel(c.observability.otel_runtime());
     assert!(!hooks.is_otel_enabled());
+    assert!(!c.observability.metrics_config().enabled);
+}
+
+#[test]
+fn parses_metrics_runtime_config_for_native_composition() {
+    let c = Config::from_yaml_str(
+        "observability:\n  metrics:\n    enabled: true\n    serviceName: native-test\n    endpoint: http://127.0.0.1:4317\n    deploymentEnvironment: pre\n    platform: native\n    scenario: l2_mixed\n    channelShape: parallel-50\n    profile: steady\n    queueCapacity: 4096\n    batchMax: 256\n    exportIntervalMs: 1000\n    exportTimeoutMs: 750\n    shutdownTimeoutMs: 3000\n",
+    )
+    .expect("metrics config parses");
+    let metrics = c.observability.metrics_config();
+    assert!(metrics.enabled);
+    assert_eq!(metrics.service_name, "native-test");
+    assert_eq!(metrics.deployment_environment, "pre");
+    assert_eq!(metrics.platform, "native");
+    assert_eq!(metrics.scenario, "l2_mixed");
+    assert_eq!(metrics.channel_shape, "parallel-50");
+    assert_eq!(metrics.queue_capacity, 4096);
+    assert_eq!(metrics.batch_max, 256);
+    assert_eq!(c.observability.metrics.shutdown_timeout_ms, 3000);
 }
 
 #[test]

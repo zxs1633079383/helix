@@ -96,7 +96,7 @@ async fn export_batch<E: BatchMetricExporter>(
         stats.circuit_dropped.fetch_add(dropped, Ordering::Relaxed);
         stats
             .state
-            .store(MetricExporterState::Backoff as u64, Ordering::Relaxed);
+            .store(MetricExporterState::Open as u64, Ordering::Relaxed);
         batch.clear();
         return;
     }
@@ -149,10 +149,12 @@ async fn export_batch<E: BatchMetricExporter>(
             .store(MetricExporterState::Running as u64, Ordering::Relaxed);
     } else {
         stats.errors.fetch_add(1, Ordering::Relaxed);
-        circuit.on_failure(config);
-        stats
-            .state
-            .store(MetricExporterState::Backoff as u64, Ordering::Relaxed);
+        let state = if circuit.on_failure(config) {
+            MetricExporterState::Open
+        } else {
+            MetricExporterState::Backoff
+        };
+        stats.state.store(state as u64, Ordering::Relaxed);
     }
     batch.clear();
 }
@@ -187,11 +189,14 @@ impl ExportCircuit {
         self.open_until = None;
     }
 
-    fn on_failure(&mut self, config: &MetricRuntimeConfig) {
+    fn on_failure(&mut self, config: &MetricRuntimeConfig) -> bool {
         self.consecutive_failures = self.consecutive_failures.saturating_add(1);
         if self.consecutive_failures >= config.circuit_failure_threshold.max(1) {
             self.open_until = Some(std::time::Instant::now() + config.circuit_open_duration);
             self.consecutive_failures = 0;
+            true
+        } else {
+            false
         }
     }
 }
@@ -202,7 +207,7 @@ fn append_self_metrics(
     cursor: &SelfMetricCursor,
 ) -> SelfMetricCursor {
     let snapshot = stats.snapshot();
-    let labels = MetricLabels::one(LabelKey::Stage, "metrics_export");
+    let labels = MetricLabels::one(LabelKey::Stage, "telemetry");
     let batch_size = batch.len() as f64;
     let dropped_delta = snapshot.dropped_total.saturating_sub(cursor.dropped);
     let circuit_dropped = stats.circuit_dropped.load(Ordering::Relaxed);

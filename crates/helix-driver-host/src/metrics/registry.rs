@@ -56,14 +56,14 @@ metric_registry! {
     ErrorsTotal => ("helix_errors_total", Counter, "errors"),
     CoreStepDurationSeconds => ("helix_core_step_duration_seconds", Histogram, "s"),
     TickQueueWaitSeconds => ("helix_tick_queue_wait_seconds", Histogram, "s"),
-    TickQueueDepth => ("helix_tick_queue_depth", Gauge, "count"),
-    TickQueueCapacity => ("helix_tick_queue_capacity", Gauge, "count"),
-    EffectsPerTick => ("helix_effects_per_tick", Histogram, "count"),
+    TickQueueDepth => ("helix_tick_queue_depth", Gauge, ""),
+    TickQueueCapacity => ("helix_tick_queue_capacity", Gauge, ""),
+    EffectsPerTick => ("helix_effects_per_tick", Histogram, "1"),
     EffectBytesPerTick => ("helix_effect_bytes_per_tick", Histogram, "bytes"),
     EffectAmplificationRatio => ("helix_effect_amplification_ratio", Histogram, "ratio"),
     HttpQueueWaitSeconds => ("helix_http_queue_wait_seconds", Histogram, "s"),
     HttpRequestDurationSeconds => ("helix_http_request_duration_seconds", Histogram, "s"),
-    HttpInflight => ("helix_http_inflight", Gauge, "count"),
+    HttpInflight => ("helix_http_inflight", Gauge, ""),
     PersistQueueWaitSeconds => ("helix_persist_queue_wait_seconds", Histogram, "s"),
     StorageTxDurationSeconds => ("helix_storage_tx_duration_seconds", Histogram, "s"),
     StorageRowsTotal => ("helix_storage_rows_total", Counter, "rows"),
@@ -71,34 +71,34 @@ metric_registry! {
     WsIngressToEffectSeconds => ("helix_ws_ingress_to_effect_seconds", Histogram, "s"),
     WsIngressToEventSeconds => ("helix_ws_ingress_to_event_seconds", Histogram, "s"),
     CommandToProjectionSeconds => ("helix_command_to_projection_seconds", Histogram, "s"),
-    EventLaggedTotal => ("helix_event_lagged_total", Counter, "count"),
-    EventNoReceiverTotal => ("helix_event_no_receiver_total", Counter, "count"),
-    EventBatchSize => ("helix_event_batch_size", Histogram, "count"),
-    FfiBatchEvents => ("helix_ffi_batch_events", Histogram, "count"),
+    EventLaggedTotal => ("helix_event_lagged_total", Counter, "1"),
+    EventNoReceiverTotal => ("helix_event_no_receiver_total", Counter, "1"),
+    EventBatchSize => ("helix_event_batch_size", Histogram, "1"),
+    FfiBatchEvents => ("helix_ffi_batch_events", Histogram, "1"),
     FfiBatchBytes => ("helix_ffi_batch_bytes", Histogram, "bytes"),
     FfiCallbackDurationSeconds => ("helix_ffi_callback_duration_seconds", Histogram, "s"),
-    FfiBusyTotal => ("helix_ffi_busy_total", Counter, "count"),
-    AllocCountPerOp => ("helix_alloc_count_per_op", Histogram, "count"),
+    FfiBusyTotal => ("helix_ffi_busy_total", Counter, "1"),
+    AllocCountPerOp => ("helix_alloc_count_per_op", Histogram, "1"),
     AllocBytesPerOp => ("helix_alloc_bytes_per_op", Histogram, "bytes"),
     ProcessResidentMemoryBytes => ("helix_process_resident_memory_bytes", Gauge, "bytes"),
     ShutdownDrainSeconds => ("helix_shutdown_drain_seconds", Histogram, "s"),
-    MetricsQueueDepth => ("helix_metrics_queue_depth", Gauge, "count"),
-    MetricsQueueCapacity => ("helix_metrics_queue_capacity", Gauge, "count"),
-    MetricsDroppedTotal => ("helix_metrics_dropped_total", Counter, "count"),
-    MetricsExportBatchSize => ("helix_metrics_export_batch_size", Histogram, "count"),
+    MetricsQueueDepth => ("helix_metrics_queue_depth", Gauge, ""),
+    MetricsQueueCapacity => ("helix_metrics_queue_capacity", Gauge, ""),
+    MetricsDroppedTotal => ("helix_metrics_dropped_total", Counter, "1"),
+    MetricsExportBatchSize => ("helix_metrics_export_batch_size", Histogram, "1"),
     MetricsExportDurationSeconds => ("helix_metrics_export_duration_seconds", Histogram, "s"),
-    MetricsExportErrorsTotal => ("helix_metrics_export_errors_total", Counter, "count"),
+    MetricsExportErrorsTotal => ("helix_metrics_export_errors_total", Counter, "1"),
     MetricsExporterState => ("helix_metrics_exporter_state", Gauge, "state"),
     MetricsLastSuccessAgeSeconds => ("helix_metrics_last_success_age_seconds", Gauge, "s"),
-    LostTotal => ("helix_lost_total", Counter, "count"),
-    DuplicateTotal => ("helix_duplicate_total", Counter, "count"),
-    OrderViolationTotal => ("helix_order_violation_total", Counter, "count"),
-    WrongChannelTotal => ("helix_wrong_channel_total", Counter, "count"),
-    CursorRegressionTotal => ("helix_cursor_regression_total", Counter, "count"),
-    ProjectionMismatchTotal => ("helix_projection_mismatch_total", Counter, "count"),
-    PersistRemainingTotal => ("helix_persist_remaining_total", Counter, "count"),
-    CleanupResidueTotal => ("helix_cleanup_residue_total", Counter, "count"),
-    TelemetryCanaryTotal => ("helix_telemetry_canary_total", Counter, "count"),
+    LostTotal => ("helix_lost_total", Counter, "1"),
+    DuplicateTotal => ("helix_duplicate_total", Counter, "1"),
+    OrderViolationTotal => ("helix_order_violation_total", Counter, "1"),
+    WrongChannelTotal => ("helix_wrong_channel_total", Counter, "1"),
+    CursorRegressionTotal => ("helix_cursor_regression_total", Counter, "1"),
+    ProjectionMismatchTotal => ("helix_projection_mismatch_total", Counter, "1"),
+    PersistRemainingTotal => ("helix_persist_remaining_total", Counter, "1"),
+    CleanupResidueTotal => ("helix_cleanup_residue_total", Counter, "1"),
+    TelemetryCanaryTotal => ("helix_telemetry_canary_total", Counter, "1"),
 }
 
 pub const REQUIRED_METRIC_IDS: &[MetricId] = &[
@@ -209,5 +209,26 @@ mod tests {
         assert!(CANARY_METRIC_IDS
             .iter()
             .all(|id| id.availability() == MetricAvailability::Runtime));
+    }
+
+    #[test]
+    fn dimensionless_metrics_use_ucum_one_without_prometheus_name_suffix() {
+        for id in ALL_METRIC_IDS {
+            assert_ne!(
+                id.descriptor().unit,
+                "count",
+                "{} must use UCUM 1 instead of count",
+                id.descriptor().name
+            );
+        }
+        for id in [
+            MetricId::TickQueueDepth,
+            MetricId::TickQueueCapacity,
+            MetricId::HttpInflight,
+            MetricId::MetricsQueueDepth,
+            MetricId::MetricsQueueCapacity,
+        ] {
+            assert_eq!(id.descriptor().unit, "");
+        }
     }
 }

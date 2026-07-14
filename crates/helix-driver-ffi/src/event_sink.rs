@@ -98,7 +98,7 @@ impl BatchSink for FfiEventSink {
             cb(self.vtable.ctx, scratch.as_ptr(), scratch.len());
         }
         if let Some(started) = callback_started {
-            let labels = MetricLabels::one(LabelKey::Stage, "ffi_event_callback");
+            let labels = MetricLabels::one(LabelKey::Stage, "ffi");
             let _ = self.metrics.try_record(MetricEvent::histogram(
                 MetricId::FfiBatchEvents,
                 events.len() as f64,
@@ -113,6 +113,13 @@ impl BatchSink for FfiEventSink {
                 MetricId::FfiCallbackDurationSeconds,
                 started.elapsed().as_secs_f64(),
                 labels,
+            ));
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::OperationsTotal,
+                events.len() as f64,
+                labels
+                    .with(LabelKey::Operation, "callback")
+                    .with(LabelKey::Status, "ok"),
             ));
         }
         // scratch 保留容量供下个 step 复用（lock 在此释放；buffer 不 drop）。
@@ -158,10 +165,12 @@ mod tests {
 
         assert!(captured.load(Ordering::Relaxed) > 0);
         let events = metrics.0.lock();
-        assert_eq!(events.len(), 3);
+        assert_eq!(events.len(), 4);
         assert_eq!(events[0].id, MetricId::FfiBatchEvents);
         assert_eq!(events[0].value, 2.0);
         assert_eq!(events[1].id, MetricId::FfiBatchBytes);
         assert_eq!(events[2].id, MetricId::FfiCallbackDurationSeconds);
+        assert_eq!(events[3].id, MetricId::OperationsTotal);
+        assert_eq!(events[3].value, 2.0);
     }
 }

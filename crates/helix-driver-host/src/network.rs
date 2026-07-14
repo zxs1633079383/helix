@@ -151,7 +151,7 @@ impl Transport for SharedWsClient {
                         let _ = metrics.try_record(MetricEvent::counter(
                             MetricId::OperationsTotal,
                             1.0,
-                            MetricLabels::one(LabelKey::Stage, "ws_ingress")
+                            MetricLabels::one(LabelKey::Stage, "ws")
                                 .with(LabelKey::Protocol, "ws")
                                 .with(LabelKey::Direction, "inbound")
                                 .with(LabelKey::Status, "ok"),
@@ -228,7 +228,7 @@ impl Transport for SharedWsClient {
         }
         if self.metrics.is_enabled() {
             let status = if result.is_ok() { "ok" } else { "error" };
-            let labels = MetricLabels::one(LabelKey::Stage, "ws_egress")
+            let labels = MetricLabels::one(LabelKey::Stage, "ws")
                 .with(LabelKey::Protocol, "ws")
                 .with(LabelKey::Direction, "outbound")
                 .with(LabelKey::Status, status);

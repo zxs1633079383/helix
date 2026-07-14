@@ -17,6 +17,7 @@ pub struct MetricRuntimeConfig {
     pub deployment_environment: String,
     pub platform: String,
     pub scenario: String,
+    pub channel_shape: String,
     pub profile: String,
     pub queue_capacity: usize,
     pub batch_max: usize,
@@ -37,6 +38,7 @@ impl Default for MetricRuntimeConfig {
             deployment_environment: "local".to_string(),
             platform: "host".to_string(),
             scenario: "canary".to_string(),
+            channel_shape: "none".to_string(),
             profile: "baseline".to_string(),
             queue_capacity: 8192,
             batch_max: 512,
@@ -56,7 +58,8 @@ pub enum MetricExporterState {
     Disabled = 0,
     Running = 1,
     Backoff = 2,
-    Stopped = 3,
+    Open = 3,
+    Stopped = 4,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

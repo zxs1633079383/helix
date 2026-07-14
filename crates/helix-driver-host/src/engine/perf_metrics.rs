@@ -50,7 +50,7 @@ impl EngineMetricRecorder {
         if !self.enabled {
             return;
         }
-        let labels = MetricLabels::one(LabelKey::Stage, "tick_queue");
+        let labels = MetricLabels::one(LabelKey::Stage, "core");
         self.gauge(MetricId::TickQueueDepth, depth as f64, labels);
         self.gauge(MetricId::TickQueueCapacity, capacity as f64, labels);
     }
@@ -65,6 +65,13 @@ impl EngineMetricRecorder {
                     MetricId::PortRoundtripSeconds,
                     started.elapsed().as_secs_f64(),
                     MetricLabels::one(LabelKey::Stage, "port_reply"),
+                );
+                self.counter(
+                    MetricId::OperationsTotal,
+                    1.0,
+                    MetricLabels::one(LabelKey::Stage, "port_reply")
+                        .with(LabelKey::Operation, "reply")
+                        .with(LabelKey::Status, "ok"),
                 );
             }
         }
@@ -82,7 +89,7 @@ impl EngineMetricRecorder {
         self.counter(
             MetricId::ErrorsTotal,
             1.0,
-            MetricLabels::one(LabelKey::Stage, "core_step")
+            MetricLabels::one(LabelKey::Stage, "core")
                 .with(LabelKey::TickKind, context.tick_kind)
                 .with(LabelKey::ErrorKind, "step_failed"),
         );
@@ -98,7 +105,7 @@ impl EngineMetricRecorder {
             return;
         };
         let labels = MetricLabels::one(LabelKey::Layer, "L2")
-            .with(LabelKey::Stage, "core_step")
+            .with(LabelKey::Stage, "core")
             .with(LabelKey::TickKind, context.tick_kind)
             .with(LabelKey::Status, "ok");
         self.histogram(
@@ -117,7 +124,7 @@ impl EngineMetricRecorder {
             self.histogram(
                 MetricId::WsIngressToEffectSeconds,
                 started.elapsed().as_secs_f64(),
-                MetricLabels::one(LabelKey::Stage, "core_effect"),
+                MetricLabels::one(LabelKey::Stage, "core"),
             );
         }
     }
@@ -130,14 +137,14 @@ impl EngineMetricRecorder {
             self.histogram(
                 MetricId::WsIngressToEventSeconds,
                 started.elapsed().as_secs_f64(),
-                MetricLabels::one(LabelKey::Stage, "event_flush"),
+                MetricLabels::one(LabelKey::Stage, "event"),
             );
         }
         if let Some(started) = context.command_started {
             self.histogram(
                 MetricId::CommandToProjectionSeconds,
                 started.elapsed().as_secs_f64(),
-                MetricLabels::one(LabelKey::Stage, "event_flush"),
+                MetricLabels::one(LabelKey::Stage, "event"),
             );
         }
     }
@@ -194,7 +201,7 @@ impl EngineMetricRecorder {
                 self.gauge(
                     MetricId::ProcessResidentMemoryBytes,
                     rss_bytes as f64,
-                    MetricLabels::one(LabelKey::Stage, "engine_shutdown"),
+                    MetricLabels::one(LabelKey::Stage, "core"),
                 );
             }
         }
@@ -202,19 +209,26 @@ impl EngineMetricRecorder {
             self.histogram(
                 MetricId::ShutdownDrainSeconds,
                 started.elapsed().as_secs_f64(),
-                MetricLabels::one(LabelKey::Stage, "engine_shutdown"),
+                MetricLabels::one(LabelKey::Stage, "core"),
             );
         }
     }
 
     fn record_effect_batch(&self, effects: &[OwnedEffect], tick_kind: &'static str) {
-        let labels = MetricLabels::one(LabelKey::Stage, "effect_produce")
-            .with(LabelKey::TickKind, tick_kind);
+        let labels =
+            MetricLabels::one(LabelKey::Stage, "effect").with(LabelKey::TickKind, tick_kind);
         let count = effects.len();
         let bytes = effects.iter().map(effect_bytes).sum::<usize>();
         self.histogram(MetricId::EffectsPerTick, count as f64, labels);
         self.histogram(MetricId::EffectBytesPerTick, bytes as f64, labels);
         self.histogram(MetricId::EffectAmplificationRatio, count as f64, labels);
+        self.counter(
+            MetricId::OperationsTotal,
+            count as f64,
+            labels
+                .with(LabelKey::Operation, "produce")
+                .with(LabelKey::Status, "ok"),
+        );
         let event_count = effects
             .iter()
             .filter(|effect| matches!(effect, OwnedEffect::Emit { .. }))
@@ -222,7 +236,7 @@ impl EngineMetricRecorder {
         self.histogram(
             MetricId::EventBatchSize,
             event_count as f64,
-            MetricLabels::one(LabelKey::Stage, "event_egress"),
+            MetricLabels::one(LabelKey::Stage, "event"),
         );
     }
 

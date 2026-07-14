@@ -169,6 +169,8 @@ fn start_metric_runtime() -> Option<BoundedMetricRuntime> {
         platform: "ffi".to_string(),
         scenario: std::env::var("HELIX_METRIC_SCENARIO")
             .unwrap_or_else(|_| defaults.scenario.clone()),
+        channel_shape: std::env::var("HELIX_METRIC_CHANNEL_SHAPE")
+            .unwrap_or_else(|_| defaults.channel_shape.clone()),
         profile: std::env::var("HELIX_METRIC_PROFILE").unwrap_or_else(|_| defaults.profile.clone()),
         ..defaults
     };

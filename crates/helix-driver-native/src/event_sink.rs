@@ -131,7 +131,7 @@ impl EventReceiver {
                     let _ = self.metrics.try_record(MetricEvent::counter(
                         MetricId::EventLaggedTotal,
                         n as f64,
-                        MetricLabels::one(LabelKey::Stage, "native_event_receiver"),
+                        MetricLabels::one(LabelKey::Stage, "event"),
                     ));
                 }
                 RecvOutcome::Lagged(n)
@@ -206,7 +206,7 @@ impl EventSink for NativeEventSink {
             let _ = self.metrics.try_record(MetricEvent::counter(
                 MetricId::EventNoReceiverTotal,
                 1.0,
-                MetricLabels::one(LabelKey::Stage, "native_event_sink"),
+                MetricLabels::one(LabelKey::Stage, "event"),
             ));
         }
     }

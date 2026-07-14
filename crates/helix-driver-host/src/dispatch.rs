@@ -223,7 +223,7 @@ fn record_operation(metrics: &dyn AsyncMetricSink, operation: &'static str, stat
     let _ = metrics.try_record(MetricEvent::counter(
         MetricId::OperationsTotal,
         1.0,
-        MetricLabels::one(LabelKey::Stage, "effect_dispatch")
+        MetricLabels::one(LabelKey::Stage, operation_stage(operation))
             .with(LabelKey::Operation, operation)
             .with(LabelKey::Status, status),
     ));
@@ -236,7 +236,7 @@ fn record_error(metrics: &dyn AsyncMetricSink, error_kind: &'static str) {
     let _ = metrics.try_record(MetricEvent::counter(
         MetricId::ErrorsTotal,
         1.0,
-        MetricLabels::one(LabelKey::Stage, "effect_dispatch").with(LabelKey::ErrorKind, error_kind),
+        MetricLabels::one(LabelKey::Stage, "effect").with(LabelKey::ErrorKind, error_kind),
     ));
 }
 
@@ -252,8 +252,19 @@ fn record_wait(
     let _ = metrics.try_record(MetricEvent::histogram(
         id,
         queued_at.elapsed().as_secs_f64(),
-        MetricLabels::one(LabelKey::Stage, "effect_queue").with(LabelKey::Operation, operation),
+        MetricLabels::one(LabelKey::Stage, operation_stage(operation))
+            .with(LabelKey::Operation, operation),
     ));
+}
+
+fn operation_stage(operation: &str) -> &'static str {
+    match operation {
+        "http" | "http_fire" | "upload_file" => "http",
+        "persist" | "persist_fire" => "storage",
+        "ws_send" => "ws",
+        "event_emit" => "event",
+        _ => "effect",
+    }
 }
 
 #[cfg(test)]

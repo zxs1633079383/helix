@@ -46,6 +46,24 @@ async fn main() {
     cfg.apply_env_overrides(); // debug 逃生口（release 为 no-op，彻底去 env）
     cfg.apply_cli_overrides(&cli); // 双账号 e2e：flag 覆盖 identity（最高优先级）
     let otel = cfg.observability.otel_runtime();
+    let metric_config = cfg.observability.metrics_config();
+    let metric_shutdown_timeout =
+        std::time::Duration::from_millis(cfg.observability.metrics.shutdown_timeout_ms);
+    let mut metric_runtime =
+        match helix_driver_host::BoundedMetricRuntime::start_otlp(metric_config) {
+            Ok(runtime) => Some(runtime),
+            Err(error) => {
+                tracing::error!(%error, "host-cli 指标 worker 启动失败，降级为 Noop");
+                None
+            }
+        };
+    let metrics = metric_runtime.as_ref().map_or_else(
+        || {
+            Arc::new(helix_driver_host::NoopMetricSink)
+                as Arc<dyn helix_driver_host::AsyncMetricSink>
+        },
+        helix_driver_host::BoundedMetricRuntime::sink,
+    );
 
     let ws_url = cfg.connection.ws_url.clone();
     // api base 含 /api/cses；default_api_base 承载 vote/score 第二网关。
@@ -102,7 +120,7 @@ async fn main() {
     // ── ports ───────────────────────────────────────────────
     tracing::info!(db_path = %db_path, "DB 绝对路径（派生 / runtime.db 覆盖）");
     let storage = match NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc")).await {
-        Ok(s) => s,
+        Ok(s) => s.with_metric_sink(Arc::clone(&metrics)),
         Err(e) => {
             tracing::error!(error = %e, db_path = %db_path, "打开存储失败，退出");
             return;
@@ -136,6 +154,7 @@ async fn main() {
     // EventSink 先于 HTTP：P6 blocker(b) 横切层 401/断网回报经它 emit，故 with_crosscut 前先建。
     // Clone 是 Arc-backed O(1)：一份给横切回报，原件随后进 EngineConfig（同一 broadcast）。
     let (event_sink, mut event_rx) = NativeEventSink::new();
+    let event_sink = event_sink.with_metric_sink(Arc::clone(&metrics));
 
     // 横切层负责鉴权意图、401/断网事件与 trace；凭据留 driver，core 零 token（C6）。
     // 通用身份头仍由下方共享 registry 注入。
@@ -146,7 +165,7 @@ async fn main() {
     let mut net_config = HostNetworkConfig::new(api_base_url.clone(), ws_url.clone());
     net_config.default_api_base_url = default_api_base_url.clone();
     let shared_client = match SharedHttpClient::new(net_config) {
-        Ok(c) => c,
+        Ok(c) => c.with_metric_sink(Arc::clone(&metrics)),
         Err(e) => {
             tracing::error!(error = %e, "构造共享 HTTP client 失败，退出");
             return;
@@ -216,7 +235,8 @@ async fn main() {
         .map(|(name, value)| (name.to_string(), value.to_string()))
         .collect();
     let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
-        .with_handshake_headers(ws_headers);
+        .with_handshake_headers(ws_headers)
+        .with_metric_sink(Arc::clone(&metrics));
     // A1 临时：host 主动 connect（A2 改为 Effect::Connect 意图驱动）。
     // 连不上不退出——仍进泵，Effect::Send 走「发送失败 warn」兜底，证明接线存在。
     match transport.connect().await {
@@ -247,7 +267,7 @@ async fn main() {
         http,
         uploader: SharedFileUploader::default(),
         event_sink,
-        metrics: Arc::new(helix_driver_host::NoopMetricSink),
+        metrics,
         max_http_inflight,
     };
     let trace = TraceHooks::noop().with_otel(otel);
@@ -292,6 +312,10 @@ async fn main() {
         transports,
     )
     .await;
+    if let Some(runtime) = metric_runtime.take() {
+        let outcome = runtime.shutdown(metric_shutdown_timeout);
+        tracing::info!(?outcome, "host-cli 指标 worker 已关闭");
+    }
     tracing::info!("engine loop 退出");
 }
 

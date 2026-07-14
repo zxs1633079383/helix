@@ -137,7 +137,7 @@ fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceC
                 let _ = handle.metrics.try_record(MetricEvent::counter(
                     MetricId::FfiBusyTotal,
                     1.0,
-                    MetricLabels::one(LabelKey::Stage, "tick_queue"),
+                    MetricLabels::one(LabelKey::Stage, "core"),
                 ));
             }
             FFI_BUSY

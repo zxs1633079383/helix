@@ -163,7 +163,7 @@ impl HttpRequester for SharedHttpClient {
             .saturating_sub(1);
         record_http_gauge(self.metrics.as_ref(), remaining);
         let status = if result.is_ok() { "ok" } else { "error" };
-        let labels = MetricLabels::one(LabelKey::Stage, "http_request")
+        let labels = MetricLabels::one(LabelKey::Stage, "http")
             .with(LabelKey::Protocol, "http")
             .with(LabelKey::Operation, "request")
             .with(LabelKey::Status, status);
@@ -187,6 +187,6 @@ fn record_http_gauge(metrics: &dyn AsyncMetricSink, inflight: usize) {
     let _ = metrics.try_record(MetricEvent::gauge(
         MetricId::HttpInflight,
         inflight as f64,
-        MetricLabels::one(LabelKey::Stage, "http_request"),
+        MetricLabels::one(LabelKey::Stage, "http"),
     ));
 }

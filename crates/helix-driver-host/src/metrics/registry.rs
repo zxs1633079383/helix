@@ -102,7 +102,7 @@ metric_registry! {
     PersistRemainingTotal => ("helix_persist_remaining_total", Counter, "1"),
     CleanupResidueTotal => ("helix_cleanup_residue_total", Counter, "1"),
     TelemetryCanaryTotal => ("helix_telemetry_canary_total", Counter, "1"),
-    RunThroughputPerSecond => ("helix_run_throughput_per_second", Gauge, "1/s"),
+    RunThroughputPerSecond => ("helix_run_throughput_per_second", Gauge, ""),
 }
 
 pub const REQUIRED_METRIC_IDS: &[MetricId] = &[

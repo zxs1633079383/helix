@@ -14,12 +14,11 @@
 //! 离场行只能靠此显式 BatchDelete 清除，不会被后续全量帧覆盖掉——故必须走删除路径。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq};
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const CHANNEL_MEMBER_UPDATE_ACTION: &str = "channel_member_update";
 
@@ -138,8 +137,9 @@ pub(super) fn apply_channel_full_and_members(
 
 static CHANNEL_MEMBER_UPDATE_HANDLER: ChannelMemberUpdateHandler = ChannelMemberUpdateHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static CHANNEL_MEMBER_UPDATE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: CHANNEL_MEMBER_UPDATE_ACTION,
-    handler: &CHANNEL_MEMBER_UPDATE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: CHANNEL_MEMBER_UPDATE_ACTION,
+        handler: &CHANNEL_MEMBER_UPDATE_HANDLER,
+    }
+}

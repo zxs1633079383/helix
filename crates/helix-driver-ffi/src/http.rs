@@ -3,7 +3,9 @@
 use helix_core::effect::{HttpRequest, HttpResponse};
 use helix_core::ports::HttpRequester;
 use helix_core::PortError;
-use helix_driver_host::{AuthTokenRegistry, CrossCuttingHttp, SharedHttpClient};
+use helix_driver_host::{
+    AuthTokenRegistry, CrossCuttingHttp, HttpOutcomeObserver, SharedHttpClient,
+};
 
 use crate::event_sink::FfiEventSink;
 
@@ -16,9 +18,10 @@ impl FfiHttpRequester {
         inner: SharedHttpClient,
         event_sink: std::sync::Arc<FfiEventSink>,
         auth: AuthTokenRegistry,
+        outcome_observer: HttpOutcomeObserver,
     ) -> Self {
         Self {
-            inner: CrossCuttingHttp::new(inner, event_sink, auth),
+            inner: CrossCuttingHttp::new(inner, event_sink, auth, outcome_observer),
         }
     }
 }

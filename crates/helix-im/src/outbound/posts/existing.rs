@@ -1,16 +1,13 @@
 //! 既有 posts 域 outbound 命令（P2 registry 化迁移：read / revoke / schedule / cancel）。
 //!
 //! 行为/endpoint/body 真源逐条标注（`full-map/partials/1-*.md` + `真机curl真源.md`）。
-//! 从旧 `commands.rs::handle_outbound` 单 match 抽出，逐命令 distributed_slice 注册。
+//! 从旧 `commands.rs::handle_outbound` 单 match 抽出，逐命令 inventory 注册。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// #23 POST /api/cses/post/read — 标记已读 → update_channel + post_read。
 /// 真源 `entity.PostRead{ChannelID, EndTime, Posts[], StartTime, UserId}`（post.go:527-536）。
@@ -45,11 +42,12 @@ impl OutboundCommand for PostReadCommand {
     }
 }
 static POST_READ: PostReadCommand = PostReadCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static POST_READ_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_post_read",
-    command: &POST_READ,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_post_read",
+        command: &POST_READ,
+    }
+}
 
 /// #14 POST /api/cses/posts/revoke — 撤回 → post_update。真源 {PostId}（真机curl真源 §3）。
 struct RevokeCommand;
@@ -63,11 +61,12 @@ impl OutboundCommand for RevokeCommand {
     }
 }
 static REVOKE: RevokeCommand = RevokeCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static REVOKE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_revoke",
-    command: &REVOKE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_revoke",
+        command: &REVOKE,
+    }
+}
 
 /// #3 POST /api/cses/posts/createSchedule — 定时消息 → post_schedule_created。
 /// 真源 CreateSchedulePostReq{Post *Post, ScheduledTime int64 `json:"schedulePostAt"`}。
@@ -99,11 +98,12 @@ impl OutboundCommand for CreateScheduleCommand {
     }
 }
 static CREATE_SCHEDULE: CreateScheduleCommand = CreateScheduleCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CREATE_SCHEDULE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_create_schedule",
-    command: &CREATE_SCHEDULE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_create_schedule",
+        command: &CREATE_SCHEDULE,
+    }
+}
 
 /// #4 POST /api/cses/posts/cancelSchedule — 取消定时 → post_schedule_canceled。
 /// 真源 CancelSchedulePostReq{ChannelId}；userId 取 session。
@@ -118,8 +118,9 @@ impl OutboundCommand for CancelScheduleCommand {
     }
 }
 static CANCEL_SCHEDULE: CancelScheduleCommand = CancelScheduleCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CANCEL_SCHEDULE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_cancel_schedule",
-    command: &CANCEL_SCHEDULE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_cancel_schedule",
+        command: &CANCEL_SCHEDULE,
+    }
+}

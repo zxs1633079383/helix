@@ -27,11 +27,12 @@ pub mod engine;
 pub mod error;
 pub mod module_host;
 pub mod platform;
+pub mod port_codec;
 pub mod ports;
 pub mod tick;
 
 // Re-export most-used types at crate root for ergonomic imports
-pub use auth::{AuthKind, AUTH_KIND_HEADER};
+pub use auth::{apply_auth_intent, AuthKind, AUTH_KIND_HEADER};
 pub use effect::{Correlation, DomainEventBytes, Effect, EffectSink, TimerId};
 pub use engine::ExecutionShell;
 pub use error::{CoreError, PortError};

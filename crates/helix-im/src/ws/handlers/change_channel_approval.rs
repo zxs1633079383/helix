@@ -13,11 +13,10 @@
 //! YAGNI：现网前端不单独消费此帧 → 不实现业务逻辑（AGENTS.md §1.4）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 /// wire 值无 Status 后缀（常量名带 Status 是后端命名陷阱，full-map §2.17 实证）。
 const CHANGE_APPROVAL_ACTION: &str = "change_channel_approval";
@@ -42,8 +41,9 @@ impl WsMessageHandler for ChangeApprovalHandler {
 
 static CHANGE_APPROVAL_HANDLER: ChangeApprovalHandler = ChangeApprovalHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static CHANGE_APPROVAL_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: CHANGE_APPROVAL_ACTION,
-    handler: &CHANGE_APPROVAL_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: CHANGE_APPROVAL_ACTION,
+        handler: &CHANGE_APPROVAL_HANDLER,
+    }
+}

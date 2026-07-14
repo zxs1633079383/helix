@@ -8,7 +8,7 @@
 
 ## §0 一段话定义（北极星，背下来）
 
-**Helix 是我们的「运行时无关确定性业务内核」**——目标是一份业务逻辑只写一次，产品目标集合为 **PC 端 Tauri（native）+ 手机端 Flutter（FFI）+ Web**；当前交付事实是 native/FFI 已产品化、Web 尚未交付，新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板。IM 只是跑在它上面的第一个业务模块，内核本身不认识任何业务；核心设计理念是 **sans-IO 六边形**：`helix-core` 零运行时、零平台依赖，它不做 I/O、不持有 tokio，只定义一组**端口（ports）**和一个纯状态机执行壳——喂入（入站帧 / now_ms / 端口响应）、吐出（Effect），真正的网络、存储、线程、时间、随机、ID 全部由各平台的薄驱动或适配器注入（这就是"确定性"的来源，也是并发不进 core 的原因），依赖方向严格单向 `driver → core` 永不反向；同一份 `helix-im` 负责三端共同的业务门面、local-first/remote fallback、WS 帧解析、sequence/cursor、echo、已读和补偿同步。PC native 与 Flutter FFI 继续共同复用 `helix-driver-host` 的完整 SQLite/HTTP/WS；Web 使用 Rust 内存 session store 与 Browser Fetch，物理 WebSocket 生命周期由浏览器适配器兑现。原 W0 浏览器探针、Dedicated Worker/IndexedDB 预设和 W0→W4 顺序继续失效；现有 `helix-driver-wasm` 仍是历史实验。
+**Helix 是我们的「运行时无关确定性业务内核」**——目标是一份业务逻辑只写一次，产品目标集合为 **PC 端 Tauri（native）+ 手机端 Flutter（FFI）+ Web**；当前交付事实是 native/FFI 已产品化，Web 的 A4 Rust 平台壳已通过 WASM 编译与三端同 Tick parity，但真浏览器/真 Go 产品链仍待 A5。IM 只是跑在它上面的第一个业务模块，内核本身不认识任何业务；核心设计理念是 **sans-IO 六边形**：`helix-core` 零运行时、零平台依赖，它不做 I/O、不持有 tokio，只定义一组**端口（ports）**和一个纯状态机执行壳——喂入（入站帧 / now_ms / 端口响应）、吐出（Effect），真正的网络、存储、线程、时间、随机、ID 全部由各平台的薄驱动或适配器注入（这就是"确定性"的来源，也是并发不进 core 的原因），依赖方向严格单向 `driver → core` 永不反向；同一份 `helix-im` 负责三端共同的业务门面、local-first/remote fallback、WS 帧解析、sequence/cursor、echo、已读和补偿同步。PC native 与 Flutter FFI 继续共同复用 `helix-driver-host` 的完整 SQLite/HTTP/WS；Web 使用 Rust 内存 session store 与 Browser Fetch，物理 WebSocket 生命周期由浏览器适配器兑现。原 W0 浏览器探针、Dedicated Worker/IndexedDB 预设和 W0→W4 顺序继续失效；现有 `helix-driver-wasm` 仍是历史实验。
 
 ---
 
@@ -41,11 +41,11 @@
 ## §3 成功标准（measurable）
 
 - ✅ `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 输出为空
-- ✅ 已交付双端编译全绿：`cargo check` native（core/im/driver-native/driver-ffi）；Web 新 Rust 接入层落地后再追加对应 target gate
+- ✅ 已产品化双端编译全绿；A4 `helix-driver-web` 已通过 `wasm32-unknown-unknown` 构建，正式 Web CI/HX-C003 待 A5 真链路激活
 - ✅ `grep channel/message/temporaryId crates/helix-core` = 0（纯 IM 概念隔离；cursor 概念归 helix-im，core 只有通用 `monotonic_upsert` 单调原语——ADR-004 已闭环，见 [decisions.md](./harness/decisions.md#adr-004) / 纪要拍板 #1）
 - ✅ 加新业务模块 = 实现 `Module` trait + `register()`，**core 一行不改**（开闭原则）
 - ✅ 加新平台 = 实现 ports，**core/模块一行不改**
-- ✅ 同一份 core/im 在集成测试（无 webview）/ Tauri / Flutter FFI 零改复用；未来 Web 接入仍须以同 Tick 剧本证明业务 Effect/DomainEvent 一致
+- ✅ 同一份 core/im 在集成测试（无 webview）/ Tauri / Flutter FFI / Web Rust 壳零改复用；同 Tick native/FFI/Web 业务输出一致已由 A4 parity 测试证明，物理浏览器链路仍待 A5
 - ✅ 三端共享 `helix-im::client_api` 与异步 query 主路径；driver 不保留 query/HTTP fallback 业务旁路
 - ✅ 三端共享业务语义但允许平台能力不同：PC/Flutter 完整 SQLite；Web 使用不跨刷新的有界内存 session store
 - ✅ core WS port 只表达 outbound frame；Web WS 帧处理复用 `helix-im`，真实 socket、浏览器生命周期与鉴权由 Web 平台适配器兑现

@@ -1,6 +1,6 @@
 //! bot-agent 域 outbound 命令（P5b，parallelGroup=G2）。
 //!
-//! 与 P5a `user_misc.rs` 真零交集：独立目录模块 + 各命令 distributed_slice 注册，不碰
+//! 与 P5a `user_misc.rs` 真零交集：独立目录模块 + 各命令 inventory 注册，不碰
 //! registry.rs（除 P5b 为接 `X-Auth-Kind: bot` 给 `OutboundCommand` 加**默认**方法 `auth_kind()`
 //! 一处向后兼容扩展）/channel*/posts_read.rs/user_misc.rs；`outbound/mod.rs` 仅 append 一行。
 //!
@@ -47,7 +47,7 @@ pub(super) fn path_seg<'a>(args: &'a Value, key: &str, cmd: &str) -> Result<&'a 
     Ok(v)
 }
 
-/// 内部：注册三件套（struct + impl OutboundCommand + distributed_slice）。
+/// 内部：注册三件套（struct + impl OutboundCommand + inventory）。
 /// `$auth` = `Session`|`Bot`；`$is_read:literal` = 读族标注（写族默认 false，读族 override true，spec06 缺陷A）。
 macro_rules! __outbound_impl {
     // 静态 path 命令（build 产 (&'static str, body)）。`$is_read` 末尾标读写。
@@ -89,9 +89,12 @@ macro_rules! __outbound_impl {
         __outbound_impl!(@register $cmd, $reg, $name);
     };
     (@register $cmd:ident, $reg:ident, $name:literal) => {
-        #[::linkme::distributed_slice($crate::outbound::registry::OUTBOUND_COMMANDS)]
-        static $reg: $crate::outbound::registry::OutboundRegistration =
-            $crate::outbound::registry::OutboundRegistration { name: $name, command: &$cmd };
+        ::inventory::submit! {
+            $crate::outbound::registry::OutboundRegistration {
+                name: $name,
+                command: &$cmd,
+            }
+        }
     };
 }
 

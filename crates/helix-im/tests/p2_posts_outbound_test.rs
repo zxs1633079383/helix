@@ -6,7 +6,7 @@
 //! 覆盖维度（02 文档 P2 gate + 03 测试矩阵 P2 行）：
 //! - 每命令 1 正常路径：endpoint url + camelCase body casing 断言（锚现网 Go 真源 posts.go / post.go）
 //! - 加急族复用 post_update：3 条 urgent endpoint 均落 `posts/urgent*`（WS 推 post_update，cses_post.go:149）
-//! - registry 注册数 == 命令数性质（distributed_slice 全注册，无重复/漏注册）
+//! - registry 注册数 == 命令数性质（inventory 全注册，无重复/漏注册）
 //! - 边界零信任：缺必填 → Err 不 panic（target_ids 空、props 非对象、postId 空）
 //! - 命名陷阱：templateReceived endpoint 前缀是 `post`（单数）非 `posts`
 //!
@@ -319,7 +319,7 @@ fn registry_covers_exactly_all_outbound_commands() {
 }
 
 /// registry 注册数 == 命令数性质：每个注册命令都能成功 build（无重复 name 导致 registry 构建失败）。
-/// 若任一命令 distributed_slice 注册了重复 name → registry 构建 Err → handle_outbound 全部 Err →
+/// 若任一命令 inventory 注册了重复 name → registry 构建 Err → handle_outbound 全部 Err →
 /// 本测试 FAIL（即「注册数==命令数」的可证伪体现）。
 #[test]
 fn every_registered_command_is_dispatchable() {

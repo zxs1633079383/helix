@@ -1,10 +1,9 @@
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 
 use super::super::{
-    ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, LEGACY_EVENT_ACTION, WS_HANDLERS,
+    ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, LEGACY_EVENT_ACTION,
 };
 
 struct LegacyEventHandler;
@@ -49,8 +48,9 @@ impl WsMessageHandler for LegacyEventHandler {
 
 static LEGACY_EVENT_HANDLER: LegacyEventHandler = LegacyEventHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static LEGACY_EVENT_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: LEGACY_EVENT_ACTION,
-    handler: &LEGACY_EVENT_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: LEGACY_EVENT_ACTION,
+        handler: &LEGACY_EVENT_HANDLER,
+    }
+}

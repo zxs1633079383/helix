@@ -12,13 +12,12 @@
 //! 命中乐观行）靠 PK 自然对账，server `id` 覆写本地行。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq, ServerId};
 use crate::sync_session::{EventEnvelope, EventKind, PostFields};
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 use super::post_echo_settle::{is_echo_frame, reconcile_post_echo};
 
 const POST_ACTION: &str = "post";
@@ -316,8 +315,9 @@ fn post_pin_effect_from_notice(
 
 static POST_HANDLER: PostHandler = PostHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_ACTION,
-    handler: &POST_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_ACTION,
+        handler: &POST_HANDLER,
+    }
+}

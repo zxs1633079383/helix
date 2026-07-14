@@ -1,10 +1,9 @@
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const INCREMENT_CHANNEL_END_ACTION: &str = "increment_channel_end";
 
@@ -149,8 +148,9 @@ impl WsMessageHandler for IncrementChannelEndHandler {
 
 static INCREMENT_CHANNEL_END_HANDLER: IncrementChannelEndHandler = IncrementChannelEndHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static INCREMENT_CHANNEL_END_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: INCREMENT_CHANNEL_END_ACTION,
-    handler: &INCREMENT_CHANNEL_END_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: INCREMENT_CHANNEL_END_ACTION,
+        handler: &INCREMENT_CHANNEL_END_HANDLER,
+    }
+}

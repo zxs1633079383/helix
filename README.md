@@ -1,26 +1,26 @@
 # Helix — Runtime-agnostic 确定性业务内核基座
 
-一次实现，两端运行：**PC 端 Tauri native** / **手机端 Flutter FFI**。
-> 网页端（WASM）暂停维护——`helix-driver-wasm` 保留为历史实验代码，不进 roadmap / CI 必跑矩阵 / 交付验收（见 [`docs/harness/decisions.md`](docs/harness/decisions.md) ADR-006）。
+一次实现，三端目标：**PC 端 Tauri native** / **手机端 Flutter FFI** / **Web WASM**。
+> 当前交付事实：native/FFI 已产品化；Web 的 A4 Rust 平台壳 `helix-driver-web` 已通过 WASM 编译与三端同 Tick parity，但真浏览器/真 Go 产品链仍待 A5。历史 `helix-driver-wasm` 继续归档，不进正式交付矩阵（见 [`docs/harness/decisions.md`](docs/harness/decisions.md) ADR-006/ADR-014）。
 
 ## 架构简图
 
 ```
-应用宿主（Tauri 桌面 / Flutter 手机端）
+应用宿主（Tauri 桌面 / Flutter 手机端 / Web）
     │
     ▼
 helix-driver-native ─┐
-helix-driver-ffi    ─┴──► helix-core ◄── helix-im ◄── (helix-presence...)
-                          （helix-driver-wasm = archived，见 ADR-006）
+helix-driver-ffi    ─┼──► helix-core ◄── helix-im ◄── (helix-presence...)
+helix-driver-web    ─┘    （helix-driver-wasm = archived，见 ADR-006）
 ```
 
 - **helix-core**：ports trait + Module trait + ExecutionShell（纯 sans-IO 状态机）
 - **helix-im**：IM 业务模块，只依赖 helix-core，不含任何运行时 crate
 - **helix-driver-***：各平台的 port 实现（tokio/sqlx 在此，不在 core）
 
-详细架构见 [`docs/README.md`](docs/README.md)（文档地图）与 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)（机制权威源）。
+详细架构见 [`docs/README.md`](docs/README.md)（文档地图）、[`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)（内核机制权威源）与 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md)（三端平台适配真源）。
 
-## 两端 Build 命令
+## 三端 Build 命令
 
 ### native（Tauri 桌面）
 
@@ -47,6 +47,15 @@ cargo check -p helix-driver-ffi --target aarch64-apple-ios
 cargo check -p helix-core --target aarch64-linux-android
 ```
 
+### Web（A4 Rust 平台壳）
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build --target wasm32-unknown-unknown -p helix-driver-web
+```
+
+这只验证 Rust/WASM 平台壳；浏览器 bootstrap、真 Go E2E 和正式 CI gate 属于 A5，不能据此宣称 Web 产品已经交付。
+
 ## 验收红线（CI 强制）
 
 ```bash
@@ -68,6 +77,7 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 | `helix-driver-native` | tokio/sqlx/tungstenite/reqwest 实现（PC Tauri） | helix-core + 运行时 crate |
 | `helix-driver-ffi` | C ABI/uniffi 实现（手机端 Flutter） | helix-core + 系统 crate |
 | `helix-driver-host` | 共享 rusqlite Storage/network/event_sink（native+ffi 复用，ADR-007/010） | helix-core + 运行时 crate |
+| `helix-driver-web` | A4 Web Rust 平台壳：Browser Fetch、page-session store、外部 WS bridge、timer、有界 event batch v2 | helix-core + helix-im + 浏览器平台 crate |
 | `helix-driver-wasm` | ⚠️ **archived/experimental**（历史骨架，不作为正式 Web 壳） | — |
 
 ## 顶层目录地图

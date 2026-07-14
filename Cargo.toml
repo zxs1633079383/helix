@@ -4,6 +4,7 @@ members = [
     "crates/helix-im",
     "crates/helix-driver-host",
     "crates/helix-driver-native",
+    "crates/helix-driver-web",
     "crates/helix-driver-wasm",
     "crates/helix-driver-ffi",
     "crates/helix-host-cli",

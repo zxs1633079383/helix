@@ -8,13 +8,12 @@
 //! （edit_content_op）。cursor 推进一次（顶层 event_seq，复用 frame.event_seq 三级 fallback）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::ws::parser::extract_post_fields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POSTS_UPDATE_ACTION: &str = "posts_update";
 
@@ -95,8 +94,9 @@ impl WsMessageHandler for PostsUpdateHandler {
 
 static POSTS_UPDATE_HANDLER: PostsUpdateHandler = PostsUpdateHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static POSTS_UPDATE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POSTS_UPDATE_ACTION,
-    handler: &POSTS_UPDATE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POSTS_UPDATE_ACTION,
+        handler: &POSTS_UPDATE_HANDLER,
+    }
+}

@@ -4,7 +4,7 @@
 //! 与 `channel_change.rs` 的 `im_channel_change_top`（**per-member 对话置顶** `channel/change/top`）
 //! 是两套机制，键名/路由都不同——前者作用于单条 post，后者作用于整个频道在我侧的排序。
 //!
-//! 两条命令各独立 endpoint + body + distributed_slice 注册（C4 收口，与其他 outbound 文件零交集）。
+//! 两条命令各独立 endpoint + body + inventory 注册（C4 收口，与其他 outbound 文件零交集）。
 //! 写族默认 is_read=false（写经 WS 回声对账，不回灌 HTTP 响应）。
 //!
 //! ## endpoint / body 真源
@@ -15,14 +15,11 @@
 //! **casing 陷阱**：body 键 camelCase 原样透传（`channelId`/`postId`，非 snake_case）——
 //! endpoint 是 passthrough 域，键形状须对齐 cses params。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// POST /api/cses/channel/add/postPinned — 置顶一条消息。
 /// body = `{channelId, postId}`（两者必填非空，边界零信任 HX-C 不变量 4）。
@@ -41,11 +38,12 @@ impl OutboundCommand for SetMessageTopCommand {
     }
 }
 static SET_MESSAGE_TOP: SetMessageTopCommand = SetMessageTopCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static SET_MESSAGE_TOP_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_set_message_top",
-    command: &SET_MESSAGE_TOP,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_set_message_top",
+        command: &SET_MESSAGE_TOP,
+    }
+}
 
 /// POST /api/cses/channel/remove/postPinned — 取消置顶一条消息。
 /// body = `{channelId, postId}`（两者必填非空，边界零信任 HX-C 不变量 4）。
@@ -64,11 +62,12 @@ impl OutboundCommand for SetMessageUntopCommand {
     }
 }
 static SET_MESSAGE_UNTOP: SetMessageUntopCommand = SetMessageUntopCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static SET_MESSAGE_UNTOP_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_set_message_untop",
-    command: &SET_MESSAGE_UNTOP,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_set_message_untop",
+        command: &SET_MESSAGE_UNTOP,
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,6 +1,6 @@
 //! channel change 族 outbound 命令（P3b，parallelGroup=G1）：info / source / picture / notice / top。
 //!
-//! 五条群信息修改命令，各独立 endpoint + body + distributed_slice 注册（C4 收口，与 P3a/其他
+//! 五条群信息修改命令，各独立 endpoint + body + inventory 注册（C4 收口，与 P3a/其他
 //! channel_*.rs 零交集）。除 #15 change/props（故意不广播，见文末注释）外，本族 4 条触发
 //! `update_channel`、notice 触发 `update_channel_notice`（WS 推送侧属 P4，本 Phase 只产 outbound）。
 //!
@@ -16,14 +16,11 @@
 //! **casing/键名陷阱**：source/picture/notice 用 **`id`** 作 channelId 键（command json tag `json:"id"`），
 //! info/top 用 **`channelId`** —— 同族不同键，decode 静默失败防线（写错即 Go 收下空 id 拒绝）。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// 把可选字符串字段按 camelCase 透传进 body（仅 Some 时写入，对齐 Go `omitempty` 指针语义）。
 fn put_opt_str(body: &mut Value, args: &Value, src_key: &str, wire_key: &str) {
@@ -65,11 +62,12 @@ impl OutboundCommand for ChangeInfoCommand {
     }
 }
 static CHANGE_INFO: ChangeInfoCommand = ChangeInfoCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_INFO_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_info",
-    command: &CHANGE_INFO,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_info",
+        command: &CHANGE_INFO,
+    }
+}
 
 /// #12 POST /api/cses/channel/change/source — 改频道来源标题 → update_channel。
 /// 真源 `command.ChangeChannelSource`：`{id, title}`（**id**=channelId）。
@@ -89,11 +87,12 @@ impl OutboundCommand for ChangeSourceCommand {
     }
 }
 static CHANGE_SOURCE: ChangeSourceCommand = ChangeSourceCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_SOURCE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_source",
-    command: &CHANGE_SOURCE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_source",
+        command: &CHANGE_SOURCE,
+    }
+}
 
 /// #14 POST /api/cses/channel/change/picture — 改群头像 → update_channel。
 /// 真源解码到 `*ent.Channel`，读 `{id, pictureType, picture}`（Go 校验 pictureType/picture 非 nil）。
@@ -118,11 +117,12 @@ impl OutboundCommand for ChangePictureCommand {
     }
 }
 static CHANGE_PICTURE: ChangePictureCommand = ChangePictureCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_PICTURE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_picture",
-    command: &CHANGE_PICTURE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_picture",
+        command: &CHANGE_PICTURE,
+    }
+}
 
 /// #10 POST /api/cses/channel/change/notice — 改群公告 → update_channel_notice（可伴 post 系统消息）。
 /// 真源 `command.ChangeChannelNotice`：`{id, notice}`（**id**=channelId，notice=map 指针）。
@@ -146,11 +146,12 @@ impl OutboundCommand for ChangeNoticeCommand {
     }
 }
 static CHANGE_NOTICE: ChangeNoticeCommand = ChangeNoticeCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_NOTICE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_notice",
-    command: &CHANGE_NOTICE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_notice",
+        command: &CHANGE_NOTICE,
+    }
+}
 
 /// #18 POST /api/cses/channel/change/top — per-member 置顶频道 → update_channel（定向本人）。
 /// 真源 `command.UpdateChannelTopCommand`：`{channelId, top:bool}`。
@@ -173,11 +174,12 @@ impl OutboundCommand for ChangeTopCommand {
     }
 }
 static CHANGE_TOP: ChangeTopCommand = ChangeTopCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_TOP_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_top",
-    command: &CHANGE_TOP,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_top",
+        command: &CHANGE_TOP,
+    }
+}
 
 /// #?? POST /api/cses/channel/change/permission — 改群权限（@提醒/公告/置顶权限）→ update_channel。
 /// body = `{channelId, mentionPermission, noticePermission, topPermission}`（均 string，passthrough camelCase）。
@@ -204,11 +206,12 @@ impl OutboundCommand for ChangePermissionCommand {
     }
 }
 static CHANGE_PERMISSION: ChangePermissionCommand = ChangePermissionCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_PERMISSION_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_permission",
-    command: &CHANGE_PERMISSION,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_permission",
+        command: &CHANGE_PERMISSION,
+    }
+}
 
 // #15 change/props（UpdateCsesChannelProps）**故意不实现 outbound 命令 + 故意不补 WS handler**：
 // 真源 cses_channel.go:1226-1250 落库 Props 后**无 a.Publish**（与其他 change/* 不一致，迁移注意点 2）。

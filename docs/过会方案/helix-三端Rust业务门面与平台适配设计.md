@@ -1,6 +1,6 @@
 # Helix 三端 Rust 业务门面与平台适配设计
 
-> 状态：2026-07-14 用户拍板；A1-A3.1 已落地，下一阶段 A4。
+> 状态：2026-07-14 用户拍板；A1-A4 已落地，下一阶段 A5 真链路与清理。
 >
 > 决策真源：[`../harness/decisions.md`](../harness/decisions.md) ADR-014。
 >
@@ -23,11 +23,11 @@ PC/Flutter 继续使用 `helix-driver-host` 的默认 SQLite/HTTP/WS 实现，We
 - `helix-core::ExecutionShell` 已是 sans-IO：输入 `Tick`，输出 `Effect`。
 - `helix-im::query` 已有异步查询主路径：command → `Effect::Persist{Scan}` →
   `PortReply` → DomainEvent。
-- `HttpRequester` 已把业务 HTTP 意图与真实客户端分离；Web 只需新增浏览器实现。
+- `HttpRequester` 已把业务 HTTP 意图与真实客户端分离；A4 已由 Web Browser Fetch 实现兑现。
 - `Tick::Connected/Inbound/Disconnected` 已能表达平台连接事件，WS 业务处理无需重写。
 - `helix-driver-host::run_engine_loop` 已被 native/FFI 共用，是 PC/Flutter 的有效默认实现。
 
-### 2.2 拍板时需要修正的部分（A1-A3.1 已收口）
+### 2.2 拍板时需要修正的部分（A1-A4 已收口）
 
 1. ✅ A2：`helix-driver-ffi::helix_query` 曾通过 `helix-im::mobile_query` 直接执行 Storage scan，
    与 `helix-im::query` 形成第二条查询真源；local-first/remote fallback 无法三端共享。
@@ -35,8 +35,8 @@ PC/Flutter 继续使用 `helix-driver-host` 的默认 SQLite/HTTP/WS 实现，We
    native/Web 无法自然把它当三端唯一入口。
 3. ✅ A3：core 旧 `Transport` 同时包含 `connect/send/recv/close`；业务 Effect 实际只需要 outbound
    `send`，物理连接生命周期不应成为所有平台必须实现的 core 能力。
-4. host pump 依赖 tokio、`Send + Sync`、rusqlite、reqwest 和 tungstenite，适合 PC/Flutter，
-   不应为了 Web 改造成大量 `cfg` 的万能执行器。
+4. ✅ A4：host pump 依赖 tokio、`Send + Sync`、rusqlite、reqwest 和 tungstenite，适合 PC/Flutter；
+   Web 已以独立 `helix-driver-web` 兑现平台 I/O，没有把 host 改造成大量 `cfg` 的万能执行器。
 5. ✅ A2：本地读取曾只有 rows，没有显式能力/覆盖状态；现已用 `LocalStoreMode` 与
    `LocalReadCoverage` 区分真无数据、缓存 miss 和平台不支持本地存储。
 
@@ -258,7 +258,7 @@ FFI 只负责指针、buffer、错误码、批量事件回调和线程边界。
 
 ### 4.7 新 `helix-driver-web`：纯 Rust Web 平台壳
 
-新 crate 在共享边界完成后创建：
+A4 已在共享边界完成后创建：
 
 ```text
 crates/helix-driver-web/
@@ -298,9 +298,22 @@ take_platform_actions / on_send_frame
 首版明确不做 IndexedDB/OPFS。若以后增加跨刷新缓存，必须另行拍板容量、coverage 与 cursor
 联合检查点，不改变 `helix-im` 的业务接口。
 
+A4 落地结果：Browser Fetch 支持完整 body、显式 timeout 与 shutdown abort；page-session store 按
+表/作用域有界且不跨刷新；ExternalWsBridge 只搬运连接生命周期和原始帧；浏览器 timer、有界
+event batch v2 与 WASM API 均已接入。HTTP outcome 到业务事件的映射由 `helix-im` 单一持有，host/Web
+只注入 observer；事件/动作/运行时问题轮询队列均有硬上限，溢出通过 gap/drop 计数或 fail-closed
+显式暴露。`wasm32-unknown-unknown` final artifact 已构建通过，相关六 crate
+全测通过，同 Tick native/FFI/Web 业务输出 parity 通过；这不等价于 A5 真浏览器/真 Go 产品链完成。
+
+`helix-im` 原先用 `linkme` 分散注册 HTTP command 与 WS handler，但 `linkme` 不支持
+`wasm32-unknown-unknown`。A4 将注册机制全平台单轨迁为 `inventory`，避免为 Web 复制第二份注册表；
+WASM constructors 的显式初始化只属于 `helix-driver-web` final artifact/bootstrap，不能下沉到
+`helix-im`，业务模块仍不认识浏览器生命周期。
+
 ### 4.8 历史 `helix-driver-wasm`
 
-不在原 crate 上继续开发。新 `helix-driver-web` 通过验收后：
+不在原 crate 上继续开发。A4 `helix-driver-web` 已通过 Rust/WASM 验收；以下清理仍留到 A5
+真链路与正式 CI gate 一并完成：
 
 1. 审计历史代码，只迁移被测试证明可复用的无业务片段；
 2. 单独提交删除 `helix-driver-wasm`；
@@ -369,13 +382,20 @@ cleanup close 都调用同一个 finish-once；close 调用方被取消或 Close
 reader/state/lifecycle 清理。host engine 合同测试冻结动态注册确认；native/FFI 真实本地 WS 测试
 分别冻结严格 Tick 顺序、关闭取消安全/去重，以及初连→断线→重连的两代 Tick 顺序。
 
-### A4：创建 Web Rust 平台壳
+### A4：创建 Web Rust 平台壳 ✅（2026-07-14）
 
-实现 `helix-driver-web` 的 BrowserHttpRequester、WebSessionStore、ExternalWsBridge、timer、
-event batch 与 WASM API，不实现前端页面。
+已实现 `helix-driver-web` 的 BrowserHttpRequester（完整 body、timeout、shutdown abort）、有界
+WebSessionStore、ExternalWsBridge、browser timer、有界 event batch v2 与 WASM API；未实现前端页面。
+HTTP outcome 业务策略由 `helix-im` 单一持有，host/Web 只注入 observer；事件/动作/运行时问题轮询
+队列都有硬上限，event batch 用 gap/drop 计数显式报告丢弃，bridge 饱和时 fail-closed 且保留原连接状态。
 
-验收：wasm target 编译；同 Tick 剧本 native/FFI/Web 业务输出一致；Web 无 SQLite、无业务
-fetch/WS parser 副本。
+为解除 `linkme` 对 `wasm32-unknown-unknown` 的平台阻塞，`helix-im` 的 HTTP command/WS handler
+注册单轨迁为 `inventory`；Web final artifact 通过 wasm-bindgen start 显式初始化 constructors，初始化
+责任没有下沉到业务模块。
+
+验收结果：wasm target build 通过；相关六 crate 全测通过；同 Tick 剧本 native/FFI/Web 业务输出
+一致；Web 无 SQLite、无业务 fetch/WS parser/sync/cursor 副本。A4 只证明 Rust 平台壳，不冒充 A5
+真浏览器/真 Go 链路。
 
 ### A5：真实链路与清理
 

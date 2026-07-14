@@ -1,9 +1,8 @@
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const STATUS_CHANGE_ACTION: &str = "status_change";
 const MULTIPLE_CHANNELS_VIEWED_ACTION: &str = "multiple_channels_viewed";
@@ -42,26 +41,30 @@ static PRESENCE_HANDLER: IgnoredHandler = IgnoredHandler {
     action: PRESENCE_ACTION,
 };
 
-#[distributed_slice(WS_HANDLERS)]
-static STATUS_CHANGE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: STATUS_CHANGE_ACTION,
-    handler: &STATUS_CHANGE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: STATUS_CHANGE_ACTION,
+        handler: &STATUS_CHANGE_HANDLER,
+    }
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static MULTIPLE_CHANNELS_VIEWED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: MULTIPLE_CHANNELS_VIEWED_ACTION,
-    handler: &MULTIPLE_CHANNELS_VIEWED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: MULTIPLE_CHANNELS_VIEWED_ACTION,
+        handler: &MULTIPLE_CHANNELS_VIEWED_HANDLER,
+    }
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static TYPING_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: TYPING_ACTION,
-    handler: &TYPING_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: TYPING_ACTION,
+        handler: &TYPING_HANDLER,
+    }
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static PRESENCE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: PRESENCE_ACTION,
-    handler: &PRESENCE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: PRESENCE_ACTION,
+        handler: &PRESENCE_HANDLER,
+    }
+}

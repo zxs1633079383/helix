@@ -24,13 +24,12 @@
 //! 序列化对消息正确）——本改**只**让幂等覆盖类 read 旁路，gate 对消息事件的 event_seq 校验不动。
 
 use helix_core::{Effect, EffectSink};
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::ws::parser::extract_post_fields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POST_READ_ACTION: &str = "post_read";
 
@@ -109,8 +108,9 @@ impl WsMessageHandler for PostReadHandler {
 
 static POST_READ_HANDLER: PostReadHandler = PostReadHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_READ_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_READ_ACTION,
-    handler: &POST_READ_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_READ_ACTION,
+        handler: &POST_READ_HANDLER,
+    }
+}

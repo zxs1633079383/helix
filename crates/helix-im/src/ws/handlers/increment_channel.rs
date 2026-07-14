@@ -1,12 +1,11 @@
 use helix_core::{Correlation, Effect, EffectSink};
-use linkme::distributed_slice;
 
 use crate::channel::Channel;
 use crate::error::ImError;
 use crate::state::Seq;
 use crate::sync_session::IncrementChannel;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const INCREMENT_CHANNEL_ACTION: &str = "increment_channel";
 
@@ -157,8 +156,9 @@ impl WsMessageHandler for IncrementChannelHandler {
 
 static INCREMENT_CHANNEL_HANDLER: IncrementChannelHandler = IncrementChannelHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static INCREMENT_CHANNEL_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: INCREMENT_CHANNEL_ACTION,
-    handler: &INCREMENT_CHANNEL_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: INCREMENT_CHANNEL_ACTION,
+        handler: &INCREMENT_CHANNEL_HANDLER,
+    }
+}

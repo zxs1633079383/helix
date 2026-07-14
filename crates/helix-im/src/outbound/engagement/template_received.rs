@@ -4,14 +4,11 @@
 //! `api.BaseRoutes.Post.Handle("/templateReceived", ...)`（Post = `/post` subrouter，api.go:171）。
 //! body 真源 `posts.go:721` 匿名 struct `{postId}`；Go 校验 `postId == ""` → 必填。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// POST /api/cses/post/templateReceived — 模板消息已收到回执。真源 `{postId}`。
 /// 路径前缀 `post`（单数），勿写成 `posts`（命名陷阱：与同文件其余 posts/* 不同前缀）。
@@ -29,11 +26,12 @@ impl OutboundCommand for TemplateReceivedCommand {
     }
 }
 static TEMPLATE_RECEIVED: TemplateReceivedCommand = TemplateReceivedCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static TEMPLATE_RECEIVED_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_template_received",
-    command: &TEMPLATE_RECEIVED,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_template_received",
+        command: &TEMPLATE_RECEIVED,
+    }
+}
 
 #[cfg(test)]
 mod tests {

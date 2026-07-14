@@ -149,13 +149,13 @@ async fn main() {
             tracing::warn!(ok, total, "IM schema 建表部分失败");
         }
     }
-    // EventSink 先于 HTTP：P6 blocker(b) 横切层 401/断网回报经它 emit，故 with_crosscut 前先建。
+    // EventSink 先于 HTTP：P6 blocker(b) 横切层业务 outcome 回报经它 emit，故先建。
     // Clone 是 Arc-backed O(1)：一份给横切回报，原件随后进 EngineConfig（同一 broadcast）。
     let (event_sink, mut event_rx) = NativeEventSink::new();
 
     // P6 blocker(b)：激活 P1.5 出站横切层（drift-review dbe1b74..7e9f3ca finding① 收敛=装配就绪
-    // 未接泵→此处接泵）。with_crosscut 包：鉴权意图→token 注入 + 401→im:http:unauthorized +
-    // 断网→im:net:offline + traceparent 透传。通用身份头仍走下方 set_global_header（registry 句柄保留）。
+    // 未接泵→此处接泵）。with_crosscut 包：鉴权意图→token 注入 + IM outcome observer +
+    // traceparent 透传。通用身份头仍走下方 set_global_header（registry 句柄保留）。
     // session 凭据 = cookieId(=userId)（现网 IM_HTTP session 轴）；实际 token 留 driver，core 零 token(C6)。
     let auth = AuthTokenRegistry::new();
     if !cookie_id.is_empty() {
@@ -170,7 +170,12 @@ async fn main() {
             return;
         }
     };
-    let http = NativeHttp::with_crosscut(shared_client, Arc::new(event_sink.clone()), auth);
+    let http = NativeHttp::with_crosscut(
+        shared_client,
+        Arc::new(event_sink.clone()),
+        auth,
+        helix_im::http_outcome_event,
+    );
     // 身份头单一真源（HTTP 全局头 + WS 握手头同源，host 注入；core/im 不认识 userId，
     // connectionId 才由 im 盖章见 A3b）。各头来源/缺失后果（真机curl真源 §0 通用头 +
     // sync-v2 鉴权）：cookieId(=userId)/companyId 缺→paas-grpc 业务失败；appType 缺→Java

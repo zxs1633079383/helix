@@ -78,7 +78,7 @@ fn require_str_paths() {
     assert!(require_str(&args, "empty", "cmd").is_err());
 }
 
-/// is_outbound：真实注册表（distributed_slice 全集）命中既有命令、不命中未知。
+/// is_outbound：真实 inventory 注册表命中既有命令、不命中未知。
 #[test]
 fn is_outbound_hits_registered() {
     assert!(is_outbound("im_revoke"));

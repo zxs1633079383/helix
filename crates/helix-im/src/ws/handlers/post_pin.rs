@@ -5,13 +5,12 @@
 //! `im:post:updated`，前端只直绑 `data-pinned`，不做乐观合成。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::sync_session::PostFields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POST_PIN_ACTION: &str = "post_pin";
 
@@ -76,8 +75,9 @@ impl WsMessageHandler for PostPinHandler {
 
 static POST_PIN_HANDLER: PostPinHandler = PostPinHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_PIN_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_PIN_ACTION,
-    handler: &POST_PIN_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_PIN_ACTION,
+        handler: &POST_PIN_HANDLER,
+    }
+}

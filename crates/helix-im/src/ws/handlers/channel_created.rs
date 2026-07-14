@@ -9,12 +9,11 @@
 //! gate 决定；缺 id 则整体 noop，边界零信任 helix-im 不变量 4）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const CHANNEL_CREATED_ACTION: &str = "channel_created";
 
@@ -56,8 +55,9 @@ impl WsMessageHandler for ChannelCreatedHandler {
 
 static CHANNEL_CREATED_HANDLER: ChannelCreatedHandler = ChannelCreatedHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static CHANNEL_CREATED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: CHANNEL_CREATED_ACTION,
-    handler: &CHANNEL_CREATED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: CHANNEL_CREATED_ACTION,
+        handler: &CHANNEL_CREATED_HANDLER,
+    }
+}

@@ -33,12 +33,11 @@
 //! - `channel_ids`：必填，**非空字符串数组**（目标 channel）。snake_case UI param（C1），
 //!   翻成 wire `channelIds`。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS};
+use crate::outbound::registry::{OutboundCommand, OutboundRegistration};
 
 /// 取必填**非空数组**字段，缺/类型错/空 → `ImError::Parse`（边界零信任，HX-C 不变量 4）。
 fn require_nonempty_array<'a>(
@@ -72,8 +71,9 @@ impl OutboundCommand for CreatePostsCommand {
     }
 }
 static CREATE_POSTS: CreatePostsCommand = CreatePostsCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CREATE_POSTS_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_create_posts",
-    command: &CREATE_POSTS,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_create_posts",
+        command: &CREATE_POSTS,
+    }
+}

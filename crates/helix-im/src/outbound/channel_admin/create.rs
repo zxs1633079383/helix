@@ -12,14 +12,11 @@
 //!   raw body 透传（helix-im 只认领 endpoint + 校验最小必填），透传保真 → snake_case `direct_key`
 //!   不被改写为 camelCase（与 `channel/create` 同策略，避免 helix 重拼复杂嵌套结构丢字段）。
 
-use linkme::distributed_slice;
 use serde_json::Value;
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// #8 POST /api/cses/channel/createSpecifyOwner — 指定 owner 建群 →
 /// channel_created + channel_member_update + post（系统加群消息）。
@@ -41,8 +38,9 @@ impl OutboundCommand for CreateSpecifyOwnerCommand {
     }
 }
 static CREATE_SPECIFY_OWNER: CreateSpecifyOwnerCommand = CreateSpecifyOwnerCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CREATE_SPECIFY_OWNER_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_create_specify_owner",
-    command: &CREATE_SPECIFY_OWNER,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_create_specify_owner",
+        command: &CREATE_SPECIFY_OWNER,
+    }
+}

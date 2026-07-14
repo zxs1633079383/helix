@@ -6,8 +6,8 @@
 //! ADR-007）。本 native 壳只做装配：
 //! - 裸出站：[`NativeHttp::with_config`] / [`NativeHttp::from_shared`]（无横切，host-cli / 测试）。
 //! - 带横切：[`NativeHttp::with_crosscut`] 把 `SharedHttpClient` 包进
-//!   [`CrossCuttingHttp`]（鉴权意图→token 注入 + 401→`im:http:unauthorized` +
-//!   断网→`im:net:offline` + traceparent 透传）。**装配点就绪，泵接线待 M2**：当前
+//!   [`CrossCuttingHttp`]（鉴权意图→token 注入 + 业务 outcome observer +
+//!   traceparent 透传）。**装配点就绪，泵接线待 M2**：当前
 //!   host-cli 走裸 `Plain` 出站，横切语义未生效；M2 host 装配层（host-cli / Tauri shell）
 //!   登录态就绪后改调 `with_crosscut` 接横切层（drift-review dbe1b74..7e9f3ca finding①）。
 
@@ -17,7 +17,8 @@ use helix_core::effect::{HttpRequest, HttpResponse};
 use helix_core::ports::HttpRequester;
 use helix_core::PortError;
 use helix_driver_host::{
-    AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig, SharedHttpClient,
+    AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig,
+    HttpOutcomeObserver, SharedHttpClient,
 };
 
 use crate::event_sink::NativeEventSink;
@@ -29,7 +30,8 @@ type NativeCrossHttp = CrossCuttingHttp<SharedHttpClient, NativeEventSink>;
 ///
 /// HTTP execution, header injection, and error classification live in
 /// `helix-driver-host` so native and FFI share one implementation. 横切层（鉴权/401/
-/// 断网/trace）可选叠加——`with_crosscut` 装配后，请求经 [`CrossCuttingHttp`]，否则裸发。
+/// outcome observer/trace）可选叠加——`with_crosscut` 装配后，请求经
+/// [`CrossCuttingHttp`]，否则裸发。
 ///
 /// `headers` 是底层 `SharedHttpClient` 的共享 registry 句柄（Arc clone），无论是否叠加横切层，
 /// `set/remove_global_header`（connectionId / 通用头运行时注入）始终可达——横切层只管鉴权头，
@@ -64,16 +66,23 @@ impl NativeHttp {
     }
 
     /// 装配出站横切层（P1.5 / M2 接缝③）：把裸 `SharedHttpClient` 包进 [`CrossCuttingHttp`]，
-    /// 注入失败码回报通道（`event_sink`）+ 真鉴权 token 源（`auth`，平台壳登录后写入）。
+    /// 注入业务事件回报通道（`event_sink`）+ 真鉴权 token 源（`auth`，平台壳登录后写入）+
+    /// 业务结果策略（`outcome_observer`）。
     /// 底层 registry 句柄保留 → 通用头注入路径不受横切层影响。
     pub fn with_crosscut(
         client: SharedHttpClient,
         event_sink: Arc<NativeEventSink>,
         auth: AuthTokenRegistry,
+        outcome_observer: HttpOutcomeObserver,
     ) -> Self {
         let headers = client.headers();
         Self {
-            inner: HttpInner::Cross(CrossCuttingHttp::new(client, event_sink, auth)),
+            inner: HttpInner::Cross(CrossCuttingHttp::new(
+                client,
+                event_sink,
+                auth,
+                outcome_observer,
+            )),
             headers,
         }
     }
@@ -164,7 +173,7 @@ mod tests {
         let (sink, _rx) = NativeEventSink::new();
         let auth = AuthTokenRegistry::new();
         auth.set_session("cookieId", "u1");
-        let http = NativeHttp::with_crosscut(client, Arc::new(sink), auth);
+        let http = NativeHttp::with_crosscut(client, Arc::new(sink), auth, |_, _| None);
 
         // 通用头注入仍可达（横切叠加后 registry 句柄保留，不再 unreachable）。
         http.set_global_header("connectionId", "conn-1")

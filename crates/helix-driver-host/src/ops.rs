@@ -2,9 +2,9 @@
 
 use bytes::Bytes;
 use helix_core::effect::StorageOp;
+pub use helix_core::port_codec::classify_port_error;
 use helix_core::ports::Storage;
-use helix_core::tick::{PortError as CorePortError, PortOutcome, ReplyBytes};
-use helix_core::PortError;
+use helix_core::tick::{PortOutcome, ReplyBytes};
 
 use crate::rows_to_reply_bytes;
 
@@ -92,27 +92,12 @@ pub fn table_set_key(ops: &[StorageOp]) -> String {
     tables.join("|")
 }
 
-/// Convert driver boundary errors into module-visible port errors.
-pub fn classify_port_error(e: PortError) -> CorePortError {
-    match &e {
-        PortError::Storage(_) => CorePortError::Storage(0),
-        PortError::Transport(msg) if msg.starts_with("timeout") => CorePortError::Timeout,
-        PortError::Transport(_) => CorePortError::Network,
-        PortError::Http(msg) => {
-            let code = msg
-                .split_whitespace()
-                .find_map(|w| w.parse::<u16>().ok())
-                .unwrap_or(0);
-            CorePortError::Http(code)
-        }
-        _ => CorePortError::Other(0),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use helix_core::effect::StorageOp;
+    use helix_core::tick::PortError as CorePortError;
+    use helix_core::PortError;
 
     #[test]
     fn test_classify_port_error_timeout() {

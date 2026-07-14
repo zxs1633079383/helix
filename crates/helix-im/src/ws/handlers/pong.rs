@@ -9,13 +9,10 @@
 //! → `pong_compensate::compensate_from_pong`（5s 节流去重 + 全局 sync 窗口）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 
-use super::super::{
-    ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, PONG_ACTION, WS_HANDLERS,
-};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, PONG_ACTION};
 
 struct PongHandler;
 
@@ -62,8 +59,9 @@ impl WsMessageHandler for PongHandler {
 
 static PONG_HANDLER: PongHandler = PongHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static PONG_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: PONG_ACTION,
-    handler: &PONG_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: PONG_ACTION,
+        handler: &PONG_HANDLER,
+    }
+}

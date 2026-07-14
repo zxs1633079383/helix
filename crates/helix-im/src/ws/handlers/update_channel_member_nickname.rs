@@ -11,12 +11,11 @@
 //! 三键缺一 → noop（边界零信任，helix-im 不变量 4）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const NICKNAME_ACTION: &str = "update_channel_member_nickName";
 
@@ -71,8 +70,9 @@ impl WsMessageHandler for NicknameHandler {
 
 static NICKNAME_HANDLER: NicknameHandler = NicknameHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static NICKNAME_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: NICKNAME_ACTION,
-    handler: &NICKNAME_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: NICKNAME_ACTION,
+        handler: &NICKNAME_HANDLER,
+    }
+}

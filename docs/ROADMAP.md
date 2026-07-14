@@ -10,6 +10,7 @@
 > 2026-07-13 更新：Web 仍是产品目标，但原 **W0 浏览器探针 → W1-W4 Web 壳/缓存**执行路线已撤销。当前先拍板新的 Rust 架构：三端统一业务门面、PC/Flutter 默认 host 能力、Web 平台适配能力，以及 local-first/remote fallback 与 WS 物理连接/业务协议边界；拍板前不实施新 Web driver。历史 `helix-driver-wasm` 继续归档。
 > 2026-07-14 更新：用户拍板新的 [三端 Rust 业务门面与平台适配设计](./过会方案/helix-三端Rust业务门面与平台适配设计.md)。不新增共享大 crate：先收口 `helix-im::client_api` 与异步 query 真源，再缩窄 core WS port，最后建立独立 `helix-driver-web`。PC/Flutter 保持 shared host 默认实现；Web 首版为 Rust 内存 session store + Browser Fetch + 浏览器物理 WS bridge。
 > 2026-07-14 A1：`helix-im::client_api` 已成为 alias、payload normalization、capabilities 与 `AppCommand` 构造真源；`mobile_contract` 仅兼容 re-export，FFI 已删除本地业务构造逻辑。native 当前没有 public-name/payload/Tauri invoke 边界，本阶段不凭空增加 wrapper，真实入口出现时直接复用共享门面。
+> 2026-07-14 A4：`helix-driver-web` Rust 平台壳已落地；Browser Fetch、page-session store、外部 WS bridge、browser timer、有界 event batch v2 与 WASM API 均通过构建/测试，同 Tick native/FFI/Web parity 通过。HTTP 结果到业务事件的策略由 `helix-im` 单一持有，host/Web 只注入 observer；事件/动作/运行时问题轮询队列均有硬上限和显式丢弃/失败语义。真浏览器/真 Go glue、正式 Web CI/HX-C003 激活和历史 wasm 清理仍属 A5。
 
 ---
 
@@ -31,7 +32,7 @@
 
 ### AI 工程化硬化（已闭合，见 §四；本段保留为历史对照）
 
-当前 CI 仍是已交付双端 matrix（native + FFI）→ clippy deny-list → per-crate AGENTS.md → cargo public-api gate。Web 新 Rust 接入层落地后再按实际边界追加 target/type-check 与契约测试；当前不用历史骨架伪造绿色 gate。
+当前 CI 仍是已产品化双端 matrix（native + FFI）→ clippy deny-list → per-crate AGENTS.md → cargo public-api gate。A4 Web Rust 壳已单独通过 wasm build 与契约测试；正式 Web target/type-check gate 和 HX-C003 留到 A5 真浏览器链路激活，当前不用历史骨架伪造绿色 gate。
 
 - [x] **F1 Flutter FFI API 最小面** ✅：C++-host 直连面定稿——`create_with_network(vtable)/destroy/set_header/remove_header/helix_command` ✅ + `start`(pump 内 register+start)✅；**`on_ws_frame`/`on_http_response` 已删**（C++-host 模型 Rust 自持 WS/HTTP，入站走 `SharedWsClient::with_inbound_tick`）；**`helix_query` 已接 IM 本地查询路由**（`helix_im::mobile_query::{plan,shape_json}` → `ScanSpec` → SQLite-backed read），剩余验收放入 F5 Flutter demo / native-vs-FFI parity
 - [x] **F2 host storage 复用** ✅：`StorageOp` 语义与 native 单一真源对齐，shared conformance 覆盖；**pump 直接用 `HostStorage`**（F4 后 `FfiStorage` 冗余薄壳已 git rm）
@@ -54,7 +55,7 @@
 
 **关键路径**：F4.1–F4.4 ✅ 端到端接通并 merge（c229531）。**采纳「抽取共享」而非「FFI 自写泵」**——native+ffi 共用 host `run_engine_loop`，parity by construction。**剩 F4.5/F5** = Flutter 真机冒烟 + native↔FFI byte-level 跨端一致验收。**headless 守卫兑现**：全程 core/helix-im 零改（cargo tree -p helix-core 零运行时复证），改动落 `helix-driver-{ffi,host,native}`；同一份 core 跑 ffi 零改 ✅。
 
-### M4 —— Web 产品化（ADR-014 · A1/A2/A3/A3.1 已完成）
+### M4 —— Web 产品化（ADR-014 · A1-A4 已完成）
 
 > **边界**：Web 复用 `helix-core + helix-im` 的业务门面和状态机；PC/Flutter 的完整 SQLite/SharedWsClient 不搬进浏览器。旧 W0→W4、浏览器 probe、Dedicated Worker/IndexedDB 预设均继续失效。详细文件/类型/验收见 [当前实施真源](./过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
@@ -62,7 +63,7 @@
 - [x] **A2 查询旁路收口 + local-first**：以现有 `helix-im::query` 异步路径为唯一真源，引入 Durable/Session/Disabled 与 Complete/Partial/Miss/Unsupported，远端 fallback 仍产 `Effect::Http`。〔验收〕11 条端到端回放 + 8 条 coverage 单测覆盖本地直出、回源合并、缓存顺序、失败、coverage 反证、会话隔离与陈旧行清理；FFI `mobile_query` 仅保留同步 compatibility，payload 解析、ScanSpec 与 shape 重复真源为 0，ABI 在 A5 删除。
 - [x] **A3 WS port 缩窄**：core 只暴露 send-only `FrameSender`；host engine/dispatch 只依赖发帧，`SharedWsClient`/`NativeTransport` 以具体类型管理 connect/recv/close，reconnect 留在 host；旧 core `Transport` 已删除。〔验收〕只实现 send 的 dyn-safe 契约、精确 TransportId/bytes 路由、动态注册后发送、native 受控本地 WS 的三类 Tick/reader 内部顺序、两份独立 shell 对相同**注入**生命周期 Tick 的逐步业务输出一致；core 零 runtime。这里不声称 native/FFI 物理生产者已 parity。
 - [x] **A3.1 真实 WS 生命周期收口**：`SharedWsClient::connect` 只完成握手并返回一次性 activation；host 动态注册先 insert sender 再回 ack，native 预填表与 FFI 初连/重连均在 sender 可路由后发布 Connected，随后才放行 reader。reader/显式 close 共用每连接 `Prepared → Active → Finished` 状态，remote-close + cleanup-close 只产一次 Disconnected。〔验收〕host Connected 即 Send 命中注册 sender；native 本地 WS 严格 `Connected → Inbound → Disconnected` 且 cleanup 无尾随 Tick；FFI 真实 pump 两代连接严格 `Connected → Inbound → Disconnected → Connected → Inbound`。
-- [ ] **A4 新建 `helix-driver-web`**：纯 Rust 实现 Browser Fetch、有界内存 session store、ExternalWsBridge、timer 与批量 EventSink，不写前端页面。〔验收〕wasm target 通过，同 Tick 剧本三端 parity，Web 无业务 fetch/WS parser/sync/cursor 副本。
+- [x] **A4 新建 `helix-driver-web`**：纯 Rust 实现 Browser Fetch（完整 body、timeout、shutdown abort）、有界 page-session store、ExternalWsBridge、browser timer、有界 event batch v2 与 WASM API，不写前端页面；`helix-im` 注册机制由不支持该 wasm target 的 `linkme` 单轨迁为 `inventory`，仅 Web final artifact 负责初始化 WASM constructors。HTTP outcome 业务策略在 `helix-im` 单一持有，host/Web 经 observer 复用；所有 JS 轮询输出队列都有硬上限，event batch 用 gap/drop 计数报告丢弃。〔验收〕`wasm32-unknown-unknown` build 通过，相关六 crate 全测通过，同 Tick 剧本三端 parity 通过；Web 未复制业务 fetch/WS parser/sync/cursor。
 - [ ] **A5 真链路与清理**：最小平台 glue 跑 hello→收帧→local-first/HTTP fallback→send→echo→断连恢复；激活正式 Web gate/HX-C003；清理历史 `helix-driver-wasm` 与 FFI `mobile_query` 重复旁路。〔验收〕浏览器矩阵和真 Go E2E 通过，且继续复用 A3.1 的真实 adapter Tick 顺序/去重合同。
 
 ---
@@ -143,10 +144,10 @@
 - [ ] 三端 command/query 全部经过 `helix-im::client_api`，driver 业务旁路 = 0
 - [x] local-first 对 Complete/Partial/Miss/Unsupported 均有可证伪回放
 - [x] core WS public port 只保留 outbound frame，仍零 runtime/platform 依赖
-- [ ] PC/Flutter 继续共用 host SQLite/HTTP/WS；native/FFI parity 零回归
-- [ ] Web HTTP 由 Rust Browser Fetch 执行；物理 WS bridge 不解析业务帧
-- [ ] Web session store 不跨刷新，cursor 不脱离 coverage 单独恢复
-- [ ] 同一 Tick 剧本 native/FFI/Web 输出同业务 Effect/DomainEvent
+- [x] PC/Flutter 继续共用 host SQLite/HTTP/WS；A4 六 crate 全测与 parity 零回归
+- [x] Web HTTP 由 Rust Browser Fetch 执行；物理 WS bridge 不解析业务帧
+- [x] Web session store 不跨刷新，cursor 不脱离 coverage 单独恢复
+- [x] 同一 Tick 剧本 native/FFI/Web 输出同业务 Effect/DomainEvent
 
 ---
 
@@ -159,7 +160,7 @@
 |---|---|---|
 | 护栏 | clippy.toml deny-list | ✅ 根 `clippy.toml` deny `Instant::now`/`SystemTime::now`/`thread::spawn`/`println`/`eprintln`（带 reason）；`helix-core`/`helix-im` Cargo.toml `[lints.clippy] disallowed_methods=deny`+`unwrap_used=warn`；driver 三 crate allow（ambient 合法落点） |
 | 验证 | CI 多 job 闸门链 | ✅ `.gitlab-ci.yml`（非 GitHub）`gate` stage（双端 check + cargo tree 零运行时 + grep 零业务 + test）+ `api-surface` stage（public-api gate）；`scripts/gate.sh` + `install-hooks.sh` pre-push |
-| 指令 | 嵌套 AGENTS.md ×N（就近继承） | ✅ 7 crate 全配 per-crate AGENTS.md（core/im/driver-{host,native,ffi,wasm}/host-cli） |
+| 指令 | 嵌套 AGENTS.md ×N（就近继承） | ✅ 8 crate 全配 per-crate AGENTS.md（core/im/driver-{host,native,ffi,web,wasm}/host-cli） |
 | 流程 | repo-local agent 路由 + skills | ✅ `.agents/` 路由/约束订阅 + `/helix-new-module`·`/helix-replay-test`·`/helix-stress-verify` skills + HX-C 坑卡 |
 | 锁定 | toolchain pinning | ✅ `rust-toolchain.toml` + `rustfmt.toml` |
 | 参照 | Zig-as-reference（行为真源） | ✅ root AGENTS.md §4.5「现网 `cses-client/src-tauri/.../im` 对应 handler 是 source of truth」+ ADR |

@@ -178,13 +178,18 @@ pub fn run(args: PumpArgs) {
             }
         }
 
-        // ── event sink（FFI 批处理 egress）先建：HTTP 横切层 401/断网回报复用同一出口。
+        // ── event sink（FFI 批处理 egress）先建：HTTP 业务 outcome 回报复用同一出口。
         let event_sink = Arc::new(FfiEventSink::new(args.vtable));
 
         // ── http / ws ports（Rust 持有，共享 header registry）──────────
         let http = match SharedHttpClient::with_registry(args.config.clone(), args.headers.clone())
         {
-            Ok(c) => FfiHttpRequester::new(c, Arc::clone(&event_sink), args.auth.clone()),
+            Ok(c) => FfiHttpRequester::new(
+                c,
+                Arc::clone(&event_sink),
+                args.auth.clone(),
+                helix_im::http_outcome_event,
+            ),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedHttpClient 失败");
                 let _ = args.ready_tx.send(None);

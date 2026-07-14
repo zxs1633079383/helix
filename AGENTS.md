@@ -2,7 +2,7 @@
 
 > Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，产品目标集合为三端：
 > **native（Tauri 桌面 / PC）· FFI（Flutter 手机端）· Web**。
-> 当前交付事实：native/FFI 已产品化；Web 仍是产品目标但尚未交付。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，按 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md) 分阶段实施；原 W0 浏览器探针与 W0→W4 路线继续失效。历史 `helix-driver-wasm` 继续归档，不自动转正。
+> 当前交付事实：native/FFI 已产品化；Web 的 A4 Rust 平台壳已编译交付，但真浏览器/真 Go 产品链仍待 A5。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，按 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md) 分阶段实施；原 W0 浏览器探针与 W0→W4 路线继续失效。历史 `helix-driver-wasm` 继续归档，不自动转正。
 > IM 只是跑在它上面的**第一个业务模块**；core layer 本身不认识任何业务。
 > 概念祖先：Bun（runtime 跑 JS）/ Dioxus core（headless 核跑 6 端）。
 
@@ -23,7 +23,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
     ▲ 实现 ports（依赖方向单向：adapter → core，永不反向）
 平台驱动层   helix-driver-host(shared rusqlite Storage/StorageOp) · helix-driver-native(PC/Tauri 壳)
              helix-driver-ffi(Flutter FFI 壳)
-             helix-driver-web = planned（Rust Browser Fetch + session store + 外部 WS bridge）
+             helix-driver-web(A4 implemented：Rust Browser Fetch + session store + 外部 WS bridge)
              helix-driver-wasm = archived/experimental（历史骨架，不作为正式 Web 壳）
 ```
 
@@ -49,7 +49,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **Web 方案实施中**：A1 `helix-im::client_api`、A2 local-first 查询、A3 send-only `FrameSender` 与 A3.1 真实 WS 生命周期发布屏障已落地；下一步按 A4 创建 `helix-driver-web`。不得跳过共享边界直接写 Web 壳；历史 `helix-driver-wasm` 只作参考，不原地冒充交付实现。
+- [ ] **Web 方案实施中**：A1 `helix-im::client_api`、A2 local-first 查询、A3 send-only `FrameSender`、A3.1 真实 WS 生命周期发布屏障与 A4 `helix-driver-web` Rust 平台壳均已落地；下一步只按 A5 接真浏览器/真 Go glue、激活正式 Web gate，再清理历史旁路。历史 `helix-driver-wasm` 继续归档，不原地冒充交付实现。
 - [ ] **Web 持久化可降级**：PC/Flutter 可完整 SQLite；Web 可以无本地持久化或只保留明确受限的缓存。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
 - [ ] **WebSocket 边界**：core port 只保留 outbound frame；三端共享 `helix-im` 的帧处理与协议生命周期。PC/Flutter 复用 Rust 默认连接实现，Web 的真实 socket、重连执行、浏览器生命周期与鉴权接线由 Web 平台适配器兑现。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）
@@ -62,10 +62,11 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 ## 3. 编译 / 测试 cadence
 
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
-- **已交付双端验收**（phase 完成前 / 改 port 或 driver 后必跑；Web 新方案落地后再追加对应 gate）：
+- **已产品化双端验收**（phase 完成前 / 改 port 或 driver 后必跑；A4 Web Rust 壳当前另跑 wasm 验证，正式 Web gate 待 A5）：
   ```bash
   cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
   cargo test -p helix-core
+  cargo build --target wasm32-unknown-unknown -p helix-driver-web
   ```
 - `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
 - **autonomous / sub-agent 模式**：自跑验证并回报；**单任务 prompt 模式**：输出命令让用户决定（除非用户说"你跑"）
@@ -110,7 +111,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 |---|---|---|
 | HX-C001 | helix-core 零运行时 / 零平台依赖（grep gate）| active |
 | HX-C002 | async port Send 边界 + 状态禁 `&'a`（双端 + 生命周期）| active |
-| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（新 Web Rust 接入层落地时再评估激活） |
+| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（A4 已落地；待 A5 真链路时激活为正式 Web gate） |
 | HX-C004 | features 必须 additive，禁互斥 | active |
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |

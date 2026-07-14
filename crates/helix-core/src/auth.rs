@@ -15,6 +15,8 @@
 //! 意图头是 **generic HTTP 鉴权路由**（`bot` vs `session` 两类凭据），不是 IM 的
 //! message/channel/temporaryId 等业务概念——故落 core 不破「core 零业务」不变量。
 
+use crate::effect::HttpRequest;
+
 /// 出站鉴权意图头名（业务模块标意图 / driver 横切层消费后 **strip 掉**，不出网）。
 ///
 /// 非标准 `X-` 头：仅在 helix 进程内 core→driver 之间传递意图，driver 注入真 token 后删除，
@@ -50,6 +52,37 @@ impl AuthKind {
     }
 }
 
+/// Consume the internal auth-intent header and inject the driver-owned
+/// credential selected by `resolve`.
+///
+/// The function is pure: token storage and rotation remain in platform
+/// drivers, while native/FFI/Web share the exact strip/override semantics.
+pub fn apply_auth_intent(
+    mut request: HttpRequest,
+    mut resolve: impl FnMut(AuthKind) -> Option<(String, String)>,
+) -> (HttpRequest, Option<AuthKind>) {
+    let kind = request
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(AUTH_KIND_HEADER))
+        .and_then(|(_, value)| AuthKind::from_str(value));
+
+    request
+        .headers
+        .retain(|(name, _)| !name.eq_ignore_ascii_case(AUTH_KIND_HEADER));
+
+    if let Some(kind) = kind {
+        if let Some((auth_name, auth_value)) = resolve(kind) {
+            request
+                .headers
+                .retain(|(name, _)| !name.eq_ignore_ascii_case(&auth_name));
+            request.headers.push((auth_name, auth_value));
+        }
+    }
+
+    (request, kind)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +104,36 @@ mod tests {
     fn auth_kind_header_is_intent_only_namespace() {
         // 非标准头：进程内意图，driver 注 token 后 strip，绝不出网。
         assert_eq!(AUTH_KIND_HEADER, "X-Auth-Kind");
+    }
+
+    #[test]
+    fn auth_intent_is_stripped_and_resolved_credential_overrides_stale_value() {
+        let request = HttpRequest {
+            method: "GET".into(),
+            url: "https://example.invalid".into(),
+            headers: vec![
+                (AUTH_KIND_HEADER.into(), "session".into()),
+                ("cookieId".into(), "stale".into()),
+                ("x-request-id".into(), "request-1".into()),
+            ],
+            body: None,
+        };
+        let (prepared, kind) = apply_auth_intent(request, |requested| {
+            (requested == AuthKind::Session).then(|| ("cookieId".into(), "current".into()))
+        });
+
+        assert_eq!(kind, Some(AuthKind::Session));
+        assert!(!prepared
+            .headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case(AUTH_KIND_HEADER)));
+        assert!(prepared
+            .headers
+            .iter()
+            .any(|(name, value)| name == "cookieId" && value == "current"));
+        assert!(prepared
+            .headers
+            .iter()
+            .any(|(name, value)| name == "x-request-id" && value == "request-1"));
     }
 }

@@ -7,12 +7,11 @@
 //! 只透传 raw role update 作为 thin bus 信号；权威成员表仍由 byIds / member_update 投影兑现。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const ROLE_UPDATED_ACTION: &str = "channel_member_role_updated";
 
@@ -59,8 +58,9 @@ impl WsMessageHandler for RoleUpdatedHandler {
 
 static ROLE_UPDATED_HANDLER: RoleUpdatedHandler = RoleUpdatedHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static ROLE_UPDATED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: ROLE_UPDATED_ACTION,
-    handler: &ROLE_UPDATED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: ROLE_UPDATED_ACTION,
+        handler: &ROLE_UPDATED_HANDLER,
+    }
+}

@@ -1,4 +1,4 @@
-//! Outbound 命令注册表（`linkme` distributed_slice，对齐 `ws/registry.rs` Strategy 模式）。
+//! Outbound 命令注册表（`inventory`，对齐 `ws/registry.rs` Strategy 模式）。
 //! P2-C4 收口：单 `match` 改为分布式注册；命令只产 `(endpoint_path, wire_body)`，
 //! 身份头 / Content-Type / `Effect` 组装在本文件单点收口（DRY），各命令不碰 `Effect`/headers。
 
@@ -8,7 +8,6 @@ use std::sync::OnceLock;
 use bytes::Bytes;
 use helix_core::effect::{Effect, HttpRequest};
 use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
-use linkme::distributed_slice;
 use serde_json::Value;
 
 use crate::error::ImError;
@@ -17,7 +16,7 @@ const CSES_TRACK_ID_HEADER: &str = "Cses-Track-Id";
 
 /// 出站网关**意图**（spec06 vote/score 第二网关，方案 A）：core 只标「这条命令走哪个网关 base」，真实 base host 由 host 经 config 注入（HX-C001：core 零 host 硬编码，base 仍 host 注入、确定性）。
 ///
-/// 与 `AuthKind` 意图维度同构（命令标意图、driver/host 给真值），最小惊讶；既有 88 命令零改动
+/// 与 `AuthKind` 意图维度同构（命令标意图、driver/host 给真值），最小惊讶；既有命令零改动
 /// （默认 `Im`）。两个 base host **不同**：IM 含 `/api/cses` 前缀，Default 是 `env.restHost` 无前缀。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Gateway {
@@ -67,7 +66,7 @@ pub(crate) trait OutboundCommand: Sync {
         false
     }
 
-    /// 出站**网关意图**（spec06 vote/score 第二网关，方案 A）：默认 `Im`（既有 88 命令零改动）；
+    /// 出站**网关意图**（spec06 vote/score 第二网关，方案 A）：默认 `Im`（既有命令零改动）；
     /// vote/score（`/vote/*` `/average/*`）override `Gateway::Default` 走第二 base。`http_post` 据此选 base。
     fn gateway(&self) -> Gateway {
         Gateway::Im
@@ -80,8 +79,7 @@ pub(crate) struct OutboundRegistration {
     pub(crate) command: &'static dyn OutboundCommand,
 }
 
-#[distributed_slice]
-pub(crate) static OUTBOUND_COMMANDS: [OutboundRegistration];
+inventory::collect!(OutboundRegistration);
 
 static OUTBOUND_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn OutboundCommand>, ImError>,
@@ -89,15 +87,16 @@ static OUTBOUND_MAP: OnceLock<
 
 fn registry() -> Result<&'static HashMap<&'static str, &'static dyn OutboundCommand>, ImError> {
     OUTBOUND_MAP
-        .get_or_init(|| build_registry(&OUTBOUND_COMMANDS))
+        .get_or_init(|| build_registry(inventory::iter::<OutboundRegistration>))
         .as_ref()
         .map_err(Clone::clone)
 }
 
 fn build_registry(
-    entries: &'static [OutboundRegistration],
+    entries: impl IntoIterator<Item = &'static OutboundRegistration>,
 ) -> Result<HashMap<&'static str, &'static dyn OutboundCommand>, ImError> {
-    let mut map = HashMap::with_capacity(entries.len());
+    let entries = entries.into_iter();
+    let mut map = HashMap::with_capacity(entries.size_hint().0);
     for entry in entries {
         let cmd_name = entry.command.name();
         if entry.name != cmd_name {
@@ -123,10 +122,10 @@ pub fn is_outbound(name: &str) -> bool {
 
 /// 返回闭集内该命令名的 **interned `&'static str`**（命中），否则 `None`（G-6 / PI-1）。
 ///
-/// 闭集 = `OUTBOUND_COMMANDS` 注册的全部 88 命令名（registry 的 key 本就是 `&'static str`，
-/// 由各命令 `#[distributed_slice]` 注册时的 `&'static` 字面量提供）。FFI driver 边界据此把
+/// 闭集 = `inventory` 注册的全部命令名（registry 的 key 本就是 `&'static str`，
+/// 由各命令注册时的 `&'static` 字面量提供）。FFI driver 边界据此把
 /// C 侧传入的命令名零分配映射成 `Cow::Borrowed`（命中），miss 走 `Cow::Owned` fallback（仍正确）。
-/// O(1) 查表（复用 cached `registry()` map）。`im_send_message`/`im_reconnect`/query 名不在 88
+/// O(1) 查表（复用 cached `registry()` map）。`im_send_message`/`im_reconnect`/query 名不在
 /// outbound 闭集内 → miss → owned（低频，不影响热路径写命令的零分配保证）。
 pub fn canonical_command_name(name: &str) -> Option<&'static str> {
     registry()
@@ -147,7 +146,7 @@ pub fn is_read(name: &str) -> bool {
 
 /// 注册表命令总数（`im_send_message` 不在内——它走 module.rs send arm，非 HTTP-fire outbound）。
 ///
-/// 供性质测试断言「outbound 注册总数」不漂移（CP：补 createPosts 后 = 88）；构建失败（重复/错配）
+/// 供性质测试断言「outbound 注册总数」不漂移；构建失败（重复/错配）
 /// 退化为 0（不吞 `Result`，O(1) 取 len）。
 pub fn outbound_command_count() -> usize {
     registry().map(HashMap::len).unwrap_or(0)

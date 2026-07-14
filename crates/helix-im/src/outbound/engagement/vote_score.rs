@@ -32,14 +32,11 @@
 //! readVote / average/read = **读族**（`is_read=true`，无 WS 回声、HTTP 响应体即数据 → dispatch
 //! 注册 `OutboundReadReply` 回灌前端）；create/delete = 写族（默认 `is_read=false`）。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, Gateway, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, Gateway, OutboundCommand, OutboundRegistration};
 
 /// 注册第二网关命令样板：`name` + `build` 闭包 → struct/static/slice 三件套。
 /// `$read`（bool 字面量）= is_read（读族 true / 写族 false）；`gateway()` 全族恒为 `Default`。
@@ -62,11 +59,12 @@ macro_rules! vote_cmd {
                 Gateway::Default
             }
         }
-        #[distributed_slice(OUTBOUND_COMMANDS)]
-        static $reg: OutboundRegistration = OutboundRegistration {
-            name: $name,
-            command: &$cmd_struct,
-        };
+        inventory::submit! {
+            OutboundRegistration {
+                name: $name,
+                command: &$cmd_struct,
+            }
+        }
     };
 }
 

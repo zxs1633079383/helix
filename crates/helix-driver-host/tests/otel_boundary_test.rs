@@ -223,8 +223,13 @@ async fn crosscutting_http_starts_response_span_with_status() {
         endpoint: "noop".to_string(),
         protocol: "noop".to_string(),
     });
-    let http = CrossCuttingHttp::new(MockHttp, Arc::new(NoopSink), AuthTokenRegistry::new())
-        .with_otel(runtime.clone());
+    let http = CrossCuttingHttp::new(
+        MockHttp,
+        Arc::new(NoopSink),
+        AuthTokenRegistry::new(),
+        helix_im::http_outcome_event,
+    )
+    .with_otel(runtime.clone());
 
     let response = http
         .request(HttpRequest {

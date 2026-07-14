@@ -1,5 +1,7 @@
 use serde_json::json;
 
+use crate::{EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE};
+
 pub const CONTRACT_VERSION: u32 = 1;
 pub const BUS_CHANNEL: &str = "im:__bus__";
 
@@ -37,8 +39,8 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:todo:updated",
     "im:health:result",
     "im:net:reconnect_requested",
-    "im:http:unauthorized",
-    "im:net:offline",
+    EVENT_HTTP_UNAUTHORIZED,
+    EVENT_NET_OFFLINE,
 ];
 
 pub const META_QUERIES: &[&str] = &["helix_capabilities", "helix_version"];

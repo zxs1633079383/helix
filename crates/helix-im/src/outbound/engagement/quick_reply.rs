@@ -3,14 +3,11 @@
 //! endpoint 真源 `posts.go:51`；body 真源 `posts.go:181` 匿名 struct
 //! `{postId, userId, emoji}`。userId 可选（Go 侧用传入 userId；空时由 App 层语义决定）。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// POST /api/cses/posts/quickReply — emoji 快捷回复。真源 `{postId, userId, emoji}`。
 struct QuickReplyCommand;
@@ -30,8 +27,9 @@ impl OutboundCommand for QuickReplyCommand {
     }
 }
 static QUICK_REPLY: QuickReplyCommand = QuickReplyCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static QUICK_REPLY_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_quick_reply",
-    command: &QUICK_REPLY,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_quick_reply",
+        command: &QUICK_REPLY,
+    }
+}

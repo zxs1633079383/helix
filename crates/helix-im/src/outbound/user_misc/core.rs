@@ -2,7 +2,7 @@
 //!
 //! 纯**读/写** request：helix-im 只 build 正确 wire body，driver fire HTTP（鉴权头/401/断网/trace
 //! 由 P1.5 横切层注入，core 不碰 token，HX-C001/C6）。与 P5b `bot_agent.rs` 真零交集：独立文件 +
-//! distributed_slice 注册，不碰 registry.rs/channel*/posts_read.rs（仅 mod.rs append 一行）。
+//! inventory 注册，不碰 registry.rs/channel*/posts_read.rs（仅 mod.rs append 一行）。
 //!
 //! ## endpoint / body 真源（mattermost csesapi 逐字 json tag，不自造 fixture，C5）
 //! - users/* = `api/cses/users`（api.go:173）：`/list`（user.go:15）、`/status/ids`（user.go:16）。
@@ -24,14 +24,12 @@
 //! P5a 断言 outbound endpoint+body 与现网 decode 结构一致即可（响应态 bug 不在 build 层裁决）。
 //! `PERSONAL_USER_FORBIDDEN`（personal_guard.go:13 verbatim）是 teams/* 的 403 响应码，亦响应态。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
 use crate::outbound::registry::{
     build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
-    OUTBOUND_COMMANDS,
 };
 // build 层 helper 外提 sibling（收口行数基线，纯函数零行为变更）。
 use super::helpers::{do_search_body, require_str_array};
@@ -57,11 +55,12 @@ macro_rules! misc_cmd {
             }
         }
         // 单元 struct 值经 const promotion 直接做 &'static dyn 注册目标（无需中间 static）。
-        #[distributed_slice(OUTBOUND_COMMANDS)]
-        static $reg: OutboundRegistration = OutboundRegistration {
-            name: $name,
-            command: &$cmd_struct,
-        };
+        inventory::submit! {
+            OutboundRegistration {
+                name: $name,
+                command: &$cmd_struct,
+            }
+        }
     };
 }
 

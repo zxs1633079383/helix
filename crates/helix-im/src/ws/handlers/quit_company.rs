@@ -11,12 +11,11 @@
 //! channel_member_update 覆盖。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const QUIT_COMPANY_ACTION: &str = "quit_company";
 
@@ -58,8 +57,9 @@ impl WsMessageHandler for QuitCompanyHandler {
 
 static QUIT_COMPANY_HANDLER: QuitCompanyHandler = QuitCompanyHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static QUIT_COMPANY_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: QUIT_COMPANY_ACTION,
-    handler: &QUIT_COMPANY_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: QUIT_COMPANY_ACTION,
+        handler: &QUIT_COMPANY_HANDLER,
+    }
+}

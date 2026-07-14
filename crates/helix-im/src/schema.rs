@@ -16,6 +16,32 @@
 //! - `execute_raw` 签名是 `&'static str`，故每个数组元素都是 string literal
 //!   （'static 生命周期天然满足，无堆分配）。
 
+pub use helix_core::effect::SparseTableSpec;
+
+/// Tables currently addressed through `StorageOp` by `ImModule`.
+pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
+    SparseTableSpec {
+        table: "message",
+        identity_cols: &["temporary_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "channel",
+        identity_cols: &["id"],
+        scope_col: None,
+    },
+    SparseTableSpec {
+        table: "channel_member",
+        identity_cols: &["channel_id", "user_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "channel_event_cursor",
+        identity_cols: &["channel_id"],
+        scope_col: None,
+    },
+];
+
 /// IM 业务 schema（DDL 当数据）。host-cli 启动 migrate 后 loop execute_raw 叠加。
 ///
 /// 与现网 678 `~/Library/Application Support/com.jinqidongli.cses.dev/data/678/tenant.db`

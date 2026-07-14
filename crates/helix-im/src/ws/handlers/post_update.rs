@@ -13,14 +13,13 @@
 //! 故落库 + emit + cursor 全由 gate 完成，本 handler 只解析 + 喂 gate。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::sync_session::EventKind;
 use crate::ws::parser::extract_post_fields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POST_UPDATE_ACTION: &str = "post_update";
 
@@ -107,8 +106,9 @@ pub(super) fn apply_post_update(
 
 static POST_UPDATE_HANDLER: PostUpdateHandler = PostUpdateHandler;
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_UPDATE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_UPDATE_ACTION,
-    handler: &POST_UPDATE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_UPDATE_ACTION,
+        handler: &POST_UPDATE_HANDLER,
+    }
+}

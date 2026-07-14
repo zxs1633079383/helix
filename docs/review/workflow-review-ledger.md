@@ -17,9 +17,12 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: d864963
+last_reviewed_commit: 2b5e6c5
 last_reviewed_at: 2026-07-14
-last_review_runId: manual-dual-review-2026-07-14-review-gap-182
+last_review_runId: agent-review-gap-otel-wiring-2026-07-14-perf-p0
+# 本轮冻结审查窗口 d864963..2b5e6c5（45 commits）。独立 reviewer 复核异步
+# Metrics SDK、生产装配、L1/L2、Collector、Grafana 与先前 4 个 P0 blocker，
+# 判定 FINAL_REVIEW=GREEN；全量 gate、真实 canary 与故障矩阵均已通过。
 # 本轮冻结审查窗口 2dd0d2e..be28042（182 commits），由 drift_standards_review 与
 # drift_behavior_review 两个独立 reviewer 分别按架构约束和行为链路审查；随后主线把
 # blocker 回正并验证到 d864963。ledger 提交本身不纳入自指针，因此提交后诚实 gap=1。
@@ -111,6 +114,7 @@ threshold: 10
 
 | 日期 | review 到 commit | 区间(from..to) | workflow runId | drift 判定 | 关键发现 / 收敛动作 |
 |---|---|---|---|---|---|
+| 2026-07-14 | 2b5e6c5 | d864963..2b5e6c5 (45 commits) | agent-review-gap-otel-wiring-2026-07-14-perf-p0 | 🔴 初审 4 P0 → 已回正，🟢 GREEN | **十六轮 = Helix 分层性能 P0 与异步遥测收敛**。独立 reviewer 初审发现 Effect 重复扫描/动态 HashMap、生产 Tick wait/RSS 空洞、operations/error 分母失真、L2 未覆盖真实完成边界四项 P0；回正为 owned effect 单趟固定摘要、4096 固定 corr 槽、stamped bounded tick、5s 后台 RSS、真实完成点唯一计数、完整 L2 saturation/四故障/profiler。复审确认 `FINAL_REVIEW=GREEN`。38 required + 8 correctness + canary 全部进入 pre Prometheus；HarnessOnly 吞吐 gauge 解决短跑与 30s scrape 错配；Grafana v3 固定 UID、54 panels、P50/P90/P95/P99/AVG、QPS/RPS/error 与 8 个标签变量可用。`HELIX_STRUCTURE_BASE=d864963 scripts/gate.sh` 11/11 PASS（public-api 工具未安装，脚本显式 SKIP）；L1/L2/fault matrix/canary 均 PASS。剩余低风险：launchd 早期失败 trap 可前移、4096 同模 corr 极端并发仅可能丢 latency 样本；不阻断本轮。 |
 | 2026-07-14 | d864963 | 2dd0d2e..be28042 (182 commits)；回正 be28042..d864963 | manual-dual-review-2026-07-14-review-gap-182 | 🔴 重 → 已回正收敛 | **十五轮 = 超期 review-gap 全量收敛**。两个独立 reviewer 分别审架构约束与 HTTP/WS/Effect/Storage/FFI 行为链。确认并修复：结构闸顶层源码漏检、JSON list RMW/O(n²)、OTel 默认开启及无界逐 span 任务、FFI 7→8 ABI 漂移、too_long 错删本地历史、移动合同漏 `im:post:send-failed`、上传 PUT URL 当长期读取 URL、Strict Matrix G09 字段漂移、OTel native/FFI 装配缺口。为满足单文件 ≤300 行同步按职责拆分 core/im/host/native/ffi 源码，未改变三层依赖方向。`HELIX_STRUCTURE_BASE=2dd0d2e scripts/gate.sh` 11/11 PASS（public-api 工具未安装，脚本按设计显式 SKIP）；HX-C001 零运行时、trace 静态安全、五 crate 测试、FFI C++ 冒烟、结构闸均绿。无新增 HX-C；真实 Collector/预发 Prometheus/Grafana 与真实 OSS 链路保留给压测执行阶段验收。 |
 | 2026-07-02 | 2dd0d2e | 6679e40..2dd0d2e (manual window main..HEAD: #9-#17 DDD package split) | manual-self-check-2026-07-02-helix-im-ddd-9-17 | 🟢 无 drift | helix-im DDD package split #9-#17。纯目录/模块迁移 + structural TDD gate；未触碰 helix-core/driver/Cargo。HX-C001 runtime grep clean；ddd-structure-gate 9-17 + structure-gate + four-crate check + per-issue helix-im tests green。既有 ChannelId test warning 未在本批引入。 |
 | 2026-06-16 | 8c69f25 | — (基线) | — | 🟢 baseline | 规则生效锚点；无 review，仅设基线 |

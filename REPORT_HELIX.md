@@ -91,3 +91,17 @@
 
 - `NEED_HELIX_CHANNEL_MEMBER_FIX.md`：`readLastSeq/msgCount` 仍需后续补齐 Helix `channel_member` schema、send/read/sync 写路径与写后投影后再恢复输出。
 - `too_long` 重拉当前使用 `getLatestPost` 首屏覆盖路径；如果后端回包不是 `data.posts` / `data.items` / `data.list` / `data` / `posts` / `items` 数组形态，会安全跳过 emit，需要后续用真实 Go 回包 fixture 继续收紧。
+
+---
+
+## Rich/File 上传 URL 契约纠偏（2026-07-14）
+
+- 纠正了预签名 PUT URL 被当作上传成功内容 URL 的问题：core 现在要求同时提供明确的
+  `upload_url/public_url`，driver 只向前者写入，成功结果只回传后者。
+- 上层 JSON 合同为 `upload.url`（PUT）+ `upload.publicUrl`（长期可读）；缺任一字段均
+  fail-closed。兼容 PortReply 的 `url` 键只承载 public URL。
+- 统一持久化入口会剥离 `upload.url` 与签名 headers；成功后的持久 props 和
+  `posts/create` 只保留 `publicUrl/objectKey/etag`。
+- 新增本地 HTTP 可证伪测试，使用明显不同的 PUT/CDN URL，核对真实请求目的地与成功结果；
+  同时覆盖缺 public URL 不发 `posts/create`。
+- 当前状态只代表代码合同与本地 server 测试设计闭环，**未声称真实 OSS/pre 对象存储已验收**。

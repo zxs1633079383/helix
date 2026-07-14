@@ -116,7 +116,8 @@ where
                     Ok(resp) => {
                         let bytes = serde_json::to_vec(&json!({
                             "objectKey": resp.object_key,
-                            "url": resp.url,
+                            // PortReply wire 保留兼容键 `url`，值只来自长期可读地址。
+                            "url": resp.public_url,
                             "etag": resp.etag,
                         }))
                         .expect("upload response JSON serialization cannot fail");

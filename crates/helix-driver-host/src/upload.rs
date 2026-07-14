@@ -27,12 +27,16 @@ impl SharedFileUploader {
     }
 
     fn classify_error(e: &reqwest::Error) -> PortError {
-        if e.is_timeout() {
-            PortError::Transport(format!("timeout: {e}"))
-        } else if e.is_connect() || e.is_request() {
-            PortError::Transport(format!("network: {e}"))
+        let is_timeout = e.is_timeout();
+        let is_network = e.is_connect() || e.is_request();
+        // reqwest 错误默认可能携带完整 URL；先剥离，避免签名查询串进入 PortError/trace/log。
+        let sanitized = e.without_url();
+        if is_timeout {
+            PortError::Transport(format!("timeout: {sanitized}"))
+        } else if is_network {
+            PortError::Transport(format!("network: {sanitized}"))
         } else {
-            PortError::Http(e.to_string())
+            PortError::Http(sanitized.to_string())
         }
     }
 }
@@ -52,12 +56,13 @@ impl FileUploader for SharedFileUploader {
         let FileUploadRequest {
             local_path,
             object_key,
-            url,
+            urls,
             headers,
             content_type,
             size,
             ..
         } = req;
+        let (upload_url, public_url) = urls.into_parts();
 
         let metadata = tokio::fs::metadata(&local_path)
             .await
@@ -85,7 +90,7 @@ impl FileUploader for SharedFileUploader {
             }
         }));
 
-        let mut builder = self.client.request(method, &url);
+        let mut builder = self.client.request(method, &upload_url);
         for (name, value) in headers {
             builder = builder.header(&name, value);
         }
@@ -115,7 +120,7 @@ impl FileUploader for SharedFileUploader {
 
         Ok(FileUploadResponse {
             object_key,
-            url: Some(url),
+            public_url,
             etag,
         })
     }

@@ -552,19 +552,21 @@ impl ImModule {
         use helix_core::tick::PortOutcome;
 
         match outcome {
-            PortOutcome::Ok(reply) => match parse_upload_success_reply(reply.0.as_ref()) {
-                Ok(success) => {
-                    self.mark_upload_success(pending_upload, &success, out)?;
+            PortOutcome::Ok(reply) => {
+                match crate::send::upload_props::parse_upload_success_reply(reply.0.as_ref()) {
+                    Ok(success) => {
+                        self.mark_upload_success(pending_upload, &success, out)?;
+                    }
+                    Err(reason) => {
+                        tracing::warn!(
+                            tmp_id = pending_upload.temporary_id.0.as_str(),
+                            error = reason.as_str(),
+                            "upload reply malformed, downgrading to upload failed"
+                        );
+                        self.mark_upload_failed(pending_upload, reason.as_str(), out)?;
+                    }
                 }
-                Err(reason) => {
-                    tracing::warn!(
-                        tmp_id = pending_upload.temporary_id.0.as_str(),
-                        error = reason.as_str(),
-                        "upload reply malformed, downgrading to upload failed"
-                    );
-                    self.mark_upload_failed(pending_upload, reason.as_str(), out)?;
-                }
-            },
+            }
             PortOutcome::Err(e) => {
                 tracing::warn!(
                     tmp_id = pending_upload.temporary_id.0.as_str(),
@@ -709,33 +711,4 @@ fn post_event_seq(post: &serde_json::Value) -> Option<u64> {
                 .and_then(|props| props.get("channel_event_seq"))
                 .and_then(serde_json::Value::as_u64)
         })
-}
-
-fn parse_upload_success_reply(
-    bytes: &[u8],
-) -> Result<crate::send::upload_props::UploadSuccess, String> {
-    let parsed: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|e| format!("upload reply: {e}"))?;
-    let obj = parsed
-        .as_object()
-        .ok_or_else(|| "upload reply must be object".to_string())?;
-
-    Ok(crate::send::upload_props::UploadSuccess {
-        object_key: reply_optional_string(obj, "objectKey")?,
-        url: reply_optional_string(obj, "url")?,
-        etag: reply_optional_string(obj, "etag")?,
-    })
-}
-
-fn reply_optional_string(
-    obj: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Result<Option<String>, String> {
-    let Some(value) = obj.get(key) else {
-        return Ok(None);
-    };
-    value
-        .as_str()
-        .map(|text| Some(text.to_string()))
-        .ok_or_else(|| format!("upload reply field {key} must be string"))
 }

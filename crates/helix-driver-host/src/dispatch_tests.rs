@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, Correlation, DomainEventBytes, FileUploadRequest,
-    FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest, MonotonicUpsertSpec, Row, ScanSpec,
-    StorageOp, TransportId, UpsertSpec,
+    FileUploadResponse, FileUploadUrls, GetSpec, GuardedBumpSpec, HttpRequest, MonotonicUpsertSpec,
+    Row, ScanSpec, StorageOp, TransportId, UpsertSpec,
 };
 use helix_core::ports::{EventSink, FileUploader, Storage, Transport};
 use helix_core::tick::{PortOutcome, ReplyBytes, Tick};
@@ -125,7 +125,11 @@ fn make_upload_request() -> FileUploadRequest {
         local_path: "/tmp/file.png".to_string(),
         object_key: "im/uploads/file.png".to_string(),
         method: "PUT".to_string(),
-        url: "https://oss.example.com/upload".to_string(),
+        urls: FileUploadUrls::new(
+            "https://oss.example.com/upload?signature=write-secret".to_string(),
+            "https://cdn.example.com/im/uploads/file.png".to_string(),
+        )
+        .expect("valid upload urls"),
         headers: vec![("x-oss-meta".to_string(), "1".to_string())],
         content_type: Some("image/png".to_string()),
         size: Some(12),
@@ -161,7 +165,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         Arc::new(StubUploader {
             response: FileUploadResponse {
                 object_key: "im/uploads/file.png".to_string(),
-                url: Some("https://cdn.example.com/im/uploads/file.png".to_string()),
+                public_url: "https://cdn.example.com/im/uploads/file.png".to_string(),
                 etag: Some("etag-123".to_string()),
             },
         }),
@@ -224,6 +228,10 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
                 Some("https://cdn.example.com/im/uploads/file.png")
             );
             assert_eq!(json["etag"].as_str(), Some("etag-123"));
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("write-secret"),
+                "PortReply must not expose the signed PUT URL"
+            );
         }
         Tick::PortReply { outcome, .. } => panic!("expected Ok upload reply, got {outcome:?}"),
         other => panic!("expected Tick::PortReply, got {other:?}"),

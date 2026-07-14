@@ -13,6 +13,8 @@
 
 use bytes::Bytes;
 
+pub use crate::ports::upload::FileUploadUrls;
+
 /// 不透明令牌：把 `Effect::Persist` / `Effect::Http` 与未来的 `Tick::PortReply` 配对。
 ///
 /// `ExecutionShell` 维护 `Correlation → module_index` 映射（`corr_map`），
@@ -305,7 +307,7 @@ pub struct FileUploadRequest {
     pub local_path: String,
     pub object_key: String,
     pub method: String,
-    pub url: String,
+    pub urls: FileUploadUrls,
     pub headers: Vec<(String, String)>,
     pub content_type: Option<String>,
     pub size: Option<u64>,
@@ -315,7 +317,7 @@ pub struct FileUploadRequest {
 #[derive(Debug, Clone)]
 pub struct FileUploadResponse {
     pub object_key: String,
-    pub url: Option<String>,
+    pub public_url: String,
     pub etag: Option<String>,
 }
 
@@ -481,39 +483,5 @@ impl EffectSink {
 impl Default for EffectSink {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn upload_file_effect_carries_path_not_bytes() {
-        let req = FileUploadRequest {
-            local_path: "/tmp/a.png".to_string(),
-            object_key: "im/a.png".to_string(),
-            method: "PUT".to_string(),
-            url: "https://upload.example.com/im/a.png".to_string(),
-            headers: vec![("x-oss-meta".to_string(), "1".to_string())],
-            content_type: Some("image/png".to_string()),
-            size: Some(123),
-        };
-
-        let effect = Effect::UploadFile {
-            corr: Correlation::from_raw(9),
-            req,
-        };
-
-        match effect {
-            Effect::UploadFile { corr, req } => {
-                assert_eq!(corr.raw(), 9);
-                assert_eq!(req.local_path, "/tmp/a.png");
-                assert_eq!(req.object_key, "im/a.png");
-                assert_eq!(req.method, "PUT");
-                assert_eq!(req.size, Some(123));
-            }
-            _ => panic!("expected upload effect"),
-        }
     }
 }

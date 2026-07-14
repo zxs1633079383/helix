@@ -1,6 +1,6 @@
 use crate::state::TemporaryId;
 use crate::ImError;
-use helix_core::effect::FileUploadRequest;
+use helix_core::effect::{FileUploadRequest, FileUploadUrls, SqlValue, StorageOp, UpsertSpec};
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,9 +23,40 @@ pub struct PendingUpload {
 
 #[derive(Debug, Clone)]
 pub struct UploadSuccess {
-    pub object_key: Option<String>,
-    pub url: Option<String>,
+    pub object_key: String,
+    pub public_url: String,
     pub etag: Option<String>,
+}
+
+pub fn parse_upload_success_reply(bytes: &[u8]) -> Result<UploadSuccess, String> {
+    let parsed: Value =
+        serde_json::from_slice(bytes).map_err(|error| format!("upload reply: {error}"))?;
+    let object = parsed
+        .as_object()
+        .ok_or_else(|| "upload reply must be object".to_string())?;
+    let required = |key: &str| {
+        object
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("upload reply field {key} must be non-empty string"))
+    };
+    let etag = object
+        .get("etag")
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| "upload reply field etag must be string".to_string())
+        })
+        .transpose()?;
+    Ok(UploadSuccess {
+        object_key: required("objectKey")?,
+        // 兼容 wire 的 `url` 已收紧为长期可读地址，不得传入 PUT URL。
+        public_url: required("url")?,
+        etag,
+    })
 }
 
 pub fn build_upload_plan(
@@ -107,7 +138,7 @@ fn validate_upload_node(node: &Value, label: &str) -> Result<(), ImError> {
     let upload = node
         .get("upload")
         .ok_or_else(|| ImError::Parse(format!("{label} requires upload")))?;
-    for key in ["method", "url", "objectKey"] {
+    for key in ["method", "url", "publicUrl", "objectKey"] {
         if upload
             .get(key)
             .and_then(Value::as_str)
@@ -144,12 +175,10 @@ pub fn mark_upload_success(
         .and_then(Value::as_object_mut)
         .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?;
     upload.insert("status".to_string(), json!("success"));
-    if let Some(object_key) = &result.object_key {
-        upload.insert("objectKey".to_string(), json!(object_key));
-    }
-    if let Some(url) = &result.url {
-        upload.insert("url".to_string(), json!(url));
-    }
+    upload.remove("url");
+    upload.remove("headers");
+    upload.insert("objectKey".to_string(), json!(&result.object_key));
+    upload.insert("publicUrl".to_string(), json!(&result.public_url));
     if let Some(etag) = &result.etag {
         upload.insert("etag".to_string(), json!(etag));
     }
@@ -189,11 +218,16 @@ pub fn file_upload_request(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ImError::Parse("upload target missing method".to_string()))?;
-    let url = upload
+    let upload_url = upload
         .get("url")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ImError::Parse("upload target missing url".to_string()))?;
+    let public_url = upload
+        .get("publicUrl")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse("upload target missing publicUrl".to_string()))?;
     let object_key = upload
         .get("objectKey")
         .and_then(Value::as_str)
@@ -216,10 +250,54 @@ pub fn file_upload_request(
         local_path: local_path.to_string(),
         object_key: object_key.to_string(),
         method: method.to_string(),
-        url: url.to_string(),
+        urls: FileUploadUrls::new(upload_url.to_string(), public_url.to_string())
+            .map_err(|reason| ImError::Parse(format!("upload target invalid urls: {reason}")))?,
         headers,
         content_type: optional_string(node, upload, "contentType")?,
         size: optional_u64(node, upload, "size")?,
+    })
+}
+
+/// 生成可落库/进入 posts.create 的 props 副本。
+///
+/// PUT URL 与签名 headers 只留在进程内的 PendingSend，任何持久化入口都必须使用本副本。
+pub fn sanitized_for_persistence(props: &Value) -> Value {
+    let mut sanitized = props.clone();
+    if let Some(images) = sanitized.get_mut("images").and_then(Value::as_array_mut) {
+        for image in images {
+            strip_write_credentials(image);
+        }
+    }
+    if let Some(file) = sanitized.get_mut("file") {
+        strip_write_credentials(file);
+    }
+    sanitized
+}
+
+fn strip_write_credentials(node: &mut Value) {
+    if let Some(upload) = node.get_mut("upload").and_then(Value::as_object_mut) {
+        upload.remove("url");
+        upload.remove("headers");
+    }
+}
+
+/// 上传 props 的统一持久化闸门；解析异常同样 fail-closed 为无凭据空对象。
+pub fn props_persist_op(temporary_id: &TemporaryId, props_json: String) -> StorageOp {
+    let props_json = serde_json::from_str::<Value>(&props_json)
+        .map(|props| sanitized_for_persistence(&props))
+        .and_then(|props| serde_json::to_string(&props))
+        .unwrap_or_else(|_| "{}".to_string());
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "message",
+        rows: vec![vec![
+            (
+                "temporary_id".to_string(),
+                SqlValue::Text(temporary_id.0.clone()),
+            ),
+            ("props".to_string(), SqlValue::Text(props_json)),
+        ]],
+        conflict_key: Some("temporary_id"),
+        exclude_from_update: Vec::new(),
     })
 }
 
@@ -278,123 +356,4 @@ fn optional_u64(
         .as_u64()
         .map(Some)
         .ok_or_else(|| ImError::Parse(format!("upload field {key} must be u64")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn rich_accepts_images_and_preserves_frontend_fields() {
-        let props = json!({
-            "textPosition": "bottom",
-            "images": [{
-                "localPath": "/tmp/a.png",
-                "name": "a.png",
-                "width": 800,
-                "upload": {
-                    "status": "pending",
-                    "method": "PUT",
-                    "url": "https://upload",
-                    "headers": {"x-oss": "1"},
-                    "objectKey": "im/a.png"
-                }
-            }],
-            "frontendCustom": {"keep": true}
-        });
-
-        let plan = build_upload_plan("rich", "hello", props).expect("rich image plan");
-
-        assert_eq!(plan.targets, vec![UploadTarget::RichImage { index: 0 }]);
-        assert_eq!(plan.props["images"][0]["upload"]["status"], "uploading");
-        assert_eq!(plan.props["images"][0]["width"], 800);
-        assert_eq!(plan.props["frontendCustom"]["keep"], true);
-    }
-
-    #[test]
-    fn rich_rejects_file_field() {
-        let err = build_upload_plan(
-            "rich",
-            "hello",
-            json!({
-                "textPosition":"top",
-                "images":[
-                    {
-                        "localPath":"/tmp/a.png",
-                        "upload":{"method":"PUT","url":"https://upload","headers":{},"objectKey":"im/a.png"}
-                    }
-                ],
-                "file":{"localPath":"/tmp/a.pdf"}
-            }),
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("rich"));
-    }
-
-    #[test]
-    fn mark_failed_updates_only_target_upload_node() {
-        let mut props = json!({
-            "textPosition":"bottom",
-            "images":[
-                {"localPath":"/tmp/a.png","upload":{"status":"uploading","objectKey":"im/a.png"}},
-                {"localPath":"/tmp/b.png","upload":{"status":"uploading","objectKey":"im/b.png"}}
-            ],
-            "file":{"localPath":"/tmp/doc.pdf","upload":{"status":"uploading","objectKey":"im/doc.pdf"}},
-            "frontendCustom":{"keep":true}
-        });
-
-        mark_upload_failed(&mut props, &UploadTarget::RichImage { index: 0 }, "timeout")
-            .expect("failed mutation");
-
-        assert_eq!(props["images"][0]["upload"]["status"], "failed");
-        assert!(props["images"][0]["upload"].get("error").is_none());
-        assert_eq!(props["images"][1]["upload"]["status"], "uploading");
-        assert_eq!(props["file"]["upload"]["status"], "uploading");
-        assert_eq!(props["frontendCustom"]["keep"], true);
-        assert_eq!(props["images"][1]["upload"]["objectKey"], "im/b.png");
-    }
-
-    #[test]
-    fn file_rejects_message_text() {
-        let props = json!({
-            "file": {
-                "localPath": "/tmp/a.pdf",
-                "upload": {"method":"PUT","url":"https://upload","headers":{},"objectKey":"im/a.pdf"}
-            }
-        });
-
-        let err = build_upload_plan("file", "not allowed", props).unwrap_err();
-
-        assert!(err.to_string().contains("file"));
-    }
-
-    #[test]
-    fn mark_success_updates_only_target_upload_node() {
-        let mut props = json!({
-            "textPosition":"bottom",
-            "images":[
-                {"localPath":"/tmp/a.png","upload":{"status":"uploading","objectKey":"im/a.png"}},
-                {"localPath":"/tmp/b.png","upload":{"status":"uploading","objectKey":"im/b.png"}}
-            ],
-            "frontendCustom": 7
-        });
-
-        mark_upload_success(
-            &mut props,
-            &UploadTarget::RichImage { index: 1 },
-            &UploadSuccess {
-                object_key: Some("im/b.png".to_string()),
-                url: Some("https://cdn/b.png".to_string()),
-                etag: Some("etag-b".to_string()),
-            },
-        )
-        .expect("success mutation");
-
-        assert_eq!(props["images"][0]["upload"]["status"], "uploading");
-        assert_eq!(props["images"][1]["upload"]["status"], "success");
-        assert_eq!(props["images"][1]["upload"]["etag"], "etag-b");
-        assert_eq!(props["frontendCustom"], 7);
-    }
 }

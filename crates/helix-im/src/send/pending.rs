@@ -197,8 +197,8 @@ pub fn optimistic_message_persist_op(
     channel_id: &str,
     body: &Value,
 ) -> StorageOp {
-    // 除渲染字段外同时保留重建 posts/create 所需的确定性输入。Native 重启会清空
-    // pending_sends，失败重试必须只靠 durable message 行恢复，而不能回退 Angular mock。
+    // 除渲染字段外同时保留重建 posts/create 所需的确定性输入。上传写凭据例外：预签名
+    // URL/headers 不进入 durable 行；进程重启后的失败上传必须由调用方获取新签名，不能复用旧凭据。
     let json_text = |key: &str, fallback: &str| {
         body.get(key)
             .and_then(|value| serde_json::to_string(value).ok())
@@ -210,6 +210,11 @@ pub fn optimistic_message_persist_op(
             .unwrap_or("")
             .to_string()
     };
+    let persisted_props = body
+        .get("props")
+        .map(crate::send::upload_props::sanitized_for_persistence)
+        .and_then(|props| serde_json::to_string(&props).ok())
+        .unwrap_or_else(|| "{}".to_string());
     StorageOp::BatchUpsert(UpsertSpec {
         table: "message",
         rows: vec![vec![
@@ -225,10 +230,7 @@ pub fn optimistic_message_persist_op(
             ("user_id".to_string(), SqlValue::Text(string("userId"))),
             ("message".to_string(), SqlValue::Text(string("message"))),
             ("type".to_string(), SqlValue::Text(string("type"))),
-            (
-                "props".to_string(),
-                SqlValue::Text(json_text("props", "{}")),
-            ),
+            ("props".to_string(), SqlValue::Text(persisted_props)),
             (
                 "viewers".to_string(),
                 SqlValue::Text(json_text("viewers", "[]")),
@@ -289,20 +291,7 @@ pub fn optimistic_message_persist_op(
     })
 }
 
-pub fn props_persist_op(temporary_id: &TemporaryId, props_json: String) -> StorageOp {
-    StorageOp::BatchUpsert(UpsertSpec {
-        table: "message",
-        rows: vec![vec![
-            (
-                "temporary_id".to_string(),
-                SqlValue::Text(temporary_id.0.clone()),
-            ),
-            ("props".to_string(), SqlValue::Text(props_json)),
-        ]],
-        conflict_key: Some("temporary_id"),
-        exclude_from_update: Vec::new(),
-    })
-}
+pub use crate::send::upload_props::props_persist_op;
 
 pub fn send_status_persist_op(temporary_id: &TemporaryId, status: &str) -> StorageOp {
     StorageOp::BatchUpsert(UpsertSpec {

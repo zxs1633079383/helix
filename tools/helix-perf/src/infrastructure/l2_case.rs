@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use helix_core::effect::{ScanSpec, TransportId};
 use helix_core::ports::{Storage, Transport};
+use helix_core::tick::AppCommand;
 use helix_core::tick::InboundBytes;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::{
@@ -133,6 +134,14 @@ pub async fn run_case(
         )
         .await;
     });
+
+    tick_tx
+        .send(Tick::Command(AppCommand::new(
+            "perf_metric_probe",
+            Bytes::from_static(b"{}"),
+        )))
+        .await
+        .map_err(|_| "PERF_LOAD_ABORTED: command metric probe channel closed")?;
 
     tokio::time::sleep(Duration::from_millis(windows[0])).await;
     let mut histograms = new_histograms()?;

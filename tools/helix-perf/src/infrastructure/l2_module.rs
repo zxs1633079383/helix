@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, HttpRequest, SqlValue, StorageOp, UpsertSpec};
+use helix_core::effect::{DomainEventBytes, HttpRequest, SqlValue, StorageOp, TimerId, UpsertSpec};
 use helix_core::{CoreError, Effect, EffectSink, Module, Tick};
 
 use super::l2_oracle::L2Oracle;
@@ -24,10 +24,17 @@ impl Module for PerfModule {
 
     fn accepts(&self, tick: &Tick) -> bool {
         matches!(tick, Tick::Inbound(_))
+            || matches!(tick, Tick::Command(command) if command.name == "perf_metric_probe")
     }
 
     fn handle(&mut self, tick: &Tick, _now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
         match tick {
+            Tick::Command(command) if command.name == "perf_metric_probe" => {
+                // 走真实 Command → core → dispatch 完成边界，同时不污染 L2 业务 oracle。
+                out.push(Effect::CancelTimer {
+                    id: TimerId::from_raw(u64::MAX),
+                });
+            }
             Tick::Inbound(frame) => {
                 let value: serde_json::Value = serde_json::from_slice(frame.as_bytes())
                     .map_err(|_| CoreError::NoHandler("invalid perf frame"))?;

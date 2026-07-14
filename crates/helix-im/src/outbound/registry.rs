@@ -5,15 +5,15 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use bytes::Bytes;
-use helix_core::effect::{Effect, HttpRequest};
-use helix_core::{AuthKind, Correlation, AUTH_KIND_HEADER};
+use helix_core::effect::Effect;
+use helix_core::{AuthKind, Correlation};
 use linkme::distributed_slice;
 use serde_json::Value;
 
 use crate::error::ImError;
 
-const CSES_TRACK_ID_HEADER: &str = "Cses-Track-Id";
+mod request;
+use request::http_request;
 
 /// 出站网关**意图**（spec06 vote/score 第二网关，方案 A）：core 只标「这条命令走哪个网关 base」，真实 base host 由 host 经 config 注入（HX-C001：core 零 host 硬编码，base 仍 host 注入、确定性）。
 ///
@@ -270,37 +270,6 @@ pub(crate) fn build_creator_member_users(
         }
     }
     Ok((users, user_ids))
-}
-
-/// 组装一条 `Effect::Http` 请求（Content-Type + connectionId 身份头 + 鉴权意图头）。
-///
-/// 鉴权意图（`X-Auth-Kind`）统一显式下标：session/bot 都只标意图、不拼真凭据；driver 横切层据此
-/// 注真 token 并在出网前 strip（C6，core 不拼 token）。
-fn http_request(
-    base: &str,
-    method: &str,
-    path: &str,
-    body: Value,
-    auth_kind: AuthKind,
-    connection_id: Option<&str>,
-    request_id: Option<&str>,
-    corr: Correlation,
-) -> Effect {
-    let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
-    headers.push((AUTH_KIND_HEADER.to_string(), auth_kind.as_str().to_string()));
-    if let Some(request_id) = request_id.filter(|value| !value.is_empty()) {
-        headers.push((CSES_TRACK_ID_HEADER.to_string(), request_id.to_string()));
-    }
-    Effect::Http {
-        corr,
-        req: HttpRequest {
-            method: method.to_string(),
-            url: format!("{base}/{path}"),
-            headers,
-            body: Some(Bytes::from(serde_json::to_vec(&body).unwrap_or_default())),
-        },
-    }
 }
 
 #[cfg(test)]

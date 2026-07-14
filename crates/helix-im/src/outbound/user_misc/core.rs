@@ -65,6 +65,8 @@ macro_rules! misc_cmd {
     };
 }
 
+mod search;
+
 // ── users/* ──────────────────────────────────────────────────────────────────────
 
 // #1 users/list：按 channel 拉成员用户。真源 `{channelId}`（user.go:23 `ChannelId string json:"channelId"`）。
@@ -255,51 +257,6 @@ misc_cmd!(
             json!({ "page": page, "size": size }),
         ))
     }
-);
-
-// ── search 四件套（body = DoSearchRequest，camelCase tag）────────────────────────────
-//
-// DoSearchRequest（post_search_param.go:25-34）：keyword?/searchType?(int)/postType?/channelType?/
-// channelId/teamId?/isAll/userId(`json:"-"` 服务端从 session 注入，前端**不传**)。
-// search/do = searchAll → 响应含 channels/users/**channelDetails** 第四 key（cses_search.go:42-54），
-// 属响应态；P5a build 层只产请求体。`do_search_body` 组装逻辑外提 user_misc_helpers（收口行数基线）。
-
-// #8 search/post：消息搜索。
-misc_cmd!(
-    SearchPostCommand,
-    SEARCH_POST_REG,
-    "im_search_post",
-    true,
-    |args, cmd| { Ok(("search/post", do_search_body(args, cmd)?)) }
-);
-
-// #9 search/user：用户搜索。
-misc_cmd!(
-    SearchUserCommand,
-    SEARCH_USER_REG,
-    "im_search_user",
-    true,
-    |args, cmd| { Ok(("search/user", do_search_body(args, cmd)?)) }
-);
-
-// #10 search/channel：频道搜索。
-misc_cmd!(
-    SearchChannelCommand,
-    SEARCH_CHANNEL_REG,
-    "im_search_channel",
-    true,
-    |args, cmd| { Ok(("search/channel", do_search_body(args, cmd)?)) }
-);
-
-// #11 search/do：聚合搜索（searchAll → channels/users/channelDetails 四 key 响应）。
-// spec06 §4：search_do = Go 未实现（Java 全局搜索遗留），唯一合法「暂不切」——前端走 legacy，
-// helix 不接读回灌（标 `false`，不注册 OutboundReadReply）。endpoint+body 仍保真（待 Go 补齐后切）。
-misc_cmd!(
-    SearchDoCommand,
-    SEARCH_DO_REG,
-    "im_search_do",
-    false,
-    |args, cmd| { Ok(("search/do", do_search_body(args, cmd)?)) }
 );
 
 #[cfg(test)]

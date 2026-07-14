@@ -83,6 +83,7 @@ impl EngineConfig {
             event_sink: Arc::new(self.event_sink),
             clock: NativeClock,
             trace,
+            metrics: Arc::new(helix_driver_host::NoopMetricSink),
             max_http_inflight: self.max_http_inflight,
             transport_lifecycle_tx,
             transport_trace_tx,

@@ -24,6 +24,10 @@
 
 use helix_core::effect::DomainEventBytes;
 use helix_core::ports::EventSink;
+use helix_driver_host::{
+    AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
+};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 /// broadcast channel 默认容量：缓冲突发事件，超出后慢消费者会 lagged。
@@ -98,6 +102,7 @@ pub enum RecvOutcome {
 pub struct EventReceiver {
     inner: broadcast::Receiver<DomainEventBytes>,
     lagged_total: u64,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl EventReceiver {
@@ -106,7 +111,13 @@ impl EventReceiver {
         Self {
             inner,
             lagged_total: 0,
+            metrics: Arc::new(NoopMetricSink),
         }
+    }
+
+    fn with_metrics(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// 取下一个结果。lagged 被显式上报为 [`RecvOutcome::Lagged`]（并累加计数），
@@ -116,6 +127,13 @@ impl EventReceiver {
             Ok(ev) => RecvOutcome::Event(ev),
             Err(broadcast::error::RecvError::Lagged(n)) => {
                 self.lagged_total = self.lagged_total.saturating_add(n);
+                if self.metrics.is_enabled() {
+                    let _ = self.metrics.try_record(MetricEvent::counter(
+                        MetricId::EventLaggedTotal,
+                        n as f64,
+                        MetricLabels::one(LabelKey::Stage, "native_event_receiver"),
+                    ));
+                }
                 RecvOutcome::Lagged(n)
             }
             Err(broadcast::error::RecvError::Closed) => RecvOutcome::Closed,
@@ -134,6 +152,7 @@ impl EventReceiver {
 #[derive(Clone)]
 pub struct NativeEventSink {
     sender: broadcast::Sender<DomainEventBytes>,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl NativeEventSink {
@@ -145,7 +164,18 @@ impl NativeEventSink {
     /// 自定义容量创建（host 可按部署调大缓冲；测试可调小以触发 lagged）。
     pub fn new_with_capacity(capacity: usize) -> (Self, broadcast::Receiver<DomainEventBytes>) {
         let (sender, receiver) = broadcast::channel(capacity);
-        (Self { sender }, receiver)
+        (
+            Self {
+                sender,
+                metrics: Arc::new(NoopMetricSink),
+            },
+            receiver,
+        )
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// 订阅新的接收端（裸 broadcast receiver，向后兼容）。
@@ -155,7 +185,7 @@ impl NativeEventSink {
 
     /// 订阅可观测接收端：lagged 不再静默（E7）。event_bus loop 应优先用这个。
     pub fn subscribe_observed(&self) -> EventReceiver {
-        EventReceiver::new(self.sender.subscribe())
+        EventReceiver::new(self.sender.subscribe()).with_metrics(Arc::clone(&self.metrics))
     }
 
     /// 当前活跃订阅者数量（测试用）。
@@ -172,7 +202,13 @@ impl EventSink for NativeEventSink {
     fn emit(&self, event: DomainEventBytes) {
         // send() 在 broadcast 中是同步的，不需要 await
         // 错误（无接收者 = Err(SendError)）静默忽略
-        self.sender.send(event).ok();
+        if self.sender.send(event).is_err() && self.metrics.is_enabled() {
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::EventNoReceiverTotal,
+                1.0,
+                MetricLabels::one(LabelKey::Stage, "native_event_sink"),
+            ));
+        }
     }
 }
 
@@ -180,142 +216,6 @@ impl EventSink for NativeEventSink {
 // （host pump 每 step 调一次 flush()；native 这里什么都不做，行为零变。FFI 才攒批一次过边界。）
 impl helix_driver_host::BatchSink for NativeEventSink {}
 
-// ─── 单元测试 ────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use bytes::Bytes;
-
-    #[tokio::test]
-    async fn test_emit_received_by_subscriber() {
-        let (sink, mut rx) = NativeEventSink::new();
-
-        let payload = Bytes::from_static(b"hello-event");
-        sink.emit(DomainEventBytes(payload.clone()));
-
-        let received = rx.recv().await.expect("should receive event");
-        assert_eq!(received.0, payload);
-    }
-
-    #[tokio::test]
-    async fn test_emit_no_receiver_does_not_panic() {
-        let (sink, rx) = NativeEventSink::new();
-        drop(rx); // 无接收者
-
-        // 不应 panic
-        sink.emit(DomainEventBytes(Bytes::from_static(b"orphan")));
-    }
-
-    /// 回归锚: E7 —— 慢消费者落后时，lagged 被显式上报为 RecvOutcome::Lagged，
-    /// 不再被 broadcast 静默吞掉。
-    #[tokio::test]
-    async fn test_lagged_surfaced_not_silent_e7() {
-        // 容量 2 + 不消费地灌 5 条 → 接收方落后 3 条
-        let (sink, rx) = NativeEventSink::new_with_capacity(2);
-        let mut obs = EventReceiver::new(rx);
-        for i in 0..5u8 {
-            sink.emit(DomainEventBytes(Bytes::from(vec![i])));
-        }
-
-        // 第一个结果必须是 Lagged（显式信号），而非直接跳到 Event
-        match obs.recv().await {
-            RecvOutcome::Lagged(n) => {
-                assert!(n >= 1, "lagged 数应 >= 1，实际 {n}");
-                assert!(obs.lagged_total() >= 1, "lagged_total 应累加");
-            }
-            other => panic!("落后时首个结果必须是 Lagged，实际 {other:?}"),
-        }
-
-        // lagged 之后仍能继续取到保留窗口内的事件（流不中断）
-        match obs.recv().await {
-            RecvOutcome::Event(_) => {}
-            other => panic!("lagged 后应继续取到 Event，实际 {other:?}"),
-        }
-    }
-
-    /// 所有 sender drop 后，recv 返回 Closed（消费侧据此退出 loop）。
-    #[tokio::test]
-    async fn test_closed_outcome_e7() {
-        let (sink, rx) = NativeEventSink::new();
-        let mut obs = EventReceiver::new(rx);
-        drop(sink);
-        assert!(matches!(obs.recv().await, RecvOutcome::Closed));
-    }
-
-    #[tokio::test]
-    async fn test_multiple_subscribers() {
-        let (sink, mut rx1) = NativeEventSink::new();
-        let mut rx2 = sink.subscribe();
-
-        let payload = Bytes::from_static(b"broadcast");
-        sink.emit(DomainEventBytes(payload.clone()));
-
-        assert_eq!(rx1.recv().await.expect("rx1").0, payload);
-        assert_eq!(rx2.recv().await.expect("rx2").0, payload);
-    }
-
-    // ─── C3-core：im:__bus__ 信封转换 + 事件名提取 ─────────────────────────────
-
-    fn domain_event(json: serde_json::Value) -> DomainEventBytes {
-        DomainEventBytes(Bytes::from(serde_json::to_vec(&json).unwrap()))
-    }
-
-    /// 回归锚: C3 —— DomainEvent（{event,data}）→ im:__bus__ 信封 {channel,payload}。
-    #[test]
-    fn to_bus_envelope_wraps_event_as_channel() {
-        let ev = domain_event(serde_json::json!({
-            "event": "im:post:read",
-            "data": { "channel_id": "ch_1", "msg_id": "m_1" }
-        }));
-        let envelope = to_bus_envelope(&ev);
-        assert_eq!(
-            envelope.get("channel").and_then(|c| c.as_str()),
-            Some("im:post:read"),
-            "channel 取自 DomainEvent 的 event 字段"
-        );
-        // payload 完整保留原 {event,data} 对象（前端 dispatcher 消费）。
-        assert_eq!(
-            envelope.get("payload"),
-            Some(&serde_json::json!({
-                "event": "im:post:read",
-                "data": { "channel_id": "ch_1", "msg_id": "m_1" }
-            }))
-        );
-    }
-
-    /// 边界零信任：非法 JSON payload → channel 回退空串，不 panic。
-    #[test]
-    fn to_bus_envelope_invalid_json_falls_back_empty_channel() {
-        let ev = DomainEventBytes(Bytes::from_static(b"not json{"));
-        let envelope = to_bus_envelope(&ev);
-        assert_eq!(envelope.get("channel").and_then(|c| c.as_str()), Some(""));
-    }
-
-    /// host-cli 计数验证路径：从 DomainEvent 提取 event 名。
-    #[test]
-    fn bus_event_name_extracts_event_field() {
-        let ev = domain_event(serde_json::json!({
-            "event": "im:post:deleted",
-            "data": {}
-        }));
-        assert_eq!(bus_event_name(&ev).as_deref(), Some("im:post:deleted"));
-    }
-
-    #[test]
-    fn bus_event_name_none_on_missing_or_invalid() {
-        assert_eq!(
-            bus_event_name(&domain_event(serde_json::json!({"x": 1}))),
-            None
-        );
-        assert_eq!(
-            bus_event_name(&DomainEventBytes(Bytes::from_static(b"{["))),
-            None
-        );
-    }
-
-    #[test]
-    fn bus_channel_constant_is_internal_namespace() {
-        assert!(BUS_CHANNEL.starts_with("im:__"));
-    }
-}
+#[path = "event_sink_tests.rs"]
+mod tests;

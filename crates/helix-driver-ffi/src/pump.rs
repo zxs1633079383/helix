@@ -21,9 +21,9 @@ use helix_core::ports::Transport;
 use helix_core::{ExecutionShell, Tick};
 use helix_driver_host::engine::{self, EngineDeps, TransportTable};
 use helix_driver_host::{
-    spawn_reconnect_supervisor, AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry,
-    HostNetworkConfig, HostOtelRuntime, HostStorage, ReconnectPolicy, ReconnectTraceSink,
-    SharedFileUploader, SharedHttpClient, SharedWsClient,
+    spawn_reconnect_supervisor, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
+    CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime, HostStorage,
+    ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, SharedHttpClient, SharedWsClient,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -63,6 +63,8 @@ pub struct PumpArgs {
     pub ready_tx: std::sync::mpsc::SyncSender<Option<QueryDeps>>,
     pub db_url: String,
     pub max_http_inflight: usize,
+    pub metrics: Arc<dyn AsyncMetricSink>,
+    pub metric_runtime: Option<BoundedMetricRuntime>,
 }
 
 /// pump 线程主体：建 current_thread runtime → block_on 装配 + 跑 host 泵核。
@@ -91,7 +93,7 @@ pub fn run(args: PumpArgs) {
         // 完成；此后须 `shutdown_timeout` 收尾 runtime，绝不靠 Drop（见块末注释）。
         // ── storage（共享 host rusqlite）─────────────────────────────
         let storage = match HostStorage::open_sqlite_url(&args.db_url).await {
-            Ok(s) => Arc::new(s),
+            Ok(s) => Arc::new(s.with_metric_sink(Arc::clone(&args.metrics))),
             Err(e) => {
                 tracing::error!(error = %e, db = %args.db_url, "FFI pump 打开 storage 失败");
                 let _ = args.ready_tx.send(None);
@@ -124,14 +126,20 @@ pub fn run(args: PumpArgs) {
         }
 
         // ── event sink（FFI 批处理 egress）先建：HTTP 横切层 401/断网回报复用同一出口。
-        let event_sink = Arc::new(FfiEventSink::new(args.vtable));
+        let event_sink = Arc::new(
+            FfiEventSink::new(args.vtable).with_metric_sink(Arc::clone(&args.metrics)),
+        );
         let otel = HostOtelRuntime::from_env("helix-driver-ffi");
 
         // ── http / ws ports（Rust 持有，共享 header registry）──────────
         let http = match SharedHttpClient::with_registry(args.config.clone(), args.headers.clone())
         {
-            Ok(c) => FfiHttpRequester::new(c, Arc::clone(&event_sink), args.auth.clone())
-                .with_otel(otel.clone()),
+            Ok(c) => FfiHttpRequester::new(
+                c.with_metric_sink(Arc::clone(&args.metrics)),
+                Arc::clone(&event_sink),
+                args.auth.clone(),
+            )
+            .with_otel(otel.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedHttpClient 失败");
                 let _ = args.ready_tx.send(None);
@@ -141,7 +149,9 @@ pub fn run(args: PumpArgs) {
         let main_transport = TransportId::from_raw(MAIN_TRANSPORT);
         // 入站帧 → Tick::Inbound 直发泵（with_inbound_tick）；不经 C++。
         let ws = match SharedWsClient::with_registry(args.config.clone(), args.headers.clone()) {
-            Ok(c) => c.with_inbound_tick(main_transport, args.tick_tx.clone()),
+            Ok(c) => c
+                .with_metric_sink(Arc::clone(&args.metrics))
+                .with_inbound_tick(main_transport, args.tick_tx.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedWsClient 失败");
                 let _ = args.ready_tx.send(None);
@@ -191,6 +201,7 @@ pub fn run(args: PumpArgs) {
         let reconnect_config = args.config.clone();
         let reconnect_headers = args.headers.clone();
         let reconnect_tick_tx = args.tick_tx.clone();
+        let reconnect_metrics = Arc::clone(&args.metrics);
         let _reconnect_handle = spawn_reconnect_supervisor(
             main_transport,
             ReconnectPolicy::default(),
@@ -201,8 +212,10 @@ pub fn run(args: PumpArgs) {
                 let config = reconnect_config.clone();
                 let headers = reconnect_headers.clone();
                 let tick_tx = reconnect_tick_tx.clone();
+                let metrics = Arc::clone(&reconnect_metrics);
                 async move {
                     let mut ws = SharedWsClient::with_registry(config, headers)?
+                        .with_metric_sink(metrics)
                         .with_inbound_tick(main_transport, tick_tx);
                     ws.connect().await?;
                     Ok(ws)
@@ -231,6 +244,7 @@ pub fn run(args: PumpArgs) {
             event_sink,
             clock,
             trace: ffi_trace_hooks(args.command_traces, otel),
+            metrics: Arc::clone(&args.metrics),
             max_http_inflight: args.max_http_inflight,
             transport_lifecycle_tx: Some(transport_lifecycle_tx),
             transport_trace_tx,
@@ -251,6 +265,10 @@ pub fn run(args: PumpArgs) {
             transport_rx,
         )
         .await;
+        if let Some(metric_runtime) = args.metric_runtime {
+            let outcome = metric_runtime.shutdown(Duration::from_millis(1500));
+            tracing::debug!(?outcome, "FFI 异步指标 worker 已收尾");
+        }
     });
 
     // 🔴 lifecycle-net-decouple（生命周期绝不被网络 I/O 阻塞）：

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use bytes::Bytes;
 use helix_core::tick::{AppCommand, Tick};
-use helix_driver_host::TraceCarrier;
+use helix_driver_host::{LabelKey, MetricEvent, MetricId, MetricLabels, TraceCarrier};
 
 use super::handle::HelixHandle;
 use super::shared::{ffi_payload_to_vec, ffi_str, FFI_BUSY, FFI_INVALID, FFI_NULL, FFI_OK};
@@ -133,6 +133,13 @@ fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceC
         Ok(()) => FFI_OK,
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
             handle.command_traces.rollback_last();
+            if handle.metrics.is_enabled() {
+                let _ = handle.metrics.try_record(MetricEvent::counter(
+                    MetricId::FfiBusyTotal,
+                    1.0,
+                    MetricLabels::one(LabelKey::Stage, "tick_queue"),
+                ));
+            }
             FFI_BUSY
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {

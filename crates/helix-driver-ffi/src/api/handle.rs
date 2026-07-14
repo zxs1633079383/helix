@@ -1,7 +1,9 @@
 use helix_core::tick::Tick;
 use helix_driver_host::{
-    AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig,
+    AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime, CommandTraceQueue,
+    HostHeaderRegistry, HostNetworkConfig, MetricRuntimeConfig, NoopMetricSink,
 };
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::pump::{self, PumpArgs, QueryDeps};
@@ -28,6 +30,8 @@ pub struct HelixHandle {
     pub(crate) auth: AuthTokenRegistry,
     /// `Tick::Command` 的 host-local trace sidecar FIFO（每个命令一槽，None/Some 都占位保序）。
     pub(crate) command_traces: CommandTraceQueue,
+    /// 非阻塞指标入口；disabled 时为真 Noop，不创建 worker、不读时钟。
+    pub(crate) metrics: Arc<dyn AsyncMetricSink>,
     /// tick channel 发送端。Sender 非 Sync，用 Mutex 包住允许 &self 送 tick。
     pub(crate) tick_tx: parking_lot::Mutex<Option<mpsc::Sender<Tick>>>,
     /// graceful drain 信号端；destroy 取出 send(()) 一次（与 tick_tx drop 双触发，任一即 drain）。
@@ -76,6 +80,11 @@ pub unsafe extern "C" fn helix_create_with_network(
     let headers = HostHeaderRegistry::default();
     let auth = AuthTokenRegistry::new();
     let command_traces = CommandTraceQueue::default();
+    let metric_runtime = start_metric_runtime();
+    let metrics = metric_runtime
+        .as_ref()
+        .map(BoundedMetricRuntime::sink)
+        .unwrap_or_else(|| Arc::new(NoopMetricSink));
 
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
@@ -104,6 +113,8 @@ pub unsafe extern "C" fn helix_create_with_network(
         ready_tx,
         db_url,
         max_http_inflight,
+        metrics: Arc::clone(&metrics),
+        metric_runtime,
     };
 
     // pump 专用线程：current_thread runtime 跑 host run_engine_loop（core 单线程，GOAL §1.3）。
@@ -132,11 +143,41 @@ pub unsafe extern "C" fn helix_create_with_network(
         headers,
         auth,
         command_traces,
+        metrics,
         tick_tx: parking_lot::Mutex::new(Some(tick_tx)),
         shutdown_tx: parking_lot::Mutex::new(Some(shutdown_tx)),
         pump_thread: parking_lot::Mutex::new(Some(pump_thread)),
         query,
     }))
+}
+
+fn start_metric_runtime() -> Option<BoundedMetricRuntime> {
+    let enabled = std::env::var("HELIX_METRICS_ENABLED")
+        .ok()
+        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes"));
+    if !enabled {
+        return None;
+    }
+    let defaults = MetricRuntimeConfig::default();
+    let config = MetricRuntimeConfig {
+        enabled: true,
+        service_name: "helix-driver-ffi".to_string(),
+        endpoint: std::env::var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+            .unwrap_or_else(|_| defaults.endpoint.clone()),
+        deployment_environment: std::env::var("DEPLOYMENT_ENVIRONMENT")
+            .unwrap_or_else(|_| defaults.deployment_environment.clone()),
+        platform: "ffi".to_string(),
+        run_context: std::env::var("HELIX_PERF_RUN_ID")
+            .unwrap_or_else(|_| defaults.run_context.clone()),
+        ..defaults
+    };
+    match BoundedMetricRuntime::start_otlp(config) {
+        Ok(runtime) => Some(runtime),
+        Err(error) => {
+            tracing::error!(%error, "FFI 异步指标 worker 启动失败，降级为 Noop");
+            None
+        }
+    }
 }
 
 /// FFI DB 路径解析：env `HELIX_DB` 显式优先；否则进程内临时库（测试/无配置兜底）。

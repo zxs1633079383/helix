@@ -5,6 +5,16 @@ use crate::infrastructure::{
     execute_l1, execute_l2, new_run_id, validate_json_contracts, EvidenceWriter,
 };
 
+#[cfg(feature = "sdk-metrics")]
+pub fn run_faults(root: &Path) -> Result<(), String> {
+    let path = crate::infrastructure::run_fault_matrix(root)?;
+    println!(
+        "PERF_FAULT_MATRIX_COMPLETE verdict=PASS evidence={}",
+        path.display()
+    );
+    Ok(())
+}
+
 pub fn validate_contracts(root: &Path) -> Result<(), String> {
     validate_json_contracts(root)?;
     println!("PERF_CONTRACTS_OK: scenario/metric/run schema 可解析");

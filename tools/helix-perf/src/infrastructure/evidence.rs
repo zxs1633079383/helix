@@ -35,6 +35,7 @@ impl EvidenceWriter {
         )?;
         atomic_json(&self.directory.join("cleanup.json"), &artifacts.cleanup)?;
         atomic_json(&self.directory.join("sqlite.json"), &artifacts.sqlite)?;
+        atomic_json(&self.directory.join("profile.json"), &artifacts.profile)?;
         atomic_jsonl(&self.directory.join("metrics.jsonl"), metrics)?;
         atomic_bytes(&self.directory.join("histograms.hdr"), &artifacts.hdr)?;
         atomic_values_jsonl(
@@ -68,6 +69,7 @@ impl EvidenceWriter {
                 "metrics": "metrics.jsonl", "histograms": "histograms.hdr",
                 "traces": "trace-index.jsonl", "correctness": "correctness.json",
                 "cleanup": "cleanup.json", "sqlite": "sqlite.json", "summary": "summary.json"
+                , "profile": "profile.json"
             },
             "errors": summary.errors
         });

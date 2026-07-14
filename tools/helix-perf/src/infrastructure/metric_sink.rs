@@ -186,16 +186,6 @@ impl MetricProbe {
         }
     }
 
-    #[inline]
-    pub fn try_record(&self, _value: u64) {
-        let labels = MetricLabels::one(LabelKey::Layer, "L2")
-            .with(LabelKey::Stage, "telemetry")
-            .with(LabelKey::Operation, "perf_probe");
-        let _ = self
-            .sink
-            .try_record(MetricEvent::counter(MetricId::OperationsTotal, 1.0, labels));
-    }
-
     pub fn snapshot(&self) -> ProbeSnapshot {
         let snapshot = self.runtime.as_ref().expect("runtime present").snapshot();
         ProbeSnapshot {

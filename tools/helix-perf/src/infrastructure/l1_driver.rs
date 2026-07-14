@@ -142,6 +142,7 @@ pub fn execute_l1(
         trace_index: trace,
         sqlite: serde_json::json!({"applicable": false, "reason": "L1 pure core"}),
         cleanup: serde_json::json!({"residue": 0, "status": "clean", "resources": []}),
+        profile: serde_json::json!({"applicable": false, "reason": "L1 保持纯 core 测量"}),
     };
     Ok((summary, metrics, artifacts))
 }

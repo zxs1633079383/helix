@@ -47,6 +47,7 @@ pub fn metric_points(
         ("tick_queue_wait", "helix_tick_queue_wait_seconds"),
         ("event_dispatch", "helix_ws_ingress_to_event_seconds"),
         ("ffi_callback", "helix_ffi_callback_duration_seconds"),
+        ("end_to_end", "helix_ws_ingress_to_event_seconds"),
     ];
     for (stage, metric) in mappings {
         if let Some(stats) = result.stats.get(stage) {

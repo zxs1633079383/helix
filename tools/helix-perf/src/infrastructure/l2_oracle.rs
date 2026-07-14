@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
+use super::l2_completion::{CompletionOracle, FFI_DONE, HTTP_DONE, STORAGE_DONE};
 use hdrhistogram::Histogram;
 use serde_json::{json, Value};
 
@@ -11,6 +12,7 @@ pub struct L2Oracle {
     seen: Mutex<HashSet<(usize, u64)>>,
     last_seq: Mutex<HashMap<usize, u64>>,
     enqueued: Mutex<HashMap<(usize, u64), Instant>>,
+    completion: CompletionOracle,
     port_started: Mutex<HashMap<u64, (Instant, u64, &'static str)>>,
     port_latency: Mutex<BTreeMap<&'static str, Histogram<u64>>>,
     event_started: Mutex<HashMap<u64, Instant>>,
@@ -36,6 +38,7 @@ impl L2Oracle {
             seen: Mutex::new(HashSet::new()),
             last_seq: Mutex::new(HashMap::new()),
             enqueued: Mutex::new(HashMap::new()),
+            completion: CompletionOracle::new()?,
             port_started: Mutex::new(HashMap::new()),
             port_latency: Mutex::new(BTreeMap::from([
                 (
@@ -64,11 +67,13 @@ impl L2Oracle {
         })
     }
 
-    pub fn mark_enqueued(&self, channel: usize, seq: u64) {
+    pub fn mark_enqueued(&self, operation: u64, channel: usize, seq: u64) {
+        let started = Instant::now();
         self.enqueued
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert((channel, seq), Instant::now());
+            .insert((channel, seq), started);
+        self.completion.mark_started(operation, started);
     }
 
     pub fn observe_dequeue(&self, operation: u64, channel: usize, seq: u64) {
@@ -139,7 +144,38 @@ impl L2Oracle {
                 let _ = histogram.record(elapsed.as_micros().max(1) as u64);
             }
             self.trace_hop(operation, stage, elapsed);
+            let bit = match stage {
+                "storage_port_roundtrip" => STORAGE_DONE,
+                "http_port_roundtrip" => HTTP_DONE,
+                _ => 0,
+            };
+            self.mark_completion(operation, bit);
         }
+    }
+
+    pub fn observe_ffi_complete(&self, operation: u64) {
+        self.mark_completion(operation, FFI_DONE);
+    }
+
+    fn mark_completion(&self, operation: u64, bit: u8) {
+        if bit == 0 {
+            return;
+        }
+        let Some(elapsed) = self.completion.mark_stage(operation, bit) else {
+            self.projection_mismatch.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        if !elapsed.is_zero() {
+            self.trace_hop(operation, "oracle.complete", elapsed);
+        }
+    }
+
+    pub async fn wait_complete(&self, expected: u64, timeout: std::time::Duration) -> bool {
+        self.completion.wait(expected, timeout).await
+    }
+
+    pub fn completed(&self) -> u64 {
+        self.completion.completed()
     }
 
     pub fn mark_event(&self, operation: u64) {
@@ -235,6 +271,7 @@ impl L2Oracle {
                 .unwrap_or_else(|e| e.into_inner())
                 .clone(),
         );
+        histograms.insert("end_to_end".into(), self.completion.histogram());
         histograms.insert(
             "tick_queue_wait".into(),
             self.queue_wait

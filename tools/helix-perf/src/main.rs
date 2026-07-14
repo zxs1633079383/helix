@@ -4,8 +4,14 @@ mod infrastructure;
 
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "sdk-metrics")]
+use application::run_faults;
 use application::{run_l1, run_l2, validate_contracts};
 use domain::ScenarioConfig;
+
+#[global_allocator]
+static PERF_ALLOCATOR: infrastructure::process_profile::CountingAllocator =
+    infrastructure::process_profile::CountingAllocator;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -24,6 +30,8 @@ async fn dispatch() -> Result<(), String> {
         "validate-contracts" => validate_contracts(&root),
         "l1" => run_l1(&root, load_config(&root, "l1.toml")?).await,
         "l2" => run_l2(&root, load_config(&root, "l2.toml")?).await,
+        #[cfg(feature = "sdk-metrics")]
+        "faults" => run_faults(&root),
         "run" => {
             let scenario = value_after(&args, "--scenario")
                 .ok_or("PERF_CONFIG_INVALID: run 缺少 --scenario")?;
@@ -42,7 +50,7 @@ async fn dispatch() -> Result<(), String> {
             }
         }
         "help" | "--help" | "-h" => {
-            println!("helix-perf <preflight|validate-contracts|l1|l2|run --scenario ID>");
+            println!("helix-perf <preflight|validate-contracts|l1|l2|faults|run --scenario ID>");
             Ok(())
         }
         _ => Err(format!("PERF_CONFIG_INVALID: 未知命令 {command}")),

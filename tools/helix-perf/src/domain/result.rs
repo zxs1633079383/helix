@@ -76,4 +76,5 @@ pub struct RunArtifacts {
     pub trace_index: Vec<Value>,
     pub sqlite: Value,
     pub cleanup: Value,
+    pub profile: Value,
 }

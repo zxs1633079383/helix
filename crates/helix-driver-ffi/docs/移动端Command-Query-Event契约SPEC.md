@@ -192,6 +192,7 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 | 频道 | 数据形状 | 必须处理 |
 |---|---|---|
 | `im:post:sending` | `{channel_id, temporary_id, msgId?, temporaryId?, channelId?, eventSeq?, sendStatus, readBits?, text?, type?}` | 插入发送中乐观行 |
+| `im:post:send-failed` | `{channelId, temporaryId, sendStatus, serverId, isSelf, actionCapabilities}` | HTTP/上传立即失败时收敛为可重试失败态 |
 | `im:post:received` | 完整 `MessageItemData` | 按 temporaryId / 服务端 id 对账并渲染已发送 |
 | `im:post:updated` | 完整 `MessageItemData` | 修补 reactions/urgent/template/pinned/vote/average |
 | `im:post:read` | 完整 `MessageItemData` | 更新 readBits |
@@ -205,9 +206,10 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 
 1. `im_send` 被接收后立即产生 `im:post:sending` 乐观行。
 2. Go WS `post` 回声回来后，内核用 `temporaryId` 对账，产生 `im:post:received`，并将消息收敛为已发送。
-3. 若在发送超时时间内没有收到回声，`PendingSend` 将本地持久化状态标为 `send_status='unsend'`。移动端通过后续查询/重载/投影刷新展示未发送，而不是从 JS catch 或错误字符串合成 failed。
+3. HTTP 或上传端口立即失败时，内核产生 `im:post:send-failed`；移动端消费该投影进入可重试失败态，不从 JS catch 或错误字符串合成业务状态。
+4. 若请求已发出但在发送超时时间内没有收到回声，`PendingSend` 将本地持久化状态标为 `send_status='unsend'`。移动端通过后续查询/重载/投影刷新展示未发送。
 
-`im:post:send-failed` 不是当前 P0 公开契约。若未来为了更快的失败 UI 需要新增该事件，必须先升级 PC/Tauri 与移动端共同契约，并同步 `projection-schema.md` 与回放测试；不得只在移动端单独引入。
+`im:post:send-failed` 已由 PC/Tauri 与 FFI 共用的 Helix 内核发出，并冻结在 `projection-schema.md`；`helix_capabilities.events` 必须同步声明，避免移动端按能力注册时丢弃真实事件。
 
 ### 6.2 频道 / 会话事件
 

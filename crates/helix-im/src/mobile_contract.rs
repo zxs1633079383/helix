@@ -107,6 +107,7 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
 
 pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:sending",
+    "im:post:send-failed",
     "im:post:received",
     "im:post:updated",
     "im:posts:batch-result",
@@ -183,6 +184,7 @@ pub fn capabilities_json() -> Vec<u8> {
         "events": PUBLIC_EVENTS,
         "features": {
             "pendingSendTimeoutUnsend": true,
+            "sendFailedProjection": true,
             "batchEventCallback": true,
             "readResultReqId": true,
             "noPerBusinessAbiSymbol": true
@@ -437,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_do_not_advertise_send_failed_as_p0() {
+    fn capabilities_advertise_the_send_failed_projection_emitted_by_core() {
         let caps: serde_json::Value = serde_json::from_slice(&capabilities_json()).unwrap();
         assert_eq!(caps["abi"], 1);
         assert_eq!(caps["bus"], "im:__bus__");
@@ -449,11 +451,11 @@ mod tests {
         assert!(queries.iter().any(|q| q == "helix_version"));
         assert!(queries.iter().any(|q| q == "im_query_dialog_list"));
         assert!(queries.iter().any(|q| q == "im_query_messages_by_channel"));
-        assert!(caps["features"].get("sendFailedProjection").is_none());
+        assert_eq!(caps["features"]["sendFailedProjection"], true);
         let events = caps["events"].as_array().unwrap();
         assert!(events.iter().any(|e| e == "im:post:sending"));
         assert!(events.iter().any(|e| e == "im:post:received"));
-        assert!(!events.iter().any(|e| e == "im:post:send-failed"));
+        assert!(events.iter().any(|e| e == "im:post:send-failed"));
     }
 
     #[test]

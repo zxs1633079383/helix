@@ -75,6 +75,13 @@ pub struct EventEnvelope {
     /// 分离的 `messages` map（key=msgId）。`msg_id ∈ messages` → 落内容行；`∉` → phantom
     /// （cursor 推进但不落 message 行，HX-C008 §1.6）。`None` = 无 msgId（read 事件可空 / legacy）。
     pub msg_id: Option<String>,
+    /// 服务端事件行 identity。撤回投影使用这些字段生成 viewer-ready 系统事件；它们与原消息
+    /// 作者完全独立，缺失时保持空值/0，绝不从 `fields.user_id` 猜 actor。
+    pub event_id: String,
+    pub actor_id: String,
+    pub occurred_at: i64,
+    /// ChannelEvent.payload 原样 JSON；当前撤回合同为空也保留，防后续系统事件扩展被 parser 丢弃。
+    pub event_payload: String,
     /// ⑤ 未读 +1 决策（在边界 handler 用**原始帧 + auth + 完整 echo 判定**算定，gate 在
     /// apply/flush **两路**统一发出）。`Some` = 该 PostUpsert 落库时一并 `GuardedBump` unread
     /// （已含 sender 豁免 + 可见性 + echo 跳过）；`None` = 不 bump（echo / 非新消息 / 其它 kind /
@@ -110,6 +117,10 @@ impl EventEnvelope {
             kind,
             fields,
             msg_id,
+            event_id: String::new(),
+            actor_id: String::new(),
+            occurred_at: 0,
+            event_payload: String::new(),
             unread_bump: None,
             viewer_user_id: String::new(),
         }
@@ -123,6 +134,21 @@ impl EventEnvelope {
         if let Some(id) = msg_id.filter(|s| !s.is_empty()) {
             self.msg_id = Some(id);
         }
+        self
+    }
+
+    /// 附加 wire 权威事件 identity。空 actor 保持 unavailable，调用方不得回退为消息作者。
+    pub fn with_event_identity(
+        mut self,
+        event_id: Option<String>,
+        actor_id: Option<String>,
+        occurred_at: i64,
+        event_payload: String,
+    ) -> Self {
+        self.event_id = event_id.filter(|id| !id.is_empty()).unwrap_or_default();
+        self.actor_id = actor_id.filter(|id| !id.is_empty()).unwrap_or_default();
+        self.occurred_at = occurred_at.max(0);
+        self.event_payload = event_payload;
         self
     }
 

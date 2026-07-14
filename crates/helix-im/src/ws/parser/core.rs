@@ -459,7 +459,32 @@ fn parse_channel_events(
             .or_else(|| ev.get("msg_id"))
             .and_then(|v| v.as_str())
             .map(str::to_string);
-        events.push(EventEnvelope::new(channel_id, Seq(seq), kind, fields).with_msg_id(msg_id));
+        let event_id = ev
+            .get("id")
+            .or_else(|| ev.get("eventId"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let actor_id = ev
+            .get("actorId")
+            .or_else(|| ev.get("actor_id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let occurred_at = ev
+            .get("occurredAt")
+            .or_else(|| ev.get("createAt"))
+            .or_else(|| ev.get("created_at"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let event_payload = ev
+            .get("payload")
+            .filter(|payload| !payload.is_null())
+            .and_then(|payload| serde_json::to_string(payload).ok())
+            .unwrap_or_default();
+        events.push(
+            EventEnvelope::new(channel_id, Seq(seq), kind, fields)
+                .with_msg_id(msg_id)
+                .with_event_identity(event_id, actor_id, occurred_at, event_payload),
+        );
     }
     Ok(events)
 }

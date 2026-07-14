@@ -63,6 +63,18 @@ const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "repliedMessage",
     "replyMessages",
     "replyCount",
+    "actorAvailable",
+    "actorId",
+    "displayText",
+    "eventId",
+    "kind",
+    "occurredAt",
+    "previewText",
+    "recalledMsgId",
+    "subjectMemberIds",
+    "system",
+    "systemEvent",
+    "targetMsgId",
 ];
 
 fn ch() -> ChannelId {

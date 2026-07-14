@@ -1,6 +1,7 @@
 use super::*;
 use crate::state::Seq;
 use crate::sync_session::{EventEnvelope, EventKind};
+use helix_core::effect::StorageOp;
 use helix_core::{Effect, EffectSink};
 
 fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {

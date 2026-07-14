@@ -106,19 +106,23 @@ where
     H: HttpRequester,
     E: EventSink,
 {
+    /// 默认只装配鉴权/错误回报；OTel 必须由平台 composition root 显式 `with_otel`。
     pub fn new(inner: H, event_sink: Arc<E>, auth: AuthTokenRegistry) -> Self {
         Self {
             inner,
             event_sink,
             auth,
-            otel: Some(HostOtelRuntime::from_env("helix-driver-host"))
-                .filter(HostOtelRuntime::is_enabled),
+            otel: None,
         }
     }
 
     pub fn with_otel(mut self, otel: HostOtelRuntime) -> Self {
         self.otel = Some(otel).filter(HostOtelRuntime::is_enabled);
         self
+    }
+
+    pub fn is_otel_enabled(&self) -> bool {
+        self.otel.is_some()
     }
 
     /// 鉴权头注入意图的纯函数（无 I/O）：读 `X-Auth-Kind` → 注真 token → strip 意图头。

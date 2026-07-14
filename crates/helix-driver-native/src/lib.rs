@@ -25,7 +25,7 @@ pub use bus_guard::{guard_bus_envelope, is_emittable_channel, GuardedEnvelope};
 pub use clock::NativeClock;
 pub use engine_loop::{
     rows_from_reply_bytes, rows_to_reply_bytes, run_engine_loop, run_engine_loop_with_transports,
-    EngineConfig, TransportTable,
+    run_engine_loop_with_transports_and_trace, EngineConfig, TransportTable,
 };
 pub use event_sink::{
     bus_event_name, to_bus_envelope, EventReceiver, NativeEventSink, RecvOutcome, BUS_CHANNEL,

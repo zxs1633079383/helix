@@ -94,8 +94,8 @@ impl TraceHooks {
         self
     }
 
-    #[cfg(test)]
-    pub(super) fn has_otel_for_test(&self) -> bool {
+    /// composition root / 测试可用的装配状态；不暴露 exporter 或业务数据。
+    pub fn is_otel_enabled(&self) -> bool {
         self.otel.is_some()
     }
 

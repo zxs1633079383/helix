@@ -13,7 +13,7 @@ use helix_core::effect::{
 use helix_core::ports::{Clock, EventSink, FileUploader, HttpRequester, Storage, Transport};
 use helix_core::{ExecutionShell, PortError, Tick};
 use helix_driver_host::engine::{
-    run_engine_loop, EngineDeps, TransportLifecycleEvent, TransportTraceEvent,
+    run_engine_loop, EngineDeps, TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink,
 };
 use helix_driver_host::{BatchSink, TraceHooks};
 
@@ -113,7 +113,7 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (_transport_tx, transport_rx) = mpsc::unbounded_channel();
     let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded_channel();
-    let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
     let tick_tx_for_loop = tick_tx.clone();
 
     let deps = EngineDeps {

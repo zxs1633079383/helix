@@ -13,7 +13,7 @@ use super::*;
 
 #[test]
 fn noop_trace_hooks_do_not_enable_otel() {
-    assert!(!TraceHooks::noop().has_otel_for_test());
+    assert!(!TraceHooks::noop().is_otel_enabled());
 }
 
 #[test]

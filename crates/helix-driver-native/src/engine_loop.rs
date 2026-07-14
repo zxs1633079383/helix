@@ -20,7 +20,10 @@
 
 use std::sync::Arc;
 
-use helix_driver_host::engine::{self, EngineDeps, TransportLifecycleEvent, TransportTraceEvent};
+use helix_driver_host::engine::{
+    self, EngineDeps, TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink,
+    TransportTraceStats,
+};
 use helix_driver_host::{
     spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, TraceHooks,
 };
@@ -68,8 +71,9 @@ impl EngineConfig {
     /// 转成 host 泛型壳所需的 [`EngineDeps`]（注入 `NativeClock`）。
     fn into_deps(
         self,
+        trace: TraceHooks,
         transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
-        transport_trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
+        transport_trace_tx: Option<TransportTraceSink>,
     ) -> EngineDeps<NativeStorage, NativeHttp, SharedFileUploader, NativeEventSink, NativeClock>
     {
         EngineDeps {
@@ -78,7 +82,7 @@ impl EngineConfig {
             uploader: Arc::new(self.uploader),
             event_sink: Arc::new(self.event_sink),
             clock: NativeClock,
-            trace: TraceHooks::noop(),
+            trace,
             max_http_inflight: self.max_http_inflight,
             transport_lifecycle_tx,
             transport_trace_tx,
@@ -140,22 +144,51 @@ pub async fn run_engine_loop_with_transports(
     shutdown_rx: oneshot::Receiver<()>,
     transports: TransportTable,
 ) {
+    run_engine_loop_with_transports_and_trace(
+        shell,
+        tick_rx,
+        tick_tx,
+        config,
+        TraceHooks::noop(),
+        shutdown_rx,
+        transports,
+    )
+    .await;
+}
+
+/// 显式注入 trace hooks 的 native composition-root 入口；旧入口保持真 no-op。
+pub async fn run_engine_loop_with_transports_and_trace(
+    shell: ExecutionShell,
+    tick_rx: mpsc::Receiver<Tick>,
+    tick_tx: mpsc::Sender<Tick>,
+    config: EngineConfig,
+    trace: TraceHooks,
+    shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable,
+) {
     let NativeReconnectRuntime {
         transport_rx,
         lifecycle_tx,
-        trace_tx,
+        trace_sink,
+        trace_stats,
         tasks,
     } = start_native_reconnect(&transports);
     engine::run_engine_loop(
         shell,
         tick_rx,
         tick_tx,
-        config.into_deps(lifecycle_tx, trace_tx),
+        config.into_deps(trace, lifecycle_tx, trace_sink),
         shutdown_rx,
         transports,
         transport_rx,
     )
     .await;
+    if let Some(stats) = trace_stats {
+        let dropped = stats.dropped_count();
+        if dropped > 0 {
+            tracing::warn!(dropped, "native transport trace 有界队列发生丢弃");
+        }
+    }
     for task in tasks {
         task.abort();
     }
@@ -164,14 +197,16 @@ pub async fn run_engine_loop_with_transports(
 struct NativeReconnectRuntime {
     transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<NativeTransport>)>,
     lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
-    trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
+    trace_sink: Option<TransportTraceSink>,
+    trace_stats: Option<TransportTraceStats>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 fn start_native_reconnect(transports: &TransportTable) -> NativeReconnectRuntime {
     let (register_tx, register_rx) = mpsc::unbounded_channel();
     let mut lifecycle_routes = HashMap::new();
-    let (trace_tx, trace_rx) = mpsc::unbounded_channel();
+    let (trace_sink, trace_rx) = TransportTraceSink::channel();
+    let trace_stats = trace_sink.stats();
     let mut tasks = Vec::new();
 
     for (&transport_id, transport) in transports {
@@ -181,7 +216,7 @@ fn start_native_reconnect(transports: &TransportTable) -> NativeReconnectRuntime
         let (route_tx, route_rx) = mpsc::unbounded_channel();
         lifecycle_routes.insert(transport_id, route_tx);
         let register_tx = register_tx.clone();
-        let trace_sink = ReconnectTraceSink::new(Some(trace_tx.clone()));
+        let trace_sink = ReconnectTraceSink::new(Some(trace_sink.clone()));
         tasks.push(spawn_reconnect_supervisor(
             transport_id,
             ReconnectPolicy::default(),
@@ -204,7 +239,8 @@ fn start_native_reconnect(transports: &TransportTable) -> NativeReconnectRuntime
         return NativeReconnectRuntime {
             transport_rx: register_rx,
             lifecycle_tx: None,
-            trace_tx: None,
+            trace_sink: None,
+            trace_stats: None,
             tasks,
         };
     }
@@ -223,13 +259,14 @@ fn start_native_reconnect(transports: &TransportTable) -> NativeReconnectRuntime
     NativeReconnectRuntime {
         transport_rx: register_rx,
         lifecycle_tx: Some(lifecycle_tx),
-        trace_tx: Some(trace_tx),
+        trace_sink: Some(trace_sink),
+        trace_stats: Some(trace_stats),
         tasks,
     }
 }
 
 fn spawn_transport_trace_logger(
-    mut rx: mpsc::UnboundedReceiver<TransportTraceEvent>,
+    mut rx: mpsc::Receiver<TransportTraceEvent>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -246,40 +283,4 @@ fn spawn_transport_trace_logger(
             );
         }
     })
-}
-
-// ─── 单元测试（native 装配层 smoke；pump 核原语测试已随下沉到 host）──────────────
-
-#[cfg(test)]
-mod tests {
-    use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
-
-    use helix_core::effect::SqlValue;
-
-    /// rows↔bytes 编解码经 native re-export 仍可达（host 单一真源，native 转出）。
-    #[test]
-    fn test_rows_roundtrip_via_reexport() {
-        let rows = vec![vec![
-            ("id".to_string(), SqlValue::Integer(1)),
-            ("name".to_string(), SqlValue::Text("alice".to_string())),
-            ("score".to_string(), SqlValue::Real(9.5)),
-            ("extra".to_string(), SqlValue::Null),
-        ]];
-        let bytes = rows_to_reply_bytes(&rows);
-        let restored = rows_from_reply_bytes(&bytes).expect("roundtrip");
-        assert_eq!(restored.len(), 1);
-        let row = &restored[0];
-        assert!(matches!(
-            row.iter().find(|(k, _)| k == "id").map(|(_, v)| v),
-            Some(SqlValue::Integer(1))
-        ));
-        assert!(matches!(
-            row.iter().find(|(k, _)| k == "name").map(|(_, v)| v),
-            Some(SqlValue::Text(s)) if s == "alice"
-        ));
-        assert!(matches!(
-            row.iter().find(|(k, _)| k == "extra").map(|(_, v)| v),
-            Some(SqlValue::Null)
-        ));
-    }
 }

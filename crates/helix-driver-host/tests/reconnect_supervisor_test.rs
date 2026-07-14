@@ -6,7 +6,10 @@ use bytes::Bytes;
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::PortError;
-use helix_driver_host::engine::{TransportLifecycleEvent, TransportTraceEvent};
+use helix_driver_host::engine::{
+    TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink,
+    TRANSPORT_TRACE_QUEUE_CAPACITY,
+};
 use helix_driver_host::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
 use tokio::sync::mpsc;
 
@@ -27,7 +30,7 @@ fn reconnect_policy_uses_capped_exponential_delays() {
 
 #[test]
 fn reconnect_trace_sink_emits_safe_payload_shape() {
-    let (tx, mut rx) = mpsc::unbounded_channel::<TransportTraceEvent>();
+    let (tx, mut rx) = TransportTraceSink::channel();
     let sink = ReconnectTraceSink::new(Some(tx));
 
     sink.emit(TransportTraceEvent {
@@ -52,6 +55,16 @@ fn reconnect_trace_sink_emits_safe_payload_shape() {
     assert!(event.error_class.is_none());
 }
 
+#[test]
+fn transport_trace_queue_is_bounded_and_counts_drops() {
+    let (sink, _rx) = TransportTraceSink::channel();
+    for _ in 0..TRANSPORT_TRACE_QUEUE_CAPACITY {
+        assert!(sink.try_emit(trace_event("fill")));
+    }
+    assert!(!sink.try_emit(trace_event("overflow")));
+    assert_eq!(sink.stats().dropped_count(), 1);
+}
+
 #[tokio::test]
 async fn reconnect_supervisor_registers_transport_after_retry_success() {
     let transport_id = TransportId::from_raw(11);
@@ -63,7 +76,7 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
     };
     let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
     let (register_tx, mut register_rx) = mpsc::unbounded_channel();
-    let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
     let attempts = Arc::new(AtomicUsize::new(0));
     let attempts_for_factory = Arc::clone(&attempts);
 
@@ -131,14 +144,25 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
         .expect("supervisor should stop after channel closes");
 }
 
-fn drain_trace_events(
-    rx: &mut mpsc::UnboundedReceiver<TransportTraceEvent>,
-) -> Vec<TransportTraceEvent> {
+fn drain_trace_events(rx: &mut mpsc::Receiver<TransportTraceEvent>) -> Vec<TransportTraceEvent> {
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
         events.push(event);
     }
     events
+}
+
+fn trace_event(action: &'static str) -> TransportTraceEvent {
+    TransportTraceEvent {
+        transport_id: TransportId::from_raw(1),
+        name: "helix.ws.test",
+        action,
+        attempt: None,
+        delay_ms: None,
+        next_delay_ms: None,
+        reason: None,
+        error_class: None,
+    }
 }
 
 fn trace_event_payload_is_safe(event: &TransportTraceEvent) -> bool {

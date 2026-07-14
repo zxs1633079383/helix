@@ -2,9 +2,7 @@
 //!
 //! ## 谁用这个壳
 //!
-//! native（broadcast EventSink）与（下一轮）FFI（批处理 vtable sink）**共用**此泛型壳，
-//! 各自只差 EventSink egress 特化 + tick 源接线。pump 核（背压/分流/drain/死锁不变量）
-//! 在此一处维护，不再 per-driver 各写一套。
+//! native（broadcast）与 FFI（批处理 vtable）共用此泛型壳，统一维护 pump 不变量。
 //!
 //! ## 泛型边界
 //!
@@ -44,7 +42,10 @@ use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
 mod types;
 
-pub use types::{EngineDeps, TransportLifecycleEvent, TransportTable, TransportTraceEvent};
+pub use types::{
+    EngineDeps, TransportLifecycleEvent, TransportTable, TransportTraceEvent, TransportTraceSink,
+    TransportTraceStats, TRANSPORT_TRACE_QUEUE_CAPACITY,
+};
 
 /// graceful drain 时「必达 Http」在途请求的 join 上限（fix/lifecycle-net-decouple）。
 ///
@@ -210,7 +211,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                 .ok();
             }
             if let Some(tx) = &transport_trace_tx {
-                tx.send(TransportTraceEvent {
+                tx.try_emit(TransportTraceEvent {
                     transport_id: *transport_id,
                     name: "helix.ws.disconnect",
                     action: "disconnect",
@@ -219,8 +220,7 @@ pub async fn run_engine_loop<S, H, U, E, Tr, C>(
                     next_delay_ms: None,
                     reason: Some("reader_closed_or_error"),
                     error_class: None,
-                })
-                .ok();
+                });
             }
         }
 

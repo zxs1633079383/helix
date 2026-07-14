@@ -31,7 +31,6 @@ pub fn execute_l1(
     let mut effects_hist = Histogram::<u64>::new(3).map_err(|error| error.to_string())?;
     let mut bytes_hist = Histogram::<u64>::new(3).map_err(|error| error.to_string())?;
     let mut total_effects = 0_u64;
-    let mut total_effect_bytes = 0_u64;
     let load_start = Instant::now();
     for offset in 1..=load_iterations {
         let sequence = warmup_iterations + offset;
@@ -56,7 +55,6 @@ pub fn execute_l1(
             .record(effect_bytes.max(1))
             .map_err(|error| error.to_string())?;
         total_effects += effect_count;
-        total_effect_bytes += effect_bytes;
     }
     let load_elapsed = load_start.elapsed().as_secs_f64();
 
@@ -113,7 +111,6 @@ pub fn execute_l1(
         run_id,
         &stats,
         total_effects,
-        total_effect_bytes,
         load_iterations,
         &effects_hist,
         &bytes_hist,

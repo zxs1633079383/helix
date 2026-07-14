@@ -58,20 +58,24 @@ pub fn metric_points(
             ));
         }
     }
-    for (name, kind, unit, value, stage) in [
-        (
+    for stage in ["http", "ws", "storage", "event", "ffi"] {
+        points.push(point(
+            config,
+            run_id,
             "helix_operations_total",
             "counter",
             "operations",
-            result.operations as f64 * 5.0,
-            "mixed",
-        ),
+            result.operations as f64,
+            stage,
+        ));
+    }
+    for (name, kind, unit, value, stage) in [
         (
             "helix_errors_total",
             "counter",
             "errors",
             result.errors as f64,
-            "mixed",
+            "core",
         ),
         (
             "helix_storage_rows_total",

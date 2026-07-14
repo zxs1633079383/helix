@@ -10,7 +10,6 @@ pub fn l1_metric_points(
     run_id: &str,
     stats: &SampleStats,
     effects: u64,
-    effect_bytes: u64,
     operations: u64,
     effects_hist: &Histogram<u64>,
     bytes_hist: &Histogram<u64>,
@@ -57,30 +56,7 @@ pub fn l1_metric_points(
             effects as f64 / operations.max(1) as f64,
             labels.clone(),
         ),
-        point(
-            run_id,
-            "helix_alloc_count_per_op",
-            "histogram",
-            "count",
-            0.0,
-            tagged(labels.clone(), "status", "not_measured"),
-        ),
-        point(
-            run_id,
-            "helix_alloc_bytes_per_op",
-            "histogram",
-            "bytes",
-            0.0,
-            tagged(labels, "status", "not_measured"),
-        ),
-        point(
-            run_id,
-            "helix_effect_bytes_total",
-            "counter",
-            "bytes",
-            effect_bytes as f64,
-            BTreeMap::new(),
-        ),
+        // allocations/op 需要 profile provider；未测量时不写 0 冒充样本。
     ]
 }
 
@@ -118,15 +94,6 @@ fn labels(config: &ScenarioConfig, stage: &str, operation: &str) -> BTreeMap<Str
         ("operation".into(), operation.into()),
         ("status".into(), "ok".into()),
     ])
-}
-
-fn tagged(
-    mut labels: BTreeMap<String, String>,
-    key: &str,
-    value: &str,
-) -> BTreeMap<String, String> {
-    labels.insert(key.into(), value.into());
-    labels
 }
 
 pub fn zero_correctness() -> BTreeMap<String, u64> {

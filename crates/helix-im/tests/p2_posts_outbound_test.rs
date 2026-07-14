@@ -233,7 +233,7 @@ fn update_post_props_requires_postid_and_object_props() {
 #[test]
 fn template_received_uses_singular_post_prefix() {
     // posts.go:53 → api.BaseRoutes.Post（/post 单数 subrouter，api.go:171）
-    // 公共 camelCase `{postId}` 已由 mobile_contract 边界归一为内部 snake_case；
+    // 公共 camelCase `{postId}` 已由 client_api 边界归一为内部 snake_case；
     // 本测试直调 handle_outbound，因此使用归一后的 `post_id`。
     let (url, body) = one_http(run("im_template_received", json!({ "post_id": "pt" })));
     assert_eq!(url, "http://x/api/cses/post/templateReceived");

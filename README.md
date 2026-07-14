@@ -85,6 +85,7 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 
 | 模块 / 目录 | 作用 |
 |---|---|
+| `client_api/` | **三端业务调用门面**：公开命令名 + payload → canonical `AppCommand`；alias、归一化和 capabilities 的唯一真源，driver 只做平台错误映射 |
 | `module.rs` + `*_flow.rs` | IM 模块壳与编排：`send_flow`（发消息）/ `query_dispatch`（查询·对话渲染）/ `sync_flow`（同步）/ `lifecycle`（生命周期）/ `port_reply`（端口响应回灌） |
 | `parser.rs` / `http_envelope.rs` | **防腐层（ACL 边界）**：WS 帧 / HTTP 响应 → 强类型 `InboundEvent`，边界零信任、零 `unwrap` |
 | `acl/` | InboundEvent / Tick → `Effect` 翻译层，按职责裂分：transport / storage / sync_http / 投影 message / 投影 control effects |

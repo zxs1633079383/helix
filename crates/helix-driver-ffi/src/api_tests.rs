@@ -147,6 +147,37 @@ fn command_enqueues_successfully() {
 }
 
 #[test]
+fn command_maps_invalid_public_payload_to_ffi_invalid() {
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+    assert!(!handle.is_null());
+
+    let name = b"im_send";
+    let invalid_payload = b"{not-json";
+    let status = unsafe {
+        helix_command(
+            handle,
+            name.as_ptr(),
+            name.len(),
+            invalid_payload.as_ptr(),
+            invalid_payload.len(),
+        )
+    };
+    assert_eq!(status, FFI_INVALID);
+
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
 fn command_with_trace_accepts_valid_w3c_sidecar() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";

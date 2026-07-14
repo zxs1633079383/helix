@@ -15,10 +15,8 @@
 //! - panic=abort 保证不跨 FFI unwind（release profile 已设置）
 //! - 每个 unsafe 块必须有 // SAFETY: 注释（clippy deny undocumented_unsafe_blocks）
 
-use std::borrow::Cow;
 use std::time::Duration;
 
-use bytes::Bytes;
 use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
@@ -363,7 +361,7 @@ pub unsafe extern "C" fn helix_command(
     };
     // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
-    let cmd = match build_app_command(public_name, payload_vec) {
+    let cmd = match build_shared_command(&public_name, &payload_vec) {
         Ok(cmd) => cmd,
         Err(code) => return code,
     };
@@ -416,7 +414,7 @@ pub unsafe extern "C" fn helix_command_with_trace(
     };
     // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
-    let cmd = match build_app_command(public_name, payload_vec) {
+    let cmd = match build_shared_command(&public_name, &payload_vec) {
         Ok(cmd) => cmd,
         Err(code) => return code,
     };
@@ -426,36 +424,14 @@ pub unsafe extern "C" fn helix_command_with_trace(
     send_command_tick(handle_ref, cmd, Some(carrier))
 }
 
-fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCommand, i32> {
-    let normalized_payload = match helix_im::mobile_contract::normalize_command_payload(
-        public_name.as_str(),
-        &payload_vec,
-    ) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            tracing::warn!(
-                command = public_name.as_str(),
-                ?error,
-                "mobile command payload rejected"
-            );
-            return Err(FFI_INVALID);
-        }
-    };
-    let payload_bytes = Bytes::from(normalized_payload);
-
-    let core_name = helix_im::mobile_contract::command_alias(public_name.as_str())
-        .unwrap_or(public_name.as_str());
-
-    // G-6 / PI-1：name 命中 outbound 闭集（88 命令）→ `Cow::Borrowed` 静态名免堆分配（热路径写命令
-    // 净分配仅 payload 1 次）；miss（im_send_message/im_reconnect/query 名）→ `Cow::Owned` fallback
-    // （低频，仍正确）。闭集真源在 helix-im registry（driver 不复制清单，避免漂移）。
-    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(core_name) {
-        Some(static_name) => Cow::Borrowed(static_name),
-        None => Cow::Owned(core_name.to_string()),
-    };
-    Ok(AppCommand {
-        name,
-        payload: payload_bytes,
+fn build_shared_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, i32> {
+    helix_im::client_api::build_command(public_name, payload).map_err(|error| {
+        tracing::warn!(
+            command = public_name,
+            ?error,
+            "public command payload rejected"
+        );
+        FFI_INVALID
     })
 }
 
@@ -544,11 +520,7 @@ pub unsafe extern "C" fn helix_query(
     match query_name.as_str() {
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_capabilities" => unsafe {
-            write_query_bytes(
-                helix_im::mobile_contract::capabilities_json(),
-                out_ptr,
-                out_len,
-            )
+            write_query_bytes(helix_im::client_api::capabilities_json(), out_ptr, out_len)
         },
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_version" => unsafe { write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len) },

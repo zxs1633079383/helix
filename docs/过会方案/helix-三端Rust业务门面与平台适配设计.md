@@ -215,6 +215,10 @@ BatchSink
 
 ### 4.5 `helix-driver-native`：Tauri 薄壳
 
+当前 `helix-driver-native` 只有 engine/port/event seam，尚无 public-name/payload 或真实 Tauri
+command 入口。A1 不为验收凭空增加 wrapper 或 `helix-im` 依赖；真实 Tauri 入口落地时必须直接
+调用 `helix-im::client_api`。
+
 只保留：
 
 - 把 Tauri invoke 转交 `helix-im::client_api`；
@@ -289,12 +293,14 @@ take_platform_actions / on_send_frame
 
 ## 5. 分阶段实施
 
-### A1：统一业务门面，不改行为
+### A1：统一业务门面，不改行为 ✅（2026-07-14）
 
-修改：`helix-im/client_api`、`mobile_contract` 兼容 re-export、FFI/native 调用入口。
+已实现：`helix-im/client_api`、`mobile_contract` 兼容 re-export、FFI 薄绑定。native 当前没有
+同形公开调用入口，因此未增加无消费方的 wrapper；后续真实 Tauri 入口直接复用共享 API。
 
-验收：同一 public name/payload 在 native/FFI 生成字节级一致 `AppCommand`；现有 command/event
-contract 全绿。
+验收：共享/兼容路径对同一 public name/payload 生成字节级一致 `AppCommand`；known command
+保持 borrowed、控制/未知 command 保持 owned fallback；非法 payload 映射 `FFI_INVALID`；现有
+command/event contract 全绿。
 
 ### A2：查询旁路收口 + local-first 状态机
 

@@ -6,6 +6,13 @@ pub enum MetricKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MetricAvailability {
+    Runtime,
+    /// 仅由显式 allocator/profile harness 采集，不冒充常驻进程指标。
+    ProfileOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MetricDescriptor {
     pub id: MetricId,
     pub name: &'static str,
@@ -22,6 +29,13 @@ macro_rules! metric_registry {
         impl MetricId {
             pub const fn descriptor(self) -> &'static MetricDescriptor {
                 &ALL_METRICS[self as usize]
+            }
+
+            pub const fn availability(self) -> MetricAvailability {
+                match self {
+                    Self::AllocCountPerOp | Self::AllocBytesPerOp => MetricAvailability::ProfileOnly,
+                    _ => MetricAvailability::Runtime,
+                }
             }
         }
 
@@ -128,6 +142,28 @@ pub const REQUIRED_METRIC_IDS: &[MetricId] = &[
     MetricId::MetricsLastSuccessAgeSeconds,
 ];
 
+/// Collector canary 必须出现的最小闭环：业务吞吐/错误 + exporter 自观测 + 心跳。
+pub const CANARY_METRIC_IDS: &[MetricId] = &[
+    MetricId::OperationsTotal,
+    MetricId::ErrorsTotal,
+    MetricId::MetricsQueueDepth,
+    MetricId::MetricsQueueCapacity,
+    MetricId::MetricsDroppedTotal,
+    MetricId::MetricsExportBatchSize,
+    MetricId::MetricsExportDurationSeconds,
+    MetricId::MetricsExportErrorsTotal,
+    MetricId::MetricsExporterState,
+    MetricId::MetricsLastSuccessAgeSeconds,
+    MetricId::TelemetryCanaryTotal,
+];
+
+pub fn production_metric_ids() -> impl Iterator<Item = MetricId> {
+    REQUIRED_METRIC_IDS
+        .iter()
+        .copied()
+        .filter(|id| id.availability() == MetricAvailability::Runtime)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +186,28 @@ mod tests {
             MetricId::TelemetryCanaryTotal.descriptor().name,
             "helix_telemetry_canary_total"
         );
+    }
+
+    #[test]
+    fn allocation_metrics_are_explicitly_profile_only() {
+        let profile_only: Vec<_> = REQUIRED_METRIC_IDS
+            .iter()
+            .copied()
+            .filter(|id| id.availability() == MetricAvailability::ProfileOnly)
+            .collect();
+        assert_eq!(
+            profile_only,
+            vec![MetricId::AllocCountPerOp, MetricId::AllocBytesPerOp]
+        );
+        assert_eq!(production_metric_ids().count(), 36);
+    }
+
+    #[test]
+    fn canary_coverage_contains_real_worker_heartbeat() {
+        assert!(CANARY_METRIC_IDS.contains(&MetricId::TelemetryCanaryTotal));
+        assert!(CANARY_METRIC_IDS.contains(&MetricId::MetricsExportErrorsTotal));
+        assert!(CANARY_METRIC_IDS
+            .iter()
+            .all(|id| id.availability() == MetricAvailability::Runtime));
     }
 }

@@ -11,7 +11,8 @@ use helix_core::effect::{
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
-use helix_driver_host::HostStorage;
+use helix_driver_host::{AsyncMetricSink, HostStorage};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct NativeStorage {
@@ -27,6 +28,11 @@ impl NativeStorage {
 
     pub async fn execute_raw(&self, sql: &'static str) -> Result<(), PortError> {
         self.inner.execute_raw(sql).await
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.inner = self.inner.with_metric_sink(metrics);
+        self
     }
 }
 

@@ -1,18 +1,28 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use helix_core::Tick;
 
+use super::rss::process_resident_memory_bytes;
 use crate::metrics::{AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels};
 use crate::owned_effect::OwnedEffect;
 
 pub(super) struct EngineMetricRecorder {
     sink: Arc<dyn AsyncMetricSink>,
     enabled: bool,
-    port_started: HashMap<u64, Instant>,
-    port_order: VecDeque<u64>,
+    port_started: HashMap<u64, PendingPort>,
+    port_slots: [Option<u64>; MAX_PENDING_PORTS],
+    next_port_slot: usize,
 }
+
+#[derive(Clone, Copy)]
+struct PendingPort {
+    started: Instant,
+    slot: usize,
+}
+
+const MAX_PENDING_PORTS: usize = 4096;
 
 pub(super) struct TickMetricContext {
     tick_kind: &'static str,
@@ -27,7 +37,8 @@ impl EngineMetricRecorder {
             sink,
             enabled,
             port_started: HashMap::new(),
-            port_order: VecDeque::new(),
+            port_slots: [None; MAX_PENDING_PORTS],
+            next_port_slot: 0,
         }
     }
 
@@ -49,7 +60,7 @@ impl EngineMetricRecorder {
             return TickMetricContext::disabled();
         }
         if let Tick::PortReply { corr, .. } = tick {
-            if let Some(started) = self.port_started.remove(&corr.raw()) {
+            if let Some(started) = self.complete_port(corr.raw()) {
                 self.histogram(
                     MetricId::PortRoundtripSeconds,
                     started.elapsed().as_secs_f64(),
@@ -147,21 +158,30 @@ impl EngineMetricRecorder {
     }
 
     fn remember_port_start(&mut self, corr: u64) {
-        const MAX_PENDING: usize = 4096;
-        if self.port_started.contains_key(&corr) {
-            self.port_started.insert(corr, Instant::now());
+        if let Some(pending) = self.port_started.get_mut(&corr) {
+            pending.started = Instant::now();
             return;
         }
-        while self.port_started.len() >= MAX_PENDING {
-            let Some(evicted) = self.port_order.pop_front() else {
-                break;
-            };
-            if self.port_started.remove(&evicted).is_some() {
-                break;
-            }
+        let slot = self.next_port_slot;
+        self.next_port_slot = (slot + 1) % MAX_PENDING_PORTS;
+        if let Some(evicted) = self.port_slots[slot].replace(corr) {
+            self.port_started.remove(&evicted);
         }
-        self.port_started.insert(corr, Instant::now());
-        self.port_order.push_back(corr);
+        self.port_started.insert(
+            corr,
+            PendingPort {
+                started: Instant::now(),
+                slot,
+            },
+        );
+    }
+
+    fn complete_port(&mut self, corr: u64) -> Option<Instant> {
+        let pending = self.port_started.remove(&corr)?;
+        if self.port_slots[pending.slot] == Some(corr) {
+            self.port_slots[pending.slot] = None;
+        }
+        Some(pending.started)
     }
 
     pub(super) fn start_timer(&self) -> Option<Instant> {
@@ -223,27 +243,6 @@ impl EngineMetricRecorder {
     }
 }
 
-#[cfg(unix)]
-fn process_resident_memory_bytes() -> Option<u64> {
-    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
-    // SAFETY: getrusage 在成功返回前完整初始化调用方提供的 rusage 指针；指针来自有效栈内存。
-    let result = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
-    if result != 0 {
-        return None;
-    }
-    // SAFETY: 仅在 getrusage 返回 0 后读取，POSIX 契约保证结构体已初始化。
-    let max_rss = unsafe { usage.assume_init() }.ru_maxrss.max(0) as u64;
-    #[cfg(target_vendor = "apple")]
-    return Some(max_rss);
-    #[cfg(not(target_vendor = "apple"))]
-    return max_rss.checked_mul(1024);
-}
-
-#[cfg(not(unix))]
-fn process_resident_memory_bytes() -> Option<u64> {
-    None
-}
-
 impl TickMetricContext {
     fn disabled() -> Self {
         Self {
@@ -282,17 +281,5 @@ fn effect_bytes(effect: &OwnedEffect) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::metrics::NoopMetricSink;
-
-    #[test]
-    fn pending_port_correlation_is_strictly_bounded() {
-        let mut recorder = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
-        for corr in 0..5000 {
-            recorder.remember_port_start(corr);
-        }
-        assert_eq!(recorder.port_started.len(), 4096);
-        assert_eq!(recorder.port_order.len(), 4096);
-    }
-}
+#[path = "perf_metrics_tests.rs"]
+mod tests;

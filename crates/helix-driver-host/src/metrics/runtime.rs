@@ -16,13 +16,16 @@ pub struct MetricRuntimeConfig {
     pub endpoint: String,
     pub deployment_environment: String,
     pub platform: String,
-    pub run_context: String,
+    pub scenario: String,
+    pub profile: String,
     pub queue_capacity: usize,
     pub batch_max: usize,
     pub export_interval: Duration,
     pub export_timeout: Duration,
     pub retry_max: u32,
     pub max_backoff: Duration,
+    pub circuit_failure_threshold: u32,
+    pub circuit_open_duration: Duration,
 }
 
 impl Default for MetricRuntimeConfig {
@@ -33,13 +36,16 @@ impl Default for MetricRuntimeConfig {
             endpoint: "http://127.0.0.1:4317".to_string(),
             deployment_environment: "local".to_string(),
             platform: "host".to_string(),
-            run_context: "default".to_string(),
+            scenario: "canary".to_string(),
+            profile: "baseline".to_string(),
             queue_capacity: 8192,
             batch_max: 512,
             export_interval: Duration::from_secs(5),
             export_timeout: Duration::from_secs(2),
             retry_max: 3,
             max_backoff: Duration::from_secs(30),
+            circuit_failure_threshold: 3,
+            circuit_open_duration: Duration::from_secs(15),
         }
     }
 }
@@ -104,6 +110,7 @@ pub(super) struct RuntimeStats {
     pub(super) depth: AtomicUsize,
     pub(super) capacity: AtomicUsize,
     pub(super) dropped: AtomicU64,
+    pub(super) circuit_dropped: AtomicU64,
     pub(super) batches: AtomicU64,
     pub(super) events: AtomicU64,
     pub(super) errors: AtomicU64,

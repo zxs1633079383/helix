@@ -107,10 +107,32 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
         .with_attributes([
             KeyValue::new(
                 "deployment.environment",
-                config.deployment_environment.clone(),
+                bounded_value(
+                    &config.deployment_environment,
+                    &["local", "test", "pre", "prod"],
+                    "unknown",
+                ),
             ),
-            KeyValue::new("platform", config.platform.clone()),
-            KeyValue::new("run.context", config.run_context.clone()),
+            KeyValue::new(
+                "platform",
+                bounded_value(&config.platform, &["host", "native", "ffi"], "unknown"),
+            ),
+            KeyValue::new(
+                "scenario",
+                bounded_value(
+                    &config.scenario,
+                    &["canary", "l1_core", "l2_mixed"],
+                    "unknown",
+                ),
+            ),
+            KeyValue::new(
+                "profile",
+                bounded_value(
+                    &config.profile,
+                    &["baseline", "steady", "burst", "soak", "profile_only"],
+                    "unknown",
+                ),
+            ),
         ])
         .build();
     let provider = SdkMeterProvider::builder()
@@ -148,4 +170,29 @@ fn build_pipeline(config: &MetricRuntimeConfig) -> Result<OtlpPipeline, MetricEx
         provider,
         instruments,
     })
+}
+
+fn bounded_value(value: &str, allowed: &[&'static str], fallback: &'static str) -> &'static str {
+    allowed
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == value)
+        .unwrap_or(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bounded_value;
+
+    #[test]
+    fn resource_dimensions_reject_unbounded_run_ids() {
+        assert_eq!(
+            bounded_value("l2_mixed", &["l2_mixed"], "unknown"),
+            "l2_mixed"
+        );
+        assert_eq!(
+            bounded_value("run-20260714-user-123", &["l2_mixed"], "unknown"),
+            "unknown"
+        );
+    }
 }

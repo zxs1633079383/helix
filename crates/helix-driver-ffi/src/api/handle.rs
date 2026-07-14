@@ -167,8 +167,9 @@ fn start_metric_runtime() -> Option<BoundedMetricRuntime> {
         deployment_environment: std::env::var("DEPLOYMENT_ENVIRONMENT")
             .unwrap_or_else(|_| defaults.deployment_environment.clone()),
         platform: "ffi".to_string(),
-        run_context: std::env::var("HELIX_PERF_RUN_ID")
-            .unwrap_or_else(|_| defaults.run_context.clone()),
+        scenario: std::env::var("HELIX_METRIC_SCENARIO")
+            .unwrap_or_else(|_| defaults.scenario.clone()),
+        profile: std::env::var("HELIX_METRIC_PROFILE").unwrap_or_else(|_| defaults.profile.clone()),
         ..defaults
     };
     match BoundedMetricRuntime::start_otlp(config) {

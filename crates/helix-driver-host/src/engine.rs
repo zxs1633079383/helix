@@ -41,6 +41,7 @@ use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::timer::TimerRegistry;
 mod perf_metrics;
+mod rss;
 mod shutdown;
 mod types;
 use perf_metrics::EngineMetricRecorder;

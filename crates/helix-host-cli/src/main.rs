@@ -247,6 +247,7 @@ async fn main() {
         http,
         uploader: SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight,
     };
     let trace = TraceHooks::noop().with_otel(otel);

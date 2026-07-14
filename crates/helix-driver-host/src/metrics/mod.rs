@@ -13,7 +13,10 @@ mod worker;
 
 pub use event::MetricEvent;
 pub use labels::{LabelKey, MetricLabel, MetricLabels, ALLOWED_LABEL_KEYS};
-pub use registry::{MetricDescriptor, MetricId, MetricKind, ALL_METRIC_IDS, REQUIRED_METRIC_IDS};
+pub use registry::{
+    production_metric_ids, MetricAvailability, MetricDescriptor, MetricId, MetricKind,
+    ALL_METRIC_IDS, CANARY_METRIC_IDS, REQUIRED_METRIC_IDS,
+};
 pub use runtime::{
     BatchMetricExporter, BoundedMetricRuntime, MetricExportError, MetricExporterState,
     MetricRuntimeConfig, MetricRuntimeError, MetricRuntimeSnapshot, ShutdownOutcome,

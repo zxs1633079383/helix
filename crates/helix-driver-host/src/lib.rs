@@ -37,10 +37,10 @@ pub use local_store::{
     BackendScope, LocalStoreError, LocalStoreIdentity, LocalStoreLocator, LocalStorePaths,
 };
 pub use metrics::{
-    AsyncMetricSink, BatchMetricExporter, BoundedMetricRuntime, LabelKey, MetricEvent,
-    MetricExporterState, MetricId, MetricKind, MetricLabel, MetricLabels, MetricRuntimeConfig,
-    MetricRuntimeSnapshot, NoopMetricSink, RecordOutcome, ShutdownOutcome, ALLOWED_LABEL_KEYS,
-    REQUIRED_METRIC_IDS,
+    production_metric_ids, AsyncMetricSink, BatchMetricExporter, BoundedMetricRuntime, LabelKey,
+    MetricAvailability, MetricEvent, MetricExporterState, MetricId, MetricKind, MetricLabel,
+    MetricLabels, MetricRuntimeConfig, MetricRuntimeSnapshot, NoopMetricSink, RecordOutcome,
+    ShutdownOutcome, ALLOWED_LABEL_KEYS, CANARY_METRIC_IDS, REQUIRED_METRIC_IDS,
 };
 pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,

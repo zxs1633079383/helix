@@ -17,8 +17,8 @@ use helix_core::effect::{HttpRequest, HttpResponse};
 use helix_core::ports::HttpRequester;
 use helix_core::PortError;
 use helix_driver_host::{
-    AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime,
-    SharedHttpClient,
+    AsyncMetricSink, AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig,
+    HostOtelRuntime, SharedHttpClient,
 };
 
 use crate::event_sink::NativeEventSink;
@@ -54,6 +54,15 @@ impl NativeHttp {
     // 旧 new()/with_timeout() 曾退化为永远 Err 的活墓碑——已删，误用变编译错（D2 drift 收敛）。
     pub fn with_config(config: HostNetworkConfig) -> Result<Self, PortError> {
         SharedHttpClient::new(config).map(Self::from_shared)
+    }
+
+    pub fn with_config_and_metric_sink(
+        config: HostNetworkConfig,
+        metrics: Arc<dyn AsyncMetricSink>,
+    ) -> Result<Self, PortError> {
+        SharedHttpClient::new(config)
+            .map(|client| client.with_metric_sink(metrics))
+            .map(Self::from_shared)
     }
 
     pub fn from_shared(inner: SharedHttpClient) -> Self {

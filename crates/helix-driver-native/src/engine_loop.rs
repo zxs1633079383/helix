@@ -20,13 +20,8 @@
 
 use std::sync::Arc;
 
-use helix_driver_host::engine::{
-    self, EngineDeps, TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink,
-    TransportTraceStats,
-};
-use helix_driver_host::{
-    spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, TraceHooks,
-};
+use helix_driver_host::engine::{self, EngineDeps, TransportLifecycleEvent, TransportTraceSink};
+use helix_driver_host::{AsyncMetricSink, NoopMetricSink, SharedFileUploader, TraceHooks};
 // rows↔bytes 编解码：host 单一真源，native re-export（helix-im 反序列化端对齐 host codec）。
 pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
@@ -40,6 +35,9 @@ use crate::event_sink::NativeEventSink;
 use crate::http::NativeHttp;
 use crate::storage::NativeStorage;
 use crate::transport::NativeTransport;
+
+mod reconnect;
+use reconnect::{start_native_reconnect, NativeReconnectRuntime};
 
 /// TransportId → 实际 WS 连接 的路由表（native 特化：值为 `NativeTransport`）。
 ///
@@ -58,6 +56,8 @@ pub struct EngineConfig {
     pub http: NativeHttp,
     pub uploader: SharedFileUploader,
     pub event_sink: NativeEventSink,
+    /// Engine 热路径指标 sink；composition root 应与 HTTP/WS/Storage/Event 共用同一 Arc。
+    pub metrics: Arc<dyn AsyncMetricSink>,
     /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。
     ///
     /// 冷启动时 core 一步可吐 N 条 `Effect::Http`；若全部齐发会瞬间打满底层连接
@@ -68,6 +68,28 @@ pub struct EngineConfig {
 }
 
 impl EngineConfig {
+    pub fn new(
+        storage: NativeStorage,
+        http: NativeHttp,
+        uploader: SharedFileUploader,
+        event_sink: NativeEventSink,
+        max_http_inflight: usize,
+    ) -> Self {
+        Self {
+            storage,
+            http,
+            uploader,
+            event_sink,
+            metrics: Arc::new(NoopMetricSink),
+            max_http_inflight,
+        }
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
     /// 转成 host 泛型壳所需的 [`EngineDeps`]（注入 `NativeClock`）。
     fn into_deps(
         self,
@@ -83,7 +105,7 @@ impl EngineConfig {
             event_sink: Arc::new(self.event_sink),
             clock: NativeClock,
             trace,
-            metrics: Arc::new(helix_driver_host::NoopMetricSink),
+            metrics: self.metrics,
             max_http_inflight: self.max_http_inflight,
             transport_lifecycle_tx,
             transport_trace_tx,
@@ -105,6 +127,7 @@ impl EngineConfig {
 ///     http,
 ///     uploader: helix_driver_host::SharedFileUploader::default(),
 ///     event_sink,
+///     metrics: std::sync::Arc::new(helix_driver_host::NoopMetricSink),
 ///     max_http_inflight: 8,
 /// };
 /// tokio::spawn(run_engine_loop(shell, tick_rx, tick_tx.clone(), config, shutdown_rx));
@@ -195,93 +218,6 @@ pub async fn run_engine_loop_with_transports_and_trace(
     }
 }
 
-struct NativeReconnectRuntime {
-    transport_rx: mpsc::UnboundedReceiver<(TransportId, Arc<NativeTransport>)>,
-    lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
-    trace_sink: Option<TransportTraceSink>,
-    trace_stats: Option<TransportTraceStats>,
-    tasks: Vec<tokio::task::JoinHandle<()>>,
-}
-
-fn start_native_reconnect(transports: &TransportTable) -> NativeReconnectRuntime {
-    let (register_tx, register_rx) = mpsc::unbounded_channel();
-    let mut lifecycle_routes = HashMap::new();
-    let (trace_sink, trace_rx) = TransportTraceSink::channel();
-    let trace_stats = trace_sink.stats();
-    let mut tasks = Vec::new();
-
-    for (&transport_id, transport) in transports {
-        let Some(factory) = transport.reconnect_factory() else {
-            continue;
-        };
-        let (route_tx, route_rx) = mpsc::unbounded_channel();
-        lifecycle_routes.insert(transport_id, route_tx);
-        let register_tx = register_tx.clone();
-        let trace_sink = ReconnectTraceSink::new(Some(trace_sink.clone()));
-        tasks.push(spawn_reconnect_supervisor(
-            transport_id,
-            ReconnectPolicy::default(),
-            route_rx,
-            register_tx,
-            trace_sink,
-            move || {
-                let factory = factory.clone();
-                async move {
-                    let mut transport = factory.build()?;
-                    helix_core::ports::Transport::connect(&mut transport).await?;
-                    Ok(transport)
-                }
-            },
-        ));
-    }
-    drop(register_tx);
-
-    if lifecycle_routes.is_empty() {
-        return NativeReconnectRuntime {
-            transport_rx: register_rx,
-            lifecycle_tx: None,
-            trace_sink: None,
-            trace_stats: None,
-            tasks,
-        };
-    }
-
-    let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded_channel();
-    tasks.push(tokio::spawn(async move {
-        while let Some(event) = lifecycle_rx.recv().await {
-            let TransportLifecycleEvent::Disconnected { transport_id, .. } = event;
-            if let Some(route) = lifecycle_routes.get(&transport_id) {
-                route.send(event).ok();
-            }
-        }
-    }));
-    tasks.push(spawn_transport_trace_logger(trace_rx));
-
-    NativeReconnectRuntime {
-        transport_rx: register_rx,
-        lifecycle_tx: Some(lifecycle_tx),
-        trace_sink: Some(trace_sink),
-        trace_stats: Some(trace_stats),
-        tasks,
-    }
-}
-
-fn spawn_transport_trace_logger(
-    mut rx: mpsc::Receiver<TransportTraceEvent>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            tracing::info!(
-                target: "helix_ws_lifecycle",
-                transport_id = event.transport_id.raw(),
-                action = event.action,
-                attempt = ?event.attempt,
-                delay_ms = ?event.delay_ms,
-                next_delay_ms = ?event.next_delay_ms,
-                reason = ?event.reason,
-                error_class = ?event.error_class,
-                "Helix WebSocket lifecycle"
-            );
-        }
-    })
-}
+#[cfg(test)]
+#[path = "engine_loop_tests.rs"]
+mod tests;

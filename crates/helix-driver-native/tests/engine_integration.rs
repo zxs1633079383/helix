@@ -177,6 +177,7 @@ async fn test_emit_received_by_subscriber() {
         http,
         uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
@@ -224,6 +225,7 @@ async fn test_timer_fires_into_engine() {
         http,
         uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
@@ -273,6 +275,7 @@ async fn test_persist_portreply_roundtrip() {
         http,
         uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();

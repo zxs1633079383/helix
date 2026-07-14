@@ -9,13 +9,16 @@
 //!   入站帧全靠读任务作 `Tick::Inbound` 直发泵（A2 不变量）。
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use helix_core::effect::TransportId;
 use helix_core::ports::Transport;
 use helix_core::PortError;
 use helix_core::Tick;
-use helix_driver_host::{HostHeaderRegistry, HostNetworkConfig, SharedWsClient};
+use helix_driver_host::{
+    AsyncMetricSink, HostHeaderRegistry, HostNetworkConfig, NoopMetricSink, SharedWsClient,
+};
 use tokio::sync::mpsc;
 
 /// PC/Tauri transport wrapper.
@@ -48,11 +51,13 @@ pub(crate) struct NativeReconnectFactory {
     headers: HostHeaderRegistry,
     id: TransportId,
     tick_tx: Option<mpsc::Sender<Tick>>,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl NativeReconnectFactory {
     pub(crate) fn build(&self) -> Result<NativeTransport, PortError> {
-        let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?;
+        let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?
+            .with_metric_sink(Arc::clone(&self.metrics));
         if let Some(tx) = &self.tick_tx {
             inner = inner.with_inbound_tick(self.id, tx.clone());
         }
@@ -111,6 +116,7 @@ impl NativeTransport {
             headers,
             id,
             tick_tx: tick_tx.clone(),
+            metrics: Arc::new(NoopMetricSink),
         };
         Ok(Self::from_shared_parts(inner, id, tick_tx, Some(reconnect)))
     }
@@ -121,6 +127,16 @@ impl NativeTransport {
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Self {
         Self::from_shared_parts(inner, id, tick_tx, None)
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        if let Some(inner) = self.inner.take() {
+            self.inner = Some(inner.with_metric_sink(Arc::clone(&metrics)));
+        }
+        if let Some(factory) = &mut self.reconnect {
+            factory.metrics = Arc::clone(&metrics);
+        }
+        self
     }
 
     fn from_shared_parts(

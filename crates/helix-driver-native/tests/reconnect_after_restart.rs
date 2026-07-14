@@ -50,6 +50,7 @@ async fn backend_drop_reconnects_with_cookie_and_restores_ping_pong() {
         http,
         uploader: SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 1,
     };
     let mut shell = ExecutionShell::new();

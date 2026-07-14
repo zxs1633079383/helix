@@ -181,7 +181,7 @@ mod tests {
                     &[
                         ScanOrder::desc("is_top"),
                         ScanOrder::desc("last_post_at"),
-                        ScanOrder::desc("create_at"),
+                        ScanOrder::desc("created_at"),
                     ]
                 );
                 assert_eq!(shape, MobileQueryShape::DialogList);

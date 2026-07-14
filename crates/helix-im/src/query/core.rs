@@ -57,7 +57,7 @@ const MESSAGE_QUERY_ORDER: &[ScanOrder] = &[ScanOrder::desc("create_at")];
 pub(crate) const DIALOG_QUERY_ORDER: &[ScanOrder] = &[
     ScanOrder::desc("is_top"),
     ScanOrder::desc("last_post_at"),
-    ScanOrder::desc("create_at"),
+    ScanOrder::desc("created_at"),
 ];
 
 /// 构造 `im_query_messages_by_channel` 的 `Scan(message WHERE channel_id ORDER BY create_at DESC)`。
@@ -137,7 +137,7 @@ pub fn emit_message_query_result_for_viewer(
     }
 }
 
-/// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY is_top,last_post_at,create_at DESC LIMIT)`。
+/// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY is_top,last_post_at,created_at DESC LIMIT)`。
 ///
 /// 返回 `Effect::Persist{Scan}`——调用方（module.rs）alloc corr + 注册
 /// `CorrelationContext::DialogListQuery`，PortReply 回报后 [`emit_dialog_list_result`] 把整份

@@ -72,7 +72,7 @@ fn build_dialog_list_query_sorts_top_activity_and_creation_before_limit() {
         &[
             ScanOrder::desc("is_top"),
             ScanOrder::desc("last_post_at"),
-            ScanOrder::desc("create_at"),
+            ScanOrder::desc("created_at"),
         ]
     );
 }

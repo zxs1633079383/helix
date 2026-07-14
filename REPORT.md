@@ -147,3 +147,82 @@
 - 未触碰 `SESSION.md`、`AGENTS.md`、`README.md`、Cargo 文件或 structure gate。
 - 白名单外 `docs/api-baseline/helix-core.txt` 仍记录已删除 API，需主对话刷新。
 - 历史 `REPORT_HELIX.md:66` 仍描述旧 set-union 结论，需主对话决定是否勘误。
+
+## review-gap too_long / snapshot 行为回正报告
+
+## 结论
+
+- `DeleteWhere` 只有 too_long 物理删除 `message` 这一条业务消费者；未发现其他合法消费者。
+- 已删除 `StorageOp::DeleteWhere`、`DeleteWhereSpec`、`Storage::delete_where` 及 host/native/wasm 兑现和测试桩。
+- 服务端 `too_long` 与客户端 gate buffer overflow 均保留 cursor/gate reset、Dialog reset、`im:sync:too_long` 与 `getLatestPost` 重拉，但不再物理删除本地 `message`。
+- Snapshot 继续只走 `BatchUpsert`；too_long reload 回包继续走既有 `BatchUpsert(message)` 覆盖链。
+- `BatchDelete(channel_member leave)` 未改动。
+
+## 调用链影响分析
+
+codebase-memory-mcp `search_graph` 找到唯一 `drop_channel_messages_op` 定义；索引的 inbound trace 未解析宏/跨模块 re-export 调用，因此用源码 `rg` 补证：
+
+```text
+SyncResponse::TooLong
+  -> acl::to_effect::drop_channel_messages_op
+  -> StorageOp::DeleteWhere(message, channel_id)
+
+Channel::buffer_and_arm_gate overflow
+  -> acl::to_effect::drop_channel_messages_op
+  -> StorageOp::DeleteWhere(message, channel_id)
+
+StorageOp::DeleteWhere
+  -> helix-driver-host::execute_storage_ops
+  -> Storage::delete_where
+  -> HostStorage::delete_where
+  -> DELETE FROM message WHERE channel_id = ?
+  -> NativeStorage 委托 / WasmStorage trait-shape
+```
+
+回正后：
+
+```text
+too_long / overflow
+  -> reset cursor/gate/buffer
+  -> PersistFire(reset_channel_dialog_op)
+  -> Emit(im:sync:too_long)
+  -> Http(getLatestPost)
+  -> BatchUpsert(message) + GuardedBump(channel) + Get(channel)
+  -> render-ready DialogPatch
+```
+
+## 可证伪测试
+
+- `s6_too_long_preserves_messages_and_emits_reload`：断言无 `DeleteWhere`/message `BatchDelete`，同时保留 cursor=resetTo-1、emit、reload、reload upsert 与 DialogPatch。
+- `s6_too_long_reload_failure_keeps_message_history`：注入 reload HTTP 500，断言不补发任何 message delete，cursor reset 仍保持。
+- `test_gate_buffer_capped_proactive_too_long_e6`：累计扫描每个 overflow step，断言主动 too_long 存在且没有 message delete。
+- 删除原 `delete_where_deletes_only_matching_scope_rows` 自证测试；合法 `BatchDelete` 的跨 channel 隔离测试仍保留。
+
+## 静态验证
+
+- `rustfmt --edition 2021 <全部改动 Rust 文件>` PASS。
+- `git diff --check` PASS。
+- `rg 'DeleteWhereSpec|StorageOp::DeleteWhere|fn delete_where|drop_channel_messages_op' crates`：仅测试中的反回归字符串，无代码符号/实现残留。
+- `scripts/structure-gate.sh`：FAIL，属于本次 review-gap 主线既有结构债；本分支没有扩大债务，目标文件行数下降：
+  - `helix-core/src/effect.rs`：537 -> 519
+  - `helix-driver-host/src/storage.rs`：693 -> 670
+  - `helix-im/src/channel/gate.rs`：741 -> 739
+- 按派发约束未运行 Cargo；类型检查与测试由主对话合并后统一执行。
+
+## 白名单外残留
+
+以下文件仍记录已删除 API/旧结论，但不在本任务白名单，未修改：
+
+- `docs/api-baseline/helix-core.txt`
+- `docs/架构索引/01-helix-core.md`
+- `docs/架构索引/03-helix-driver-host.md`
+- `docs/specs/2026-07-09-dialog-projection-acceptance-report.md`
+- `docs/specs/2026-07-09-dialog-projection-closure-matrix.md`
+- `REPORT_HELIX.md`
+
+`emit_sync_too_long` 的既有 `dropLocalMessages: true` 字段也在白名单外；本次 spec 已明确它只是 UI 增量视图失效兼容提示，不授权 SQLite 删除。若要改 wire schema，需单独做消费者兼容评审。
+
+## 边界
+
+- 未修改 `SESSION.md`、`AGENTS.md`、`README.md`、`scripts/structure-gate.sh`、`Cargo.toml`、`Cargo.lock`。
+- 未伪造真实 Go、SQLite 或 K8s 运行证据。

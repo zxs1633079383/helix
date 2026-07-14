@@ -28,8 +28,8 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
-    MonotonicUpsertSpec, Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
+    Row as HelixRow, ScanSpec, SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -487,29 +487,6 @@ impl Storage for HostStorage {
             // 绑定顺序与占位一致：scope_val → key_vals…
             let mut values = sql_values(std::iter::once(&scope_val));
             values.extend(sql_values(key_vals.iter()));
-            let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
-            conn.execute(&sql, params_from_iter(values.iter()))
-                .map(|_| ())
-                .map_err(map_sqlite_err)
-        })
-        .await
-        .map_err(map_join_err)?
-    }
-
-    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
-        let DeleteWhereSpec {
-            table,
-            key_col,
-            key_val,
-        } = spec;
-        let writer = Arc::clone(&self.writer);
-        let trace = current_storage_trace_context();
-        let table = table.to_string();
-        let key_col = key_col.to_string();
-        tokio::task::spawn_blocking(move || {
-            let conn = writer.lock().map_err(map_lock_err)?;
-            let sql = format!("DELETE FROM {table} WHERE {key_col} = ?");
-            let values = sql_values(std::iter::once(&key_val));
             let _span = trace_sql(&trace, "DELETE", Some(&table), &sql, &values);
             conn.execute(&sql, params_from_iter(values.iter()))
                 .map(|_| ())

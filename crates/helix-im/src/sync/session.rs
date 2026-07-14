@@ -5,7 +5,7 @@
 //! - /sync/notify(from_seq) 返回 4 种响应
 //! - 分桶顺序铁律：type1 upsert → type2 edit → type3 revoke → type6 read
 //! - ≥500 events 需续拉（needs_continuation）
-//! - TooLong：cursor = reset_to-1 + Emit(SyncTooLong) → 前端清表重拉
+//! - TooLong：cursor = reset_to-1 + Emit(SyncTooLong) + getLatestPost 覆盖式重拉；不物理删 message
 
 use crate::state::{ChannelId, Seq};
 
@@ -229,9 +229,9 @@ pub enum SyncResponse {
         next_seq: Seq,
         needs_continuation: bool,
     },
-    /// 服务端返回快照（cursor 跳跃过大时的降级）
+    /// 服务端返回快照（覆盖式 upsert，不先物理删除既有 message）
     Snapshot(ChannelSnapshot),
-    /// cursor gap 过大，需清表重拉
+    /// cursor gap 过大，保留旧 message 并覆盖式重拉
     TooLong { reset_to: Seq },
 }
 

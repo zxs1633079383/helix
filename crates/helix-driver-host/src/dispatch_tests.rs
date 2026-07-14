@@ -7,9 +7,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, Correlation, DeleteWhereSpec, DomainEventBytes,
-    FileUploadRequest, FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest,
-    MonotonicUpsertSpec, Row, ScanSpec, StorageOp, TransportId, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, Correlation, DomainEventBytes, FileUploadRequest,
+    FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest, MonotonicUpsertSpec, Row, ScanSpec,
+    StorageOp, TransportId, UpsertSpec,
 };
 use helix_core::ports::{EventSink, FileUploader, Storage, Transport};
 use helix_core::tick::{PortOutcome, ReplyBytes, Tick};
@@ -53,10 +53,6 @@ impl Storage for UnusedStorage {
     }
 
     async fn batch_delete(&self, _: BatchDeleteSpec) -> Result<(), PortError> {
-        unreachable!("storage should not be used in upload dispatch test")
-    }
-
-    async fn delete_where(&self, _: DeleteWhereSpec) -> Result<(), PortError> {
         unreachable!("storage should not be used in upload dispatch test")
     }
 }

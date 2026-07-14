@@ -99,9 +99,6 @@ pub enum StorageOp {
     /// 复合 PK 作用域删除（如 channel_member 成员离场：scope=channel_id + key=user_id）。
     /// O(k) 单语句；scope 等值约束**绝不跨作用域误删**。见 `BatchDeleteSpec`。
     BatchDelete(BatchDeleteSpec),
-    /// 单列等值删除：`DELETE FROM table WHERE key_col = ?`。
-    /// 用于按业务作用域丢弃一组派生行（如 too_long 后丢弃某 channel 的本地 message）。
-    DeleteWhere(DeleteWhereSpec),
 }
 
 /// BatchUpsert 规格
@@ -199,21 +196,6 @@ pub struct BatchDeleteSpec {
     pub key_col: &'static str,
     /// 待删行的 key 运行时值列表
     pub key_vals: Vec<SqlValue>,
-}
-
-/// DeleteWhere 规格：`DELETE FROM table WHERE key_col = ?`。
-///
-/// 与 `BatchDelete` 的区别：`BatchDelete` 适合复合 PK 的 scoped IN-list 删除；
-/// 本原语适合“按单一作用域列删除该作用域下全部派生行”。表名 / 列名仍是编译期常量，
-/// 运行时值由业务模块提供，core 与 driver 不解释业务含义（守 HX-C001）。
-#[derive(Debug, Clone)]
-pub struct DeleteWhereSpec {
-    /// 目标表名（编译期常量）
-    pub table: &'static str,
-    /// 等值过滤列名（编译期常量）
-    pub key_col: &'static str,
-    /// 等值过滤运行时值
-    pub key_val: SqlValue,
 }
 
 /// 守卫式自增规格：单行原子计数器递增 + 可选绝对列写，带前进守卫——**无 read-modify-write**。

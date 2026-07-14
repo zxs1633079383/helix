@@ -58,10 +58,6 @@ where
                 Ok(()) => {}
                 Err(e) => return PortOutcome::Err(classify_port_error(e)),
             },
-            StorageOp::DeleteWhere(spec) => match storage.delete_where(spec.clone()).await {
-                Ok(()) => {}
-                Err(e) => return PortOutcome::Err(classify_port_error(e)),
-            },
         }
     }
 
@@ -84,7 +80,6 @@ pub fn table_set_key(ops: &[StorageOp]) -> String {
             StorageOp::Get(s) => s.table,
             StorageOp::Scan(s) => s.table,
             StorageOp::BatchDelete(s) => s.table,
-            StorageOp::DeleteWhere(s) => s.table,
         })
         .collect();
     tables.sort_unstable();

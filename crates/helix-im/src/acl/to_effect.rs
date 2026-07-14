@@ -15,8 +15,8 @@ pub use super::projection_message_effects::{
     emit_post_updated, emit_post_updated_for_viewer,
 };
 pub use super::storage_effects::{
-    advance_cursor, bump_channel_unread, bump_channel_unread_op, drop_channel_messages_op,
-    get_channel_row_op, reset_channel_dialog_op, update_channel_partial, upsert_channel_full,
+    advance_cursor, bump_channel_unread, bump_channel_unread_op, get_channel_row_op,
+    reset_channel_dialog_op, update_channel_partial, upsert_channel_full,
     upsert_channel_member_dialog, upsert_message,
 };
 pub use super::sync_effects::{

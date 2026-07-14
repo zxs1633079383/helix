@@ -267,13 +267,11 @@ impl Channel {
             // 客户端 buffer 溢出自触发 too_long：cursor 不回退（保持现值，注释 §E6）。
             // 故 resetTo = cursor+1 → 前端 cursor=resetTo-1 = 现值不变；UI 仍刷新首屏，
             // sync 从 cursor+1 重拉缺口（与服务端 too_long 的 reset_to 语义统一走同一 emit）。
-            // Dialog 语义必须同步丢弃该 channel 的本地消息派生视图，不能只发控制事件。
+            // 只重置 Dialog 派生字段，不物理删除 message。reload 失败时保留旧历史，
+            // 成功后由 getLatestPost 的 BatchUpsert 覆盖最终态。
             let reset_to = Seq(self.cursor.value().0 + 1);
             fx.push(Effect::PersistFire {
-                ops: vec![
-                    crate::acl::to_effect::drop_channel_messages_op(self.id),
-                    crate::acl::to_effect::reset_channel_dialog_op(self.id),
-                ],
+                ops: vec![crate::acl::to_effect::reset_channel_dialog_op(self.id)],
             });
             fx.push(crate::acl::to_effect::emit_sync_too_long(self.id, reset_to));
             self.arm_gate_if_needed(fx);
@@ -370,8 +368,8 @@ impl Channel {
 
     /// too_long 处理：清内存 buffer + cursor 复位 + gate 清除
     ///
-    /// 本方法只处理内存状态；调用方负责下发 drop local messages / reset dialog storage ops
-    /// 以及 Emit(im:sync:too_long)，避免内存游标和本地可见投影不一致。
+    /// 本方法只处理内存状态；调用方负责 reset dialog storage ops 与
+    /// Emit(im:sync:too_long)。message 历史保留，后续 reload 以 upsert 覆盖最终态。
     pub fn reset_for_too_long(&mut self, reset_to: Seq, fx: &mut EffectSink) {
         self.buffer.clear();
         self.gate = None;

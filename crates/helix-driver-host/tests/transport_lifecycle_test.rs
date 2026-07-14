@@ -6,9 +6,9 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, DomainEventBytes, FileUploadRequest,
-    FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec,
-    Row, ScanSpec, TransportId, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DomainEventBytes, FileUploadRequest, FileUploadResponse,
+    GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec, Row, ScanSpec,
+    TransportId, UpsertSpec,
 };
 use helix_core::ports::{Clock, EventSink, FileUploader, HttpRequester, Storage, Transport};
 use helix_core::{ExecutionShell, PortError, Tick};
@@ -46,10 +46,6 @@ impl Storage for UnusedStorage {
     }
 
     async fn batch_delete(&self, _: BatchDeleteSpec) -> Result<(), PortError> {
-        unreachable!("storage should not be used")
-    }
-
-    async fn delete_where(&self, _: DeleteWhereSpec) -> Result<(), PortError> {
         unreachable!("storage should not be used")
     }
 }

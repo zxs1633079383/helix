@@ -172,6 +172,8 @@ impl ImModule {
                 }
             }
             SyncResponse::TooLong { reset_to } => {
+                // 覆盖式恢复不先删除本地 message：若 getLatestPost 失败，旧历史仍可读；
+                // 成功回包沿既有 BatchUpsert 链按主键覆盖消息最终态。
                 let reset_cursor = Seq(reset_to.0.saturating_sub(1));
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.buffer.clear();
@@ -180,10 +182,7 @@ impl ImModule {
                     ch.last_sync_from_seq = None;
                 }
                 out.push(Effect::PersistFire {
-                    ops: vec![
-                        crate::acl::to_effect::drop_channel_messages_op(channel_id),
-                        crate::acl::to_effect::reset_channel_dialog_op(channel_id),
-                    ],
+                    ops: vec![crate::acl::to_effect::reset_channel_dialog_op(channel_id)],
                 });
                 out.push(crate::acl::to_effect::emit_sync_too_long(
                     channel_id, reset_to,
@@ -215,6 +214,8 @@ impl ImModule {
                 }
             }
             SyncResponse::Snapshot(snap) => {
+                // Snapshot 与 too_long 共用“覆盖而非先删”不变量：只产 BatchUpsert，
+                // 持久化失败时既有 message 行保持不变。
                 let persist_corr = self.alloc_corr_internal();
                 let reset_to = snap.reset_to;
                 let persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);

@@ -3,7 +3,7 @@
 //! 回归锚: S6（SPEC-sync-v2-full-replacement.md §S6）
 //!
 //! 补齐既有 gate_test / increment_flow_test 未显式锁定的契约：
-//! - too_long 在 Rust 侧 drop channel 本地 message，并 emit drop_and_reload；
+//! - too_long 保留本地 message，复位 cursor、emit 并主动覆盖式重拉；
 //! - increment_end fan-out 对 (fetched − skip) **确定性有序**（HX-C010，ChannelId: Ord）。
 //!
 //! 注：续拉（events.len()>=500 → no_change）已由 e3_continuation_test 覆盖（UC-3）。
@@ -54,11 +54,23 @@ fn channel_row_reply(channel_id: u64, unread_count: i64, msg_id: &str) -> bytes:
     bytes::Bytes::from(serde_json::to_vec(&row).unwrap())
 }
 
-/// 回归锚: S6 —— too_long drop-and-reload，Helix 侧按 channel 丢弃本地 message 派生视图。
+fn is_message_delete_effect(effect: &Effect) -> bool {
+    let ops: &[StorageOp] = match effect {
+        Effect::Persist { ops, .. } => ops,
+        Effect::PersistFire { ops } => ops,
+        _ => return false,
+    };
+    ops.iter().any(|op| {
+        let op = format!("{op:?}");
+        op.contains("DeleteWhere") || (op.contains("BatchDelete") && op.contains("message"))
+    })
+}
+
+/// 回归锚: S6 —— too_long 覆盖式重拉，Helix 保留本地 message 历史。
 ///
-/// 本测试断言 too_long 批次产出 `DeleteWhere(message WHERE channel_id=...)`，而不是让前端自清。
+/// 本测试锁定：无 message delete + cursor reset + emit + getLatestPost reload/upsert。
 #[test]
-fn s6_too_long_drops_channel_messages_and_emits_reload() {
+fn s6_too_long_preserves_messages_and_emits_reload() {
     let mut h = Harness::new(&[1]);
     // 大缺口（seq=5 / cursor=0 / gap=5 > 阈值）→ **立即** backfill resync（根治
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
@@ -96,7 +108,6 @@ fn s6_too_long_drops_channel_messages_and_emits_reload() {
                 && s.contains("\"resetTo\":100")
                 && s.contains("\"channelId\"")
                 && s.contains("\"mode\":\"drop_and_reload\"")
-                && s.contains("\"dropLocalMessages\":true")
         })
     });
     assert!(
@@ -123,25 +134,11 @@ fn s6_too_long_drops_channel_messages_and_emits_reload() {
     assert_eq!(reload_http.2["channelId"], cid(1));
     assert_eq!(reload_http.2["timestamp"], 0);
 
-    // 2. 必须按 channel 删除 message 派生行；禁止变成全表删或前端自清。
-    let mut saw_message_drop = false;
-    for e in h.sink.as_slice() {
-        let ops: &[StorageOp] = match e {
-            Effect::Persist { ops, .. } => ops,
-            Effect::PersistFire { ops } => ops,
-            _ => continue,
-        };
-        for op in ops {
-            if let StorageOp::DeleteWhere(s) = op {
-                if s.table == "message" && s.key_col == "channel_id" {
-                    saw_message_drop = true;
-                }
-            }
-        }
-    }
+    // 2. 禁止先清 message。reload HTTP 失败时旧历史必须仍可读。
+    let saw_message_delete = h.sink.as_slice().iter().any(is_message_delete_effect);
     assert!(
-        saw_message_drop,
-        "S6：too_long 须由 Helix drop channel 本地 message，got {:?}",
+        !saw_message_delete,
+        "S6：too_long 不得物理删除本地 message，got {:?}",
         h.sink.as_slice()
     );
 
@@ -192,6 +189,49 @@ fn s6_too_long_drops_channel_messages_and_emits_reload() {
         })
     });
     assert!(reload_patch, "重拉落库写后读回后必须 emit 覆盖 DialogPatch");
+}
+
+#[test]
+fn s6_too_long_reload_failure_keeps_message_history() {
+    let mut h = Harness::new(&[1]);
+    let sync_corr = h
+        .step(inbound_event(1, 5, 1), 1_000)
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("大缺口必须触发 sync Http");
+
+    h.step(
+        Tick::PortReply {
+            corr: Correlation::from_raw(sync_corr),
+            outcome: PortOutcome::Ok(ReplyBytes(enveloped(sync_reply_too_long(1, 100)))),
+        },
+        2_100,
+    );
+    let reload_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("too_long 必须发起覆盖式 reload");
+
+    h.step(port_reply_err(reload_corr), 2_200);
+    assert!(
+        !h.sink.as_slice().iter().any(is_message_delete_effect),
+        "reload 失败不得补发 message delete，旧本地历史必须保留"
+    );
+    assert_eq!(
+        h.module.cursor_for(channel_id(1)),
+        Some(99),
+        "reload 失败不撤销 too_long 的 cursor reset"
+    );
 }
 
 /// 回归锚: S6 —— increment_end(None global) fan-out 对 (fetched − skip) **确定性有序**

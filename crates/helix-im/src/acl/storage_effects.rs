@@ -164,17 +164,7 @@ pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
     }
 }
 
-/// too_long drop-and-reload：丢弃该 channel 的本地消息派生视图。
-pub fn drop_channel_messages_op(channel_id: ChannelId) -> StorageOp {
-    use helix_core::effect::{DeleteWhereSpec, SqlValue};
-    StorageOp::DeleteWhere(DeleteWhereSpec {
-        table: "message",
-        key_col: "channel_id",
-        key_val: SqlValue::Text(channel_id.as_str().to_string()),
-    })
-}
-
-/// too_long drop-and-reload：清理 channel 上由消息增量派生的 Dialog 字段。
+/// too_long 覆盖式重拉：重置 channel 的 Dialog 派生字段，但保留本地 message 历史。
 pub fn reset_channel_dialog_op(channel_id: ChannelId) -> StorageOp {
     use helix_core::effect::{BatchUpdateSpec, SqlValue};
     StorageOp::BatchUpdate(BatchUpdateSpec {

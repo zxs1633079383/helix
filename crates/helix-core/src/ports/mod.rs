@@ -20,8 +20,8 @@ pub mod transport;
 pub mod upload;
 
 pub use crate::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
-    MonotonicUpsertSpec, ScanSpec, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
+    UpsertSpec,
 };
 pub use clock::Clock;
 #[cfg(any(test, feature = "testing"))]

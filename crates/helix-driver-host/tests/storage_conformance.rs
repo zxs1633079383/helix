@@ -1,6 +1,6 @@
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
-    MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, ScanSpec,
+    SqlValue, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::tick::PortOutcome;
@@ -1151,68 +1151,6 @@ async fn guarded_bump_extra_counts_and_singleton_lists_share_the_same_guard_s3()
         value("last_root_post_at"),
         Some(SqlValue::Integer(200))
     ));
-}
-
-/// 回归锚: too_long drop-and-reload —— 按 channel_id 删除本地 message 派生行。
-#[tokio::test]
-async fn delete_where_deletes_only_matching_scope_rows() {
-    let st = storage().await;
-    st.execute_raw(
-        "CREATE TABLE message (\
-         temporary_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, message TEXT NOT NULL)",
-    )
-    .await
-    .expect("create message");
-    st.batch_upsert(UpsertSpec {
-        table: "message",
-        rows: vec![
-            vec![
-                ("temporary_id".to_string(), SqlValue::Text("a1".to_string())),
-                ("channel_id".to_string(), SqlValue::Text("c1".to_string())),
-                ("message".to_string(), SqlValue::Text("drop me".to_string())),
-            ],
-            vec![
-                ("temporary_id".to_string(), SqlValue::Text("a2".to_string())),
-                ("channel_id".to_string(), SqlValue::Text("c1".to_string())),
-                (
-                    "message".to_string(),
-                    SqlValue::Text("drop me too".to_string()),
-                ),
-            ],
-            vec![
-                ("temporary_id".to_string(), SqlValue::Text("b1".to_string())),
-                ("channel_id".to_string(), SqlValue::Text("c2".to_string())),
-                ("message".to_string(), SqlValue::Text("keep me".to_string())),
-            ],
-        ],
-        conflict_key: Some("temporary_id"),
-        exclude_from_update: Vec::new(),
-    })
-    .await
-    .expect("seed");
-
-    st.delete_where(DeleteWhereSpec {
-        table: "message",
-        key_col: "channel_id",
-        key_val: SqlValue::Text("c1".to_string()),
-    })
-    .await
-    .expect("delete where");
-
-    let remaining = st
-        .scan(ScanSpec {
-            table: "message",
-            limit: None,
-            filter: None,
-            order_desc_col: None,
-        })
-        .await
-        .expect("scan");
-    assert_eq!(remaining.len(), 1, "只应保留其他 channel 的消息");
-    let row = &remaining[0];
-    assert!(row
-        .iter()
-        .any(|(k, v)| k == "temporary_id" && matches!(v, SqlValue::Text(id) if id == "b1")));
 }
 
 /// 回归锚: S3 path1 —— exclude_from_update：冲突时守卫/本地列保留既有值，其余列覆盖。

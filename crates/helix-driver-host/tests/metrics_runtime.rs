@@ -2,8 +2,8 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use helix_driver_host::metrics::{
-    AsyncMetricSink, BatchMetricExporter, BoundedMetricRuntime, LabelKey, MetricEvent,
-    MetricExportError, MetricId, MetricLabels, MetricRuntimeConfig, RecordOutcome, ShutdownOutcome,
+    BatchMetricExporter, BoundedMetricRuntime, LabelKey, MetricEvent, MetricExportError, MetricId,
+    MetricLabels, MetricRuntimeConfig, RecordOutcome, ShutdownOutcome,
 };
 
 #[derive(Clone, Default)]
@@ -20,13 +20,15 @@ impl BatchMetricExporter for RecordingExporter {
 
 struct PausedExporter {
     entered: mpsc::Sender<()>,
-    resume: mpsc::Receiver<()>,
+    resume: Option<mpsc::Receiver<()>>,
 }
 
 impl BatchMetricExporter for PausedExporter {
     fn export_batch(&mut self, _batch: &[MetricEvent]) -> Result<(), MetricExportError> {
-        self.entered.send(()).ok();
-        self.resume.recv().ok();
+        if let Some(resume) = self.resume.take() {
+            self.entered.send(()).ok();
+            resume.recv().ok();
+        }
         Ok(())
     }
 }
@@ -118,7 +120,7 @@ fn paused_worker_drops_metrics_without_blocking_caller() {
         config,
         PausedExporter {
             entered: entered_tx,
-            resume: resume_rx,
+            resume: Some(resume_rx),
         },
     )
     .unwrap();

@@ -18,6 +18,10 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::metrics::{
+    AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
+};
+
 // URL/header 工具裂分到 sibling（按职责，structure-gate §1）。`use *` 复用 6 个 pub(super) helper。
 #[path = "network_util.rs"]
 mod network_util;
@@ -139,6 +143,7 @@ pub struct SharedWsClient {
     /// 可选入站推送通道：Some 时读任务发 `Tick::Inbound`/`Disconnected`（native 路径）。
     inbound: Option<(TransportId, mpsc::Sender<Tick>)>,
     disconnect_notified: Arc<AtomicBool>,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl SharedWsClient {
@@ -157,6 +162,7 @@ impl SharedWsClient {
             state: Arc::new(Mutex::new(WsState::Disconnected)),
             inbound: None,
             disconnect_notified: Arc::new(AtomicBool::new(false)),
+            metrics: Arc::new(NoopMetricSink),
         })
     }
 
@@ -170,6 +176,11 @@ impl SharedWsClient {
     /// 连接关闭/出错作 `Tick::Disconnected(id)`，而非塞内部 `frame_rx`。
     pub fn with_inbound_tick(mut self, id: TransportId, tick_tx: mpsc::Sender<Tick>) -> Self {
         self.inbound = Some((id, tick_tx));
+        self
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
         self
     }
 }
@@ -203,6 +214,7 @@ impl Transport for SharedWsClient {
         self.disconnect_notified.store(false, Ordering::Release);
         let inbound = self.inbound.clone();
         let disconnect_notified = Arc::clone(&self.disconnect_notified);
+        let metrics = Arc::clone(&self.metrics);
 
         let reader = tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
@@ -217,6 +229,14 @@ impl Transport for SharedWsClient {
 
                 if let Ok(bytes) = &frame {
                     crate::network_debug::dump_ws_inbound(bytes);
+                    let _ = metrics.try_record(MetricEvent::counter(
+                        MetricId::OperationsTotal,
+                        1.0,
+                        MetricLabels::one(LabelKey::Stage, "ws_ingress")
+                            .with(LabelKey::Protocol, "ws")
+                            .with(LabelKey::Direction, "inbound")
+                            .with(LabelKey::Status, "ok"),
+                    ));
                 }
 
                 match &inbound {
@@ -285,6 +305,21 @@ impl Transport for SharedWsClient {
         drop(state);
         if result.is_err() {
             notify_disconnected(&self.inbound, &self.disconnect_notified);
+        }
+        let status = if result.is_ok() { "ok" } else { "error" };
+        let labels = MetricLabels::one(LabelKey::Stage, "ws_egress")
+            .with(LabelKey::Protocol, "ws")
+            .with(LabelKey::Direction, "outbound")
+            .with(LabelKey::Status, status);
+        let _ =
+            self.metrics
+                .try_record(MetricEvent::counter(MetricId::OperationsTotal, 1.0, labels));
+        if result.is_err() {
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::ErrorsTotal,
+                1.0,
+                labels.with(LabelKey::ErrorKind, "ws_send_failed"),
+            ));
         }
         result
     }

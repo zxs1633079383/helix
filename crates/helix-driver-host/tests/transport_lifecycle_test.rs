@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -15,7 +15,19 @@ use helix_core::{ExecutionShell, PortError, Tick};
 use helix_driver_host::engine::{
     run_engine_loop, EngineDeps, TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink,
 };
-use helix_driver_host::{BatchSink, TraceHooks};
+use helix_driver_host::{
+    AsyncMetricSink, BatchSink, MetricEvent, MetricId, RecordOutcome, TraceHooks,
+};
+
+#[derive(Clone, Default)]
+struct RecordingMetricSink(Arc<Mutex<Vec<MetricEvent>>>);
+
+impl AsyncMetricSink for RecordingMetricSink {
+    fn try_record(&self, event: MetricEvent) -> RecordOutcome {
+        self.0.lock().unwrap().push(event);
+        RecordOutcome::Accepted
+    }
+}
 
 struct UnusedStorage;
 
@@ -115,6 +127,8 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
     let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded_channel();
     let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
     let tick_tx_for_loop = tick_tx.clone();
+    let metrics = RecordingMetricSink::default();
+    let recorded_metrics = Arc::clone(&metrics.0);
 
     let deps = EngineDeps {
         storage: Arc::new(UnusedStorage),
@@ -123,6 +137,7 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
         event_sink: Arc::new(NoopSink),
         clock: FixedClock,
         trace: TraceHooks::noop(),
+        metrics: Arc::new(metrics),
         max_http_inflight: 1,
         transport_lifecycle_tx: Some(lifecycle_tx),
         transport_trace_tx: Some(trace_tx),
@@ -181,4 +196,13 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
         .await
         .expect("engine loop should stop after shutdown")
         .expect("engine loop task should not panic");
+    let metric_ids: Vec<_> = recorded_metrics
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|event| event.id)
+        .collect();
+    assert!(metric_ids.contains(&MetricId::TickQueueDepth));
+    assert!(metric_ids.contains(&MetricId::CoreStepDurationSeconds));
+    assert!(metric_ids.contains(&MetricId::EffectsPerTick));
 }

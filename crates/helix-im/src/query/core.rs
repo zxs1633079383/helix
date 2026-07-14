@@ -243,3 +243,7 @@ pub fn emit_dialogs_cleared() -> Effect {
 #[cfg(test)]
 #[path = "core_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "core_message_tests.rs"]
+mod message_tests;

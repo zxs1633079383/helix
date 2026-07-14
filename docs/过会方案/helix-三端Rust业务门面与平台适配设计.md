@@ -1,6 +1,6 @@
 # Helix 三端 Rust 业务门面与平台适配设计
 
-> 状态：2026-07-14 用户拍板；A1-A4 已落地，A5 浏览器 glue、Go query 鉴权、正式 Web gate 与历史清理实施中。
+> 状态：2026-07-14 用户拍板；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate 与历史 wasm 清理已落地，真 Go send/echo/断连恢复待环境验收。
 >
 > 决策真源：[`../harness/decisions.md`](../harness/decisions.md) ADR-014。
 >
@@ -105,7 +105,7 @@ pub trait FrameSender: MaybeSend + MaybeSync + 'static {
 2. `helix-driver-host::TransportTable`、`dispatch_effects` 和 `run_engine_loop` 只约束 `FrameSender`。
 3. `SharedWsClient` 与 `NativeTransport` 以具体类型的 inherent 方法管理 `connect/recv/close`，
    reconnect 继续属于 host；未为尚不存在的第二套生命周期预建 `ManagedConnection` trait。
-4. native、FFI、host-cli 与归档 wasm 骨架已迁移，core 旧 `Transport` 已删除。
+4. native、FFI、host-cli 已迁移，core 旧 `Transport` 已删除；当时同步的历史 wasm 骨架已在 A5 清理。
 
 core 不新增 tokio、web-sys、浏览器生命周期、重连退避或鉴权逻辑。
 
@@ -308,7 +308,7 @@ A4 落地结果：Browser Fetch 支持完整 body、显式 timeout 与 shutdown 
 event batch v2 与 WASM API 均已接入。HTTP outcome 到业务事件的映射由 `helix-im` 单一持有，host/Web
 只注入 observer；事件/动作/运行时问题轮询队列均有硬上限，溢出通过 gap/drop 计数或 fail-closed
 显式暴露。`wasm32-unknown-unknown` final artifact 已构建通过，相关六 crate
-全测通过，同 Tick native/FFI/Web 业务输出 parity 通过；这不等价于 A5 真浏览器/真 Go 产品链完成。
+全测通过，同 Tick native/FFI/Web 业务输出 parity 通过；这不等价于浏览器到真 Go 产品链完成。
 
 `helix-im` 原先用 `linkme` 分散注册 HTTP command 与 WS handler，但 `linkme` 不支持
 `wasm32-unknown-unknown`。A4 将注册机制全平台单轨迁为 `inventory`，避免为 Web 复制第二份注册表；
@@ -317,12 +317,9 @@ WASM constructors 的显式初始化只属于 `helix-driver-web` final artifact/
 
 ### 4.8 历史 `helix-driver-wasm`
 
-不在原 crate 上继续开发。A4 `helix-driver-web` 已通过 Rust/WASM 验收；正式 CI/HX-C003 已在 A5
-切到新 driver，历史 crate 按独立提交删除：
-
-1. 审计历史代码，只迁移被测试证明可复用的无业务片段；
-2. 单独提交删除 `helix-driver-wasm`；
-3. HX-C003 改为守护正式 `helix-driver-web`，不再指向历史骨架。✅
+旧 crate 已完成无外部代码入边审计，并在正式 `helix-driver-web`、浏览器 glue 与 HX-C003 gate
+落地后独立删除；未迁移其中未兑现端口，也不保留第二套 Web driver。仓库路由、边界文档与
+HX-C003/HX-C007 均已改指正式 `helix-driver-web`，历史 ADR 只保留当时决策记录。
 
 ## 5. 分阶段实施
 
@@ -340,7 +337,7 @@ command/event contract 全绿。
 修改：`query/local_first.rs`、`query/local_first/data.rs`、`query/dispatch.rs`、`correlation.rs`、
 `port_reply.rs`、`state.rs`、`mobile_query.rs` 和 FFI compatibility query。
 
-实现边界：FFI 同步 `helix_query` 在 A5 消费方迁移前仍直接执行 Storage，但 payload 解析、ScanSpec、
+实现边界：FFI 同步 `helix_query` 在真实 Flutter 消费方完成异步迁移前仍直接执行 Storage，但 payload 解析、ScanSpec、
 结果 shape 必须委托 `helix-im::query`；它不在同步 ABI 内另造 HTTP 编排。真正的 local-first 只走
 `Tick::Command → Effect → PortReply → DomainEvent` 异步主路径。
 
@@ -356,15 +353,17 @@ command/event contract 全绿。
 落地结果：异步查询已形成 `Scan → coverage → 可选 Http → 可选 cache Persist → Emit` 单一路径；
 远端不足 20 条才可证明当前用户可见集合耗尽，满 20 后的同 segment 扩展行不扩大 coverage。
 hello/disconnect、消息写入、sync 与乐观发送都会撤销旧 proof；旧会话 Scan/HTTP/Persist 晚回包均丢弃。
-FFI 同步 compatibility 只复用共享 parser/ScanSpec/shape，不复制 HTTP 编排，按计划留到 A5 删除。
+FFI 同步 compatibility 只复用共享 parser/ScanSpec/shape，不复制 HTTP 编排；必须拿到真实 Flutter
+消费方迁移证据后再删除，当前不能以仓内无调用替代迁移证明。
 
 验证：五 crate `cargo check` 通过；`scripts/gate.sh` 10/10 通过，含全 workspace 测试、HX-C001、
 trace/业务边界、harness、FFI 1–5 层、native↔FFI byte parity、C++ 直连 ABI 冒烟与 public API 闸门。
 
 ### A3：WS port 缩窄 ✅
 
-已新增 send-only `FrameSender`，迁移 host engine/dispatch、native/FFI/host-cli 与归档 wasm
-骨架，并删除 core 旧 `Transport`。连接、收帧、关闭是具体连接类型的方法，reconnect 留在 host。
+已新增 send-only `FrameSender`，迁移 host engine/dispatch、native/FFI/host-cli，并删除 core 旧
+`Transport`。当时同步的历史 wasm 骨架已在 A5 删除；连接、收帧、关闭是具体连接类型的方法，
+reconnect 留在 host。
 
 验收覆盖：只实现 send 的 dyn-safe core 契约；精确 TransportId/bytes 的 Send 路由；动态注册
 sender 后继续发送；native 受控本地 WS 产出 Connected、原字节 Inbound 与 reader-side Disconnected，
@@ -404,11 +403,11 @@ HTTP outcome 业务策略由 `helix-im` 单一持有，host/Web 只注入 observ
 
 ### A5：真实链路与清理
 
-用最小平台 glue 验证 hello → 收帧 → query → HTTP fallback → send → echo → disconnect/reconnect；
-正式 HX-C003/CI 已激活，历史 wasm crate 独立删除。FFI `mobile_query` 只有在真实 Flutter 消费方
+最小平台 glue、hello → 收帧 → query → HTTP fallback、文本 WS 出站、正式 HX-C003/CI 与历史
+wasm crate 独立删除已完成；真 Go send → echo → disconnect/reconnect 待服务与凭据环境。FFI `mobile_query` 只有在真实 Flutter 消费方
 完成异步 query 迁移并提供证据后才能删除，当前保留 compatibility。真实 adapter 的
-“注册 sender → 发布 Connected → 放行 reader”与断线去重已经由 A3.1 冻结；A5 只需在 Web
-真链路继续复用该合同，不能退回手工 Tick 剧本替代物理生产者。
+“注册 sender → 发布 Connected → 放行 reader”与断线去重已经由 A3.1 冻结；剩余真 Go 验收
+继续复用该合同，不能退回手工 Tick 剧本替代物理生产者。
 
 ## 6. 提交边界
 

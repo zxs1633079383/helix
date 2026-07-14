@@ -26,6 +26,7 @@
 - `im` -> `.agents/agents/modules/im/AGENTS.md`
 - `driver-host` -> `.agents/agents/modules/driver-host/AGENTS.md`
 - `host-cli` -> `.agents/agents/modules/host-cli/AGENTS.md`
+- `driver-web` -> `.agents/agents/modules/driver-web/AGENTS.md`
 
 ## 必带约束
 

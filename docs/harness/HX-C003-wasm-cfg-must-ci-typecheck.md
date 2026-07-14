@@ -99,7 +99,7 @@ rustup target list --installed | grep -qx wasm32-unknown-unknown
 
 - `scripts/gate.sh`：本地/CI 单一执行真源；
 - HX-C001：core 零 runtime/platform 依赖；
-- ADR-014：正式 Web driver 是 `helix-driver-web`，历史 `helix-driver-wasm` 不再作为交付对象。
+- ADR-014：正式 Web driver 是 `helix-driver-web`，历史 `helix-driver-wasm` 已删除。
 
 ## §7 历史与演进
 

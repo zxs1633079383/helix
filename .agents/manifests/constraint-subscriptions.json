@@ -27,7 +27,8 @@
         "paths": [
           "crates/helix-core",
           "crates/helix-driver-ffi",
-          "crates/helix-driver-host"
+          "crates/helix-driver-host",
+          "crates/helix-driver-web"
         ]
       },
       "keywords": [
@@ -44,6 +45,29 @@
       "source": "docs/harness/HX-C002-async-send-boundary-no-lifetime.md",
       "status": "active",
       "summary": "默认 Unsync，FFI/单线程宿主不得被硬 Send 约束；状态不要带 async 生命周期。"
+    },
+    "hxc003-web-dual-target": {
+      "applies_to": {
+        "paths": [
+          "crates/helix-driver-web",
+          ".gitlab-ci.yml",
+          "scripts/gate.sh"
+        ]
+      },
+      "keywords": [
+        "web",
+        "wasm",
+        "wasm32",
+        "browser",
+        "host-runtime"
+      ],
+      "reviewers": [
+        "reviewers/harness-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "source": "docs/harness/HX-C003-wasm-cfg-must-ci-typecheck.md",
+      "status": "active",
+      "summary": "正式 Web 代码必须同时通过 native test 与 wasm final build，并禁止 tokio/rusqlite/reqwest 等 host runtime 泄漏。"
     },
     "hxc004-features-additive": {
       "applies_to": {
@@ -372,24 +396,25 @@
       "status": "active",
       "summary": "trace 走 sidecar，不记录业务 body/message/text/token/cookie；每个边界保留 hop 探针。"
     },
-    "wasm-archived-adr006": {
+    "web-browser-glue-no-business": {
       "applies_to": {
         "paths": [
-          "crates/helix-driver-wasm"
+          "crates/helix-driver-web",
+          "crates/helix-driver-web/browser"
         ]
       },
       "keywords": [
-        "wasm",
         "web",
-        "archived",
-        "ADR-006"
+        "wasm",
+        "browser"
       ],
       "reviewers": [
-        "reviewers/harness-reviewer-agent"
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
       ],
-      "source": "docs/harness/decisions.md",
+      "source": "crates/helix-driver-web/AGENTS.md",
       "status": "active",
-      "summary": "wasm/web 暂停维护，不进入 roadmap/CI 必跑/交付验收；重启需新 ADR。"
+      "summary": "Browser glue 只接浏览器 API、物理 WebSocket 与不透明帧且无 UI；业务 HTTP/query、sync/cursor/echo 和 WS parser 继续由 Rust 持有。"
     }
   }
 }

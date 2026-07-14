@@ -27,6 +27,7 @@
 - `driver-ffi` -> `.agents/agents/modules/driver-ffi/AGENTS.md`
 - `driver-host` -> `.agents/agents/modules/driver-host/AGENTS.md`
 - `driver-native` -> `.agents/agents/modules/driver-native/AGENTS.md`
+- `driver-web` -> `.agents/agents/modules/driver-web/AGENTS.md`
 
 ## 必带约束
 

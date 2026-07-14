@@ -14,7 +14,7 @@
 
 - `helix-core` 永远只接受运行时无关、sans-IO、业务无关的任务。
 - `helix-im` 拥有 IM 业务真相；driver/native/ffi/host-cli 只做适配和验证。
-- `helix-driver-wasm` 是 archived/experimental；不要把它作为当前交付目标。
+- `helix-driver-web` 是正式 Web 平台壳：Rust 持有业务 HTTP/query、sync/cursor/echo 与 WS 帧解析；`browser/` glue 只接 Browser API 和物理 WebSocket，不包含产品 UI 或业务语义。
 - crate 级 `AGENTS.md` 是源码目录的就近指令文件。
 - `.agents/agents/modules/<module>/AGENTS.md` 与 `.agents/agents/domains/<domain>/AGENTS.md` 是蜂群内部的模块/领域边界文件。
 

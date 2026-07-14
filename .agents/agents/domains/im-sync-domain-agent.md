@@ -22,6 +22,7 @@ sync-v2 cursor、event_seq、WS 事件 parser/handler、冷启动自愈和续拉
 - `im` -> `modules/im-agent`
 - `driver-host` -> `modules/driver-host-agent`
 - `host-cli` -> `modules/host-cli-agent`
+- `driver-web` -> `modules/driver-web-agent`
 
 ## 触发词
 

@@ -23,6 +23,7 @@
 - `driver-ffi` -> `modules/driver-ffi-agent`
 - `driver-host` -> `modules/driver-host-agent`
 - `driver-native` -> `modules/driver-native-agent`
+- `driver-web` -> `modules/driver-web-agent`
 
 ## 触发词
 

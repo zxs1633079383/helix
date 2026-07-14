@@ -88,7 +88,8 @@
       "modules": [
         "im",
         "driver-host",
-        "host-cli"
+        "host-cli",
+        "driver-web"
       ],
       "paths": [
         "crates/helix-im/src/sync",
@@ -167,7 +168,8 @@
         "core",
         "driver-ffi",
         "driver-host",
-        "driver-native"
+        "driver-native",
+        "driver-web"
       ],
       "paths": [
         "crates/helix-core",

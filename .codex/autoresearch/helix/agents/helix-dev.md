@@ -9,7 +9,7 @@ For self-verification from the bundle root: `python3 scripts/evaluate.py`.
 
 ## Layer 1 Knowledge
 
-Helix is a runtime-agnostic deterministic business-kernel base. One business logic implementation should serve PC Tauri/native and Flutter FFI. IM is the first business module; the core itself must not know IM.
+Helix is a runtime-agnostic deterministic business-kernel base. One business logic implementation should serve PC Tauri/native, Flutter FFI, and Web. IM is the first business module; the core itself must not know IM.
 
 Architecture:
 
@@ -18,7 +18,7 @@ Architecture:
 - `helix-driver-host`: shared host I/O, SQLite, HTTP/WS, event batch sink, recording, trace, local store.
 - `helix-driver-native`: PC/Tauri shell.
 - `helix-driver-ffi`: Flutter/mobile C ABI shell.
-- `helix-driver-wasm`: archived experiment, not current delivery.
+- `helix-driver-web`: Rust Browser Fetch/session store plus browser-owned physical WS glue; no UI.
 
 Do not violate:
 
@@ -28,7 +28,7 @@ Do not violate:
 - No ambient time/random/id generation in core.
 - No concurrency assumption in core.
 - No unwind across FFI.
-- No per-effect/event crossing over FFI when batching is required.
+- No per-effect/event crossing over Web/FFI when batching is required.
 - No nondeterministic ordered output from unordered collections.
 - No current-state claim from memory alone.
 
@@ -46,7 +46,7 @@ Design before edits:
 
 - Identify the domain owner: core, IM module, host driver, native shell, or FFI shell.
 - State dependency direction and why the change belongs there.
-- Choose the simplest pattern that preserves future PC + Flutter reuse.
+- Choose the simplest pattern that preserves PC + Flutter + Web reuse.
 - For hot paths, state time and space complexity.
 
 Cargo discipline:
@@ -59,8 +59,9 @@ Cargo discipline:
 Verification:
 
 ```bash
-cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
+cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
 cargo test -p helix-core
+cargo build --target wasm32-unknown-unknown -p helix-driver-web
 cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'
 bash scripts/structure-gate.sh
 ```
@@ -73,7 +74,7 @@ Use `scripts/gate.sh` before committing behavior changes when feasible.
 - For code tasks, keep changes in the owning layer and avoid opportunistic refactors.
 - Treat same-directory `AGENTS.md` as the sole local instruction source.
 - Do not revert unrelated dirty work.
-- Ask before public ABI changes, command/event schema changes, storage schema changes, or wasm/web target reactivation.
+- Ask before public ABI changes, command/event schema changes, storage schema changes, or replacing the approved Web route.
 
 ## Review Lens
 

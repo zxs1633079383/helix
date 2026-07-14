@@ -90,10 +90,10 @@
 - **能力边界决策**：PC/Flutter 继续复用 `helix-driver-host` 的完整 SQLite/HTTP/WS 默认实现；Web 使用独立 `helix-driver-web`，首版兑现 Rust 有界内存 session store、Rust Browser Fetch 与浏览器物理 WS bridge，不依赖 `helix-driver-host`，不做 IndexedDB/OPFS。local-first/remote fallback 只在 `helix-im`，以 `LocalStoreMode` + `LocalReadCoverage` 明确区分 Complete/Partial/Miss/Unsupported，空 rows 不得冒充完整或不支持。最近消息 `Complete` 必须由当前连接会话内成功远端读取 + cache Persist 后记录的消息身份窗口证明；hello/disconnect 清 proof，已知 sync gap 降为 Partial。`getLatestPost` 只证明最近 20 基础窗口，`limit>20` 不得凭单次响应伪装完整。dialogList 没有等价同步 HTTP，继续由本地投影 + WS increment 兑现。
 - **WebSocket port 决策**：core 只保留 outbound `send(frame)` 的 `FrameSender`；`helix-driver-host` 的 engine/dispatch 只依赖该能力。`connect/recv/close/reconnect` 位于 host/native/FFI 的具体连接生命周期边界；Web 通过平台 bridge 把 connected/frame/disconnected 喂成既有 Tick，并消费 outbound frame action。A3 已完成迁移并删除 core 旧 `Transport`。
 - **浏览器 WS 鉴权决策（2026-07-14 用户拍板）**：浏览器原生 `WebSocket` 不设置自定义握手 Header；平台 glue 使用 `URLSearchParams` 把 `cookieId=authUserId` 追加到 `ws_url`，不在 JS 复制登录或业务鉴权逻辑。Go `/api/v4/websocket` 保留原 header 优先级，并在 header 缺失时按 `userId → cookieId` 从 query 回落；raw trace 与连接日志不得记录这两个参数的明文。HTTP 仍由 Rust Browser Fetch 通过既有 header/session 配置执行，不能把 WS query 方案扩散成 UI 直调 HTTP。
-- **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。现有 `helix-driver-wasm` 继续作为历史实验，不自动转正。
+- **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。历史 `helix-driver-wasm` 已在正式 Web driver/gate 落地后删除，不得复活为第二套实现。
 - **仍有效的数据正确性底线**：若 Web 最终选择跨刷新缓存，禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor；必须联合记录可证明的数据覆盖范围，或明确冷启动重新同步。
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
-- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4 已落地，A5 正在接最小浏览器 glue、Go query 鉴权与真实链路，正式 Web gate/HX-C003 已激活。旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)，ROADMAP M4 按 A1-A5 推进。
+- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate/HX-C003 与历史 wasm 清理已落地。真 Go send/echo/断连恢复继续按 ROADMAP M4 验收，旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
 ---
 

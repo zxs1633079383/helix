@@ -16,14 +16,14 @@ Helix is strategically important because it attacks the expensive part of IM pro
 
 The winning wedge is IM, but the platform thesis is broader:
 
-- One core state machine can serve PC Tauri and Flutter FFI without owning either runtime.
+- One core state machine can serve PC Tauri, Flutter FFI, and Web without owning any runtime.
 - Business modules can be added by implementing `Module` and emitting `Effect`, not by teaching the core every domain.
 - Host I/O can be shared where it is truly cross-platform, especially SQLite storage, HTTP, WS, event sinks, trace hooks, and batching.
 - Replay, golden fixtures, and structured hop observability can turn integration failures from "guess through four repos" into mechanical evidence.
 
 What not to chase:
 
-- Do not restart web/wasm as a delivery target without a new ADR. `helix-driver-wasm` is archived/experimental.
+- Do not revive the deleted `helix-driver-wasm`; the approved Web route is `helix-driver-web` plus minimal browser glue.
 - Do not make Helix a UI framework. Direction A can emit data ViewModel shapes from business modules later; view trees, widgets, and pixels are out of scope.
 - Do not make `helix-core` a generic plugin framework before a second real module forces the shape.
 - Do not solve product gaps by putting HTTP, SQL, login, thread models, or domain words into `helix-core`.
@@ -37,7 +37,7 @@ Think in three layers:
 ```text
 business modules  helix-im first, future presence/notify/etc.
 core layer        helix-core ports, Module host, Tick, Effect, deterministic shell
-platform drivers  helix-driver-host shared I/O, helix-driver-native, helix-driver-ffi
+platform drivers  helix-driver-host shared I/O, helix-driver-native, helix-driver-ffi, helix-driver-web
 ```
 
 `helix-core` is the smallest trusted kernel. It owns protocol for stepping modules and expressing I/O intent, but it does not do I/O. A maintainer should be able to prove that the same input ticks produce the same output effects.
@@ -57,6 +57,7 @@ The maintainer move is to ask: "Which boundary owns this fact?"
 - SQLite/HTTP/WS/event/trace execution: `helix-driver-host`.
 - Tauri/desktop surface: `helix-driver-native`.
 - Flutter/C ABI/mobile surface: `helix-driver-ffi`.
+- Browser Fetch/session store/physical WS glue: `helix-driver-web`.
 - Existing production behavior truth: current cses-client / Go wire docs, not imagined APIs.
 
 ## 3. Architecture Map
@@ -69,7 +70,7 @@ Workspace crates current-at-distillation:
 - `crates/helix-driver-native`: tokio/native shell and re-exports around host driver.
 - `crates/helix-driver-ffi`: C ABI shell for mobile, C++ host vtable, command/query/event batch bridge.
 - `crates/helix-host-cli`: local integration host used for real Go smoke/e2e; not a product runtime.
-- `crates/helix-driver-wasm`: archived experiment; not a current delivery target.
+- `crates/helix-driver-web`: formal Web Rust driver plus no-UI browser adapter; physical WS stays browser-owned.
 
 Important code graph signals:
 
@@ -287,7 +288,7 @@ Modification boundaries:
 - Do not touch `crates/**` unless the user asks for code changes or a plan explicitly requires implementation.
 - Do not touch root `AGENTS.md` unless changing project instructions.
 - Do not revert unrelated dirty worktree changes.
-- Do not revive `helix-driver-wasm` delivery scope without an ADR.
+- Do not recreate the deleted `helix-driver-wasm` or a second Web business path.
 
 Discovery rules:
 

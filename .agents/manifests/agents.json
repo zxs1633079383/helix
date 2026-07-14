@@ -116,7 +116,8 @@
       "modules": [
         "im",
         "driver-host",
-        "host-cli"
+        "host-cli",
+        "driver-web"
       ],
       "owned_paths": [
         "crates/helix-im/src/sync",
@@ -222,7 +223,8 @@
         "core",
         "driver-ffi",
         "driver-host",
-        "driver-native"
+        "driver-native",
+        "driver-web"
       ],
       "owned_paths": [
         "crates/helix-core",
@@ -341,26 +343,32 @@
       ],
       "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md"
     },
-    "modules/driver-wasm-agent": {
+    "modules/driver-web-agent": {
       "constraints": [
-        "wasm-archived-adr006",
-        "hxc004-features-additive"
+        "hxc002-send-lifetime",
+        "hxc003-web-dual-target",
+        "hxc004-features-additive",
+        "web-browser-glue-no-business"
       ],
-      "diagram": ".agents/diagrams/modules/driver-wasm.mmd",
+      "diagram": ".agents/diagrams/modules/driver-web.mmd",
       "domains": [
-        "runtime-core"
+        "runtime-core",
+        "im-sync"
       ],
-      "file": ".agents/agents/modules/driver-wasm-agent.md",
+      "file": ".agents/agents/modules/driver-web-agent.md",
       "kind": "module",
       "owned_paths": [
-        "crates/helix-driver-wasm"
+        "crates/helix-driver-web"
       ],
       "triggers": [
+        "web",
         "wasm",
-        "archived",
-        "experimental"
+        "browser",
+        "fetch",
+        "websocket",
+        "session-store"
       ],
-      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md"
+      "boundary_file": ".agents/agents/modules/driver-web/AGENTS.md"
     },
     "modules/governance-agent": {
       "constraints": [

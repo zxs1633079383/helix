@@ -53,6 +53,7 @@ const FAT_KEYS: &[&str] = &[
     "message",
     "text",
     "props",
+    "forwardDetail",
     "createAt",
     "createdAt",
     "updateAt",
@@ -68,6 +69,12 @@ const FAT_KEYS: &[&str] = &[
     "urgent",
     "urgentTargetCount",
     "urgentConfirmedCount",
+    "urgentRequesterId",
+    "urgentTargetIds",
+    "urgentConfirmedIds",
+    "urgentRequiredCount",
+    "urgentState",
+    "canConfirmUrgent",
     "expediteMap",
     "templateReceived",
     "templateConfirmedCount",
@@ -121,7 +128,8 @@ fn sample_fields() -> PostFields {
         read_bits: "11".to_string(),
         viewers: vec!["all".to_string()],
         mentions: vec!["u_me".to_string()],
-        expedite_map: r#"{"u_me":true}"#.to_string(),
+        expedite_map: r#"{"sender":{"id":"u_sender"},"recipients":{"u_me":{"status":0}}}"#
+            .to_string(),
         topic: r#"{"channelId":"topic-1"}"#.to_string(),
         reply_id: "root-1".to_string(),
         reply_root_id: "root-1".to_string(),
@@ -360,13 +368,43 @@ fn fat_emit_carries_in_hand_data() {
         "无 template → templateReceived=false"
     );
     assert_eq!(data["templateConfirmedCount"], 0);
-    assert_eq!(data["urgentTargetCount"], 0);
+    assert_eq!(data["urgentTargetCount"], 1);
     assert_eq!(data["urgentConfirmedCount"], 0);
+    assert_eq!(data["urgentRequesterId"], "u_sender");
+    assert_eq!(data["urgentTargetIds"], serde_json::json!(["u_me"]));
+    assert_eq!(data["urgentState"], "active");
     assert_eq!(
         data["systemNotice"], false,
         "type=TEXT 非 NOTICE → systemNotice=false"
     );
     assert!(data["pinned"].is_null(), "无 pinned props → pinned=null");
+}
+
+#[test]
+fn merged_forward_online_emit_contains_render_ready_detail() {
+    let mut f = sample_fields();
+    f.msg_type = "MULTIPLY".to_string();
+    f.props = serde_json::json!({
+        "mergeMessage": serde_json::json!([{
+            "temporaryId":"forward-1",
+            "message":"转发正文",
+            "type":"TEXT",
+            "createAt":7,
+            "userSnapshot":{"userName":"甲"}
+        }]).to_string()
+    })
+    .to_string();
+
+    let Effect::Emit { event } = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f) else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let detail = &value["data"]["forwardDetail"];
+    assert_eq!(detail["mode"], "merged");
+    assert_eq!(detail["state"], "ready");
+    assert_eq!(detail["items"][0]["id"], "forward-1");
+    assert_eq!(detail["items"][0]["author"], "甲");
+    assert_eq!(detail["items"][0]["text"], "转发正文");
 }
 
 /// render-ready 字段真按业务数据派生（非空壳常量）——quickReply→reactions / template→templateReceived /
@@ -442,7 +480,8 @@ fn message_interaction_capabilities_use_viewer_facts() {
     let mut f = sample_fields();
     f.user_id = "sender".to_string();
     f.props = r#"{"template":{"userIds":[]}}"#.to_string();
-    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    f.expedite_map =
+        r#"{"sender":{"id":"sender"},"recipients":{"viewer-678":{"status":0}}}"#.to_string();
     let e = to_effect::emit_post_received_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
     let Effect::Emit { event } = e else {
         panic!("必产 Emit")
@@ -450,6 +489,15 @@ fn message_interaction_capabilities_use_viewer_facts() {
     let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     let capabilities = &value["data"]["actionCapabilities"];
     assert_eq!(capabilities["canUrgentConfirm"], true);
+    assert_eq!(value["data"]["urgentRequesterId"], "sender");
+    assert_eq!(
+        value["data"]["urgentTargetIds"],
+        serde_json::json!(["viewer-678"])
+    );
+    assert_eq!(value["data"]["urgentConfirmedIds"], serde_json::json!([]));
+    assert_eq!(value["data"]["urgentRequiredCount"], 1);
+    assert_eq!(value["data"]["urgentState"], "active");
+    assert_eq!(value["data"]["canConfirmUrgent"], true);
     assert_eq!(capabilities["canMarkRead"], true);
     assert_eq!(capabilities["canViewReceipt"], false);
     assert_eq!(capabilities["canTemplateConfirm"], true);
@@ -460,7 +508,8 @@ fn post_updated_keeps_viewer_capabilities_and_template_reader_ids() {
     let mut f = sample_fields();
     f.user_id = "sender".to_string();
     f.props = r#"{"template":{"userIds":["viewer-678"]}}"#.to_string();
-    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    f.expedite_map =
+        r#"{"sender":{"id":"sender"},"recipients":{"viewer-678":{"status":0}}}"#.to_string();
     let e = to_effect::emit_post_updated_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
     let Effect::Emit { event } = e else {
         panic!("必产 Emit")
@@ -502,6 +551,10 @@ fn render_ready_urgent_is_false_for_empty_expedite_map() {
     };
     let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(v["data"]["urgent"], false, "空 expedite_map → urgent=false");
+    assert_eq!(v["data"]["urgentState"], "inactive");
+    assert_eq!(v["data"]["urgentTargetIds"], serde_json::json!([]));
+    assert_eq!(v["data"]["urgentConfirmedIds"], serde_json::json!([]));
+    assert_eq!(v["data"]["canConfirmUrgent"], false);
 }
 
 /// type 空串容错 "TEXT"（render-ready 下沉·前端不再 `d.type || "TEXT"` 兜底·issue #53）。
@@ -791,7 +844,7 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
     let raw = serde_json::to_vec(&serde_json::json!({
         "displayName": "群",
         "memberCount": 2,
-        "type": "T"
+        "type": "O"
     }))
     .unwrap();
     let e = to_effect_s1::emit_channel_created(ch(), &raw);
@@ -801,6 +854,8 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
         &[
             "channel",
             "channelId",
+            "channelKind",
+            "channelType",
             "channel_id",
             "displayName",
             "group",
@@ -814,9 +869,11 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
     };
     let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(payload["data"]["displayName"], "群");
-    assert_eq!(payload["data"]["group"], "topic");
+    assert_eq!(payload["data"]["group"], "company");
+    assert_eq!(payload["data"]["channelType"], "O");
+    assert_eq!(payload["data"]["channelKind"], "company");
     assert_eq!(payload["data"]["memberCount"], 2);
-    assert_eq!(payload["data"]["props"]["type"], "T");
+    assert_eq!(payload["data"]["props"]["type"], "O");
 }
 
 #[test]

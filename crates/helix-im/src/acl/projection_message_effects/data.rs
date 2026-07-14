@@ -65,22 +65,6 @@ fn resolve_reaction_count(props: &serde_json::Value) -> usize {
         .unwrap_or(0)
 }
 
-/// 把持久化的 expedite_map 预解为消息加急终态。空/null/空容器均为 false，
-/// 其余形态为 true；Angular 只绑定结果，不解析 sender/recipients 业务结构。
-fn resolve_urgent(expedite_map: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(expedite_map) else {
-        return false;
-    };
-    match value {
-        serde_json::Value::Null => false,
-        serde_json::Value::Bool(value) => value,
-        serde_json::Value::String(value) => !value.is_empty(),
-        serde_json::Value::Array(value) => !value.is_empty(),
-        serde_json::Value::Object(value) => !value.is_empty(),
-        serde_json::Value::Number(value) => value.as_i64().unwrap_or_default() != 0,
-    }
-}
-
 /// 预解 props.template.userIds 成模板已收到态（UC-3.3·data-template-received 渲染源）。
 ///
 /// server templateReceived 回执后 post_update echo 把已收到回执列表携进 props.template.userIds。
@@ -114,26 +98,6 @@ fn resolve_template_reader_ids(props: &serde_json::Value) -> Vec<&str> {
         .filter_map(serde_json::Value::as_str)
         .filter(|id| !id.is_empty())
         .collect()
-}
-
-fn resolve_urgent_counts(expedite_map: &serde_json::Value) -> (usize, usize) {
-    let Some(recipients) = expedite_map
-        .get("recipients")
-        .and_then(|value| value.as_object())
-    else {
-        return (0, 0);
-    };
-    let confirmed = recipients
-        .values()
-        .filter(|recipient| {
-            recipient
-                .get("status")
-                .and_then(|value| value.as_i64())
-                .unwrap_or_default()
-                > 0
-        })
-        .count();
-    (recipients.len(), confirmed)
 }
 
 /// 预解 props.pinned 成消息置顶态（UC-5.5b·data-pinned 渲染源）。
@@ -197,14 +161,27 @@ pub(super) fn message_item_data(
         false,
         revoked,
     );
-    let (urgent_target_count, urgent_confirmed_count) = resolve_urgent_counts(&expedite_map);
+    let urgent =
+        crate::query::render_ready::urgent::project(&expedite_map, viewer_user_id, has_server_id);
     // type 空串容错 "TEXT"（render-ready·前端不再 `d.type || "TEXT"` 兜底）。
     let msg_type = if fields.msg_type.is_empty() {
         "TEXT"
     } else {
         fields.msg_type.as_str()
     };
-    json!({
+    let forward_detail = crate::query::render_ready::forward::detail(msg_type, &props);
+    let urgent_fields = json!({
+        "urgent": urgent.required_count > 0,
+        "urgentTargetCount": urgent.required_count,
+        "urgentConfirmedCount": urgent.confirmed_ids.len(),
+        "urgentRequesterId": urgent.requester_id,
+        "urgentTargetIds": urgent.target_ids,
+        "urgentConfirmedIds": urgent.confirmed_ids,
+        "urgentRequiredCount": urgent.required_count,
+        "urgentState": urgent.state,
+        "canConfirmUrgent": urgent.can_confirm,
+    });
+    let mut data = json!({
         "channel_id": channel_id.as_str(),
         "event_seq": event_seq,
         "msg_id": msg_id,
@@ -219,6 +196,7 @@ pub(super) fn message_item_data(
         "message": fields.message.as_str(),
         "text": fields.message.as_str(),
         "props": props,
+        "forwardDetail": forward_detail,
         "topic": topic,
         "createAt": fields.create_at,
         "createdAt": fields.create_at,
@@ -232,9 +210,6 @@ pub(super) fn message_item_data(
         "actionCapabilities": action_capabilities,
         "reactions": resolve_reactions(&props),
         "reactionCount": resolve_reaction_count(&props),
-        "urgent": resolve_urgent(&fields.expedite_map),
-        "urgentTargetCount": urgent_target_count,
-        "urgentConfirmedCount": urgent_confirmed_count,
         "expediteMap": expedite_map,
         "templateReceived": resolve_template_received(&props),
         "templateConfirmedCount": resolve_template_confirmed_count(&props),
@@ -247,5 +222,11 @@ pub(super) fn message_item_data(
         "repliedMessage": parse_json_field(&fields.replied_message, serde_json::Value::Null),
         "replyMessages": parse_json_field(&fields.reply_messages, json!([])),
         "replyCount": fields.reply_count,
-    })
+    });
+    if let (serde_json::Value::Object(data), serde_json::Value::Object(urgent_fields)) =
+        (&mut data, urgent_fields)
+    {
+        data.extend(urgent_fields);
+    }
+    data
 }

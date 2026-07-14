@@ -172,9 +172,9 @@ pub struct GetSpec {
     pub key_val: SqlValue,
 }
 
-/// scan 规格：通用多行扫描读（C3）。on_start 载入单调水位（全表）/ P6 投影查询（等值过滤+降序）。
-/// 过滤/排序**可选 additive**（HX-C004）：`filter`/`order_desc_col` 为 None = 旧全表语义（零行为
-/// 改变）；`Some((col,val))`→`WHERE col=?`，`Some(c)`→`ORDER BY c DESC`（列名编译期常量 HX-C001）。
+/// scan 规格：通用多行扫描读（C3）。on_start 载入单调水位（全表）/ P6 投影查询（等值过滤+排序）。
+/// 过滤/排序**可选 additive**（HX-C004）：`filter` 为 None、`order_by` 为空 = 旧全表语义
+/// （零行为改变）；列名仍为编译期常量（HX-C001），方向由结构化枚举表达，禁止调用方拼 SQL。
 #[derive(Debug, Clone)]
 pub struct ScanSpec {
     /// 目标表名（编译期常量）
@@ -183,8 +183,38 @@ pub struct ScanSpec {
     pub limit: Option<u32>,
     /// 可选等值过滤 `WHERE <col> = <val>`（列名编译期常量，值运行时）。None = 不过滤（旧全表）。
     pub filter: Option<(&'static str, SqlValue)>,
-    /// 可选降序列 `ORDER BY <col> DESC`（编译期常量）。None = 不排序（旧 rowid 序）。
-    pub order_desc_col: Option<&'static str>,
+    /// 结构化排序键，按切片顺序形成 `ORDER BY`；空切片 = 不排序（旧 rowid 序）。
+    pub order_by: &'static [ScanOrder],
+}
+
+/// Scan 排序方向。driver 只把枚举映射成固定 SQL 关键字，不接受运行时 SQL 片段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+/// 单个 Scan 排序键。列名是编译期常量，业务层可安全组合多列确定序。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanOrder {
+    pub column: &'static str,
+    pub direction: SortDirection,
+}
+
+impl ScanOrder {
+    pub const fn asc(column: &'static str) -> Self {
+        Self {
+            column,
+            direction: SortDirection::Asc,
+        }
+    }
+
+    pub const fn desc(column: &'static str) -> Self {
+        Self {
+            column,
+            direction: SortDirection::Desc,
+        }
+    }
 }
 
 /// SQL 值类型（不含数据库具体类型）

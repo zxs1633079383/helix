@@ -36,7 +36,7 @@ fn build_message_query_scans_message_with_channel_filter_and_desc_order() {
         &spec.filter,
         Some(("channel_id", SqlValue::Text(s))) if s == "ch00000000000000000000000a"
     ));
-    assert_eq!(spec.order_desc_col, Some("create_at"));
+    assert_eq!(spec.order_by, &[ScanOrder::desc("create_at")]);
 }
 
 #[test]

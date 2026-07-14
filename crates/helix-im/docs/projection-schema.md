@@ -53,6 +53,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容渲染核）
 > + `sendStatus`/`serverId`/`isSelf`/`actionCapabilities`/`reactions`/`reactionCount`/
 > `templateReceived`/`templateConfirmedCount`/`urgentTargetCount`/`urgentConfirmedCount`/
+> `urgentRequesterId`/`urgentTargetIds`/`urgentConfirmedIds`/`urgentRequiredCount`/`urgentState`/
+> `canConfirmUrgent`/`forwardDetail`/
 > `expediteMap`/`systemNotice`/`pinned`（**render-ready 终态**·message-v4 纯渲染授权演进）。
 >
 > **issue #53（S4 首条竖切·C013 纯渲染壳·授权契约演进）**：fat 在渲染核之外补 4 个 render-ready 终态字段，
@@ -74,7 +76,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
-| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgentTargetCount` `urgentConfirmedCount` `expediteMap`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
+| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgent*` 双视角字段 `expediteMap` `forwardDetail`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `serverId` `isSelf` `actionCapabilities` `readBits` `text` `type`（render-ready 乐观终态行）| 发送乐观上屏 |
 | `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus` `serverId` `isSelf` `actionCapabilities`（`canRetry=true`）| `posts/create` HTTP PortError 立即失败 |
 | `render_ready_candidates::emit` | `im:user:candidates` | `reqId` `users[]`（`userId` `username` `nickname` `displayName` `deptId` `deptName` `orgId` `orgName`）| fresh-account 建群候选目录 HTTP 回报 |
@@ -90,7 +92,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
 | `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
-| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `memberCount` `props` `channel` | WS `channel_created` |
+| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `channelType` `channelKind` `memberCount` `props` `channel` | WS `channel_created` |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
 | `to_effect_s1::emit_member_nickname` | `im:channel:memberNickname` | `channelId` `userId` `nickName` | WS `update_channel_member_nickName` |

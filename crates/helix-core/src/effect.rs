@@ -23,6 +23,6 @@ pub use io::{FileUploadRequest, FileUploadResponse, HttpRequest, HttpResponse};
 pub use operation::Effect;
 pub use sink::EffectSink;
 pub use storage::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    SqlValue, StorageOp, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row,
+    ScanOrder, ScanSpec, SortDirection, SqlValue, StorageOp, UpsertSpec,
 };

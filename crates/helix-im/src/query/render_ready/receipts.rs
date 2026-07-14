@@ -6,6 +6,7 @@
 use bytes::Bytes;
 use helix_core::effect::{DomainEventBytes, Effect};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
     let receipts: Vec<Value> = body
@@ -22,17 +23,27 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
             let snapshot_id = item.get("snapshotId")?.as_str()?.trim();
             let snapshot_version = item.get("snapshotVersion").and_then(Value::as_i64)?;
             let read_bits = item.get("readBits")?.as_str()?;
-            let member_ids: Vec<&str> = item
-                .get("memberIds")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
+            let Some(member_values) = item.get("memberIds").and_then(Value::as_array) else {
+                return Some(unavailable_receipt(post_id, snapshot_id, snapshot_version));
+            };
+            let member_ids: Vec<&str> = member_values
+                .iter()
                 .filter_map(Value::as_str)
                 .filter(|id| !id.is_empty())
                 .collect();
+            let member_shape_valid = member_ids.len() == member_values.len();
+            let mut seen = HashSet::with_capacity(member_ids.len());
+            let unique = member_ids.iter().all(|id| seen.insert(*id));
+            let author_count = member_ids
+                .iter()
+                .filter(|user_id| **user_id == author_user_id)
+                .count();
             let valid = !author_user_id.is_empty()
                 && !snapshot_id.is_empty()
                 && snapshot_version > 0
+                && member_shape_valid
+                && unique
+                && author_count <= 1
                 && read_bits.len() == member_ids.len()
                 && read_bits.bytes().all(|bit| bit == b'0' || bit == b'1');
             if !valid {
@@ -40,6 +51,8 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
             }
             let mut reader_ids = Vec::with_capacity(member_ids.len());
             let mut unread_ids = Vec::with_capacity(member_ids.len());
+            // canonical: memberIds 已排作者；legacy: 作者恰好出现一次且 bitmap 与原序列等长。
+            // 两者都在同一线性扫描中归一为纯接收者序列，保持服务端快照顺序。
             for (index, user_id) in member_ids.into_iter().enumerate() {
                 if user_id == author_user_id {
                     continue;

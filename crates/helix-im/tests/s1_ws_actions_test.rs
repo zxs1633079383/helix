@@ -616,7 +616,7 @@ fn channel_created_full_upsert_and_members_s1() {
             "action": "channel_created",
             "data": {
                 "id": cid(5),
-                "type": "P",
+                "type": "O",
                 "displayName": "新群",
                 "memberChange": { "join": [
                     { "id": "u-aaa", "teamId": "t1", "role": "MEMBER", "nickName": "甲" }
@@ -637,6 +637,10 @@ fn channel_created_full_upsert_and_members_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:created"));
+    let created = emit_data(&h.sink, "im:channel:created");
+    assert_eq!(created[0]["channelType"], "O");
+    assert_eq!(created[0]["channelKind"], "company");
+    assert_eq!(created[0]["group"], "company");
 }
 
 /// 回归锚: member-leave —— memberChange.leave → BatchDelete channel_member 删离场成员

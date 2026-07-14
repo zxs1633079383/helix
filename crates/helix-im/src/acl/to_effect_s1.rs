@@ -39,11 +39,8 @@ pub fn emit_channel_created(channel_id: ChannelId, raw: &[u8]) -> Effect {
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.is_empty())
         .unwrap_or(channel_id.as_str());
-    let group = match channel.get("type").and_then(serde_json::Value::as_str) {
-        Some("T") => "topic",
-        Some("D") => "direct",
-        _ => "group",
-    };
+    let channel_type = crate::channel_kind::channel_type(&channel);
+    let channel_kind = crate::channel_kind::channel_kind(channel_type);
     let member_count = channel
         .get("memberCount")
         .and_then(serde_json::Value::as_i64)
@@ -55,7 +52,9 @@ pub fn emit_channel_created(channel_id: ChannelId, raw: &[u8]) -> Effect {
             "channelId": channel_id.as_str(),
             "channel_id": channel_id.as_str(),
             "displayName": display_name,
-            "group": group,
+            "group": channel_kind,
+            "channelType": channel_type,
+            "channelKind": channel_kind,
             "memberCount": member_count,
             "props": channel,
             "channel": channel,

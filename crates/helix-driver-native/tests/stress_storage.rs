@@ -107,7 +107,7 @@ async fn parity_native_batch_upsert_5000() {
             table: "messages",
             limit: Some(10_000),
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("scan after parity batch");

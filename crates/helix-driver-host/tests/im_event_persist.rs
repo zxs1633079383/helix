@@ -165,7 +165,7 @@ async fn scan_message_rows(storage: &HostStorage) -> Vec<helix_core::effect::Row
             table: "message",
             limit: None,
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })
         .await
         .expect("scan message table")

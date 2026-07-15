@@ -9,7 +9,9 @@ pub fn build_upload_plan(
 ) -> Result<UploadPlan, ImError> {
     match msg_type {
         "rich" => build_rich_plan(&mut props).map(|targets| UploadPlan { props, targets }),
-        "file" => build_file_plan(message, &mut props).map(|targets| UploadPlan { props, targets }),
+        "file" | "FILE" => {
+            build_file_plan(message, &mut props).map(|targets| UploadPlan { props, targets })
+        }
         _ => Ok(UploadPlan {
             props,
             targets: Vec::new(),
@@ -105,4 +107,33 @@ fn set_status(node: &mut Value, status: &str) -> Result<(), ImError> {
         .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?
         .insert("status".to_string(), json!(status));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uppercase_file_uses_upload_gate() {
+        let plan = build_upload_plan(
+            "FILE",
+            "",
+            json!({
+                "file": {
+                    "localPath": "/tmp/report.pdf",
+                    "upload": {
+                        "method": "PUT",
+                        "url": "https://upload.example/report?signature=short-lived",
+                        "publicUrl": "https://cdn.example/report.pdf",
+                        "headers": {},
+                        "objectKey": "im/report.pdf"
+                    }
+                }
+            }),
+        )
+        .expect("uppercase FILE should produce an upload plan");
+
+        assert_eq!(plan.targets, vec![UploadTarget::File]);
+        assert_eq!(plan.props["file"]["upload"]["status"], "uploading");
+    }
 }

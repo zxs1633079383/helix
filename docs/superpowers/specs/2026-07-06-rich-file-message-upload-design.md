@@ -70,3 +70,52 @@ FileUploadUrls {
 - 上传成功回报缺少 public URL 时目标必须为 `failed`，且 `posts/create` 计数为零。
 
 上述只证明本地合同与 driver 路由，不等同于阿里云 OSS、pre 环境或真实对象可读性验收。
+
+## 真实阿里云前置与 Rust 缺口（2026-07-14）
+
+本轮以现网 Java `/oss/readAccessToken` 作为外部 authority 做了脱敏活体探针：真实
+`jqdl-file` 北京 endpoint 的 PUT、HEAD、GET 与 SHA-256 读回成功；探针对象已清理并确认
+404。当前 `/oss/getPresignedUrl` 却按 `oss-cn-zhangjiakou` 生成 URL，真实 PUT 返回 403；
+用户 STS policy 也没有 `DeleteObject`。这些是外部 authority 配置事实，不改变本仓归属。
+
+Helix Rust 当前剩余 blocker：
+
+1. `helix-im::send::flow` 只消费调用方预填的 `upload.url/publicUrl/objectKey`，尚未通过
+   `Effect::Http` 获取 `UploadPlan`。因此 Angular/宿主仍被迫承担上传业务前置。
+2. 本轮已让大写 `FILE` 与兼容输入 `file` 共用上传门控；`IMAGE/VIDEO/VOICE/AUDIO`
+   的 `props.file/props.files` 目标发现与上传编排仍未接入，不能用 FILE 单测替代全部媒体验收。
+
+正确的 Rust 收口边界：
+
+- `helix-im` 根据媒体类型和本地文件元数据生成确定性的 plan request，发出
+  `Effect::Http`，并以 corr 保存 `PendingUploadPlan`。
+- plan 回包必须同时给出 `uploadUrl/publicUrl/objectKey/headers/expiresAt`；解析成功后才发
+  `Effect::UploadFile`，解析失败则只落上传失败状态，禁止 `posts/create`。
+- `helix-driver-host` 继续只负责 64 KiB 流式 PUT，不引入阿里云 SDK；native 与 FFI 共用。
+- `cses-im-server` 是上传计划与对象确认的正式服务端入口：校验用户/频道/文件约束，调用
+  阿里云 OSS 基础设施 adapter 签发计划，确认对象存在后产生可信 `MediaReference`，并继续
+  承接 `/posts/create`。Java `/oss/*` 只作为迁移参考或 Go 的临时上游。
+- PC Tauri 与 Flutter UI 只提交本地路径和文件元数据、绑定 Helix 投影；不得直接请求 Java、
+  Go upload-plan 或 OSS，也不得自行拼最终媒体 props。
+- Rust 运行配置只需要 authority URL、bucket/region/endpoint、长期读取 base URL、TTL 与大小
+  上限；长期 AccessKey/Secret 不进入 Helix 配置、命令、SQLite、trace 或日志。
+
+## 消息 props 拼装归属
+
+Helix 必须拼最终消息 props，但不能自产可信 OSS 字段：
+
+- UI/平台文件选择器只提供 `localPath/name/size/contentType`，视频、图片、音频可再提供
+  `width/height/duration`；这些是待校验的本地元数据。
+- Go `upload-complete` 返回可信 `MediaReference`：`mediaId/objectKey/publicUrl/bucket/etag/
+  uploadedAt/ossType`，其中 `uploadedAt` 使用服务端时间。
+- Helix 合并两侧数据，生成现网兼容的 `props.file` 或 `props.files[]`：`id` 来自
+  `mediaId`，`url/uri` 来自 `publicUrl`，`lastModified` 来自 `uploadedAt`，并补齐
+  `name/size/contentType/bucket/etag/ossType/userId/userName` 与媒体尺寸/时长。
+- `upload.url/headers/localPath/planId` 只存在于内存上传态，最终 props、SQLite 和
+  `/posts/create` 均不得携带。
+- Go 在 `/posts/create` 按 `mediaId + owner` 反查并校验这些字段；Helix 负责跨端一致拼装，
+  Go 负责可信性，UI 只绑定投影。
+
+外部阿里云侧仍需把 `jqdl-file` 的 authority region 修正为 `oss-cn-beijing`，并提供服务端
+cleanup role 或 E2E 前缀生命周期。Tauri/Flutter 均由 Rust native driver 直传，当前不需要
+浏览器 CORS。

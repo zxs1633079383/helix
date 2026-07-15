@@ -5,152 +5,10 @@ use crate::pending_send::PendingSend;
 use crate::send::upload_props::PendingUpload;
 use std::collections::{HashMap, HashSet};
 
-// ─── 值对象（全部 newtype，类型层禁止混淆）────────────────────────────────
-
-/// mattermost 26 字符 `[a-z0-9]` ID；Copy newtype，热路径零分配 key（HX-C005）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Id26([u8; 26]);
-
-impl Id26 {
-    /// 边界零信任构造：仅恰 26 字节且全 `[a-z0-9]` 时 Some。
-    pub fn from_str(s: &str) -> Option<Self> {
-        let b = s.as_bytes();
-        if b.len() != 26
-            || !b
-                .iter()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        {
-            return None;
-        }
-        let mut arr = [0u8; 26];
-        arr.copy_from_slice(b);
-        Some(Self(arr))
-    }
-
-    /// 零拷贝取字符串视图。
-    pub fn as_str(&self) -> &str {
-        // SAFETY: 不变量——Id26 只能经 from_str（已验证恰 26 字节 [a-z0-9]）构造，
-        // 故内部恒为合法 UTF-8。
-        unsafe { std::str::from_utf8_unchecked(&self.0) }
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 26] {
-        &self.0
-    }
-
-    /// 派生确定性 u64（FNV-1a，非加密）——用于 timer id 偏移等需数值的场景。
-    pub fn hash_u64(&self) -> u64 {
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for &b in &self.0 {
-            h ^= b as u64;
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        h
-    }
-}
-
-/// 频道 ID（mattermost 26 字符 ID，不透明 Copy）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ChannelId(pub Id26);
-
-impl ChannelId {
-    /// 从字符串构造（边界零信任，非法→None）。
-    pub fn from_str(s: &str) -> Option<Self> {
-        Id26::from_str(s).map(Self)
-    }
-    /// 零拷贝取字符串视图。
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-    /// 零拷贝取 26 字节定长数组（allHash FNV 流式喂入等场景，零分配）。
-    pub fn as_bytes(&self) -> &[u8; 26] {
-        self.0.as_bytes()
-    }
-    /// 派生确定性 u64（timer id 偏移等数值场景）。
-    pub fn hash_u64(&self) -> u64 {
-        self.0.hash_u64()
-    }
-}
-
-/// Server 消息 ID（echo 到时的真实 ID）；真 Go msgId 是 26 字符串，不能用旧 u64。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ServerId(pub Id26);
-
-impl ServerId {
-    /// 从字符串构造（边界零信任，非法→None）。
-    pub fn from_str(s: &str) -> Option<Self> {
-        Id26::from_str(s).map(Self)
-    }
-    /// 零拷贝取字符串视图。
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-/// UI 注入的临时消息 ID（乐观落库 PK，不由内核生成）
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TemporaryId(pub String);
-
-/// per-channel 事件序号（单调递增）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Seq(pub u64);
-
-impl Seq {
-    pub fn next(self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-/// 消息发送状态；helix-im v1 仅覆盖文字消息，文件上传状态机由宿主处理。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SendStatus {
-    Local,
-    Sending,
-    Sent,
-    UnSend,
-}
-
-/// per-channel sync 在途标记（B1 gate_inflight 守卫）
-///
-/// 同一 channel 同时只允许一个在途 sync Http（防止并发自踩）。
-/// 值：当前在途 sync 的 corr（用于日志）；None = 无在途 sync。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InflightSync(pub helix_core::Correlation);
-
-/// per-channel 游标（单调推进，MAX guard）
-#[derive(Debug, Clone, Copy)]
-pub struct Cursor {
-    pub value: Seq,
-}
-
-impl Cursor {
-    pub fn new(value: Seq) -> Self {
-        Self { value }
-    }
-
-    /// MAX guard：仅在 next > current 时推进
-    pub fn try_advance(&mut self, next: Seq) -> bool {
-        if next > self.value {
-            self.value = next;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn value(&self) -> Seq {
-        self.value
-    }
-}
-
-/// WS 连接状态机
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnState {
-    Disconnected,
-    Connecting,
-    Connected,
-    Closing,
-}
+mod values;
+pub use values::{
+    ChannelId, ConnState, Cursor, Id26, InflightSync, SendStatus, Seq, ServerId, TemporaryId,
+};
 
 // ─── CorrelationContext ───────────────────────────────────────────────────────
 // 外提 sibling `correlation.rs`（守结构闸 baseline + 给 reclaim 新增变体留余量；
@@ -188,6 +46,12 @@ pub struct ImState {
     /// 4 张分散 HashMap + 1 个 `Option`（`scan_corr`）。`PortReply` 到达时单次 `remove(corr)` 取出
     /// 按变体 `match` 分发；一 corr 恰一变体，互斥由一 key 一 value + corr 全局唯一（见枚举不变量）保证。
     pub corr_map: HashMap<helix_core::Correlation, CorrelationContext>,
+
+    /// 同一回复根的最新请求 revision；旧 HTTP 回报不得覆盖新投影。
+    pub reply_projection_revisions: HashMap<String, u64>,
+
+    /// 已投影回复 id 集；append 在 Helix 内跨页去重，Angular 只绑定结果。
+    pub reply_projection_seen_ids: HashMap<String, HashSet<String>>,
 
     /// 退避 timer ID（当前重连倒计时）
     pub backoff_timer: Option<helix_core::TimerId>,
@@ -237,11 +101,11 @@ pub struct ImState {
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
 
-    /// 最近消息远端窗口成功缓存后的当前会话 coverage；只证明数据窗口，不替代 sync cursor。
+    /// 当前物理会话中已成功缓存的最近消息窗口；不替代同步 cursor。
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
 
-    /// query coverage 会话代号。hello/disconnect 递增，防旧 HTTP/Persist 晚回包污染新会话。
+    /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
 
@@ -261,6 +125,8 @@ impl ImState {
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             corr_map: HashMap::new(),
+            reply_projection_revisions: HashMap::new(),
+            reply_projection_seen_ids: HashMap::new(),
             backoff_timer: None,
             ping_timer: None,
             increment_fetched: HashSet::new(),
@@ -288,10 +154,11 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.hydration_pending.clear();
         self.viewer_channel_roles.clear();
+        self.reply_projection_revisions.clear();
+        self.reply_projection_seen_ids.clear();
         self.reset_recent_query_coverage();
     }
 
-    /// 物理连接会话变化时，旧远端窗口不再能证明本地仍覆盖服务端当前窗口。
     pub(crate) fn reset_recent_query_coverage(&mut self) {
         self.recent_message_coverage.clear();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
@@ -305,7 +172,6 @@ impl ImState {
         });
     }
 
-    /// 消息行发生任何本地/远端变化时，旧窗口身份不再能证明本地结果仍是最新。
     pub(crate) fn invalidate_recent_message_coverage(&mut self, channel_id: ChannelId) {
         self.recent_message_coverage.remove(&channel_id);
     }

@@ -17,8 +17,8 @@ use helix_core::effect::{HttpRequest, HttpResponse};
 use helix_core::ports::HttpRequester;
 use helix_core::PortError;
 use helix_driver_host::{
-    AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig,
-    HttpOutcomeObserver, SharedHttpClient,
+    AsyncMetricSink, AuthTokenRegistry, CrossCuttingHttp, HostHeaderRegistry, HostNetworkConfig,
+    HostOtelRuntime, HttpOutcomeObserver, SharedHttpClient,
 };
 
 use crate::event_sink::NativeEventSink;
@@ -57,6 +57,15 @@ impl NativeHttp {
         SharedHttpClient::new(config).map(Self::from_shared)
     }
 
+    pub fn with_config_and_metric_sink(
+        config: HostNetworkConfig,
+        metrics: Arc<dyn AsyncMetricSink>,
+    ) -> Result<Self, PortError> {
+        SharedHttpClient::new(config)
+            .map(|client| client.with_metric_sink(metrics))
+            .map(Self::from_shared)
+    }
+
     pub fn from_shared(inner: SharedHttpClient) -> Self {
         let headers = inner.headers();
         Self {
@@ -87,12 +96,36 @@ impl NativeHttp {
         }
     }
 
+    /// host-cli/Tauri composition root 显式注入 OTel；兼容构造仍保持 no-op。
+    pub fn with_crosscut_and_otel(
+        client: SharedHttpClient,
+        event_sink: Arc<NativeEventSink>,
+        auth: AuthTokenRegistry,
+        outcome_observer: HttpOutcomeObserver,
+        otel: HostOtelRuntime,
+    ) -> Self {
+        let headers = client.headers();
+        Self {
+            inner: HttpInner::Cross(
+                CrossCuttingHttp::new(client, event_sink, auth, outcome_observer).with_otel(otel),
+            ),
+            headers,
+        }
+    }
+
     pub async fn set_global_header(&self, name: &str, value: &str) -> Result<(), PortError> {
         self.headers.set_header(name, value).await
     }
 
     pub async fn remove_global_header(&self, name: &str) -> Result<(), PortError> {
         self.headers.remove_header(name).await
+    }
+
+    pub fn is_otel_enabled(&self) -> bool {
+        match &self.inner {
+            HttpInner::Plain(_) => false,
+            HttpInner::Cross(inner) => inner.is_otel_enabled(),
+        }
     }
 }
 
@@ -174,6 +207,7 @@ mod tests {
         let auth = AuthTokenRegistry::new();
         auth.set_session("cookieId", "u1");
         let http = NativeHttp::with_crosscut(client, Arc::new(sink), auth, |_, _| None);
+        assert!(!http.is_otel_enabled(), "兼容入口必须保持真 no-op");
 
         // 通用头注入仍可达（横切叠加后 registry 句柄保留，不再 unreachable）。
         http.set_global_header("connectionId", "conn-1")
@@ -194,6 +228,28 @@ mod tests {
             http.request(req).await,
             Err(PortError::Transport(_))
         ));
+    }
+
+    #[test]
+    fn explicit_crosscut_constructor_installs_enabled_otel() {
+        use helix_driver_host::{HostOtelConfig, HostOtelRuntime};
+
+        let client = SharedHttpClient::new(test_config()).expect("build client");
+        let (sink, _rx) = NativeEventSink::new();
+        let runtime = HostOtelRuntime::new(HostOtelConfig {
+            enabled: true,
+            service_name: "native-http-test".to_string(),
+            endpoint: "noop".to_string(),
+            protocol: "noop".to_string(),
+        });
+        let http = NativeHttp::with_crosscut_and_otel(
+            client,
+            Arc::new(sink),
+            AuthTokenRegistry::new(),
+            |_, _| None,
+            runtime,
+        );
+        assert!(http.is_otel_enabled());
     }
 
     fn test_config() -> HostNetworkConfig {

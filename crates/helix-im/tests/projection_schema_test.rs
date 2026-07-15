@@ -53,6 +53,7 @@ const FAT_KEYS: &[&str] = &[
     "message",
     "text",
     "props",
+    "forwardDetail",
     "createAt",
     "createdAt",
     "updateAt",
@@ -68,6 +69,12 @@ const FAT_KEYS: &[&str] = &[
     "urgent",
     "urgentTargetCount",
     "urgentConfirmedCount",
+    "urgentRequesterId",
+    "urgentTargetIds",
+    "urgentConfirmedIds",
+    "urgentRequiredCount",
+    "urgentState",
+    "canConfirmUrgent",
     "expediteMap",
     "templateReceived",
     "templateConfirmedCount",
@@ -75,7 +82,35 @@ const FAT_KEYS: &[&str] = &[
     "systemNotice",
     "pinned",
     "topic",
+    "replyId",
+    "replyRootId",
+    "replyFirstLevelId",
+    "repliedMessage",
+    "replyMessages",
+    "replyCount",
 ];
+
+/// 撤回是时间线系统事件；在旧 fat MessageItemData 上 additive 增加 render-ready 合同。
+const RECALL_SYSTEM_KEYS: &[&str] = &[
+    "actorAvailable",
+    "actorId",
+    "displayText",
+    "eventId",
+    "kind",
+    "occurredAt",
+    "previewText",
+    "recalledMsgId",
+    "subjectMemberIds",
+    "system",
+    "systemEvent",
+    "targetMsgId",
+];
+
+fn recall_keys() -> Vec<&'static str> {
+    let mut keys = FAT_KEYS.to_vec();
+    keys.extend_from_slice(RECALL_SYSTEM_KEYS);
+    keys
+}
 
 /// 构造一份非空 `PostFields`（fat emit 在手数据样本）——字段非空，证明 fat 工厂真把在手数据吐出。
 fn sample_fields() -> PostFields {
@@ -93,11 +128,15 @@ fn sample_fields() -> PostFields {
         read_bits: "11".to_string(),
         viewers: vec!["all".to_string()],
         mentions: vec!["u_me".to_string()],
-        expedite_map: r#"{"u_me":true}"#.to_string(),
+        expedite_map: r#"{"sender":{"id":"u_sender"},"recipients":{"u_me":{"status":0}}}"#
+            .to_string(),
         topic: r#"{"channelId":"topic-1"}"#.to_string(),
         reply_id: "root-1".to_string(),
         reply_root_id: "root-1".to_string(),
         reply_first_level_id: "first-1".to_string(),
+        replied_message: r#"{"id":"root-1","message":"原消息"}"#.to_string(),
+        reply_messages: r#"[{"id":"reply-1","message":"回复"}]"#.to_string(),
+        reply_count: 1,
     }
 }
 
@@ -178,7 +217,9 @@ fn im_post_received_freezes_fat_renderable_row() {
 fn im_post_read_freezes_fat_renderable_row() {
     let f = sample_fields();
     let e = to_effect::emit_post_read(ch(), SEQ, MSG_ID, &f);
-    assert_frozen(&e, "im:post:read", FAT_KEYS);
+    let mut keys = FAT_KEYS.to_vec();
+    keys.push("receiptRevision");
+    assert_frozen(&e, "im:post:read", &keys);
 }
 
 #[test]
@@ -197,17 +238,78 @@ fn im_post_updated_freezes_fat_renderable_row() {
 
 #[test]
 fn im_post_deleted_freezes_fat_renderable_row() {
-    // 撤回路径 PostFields 通常稀疏，但 fat 形状一致（同 FAT_KEYS）——前端按 msg_id 标删，字段空串无碍。
+    // 旧 fat 行仍在，系统事件字段 additive 增加，前端可先判 system 再走专用 renderer。
     let f = sample_fields();
     let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f);
-    assert_frozen(&e, "im:post:deleted", FAT_KEYS);
+    assert_frozen(&e, "im:post:deleted", &recall_keys());
 }
 
 /// 撤回稀疏 PostFields（default）→ fat 形状仍 == FAT_KEYS（键集不随内容稀疏而缺）。
 #[test]
 fn im_post_deleted_sparse_fields_still_fat_shape() {
     let e = to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &PostFields::default());
-    assert_frozen(&e, "im:post:deleted", FAT_KEYS);
+    assert_frozen(&e, "im:post:deleted", &recall_keys());
+}
+
+#[test]
+fn recall_projection_is_viewer_ready_without_reusing_message_author_as_actor() {
+    let mut f = sample_fields();
+    f.user_id = "original-author".to_string();
+    let e = to_effect::emit_post_deleted_for_viewer(
+        ch(),
+        SEQ,
+        MSG_ID,
+        &f,
+        &format!("revoke:{}:{SEQ}", ch().as_str()),
+        "viewer-444",
+        1_700_000_042,
+        "viewer-444",
+    );
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &value["data"];
+    assert_eq!(data["type"], "system");
+    assert_eq!(data["kind"], "system");
+    assert_eq!(data["system"], true);
+    assert_eq!(data["systemEvent"], "message-recalled");
+    assert_eq!(data["eventId"], format!("revoke:{}:{SEQ}", ch().as_str()));
+    assert_eq!(data["actorId"], "viewer-444");
+    assert_eq!(data["targetMsgId"], MSG_ID);
+    assert_eq!(data["recalledMsgId"], MSG_ID);
+    assert_eq!(data["occurredAt"], 1_700_000_042_i64);
+    assert_eq!(data["displayText"], "你撤回了一条消息");
+    assert_eq!(data["previewText"], "你撤回了一条消息");
+    assert_eq!(data["isSelf"], true, "isSelf 必须按撤回 actor 计算");
+    assert_ne!(
+        data["actorId"], data["userId"],
+        "不得用原消息作者冒充撤回 actor"
+    );
+}
+
+#[test]
+fn recall_projection_without_actor_is_visible_but_never_claims_self() {
+    let mut f = sample_fields();
+    f.user_id = "viewer-444".to_string();
+    let e = to_effect::emit_post_deleted_for_viewer(ch(), SEQ, MSG_ID, &f, "", "", 0, "viewer-444");
+    let Effect::Emit { event } = e else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let data = &value["data"];
+    assert_eq!(data["actorAvailable"], false);
+    assert_eq!(data["actorId"], "");
+    assert_eq!(data["displayText"], "某人撤回了一条消息");
+    assert_eq!(
+        data["isSelf"], false,
+        "actor 缺失时不得拿原消息作者推断自己撤回"
+    );
+    assert_eq!(
+        data["eventId"],
+        format!("revoke:{}:{SEQ}", ch().as_str()),
+        "缺 eventId 时仍需生成确定性 identity"
+    );
 }
 
 /// fat 工厂真把**在手数据**吐出（非空字段透传）——证 message_item_data 不是空壳骨架。
@@ -239,6 +341,12 @@ fn fat_emit_carries_in_hand_data() {
     assert_eq!(data["props"]["k"], "v", "props parse 回对象");
     assert_eq!(data["topic"]["channelId"], "topic-1", "topic parse 回对象");
     assert_eq!(data["viewers"][0], "all", "viewers 数组直出");
+    assert_eq!(data["replyId"], "root-1");
+    assert_eq!(data["replyRootId"], "root-1");
+    assert_eq!(data["replyFirstLevelId"], "first-1");
+    assert_eq!(data["repliedMessage"]["message"], "原消息");
+    assert_eq!(data["replyMessages"][0]["message"], "回复");
+    assert_eq!(data["replyCount"], 1);
     // render-ready 终态字段（issue #53）：sample_fields 无 quickReply/template·type=TEXT →
     // sendStatus=sent / reactions=null / templateReceived=false / systemNotice=false。
     assert_eq!(data["sendStatus"], "sent", "sendStatus 恒 sent（已对账态）");
@@ -260,13 +368,43 @@ fn fat_emit_carries_in_hand_data() {
         "无 template → templateReceived=false"
     );
     assert_eq!(data["templateConfirmedCount"], 0);
-    assert_eq!(data["urgentTargetCount"], 0);
+    assert_eq!(data["urgentTargetCount"], 1);
     assert_eq!(data["urgentConfirmedCount"], 0);
+    assert_eq!(data["urgentRequesterId"], "u_sender");
+    assert_eq!(data["urgentTargetIds"], serde_json::json!(["u_me"]));
+    assert_eq!(data["urgentState"], "active");
     assert_eq!(
         data["systemNotice"], false,
         "type=TEXT 非 NOTICE → systemNotice=false"
     );
     assert!(data["pinned"].is_null(), "无 pinned props → pinned=null");
+}
+
+#[test]
+fn merged_forward_online_emit_contains_render_ready_detail() {
+    let mut f = sample_fields();
+    f.msg_type = "MULTIPLY".to_string();
+    f.props = serde_json::json!({
+        "mergeMessage": serde_json::json!([{
+            "temporaryId":"forward-1",
+            "message":"转发正文",
+            "type":"TEXT",
+            "createAt":7,
+            "userSnapshot":{"userName":"甲"}
+        }]).to_string()
+    })
+    .to_string();
+
+    let Effect::Emit { event } = to_effect::emit_post_received(ch(), SEQ, MSG_ID, &f) else {
+        panic!("必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let detail = &value["data"]["forwardDetail"];
+    assert_eq!(detail["mode"], "merged");
+    assert_eq!(detail["state"], "ready");
+    assert_eq!(detail["items"][0]["id"], "forward-1");
+    assert_eq!(detail["items"][0]["author"], "甲");
+    assert_eq!(detail["items"][0]["text"], "转发正文");
 }
 
 /// render-ready 字段真按业务数据派生（非空壳常量）——quickReply→reactions / template→templateReceived /
@@ -342,7 +480,8 @@ fn message_interaction_capabilities_use_viewer_facts() {
     let mut f = sample_fields();
     f.user_id = "sender".to_string();
     f.props = r#"{"template":{"userIds":[]}}"#.to_string();
-    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    f.expedite_map =
+        r#"{"sender":{"id":"sender"},"recipients":{"viewer-678":{"status":0}}}"#.to_string();
     let e = to_effect::emit_post_received_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
     let Effect::Emit { event } = e else {
         panic!("必产 Emit")
@@ -350,6 +489,15 @@ fn message_interaction_capabilities_use_viewer_facts() {
     let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     let capabilities = &value["data"]["actionCapabilities"];
     assert_eq!(capabilities["canUrgentConfirm"], true);
+    assert_eq!(value["data"]["urgentRequesterId"], "sender");
+    assert_eq!(
+        value["data"]["urgentTargetIds"],
+        serde_json::json!(["viewer-678"])
+    );
+    assert_eq!(value["data"]["urgentConfirmedIds"], serde_json::json!([]));
+    assert_eq!(value["data"]["urgentRequiredCount"], 1);
+    assert_eq!(value["data"]["urgentState"], "active");
+    assert_eq!(value["data"]["canConfirmUrgent"], true);
     assert_eq!(capabilities["canMarkRead"], true);
     assert_eq!(capabilities["canViewReceipt"], false);
     assert_eq!(capabilities["canTemplateConfirm"], true);
@@ -360,7 +508,8 @@ fn post_updated_keeps_viewer_capabilities_and_template_reader_ids() {
     let mut f = sample_fields();
     f.user_id = "sender".to_string();
     f.props = r#"{"template":{"userIds":["viewer-678"]}}"#.to_string();
-    f.expedite_map = r#"{"recipients":{"viewer-678":{"status":0}}}"#.to_string();
+    f.expedite_map =
+        r#"{"sender":{"id":"sender"},"recipients":{"viewer-678":{"status":0}}}"#.to_string();
     let e = to_effect::emit_post_updated_for_viewer(ch(), SEQ, MSG_ID, &f, "viewer-678");
     let Effect::Emit { event } = e else {
         panic!("必产 Emit")
@@ -402,6 +551,10 @@ fn render_ready_urgent_is_false_for_empty_expedite_map() {
     };
     let v: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(v["data"]["urgent"], false, "空 expedite_map → urgent=false");
+    assert_eq!(v["data"]["urgentState"], "inactive");
+    assert_eq!(v["data"]["urgentTargetIds"], serde_json::json!([]));
+    assert_eq!(v["data"]["urgentConfirmedIds"], serde_json::json!([]));
+    assert_eq!(v["data"]["canConfirmUrgent"], false);
 }
 
 /// type 空串容错 "TEXT"（render-ready 下沉·前端不再 `d.type || "TEXT"` 兜底·issue #53）。
@@ -502,6 +655,11 @@ fn im_post_sending_freezes_channel_and_temporary_id() {
             "readBits",
             "text",
             "type",
+            "replyId",
+            "replyRootId",
+            "replyFirstLevelId",
+            "replyCount",
+            "replyMessages",
         ],
     );
 }
@@ -600,23 +758,115 @@ fn im_channel_settings_updated_freezes_render_ready_settings_and_version() {
 }
 
 #[test]
-fn im_schedule_created_freezes_channelid_hasschedulepost() {
-    let e = to_effect_s1::emit_schedule_created(ch());
+fn im_schedule_created_freezes_render_ready_schedule_fields() {
+    let e = to_effect_s1::emit_schedule_created(
+        ch(),
+        &serde_json::json!({
+            "scheduleId": "schedule-1",
+            "sendAt": 1_700_000_000_000_i64,
+            "status": "scheduled",
+            "revision": 7,
+            "message": "下午三点发送完整正文，不得用摘要代替",
+            "messagePreview": "稍后发送"
+        }),
+        None,
+        true,
+    );
     assert_frozen(
         &e,
         "im:channel:schedule-created",
-        &["channelId", "hasSchedulePost", "id"],
+        &[
+            "channelId",
+            "hasSchedulePost",
+            "id",
+            "messagePreview",
+            "revision",
+            "scheduleId",
+            "scheduleMessage",
+            "scheduleMessagePreview",
+            "scheduleRevision",
+            "scheduleSendAt",
+            "scheduleStatus",
+            "sendAt",
+            "status",
+        ],
     );
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(
+        payload["data"]["scheduleMessage"],
+        "下午三点发送完整正文，不得用摘要代替"
+    );
+    assert_eq!(payload["data"]["scheduleMessagePreview"], "稍后发送");
+    assert_eq!(payload["data"]["scheduleSendAt"], 1_700_000_000_000_i64);
+    assert_eq!(payload["data"]["scheduleRevision"], 7);
+    assert_eq!(payload["data"]["scheduleStatus"], "scheduled");
 }
 
 #[test]
-fn im_schedule_canceled_freezes_channelid_hasschedulepost() {
-    let e = to_effect_s1::emit_schedule_canceled(ch());
+fn im_schedule_canceled_freezes_render_ready_schedule_fields_without_preview_leak() {
+    let e = to_effect_s1::emit_schedule_canceled(
+        ch(),
+        &serde_json::json!({
+            "schedule_id": "schedule-1",
+            "send_at": 1_700_000_000_000_i64,
+            "revision": 8,
+            "status": "scheduled",
+            "message": "不得泄露完整正文",
+            "message_preview": "不得泄露"
+        }),
+        None,
+        false,
+    );
     assert_frozen(
         &e,
         "im:channel:schedule-canceled",
-        &["channelId", "hasSchedulePost", "id"],
+        &[
+            "channelId",
+            "hasSchedulePost",
+            "id",
+            "messagePreview",
+            "revision",
+            "scheduleId",
+            "scheduleMessage",
+            "scheduleMessagePreview",
+            "scheduleRevision",
+            "scheduleSendAt",
+            "scheduleStatus",
+            "sendAt",
+            "status",
+        ],
     );
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert!(payload["data"]["scheduleMessage"].is_null());
+    assert!(payload["data"]["messagePreview"].is_null());
+    assert!(payload["data"]["scheduleMessagePreview"].is_null());
+    assert_eq!(payload["data"]["scheduleStatus"], "canceled");
+}
+
+#[test]
+fn im_schedule_created_never_uses_preview_as_editable_message_fallback() {
+    let e = to_effect_s1::emit_schedule_created(
+        ch(),
+        &serde_json::json!({
+            "scheduleId": "schedule-preview-only",
+            "sendAt": 1_700_000_000_000_i64,
+            "messagePreview": "只有摘要"
+        }),
+        None,
+        true,
+    );
+    let Effect::Emit { event } = e else {
+        panic!("必须 emit")
+    };
+    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert!(payload["data"]["scheduleMessage"].is_null());
+    assert_eq!(payload["data"]["scheduleMessagePreview"], "只有摘要");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -642,7 +892,9 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
     let raw = serde_json::to_vec(&serde_json::json!({
         "displayName": "群",
         "memberCount": 2,
-        "type": "T"
+        "type": "O",
+        "createdAt": 1_700_000_000_000_i64,
+        "isTop": false
     }))
     .unwrap();
     let e = to_effect_s1::emit_channel_created(ch(), &raw);
@@ -652,12 +904,18 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
         &[
             "channel",
             "channelId",
+            "channelKind",
+            "channelType",
             "channel_id",
+            "createdAt",
             "displayName",
             "group",
             "id",
+            "lastActivityAt",
             "memberCount",
+            "projectionSource",
             "props",
+            "top",
         ],
     );
     let Effect::Emit { event } = e else {
@@ -665,9 +923,18 @@ fn im_channel_created_freezes_render_ready_dialog_and_wire_payload() {
     };
     let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(payload["data"]["displayName"], "群");
-    assert_eq!(payload["data"]["group"], "topic");
+    assert_eq!(payload["data"]["group"], "company");
+    assert_eq!(payload["data"]["channelType"], "O");
+    assert_eq!(payload["data"]["channelKind"], "company");
     assert_eq!(payload["data"]["memberCount"], 2);
-    assert_eq!(payload["data"]["props"]["type"], "T");
+    assert_eq!(payload["data"]["createdAt"], 1_700_000_000_000_i64);
+    assert_eq!(
+        payload["data"]["lastActivityAt"], 1_700_000_000_000_i64,
+        "缺 lastPostAt 时必须回退 createdAt"
+    );
+    assert_eq!(payload["data"]["top"], false);
+    assert_eq!(payload["data"]["projectionSource"], "channel_created");
+    assert_eq!(payload["data"]["props"]["type"], "O");
 }
 
 #[test]
@@ -690,6 +957,37 @@ fn im_post_batch_updated_non_array_posts_degrades_to_empty_keeps_keys() {
     let posts = serde_json::json!({"not": "array"});
     let e = to_effect::emit_post_batch_updated(ch(), &posts);
     assert_frozen(&e, "im:post:batch-updated", &["channel_id", "posts"]);
+}
+
+#[test]
+fn im_channel_replies_freezes_explicit_merge_and_paging_contract() {
+    let projection = helix_im::render_ready_replies::FlatReplyProjection {
+        channel_id: "c1".to_string(),
+        root_message_id: "root".to_string(),
+        projection_mode: helix_im::render_ready_replies::ReplyProjectionMode::Snapshot,
+        revision: 7,
+        reply_ids: vec!["r1".to_string()],
+        nodes: vec![serde_json::json!({"msgId":"r1"})],
+        reply_count: 1,
+        has_more: false,
+    };
+    let effect = helix_im::render_ready_replies::emit_channel_replies("req-1", projection);
+    assert_frozen(
+        &effect,
+        "im:channel:replies",
+        &[
+            "reqId",
+            "channelId",
+            "rootMessageId",
+            "projectionMode",
+            "revision",
+            "replyIds",
+            "nodes",
+            "replyCount",
+            "cursor",
+            "hasMore",
+        ],
+    );
 }
 
 #[test]
@@ -819,8 +1117,8 @@ fn all_25_projection_factories_covered() {
         )
         .unwrap(),
         to_effect_s1::emit_member_nickname(ch(), "u", "n"),
-        to_effect_s1::emit_schedule_created(ch()),
-        to_effect_s1::emit_schedule_canceled(ch()),
+        to_effect_s1::emit_schedule_created(ch(), &serde_json::json!({}), None, false),
+        to_effect_s1::emit_schedule_canceled(ch(), &serde_json::json!({}), None, false),
         query::emit_message_query_result(&cid, b"[]"),
         query::emit_dialog_list_result(b"[]"),
         query::emit_dialogs_cleared(),

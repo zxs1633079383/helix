@@ -124,6 +124,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 | HX-C014 | 分支身份固化进 SESSION §0（当前分支+upstream+该不该删）——`branch-identity.sh` 自陈不靠记忆，杜绝「你在哪个分支」反复问 | active |
 | HX-C015 | workflow/后台 agent 完成靠 task-notification 自动回灌，禁手工「等…报告结果」轮询；只外部不可追踪态才 /loop | active |
 | HX-C016 | 真Go e2e:WS hello 依赖 tp/gRPC 隧道会随时间断(恢复 playbook·sudo密码sh)+全UC用单脚本双持久连接 wait_for(~3min)非LLM-workflow+快smoke(~13)vs精确per-UC(全33)取舍 | active |
+| HX-C017 | 性能证据保持逐跳 correlation、确定性顺序与负载/观察窗口边界；冷热领域键分测 | active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 
@@ -139,6 +140,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 
 | 文档 | 视角 | 一句话 |
 |---|---|---|
+| [`docs/specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md`](docs/specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md) | **多端 UI 交互目标合同（ADR-015）** | Helix 新版本方向：UiEvent/HostObservation → Domain/Effect/Persist → InteractionFrame(ViewMutation+ActionBinding+UiDirective)；三端机械 apply/ack，具体组件仍属平台 |
 | [`crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **UC 消费视角真源** | Gate、command、Effect、投影字段、HTTP、WS、Go DB、Helix storage 和 UI VM 的最新代码分析；SessionStart 必读 |
 | [`crates/helix-im/docs/Strict Matrix/README.md`](crates/helix-im/docs/Strict%20Matrix/README.md) | **UC 发布证据入口** | 机器合同、生成矩阵、远端存储真源与持久证据包；任一证据面缺失即 Red |
 | [`crates/helix-im/docs/projection-schema.md`](crates/helix-im/docs/projection-schema.md) | **投影 payload 契约真源（C2 冻结）** | 21 个 `im:__bus__` 投影 emit 工厂字段集 + 信号/透传/控制三类 + 命名陷阱词典；配 `tests/projection_schema_test.rs` 强制对账 |

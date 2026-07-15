@@ -2,9 +2,7 @@
 //!
 //! ## 谁用这个壳
 //!
-//! native（broadcast EventSink）与（下一轮）FFI（批处理 vtable sink）**共用**此泛型壳，
-//! 各自只差 EventSink egress 特化 + tick 源接线。pump 核（背压/分流/drain/死锁不变量）
-//! 在此一处维护，不再 per-driver 各写一套。
+//! native（broadcast）与 FFI（批处理 vtable）共用此泛型壳，统一维护 pump 不变量。
 //!
 //! ## 泛型边界
 //!
@@ -32,144 +30,67 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use helix_core::effect::TransportId;
 use helix_core::ports::{Clock, FileUploader, FrameSender, HttpRequester, Storage};
-use helix_core::{ExecutionShell, PortError, Tick};
+use helix_core::{ExecutionShell, Tick};
 
 pub use crate::batch_sink::BatchSink;
 use crate::dispatch::dispatch_effects;
-use crate::owned_effect::consume_effects;
+use crate::owned_effect::consume_effect_batch;
 use crate::pools::{spawn_http_pool, spawn_upload_pool, PersistJobPayload};
 use crate::spawner::{BoundedSpawner, Overflow};
+use crate::tick_ingress::{EngineTickReceiver, EngineTickSender};
 use crate::timer::TimerRegistry;
-use crate::trace::TraceHooks;
+mod entrypoints;
+pub(crate) mod perf_metrics;
+mod rss;
+mod shutdown;
+mod types;
+use perf_metrics::EngineMetricRecorder;
+use shutdown::drain_pools;
 
-/// graceful drain 时「必达 Http」在途请求的 join 上限（fix/lifecycle-net-decouple）。
-///
-/// 必达 Http reqwest 单条可卡满 `DEFAULT_TIMEOUT_SECS`（连不上 host ~30s）。drain 给此上限：
-/// 超时 abort 在途请求，让生命周期（helix_destroy）快速退出，而非等满网络 timeout。
-/// 不丢保证由「乐观态持久化 + 重连重发对账」承担（见五不变量⑤ + `shutdown_with_timeout` doc）。
-/// 取 3s：足够覆盖正常 LAN 内 POST /posts/create 往返（毫秒级），又远小于 30s 网络 timeout。
-const HTTP_DRAIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
+pub use entrypoints::{run_engine_loop, run_engine_loop_stamped};
 
-/// `TransportId → 出站帧发送器` 路由表（泛型 over FrameSender 实现）。
-///
-/// host 装配阶段填入（或经 `transport_rx` 注册通道在连接成功后投递入表）；`Effect::Send`
-/// 分支按 id 查表调 `FrameSender::send`（`&self`）。
-///
-/// ## 为什么 `Arc<Fs>`（无外层 `Mutex`）
-///
-/// `FrameSender::send` 只需共享引用（driver 内部用自有锁串行化，如
-/// `SharedWsClient::state`）→ 表里只需共享句柄 `Arc<Fs>`，dispatch 走 `t.send().await`。
-/// 去掉外层 `Mutex` 消除「连接期外层锁跨 `connect().await`」这一架构脆弱点：connect 在
-/// loop 外对**独占 move 进后台任务的裸句柄**跑，连成功才经 `transport_rx` 投进表 →
-/// 连接期间该句柄不在表内、`Effect::Send` 的 `transports.get()` 看不到它（**类型/可见性层**
-/// 证明无锁争用，而非靠「hello 之后才产 Send」的运行时时序不变量）。
-pub type TransportTable<Fs> = HashMap<TransportId, Arc<Fs>>;
-
-/// 动态 sender 注册消息：engine 完成路由表 insert 后才回 ack。
-///
-/// 平台连接任务必须等待 ack，再发布 `Tick::Connected` 并放行 reader；这样 Connected
-/// 产生的首个 `Effect::Send` 不会落入“物理已连、路由表尚不可见”的窗口。
-pub struct TransportRegistration<Fs> {
-    id: TransportId,
-    sender: Arc<Fs>,
-    registered_tx: oneshot::Sender<()>,
-}
-
-/// 注册 sender 并等待 engine 确认其已进入私有路由表。
-pub async fn register_transport<Fs>(
-    registration_tx: &mpsc::UnboundedSender<TransportRegistration<Fs>>,
-    id: TransportId,
-    sender: Arc<Fs>,
-) -> Result<(), PortError> {
-    let (registered_tx, registered_rx) = oneshot::channel();
-    registration_tx
-        .send(TransportRegistration {
-            id,
-            sender,
-            registered_tx,
-        })
-        .map_err(|_| PortError::Transport("transport registration channel closed".to_string()))?;
-    registered_rx.await.map_err(|_| {
-        PortError::Transport("transport registration was not acknowledged".to_string())
-    })
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransportLifecycleEvent {
-    Disconnected {
-        transport_id: TransportId,
-        reason: &'static str,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TransportTraceEvent {
-    pub transport_id: TransportId,
-    pub name: &'static str,
-    pub action: &'static str,
-    pub attempt: Option<u32>,
-    pub delay_ms: Option<u64>,
-    pub next_delay_ms: Option<u64>,
-    pub reason: Option<&'static str>,
-    pub error_class: Option<String>,
-}
-
-/// 事件泵依赖聚合（泛型 ports + 配置）。
-///
-/// native / ffi 各自构造此结构（注入自家 EventSink egress），调 [`run_engine_loop`]。
-pub struct EngineDeps<S, H, U, E, C> {
-    pub storage: Arc<S>,
-    pub http: Arc<H>,
-    pub uploader: Arc<U>,
-    pub event_sink: Arc<E>,
-    pub clock: C,
-    pub trace: TraceHooks,
-    /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。`0` → `.max(1)` 兜底 1。
-    pub max_http_inflight: usize,
-    pub transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
-    pub transport_trace_tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
-}
+pub use types::{
+    register_transport, EngineDeps, TransportLifecycleEvent, TransportRegistration, TransportTable,
+    TransportTraceEvent, TransportTraceSink, TransportTraceStats, TRANSPORT_TRACE_QUEUE_CAPACITY,
+};
 
 /// 运行 ExecutionShell 的 tokio 事件泵（泛型壳）。
 ///
-/// ## FrameSender 注册（连接期句柄类型层不可见 / 消除锁跨 await）
+/// ## Transport 注册（连接期句柄类型层不可见 / 消除锁跨 await）
 ///
 /// `transports` 是 loop 私有 `mut` 表（dispatch 只读，不再外层 `Arc<Mutex>`）。装配端有两条
 /// 路径填表：① 预填（host-cli 启动前同步 connect 好直接放入，CLI 可阻塞）；② 注册通道
 /// （FFI：create 不能 await connect，否则卡满 `DEFAULT_TIMEOUT_SECS`——见 fix/lifecycle-net-decouple）。
 /// 路径②下，装配端 spawn 后台任务对**独占 move 进去的裸句柄**跑 `connect().await`，连成功后经
-/// `transport_rx` 投递 `TransportRegistration`，本 loop 的 biased select 第二臂先 `insert`，
-/// 再回注册确认；平台收到确认后才发布 Connected/放行 reader。
+/// `transport_rx` 投递 `(id, Arc<Tr>)`，本 loop 的 biased select 第二臂收到即 `insert`。
 ///
 /// **死锁/停顿安全（类型层论证，非时序不变量）**：连接在途时句柄**根本不在 `transports` 表内**，
 /// `Effect::Send` 的 `transports.get()` 返回 `None` → 走既有 warn 兜底；连接期间不存在任何「会被
-/// Send 路径争用、且被某任务持有跨 `connect().await` 的锁」（表内 `Arc<Fs>` 无外层锁，并发 send
+/// Send 路径争用、且被某任务持有跨 `connect().await` 的锁」（表内 `Arc<Tr>` 无外层锁，并发 send
 /// 由 transport 内部 state 锁串行化，那把锁本就存在、非新增）。`transport_rx` 是 unbounded（同
-/// `reply_tx` 哲学）→ 后台 connect 任务投递句柄不阻塞；随后只等 engine 的 O(1) insert ack，
-/// engine 不反等连接任务，依赖链仍无环。
+/// `reply_tx` 哲学）→ 后台 connect 任务投递句柄永不阻塞 → 依赖链单向 DAG（loop 等 channel，
+/// channel 不等 loop）无环。
 ///
 /// ## Shutdown 语义
 ///
 /// `shutdown_rx` 收到 `()` 或 `tick_rx` 关闭 → graceful drain：等全部已接收 Persist
 /// + 必达 Http 落地后返回。
 #[allow(clippy::too_many_arguments)]
-pub async fn run_engine_loop<S, H, U, E, Fs, C>(
+pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     mut shell: ExecutionShell,
-    mut tick_rx: mpsc::Receiver<Tick>,
-    tick_tx: mpsc::Sender<Tick>,
+    mut tick_rx: EngineTickReceiver,
+    tick_tx: EngineTickSender,
     deps: EngineDeps<S, H, U, E, C>,
     mut shutdown_rx: oneshot::Receiver<()>,
-    mut transports: TransportTable<Fs>,
-    mut transport_rx: mpsc::UnboundedReceiver<TransportRegistration<Fs>>,
+    mut transports: TransportTable<Tr>,
+    mut transport_rx: mpsc::UnboundedReceiver<TransportRegistration<Tr>>,
 ) where
     S: Storage + Send + Sync + 'static,
     H: HttpRequester + Send + Sync + 'static,
     U: FileUploader + Send + Sync + 'static,
     E: BatchSink + Send + Sync + 'static,
-    // `Send + Sync`：`Arc<Fs>` 经 `transport_rx` 跨后台 connect 任务边界共享。
-    Fs: FrameSender + Send + Sync + 'static,
+    Tr: FrameSender + Send + Sync + 'static,
     C: Clock,
 {
     let transport_lifecycle_tx = deps.transport_lifecycle_tx.clone();
@@ -180,6 +101,8 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
     let uploader = deps.uploader;
     let event_sink = deps.event_sink;
     let trace = deps.trace;
+    let mut perf_metrics = EngineMetricRecorder::new(deps.metrics);
+    let rss_sampler = perf_metrics.spawn_rss_sampler();
     let http_n = deps.max_http_inflight.max(1);
     let mut timer_registry = TimerRegistry::new();
 
@@ -208,8 +131,8 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
     );
 
     // 初始化：触发 on_start。
-    let initial_effects = match shell.start() {
-        Ok(effects) => consume_effects(effects),
+    let initial_batch = match shell.start() {
+        Ok(effects) => consume_effect_batch(effects),
         Err(e) => {
             tracing::error!("helix engine start failed: {}", e);
             return;
@@ -217,13 +140,13 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
     };
     tracing::info!(
         "helix engine started, {} initial effects",
-        initial_effects.len()
+        initial_batch.effects.len()
     );
 
     // 与主循环同门控：有初始 effect 才 dispatch + flush（避免空批跨 FFI 边界的无谓回调）。
-    if !initial_effects.is_empty() {
+    if !initial_batch.effects.is_empty() {
         dispatch_effects(
-            initial_effects,
+            initial_batch.effects,
             &tick_tx,
             &storage,
             &http_pool,
@@ -235,6 +158,7 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
             &mut persist_workers,
             &transports,
             &trace,
+            &mut perf_metrics,
         )
         .await;
         // start() 那批 Emit 已 dispatch 完成 → 攒批 egress（HX-C007）。native no-op。
@@ -248,11 +172,12 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
     // 完成后该分支永久解除武装。
     let mut shutdown_armed = true;
     loop {
-        let tick = tokio::select! {
+        perf_metrics.record_queue_snapshot(tick_rx.len(), tick_rx.max_capacity());
+        let (tick, queue_wait) = tokio::select! {
             biased;
 
             // 优先：PortReply 回灌
-            Some(reply) = reply_rx.recv() => reply,
+            Some(reply) = reply_rx.recv() => (reply, None),
 
             // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
             // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
@@ -274,13 +199,15 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
             }
 
             // 三选：入站 Tick（Command / Inbound / Timer / …）
-            tick = tick_rx.recv() => {
-                match tick {
+            queued = tick_rx.recv() => {
+                match queued {
                     Some(t) => t,
                     None => break, // tick 通道关闭，进入 graceful drain
                 }
             }
         };
+
+        let metric_context = perf_metrics.on_tick(&tick, queue_wait);
 
         if let Tick::Disconnected(transport_id) = &tick {
             if let Some(tx) = &transport_lifecycle_tx {
@@ -291,7 +218,7 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
                 .ok();
             }
             if let Some(tx) = &transport_trace_tx {
-                tx.send(TransportTraceEvent {
+                tx.try_emit(TransportTraceEvent {
                     transport_id: *transport_id,
                     name: "helix.ws.disconnect",
                     action: "disconnect",
@@ -300,24 +227,26 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
                     next_delay_ms: None,
                     reason: Some("reader_closed_or_error"),
                     error_class: None,
-                })
-                .ok();
+                });
             }
         }
 
         let _trace_scope = trace.on_tick_start(&tick);
         let now_ms = clock.now_ms();
-        let owned = match shell.step(tick, now_ms) {
-            Ok(effects) => consume_effects(effects),
+        let step_started = perf_metrics.start_timer();
+        let batch = match shell.step(tick, now_ms) {
+            Ok(effects) => consume_effect_batch(effects),
             Err(e) => {
+                perf_metrics.on_step_error(&metric_context);
                 tracing::error!("engine step error: {}", e);
                 continue;
             }
         };
+        perf_metrics.on_step_complete(&metric_context, step_started, batch.summary);
 
-        if !owned.is_empty() {
+        if !batch.effects.is_empty() {
             dispatch_effects(
-                owned,
+                batch.effects,
                 &tick_tx,
                 &storage,
                 &http_pool,
@@ -329,51 +258,29 @@ pub async fn run_engine_loop<S, H, U, E, Fs, C>(
                 &mut persist_workers,
                 &transports,
                 &trace,
+                &mut perf_metrics,
             )
             .await;
             // 本 step 的 Emit 已全部 dispatch → 攒批 egress 一次过边界（HX-C007）。
             // owned 为空时无 Emit、无需 flush（避免空批跨 FFI 边界的无谓回调）。
             event_sink.flush();
+            perf_metrics.on_dispatch_complete(&metric_context);
         }
     }
 
-    // ── Graceful drain（不变量5）──────────────────────────────────────────
-    //
-    // 正确关闭顺序（每个 BoundedSpawner.shutdown 内部：drop tx → worker recv None → join）：
-    // 1. shutdown 全部 Persist（必达落地——本地 DB 写，无网络，无上限 join）
-    // 2. shutdown UploadFile（**有上限** drain：本地读+上传不阻塞生命周期）
-    // 3. shutdown Http(必达)（**有上限** drain：不被在途网络阻塞，超时 abort 在途 reqwest）
-    // 4. shutdown HttpFire（尽力 join，可丢，不纳入「必达落地」保证；同样有上限）
-    // 5. drain reply_rx（捡走写完后才回灌的最后一批 PortReply）
-    tracing::info!(
-        "helix engine loop: tick_rx closed, draining {} persist + io pools",
-        persist_workers.len()
-    );
-
-    // Persist：本地 SQLite 写，毫秒级，无网络不可控性 → 无上限 join（保「同 key 写顺序+全落地」）。
-    for (_, sp) in persist_workers.drain() {
-        sp.shutdown().await;
+    let shutdown_started = perf_metrics.start_timer();
+    drain_pools(
+        persist_workers,
+        upload_pool,
+        http_pool,
+        http_fire_pool,
+        reply_rx,
+    )
+    .await;
+    perf_metrics.on_shutdown(shutdown_started);
+    if let Some(rss_sampler) = rss_sampler {
+        rss_sampler.abort();
     }
-    // UploadFile：同样封顶（本地读+上传）；超时直接 abort 在途任务，不阻塞生命周期退出。
-    if !upload_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
-        tracing::warn!(
-            limit_ms = HTTP_DRAIN_LIMIT.as_millis(),
-            "UploadFile drain 超上限——abort 在途上传任务"
-        );
-    }
-    // 必达 Http：给上限（HTTP_DRAIN_LIMIT）。在途 reqwest 连不上 host 时单条卡满
-    // DEFAULT_TIMEOUT_SECS（~30s），无上限会让 graceful drain（→ helix_destroy）等满该 timeout。
-    // 超时则 abort 在途——乐观态 status=Sending 已落库（真源），不丢，靠重连重发对账兜底
-    // （不变量5 改写：见本文件头注「五不变量⑤」+ helix-driver-{host,native} AGENTS.md）。
-    if !http_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await {
-        tracing::warn!(
-            limit_ms = HTTP_DRAIN_LIMIT.as_millis(),
-            "必达 Http drain 超上限——abort 在途请求（乐观态已持久化，靠重连重发对账兜底）"
-        );
-    }
-    // HttpFire：可丢，同样封顶（不阻塞退出）。
-    let _ = http_fire_pool.shutdown_with_timeout(HTTP_DRAIN_LIMIT).await;
-    while reply_rx.try_recv().is_ok() {}
 
     tracing::info!(
         "helix engine loop exited (persists drained; 必达 upload/http drained or aborted at limit)"

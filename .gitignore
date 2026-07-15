@@ -1,6 +1,7 @@
 /target/
 /.worktrees/
 /worktrees/
+/.perf/
 **/*.rs.bk
 .DS_Store
 .idea/

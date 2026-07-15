@@ -5,7 +5,7 @@ use helix_core::effect::TransportId;
 use helix_core::PortError;
 use tokio::sync::{mpsc, watch};
 
-use crate::engine::{TransportLifecycleEvent, TransportTraceEvent};
+use crate::engine::{TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReconnectPolicy {
@@ -44,17 +44,17 @@ impl ReconnectPolicy {
 
 #[derive(Clone, Default)]
 pub struct ReconnectTraceSink {
-    tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>,
+    sink: Option<TransportTraceSink>,
 }
 
 impl ReconnectTraceSink {
-    pub fn new(tx: Option<mpsc::UnboundedSender<TransportTraceEvent>>) -> Self {
-        Self { tx }
+    pub fn new(sink: Option<TransportTraceSink>) -> Self {
+        Self { sink }
     }
 
     pub fn emit(&self, event: TransportTraceEvent) {
-        if let Some(tx) = &self.tx {
-            tx.send(event).ok();
+        if let Some(sink) = &self.sink {
+            sink.try_emit(event);
         }
     }
 }

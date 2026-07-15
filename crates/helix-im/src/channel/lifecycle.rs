@@ -212,7 +212,7 @@ impl ImModule {
                 table: "channel_event_cursor",
                 limit: None,
                 filter: None,
-                order_desc_col: None,
+                order_by: &[],
             })],
         });
         self.state

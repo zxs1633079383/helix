@@ -140,7 +140,8 @@ impl From<&Effect> for WebOwnedEffect {
 #[cfg(test)]
 mod tests {
     use helix_core::effect::{
-        DeleteWhereSpec, DomainEventBytes, FileUploadRequest, HttpRequest, SqlValue, StorageOp,
+        BatchDeleteSpec, DomainEventBytes, FileUploadRequest, FileUploadUrls, HttpRequest,
+        SqlValue, StorageOp,
     };
 
     use super::*;
@@ -153,10 +154,12 @@ mod tests {
             headers: vec![("x-test".into(), "1".into())],
             body: Some(Bytes::from_static(b"body")),
         };
-        let storage = StorageOp::DeleteWhere(DeleteWhereSpec {
+        let storage = StorageOp::BatchDelete(BatchDeleteSpec {
             table: "table",
+            scope_col: "scope",
+            scope_val: SqlValue::Text("test".into()),
             key_col: "id",
-            key_val: SqlValue::Text("1".into()),
+            key_vals: vec![SqlValue::Text("1".into())],
         });
         let effects = vec![
             Effect::Send {
@@ -178,7 +181,11 @@ mod tests {
                     local_path: "/tmp/file".into(),
                     object_key: "object".into(),
                     method: "PUT".into(),
-                    url: "https://example.invalid/upload".into(),
+                    urls: FileUploadUrls::new(
+                        "https://example.invalid/upload".into(),
+                        "https://example.invalid/file".into(),
+                    )
+                    .expect("valid urls"),
                     headers: Vec::new(),
                     content_type: None,
                     size: Some(4),

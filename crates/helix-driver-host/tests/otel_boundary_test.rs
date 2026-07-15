@@ -215,6 +215,17 @@ impl HttpRequester for MockHttp {
     }
 }
 
+#[test]
+fn crosscutting_http_default_constructor_is_true_noop() {
+    let http = CrossCuttingHttp::new(
+        MockHttp,
+        Arc::new(NoopSink),
+        AuthTokenRegistry::new(),
+        |_, _| None,
+    );
+    assert!(!http.is_otel_enabled());
+}
+
 #[tokio::test]
 async fn crosscutting_http_starts_response_span_with_status() {
     let runtime = HostOtelRuntime::new(HostOtelConfig {

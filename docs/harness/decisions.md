@@ -96,6 +96,15 @@
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
 - **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate/HX-C003 与历史 wasm 清理已落地。真 Go send/echo/断连恢复继续按 ROADMAP M4 验收，旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
+## ADR-015 — Helix 统一多端 UI 交互语义，业务模块产出 InteractionProtocol
+
+- **决策**：Helix 的“一次实现”范围从业务状态与数据 ViewModel 扩展到跨端统一 UI 交互语义。`helix-im` 拥有 `SurfaceModel / ViewNode / ViewMutation / ActionBinding / UiDirective`，以 `InteractionFrame` 向 PC、Flutter 与 Web 批量发布语义 view tree、稳定动作地址和一次性平台无关指令；各端只回送生成合同内的 `UiEvent/HostObservation/ack`，机械 apply frame，并把语义 renderer key/directive 映射到本端实现。
+- **core 边界**：`helix-core` 不认识上述 IM/UI 类型，只提供运行时无关的模块执行、端口、确定性 ID/时间与不透明批次机制。业务交互 schema、surface revision、权限、动作绑定、未读裁决和 fallback 选择均在 `helix-im`；真实 Storage/HTTP/WS/timer/file I/O 仍由 driver 兑现。
+- **具体 UI 红线**：允许 `message.row.v1`、有序 child key、opaque `action_ref`、reset/focus/reveal/dismiss/fallback 等跨端语义；禁止 DOM tag、CSS selector、Angular Component、Flutter Widget、像素、动画时长或平台句柄进入 Rust 合同。`render_kind` 必须是稳定语义 key，各端静态 registry 自主选择具体组件。
+- **一致性要求**：可见业务终态经过 Persist barrier；同一领域事实的跨实体变化在一个 frame 原子发布；surface/epoch/revision/ack/resync fail closed；相同输入剧本跨 native/FFI/Web 输出字节等价 frame；FFI 按 frame 批量传输，不逐 mutation 往返。
+- **理由**：仅统一 RenderNode 数据仍会让 Angular、QuickJS/C++、Flutter/Web 各自维护 temporaryId 对账、窗口排序、未读、权限、动作完成和导航 fallback，等价于保留多套业务引擎。统一语义交互协议消除这些跨端漂移，同时以“语义合同不等于具体 UI 工具包”守住 runtime-agnostic、sans-IO 和可替换 renderer。
+- **状态**：已定（2026-07-15，用户明确拍板“Spec 是新版本 Helix 多端统一 UI 交互；命中 Goal 时调整 Goal”）。覆盖 GOAL §6 旧“方向 A 只允许数据形态 ViewModel”的高度边界；不改变 ADR-014 的 Web W0 交付事实，也不宣称 InteractionProtocol 已实现或 Gate 已 Green。
+
 ---
 
 ## 过会拍板结论（原 helix-技术评审纪要，2026-06-17 折叠）

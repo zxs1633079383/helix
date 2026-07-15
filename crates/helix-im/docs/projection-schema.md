@@ -53,6 +53,8 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容渲染核）
 > + `sendStatus`/`serverId`/`isSelf`/`actionCapabilities`/`reactions`/`reactionCount`/
 > `templateReceived`/`templateConfirmedCount`/`urgentTargetCount`/`urgentConfirmedCount`/
+> `urgentRequesterId`/`urgentTargetIds`/`urgentConfirmedIds`/`urgentRequiredCount`/`urgentState`/
+> `canConfirmUrgent`/`forwardDetail`/
 > `expediteMap`/`systemNotice`/`pinned`（**render-ready 终态**·message-v4 纯渲染授权演进）。
 >
 > **issue #53（S4 首条竖切·C013 纯渲染壳·授权契约演进）**：fat 在渲染核之外补 4 个 render-ready 终态字段，
@@ -74,7 +76,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
-| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgentTargetCount` `urgentConfirmedCount` `expediteMap`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
+| `to_effect::emit_post_received` | `im:post:received` | **fat**（基础消息字段 + `serverId` `isSelf` `actionCapabilities` `reactionCount` `templateConfirmedCount` `urgent*` 双视角字段 `expediteMap` `forwardDetail`，精确全集见测试 `FAT_KEYS`）| WS `post` echo / sync type1 可见 |
 | `to_effect::emit_post_sending` | `im:post:sending` | `channel_id` `temporary_id` `msgId` `temporaryId` `channelId` `eventSeq` `sendStatus` `serverId` `isSelf` `actionCapabilities` `readBits` `text` `type`（render-ready 乐观终态行）| 发送乐观上屏 |
 | `to_effect::emit_post_send_failed` | `im:post:send-failed` | `channelId` `temporaryId` `sendStatus` `serverId` `isSelf` `actionCapabilities`（`canRetry=true`）| `posts/create` HTTP PortError 立即失败 |
 | `render_ready_candidates::emit` | `im:user:candidates` | `reqId` `users[]`（`userId` `username` `nickname` `displayName` `deptId` `deptName` `orgId` `orgName`）| fresh-account 建群候选目录 HTTP 回报 |
@@ -84,18 +86,18 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_channel_increment` | `im:channel:increment` | `channel_id` `increment` | WS `increment_channel` |
 | `to_effect::emit_channel_update` | `im:channel:update` | `channel_id`（**留瘦**·channel-row）| WS `increment_channel_end` 批次结束 |
 | `to_effect_s1::emit_channel_settings_updated` | `im:channel:settings-updated` | `channelId` `settings` `settingVersion` `channelCapabilities` | WS `update_channel` 携群名/简介/导向、服务端 capability 矩阵和当前 viewer role 回声 |
-| `to_effect::emit_post_read` | `im:post:read` | **fat**（同 `emit_post_received` 完整集）| 在线 WS `post_read`（type6）|
+| `to_effect::emit_post_read_with_receipt_revision` | `im:post:read` | **fat**（同 `emit_post_received` 完整集）+ `receiptRevision` | 在线 WS `post_read`（type6）；前端只用不透明版本刷新回执，不观察 bitmap |
 | `to_effect::emit_channel_read_echo` | `im:channel:read_echo` | **fat**（同 `emit_post_received` 完整集）| 离线 sync 应用 type6 read |
 | `to_effect::emit_post_updated` | `im:post:updated` | **fat**（同 `emit_post_received` 完整集）| sync type2 编辑（可见）|
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
 | `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
-| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `memberCount` `props` `channel` | WS `channel_created` |
+| `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `channelType` `channelKind` `memberCount` `createdAt` `lastActivityAt` `top` `projectionSource=channel_created` `props` `channel` | WS `channel_created`；新群即时列表直接消费顶层排序事实，不解析嵌套 raw channel |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
 | `to_effect_s1::emit_member_nickname` | `im:channel:memberNickname` | `channelId` `userId` `nickName` | WS `update_channel_member_nickName` |
-| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` | WS `post_schedule_created` |
-| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | `id` `channelId` `hasSchedulePost` | WS `post_schedule_canceled` |
+| `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` `scheduleId` `scheduleMessage` `scheduleMessagePreview` `scheduleSendAt` `scheduleRevision` `scheduleStatus`（同时保留通用 schedule 字段） | WS `post_schedule_created`；全文仅 owner/服务端授权可见，preview 不得替代全文 |
+| `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | 同 created，且 `hasSchedulePost=false` `scheduleStatus=canceled` | WS `post_schedule_canceled`；取消为终态，未授权时正文与摘要均为 `null` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
 | `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| invoke `im_query_dialog_list` |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
@@ -206,21 +208,24 @@ keyed upsert + `leaves` 删行，零 extract / 零 role 判 / 零四源合并）
 
 ### 1.6 回复族 render-ready 渲染通道（**不计入** §1 RenderNode 投影集 · issue #57 S8·C013 纯渲染壳·终局切）
 
-`im:channel:replies` 是把**回复链 postId 抽取**（`getReplies`/`getReplyBranch` 透传 body 的 `rootPost`/
-`replies`/`data`/`list` 探针 + 去重保序）从渲染壳下沉 helix-im 后**额外**emit 的 render-ready 渲染通道——
-前端 `applyChannelReplies` 退化为**纯绑定**（直接把 `replyIds` 1:1 绑到 AX reply-drawer 的 `data-reply-id`，
-零 extract / 零 body 探针 / 零 shape 兼容）。`getReplies`/`getReplyBranch` 读族回报（`OutboundReplies`）在
-冻结 `im:read:result`{req_id,body} 之后**额外**emit 本通道（`render_ready_replies::extract_reply_ids` 抽好
-postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义·清抽屉）。
+`im:channel:replies` 把 `getReplies`/`getReplyBranch` 响应一次扫描为扁平 root + 有序 reply ids +
+render-ready nodes。`projectionMode` 由 command 名冻结：`im_get_replies=snapshot`、
+`im_get_reply_branch=append`，严禁客户端通过 `reqId` 前缀猜语义。每次请求使用 Helix 单调 correlation
+作为 `revision`；同 root 的旧 revision 只保留相关 `im:read:result`，不再 emit render-ready 投影。
+
+Helix 在投影层维护同 root 已见 id 集：snapshot 权威替换，append 跨页去重并保持服务端原顺序。
+前端只按显式模式绑定 `messageById` 与 `replyIdsByRoot`。当前 Go 接口支持页码但不返回可恢复 opaque
+cursor，因此合同冻结 `cursor:null`；`hasMore` 透传响应字段，缺失时明确为 `false`。
 
 | 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
 |---|---|---|---|---|
-| `render_ready_replies::emit_channel_replies` | `im:channel:replies` | `{reqId, replyIds:[postId]}`（render-ready·去重保序）| getReplies/getReplyBranch HTTP 回报（`OutboundReplies` 双 emit）| helix-im 整形，前端 `applyChannelReplies` 纯绑定 |
+| `render_ready_replies::emit_channel_replies` | `im:channel:replies` | `{reqId,channelId,rootMessageId,projectionMode,revision,replyIds,nodes,replyCount,cursor,hasMore}` | getReplies/getReplyBranch HTTP 回报（`OutboundReplies` 双 emit）| helix-im 负责乱序抑制、snapshot/append 与去重保序；前端纯绑定 |
 
 > **为何额外通道而非改既有投影**：冻结的 `im:read:result`（`{req_id, body}`·严格二键）键集**不可加 replyIds 键**
 > （UC-2.4 ② 契约面「缺/多即 fail」·body verbatim 透传）。故本通道**额外**emit，既有冻结投影原样保留、其 ②
-> 契约面照旧裁定 verbatim body。`im:channel:replies` data 外层键集（`{reqId, replyIds}`）由
-> `src/render_ready_replies_tests.rs` 断言。**待办族**（§1.4 `im:todo:updated`）S8 同步补 render-ready 终态键
+> 契约面照旧裁定 verbatim body。`im:channel:replies` data 外层十键由
+> `src/query/render_ready/replies_tests.rs` 与 `tests/projection_schema_test.rs` 精确断言。缺/空 `req_id`
+> 降级为 fire-and-forget：HTTP 可执行，但 corr 不注册、不得产生无关联回复投影。**待办族**（§1.4 `im:todo:updated`）S8 同步补 render-ready 终态键
 > `todoId`/`todoType`（每 item 在冻结-记录的 `{id, channel, post, type, canDel}` 之上**额外**加·inner 不冻结·
 > 外层 `{items}` 键集照旧）→ 前端 `applyTodoUpdated` 退纯绑定（1:1 取 todoId/todoType/canDel·不 rename）。
 
@@ -229,7 +234,7 @@ postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义�
 | channel | data 键集 | 权威边界 |
 |---|---|---|
 | `im:posts:batch-result` | `{reqId,batchStatus,acceptedCount,failedCount,deliveryAuthority,targets:[{channelId,acceptanceStatus,deliveryStatus,error}]}` | HTTP 只证明 `accepted/failed`；accepted 的 `deliveryStatus=pending`，最终送达只认逐目标 WS `post` |
-| `im:post:readers` | `{reqId,receipts:[{postId,readerCount,readerIds,readers:[{userId}]}]}` | 只消费 Go `readerIds/readers`；不透出也不解释 `readBits` |
+| `im:post:readers` | `{reqId,receipts:[{postId,state,snapshotId,snapshotVersion,readerCount,unreadCount,recipientUserIds,readBits,authorExcluded,contractVersion,readerIds,unreadIds,readers:[{userId}],unreaders:[{userId}]}]}` | Helix 按消息发送时 `memberIds` 快照顺序解释 `readBits`；canonical 保持接收者序列，legacy 在线性扫描中剔除作者位，固定输出 `authorExcluded=true`、`contractVersion=2`，非法形态 fail closed |
 
 ### 1.8 最近消息查询状态通道（**不计入** §1 RenderNode 投影集 · A2 local-first）
 

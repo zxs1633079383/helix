@@ -135,6 +135,7 @@ async fn setup_engine(db_path: &str) -> (mpsc::Sender<Tick>, Arc<AtomicU64>) {
         http,
         uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
@@ -185,6 +186,7 @@ async fn setup_engine_with_handle(
         http,
         uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();
@@ -535,6 +537,7 @@ async fn stress_engine_mixed_write_read_flood() {
         http,
         uploader: helix_driver_host::SharedFileUploader::default(),
         event_sink,
+        metrics: Arc::new(helix_driver_host::NoopMetricSink),
         max_http_inflight: 8,
     };
     let tick_tx_for_loop = tick_tx.clone();

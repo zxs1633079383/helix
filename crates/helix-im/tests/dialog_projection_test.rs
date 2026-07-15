@@ -3,7 +3,7 @@
 mod common;
 use common::*;
 
-use helix_core::effect::{GuardedBumpSpec, StorageOp};
+use helix_core::effect::{GuardedBumpSpec, SqlValue, StorageOp};
 use helix_core::tick::InboundBytes;
 use helix_core::{Effect, Tick};
 
@@ -257,11 +257,17 @@ fn mentions_and_urgent_posts_classify_and_bump_dialog_counts() {
     assert_eq!(mention_data["mentionedUserIds"][0], AUTH);
     assert!(
         mention_bump
-            .json_list_appends
+            .extra_bumps
             .iter()
-            .any(|append| append.list_col == "mention_list"
-                && append.count_col == Some("mention_count")),
-        "@ 当前用户时必须在同一 guard 下 set-union mention_list 并写回 mention_count=set size"
+            .any(|(col, delta)| *col == "mention_count" && *delta == 1),
+        "@ 当前用户时必须在同一 guard 下累加 mention_count"
+    );
+    assert!(
+        mention_bump.set_cols.iter().any(|(col, value)| {
+            col == "mention_list"
+                && matches!(value, SqlValue::Text(list) if list == r#"["msg-3-1"]"#)
+        }),
+        "@ 当前用户时必须在同一 guard 下把 mention_list 设为当前消息 singleton"
     );
 
     let mut urgent = Harness::new_with_identity(&[4], AUTH, "", "", "", "");
@@ -296,11 +302,17 @@ fn mentions_and_urgent_posts_classify_and_bump_dialog_counts() {
     assert_eq!(urgent_data["urgentUserIds"][0], AUTH);
     assert!(
         urgent_bump
-            .json_list_appends
+            .extra_bumps
             .iter()
-            .any(|append| append.list_col == "urgent_post_list"
-                && append.count_col == Some("urgent_count")),
-        "加急命中当前用户时必须在同一 guard 下 set-union urgent_post_list 并写回 urgent_count=set size"
+            .any(|(col, delta)| *col == "urgent_count" && *delta == 1),
+        "加急命中当前用户时必须在同一 guard 下累加 urgent_count"
+    );
+    assert!(
+        urgent_bump.set_cols.iter().any(|(col, value)| {
+            col == "urgent_post_list"
+                && matches!(value, SqlValue::Text(list) if list == r#"["msg-4-1"]"#)
+        }),
+        "加急命中当前用户时必须在同一 guard 下把 urgent_post_list 设为当前消息 singleton"
     );
 }
 

@@ -71,9 +71,16 @@ pub(crate) fn emit_contact_candidates(req_id: &str, outcome: &PortOutcome, out: 
 
 /// S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → 双 emit。
 /// Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
-///   + emit `im:channel:replies{reqId, replyIds}`（render-ready·helix 抽好 postId·壳纯绑定）。
+///   + emit `im:channel:replies`（显式 snapshot/append + revision + 分页元数据）。
 /// 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
-pub(crate) fn emit_replies(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
+pub(crate) fn emit_replies(
+    request: &crate::render_ready_replies::ReplyProjectionRequest,
+    outcome: &PortOutcome,
+    revisions: &mut std::collections::HashMap<String, u64>,
+    seen_ids: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
+    out: &mut EffectSink,
+) {
+    let req_id = request.req_id.as_str();
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
@@ -83,10 +90,19 @@ pub(crate) fn emit_replies(req_id: &str, outcome: &PortOutcome, out: &mut Effect
                 ));
                 let body: serde_json::Value =
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
-                let ids = crate::render_ready_replies::extract_reply_ids(&body);
-                out.push(crate::render_ready_replies::emit_channel_replies(
-                    req_id, ids,
-                ));
+                let mut projection = crate::render_ready_replies::finalize_projection(
+                    request,
+                    crate::render_ready_replies::extract_flat_replies(&body),
+                );
+                if crate::render_ready_replies::accept_projection(
+                    &mut projection,
+                    revisions,
+                    seen_ids,
+                ) {
+                    out.push(crate::render_ready_replies::emit_channel_replies(
+                        req_id, projection,
+                    ));
+                }
             }
             Err(e) => {
                 tracing::warn!(req_id, error = ?e, "replies reply envelope decode failed");
@@ -94,10 +110,19 @@ pub(crate) fn emit_replies(req_id: &str, outcome: &PortOutcome, out: &mut Effect
                     req_id,
                     "response envelope decode failed",
                 ));
-                out.push(crate::render_ready_replies::emit_channel_replies(
-                    req_id,
-                    Vec::new(),
-                ));
+                let mut projection = crate::render_ready_replies::finalize_projection(
+                    request,
+                    crate::render_ready_replies::FlatReplyProjection::empty(),
+                );
+                if crate::render_ready_replies::accept_projection(
+                    &mut projection,
+                    revisions,
+                    seen_ids,
+                ) {
+                    out.push(crate::render_ready_replies::emit_channel_replies(
+                        req_id, projection,
+                    ));
+                }
             }
         },
         PortOutcome::Err(e) => {
@@ -106,10 +131,16 @@ pub(crate) fn emit_replies(req_id: &str, outcome: &PortOutcome, out: &mut Effect
                 req_id,
                 "http request failed",
             ));
-            out.push(crate::render_ready_replies::emit_channel_replies(
-                req_id,
-                Vec::new(),
-            ));
+            let mut projection = crate::render_ready_replies::finalize_projection(
+                request,
+                crate::render_ready_replies::FlatReplyProjection::empty(),
+            );
+            if crate::render_ready_replies::accept_projection(&mut projection, revisions, seen_ids)
+            {
+                out.push(crate::render_ready_replies::emit_channel_replies(
+                    req_id, projection,
+                ));
+            }
         }
     }
 }

@@ -15,6 +15,7 @@ helix-driver-host = { path = "../helix-driver-host" }
 # helix-im：pump 线程装配 ExecutionShell 时注册 ImModule（FFI 是 driver 层，依赖业务模块装配合法）
 helix-im          = { path = "../helix-im" }
 serde        = { workspace = true }
+serde_json   = { workspace = true }
 thiserror    = { workspace = true }
 bytes        = { workspace = true }
 tracing      = { workspace = true }

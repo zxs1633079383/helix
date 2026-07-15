@@ -80,7 +80,7 @@ fn viewer_relative_actions_and_absolute_interaction_counts_are_render_ready() {
             "quickReply": [{"emoji":"👍","userIds":["444","678"]}],
             "template": {"userIds":["444","678"]}
         },
-        "expedite_map": "{\"recipients\":{\"444\":{\"status\":1},\"678\":{\"status\":0}}}"
+        "expedite_map": "{\"sender\":{\"id\":\"444\"},\"recipients\":{\"678\":{\"status\":0},\"789\":{\"status\":1}}}"
     }]);
     let out = shape_message_rows_for_viewer(&rows, "444");
     assert_eq!(out[0]["isSelf"], true);
@@ -90,6 +90,12 @@ fn viewer_relative_actions_and_absolute_interaction_counts_are_render_ready() {
     assert_eq!(out[0]["readerIds"], json!(["444", "678"]));
     assert_eq!(out[0]["urgentTargetCount"], 2);
     assert_eq!(out[0]["urgentConfirmedCount"], 1);
+    assert_eq!(out[0]["urgentRequesterId"], "444");
+    assert_eq!(out[0]["urgentTargetIds"], json!(["678", "789"]));
+    assert_eq!(out[0]["urgentConfirmedIds"], json!(["789"]));
+    assert_eq!(out[0]["urgentRequiredCount"], 2);
+    assert_eq!(out[0]["urgentState"], "active");
+    assert_eq!(out[0]["canConfirmUrgent"], false);
 }
 
 #[test]
@@ -171,4 +177,29 @@ fn non_object_and_anchorless_rows_skipped() {
 fn non_array_input_yields_empty() {
     assert_eq!(shape_message_rows(&json!({})), json!([]));
     assert_eq!(shape_message_rows(&json!(null)), json!([]));
+}
+
+#[test]
+fn merged_forward_history_row_contains_same_render_ready_detail() {
+    let items = json!([{
+        "temporaryId":"forward-1",
+        "message":"历史转发正文",
+        "type":"TEXT",
+        "createAt":9,
+        "userSnapshot":{"userName":"乙"}
+    }]);
+    let rows = json!([{
+        "id":"merged-1",
+        "temporary_id":"merged-tmp-1",
+        "type":"MULTIPLY",
+        "props":{"mergeMessage":items}
+    }]);
+
+    let out = shape_message_rows(&rows);
+    let detail = &out[0]["forwardDetail"];
+    assert_eq!(detail["mode"], "merged");
+    assert_eq!(detail["state"], "ready");
+    assert_eq!(detail["items"][0]["id"], "forward-1");
+    assert_eq!(detail["items"][0]["author"], "乙");
+    assert_eq!(detail["items"][0]["text"], "历史转发正文");
 }

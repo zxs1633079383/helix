@@ -12,8 +12,15 @@ use helix_core::effect::TransportId;
 use helix_core::ports::FrameSender;
 use helix_core::PortError;
 use helix_core::Tick;
-use helix_driver_host::{HostNetworkConfig, SharedWsClient, WsConnectionActivation};
+use helix_driver_host::{
+    AsyncMetricSink, HostHeaderRegistry, HostNetworkConfig, NoopMetricSink, SharedWsClient,
+    TickIngressSender, WsConnectionActivation,
+};
+use std::sync::Arc;
 use tokio::sync::mpsc;
+
+mod ingress;
+use ingress::NativeTickSender;
 
 /// PC/Tauri transport wrapper.
 ///
@@ -26,6 +33,30 @@ pub struct NativeTransport {
     /// 现网 Go 在 HTTP 升级中间件按 header 建 session，session 空则不发 hello、超时关连接，
     /// 故身份头必须随 upgrade 请求带，而非仅 HTTP 客户端全局头。connect 前灌进共享 registry。
     handshake_headers: Vec<(String, String)>,
+    reconnect: Option<NativeReconnectFactory>,
+}
+
+#[derive(Clone)]
+pub(crate) struct NativeReconnectFactory {
+    config: HostNetworkConfig,
+    headers: HostHeaderRegistry,
+    id: TransportId,
+    tick_tx: Option<NativeTickSender>,
+    metrics: Arc<dyn AsyncMetricSink>,
+}
+
+impl NativeReconnectFactory {
+    pub(crate) fn build(&self) -> Result<NativeTransport, PortError> {
+        let mut inner = SharedWsClient::with_registry(self.config.clone(), self.headers.clone())?
+            .with_metric_sink(Arc::clone(&self.metrics));
+        if let Some(tx) = &self.tick_tx {
+            inner = tx.attach(inner, self.id);
+        }
+        Ok(NativeTransport::from_shared_parts(
+            inner,
+            Some(self.clone()),
+        ))
+    }
 }
 
 impl NativeTransport {
@@ -41,6 +72,24 @@ impl NativeTransport {
                 inner: None,
                 init_error: Some(e.to_string()),
                 handshake_headers: Vec::new(),
+                reconnect: None,
+            },
+        }
+    }
+
+    pub fn new_stamped(
+        url: impl Into<String>,
+        id: TransportId,
+        tick_tx: Option<TickIngressSender>,
+    ) -> Self {
+        let config = HostNetworkConfig::new("", url.into());
+        match Self::with_config_parts(config, id, tick_tx.map(NativeTickSender::Stamped)) {
+            Ok(transport) => transport,
+            Err(error) => Self {
+                inner: None,
+                init_error: Some(error.to_string()),
+                handshake_headers: Vec::new(),
+                reconnect: None,
             },
         }
     }
@@ -52,30 +101,70 @@ impl NativeTransport {
         self
     }
 
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        if let Some(inner) = self.inner.take() {
+            self.inner = Some(inner.with_metric_sink(Arc::clone(&metrics)));
+        }
+        if let Some(factory) = &mut self.reconnect {
+            factory.metrics = metrics;
+        }
+        self
+    }
+
     pub fn with_config(
         config: HostNetworkConfig,
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Result<Self, PortError> {
-        let inner = SharedWsClient::new(config)?;
-        Ok(Self::from_shared(inner, id, tick_tx))
+        Self::with_config_parts(config, id, tick_tx.map(NativeTickSender::Raw))
+    }
+
+    fn with_config_parts(
+        config: HostNetworkConfig,
+        id: TransportId,
+        tick_tx: Option<NativeTickSender>,
+    ) -> Result<Self, PortError> {
+        let headers = HostHeaderRegistry::default();
+        let mut inner = SharedWsClient::with_registry(config.clone(), headers.clone())?;
+        if let Some(tx) = &tick_tx {
+            inner = tx.attach(inner, id);
+        }
+        let reconnect = NativeReconnectFactory {
+            config,
+            headers,
+            id,
+            tick_tx,
+            metrics: Arc::new(NoopMetricSink),
+        };
+        Ok(Self::from_shared_parts(inner, Some(reconnect)))
     }
 
     pub fn from_shared(
-        mut inner: SharedWsClient,
+        inner: SharedWsClient,
         id: TransportId,
         tick_tx: Option<mpsc::Sender<Tick>>,
     ) -> Self {
-        // 生产 native 路径把 Connected/Inbound/Disconnected 全部交给 shared client 的
-        // 每连接生命周期；pull 单测不注入 tick，仍从 frame_rx 拉取。
-        if let Some(tx) = tick_tx {
-            inner = inner.with_inbound_tick(id, tx);
-        }
+        let inner = match tick_tx {
+            Some(tx) => inner.with_inbound_tick(id, tx),
+            None => inner,
+        };
+        Self::from_shared_parts(inner, None)
+    }
+
+    fn from_shared_parts(
+        inner: SharedWsClient,
+        reconnect: Option<NativeReconnectFactory>,
+    ) -> Self {
         Self {
             inner: Some(inner),
             init_error: None,
             handshake_headers: Vec::new(),
+            reconnect,
         }
+    }
+
+    pub(crate) fn reconnect_factory(&self) -> Option<NativeReconnectFactory> {
+        self.reconnect.clone()
     }
 
     /// connect 路径用：状态机推进需 `&mut`（合法）。

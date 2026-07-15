@@ -11,7 +11,8 @@ use helix_core::tick::AppCommand;
 use helix_core::Tick;
 use helix_driver_host::trace::TraceHooksImpl;
 use helix_driver_host::{
-    AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig, TraceCarrier, TraceHooks, TraceScope,
+    tick_ingress_channel, AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry,
+    HostNetworkConfig, NoopMetricSink, TraceCarrier, TraceHooks, TraceScope,
 };
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
@@ -104,7 +105,7 @@ async fn ffi_initial_and_reconnect_publish_connected_before_inbound_once() {
         second.send(Message::Close(None)).await.ok();
     });
 
-    let (tick_tx, tick_rx) = mpsc::channel(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel(256);
     let barrier_tick_tx = tick_tx.clone();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
@@ -118,7 +119,8 @@ async fn ffi_initial_and_reconnect_publish_connected_before_inbound_once() {
         config: HostNetworkConfig::new("http://127.0.0.1:1", format!("ws://{addr}/socket")),
         headers: HostHeaderRegistry::default(),
         auth: AuthTokenRegistry::new(),
-        trace: TraceHooks::new(TickRecorder { tx: observed_tx }),
+        command_traces: CommandTraceQueue::default(),
+        trace_override: Some(TraceHooks::new(TickRecorder { tx: observed_tx })),
         vtable: CppHostVtable {
             on_domain_events_batch: Some(noop_events),
             now_ms: Some(fixed_now_ms),
@@ -130,6 +132,8 @@ async fn ffi_initial_and_reconnect_publish_connected_before_inbound_once() {
         ready_tx,
         db_url: db_path.to_string_lossy().into_owned(),
         max_http_inflight: 1,
+        metrics: std::sync::Arc::new(NoopMetricSink),
+        metric_runtime: None,
     };
     let pump = std::thread::Builder::new()
         .name("helix-a31-ffi-pump".to_string())

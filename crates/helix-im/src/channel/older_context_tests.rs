@@ -4,6 +4,7 @@
 //! 与 `tests/p3c_load_older_context_test.rs`（公共 API 性质）互补。
 
 use super::*;
+use helix_core::Effect;
 
 const CH: &str = "ch00000000000000000000000a";
 

@@ -7,6 +7,7 @@ members = [
     "crates/helix-driver-web",
     "crates/helix-driver-ffi",
     "crates/helix-host-cli",
+    "tools/helix-perf",
 ]
 resolver = "2"
 

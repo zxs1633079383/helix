@@ -1,22 +1,34 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, DomainEventBytes, FileUploadRequest,
-    FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec,
-    Row, ScanSpec, TransportId, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, DomainEventBytes, FileUploadRequest, FileUploadResponse,
+    GetSpec, GuardedBumpSpec, HttpRequest, HttpResponse, MonotonicUpsertSpec, Row, ScanSpec,
+    TransportId, UpsertSpec,
 };
 use helix_core::ports::{Clock, EventSink, FileUploader, FrameSender, HttpRequester, Storage};
 use helix_core::{CoreError, Effect, EffectSink, ExecutionShell, Module, PortError, Tick};
 use helix_driver_host::engine::{
     register_transport, run_engine_loop, EngineDeps, TransportLifecycleEvent,
-    TransportRegistration, TransportTraceEvent,
+    TransportRegistration, TransportTraceEvent, TransportTraceSink,
 };
-use helix_driver_host::{BatchSink, TraceHooks};
+use helix_driver_host::{
+    AsyncMetricSink, BatchSink, MetricEvent, MetricId, NoopMetricSink, RecordOutcome, TraceHooks,
+};
+
+#[derive(Clone, Default)]
+struct RecordingMetricSink(Arc<Mutex<Vec<MetricEvent>>>);
+
+impl AsyncMetricSink for RecordingMetricSink {
+    fn try_record(&self, event: MetricEvent) -> RecordOutcome {
+        self.0.lock().unwrap().push(event);
+        RecordOutcome::Accepted
+    }
+}
 
 struct UnusedStorage;
 
@@ -47,10 +59,6 @@ impl Storage for UnusedStorage {
     }
 
     async fn batch_delete(&self, _: BatchDeleteSpec) -> Result<(), PortError> {
-        unreachable!("storage should not be used")
-    }
-
-    async fn delete_where(&self, _: DeleteWhereSpec) -> Result<(), PortError> {
         unreachable!("storage should not be used")
     }
 }
@@ -142,8 +150,10 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
     let (_transport_tx, transport_rx) =
         mpsc::unbounded_channel::<TransportRegistration<UnusedFrameSender>>();
     let (lifecycle_tx, mut lifecycle_rx) = mpsc::unbounded_channel();
-    let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
     let tick_tx_for_loop = tick_tx.clone();
+    let metrics = RecordingMetricSink::default();
+    let recorded_metrics = Arc::clone(&metrics.0);
 
     let deps = EngineDeps {
         storage: Arc::new(UnusedStorage),
@@ -152,6 +162,7 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
         event_sink: Arc::new(NoopSink),
         clock: FixedClock,
         trace: TraceHooks::noop(),
+        metrics: Arc::new(metrics),
         max_http_inflight: 1,
         transport_lifecycle_tx: Some(lifecycle_tx),
         transport_trace_tx: Some(trace_tx),
@@ -210,6 +221,15 @@ async fn disconnected_tick_emits_lifecycle_and_trace_events() {
         .await
         .expect("engine loop should stop after shutdown")
         .expect("engine loop task should not panic");
+    let metric_ids: Vec<_> = recorded_metrics
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|event| event.id)
+        .collect();
+    assert!(metric_ids.contains(&MetricId::TickQueueDepth));
+    assert!(metric_ids.contains(&MetricId::CoreStepDurationSeconds));
+    assert!(metric_ids.contains(&MetricId::EffectsPerTick));
 }
 
 #[tokio::test]
@@ -228,6 +248,7 @@ async fn registration_ack_makes_sender_visible_to_connected_effect() {
         event_sink: Arc::new(NoopSink),
         clock: FixedClock,
         trace: TraceHooks::noop(),
+        metrics: Arc::new(NoopMetricSink),
         max_http_inflight: 1,
         transport_lifecycle_tx: None,
         transport_trace_tx: None,

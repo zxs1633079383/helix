@@ -20,8 +20,9 @@
 
 use std::sync::Arc;
 
-use helix_driver_host::engine::{self, EngineDeps};
-use helix_driver_host::{SharedFileUploader, TraceHooks};
+use helix_driver_host::engine::{self, EngineDeps, TransportLifecycleEvent, TransportTraceSink};
+use helix_driver_host::{AsyncMetricSink, NoopMetricSink, SharedFileUploader, TraceHooks};
+use helix_driver_host::{TickIngressReceiver, TickIngressSender};
 // rows↔bytes 编解码：host 单一真源，native re-export（helix-im 反序列化端对齐 host codec）。
 pub use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
 
@@ -35,6 +36,9 @@ use crate::event_sink::NativeEventSink;
 use crate::http::NativeHttp;
 use crate::storage::NativeStorage;
 use crate::transport::NativeTransport;
+
+mod reconnect;
+use reconnect::{start_native_reconnect, NativeReconnectRuntime};
 
 /// TransportId → 实际 WS 连接 的路由表（native 特化：值为 `NativeTransport`）。
 ///
@@ -53,6 +57,8 @@ pub struct EngineConfig {
     pub http: NativeHttp,
     pub uploader: SharedFileUploader,
     pub event_sink: NativeEventSink,
+    /// Engine 热路径指标 sink；composition root 应与 HTTP/WS/Storage/Event 共用同一 Arc。
+    pub metrics: Arc<dyn AsyncMetricSink>,
     /// Http effect 并发上限（Http BoundedSpawner 的 worker 数 N）。
     ///
     /// 冷启动时 core 一步可吐 N 条 `Effect::Http`；若全部齐发会瞬间打满底层连接
@@ -63,9 +69,34 @@ pub struct EngineConfig {
 }
 
 impl EngineConfig {
+    pub fn new(
+        storage: NativeStorage,
+        http: NativeHttp,
+        uploader: SharedFileUploader,
+        event_sink: NativeEventSink,
+        max_http_inflight: usize,
+    ) -> Self {
+        Self {
+            storage,
+            http,
+            uploader,
+            event_sink,
+            metrics: Arc::new(NoopMetricSink),
+            max_http_inflight,
+        }
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
     /// 转成 host 泛型壳所需的 [`EngineDeps`]（注入 `NativeClock`）。
     fn into_deps(
         self,
+        trace: TraceHooks,
+        transport_lifecycle_tx: Option<mpsc::UnboundedSender<TransportLifecycleEvent>>,
+        transport_trace_tx: Option<TransportTraceSink>,
     ) -> EngineDeps<NativeStorage, NativeHttp, SharedFileUploader, NativeEventSink, NativeClock>
     {
         EngineDeps {
@@ -74,10 +105,11 @@ impl EngineConfig {
             uploader: Arc::new(self.uploader),
             event_sink: Arc::new(self.event_sink),
             clock: NativeClock,
-            trace: TraceHooks::noop(),
+            trace,
+            metrics: self.metrics,
             max_http_inflight: self.max_http_inflight,
-            transport_lifecycle_tx: None,
-            transport_trace_tx: None,
+            transport_lifecycle_tx,
+            transport_trace_tx,
         }
     }
 }
@@ -96,6 +128,7 @@ impl EngineConfig {
 ///     http,
 ///     uploader: helix_driver_host::SharedFileUploader::default(),
 ///     event_sink,
+///     metrics: std::sync::Arc::new(helix_driver_host::NoopMetricSink),
 ///     max_http_inflight: 8,
 /// };
 /// tokio::spawn(run_engine_loop(shell, tick_rx, tick_tx.clone(), config, shutdown_rx));
@@ -122,6 +155,26 @@ pub async fn run_engine_loop(
     .await
 }
 
+/// 生产指标入口：保持单一有界队列，在元素内携带真实入队时间戳。
+pub async fn run_engine_loop_stamped(
+    shell: ExecutionShell,
+    tick_rx: TickIngressReceiver,
+    tick_tx: TickIngressSender,
+    config: EngineConfig,
+    shutdown_rx: oneshot::Receiver<()>,
+) {
+    run_engine_loop_with_transports_and_trace_stamped(
+        shell,
+        tick_rx,
+        tick_tx,
+        config,
+        TraceHooks::noop(),
+        shutdown_rx,
+        TransportTable::new(),
+    )
+    .await;
+}
+
 /// 带 transport 路由表的事件泵入口（A1）。
 ///
 /// 与 [`run_engine_loop`] 唯一区别：`transports` 把 `TransportId → NativeTransport`
@@ -136,54 +189,97 @@ pub async fn run_engine_loop_with_transports(
     shutdown_rx: oneshot::Receiver<()>,
     transports: TransportTable,
 ) {
-    // native（host-cli）走「预填表」路径：装配端启动前同步 connect 好直接放进 `transports`
-    // （CLI 可阻塞，约束3不约束此端）。故注册通道留空、`transport_rx` 永不收到任何句柄——
-    // 仅为对齐 host 泛型壳签名而构造（无害；FFI 端才用它做连接成功后投递，见 pump.rs）。
-    let (_transport_tx, transport_rx) = mpsc::unbounded_channel();
+    run_engine_loop_with_transports_and_trace(
+        shell,
+        tick_rx,
+        tick_tx,
+        config,
+        TraceHooks::noop(),
+        shutdown_rx,
+        transports,
+    )
+    .await;
+}
+
+/// 显式注入 trace hooks 的 native composition-root 入口；旧入口保持真 no-op。
+pub async fn run_engine_loop_with_transports_and_trace(
+    shell: ExecutionShell,
+    tick_rx: mpsc::Receiver<Tick>,
+    tick_tx: mpsc::Sender<Tick>,
+    config: EngineConfig,
+    trace: TraceHooks,
+    shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable,
+) {
+    let NativeReconnectRuntime {
+        transport_rx,
+        lifecycle_tx,
+        trace_sink,
+        trace_stats,
+        tasks,
+        shutdown_tx: reconnect_shutdown_tx,
+    } = start_native_reconnect(&transports);
     engine::run_engine_loop(
         shell,
         tick_rx,
         tick_tx,
-        config.into_deps(),
+        config.into_deps(trace, lifecycle_tx, trace_sink),
         shutdown_rx,
         transports,
         transport_rx,
     )
-    .await
-}
-
-// ─── 单元测试（native 装配层 smoke；pump 核原语测试已随下沉到 host）──────────────
-
-#[cfg(test)]
-mod tests {
-    use helix_driver_host::{rows_from_reply_bytes, rows_to_reply_bytes};
-
-    use helix_core::effect::SqlValue;
-
-    /// rows↔bytes 编解码经 native re-export 仍可达（host 单一真源，native 转出）。
-    #[test]
-    fn test_rows_roundtrip_via_reexport() {
-        let rows = vec![vec![
-            ("id".to_string(), SqlValue::Integer(1)),
-            ("name".to_string(), SqlValue::Text("alice".to_string())),
-            ("score".to_string(), SqlValue::Real(9.5)),
-            ("extra".to_string(), SqlValue::Null),
-        ]];
-        let bytes = rows_to_reply_bytes(&rows);
-        let restored = rows_from_reply_bytes(&bytes).expect("roundtrip");
-        assert_eq!(restored.len(), 1);
-        let row = &restored[0];
-        assert!(matches!(
-            row.iter().find(|(k, _)| k == "id").map(|(_, v)| v),
-            Some(SqlValue::Integer(1))
-        ));
-        assert!(matches!(
-            row.iter().find(|(k, _)| k == "name").map(|(_, v)| v),
-            Some(SqlValue::Text(s)) if s == "alice"
-        ));
-        assert!(matches!(
-            row.iter().find(|(k, _)| k == "extra").map(|(_, v)| v),
-            Some(SqlValue::Null)
-        ));
+    .await;
+    if let Some(stats) = trace_stats {
+        let dropped = stats.dropped_count();
+        if dropped > 0 {
+            tracing::warn!(dropped, "native transport trace 有界队列发生丢弃");
+        }
+    }
+    reconnect_shutdown_tx.send_replace(true);
+    for task in tasks {
+        task.abort();
     }
 }
+
+pub async fn run_engine_loop_with_transports_and_trace_stamped(
+    shell: ExecutionShell,
+    tick_rx: TickIngressReceiver,
+    tick_tx: TickIngressSender,
+    config: EngineConfig,
+    trace: TraceHooks,
+    shutdown_rx: oneshot::Receiver<()>,
+    transports: TransportTable,
+) {
+    let NativeReconnectRuntime {
+        transport_rx,
+        lifecycle_tx,
+        trace_sink,
+        trace_stats,
+        tasks,
+        shutdown_tx: reconnect_shutdown_tx,
+    } = start_native_reconnect(&transports);
+    engine::run_engine_loop_stamped(
+        shell,
+        tick_rx,
+        tick_tx,
+        config.into_deps(trace, lifecycle_tx, trace_sink),
+        shutdown_rx,
+        transports,
+        transport_rx,
+    )
+    .await;
+    if let Some(stats) = trace_stats {
+        let dropped = stats.dropped_count();
+        if dropped > 0 {
+            tracing::warn!(dropped, "native transport trace 有界队列发生丢弃");
+        }
+    }
+    reconnect_shutdown_tx.send_replace(true);
+    for task in tasks {
+        task.abort();
+    }
+}
+
+#[cfg(test)]
+#[path = "engine_loop_tests.rs"]
+mod tests;

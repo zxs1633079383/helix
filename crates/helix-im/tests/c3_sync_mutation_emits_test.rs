@@ -163,6 +163,49 @@ fn revoke_event_emits_post_deleted_regardless_of_messages() {
     );
 }
 
+#[test]
+fn revoke_replay_preserves_actor_event_and_time_for_viewer_ready_projection() {
+    let channel = cid(3);
+    let reply = bytes::Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "entries": [{
+                "channelId": channel,
+                "kind": "events",
+                "events": [{
+                    "id": "event-revoke-30",
+                    "channelId": channel,
+                    "eventSeq": 30,
+                    "eventType": 3,
+                    "msgId": "msg_gone",
+                    "actorId": "viewer-444",
+                    "createAt": 1_700_000_030_i64,
+                    "payload": {"reason": "revoke"}
+                }],
+                "messages": {},
+                "nextSeq": 30
+            }]
+        }))
+        .unwrap(),
+    );
+    let (events, messages) = parse_events_and_messages(&reply, 3);
+    assert_eq!(events[0].event_id, "event-revoke-30");
+    assert_eq!(events[0].actor_id, "viewer-444");
+    assert_eq!(events[0].occurred_at, 1_700_000_030_i64);
+    assert_eq!(events[0].event_payload, r#"{"reason":"revoke"}"#);
+
+    let emits = sync_mutation_emits_with_auth(&events, &messages, "viewer-444");
+    let Effect::Emit { event } = &emits[0] else {
+        panic!("撤回重放必产 Emit")
+    };
+    let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(value["data"]["eventId"], format!("revoke:{}:30", cid(3)));
+    assert_eq!(value["data"]["actorId"], "viewer-444");
+    assert_eq!(value["data"]["displayText"], "你撤回了一条消息");
+    assert_eq!(value["data"]["targetMsgId"], "msg_gone");
+    assert_eq!(value["data"]["eventSeq"], 30);
+    assert_eq!(value["data"]["occurredAt"], 1_700_000_030_i64);
+}
+
 // ─── 4. type1 new：可见 emit received + channel:update-by-post；phantom 不 emit ──
 
 #[test]

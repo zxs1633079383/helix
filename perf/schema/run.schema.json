@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helix.local/perf/run.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "scenarioId", "verdict", "git", "runtime", "scenario", "windows", "telemetry", "evidence", "errors"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "runId": {"type": "string", "minLength": 8},
+    "scenarioId": {"type": "string", "pattern": "^L[123]-"},
+    "verdict": {"enum": ["PASS", "PARTIAL", "BLOCKED", "FAIL"]},
+    "git": {"type": "object"},
+    "runtime": {"type": "object"},
+    "scenario": {"type": "object"},
+    "windows": {"type": "object"},
+    "telemetry": {"type": "object"},
+    "evidence": {"type": "object"},
+    "errors": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

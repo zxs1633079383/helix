@@ -182,7 +182,8 @@ fn update_channel_emits_render_ready_settings_with_server_version() {
                     "id": cid(18),
                     "displayName": "新的群名",
                     "purpose": "真实回声简介",
-                    "orient": "产品"
+                    "orient": "产品",
+                    "settingVersion": 91
                 }
             }
         })),
@@ -190,7 +191,10 @@ fn update_channel_emits_render_ready_settings_with_server_version() {
     );
     let updates = emit_data(&h.sink, "im:channel:settings-updated");
     assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0]["settingVersion"], 77);
+    assert_eq!(
+        updates[0]["settingVersion"], 91,
+        "服务端 settingVersion 优先于 event_seq"
+    );
     assert_eq!(updates[0]["settings"]["displayName"], "新的群名");
     assert_eq!(updates[0]["settings"]["purpose"], "真实回声简介");
 }
@@ -271,6 +275,12 @@ fn post_read_without_event_seq_still_writes_and_emits_s1() {
     assert!(
         emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
         "缺 event_seq 的 post_read echo 仍须 emit im:post:read（#14 根因）"
+    );
+    let reads = emit_data(&h.sink, "im:post:read");
+    assert_eq!(reads[0]["receiptRevision"], 1_782_619_679_604_i64);
+    assert!(
+        reads[0]["receiptRevision"].as_i64().is_some(),
+        "Helix 必须提供不透明回执版本，Angular 不得用 readBits 判断刷新"
     );
 }
 
@@ -503,6 +513,84 @@ fn posts_update_batch_revoke_and_edit_s1() {
     assert!(bus_has_posts, "batch-updated payload 须含 posts 数组");
 }
 
+#[test]
+fn posts_update_revoke_emits_viewer_ready_system_event_from_optional_event_metadata() {
+    let mut h = Harness::new_with_identity(&[3], "viewer-444", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "posts_update",
+            "data": {
+                "channelId": cid(3),
+                "event_seq": 12,
+                "posts": [{
+                    "id": "00000000000000000000000010",
+                    "channelId": cid(3),
+                    "userId": "original-author",
+                    "revoke": true
+                }],
+                "actor_id": "viewer-444",
+                "target_msg_id": "00000000000000000000000010",
+                "event_id": format!("revoke:{}:12", cid(3)),
+                "occurred_at": 1_700_000_012_i64,
+                "system_event": {
+                    "type": "system",
+                    "kind": "system",
+                    "system": true,
+                    "systemEvent": "message-recalled",
+                    "eventId": format!("revoke:{}:12", cid(3)),
+                    "eventSeq": 12,
+                    "channelId": cid(3),
+                    "actorId": "viewer-444",
+                    "targetMsgId": "00000000000000000000000010",
+                    "recalledMsgId": "00000000000000000000000010",
+                    "occurredAt": 1_700_000_012_i64
+                }
+            }
+        })),
+        1_000,
+    );
+    let deleted = emit_data(&h.sink, "im:post:deleted");
+    assert_eq!(deleted.len(), 1);
+    let data = &deleted[0];
+    assert_eq!(data["systemEvent"], "message-recalled");
+    assert_eq!(data["eventId"], format!("revoke:{}:12", cid(3)));
+    assert_eq!(data["eventSeq"], 12);
+    assert_eq!(data["actorId"], "viewer-444");
+    assert_eq!(data["targetMsgId"], "00000000000000000000000010");
+    assert_eq!(data["displayText"], "你撤回了一条消息");
+    assert_ne!(
+        data["actorId"], data["userId"],
+        "原消息作者不得冒充撤回 actor"
+    );
+}
+
+#[test]
+fn posts_update_revoke_without_actor_metadata_falls_back_visible_and_not_self() {
+    let mut h = Harness::new_with_identity(&[3], "original-author", "", "", "", "");
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "posts_update",
+            "data": {
+                "channelId": cid(3),
+                "event_seq": 13,
+                "posts": [{
+                    "id": "00000000000000000000000010",
+                    "channelId": cid(3),
+                    "userId": "original-author",
+                    "revoke": true
+                }]
+            }
+        })),
+        1_000,
+    );
+    let deleted = emit_data(&h.sink, "im:post:deleted");
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0]["actorAvailable"], false);
+    assert_eq!(deleted[0]["actorId"], "");
+    assert_eq!(deleted[0]["displayText"], "某人撤回了一条消息");
+    assert_eq!(deleted[0]["isSelf"], false);
+}
+
 /// 回归锚: S1 —— posts_update 缺 posts 数组 → 整体 noop（不可识别 payload 静默忽略）。
 #[test]
 fn posts_update_missing_posts_array_noop_s1() {
@@ -528,8 +616,11 @@ fn channel_created_full_upsert_and_members_s1() {
             "action": "channel_created",
             "data": {
                 "id": cid(5),
-                "type": "P",
+                "type": "O",
                 "displayName": "新群",
+                "created_at": 1_700_000_000_000_i64,
+                "last_post_at": 1_700_000_100_000_i64,
+                "is_top": 1,
                 "memberChange": { "join": [
                     { "id": "u-aaa", "teamId": "t1", "role": "MEMBER", "nickName": "甲" }
                 ]}
@@ -549,6 +640,14 @@ fn channel_created_full_upsert_and_members_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:created"));
+    let created = emit_data(&h.sink, "im:channel:created");
+    assert_eq!(created[0]["channelType"], "O");
+    assert_eq!(created[0]["channelKind"], "company");
+    assert_eq!(created[0]["group"], "company");
+    assert_eq!(created[0]["createdAt"], 1_700_000_000_000_i64);
+    assert_eq!(created[0]["lastActivityAt"], 1_700_000_100_000_i64);
+    assert_eq!(created[0]["top"], true);
+    assert_eq!(created[0]["projectionSource"], "channel_created");
 }
 
 /// 回归锚: member-leave —— memberChange.leave → BatchDelete channel_member 删离场成员
@@ -826,11 +925,21 @@ fn nickname_update_missing_user_id_noop_s1() {
 /// 回归锚: S1 —— post_schedule_created 置 has_schedule_post=1 + emit。
 #[test]
 fn schedule_created_sets_flag_s1() {
-    let mut h = Harness::new(&[9]);
+    let mut h = Harness::new_with_identity(&[9], "u-self", "", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
             "action": "post_schedule_created",
-            "data": { "channelId": cid(9) }
+            "eventSeq": 21,
+            "data": {
+                "channelId": cid(9),
+                "scheduleId": "schedule-9",
+                "sendAt": 1_700_000_000_000_i64,
+                "status": "scheduled",
+                "revision": 7,
+                "scheduleOwnerUserId": "u-self",
+                "message": "下午三点发送完整正文",
+                "messagePreview": "下午三点发送"
+            }
         })),
         1_000,
     );
@@ -845,16 +954,37 @@ fn schedule_created_sets_flag_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:schedule-created"));
+    let updates = emit_data(&h.sink, "im:channel:schedule-created");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["scheduleId"], "schedule-9");
+    assert_eq!(updates[0]["sendAt"], 1_700_000_000_000_i64);
+    assert_eq!(updates[0]["status"], "scheduled");
+    assert_eq!(updates[0]["revision"], 7);
+    assert_eq!(updates[0]["messagePreview"], "下午三点发送");
+    assert_eq!(updates[0]["scheduleMessage"], "下午三点发送完整正文");
+    assert_eq!(updates[0]["scheduleMessagePreview"], "下午三点发送");
+    assert_eq!(updates[0]["scheduleSendAt"], 1_700_000_000_000_i64);
+    assert_eq!(updates[0]["scheduleRevision"], 7);
+    assert_eq!(updates[0]["scheduleStatus"], "scheduled");
 }
 
 /// 回归锚: S1 —— post_schedule_canceled 置 has_schedule_post=0 + emit。
 #[test]
 fn schedule_canceled_clears_flag_s1() {
-    let mut h = Harness::new(&[9]);
+    let mut h = Harness::new_with_identity(&[9], "u-observer", "", "", "", "");
     let _ = h.step(
         inbound(serde_json::json!({
             "action": "post_schedule_canceled",
-            "data": { "channelId": cid(9) }
+            "eventSeq": 22,
+            "data": {
+                "channel_id": cid(9),
+                "schedule_id": "schedule-9",
+                "send_at": 1_700_000_000_000_i64,
+                "schedule_owner_user_id": "u-owner",
+                "status": "scheduled",
+                "message": "观察者不可见完整正文",
+                "message_preview": "观察者不可见正文"
+            }
         })),
         1_000,
     );
@@ -869,4 +999,16 @@ fn schedule_canceled_clears_flag_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:schedule-canceled"));
+    let updates = emit_data(&h.sink, "im:channel:schedule-canceled");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["scheduleId"], "schedule-9");
+    assert_eq!(updates[0]["status"], "canceled");
+    assert_eq!(
+        updates[0]["revision"], 22,
+        "缺 revision 时回退服务端 event_seq"
+    );
+    assert!(updates[0]["scheduleMessage"].is_null());
+    assert!(updates[0]["messagePreview"].is_null());
+    assert!(updates[0]["scheduleMessagePreview"].is_null());
+    assert_eq!(updates[0]["scheduleStatus"], "canceled");
 }

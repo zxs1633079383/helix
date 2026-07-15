@@ -82,7 +82,44 @@ struct StrictInput {
 
 #[derive(Debug, Deserialize)]
 struct Projection {
+    event: String,
     schema: String,
+    #[serde(default)]
+    required_data_fields: Vec<String>,
+    #[serde(default)]
+    merge_contract: String,
+}
+
+#[test]
+fn g12_freezes_reply_projection_ordering_and_paging_contract() {
+    let matrix = matrix();
+    let g12 = matrix
+        .uc_cases
+        .iter()
+        .find(|entry| entry.gate_id == "G-12")
+        .expect("strict matrix must contain G-12");
+    let projection = g12
+        .projections
+        .iter()
+        .find(|projection| projection.event == "im:channel:replies")
+        .expect("G-12 must declare im:channel:replies");
+    assert_eq!(
+        projection.required_data_fields,
+        [
+            "reqId",
+            "channelId",
+            "rootMessageId",
+            "projectionMode",
+            "revision",
+            "replyIds",
+            "nodes",
+            "replyCount",
+            "cursor",
+            "hasMore",
+        ]
+    );
+    assert!(projection.merge_contract.contains("旧 revision"));
+    assert!(projection.merge_contract.contains("append"));
 }
 
 fn matrix() -> Matrix {

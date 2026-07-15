@@ -11,7 +11,7 @@ mod common;
 use common::*;
 
 use bytes::Bytes;
-use helix_core::effect::{Effect, ScanSpec, SqlValue, StorageOp};
+use helix_core::effect::{Effect, ScanOrder, ScanSpec, SqlValue, StorageOp};
 use helix_core::tick::AppCommand;
 use helix_core::Tick;
 
@@ -49,7 +49,7 @@ fn query_messages_dispatches_filtered_scan() {
         table,
         limit,
         filter,
-        order_desc_col,
+        order_by,
     } = scan;
     assert_eq!(table, "message");
     assert_eq!(limit, Some(25));
@@ -57,7 +57,7 @@ fn query_messages_dispatches_filtered_scan() {
         filter,
         Some(("channel_id", SqlValue::Text(s))) if s == cid(1)
     ));
-    assert_eq!(order_desc_col, Some("create_at"));
+    assert_eq!(order_by, &[ScanOrder::desc("create_at")]);
 }
 
 /// 没有显式远端窗口 proof 时，即使本地非空也只能判 Partial，必须走远端。

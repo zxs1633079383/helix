@@ -1,0 +1,31 @@
+[package]
+name = "helix-perf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+# 合并 metrics 分支后由主协调启用；适配代码集中在 metric_sink.rs。
+sdk-metrics = ["dep:helix-driver-host", "dep:helix-driver-native", "dep:helix-driver-ffi"]
+
+[dependencies]
+bytes = { workspace = true }
+futures-util = "0.3"
+hdrhistogram = "7"
+helix-core = { path = "../../crates/helix-core" }
+helix-im = { path = "../../crates/helix-im" }
+helix-driver-host = { path = "../../crates/helix-driver-host", optional = true }
+helix-driver-native = { path = "../../crates/helix-driver-native", optional = true }
+helix-driver-ffi = { path = "../../crates/helix-driver-ffi", optional = true }
+jsonschema = "0.33"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "sync", "time", "io-util"] }
+tokio-tungstenite = "0.24"
+toml = "0.8"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"

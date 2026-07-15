@@ -49,3 +49,17 @@ observability:
       event: true
       native: true
       ffi: true
+  metrics:
+    enabled: true
+    serviceName: "helix-host-cli"
+    endpoint: "http://127.0.0.1:4317"
+    deploymentEnvironment: "local"
+    platform: "native"
+    scenario: "canary"
+    channelShape: "none"
+    profile: "baseline"
+    queueCapacity: 8192
+    batchMax: 512
+    exportIntervalMs: 5000
+    exportTimeoutMs: 2000
+    shutdownTimeoutMs: 5000

@@ -143,6 +143,20 @@ function validateMatrix(matrix, schema) {
             if (!isObject(projection) || !/^im:[a-z0-9:._-]+$/.test(projection.event ?? '')) fail(`${label}: projection event 错误`);
             if (projection.schema !== 'RenderNode/v1') fail(`${label}: projection 未使用 RenderNode/v1`);
             if (!renderKindSet.has(projection.render_kind)) fail(`${label}: 未登记 render_kind ${projection.render_kind}`);
+            if (projection.required_data_fields !== undefined) {
+                unique(requireArray(projection.required_data_fields, `${label}.required_data_fields`), `${label}.required_data_fields`);
+            }
+            if (projection.merge_contract !== undefined) requireString(projection.merge_contract, `${label}.merge_contract`);
+        }
+        if (label === 'G-12') {
+            const replies = projections.find(projection => projection.event === 'im:channel:replies');
+            const required = ['reqId', 'channelId', 'rootMessageId', 'projectionMode', 'revision', 'replyIds', 'nodes', 'replyCount', 'cursor', 'hasMore'];
+            if (!replies || JSON.stringify(replies.required_data_fields) !== JSON.stringify(required)) {
+                fail('G-12: reply projection 字段或顺序未冻结');
+            }
+            if (!replies.merge_contract?.includes('旧 revision') || !replies.merge_contract?.includes('append')) {
+                fail('G-12: 乱序/增量合并合同缺失');
+            }
         }
         requireArray(entry.allowed_actions, `${label}.allowed_actions`);
         if (JSON.stringify(entry.evidence.required_facets) !== JSON.stringify(expectedFacets)) fail(`${label}: 证据面不完整`);
@@ -163,7 +177,11 @@ function renderMarkdown(matrix, cases, digest) {
     const rows = cases.map(entry => {
         const commands = entry.commands.map(step => `${step.name}(${[...step.input.required, ...step.input.optional].join(', ') || '∅'})`).join('<br>');
         const effects = [...new Set(entry.commands.flatMap(step => step.effect))].join(', ');
-        const projections = entry.projections.map(item => `${item.event} → ${item.render_kind}`).join('<br>');
+        const projections = entry.projections.map(item => {
+            const fields = item.required_data_fields ? `<br>fields: {${item.required_data_fields.join(',')}}` : '';
+            const merge = item.merge_contract ? `<br>${item.merge_contract}` : '';
+            return `${item.event} → ${item.render_kind}${fields}${merge}`;
+        }).join('<br>');
         const renderKinds = entry.projections.map(item => item.render_kind).join('<br>');
         const persistence = entry.persistence.join(', ');
         const remoteTables = entry.remote_store.tables.length > 0 ? entry.remote_store.tables.join(', ') : '∅';

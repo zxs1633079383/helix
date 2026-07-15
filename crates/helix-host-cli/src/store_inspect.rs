@@ -3,7 +3,12 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-const TABLES: &[&str] = &["message", "channel", "channel_member", "channel_event_cursor"];
+const TABLES: &[&str] = &[
+    "message",
+    "channel",
+    "channel_member",
+    "channel_event_cursor",
+];
 const FILTERS: &[&str] = &["channel_id", "id", "temporary_id", "event_seq"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,14 +55,23 @@ impl InspectRequest {
         let mut index = 0;
         while index < args.len() {
             let key = args[index].as_str();
-            let value = args.get(index + 1).ok_or(InspectError::Invalid("missing argument value"))?.clone();
+            let value = args
+                .get(index + 1)
+                .ok_or(InspectError::Invalid("missing argument value"))?
+                .clone();
             match key {
                 "--db" => db = Some(PathBuf::from(value)),
                 "--account-id" => account_id = Some(value),
                 "--table" => table = Some(value),
-                "--limit" => limit = value.parse().map_err(|_| InspectError::Invalid("invalid limit"))?,
+                "--limit" => {
+                    limit = value
+                        .parse()
+                        .map_err(|_| InspectError::Invalid("invalid limit"))?
+                }
                 "--channel-id" | "--id" | "--temporary-id" | "--event-seq" => {
-                    if filter.is_some() { return Err(InspectError::Invalid("only one filter is allowed")); }
+                    if filter.is_some() {
+                        return Err(InspectError::Invalid("only one filter is allowed"));
+                    }
                     filter = Some((key.trim_start_matches("--").replace('-', "_"), value));
                 }
                 _ => return Err(InspectError::Invalid("unknown argument")),
@@ -76,11 +90,21 @@ impl InspectRequest {
     }
 
     pub fn validate(&self) -> Result<(), InspectError> {
-        if !TABLES.contains(&self.table.as_str()) { return Err(InspectError::Invalid("table is not allowlisted")); }
-        if self.limit == 0 || self.limit > 200 { return Err(InspectError::Invalid("limit must be between 1 and 200")); }
-        if self.account_id.is_empty() || !self.db.to_string_lossy().contains(&self.account_id) { return Err(InspectError::Invalid("db must be scoped to requested account")); }
+        if !TABLES.contains(&self.table.as_str()) {
+            return Err(InspectError::Invalid("table is not allowlisted"));
+        }
+        if self.limit == 0 || self.limit > 200 {
+            return Err(InspectError::Invalid("limit must be between 1 and 200"));
+        }
+        if self.account_id.is_empty() || !self.db.to_string_lossy().contains(&self.account_id) {
+            return Err(InspectError::Invalid(
+                "db must be scoped to requested account",
+            ));
+        }
         if let Some((field, _)) = &self.filter {
-            if !FILTERS.contains(&field.as_str()) { return Err(InspectError::Invalid("filter is not allowlisted")); }
+            if !FILTERS.contains(&field.as_str()) {
+                return Err(InspectError::Invalid("filter is not allowlisted"));
+            }
         }
         Ok(())
     }
@@ -90,7 +114,9 @@ pub fn inspect(request: &InspectRequest) -> Result<InspectResult, InspectError> 
     request.validate()?;
     let connection = Connection::open_with_flags(&request.db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut sql = format!("SELECT * FROM {}", request.table);
-    if let Some((field, _)) = &request.filter { sql.push_str(&format!(" WHERE {field} = ?1")); }
+    if let Some((field, _)) = &request.filter {
+        sql.push_str(&format!(" WHERE {field} = ?1"));
+    }
     sql.push_str(" LIMIT ?2");
     let mut statement = connection.prepare(&sql)?;
     let mut rows = match &request.filter {
@@ -102,13 +128,17 @@ pub fn inspect(request: &InspectRequest) -> Result<InspectResult, InspectError> 
         let mut value = serde_json::Map::new();
         for index in 0..row.as_ref().column_count() {
             let name = row.as_ref().column_name(index)?;
-            if matches!(name, "body" | "message" | "payload" | "content" | "text") { continue; }
+            if matches!(name, "body" | "message" | "payload" | "content" | "text") {
+                continue;
+            }
             let item = row.get_ref(index)?;
             let rendered = match item {
                 rusqlite::types::ValueRef::Null => serde_json::Value::Null,
                 rusqlite::types::ValueRef::Integer(value) => value.into(),
                 rusqlite::types::ValueRef::Real(value) => value.into(),
-                rusqlite::types::ValueRef::Text(value) => String::from_utf8_lossy(value).to_string().into(),
+                rusqlite::types::ValueRef::Text(value) => {
+                    String::from_utf8_lossy(value).to_string().into()
+                }
                 rusqlite::types::ValueRef::Blob(_) => "[REDACTED]".into(),
             };
             value.insert(name.to_owned(), rendered);
@@ -122,7 +152,16 @@ pub fn inspect(request: &InspectRequest) -> Result<InspectResult, InspectError> 
         "rowCount": values.len(),
         "rows": values,
     });
-    Ok(InspectResult { account_id: request.account_id.clone(), db_path_sha256: path_hash(&request.db), table: request.table.clone(), row_count: values.len(), rows: values, json: serde_json::to_string(&report)? })
+    Ok(InspectResult {
+        account_id: request.account_id.clone(),
+        db_path_sha256: path_hash(&request.db),
+        table: request.table.clone(),
+        row_count: values.len(),
+        rows: values,
+        json: serde_json::to_string(&report)?,
+    })
 }
 
-fn path_hash(path: &Path) -> String { format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes())) }
+fn path_hash(path: &Path) -> String {
+    format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes()))
+}

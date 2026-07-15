@@ -17,6 +17,9 @@ use helix_core::effect::{SqlValue, StorageOp, UpsertSpec};
 use helix_core::{Correlation, Effect, EffectSink, TimerId};
 use serde_json::Value;
 
+mod persistence;
+pub use persistence::{optimistic_message_persist_op, send_status_persist_op};
+
 /// 待对账的单条消息发送记录
 pub struct PendingSend {
     /// 聚合根标识（UI 注入，非 helix-core / helix-im 生成）
@@ -192,116 +195,4 @@ impl PendingSend {
     }
 }
 
-pub fn optimistic_message_persist_op(
-    temporary_id: &str,
-    channel_id: &str,
-    body: &Value,
-) -> StorageOp {
-    // 除渲染字段外同时保留重建 posts/create 所需的确定性输入。Native 重启会清空
-    // pending_sends，失败重试必须只靠 durable message 行恢复，而不能回退 Angular mock。
-    let json_text = |key: &str, fallback: &str| {
-        body.get(key)
-            .and_then(|value| serde_json::to_string(value).ok())
-            .unwrap_or_else(|| fallback.to_string())
-    };
-    let string = |key: &str| {
-        body.get(key)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-    StorageOp::BatchUpsert(UpsertSpec {
-        table: "message",
-        rows: vec![vec![
-            (
-                "temporary_id".to_string(),
-                SqlValue::Text(temporary_id.to_string()),
-            ),
-            (
-                "channel_id".to_string(),
-                SqlValue::Text(channel_id.to_string()),
-            ),
-            ("id".to_string(), SqlValue::Text(string("id"))),
-            ("user_id".to_string(), SqlValue::Text(string("userId"))),
-            ("message".to_string(), SqlValue::Text(string("message"))),
-            ("type".to_string(), SqlValue::Text(string("type"))),
-            (
-                "props".to_string(),
-                SqlValue::Text(json_text("props", "{}")),
-            ),
-            (
-                "viewers".to_string(),
-                SqlValue::Text(json_text("viewers", "[]")),
-            ),
-            (
-                "mentions".to_string(),
-                SqlValue::Text(json_text("mentions", "[]")),
-            ),
-            (
-                "user_snapshot".to_string(),
-                SqlValue::Text(json_text("userSnapshot", "{}")),
-            ),
-            (
-                "simple_message".to_string(),
-                SqlValue::Text(string("simpleMessage")),
-            ),
-            ("topic".to_string(), SqlValue::Text(string("topicId"))),
-            ("reply_id".to_string(), SqlValue::Text(string("replyId"))),
-            (
-                "reply_root_id".to_string(),
-                SqlValue::Text(string("replyRootId")),
-            ),
-            (
-                "reply_first_level_id".to_string(),
-                SqlValue::Text(string("replyFirstLevelId")),
-            ),
-            (
-                "create_at".to_string(),
-                SqlValue::Integer(
-                    body.get("createAt")
-                        .and_then(Value::as_i64)
-                        .unwrap_or_default(),
-                ),
-            ),
-            (
-                "send_status".to_string(),
-                SqlValue::Text("sending".to_string()),
-            ),
-        ]],
-        conflict_key: Some("temporary_id"),
-        exclude_from_update: Vec::new(),
-    })
-}
-
-pub fn props_persist_op(temporary_id: &TemporaryId, props_json: String) -> StorageOp {
-    StorageOp::BatchUpsert(UpsertSpec {
-        table: "message",
-        rows: vec![vec![
-            (
-                "temporary_id".to_string(),
-                SqlValue::Text(temporary_id.0.clone()),
-            ),
-            ("props".to_string(), SqlValue::Text(props_json)),
-        ]],
-        conflict_key: Some("temporary_id"),
-        exclude_from_update: Vec::new(),
-    })
-}
-
-pub fn send_status_persist_op(temporary_id: &TemporaryId, status: &str) -> StorageOp {
-    StorageOp::BatchUpsert(UpsertSpec {
-        table: "message",
-        rows: vec![vec![
-            (
-                "temporary_id".to_string(),
-                SqlValue::Text(temporary_id.0.clone()),
-            ),
-            (
-                "send_status".to_string(),
-                SqlValue::Text(status.to_string()),
-            ),
-        ]],
-        conflict_key: Some("temporary_id"),
-        exclude_from_update: Vec::new(),
-    })
-}
+pub use crate::send::upload_props::props_persist_op;

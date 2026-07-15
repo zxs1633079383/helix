@@ -292,7 +292,9 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
     assert_eq!(immediate_row["id"], cid(45));
     assert_eq!(immediate_row["channelId"], cid(45));
     assert_eq!(immediate_row["displayName"], "陌生频道");
-    assert_eq!(immediate_row["group"], "group");
+    assert_eq!(immediate_row["group"], "company");
+    assert_eq!(immediate_row["channelType"], "O");
+    assert_eq!(immediate_row["channelKind"], "company");
     assert_eq!(immediate_row["loading"], false);
     assert_eq!(immediate_row["unknown"], false);
     let (increment_persist_corr, increment_ops) = h

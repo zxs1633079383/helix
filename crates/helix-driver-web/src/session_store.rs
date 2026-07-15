@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
-    MonotonicUpsertSpec, Row, ScanSpec, SparseTableSpec, SqlValue, StorageOp, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row,
+    ScanSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp, UpsertSpec,
 };
 use helix_core::port_codec::{classify_port_error, rows_to_reply_bytes};
 use helix_core::ports::Storage;
@@ -169,7 +169,6 @@ impl WebSessionStore {
                     last_read = rows_to_reply_bytes(&rows);
                 }),
                 StorageOp::BatchDelete(spec) => self.batch_delete_sync(spec.clone()),
-                StorageOp::DeleteWhere(spec) => self.delete_where_sync(spec.clone()),
             };
             if let Err(error) = result {
                 self.latch_fault(&error);
@@ -375,11 +374,6 @@ impl WebSessionStore {
             &table,
             std::iter::once(spec.bump_col)
                 .chain(spec.extra_bumps.iter().map(|(column, _)| *column))
-                .chain(
-                    spec.json_list_appends.iter().flat_map(|append| {
-                        std::iter::once(append.list_col).chain(append.count_col)
-                    }),
-                )
                 .chain(spec.set_cols.iter().map(|(column, _)| column.as_str())),
         )?;
         let Some(stored) = table.rows.iter_mut().find(|stored| {
@@ -399,21 +393,6 @@ impl WebSessionStore {
             bump_column(&mut stored.values, column, delta)?;
         }
         merge_patch(&mut stored.values, &spec.set_cols);
-        for append in spec.json_list_appends {
-            if append.value.is_empty() {
-                continue;
-            }
-            let mut values = json_string_list(row_value(&stored.values, append.list_col));
-            if !values.iter().any(|value| value == &append.value) {
-                values.push(append.value);
-            }
-            let count = values.len() as i64;
-            let encoded = serde_json::to_string(&values).unwrap_or_else(|_| "[]".to_string());
-            set_row_value(&mut stored.values, append.list_col, SqlValue::Text(encoded));
-            if let Some(count_col) = append.count_col {
-                set_row_value(&mut stored.values, count_col, SqlValue::Integer(count));
-            }
-        }
         self.validate_table(spec.table, &table)?;
         *self.table_mut(&mut state, spec.table)? = table;
         Ok(())
@@ -445,13 +424,24 @@ impl WebSessionStore {
             })
             .collect();
 
-        if let Some(column) = spec.order_desc_col {
+        if !spec.order_by.is_empty() {
             rows.sort_by(|left, right| {
-                let order = sql_value_cmp(
-                    row_value(&right.values, column),
-                    row_value(&left.values, column),
-                );
-                order.then_with(|| left.inserted_seq.cmp(&right.inserted_seq))
+                for order in spec.order_by {
+                    let ordering = match order.direction {
+                        SortDirection::Asc => sql_value_cmp(
+                            row_value(&left.values, order.column),
+                            row_value(&right.values, order.column),
+                        ),
+                        SortDirection::Desc => sql_value_cmp(
+                            row_value(&right.values, order.column),
+                            row_value(&left.values, order.column),
+                        ),
+                    };
+                    if ordering != Ordering::Equal {
+                        return ordering;
+                    }
+                }
+                left.inserted_seq.cmp(&right.inserted_seq)
             });
         }
 
@@ -476,16 +466,6 @@ impl WebSessionStore {
             let key_matches = row_value(&stored.values, spec.key_col)
                 .is_some_and(|value| spec.key_vals.iter().any(|key| sql_value_eq(value, key)));
             !(in_scope && key_matches)
-        });
-        Ok(())
-    }
-
-    fn delete_where_sync(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
-        let mut state = self.lock()?;
-        let table = self.table_mut(&mut state, spec.table)?;
-        table.rows.retain(|stored| {
-            !row_value(&stored.values, spec.key_col)
-                .is_some_and(|value| sql_value_eq(value, &spec.key_val))
         });
         Ok(())
     }
@@ -646,14 +626,6 @@ impl Storage for WebSessionStore {
         result
     }
 
-    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
-        self.ensure_healthy()?;
-        let result = self.delete_where_sync(spec);
-        if let Err(error) = &result {
-            self.latch_fault(error);
-        }
-        result
-    }
 }
 
 fn storage_error(message: impl Into<String>) -> PortError {
@@ -901,13 +873,6 @@ fn bump_column(row: &mut Row, column: &str, delta: i64) -> Result<(), PortError>
     Ok(())
 }
 
-fn json_string_list(value: Option<&SqlValue>) -> Vec<String> {
-    let Some(SqlValue::Text(value)) = value else {
-        return Vec::new();
-    };
-    serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
-}
-
 fn sql_value_eq(left: &SqlValue, right: &SqlValue) -> bool {
     match (left, right) {
         (SqlValue::Text(left), SqlValue::Text(right)) => left == right,
@@ -955,9 +920,11 @@ fn sql_type_rank(value: &SqlValue) -> u8 {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
-    use helix_core::effect::{JsonListAppendSpec, MonotonicUpsertSpec};
+    use helix_core::effect::{MonotonicUpsertSpec, ScanOrder};
 
     use super::*;
+
+    const CREATE_AT_DESC: &[ScanOrder] = &[ScanOrder::desc("create_at")];
 
     fn limits() -> SessionStoreLimits {
         SessionStoreLimits {
@@ -1263,7 +1230,7 @@ mod tests {
             table: "message",
             limit: None,
             filter: None,
-            order_desc_col: None,
+            order_by: &[],
         })]);
         assert!(matches!(scan, PortOutcome::Err(_)));
 
@@ -1308,7 +1275,7 @@ mod tests {
                 table: "channel_member",
                 limit: None,
                 filter: None,
-                order_desc_col: None,
+                order_by: &[],
             })
             .expect("scan");
         assert_eq!(remaining.len(), 1);
@@ -1338,7 +1305,7 @@ mod tests {
                 table: "message",
                 limit: Some(2),
                 filter: Some(("channel_id", text("a"))),
-                order_desc_col: Some("create_at"),
+                order_by: CREATE_AT_DESC,
             })
             .expect("scan");
         assert_eq!(rows.len(), 2);
@@ -1419,7 +1386,6 @@ mod tests {
                     ("id".into(), text("channel-a")),
                     ("unread_count".into(), SqlValue::Integer(1)),
                     ("mention_count".into(), SqlValue::Integer(0)),
-                    ("mention_list".into(), text("not-json")),
                     ("last_event_seq".into(), SqlValue::Integer(10)),
                 ]],
                 conflict_key: None,
@@ -1434,11 +1400,6 @@ mod tests {
                 bump_col: "unread_count",
                 bump_delta: 1,
                 extra_bumps: vec![("mention_count", 1)],
-                json_list_appends: vec![JsonListAppendSpec {
-                    list_col: "mention_list",
-                    value: "post-1".into(),
-                    count_col: Some("mention_count"),
-                }],
                 set_cols: vec![("last_event_seq".into(), SqlValue::Integer(11))],
                 guard_col: "last_event_seq",
                 guard_val: 11,
@@ -1460,9 +1421,6 @@ mod tests {
             row_value(&row, "mention_count"),
             Some(SqlValue::Integer(1))
         ));
-        assert!(
-            matches!(row_value(&row, "mention_list"), Some(SqlValue::Text(v)) if v == "[\"post-1\"]")
-        );
     }
 
     #[test]
@@ -1489,7 +1447,6 @@ mod tests {
                 bump_col: "unread_count",
                 bump_delta: 1,
                 extra_bumps: vec![("mention_count", 1)],
-                json_list_appends: Vec::new(),
                 set_cols: Vec::new(),
                 guard_col: "last_event_seq",
                 guard_val: 11,
@@ -1523,7 +1480,7 @@ mod tests {
                 table: "message",
                 limit: None,
                 filter: Some(("channel_id", text("channel-a"))),
-                order_desc_col: Some("create_at"),
+                order_by: CREATE_AT_DESC,
             }),
         ]);
         let PortOutcome::Ok(ReplyBytes(bytes)) = outcome else {

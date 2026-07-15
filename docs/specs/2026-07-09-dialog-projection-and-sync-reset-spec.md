@@ -5,7 +5,7 @@
 本 spec 只覆盖 IM 主链路里会影响左侧 Dialog 群/会话列表的两类行为：
 
 - 在线发送/接收 `post + event_seq` 后，Helix 如何更新 storage 并发出可直接渲染的 Dialog patch。
-- 离线 sync `events/too_long` 后，Helix 如何重放消息最终态，或丢弃单 channel 本地消息后重拉。
+- 离线 sync `events/too_long` 后，Helix 如何重放消息最终态，或保留旧历史并覆盖式重拉。
 
 不进入本轮：`bot/agent`、`search`、`vote/average`。
 
@@ -26,7 +26,7 @@
 2. `post + event_seq` 是普通发送/接收的主真源；不能等普通发送额外推 `update_channel` 才刷新 lastPost。
 3. viewers 是消息可见性。后端 WS 会按 viewers 收窄投递；Helix 仍必须在本地 apply/sync 时复核 viewers，避免 phantom 被落成可见消息。
 4. Dialog patch 必须是 Helix 业务投影，不是前端回读 DB 后再组装。
-5. `too_long` 不是“cursor 往前挪一下”。该 channel 的本地消息增量视图已经不可信，必须丢弃本地消息并触发首屏/全量覆盖。
+5. `too_long` 不是“cursor 往前挪一下”。该 channel 的本地消息增量视图已经不可信，必须复位 cursor 并触发首屏覆盖；不得在 reload 成功前物理删除旧 message。
 
 ## 2. 在线 post 链路
 
@@ -174,19 +174,18 @@ Helix 对 `events` 的规则：
 
 ## 6. `too_long` 新契约
 
-当前只 emit `im:sync:too_long` 并清内存 buffer/cursor，不足以保证 UI 和本地 storage 自洽。
+`too_long` 必须由 Helix 自洽完成 cursor reset、控制事件与首屏重拉。message 采用覆盖式 upsert：reload 失败时旧历史仍可读，成功后按主键覆盖最终态。
 
 新的规则：
 
 ```text
 sync too_long(channelId, resetTo)
   -> 清 gate buffer
-  -> 删除本地 message WHERE channel_id = channelId
   -> 清 channel 的 last_post/unread_post_id/has_more 等消息派生字段，或标记 loading
   -> cursor 暂置 resetTo-1
   -> emit im:sync:too_long { mode:"drop_and_reload" }
   -> 由 Helix 主动发起 getLatestPost 或 channel/load/incrementByChannelId 首屏覆盖
-  -> 首屏结果重新写 message/channel
+  -> 首屏结果以 upsert 覆盖 message/channel；不先 DELETE message
   -> emit im:messages:query_result / im:channels:projection 或 Dialog patch
 ```
 
@@ -204,13 +203,17 @@ sync too_long(channelId, resetTo)
 }
 ```
 
+`dropLocalMessages` 是既有 UI “当前增量视图已失效”的兼容提示，不授权 storage 执行
+`DELETE FROM message`。物理存储不清表；reload 失败时旧历史保留，reload 成功时由
+`BatchUpsert(message)` 覆盖同主键最终态。
+
 前端收到该事件只能展示 loading/等待 Helix 后续投影，不能自己发 HTTP、不能自己拼首屏。
 
 ## 7. 对接仓库任务边界
 
 | 仓库 | 本轮 spec 后续任务 |
 |---|---|
-| helix | 实现 DialogPatch 投影、mention/urgent set 语义、type6 actorId/read-state、too_long drop+reload |
+| helix | 实现 DialogPatch 投影、mention/urgent set 语义、type6 actorId/read-state、too_long 覆盖式 reload |
 | cses-im-server | 只校验 viewers WS 收窄、sync messages map 可见性、`post` payload 是否带 mentions/urgent 所需字段；无证据前不改业务 |
 | mobile-quick | 重新 pin Helix 后验证 FFI event schema，移动端只渲染 DialogPatch |
 | cses-client | 重新 pin Helix 后 message-v4 只消费投影，不计算 unread/mention/urgent/lastPost |
@@ -224,4 +227,4 @@ sync too_long(channelId, resetTo)
 3. A 发/设置加急给 B，B 收到 `messageClass=urgent` 或后续 `update_channel` 绝对 patch，urgent/urgentCount 由 Rust 给出。
 4. A 自己发送 echo，A 的 lastPost 更新但 unreadCount 不增加。
 5. 离线 B 上线 sync，visible message 产生同样 DialogPatch；phantom 只推进 cursor，不渲染。
-6. sync too_long 后，本地该 channel 旧 messages 被丢弃，Helix 触发首屏覆盖，前端不自行 HTTP。
+6. sync too_long 后，本地该 channel 旧 messages 不被物理删除；Helix 复位 cursor、emit 并触发首屏覆盖，前端不自行 HTTP。模拟 reload 失败时旧历史仍保留。

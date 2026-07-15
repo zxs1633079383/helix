@@ -24,8 +24,9 @@ pub mod transport;
 pub use bus_guard::{guard_bus_envelope, is_emittable_channel, GuardedEnvelope};
 pub use clock::NativeClock;
 pub use engine_loop::{
-    rows_from_reply_bytes, rows_to_reply_bytes, run_engine_loop, run_engine_loop_with_transports,
-    EngineConfig, TransportTable,
+    rows_from_reply_bytes, rows_to_reply_bytes, run_engine_loop, run_engine_loop_stamped,
+    run_engine_loop_with_transports, run_engine_loop_with_transports_and_trace,
+    run_engine_loop_with_transports_and_trace_stamped, EngineConfig, TransportTable,
 };
 pub use event_sink::{
     bus_event_name, to_bus_envelope, EventReceiver, NativeEventSink, RecvOutcome, BUS_CHANNEL,
@@ -44,3 +45,4 @@ pub use helix_driver_host::AuthTokenRegistry;
 pub use helix_driver_host::SharedHttpClient;
 // 共享本地文件上传器：host-cli / shell 通过 native 装配 `EngineConfig.uploader`，免直依 driver-host。
 pub use helix_driver_host::SharedFileUploader;
+pub use helix_driver_host::{tick_ingress_channel, TickIngressReceiver, TickIngressSender};

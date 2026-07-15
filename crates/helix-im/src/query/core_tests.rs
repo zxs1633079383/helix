@@ -58,16 +58,23 @@ fn is_query_recognizes_projection_commands() {
 }
 
 #[test]
-fn build_dialog_list_query_scans_channel_table_desc_by_last_post_at() {
+fn build_dialog_list_query_sorts_top_activity_and_creation_before_limit() {
     // 带 limit。
     let payload = serde_json::to_vec(&serde_json::json!({ "limit": 100 })).unwrap();
     let effect = build_dialog_list_query(&payload, corr()).expect("build ok");
     let spec = scan_of(effect).expect("Persist+Scan");
     assert_eq!(spec.table, "channel");
     assert_eq!(spec.limit, Some(100));
-    // 全量会话：无 channel_id 过滤；按 last_post_at 降序（最近活跃排前）。
+    // 全量会话：置顶优先；同组按活跃、创建时间降序。
     assert!(spec.filter.is_none());
-    assert_eq!(spec.order_desc_col, Some("last_post_at"));
+    assert_eq!(
+        spec.order_by,
+        &[
+            ScanOrder::desc("is_top"),
+            ScanOrder::desc("last_post_at"),
+            ScanOrder::desc("created_at"),
+        ]
+    );
 }
 
 #[test]
@@ -147,6 +154,8 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
                                     // SQLite snake_case 行必须在 Helix 边界升成完整 camelCase dialog，UI 不做 casing/JSON 猜测。
     assert_eq!(r0["channelId"], "ch1");
     assert_eq!(r0["group"], "group");
+    assert_eq!(r0["channelType"], "P");
+    assert_eq!(r0["channelKind"], "group");
     assert_eq!(r0["teamId"], "team-1");
     assert_eq!(r0["unreadPostId"], "post-unread");
     assert_eq!(r0["mentionList"], serde_json::json!(["u1"]));
@@ -233,6 +242,8 @@ fn emit_hydrated_dialog_result_is_immediately_render_ready() {
     assert_eq!(dialog["channelId"], "ch-hydrated");
     assert_eq!(dialog["displayName"], "陌生群");
     assert_eq!(dialog["group"], "group");
+    assert_eq!(dialog["channelType"], "P");
+    assert_eq!(dialog["channelKind"], "group");
     assert_eq!(dialog["unreadCount"], 2);
     assert_eq!(dialog["mention"], true);
     assert_eq!(dialog["urgent"], true);
@@ -245,92 +256,27 @@ fn emit_hydrated_dialog_result_is_immediately_render_ready() {
 }
 
 #[test]
-fn build_message_query_scans_message_with_channel_filter_and_desc_order() {
-    let payload = serde_json::to_vec(&serde_json::json!({
-        "channel_id": "ch00000000000000000000000a",
-        "limit": 30
-    }))
-    .unwrap();
-    let (cid, effect) = build_message_query(&payload, corr()).expect("build ok");
-    assert_eq!(cid.as_str(), "ch00000000000000000000000a");
-    let spec = scan_of(effect).expect("Persist+Scan");
-    assert_eq!(spec.table, "message");
-    assert_eq!(spec.limit, Some(30));
-    // 过滤列 = channel_id（等值绑定）；降序列 = create_at（取最近 N 条，对齐现网 ORDER BY DESC）。
-    assert!(matches!(
-        &spec.filter,
-        Some(("channel_id", SqlValue::Text(s))) if s == "ch00000000000000000000000a"
-    ));
-    assert_eq!(spec.order_desc_col, Some("create_at"));
-}
-
-#[test]
-fn build_message_query_defaults_and_clamps_limit() {
-    // 缺 limit → 默认 50。
-    let p1 = serde_json::to_vec(&serde_json::json!({"channel_id":"ch00000000000000000000000a"}))
-        .unwrap();
-    let (_, e1) = build_message_query(&p1, corr()).unwrap();
-    assert_eq!(
-        scan_of(e1).expect("scan e1").limit,
-        Some(QUERY_MESSAGES_DEFAULT)
-    );
-    // limit 超 500 → clamp 500。
-    let p2 = serde_json::to_vec(
-        &serde_json::json!({"channel_id":"ch00000000000000000000000a","limit":9999}),
-    )
-    .unwrap();
-    let (_, e2) = build_message_query(&p2, corr()).unwrap();
-    assert_eq!(
-        scan_of(e2).expect("scan e2").limit,
-        Some(QUERY_MESSAGES_MAX)
-    );
-}
-
-#[test]
-fn build_message_query_rejects_missing_channel_id() {
-    let payload = serde_json::to_vec(&serde_json::json!({"limit": 10})).unwrap();
-    assert!(matches!(
-        build_message_query(&payload, corr()),
-        Err(ImError::Parse(_))
-    ));
-    // 非法 JSON → Err 不 panic（边界零信任）。
-    assert!(matches!(
-        build_message_query(b"not json{", corr()),
-        Err(ImError::Parse(_))
-    ));
-    // 非空但非法 Id26（长度不符）→ from_str None → Err（覆盖「非法 channel_id」分支）。
-    let bad = serde_json::to_vec(&serde_json::json!({"channel_id": "too_short"})).unwrap();
-    assert!(matches!(
-        build_message_query(&bad, corr()),
-        Err(ImError::Parse(_))
-    ));
-}
-
-#[test]
-fn emit_message_query_result_wraps_rows_under_messages() {
-    let cid = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+fn dialog_projection_preserves_all_channel_types_and_kinds() {
     let rows = serde_json::to_vec(&serde_json::json!([
-        {"temporary_id":"t-new","message":"new","create_at":200},
-        {"temporary_id":"t-old","message":"old","create_at":100}
+        {"id":"topic","type":"T"},
+        {"id":"company","type":"O"},
+        {"id":"group","type":"P"},
+        {"id":"direct","type":"D"}
     ]))
     .unwrap();
-    let v = emit_json(emit_message_query_result(&cid, &rows)).expect("emit");
-    assert_eq!(v["event"], "im:messages:query_result");
-    assert_eq!(v["data"]["channel_id"], "ch00000000000000000000000a");
-    // 存储回报为最近 N 条降序；Helix 投影必须反转为时间正序，前端只做 1:1 绑定。
-    // 同时断言 render-ready 字段：temporary_id→temporaryId·message→text·msgId 缺 server id 退 tmp。
-    assert_eq!(v["data"]["messages"][0]["temporaryId"], "t-old");
-    assert_eq!(v["data"]["messages"][0]["msgId"], "t-old");
-    assert_eq!(v["data"]["messages"][0]["text"], "old");
-    assert_eq!(v["data"]["messages"][1]["temporaryId"], "t-new");
-    assert_eq!(v["data"]["messages"][1]["createAt"], 200);
-}
-
-#[test]
-fn emit_message_query_result_invalid_reply_yields_empty_messages() {
-    let cid = ChannelId::from_str("ch00000000000000000000000a").unwrap();
-    let v = emit_json(emit_message_query_result(&cid, b"garbage{")).expect("emit");
-    assert_eq!(v["data"]["messages"], serde_json::json!([]));
+    let value = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let dialogs = value["data"]["dialogList"].as_array().expect("dialogs");
+    let expected = [
+        ("T", "topic"),
+        ("O", "company"),
+        ("P", "group"),
+        ("D", "direct"),
+    ];
+    for (dialog, (channel_type, channel_kind)) in dialogs.iter().zip(expected) {
+        assert_eq!(dialog["channelType"], channel_type);
+        assert_eq!(dialog["channelKind"], channel_kind);
+        assert_eq!(dialog["group"], channel_kind);
+    }
 }
 
 #[test]

@@ -1,8 +1,9 @@
 //! host-cli 配置（去 env 化，PRD §4.1/§4.2）：单一 YAML 真源 `helix.config.yaml`。
 //!
 //! ~18 个 `HELIX_*` env 从主路径退役 → `Config` struct（`serde_norway` 反序列化 YAML）。
-//! 覆盖链（低 → 高）：YAML 文件 < `HELIX_<FIELD>` env 逃生口（**仅 debug 构建**，不文档化）
-//! < `--cookie-id`/`--company-id` CLI flag。`go_log`/`go_port`/`start_hint` 仅脚本（yq）用，
+//! 非观测字段覆盖链（低 → 高）：YAML < debug `HELIX_<FIELD>` 逃生口 < identity CLI flag。
+//! `observability.otel` 始终只读 YAML，env 仅供 driver/FFI 入口可选覆盖。
+//! `go_log`/`go_port`/`start_hint` 仅脚本（yq）用，
 //! serde 默认忽略未知字段 → host-cli 不建模它们。
 
 use serde::Deserialize;
@@ -182,7 +183,7 @@ impl Config {
         Self::from_yaml_str(&raw)
     }
 
-    /// debug 逃生口：仅 debug 构建，`HELIX_<FIELD>` env 非空则覆盖对应 config 值（不文档化）。
+    /// debug 逃生口：仅覆盖连接/身份/客户端/运行时；明确不覆盖 `observability.otel`。
     /// 空值不覆盖（与旧 `unwrap_or_default` 分野：缺省/空 = 保留 config 值）。
     #[cfg(debug_assertions)]
     pub fn apply_env_overrides(&mut self) {

@@ -193,18 +193,14 @@ fn command_with_trace_accepts_valid_w3c_sidecar() {
     assert!(!handle.is_null());
 
     let name = b"send_message";
-    let payload = b"{\"text\":\"hello\"}";
-    let trace_json =
-        br#"{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","baggage":"tenant=im"}"#;
+    let payload = br#"{"text":"hello","__trace":{"traceparent":"00-00000000000000000000000000000001-0000000000000002-01","baggage":"tenant=im"}}"#;
     let status = unsafe {
-        helix_command_with_trace(
+        helix_command(
             handle,
             name.as_ptr(),
             name.len(),
             payload.as_ptr(),
             payload.len(),
-            trace_json.as_ptr(),
-            trace_json.len(),
         )
     };
     assert_eq!(status, FFI_OK);
@@ -213,7 +209,7 @@ fn command_with_trace_accepts_valid_w3c_sidecar() {
 }
 
 #[test]
-fn command_with_trace_rejects_invalid_trace_json() {
+fn command_rejects_invalid_trace_sidecar_in_reserved_payload_metadata() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";
     let handle = unsafe {
@@ -228,17 +224,14 @@ fn command_with_trace_rejects_invalid_trace_json() {
     assert!(!handle.is_null());
 
     let name = b"send_message";
-    let payload = b"{\"text\":\"hello\"}";
-    let trace_json = b"{not-json";
+    let payload = br#"{"text":"hello","__trace":{"traceparent":"invalid"}}"#;
     let status = unsafe {
-        helix_command_with_trace(
+        helix_command(
             handle,
             name.as_ptr(),
             name.len(),
             payload.as_ptr(),
             payload.len(),
-            trace_json.as_ptr(),
-            trace_json.len(),
         )
     };
     assert_eq!(status, FFI_INVALID);

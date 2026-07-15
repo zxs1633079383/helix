@@ -6,12 +6,13 @@
 //! implementation details.
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,
-    MonotonicUpsertSpec, Row as HelixRow, ScanSpec, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
+    Row as HelixRow, ScanSpec, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
-use helix_driver_host::HostStorage;
+use helix_driver_host::{AsyncMetricSink, HostStorage};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct NativeStorage {
@@ -27,6 +28,11 @@ impl NativeStorage {
 
     pub async fn execute_raw(&self, sql: &'static str) -> Result<(), PortError> {
         self.inner.execute_raw(sql).await
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.inner = self.inner.with_metric_sink(metrics);
+        self
     }
 }
 
@@ -58,9 +64,5 @@ impl Storage for NativeStorage {
 
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
         self.inner.batch_delete(spec).await
-    }
-
-    async fn delete_where(&self, spec: DeleteWhereSpec) -> Result<(), PortError> {
-        self.inner.delete_where(spec).await
     }
 }

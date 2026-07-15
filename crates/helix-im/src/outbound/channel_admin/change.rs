@@ -58,6 +58,19 @@ impl OutboundCommand for ChangeInfoCommand {
         put_opt_str(&mut b, args, "picture_type", "pictureType");
         put_opt_val(&mut b, args, "picture", "picture");
         put_opt_val(&mut b, args, "source", "source");
+        if let Some(value) = args.get("expected_version") {
+            let expected_version =
+                value
+                    .as_i64()
+                    .filter(|version| *version >= 0)
+                    .ok_or_else(|| {
+                        ImError::Parse(format!(
+                            "{}: expected_version 必须为非负 int64",
+                            self.name()
+                        ))
+                    })?;
+            b["expectedVersion"] = json!(expected_version);
+        }
         Ok(("channel/change/info", b))
     }
 }

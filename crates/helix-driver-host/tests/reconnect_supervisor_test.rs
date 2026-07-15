@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use helix_core::effect::TransportId;
 use helix_core::PortError;
-use helix_driver_host::engine::{TransportLifecycleEvent, TransportTraceEvent};
+use helix_driver_host::engine::{
+    TransportLifecycleEvent, TransportTraceEvent, TransportTraceSink,
+    TRANSPORT_TRACE_QUEUE_CAPACITY,
+};
 use helix_driver_host::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
 use tokio::sync::{mpsc, watch};
 
@@ -25,7 +28,7 @@ fn reconnect_policy_uses_capped_exponential_delays() {
 
 #[test]
 fn reconnect_trace_sink_emits_safe_payload_shape() {
-    let (tx, mut rx) = mpsc::unbounded_channel::<TransportTraceEvent>();
+    let (tx, mut rx) = TransportTraceSink::channel();
     let sink = ReconnectTraceSink::new(Some(tx));
 
     sink.emit(TransportTraceEvent {
@@ -50,6 +53,16 @@ fn reconnect_trace_sink_emits_safe_payload_shape() {
     assert!(event.error_class.is_none());
 }
 
+#[test]
+fn transport_trace_queue_is_bounded_and_counts_drops() {
+    let (sink, _rx) = TransportTraceSink::channel();
+    for _ in 0..TRANSPORT_TRACE_QUEUE_CAPACITY {
+        assert!(sink.try_emit(trace_event("fill")));
+    }
+    assert!(!sink.try_emit(trace_event("overflow")));
+    assert_eq!(sink.stats().dropped_count(), 1);
+}
+
 #[tokio::test]
 async fn reconnect_supervisor_reports_success_after_full_action() {
     let transport_id = TransportId::from_raw(11);
@@ -62,7 +75,7 @@ async fn reconnect_supervisor_reports_success_after_full_action() {
     let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let (completed_tx, mut completed_rx) = mpsc::unbounded_channel();
-    let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
     let attempts = Arc::new(AtomicUsize::new(0));
     let attempts_for_factory = Arc::clone(&attempts);
 
@@ -190,7 +203,7 @@ async fn reconnect_supervisor_shutdown_interrupts_backoff() {
     };
     let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
+    let (trace_tx, mut trace_rx) = TransportTraceSink::channel();
     let handle = spawn_reconnect_supervisor(
         transport_id,
         policy,
@@ -221,7 +234,7 @@ async fn reconnect_supervisor_shutdown_interrupts_backoff() {
 }
 
 async fn collect_trace_events(
-    rx: &mut mpsc::UnboundedReceiver<TransportTraceEvent>,
+    rx: &mut mpsc::Receiver<TransportTraceEvent>,
     expected: usize,
 ) -> Vec<TransportTraceEvent> {
     let mut events = Vec::new();
@@ -233,6 +246,19 @@ async fn collect_trace_events(
         events.push(event);
     }
     events
+}
+
+fn trace_event(action: &'static str) -> TransportTraceEvent {
+    TransportTraceEvent {
+        transport_id: TransportId::from_raw(1),
+        name: "helix.ws.test",
+        action,
+        attempt: None,
+        delay_ms: None,
+        next_delay_ms: None,
+        reason: None,
+        error_class: None,
+    }
 }
 
 fn trace_event_payload_is_safe(event: &TransportTraceEvent) -> bool {

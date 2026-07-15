@@ -7,9 +7,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, Correlation, DeleteWhereSpec, DomainEventBytes,
-    FileUploadRequest, FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest,
-    MonotonicUpsertSpec, Row, ScanSpec, StorageOp, TransportId, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, Correlation, DomainEventBytes, FileUploadRequest,
+    FileUploadResponse, FileUploadUrls, GetSpec, GuardedBumpSpec, HttpRequest, MonotonicUpsertSpec,
+    Row, ScanSpec, StorageOp, TransportId, UpsertSpec,
 };
 use helix_core::ports::{EventSink, FileUploader, FrameSender, Storage};
 use helix_core::tick::{PortOutcome, ReplyBytes, Tick};
@@ -23,6 +23,9 @@ use crate::timer::TimerRegistry;
 use crate::trace::{TraceCarrier, TraceHooks, TraceHooksImpl, TraceScope};
 
 use super::dispatch_effects;
+use crate::engine::perf_metrics::EngineMetricRecorder;
+use crate::metrics::NoopMetricSink;
+use crate::tick_ingress::EngineTickSender;
 
 struct UnusedStorage;
 
@@ -53,10 +56,6 @@ impl Storage for UnusedStorage {
     }
 
     async fn batch_delete(&self, _: BatchDeleteSpec) -> Result<(), PortError> {
-        unreachable!("storage should not be used in upload dispatch test")
-    }
-
-    async fn delete_where(&self, _: DeleteWhereSpec) -> Result<(), PortError> {
         unreachable!("storage should not be used in upload dispatch test")
     }
 }
@@ -121,7 +120,11 @@ fn make_upload_request() -> FileUploadRequest {
         local_path: "/tmp/file.png".to_string(),
         object_key: "im/uploads/file.png".to_string(),
         method: "PUT".to_string(),
-        url: "https://oss.example.com/upload".to_string(),
+        urls: FileUploadUrls::new(
+            "https://oss.example.com/upload?signature=write-secret".to_string(),
+            "https://cdn.example.com/im/uploads/file.png".to_string(),
+        )
+        .expect("valid upload urls"),
         headers: vec![("x-oss-meta".to_string(), "1".to_string())],
         content_type: Some("image/png".to_string()),
         size: Some(12),
@@ -157,7 +160,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         Arc::new(StubUploader {
             response: FileUploadResponse {
                 object_key: "im/uploads/file.png".to_string(),
-                url: Some("https://cdn.example.com/im/uploads/file.png".to_string()),
+                public_url: "https://cdn.example.com/im/uploads/file.png".to_string(),
                 etag: Some("etag-123".to_string()),
             },
         }),
@@ -172,13 +175,14 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         HashMap::new();
     let transports: TransportTable<RecordingFrameSender> = HashMap::new();
     let corr = Correlation::from_raw(88);
+    let mut perf_metrics = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
 
     dispatch_effects(
         vec![OwnedEffect::UploadFile {
             corr,
             req: make_upload_request(),
         }],
-        &tick_tx,
+        &EngineTickSender::Raw(tick_tx),
         &storage,
         &http_pool,
         &upload_pool,
@@ -189,6 +193,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         &mut persist_workers,
         &transports,
         &trace,
+        &mut perf_metrics,
     )
     .await;
 
@@ -220,6 +225,10 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
                 Some("https://cdn.example.com/im/uploads/file.png")
             );
             assert_eq!(json["etag"].as_str(), Some("etag-123"));
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("write-secret"),
+                "PortReply must not expose the signed PUT URL"
+            );
         }
         Tick::PortReply { outcome, .. } => panic!("expected Ok upload reply, got {outcome:?}"),
         other => panic!("expected Tick::PortReply, got {other:?}"),
@@ -251,7 +260,7 @@ async fn send_effect_requires_only_frame_sender_capability() {
         Arc::new(StubUploader {
             response: FileUploadResponse {
                 object_key: "unused".to_string(),
-                url: None,
+                public_url: "https://example.invalid/file".to_string(),
                 etag: None,
             },
         }),
@@ -265,6 +274,8 @@ async fn send_effect_requires_only_frame_sender_capability() {
     let mut timer_registry = TimerRegistry::new();
     let mut persist_workers = HashMap::new();
 
+    let tick_tx = EngineTickSender::Raw(tick_tx);
+    let mut perf_metrics = EngineMetricRecorder::new(Arc::new(NoopMetricSink));
     dispatch_effects(
         vec![OwnedEffect::Send {
             transport: transport_id,
@@ -281,6 +292,7 @@ async fn send_effect_requires_only_frame_sender_capability() {
         &mut persist_workers,
         &transports,
         &TraceHooks::noop(),
+        &mut perf_metrics,
     )
     .await;
 

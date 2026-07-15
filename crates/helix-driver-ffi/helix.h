@@ -85,6 +85,26 @@ typedef struct CppHostVtable {
 } CppHostVtable;
 
 /*
+ 向 engine 发送应用命令（UI → engine）。
+
+ 立即将 `name` / `payload` 拷贝到 Rust 堆（ACL-3），构造 `Tick::Command`，
+ 并 **非阻塞** 尝试送入 tick channel（pump 线程 rx 端消费 → step → Effect → 批回 C++）：
+   - channel 满 → 返回 `FFI_BUSY`（C++ 侧应稍后重试，禁静默丢弃）。
+   - destroy 后 channel 已关闭 → 返回 `FFI_NULL`。
+
+ # Safety
+
+ - `handle`：有效指针或 null。
+ - `name` / `payload`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
+   `name` 必须是合法 UTF-8；`payload` 为任意字节（不强要求 UTF-8）。
+ */
+int32_t helix_command(HelixHandle *handle,
+                      const uint8_t *name,
+                      uintptr_t name_len,
+                      const uint8_t *payload,
+                      uintptr_t payload_len);
+
+/*
  创建带 shared host network client 的 Helix 句柄（C++ 直连模型）。
 
  返回不透明指针；宿主必须持有并传给所有后续 API 调用，最终调用 `helix_destroy` 释放。
@@ -145,47 +165,6 @@ int32_t helix_set_header(HelixHandle *handle,
 int32_t helix_remove_header(HelixHandle *handle, const uint8_t *name, uintptr_t name_len);
 
 /*
- 向 engine 发送应用命令（UI → engine）。
-
- 立即将 `name` / `payload` 拷贝到 Rust 堆（ACL-3），构造 `Tick::Command`，
- 并 **非阻塞** 尝试送入 tick channel（pump 线程 rx 端消费 → step → Effect → 批回 C++）：
-   - channel 满 → 返回 `FFI_BUSY`（C++ 侧应稍后重试，禁静默丢弃）。
-   - destroy 后 channel 已关闭 → 返回 `FFI_NULL`。
-
- # Safety
-
- - `handle`：有效指针或 null。
- - `name` / `payload`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
-   `name` 必须是合法 UTF-8；`payload` 为任意字节（不强要求 UTF-8）。
- */
-int32_t helix_command(HelixHandle *handle,
-                      const uint8_t *name,
-                      uintptr_t name_len,
-                      const uint8_t *payload,
-                      uintptr_t payload_len);
-
-/*
- 向 engine 发送带 trace sidecar 的应用命令（移动端 `__trace` / host sidecar 入口）。
-
- 与 [`helix_command`] 共享完全相同的命令名别名和 payload 归一化路径；差别只在于多一个
- driver-owned trace sidecar 槽位，供 host trace hook 在 `Tick::Command` 边界消费。
- `Tick::Command` 结构本身保持不变，trace 不进入业务 payload。
-
- # Safety
-
- - `handle`：有效指针或 null。
- - `name` / `payload` / `trace_json`：各自指向至少对应 `_len` 字节、在本调用期间有效的内存。
- - `trace_json` 必须是合法 UTF-8 的 JSON 文本；当前解析 W3C `traceparent` / `baggage`。
- */
-int32_t helix_command_with_trace(HelixHandle *handle,
-                                 const uint8_t *name,
-                                 uintptr_t name_len,
-                                 const uint8_t *payload,
-                                 uintptr_t payload_len,
-                                 const uint8_t *trace_json,
-                                 uintptr_t trace_json_len);
-
-/*
  同步读取 ABI 元信息。
 
  ## 查询边界
@@ -194,8 +173,8 @@ int32_t helix_command_with_trace(HelixHandle *handle,
  - `helix_capabilities`：返回移动端公开契约能力集 JSON
  - `helix_version`：返回 `{"abi":1}`
 
- 业务 query 不走本同步 ABI；手机端与其他平台一样，经 `helix_command` 注入异步 query command，
- 由共享 `helix-im` 执行 local-first/远端 fallback，并通过批量 DomainEvent 返回结果。
+ 业务 query 经 `helix_command` 注入异步 query command，由共享 `helix-im` 执行
+ local-first/远端 fallback，并通过批量 DomainEvent 返回结果。
 
  ## 配对约定
 

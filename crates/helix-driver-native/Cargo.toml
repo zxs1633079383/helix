@@ -31,6 +31,7 @@ criterion = "0.5"
 # 协议执行已迁 helix-driver-host，故这两条仅测试侧需要。
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+helix-im = { path = "../helix-im" }
 
 [[bench]]
 name = "storage_upsert"

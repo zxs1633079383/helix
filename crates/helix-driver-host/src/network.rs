@@ -3,246 +3,57 @@
 //! Login/auth remains outside Helix. Platform shells provide config and update
 //! headers; these clients only inject the latest header snapshot into requests.
 
-use parking_lot::RwLock; // 无 poison：panic 时不静默丢头（HTTP-4，对齐现网 cses-client）
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use helix_core::effect::{HttpRequest, HttpResponse, TransportId};
-use helix_core::ports::{FrameSender, HttpRequester};
+use helix_core::effect::TransportId;
+use helix_core::ports::FrameSender;
 use helix_core::tick::InboundBytes;
 use helix_core::{PortError, Tick};
-use reqwest::header::{HeaderMap, USER_AGENT};
-use reqwest::{Client, Method};
+use reqwest::header::USER_AGENT;
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::metrics::{
+    AsyncMetricSink, LabelKey, MetricEvent, MetricId, MetricLabels, NoopMetricSink,
+};
+use crate::tick_ingress::TickIngressSender;
+
 // URL/header 工具裂分到 sibling（按职责，structure-gate §1）。`use *` 复用 6 个 pub(super) helper。
 #[path = "network_util.rs"]
 mod network_util;
-use network_util::{
-    header_name, header_value, headers_to_strings, map_ws_err, resolve_http_url, validate_url,
-};
+use network_util::{header_value, headers_to_strings, map_ws_err, validate_url};
 
-const DEFAULT_TIMEOUT_SECS: u64 = 30;
+mod config;
+pub use config::{HostHeaderRegistry, HostNetworkConfig};
+
+mod http;
+pub use http::{PreparedHttpRequest, SharedHttpClient};
+
 const WS_FRAME_BUFFER: usize = 64;
+
+#[derive(Clone)]
+pub(crate) enum InboundTickSender {
+    Raw(mpsc::Sender<Tick>),
+    Stamped(TickIngressSender),
+}
+
+impl InboundTickSender {
+    async fn send(&self, tick: Tick) -> Result<(), Tick> {
+        match self {
+            Self::Raw(tx) => tx.send(tick).await.map_err(|error| error.0),
+            Self::Stamped(tx) => tx.send(tick).await,
+        }
+    }
+}
 
 type WsSink = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
-
-/// Platform-provided network initialization material.
-#[derive(Debug, Clone)]
-pub struct HostNetworkConfig {
-    pub api_base_url: String,
-    /// 第二网关 base URL（spec06 方案 A）：= `env.restHost`（无 `/api/cses`）；vote/score 走它。空串=未注入。
-    pub default_api_base_url: String,
-    pub ws_url: String,
-    pub timeout: Duration,
-    pub user_agent: Option<String>,
-}
-
-impl HostNetworkConfig {
-    pub fn new(api_base_url: impl Into<String>, ws_url: impl Into<String>) -> Self {
-        Self {
-            api_base_url: api_base_url.into(),
-            default_api_base_url: String::new(),
-            ws_url: ws_url.into(),
-            timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
-            user_agent: None,
-        }
-    }
-
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.user_agent = Some(user_agent.into());
-        self
-    }
-}
-
-/// Shared mutable header registry used by HTTP requests and WS handshakes.
-#[derive(Clone, Default)]
-pub struct HostHeaderRegistry {
-    inner: Arc<RwLock<HeaderMap>>,
-}
-
-impl HostHeaderRegistry {
-    pub async fn set_header(&self, name: &str, value: &str) -> Result<(), PortError> {
-        self.set_header_sync(name, value)
-    }
-
-    pub fn set_header_sync(&self, name: &str, value: &str) -> Result<(), PortError> {
-        let name = header_name(name)?;
-        let value = header_value(name.as_str(), value)?;
-        self.inner.write().insert(name, value);
-        Ok(())
-    }
-
-    pub async fn remove_header(&self, name: &str) -> Result<(), PortError> {
-        self.remove_header_sync(name)
-    }
-
-    pub fn remove_header_sync(&self, name: &str) -> Result<(), PortError> {
-        let name = header_name(name)?;
-        self.inner.write().remove(name);
-        Ok(())
-    }
-
-    pub async fn replace_headers<I, K, V>(&self, headers: I) -> Result<(), PortError>
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: AsRef<str>,
-        V: AsRef<str>,
-    {
-        let mut next = HeaderMap::new();
-        for (name, value) in headers {
-            let name = header_name(name.as_ref())?;
-            let value = header_value(name.as_str(), value.as_ref())?;
-            next.insert(name, value);
-        }
-        *self.inner.write() = next;
-        Ok(())
-    }
-
-    pub async fn snapshot(&self) -> HeaderMap {
-        self.inner.read().clone()
-    }
-}
-
-/// Request shape after shared config/header resolution.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreparedHttpRequest {
-    pub method: String,
-    pub url: String,
-    pub headers: BTreeMap<String, String>,
-    pub body: Option<Bytes>,
-}
-
-/// Shared reqwest-backed HTTP port implementation.
-#[derive(Clone)]
-pub struct SharedHttpClient {
-    client: Client,
-    config: HostNetworkConfig,
-    headers: HostHeaderRegistry,
-}
-
-impl SharedHttpClient {
-    pub fn new(config: HostNetworkConfig) -> Result<Self, PortError> {
-        Self::with_registry(config, HostHeaderRegistry::default())
-    }
-
-    pub fn with_registry(
-        config: HostNetworkConfig,
-        headers: HostHeaderRegistry,
-    ) -> Result<Self, PortError> {
-        validate_url(&config.api_base_url, "api_base_url")?;
-        // 第二网关 base 仅在已注入（非空）时校验（空串 = vote/score 暂不用）。
-        if !config.default_api_base_url.is_empty() {
-            validate_url(&config.default_api_base_url, "default_api_base_url")?;
-        }
-        let mut builder = Client::builder().timeout(config.timeout);
-        if let Some(user_agent) = &config.user_agent {
-            builder = builder.user_agent(user_agent);
-        }
-        let client = builder
-            .build()
-            .map_err(|e| PortError::Http(format!("reqwest client build error: {e}")))?;
-        Ok(Self {
-            client,
-            config,
-            headers,
-        })
-    }
-
-    pub fn headers(&self) -> HostHeaderRegistry {
-        self.headers.clone()
-    }
-
-    pub async fn prepare_for_test(
-        &self,
-        req: HttpRequest,
-    ) -> Result<PreparedHttpRequest, PortError> {
-        self.prepare(req).await
-    }
-
-    async fn prepare(&self, req: HttpRequest) -> Result<PreparedHttpRequest, PortError> {
-        let method = Method::from_bytes(req.method.as_bytes())
-            .map_err(|e| PortError::Http(format!("invalid method '{}': {e}", req.method)))?;
-        let url = resolve_http_url(&self.config.api_base_url, &req.url)?;
-
-        let mut headers = self.headers.snapshot().await;
-        if let Some(user_agent) = &self.config.user_agent {
-            headers.insert(USER_AGENT, header_value("user-agent", user_agent)?);
-        }
-        for (name, value) in &req.headers {
-            let name = header_name(name)?;
-            let value = header_value(name.as_str(), value)?;
-            headers.insert(name, value);
-        }
-
-        Ok(PreparedHttpRequest {
-            method: method.as_str().to_string(),
-            url,
-            headers: headers_to_strings(&headers),
-            body: req.body,
-        })
-    }
-
-    fn classify_error(e: &reqwest::Error) -> PortError {
-        if e.is_timeout() {
-            PortError::Transport(format!("timeout: {e}"))
-        } else if e.is_connect() || e.is_request() {
-            PortError::Transport(format!("network: {e}"))
-        } else {
-            PortError::Http(e.to_string())
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl HttpRequester for SharedHttpClient {
-    async fn request(&self, req: HttpRequest) -> Result<HttpResponse, PortError> {
-        let prepared = self.prepare(req).await?;
-        let method = Method::from_bytes(prepared.method.as_bytes())
-            .map_err(|e| PortError::Http(format!("invalid method '{}': {e}", prepared.method)))?;
-        let mut builder = self.client.request(method, &prepared.url);
-
-        for (name, value) in &prepared.headers {
-            builder = builder.header(name, value);
-        }
-        if let Some(body) = prepared.body {
-            builder = builder.body(body);
-        }
-
-        let resp = builder.send().await.map_err(|e| Self::classify_error(&e))?;
-        let status = resp.status().as_u16();
-        let headers = resp
-            .headers()
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.as_str().to_string(),
-                    v.to_str().unwrap_or("<non-utf8>").to_string(),
-                )
-            })
-            .collect();
-        let body = resp.bytes().await.map_err(|e| Self::classify_error(&e))?;
-
-        Ok(HttpResponse {
-            status,
-            headers,
-            body,
-        })
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WsLifecyclePhase {
@@ -251,20 +62,20 @@ enum WsLifecyclePhase {
     Finished,
 }
 
-struct WsConnectionLifecycle {
+pub(crate) struct WsConnectionLifecycle {
     phase: Mutex<WsLifecyclePhase>,
-    inbound: Option<(TransportId, mpsc::Sender<Tick>)>,
+    inbound: Option<(TransportId, InboundTickSender)>,
 }
 
 impl WsConnectionLifecycle {
-    fn new(inbound: Option<(TransportId, mpsc::Sender<Tick>)>) -> Self {
+    pub(crate) fn new(inbound: Option<(TransportId, InboundTickSender)>) -> Self {
         Self {
             phase: Mutex::new(WsLifecyclePhase::Prepared),
             inbound,
         }
     }
 
-    async fn activate(&self) -> Result<bool, PortError> {
+    pub(crate) async fn activate(&self) -> Result<bool, PortError> {
         let mut phase = self.phase.lock().await;
         if *phase != WsLifecyclePhase::Prepared {
             return Ok(false);
@@ -280,7 +91,7 @@ impl WsConnectionLifecycle {
         Ok(true)
     }
 
-    async fn finish_once(&self) {
+    pub(crate) async fn finish_once(&self) {
         let mut phase = self.phase.lock().await;
         match *phase {
             WsLifecyclePhase::Prepared => {
@@ -374,7 +185,8 @@ pub struct SharedWsClient {
     headers: HostHeaderRegistry,
     state: Arc<Mutex<WsState>>,
     /// 可选入站推送通道：Some 时 shared lifecycle 发 Connected/Disconnected，reader 发 Inbound。
-    inbound: Option<(TransportId, mpsc::Sender<Tick>)>,
+    inbound: Option<(TransportId, InboundTickSender)>,
+    metrics: Arc<dyn AsyncMetricSink>,
 }
 
 impl SharedWsClient {
@@ -392,6 +204,7 @@ impl SharedWsClient {
             headers,
             state: Arc::new(Mutex::new(WsState::Disconnected)),
             inbound: None,
+            metrics: Arc::new(NoopMetricSink),
         })
     }
 
@@ -404,7 +217,21 @@ impl SharedWsClient {
     /// 设置后，connect 的读任务把数据帧作 `Tick::Inbound` 直发 `tick_tx`、
     /// 连接关闭/出错作 `Tick::Disconnected(id)`，而非塞内部 `frame_rx`。
     pub fn with_inbound_tick(mut self, id: TransportId, tick_tx: mpsc::Sender<Tick>) -> Self {
-        self.inbound = Some((id, tick_tx));
+        self.inbound = Some((id, InboundTickSender::Raw(tick_tx)));
+        self
+    }
+
+    pub fn with_stamped_inbound_tick(
+        mut self,
+        id: TransportId,
+        tick_tx: TickIngressSender,
+    ) -> Self {
+        self.inbound = Some((id, InboundTickSender::Stamped(tick_tx)));
+        self
+    }
+
+    pub fn with_metric_sink(mut self, metrics: Arc<dyn AsyncMetricSink>) -> Self {
+        self.metrics = metrics;
         self
     }
 }
@@ -439,6 +266,8 @@ impl SharedWsClient {
                 .headers_mut()
                 .insert(USER_AGENT, header_value("user-agent", user_agent)?);
         }
+        let handshake_headers = headers_to_strings(request.headers());
+        crate::network_debug::dump_ws_handshake(&self.config.ws_url, &handshake_headers);
 
         let (ws, _resp) = tokio_tungstenite::connect_async(request)
             .await
@@ -451,6 +280,7 @@ impl SharedWsClient {
         // 联调工具：HELIX_DUMP_FRAMES 置位时打印每条入站原始帧（抓真 Go wire 做 golden fixtures）。
         let dump_frames = std::env::var("HELIX_DUMP_FRAMES").is_ok();
         let inbound = self.inbound.clone();
+        let metrics = Arc::clone(&self.metrics);
         let lifecycle = Arc::new(WsConnectionLifecycle::new(inbound.clone()));
         let reader_lifecycle = Arc::clone(&lifecycle);
 
@@ -478,6 +308,19 @@ impl SharedWsClient {
                             frame = %String::from_utf8_lossy(bytes),
                             "RAW WS inbound"
                         );
+                    }
+                }
+                if let Ok(bytes) = &frame {
+                    crate::network_debug::dump_ws_inbound(bytes);
+                    if metrics.is_enabled() {
+                        let _ = metrics.try_record(MetricEvent::counter(
+                            MetricId::OperationsTotal,
+                            1.0,
+                            MetricLabels::one(LabelKey::Stage, "ws")
+                                .with(LabelKey::Protocol, "ws")
+                                .with(LabelKey::Direction, "inbound")
+                                .with(LabelKey::Status, "ok"),
+                        ));
                     }
                 }
 
@@ -536,8 +379,9 @@ impl SharedWsClient {
     /// 解 `{`(0x7b) 失败：`msgpack: unexpected code=7b decoding map length` → 关连接
     /// （真 Go dev-loop 三测实测定位的 ~8s 断连根因，c823701）。双端（PC+Flutter）共享此修。
     async fn send_frame(&self, frame: Bytes) -> Result<(), PortError> {
+        crate::network_debug::dump_ws_outbound(&frame);
         let mut state = self.state.lock().await;
-        match &mut *state {
+        let result = match &mut *state {
             WsState::Connected { sink, .. } => {
                 let text = String::from_utf8(frame.to_vec())
                     .map_err(|e| PortError::Transport(format!("non-utf8 ws frame: {e}")))?;
@@ -549,7 +393,28 @@ impl SharedWsClient {
             WsState::Closing { .. } => Err(PortError::Transport(
                 "send on closing transport".to_string(),
             )),
+        };
+        drop(state);
+        if self.metrics.is_enabled() {
+            let status = if result.is_ok() { "ok" } else { "error" };
+            let labels = MetricLabels::one(LabelKey::Stage, "ws")
+                .with(LabelKey::Protocol, "ws")
+                .with(LabelKey::Direction, "outbound")
+                .with(LabelKey::Status, status);
+            let _ = self.metrics.try_record(MetricEvent::counter(
+                MetricId::OperationsTotal,
+                1.0,
+                labels,
+            ));
+            if result.is_err() {
+                let _ = self.metrics.try_record(MetricEvent::counter(
+                    MetricId::ErrorsTotal,
+                    1.0,
+                    labels.with(LabelKey::ErrorKind, "ws_send_failed"),
+                ));
+            }
         }
+        result
     }
 
     pub async fn recv(&self) -> Result<Option<Bytes>, PortError> {

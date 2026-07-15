@@ -1,37 +1,28 @@
-//! helix-host-cli — 最小 native 宿主（sync-v2 Phase A1）
-//!
-//! 把 `ExecutionShell` + `ImModule` + `NativeTransport` 接成端到端可跑闭环，
-//! 验证 `Effect::Send` 真正发到 WS（解锁「真连 Go」的上行半边）。
-//!
-//! ## 用法（去 env 化，PRD §4.1/§4.2）
-//! ```bash
-//! # 默认读 repo 根 ./helix.config.yaml（指 cses-im-server :8066）
-//! cargo run -p helix-host-cli
-//! # 自定义路径 + 双账号 e2e 身份覆盖
-//! cargo run -p helix-host-cli -- --config helix.config.yaml --cookie-id 444 --company-id 64118...
-//! ```
-//! debug 构建保留 `HELIX_<FIELD>` env 逃生口（覆盖对应 config 值，不文档化）。
+//! helix-host-cli native composition root：装配 core、IM、共享 host I/O 与显式 OTel hooks。
+//! 默认读取 `./helix.config.yaml`；`--config` 与双账号 identity flags 见 `config.rs`。
 
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 
 mod cmd_parse;
 mod config;
+mod event_observer;
 mod host_env;
+mod metric_runtime;
 mod repl;
 use host_env::{default_api_base, machine_device_id, resolve_db_path, DbPathInputs};
 
 use helix_core::effect::TransportId;
-use helix_core::{ExecutionShell, Tick};
+use helix_core::ExecutionShell;
+use helix_driver_host::TraceHooks;
 use helix_driver_native::{
-    run_engine_loop_with_transports, AuthTokenRegistry, EngineConfig, HostNetworkConfig,
-    NativeEventSink, NativeHttp, NativeStorage, NativeTransport, SharedFileUploader,
-    SharedHttpClient, TransportTable,
+    run_engine_loop_with_transports_and_trace_stamped, tick_ingress_channel, AuthTokenRegistry,
+    EngineConfig, HostNetworkConfig, NativeEventSink, NativeHttp, NativeStorage, NativeTransport,
+    SharedFileUploader, SharedHttpClient, TransportTable,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
-use tokio::sync::broadcast::error::RecvError;
 
 #[tokio::main]
 async fn main() {
@@ -42,9 +33,7 @@ async fn main() {
         )
         .init();
 
-    // ── 配置加载（去 env 化，PRD §4.1/§4.2）─────────────────────────────
-    // 单一 YAML 真源 helix.config.yaml（默认 repo 根，--config 覆盖路径）。覆盖链（低→高）：
-    // YAML < HELIX_<FIELD> env 逃生口（仅 debug 构建，release no-op）< --cookie-id/--company-id flag。
+    // YAML 为主真源；debug env 只覆盖非 OTel 字段，identity flags 最高优先。
     let cli = config::parse_args(std::env::args().skip(1));
     let mut cfg = match config::Config::load(&cli.config_path) {
         Ok(c) => c,
@@ -56,23 +45,21 @@ async fn main() {
     };
     cfg.apply_env_overrides(); // debug 逃生口（release 为 no-op，彻底去 env）
     cfg.apply_cli_overrides(&cli); // 双账号 e2e：flag 覆盖 identity（最高优先级）
+    let otel = cfg.observability.otel_runtime();
+    let metric_runtime = metric_runtime::HostMetricRuntime::start(&cfg);
+    let metrics = metric_runtime.sink();
 
     let ws_url = cfg.connection.ws_url.clone();
-    // HTTP api base 含 /api/cses 前缀（helix-im to_effect 拼 channels/load/increment 等）。
+    // api base 含 /api/cses；default_api_base 承载 vote/score 第二网关。
     let api_base_url = cfg.connection.api_base.clone();
-    // spec06 方案 A：vote/score 第二网关（connection.default_api_base 空则派生）。
     let default_api_base_url = default_api_base(&api_base_url, &cfg.connection.default_api_base);
-    // cookieId(=userId) + companyId 身份头：现网 sync-v2 鉴权两件套。
-    // companyId 经 web/handlers.go 注入 ctx → 传到对端 paas-grpc（loadTeamMap/ReadIdNameWithCompany）；
-    // 缺 companyId → paas-grpc 业务失败（grpc service fail）→ increment worker 中止不推帧（真 Go 实测）。
+    // cookieId(=userId) + companyId 是 sync-v2/paas-grpc 鉴权两件套。
     let cookie_id = cfg.identity.cookie_id.clone();
     let company_id = cfg.identity.company_id.clone();
     // appType 是现网 app 身份头（HTTP increment + WS 都带 `appType: bct`）。缺 → Java 判 session 过期。
     let app_type = cfg.client.app_type.clone();
     let device = cfg.client.device.clone();
-    // deviceId 随 HTTP + WS 都带：对端 Java paas session 校验读 deviceId，nil → 判 session 过期。
-    // 优先级：① config.client.device_id 显式 → ② 固定联调 deviceId 兜底（**故意例外** ADR-011：
-    // 本机派生过不了 Go session 校验，仅此 dev-bin、不入交付物）→ ③ 本机派生 → ④ 空告警。
+    // deviceId 优先 config；ADR-011 联调兜底仅属于此 dev-bin，不进入交付物。
     let device_id = (!cfg.client.device_id.is_empty())
         .then(|| cfg.client.device_id.clone())
         // ADR-011 故意例外：固定联调 deviceId（本机派生过不了 Go session 校验，非生产凭据）。
@@ -90,8 +77,7 @@ async fn main() {
     // appVersion/osVersion 是现网通用请求头（真机curl真源 §0：所有 outbound 都带）。
     let app_version = cfg.client.app_version.clone();
     let os_version = cfg.client.os_version.clone();
-    // P6 blocker(a)：userSnapshot 三占位转真值（现网取自 ucenter `this.ctx.userInfo`，helix-im
-    // 不认识 ucenter HX-C001 → host 展开注入 ImConfig；host-cli 走 config，Tauri 壳走登录态）。
+    // userSnapshot 由 host 展开注入，core/im 不依赖 ucenter（HX-C001）。
     let user_name = cfg.identity.user_name.clone();
     let org_name = cfg.identity.org_name.clone();
     let dept_name = cfg.identity.dept_name.clone();
@@ -118,7 +104,7 @@ async fn main() {
     // ── ports ───────────────────────────────────────────────
     tracing::info!(db_path = %db_path, "DB 绝对路径（派生 / runtime.db 覆盖）");
     let storage = match NativeStorage::open(&format!("sqlite:{db_path}?mode=rwc")).await {
-        Ok(s) => s,
+        Ok(s) => s.with_metric_sink(Arc::clone(&metrics)),
         Err(e) => {
             tracing::error!(error = %e, db_path = %db_path, "打开存储失败，退出");
             return;
@@ -151,7 +137,8 @@ async fn main() {
     }
     // EventSink 先于 HTTP：P6 blocker(b) 横切层业务 outcome 回报经它 emit，故先建。
     // Clone 是 Arc-backed O(1)：一份给横切回报，原件随后进 EngineConfig（同一 broadcast）。
-    let (event_sink, mut event_rx) = NativeEventSink::new();
+    let (event_sink, event_rx) = NativeEventSink::new();
+    let event_sink = event_sink.with_metric_sink(Arc::clone(&metrics));
 
     // P6 blocker(b)：激活 P1.5 出站横切层（drift-review dbe1b74..7e9f3ca finding① 收敛=装配就绪
     // 未接泵→此处接泵）。with_crosscut 包：鉴权意图→token 注入 + IM outcome observer +
@@ -164,17 +151,18 @@ async fn main() {
     let mut net_config = HostNetworkConfig::new(api_base_url.clone(), ws_url.clone());
     net_config.default_api_base_url = default_api_base_url.clone();
     let shared_client = match SharedHttpClient::new(net_config) {
-        Ok(c) => c,
+        Ok(c) => c.with_metric_sink(Arc::clone(&metrics)),
         Err(e) => {
             tracing::error!(error = %e, "构造共享 HTTP client 失败，退出");
             return;
         }
     };
-    let http = NativeHttp::with_crosscut(
+    let http = NativeHttp::with_crosscut_and_otel(
         shared_client,
         Arc::new(event_sink.clone()),
         auth,
         helix_im::http_outcome_event,
+        otel.clone(),
     );
     // 身份头单一真源（HTTP 全局头 + WS 握手头同源，host 注入；core/im 不认识 userId，
     // connectionId 才由 im 盖章见 A3b）。各头来源/缺失后果（真机curl真源 §0 通用头 +
@@ -225,20 +213,21 @@ async fn main() {
     }));
 
     // ── tick 通道（入站有界 cap=256）────────────────────────
-    let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
+    let (tick_tx, tick_rx) = tick_ingress_channel(256);
 
     // ── 主 WS transport ─────────────────────────────────────
     // TransportId 约定：0 = 主连接（多端口/第二模块用 1、2…，host 集中分配）。
     let main_transport = TransportId::from_raw(0);
-    // 现网 Go 在 WS 升级阶段按 cookieId=userId 建 session（session 空则不发 hello、~5s 超时关）。
-    // 身份头必须随 upgrade 请求带，不能只设 HTTP 全局头（A3a 漏了 WS 这条，真 Go 冒烟暴露）。
-    // 复用上面 HTTP 同一份 identity_headers（HTTP/WS 单一真源，避免两处漂移）。
+    // WS upgrade 必须携带同一份身份头，否则服务端不发 hello。
+    // 复用 HTTP identity_headers，避免两个配置源漂移。
     let ws_headers: Vec<(String, String)> = identity_headers
         .iter()
         .map(|(name, value)| (name.to_string(), value.to_string()))
         .collect();
-    let mut transport = NativeTransport::new(ws_url.clone(), main_transport, Some(tick_tx.clone()))
-        .with_handshake_headers(ws_headers);
+    let mut transport =
+        NativeTransport::new_stamped(ws_url.clone(), main_transport, Some(tick_tx.clone()))
+            .with_handshake_headers(ws_headers)
+            .with_metric_sink(Arc::clone(&metrics));
     // A1 临时：host 主动 connect（A2 改为 Effect::Connect 意图驱动）。
     // 连不上不退出——仍进泵，Effect::Send 走「发送失败 warn」兜底，证明接线存在。
     let activation = match transport.connect().await {
@@ -281,50 +270,31 @@ async fn main() {
         http,
         uploader: SharedFileUploader::default(),
         event_sink,
+        metrics,
         max_http_inflight,
     };
+    let trace = TraceHooks::noop().with_otel(otel);
 
     // ── 观察 emit 出口（领域事件打印，验证 EventSink 兑现）──
-    tokio::spawn(async move {
-        loop {
-            match event_rx.recv().await {
-                // 联调可观测：解出 DomainEvent 的 `event` 名（im:*）→ e2e harness 可断言
-                // 完整 frame→handler→emit 管道（非仅字节长度）。解析失败回退长度，不崩。
-                Ok(ev) => {
-                    match serde_json::from_slice::<serde_json::Value>(&ev.0)
-                        .ok()
-                        .and_then(|v| v.get("event").and_then(|e| e.as_str()).map(str::to_owned))
-                    {
-                        Some(name) => {
-                            tracing::info!(event = %name, bytes = ev.0.len(), "DomainEvent emit")
-                        }
-                        None => tracing::info!(bytes = ev.0.len(), "DomainEvent emit (unparsed)"),
-                    }
-                }
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!(dropped = n, "EventSink 落后丢事件（应触发重拉）")
-                }
-                Err(RecvError::Closed) => break,
-            }
-        }
-    });
+    event_observer::spawn(event_rx);
 
     // ── 跑泵 ────────────────────────────────────────────────
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    // stdin 遥控器：终端命令 → Tick::Command → 复用 tick_tx 入同一条泵（与 Tick::Inbound 同路）。
-    // quit/EOF → fire shutdown_tx → 泵优雅退出。host 层装配，不进 core/im。
+    // stdin 命令复用 tick_tx；quit/EOF 触发优雅退出。
     repl::spawn_stdin_repl(tick_tx.clone(), shutdown_tx);
     let tick_tx_for_loop = tick_tx.clone();
     tracing::info!("进入 engine loop（stdin 遥控器已就绪，敲 help 看命令）");
-    run_engine_loop_with_transports(
+    run_engine_loop_with_transports_and_trace_stamped(
         shell,
         tick_rx,
         tick_tx_for_loop,
         config,
+        trace,
         shutdown_rx,
         transports,
     )
     .await;
+    metric_runtime.shutdown();
     tracing::info!("engine loop 退出");
 }
 

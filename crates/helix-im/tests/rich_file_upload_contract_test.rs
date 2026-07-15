@@ -23,7 +23,8 @@ fn rich_two_image_cmd() -> Tick {
                     "width": 800,
                     "upload": {
                         "method": "PUT",
-                        "url": "https://upload/a",
+                        "url": "https://upload/a?signature=write-a",
+                        "publicUrl": "https://cdn/a.png",
                         "headers": {"x-oss-a": "1"},
                         "objectKey": "im/a.png",
                         "contentType": "image/png",
@@ -35,7 +36,8 @@ fn rich_two_image_cmd() -> Tick {
                     "height": 600,
                     "upload": {
                         "method": "PUT",
-                        "url": "https://upload/b",
+                        "url": "https://upload/b?signature=write-b",
+                        "publicUrl": "https://cdn/b.png",
                         "headers": {"x-oss-b": "2"},
                         "objectKey": "im/b.png"
                     }
@@ -58,7 +60,8 @@ fn rich_single_image_cmd(tmp: &str) -> Tick {
                 "localPath": "/tmp/a.png",
                 "upload": {
                     "method": "PUT",
-                    "url": "https://upload/a",
+                    "url": "https://upload/a?signature=write-a",
+                    "publicUrl": "https://cdn/a.png",
                     "headers": {},
                     "objectKey": "im/a.png"
                 }
@@ -80,7 +83,8 @@ fn file_cmd(tmp: &str) -> Tick {
                 "name": "doc.pdf",
                 "upload": {
                     "method": "PUT",
-                    "url": "https://upload/doc",
+                    "url": "https://upload/doc?signature=write-doc",
+                    "publicUrl": "https://cdn/doc.pdf",
                     "headers": {"x-oss-doc": "1"},
                     "objectKey": "im/doc.pdf",
                     "contentType": "application/pdf",
@@ -92,13 +96,13 @@ fn file_cmd(tmp: &str) -> Tick {
     }))
 }
 
-fn upload_reply(object_key: &str, url: &str, etag: &str) -> Tick {
+fn upload_reply(object_key: &str, public_url: &str, etag: &str) -> Tick {
     port_reply_with_body(
         0,
         Bytes::from(
             serde_json::to_vec(&json!({
                 "objectKey": object_key,
-                "url": url,
+                "url": public_url,
                 "etag": etag
             }))
             .expect("upload reply json"),
@@ -252,7 +256,106 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
     let props = props_from_spec(&spec);
     assert_eq!(props["images"][0]["upload"]["status"], "uploading");
     assert_eq!(props["images"][1]["upload"]["status"], "uploading");
+    assert!(props["images"][0]["upload"].get("url").is_none());
+    assert!(props["images"][0]["upload"].get("headers").is_none());
+    assert_eq!(
+        props["images"][0]["upload"]["publicUrl"],
+        "https://cdn/a.png"
+    );
     assert_eq!(props["frontendCustom"]["keep"], true);
+}
+
+#[test]
+fn upload_input_without_public_url_is_rejected_before_any_effect() {
+    let mut h = Harness::new(&[1]);
+    let command = send_message_cmd_json(json!({
+        "channel_id": cid(1),
+        "temporary_id": "tmp-file-missing-public-url",
+        "type": "file",
+        "text": "",
+        "props": {
+            "file": {
+                "localPath": "/tmp/doc.pdf",
+                "upload": {
+                    "method": "PUT",
+                    "url": "https://upload/doc?signature=write-secret",
+                    "headers": {},
+                    "objectKey": "im/doc.pdf"
+                }
+            }
+        }
+    }));
+    let mut out = EffectSink::new();
+
+    let error = h
+        .module
+        .handle(&command, 1000, &mut out)
+        .expect_err("missing publicUrl must fail closed");
+
+    assert!(error.to_string().contains("publicUrl"));
+    assert!(
+        out.as_slice().is_empty(),
+        "invalid input must emit no effects"
+    );
+}
+
+#[test]
+fn rich_file_shape_violations_are_rejected_before_any_effect() {
+    let cases = [
+        (
+            send_message_cmd_json(json!({
+                "channel_id": cid(1),
+                "temporary_id": "tmp-rich-with-file",
+                "type": "rich",
+                "text": "hello",
+                "props": {
+                    "textPosition": "top",
+                    "images": [{
+                        "localPath": "/tmp/a.png",
+                        "upload": {
+                            "method": "PUT",
+                            "url": "https://upload/a",
+                            "publicUrl": "https://cdn/a.png",
+                            "headers": {},
+                            "objectKey": "im/a.png"
+                        }
+                    }],
+                    "file": {"localPath": "/tmp/a.pdf"}
+                }
+            })),
+            "rich",
+        ),
+        (
+            send_message_cmd_json(json!({
+                "channel_id": cid(1),
+                "temporary_id": "tmp-file-with-text",
+                "type": "file",
+                "text": "not allowed",
+                "props": {"file": {
+                    "localPath": "/tmp/a.pdf",
+                    "upload": {
+                        "method": "PUT",
+                        "url": "https://upload/a",
+                        "publicUrl": "https://cdn/a.pdf",
+                        "headers": {},
+                        "objectKey": "im/a.pdf"
+                    }
+                }}
+            })),
+            "file",
+        ),
+    ];
+
+    for (command, expected) in cases {
+        let mut h = Harness::new(&[1]);
+        let mut out = EffectSink::new();
+        let error = h
+            .module
+            .handle(&command, 1000, &mut out)
+            .expect_err("invalid rich/file shape must fail closed");
+        assert!(error.to_string().contains(expected));
+        assert!(out.as_slice().is_empty());
+    }
 }
 
 #[test]
@@ -312,6 +415,14 @@ fn rich_uploads_only_post_after_all_success() {
     let body = last_posts_create_body(&h);
     assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
     assert_eq!(body["props"]["images"][1]["upload"]["status"], "success");
+    assert_eq!(
+        body["props"]["images"][0]["upload"]["publicUrl"],
+        "https://cdn/a.png"
+    );
+    assert!(body["props"]["images"][0]["upload"].get("url").is_none());
+    assert!(body["props"]["images"][0]["upload"]
+        .get("headers")
+        .is_none());
     assert_eq!(body["props"]["images"][0]["width"], 800);
     assert_eq!(body["props"]["images"][1]["height"], 600);
     assert_eq!(body["props"]["frontendCustom"]["keep"], true);
@@ -396,7 +507,8 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
     let req = last_upload_request(&h);
     assert_eq!(req.local_path, "/tmp/b.png");
     assert_eq!(req.object_key, "im/b.png");
-    assert_eq!(req.url, "https://upload/b");
+    assert_eq!(req.urls.upload_url(), "https://upload/b?signature=write-b");
+    assert_eq!(req.urls.public_url(), "https://cdn/b.png");
     let retry_props = props_from_spec(&last_message_upsert(&h));
     assert_eq!(retry_props["images"][0]["upload"]["status"], "success");
     assert_eq!(retry_props["images"][1]["upload"]["status"], "uploading");
@@ -468,7 +580,11 @@ fn retry_failed_file_emits_one_upload_without_posts_create() {
     let req = last_upload_request(&h);
     assert_eq!(req.local_path, "/tmp/doc.pdf");
     assert_eq!(req.object_key, "im/doc.pdf");
-    assert_eq!(req.url, "https://upload/doc");
+    assert_eq!(
+        req.urls.upload_url(),
+        "https://upload/doc?signature=write-doc"
+    );
+    assert_eq!(req.urls.public_url(), "https://cdn/doc.pdf");
     let retry_props = props_from_spec(&last_message_upsert(&h));
     assert_eq!(retry_props["file"]["upload"]["status"], "uploading");
     assert_eq!(retry_props["frontendCustom"]["keep"], true);
@@ -569,7 +685,7 @@ fn upload_failure_send_timer_does_not_mark_post_unsend() {
 }
 
 #[test]
-fn file_initial_step_uploads_then_posts_create_after_success_without_reply_object_key() {
+fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
     let mut h = Harness::new(&[1]);
 
     h.step(file_cmd("tmp-file-ok"), 1000);
@@ -593,6 +709,7 @@ fn file_initial_step_uploads_then_posts_create_after_success_without_reply_objec
                 0,
                 Bytes::from(
                     serde_json::to_vec(&json!({
+                        "objectKey": "im/doc.pdf",
                         "url": "https://cdn/doc.pdf",
                         "etag": "etag-doc"
                     }))
@@ -610,6 +727,12 @@ fn file_initial_step_uploads_then_posts_create_after_success_without_reply_objec
     assert_eq!(success_props["file"]["upload"]["status"], "success");
     assert_eq!(success_props["file"]["upload"]["objectKey"], "im/doc.pdf");
     assert_eq!(
+        success_props["file"]["upload"]["publicUrl"],
+        "https://cdn/doc.pdf"
+    );
+    assert!(success_props["file"]["upload"].get("url").is_none());
+    assert!(success_props["file"]["upload"].get("headers").is_none());
+    assert_eq!(
         posts_create_count(&h),
         1,
         "success should emit posts/create"
@@ -619,7 +742,43 @@ fn file_initial_step_uploads_then_posts_create_after_success_without_reply_objec
     assert_eq!(body["props"]["file"]["upload"]["status"], "success");
     assert_eq!(body["props"]["file"]["upload"]["objectKey"], "im/doc.pdf");
     assert_eq!(body["props"]["file"]["upload"]["etag"], "etag-doc");
+    assert_eq!(
+        body["props"]["file"]["upload"]["publicUrl"],
+        "https://cdn/doc.pdf"
+    );
+    let body_text = serde_json::to_string(&body).expect("posts.create body json");
+    assert!(!body_text.contains("signature=write-doc"));
     assert_eq!(body["props"]["frontendCustom"]["keep"], true);
+}
+
+#[test]
+fn upload_reply_without_public_url_fails_closed_without_posts_create() {
+    let mut h = Harness::new(&[1]);
+
+    h.step(file_cmd("tmp-file-no-public-url"), 1000);
+    let p1 = persist_corr(&h);
+    let upload_corr = *upload_effect_corrs(&h).first().expect("upload corr");
+    h.step(port_reply_ok(p1), 1010);
+
+    h.step(
+        Tick::PortReply {
+            corr: helix_core::Correlation::from_raw(upload_corr),
+            outcome: match port_reply_with_body(
+                0,
+                Bytes::from_static(br#"{"objectKey":"im/doc.pdf","etag":"etag-doc"}"#),
+            ) {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            },
+        },
+        1020,
+    );
+
+    assert_eq!(posts_create_count(&h), 0);
+    let props = props_from_spec(&last_message_upsert(&h));
+    assert_eq!(props["file"]["upload"]["status"], "failed");
+    let persisted = serde_json::to_string(&props).expect("persisted props json");
+    assert!(!persisted.contains("signature=write-doc"));
 }
 
 #[test]

@@ -78,7 +78,9 @@ impl WsMessageHandler for UpdateChannelHandler {
         out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         let setting_version = channel
             .get("settingVersion")
+            .or_else(|| channel.get("setting_version"))
             .or_else(|| data.get("settingVersion"))
+            .or_else(|| data.get("setting_version"))
             .and_then(serde_json::Value::as_u64)
             .or_else(|| frame.event_seq().map(|seq| seq.0))
             .unwrap_or(0);

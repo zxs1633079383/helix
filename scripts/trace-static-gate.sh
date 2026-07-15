@@ -7,7 +7,9 @@ cd "$(git rev-parse --show-toplevel)"
 FORBIDDEN_CORE_DEPS='opentelemetry|tracing-opentelemetry|reqwest|tokio|tauri|web-sys'
 TRACE_LEAK_RE='traceparent|baggage|__trace|otel|opentelemetry'
 TRACE_FILE_RE='TraceCarrier|TraceHooks|opentelemetry|traceparent|baggage|__trace'
-TRACE_ATTR_CONTEXT='set_attribute|record\(|\.record|event!|span!|attribute::|\.attribute|\bbaggage\b|tracing::|log::|println!|eprintln!|debug!|info!|warn!|error!'
+# `baggage` 本身是被审计的数据词，不是输出动作；把它当 context 会把测试 fixture
+# 中的 `{"text":...,"baggage":...}` 误判为日志。输出动作仍由 tracing/log/record 等覆盖。
+TRACE_ATTR_CONTEXT='set_attribute|record\(|\.record|event!|span!|attribute::|\.attribute|tracing::|log::|println!|eprintln!|debug!|info!|warn!|error!'
 SENSITIVE_WORDS='Authorization|cookie|cookieId|token|message|text|payload|body'
 SENSITIVE_ATTR_RE="(${TRACE_ATTR_CONTEXT}).*(${SENSITIVE_WORDS})|(${SENSITIVE_WORDS}).*(${TRACE_ATTR_CONTEXT})"
 RAW_TRACE_OUTPUT_RE="(${TRACE_ATTR_CONTEXT}).*raw_json|raw_json.*(${TRACE_ATTR_CONTEXT})"

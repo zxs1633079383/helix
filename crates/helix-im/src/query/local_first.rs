@@ -24,7 +24,8 @@ use data::{
     parse_latest_posts_reply, parse_local_rows, sort_recent_rows_desc,
     stale_local_server_rows_delete_op, visible_remote_rows_and_cache_ops,
 };
-pub(crate) use data::{parse_latest_posts_body, post_event_seq};
+#[cfg(test)]
+pub(crate) use data::parse_latest_posts_body;
 
 /// 平台提供的本地数据能力。它描述物理数据寿命，不承诺某次查询已经完整。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

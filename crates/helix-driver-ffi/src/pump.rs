@@ -17,16 +17,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use helix_core::effect::TransportId;
-use helix_core::{ExecutionShell, PortError, Tick};
+use helix_core::{ExecutionShell, PortError};
 use helix_driver_host::engine::{
     self, register_transport, EngineDeps, TransportRegistration, TransportTable,
-    TransportTraceEvent,
 };
 use helix_driver_host::{
-    spawn_reconnect_supervisor, AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig,
-    HostOtelRuntime, HostStorage, ReconnectPolicy, ReconnectTraceSink, SharedFileUploader,
-    SharedHttpClient, SharedWsClient, TraceDirection, TraceHooks,
+    spawn_reconnect_supervisor, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
+    CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime, HostStorage,
+    ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, SharedHttpClient, SharedWsClient,
+    TickIngressReceiver, TickIngressSender,
 };
+#[cfg(test)]
+use helix_driver_host::TraceHooks;
 use helix_im::module::ImConfig;
 use helix_im::query::LocalStoreMode;
 use helix_im::ImModule;
@@ -37,65 +39,30 @@ use crate::event_sink::FfiEventSink;
 use crate::http::FfiHttpRequester;
 use crate::vtable::CppHostVtable;
 
+mod observability;
+use observability::{ffi_trace_hooks, spawn_transport_trace_exporter};
+
 /// 主 WS TransportId（host 集中分配；FFI 单连接固定 0，对齐 host-cli 约定）。
 const MAIN_TRANSPORT: u32 = 0;
-
-fn transport_trace_attributes(event: &TransportTraceEvent) -> Vec<(&'static str, String)> {
-    let mut attrs = vec![
-        ("transport.id", event.transport_id.raw().to_string()),
-        ("ws.lifecycle.action", event.action.to_string()),
-    ];
-
-    if let Some(attempt) = event.attempt {
-        attrs.push(("ws.reconnect.attempt", attempt.to_string()));
-    }
-    if let Some(delay_ms) = event.delay_ms {
-        attrs.push(("ws.reconnect.delay_ms", delay_ms.to_string()));
-    }
-    if let Some(next_delay_ms) = event.next_delay_ms {
-        attrs.push(("ws.reconnect.next_delay_ms", next_delay_ms.to_string()));
-    }
-    if let Some(reason) = event.reason {
-        attrs.push(("ws.lifecycle.reason", reason.to_string()));
-    }
-    if let Some(error_class) = &event.error_class {
-        attrs.push(("ws.error.class", error_class.clone()));
-    }
-
-    attrs
-}
-
-fn spawn_transport_trace_exporter(rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
-    if let Err(error) = std::thread::Builder::new()
-        .name("helix-ffi-trace-exporter".to_string())
-        .spawn(move || export_transport_trace_events(rx))
-    {
-        tracing::warn!(error = %error, "FFI pump 启动 trace exporter 线程失败，跳过 transport trace 导出");
-    }
-}
-
-fn export_transport_trace_events(mut rx: mpsc::UnboundedReceiver<TransportTraceEvent>) {
-    let runtime = HostOtelRuntime::from_env("helix-driver-host");
-    while let Some(event) = rx.blocking_recv() {
-        let attrs = transport_trace_attributes(&event);
-        let _span = runtime.span_with_attributes(event.name, TraceDirection::Internal, None, attrs);
-    }
-}
 
 /// pump 线程入口参数（create 在主线程构造，move 进线程）。
 pub struct PumpArgs {
     pub config: HostNetworkConfig,
     pub headers: HostHeaderRegistry,
     pub auth: AuthTokenRegistry,
-    pub trace: TraceHooks,
+    pub command_traces: CommandTraceQueue,
+    #[cfg(test)]
+    pub trace_override: Option<TraceHooks>,
     pub vtable: CppHostVtable,
-    pub tick_tx: mpsc::Sender<Tick>,
-    pub tick_rx: mpsc::Receiver<Tick>,
+    pub tick_tx: TickIngressSender,
+    pub tick_rx: TickIngressReceiver,
     pub shutdown_rx: oneshot::Receiver<()>,
     /// 装配成功后只发布 readiness；runtime/storage 不跨回 C ABI 形成同步业务查询旁路。
     pub ready_tx: std::sync::mpsc::SyncSender<Result<(), ()>>,
     pub db_url: String,
     pub max_http_inflight: usize,
+    pub metrics: Arc<dyn AsyncMetricSink>,
+    pub metric_runtime: Option<BoundedMetricRuntime>,
 }
 
 /// FFI 初连与重连的唯一成功路径：握手后先注册 sender，收到 engine ack 才发布 Connected，
@@ -137,7 +104,7 @@ pub fn run(args: PumpArgs) {
         // 完成；此后须 `shutdown_timeout` 收尾 runtime，绝不靠 Drop（见块末注释）。
         // ── storage（共享 host rusqlite）─────────────────────────────
         let storage = match HostStorage::open_sqlite_url(&args.db_url).await {
-            Ok(s) => Arc::new(s),
+            Ok(s) => Arc::new(s.with_metric_sink(Arc::clone(&args.metrics))),
             Err(e) => {
                 tracing::error!(error = %e, db = %args.db_url, "FFI pump 打开 storage 失败");
                 let _ = args.ready_tx.send(Err(()));
@@ -170,17 +137,21 @@ pub fn run(args: PumpArgs) {
         }
 
         // ── event sink（FFI 批处理 egress）先建：HTTP 业务 outcome 回报复用同一出口。
-        let event_sink = Arc::new(FfiEventSink::new(args.vtable));
+        let event_sink = Arc::new(
+            FfiEventSink::new(args.vtable).with_metric_sink(Arc::clone(&args.metrics)),
+        );
+        let otel = HostOtelRuntime::from_env("helix-driver-ffi");
 
         // ── http / ws ports（Rust 持有，共享 header registry）──────────
         let http = match SharedHttpClient::with_registry(args.config.clone(), args.headers.clone())
         {
             Ok(c) => FfiHttpRequester::new(
-                c,
+                c.with_metric_sink(Arc::clone(&args.metrics)),
                 Arc::clone(&event_sink),
                 args.auth.clone(),
                 helix_im::http_outcome_event,
-            ),
+            )
+            .with_otel(otel.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedHttpClient 失败");
                 let _ = args.ready_tx.send(Err(()));
@@ -190,7 +161,9 @@ pub fn run(args: PumpArgs) {
         let main_transport = TransportId::from_raw(MAIN_TRANSPORT);
         // 入站帧 → Tick::Inbound 直发泵（with_inbound_tick）；不经 C++。
         let ws = match SharedWsClient::with_registry(args.config.clone(), args.headers.clone()) {
-            Ok(c) => c.with_inbound_tick(main_transport, args.tick_tx.clone()),
+            Ok(c) => c
+                .with_metric_sink(Arc::clone(&args.metrics))
+                .with_stamped_inbound_tick(main_transport, args.tick_tx.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedWsClient 失败");
                 let _ = args.ready_tx.send(Err(()));
@@ -213,9 +186,8 @@ pub fn run(args: PumpArgs) {
         let (transport_tx, transport_rx) =
             mpsc::unbounded_channel::<TransportRegistration<SharedWsClient>>();
         let (transport_lifecycle_tx, transport_lifecycle_rx) = mpsc::unbounded_channel();
-        let (transport_trace_tx, transport_trace_rx) = mpsc::unbounded_channel();
         let (reconnect_shutdown_tx, reconnect_shutdown_rx) = watch::channel(false);
-        spawn_transport_trace_exporter(transport_trace_rx);
+        let transport_trace_tx = spawn_transport_trace_exporter(&otel);
         let transports: TransportTable<SharedWsClient> = TransportTable::new();
         // 后台连接任务：与泵核同跑此 current_thread runtime（spawn 进同 runtime 域）。
         // 初连失败只 warn；已连接后的 reader 断线则由下方 supervisor 按策略重连。
@@ -232,20 +204,23 @@ pub fn run(args: PumpArgs) {
         let reconnect_headers = args.headers.clone();
         let reconnect_tick_tx = args.tick_tx.clone();
         let reconnect_transport_tx = transport_tx.clone();
+        let reconnect_metrics = Arc::clone(&args.metrics);
         let reconnect_handle = spawn_reconnect_supervisor(
             main_transport,
             ReconnectPolicy::default(),
             transport_lifecycle_rx,
             reconnect_shutdown_rx,
-            ReconnectTraceSink::new(Some(transport_trace_tx.clone())),
+            ReconnectTraceSink::new(transport_trace_tx.clone()),
             move || {
                 let config = reconnect_config.clone();
                 let headers = reconnect_headers.clone();
                 let tick_tx = reconnect_tick_tx.clone();
                 let registration_tx = reconnect_transport_tx.clone();
+                let metrics = Arc::clone(&reconnect_metrics);
                 async move {
                     let ws = SharedWsClient::with_registry(config, headers)?
-                        .with_inbound_tick(main_transport, tick_tx);
+                        .with_metric_sink(metrics)
+                        .with_stamped_inbound_tick(main_transport, tick_tx);
                     connect_register_activate(ws, main_transport, registration_tx).await
                 }
             },
@@ -268,21 +243,28 @@ pub fn run(args: PumpArgs) {
         ));
 
         // 装配成功 → 发布 readiness。storage 只进入共享 engine，不再暴露同步业务查询句柄。
+        #[cfg(test)]
+        let trace = args
+            .trace_override
+            .unwrap_or_else(|| ffi_trace_hooks(args.command_traces, otel));
+        #[cfg(not(test))]
+        let trace = ffi_trace_hooks(args.command_traces, otel);
         let deps = EngineDeps {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
             uploader: Arc::new(SharedFileUploader::default()),
             event_sink,
             clock,
-            trace: args.trace,
+            trace,
+            metrics: Arc::clone(&args.metrics),
             max_http_inflight: args.max_http_inflight,
             transport_lifecycle_tx: Some(transport_lifecycle_tx),
-            transport_trace_tx: Some(transport_trace_tx),
+            transport_trace_tx,
         };
         let _ = args.ready_tx.send(Ok(()));
 
         // ── 跑 host 泛型泵核（graceful drain：shutdown_rx 或 tick_rx 关闭）──
-        engine::run_engine_loop(
+        engine::run_engine_loop_stamped(
             shell,
             args.tick_rx,
             args.tick_tx,
@@ -295,6 +277,10 @@ pub fn run(args: PumpArgs) {
         reconnect_shutdown_tx.send_replace(true);
         if let Err(error) = reconnect_handle.await {
             tracing::warn!(%error, "FFI reconnect supervisor 非正常退出");
+        }
+        if let Some(metric_runtime) = args.metric_runtime {
+            let outcome = metric_runtime.shutdown(Duration::from_millis(1500));
+            tracing::debug!(?outcome, "FFI 异步指标 worker 已收尾");
         }
     });
 
@@ -321,51 +307,3 @@ fn is_duplicate_column_error(e: &impl std::fmt::Display) -> bool {
 #[cfg(test)]
 #[path = "pump_lifecycle_tests.rs"]
 mod lifecycle_tests;
-
-#[cfg(test)]
-mod tests {
-    use helix_core::effect::TransportId;
-    use helix_driver_host::engine::TransportTraceEvent;
-
-    use super::transport_trace_attributes;
-
-    #[test]
-    fn transport_trace_attributes_are_safe_and_complete() {
-        let attrs = transport_trace_attributes(&TransportTraceEvent {
-            transport_id: TransportId::from_raw(7),
-            name: "helix.ws.reconnect.schedule",
-            action: "reconnect_schedule",
-            attempt: Some(2),
-            delay_ms: Some(400),
-            next_delay_ms: Some(800),
-            reason: Some("reader_closed_or_error"),
-            error_class: Some("transport".to_string()),
-        });
-
-        assert!(attrs.contains(&("transport.id", "7".to_string())));
-        assert!(attrs.contains(&("ws.lifecycle.action", "reconnect_schedule".to_string())));
-        assert!(attrs.contains(&("ws.reconnect.attempt", "2".to_string())));
-        assert!(attrs.contains(&("ws.reconnect.delay_ms", "400".to_string())));
-        assert!(attrs.contains(&("ws.reconnect.next_delay_ms", "800".to_string())));
-        assert!(attrs.contains(&("ws.lifecycle.reason", "reader_closed_or_error".to_string())));
-        assert!(attrs.contains(&("ws.error.class", "transport".to_string())));
-
-        let serialized = format!("{attrs:?}").to_lowercase();
-        for forbidden in [
-            "cookie",
-            "cookieid",
-            "authorization",
-            "token",
-            "body",
-            "message",
-            "text",
-            "raw_payload",
-            "raw_error",
-        ] {
-            assert!(
-                !serialized.contains(forbidden),
-                "transport trace attributes leaked forbidden key: {forbidden}"
-            );
-        }
-    }
-}

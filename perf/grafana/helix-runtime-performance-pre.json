@@ -1,0 +1,3957 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "00 总览",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "HTTP RPS",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"http\",status=\"ok\"}[$rate_window]))",
+          "legendFormat": "{{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "WebSocket 入站/出站 RPS",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"ws\",status=\"ok\"}[$rate_window]))",
+          "legendFormat": "{{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Storage QPS",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"storage\",status=\"ok\"}[$rate_window]))",
+          "legendFormat": "{{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Event RPS",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (operation, status) (last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"event\",status=\"ok\"}[$rate_window]))",
+          "legendFormat": "{{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "错误总数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, error_kind) (last_over_time(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "{{stage}} / {{operation}} / {{error_kind}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "错误速率",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"core\",status=\"error\"}[$rate_window]))",
+          "legendFormat": "ERROR_RATE"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "错误率",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"core\",status=\"error\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_run_throughput_per_second{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",stage=\"core\"}[$rate_window])), 0.000001)",
+          "legendFormat": "ERROR_RATIO"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "吞吐（QPS / RPS）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "错误数、速率与错误率",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\",status=\"error\"}[$rate_window])) / clamp_min(sum(rate(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "ERROR_RATIO"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "10 Core 与 Effect",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "title": "Core step 延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_core_step_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_core_step_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_core_step_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "每 Tick Effect 数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_effects_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_effects_per_tick_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_effects_per_tick_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "每 Tick Effect 字节",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_effect_bytes_per_tick_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_effect_bytes_per_tick_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_effect_bytes_per_tick_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Effect 放大比",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_effect_amplification_ratio_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_effect_amplification_ratio_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_effect_amplification_ratio_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "20 队列与调度",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "title": "Tick 队列等待",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_tick_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_tick_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_tick_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Tick 队列深度",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_tick_queue_depth{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_tick_queue_depth{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_tick_queue_depth{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Tick 队列容量",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_tick_queue_capacity{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_tick_queue_capacity{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_tick_queue_capacity{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "持久化队列等待",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_persist_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_persist_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_persist_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "30 HTTP",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      },
+      "panels": []
+    },
+    {
+      "id": 22,
+      "title": "HTTP 队列等待",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_http_queue_wait_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_http_queue_wait_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_http_queue_wait_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "HTTP 请求延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_http_request_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_http_request_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_http_request_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "HTTP 并发请求",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 76
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_http_inflight{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_http_inflight{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_http_inflight{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "50 Storage 与 PortReply",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
+      "panels": []
+    },
+    {
+      "id": 26,
+      "title": "SQLite 事务延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_storage_tx_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_storage_tx_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_storage_tx_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "title": "Storage 行处理吞吐",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 77
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_storage_rows_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_storage_rows_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_storage_rows_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "PortReply 往返延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 85
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_port_roundtrip_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_port_roundtrip_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_port_roundtrip_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "40 WebSocket",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "panels": []
+    },
+    {
+      "id": 30,
+      "title": "WS 入站到 Effect 延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ws_ingress_to_effect_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_ws_ingress_to_effect_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ws_ingress_to_effect_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "WS 入站到 Event 延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 86
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ws_ingress_to_event_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_ws_ingress_to_event_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ws_ingress_to_event_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "60 Event 与 Projection",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "panels": []
+    },
+    {
+      "id": 33,
+      "title": "Command 到 Projection 延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 95
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_command_to_projection_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_command_to_projection_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_command_to_projection_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "Event lagged",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 95
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_event_lagged_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_event_lagged_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_event_lagged_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "title": "Event 无接收者",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 103
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_event_no_receiver_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_event_no_receiver_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_event_no_receiver_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "title": "Event 批大小",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 103
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_event_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_event_batch_size_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_event_batch_size_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "title": "70 FFI",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 111
+      },
+      "panels": []
+    },
+    {
+      "id": 38,
+      "title": "FFI 批事件数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 112
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ffi_batch_events_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_ffi_batch_events_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ffi_batch_events_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "title": "FFI 批字节数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 112
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ffi_batch_bytes_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_ffi_batch_bytes_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ffi_batch_bytes_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "title": "FFI 回调延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 120
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_ffi_callback_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_ffi_callback_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_ffi_callback_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "title": "FFI busy",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 120
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_ffi_busy_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_ffi_busy_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_ffi_busy_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "title": "80 分配与生命周期",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 128
+      },
+      "panels": []
+    },
+    {
+      "id": 43,
+      "title": "每操作分配次数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 129
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_alloc_count_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_alloc_count_per_op_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_alloc_count_per_op_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "title": "每操作分配字节",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 129
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_alloc_bytes_per_op_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_alloc_bytes_per_op_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_alloc_bytes_per_op_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "title": "进程常驻内存",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 137
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_process_resident_memory_bytes{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_process_resident_memory_bytes{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_process_resident_memory_bytes{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "title": "关闭排空延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 137
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_shutdown_drain_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_shutdown_drain_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_shutdown_drain_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "title": "90 遥测流水线",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 145
+      },
+      "panels": []
+    },
+    {
+      "id": 48,
+      "title": "指标队列深度",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 146
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_metrics_queue_depth{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_metrics_queue_depth{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_metrics_queue_depth{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "title": "指标队列容量",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 146
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_metrics_queue_capacity{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_metrics_queue_capacity{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_metrics_queue_capacity{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "title": "指标丢弃",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 154
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_metrics_dropped_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_metrics_dropped_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_metrics_dropped_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "title": "指标导出批大小",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 154
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_metrics_export_batch_size_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_metrics_export_batch_size_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_metrics_export_batch_size_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "title": "指标导出延迟",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 162
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.90, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P90"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P95"
+        },
+        {
+          "refId": "D",
+          "expr": "histogram_quantile(0.99, sum by (le) (last_over_time(otel_helix_metrics_export_duration_seconds_bucket{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])))",
+          "legendFormat": "P99"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(last_over_time(otel_helix_metrics_export_duration_seconds_sum{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])) / clamp_min(sum(last_over_time(otel_helix_metrics_export_duration_seconds_count{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window])), 0.000001)",
+          "legendFormat": "AVG"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "title": "指标导出错误",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 162
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_metrics_export_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_metrics_export_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_metrics_export_errors_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "title": "指标导出器状态",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 170
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_metrics_exporter_state{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_metrics_exporter_state{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_metrics_exporter_state{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "title": "距最近成功导出秒数",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 170
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (stage, operation) (otel_helix_metrics_last_success_age_seconds{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"})",
+          "legendFormat": "CURRENT {{stage}} / {{operation}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(avg_over_time(otel_helix_metrics_last_success_age_seconds{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "AVG"
+        },
+        {
+          "refId": "C",
+          "expr": "max(max_over_time(otel_helix_metrics_last_success_age_seconds{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "MAX"
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "title": "100 正确性与 Canary",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 178
+      },
+      "panels": []
+    },
+    {
+      "id": 57,
+      "title": "正确性：lost",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 179
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_lost_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_lost_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_lost_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "title": "正确性：duplicate",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 179
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_duplicate_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_duplicate_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_duplicate_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "title": "正确性：order_violation",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 187
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_order_violation_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_order_violation_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_order_violation_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "title": "正确性：wrong_channel",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 187
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_wrong_channel_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_wrong_channel_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_wrong_channel_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "title": "正确性：cursor_regression",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 195
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_cursor_regression_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_cursor_regression_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_cursor_regression_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "title": "正确性：projection_mismatch",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 195
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_projection_mismatch_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_projection_mismatch_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_projection_mismatch_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "title": "正确性：persist_remaining",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 203
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_persist_remaining_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_persist_remaining_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_persist_remaining_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "title": "正确性：cleanup_residue",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 203
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.000001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, operation, status) (rate(otel_helix_cleanup_residue_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "RATE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (stage, operation, status) (increase(otel_helix_cleanup_residue_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$__range]))",
+          "legendFormat": "INCREASE {{stage}} / {{operation}} / {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (stage, operation, status) (last_over_time(otel_helix_cleanup_residue_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\",operation=~\"$operation\"}[$rate_window]))",
+          "legendFormat": "TOTAL {{stage}} / {{operation}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 65,
+      "title": "遥测 Canary",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 211
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8
+          },
+          "noValue": "无数据",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(otel_helix_telemetry_canary_total{service_name=~\"$service\"})",
+          "legendFormat": "CANARY"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "helix",
+    "performance",
+    "otel",
+    "pre"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "数据源",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
+        "options": [],
+        "refresh": 1
+      },
+      {
+        "name": "service",
+        "label": "服务",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(otel_helix_operations_total, service_name)",
+          "refId": "service"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "platform",
+        "label": "平台",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(otel_helix_operations_total{service_name=~\"$service\"}, platform)",
+          "refId": "platform"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "scenario",
+        "label": "场景",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\"}, scenario)",
+          "refId": "scenario"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "channel_shape",
+        "label": "频道形态",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\"}, channel_shape)",
+          "refId": "channel_shape"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "stage",
+        "label": "阶段",
+        "type": "custom",
+        "query": "core,effect,http,ws,storage,port_reply,event,ffi,telemetry",
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": []
+      },
+      {
+        "name": "operation",
+        "label": "操作",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(otel_helix_operations_total{service_name=~\"$service\",platform=~\"$platform\",scenario=~\"$scenario\",channel_shape=~\"$channel_shape\",stage=~\"$stage\"}, operation)",
+          "refId": "operation"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 1
+      },
+      {
+        "name": "rate_window",
+        "label": "统计窗口",
+        "type": "custom",
+        "query": "2m,5m,15m,30m",
+        "current": {
+          "selected": true,
+          "text": "5m",
+          "value": "5m"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "2m",
+            "value": "2m"
+          },
+          {
+            "selected": true,
+            "text": "5m",
+            "value": "5m"
+          },
+          {
+            "selected": false,
+            "text": "15m",
+            "value": "15m"
+          },
+          {
+            "selected": false,
+            "text": "30m",
+            "value": "30m"
+          }
+        ]
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Helix 运行时性能 / PRE",
+  "uid": "helix-runtime-performance-pre",
+  "version": 1,
+  "weekStart": ""
+}

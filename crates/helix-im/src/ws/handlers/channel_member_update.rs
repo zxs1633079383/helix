@@ -72,7 +72,7 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
 
 /// S3 path1 全量 upsert + memberChange.join 成员行写（channel_created / channel_member_update
 /// 共用）。channel 内存态确保已注册（与 `increment_channel` 同口径）。
-pub(super) fn apply_channel_full_and_members(
+pub(crate) fn apply_channel_full_and_members(
     ctx: &mut ImWsContext<'_>,
     channel_id: ChannelId,
     data: &serde_json::Value,

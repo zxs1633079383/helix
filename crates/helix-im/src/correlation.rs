@@ -111,6 +111,11 @@ pub enum CorrelationContext {
     /// 剩余成员的 member delete 仍由服务端 channel_member_update WS 权威驱动。
     OutboundLeave { channel_id: ChannelId },
 
+    /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
+    /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member
+    /// 并发同一 render-ready `im:channel:created`，避免前端退回全量 dialog scan。
+    OutboundChannelCreate { members: Vec<serde_json::Value> },
+
     /// UC-4.5 陌生 channel 单频道 hydration 的首段 HTTP 回报。
     ///
     /// 仍保留 `im:read:result` 通用回灌；额外把 `data=*IncrementChannel` 送入既有 increment

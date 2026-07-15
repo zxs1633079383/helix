@@ -129,6 +129,19 @@ impl Module for ImModule {
                                 .corr_map
                                 .insert(corr, CorrelationContext::OutboundCreatePosts { req_id });
                         }
+                    } else if name == "im_create_channel" {
+                        if let Ok(args) =
+                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                        {
+                            if let Ok((members, _)) =
+                                crate::outbound::registry::build_creator_member_users(&args, name)
+                            {
+                                self.state.corr_map.insert(
+                                    corr,
+                                    CorrelationContext::OutboundChannelCreate { members },
+                                );
+                            }
+                        }
                     } else if name == "im_channel_leave" {
                         if let Some(channel_id) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

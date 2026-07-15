@@ -1,6 +1,7 @@
 //! P6 投影/状态查询命令集成测试（回放剧本）。
 //!
-//! 回归锚: P6 —— `im_query_messages_by_channel`（Scan→emit 投影）+ `im_delete_all_dialogs`
+//! 回归锚: P6/A2 —— `im_query_messages_by_channel`（Scan→coverage→必要时 HTTP）+
+//! `im_delete_all_dialogs`
 //! （清内存 channel gate + emit 刷新）端到端走 ImModule::handle。
 //!
 //! 单元级断言（build/emit 纯函数）在 `src/query.rs` 的 `#[cfg(test)]`；本文件验证
@@ -59,9 +60,9 @@ fn query_messages_dispatches_filtered_scan() {
     assert_eq!(order_desc_col, Some("create_at"));
 }
 
-/// Scan 回报（PortReply Ok with rows）→ emit im:messages:query_result 投影（含 messages 数组）。
+/// 没有显式远端窗口 proof 时，即使本地非空也只能判 Partial，必须走远端。
 #[test]
-fn query_messages_reply_emits_projection() {
+fn query_messages_reply_without_coverage_falls_back_to_remote() {
     let mut h = Harness::new(&[2]);
     // 触发查询 → 拿到注册的 corr。
     h.step(
@@ -91,24 +92,29 @@ fn query_messages_reply_emits_projection() {
     );
     h.step(port_reply_with_body(corr, rows), 1_100);
 
-    // 末批应含一条 Emit，载荷为 im:messages:query_result 投影。
-    let emit = h
+    assert!(matches!(
+        h.effect_log.last().unwrap().as_slice(),
+        [EffectKind::Http(_)]
+    ));
+    let (url, body) = h
         .sink
         .as_slice()
         .iter()
-        .find_map(|e| match e {
-            Effect::Emit { event } => Some(event.0.clone()),
+        .find_map(|effect| match effect {
+            Effect::Http { req, .. } => Some((
+                req.url.as_str(),
+                serde_json::from_slice::<serde_json::Value>(req.body.as_ref()?.as_ref()).ok()?,
+            )),
             _ => None,
         })
-        .expect("回报后应 emit 投影");
-    let v: serde_json::Value = serde_json::from_slice(emit.as_ref()).unwrap();
-    assert_eq!(v["event"], "im:messages:query_result");
-    assert_eq!(v["data"]["channel_id"], cid(2));
-    // Scan 以 DESC 截取最近 N 条，Helix 投影反转成 ASC；前端只绑定 render-ready 行。
-    assert_eq!(v["data"]["messages"][0]["temporaryId"], "t2");
-    assert_eq!(v["data"]["messages"][0]["createAt"], 100);
-    assert_eq!(v["data"]["messages"][1]["temporaryId"], "t1");
-    assert_eq!(v["data"]["messages"][1]["createAt"], 200);
+        .expect("Partial 应由 helix-im 发 getLatestPost");
+    assert!(url.ends_with("/posts/getLatestPost"));
+    assert_eq!(body["channelId"], cid(2));
+    assert!(h
+        .sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Emit { .. })));
 }
 
 /// im_delete_all_dialogs → 清内存 channel gate（channels 空）+ emit im:channels:loaded。

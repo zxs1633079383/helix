@@ -1,0 +1,38 @@
+flowchart LR
+  M["helix-driver-web 模块"]
+  subgraph Paths["owned paths"]
+    P0["crates/helix-driver-web"]
+    M --> P0
+  end
+  subgraph Boundaries["platform boundary"]
+    B0["Browser Fetch + page-session store"]
+    B1["无 UI glue + physical WebSocket"]
+    B2["Rust business HTTP/query + WS parser"]
+    M --> B0
+    M --> B1
+    B1 -. opaque frames .-> B2
+  end
+  subgraph Domains["domains"]
+    D0["运行时无关确定性内核领域"]
+    M --> D0
+    D1["IM 同步/WS 领域"]
+    M --> D1
+  end
+  subgraph Constraints["hard constraints"]
+    C0["hxc002-send-lifetime"]
+    M -.-> C0
+    C1["hxc003-web-dual-target"]
+    M -.-> C1
+    C2["hxc004-features-additive"]
+    M -.-> C2
+    C3["web-browser-glue-no-business"]
+    M -.-> C3
+  end
+  subgraph Review["default reviewers"]
+    R0["reviewers/contract-reviewer-agent"]
+    M --> R0
+    R1["reviewers/test-reviewer-agent"]
+    M --> R1
+    R2["reviewers/harness-reviewer-agent"]
+    M --> R2
+  end

@@ -4,14 +4,11 @@
 //! 真源 full-map/partials/1 §32：内联 `{postId}`（post_approval.go L16-18）。
 //! 审批通过常伴 `post_update` WS 回声（视实现）→ 写族（不读回灌），HTTP 响应无 data。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// #32 post/approval/approval — 审批一条待审消息。body = `{postId}`（camelCase 单字段）。
 struct ApprovalPostCommand;
@@ -24,11 +21,12 @@ impl OutboundCommand for ApprovalPostCommand {
         Ok(("post/approval/approval", json!({ "postId": post_id })))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static APPROVAL_POST_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_approval_post",
-    command: &ApprovalPostCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_approval_post",
+        command: &ApprovalPostCommand,
+    }
+}
 
 #[cfg(test)]
 mod tests {

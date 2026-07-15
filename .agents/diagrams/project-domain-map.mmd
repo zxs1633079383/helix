@@ -9,14 +9,16 @@ flowchart TB
     Host["helix-driver-host\nshared host I/O"]
     Native["helix-driver-native\nPC/Tauri thin shell"]
     FFI["helix-driver-ffi\nFlutter/mobile C ABI"]
+    Web["helix-driver-web\nRust Web shell + no-UI browser glue"]
     CLI["helix-host-cli\nreal Go e2e harness"]
   end
-    Wasm["helix-driver-wasm\narchived experiment"]
-    Gov["docs/scripts/.agents\ngovernance gates"]
+  Gov["docs/scripts/.agents\ngovernance gates"]
   Core --> IM
   Host --> Core
   Native --> Host
   FFI --> Host
+  Web --> Core
+  Web --> IM
   CLI --> Host
   subgraph Domains["领域 agents"]
     runtime_core["运行时无关确定性内核领域"]
@@ -45,14 +47,16 @@ flowchart TB
   FFI -.-> mobile_ffi
   FFI -.-> host_io
   FFI -.-> runtime_core
+  Web -.-> runtime_core
+  Web -.-> im_sync
   CLI -.-> host_io
   CLI -.-> im_sync
   CLI -.-> harness_governance
-  Wasm -.-> runtime_core
   Gov -.-> harness_governance
   Gov -.-> projection_observability
   GOAL --> Core
   P0 --> Native
   P0 --> Host
   P0 --> IM
+  P0 --> Web
   Domains --> Reviewers["reviewer agents\nharness/evidence/contract/test"]

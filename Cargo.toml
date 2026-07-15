@@ -4,7 +4,7 @@ members = [
     "crates/helix-im",
     "crates/helix-driver-host",
     "crates/helix-driver-native",
-    "crates/helix-driver-wasm",
+    "crates/helix-driver-web",
     "crates/helix-driver-ffi",
     "crates/helix-host-cli",
 ]
@@ -19,12 +19,6 @@ async-trait     = "0.1"
 futures-channel = "0.3"
 futures-core    = "0.3"
 tracing         = "0.1"
-# MIN-5 修复：getrandom 的 "js" feature 仅在 wasm32 target 下需要，
-# 不应在 workspace 级声明（getrandom 0.3 升级时 native 的 "js" feature 可能破坏链接）。
-# 在 helix-driver-wasm/Cargo.toml 的 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# 段中声明，确保只对 wasm32 target 启用。
-# native / ffi crate 若传递依赖了 getrandom，需要不带 "js" feature。
-getrandom       = { version = "0.2" }
 
 [profile.release]
 opt-level     = "z"

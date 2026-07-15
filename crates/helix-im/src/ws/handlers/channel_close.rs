@@ -9,12 +9,11 @@
 
 use helix_core::effect::SqlValue;
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const CHANNEL_CLOSE_ACTION: &str = "channel_close";
 
@@ -65,9 +64,14 @@ impl WsMessageHandler for ChannelCloseHandler {
 }
 
 static CHANNEL_CLOSE_HANDLER: ChannelCloseHandler = ChannelCloseHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&CHANNEL_CLOSE_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static CHANNEL_CLOSE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: CHANNEL_CLOSE_ACTION,
-    handler: &CHANNEL_CLOSE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: CHANNEL_CLOSE_ACTION,
+        handler: &CHANNEL_CLOSE_HANDLER,
+    }
+}

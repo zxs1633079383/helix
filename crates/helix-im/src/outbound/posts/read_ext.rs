@@ -1,16 +1,13 @@
 //! posts 读族 outbound 扩展（bookmark / announcement / read/list）——从 posts_read.rs 外提 sibling。
 //!
 //! 与 `posts_read.rs` 分文件（§1 单文件 ≤300 行硬顶；posts_read.rs 已满）。
-//! 注册方式与 posts_read.rs 完全相同（`distributed_slice` + 本地 `read_cmd!` 宏）。
+//! 注册方式与 posts_read.rs 完全相同（`inventory` + 本地 `read_cmd!` 宏）。
 //! endpoint / body 真源同 posts_read.rs 头注释（mattermost csesapi 逐字，不自造 fixture）。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 // helpers 经 pub(super) 从 posts_read 引入
 use super::read::{carry_into, require_str_array};
 
@@ -30,11 +27,12 @@ macro_rules! read_cmd {
                 true
             }
         }
-        #[distributed_slice(OUTBOUND_COMMANDS)]
-        static $reg: OutboundRegistration = OutboundRegistration {
-            name: $name,
-            command: &$cmd_struct,
-        };
+        inventory::submit! {
+            OutboundRegistration {
+                name: $name,
+                command: &$cmd_struct,
+            }
+        }
     };
 }
 

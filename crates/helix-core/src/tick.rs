@@ -122,7 +122,7 @@ pub enum Tick {
     /// 应用命令（UI 层通过 Tauri command / FFI / WASM JS 注入）
     Command(AppCommand),
 
-    /// 传输连接建立（driver Transport 状态机重连成功后产生；内容路由，
+    /// 传输连接建立（driver 私有连接状态机成功后产生；内容路由，
     /// 模块据此执行业务策略——如 helix-im 的 cursor reset / proactive resync）
     Connected(TransportId),
 

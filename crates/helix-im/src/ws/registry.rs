@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use linkme::distributed_slice;
-
 use crate::error::ImError;
 use helix_core::EffectSink;
 
@@ -25,8 +23,9 @@ pub(crate) struct WsHandlerRegistration {
     pub(crate) handler: &'static dyn WsMessageHandler,
 }
 
-#[distributed_slice]
-pub(crate) static WS_HANDLERS: [WsHandlerRegistration];
+inventory::collect!(WsHandlerRegistration);
+
+const EXPECTED_WS_HANDLER_COUNT: usize = 28;
 
 static WS_HANDLER_MAP: OnceLock<
     Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError>,
@@ -34,16 +33,28 @@ static WS_HANDLER_MAP: OnceLock<
 
 pub(crate) fn registry(
 ) -> Result<&'static HashMap<&'static str, &'static dyn WsMessageHandler>, ImError> {
+    #[cfg(target_arch = "wasm32")]
+    super::handlers::force_link_inventory();
     WS_HANDLER_MAP
-        .get_or_init(|| build_registry(&WS_HANDLERS))
+        .get_or_init(|| {
+            let registry = build_registry(inventory::iter::<WsHandlerRegistration>)?;
+            if registry.len() != EXPECTED_WS_HANDLER_COUNT {
+                return Err(ImError::IncompleteWsHandlerRegistry {
+                    expected: EXPECTED_WS_HANDLER_COUNT,
+                    actual: registry.len(),
+                });
+            }
+            Ok(registry)
+        })
         .as_ref()
         .map_err(Clone::clone)
 }
 
 fn build_registry(
-    entries: &'static [WsHandlerRegistration],
+    entries: impl IntoIterator<Item = &'static WsHandlerRegistration>,
 ) -> Result<HashMap<&'static str, &'static dyn WsMessageHandler>, ImError> {
-    let mut registry = HashMap::with_capacity(entries.len());
+    let entries = entries.into_iter();
+    let mut registry = HashMap::with_capacity(entries.size_hint().0);
 
     for entry in entries {
         let handler_action = entry.handler.action();
@@ -210,10 +221,16 @@ mod tests {
     }
 
     #[test]
-    fn distributed_registry_has_unique_actions() {
-        let registry = build_registry(&WS_HANDLERS).unwrap();
+    fn inventory_registry_has_unique_actions() {
+        let expected = inventory::iter::<WsHandlerRegistration>.into_iter().count();
+        let registry = build_registry(inventory::iter::<WsHandlerRegistration>)
+            .expect("inventory WS registry must be valid");
 
-        assert_eq!(registry.len(), WS_HANDLERS.len());
+        assert_eq!(registry.len(), expected);
+        assert_eq!(
+            expected, EXPECTED_WS_HANDLER_COUNT,
+            "WS handler inventory 注册数不应静默漂移"
+        );
     }
 
     #[test]

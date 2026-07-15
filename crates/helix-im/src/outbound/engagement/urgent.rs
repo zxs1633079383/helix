@@ -8,14 +8,11 @@
 //! - urgentPost = `entity.UrgentPostVO`（post.go:502）`{channelId, postId, targetIds[], message?}`
 //! - urgentConfirm/urgentCancel = `{postId, channelId}`（posts.go:457/485 匿名 struct）
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// POST /api/cses/posts/urgentPost — 消息加急 → post_update。
 /// 真源 UrgentPostVO：targetIds 非空校验在 Go `Validate()`（"请选择用户后再操作"）→ 本地也校验
@@ -51,11 +48,12 @@ impl OutboundCommand for UrgentPostCommand {
     }
 }
 static URGENT_POST: UrgentPostCommand = UrgentPostCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static URGENT_POST_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_urgent_post",
-    command: &URGENT_POST,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_urgent_post",
+        command: &URGENT_POST,
+    }
+}
 
 /// POST /api/cses/posts/urgentConfirm — 确认加急（被加急者点确认）→ post_update。
 /// 真源 `{postId, channelId}`（posts.go:457）。
@@ -74,11 +72,12 @@ impl OutboundCommand for UrgentConfirmCommand {
     }
 }
 static URGENT_CONFIRM: UrgentConfirmCommand = UrgentConfirmCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static URGENT_CONFIRM_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_urgent_confirm",
-    command: &URGENT_CONFIRM,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_urgent_confirm",
+        command: &URGENT_CONFIRM,
+    }
+}
 
 /// POST /api/cses/posts/urgentCancel — 取消加急（发起者撤）→ post_update。
 /// 真源 `{postId, channelId}`（posts.go:485）。
@@ -97,8 +96,9 @@ impl OutboundCommand for UrgentCancelCommand {
     }
 }
 static URGENT_CANCEL: UrgentCancelCommand = UrgentCancelCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static URGENT_CANCEL_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_urgent_cancel",
-    command: &URGENT_CANCEL,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_urgent_cancel",
+        command: &URGENT_CANCEL,
+    }
+}

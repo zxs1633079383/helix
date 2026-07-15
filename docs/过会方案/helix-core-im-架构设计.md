@@ -359,20 +359,22 @@ flowchart LR
     style R fill:#2d4a2d,color:#fff
 ```
 
-## 3.4 Ws —— `Transport`（状态机在 driver）
+## 3.4 Ws —— `FrameSender`（core 只表达 outbound）
 
-`connect/send/recv/close` 四个纯语义。**握手、重连退避、心跳半死检测全是 driver 私有**（对齐现网 `WsRuntime`）；**重连业务策略（cursor reset / 主动补漏）在 Rust-im**。wasm 端 WebSocket 在 Worker 内直接可用，onmessage 经 futures-channel 桥回灌（wasm 无 tokio reactor）。
+core port 只保留 `send(frame)`；`connect/recv/close/reconnect` 是平台连接生命周期，不再要求三端
+实现同一套物理 socket API。PC/Flutter 默认复用 `SharedWsClient`，Web 由平台 bridge 兑现真实
+WebSocket，并把 connected/frame/disconnected 统一喂成既有 Tick。帧解析、hello/ping、cursor reset
+与主动补漏仍在 `helix-im`，不因物理连接实现不同而复制。
 
 ```mermaid
 flowchart LR
-    P[["网络端口 Transport<br/>连接 / 发帧 / 收帧 / 关闭"]]
-    P -->|"桌面端（native）"| N["tokio-tungstenite 读写分离（.split()）"]
-    P -->|"浏览器（wasm）"| W["web-sys WebSocket + futures-channel 手桥"]
-    P -->|"移动端（ffi）"| F["C 接口帧注入"]
-    N -->|"收到一帧"| R[["入站帧（Tick::Inbound）喂入 step"]]
-    W --> R
-    F --> R
-    POLICY["重连退避 / 25s 心跳 / 游标重置<br/>= 业务策略，helix-im 响应连接/断开事件"] -.业务策略在 im 层.-> P
+    SEND["Effect::Send{transport, frame}"] --> P[["core port FrameSender::send"]]
+    P -->|"桌面端（native）"| N["NativeTransport → SharedWsClient"]
+    P -->|"移动端（ffi）"| F["SharedWsClient sender 注册表"]
+    P -.->|"Web（A4）"| W["ExternalWsBridge → 浏览器 socket"]
+    LIFE["平台物理生命周期<br/>connect / reader / close / reconnect"] --> R[["Tick::Connected / Inbound / Disconnected"]]
+    R --> IM["helix-im 协议与业务状态机"]
+    IM --> SEND
     style P fill:#1a3a5c,color:#fff
     style R fill:#2d4a2d,color:#fff
 ```
@@ -538,7 +540,7 @@ sequenceDiagram
     Note over F,R: opaque ptr 单 owner；FFI 即返回，事件走 SendPort 异步流；panic=abort 不跨边界
 ```
 
-- **喂命令** `helix_command` 调用即返回（不阻塞 UI isolate）；**读查询**走独立同步 `helix_query` 直连 Storage，不混 SendPort 事件流（读写天然分离，Dart 端零 multiplexing）。
+- **喂命令/业务查询** `helix_command` 调用即返回（不阻塞 UI isolate），结果通过批量 DomainEvent 返回；`helix_query` 只提供 capabilities/version 元信息，不直连 Storage。
 - **送事件**：Emit 经 `SendPort` 异步流回，`Stream.listen` 渲染。
 - **FFI 铁律**：opaque ptr 单 owner（`into_raw`/`from_raw` 各一次）；panic 策略**二选一不混用**——生产 cdylib `panic="abort"`（无 unwind 可跨边界，无需 catch_unwind）/ dev unwind 时每个 `extern "C"` 包 `catch_unwind` 转错误码。
 

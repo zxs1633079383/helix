@@ -10,7 +10,7 @@
 
 ## 领域责任
 
-P0 活账、HX-C 卡、gate/acceptance、review-gap、EXPECT/DONE 证据边界和文档熵管理。
+P0 活账、HX-C 卡、gate/acceptance、EXPECT/DONE 证据边界和文档熵管理。
 
 ## 事实路径
 
@@ -37,7 +37,6 @@ P0 活账、HX-C 卡、gate/acceptance、review-gap、EXPECT/DONE 证据边界�
 - `roadmap-p0-live-ledger`
 - `harness-index-invariant`
 - `hxc012-expect-for-substantial-task`
-- `review-gap-cadence`
 
 ## Mermaid 图谱
 

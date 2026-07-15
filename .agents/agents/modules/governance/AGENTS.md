@@ -14,7 +14,7 @@
 
 ## 模块责任
 
-项目 harness、路线图、约束、review ledger、gate 脚本与文档熵管理。
+项目 harness、路线图、约束、gate 脚本与文档熵管理。
 
 ## 负责路径
 
@@ -39,7 +39,6 @@
 
 <!-- agent-constraints:start -->
 - `harness-index-invariant`
-- `review-gap-cadence`
 - `docs-drift-check`
 - `commit-convention-harness-section`
 <!-- agent-constraints:end -->

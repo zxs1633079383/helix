@@ -22,7 +22,7 @@ Router 把用户任务、影响路径、关键词和约束订阅转成 agent 队
 
 - 不允许把 IM schema、wire 字段、temporaryId 推进 `helix-core`。
 - 不允许把重连/HTTP/WS/SQLite 业务实现塞进 `helix-core`。
-- 不允许把 `helix-driver-wasm` 当作当前 roadmap/CI 交付目标。
+- `helix-driver-web` 是正式 Web 平台壳；Browser glue 只接浏览器 API 和物理 WebSocket，不含产品 UI，不得复制 Rust 持有的业务 HTTP/query 或 WS parser。
 - 不允许把 HTTP 200、WS、projection/storage、DOM 证据混为一个绿色结论。
 - 不允许 worker 无授权覆盖 crate 级 `AGENTS.md`；确需修改时必须遵守对应目录边界。
 

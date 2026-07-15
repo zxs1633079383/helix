@@ -317,6 +317,18 @@ pub enum SqlValue {
 /// 行数据（列名 → SQL 值）
 pub type Row = Vec<(String, SqlValue)>;
 
+/// Identity and optional scope metadata for sparse, non-SQL Storage adapters.
+///
+/// Business modules own the concrete table-name values. A platform driver can
+/// combine specs from any registered module without depending on that module's
+/// Rust types or parsing its SQL DDL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SparseTableSpec {
+    pub table: &'static str,
+    pub identity_cols: &'static [&'static str],
+    pub scope_col: Option<&'static str>,
+}
+
 /// HTTP 请求（driver 的 HttpRequester 解析并发出）
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
@@ -362,7 +374,7 @@ pub struct FileUploadResponse {
 /// 不可依赖 `Vec` 下标顺序。
 #[derive(Debug)]
 pub enum Effect {
-    /// 发送 WS 帧（driver 调用 Transport::send）
+    /// 发送 WS 帧（driver 调用 FrameSender::send）
     Send {
         transport: TransportId,
         frame: Bytes,

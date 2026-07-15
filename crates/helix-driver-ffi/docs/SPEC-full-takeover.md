@@ -35,7 +35,7 @@
 | 3 | `helix_set_header` | `int32_t helix_set_header(HelixHandle* h, const uint8_t* k, uintptr_t klen, const uint8_t* v, uintptr_t vlen)` | 鉴权头热更新（注入 Authorization 等；覆盖 401 重注链路） | ✅ 已通 |
 | 4 | `helix_remove_header` | `int32_t helix_remove_header(HelixHandle* h, const uint8_t* k, uintptr_t klen)` | 移除鉴权头 | ✅ 已通 |
 | 5 | `helix_command` | `int32_t helix_command(HelixHandle* h, const uint8_t* name, uintptr_t nlen, const uint8_t* payload, uintptr_t plen)` | **唯一命令入口**：全部 outbound/WS/query/send/reconnect 经此分发（`AppCommand{name,payload}` → `Tick::Command`） | ✅ 已通 |
-| 6 | `helix_query` | `int32_t helix_query(HelixHandle* h, const uint8_t* name, uintptr_t nlen, const uint8_t* payload, uintptr_t plen, uint8_t** out_ptr, uintptr_t* out_len)` | 同步本地读出口（**当前 honest stub，返回 `FFI_UNIMPLEMENTED`**；见 §7-G7） | 🟡 预留 stub |
+| 6 | `helix_query` | `int32_t helix_query(HelixHandle* h, const uint8_t* name, uintptr_t nlen, const uint8_t* payload, uintptr_t plen, uint8_t** out_ptr, uintptr_t* out_len)` | capabilities/version 元信息出口；业务查询返回 `FFI_UNIMPLEMENTED` 并改走异步命令 | ✅ 元信息 |
 | 7 | `helix_query_free` | `void helix_query_free(uint8_t* ptr, uintptr_t len)` | 释放 `helix_query` 返回的 boxed slice（`Box::<[u8]>::from_raw`，单 owner） | 🟡 配套 stub |
 
 ### 1.2 返回码体系
@@ -214,7 +214,7 @@ repeat count 次:
 | 论断 | 裁决 | 附带条件 |
 |---|---|---|
 | **C ABI 面不随 UC 增长** | ✅ **成立**（三方独立确认，证伪失败）| 必写 §1.4 三条已知边界，防「不增长=够用」偷换 |
-| **helix_query=A 异步足够** | ✅ **成立**（两方确认：异步管道+loading skeleton 覆盖冷启动首帧；同步反而阻塞 UI isolate=反模式，且必泄漏 IM schema 违 HX-C001）| stub 须先清零 out 参数（G-10）；正名为「已决策的异步读架构」非「未实现 gap」 |
+| **helix_query=A 异步足够** | ✅ **成立**（两方确认：异步管道+loading skeleton 覆盖冷启动首帧；同步反而阻塞 UI isolate=反模式，且必泄漏 IM schema 违 HX-C001）| 业务查询返回前须清零 out 参数（G-10）；capabilities/version 仍通过该 ABI 返回 |
 | **ffi 单线程语义等价** | ✅ **成立（仅无丢事件前提）**；lagged 下**证伪成功**=裂缝（G-3）| 五不变量逐条成立；**③ 写序靠 N=1 单消费者非线程**（原「③冗余」措辞错已修，P1-1）；⑤更强；lagged deadline 锚 M2 |
 
 ### 7.2 Gap 决策表

@@ -8,7 +8,7 @@
 
 ## §0 一段话定义（北极星，背下来）
 
-**Helix 是我们的「运行时无关确定性业务内核」**——目标是一份业务逻辑只写一次，产品目标集合为 **PC 端 Tauri（native）+ 手机端 Flutter（FFI）+ Web**；当前交付事实是 native/FFI 已产品化、Web 自 2026-07-13 按 ADR-014 进入 W0 可达性与契约验证，尚未交付。IM 只是跑在它上面的第一个业务模块，内核本身不认识任何业务；核心设计理念是 **sans-IO 六边形**：`helix-core` 零运行时、零平台依赖，它不做 I/O、不持有 tokio，只定义一组**端口（ports）**和一个纯状态机执行壳——喂入（入站帧 / now_ms / 端口响应）、吐出（Effect），真正的网络、存储、线程、时间、随机、ID 全部由各平台的薄驱动注入（这就是"确定性"的来源，也是并发不进 core 的原因），依赖方向严格单向 `driver → core` 永不反向；同一份 `helix-im` 负责三端共同的 WS 帧解析、sequence/cursor、echo、已读和补偿同步，平台只兑现 I/O。PC native 与 Flutter FFI 继续共同复用 `helix-driver-host` 的完整 SQLite/HTTP/WS；Web 规划由 `helix-driver-web` 在 Dedicated Worker 中兑现浏览器 Transport 和 session store，并只把近期消息、会话摘要、草稿或 UI 偏好投影为有界可淘汰缓存，不要求复制 PC/手机端的大体量数据库。现有 `helix-driver-wasm` 仍是历史实验，不等于正式 Web 产品壳。
+**Helix 是我们的「运行时无关确定性业务内核」**——目标是一份业务逻辑只写一次，产品目标集合为 **PC 端 Tauri（native）+ 手机端 Flutter（FFI）+ Web**；当前交付事实是 native/FFI 已产品化，Web 的 Rust 平台壳、最小浏览器 glue 与正式 gate 已落地，但真浏览器→真 Go 产品链仍待环境验收。IM 只是跑在它上面的第一个业务模块，内核本身不认识任何业务；核心设计理念是 **sans-IO 六边形**：`helix-core` 零运行时、零平台依赖，它不做 I/O、不持有 tokio，只定义一组**端口（ports）**和一个纯状态机执行壳——喂入（入站帧 / now_ms / 端口响应）、吐出（Effect），真正的网络、存储、线程、时间、随机、ID 全部由各平台的薄驱动或适配器注入（这就是"确定性"的来源，也是并发不进 core 的原因），依赖方向严格单向 `driver → core` 永不反向；同一份 `helix-im` 负责三端共同的业务门面、local-first/remote fallback、WS 帧解析、sequence/cursor、echo、已读和补偿同步。PC native 与 Flutter FFI 继续共同复用 `helix-driver-host` 的完整 SQLite/HTTP/WS；Web 使用 Rust 内存 session store 与 Browser Fetch，物理 WebSocket 生命周期由浏览器适配器兑现。原 W0 浏览器探针、Dedicated Worker/IndexedDB 预设和 W0→W4 顺序继续失效；历史 `helix-driver-wasm` 已删除。
 
 ---
 
@@ -31,7 +31,7 @@
 - ❌ 不用 `&'a` 生命周期载荷穿 async/channel（用 owned/Copy/arena id）→ `HX-C002`
 - ❌ 不在热路径堆分配 / read-modify-write（O(1) only）→ `HX-C005`
 - ❌ 不让 panic unwind 跨 FFI；opaque ptr 不双 own → `HX-C006`
-- ❌ 不逐条过 FFI 边界传 Effect（批量）→ `HX-C007`
+- ❌ 不逐条过 Web/FFI 边界传 Effect/Event（按 step/batch）→ `HX-C007`
 - ❌ 不设互斥 feature → `HX-C004`
 - ❌ 不让业务 schema 泄漏进 core 的 ports
 - ❌ 不为了"通用"预建用不到的插件框架（通用性靠 ≥1 真实模块 + 第二模块插得进挣）
@@ -41,13 +41,14 @@
 ## §3 成功标准（measurable）
 
 - ✅ `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` 输出为空
-- ✅ 已交付双端编译全绿：`cargo check` native（core/im/driver-native/driver-ffi）；Web 在 W1 建立正式壳后追加 wasm target gate
+- ✅ 已产品化双端编译全绿；A4 `helix-driver-web` 已通过 `wasm32-unknown-unknown` 构建，正式 Web CI/HX-C003 已在 A5 激活为 native + wasm final artifact 双目标门
 - ✅ `grep channel/message/temporaryId crates/helix-core` = 0（纯 IM 概念隔离；cursor 概念归 helix-im，core 只有通用 `monotonic_upsert` 单调原语——ADR-004 已闭环，见 [decisions.md](./harness/decisions.md#adr-004) / 纪要拍板 #1）
 - ✅ 加新业务模块 = 实现 `Module` trait + `register()`，**core 一行不改**（开闭原则）
 - ✅ 加新平台 = 实现 ports，**core/模块一行不改**
-- ✅ 同一份 core/im 在集成测试（无 webview）/ Tauri / Flutter FFI 零改复用；Web W1 验收要求同 Tick 剧本输出同业务 Effect/DomainEvent
-- ✅ 三端共享业务语义但允许平台能力不同：PC/Flutter 完整 SQLite；Web session state + bounded cache，缓存不是权威消息库
-- ✅ Web WS 帧处理复用 `helix-im`；真实 socket、浏览器生命周期与鉴权由 `helix-driver-web` 兑现
+- ✅ 同一份 core/im 在集成测试（无 webview）/ Tauri / Flutter FFI / Web Rust 壳零改复用；同 Tick native/FFI/Web 业务输出一致已由 A4 parity 测试证明，真实 Chromium + WASM 已验证 hello/local-first/HTTP fallback/文本 WS，真 Go 完整链路仍待环境验收
+- ✅ 三端共享 `helix-im::client_api` 与异步 query 主路径；driver 不保留 query/HTTP fallback 业务旁路
+- ✅ 三端共享业务语义但允许平台能力不同：PC/Flutter 完整 SQLite；Web 使用不跨刷新的有界内存 session store
+- ✅ core WS port 只表达 outbound frame；Web WS 帧处理复用 `helix-im`，真实 socket、浏览器生命周期与鉴权由 Web 平台适配器兑现
 
 ---
 
@@ -56,12 +57,12 @@
 | 否定的方案 | 为什么否 |
 |---|---|
 | 把 tokio/sqlx/tungstenite bake 进 core（初版 im_core）| 单平台假设，wasm 立刻碎；已拆三层 |
-| 单平台 YAGNI 砍掉 Storage/Clock/Transport 抽象 | PC + Flutter + Web 目标下那三个仍是命根子；YAGNI 边界必须在目标平台集合下画 |
+| 单平台 YAGNI 砍掉 Storage/Clock/FrameSender 抽象 | PC + Flutter + Web 目标下这些能力边界仍是命根子；YAGNI 边界必须在目标平台集合下画 |
 | core 强加 Send bound | 会把单线程/FFI 宿主形态锁死；默认 Unsync + 跨线程 opt-in Sync |
 | Effect 逐条过边界 | 固定开销线性叠加；Dioxus sledgehammer 批处理 |
 | 互斥 feature（native/wasm 二选一）| feature unification 单调性必爆 |
-| 把历史 `helix-driver-wasm` 直接当正式 Web 实现 | Web 已按 ADR-014 重启，但历史骨架仍有大量未兑现端口；正式壳先过 W0/W1，再命名为 `helix-driver-web` |
-| 为追求“三端一致”强迫 Web 复制完整 SQLite | 共享的是协议与业务语义，不是持久化数据量；Web 应使用 session state + bounded cache |
+| 复活已删除的历史 `helix-driver-wasm` | 正式 Web 边界已经由 `helix-driver-web` 兑现；旧骨架不得恢复为第二套实现 |
+| 为追求“三端一致”强迫 Web 复制完整 SQLite | 共享的是协议与业务语义，不是持久化数据量；Web 可选择无持久化或受限缓存 |
 | Web 只持久化 cursor、不持久化其声明已应用的数据 | 刷新后 cursor 超前会永久跳过缺失投影；必须联合记录 cache coverage/window 或冷启动重同步 |
 
 ---

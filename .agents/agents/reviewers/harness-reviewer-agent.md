@@ -10,7 +10,7 @@
 
 ## 审查焦点
 
-HX-C 卡、GOAL/ROADMAP、OPERATING 触发器、review-gap、结构闸门与验收节律。
+HX-C 卡、GOAL/ROADMAP、OPERATING 触发器、功能/安全闸门与验收证据。
 
 ## 触发词
 

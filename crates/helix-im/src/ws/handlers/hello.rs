@@ -1,10 +1,9 @@
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::{ChannelId, ConnState, Seq};
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const HELLO_ACTION: &str = "hello";
 
@@ -59,9 +58,14 @@ impl WsMessageHandler for HelloHandler {
 }
 
 static HELLO_HANDLER: HelloHandler = HelloHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&HELLO_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static HELLO_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: HELLO_ACTION,
-    handler: &HELLO_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: HELLO_ACTION,
+        handler: &HELLO_HANDLER,
+    }
+}

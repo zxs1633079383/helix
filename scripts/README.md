@@ -6,11 +6,10 @@ top-level scripts.
 
 ## Core Gates
 
-- `gate.sh` - local pre-commit/pre-push style aggregate gate.
+- `gate-fast.sh` - scope-aware local/pre-push gate; scripts and low-risk crates run only relevant checks.
+- `gate.sh` - full CI/merge delivery gate for native + FFI.
 - `branch-identity.sh` - branch identity report for SESSION handoff.
 - `branch-sync-gate.sh` - branch/upstream drift guard.
-- `review-gap.sh` - architecture review cadence gate.
-- `structure-gate.sh` - Rust file/module structure gate.
 - `ddd-structure-gate.sh` - DDD/package boundary structure gate.
 - `coverage.sh` - Rust coverage entrypoint.
 - `fullmap-coverage.sh` - IM migration coverage table check.

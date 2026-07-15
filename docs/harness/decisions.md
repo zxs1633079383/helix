@@ -12,10 +12,10 @@
 - **理由**：本仓 BLK-2（`Tick<'a>` 满足不了 `Sender<Tick<'static>>`）+ Dioxus `Scope<'a>` 生命周期地狱教训。
 - **状态**：已定。配套 HX-C002。
 
-## ADR-003 — wasm driver 误链守护 + CI 三栖 matrix（历史方案，待 W1 重建）
+## ADR-003 — wasm driver 误链守护 + CI 三栖 matrix（历史方案）
 - **决策**：helix-driver-wasm 顶部 `#[cfg(not(wasm32))] compile_error!`；CI 必 per-target check（workspace 排除 wasm crate + wasm crate 单独 --target）。
 - **理由**：cfg 分支只在对应 target type-check（MAJ-2）；防 wasm 符号误链 native。
-- **状态**：历史方案已归档；ADR-014 已于 2026-07-13 重启 Web W0，但 HX-C003 在正式 `helix-driver-web` 壳进入 W1 前仍保持 archived，当前产品 CI 不要求 wasm target。W1 应按新产品壳重建守护并升为 active，不直接把历史骨架恢复成必跑项。
+- **状态**：历史方案已归档；Web 仍是产品目标，但旧 W0→W1 路线已撤销。HX-C003 在新的 Web Rust 接入层真正落地前保持 archived，当前产品 CI 不要求 wasm target，也不直接把历史骨架恢复成必跑项。
 
 ## ADR-004 — CursorUpsert 是否算 core 通用原语（已闭环）
 - **背景**：review 后实测 `grep channel/message/temporary crates/helix-core` = 0（纯 IM 概念隔离干净），但 `cursor`（`CursorUpsert` effect）进了 core（5 处）。
@@ -54,12 +54,12 @@
 
 ## ADR-010 — PC/Flutter 共享 Rust host driver HTTP/WS client
 > 📌 merge 注：本 ADR 在 main 分支原编号 ADR-008，与 dev-zlc 的 ADR-008（sync-v2）号撞；2026-06-16 merge main→dev-zlc 时改号 ADR-010（内容不变，避免双 008）。
-- **决策**：HTTP client 与 WebSocket client 不属于 IM 模块，也不按端各写一套；它们是 `helix-driver-host` 的共享 host I/O 能力。`helix-driver-native` 与 `helix-driver-ffi` 只负责平台壳职责（Tauri command/event、FFI ABI、路径、生命周期、打包、灰度开关），通过同一套 shared HTTP/WS runtime 兑现 core 的 `HttpRequester` / `Transport` port。Flutter/Dart 与 Tauri 前端都只调用命令、订阅事件、渲染，不直接写业务 HTTP、IM sync、WS 长连、cursor、echo 对账或消息 SQL。
+- **决策**：HTTP client 与 WebSocket client 不属于 IM 模块，也不按端各写一套；它们是 `helix-driver-host` 的共享 host I/O 能力。`helix-driver-native` 与 `helix-driver-ffi` 只负责平台壳职责（Tauri command/event、FFI ABI、路径、生命周期、打包、灰度开关），通过同一套 shared HTTP/WS runtime 兑现 core 的 `HttpRequester` / `FrameSender` port；连接、收帧、关闭和重连仍由 host/native/FFI 具体生命周期管理。Flutter/Dart 与 Tauri 前端都只调用命令、订阅事件、渲染，不直接写业务 HTTP、IM sync、WS 长连、cursor、echo 对账或消息 SQL。
 - **初始化边界**：shared HTTP/WS client 的代码只有一份，但初始化材料由端壳或登录模块提供：`api_base_url`、`ws_url`、默认 headers、WS 握手 headers、user-agent、timeout/proxy/TLS 等平台配置。Helix 不负责登录/刷新 token，只提供 `HostNetworkConfig` 与 header registry/update API（如 `set_header` / `remove_header` / `replace_headers`），由 shared client 在 HTTP 请求与 WS connect/重连时统一读取并注入。
 - **边界**：业务模块（如 `helix-im`，未来 presence/meeting/notify）只组装业务请求意图、解析业务帧、维护业务状态机；它们不拥有网络 client，也不直接读写 token/header。登录/鉴权不纳入 Helix 业务边界，Helix 只消费外部已获得的 token/header/session 配置，并由 shared HTTP/WS client 统一注入到后续请求/连接。平台必须使用系统网络栈、证书代理或后台能力时，可保留 host callback 作为逃生口，但不是 PC/Flutter 产品主路径。
 - **理由**：IM 只是第一个业务模块，若每个模块或每个端都各写 HTTP/WS，会导致重连、超时、header 注入、连接复用、错误分类和事件回灌语义漂移。共享 client 让“一个逻辑”落到真实工程结构：业务协议一份、I/O 执行一份、平台壳多份。
-- **状态**：已定并阶段落地（2026-06-16）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；`helix-driver-native` 改为薄壳复用 shared client；`helix-driver-ffi` 的 Rust 侧主路径复用 shared client，并暴露 `helix_set_header` / `helix_remove_header`。保留项：WS reconnect/backoff、proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
-> ✅ transport.rs 已适配本 ADR（6b2fd52）：`NativeTransport` 薄壳复用 `SharedWsClient`，tokio-tungstenite 降为 dev-dep（仅集成测试）；真 Go 硬修保住（Text 帧 / 握手头灌 registry / 不回客户端 hello / 入站 `Tick::Inbound` 推送 via `with_inbound_tick`），真 Go :8065 直连 22s 回归通过（0 个 8s 断连）。保留项：WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback、native·FFI 共享 registry 对称化（drift D3 待修）。
+- **状态**：已定并阶段落地（2026-06-16；2026-07-14 A3 收窄 WS port、A3.1 收口真实生命周期）。`helix-driver-host` 已提供共享 `HostNetworkConfig`、header registry、`SharedHttpClient`、`SharedWsClient`；native/FFI 共用一次性 activation、Connected→reader 发布屏障与每连接断线去重。native 先预填 sender 表再 activation，FFI 动态注册则等待 engine insert ack 后 activation。core 旧 `Transport` 已删除，只保留 send-only `FrameSender`。保留项：proxy/TLS/cert 等平台 knobs、旧 callback fallback 的完整接线，以及真 Go smoke。
+> ✅ transport.rs 已适配本 ADR（6b2fd52）：`NativeTransport` 薄壳复用 `SharedWsClient`，tokio-tungstenite 降为 dev-dep（仅集成测试）；真 Go 硬修保住（Text 帧 / 握手头灌 registry / 不回客户端 hello / 入站 `Tick::Inbound` 推送 via `with_inbound_tick`），真 Go :8065 直连 22s 回归通过（0 个 8s 断连）。保留项：proxy/TLS/cert knobs、旧 callback fallback、native·FFI 共享 registry 对称化（drift D3 待修）。
 
 ## ADR-011 — host-cli 固定联调 deviceId/userId 为**故意例外**（dev-bin 凭据，非交付物）
 - **决策**：`helix-host-cli`（本机联调宿主 bin，**非交付目标**，不入 native/FFI 驱动集与 CI 必跑矩阵）允许在 `main.rs` 把现网真实 deviceId（`ED380414…`）作为 `HELIX_DEVICE_ID` env 之后的**默认兜底值**写进源码；doc/注释里的 dev `userId` 同属固定联调身份。`HELIX_DEVICE_ID` env 始终可覆盖。这是 commit d966250 引入、用户 **2026-06-21 + 2026-06-22 两次明确拍板**的故意例外——**不是**「无 ADR 反转铁律」。
@@ -68,11 +68,11 @@
 - **代码事实**：仅 `crates/helix-host-cli/src/main.rs`（deviceId 三级解析链 + doc 头）；`main.rs` 注释已指向本 ADR，消除「反转铁律无登记」矛盾。
 - **状态**：已定（2026-06-22，用户拍板）。drift-review 2026-06-22 将其列为 🟡 凭据卫生 finding，经用户确认为故意例外 → 本 ADR 收口，**后续 drift-review 不再复报**。
 
-## ADR-012 — 默认 gate 对齐 PC native + Flutter FFI；Web W0 期间不伪造 wasm 交付门
-- **决策**：`scripts/gate.sh` 的默认交付门在 Web W0 期间仍只覆盖已产品化目标：PC Tauri/native 与 Flutter FFI。默认门必须调用 `scripts/ffi-verify.sh --no-demo`，把 FFI 仓内 1–5 层（Rust e2e/clippy/零运行时/native↔ffi parity/C++ ABI smoke）纳入提交验证。第 6 层仓外 Flutter demo 由 `scripts/gate.sh --full` 或手动 `scripts/ffi-verify.sh` 触发；7–8 层 Flutter UI/Maestro 需完整 Xcode/设备，继续作为外部环境验收，不进入默认 gate。历史 `helix-driver-wasm` 继续 archived/experimental，不作为默认交付 gate；ADR-014 的 W1 建立正式 `helix-driver-web` 后，再把 wasm type-check、跨端 parity 与浏览器 smoke 纳入 CI。
-- **理由**：FFI 是当前已产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。Web 当前只是 W0，正式 crate 和真实浏览器验收尚未建立；此时把历史 wasm 骨架恢复成默认 gate，既不能证明 Web 可交付，也会制造错误的完成感。
+## ADR-012 — 默认 gate 对齐 PC native + Flutter FFI；Web 方案落地前不伪造交付门
+- **决策**：`scripts/gate.sh` 的默认交付门只覆盖已产品化目标：PC Tauri/native 与 Flutter FFI。默认门必须调用 `scripts/ffi-verify.sh --no-demo`，把 FFI 仓内 1–5 层（Rust e2e/clippy/零运行时/native↔ffi parity/C++ ABI smoke）纳入提交验证。第 6 层仓外 Flutter demo 由 `scripts/gate.sh --full` 或手动 `scripts/ffi-verify.sh` 触发；7–8 层 Flutter UI/Maestro 需完整 Xcode/设备，继续作为外部环境验收，不进入默认 gate。历史 `helix-driver-wasm` 继续 archived/experimental，不作为默认交付 gate；新的 Web Rust 接入层与验收合同落地后，再按实际边界扩展 CI。
+- **理由**：FFI 是当前已产品化手机端，`--no-demo` 全部仓内可跑、无 Xcode/设备依赖，长期留在“自检脚本但不进主 gate”会制造 main-gate 与 FFI-self-check 的模糊裂缝。相反，仓外 demo/Flutter UI/Maestro 依赖开发机外部状态，不适合每次提交默认阻塞。Web 新架构虽已于 2026-07-14 拍板，但正式 crate 和验收合同尚未落地；此时恢复历史 wasm 骨架或保留旧 probe gate，既不能证明 Web 可交付，也会制造错误的完成感。
 - **代码事实**：`scripts/gate.sh` 第 2 步为 PC/native + Flutter/FFI 双端 cargo check，不再默认 wasm target；第 8 步调用 `bash scripts/ffi-verify.sh --no-demo`。`scripts/ffi-verify.sh` 仍可独立运行，且用法说明标明默认 gate 与 demo/full 的边界。
-- **状态**：已定（2026-06-22，Task 4 gate alignment），并由 ADR-014 校准 Web 重启后的阶段边界：W0 继续双端 gate，W1 再扩为多端 gate。
+- **状态**：已定（2026-06-22，Task 4 gate alignment）；2026-07-13 撤销旧 Web W0→W1 路线后，仍保持双端 gate，待新方案落地再扩展。
 
 ## ADR-013 — helix 不采用 bitmap segment 增量同步；message.segment_id 列/索引移除
 
@@ -83,16 +83,18 @@
 - **代码事实**：仅 helix-im（`schema.rs` 删列+索引+加例外注释；`channel.rs`/`acl/to_effect.rs` 删注释中 segment_id；`tests/c2_phantom_readbits_test.rs` 删 forbidden 列表中 segment_id）。core 无 channel/segment 概念，零运行时不受影响。
 - **状态**：已定（2026-06-22，用户拍板「清掉，确认弃用 bitmap」）。如未来要把 segment-based 离线同步引入 helix，需新增 ADR 重新激活该列与机制（按 ADR-008 的 event_seq cursor 优先，不默认回退 bitmap）。
 
-## ADR-014 — Web 重新进入产品目标：共享业务语义，采用轻持久化与浏览器 Transport
+## ADR-014 — Web 重新进入产品目标：共享业务语义，平台能力允许不同
 
-- **决策**：Helix 产品目标集合扩为 PC Tauri、Flutter 手机端与 Web 三端。当前交付事实仍是 native/FFI 已产品化、Web 处于 W0 可达性与契约验证阶段，禁止把“进入 roadmap”写成“已经交付”。Web 复用同一份 `helix-core + helix-im`，不复制协议解析、WS 消息处理、sequence/cursor、echo、已读、撤回、编辑、补偿同步或发送状态机。
-- **存储边界**：三端共享 `Storage` 行为契约，不要求共享相同物理数据库或持久化数据量。PC/Flutter 继续复用 `helix-driver-host` 的完整 SQLite；Web 默认采用“会话内权威状态 + 有界可淘汰缓存”——运行期 `StorageOp` 由 Web session store 兑现，跨刷新只保存经明确选择的近期消息、会话摘要、草稿或 UI 偏好。Web 缓存不是服务端权威库。**禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor**；若未来要跨刷新恢复，必须把 cursor 与 cache coverage/window 作为联合检查点，或冷启动重新 bootstrap/sync。
-- **WebSocket 边界**：WS 帧进入后的业务处理与协议生命周期属于共享 `helix-im`；真实 socket 的创建、open/message/error/close 回调、浏览器 online/visibility/page 生命周期、重连执行与鉴权接线属于 Web driver。Rust WASM 可以通过浏览器 API 管理 WebSocket 对象，但浏览器拥有底层 TCP/TLS、握手能力与最终执行上下文生命周期。平台事件统一翻译为 `Tick::Connected/Inbound/Disconnected`，共享模块继续输出 `Effect::Send/Http/Emit/...`。
-- **产品壳与历史代码**：正式 Web 产品壳规划命名为 `helix-driver-web`，运行于 Dedicated Worker，主线程只发送命令、生命周期事件并批量接收 DomainEvent。现有 `helix-driver-wasm` 继续作为历史实验/trait-shape 参考，不原地视为可交付实现；是否迁移可复用片段在 W1 代码审计后决定。
-- **鉴权闸门**：W0 必须先用真实浏览器验证 CORS、Cookie/session、WS 握手与现网 `cookieId/deviceId/companyId/appType` 约束。浏览器不能任意设置 WS 握手 header，候选路线为同源 BFF/WS gateway、Go 原生 Cookie/短期 ticket 或连接后认证帧；涉及 Go/部署的选择另行拍板，未通过 W0 不进入持久化实现。
-- **CI/harness 激活节律**：ADR-012 的 native/FFI 默认 gate 在 W0 期间保持不变。W1 创建可编译的正式 Web 壳后，必须把 wasm target type-check、同 Tick 剧本跨端 Effect/DomainEvent parity 和浏览器 smoke 纳入 CI，并把 HX-C003 从 archived 升为 active；在此之前不得伪造一个永远红或只检查历史骨架的 Web gate。
-- **理由**：Web 产品通常以服务端为权威、弱离线和有界缓存为主，不适合复制 PC/手机端的大体量本地库；但 WS 消息语义与业务状态机若另写会导致三端行为漂移。把“业务语义复用”与“平台能力差异”分离，既守住 runtime-agnostic/sans-IO 原点，也允许浏览器在存储量、连接存活和鉴权能力上诚实降级。
-- **状态**：已定（2026-07-13，用户拍板）。覆盖 ADR-006 的“Web 暂停维护”产品结论；不覆盖 ADR-007/010 的 PC/Flutter shared host 实现，也不宣称现有 wasm 骨架已完成。
+- **仍有效的决策**：Helix 产品目标集合为 PC Tauri、Flutter 手机端与 Web 三端；native/FFI 已产品化，Web 尚未交付。三端复用同一份 `helix-core + helix-im` 业务语义，不复制协议解析、WS 消息处理、sequence/cursor、echo、已读、撤回、编辑、补偿同步或发送状态机。
+- **业务门面决策**：三端统一经过 `helix-im::client_api` 归一化业务 command/query；现有 `helix-im::query` 异步 command → Effect → PortReply → DomainEvent 路径是唯一查询真源。`mobile_contract` 保留兼容 re-export；`mobile_query` 与 FFI 同步直查 Storage 旁路已于 2026-07-15 删除，`helix_query` 仅保留元信息；driver 不保留 alias、query SQL、remote fallback 或投影 shape 副本。
+- **WASM inventory 链接决策**：`inventory` 继续作为 IM 注册单轨；WASM final artifact 除执行 ctors 外，必须显式触碰全部 WS handler 模块，防止 wasm-ld 裁掉只由 ctor 可达的 rlib 成员；registry 数量不等于冻结的 28 时 fail-closed，不允许等到某条真帧才报 unsupported。
+- **能力边界决策**：PC/Flutter 继续复用 `helix-driver-host` 的完整 SQLite/HTTP/WS 默认实现；Web 使用独立 `helix-driver-web`，首版兑现 Rust 有界内存 session store、Rust Browser Fetch 与浏览器物理 WS bridge，不依赖 `helix-driver-host`，不做 IndexedDB/OPFS。local-first/remote fallback 只在 `helix-im`，以 `LocalStoreMode` + `LocalReadCoverage` 明确区分 Complete/Partial/Miss/Unsupported，空 rows 不得冒充完整或不支持。最近消息 `Complete` 必须由当前连接会话内成功远端读取 + cache Persist 后记录的消息身份窗口证明；hello/disconnect 清 proof，已知 sync gap 降为 Partial。`getLatestPost` 只证明最近 20 基础窗口，`limit>20` 不得凭单次响应伪装完整。dialogList 没有等价同步 HTTP，继续由本地投影 + WS increment 兑现。
+- **WebSocket port 决策**：core 只保留 outbound `send(frame)` 的 `FrameSender`；`helix-driver-host` 的 engine/dispatch 只依赖该能力。`connect/recv/close/reconnect` 位于 host/native/FFI 的具体连接生命周期边界；Web 通过平台 bridge 把 connected/frame/disconnected 喂成既有 Tick，并消费 outbound frame action。A3 已完成迁移并删除 core 旧 `Transport`。
+- **浏览器 WS 鉴权决策（2026-07-14 用户拍板）**：浏览器原生 `WebSocket` 不设置自定义握手 Header；平台 glue 使用 `URLSearchParams` 把 `cookieId=authUserId` 追加到 `ws_url`，不在 JS 复制登录或业务鉴权逻辑。Go `/api/v4/websocket` 保留原 header 优先级，并在 header 缺失时按 `userId → cookieId` 从 query 回落；raw trace 与连接日志不得记录这两个参数的明文。HTTP 仍由 Rust Browser Fetch 通过既有 header/session 配置执行，不能把 WS query 方案扩散成 UI 直调 HTTP。
+- **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。历史 `helix-driver-wasm` 已在正式 Web driver/gate 落地后删除，不得复活为第二套实现。
+- **仍有效的数据正确性底线**：若 Web 最终选择跨刷新缓存，禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor；必须联合记录可证明的数据覆盖范围，或明确冷启动重新同步。
+- **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
+- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate/HX-C003 与历史 wasm 清理已落地。真 Go send/echo/断连恢复继续按 ROADMAP M4 验收，旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)。
 
 ---
 
@@ -111,7 +113,7 @@
 | 3 | **四能力解耦定性 = 行为级（A）** | Tick/Effect 提供的是**行为解耦**（模块只 emit 自己需要的 Effect），**非编译级裁剪**；「feature additive / 单独构建 / 编译级互不依赖」措辞全部校准为「行为级解耦」。唯一保留的编译级口子（B）：wasm 包体积——若 wasm size 真咬人，再为 wasm 单独拆 `Effect` 子枚举。`Effect` 仍是**单一 enum**。 |
 | 4 | **重试归 driver** | helix-im 不重试、失败只标 UnSend（源码 `ports/http.rs` 注释为准）；重试 / 退避是 driver 私有责任。 |
 | 5 | **DomainEvent 契约必须版本化** | 业务逻辑全进 Rust 后，core 与前端唯一对话面是 DomainEvent 事件流；该契约**必须版本化**（信封带 `v`），否则「业务回调地狱」会换成「事件 schema 对不齐地狱」。 |
-| 6 | **三端说法诚实校准** | 措辞从「三端在跑」改为「**两端在跑**（桌面 Tauri/Angular + 移动 Flutter）+ 浏览器在路上」。（历史上浏览器端曾被 ADR-006 暂停；2026-07-13 起由 ADR-014 重启为 W0，仍不得表述为已交付。） |
+| 6 | **三端说法诚实校准** | 措辞从「三端在跑」改为「**两端在跑**（桌面 Tauri/Angular + 移动 Flutter）+ 浏览器在路上」。（Web 仍是产品目标，但新架构尚未拍板，不得表述为已交付。） |
 | 7 | **driver 方法体当前全是 `todo!()`** | 流程图 / 序列图是「编译期类型验证为真的契约意图」，运行时兑现待 M2。（注：本条为 2026-06-17 折叠时的状态；之后 native transport/http/storage 主路径已逐步落地，见 ADR-007/008/010。） |
 
 **头号技术风险（主动上桌）**：乱序增量同步（断线重连 backfill）尚未验证——架构在最干净的发消息链上已证，但在最脏的「乱序帧缓冲 + gap 检测 + 按序补齐」链上一字未证。

@@ -42,7 +42,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（24 工厂 → 23 distinct channel）
+## 1. 投影出口全集（25 工厂 → 24 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
 > 数据在手零回读，见 §2）。`im:channel:update-by-post` 在 2026-07-09 Dialog 指令化投影中升级为
@@ -116,10 +116,10 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 触发语义，前端按 `data` 形态区分（有 `items` = 列表刷新信号 / 有 `reason` = 清库刷新信号）。
 > 这不是字段漂移，是**两个独立工厂复用同一 channel 名**——测试逐工厂冻结，各断各的键集。
 
-### 1.1 连接控制信号（**不计入** 22 投影集 · F1-gap1）
+### 1.1 连接控制信号（**不计入** §1 RenderNode 投影集 · F1-gap1）
 
 `im_reconnect` 命令（04 文档表 B `IMWS:reconnect`，连接生命周期归 driver）经 `to_effect::emit_reconnect_requested`
-产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入上表 22 投影冻结集**，
+产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入 §1 的 25 个投影工厂 / 24 个 distinct channel**，
 与既有 driver 侧横切信号 `im:net:offline`（断网）/ `im:http:unauthorized`（401，`http_cross.rs`）**同族**：
 `im:net:*` 控制事件通道，driver/前端**观察**后做连接生命周期动作（reconnect / 重登）。
 
@@ -127,16 +127,15 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 |---|---|---|---|---|
 | `to_effect::emit_reconnect_requested` | `im:net:reconnect_requested` | （空 `{}`，无参控制信号）| invoke `im_reconnect` | helix-im 产，driver 观察重连 |
 
-> **为何分开冻结**：22 投影集是「前端渲染靠的字段契约」（缺字段=补算=纯渲染破功），逐 channel 严格冻结键集。
-> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义。测试侧 `all_24_projection_factories_covered`
-> 保持 23 个投影工厂 / 22 个 distinct channel，控制信号由 `reconnect_requested_is_control_signal` 单独断言（channel/空 data）。
+> **为何分开冻结**：§1 RenderNode 投影集是「前端渲染靠的字段契约」（缺字段=补算=纯渲染破功），逐 channel 严格冻结键集。
+> 控制信号无渲染字段、走连接生命周期通道——混进投影集会污染「投影=渲染数据」语义；控制信号由独立用例冻结 channel 与空 `data`。
 
-### 1.2 读族回灌通道（**不计入** 22 投影集 · spec06 缺陷A）
+### 1.2 读族回灌通道（**不计入** §1 RenderNode 投影集 · spec06 缺陷A）
 
 读族 outbound 命令（top20/getReplies/bookmark/announcement/user-misc 读/bot 读…）**无 WS 回声、HTTP
 响应体本身就是数据**。dispatch 对读命令注册 `CorrelationContext::OutboundReadReply{req_id}`，HTTP
 回报时经 `query::emit_read_result` 把**后端响应体原样透传**回灌——它是 **request-response 传输通道**，
-**不是投影**（body 由后端定，helix 不冻结字段、不改业务数据，后端权威），故**不纳入 22 投影冻结集**。
+**不是投影**（body 由后端定，helix 不冻结字段、不改业务数据，后端权威），故**不纳入 §1 RenderNode 投影集**。
 前端 bridge（仿 `helixQueryBridge`）`invoke(命令, {…, req_id})` 后等 `im:read:result{req_id}` resolve → 直接渲染。
 
 | 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
@@ -149,7 +148,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `data` **外层**键集恒为 `{req_id, body}`（成功）/ `{req_id, error}`（失败），由 `read_relay_test` 断言。
 > 写族保持 fire-and-forget（数据走 WS 回声），**不**走本通道。
 
-### 1.3 上拉翻页投影（**不计入** 22 投影集 · D3 NEED_HELIX_FIX_PULL_REFRESH）
+### 1.3 上拉翻页投影（**不计入** §1 RenderNode 投影集 · D3 NEED_HELIX_FIX_PULL_REFRESH）
 
 `im_load_older_context` 解上拉到顶的远端兜底翻页（UC-2.2）：多轮 `posts/postContext` 编排（moving anchor +
 严格更早过滤 + temporaryId 去重 + pivot 推进，≤8 轮，对齐 legacy `fetch_older_posts_by_context`），凑够
@@ -166,7 +165,7 @@ inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集
 > `hasMore` 语义：停因「凑够 target / 轮数耗尽」→ `true`（还有更早可拉）；停因「服务端无更早 / pivot 卡住 /
 > 空批」→ `false`（到顶）。多轮在 corr_map 续接（每轮单 `Effect::Http`，sans-IO 不阻塞，HX-C001）。
 
-### 1.4 通知/待办装配信号（**不计入** 22 投影集 · UC-10 通知/待办）
+### 1.4 通知/待办装配信号（**不计入** §1 RenderNode 投影集 · UC-10 通知/待办）
 
 `im:todo:updated` 是**内核自驱**（非前端命令发起）的待办列表装配信号：global `increment_channel_end`（hello
 收尾）触发 `posts/queryTodoList`，回报后解 `data.channels[].posts[]` 装配成 todo items emit。**外层** `data`
@@ -182,7 +181,7 @@ inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集
 > **外层** `{items}` + 每 item 的 `{id, channel, post, type, canDel}` 外层键集由 `tests/todo_assembly_test.rs` +
 > `src/todo_tests.rs` 断言。`status≠SUCCESS/200` 或结构缺失 → 空 `items` 仍 emit（前端无害刷新，不挂起）。
 
-### 1.5 成员族 render-ready 渲染通道（**不计入** 22 投影集 · issue #56 S7·C013 纯渲染壳）
+### 1.5 成员族 render-ready 渲染通道（**不计入** §1 RenderNode 投影集 · issue #56 S7·C013 纯渲染壳）
 
 `im:channel:members` 是把**成员渲染整形**（`role→admin` 业务规则 + 四源/byIds 解析重组）从渲染壳下沉
 helix-im 后**额外**emit 的 render-ready 渲染通道——前端 `applyChannelMembers` 退化为**纯绑定**（按 `memberId`
@@ -205,7 +204,7 @@ keyed upsert + `leaves` 删行，零 extract / 零 role 判 / 零四源合并）
 > 已是 keyed 单行 upsert·纯绑定·不经本通道——helix 该 WS 帧无全量名册可吐）。
 > 内核自驱（无 req_id，非前端 bridge 发起）故独立 `CorrelationContext::TodoQuery`（区别 §1.2 透传 `OutboundReadReply`）。
 
-### 1.6 回复族 render-ready 渲染通道（**不计入** 22 投影集 · issue #57 S8·C013 纯渲染壳·终局切）
+### 1.6 回复族 render-ready 渲染通道（**不计入** §1 RenderNode 投影集 · issue #57 S8·C013 纯渲染壳·终局切）
 
 `im:channel:replies` 是把**回复链 postId 抽取**（`getReplies`/`getReplyBranch` 透传 body 的 `rootPost`/
 `replies`/`data`/`list` 探针 + 去重保序）从渲染壳下沉 helix-im 后**额外**emit 的 render-ready 渲染通道——
@@ -231,6 +230,17 @@ postId）。HTTP 失败 / 信封畸形 → `replyIds:[]`（前端 reject 语义�
 |---|---|---|
 | `im:posts:batch-result` | `{reqId,batchStatus,acceptedCount,failedCount,deliveryAuthority,targets:[{channelId,acceptanceStatus,deliveryStatus,error}]}` | HTTP 只证明 `accepted/failed`；accepted 的 `deliveryStatus=pending`，最终送达只认逐目标 WS `post` |
 | `im:post:readers` | `{reqId,receipts:[{postId,readerCount,readerIds,readers:[{userId}]}]}` | 只消费 Go `readerIds/readers`；不透出也不解释 `readBits` |
+
+### 1.8 最近消息查询状态通道（**不计入** §1 RenderNode 投影集 · A2 local-first）
+
+`im_query_messages_by_channel` 的成功结果无论来自 Complete 本地直出，还是 Partial/Miss/Unsupported
+远端回源，都统一走冻结投影 `im:messages:query_result{channel_id,messages}`。只有远端 HTTP、信封或
+CommonRes 状态失败时，才 emit 独立状态通道 `im:post:increment-failed`；失败不得退化成空消息成功。
+该通道只表达本次查询失败，不携带可渲染 message row，因此不计入 §1 RenderNode 投影工厂数量。
+
+| 产出位置 | channel | data 键集（冻结） | 触发路径 | 归属 |
+|---|---|---|---|---|
+| `query/local_first.rs::emit_message_query_failed` | `im:post:increment-failed` | `{channelId, error}` | `getLatestPost` PortError / HTTP 非 2xx / CommonRes 非 SUCCESS / 信封畸形 | helix-im 查询状态，前端结束 loading 并展示失败 |
 
 消息 `actionCapabilities` 额外冻结五个布尔值：`canUrgentConfirm`、`canMarkRead`、
 `canViewReceipt`、`canTemplateConfirm`、`canLocate`。其中 `canLocate` 仅在消息具备 serverId 且未撤回时为真；

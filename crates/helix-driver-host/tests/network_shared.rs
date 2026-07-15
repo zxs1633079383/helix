@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use helix_core::effect::HttpRequest;
-use helix_core::ports::Transport;
+use helix_core::ports::FrameSender;
 use helix_core::PortError;
 use helix_driver_host::{HostHeaderRegistry, HostNetworkConfig, SharedHttpClient, SharedWsClient};
 
@@ -74,7 +74,7 @@ async fn shared_http_resolves_relative_urls_and_keeps_request_headers_explicit()
 #[tokio::test]
 async fn shared_ws_send_before_connect_reports_transport_error() {
     let config = HostNetworkConfig::new("https://api.example.test", "wss://ws.example.test/socket");
-    let mut ws = SharedWsClient::new(config).unwrap();
+    let ws = SharedWsClient::new(config).unwrap();
 
     let result = ws.send(Bytes::from_static(b"hello")).await;
 

@@ -21,16 +21,17 @@ pub mod channel;
 mod channel_capabilities;
 pub use channel::older_context;
 pub use channel::write as channel_write;
+pub mod client_api;
 pub mod commands;
 pub mod dialog_patch;
 pub mod error;
 mod forward;
 mod forward_shape;
 pub mod http_envelope;
+mod http_outcome;
 mod increment_hydration;
 mod message_capabilities;
 pub mod mobile_contract;
-pub mod mobile_query;
 pub mod module;
 pub mod outbound;
 pub mod parser {
@@ -59,5 +60,6 @@ pub mod todo;
 pub(crate) mod ws;
 
 pub use error::ImError;
+pub use http_outcome::{http_outcome_event, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE};
 pub use module::ImModule;
-pub use schema::{IM_SCHEMA, IM_SCHEMA_MIGRATIONS};
+pub use schema::{SparseTableSpec, IM_SCHEMA, IM_SCHEMA_MIGRATIONS, IM_SPARSE_TABLE_SPECS};

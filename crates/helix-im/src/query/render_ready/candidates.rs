@@ -4,7 +4,8 @@ use bytes::Bytes;
 use helix_core::effect::{DomainEventBytes, Effect};
 use serde_json::{json, Value};
 
-pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
+/// 把候选目录 HTTP body 整形成冻结的 `im:user:candidates` 投影。
+pub fn emit(req_id: &str, body: &Value) -> Effect {
     let users = body
         .get("data")
         .and_then(Value::as_array)

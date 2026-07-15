@@ -2,7 +2,7 @@
 
 > Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，产品目标集合为三端：
 > **native（Tauri 桌面 / PC）· FFI（Flutter 手机端）· Web**。
-> 当前交付事实：native/FFI 已产品化；Web 已按 ADR-014 进入 W0 可达性与契约验证，尚未交付。正式 Web 壳规划为 `helix-driver-web`；历史 `helix-driver-wasm` 继续归档，不自动转正。
+> 当前交付事实：native/FFI 已产品化；Web 的 A1-A5 Rust 平台壳、最小浏览器 glue、正式 gate 与真浏览器→真 Go 产品链均已落地并完成本地环境验收。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，按 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md) 分阶段实施；原 W0 浏览器探针与 W0→W4 路线继续失效，历史 `helix-driver-wasm` 已删除。
 > IM 只是跑在它上面的**第一个业务模块**；core layer 本身不认识任何业务。
 > 概念祖先：Bun（runtime 跑 JS）/ Dioxus core（headless 核跑 6 端）。
 
@@ -10,7 +10,7 @@
 > 任何改动若与 GOAL.md §1 设计理念 / §2 硬约束冲突 → **先停下问，不偏离**。
 
 > 📋 **实现阶段待办 → [`docs/ROADMAP.md`](docs/ROADMAP.md) §二 P0/P1/P2 活账**
-> （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。Web 重启路线见 ADR-014 + ROADMAP M4；W0 未通过前不进入持久化实现。）**进实现阶段前先扫一眼 ROADMAP 活账。**
+> （原「helix-架构评审-待办清单」已随 docs 熵管理缩减并入 ROADMAP：B 正确性 / C 约束 / D roadmap 项多已落地，剩余开放项见 ROADMAP P 列。Web 实施路线见 ADR-014 + ROADMAP M4 A1-A5。）**进实现阶段前先扫一眼 ROADMAP 活账。**
 
 ---
 
@@ -19,12 +19,11 @@
 ```
 业务模块层   [helix-im] [将来 presence / notify ...]   只依赖 helix-core 的 ports，不碰 tokio/sqlx/web-sys
     ▲ 实现 Module trait + register()
-core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSource) + Module 宿主 + Effect/事件 + sans-IO 执行壳
+core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSource) + Module 宿主 + Effect/事件 + sans-IO 执行壳
     ▲ 实现 ports（依赖方向单向：adapter → core，永不反向）
 平台驱动层   helix-driver-host(shared rusqlite Storage/StorageOp) · helix-driver-native(PC/Tauri 壳)
              helix-driver-ffi(Flutter FFI 壳)
-             helix-driver-web = planned（Web 正式产品壳，W0；Dedicated Worker + Browser APIs）
-             helix-driver-wasm = archived/experimental（历史骨架，不作为正式 Web 壳）
+             helix-driver-web(Rust Browser Fetch + session store + 浏览器 WS bridge/glue)
 ```
 
 **依赖铁律**：`helix-core` 永不直接 import `tokio` / `sqlx` / `reqwest` / `web-sys` / `tauri` —— **只定义 trait**。
@@ -49,23 +48,24 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **Web 分阶段激活**：ADR-014 已重启 Web 产品目标；W0 先验证浏览器鉴权/CORS/WS 握手，W1 再创建 `helix-driver-web` 并激活 wasm CI/HX-C003。历史 `helix-driver-wasm` 只作参考，不原地冒充交付实现。
-- [ ] **Web 轻持久化**：PC/Flutter 可完整 SQLite；Web 默认 session state + bounded cache。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
-- [ ] **WebSocket 边界**：三端共享 `helix-im` 的帧处理与协议生命周期；真实 socket、重连执行、浏览器 online/visibility/page 生命周期和鉴权接线留平台 driver。
+- [x] **Web 方案已落地**：A1-A5、最小浏览器 glue、正式 Web gate/HX-C003、历史 wasm 清理与真浏览器→真 Go 的鉴权、send/echo、断连恢复均已验收。FFI `mobile_query` 同步旁路已删除；业务查询统一走 `helix_command` → Effect/PortReply → DomainEvent，`helix_query` 只保留元信息。
+- [ ] **Web 持久化可降级**：PC/Flutter 可完整 SQLite；Web 可以无本地持久化或只保留明确受限的缓存。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
+- [ ] **WebSocket 边界**：core port 只保留 outbound frame；三端共享 `helix-im` 的帧处理与协议生命周期。PC/Flutter 复用 Rust 默认连接实现，Web 的真实 socket、重连执行、浏览器生命周期与鉴权接线由 Web 平台适配器兑现。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）
 - [ ] **热路径零分配 O(1)**：`&'static str` 不 `String`、复用 buffer、单 INSERT/UPDATE WHERE PK、禁 read-modify-write（`HX-C005`）
 - [ ] **FFI 边界铁律**：不许 unwind 跨 `extern "C"`——策略二选一：生产 cdylib `panic="abort"`（无需 catch_unwind）/ dev unwind 时逐导出 `catch_unwind`，禁两者混说；opaque ptr 单一 owner（`Box::into_raw`/`from_raw` 各一次）；同步 SQLite C 调用包 `spawn_blocking`（`HX-C006`）
-- [ ] **Effect 跨 FFI 边界批处理**：FFI 边界**批量**过 effect，不逐条（Dioxus sledgehammer 教训，`HX-C007`）
+- [ ] **Effect/事件跨 Web/FFI 边界批处理**：以 step/batch 过 JS/FFI 边界，不逐条回调（`HX-C007`）
 
 ---
 
 ## 3. 编译 / 测试 cadence
 
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
-- **已交付双端验收**（phase 完成前 / 改 port 或 driver 后必跑；Web W1 后追加 wasm/browser gate）：
+- **三端 Rust 验收**（phase 完成前 / 改 port 或 driver 后必跑；真浏览器 E2E 另行执行）：
   ```bash
-  cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi
+  cargo check -p helix-core -p helix-im -p helix-driver-native -p helix-driver-ffi -p helix-driver-web
   cargo test -p helix-core
+  cargo build --target wasm32-unknown-unknown -p helix-driver-web
   ```
 - `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
 - **autonomous / sub-agent 模式**：自跑验证并回报；**单任务 prompt 模式**：输出命令让用户决定（除非用户说"你跑"）
@@ -110,13 +110,13 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 |---|---|---|
 | HX-C001 | helix-core 零运行时 / 零平台依赖（grep gate）| active |
 | HX-C002 | async port Send 边界 + 状态禁 `&'a`（双端 + 生命周期）| active |
-| HX-C003 | wasm-only 代码必须进 CI type-check + compile_error 守护 | archived（Web W1 建正式壳后升 active，见 ADR-014） |
+| HX-C003 | Web 双目标代码须 native test + wasm final build，禁止 host runtime 泄漏 | active |
 | HX-C004 | features 必须 additive，禁互斥 | active |
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
-| HX-C007 | Effect 跨 FFI 边界批处理，不逐条 | active |
+| HX-C007 | Effect/事件跨 Web/FFI 边界批处理，不逐条 | active |
 | HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
-| HX-C009 | 预期对账闭环完整性（DRIFT-PRED 真接入 · EXPECT 可证伪 · 偏离不自产自判）| active |
+| HX-C009 | 预期对账证据完整性（EXPECT 可证伪 · DRIFT-PRED 如实记录 · 不阻断开发）| active |
 | HX-C010 | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序）| active |
 | HX-C011 | 测试可证伪性铁律（压测/并发必带破坏即fail 证伪 · 禁墙钟下界断言，结构化/计数证不变量）| active |
 | HX-C012 | 实质任务（含 test/CI/harness ≥50 行或新源文件）须开局写 🎯 EXPECT，禁事后补记（堵 DRIFT-PRED 永空 audit 后门）| active |
@@ -160,26 +160,15 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 |---|---|---|
 | `rust-dev` ↔ `/rust-knowledge` | Rust 语言与工程全栈（所有权/async/性能/unsafe） | 借用·Send 报错、热路径审查、trait 设计争议 |
 | `rust-tauri-skeleton-dev` ↔ `/rust-tauri-skeleton-knowledge` | Tauri 2 桌面骨架端到端，**参考仓 = 现网 cses-client** | 现网对齐核验（唯一权威）、IPC 契约、M2 Tauri 接缝 |
-| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+FFI+Web（cfg/Send/wasm） | 多端边界守门、Flutter FFI / Web W1 |
+| `rust-runtime-agnostic-core-dev` ↔ `/rust-runtime-agnostic-core-knowledge` | 一份 core 编 native+FFI+Web（cfg/Send/wasm） | 多端边界守门、Flutter FFI / Web Rust 接入层 |
 | `dioxus-dev` ↔ `/dioxus-knowledge` | **仅取 core 内核经验**（step 循环/Effect 批处理/调度），**禁渲染层/RSX 话题** | 内核循环设计对照、批次边界、调度公平性 |
 
 本仓操作手册 Skill（先手册后知识）：`/helix-new-module` · `/helix-replay-test` · `/helix-stress-verify`。
 
-## 4.7 架构 review 收敛节律（强制行为）
+## 4.7 预期对账（非阻塞证据记录）
 
-> 台账 [`docs/review/workflow-review-ledger.md`](docs/review/workflow-review-ledger.md) · 闸门 `scripts/review-gap.sh`。
-
-防 agent/workflow 自主改动「跑着跑着偏离架构」无人察觉：**自主改动每累计 10 个 commit，在 commit 检查点过一次架构 review 收敛。**
-
-- **不变量**：`gap = git rev-list --count <last_reviewed_commit>..HEAD`；`gap ≥ 10` → 🔴 强制按 GOAL §1/§2、HX-C001..C008 与 `scripts/structure-gate.sh` 做一次独立架构 review，review 通过并更新 ledger `last_reviewed_commit` 后，方可继续 feature 开发。
-- **检查点（只在此判定，绝不中途任务触发）**：一批 commit 完成+工作树干净后（主）/ 开局新会话 / 派新 feature 工作前 → 跑 `scripts/review-gap.sh`（退出码 1 = 强制 review）。
-- **铁律**：review 通过必须更新 ledger（否则 gap 永不归零 = 闸门失效）；🔴 重 drift 先修复回正再把 ledger 指向已收敛 commit。
-
-## 4.8 预期对账（L1 决策原子 · 试点中，2026-06-17 起）
-
-> 目的：给 §4.7 `architecture-drift-review` 接上「偏离**预期**」这第二根进料管——
-> 原本它只吃「偏离**约束**（HX-C/GOAL）」+ commit 计数触发；现加 prediction-error 惊讶信号。
-> 试点期 2 周；按校准有效率（`⚡ DRIFT-PRED` → 真 HX-C 卡 / 真修复 占比）决定是否保留为长期规则。
+> 目的：让实质任务在开局声明可证伪预期，收尾记录真实结果，为后续排障和复盘保留证据。
+> 本机制不按 commit 数触发 review，不阻断 feature、commit 或 push。
 
 **触发**（照 §6 实质任务门槛，命中任一才写；typo / 单行 / 纯格式**豁免**，防空转噪声）：
 ≥3 文件 / 净增删 ≥50 行 / 跨 crate / 改 port 或 driver / 迁移 / 不可逆操作。
@@ -201,19 +190,10 @@ core layer   ★ helix-core ★   ports(Transport/Storage/Clock/EventSink/IdSour
 
 并 `type:surprise` 落 `/workspace/java/logs/{date}.json`。预期命中（无偏离）则不追，`✅ DONE` 即结。
 
-**接力**：`architecture-drift-review` 触发时，除 `<last_reviewed>..HEAD` diff 外，**加扫**上次 review 以来
-SESSION §0 的 `⚡ DRIFT-PRED` 行作为 drift 候选输入，对抗证伪后决定是否升 HX-C 卡。
-
-**偏离判定不自产自判（堵 GIGO 后门）**：写 EXPECT 的 agent **不是**「是否偏离」的唯一裁判。`architecture-drift-review`
-反向抽检区间内实质 commit：① EXPECT 是否可证伪（模糊化 = 一条 finding）；② DONE 实际是否偏离 EXPECT 却没记
-`⚡ DRIFT-PRED`（惊讶被吞没 = 一条 finding）。最终偏离裁定由 drift-review 的独立 lens 给，不由生产者自己说了算。
-
 **回放闸门**（候选教训 → 新建 HX-C 卡前必过）：拿候选约束回放 `docs/harness/log.md` 历史 trap
 + §0 既往 `⚡ DRIFT-PRED`——能挡住当初那次、且不误伤既往成功，才建卡（防约束过拟合 / 膨胀）。
 
 ## 5. 代码风格
-
-> 结构约束由 `scripts/structure-gate.sh` 执行：源码文件原则上 ≤300 行，存量白名单只减不增；配套纳入 §4.7 drift lens。
 
 - 类型驱动：make-invalid-states-unrepresentable；tagged union(enum) 优于一堆 Option/bool；newtype 不透明
 - 错误：`thiserror` 边界类型 / 不滥 `anyhow`；外部输入（WS 帧 / sync 响应 / FFI 入参）**零 `unwrap`/`expect`**，走 `Result`

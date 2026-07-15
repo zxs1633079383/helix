@@ -8,12 +8,11 @@
 
 use helix_core::effect::SqlValue;
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const SCHEDULE_CREATED_ACTION: &str = "post_schedule_created";
 
@@ -52,9 +51,14 @@ impl WsMessageHandler for ScheduleCreatedHandler {
 }
 
 static SCHEDULE_CREATED_HANDLER: ScheduleCreatedHandler = ScheduleCreatedHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&SCHEDULE_CREATED_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static SCHEDULE_CREATED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: SCHEDULE_CREATED_ACTION,
-    handler: &SCHEDULE_CREATED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: SCHEDULE_CREATED_ACTION,
+        handler: &SCHEDULE_CREATED_HANDLER,
+    }
+}

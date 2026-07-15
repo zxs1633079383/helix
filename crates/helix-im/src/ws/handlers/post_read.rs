@@ -24,13 +24,12 @@
 //! 序列化对消息正确）——本改**只**让幂等覆盖类 read 旁路，gate 对消息事件的 event_seq 校验不动。
 
 use helix_core::{Effect, EffectSink};
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::ws::parser::extract_post_fields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POST_READ_ACTION: &str = "post_read";
 
@@ -43,7 +42,7 @@ impl WsMessageHandler for PostReadHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -73,6 +72,7 @@ impl WsMessageHandler for PostReadHandler {
         else {
             return Ok(());
         };
+        ctx.state.invalidate_recent_message_coverage(channel_id);
 
         // type6 fields：read_bits 取 readMap（post_read 专用键）→ readBits → read_bits 兜底。
         // extract_post_fields 不识别 readMap，故先抽 read_bits 覆盖进 fields（边界零信任，缺省空串
@@ -107,9 +107,14 @@ impl WsMessageHandler for PostReadHandler {
 }
 
 static POST_READ_HANDLER: PostReadHandler = PostReadHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POST_READ_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_READ_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_READ_ACTION,
-    handler: &POST_READ_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_READ_ACTION,
+        handler: &POST_READ_HANDLER,
+    }
+}

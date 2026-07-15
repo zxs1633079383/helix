@@ -57,7 +57,7 @@ fn hello_completes_handshake_and_resyncs() {
     assert!(has_http(&sink), "hello 后应 resync");
 }
 
-/// hello 后构造的 sync Http headers 含 ("connectionId", id)。
+/// hello 后构造的 sync Http headers 同时携带 connectionId 与 session auth intent。
 #[test]
 fn sync_http_carries_connection_id_header() {
     let mut m = module_with_channel();
@@ -79,6 +79,12 @@ fn sync_http_carries_connection_id_header() {
             .iter()
             .any(|(k, v)| k == "connectionId" && v == "CONN_XYZ"),
         "sync Http 须带 connectionId 身份头"
+    );
+    assert!(
+        req.headers
+            .iter()
+            .any(|(k, v)| k == "X-Auth-Kind" && v == "session"),
+        "sync Http 须声明 session auth intent"
     );
 }
 

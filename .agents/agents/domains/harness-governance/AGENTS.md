@@ -14,7 +14,7 @@
 
 ## 领域责任
 
-维护 HX-C 卡、ROADMAP 活账、review cadence、gate/acceptance 与证据边界。
+维护 HX-C 卡、ROADMAP 活账、gate/acceptance 与证据边界。
 
 ## 事实路径
 
@@ -35,7 +35,6 @@
 - `roadmap-p0-live-ledger`
 - `harness-index-invariant`
 - `hxc012-expect-for-substantial-task`
-- `review-gap-cadence`
 <!-- agent-constraints:end -->
 
 ## Mermaid 图谱

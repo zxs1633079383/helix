@@ -5,7 +5,7 @@
 > **项目指令**：[`../../AGENTS.md`](../../AGENTS.md)（§4 索引指针 + 多端 checklist）
 > **触发操作手册**：[`OPERATING.md`](./OPERATING.md)（什么事 → 调什么；自动 vs 人工触发矩阵）
 
-本目录是 Helix「心脏血脉生命线」的可执行护栏：每条卡片把一个**多端边界条件 / 架构不变量**编译成 grep gate + CI gate + 正反代码对照，让坑写不出来、不重复踩。Web 已按 ADR-014 进入 W0；HX-C003 在 W1 建立正式 `helix-driver-web` 壳并接入 wasm CI 前保持 archived，不用历史骨架伪造交付验收。
+本目录是 Helix「心脏血脉生命线」的可执行护栏：每条卡片把一个**多端边界条件 / 架构不变量**编译成 grep gate + CI gate + 正反代码对照，让坑写不出来、不重复踩。正式 `helix-driver-web` 已落地，旧 W0→W4 路线继续失效；HX-C003 已重写并激活为 native test + wasm final build 双目标守护，不再指向历史骨架。
 
 ## 1. 三个即时同步铁律（最高优先级，来自母本 §0）
 
@@ -30,13 +30,13 @@
 |----|--------|----------|-------|---------|------------|------|
 | [HX-C001](./HX-C001-core-zero-runtime-dep.md) | active | blocker | helix-core 零运行时/零平台依赖 | `cargo tree`+grep gate | 1 | 2026-06-08 |
 | [HX-C002](./HX-C002-async-send-boundary-no-lifetime.md) | active | blocker | async port Send 边界 + 状态禁 `&'a` | grep + 双端 check | 1 | 2026-06-08 |
-| [HX-C003](./HX-C003-wasm-cfg-must-ci-typecheck.md) | archived | blocker | wasm-only 代码必须进 CI type-check + compile_error 守护 | W1 CI matrix | 1 | 2026-06-15 |
+| [HX-C003](./HX-C003-wasm-cfg-must-ci-typecheck.md) | active | blocker | Web 双目标代码须 native test + wasm final build，禁止 host runtime 泄漏 | 双目标 build/test/clippy + dependency tree | 2 | 2026-07-14 |
 | [HX-C004](./HX-C004-features-additive.md) | active | major | features 必须 additive，禁互斥 | feature matrix build | 1 | 2026-06-08 |
 | [HX-C005](./HX-C005-hotpath-zero-alloc.md) | active | major | 热路径零分配 O(1)（`&'static str` 不 String）| grep | 1 | 2026-06-08 |
 | [HX-C006](./HX-C006-ffi-boundary-discipline.md) | active | blocker | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| grep + review | 1 | 2026-06-08 |
-| [HX-C007](./HX-C007-effect-batch-across-boundary.md) | active | major | Effect 跨 FFI 边界批处理，不逐条 | review | 1 | 2026-06-08 |
+| [HX-C007](./HX-C007-effect-batch-across-boundary.md) | active | major | Effect/事件跨 Web/FFI 边界批处理，不逐条 | batch API + browser/FFI verification | 1 | 2026-06-08 |
 | [HX-C008](./HX-C008-sync-pull-wire-contract.md) | active | blocker | sync/notify pull 契约：cursor 锚 nextSeq + 续拉看 len≥500（无显式 flag）| grep + 单测 | 1 | 2026-06-16 |
-| [HX-C009](./HX-C009-expect-reconcile-loop-integrity.md) | active | major | 预期对账闭环完整性（DRIFT-PRED 真接入·EXPECT 可证伪·偏离不自产自判）| grep gate + node --check | 1 | 2026-06-17 |
+| [HX-C009](./HX-C009-expect-reconcile-loop-integrity.md) | active | major | 预期对账证据完整性（EXPECT 可证伪·DRIFT-PRED 如实记录·不阻断开发）| grep + 人工复核 | 2 | 2026-07-13 |
 | [HX-C010](./HX-C010-deterministic-effect-ordering-from-collections.md) | active | major | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序破可回放）| 回放测试 pin 顺序 + grep | 1 | 2026-06-18 |
 | [HX-C011](./HX-C011-test-falsifiability.md) | active | major | 测试可证伪性铁律：压测/并发不变量测试必带「破坏即 fail」证伪 · 禁墙钟下界断言（结构化/计数证不变量）| grep wall>=断言 + 破坏→fail 证明 | 3 | 2026-06-18 |
 | [HX-C012](./HX-C012-substantive-task-must-open-expect.md) | active | medium | 实质任务（含 test/CI/harness ≥50 行或新源文件）须开局写 🎯 EXPECT，禁事后补记（堵 DRIFT-PRED 永空 audit 后门）| grep DONE↔EXPECT 配对 | 3 | 2026-06-21 |
@@ -55,7 +55,7 @@ docs/harness/
 ├── TEMPLATE.md          ← 7 节卡片模板
 ├── decisions.md         ← 关键架构拍板记录（ADR-lite）
 ├── log.md               ← 跨卡复现日志
-└── HX-C001 .. HX-C016   ← 16 条（HX-C003 archived，余 active）
+└── HX-C001 .. HX-C016   ← 16 条（全部 active）
 ```
 
 ## 5. 生命周期

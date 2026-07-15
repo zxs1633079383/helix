@@ -11,7 +11,7 @@ use helix_core::effect::{
     FileUploadRequest, FileUploadResponse, GetSpec, GuardedBumpSpec, HttpRequest,
     MonotonicUpsertSpec, Row, ScanSpec, StorageOp, TransportId, UpsertSpec,
 };
-use helix_core::ports::{EventSink, FileUploader, Storage, Transport};
+use helix_core::ports::{EventSink, FileUploader, FrameSender, Storage};
 use helix_core::tick::{PortOutcome, ReplyBytes, Tick};
 use helix_core::PortError;
 
@@ -78,24 +78,16 @@ impl FileUploader for StubUploader {
     }
 }
 
-struct DummyTransport;
+#[derive(Default)]
+struct RecordingFrameSender {
+    frames: Mutex<Vec<Bytes>>,
+}
 
 #[async_trait::async_trait]
-impl Transport for DummyTransport {
-    async fn connect(&mut self) -> Result<(), PortError> {
-        unreachable!("transport should not be used in upload dispatch test")
-    }
-
-    async fn send(&self, _: Bytes) -> Result<(), PortError> {
-        unreachable!("transport should not be used in upload dispatch test")
-    }
-
-    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
-        unreachable!("transport should not be used in upload dispatch test")
-    }
-
-    async fn close(&self) -> Result<(), PortError> {
-        unreachable!("transport should not be used in upload dispatch test")
+impl FrameSender for RecordingFrameSender {
+    async fn send(&self, frame: Bytes) -> Result<(), PortError> {
+        self.frames.lock().push(frame);
+        Ok(())
     }
 }
 
@@ -178,7 +170,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
     let mut timer_registry = TimerRegistry::new();
     let mut persist_workers: HashMap<String, BoundedSpawner<crate::pools::PersistJobPayload>> =
         HashMap::new();
-    let transports: TransportTable<DummyTransport> = HashMap::new();
+    let transports: TransportTable<RecordingFrameSender> = HashMap::new();
     let corr = Correlation::from_raw(88);
 
     dispatch_effects(
@@ -232,4 +224,72 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         Tick::PortReply { outcome, .. } => panic!("expected Ok upload reply, got {outcome:?}"),
         other => panic!("expected Tick::PortReply, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn send_effect_requires_only_frame_sender_capability() {
+    let (tick_tx, _tick_rx) = mpsc::channel::<Tick>(1);
+    let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
+    let storage = Arc::new(UnusedStorage);
+    let event_sink = Arc::new(NoopEventSink);
+    let http_pool: BoundedSpawner<HttpRequest> = BoundedSpawner::new(
+        1,
+        1,
+        Overflow::Block,
+        reply_tx.clone(),
+        |_req: HttpRequest| async move { panic!("http pool should stay unused") },
+    );
+    let http_fire_pool: BoundedSpawner<HttpRequest> = BoundedSpawner::new(
+        1,
+        1,
+        Overflow::DropNewest,
+        reply_tx.clone(),
+        |_req: HttpRequest| async move { panic!("http fire pool should stay unused") },
+    );
+    let upload_pool = spawn_upload_pool(
+        1,
+        Arc::new(StubUploader {
+            response: FileUploadResponse {
+                object_key: "unused".to_string(),
+                url: None,
+                etag: None,
+            },
+        }),
+        reply_tx.clone(),
+        Overflow::Block,
+    );
+    let sender = Arc::new(RecordingFrameSender::default());
+    let transport_id = TransportId::from_raw(7);
+    let mut transports = TransportTable::new();
+    transports.insert(transport_id, Arc::clone(&sender));
+    let mut timer_registry = TimerRegistry::new();
+    let mut persist_workers = HashMap::new();
+
+    dispatch_effects(
+        vec![OwnedEffect::Send {
+            transport: transport_id,
+            frame: Bytes::from_static(br#"{"action":"ping"}"#),
+        }],
+        &tick_tx,
+        &storage,
+        &http_pool,
+        &upload_pool,
+        &http_fire_pool,
+        &event_sink,
+        &mut timer_registry,
+        &reply_tx,
+        &mut persist_workers,
+        &transports,
+        &TraceHooks::noop(),
+    )
+    .await;
+
+    assert_eq!(
+        sender.frames.lock().as_slice(),
+        &[Bytes::from_static(br#"{"action":"ping"}"#)]
+    );
+
+    upload_pool.shutdown().await;
+    http_pool.shutdown().await;
+    http_fire_pool.shutdown().await;
 }

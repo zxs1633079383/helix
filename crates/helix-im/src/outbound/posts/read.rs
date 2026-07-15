@@ -2,7 +2,7 @@
 //!
 //! 纯**读** request/response：helix-im 只 build 正确 wire body。读族无 WS 回声、HTTP 响应体即数据
 //! → `is_read=true`（spec06 缺陷A），dispatch 注册 `OutboundReadReply` 把响应透传回灌前端（read_relay）。
-//! 与 P3b 真零交集：独立文件 + distributed_slice 注册，不碰 channel*/registry.rs（仅 mod.rs append）。
+//! 与 P3b 真零交集：独立文件 + inventory 注册，不碰 channel*/registry.rs（仅 mod.rs append）。
 //! ## endpoint / body 真源（mattermost csesapi 逐字，不自造 fixture，C5）
 //! - posts/* 子路由 = `api/cses/posts`（api.go:169）；post/* = `api/cses/post`（api.go:171）；
 //!   post/bookmark/* = `api/cses/post/bookmark`（api.go:177）。
@@ -10,14 +10,11 @@
 //!   getPostsAfterIndex → `postIds` **单数 string**（posts.go:318，非数组）；
 //!   getUpdatedPosts → `timeStamp` **大写 S**（posts.go:体 CursorTs tag）；时间 `createAt`。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 // ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
 
@@ -65,11 +62,12 @@ macro_rules! read_cmd {
         }
         // 单元 struct 值（`$cmd_struct` 同名构造子）经 const promotion 直接做 &'static dyn 注册
         // 目标——无需中间 static（避免与类型同名在 value 命名空间冲突 E0428）。
-        #[distributed_slice(OUTBOUND_COMMANDS)]
-        static $reg: OutboundRegistration = OutboundRegistration {
-            name: $name,
-            command: &$cmd_struct,
-        };
+        inventory::submit! {
+            OutboundRegistration {
+                name: $name,
+                command: &$cmd_struct,
+            }
+        }
     };
 }
 

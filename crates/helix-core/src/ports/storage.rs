@@ -13,8 +13,8 @@
 //! 存储边界。`helix-driver-native` 只是兼容 Tauri 侧类型名的薄壳；`helix-driver-ffi` 的 pump
 //! 直接装配 `HostStorage`。
 //!
-//! `helix-driver-wasm` 是 archived/experimental 历史实验：只保留 trait shape 以免代码腐烂，
-//! 不属于当前 roadmap、CI 必跑矩阵或交付验收（见 ADR-006）。
+//! Web 由正式 `helix-driver-web` 适配同一 port：`Session` 使用容量受限的页会话内存 store，
+//! `Disabled` 明确返回无本地覆盖并由 `helix-im` 走远端 fallback；两种模式都不冒充完整 SQLite。
 
 use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, DeleteWhereSpec, GetSpec, GuardedBumpSpec,

@@ -369,7 +369,7 @@ fn registry_covers_all_p5a_misc_commands() {
 }
 
 /// 注册数 == 命令数性质：每个注册命令都能成功 dispatch（无重复 name 致 registry 构建失败）。
-/// 任一命令 distributed_slice 注册重复 name → registry 构建 Err → handle_outbound 全 Err → 本测试 FAIL。
+/// 任一命令 inventory 注册重复 name → registry 构建 Err → handle_outbound 全 Err → 本测试 FAIL。
 #[test]
 fn every_p5a_misc_command_is_dispatchable() {
     assert_eq!(ALL_P5A_MISC.len(), 12, "P5a user-misc 应为 12 命令");

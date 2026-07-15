@@ -23,3 +23,32 @@ pub(crate) mod quit_company;
 pub(crate) mod update_channel;
 pub(crate) mod update_channel_member_nickname;
 pub(crate) mod update_channel_notice;
+
+/// `inventory` 的 wasm ctor 只有在对应 rlib 成员被最终链接时才会存在。显式触碰每个 handler
+/// 模块，避免 wasm-ld 把“仅靠 ctor 可达”的注册项静默裁掉。
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn force_link_inventory() {
+    change_channel_approval::inventory_link_anchor();
+    channel_close::inventory_link_anchor();
+    channel_created::inventory_link_anchor();
+    channel_member_role_updated::inventory_link_anchor();
+    channel_member_update::inventory_link_anchor();
+    hello::inventory_link_anchor();
+    ignored::inventory_link_anchor();
+    increment_channel::inventory_link_anchor();
+    increment_channel_end::inventory_link_anchor();
+    legacy_event::inventory_link_anchor();
+    pong::inventory_link_anchor();
+    post::inventory_link_anchor();
+    post_pin::inventory_link_anchor();
+    post_read::inventory_link_anchor();
+    post_schedule_canceled::inventory_link_anchor();
+    post_schedule_created::inventory_link_anchor();
+    post_update::inventory_link_anchor();
+    posted::inventory_link_anchor();
+    posts_update::inventory_link_anchor();
+    quit_company::inventory_link_anchor();
+    update_channel::inventory_link_anchor();
+    update_channel_member_nickname::inventory_link_anchor();
+    update_channel_notice::inventory_link_anchor();
+}

@@ -8,12 +8,11 @@
 
 use helix_core::effect::SqlValue;
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const SCHEDULE_CANCELED_ACTION: &str = "post_schedule_canceled";
 
@@ -52,9 +51,14 @@ impl WsMessageHandler for ScheduleCanceledHandler {
 }
 
 static SCHEDULE_CANCELED_HANDLER: ScheduleCanceledHandler = ScheduleCanceledHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&SCHEDULE_CANCELED_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static SCHEDULE_CANCELED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: SCHEDULE_CANCELED_ACTION,
-    handler: &SCHEDULE_CANCELED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: SCHEDULE_CANCELED_ACTION,
+        handler: &SCHEDULE_CANCELED_HANDLER,
+    }
+}

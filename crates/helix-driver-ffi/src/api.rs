@@ -15,19 +15,15 @@
 //! - panic=abort 保证不跨 FFI unwind（release profile 已设置）
 //! - 每个 unsafe 块必须有 // SAFETY: 注释（clippy deny undocumented_unsafe_blocks）
 
-use std::borrow::Cow;
-use std::time::Duration;
-
-use bytes::Bytes;
-use helix_core::ports::Storage;
 use helix_core::tick::{AppCommand, Tick};
 use helix_core::AuthKind;
 use helix_driver_host::{
     AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, TraceCarrier,
+    TraceHooks,
 };
 use tokio::sync::{mpsc, oneshot};
 
-use crate::pump::{self, PumpArgs, QueryDeps};
+use crate::pump::{self, PumpArgs};
 use crate::vtable::CppHostVtable;
 
 // ── FFI 返回码 ──────────────────────────────────────────────────────────────
@@ -56,7 +52,6 @@ pub const FFI_UNIMPLEMENTED: i32 = -5;
 ///   `Mutex` 防 Sender 并发写（Sender 非 Sync）；**禁 Arc**——HelixHandle 本身即 Box opaque ptr。
 /// - `shutdown_tx`：graceful drain 触发端（`Option`，destroy 时 take + send 一次）。
 /// - `pump_thread`：pump 线程 JoinHandle（`Option`，destroy 时 take + join）。
-/// - `query`：pump 装配成功后回传的 runtime handle + storage，供 `helix_query`（当前 stub）。
 pub struct HelixHandle {
     pub(crate) headers: HostHeaderRegistry,
     /// HTTP 鉴权凭据 registry：`X-Auth-Kind` 只选路由，真凭据在 driver 侧热更新。
@@ -69,9 +64,6 @@ pub struct HelixHandle {
     pub(crate) shutdown_tx: parking_lot::Mutex<Option<oneshot::Sender<()>>>,
     /// pump 线程句柄；destroy 取出 join，确保 on_domain_events_batch 回调在 ctx 释放前全部完成。
     pub(crate) pump_thread: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>>,
-    /// 查询依赖（runtime handle + 共享 storage）。helix_query 当前为 honest stub，字段已就位。
-    #[allow(dead_code)]
-    pub(crate) query: QueryDeps,
 }
 
 // ── helix_create_with_network ────────────────────────────────────────────────
@@ -115,8 +107,9 @@ pub unsafe extern "C" fn helix_create_with_network(
     // tick channel 容量 256：对齐 host-cli 入站背压点；满则 helix_command 返回 FFI_BUSY。
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(256);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    // 装配回传通道（同步 rendezvous，容量 1）：pump 线程开 storage / 建 ports 后回传 QueryDeps。
-    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Option<QueryDeps>>(1);
+    // 装配回传通道（同步 rendezvous，容量 1）：create 只等待 pump 完成 storage/schema/ports 装配，
+    // 不再把 runtime/storage 句柄旁路回 C ABI 同步查询。
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), ()>>(1);
 
     // DB 路径：env HELIX_DB（FFI host 设置）→ fallback 进程临时库（仅测试/无配置兜底）。
     let db_url = ffi_db_url();
@@ -131,7 +124,7 @@ pub unsafe extern "C" fn helix_create_with_network(
         config,
         headers: headers.clone(),
         auth: auth.clone(),
-        command_traces: command_traces.clone(),
+        trace: TraceHooks::noop_without_otel().with_command_traces(command_traces.clone()),
         vtable,
         tick_tx: tick_tx.clone(),
         tick_rx,
@@ -153,15 +146,15 @@ pub unsafe extern "C" fn helix_create_with_network(
         }
     };
 
-    // 等 pump 装配结果（storage 打开 / ports 建好 / QueryDeps 回传）。装配失败 → join + 返回 null。
-    let query = match ready_rx.recv() {
-        Ok(Some(deps)) => deps,
-        Ok(None) | Err(_) => {
+    // 等 pump 装配结果（storage 打开 / schema 迁移 / ports 建好）。装配失败 → join + 返回 null。
+    match ready_rx.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(())) | Err(_) => {
             // pump 装配失败已退出（或线程 panic 关闭 ready_tx）→ join 回收，返回 null。
             let _ = pump_thread.join();
             return std::ptr::null_mut();
         }
-    };
+    }
 
     Box::into_raw(Box::new(HelixHandle {
         headers,
@@ -170,7 +163,6 @@ pub unsafe extern "C" fn helix_create_with_network(
         tick_tx: parking_lot::Mutex::new(Some(tick_tx)),
         shutdown_tx: parking_lot::Mutex::new(Some(shutdown_tx)),
         pump_thread: parking_lot::Mutex::new(Some(pump_thread)),
-        query,
     }))
 }
 
@@ -363,7 +355,7 @@ pub unsafe extern "C" fn helix_command(
     };
     // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
-    let cmd = match build_app_command(public_name, payload_vec) {
+    let cmd = match build_shared_command(&public_name, &payload_vec) {
         Ok(cmd) => cmd,
         Err(code) => return code,
     };
@@ -416,7 +408,7 @@ pub unsafe extern "C" fn helix_command_with_trace(
     };
     // SAFETY: 调用方契约保证 payload 指向至少 payload_len 字节有效内存；payload 可为任意字节。
     let payload_vec = unsafe { ffi_payload_to_vec(payload, payload_len) };
-    let cmd = match build_app_command(public_name, payload_vec) {
+    let cmd = match build_shared_command(&public_name, &payload_vec) {
         Ok(cmd) => cmd,
         Err(code) => return code,
     };
@@ -426,36 +418,14 @@ pub unsafe extern "C" fn helix_command_with_trace(
     send_command_tick(handle_ref, cmd, Some(carrier))
 }
 
-fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCommand, i32> {
-    let normalized_payload = match helix_im::mobile_contract::normalize_command_payload(
-        public_name.as_str(),
-        &payload_vec,
-    ) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            tracing::warn!(
-                command = public_name.as_str(),
-                ?error,
-                "mobile command payload rejected"
-            );
-            return Err(FFI_INVALID);
-        }
-    };
-    let payload_bytes = Bytes::from(normalized_payload);
-
-    let core_name = helix_im::mobile_contract::command_alias(public_name.as_str())
-        .unwrap_or(public_name.as_str());
-
-    // G-6 / PI-1：name 命中 outbound 闭集（88 命令）→ `Cow::Borrowed` 静态名免堆分配（热路径写命令
-    // 净分配仅 payload 1 次）；miss（im_send_message/im_reconnect/query 名）→ `Cow::Owned` fallback
-    // （低频，仍正确）。闭集真源在 helix-im registry（driver 不复制清单，避免漂移）。
-    let name: Cow<'static, str> = match helix_im::outbound::canonical_command_name(core_name) {
-        Some(static_name) => Cow::Borrowed(static_name),
-        None => Cow::Owned(core_name.to_string()),
-    };
-    Ok(AppCommand {
-        name,
-        payload: payload_bytes,
+fn build_shared_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, i32> {
+    helix_im::client_api::build_command(public_name, payload).map_err(|error| {
+        tracing::warn!(
+            command = public_name,
+            ?error,
+            "public command payload rejected"
+        );
+        FFI_INVALID
     })
 }
 
@@ -483,7 +453,7 @@ fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceC
 
 // ── helix_query / helix_query_free ───────────────────────────────────────────
 
-/// 同步读取 engine 状态。
+/// 同步读取 ABI 元信息。
 ///
 /// ## 查询边界
 ///
@@ -491,12 +461,8 @@ fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceC
 /// - `helix_capabilities`：返回移动端公开契约能力集 JSON
 /// - `helix_version`：返回 `{"abi":1}`
 ///
-/// IM 本地同步 query 由 `helix-im` 负责 `query_name → ScanSpec + response shape`：
-/// - `im_query_dialog_list`
-/// - `im_query_messages_by_channel`
-///
-/// `driver-ffi` 只执行 helix-im 产出的 Storage scan 计划并封装返回 buffer，不在 driver 层硬编码
-/// IM 表名/列名/WHERE 语义，避免业务 schema 泄漏进平台驱动。
+/// 业务 query 不走本同步 ABI；手机端与其他平台一样，经 `helix_command` 注入异步 query command，
+/// 由共享 `helix-im` 执行 local-first/远端 fallback，并通过批量 DomainEvent 返回结果。
 ///
 /// ## 配对约定
 ///
@@ -506,7 +472,8 @@ fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceC
 /// # Safety
 ///
 /// - `handle`：有效指针或 null。
-/// - `query_name` / `query_payload`：各自指向对应 `_len` 字节有效内存，在本调用期间有效。
+/// - `query_name`：指向对应 `_len` 字节有效内存，在本调用期间有效。
+/// - `query_payload`：为保持 C ABI 形状保留，当前元信息查询忽略该参数。
 /// - `out_ptr` / `out_len`：非 null，指向调用方分配的存储位置。
 #[no_mangle]
 pub unsafe extern "C" fn helix_query(
@@ -534,58 +501,15 @@ pub unsafe extern "C" fn helix_query(
         Ok(s) => s,
         Err(code) => return code,
     };
-    let query_payload = if query_payload.is_null() || query_payload_len == 0 {
-        &[][..]
-    } else {
-        // SAFETY: query_payload 指针/长度由调用方保证在本调用期间有效。
-        unsafe { std::slice::from_raw_parts(query_payload, query_payload_len) }
-    };
-
+    let _ = (query_payload, query_payload_len);
     match query_name.as_str() {
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_capabilities" => unsafe {
-            write_query_bytes(
-                helix_im::mobile_contract::capabilities_json(),
-                out_ptr,
-                out_len,
-            )
+            write_query_bytes(helix_im::client_api::capabilities_json(), out_ptr, out_len)
         },
         // SAFETY: out_ptr/out_len 非 null 已检查；write_query_bytes 只写回新分配的 boxed slice 指针与长度。
         "helix_version" => unsafe { write_query_bytes(br#"{"abi":1}"#.to_vec(), out_ptr, out_len) },
-        _ => {
-            let plan = match helix_im::mobile_query::plan(query_name.as_str(), query_payload) {
-                Ok(plan) => plan,
-                Err(_) => return FFI_UNIMPLEMENTED,
-            };
-            // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
-            let handle_ref = unsafe { &*handle };
-            let runtime = handle_ref.query.runtime.clone();
-            let storage = handle_ref.query.storage.clone();
-            let (tx, rx) = std::sync::mpsc::sync_channel(1);
-            runtime.spawn(async move {
-                let result = match plan {
-                    helix_im::mobile_query::MobileQueryPlan::Scan { spec, shape } => storage
-                        .scan(spec)
-                        .await
-                        .map(|rows| helix_im::mobile_query::shape_json(shape, rows)),
-                };
-                let _ = tx.send(result);
-            });
-
-            match rx.recv_timeout(Duration::from_secs(3)) {
-                // SAFETY: out_ptr/out_len 非 null 已检查；bytes 所有权在此转交给 write_query_bytes 封装成返回缓冲区。
-                Ok(Ok(bytes)) => unsafe { write_query_bytes(bytes, out_ptr, out_len) },
-                Ok(Err(error)) => {
-                    tracing::warn!(
-                        query = query_name.as_str(),
-                        error = ?error,
-                        "mobile sync query storage failed"
-                    );
-                    FFI_INVALID
-                }
-                Err(_) => FFI_BUSY,
-            }
-        }
+        _ => FFI_UNIMPLEMENTED,
     }
 }
 

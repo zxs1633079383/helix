@@ -17,12 +17,10 @@ flowchart LR
   subgraph Constraints["hard constraints"]
     C0["harness-index-invariant"]
     M -.-> C0
-    C1["review-gap-cadence"]
+    C1["docs-drift-check"]
     M -.-> C1
-    C2["docs-drift-check"]
+    C2["commit-convention-harness-section"]
     M -.-> C2
-    C3["commit-convention-harness-section"]
-    M -.-> C3
   end
   subgraph Review["default reviewers"]
     R0["reviewers/harness-reviewer-agent"]

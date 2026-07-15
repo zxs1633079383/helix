@@ -13,9 +13,8 @@ use helix_core::auth::{AuthKind, AUTH_KIND_HEADER};
 use helix_core::effect::{DomainEventBytes, HttpRequest, HttpResponse};
 use helix_core::ports::{EventSink, HttpRequester};
 use helix_core::PortError;
-use helix_driver_host::{
-    AuthTokenRegistry, CrossCuttingHttp, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE,
-};
+use helix_driver_host::{AuthTokenRegistry, CrossCuttingHttp};
+use helix_im::{http_outcome_event, EVENT_HTTP_UNAUTHORIZED, EVENT_NET_OFFLINE};
 
 // ─── mock 内层 HttpRequester：记录收到的出站请求 + 可编程结果 ─────────────────────
 
@@ -109,7 +108,7 @@ fn build(
     auth: AuthTokenRegistry,
 ) -> (CrossCuttingHttp<MockInner, RecordingSink>, RecordingSink) {
     let sink = RecordingSink::default();
-    let cross = CrossCuttingHttp::new(inner, Arc::new(sink.clone()), auth);
+    let cross = CrossCuttingHttp::new(inner, Arc::new(sink.clone()), auth, http_outcome_event);
     (cross, sink)
 }
 

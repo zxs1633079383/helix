@@ -13,7 +13,7 @@ serde       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }
 bytes       = { workspace = true }
-linkme      = "0.3.35"
+inventory   = "0.3"
 tracing     = { workspace = true }
 
 [dev-dependencies]

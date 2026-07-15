@@ -2,13 +2,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
 use helix_core::effect::TransportId;
-use helix_core::ports::Transport;
 use helix_core::PortError;
 use helix_driver_host::engine::{TransportLifecycleEvent, TransportTraceEvent};
 use helix_driver_host::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 #[test]
 fn reconnect_policy_uses_capped_exponential_delays() {
@@ -53,7 +51,7 @@ fn reconnect_trace_sink_emits_safe_payload_shape() {
 }
 
 #[tokio::test]
-async fn reconnect_supervisor_registers_transport_after_retry_success() {
+async fn reconnect_supervisor_reports_success_after_full_action() {
     let transport_id = TransportId::from_raw(11);
     let policy = ReconnectPolicy {
         initial_delay: Duration::from_millis(10),
@@ -62,7 +60,8 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
         max_attempts: Some(3),
     };
     let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
-    let (register_tx, mut register_rx) = mpsc::unbounded_channel();
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (completed_tx, mut completed_rx) = mpsc::unbounded_channel();
     let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
     let attempts = Arc::new(AtomicUsize::new(0));
     let attempts_for_factory = Arc::clone(&attempts);
@@ -71,10 +70,11 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
         transport_id,
         policy,
         lifecycle_rx,
-        register_tx,
+        shutdown_rx,
         ReconnectTraceSink::new(Some(trace_tx)),
         move || {
             let attempts = Arc::clone(&attempts_for_factory);
+            let completed_tx = completed_tx.clone();
             async move {
                 let current = attempts.fetch_add(1, Ordering::SeqCst) + 1;
                 if current == 1 {
@@ -82,7 +82,10 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
                         "token=secret raw websocket failure body message".to_string(),
                     ))
                 } else {
-                    Ok(TestTransport)
+                    completed_tx
+                        .send(())
+                        .map_err(|_| PortError::Transport("completion channel closed".into()))?;
+                    Ok(())
                 }
             }
         },
@@ -95,13 +98,12 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
         })
         .expect("send lifecycle event");
 
-    let registered = tokio::time::timeout(Duration::from_secs(1), register_rx.recv())
+    tokio::time::timeout(Duration::from_secs(1), completed_rx.recv())
         .await
-        .expect("registered transport should arrive")
-        .expect("register channel should stay open");
-    assert_eq!(registered.0, transport_id);
+        .expect("complete reconnect action should finish")
+        .expect("completion channel should stay open");
 
-    let events = drain_trace_events(&mut trace_rx);
+    let events = collect_trace_events(&mut trace_rx, 6).await;
     let actions: Vec<&'static str> = events.iter().map(|event| event.action).collect();
     assert_eq!(
         actions,
@@ -131,11 +133,103 @@ async fn reconnect_supervisor_registers_transport_after_retry_success() {
         .expect("supervisor should stop after channel closes");
 }
 
-fn drain_trace_events(
+#[tokio::test]
+async fn reconnect_supervisor_shutdown_interrupts_pending_attempt() {
+    let transport_id = TransportId::from_raw(12);
+    let policy = ReconnectPolicy {
+        initial_delay: Duration::from_millis(1),
+        max_delay: Duration::from_millis(1),
+        multiplier: 1,
+        max_attempts: None,
+    };
+    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (attempt_tx, mut attempt_rx) = mpsc::unbounded_channel();
+    let handle = spawn_reconnect_supervisor(
+        transport_id,
+        policy,
+        lifecycle_rx,
+        shutdown_rx,
+        ReconnectTraceSink::default(),
+        move || {
+            let attempt_tx = attempt_tx.clone();
+            async move {
+                attempt_tx.send(()).ok();
+                std::future::pending::<Result<(), PortError>>().await
+            }
+        },
+    );
+
+    lifecycle_tx
+        .send(TransportLifecycleEvent::Disconnected {
+            transport_id,
+            reason: "reader_closed_or_error",
+        })
+        .expect("send lifecycle event");
+    tokio::time::timeout(Duration::from_secs(1), attempt_rx.recv())
+        .await
+        .expect("first reconnect attempt should run")
+        .expect("attempt channel should stay open");
+
+    shutdown_tx.send_replace(true);
+    tokio::time::timeout(Duration::from_secs(1), handle)
+        .await
+        .expect("shutdown should interrupt a pending reconnect action")
+        .expect("supervisor task should not panic");
+    drop(lifecycle_tx);
+}
+
+#[tokio::test]
+async fn reconnect_supervisor_shutdown_interrupts_backoff() {
+    let transport_id = TransportId::from_raw(13);
+    let policy = ReconnectPolicy {
+        initial_delay: Duration::from_secs(60),
+        max_delay: Duration::from_secs(60),
+        multiplier: 1,
+        max_attempts: None,
+    };
+    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (trace_tx, mut trace_rx) = mpsc::unbounded_channel();
+    let handle = spawn_reconnect_supervisor(
+        transport_id,
+        policy,
+        lifecycle_rx,
+        shutdown_rx,
+        ReconnectTraceSink::new(Some(trace_tx)),
+        || async { Err(PortError::Transport("must not run".to_string())) },
+    );
+
+    lifecycle_tx
+        .send(TransportLifecycleEvent::Disconnected {
+            transport_id,
+            reason: "reader_closed_or_error",
+        })
+        .expect("send lifecycle event");
+    let scheduled = tokio::time::timeout(Duration::from_secs(1), trace_rx.recv())
+        .await
+        .expect("backoff schedule should be emitted")
+        .expect("trace channel should stay open");
+    assert_eq!(scheduled.action, "reconnect_schedule");
+
+    shutdown_tx.send_replace(true);
+    tokio::time::timeout(Duration::from_secs(1), handle)
+        .await
+        .expect("shutdown should interrupt a long backoff")
+        .expect("supervisor task should not panic");
+    drop(lifecycle_tx);
+}
+
+async fn collect_trace_events(
     rx: &mut mpsc::UnboundedReceiver<TransportTraceEvent>,
+    expected: usize,
 ) -> Vec<TransportTraceEvent> {
     let mut events = Vec::new();
-    while let Ok(event) = rx.try_recv() {
+    while events.len() < expected {
+        let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("trace event should arrive")
+            .expect("trace channel should stay open");
         events.push(event);
     }
     events
@@ -158,25 +252,4 @@ fn trace_event_payload_is_safe(event: &TransportTraceEvent) -> bool {
     ]
     .iter()
     .any(|forbidden| text.contains(forbidden))
-}
-
-struct TestTransport;
-
-#[async_trait::async_trait]
-impl Transport for TestTransport {
-    async fn connect(&mut self) -> Result<(), PortError> {
-        Ok(())
-    }
-
-    async fn send(&self, _: Bytes) -> Result<(), PortError> {
-        Ok(())
-    }
-
-    async fn recv(&self) -> Result<Option<Bytes>, PortError> {
-        Ok(None)
-    }
-
-    async fn close(&self) -> Result<(), PortError> {
-        Ok(())
-    }
 }

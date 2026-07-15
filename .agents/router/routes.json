@@ -143,23 +143,29 @@
       "workflow": "adversarial-workflow"
     },
     {
-      "id": "wasm-archive",
+      "id": "web-browser-adapter",
       "match": {
         "keywords": [
+          "web",
           "wasm",
-          "web"
+          "browser",
+          "session-store"
         ],
         "paths": [
-          "crates/helix-driver-wasm"
+          "crates/helix-driver-web"
         ]
       },
       "primary_agents": [
-        "modules/driver-wasm-agent"
+        "modules/driver-web-agent",
+        "domains/runtime-core-domain-agent",
+        "domains/im-sync-domain-agent"
       ],
       "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent",
         "reviewers/harness-reviewer-agent"
       ],
-      "workflow": "classify-and-act"
+      "workflow": "adversarial-workflow"
     }
   ]
 }

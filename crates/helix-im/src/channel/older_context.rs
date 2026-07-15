@@ -278,7 +278,9 @@ pub fn post_context_http_tracked(
     request_id: Option<&str>,
 ) -> Effect {
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(crate::acl::to_effect::connection_id_headers(connection_id));
+    headers.extend(crate::acl::sync_http_effects::session_auth_headers(
+        connection_id,
+    ));
     if let Some(request_id) = request_id.filter(|value| !value.is_empty()) {
         headers.push(("Cses-Track-Id".to_string(), request_id.to_string()));
     }

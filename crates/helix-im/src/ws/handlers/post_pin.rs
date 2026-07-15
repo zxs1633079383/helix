@@ -5,13 +5,12 @@
 //! `im:post:updated`，前端只直绑 `data-pinned`，不做乐观合成。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::sync_session::PostFields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POST_PIN_ACTION: &str = "post_pin";
 
@@ -24,7 +23,7 @@ impl WsMessageHandler for PostPinHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -39,6 +38,7 @@ impl WsMessageHandler for PostPinHandler {
         else {
             return Ok(());
         };
+        ctx.state.invalidate_recent_message_coverage(channel_id);
         let Some(post_id) = data
             .get("postId")
             .or_else(|| data.get("post_id"))
@@ -74,9 +74,14 @@ impl WsMessageHandler for PostPinHandler {
 }
 
 static POST_PIN_HANDLER: PostPinHandler = PostPinHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POST_PIN_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_PIN_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_PIN_ACTION,
-    handler: &POST_PIN_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_PIN_ACTION,
+        handler: &POST_PIN_HANDLER,
+    }
+}

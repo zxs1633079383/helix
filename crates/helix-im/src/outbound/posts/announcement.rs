@@ -2,21 +2,18 @@
 //!
 //! helix 此前仅有公告**读**族（list/detail/acceptList），写族（save/delete/read）全缺，此处补齐。
 //! 三条都走 `post/announcement/*` 子路由（单数 `post/`，对齐 posts_read.rs #14-16）。
-//! 各为独立命令（独立 endpoint + body + distributed_slice 注册），默认写族 `is_read=false`。
+//! 各为独立命令（独立 endpoint + body + inventory 注册），默认写族 `is_read=false`。
 //!
 //! ## endpoint / body 真源
 //! - save：后端要**完整 Post 结构**，body = 整个 args 透传（args.clone()），不裁字段。
 //! - delete：`{postIds:[], postId:[]}`（两字段同值数组，兼容后端单/复数命名差异）。
 //! - read：`{postId, channelId}`（标记某公告已读）。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 // ── 本文件局部 helper（边界零信任：缺/类型错 → Err，不 panic）──────────────────────
 
@@ -42,11 +39,12 @@ impl OutboundCommand for AnnouncementSaveCommand {
     }
 }
 static ANNOUNCEMENT_SAVE: AnnouncementSaveCommand = AnnouncementSaveCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static ANNOUNCEMENT_SAVE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_announcement_save",
-    command: &ANNOUNCEMENT_SAVE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_announcement_save",
+        command: &ANNOUNCEMENT_SAVE,
+    }
+}
 
 /// POST .../post/announcement/delete — 删除公告。
 /// body `{postIds:[...], postId:[...]}` 两字段同值数组（兼容后端单/复数命名差异）。
@@ -64,11 +62,12 @@ impl OutboundCommand for AnnouncementDeleteCommand {
     }
 }
 static ANNOUNCEMENT_DELETE: AnnouncementDeleteCommand = AnnouncementDeleteCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static ANNOUNCEMENT_DELETE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_announcement_delete",
-    command: &ANNOUNCEMENT_DELETE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_announcement_delete",
+        command: &ANNOUNCEMENT_DELETE,
+    }
+}
 
 /// POST .../post/announcement/read — 标记公告已读。
 /// body `{postId, channelId}`。
@@ -87,11 +86,12 @@ impl OutboundCommand for AnnouncementReadCommand {
     }
 }
 static ANNOUNCEMENT_READ: AnnouncementReadCommand = AnnouncementReadCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static ANNOUNCEMENT_READ_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_announcement_read",
-    command: &ANNOUNCEMENT_READ,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_announcement_read",
+        command: &ANNOUNCEMENT_READ,
+    }
+}
 
 #[cfg(test)]
 mod tests {

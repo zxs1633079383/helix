@@ -147,6 +147,37 @@ fn command_enqueues_successfully() {
 }
 
 #[test]
+fn command_maps_invalid_public_payload_to_ffi_invalid() {
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+    assert!(!handle.is_null());
+
+    let name = b"im_send";
+    let invalid_payload = b"{not-json";
+    let status = unsafe {
+        helix_command(
+            handle,
+            name.as_ptr(),
+            name.len(),
+            invalid_payload.as_ptr(),
+            invalid_payload.len(),
+        )
+    };
+    assert_eq!(status, FFI_INVALID);
+
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
 fn command_with_trace_accepts_valid_w3c_sidecar() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";
@@ -246,6 +277,43 @@ fn query_returns_unimplemented() {
         )
     };
     assert_eq!(status, FFI_UNIMPLEMENTED);
+
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn business_query_returns_unimplemented_and_clears_out_params() {
+    let api = b"https://api.example.test";
+    let ws = b"wss://ws.example.test/socket";
+    let handle = unsafe {
+        helix_create_with_network(
+            api.as_ptr(),
+            api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+    assert!(!handle.is_null());
+
+    let query_name = b"im_query_messages_by_channel";
+    let query_payload = br#"{"limit":20}"#;
+    let mut out_ptr: *mut u8 = std::ptr::dangling_mut();
+    let mut out_len = 999;
+    let status = unsafe {
+        helix_query(
+            handle,
+            query_name.as_ptr(),
+            query_name.len(),
+            query_payload.as_ptr(),
+            query_payload.len(),
+            &mut out_ptr,
+            &mut out_len,
+        )
+    };
+    assert_eq!(status, FFI_UNIMPLEMENTED);
+    assert!(out_ptr.is_null());
+    assert_eq!(out_len, 0);
 
     unsafe { helix_destroy(handle) };
 }

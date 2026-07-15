@@ -37,8 +37,9 @@
 //!    **单次**跑引擎预收集的同一份 source（`collect_ffi_emits(&source)` /
 //!    `collect_native_emits(&source)`），只验证「batch roundtrip（HX-C007）vs broadcast 直传」
 //!    对同一序列字节一致。引擎层双端一致靠**共享 `build_shell` by-construction**（同一份
-//!    core/im 装配），未在本测试内被独立驱动证伪。回归「引擎双端 parity」需另立测试
-//!    （两端各自 `shell.step` 同剧本再比对）。
+//!    core/im 装配），未在本测试内被独立驱动证伪。本文件 A4 用例只证明“三份独立 shell
+//!    注入相同 Tick 后业务输出一致”，**不证明 native/FFI 物理连接生产者会产同一 Tick 或
+//!    保证相同先后**；真实 adapter 发布时序留给 A5 真链路验收。
 //! 2. **§lagged（latent risk · 前移 M2）**：native `event_sink.rs` 有 lagged-aware
 //!    `EventReceiver`/`subscribe_observed()`/`RecvOutcome::Lagged→resync_needed`（E7，
 //!    helix-tauri event_bus 用）；`FfiEventSink`（`Mutex<Vec<Bytes>>` 整批 flush）**无对等
@@ -47,7 +48,7 @@
 //!    M2 Tauri 接 `EventReceiver` 时验收，避免 native 升级后 parity 静默失效。
 
 use bytes::Bytes;
-use helix_core::effect::DomainEventBytes;
+use helix_core::effect::{DomainEventBytes, TransportId};
 use helix_core::ports::EventSink;
 use helix_core::tick::{AppCommand, InboundBytes};
 use helix_core::{Effect, ExecutionShell, Tick};
@@ -56,7 +57,9 @@ use helix_driver_ffi::event_sink::FfiEventSink;
 use helix_driver_ffi::vtable::CppHostVtable;
 use helix_driver_host::BatchSink;
 use helix_driver_native::event_sink::NativeEventSink;
+use helix_driver_web::{WebExecutor, WebOwnedEffect};
 use helix_im::module::ImConfig;
+use helix_im::query::LocalStoreMode;
 use helix_im::state::ChannelId;
 use helix_im::ImModule;
 use parking_lot::Mutex;
@@ -84,6 +87,10 @@ fn channel_id(n: u64) -> ChannelId {
 }
 
 fn build_shell() -> ExecutionShell {
+    build_shell_with_mode(LocalStoreMode::Durable)
+}
+
+fn build_shell_with_mode(local_store_mode: LocalStoreMode) -> ExecutionShell {
     let config = ImConfig {
         ws_url: "ws://test".to_string(),
         api_base_url: "http://test".to_string(),
@@ -96,7 +103,7 @@ fn build_shell() -> ExecutionShell {
         org_name: String::new(),
         dept_name: String::new(),
     };
-    let mut module = ImModule::new(config);
+    let mut module = ImModule::new_with_local_store(config, local_store_mode);
     module.register_channel(channel_id(1), 0);
     let post_channel =
         ChannelId::from_str("rmibkwkjwidhdx5xy8pyse6a3r").expect("真帧 channelId 合法 26 字符");
@@ -307,5 +314,117 @@ fn f5_ffi_sink_empty_flush_no_callback() {
     // SAFETY: 同 make_test_vtable 契约，单 owner 归还。
     unsafe {
         let _ = Box::from_raw(vtable.ctx as *mut BatchCapture);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LifecycleStep {
+    Connected,
+    Hello(&'static str),
+    Disconnected,
+}
+
+fn lifecycle_tick(step: LifecycleStep) -> Tick {
+    match step {
+        LifecycleStep::Connected => Tick::Connected(TransportId::from_raw(0)),
+        LifecycleStep::Hello(connection_id) => Tick::Inbound(InboundBytes(
+            serde_json::to_vec(&serde_json::json!({
+                "action": "hello",
+                "data": { "connectionId": connection_id }
+            }))
+            .expect("static hello JSON")
+            .into(),
+        )),
+        LifecycleStep::Disconnected => Tick::Disconnected(TransportId::from_raw(0)),
+    }
+}
+
+fn effect_fingerprints(effects: &[Effect]) -> Vec<String> {
+    effects.iter().map(|effect| format!("{effect:?}")).collect()
+}
+
+fn web_effect_fingerprints(effects: &[WebOwnedEffect]) -> Vec<String> {
+    effects.iter().map(|effect| format!("{effect:?}")).collect()
+}
+
+fn contains_event(effects: &[Effect], expected: &str) -> bool {
+    effects.iter().any(|effect| match effect {
+        Effect::Emit { event } => serde_json::from_slice::<serde_json::Value>(&event.0)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("event")
+                    .and_then(|name| name.as_str())
+                    .map(str::to_owned)
+            })
+            .is_some_and(|name| name == expected),
+        _ => false,
+    })
+}
+
+/// A4：native / FFI 两份独立 shell 与 Web owned executor 注入相同生命周期 Tick，
+/// 逐 step 业务 Effect 必须一致。
+///
+/// 这是共享业务核的确定性契约，不是三端物理连接 adapter parity 测试。
+#[test]
+fn a4_identical_injected_lifecycle_script_is_three_platform_equivalent() {
+    let mut native_shell = build_shell();
+    let mut ffi_shell = build_shell();
+    let mut web_executor = WebExecutor::new(build_shell_with_mode(LocalStoreMode::Session));
+    let native_start = effect_fingerprints(native_shell.start().expect("native start"));
+    assert_eq!(
+        native_start,
+        effect_fingerprints(ffi_shell.start().expect("ffi start")),
+        "native/FFI 独立 shell 的启动 Effect 必须一致"
+    );
+    assert_eq!(
+        native_start,
+        web_effect_fingerprints(&web_executor.start().expect("Web start")),
+        "Web executor 的启动 Effect 必须与 native/FFI 一致"
+    );
+
+    let script = [
+        (LifecycleStep::Connected, FIXED_NOW_MS),
+        (LifecycleStep::Hello("A4_CONN_1"), FIXED_NOW_MS + 1),
+        (LifecycleStep::Disconnected, FIXED_NOW_MS + 2),
+        (LifecycleStep::Connected, FIXED_NOW_MS + 3),
+        (LifecycleStep::Hello("A4_CONN_2"), FIXED_NOW_MS + 4),
+    ];
+
+    for (index, (step, now_ms)) in script.into_iter().enumerate() {
+        let native = native_shell
+            .step(lifecycle_tick(step), now_ms)
+            .expect("native lifecycle step");
+        let native_fingerprint = effect_fingerprints(native);
+        if matches!(step, LifecycleStep::Hello(_)) {
+            assert!(
+                native
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Http { req, .. }
+                    if req.url.ends_with("/channels/load/increment"))),
+                "hello step 必须有 increment HTTP，防两边都空的假绿"
+            );
+            assert!(
+                contains_event(native, "im:connection:established"),
+                "hello step 必须有连接建立事件，防两边都空的假绿"
+            );
+        }
+
+        let ffi = ffi_shell
+            .step(lifecycle_tick(step), now_ms)
+            .expect("ffi lifecycle step");
+        assert_eq!(
+            native_fingerprint,
+            effect_fingerprints(ffi),
+            "生命周期剧本第 {index} 步 native/FFI 业务 Effect 漂移"
+        );
+        let web = web_executor
+            .step(lifecycle_tick(step), now_ms)
+            .expect("Web lifecycle step");
+        assert_eq!(
+            native_fingerprint,
+            web_effect_fingerprints(&web),
+            "生命周期剧本第 {index} 步 Web 业务 Effect 漂移"
+        );
     }
 }

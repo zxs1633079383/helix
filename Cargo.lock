@@ -581,10 +581,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -618,8 +616,6 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
 dependencies = [
- "futures-channel",
- "futures-core",
  "js-sys",
  "wasm-bindgen",
 ]
@@ -707,6 +703,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -723,12 +720,14 @@ dependencies = [
  "helix-core",
  "helix-driver-host",
  "helix-driver-native",
+ "helix-driver-web",
  "helix-im",
  "parking_lot",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
 ]
 
@@ -775,16 +774,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "helix-driver-wasm"
+name = "helix-driver-web"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "getrandom 0.2.17",
  "gloo-timers",
  "helix-core",
+ "helix-im",
  "js-sys",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
  "wasm-bindgen",
@@ -819,7 +819,7 @@ dependencies = [
  "bytes",
  "criterion",
  "helix-core",
- "linkme",
+ "inventory",
  "proptest",
  "serde",
  "serde_json",
@@ -1084,6 +1084,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1160,26 +1169,6 @@ dependencies = [
  "cc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "linkme"
-version = "0.3.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e83272d46373fb8decca684579ac3e7c8f3d71d4cc3aa693df8759e260ae41cf"
-dependencies = [
- "linkme-impl",
-]
-
-[[package]]
-name = "linkme-impl"
-version = "0.3.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32d59e20403c7d08fe62b4376edfe5c7fb2ef1e6b1465379686d0f21c8df444b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

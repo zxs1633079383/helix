@@ -4,14 +4,12 @@
 //! ⚠️ 本文件是 P2 迁移既有命令的临时归集；P3b 会补 channel 写族完整命令——届时按 C4 收口，
 //! 各命令应裂回独立注册文件，本文件随之拆解。endpoint/body 真源逐条标注。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
 use crate::outbound::registry::{
     build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
-    OUTBOUND_COMMANDS,
 };
 
 /// #33 POST /api/cses/channel/member/leave — 退群（仅自己）→ channel_member_update + post。
@@ -42,11 +40,12 @@ impl OutboundCommand for ChannelLeaveCommand {
     }
 }
 static CHANNEL_LEAVE: ChannelLeaveCommand = ChannelLeaveCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANNEL_LEAVE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_leave",
-    command: &CHANNEL_LEAVE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_leave",
+        command: &CHANNEL_LEAVE,
+    }
+}
 
 /// #7 POST /api/cses/channel/create — 建群 → channel_created + channel_member_update + post。
 /// 真源 CreateChannelSpecifyOwner（内嵌 *ent.Channel + Users[]ChannelMemberMinimal）。
@@ -80,11 +79,12 @@ impl OutboundCommand for CreateChannelCommand {
     }
 }
 static CREATE_CHANNEL: CreateChannelCommand = CreateChannelCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CREATE_CHANNEL_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_create_channel",
-    command: &CREATE_CHANNEL,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_create_channel",
+        command: &CREATE_CHANNEL,
+    }
+}
 
 /// #17 POST /api/cses/posts/makeTopic — 消息转话题 → channel_created + post_update。
 /// 真源 {PostId, 内嵌 CreateChannelSpecifyOwner}。
@@ -122,11 +122,12 @@ impl OutboundCommand for MakeTopicCommand {
     }
 }
 static MAKE_TOPIC: MakeTopicCommand = MakeTopicCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static MAKE_TOPIC_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_make_topic",
-    command: &MAKE_TOPIC,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_make_topic",
+        command: &MAKE_TOPIC,
+    }
+}
 
 /// POST /api/cses/channel/member/change — 加/退成员 → channel_member_update。
 /// 真源（真机curl真源 §5）：{channelId, joinUsers?:[{id,teamId,role}], leaveUsers?:[...]}，
@@ -173,11 +174,12 @@ impl OutboundCommand for MemberChangeCommand {
     }
 }
 static MEMBER_CHANGE: MemberChangeCommand = MemberChangeCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static MEMBER_CHANGE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_member_change",
-    command: &MEMBER_CHANGE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_member_change",
+        command: &MEMBER_CHANGE,
+    }
+}
 
 /// #27 POST /api/cses/channel/close — 关闭频道 → channel_close（broadcast 到 channelId·自己也收）。
 /// 真源 {ChannelId}。
@@ -192,11 +194,12 @@ impl OutboundCommand for ChannelCloseCommand {
     }
 }
 static CHANNEL_CLOSE: ChannelCloseCommand = ChannelCloseCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANNEL_CLOSE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_close",
-    command: &CHANNEL_CLOSE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_close",
+        command: &CHANNEL_CLOSE,
+    }
+}
 
 /// #31 POST /api/cses/channel/member/change/nickname — 改群昵称 → update_channel_member_nickName
 /// （现网 WS 名 camelCase `nickName`，broadcast 到 channelId）。
@@ -218,8 +221,9 @@ impl OutboundCommand for UpdateNicknameCommand {
     }
 }
 static UPDATE_NICKNAME: UpdateNicknameCommand = UpdateNicknameCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static UPDATE_NICKNAME_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_update_member_nickname",
-    command: &UPDATE_NICKNAME,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_update_member_nickname",
+        command: &UPDATE_NICKNAME,
+    }
+}

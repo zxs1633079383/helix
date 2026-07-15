@@ -3,7 +3,7 @@
 use crate::state::{ChannelId, Seq};
 use bytes::Bytes;
 use helix_core::effect::HttpRequest;
-use helix_core::{Correlation, Effect};
+use helix_core::{AuthKind, Correlation, Effect, AUTH_KIND_HEADER};
 
 /// 触发 /sync/notify HTTP 请求（pull 模型，设计文档 §1.4）。
 pub fn sync_notify(
@@ -19,7 +19,7 @@ pub fn sync_notify(
         ]
     });
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(connection_id_headers(connection_id));
+    headers.extend(session_auth_headers(connection_id));
     Effect::Http {
         corr,
         req: HttpRequest {
@@ -51,7 +51,7 @@ pub fn increment_http_trigger(
         "cursors": cursor_json,
     });
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(connection_id_headers(connection_id));
+    headers.extend(session_auth_headers(connection_id));
     Effect::Http {
         corr,
         req: HttpRequest {
@@ -71,4 +71,14 @@ pub fn connection_id_headers(connection_id: Option<&str>) -> Vec<(String, String
         Some(id) => vec![("connectionId".to_string(), id.to_string())],
         None => vec![],
     }
+}
+
+/// 需要用户会话的 IM HTTP 请求统一携带内部 auth intent；driver 出网前替换成真实凭据。
+pub fn session_auth_headers(connection_id: Option<&str>) -> Vec<(String, String)> {
+    let mut headers = connection_id_headers(connection_id);
+    headers.push((
+        AUTH_KIND_HEADER.to_string(),
+        AuthKind::Session.as_str().to_string(),
+    ));
+    headers
 }

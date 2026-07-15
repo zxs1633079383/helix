@@ -15,11 +15,10 @@
 //! 对齐真源 `router.rs:46 _ => vec![]` 未知 action 静默口径。无任何业务 Effect。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POSTED_ACTION: &str = "posted";
 const POST_URGENT_ACTION: &str = "post_urgent";
@@ -55,21 +54,28 @@ static POST_URGENT_HANDLER: DeadActionHandler = DeadActionHandler {
 static POST_EDITED_HANDLER: DeadActionHandler = DeadActionHandler {
     action: POST_EDITED_ACTION,
 };
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box((&POSTED_HANDLER, &POST_URGENT_HANDLER, &POST_EDITED_HANDLER));
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static POSTED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POSTED_ACTION,
-    handler: &POSTED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POSTED_ACTION,
+        handler: &POSTED_HANDLER,
+    }
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_URGENT_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_URGENT_ACTION,
-    handler: &POST_URGENT_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_URGENT_ACTION,
+        handler: &POST_URGENT_HANDLER,
+    }
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static POST_EDITED_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POST_EDITED_ACTION,
-    handler: &POST_EDITED_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POST_EDITED_ACTION,
+        handler: &POST_EDITED_HANDLER,
+    }
+}

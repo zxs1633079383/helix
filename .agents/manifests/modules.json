@@ -101,31 +101,36 @@
       ],
       "boundary_file": ".agents/agents/modules/driver-native/AGENTS.md"
     },
-    "driver-wasm": {
-      "agent": "modules/driver-wasm-agent",
+    "driver-web": {
+      "agent": "modules/driver-web-agent",
       "constraints": [
-        "wasm-archived-adr006",
-        "hxc004-features-additive"
+        "hxc002-send-lifetime",
+        "hxc003-web-dual-target",
+        "hxc004-features-additive",
+        "web-browser-glue-no-business"
       ],
-      "diagram": ".agents/diagrams/modules/driver-wasm.mmd",
+      "diagram": ".agents/diagrams/modules/driver-web.mmd",
       "domains": [
-        "runtime-core"
+        "runtime-core",
+        "im-sync"
       ],
       "paths": [
-        "crates/helix-driver-wasm"
+        "crates/helix-driver-web"
       ],
       "risks": [
+        "web",
         "wasm",
-        "archived",
-        "experimental"
+        "browser",
+        "fetch",
+        "websocket",
+        "session-store"
       ],
-      "boundary_file": ".agents/agents/modules/driver-wasm/AGENTS.md"
+      "boundary_file": ".agents/agents/modules/driver-web/AGENTS.md"
     },
     "governance": {
       "agent": "modules/governance-agent",
       "constraints": [
         "harness-index-invariant",
-        "review-gap-cadence",
         "docs-drift-check",
         "commit-convention-harness-section"
       ],

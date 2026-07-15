@@ -468,7 +468,7 @@ fn registry_covers_all_p3a_read_commands() {
 }
 
 /// 注册数 == 命令数性质：每个注册命令都能成功 dispatch（无重复 name 导致 registry 构建失败）。
-/// 若任一命令 distributed_slice 注册了重复 name → registry 构建 Err → handle_outbound 全 Err →
+/// 若任一命令 inventory 注册了重复 name → registry 构建 Err → handle_outbound 全 Err →
 /// 本测试 FAIL（即「注册数==命令数」的可证伪体现）。
 #[test]
 fn every_p3a_read_command_is_dispatchable() {

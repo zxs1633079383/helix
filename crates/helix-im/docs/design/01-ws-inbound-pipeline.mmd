@@ -10,7 +10,7 @@ flowchart TD
         PARSE --> ACTION
     end
 
-    ACTION --> REG{"registry by action\nlinkme distributed_slice + OnceLock O(1) ✅\n（registry.rs build_registry：去重 + action 自洽校验）"}
+    ACTION --> REG{"registry by action\ninventory submit + OnceLock O(1) ✅\n（registry.rs build_registry：去重 + action 自洽校验）"}
 
     REG -->|"hello"| H_HELLO["hello handler ✅\nconn=Connected + 存 connectionId\nreset_increment_batch（会话边界）\nemit im:connection:established\n→ increment HTTP trigger（带已知 cursor）\nemit im:channels:loaded"]
     REG -->|"post（真 Go 在线新消息）"| H_POST["post handler ✅\n① reconcile_post_echo（先做·解耦 gate）\n② ch.ingest（落库 + cursor 推进）"]

@@ -1,26 +1,26 @@
 # Helix — Runtime-agnostic 确定性业务内核基座
 
-一次实现，两端运行：**PC 端 Tauri native** / **手机端 Flutter FFI**。
-> 网页端（WASM）暂停维护——`helix-driver-wasm` 保留为历史实验代码，不进 roadmap / CI 必跑矩阵 / 交付验收（见 [`docs/harness/decisions.md`](docs/harness/decisions.md) ADR-006）。
+一次实现，三端目标：**PC 端 Tauri native** / **手机端 Flutter FFI** / **Web WASM**。
+> 当前交付事实：native/FFI 已产品化；Web 的 `helix-driver-web` Rust 平台壳、最小浏览器 glue 与正式 gate 已落地，但真浏览器→真 Go 产品链仍待环境验收。历史 `helix-driver-wasm` 已删除（见 [`docs/harness/decisions.md`](docs/harness/decisions.md) ADR-006/ADR-014）。
 
 ## 架构简图
 
 ```
-应用宿主（Tauri 桌面 / Flutter 手机端）
+应用宿主（Tauri 桌面 / Flutter 手机端 / Web）
     │
     ▼
 helix-driver-native ─┐
-helix-driver-ffi    ─┴──► helix-core ◄── helix-im ◄── (helix-presence...)
-                          （helix-driver-wasm = archived，见 ADR-006）
+helix-driver-ffi    ─┼──► helix-core ◄── helix-im ◄── (helix-presence...)
+helix-driver-web    ─┘
 ```
 
 - **helix-core**：ports trait + Module trait + ExecutionShell（纯 sans-IO 状态机）
 - **helix-im**：IM 业务模块，只依赖 helix-core，不含任何运行时 crate
 - **helix-driver-***：各平台的 port 实现（tokio/sqlx 在此，不在 core）
 
-详细架构见 [`docs/README.md`](docs/README.md)（文档地图）与 [`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)（机制权威源）。
+详细架构见 [`docs/README.md`](docs/README.md)（文档地图）、[`docs/过会方案/helix-core-im-架构设计.md`](docs/过会方案/helix-core-im-架构设计.md)（内核机制权威源）与 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md)（三端平台适配真源）。
 
-## 两端 Build 命令
+## 三端 Build 命令
 
 ### native（Tauri 桌面）
 
@@ -47,6 +47,15 @@ cargo check -p helix-driver-ffi --target aarch64-apple-ios
 cargo check -p helix-core --target aarch64-linux-android
 ```
 
+### Web（A4 Rust 平台壳）
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo build --target wasm32-unknown-unknown -p helix-driver-web
+```
+
+这条构建已纳入正式 CI/HX-C003，并与 native 单测、双目标 clippy、Web 依赖边界一起执行；它仍不能冒充浏览器 bootstrap 或真 Go E2E，不能据此宣称 Web 产品已经交付。
+
 ## 验收红线（CI 强制）
 
 ```bash
@@ -68,15 +77,15 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 | `helix-driver-native` | tokio/sqlx/tungstenite/reqwest 实现（PC Tauri） | helix-core + 运行时 crate |
 | `helix-driver-ffi` | C ABI/uniffi 实现（手机端 Flutter） | helix-core + 系统 crate |
 | `helix-driver-host` | 共享 rusqlite Storage/network/event_sink（native+ffi 复用，ADR-007/010） | helix-core + 运行时 crate |
-| `helix-driver-wasm` | ⚠️ **archived**（ADR-006，网页端暂停维护，不进 roadmap/CI/交付） | — |
+| `helix-driver-web` | A4 Web Rust 平台壳：Browser Fetch、page-session store、外部 WS bridge、timer、有界 event batch v2 | helix-core + helix-im + 浏览器平台 crate |
 
 ## 顶层目录地图
 
 | 目录 | 作用 |
 |---|---|
 | `crates/` | 全部 Rust 源码，按「业务模块层 / core 层 / 平台驱动层」三层组织（见上「Crate 结构」） |
-| `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`（drift-review 台账）、`agents/`（issue tracker / triage 约定） |
-| `scripts/` | 工程闸门与端到端验证脚本：`gate.sh` / `structure-gate.sh` / `review-gap.sh` / `branch-sync-gate.sh` 四道闸 + 一批 `host-cli-*-e2e.sh` 真链路用例 |
+| `docs/` | 设计与工程文档：北极星 `GOAL.md`、`ROADMAP.md`、`COMMIT_CONVENTION.md`、`harness/`（踩坑卡 HX-C001~016 + 决策 ADR）、`过会方案/`（架构机制权威源）、`specs/` / `reports/` / `review/`、`agents/`（issue tracker / triage 约定） |
+| `scripts/` | 工程验证与端到端脚本：本地 `gate-fast.sh`、CI/合并 `gate.sh`、`branch-sync-gate.sh`、`ddd-structure-gate.sh` + 一批 `host-cli-*-e2e.sh` 真链路用例 |
 | `tools/` | 杂项工具（当前仅 `md2html.py`） |
 
 ## helix-im 内部业务模块
@@ -85,6 +94,7 @@ grep -E "tokio|sqlx|reqwest|tungstenite|web.sys" \
 
 | 模块 / 目录 | 作用 |
 |---|---|
+| `client_api/` | **三端业务调用门面**：公开命令名 + payload → canonical `AppCommand`；alias、归一化和 capabilities 的唯一真源，driver 只做平台错误映射 |
 | `module.rs` + `*_flow.rs` | IM 模块壳与编排：`send_flow`（发消息）/ `query_dispatch`（查询·对话渲染）/ `sync_flow`（同步）/ `lifecycle`（生命周期）/ `port_reply`（端口响应回灌） |
 | `parser.rs` / `http_envelope.rs` | **防腐层（ACL 边界）**：WS 帧 / HTTP 响应 → 强类型 `InboundEvent`，边界零信任、零 `unwrap` |
 | `acl/` | InboundEvent / Tick → `Effect` 翻译层，按职责裂分：transport / storage / sync_http / 投影 message / 投影 control effects |

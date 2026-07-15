@@ -19,14 +19,11 @@
 //! enableApproval 用 **`channelId`**；view 用 channels 数组每项 `id`。同域不同键 = Go decode 静默失败
 //! 防线（写错即后端收下空 id 拒绝）。UserId/OwnerId 由后端 session 覆盖（json:"-"），core 不填。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// 取必填 `users` 数组（add/remove manger 用 `[{id,name,role,teamId}]`，非空、元素全 object）。
 /// 边界零信任：缺/空/类型错 → Err（HX-C 不变量 4），不 panic。
@@ -55,11 +52,12 @@ impl OutboundCommand for ChangeDisplayNameCommand {
         ))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_DISPLAY_NAME_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_display_name",
-    command: &ChangeDisplayNameCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_display_name",
+        command: &ChangeDisplayNameCommand,
+    }
+}
 
 // ── #16 channel/change/orient — 改群导向 → update_channel ──────────────────────────
 struct ChangeOrientCommand;
@@ -77,11 +75,12 @@ impl OutboundCommand for ChangeOrientCommand {
         ))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_ORIENT_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_orient",
-    command: &ChangeOrientCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_orient",
+        command: &ChangeOrientCommand,
+    }
+}
 
 // ── #17 channel/change/purpose — 改群简介 → update_channel ─────────────────────────
 struct ChangePurposeCommand;
@@ -99,11 +98,12 @@ impl OutboundCommand for ChangePurposeCommand {
         ))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static CHANGE_PURPOSE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_change_purpose",
-    command: &ChangePurposeCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_change_purpose",
+        command: &ChangePurposeCommand,
+    }
+}
 
 // ── #19 channel/add/manger — 添加群管理员（WS 已注释，仅 GrpcInvoke）────────────────
 struct AddMangerCommand;
@@ -120,11 +120,12 @@ impl OutboundCommand for AddMangerCommand {
         ))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static ADD_MANGER_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_add_manger",
-    command: &AddMangerCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_add_manger",
+        command: &AddMangerCommand,
+    }
+}
 
 // ── #20 channel/remove/manger — 移除群管理员（WS 已注释，仅 GrpcInvoke）──────────────
 struct RemoveMangerCommand;
@@ -141,11 +142,12 @@ impl OutboundCommand for RemoveMangerCommand {
         ))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static REMOVE_MANGER_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_remove_manger",
-    command: &RemoveMangerCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_remove_manger",
+        command: &RemoveMangerCommand,
+    }
+}
 
 // ── UC-6.2 channel/add|remove/manger — 设/撤管理员（单命令·role + endpoint 路由下沉）──────
 /// **body + endpoint 路由成形下沉 helix（薄壳合规）**：壳只传结构化 args `{channel_id, user_id,
@@ -178,11 +180,12 @@ impl OutboundCommand for SetMangerCommand {
         Ok((endpoint, json!({ "channelId": channel_id, "users": users })))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static SET_MANGER_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_set_manger",
-    command: &SetMangerCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_set_manger",
+        command: &SetMangerCommand,
+    }
+}
 
 // ── #3 channels/enableApproval — 开/关群审批 → change_channel_approval ──────────────
 struct EnableApprovalCommand;
@@ -205,11 +208,12 @@ impl OutboundCommand for EnableApprovalCommand {
         ))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static ENABLE_APPROVAL_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_enable_approval",
-    command: &EnableApprovalCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_enable_approval",
+        command: &EnableApprovalCommand,
+    }
+}
 
 // ── #4 channels/view — 批量标记频道已查看（无 WS）──────────────────────────────────
 struct ViewChannelsCommand;
@@ -235,11 +239,12 @@ impl OutboundCommand for ViewChannelsCommand {
         Ok(("channels/view", json!({ "channels": channels })))
     }
 }
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static VIEW_CHANNELS_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channels_view",
-    command: &ViewChannelsCommand,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channels_view",
+        command: &ViewChannelsCommand,
+    }
+}
 
 #[cfg(test)]
 #[path = "change_dedicated_tests.rs"]

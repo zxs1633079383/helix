@@ -19,14 +19,11 @@
 //! **casing 陷阱**：全部 camelCase（channelId/channelIds/startTime/endTime）。member/snapshot 的
 //! startTime/endTime 是 int64（前端传毫秒数，非 string）。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// 取必填字符串数组（channelIds 类，非空、元素全 string）。
 fn require_str_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
@@ -54,11 +51,12 @@ macro_rules! read_cmd {
                 true
             }
         }
-        #[distributed_slice(OUTBOUND_COMMANDS)]
-        static $reg: OutboundRegistration = OutboundRegistration {
-            name: $name,
-            command: &$cmd_struct,
-        };
+        inventory::submit! {
+            OutboundRegistration {
+                name: $name,
+                command: &$cmd_struct,
+            }
+        }
     };
 }
 

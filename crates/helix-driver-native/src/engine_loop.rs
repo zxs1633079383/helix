@@ -4,7 +4,7 @@
 //!
 //! pump 核（`BoundedSpawner` / `OwnedEffect`+`consume_effects` / `dispatch_effects` /
 //! `TimerRegistry` / `run_http_envelope` / 双通道 biased select + graceful drain）统一在
-//! `helix-driver-host::engine`（泛型 over Storage/HttpRequester/EventSink/Transport/Clock）。
+//! `helix-driver-host::engine`（泛型 over Storage/HttpRequester/EventSink/FrameSender/Clock）。
 //! native 这层只保留：
 //! - 具体 ports 装配（`NativeStorage` / `NativeHttp` / `NativeEventSink` / `NativeClock`）
 //! - 与现网兼容的公开 API 签名（[`EngineConfig`] / [`TransportTable`] / [`run_engine_loop`]）
@@ -40,8 +40,8 @@ use crate::transport::NativeTransport;
 ///
 /// host 装配阶段填入（`host.add_transport(...)` → `TransportId`）；host 泵的 `Effect::Send`
 /// 分支按 id 查表调 `NativeTransport::send`（`&self`）。多连接形态从一开始做成 `HashMap`。
-/// `Arc<_>`（无外层 `Mutex`）：send/recv/close 已收紧 `&self`（host `SharedWsClient` 内部 state 锁
-/// 串行化），表里只需共享句柄；connect 在装配端独占 `&mut` 持有时完成（见 host engine 头注）。
+/// `Arc<_>`（无外层 `Mutex`）：FrameSender::send 只需 `&self`（host `SharedWsClient` 内部 state
+/// 锁串行化），表里只需共享句柄；connect 在装配端独占 `&mut` 持有时完成（见 host engine 头注）。
 pub type TransportTable = HashMap<TransportId, Arc<NativeTransport>>;
 
 /// 事件泵配置（native 具体 ports 聚合）。

@@ -2,7 +2,7 @@
 //!
 //! 成员 change/leave/nickname 已在 `channel_existing.rs`（P2 迁移：im_channel_member_change /
 //! im_channel_leave / im_update_member_nickname）；本文件补 P3b 漏项 role(#29) + notify(#30)。
-//! 各独立 endpoint + body + distributed_slice 注册（C4 收口，零交集）。
+//! 各独立 endpoint + body + inventory 注册（C4 收口，零交集）。
 //!
 //! ## endpoint / body 真源（mattermost csesapi 逐字，不自造 fixture，C5）
 //! 子路由前缀 `channel/member/change`（BaseRoutes.ChannelMember = `/api/cses/channel/member`）。
@@ -16,14 +16,11 @@
 //! 序列化时 key 是 **`id`** 而非 channelId（#30 迁移注意点 3）——那是 P4 WS 事件解析侧的事，
 //! P3b 只产 outbound request，**不**把 `id` 键混进 request body。
 
-use linkme::distributed_slice;
 use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    require_str, OutboundCommand, OutboundRegistration, OUTBOUND_COMMANDS,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// #29 POST /api/cses/channel/member/change/role — 改成员角色 → channel_member_role_updated。
 /// 真源 `{channelId, userIds:[]string(非空), role}`，OwnerId 后端 session 覆盖。
@@ -52,11 +49,12 @@ impl OutboundCommand for MemberRoleCommand {
     }
 }
 static MEMBER_ROLE: MemberRoleCommand = MemberRoleCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static MEMBER_ROLE_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_member_role",
-    command: &MEMBER_ROLE,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_member_role",
+        command: &MEMBER_ROLE,
+    }
+}
 
 /// #30 POST /api/cses/channel/member/change/notify — 改成员免打扰 → update_channel（定向本人）。
 /// 真源 `command.UpdateChannelNotify`：`{channelId, notify}`，UserId(json:"-") 后端 session 覆盖。
@@ -80,8 +78,9 @@ impl OutboundCommand for MemberNotifyCommand {
     }
 }
 static MEMBER_NOTIFY: MemberNotifyCommand = MemberNotifyCommand;
-#[distributed_slice(OUTBOUND_COMMANDS)]
-static MEMBER_NOTIFY_REG: OutboundRegistration = OutboundRegistration {
-    name: "im_channel_member_notify",
-    command: &MEMBER_NOTIFY,
-};
+inventory::submit! {
+    OutboundRegistration {
+        name: "im_channel_member_notify",
+        command: &MEMBER_NOTIFY,
+    }
+}

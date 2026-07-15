@@ -17,17 +17,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use helix_core::effect::TransportId;
-use helix_core::ports::Transport;
-use helix_core::{ExecutionShell, Tick};
-use helix_driver_host::engine::{self, EngineDeps, TransportTable, TransportTraceEvent};
+use helix_core::{ExecutionShell, PortError, Tick};
+use helix_driver_host::engine::{
+    self, register_transport, EngineDeps, TransportRegistration, TransportTable,
+    TransportTraceEvent,
+};
 use helix_driver_host::{
-    spawn_reconnect_supervisor, AuthTokenRegistry, CommandTraceQueue, HostHeaderRegistry,
-    HostNetworkConfig, HostOtelRuntime, HostStorage, ReconnectPolicy, ReconnectTraceSink,
-    SharedFileUploader, SharedHttpClient, SharedWsClient, TraceDirection, TraceHooks,
+    spawn_reconnect_supervisor, AuthTokenRegistry, HostHeaderRegistry, HostNetworkConfig,
+    HostOtelRuntime, HostStorage, ReconnectPolicy, ReconnectTraceSink, SharedFileUploader,
+    SharedHttpClient, SharedWsClient, TraceDirection, TraceHooks,
 };
 use helix_im::module::ImConfig;
+use helix_im::query::LocalStoreMode;
 use helix_im::ImModule;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::clock::FfiClock;
 use crate::event_sink::FfiEventSink;
@@ -79,35 +82,39 @@ fn export_transport_trace_events(mut rx: mpsc::UnboundedReceiver<TransportTraceE
     }
 }
 
-/// pump 线程回传给 `HelixHandle` 的查询依赖（helix_query 用）。
-///
-/// runtime `Handle` 让 C 同步线程 `spawn` 异步读到 pump runtime（不在 C 线程 block_on）；
-/// storage 是同一个共享实例（pump 与 query 读同库）。
-pub struct QueryDeps {
-    pub runtime: tokio::runtime::Handle,
-    pub storage: Arc<HostStorage>,
-}
-
 /// pump 线程入口参数（create 在主线程构造，move 进线程）。
 pub struct PumpArgs {
     pub config: HostNetworkConfig,
     pub headers: HostHeaderRegistry,
     pub auth: AuthTokenRegistry,
-    pub command_traces: CommandTraceQueue,
+    pub trace: TraceHooks,
     pub vtable: CppHostVtable,
     pub tick_tx: mpsc::Sender<Tick>,
     pub tick_rx: mpsc::Receiver<Tick>,
     pub shutdown_rx: oneshot::Receiver<()>,
-    /// 装配成功后回传 QueryDeps（storage 打开/runtime handle）；失败回传 None。
-    pub ready_tx: std::sync::mpsc::SyncSender<Option<QueryDeps>>,
+    /// 装配成功后只发布 readiness；runtime/storage 不跨回 C ABI 形成同步业务查询旁路。
+    pub ready_tx: std::sync::mpsc::SyncSender<Result<(), ()>>,
     pub db_url: String,
     pub max_http_inflight: usize,
 }
 
+/// FFI 初连与重连的唯一成功路径：握手后先注册 sender，收到 engine ack 才发布 Connected，
+/// 最后放行 reader。任一步失败都会丢弃 activation，reader 静默退出。
+async fn connect_register_activate(
+    mut ws: SharedWsClient,
+    id: TransportId,
+    registration_tx: mpsc::UnboundedSender<TransportRegistration<SharedWsClient>>,
+) -> Result<(), PortError> {
+    let activation = ws.connect().await?;
+    let ws = Arc::new(ws);
+    register_transport(&registration_tx, id, Arc::clone(&ws)).await?;
+    activation.activate().await
+}
+
 /// pump 线程主体：建 current_thread runtime → block_on 装配 + 跑 host 泵核。
 ///
-/// 装配（开 storage / 建 ports / connect WS / 回传 QueryDeps）在 runtime 内 async 完成；
-/// 任一步失败 → `ready_tx.send(None)` 后线程退出（create 据此返回 null）。
+/// 装配（开 storage / 建 ports / connect WS / 发布 readiness）在 runtime 内 async 完成；
+/// 任一步失败 → `ready_tx.send(Err(()))` 后线程退出（create 据此返回 null）。
 pub fn run(args: PumpArgs) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all() // 漏 enable_all → spawn_blocking await / timer park 异常
@@ -120,7 +127,7 @@ pub fn run(args: PumpArgs) {
         Ok(rt) => rt,
         Err(e) => {
             tracing::error!(error = %e, "FFI pump 建 current_thread runtime 失败");
-            let _ = args.ready_tx.send(None);
+            let _ = args.ready_tx.send(Err(()));
             return;
         }
     };
@@ -133,7 +140,7 @@ pub fn run(args: PumpArgs) {
             Ok(s) => Arc::new(s),
             Err(e) => {
                 tracing::error!(error = %e, db = %args.db_url, "FFI pump 打开 storage 失败");
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         };
@@ -144,7 +151,7 @@ pub fn run(args: PumpArgs) {
                     db = %args.db_url,
                     "FFI pump 初始化 IM schema 失败"
                 );
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         }
@@ -156,22 +163,27 @@ pub fn run(args: PumpArgs) {
                         db = %args.db_url,
                         "FFI pump 初始化 IM schema migration 失败"
                     );
-                    let _ = args.ready_tx.send(None);
+                    let _ = args.ready_tx.send(Err(()));
                     return;
                 }
             }
         }
 
-        // ── event sink（FFI 批处理 egress）先建：HTTP 横切层 401/断网回报复用同一出口。
+        // ── event sink（FFI 批处理 egress）先建：HTTP 业务 outcome 回报复用同一出口。
         let event_sink = Arc::new(FfiEventSink::new(args.vtable));
 
         // ── http / ws ports（Rust 持有，共享 header registry）──────────
         let http = match SharedHttpClient::with_registry(args.config.clone(), args.headers.clone())
         {
-            Ok(c) => FfiHttpRequester::new(c, Arc::clone(&event_sink), args.auth.clone()),
+            Ok(c) => FfiHttpRequester::new(
+                c,
+                Arc::clone(&event_sink),
+                args.auth.clone(),
+                helix_im::http_outcome_event,
+            ),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedHttpClient 失败");
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         };
@@ -181,7 +193,7 @@ pub fn run(args: PumpArgs) {
             Ok(c) => c.with_inbound_tick(main_transport, args.tick_tx.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedWsClient 失败");
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         };
@@ -196,54 +208,45 @@ pub fn run(args: PumpArgs) {
         // `connect().await`（连不上可达 ~30s）。此窗口内该句柄**根本不在 `transports` 表里**
         // （表起为空），dispatch 的 `Effect::Send` 走 `transports.get()=None` warn 兜底 → 不存在
         // 任何「会被 Send 争用、且被某任务持有跨 connect().await」的锁（**类型/可见性层**证明，
-        // 而非旧实现靠「hello 之后才产 Send」的运行时时序不变量）。连成功后才经 `transport_tx`
-        // 把 `Arc::new(ws)` 投进泵，loop 的 biased select 第二臂 insert 进表。
+        // 而非旧实现靠「hello 之后才产 Send」的运行时时序不变量）。连成功后经 registration
+        // 通道投进泵，loop 先 insert、再 ack；后台任务收到 ack 才发布 Connected/放行 reader。
         let (transport_tx, transport_rx) =
-            mpsc::unbounded_channel::<(TransportId, Arc<SharedWsClient>)>();
+            mpsc::unbounded_channel::<TransportRegistration<SharedWsClient>>();
         let (transport_lifecycle_tx, transport_lifecycle_rx) = mpsc::unbounded_channel();
         let (transport_trace_tx, transport_trace_rx) = mpsc::unbounded_channel();
+        let (reconnect_shutdown_tx, reconnect_shutdown_rx) = watch::channel(false);
         spawn_transport_trace_exporter(transport_trace_rx);
         let transports: TransportTable<SharedWsClient> = TransportTable::new();
         // 后台连接任务：与泵核同跑此 current_thread runtime（spawn 进同 runtime 域）。
-        // 连不上仅 warn——上行走 dispatch 的 warn 兜底，句柄不投表（YAGNI：当前不内建退避重连，
-        // 对齐「连不上仍进泵」最简语义；重连留 IM 层 im_reconnect 命令驱动）。
+        // 初连失败只 warn；已连接后的 reader 断线则由下方 supervisor 按策略重连。
         let initial_transport_tx = transport_tx.clone();
         tokio::spawn(async move {
-            let mut ws = ws; // connect 是 &mut self → 后台任务独占持有
-            match ws.connect().await {
-                Ok(()) => {
-                    // 连成功 → 投递共享句柄进泵（loop insert 进路由表，Effect::Send 始畅通）。
-                    if initial_transport_tx
-                        .send((main_transport, Arc::new(ws)))
-                        .is_err()
-                    {
-                        tracing::warn!("FFI pump 主 WS 连成功但泵已关闭，丢弃 transport 句柄");
-                    }
-                }
+            match connect_register_activate(ws, main_transport, initial_transport_tx).await {
+                Ok(()) => tracing::info!("FFI pump 主 WS 已注册并激活"),
                 Err(e) => {
-                    tracing::error!(error = %e, "FFI pump 主 WS 后台连接失败——仍进泵，上行走 warn 兜底")
+                    tracing::error!(error = %e, "FFI pump 主 WS 后台连接/注册/激活失败——仍进泵，上行走 warn 兜底")
                 }
             }
         });
-        let reconnect_transport_tx = transport_tx.clone();
         let reconnect_config = args.config.clone();
         let reconnect_headers = args.headers.clone();
         let reconnect_tick_tx = args.tick_tx.clone();
-        let _reconnect_handle = spawn_reconnect_supervisor(
+        let reconnect_transport_tx = transport_tx.clone();
+        let reconnect_handle = spawn_reconnect_supervisor(
             main_transport,
             ReconnectPolicy::default(),
             transport_lifecycle_rx,
-            reconnect_transport_tx,
+            reconnect_shutdown_rx,
             ReconnectTraceSink::new(Some(transport_trace_tx.clone())),
             move || {
                 let config = reconnect_config.clone();
                 let headers = reconnect_headers.clone();
                 let tick_tx = reconnect_tick_tx.clone();
+                let registration_tx = reconnect_transport_tx.clone();
                 async move {
-                    let mut ws = SharedWsClient::with_registry(config, headers)?
+                    let ws = SharedWsClient::with_registry(config, headers)?
                         .with_inbound_tick(main_transport, tick_tx);
-                    ws.connect().await?;
-                    Ok(ws)
+                    connect_register_activate(ws, main_transport, registration_tx).await
                 }
             },
         );
@@ -253,30 +256,30 @@ pub fn run(args: PumpArgs) {
 
         // ── shell + IM 模块 ─────────────────────────────────────────
         let mut shell = ExecutionShell::new();
-        shell.register(ImModule::new(ImConfig {
-            ws_url: args.config.ws_url.clone(),
-            api_base_url: args.config.api_base_url.clone(),
-            // 第二网关 base（spec06 方案 A）：vote/score outbound 走它（HostNetworkConfig 已派生注入）。
-            default_api_base_url: args.config.default_api_base_url.clone(),
-            ..Default::default()
-        }));
+        shell.register(ImModule::new_with_local_store(
+            ImConfig {
+                ws_url: args.config.ws_url.clone(),
+                api_base_url: args.config.api_base_url.clone(),
+                // 第二网关 base（spec06 方案 A）：vote/score outbound 走它（HostNetworkConfig 已派生注入）。
+                default_api_base_url: args.config.default_api_base_url.clone(),
+                ..Default::default()
+            },
+            LocalStoreMode::Durable,
+        ));
 
-        // 装配成功 → 回传 QueryDeps（runtime handle + storage 共享给 helix_query）。
+        // 装配成功 → 发布 readiness。storage 只进入共享 engine，不再暴露同步业务查询句柄。
         let deps = EngineDeps {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
             uploader: Arc::new(SharedFileUploader::default()),
             event_sink,
             clock,
-            trace: TraceHooks::noop_without_otel().with_command_traces(args.command_traces),
+            trace: args.trace,
             max_http_inflight: args.max_http_inflight,
             transport_lifecycle_tx: Some(transport_lifecycle_tx),
             transport_trace_tx: Some(transport_trace_tx),
         };
-        let _ = args.ready_tx.send(Some(QueryDeps {
-            runtime: tokio::runtime::Handle::current(),
-            storage,
-        }));
+        let _ = args.ready_tx.send(Ok(()));
 
         // ── 跑 host 泛型泵核（graceful drain：shutdown_rx 或 tick_rx 关闭）──
         engine::run_engine_loop(
@@ -289,6 +292,10 @@ pub fn run(args: PumpArgs) {
             transport_rx,
         )
         .await;
+        reconnect_shutdown_tx.send_replace(true);
+        if let Err(error) = reconnect_handle.await {
+            tracing::warn!(%error, "FFI reconnect supervisor 非正常退出");
+        }
     });
 
     // 🔴 lifecycle-net-decouple（生命周期绝不被网络 I/O 阻塞）：
@@ -310,6 +317,10 @@ pub fn run(args: PumpArgs) {
 fn is_duplicate_column_error(e: &impl std::fmt::Display) -> bool {
     e.to_string().contains("duplicate column name")
 }
+
+#[cfg(test)]
+#[path = "pump_lifecycle_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

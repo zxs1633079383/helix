@@ -1,10 +1,9 @@
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const INCREMENT_CHANNEL_END_ACTION: &str = "increment_channel_end";
 
@@ -42,7 +41,7 @@ pub(crate) fn apply_increment_end(
 /// HTTP Effect + 注册 `CorrelationContext::TodoQuery`（回报装配 emit），随后**清空缓冲**。
 ///
 /// 缓冲空 → no-op（无待办可拉）。HTTP body/headers 与 outbound 写命令同构（Content-Type +
-/// connectionId 身份头）；身份头复用 `connection_id_headers`（DRY，HX-C006）。
+/// connectionId + session auth intent）；身份头复用 `session_auth_headers`（DRY，HX-C006）。
 fn trigger_todo_query(ctx: &mut ImWsContext<'_>, out: &mut EffectSink) {
     if ctx.state.about_me_post_ids.is_empty() {
         return;
@@ -53,7 +52,7 @@ fn trigger_todo_query(ctx: &mut ImWsContext<'_>, out: &mut EffectSink) {
 
     let corr = ctx.alloc_corr();
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
-    headers.extend(crate::acl::to_effect::connection_id_headers(
+    headers.extend(crate::acl::sync_http_effects::session_auth_headers(
         ctx.state.connection_id.as_deref(),
     ));
     out.push(helix_core::effect::Effect::Http {
@@ -148,9 +147,14 @@ impl WsMessageHandler for IncrementChannelEndHandler {
 }
 
 static INCREMENT_CHANNEL_END_HANDLER: IncrementChannelEndHandler = IncrementChannelEndHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&INCREMENT_CHANNEL_END_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static INCREMENT_CHANNEL_END_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: INCREMENT_CHANNEL_END_ACTION,
-    handler: &INCREMENT_CHANNEL_END_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: INCREMENT_CHANNEL_END_ACTION,
+        handler: &INCREMENT_CHANNEL_END_HANDLER,
+    }
+}

@@ -8,13 +8,12 @@
 //! （edit_content_op）。cursor 推进一次（顶层 event_seq，复用 frame.event_seq 三级 fallback）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 use crate::ws::parser::extract_post_fields;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const POSTS_UPDATE_ACTION: &str = "posts_update";
 
@@ -82,6 +81,7 @@ impl WsMessageHandler for PostsUpdateHandler {
         // （emit 由本 handler 统一 batch-updated 一次）。
         // A4：事件名 + payload 形态对齐现网 handle_batch_update（im:post:batch-updated + {posts:[...]}）。
         if let Some(cid) = channel_id {
+            ctx.state.invalidate_recent_message_coverage(cid);
             super::gate::gate_advance_cursor_only(ctx, frame, cid, out)?;
             out.push(crate::acl::to_effect::emit_post_batch_updated(
                 cid,
@@ -93,9 +93,14 @@ impl WsMessageHandler for PostsUpdateHandler {
 }
 
 static POSTS_UPDATE_HANDLER: PostsUpdateHandler = PostsUpdateHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POSTS_UPDATE_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static POSTS_UPDATE_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: POSTS_UPDATE_ACTION,
-    handler: &POSTS_UPDATE_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: POSTS_UPDATE_ACTION,
+        handler: &POSTS_UPDATE_HANDLER,
+    }
+}

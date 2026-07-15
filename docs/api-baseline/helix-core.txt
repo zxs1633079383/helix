@@ -25,6 +25,7 @@ impl core::marker::UnsafeUnpin for helix_core::auth::AuthKind
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::auth::AuthKind
 impl core::panic::unwind_safe::UnwindSafe for helix_core::auth::AuthKind
 pub const helix_core::auth::AUTH_KIND_HEADER: &str
+pub fn helix_core::auth::apply_auth_intent(helix_core::effect::HttpRequest, impl core::ops::function::FnMut(helix_core::auth::AuthKind) -> core::option::Option<(alloc::string::String, alloc::string::String)>) -> (helix_core::effect::HttpRequest, core::option::Option<helix_core::auth::AuthKind>)
 pub mod helix_core::effect
 pub enum helix_core::effect::Effect
 pub helix_core::effect::Effect::CancelTimer
@@ -349,6 +350,26 @@ impl core::marker::Unpin for helix_core::effect::ScanSpec
 impl core::marker::UnsafeUnpin for helix_core::effect::ScanSpec
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::ScanSpec
 impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::ScanSpec
+pub struct helix_core::effect::SparseTableSpec
+pub helix_core::effect::SparseTableSpec::identity_cols: &'static [&'static str]
+pub helix_core::effect::SparseTableSpec::scope_col: core::option::Option<&'static str>
+pub helix_core::effect::SparseTableSpec::table: &'static str
+impl core::clone::Clone for helix_core::effect::SparseTableSpec
+pub fn helix_core::effect::SparseTableSpec::clone(&self) -> helix_core::effect::SparseTableSpec
+impl core::cmp::Eq for helix_core::effect::SparseTableSpec
+impl core::cmp::PartialEq for helix_core::effect::SparseTableSpec
+pub fn helix_core::effect::SparseTableSpec::eq(&self, &helix_core::effect::SparseTableSpec) -> bool
+impl core::fmt::Debug for helix_core::effect::SparseTableSpec
+pub fn helix_core::effect::SparseTableSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::effect::SparseTableSpec
+impl core::marker::StructuralPartialEq for helix_core::effect::SparseTableSpec
+impl core::marker::Freeze for helix_core::effect::SparseTableSpec
+impl core::marker::Send for helix_core::effect::SparseTableSpec
+impl core::marker::Sync for helix_core::effect::SparseTableSpec
+impl core::marker::Unpin for helix_core::effect::SparseTableSpec
+impl core::marker::UnsafeUnpin for helix_core::effect::SparseTableSpec
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::SparseTableSpec
+impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::SparseTableSpec
 pub struct helix_core::effect::TimerId(_)
 impl helix_core::effect::TimerId
 pub fn helix_core::effect::TimerId::from_raw(u64) -> Self
@@ -499,6 +520,13 @@ pub trait helix_core::platform::MaybeSend: core::marker::Send
 impl<T: core::marker::Send> helix_core::platform::MaybeSend for T
 pub trait helix_core::platform::MaybeSync: core::marker::Sync
 impl<T: core::marker::Sync> helix_core::platform::MaybeSync for T
+pub mod helix_core::port_codec
+pub fn helix_core::port_codec::base64_encode(&[u8]) -> alloc::string::String
+pub fn helix_core::port_codec::classify_port_error(helix_core::error::PortError) -> helix_core::tick::PortError
+pub fn helix_core::port_codec::encode_http_response(&helix_core::effect::HttpResponse) -> bytes::bytes::Bytes
+pub fn helix_core::port_codec::http_result_to_outcome(core::result::Result<helix_core::effect::HttpResponse, helix_core::error::PortError>) -> helix_core::tick::PortOutcome
+pub fn helix_core::port_codec::rows_from_reply_bytes(&bytes::bytes::Bytes) -> core::result::Result<alloc::vec::Vec<helix_core::effect::Row>, alloc::string::String>
+pub fn helix_core::port_codec::rows_to_reply_bytes(&[helix_core::effect::Row]) -> bytes::bytes::Bytes
 pub mod helix_core::ports
 pub mod helix_core::ports::clock
 pub trait helix_core::ports::clock::Clock: core::clone::Clone + helix_core::platform::MaybeSend + 'static
@@ -506,6 +534,9 @@ pub fn helix_core::ports::clock::Clock::now_ms(&self) -> u64
 pub mod helix_core::ports::event_sink
 pub trait helix_core::ports::event_sink::EventSink: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::event_sink::EventSink::emit(&self, helix_core::effect::DomainEventBytes)
+pub mod helix_core::ports::frame_sender
+pub trait helix_core::ports::frame_sender::FrameSender: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::frame_sender::FrameSender::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub mod helix_core::ports::http
 pub trait helix_core::ports::http::HttpRequester: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::http::HttpRequester::request<'life0, 'async_trait>(&'life0 self, helix_core::effect::HttpRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::HttpResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
@@ -524,12 +555,6 @@ pub fn helix_core::ports::storage::Storage::get<'life0, 'async_trait>(&'life0 se
 pub fn helix_core::ports::storage::Storage::guarded_bump<'life0, 'async_trait>(&'life0 self, helix_core::effect::GuardedBumpSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::storage::Storage::monotonic_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::MonotonicUpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::storage::Storage::scan<'life0, 'async_trait>(&'life0 self, helix_core::effect::ScanSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<alloc::vec::Vec<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub mod helix_core::ports::transport
-pub trait helix_core::ports::transport::Transport: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
-pub fn helix_core::ports::transport::Transport::close<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub fn helix_core::ports::transport::Transport::connect<'life0, 'async_trait>(&'life0 mut self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub fn helix_core::ports::transport::Transport::recv<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<core::option::Option<bytes::bytes::Bytes>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub fn helix_core::ports::transport::Transport::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub mod helix_core::ports::upload
 pub trait helix_core::ports::upload::FileUploader: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::upload::FileUploader::upload<'life0, 'async_trait>(&'life0 self, helix_core::effect::FileUploadRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::FileUploadResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
@@ -676,6 +701,8 @@ pub trait helix_core::ports::EventSink: helix_core::platform::MaybeSend + helix_
 pub fn helix_core::ports::EventSink::emit(&self, helix_core::effect::DomainEventBytes)
 pub trait helix_core::ports::FileUploader: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::FileUploader::upload<'life0, 'async_trait>(&'life0 self, helix_core::effect::FileUploadRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::FileUploadResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub trait helix_core::ports::FrameSender: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::FrameSender::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub trait helix_core::ports::HttpRequester: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::HttpRequester::request<'life0, 'async_trait>(&'life0 self, helix_core::effect::HttpRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::HttpResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub trait helix_core::ports::IdSource: helix_core::platform::MaybeSend + 'static
@@ -691,11 +718,6 @@ pub fn helix_core::ports::Storage::get<'life0, 'async_trait>(&'life0 self, helix
 pub fn helix_core::ports::Storage::guarded_bump<'life0, 'async_trait>(&'life0 self, helix_core::effect::GuardedBumpSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::Storage::monotonic_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::MonotonicUpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::Storage::scan<'life0, 'async_trait>(&'life0 self, helix_core::effect::ScanSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<alloc::vec::Vec<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub trait helix_core::ports::Transport: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
-pub fn helix_core::ports::Transport::close<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub fn helix_core::ports::Transport::connect<'life0, 'async_trait>(&'life0 mut self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub fn helix_core::ports::Transport::recv<'life0, 'async_trait>(&'life0 self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<core::option::Option<bytes::bytes::Bytes>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
-pub fn helix_core::ports::Transport::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub mod helix_core::tick
 pub enum helix_core::tick::PortError
 pub helix_core::tick::PortError::Http(u16)
@@ -1034,3 +1056,4 @@ pub fn helix_core::Module::handle(&mut self, &helix_core::tick::Tick, u64, &mut 
 pub fn helix_core::Module::name(&self) -> &'static str
 pub fn helix_core::Module::on_start(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
 pub fn helix_core::Module::on_stop(&mut self, &mut helix_core::effect::EffectSink) -> core::result::Result<(), helix_core::error::CoreError>
+pub fn helix_core::apply_auth_intent(helix_core::effect::HttpRequest, impl core::ops::function::FnMut(helix_core::auth::AuthKind) -> core::option::Option<(alloc::string::String, alloc::string::String)>) -> (helix_core::effect::HttpRequest, core::option::Option<helix_core::auth::AuthKind>)

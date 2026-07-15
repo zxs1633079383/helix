@@ -32,7 +32,10 @@ tokio        = { version = "1", features = ["sync", "rt"] }
 [dev-dependencies]
 # parity 测试（f5_egress_parity）：NativeEventSink（broadcast 路径）与 FfiEventSink 对比
 helix-driver-native = { path = "../helix-driver-native" }
+helix-driver-web = { path = "../helix-driver-web" }
 serde_json  = { workspace = true }
+tokio       = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 [build-dependencies]
 cbindgen = "0.27"

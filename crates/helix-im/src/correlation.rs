@@ -71,8 +71,26 @@ pub enum CorrelationContext {
     /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
     SyncPull { channel_id: ChannelId },
 
-    /// P6 `im_query_messages_by_channel` Get 回报 → emit `im:messages:query_result` 投影。
-    MessageQuery { channel_id: ChannelId },
+    /// 最近消息 local-first 第 1 段：本地 Scan 回报后判定显式窗口 coverage。
+    MessageQueryLocal {
+        request: Box<crate::query::MessageQueryRequest>,
+        query_session_epoch: u64,
+    },
+
+    /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后合并并按能力缓存。
+    MessageQueryRemote {
+        request: Box<crate::query::MessageQueryRequest>,
+        local_rows_desc: Box<Vec<serde_json::Value>>,
+        query_session_epoch: u64,
+    },
+
+    /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。
+    MessageQueryCache {
+        request: Box<crate::query::MessageQueryRequest>,
+        merged_rows_desc: Box<Vec<serde_json::Value>>,
+        coverage: Option<crate::query::local_first::RecentMessageCoverage>,
+        query_session_epoch: u64,
+    },
 
     /// G-05 ID 转发的本地消息逐条 Get 回报；全部组装完成后才发 createPosts HTTP。
     ForwardSourceLookup {

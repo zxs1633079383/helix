@@ -4,7 +4,7 @@
 //!
 //! 外部组装根（如 loopforge-tauri-im 内嵌 helix 引擎作 Tauri 后端）想用装饰器
 //! `Recording<P>` 包住各 port 抓「输入/输出对」做日志/录放对账。其余 port（Storage /
-//! HttpRequester / Transport / Clock）都是 core 的 trait，直接 `impl CoreTrait for
+//! HttpRequester / FrameSender / Clock）都是 core 的 trait，直接 `impl CoreTrait for
 //! Recording<Inner>` 即可。**唯独投影面有一道坎**：泛型事件泵 [`crate::engine::EngineDeps`]
 //! 的 `E` 与 [`crate::engine::run_engine_loop`] 的 `E` bound 的是 **host 本地的
 //! [`BatchSink`]**（`EventSink` 的 supertrait，多一个 `flush()` 批边界钩子），不是 core 的

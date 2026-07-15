@@ -7,7 +7,7 @@
 PC Tauri（native）与 Flutter FFI **共享**的 host driver 层（ADR-007）：
 
 - **存储层**：SQLite schema/migration、rusqlite `Storage` 实现、`StorageOp → PortOutcome` 兑现、`rows_to_reply_bytes`/`rows_from_reply_bytes` 编解码。
-- **pump 核（事件泵原语，本轮下沉）**：`engine`（泛型事件泵壳 `run_engine_loop`，over Storage/HttpRequester/EventSink/Transport/Clock）+ `dispatch`（Effect 分流）+ `spawner`（`BoundedSpawner` 有界并发原语）+ `pools`（Persist/Http 池构造）+ `owned_effect`（`&[Effect]` 借用脱离）+ `http_envelope`（HTTP 响应 → PortReply JSON 信封）+ `timer`（`TimerRegistry`）。
+- **pump 核（事件泵原语，本轮下沉）**：`engine`（泛型事件泵壳 `run_engine_loop`，over Storage/HttpRequester/EventSink/FrameSender/Clock）+ `dispatch`（Effect 分流）+ `spawner`（`BoundedSpawner` 有界并发原语）+ `pools`（Persist/Http 池构造）+ `owned_effect`（`&[Effect]` 借用脱离）+ `http_envelope`（HTTP 响应 → PortReply JSON 信封）+ `timer`（`TimerRegistry`）。连接/收帧/关闭/重连不在 core port，由 host/native/FFI 具体生命周期管理。
 
 `helix-driver-native` 与 `helix-driver-ffi` 只保留平台壳：装配具体 ports + tick 源接线 + EventSink egress 特化（native=broadcast / ffi=批处理 vtable），共用此泛型 pump 核，不重复实现存储/泵。
 

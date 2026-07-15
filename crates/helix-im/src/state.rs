@@ -236,6 +236,13 @@ pub struct ImState {
     /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
+
+    /// 最近消息远端窗口成功缓存后的当前会话 coverage；只证明数据窗口，不替代 sync cursor。
+    pub(crate) recent_message_coverage:
+        HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
+
+    /// query coverage 会话代号。hello/disconnect 递增，防旧 HTTP/Persist 晚回包污染新会话。
+    pub(crate) query_session_epoch: u64,
 }
 
 impl ImState {
@@ -265,6 +272,8 @@ impl ImState {
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
             hydration_pending: HashSet::new(),
+            recent_message_coverage: HashMap::new(),
+            query_session_epoch: 0,
         }
     }
 
@@ -279,6 +288,26 @@ impl ImState {
         self.pending_increment_bootstrap_after_scan = false;
         self.hydration_pending.clear();
         self.viewer_channel_roles.clear();
+        self.reset_recent_query_coverage();
+    }
+
+    /// 物理连接会话变化时，旧远端窗口不再能证明本地仍覆盖服务端当前窗口。
+    pub(crate) fn reset_recent_query_coverage(&mut self) {
+        self.recent_message_coverage.clear();
+        self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
+        self.corr_map.retain(|_, context| {
+            !matches!(
+                context,
+                CorrelationContext::MessageQueryLocal { .. }
+                    | CorrelationContext::MessageQueryRemote { .. }
+                    | CorrelationContext::MessageQueryCache { .. }
+            )
+        });
+    }
+
+    /// 消息行发生任何本地/远端变化时，旧窗口身份不再能证明本地结果仍是最新。
+    pub(crate) fn invalidate_recent_message_coverage(&mut self, channel_id: ChannelId) {
+        self.recent_message_coverage.remove(&channel_id);
     }
 }
 

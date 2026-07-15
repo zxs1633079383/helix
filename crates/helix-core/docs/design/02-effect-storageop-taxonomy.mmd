@@ -23,7 +23,7 @@ flowchart TD
 
     %% ── C 类：无 corr 的其余意图 ──
     ROOT --> C["③ 其余意图 · 无 corr"]:::nocorr
-    C --> C1["✅ Send{transport, frame}<br/>发 WS 帧（Transport::send）"]:::nocorr
+    C --> C1["✅ Send{transport, frame}<br/>发 WS 帧（FrameSender::send）"]:::nocorr
     C --> C2["✅ Emit{event}<br/>单向 PUB 领域事件（fire-and-forget 无回音）"]:::nocorr
     C --> C3["✅ ScheduleTimer{id, after_ms}<br/>注册进 timer_map，到期产 Tick::Timer"]:::nocorr
     C --> C4["✅ CancelTimer{id}<br/>幂等，从 timer_map remove"]:::nocorr

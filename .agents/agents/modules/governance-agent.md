@@ -10,7 +10,7 @@
 
 ## 角色
 
-ROADMAP、HX-C harness、acceptance、review cadence、slash/workflow 文档和脚本闸门。
+ROADMAP、HX-C harness、acceptance、slash/workflow 文档和脚本闸门。
 
 ## 负责路径
 
@@ -34,7 +34,6 @@ ROADMAP、HX-C harness、acceptance、review cadence、slash/workflow 文档和�
 ## 必带约束
 
 - `harness-index-invariant`
-- `review-gap-cadence`
 - `docs-drift-check`
 - `commit-convention-harness-section`
 

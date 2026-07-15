@@ -8,12 +8,11 @@
 //! 成员 / owner / admin_users / boss 不走此路径（独立成员表，对齐现网 update_partial filter）。
 
 use helix_core::EffectSink;
-use linkme::distributed_slice;
 
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler, WS_HANDLERS};
+use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
 const UPDATE_CHANNEL_ACTION: &str = "update_channel";
 
@@ -105,9 +104,14 @@ impl WsMessageHandler for UpdateChannelHandler {
 }
 
 static UPDATE_CHANNEL_HANDLER: UpdateChannelHandler = UpdateChannelHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&UPDATE_CHANNEL_HANDLER);
+}
 
-#[distributed_slice(WS_HANDLERS)]
-static UPDATE_CHANNEL_REGISTRATION: WsHandlerRegistration = WsHandlerRegistration {
-    action: UPDATE_CHANNEL_ACTION,
-    handler: &UPDATE_CHANNEL_HANDLER,
-};
+inventory::submit! {
+    WsHandlerRegistration {
+        action: UPDATE_CHANNEL_ACTION,
+        handler: &UPDATE_CHANNEL_HANDLER,
+    }
+}

@@ -6,6 +6,8 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 第二次语义合并最新主线：在 `codex/integrate-web-architecture-main` 合入 `origin/main@5053fac` 的 100 个 main-only commits，绝不直接改 main。可证伪断言：① 先按 core/im/host/native/FFI/host-cli/metrics/upload/docs-spec 分类盘点同事改动，冲突逐个建立“业务意图→新架构落点”；② 保留 FILE 大小写、消息交互/会话排序/定时/回执、metrics/telemetry、结构拆分、热路径与跨端 UI 契约等主线新增语义；③ 主线落在旧 Transport/mobile_contract/同步查询/旧模块文件的代码不得机械复活，必须迁入 FrameSender、client_api/异步 query、拆分后的模块与 driver-web 边界；④ 不恢复 mobile_query、helix-driver-wasm 或平台依赖进 core/im；⑤ 最终逐项证明主线新增测试/合同仍存在并执行全量 Rust、WASM、Node、HX-C001；⑥ `.codebase-memory/`/`outputs/` 不纳入，完成后只提交集成分支，不推送/不改 main。@2026-07-15T10:58:59+0800 | 赌注 高 | 可逆 是
+
 🎯 EXPECT 在独立分支语义合并 Web 三端架构：以最新 `origin/main@a38f6da` 为基线合入 `codex/web-w0-development@177d12a`，不直接修改/推送 main。可证伪断言：① merge-base 必须等于 origin/main，若出现 main-only 提交则暂停并逐项迁移；② 同事已有业务语义全部保留，但最终代码归属满足 core 只定义 sans-IO port/effect、helix-im 持有业务门面/HTTP/WS/local-first、host/native/FFI 兑现默认 I/O、driver-web 只兑现浏览器平台能力；③ 不恢复 `mobile_query`、`helix-driver-wasm` 或重复业务 HTTP/WS parser；④ `.codebase-memory/`/`outputs/` 不纳入；⑤ 三端 check、core/im/FFI/Web 测试、wasm final build、Node 浏览器合同与 HX-C001 通过；⑥ 只在集成分支提交，推送或合并 main 另行确认。@2026-07-15T10:28:12+0800 | 赌注 高 | 可逆 是
 ✅ DONE 独立集成分支语义合并：`origin/main@a38f6da` 是 `codex/web-w0-development@177d12a` 的直接祖先，main-only commit=0；因此没有遗漏或需要搬迁的同事代码。合并代码树与已验证开发分支逐字一致，唯一额外内容为本次 SESSION 证据。逐层审查确认 core 无真实平台运行时依赖、helix-im 持有业务门面/HTTP/WS/local-first、host/native/FFI 兑现默认 I/O、driver-web 仅依赖 core+im 并兑现浏览器能力；未恢复 mobile_query、helix-driver-wasm、旧 Transport 或业务 parser 副本。验证：五 crate check、core/im/FFI/Web 全测试、wasm final build、Node 8/8、HX-C001、双 diff check 全绿；245 文件 +11822/-3494；`.codebase-memory/`/`outputs/` 未纳入；main 未修改、分支未推送。@2026-07-15T10:31:39+0800
 

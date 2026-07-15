@@ -17,10 +17,15 @@ review 通过 → 把 last_reviewed_commit 更新为本次 review 的 HEAD + 追
 ## 当前状态
 
 ```
-last_reviewed_commit: 2b5e6c5
-last_reviewed_at: 2026-07-14
-last_review_runId: agent-review-gap-otel-wiring-2026-07-14-perf-p0
-# 本轮冻结审查窗口 d864963..2b5e6c5（45 commits）。独立 reviewer 复核异步
+last_reviewed_commit: 3a430af
+last_reviewed_at: 2026-07-15
+last_review_runId: agent-architecture-drift-review-2026-07-15-interaction-v2
+# 本轮冻结审查窗口 2b5e6c5..3a430af（15 commits）。独立 reviewer 初审发现
+# InteractionProtocol 命中 GOAL §6 旧高度边界、HX-C009 漏记、热路径 Skill 多行函数
+# 假阴性与失效引用；用户拍板 SPEC 为新版本后，以 ADR-015 升级 GOAL，并修复其余
+# findings。复审 FINAL_REVIEW=GREEN；37b5545 完整 scripts/gate.sh 11/11 PASS，
+# 后续纯 docs/Skill 批次通过 structure、Strict Matrix、fixture 与 diff 检查。
+# 上一轮冻结审查窗口 d864963..2b5e6c5（45 commits）。独立 reviewer 复核异步
 # Metrics SDK、生产装配、L1/L2、Collector、Grafana 与先前 4 个 P0 blocker，
 # 判定 FINAL_REVIEW=GREEN；全量 gate、真实 canary 与故障矩阵均已通过。
 # 本轮冻结审查窗口 2dd0d2e..be28042（182 commits），由 drift_standards_review 与
@@ -114,6 +119,7 @@ threshold: 10
 
 | 日期 | review 到 commit | 区间(from..to) | workflow runId | drift 判定 | 关键发现 / 收敛动作 |
 |---|---|---|---|---|---|
+| 2026-07-15 | 3a430af | 2b5e6c5..3a430af (15 commits) | agent-architecture-drift-review-2026-07-15-interaction-v2 | 🔴 初审 2 P1 + 2 P2 → 已收敛，🟢 GREEN | **十七轮 = 分批提交、远端文档线合并与多端统一 UI 交互北极星升级**。初审指出 InteractionProtocol 与旧 GOAL §6 冲突；用户明确拍板 SPEC 是 Helix 新版本，故新增 ADR-015 并同步 GOAL/AGENTS/ROADMAP，允许 `helix-im` 统一语义 ViewNode/ActionBinding/UiDirective，同时保持 `helix-core` 零 IM/UI schema、具体 DOM/Component/Widget/CSS/像素归 shell。补齐旧 RenderPatch 被证伪与 Goal 升级两条 DRIFT-PRED；修复热路径 Skill 多行 `pub(crate) fn` 假阴性、增加 fixture、清除失效引用。合并 origin/main 的 ADR-014/Web W0 与文档熵减线，冲突只在 SESSION 且双方终态均保留。`HELIX_STRUCTURE_BASE=2b5e6c5 scripts/gate.sh` 11/11 PASS（public-api 未安装按脚本 SKIP）；复审 `FINAL_REVIEW=GREEN`。 |
 | 2026-07-14 | 2b5e6c5 | d864963..2b5e6c5 (45 commits) | agent-review-gap-otel-wiring-2026-07-14-perf-p0 | 🔴 初审 4 P0 → 已回正，🟢 GREEN | **十六轮 = Helix 分层性能 P0 与异步遥测收敛**。独立 reviewer 初审发现 Effect 重复扫描/动态 HashMap、生产 Tick wait/RSS 空洞、operations/error 分母失真、L2 未覆盖真实完成边界四项 P0；回正为 owned effect 单趟固定摘要、4096 固定 corr 槽、stamped bounded tick、5s 后台 RSS、真实完成点唯一计数、完整 L2 saturation/四故障/profiler。复审确认 `FINAL_REVIEW=GREEN`。38 required + 8 correctness + canary 全部进入 pre Prometheus；HarnessOnly 吞吐 gauge 解决短跑与 30s scrape 错配；Grafana v3 固定 UID、54 panels、P50/P90/P95/P99/AVG、QPS/RPS/error 与 8 个标签变量可用。`HELIX_STRUCTURE_BASE=d864963 scripts/gate.sh` 11/11 PASS（public-api 工具未安装，脚本显式 SKIP）；L1/L2/fault matrix/canary 均 PASS。剩余低风险：launchd 早期失败 trap 可前移、4096 同模 corr 极端并发仅可能丢 latency 样本；不阻断本轮。 |
 | 2026-07-14 | d864963 | 2dd0d2e..be28042 (182 commits)；回正 be28042..d864963 | manual-dual-review-2026-07-14-review-gap-182 | 🔴 重 → 已回正收敛 | **十五轮 = 超期 review-gap 全量收敛**。两个独立 reviewer 分别审架构约束与 HTTP/WS/Effect/Storage/FFI 行为链。确认并修复：结构闸顶层源码漏检、JSON list RMW/O(n²)、OTel 默认开启及无界逐 span 任务、FFI 7→8 ABI 漂移、too_long 错删本地历史、移动合同漏 `im:post:send-failed`、上传 PUT URL 当长期读取 URL、Strict Matrix G09 字段漂移、OTel native/FFI 装配缺口。为满足单文件 ≤300 行同步按职责拆分 core/im/host/native/ffi 源码，未改变三层依赖方向。`HELIX_STRUCTURE_BASE=2dd0d2e scripts/gate.sh` 11/11 PASS（public-api 工具未安装，脚本按设计显式 SKIP）；HX-C001 零运行时、trace 静态安全、五 crate 测试、FFI C++ 冒烟、结构闸均绿。无新增 HX-C；真实 Collector/预发 Prometheus/Grafana 与真实 OSS 链路保留给压测执行阶段验收。 |
 | 2026-07-02 | 2dd0d2e | 6679e40..2dd0d2e (manual window main..HEAD: #9-#17 DDD package split) | manual-self-check-2026-07-02-helix-im-ddd-9-17 | 🟢 无 drift | helix-im DDD package split #9-#17。纯目录/模块迁移 + structural TDD gate；未触碰 helix-core/driver/Cargo。HX-C001 runtime grep clean；ddd-structure-gate 9-17 + structure-gate + four-crate check + per-issue helix-im tests green。既有 ChannelId test warning 未在本批引入。 |

@@ -50,13 +50,11 @@ pub fn capabilities_json() -> Vec<u8> {
     commands.push("im_send");
     commands.push("im_retry_send");
     commands.push("im_reconnect");
+    commands.extend_from_slice(crate::query::query_command_names());
     commands.sort_unstable();
     commands.dedup();
 
-    let mut queries = META_QUERIES.to_vec();
-    queries.extend_from_slice(crate::query::query_command_names());
-    queries.sort_unstable();
-    queries.dedup();
+    let queries = META_QUERIES;
 
     let value = json!({
         "abi": CONTRACT_VERSION,
@@ -86,11 +84,13 @@ mod tests {
         assert_eq!(caps["features"]["pendingSendTimeoutUnsend"], true);
         let commands = caps["commands"].as_array().unwrap();
         assert!(commands.iter().any(|q| q == "im_retry_send"));
+        assert!(commands.iter().any(|q| q == "im_query_dialog_list"));
+        assert!(commands.iter().any(|q| q == "im_query_messages_by_channel"));
         let queries = caps["queries"].as_array().unwrap();
         assert!(queries.iter().any(|q| q == "helix_capabilities"));
         assert!(queries.iter().any(|q| q == "helix_version"));
-        assert!(queries.iter().any(|q| q == "im_query_dialog_list"));
-        assert!(queries.iter().any(|q| q == "im_query_messages_by_channel"));
+        assert!(!queries.iter().any(|q| q == "im_query_dialog_list"));
+        assert!(!queries.iter().any(|q| q == "im_query_messages_by_channel"));
         assert!(caps["features"].get("sendFailedProjection").is_none());
         let events = caps["events"].as_array().unwrap();
         assert!(events.iter().any(|e| e == "im:post:sending"));

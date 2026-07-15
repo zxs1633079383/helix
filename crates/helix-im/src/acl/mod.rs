@@ -18,7 +18,7 @@ mod projection_control_effects;
 mod projection_message_effects;
 mod storage_effects;
 pub mod sync_effects;
-mod sync_http_effects;
+pub(crate) mod sync_http_effects;
 pub mod to_effect;
 pub mod to_effect_s1;
 mod transport_effects;

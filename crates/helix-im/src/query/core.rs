@@ -64,13 +64,6 @@ pub struct DialogListQueryRequest {
     pub limit: u32,
 }
 
-/// compatibility query 与异步 query 共用的响应类型。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QueryResponseShape {
-    MessagesByChannel { channel_id: String },
-    DialogList,
-}
-
 pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImError> {
     let value: serde_json::Value = serde_json::from_slice(payload)
         .map_err(|e| ImError::Parse(format!("im_query_messages_by_channel payload: {e}")))?;

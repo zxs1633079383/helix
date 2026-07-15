@@ -104,6 +104,10 @@ impl WsMessageHandler for UpdateChannelHandler {
 }
 
 static UPDATE_CHANNEL_HANDLER: UpdateChannelHandler = UpdateChannelHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&UPDATE_CHANNEL_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

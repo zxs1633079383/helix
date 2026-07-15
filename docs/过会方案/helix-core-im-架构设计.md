@@ -540,7 +540,7 @@ sequenceDiagram
     Note over F,R: opaque ptr 单 owner；FFI 即返回，事件走 SendPort 异步流；panic=abort 不跨边界
 ```
 
-- **喂命令** `helix_command` 调用即返回（不阻塞 UI isolate）；**读查询**走独立同步 `helix_query` 直连 Storage，不混 SendPort 事件流（读写天然分离，Dart 端零 multiplexing）。
+- **喂命令/业务查询** `helix_command` 调用即返回（不阻塞 UI isolate），结果通过批量 DomainEvent 返回；`helix_query` 只提供 capabilities/version 元信息，不直连 Storage。
 - **送事件**：Emit 经 `SendPort` 异步流回，`Stream.listen` 渲染。
 - **FFI 铁律**：opaque ptr 单 owner（`into_raw`/`from_raw` 各一次）；panic 策略**二选一不混用**——生产 cdylib `panic="abort"`（无 unwind 可跨边界，无需 catch_unwind）/ dev unwind 时每个 `extern "C"` 包 `catch_unwind` 转错误码。
 

@@ -57,6 +57,10 @@ impl WsMessageHandler for RoleUpdatedHandler {
 }
 
 static ROLE_UPDATED_HANDLER: RoleUpdatedHandler = RoleUpdatedHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&ROLE_UPDATED_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

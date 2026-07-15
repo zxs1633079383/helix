@@ -17,7 +17,7 @@
 
 ## ✅ 已落地（src 已实装，含 F4）
 
-- **C-ABI 导出**：`helix_create_with_network` / `helix_destroy` / `helix_set_header` / `helix_remove_header` / `helix_command` / `helix_query`（A5 前同步 compatibility）/ `helix_query_free`。
+- **C-ABI 导出**：`helix_create_with_network` / `helix_destroy` / `helix_set_header` / `helix_remove_header` / `helix_command` / `helix_query`（仅元信息）/ `helix_query_free`。
   > 注：旧 `helix_on_ws_frame` / `helix_on_http_response` **已删**——入站帧由 `SharedWsClient::with_inbound_tick` 在 Rust 内部直发 `Tick::Inbound`，不再经 C++（见 `pump.rs`）。
 - **engine 泵（F4 ✅）**：`pump.rs` 起专用 `std::thread` + current_thread tokio runtime，`block_on` host `run_engine_loop`（复用 `helix-driver-host` 泛型泵核）；装配 storage/http/ws/eventsink/clock + `register(ImModule)`（FFI 身兼 composition root）。
 - **共享 host ports**：pump 直接装配 `HostStorage`（StorageOp 单一真源，含 BatchDelete）、`SharedWsClient`、`FfiHttpRequester(SharedHttpClient)`、`FfiEventSink`。
@@ -27,7 +27,7 @@
 
 ## 仍未实装
 
-1. **同步读路径最终清理** —— `helix_query` 已可执行本地 Scan，但 payload 解析、ScanSpec 与结果 shape 全部委托 `helix-im::query`；它只作为 A5 前 compatibility 保留，不复制异步 local-first HTTP 状态机。消费方迁到 command→Effect→DomainEvent 后删除该旁路。
+1. **Flutter 真机与跨端一致性** —— 同步业务读旁路已删除；剩余验证是 Flutter 真机 ABI 冒烟，以及同一 Tick 剧本 native/FFI byte-level parity。
 2. **Flutter 真机 smoke / F5 parity** —— 见根 [`docs/ROADMAP.md`](../../../../docs/ROADMAP.md) §一 M3 F4.5/F5。
 
 ## 维护约定

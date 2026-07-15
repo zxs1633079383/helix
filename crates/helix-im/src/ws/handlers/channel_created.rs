@@ -54,6 +54,10 @@ impl WsMessageHandler for ChannelCreatedHandler {
 }
 
 static CHANNEL_CREATED_HANDLER: ChannelCreatedHandler = ChannelCreatedHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&CHANNEL_CREATED_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

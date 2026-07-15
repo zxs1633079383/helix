@@ -54,6 +54,10 @@ static POST_URGENT_HANDLER: DeadActionHandler = DeadActionHandler {
 static POST_EDITED_HANDLER: DeadActionHandler = DeadActionHandler {
     action: POST_EDITED_ACTION,
 };
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box((&POSTED_HANDLER, &POST_URGENT_HANDLER, &POST_EDITED_HANDLER));
+}
 
 inventory::submit! {
     WsHandlerRegistration {

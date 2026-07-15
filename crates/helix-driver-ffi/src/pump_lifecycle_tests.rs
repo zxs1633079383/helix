@@ -136,11 +136,10 @@ async fn ffi_initial_and_reconnect_publish_connected_before_inbound_once() {
         .spawn(move || run(args))
         .expect("spawn pump");
 
-    let query = ready_rx
+    ready_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("pump should report readiness")
         .expect("pump setup should succeed");
-    drop(query);
 
     let expected = [
         ObservedTick::Connected(0),

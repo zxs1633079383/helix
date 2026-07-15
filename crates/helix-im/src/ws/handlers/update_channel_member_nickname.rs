@@ -69,6 +69,10 @@ impl WsMessageHandler for NicknameHandler {
 }
 
 static NICKNAME_HANDLER: NicknameHandler = NicknameHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&NICKNAME_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

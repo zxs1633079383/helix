@@ -82,15 +82,6 @@ fn export_transport_trace_events(mut rx: mpsc::UnboundedReceiver<TransportTraceE
     }
 }
 
-/// pump 线程回传给 `HelixHandle` 的查询依赖（helix_query 用）。
-///
-/// runtime `Handle` 让 C 同步线程 `spawn` 异步读到 pump runtime（不在 C 线程 block_on）；
-/// storage 是同一个共享实例（pump 与 query 读同库）。
-pub struct QueryDeps {
-    pub runtime: tokio::runtime::Handle,
-    pub storage: Arc<HostStorage>,
-}
-
 /// pump 线程入口参数（create 在主线程构造，move 进线程）。
 pub struct PumpArgs {
     pub config: HostNetworkConfig,
@@ -101,8 +92,8 @@ pub struct PumpArgs {
     pub tick_tx: mpsc::Sender<Tick>,
     pub tick_rx: mpsc::Receiver<Tick>,
     pub shutdown_rx: oneshot::Receiver<()>,
-    /// 装配成功后回传 QueryDeps（storage 打开/runtime handle）；失败回传 None。
-    pub ready_tx: std::sync::mpsc::SyncSender<Option<QueryDeps>>,
+    /// 装配成功后只发布 readiness；runtime/storage 不跨回 C ABI 形成同步业务查询旁路。
+    pub ready_tx: std::sync::mpsc::SyncSender<Result<(), ()>>,
     pub db_url: String,
     pub max_http_inflight: usize,
 }
@@ -122,8 +113,8 @@ async fn connect_register_activate(
 
 /// pump 线程主体：建 current_thread runtime → block_on 装配 + 跑 host 泵核。
 ///
-/// 装配（开 storage / 建 ports / connect WS / 回传 QueryDeps）在 runtime 内 async 完成；
-/// 任一步失败 → `ready_tx.send(None)` 后线程退出（create 据此返回 null）。
+/// 装配（开 storage / 建 ports / connect WS / 发布 readiness）在 runtime 内 async 完成；
+/// 任一步失败 → `ready_tx.send(Err(()))` 后线程退出（create 据此返回 null）。
 pub fn run(args: PumpArgs) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all() // 漏 enable_all → spawn_blocking await / timer park 异常
@@ -136,7 +127,7 @@ pub fn run(args: PumpArgs) {
         Ok(rt) => rt,
         Err(e) => {
             tracing::error!(error = %e, "FFI pump 建 current_thread runtime 失败");
-            let _ = args.ready_tx.send(None);
+            let _ = args.ready_tx.send(Err(()));
             return;
         }
     };
@@ -149,7 +140,7 @@ pub fn run(args: PumpArgs) {
             Ok(s) => Arc::new(s),
             Err(e) => {
                 tracing::error!(error = %e, db = %args.db_url, "FFI pump 打开 storage 失败");
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         };
@@ -160,7 +151,7 @@ pub fn run(args: PumpArgs) {
                     db = %args.db_url,
                     "FFI pump 初始化 IM schema 失败"
                 );
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         }
@@ -172,7 +163,7 @@ pub fn run(args: PumpArgs) {
                         db = %args.db_url,
                         "FFI pump 初始化 IM schema migration 失败"
                     );
-                    let _ = args.ready_tx.send(None);
+                    let _ = args.ready_tx.send(Err(()));
                     return;
                 }
             }
@@ -192,7 +183,7 @@ pub fn run(args: PumpArgs) {
             ),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedHttpClient 失败");
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         };
@@ -202,7 +193,7 @@ pub fn run(args: PumpArgs) {
             Ok(c) => c.with_inbound_tick(main_transport, args.tick_tx.clone()),
             Err(e) => {
                 tracing::error!(error = %e, "FFI pump 建 SharedWsClient 失败");
-                let _ = args.ready_tx.send(None);
+                let _ = args.ready_tx.send(Err(()));
                 return;
             }
         };
@@ -276,7 +267,7 @@ pub fn run(args: PumpArgs) {
             LocalStoreMode::Durable,
         ));
 
-        // 装配成功 → 回传 QueryDeps（runtime handle + storage 共享给 helix_query）。
+        // 装配成功 → 发布 readiness。storage 只进入共享 engine，不再暴露同步业务查询句柄。
         let deps = EngineDeps {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
@@ -288,10 +279,7 @@ pub fn run(args: PumpArgs) {
             transport_lifecycle_tx: Some(transport_lifecycle_tx),
             transport_trace_tx: Some(transport_trace_tx),
         };
-        let _ = args.ready_tx.send(Some(QueryDeps {
-            runtime: tokio::runtime::Handle::current(),
-            storage,
-        }));
+        let _ = args.ready_tx.send(Ok(()));
 
         // ── 跑 host 泛型泵核（graceful drain：shutdown_rx 或 tick_rx 关闭）──
         engine::run_engine_loop(

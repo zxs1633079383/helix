@@ -74,6 +74,10 @@ impl WsMessageHandler for PostPinHandler {
 }
 
 static POST_PIN_HANDLER: PostPinHandler = PostPinHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POST_PIN_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

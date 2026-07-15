@@ -56,6 +56,10 @@ impl WsMessageHandler for QuitCompanyHandler {
 }
 
 static QUIT_COMPANY_HANDLER: QuitCompanyHandler = QuitCompanyHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&QUIT_COMPANY_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

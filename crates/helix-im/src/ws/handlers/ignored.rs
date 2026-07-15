@@ -40,6 +40,15 @@ static TYPING_HANDLER: IgnoredHandler = IgnoredHandler {
 static PRESENCE_HANDLER: IgnoredHandler = IgnoredHandler {
     action: PRESENCE_ACTION,
 };
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box((
+        &STATUS_CHANGE_HANDLER,
+        &MULTIPLE_CHANNELS_VIEWED_HANDLER,
+        &TYPING_HANDLER,
+        &PRESENCE_HANDLER,
+    ));
+}
 
 inventory::submit! {
     WsHandlerRegistration {

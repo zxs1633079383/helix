@@ -147,7 +147,7 @@ impl ImModule {
                 url: format!("{}/posts/create", self.config.api_base_url),
                 headers: {
                     let mut h = vec![("Content-Type".to_string(), "application/json".to_string())];
-                    h.extend(crate::acl::to_effect::connection_id_headers(
+                    h.extend(crate::acl::sync_http_effects::session_auth_headers(
                         self.state.connection_id.as_deref(),
                     ));
                     if let Some(request_id) = self

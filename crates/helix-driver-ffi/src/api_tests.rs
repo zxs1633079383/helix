@@ -282,7 +282,7 @@ fn query_returns_unimplemented() {
 }
 
 #[test]
-fn known_query_with_invalid_payload_returns_invalid() {
+fn business_query_returns_unimplemented_and_clears_out_params() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";
     let handle = unsafe {
@@ -311,7 +311,7 @@ fn known_query_with_invalid_payload_returns_invalid() {
             &mut out_len,
         )
     };
-    assert_eq!(status, FFI_INVALID);
+    assert_eq!(status, FFI_UNIMPLEMENTED);
     assert!(out_ptr.is_null());
     assert_eq!(out_len, 0);
 

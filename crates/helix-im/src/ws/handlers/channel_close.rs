@@ -64,6 +64,10 @@ impl WsMessageHandler for ChannelCloseHandler {
 }
 
 static CHANNEL_CLOSE_HANDLER: ChannelCloseHandler = ChannelCloseHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&CHANNEL_CLOSE_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

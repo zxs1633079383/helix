@@ -3,8 +3,8 @@
 > ✅ 本清单原为「边界层留诚实 TODO」；M3-F4 pump 阶段已在本分支
 > **commit d8c3093..630a713 全部真实实装并通过 e2e 测试**
 > （`command_emits_domain_event_through_batch_callback`）。
-> 下面逐项记录落地形态。**唯一仍为真 TODO 的是 T5（`helix_query`）**，
-> 见末节说明。
+> 下面逐项记录落地形态。T5 最终选择删除同步业务查询旁路：`helix_query`
+> 只保留元信息，业务查询走共享异步主路径。
 
 ---
 
@@ -14,7 +14,7 @@
 - `helix_create_with_network`（`api.rs`）起专用 `std::thread`，线程内建
   **current_thread** tokio runtime（`tokio::runtime::Builder::new_current_thread().enable_all()`），
   `block_on` host `run_engine_loop`（`pump.rs::run`）。core 在此专属单线程跑（GOAL §1.3）。
-- `HelixHandle` 持 `shutdown_tx` / `pump_thread`（`JoinHandle`）/ `query`（QueryDeps）。
+- `HelixHandle` 持 `shutdown_tx` / `pump_thread`（`JoinHandle`）；不持业务查询 runtime/storage 句柄。
 - tick channel：`helix_command → tick_tx`；入站帧经 `SharedWsClient::with_inbound_tick` 直发 `Tick::Inbound`。
 
 ### T2 — `helix_destroy` join pump 线程（✅ 已落地）
@@ -40,16 +40,11 @@
 
 ---
 
-## ⏳ 仍为真 TODO
+## ✅ T5 最终决策
 
-### T5 — `helix_query` 实现（⏳ honest stub，`FFI_UNIMPLEMENTED`）
-- **运行时基础设施已就位**：`HelixHandle.query` = pump runtime `Handle` + 共享 `HostStorage`
-  （可经 `spawn_blocking` 同步读，禁 `block_on` 同线程死锁）。
-- **缺的是 `query_name → ScanSpec/GetSpec` 映射**——那是 IM 领域语义，直接写进 FFI driver
-  会把 schema 泄漏进驱动层（破 Storage trait 不泄漏业务 schema 的约束）。
-- 故保留 honest stub，待 IM 暴露通用 query 路由（或经 command + Emit 回读）后填充，不在此越界。
-- 成功路径契约：`spawn_blocking` 读 → 序列化 → `into_boxed_slice` → `Box::into_raw` 写 out_ptr/out_len，
-  C++ 侧配对 `helix_query_free`。
+`helix_query` 只提供 capabilities/version，并继续用 `helix_query_free` 释放返回 buffer。
+业务查询经 `helix_command` → Effect/PortReply → DomainEvent 批次完成；同步直查 Storage 的
+`QueryDeps`/`mobile_query` 路径已删除，避免形成第二条查询真源。
 
 ---
 

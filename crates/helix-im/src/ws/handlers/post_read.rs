@@ -107,6 +107,10 @@ impl WsMessageHandler for PostReadHandler {
 }
 
 static POST_READ_HANDLER: PostReadHandler = PostReadHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POST_READ_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

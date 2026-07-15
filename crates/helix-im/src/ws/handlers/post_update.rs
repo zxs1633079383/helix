@@ -105,6 +105,10 @@ pub(super) fn apply_post_update(
 }
 
 static POST_UPDATE_HANDLER: PostUpdateHandler = PostUpdateHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POST_UPDATE_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

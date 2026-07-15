@@ -401,7 +401,7 @@ Flutter 点击发送
 ### P1：Rust FFI 契约
 
 - `helix_command` 支持移动端公开命令别名 / 载荷归一。
-- `helix_query` 支持 `helix_capabilities` / `helix_version` 与必要本地查询。
+- `helix_query` 只支持 `helix_capabilities` / `helix_version`；业务查询通过 `helix_command` 进入共享异步 query 状态机，结果从批量 DomainEvent 获取。
 - Rust/FFI 测试覆盖批回调、查询结果释放、destroy 后错误、能力集。
 
 ### P2：外部移动端 C++ 桥接

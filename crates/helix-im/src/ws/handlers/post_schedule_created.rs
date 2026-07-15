@@ -51,6 +51,10 @@ impl WsMessageHandler for ScheduleCreatedHandler {
 }
 
 static SCHEDULE_CREATED_HANDLER: ScheduleCreatedHandler = ScheduleCreatedHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&SCHEDULE_CREATED_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

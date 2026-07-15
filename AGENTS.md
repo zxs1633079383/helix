@@ -2,7 +2,7 @@
 
 > Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，产品目标集合为三端：
 > **native（Tauri 桌面 / PC）· FFI（Flutter 手机端）· Web**。
-> 当前交付事实：native/FFI 已产品化；Web 的 A4 Rust 平台壳与 A5 最小浏览器 glue/正式 gate 已落地，但真浏览器→真 Go 产品链仍待环境验收。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，按 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md) 分阶段实施；原 W0 浏览器探针与 W0→W4 路线继续失效，历史 `helix-driver-wasm` 已删除。
+> 当前交付事实：native/FFI 已产品化；Web 的 A1-A5 Rust 平台壳、最小浏览器 glue、正式 gate 与真浏览器→真 Go 产品链均已落地并完成本地环境验收。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，按 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md) 分阶段实施；原 W0 浏览器探针与 W0→W4 路线继续失效，历史 `helix-driver-wasm` 已删除。
 > IM 只是跑在它上面的**第一个业务模块**；core layer 本身不认识任何业务。
 > 概念祖先：Bun（runtime 跑 JS）/ Dioxus core（headless 核跑 6 端）。
 
@@ -48,7 +48,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 - [ ] **helix-core 零运行时依赖**：grep 不出 tokio/sqlx/reqwest/web-sys/tauri（`HX-C001`）
 - [ ] **async 抽象 Send 边界**：native 可 `Send+'static`，FFI/单线程宿主可能 `!Send` → cfg 切 / 不硬加 Send（`HX-C002`）
 - [ ] **状态用 owned/Copy/arena id，不用 `&'a`**：要进 async/闭包别带生命周期（Dioxus `Scope<'a>` 地狱 + 本仓 `Tick<'a>` blocker 教训，`HX-C002`）
-- [ ] **Web 方案实施中**：A1-A4、A5 最小浏览器 glue、正式 Web gate/HX-C003 与历史 wasm 清理均已落地；真浏览器→真 Go 的 send/echo/断连恢复仍待环境验收。FFI `mobile_query` 在移动端迁移证据出现前保留兼容，不以“仓内无调用”冒充已迁移。
+- [x] **Web 方案已落地**：A1-A5、最小浏览器 glue、正式 Web gate/HX-C003、历史 wasm 清理与真浏览器→真 Go 的鉴权、send/echo、断连恢复均已验收。FFI `mobile_query` 同步旁路已删除；业务查询统一走 `helix_command` → Effect/PortReply → DomainEvent，`helix_query` 只保留元信息。
 - [ ] **Web 持久化可降级**：PC/Flutter 可完整 SQLite；Web 可以无本地持久化或只保留明确受限的缓存。禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor。
 - [ ] **WebSocket 边界**：core port 只保留 outbound frame；三端共享 `helix-im` 的帧处理与协议生命周期。PC/Flutter 复用 Rust 默认连接实现，Web 的真实 socket、重连执行、浏览器生命周期与鉴权接线由 Web 平台适配器兑现。
 - [ ] **features 必须 additive**：禁互斥 feature（feature unification 会爆）；optional dep + `[target.'cfg(...)'.dependencies]`（`HX-C004`）

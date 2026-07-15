@@ -58,6 +58,10 @@ impl WsMessageHandler for HelloHandler {
 }
 
 static HELLO_HANDLER: HelloHandler = HelloHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&HELLO_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

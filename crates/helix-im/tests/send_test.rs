@@ -125,6 +125,10 @@ fn send_message_forwards_request_id_as_trace_header() {
         .headers
         .iter()
         .any(|(name, value)| name == "Cses-Track-Id" && value == "mrc-run:G-03:req-1"));
+    assert!(request
+        .headers
+        .iter()
+        .any(|(name, value)| name == "X-Auth-Kind" && value == "session"));
 }
 
 // ─── 两条消息各自独立 ────────────────────────────────────────────────────────

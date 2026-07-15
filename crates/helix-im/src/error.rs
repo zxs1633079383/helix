@@ -29,6 +29,9 @@ pub enum ImError {
     #[error("invalid websocket handler registration: registered {registered}, handler {handler}")]
     InvalidWsHandlerRegistration { registered: String, handler: String },
 
+    #[error("incomplete websocket handler registry: expected {expected}, got {actual}")]
+    IncompleteWsHandlerRegistry { expected: usize, actual: usize },
+
     #[error("invalid websocket frame: {0}")]
     InvalidWsFrame(String),
 

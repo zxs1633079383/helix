@@ -156,7 +156,7 @@ int32_t helix_command_with_trace(HelixHandle *handle,
                                  const uint8_t *trace_json,
                                  uintptr_t trace_json_len);
 
-/// 同步读取 engine 状态。
+/// 同步读取 ABI 元信息。
 ///
 /// ## 查询边界
 ///
@@ -164,12 +164,8 @@ int32_t helix_command_with_trace(HelixHandle *handle,
 /// - `helix_capabilities`：返回移动端公开契约能力集 JSON
 /// - `helix_version`：返回 `{"abi":1}`
 ///
-/// IM 本地同步 query 由 `helix-im` 负责 `query_name → ScanSpec + response shape`：
-/// - `im_query_dialog_list`
-/// - `im_query_messages_by_channel`
-///
-/// `driver-ffi` 只执行 helix-im 产出的 Storage scan 计划并封装返回 buffer，不在 driver 层硬编码
-/// IM 表名/列名/WHERE 语义，避免业务 schema 泄漏进平台驱动。
+/// 业务 query 不走本同步 ABI；手机端与其他平台一样，经 `helix_command` 注入异步 query command，
+/// 由共享 `helix-im` 执行 local-first/远端 fallback，并通过批量 DomainEvent 返回结果。
 ///
 /// ## 配对约定
 ///
@@ -179,7 +175,8 @@ int32_t helix_command_with_trace(HelixHandle *handle,
 /// # Safety
 ///
 /// - `handle`：有效指针或 null。
-/// - `query_name` / `query_payload`：各自指向对应 `_len` 字节有效内存，在本调用期间有效。
+/// - `query_name`：指向对应 `_len` 字节有效内存，在本调用期间有效。
+/// - `query_payload`：为保持 C ABI 形状保留，当前元信息查询忽略该参数。
 /// - `out_ptr` / `out_len`：非 null，指向调用方分配的存储位置。
 int32_t helix_query(HelixHandle *handle,
                     const uint8_t *query_name,

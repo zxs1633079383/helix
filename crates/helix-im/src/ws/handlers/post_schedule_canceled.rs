@@ -51,6 +51,10 @@ impl WsMessageHandler for ScheduleCanceledHandler {
 }
 
 static SCHEDULE_CANCELED_HANDLER: ScheduleCanceledHandler = ScheduleCanceledHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&SCHEDULE_CANCELED_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

@@ -1,6 +1,6 @@
 # Helix 三端 Rust 业务门面与平台适配设计
 
-> 状态：2026-07-14 用户拍板；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate 与历史 wasm 清理已落地，真 Go send/echo/断连恢复待环境验收。
+> 状态：2026-07-14 用户拍板；A1-A5、最小浏览器 glue、Go query 鉴权、正式 Web gate 与历史 wasm 清理已落地；2026-07-15 已完成真实 Chromium + final WASM + 本地 Go `:8065` 的 send/echo/断连恢复验收。
 >
 > 决策真源：[`../harness/decisions.md`](../harness/decisions.md) ADR-014。
 >
@@ -30,7 +30,7 @@ PC/Flutter 继续使用 `helix-driver-host` 的默认 SQLite/HTTP/WS 实现，We
 ### 2.2 拍板时需要修正的部分（A1-A4 已收口）
 
 1. ✅ A2：`helix-driver-ffi::helix_query` 曾通过 `helix-im::mobile_query` 直接执行 Storage scan，
-   与 `helix-im::query` 形成第二条查询真源；local-first/remote fallback 无法三端共享。
+   与 `helix-im::query` 形成第二条查询真源；该同步旁路已于 2026-07-15 删除。
 2. ✅ A1：`mobile_contract` 的命令别名、payload 归一化已经是公共客户端契约，却以 mobile 命名，
    native/Web 无法自然把它当三端唯一入口。
 3. ✅ A3：core 旧 `Transport` 同时包含 `connect/send/recv/close`；业务 Effect 实际只需要 outbound
@@ -247,12 +247,9 @@ command 入口。A1 不为验收凭空增加 wrapper 或 `helix-im` 依赖；真
 
 `helix_command` 保留 ABI，但内部 `build_app_command` 搬到 `helix-im::client_api`。
 
-`helix_query` 的迁移：
-
-1. 先标记为 compatibility API；
-2. 新客户端统一通过异步 query command + DomainEvent 获取结果；
-3. 兼容期仍可直接返回旧结果，但 query 解析/shape 必须复用 `helix-im::query` 真源；
-4. 移动端完成切换后删除 `mobile_query` 和同步直查 Storage 旁路。
+`helix_query` 只保留 `helix_capabilities` / `helix_version` 元信息。业务查询统一通过
+`helix_command` 进入异步 query command → Effect → PortReply → DomainEvent 主路径；
+`mobile_query` 和同步直查 Storage 旁路已删除。
 
 FFI 只负责指针、buffer、错误码、批量事件回调和线程边界。
 
@@ -335,10 +332,9 @@ command/event contract 全绿。
 ### A2：查询旁路收口 + local-first 状态机 ✅（2026-07-14）
 
 修改：`query/local_first.rs`、`query/local_first/data.rs`、`query/dispatch.rs`、`correlation.rs`、
-`port_reply.rs`、`state.rs`、`mobile_query.rs` 和 FFI compatibility query。
+`port_reply.rs`、`state.rs`；最终删除 `mobile_query.rs` 与 FFI 同步业务查询旁路。
 
-实现边界：FFI 同步 `helix_query` 在真实 Flutter 消费方完成异步迁移前仍直接执行 Storage，但 payload 解析、ScanSpec、
-结果 shape 必须委托 `helix-im::query`；它不在同步 ABI 内另造 HTTP 编排。真正的 local-first 只走
+实现边界：FFI `helix_query` 只返回元信息，不执行 Storage。三端业务查询与 local-first 只走
 `Tick::Command → Effect → PortReply → DomainEvent` 异步主路径。
 
 验收剧本至少覆盖：
@@ -394,8 +390,9 @@ HTTP outcome 业务策略由 `helix-im` 单一持有，host/Web 只注入 observ
 队列都有硬上限，event batch 用 gap/drop 计数显式报告丢弃，bridge 饱和时 fail-closed 且保留原连接状态。
 
 为解除 `linkme` 对 `wasm32-unknown-unknown` 的平台阻塞，`helix-im` 的 HTTP command/WS handler
-注册单轨迁为 `inventory`；Web final artifact 通过 wasm-bindgen start 显式初始化 constructors，初始化
-责任没有下沉到业务模块。
+注册单轨迁为 `inventory`；Web final artifact 通过 wasm-bindgen start 显式初始化 constructors，
+`helix-im` 另以显式模块链接锚阻止 wasm-ld 裁掉仅由 ctor 可达的 handler，并对 28 个 WS handler
+做 fail-closed 数量校验；初始化责任没有下沉到业务模块。
 
 验收结果：wasm target build 通过；相关六 crate 全测通过；同 Tick 剧本 native/FFI/Web 业务输出
 一致；Web 无 SQLite、无业务 fetch/WS parser/sync/cursor 副本。A4 只证明 Rust 平台壳，不冒充 A5
@@ -404,8 +401,8 @@ HTTP outcome 业务策略由 `helix-im` 单一持有，host/Web 只注入 observ
 ### A5：真实链路与清理
 
 最小平台 glue、hello → 收帧 → query → HTTP fallback、文本 WS 出站、正式 HX-C003/CI 与历史
-wasm crate 独立删除已完成；真 Go send → echo → disconnect/reconnect 待服务与凭据环境。FFI `mobile_query` 只有在真实 Flutter 消费方
-完成异步 query 迁移并提供证据后才能删除，当前保留 compatibility。真实 adapter 的
+wasm crate 独立删除已完成；FFI `mobile_query` 与同步 Storage 旁路已删除，业务查询统一走异步主路径；
+真 Go send → echo → disconnect/reconnect 已在本地 `:8065` 完成环境验收。真实 adapter 的
 “注册 sender → 发布 Connected → 放行 reader”与断线去重已经由 A3.1 冻结；剩余真 Go 验收
 继续复用该合同，不能退回手工 Tick 剧本替代物理生产者。
 
@@ -433,4 +430,4 @@ wasm crate 独立删除已完成；真 Go send → echo → disconnect/reconnect
 - WS 帧解析、sequence/cursor、echo、sync 三端只有一份；
 - Web 刷新不保留无法由数据 coverage 证明的 cursor；
 - `helix-core` 仍零 runtime/platform 依赖；
-- 历史 `helix-driver-wasm` 完成清理；移动端迁移证据到位后再清理 `mobile_query` 重复旁路。
+- 历史 `helix-driver-wasm` 与 `mobile_query` 重复旁路均已清理。

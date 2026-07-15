@@ -155,6 +155,10 @@ impl WsMessageHandler for IncrementChannelHandler {
 }
 
 static INCREMENT_CHANNEL_HANDLER: IncrementChannelHandler = IncrementChannelHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&INCREMENT_CHANNEL_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

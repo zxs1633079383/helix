@@ -90,7 +90,7 @@ fn command_emits_domain_event_through_batch_callback() {
 }
 
 #[test]
-fn create_applies_im_schema_before_mobile_query() {
+fn create_applies_im_schema_before_async_business_query() {
     let recorder: Box<Recorder> = Box::new(StdMutex::new(Vec::new()));
     let ctx = &*recorder as *const Recorder as *mut std::ffi::c_void;
     let vtable = CppHostVtable {
@@ -108,28 +108,34 @@ fn create_applies_im_schema_before_mobile_query() {
 
     let query = b"im_query_dialog_list";
     let payload = b"{}";
-    let mut out_ptr: *mut u8 = std::ptr::null_mut();
-    let mut out_len: usize = 0;
     let status = unsafe {
-        helix_query(
+        helix_command(
             handle,
             query.as_ptr(),
             query.len(),
             payload.as_ptr(),
             payload.len(),
-            &mut out_ptr,
-            &mut out_len,
         )
     };
-    assert_eq!(
-        status, FFI_OK,
-        "空库 dialog query 也应成功，不能因缺 IM 表 rc=-3"
-    );
-    let out = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
-    let text = std::str::from_utf8(out).expect("query result utf8");
-    assert!(text.contains("dialogList"), "query result = {text}");
-    unsafe {
-        helix_query_free(out_ptr, out_len);
-        helix_destroy(handle);
+    assert_eq!(status, FFI_OK, "异步业务 query 应进入共享 command pump");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut got_projection = false;
+    while std::time::Instant::now() < deadline {
+        got_projection = recorder.lock().unwrap().iter().any(|event| {
+            std::str::from_utf8(event)
+                .map(|text| text.contains("im:channels:projection"))
+                .unwrap_or(false)
+        });
+        if got_projection {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    assert!(
+        got_projection,
+        "空库异步 dialog query 应产出 projection 事件"
+    );
+
+    unsafe { helix_destroy(handle) };
 }

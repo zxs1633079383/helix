@@ -31,7 +31,7 @@
 | `helix_set_header(handle, name, nlen, value, vlen)` | i32 | ✅ 已实现 | `headers.set_header_sync` |
 | `helix_remove_header(handle, name, nlen)` | i32 | ✅ 已实现 | `headers.remove_header_sync` |
 | `helix_command(handle, name, nlen, payload, plen)` | i32 | ✅ 已实现（**有真实 pump 消费者**：`tick_rx` → step → Effect）| 立即拷贝（ACL-3）→ `Tick::Command` → `try_send`；Full=FFI_BUSY，禁静默丢 |
-| `helix_query(handle, qname, qnlen, qpayload, qplen, out_ptr, out_len)` | i32 | ⏳ **stub** (FFI_UNIMPLEMENTED) | runtime+storage infra 已就位；缺 `query_name→Spec` 映射（IM 语义，避免 schema 泄漏进 driver）|
+| `helix_query(handle, qname, qnlen, qpayload, qplen, out_ptr, out_len)` | i32 | ✅ 元信息查询 | 支持 `helix_capabilities` / `helix_version`；业务查询返回 `FFI_UNIMPLEMENTED`，必须改走 `helix_command` + DomainEvent 批次 |
 | `helix_query_free(ptr, len)` | void | ✅ 已实现（null-check + Box::from_raw slice）| 配对 helix_query 成功时的 Box::into_raw |
 
 ---

@@ -14,7 +14,7 @@ flowchart TD
         E_SETH["✅ helix_set_header"]
         E_RMH["✅ helix_remove_header"]
         E_CMD["✅ helix_command<br/>拷贝 name/payload → Tick::Command"]
-        E_QUERY["⏳ helix_query<br/>honest stub: FFI_UNIMPLEMENTED"]
+        E_QUERY["✅ helix_query<br/>capabilities / version 元信息"]
     end
 
     subgraph HANDLE["HelixHandle（opaque ptr · 单 owner）"]
@@ -22,7 +22,6 @@ flowchart TD
         H_TICK["tick_tx: Sender<Tick>"]
         H_SHUT["shutdown_tx"]
         H_THREAD["pump_thread"]
-        H_QUERY["query: runtime Handle + Arc<HostStorage>"]
     end
 
     subgraph PUMP["FFI pump 线程（pump.rs）"]
@@ -48,7 +47,6 @@ flowchart TD
     E_SETH --> H_HDR
     E_RMH --> H_HDR
     E_CMD --> H_TICK
-    E_QUERY --> H_QUERY
 
     HANDLE --> PUMP
     RUNTIME --> SHELL

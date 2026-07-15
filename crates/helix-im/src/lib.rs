@@ -32,7 +32,6 @@ mod http_outcome;
 mod increment_hydration;
 mod message_capabilities;
 pub mod mobile_contract;
-pub mod mobile_query;
 pub mod module;
 pub mod outbound;
 pub mod parser {

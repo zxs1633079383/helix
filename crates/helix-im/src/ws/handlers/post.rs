@@ -314,6 +314,10 @@ fn post_pin_effect_from_notice(
 }
 
 static POST_HANDLER: PostHandler = PostHandler;
+#[cfg(target_arch = "wasm32")]
+pub(super) fn inventory_link_anchor() {
+    std::hint::black_box(&POST_HANDLER);
+}
 
 inventory::submit! {
     WsHandlerRegistration {

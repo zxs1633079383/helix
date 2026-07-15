@@ -93,7 +93,11 @@ fn matrix() -> Matrix {
 fn is_direct_core_command(name: &str) -> bool {
     matches!(
         name,
-        "im_send_message" | "im_retry_send" | "im_retry_upload" | "im_reconnect" | "im_relay_messages"
+        "im_send_message"
+            | "im_retry_send"
+            | "im_retry_upload"
+            | "im_reconnect"
+            | "im_relay_messages"
     ) || helix_im::outbound::is_outbound(name)
         || helix_im::query::is_query(name)
 }
@@ -122,41 +126,91 @@ fn strict_matrix_covers_every_baseline_gate_once_with_helix_owned_evidence() {
     );
     for key in ["run_id", "gate_id", "operation_id", "req_id", "channel_id"] {
         assert!(
-            matrix.case_defaults.evidence.correlation_keys.contains(&key.to_string()),
+            matrix
+                .case_defaults
+                .evidence
+                .correlation_keys
+                .contains(&key.to_string()),
             "strict evidence must correlate {key}"
         );
     }
 
-    let seen: HashSet<_> = matrix.uc_cases.iter().map(|entry| entry.gate_id.as_str()).collect();
+    let seen: HashSet<_> = matrix
+        .uc_cases
+        .iter()
+        .map(|entry| entry.gate_id.as_str())
+        .collect();
     assert_eq!(seen.len(), matrix.uc_cases.len(), "Gate must be unique");
     for gate_id in &matrix.coverage.required_gate_ids {
-        assert!(seen.contains(gate_id.as_str()), "missing baseline {gate_id}");
+        assert!(
+            seen.contains(gate_id.as_str()),
+            "missing baseline {gate_id}"
+        );
     }
 }
 
 #[test]
 fn strict_matrix_forbids_aliases_and_requires_exact_snake_case_inputs() {
     let matrix = matrix();
-    let forbidden: HashSet<_> = matrix.forbidden_aliases.iter().map(String::as_str).collect();
+    let forbidden: HashSet<_> = matrix
+        .forbidden_aliases
+        .iter()
+        .map(String::as_str)
+        .collect();
 
     for entry in &matrix.uc_cases {
-        assert!(!entry.commands.is_empty(), "{} missing core command", entry.gate_id);
-        assert!(!entry.projections.is_empty(), "{} missing projection", entry.gate_id);
-        assert!(!entry.http.request.is_empty(), "{} missing HTTP request contract", entry.gate_id);
-        assert!(!entry.http.response.is_empty(), "{} missing HTTP response contract", entry.gate_id);
-        assert!(!entry.ws.events.is_empty(), "{} missing WS contract", entry.gate_id);
         assert!(
-            matches!(entry.remote_store.database.as_str(), "mattermost-imv2" | "N/A" | "external-unverified"),
+            !entry.commands.is_empty(),
+            "{} missing core command",
+            entry.gate_id
+        );
+        assert!(
+            !entry.projections.is_empty(),
+            "{} missing projection",
+            entry.gate_id
+        );
+        assert!(
+            !entry.http.request.is_empty(),
+            "{} missing HTTP request contract",
+            entry.gate_id
+        );
+        assert!(
+            !entry.http.response.is_empty(),
+            "{} missing HTTP response contract",
+            entry.gate_id
+        );
+        assert!(
+            !entry.ws.events.is_empty(),
+            "{} missing WS contract",
+            entry.gate_id
+        );
+        assert!(
+            matches!(
+                entry.remote_store.database.as_str(),
+                "mattermost-imv2" | "N/A" | "external-unverified"
+            ),
             "{} has unknown remote database {}",
             entry.gate_id,
             entry.remote_store.database
         );
-        assert!(!entry.remote_store.contract.is_empty(), "{} missing remote store contract", entry.gate_id);
+        assert!(
+            !entry.remote_store.contract.is_empty(),
+            "{} missing remote store contract",
+            entry.gate_id
+        );
         if entry.remote_store.database == "mattermost-imv2" {
-            assert!(!entry.remote_store.tables.is_empty(), "{} imv2 tables missing", entry.gate_id);
+            assert!(
+                !entry.remote_store.tables.is_empty(),
+                "{} imv2 tables missing",
+                entry.gate_id
+            );
         }
         for projection in &entry.projections {
-            assert_eq!(projection.schema, "RenderNode/v1", "{} must be render-ready", entry.gate_id);
+            assert_eq!(
+                projection.schema, "RenderNode/v1",
+                "{} must be render-ready",
+                entry.gate_id
+            );
         }
         for command in &entry.commands {
             assert!(
@@ -165,11 +219,22 @@ fn strict_matrix_forbids_aliases_and_requires_exact_snake_case_inputs() {
                 entry.gate_id,
                 command.name
             );
-            assert!(command.input.forbid_unknown, "{} must reject unknown input", command.name);
+            assert!(
+                command.input.forbid_unknown,
+                "{} must reject unknown input",
+                command.name
+            );
             let required: HashSet<_> = command.input.required.iter().collect();
-            for field in command.input.required.iter().chain(command.input.optional.iter()) {
+            for field in command
+                .input
+                .required
+                .iter()
+                .chain(command.input.optional.iter())
+            {
                 assert!(
-                    field.chars().all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'),
+                    field.chars().all(|character| character.is_ascii_lowercase()
+                        || character.is_ascii_digit()
+                        || character == '_'),
                     "{} has non-snake field {field}",
                     command.name
                 );

@@ -1,7 +1,7 @@
 # helix-driver-ffi — C++ 直连模型 · 边界面文档
 
 > 本目录记录 C++ 直连模型的边界面设计 + M3-F4 pump 落地实录。
-> pump 主循环已实装（commit d8c3093..630a713，e2e 通过）；仅 `helix_query` 仍为 honest stub。
+> pump 主循环已实装（commit d8c3093..630a713，e2e 通过）；`helix_query` 仅保留 capabilities/version，业务查询走异步主路径。
 > 源码真源：`crates/helix-driver-ffi/src/`；头文件：`crates/helix-driver-ffi/helix.hpp`。
 
 ---

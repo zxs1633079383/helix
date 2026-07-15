@@ -72,35 +72,6 @@ fn ensure_test_db() -> &'static str {
     })
 }
 
-fn seed_mobile_query_rows() {
-    let _ = ensure_test_db();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime");
-    runtime.block_on(async {
-        let db_path = std::env::var("HELIX_DB").expect("HELIX_DB");
-        let storage = HostStorage::open_sqlite_url(&db_path)
-            .await
-            .expect("open test db");
-        storage
-            .execute_raw(
-                "INSERT OR REPLACE INTO channel \
-                 (id, display_name, unread_count, mention_count, last_post, last_post_at, create_by) \
-                 VALUES \
-                 ('01hq0000000000000000000000', 'Mobile General', 7, 1, \
-                  '{\"message\":\"seed last\",\"props\":{\"urgent\":\"u1\"}}', 1700000000010, 'mobile-test');
-                 INSERT OR REPLACE INTO message \
-                 (temporary_id, id, channel_id, user_id, type, message, create_at, update_at) \
-                 VALUES \
-                 ('tmp-mobile-seed', 'server-mobile-seed', '01hq0000000000000000000000', \
-                  'user-mobile', 'TEXT', 'seed hello', 1700000000001, 1700000000002);",
-            )
-            .await
-            .expect("seed mobile query rows");
-    });
-}
-
 fn wait_for_event(recorder: &Recorder, needle: &str) -> String {
     let start = Instant::now();
     loop {
@@ -188,11 +159,21 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
         .unwrap()
         .iter()
         .any(|v| v == "im_send"));
+    assert!(json["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "im_query_dialog_list"));
+    assert!(json["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "im_query_messages_by_channel"));
     let queries = json["queries"].as_array().unwrap();
     assert!(queries.iter().any(|v| v == "helix_capabilities"));
     assert!(queries.iter().any(|v| v == "helix_version"));
-    assert!(queries.iter().any(|v| v == "im_query_dialog_list"));
-    assert!(queries.iter().any(|v| v == "im_query_messages_by_channel"));
+    assert!(!queries.iter().any(|v| v == "im_query_dialog_list"));
+    assert!(!queries.iter().any(|v| v == "im_query_messages_by_channel"));
     assert!(!json["events"]
         .as_array()
         .unwrap()
@@ -241,8 +222,7 @@ fn helix_version_query_returns_abi_json() {
 }
 
 #[test]
-fn local_dialog_list_query_returns_projection_json() {
-    seed_mobile_query_rows();
+fn business_query_uses_async_command_and_event_batch() {
     let recorder = Recorder::new(Vec::new());
     let handle = create_recording_handle(&recorder);
     let query_name = b"im_query_dialog_list";
@@ -250,9 +230,8 @@ fn local_dialog_list_query_returns_projection_json() {
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
 
-    // SAFETY: handle is live; query pointers and out-params are valid for the
-    // call duration.
-    let status = unsafe {
+    // SAFETY: handle is live; pointers and out-params are valid for the call duration.
+    let sync_status = unsafe {
         helix_query(
             handle,
             query_name.as_ptr(),
@@ -263,74 +242,24 @@ fn local_dialog_list_query_returns_projection_json() {
             &mut out_len,
         )
     };
-    assert_eq!(status, FFI_OK);
+    assert_eq!(sync_status, FFI_UNIMPLEMENTED);
+    assert!(out_ptr.is_null());
+    assert_eq!(out_len, 0);
 
-    // SAFETY: out_ptr/out_len are owned by the successful helix_query result.
-    let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
-    let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
-    assert_eq!(json["event"], "im:channels:projection");
-    assert!(json["data"]["dialogList"].is_array());
-    let dialog = json["data"]["dialogList"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["id"] == "01hq0000000000000000000000")
-        .expect("seeded dialog");
-    assert_eq!(dialog["displayName"], "Mobile General");
-    assert_eq!(dialog["unread"], 7);
-    assert_eq!(dialog["mention"], true);
-    assert_eq!(dialog["lastMessage"], "seed last");
-    assert_eq!(dialog["urgent"], true);
-
-    // SAFETY: freeing the exact buffer returned by helix_query is required.
-    unsafe { helix_query_free(out_ptr, out_len) };
-    // SAFETY: handle was created by this test and not yet destroyed.
-    unsafe { helix_destroy(handle) };
-}
-
-#[test]
-fn local_message_query_returns_projection_json() {
-    seed_mobile_query_rows();
-    let recorder = Recorder::new(Vec::new());
-    let handle = create_recording_handle(&recorder);
-    let query_name = b"im_query_messages_by_channel";
-    let query_payload = br#"{"channelId":"01hq0000000000000000000000","limit":25}"#;
-    let mut out_ptr: *mut u8 = std::ptr::null_mut();
-    let mut out_len: usize = 0;
-
-    // SAFETY: handle is live; query pointers and out-params are valid for the
-    // call duration.
-    let status = unsafe {
-        helix_query(
+    // SAFETY: business query now enters the same asynchronous command path as native/Web.
+    let async_status = unsafe {
+        helix_command(
             handle,
             query_name.as_ptr(),
             query_name.len(),
             query_payload.as_ptr(),
             query_payload.len(),
-            &mut out_ptr,
-            &mut out_len,
         )
     };
-    assert_eq!(status, FFI_OK);
+    assert_eq!(async_status, FFI_OK);
+    let event = wait_for_event(&recorder, "im:channels:projection");
+    assert!(event.contains("dialogList"));
 
-    // SAFETY: out_ptr/out_len are owned by the successful helix_query result.
-    let bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len) };
-    let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
-    assert_eq!(json["event"], "im:messages:query_result");
-    assert_eq!(json["data"]["channel_id"], "01hq0000000000000000000000");
-    let messages = json["data"]["messages"].as_array().unwrap();
-    let message = messages
-        .iter()
-        .find(|item| item["temporaryId"] == "tmp-mobile-seed")
-        .expect("seeded message");
-    assert_eq!(message["msgId"], "server-mobile-seed");
-    assert_eq!(message["channelId"], "01hq0000000000000000000000");
-    assert_eq!(message["text"], "seed hello");
-    assert_eq!(message["type"], "TEXT");
-    assert_eq!(message["createAt"], 1700000000001i64);
-
-    // SAFETY: freeing the exact buffer returned by helix_query is required.
-    unsafe { helix_query_free(out_ptr, out_len) };
     // SAFETY: handle was created by this test and not yet destroyed.
     unsafe { helix_destroy(handle) };
 }

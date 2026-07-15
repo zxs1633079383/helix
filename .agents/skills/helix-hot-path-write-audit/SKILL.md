@@ -67,7 +67,8 @@ Patterns detected:
 4. 累计 / 队列 / 多值字段 normalized 到独立表（联合主键），append = O(1) INSERT
 5. 索引按读路径设计（覆盖 WHERE 列组合）
 
-反模式词典见 performance.md 的"反模式词典"小节。
+反模式词典以本 Skill 的“Anti-patterns to flag during review”表和根 `AGENTS.md`
+的 HX-C005 为准。
 
 ### 3. Exceptions (must satisfy ALL 3)
 
@@ -81,7 +82,7 @@ Patterns detected:
 
 ### 4. Pre-write checklist
 
-设计新 handler / 新 schema 前过一遍（来自 performance.md "设计前 checklist"）：
+设计新 handler / 新 schema 前过一遍：
 
 - [ ] 每个写操作复杂度是 O(1)？
 - [ ] 没有 JSON 数组列存累计 / 队列 / 列表 / 历史？
@@ -99,7 +100,7 @@ Patterns detected:
 
 ## Anti-patterns to flag during review
 
-引用 performance.md "反模式词典"，简表：
+简表：
 
 | 词 / 短语 | 危害 |
 |---|---|

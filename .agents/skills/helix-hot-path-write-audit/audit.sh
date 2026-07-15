@@ -172,6 +172,7 @@ check_multi_clone_per_fn() {
         fn_name = ""
         fn_start_line = 0
         depth = 0
+        saw_open_brace = 0
         clone_count = 0
         delete clone_lines
         delete clone_texts
@@ -181,12 +182,12 @@ check_multi_clone_per_fn() {
         line = $0
         # Detect function start when not already inside one
         if (!in_fn) {
-            if (ext == "rs" && match(line, /^[[:space:]]*(pub[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
+            if (ext == "rs" && match(line, /^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]+[A-Za-z_][A-Za-z0-9_]*/)) {
                 in_fn = 1
                 fn_start_line = NR
                 # extract name
                 tmp = line
-                sub(/^[[:space:]]*(pub[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]+/, "", tmp)
+                sub(/^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]+/, "", tmp)
                 match(tmp, /[A-Za-z_][A-Za-z0-9_]*/)
                 fn_name = substr(tmp, RSTART, RLENGTH)
             } else if (ext == "go" && match(line, /^func[[:space:]]/)) {
@@ -207,6 +208,9 @@ check_multi_clone_per_fn() {
             # gsub returns count; we used the same string both sides so line is preserved
             n_close = gsub(/\}/, "}", line)
             depth += n_open - n_close
+            if (n_open > 0) {
+                saw_open_brace = 1
+            }
 
             # count .clone() occurrences on this line (skip if waiver present)
             if (index(line, "hot-path-audit: ignore") == 0 && index(line, "hot-path-audit: cold") == 0) {
@@ -225,7 +229,7 @@ check_multi_clone_per_fn() {
             }
 
             # function end: depth back to 0 after we saw at least one {
-            if (depth <= 0 && (n_open > 0 || NR > fn_start_line)) {
+            if (saw_open_brace && depth <= 0) {
                 if (clone_count >= 2) {
                     printf "%s[hot-path-violation]%s %s:%s: %smulti-clone-per-fn%s\n", red bold, reset, file, clone_lines[1], yellow, reset
                     for (i = 1; i <= length(clone_lines); i++) {

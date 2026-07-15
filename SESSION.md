@@ -6,6 +6,8 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 在独立分支语义合并 Web 三端架构：以最新 `origin/main@a38f6da` 为基线合入 `codex/web-w0-development@177d12a`，不直接修改/推送 main。可证伪断言：① merge-base 必须等于 origin/main，若出现 main-only 提交则暂停并逐项迁移；② 同事已有业务语义全部保留，但最终代码归属满足 core 只定义 sans-IO port/effect、helix-im 持有业务门面/HTTP/WS/local-first、host/native/FFI 兑现默认 I/O、driver-web 只兑现浏览器平台能力；③ 不恢复 `mobile_query`、`helix-driver-wasm` 或重复业务 HTTP/WS parser；④ `.codebase-memory/`/`outputs/` 不纳入；⑤ 三端 check、core/im/FFI/Web 测试、wasm final build、Node 浏览器合同与 HX-C001 通过；⑥ 只在集成分支提交，推送或合并 main 另行确认。@2026-07-15T10:28:12+0800 | 赌注 高 | 可逆 是
+
 🎯 EXPECT Web 产品目标重启架构文档收敛：以 ADR-014 正式覆盖 ADR-006 的“Web 暂停维护”，只改现存架构真源与外部方案，不实现 Web 代码。可证伪断言：① 产品目标口径统一为“native/FFI 已产品化 + Web 进入 W0”，不得声称 Web 已交付；② `helix-core + helix-im` 共享业务语义，Web 不复制 IM 状态机；③ PC/Flutter 继续完整 SQLite，Web 明确为 session state + bounded cache，且禁止“消息未持久化但 cursor 单独持久化”；④ WS 帧处理/协议生命周期三端共享，物理连接生命周期由平台 driver 兑现；⑤ 现有 `helix-driver-wasm` 继续归档，未来正式产品壳命名为 `helix-driver-web`；⑥ 只改 `AGENTS.md`、`SESSION.md`、`docs/{GOAL.md,ROADMAP.md,harness/{decisions.md,README.md}}` 与外部 `helix-multiplatform-client-architecture-plan.md`，不碰 Rust 源码和当前文档熵减删除集；⑦ `git diff --check`、关键口径 grep、harness 数量不变量通过。@2026-07-13T11:57:41+0800 | 赌注 高 | 可逆 是
 ✅ DONE Web 支持架构文档已按 ADR-014 收敛：三端共享 `helix-core + helix-im` 业务语义，PC/Flutter 完整 SQLite 与 Web session state + bounded cache 分治；cursor/coverage 联合检查点和 WebSocket 协议/物理连接边界已写入真源；W0–W4 roadmap、HX-C003 archived→W1 active 节律及外部方案均已同步。验证：`git diff --check`、现行口径 grep、harness 16=16、Rust 源码零改动、外部方案关键断言检查通过。@2026-07-13T12:08:00+0800
 

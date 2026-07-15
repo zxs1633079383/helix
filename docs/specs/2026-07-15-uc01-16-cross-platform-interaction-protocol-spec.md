@@ -6,6 +6,7 @@
 > 范围：Message V4 宏 UC01-16；Strict Matrix `G-01..G-16c` 与同步前置 Gate
 > 真源：Strict Matrix contract epoch 4、`pd/message` UC 设计真源、Helix/cses-client/mobile 当前代码
 > Review：`dioxus-dev` 与 `crux-dev` 两个独立 lens，结论已回填
+> Architecture：ADR-015；本 SPEC 是 Helix 新版本多端统一 UI 交互目标，并已同步更新 `docs/GOAL.md` §6
 > 边界：本文是经过代码查证的目标合同，不把当前 `declared/blocked` 误报为运行时 Green。
 
 ## 0. 拍板结论
@@ -33,7 +34,7 @@ UiEvent / HostObservation
 1. “UI 意图”只指上行 `UiEvent`，下行分别叫 `ViewMutation`、`ActionBinding` 和 `UiDirective`，不再混用 intent。
 2. UI 不知道 `im_send_message`、`im_post_read`、`im_channel_close` 等命令名，也不拼 command payload。
 3. UI 不生成 temporary ID，不维护 temporary-to-server map，不按 WS event 前缀猜实体变化。
-4. Helix 不输出 DOM、Angular component、Flutter widget、CSS selector、像素或动画；它输出平台无关的语义呈现合同。
+4. Helix 可以输出平台无关的语义 view tree、renderer key、动作绑定和一次性 UI directive，但不输出 DOM、Angular Component、Flutter Widget、CSS selector、像素或动画实现。
 5. 一个领域事实造成的跨实体 UI 变化必须放入同一 `InteractionFrame` 原子提交。
 6. 可见业务状态必须经过 `PersistOk` 后发布；HTTP 200 不是发送完成，WS/sync 权威回声才是。
 

@@ -80,6 +80,7 @@
 - [x] B2 increment_end 冷启动自愈（`20334d2` heal_incomplete_backfill_once）
 - [x] UC-1 数据路径真 Go smoke ✅（2026-06-17 真消息端到端验过，见上「已完成」）
 - [ ] Tauri 四接缝接入 + 灰度开关（含 B7 store:\* 对齐、B3 readBits）。**首个落地处 = 独立仓 `loopforge-tauri-im`**（内嵌 helix 引擎作 Tauri 后端）：投影面（接缝③ EventSink → `app.emit('im:__bus__')`）的录放/对账装饰器集成方式已给权威 recipe → `crates/helix-driver-host/docs/external-host-instrumentation-recipe.md`（结论：装 `BatchSink` 非 `EventSink`；本仓已落地 `RecordingSink` 范例 + re-export，loopforge 走「直连 host 泛型壳 + RecordingSink 包 NativeEventSink」路径，零改 helix 引擎逻辑）
+- [ ] **InteractionProtocol/v1 多端统一 UI 交互（ADR-015）**：按 `docs/specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md` 落地 SurfaceModel、ViewNode/ViewMutation、ActionBinding、UiDirective、surface/epoch/revision/ack/resync；先纵切 G-01，再迁移窗口/回复、已读和群治理。三端不得保留 temporaryId 对账、窗口排序、未读/权限或 fallback 业务 reducer；具体 Component/Widget/DOM 映射仍在平台 shell。
 - [x] `helix-driver-host` shared HTTP/WS client 边界阶段落地：native/ffi Rust 侧只留薄壳，业务模块不拥有网络 client，登录鉴权只作为 `HostNetworkConfig` + header/token 配置输入（剩余：真 Go smoke、WS reconnect/backoff、proxy/TLS/cert knobs、旧 callback fallback 完整接线）
 
 **P1（质量与性能）**

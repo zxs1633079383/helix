@@ -15,9 +15,8 @@ impl HostMetricRuntime {
     pub fn start(config: &Config) -> Self {
         let shutdown_timeout =
             Duration::from_millis(config.observability.metrics.shutdown_timeout_ms);
-        let runtime = match BoundedMetricRuntime::start_otlp(
-            config.observability.metrics_config(),
-        ) {
+        let runtime = match BoundedMetricRuntime::start_otlp(config.observability.metrics_config())
+        {
             Ok(runtime) => Some(runtime),
             Err(error) => {
                 tracing::error!(%error, "host-cli 指标 worker 启动失败，降级为 Noop");

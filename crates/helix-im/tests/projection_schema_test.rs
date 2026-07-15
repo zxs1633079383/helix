@@ -282,7 +282,10 @@ fn recall_projection_is_viewer_ready_without_reusing_message_author_as_actor() {
     assert_eq!(data["occurredAt"], 1_700_000_042_i64);
     assert_eq!(data["displayText"], "你撤回了一条消息");
     assert_eq!(data["previewText"], "你撤回了一条消息");
-    assert_eq!(data["recalledText"], "hello", "撤回投影必须保留原文供重新编辑");
+    assert_eq!(
+        data["recalledText"], "hello",
+        "撤回投影必须保留原文供重新编辑"
+    );
     assert_eq!(data["isSelf"], true, "isSelf 必须按撤回 actor 计算");
     assert_ne!(
         data["actorId"], data["userId"],

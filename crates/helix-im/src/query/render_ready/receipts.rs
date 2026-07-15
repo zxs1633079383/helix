@@ -34,7 +34,12 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
                     .and_then(Value::as_str)
                     .filter(|reason| !reason.trim().is_empty())
                     .unwrap_or("receipt unavailable");
-                return Some(unavailable_receipt(post_id, snapshot_id, snapshot_version, reason));
+                return Some(unavailable_receipt(
+                    post_id,
+                    snapshot_id,
+                    snapshot_version,
+                    reason,
+                ));
             }
             let author_user_id = item.get("authorUserId")?.as_str()?.trim();
             let read_bits = item.get("readBits")?.as_str()?;

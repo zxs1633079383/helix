@@ -305,6 +305,28 @@ fn post_read_list_fails_closed_when_snapshot_and_bitmap_do_not_match() {
 }
 
 #[test]
+fn post_read_list_keeps_server_unavailable_row_when_bitmap_is_null() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        command_json(
+            "im_post_read_list",
+            serde_json::json!({"req_id":"receipt-unavailable","post_ids":["p1"]}),
+        ),
+        1,
+    );
+    let corr = http_corr(&h);
+    let raw = bytes::Bytes::from(
+        br#"{"status":"SUCCESS","data":[{"postId":"p1","authorUserId":"444","status":"unavailable","unavailableReason":"missing_member_snapshot","readBits":null,"snapshotVersion":0,"memberIds":[]}] }"#.to_vec(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 2);
+
+    let receipt = &emits(&h, "im:post:readers")[0]["receipts"][0];
+    assert_eq!(receipt["postId"], "p1");
+    assert_eq!(receipt["state"], "unavailable");
+    assert_eq!(receipt["error"], "missing_member_snapshot");
+}
+
+#[test]
 fn candidate_users_default_to_company_directory_and_emit_render_ready_projection() {
     let mut h = Harness::new_with_identity(&[], "444", "team-1", "破坏者", "研发", "平台");
     h.step(

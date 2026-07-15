@@ -168,6 +168,7 @@ pub fn emit_post_deleted_for_viewer(
     let object = data
         .as_object_mut()
         .expect("recall projection starts from a static JSON object");
+    object.insert("recalledText".to_string(), json!(fields.message));
     object.insert("type".to_string(), json!("system"));
     object.insert("message".to_string(), json!(display_text));
     object.insert("text".to_string(), json!(display_text));

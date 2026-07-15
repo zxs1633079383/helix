@@ -19,12 +19,32 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
             if post_id.is_empty() {
                 return None;
             }
+            let snapshot_id = item
+                .get("snapshotId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            let snapshot_version = item
+                .get("snapshotVersion")
+                .and_then(Value::as_i64)
+                .unwrap_or_default();
+            if item.get("status").and_then(Value::as_str) == Some("unavailable") {
+                let reason = item
+                    .get("unavailableReason")
+                    .and_then(Value::as_str)
+                    .filter(|reason| !reason.trim().is_empty())
+                    .unwrap_or("receipt unavailable");
+                return Some(unavailable_receipt(post_id, snapshot_id, snapshot_version, reason));
+            }
             let author_user_id = item.get("authorUserId")?.as_str()?.trim();
-            let snapshot_id = item.get("snapshotId")?.as_str()?.trim();
-            let snapshot_version = item.get("snapshotVersion").and_then(Value::as_i64)?;
             let read_bits = item.get("readBits")?.as_str()?;
             let Some(member_values) = item.get("memberIds").and_then(Value::as_array) else {
-                return Some(unavailable_receipt(post_id, snapshot_id, snapshot_version));
+                return Some(unavailable_receipt(
+                    post_id,
+                    snapshot_id,
+                    snapshot_version,
+                    "member snapshot and readBits are inconsistent",
+                ));
             };
             let member_ids: Vec<&str> = member_values
                 .iter()
@@ -47,7 +67,12 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
                 && read_bits.len() == member_ids.len()
                 && read_bits.bytes().all(|bit| bit == b'0' || bit == b'1');
             if !valid {
-                return Some(unavailable_receipt(post_id, snapshot_id, snapshot_version));
+                return Some(unavailable_receipt(
+                    post_id,
+                    snapshot_id,
+                    snapshot_version,
+                    "member snapshot and readBits are inconsistent",
+                ));
             }
             let mut reader_ids = Vec::with_capacity(member_ids.len());
             let mut unread_ids = Vec::with_capacity(member_ids.len());
@@ -97,7 +122,12 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
     emit_value(json!({ "reqId": req_id, "receipts": receipts }))
 }
 
-fn unavailable_receipt(post_id: &str, snapshot_id: &str, snapshot_version: i64) -> Value {
+fn unavailable_receipt(
+    post_id: &str,
+    snapshot_id: &str,
+    snapshot_version: i64,
+    error: &str,
+) -> Value {
     json!({
         "postId": post_id,
         "state": "unavailable",
@@ -113,7 +143,7 @@ fn unavailable_receipt(post_id: &str, snapshot_id: &str, snapshot_version: i64) 
         "unreadIds": [],
         "readers": [],
         "unreaders": [],
-        "error": "member snapshot and readBits are inconsistent",
+        "error": error,
     })
 }
 

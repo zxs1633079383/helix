@@ -74,6 +74,14 @@ fn json_value(row: &Value, keys: &[&str], fallback: Value) -> Value {
         .unwrap_or(fallback)
 }
 
+fn json_container_len(value: &Value) -> i64 {
+    match value {
+        Value::Array(items) => items.len() as i64,
+        Value::Object(items) => items.len() as i64,
+        _ => 0,
+    }
+}
+
 fn template_received_bool(row: &Value) -> bool {
     if let Some(b) = row.get("templateReceived").and_then(|v| v.as_bool()) {
         return b;
@@ -188,6 +196,13 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "urgentState": urgent.state,
         "canConfirmUrgent": urgent.can_confirm,
     });
+    let reply_messages = json_value(row, &["reply_messages", "replyMessages"], json!([]));
+    let reply_count = row
+        .get("reply_count")
+        .or_else(|| row.get("replyCount"))
+        .and_then(Value::as_i64)
+        .unwrap_or_default()
+        .max(json_container_len(&reply_messages));
     let mut data = json!({
         "id": msg_id,
         "msgId": msg_id,
@@ -215,11 +230,8 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "replyRootId": get_str(row, &["reply_root_id", "replyRootId"]),
         "replyFirstLevelId": get_str(row, &["reply_first_level_id", "replyFirstLevelId"]),
         "repliedMessage": json_value(row, &["replied_message", "repliedMessage"], Value::Null),
-        "replyMessages": json_value(row, &["reply_messages", "replyMessages"], json!([])),
-        "replyCount": row.get("reply_count")
-            .or_else(|| row.get("replyCount"))
-            .and_then(Value::as_i64)
-            .unwrap_or_default(),
+        "replyMessages": reply_messages,
+        "replyCount": reply_count,
         "createAt": create_at,
         "createdAt": create_at,
         "userId": user_id,

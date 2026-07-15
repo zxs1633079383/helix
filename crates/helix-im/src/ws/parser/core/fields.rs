@@ -112,20 +112,24 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .or_else(|| root.get("replied_message"))
         .map(serde_json::Value::to_string)
         .unwrap_or_default();
-    let reply_messages = post
+    let reply_messages_value = post
         .get("replyMessages")
         .or_else(|| post.get("reply_messages"))
         .or_else(|| root.get("replyMessages"))
-        .or_else(|| root.get("reply_messages"))
+        .or_else(|| root.get("reply_messages"));
+    let reply_messages = reply_messages_value
         .map(serde_json::Value::to_string)
         .unwrap_or_default();
-    let reply_count = post
+    let wire_reply_count = post
         .get("replyCount")
         .or_else(|| post.get("reply_count"))
         .or_else(|| root.get("replyCount"))
         .or_else(|| root.get("reply_count"))
         .and_then(serde_json::Value::as_i64)
         .unwrap_or_default();
+    // replyMessages 非空而 replyCount 缺失/为 0 是服务端旧表 NULL 默认值造成的矛盾行。
+    // 预览容器长度是权威总数的下界，parser 在数据已在手时 O(1) 归一，避免前端补算。
+    let reply_count = wire_reply_count.max(json_container_len(reply_messages_value));
 
     PostFields {
         temporary_id,
@@ -152,6 +156,14 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     }
 }
 
+fn json_container_len(value: Option<&serde_json::Value>) -> i64 {
+    match value {
+        Some(serde_json::Value::Array(items)) => items.len() as i64,
+        Some(serde_json::Value::Object(items)) => items.len() as i64,
+        _ => 0,
+    }
+}
+
 fn collect_string_values(value: &serde_json::Value) -> Vec<String> {
     match value {
         serde_json::Value::Array(items) => items
@@ -160,5 +172,36 @@ fn collect_string_values(value: &serde_json::Value) -> Vec<String> {
             .collect(),
         serde_json::Value::String(s) if !s.is_empty() => vec![s.clone()],
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_post_fields;
+    use serde_json::json;
+
+    #[test]
+    fn reply_preview_is_a_lower_bound_when_wire_count_is_missing() {
+        let fields = extract_post_fields(&json!({
+            "id": "root-1",
+            "replyCount": 0,
+            "replyMessages": {
+                "reply-1": {"message": "一"},
+                "reply-2": {"message": "二"}
+            }
+        }));
+
+        assert_eq!(fields.reply_count, 2);
+    }
+
+    #[test]
+    fn authoritative_wire_reply_count_is_not_reduced_to_preview_size() {
+        let fields = extract_post_fields(&json!({
+            "id": "root-2",
+            "replyCount": 9,
+            "replyMessages": {"reply-1": {"message": "预览"}}
+        }));
+
+        assert_eq!(fields.reply_count, 9);
     }
 }

@@ -71,6 +71,39 @@ fn durable_unsend_is_rendered_as_retryable_failed_after_restart() {
 }
 
 #[test]
+fn persisted_reply_preview_restores_missing_reply_count() {
+    let rows = json!([{
+        "id": "root-with-replies",
+        "channel_id": "ch1",
+        "message": "原消息",
+        "reply_count": 0,
+        "reply_messages": {
+            "reply-1": {"message": "一"},
+            "reply-2": {"message": "二"}
+        }
+    }]);
+
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["replyCount"], 2);
+    assert_eq!(
+        out[0]["replyMessages"].as_object().map(|items| items.len()),
+        Some(2)
+    );
+}
+
+#[test]
+fn persisted_authoritative_reply_count_is_not_reduced_to_preview_size() {
+    let rows = json!([{
+        "id": "root-with-many-replies",
+        "reply_count": 9,
+        "reply_messages": {"reply-1": {"message": "预览"}}
+    }]);
+
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["replyCount"], 9);
+}
+
+#[test]
 fn viewer_relative_actions_and_absolute_interaction_counts_are_render_ready() {
     let rows = json!([{
         "temporary_id": "tmp-1",

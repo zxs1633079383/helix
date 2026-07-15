@@ -1,5 +1,7 @@
 # Helix ↔ Crux 参照对照（边界三分法 + 还能从 Crux 取什么）
 
+> **现行性说明（2026-07-15）**：本文记录的是 Crux `Model/update/view/Effect` 对 Helix 的历史参照，不再用 Crux 的“数据 ViewModel”上限定义 Helix 的 Headless 上限。ADR-015 已结合 Dioxus 的稳定事件地址与批量 mutation 机制，把 Helix 目标升级为平台无关 `InteractionProtocol`。Helix 仍不画 DOM/Widget/像素，但会统一语义 view tree、动作绑定、一次性 directive 与 ack/resync；现行边界见 [`GOAL.md` §6](../GOAL.md) 和 [`UC01-16 跨端交互协议 SPEC`](../specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md)。
+
 > 2026-06-15 · Crux = helix 的参照实现（Red Badger，`/workspace/rustWorkspace/crux`，源码已核 `crux_core` 0.19）。
 > 本文回答两件事：① **Crux 的能力边界到底在哪**（做到 / 故意不做 / 真缺口，别误判）；② **除已采用的，Crux 还有哪些方向值得参考**。
 > 构件映射 / helix⊄crux 分歧 / 性能缺口的**详表**见 [`../ROADMAP-full.md` §4/§5/§6](../ROADMAP-full.md)（本文不重复，只给结论 + 新增内容）；设计理念见 [`helix-core-im-架构设计.md` §7.0](./helix-core-im-架构设计.md)；方向A性能方案见 [`helix-core-view-方向A设计.md` §4.1](./helix-core-view-方向A设计.md)。

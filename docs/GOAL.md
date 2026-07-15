@@ -10,6 +10,8 @@
 
 **Helix 是我们的「运行时无关确定性业务与交互内核」**——目标是一份业务逻辑和一份跨端 UI 交互语义只写一次，产品目标集合为 **PC 端 Tauri（native）+ 手机端 Flutter（FFI）+ Web**；当前交付事实是 native/FFI 已产品化，Web 的 Rust 平台壳、最小浏览器 glue 与正式 gate 已落地，但真浏览器→真 Go 产品链仍待环境验收。IM 是首个业务模块，`helix-core` 不认识任何业务或具体 UI；同一份 `helix-im` 负责三端共同的业务门面、local-first/remote fallback、WS 协议生命周期，以及 `SurfaceModel / ViewNode / ActionBinding / UiDirective` 语义交互协议。PC/Flutter 复用完整 SQLite/HTTP/WS；Web 使用 Rust 有界 session store 与 Browser Fetch，物理 WebSocket 生命周期由浏览器适配器兑现。历史 `helix-driver-wasm` 已删除。
 
+**本项目对 Headless 的定义**：Headless 不是“只能输出扁平数据 ViewModel”，也不是“Rust 负责画具体 UI”。它表示 Helix 可以拥有完整的、平台无关的**呈现状态机与交互图**，包括语义节点、有序关系、动作地址和一次性 UI 语义；但它不依赖任何 renderer、窗口系统、组件框架或 I/O runtime。ViewModel 只是该合同里的可重放呈现状态，不能替代动作绑定、directive、ack/resync 和上行事实协议。
+
 ---
 
 ## §1 设计理念不变量（违反任一 = 偏离北极星，必须停下）
@@ -21,7 +23,7 @@
 5. **依赖单向**：`driver → core`，永不反向；core 只定义 ports，驱动在边缘实现。
 6. **业务不污染内核**：DomainEvent / wire 名 / temporaryId / 业务 schema 留在模块，core 只有通用 spec。IM 是首个 guest，不是 core 的一部分。
 7. **能力即胶囊**：EventBus/Storage/HTTP/WS 各自独立、feature 可加、互不强依赖。→ `HX-C004`
-8. **交互语义一次实现**：`helix-im` 可以产出平台无关的语义 view tree、稳定动作地址和一次性 UI directive；各端不得再实现消息对账、未读、窗口、权限或导航 fallback 等业务交互决策。具体 DOM、Angular Component、Flutter Widget、CSS、像素和动画仍属于平台 shell。→ `ADR-015`
+8. **交互语义一次实现**：`helix-im` 可以产出平台无关的语义 view tree、稳定动作地址和一次性 UI directive；各端不得再实现消息对账、未读、窗口、权限或导航 fallback 等业务交互决策。具体 DOM、Angular Component、Flutter Widget、CSS、像素和动画仍属于平台 shell。→ `ADR-015` / `HX-C018`
 
 ---
 
@@ -77,29 +79,31 @@
 
 - **本文** = L2 常量，每次会话开局必读（设计理念锚点）。
 - **AGENTS.md 顶部北极星指针** → 每次必加载，指回本文。
-- **7 张 HX-C harness 卡** = 把 §1/§2 编译成 grep/CI/正反对照的**可执行护栏**（docs/harness/）。
+- **18 张 HX-C harness 卡** = 把 §1/§2 编译成 grep/CI/正反对照的**可执行护栏**（docs/harness/）。
 - **decisions.md** = 已拍板的 ADR（防反复推导）。
 - 改动与本文冲突 → 停下问；新决策 → 追加本文 §4 或 decisions.md。
 
 ---
 
-## §6 抽象高度边界（语义交互可走 / 具体 UI 与 I/O 是红线）
+## §6 Headless 抽象边界（语义交互属于内核 / 具体 UI 与 I/O 属于平台）
 
-> 2026-07-15 用户拍板：旧“方向 A 只能吐扁平数据 ViewModel”被 ADR-015 覆盖。
+> 2026-07-15 用户拍板：旧“方向 A 只能吐扁平数据 ViewModel”被 ADR-015 覆盖，不再作为现行设计入口。
 > 新边界的真源是 [`2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md`](./specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md)：统一的是跨端**语义交互合同**，不是具体 UI 工具包。
 
-| 方向 | 含义 | 结论 |
+| 边界层 | 含义 | 结论 |
 |---|---|---|
-| **A（语义交互 · 目标）** | `helix-im` 产出 `InteractionFrame(ViewMutation + ActionBinding + UiDirective)`：语义 view tree、稳定顺序、opaque action、focus/reveal/reset/dismiss/fallback 等跨端语义 | ✅ 三端统一实现；平台机械 apply、执行和 ack |
-| **B（具体 UI · 红线）** | Rust 输出 DOM tag、Angular Component、Flutter Widget、CSS selector、像素、动画或平台对象生命周期 | ❌ 反向依赖平台，破坏 runtime-agnostic 与可替换 renderer |
-| **C（往下 · 红线）** | core 自己做 I/O（省 driver） | ❌ 违反 §1.2 / §2（sans-IO）；三栖立刻碎，`HX-C001` 守门 |
+| **Headless 交互内核（目标）** | `helix-im` 产出 `InteractionFrame(ViewMutation + ActionBinding + UiDirective)`：语义 view tree、稳定顺序、opaque action、focus/reveal/reset/dismiss/fallback 等跨端语义 | ✅ 多端统一实现；平台机械 apply、执行和 ack |
+| **具体平台 UI（边界外）** | Rust 输出 DOM tag、Angular Component、Flutter Widget、CSS selector、像素、动画或平台对象生命周期 | ❌ 反向依赖平台，破坏 runtime-agnostic 与可替换 renderer |
+| **真实 I/O（边界外）** | core 自己执行网络、存储、timer、文件或线程调度 | ❌ 违反 §1.2 / §2（sans-IO）；多端复用立刻碎，`HX-C001` 守门 |
 
-**方向 A 不变量**：
+**Headless 交互不变量**：
 - `SurfaceModel / ViewNode / ActionBinding / UiDirective` 是 IM 业务交互类型，只能在 `helix-im`；`helix-core` 只搬运不透明批次并提供确定性执行机制。
 - `ViewNode.render_kind` 是语义 renderer key（如 `message.row.v1`），不得出现具体组件、Widget、DOM 或样式名；各端通过静态 registry 映射自己的组件。
 - `ActionBinding.action_ref` 只暴露 opaque、surface-scoped 动作地址；权限、command 选择和 payload 组装留在 `helix-im`。
 - `UiDirective` 只表达跨端语义“做什么”，平台决定“怎么做”；持久业务结果必须同时进入 ViewModel，不能只靠一次性 directive 成为权威。
 - frame 必须 revision/epoch 可校验、确定性可回放、跨 FFI 批量传输；同一领域事实引起的多节点变化原子 apply。→ `HX-C007`
 - shell 可以维护像素滚动、动画、原生焦点句柄和可丢弃 frame cache，但不得恢复业务 reducer、temporaryId 对账、read candidate、窗口排序或权限分支。
+
+**判据一句话**：凡是“多个平台应得出同一业务呈现与交互结果”的规则，归 `helix-im`；凡是“这个平台具体如何画、如何动、如何取得句柄或执行 I/O”的实现，归平台 shell/driver。只输出 ViewModel 会漏掉前一类中的动作与交互时序，因此不是本项目 Headless 的终点。
 
 **时序硬约束**：InteractionProtocol 在基础 DomainModel、Persist barrier 与收发/同步链路之上增量实现；不得用纯文档协议掩盖当前 `declared/blocked` Gate，也不得让 UI 暂时代偿尚未进入 Helix 的业务规则。

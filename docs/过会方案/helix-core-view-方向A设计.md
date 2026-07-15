@@ -1,5 +1,7 @@
 # Helix core-view —— 方向 A（ViewModel 投影接管）设计
 
+> **现行性说明（2026-07-15）**：本文是“数据 ViewModel 接管”的历史阶段方案，不再定义 Helix Headless 的最终高度边界。ADR-015 与 [`GOAL.md` §6](../GOAL.md) 已把目标升级为完整 `InteractionProtocol`：ViewModel 只是 `InteractionFrame` 的可重放呈现状态，还必须统一 `UiEvent/HostObservation`、`ActionBinding`、`UiDirective`、ack/resync。本文 §3 中“view tree/控件一律属于方向 B 红线”的旧结论已被覆盖；现行红线是**禁止具体 DOM/Component/Widget/CSS/像素/动画实现进入合同**。实现与评审请以 [`UC01-16 跨端交互协议 SPEC`](../specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md) 为准。
+
 > 抽象高度上「往上一格」：core 不止吐领域事件，还吐**给 UI 的只读投影 ViewModel**，各端 UI 退化成 dumb 渲染。
 > **可行性结论：机制层可行（Crux 是活的存在性证明），但「可行 ≠ 无风险」。** 风险不在「能不能做」——`view()` 是 `Model` 纯函数、`Render`+typegen 都有现成范式；风险几乎全压在 **§4 红线1：大列表 ViewModel 的增量投影/传输（性能工程）**——这恰是 Crux 原生范式（每次 Render 整份重拉）覆盖最弱处，必须自建窗口化 / diff-patch（方案见 §4.1）。另一条是 **§6「先 D 后 A」前置时序**：没有干净的 in-memory Model 之前无对象可投。守住 §3 一条线则不撞北极星。参照实现 = Crux（`/Users/mac28/workspace/rustWorkspace/crux`）。
 > 上层约束见 [`../GOAL.md` §6 抽象高度边界](../GOAL.md)；机制流程图见 [`helix-core-im-架构设计.md` §七](./helix-core-im-架构设计.md)；边界纪律见 [`../harness/HX-C007`](../harness/HX-C007-effect-batch-across-boundary.md)。

@@ -55,6 +55,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 - [ ] **热路径零分配 O(1)**：`&'static str` 不 `String`、复用 buffer、单 INSERT/UPDATE WHERE PK、禁 read-modify-write（`HX-C005`）
 - [ ] **FFI 边界铁律**：不许 unwind 跨 `extern "C"`——策略二选一：生产 cdylib `panic="abort"`（无需 catch_unwind）/ dev unwind 时逐导出 `catch_unwind`，禁两者混说；opaque ptr 单一 owner（`Box::into_raw`/`from_raw` 各一次）；同步 SQLite C 调用包 `spawn_blocking`（`HX-C006`）
 - [ ] **Effect/事件跨 Web/FFI 边界批处理**：以 step/batch 过 JS/FFI 边界，不逐条回调（`HX-C007`）
+- [ ] **Headless 语义交互边界**：`helix-im` 可统一语义 view tree/action/directive，不能退成只吐 ViewModel；`helix-core` 不认识 UI schema，具体 DOM/Component/Widget/像素仍在 shell（`HX-C018`）
 
 ---
 
@@ -125,6 +126,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 | HX-C015 | workflow/后台 agent 完成靠 task-notification 自动回灌，禁手工「等…报告结果」轮询；只外部不可追踪态才 /loop | active |
 | HX-C016 | 真Go e2e:WS hello 依赖 tp/gRPC 隧道会随时间断(恢复 playbook·sudo密码sh)+全UC用单脚本双持久连接 wait_for(~3min)非LLM-workflow+快smoke(~13)vs精确per-UC(全33)取舍 | active |
 | HX-C017 | 性能证据保持逐跳 correlation、确定性顺序与负载/观察窗口边界；冷热领域键分测 | active |
+| HX-C018 | Headless 不是只吐 ViewModel：统一语义 view tree/action/directive，禁止具体平台 UI 进入合同 | active |
 
 > 索引不变量：本表行数 == `ls docs/harness/HX-C*.md | wc -l`。不等 = 漂移，立即修。
 

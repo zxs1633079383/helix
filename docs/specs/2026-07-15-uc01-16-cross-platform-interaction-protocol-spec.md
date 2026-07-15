@@ -4,10 +4,11 @@
 > 日期：2026-07-15
 > 取代：`2026-07-15-uc1-16-cross-platform-render-only-projection-spec.md`
 > 范围：Message V4 宏 UC01-16；Strict Matrix `G-01..G-16c` 与同步前置 Gate
-> 真源：Strict Matrix contract epoch 4、`pd/message` UC 设计真源、Helix/cses-client/mobile 当前代码
+> 合同真源：Strict Matrix contract epoch 4、Helix 当前领域/存储/投影代码；消费端证据：cses-client 与 mobile 当前代码；机制参照：Dioxus/Crux
 > Review：`dioxus-dev` 与 `crux-dev` 两个独立 lens，结论已回填
 > Architecture：ADR-015；本 SPEC 是 Helix 新版本多端统一 UI 交互目标，并已同步更新 `docs/GOAL.md` §6
 > 边界：本文是经过代码查证的目标合同，不把当前 `declared/blocked` 误报为运行时 Green。
+> 实施仓库：`helix`、`cses-client`、`mobile-qucik-c++`；`cses-im-server` 仅在后端权威合同缺口时条件介入。明确排除 `loopforge-tauri-im` 与 `pd/message`。
 
 ## 0. 拍板结论
 
@@ -46,9 +47,11 @@ UiEvent / HostObservation
 
 1. `crates/helix-im/contracts/strict-matrix.v1.json`
 2. `crates/helix-im/docs/Strict Matrix/UC全链路发布矩阵-v1.md`
-3. `/System/Volumes/Data/workspace/pd/message/docs/message-v4-real-chain-ui/`
-4. Helix 当前实现与 `前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`
-5. cses-client 与 mobile 当前代码只作为迁移证据，不作为目标架构真源
+3. Helix 当前实现与 `前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`
+4. cses-client 与 mobile 当前代码只作为迁移证据，不作为目标架构真源
+5. Dioxus 与 Crux 源码只证明机制可行性，不定义 IM 业务合同
+
+`pd/message` 的历史 UI 材料可用于回看产品用例来历，但不再属于本 Spec 的实施仓库、现行合同真源或发布证据入口。
 
 ### 1.2 UC 编号不能再混
 
@@ -148,18 +151,23 @@ MessageReceiptState
 
 ### 4.1 协议包络
 
-所有类型由 Rust schema 生成 TS、JavaScript、C++、Dart bindings/reducer，禁止各端手写第二套字段解释。
+所有类型由 Rust schema 生成 TS、JavaScript、C++、Dart bindings/reducer，禁止各端手写第二套字段解释。协议公开面必须使用 newtype、enum 和 tagged union；`String + Value` 只允许承载真正开放的用户文本或 opaque host handle，不能承载 action、node、capability、reason 或业务 props。
 
 ```rust
 struct ProtocolEnvelope<T> {
     protocol_version: u16,
-    engine_session_id: String,
-    account_key: String,
-    surface_id: String,
+    engine_session_id: EngineSessionId,
+    account_key: AccountKey,
+    surface_id: SurfaceId,
     surface_epoch: u64,
-    trace_id: String,
+    trace_id: TraceId,
     payload: T,
 }
+
+struct SurfaceId(String);
+struct ActionRef(String);       // opaque，不可由 UI 解析
+struct NodeKey(String);         // opaque，不等于业务实体 ID
+struct DirectiveId(String);
 ```
 
 - `engine_session_id`：Helix 本次进程/恢复会话标识。
@@ -172,19 +180,19 @@ struct ProtocolEnvelope<T> {
 ```rust
 enum UiEvent {
     SurfaceAttached {
-        surface_kind: String,
-        capabilities: Vec<String>,
+        surface_kind: SurfaceKind,
+        capabilities: Vec<PlatformCapability>,
     },
     SurfaceDetached,
     ActionInvoked {
-        action_ref: String,
+        action_ref: ActionRef,
         observed_revision: u64,
-        input: Value,
+        input: ActionInput,
     },
     ViewportObserved {
-        ordered_visible_node_keys: Vec<String>,
-        first_visible_node_key: Option<String>,
-        last_visible_node_key: Option<String>,
+        ordered_visible_node_keys: Vec<NodeKey>,
+        first_visible_node_key: Option<NodeKey>,
+        last_visible_node_key: Option<NodeKey>,
         app_visibility: Visibility,
         window_focus: bool,
     },
@@ -194,8 +202,17 @@ enum UiEvent {
         connectivity: Connectivity,
     },
     FrameApplied { revision: u64 },
-    DirectiveApplied { directive_id: String, outcome: ApplyOutcome },
-    ResyncRequested { observed_revision: u64, reason: String },
+    DirectiveApplied { directive_id: DirectiveId, outcome: ApplyOutcome },
+    ResyncRequested { observed_revision: u64, reason: ResyncReason },
+}
+
+enum ActionInput {
+    SendMessage { text: String },
+    RetryMessage,
+    OpenEntity,
+    UpdateChannelSettings(ChannelSettingsInput),
+    SelectMembers { member_node_keys: Vec<NodeKey> },
+    OpaqueHostResource(OpaqueHostHandle),
 }
 ```
 
@@ -205,18 +222,18 @@ enum UiEvent {
 
 ```rust
 struct ActionBinding {
-    action_ref: String,
-    owner_node_key: String,
-    action_kind: String,
+    action_ref: ActionRef,
+    owner_node_key: NodeKey,
+    action_kind: ActionKind,
     enabled: bool,
     disabled_reason: Option<LocalizedText>,
     input_contract: InputContract,
-    valid_at_revision: u64,
+    validity: ActionValidity,
     replay_policy: ReplayPolicy,
 }
 ```
 
-`action_ref` 是 opaque、surface-scoped、revision-aware 的动作地址。Helix 内部绑定领域上下文和 use case。UI 只渲染按钮并回送引用。
+`action_ref` 是 opaque、surface-scoped 的动作地址。Helix 内部绑定领域上下文和 use case。`ActionValidity` 至少包含 `surface_epoch + context_version + expires_after_revision`；无关 badge 或窗口 patch 不得让整个 surface 的动作集失效。UI 只渲染按钮并回送引用。
 
 例子：群设置页可以同时收到 `channel.close` 和 `channel.leave` 两种语义 kind，但只会收到当前用户有权执行且绑定了独立 `action_ref` 的动作。UI 不根据角色做分支，也看不到对应的 `im_channel_*` 命令。
 
@@ -224,8 +241,8 @@ struct ActionBinding {
 
 ```rust
 struct InteractionFrame {
-    frame_id: String,
-    causation_id: String,
+    frame_id: FrameId,
+    causation_id: CausationId,
     mode: FrameMode,              // Snapshot | Patch
     base_revision: u64,
     revision: u64,
@@ -236,20 +253,28 @@ struct InteractionFrame {
 
 enum ViewMutation {
     UpsertNode { node: ViewNode },
-    RemoveNode { node_key: String },
+    RemoveNode { node_key: NodeKey },
     SetChildren {
-        parent_key: String,
-        ordered_child_keys: Vec<String>,
+        parent_key: NodeKey,
+        ordered_child_keys: Vec<NodeKey>,
     },
-    RemoveSubtree { root_key: String },
+    RemoveSubtree { root_key: NodeKey },
 }
 
-struct ViewNode {
-    node_key: String,
-    render_kind: String,
+enum ViewNode {
+    MessageRowV1(Keyed<MessageRowVm>),
+    DialogRowV1(Keyed<DialogRowVm>),
+    ComposerV1(Keyed<ComposerVm>),
+    ReceiptV1(Keyed<ReceiptVm>),
+    ChannelSettingsV1(Keyed<ChannelSettingsVm>),
+    MemberRowV1(Keyed<MemberRowVm>),
+}
+
+struct Keyed<T> {
+    node_key: NodeKey,
     revision: u64,
-    props: Value,
-    action_refs: Vec<String>,
+    props: T,
+    action_refs: Vec<ActionRef>,
 }
 ```
 
@@ -257,7 +282,8 @@ struct ViewNode {
 
 - 一个 frame 内 mutation 按序、原子 apply；应用前不允许组件观察到半帧状态。
 - `SetChildren` 给出完整顺序，端侧不得再次排序、去重、slice 或 prepend。
-- 节点身份由 `node_key` 稳定表达；server ID 变化不能迫使端侧维护映射。
+- 节点身份由 `NodeKey` 稳定表达；server ID 变化不能迫使端侧维护映射。
+- `render_kind` 由 `ViewNode` tagged union 的变体稳定派生，不接受任意字符串；每个变体的 props 是生成的强类型 VM，不使用通用 JSON `Value`。
 - Snapshot 权威替换整个 surface；Patch 必须满足 `base_revision == local_revision`。
 - gap、未知 epoch、未知 action_ref 一律 fail closed 并请求 snapshot。
 
@@ -265,24 +291,26 @@ struct ViewNode {
 
 ```rust
 struct UiDirective {
-    directive_id: String,
+    directive_id: DirectiveId,
+    causation_id: CausationId,
     kind: DirectiveKind,
+    precondition: DirectivePrecondition,
     replay_policy: DirectiveReplayPolicy,
 }
 
 enum DirectiveKind {
-    ResetInput { node_key: String },
-    FocusNode { node_key: String },
-    RevealNode { node_key: String, alignment: Alignment },
-    SelectSurfaceEntity { node_key: String },
-    DismissSurfaceRegion { node_key: String },
-    AnnounceOutcome { operation_key: String },
+    ResetInput { node_key: NodeKey, expected_value_revision: u64 },
+    FocusNode { node_key: NodeKey },
+    RevealNode { node_key: NodeKey, alignment: Alignment },
+    SelectSurfaceEntity { node_key: NodeKey },
+    DismissSurfaceRegion { node_key: NodeKey },
+    AnnounceOutcome { operation_key: OperationKey },
 }
 ```
 
 Directive 表达跨端“做什么”，各端决定“怎么做”。它不得出现 DOM selector、Widget key、CSS、px、动画时长。持久业务结果必须同时存在于 ViewModel，不能只靠一次性 directive。
 
-重复 directive 通过 `directive_id + ack` 幂等处理；`replay_policy` 决定重连后是重放、丢弃还是等待确认。
+重复 directive 通过 `directive_id + ack` 幂等处理；`replay_policy` 决定重连后是重放、丢弃还是等待确认。`DirectivePrecondition` 必须阻止延迟到达的旧 `ResetInput` 清空用户随后输入的新内容；不能仅凭 directive ID 假设时序安全。
 
 ### 4.6 HostEffect 与 UiDirective 不能混
 
@@ -291,6 +319,8 @@ Directive 表达跨端“做什么”，各端决定“怎么做”。它不得�
 | `HostEffect` | native/FFI driver | Storage、HTTP、timer、文件读取 | 结果必须回到 Helix |
 | `ViewMutation` | UI frame reducer | Upsert/Remove/SetChildren | Helix ViewModel 的副本 |
 | `UiDirective` | platform renderer | focus/reveal/reset/dismiss | 否，必须可 ack |
+
+图中的 `EffectResult` 是概念名，代码实现必须复用现有 `Tick::PortReply + Correlation + CorrelationContext` 回灌链，不新增第二套 effect-result loop。发送、已读和群治理的 operation FSM 归 `helix-im`，不能借协议升级把业务状态塞进 `helix-core`。
 
 ## 5. 状态机硬不变量
 
@@ -303,6 +333,9 @@ Directive 表达跨端“做什么”，各端决定“怎么做”。它不得�
 7. **Deterministic replay**：相同 UiEvent、HostObservation、EffectResult、WS/sync 序列必须产生字节等价 frame。
 8. **Batch across FFI**：一个 frame 作为一个批次跨 FFI，不逐 mutation 调用 Flutter/C++。
 9. **No client repair**：破坏 Helix 投影时 PC/Mobile 必须同时失败，端侧不得用本地规则补绿。
+10. **Typed contract**：业务 action/node/directive/capability/reason 不得退回任意字符串或 JSON `Value`；canonical encoding 必须固定 tagged-union discriminant、字段默认值和 map 顺序。
+11. **Ack non-blocking**：`FrameApplied` 用于诊断、资源回收与恢复水位，不阻塞后续连续 revision frame；正确性由 base revision/gap/resync 保证。需要可靠确认的一次性行为使用独立 `DirectiveApplied`。
+12. **Bounded registries**：ActionRegistry/SurfaceStore 必须随 detach、epoch rollover 和 revision 水位淘汰；action lookup 平均 O(1)，frame apply 为 O(mutations + children)，禁止节点逐个全表扫描形成 O(n²)。
 
 ## 6. G-01 发送消息完整闭环
 
@@ -568,41 +601,108 @@ Flutter 使用同一 schema 生成的 Dart types/store：Widget 只消费 ViewNo
 
 保留/新增：generated frame reducer、批量 FFI bridge、renderer registry、directive executor、host observation adapter。
 
-## 12. 分阶段迁移
+### 11.4 条件介入与明确排除
+
+- `cses-im-server`：仅当 G-01/G-13/G-14/G-16 的真实 wire、绝对未读、成员或生命周期权威状态不足时修复；它不承载 ViewNode、ActionBinding 或 UiDirective。
+- `loopforge-tauri-im`：不改代码、不作为首落地、不参加联调或发布证据。
+- `pd/message`：不改代码、不承载合同生成、不参加联调或发布证据。
+- Dioxus/Crux：只读参照，不属于产品实施仓库。
+
+## 12. 回归优先的分阶段迁移
+
+### P-1 三仓回归基线先行
+
+InteractionProtocol 本轮范围是 27 个 Gate：同步前置 `G-S1..G-S4`，以及 `G-01..G-16c` 的 23 个业务 Gate。Strict Matrix 当前总计 46 个 `uc_cases`；P-1 必须建立同一份 46-case manifest，其中 27 个标记为 `interaction_migration`，其余 `G-17..G-27` 等 19 个标记为 `regression_only`。不能等改完后再从真实环境重新联调，也不能把范围外能力从全仓回归里删掉。
+
+同一 case 必须保留两份结果，禁止把旧端逻辑直接升级为新真源：
+
+- `observed_legacy`：冻结当前 Helix projection、Angular DOM/ProjectionStore、Mobile ViewModelStore 的实际行为，作为 characterization regression signal。
+- `canonical_expected`：由 Strict Matrix + Helix DomainModel/持久化不变量裁决的目标 Effect、InteractionFrame 和最终 snapshot；已知旧 bug 在这里明确标成 expected migration，不得被黄金文件永久冻结。
+
+canonical fixture 建议由 Helix 单一维护，并用 manifest 锁定：`contract_epoch + schema_sha256 + fixture_manifest_sha256 + case_id + gate_id + input_sha256 + expected_effect_sha256 + expected_frame_sha256 + expected_snapshot_sha256`。cses-client 与 mobile 只消费同一 manifest，不各自复制手写 fixture。
+
+#### 各仓先补什么测试
+
+| 仓库 | 迁移前 characterization | 新协议离线回归 | 仓内全量入口 | 真实链路入口 |
+|---|---|---|---|---|
+| `helix` | 用现有 Tick/WS/PortReply fixture 固化每个 case 的 Effect、持久化操作、legacy projection；记录当前红项，不伪造 PASS | 同输入回放 `InteractionProjector`；断言 snapshot=patch apply、重复/乱序/gap、Persist/HTTP/echo barrier、native/FFI 字节等价 | `node scripts/strict-matrix/check.mjs --check-generated`；`scripts/gate.sh` | `scripts/host-cli-FULL-uc-e2e.sh` |
+| `cses-client` | 给 `ProjectionStore`、presenter、read controller、Shell 和关键 DOM 增加 characterization test，冻结 27 个迁移 Gate 的可见语义；其余 manifest case 保持现有回归或显式排除 | generated TS reducer 对 27 个 Helix frame fixture 离线 apply；component registry/directive executor/DOM 只断生成 VM，不重算业务 | 全仓：`npm test -- --runInBand`、`npm run lint`、`npm run rust:check`；Message 聚焦：`npm run test:desktop:uc`、`npm run test:message-v4:strict-contract`、`npm run test:message-v4:gate`、`npm run test:message-v4:real-chain-scope` | `npm run message:desktop:scenario:all` |
+| `mobile-qucik-c++` | 用现有 `MobileSdkSpecTest`、`MobileJsSpecTest` 固化 raw event -> ViewModelStore/QuickJS 的当前行为 | generated C++/JS reducer 重放同一 frame fixture；断言 ABI ownership、整帧批量、snapshot=patch、坏 revision fail closed | `make push-gate-local`（含 `full-gate`、Strict Matrix、GoogleTest、manifest） | `make push-gate-real-chain` 或逐 case `REAL_CHAIN_CASE=<case> make real-chain-uc` |
+| `cses-im-server`（条件） | 仅在后端有改动时冻结目标 endpoint、WS event、DB readback 与 event_seq | 不消费 InteractionFrame，只验证 wire/绝对领域事实未漂移 | `go test ./...` | 由上述 Helix/Mobile real-chain runner 复核 HTTP+WS+DB evidence |
+
+这不是从零搭测试。第一批直接复用并扩展现有资产：
+
+- Helix：`projection_schema_test.rs`、`strict_matrix_contract_test.rs`、`f5_golden_replay.rs`、`golden_replay_test.rs` 及 `tests/fixtures/real_go_frames/`。
+- cses-client：`projection-store.service.test.ts`、`projection-render-contract.test.ts`、`shell.service.test.ts`、`message-read-reporting.test.ts`、`tests/e2e/desktop/` 与现有 Strict Matrix/evidence scripts。
+- mobile：`MobileSdkSpecTest.cpp`、`MobileJsSpecTest.cpp`、`MobileStrictMatrixJsSpecTest.cpp`、`MobileRealChainSpecTest.cpp` 与 `real-chain/uc-manifest.json`。
+
+先把这些旧测试按 `case_id` 接入统一 manifest，再新增 InteractionFrame 离线 replay。只有当某个旧测试的业务断言已经被 canonical fixture 和新 reducer 等价覆盖，才允许删除旧测试；不能因为旧实现准备删除，就先删保护网。
+
+#### 五层回归顺序
+
+1. **L0 schema/generator**：Rust schema 生成 TS/C++/JS/Dart，hash 和生成产物零漂移。
+2. **L1 单仓离线**：三仓各自重放同一 case，不启动 Go、不启动 Tauri，先消灭字段、顺序、默认值和 reducer 漂移。
+3. **L2 跨语言 parity**：Rust 生成的 frame 经 TS 与 C++/JS reducer 得到同一 canonical snapshot；破坏一条 mutation 后三端必须同时失败。
+4. **L3 shadow dual-run**：真实输入同时进入 legacy projection 与新 InteractionProjector，新 frame 暂不驱动可见 UI，只比较归一化语义 diff；差异必须归类为 `expected_migration` 或 `regression`。
+5. **L4 Gate cutover + real chain**：只有 L0-L3 全绿才按 Gate/surface/account 灰度切换；切换后再跑 HTTP、WS、Storage、InteractionFrame、DOM/移动 UI 全链证据。
+
+迁移开关必须是 per-Gate，不设一个全局大爆炸开关。未迁移 Gate 继续走 legacy；已迁移 Gate 不得在新链失败时偷偷回退旧业务 reducer，否则负向测试无法证明边界已经收口。
+
+全量门禁节奏固定如下：
+
+1. P-1 开始时三仓各跑一次仓内全量门，保存 baseline manifest、命令、SHA、PASS/已知红项和产物路径。
+2. 每个 Gate 改动先跑该 Gate fixture/characterization/负向测试，再跑被修改仓库的全量本地门；只跑 focused test 不能合并。
+3. 每个 Phase 合并前同时跑三仓本地全量门 + 27 个迁移 Gate 的跨语言离线 parity，并核对全部 46 个 Strict Matrix case 的 regression/explicit-exclusion 状态；任何 case 无声明、缺失或从 PASS 变红都阻断。
+4. 只有本地与离线回归全绿后才跑三端 real-chain；真实联调是最后一层验收，不承担首次发现 schema、排序、默认值或 reducer 错误的职责。
+5. 当前 runner 若未覆盖全部 27 个迁移 Gate，P-1 必须先补 mapping；全部 46 cases 若存在环境或产品范围排除，manifest 必须逐 case 写明理由和证据状态，不能静默漏掉。覆盖或声明不完整时只能报告 partial，禁止称“全量测试”。
 
 ### P0 合同冻结与真实缺口
 
-1. 冻结 `InteractionProtocol/v1`、surface/revision/ack/resync、action/directive 语义。
+1. 冻结强类型 `InteractionProtocol/v1`、canonical encoding、surface/revision/ack/resync、action/directive 语义；禁止以任意 `String/Value` 代替 tagged union。
 2. 冻结 deterministic ID 机制，修正文档和当前 send 入参冲突。
 3. 补 `PersistOk -> frame -> HTTP` 发送状态机。
 4. 补 ChannelMember 权威未读、dialog overlay 和 type6 sync 闭环。
-5. 建同一 schema 的 bindings/reducer generator 与跨语言 fixture。
+5. 先闭合 `G-S1/G-S2/G-S3/G-S4` 的 hello/increment、notify、gap 补偿和陌生 channel 恢复回归，它们是所有业务 Gate 的共同输入前置。
+6. 建同一 schema 的 bindings/reducer generator 与跨语言 fixture。
 
 ### P1 双端运行壳
 
 1. native/FFI 增加批量 frame、UiEvent、ack/resync 通道。
 2. 两个 surface 并行、epoch 重建、snapshot recovery 先跑通。
-3. 保留旧投影只作对照，不允许新功能继续写旧解释器。
+3. legacy/new 双跑只用于对照；新功能不再写旧解释器，已迁移 Gate 禁止 fallback。
 
 ### P2 纵切 G-01
 
-用发送消息证明 action_ref、ID、persist barrier、sending/sent/failed、reconcile、reset directive 与重启恢复闭环。通过后删除 Angular/Mobile 的发送业务逻辑。
+用文本发送证明 action_ref、ID、persist barrier、sending/sent/failed、reconcile、reset directive 与重启恢复闭环。通过 P-1/L0-L4 后，删除 Angular/Mobile 的 G-01 发送业务逻辑。
 
-### P3 窗口与回复
+### P3 迁移 G-02..G-09 消息动作
 
-迁移 G-10/G-10a/G-11/G-12，删除各端 merge/sort/window/reply index。
+- `G-02`：文档发送，opaque 文件句柄、上传计划、wire props 与 message/operation frame。
+- `G-03`：媒体发送；当前 blocked/deferred 面继续 fail closed，不因新协议伪绿。
+- `G-03a`：失败重发，复用原 operation/message identity，不生成新 temporary ID。
+- `G-04/G-04a`：在线撤回与离线重放，actor、时间和终态由 Helix 投影。
+- `G-05`：转发，源消息解析、目标去重、批次和逐目标结果由 Helix 负责。
+- `G-06`：快捷回复/表情，规范化、权限和聚合结果进入强类型 message node。
+- `G-07`：加急，required/confirmed/readers/unreaders 由领域状态投影，端侧不重算。
+- `G-08/G-09`：定时发送与取消，时间校验、revision、持久化、恢复和取消终态在 Helix。
 
-### P4 未读
+每个 Gate 必须分别完成 fixture、Rust replay、TS/C++ reducer parity、shadow diff、负向破坏和真实链路后才能切换；不能用 G-01 的 PASS 代替 G-02..G-09。
 
-迁移 G-13/G-14/G-14a，完成三个未读/回执对象的权威关系和原子 frame，删除各端 read controller。
+### P4 窗口与回复
 
-### P5 群治理
+迁移 `G-10/G-10a/G-11/G-12`，删除各端 merge/sort/window/reply index。
 
-迁移 G-15/G-16 系列，验证 close/leave/remove/settings 独立 action 和 fallback directive。
+### P5 未读
 
-### P6 UC01-16 收口
+迁移 `G-13/G-14/G-14a`，完成三个未读/回执对象的权威关系和原子 frame，删除各端 read controller。
 
-迁移剩余 Gate，删除 raw command/event/store 入口；Strict Matrix 补 interaction contract 证据面，PC/FFI 同输入必须输出等价 frame。
+### P6 建群与群治理
+
+迁移 `G-15a/G-15/G-16/G-16b/G-16c`，验证建群/话题、close/leave/remove/settings 独立 action 和 fallback directive。
+
+### P7 UC01-16 收口
+
+对 27 个迁移 Gate 重跑 L0-L4，并对 Strict Matrix 全部 46 cases 重跑仓内 no-regression/explicit-exclusion 检查；删除 raw command/event/store 入口和 shadow legacy path；Strict Matrix 补 interaction contract 证据面，PC/FFI 同输入必须输出等价 frame。
 
 ## 13. 验收合同
 
@@ -614,14 +714,38 @@ Flutter 使用同一 schema 生成的 Dart types/store：Widget 只消费 ViewNo
 - 重复 frame 幂等；revision gap 必须请求 snapshot；stale action/epoch 必须拒绝。
 - 两个 surface 同时打开不同频道，不共享全局 active channel。
 
-### 13.2 G-01
+### 13.2 回归目录完整性
+
+- Strict Matrix 当前 46 个 `uc_cases` 全部进入 fixture manifest，`case_id/gate_id` 唯一，并明确标记 27 个 `interaction_migration` 与 19 个 `regression_only`；生成检查 fail closed。
+- 每个 case 至少有 Helix replay、TS reducer、C++/JS reducer 三份离线结果；缺任一端不得进入 shadow/real-chain。
+- `observed_legacy` 与 `canonical_expected` 分开存储；known drift 必须显式归类，不允许更新 golden 掩盖回归。
+- snapshot 与 patch apply 最终状态等价；删除/重排 mutation、损坏 revision 或 action validity 后测试必须失败。
+- Gate cutover 后，端侧 legacy 业务 reducer 的对应入口和测试一起删除；未迁移 Gate 的 legacy 路径保持原测试，不做全局重写。
+
+### 13.3 G-01
 
 - Persist 失败时 UI 看不到 sending，HTTP/timer 不执行。
 - HTTP 200 无 WS/sync 回声时不得变 sent。
 - kill/restart 后 pending/failed/sent 与 frame snapshot 一致。
 - UI/QuickJS/C++ 搜不到 temp ID 生成、server ID reconcile、raw send command。
 
-### 13.3 G-13/G-14
+### 13.4 G-02..G-09
+
+- `G-02/G-03`：文件/媒体输入只含 opaque host handle；上传计划、wire props、进度和终态由 Helix 产生；blocked case 保持 blocked。
+- `G-03a`：重发复用原 identity；失败、重启、重复点击不产生第二条业务消息。
+- `G-04/G-04a`：在线/离线撤回得到相同 canonical revoked snapshot，actor/time 不由 UI 补齐。
+- `G-05`：多目标转发的逐目标成功/失败可重放，重复目标不由端侧去重。
+- `G-06`：reaction/快捷回复规范化与聚合只在 Helix；TS/C++ snapshot 字节语义等价。
+- `G-07`：required/confirmed/readers/unreaders 来自同一领域事实，端侧破坏本地计数不得自愈成绿。
+- `G-08/G-09`：定时发送/取消在重启、旧 revision、重复操作下幂等收敛；端侧不根据 baseline diff 猜完成。
+
+### 13.5 G-10/G-10a/G-11/G-12
+
+- snapshot/patch、首屏/历史、定位和回复窗口使用同一 canonical fixture；消息顺序、anchor 和 reply tree 在 TS/C++ apply 后完全一致。
+- 端侧删除 merge/sort/prepend/slice/reply index 后，27 个 InteractionProtocol case 离线回归保持通过，全部 46-case regression manifest 无状态倒退。
+- 缺帧或旧 viewport 必须 resync/fail closed，不得从端侧缓存猜窗口。
+
+### 13.6 G-13/G-14
 
 - UI 只上报 viewport/focus/visibility，不能提交 read candidate 或先清 badge。
 - 重启后 badge 从 current viewer ChannelMember 权威状态恢复。
@@ -629,14 +753,14 @@ Flutter 使用同一 schema 生成的 Dart types/store：Widget 只消费 ViewNo
 - 一次 read settlement 的 dialog/total/receipt 变化处于同一 frame。
 - 多设备 read 通过绝对状态收敛，旧 revision 不回滚。
 
-### 13.4 UC16
+### 13.7 G-15a/G-15/G-16/G-16b/G-16c
 
 - close、self leave、admin remove 是不同 action_ref 和不同领域结果。
 - 678 等无权限账号收不到 enabled 的管理 binding，UI 不写角色判断。
 - 当前频道关闭/离开后由 directive 指向 Helix 选定的 fallback。
 - member list、channel lifecycle、settings version、system row 同帧收敛。
 
-### 13.5 负向静态闸门
+### 13.8 负向静态闸门
 
 最终目标代码中以下模式必须为零，生成代码和明确的兼容适配白名单除外：
 
@@ -687,7 +811,37 @@ Angular/Mobile/Flutter: unread candidate|reply index|message window sort/merge
 1. 端侧上行只有生成合同内的 UiEvent/HostObservation/ack，业务动作通过 opaque action_ref 回送。
 2. Helix 持有完整领域状态、SurfaceModel、Effect 编排、持久化、ViewModel 和动作裁决。
 3. 端侧下行只机械 apply InteractionFrame、执行 UiDirective、静态选择组件。
-4. G-01、G-13/G-14、G-16 三条代表链路通过真实双端、重启、断帧和负向破坏验证。
-5. UC01-16 其余 Gate 逐条拥有相同 interaction contract 证据，且 raw command/event/业务 reducer 已从各端删除。
+4. P-1 的 27 个迁移 Gate 在 Helix、TS、C++/JS 三端离线回放完整；全部 46 cases 在 regression manifest 中有 PASS/known-red/explicit-exclusion 状态；L0-L3 通过后才允许真实链路切换。
+5. `G-01`、`G-02..G-09`、`G-10..G-12`、`G-13/G-14`、`G-15/G-16` 分组逐 Gate 完成 shadow diff、真实双端、重启、断帧和负向破坏验证。
+6. UC01-16 所有 Gate 逐条拥有相同 interaction contract 证据，且 raw command/event/业务 reducer 已从各端删除。
 
 这才是目标边界：**Helix 产出各端可直接消费的交互合同，各端只负责平台事实采集、Effect 执行、frame 应用与 UI 渲染。**
+
+## 16. 工作分解与人员配置
+
+### 16.1 工作包清单
+
+| 阶段 | Gate | 主要工作包 | 完成证据 |
+|---|---|---|---|
+| P-1 | 27 迁移 Gate / 46 全量 cases | 三仓 characterization、canonical fixtures、scope 分类、manifest、全量入口基线 | L0-L2 离线回归 + 当前红项/排除清单 |
+| P0 | G-S1/G-S2/G-S3/G-S4 + 全局前置 | 强类型 ABI、canonical encoding、ID/Persist barrier、同步恢复、ChannelMember 权威缺口 | schema/hash/PortReply/replay/fault tests |
+| P1 | 全局前置 | Surface runtime、Action 生命周期、snapshot/patch/resync、native/FFI 批量桥 | 双 surface、epoch、gap、ABI parity |
+| P2 | G-01 | 文本发送纵切，Angular/Mobile 删除旧发送解释器 | L0-L4 + 重启/echo/失败恢复 |
+| P3 | G-02..G-09 | 文件、媒体、重发、撤回、转发、快捷回复、加急、定时/取消 | 每 Gate fixture/parity/shadow/负向/real-chain |
+| P4 | G-10..G-12 | 首屏、历史、定位、回复窗口 | snapshot=patch + anchor/order/reply parity |
+| P5 | G-13/G-14/G-14a | 未读、回执、多设备收敛 | ChannelMember 权威 + 原子 frame + 重启 |
+| P6 | G-15/G-16 系列 | 建群、话题、关闭、退出、成员、设置 | 权限/action/fallback/system row parity |
+| P7 | 27 迁移 Gate + 46 全量 cases | interaction 重跑、全仓 no-regression、删除 shadow/legacy、发布证据收口 | Strict Matrix + PC/FFI interaction Green + regression 无倒退 |
+
+### 16.2 角色与 QA 闸门
+
+| 角色 | 责任 |
+|---|---|
+| Rust dev | 唯一主线 owner：`helix-im` 状态机、必要的 core 通用机制、host/native/FFI；同一阶段避免多 agent 并写身份/发送主链 |
+| Angular dev | `cses-client` generated store/adapter/registry/directive executor，逐 UC 删除 ProjectionStore/Shell 业务 reducer |
+| Mobile/FFI dev | `mobile-qucik-c++` 批量 frame bridge、generated reducer、QuickJS/Flutter 消费适配，删除 raw event 解释 |
+| 独立 Rust QA | 不与实现者自验自判；负责确定性回放、故障注入、ABI ownership/no-unwind、native/FFI parity |
+| Dioxus-dev reviewer | 每阶段只读审查 stable identity、keyed mutation、批次边界、renderer/executor 分离和 O(n²) 风险 |
+| Crux-dev reviewer | 每阶段只读审查 Event → Model → Effect/PortReply → View、状态所有权、typed contract 与 shell 边界 |
+
+强制 QA：Persist 失败不得 present/HTTP；HTTP 200 无 echo 不得 sent；重复/乱序/缺帧/旧 epoch/旧 action fail closed；延迟 reset 不得清新输入；两个 surface 隔离；snapshot 与 patch 最终状态等价；破坏 Helix projector 后 PC/Mobile 必须同时失败；每个 UC 分别保留 HTTP、WS、Storage、InteractionFrame 和可见 UI 证据。

@@ -1,5 +1,7 @@
 # Helix Rust-Core + Rust-IM 架构设计
 
+> **现行性说明（2026-07-15）**：本文 §七的“方向 A = 只投影数据 ViewModel、view tree 属于红线”已被 ADR-015 覆盖，保留仅用于理解历史演进。现行 Headless 目标是由 `helix-im` 产出平台无关的 `InteractionFrame(ViewMutation + ActionBinding + UiDirective)`；`helix-core` 仍只提供不透明、确定性的 sans-IO 机制，具体 DOM/Angular Component/Flutter Widget/CSS/像素/动画仍在平台 shell。边界真源见 [`GOAL.md` §6](../GOAL.md) 与 [`UC01-16 跨端交互协议 SPEC`](../specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md)。
+
 > 第一人称 · 2026-06-10 · 技术部
 > 机制依据：cses-client `Message-v3` + `src-tauri/src/features/im`（已逐文件核验）。
 > 📚 关联：过会拍板结论以 [decisions.md「过会拍板」节](../harness/decisions.md) 为准 · 实现待办见 [ROADMAP.md §二 活账](../ROADMAP.md)（原「技术过会方案/评审待办清单」已随 docs 熵管理缩减，内容并入 decisions/ROADMAP）。

@@ -25,10 +25,10 @@
 
 ## M3-F4 落地实录
 
-见 [02-m3-f4-todo.md](02-m3-f4-todo.md)（pump 各项已落地形态 + `helix_query` 仍为真 TODO 的依据）。
+见 [02-m3-f4-todo.md](02-m3-f4-todo.md)（pump 各项落地过程；当前事实以源码为准）。
 
 ---
 
-## helix_query 设计（blocked-on-IM）
+## helix_query 契约
 
-见 [03-helix-query-design.md](03-helix-query-design.md)（为什么不在 driver 层硬编 name→Spec + 正解路由设计 + 实装解封条件）。
+见 [`../../移动端Command-Query-Event契约SPEC.md`](../../移动端Command-Query-Event契约SPEC.md)；实现以 `src/api.rs` 为准。

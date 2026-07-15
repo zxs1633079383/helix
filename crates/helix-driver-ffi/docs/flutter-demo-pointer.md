@@ -3,7 +3,8 @@
 > ⚠️ **Flutter 工程在仓外** `/workspace/flutterWorkspace/helix_ffi_demo`。
 > **本仓（helix）不含任何 Dart / C++ demo 代码** —— helix 保持 headless（沿用 GOAL §1 sans-IO + AGENTS.md §0 三层架构守卫）。
 > 本文件只是**指针**：把仓外 demo 工程指回本 crate 已导出的 C ABI，并摘录跨边界的内存/销毁不变量。
-> **当前真源 →** [`SPEC-full-takeover.md`](./SPEC-full-takeover.md)（FFI 接管边界）+ [`移动端Command-Query-Event契约SPEC.md`](./移动端Command-Query-Event契约SPEC.md)（对外契约）。已删除的 2026-06-18 Superpowers 阶段稿只保留在 Git 历史。
+> **当前真源 →** [`SPEC-full-takeover.md`](./SPEC-full-takeover.md)（FFI 接管边界）+ [`移动端Command-Query-Event契约SPEC.md`](./移动端Command-Query-Event契约SPEC.md)（对外契约）。已删除的 2026-06-18 阶段稿只保留在 Git 历史。
+> 本文保留仍有效的架构、ABI 与生命周期不变量；实现事实以当前 C ABI 源码和测试为准。
 
 ---
 
@@ -17,7 +18,7 @@ Flutter UI → 最小 C++ shim → helix cdylib →（pump 线程 step → Effec
 
 全链路正是 e2e 测试 `command_emits_domain_event_through_batch_callback`（`tests/.../api` 已验证路径）的真实消费：
 `helix_create_with_network` 起 pump 线程 → `helix_command(im_send)`（FFI alias 到内部 send handler）→ pump step → `Effect::Emit(im:post:sending)` → `FfiEventSink` 攒批 → `on_domain_events_batch`（HX-C007 整批一次）→ `helix_destroy`（join pump）。
-demo 是 **emit 冒烟、不读状态**，`helix_query` 仍 honest stub（`FFI_UNIMPLEMENTED`）→ 不触达 → **本 crate 零改动**（headless 守卫兑现）。
+demo 是 **emit 冒烟、不读状态**，不触达 query 路径 → **本 crate 零改动**（headless 守卫兑现）。
 
 ---
 
@@ -89,4 +90,4 @@ Dart 侧签名对齐：`NativeCallable<Void Function(Pointer<Uint8>, UintPtr)>`�
 | **阶段 1**（不依赖 Xcode）| C++ shim + Dart FFI 绑定 + `build_native.sh`（`cargo build --release` + `clang`）+ `dart run` 纯 console dart:ffi→shim→cdylib→listener 异步回调证完整链路 + UI/integration_test/maestro 骨架代码就绪 + 本仓三文档 | **done**（console 冒烟 = 链路真证，仅缺 Flutter widget 渲染层）|
 | **阶段 2**（待用户装完整 Xcode + CocoaPods）| `flutter test integration_test -d macos` 跑绿 | **BLOCKED-on-Xcode**（实测：完整 Xcode + CocoaPods 未装 → `flutter run/test -d macos` 暂不可运行）|
 
-> helix 仓零回归护栏：`cargo check -p helix-driver-ffi` + `bash scripts/cpp-smoke.sh` + `scripts/structure-gate.sh` 必绿。详见 spec §11 / §13。
+> helix 仓零回归护栏：`cargo check -p helix-driver-ffi` + `bash scripts/cpp-smoke.sh` 必绿。

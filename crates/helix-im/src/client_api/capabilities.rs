@@ -15,6 +15,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:read_echo",
     "im:post:deleted",
     "im:post:batch-updated",
+    "im:post:send-failed",
     "im:post:increment-failed",
     "im:messages:query_result",
     "im:messages:older_loaded",
@@ -47,7 +48,7 @@ pub const META_QUERIES: &[&str] = &["helix_capabilities", "helix_version"];
 
 pub fn capabilities_json() -> Vec<u8> {
     let mut commands = crate::outbound::outbound_command_names();
-    commands.push("im_send");
+    commands.push("im_send_message");
     commands.push("im_retry_send");
     commands.push("im_reconnect");
     commands.extend_from_slice(crate::query::query_command_names());
@@ -64,6 +65,7 @@ pub fn capabilities_json() -> Vec<u8> {
         "events": PUBLIC_EVENTS,
         "features": {
             "pendingSendTimeoutUnsend": true,
+            "sendFailedProjection": true,
             "batchEventCallback": true,
             "readResultReqId": true,
             "noPerBusinessAbiSymbol": true
@@ -77,12 +79,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capabilities_do_not_advertise_send_failed_as_p0() {
+    fn capabilities_advertise_canonical_send_and_runtime_failure_projections() {
         let caps: serde_json::Value = serde_json::from_slice(&capabilities_json()).unwrap();
         assert_eq!(caps["abi"], 1);
         assert_eq!(caps["bus"], "im:__bus__");
         assert_eq!(caps["features"]["pendingSendTimeoutUnsend"], true);
         let commands = caps["commands"].as_array().unwrap();
+        assert!(commands.iter().any(|q| q == "im_send_message"));
+        assert!(!commands.iter().any(|q| q == "im_send"));
         assert!(commands.iter().any(|q| q == "im_retry_send"));
         assert!(commands.iter().any(|q| q == "im_query_dialog_list"));
         assert!(commands.iter().any(|q| q == "im_query_messages_by_channel"));
@@ -91,11 +95,11 @@ mod tests {
         assert!(queries.iter().any(|q| q == "helix_version"));
         assert!(!queries.iter().any(|q| q == "im_query_dialog_list"));
         assert!(!queries.iter().any(|q| q == "im_query_messages_by_channel"));
-        assert!(caps["features"].get("sendFailedProjection").is_none());
+        assert_eq!(caps["features"]["sendFailedProjection"], true);
         let events = caps["events"].as_array().unwrap();
         assert!(events.iter().any(|e| e == "im:post:sending"));
         assert!(events.iter().any(|e| e == "im:post:received"));
         assert!(events.iter().any(|e| e == "im:post:increment-failed"));
-        assert!(!events.iter().any(|e| e == "im:post:send-failed"));
+        assert!(events.iter().any(|e| e == "im:post:send-failed"));
     }
 }

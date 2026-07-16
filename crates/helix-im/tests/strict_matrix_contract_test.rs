@@ -46,7 +46,9 @@ struct UcCase {
     http: HttpContract,
     ws: WsContract,
     remote_store: RemoteStore,
+    persistence: Vec<String>,
     projections: Vec<Projection>,
+    negative_assertions: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,6 +127,108 @@ fn g12_freezes_reply_projection_ordering_and_paging_contract() {
 fn matrix() -> Matrix {
     serde_json::from_str(include_str!("../contracts/strict-matrix.v1.json"))
         .expect("strict matrix JSON must deserialize")
+}
+
+fn gate<'a>(matrix: &'a Matrix, gate_id: &str) -> &'a UcCase {
+    matrix
+        .uc_cases
+        .iter()
+        .find(|entry| entry.gate_id == gate_id)
+        .unwrap_or_else(|| panic!("strict matrix must contain {gate_id}"))
+}
+
+#[test]
+fn gs_sync_contracts_freeze_go_main_abi_without_collapsing_evidence_planes() {
+    let matrix = matrix();
+    let gs1 = gate(&matrix, "G-S1");
+    assert!(!gs1.http.response.contains("BLOCKED"));
+    for fragment in [
+        "CommonRes.status=SUCCESS",
+        "data=null",
+        "异步 worker 已受理",
+        "不表示同步完成",
+    ] {
+        assert!(
+            gs1.http.response.contains(fragment),
+            "G-S1 HTTP response must freeze {fragment}"
+        );
+    }
+    for fragment in [
+        "increment_channel.data",
+        "lastEventSeq",
+        "needSync",
+        "increment_channel_end",
+    ] {
+        assert!(
+            gs1.ws.events.contains(fragment),
+            "G-S1 WS contract must freeze {fragment}"
+        );
+    }
+    assert_eq!(
+        gs1.persistence,
+        ["channel", "channel_member", "channel_event_cursor"]
+    );
+    assert!(gs1
+        .negative_assertions
+        .iter()
+        .any(|rule| rule.contains("本地持久化") && rule.contains("im:channels:loaded")));
+
+    for gate_id in ["G-S2", "G-S3"] {
+        let gate = gate(&matrix, gate_id);
+        assert!(!gate.http.response.contains("BLOCKED"));
+        for fragment in [
+            "CommonRes.status=SUCCESS",
+            "entries",
+            "serverTime",
+            "no_change",
+            "events",
+            "too_long",
+            "nextSeq",
+            "resetTo",
+            "messages",
+            "500",
+            "5000",
+        ] {
+            assert!(
+                gate.http.response.contains(fragment),
+                "{gate_id} HTTP response must freeze {fragment}"
+            );
+        }
+        assert!(gate.ws.events.contains("不产生业务 WS"));
+        assert_eq!(gate.persistence, ["channel_event_cursor", "message"]);
+        assert!(gate
+            .negative_assertions
+            .iter()
+            .any(|rule| rule.contains("HTTP SUCCESS") && rule.contains("本地事务")));
+    }
+
+    let gs3 = gate(&matrix, "G-S3");
+    assert!(gs3.ws.events.contains("gaps"));
+    assert!(gs3.ws.events.contains("hashMismatch"));
+    assert!(gs3.ws.events.contains("普通 pong"));
+}
+
+#[test]
+fn capabilities_publish_only_canonical_send_and_actual_failure_events() {
+    let matrix = matrix();
+    let forbidden: HashSet<_> = matrix.forbidden_aliases.iter().map(String::as_str).collect();
+    let caps: serde_json::Value =
+        serde_json::from_slice(&helix_im::client_api::capabilities_json()).unwrap();
+    let commands = caps["commands"].as_array().unwrap();
+    let events = caps["events"].as_array().unwrap();
+
+    assert!(commands.iter().any(|name| name == "im_send_message"));
+    assert!(!commands.iter().any(|name| name == "im_send"));
+    for alias in forbidden {
+        assert!(
+            !commands.iter().any(|name| name == alias),
+            "capabilities leaked forbidden alias {alias}"
+        );
+    }
+    assert!(events.iter().any(|event| event == "im:post:send-failed"));
+    assert!(events
+        .iter()
+        .any(|event| event == "im:post:increment-failed"));
 }
 
 fn is_direct_core_command(name: &str) -> bool {

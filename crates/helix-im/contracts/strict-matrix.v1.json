@@ -284,14 +284,15 @@
         "select_channel"
       ],
       "negative_assertions": [
-        "Tauri 不得生成业务 ready 或 sync 状态"
+        "Tauri 不得生成业务 ready 或 sync 状态",
+        "HTTP SUCCESS 或 increment_channel_end 均不得单独晋升完成；必须先完成本地持久化，再发布 im:channels:loaded 最终投影"
       ],
       "http": {
         "request": "`POST /api/cses/channels/load/increment` body `{timestamp,cursors:[{channelId,fromSeq}]}`；单频道 `POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`",
-        "response": "BLOCKED：endpoint 与 response ABI 未冻结，禁止假设 CommonRes 或晋升 Green"
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS` 且 `data=null` 仅表示异步 worker 已受理，不表示同步完成；必须等待同一 WS 连接的 `increment_channel_end`，并在本地 `channel` / `channel_member` / `channel_event_cursor` 同批持久化提交后，才可发布最终 `im:channels:loaded` 投影"
       },
       "ws": {
-        "events": "`hello`, `increment_channel`, `increment_channel_end`"
+        "events": "`hello` 建立连接；零个或多个 `increment_channel.data` 承载频道快照，服务端水位读取成功时包含 `lastEventSeq`，根群 cursor 对账时包含 `needSync`；同一连接最后收到 `increment_channel_end` 只证明该批 WS 入队结束，不证明本地持久化或最终投影完成"
       },
       "remote_store": {
         "database": "mattermost-imv2",
@@ -301,7 +302,7 @@
           "channel_event",
           "post"
         ],
-        "contract": "`channel.loadIncrementChannel`, `channel.loadSingleIncrementChannel`；`channel`, `channel_member`, `channel_event`, `post`"
+        "contract": "`channel.loadIncrementChannel`, `channel.loadSingleIncrementChannel` 只读 `channel`, `channel_member`, `channel_event`, `post` 形成权威快照；HTTP 受理不写同步结果，远端行存在也不得替代客户端本地事务提交"
       }
     },
     {
@@ -343,14 +344,15 @@
       ],
       "allowed_actions": [],
       "negative_assertions": [
-        "driver 不得维护 gap 状态机或补偿队列"
+        "driver 不得维护 gap 状态机或补偿队列",
+        "HTTP SUCCESS 只证明服务端读请求成功；客户端必须在本地事务提交 events/messages/cursor 后才发布 im:channel:update-by-post"
       ],
       "http": {
-        "request": "`POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`；内部 gap 可触发 `POST /api/cses/channel/sync/notify` body `{cursors}`",
-        "response": "BLOCKED：第二网关 response ABI 与持久化尚未核验，不得套用 cses-im-server CommonRes 结论"
+        "request": "`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`，单次最多 500 个 cursor",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`，`data={entries:[{channelId,kind,events,nextSeq?,resetTo?,messages?}],serverTime}`；`kind` 当前为 `no_change|events|too_long`（`snapshot` 仅保留未启用），单频道 `events` 最多 500 条、gap 大于 5000 返回 `too_long`；`messages` 仅包含 caller 可见正文。HTTP SUCCESS 不得推进本地 cursor；必须在本地事务提交 events/messages 后按 `nextSeq` 推进，`resetTo` 只能在恢复事务完成后生效"
       },
       "ws": {
-        "events": "`post`, `increment_channel_end`"
+        "events": "HTTP `/channel/sync/notify` 本身不产生业务 WS；在线并发的 `post` / `posts_update` / `increment_channel_end` 必须作为独立 transport evidence，不能替代 HTTP entries、本地持久化或最终投影"
       },
       "remote_store": {
         "database": "mattermost-imv2",
@@ -360,7 +362,7 @@
           "channel",
           "channel_member"
         ],
-        "contract": "`channel.loadSingleIncrementChannel`, `sync.syncChannels`；`channel_event`, `post`, `channel`, `channel_member`"
+        "contract": "`sync.syncChannels` 只读 `channel_event`, `post`, `channel`, `channel_member`；event 行保持 cursor 连续，正文按 viewers 过滤，远端只读结果不得替代本地 `channel_event_cursor` / `message` 提交"
       }
     },
     {
@@ -402,14 +404,15 @@
       ],
       "allowed_actions": [],
       "negative_assertions": [
-        "宿主健康事件不得伪装成 im:sync 业务投影"
+        "宿主健康事件不得伪装成 im:sync 业务投影",
+        "HTTP SUCCESS 只证明补偿读取成功；客户端必须在本地事务提交连续 events/messages/cursor 后才发布 im:sync:state"
       ],
       "http": {
         "request": "`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`",
-        "response": "BLOCKED：第二网关 response ABI 与持久化尚未核验，不得套用 cses-im-server CommonRes 结论"
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`，`data={entries:[{channelId,kind,events,nextSeq?,resetTo?,messages?}],serverTime}`；`kind` 当前为 `no_change|events|too_long`（`snapshot` 仅保留未启用），单频道 `events` 最多 500 条、gap 大于 5000 返回 `too_long`；`messages` 仅包含 caller 可见正文。HTTP SUCCESS 不得推进本地 cursor；必须在本地事务提交 events/messages 后按 `nextSeq` 推进，`resetTo` 只能在恢复事务完成后生效"
       },
       "ws": {
-        "events": "`pong`; 补偿后同 `post` / `posts_update` / `increment_channel_end`"
+        "events": "`pong.data` 固定包含 `text=pong`，对账时可含 `gaps:[{channelId,fromSeq,maxSeq}]` 与 `hashMismatch`；普通 pong 可只有 `text`。随后触发的 HTTP `/channel/sync/notify` 本身不产生业务 WS；并发 `post` / `posts_update` / `increment_channel_end` 不得替代补偿 HTTP、本地持久化或最终投影"
       },
       "remote_store": {
         "database": "mattermost-imv2",
@@ -418,7 +421,7 @@
           "post",
           "channel"
         ],
-        "contract": "`sync.syncChannels`；`channel_event`, `post`, `channel`"
+        "contract": "`sync.syncChannels` 只读 `channel_event`, `post`, `channel`；event 行保持 cursor 连续，正文按 viewers 过滤，远端只读结果不得替代本地 `channel_event_cursor` / `message` 提交"
       }
     },
     {

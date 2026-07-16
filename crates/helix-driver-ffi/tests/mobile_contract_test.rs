@@ -154,7 +154,13 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
     assert_eq!(json["abi"], 1);
     assert_eq!(json["bus"], "im:__bus__");
     assert_eq!(json["features"]["pendingSendTimeoutUnsend"], true);
+    assert_eq!(json["features"]["sendFailedProjection"], true);
     assert!(json["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "im_send_message"));
+    assert!(!json["commands"]
         .as_array()
         .unwrap()
         .iter()
@@ -174,11 +180,16 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
     assert!(queries.iter().any(|v| v == "helix_version"));
     assert!(!queries.iter().any(|v| v == "im_query_dialog_list"));
     assert!(!queries.iter().any(|v| v == "im_query_messages_by_channel"));
-    assert!(!json["events"]
+    assert!(json["events"]
         .as_array()
         .unwrap()
         .iter()
         .any(|v| v == "im:post:send-failed"));
+    assert!(json["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "im:post:increment-failed"));
 
     // SAFETY: freeing the exact buffer returned by helix_query is required.
     unsafe { helix_query_free(out_ptr, out_len) };

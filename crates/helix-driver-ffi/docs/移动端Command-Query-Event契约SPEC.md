@@ -105,7 +105,7 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 
 | 名称 | 载荷 | 主要事件 | UI / UC |
 |---|---|---|---|
-| `im_send` | `{channelId, text, temporaryId, type?}` | `im:post:sending` → `im:post:received`；无 echo 超时后本地 `send_status='unsend'` | 发送/文档/重发，UC-1.1/1.2/1.4 |
+| `im_send_message` | `{channelId, text, temporaryId, type?}` | `im:post:sending` → `im:post:received`；立即失败为 `im:post:send-failed`；无 echo 超时后本地 `send_status='unsend'` | 发送/文档/重发，UC-1.1/1.2/1.4 |
 | `im_relay_messages` | `{posts, channelIds}` | `im:post:received` | 转发，UC-1.7 |
 | `im_revoke` | `{postId}` | `im:post:batch-updated` / `im:post:deleted` | 撤回，UC-1.5 |
 | `im_template_received` | `{postId}` | `im:post:updated` | 模板已收到，UC-3.3 |
@@ -141,10 +141,15 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 | `im_team_quit` | `{}` | `im:channel:closed` / `im:channel:member-updated` | 退出公司，UC-11.2 |
 | `im_sync_channels` | `{}` | `im:net:reconnect_requested` 后跟同步事件 | 按需同步，UC-4.2 |
 
-### 5.2 请求-响应查询
+`im_send` 只保留为旧移动端的入口兼容别名，进入 Rust 后立即归一化为
+`im_send_message`。它不是公开能力名，`helix_capabilities.commands` 不得声明该别名；新 QuickJS
+代码只能调用 `im_send_message`。
 
-这些公开为 `CoreBridge.query()`。实现上可以注入 `reqId` 后等待 `im:read:result`，也可以等待
-特定 render-ready 事件。
+### 5.2 异步请求-结果命令
+
+这些业务读操作同样公开为 `CoreBridge.call()` 命令。需要关联响应时注入 `reqId`，再等待
+`im:read:result` 或特定 render-ready 事件。`CoreBridge.query()` / `helix_query` 只用于
+`helix_capabilities`、`helix_version` 等同步元数据查询，不能承载 IM 业务查询。
 
 | 名称 | 载荷 | 结果事件 / 返回值 | UI / UC |
 |---|---|---|---|
@@ -171,7 +176,21 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 | `im_average_read` | `{id, reqId?}` | `im:read:result` | 平均分详情，UC-8.x |
 
 > 说明：`im_bookmark_create/delete` 是有副作用的 HTTP，但没有 WS 回声，移动端需要关联响应，
-> 因此在 QuickJS 封装层中归为 `query()` 风格的请求-响应操作。
+> 因此在 QuickJS 封装层中必须按 `reqId` 关联 `im:read:result`，但入口仍为 `call()`。
+
+### 5.3 GS01-GS03 离线同步 ABI
+
+离线同步验收必须拆分 HTTP、WS、本地持久化、最终投影四个证据面。任一单面成功都不能晋升为
+完整同步成功。
+
+| Gate | HTTP 响应 ABI | WS 证据 | 本地提交与最终投影 |
+|---|---|---|---|
+| `G-S1` | `/channels/load/increment` 返回 `CommonRes.status=SUCCESS,data=null`，只表示异步 worker 已受理 | 同一连接接收零个或多个 `increment_channel.data`，可含 `lastEventSeq` / `needSync`，最后为 `increment_channel_end` | `channel`、`channel_member`、`channel_event_cursor` 同批提交后才能发布 `im:channels:loaded` |
+| `G-S2` | `/channel/sync/notify` 返回 `data.entries` 与 `serverTime`；`kind=no_change|events|too_long`，单频道最多 500 个 event，gap 大于 5000 返回 `too_long` | 该 HTTP 请求本身不产生业务 WS；并发 `post` / `posts_update` / `increment_channel_end` 是独立证据 | events/messages 提交后按 `nextSeq` 推进 cursor；`resetTo` 只在恢复事务完成后生效，再发布 `im:channel:update-by-post` |
+| `G-S3` | 补偿读取沿用 G-S2 响应 ABI | `pong.data.text=pong`；对账时可含 `gaps[{channelId,fromSeq,maxSeq}]` 与 `hashMismatch` | 连续 events/messages/cursor 提交后才发布 `im:sync:state` |
+
+`messages` 只包含当前调用者可见的正文。HTTP `SUCCESS`、`increment_channel_end`、远端行存在或
+普通 `pong` 都不得替代客户端本地事务提交。
 
 ## 6. 公开事件
 
@@ -204,7 +223,7 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 
 移动端必须遵守与 PC/Tauri 一致的发送状态机，不新增移动端专属失败规则：
 
-1. `im_send` 被接收后立即产生 `im:post:sending` 乐观行。
+1. `im_send_message` 被接收后立即产生 `im:post:sending` 乐观行；兼容入口 `im_send` 只做名称归一化。
 2. Go WS `post` 回声回来后，内核用 `temporaryId` 对账，产生 `im:post:received`，并将消息收敛为已发送。
 3. HTTP 或上传端口立即失败时，内核产生 `im:post:send-failed`；移动端消费该投影进入可重试失败态，不从 JS catch 或错误字符串合成业务状态。
 4. 若请求已发出但在发送超时时间内没有收到回声，`PendingSend` 将本地持久化状态标为 `send_status='unsend'`。移动端通过后续查询/重载/投影刷新展示未发送。
@@ -254,11 +273,12 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 {
   "abi": 1,
   "bus": "im:__bus__",
-  "commands": ["im_send"],
-  "queries": ["im_ready"],
-  "events": ["im:post:received"],
+  "commands": ["im_send_message", "im_query_dialog_list"],
+  "queries": ["helix_capabilities", "helix_version"],
+  "events": ["im:post:received", "im:post:send-failed", "im:post:increment-failed"],
   "features": {
     "pendingSendTimeoutUnsend": true,
+    "sendFailedProjection": true,
     "batchEventCallback": true,
     "readResultReqId": true,
     "noPerBusinessAbiSymbol": true
@@ -270,7 +290,9 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 
 - `abi >= 1`
 - `bus == "im:__bus__"`
-- 本文第 5 节公开的命令 / 查询至少全部存在，或明确返回不支持
+- 本文第 5 节公开的业务操作至少全部存在于 `commands`，或明确返回不支持；`queries` 只允许同步元数据查询
+- `commands` 必须包含 `im_send_message` 且不得包含兼容别名 `im_send`
+- `events` 必须同时声明运行时真实发布的 `im:post:send-failed` 与 G10 的 `im:post:increment-failed`
 - `pendingSendTimeoutUnsend == true` 才允许启用生产未发送/重发 UI
 
 ## 8. 错误契约
@@ -305,7 +327,7 @@ class MobileIm {
   constructor(private core: CoreBridge) {}
 
   send(input: { channelId: string; text: string; temporaryId: string }) {
-    return this.core.call("im_send", {
+    return this.core.call("im_send_message", {
       channelId: input.channelId,
       text: input.text,
       temporaryId: input.temporaryId,
@@ -314,7 +336,7 @@ class MobileIm {
   }
 
   loadReplies(replyId: string) {
-    return this.core.query("im_get_replies", { replyId });
+    return this.core.call("im_get_replies", { replyId });
   }
 
   onBus(listener: (events: BusEnvelope[]) => void) {
@@ -346,7 +368,7 @@ class MobileIm {
 ```text
 Flutter 点击发送
   -> JS sendMessage
-    -> CoreBridge.call("im_send", payload)
+    -> CoreBridge.call("im_send_message", payload)
       -> C++ bridge
         -> helix_command
           -> Rust IM usecase

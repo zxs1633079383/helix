@@ -10,25 +10,21 @@
 //! 决定续/停）。本文件只产纯数据，零 I/O。透传 wire Post（camelCase）原样回灌不二次序列化（HX-C005）；
 //! 只回灌严格更早部分（锚点/重叠批本就在本地）避免重复 prepend。详见 projection-schema.md §1.3。
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashSet;
 
-use crate::error::ImError;
 use crate::state::ChannelId;
 
 /// 投影/翻页命令名（dispatch 据此路由，与 outbound registry 解耦——本命令是本地编排非纯 outbound）。
 pub const LOAD_OLDER_CONTEXT: &str = "im_load_older_context";
 
-/// 每轮 `postContext` 请求条数（`before`），对齐 legacy `batch=50`（含会被砍的 [T0,Tk)）。
-const BATCH: i64 = 50;
-
 /// 翻页轮数硬上限（对齐 legacy `for _ in 0..8`）——防服务端病态返回打满 HTTP。
 const MAX_ROUNDS: u32 = 8;
 
-/// target 条数 clamp 区间（对齐 legacy `before.clamp(1, 100)`）。
+/// canonical `before` 合法区间。
 const TARGET_MIN: u32 = 1;
 const TARGET_MAX: u32 = 100;
-/// `limit` 缺省（对齐前端 invoke `limit:20`，UC-2.2）。
+/// `before` 缺省。
 const TARGET_DEFAULT: u32 = 20;
 
 /// 一轮 `ingest_round` 后的续/停决策（停因写进 [`LoadOlderState::has_more`]）。
@@ -47,11 +43,11 @@ pub enum RoundDecision {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadOlderState {
     channel_id: ChannelId,
-    /// 当前 UI intent 的关联键；每一轮 postContext 都复用，供 Go/trace 归并同一 UC Run。
-    request_id: String,
-    /// 锚点 createAt——只收 `createAt < anchor_create_at` 的严格更早。
-    anchor_create_at: i64,
-    /// 要凑够的严格更早条数（已 clamp）。
+    /// 首轮请求的权威锚点 ID；时间边界必须从 Go 回包中同 ID 的 post 建立。
+    anchor_post_id: String,
+    /// Go 权威锚点 createAt；首轮响应前不可用。
+    anchor_create_at: Option<i64>,
+    /// 要凑够的严格更早条数。
     target: u32,
     /// 下轮 postContext 的 pivot（本批最旧、带非空 server id 的一条；初始 = anchor_post_id）。
     pivot_id: String,
@@ -65,20 +61,17 @@ pub struct LoadOlderState {
     rounds: u32,
     /// 停时是否「还有更早」（target 凑够 / 轮数耗尽 → true；服务端耗尽 / pivot 卡住 → false）。
     has_more: bool,
+    /// 响应缺锚或字段畸形后锁死；已收集消息会清空，不发布伪历史。
+    failed: bool,
 }
 
 impl LoadOlderState {
-    /// 新建（pivot 初始 = anchor_post_id；prev_oldest = MAX 让首轮恒「翻出更早」）。
-    pub fn new(
-        channel_id: ChannelId,
-        anchor_post_id: String,
-        anchor_create_at: i64,
-        target: u32,
-    ) -> Self {
+    /// 新建（pivot 初始 = anchor_post_id；时间边界等待首轮 Go 回包）。
+    pub fn new(channel_id: ChannelId, anchor_post_id: String, target: u32) -> Self {
         Self {
             channel_id,
-            request_id: String::new(),
-            anchor_create_at,
+            anchor_post_id: anchor_post_id.clone(),
+            anchor_create_at: None,
             target: target.clamp(TARGET_MIN, TARGET_MAX),
             pivot_id: anchor_post_id,
             prev_oldest: i64::MAX,
@@ -86,6 +79,7 @@ impl LoadOlderState {
             older: Vec::new(),
             rounds: 0,
             has_more: false,
+            failed: false,
         }
     }
 
@@ -93,10 +87,10 @@ impl LoadOlderState {
         &self.channel_id
     }
     pub fn request_id(&self) -> Option<&str> {
-        (!self.request_id.is_empty()).then_some(self.request_id.as_str())
+        None
     }
     pub fn anchor_create_at(&self) -> i64 {
-        self.anchor_create_at
+        self.anchor_create_at.unwrap_or_default()
     }
     pub fn target(&self) -> u32 {
         self.target
@@ -117,40 +111,88 @@ impl LoadOlderState {
     /// pivot 卡住（无带 id 的条或 pivot 不变）→ false（到顶）。否则推进 pivot+prev_oldest → 续。
     /// 收**严格更早**（`createAt < anchor`）+ 按 temporaryId 跨批去重；pivot = 本批最旧、带非空 server id 的一条。
     pub fn ingest_round(&mut self, rows: &[Value]) -> RoundDecision {
+        if self.failed {
+            return RoundDecision::Done;
+        }
         self.rounds += 1;
 
-        // (1) 空批 → 服务端无更早。
+        // 首轮/续轮都必须包含本次请求 pivot；否则不能证明响应属于当前 operation。
         if rows.is_empty() {
-            return self.stop(false);
+            return if self.anchor_create_at.is_none() {
+                self.invalidate()
+            } else {
+                self.stop(false)
+            };
         }
 
-        // 收严格更早 + 去重；算本批最旧 createAt + next_pivot（最旧带非空 server id 的一条——服务端
-        // 返回的 self 消息也带真 id，故 pivot 总能越过本地 id='' 墙）。
+        let expected_pivot = self.pivot_id.clone();
+        let mut response_pivot_at = None;
+        for row in rows {
+            let Some((id, channel_id, create_at)) = required_row_fields(row) else {
+                return self.invalidate();
+            };
+            if id == expected_pivot {
+                if channel_id != self.channel_id.as_str() || response_pivot_at.is_some() {
+                    return self.invalidate();
+                }
+                response_pivot_at = Some(create_at);
+            }
+        }
+        let Some(response_pivot_at) = response_pivot_at else {
+            return self.invalidate();
+        };
+
+        // 第一轮只信原始 anchor post 的 createAt，不读取 UI 时间戳。
+        if self.anchor_create_at.is_none() {
+            if expected_pivot != self.anchor_post_id {
+                return self.invalidate();
+            }
+            self.anchor_create_at = Some(response_pivot_at);
+        }
+        let Some(anchor_create_at) = self.anchor_create_at else {
+            return self.invalidate();
+        };
+
+        // 在写入累积态前完整校验候选旧消息，保证坏字段不会留下部分结果。
+        for row in rows {
+            let Some((_, channel_id, create_at)) = required_row_fields(row) else {
+                return self.invalidate();
+            };
+            if channel_id == self.channel_id.as_str()
+                && create_at < anchor_create_at
+                && row
+                    .get("temporaryId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .is_none()
+            {
+                return self.invalidate();
+            }
+        }
+
+        // 收严格更早 + 同频道 + 去重；pivot 只从当前频道的权威 server id 推进。
         let mut batch_oldest = i64::MAX;
         let mut next_pivot: Option<&str> = None;
         let mut next_pivot_at = i64::MAX;
         for row in rows {
-            let create_at = row.get("createAt").and_then(Value::as_i64).unwrap_or(0);
-            batch_oldest = batch_oldest.min(create_at);
-            if let Some(id) = row
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-            {
-                if create_at < next_pivot_at {
-                    next_pivot_at = create_at;
-                    next_pivot = Some(id);
-                }
+            let Some((id, channel_id, create_at)) = required_row_fields(row) else {
+                return self.invalidate();
+            };
+            if channel_id != self.channel_id.as_str() {
+                continue;
             }
-            // 严格更早 + 跨批去重（锚点 / [T0,Tk) / 重叠批不重复 prepend）。
-            if create_at < self.anchor_create_at {
-                let tmp = row
-                    .get("temporaryId")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                if !tmp.is_empty() && self.seen.insert(tmp) {
-                    self.older.push(row.clone());
+            batch_oldest = batch_oldest.min(create_at);
+            if create_at < next_pivot_at {
+                next_pivot_at = create_at;
+                next_pivot = Some(id);
+            }
+            if create_at < anchor_create_at {
+                if let Some(tmp) = row.get("temporaryId").and_then(Value::as_str) {
+                    if self.seen.insert(tmp.to_string()) {
+                        self.older.push(row.clone());
+                    }
+                } else {
+                    return self.invalidate();
                 }
             }
         }
@@ -181,6 +223,23 @@ impl LoadOlderState {
         self.has_more = has_more;
         RoundDecision::Done
     }
+
+    fn invalidate(&mut self) -> RoundDecision {
+        self.older.clear();
+        self.has_more = false;
+        self.failed = true;
+        RoundDecision::Done
+    }
+}
+
+fn required_row_fields(row: &Value) -> Option<(&str, &str, i64)> {
+    let id = row.get("id")?.as_str().filter(|value| !value.is_empty())?;
+    let channel_id = row
+        .get("channelId")?
+        .as_str()
+        .filter(|value| !value.is_empty())?;
+    let create_at = row.get("createAt")?.as_i64().filter(|value| *value > 0)?;
+    Some((id, channel_id, create_at))
 }
 
 /// emit 升序排序键：createAt 升序（前端 prepend）；同毫秒按 temporaryId 确定化（HX-C010 有序 Effect）。
@@ -192,43 +251,6 @@ fn sort_key(row: &Value) -> (i64, String) {
             .unwrap_or("")
             .to_string(),
     )
-}
-
-/// 解析 `im_load_older_context` payload → 初始 [`LoadOlderState`]。入参（snake_case，前端 bridge 注入）：
-/// `channel_id`/`anchor_post_id`/`anchor_create_at`（int 毫秒）/`limit`（缺省 20，clamp 1..=100）。
-/// 边界零信任：缺/坏 → `Err`，不 panic。
-pub fn parse_request(payload: &[u8]) -> Result<LoadOlderState, ImError> {
-    let v: Value = serde_json::from_slice(payload)
-        .map_err(|e| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} payload: {e}")))?;
-    let channel_str = v
-        .get("channel_id")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} 缺 channel_id")))?;
-    let channel_id = ChannelId::from_str(channel_str)
-        .ok_or_else(|| ImError::Parse(format!("非法 channel_id: {channel_str}")))?;
-    let anchor_post_id = v
-        .get("anchor_post_id")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} 缺 anchor_post_id")))?
-        .to_string();
-    let anchor_create_at = v
-        .get("anchor_create_at")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} 缺/坏 anchor_create_at")))?;
-    let target = v
-        .get("limit")
-        .and_then(Value::as_u64)
-        .map(|l| (l as u32).clamp(TARGET_MIN, TARGET_MAX))
-        .unwrap_or(TARGET_DEFAULT);
-    let mut state = LoadOlderState::new(channel_id, anchor_post_id, anchor_create_at, target);
-    state.request_id = v
-        .get("req_id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    Ok(state)
 }
 
 /// 从剥信封后的裸 postContext body 取 wire Post 数组（喂 [`LoadOlderState::ingest_round`]）。
@@ -246,18 +268,12 @@ pub fn extract_post_rows(raw_body: &[u8]) -> Vec<Value> {
     }
 }
 
-/// 构造一轮 `postContext` 的 `(endpoint_path, wire_body)`。真源 body `{postId, before:50}`（http.rs:96）。
-pub fn build_post_context_body(state: &LoadOlderState) -> (&'static str, Value) {
-    (
-        "posts/postContext",
-        json!({ "postId": state.pivot_id(), "before": BATCH }),
-    )
-}
-
 mod effects;
 pub use effects::{
     emit_older_loaded, emit_older_loaded_for_viewer, post_context_http, post_context_http_tracked,
 };
+mod request;
+pub use request::{build_post_context_body, parse_request};
 
 #[cfg(test)]
 #[path = "older_context_tests.rs"]

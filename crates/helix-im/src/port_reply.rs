@@ -7,6 +7,7 @@ use helix_core::EffectSink;
 mod dispatch;
 mod dispatch_channel_create;
 mod dispatch_core;
+mod dispatch_projection;
 mod dispatch_read;
 
 impl ImModule {

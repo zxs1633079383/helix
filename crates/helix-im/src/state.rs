@@ -18,7 +18,7 @@ pub use values::{
 // drift-review baseline 棘轮后门收敛）。re-export → `crate::state::CorrelationContext` 调用点零改。
 #[path = "correlation.rs"]
 mod correlation;
-pub use correlation::CorrelationContext;
+pub use correlation::{ChannelSettingsProjection, CorrelationContext, MakeTopicProjection};
 
 // ─── ImState ────────────────────────────────────────────────────────────────
 

@@ -73,18 +73,15 @@ macro_rules! read_cmd {
 
 // ── posts/* 读族 ────────────────────────────────────────────────────────────────
 
-// #1 getSchedule：查询定时消息。真源 GetSchedulePostReq{channelId,userId}（schedule_post.go:22 必填 userId）。
+// #1 getSchedule：查询当前 session owner 的定时消息。Go 从 session 派生 owner，客户端只发 channelId；
+// 旧 user_id 可留在输入对象中兼容历史调用，但不得进入 wire。
 read_cmd!(
     GetScheduleCommand,
     GET_SCHEDULE_REG,
     "im_get_schedule",
     |args, cmd| {
         let channel_id = require_str(args, "channel_id", cmd)?;
-        let user_id = require_str(args, "user_id", cmd)?;
-        Ok((
-            "posts/getSchedule",
-            json!({ "channelId": channel_id, "userId": user_id }),
-        ))
+        Ok(("posts/getSchedule", json!({ "channelId": channel_id })))
     }
 );
 

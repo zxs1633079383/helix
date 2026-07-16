@@ -105,6 +105,52 @@ fn read_command_registers_relay_and_emits_result() {
 }
 
 #[test]
+fn get_schedule_keeps_req_id_local_and_omits_client_owner_from_wire() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        outbound_cmd(
+            "im_get_schedule",
+            serde_json::json!({
+                "channel_id": "ch00000000000000000000000a",
+                "user_id": "legacy-client-owner",
+                "req_id": "schedule-r1"
+            }),
+        ),
+        1000,
+    );
+
+    let (corr, body) = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, req } => Some((
+                corr.raw(),
+                serde_json::from_slice::<serde_json::Value>(
+                    req.body.as_ref().expect("getSchedule 必须有 JSON body"),
+                )
+                .expect("getSchedule body 必须是合法 JSON"),
+            )),
+            _ => None,
+        })
+        .expect("getSchedule 必须发 HTTP");
+    assert_eq!(
+        body,
+        serde_json::json!({"channelId": "ch00000000000000000000000a"}),
+        "owner 由 Go session 派生；user_id/req_id 都不得进入 wire"
+    );
+
+    let raw = bytes::Bytes::from(br#"{"status":"SUCCESS","data":[]}"#.to_vec());
+    h.step(port_reply_with_body(corr, enveloped(raw)), 1001);
+    let result = emit_json(&h.sink).expect("getSchedule 读回必须 emit im:read:result");
+    assert_eq!(result["event"], "im:read:result");
+    assert_eq!(
+        result["data"]["req_id"], "schedule-r1",
+        "req_id 必须只保留在本地 CorrelationContext 并在读回时恢复"
+    );
+}
+
+#[test]
 fn locate_post_emits_read_result_and_render_ready_highlighted_projection() {
     let mut h = Harness::new(&[]);
     h.step(

@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 5,
+  "contract_epoch": 6,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -632,8 +632,8 @@
       "uc_id": "UC-1.3",
       "title": "发图片/文件/媒体",
       "phase": "P2",
-      "lifecycle": "deferred-by-user",
-      "contract_state": "blocked",
+      "lifecycle": "active",
+      "contract_state": "declared",
       "commands": [
         {
           "name": "im_send_message",
@@ -657,7 +657,8 @@
       ],
       "persistence": [
         "message",
-        "pending_send"
+        "pending_send",
+        "pending_media"
       ],
       "projections": [
         {
@@ -670,11 +671,14 @@
         "retry_send"
       ],
       "negative_assertions": [
-        "用户豁免上传前不得晋升 Green"
+        "Mobile 不得提供 Go-owned 字段",
+        "complete 前不得调用 posts/create",
+        "mismatch/corrupt/restart record 必须 fail-closed",
+        "真实链必须以 /media/get 与 GET object 对拍 size/contentType/SHA"
       ],
       "http": {
-        "request": "上传由 driver；最终 `POST /api/cses/posts/create`，body 同发送，`props` 写入上传结果",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "Mobile 只在 `props.file.mediaInput` 或 `props.rich[].mediaInput` 提交 `{localPath,fileName,contentType,size,sha256}`，不得提交 uploadId/fileId/objectKey/url/publicUrl/headers/state 等 Go-owned 字段。Helix 将内部 `pending_media` 按 Prepare/Put/Complete 阶段持久化并剥离公开 props：① `POST /api/cses/media/upload/prepare` body `{channelId,fileName,contentType,size,sha256}`；② driver 以 prepare 返回的 method/url/headers 执行 `PUT`，对象字节来自 localPath；③ `POST /api/cses/media/upload/complete` body `{uploadId}`。多附件必须全部完成可信校验后，才恰好一次调用 `POST /api/cses/posts/create`；分阶段失败/重启从 `pending_media` 当前阶段重试，不铸造新业务消息 ID，也不得重复已完成阶段",
+        "response": "prepare 只接受 `CommonRes.status=SUCCESS` 且 data 提供服务端生成的 uploadId/fileId/objectKey/url/publicUrl/method/headers；complete 只接受 `CommonRes.status=SUCCESS`、`data.state=completed`，且 uploadId/fileId/objectKey/url/size/contentType/fileName/sha256/channelId 与 `mediaInput` 和 prepare 结果精确匹配，随后形成可信附件引用。真实链证据必须再 `POST /api/cses/media/get` body `{fileId}` 核对 completed/size/contentType/sha256，并对返回 URL 执行 `GET` object，核对 HTTP 200、Content-Length、Content-Type、对象字节长度与 SHA；任一缺失或冲突均 fail-closed，不能以 posts/create 200 或投影单面晋升 Green"
       },
       "ws": {
         "events": "`post`"
@@ -688,7 +692,7 @@
           "channel_member",
           "channel_event"
         ],
-        "contract": "`post.createPost`, 上传适配层；`post`, `media`, `channel`, `channel_member`, `channel_event`"
+        "contract": "`media.upload.prepare` → object PUT → `media.upload.complete` → `media.get`/object GET → `post.createPost`；`media` 保存服务端 upload/file/object 元数据与 completed 状态，`post` 只引用 complete 后的可信附件；`post`, `media`, `channel`, `channel_member`, `channel_event`"
       }
     },
     {

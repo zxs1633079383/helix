@@ -133,6 +133,18 @@ fn viewer_relative_actions_and_absolute_interaction_counts_are_render_ready() {
 }
 
 #[test]
+fn storage_map_quick_reply_is_shaped_like_ws_array() {
+    let rows = json!([{
+        "id": "server-map-reaction",
+        "props": {"quickReply": {":thumbsup:": ["444", "678"]}}
+    }]);
+
+    let out = shape_message_rows_for_viewer(&rows, "444");
+    assert_eq!(out[0]["reactions"], ":thumbsup:");
+    assert_eq!(out[0]["reactionCount"], 2);
+}
+
+#[test]
 fn wire_camel_row_shaped_to_same_shape() {
     // 上拉 postContext 的 wire camel Post（无 revoke 列·空 type 容错 TEXT）。
     let rows = json!([{

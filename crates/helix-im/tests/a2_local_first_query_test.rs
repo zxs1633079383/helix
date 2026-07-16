@@ -277,7 +277,7 @@ fn remote_quick_reply_is_merged_into_render_ready_props() {
     let http_corr = corr_for_http(harness.sink.as_slice());
     let mut post = remote_post(&sid(1), "tmp-1", 100, "reacted");
     post["props"] = json!({"channel_event_seq": 2});
-    post["quickReply"] = json!([{"emoji": ":thumbsup:", "userIds": ["444"]}]);
+    post["quickReply"] = json!({":thumbsup:": ["444"]});
     harness.step(
         port_reply_with_body(http_corr, latest_posts_reply(vec![post])),
         1_200,
@@ -288,8 +288,7 @@ fn remote_quick_reply_is_merged_into_render_ready_props() {
     let projection = &emitted_values(harness.sink.as_slice())[0];
     let row = &projection["data"]["messages"][0];
     assert_eq!(row["props"]["channel_event_seq"], 2);
-    assert_eq!(row["props"]["quickReply"][0]["emoji"], ":thumbsup:");
-    assert_eq!(row["props"]["quickReply"][0]["userIds"][0], "444");
+    assert_eq!(row["props"]["quickReply"][":thumbsup:"][0], "444");
     assert_eq!(row["reactions"], ":thumbsup:");
     assert_eq!(row["reactionCount"], 1);
 }

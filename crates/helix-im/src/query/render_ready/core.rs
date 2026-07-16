@@ -106,15 +106,26 @@ fn array_len_at(value: &Value, first: &str, second: &str) -> usize {
 fn interaction_summary(props: &Value) -> (Option<String>, usize, usize) {
     let mut emojis = Vec::new();
     let mut reaction_count = 0;
-    if let Some(items) = props.get("quickReply").and_then(Value::as_array) {
-        for item in items {
-            if let Some(emoji) = item.get("emoji").and_then(Value::as_str) {
-                if !emoji.is_empty() {
-                    emojis.push(emoji);
+    match props.get("quickReply") {
+        Some(Value::Array(items)) => {
+            for item in items {
+                if let Some(emoji) = item.get("emoji").and_then(Value::as_str) {
+                    if !emoji.is_empty() {
+                        emojis.push(emoji);
+                    }
                 }
+                reaction_count += array_len_at(item, "userIds", "user_ids");
             }
-            reaction_count += array_len_at(item, "userIds", "user_ids");
         }
+        Some(Value::Object(items)) => {
+            for (emoji, user_ids) in items {
+                if !emoji.is_empty() {
+                    emojis.push(emoji.as_str());
+                }
+                reaction_count += user_ids.as_array().map(Vec::len).unwrap_or(0);
+            }
+        }
+        _ => {}
     }
     let reactions = (!emojis.is_empty()).then(|| emojis.join(","));
     let template_count = props

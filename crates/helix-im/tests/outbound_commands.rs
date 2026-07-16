@@ -38,6 +38,18 @@ fn run(name: &str, payload: Value) -> Vec<Effect> {
     .expect("handle_outbound should not fail")
 }
 
+fn fails(name: &str, payload: Value) -> bool {
+    handle_outbound(
+        name,
+        &serde_json::to_vec(&payload).unwrap(),
+        BASE,
+        BASE,
+        None,
+        corr(),
+    )
+    .is_err()
+}
+
 #[test]
 fn read_maps_to_post_read_with_channel_and_endtime() {
     let (url, body) = one_http(run(
@@ -134,13 +146,39 @@ fn leave_carries_new_creator_and_user_id_for_owner_transfer() {
 fn schedule_nests_post_and_schedulepostat() {
     let (url, body) = one_http(run(
         "im_create_schedule",
-        json!({ "channel_id": "ch4", "message": "later", "schedule_post_at": 999, "temporary_id": "t1" }),
+        json!({
+            "channel_id": "ch4",
+            "message": "later",
+            "type": "CUSTOM",
+            "props": { "source": "mobile", "priority": 2 },
+            "schedule_post_at": 999,
+            "temporary_id": "legacy-must-not-leak"
+        }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/createSchedule");
     assert_eq!(body["schedulePostAt"], 999);
     assert_eq!(body["post"]["channelId"], "ch4");
     assert_eq!(body["post"]["message"], "later");
-    assert_eq!(body["post"]["temporaryId"], "t1");
+    assert_eq!(body["post"]["type"], "CUSTOM");
+    assert_eq!(body["post"]["props"]["source"], "mobile");
+    assert_eq!(body["post"]["props"]["priority"], 2);
+    assert!(body["post"].get("temporaryId").is_none());
+}
+
+#[test]
+fn schedule_requires_positive_time_and_object_props() {
+    assert!(fails(
+        "im_create_schedule",
+        json!({ "channel_id": "ch4", "message": "later", "schedule_post_at": 0 })
+    ));
+    assert!(fails(
+        "im_create_schedule",
+        json!({ "channel_id": "ch4", "message": "later", "schedule_post_at": -1 })
+    ));
+    assert!(fails(
+        "im_create_schedule",
+        json!({ "channel_id": "ch4", "message": "later", "schedule_post_at": 1, "props": [] })
+    ));
 }
 
 #[test]

@@ -75,12 +75,12 @@ fn urgent_post_builds_urgentpostvo_body() {
         }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/urgentPost");
-    assert_eq!(body["channelId"], "chU");
     assert_eq!(body["postId"], "pU");
     assert_eq!(body["targetIds"][0], "u1");
     assert_eq!(body["targetIds"][1], "u2");
     assert_eq!(body["message"], "请尽快处理");
     // casing: 不得出现 snake_case key
+    assert!(body.get("channelId").is_none());
     assert!(body.get("channel_id").is_none());
     assert!(body.get("target_ids").is_none());
 }
@@ -112,11 +112,22 @@ fn urgent_post_requires_nonempty_targets_and_ids() {
         "im_urgent_post",
         json!({ "channel_id": "c", "target_ids": ["u1"] })
     ));
-    // 缺 channel_id → Err
-    assert!(err(
+}
+
+#[test]
+fn mobile_canonical_urgent_without_channel_builds_go_owned_lookup_body() {
+    let (url, body) = one_http(run(
         "im_urgent_post",
-        json!({ "post_id": "p", "target_ids": ["u1"] })
+        json!({ "post_id": "p", "target_ids": ["u1"] }),
     ));
+    assert_eq!(url, "http://x/api/cses/posts/urgentPost");
+    assert_eq!(body["postId"], "p");
+    assert_eq!(body["targetIds"], json!(["u1"]));
+    assert!(body.get("channelId").is_none());
+
+    let (url, body) = one_http(run("im_urgent_confirm", json!({ "post_id": "p" })));
+    assert_eq!(url, "http://x/api/cses/posts/urgentConfirm");
+    assert_eq!(body, json!({ "postId": "p" }));
 }
 
 // ── urgentConfirm / urgentCancel ───────────────────────────────────────────────
@@ -129,7 +140,7 @@ fn urgent_confirm_and_cancel_reuse_post_update_endpoints() {
     ));
     assert_eq!(url, "http://x/api/cses/posts/urgentConfirm");
     assert_eq!(body["postId"], "p1");
-    assert_eq!(body["channelId"], "c1");
+    assert!(body.get("channelId").is_none());
 
     let (url, body) = one_http(run(
         "im_urgent_cancel",
@@ -137,14 +148,14 @@ fn urgent_confirm_and_cancel_reuse_post_update_endpoints() {
     ));
     assert_eq!(url, "http://x/api/cses/posts/urgentCancel");
     assert_eq!(body["postId"], "p2");
-    assert_eq!(body["channelId"], "c2");
+    assert!(body.get("channelId").is_none());
 }
 
 #[test]
-fn urgent_confirm_cancel_require_both_ids() {
-    assert!(err("im_urgent_confirm", json!({ "post_id": "p" })));
+fn urgent_confirm_cancel_require_post_id_only() {
+    assert!(!err("im_urgent_confirm", json!({ "post_id": "p" })));
     assert!(err("im_urgent_confirm", json!({ "channel_id": "c" })));
-    assert!(err("im_urgent_cancel", json!({ "post_id": "p" })));
+    assert!(!err("im_urgent_cancel", json!({ "post_id": "p" })));
     assert!(err("im_urgent_cancel", json!({ "channel_id": "c" })));
 }
 

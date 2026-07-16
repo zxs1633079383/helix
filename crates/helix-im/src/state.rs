@@ -2,7 +2,9 @@
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
-use crate::send::upload_props::{CompletedMedia, PendingMediaOp, PendingMediaPut, PendingUpload};
+use crate::send::upload_props::{
+    CompletedMedia, FailedMediaOp, PendingMediaOp, PendingMediaPut, PendingUpload, UploadTarget,
+};
 use std::collections::{HashMap, HashSet};
 
 mod values;
@@ -50,6 +52,12 @@ pub struct ImState {
 
     /// 已通过 complete 严格校验的可信媒体引用；B2b 据此做多附件 barrier/readback。
     pub completed_media: HashMap<String, CompletedMedia>,
+
+    /// 最近失败的媒体阶段；im_retry_send 按消息/target 精确恢复，不越级重放。
+    pub failed_media_ops: HashMap<(TemporaryId, UploadTarget), FailedMediaOp>,
+
+    /// 媒体 retry 在途消息；重复 im_retry_send 以 temporaryId O(1) 幂等 no-op。
+    pub media_retry_inflight: HashSet<TemporaryId>,
 
     /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。取代旧
     /// 4 张分散 HashMap + 1 个 `Option`（`scan_corr`）。`PortReply` 到达时单次 `remove(corr)` 取出
@@ -143,6 +151,8 @@ impl ImState {
             pending_media_ops: HashMap::new(),
             waiting_media_complete: HashMap::new(),
             completed_media: HashMap::new(),
+            failed_media_ops: HashMap::new(),
+            media_retry_inflight: HashSet::new(),
             corr_map: HashMap::new(),
             reply_projection_revisions: HashMap::new(),
             reply_projection_seen_ids: HashMap::new(),

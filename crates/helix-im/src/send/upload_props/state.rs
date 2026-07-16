@@ -104,6 +104,18 @@ pub fn mark_media_complete(
     Ok(())
 }
 
+pub fn mark_media_stage(
+    props: &mut Value,
+    target: &UploadTarget,
+    status: &str,
+) -> Result<(), ImError> {
+    let node = target_node_mut(props, target)?;
+    node.as_object_mut()
+        .ok_or_else(|| ImError::Parse("media target must be object".to_string()))?
+        .insert("upload".to_string(), json!({"status": status}));
+    Ok(())
+}
+
 fn target_node_mut<'a>(
     props: &'a mut Value,
     target: &UploadTarget,

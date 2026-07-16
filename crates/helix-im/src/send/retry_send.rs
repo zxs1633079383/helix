@@ -47,16 +47,31 @@ fn retry_from_memory(
     request_id: Option<String>,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
+    if module.state.media_retry_inflight.contains(&temporary_id) {
+        return Ok(());
+    }
+    let media_failed = module
+        .state
+        .pending_sends
+        .get(&temporary_id)
+        .is_some_and(|pending| pending.upload_failed);
+    if media_failed {
+        return retry_failed_media(module, temporary_id, out);
+    }
     let body = {
         let pending = module
             .state
             .pending_sends
             .get(&temporary_id)
             .ok_or_else(|| ImError::Parse("im_retry_send missing pending send".to_string()))?;
-        if pending.upload_failed {
-            return Err(ImError::Parse(
-                "im_retry_send cannot replace im_retry_upload".to_string(),
-            ));
+        let media_body = pending.body.as_ref().is_some_and(|body| {
+            matches!(
+                body.get("type").and_then(Value::as_str),
+                Some("file" | "FILE" | "rich")
+            )
+        });
+        if media_body && pending.remaining_uploads == 0 && pending.status != SendStatus::UnSend {
+            return Ok(());
         }
         if pending.status != SendStatus::UnSend {
             return Err(ImError::Parse(format!(
@@ -70,6 +85,118 @@ fn retry_from_memory(
             .ok_or_else(|| ImError::Parse("im_retry_send missing cached send body".to_string()))?
     };
     continue_retry(module, temporary_id, body, request_id, out)
+}
+
+fn retry_failed_media(
+    module: &mut ImModule,
+    temporary_id: TemporaryId,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    use crate::send::upload_props::{FailedMediaOp, PendingMediaOp, UploadTarget};
+
+    let mut keys = module
+        .state
+        .failed_media_ops
+        .keys()
+        .filter(|(message_id, _)| message_id == &temporary_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    keys.sort_by_key(|(_, target)| match target {
+        UploadTarget::RichImage { index } => (0u8, *index),
+        UploadTarget::File => (1u8, 0usize),
+    });
+    let failed = keys
+        .into_iter()
+        .filter_map(|key| module.state.failed_media_ops.remove(&key))
+        .collect::<Vec<_>>();
+    if failed.is_empty() {
+        return Ok(());
+    }
+
+    let props_json = {
+        let pending = module
+            .state
+            .pending_sends
+            .get_mut(&temporary_id)
+            .ok_or_else(|| {
+                ImError::Parse("im_retry_send missing pending media send".to_string())
+            })?;
+        let body = pending.body.as_mut().ok_or_else(|| {
+            ImError::Parse("im_retry_send missing pending media body".to_string())
+        })?;
+        let props = body
+            .get_mut("props")
+            .ok_or_else(|| ImError::Parse("im_retry_send missing media props".to_string()))?;
+        for operation in &failed {
+            let status = match operation {
+                FailedMediaOp::Prepare(_) => "preparing",
+                FailedMediaOp::Put(_) => "uploading",
+                FailedMediaOp::Complete(_) => "completing",
+            };
+            crate::send::upload_props::mark_media_stage(props, operation.target(), status)?;
+        }
+        pending.upload_failed = false;
+        serde_json::to_string(props).map_err(|error| ImError::Serialize(error.to_string()))?
+    };
+
+    let persist_corr = module.alloc_corr_internal();
+    out.push(Effect::Persist {
+        corr: persist_corr,
+        ops: vec![crate::pending_send::props_persist_op(
+            &temporary_id,
+            props_json,
+        )],
+    });
+    module
+        .state
+        .media_retry_inflight
+        .insert(temporary_id.clone());
+
+    for operation in failed {
+        match operation {
+            FailedMediaOp::Prepare(pending) => {
+                module.emit_media_prepare(
+                    pending.channel_id,
+                    pending.temporary_id,
+                    pending.target,
+                    pending.input,
+                    out,
+                )?;
+            }
+            FailedMediaOp::Put(pending) => {
+                let req = crate::send::upload_props::media_upload_request(
+                    &pending.input,
+                    &pending.prepared,
+                )?;
+                let corr = module.alloc_corr_internal();
+                module
+                    .state
+                    .pending_media_ops
+                    .insert(corr, PendingMediaOp::Put(pending));
+                out.push(Effect::UploadFile { corr, req });
+            }
+            FailedMediaOp::Complete(pending) => {
+                let corr = module.alloc_corr_internal();
+                let req = crate::send::upload_props::complete_upload_request(
+                    &module.config.api_base_url,
+                    &pending.prepared.upload_id,
+                    crate::acl::sync_http_effects::session_auth_headers(
+                        module.state.connection_id.as_deref(),
+                    ),
+                )?;
+                module
+                    .state
+                    .waiting_media_complete
+                    .insert(pending.prepared.upload_id.clone(), pending.clone());
+                module
+                    .state
+                    .pending_media_ops
+                    .insert(corr, PendingMediaOp::Complete(pending));
+                out.push(Effect::Http { corr, req });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn emit_durable_lookup(

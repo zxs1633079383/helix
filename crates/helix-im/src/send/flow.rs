@@ -133,7 +133,7 @@ impl ImModule {
         Ok(())
     }
 
-    fn emit_media_prepare(
+    pub(crate) fn emit_media_prepare(
         &mut self,
         channel_id: ChannelId,
         temporary_id: TemporaryId,

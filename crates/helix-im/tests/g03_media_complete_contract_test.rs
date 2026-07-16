@@ -200,7 +200,7 @@ fn put_success_emits_only_complete_with_upload_id() {
 }
 
 #[test]
-fn complete_success_persists_only_trusted_public_reference() {
+fn complete_success_persists_trusted_reference_before_posts_create() {
     let mut h = Harness::new(&[1]);
     let corr = drive_to_complete(&mut h, file_cmd(), "application/pdf");
 
@@ -240,11 +240,11 @@ fn complete_success_persists_only_trusted_public_reference() {
     ] {
         assert!(!persisted.contains(forbidden), "leaked {forbidden}");
     }
-    assert_eq!(posts_create_count(&h), 0);
+    assert_eq!(posts_create_count(&h), 1);
 }
 
 #[test]
-fn rich_complete_preserves_render_metadata_but_not_internal_fields() {
+fn rich_complete_preserves_render_metadata_in_posts_create() {
     let mut h = Harness::new(&[1]);
     let corr = drive_to_complete(&mut h, rich_cmd(), "image/png");
     h.step(
@@ -263,7 +263,7 @@ fn rich_complete_preserves_render_metadata_but_not_internal_fields() {
     assert_eq!(props["images"][0]["width"], 800);
     assert_eq!(props["images"][0]["height"], 600);
     assert_eq!(props["images"][0]["upload"]["status"], "completed");
-    assert_eq!(posts_create_count(&h), 0);
+    assert_eq!(posts_create_count(&h), 1);
 }
 
 #[test]

@@ -249,34 +249,53 @@ impl ImModule {
         reference: crate::send::upload_props::TrustedMediaReference,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        if self
+            .state
+            .completed_media
+            .contains_key(&pending.prepared.upload_id)
+        {
+            return Ok(());
+        }
         let persist_corr = self.alloc_corr_internal();
-        let Some(send) = self.state.pending_sends.get_mut(&pending.temporary_id) else {
-            return Ok(());
-        };
-        let Some(body) = send.body.as_mut() else {
-            return Ok(());
-        };
-        let Some(props) = body.get_mut("props") else {
-            return Ok(());
-        };
-        crate::send::upload_props::mark_media_complete(props, &pending.target, &reference)?;
-        let props_json =
-            serde_json::to_string(props).map_err(|error| ImError::Serialize(error.to_string()))?;
-        out.push(helix_core::Effect::Persist {
-            corr: persist_corr,
-            ops: vec![crate::pending_send::props_persist_op(
-                &pending.temporary_id,
-                props_json,
-            )],
-        });
+        let mut ready_body = None;
+        {
+            let Some(send) = self.state.pending_sends.get_mut(&pending.temporary_id) else {
+                return Ok(());
+            };
+            let Some(body) = send.body.as_mut() else {
+                return Ok(());
+            };
+            let Some(props) = body.get_mut("props") else {
+                return Ok(());
+            };
+            crate::send::upload_props::mark_media_complete(props, &pending.target, &reference)?;
+            let props_json = serde_json::to_string(props)
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+            out.push(helix_core::Effect::Persist {
+                corr: persist_corr,
+                ops: vec![crate::pending_send::props_persist_op(
+                    &pending.temporary_id,
+                    props_json,
+                )],
+            });
+            if send.remaining_uploads > 0 {
+                send.remaining_uploads -= 1;
+            }
+            if send.remaining_uploads == 0 && !send.upload_failed {
+                ready_body = Some(body.clone());
+            }
+        }
         self.state.completed_media.insert(
-            pending.prepared.upload_id,
+            pending.prepared.upload_id.clone(),
             crate::send::upload_props::CompletedMedia {
-                temporary_id: pending.temporary_id,
-                target: pending.target,
+                temporary_id: pending.temporary_id.clone(),
+                target: pending.target.clone(),
                 reference,
             },
         );
+        if let Some(body) = ready_body {
+            self.emit_posts_create_http(pending.channel_id, pending.temporary_id, &body, out)?;
+        }
         Ok(())
     }
 

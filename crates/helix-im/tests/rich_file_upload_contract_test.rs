@@ -302,7 +302,6 @@ fn upload_input_without_public_url_is_rejected_before_any_effect() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn rich_file_shape_violations_are_rejected_before_any_effect() {
     let cases = [
         (

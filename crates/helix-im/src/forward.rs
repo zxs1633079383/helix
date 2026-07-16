@@ -44,7 +44,6 @@ pub(crate) fn start(
 ) -> Result<(), ImError> {
     let value: Value = serde_json::from_slice(payload)
         .map_err(|error| ImError::Parse(format!("im_relay_messages payload: {error}")))?;
-    let req_id = required_string(&value, "req_id")?;
     let source_post_ids = required_strings(&value, "post_ids", MAX_FORWARD_POSTS)?;
     let target_channel_ids = required_strings(&value, "target_channel_ids", MAX_FORWARD_TARGETS)?;
     if target_channel_ids
@@ -68,6 +67,7 @@ pub(crate) fn start(
             )))
         }
     };
+    let req_id = operation_req_id(module, &value, now_ms)?;
     let assembly = ForwardAssembly {
         req_id,
         source_post_ids,
@@ -168,13 +168,17 @@ fn first_row(reply: &[u8]) -> Option<Value> {
         .cloned()
 }
 
-fn required_string(value: &Value, key: &str) -> Result<String, ImError> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| ImError::Parse(format!("im_relay_messages: 缺必填字段 '{key}'")))
+fn operation_req_id(module: &mut ImModule, value: &Value, now_ms: u64) -> Result<String, ImError> {
+    match value.get("req_id") {
+        None => {
+            let sequence = module.alloc_corr_internal().raw();
+            Ok(format!("relay-{now_ms}-{sequence}"))
+        }
+        Some(Value::String(req_id)) if !req_id.is_empty() => Ok(req_id.clone()),
+        Some(_) => Err(ImError::Parse(
+            "im_relay_messages: 'req_id' 必须为非空字符串".to_string(),
+        )),
+    }
 }
 
 fn required_strings(value: &Value, key: &str, max: usize) -> Result<Vec<String>, ImError> {

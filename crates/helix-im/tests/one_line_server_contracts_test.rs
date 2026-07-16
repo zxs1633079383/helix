@@ -4,7 +4,7 @@ mod common;
 use common::*;
 
 use helix_core::tick::InboundBytes;
-use helix_core::{Effect, Tick};
+use helix_core::{Effect, Module, Tick};
 
 fn inbound(value: serde_json::Value) -> Tick {
     Tick::Inbound(InboundBytes(serde_json::to_vec(&value).unwrap().into()))
@@ -127,6 +127,100 @@ fn relay_ids_are_loaded_from_local_store_before_create_posts() {
     assert_eq!(body["posts"][0]["teamId"], "team-1");
     assert_eq!(body["posts"][0]["message"], "原消息");
     assert_eq!(body["posts"][0]["props"]["document"]["id"], "d1");
+}
+
+#[test]
+fn relay_public_command_without_req_id_keeps_one_generated_id_through_batch_result() {
+    let source_id = cid(11);
+    let target_id = cid(21);
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "post_ids":[source_id],
+        "target_channel_ids":[target_id],
+        "mode":"individual"
+    }))
+    .unwrap();
+    let command = helix_im::client_api::build_command("im_relay_messages", &payload)
+        .expect("public relay command must normalize to the canonical dispatch command");
+    assert_eq!(command.name.as_ref(), "im_create_posts");
+
+    let mut h = Harness::new_with_identity(&[], "444", "team-1", "破坏者", "研发", "平台");
+    h.step(Tick::Command(command), 100);
+    let lookup_corr = persist_corr(&h);
+    let row = serde_json::json!([{
+        "id":source_id,
+        "temporary_id":"source-tmp",
+        "type":"TEXT",
+        "message":"原消息",
+        "props":"{}",
+        "create_at":90,
+        "user_id":"678"
+    }]);
+    h.step(
+        port_reply_with_body(lookup_corr, serde_json::to_vec(&row).unwrap().into()),
+        101,
+    );
+
+    let corr = http_corr(&h);
+    let raw = bytes::Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "status":"SUCCESS",
+            "data":{
+                "status":"success",
+                "targets":[{"channelId":target_id,"status":"accepted"}]
+            }
+        }))
+        .unwrap(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 102);
+
+    let data = &emits(&h, "im:posts:batch-result")[0];
+    let req_id = data["reqId"]
+        .as_str()
+        .expect("Helix must expose the generated operation id for correlation");
+    assert!(!req_id.is_empty());
+    assert!(req_id.starts_with("relay-"));
+    assert_eq!(data["targets"][0]["channelId"], target_id);
+}
+
+#[test]
+fn relay_without_req_id_still_fails_closed_for_invalid_business_inputs() {
+    let valid_post = cid(12);
+    let valid_target = cid(22);
+    let cases = [
+        serde_json::json!({
+            "post_ids":[],
+            "target_channel_ids":[valid_target],
+            "mode":"individual"
+        }),
+        serde_json::json!({
+            "post_ids":[valid_post],
+            "target_channel_ids":[],
+            "mode":"individual"
+        }),
+        serde_json::json!({
+            "post_ids":[valid_post],
+            "target_channel_ids":["not-a-channel"],
+            "mode":"individual"
+        }),
+        serde_json::json!({
+            "post_ids":[valid_post],
+            "target_channel_ids":[valid_target],
+            "mode":"broadcast"
+        }),
+    ];
+
+    for payload in cases {
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let command = helix_im::client_api::build_command("im_relay_messages", &bytes)
+            .expect("client API normalization is not business validation");
+        let mut h = Harness::new(&[]);
+        let result = h.module.handle(&Tick::Command(command), 100, &mut h.sink);
+        assert!(result.is_err(), "invalid relay input must fail: {payload}");
+        assert!(
+            h.sink.as_slice().is_empty(),
+            "invalid relay input must not emit persistence or HTTP effects: {payload}"
+        );
+    }
 }
 
 #[test]

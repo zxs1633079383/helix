@@ -78,6 +78,7 @@ const FAT_MESSAGE_ITEM_KEYS: &[&str] = &[
     "occurredAt",
     "previewText",
     "recalledMsgId",
+    "recalledText",
     "subjectMemberIds",
     "system",
     "systemEvent",

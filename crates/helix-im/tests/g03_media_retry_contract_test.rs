@@ -20,19 +20,19 @@ const FILE: Media = Media {
     upload: "upload-file",
     file: "file-file",
     name: "doc.pdf",
-    sha: "sha-file",
+    sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 };
 const A: Media = Media {
     upload: "upload-a",
     file: "file-a",
     name: "a.png",
-    sha: "sha-a",
+    sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 };
 const B: Media = Media {
     upload: "upload-b",
     file: "file-b",
     name: "b.png",
-    sha: "sha-b",
+    sha: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 };
 
 fn file_cmd() -> Tick {

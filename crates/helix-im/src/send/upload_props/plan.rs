@@ -1,8 +1,10 @@
 use super::{MediaInput, PlannedMedia, UploadPlan, UploadTarget};
 use crate::ImError;
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
+const MAX_MEDIA_SIZE: u64 = 64 << 20;
 const GO_OWNED_FIELDS: [&str; 12] = [
     "uploadId",
     "fileId",
@@ -72,12 +74,7 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
         .collect()
 }
 
-fn build_file_plan(message: &str, props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
-    if !message.trim().is_empty() {
-        return Err(ImError::Parse(
-            "file message must not contain message text".to_string(),
-        ));
-    }
+fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if props.get("images").is_some() {
         return Err(ImError::Parse(
             "file message must not contain props.images".to_string(),
@@ -107,18 +104,18 @@ fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
     validate_media_input_keys(input, label)?;
 
     let local_path = required_string(input, "localPath", label)?;
-    let file_name = required_string(input, "fileName", label)?;
-    let content_type = required_string(input, "contentType", label)?;
+    let file_name = validate_file_name(input, label)?;
+    let content_type = validate_content_type(input, label)?;
     let size = input
         .get("size")
         .and_then(Value::as_u64)
-        .filter(|value| *value > 0)
-        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.size must be positive u64")))?;
-    let sha256 = input
-        .get("sha256")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.sha256 must be string")))?
-        .to_string();
+        .filter(|value| (1..=MAX_MEDIA_SIZE).contains(value))
+        .ok_or_else(|| {
+            ImError::Parse(format!(
+                "{label} mediaInput.size must be u64 in 1..={MAX_MEDIA_SIZE}"
+            ))
+        })?;
+    let sha256 = validate_sha256(input, label)?;
 
     object.insert("upload".to_string(), json!({"status": "preparing"}));
     Ok(MediaInput {
@@ -173,9 +170,267 @@ fn required_string(input: &Map<String, Value>, key: &str, label: &str) -> Result
         .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.{key} must be non-empty string")))
 }
 
+fn validate_file_name(input: &Map<String, Value>, label: &str) -> Result<String, ImError> {
+    let value = input
+        .get("fileName")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.fileName must be string")))?
+        .trim();
+    if value.is_empty()
+        || value.len() > 255
+        || value
+            .as_bytes()
+            .iter()
+            .any(|byte| matches!(byte, b'/' | b'\\' | 0))
+    {
+        return Err(ImError::Parse(format!(
+            "{label} mediaInput.fileName is invalid"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+fn validate_content_type(input: &Map<String, Value>, label: &str) -> Result<String, ImError> {
+    let value = input
+        .get("contentType")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.contentType must be string")))?
+        .trim();
+    if value.len() > 127 || !is_valid_media_type(value) {
+        return Err(ImError::Parse(format!(
+            "{label} mediaInput.contentType is invalid"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+fn validate_sha256(input: &Map<String, Value>, label: &str) -> Result<String, ImError> {
+    let value = input
+        .get("sha256")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.sha256 must be string")))?;
+    if value.len() != 64
+        || !value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(ImError::Parse(format!(
+            "{label} mediaInput.sha256 must be 64 lowercase hex characters"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+// Mirrors Go mime.ParseMediaType's token/parameter grammar without adding an I/O dependency.
+fn is_valid_media_type(value: &str) -> bool {
+    let separator = value.find(';').unwrap_or(value.len());
+    let base = &value[..separator];
+    let mut rest = &value[separator..];
+    if !is_valid_media_base(base.trim()) {
+        return false;
+    }
+
+    let mut params: HashMap<String, String> = HashMap::new();
+    while !rest.is_empty() {
+        rest = rest.trim_start();
+        if rest.is_empty() {
+            break;
+        }
+        let Some(after_semicolon) = rest.strip_prefix(';') else {
+            return false;
+        };
+        rest = after_semicolon.trim_start();
+        if rest.is_empty() {
+            return true;
+        }
+
+        let key_len = token_len(rest.as_bytes());
+        if key_len == 0 {
+            return false;
+        }
+        let key = rest[..key_len].to_ascii_lowercase();
+        rest = rest[key_len..].trim_start();
+        let Some(after_equals) = rest.strip_prefix('=') else {
+            return false;
+        };
+        rest = after_equals.trim_start();
+        let Some((param_value, remaining)) = consume_media_value(rest) else {
+            return false;
+        };
+        if params
+            .insert(key, param_value.clone())
+            .is_some_and(|previous| previous != param_value)
+        {
+            return false;
+        }
+        rest = remaining;
+    }
+    true
+}
+
+fn is_valid_media_base(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let type_len = token_len(bytes);
+    if type_len == 0 {
+        return false;
+    }
+    if type_len == bytes.len() {
+        return true;
+    }
+    if bytes[type_len] != b'/' {
+        return false;
+    }
+    let subtype = &bytes[type_len + 1..];
+    !subtype.is_empty() && token_len(subtype) == subtype.len()
+}
+
+fn consume_media_value(value: &str) -> Option<(String, &str)> {
+    if let Some(quoted) = value.strip_prefix('"') {
+        let bytes = quoted.as_bytes();
+        let mut output = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'"' => {
+                    return String::from_utf8(output)
+                        .ok()
+                        .map(|parsed| (parsed, &quoted[index + 1..]));
+                }
+                b'\r' | b'\n' => return None,
+                b'\\' if index + 1 < bytes.len() && is_tspecial(bytes[index + 1]) => {
+                    output.push(bytes[index + 1]);
+                    index += 2;
+                }
+                byte => {
+                    output.push(byte);
+                    index += 1;
+                }
+            }
+        }
+        None
+    } else {
+        let len = token_len(value.as_bytes());
+        (len > 0).then(|| (value[..len].to_string(), &value[len..]))
+    }
+}
+
+fn token_len(value: &[u8]) -> usize {
+    value
+        .iter()
+        .position(|byte| !is_token_char(*byte))
+        .unwrap_or(value.len())
+}
+
+fn is_token_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'{'
+                | b'|'
+                | b'}'
+                | b'~'
+        )
+}
+
+fn is_tspecial(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'(' | b')'
+            | b'<'
+            | b'>'
+            | b'@'
+            | b','
+            | b';'
+            | b':'
+            | b'\\'
+            | b'"'
+            | b'/'
+            | b'['
+            | b']'
+            | b'?'
+            | b'='
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const VALID_SHA256: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn file_props() -> Value {
+        json!({
+            "file": {
+                "mediaInput": {
+                    "localPath": "/tmp/report.pdf",
+                    "fileName": "report.pdf",
+                    "contentType": "application/pdf",
+                    "size": 9,
+                    "sha256": VALID_SHA256
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn file_plan_preserves_optional_text() {
+        let plan = build_upload_plan("FILE", "quarterly report", file_props())
+            .expect("FILE optional text should not block upload planning");
+
+        assert_eq!(plan.targets, vec![UploadTarget::File]);
+    }
+
+    #[test]
+    fn invalid_go_metadata_boundaries_are_rejected_before_planning() {
+        let invalid = [
+            ("fileName", json!("../report.pdf")),
+            ("fileName", json!("report\\2026.pdf")),
+            ("contentType", json!("not a mime")),
+            ("size", json!((64_u64 << 20) + 1)),
+            (
+                "sha256",
+                json!("ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789"),
+            ),
+            ("sha256", json!("short")),
+        ];
+
+        for (field, value) in invalid {
+            let mut props = file_props();
+            props["file"]["mediaInput"][field] = value;
+            let error = build_upload_plan("FILE", "", props)
+                .expect_err(&format!("invalid {field} must fail closed"));
+            assert!(error.to_string().contains(field), "{field}: {error}");
+        }
+    }
+
+    #[test]
+    fn go_metadata_trimming_and_upper_size_boundary_are_preserved() {
+        let mut props = file_props();
+        props["file"]["mediaInput"]["fileName"] = json!(" report.pdf ");
+        props["file"]["mediaInput"]["contentType"] = json!(" application/pdf; charset=utf-8 ");
+        props["file"]["mediaInput"]["size"] = json!(64_u64 << 20);
+
+        let plan = build_upload_plan("FILE", "caption", props).expect("valid upper boundary");
+        assert_eq!(plan.media[0].input.file_name, "report.pdf");
+        assert_eq!(
+            plan.media[0].input.content_type,
+            "application/pdf; charset=utf-8"
+        );
+        assert_eq!(plan.media[0].input.size, 64_u64 << 20);
+    }
 
     #[test]
     fn uppercase_file_extracts_opaque_media_input() {
@@ -189,7 +444,7 @@ mod tests {
                         "fileName": "report.pdf",
                         "contentType": "application/pdf",
                         "size": 9,
-                        "sha256": "abc"
+                        "sha256": VALID_SHA256
                     }
                 }
             }),

@@ -23,7 +23,7 @@ fn file_command() -> Tick {
         "type": "file",
         "text": "",
         "props": {
-            "file": {"mediaInput": media_input("doc.pdf", "application/pdf", 9, "sha-file")},
+            "file": {"mediaInput": media_input("doc.pdf", "application/pdf", 9, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
             "frontendCustom": {"keep": true}
         }
     }))
@@ -355,7 +355,7 @@ fn restart_from_prepare_retries_prepare_with_same_temporary_id() {
         "doc.pdf",
         "application/pdf",
         9,
-        "sha-file",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "",
         "",
     );
@@ -385,7 +385,7 @@ fn restart_from_put_retries_put_without_repeating_prepare() {
         "doc.pdf",
         "application/pdf",
         9,
-        "sha-file",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "upload-1",
         "file-1",
     );
@@ -415,7 +415,7 @@ fn restart_from_complete_retries_complete_without_repeating_prepare_or_put() {
         "doc.pdf",
         "application/pdf",
         9,
-        "sha-file",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "upload-1",
         "file-1",
     );
@@ -445,7 +445,7 @@ fn duplicate_retry_is_idempotent_while_recovered_stage_is_inflight() {
         "doc.pdf",
         "application/pdf",
         9,
-        "sha-file",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "upload-1",
         "file-1",
     );
@@ -477,7 +477,7 @@ fn corrupted_durable_row_is_ignored_without_guessing_a_media_stage() {
         "doc.pdf",
         "application/pdf",
         9,
-        "sha-file",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "upload-1",
         "file-1",
     );
@@ -506,14 +506,14 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
         "b.png",
         "image/png",
         4,
-        "sha-b",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "upload-b",
         "file-b",
     );
     let props = json!({
         "textPosition": "bottom",
         "images": [
-            {"id":"file-a","name":"a.png","url":"http://test/media/object/file-a","uri":"http://test/media/object/file-a","contentType":"image/png","size":3,"sha256":"sha-a","upload":{"status":"completed"}},
+            {"id":"file-a","name":"a.png","url":"http://test/media/object/file-a","uri":"http://test/media/object/file-a","contentType":"image/png","size":3,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","upload":{"status":"completed"}},
             {"height":600,"upload":{"status":"completing"}}
         ]
     });
@@ -530,7 +530,13 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
     h.step(
         with_corr(
             corr,
-            complete_success("upload-b", "file-b", "b.png", 4, "sha-b"),
+            complete_success(
+                "upload-b",
+                "file-b",
+                "b.png",
+                4,
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            ),
         ),
         20,
     );
@@ -558,7 +564,7 @@ fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
         "doc.pdf",
         "application/pdf",
         9,
-        "sha-file",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "upload-1",
         "file-1",
     );
@@ -577,7 +583,13 @@ fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
     h.step(
         with_corr(
             corr,
-            complete_success("upload-1", "file-1", "doc.pdf", 9, "sha-file"),
+            complete_success(
+                "upload-1",
+                "file-1",
+                "doc.pdf",
+                9,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
         ),
         20,
     );

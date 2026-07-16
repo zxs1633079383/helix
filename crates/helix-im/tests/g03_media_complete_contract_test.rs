@@ -19,7 +19,7 @@ fn file_cmd() -> Tick {
                     "fileName": "doc.pdf",
                     "contentType": "application/pdf",
                     "size": 9,
-                    "sha256": "sha256-fixture"
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 }
             },
             "frontendCustom": {"keep": true}
@@ -43,7 +43,7 @@ fn rich_cmd() -> Tick {
                     "fileName": "a.png",
                     "contentType": "image/png",
                     "size": 3,
-                    "sha256": "rich-sha256"
+                    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 }
             }]
         }
@@ -240,7 +240,12 @@ fn complete_success_persists_trusted_reference_before_posts_create() {
             corr,
             envelope(
                 "SUCCESS",
-                complete_data("doc.pdf", "application/pdf", 9, "sha256-fixture"),
+                complete_data(
+                    "doc.pdf",
+                    "application/pdf",
+                    9,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                ),
             ),
         ),
         1030,
@@ -253,7 +258,10 @@ fn complete_success_persists_trusted_reference_before_posts_create() {
     assert_eq!(props["file"]["url"], "http://test/media/object/file-1");
     assert_eq!(props["file"]["contentType"], "application/pdf");
     assert_eq!(props["file"]["size"], 9);
-    assert_eq!(props["file"]["sha256"], "sha256-fixture");
+    assert_eq!(
+        props["file"]["sha256"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
     assert_eq!(props["file"]["upload"]["status"], "completed");
     assert_eq!(props["frontendCustom"]["keep"], true);
     let persisted = serde_json::to_string(&props).unwrap();
@@ -283,7 +291,12 @@ fn rich_complete_preserves_render_metadata_in_posts_create() {
             corr,
             envelope(
                 "SUCCESS",
-                complete_data("a.png", "image/png", 3, "rich-sha256"),
+                complete_data(
+                    "a.png",
+                    "image/png",
+                    3,
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                ),
             ),
         ),
         1030,
@@ -311,7 +324,12 @@ fn complete_field_mismatch_or_missing_fails_closed() {
         "fileName",
         "state",
     ] {
-        let mut data = complete_data("doc.pdf", "application/pdf", 9, "sha256-fixture");
+        let mut data = complete_data(
+            "doc.pdf",
+            "application/pdf",
+            9,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
         data.as_object_mut().unwrap().remove(field);
         cases.push((format!("missing-{field}"), data));
     }
@@ -326,7 +344,12 @@ fn complete_field_mismatch_or_missing_fails_closed() {
         ("fileName", json!("other.pdf")),
     ];
     for (field, value) in mismatches {
-        let mut data = complete_data("doc.pdf", "application/pdf", 9, "sha256-fixture");
+        let mut data = complete_data(
+            "doc.pdf",
+            "application/pdf",
+            9,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
         data[field] = value;
         cases.push((format!("mismatch-{field}"), data));
     }
@@ -353,13 +376,23 @@ fn complete_field_mismatch_or_missing_fails_closed() {
 fn complete_failed_state_status_or_malformed_body_fails_closed() {
     let replies = [
         envelope("SUCCESS", {
-            let mut data = complete_data("doc.pdf", "application/pdf", 9, "sha256-fixture");
+            let mut data = complete_data(
+                "doc.pdf",
+                "application/pdf",
+                9,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            );
             data["state"] = json!("uploaded");
             data
         }),
         envelope(
             "FAIL",
-            complete_data("doc.pdf", "application/pdf", 9, "sha256-fixture"),
+            complete_data(
+                "doc.pdf",
+                "application/pdf",
+                9,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            ),
         ),
         port_reply_with_body(0, Bytes::from_static(b"{bad json")),
     ];

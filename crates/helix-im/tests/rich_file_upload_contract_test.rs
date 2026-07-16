@@ -864,7 +864,7 @@ mod g03_prepare_contract {
             "fileName": name,
             "contentType": content_type,
             "size": size,
-            "sha256": "sha256-fixture"
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         })
     }
 
@@ -1038,7 +1038,12 @@ mod g03_prepare_contract {
         assert_eq!(prepare_body["size"], 9);
         assert!(prepare_body.get("localPath").is_none());
 
-        for secret in ["mediaInput", "localPath", "/tmp/doc.pdf", "sha256-fixture"] {
+        for secret in [
+            "mediaInput",
+            "localPath",
+            "/tmp/doc.pdf",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
             assert!(
                 !persisted.contains(secret),
                 "persisted props leaked {secret}"
@@ -1097,6 +1102,42 @@ mod g03_prepare_contract {
                 "{forbidden}: {error}"
             );
             assert!(out.as_slice().is_empty());
+        }
+    }
+
+    #[test]
+    fn invalid_media_metadata_has_no_http_upload_or_persist_side_effects() {
+        let invalid = [
+            ("fileName", json!("../doc.pdf")),
+            ("fileName", json!("doc\\archive.pdf")),
+            ("contentType", json!("application pdf")),
+            ("contentType", json!("x".repeat(128))),
+            ("size", json!((64_u64 << 20) + 1)),
+            (
+                "sha256",
+                json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            ),
+            ("sha256", json!("short")),
+        ];
+
+        for (field, value) in invalid {
+            let mut command = match file_cmd("tmp-invalid-metadata") {
+                Tick::Command(command) => {
+                    serde_json::from_slice::<Value>(&command.payload).unwrap()
+                }
+                _ => unreachable!(),
+            };
+            command["props"]["file"]["mediaInput"][field] = value;
+            let tick = send_message_cmd_json(command);
+            let mut h = Harness::new(&[1]);
+            let mut out = EffectSink::new();
+            let error = h
+                .module
+                .handle(&tick, 1000, &mut out)
+                .expect_err("invalid media metadata must fail before effects");
+
+            assert!(error.to_string().contains(field), "{field}: {error}");
+            assert!(out.as_slice().is_empty(), "{field} emitted side effects");
         }
     }
 

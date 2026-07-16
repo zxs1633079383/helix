@@ -10,7 +10,8 @@
 //!
 //! 不连真 Go：直接在 sync-pull corr 上灌信封字节 / 把同信封喂裸 parser，对比行为——
 //! - **ADR-007 信封**（driver 2xx 实际回灌形态，common::sync_envelope 已包）经 handle_sync_reply
-//!   解信封 + base64 decode → Persist + Emit（>0），cursor 推进。证「解信封修复真把数据放行」。
+//!   解信封 + base64 decode → Persist；Persist Ok 后 Emit（>0）并推进 cursor。
+//!   证「解信封修复真把数据放行」且不绕过 G-S2/G-S3 持久屏障。
 //! - **同一信封若不解层、直喂 parse_sync_response** → status=200(int) 非 SUCCESS-string 跳过、
 //!   无 data.entries → 静默 NoChange（0 persist / 0 emit）。证「#6 bug 现场：删掉解层即离线消息
 //!   再次静默丢失」。两向一起钉死契约。
@@ -55,7 +56,7 @@ fn http6_raw_go_body_drives_persist_and_emit() {
         .iter()
         .filter(|e| matches!(e, EffectKind::Persist(_)))
         .count();
-    let emit_count = effects
+    let emit_count_before_persist = effects
         .iter()
         .filter(|e| matches!(e, EffectKind::Emit))
         .count();
@@ -64,9 +65,27 @@ fn http6_raw_go_body_drives_persist_and_emit() {
         persist_count > 0,
         "ADR-007 信封经解层后应产出 Persist（落库），got effects {effects:?}"
     );
+    assert_eq!(
+        emit_count_before_persist, 0,
+        "ADR-007 解层后 mutation 仍须等待 Persist ack，got effects {effects:?}"
+    );
+
+    let persist_corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ADR-007 解层后必须生成相关 Persist");
+    let committed = h.step(
+        port_reply_with_body(persist_corr, bytes::Bytes::new()),
+        3_100,
+    );
     assert!(
-        emit_count > 0,
-        "ADR-007 信封经解层后应 emit mutation 事件，got effects {effects:?}"
+        committed
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Emit)),
+        "Persist ack 后应释放 mutation 事件，got effects {committed:?}"
     );
 }
 

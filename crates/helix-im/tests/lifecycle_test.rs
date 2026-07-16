@@ -139,13 +139,13 @@ fn sync_notify_channel_ids(sink: &helix_core::EffectSink) -> Vec<String> {
         .collect()
 }
 
-/// NS-1 回归：global-end resync 的 sync/notify Effect 必须按 ChannelId **确定性升序**产出。
+/// NS-1 回归：global-end resync 必须按 `increment_channel` 的确定性到达顺序产出。
 ///
 /// 回归锚: NS-1（北极星符合性 review wf_69cf287f，GOAL §1 确定性可回放）。
-/// 防 `increment_fetched`(HashSet) / `channels`(HashMap) 迭代序逐进程随机 → resync 逐 channel
-/// 单调 alloc_corr + push 有序 Http Effect → 同输入不同输出。故意非排序注册，断言输出锚升序。
+/// 防 `increment_fetched`(HashSet) 迭代序逐进程随机，同时保留服务端的新鲜度排序，
+/// 让最近活跃频道优先占用 sync 窗口。
 #[test]
-fn proactive_resync_emits_channels_in_deterministic_sorted_order() {
+fn increment_end_resync_preserves_deterministic_delivery_order() {
     let mut h = Harness::new(&[3, 1, 2]); // 非排序注册顺序
     h.start(0);
     h.step(Tick::Connected(TransportId::from_raw(0)), 500);
@@ -161,8 +161,8 @@ fn proactive_resync_emits_channels_in_deterministic_sorted_order() {
     let ids = sync_notify_channel_ids(&h.sink);
     assert_eq!(
         ids,
-        vec![cid(1), cid(2), cid(3)],
-        "NS-1: resync sync/notify 必须按 ChannelId 升序确定性产出，got {:?}",
+        vec![cid(3), cid(1), cid(2)],
+        "NS-1: resync sync/notify 必须保留 increment 到达顺序，got {:?}",
         ids
     );
 }

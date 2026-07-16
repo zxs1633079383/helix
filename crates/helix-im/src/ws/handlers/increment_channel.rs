@@ -64,7 +64,9 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
         .entry(channel_id)
         .or_insert_with(|| Channel::new(channel_id, 0));
 
-    ctx.state.increment_fetched.insert(channel_id);
+    if ctx.state.increment_fetched.insert(channel_id) {
+        ctx.state.increment_order.push(channel_id);
+    }
     if !inc.need_sync {
         ctx.state.need_sync_skip.insert(channel_id);
     }

@@ -234,10 +234,10 @@ fn s6_too_long_reload_failure_keeps_message_history() {
     );
 }
 
-/// 回归锚: S6 —— increment_end(None global) fan-out 对 (fetched − skip) **确定性有序**
-/// （HX-C010：increment_fetched 是 HashSet，迭代序随机；必须 sort 后逐 channel 发 sync）。
+/// 回归锚: S6 —— increment_end(None global) fan-out 保留服务端交付顺序。
+/// 输入帧顺序本身可确定性重放；不得再按 channelId 排序，把最近活跃频道推到历史洪峰末尾。
 #[test]
-fn s6_increment_end_fanout_deterministic_order() {
+fn s6_increment_end_fanout_preserves_delivery_order() {
     use helix_im::state::Seq;
     use helix_im::sync_session::IncrementChannel;
 
@@ -278,7 +278,7 @@ fn s6_increment_end_fanout_deterministic_order() {
     h.step(Tick::Connected(TransportId::from_raw(0)), 100);
     h.step(hello_inbound("CONN"), 200);
 
-    // 乱序 ingest（30, 2, 17）——HashSet 内部序不可预测；end 必须 sort 后发。
+    // 服务端按新鲜度交付 high, low, mid；Helix 必须保持该顺序进入有界窗口。
     h.sink.clear();
     h.module.ingest_increment(&inc(ch(CH_HIGH), 5), &mut h.sink);
     h.module.ingest_increment(&inc(ch(CH_LOW), 5), &mut h.sink);
@@ -288,9 +288,9 @@ fn s6_increment_end_fanout_deterministic_order() {
     h.module.ingest_increment_end(None, &mut h.sink);
 
     let order = fanout_channels(&h.sink);
-    let expected = vec![CH_LOW.to_string(), CH_MID.to_string(), CH_HIGH.to_string()];
+    let expected = vec![CH_HIGH.to_string(), CH_LOW.to_string(), CH_MID.to_string()];
     assert_eq!(
         order, expected,
-        "S6 HX-C010：increment_end fan-out 须按 ChannelId 升序确定性发 sync，got {order:?}"
+        "S6：increment_end fan-out 须保留服务端确定性交付顺序，got {order:?}"
     );
 }

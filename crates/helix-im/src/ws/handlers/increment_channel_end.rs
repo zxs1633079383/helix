@@ -17,19 +17,39 @@ pub(crate) fn apply_increment_end(
             out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         }
         None => {
-            // NS-1：increment_fetched 是 HashSet，迭代序逐进程随机。resync 逐 channel 单调
-            // alloc_corr + push 有序 Http Effect，必须确定性排序锚定可回放（GOAL §1，ChannelId: Ord）。
-            let mut targets: Vec<ChannelId> = ctx
+            // NS-1 + G-S1：输入帧序是可回放事实，且 Go 以最近活跃优先交付。
+            // 用 Vec 保序、HashSet O(1) 去重，避免重新按 channelId 排序后把新频道推到历史洪峰末尾。
+            // 直接构造 state 的旧测试/恢复态可能没有 increment_order；剩余 fetched 以 ID 升序补齐，
+            // 仍不读取 HashSet 的随机迭代序作为输出顺序。
+            let mut targets = Vec::with_capacity(ctx.state.increment_fetched.len());
+            let mut seen =
+                std::collections::HashSet::with_capacity(ctx.state.increment_fetched.len());
+            for &channel_id in &ctx.state.increment_order {
+                if ctx.state.increment_fetched.contains(&channel_id)
+                    && !ctx.state.need_sync_skip.contains(&channel_id)
+                    && seen.insert(channel_id)
+                {
+                    targets.push(channel_id);
+                }
+            }
+            let mut unordered_tail: Vec<ChannelId> = ctx
                 .state
                 .increment_fetched
                 .iter()
-                .filter(|id| !ctx.state.need_sync_skip.contains(*id))
+                .filter(|id| !ctx.state.need_sync_skip.contains(*id) && !seen.contains(*id))
                 .copied()
                 .collect();
-            targets.sort_unstable();
-            targets.extend(collect_incomplete_backfill_targets(ctx));
-            targets.sort_unstable();
-            targets.dedup();
+            unordered_tail.sort_unstable();
+            for channel_id in unordered_tail {
+                if seen.insert(channel_id) {
+                    targets.push(channel_id);
+                }
+            }
+            for channel_id in collect_incomplete_backfill_targets(ctx) {
+                if seen.insert(channel_id) {
+                    targets.push(channel_id);
+                }
+            }
             emit_proactive_resync_for(ctx, &targets, out);
 
             // UC-10 与既有时序一致：global end 触发查询；其业务完成仍由 TodoQuery HTTP 回执决定。
@@ -59,9 +79,7 @@ pub(crate) fn apply_increment_end(
             out.push(Effect::Persist { corr, ops });
             ctx.state.corr_map.insert(
                 corr,
-                crate::state::CorrelationContext::IncrementBatchPersist {
-                    projections,
-                },
+                crate::state::CorrelationContext::IncrementBatchPersist { projections },
             );
         }
     }

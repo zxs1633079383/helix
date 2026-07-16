@@ -99,6 +99,11 @@ pub struct ImState {
     /// 重连后对不该 sync 的 channel 误触发 sync 风暴。
     pub increment_fetched: HashSet<ChannelId>,
 
+    /// 本批 `increment_channel` 的首次到达顺序。Go 按最近活跃优先交付；此 Vec 保留该顺序，
+    /// 让新鲜频道优先进入有界 sync 窗口。与 `increment_fetched` 配对做 O(1) 去重，
+    /// 输入帧序本身是确定性回放事实，不依赖 HashSet 迭代序。
+    pub increment_order: Vec<ChannelId>,
+
     /// B-rest：本次 increment 批次中 `needSync==false`（服务端已追平）的 channel 集合。
     ///
     /// 这些 channel 无需 pull sync——global-end 时从 `increment_fetched` 中扣除。
@@ -177,6 +182,7 @@ impl ImState {
             backoff_timer: None,
             ping_timer: None,
             increment_fetched: HashSet::new(),
+            increment_order: Vec::new(),
             need_sync_skip: HashSet::new(),
             increment_target: HashMap::new(),
             backfill_healed: false,
@@ -195,6 +201,7 @@ impl ImState {
     /// 会话边界 reset：每个 hello 窗口起点清空 increment/sync/todo 批次状态。
     pub fn reset_increment_batch(&mut self) {
         self.increment_fetched.clear();
+        self.increment_order.clear();
         self.need_sync_skip.clear();
         self.increment_target.clear();
         self.backfill_healed = false;

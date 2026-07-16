@@ -133,22 +133,23 @@ impl ImModule {
                         prepare.channel_id.as_str(),
                     ) {
                         Ok(prepared) => {
-                            let req = crate::send::upload_props::media_upload_request(
-                                &prepare.input,
-                                &prepared,
-                            )?;
-                            let corr = self.alloc_corr_internal();
-                            self.state.pending_media_ops.insert(
-                                corr,
-                                PendingMediaOp::Put(PendingMediaPut {
-                                    temporary_id: prepare.temporary_id,
-                                    channel_id: prepare.channel_id,
-                                    target: prepare.target,
-                                    input: prepare.input,
-                                    prepared,
-                                }),
-                            );
-                            out.push(helix_core::Effect::UploadFile { corr, req });
+                            let put = PendingMediaPut {
+                                temporary_id: prepare.temporary_id,
+                                channel_id: prepare.channel_id,
+                                target: prepare.target,
+                                input: prepare.input,
+                                prepared,
+                            };
+                            let persist_corr = self.alloc_corr_internal();
+                            out.push(helix_core::Effect::Persist {
+                                corr: persist_corr,
+                                ops: vec![crate::send::upload_props::durable_upsert_op(
+                                    &PendingMediaOp::Put(put.clone()),
+                                )?],
+                            });
+                            self.state
+                                .pending_media_stage_persists
+                                .insert(persist_corr, PendingMediaOp::Put(put));
                         }
                         Err(reason) => {
                             self.fail_media_operation(
@@ -169,21 +170,16 @@ impl ImModule {
             },
             PendingMediaOp::Put(put) => match outcome {
                 PortOutcome::Ok(_) => {
-                    let corr = self.alloc_corr_internal();
-                    let req = crate::send::upload_props::complete_upload_request(
-                        &self.config.api_base_url,
-                        &put.prepared.upload_id,
-                        crate::acl::sync_http_effects::session_auth_headers(
-                            self.state.connection_id.as_deref(),
-                        ),
-                    )?;
+                    let persist_corr = self.alloc_corr_internal();
+                    out.push(helix_core::Effect::Persist {
+                        corr: persist_corr,
+                        ops: vec![crate::send::upload_props::durable_upsert_op(
+                            &PendingMediaOp::Complete(put.clone()),
+                        )?],
+                    });
                     self.state
-                        .waiting_media_complete
-                        .insert(put.prepared.upload_id.clone(), put.clone());
-                    self.state
-                        .pending_media_ops
-                        .insert(corr, PendingMediaOp::Complete(put));
-                    out.push(helix_core::Effect::Http { corr, req });
+                        .pending_media_stage_persists
+                        .insert(persist_corr, PendingMediaOp::Complete(put));
                 }
                 PortOutcome::Err(error) => {
                     self.fail_media_operation(FailedMediaOp::Put(put), &format!("{error:?}"), out)?;
@@ -219,6 +215,68 @@ impl ImModule {
                         )?;
                     }
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_media_stage_persist_reply(
+        &mut self,
+        pending: crate::send::upload_props::PendingMediaOp,
+        outcome: &helix_core::tick::PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        use crate::send::upload_props::{FailedMediaOp, PendingMediaOp, PendingMediaPrepare};
+        use helix_core::tick::PortOutcome;
+
+        match outcome {
+            PortOutcome::Ok(_) => match pending {
+                PendingMediaOp::Prepare(prepare) => self.emit_media_prepare(
+                    prepare.channel_id,
+                    prepare.temporary_id,
+                    prepare.target,
+                    prepare.input,
+                    out,
+                )?,
+                PendingMediaOp::Put(put) => {
+                    let req =
+                        crate::send::upload_props::media_upload_request(&put.input, &put.prepared)?;
+                    let corr = self.alloc_corr_internal();
+                    self.state
+                        .pending_media_ops
+                        .insert(corr, PendingMediaOp::Put(put));
+                    out.push(helix_core::Effect::UploadFile { corr, req });
+                }
+                PendingMediaOp::Complete(put) => {
+                    let req = crate::send::upload_props::complete_upload_request(
+                        &self.config.api_base_url,
+                        &put.prepared.upload_id,
+                        crate::acl::sync_http_effects::session_auth_headers(
+                            self.state.connection_id.as_deref(),
+                        ),
+                    )?;
+                    let corr = self.alloc_corr_internal();
+                    self.state
+                        .waiting_media_complete
+                        .insert(put.prepared.upload_id.clone(), put.clone());
+                    self.state
+                        .pending_media_ops
+                        .insert(corr, PendingMediaOp::Complete(put));
+                    out.push(helix_core::Effect::Http { corr, req });
+                }
+            },
+            PortOutcome::Err(error) => {
+                let fallback = match pending {
+                    PendingMediaOp::Prepare(prepare) => FailedMediaOp::Prepare(prepare),
+                    PendingMediaOp::Put(put) => FailedMediaOp::Prepare(PendingMediaPrepare {
+                        temporary_id: put.temporary_id,
+                        channel_id: put.channel_id,
+                        target: put.target,
+                        input: put.input,
+                    }),
+                    PendingMediaOp::Complete(put) => FailedMediaOp::Put(put),
+                };
+                self.fail_media_operation(fallback, &format!("{error:?}"), out)?;
             }
         }
         Ok(())
@@ -274,10 +332,13 @@ impl ImModule {
                 .map_err(|error| ImError::Serialize(error.to_string()))?;
             out.push(helix_core::Effect::Persist {
                 corr: persist_corr,
-                ops: vec![crate::pending_send::props_persist_op(
-                    &pending.temporary_id,
-                    props_json,
-                )],
+                ops: vec![
+                    crate::pending_send::props_persist_op(&pending.temporary_id, props_json),
+                    crate::send::upload_props::durable_delete_op(
+                        &pending.temporary_id,
+                        &pending.target,
+                    ),
+                ],
             });
             if send.remaining_uploads > 0 {
                 send.remaining_uploads -= 1;

@@ -3,7 +3,8 @@
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
 use crate::send::upload_props::{
-    CompletedMedia, FailedMediaOp, PendingMediaOp, PendingMediaPut, PendingUpload, UploadTarget,
+    CompletedMedia, FailedMediaOp, PendingMediaOp, PendingMediaPrepare, PendingMediaPut,
+    PendingUpload, UploadTarget,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -47,6 +48,14 @@ pub struct ImState {
     /// 媒体 Prepare/PUT 回包路由；corr 单次 O(1) remove 后按阶段分发。
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
 
+    /// Initial Prepare operations released only after the optimistic message +
+    /// pending_media journal batch is acknowledged.
+    pub pending_media_after_optimistic: HashMap<TemporaryId, Vec<PendingMediaPrepare>>,
+
+    /// Durable stage transition corr -> operation that may start only after the
+    /// journal update succeeds.
+    pub pending_media_stage_persists: HashMap<helix_core::Correlation, PendingMediaOp>,
+
     /// PUT 成功但尚未执行 complete 的媒体；B2 以 uploadId O(1) 继续状态机。
     pub waiting_media_complete: HashMap<String, PendingMediaPut>,
 
@@ -55,6 +64,10 @@ pub struct ImState {
 
     /// 最近失败的媒体阶段；im_retry_send 按消息/target 精确恢复，不越级重放。
     pub failed_media_ops: HashMap<(TemporaryId, UploadTarget), FailedMediaOp>,
+
+    /// Startup `pending_media` scan correlation. Kept outside the generic
+    /// correlation map because this is an internal recovery journal route.
+    pub pending_media_rehydrate_corr: Option<helix_core::Correlation>,
 
     /// 媒体 retry 在途消息；重复 im_retry_send 以 temporaryId O(1) 幂等 no-op。
     pub media_retry_inflight: HashSet<TemporaryId>,
@@ -149,9 +162,12 @@ impl ImState {
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             pending_media_ops: HashMap::new(),
+            pending_media_after_optimistic: HashMap::new(),
+            pending_media_stage_persists: HashMap::new(),
             waiting_media_complete: HashMap::new(),
             completed_media: HashMap::new(),
             failed_media_ops: HashMap::new(),
+            pending_media_rehydrate_corr: None,
             media_retry_inflight: HashSet::new(),
             corr_map: HashMap::new(),
             reply_projection_revisions: HashMap::new(),

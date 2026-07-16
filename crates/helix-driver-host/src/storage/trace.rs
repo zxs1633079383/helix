@@ -48,7 +48,7 @@ pub(super) fn trace_sql<'a>(
         ("db.system", "sqlite".to_string()),
         ("db.operation", operation.to_string()),
         ("db.statement", bounded_attr(statement)),
-        ("db.parameters", bounded_attr(&sql_params_json(params))),
+        ("db.parameters", sql_params_attr(table, params)),
     ];
     if let Some(table) = table {
         attrs.push(("db.sql.table", table.to_string()));
@@ -79,6 +79,13 @@ fn sql_params_json(params: &[Value]) -> String {
     serde_json::to_string(&json_values).unwrap_or_else(|_| "[]".to_string())
 }
 
+fn sql_params_attr(table: Option<&str>, params: &[Value]) -> String {
+    if table == Some("pending_media") {
+        return "[REDACTED]".to_string();
+    }
+    bounded_attr(&sql_params_json(params))
+}
+
 fn bounded_attr(value: &str) -> String {
     if value.len() <= SQL_TRACE_MAX_BYTES {
         return value.to_string();
@@ -94,4 +101,27 @@ fn bounded_attr(value: &str) -> String {
         &value[..boundary],
         value.len() - boundary
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_media_parameters_are_redacted_while_regular_tables_remain_observable() {
+        let params = vec![
+            Value::Text("/tmp/private.pdf".to_string()),
+            Value::Text("https://signed.example/put?token=secret".to_string()),
+            Value::Text("Authorization: secret".to_string()),
+        ];
+
+        let redacted = sql_params_attr(Some("pending_media"), &params);
+        assert_eq!(redacted, "[REDACTED]");
+        assert!(!redacted.contains("private.pdf"));
+        assert!(!redacted.contains("token=secret"));
+
+        let regular = sql_params_attr(Some("message"), &params);
+        assert!(regular.contains("private.pdf"));
+        assert!(regular.contains("token=secret"));
+    }
 }

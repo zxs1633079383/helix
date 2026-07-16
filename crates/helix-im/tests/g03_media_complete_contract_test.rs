@@ -113,6 +113,29 @@ fn upload_corr(h: &Harness) -> u64 {
         .expect("UploadFile corr")
 }
 
+fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
+                        spec.rows.iter().flatten().any(|(column, value)| {
+                            column == "stage"
+                                && matches!(value, SqlValue::Text(value) if value == stage)
+                        })
+                    }
+                    _ => false,
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("pending media stage persist")
+}
+
 fn reply_with_corr(corr: u64, tick: Tick) -> Tick {
     match tick {
         Tick::PortReply { outcome, .. } => Tick::PortReply {
@@ -125,6 +148,8 @@ fn reply_with_corr(corr: u64, tick: Tick) -> Tick {
 
 fn drive_to_put(h: &mut Harness, cmd: Tick, content_type: &str) {
     h.step(cmd, 1000);
+    let initial_corr = pending_stage_corr(h, "prepare");
+    h.step(port_reply_ok(initial_corr), 1001);
     let prepare_corr = http_effects(h, "/media/upload/prepare")[0].0;
     h.step(
         reply_with_corr(
@@ -133,11 +158,15 @@ fn drive_to_put(h: &mut Harness, cmd: Tick, content_type: &str) {
         ),
         1010,
     );
+    let put_corr = pending_stage_corr(h, "put");
+    h.step(port_reply_ok(put_corr), 1011);
 }
 
 fn drive_to_complete(h: &mut Harness, cmd: Tick, content_type: &str) -> u64 {
     drive_to_put(h, cmd, content_type);
     h.step(port_reply_ok(upload_corr(h)), 1020);
+    let complete_corr = pending_stage_corr(h, "complete");
+    h.step(port_reply_ok(complete_corr), 1021);
     http_effects(h, "/media/upload/complete")
         .last()
         .expect("complete request")
@@ -180,7 +209,9 @@ fn put_success_emits_only_complete_with_upload_id() {
     let mut h = Harness::new(&[1]);
     drive_to_put(&mut h, file_cmd(), "application/pdf");
 
-    let effects = h.step(port_reply_ok(upload_corr(&h)), 1020);
+    h.step(port_reply_ok(upload_corr(&h)), 1020);
+    let complete_corr = pending_stage_corr(&h, "complete");
+    let effects = h.step(port_reply_ok(complete_corr), 1021);
 
     assert_eq!(
         effects

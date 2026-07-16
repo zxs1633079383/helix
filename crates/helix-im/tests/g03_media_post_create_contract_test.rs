@@ -4,7 +4,7 @@ use bytes::Bytes;
 use common::{
     cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, EffectKind, Harness,
 };
-use helix_core::effect::{Effect, HttpRequest};
+use helix_core::effect::{Effect, HttpRequest, SqlValue, StorageOp};
 use helix_core::Tick;
 use serde_json::{json, Value};
 
@@ -158,6 +158,34 @@ fn upload_corr(h: &Harness) -> u64 {
         .expect("UploadFile corr")
 }
 
+fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
+                        spec.rows.iter().flatten().any(|(column, value)| {
+                            column == "stage"
+                                && matches!(value, SqlValue::Text(value) if value == stage)
+                        })
+                    }
+                    _ => false,
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("pending media stage persist")
+}
+
+fn release_initial(h: &mut Harness, now_ms: u64) {
+    let corr = pending_stage_corr(h, "prepare");
+    h.step(port_reply_ok(corr), now_ms);
+}
+
 fn posts_count(h: &Harness) -> usize {
     http_effects(h, "/posts/create").len()
 }
@@ -172,11 +200,15 @@ fn posts_body(h: &Harness) -> Value {
 
 fn prepare_one(h: &mut Harness, corr: u64, media: MediaFixture, now_ms: u64) -> u64 {
     h.step(reply(corr, success(prepare_data(media))), now_ms);
+    let persist = pending_stage_corr(h, "put");
+    h.step(port_reply_ok(persist), now_ms + 1);
     upload_corr(h)
 }
 
 fn put_one(h: &mut Harness, corr: u64, now_ms: u64) -> u64 {
     h.step(port_reply_ok(corr), now_ms);
+    let persist = pending_stage_corr(h, "complete");
+    h.step(port_reply_ok(persist), now_ms + 1);
     http_effects(h, "/media/upload/complete")[0].0
 }
 
@@ -204,6 +236,7 @@ fn assert_no_transient_fields(body: &Value) {
 fn single_attachment_complete_posts_once_and_arms_timer() {
     let mut h = Harness::new(&[1]);
     h.step(file_cmd(), 1000);
+    release_initial(&mut h, 1001);
     let prepare_corr = http_effects(&h, "/media/upload/prepare")[0].0;
     let upload = prepare_one(&mut h, prepare_corr, FILE, 1010);
     let complete = put_one(&mut h, upload, 1020);
@@ -237,6 +270,7 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
 fn multi_attachment_out_of_order_waits_for_all_and_posts_exactly_once() {
     let mut h = Harness::new(&[1]);
     h.step(rich_cmd(), 1000);
+    release_initial(&mut h, 1001);
     let prepares = http_effects(&h, "/media/upload/prepare");
     assert_eq!(prepares.len(), 2);
     let upload_a = prepare_one(&mut h, prepares[0].0, IMAGE_A, 1010);
@@ -277,6 +311,7 @@ fn multi_attachment_out_of_order_waits_for_all_and_posts_exactly_once() {
 fn one_mismatched_attachment_closes_the_multi_attachment_gate() {
     let mut h = Harness::new(&[1]);
     h.step(rich_cmd(), 1000);
+    release_initial(&mut h, 1001);
     let prepares = http_effects(&h, "/media/upload/prepare");
     let upload_a = prepare_one(&mut h, prepares[0].0, IMAGE_A, 1010);
     let upload_b = prepare_one(&mut h, prepares[1].0, IMAGE_B, 1020);

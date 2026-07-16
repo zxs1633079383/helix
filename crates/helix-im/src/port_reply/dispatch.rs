@@ -19,8 +19,33 @@ impl ImModule {
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
 
+        if self.state.pending_media_rehydrate_corr == Some(corr) {
+            self.state.pending_media_rehydrate_corr = None;
+            match outcome {
+                PortOutcome::Ok(reply) => {
+                    self.state.failed_media_ops.clear();
+                    for operation in
+                        crate::send::upload_props::decode_durable_scan(reply.0.as_ref())?
+                    {
+                        self.state.failed_media_ops.insert(
+                            (operation.temporary_id().clone(), operation.target().clone()),
+                            operation,
+                        );
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(error = ?error, "pending_media recovery scan failed");
+                }
+            }
+            return Ok(());
+        }
+
         if let Some(pending_media) = self.state.pending_media_ops.remove(&corr) {
             return self.handle_media_port_reply(pending_media, outcome, out);
+        }
+
+        if let Some(pending_media) = self.state.pending_media_stage_persists.remove(&corr) {
+            return self.handle_media_stage_persist_reply(pending_media, outcome, out);
         }
 
         if let Some(pending_upload) = self.state.pending_uploads.remove(&corr) {
@@ -143,7 +168,7 @@ impl ImModule {
 
             // 路由：发送 Persist 回报（P1 乐观落库）
             CorrelationContext::OptimisticSend { temporary_id } => {
-                self.handle_optimistic_send_reply(temporary_id, outcome);
+                self.handle_optimistic_send_reply(temporary_id, outcome, out)?;
             }
 
             // F1：posts/create HTTP 200 兜底对账（真 Go self-omit echo，见 `send_reconcile`）。
@@ -175,12 +200,9 @@ impl ImModule {
             CorrelationContext::MessageQueryLocal {
                 request,
                 query_session_epoch,
-            } => self.handle_message_query_local_reply(
-                *request,
-                query_session_epoch,
-                outcome,
-                out,
-            )?,
+            } => {
+                self.handle_message_query_local_reply(*request, query_session_epoch, outcome, out)?
+            }
 
             CorrelationContext::MessageQueryRemote {
                 request,

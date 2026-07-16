@@ -2,7 +2,7 @@
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
-use crate::send::upload_props::{PendingMediaOp, PendingMediaPut, PendingUpload};
+use crate::send::upload_props::{CompletedMedia, PendingMediaOp, PendingMediaPut, PendingUpload};
 use std::collections::{HashMap, HashSet};
 
 mod values;
@@ -47,6 +47,9 @@ pub struct ImState {
 
     /// PUT 成功但尚未执行 complete 的媒体；B2 以 uploadId O(1) 继续状态机。
     pub waiting_media_complete: HashMap<String, PendingMediaPut>,
+
+    /// 已通过 complete 严格校验的可信媒体引用；B2b 据此做多附件 barrier/readback。
+    pub completed_media: HashMap<String, CompletedMedia>,
 
     /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。取代旧
     /// 4 张分散 HashMap + 1 个 `Option`（`scan_corr`）。`PortReply` 到达时单次 `remove(corr)` 取出
@@ -139,6 +142,7 @@ impl ImState {
             pending_uploads: HashMap::new(),
             pending_media_ops: HashMap::new(),
             waiting_media_complete: HashMap::new(),
+            completed_media: HashMap::new(),
             corr_map: HashMap::new(),
             reply_projection_revisions: HashMap::new(),
             reply_projection_seen_ids: HashMap::new(),

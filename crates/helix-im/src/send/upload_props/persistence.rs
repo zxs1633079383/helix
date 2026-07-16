@@ -22,9 +22,20 @@ fn strip_write_credentials(node: &mut Value) {
     if let Some(node) = node.as_object_mut() {
         node.remove("mediaInput");
         node.remove("localPath");
-        node.remove("userId");
-        node.remove("teamId");
-        node.remove("etag");
+        for field in [
+            "objectKey",
+            "uploadId",
+            "fileId",
+            "headers",
+            "userId",
+            "teamId",
+            "etag",
+            "method",
+            "state",
+            "publicUrl",
+        ] {
+            node.remove(field);
+        }
     }
     if let Some(upload) = node.get_mut("upload").and_then(Value::as_object_mut) {
         upload.remove("url");
@@ -32,6 +43,12 @@ fn strip_write_credentials(node: &mut Value) {
         upload.remove("userId");
         upload.remove("teamId");
         upload.remove("etag");
+        upload.remove("objectKey");
+        upload.remove("uploadId");
+        upload.remove("fileId");
+        upload.remove("method");
+        upload.remove("state");
+        upload.remove("publicUrl");
     }
 }
 

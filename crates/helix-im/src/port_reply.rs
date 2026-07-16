@@ -175,9 +175,21 @@ impl ImModule {
             },
             PendingMediaOp::Put(put) => match outcome {
                 PortOutcome::Ok(_) => {
+                    let corr = self.alloc_corr_internal();
+                    let req = crate::send::upload_props::complete_upload_request(
+                        &self.config.api_base_url,
+                        &put.prepared.upload_id,
+                        crate::acl::sync_http_effects::session_auth_headers(
+                            self.state.connection_id.as_deref(),
+                        ),
+                    )?;
                     self.state
                         .waiting_media_complete
-                        .insert(put.prepared.upload_id.clone(), put);
+                        .insert(put.prepared.upload_id.clone(), put.clone());
+                    self.state
+                        .pending_media_ops
+                        .insert(corr, PendingMediaOp::Complete(put));
+                    out.push(helix_core::Effect::Http { corr, req });
                 }
                 PortOutcome::Err(error) => {
                     self.mark_upload_failed(
@@ -190,7 +202,81 @@ impl ImModule {
                     )?;
                 }
             },
+            PendingMediaOp::Complete(put) => {
+                self.state
+                    .waiting_media_complete
+                    .remove(&put.prepared.upload_id);
+                match outcome {
+                    PortOutcome::Ok(reply) => {
+                        match crate::send::upload_props::parse_complete_reply(
+                            reply.0.as_ref(),
+                            &put,
+                        ) {
+                            Ok(reference) => {
+                                self.persist_media_complete(put, reference, out)?;
+                            }
+                            Err(reason) => {
+                                self.mark_upload_failed(
+                                    PendingUpload {
+                                        temporary_id: put.temporary_id,
+                                        target: put.target,
+                                    },
+                                    &reason,
+                                    out,
+                                )?;
+                            }
+                        }
+                    }
+                    PortOutcome::Err(error) => {
+                        self.mark_upload_failed(
+                            PendingUpload {
+                                temporary_id: put.temporary_id,
+                                target: put.target,
+                            },
+                            &format!("{error:?}"),
+                            out,
+                        )?;
+                    }
+                }
+            }
         }
+        Ok(())
+    }
+
+    fn persist_media_complete(
+        &mut self,
+        pending: crate::send::upload_props::PendingMediaPut,
+        reference: crate::send::upload_props::TrustedMediaReference,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let persist_corr = self.alloc_corr_internal();
+        let Some(send) = self.state.pending_sends.get_mut(&pending.temporary_id) else {
+            return Ok(());
+        };
+        let Some(body) = send.body.as_mut() else {
+            return Ok(());
+        };
+        let Some(props) = body.get_mut("props") else {
+            return Ok(());
+        };
+        crate::send::upload_props::mark_media_complete(props, &pending.target, &reference)?;
+        let props_json =
+            serde_json::to_string(props).map_err(|error| ImError::Serialize(error.to_string()))?;
+        out.push(helix_core::Effect::Persist {
+            corr: persist_corr,
+            ops: vec![crate::pending_send::props_persist_op(
+                &pending.temporary_id,
+                props_json,
+            )],
+        });
+        self.state.completed_media.insert(
+            pending.prepared.upload_id,
+            crate::send::upload_props::CompletedMedia {
+                temporary_id: pending.temporary_id,
+                target: pending.target,
+                reference,
+            },
+        );
         Ok(())
     }
 

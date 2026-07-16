@@ -849,7 +849,9 @@ fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
 }
 
 mod g03_prepare_contract {
-    use super::common::{cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness};
+    use super::common::{
+        cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, EffectKind, Harness,
+    };
     use bytes::Bytes;
     use helix_core::effect::{
         Effect, FileUploadRequest, HttpRequest, SqlValue, StorageOp, UpsertSpec,
@@ -1154,7 +1156,7 @@ mod g03_prepare_contract {
     }
 
     #[test]
-    fn put_success_only_enters_waiting_complete() {
+    fn put_success_only_starts_complete_without_posts_create() {
         let mut h = Harness::new(&[1]);
         h.step(file_cmd("tmp-put-ok"), 1000);
         let prepare_corr = prepare_effects(&h)[0].0;
@@ -1172,7 +1174,14 @@ mod g03_prepare_contract {
         let upload_corr = upload_effects(&h)[0].0;
         let effects = h.step(port_reply_ok(upload_corr), 1020);
 
-        assert!(effects.is_empty(), "PUT success must wait for B2 complete");
+        assert_eq!(
+            effects
+                .iter()
+                .filter(|effect| matches!(effect, EffectKind::Http(_)))
+                .count(),
+            1,
+            "PUT success must start exactly one complete request"
+        );
         assert_eq!(posts_create_count(&h), 0);
     }
 }

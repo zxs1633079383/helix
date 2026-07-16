@@ -1,4 +1,4 @@
-use super::{UploadSuccess, UploadTarget};
+use super::{TrustedMediaReference, UploadSuccess, UploadTarget};
 use crate::ImError;
 use serde_json::{json, Value};
 
@@ -65,6 +65,42 @@ pub fn mark_upload_failed(
         .and_then(Value::as_object_mut)
         .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?;
     upload.insert("status".to_string(), json!("failed"));
+    Ok(())
+}
+
+pub fn mark_media_complete(
+    props: &mut Value,
+    target: &UploadTarget,
+    reference: &TrustedMediaReference,
+) -> Result<(), ImError> {
+    let node = target_node_mut(props, target)?;
+    let object = node
+        .as_object_mut()
+        .ok_or_else(|| ImError::Parse("media target must be object".to_string()))?;
+    for field in [
+        "mediaInput",
+        "localPath",
+        "objectKey",
+        "uploadId",
+        "fileId",
+        "headers",
+        "userId",
+        "teamId",
+        "etag",
+        "method",
+        "state",
+        "publicUrl",
+    ] {
+        object.remove(field);
+    }
+    object.insert("id".to_string(), json!(&reference.file_id));
+    object.insert("name".to_string(), json!(&reference.file_name));
+    object.insert("url".to_string(), json!(&reference.url));
+    object.insert("uri".to_string(), json!(&reference.url));
+    object.insert("contentType".to_string(), json!(&reference.content_type));
+    object.insert("size".to_string(), json!(reference.size));
+    object.insert("sha256".to_string(), json!(&reference.sha256));
+    object.insert("upload".to_string(), json!({"status": "completed"}));
     Ok(())
 }
 

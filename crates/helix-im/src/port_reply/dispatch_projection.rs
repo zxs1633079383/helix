@@ -100,7 +100,7 @@ impl ImModule {
             return;
         };
         let persist_corr = self.alloc_corr_internal();
-        let row: Row = vec![
+        let mut row: Row = vec![
             (
                 "id".to_string(),
                 SqlValue::Text(projection.channel_id.as_str().to_string()),
@@ -118,6 +118,12 @@ impl ImModule {
                 SqlValue::Integer(projection.setting_version as i64),
             ),
         ];
+        if let Some(display_name) = projection.display_name.as_ref() {
+            row.push((
+                "display_name".to_string(),
+                SqlValue::Text(display_name.clone()),
+            ));
+        }
         out.push(Effect::Persist {
             corr: persist_corr,
             ops: vec![StorageOp::BatchUpsert(UpsertSpec {
@@ -142,10 +148,18 @@ impl ImModule {
         if !matches!(outcome, PortOutcome::Ok(_)) {
             return;
         }
-        let channel = serde_json::json!({
+        let mut channel = serde_json::json!({
             "purpose": projection.purpose,
             "header": projection.header,
         });
+        if let (Some(settings), Some(display_name)) =
+            (channel.as_object_mut(), projection.display_name)
+        {
+            settings.insert(
+                "displayName".to_string(),
+                serde_json::Value::String(display_name),
+            );
+        }
         if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
             projection.channel_id,
             &channel,
@@ -216,6 +230,10 @@ fn decode_settings_projection(
         .get("settings")
         .filter(|value| value.is_object())
         .unwrap_or(&data);
+    let display_name = settings
+        .get("displayName")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
     let purpose = settings.get("purpose")?.as_str()?.to_string();
     let header = settings.get("header")?.as_str()?.to_string();
     let setting_version = data
@@ -225,6 +243,7 @@ fn decode_settings_projection(
         .filter(|version| *version <= i64::MAX as u64)?;
     Some(ChannelSettingsProjection {
         channel_id,
+        display_name,
         purpose,
         header,
         setting_version,

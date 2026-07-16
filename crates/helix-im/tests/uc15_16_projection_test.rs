@@ -211,6 +211,7 @@ fn display_name_command_uses_same_authoritative_settings_persist_barrier() {
             "status":"SUCCESS",
             "data": {
                 "channelId":cid(16),
+                "displayName":"新群名",
                 "purpose":"服务端简介",
                 "header":"服务端规则",
                 "settingVersion":12
@@ -224,12 +225,15 @@ fn display_name_command_uses_same_authoritative_settings_persist_barrier() {
         persisted_channel_value(&h, "header"),
         Some(helix_core::effect::SqlValue::Text(value)) if value == "服务端规则"
     ));
+    assert!(matches!(
+        persisted_channel_value(&h, "display_name"),
+        Some(helix_core::effect::SqlValue::Text(value)) if value == "新群名"
+    ));
     let (persist_corr, _) = persist_corr_and_tables(&h);
     h.step(port_reply_ok(persist_corr), 3_120);
-    assert_eq!(
-        emit_data(&h, "im:channel:settings-updated")[0]["settingVersion"],
-        12
-    );
+    let updates = emit_data(&h, "im:channel:settings-updated");
+    assert_eq!(updates[0]["settingVersion"], 12);
+    assert_eq!(updates[0]["settings"]["displayName"], "新群名");
 }
 
 #[test]

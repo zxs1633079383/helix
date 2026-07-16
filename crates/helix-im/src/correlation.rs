@@ -15,6 +15,7 @@ pub struct MakeTopicProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelSettingsProjection {
     pub channel_id: ChannelId,
+    pub display_name: Option<String>,
     pub purpose: String,
     pub header: String,
     pub setting_version: u64,

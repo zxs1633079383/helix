@@ -5,6 +5,7 @@
 
 use super::*;
 use helix_core::Effect;
+use serde_json::json;
 
 const CH: &str = "ch00000000000000000000000a";
 
@@ -13,12 +14,7 @@ fn row(id: &str, tmp: &str, at: i64) -> Value {
 }
 
 fn st() -> LoadOlderState {
-    LoadOlderState::new(
-        ChannelId::from_str(CH).unwrap(),
-        "anchor".to_string(),
-        10_000,
-        50,
-    )
+    LoadOlderState::new(ChannelId::from_str(CH).unwrap(), "anchor".to_string(), 50)
 }
 
 #[test]
@@ -36,11 +32,11 @@ fn stop_truncates_to_target_and_sorts_ascending() {
     let mut s = LoadOlderState::new(
         ChannelId::from_str(CH).unwrap(),
         "anchor".to_string(),
-        10_000,
         2, // target=2
     );
     // 一轮收 4 条更早（乱序）→ stop 应排序升序 + truncate(2)。
     let rows = vec![
+        row("anchor", "t-anchor", 10_000),
         row("i1", "t1", 900),
         row("i2", "t2", 700),
         row("i3", "t3", 800),
@@ -67,7 +63,7 @@ fn round_decision_is_debug_and_eq() {
 }
 
 #[test]
-fn build_body_constant_batch_and_path() {
+fn build_body_uses_target_and_path() {
     let s = st();
     let (path, body) = build_post_context_body(&s);
     assert_eq!(path, "posts/postContext");
@@ -78,7 +74,10 @@ fn build_body_constant_batch_and_path() {
 #[test]
 fn rows_missing_temporary_id_are_not_collected() {
     let mut s = st();
-    // 更早但缺 temporaryId → 不进 older（去重键空，避免空键碰撞）。
-    s.ingest_round(&[json!({"id":"i1","createAt":900,"channelId":CH})]);
+    // 更早但缺 temporaryId → 整轮 fail-closed，不留下部分历史。
+    s.ingest_round(&[
+        row("anchor", "t-anchor", 10_000),
+        json!({"id":"i1","createAt":900,"channelId":CH}),
+    ]);
     assert_eq!(s.older_count(), 0);
 }

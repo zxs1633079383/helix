@@ -28,11 +28,10 @@ fn post(id: &str, temporary_id: &str, create_at: i64) -> serde_json::Value {
     })
 }
 
-fn state(anchor_id: &str, anchor_create_at: i64, target: u32) -> LoadOlderState {
+fn state(anchor_id: &str, target: u32) -> LoadOlderState {
     LoadOlderState::new(
         ChannelId::from_str(CH).unwrap(),
         anchor_id.to_string(),
-        anchor_create_at,
         target,
     )
 }
@@ -40,38 +39,32 @@ fn state(anchor_id: &str, anchor_create_at: i64, target: u32) -> LoadOlderState 
 // ── parse_request ──────────────────────────────────────────────────────────
 
 #[test]
-fn parse_request_extracts_anchor_and_clamps_target() {
+fn parse_request_extracts_canonical_anchor_and_before() {
     let payload = serde_json::to_vec(&json!({
         "channel_id": CH,
         "anchor_post_id": "p-anchor",
-        "anchor_create_at": 1_000_i64,
-        "req_id": "mrc-g10a:req-1",
-        "limit": 20
+        "before": 20
     }))
     .unwrap();
     let st = parse_request(&payload).expect("parse ok");
     assert_eq!(st.channel_id().as_str(), CH);
-    assert_eq!(st.anchor_create_at(), 1_000);
+    assert_eq!(st.anchor_create_at(), 0, "首轮回包前没有权威时间边界");
     assert_eq!(st.target(), 20);
     assert_eq!(st.pivot_id(), "p-anchor");
-    assert_eq!(st.request_id(), Some("mrc-g10a:req-1"));
+    assert_eq!(st.request_id(), None);
 }
 
 #[test]
-fn parse_request_clamps_limit_to_1_100() {
-    let big = serde_json::to_vec(&json!({
-        "channel_id": CH, "anchor_post_id": "p", "anchor_create_at": 1, "limit": 9999
-    }))
-    .unwrap();
-    assert_eq!(parse_request(&big).unwrap().target(), 100);
-    // limit 0 / 缺省 → clamp 到 ≥1。
-    let zero = serde_json::to_vec(&json!({
-        "channel_id": CH, "anchor_post_id": "p", "anchor_create_at": 1, "limit": 0
-    }))
-    .unwrap();
-    assert_eq!(parse_request(&zero).unwrap().target(), 1);
+fn parse_request_enforces_before_range_and_default() {
+    for invalid in [0, 101] {
+        let payload = serde_json::to_vec(&json!({
+            "channel_id": CH, "anchor_post_id": "p", "before": invalid
+        }))
+        .unwrap();
+        assert!(parse_request(&payload).is_err());
+    }
     let missing = serde_json::to_vec(&json!({
-        "channel_id": CH, "anchor_post_id": "p", "anchor_create_at": 1
+        "channel_id": CH, "anchor_post_id": "p"
     }))
     .unwrap();
     assert_eq!(parse_request(&missing).unwrap().target(), 20);
@@ -80,43 +73,42 @@ fn parse_request_clamps_limit_to_1_100() {
 #[test]
 fn parse_request_rejects_missing_or_bad_fields() {
     // 缺 channel_id。
-    let p1 = serde_json::to_vec(&json!({"anchor_post_id":"p","anchor_create_at":1})).unwrap();
+    let p1 = serde_json::to_vec(&json!({"anchor_post_id":"p"})).unwrap();
     assert!(parse_request(&p1).is_err());
     // 缺 anchor_post_id。
-    let p2 = serde_json::to_vec(&json!({"channel_id":CH,"anchor_create_at":1})).unwrap();
+    let p2 = serde_json::to_vec(&json!({"channel_id":CH})).unwrap();
     assert!(parse_request(&p2).is_err());
-    // 缺 anchor_create_at。
-    let p3 = serde_json::to_vec(&json!({"channel_id":CH,"anchor_post_id":"p"})).unwrap();
-    assert!(parse_request(&p3).is_err());
     // 非法 channel_id（长度不符 Id26）。
-    let p4 =
-        serde_json::to_vec(&json!({"channel_id":"bad","anchor_post_id":"p","anchor_create_at":1}))
-            .unwrap();
+    let p4 = serde_json::to_vec(&json!({"channel_id":"bad","anchor_post_id":"p"})).unwrap();
     assert!(parse_request(&p4).is_err());
     // 坏 JSON 不 panic。
     assert!(parse_request(b"not json{").is_err());
+    // forbid_unknown：旧时间/req/limit 不得悄悄兼容。
+    for unknown in ["anchor_create_at", "req_id", "limit"] {
+        let mut payload = json!({"channel_id":CH,"anchor_post_id":"p"});
+        payload[unknown] = json!(1);
+        assert!(parse_request(&serde_json::to_vec(&payload).unwrap()).is_err());
+    }
 }
 
 // ── build_post_context_body ────────────────────────────────────────────────
 
 #[test]
-fn build_post_context_body_uses_pivot_and_batch_50() {
-    let st = state("p-anchor", 1_000, 20);
+fn build_post_context_body_uses_pivot_and_canonical_before() {
+    let st = state("p-anchor", 20);
     let (path, body) = build_post_context_body(&st);
     assert_eq!(path, "posts/postContext");
-    // 真源 body {postId, before:int}（http.rs:96 batch=50）。
+    // 真源 body {postId, before:int}；before 是 canonical 目标数。
     assert_eq!(body["postId"], "p-anchor");
-    assert_eq!(body["before"], 50);
+    assert_eq!(body["before"], 20);
 }
 
 #[test]
-fn post_context_http_carries_current_run_track_id() {
+fn post_context_http_omits_client_supplied_track_id() {
     let st = parse_request(
         &serde_json::to_vec(&json!({
             "channel_id": CH,
-            "anchor_post_id": "p-anchor",
-            "anchor_create_at": 1_000_i64,
-            "req_id": "mrc-g10a:req-1"
+            "anchor_post_id": "p-anchor"
         }))
         .unwrap(),
     )
@@ -132,23 +124,20 @@ fn post_context_http_carries_current_run_track_id() {
     let helix_core::effect::Effect::Http { req, .. } = effect else {
         panic!("expected Http")
     };
-    assert!(req
-        .headers
-        .iter()
-        .any(|(name, value)| name == "Cses-Track-Id" && value == "mrc-g10a:req-1"));
+    assert!(!req.headers.iter().any(|(name, _)| name == "Cses-Track-Id"));
 }
 
 // ── ingest_round：严格更早 + 去重 + pivot + 续停判定 ──────────────────────────
 
 #[test]
 fn ingest_round_keeps_only_strictly_older_and_dedups() {
-    let mut st = state("p-anchor", 1_000, 20);
+    let mut st = state("p-anchor", 20);
     // 锚点同条(=1000) + 更新条(>1000) 不收；更早 2 条收。
     let rows = vec![
-        post("id-anchor", "t-anchor", 1_000), // 同毫秒，非严格更早 → 砍
-        post("id-newer", "t-newer", 1_100),   // 更新 → 砍
-        post("id-old1", "t-old1", 900),       // 更早 → 收
-        post("id-old2", "t-old2", 800),       // 更早 → 收
+        post("p-anchor", "t-anchor", 1_000), // 原始锚点建立权威时间边界
+        post("id-newer", "t-newer", 1_100),  // 更新 → 砍
+        post("id-old1", "t-old1", 900),      // 更早 → 收
+        post("id-old2", "t-old2", 800),      // 更早 → 收
     ];
     let decision = st.ingest_round(&rows);
     assert_eq!(st.older_count(), 2);
@@ -157,6 +146,7 @@ fn ingest_round_keeps_only_strictly_older_and_dedups() {
 
     // 重叠批：t-old1 重复 + 新更早 t-old3 → 只 t-old3 进。
     let rows2 = vec![
+        post("id-old2", "t-old2", 800),
         post("id-old1", "t-old1", 900),
         post("id-old3", "t-old3", 700),
     ];
@@ -166,8 +156,9 @@ fn ingest_round_keeps_only_strictly_older_and_dedups() {
 
 #[test]
 fn ingest_round_stops_when_target_reached_hasmore_true() {
-    let mut st = state("p-anchor", 1_000, 2);
+    let mut st = state("p-anchor", 2);
     let rows = vec![
+        post("p-anchor", "t-anchor", 1_000),
         post("id-old1", "t-old1", 900),
         post("id-old2", "t-old2", 800),
         post("id-old3", "t-old3", 700),
@@ -182,7 +173,7 @@ fn ingest_round_stops_when_target_reached_hasmore_true() {
 
 #[test]
 fn ingest_round_stops_on_empty_batch_hasmore_false() {
-    let mut st = state("p-anchor", 1_000, 20);
+    let mut st = state("p-anchor", 20);
     let decision = st.ingest_round(&[]);
     assert!(matches!(decision, RoundDecision::Done));
     assert!(!st.has_more()); // 服务端无更早
@@ -190,41 +181,71 @@ fn ingest_round_stops_on_empty_batch_hasmore_false() {
 }
 
 #[test]
+fn later_empty_batch_keeps_already_verified_history() {
+    let mut st = state("p-anchor", 20);
+    assert_eq!(
+        st.ingest_round(&[
+            post("p-anchor", "t-anchor", 1_000),
+            post("id-old", "t-old", 900),
+        ]),
+        RoundDecision::Continue
+    );
+    assert_eq!(st.ingest_round(&[]), RoundDecision::Done);
+    assert_eq!(st.older_count(), 1);
+    assert!(!st.has_more());
+}
+
+#[test]
 fn ingest_round_stops_when_no_newer_oldest_hasmore_false() {
-    let mut st = state("p-anchor", 1_000, 20);
+    let mut st = state("p-anchor", 20);
     // 第一批最旧 = 800。
-    st.ingest_round(&[post("id-a", "t-a", 900), post("id-b", "t-b", 800)]);
+    st.ingest_round(&[
+        post("p-anchor", "t-anchor", 1_000),
+        post("id-a", "t-a", 900),
+        post("id-b", "t-b", 800),
+    ]);
     // 第二批最旧 ≥ 上批最旧（没翻出更早）→ 服务端耗尽 → 停，hasMore=false。
-    let decision = st.ingest_round(&[post("id-c", "t-c", 850), post("id-d", "t-d", 820)]);
+    let decision = st.ingest_round(&[
+        post("id-b", "t-b", 800),
+        post("id-c", "t-c", 850),
+        post("id-d", "t-d", 820),
+    ]);
     assert!(matches!(decision, RoundDecision::Done));
     assert!(!st.has_more());
 }
 
 #[test]
 fn ingest_round_stops_when_pivot_cannot_advance() {
-    // 全批 server id 为空（全是本地未带 id 的 self 消息）→ next_pivot 无 → 无法前进 → 停。
-    let mut st = state("p-anchor", 1_000, 20);
-    let rows = vec![
-        json!({"id":"", "temporaryId":"t-x", "createAt":900, "channelId":CH}),
-        json!({"id":"", "temporaryId":"t-y", "createAt":800, "channelId":CH}),
-    ];
+    // 只有当前 pivot、没有更早消息 → pivot 无法前进并停止。
+    let mut st = state("p-anchor", 20);
+    let rows = vec![post("p-anchor", "t-anchor", 1_000)];
     let decision = st.ingest_round(&rows);
     assert!(matches!(decision, RoundDecision::Done));
     assert!(!st.has_more());
-    // 更早消息仍收集（即便 pivot 不能再前进，本批更早部分要回灌）。
-    assert_eq!(st.older_count(), 2);
+    assert_eq!(st.older_count(), 0);
 }
 
 #[test]
 fn ingest_round_exhausts_rounds_budget() {
-    // 每轮翻出 1 条更早 + pivot 能前进，但 target 很大 → 轮数预算（8）耗尽即停。
-    let mut st = state("p-anchor", 10_000, 1_000);
+    // 每轮翻出 1 条更早 + pivot 能前进，但 target 大于轮数 → 预算（8）耗尽即停。
+    let mut st = state("p-anchor", 100);
     let mut last = RoundDecision::Continue;
-    for r in 0..9 {
-        let ts = 9_000 - r * 100; // 单调更早，保证每轮翻出更早
-        last = st.ingest_round(&[post(&format!("id-{r}"), &format!("t-{r}"), ts as i64)]);
+    let mut pivot_id = "p-anchor".to_string();
+    let mut pivot_tmp = "t-anchor".to_string();
+    let mut pivot_at = 10_000_i64;
+    for r in 0..8 {
+        let next_at = 9_000 - r * 100;
+        let next_id = format!("id-{r}");
+        let next_tmp = format!("t-{r}");
+        last = st.ingest_round(&[
+            post(&pivot_id, &pivot_tmp, pivot_at),
+            post(&next_id, &next_tmp, next_at),
+        ]);
+        pivot_id = next_id;
+        pivot_tmp = next_tmp;
+        pivot_at = next_at;
     }
-    // 第 9 轮（index 8）超出预算 → 停。
+    // 第 8 轮达到预算 → 停。
     assert!(matches!(last, RoundDecision::Done));
     // 仍有更早（预算耗尽而非服务端耗尽）→ hasMore=true。
     assert!(st.has_more());
@@ -232,9 +253,10 @@ fn ingest_round_exhausts_rounds_budget() {
 
 #[test]
 fn pivot_advances_to_oldest_with_server_id() {
-    let mut st = state("p-anchor", 1_000, 20);
+    let mut st = state("p-anchor", 20);
     // 最旧带 id 的是 id-old2(800)。
     st.ingest_round(&[
+        post("p-anchor", "t-anchor", 1_000),
         post("id-old1", "t-old1", 900),
         post("id-old2", "t-old2", 800),
     ]);
@@ -245,8 +267,9 @@ fn pivot_advances_to_oldest_with_server_id() {
 
 #[test]
 fn emit_older_loaded_shape_matches_contract() {
-    let mut st = state("p-anchor", 1_000, 20);
+    let mut st = state("p-anchor", 20);
     st.ingest_round(&[
+        post("p-anchor", "t-anchor", 1_000),
         post("id-old1", "t-old1", 900),
         post("id-old2", "t-old2", 800),
     ]);
@@ -264,7 +287,7 @@ fn emit_older_loaded_shape_matches_contract() {
 
 #[test]
 fn emit_older_loaded_empty_yields_empty_messages_no_panic() {
-    let st = state("p-anchor", 1_000, 20);
+    let st = state("p-anchor", 20);
     let v = effect_to_json(emit_older_loaded(&st));
     assert_eq!(v["data"]["messages"], json!([]));
     assert_eq!(v["data"]["hasMore"], false);

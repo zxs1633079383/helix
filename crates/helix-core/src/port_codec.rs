@@ -101,10 +101,10 @@ pub fn rows_from_reply_bytes(bytes: &Bytes) -> Result<Vec<Row>, String> {
 pub fn classify_port_error(error: DriverPortError) -> PortError {
     match &error {
         DriverPortError::Storage(_) => PortError::Storage(0),
-        DriverPortError::Transport(message) if message.starts_with("timeout") => PortError::Timeout,
+        DriverPortError::Transport(detail) if detail.starts_with("timeout") => PortError::Timeout,
         DriverPortError::Transport(_) => PortError::Network,
-        DriverPortError::Http(message) => PortError::Http(
-            message
+        DriverPortError::Http(detail) => PortError::Http(
+            detail
                 .split_whitespace()
                 .find_map(|word| word.parse::<u16>().ok())
                 .unwrap_or(0),

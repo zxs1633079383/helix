@@ -324,7 +324,8 @@ fn stress_gap_5000_sync_backfill() {
         .find_map(|e| match e {
             Effect::Persist { corr, ops } => {
                 // A3/CAP-9：全 5000 条可见 type1 → 5000 message upsert + 5000 channel 未读 +1
-                // GuardedBump（离线未读落 DB，非仅 emit）+ 1 个写后 Get(channel) 读回累计 DialogPatch。
+                // GuardedBump（离线未读落 DB，非仅 emit）+ 1 个 cursor 单调提交
+                // + 1 个写后 Get(channel) 读回累计 DialogPatch。
                 use helix_core::effect::StorageOp;
                 let msg_upserts = ops
                     .iter()
@@ -338,6 +339,12 @@ fn stress_gap_5000_sync_backfill() {
                     .iter()
                     .filter(|op| matches!(op, StorageOp::Get(s) if s.table == "channel"))
                     .count();
+                let cursor_writes = ops
+                    .iter()
+                    .filter(|op| {
+                        matches!(op, StorageOp::MonotonicUpsert(s) if s.table == "channel_event_cursor")
+                    })
+                    .count();
                 assert_eq!(
                     msg_upserts, GAP as usize,
                     "5000 条可见 type1 须 5000 message upsert"
@@ -348,9 +355,10 @@ fn stress_gap_5000_sync_backfill() {
                 );
                 assert_eq!(
                     ops.len(),
-                    (GAP as usize) * 2 + 1,
-                    "persist batch = 5000 msg + 5000 bump + 1 Get(channel)"
+                    (GAP as usize) * 2 + 2,
+                    "persist batch = 5000 msg + 5000 bump + 1 cursor + 1 Get(channel)"
                 );
+                assert_eq!(cursor_writes, 1, "G-S2/G-S3 cursor 必须与消息同批提交");
                 assert_eq!(
                     channel_gets, 1,
                     "DialogPatch 只需批尾 1 次写后 Get(channel)"

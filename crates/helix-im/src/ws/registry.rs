@@ -543,6 +543,7 @@ mod tests {
                 .get(&helix_core::Correlation::from_raw(7)),
             Some(&crate::state::CorrelationContext::SyncPull {
                 channel_id: sync_channel,
+                trigger: crate::state::SyncTrigger::Routine,
             })
         );
         assert_eq!(

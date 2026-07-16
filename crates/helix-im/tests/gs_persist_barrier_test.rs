@@ -6,6 +6,7 @@ mod common;
 use common::*;
 
 use helix_core::effect::{StorageOp, TransportId};
+use helix_core::tick::InboundBytes;
 use helix_core::{Effect, Tick};
 use helix_im::state::Seq;
 use helix_im::sync_session::IncrementChannel;
@@ -32,6 +33,18 @@ fn emitted(sink: &helix_core::EffectSink, expected: &str) -> bool {
     sink.as_slice()
         .iter()
         .any(|effect| event_name(effect).as_deref() == Some(expected))
+}
+
+fn pong_gap(channel_num: u64) -> Tick {
+    let payload = json!({
+        "status": "OK",
+        "seq": 42,
+        "data": {
+            "gaps": [{"channelId": cid(channel_num), "fromSeq": 1, "maxSeq": 9}],
+            "hashMismatch": false
+        }
+    });
+    Tick::Inbound(InboundBytes(serde_json::to_vec(&payload).unwrap().into()))
 }
 
 fn increment(channel_num: u64, last_event_seq: u64, need_sync: bool) -> IncrementChannel {
@@ -262,7 +275,62 @@ fn gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state() {
     assert_eq!(sync_state["data"]["state"], "committed");
     assert_eq!(sync_state["data"]["recovery"]["channelId"], cid(1));
     assert_eq!(sync_state["data"]["recovery"]["committedSeq"], 1);
+    assert!(
+        sync_state["data"].get("trigger").is_none(),
+        "普通 gap sync 的既有 im:sync:state schema 不得新增 trigger"
+    );
     assert_eq!(h.module.cursor_for(channel_id(1)), Some(1));
+}
+
+#[test]
+fn gs3_pong_gap_trigger_survives_http_and_persist_barrier() {
+    let mut h = Harness::new(&[1]);
+    let sync_corr = h
+        .step(pong_gap(1), 1_000)
+        .into_iter()
+        .find_map(|effect| match effect {
+            EffectKind::Http(corr) => Some(corr),
+            _ => None,
+        })
+        .expect("pong gap 必须触发 sync/notify");
+    let response = sync_reply_events_with_messages(
+        1,
+        &[ev(1, 1, "message-pong-gap")],
+        &[("message-pong-gap", "pong offline message", "")],
+        1,
+    );
+    h.step(port_reply_with_body(sync_corr, enveloped(response)), 1_100);
+    assert!(!emitted(&h.sink, "im:sync:state"));
+    let persist_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("pong gap sync 必须形成持久化屏障");
+    let channel_row = bytes::Bytes::from(
+        serde_json::to_vec(&json!([{
+            "unread_count": 1,
+            "mention_count": 0,
+            "urgent_count": 0,
+            "mention_list": [],
+            "urgent_post_list": [],
+            "unread_post_id": "message-pong-gap",
+            "last_root_post_at": 100
+        }]))
+        .unwrap(),
+    );
+    h.step(port_reply_with_body(persist_corr, channel_row), 1_200);
+    let sync_state = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| event_value(effect, "im:sync:state"))
+        .expect("pong gap 事务成功后必须发布 sync state");
+    assert_eq!(sync_state["data"]["trigger"], "pong_gap");
+    assert_eq!(sync_state["data"]["recovery"]["committedSeq"], 1);
 }
 
 fn hydration_reply() -> bytes::Bytes {

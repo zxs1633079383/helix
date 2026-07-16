@@ -28,6 +28,7 @@ pub(crate) fn emit_members_by_ids(req_id: &str, outcome: &PortOutcome, out: &mut
                         &cid,
                         members,
                         Vec::new(),
+                        crate::render_ready_members::MemberProjectionMode::Snapshot,
                     ));
                 }
             }

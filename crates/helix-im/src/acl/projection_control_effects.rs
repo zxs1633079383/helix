@@ -140,8 +140,20 @@ pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
 
 /// G-S3：同步事务成功提交后的 render-ready 状态。HTTP 成功或解析成功均不得直接调用。
 pub fn emit_sync_state(channel_id: ChannelId, committed_seq: Seq) -> Effect {
+    emit_sync_state_with_trigger(
+        channel_id,
+        committed_seq,
+        crate::state::SyncTrigger::Routine,
+    )
+}
+
+pub fn emit_sync_state_with_trigger(
+    channel_id: ChannelId,
+    committed_seq: Seq,
+    trigger: crate::state::SyncTrigger,
+) -> Effect {
     use serde_json::json;
-    let payload = json!({
+    let mut payload = json!({
         "event": "im:sync:state",
         "data": {
             "state": "committed",
@@ -151,6 +163,14 @@ pub fn emit_sync_state(channel_id: ChannelId, committed_seq: Seq) -> Effect {
             }
         }
     });
+    if let (Some(label), Some(data)) = (
+        trigger.projection_label(),
+        payload
+            .get_mut("data")
+            .and_then(serde_json::Value::as_object_mut),
+    ) {
+        data.insert("trigger".to_string(), label.into());
+    }
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)
             .expect("emit_sync_state: static JSON shape must not fail to serialize"),

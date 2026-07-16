@@ -20,6 +20,22 @@ pub struct ChannelSettingsProjection {
     pub setting_version: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SyncTrigger {
+    #[default]
+    Routine,
+    PongGap,
+}
+
+impl SyncTrigger {
+    pub(crate) fn projection_label(self) -> Option<&'static str> {
+        match self {
+            Self::Routine => None,
+            Self::PongGap => Some("pong_gap"),
+        }
+    }
+}
+
 /// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
 /// 需要的全部上下文。tagged union 取代原 4 张 HashMap + 1 个 Option：
 /// 一个 corr 恰属于一个类别，类别互斥由类型系统保证（不再靠 if-let 试探顺序）。
@@ -43,6 +59,7 @@ pub enum CorrelationContext {
     /// `wants_continuation` 标志，因为它本就与同一 `persist_corr` 绑定，不是独立路由类别。）
     ChannelPersist {
         channel_id: ChannelId,
+        trigger: SyncTrigger,
         /// E3 续拉：该批 sync 响应 `needs_continuation=true` 时为 true；
         /// on_persist_ok 推进 cursor 后据此决定是否 `maybe_continue_sync`。
         wants_continuation: bool,
@@ -91,7 +108,10 @@ pub enum CorrelationContext {
         lookup_by_id: bool,
     },
     /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。
-    SyncPull { channel_id: ChannelId },
+    SyncPull {
+        channel_id: ChannelId,
+        trigger: SyncTrigger,
+    },
 
     /// 最近消息 local-first 第 1 段：本地 Scan 回报后判定显式窗口 coverage。
     MessageQueryLocal {

@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 6,
+  "contract_epoch": 7,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -405,11 +405,12 @@
       "allowed_actions": [],
       "negative_assertions": [
         "宿主健康事件不得伪装成 im:sync 业务投影",
+        "普通同步最终 im:sync:state 必须保持既有 schema，不得添加 trigger；仅 pong gap 补偿链在本地事务提交后输出 trigger=pong_gap",
         "HTTP SUCCESS 只证明补偿读取成功；客户端必须在本地事务相关 Persist 提交连续 events/messages/cursor 后才发布 im:sync:state；代码证据 crates/helix-im/tests/gs_persist_barrier_test.rs::gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state"
       ],
       "http": {
         "request": "`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`",
-        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`，`data={entries:[{channelId,kind,events,nextSeq?,resetTo?,messages?}],serverTime}`；`kind` 当前为 `no_change|events|too_long`（`snapshot` 仅保留未启用），单频道 `events` 最多 500 条、gap 大于 5000 返回 `too_long`；`messages` 仅包含 caller 可见正文。Helix 已实现连续 message/channel_event_cursor 同批相关 Persist，HTTP SUCCESS、未 ack 与 Err 均不发布 `im:sync:state`，仅 PortReply Ok 发布 `state=committed` 与 recovery 水位。代码证据 `crates/helix-im/tests/gs_persist_barrier_test.rs::gs2_gs3_sync_transaction_contains_message_then_cursor_and_err_stays_silent` / `gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state`"
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`，`data={entries:[{channelId,kind,events,nextSeq?,resetTo?,messages?}],serverTime}`；`kind` 当前为 `no_change|events|too_long`（`snapshot` 仅保留未启用），单频道 `events` 最多 500 条、gap 大于 5000 返回 `too_long`；`messages` 仅包含 caller 可见正文。Helix 已实现连续 message/channel_event_cursor 同批相关 Persist，HTTP SUCCESS、未 ack 与 Err 均不发布 `im:sync:state`，仅 PortReply Ok 发布 `state=committed` 与 recovery 水位；pong gap 发起的补偿最终额外输出 `trigger=pong_gap`，普通同步不输出 trigger，保持既有 schema。代码证据 `crates/helix-im/tests/gs_persist_barrier_test.rs::gs2_gs3_sync_transaction_contains_message_then_cursor_and_err_stays_silent` / `gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state` / `gs3_pong_gap_trigger_survives_http_and_persist_barrier`"
       },
       "ws": {
         "events": "`pong.data` 固定包含 `text=pong`，对账时可含 `gaps:[{channelId,fromSeq,maxSeq}]` 与 `hashMismatch`；普通 pong 可只有 `text`。随后触发的 HTTP `/channel/sync/notify` 本身不产生业务 WS；并发 `post` / `posts_update` / `increment_channel_end` 不得替代补偿 HTTP、本地持久化或最终投影"
@@ -1693,8 +1694,8 @@
         "千人选人和批处理仅可在 Helix 执行"
       ],
       "http": {
-        "request": "`POST /api/cses/channel/create` body `{teamId,displayName,orient,type,users,picturetype,picture,forceCreate}`",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/channel/create` body `{type,userIds,displayName,picture,forceCreate}`；session 身份由服务端派生，客户端不得提交 team/role/owner",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；`data` 是服务端创建后的权威 Channel object，至少包含合法 `id`，并透传 `type`、`displayName`、`teamId` 等服务端终态；Helix 以 `data.id` 落 channel，并以 canonical 请求的 `userIds` 补成员投影"
       },
       "ws": {
         "events": "`channel_created`"
@@ -1761,8 +1762,8 @@
         "topic root 和 reply 关系不得由 UI 拼接"
       ],
       "http": {
-        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,teamId,postId,displayName,type,users,picturetype,picture,forceCreate}`",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,userIds,picture}`",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={rootMessageId,channelId,revision}`；Helix 必须先持久化服务端 `channelId` 与 `revision`，仅 Persist Ok 后发布成功投影"
       },
       "ws": {
         "events": "`channel_created`, `post_update`"
@@ -1985,8 +1986,8 @@
         "不得使用 settings 对象转换或 im_channel_settings alias"
       ],
       "http": {
-        "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；版本冲突返回 `status=FAILED`、`data={code,channelId,settingVersion}`，不得覆盖本地已提交终态"
       },
       "ws": {
         "events": "`update_channel`, `update_channel_notice`"

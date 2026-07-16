@@ -206,6 +206,8 @@ fn gs_sync_contracts_freeze_go_main_abi_without_collapsing_evidence_planes() {
     assert!(gs3.ws.events.contains("gaps"));
     assert!(gs3.ws.events.contains("hashMismatch"));
     assert!(gs3.ws.events.contains("普通 pong"));
+    assert!(gs3.http.response.contains("trigger=pong_gap"));
+    assert!(gs3.http.response.contains("普通同步"));
     for gate_id in ["G-S1", "G-S2", "G-S3", "G-S4"] {
         let gate = gate(&matrix, gate_id);
         assert!(
@@ -343,6 +345,42 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
         assert!(
             g03.negative_assertions.iter().any(|rule| rule == assertion),
             "G-03 must freeze negative assertion: {assertion}"
+        );
+    }
+}
+
+#[test]
+fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
+    let matrix = matrix();
+    assert_eq!(matrix.contract_epoch, 7);
+
+    let create = gate(&matrix, "G-15a");
+    assert!(create
+        .http
+        .request
+        .contains("{type,userIds,displayName,picture,forceCreate}"));
+    for field in ["data", "id", "displayName", "type", "teamId"] {
+        assert!(
+            create.http.response.contains(field),
+            "G-15a response 缺 {field}"
+        );
+    }
+
+    let topic = gate(&matrix, "G-15");
+    assert!(topic.http.request.contains("{rootId,userIds,picture}"));
+    for field in ["rootMessageId", "channelId", "revision"] {
+        assert!(
+            topic.http.response.contains(field),
+            "G-15 response 缺 {field}"
+        );
+    }
+
+    let settings = gate(&matrix, "G-16c");
+    assert!(settings.http.request.contains("expectedVersion?"));
+    for field in ["channelId", "purpose", "header", "settingVersion"] {
+        assert!(
+            settings.http.response.contains(field),
+            "G-16c response 缺 {field}"
         );
     }
 }

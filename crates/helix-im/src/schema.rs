@@ -123,6 +123,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         picture_type TEXT NOT NULL DEFAULT '',\
         orient TEXT NOT NULL DEFAULT '',\
         purpose TEXT NOT NULL DEFAULT '',\
+        header TEXT NOT NULL DEFAULT '',\
         draft TEXT NOT NULL DEFAULT '',\
         role TEXT NOT NULL DEFAULT '',\
         root_id TEXT NOT NULL DEFAULT '',\
@@ -224,6 +225,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
 /// `duplicate column name`。
 pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel ADD COLUMN header TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",

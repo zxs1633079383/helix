@@ -3,7 +3,7 @@
 //! 行为真源：现网 `handlers/channel.rs:602 handle_member_update` → `channel_service::process_and_save`
 //! （path1 全量 upsert）→ emit `im:channel:member-updated`（带 memberChange）。
 //!
-//! helix：`program_full`（全 52 列）→ `upsert_channel_full`；成员经 `channel_write::collect_members`
+//! helix：`program_full`（全 54 列）→ `upsert_channel_full`；成员经 `channel_write::collect_members`
 //! 统一收集 **四源（members/adminUsers/boss/owner）+ memberChange.join** → `channel_member` 表
 //! （复合 PK，`upsert_channel_members`），与 `increment_channel` / `channel_created` 三路径同口径。
 //!
@@ -65,6 +65,7 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
             channel_id.as_str(),
             members,
             leaves,
+            crate::render_ready_members::MemberProjectionMode::Incremental,
         ));
         Ok(())
     }
@@ -114,7 +115,7 @@ pub(crate) fn apply_channel_full_and_members(
         }
     }
 
-    // path1 全 52 列 upsert（user_id 写 host 注入真身份 ctx.auth_user_id；now_ms host 经 Clock 注入）。
+    // path1 全 54 列 upsert（user_id 写 host 注入真身份 ctx.auth_user_id；now_ms host 经 Clock 注入）。
     if let Some((cols, exclude)) =
         crate::channel_write::program_full(data, ctx.auth_user_id, ctx.now_ms)
     {

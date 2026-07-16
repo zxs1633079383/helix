@@ -131,7 +131,7 @@ pub fn emit_channel_update_by_member_dialog(
         .get("message")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let dialog_patch = json!({
+    let mut dialog_patch = json!({
         "id": channel_id.as_str(),
         "channelId": channel_id.as_str(),
         "userId": projection.user_id.clone(),
@@ -156,7 +156,12 @@ pub fn emit_channel_update_by_member_dialog(
         "lastPostAt": projection.last_post_at,
         "lastRootPostAt": projection.last_root_post_at,
     });
-    let data = json!({
+    if let (Some(revision), Some(object)) =
+        (projection.projection_revision, dialog_patch.as_object_mut())
+    {
+        object.insert("projectionRevision".to_string(), revision.into());
+    }
+    let mut data = json!({
         "op": "dialog.patchByMember",
         "source": source,
         "projectionAuthority": "server-member-absolute",
@@ -177,6 +182,9 @@ pub fn emit_channel_update_by_member_dialog(
         "lastReadSeq": projection.last_read_seq,
         "dialogPatch": dialog_patch,
     });
+    if let (Some(revision), Some(object)) = (projection.projection_revision, data.as_object_mut()) {
+        object.insert("projectionRevision".to_string(), revision.into());
+    }
     let payload = json!({
         "event": "im:channel:update-by-post",
         "data": data,

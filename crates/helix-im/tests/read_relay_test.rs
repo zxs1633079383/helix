@@ -307,6 +307,35 @@ fn reply_query_without_req_id_never_emits_uncorrelated_projection() {
 }
 
 #[test]
+fn members_by_ids_emits_authoritative_snapshot_projection() {
+    let mut h = Harness::new(&[]);
+    let channel_id = cid(21);
+    h.step(
+        outbound_cmd(
+            "im_channels_members_by_ids",
+            serde_json::json!({"channel_ids":[channel_id],"req_id":"members-snapshot"}),
+        ),
+        1_000,
+    );
+    let corr = http_corr(&h.sink).expect("byIds 必须发 HTTP");
+    let raw = bytes::Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "status":"SUCCESS",
+            "data": {(channel_id.clone()): [{"id":"u1","role":"MEMBER","nickName":"成员"}]}
+        }))
+        .unwrap(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 1_001);
+
+    let members = emit_jsons(&h.sink)
+        .into_iter()
+        .find(|value| value["event"] == "im:channel:members")
+        .expect("byIds 必须输出成员快照");
+    assert_eq!(members["data"]["projectionMode"], "snapshot");
+    assert_eq!(members["data"]["channelId"], channel_id);
+}
+
+#[test]
 fn stale_reply_snapshot_only_emits_correlated_read_result() {
     let mut h = Harness::new(&[]);
     h.step(

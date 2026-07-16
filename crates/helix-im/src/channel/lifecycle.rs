@@ -80,9 +80,13 @@ impl ImModule {
             // gate 超时：吐 Http{sync/notify}
             let from_seq = self.state.channels[&channel_id].cursor.value();
             let sync_corr = self.alloc_corr_internal();
-            self.state
-                .corr_map
-                .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
+            self.state.corr_map.insert(
+                sync_corr,
+                CorrelationContext::SyncPull {
+                    channel_id,
+                    trigger: crate::state::SyncTrigger::Routine,
+                },
+            );
 
             // 清除 gate（已触发）+ 设置 inflight（B1 守卫）
             if let Some(ch) = self.state.channels.get_mut(&channel_id) {

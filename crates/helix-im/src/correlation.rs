@@ -19,6 +19,7 @@ pub struct ChannelSettingsProjection {
     pub purpose: String,
     pub header: String,
     pub setting_version: u64,
+    pub channel_capabilities: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

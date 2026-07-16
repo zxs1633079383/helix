@@ -96,7 +96,14 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
-        let Some(projection) = decode_settings_projection(expected_channel_id, outcome) else {
+        let viewer_role = self
+            .state
+            .viewer_channel_roles
+            .get(&expected_channel_id)
+            .map(String::as_str);
+        let Some(projection) =
+            decode_settings_projection(expected_channel_id, outcome, viewer_role)
+        else {
             return;
         };
         let persist_corr = self.alloc_corr_internal();
@@ -164,7 +171,7 @@ impl ImModule {
             projection.channel_id,
             &channel,
             projection.setting_version,
-            serde_json::json!({}),
+            projection.channel_capabilities,
         ) {
             out.push(effect);
         }
@@ -217,6 +224,7 @@ fn decode_make_topic_projection(
 fn decode_settings_projection(
     expected_channel_id: ChannelId,
     outcome: &PortOutcome,
+    viewer_role: Option<&str>,
 ) -> Option<ChannelSettingsProjection> {
     let data = response_data(outcome)?;
     let channel_id = data
@@ -241,11 +249,18 @@ fn decode_settings_projection(
         .or_else(|| settings.get("settingVersion"))
         .and_then(serde_json::Value::as_u64)
         .filter(|version| *version <= i64::MAX as u64)?;
+    let capabilities_by_role = data
+        .get("capabilitiesByRole")
+        .or_else(|| settings.get("capabilitiesByRole"));
     Some(ChannelSettingsProjection {
         channel_id,
         display_name,
         purpose,
         header,
         setting_version,
+        channel_capabilities: crate::channel_capabilities::for_viewer(
+            capabilities_by_role,
+            viewer_role,
+        ),
     })
 }

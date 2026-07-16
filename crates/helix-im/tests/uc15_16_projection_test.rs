@@ -197,7 +197,18 @@ fn settings_reply_emits_server_values_only_after_channel_persist_ack() {
 
 #[test]
 fn display_name_command_uses_same_authoritative_settings_persist_barrier() {
-    let mut h = Harness::new(&[]);
+    let mut h = Harness::new_with_identity(&[], "u1", "team-1", "User", "Org", "Dept");
+    h.step(
+        inbound(json!({
+            "action":"channel_created",
+            "data": {
+                "id":cid(16),
+                "owner":{"id":"u1"},
+                "displayName":"旧群名"
+            }
+        })),
+        3_090,
+    );
     h.step(
         command_json(
             "im_channel_change_display_name",
@@ -214,7 +225,15 @@ fn display_name_command_uses_same_authoritative_settings_persist_barrier() {
                 "displayName":"新群名",
                 "purpose":"服务端简介",
                 "header":"服务端规则",
-                "settingVersion":12
+                "settingVersion":12,
+                "capabilitiesByRole": {
+                    "CREATOR": {
+                        "canCloseChannel":true,
+                        "canLeaveChannel":false,
+                        "canManageSettings":true,
+                        "canManageMembers":true
+                    }
+                }
             }
         }))
         .unwrap(),
@@ -234,6 +253,7 @@ fn display_name_command_uses_same_authoritative_settings_persist_barrier() {
     let updates = emit_data(&h, "im:channel:settings-updated");
     assert_eq!(updates[0]["settingVersion"], 12);
     assert_eq!(updates[0]["settings"]["displayName"], "新群名");
+    assert_eq!(updates[0]["channelCapabilities"]["canManageSettings"], true);
 }
 
 #[test]

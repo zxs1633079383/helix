@@ -98,7 +98,11 @@ fn build_app_command(public_name: String, payload_vec: Vec<u8>) -> Result<AppCom
     }
 }
 
-fn send_command_tick(handle: &HelixHandle, cmd: AppCommand, trace: Option<TraceCarrier>) -> i32 {
+pub(super) fn send_command_tick(
+    handle: &HelixHandle,
+    cmd: AppCommand,
+    trace: Option<TraceCarrier>,
+) -> i32 {
     let guard = handle.tick_tx.lock();
     let Some(tx) = guard.as_ref() else {
         return FFI_NULL;

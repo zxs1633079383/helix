@@ -18,7 +18,8 @@ pub fn accepts_tick(tick: &Tick) -> bool {
             // command 单独放行；单条 `im_mark_read` 则归一后走 `im_post_read`。
             matches!(
                 cmd.name.as_ref(),
-                "im_send_message"
+                crate::module::RUNTIME_IDENTITY_COMMAND
+                    | "im_send_message"
                     | "im_retry_send"
                     | "im_retry_upload"
                     | "im_reconnect"

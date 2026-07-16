@@ -19,6 +19,12 @@ use helix_core::{CoreError, EffectSink, Module, Tick};
 
 mod trait_impl;
 
+/// Driver 向 sans-I/O IM 模块同步当前 host 身份的内部命令。
+///
+/// 该命令不属于 public client API；driver 必须直接构造 `AppCommand`，避免移动端绕过
+/// header/profile 边界向业务 payload 注入身份。
+pub const RUNTIME_IDENTITY_COMMAND: &str = "__helix_runtime_identity";
+
 /// IM 业务模块配置
 pub struct ImConfig {
     /// WS endpoint（如 "wss://api.example.com/ws"）

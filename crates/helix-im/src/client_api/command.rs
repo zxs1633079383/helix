@@ -129,6 +129,11 @@ pub fn normalize_command_payload(public: &str, payload: &[u8]) -> Result<Vec<u8>
 /// alias、payload 归一化与静态命令名驻留只在此处发生；平台 driver 只负责把自己的
 /// 字符串/字节边界转换成该函数的入参，并把错误映射为平台错误码。
 pub fn build_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, ImError> {
+    if public_name == crate::module::RUNTIME_IDENTITY_COMMAND {
+        return Err(ImError::Parse(
+            "runtime identity command is reserved for platform drivers".to_string(),
+        ));
+    }
     let normalized_payload = normalize_command_payload(public_name, payload)?;
     let core_name = command_alias(public_name).unwrap_or(public_name);
     let name = match crate::outbound::canonical_command_name(core_name) {
@@ -331,6 +336,17 @@ mod tests {
 
         assert!(matches!(command.name, Cow::Owned(ref name) if name == "future_command"));
         assert_eq!(command.payload.as_ref(), br#"{}"#);
+    }
+
+    #[test]
+    fn build_command_rejects_reserved_runtime_identity_command() {
+        assert!(matches!(
+            build_command(
+                crate::module::RUNTIME_IDENTITY_COMMAND,
+                br#"{"auth_user_id":"spoofed"}"#
+            ),
+            Err(ImError::Parse(_))
+        ));
     }
 
     #[test]

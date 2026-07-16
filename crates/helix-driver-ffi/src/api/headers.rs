@@ -1,5 +1,7 @@
+use helix_core::tick::AppCommand;
 use helix_core::AuthKind;
 
+use super::command::send_command_tick;
 use super::handle::HelixHandle;
 use super::shared::{ffi_str, FFI_INVALID, FFI_NULL, FFI_OK};
 
@@ -35,10 +37,7 @@ pub unsafe extern "C" fn helix_set_header(
 
     // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
     let handle = unsafe { &*handle };
-    match set_runtime_header(handle, &name, &value) {
-        Ok(()) => FFI_OK,
-        Err(()) => FFI_INVALID,
-    }
+    set_runtime_header(handle, &name, &value)
 }
 
 /// 移除 shared header registry 中的 header。
@@ -64,37 +63,58 @@ pub unsafe extern "C" fn helix_remove_header(
 
     // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
     let handle = unsafe { &*handle };
-    match remove_runtime_header(handle, &name) {
-        Ok(()) => FFI_OK,
-        Err(()) => FFI_INVALID,
-    }
+    remove_runtime_header(handle, &name)
 }
 
-fn set_runtime_header(handle: &HelixHandle, name: &str, value: &str) -> Result<(), ()> {
+fn set_runtime_header(handle: &HelixHandle, name: &str, value: &str) -> i32 {
     if name.eq_ignore_ascii_case("Authorization") {
         handle.auth.set_bot(name.to_string(), value.to_string());
-        return Ok(());
+        return FFI_OK;
     }
 
-    handle
-        .headers
-        .set_header_sync(name, value)
-        .map_err(|_| ())?;
+    if handle.headers.set_header_sync(name, value).is_err() {
+        return FFI_INVALID;
+    }
     if name.eq_ignore_ascii_case("cookieId") {
         handle.auth.set_session(name.to_string(), value.to_string());
+        return sync_runtime_identity(handle, "auth_user_id", value);
     }
-    Ok(())
+    if name.eq_ignore_ascii_case("companyId") {
+        return sync_runtime_identity(handle, "company_id", value);
+    }
+    FFI_OK
 }
 
-fn remove_runtime_header(handle: &HelixHandle, name: &str) -> Result<(), ()> {
+fn remove_runtime_header(handle: &HelixHandle, name: &str) -> i32 {
     if name.eq_ignore_ascii_case("Authorization") {
         handle.auth.clear(AuthKind::Bot);
-        return Ok(());
+        return FFI_OK;
     }
 
-    handle.headers.remove_header_sync(name).map_err(|_| ())?;
+    if handle.headers.remove_header_sync(name).is_err() {
+        return FFI_INVALID;
+    }
     if name.eq_ignore_ascii_case("cookieId") {
         handle.auth.clear(AuthKind::Session);
+        return sync_runtime_identity(handle, "auth_user_id", "");
     }
-    Ok(())
+    if name.eq_ignore_ascii_case("companyId") {
+        return sync_runtime_identity(handle, "company_id", "");
+    }
+    FFI_OK
+}
+
+fn sync_runtime_identity(handle: &HelixHandle, field: &'static str, value: &str) -> i32 {
+    let identity = match field {
+        "auth_user_id" => serde_json::json!({ "auth_user_id": value }),
+        "company_id" => serde_json::json!({ "company_id": value }),
+        _ => return FFI_INVALID,
+    };
+    let payload = serde_json::to_vec(&identity)
+        .expect("runtime identity payload serialization is infallible");
+    send_command_tick(
+        handle,
+        AppCommand::new(helix_im::module::RUNTIME_IDENTITY_COMMAND, payload),
+        None,
+    )
 }

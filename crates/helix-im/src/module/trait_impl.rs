@@ -1,5 +1,11 @@
 use super::*;
 
+#[derive(serde::Deserialize)]
+struct RuntimeIdentityPatch {
+    auth_user_id: Option<String>,
+    company_id: Option<String>,
+}
+
 impl Module for ImModule {
     fn name(&self) -> &'static str {
         "helix-im"
@@ -23,6 +29,21 @@ impl Module for ImModule {
             }
 
             Tick::Command(cmd) => match cmd.name.as_ref() {
+                RUNTIME_IDENTITY_COMMAND => {
+                    let identity: RuntimeIdentityPatch =
+                        serde_json::from_slice(cmd.payload.as_ref()).map_err(|error| {
+                            CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(crate::error::ImError::Parse(error.to_string())),
+                            }
+                        })?;
+                    if let Some(auth_user_id) = identity.auth_user_id {
+                        self.config.auth_user_id = auth_user_id;
+                    }
+                    if let Some(company_id) = identity.company_id {
+                        self.config.company_id = company_id;
+                    }
+                }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {

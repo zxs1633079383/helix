@@ -26,6 +26,61 @@ fn has_http(sink: &EffectSink) -> bool {
         .any(|e| matches!(e, Effect::Http { .. }))
 }
 
+#[test]
+fn runtime_identity_enables_member_projection_without_wire_user_id() {
+    let mut m = ImModule::new(ImConfig::default());
+    let mut sink = EffectSink::new();
+    let identity = serde_json::json!({
+        "auth_user_id": "user-runtime",
+        "company_id": "company-runtime"
+    });
+
+    assert!(m.accepts(&Tick::Command(helix_core::tick::AppCommand::new(
+        RUNTIME_IDENTITY_COMMAND,
+        serde_json::to_vec(&identity).unwrap(),
+    ))));
+    m.handle(
+        &Tick::Command(helix_core::tick::AppCommand::new(
+            RUNTIME_IDENTITY_COMMAND,
+            serde_json::to_vec(&identity).unwrap(),
+        )),
+        1_000,
+        &mut sink,
+    )
+    .unwrap();
+    assert_eq!(m.config.auth_user_id, "user-runtime");
+    assert_eq!(m.config.company_id, "company-runtime");
+    assert!(sink.is_empty(), "身份同步不得产生业务副作用");
+
+    let update = serde_json::json!({
+        "action": "update_channel",
+        "data": {
+            "id": crate::state::test_channel_id(13).as_str(),
+            "unreadCount": 0,
+            "mentionCount": 0,
+            "updateAt": 1_001
+        }
+    });
+    m.handle(
+        &Tick::Inbound(InboundBytes(serde_json::to_vec(&update).unwrap().into())),
+        1_001,
+        &mut sink,
+    )
+    .unwrap();
+
+    assert!(sink.as_slice().iter().any(|effect| match effect {
+        Effect::Emit { event } => {
+            let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+            let data = &envelope["data"];
+            envelope["event"] == "im:channel:update-by-post"
+                && data["projectionAuthority"] == "server-member-absolute"
+                && data["userId"] == "user-runtime"
+                && data["dialogPatch"]["unreadCount"] == 0
+        }
+        _ => false,
+    }));
+}
+
 /// Connected → conn 变 Connecting，且不产 resync Http（现网 Go 握手前 resync 会 401）。
 #[test]
 fn connected_sets_connecting_no_resync() {

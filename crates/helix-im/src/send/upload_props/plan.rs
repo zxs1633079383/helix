@@ -1,25 +1,42 @@
-use super::{UploadPlan, UploadTarget};
+use super::{MediaInput, PlannedMedia, UploadPlan, UploadTarget};
 use crate::ImError;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
+
+const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
+const GO_OWNED_FIELDS: [&str; 12] = [
+    "uploadId",
+    "fileId",
+    "method",
+    "url",
+    "publicUrl",
+    "objectKey",
+    "headers",
+    "status",
+    "state",
+    "userId",
+    "teamId",
+    "etag",
+];
 
 pub fn build_upload_plan(
     msg_type: &str,
     message: &str,
     mut props: Value,
 ) -> Result<UploadPlan, ImError> {
-    match msg_type {
-        "rich" => build_rich_plan(&mut props).map(|targets| UploadPlan { props, targets }),
-        "file" | "FILE" => {
-            build_file_plan(message, &mut props).map(|targets| UploadPlan { props, targets })
-        }
-        _ => Ok(UploadPlan {
-            props,
-            targets: Vec::new(),
-        }),
-    }
+    let media = match msg_type {
+        "rich" => build_rich_plan(&mut props)?,
+        "file" | "FILE" => build_file_plan(message, &mut props)?,
+        _ => Vec::new(),
+    };
+    let targets = media.iter().map(|item| item.target.clone()).collect();
+    Ok(UploadPlan {
+        props,
+        targets,
+        media,
+    })
 }
 
-fn build_rich_plan(props: &mut Value) -> Result<Vec<UploadTarget>, ImError> {
+fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if props.get("file").is_some() {
         return Err(ImError::Parse(
             "rich message must not contain props.file".to_string(),
@@ -43,16 +60,19 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<UploadTarget>, ImError> {
         ));
     }
 
-    let mut targets = Vec::with_capacity(images.len());
-    for (index, image) in images.iter_mut().enumerate() {
-        validate_upload_node(image, "rich image")?;
-        set_status(image, "uploading")?;
-        targets.push(UploadTarget::RichImage { index });
-    }
-    Ok(targets)
+    images
+        .iter_mut()
+        .enumerate()
+        .map(|(index, image)| {
+            extract_media(image, "rich image").map(|input| PlannedMedia {
+                target: UploadTarget::RichImage { index },
+                input,
+            })
+        })
+        .collect()
 }
 
-fn build_file_plan(message: &str, props: &mut Value) -> Result<Vec<UploadTarget>, ImError> {
+fn build_file_plan(message: &str, props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
     if !message.trim().is_empty() {
         return Err(ImError::Parse(
             "file message must not contain message text".to_string(),
@@ -66,47 +86,91 @@ fn build_file_plan(message: &str, props: &mut Value) -> Result<Vec<UploadTarget>
     let file = props
         .get_mut("file")
         .ok_or_else(|| ImError::Parse("file message requires props.file".to_string()))?;
-    validate_upload_node(file, "file")?;
-    set_status(file, "uploading")?;
-    Ok(vec![UploadTarget::File])
+    let input = extract_media(file, "file")?;
+    Ok(vec![PlannedMedia {
+        target: UploadTarget::File,
+        input,
+    }])
 }
 
-fn validate_upload_node(node: &Value, label: &str) -> Result<(), ImError> {
-    if node
-        .get("localPath")
+fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
+    reject_go_owned_fields(node, label)?;
+    let object = node
+        .as_object_mut()
+        .ok_or_else(|| ImError::Parse(format!("{label} must be object")))?;
+    let media_input = object
+        .remove("mediaInput")
+        .ok_or_else(|| ImError::Parse(format!("{label} requires mediaInput")))?;
+    let input = media_input
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput must be object")))?;
+    validate_media_input_keys(input, label)?;
+
+    let local_path = required_string(input, "localPath", label)?;
+    let file_name = required_string(input, "fileName", label)?;
+    let content_type = required_string(input, "contentType", label)?;
+    let size = input
+        .get("size")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.size must be positive u64")))?;
+    let sha256 = input
+        .get("sha256")
         .and_then(Value::as_str)
-        .unwrap_or("")
-        .is_empty()
-    {
-        return Err(ImError::Parse(format!("{label} requires localPath")));
-    }
-    let upload = node
-        .get("upload")
-        .ok_or_else(|| ImError::Parse(format!("{label} requires upload")))?;
-    for key in ["method", "url", "publicUrl", "objectKey"] {
-        if upload
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .is_empty()
-        {
-            return Err(ImError::Parse(format!("{label} upload requires {key}")));
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.sha256 must be string")))?
+        .to_string();
+
+    object.insert("upload".to_string(), json!({"status": "preparing"}));
+    Ok(MediaInput {
+        local_path,
+        file_name,
+        content_type,
+        size,
+        sha256,
+    })
+}
+
+fn reject_go_owned_fields(value: &Value, label: &str) -> Result<(), ImError> {
+    match value {
+        Value::Object(object) => {
+            for (key, child) in object {
+                if GO_OWNED_FIELDS.contains(&key.as_str()) {
+                    return Err(ImError::Parse(format!(
+                        "{label} must not supply Go-owned field {key}"
+                    )));
+                }
+                reject_go_owned_fields(child, label)?;
+            }
         }
+        Value::Array(items) => {
+            for item in items {
+                reject_go_owned_fields(item, label)?;
+            }
+        }
+        _ => {}
     }
-    if !upload.get("headers").map(Value::is_object).unwrap_or(false) {
+    Ok(())
+}
+
+fn validate_media_input_keys(input: &Map<String, Value>, label: &str) -> Result<(), ImError> {
+    if let Some(key) = input
+        .keys()
+        .find(|key| !MEDIA_INPUT_FIELDS.contains(&key.as_str()))
+    {
         return Err(ImError::Parse(format!(
-            "{label} upload.headers must be object"
+            "{label} mediaInput contains unsupported field {key}"
         )));
     }
     Ok(())
 }
 
-fn set_status(node: &mut Value, status: &str) -> Result<(), ImError> {
-    node.get_mut("upload")
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| ImError::Parse("upload must be object".to_string()))?
-        .insert("status".to_string(), json!(status));
-    Ok(())
+fn required_string(input: &Map<String, Value>, key: &str, label: &str) -> Result<String, ImError> {
+    input
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| ImError::Parse(format!("{label} mediaInput.{key} must be non-empty string")))
 }
 
 #[cfg(test)]
@@ -114,26 +178,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn uppercase_file_uses_upload_gate() {
+    fn uppercase_file_extracts_opaque_media_input() {
         let plan = build_upload_plan(
             "FILE",
             "",
             json!({
                 "file": {
-                    "localPath": "/tmp/report.pdf",
-                    "upload": {
-                        "method": "PUT",
-                        "url": "https://upload.example/report?signature=short-lived",
-                        "publicUrl": "https://cdn.example/report.pdf",
-                        "headers": {},
-                        "objectKey": "im/report.pdf"
+                    "mediaInput": {
+                        "localPath": "/tmp/report.pdf",
+                        "fileName": "report.pdf",
+                        "contentType": "application/pdf",
+                        "size": 9,
+                        "sha256": "abc"
                     }
                 }
             }),
         )
-        .expect("uppercase FILE should produce an upload plan");
+        .expect("uppercase FILE should produce a prepare plan");
 
         assert_eq!(plan.targets, vec![UploadTarget::File]);
-        assert_eq!(plan.props["file"]["upload"]["status"], "uploading");
+        assert_eq!(plan.media[0].input.local_path, "/tmp/report.pdf");
+        assert!(plan.props["file"].get("mediaInput").is_none());
+        assert_eq!(plan.props["file"]["upload"]["status"], "preparing");
     }
 }

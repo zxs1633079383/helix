@@ -2,7 +2,7 @@
 
 use crate::channel::Channel;
 use crate::pending_send::PendingSend;
-use crate::send::upload_props::PendingUpload;
+use crate::send::upload_props::{PendingMediaOp, PendingMediaPut, PendingUpload};
 use std::collections::{HashMap, HashSet};
 
 mod values;
@@ -41,6 +41,12 @@ pub struct ImState {
 
     /// 本地上传回包路由：upload corr → 目标消息/附件节点。
     pub pending_uploads: HashMap<helix_core::Correlation, PendingUpload>,
+
+    /// 媒体 Prepare/PUT 回包路由；corr 单次 O(1) remove 后按阶段分发。
+    pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
+
+    /// PUT 成功但尚未执行 complete 的媒体；B2 以 uploadId O(1) 继续状态机。
+    pub waiting_media_complete: HashMap<String, PendingMediaPut>,
 
     /// 统一 corr 回报路由表：corr → 一条在途异步操作的上下文（`CorrelationContext`）。取代旧
     /// 4 张分散 HashMap + 1 个 `Option`（`scan_corr`）。`PortReply` 到达时单次 `remove(corr)` 取出
@@ -131,6 +137,8 @@ impl ImState {
             viewer_channel_roles: HashMap::new(),
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
+            pending_media_ops: HashMap::new(),
+            waiting_media_complete: HashMap::new(),
             corr_map: HashMap::new(),
             reply_projection_revisions: HashMap::new(),
             reply_projection_seen_ids: HashMap::new(),

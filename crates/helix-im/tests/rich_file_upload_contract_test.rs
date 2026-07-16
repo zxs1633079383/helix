@@ -230,6 +230,7 @@ fn assert_no_unsend_persist_fire(h: &Harness) {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -266,6 +267,7 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn upload_input_without_public_url_is_rejected_before_any_effect() {
     let mut h = Harness::new(&[1]);
     let command = send_message_cmd_json(json!({
@@ -300,6 +302,7 @@ fn upload_input_without_public_url_is_rejected_before_any_effect() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn rich_file_shape_violations_are_rejected_before_any_effect() {
     let cases = [
         (
@@ -359,6 +362,7 @@ fn rich_file_shape_violations_are_rejected_before_any_effect() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn rich_uploads_only_post_after_all_success() {
     let mut h = Harness::new(&[1]);
 
@@ -429,6 +433,7 @@ fn rich_uploads_only_post_after_all_success() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
     let mut h = Harness::new(&[1]);
 
@@ -460,6 +465,7 @@ fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -543,6 +549,7 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn retry_failed_file_emits_one_upload_without_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -618,6 +625,7 @@ fn retry_failed_file_emits_one_upload_without_posts_create() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn retry_failed_target_requires_failed_status() {
     let mut h = Harness::new(&[1]);
 
@@ -662,6 +670,7 @@ fn retry_failed_target_requires_failed_status() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn upload_failure_send_timer_does_not_mark_post_unsend() {
     let mut h = Harness::new(&[1]);
 
@@ -685,6 +694,7 @@ fn upload_failure_send_timer_does_not_mark_post_unsend() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
     let mut h = Harness::new(&[1]);
 
@@ -752,6 +762,7 @@ fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn upload_reply_without_public_url_fails_closed_without_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -782,6 +793,7 @@ fn upload_reply_without_public_url_fails_closed_without_posts_create() {
 }
 
 #[test]
+#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
 fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
     let cases = [
         (
@@ -833,5 +845,334 @@ fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
         if malformed {
             assert_eq!(props["file"]["upload"]["status"], "failed");
         }
+    }
+}
+
+mod g03_prepare_contract {
+    use super::common::{cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness};
+    use bytes::Bytes;
+    use helix_core::effect::{
+        Effect, FileUploadRequest, HttpRequest, SqlValue, StorageOp, UpsertSpec,
+    };
+    use helix_core::{EffectSink, Module, Tick};
+    use serde_json::{json, Value};
+
+    fn media_input(path: &str, name: &str, content_type: &str, size: u64) -> Value {
+        json!({
+            "localPath": path,
+            "fileName": name,
+            "contentType": content_type,
+            "size": size,
+            "sha256": "sha256-fixture"
+        })
+    }
+
+    fn file_cmd(tmp: &str) -> Tick {
+        send_message_cmd_json(json!({
+            "channel_id": cid(1),
+            "temporary_id": tmp,
+            "type": "file",
+            "text": "",
+            "props": {
+                "file": {
+                    "mediaInput": media_input("/tmp/doc.pdf", "doc.pdf", "application/pdf", 9)
+                },
+                "frontendCustom": {"keep": true}
+            }
+        }))
+    }
+
+    fn rich_cmd() -> Tick {
+        send_message_cmd_json(json!({
+            "channel_id": cid(1),
+            "temporary_id": "tmp-rich",
+            "type": "rich",
+            "text": "hello",
+            "props": {
+                "textPosition": "bottom",
+                "images": [{
+                    "width": 800,
+                    "height": 600,
+                    "mediaInput": media_input("/tmp/a.png", "a.png", "image/png", 3)
+                }]
+            }
+        }))
+    }
+
+    fn prepare_effects(h: &Harness) -> Vec<(u64, HttpRequest)> {
+        h.sink
+            .as_slice()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Http { corr, req } if req.url.ends_with("/media/upload/prepare") => {
+                    Some((corr.raw(), req.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn upload_effects(h: &Harness) -> Vec<(u64, FileUploadRequest)> {
+        h.sink
+            .as_slice()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::UploadFile { corr, req } => Some((corr.raw(), req.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn posts_create_count(h: &Harness) -> usize {
+        h.sink
+            .as_slice()
+            .iter()
+            .filter(|effect| {
+                matches!(effect, Effect::Http { req, .. } if req.url.ends_with("/posts/create"))
+            })
+            .count()
+    }
+
+    fn last_message_upsert(h: &Harness) -> UpsertSpec {
+        h.sink
+            .as_slice()
+            .iter()
+            .rev()
+            .find_map(|effect| match effect {
+                Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
+                    ops.iter().find_map(|op| match op {
+                        StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                            Some(spec.clone())
+                        }
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .expect("message upsert")
+    }
+
+    fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
+        row.iter().find_map(|(column, value)| match value {
+            SqlValue::Text(text) if column == key => Some(text.as_str()),
+            _ => None,
+        })
+    }
+
+    fn prepare_reply(data: Value) -> Tick {
+        port_reply_with_body(
+            0,
+            Bytes::from(
+                serde_json::to_vec(&json!({"status": "SUCCESS", "data": data}))
+                    .expect("prepare reply json"),
+            ),
+        )
+    }
+
+    fn valid_prepare_data() -> Value {
+        json!({
+            "uploadId": "upload-1",
+            "fileId": "file-1",
+            "method": "PUT",
+            "url": "http://test/media/upload/upload-1",
+            "publicUrl": "http://test/media/object/file-1",
+            "objectKey": "file-1",
+            "headers": {
+                "Content-Type": "application/pdf",
+                "Cookieid": "server-owned-user",
+                "companyId": "server-owned-team"
+            }
+        })
+    }
+
+    #[test]
+    fn file_first_step_only_prepares_and_persistence_is_opaque() {
+        let mut h = Harness::new(&[1]);
+        h.step(file_cmd("tmp-file"), 1000);
+
+        let prepares = prepare_effects(&h);
+        assert_eq!(prepares.len(), 1);
+        assert_eq!(prepares[0].1.method, "POST");
+        assert_eq!(prepares[0].1.url, "http://test/media/upload/prepare");
+        assert!(upload_effects(&h).is_empty());
+        assert_eq!(posts_create_count(&h), 0);
+        let prepare_body: Value =
+            serde_json::from_slice(prepares[0].1.body.as_ref().expect("prepare body").as_ref())
+                .expect("prepare json");
+        assert_eq!(prepare_body["channelId"], cid(1));
+        assert_eq!(prepare_body["fileName"], "doc.pdf");
+        assert_eq!(prepare_body["contentType"], "application/pdf");
+        assert_eq!(prepare_body["size"], 9);
+        assert!(prepare_body.get("localPath").is_none());
+
+        let row = &last_message_upsert(&h).rows[0];
+        let persisted = row_text(row, "props").expect("props");
+        for secret in ["mediaInput", "localPath", "/tmp/doc.pdf", "sha256-fixture"] {
+            assert!(
+                !persisted.contains(secret),
+                "persisted props leaked {secret}"
+            );
+        }
+    }
+
+    #[test]
+    fn rich_image_uses_the_same_prepare_contract() {
+        let mut h = Harness::new(&[1]);
+        h.step(rich_cmd(), 1000);
+
+        let prepares = prepare_effects(&h);
+        assert_eq!(prepares.len(), 1);
+        let body: Value =
+            serde_json::from_slice(prepares[0].1.body.as_ref().unwrap().as_ref()).unwrap();
+        assert_eq!(body["fileName"], "a.png");
+        assert_eq!(body["contentType"], "image/png");
+        assert!(upload_effects(&h).is_empty());
+        assert_eq!(posts_create_count(&h), 0);
+    }
+
+    #[test]
+    fn mobile_cannot_supply_go_owned_upload_fields() {
+        for forbidden in [
+            "uploadId",
+            "fileId",
+            "method",
+            "url",
+            "publicUrl",
+            "objectKey",
+            "headers",
+            "status",
+            "state",
+            "userId",
+            "teamId",
+            "etag",
+        ] {
+            let mut command = match file_cmd("tmp-forbidden") {
+                Tick::Command(command) => {
+                    serde_json::from_slice::<Value>(&command.payload).unwrap()
+                }
+                _ => unreachable!(),
+            };
+            command["props"]["file"][forbidden] = json!("client-owned");
+            let tick = send_message_cmd_json(command);
+            let mut h = Harness::new(&[1]);
+            let mut out = EffectSink::new();
+            let error = h
+                .module
+                .handle(&tick, 1000, &mut out)
+                .expect_err("must reject");
+            assert!(
+                error.to_string().contains(forbidden),
+                "{forbidden}: {error}"
+            );
+            assert!(out.as_slice().is_empty());
+        }
+    }
+
+    #[test]
+    fn prepare_success_builds_exactly_one_upload_from_server_data() {
+        let mut h = Harness::new(&[1]);
+        h.step(file_cmd("tmp-prepare-ok"), 1000);
+        let prepare_corr = prepare_effects(&h)[0].0;
+        let outcome = match prepare_reply(valid_prepare_data()) {
+            Tick::PortReply { outcome, .. } => outcome,
+            _ => unreachable!(),
+        };
+        h.step(
+            Tick::PortReply {
+                corr: helix_core::Correlation::from_raw(prepare_corr),
+                outcome,
+            },
+            1010,
+        );
+
+        let uploads = upload_effects(&h);
+        assert_eq!(uploads.len(), 1);
+        let req = &uploads[0].1;
+        assert_eq!(req.local_path, "/tmp/doc.pdf");
+        assert_eq!(req.method, "PUT");
+        assert_eq!(req.object_key, "file-1");
+        assert_eq!(req.urls.upload_url(), "http://test/media/upload/upload-1");
+        assert_eq!(req.urls.public_url(), "http://test/media/object/file-1");
+        assert_eq!(req.content_type.as_deref(), Some("application/pdf"));
+        assert_eq!(req.size, Some(9));
+        assert_eq!(posts_create_count(&h), 0);
+    }
+
+    #[test]
+    fn failed_or_conflicting_prepare_never_uploads_or_posts() {
+        let invalid_data = [
+            json!({}),
+            json!({
+                "uploadId": "upload-1", "fileId": "file-1", "method": "POST",
+                "url": "http://test/upload", "publicUrl": "http://test/file",
+                "objectKey": "file-1", "headers": {}
+            }),
+            json!({
+                "uploadId": "upload-1", "fileId": "file-1", "method": "PUT",
+                "url": "http://test/upload", "publicUrl": "http://test/file",
+                "objectKey": "file-1", "headers": {"Content-Type": "image/png"}
+            }),
+        ];
+        for (index, data) in invalid_data.into_iter().enumerate() {
+            let mut h = Harness::new(&[1]);
+            h.step(file_cmd(&format!("tmp-invalid-{index}")), 1000);
+            let corr = prepare_effects(&h)[0].0;
+            let outcome = match prepare_reply(data) {
+                Tick::PortReply { outcome, .. } => outcome,
+                _ => unreachable!(),
+            };
+            h.step(
+                Tick::PortReply {
+                    corr: helix_core::Correlation::from_raw(corr),
+                    outcome,
+                },
+                1010,
+            );
+            assert!(upload_effects(&h).is_empty());
+            assert_eq!(posts_create_count(&h), 0);
+        }
+
+        let mut h = Harness::new(&[1]);
+        h.step(file_cmd("tmp-prepare-failure"), 1000);
+        let corr = prepare_effects(&h)[0].0;
+        let outcome = match port_reply_with_body(
+            0,
+            Bytes::from_static(br#"{"status":"FAIL","message":"conflict","data":null}"#),
+        ) {
+            Tick::PortReply { outcome, .. } => outcome,
+            _ => unreachable!(),
+        };
+        h.step(
+            Tick::PortReply {
+                corr: helix_core::Correlation::from_raw(corr),
+                outcome,
+            },
+            1010,
+        );
+        assert!(upload_effects(&h).is_empty());
+        assert_eq!(posts_create_count(&h), 0);
+    }
+
+    #[test]
+    fn put_success_only_enters_waiting_complete() {
+        let mut h = Harness::new(&[1]);
+        h.step(file_cmd("tmp-put-ok"), 1000);
+        let prepare_corr = prepare_effects(&h)[0].0;
+        let outcome = match prepare_reply(valid_prepare_data()) {
+            Tick::PortReply { outcome, .. } => outcome,
+            _ => unreachable!(),
+        };
+        h.step(
+            Tick::PortReply {
+                corr: helix_core::Correlation::from_raw(prepare_corr),
+                outcome,
+            },
+            1010,
+        );
+        let upload_corr = upload_effects(&h)[0].0;
+        let effects = h.step(port_reply_ok(upload_corr), 1020);
+
+        assert!(effects.is_empty(), "PUT success must wait for B2 complete");
+        assert_eq!(posts_create_count(&h), 0);
     }
 }

@@ -14,8 +14,8 @@ impl ImModule {
     /// 2. Emit(im:post:sending)
     ///
     /// 普通文本会在同一步继续吐 `Http{H1, POST /posts/create}` + `ScheduleTimer{T1, 15s}`；
-    /// rich/file 若存在上传门控，则先吐若干 `UploadFile`，等最后一个上传成功并真正发
-    /// `posts/create` 时才 arm Post timer。
+    /// rich/file 若存在上传门控，首步只发 `media/upload/prepare`；PUT 成功后停在
+    /// WaitingComplete，完整 complete/posts.create 链由 G-03 B2 接续。
     pub(crate) fn handle_send_message(
         &mut self,
         payload: &[u8],
@@ -106,8 +106,8 @@ impl ImModule {
         // 取代旧 `corr_map.retain` 全表扫描清 OptimisticSend 路由。
         ps.persist_corr = Some(p1_corr);
         ps.body = Some(body.clone());
-        if !upload_plan.targets.is_empty() {
-            ps.remaining_uploads = upload_plan.targets.len();
+        if !upload_plan.media.is_empty() {
+            ps.remaining_uploads = upload_plan.media.len();
         }
         self.state.pending_sends.insert(tmp_id.clone(), ps);
         crate::send_reconcile::register_optimistic_send_corr(
@@ -116,27 +116,52 @@ impl ImModule {
             tmp_id.clone(),
         );
 
-        if upload_plan.targets.is_empty() {
+        if upload_plan.media.is_empty() {
             self.emit_posts_create_http(channel_id, tmp_id, &body, out)?;
         } else {
-            for target in upload_plan.targets {
-                let upload_corr = self.alloc_corr_internal();
-                let req =
-                    crate::send::upload_props::file_upload_request(&upload_plan.props, &target)?;
-                self.state.pending_uploads.insert(
-                    upload_corr,
-                    crate::send::upload_props::PendingUpload {
-                        temporary_id: tmp_id.clone(),
-                        target,
-                    },
-                );
-                out.push(Effect::UploadFile {
-                    corr: upload_corr,
-                    req,
-                });
+            for media in upload_plan.media {
+                self.emit_media_prepare(
+                    channel_id,
+                    tmp_id.clone(),
+                    media.target,
+                    media.input,
+                    out,
+                )?;
             }
         }
 
+        Ok(())
+    }
+
+    fn emit_media_prepare(
+        &mut self,
+        channel_id: ChannelId,
+        temporary_id: TemporaryId,
+        target: crate::send::upload_props::UploadTarget,
+        input: crate::send::upload_props::MediaInput,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let corr = self.alloc_corr_internal();
+        let req = crate::send::upload_props::prepare_upload_request(
+            &self.config.api_base_url,
+            channel_id.as_str(),
+            &input,
+            crate::acl::sync_http_effects::session_auth_headers(
+                self.state.connection_id.as_deref(),
+            ),
+        )?;
+        self.state.pending_media_ops.insert(
+            corr,
+            crate::send::upload_props::PendingMediaOp::Prepare(
+                crate::send::upload_props::PendingMediaPrepare {
+                    temporary_id,
+                    channel_id,
+                    target,
+                    input,
+                },
+            ),
+        );
+        out.push(Effect::Http { corr, req });
         Ok(())
     }
 

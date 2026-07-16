@@ -1,7 +1,133 @@
-use super::UploadTarget;
+use super::{MediaInput, PreparedMedia, UploadTarget};
 use crate::ImError;
-use helix_core::effect::{FileUploadRequest, FileUploadUrls};
-use serde_json::Value;
+use helix_core::effect::{FileUploadRequest, FileUploadUrls, HttpRequest};
+use serde_json::{json, Value};
+
+pub fn prepare_upload_request(
+    api_base_url: &str,
+    channel_id: &str,
+    input: &MediaInput,
+    mut headers: Vec<(String, String)>,
+) -> Result<HttpRequest, ImError> {
+    headers.insert(
+        0,
+        ("Content-Type".to_string(), "application/json".to_string()),
+    );
+    let body = serde_json::to_vec(&json!({
+        "channelId": channel_id,
+        "fileName": input.file_name,
+        "contentType": input.content_type,
+        "size": input.size,
+        "sha256": input.sha256,
+    }))
+    .map_err(|error| ImError::Serialize(error.to_string()))?;
+    Ok(HttpRequest {
+        method: "POST".to_string(),
+        url: format!("{api_base_url}/media/upload/prepare"),
+        headers,
+        body: Some(bytes::Bytes::from(body)),
+    })
+}
+
+pub fn parse_prepare_reply(
+    bytes: &[u8],
+    input: &MediaInput,
+    channel_id: &str,
+) -> Result<PreparedMedia, String> {
+    let root: Value = serde_json::from_slice(bytes)
+        .map_err(|error| format!("media prepare CommonRes: {error}"))?;
+    let status = root
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "media prepare CommonRes.status must be string".to_string())?;
+    if status != "SUCCESS" {
+        return Err(format!("media prepare CommonRes status is {status}"));
+    }
+    let data = root
+        .get("data")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "media prepare CommonRes.data must be object".to_string())?;
+    let required = |key: &str| {
+        data.get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("media prepare data.{key} must be non-empty string"))
+    };
+    let method = required("method")?;
+    if method != "PUT" {
+        return Err("media prepare data.method must be PUT".to_string());
+    }
+    let url = required("url")?;
+    let public_url = required("publicUrl")?;
+    if !is_http_url(&url) || !is_http_url(&public_url) {
+        return Err("media prepare URLs must use http or https".to_string());
+    }
+    if let Some(size) = data.get("size") {
+        if size.as_u64() != Some(input.size) {
+            return Err("media prepare data.size conflicts with mediaInput".to_string());
+        }
+    }
+    if let Some(content_type) = data.get("contentType") {
+        if content_type.as_str() != Some(input.content_type.as_str()) {
+            return Err("media prepare data.contentType conflicts with mediaInput".to_string());
+        }
+    }
+    if let Some(response_channel) = data.get("channelId") {
+        if response_channel.as_str() != Some(channel_id) {
+            return Err("media prepare data.channelId conflicts with request".to_string());
+        }
+    }
+    let headers = data
+        .get("headers")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "media prepare data.headers must be object".to_string())?
+        .iter()
+        .map(|(name, value)| {
+            value
+                .as_str()
+                .map(|header| (name.clone(), header.to_string()))
+                .ok_or_else(|| format!("media prepare header {name} must be string"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some((_, content_type)) = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+    {
+        if content_type != &input.content_type {
+            return Err("media prepare Content-Type header conflicts with mediaInput".to_string());
+        }
+    }
+    Ok(PreparedMedia {
+        upload_id: required("uploadId")?,
+        file_id: required("fileId")?,
+        method,
+        url,
+        public_url,
+        object_key: required("objectKey")?,
+        headers,
+    })
+}
+
+pub fn media_upload_request(
+    input: &MediaInput,
+    prepared: &PreparedMedia,
+) -> Result<FileUploadRequest, ImError> {
+    Ok(FileUploadRequest {
+        local_path: input.local_path.clone(),
+        object_key: prepared.object_key.clone(),
+        method: prepared.method.clone(),
+        urls: FileUploadUrls::new(prepared.url.clone(), prepared.public_url.clone())
+            .map_err(|reason| ImError::Parse(format!("media prepare invalid urls: {reason}")))?,
+        headers: prepared.headers.clone(),
+        content_type: Some(input.content_type.clone()),
+        size: Some(input.size),
+    })
+}
+
+fn is_http_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
 
 pub fn file_upload_request(
     props: &Value,

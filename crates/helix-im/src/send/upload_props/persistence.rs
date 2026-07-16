@@ -19,9 +19,19 @@ pub fn sanitized_for_persistence(props: &Value) -> Value {
 }
 
 fn strip_write_credentials(node: &mut Value) {
+    if let Some(node) = node.as_object_mut() {
+        node.remove("mediaInput");
+        node.remove("localPath");
+        node.remove("userId");
+        node.remove("teamId");
+        node.remove("etag");
+    }
     if let Some(upload) = node.get_mut("upload").and_then(Value::as_object_mut) {
         upload.remove("url");
         upload.remove("headers");
+        upload.remove("userId");
+        upload.remove("teamId");
+        upload.remove("etag");
     }
 }
 

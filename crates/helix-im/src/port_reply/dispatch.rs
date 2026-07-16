@@ -19,6 +19,10 @@ impl ImModule {
     ) -> Result<(), ImError> {
         use helix_core::tick::PortOutcome;
 
+        if let Some(pending_media) = self.state.pending_media_ops.remove(&corr) {
+            return self.handle_media_port_reply(pending_media, outcome, out);
+        }
+
         if let Some(pending_upload) = self.state.pending_uploads.remove(&corr) {
             return self.handle_upload_port_reply(pending_upload, outcome, out);
         }

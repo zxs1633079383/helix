@@ -115,6 +115,85 @@ impl ImModule {
         Ok(())
     }
 
+    fn handle_media_port_reply(
+        &mut self,
+        pending: crate::send::upload_props::PendingMediaOp,
+        outcome: &helix_core::tick::PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        use crate::send::upload_props::{PendingMediaOp, PendingMediaPut, PendingUpload};
+        use helix_core::tick::PortOutcome;
+
+        match pending {
+            PendingMediaOp::Prepare(prepare) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::send::upload_props::parse_prepare_reply(
+                        reply.0.as_ref(),
+                        &prepare.input,
+                        prepare.channel_id.as_str(),
+                    ) {
+                        Ok(prepared) => {
+                            let req = crate::send::upload_props::media_upload_request(
+                                &prepare.input,
+                                &prepared,
+                            )?;
+                            let corr = self.alloc_corr_internal();
+                            self.state.pending_media_ops.insert(
+                                corr,
+                                PendingMediaOp::Put(PendingMediaPut {
+                                    temporary_id: prepare.temporary_id,
+                                    channel_id: prepare.channel_id,
+                                    target: prepare.target,
+                                    input: prepare.input,
+                                    prepared,
+                                }),
+                            );
+                            out.push(helix_core::Effect::UploadFile { corr, req });
+                        }
+                        Err(reason) => {
+                            self.mark_upload_failed(
+                                PendingUpload {
+                                    temporary_id: prepare.temporary_id,
+                                    target: prepare.target,
+                                },
+                                &reason,
+                                out,
+                            )?;
+                        }
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    self.mark_upload_failed(
+                        PendingUpload {
+                            temporary_id: prepare.temporary_id,
+                            target: prepare.target,
+                        },
+                        &format!("{error:?}"),
+                        out,
+                    )?;
+                }
+            },
+            PendingMediaOp::Put(put) => match outcome {
+                PortOutcome::Ok(_) => {
+                    self.state
+                        .waiting_media_complete
+                        .insert(put.prepared.upload_id.clone(), put);
+                }
+                PortOutcome::Err(error) => {
+                    self.mark_upload_failed(
+                        PendingUpload {
+                            temporary_id: put.temporary_id,
+                            target: put.target,
+                        },
+                        &format!("{error:?}"),
+                        out,
+                    )?;
+                }
+            },
+        }
+        Ok(())
+    }
+
     fn handle_upload_port_reply(
         &mut self,
         pending_upload: crate::send::upload_props::PendingUpload,

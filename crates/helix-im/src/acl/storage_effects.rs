@@ -153,15 +153,20 @@ pub fn get_channel_row_op(channel_id: ChannelId) -> StorageOp {
 /// advance_cursor：推进 per-channel 同步 cursor（fire-and-forget，写成功后调用）。
 pub fn advance_cursor(channel_id: ChannelId, target_seq: Seq) -> Effect {
     Effect::PersistFire {
-        ops: vec![StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
-            table: "channel_event_cursor",
-            key_col: "channel_id",
-            value_col: "last_event_seq",
-            touch_col: Some("updated_at"),
-            scope_key: channel_id.as_str().to_string(),
-            value: target_seq.0 as i64,
-        })],
+        ops: vec![advance_cursor_op(channel_id, target_seq)],
     }
+}
+
+/// `advance_cursor` 的 StorageOp 内核，供 sync/increment 与业务写并入同一相关事务。
+pub fn advance_cursor_op(channel_id: ChannelId, target_seq: Seq) -> StorageOp {
+    StorageOp::MonotonicUpsert(MonotonicUpsertSpec {
+        table: "channel_event_cursor",
+        key_col: "channel_id",
+        value_col: "last_event_seq",
+        touch_col: Some("updated_at"),
+        scope_key: channel_id.as_str().to_string(),
+        value: target_seq.0 as i64,
+    })
 }
 
 /// too_long 覆盖式重拉：重置 channel 的 Dialog 派生字段，但保留本地 message 历史。

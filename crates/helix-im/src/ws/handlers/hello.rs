@@ -50,8 +50,9 @@ impl WsMessageHandler for HelloHandler {
             inc_corr,
             Some(connection_id),
         ));
-        out.push(crate::acl::to_effect::emit_channels_loaded());
-        tracing::info!("helix-im: hello handshake complete, increment HTTP triggered");
+        tracing::info!(
+            "helix-im: hello handshake complete, increment HTTP triggered; loaded waits for batch persist"
+        );
 
         Ok(())
     }

@@ -97,6 +97,13 @@ pub struct ImState {
     /// 而缺失 `increment_channel` / `im:channel:increment`。
     pub pending_increment_bootstrap_after_scan: bool,
 
+    /// 当前 hello increment 批次尚未提交的 channel/member 写，global end 时合并为一个
+    /// `Persist{corr}`；driver ack 前不得发布 increment/loaded 最终投影。
+    pub(crate) pending_increment_ops: Vec<helix_core::effect::StorageOp>,
+
+    /// 与 `pending_increment_ops` 同批提交后才允许发布的逐频道投影原始数据。
+    pub(crate) pending_increment_projections: Vec<(ChannelId, Vec<u8>)>,
+
     /// UC-4.5 单频道 hydration 已完成 channel/member 落库、正在等待 sync 终态的 channel。
     /// terminal sync commit/no_change 后移除并触发本地 dialog/messages 读回投影。
     pub hydration_pending: HashSet<ChannelId>,
@@ -137,6 +144,8 @@ impl ImState {
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
+            pending_increment_ops: Vec::new(),
+            pending_increment_projections: Vec::new(),
             hydration_pending: HashSet::new(),
             recent_message_coverage: HashMap::new(),
             query_session_epoch: 0,
@@ -152,6 +161,8 @@ impl ImState {
         self.sync_scheduler.reset();
         self.about_me_post_ids.clear();
         self.pending_increment_bootstrap_after_scan = false;
+        self.pending_increment_ops.clear();
+        self.pending_increment_projections.clear();
         self.hydration_pending.clear();
         self.viewer_channel_roles.clear();
         self.reply_projection_revisions.clear();

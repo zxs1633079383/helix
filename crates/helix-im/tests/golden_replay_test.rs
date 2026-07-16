@@ -183,9 +183,10 @@ fn real_go_post_frame_on_unregistered_channel_auto_registers_and_arms_gate() {
     );
 }
 
-// ─── ② increment_channel.json：真增量帧 → 注册 + cursor 种子 + emit ───────────────
+// ─── ② increment_channel.json：真增量帧 → 注册 + cursor 种子 + commit 后 emit ─────────
 
-/// 真 Go `increment_channel` 帧 → 注册全新 channel + 冷启动 cursor 种子 0（非 LastEventSeq）+ emit。
+/// 真 Go `increment_channel` 帧 → 注册全新 channel + 冷启动 cursor 种子 0；global end
+/// 形成相关 Persist，成功回执后才 emit。
 #[test]
 fn real_go_increment_channel_registers_and_seeds_cursor() {
     // increment_channel.json 真帧 data.id = bi643wys7fgy9pbai9wjfusnfa，lastEventSeq = 151。
@@ -208,10 +209,10 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
         h.module.increment_fetched_contains(channel),
         "真 increment 帧须记入 increment_fetched 集"
     );
-    // emit im:channel:increment。
+    // G-S1：逐帧只缓冲，持久化 ack 前不得 emit im:channel:increment。
     assert!(
-        effects.iter().any(|e| *e == EffectKind::Emit),
-        "真 increment 帧须 emit im:channel:increment，got {:?}",
+        !effects.iter().any(|e| *e == EffectKind::Emit),
+        "真 increment 帧持久化 ack 前不得 emit，got {:?}",
         effects
     );
 
@@ -233,6 +234,22 @@ fn real_go_increment_channel_registers_and_seeds_cursor() {
     assert!(
         saw_sync_notify,
         "真 increment_channel_end 须触发 /channel/sync/notify"
+    );
+    let persist_corr = end_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("真 increment_channel_end 必须形成相关 Persist");
+    let committed = h.step(port_reply_ok(persist_corr), 1_200);
+    assert_eq!(
+        committed
+            .iter()
+            .filter(|effect| **effect == EffectKind::Emit)
+            .count(),
+        2,
+        "事务成功后应发布 channel:increment + channels:loaded"
     );
 }
 

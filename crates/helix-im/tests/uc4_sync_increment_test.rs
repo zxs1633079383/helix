@@ -281,22 +281,14 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
             }),
         "通用 im:read:result 必须继续兼容"
     );
-    let immediate_dialog = h
-        .sink
-        .as_slice()
-        .iter()
-        .filter_map(emit_value)
-        .find(|value| value["event"] == "im:channels:projection")
-        .expect("单频道 hydration 应立即发布 render-ready dialog，不等待全表 Scan");
-    let immediate_row = &immediate_dialog["data"]["dialogList"][0];
-    assert_eq!(immediate_row["id"], cid(45));
-    assert_eq!(immediate_row["channelId"], cid(45));
-    assert_eq!(immediate_row["displayName"], "陌生频道");
-    assert_eq!(immediate_row["group"], "company");
-    assert_eq!(immediate_row["channelType"], "O");
-    assert_eq!(immediate_row["channelKind"], "company");
-    assert_eq!(immediate_row["loading"], false);
-    assert_eq!(immediate_row["unknown"], false);
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| value["event"] == "im:channels:projection"),
+        "HTTP SUCCESS 后、channel/member Persist ack 前不得发布 hydration 最终投影"
+    );
     let (increment_persist_corr, increment_ops) = h
         .sink
         .as_slice()
@@ -332,6 +324,22 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
     );
 
     h.step(port_reply_ok(increment_persist_corr), 1_200);
+    let committed_dialog = h
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(emit_value)
+        .find(|value| value["event"] == "im:channels:projection")
+        .expect("channel/member Persist ack 后应发布 render-ready dialog");
+    let committed_row = &committed_dialog["data"]["dialogList"][0];
+    assert_eq!(committed_row["id"], cid(45));
+    assert_eq!(committed_row["channelId"], cid(45));
+    assert_eq!(committed_row["displayName"], "陌生频道");
+    assert_eq!(committed_row["group"], "company");
+    assert_eq!(committed_row["channelType"], "O");
+    assert_eq!(committed_row["channelKind"], "company");
+    assert_eq!(committed_row["loading"], false);
+    assert_eq!(committed_row["unknown"], false);
     let sync_corr = h
         .sink
         .as_slice()

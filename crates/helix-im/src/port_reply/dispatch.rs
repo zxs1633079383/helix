@@ -50,19 +50,32 @@ impl ImModule {
                 channel_id,
                 wants_continuation,
                 dialog_patches,
+                pending_domain_events,
             } => self.handle_channel_persist_reply(
                 corr,
                 channel_id,
                 wants_continuation,
                 dialog_patches,
+                pending_domain_events,
                 outcome,
                 out,
             )?,
 
+            CorrelationContext::IncrementBatchPersist { projections } => {
+                self.handle_increment_batch_persist_reply(projections, outcome, out)
+            }
+
             CorrelationContext::IncrementHydrationPersist {
                 channel_id,
                 need_sync,
-            } => self.handle_increment_hydration_persist(channel_id, need_sync, outcome, out)?,
+                raw_increment,
+            } => self.handle_increment_hydration_persist(
+                channel_id,
+                need_sync,
+                raw_increment,
+                outcome,
+                out,
+            )?,
 
             CorrelationContext::DialogPatchByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {

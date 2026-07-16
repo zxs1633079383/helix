@@ -15,8 +15,14 @@ pub(crate) fn apply_increment(
     out: &mut EffectSink,
 ) {
     for effect in apply_increment_effects(ctx, inc) {
-        out.push(effect);
+        match effect {
+            Effect::PersistFire { ops } => ctx.state.pending_increment_ops.extend(ops),
+            other => out.push(other),
+        }
     }
+    ctx.state
+        .pending_increment_projections
+        .push((inc.channel_id, inc.raw.as_ref().to_vec()));
 }
 
 /// UC-4.5 HTTP 单频道 hydration：复用与 WS `increment_channel` 完全相同的解析后应用规则，
@@ -29,11 +35,10 @@ pub(crate) fn apply_increment_hydration(
     out: &mut EffectSink,
 ) -> bool {
     let mut persist_ops = Vec::new();
-    let mut remaining = Vec::new();
     for effect in apply_increment_effects(ctx, inc) {
         match effect {
             Effect::PersistFire { ops } => persist_ops.extend(ops),
-            other => remaining.push(other),
+            other => out.push(other),
         }
     }
     let has_persist = !persist_ops.is_empty();
@@ -42,9 +47,6 @@ pub(crate) fn apply_increment_hydration(
             corr,
             ops: persist_ops,
         });
-    }
-    for effect in remaining {
-        out.push(effect);
     }
     has_persist
 }
@@ -121,11 +123,6 @@ fn apply_increment_effects(ctx: &mut ImWsContext<'_>, inc: &IncrementChannel) ->
             .extend(crate::todo::collect_about_me_ids(&data));
     }
 
-    // 前端仍要 emit（透传 mentionList/urgentPostList，B-rest 契约不变）。
-    effects.push(crate::acl::to_effect::emit_channel_increment(
-        channel_id,
-        inc.raw.as_ref(),
-    ));
     effects
 }
 

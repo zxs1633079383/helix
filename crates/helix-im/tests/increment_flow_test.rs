@@ -4,10 +4,9 @@
 //!
 //! ## 验收场景（设计文档 §3 理想扭转流程）
 //!
-//! 1. hello 握手 → 触发 increment HTTP（POST /channels/load/increment，**非** /sync/notify resync）
-//!    + emit im:channels:loaded。
-//! 2. 喂 increment_channel → 注册 channel + cursor 种子（LastEventSeq）+ emit im:channel:increment。
-//! 3. increment_channel_end(None=global) → 对 (increment_fetched − need_sync_skip) 每群发 sync Http。
+//! 1. hello 握手 → 触发 increment HTTP（POST /channels/load/increment，**非** /sync/notify resync）。
+//! 2. 喂 increment_channel → 注册 channel + cursor 种子并缓冲持久化/投影。
+//! 3. increment_channel_end(None=global) → 启动独立 sync，并封出同批 Persist；ack 后发布最终投影。
 
 mod common;
 use common::*;
@@ -71,13 +70,16 @@ fn hello_triggers_increment_http_not_resync() {
         url
     );
 
-    // 同时应 emit im:connection:established + im:channels:loaded（≥2 个 Emit）。
+    // hello 只发布连接事实；channels:loaded 必须等 global end 的本地事务成功。
     let emit_count = effects.iter().filter(|e| **e == EffectKind::Emit).count();
-    assert!(
-        emit_count >= 2,
-        "hello 应 emit established + channels:loaded，got {} emits",
-        emit_count
+    assert_eq!(
+        emit_count, 1,
+        "hello 只能 emit established，got {emit_count} emits"
     );
+    assert!(!h.sink.as_slice().iter().any(|effect| {
+        matches!(effect, Effect::Emit { event }
+            if String::from_utf8_lossy(event.0.as_ref()).contains("im:channels:loaded"))
+    }));
 
     // increment HTTP 须带 connectionId 身份头。
     let req = h
@@ -129,12 +131,15 @@ fn increment_channel_registers_and_seeds_cursor() {
         "increment 须记入 increment_fetched 集"
     );
 
-    // emit im:channel:increment（透传 raw）。
+    // G-S1：逐帧不直接 emit；global end 将 channel/member/cursor 合批，ack 后再透传 raw。
     let saw_increment_emit = h.sink.as_slice().iter().any(|e| {
         matches!(e, Effect::Emit { event }
         if String::from_utf8_lossy(event.0.as_ref()).contains("im:channel:increment"))
     });
-    assert!(saw_increment_emit, "increment 须 emit im:channel:increment");
+    assert!(
+        !saw_increment_emit,
+        "increment 持久化 ack 前不得 emit im:channel:increment"
+    );
 }
 
 /// 幂等：已存在的 channel（cursor 已推进）不被 increment 种子回退。

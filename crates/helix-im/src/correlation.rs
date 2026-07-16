@@ -33,6 +33,13 @@ pub enum CorrelationContext {
         wants_continuation: bool,
         /// sync events 中需要在 channel 写后读回累计行再 emit 的 DialogPatch。
         dialog_patches: Vec<crate::dialog_patch::PendingDialogPatch>,
+        /// sync HTTP 解析出的 mutation 投影；事务 ack 前不得发布。
+        pending_domain_events: Vec<Vec<u8>>,
+    },
+
+    /// hello increment 全批 channel/member/cursor 事务回报。
+    IncrementBatchPersist {
+        projections: Vec<(ChannelId, Vec<u8>)>,
     },
 
     /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后 emit
@@ -128,6 +135,7 @@ pub enum CorrelationContext {
     IncrementHydrationPersist {
         channel_id: ChannelId,
         need_sync: bool,
+        raw_increment: Vec<u8>,
     },
 
     /// S7（issue #56）：byIds 成员快照读族 **HTTP** 回报。回报时**双 emit**——

@@ -145,7 +145,8 @@ impl ImModule {
     /// → 握手完成可用。connectionId 存入 state，A3b 盖章进后续 IM HTTP 身份头。
     ///
     /// B-rest 扭转（设计文档 §3 Phase 2）：hello 后**不再直接 emit_proactive_resync**，
-    /// 改为触发 increment HTTP（push 模型，带已知 channel 游标）+ emit im:channels:loaded。
+    /// 改为触发 increment HTTP（push 模型，带已知 channel 游标）。`im:channels:loaded`
+    /// 由 global increment end 封成相关 Persist，并在成功回执后发布。
     /// 真增量走 WS `increment_channel` 单播（→ registry handler），global-end 收尾时才
     /// 对增量群发 proactive sync。会话边界 reset increment 批次集（§7 跨会话残留）。
     #[allow(dead_code)]
@@ -169,8 +170,9 @@ impl ImModule {
             inc_corr,
             conn_id.as_deref(),
         ));
-        out.push(crate::acl::to_effect::emit_channels_loaded());
-        tracing::info!("helix-im: hello handshake complete, increment HTTP triggered");
+        tracing::info!(
+            "helix-im: hello handshake complete, increment HTTP triggered; loaded waits for batch persist"
+        );
     }
 
     /// 向所有已知 channel 发 proactive sync Http（scan_reply 路径复用）。

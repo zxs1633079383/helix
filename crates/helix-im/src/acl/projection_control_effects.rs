@@ -138,6 +138,28 @@ pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
     }
 }
 
+/// G-S3：同步事务成功提交后的 render-ready 状态。HTTP 成功或解析成功均不得直接调用。
+pub fn emit_sync_state(channel_id: ChannelId, committed_seq: Seq) -> Effect {
+    use serde_json::json;
+    let payload = json!({
+        "event": "im:sync:state",
+        "data": {
+            "state": "committed",
+            "recovery": {
+                "channelId": channel_id.as_str(),
+                "committedSeq": committed_seq.0,
+            }
+        }
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_sync_state: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 /// A4：发送 im:connection:established 事件（hello 握手完成信号）。
 pub fn emit_connection_established(connection_id: &str) -> Effect {
     use serde_json::json;

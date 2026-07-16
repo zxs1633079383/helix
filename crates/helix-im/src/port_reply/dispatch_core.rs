@@ -3,7 +3,7 @@ use crate::error::ImError;
 use crate::module::ImModule;
 use crate::state::{ChannelId, SendStatus, TemporaryId};
 use helix_core::tick::PortOutcome;
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 impl ImModule {
     pub(super) fn handle_channel_persist_reply(
@@ -12,6 +12,7 @@ impl ImModule {
         channel_id: ChannelId,
         wants_continuation: bool,
         dialog_patches: Vec<PendingDialogPatch>,
+        pending_domain_events: Vec<Vec<u8>>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -20,11 +21,26 @@ impl ImModule {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.on_persist_ok(corr, out)?;
                 }
+                for bytes in pending_domain_events {
+                    out.push(Effect::Emit {
+                        event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
+                    });
+                }
                 for pending in dialog_patches {
                     if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
                         out.push(effect);
                     }
                 }
+                let committed_seq = self
+                    .state
+                    .channels
+                    .get(&channel_id)
+                    .map(|channel| channel.cursor.value())
+                    .unwrap_or(crate::state::Seq(0));
+                out.push(crate::acl::to_effect::emit_sync_state(
+                    channel_id,
+                    committed_seq,
+                ));
                 // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
                 if wants_continuation {
                     self.maybe_continue_sync(channel_id, out);
@@ -46,6 +62,25 @@ impl ImModule {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn handle_increment_batch_persist_reply(
+        &mut self,
+        projections: Vec<(ChannelId, Vec<u8>)>,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) {
+        match outcome {
+            PortOutcome::Ok(_) => {
+                crate::ws::handlers::increment_channel_end::after_increment_batch_persist(
+                    projections,
+                    out,
+                );
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(error = ?error, "increment batch persist failed; final projections suppressed");
+            }
+        }
     }
 
     pub(super) fn handle_optimistic_send_reply(

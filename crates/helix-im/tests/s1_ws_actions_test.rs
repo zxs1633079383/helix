@@ -710,6 +710,23 @@ fn increment_channel_writes_channel_member_table_a1() {
         })),
         1_000,
     );
+    // G-S1：逐 increment 只缓冲，global end 才把 channel/member/cursor 封成相关事务。
+    let _ = h.step(
+        inbound(serde_json::json!({
+            "action": "increment_channel_end",
+            "data": {}
+        })),
+        1_100,
+    );
+    let persist_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("global end 必须形成相关 Persist");
     let ops = storage_ops(&h.sink);
     // path1 主表仍 upsert channel。
     assert!(
@@ -757,6 +774,7 @@ fn increment_channel_writes_channel_member_table_a1() {
     assert_eq!(role_of("u-adm"), Some("ADMIN"));
     assert_eq!(role_of("u-boss"), Some("BOSS"));
     assert_eq!(role_of("u-own"), Some("OWNER"), "owner 写 OWNER 角色行");
+    h.step(port_reply_ok(persist_corr), 1_200);
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:increment"));

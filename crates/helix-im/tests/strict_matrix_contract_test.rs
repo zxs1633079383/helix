@@ -206,6 +206,19 @@ fn gs_sync_contracts_freeze_go_main_abi_without_collapsing_evidence_planes() {
     assert!(gs3.ws.events.contains("gaps"));
     assert!(gs3.ws.events.contains("hashMismatch"));
     assert!(gs3.ws.events.contains("普通 pong"));
+    for gate_id in ["G-S1", "G-S2", "G-S3", "G-S4"] {
+        let gate = gate(&matrix, gate_id);
+        assert!(
+            gate.http
+                .response
+                .contains("crates/helix-im/tests/gs_persist_barrier_test.rs"),
+            "{gate_id} 必须引用可执行持久化屏障证据"
+        );
+        assert!(gate
+            .negative_assertions
+            .iter()
+            .any(|rule| rule.contains("Persist") || rule.contains("持久化")));
+    }
 }
 
 #[test]
@@ -233,6 +246,7 @@ fn capabilities_publish_only_canonical_send_and_actual_failure_events() {
     assert!(events
         .iter()
         .any(|event| event == "im:post:increment-failed"));
+    assert!(events.iter().any(|event| event == "im:sync:state"));
     assert_eq!(caps["features"]["helixOwnedTemporaryId"], true);
 
     let send = gate(&matrix, "G-03")

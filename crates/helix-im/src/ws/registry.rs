@@ -426,7 +426,6 @@ mod tests {
         );
 
         let mut saw_established = false;
-        let mut saw_channels_loaded = false;
         let mut saw_increment_http = false;
         for effect in out.as_slice() {
             match effect {
@@ -434,7 +433,7 @@ mod tests {
                     let body = String::from_utf8_lossy(event.0.as_ref());
                     saw_established |=
                         body.contains("im:connection:established") && body.contains("CONN_REG");
-                    saw_channels_loaded |= body.contains("im:channels:loaded");
+                    assert!(!body.contains("im:channels:loaded"));
                 }
                 Effect::Http { corr, req } => {
                     saw_increment_http = true;
@@ -458,7 +457,6 @@ mod tests {
         }
         assert!(saw_established, "missing connection established emit");
         assert!(saw_increment_http, "missing increment HTTP trigger");
-        assert!(saw_channels_loaded, "missing channels loaded emit");
     }
 
     #[test]
@@ -492,13 +490,9 @@ mod tests {
         assert!(ctx.state.increment_fetched.contains(&channel_id));
         assert!(!ctx.state.need_sync_skip.contains(&channel_id));
         assert_eq!(ctx.state.increment_target.get(&channel_id), Some(&Seq(42)));
-        assert!(
-            out.as_slice().iter().filter_map(emit_body).any(|body| {
-                body.contains("im:channel:increment") && body.contains(channel_id.as_str())
-            }),
-            "increment should emit channel increment, got: {:?}",
-            out.as_slice()
-        );
+        assert!(out.as_slice().is_empty(), "increment 帧只应进入待提交批次");
+        assert!(!ctx.state.pending_increment_ops.is_empty());
+        assert_eq!(ctx.state.pending_increment_projections.len(), 1);
     }
 
     #[test]
@@ -539,37 +533,25 @@ mod tests {
         dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
 
         assert_eq!(sync_http_channel_ids(&out), vec![sync_channel.as_str()]);
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| { matches!(effect, Effect::Persist { corr, .. } if corr.raw() == 8) }));
         assert_eq!(
             ctx.state
                 .corr_map
                 .get(&helix_core::Correlation::from_raw(7)),
             Some(&crate::state::CorrelationContext::SyncPull {
-                channel_id: sync_channel
+                channel_id: sync_channel,
             })
         );
-        assert!(
+        assert_eq!(
             ctx.state
-                .channels
-                .get(&sync_channel)
-                .unwrap()
-                .inflight_sync
-                .is_some(),
-            "global end sync should set inflight guard"
-        );
-        let req = out
-            .as_slice()
-            .iter()
-            .find_map(|effect| match effect {
-                Effect::Http { req, .. } => Some(req),
-                _ => None,
+                .corr_map
+                .get(&helix_core::Correlation::from_raw(8)),
+            Some(&crate::state::CorrelationContext::IncrementBatchPersist {
+                projections: Vec::new(),
             })
-            .expect("global end should emit sync HTTP");
-        assert!(
-            req.headers
-                .iter()
-                .any(|(key, value)| key == "connectionId" && value == "CONN_INC"),
-            "sync should carry connectionId header, got: {:?}",
-            req.headers
         );
     }
 
@@ -582,7 +564,12 @@ mod tests {
             .insert(sync_channel, Channel::new(sync_channel, 5));
         state.increment_fetched.insert(sync_channel);
 
-        let mut alloc_corr = || helix_core::Correlation::from_raw(7);
+        let mut next_corr = 7;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
         let mut ctx = ImWsContext::new(
             &mut state,
             1_000,
@@ -599,6 +586,10 @@ mod tests {
         dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
 
         assert_eq!(sync_http_channel_ids(&out), vec![sync_channel.as_str()]);
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
     }
 
     #[test]

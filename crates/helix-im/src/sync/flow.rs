@@ -145,6 +145,12 @@ impl ImModule {
                         &pending.update,
                     ));
                 }
+                // G-S2/G-S3：message/channel 派生写与 cursor 必须属于同一个相关事务。
+                // Persist 回执前既不推进内存 cursor，也不发布 mutation/dialog/sync-state。
+                persist_ops.push(crate::acl::to_effect::advance_cursor_op(
+                    channel_id,
+                    commit_target,
+                ));
                 if !dialog_patches.is_empty() {
                     persist_ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
                 }
@@ -161,15 +167,20 @@ impl ImModule {
                         channel_id,
                         wants_continuation: needs_continuation,
                         dialog_patches,
+                        pending_domain_events:
+                            crate::acl::to_effect::sync_mutation_emits_with_auth(
+                                &events,
+                                &messages,
+                                auth_user_id,
+                            )
+                            .into_iter()
+                            .filter_map(|effect| match effect {
+                                Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
+                                _ => None,
+                            })
+                            .collect(),
                     },
                 );
-                for emit in crate::acl::to_effect::sync_mutation_emits_with_auth(
-                    &events,
-                    &messages,
-                    auth_user_id,
-                ) {
-                    out.push(emit);
-                }
             }
             SyncResponse::TooLong { reset_to } => {
                 // 覆盖式恢复不先删除本地 message：若 getLatestPost 失败，旧历史仍可读；
@@ -218,7 +229,11 @@ impl ImModule {
                 // 持久化失败时既有 message 行保持不变。
                 let persist_corr = self.alloc_corr_internal();
                 let reset_to = snap.reset_to;
-                let persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);
+                let mut persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);
+                persist_ops.push(crate::acl::to_effect::advance_cursor_op(
+                    channel_id,
+                    reset_to,
+                ));
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.buffer.clear();
                     ch.gate = None;
@@ -235,6 +250,7 @@ impl ImModule {
                         channel_id,
                         wants_continuation: false,
                         dialog_patches: Vec::new(),
+                        pending_domain_events: Vec::new(),
                     },
                 );
             }

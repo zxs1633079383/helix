@@ -77,8 +77,6 @@ impl ImModule {
                         );
                         return Ok(());
                     };
-                    let hydrated_dialog =
-                        crate::query::emit_hydrated_dialog_result(increment.raw.as_ref());
                     let persist_corr = self.alloc_corr_internal();
                     let has_persist =
                         self.ingest_increment_hydration(&increment, persist_corr, now_ms, out);
@@ -102,13 +100,14 @@ impl ImModule {
                             CorrelationContext::IncrementHydrationPersist {
                                 channel_id: increment.channel_id,
                                 need_sync: requires_sync,
+                                raw_increment: increment.raw.as_ref().to_vec(),
                             },
                         );
                     } else {
-                        self.after_increment_persist(increment.channel_id, requires_sync, out)?;
-                    }
-                    if let Some(effect) = hydrated_dialog {
-                        out.push(effect);
+                        tracing::warn!(
+                            channel_id = increment.channel_id.as_str(),
+                            "increment hydration produced no durable writes; final projection suppressed"
+                        );
                     }
                 }
                 Err(e) => {
@@ -134,11 +133,21 @@ impl ImModule {
         &mut self,
         channel_id: ChannelId,
         need_sync: bool,
+        raw_increment: Vec<u8>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         match outcome {
-            PortOutcome::Ok(_) => self.after_increment_persist(channel_id, need_sync, out)?,
+            PortOutcome::Ok(_) => {
+                out.push(crate::acl::to_effect::emit_channel_increment(
+                    channel_id,
+                    raw_increment.as_ref(),
+                ));
+                if let Some(effect) = crate::query::emit_hydrated_dialog_result(&raw_increment) {
+                    out.push(effect);
+                }
+                self.after_increment_persist(channel_id, need_sync, out)?;
+            }
             PortOutcome::Err(e) => tracing::warn!(
                 channel_id = channel_id.as_str(),
                 error = ?e,

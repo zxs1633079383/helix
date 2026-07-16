@@ -73,22 +73,26 @@ fn err(name: &str, payload: Value) -> bool {
 // ── posts/* 读族 ────────────────────────────────────────────────────────────────
 
 #[test]
-fn get_schedule_builds_channel_user_body() {
-    // GetSchedulePostReq{channelId, userId}（schedule_post.go:22，Validate 要求 userId）
+fn get_schedule_builds_server_owned_channel_body() {
+    // owner 由 Go session 派生；兼容接收旧 user_id，但不得再把它发到 wire。
     let (url, body) = one_http(run(
         "im_get_schedule",
-        json!({ "channel_id": "cS", "user_id": "uS" }),
+        json!({ "channel_id": "cS", "user_id": "uS", "req_id": "schedule-r1" }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/getSchedule");
     assert_eq!(body["channelId"], "cS");
-    assert_eq!(body["userId"], "uS");
+    assert!(body.get("userId").is_none());
     assert!(body.get("channel_id").is_none());
+    assert!(body.get("user_id").is_none());
+    assert!(body.get("req_id").is_none());
 }
 
 #[test]
-fn get_schedule_requires_channel_and_user() {
-    assert!(err("im_get_schedule", json!({ "channel_id": "c" }))); // 缺 user_id
+fn get_schedule_requires_channel_only() {
+    let (_url, body) = one_http(run("im_get_schedule", json!({ "channel_id": "c" })));
+    assert_eq!(body, json!({ "channelId": "c" }));
     assert!(err("im_get_schedule", json!({ "user_id": "u" }))); // 缺 channel_id
+    assert!(err("im_get_schedule", json!({}))); // 缺 channel_id
 }
 
 #[test]
@@ -423,10 +427,7 @@ fn post_read_list_builds_postids_array_post_singular_prefix() {
 
 /// P3a 读族全集（17）。改这个列表必须同步 posts_read.rs 注册文件。
 const ALL_P3A_READ: &[(&str, fn() -> Value)] = &[
-    (
-        "im_get_schedule",
-        || json!({ "channel_id": "c", "user_id": "u" }),
-    ),
+    ("im_get_schedule", || json!({ "channel_id": "c" })),
     ("im_post_context", || json!({ "post_id": "p" })),
     ("im_top20", || json!({ "channel_id": "c" })),
     ("im_get_posts", || json!({ "post_ids": ["p"] })),

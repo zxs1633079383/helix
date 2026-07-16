@@ -5,6 +5,21 @@
 
 use super::{ChannelId, TemporaryId};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MakeTopicProjection {
+    pub root_message_id: String,
+    pub topic_channel_id: ChannelId,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelSettingsProjection {
+    pub channel_id: ChannelId,
+    pub purpose: String,
+    pub header: String,
+    pub setting_version: u64,
+}
+
 /// 单一 corr 路由表的 value——一条在途异步操作（Persist / Http / Scan）回报时
 /// 需要的全部上下文。tagged union 取代原 4 张 HashMap + 1 个 Option：
 /// 一个 corr 恰属于一个类别，类别互斥由类型系统保证（不再靠 if-let 试探顺序）。
@@ -122,6 +137,20 @@ pub enum CorrelationContext {
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member
     /// 并发同一 render-ready `im:channel:created`，避免前端退回全量 dialog scan。
     OutboundChannelCreate { members: Vec<serde_json::Value> },
+
+    /// G-15 makeTopic HTTP 回包：仅在服务端确认 root/topic 关联后进入本地持久屏障。
+    OutboundMakeTopic { root_message_id: String },
+
+    /// G-15 topic channel + root message 关联持久成功后释放 render-ready replies 投影。
+    OutboundMakeTopicPersist { projection: MakeTopicProjection },
+
+    /// 群设置/公告写回：服务端 SUCCESS 必须携带完整权威设置快照与 settingVersion。
+    OutboundChannelSettings { channel_id: ChannelId },
+
+    /// 权威设置写入本地 channel 后才释放 settings-updated。
+    OutboundChannelSettingsPersist {
+        projection: ChannelSettingsProjection,
+    },
 
     /// UC-4.5 陌生 channel 单频道 hydration 的首段 HTTP 回报。
     ///

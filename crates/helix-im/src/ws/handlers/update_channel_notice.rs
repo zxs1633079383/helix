@@ -24,7 +24,7 @@ impl WsMessageHandler for UpdateChannelNoticeHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -42,6 +42,31 @@ impl WsMessageHandler for UpdateChannelNoticeHandler {
         };
 
         out.push(crate::acl::to_effect::emit_channel_update(channel_id));
+        let settings = data
+            .get("settings")
+            .filter(|value| value.is_object())
+            .unwrap_or(data);
+        if let Some(setting_version) = data
+            .get("settingVersion")
+            .or_else(|| data.get("setting_version"))
+            .and_then(serde_json::Value::as_u64)
+        {
+            let role = ctx
+                .state
+                .viewer_channel_roles
+                .get(&channel_id)
+                .map(String::as_str);
+            let capabilities =
+                crate::channel_capabilities::for_viewer(data.get("capabilitiesByRole"), role);
+            if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
+                channel_id,
+                settings,
+                setting_version,
+                capabilities,
+            ) {
+                out.push(effect);
+            }
+        }
         Ok(())
     }
 }

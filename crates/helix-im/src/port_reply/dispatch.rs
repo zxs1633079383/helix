@@ -279,6 +279,22 @@ impl ImModule {
                 self.handle_outbound_channel_create_reply(members, outcome, now_ms, out);
             }
 
+            CorrelationContext::OutboundMakeTopic { root_message_id } => {
+                self.handle_outbound_make_topic_reply(&root_message_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundMakeTopicPersist { projection } => {
+                self.handle_make_topic_persist_reply(projection, outcome, out);
+            }
+
+            CorrelationContext::OutboundChannelSettings { channel_id } => {
+                self.handle_outbound_channel_settings_reply(channel_id, outcome, out);
+            }
+
+            CorrelationContext::OutboundChannelSettingsPersist { projection } => {
+                self.handle_channel_settings_persist_reply(projection, outcome, out);
+            }
+
             // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有
             // increment 应用规则，相关落 channel/member 后再进入单频道 sync hydration。
             CorrelationContext::OutboundIncrementHydration { req_id } => {

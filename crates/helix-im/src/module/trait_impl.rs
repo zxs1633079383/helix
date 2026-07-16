@@ -151,6 +151,40 @@ impl Module for ImModule {
                                 );
                             }
                         }
+                    } else if name == "im_make_topic" {
+                        if let Some(root_message_id) =
+                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                                .ok()
+                                .and_then(|value| {
+                                    value
+                                        .get("root_id")
+                                        .and_then(|id| id.as_str())
+                                        .filter(|id| !id.is_empty())
+                                        .map(str::to_string)
+                                })
+                        {
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::OutboundMakeTopic { root_message_id },
+                            );
+                        }
+                    } else if name == "im_channel_change_info" || name == "im_channel_change_notice"
+                    {
+                        if let Some(channel_id) =
+                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                                .ok()
+                                .and_then(|value| {
+                                    value
+                                        .get("channel_id")
+                                        .and_then(|id| id.as_str())
+                                        .and_then(ChannelId::from_str)
+                                })
+                        {
+                            self.state.corr_map.insert(
+                                corr,
+                                CorrelationContext::OutboundChannelSettings { channel_id },
+                            );
+                        }
                     } else if name == "im_channel_leave" {
                         if let Some(channel_id) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

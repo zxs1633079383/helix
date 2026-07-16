@@ -81,9 +81,7 @@ impl WsMessageHandler for UpdateChannelHandler {
             .or_else(|| channel.get("setting_version"))
             .or_else(|| data.get("settingVersion"))
             .or_else(|| data.get("setting_version"))
-            .and_then(serde_json::Value::as_u64)
-            .or_else(|| frame.event_seq().map(|seq| seq.0))
-            .unwrap_or(0);
+            .and_then(serde_json::Value::as_u64);
         let role = ctx
             .state
             .viewer_channel_roles
@@ -93,13 +91,15 @@ impl WsMessageHandler for UpdateChannelHandler {
             .get("capabilitiesByRole")
             .or_else(|| data.get("capabilitiesByRole"));
         let capabilities = crate::channel_capabilities::for_viewer(matrix, role);
-        if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
-            channel_id,
-            channel,
-            setting_version,
-            capabilities,
-        ) {
-            out.push(effect);
+        if let Some(setting_version) = setting_version {
+            if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
+                channel_id,
+                channel,
+                setting_version,
+                capabilities,
+            ) {
+                out.push(effect);
+            }
         }
         Ok(())
     }

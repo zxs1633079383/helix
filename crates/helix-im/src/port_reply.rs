@@ -121,7 +121,7 @@ impl ImModule {
         outcome: &helix_core::tick::PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        use crate::send::upload_props::{PendingMediaOp, PendingMediaPut, PendingUpload};
+        use crate::send::upload_props::{FailedMediaOp, PendingMediaOp, PendingMediaPut};
         use helix_core::tick::PortOutcome;
 
         match pending {
@@ -151,11 +151,8 @@ impl ImModule {
                             out.push(helix_core::Effect::UploadFile { corr, req });
                         }
                         Err(reason) => {
-                            self.mark_upload_failed(
-                                PendingUpload {
-                                    temporary_id: prepare.temporary_id,
-                                    target: prepare.target,
-                                },
+                            self.fail_media_operation(
+                                FailedMediaOp::Prepare(prepare),
                                 &reason,
                                 out,
                             )?;
@@ -163,11 +160,8 @@ impl ImModule {
                     }
                 }
                 PortOutcome::Err(error) => {
-                    self.mark_upload_failed(
-                        PendingUpload {
-                            temporary_id: prepare.temporary_id,
-                            target: prepare.target,
-                        },
+                    self.fail_media_operation(
+                        FailedMediaOp::Prepare(prepare),
                         &format!("{error:?}"),
                         out,
                     )?;
@@ -192,14 +186,7 @@ impl ImModule {
                     out.push(helix_core::Effect::Http { corr, req });
                 }
                 PortOutcome::Err(error) => {
-                    self.mark_upload_failed(
-                        PendingUpload {
-                            temporary_id: put.temporary_id,
-                            target: put.target,
-                        },
-                        &format!("{error:?}"),
-                        out,
-                    )?;
+                    self.fail_media_operation(FailedMediaOp::Put(put), &format!("{error:?}"), out)?;
                 }
             },
             PendingMediaOp::Complete(put) => {
@@ -216,11 +203,8 @@ impl ImModule {
                                 self.persist_media_complete(put, reference, out)?;
                             }
                             Err(reason) => {
-                                self.mark_upload_failed(
-                                    PendingUpload {
-                                        temporary_id: put.temporary_id,
-                                        target: put.target,
-                                    },
+                                self.fail_media_operation(
+                                    FailedMediaOp::Complete(put),
                                     &reason,
                                     out,
                                 )?;
@@ -228,11 +212,8 @@ impl ImModule {
                         }
                     }
                     PortOutcome::Err(error) => {
-                        self.mark_upload_failed(
-                            PendingUpload {
-                                temporary_id: put.temporary_id,
-                                target: put.target,
-                            },
+                        self.fail_media_operation(
+                            FailedMediaOp::Complete(put),
                             &format!("{error:?}"),
                             out,
                         )?;
@@ -241,6 +222,26 @@ impl ImModule {
             }
         }
         Ok(())
+    }
+
+    fn fail_media_operation(
+        &mut self,
+        failed: crate::send::upload_props::FailedMediaOp,
+        error: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let pending = crate::send::upload_props::PendingUpload {
+            temporary_id: failed.temporary_id().clone(),
+            target: failed.target().clone(),
+        };
+        self.state
+            .media_retry_inflight
+            .remove(&pending.temporary_id);
+        self.state.failed_media_ops.insert(
+            (pending.temporary_id.clone(), pending.target.clone()),
+            failed,
+        );
+        self.mark_upload_failed(pending, error, out)
     }
 
     fn persist_media_complete(
@@ -294,6 +295,9 @@ impl ImModule {
             },
         );
         if let Some(body) = ready_body {
+            self.state
+                .media_retry_inflight
+                .remove(&pending.temporary_id);
             self.emit_posts_create_http(pending.channel_id, pending.temporary_id, &body, out)?;
         }
         Ok(())

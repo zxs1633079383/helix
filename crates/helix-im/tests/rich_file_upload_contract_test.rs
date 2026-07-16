@@ -230,7 +230,7 @@ fn assert_no_unsend_persist_fire(h: &Harness) {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧断言要求首步直接 UploadFile；新合同由 active prepare/post-create 测试覆盖"]
 fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -267,7 +267,7 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧输入要求客户端 publicUrl；新合同禁止客户端提供 Go-owned publicUrl"]
 fn upload_input_without_public_url_is_rejected_before_any_effect() {
     let mut h = Harness::new(&[1]);
     let command = send_message_cmd_json(json!({
@@ -361,7 +361,7 @@ fn rich_file_shape_violations_are_rejected_before_any_effect() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧测试以 UploadFile 回包直接发 post；新合同必须经过 Go complete"]
 fn rich_uploads_only_post_after_all_success() {
     let mut h = Harness::new(&[1]);
 
@@ -432,7 +432,7 @@ fn rich_uploads_only_post_after_all_success() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧失败点绕过 prepare；新阶段失败关闸由 g03_media_retry_contract_test 覆盖"]
 fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
     let mut h = Harness::new(&[1]);
 
@@ -464,7 +464,7 @@ fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧命令 im_retry_upload 已由阶段感知 im_retry_send 合同替代"]
 fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -548,7 +548,7 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧命令 im_retry_upload 已由阶段感知 im_retry_send 合同替代"]
 fn retry_failed_file_emits_one_upload_without_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -624,7 +624,7 @@ fn retry_failed_file_emits_one_upload_without_posts_create() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧命令只校验 im_retry_upload target；新合同按 failed media stage 路由"]
 fn retry_failed_target_requires_failed_status() {
     let mut h = Harness::new(&[1]);
 
@@ -669,7 +669,7 @@ fn retry_failed_target_requires_failed_status() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧失败点绕过 prepare；新失败无 timer/post 由 active G03 合同覆盖"]
 fn upload_failure_send_timer_does_not_mark_post_unsend() {
     let mut h = Harness::new(&[1]);
 
@@ -693,7 +693,7 @@ fn upload_failure_send_timer_does_not_mark_post_unsend() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧文件链以 UploadFile 回包完成；新链要求 Prepare-PUT-Complete"]
 fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
     let mut h = Harness::new(&[1]);
 
@@ -761,7 +761,7 @@ fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧 UploadFile 回包 publicUrl 合同已废弃，可信 URL 只接受 complete 回包"]
 fn upload_reply_without_public_url_fails_closed_without_posts_create() {
     let mut h = Harness::new(&[1]);
 
@@ -792,7 +792,7 @@ fn upload_reply_without_public_url_fails_closed_without_posts_create() {
 }
 
 #[test]
-#[ignore = "G-03 B1 废弃移动端预填 upload 凭据合同，证据保留待 B2 迁移到 complete"]
+#[ignore = "旧文件失败用客户端 objectKey/URL；新阶段失败由 active G03 合同覆盖"]
 fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
     let cases = [
         (

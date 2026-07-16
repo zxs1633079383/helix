@@ -13,7 +13,8 @@ pub use request::{
     parse_prepare_reply, prepare_upload_request,
 };
 pub use state::{
-    mark_media_complete, mark_upload_failed, mark_upload_success, parse_upload_success_reply,
+    mark_media_complete, mark_media_stage, mark_upload_failed, mark_upload_success,
+    parse_upload_success_reply,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,6 +95,29 @@ pub enum PendingMediaOp {
     Prepare(PendingMediaPrepare),
     Put(PendingMediaPut),
     Complete(PendingMediaPut),
+}
+
+#[derive(Debug, Clone)]
+pub enum FailedMediaOp {
+    Prepare(PendingMediaPrepare),
+    Put(PendingMediaPut),
+    Complete(PendingMediaPut),
+}
+
+impl FailedMediaOp {
+    pub fn temporary_id(&self) -> &TemporaryId {
+        match self {
+            Self::Prepare(pending) => &pending.temporary_id,
+            Self::Put(pending) | Self::Complete(pending) => &pending.temporary_id,
+        }
+    }
+
+    pub fn target(&self) -> &UploadTarget {
+        match self {
+            Self::Prepare(pending) => &pending.target,
+            Self::Put(pending) | Self::Complete(pending) => &pending.target,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

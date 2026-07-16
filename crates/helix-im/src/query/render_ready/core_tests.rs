@@ -118,6 +118,7 @@ fn viewer_relative_actions_and_absolute_interaction_counts_are_render_ready() {
     let out = shape_message_rows_for_viewer(&rows, "444");
     assert_eq!(out[0]["isSelf"], true);
     assert_eq!(out[0]["actionCapabilities"]["canRevoke"], true);
+    assert_eq!(out[0]["reactions"], "👍");
     assert_eq!(out[0]["reactionCount"], 2);
     assert_eq!(out[0]["templateConfirmedCount"], 2);
     assert_eq!(out[0]["readerIds"], json!(["444", "678"]));

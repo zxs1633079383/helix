@@ -103,22 +103,25 @@ fn array_len_at(value: &Value, first: &str, second: &str) -> usize {
         .unwrap_or(0)
 }
 
-fn interaction_counts(props: &Value) -> (usize, usize) {
-    let reaction_count = props
-        .get("quickReply")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| array_len_at(item, "userIds", "user_ids"))
-                .sum()
-        })
-        .unwrap_or(0);
+fn interaction_summary(props: &Value) -> (Option<String>, usize, usize) {
+    let mut emojis = Vec::new();
+    let mut reaction_count = 0;
+    if let Some(items) = props.get("quickReply").and_then(Value::as_array) {
+        for item in items {
+            if let Some(emoji) = item.get("emoji").and_then(Value::as_str) {
+                if !emoji.is_empty() {
+                    emojis.push(emoji);
+                }
+            }
+            reaction_count += array_len_at(item, "userIds", "user_ids");
+        }
+    }
+    let reactions = (!emojis.is_empty()).then(|| emojis.join(","));
     let template_count = props
         .get("template")
         .map(|template| array_len_at(template, "userIds", "user_ids"))
         .unwrap_or(0);
-    (reaction_count, template_count)
+    (reactions, reaction_count, template_count)
 }
 
 fn template_reader_ids(props: &Value) -> Vec<&str> {
@@ -183,7 +186,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         send_status == "failed",
         revoke_bool(row),
     );
-    let (reaction_count, template_confirmed_count) = interaction_counts(&props);
+    let (reactions, reaction_count, template_confirmed_count) = interaction_summary(&props);
     let urgent = super::urgent::project(&expedite_map, viewer_user_id, has_server_id);
     let urgent_fields = json!({
         "urgent": urgent.required_count > 0,
@@ -224,6 +227,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "serverId": if has_server_id { Value::String(server_id.to_string()) } else { Value::Null },
         "isSelf": is_self,
         "actionCapabilities": action_capabilities,
+        "reactions": reactions,
         "reactionCount": reaction_count,
         "expediteMap": expedite_map,
         "replyId": get_str(row, &["reply_id", "replyId"]),

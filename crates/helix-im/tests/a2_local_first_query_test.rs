@@ -290,6 +290,7 @@ fn remote_quick_reply_is_merged_into_render_ready_props() {
     assert_eq!(row["props"]["channel_event_seq"], 2);
     assert_eq!(row["props"]["quickReply"][0]["emoji"], ":thumbsup:");
     assert_eq!(row["props"]["quickReply"][0]["userIds"][0], "444");
+    assert_eq!(row["reactions"], ":thumbsup:");
     assert_eq!(row["reactionCount"], 1);
 }
 

@@ -14,8 +14,8 @@
 //!
 //! ## 铁律（HX-C008）
 //!
-//! emit 与落库同口径（可见才动 UI），但 emit **不卡 cursor**——cursor 仍由 persist_corr 的
-//! PortReply Ok 独立推进到 commit_target（phantom 批也照推）。
+//! emit 与落库同口径（可见才动 UI），并与 cursor 共用相关 Persist 屏障：只有
+//! PortReply Ok 才统一发布 mutation/DialogPatch/sync-state 并推进到 commit_target。
 
 mod common;
 use common::*;
@@ -374,10 +374,10 @@ fn online_vs_offline_read_emit_names_differ() {
     );
 }
 
-// ─── 6. 端到端：handle_sync_reply 同 step 内吐 Persist + emits（cursor 仍独立推进）──
+// ─── 6. 端到端：handle_sync_reply 先 Persist，ack 后统一释放 mutation emits ───
 
 #[test]
-fn handle_sync_reply_emits_mutation_events_in_same_step() {
+fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
     let mut h = Harness::new(&[6]);
     // 大缺口（cursor=0 / seq=99）→ **立即** backfill resync（根治 echo gate-gap·
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
@@ -399,22 +399,26 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
     );
     h.step(port_reply_with_body(sync_corr, enveloped(reply)), 3000);
 
-    // 同 step 内：sink 含即时 mutation emits（received + read），DialogPatch 等 channel 写后读回。
-    let names = emit_names(h.sink.as_slice());
+    // G-S2/G-S3 屏障：HTTP 回包只生成相关 Persist，mutation 与 DialogPatch 均不得抢跑。
+    let names_before_persist = emit_names(h.sink.as_slice());
     assert!(
-        names.iter().any(|n| n == "im:post:received"),
-        "应 emit im:post:received，got {names:?}"
+        !names_before_persist.iter().any(|n| n == "im:post:received"),
+        "Persist ack 前不得 emit im:post:received，got {names_before_persist:?}"
     );
     assert!(
-        !names.iter().any(|n| n == "im:channel:update-by-post"),
-        "DialogPatch 必须等 Persist 写后 Get(channel) 回包，不能在事件 delta 阶段 emit，got {names:?}"
+        !names_before_persist
+            .iter()
+            .any(|n| n == "im:channel:update-by-post"),
+        "DialogPatch 必须等 Persist 写后 Get(channel) 回包，got {names_before_persist:?}"
     );
     assert!(
-        names.iter().any(|n| n == "im:channel:read_echo"),
-        "sync 应用 type6 应 emit im:channel:read_echo（A5），got {names:?}"
+        !names_before_persist
+            .iter()
+            .any(|n| n == "im:channel:read_echo"),
+        "Persist ack 前不得 emit im:channel:read_echo，got {names_before_persist:?}"
     );
 
-    // emit 不卡 cursor：persist ok 后 cursor 推进到 nextSeq=2。
+    // Persist Ok 同时释放 mutation、DialogPatch、sync-state 并推进 cursor。
     let persist_corr = h
         .sink
         .as_slice()
@@ -435,6 +439,16 @@ fn handle_sync_reply_emits_mutation_events_in_same_step() {
         3100,
     );
     let names_after_persist = emit_names(h.sink.as_slice());
+    assert!(
+        names_after_persist.iter().any(|n| n == "im:post:received"),
+        "Persist ack 后应 emit im:post:received，got {names_after_persist:?}"
+    );
+    assert!(
+        names_after_persist
+            .iter()
+            .any(|n| n == "im:channel:read_echo"),
+        "Persist ack 后 sync type6 应 emit im:channel:read_echo，got {names_after_persist:?}"
+    );
     assert!(
         names_after_persist
             .iter()

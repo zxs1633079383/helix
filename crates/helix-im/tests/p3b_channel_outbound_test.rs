@@ -10,7 +10,8 @@
 //!   · createSpecifyOwner 透传 raw body → `direct_key` **snake_case** 不被改写（ent.Channel tag）
 //!   · change/source·picture·notice 用 **`id`** 作 channelId 键（command json tag），info/top 用 `channelId`
 //!   · member/notify request body 用 `channelId`（WS 响应才是 `id`——不在 outbound 断言）
-//! - makeTopic / create 补字段：真 curl §2/§4 verbatim body 经 raw 透传保真（rootId/users[]/picture/forceCreate）
+//! - G-15/G-15a canonical adapter：只做 snake_case command 到 camelCase HTTP body 的机械映射，
+//!   身份、团队、角色与 root post 派生由 Go boundary 负责
 //! - **#15 change/props 故意不广播**：im_update_channel_props **未注册**（不该有此 outbound 命令）
 //!   且无 update_channel WS handler 凭空广播——断言 registry 不认领该名
 //! - P0-2 系统消息消费编排（已在 main 落地，本 Phase 核验不重造）：
@@ -381,56 +382,100 @@ fn member_notify_accepts_int_enum_and_requires_fields() {
     )); // notify null
 }
 
-// ── makeTopic / create body 成形下沉 helix：壳传结构化 args → helix 拼真 curl §2/§4 wire body ──
+// ── G-15 / G-15a canonical command → Go HTTP boundary adapter ──
 
 #[test]
-fn make_topic_builds_real_curl_fields_from_structured_args() {
-    // body 成形下沉 helix（薄壳合规）：壳传 {root_id,post_id,display_name,self_id,team_id,member_ids}，
-    // helix 拼真 curl §2 wire body（rootId/teamId/postId/displayName/type=T/users[]/picture/forceCreate）。
+fn make_topic_maps_only_canonical_fields() {
     let (url, body) = one_http(run(
         "im_make_topic",
         json!({
             "root_id": "r1",
-            "post_id": "p1",
-            "display_name": "1",
-            "self_id": "u1",
-            "team_id": "t1",
-            "member_ids": ["u2"]
+            "user_ids": ["u1", "u2"],
+            "picture": "topic-picture-1"
         }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/makeTopic");
-    // helix 拼出的 wire body（rootId/users[]/picture/forceCreate/type）保真真 curl §2。
-    assert_eq!(body["rootId"], "r1");
-    assert_eq!(body["postId"], "p1");
-    assert_eq!(body["type"], "T");
-    assert_eq!(body["users"][0]["role"], "CREATOR"); // self
-    assert_eq!(body["users"][1]["role"], "MEMBER"); // u2
-    assert_eq!(body["picture"]["userIds"][1], "u2");
-    assert_eq!(body["forceCreate"], true);
+    assert_eq!(
+        body,
+        json!({
+            "rootId": "r1",
+            "userIds": ["u1", "u2"],
+            "picture": "topic-picture-1"
+        })
+    );
 }
 
 #[test]
-fn create_channel_builds_real_curl_fields_from_structured_args() {
-    // body 成形下沉 helix：壳传 {display_name,self_id,team_id,member_ids}，helix 拼真 curl §4 wire body
-    // （teamId/displayName/orient/type=P/users[]/picturetype/picture.userIds/forceCreate·role 业务赋值）。
+fn create_channel_maps_only_canonical_fields() {
     let (url, body) = one_http(run(
         "im_create_channel",
         json!({
+            "type": "O",
+            "user_ids": ["u1", "u2"],
             "display_name": "群",
-            "self_id": "u1",
-            "team_id": "t1",
-            "member_ids": ["u2"]
+            "picture": "picture-1",
+            "force_create": true
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
-    assert_eq!(body["teamId"], "t1");
-    assert_eq!(body["displayName"], "群");
-    assert_eq!(body["type"], "P");
-    assert_eq!(body["users"][0]["role"], "CREATOR");
-    assert_eq!(body["users"][1]["role"], "MEMBER");
-    assert_eq!(body["picture"]["userIds"][0], "u1");
-    assert_eq!(body["picture"]["userIds"][1], "u2");
-    assert_eq!(body["forceCreate"], true);
+    assert_eq!(
+        body,
+        json!({
+            "type": "O",
+            "userIds": ["u1", "u2"],
+            "displayName": "群",
+            "picture": "picture-1",
+            "forceCreate": true
+        })
+    );
+}
+
+#[test]
+fn create_channel_and_make_topic_reject_legacy_unknown_and_wrong_types() {
+    assert!(err(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": ["u1"], "display_name": "群",
+            "picture": "picture-1", "force_create": true, "self_id": "legacy"
+        })
+    ));
+    assert!(err(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": [], "display_name": "群",
+            "picture": "picture-1", "force_create": true
+        })
+    ));
+    assert!(err(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": ["u1", 2], "display_name": "群",
+            "picture": "picture-1", "force_create": true
+        })
+    ));
+    assert!(err(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": ["u1"], "display_name": "群",
+            "picture": "picture-1", "force_create": "true"
+        })
+    ));
+
+    assert!(err(
+        "im_make_topic",
+        json!({
+            "root_id": "r1", "user_ids": ["u1"], "picture": "topic-picture-1",
+            "post_id": "legacy"
+        })
+    ));
+    assert!(err(
+        "im_make_topic",
+        json!({ "root_id": "r1", "user_ids": [], "picture": "topic-picture-1" })
+    ));
+    assert!(err(
+        "im_make_topic",
+        json!({ "root_id": "r1", "user_ids": [""], "picture": "topic-picture-1" })
+    ));
 }
 
 // ── #15 change/props 故意不广播：im_update_channel_props 不该注册 ──────────────────────

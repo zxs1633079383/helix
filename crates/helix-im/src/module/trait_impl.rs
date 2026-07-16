@@ -133,8 +133,17 @@ impl Module for ImModule {
                         if let Ok(args) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
                         {
-                            if let Ok((members, _)) =
-                                crate::outbound::registry::build_creator_member_users(&args, name)
+                            if let Some(members) = args
+                                .get("user_ids")
+                                .and_then(serde_json::Value::as_array)
+                                .map(|user_ids| {
+                                    user_ids
+                                        .iter()
+                                        .filter_map(serde_json::Value::as_str)
+                                        .map(|user_id| serde_json::json!({ "id": user_id }))
+                                        .collect::<Vec<_>>()
+                                })
+                                .filter(|members| !members.is_empty())
                             {
                                 self.state.corr_map.insert(
                                     corr,

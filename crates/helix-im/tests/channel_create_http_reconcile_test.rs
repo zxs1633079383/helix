@@ -42,10 +42,11 @@ fn create_http_success_persists_only_created_channel_and_emits_projection() {
         command_json(
             "im_create_channel",
             serde_json::json!({
+                "type": "O",
+                "user_ids": ["creator", "member-a", "member-b"],
                 "display_name": "断线也可见",
-                "team_id": "team-1",
-                "self_id": "creator",
-                "member_ids": ["member-a", "member-b"]
+                "picture": "picture-1",
+                "force_create": true
             }),
         ),
         1_700_000_000_000,
@@ -96,10 +97,11 @@ fn create_http_business_failure_does_not_fabricate_channel() {
         command_json(
             "im_create_channel",
             serde_json::json!({
+                "type": "O",
+                "user_ids": ["creator"],
                 "display_name": "失败群",
-                "team_id": "team-1",
-                "self_id": "creator",
-                "member_ids": []
+                "picture": "picture-1",
+                "force_create": true
             }),
         ),
         1_700_000_000_000,

@@ -183,33 +183,38 @@ fn schedule_requires_positive_time_and_object_props() {
 
 #[test]
 fn create_and_make_topic_build_body_with_real_endpoint() {
-    // body 成形下沉 helix：壳传结构化 args，helix 拼 wire body（role 业务赋值 self CREATOR）。
     let (url, body) = one_http(run(
         "im_create_channel",
-        json!({ "display_name": "g", "self_id": "u1", "team_id": "t1", "member_ids": [] }),
+        json!({
+            "type": "O", "user_ids": ["u1"], "display_name": "g",
+            "picture": "picture-1", "force_create": true
+        }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
-    assert_eq!(body["displayName"], "g");
-    assert_eq!(body["type"], "P");
-    assert_eq!(body["users"][0]["role"], "CREATOR");
-    assert_eq!(body["users"][0]["id"], "u1");
-    assert_eq!(body["forceCreate"], true);
+    assert_eq!(
+        body,
+        json!({
+            "type": "O", "userIds": ["u1"], "displayName": "g",
+            "picture": "picture-1", "forceCreate": true
+        })
+    );
 
     let (url, body) = one_http(run(
         "im_make_topic",
-        json!({ "root_id": "r1", "post_id": "p1", "display_name": "话题", "self_id": "u1", "team_id": "t1", "member_ids": [] }),
+        json!({ "root_id": "r1", "user_ids": ["u1"], "picture": "topic-picture-1" }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/makeTopic");
-    assert_eq!(body["postId"], "p1");
-    assert_eq!(body["rootId"], "r1");
-    assert_eq!(body["type"], "T");
-    assert_eq!(body["users"][0]["role"], "CREATOR");
+    assert_eq!(
+        body,
+        json!({
+            "rootId": "r1", "userIds": ["u1"], "picture": "topic-picture-1"
+        })
+    );
 
-    // 缺 post_id → Err（边界零信任，不崩）。
+    // 缺 picture → Err（边界零信任，不崩）。
     assert!(handle_outbound(
         "im_make_topic",
-        &serde_json::to_vec(&json!({ "root_id": "r1", "display_name": "t", "self_id": "u1" }))
-            .unwrap(),
+        &serde_json::to_vec(&json!({ "root_id": "r1", "user_ids": ["u1"] })).unwrap(),
         BASE,
         BASE,
         None,

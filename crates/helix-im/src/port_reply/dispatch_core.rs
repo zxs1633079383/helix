@@ -87,7 +87,8 @@ impl ImModule {
         &mut self,
         temporary_id: TemporaryId,
         outcome: &PortOutcome,
-    ) {
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
                 // P1 可能晚于 HTTP 失败回报；只允许初始 Local 推进，不能把
@@ -97,8 +98,26 @@ impl ImModule {
                         ps.status = SendStatus::Sending;
                     }
                 }
+                if let Some(planned) = self
+                    .state
+                    .pending_media_after_optimistic
+                    .remove(&temporary_id)
+                {
+                    for media in planned {
+                        self.emit_media_prepare(
+                            media.channel_id,
+                            media.temporary_id,
+                            media.target,
+                            media.input,
+                            out,
+                        )?;
+                    }
+                }
             }
             PortOutcome::Err(e) => {
+                self.state
+                    .pending_media_after_optimistic
+                    .remove(&temporary_id);
                 tracing::warn!(
                     tmp_id = ?temporary_id,
                     error = ?e,
@@ -106,6 +125,7 @@ impl ImModule {
                 );
             }
         }
+        Ok(())
     }
 
     pub(super) fn handle_outbound_send_http_reply(

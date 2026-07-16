@@ -240,7 +240,21 @@ impl Module for ImModule {
             .map_err(|e| CoreError::ModuleError {
                 module: self.name(),
                 source: Box::new(e),
-            })
+            })?;
+        let corr = self.alloc_corr_internal();
+        out.push(helix_core::Effect::Persist {
+            corr,
+            ops: vec![helix_core::effect::StorageOp::Scan(
+                helix_core::effect::ScanSpec {
+                    table: "pending_media",
+                    limit: None,
+                    filter: None,
+                    order_by: &[],
+                },
+            )],
+        });
+        self.state.pending_media_rehydrate_corr = Some(corr);
+        Ok(())
     }
 
     /// 停止：取消所有 timer + 关闭连接

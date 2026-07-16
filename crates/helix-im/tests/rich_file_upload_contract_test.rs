@@ -924,6 +924,34 @@ mod g03_prepare_contract {
             .collect()
     }
 
+    fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
+        h.sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, ops }
+                    if ops.iter().any(|op| match op {
+                        StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
+                            spec.rows.iter().flatten().any(|(column, value)| {
+                                column == "stage"
+                                    && matches!(value, SqlValue::Text(value) if value == stage)
+                            })
+                        }
+                        _ => false,
+                    }) =>
+                {
+                    Some(corr.raw())
+                }
+                _ => None,
+            })
+            .expect("pending media stage persist")
+    }
+
+    fn release_stage(h: &mut Harness, stage: &str, now_ms: u64) {
+        let corr = pending_stage_corr(h, stage);
+        h.step(port_reply_ok(corr), now_ms);
+    }
+
     fn posts_create_count(h: &Harness) -> usize {
         h.sink
             .as_slice()
@@ -991,6 +1019,10 @@ mod g03_prepare_contract {
         let mut h = Harness::new(&[1]);
         h.step(file_cmd("tmp-file"), 1000);
 
+        let row = &last_message_upsert(&h).rows[0];
+        let persisted = row_text(row, "props").expect("props").to_string();
+        release_stage(&mut h, "prepare", 1001);
+
         let prepares = prepare_effects(&h);
         assert_eq!(prepares.len(), 1);
         assert_eq!(prepares[0].1.method, "POST");
@@ -1006,8 +1038,6 @@ mod g03_prepare_contract {
         assert_eq!(prepare_body["size"], 9);
         assert!(prepare_body.get("localPath").is_none());
 
-        let row = &last_message_upsert(&h).rows[0];
-        let persisted = row_text(row, "props").expect("props");
         for secret in ["mediaInput", "localPath", "/tmp/doc.pdf", "sha256-fixture"] {
             assert!(
                 !persisted.contains(secret),
@@ -1020,6 +1050,7 @@ mod g03_prepare_contract {
     fn rich_image_uses_the_same_prepare_contract() {
         let mut h = Harness::new(&[1]);
         h.step(rich_cmd(), 1000);
+        release_stage(&mut h, "prepare", 1001);
 
         let prepares = prepare_effects(&h);
         assert_eq!(prepares.len(), 1);
@@ -1073,6 +1104,7 @@ mod g03_prepare_contract {
     fn prepare_success_builds_exactly_one_upload_from_server_data() {
         let mut h = Harness::new(&[1]);
         h.step(file_cmd("tmp-prepare-ok"), 1000);
+        release_stage(&mut h, "prepare", 1001);
         let prepare_corr = prepare_effects(&h)[0].0;
         let outcome = match prepare_reply(valid_prepare_data()) {
             Tick::PortReply { outcome, .. } => outcome,
@@ -1085,6 +1117,7 @@ mod g03_prepare_contract {
             },
             1010,
         );
+        release_stage(&mut h, "put", 1011);
 
         let uploads = upload_effects(&h);
         assert_eq!(uploads.len(), 1);
@@ -1117,6 +1150,7 @@ mod g03_prepare_contract {
         for (index, data) in invalid_data.into_iter().enumerate() {
             let mut h = Harness::new(&[1]);
             h.step(file_cmd(&format!("tmp-invalid-{index}")), 1000);
+            release_stage(&mut h, "prepare", 1001);
             let corr = prepare_effects(&h)[0].0;
             let outcome = match prepare_reply(data) {
                 Tick::PortReply { outcome, .. } => outcome,
@@ -1135,6 +1169,7 @@ mod g03_prepare_contract {
 
         let mut h = Harness::new(&[1]);
         h.step(file_cmd("tmp-prepare-failure"), 1000);
+        release_stage(&mut h, "prepare", 1001);
         let corr = prepare_effects(&h)[0].0;
         let outcome = match port_reply_with_body(
             0,
@@ -1158,6 +1193,7 @@ mod g03_prepare_contract {
     fn put_success_only_starts_complete_without_posts_create() {
         let mut h = Harness::new(&[1]);
         h.step(file_cmd("tmp-put-ok"), 1000);
+        release_stage(&mut h, "prepare", 1001);
         let prepare_corr = prepare_effects(&h)[0].0;
         let outcome = match prepare_reply(valid_prepare_data()) {
             Tick::PortReply { outcome, .. } => outcome,
@@ -1170,8 +1206,11 @@ mod g03_prepare_contract {
             },
             1010,
         );
+        release_stage(&mut h, "put", 1011);
         let upload_corr = upload_effects(&h)[0].0;
-        let effects = h.step(port_reply_ok(upload_corr), 1020);
+        h.step(port_reply_ok(upload_corr), 1020);
+        let complete_persist = pending_stage_corr(&h, "complete");
+        let effects = h.step(port_reply_ok(complete_persist), 1021);
 
         assert_eq!(
             effects

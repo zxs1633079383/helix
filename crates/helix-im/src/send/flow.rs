@@ -71,14 +71,34 @@ impl ImModule {
         let p1_corr = self.alloc_corr_internal();
         let t1_timer = self.alloc_timer();
 
-        // 1. Persist{P1, 乐观落库 status=Sending}（PK=temporary_id，见 schema::IM_SCHEMA）。
+        let planned_media = upload_plan
+            .media
+            .iter()
+            .map(|media| crate::send::upload_props::PendingMediaPrepare {
+                temporary_id: tmp_id.clone(),
+                channel_id,
+                target: media.target.clone(),
+                input: media.input.clone(),
+            })
+            .collect::<Vec<_>>();
+        // 1. Persist{P1, 乐观落库 + 内部媒体恢复日志}。两类行在同一有回报批次中，
+        // message.props 始终只持有 sanitized render metadata。
+        let mut optimistic_ops = vec![crate::pending_send::optimistic_message_persist_op(
+            &tmp_id_str,
+            channel_id.as_str(),
+            &body,
+        )];
+        if !planned_media.is_empty() {
+            let operations = planned_media
+                .iter()
+                .cloned()
+                .map(crate::send::upload_props::PendingMediaOp::Prepare)
+                .collect::<Vec<_>>();
+            optimistic_ops.push(crate::send::upload_props::durable_upsert_many(&operations)?);
+        }
         out.push(Effect::Persist {
             corr: p1_corr,
-            ops: vec![crate::pending_send::optimistic_message_persist_op(
-                &tmp_id_str,
-                channel_id.as_str(),
-                &body,
-            )],
+            ops: optimistic_ops,
         });
 
         // 4. Emit(im:post:sending)（render-ready 乐观行：text/type 由 helix 吐·壳直绑不取 pendingText）。
@@ -110,6 +130,11 @@ impl ImModule {
             ps.remaining_uploads = upload_plan.media.len();
         }
         self.state.pending_sends.insert(tmp_id.clone(), ps);
+        if !planned_media.is_empty() {
+            self.state
+                .pending_media_after_optimistic
+                .insert(tmp_id.clone(), planned_media);
+        }
         crate::send_reconcile::register_optimistic_send_corr(
             &mut self.state,
             p1_corr,
@@ -118,16 +143,6 @@ impl ImModule {
 
         if upload_plan.media.is_empty() {
             self.emit_posts_create_http(channel_id, tmp_id, &body, out)?;
-        } else {
-            for media in upload_plan.media {
-                self.emit_media_prepare(
-                    channel_id,
-                    tmp_id.clone(),
-                    media.target,
-                    media.input,
-                    out,
-                )?;
-            }
         }
 
         Ok(())

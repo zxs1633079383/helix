@@ -4,7 +4,7 @@ use bytes::Bytes;
 use common::{
     cid, command_json, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness,
 };
-use helix_core::effect::{Effect, HttpRequest};
+use helix_core::effect::{Effect, HttpRequest, SqlValue, StorageOp};
 use helix_core::Tick;
 use serde_json::{json, Value};
 
@@ -150,13 +150,45 @@ fn upload_corr(h: &Harness) -> u64 {
         .expect("upload corr")
 }
 
+fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
+                        spec.rows.iter().flatten().any(|(column, value)| {
+                            column == "stage"
+                                && matches!(value, SqlValue::Text(value) if value == stage)
+                        })
+                    }
+                    _ => false,
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("pending media stage persist")
+}
+
+fn release_initial(h: &mut Harness, now: u64) {
+    let corr = pending_stage_corr(h, "prepare");
+    h.step(port_reply_ok(corr), now);
+}
+
 fn prepare_ok(h: &mut Harness, corr: u64, media: Media, now: u64) -> u64 {
     h.step(with_corr(corr, common_res(prepare_data(media))), now);
+    let persist = pending_stage_corr(h, "put");
+    h.step(port_reply_ok(persist), now + 1);
     upload_corr(h)
 }
 
 fn put_ok(h: &mut Harness, corr: u64, now: u64) -> u64 {
     h.step(port_reply_ok(corr), now);
+    let persist = pending_stage_corr(h, "complete");
+    h.step(port_reply_ok(persist), now + 1);
     http(h, "/media/upload/complete")[0].0
 }
 
@@ -168,6 +200,7 @@ fn posts(h: &Harness) -> usize {
 fn prepare_failure_retries_prepare_without_new_business_id() {
     let mut h = Harness::new(&[1]);
     h.step(file_cmd(), 1000);
+    release_initial(&mut h, 1001);
     let first_prepare = http(&h, "/media/upload/prepare")[0].0;
     h.step(common::port_reply_err(first_prepare), 1010);
 
@@ -198,6 +231,7 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
 fn put_failure_retries_put_without_repeating_prepare_or_complete() {
     let mut h = Harness::new(&[1]);
     h.step(file_cmd(), 1000);
+    release_initial(&mut h, 1001);
     let prepare = http(&h, "/media/upload/prepare")[0].0;
     let first_upload = prepare_ok(&mut h, prepare, FILE, 1010);
     h.step(common::port_reply_err(first_upload), 1020);
@@ -218,6 +252,7 @@ fn put_failure_retries_put_without_repeating_prepare_or_complete() {
 fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     let mut h = Harness::new(&[1]);
     h.step(rich_cmd(), 1000);
+    release_initial(&mut h, 1001);
     let prepares = http(&h, "/media/upload/prepare");
     let upload_a = prepare_ok(&mut h, prepares[0].0, A, 1010);
     let upload_b = prepare_ok(&mut h, prepares[1].0, B, 1020);

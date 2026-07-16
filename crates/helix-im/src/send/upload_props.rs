@@ -1,3 +1,4 @@
+mod durable;
 mod persistence;
 mod plan;
 mod request;
@@ -6,6 +7,10 @@ mod state;
 use crate::state::TemporaryId;
 use serde_json::Value;
 
+pub use durable::{
+    decode_scan as decode_durable_scan, delete_op as durable_delete_op,
+    upsert_many as durable_upsert_many, upsert_op as durable_upsert_op,
+};
 pub use persistence::{props_persist_op, sanitized_for_persistence};
 pub use plan::build_upload_plan;
 pub use request::{

@@ -40,6 +40,11 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         identity_cols: &["channel_id"],
         scope_col: None,
     },
+    SparseTableSpec {
+        table: "pending_media",
+        identity_cols: &["temporary_id", "target_key"],
+        scope_col: Some("temporary_id"),
+    },
 ];
 
 /// IM 业务 schema（DDL 当数据）。host-cli 启动 migrate 后 loop execute_raw 叠加。
@@ -190,6 +195,28 @@ pub const IM_SCHEMA: &[&'static str] = &[
         last_event_seq INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0\
     )",
+    // `pending_media` is an internal recovery journal. Transient local paths and
+    // signed PUT credentials live only here, never in public message.props.
+    "CREATE TABLE IF NOT EXISTS pending_media (\
+        temporary_id TEXT NOT NULL,\
+        target_key TEXT NOT NULL,\
+        stage TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        local_path TEXT NOT NULL,\
+        file_name TEXT NOT NULL,\
+        content_type TEXT NOT NULL,\
+        size INTEGER NOT NULL,\
+        sha256 TEXT NOT NULL,\
+        upload_id TEXT NOT NULL DEFAULT '',\
+        file_id TEXT NOT NULL DEFAULT '',\
+        method TEXT NOT NULL DEFAULT '',\
+        upload_url TEXT NOT NULL DEFAULT '',\
+        public_url TEXT NOT NULL DEFAULT '',\
+        object_key TEXT NOT NULL DEFAULT '',\
+        headers_json TEXT NOT NULL DEFAULT '[]',\
+        PRIMARY KEY (temporary_id, target_key)\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_pending_media_temporary_id ON pending_media(temporary_id)",
 ];
 
 /// 旧库 additive migration：`CREATE TABLE IF NOT EXISTS` 不会给既有 `message` /

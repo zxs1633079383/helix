@@ -260,12 +260,6 @@ pub(crate) fn handle_rehydrate_reply(
         ));
     };
 
-    let status = row_str(&row, "send_status");
-    if !matches!(status, "unsend" | "failed") {
-        return Err(ImError::Parse(format!(
-            "im_retry_send durable message requires failed status, got {status}"
-        )));
-    }
     let temporary_id = row_str(&row, "temporary_id");
     if temporary_id.is_empty() {
         return Err(ImError::Parse(
@@ -275,7 +269,60 @@ pub(crate) fn handle_rehydrate_reply(
     let temporary_id = TemporaryId(temporary_id.to_string());
     let body = rebuild_body(module, &row, &temporary_id, requested_at_ms)?;
 
+    let durable_media_count = module
+        .state
+        .failed_media_ops
+        .keys()
+        .filter(|(message_id, _)| message_id == &temporary_id)
+        .count();
+    if durable_media_count > 0 {
+        return continue_durable_media_retry(
+            module,
+            temporary_id,
+            body,
+            request_id,
+            durable_media_count,
+            out,
+        );
+    }
+
+    let status = row_str(&row, "send_status");
+    if status == "sent" {
+        return Ok(());
+    }
+    if !matches!(status, "unsend" | "failed") {
+        return Err(ImError::Parse(format!(
+            "im_retry_send durable message requires failed status, got {status}"
+        )));
+    }
+
     continue_retry(module, temporary_id, body, request_id, out)
+}
+
+fn continue_durable_media_retry(
+    module: &mut ImModule,
+    temporary_id: TemporaryId,
+    body: Value,
+    request_id: Option<String>,
+    remaining_uploads: usize,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    let timeout_timer = module.alloc_timer();
+    let mut pending = PendingSend::new(
+        temporary_id.clone(),
+        timeout_timer,
+        module.state.connection_id.clone(),
+    );
+    pending.status = SendStatus::Sending;
+    pending.request_id = request_id;
+    pending.body = Some(body);
+    pending.remaining_uploads = remaining_uploads;
+    pending.upload_failed = true;
+    module
+        .state
+        .pending_sends
+        .insert(temporary_id.clone(), pending);
+    retry_failed_media(module, temporary_id, out)
 }
 
 fn continue_retry(

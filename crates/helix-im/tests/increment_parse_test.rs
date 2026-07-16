@@ -2,7 +2,7 @@
 //!
 //! 验证（设计文档 §1.3 / §1.5）：
 //! - increment_channel 真帧（顶层 action + data{id,lastEventSeq,needSync}）
-//!   → Tick::Inbound 走 WS registry，注册 channel / 透传 emit。
+//!   → Tick::Inbound 走 WS registry，注册 channel；global end 同批 Persist Ok 后再 emit。
 //! - event_seq 三级 fallback：① data.event_seq ② props.channel_event_seq ③ 顶层 channel_event_seq
 //!   各命中一级 + legacy data.seq 兼容（无 action 帧）。
 //! - 仅 id 非法（缺 / 非 26 字符）→ 生产路径 no-op / helper None；
@@ -22,6 +22,32 @@ use helix_im::state::{ChannelId, Seq};
 
 /// 26 字符 ASCII channelId（base32 形态占位，长度恰 26）。
 const CH26: &str = "00000000000000000000000001";
+
+fn complete_increment_batch(h: &mut Harness) {
+    let end = serde_json::json!({
+        "v": 1,
+        "action": "increment_channel_end",
+        "data": {},
+        "seq": 10
+    });
+    h.module
+        .handle(
+            &Tick::Inbound(InboundBytes(serde_json::to_vec(&end).unwrap().into())),
+            110,
+            &mut h.sink,
+        )
+        .expect("increment_channel_end should dispatch");
+    let persist_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("global increment end must create a persistence barrier");
+    h.step(port_reply_with_body(persist_corr, bytes::Bytes::new()), 120);
+}
 
 // ─── ① increment_channel 真帧 → 生产路径 registry handler ───────────────────
 
@@ -63,6 +89,14 @@ fn increment_channel_real_frame_dispatches_through_registry() {
         h.module.increment_fetched_contains(channel_id),
         "increment_channel should record fetched channel for increment_end"
     );
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Emit { .. })),
+        "increment projection must wait for the batch persistence barrier"
+    );
+    complete_increment_batch(&mut h);
     assert!(
         h.sink.as_slice().iter().any(|effect| matches!(
             effect,
@@ -268,7 +302,7 @@ fn increment_channel_last_event_seq_non_numeric_seeds_zero() {
 #[test]
 fn increment_channel_no_last_event_seq_still_dispatches() {
     // 回归锚: P6-realframe —— increment_channel 帧无 lastEventSeq → 仍走 registry：
-    // 注册 channel（cursor 种子 0）+ emit（非全静默丢帧）。
+    // 注册 channel（cursor 种子 0）并进入待提交批次；Persist Ok 后才 emit。
     // 注：path1 全量 upsert 落库由 Phase C 的 apply_increment(path1+成员) 接入，此处只验
     // 「帧不被丢弃 + channel 注册 + cursor 种子 0」（parser lastEventSeq Optional 的端到端证据）。
     let frame = serde_json::json!({
@@ -295,10 +329,18 @@ fn increment_channel_no_last_event_seq_still_dispatches() {
         Some(0),
         "缺 lastEventSeq → channel 仍注册，cursor 种子 0"
     );
-    // 至少产出 emit（im:channel:increment）——证明帧未被丢弃。
     assert!(
-        !h.sink.as_slice().is_empty(),
-        "缺 lastEventSeq → 帧仍 dispatch 产出 effect（非全静默丢帧），got {:?}",
+        h.module.increment_fetched_contains(channel_id),
+        "缺 lastEventSeq 的帧仍应进入 increment batch"
+    );
+    complete_increment_batch(&mut h);
+    assert!(
+        h.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Emit { event }
+                if String::from_utf8_lossy(event.0.as_ref()).contains("im:channel:increment")
+        )),
+        "缺 lastEventSeq → Persist Ok 后仍应发布 increment 投影，got {:?}",
         h.sink.as_slice()
     );
 }

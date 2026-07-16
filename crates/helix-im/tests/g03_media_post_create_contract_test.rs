@@ -24,7 +24,7 @@ const FILE: MediaFixture = MediaFixture {
     file_name: "doc.pdf",
     content_type: "application/pdf",
     size: 9,
-    sha256: "sha-file",
+    sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 };
 const IMAGE_A: MediaFixture = MediaFixture {
     upload_id: "upload-a",
@@ -32,7 +32,7 @@ const IMAGE_A: MediaFixture = MediaFixture {
     file_name: "a.png",
     content_type: "image/png",
     size: 3,
-    sha256: "sha-a",
+    sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 };
 const IMAGE_B: MediaFixture = MediaFixture {
     upload_id: "upload-b",
@@ -40,7 +40,7 @@ const IMAGE_B: MediaFixture = MediaFixture {
     file_name: "b.png",
     content_type: "image/png",
     size: 4,
-    sha256: "sha-b",
+    sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 };
 
 fn file_cmd() -> Tick {
@@ -48,7 +48,7 @@ fn file_cmd() -> Tick {
         "channel_id": cid(1),
         "temporary_id": "tmp-post-file",
         "type": "file",
-        "text": "",
+        "text": "quarterly report",
         "props": {
             "file": {"mediaInput": media_input(FILE)},
             "frontendCustom": {"keep": true}
@@ -252,6 +252,7 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
         1
     );
     let body = posts_body(&h);
+    assert_eq!(body["message"], "quarterly report");
     assert_eq!(body["props"]["file"]["id"], FILE.file_id);
     assert_eq!(
         body["props"]["file"]["url"],

@@ -206,6 +206,8 @@ fn gs_sync_contracts_freeze_go_main_abi_without_collapsing_evidence_planes() {
     assert!(gs3.ws.events.contains("gaps"));
     assert!(gs3.ws.events.contains("hashMismatch"));
     assert!(gs3.ws.events.contains("普通 pong"));
+    assert!(gs3.http.response.contains("trigger=pong_gap"));
+    assert!(gs3.http.response.contains("普通同步"));
     for gate_id in ["G-S1", "G-S2", "G-S3", "G-S4"] {
         let gate = gate(&matrix, gate_id);
         assert!(

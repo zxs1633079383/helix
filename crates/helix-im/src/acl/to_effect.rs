@@ -7,7 +7,8 @@ pub use super::projection_control_effects::{
     emit_channel_increment, emit_channel_update, emit_channel_update_by_member_dialog,
     emit_channel_update_by_post, emit_channels_loaded, emit_connection_established,
     emit_post_batch_updated, emit_post_send_failed, emit_post_sending,
-    emit_post_sending_with_reply, emit_reconnect_requested, emit_sync_state, emit_sync_too_long,
+    emit_post_sending_with_reply, emit_reconnect_requested, emit_sync_state,
+    emit_sync_state_with_trigger, emit_sync_too_long,
 };
 pub use super::projection_message_effects::{
     emit_channel_read_echo, emit_post_deleted, emit_post_deleted_for_viewer, emit_post_read,

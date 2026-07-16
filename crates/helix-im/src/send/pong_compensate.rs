@@ -103,7 +103,14 @@ pub fn compensate_from_pong(
 
     // targets 已确定性有序（gap 保持 wire 顺序 + roots 升序），enqueue_and_drain 内部跳过
     // 已在途 / 不存在 channel，并经全局窗口 K 限流 dispatch sync/notify。
-    crate::sync_scheduler::enqueue_and_drain(state, api_base_url, &targets, alloc_corr, out);
+    crate::sync_scheduler::enqueue_and_drain_with_trigger(
+        state,
+        api_base_url,
+        &targets,
+        crate::state::SyncTrigger::PongGap,
+        alloc_corr,
+        out,
+    );
 }
 
 #[cfg(test)]

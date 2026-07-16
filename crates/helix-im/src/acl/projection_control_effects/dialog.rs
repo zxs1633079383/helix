@@ -19,7 +19,7 @@ pub fn emit_channel_update_by_post(
     let message_class = crate::channel_write::message_class(update);
     let mention_delta = if update.mention_hit { 1 } else { 0 };
     let urgent_delta = if update.urgent_hit { 1 } else { 0 };
-    let mut dialog_patch = json!({
+    let dialog_patch = json!({
         "id": channel_id.as_str(),
         "channelId": channel_id.as_str(),
         "lastPost": last_post.clone(),
@@ -131,7 +131,7 @@ pub fn emit_channel_update_by_member_dialog(
         .get("message")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let dialog_patch = json!({
+    let mut dialog_patch = json!({
         "id": channel_id.as_str(),
         "channelId": channel_id.as_str(),
         "userId": projection.user_id.clone(),

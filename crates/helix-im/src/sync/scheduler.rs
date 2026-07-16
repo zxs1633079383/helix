@@ -21,7 +21,7 @@
 //! enqueue = O(1) push_back + O(1) HashSet 去重；drain 单步 = O(1) pop_front。窗口释放 O(1)。
 //! 不读 / 不改 channel 消息体——纯调度元数据（HX-C005 热路径友好）。
 
-use crate::state::{ChannelId, CorrelationContext, ImState, InflightSync};
+use crate::state::{ChannelId, CorrelationContext, ImState, InflightSync, SyncTrigger};
 use helix_core::{Correlation, EffectSink};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -45,7 +45,7 @@ pub const PONG_COMPENSATE_MIN_INTERVAL_MS: u64 = 5_000;
 #[derive(Debug, Default)]
 pub struct SyncScheduler {
     /// 待 dispatch 的 channel 队列（FIFO，入队顺序由调用方确定性排序锚定，HX-C010）。
-    pending: VecDeque<ChannelId>,
+    pending: VecDeque<(ChannelId, SyncTrigger)>,
     /// 已入队去重集（防同 channel 重复 push_back；与 `pending` 同生命周期）。
     enqueued: HashSet<ChannelId>,
     /// 全局在途 sync 计数（dispatch 时 +1，回报时 -1，恒 ≤ MAX_INFLIGHT_SYNC）。
@@ -80,8 +80,12 @@ impl SyncScheduler {
     ///
     /// 注：调用方负责跳过「已在途」channel（`inflight_sync.is_some()`）——本结构只防**队内**重复。
     pub fn enqueue(&mut self, channel_id: ChannelId) -> bool {
+        self.enqueue_with_trigger(channel_id, SyncTrigger::Routine)
+    }
+
+    pub fn enqueue_with_trigger(&mut self, channel_id: ChannelId, trigger: SyncTrigger) -> bool {
         if self.enqueued.insert(channel_id) {
-            self.pending.push_back(channel_id);
+            self.pending.push_back((channel_id, trigger));
             true
         } else {
             false
@@ -93,14 +97,14 @@ impl SyncScheduler {
     /// 取出即视为「即将 dispatch」：从队列 + 去重集移除，并 `inflight += 1`（窗口占用）。
     /// 调用方拿到后负责实际 push `Effect::Http` + 登记 per-channel `inflight_sync` 守卫。
     /// 返回 None = 满窗或队空（不占窗口）。
-    pub fn next_dispatch(&mut self) -> Option<ChannelId> {
+    pub fn next_dispatch(&mut self) -> Option<(ChannelId, SyncTrigger)> {
         if !self.has_window() {
             return None;
         }
-        let channel_id = self.pending.pop_front()?;
+        let (channel_id, trigger) = self.pending.pop_front()?;
         self.enqueued.remove(&channel_id);
         self.inflight += 1;
-        Some(channel_id)
+        Some((channel_id, trigger))
     }
 
     /// 一个 sync 回报到达 → 释放 1 个全局窗口（`inflight` 饱和减，不下溢）。
@@ -157,6 +161,24 @@ pub fn enqueue_and_drain(
     alloc_corr: &mut dyn FnMut() -> Correlation,
     out: &mut EffectSink,
 ) {
+    enqueue_and_drain_with_trigger(
+        state,
+        api_base_url,
+        targets,
+        SyncTrigger::Routine,
+        alloc_corr,
+        out,
+    );
+}
+
+pub fn enqueue_and_drain_with_trigger(
+    state: &mut ImState,
+    api_base_url: &str,
+    targets: &[ChannelId],
+    trigger: SyncTrigger,
+    alloc_corr: &mut dyn FnMut() -> Correlation,
+    out: &mut EffectSink,
+) {
     for &channel_id in targets {
         // 跳过已在途（per-channel 守卫）/ 已注销 channel：与旧 emit_proactive_resync_for 同口径。
         match state.channels.get(&channel_id) {
@@ -164,7 +186,9 @@ pub fn enqueue_and_drain(
             Some(_) => {}
             None => continue,
         }
-        state.sync_scheduler.enqueue(channel_id);
+        state
+            .sync_scheduler
+            .enqueue_with_trigger(channel_id, trigger);
     }
     drain(state, api_base_url, alloc_corr, out);
 }
@@ -180,7 +204,7 @@ pub fn drain(
     out: &mut EffectSink,
 ) {
     let conn_id = state.connection_id.clone();
-    while let Some(channel_id) = state.sync_scheduler.next_dispatch() {
+    while let Some((channel_id, trigger)) = state.sync_scheduler.next_dispatch() {
         let sync_corr = alloc_corr();
         // 队首在入队后可能被注销 / 已另起在途 → 跳过并归还本次占的窗口（避免窗口泄漏）。
         // 单次 get_mut 同时读 cursor + 写 inflight 守卫（消除二次 get 的不可达 None 防御分支）：
@@ -195,9 +219,13 @@ pub fn drain(
                 continue;
             }
         };
-        state
-            .corr_map
-            .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
+        state.corr_map.insert(
+            sync_corr,
+            CorrelationContext::SyncPull {
+                channel_id,
+                trigger,
+            },
+        );
         out.push(crate::acl::to_effect::sync_notify(
             api_base_url,
             channel_id,

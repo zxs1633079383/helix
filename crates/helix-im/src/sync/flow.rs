@@ -1,7 +1,7 @@
 use crate::error::ImError;
 use crate::http_envelope::unwrap_sync_envelope;
 use crate::module::ImModule;
-use crate::state::{ChannelId, CorrelationContext, Seq};
+use crate::state::{ChannelId, CorrelationContext, Seq, SyncTrigger};
 use helix_core::{Effect, EffectSink};
 
 impl ImModule {
@@ -12,7 +12,12 @@ impl ImModule {
     /// 1. fromSeq（= cursor after commit）必须严格 > last_sync_from_seq（上次发出续拉时的 fromSeq）
     ///    这保证每次续拉都在推进位置；若 cursor 未前进，说明所有事件均是幂等 dup → 停止
     /// 2. B1 gate_inflight 守卫：同 channel 同时只允许一个在途 sync
-    pub(crate) fn maybe_continue_sync(&mut self, channel_id: ChannelId, out: &mut EffectSink) {
+    pub(crate) fn maybe_continue_sync(
+        &mut self,
+        channel_id: ChannelId,
+        trigger: SyncTrigger,
+        out: &mut EffectSink,
+    ) {
         // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
         let conn_id = self.state.connection_id.clone();
         // 读取 cursor 和 last_sync_from_seq（不可变借用）
@@ -57,9 +62,13 @@ impl ImModule {
         }
 
         let sync_corr = self.alloc_corr_internal();
-        self.state
-            .corr_map
-            .insert(sync_corr, CorrelationContext::SyncPull { channel_id });
+        self.state.corr_map.insert(
+            sync_corr,
+            CorrelationContext::SyncPull {
+                channel_id,
+                trigger,
+            },
+        );
         if let Some(ch) = self.state.channels.get_mut(&channel_id) {
             ch.inflight_sync = Some(crate::state::InflightSync(sync_corr));
         }
@@ -91,6 +100,7 @@ impl ImModule {
         &mut self,
         corr: helix_core::Correlation,
         channel_id: ChannelId,
+        trigger: SyncTrigger,
         reply: &helix_core::tick::ReplyBytes,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -165,6 +175,7 @@ impl ImModule {
                     persist_corr,
                     CorrelationContext::ChannelPersist {
                         channel_id,
+                        trigger,
                         wants_continuation: needs_continuation,
                         dialog_patches,
                         pending_domain_events:
@@ -231,8 +242,7 @@ impl ImModule {
                 let reset_to = snap.reset_to;
                 let mut persist_ops = crate::acl::to_effect::batch_upsert_events(&snap.messages);
                 persist_ops.push(crate::acl::to_effect::advance_cursor_op(
-                    channel_id,
-                    reset_to,
+                    channel_id, reset_to,
                 ));
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.buffer.clear();
@@ -248,6 +258,7 @@ impl ImModule {
                     persist_corr,
                     CorrelationContext::ChannelPersist {
                         channel_id,
+                        trigger,
                         wants_continuation: false,
                         dialog_patches: Vec::new(),
                         pending_domain_events: Vec::new(),

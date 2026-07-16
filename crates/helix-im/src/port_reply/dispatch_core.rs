@@ -1,7 +1,7 @@
 use crate::dialog_patch::PendingDialogPatch;
 use crate::error::ImError;
 use crate::module::ImModule;
-use crate::state::{ChannelId, SendStatus, TemporaryId};
+use crate::state::{ChannelId, SendStatus, SyncTrigger, TemporaryId};
 use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
 
@@ -10,6 +10,7 @@ impl ImModule {
         &mut self,
         corr: helix_core::Correlation,
         channel_id: ChannelId,
+        trigger: SyncTrigger,
         wants_continuation: bool,
         dialog_patches: Vec<PendingDialogPatch>,
         pending_domain_events: Vec<Vec<u8>>,
@@ -37,13 +38,14 @@ impl ImModule {
                     .get(&channel_id)
                     .map(|channel| channel.cursor.value())
                     .unwrap_or(crate::state::Seq(0));
-                out.push(crate::acl::to_effect::emit_sync_state(
+                out.push(crate::acl::to_effect::emit_sync_state_with_trigger(
                     channel_id,
                     committed_seq,
+                    trigger,
                 ));
                 // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
                 if wants_continuation {
-                    self.maybe_continue_sync(channel_id, out);
+                    self.maybe_continue_sync(channel_id, trigger, out);
                 } else {
                     self.finish_increment_hydration(channel_id, out)?;
                 }
@@ -166,6 +168,7 @@ impl ImModule {
         &mut self,
         corr: helix_core::Correlation,
         channel_id: ChannelId,
+        trigger: SyncTrigger,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -175,7 +178,9 @@ impl ImModule {
         // B4：释放 1 个全局 sync 窗口（Ok/Err 都释放——否则失败 sync 永久占窗 → 队列饿死）。
         self.state.sync_scheduler.release_window();
         match outcome {
-            PortOutcome::Ok(reply) => self.handle_sync_reply(corr, channel_id, reply, out)?,
+            PortOutcome::Ok(reply) => {
+                self.handle_sync_reply(corr, channel_id, trigger, reply, out)?
+            }
             PortOutcome::Err(e) => tracing::warn!(
                 channel_id = channel_id.as_str(), corr = corr.raw(), error = ?e,
                 "sync/notify failed"

@@ -77,12 +77,14 @@ impl ImModule {
             // 路由：channel sync Persist 回报（cursor 推进 + E3 续拉）
             CorrelationContext::ChannelPersist {
                 channel_id,
+                trigger,
                 wants_continuation,
                 dialog_patches,
                 pending_domain_events,
             } => self.handle_channel_persist_reply(
                 corr,
                 channel_id,
+                trigger,
                 wants_continuation,
                 dialog_patches,
                 pending_domain_events,
@@ -193,8 +195,11 @@ impl ImModule {
                 )?;
             }
             // 路由：sync Http 回报（sync/notify 响应）→ 清 per-channel 在途标记（B1 gate_inflight）。
-            CorrelationContext::SyncPull { channel_id } => {
-                self.handle_sync_pull_reply(corr, channel_id, outcome, out)?;
+            CorrelationContext::SyncPull {
+                channel_id,
+                trigger,
+            } => {
+                self.handle_sync_pull_reply(corr, channel_id, trigger, outcome, out)?;
             }
 
             CorrelationContext::MessageQueryLocal {

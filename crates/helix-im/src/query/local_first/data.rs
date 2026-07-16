@@ -203,6 +203,12 @@ fn normalize_remote_row(
     object
         .entry("createAt")
         .or_insert_with(|| Value::from(fields.create_at));
+    if !fields.props.is_empty() {
+        object.insert(
+            "props".to_string(),
+            serde_json::from_str(&fields.props).unwrap_or(Value::Null),
+        );
+    }
 }
 
 pub(super) fn merge_recent_rows(

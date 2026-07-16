@@ -26,6 +26,21 @@ pub struct RenderMember {
     pub admin: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberProjectionMode {
+    Snapshot,
+    Incremental,
+}
+
+impl MemberProjectionMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Snapshot => "snapshot",
+            Self::Incremental => "incremental",
+        }
+    }
+}
+
 /// `role→admin` 业务规则（下沉 helix·壳禁判）。
 ///
 /// 统一覆盖两种取值来源：byIds 响应体的 **raw wire role**（`CREATOR`/`MANGER`/`MANAGER`/`ADMIN`）
@@ -101,6 +116,7 @@ pub fn emit_channel_members(
     channel_id: &str,
     members: Vec<RenderMember>,
     leaves: Vec<String>,
+    projection_mode: MemberProjectionMode,
 ) -> Effect {
     let member_count = members.len();
     let members_json: Vec<serde_json::Value> = members
@@ -118,6 +134,7 @@ pub fn emit_channel_members(
         "data": {
             "channelId": channel_id,
             "memberCount": member_count,
+            "projectionMode": projection_mode.as_str(),
             "members": members_json,
             "leaves": leaves
         },

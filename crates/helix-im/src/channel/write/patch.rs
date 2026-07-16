@@ -20,6 +20,8 @@ pub fn collect_present(data: &serde_json::Value) -> Vec<ChannelCol> {
         ("update_by", "updateBy"),
         ("role", "role"),
         ("orient", "orient"),
+        ("purpose", "purpose"),
+        ("header", "header"),
         ("root_id", "rootId"),
         ("root_post_id", "rootPostId"),
         ("notify_props", "notifyProps"),
@@ -110,6 +112,8 @@ mod tests {
     fn collect_present_skips_none_fields_s3() {
         let data = serde_json::json!({
             "displayName": "改名",
+            "purpose": "简介",
+            "header": "规则",
             "unreadCount": 0,            // Some(0) 显式清零（已读）→ 收
             "channelIsTop": true,
             "mentionList": ["a"],
@@ -118,6 +122,8 @@ mod tests {
         let cols = collect_present(&data);
 
         assert!(has(&cols, "display_name"));
+        assert!(matches!(val(&cols, "purpose"), Some(SqlValue::Text(s)) if s == "简介"));
+        assert!(matches!(val(&cols, "header"), Some(SqlValue::Text(s)) if s == "规则"));
         assert!(
             matches!(val(&cols, "unread_count"), Some(SqlValue::Integer(0))),
             "Some(0) 显式收（清零）"

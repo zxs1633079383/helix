@@ -348,6 +348,42 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 }
 
 #[test]
+fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
+    let matrix = matrix();
+    assert_eq!(matrix.contract_epoch, 7);
+
+    let create = gate(&matrix, "G-15a");
+    assert!(create
+        .http
+        .request
+        .contains("{type,userIds,displayName,picture,forceCreate}"));
+    for field in ["data", "id", "displayName", "type", "teamId"] {
+        assert!(
+            create.http.response.contains(field),
+            "G-15a response 缺 {field}"
+        );
+    }
+
+    let topic = gate(&matrix, "G-15");
+    assert!(topic.http.request.contains("{rootId,userIds,picture}"));
+    for field in ["rootMessageId", "channelId", "revision"] {
+        assert!(
+            topic.http.response.contains(field),
+            "G-15 response 缺 {field}"
+        );
+    }
+
+    let settings = gate(&matrix, "G-16c");
+    assert!(settings.http.request.contains("expectedVersion?"));
+    for field in ["channelId", "purpose", "header", "settingVersion"] {
+        assert!(
+            settings.http.response.contains(field),
+            "G-16c response 缺 {field}"
+        );
+    }
+}
+
+#[test]
 fn strict_matrix_covers_every_baseline_gate_once_with_helix_owned_evidence() {
     let matrix = matrix();
     assert_eq!(matrix.schema_version, "helix-im-strict-matrix/v1");

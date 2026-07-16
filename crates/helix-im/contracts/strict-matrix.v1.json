@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 6,
+  "contract_epoch": 7,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -1693,8 +1693,8 @@
         "千人选人和批处理仅可在 Helix 执行"
       ],
       "http": {
-        "request": "`POST /api/cses/channel/create` body `{teamId,displayName,orient,type,users,picturetype,picture,forceCreate}`",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/channel/create` body `{type,userIds,displayName,picture,forceCreate}`；session 身份由服务端派生，客户端不得提交 team/role/owner",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；`data` 是服务端创建后的权威 Channel object，至少包含合法 `id`，并透传 `type`、`displayName`、`teamId` 等服务端终态；Helix 以 `data.id` 落 channel，并以 canonical 请求的 `userIds` 补成员投影"
       },
       "ws": {
         "events": "`channel_created`"
@@ -1761,8 +1761,8 @@
         "topic root 和 reply 关系不得由 UI 拼接"
       ],
       "http": {
-        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,teamId,postId,displayName,type,users,picturetype,picture,forceCreate}`",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,userIds,picture}`",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={rootMessageId,channelId,revision}`；Helix 必须先持久化服务端 `channelId` 与 `revision`，仅 Persist Ok 后发布成功投影"
       },
       "ws": {
         "events": "`channel_created`, `post_update`"
@@ -1985,8 +1985,8 @@
         "不得使用 settings 对象转换或 im_channel_settings alias"
       ],
       "http": {
-        "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?}`；其他专用命令见 UC-5.5",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5",
+        "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={channelId,purpose,header,settingVersion}`，Helix 只持久化响应终态；版本冲突返回 `status=FAILED`、`data={code,channelId,settingVersion}`，不得覆盖本地已提交终态"
       },
       "ws": {
         "events": "`update_channel`, `update_channel_notice`"

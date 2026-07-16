@@ -32,6 +32,7 @@ pub struct DialogPatchProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemberDialogProjection {
     pub user_id: String,
+    pub projection_revision: Option<u64>,
     pub unread_count: Option<i64>,
     pub unread_post_id: Option<String>,
     pub last_post: Option<Value>,
@@ -113,6 +114,7 @@ pub fn member_dialog_from_update_channel(
 
     let mut projection = MemberDialogProjection {
         user_id,
+        projection_revision: projection_revision(channel, data),
         unread_count: None,
         unread_post_id: None,
         last_post: None,
@@ -257,6 +259,26 @@ fn pick_text(primary: &Value, fallback: &Value, keys: &[&str]) -> Option<String>
         Value::Number(_) | Value::Bool(_) => Some(v.to_string()),
         _ => None,
     })
+}
+
+fn projection_revision(primary: &Value, fallback: &Value) -> Option<u64> {
+    const KEYS: &[&str] = &[
+        "lastEventSeq",
+        "eventSeq",
+        "event_seq",
+        "updateAt",
+        "update_at",
+    ];
+    [primary, fallback]
+        .into_iter()
+        .flat_map(|value| KEYS.iter().filter_map(|key| value.get(*key)))
+        .filter_map(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_i64().and_then(|number| u64::try_from(number).ok()))
+                .or_else(|| value.as_str().and_then(|number| number.parse::<u64>().ok()))
+        })
+        .max()
 }
 
 fn value_storage_text(value: &Value) -> String {

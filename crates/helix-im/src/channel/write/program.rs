@@ -1,10 +1,10 @@
-//! S3 path1 — `program_full`：`increment_channel` 帧 → 全 52 列 upsert 行（JSON rename + 守卫）。
+//! S3 path1 — `program_full`：`increment_channel` 帧 → 全 54 列 upsert 行（JSON rename + 守卫）。
 
 use super::ChannelCol;
 use crate::state::ChannelId;
 use helix_core::effect::SqlValue;
 
-/// path1 — 从 `increment_channel` 帧 data 计算全 52 列 upsert 行（含 JSON rename + 守卫覆盖）。
+/// path1 — 从 `increment_channel` 帧 data 计算全 54 列 upsert 行（含 JSON rename + 守卫覆盖）。
 ///
 /// `auth_user_id`：当前登录用户（写 `user_id` 列；helix-im 无身份 → 传入空串时该列为空，
 /// 由 driver/host 注入真值，对齐 emit 路径的 sender 豁免下沉策略）。
@@ -38,7 +38,7 @@ pub fn program_full(
 
     let ch_type = s("type").unwrap_or_default();
     let mut omit: Vec<&'static str> = Vec::new();
-    let mut row: Vec<ChannelCol> = Vec::with_capacity(52);
+    let mut row: Vec<ChannelCol> = Vec::with_capacity(54);
 
     row.push(("id", SqlValue::Text(id.as_str().to_string())));
     row.push((
@@ -141,6 +141,13 @@ pub fn program_full(
         None => {
             row.push(("purpose", SqlValue::Text(String::new())));
             omit.push("purpose");
+        }
+    }
+    match s("header") {
+        Some(v) => row.push(("header", SqlValue::Text(v))),
+        None => {
+            row.push(("header", SqlValue::Text(String::new())));
+            omit.push("header");
         }
     }
     // draft 本地列：server 不推 → 不进 ON CONFLICT 更新集（保留本地草稿）。

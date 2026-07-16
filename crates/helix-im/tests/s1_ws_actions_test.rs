@@ -107,8 +107,13 @@ fn update_channel_writes_member_dialog_absolute_and_emits_projection() {
         inbound(serde_json::json!({
             "action": "update_channel",
             "data": {
+                "event_seq": 41,
+                "update_at": 39,
                 "channel": {
                     "id": cid(18),
+                    "lastEventSeq": 43,
+                    "eventSeq": 42,
+                    "updateAt": 44,
                     "userId": "u-self",
                     "unreadCount": 7,
                     "mentionCount": 2,
@@ -165,6 +170,8 @@ fn update_channel_writes_member_dialog_absolute_and_emits_projection() {
                 && data["dialogPatch"]["mentionCount"] == 2
                 && data["dialogPatch"]["urgentCount"] == 1
                 && data["senderUserId"] == "u-sender"
+                && data["projectionRevision"] == 44
+                && data["dialogPatch"]["projectionRevision"] == 44
         }),
         "update_channel 须 emit 指令化 member dialog 投影，updates: {updates:?}"
     );
@@ -856,6 +863,9 @@ fn channel_member_update_full_and_members_s1() {
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:member-updated"));
+    let members = emit_data(&h.sink, "im:channel:members");
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0]["projectionMode"], "incremental");
 }
 
 /// 回归锚: HX-C008 —— channel_member_update 冷启动真新 channel 内存 cursor 种子必须 = 0

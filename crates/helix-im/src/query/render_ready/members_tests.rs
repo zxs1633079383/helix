@@ -92,13 +92,26 @@ fn emit_channel_members_shape_camelcase() {
             admin: true,
         }],
         vec!["u9".into()],
+        MemberProjectionMode::Incremental,
     );
     let v = emit_json(e);
     assert_eq!(v["event"], "im:channel:members");
     assert_eq!(v["data"]["channelId"], "ch1");
     assert_eq!(v["data"]["memberCount"], 1);
+    assert_eq!(v["data"]["projectionMode"], "incremental");
     assert_eq!(v["data"]["members"][0]["memberId"], "u1");
     assert_eq!(v["data"]["members"][0]["nickname"], "n");
     assert_eq!(v["data"]["members"][0]["admin"], true);
     assert_eq!(v["data"]["leaves"][0], "u9");
+}
+
+#[test]
+fn member_projection_mode_is_explicit_for_snapshot_and_incremental() {
+    for (mode, expected) in [
+        (MemberProjectionMode::Snapshot, "snapshot"),
+        (MemberProjectionMode::Incremental, "incremental"),
+    ] {
+        let value = emit_json(emit_channel_members("ch1", Vec::new(), Vec::new(), mode));
+        assert_eq!(value["data"]["projectionMode"], expected);
+    }
 }

@@ -39,6 +39,25 @@ fn persist_corr_and_tables(h: &Harness) -> (u64, Vec<&'static str>) {
         .expect("权威回包必须形成带回执的持久屏障")
 }
 
+fn persisted_channel_value<'a>(
+    h: &'a Harness,
+    col: &str,
+) -> Option<&'a helix_core::effect::SqlValue> {
+    h.sink.as_slice().iter().find_map(|effect| match effect {
+        Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "channel" => {
+                spec.rows.first().and_then(|row| {
+                    row.iter()
+                        .find(|(key, _)| key == col)
+                        .map(|(_, value)| value)
+                })
+            }
+            _ => None,
+        }),
+        _ => None,
+    })
+}
+
 fn emit_data(h: &Harness, event_name: &str) -> Vec<Value> {
     h.sink
         .as_slice()
@@ -157,6 +176,10 @@ fn settings_reply_emits_server_values_only_after_channel_persist_ack() {
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 3_010);
     assert!(emit_data(&h, "im:channel:settings-updated").is_empty());
+    assert!(matches!(
+        persisted_channel_value(&h, "header"),
+        Some(helix_core::effect::SqlValue::Text(value)) if value == "服务端权威规则"
+    ));
     let (persist_corr, tables) = persist_corr_and_tables(&h);
     assert_eq!(tables, vec!["channel"]);
 
@@ -170,6 +193,43 @@ fn settings_reply_emits_server_values_only_after_channel_persist_ack() {
     assert_eq!(updates[0]["settings"]["purpose"], "服务端权威简介");
     assert_eq!(updates[0]["settings"]["header"], "服务端权威规则");
     assert_eq!(updates[0]["settingVersion"], 9);
+}
+
+#[test]
+fn display_name_command_uses_same_authoritative_settings_persist_barrier() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        command_json(
+            "im_channel_change_display_name",
+            json!({"channel_id":cid(16),"display_name":"新群名"}),
+        ),
+        3_100,
+    );
+    let corr = http_corr(&h);
+    let raw = bytes::Bytes::from(
+        serde_json::to_vec(&json!({
+            "status":"SUCCESS",
+            "data": {
+                "channelId":cid(16),
+                "purpose":"服务端简介",
+                "header":"服务端规则",
+                "settingVersion":12
+            }
+        }))
+        .unwrap(),
+    );
+    h.step(port_reply_with_body(corr, enveloped(raw)), 3_110);
+    assert!(emit_data(&h, "im:channel:settings-updated").is_empty());
+    assert!(matches!(
+        persisted_channel_value(&h, "header"),
+        Some(helix_core::effect::SqlValue::Text(value)) if value == "服务端规则"
+    ));
+    let (persist_corr, _) = persist_corr_and_tables(&h);
+    h.step(port_reply_ok(persist_corr), 3_120);
+    assert_eq!(
+        emit_data(&h, "im:channel:settings-updated")[0]["settingVersion"],
+        12
+    );
 }
 
 #[test]

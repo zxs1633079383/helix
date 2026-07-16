@@ -1,4 +1,4 @@
-//! 回归锚: S3 path1 —— `channel_write::program_full` 全 52 列 upsert 计算（含 JSON rename + 守卫 omit）。
+//! 回归锚: S3 path1 —— `channel_write::program_full` 全 54 列 upsert 计算（含 JSON rename + 守卫 omit）。
 //!
 //! 拆为集成测试（程序逻辑单元）以保 `src/channel_write/program.rs` ≤300 行硬顶（结构规约 §1）。
 
@@ -9,9 +9,9 @@ fn get<'a>(row: &'a [ChannelCol], col: &str) -> Option<&'a SqlValue> {
     row.iter().find(|(k, _)| *k == col).map(|(_, v)| v)
 }
 
-/// 回归锚: S3 path1 —— increment 全量 52 列 + JSON rename + 守卫 omit。
+/// 回归锚: S3 path1 —— increment 全量 54 列 + JSON rename + 守卫 omit。
 #[test]
-fn program_full_emits_52_cols_with_guards_omitted_s3() {
+fn program_full_emits_54_cols_with_guards_omitted_s3() {
     let data = serde_json::json!({
         "id": "00000000000000000000000007",
         "displayName": "群A",
@@ -24,11 +24,15 @@ fn program_full_emits_52_cols_with_guards_omitted_s3() {
         "lastEventSeq": 42,
         "createAt": 100,
         "updateAt": 200,
-        // unread*/purpose 缺省 → 应进 omit（回退本地）
+        // unread*/purpose/header 缺省 → 应进 omit（回退本地）
     });
     let (row, omit) = program_full(&data, "", 9_999).expect("valid id");
 
-    assert_eq!(row.len(), 53, "path1 = 全 53 列（含 member_count 守卫列）");
+    assert_eq!(
+        row.len(),
+        54,
+        "path1 = 全 54 列（含 header/member_count 守卫列）"
+    );
     // JSON rename / 透传
     assert!(matches!(get(&row, "display_name"), Some(SqlValue::Text(s)) if s == "群A"));
     assert!(matches!(get(&row, "is_top"), Some(SqlValue::Integer(1))));
@@ -48,6 +52,7 @@ fn program_full_emits_52_cols_with_guards_omitted_s3() {
         "unread_count",
         "unread_post_id",
         "purpose",
+        "header",
         "is_remove",
         "draft",
         "members",
@@ -115,7 +120,8 @@ fn program_full_server_member_count_present_not_omitted_s3() {
 fn program_full_server_unread_present_not_omitted_s3() {
     let data = serde_json::json!({
         "id": "00000000000000000000000010", "type": "O",
-        "unreadCount": 5, "unreadPostId": "00000000000000000000000099", "purpose": "p"
+        "unreadCount": 5, "unreadPostId": "00000000000000000000000099",
+        "purpose": "p", "header": "h"
     });
     let (row, omit) = program_full(&data, "", 0).expect("valid id");
     assert!(matches!(
@@ -128,6 +134,8 @@ fn program_full_server_unread_present_not_omitted_s3() {
     );
     assert!(!omit.contains(&"unread_post_id"));
     assert!(!omit.contains(&"purpose"));
+    assert!(!omit.contains(&"header"));
+    assert!(matches!(get(&row, "header"), Some(SqlValue::Text(v)) if v == "h"));
 }
 
 /// 回归锚: S3 path1 —— 非法 id → None（边界零信任）。

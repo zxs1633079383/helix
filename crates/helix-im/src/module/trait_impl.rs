@@ -168,7 +168,9 @@ impl Module for ImModule {
                                 CorrelationContext::OutboundMakeTopic { root_message_id },
                             );
                         }
-                    } else if name == "im_channel_change_info" || name == "im_channel_change_notice"
+                    } else if name == "im_channel_change_info"
+                        || name == "im_channel_change_notice"
+                        || name == "im_channel_change_display_name"
                     {
                         if let Some(channel_id) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

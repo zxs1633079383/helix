@@ -110,6 +110,10 @@ impl ImModule {
                 SqlValue::Text(projection.purpose.clone()),
             ),
             (
+                "header".to_string(),
+                SqlValue::Text(projection.header.clone()),
+            ),
+            (
                 "updated_at".to_string(),
                 SqlValue::Integer(projection.setting_version as i64),
             ),

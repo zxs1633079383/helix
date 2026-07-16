@@ -8,7 +8,7 @@
 //!
 //! ## 剧本（手写，im_trace 自动导出管线待 ROADMAP P0 golden 工具链）
 //!
-//! Tick 1: `im_send_message`（channel 1，tmp_id="f5_tmp_1"，text="hello-f5"）
+//! Tick 1: `im_send_message`（channel 1，temporary_id 由 Helix 确定性分配，text="hello-f5"）
 //!   → 产 `Emit(im:post:sending)`
 //! Tick 2: 真 Go `post` 帧（tests/fixtures/real_go_frames/post.json，event_seq=40114，
 //!          channel=rmibkwkjwidhdx5xy8pyse6a3r，cursor 预种 40113 → 立即 apply）
@@ -92,7 +92,6 @@ fn run_script(shell: &mut ExecutionShell) -> Vec<DomainEventBytes> {
     // Tick 1: im_send_message → Emit(im:post:sending)
     let payload = serde_json::json!({
         "channel_id": "00000000000000000000000001",
-        "temporary_id": "f5_tmp_1",
         "text": "hello-f5"
     });
     let cmd = Tick::Command(AppCommand::new(

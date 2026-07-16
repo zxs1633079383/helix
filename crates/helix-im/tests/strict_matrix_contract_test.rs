@@ -283,6 +283,71 @@ fn is_direct_core_command(name: &str) -> bool {
 }
 
 #[test]
+fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
+    let matrix = matrix();
+    let g03 = gate(&matrix, "G-03");
+    let send = g03
+        .commands
+        .iter()
+        .find(|command| command.name == "im_send_message")
+        .expect("G-03 must freeze canonical send");
+
+    assert_eq!(g03.lifecycle, "active");
+    assert_eq!(g03.contract_state, "declared");
+    assert_eq!(send.input.required, ["channel_id", "type", "props"]);
+    assert_eq!(send.input.optional, ["text"]);
+    assert!(send.input.forbid_unknown);
+    assert!(g03.persistence.iter().any(|item| item == "pending_media"));
+
+    for token in [
+        "props.file.mediaInput",
+        "props.rich[].mediaInput",
+        "localPath",
+        "fileName",
+        "contentType",
+        "size",
+        "sha256",
+        "/media/upload/prepare",
+        "PUT",
+        "/media/upload/complete",
+        "pending_media",
+        "posts/create",
+    ] {
+        assert!(
+            g03.http.request.contains(token),
+            "G-03 request contract must contain {token}"
+        );
+    }
+    for token in [
+        "completed",
+        "objectKey",
+        "size",
+        "contentType",
+        "sha256",
+        "/media/get",
+        "GET",
+        "Content-Type",
+    ] {
+        assert!(
+            g03.http.response.contains(token),
+            "G-03 response/evidence contract must contain {token}"
+        );
+    }
+
+    for assertion in [
+        "Mobile 不得提供 Go-owned 字段",
+        "complete 前不得调用 posts/create",
+        "mismatch/corrupt/restart record 必须 fail-closed",
+        "真实链必须以 /media/get 与 GET object 对拍 size/contentType/SHA",
+    ] {
+        assert!(
+            g03.negative_assertions.iter().any(|rule| rule == assertion),
+            "G-03 must freeze negative assertion: {assertion}"
+        );
+    }
+}
+
+#[test]
 fn strict_matrix_covers_every_baseline_gate_once_with_helix_owned_evidence() {
     let matrix = matrix();
     assert_eq!(matrix.schema_version, "helix-im-strict-matrix/v1");

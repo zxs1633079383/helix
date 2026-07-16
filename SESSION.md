@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 补齐 UC13 离线发送者已读回执重放的 Helix 合同半边。可证伪断言：① 只在 sync type6 同时具备 msgId、actorId 与 messages[msgId].readBits 三项权威事实时，除既有 im:channel:read_echo 外追加 im:post:read；② 新投影显式携 readerId、postId/readBits 与 receiptRevision，不从位图反推用户；③ 任一权威锚缺失时绝不合成 im:post:read；④ 当前 Go post/read 不写 channel_event 的跨仓缺口落 NEED_UC13_OFFLINE_READ.md，不伪报真实链已闭环；⑤ 仅修改 helix-im 投影/同步测试、需求文档与 SESSION，不改 core/driver。@2026-07-16T18:10:00-0700 | 赌注 高 | 可逆 是
+✅ DONE UC13 离线回执跨仓代码 CODE_DONE、最终真实链待统一验收：sync type6 仅在 msgId+actorId+权威 readBits 闭集成立时双发既有 im:channel:read_echo 与新增 im:post:read，投影携 postId/readerId/readBits/receiptRevision；缺 actor 或 bits 的负向测试均不合成。Go `d6fe376` 已把每条实际 read_bits 0->1 变化与带 msgId/actorId 的 type6 事实同事务提交，幂等重试不追加；NEED_UC13_OFFLINE_READ.md 更新为 RESOLVED_CODE_DONE。Helix 验证：RED 1 fail/1 pass；GREEN 聚焦 2/2 PASS；既有 c3_sync_mutation_emits_test 12/12 PASS；git diff --check PASS；未跑全包、未 repin、未跑真实链。@2026-07-16T18:24:00-0700
+
 🎯 EXPECT 第二次语义合并最新主线：在 `codex/integrate-web-architecture-main` 合入 `origin/main@5053fac` 的 100 个 main-only commits，绝不直接改 main。可证伪断言：保留主线 FILE 大小写、消息交互/会话排序/定时/回执、metrics/telemetry、结构拆分、热路径与跨端 UI 契约；旧 Transport/mobile_contract/同步查询代码必须迁入 FrameSender、client_api/异步 query 与拆分模块；不恢复 mobile_query、helix-driver-wasm 或平台依赖进 core/im；全量 Rust、WASM、Node、HX-C001 验证后只提交集成分支，不推送。@2026-07-15T10:58:59+0800 | 赌注 高 | 可逆 是
 
 ✅ DONE 第二次语义合并 `origin/main@5053fac`：真实解决 core effect/storage、host engine/network、native reconnect、FFI pump/API、IM local-first/交互投影与 Web session store 冲突；保留主线结构拆分、metrics/telemetry、FILE/回执/定时语义，同时把旧 Transport 生命周期迁到 FrameSender 注册后激活模型，把旧 Web 存储原语迁到 BatchDelete/extra_bumps/结构化 ScanOrder；未恢复 mobile_query、helix-driver-wasm、旧 Transport 或同步业务 query。验证：`scripts/gate.sh` 12/12 PASS（含六 crate 全测、Web wasm、双目标 clippy、HX-C001/HX-C003、trace、FFI+C++、public API）；浏览器 adapter 8/8；Strict Matrix 46 gates/epoch 4 generated check PASS；只提交集成分支，不推送。@2026-07-15T11:38:09+0800

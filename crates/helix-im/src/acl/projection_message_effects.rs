@@ -74,6 +74,36 @@ pub fn emit_post_read_with_receipt_revision(
     }
 }
 
+/// 离线 sync type6 的 sender 视角回执。
+///
+/// `reader_id` 只能来自持久化 ChannelEvent.actorId；调用方还必须确认同一 msgId 的
+/// `messages` 快照携权威 readBits。这里不解析位图反推用户，避免成员快照漂移时张冠李戴。
+pub fn emit_sync_post_read(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    reader_id: &str,
+    receipt_revision: i64,
+) -> Effect {
+    use serde_json::json;
+    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, "", false);
+    data["postId"] = json!(msg_id);
+    data["readerId"] = json!(reader_id);
+    data["receiptRevision"] = json!(receipt_revision);
+    let payload = json!({
+        "event": "im:post:read",
+        "data": data,
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_sync_post_read: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 /// 离线 sync 应用的 type=6 read → `im:channel:read_echo`。
 pub fn emit_channel_read_echo(
     channel_id: ChannelId,

@@ -13,7 +13,7 @@ pub use super::projection_control_effects::{
 pub use super::projection_message_effects::{
     emit_channel_read_echo, emit_post_deleted, emit_post_deleted_for_viewer, emit_post_read,
     emit_post_read_with_receipt_revision, emit_post_received, emit_post_received_for_viewer,
-    emit_post_updated, emit_post_updated_for_viewer,
+    emit_post_updated, emit_post_updated_for_viewer, emit_sync_post_read,
 };
 pub use super::storage_effects::{
     advance_cursor, advance_cursor_op, bump_channel_unread, bump_channel_unread_op,

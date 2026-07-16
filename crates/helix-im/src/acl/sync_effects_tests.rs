@@ -99,6 +99,17 @@ fn upsert_ev(seq: u64) -> EventEnvelope {
         .with_msg_id(Some(MSG.to_string()))
 }
 
+fn read_ev(seq: u64, reader_id: &str) -> EventEnvelope {
+    EventEnvelope::new(ch(), Seq(seq), EventKind::PostRead, PostFields::default())
+        .with_msg_id(Some(MSG.to_string()))
+        .with_event_identity(
+            None,
+            Some(reader_id.to_string()),
+            1_700_000_123,
+            String::new(),
+        )
+}
+
 /// 把 Effect::Emit 解成 JSON（非 Emit → panic）。
 fn emit_json(e: &Effect) -> serde_json::Value {
     match e {
@@ -178,4 +189,49 @@ fn no_revoke_event_means_no_post_deleted() {
         find_emit(&emits, "im:post:deleted").is_none(),
         "无 PostRevoke 事件不得发出 im:post:deleted（守可证伪·非 tautology）"
     );
+}
+
+/// UC13：离线 sender 只在 sync 同时给出 post、reader 与权威 readBits 时收到可定位回执。
+#[test]
+fn sync_read_with_authoritative_identity_and_bits_replays_post_read() {
+    const READER: &str = "user-reader-678";
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            read_bits: "1".to_string(),
+            ..PostFields::default()
+        },
+    );
+
+    let emits = sync_mutation_emits(&[read_ev(4, READER)], &messages);
+    let receipt = find_emit(&emits, "im:post:read")
+        .expect("权威 msgId + actorId + readBits 必须重放 im:post:read");
+    let data = &receipt["data"];
+    assert_eq!(data["msgId"], serde_json::json!(MSG));
+    assert_eq!(data["readerId"], serde_json::json!(READER));
+    assert_eq!(data["readBits"], serde_json::json!("1"));
+    assert_eq!(data["receiptRevision"], serde_json::json!(1_700_000_123));
+}
+
+/// 可证伪对偶：actorId 或 readBits 任一缺失，Helix 不得猜 reader 或伪造离线回执。
+#[test]
+fn sync_read_without_authoritative_identity_or_bits_does_not_replay_post_read() {
+    let mut messages_without_bits = HashMap::new();
+    messages_without_bits.insert(MSG.to_string(), PostFields::default());
+    let missing_bits =
+        sync_mutation_emits(&[read_ev(4, "user-reader-678")], &messages_without_bits);
+    assert!(find_emit(&missing_bits, "im:post:read").is_none());
+
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            read_bits: "1".to_string(),
+            ..PostFields::default()
+        },
+    );
+    let missing_actor = sync_mutation_emits(&[read_ev(4, "")], &messages);
+    assert!(find_emit(&missing_actor, "im:post:read").is_none());
 }

@@ -74,6 +74,19 @@ pub fn sync_mutation_emits_with_auth(
                     msg_id,
                     fields,
                 ));
+                // UC13 离线 sender 回执必须同时由三项权威事实证明：事件锚定 post、actorId
+                // 锚定 reader、messages 快照给出持久化 readBits。缺一项仍保留 legacy
+                // channel:read_echo，但绝不猜 reader 或伪造 post:read。
+                if !ev.actor_id.is_empty() && !fields.read_bits.is_empty() {
+                    emits.push(super::to_effect::emit_sync_post_read(
+                        ev.channel_id,
+                        ev.seq.0,
+                        msg_id,
+                        fields,
+                        ev.actor_id.as_str(),
+                        ev.occurred_at,
+                    ));
+                }
             }
             EventKind::Other(_) => {}
         }

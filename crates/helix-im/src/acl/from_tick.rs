@@ -18,7 +18,11 @@ pub fn accepts_tick(tick: &Tick) -> bool {
             // command 单独放行；单条 `im_mark_read` 则归一后走 `im_post_read`。
             matches!(
                 cmd.name.as_ref(),
-                "im_send_message" | "im_retry_send" | "im_retry_upload" | "im_reconnect"
+                "im_send_message"
+                    | "im_retry_send"
+                    | "im_retry_upload"
+                    | "im_reconnect"
+                    | "im_sync_channels"
             )
                 || crate::commands::is_outbound(cmd.name.as_ref())
                 // query 族（im_load_older_context / dialog_list 等纯读投影命令）：handle 分发

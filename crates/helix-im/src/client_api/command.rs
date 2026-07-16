@@ -26,7 +26,7 @@ pub const COMMAND_ALIASES: &[CommandAlias] = &[
     },
     CommandAlias {
         public: "im_sync_channels",
-        core: "im_channel_load_increment_by_channel_id",
+        core: "im_sync_channels",
     },
     CommandAlias {
         public: "im_ensure_channel_loaded",

@@ -55,6 +55,14 @@ impl Module for ImModule {
                 "im_reconnect" => {
                     out.push(crate::acl::to_effect::emit_reconnect_requested());
                 }
+                "im_sync_channels" => {
+                    crate::sync::explicit::handle(self, cmd.payload.as_ref(), out).map_err(
+                        |e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        },
+                    )?;
+                }
                 "im_create_posts" if crate::forward::is_source_id_request(cmd.payload.as_ref()) => {
                     crate::forward::start(self, cmd.payload.as_ref(), now_ms, out).map_err(
                         |e| CoreError::ModuleError {

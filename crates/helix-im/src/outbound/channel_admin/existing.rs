@@ -8,9 +8,7 @@ use serde_json::{json, Value};
 
 use crate::error::ImError;
 
-use crate::outbound::registry::{
-    build_creator_member_users, require_str, OutboundCommand, OutboundRegistration,
-};
+use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
 /// #33 POST /api/cses/channel/member/leave — 退群（仅自己）→ channel_member_update + post。
 /// 真源 entity.ChannelIdStruct{ChannelId, UserId *string, NewCreator *ChannelMemberMinimal}
@@ -47,33 +45,38 @@ inventory::submit! {
     }
 }
 
-/// #7 POST /api/cses/channel/create — 建群 → channel_created + channel_member_update + post。
-/// 真源 CreateChannelSpecifyOwner（内嵌 *ent.Channel + Users[]ChannelMemberMinimal）。
-///
-/// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{display_name, team_id, self_id,
-/// member_ids:[]}`（身份/列表，非 wire body）；wire body + role 业务赋值（self CREATOR + 他人
-/// MEMBER）在此拼成，对齐真机curl真源 §4：`{teamId, displayName, orient:"", type:"P",
-/// users:[{id,teamId,role}], picturetype:"USER", picture:{userIds:[...]}, forceCreate:true}`。
+/// G-15a POST /api/cses/channel/create — Helix 只做 canonical command 到 Go boundary 的 casing
+/// adapter。会话身份、team 与成员角色由 Go 根据 session 派生，不能由跨端内核生成或信任。
 struct CreateChannelCommand;
 impl OutboundCommand for CreateChannelCommand {
     fn name(&self) -> &'static str {
         "im_create_channel"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(
+            args,
+            &[
+                "type",
+                "user_ids",
+                "display_name",
+                "picture",
+                "force_create",
+            ],
+            self.name(),
+        )?;
+        let channel_type = require_str(args, "type", self.name())?;
+        let user_ids = require_non_empty_string_array(args, "user_ids", self.name())?;
         let display_name = require_str(args, "display_name", self.name())?;
-        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
-        let (users, user_ids) = build_creator_member_users(args, self.name())?;
+        let picture = require_str(args, "picture", self.name())?;
+        let force_create = require_bool(args, "force_create", self.name())?;
         Ok((
             "channel/create",
             json!({
-                "teamId": team_id,
+                "type": channel_type,
+                "userIds": user_ids,
                 "displayName": display_name,
-                "orient": "",
-                "type": "P",
-                "users": users,
-                "picturetype": "USER",
-                "picture": { "userIds": user_ids },
-                "forceCreate": true,
+                "picture": picture,
+                "forceCreate": force_create,
             }),
         ))
     }
@@ -86,37 +89,24 @@ inventory::submit! {
     }
 }
 
-/// #17 POST /api/cses/posts/makeTopic — 消息转话题 → channel_created + post_update。
-/// 真源 {PostId, 内嵌 CreateChannelSpecifyOwner}。
-///
-/// **body 成形下沉 helix（薄壳合规）**：壳只传结构化 args `{root_id, post_id, display_name,
-/// team_id, self_id, member_ids:[]}`；wire body + role 业务赋值在此拼成，对齐真机curl真源 §2：
-/// `{rootId, teamId, postId, displayName, type:"T", users:[{id,teamId,role}], picturetype:"USER",
-/// picture:{userIds:[...]}, forceCreate:true}`。与建群（§4）同形态，差异 endpoint + rootId/postId
-/// + type=T（话题）+ 无 orient。
+/// G-15 POST /api/cses/posts/makeTopic — 只透传 root post、目标用户与图片。source channel、
+/// display name、team、creator role 等旧业务模型字段由 Go 用 root post + session 派生。
 struct MakeTopicCommand;
 impl OutboundCommand for MakeTopicCommand {
     fn name(&self) -> &'static str {
         "im_make_topic"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(args, &["root_id", "user_ids", "picture"], self.name())?;
         let root_id = require_str(args, "root_id", self.name())?;
-        let post_id = require_str(args, "post_id", self.name())?;
-        let display_name = require_str(args, "display_name", self.name())?;
-        let team_id = args.get("team_id").and_then(Value::as_str).unwrap_or("");
-        let (users, user_ids) = build_creator_member_users(args, self.name())?;
+        let user_ids = require_non_empty_string_array(args, "user_ids", self.name())?;
+        let picture = require_str(args, "picture", self.name())?;
         Ok((
             "posts/makeTopic",
             json!({
                 "rootId": root_id,
-                "teamId": team_id,
-                "postId": post_id,
-                "displayName": display_name,
-                "type": "T",
-                "users": users,
-                "picturetype": "USER",
-                "picture": { "userIds": user_ids },
-                "forceCreate": true,
+                "userIds": user_ids,
+                "picture": picture,
             }),
         ))
     }
@@ -127,6 +117,41 @@ inventory::submit! {
         name: "im_make_topic",
         command: &MAKE_TOPIC,
     }
+}
+
+fn require_exact_keys(args: &Value, allowed: &[&str], cmd: &str) -> Result<(), ImError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须是 object")))?;
+    if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ImError::Parse(format!(
+            "{cmd}: 未知或非 canonical 字段 '{unknown}'"
+        )));
+    }
+    Ok(())
+}
+
+fn require_non_empty_string_array(args: &Value, key: &str, cmd: &str) -> Result<Value, ImError> {
+    let values = args
+        .get(key)
+        .and_then(Value::as_array)
+        .filter(|values| !values.is_empty())
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/空必填数组字段 '{key}'")))?;
+    if values
+        .iter()
+        .any(|value| value.as_str().is_none_or(|value| value.trim().is_empty()))
+    {
+        return Err(ImError::Parse(format!(
+            "{cmd}: 字段 '{key}' 必须是非空字符串数组"
+        )));
+    }
+    Ok(Value::Array(values.clone()))
+}
+
+fn require_bool(args: &Value, key: &str, cmd: &str) -> Result<bool, ImError> {
+    args.get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: 缺/类型错误的必填布尔字段 '{key}'")))
 }
 
 /// POST /api/cses/channel/member/change — 加/退成员 → channel_member_update。

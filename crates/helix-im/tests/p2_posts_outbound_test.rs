@@ -346,11 +346,14 @@ fn every_registered_command_is_dispatchable() {
         ("im_cancel_schedule", json!({ "channel_id": "c" })),
         (
             "im_create_channel",
-            json!({ "display_name": "g", "self_id": "u1" }),
+            json!({
+                "type": "O", "user_ids": ["u1"], "display_name": "g",
+                "picture": "picture-1", "force_create": true
+            }),
         ),
         (
             "im_make_topic",
-            json!({ "root_id": "r", "post_id": "p", "display_name": "t", "self_id": "u1" }),
+            json!({ "root_id": "r", "user_ids": ["u1"], "picture": "topic-picture-1" }),
         ),
         ("im_channel_member_change", json!({ "channel_id": "c" })),
         ("im_channel_close", json!({ "channel_id": "c" })),

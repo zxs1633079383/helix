@@ -70,6 +70,8 @@ inventory::submit! {
 
 /// #3 POST /api/cses/posts/createSchedule — 定时消息 → post_schedule_created。
 /// 真源 CreateSchedulePostReq{Post *Post, ScheduledTime int64 `json:"schedulePostAt"`}。
+/// Mobile canonical 的 `type`/`props` 属于 post 业务字段；`temporary_id` 由 Helix 发送
+/// 状态机拥有，定时消息入口不得接收调用方伪造的临时 ID。
 struct CreateScheduleCommand;
 impl OutboundCommand for CreateScheduleCommand {
     fn name(&self) -> &'static str {
@@ -81,15 +83,29 @@ impl OutboundCommand for CreateScheduleCommand {
         let schedule_post_at = args
             .get("schedule_post_at")
             .and_then(Value::as_i64)
+            .filter(|value| *value > 0)
             .ok_or_else(|| {
                 ImError::Parse(format!(
-                    "{}: 缺/坏 schedule_post_at（int64 毫秒）",
+                    "{}: 缺/坏 schedule_post_at（正 int64 毫秒）",
                     self.name()
                 ))
             })?;
         let mut post = json!({ "channelId": channel_id, "message": message });
-        if let Some(tmp) = args.get("temporary_id").and_then(Value::as_str) {
-            post["temporaryId"] = json!(tmp);
+        if let Some(post_type) = args.get("type") {
+            let post_type = post_type
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ImError::Parse(format!("{}: type 必须为非空字符串", self.name())))?;
+            post["type"] = json!(post_type);
+        }
+        if let Some(props) = args.get("props") {
+            if !props.is_object() {
+                return Err(ImError::Parse(format!(
+                    "{}: props 必须为 object",
+                    self.name()
+                )));
+            }
+            post["props"] = props.clone();
         }
         Ok((
             "posts/createSchedule",

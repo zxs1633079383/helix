@@ -9,9 +9,12 @@ use serde_json::Value;
 pub use persistence::{props_persist_op, sanitized_for_persistence};
 pub use plan::build_upload_plan;
 pub use request::{
-    file_upload_request, media_upload_request, parse_prepare_reply, prepare_upload_request,
+    complete_upload_request, file_upload_request, media_upload_request, parse_complete_reply,
+    parse_prepare_reply, prepare_upload_request,
 };
-pub use state::{mark_upload_failed, mark_upload_success, parse_upload_success_reply};
+pub use state::{
+    mark_media_complete, mark_upload_failed, mark_upload_success, parse_upload_success_reply,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum UploadTarget {
@@ -70,9 +73,27 @@ pub struct PendingMediaPut {
 }
 
 #[derive(Debug, Clone)]
+pub struct TrustedMediaReference {
+    pub file_id: String,
+    pub url: String,
+    pub file_name: String,
+    pub content_type: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompletedMedia {
+    pub temporary_id: TemporaryId,
+    pub target: UploadTarget,
+    pub reference: TrustedMediaReference,
+}
+
+#[derive(Debug, Clone)]
 pub enum PendingMediaOp {
     Prepare(PendingMediaPrepare),
     Put(PendingMediaPut),
+    Complete(PendingMediaPut),
 }
 
 #[derive(Debug, Clone)]

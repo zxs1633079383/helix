@@ -1,4 +1,4 @@
-use super::{MediaInput, PreparedMedia, UploadTarget};
+use super::{MediaInput, PendingMediaPut, PreparedMedia, TrustedMediaReference, UploadTarget};
 use crate::ImError;
 use helix_core::effect::{FileUploadRequest, FileUploadUrls, HttpRequest};
 use serde_json::{json, Value};
@@ -24,6 +24,25 @@ pub fn prepare_upload_request(
     Ok(HttpRequest {
         method: "POST".to_string(),
         url: format!("{api_base_url}/media/upload/prepare"),
+        headers,
+        body: Some(bytes::Bytes::from(body)),
+    })
+}
+
+pub fn complete_upload_request(
+    api_base_url: &str,
+    upload_id: &str,
+    mut headers: Vec<(String, String)>,
+) -> Result<HttpRequest, ImError> {
+    headers.insert(
+        0,
+        ("Content-Type".to_string(), "application/json".to_string()),
+    );
+    let body = serde_json::to_vec(&json!({"uploadId": upload_id}))
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+    Ok(HttpRequest {
+        method: "POST".to_string(),
+        url: format!("{api_base_url}/media/upload/complete"),
         headers,
         body: Some(bytes::Bytes::from(body)),
     })
@@ -106,6 +125,86 @@ pub fn parse_prepare_reply(
         public_url,
         object_key: required("objectKey")?,
         headers,
+    })
+}
+
+pub fn parse_complete_reply(
+    bytes: &[u8],
+    pending: &PendingMediaPut,
+) -> Result<TrustedMediaReference, String> {
+    let root: Value = serde_json::from_slice(bytes)
+        .map_err(|error| format!("media complete CommonRes: {error}"))?;
+    let status = root
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "media complete CommonRes.status must be string".to_string())?;
+    if status != "SUCCESS" {
+        return Err(format!("media complete CommonRes status is {status}"));
+    }
+    let data = root
+        .get("data")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "media complete CommonRes.data must be object".to_string())?;
+    let required = |key: &str| {
+        data.get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("media complete data.{key} must be non-empty string"))
+    };
+    let state = required("state")?;
+    if state != "completed" {
+        return Err("media complete data.state must be completed".to_string());
+    }
+    let upload_id = required("uploadId")?;
+    if upload_id != pending.prepared.upload_id {
+        return Err("media complete data.uploadId conflicts with prepare".to_string());
+    }
+    let file_id = required("fileId")?;
+    if file_id != pending.prepared.file_id {
+        return Err("media complete data.fileId conflicts with prepare".to_string());
+    }
+    if let Some(id) = data.get("id") {
+        if id.as_str() != Some(file_id.as_str()) {
+            return Err("media complete data.id conflicts with fileId".to_string());
+        }
+    }
+    let url = required("url")?;
+    if url != pending.prepared.public_url {
+        return Err("media complete data.url conflicts with prepare publicUrl".to_string());
+    }
+    let size = data
+        .get("size")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "media complete data.size must be positive u64".to_string())?;
+    if size != pending.input.size {
+        return Err("media complete data.size conflicts with mediaInput".to_string());
+    }
+    let sha256 = required("sha256")?;
+    if sha256 != pending.input.sha256 {
+        return Err("media complete data.sha256 conflicts with mediaInput".to_string());
+    }
+    let content_type = required("contentType")?;
+    if content_type != pending.input.content_type {
+        return Err("media complete data.contentType conflicts with mediaInput".to_string());
+    }
+    let channel_id = required("channelId")?;
+    if channel_id != pending.channel_id.as_str() {
+        return Err("media complete data.channelId conflicts with prepare".to_string());
+    }
+    let file_name = required("fileName")?;
+    if file_name != pending.input.file_name {
+        return Err("media complete data.fileName conflicts with mediaInput".to_string());
+    }
+
+    Ok(TrustedMediaReference {
+        file_id,
+        url,
+        file_name,
+        content_type,
+        size,
+        sha256,
     })
 }
 

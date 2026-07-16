@@ -72,6 +72,86 @@ fn sending_projection_for_tmp(h: &Harness, tmp: &str) -> Option<Value> {
         })
 }
 
+fn last_sending_projection(h: &Harness) -> Option<Value> {
+    h.sink
+        .as_slice()
+        .iter()
+        .rev()
+        .find_map(|effect| match effect {
+            Effect::Emit { event } => {
+                let value: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                (value["event"] == "im:post:sending").then_some(value)
+            }
+            _ => None,
+        })
+}
+
+#[test]
+fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
+    let mut h = Harness::new(&[1]);
+    h.step(
+        command_json(
+            "im_send_message",
+            serde_json::json!({
+                "channel_id": cid(1),
+                "text": "helix owns id"
+            }),
+        ),
+        1_700_000_000_000,
+    );
+
+    let projection = last_sending_projection(&h).expect("send must emit optimistic projection");
+    let temporary_id = projection["data"]["temporaryId"]
+        .as_str()
+        .expect("projection must expose Helix temporary_id");
+    assert!(temporary_id.starts_with("helix_tmp_"));
+
+    let persisted_same_id = h.sink.as_slice().iter().any(|effect| match effect {
+        Effect::Persist { ops, .. } => ops.iter().any(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                spec.rows.iter().any(|row| {
+                    row.iter().any(|(key, value)| {
+                        key == "temporary_id"
+                            && matches!(value, SqlValue::Text(value) if value == temporary_id)
+                    })
+                })
+            }
+            _ => false,
+        }),
+        _ => false,
+    });
+    assert!(persisted_same_id, "optimistic row must use the minted id");
+
+    let http_same_id = h.sink.as_slice().iter().any(|effect| match effect {
+        Effect::Http { req, .. } if req.url.ends_with("/posts/create") => {
+            req.body
+                .as_ref()
+                .and_then(|body| serde_json::from_slice::<Value>(body).ok())
+                .and_then(|body| body["temporaryId"].as_str().map(str::to_string))
+                .as_deref()
+                == Some(temporary_id)
+        }
+        _ => false,
+    });
+    assert!(http_same_id, "posts/create must use the minted id");
+
+    h.step(
+        command_json(
+            "im_send_message",
+            serde_json::json!({
+                "channel_id": cid(1),
+                "temporary_id": "caller-must-not-own-this",
+                "text": "second send"
+            }),
+        ),
+        1_700_000_000_000,
+    );
+    let second = last_sending_projection(&h).expect("second send projection");
+    let second_id = second["data"]["temporaryId"].as_str().unwrap();
+    assert_ne!(second_id, temporary_id);
+    assert_ne!(second_id, "caller-must-not-own-this");
+}
+
 // ─── 发送命令产出 4 个 Effect ─────────────────────────────────────────────────
 
 #[test]

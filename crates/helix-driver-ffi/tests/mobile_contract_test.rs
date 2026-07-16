@@ -94,12 +94,12 @@ fn wait_for_event(recorder: &Recorder, needle: &str) -> String {
 }
 
 #[test]
-fn mobile_im_send_alias_accepts_camelcase_payload_and_emits_sending() {
+fn mobile_im_send_alias_ignores_client_temporary_id_and_emits_helix_id() {
     let recorder = Recorder::new(Vec::new());
     let handle = create_recording_handle(&recorder);
     let name = b"im_send";
     let payload =
-        br#"{"channelId":"01hq0000000000000000000000","temporaryId":"tmp-mobile-1","text":"hi","type":"TEXT"}"#;
+        br#"{"channelId":"01hq0000000000000000000000","temporaryId":"mobile-owned-id","text":"hi","type":"TEXT"}"#;
 
     // SAFETY: handle is live and the input buffers stay valid for this call.
     let status = unsafe {
@@ -114,9 +114,43 @@ fn mobile_im_send_alias_accepts_camelcase_payload_and_emits_sending() {
     assert_eq!(status, FFI_OK);
 
     let event = wait_for_event(&recorder, "im:post:sending");
-    assert!(event.contains("tmp-mobile-1"));
-    assert!(event.contains("01hq0000000000000000000000"));
-    assert!(!event.contains("im:post:send-failed"));
+    let event: serde_json::Value = serde_json::from_str(&event).expect("event JSON");
+    let temporary_id = event["data"]["temporaryId"]
+        .as_str()
+        .expect("Helix temporary id");
+    assert!(temporary_id.starts_with("helix_tmp_"));
+    assert_ne!(temporary_id, "mobile-owned-id");
+    assert_eq!(event["data"]["channelId"], "01hq0000000000000000000000");
+    assert_ne!(event["event"], "im:post:send-failed");
+
+    // SAFETY: handle was created by this test and not yet destroyed.
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn canonical_mobile_send_needs_no_temporary_id() {
+    let recorder = Recorder::new(Vec::new());
+    let handle = create_recording_handle(&recorder);
+    let name = b"im_send_message";
+    let payload = br#"{"channelId":"01hq0000000000000000000000","text":"canonical","type":"TEXT"}"#;
+
+    // SAFETY: handle is live and the input buffers stay valid for this call.
+    let status = unsafe {
+        helix_command(
+            handle,
+            name.as_ptr(),
+            name.len(),
+            payload.as_ptr(),
+            payload.len(),
+        )
+    };
+    assert_eq!(status, FFI_OK);
+
+    let event = wait_for_event(&recorder, "im:post:sending");
+    let event: serde_json::Value = serde_json::from_str(&event).expect("event JSON");
+    assert!(event["data"]["temporaryId"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("helix_tmp_")));
 
     // SAFETY: handle was created by this test and not yet destroyed.
     unsafe { helix_destroy(handle) };
@@ -155,6 +189,7 @@ fn helix_capabilities_query_returns_mobile_contract_json() {
     assert_eq!(json["bus"], "im:__bus__");
     assert_eq!(json["features"]["pendingSendTimeoutUnsend"], true);
     assert_eq!(json["features"]["sendFailedProjection"], true);
+    assert_eq!(json["features"]["helixOwnedTemporaryId"], true);
     assert!(json["commands"]
         .as_array()
         .unwrap()

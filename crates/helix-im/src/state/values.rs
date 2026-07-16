@@ -77,9 +77,19 @@ impl ServerId {
     }
 }
 
-/// UI 注入的临时消息 ID（乐观落库 PK，不由内核生成）。
+/// Helix 铸造并持有的临时消息 ID（乐观落库 PK / HTTP / echo 对账锚）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TemporaryId(pub String);
+
+impl TemporaryId {
+    /// 用 step 时钟与 module 内单调序号铸造确定性 ID。
+    ///
+    /// 相同 tick/clock 序列产生相同结果；单个 ImModule 生命周期内 O(1)
+    /// 分配且不重复。公开 command payload 不参与 ID 选择。
+    pub(crate) fn mint(now_ms: u64, sequence: u64) -> Self {
+        Self(format!("helix_tmp_{now_ms:016x}_{sequence:016x}"))
+    }
+}
 
 /// per-channel 事件序号（单调递增）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

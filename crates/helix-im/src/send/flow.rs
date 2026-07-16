@@ -32,11 +32,17 @@ impl ImModule {
             .ok_or_else(|| ImError::Parse("missing/invalid channel_id".to_string()))?;
         // 乐观消息先进入内存业务事实，不能在 SQLite 写完成前让旧窗口 proof 命中假 Complete。
         self.state.invalidate_recent_message_coverage(channel_id);
-        let tmp_id_str = cmd["temporary_id"]
-            .as_str()
-            .ok_or_else(|| ImError::Parse("missing temporary_id".to_string()))?
-            .to_string();
-        let tmp_id = TemporaryId(tmp_id_str.clone());
+        // public temporary_id 永不参与选择。实时命令由 Helix 铸造；仅确定性 replay/test
+        // envelope 可携带已分配的 internal id，且公开 client_api 会删除该字段。
+        let tmp_id = match cmd
+            .get("allocated_temporary_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            Some(allocated) => TemporaryId(allocated.to_string()),
+            None => self.alloc_temporary_id(now_ms)?,
+        };
+        let tmp_id_str = tmp_id.0.clone();
 
         // ── buildMessageObject 编排（P1 下沉）──────────────────────────────────
         // 现网前端 service 的 wire body 组装下沉到 outbound::send_build（C1 纯渲染）。命令载荷

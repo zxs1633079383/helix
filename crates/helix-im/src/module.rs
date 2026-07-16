@@ -83,6 +83,8 @@ pub struct ImModule {
     ///
     /// BLK-1b：从 100 开始，避免与 engine 内部潜在分配冲突。
     next_timer: u64,
+    /// 发送临时 ID 的 module 内单调序号；与 step 的 now_ms 共同形成确定性 ID。
+    next_temporary_id: u64,
 }
 
 impl ImModule {
@@ -102,6 +104,7 @@ impl ImModule {
             local_store_mode,
             next_corr: 1,
             next_timer: 100,
+            next_temporary_id: 1,
         }
     }
 
@@ -119,6 +122,17 @@ impl ImModule {
         let t = TimerId::from_raw(self.next_timer);
         self.next_timer += 1;
         t
+    }
+
+    pub(crate) fn alloc_temporary_id(
+        &mut self,
+        now_ms: u64,
+    ) -> Result<TemporaryId, crate::error::ImError> {
+        let sequence = self.next_temporary_id;
+        self.next_temporary_id = sequence.checked_add(1).ok_or_else(|| {
+            crate::error::ImError::Parse("temporary_id sequence exhausted".to_string())
+        })?;
+        Ok(TemporaryId::mint(now_ms, sequence))
     }
 
     /// 测试 / driver 初始化用：预注册一个 channel（初始 cursor 值由调用方提供）

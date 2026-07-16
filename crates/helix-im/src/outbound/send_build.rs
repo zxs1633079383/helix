@@ -7,7 +7,7 @@
 //! 前端退化为只发 UI 字段的语义 invoke（C1 纯渲染证伪：invoke 参数无 wire-only key）。
 //!
 //! 本函数是**纯函数**（无 I/O / 无 ambient 时间）：`createAt` 经 `now_ms`（Clock 注入，C3）、
-//! `temporary_id` 由调用方从命令载荷透传（前端 `ObjectId.create()` 等价 IdSource，host 注入）。
+//! temporary_id 由 ImModule 的确定性分配器铸造，调用方只提交发送意图。
 //!
 //! ## 行为真源
 //!

@@ -93,7 +93,7 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 
 - 载荷不传 cookieId / userId / companyId / token；身份来自 Rust handle 上的 headers/profile。
 - 读 / 查询请求若需要关联返回，使用 `reqId`；事件回灌中对应字段是 `req_id`。
-- `channelId`、`postId`、`temporaryId`、`memberIds` 等字段按 LoopForge UI 映射命名。
+- `channelId`、`postId`、`memberIds` 等输入字段按 LoopForge UI 映射命名；`temporaryId` 只由 Helix 投影输出。
 - `messageType` / `msgType` 统一由 Rust 兼容；移动端封装层推荐用 `type`，内部转 `msgType`。
 - 命名混用是事实契约：事件信号锚有 snake_case，wire/render 核有 camelCase；JS 不得假设全 camel 或全 snake。
 
@@ -105,7 +105,7 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 
 | 名称 | 载荷 | 主要事件 | UI / UC |
 |---|---|---|---|
-| `im_send_message` | `{channelId, text, temporaryId, type?}` | `im:post:sending` → `im:post:received`；立即失败为 `im:post:send-failed`；无 echo 超时后本地 `send_status='unsend'` | 发送/文档/重发，UC-1.1/1.2/1.4 |
+| `im_send_message` | `{channelId, text, type?}` | `im:post:sending` → `im:post:received`；立即失败为 `im:post:send-failed`；无 echo 超时后本地 `send_status='unsend'` | 发送/文档/重发，UC-1.1/1.2/1.4 |
 | `im_relay_messages` | `{posts, channelIds}` | `im:post:received` | 转发，UC-1.7 |
 | `im_revoke` | `{postId}` | `im:post:batch-updated` / `im:post:deleted` | 撤回，UC-1.5 |
 | `im_template_received` | `{postId}` | `im:post:updated` | 模板已收到，UC-3.3 |
@@ -144,6 +144,8 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 `im_send` 只保留为旧移动端的入口兼容别名，进入 Rust 后立即归一化为
 `im_send_message`。它不是公开能力名，`helix_capabilities.commands` 不得声明该别名；新 QuickJS
 代码只能调用 `im_send_message`。
+两种入口都会删除调用方提交的 `temporaryId` / `temporary_id`；该字段不能用于幂等、等待或 UI
+预绑定。移动端必须从首个 `im:post:sending` 投影取得 Helix 铸造的 ID。
 
 ### 5.2 异步请求-结果命令
 
@@ -223,7 +225,7 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 
 移动端必须遵守与 PC/Tauri 一致的发送状态机，不新增移动端专属失败规则：
 
-1. `im_send_message` 被接收后立即产生 `im:post:sending` 乐观行；兼容入口 `im_send` 只做名称归一化。
+1. `im_send_message` 被接收后由 Helix 铸造唯一 `temporaryId`，并立即产生 `im:post:sending` 乐观行；兼容入口 `im_send` 只做名称归一化。
 2. Go WS `post` 回声回来后，内核用 `temporaryId` 对账，产生 `im:post:received`，并将消息收敛为已发送。
 3. HTTP 或上传端口立即失败时，内核产生 `im:post:send-failed`；移动端消费该投影进入可重试失败态，不从 JS catch 或错误字符串合成业务状态。
 4. 若请求已发出但在发送超时时间内没有收到回声，`PendingSend` 将本地持久化状态标为 `send_status='unsend'`。移动端通过后续查询/重载/投影刷新展示未发送。
@@ -279,6 +281,7 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
   "features": {
     "pendingSendTimeoutUnsend": true,
     "sendFailedProjection": true,
+    "helixOwnedTemporaryId": true,
     "batchEventCallback": true,
     "readResultReqId": true,
     "noPerBusinessAbiSymbol": true
@@ -293,6 +296,7 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 - 本文第 5 节公开的业务操作至少全部存在于 `commands`，或明确返回不支持；`queries` 只允许同步元数据查询
 - `commands` 必须包含 `im_send_message` 且不得包含兼容别名 `im_send`
 - `events` 必须同时声明运行时真实发布的 `im:post:send-failed` 与 G10 的 `im:post:increment-failed`
+- `helixOwnedTemporaryId == true` 时，端侧不得生成或提交 `temporaryId`
 - `pendingSendTimeoutUnsend == true` 才允许启用生产未发送/重发 UI
 
 ## 8. 错误契约
@@ -326,11 +330,10 @@ QuickJS 可在移动端集成项目中注入 native `im.*` API，但所有公开
 class MobileIm {
   constructor(private core: CoreBridge) {}
 
-  send(input: { channelId: string; text: string; temporaryId: string }) {
+  send(input: { channelId: string; text: string }) {
     return this.core.call("im_send_message", {
       channelId: input.channelId,
       text: input.text,
-      temporaryId: input.temporaryId,
       type: "TEXT",
     });
   }
@@ -381,7 +384,7 @@ Flutter 点击发送
 
 验收事件：
 
-- `im:post:sending` 出现，temporaryId 命中
+- `im:post:sending` 出现，并从该投影取得 Helix 铸造的 temporaryId；不得与端侧预生成值匹配
 - 成功路径出现 `im:post:received`，sendStatus 变已发送
 - 无 echo 超时路径将本地持久化消息标为 `send_status='unsend'`；移动端通过查询/重载/投影刷新看到未发送状态
 - C++ 回调不保存借用指针，必须 memcpy 批数据

@@ -23,8 +23,8 @@
 - C++ 必须链接真实 `helix-driver-ffi` 产物，最终 S0/S1/S2 不允许使用 `rust_core_mock.cpp`。
 - FFI 事件批回调中的 `ptr,len` 只在回调期间有效，C++ 必须立即拷贝。
 - QuickJS API 只允许在 QuickJS runtime 所属线程调用。
-- `call("im_send", payload)` 只表示 Rust 已接收命令，不表示发送成功。
-- 移动端 P0 不公开 `im:post:send-failed`，JS 不允许从 catch 或错误字符串合成失败事件。
+- `call("im_send_message", payload)` 只表示 Rust 已接收命令，不表示发送成功。
+- 移动端消费 Helix 发布的 `im:post:send-failed`，JS 不允许从 catch 或错误字符串合成失败事件。
 - 本机 Android/iOS/Flutter e2e 环境缺失时，先完成 C++ 直连和 QuickJS smoke，并在验收文档记录环境缺口。
 
 ---
@@ -580,22 +580,22 @@ int main() {
   require_contains(version, "\"abi\":1");
 
   std::string caps = bridge.capabilities();
-  require_contains(caps, "\"im_send\"");
+  require_contains(caps, "\"im_send_message\"");
   require_contains(caps, "\"im_query_dialog_list\"");
   require_contains(caps, "\"im_query_messages_by_channel\"");
-  if (caps.find("im:post:send-failed") != std::string::npos) {
-    std::cerr << "capabilities must not expose im:post:send-failed\n";
+  if (caps.find("im:post:send-failed") == std::string::npos ||
+      caps.find("helixOwnedTemporaryId") == std::string::npos) {
+    std::cerr << "capabilities missing Helix send ownership contract\n";
     return 1;
   }
 
   int32_t rc = bridge.call(
-      "im_send",
+      "im_send_message",
       "{\"channelId\":\"01hq0000000000000000000000\","
-      "\"temporaryId\":\"tmp-cpp-smoke-1\","
       "\"text\":\"hello from cpp smoke\","
       "\"type\":\"TEXT\"}");
   if (rc != FFI_OK) {
-    std::cerr << "im_send returned rc=" << rc << "\n";
+    std::cerr << "im_send_message returned rc=" << rc << "\n";
     return 1;
   }
 
@@ -603,12 +603,12 @@ int main() {
   bool saw_sending = false;
   for (const auto& batch : batches) {
     if (batch.find("im:post:sending") != std::string::npos &&
-        batch.find("tmp-cpp-smoke-1") != std::string::npos) {
+        batch.find("helix_tmp_") != std::string::npos) {
       saw_sending = true;
     }
   }
   if (!saw_sending) {
-    std::cerr << "did not observe im:post:sending for tmp-cpp-smoke-1\n";
+    std::cerr << "did not observe Helix-owned im:post:sending\n";
     return 1;
   }
 
@@ -806,25 +806,24 @@ if (version.abi !== 1) {
 }
 
 const caps = core.capabilities();
-if (!caps.commands.includes("im_send")) {
-  throw new Error("missing im_send");
+if (!caps.commands.includes("im_send_message")) {
+  throw new Error("missing im_send_message");
 }
-if (caps.events.includes("im:post:send-failed")) {
-  throw new Error("send-failed must not be public P0 event");
+if (!caps.events.includes("im:post:send-failed") || !caps.features.helixOwnedTemporaryId) {
+  throw new Error("missing send projection contract");
 }
 
-const result = core.call("im_send", {
+const result = core.call("im_send_message", {
   channelId: "01hq0000000000000000000000",
-  temporaryId: "tmp-qjs-core-1",
   text: "hello from quickjs core smoke",
   type: "TEXT"
 });
 if (!result.ok) {
-  throw new Error("im_send was not accepted");
+  throw new Error("im_send_message was not accepted");
 }
 
 const batches = core.drainEvents();
-if (!batches.some((batch) => batch.includes("im:post:sending") && batch.includes("tmp-qjs-core-1"))) {
+if (!batches.some((batch) => batch.includes("im:post:sending") && batch.includes("helix_tmp_"))) {
   throw new Error("missing im:post:sending event");
 }
 
@@ -893,7 +892,7 @@ git commit -m "feat: 注册 QuickJS CoreBridge"
 - Produces:
   - `createCoreBridge(config)`
   - `createImApi(core)`
-  - `im.send({ channelId, text, type, temporaryId? })`
+  - `im.send({ channelId, text, type })`
 
 - [ ] **Step 1: Add JS low-level helper**
 
@@ -938,8 +937,12 @@ export function createCoreBridge(config = {}) {
 Create `js/im_api.js`:
 
 ```js
-function makeTemporaryId() {
-  return `tmp-mobile-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+function extractTemporaryId(batch) {
+  const match = batch.match(/"temporaryId"\s*:\s*"([^"]+)"/);
+  if (!match) {
+    throw new Error("sending projection missing temporaryId");
+  }
+  return match[1];
 }
 
 export function createImApi(core) {
@@ -947,11 +950,11 @@ export function createImApi(core) {
   if (caps.abi !== 1) {
     throw new Error("helix abi mismatch");
   }
-  if (!caps.commands.includes("im_send")) {
-    throw new Error("helix capability missing im_send");
+  if (!caps.commands.includes("im_send_message")) {
+    throw new Error("helix capability missing im_send_message");
   }
-  if (caps.events.includes("im:post:send-failed")) {
-    throw new Error("send-failed must not be public P0 event");
+  if (!caps.events.includes("im:post:send-failed") || !caps.features.helixOwnedTemporaryId) {
+    throw new Error("helix send projection contract is incomplete");
   }
 
   return {
@@ -959,26 +962,23 @@ export function createImApi(core) {
       if (!input || !input.channelId || !input.text) {
         throw new Error("send requires channelId and text");
       }
-      const temporaryId = input.temporaryId || makeTemporaryId();
       const payload = {
         channelId: input.channelId,
-        temporaryId,
         text: input.text,
         type: input.type || "TEXT"
       };
 
-      const accepted = core.call("im_send", payload);
+      const accepted = core.call("im_send_message", payload);
       if (!accepted || accepted.ok !== true) {
-        throw new Error("im_send was not accepted");
+        throw new Error("im_send_message was not accepted");
       }
 
       const batches = core.drainEvents();
-      const sawSending = batches.some((batch) =>
-        batch.includes("im:post:sending") && batch.includes(temporaryId)
-      );
-      if (!sawSending) {
-        throw new Error(`missing optimistic sending event for ${temporaryId}`);
+      const sending = batches.find((batch) => batch.includes("im:post:sending"));
+      if (!sending) {
+        throw new Error("missing optimistic sending event");
       }
+      const temporaryId = extractTemporaryId(sending);
 
       return { temporaryId, status: "sending" };
     },
@@ -1006,13 +1006,12 @@ const core = createCoreBridge({
 const im = createImApi(core);
 const receipt = await im.send({
   channelId: "01hq0000000000000000000000",
-  temporaryId: "tmp-qjs-im-send-1",
   text: "hello from im.send smoke",
   type: "TEXT"
 });
 
-if (receipt.temporaryId !== "tmp-qjs-im-send-1") {
-  throw new Error("temporaryId mismatch");
+if (!receipt.temporaryId.startsWith("helix_tmp_")) {
+  throw new Error("temporaryId must come from Helix");
 }
 if (receipt.status !== "sending") {
   throw new Error("receipt must be optimistic sending");
@@ -1084,9 +1083,9 @@ make cpp-smoke
 通过标准：
 
 - `helix_version` 返回 `abi=1`
-- `helix_capabilities` 包含 `im_send`
-- `helix_capabilities` 不包含 `im:post:send-failed`
-- `im_send` 返回 `FFI_OK`
+- `helix_capabilities` 包含 `im_send_message` 与 `helixOwnedTemporaryId=true`
+- `helix_capabilities` 包含 `im:post:send-failed`
+- `im_send_message` 返回 `FFI_OK`
 - 事件批出现 `im:post:sending`
 
 ## S1: QuickJS CoreBridge smoke
@@ -1112,9 +1111,9 @@ make quickjs-smoke
 通过标准：
 
 - JS 调用 `im.send(...)`
-- Flutter 调用方不需要知道 `im_send`
-- 返回 `{ temporaryId, status: "sending" }`
-- 不出现 `im:post:send-failed`
+- Flutter 调用方不需要知道 `im_send_message`，也不得生成 temporaryId
+- 返回的 `{ temporaryId, status: "sending" }` 来自 `im:post:sending`
+- 成功 smoke 不出现 `im:post:send-failed`，失败用例必须消费该投影
 
 ## S3: Android / iOS 原生产物验收
 
@@ -1206,4 +1205,4 @@ Type consistency:
 
 - C++ 层统一使用 `std::string` JSON 边界。
 - QuickJS binding 负责 JS object <-> JSON string。
-- JS facade 只调用 `core.call("im_send", payload)` 和 `core.drainEvents()`。
+- JS facade 只调用 `core.call("im_send_message", payload)` 和 `core.drainEvents()`，temporaryId 从 sending 投影取得。

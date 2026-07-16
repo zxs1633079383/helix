@@ -153,6 +153,10 @@ fn normalize_top_level_keys(obj: &mut Map<String, Value>) {
 
 fn normalize_public_semantics(public: &str, obj: &mut Map<String, Value>) -> Result<(), ImError> {
     match public {
+        "im_send" | "im_send_message" => {
+            obj.remove("temporary_id");
+            obj.remove("allocated_temporary_id");
+        }
         "im_send_quick_reply" => move_key(obj, "reaction", "emoji"),
         "im_read_channel" => {
             let channel_id = obj
@@ -278,7 +282,10 @@ mod tests {
         assert!(matches!(command.name, Cow::Owned(_)));
         let payload: Value = serde_json::from_slice(&command.payload).expect("decode payload");
         assert_eq!(payload["channel_id"], "ch1");
-        assert_eq!(payload["temporary_id"], "tmp1");
+        assert!(
+            payload.get("temporary_id").is_none(),
+            "temporary_id 由 Helix 生成，不得从公开入口透传"
+        );
         assert!(payload.get("channelId").is_none());
     }
 
@@ -348,11 +355,25 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
         assert_eq!(command_alias("im_send"), Some("im_send_message"));
         assert_eq!(v["channel_id"], "ch1");
-        assert_eq!(v["temporary_id"], "tmp1");
+        assert!(v.get("temporary_id").is_none());
         assert_eq!(v["text"], "hi");
         assert_eq!(v["type"], "TEXT");
         assert!(v.get("channelId").is_none());
         assert!(v.get("temporaryId").is_none());
+    }
+
+    #[test]
+    fn canonical_send_drops_caller_owned_temporary_id() {
+        let command = build_command(
+            "im_send_message",
+            br#"{"channelId":"ch1","temporaryId":"mobile-owned","text":"hi"}"#,
+        )
+        .expect("build canonical send");
+        let payload: Value = serde_json::from_slice(&command.payload).expect("decode payload");
+
+        assert_eq!(command.name, "im_send_message");
+        assert_eq!(payload["channel_id"], "ch1");
+        assert!(payload.get("temporary_id").is_none());
     }
 
     #[test]

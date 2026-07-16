@@ -29,7 +29,7 @@ Required correlation fields:
 | `trace_id` | client root span | Jaeger full-link trace lookup |
 | `corr_key` | client send action | compact match key for scope filtering |
 | `channelId` | send request | reject spans from other channels |
-| `temporaryId` | client-generated send id | join optimistic/client spans with server echo |
+| `temporaryId` | Helix-generated send id | join optimistic/client spans with server echo |
 | `serverMsgId` | server ack / WS echo | join server store and final render |
 | `seq` | server event sequence | order WS deliver and projection |
 | `userId` | request/auth context | reject spans from other users |

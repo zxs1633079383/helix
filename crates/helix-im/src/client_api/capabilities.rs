@@ -66,6 +66,7 @@ pub fn capabilities_json() -> Vec<u8> {
         "features": {
             "pendingSendTimeoutUnsend": true,
             "sendFailedProjection": true,
+            "helixOwnedTemporaryId": true,
             "batchEventCallback": true,
             "readResultReqId": true,
             "noPerBusinessAbiSymbol": true
@@ -84,6 +85,7 @@ mod tests {
         assert_eq!(caps["abi"], 1);
         assert_eq!(caps["bus"], "im:__bus__");
         assert_eq!(caps["features"]["pendingSendTimeoutUnsend"], true);
+        assert_eq!(caps["features"]["helixOwnedTemporaryId"], true);
         let commands = caps["commands"].as_array().unwrap();
         assert!(commands.iter().any(|q| q == "im_send_message"));
         assert!(!commands.iter().any(|q| q == "im_send"));

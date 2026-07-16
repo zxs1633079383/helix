@@ -17,13 +17,14 @@
 移动端调用方只面对 native 注入的 `im.*`：
 
 ```js
-const receipt = im.send({
+const receipt = await im.send({
   channelId: "01hq0000000000000000000000",
   text: "hello",
   type: "TEXT"
 });
 
-im.waitForEvent("im:post:sending", { temporaryId: receipt.temporaryId });
+// receipt.temporaryId 来自 Helix 的 im:post:sending，不由 JS/C++ 生成。
+im.waitForEvent("im:post:received", { temporaryId: receipt.temporaryId });
 ```
 
 `receipt` 只表示 Rust 已接收命令并产生乐观事件，不表示 Go Server 已经发送成功。
@@ -185,16 +186,15 @@ type SendInput = {
   channelId: string;
   text: string;
   type?: "TEXT" | "FILE" | string;
-  temporaryId?: string;
 };
 ```
 
 `im.send(...)` 行为：
 
-1. 如果 Flutter 没传 `temporaryId`，C++ `MobileImSdk` / native `im.*` 生成一个。
-2. 调用 `core.call("im_send", { channelId, temporaryId, text, type })`。
-3. 等待或监听匹配 `temporaryId` 的 `im:post:sending`。
-4. 返回 optimistic receipt。
+1. C++ / QuickJS 只提交 `{channelId,text,type}` 发送意图，不生成或缓存 `temporaryId`。
+2. 调用 canonical `core.call("im_send_message", { channelId, text, type })`；`im_send` 仅保留入口兼容。
+3. 等待首个关联发送动作的 `im:post:sending`，从投影读取 Helix 铸造的 `temporaryId`。
+4. 返回包含该 ID 的 optimistic receipt。
 5. 后续 `im:post:received` 到达时，再由事件流驱动 UI 收敛为已发送。
 
 返回：
@@ -211,6 +211,7 @@ type SendReceipt = {
 - 不在 JS 中拼 Go `/posts/create` 请求体。
 - 不在 JS 中补 cookieId / userId / companyId / token。
 - 不在 JS 中声明发送成功。
+- 不在 Flutter、JS 或 C++ 中生成、提交或覆盖 `temporaryId`。
 - 不在 JS catch 中合成 `im:post:send-failed`。
 - 不把 IM 业务规则搬到 Flutter。
 - 不恢复 `js/im_api.js`、`createImApi(core)` 或同类 JS 业务 facade。
@@ -229,14 +230,14 @@ const caps = core.capabilities();
 
 - `caps.abi === 1`。
 - `caps.bus === "im:__bus__"`。
-- `caps.commands` 包含 `im_send`。
+- `caps.commands` 包含 `im_send_message` 且不包含兼容别名 `im_send`。
 - `caps.queries` 包含 `helix_capabilities`。
 - `caps.queries` 包含 `helix_version`。
-- `caps.queries` 包含 `im_query_dialog_list`。
-- `caps.queries` 包含 `im_query_messages_by_channel`。
+- `caps.commands` 包含 `im_query_dialog_list` 与 `im_query_messages_by_channel`；业务读走异步 command/event。
 - `caps.events` 包含 `im:post:sending`。
 - `caps.events` 包含 `im:post:received`。
-- `caps.events` 不包含 `im:post:send-failed`。
+- `caps.events` 包含 `im:post:send-failed`。
+- `caps.features.helixOwnedTemporaryId === true`。
 
 能力检查失败时，应拒绝初始化业务 UI，并输出明确错误。
 
@@ -256,8 +257,9 @@ sequenceDiagram
   Flutter->>JS: im.send({channelId,text,type})
   JS->>QJS: native im.send(input)
   QJS->>CPP: MobileImSdk::send -> CoreBridge.call
-  CPP->>Rust: helix_command("im_send", json)
+  CPP->>Rust: helix_command("im_send_message", json)
   Rust-->>CPP: accepted
+  Rust->>Rust: mint temporaryId
   Rust-->>CPP: event batch im:post:sending
   CPP-->>QJS: queued events
   QJS-->>JS: dispatch im:post:sending
@@ -270,12 +272,12 @@ sequenceDiagram
   JS-->>Flutter: reconcile sent message
 ```
 
-发送失败显示不靠 `im:post:send-failed`：
+发送失败由 Helix 状态机和投影统一收敛：
 
 - 正常路径：`im:post:sending` -> `im:post:received`。
+- HTTP / 上传立即失败：`im:post:send-failed`。
 - 无 echo 超时：Rust 内核把本地状态收敛为 `send_status='unsend'`。
 - UI 从后续查询、投影刷新或重载中展示未发送。
-- 若未来需要失败事件，必须 PC/Tauri 与移动端共同升级契约。
 
 ## 9. 验证分层
 
@@ -290,9 +292,9 @@ sequenceDiagram
 - 创建 `CoreBridge` 成功。
 - `version()` 返回 ABI 版本。
 - `capabilities()` 覆盖 command / query / event 检查。
-- `call("im_send", payload)` 触发 `im:post:sending` 事件批。
-- `query("im_query_dialog_list", {})` 返回 JSON。
-- `query("im_query_messages_by_channel", payload)` 返回 JSON。
+- `call("im_send_message", payload)` 触发 `im:post:sending` 事件批。
+- `call("im_query_dialog_list", {})` 通过事件批返回业务投影。
+- `call("im_query_messages_by_channel", payload)` 通过事件批返回业务投影。
 - `dispose()` 后调用稳定失败，不崩溃。
 
 ### S1：QuickJS native im.* smoke
@@ -315,8 +317,9 @@ sequenceDiagram
 验收：
 
 - `im.send({ channelId, text, type })` 不暴露 `im_send` 给 Flutter 调用方。
-- `im.send(...)` 返回 `{ temporaryId, status: "sending" }`。
+- `im.send(...)` 从 `im:post:sending` 返回 `{ temporaryId, status: "sending" }`。
 - 事件批中出现匹配 `temporaryId` 的 `im:post:sending`。
+- 输入中注入 `temporaryId` 时必须被忽略，最终 receipt 不得采用该值。
 - `im:post:received` 到达后能通过事件流驱动对账。
 - 不出现 `im:post:send-failed`。
 

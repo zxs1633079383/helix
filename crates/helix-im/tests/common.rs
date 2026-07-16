@@ -254,22 +254,30 @@ pub fn hello_inbound(connection_id: &str) -> Tick {
     Tick::Inbound(InboundBytes(bytes.into()))
 }
 
-/// 构造 im_send_message 命令 Tick
+/// 构造带已分配 ID 的 im_send_message replay Tick。
+///
+/// 常规公开入口不得提交 ID；大量既有状态机用例需要稳定锚点，故这里模拟 Helix
+/// 已完成 allocation 后的内部 envelope。
 #[allow(dead_code)]
 pub fn send_message_cmd(channel_id: u64, temporary_id: &str, text: &str) -> Tick {
     use serde_json::json;
     let payload = json!({
         "channel_id": cid(channel_id),
-        "temporary_id": temporary_id,
+        "allocated_temporary_id": temporary_id,
         "text": text
     });
     let bytes = serde_json::to_vec(&payload).unwrap();
     Tick::Command(AppCommand::new("im_send_message", bytes))
 }
 
-/// 构造 im_send_message 命令 Tick，载荷 = 任意 JSON（P1 viewers/replied/props/empty 用例）。
+/// 构造 im_send_message replay Tick；若给 temporary_id，将其转成内部 allocation 字段。
 #[allow(dead_code)]
-pub fn send_message_cmd_json(payload: serde_json::Value) -> Tick {
+pub fn send_message_cmd_json(mut payload: serde_json::Value) -> Tick {
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(temporary_id) = object.remove("temporary_id") {
+            object.insert("allocated_temporary_id".to_string(), temporary_id);
+        }
+    }
     let bytes = serde_json::to_vec(&payload).unwrap();
     Tick::Command(AppCommand::new("im_send_message", bytes))
 }

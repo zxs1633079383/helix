@@ -2,7 +2,7 @@
 //!
 //! ## 确定性保证
 //!
-//! - IM 主路径的 temporaryId 由 UI 注入（Angular 前端生成），内核不调用 IdSource
+//! - IM 主路径的 temporaryId 由 helix-im 的确定性 module allocator 生成，UI 不注入
 //! - Correlation / TimerId 由 ExecutionShell 内部自增分配（无需注入）
 //! - IdSource 用于需要内部生成 UUID 的场景（如模块的 session_id）
 //! - Random 用于退避 jitter（指数退避的随机扰动）

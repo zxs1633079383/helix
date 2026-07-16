@@ -211,7 +211,11 @@ fn gs_sync_contracts_freeze_go_main_abi_without_collapsing_evidence_planes() {
 #[test]
 fn capabilities_publish_only_canonical_send_and_actual_failure_events() {
     let matrix = matrix();
-    let forbidden: HashSet<_> = matrix.forbidden_aliases.iter().map(String::as_str).collect();
+    let forbidden: HashSet<_> = matrix
+        .forbidden_aliases
+        .iter()
+        .map(String::as_str)
+        .collect();
     let caps: serde_json::Value =
         serde_json::from_slice(&helix_im::client_api::capabilities_json()).unwrap();
     let commands = caps["commands"].as_array().unwrap();
@@ -229,6 +233,27 @@ fn capabilities_publish_only_canonical_send_and_actual_failure_events() {
     assert!(events
         .iter()
         .any(|event| event == "im:post:increment-failed"));
+    assert_eq!(caps["features"]["helixOwnedTemporaryId"], true);
+
+    let send = gate(&matrix, "G-03")
+        .commands
+        .iter()
+        .find(|command| command.name == "im_send_message")
+        .expect("G-03 must freeze canonical send");
+    assert!(!send
+        .input
+        .required
+        .iter()
+        .any(|field| field == "temporary_id"));
+    assert!(!send
+        .input
+        .optional
+        .iter()
+        .any(|field| field == "temporary_id"));
+    assert!(gate(&matrix, "G-01")
+        .negative_assertions
+        .iter()
+        .any(|rule| rule.contains("不得生成 temporary_id")));
 }
 
 fn is_direct_core_command(name: &str) -> bool {

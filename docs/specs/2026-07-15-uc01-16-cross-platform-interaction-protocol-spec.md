@@ -370,7 +370,7 @@ Helix -> 同一 node_key Upsert message.row.v1(sent)
 
 ### 6.2 当前实现阻塞
 
-当前 `handle_send_message` 仍要求调用方传 `temporary_id`，并在同一次 step 中先后吐 `Persist` 与 Emit；cses-client 与 Mobile 都还在生成 temporary ID。实现必须先完成确定性 IdSource/AllocateId 机制和 `PersistOk -> frame -> HTTP` 分阶段状态机，旧 Spec 中的 `ids.next_id()` 伪代码不能算完成。
+`handle_send_message` 已由 module 内确定性 allocator 铸造 `temporary_id`，公开 client API 会删除端侧预生成值；同一 ID 贯穿 optimistic store、投影、HTTP、PendingSend 与 echo reconcile。剩余阻塞是当前仍在同一次 step 中先后吐 `Persist`、Emit 与 HTTP，尚未完成 `PersistOk -> frame -> HTTP` 分阶段状态机。
 
 ## 7. G-13/G-14 未读与回执闭环
 

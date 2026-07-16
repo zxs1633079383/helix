@@ -5,8 +5,11 @@
 //! 但各为独立命令（独立 endpoint + body + 注册）。
 //!
 //! endpoint 真源 `posts.go:24/28/29`；body 真源：
-//! - urgentPost = `entity.UrgentPostVO`（post.go:502）`{channelId, postId, targetIds[], message?}`
-//! - urgentConfirm/urgentCancel = `{postId, channelId}`（posts.go:457/485 匿名 struct）
+//! - urgentPost = `entity.UrgentPostVO`（post.go:504）`{postId, targetIds[], message?}`
+//! - urgentConfirm/urgentCancel = `{postId}`（Go handler `urgentConfirmParam`）
+//!
+//! Go 从 `postId` 对应的权威 post 行 O(1) 解析频道，并对显式冲突 fail-closed；Helix 因而
+//! 不接管频道推导，也不把旧调用方携带的 `channel_id` 继续发到 wire。
 
 use serde_json::{json, Value};
 
@@ -23,7 +26,6 @@ impl OutboundCommand for UrgentPostCommand {
         "im_urgent_post"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        let channel_id = require_str(args, "channel_id", self.name())?;
         let post_id = require_str(args, "post_id", self.name())?;
         let target_ids = args
             .get("target_ids")
@@ -36,7 +38,6 @@ impl OutboundCommand for UrgentPostCommand {
                 ))
             })?;
         let mut b = json!({
-            "channelId": channel_id,
             "postId": post_id,
             "targetIds": target_ids,
         });
@@ -56,7 +57,7 @@ inventory::submit! {
 }
 
 /// POST /api/cses/posts/urgentConfirm — 确认加急（被加急者点确认）→ post_update。
-/// 真源 `{postId, channelId}`（posts.go:457）。
+/// Go 按 `postId` 权威解析频道；调用方无需重复提供频道。
 struct UrgentConfirmCommand;
 impl OutboundCommand for UrgentConfirmCommand {
     fn name(&self) -> &'static str {
@@ -64,11 +65,7 @@ impl OutboundCommand for UrgentConfirmCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let post_id = require_str(args, "post_id", self.name())?;
-        let channel_id = require_str(args, "channel_id", self.name())?;
-        Ok((
-            "posts/urgentConfirm",
-            json!({ "postId": post_id, "channelId": channel_id }),
-        ))
+        Ok(("posts/urgentConfirm", json!({ "postId": post_id })))
     }
 }
 static URGENT_CONFIRM: UrgentConfirmCommand = UrgentConfirmCommand;
@@ -80,7 +77,7 @@ inventory::submit! {
 }
 
 /// POST /api/cses/posts/urgentCancel — 取消加急（发起者撤）→ post_update。
-/// 真源 `{postId, channelId}`（posts.go:485）。
+/// Go 按 `postId` 权威解析频道；调用方无需重复提供频道。
 struct UrgentCancelCommand;
 impl OutboundCommand for UrgentCancelCommand {
     fn name(&self) -> &'static str {
@@ -88,11 +85,7 @@ impl OutboundCommand for UrgentCancelCommand {
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         let post_id = require_str(args, "post_id", self.name())?;
-        let channel_id = require_str(args, "channel_id", self.name())?;
-        Ok((
-            "posts/urgentCancel",
-            json!({ "postId": post_id, "channelId": channel_id }),
-        ))
+        Ok(("posts/urgentCancel", json!({ "postId": post_id })))
     }
 }
 static URGENT_CANCEL: UrgentCancelCommand = UrgentCancelCommand;

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,10 +12,31 @@ const crateRoot = path.join(repoRoot, 'crates/helix-im');
 const matrixPath = path.join(crateRoot, 'contracts/strict-matrix.v1.json');
 const schemaPath = path.join(crateRoot, 'contracts/strict-matrix.schema.json');
 const markdownPath = path.join(crateRoot, 'docs/Strict Matrix/UC全链路发布矩阵-v1.md');
+const commandApiPath = path.join(crateRoot, 'contracts/command-api.v1.json');
+const commandApiMarkdownPath = path.join(crateRoot, 'docs/Strict Matrix/Command接口-v1.md');
 
-const args = new Set(process.argv.slice(2));
-const consumerIndex = process.argv.indexOf('--consumer-ts');
-const consumerPath = consumerIndex >= 0 ? path.resolve(process.argv[consumerIndex + 1] ?? '') : undefined;
+const argv = process.argv.slice(2);
+const args = new Set(argv);
+
+function optionValue(name) {
+    const index = argv.indexOf(name);
+    if (index < 0) return undefined;
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) fail(`${name} 缺少值`);
+    return value;
+}
+
+const legacyConsumerPath = optionValue('--consumer-ts');
+const writeConsumerPath = optionValue('--write-consumer-ts');
+const checkConsumerPath = optionValue('--check-consumer-ts');
+const revisionArg = optionValue('--revision');
+if (writeConsumerPath && checkConsumerPath && path.resolve(writeConsumerPath) !== path.resolve(checkConsumerPath)) {
+    fail('--write-consumer-ts 与 --check-consumer-ts 必须指向同一文件');
+}
+if ((writeConsumerPath || checkConsumerPath) && !revisionArg) {
+    fail('--write-consumer-ts/--check-consumer-ts 必须提供正式 --revision');
+}
+const consumerPath = writeConsumerPath ?? checkConsumerPath ?? legacyConsumerPath;
 
 function fail(message) {
     throw new Error(`strict-matrix: ${message}`);
@@ -59,7 +81,7 @@ function validateStrictInput(input, label) {
     if (overlap) fail(`${label}.input required/optional 重复 ${overlap}`);
 }
 
-function validateMatrix(matrix, schema) {
+function validateMatrix(matrix, schema, sourceDocumentExists) {
     if (!isObject(schema) || schema.$id !== 'https://helix.im/contracts/strict-matrix/v1/schema.json') {
         fail('JSON Schema 缺失或版本错误');
     }
@@ -68,7 +90,7 @@ function validateMatrix(matrix, schema) {
     const sourceDocuments = requireArray(matrix.source_documents, 'source_documents');
     for (const source of sourceDocuments) {
         requireString(source, 'source_documents[]');
-        if (!existsSync(path.join(crateRoot, source))) fail(`source document 不存在: ${source}`);
+        if (!sourceDocumentExists(source)) fail(`source document 不存在: ${source}`);
     }
     const facets = requireArray(matrix.evidence_facets, 'evidence_facets');
     const expectedFacets = ['command', 'effect', 'transport', 'local_store', 'remote_store', 'projection', 'dom', 'trace'];
@@ -169,11 +191,64 @@ function validateMatrix(matrix, schema) {
     return cases;
 }
 
-function contractHash(matrix) {
-    return createHash('sha256').update(JSON.stringify(matrix)).digest('hex');
+function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+    if (isObject(value)) {
+        return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
 }
 
-function renderMarkdown(matrix, cases, digest) {
+function matrixHashes(matrixBytes, matrix) {
+    return {
+        raw: createHash('sha256').update(matrixBytes).digest('hex'),
+        semantic: createHash('sha256').update(stableJson(matrix)).digest('hex')
+    };
+}
+
+function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function resolveRevision(revision) {
+    if (!revision) return undefined;
+    if (!/^[0-9a-f]{7,64}$/i.test(revision)) fail('--revision 必须是 Git commit SHA');
+    try {
+        return execFileSync('git', ['rev-parse', '--verify', `${revision}^{commit}`], {
+            cwd: repoRoot,
+            encoding: 'utf8'
+        }).trim();
+    } catch {
+        fail(`无法解析正式 Helix commit: ${revision}`);
+    }
+}
+
+function readRepositoryBlob(relativePath, revision) {
+    if (!revision) return readFileSync(path.join(repoRoot, relativePath));
+    try {
+        return execFileSync('git', ['show', `${revision}:${relativePath}`], {
+            cwd: repoRoot,
+            encoding: 'buffer'
+        });
+    } catch {
+        fail(`正式 commit 缺少文件: ${relativePath}@${revision}`);
+    }
+}
+
+function sourceDocumentExists(source, revision) {
+    if (!revision) return existsSync(path.join(crateRoot, source));
+    try {
+        execFileSync('git', ['cat-file', '-e', `${revision}:crates/helix-im/${source}`], {
+            cwd: repoRoot,
+            stdio: 'ignore'
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function renderMarkdown(matrix, cases, hashes) {
     const rows = cases.map(entry => {
         const commands = entry.commands.map(step => `${step.name}(${[...step.input.required, ...step.input.optional].join(', ') || '∅'})`).join('<br>');
         const effects = [...new Set(entry.commands.flatMap(step => step.effect))].join(', ');
@@ -193,7 +268,7 @@ function renderMarkdown(matrix, cases, digest) {
     }, {});
     return `# Helix IM Strict Matrix v1
 
-> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; sha256: \`${digest}\`。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 RenderNode/v1、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
+> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 RenderNode/v1、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
 
 > 这张表不是“功能清单”，而是 \`UC × UI × Helix × HTTP × WS × Storage × Native\` 发布闸门。任一证据平面缺失、过期、无法关联或仅由 mock 产生，该 UC 整行即为 Red。
 
@@ -234,7 +309,82 @@ ${rows.join('\n')}
 `;
 }
 
-function renderConsumerTypeScript(matrix, cases, digest) {
+function buildCommandApi(matrix, cases, hashes) {
+    const commands = new Map();
+    for (const entry of cases) {
+        for (const step of entry.commands) {
+            if (!commands.has(step.name)) commands.set(step.name, { name: step.name, uses: [] });
+            commands.get(step.name).uses.push({
+                gate_id: entry.gate_id,
+                uc_id: entry.uc_id,
+                title: entry.title,
+                phase: entry.phase,
+                lifecycle: entry.lifecycle,
+                contract_state: entry.contract_state,
+                input: {
+                    required: [...step.input.required],
+                    optional: [...step.input.optional],
+                    forbid_unknown: step.input.forbid_unknown
+                },
+                effects: [...step.effect],
+                projections: cloneJson(entry.projections),
+                persistence: [...entry.persistence],
+                http: cloneJson(entry.http),
+                ws: cloneJson(entry.ws),
+                remote_store: cloneJson(entry.remote_store)
+            });
+        }
+    }
+    return {
+        schema_version: 'helix-im-command-api/v1',
+        source: {
+            matrix_path: 'crates/helix-im/contracts/strict-matrix.v1.json',
+            contract_epoch: matrix.contract_epoch,
+            matrix_sha256: hashes.raw,
+            matrix_semantic_sha256: hashes.semantic,
+            gate_count: cases.length,
+            command_count: commands.size
+        },
+        ownership: cloneJson(matrix.case_defaults.owner),
+        evidence_facets: [...matrix.evidence_facets],
+        forbidden_aliases: [...matrix.forbidden_aliases],
+        commands: [...commands.values()]
+    };
+}
+
+function renderCommandApiMarkdown(api) {
+    const rows = api.commands.flatMap(command => command.uses.map(use => {
+        const required = use.input.required.join(', ') || '∅';
+        const optional = use.input.optional.join(', ') || '∅';
+        const effects = use.effects.join(', ') || '∅';
+        const projections = use.projections.map(projection => projection.event).join(', ') || '∅';
+        return `| ${command.name} | ${use.gate_id} / ${use.uc_id} ${use.title} | ${required} | ${optional} | ${effects} | ${projections} | ${use.lifecycle}/${use.contract_state} |`;
+    }));
+    return `# Helix IM Command API v1
+
+> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。
+> contract epoch: ${api.source.contract_epoch}; raw matrix sha256: \`${api.source.matrix_sha256}\`; semantic matrix sha256: \`${api.source.matrix_semantic_sha256}\`。
+> raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
+
+## 边界
+
+- 本文件仅声明 Helix canonical command 与各 Gate 的输入、Effect、投影和合同状态；不表示 HTTP/WS/投影真实链已 Green。
+- 同一 command 的多行 use 不能合并：每个 Gate 的 required/optional 字段和投影语义都必须独立保留。
+- UI 只发 canonical command；host 只传输原始 JSON payload；alias、业务字段注入与 UI temporary id 均不属于 host。
+
+## Canonical command uses
+
+| Command | Gate / UC | Required | Optional | Effects | Projections | Lifecycle / Contract |
+| --- | --- | --- | --- | --- | --- | --- |
+${rows.join('\n')}
+
+## 禁止 alias
+
+${api.forbidden_aliases.map(alias => `- \`${alias}\``).join('\n')}
+`;
+}
+
+function renderConsumerTypeScript(matrix, cases, hashes, revision) {
     const payload = cases.map(entry => ({
         gateId: entry.gate_id,
         ucId: entry.uc_id,
@@ -258,7 +408,9 @@ function renderConsumerTypeScript(matrix, cases, digest) {
     const meta = {
         schemaVersion: matrix.schema_version,
         contractEpoch: matrix.contract_epoch,
-        contractSha256: digest,
+        matrixSha256: hashes.raw,
+        matrixSemanticSha256: hashes.semantic,
+        helixRevision: revision ?? null,
         renderProtocol: 'RenderNode/v1',
         forbiddenAliases: matrix.forbidden_aliases,
         source: 'helix-im/contracts/strict-matrix.v1.json'
@@ -277,21 +429,43 @@ function assertGenerated(pathname, expected) {
     if (readFileSync(pathname, 'utf8') !== expected) fail(`生成产物漂移: ${path.relative(repoRoot, pathname)}；请运行 --write`);
 }
 
-const matrix = JSON.parse(readFileSync(matrixPath, 'utf8'));
-const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
-const cases = validateMatrix(matrix, schema);
-const digest = contractHash(matrix);
-const markdown = renderMarkdown(matrix, cases, digest);
-const consumer = consumerPath ? renderConsumerTypeScript(matrix, cases, digest) : undefined;
+const revision = resolveRevision(revisionArg);
+const matrixBytes = readRepositoryBlob('crates/helix-im/contracts/strict-matrix.v1.json', revision);
+const schemaBytes = readRepositoryBlob('crates/helix-im/contracts/strict-matrix.schema.json', revision);
+const matrix = JSON.parse(matrixBytes.toString('utf8'));
+const schema = JSON.parse(schemaBytes.toString('utf8'));
+const cases = validateMatrix(matrix, schema, source => sourceDocumentExists(source, revision));
+const hashes = matrixHashes(matrixBytes, matrix);
+const markdown = renderMarkdown(matrix, cases, hashes);
+const commandApi = buildCommandApi(matrix, cases, hashes);
+const commandApiJson = `${JSON.stringify(commandApi, null, 2)}\n`;
+const commandApiMarkdown = renderCommandApiMarkdown(commandApi);
+const consumer = consumerPath ? renderConsumerTypeScript(matrix, cases, hashes, revision) : undefined;
+const writeDocs = args.has('--write') || args.has('--write-docs');
+const checkDocs = args.has('--check-generated') || args.has('--check-docs');
+const writeConsumer = Boolean(writeConsumerPath) || (args.has('--write') && Boolean(legacyConsumerPath));
+const checkConsumer = Boolean(checkConsumerPath) || (args.has('--check-generated') && Boolean(legacyConsumerPath));
 
-if (args.has('--write')) {
+if (revision && writeDocs) fail('--revision 只允许生成下游 consumer，不能重写 Helix 工作树生成物');
+if (writeDocs) {
     writeFileSync(markdownPath, markdown);
-    if (consumerPath) writeFileSync(consumerPath, consumer);
+    writeFileSync(commandApiPath, commandApiJson);
+    writeFileSync(commandApiMarkdownPath, commandApiMarkdown);
 }
-if (args.has('--check-generated')) {
+if (writeConsumer) writeFileSync(path.resolve(consumerPath), consumer);
+if (checkDocs) {
     assertGenerated(markdownPath, markdown);
-    if (consumerPath) assertGenerated(consumerPath, consumer);
+    assertGenerated(commandApiPath, commandApiJson);
+    assertGenerated(commandApiMarkdownPath, commandApiMarkdown);
 }
-if (!args.has('--write') && !args.has('--check-generated')) {
-    process.stdout.write(`${JSON.stringify({ gates: cases.length, contractEpoch: matrix.contract_epoch, contractSha256: digest }, null, 2)}\n`);
+if (checkConsumer) assertGenerated(path.resolve(consumerPath), consumer);
+if (!writeDocs && !checkDocs && !writeConsumer && !checkConsumer) {
+    process.stdout.write(`${JSON.stringify({
+        gates: cases.length,
+        commands: commandApi.source.command_count,
+        contractEpoch: matrix.contract_epoch,
+        matrixSha256: hashes.raw,
+        matrixSemanticSha256: hashes.semantic,
+        helixRevision: revision ?? null
+    }, null, 2)}\n`);
 }

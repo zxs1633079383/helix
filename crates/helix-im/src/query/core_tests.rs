@@ -136,12 +136,13 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
         {"id":"ch-direct","display_name":"张英","type":"D","member_count":2,"unread_count":0,"last_post_at":1}
     ])).unwrap();
     let mut state = crate::dialog_frame::DialogListFrameState::default();
-    let value = emit_json(emit_dialog_list_frame_result(
+    let frame = emit_dialog_list_frame_result(
         &rows,
         crate::dialog_frame::DialogListScope::new("444", "team-a"),
         &mut state,
-    ))
-    .expect("frame emit");
+    )
+    .expect("initial revision is available");
+    let value = emit_json(frame).expect("frame emit");
 
     assert_eq!(value["event"], "im:interaction:frame");
     assert_eq!(value["data"]["schemaVersion"], 1);

@@ -110,7 +110,9 @@ impl ImModule {
 
             CorrelationContext::DialogPatchByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
+                    if let Some(data) =
+                        pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
+                    {
                         if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
                             &mut self.state.dialog_list_frame,
                             &data,
@@ -158,13 +160,13 @@ impl ImModule {
             } => match outcome {
                 PortOutcome::Ok(reply) => {
                     for pending in dialog_patches {
-                        if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
-                            if let Some(frame) =
-                                crate::dialog_frame::patch_from_dialog_projection(
-                                    &mut self.state.dialog_list_frame,
-                                    &data,
-                                )
-                            {
+                        if let Some(data) =
+                            pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
+                        {
+                            if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
+                                &mut self.state.dialog_list_frame,
+                                &data,
+                            ) {
                                 out.push(frame);
                             }
                         }
@@ -263,11 +265,13 @@ impl ImModule {
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
                     );
-                    out.push(crate::query::emit_dialog_list_frame_result(
+                    if let Some(frame) = crate::query::emit_dialog_list_frame_result(
                         reply.0.as_ref(),
                         scope,
                         &mut self.state.dialog_list_frame,
-                    ));
+                    ) {
+                        out.push(frame);
+                    }
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
@@ -275,11 +279,13 @@ impl ImModule {
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
                     );
-                    out.push(crate::query::emit_dialog_list_frame_result(
+                    if let Some(frame) = crate::query::emit_dialog_list_frame_result(
                         b"[]",
                         scope,
                         &mut self.state.dialog_list_frame,
-                    ));
+                    ) {
+                        out.push(frame);
+                    }
                 }
             },
 

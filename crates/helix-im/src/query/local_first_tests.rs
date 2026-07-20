@@ -197,3 +197,35 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
         )
     );
 }
+
+#[test]
+fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+
+    let effect = module
+        .emit_timeline_failed(&request(20))
+        .expect("failure state still projects to a typed frame");
+    let Effect::Emit { event } = effect else {
+        panic!("timeline query failure must emit a Frame")
+    };
+    let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(envelope["event"], "im:interaction:frame");
+    assert_ne!(envelope["event"], "im:post:increment-failed");
+
+    let frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&envelope["data"]).unwrap(),
+    )
+    .expect("failed timeline output must satisfy the public Frame contract");
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &frame.mutations[0].mutation
+    else {
+        panic!("failure must stay a complete timeline snapshot")
+    };
+    assert_eq!(
+        view.state,
+        crate::interaction_frame::SurfaceLoadState::Failed
+    );
+    assert!(view.items.is_empty());
+}

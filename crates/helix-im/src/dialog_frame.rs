@@ -164,8 +164,20 @@ impl DialogListFrameState {
         self.scope.as_ref()
     }
 
-    pub fn snapshot(&mut self, scope: DialogListScope, rows: Vec<DialogListRowVm>) -> Effect {
-        self.revision = self.revision.wrapping_add(1);
+    pub fn snapshot(
+        &mut self,
+        scope: DialogListScope,
+        rows: Vec<DialogListRowVm>,
+    ) -> Option<Effect> {
+        if !scope.is_complete() {
+            tracing::warn!(
+                surface = SURFACE,
+                "dialog list snapshot requires a complete viewer scope; suppressing frame"
+            );
+            return None;
+        }
+        let revision = self.next_revision()?;
+        self.ensure_unread_can_advance()?;
         self.rows_by_channel.clear();
         self.ordered_channel_ids.clear();
         self.scope = Some(scope.clone());
@@ -183,12 +195,15 @@ impl DialogListFrameState {
         }
         // 频道行携带的 unread/mention/urgent 是当前 viewer 的权威绝对值。首次快照可 O(n)
         // 建 aggregate；之后的每条 row 更新只对对应贡献做 O(1) replace，客户端不参与推导。
-        self.unread_summary.snapshot(
-            self.rows_by_channel
-                .iter()
-                .map(|(channel_id, row)| (channel_id.clone(), unread_contribution(row))),
-        );
-        self.emit_snapshot(scope)
+        self.unread_summary
+            .snapshot(
+                self.rows_by_channel
+                    .iter()
+                    .map(|(channel_id, row)| (channel_id.clone(), unread_contribution(row))),
+            )
+            .expect("unread revision is preflighted before dialog snapshot mutation");
+        self.revision = revision;
+        Some(self.emit_snapshot(scope))
     }
 
     /// 在写后投影已经提供绝对累计值时，仅改变这条 row 的相关属性并一次性发布。
@@ -268,13 +283,15 @@ impl DialogListFrameState {
         if self.rows_by_channel.contains_key(&row.channel_id) {
             return self.patch_from_channel_update(scope, value);
         }
+        let revision = self.next_revision()?;
+        self.ensure_unread_can_advance()?;
         let base_revision = self.revision;
-        self.revision = self.revision.wrapping_add(1);
         let channel_id = row.channel_id.clone();
         let before_len = self.ordered_channel_ids.len();
         let unread_patch = self
             .unread_summary
-            .upsert(channel_id.clone(), unread_contribution(&row));
+            .upsert(channel_id.clone(), unread_contribution(&row))
+            .expect("unread revision is preflighted before dialog patch mutation");
         self.rows_by_channel.insert(channel_id.clone(), row.clone());
         let target = self.reposition(&channel_id);
         let mut operations = vec![DialogListPatchOperation::UpsertRow {
@@ -289,6 +306,7 @@ impl DialogListFrameState {
                 to_index: target,
             });
         }
+        self.revision = revision;
         Some(self.emit_patch(scope, base_revision, operations, unread_patch))
     }
 
@@ -326,11 +344,13 @@ impl DialogListFrameState {
             .ordered_channel_ids
             .iter()
             .position(|id| id == &channel_id)?;
+        let revision = self.next_revision()?;
+        self.ensure_unread_can_advance()?;
         let base_revision = self.revision;
-        self.revision = self.revision.wrapping_add(1);
         let unread_patch = self
             .unread_summary
-            .upsert(channel_id.clone(), unread_contribution(&next));
+            .upsert(channel_id.clone(), unread_contribution(&next))
+            .expect("unread revision is preflighted before dialog patch mutation");
         self.rows_by_channel.insert(channel_id.clone(), next);
         let next_index = self.reposition(&channel_id);
         let mut operations = vec![DialogListPatchOperation::UpsertRow {
@@ -347,6 +367,7 @@ impl DialogListFrameState {
                 to_index: next_index,
             });
         }
+        self.revision = revision;
         Some(self.emit_patch(scope, base_revision, operations, unread_patch))
     }
 
@@ -426,6 +447,32 @@ impl DialogListFrameState {
                 },
             },
         ])
+    }
+
+    /// Dialog 和 unread 是同一次 `InteractionFrame` 内的 paired slots。任一 slot 无法推进时，
+    /// 整个 frame 不发布也不改本地行状态，等待重置后重新 attach。
+    fn next_revision(&self) -> Option<u64> {
+        self.revision.checked_add(1).or_else(|| {
+            tracing::warn!(
+                surface = SURFACE,
+                revision = self.revision,
+                "dialog list revision overflow; suppressing frame until reset"
+            );
+            None
+        })
+    }
+
+    fn ensure_unread_can_advance(&self) -> Option<()> {
+        self.unread_summary
+            .ensure_can_advance()
+            .map_err(|error| {
+                tracing::warn!(
+                    surface = "message.unread-summary",
+                    error = %error,
+                    "unread revision overflow; suppressing paired dialog frame until reset"
+                );
+            })
+            .ok()
     }
 
     fn emit_interaction_frame(&self, mutations: Vec<interaction_frame::SurfaceMutation>) -> Effect {
@@ -1283,7 +1330,10 @@ mod tests {
     #[test]
     fn snapshot_is_complete_render_ready_frame() {
         let mut state = DialogListFrameState::default();
-        let frame = data(&state.snapshot(scope(), vec![row("c2", 2), row("c1", 1)]));
+        let snapshot = state
+            .snapshot(scope(), vec![row("c2", 2), row("c1", 1)])
+            .expect("initial revision is available");
+        let frame = data(&snapshot);
         assert_eq!(frame["event"], EVENT_NAME);
         assert_eq!(frame["data"]["schemaVersion"], SCHEMA_VERSION);
         assert_eq!(surface_mutation(&frame)["surface"], SURFACE);
@@ -1317,11 +1367,15 @@ mod tests {
     #[test]
     fn same_revision_in_different_user_scopes_has_distinct_transaction_ids() {
         let mut first = DialogListFrameState::default();
-        let first_frame =
-            data(&first.snapshot(DialogListScope::new("user-a", "team-a"), vec![row("c1", 1)]));
+        let first_snapshot = first
+            .snapshot(DialogListScope::new("user-a", "team-a"), vec![row("c1", 1)])
+            .expect("initial revision is available");
+        let first_frame = data(&first_snapshot);
         let mut second = DialogListFrameState::default();
-        let second_frame =
-            data(&second.snapshot(DialogListScope::new("user-b", "team-a"), vec![row("c1", 1)]));
+        let second_snapshot = second
+            .snapshot(DialogListScope::new("user-b", "team-a"), vec![row("c1", 1)])
+            .expect("initial revision is available");
+        let second_frame = data(&second_snapshot);
 
         assert_eq!(first_frame["data"]["mutations"][0]["revision"], 1);
         assert_eq!(second_frame["data"]["mutations"][0]["revision"], 1);
@@ -1329,6 +1383,46 @@ mod tests {
             first_frame["data"]["transactionId"], second_frame["data"]["transactionId"],
             "PC recent-transaction cache is runtime-wide, so scope must participate in the id"
         );
+    }
+
+    #[test]
+    fn revision_overflow_suppresses_the_paired_frame_without_mutating_slots() {
+        let mut state = DialogListFrameState::default();
+        state
+            .snapshot(scope(), vec![row("c1", 1)])
+            .expect("initial revision is available");
+        state.revision = u64::MAX;
+        let before_rows = state.rows_by_channel.clone();
+        let before_order = state.ordered_channel_ids.clone();
+        let before_unread = state.unread_summary.snapshot_view();
+
+        assert!(
+            state.snapshot(scope(), vec![row("c2", 2)]).is_none(),
+            "overflow must not create a stale revision 1 snapshot"
+        );
+        assert_eq!(state.revision, u64::MAX);
+        assert_eq!(state.rows_by_channel, before_rows);
+        assert_eq!(state.ordered_channel_ids, before_order);
+        assert_eq!(state.unread_summary.snapshot_view(), before_unread);
+
+        state.revision = 1;
+        state.unread_summary.set_revision_for_test(u64::MAX);
+        assert!(
+            state
+                .patch_from_post_projection(
+                    scope(),
+                    &serde_json::json!({
+                        "channelId": "c1",
+                        "lastMessage": "must not commit",
+                        "lastPostAt": 2,
+                        "dialogPatch": { "unreadCount": 1 }
+                    }),
+                )
+                .is_none(),
+            "unread overflow must suppress the paired dialog patch"
+        );
+        assert_eq!(state.revision, 1);
+        assert_eq!(state.rows_by_channel, before_rows);
     }
 
     #[test]
@@ -1392,7 +1486,10 @@ mod tests {
         ];
 
         let mut state = DialogListFrameState::default();
-        let frame = data(&state.snapshot(scope(), vec![direct, group]));
+        let snapshot = state
+            .snapshot(scope(), vec![direct, group])
+            .expect("initial revision is available");
+        let frame = data(&snapshot);
         let rows = dialog_view(&frame)["sections"][0]["items"]
             .as_array()
             .unwrap();
@@ -1418,7 +1515,10 @@ mod tests {
         );
 
         let mut snapshot_state = DialogListFrameState::default();
-        let snapshot = data(&snapshot_state.snapshot(scope(), vec![group_row]));
+        let snapshot_effect = snapshot_state
+            .snapshot(scope(), vec![group_row])
+            .expect("initial revision is available");
+        let snapshot = data(&snapshot_effect);
         let snapshot_avatar = &dialog_view(&snapshot)["sections"][0]["items"][0]["avatar"];
         assert_eq!(snapshot_avatar["resource"], Value::Null);
         assert_eq!(snapshot_avatar["fallbackText"], "");

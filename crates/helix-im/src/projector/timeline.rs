@@ -88,7 +88,7 @@ impl TimelineProjector {
         let revision = self
             .slots
             .get(&slot_key)
-            .map_or(1, |slot| next_revision(slot.revision));
+            .map_or(Ok(1), |slot| next_revision(slot.revision))?;
         self.slots.insert(
             slot_key,
             TimelineSlot {
@@ -122,7 +122,7 @@ impl TimelineProjector {
                 })?;
         let base_revision = slot.revision;
         let view = build_view(&request, render_ready_rows)?;
-        let revision = next_revision(base_revision);
+        let revision = next_revision(base_revision)?;
         self.slots.insert(
             slot_key,
             TimelineSlot {
@@ -166,6 +166,8 @@ pub enum TimelineProjectionError {
     MissingSnapshot { slot: String },
     #[error("timeline surface data exceeds the v1 bounded contract")]
     SurfaceDataLimit,
+    #[error("timeline revision reached u64::MAX")]
+    RevisionOverflow,
 }
 
 fn scope_and_slot_key(
@@ -516,8 +518,10 @@ fn bool_at(row: &Value, keys: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-fn next_revision(current: u64) -> u64 {
-    current.checked_add(1).unwrap_or(1)
+fn next_revision(current: u64) -> Result<u64, TimelineProjectionError> {
+    current
+        .checked_add(1)
+        .ok_or(TimelineProjectionError::RevisionOverflow)
 }
 
 #[cfg(test)]
@@ -572,6 +576,32 @@ mod tests {
                     ..
                 }
             }
+        ));
+    }
+
+    #[test]
+    fn revision_overflow_is_rejected_without_wrapping_the_timeline_slot() {
+        let mut projector = TimelineProjector::default();
+        let rows = vec![row(1)];
+        projector
+            .snapshot_from_render_ready(TimelineWindowRequest::latest("channel-1"), &rows)
+            .unwrap();
+        let scope = SurfaceScope::Timeline {
+            channel_id: "channel-1".to_string(),
+            window_token: "latest".to_string(),
+        };
+        projector
+            .slots
+            .get_mut(&scope.canonical_key())
+            .expect("snapshot slot")
+            .revision = u64::MAX;
+        assert!(matches!(
+            projector.patch_from_render_ready(
+                TimelineWindowRequest::latest("channel-1"),
+                &rows,
+                None,
+            ),
+            Err(TimelineProjectionError::RevisionOverflow)
         ));
     }
 }

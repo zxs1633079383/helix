@@ -227,7 +227,7 @@ fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
 }
 
 #[test]
-fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection() {
+fn increment_by_channel_id_reply_syncs_local_gap_before_typed_timeline_projection() {
     let mut h = Harness::new_with_identity(&[], "viewer-user", "", "", "", "");
     let command_effects = h.step(
         command_json(
@@ -497,21 +497,27 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
         })
         .expect("远端首屏必须先缓存");
     h.step(port_reply_ok(cache_corr), 1_900);
-    let messages_projection = h
+    let frame = h
         .sink
         .as_slice()
         .iter()
         .filter_map(emit_value)
-        .find(|value| value["event"] == "im:messages:query_result");
-
-    let messages = messages_projection.expect("本地 message 读回应产 render-ready messages 投影");
-    assert_eq!(messages["data"]["channel_id"], cid(45));
-    assert_eq!(messages["data"]["messages"][0]["msgId"], "message-hydrated");
-    assert_eq!(messages["data"]["messages"][0]["text"], "hydrated hello");
-    assert_eq!(messages["data"]["messages"][0]["readBits"], "10");
-    assert_eq!(
-        messages["data"]["messages"][0]["props"]["document"]["id"],
-        "doc-hydrated"
-    );
-    assert!(messages["data"]["messages"][0]["eventSeq"].is_null());
+        .find(|value| value["event"] == "im:interaction:frame")
+        .expect("本地 message 读回应产 typed InteractionFrame");
+    assert_eq!(frame["data"]["schemaVersion"], 1);
+    let mutation = frame["data"]["mutations"]
+        .as_array()
+        .expect("InteractionFrame mutations")
+        .iter()
+        .find(|mutation| mutation["surface"] == "message.timeline")
+        .expect("本地 message 读回应包含 timeline surface");
+    assert_eq!(mutation["mutation"]["kind"], "timelineSnapshot");
+    let timeline = &mutation["mutation"]["view"];
+    assert_eq!(timeline["channelId"], cid(45));
+    let item = &timeline["items"][0];
+    assert_eq!(item["id"], "message-hydrated");
+    assert_eq!(item["content"]["text"], "hydrated hello");
+    assert_eq!(item["readReceipt"]["readBits"], "10");
+    assert!(item.get("props").is_none());
+    assert!(item.get("eventSeq").is_none());
 }

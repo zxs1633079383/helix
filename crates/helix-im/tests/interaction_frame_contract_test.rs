@@ -13,6 +13,7 @@ const STALE: &str = include_str!("fixtures/uc01-16-surface-runtime/stale.json");
 const SCOPE_MISMATCH: &str = include_str!("fixtures/uc01-16-surface-runtime/scope-mismatch.json");
 const GAP: &str = include_str!("fixtures/uc01-16-surface-runtime/gap.json");
 const REJECTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/rejected-action.json");
+const ACCEPTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/accepted-action.json");
 
 #[test]
 fn canonical_snapshot_decodes_all_eight_surface_vms() {
@@ -116,6 +117,7 @@ fn stale_and_gap_never_partially_commit_a_transaction() {
 fn rejected_action_fixture_is_not_an_interaction_frame_success_signal() {
     let receipt: ActionReceipt =
         serde_json::from_str(REJECTED_ACTION).expect("valid action receipt");
+    receipt.validate().expect("rejected receipt contract");
 
     assert_eq!(receipt.status, ActionReceiptStatus::Rejected);
     assert_eq!(
@@ -123,10 +125,29 @@ fn rejected_action_fixture_is_not_an_interaction_frame_success_signal() {
         1
     );
 
-    assert!(serde_json::from_str::<ActionInvocation>(
-        r#"{"actionRef":"create-topic","input":[]}"#,
-    )
-    .is_err());
+    assert!(
+        serde_json::from_str::<ActionInvocation>(r#"{"actionRef":"create-topic","input":[]}"#,)
+            .is_err()
+    );
+}
+
+#[test]
+fn accepted_action_fixture_is_pending_until_a_matching_frame_causation_arrives() {
+    let receipt: ActionReceipt =
+        serde_json::from_str(ACCEPTED_ACTION).expect("valid accepted action receipt");
+    receipt.validate().expect("accepted receipt contract");
+    assert_eq!(receipt.status, ActionReceiptStatus::Accepted);
+    assert!(receipt.validation_errors.is_none());
+
+    let mut frame = decode(PATCH_TRANSACTION);
+    for mutation in &mut frame.mutations {
+        mutation.causation_id = Some("action-accepted-1".to_string());
+    }
+    frame.validate().expect("matching causation frame is valid");
+    assert!(frame
+        .mutations
+        .iter()
+        .all(|mutation| mutation.causation_id.as_deref() == Some(receipt.request_id.as_str())));
 }
 
 #[test]

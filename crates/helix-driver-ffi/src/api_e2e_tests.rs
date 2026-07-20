@@ -106,6 +106,25 @@ fn create_applies_im_schema_before_async_business_query() {
     };
     assert!(!handle.is_null(), "create 应成功并应用 IM schema");
 
+    for (name, value) in [
+        (b"cookieId".as_slice(), b"viewer-1".as_slice()),
+        (b"companyId".as_slice(), b"team-1".as_slice()),
+    ] {
+        let status = unsafe {
+            helix_set_header(
+                handle,
+                name.as_ptr(),
+                name.len(),
+                value.as_ptr(),
+                value.len(),
+            )
+        };
+        assert_eq!(
+            status, FFI_OK,
+            "完整 viewer scope 必须先进入共享 command pump"
+        );
+    }
+
     let query = b"im_query_dialog_list";
     let payload = b"{}";
     let status = unsafe {
@@ -124,7 +143,7 @@ fn create_applies_im_schema_before_async_business_query() {
     while std::time::Instant::now() < deadline {
         got_projection = recorder.lock().unwrap().iter().any(|event| {
             std::str::from_utf8(event)
-                .map(|text| text.contains("im:channels:projection"))
+                .map(|text| text.contains("im:interaction:frame"))
                 .unwrap_or(false)
         });
         if got_projection {
@@ -134,7 +153,7 @@ fn create_applies_im_schema_before_async_business_query() {
     }
     assert!(
         got_projection,
-        "空库异步 dialog query 应产出 projection 事件"
+        "空库异步 dialog query 应产出 typed InteractionFrame 事件"
     );
 
     unsafe { helix_destroy(handle) };

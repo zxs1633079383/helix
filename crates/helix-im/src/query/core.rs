@@ -251,7 +251,7 @@ pub fn emit_dialog_list_frame_result(
     reply_bytes: &[u8],
     scope: crate::dialog_frame::DialogListScope,
     state: &mut crate::dialog_frame::DialogListFrameState,
-) -> Effect {
+) -> Option<Effect> {
     state.snapshot(
         scope,
         crate::dialog_frame::rows_from_dialog_scan(reply_bytes),

@@ -85,6 +85,69 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 - `onEvents()` 接收 `im:__bus__` 信封批；C++ 必须在回调内立即 memcpy。
 - `dispose()` 后再调用任何方法必须返回稳定错误，不能崩溃。
 
+### 3.1 UC01-16 SurfaceRuntime v1（版本化下行合同）
+
+已迁移 IM surface 的正式下行不是本章后续 legacy `im:*` 行/事件，而是一个不透明
+`im:interaction:frame` DomainEvent。其 payload 为：
+
+```text
+InteractionFrame {
+  schemaVersion: 1,
+  transactionId: string,
+  mutations: SurfaceMutation[]
+}
+
+SurfaceMutation {
+  surface,
+  scope,
+  revision,
+  baseRevision?,
+  causationId?,
+  mutation
+}
+```
+
+v1 只允许八个 closed surface：
+
+```text
+message.left-dialog-list       DialogListVm
+message.unread-summary         UnreadSummaryVm
+message.timeline               TimelineWindowVm
+message.thread-detail          ThreadDetailVm
+message.channel-summary        ChannelSummaryVm
+message.member-roster          MemberRosterVm
+message.topic-list             TopicListVm
+message.participant-receipts   ParticipantReceiptsVm
+```
+
+每个 patch 只接受完整 `{ kind: "replaceView", view: TypedVm }`，并且必须带精确的
+`baseRevision`。FFI/C++/Dart 只复制 bytes、按 `(surface, canonicalScope)` 做 schema/revision
+校验和整 Frame 原子 apply；它们不得从 raw event、HTTP body 或 SQLite row 推导 VM。canonical scope
+key 的字段长度按 UTF-8 **字节数**计算。
+
+`ActionBinding` 的上行确认语义同样冻结：
+
+```json
+{
+  "requestId": "opaque-request-id",
+  "status": "accepted | rejected",
+  "validationErrors": [{ "field": "...", "message": "..." }]
+}
+```
+
+`accepted` 仅允许端侧建立 pending overlay；只有后续 Frame 的 `causationId` 与同一 `requestId`
+匹配才可确认最终 UI。当前 Helix/FFI **尚未**提供通用 `invoke(actionRef, input)` C ABI 或
+`ActionReceipt` 总线事件名；移动端不得臆造该调用，直到对应 command/FFI producer 落地。
+
+当前真实 producer 边界：`im_query_dialog_list` 已产生 dialog + unread Frame；
+`im_query_messages_by_channel` 的 local-first 终态已产生带 `windowToken`（缺省 `latest`）的 timeline
+snapshot Frame。post/WS timeline patch，以及 thread/receipts/channel-summary/member-roster/topic-list 的
+query/WS producer 仍为 **BLOCKED**；typed projector/fixture 不能当作运行态证明。
+
+批回调保持当前 FFI ABI：一个 `InteractionFrame` 是一个原始 `DomainEventBytes` 条目，不能被 C++
+拆分或重编码；同一 pump step 的条目仍在一次 `on_domain_events_batch` 回调中交付。`ptr/len` 只在回调
+期间有效，C++ 必须在回调内复制，且不得跨回调保存 Rust 借用指针。
+
 ## 4. 载荷命名规则
 
 移动端 JS 封装层面向 Flutter 暴露 camelCase 字段。Rust 负责按命令转换成 Go 线协议所需形态。
@@ -156,8 +219,8 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 | 名称 | 载荷 | 结果事件 / 返回值 | UI / UC |
 |---|---|---|---|
 | `im_ready` | `{}` | `boolean` | 就绪探针 |
-| `im_query_dialog_list` | `{}` | `im:channels:projection` | 会话列表 / 启动引导 |
-| `im_query_messages_by_channel` | `{channelId, limit?}` | `im:messages:query_result` | 首屏消息，UC-2.1 |
+| `im_query_dialog_list` | `{}` | `im:interaction:frame`（`message.left-dialog-list` + `message.unread-summary`） | 会话列表 / 启动引导 |
+| `im_query_messages_by_channel` | `{channelId, limit?, windowToken?}` | `im:interaction:frame`（`message.timeline`） | 首屏消息，UC-2.1 |
 | `im_load_older_context` | `{channelId, anchorPostId, anchorCreateAt, limit?}` | `im:messages:older_loaded` | 上拉历史，UC-2.2 |
 | `im_get_replies` | `{replyId, reqId?}` | `im:read:result` + `im:channel:replies` | 回复列表，UC-2.4 |
 | `im_get_reply_branch` | `{replyFirstLevelId, reqId?}` | `im:read:result` + `im:channel:replies` | 回复分支，UC-2.4 |
@@ -176,6 +239,9 @@ type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 | `im_bookmark_load` | `{channelId, pageSize?, pageNumber?, offset?, reqId?}` | `im:read:result` | 书签列表，UC-9.x |
 | `im_vote_read` | `{id, reqId?}` | `im:read:result` | 投票详情，UC-8.x |
 | `im_average_read` | `{id, reqId?}` | `im:read:result` | 平均分详情，UC-8.x |
+
+`im_query_dialog_list` 的 user scope 必须先由 `cookieId` 与 `companyId` headers 建立；缺任一
+身份字段时 Helix fail-closed，不会伪造空 scope 的 Frame 或退回 raw `im:channels:projection`。
 
 > 说明：`im_bookmark_create/delete` 是有副作用的 HTTP，但没有 WS 回声，移动端需要关联响应，
 > 因此在 QuickJS 封装层中必须按 `reqId` 关联 `im:read:result`，但入口仍为 `call()`。
@@ -236,7 +302,8 @@ FFI 回调给 C++ 的每个条目必须是 `im:__bus__` 信封：
 
 | 频道 | 数据形状 | 必须处理 |
 |---|---|---|
-| `im:channels:projection` | `{dialogList}` | 完整频道列表渲染 |
+| `im:interaction:frame` | `{schemaVersion, transactionId, mutations}` | 对 `(surface, canonicalScope)` 整帧原子 apply；会话列表 query 当前同时携带 dialog + unread |
+| `im:channels:projection` | `{dialogList}` | 历史 raw 兼容事件；不得作为新的会话列表 producer 或用于重建 typed VM |
 | `im:channels:loaded` | `{items}` 或 `{reason}` | 冷启动/清库信号 |
 | `im:channel:increment` | `{channel_id, increment}` | 注册/更新频道增量 |
 | `im:channel:update` | `{channel_id}` | 触发 dialogList 刷新 |
@@ -394,8 +461,8 @@ Flutter 点击发送
 至少覆盖：
 
 - `im_ready` 返回 true
-- `im_query_dialog_list` 收到 `im:channels:projection`
-- `im_query_messages_by_channel` 收到 `im:messages:query_result`
+- 设置 `cookieId` / `companyId` 后，`im_query_dialog_list` 收到含 dialog + unread 的 `im:interaction:frame`
+- `im_query_messages_by_channel` 收到 `message.timeline` 的 `im:interaction:frame`
 - `im_get_replies` 收到同一 reqId 的 `im:read:result` 和 `im:channel:replies`
 - `im_health` 收到 `{req_id, body.status}`
 

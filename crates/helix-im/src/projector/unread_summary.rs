@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 
+use thiserror::Error;
+
 use crate::interaction_frame::UnreadSummaryVm;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +39,16 @@ pub struct UnreadSummaryPatch {
     pub view: UnreadSummaryVm,
 }
 
+/// 未读聚合 slot 无法继续推进时的 fail-closed 信号。
+///
+/// revision 是客户端应用 frame 的因果栅栏；回绕到 1 会使新 patch 看起来像陈旧快照，因此
+/// 达到 `u64::MAX` 后必须保留既有 slot，等待宿主 reset/重新 attach。
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+pub enum UnreadSummaryProjectionError {
+    #[error("unread summary revision reached u64::MAX")]
+    RevisionOverflow,
+}
+
 #[derive(Debug, Default)]
 pub struct UnreadSummaryProjector {
     by_channel: HashMap<String, ViewerChannelUnread>,
@@ -50,10 +62,14 @@ pub struct UnreadSummaryProjector {
 
 impl UnreadSummaryProjector {
     /// 以权威 viewer-scoped channel 集合重建一次聚合。这个低频读路径为 `O(n)`。
-    pub fn snapshot<I>(&mut self, channels: I) -> UnreadSummarySnapshot
+    pub fn snapshot<I>(
+        &mut self,
+        channels: I,
+    ) -> Result<UnreadSummarySnapshot, UnreadSummaryProjectionError>
     where
         I: IntoIterator<Item = (String, ViewerChannelUnread)>,
     {
+        let revision = next_revision(self.revision)?;
         self.by_channel.clear();
         self.unread_total = 0;
         self.mention_total = 0;
@@ -68,12 +84,12 @@ impl UnreadSummaryProjector {
             self.by_channel.insert(channel_id, contribution);
         }
 
-        self.revision = next_revision(self.revision);
+        self.revision = revision;
         self.has_snapshot = true;
-        UnreadSummarySnapshot {
+        Ok(UnreadSummarySnapshot {
             revision: self.revision,
             view: self.view(),
-        }
+        })
     }
 
     /// 用频道的绝对 badge 值更新聚合。没有可见 aggregate 改变时不制造 patch revision。
@@ -81,13 +97,16 @@ impl UnreadSummaryProjector {
         &mut self,
         channel_id: String,
         contribution: ViewerChannelUnread,
-    ) -> Option<UnreadSummaryPatch> {
+    ) -> Result<Option<UnreadSummaryPatch>, UnreadSummaryProjectionError> {
         if !self.has_snapshot || channel_id.is_empty() {
-            return None;
+            return Ok(None);
         }
         if self.by_channel.get(&channel_id) == Some(&contribution) {
-            return None;
+            return Ok(None);
         }
+
+        // 预检必须在改动 channel 贡献前完成。overflow 时整个 aggregate slot 保持原样。
+        let revision = next_revision(self.revision)?;
 
         let before = self.view();
         if let Some(previous) = self.by_channel.insert(channel_id, contribution) {
@@ -96,37 +115,55 @@ impl UnreadSummaryProjector {
         self.add(contribution);
         let view = self.view();
         if view == before {
-            return None;
+            return Ok(None);
         }
 
         let base_revision = self.revision;
-        self.revision = next_revision(self.revision);
-        Some(UnreadSummaryPatch {
+        self.revision = revision;
+        Ok(Some(UnreadSummaryPatch {
             base_revision,
             revision: self.revision,
             view,
-        })
+        }))
     }
 
-    pub fn remove_channel(&mut self, channel_id: &str) -> Option<UnreadSummaryPatch> {
+    pub fn remove_channel(
+        &mut self,
+        channel_id: &str,
+    ) -> Result<Option<UnreadSummaryPatch>, UnreadSummaryProjectionError> {
         if !self.has_snapshot {
-            return None;
+            return Ok(None);
         }
-        let previous = self.by_channel.remove(channel_id)?;
+        let Some(previous) = self.by_channel.get(channel_id).copied() else {
+            return Ok(None);
+        };
+
+        // 与 upsert 相同，不能在确定可以推进 revision 前先删掉贡献。
+        let revision = next_revision(self.revision)?;
+        self.by_channel.remove(channel_id);
         let before = self.view();
         self.remove(previous);
         let view = self.view();
         if view == before {
-            return None;
+            return Ok(None);
         }
 
         let base_revision = self.revision;
-        self.revision = next_revision(self.revision);
-        Some(UnreadSummaryPatch {
+        self.revision = revision;
+        Ok(Some(UnreadSummaryPatch {
             base_revision,
             revision: self.revision,
             view,
-        })
+        }))
+    }
+
+    pub(crate) fn ensure_can_advance(&self) -> Result<(), UnreadSummaryProjectionError> {
+        next_revision(self.revision).map(|_| ())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_revision_for_test(&mut self, revision: u64) {
+        self.revision = revision;
     }
 
     pub fn snapshot_view(&self) -> Option<UnreadSummarySnapshot> {
@@ -176,8 +213,10 @@ impl UnreadSummaryProjector {
     }
 }
 
-fn next_revision(current: u64) -> u64 {
-    current.checked_add(1).unwrap_or(1)
+fn next_revision(current: u64) -> Result<u64, UnreadSummaryProjectionError> {
+    current
+        .checked_add(1)
+        .ok_or(UnreadSummaryProjectionError::RevisionOverflow)
 }
 
 fn saturating_u32(value: u64) -> u32 {
@@ -191,16 +230,19 @@ mod tests {
     #[test]
     fn snapshot_then_absolute_channel_update_is_o1_aggregate_patch() {
         let mut projector = UnreadSummaryProjector::default();
-        let snapshot = projector.snapshot([
-            ("a".to_string(), ViewerChannelUnread::new(3, 1, 0)),
-            ("b".to_string(), ViewerChannelUnread::new(0, 0, 2)),
-        ]);
+        let snapshot = projector
+            .snapshot([
+                ("a".to_string(), ViewerChannelUnread::new(3, 1, 0)),
+                ("b".to_string(), ViewerChannelUnread::new(0, 0, 2)),
+            ])
+            .expect("initial snapshot");
         assert_eq!(snapshot.revision, 1);
         assert_eq!(snapshot.view.unread_total, 3);
         assert_eq!(snapshot.view.unread_channel_count, 1);
 
         let patch = projector
             .upsert("a".to_string(), ViewerChannelUnread::new(4, 1, 1))
+            .expect("revision is available")
             .expect("absolute change must advance the aggregate once");
         assert_eq!(patch.base_revision, 1);
         assert_eq!(patch.revision, 2);
@@ -208,5 +250,30 @@ mod tests {
         assert_eq!(patch.view.mention_total, 1);
         assert_eq!(patch.view.urgent_total, 3);
         assert_eq!(patch.view.unread_channel_count, 1);
+    }
+
+    #[test]
+    fn overflow_keeps_the_aggregate_slot_unchanged() {
+        let mut projector = UnreadSummaryProjector::default();
+        projector
+            .snapshot([("a".to_string(), ViewerChannelUnread::new(3, 1, 0))])
+            .unwrap();
+        projector.revision = u64::MAX;
+        let before = projector.snapshot_view();
+        let before_contribution = projector.by_channel.clone();
+
+        assert_eq!(
+            projector.upsert("a".to_string(), ViewerChannelUnread::new(4, 1, 0)),
+            Err(UnreadSummaryProjectionError::RevisionOverflow)
+        );
+        assert_eq!(projector.snapshot_view(), before);
+        assert_eq!(projector.by_channel, before_contribution);
+
+        assert_eq!(
+            projector.snapshot([("b".to_string(), ViewerChannelUnread::new(9, 0, 0))]),
+            Err(UnreadSummaryProjectionError::RevisionOverflow)
+        );
+        assert_eq!(projector.snapshot_view(), before);
+        assert_eq!(projector.by_channel, before_contribution);
     }
 }

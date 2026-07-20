@@ -10,6 +10,8 @@ use thiserror::Error;
 
 pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
+const MAX_SURFACE_DATA_DEPTH: usize = 8;
+const MAX_SURFACE_DATA_ITEMS: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SurfaceId {
@@ -268,6 +270,97 @@ pub struct ActionValidationError {
     pub message: String,
 }
 
+impl ActionBinding {
+    pub fn validate(&self) -> Result<(), InteractionFrameError> {
+        if self.action_ref.is_empty() {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "actionRef must not be empty".to_string(),
+            });
+        }
+        if self.kind.is_empty() {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "kind must not be empty".to_string(),
+            });
+        }
+        if self.input_shape.is_empty() {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "inputShape must not be empty".to_string(),
+            });
+        }
+        if self.enabled && self.disabled_reason.is_some() {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "enabled action must not carry disabledReason".to_string(),
+            });
+        }
+        if self.disabled_reason.as_deref().is_some_and(str::is_empty) {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "disabledReason must not be empty when present".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+impl ActionInvocation {
+    pub fn validate(&self) -> Result<(), InteractionFrameError> {
+        if self.action_ref.is_empty() {
+            return Err(InteractionFrameError::InvalidActionInvocation {
+                reason: "actionRef must not be empty".to_string(),
+            });
+        }
+        if self.input.len() > MAX_SURFACE_DATA_ITEMS {
+            return Err(InteractionFrameError::InvalidActionInvocation {
+                reason: "input exceeds the v1 bounded contract".to_string(),
+            });
+        }
+        for (key, value) in &self.input {
+            if key.is_empty() {
+                return Err(InteractionFrameError::InvalidActionInvocation {
+                    reason: "input field must not be empty".to_string(),
+                });
+            }
+            validate_surface_data(value, 0)
+                .map_err(|reason| InteractionFrameError::InvalidActionInvocation { reason })?;
+        }
+        Ok(())
+    }
+}
+
+impl ActionReceipt {
+    pub fn validate(&self) -> Result<(), InteractionFrameError> {
+        if self.request_id.is_empty() {
+            return Err(InteractionFrameError::InvalidActionReceipt {
+                reason: "requestId must not be empty".to_string(),
+            });
+        }
+        match self.status {
+            ActionReceiptStatus::Accepted if self.validation_errors.is_some() => {
+                Err(InteractionFrameError::InvalidActionReceipt {
+                    reason: "accepted receipt must not carry validationErrors".to_string(),
+                })
+            }
+            ActionReceiptStatus::Rejected => {
+                let Some(errors) = self.validation_errors.as_ref() else {
+                    return Err(InteractionFrameError::InvalidActionReceipt {
+                        reason: "rejected receipt requires validationErrors".to_string(),
+                    });
+                };
+                if errors.is_empty()
+                    || errors
+                        .iter()
+                        .any(|error| error.field.is_empty() || error.message.is_empty())
+                {
+                    return Err(InteractionFrameError::InvalidActionReceipt {
+                        reason: "validationErrors must contain field and message".to_string(),
+                    });
+                }
+                Ok(())
+            }
+            ActionReceiptStatus::Accepted => Ok(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InteractionFrame {
@@ -324,7 +417,7 @@ pub struct SurfaceMutation {
 }
 
 impl SurfaceMutation {
-    fn validate(&self) -> Result<(), InteractionFrameError> {
+    pub(crate) fn validate(&self) -> Result<(), InteractionFrameError> {
         if !self.scope.valid_for(self.surface) {
             return Err(InteractionFrameError::ScopeMismatch {
                 surface: self.surface.as_str(),
@@ -356,6 +449,12 @@ impl SurfaceMutation {
                 surface: self.surface.as_str(),
             });
         }
+        if self.causation_id.as_deref().is_some_and(str::is_empty) {
+            return Err(InteractionFrameError::EmptyCausationId {
+                surface: self.surface.as_str(),
+            });
+        }
+        self.mutation.validate_view(&self.scope)?;
         Ok(())
     }
 }
@@ -382,6 +481,19 @@ pub enum InteractionFrameError {
     InvalidPatchRevision { surface: &'static str },
     #[error("surface {surface} snapshot must not carry baseRevision")]
     SnapshotHasBaseRevision { surface: &'static str },
+    #[error("surface {surface} causationId must not be empty when present")]
+    EmptyCausationId { surface: &'static str },
+    #[error("surface {surface} has an invalid typed view: {reason}")]
+    InvalidView {
+        surface: &'static str,
+        reason: String,
+    },
+    #[error("invalid ActionBinding: {reason}")]
+    InvalidActionBinding { reason: String },
+    #[error("invalid ActionInvocation: {reason}")]
+    InvalidActionInvocation { reason: String },
+    #[error("invalid ActionReceipt: {reason}")]
+    InvalidActionReceipt { reason: String },
     #[error("duplicate surface slot {surface}@{scope}")]
     DuplicateSlot {
         surface: &'static str,
@@ -904,4 +1016,456 @@ impl TypedSurfaceMutation {
                 | Self::ParticipantReceiptsPatch { .. }
         )
     }
+
+    fn validate_view(&self, scope: &SurfaceScope) -> Result<(), InteractionFrameError> {
+        match self {
+            Self::DialogListSnapshot { view } => validate_dialog_list(view),
+            Self::DialogListPatch { patch } => validate_dialog_list(&patch.view),
+            Self::UnreadSummarySnapshot { .. } | Self::UnreadSummaryPatch { .. } => Ok(()),
+            Self::TimelineSnapshot { view } => validate_timeline(view, scope),
+            Self::TimelinePatch { patch } => validate_timeline(&patch.view, scope),
+            Self::ThreadDetailSnapshot { view } => validate_thread_detail(view, scope),
+            Self::ThreadDetailPatch { patch } => validate_thread_detail(&patch.view, scope),
+            Self::ChannelSummarySnapshot { view } => validate_channel_summary(view, scope),
+            Self::ChannelSummaryPatch { patch } => validate_channel_summary(&patch.view, scope),
+            Self::MemberRosterSnapshot { view } => validate_member_roster(view, scope),
+            Self::MemberRosterPatch { patch } => validate_member_roster(&patch.view, scope),
+            Self::TopicListSnapshot { view } => validate_topic_list(view, scope),
+            Self::TopicListPatch { patch } => validate_topic_list(&patch.view, scope),
+            Self::ParticipantReceiptsSnapshot { view } => {
+                validate_participant_receipts(view, scope)
+            }
+            Self::ParticipantReceiptsPatch { patch } => {
+                validate_participant_receipts(&patch.view, scope)
+            }
+        }
+    }
+}
+
+fn validate_dialog_list(view: &DialogListVm) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageLeftDialogList;
+    let mut channel_ids = BTreeSet::new();
+    for section in &view.sections {
+        validate_page(surface, &section.page)?;
+        for row in &section.items {
+            require_nonempty(surface, "dialog row channelId", &row.channel_id)?;
+            if !channel_ids.insert(row.channel_id.as_str()) {
+                return invalid_view(surface, "dialog row channelId must be unique");
+            }
+            validate_lifecycle(surface, &row.lifecycle)?;
+            validate_action_bindings(surface, &row.actions)?;
+            validate_preview(surface, &row.preview)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_timeline(
+    view: &TimelineWindowVm,
+    scope: &SurfaceScope,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageTimeline;
+    let SurfaceScope::Timeline {
+        channel_id,
+        window_token,
+    } = scope
+    else {
+        return invalid_view(surface, "timeline requires a timeline scope");
+    };
+    if view.channel_id != *channel_id {
+        return invalid_view(surface, "view channelId must match scope channelId");
+    }
+    validate_page(surface, &view.page)?;
+    if view.page.window_token != *window_token {
+        return invalid_view(surface, "page windowToken must match scope windowToken");
+    }
+    validate_optional_id(
+        surface,
+        "anchor messageId",
+        view.anchor.message_id.as_deref(),
+    )?;
+    validate_optional_id(
+        surface,
+        "firstUnreadMessageId",
+        view.first_unread_message_id.as_deref(),
+    )?;
+    validate_optional_id(
+        surface,
+        "targetMessageId",
+        view.target_message_id.as_deref(),
+    )?;
+    let mut ids = BTreeSet::new();
+    for message in &view.items {
+        validate_message(surface, message, channel_id)?;
+        if !ids.insert(message.id.as_str()) {
+            return invalid_view(surface, "timeline message id must be unique");
+        }
+    }
+    Ok(())
+}
+
+fn validate_thread_detail(
+    view: &ThreadDetailVm,
+    scope: &SurfaceScope,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageThreadDetail;
+    let SurfaceScope::Thread {
+        channel_id,
+        root_message_id,
+    } = scope
+    else {
+        return invalid_view(surface, "thread requires a thread scope");
+    };
+    if view.channel_id != *channel_id || view.root.id != *root_message_id {
+        return invalid_view(surface, "thread root and channel must match scope");
+    }
+    validate_page(surface, &view.page)?;
+    validate_message(surface, &view.root, channel_id)?;
+    let mut ordered = BTreeSet::new();
+    for reply_id in &view.ordered_reply_ids {
+        require_nonempty(surface, "ordered reply id", reply_id)?;
+        if reply_id == root_message_id || !ordered.insert(reply_id.as_str()) {
+            return invalid_view(surface, "ordered reply ids must be unique non-root nodes");
+        }
+        if !view.nodes.contains_key(reply_id) {
+            return invalid_view(surface, "ordered reply id must exist in nodes");
+        }
+    }
+    for (node_id, node) in &view.nodes {
+        require_nonempty(surface, "thread node id", node_id)?;
+        if node.id != *node_id || node_id == root_message_id || !ordered.contains(node_id.as_str())
+        {
+            return invalid_view(surface, "thread nodes must exactly match ordered reply ids");
+        }
+        validate_message(surface, node, channel_id)?;
+    }
+    if view.reply_count < view.ordered_reply_ids.len() as u32 {
+        return invalid_view(
+            surface,
+            "replyCount cannot be smaller than visible reply ids",
+        );
+    }
+    Ok(())
+}
+
+fn validate_channel_summary(
+    view: &ChannelSummaryVm,
+    scope: &SurfaceScope,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageChannelSummary;
+    let SurfaceScope::Channel { channel_id } = scope else {
+        return invalid_view(surface, "channel summary requires a channel scope");
+    };
+    if view.channel_id != *channel_id {
+        return invalid_view(surface, "view channelId must match scope channelId");
+    }
+    validate_lifecycle(surface, &view.lifecycle)?;
+    validate_action_bindings(surface, &view.actions)
+}
+
+fn validate_member_roster(
+    view: &MemberRosterVm,
+    scope: &SurfaceScope,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageMemberRoster;
+    let SurfaceScope::MemberRoster { channel_id, cursor } = scope else {
+        return invalid_view(surface, "member roster requires a memberRoster scope");
+    };
+    if view.channel_id != *channel_id {
+        return invalid_view(surface, "view channelId must match scope channelId");
+    }
+    validate_page(surface, &view.page)?;
+    if view.page.window_token != *cursor {
+        return invalid_view(surface, "page windowToken must match scope cursor");
+    }
+    if view.member_count < view.items.len() as u32 {
+        return invalid_view(surface, "memberCount cannot be smaller than visible items");
+    }
+    let mut users = BTreeSet::new();
+    for member in &view.items {
+        validate_user(surface, &member.user)?;
+        if !users.insert(member.user.user_id.as_str()) {
+            return invalid_view(surface, "member roster users must be unique");
+        }
+        validate_action_bindings(surface, &member.actions)?;
+    }
+    Ok(())
+}
+
+fn validate_topic_list(
+    view: &TopicListVm,
+    scope: &SurfaceScope,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageTopicList;
+    let SurfaceScope::TopicList {
+        parent_channel_id,
+        cursor,
+    } = scope
+    else {
+        return invalid_view(surface, "topic list requires a topicList scope");
+    };
+    if view.parent_channel_id != *parent_channel_id {
+        return invalid_view(surface, "parentChannelId must match scope");
+    }
+    validate_page(surface, &view.page)?;
+    if view.page.window_token != *cursor {
+        return invalid_view(surface, "page windowToken must match scope cursor");
+    }
+    if view.topic_count < view.items.len() as u32 {
+        return invalid_view(surface, "topicCount cannot be smaller than visible items");
+    }
+    let mut topic_ids = BTreeSet::new();
+    for topic in &view.items {
+        require_nonempty(surface, "topicChannelId", &topic.topic_channel_id)?;
+        require_nonempty(surface, "rootMessageId", &topic.root_message_id)?;
+        if !topic_ids.insert(topic.topic_channel_id.as_str()) {
+            return invalid_view(surface, "topic channel ids must be unique");
+        }
+        validate_preview(surface, &topic.root_message_preview)?;
+        validate_lifecycle(surface, &topic.lifecycle)?;
+        validate_action_bindings(surface, &topic.actions)?;
+    }
+    Ok(())
+}
+
+fn validate_participant_receipts(
+    view: &ParticipantReceiptsVm,
+    scope: &SurfaceScope,
+) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageParticipantReceipts;
+    let SurfaceScope::ParticipantReceipts {
+        channel_id,
+        message_id,
+        receipt_kind,
+    } = scope
+    else {
+        return invalid_view(
+            surface,
+            "participant receipts require a participantReceipts scope",
+        );
+    };
+    if view.channel_id != *channel_id
+        || view.message_id != *message_id
+        || view.kind != *receipt_kind
+    {
+        return invalid_view(
+            surface,
+            "receipt channel, message and kind must match scope",
+        );
+    }
+    validate_page(surface, &view.page)?;
+    validate_data_for_surface(surface, &view.summary)?;
+    let mut users = BTreeSet::new();
+    for row in &view.completed {
+        validate_user(surface, &row.user)?;
+        if row.status != ReceiptStatus::Completed || row.completed_at.is_none() {
+            return invalid_view(
+                surface,
+                "completed receipt rows require completed status and timestamp",
+            );
+        }
+        if !users.insert(row.user.user_id.as_str()) {
+            return invalid_view(
+                surface,
+                "receipt users must be unique across completed and pending",
+            );
+        }
+    }
+    for row in &view.pending {
+        validate_user(surface, &row.user)?;
+        if row.status != ReceiptStatus::Pending || row.completed_at.is_some() {
+            return invalid_view(
+                surface,
+                "pending receipt rows must not carry completed timestamp",
+            );
+        }
+        if !users.insert(row.user.user_id.as_str()) {
+            return invalid_view(
+                surface,
+                "receipt users must be unique across completed and pending",
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_message(
+    surface: SurfaceId,
+    message: &MessageVm,
+    expected_channel_id: &str,
+) -> Result<(), InteractionFrameError> {
+    require_nonempty(surface, "message id", &message.id)?;
+    require_nonempty(surface, "message channelId", &message.channel_id)?;
+    if message.channel_id != expected_channel_id {
+        return invalid_view(surface, "message channelId must match surface channel");
+    }
+    validate_user(surface, &message.author)?;
+    validate_action_bindings(surface, &message.actions)?;
+    validate_data_for_surface(surface, &message.reply_summary)?;
+    validate_data_for_surface(surface, &message.read_receipt)?;
+    if let Some(data) = &message.template_confirmation {
+        validate_data_for_surface(surface, data)?;
+    }
+    if let Some(data) = &message.urgency {
+        validate_data_for_surface(surface, data)?;
+    }
+    if let Some(data) = &message.topic_link {
+        validate_data_for_surface(surface, data)?;
+    }
+    match &message.content {
+        MessageContentVm::Document { access, .. } => validate_data_for_surface(surface, access),
+        MessageContentVm::Media {
+            resource,
+            thumbnail,
+            availability,
+            ..
+        } => {
+            validate_data_for_surface(surface, resource)?;
+            if let Some(data) = thumbnail {
+                validate_data_for_surface(surface, data)?;
+            }
+            validate_data_for_surface(surface, availability)
+        }
+        MessageContentVm::Forwarded { items, .. } => {
+            for item in items {
+                validate_data_for_surface(surface, item)?;
+            }
+            Ok(())
+        }
+        MessageContentVm::Text { .. }
+        | MessageContentVm::SystemEvent { .. }
+        | MessageContentVm::Recalled { .. } => Ok(()),
+    }
+}
+
+fn validate_preview(surface: SurfaceId, preview: &PreviewVm) -> Result<(), InteractionFrameError> {
+    match preview {
+        PreviewVm::Text { author, .. }
+        | PreviewVm::Document { author, .. }
+        | PreviewVm::Media { author, .. }
+        | PreviewVm::Forwarded { author, .. } => {
+            if let Some(author) = author {
+                validate_user(surface, author)?;
+            }
+        }
+        PreviewVm::Recalled { actor, .. } => {
+            if let Some(actor) = actor {
+                validate_user(surface, actor)?;
+            }
+        }
+        PreviewVm::System { .. } | PreviewVm::Empty => {}
+    }
+    Ok(())
+}
+
+fn validate_action_bindings(
+    surface: SurfaceId,
+    bindings: &[ActionBinding],
+) -> Result<(), InteractionFrameError> {
+    let mut refs = BTreeSet::new();
+    for binding in bindings {
+        binding.validate().map_err(|error| match error {
+            InteractionFrameError::InvalidActionBinding { reason } => {
+                InteractionFrameError::InvalidView {
+                    surface: surface.as_str(),
+                    reason,
+                }
+            }
+            unexpected => unexpected,
+        })?;
+        if !refs.insert(binding.action_ref.as_str()) {
+            return invalid_view(surface, "actionRef must be unique within one view item");
+        }
+    }
+    Ok(())
+}
+
+fn validate_page(surface: SurfaceId, page: &WindowPageVm) -> Result<(), InteractionFrameError> {
+    require_nonempty(surface, "page windowToken", &page.window_token)
+}
+
+fn validate_lifecycle(
+    surface: SurfaceId,
+    lifecycle: &ChannelLifecycleVm,
+) -> Result<(), InteractionFrameError> {
+    require_nonempty(surface, "lifecycle state", &lifecycle.state)
+}
+
+fn validate_user(surface: SurfaceId, user: &UserRefVm) -> Result<(), InteractionFrameError> {
+    require_nonempty(surface, "userId", &user.user_id)
+}
+
+fn validate_optional_id(
+    surface: SurfaceId,
+    label: &str,
+    value: Option<&str>,
+) -> Result<(), InteractionFrameError> {
+    if value.is_some_and(str::is_empty) {
+        return invalid_view(surface, format!("{label} must not be empty when present"));
+    }
+    Ok(())
+}
+
+fn require_nonempty(
+    surface: SurfaceId,
+    label: &str,
+    value: &str,
+) -> Result<(), InteractionFrameError> {
+    if value.is_empty() {
+        return invalid_view(surface, format!("{label} must not be empty"));
+    }
+    Ok(())
+}
+
+fn validate_data_for_surface(
+    surface: SurfaceId,
+    value: &SurfaceDataVm,
+) -> Result<(), InteractionFrameError> {
+    validate_surface_data(value, 0).map_err(|reason| InteractionFrameError::InvalidView {
+        surface: surface.as_str(),
+        reason,
+    })
+}
+
+fn validate_surface_data(value: &SurfaceDataVm, depth: usize) -> Result<(), String> {
+    if depth > MAX_SURFACE_DATA_DEPTH {
+        return Err("surface data exceeds maximum nesting depth".to_string());
+    }
+    match value {
+        SurfaceDataVm::Null(_)
+        | SurfaceDataVm::Bool(_)
+        | SurfaceDataVm::Number(_)
+        | SurfaceDataVm::String(_) => Ok(()),
+        SurfaceDataVm::Array(items) => {
+            if items.len() > MAX_SURFACE_DATA_ITEMS {
+                return Err("surface data array exceeds maximum item count".to_string());
+            }
+            for item in items {
+                validate_surface_data(item, depth + 1)?;
+            }
+            Ok(())
+        }
+        SurfaceDataVm::Record(fields) => {
+            if fields.len() > MAX_SURFACE_DATA_ITEMS {
+                return Err("surface data record exceeds maximum field count".to_string());
+            }
+            for (key, value) in fields {
+                if key.is_empty() {
+                    return Err("surface data record key must not be empty".to_string());
+                }
+                validate_surface_data(value, depth + 1)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn invalid_view(
+    surface: SurfaceId,
+    reason: impl Into<String>,
+) -> Result<(), InteractionFrameError> {
+    Err(InteractionFrameError::InvalidView {
+        surface: surface.as_str(),
+        reason: reason.into(),
+    })
 }

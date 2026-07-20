@@ -12,3 +12,4 @@ crates/helix-driver-ffi/smoke/build/
 # Agent swarm runtime workspace
 .agents/runs/
 .agents/tmp/
+.gstack/

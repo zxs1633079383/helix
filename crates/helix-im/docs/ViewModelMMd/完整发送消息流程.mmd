@@ -1,0 +1,60 @@
+%% 目标合同：完整发送消息流程（UC01-04）
+%% 说明：此图描述 InteractionFrame 目标架构，不表示当前 im:* Emit 已替换。
+sequenceDiagram
+    autonumber
+    participant SenderUI as 发送端平台 UI
+    participant SenderHelix as 发送端 Helix IM
+    participant SenderDriver as 发送端 Driver
+    participant Service as IM 服务端
+    participant RecipientDriver as 接收端 Driver
+    participant RecipientHelix as 接收端 Helix IM
+    participant RecipientUI as 接收端平台 UI
+
+    SenderUI->>SenderHelix: invoke(ActionBinding: send-message, text 或文件引用)
+    SenderHelix->>SenderHelix: 校验权限、频道状态和输入<br/>分配 correlation 与 temporaryId
+    alt 本地校验拒绝
+        SenderHelix-->>SenderUI: ActionReceipt rejected(validationErrors)
+    else 已受理
+        SenderHelix-->>SenderUI: ActionReceipt accepted(requestId)
+        SenderHelix->>SenderDriver: Effect Persist(PendingMessage temporaryId)
+        SenderDriver-->>SenderHelix: EffectResult Persisted
+        SenderHelix->>SenderHelix: Timeline 与 Dialog Projector
+        SenderHelix-->>SenderDriver: InteractionFrame sender provisional<br/>timeline Insert(MessageVm delivery=Sending)<br/>left-dialog-list PatchRow(PreviewVm)
+        SenderDriver-->>SenderUI: 原子 apply 后渲染过程态
+
+        opt 文档或媒体附件
+            SenderHelix->>SenderDriver: Effect Upload(fileRef)
+            SenderDriver-->>SenderHelix: EffectResult Uploaded(mediaRef) 或 Failed
+            SenderHelix-->>SenderDriver: 上传进度 InteractionFrame<br/>timeline Patch(MessageVm delivery=Uploading)
+            SenderDriver-->>SenderUI: 仅渲染 Helix 给出的进度
+        end
+
+        SenderHelix->>SenderDriver: Effect Http(POST /posts/create)
+        SenderDriver->>Service: create post with correlation and temporaryId
+        alt 上传或创建失败
+            Service-->>SenderDriver: error
+            SenderDriver-->>SenderHelix: EffectResult Failed(reason)
+            SenderHelix->>SenderDriver: Effect Persist(Failed temporaryId)
+            SenderHelix-->>SenderDriver: InteractionFrame sender failure<br/>timeline Patch(delivery=Failed retryable=true)
+            SenderDriver-->>SenderUI: 在原消息行渲染失败和 RetrySend binding
+            Note over SenderUI,SenderHelix: 重试使用同一 temporaryId，只 patch 原节点，绝不插入重复消息。
+        else 服务端接受，最终事实仍以 WS 为准
+            Service-->>SenderDriver: HTTP accepted
+            Service-->>SenderDriver: WS posted (发送者 echo)
+            SenderDriver-->>SenderHelix: HostObservation WsEvent(posted)
+            SenderHelix->>SenderHelix: 收敛 serverId、canonical Message、Channel preview 与 cursor
+            SenderHelix->>SenderDriver: Effect Persist(CanonicalMessage)
+            SenderDriver-->>SenderHelix: EffectResult Persisted
+            SenderHelix->>SenderHelix: Timeline 与 Dialog Projector
+            SenderHelix-->>SenderDriver: InteractionFrame sender final<br/>timeline Patch(identity settle, delivery=Sent)<br/>left-dialog-list PatchRow(preview and order)
+            SenderDriver-->>SenderUI: 原子 apply 后渲染 Sent
+
+            Service-->>RecipientDriver: WS post (接收者 canonical message)
+            RecipientDriver-->>RecipientHelix: HostObservation WsEvent(post)
+            RecipientHelix->>RecipientHelix: 落库并按 recipient userId 投影
+            RecipientHelix-->>RecipientDriver: InteractionFrame recipient final<br/>timeline Insert(MessageVm delivery=Sent, 若已 attach)<br/>left-dialog-list PatchRow(preview, unread, mention, urgent)<br/>unread-summary PatchTotals(按需)
+            RecipientDriver-->>RecipientUI: 原子 apply 后仅渲染最终消息
+        end
+    end
+
+    Note over SenderHelix,RecipientHelix: temporaryId 对账、排序、未读、@我和加急均在 Helix；各端只校验并机械 apply 强类型 Frame。

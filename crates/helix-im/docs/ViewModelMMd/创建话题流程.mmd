@@ -1,0 +1,47 @@
+%% 目标合同：创建话题流程（UC15）
+%% 说明：此图描述 InteractionFrame 目标架构，不表示当前 im:* Emit 已替换。
+sequenceDiagram
+    autonumber
+    participant CreatorUI as 创建者平台 UI
+    participant CreatorHelix as 创建者 Helix IM
+    participant CreatorDriver as 创建者 Driver
+    participant Service as IM 服务端
+    participant MemberDriver as 受邀成员 Driver
+    participant MemberHelix as 受邀成员 Helix IM
+    participant MemberUI as 受邀成员平台 UI
+
+    Note over CreatorUI: 成员选择器、抽屉、路由与动画是端侧 UI，不是 IM 业务 Store。
+    CreatorUI->>CreatorHelix: invoke(ActionBinding: create-topic,<br/>parentChannelId, rootMessageId, selectedUserIds, input)
+    CreatorHelix->>CreatorHelix: 校验创建权限、父频道生命周期、根消息、成员资格与重复关联
+    alt 本地校验拒绝
+        CreatorHelix-->>CreatorUI: ActionReceipt rejected(validationErrors)
+    else 已受理
+        CreatorHelix-->>CreatorUI: ActionReceipt accepted(requestId)
+        CreatorHelix->>CreatorDriver: Effect Http(POST /makeTopic)
+        CreatorDriver->>Service: create topic with correlation
+        alt HTTP 失败或权威事实未收敛完整
+            Service-->>CreatorDriver: error or incomplete acknowledgement
+            CreatorDriver-->>CreatorHelix: EffectResult Failed or missing correlated facts
+            CreatorHelix-->>CreatorDriver: 仅在已定义的强类型 Surface VM 中发出失败过程态
+            CreatorDriver-->>CreatorUI: 渲染失败；不修改 topicCount 或 root topicLink Ready
+            Note over CreatorHelix,CreatorUI: 失败绝不能由端侧假设成功或自行递增计数。
+        else 服务端创建成功
+            Service-->>CreatorDriver: HTTP accepted
+            Service-->>CreatorDriver: WS channel_created and post_update
+            CreatorDriver-->>CreatorHelix: HostObservation WS events
+            CreatorHelix->>CreatorHelix: 收敛 Channel、ChannelMember、TopicLink 与 root Message<br/>校验同一 correlation 的事实齐全后持久化
+            CreatorHelix->>CreatorDriver: Effect Persist(topic transaction facts)
+            CreatorDriver-->>CreatorHelix: EffectResult Persisted
+            CreatorHelix->>CreatorHelix: Topic、Timeline、Dialog、Summary、Roster Projector
+            CreatorHelix-->>CreatorDriver: InteractionFrame creator final (同一 transactionId)<br/>timeline Patch(root MessageVm.topic_link=Ready)<br/>channel-summary Patch(topic_count + 1)<br/>left-dialog-list PatchRow(topicCount + 1)<br/>topic-list Insert or ReplaceWindow (仅已 attach)<br/>member-roster Patch or ReplaceWindow (仅已 attach)
+            CreatorDriver-->>CreatorUI: 所有已 attach surface 原子 apply
+
+            Service-->>MemberDriver: WS channel_created (受邀成员可见的新话题频道)
+            MemberDriver-->>MemberHelix: HostObservation WsEvent(channel_created)
+            MemberHelix->>MemberHelix: 按 member userId 投影其可见频道和能力
+            MemberHelix-->>MemberDriver: InteractionFrame member final<br/>left-dialog-list Insert topic channel<br/>channel-summary or member-roster snapshot (仅已 attach)
+            MemberDriver-->>MemberUI: 原子 apply；平台自行决定以列表、页面或抽屉展示
+        end
+    end
+
+    Note over CreatorHelix,MemberHelix: 每位 viewer 收到自己的强类型 Frame；同一业务事务的计数、关联和可见性由 Helix 裁决，不由客户端拼接 WS 事件。

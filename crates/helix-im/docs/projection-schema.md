@@ -77,6 +77,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `render_ready_candidates::emit` | `im:user:candidates` | `reqId` `users[]`（`userId` `username` `nickname` `displayName` `deptId` `deptName` `orgId` `orgName`）| fresh-account 建群候选目录 HTTP 回报 |
 | `to_effect::emit_sync_too_long` | `im:sync:too_long` | `channelId` `resetTo` `mode` `dropLocalMessages` | sync kind=too_long / gate buffer overflow（drop local messages + reload） |
 | `to_effect::emit_connection_established` | `im:connection:established` | `connectionId` | hello 握手完成 |
+| `to_effect::emit_topic_operation_status` | `im:operation:status` | `reqId` `kind` `phase` `rootMessageId` `topicChannelId` `failureCode` `retryable` | createTopic 的引擎/HTTP/本地持久阶段；`phase` 只可为 `engine-rejected` / `remote-pending` / `remote-failed` / `remote-succeeded`，不能代替服务端权威 channel/root-post 投影完成态 |
 | `to_effect::emit_channels_loaded` | `im:channels:loaded` | `items` | hello 冷启动补齐 |
 | `to_effect::emit_channel_increment` | `im:channel:increment` | `channel_id` `increment` | WS `increment_channel` |
 | `to_effect::emit_channel_update` | `im:channel:update` | `channel_id`（**留瘦**·channel-row）| WS `increment_channel_end` 批次结束 |

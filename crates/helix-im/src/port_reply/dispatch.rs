@@ -325,8 +325,11 @@ impl ImModule {
                 self.handle_outbound_channel_create_reply(members, outcome, now_ms, out);
             }
 
-            CorrelationContext::OutboundMakeTopic { root_message_id } => {
-                self.handle_outbound_make_topic_reply(&root_message_id, outcome, out);
+            CorrelationContext::OutboundMakeTopic {
+                root_message_id,
+                req_id,
+            } => {
+                self.handle_outbound_make_topic_reply(&root_message_id, &req_id, outcome, out);
             }
 
             CorrelationContext::OutboundMakeTopicPersist { projection } => {

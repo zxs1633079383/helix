@@ -201,17 +201,17 @@ fn create_and_make_topic_build_body_with_real_endpoint() {
 
     let (url, body) = one_http(run(
         "im_make_topic",
-        json!({ "root_id": "r1", "user_ids": ["u1"], "picture": "topic-picture-1" }),
+        json!({ "root_id": "r1", "user_ids": ["u1"], "req_id": "topic-request-1" }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/makeTopic");
     assert_eq!(
         body,
         json!({
-            "rootId": "r1", "userIds": ["u1"], "picture": "topic-picture-1"
+            "rootId": "r1", "userIds": ["u1"]
         })
     );
 
-    // 缺 picture → Err（边界零信任，不崩）。
+    // 缺 req_id → Err（边界零信任，不崩）。
     assert!(handle_outbound(
         "im_make_topic",
         &serde_json::to_vec(&json!({ "root_id": "r1", "user_ids": ["u1"] })).unwrap(),

@@ -352,7 +352,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 8);
+    assert_eq!(matrix.contract_epoch, 9);
 
     let create = gate(&matrix, "G-15a");
     assert!(create
@@ -385,7 +385,19 @@ fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     }
 
     let topic = gate(&matrix, "G-15");
-    assert!(topic.http.request.contains("{rootId,userIds,picture}"));
+    assert!(topic.http.request.contains("{rootId,userIds}"));
+    for invariant in [
+        "req_id",
+        "不能进入 HTTP body",
+        "pictureType=USER",
+        "picture.userIds",
+        "不得提交空 picture",
+    ] {
+        assert!(
+            topic.http.request.contains(invariant),
+            "G-15 request 必须冻结话题默认头像/关联边界: {invariant}"
+        );
+    }
     for field in ["rootMessageId", "channelId", "revision"] {
         assert!(
             topic.http.response.contains(field),

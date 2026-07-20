@@ -5,10 +5,10 @@
 
 pub use super::projection_control_effects::{
     emit_channel_increment, emit_channel_update, emit_channels_loaded, emit_connection_established,
-    member_dialog_patch_data, post_dialog_patch_data,
     emit_post_batch_updated, emit_post_send_failed, emit_post_sending,
     emit_post_sending_with_reply, emit_reconnect_requested, emit_sync_state,
-    emit_sync_state_with_trigger, emit_sync_too_long,
+    emit_sync_state_with_trigger, emit_sync_too_long, emit_topic_operation_status,
+    member_dialog_patch_data, post_dialog_patch_data,
 };
 pub use super::projection_message_effects::{
     emit_channel_read_echo, emit_post_deleted, emit_post_deleted_for_viewer, emit_post_read,

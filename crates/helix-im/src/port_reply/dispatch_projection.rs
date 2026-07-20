@@ -8,13 +8,42 @@ impl ImModule {
     pub(super) fn handle_outbound_make_topic_reply(
         &mut self,
         expected_root_message_id: &str,
+        req_id: &str,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
-        let Some(projection) = decode_make_topic_projection(expected_root_message_id, outcome)
+        if !matches!(outcome, PortOutcome::Ok(_)) {
+            out.push(crate::acl::to_effect::emit_topic_operation_status(
+                req_id,
+                expected_root_message_id,
+                "remote-failed",
+                None,
+                Some("remote-unavailable"),
+                true,
+            ));
+            return;
+        }
+        let Some(projection) =
+            decode_make_topic_projection(expected_root_message_id, req_id, outcome)
         else {
+            out.push(crate::acl::to_effect::emit_topic_operation_status(
+                req_id,
+                expected_root_message_id,
+                "remote-failed",
+                None,
+                Some("remote-invalid-response"),
+                true,
+            ));
             return;
         };
+        out.push(crate::acl::to_effect::emit_topic_operation_status(
+            req_id,
+            expected_root_message_id,
+            "remote-succeeded",
+            Some(projection.topic_channel_id.as_str()),
+            None,
+            false,
+        ));
         let persist_corr = self.alloc_corr_internal();
         let topic_json = serde_json::json!({
             "channelId": projection.topic_channel_id.as_str(),
@@ -72,11 +101,18 @@ impl ImModule {
         out: &mut EffectSink,
     ) {
         if !matches!(outcome, PortOutcome::Ok(_)) {
+            out.push(crate::acl::to_effect::emit_topic_operation_status(
+                &projection.req_id,
+                &projection.root_message_id,
+                "remote-failed",
+                Some(projection.topic_channel_id.as_str()),
+                Some("projection-persist-failed"),
+                false,
+            ));
             return;
         }
-        let req_id = format!("make-topic:{}", projection.root_message_id);
         out.push(crate::render_ready_replies::emit_channel_replies(
-            &req_id,
+            &projection.req_id,
             crate::render_ready_replies::FlatReplyProjection {
                 channel_id: projection.topic_channel_id.as_str().to_string(),
                 root_message_id: projection.root_message_id,
@@ -210,6 +246,7 @@ fn response_data(outcome: &PortOutcome) -> Option<serde_json::Value> {
 
 fn decode_make_topic_projection(
     expected_root_message_id: &str,
+    req_id: &str,
     outcome: &PortOutcome,
 ) -> Option<MakeTopicProjection> {
     let data = response_data(outcome)?;
@@ -230,6 +267,7 @@ fn decode_make_topic_projection(
         .and_then(serde_json::Value::as_u64)
         .filter(|revision| *revision <= i64::MAX as u64)?;
     Some(MakeTopicProjection {
+        req_id: req_id.to_string(),
         root_message_id: root_message_id.to_string(),
         topic_channel_id,
         revision,

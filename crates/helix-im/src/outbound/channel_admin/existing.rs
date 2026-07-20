@@ -82,24 +82,24 @@ inventory::submit! {
     }
 }
 
-/// G-15 POST /api/cses/posts/makeTopic — 只透传 root post、目标用户与图片。source channel、
-/// display name、team、creator role 等旧业务模型字段由 Go 用 root post + session 派生。
+/// G-15 POST /api/cses/posts/makeTopic — 只透传 root post 与目标用户。source channel、
+/// display name、team、creator role 和默认 USER 图片均由 Go 用 root post + session 派生；`req_id`
+/// 只作为 host/Helix 关联键，不能泄漏进 HTTP body。
 struct MakeTopicCommand;
 impl OutboundCommand for MakeTopicCommand {
     fn name(&self) -> &'static str {
         "im_make_topic"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        require_exact_keys(args, &["root_id", "user_ids", "picture"], self.name())?;
+        require_exact_keys(args, &["root_id", "user_ids", "req_id"], self.name())?;
         let root_id = require_str(args, "root_id", self.name())?;
         let user_ids = require_non_empty_string_array(args, "user_ids", self.name())?;
-        let picture = require_str(args, "picture", self.name())?;
+        require_str(args, "req_id", self.name())?;
         Ok((
             "posts/makeTopic",
             json!({
                 "rootId": root_id,
                 "userIds": user_ids,
-                "picture": picture,
             }),
         ))
     }

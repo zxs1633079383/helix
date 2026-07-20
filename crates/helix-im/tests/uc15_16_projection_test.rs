@@ -84,11 +84,15 @@ fn make_topic_emits_replies_only_after_relation_persist_ack() {
             json!({
                 "root_id": sid(15),
                 "user_ids": ["u1"],
-                "picture": "topic-picture"
+                "req_id": "topic-request-15"
             }),
         ),
         1_000,
     );
+    let statuses = emit_data(&h, "im:operation:status");
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0]["reqId"], "topic-request-15");
+    assert_eq!(statuses[0]["phase"], "remote-pending");
     let corr = http_corr(&h);
     let raw = bytes::Bytes::from(
         serde_json::to_vec(&json!({
@@ -104,6 +108,14 @@ fn make_topic_emits_replies_only_after_relation_persist_ack() {
     h.step(port_reply_with_body(corr, enveloped(raw)), 1_010);
 
     assert!(emit_data(&h, "im:channel:replies").is_empty());
+    let statuses = emit_data(&h, "im:operation:status");
+    // Harness clears the per-tick sink. The accepted command emitted
+    // `remote-pending` above; this HTTP reply tick must emit exactly its
+    // authoritative successor instead of relying on retained effects.
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0]["reqId"], "topic-request-15");
+    assert_eq!(statuses[0]["phase"], "remote-succeeded");
+    assert_eq!(statuses[0]["topicChannelId"], cid(15));
     let (persist_corr, tables) = persist_corr_and_tables(&h);
     assert_eq!(tables, vec!["channel", "message"]);
 
@@ -115,7 +127,7 @@ fn make_topic_emits_replies_only_after_relation_persist_ack() {
     assert_eq!(replies.len(), 1);
     assert_eq!(replies[0]["rootMessageId"], sid(15));
     assert_eq!(replies[0]["channelId"], cid(15));
-    assert_eq!(replies[0]["reqId"], format!("make-topic:{}", sid(15)));
+    assert_eq!(replies[0]["reqId"], "topic-request-15");
     assert_eq!(replies[0]["revision"], 41);
     assert_eq!(replies[0]["projectionMode"], "snapshot");
 }
@@ -130,7 +142,7 @@ fn make_topic_rejects_failed_or_mismatched_authority_without_persist_or_projecti
         h.step(
             command_json(
                 "im_make_topic",
-                json!({"root_id":sid(15),"user_ids":["u1"],"picture":"p"}),
+                json!({"root_id":sid(15),"user_ids":["u1"],"req_id":"topic-request-failed"}),
             ),
             2_000,
         );
@@ -143,7 +155,42 @@ fn make_topic_rejects_failed_or_mismatched_authority_without_persist_or_projecti
             .iter()
             .any(|effect| matches!(effect, Effect::Persist { .. })));
         assert!(emit_data(&h, "im:channel:replies").is_empty());
+        let statuses = emit_data(&h, "im:operation:status");
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0]["reqId"], "topic-request-failed");
+        assert_eq!(statuses[0]["phase"], "remote-failed");
     }
+}
+
+#[test]
+fn make_topic_engine_rejection_preserves_req_id_without_issuing_http() {
+    let mut h = Harness::new(&[]);
+    h.step(
+        command_json(
+            "im_make_topic",
+            json!({
+                "root_id": sid(15),
+                "user_ids": [],
+                "req_id": "topic-request-invalid"
+            }),
+        ),
+        2_100,
+    );
+
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Http { .. } | Effect::Persist { .. })),
+        "引擎拒绝不能留下 HTTP 或持久化副作用"
+    );
+    let statuses = emit_data(&h, "im:operation:status");
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0]["reqId"], "topic-request-invalid");
+    assert_eq!(statuses[0]["rootMessageId"], sid(15));
+    assert_eq!(statuses[0]["phase"], "engine-rejected");
+    assert_eq!(statuses[0]["failureCode"], "invalid-request");
+    assert_eq!(statuses[0]["retryable"], true);
 }
 
 #[test]

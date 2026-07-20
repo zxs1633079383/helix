@@ -34,6 +34,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:channel:memberNickname",
     "im:channel:members",
     "im:channel:replies",
+    "im:operation:status",
     "im:post:located",
     "im:user:candidates",
     "im:read:result",
@@ -106,5 +107,6 @@ mod tests {
         assert!(events.iter().any(|e| e == "im:post:increment-failed"));
         assert!(events.iter().any(|e| e == "im:post:send-failed"));
         assert!(events.iter().any(|e| e == "im:interaction:frame"));
+        assert!(events.iter().any(|e| e == "im:operation:status"));
     }
 }

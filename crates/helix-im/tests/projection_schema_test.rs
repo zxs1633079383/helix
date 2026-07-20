@@ -679,6 +679,31 @@ fn im_connection_established_freezes_connectionid() {
 }
 
 #[test]
+fn im_operation_status_freezes_topic_create_correlation_fields() {
+    let e = to_effect::emit_topic_operation_status(
+        "topic-request-1",
+        "root-message-1",
+        "remote-failed",
+        None,
+        Some("remote-unavailable"),
+        true,
+    );
+    assert_frozen(
+        &e,
+        "im:operation:status",
+        &[
+            "reqId",
+            "kind",
+            "phase",
+            "rootMessageId",
+            "topicChannelId",
+            "failureCode",
+            "retryable",
+        ],
+    );
+}
+
+#[test]
 fn im_channel_closed_freezes_channelid_deleteat_camelcase() {
     let e = to_effect_s1::emit_channel_closed(ch(), 1_700_000_000);
     assert_frozen(

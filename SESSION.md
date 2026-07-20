@@ -6,6 +6,10 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 修复 G-15 创建话题的空 picture 边界与投影关联。可证伪断言：① `im_make_topic` 只接收 `root_id/user_ids/req_id`，空 `picture` 不再令 Helix 在 HTTP 前拒绝；② Go 在 session 身份归一、去重后的成员集合上派生 `pictureType=USER` 与至多 9 个 `picture.userIds`；③ topic HTTP 成功后的相关 root/topic 投影继续由服务端权威帧驱动，前端不以 IPC accepted 伪造成功；④ 不改 helix-core 或 driver。@2026-07-20T05:20:00-07:00 | 赌注 高 | 可逆 是
+
+✅ DONE 修复 G-15 创建话题的空 picture 边界与投影关联。Helix 将 `req_id` 保留在本地关联与 operation-status，HTTP 仅发 `rootId/userIds`；成功、远端失败和引擎校验失败均可关联到同一请求，持久化后才释放 replies 快照。Go 默认 `USER` 头像由服务端成员集合派生；客户端不再发送空 `picture`，只在权威投影齐备后关闭创建界面。验证：Helix UC15/16 与 strict-matrix 聚焦测试通过；Go `internal/api/post`、`internal/app` 聚焦测试通过；客户端聚焦 Jest 65/65 通过。真实双账号链路待新 Helix pin 构建后复测。@2026-07-20T05:55:00-07:00
+
 🎯 EXPECT 收敛 `im_create_channel` 的默认群头像合同。可证伪断言：① Helix public command 只接收 `type/user_ids/display_name/force_create`，HTTP body 不再含客户端 `picture`；② Go 在 session 身份归一、去重后的成员集合上派生 `pictureType=USER` 与至多 9 个 `picture.userIds`；③ PC 与 mobile QuickJS C++ bridge 均不再接受或发送 `picture`，其生成合同同步到同一 Helix pin；④ `PICTURE` 自定义头像仍只由独立改头像命令承担，`NAME` 仍为渲染回退；⑤ 不改 `helix-core` 或 FFI ABI。@2026-07-19T19:20:00-07:00 | 赌注 中 | 可逆 是
 
 ✅ DONE 默认群头像合同 @2026-07-19T20:05:00-07:00 | Helix `e0f820c` | `im_create_channel` 已收窄为四个业务字段并由服务端按 canonical 成员派生 `USER` 图片；PC 与 mobile QuickJS 均已同步到 epoch 8 / `1a38c4ff`；`PICTURE` 改头像与 `NAME` 渲染回退不变。验证：Helix 聚焦 65/65 PASS、PC Rust check/合同门禁/Jest PASS、mobile 288 PASS/1 opt-in skip；Go 按仓库策略只完成格式化与静态 diff，未运行 Go 测试；未 push、未做真实后端写入。@2026-07-19T20:05:00-07:00

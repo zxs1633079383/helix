@@ -117,6 +117,37 @@ pub fn emit_post_send_failed(channel_id: &str, temporary_id: &str) -> Effect {
     }
 }
 
+/// G-15 request lifecycle signal. This reports only the command/remote stage;
+/// UI completion still requires the matching channel-created and root-post frames.
+pub fn emit_topic_operation_status(
+    req_id: &str,
+    root_message_id: &str,
+    phase: &str,
+    topic_channel_id: Option<&str>,
+    failure_code: Option<&str>,
+    retryable: bool,
+) -> Effect {
+    let payload = serde_json::json!({
+        "event": "im:operation:status",
+        "data": {
+            "reqId": req_id,
+            "kind": "topic-create",
+            "phase": phase,
+            "rootMessageId": root_message_id,
+            "topicChannelId": topic_channel_id,
+            "failureCode": failure_code,
+            "retryable": retryable,
+        },
+    });
+    let bytes = Bytes::from(
+        serde_json::to_vec(&payload)
+            .expect("emit_topic_operation_status: static JSON shape must not fail to serialize"),
+    );
+    Effect::Emit {
+        event: DomainEventBytes(bytes),
+    }
+}
+
 /// 发送 im:sync:too_long 事件。
 pub fn emit_sync_too_long(channel_id: ChannelId, reset_to: Seq) -> Effect {
     use serde_json::json;

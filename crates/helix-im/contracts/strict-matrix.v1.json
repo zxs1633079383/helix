@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 8,
+  "contract_epoch": 9,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -1725,7 +1725,7 @@
             "required": [
               "root_id",
               "user_ids",
-              "picture"
+              "req_id"
             ],
             "optional": [],
             "forbid_unknown": true
@@ -1761,7 +1761,7 @@
         "topic root 和 reply 关系不得由 UI 拼接"
       ],
       "http": {
-        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,userIds,picture}`",
+        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,userIds}`；`req_id` 只用于 Helix/客户端关联，不能进入 HTTP body；未提供自定义图片时服务端从归一化成员派生 `pictureType=USER/picture.userIds`，客户端不得提交空 picture 占位",
         "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={rootMessageId,channelId,revision}`；Helix 必须先持久化服务端 `channelId` 与 `revision`，仅 Persist Ok 后发布成功投影"
       },
       "ws": {

@@ -96,7 +96,10 @@ impl Module for ImModule {
                 // 纯 HTTP-fire，业务契约在 crate::commands（endpoint 锚现网真源）。
                 name if crate::commands::is_outbound(name) => {
                     let corr = self.alloc_corr_internal();
-                    let effects = crate::commands::handle_outbound(
+                    let topic_request = (name == "im_make_topic")
+                        .then(|| make_topic_request_context(cmd.payload.as_ref()))
+                        .flatten();
+                    let effects = match crate::commands::handle_outbound(
                         name,
                         cmd.payload.as_ref(),
                         self.config.api_base_url.as_str(),
@@ -104,11 +107,32 @@ impl Module for ImModule {
                         self.config.default_api_base_url.as_str(),
                         self.state.connection_id.as_deref(),
                         corr,
-                    )
-                    .map_err(|e| CoreError::ModuleError {
-                        module: self.name(),
-                        source: Box::new(e),
-                    })?;
+                    ) {
+                        Ok(effects) => effects,
+                        Err(error) if name == "im_make_topic" => {
+                            if let Some((root_message_id, req_id)) = topic_request.as_ref() {
+                                out.push(crate::acl::to_effect::emit_topic_operation_status(
+                                    req_id,
+                                    root_message_id,
+                                    "engine-rejected",
+                                    None,
+                                    Some("invalid-request"),
+                                    true,
+                                ));
+                                return Ok(());
+                            }
+                            return Err(CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(error),
+                            });
+                        }
+                        Err(error) => {
+                            return Err(CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(error),
+                            });
+                        }
+                    };
                     // spec06 缺陷A：读族注册回灌上下文（PortReply 透传 `im:read:result{req_id,body}`；写族
                     // fire-and-forget 不注册）。S7：byIds 成员快照走 OutboundMembersByIds（额外 emit im:channel:members）。
                     if crate::commands::is_read(name) {
@@ -181,21 +205,22 @@ impl Module for ImModule {
                             }
                         }
                     } else if name == "im_make_topic" {
-                        if let Some(root_message_id) =
-                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
-                                .ok()
-                                .and_then(|value| {
-                                    value
-                                        .get("root_id")
-                                        .and_then(|id| id.as_str())
-                                        .filter(|id| !id.is_empty())
-                                        .map(str::to_string)
-                                })
-                        {
+                        if let Some((root_message_id, req_id)) = topic_request {
                             self.state.corr_map.insert(
                                 corr,
-                                CorrelationContext::OutboundMakeTopic { root_message_id },
+                                CorrelationContext::OutboundMakeTopic {
+                                    root_message_id: root_message_id.clone(),
+                                    req_id: req_id.clone(),
+                                },
                             );
+                            out.push(crate::acl::to_effect::emit_topic_operation_status(
+                                &req_id,
+                                &root_message_id,
+                                "remote-pending",
+                                None,
+                                None,
+                                false,
+                            ));
                         }
                     } else if name == "im_channel_change_info"
                         || name == "im_channel_change_notice"
@@ -339,4 +364,19 @@ impl Module for ImModule {
                 source: Box::new(e),
             })
     }
+}
+
+fn make_topic_request_context(payload: &[u8]) -> Option<(String, String)> {
+    let value = serde_json::from_slice::<serde_json::Value>(payload).ok()?;
+    let root_message_id = value
+        .get("root_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let req_id = value
+        .get("req_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())?
+        .to_string();
+    Some((root_message_id, req_id))
 }

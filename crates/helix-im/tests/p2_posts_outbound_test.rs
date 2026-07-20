@@ -353,7 +353,7 @@ fn every_registered_command_is_dispatchable() {
         ),
         (
             "im_make_topic",
-            json!({ "root_id": "r", "user_ids": ["u1"], "picture": "topic-picture-1" }),
+            json!({ "root_id": "r", "user_ids": ["u1"], "req_id": "topic-request-1" }),
         ),
         ("im_channel_member_change", json!({ "channel_id": "c" })),
         ("im_channel_close", json!({ "channel_id": "c" })),

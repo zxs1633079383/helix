@@ -7,6 +7,7 @@ use super::{ChannelId, TemporaryId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MakeTopicProjection {
+    pub req_id: String,
     pub root_message_id: String,
     pub topic_channel_id: ChannelId,
     pub revision: u64,
@@ -161,7 +162,10 @@ pub enum CorrelationContext {
     OutboundChannelCreate { members: Vec<serde_json::Value> },
 
     /// G-15 makeTopic HTTP 回包：仅在服务端确认 root/topic 关联后进入本地持久屏障。
-    OutboundMakeTopic { root_message_id: String },
+    OutboundMakeTopic {
+        root_message_id: String,
+        req_id: String,
+    },
 
     /// G-15 topic channel + root message 关联持久成功后释放 render-ready replies 投影。
     OutboundMakeTopicPersist { projection: MakeTopicProjection },

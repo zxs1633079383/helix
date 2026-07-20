@@ -391,7 +391,7 @@ fn make_topic_maps_only_canonical_fields() {
         json!({
             "root_id": "r1",
             "user_ids": ["u1", "u2"],
-            "picture": "topic-picture-1"
+            "req_id": "topic-request-1"
         }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/makeTopic");
@@ -399,8 +399,7 @@ fn make_topic_maps_only_canonical_fields() {
         body,
         json!({
             "rootId": "r1",
-            "userIds": ["u1", "u2"],
-            "picture": "topic-picture-1"
+            "userIds": ["u1", "u2"]
         })
     );
 }
@@ -462,17 +461,21 @@ fn create_channel_and_make_topic_reject_legacy_unknown_and_wrong_types() {
     assert!(err(
         "im_make_topic",
         json!({
-            "root_id": "r1", "user_ids": ["u1"], "picture": "topic-picture-1",
+            "root_id": "r1", "user_ids": ["u1"], "req_id": "topic-request-1",
             "post_id": "legacy"
         })
     ));
     assert!(err(
         "im_make_topic",
-        json!({ "root_id": "r1", "user_ids": [], "picture": "topic-picture-1" })
+        json!({ "root_id": "r1", "user_ids": [], "req_id": "topic-request-1" })
     ));
     assert!(err(
         "im_make_topic",
-        json!({ "root_id": "r1", "user_ids": [""], "picture": "topic-picture-1" })
+        json!({ "root_id": "r1", "user_ids": [""], "req_id": "topic-request-1" })
+    ));
+    assert!(err(
+        "im_make_topic",
+        json!({ "root_id": "r1", "user_ids": ["u1"] })
     ));
 }
 

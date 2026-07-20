@@ -13,11 +13,16 @@ use helix_im::query::LocalStoreMode;
 use serde_json::{json, Value};
 
 fn query_tick(channel: u64, limit: u32) -> Tick {
+    query_tick_with_window(channel, limit, "latest")
+}
+
+fn query_tick_with_window(channel: u64, limit: u32, window_token: &str) -> Tick {
     Tick::Command(AppCommand::new(
         "im_query_messages_by_channel",
         serde_json::to_vec(&json!({
             "channel_id": cid(channel),
             "limit": limit,
+            "windowToken": window_token,
         }))
         .unwrap(),
     ))
@@ -457,6 +462,61 @@ fn disconnect_drops_late_scan_http_and_cache_replies() {
     let cache_corr = corr_for_persist(cache.sink.as_slice());
     cache.step(Tick::Disconnected(TransportId::from_raw(1)), 3_250);
     assert!(cache.step(port_reply_ok(cache_corr), 3_300).is_empty());
+}
+
+#[test]
+fn later_same_window_query_drops_older_remote_reply() {
+    let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Session);
+
+    harness.step(query_tick_with_window(1, 20, "focus-window"), 1_000);
+    let old_scan_corr = corr_for_persist(harness.sink.as_slice());
+    harness.step(
+        port_reply_with_body(old_scan_corr, Bytes::from_static(b"[]")),
+        1_100,
+    );
+    let old_http_corr = corr_for_http(harness.sink.as_slice());
+
+    // 同一 `(channel, windowToken)` 新请求在旧 HTTP 回包之前开始，必须让旧代际失效。
+    harness.step(query_tick_with_window(1, 20, "focus-window"), 1_200);
+    let current_scan_corr = corr_for_persist(harness.sink.as_slice());
+    harness.step(
+        port_reply_with_body(current_scan_corr, Bytes::from_static(b"[]")),
+        1_300,
+    );
+    let current_http_corr = corr_for_http(harness.sink.as_slice());
+
+    assert!(harness
+        .step(
+            port_reply_with_body(
+                old_http_corr,
+                latest_posts_reply(vec![remote_post(&sid(1), "tmp-old", 100, "old")]),
+            ),
+            1_400,
+        )
+        .is_empty());
+    assert!(emitted_values(harness.sink.as_slice()).is_empty());
+
+    assert!(matches!(
+        harness
+            .step(
+                port_reply_with_body(
+                    current_http_corr,
+                    latest_posts_reply(vec![remote_post(&sid(2), "tmp-current", 200, "current")]),
+                ),
+                1_500,
+            )
+            .as_slice(),
+        [EffectKind::Persist(_)]
+    ));
+    let current_cache_corr = corr_for_persist(harness.sink.as_slice());
+    assert_eq!(
+        harness.step(port_reply_ok(current_cache_corr), 1_600),
+        vec![EffectKind::Emit]
+    );
+    let events = emitted_values(harness.sink.as_slice());
+    let timeline = timeline_view(&events[0]);
+    assert_eq!(timeline["page"]["windowToken"], "focus-window");
+    assert_eq!(timeline["items"][0]["id"], sid(2));
 }
 
 #[test]

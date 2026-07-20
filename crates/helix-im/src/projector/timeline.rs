@@ -9,9 +9,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, MessageContentVm, MessageVm, ReplaceView, ReplaceViewKind,
-    SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
-    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
+    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageVm, ReplaceView,
+    ReplaceViewKind, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope,
+    TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm,
+    WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -89,21 +90,17 @@ impl TimelineProjector {
             .slots
             .get(&slot_key)
             .map_or(Ok(1), |slot| next_revision(slot.revision))?;
-        self.slots.insert(
-            slot_key,
-            TimelineSlot {
-                revision,
-                view: view.clone(),
-            },
-        );
-        Ok(SurfaceMutation {
+        let mutation = SurfaceMutation {
             surface: SurfaceId::MessageTimeline,
             scope,
             revision,
             base_revision: None,
             causation_id: None,
-            mutation: TypedSurfaceMutation::TimelineSnapshot { view },
-        })
+            mutation: TypedSurfaceMutation::TimelineSnapshot { view: view.clone() },
+        };
+        mutation.validate()?;
+        self.slots.insert(slot_key, TimelineSlot { revision, view });
+        Ok(mutation)
     }
 
     /// 对已 attach slot 以完整 `replaceView` 形式推进。v1 不下发客户端需解释的 row delta。
@@ -123,14 +120,7 @@ impl TimelineProjector {
         let base_revision = slot.revision;
         let view = build_view(&request, render_ready_rows)?;
         let revision = next_revision(base_revision)?;
-        self.slots.insert(
-            slot_key,
-            TimelineSlot {
-                revision,
-                view: view.clone(),
-            },
-        );
-        Ok(SurfaceMutation {
+        let mutation = SurfaceMutation {
             surface: SurfaceId::MessageTimeline,
             scope,
             revision,
@@ -139,10 +129,13 @@ impl TimelineProjector {
             mutation: TypedSurfaceMutation::TimelinePatch {
                 patch: ReplaceView {
                     kind: ReplaceViewKind::ReplaceView,
-                    view,
+                    view: view.clone(),
                 },
             },
-        })
+        };
+        mutation.validate()?;
+        self.slots.insert(slot_key, TimelineSlot { revision, view });
+        Ok(mutation)
     }
 
     pub fn current_view(&self, scope: &SurfaceScope) -> Option<&TimelineWindowVm> {
@@ -166,8 +159,10 @@ pub enum TimelineProjectionError {
     MissingSnapshot { slot: String },
     #[error("timeline surface data exceeds the v1 bounded contract")]
     SurfaceDataLimit,
-    #[error("timeline revision reached u64::MAX")]
+    #[error("timeline revision reached the exact-safe wire limit")]
     RevisionOverflow,
+    #[error(transparent)]
+    InvalidInteractionFrame(#[from] InteractionFrameError),
 }
 
 fn scope_and_slot_key(
@@ -262,14 +257,15 @@ fn message_from_render_ready(
     let revoked = bool_at(row, &["revoked", "revoke"]);
     let props = row.get("props").unwrap_or(&Value::Null);
     let content = content_from_row(row, props, revoked)?;
-    let delivery = delivery_from_row(row, revoked);
+    let delivery = delivery_from_row(row, revoked)?;
 
     let actions = action_bindings(row, &id);
     Ok(MessageVm {
         id,
         channel_id,
         author: UserRefVm { user_id: author_id },
-        created_at: integer_at(row, &["createdAt", "createAt", "create_at"]).unwrap_or_default(),
+        created_at: integer_at(row, &["createdAt", "createAt", "create_at"], "createdAt")?
+            .unwrap_or_default(),
         content,
         delivery,
         actions,
@@ -333,7 +329,9 @@ fn content_from_row(
             resource: surface_data(props, 0)?,
             thumbnail: optional_data(row.get("thumbnail"))?,
             file_name: row_string(row, &["fileName", "title", "text"]),
-            size: integer_at(row, &["size"]).unwrap_or_default().max(0) as u64,
+            size: integer_at(row, &["size"], "size")?
+                .unwrap_or_default()
+                .max(0) as u64,
             availability: SurfaceDataVm::Record(BTreeMap::new()),
         });
     }
@@ -346,22 +344,26 @@ fn content_from_row(
     Ok(MessageContentVm::Text { text })
 }
 
-fn delivery_from_row(row: &Value, revoked: bool) -> DeliveryVm {
+fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineProjectionError> {
     if revoked {
-        return DeliveryVm::Recalled;
+        return Ok(DeliveryVm::Recalled);
     }
     match row_string(row, &["sendStatus", "send_status"]).as_str() {
-        "uploading" => DeliveryVm::Uploading {
-            progress_percent: integer_at(row, &["progressPercent", "progress_percent"])
-                .unwrap_or_default()
-                .clamp(0, 100) as u8,
-        },
-        "sending" => DeliveryVm::Sending,
-        "failed" | "unsend" => DeliveryVm::Failed {
+        "uploading" => Ok(DeliveryVm::Uploading {
+            progress_percent: integer_at(
+                row,
+                &["progressPercent", "progress_percent"],
+                "progressPercent",
+            )?
+            .unwrap_or_default()
+            .clamp(0, 100) as u8,
+        }),
+        "sending" => Ok(DeliveryVm::Sending),
+        "failed" | "unsend" => Ok(DeliveryVm::Failed {
             reason: row_string(row, &["failureReason", "error"]),
             retryable: bool_at(row, &["canRetry"]),
-        },
-        _ => DeliveryVm::Sent,
+        }),
+        _ => Ok(DeliveryVm::Sent),
     }
 }
 
@@ -502,9 +504,31 @@ fn row_string(row: &Value, keys: &[&str]) -> String {
         .to_string()
 }
 
-fn integer_at(row: &Value, keys: &[&str]) -> Option<i64> {
-    keys.iter()
-        .find_map(|key| row.get(*key).and_then(Value::as_i64))
+fn integer_at(
+    row: &Value,
+    keys: &[&str],
+    field: &'static str,
+) -> Result<Option<i64>, TimelineProjectionError> {
+    for key in keys {
+        let Some(Value::Number(number)) = row.get(*key) else {
+            continue;
+        };
+        let Some(value) = number.as_i64() else {
+            return Err(unsafe_wire_number(field));
+        };
+        if !(MIN_SAFE_JSON_INTEGER..=MAX_SAFE_JSON_INTEGER as i64).contains(&value) {
+            return Err(unsafe_wire_number(field));
+        }
+        return Ok(Some(value));
+    }
+    Ok(None)
+}
+
+fn unsafe_wire_number(field: &'static str) -> TimelineProjectionError {
+    TimelineProjectionError::InvalidInteractionFrame(InteractionFrameError::UnsafeWireNumber {
+        surface: "message.timeline",
+        field,
+    })
 }
 
 fn bool_at(row: &Value, keys: &[&str]) -> bool {
@@ -521,6 +545,7 @@ fn bool_at(row: &Value, keys: &[&str]) -> bool {
 fn next_revision(current: u64) -> Result<u64, TimelineProjectionError> {
     current
         .checked_add(1)
+        .filter(|revision| *revision <= MAX_SAFE_JSON_INTEGER)
         .ok_or(TimelineProjectionError::RevisionOverflow)
 }
 
@@ -594,7 +619,11 @@ mod tests {
             .slots
             .get_mut(&scope.canonical_key())
             .expect("snapshot slot")
-            .revision = u64::MAX;
+            .revision = MAX_SAFE_JSON_INTEGER - 1;
+        let boundary_patch = projector
+            .patch_from_render_ready(TimelineWindowRequest::latest("channel-1"), &rows, None)
+            .expect("the exact-safe maximum itself remains representable");
+        assert_eq!(boundary_patch.revision, MAX_SAFE_JSON_INTEGER);
         assert!(matches!(
             projector.patch_from_render_ready(
                 TimelineWindowRequest::latest("channel-1"),
@@ -603,5 +632,72 @@ mod tests {
             ),
             Err(TimelineProjectionError::RevisionOverflow)
         ));
+    }
+
+    #[test]
+    fn unsafe_persisted_number_is_rejected_before_timeline_slot_commits() {
+        let mut projector = TimelineProjector::default();
+        let request = TimelineWindowRequest::latest("channel-1");
+        let scope = SurfaceScope::Timeline {
+            channel_id: "channel-1".to_string(),
+            window_token: "latest".to_string(),
+        };
+        let mut just_outside_safe_range = row(1);
+        just_outside_safe_range["createAt"] = serde_json::json!(MAX_SAFE_JSON_INTEGER as i64 + 1);
+
+        assert!(matches!(
+            projector.snapshot_from_render_ready(request.clone(), &[just_outside_safe_range]),
+            Err(TimelineProjectionError::InvalidInteractionFrame(
+                InteractionFrameError::UnsafeWireNumber {
+                    field: "createdAt",
+                    ..
+                }
+            ))
+        ));
+        assert!(projector.current_view(&scope).is_none());
+
+        let valid = row(2);
+        projector
+            .snapshot_from_render_ready(request.clone(), std::slice::from_ref(&valid))
+            .expect("valid row attaches the timeline slot");
+        let before = projector.current_view(&scope).cloned();
+        let mut unsafe_created_at = row(3);
+        unsafe_created_at["createAt"] = serde_json::json!(u64::MAX);
+
+        assert!(matches!(
+            projector.patch_from_render_ready(request.clone(), &[unsafe_created_at], None),
+            Err(TimelineProjectionError::InvalidInteractionFrame(
+                InteractionFrameError::UnsafeWireNumber {
+                    field: "createdAt",
+                    ..
+                }
+            ))
+        ));
+        assert_eq!(projector.current_view(&scope).cloned(), before);
+
+        let mut unsafe_media_size = row(4);
+        unsafe_media_size["type"] = serde_json::json!("FILE");
+        unsafe_media_size["size"] = serde_json::json!(u64::MAX);
+        assert!(matches!(
+            projector.patch_from_render_ready(request.clone(), &[unsafe_media_size], None),
+            Err(TimelineProjectionError::InvalidInteractionFrame(
+                InteractionFrameError::UnsafeWireNumber { field: "size", .. }
+            ))
+        ));
+        assert_eq!(projector.current_view(&scope).cloned(), before);
+
+        let mut unsafe_upload_progress = row(5);
+        unsafe_upload_progress["sendStatus"] = serde_json::json!("uploading");
+        unsafe_upload_progress["progressPercent"] = serde_json::json!(u64::MAX);
+        assert!(matches!(
+            projector.patch_from_render_ready(request, &[unsafe_upload_progress], None),
+            Err(TimelineProjectionError::InvalidInteractionFrame(
+                InteractionFrameError::UnsafeWireNumber {
+                    field: "progressPercent",
+                    ..
+                }
+            ))
+        ));
+        assert_eq!(projector.current_view(&scope).cloned(), before);
     }
 }

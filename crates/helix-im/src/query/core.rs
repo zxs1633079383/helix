@@ -252,10 +252,8 @@ pub fn emit_dialog_list_frame_result(
     scope: crate::dialog_frame::DialogListScope,
     state: &mut crate::dialog_frame::DialogListFrameState,
 ) -> Option<Effect> {
-    state.snapshot(
-        scope,
-        crate::dialog_frame::rows_from_dialog_scan(reply_bytes),
-    )
+    let rows = crate::dialog_frame::rows_from_dialog_scan(reply_bytes)?;
+    state.snapshot(scope, rows)
 }
 
 /// 单频道 hydration 写入成功后，仅在已有左侧列表 snapshot 时发布同一 surface 的属性 patch。

@@ -90,8 +90,11 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let request = super::parse_message_query(payload)?;
+        let query_generation = self
+            .state
+            .begin_message_query_generation(request.channel_id, request.window_token.as_str());
         if self.local_store_mode == LocalStoreMode::Disabled {
-            return self.start_remote_message_query(request, Vec::new(), out);
+            return self.start_remote_message_query(request, Vec::new(), query_generation, out);
         }
 
         let corr = self.alloc_corr_internal();
@@ -101,6 +104,7 @@ impl ImModule {
             CorrelationContext::MessageQueryLocal {
                 request: Box::new(request),
                 query_session_epoch: self.state.query_session_epoch,
+                query_generation,
             },
         );
         Ok(())
@@ -110,10 +114,16 @@ impl ImModule {
         &mut self,
         request: MessageQueryRequest,
         query_session_epoch: u64,
+        query_generation: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if query_session_epoch != self.state.query_session_epoch {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         let mut local_rows_desc = match outcome {
@@ -157,7 +167,7 @@ impl ImModule {
             out.push(self.emit_timeline_snapshot(&request, &local_rows_desc)?);
             return Ok(());
         }
-        self.start_remote_message_query(request, local_rows_desc, out)
+        self.start_remote_message_query(request, local_rows_desc, query_generation, out)
     }
 
     pub(crate) fn handle_message_query_remote_reply(
@@ -165,10 +175,16 @@ impl ImModule {
         request: MessageQueryRequest,
         local_rows_desc: Vec<Value>,
         query_session_epoch: u64,
+        query_generation: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if query_session_epoch != self.state.query_session_epoch {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         let reply = match outcome {
@@ -251,6 +267,7 @@ impl ImModule {
                 merged_rows_desc: Box::new(merged_rows_desc),
                 coverage,
                 query_session_epoch,
+                query_generation,
             },
         );
         Ok(())
@@ -262,15 +279,26 @@ impl ImModule {
         merged_rows_desc: Vec<Value>,
         coverage: Option<RecentMessageCoverage>,
         query_session_epoch: u64,
+        query_generation: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if query_session_epoch != self.state.query_session_epoch {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         match outcome {
             PortOutcome::Ok(_) => {
-                if query_session_epoch == self.state.query_session_epoch {
+                if self.is_current_message_query(
+                    request.channel_id,
+                    &request.window_token,
+                    query_session_epoch,
+                    query_generation,
+                ) {
                     if let Some(coverage) = coverage {
                         self.state
                             .recent_message_coverage
@@ -292,6 +320,7 @@ impl ImModule {
         &mut self,
         request: MessageQueryRequest,
         local_rows_desc: Vec<Value>,
+        query_generation: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
@@ -329,6 +358,7 @@ impl ImModule {
                 request: Box::new(request),
                 local_rows_desc: Box::new(local_rows_desc),
                 query_session_epoch: self.state.query_session_epoch,
+                query_generation,
             },
         );
         Ok(())
@@ -344,6 +374,21 @@ impl ImModule {
             .get(&channel_id)
             .is_some_and(|target| channel.cursor.value() < *target);
         behind_target || channel.inflight_sync.is_some() || !channel.buffer.is_empty()
+    }
+
+    fn is_current_message_query(
+        &self,
+        channel_id: ChannelId,
+        window_token: &str,
+        query_session_epoch: u64,
+        query_generation: u64,
+    ) -> bool {
+        query_session_epoch == self.state.query_session_epoch
+            && self.state.is_current_message_query_generation(
+                channel_id,
+                window_token,
+                query_generation,
+            )
     }
 
     /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::interaction_frame::UnreadSummaryVm;
+use crate::interaction_frame::{UnreadSummaryVm, MAX_SAFE_JSON_INTEGER};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewerChannelUnread {
@@ -42,10 +42,10 @@ pub struct UnreadSummaryPatch {
 /// 未读聚合 slot 无法继续推进时的 fail-closed 信号。
 ///
 /// revision 是客户端应用 frame 的因果栅栏；回绕到 1 会使新 patch 看起来像陈旧快照，因此
-/// 达到 `u64::MAX` 后必须保留既有 slot，等待宿主 reset/重新 attach。
+/// 达到 JS exact-safe revision 上限后必须保留既有 slot，等待宿主 reset/重新 attach。
 #[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 pub enum UnreadSummaryProjectionError {
-    #[error("unread summary revision reached u64::MAX")]
+    #[error("unread summary revision reached the exact-safe wire limit")]
     RevisionOverflow,
 }
 
@@ -216,6 +216,7 @@ impl UnreadSummaryProjector {
 fn next_revision(current: u64) -> Result<u64, UnreadSummaryProjectionError> {
     current
         .checked_add(1)
+        .filter(|revision| *revision <= MAX_SAFE_JSON_INTEGER)
         .ok_or(UnreadSummaryProjectionError::RevisionOverflow)
 }
 

@@ -219,18 +219,25 @@ impl ImModule {
             CorrelationContext::MessageQueryLocal {
                 request,
                 query_session_epoch,
-            } => {
-                self.handle_message_query_local_reply(*request, query_session_epoch, outcome, out)?
-            }
+                query_generation,
+            } => self.handle_message_query_local_reply(
+                *request,
+                query_session_epoch,
+                query_generation,
+                outcome,
+                out,
+            )?,
 
             CorrelationContext::MessageQueryRemote {
                 request,
                 local_rows_desc,
                 query_session_epoch,
+                query_generation,
             } => self.handle_message_query_remote_reply(
                 *request,
                 *local_rows_desc,
                 query_session_epoch,
+                query_generation,
                 outcome,
                 out,
             )?,
@@ -240,11 +247,13 @@ impl ImModule {
                 merged_rows_desc,
                 coverage,
                 query_session_epoch,
+                query_generation,
             } => self.handle_message_query_cache_reply(
                 *request,
                 *merged_rows_desc,
                 coverage,
                 query_session_epoch,
+                query_generation,
                 outcome,
                 out,
             )?,

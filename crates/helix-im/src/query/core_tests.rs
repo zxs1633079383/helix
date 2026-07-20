@@ -188,6 +188,45 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
 }
 
 #[test]
+fn unsafe_dialog_scan_row_suppresses_the_entire_snapshot_without_partial_commit() {
+    let valid_rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch-safe","display_name":"安全会话","type":"P","last_post_at":1}
+    ]))
+    .unwrap();
+    let mut state = crate::dialog_frame::DialogListFrameState::default();
+    emit_dialog_list_frame_result(
+        &valid_rows,
+        crate::dialog_frame::DialogListScope::new("444", "team-a"),
+        &mut state,
+    )
+    .expect("initial snapshot");
+
+    let mixed_rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch-safe","display_name":"安全会话","type":"P","last_post_at":2},
+        {"id":"ch-unsafe","display_name":"不可表示会话","type":"P","last_post_at":u64::MAX}
+    ]))
+    .unwrap();
+    assert!(
+        emit_dialog_list_frame_result(
+            &mixed_rows,
+            crate::dialog_frame::DialogListScope::new("444", "team-a"),
+            &mut state,
+        )
+        .is_none(),
+        "one unsafe persisted row must not publish a partial authoritative list"
+    );
+
+    let next = emit_dialog_list_frame_result(
+        &valid_rows,
+        crate::dialog_frame::DialogListScope::new("444", "team-a"),
+        &mut state,
+    )
+    .expect("a later valid scan remains usable");
+    let value = emit_json(next).expect("frame emit");
+    assert_eq!(value["data"]["mutations"][0]["revision"], 2);
+}
+
+#[test]
 fn render_ready_dialog_rows_keep_terminal_fields_s5() {
     // S5（issue #54）：CL 行升 render-ready 终态——前端零 normalize/零 ++。
     let rows = serde_json::to_vec(&serde_json::json!([

@@ -119,6 +119,7 @@ pub enum CorrelationContext {
     MessageQueryLocal {
         request: Box<crate::query::MessageQueryRequest>,
         query_session_epoch: u64,
+        query_generation: u64,
     },
 
     /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后合并并按能力缓存。
@@ -126,6 +127,7 @@ pub enum CorrelationContext {
         request: Box<crate::query::MessageQueryRequest>,
         local_rows_desc: Box<Vec<serde_json::Value>>,
         query_session_epoch: u64,
+        query_generation: u64,
     },
 
     /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。
@@ -134,6 +136,7 @@ pub enum CorrelationContext {
         merged_rows_desc: Box<Vec<serde_json::Value>>,
         coverage: Option<crate::query::local_first::RecentMessageCoverage>,
         query_session_epoch: u64,
+        query_generation: u64,
     },
 
     /// G-05 ID 转发的本地消息逐条 Get 回报；全部组装完成后才发 createPosts HTTP。

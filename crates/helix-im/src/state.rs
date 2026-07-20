@@ -149,6 +149,10 @@ pub struct ImState {
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
 
+    /// 同一 `(channel, windowToken)` local-first 查询的最新代际。每次发起查询都推进该值，
+    /// 使同会话内晚到的旧 Scan/HTTP/cache 回包不能覆盖新窗口结果。
+    pub(crate) message_query_generations: HashMap<(ChannelId, String), u64>,
+
     /// 左侧会话列表已发布的 render-ready 行与 revision。只用于构造原子 frame，不保存 raw storage 行。
     pub(crate) dialog_list_frame: crate::dialog_frame::DialogListFrameState,
 
@@ -200,6 +204,7 @@ impl ImState {
             pending_increment_projections: Vec::new(),
             hydration_pending: HashSet::new(),
             recent_message_coverage: HashMap::new(),
+            message_query_generations: HashMap::new(),
             dialog_list_frame: crate::dialog_frame::DialogListFrameState::default(),
             timeline_projector: crate::projector::timeline::TimelineProjector::default(),
             query_session_epoch: 0,
@@ -227,6 +232,7 @@ impl ImState {
 
     pub(crate) fn reset_recent_query_coverage(&mut self) {
         self.recent_message_coverage.clear();
+        self.message_query_generations.clear();
         self.timeline_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
         self.corr_map.retain(|_, context| {
@@ -237,6 +243,47 @@ impl ImState {
                     | CorrelationContext::MessageQueryCache { .. }
             )
         });
+    }
+
+    /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与
+    /// coverage 都不能在新 viewer 下继续出帧。该清理不影响发送/同步等非 query 业务 corr。
+    pub(crate) fn reset_surface_runtime_for_identity_change(&mut self) {
+        self.reset_recent_query_coverage();
+        self.dialog_list_frame.reset();
+        self.corr_map
+            .retain(|_, context| !matches!(context, CorrelationContext::DialogListQuery));
+    }
+
+    /// 为一个 timeline query slot 分配本会话最新代际。极端代际耗尽时先整体失效旧 query
+    /// corr，再从 1 重启，避免回绕值与仍在途的旧回包重新相等。
+    pub(crate) fn begin_message_query_generation(
+        &mut self,
+        channel_id: ChannelId,
+        window_token: &str,
+    ) -> u64 {
+        let key = (channel_id, window_token.to_string());
+        let Some(current) = self.message_query_generations.get(&key).copied() else {
+            self.message_query_generations.insert(key, 1);
+            return 1;
+        };
+        let Some(next) = current.checked_add(1) else {
+            self.reset_recent_query_coverage();
+            self.message_query_generations.insert(key, 1);
+            return 1;
+        };
+        self.message_query_generations.insert(key, next);
+        next
+    }
+
+    pub(crate) fn is_current_message_query_generation(
+        &self,
+        channel_id: ChannelId,
+        window_token: &str,
+        generation: u64,
+    ) -> bool {
+        self.message_query_generations
+            .get(&(channel_id, window_token.to_string()))
+            .is_some_and(|current| *current == generation)
     }
 
     pub(crate) fn invalidate_recent_message_coverage(&mut self, channel_id: ChannelId) {

@@ -144,22 +144,38 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
     .expect("frame emit");
 
     assert_eq!(value["event"], "im:interaction:frame");
-    assert_eq!(value["data"]["surface"], "message.left-dialog-list");
-    assert_eq!(value["data"]["scope"]["viewerUserId"], "444");
-    assert_eq!(value["data"]["mode"], "snapshot");
+    assert_eq!(value["data"]["schemaVersion"], 1);
+    let mutation = &value["data"]["mutations"][0];
+    assert_eq!(mutation["surface"], "message.left-dialog-list");
+    assert_eq!(mutation["scope"]["userId"], "444");
+    assert_eq!(mutation["mutation"]["kind"], "dialogListSnapshot");
     assert_eq!(
-        value["data"]["snapshot"]["orderedChannelIds"],
-        serde_json::json!(["ch-group", "ch-direct"])
+        mutation["mutation"]["view"]["sections"]
+            .as_array()
+            .expect("dialog sections")
+            .iter()
+            .flat_map(|section| {
+                section["items"]
+                    .as_array()
+                    .expect("section rows")
+                    .iter()
+                    .map(|row| row["channelId"].clone())
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            serde_json::json!("ch-group"),
+            serde_json::json!("ch-direct")
+        ]
     );
     assert_eq!(
-        value["data"]["snapshot"]["rows"][0]["badges"]["unreadCount"],
+        mutation["mutation"]["view"]["sections"][0]["items"][0]["unreadCount"],
         4
     );
     assert_eq!(
-        value["data"]["snapshot"]["rows"][0]["preview"]["text"],
+        mutation["mutation"]["view"]["sections"][0]["items"][0]["preview"]["text"],
         "交互稿已上传"
     );
-    assert!(value["data"]["snapshot"]["rows"][0]
+    assert!(mutation["mutation"]["view"]["sections"][0]["items"][0]
         .get("topicRows")
         .is_none());
 }

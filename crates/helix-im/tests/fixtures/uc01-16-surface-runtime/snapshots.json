@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "transactionId": "uc01-16-canonical-snapshot-1",
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "dialogListSnapshot",
+        "view": {
+          "sections": [{
+            "kind": "normal",
+            "items": [{
+              "channelId": "channel-1",
+              "channelKind": "group",
+              "title": { "text": "Design" },
+              "avatar": { "resource": "channel-avatar-1", "fallbackText": "Design" },
+              "companyTag": "CSES",
+              "preview": { "kind": "text", "author": { "userId": "user-2" }, "text": "hello" },
+              "lastActivityAt": 1700000000,
+              "unreadCount": 2,
+              "mentionCount": 1,
+              "urgentCount": 0,
+              "topicCount": 1,
+              "hasScheduledMessage": false,
+              "isTop": false,
+              "notificationMode": "all",
+              "lifecycle": { "state": "active" },
+              "actions": []
+            }],
+            "page": { "windowToken": "dialog-normal-1", "hasOlder": false, "hasNewer": false, "hasMore": false }
+          }],
+          "state": "ready"
+        }
+      }
+    },
+    {
+      "surface": "message.unread-summary",
+      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "unreadSummarySnapshot",
+        "view": { "unreadTotal": 2, "mentionTotal": 1, "urgentTotal": 0, "unreadChannelCount": 1 }
+      }
+    },
+    {
+      "surface": "message.timeline",
+      "scope": { "kind": "timeline", "channelId": "channel-1", "windowToken": "latest-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "timelineSnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "anchor": { "messageId": "message-1", "mode": "latest" },
+          "items": [{
+            "id": "message-1",
+            "channelId": "channel-1",
+            "author": { "userId": "user-2" },
+            "createdAt": 1700000000,
+            "content": { "kind": "text", "text": "hello" },
+            "delivery": { "kind": "sent" },
+            "actions": [],
+            "replySummary": {},
+            "readReceipt": {},
+            "templateConfirmation": {},
+            "urgency": {},
+            "pinned": false,
+            "bookmarked": false,
+            "topicLink": {}
+          }],
+          "firstUnreadMessageId": "message-1",
+          "targetMessageId": "message-1",
+          "page": { "windowToken": "latest-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
+          "state": "ready"
+        }
+      }
+    },
+    {
+      "surface": "message.thread-detail",
+      "scope": { "kind": "thread", "channelId": "channel-1", "rootMessageId": "message-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "threadDetailSnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "root": {
+            "id": "message-1",
+            "channelId": "channel-1",
+            "author": { "userId": "user-2" },
+            "createdAt": 1700000000,
+            "content": { "kind": "text", "text": "root" },
+            "delivery": { "kind": "sent" },
+            "actions": [],
+            "replySummary": {},
+            "readReceipt": {},
+            "pinned": false,
+            "bookmarked": false
+          },
+          "orderedReplyIds": ["message-2"],
+          "nodes": {
+            "message-2": {
+              "id": "message-2",
+              "channelId": "channel-1",
+              "author": { "userId": "user-3" },
+              "createdAt": 1700000001,
+              "content": { "kind": "text", "text": "reply" },
+              "delivery": { "kind": "sent" },
+              "actions": [],
+              "replySummary": {},
+              "readReceipt": {},
+              "pinned": false,
+              "bookmarked": false
+            }
+          },
+          "replyCount": 1,
+          "page": { "windowToken": "thread-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
+          "state": "ready"
+        }
+      }
+    },
+    {
+      "surface": "message.channel-summary",
+      "scope": { "kind": "channel", "channelId": "channel-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "channelSummarySnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "title": { "text": "Design" },
+          "avatar": { "resource": "channel-avatar-1", "fallbackText": "Design" },
+          "noticeSummary": "Ship safely",
+          "purpose": "Surface contract",
+          "lifecycle": { "state": "active" },
+          "memberCount": 3,
+          "onlineCount": 1,
+          "topicCount": 1,
+          "notificationMode": "all",
+          "actions": [],
+          "settingsVersion": 1
+        }
+      }
+    },
+    {
+      "surface": "message.member-roster",
+      "scope": { "kind": "memberRoster", "channelId": "channel-1", "cursor": "first-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "memberRosterSnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "items": [{
+            "user": { "userId": "user-2" },
+            "nickname": "Ada",
+            "role": "owner",
+            "presence": "online",
+            "membershipState": "active",
+            "actions": []
+          }],
+          "page": { "windowToken": "first-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
+          "memberCount": 3,
+          "onlineCount": 1,
+          "state": "ready"
+        }
+      }
+    },
+    {
+      "surface": "message.topic-list",
+      "scope": { "kind": "topicList", "parentChannelId": "channel-1", "cursor": "first-1" },
+      "revision": 1,
+      "mutation": {
+        "kind": "topicListSnapshot",
+        "view": {
+          "parentChannelId": "channel-1",
+          "items": [{
+            "topicChannelId": "topic-1",
+            "rootMessageId": "message-1",
+            "title": { "text": "Roadmap" },
+            "rootMessagePreview": { "kind": "text", "author": { "userId": "user-2" }, "text": "hello" },
+            "lastActivityAt": 1700000000,
+            "messageCount": 2,
+            "avatar": { "resource": null, "fallbackText": "Roadmap" },
+            "lifecycle": { "state": "active" },
+            "actions": []
+          }],
+          "page": { "windowToken": "first-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
+          "topicCount": 1,
+          "state": "ready"
+        }
+      }
+    },
+    {
+      "surface": "message.participant-receipts",
+      "scope": { "kind": "participantReceipts", "channelId": "channel-1", "messageId": "message-1", "receiptKind": "read" },
+      "revision": 1,
+      "mutation": {
+        "kind": "participantReceiptsSnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "messageId": "message-1",
+          "kind": "read",
+          "summary": {},
+          "completed": [{
+            "user": { "userId": "user-2" },
+            "memberRole": "member",
+            "status": "completed",
+            "completedAt": 1700000002
+          }],
+          "pending": [{
+            "user": { "userId": "user-3" },
+            "memberRole": "member",
+            "status": "pending"
+          }],
+          "page": { "windowToken": "receipt-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
+          "state": "ready"
+        }
+      }
+    }
+  ]
+}

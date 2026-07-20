@@ -998,15 +998,7 @@ fn im_interaction_frame_freezes_left_dialog_list_outer_contract() {
     assert_frozen(
         &effect,
         "im:interaction:frame",
-        &[
-            "schemaVersion",
-            "surface",
-            "frameId",
-            "scope",
-            "mode",
-            "revision",
-            "snapshot",
-        ],
+        &["schemaVersion", "transactionId", "mutations"],
     );
 }
 

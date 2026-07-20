@@ -413,7 +413,6 @@ fn create_channel_maps_only_canonical_fields() {
             "type": "O",
             "user_ids": ["u1", "u2"],
             "display_name": "群",
-            "picture": "picture-1",
             "force_create": true
         }),
     ));
@@ -424,7 +423,6 @@ fn create_channel_maps_only_canonical_fields() {
             "type": "O",
             "userIds": ["u1", "u2"],
             "displayName": "群",
-            "picture": "picture-1",
             "forceCreate": true
         })
     );
@@ -436,28 +434,28 @@ fn create_channel_and_make_topic_reject_legacy_unknown_and_wrong_types() {
         "im_create_channel",
         json!({
             "type": "O", "user_ids": ["u1"], "display_name": "群",
-            "picture": "picture-1", "force_create": true, "self_id": "legacy"
+            "force_create": true, "picture": "legacy-client-avatar"
         })
     ));
     assert!(err(
         "im_create_channel",
         json!({
             "type": "O", "user_ids": [], "display_name": "群",
-            "picture": "picture-1", "force_create": true
+            "force_create": true
         })
     ));
     assert!(err(
         "im_create_channel",
         json!({
             "type": "O", "user_ids": ["u1", 2], "display_name": "群",
-            "picture": "picture-1", "force_create": true
+            "force_create": true
         })
     ));
     assert!(err(
         "im_create_channel",
         json!({
             "type": "O", "user_ids": ["u1"], "display_name": "群",
-            "picture": "picture-1", "force_create": "true"
+            "force_create": "true"
         })
     ));
 

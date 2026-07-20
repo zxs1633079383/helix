@@ -348,7 +348,7 @@ fn every_registered_command_is_dispatchable() {
             "im_create_channel",
             json!({
                 "type": "O", "user_ids": ["u1"], "display_name": "g",
-                "picture": "picture-1", "force_create": true
+                "force_create": true
             }),
         ),
         (

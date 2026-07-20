@@ -46,7 +46,8 @@ inventory::submit! {
 }
 
 /// G-15a POST /api/cses/channel/create — Helix 只做 canonical command 到 Go boundary 的 casing
-/// adapter。会话身份、team 与成员角色由 Go 根据 session 派生，不能由跨端内核生成或信任。
+/// adapter。会话身份、team、成员角色与默认 USER 头像均由 Go 根据 session 派生，不能由跨端内核
+/// 生成或信任；自定义 PICTURE 头像只可走独立的改头像命令。
 struct CreateChannelCommand;
 impl OutboundCommand for CreateChannelCommand {
     fn name(&self) -> &'static str {
@@ -55,19 +56,12 @@ impl OutboundCommand for CreateChannelCommand {
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
         require_exact_keys(
             args,
-            &[
-                "type",
-                "user_ids",
-                "display_name",
-                "picture",
-                "force_create",
-            ],
+            &["type", "user_ids", "display_name", "force_create"],
             self.name(),
         )?;
         let channel_type = require_str(args, "type", self.name())?;
         let user_ids = require_non_empty_string_array(args, "user_ids", self.name())?;
         let display_name = require_str(args, "display_name", self.name())?;
-        let picture = require_str(args, "picture", self.name())?;
         let force_create = require_bool(args, "force_create", self.name())?;
         Ok((
             "channel/create",
@@ -75,7 +69,6 @@ impl OutboundCommand for CreateChannelCommand {
                 "type": channel_type,
                 "userIds": user_ids,
                 "displayName": display_name,
-                "picture": picture,
                 "forceCreate": force_create,
             }),
         ))

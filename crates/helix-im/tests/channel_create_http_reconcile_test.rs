@@ -45,7 +45,6 @@ fn create_http_success_persists_only_created_channel_and_emits_projection() {
                 "type": "O",
                 "user_ids": ["creator", "member-a", "member-b"],
                 "display_name": "断线也可见",
-                "picture": "picture-1",
                 "force_create": true
             }),
         ),
@@ -100,7 +99,6 @@ fn create_http_business_failure_does_not_fabricate_channel() {
                 "type": "O",
                 "user_ids": ["creator"],
                 "display_name": "失败群",
-                "picture": "picture-1",
                 "force_create": true
             }),
         ),

@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 7; raw matrix sha256: `54fcfc90b1c8c879f0e576e4dfda3fb73fa83a27d1b161689bc74882e5f3c046`; semantic matrix sha256: `f8572ee0d028a6968e3c4fed70fd2f17e24b1c5e2559d8390684790b0920b73e`。
+> contract epoch: 8; raw matrix sha256: `1a38c4ff9b95cb8fc46ed6e98841025dc0ca1f6cda93b89a80c300a2e8b52e29`; semantic matrix sha256: `aaa67d4779cb1cf63dea978c4e9d6f1e49794244d851913c954e7d5b90ce13c3`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界
@@ -39,7 +39,7 @@
 | im_channels_view | G-13 / UC-3.1 会话已读 | channels | ∅ | http_write, storage_upsert, projection | im:post:read, im:channel:update | active/declared |
 | im_post_read | G-14 / UC-3.2 单条已读 | channel_id, posts | ∅ | http_write, storage_upsert, projection | im:post:read | active/declared |
 | im_template_received | G-14a / UC-3.3 模板已收到 | post_id | ∅ | http_write, projection | im:post:updated | active/declared |
-| im_create_channel | G-15a / UC-5.1 创建群聊 | type, user_ids, display_name, picture, force_create | ∅ | http_write, storage_upsert, projection | im:channel:created, im:channel:members | active/declared |
+| im_create_channel | G-15a / UC-5.1 创建群聊 | type, user_ids, display_name, force_create | ∅ | http_write, storage_upsert, projection | im:channel:created, im:channel:members | active/declared |
 | im_make_topic | G-15 / UC-5.2 创建话题 | root_id, user_ids, picture | ∅ | http_write, storage_upsert, projection | im:channel:created, im:channel:replies | active/declared |
 | im_channel_close | G-16 / UC-5.3 关闭/退出群 | channel_id | ∅ | http_write, storage_upsert, projection | im:channel:closed, im:channel:left | active/declared |
 | im_channel_leave | G-16 / UC-5.3 关闭/退出群 | channel_id | ∅ | http_write, storage_upsert, projection | im:channel:closed, im:channel:left | active/declared |

@@ -64,9 +64,9 @@ uc: "5.1"
 name: 创建群聊
 phase: P1
 preconditions: [connection_id]
-invoke: { command: im_create_channel, args: { type: "P", user_ids: ["$member_user_ids"], display_name: "t", picture: "", force_create: false } }
+invoke: { command: im_create_channel, args: { type: "P", user_ids: ["$member_user_ids"], display_name: "t", force_create: false } }
 expect:
-  outbound: { method: POST, path: /api/cses/channel/create, gateway: Im, body_keys: [type, users, displayName, picture, forceCreate] }
+  outbound: { method: POST, path: /api/cses/channel/create, gateway: Im, body_keys: [type, userIds, displayName, forceCreate] }
   ws:
     - { action: channel_created, carries: [data.id, data.channel] }
     - { action: channel_member_update, carries: [data.channelId] }

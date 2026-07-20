@@ -187,7 +187,7 @@ fn create_and_make_topic_build_body_with_real_endpoint() {
         "im_create_channel",
         json!({
             "type": "O", "user_ids": ["u1"], "display_name": "g",
-            "picture": "picture-1", "force_create": true
+            "force_create": true
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
@@ -195,7 +195,7 @@ fn create_and_make_topic_build_body_with_real_endpoint() {
         body,
         json!({
             "type": "O", "userIds": ["u1"], "displayName": "g",
-            "picture": "picture-1", "forceCreate": true
+            "forceCreate": true
         })
     );
 

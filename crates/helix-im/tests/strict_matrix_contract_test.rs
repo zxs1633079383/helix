@@ -352,14 +352,20 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 7);
+    assert_eq!(matrix.contract_epoch, 8);
 
     let create = gate(&matrix, "G-15a");
     assert!(create
         .http
         .request
-        .contains("{type,userIds,displayName,picture,forceCreate}"));
-    for field in ["data", "id", "displayName", "type", "teamId"] {
+        .contains("{type,userIds,displayName,forceCreate}"));
+    for invariant in ["pictureType=USER", "picture.userIds", "不得提交 team/role/owner/picture"] {
+        assert!(
+            create.http.request.contains(invariant),
+            "G-15a request 必须冻结默认头像边界: {invariant}"
+        );
+    }
+    for field in ["data", "id", "displayName", "type", "teamId", "pictureType", "picture"] {
         assert!(
             create.http.response.contains(field),
             "G-15a response 缺 {field}"

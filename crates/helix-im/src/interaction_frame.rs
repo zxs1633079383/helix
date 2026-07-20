@@ -10,6 +10,9 @@ use thiserror::Error;
 
 pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
+/// v1 wire integers must remain lossless when consumed as JavaScript `number` values.
+pub const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+pub const MIN_SAFE_JSON_INTEGER: i64 = -9_007_199_254_740_991;
 const MAX_SURFACE_DATA_DEPTH: usize = 8;
 const MAX_SURFACE_DATA_ITEMS: usize = 128;
 
@@ -423,6 +426,10 @@ impl SurfaceMutation {
                 surface: self.surface.as_str(),
             });
         }
+        validate_wire_u64(self.surface, "revision", self.revision)?;
+        if let Some(base_revision) = self.base_revision {
+            validate_wire_u64(self.surface, "baseRevision", base_revision)?;
+        }
         if self.revision == 0 {
             return Err(InteractionFrameError::ZeroRevision {
                 surface: self.surface.as_str(),
@@ -473,6 +480,11 @@ pub enum InteractionFrameError {
     ScopeMismatch { surface: &'static str },
     #[error("surface {surface} has revision 0")]
     ZeroRevision { surface: &'static str },
+    #[error("surface {surface} field {field} exceeds the v1 JavaScript exact-safe numeric range")]
+    UnsafeWireNumber {
+        surface: &'static str,
+        field: &'static str,
+    },
     #[error("surface {surface} mutation kind does not match its surface")]
     MutationMismatch { surface: &'static str },
     #[error("surface {surface} patch has no baseRevision")]
@@ -686,7 +698,8 @@ pub struct TimelineAnchorVm {
 /// 有界的递归展示资料，不允许 raw WS/HTTP payload 泄漏到 surface 合同。
 ///
 /// 4.3/4.8 未细化的摘要值采用此类型；它只允许 JSON 的基础展示数据，不接受任意
-/// `serde_json::Value` 作为领域旁路。
+/// `serde_json::Value` 作为领域旁路。整数必须在 JavaScript exact-safe 范围内；小数以
+/// 有限 IEEE-754 binary64 语义传输，要求无损十进制的值由调用方编码为字符串。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SurfaceDataVm {
@@ -1052,6 +1065,7 @@ fn validate_dialog_list(view: &DialogListVm) -> Result<(), InteractionFrameError
             if !channel_ids.insert(row.channel_id.as_str()) {
                 return invalid_view(surface, "dialog row channelId must be unique");
             }
+            validate_wire_i64(surface, "lastActivityAt", row.last_activity_at)?;
             validate_lifecycle(surface, &row.lifecycle)?;
             validate_action_bindings(surface, &row.actions)?;
             validate_preview(surface, &row.preview)?;
@@ -1159,6 +1173,7 @@ fn validate_channel_summary(
     if view.channel_id != *channel_id {
         return invalid_view(surface, "view channelId must match scope channelId");
     }
+    validate_wire_u64(surface, "settingsVersion", view.settings_version)?;
     validate_lifecycle(surface, &view.lifecycle)?;
     validate_action_bindings(surface, &view.actions)
 }
@@ -1221,6 +1236,7 @@ fn validate_topic_list(
         if !topic_ids.insert(topic.topic_channel_id.as_str()) {
             return invalid_view(surface, "topic channel ids must be unique");
         }
+        validate_wire_i64(surface, "lastActivityAt", topic.last_activity_at)?;
         validate_preview(surface, &topic.root_message_preview)?;
         validate_lifecycle(surface, &topic.lifecycle)?;
         validate_action_bindings(surface, &topic.actions)?;
@@ -1258,12 +1274,19 @@ fn validate_participant_receipts(
     let mut users = BTreeSet::new();
     for row in &view.completed {
         validate_user(surface, &row.user)?;
-        if row.status != ReceiptStatus::Completed || row.completed_at.is_none() {
+        if row.status != ReceiptStatus::Completed {
             return invalid_view(
                 surface,
                 "completed receipt rows require completed status and timestamp",
             );
         }
+        let Some(completed_at) = row.completed_at else {
+            return invalid_view(
+                surface,
+                "completed receipt rows require completed status and timestamp",
+            );
+        };
+        validate_wire_i64(surface, "completedAt", completed_at)?;
         if !users.insert(row.user.user_id.as_str()) {
             return invalid_view(
                 surface,
@@ -1299,6 +1322,7 @@ fn validate_message(
     if message.channel_id != expected_channel_id {
         return invalid_view(surface, "message channelId must match surface channel");
     }
+    validate_wire_i64(surface, "createdAt", message.created_at)?;
     validate_user(surface, &message.author)?;
     validate_action_bindings(surface, &message.actions)?;
     validate_data_for_surface(surface, &message.reply_summary)?;
@@ -1317,9 +1341,11 @@ fn validate_message(
         MessageContentVm::Media {
             resource,
             thumbnail,
+            size,
             availability,
             ..
         } => {
+            validate_wire_u64(surface, "size", *size)?;
             validate_data_for_surface(surface, resource)?;
             if let Some(data) = thumbnail {
                 validate_data_for_surface(surface, data)?;
@@ -1427,15 +1453,41 @@ fn validate_data_for_surface(
     })
 }
 
+fn validate_wire_u64(
+    surface: SurfaceId,
+    field: &'static str,
+    value: u64,
+) -> Result<(), InteractionFrameError> {
+    if value > MAX_SAFE_JSON_INTEGER {
+        return Err(InteractionFrameError::UnsafeWireNumber {
+            surface: surface.as_str(),
+            field,
+        });
+    }
+    Ok(())
+}
+
+fn validate_wire_i64(
+    surface: SurfaceId,
+    field: &'static str,
+    value: i64,
+) -> Result<(), InteractionFrameError> {
+    if !(MIN_SAFE_JSON_INTEGER..=MAX_SAFE_JSON_INTEGER as i64).contains(&value) {
+        return Err(InteractionFrameError::UnsafeWireNumber {
+            surface: surface.as_str(),
+            field,
+        });
+    }
+    Ok(())
+}
+
 fn validate_surface_data(value: &SurfaceDataVm, depth: usize) -> Result<(), String> {
     if depth > MAX_SURFACE_DATA_DEPTH {
         return Err("surface data exceeds maximum nesting depth".to_string());
     }
     match value {
-        SurfaceDataVm::Null(_)
-        | SurfaceDataVm::Bool(_)
-        | SurfaceDataVm::Number(_)
-        | SurfaceDataVm::String(_) => Ok(()),
+        SurfaceDataVm::Null(_) | SurfaceDataVm::Bool(_) | SurfaceDataVm::String(_) => Ok(()),
+        SurfaceDataVm::Number(number) => validate_surface_data_number(number),
         SurfaceDataVm::Array(items) => {
             if items.len() > MAX_SURFACE_DATA_ITEMS {
                 return Err("surface data array exceeds maximum item count".to_string());
@@ -1458,6 +1510,34 @@ fn validate_surface_data(value: &SurfaceDataVm, depth: usize) -> Result<(), Stri
             Ok(())
         }
     }
+}
+
+fn validate_surface_data_number(number: &serde_json::Number) -> Result<(), String> {
+    if let Some(value) = number.as_u64() {
+        if value > MAX_SAFE_JSON_INTEGER {
+            return Err("surface data integer exceeds the v1 exact-safe numeric range".to_string());
+        }
+        return Ok(());
+    }
+    if let Some(value) = number.as_i64() {
+        if !(MIN_SAFE_JSON_INTEGER..=MAX_SAFE_JSON_INTEGER as i64).contains(&value) {
+            return Err("surface data integer exceeds the v1 exact-safe numeric range".to_string());
+        }
+        return Ok(());
+    }
+
+    // Fractions use finite IEEE-754 binary64 semantics across the v1 wire. Values
+    // requiring lossless decimal or identifier semantics must be represented as strings.
+    let Some(value) = number.as_f64() else {
+        return Err("surface data number is not representable as finite binary64".to_string());
+    };
+    if !value.is_finite() {
+        return Err("surface data number must be finite".to_string());
+    }
+    if value.abs() > MAX_SAFE_JSON_INTEGER as f64 {
+        return Err("surface data decimal exceeds the v1 exact-safe numeric magnitude".to_string());
+    }
+    Ok(())
 }
 
 fn invalid_view(

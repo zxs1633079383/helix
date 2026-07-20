@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use helix_im::interaction_frame::{
     ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrame, InteractionFrameError,
-    SurfaceId,
+    SurfaceDataVm, SurfaceId, TypedSurfaceMutation, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 const CANONICAL_SNAPSHOT: &str = include_str!("fixtures/uc01-16-surface-runtime/snapshots.json");
@@ -180,8 +180,209 @@ fn unknown_mutation_kind_and_missing_patch_baseline_are_rejected() {
     ));
 }
 
+#[test]
+fn decoder_rejects_v1_wire_integers_outside_the_js_exact_safe_domain() {
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][0]["revision"] = serde_json::json!(MAX_SAFE_JSON_INTEGER + 1);
+        },
+        "revision",
+    );
+    assert_unsafe_wire_number(
+        PATCH_TRANSACTION,
+        |frame| {
+            frame["mutations"][0]["baseRevision"] = serde_json::json!(MAX_SAFE_JSON_INTEGER + 1);
+        },
+        "baseRevision",
+    );
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][0]["mutation"]["view"]["sections"][0]["items"][0]
+                ["lastActivityAt"] = serde_json::json!(MAX_SAFE_JSON_INTEGER as i64 + 1);
+        },
+        "lastActivityAt",
+    );
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][2]["mutation"]["view"]["items"][0]["createdAt"] =
+                serde_json::json!(MAX_SAFE_JSON_INTEGER as i64 + 1);
+        },
+        "createdAt",
+    );
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][2]["mutation"]["view"]["items"][0]["content"] = serde_json::json!({
+                "kind": "media",
+                "mediaType": "image",
+                "resource": {},
+                "fileName": "image.png",
+                "size": MAX_SAFE_JSON_INTEGER + 1,
+                "availability": {}
+            });
+        },
+        "size",
+    );
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][4]["mutation"]["view"]["settingsVersion"] =
+                serde_json::json!(MAX_SAFE_JSON_INTEGER + 1);
+        },
+        "settingsVersion",
+    );
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][6]["mutation"]["view"]["items"][0]["lastActivityAt"] =
+                serde_json::json!(MIN_SAFE_JSON_INTEGER - 1);
+        },
+        "lastActivityAt",
+    );
+    assert_unsafe_wire_number(
+        CANONICAL_SNAPSHOT,
+        |frame| {
+            frame["mutations"][7]["mutation"]["view"]["completed"][0]["completedAt"] =
+                serde_json::json!(MAX_SAFE_JSON_INTEGER as i64 + 1);
+        },
+        "completedAt",
+    );
+}
+
+#[test]
+fn exact_safe_boundaries_and_finite_surface_data_decimals_remain_valid() {
+    let mut snapshot = frame_value(CANONICAL_SNAPSHOT);
+    snapshot["mutations"][0]["revision"] = serde_json::json!(MAX_SAFE_JSON_INTEGER);
+    snapshot["mutations"][0]["mutation"]["view"]["sections"][0]["items"][0]["lastActivityAt"] =
+        serde_json::json!(MIN_SAFE_JSON_INTEGER);
+    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["createdAt"] =
+        serde_json::json!(MAX_SAFE_JSON_INTEGER as i64);
+    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["replySummary"] =
+        serde_json::json!(0.125);
+    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["content"] = serde_json::json!({
+        "kind": "media",
+        "mediaType": "image",
+        "resource": {},
+        "fileName": "image.png",
+        "size": MAX_SAFE_JSON_INTEGER,
+        "availability": {}
+    });
+    snapshot["mutations"][4]["mutation"]["view"]["settingsVersion"] =
+        serde_json::json!(MAX_SAFE_JSON_INTEGER);
+    snapshot["mutations"][6]["mutation"]["view"]["items"][0]["lastActivityAt"] =
+        serde_json::json!(MIN_SAFE_JSON_INTEGER);
+    snapshot["mutations"][7]["mutation"]["view"]["completed"][0]["completedAt"] =
+        serde_json::json!(MAX_SAFE_JSON_INTEGER as i64);
+    decode_value(&snapshot).expect("exact-safe snapshot remains valid");
+
+    let mut patch = frame_value(PATCH_TRANSACTION);
+    patch["mutations"][0]["revision"] = serde_json::json!(MAX_SAFE_JSON_INTEGER);
+    patch["mutations"][0]["baseRevision"] = serde_json::json!(MAX_SAFE_JSON_INTEGER - 1);
+    decode_value(&patch).expect("exact-safe patch revision and baseline remain valid");
+}
+
+#[test]
+fn producer_validation_rejects_unsafe_numbers_before_serialization() {
+    let mut frame = decode(CANONICAL_SNAPSHOT);
+    frame.mutations[0].revision = MAX_SAFE_JSON_INTEGER + 1;
+    assert_unsafe_producer_number(frame, "revision");
+
+    let mut frame = decode(CANONICAL_SNAPSHOT);
+    let TypedSurfaceMutation::TimelineSnapshot { view } = &mut frame.mutations[2].mutation else {
+        panic!("canonical fixture must contain a timeline snapshot");
+    };
+    view.items[0].created_at = MIN_SAFE_JSON_INTEGER - 1;
+    assert_unsafe_producer_number(frame, "createdAt");
+
+    let mut input = BTreeMap::new();
+    input.insert(
+        "unsafe".to_string(),
+        SurfaceDataVm::Number(serde_json::Number::from(MAX_SAFE_JSON_INTEGER + 1)),
+    );
+    let error = ActionInvocation {
+        action_ref: "safe-number-test".to_string(),
+        input,
+    }
+    .validate()
+    .expect_err("producer action input rejects unsafe generic numbers");
+    assert!(matches!(
+        error,
+        InteractionFrameError::InvalidActionInvocation { ref reason }
+            if reason.contains("exact-safe")
+    ));
+}
+
+#[test]
+fn surface_data_rejects_unsafe_integer_decimal_and_unrepresentable_numbers() {
+    assert_invalid_surface_data(serde_json::json!(MAX_SAFE_JSON_INTEGER + 1), "integer");
+    assert_invalid_surface_data(
+        serde_json::from_str("9007199254740992.5").expect("large decimal JSON value"),
+        "decimal",
+    );
+
+    let unrepresentable =
+        CANONICAL_SNAPSHOT.replacen("\"replySummary\": {}", "\"replySummary\": 1e400", 1);
+    assert!(matches!(
+        InteractionFrame::decode(unrepresentable.as_bytes()),
+        Err(InteractionFrameError::Decode(_))
+    ));
+}
+
 fn decode(json: &str) -> InteractionFrame {
     InteractionFrame::decode(json.as_bytes()).expect("fixture must satisfy the wire contract")
+}
+
+fn frame_value(json: &str) -> serde_json::Value {
+    serde_json::from_str(json).expect("fixture must be JSON")
+}
+
+fn decode_value(value: &serde_json::Value) -> Result<InteractionFrame, InteractionFrameError> {
+    let bytes = serde_json::to_vec(value).expect("mutated fixture remains JSON");
+    InteractionFrame::decode(&bytes)
+}
+
+fn assert_unsafe_wire_number(
+    json: &str,
+    mutate: impl FnOnce(&mut serde_json::Value),
+    field: &'static str,
+) {
+    let mut frame = frame_value(json);
+    mutate(&mut frame);
+    let error = decode_value(&frame).expect_err("unsafe wire number must be rejected");
+    assert!(matches!(
+        error,
+        InteractionFrameError::UnsafeWireNumber {
+            field: actual_field,
+            ..
+        } if actual_field == field
+    ));
+}
+
+fn assert_unsafe_producer_number(frame: InteractionFrame, field: &'static str) {
+    let error = frame
+        .validate()
+        .expect_err("producer cannot emit unsafe wire numbers");
+    assert!(matches!(
+        error,
+        InteractionFrameError::UnsafeWireNumber {
+            field: actual_field,
+            ..
+        } if actual_field == field
+    ));
+}
+
+fn assert_invalid_surface_data(value: serde_json::Value, expected_reason: &str) {
+    let mut frame = frame_value(CANONICAL_SNAPSHOT);
+    frame["mutations"][2]["mutation"]["view"]["items"][0]["replySummary"] = value;
+    let error = decode_value(&frame).expect_err("unsafe generic surface data must be rejected");
+    assert!(matches!(
+        error,
+        InteractionFrameError::InvalidView { ref reason, .. }
+            if reason.contains(expected_reason)
+    ));
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 8; raw matrix sha256: `1a38c4ff9b95cb8fc46ed6e98841025dc0ca1f6cda93b89a80c300a2e8b52e29`; semantic matrix sha256: `aaa67d4779cb1cf63dea978c4e9d6f1e49794244d851913c954e7d5b90ce13c3`。
+> contract epoch: 8; raw matrix sha256: `b2238fe90240e3c1f54548287b656f0b733da2188851c552eff481445082b752`; semantic matrix sha256: `00a5720259a0862d108fc20c45409a1d6453ac92bdb2d29c8612482dc34ccdd2`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界
@@ -15,7 +15,7 @@
 | Command | Gate / UC | Required | Optional | Effects | Projections | Lifecycle / Contract |
 | --- | --- | --- | --- | --- | --- | --- |
 | im_query_dialog_list | G-S1 / UC-4.1 hello 全量增量 | ∅ | limit | local_scan, projection | im:channels:loaded | active/declared |
-| im_sync_channels | G-S2 / UC-4.2 sync notify | reason | channel_id, event_seq | sync_request, projection | im:channel:update-by-post | active/declared |
+| im_sync_channels | G-S2 / UC-4.2 sync notify | reason | channel_id, event_seq | sync_request, projection | im:interaction:frame | active/declared |
 | im_sync_channels | G-S3 / UC-4.4 心跳 gap 补偿 | reason | channel_id, event_seq | sync_request, projection | im:sync:state | active/declared |
 | im_sync_channels | G-04a / UC-1.5-offline 离线撤回重放 | reason | channel_id | sync_request, storage_upsert, projection | im:post:deleted | active/declared |
 | im_channel_load_increment_by_channel_id | G-S4 / UC-4.5 陌生 channel 兜底 | channel_id, req_id | is_read | http_read, storage_upsert, projection | im:channel:increment | active/declared |

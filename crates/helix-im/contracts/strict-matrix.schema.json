@@ -133,7 +133,7 @@
       "properties": {
         "event": { "type": "string", "pattern": "^im:[a-z0-9:._-]+$" },
         "render_kind": { "type": "string", "pattern": "^[a-z]+(?:[._][a-z]+)+\\.v1$" },
-        "schema": { "const": "RenderNode/v1" },
+        "schema": { "enum": ["RenderNode/v1", "InteractionFrame/v1"] },
         "required_data_fields": {
           "type": "array",
           "minItems": 1,

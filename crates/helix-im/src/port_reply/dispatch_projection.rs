@@ -167,6 +167,21 @@ impl ImModule {
                 serde_json::Value::String(display_name),
             );
         }
+        if let Some(settings) = channel.as_object_mut() {
+            settings.insert(
+                "channelId".to_string(),
+                serde_json::Value::String(projection.channel_id.as_str().to_string()),
+            );
+        }
+        if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+            if let Some(frame) = self
+                .state
+                .dialog_list_frame
+                .patch_from_channel_update(scope, &channel)
+            {
+                out.push(frame);
+            }
+        }
         if let Some(effect) = crate::acl::to_effect_s1::emit_channel_settings_updated(
             projection.channel_id,
             &channel,

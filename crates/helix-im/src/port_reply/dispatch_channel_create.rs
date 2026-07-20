@@ -65,6 +65,15 @@ impl ImModule {
             tracing::warn!("channel create projection serialization failed");
             return;
         };
+        if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+            if let Some(frame) = self
+                .state
+                .dialog_list_frame
+                .patch_insert_channel(scope, &channel)
+            {
+                out.push(frame);
+            }
+        }
         out.push(crate::acl::to_effect_s1::emit_channel_created(
             channel_id, &raw,
         ));

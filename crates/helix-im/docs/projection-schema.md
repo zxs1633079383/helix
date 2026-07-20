@@ -42,7 +42,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（25 工厂 → 24 distinct channel）
+## 1. 投影出口全集（26 工厂 → 25 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
 > 数据在手零回读，见 §2）。`im:channel:update-by-post` 在 2026-07-09 Dialog 指令化投影中升级为
@@ -99,10 +99,11 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect_s1::emit_schedule_created` | `im:channel:schedule-created` | `id` `channelId` `hasSchedulePost` `scheduleId` `scheduleMessage` `scheduleMessagePreview` `scheduleSendAt` `scheduleRevision` `scheduleStatus`（同时保留通用 schedule 字段） | WS `post_schedule_created`；全文仅 owner/服务端授权可见，preview 不得替代全文 |
 | `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | 同 created，且 `hasSchedulePost=false` `scheduleStatus=canceled` | WS `post_schedule_canceled`；取消为终态，未授权时正文与摘要均为 `null` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
-| `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| invoke `im_query_dialog_list` |
+| `query::emit_dialog_list_frame_result` | `im:interaction:frame` | `schemaVersion` `surface` `frameId` `scope` `mode` `baseRevision?` `revision` `causationId?` `snapshot?` `patch?` | invoke `im_query_dialog_list` / 左侧列表写后 patch |
+| `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| `im_query_dialog_list` 的 shadow-only 兼容输出 |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
 
-> **`im:channels:projection` UC-3 完整会话列表投影（fat 但合规）**：`im_query_dialog_list` 是
+> **`im:channels:projection` UC-3 完整会话列表投影（shadow-only 兼容）**：`im_query_dialog_list` 是
 > **低频按需 invoke**（用户进 IM / 切会话一次性拉取，**非每事件热路径**）——`Scan(channel ORDER BY
 > last_post_at DESC)` 把整张 channel 表行投影成完整 `dialogList`（每行含 `unread_count`/`mention_count`/
 > `mention_count_root`/`last_post`/`unread_post_id`/`last_event_seq` 等，列名 = §4 DB 列）。**前端零计算
@@ -110,8 +111,16 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 🔴 **HX-C005 守约**：本命令在 hot-path 外（spec06 §2 边界 line87-89「server 端回读仅限低频非每事件
 > 命中」），故 Scan channel 表合规——与 §2 `im:channel:update-by-post` 的热路径 patch **不矛盾**：
 > 热路径只吐本事件 delta，不回读整行；完整 dialogList 由本**低频**命令补齐。两条路分工：
-> 热路径 patch 让前端先直改当前会话行，低频查询再校准完整累计列表。
+> 历史客户端仍可在明确迁移窗口内消费这一兼容投影；已声明 frame 能力的客户端必须消费前置的
+> `im:interaction:frame`，不得以本段内容作为列表回退。
 > 它**替代**前端原「按 channel_id 回读 dialogList + 自算 unread」蠢模式（spec06 P1 回正 line84）。
+
+> **`im:interaction:frame` 左侧会话列表合同**：这是 `message.left-dialog-list` 的唯一生产消费面。
+> snapshot 带 `rows + orderedChannelIds`，patch 仅带变更属性和 `moveRow`；客户端必须在
+> `scope`、`schemaVersion` 与 `baseRevision` 全部匹配时一次性应用，失败只请求新的 snapshot。
+> 行内 `preview` 已替代 raw `lastPost`，`avatar.userIds` 是平台 `faceUri(userId)` 的解析输入，
+> `topicCount` 只给数量而不夹带话题详情。历史 `im:channels:projection` 保留为未迁移消费者的
+> 兼容出口，不能驱动已挂载 frame 的左侧列表。
 
 > **`im:channels:loaded` 双形态**：hello 冷启动路径产 `{items:[]}`（`emit_channels_loaded`），
 > delete-all 路径产 `{reason:"delete_all_dialogs"}`（`emit_dialogs_cleared`）——同 channel 名两套
@@ -121,7 +130,7 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 ### 1.1 连接控制信号（**不计入** §1 RenderNode 投影集 · F1-gap1）
 
 `im_reconnect` 命令（04 文档表 B `IMWS:reconnect`，连接生命周期归 driver）经 `to_effect::emit_reconnect_requested`
-产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入 §1 的 25 个投影工厂 / 24 个 distinct channel**，
+产一条**连接控制信号**——它**不是投影**（不携业务渲染数据，`data: {}`），故**不纳入 §1 的 26 个投影工厂 / 25 个 distinct channel**，
 与既有 driver 侧横切信号 `im:net:offline`（断网）/ `im:http:unauthorized`（401，`http_cross.rs`）**同族**：
 `im:net:*` 控制事件通道，driver/前端**观察**后做连接生命周期动作（reconnect / 重登）。
 
@@ -309,11 +318,12 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 > 再通过同一 Persist 批次里的 `GuardedBump -> Get(channel)` 取得写后累计终值。I/O 仍是 Effect/StorageOp，
 > core 不理解 IM 业务列；前端只接收覆盖投影，不做 read-modify-render。
 
-### channel-row thin 类（批次结束单键，前端可低频回读累计 DB 行）
+### channel-row thin 类（批次结束单键，历史客户端可低频回读累计 DB 行）
 
 `im:channel:update`（`{channel_id}`）仍是批次结束瘦信号。完整 DialogItem（channel 行，~50 列：
-`unreadCount/lastPost/mentionCount/…`）是跨多帧累计结果，不在该事件手上；前端若要校准累计终值，
-应按 batch / 低频 invoke 回读 `dialogList`，而不是每条 post 回读。
+`unreadCount/lastPost/mentionCount/…`）是跨多帧累计结果，不在该事件手上；未迁移客户端可按 batch /
+低频 invoke 回读 `dialogList`，而不是每条 post 回读。已挂载 `message.left-dialog-list` frame 的客户端
+不消费这条信号驱动列表，也不自行做累计校准。
 
 ### 透传/投影类（携完整 wire 数据或 DB 行，前端直接消费）
 
@@ -321,7 +331,7 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 - `im:channel:created` / `im:channel:member-updated`（`channel` = 透传帧 data 原始 channel 对象）
 - `im:post:batch-updated`（`posts` = 透传 `posts_update` 帧的 posts 数组）
 - `im:messages:query_result`（`messages` = `Scan message` 的本地 DB 行数组，列名 = §4 DB 列）
-- `im:channels:projection`（`dialogList` = `Scan channel` 的本地 DB 行数组，**完整 DialogItem**·UC-3，列名 = §4 DB 列；低频按需 invoke，off hot-path）
+- `im:channels:projection`（`dialogList` = `Scan channel` 的本地 DB 行数组，**完整 DialogItem**·UC-3，列名 = §4 DB 列；仅 shadow 期的低频兼容输出）
 
 透传类**不解释字段**（parser 已在边界零信任解析，此处仅透传），故冻结的是**外层包装键**
 （`channel_id`+载荷键），载荷内部字段不在本文档逐一冻结（由现网 wire 契约保真）。
@@ -388,9 +398,10 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 
 ```
 im:post:received        → POST handler（**fat 直渲** message_item_data，零回读·spec06 FixB）
-im:channel:update       → UPDATE_CHANNEL handler（thin·按 channel_id batch 结束回读 dialogList 刷 badge）
+im:interaction:frame    → 左侧列表 frame reducer（核验 scope/revision 后原子替换或属性 patch）
+im:channel:update       → 仅未迁移客户端的 UPDATE_CHANNEL handler（thin·按 channel_id 低频校准）
 im:messages:query_result→ 投影 handler（直接渲染 `{channel_id, messages:[...]}`，不走 `{items:[]}` 解包）
-im:channels:projection  → 会话列表 handler（直接渲染 dialogList，前端零计算 unread/badge·UC-3）
+im:channels:projection  → 仅未迁移客户端的 shadow 会话列表 handler（直接渲染 dialogList·UC-3）
 im:sync:too_long        → onRustTooLong（按 channelId drop local messages + cursor=resetTo-1 + reload 首屏）
 ...（其余 16 channel 同理；message-row 信号 fat 直渲 / channel-row 信号 thin 低频回读）
 ```

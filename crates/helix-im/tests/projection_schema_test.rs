@@ -6,7 +6,7 @@
 //!
 //! 前端退化为纯渲染：只 `listen("im:__bus__")` → dispatch → 渲染，**不算** unread/lastPost/
 //! readBits/cursor。前端能不能纯渲染，取决于**每个 channel 的 `payload.data` 字段是否齐**——
-//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 25 个 RenderNode emit 工厂的 `data` 键集
+//! 字段缺 = 前端补算 = 纯渲染破功。本测试把 helix 全部 26 个 RenderNode emit 工厂的 `data` 键集
 //! **逐 channel 冻结**，断言 emit 出的键集 == `docs/projection-schema.md` §1 冻结集
 //! （**缺失或多余都 fail**）。
 //!
@@ -1056,6 +1056,33 @@ fn im_channels_projection_invalid_reply_still_freezes_keys() {
     assert_frozen(&e, "im:channels:projection", &["dialogList"]);
 }
 
+#[test]
+fn im_interaction_frame_freezes_left_dialog_list_outer_contract() {
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch1","display_name":"群A","type":"P","unread_count":0}
+    ]))
+    .unwrap();
+    let mut state = helix_im::dialog_frame::DialogListFrameState::default();
+    let effect = query::emit_dialog_list_frame_result(
+        &rows,
+        helix_im::dialog_frame::DialogListScope::new("u1", "team1"),
+        &mut state,
+    );
+    assert_frozen(
+        &effect,
+        "im:interaction:frame",
+        &[
+            "schemaVersion",
+            "surface",
+            "frameId",
+            "scope",
+            "mode",
+            "revision",
+            "snapshot",
+        ],
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // §4. im:channels:loaded 双形态（同 channel 名两工厂，各冻各的键集）
 // ════════════════════════════════════════════════════════════════════════════
@@ -1075,14 +1102,14 @@ fn im_channels_loaded_delete_path_freezes_reason() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §5. 镜像完整性：25 工厂全覆盖 + 提取工具负路径
+// §5. 镜像完整性：26 工厂全覆盖 + 提取工具负路径
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 冻结全集计数：本测试覆盖的工厂调用数 == projection-schema.md §1 表行数 == 25。
+/// 冻结全集计数：本测试覆盖的工厂调用数 == projection-schema.md §1 表行数 == 26。
 /// 任何新增 emit 工厂未在本测试加 case → 此断言提示补齐（防漏测漂移）。
 #[test]
-fn all_25_projection_factories_covered() {
-    // 逐工厂构造一次，收集 (channel, keys)——证明 25 个出口全可达且产合法 Emit。
+fn all_26_projection_factories_covered() {
+    // 逐工厂构造一次，收集 (channel, keys)——证明 26 个出口全可达且产合法 Emit。
     let cid = channel_id(7);
     let raw = serde_json::to_vec(&serde_json::json!({})).unwrap();
     let posts = serde_json::json!([]);
@@ -1126,12 +1153,17 @@ fn all_25_projection_factories_covered() {
         to_effect_s1::emit_schedule_canceled(ch(), &serde_json::json!({}), None, false),
         query::emit_message_query_result(&cid, b"[]"),
         query::emit_dialog_list_result(b"[]"),
+        query::emit_dialog_list_frame_result(
+            b"[]",
+            helix_im::dialog_frame::DialogListScope::new("u1", "team1"),
+            &mut helix_im::dialog_frame::DialogListFrameState::default(),
+        ),
         query::emit_dialogs_cleared(),
     ];
     assert_eq!(
         effects.len(),
-        25,
-        "projection-schema.md §1 冻结 25 工厂——新增/删除工厂须同步本测试 + 文档表"
+        26,
+        "projection-schema.md §1 冻结 26 工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -1143,7 +1175,7 @@ fn all_25_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 24（im:channels:loaded 双工厂复用 → 25 工厂收敛成 24 distinct channel）。
+    // distinct channel 名 = 25（im:channels:loaded 双工厂复用 → 26 工厂收敛成 25 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -1152,8 +1184,8 @@ fn all_25_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        24,
-        "24 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 25 工厂 → 24 channel）"
+        25,
+        "25 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 26 工厂 → 25 channel）"
     );
 }
 
@@ -1166,7 +1198,7 @@ fn message_query_failure_is_a_separate_status_channel() {
     assert_frozen(&effect, "im:post:increment-failed", &["channelId", "error"]);
 }
 
-/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 25 个 RenderNode 投影工厂（无渲染字段，
+/// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 26 个 RenderNode 投影工厂（无渲染字段，
 /// 走连接生命周期通道，与 driver 侧 im:net:offline 同族）。冻结：channel 名 + data 严格空对象。
 #[test]
 fn reconnect_requested_is_control_signal() {

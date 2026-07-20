@@ -115,6 +115,46 @@ fn emit_dialog_list_result_wraps_rows_under_dialoglist_with_full_fields() {
 }
 
 #[test]
+fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
+    let rows = serde_json::to_vec(&serde_json::json!([
+        {
+            "id":"ch-group","display_name":"产品设计群","type":"P","member_count":3,
+            "unread_count":4,"mention_count":1,"urgent_count":2,"is_top":1,
+            "last_post_at":1700000000000_i64,
+            "last_post":"{\"id\":\"post-1\",\"message\":\"交互稿已上传\",\"userId\":\"u-1\",\"type\":\"TEXT\",\"createAt\":1700000000000}"
+        },
+        {"id":"ch-direct","display_name":"张英","type":"D","member_count":2,"unread_count":0,"last_post_at":1}
+    ])).unwrap();
+    let mut state = crate::dialog_frame::DialogListFrameState::default();
+    let value = emit_json(emit_dialog_list_frame_result(
+        &rows,
+        crate::dialog_frame::DialogListScope::new("444", "team-a"),
+        &mut state,
+    ))
+    .expect("frame emit");
+
+    assert_eq!(value["event"], "im:interaction:frame");
+    assert_eq!(value["data"]["surface"], "message.left-dialog-list");
+    assert_eq!(value["data"]["scope"]["viewerUserId"], "444");
+    assert_eq!(value["data"]["mode"], "snapshot");
+    assert_eq!(
+        value["data"]["snapshot"]["orderedChannelIds"],
+        serde_json::json!(["ch-group", "ch-direct"])
+    );
+    assert_eq!(
+        value["data"]["snapshot"]["rows"][0]["badges"]["unreadCount"],
+        4
+    );
+    assert_eq!(
+        value["data"]["snapshot"]["rows"][0]["preview"]["text"],
+        "交互稿已上传"
+    );
+    assert!(value["data"]["snapshot"]["rows"][0]
+        .get("topicRows")
+        .is_none());
+}
+
+#[test]
 fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
     // S5（issue #54）：CL 行升 render-ready 终态——前端零 normalize/零 ++。
     let rows = serde_json::to_vec(&serde_json::json!([

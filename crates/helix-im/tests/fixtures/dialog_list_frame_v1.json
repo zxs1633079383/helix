@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "surface": "message.left-dialog-list",
+  "scope": {
+    "viewerUserId": "444",
+    "teamId": "team-a"
+  },
+  "cases": [
+    {
+      "name": "snapshot",
+      "mode": "snapshot",
+      "revision": 1,
+      "rows": [
+        {
+          "channelId": "group-1",
+          "title": "产品设计群",
+          "channelKind": "group",
+          "memberCount": 3,
+          "avatar": { "kind": "member-grid", "userIds": ["u1", "u2", "u3"] },
+          "preview": { "sourceId": "post-1", "text": "交互稿已上传", "kind": "text", "system": false, "recalled": false, "urgent": false },
+          "badges": { "unreadCount": 4, "mentionCount": 1, "pendingUrgentCount": 2 },
+          "state": { "pinned": true, "muted": false, "closed": false, "left": false },
+          "activityAt": 100,
+          "topicCount": 2
+        },
+        {
+          "channelId": "direct-1",
+          "title": "张英",
+          "channelKind": "direct",
+          "memberCount": 2,
+          "avatar": { "kind": "single-user", "userIds": ["u9"] },
+          "badges": { "unreadCount": 0, "mentionCount": 0, "pendingUrgentCount": 0 },
+          "state": { "pinned": false, "muted": true, "online": true, "closed": false, "left": false },
+          "activityAt": 90
+        }
+      ],
+      "orderedChannelIds": ["group-1", "direct-1"]
+    },
+    {
+      "name": "atomic-property-patch",
+      "mode": "patch",
+      "baseRevision": 1,
+      "revision": 2,
+      "operations": [
+        {
+          "kind": "upsertRow",
+          "channelId": "direct-1",
+          "set": {
+            "badges": { "unreadCount": 0, "mentionCount": 0, "pendingUrgentCount": 1 },
+            "state": { "pinned": false, "muted": false, "online": true, "closed": false, "left": false },
+            "activityAt": 101
+          },
+          "clear": ["topicCount"]
+        },
+        { "kind": "moveRow", "channelId": "direct-1", "toIndex": 1 }
+      ]
+    },
+    {
+      "name": "revision-gap",
+      "mode": "patch",
+      "baseRevision": 4,
+      "revision": 5,
+      "expected": "reject-and-request-snapshot"
+    }
+  ]
+}

@@ -24,6 +24,7 @@ pub use channel::older_context;
 pub use channel::write as channel_write;
 pub mod client_api;
 pub mod commands;
+pub mod dialog_frame;
 pub mod dialog_patch;
 pub mod error;
 mod forward;

@@ -149,6 +149,9 @@ pub struct ImState {
     pub(crate) recent_message_coverage:
         HashMap<ChannelId, crate::query::local_first::RecentMessageCoverage>,
 
+    /// 左侧会话列表已发布的 render-ready 行与 revision。只用于构造原子 frame，不保存 raw storage 行。
+    pub(crate) dialog_list_frame: crate::dialog_frame::DialogListFrameState,
+
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
@@ -194,6 +197,7 @@ impl ImState {
             pending_increment_projections: Vec::new(),
             hydration_pending: HashSet::new(),
             recent_message_coverage: HashMap::new(),
+            dialog_list_frame: crate::dialog_frame::DialogListFrameState::default(),
             query_session_epoch: 0,
         }
     }

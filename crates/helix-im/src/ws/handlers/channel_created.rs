@@ -44,7 +44,17 @@ impl WsMessageHandler for ChannelCreatedHandler {
 
         super::channel_member_update::apply_channel_full_and_members(ctx, channel_id, data, out);
 
-        // emit im:channel:created（透传帧 data 含 owner/members/picture，前端直接消费）。
+        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
+            if let Some(frame) = ctx
+                .state
+                .dialog_list_frame
+                .patch_insert_channel(scope, data)
+            {
+                out.push(frame);
+            }
+        }
+
+        // 旧透传仅供未迁移消费者过渡；已挂载 frame 的客户端不会以它重建左侧列表。
         let raw = serde_json::to_vec(data).unwrap_or_default();
         out.push(crate::acl::to_effect_s1::emit_channel_created(
             channel_id, &raw,

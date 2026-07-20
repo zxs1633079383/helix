@@ -111,6 +111,12 @@ impl ImModule {
             CorrelationContext::DialogPatchByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
                     if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
+                        if let Some(frame) = crate::dialog_frame::patch_from_legacy_dialog_effect(
+                            &mut self.state.dialog_list_frame,
+                            &effect,
+                        ) {
+                            out.push(frame);
+                        }
                         out.push(effect);
                     } else {
                         tracing::warn!(
@@ -154,6 +160,14 @@ impl ImModule {
                 PortOutcome::Ok(reply) => {
                     for pending in dialog_patches {
                         if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
+                            if let Some(frame) =
+                                crate::dialog_frame::patch_from_legacy_dialog_effect(
+                                    &mut self.state.dialog_list_frame,
+                                    &effect,
+                                )
+                            {
+                                out.push(frame);
+                            }
                             out.push(effect);
                         }
                     }
@@ -243,14 +257,35 @@ impl ImModule {
                 }
             }
 
-            // UC-3 dialogList 投影 **Scan** 回报：把 channel 行 emit 成 im:channels:projection
-            // 完整 dialogList（含 unread_count，前端零计算）。Err → 空 dialogList（不卡渲染）。
+            // 左侧会话列表 Scan 回报首先发布完整 render-ready frame；Err 同样发布空 snapshot，
+            // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
             CorrelationContext::DialogListQuery => match outcome {
                 PortOutcome::Ok(reply) => {
+                    let scope = crate::dialog_frame::DialogListScope::new(
+                        self.config.auth_user_id.as_str(),
+                        self.config.company_id.as_str(),
+                    );
+                    out.push(crate::query::emit_dialog_list_frame_result(
+                        reply.0.as_ref(),
+                        scope,
+                        &mut self.state.dialog_list_frame,
+                    ));
+                    // Shadow-only compatibility: the typed frame is published first and is the
+                    // sole authority for frame-capable clients. Older consumers can keep their
+                    // existing low-frequency query path until their separate migration lands.
                     out.push(crate::query::emit_dialog_list_result(reply.0.as_ref()));
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
+                    let scope = crate::dialog_frame::DialogListScope::new(
+                        self.config.auth_user_id.as_str(),
+                        self.config.company_id.as_str(),
+                    );
+                    out.push(crate::query::emit_dialog_list_frame_result(
+                        b"[]",
+                        scope,
+                        &mut self.state.dialog_list_frame,
+                    ));
                     out.push(crate::query::emit_dialog_list_result(b"[]"));
                 }
             },
@@ -269,6 +304,19 @@ impl ImModule {
                         channel_id,
                         vec![("is_remove", helix_core::effect::SqlValue::Integer(1))],
                     ));
+                    if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+                        let patch = serde_json::json!({
+                            "channelId": channel_id.as_str(),
+                            "left": true,
+                        });
+                        if let Some(frame) = self
+                            .state
+                            .dialog_list_frame
+                            .patch_from_channel_update(scope, &patch)
+                        {
+                            out.push(frame);
+                        }
+                    }
                     out.push(crate::acl::to_effect_s1::emit_channel_left(channel_id));
                 }
                 PortOutcome::Err(e) => {

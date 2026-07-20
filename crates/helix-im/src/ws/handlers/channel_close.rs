@@ -26,7 +26,7 @@ impl WsMessageHandler for ChannelCloseHandler {
 
     fn handle(
         &self,
-        _ctx: &mut ImWsContext<'_>,
+        ctx: &mut ImWsContext<'_>,
         frame: &WsFrame,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -56,6 +56,15 @@ impl WsMessageHandler for ChannelCloseHandler {
                 ("is_active", SqlValue::Integer(0)),
             ],
         ));
+        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
+            if let Some(frame) = ctx
+                .state
+                .dialog_list_frame
+                .patch_closed(scope, channel_id.as_str())
+            {
+                out.push(frame);
+            }
+        }
         out.push(crate::acl::to_effect_s1::emit_channel_closed(
             channel_id, delete_at,
         ));

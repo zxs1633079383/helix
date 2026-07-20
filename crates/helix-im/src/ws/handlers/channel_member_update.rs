@@ -67,6 +67,15 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
             leaves,
             crate::render_ready_members::MemberProjectionMode::Incremental,
         ));
+        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
+            if let Some(frame) = ctx
+                .state
+                .dialog_list_frame
+                .patch_from_channel_update(scope, data)
+            {
+                out.push(frame);
+            }
+        }
         Ok(())
     }
 }

@@ -239,6 +239,20 @@ pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
     }
 }
 
+/// `im_query_dialog_list` 的唯一生产消费面：把本地 channel scan 提升为完整的
+/// `message.left-dialog-list` snapshot frame。行内所有展示判定均在 Helix 完成；客户
+/// 端只核验 scope/revision 并按 `orderedChannelIds` 绑定。
+pub fn emit_dialog_list_frame_result(
+    reply_bytes: &[u8],
+    scope: crate::dialog_frame::DialogListScope,
+    state: &mut crate::dialog_frame::DialogListFrameState,
+) -> Effect {
+    state.snapshot(
+        scope,
+        crate::dialog_frame::rows_from_dialog_scan(reply_bytes),
+    )
+}
+
 pub(crate) fn dialog_list_result_bytes(reply_bytes: &[u8]) -> Vec<u8> {
     let raw: serde_json::Value =
         serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));

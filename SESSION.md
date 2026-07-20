@@ -6,6 +6,13 @@
 
 ## §0 终态记录
 
+🎯 EXPECT 收敛 `im_create_channel` 的默认群头像合同。可证伪断言：① Helix public command 只接收 `type/user_ids/display_name/force_create`，HTTP body 不再含客户端 `picture`；② Go 在 session 身份归一、去重后的成员集合上派生 `pictureType=USER` 与至多 9 个 `picture.userIds`；③ PC 与 mobile QuickJS C++ bridge 均不再接受或发送 `picture`，其生成合同同步到同一 Helix pin；④ `PICTURE` 自定义头像仍只由独立改头像命令承担，`NAME` 仍为渲染回退；⑤ 不改 `helix-core` 或 FFI ABI。@2026-07-19T19:20:00-07:00 | 赌注 中 | 可逆 是
+
+✅ DONE 默认群头像合同 @2026-07-19T20:05:00-07:00 | Helix `e0f820c` | `im_create_channel` 已收窄为四个业务字段并由服务端按 canonical 成员派生 `USER` 图片；PC 与 mobile QuickJS 均已同步到 epoch 8 / `1a38c4ff`；`PICTURE` 改头像与 `NAME` 渲染回退不变。验证：Helix 聚焦 65/65 PASS、PC Rust check/合同门禁/Jest PASS、mobile 288 PASS/1 opt-in skip；Go 按仓库策略只完成格式化与静态 diff，未运行 Go 测试；未 push、未做真实后端写入。@2026-07-19T20:05:00-07:00
+
+🎯 EXPECT 执行 2026-07-17 北京时间 Strict Matrix 21 逻辑门禁重新基线与 one-line 自治收敛。可证伪断言：① 从四仓当前 HEAD/pin/FFI artifact 重新取证，不复用 2026-07-16 canonical 结论；② 当前 Helix contract epoch/hash 与 PC/Mobile consumer 任一不一致即 CONTRACT_DRIFT，并禁止 matrix-sync；③ G0、GS01-GS04、G01-G16 每项显式记录 dual-user、runtime-pass、canonical-green 与 UI/HTTP/WS/storage/runtime/canonical 六面；④ 无本轮 operation-scoped durable bundle 时 accepted=0、canonical 前后 hash 不变；⑤ 日审先原子封存日报/capsules，再仅处理 high+AFK+reversible 且无产品语义争议的 capsule；⑥ 不占用共享 Native 槽、不修改四仓业务代码、不自动合并。@2026-07-17T08:03:00+0800 | 赌注 高 | 可逆 是
+✅ DONE Strict Matrix 21 逻辑门禁重新基线与 one-line 自治收敛 @2026-07-17T08:20:00+0800 | run 20260717T080254+0800 | contract epoch 7 / 05506ee3 | 0 Green、20 Drift、1 Unknown；dual-user/runtime-pass/canonical-green 均 0；PC pin epoch 4 与 consumer epoch 3 触发 CONTRACT_DRIFT；本轮 durable bundle accepted=0，canonical 前后 hash 不变。阶段 A 封存 6 capsules；阶段 B 新建 Helix Issue #85、worktree/branch、commit 929ccdd 与 MR !1，pre-push 12/12 + FFI C++ smoke PASS；复用 PC Issues #21/#22 与 MR !21、Helix #24、pd/message Issues #1/#2 与 MR !1；未占 Native 槽、未 merge。@2026-07-17T08:20:00+0800
+
 🎯 EXPECT 补齐 UC13 离线发送者已读回执重放的 Helix 合同半边。可证伪断言：① 只在 sync type6 同时具备 msgId、actorId 与 messages[msgId].readBits 三项权威事实时，除既有 im:channel:read_echo 外追加 im:post:read；② 新投影显式携 readerId、postId/readBits 与 receiptRevision，不从位图反推用户；③ 任一权威锚缺失时绝不合成 im:post:read；④ 当前 Go post/read 不写 channel_event 的跨仓缺口落 NEED_UC13_OFFLINE_READ.md，不伪报真实链已闭环；⑤ 仅修改 helix-im 投影/同步测试、需求文档与 SESSION，不改 core/driver。@2026-07-16T18:10:00-0700 | 赌注 高 | 可逆 是
 ✅ DONE UC13 离线回执跨仓代码 CODE_DONE、最终真实链待统一验收：sync type6 仅在 msgId+actorId+权威 readBits 闭集成立时双发既有 im:channel:read_echo 与新增 im:post:read，投影携 postId/readerId/readBits/receiptRevision；缺 actor 或 bits 的负向测试均不合成。Go `d6fe376` 已把每条实际 read_bits 0->1 变化与带 msgId/actorId 的 type6 事实同事务提交，幂等重试不追加；NEED_UC13_OFFLINE_READ.md 更新为 RESOLVED_CODE_DONE。Helix 验证：RED 1 fail/1 pass；GREEN 聚焦 2/2 PASS；既有 c3_sync_mutation_emits_test 12/12 PASS；git diff --check PASS；未跑全包、未 repin、未跑真实链。@2026-07-16T18:24:00-0700
 

@@ -62,6 +62,27 @@ fn build_message_query_defaults_and_clamps_limit() {
 }
 
 #[test]
+fn message_query_keeps_the_explicit_timeline_window_token() {
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "channel_id": "ch00000000000000000000000a",
+        "windowToken": "locate-message-42",
+    }))
+    .unwrap();
+    let request = parse_message_query(&payload).expect("valid timeline slot token");
+    assert_eq!(request.window_token, "locate-message-42");
+
+    let empty = serde_json::to_vec(&serde_json::json!({
+        "channel_id": "ch00000000000000000000000a",
+        "windowToken": "",
+    }))
+    .unwrap();
+    assert!(matches!(
+        parse_message_query(&empty),
+        Err(ImError::Parse(_))
+    ));
+}
+
+#[test]
 fn build_message_query_rejects_missing_or_invalid_channel_id() {
     let missing = serde_json::to_vec(&serde_json::json!({"limit": 10})).unwrap();
     assert!(matches!(

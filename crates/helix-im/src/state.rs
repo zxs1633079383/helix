@@ -152,6 +152,9 @@ pub struct ImState {
     /// 左侧会话列表已发布的 render-ready 行与 revision。只用于构造原子 frame，不保存 raw storage 行。
     pub(crate) dialog_list_frame: crate::dialog_frame::DialogListFrameState,
 
+    /// 已 attach 的有界时间线窗口；只保存 typed VM/revision，raw 行仍由 query/render-ready 边界消费。
+    pub(crate) timeline_projector: crate::projector::timeline::TimelineProjector,
+
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
@@ -198,6 +201,7 @@ impl ImState {
             hydration_pending: HashSet::new(),
             recent_message_coverage: HashMap::new(),
             dialog_list_frame: crate::dialog_frame::DialogListFrameState::default(),
+            timeline_projector: crate::projector::timeline::TimelineProjector::default(),
             query_session_epoch: 0,
         }
     }
@@ -223,6 +227,7 @@ impl ImState {
 
     pub(crate) fn reset_recent_query_coverage(&mut self) {
         self.recent_message_coverage.clear();
+        self.timeline_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
         self.corr_map.retain(|_, context| {
             !matches!(

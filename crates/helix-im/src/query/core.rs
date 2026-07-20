@@ -58,6 +58,9 @@ pub(crate) const QUERY_DIALOGS_MAX: u32 = 2000;
 pub struct MessageQueryRequest {
     pub channel_id: ChannelId,
     pub limit: u32,
+    /// SurfaceRuntime 的 timeline slot token。旧调用未提供时固定为 `latest`，使兼容入口仍落到
+    /// 一个明确、可 attach 的有界窗口，而不是把所有时间线混到 channel 级 scope。
+    pub window_token: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +84,28 @@ pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImErro
         .and_then(serde_json::Value::as_u64)
         .map(|value| value.clamp(1, u64::from(QUERY_MESSAGES_MAX)) as u32)
         .unwrap_or(QUERY_MESSAGES_DEFAULT);
-    Ok(MessageQueryRequest { channel_id, limit })
+    let window_token = match value
+        .get("windowToken")
+        .or_else(|| value.get("window_token"))
+    {
+        Some(serde_json::Value::String(value)) => value.as_str(),
+        Some(_) => {
+            return Err(ImError::Parse(
+                "im_query_messages_by_channel windowToken must be string".into(),
+            ));
+        }
+        None => "latest",
+    };
+    if window_token.is_empty() {
+        return Err(ImError::Parse(
+            "im_query_messages_by_channel windowToken must not be empty".into(),
+        ));
+    }
+    Ok(MessageQueryRequest {
+        channel_id,
+        limit,
+        window_token: window_token.to_string(),
+    })
 }
 
 pub fn message_scan_spec(request: &MessageQueryRequest) -> ScanSpec {

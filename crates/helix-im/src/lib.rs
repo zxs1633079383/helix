@@ -42,6 +42,7 @@ pub mod parser {
 }
 mod port_reply;
 mod port_reply_emit;
+pub mod projector;
 pub mod query;
 pub use query::read_relay;
 pub use query::render_ready::candidates as render_ready_candidates;

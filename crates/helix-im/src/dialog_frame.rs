@@ -5,13 +5,14 @@
 
 use std::collections::HashMap;
 
-use bytes::Bytes;
-use helix_core::effect::DomainEventBytes;
 use helix_core::Effect;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::interaction_frame;
+use crate::projector::unread_summary::{
+    UnreadSummaryPatch, UnreadSummaryProjector, ViewerChannelUnread,
+};
 
 pub const EVENT_NAME: &str = "im:interaction:frame";
 pub const SURFACE: &str = "message.left-dialog-list";
@@ -155,6 +156,7 @@ pub struct DialogListFrameState {
     scope: Option<DialogListScope>,
     rows_by_channel: HashMap<String, DialogListRowVm>,
     ordered_channel_ids: Vec<String>,
+    unread_summary: UnreadSummaryProjector,
 }
 
 impl DialogListFrameState {
@@ -179,6 +181,13 @@ impl DialogListFrameState {
             self.ordered_channel_ids.push(row.channel_id.clone());
             self.rows_by_channel.insert(row.channel_id.clone(), row);
         }
+        // 频道行携带的 unread/mention/urgent 是当前 viewer 的权威绝对值。首次快照可 O(n)
+        // 建 aggregate；之后的每条 row 更新只对对应贡献做 O(1) replace，客户端不参与推导。
+        self.unread_summary.snapshot(
+            self.rows_by_channel
+                .iter()
+                .map(|(channel_id, row)| (channel_id.clone(), unread_contribution(row))),
+        );
         self.emit_snapshot(scope)
     }
 
@@ -263,6 +272,9 @@ impl DialogListFrameState {
         self.revision = self.revision.wrapping_add(1);
         let channel_id = row.channel_id.clone();
         let before_len = self.ordered_channel_ids.len();
+        let unread_patch = self
+            .unread_summary
+            .upsert(channel_id.clone(), unread_contribution(&row));
         self.rows_by_channel.insert(channel_id.clone(), row.clone());
         let target = self.reposition(&channel_id);
         let mut operations = vec![DialogListPatchOperation::UpsertRow {
@@ -277,7 +289,7 @@ impl DialogListFrameState {
                 to_index: target,
             });
         }
-        Some(self.emit_patch(scope, base_revision, operations))
+        Some(self.emit_patch(scope, base_revision, operations, unread_patch))
     }
 
     pub fn patch_closed(&mut self, scope: DialogListScope, channel_id: &str) -> Option<Effect> {
@@ -316,6 +328,9 @@ impl DialogListFrameState {
             .position(|id| id == &channel_id)?;
         let base_revision = self.revision;
         self.revision = self.revision.wrapping_add(1);
+        let unread_patch = self
+            .unread_summary
+            .upsert(channel_id.clone(), unread_contribution(&next));
         self.rows_by_channel.insert(channel_id.clone(), next);
         let next_index = self.reposition(&channel_id);
         let mut operations = vec![DialogListPatchOperation::UpsertRow {
@@ -332,7 +347,7 @@ impl DialogListFrameState {
                 to_index: next_index,
             });
         }
-        Some(self.emit_patch(scope, base_revision, operations))
+        Some(self.emit_patch(scope, base_revision, operations, unread_patch))
     }
 
     fn emit_patch(
@@ -340,54 +355,90 @@ impl DialogListFrameState {
         scope: DialogListScope,
         base_revision: u64,
         operations: Vec<DialogListPatchOperation>,
+        unread_patch: Option<UnreadSummaryPatch>,
     ) -> Effect {
         // 旧 row operation 只用于本 adapter 的确定性状态更新；正式 v1 wire 一律以
         // 同 surface 的 replaceView 发送完整 VM，平台端不再消费该 legacy delta。
         let _legacy_patch = DialogListPatch { operations };
-        self.emit_interaction_frame(
-            scope,
-            Some(base_revision),
-            interaction_frame::TypedSurfaceMutation::DialogListPatch {
+        let user_scope = interaction_frame::SurfaceScope::User {
+            user_id: scope.viewer_user_id,
+            team_id: scope.team_id,
+        };
+        let mut mutations = vec![interaction_frame::SurfaceMutation {
+            surface: interaction_frame::SurfaceId::MessageLeftDialogList,
+            scope: user_scope.clone(),
+            revision: self.revision,
+            base_revision: Some(base_revision),
+            causation_id: None,
+            mutation: interaction_frame::TypedSurfaceMutation::DialogListPatch {
                 patch: interaction_frame::ReplaceView {
                     kind: interaction_frame::ReplaceViewKind::ReplaceView,
                     view: self.interaction_view(),
                 },
             },
-        )
+        }];
+        if let Some(unread_patch) = unread_patch {
+            mutations.push(interaction_frame::SurfaceMutation {
+                surface: interaction_frame::SurfaceId::MessageUnreadSummary,
+                scope: user_scope,
+                revision: unread_patch.revision,
+                base_revision: Some(unread_patch.base_revision),
+                causation_id: None,
+                mutation: interaction_frame::TypedSurfaceMutation::UnreadSummaryPatch {
+                    patch: interaction_frame::ReplaceView {
+                        kind: interaction_frame::ReplaceViewKind::ReplaceView,
+                        view: unread_patch.view,
+                    },
+                },
+            });
+        }
+        self.emit_interaction_frame(mutations)
     }
 
     fn emit_snapshot(&self, scope: DialogListScope) -> Effect {
-        self.emit_interaction_frame(
-            scope,
-            None,
-            interaction_frame::TypedSurfaceMutation::DialogListSnapshot {
-                view: self.interaction_view(),
-            },
-        )
-    }
-
-    fn emit_interaction_frame(
-        &self,
-        scope: DialogListScope,
-        base_revision: Option<u64>,
-        mutation: interaction_frame::TypedSurfaceMutation,
-    ) -> Effect {
-        let scope = interaction_frame::SurfaceScope::User {
+        let user_scope = interaction_frame::SurfaceScope::User {
             user_id: scope.viewer_user_id,
             team_id: scope.team_id,
         };
-        let frame = interaction_frame::InteractionFrame {
-            schema_version: interaction_frame::INTERACTION_FRAME_SCHEMA_VERSION,
-            transaction_id: format!("dialog-list-{}-{}", scope.canonical_key(), self.revision),
-            mutations: vec![interaction_frame::SurfaceMutation {
+        let unread_snapshot = self
+            .unread_summary
+            .snapshot_view()
+            .expect("dialog snapshot always initializes the unread aggregate first");
+        self.emit_interaction_frame(vec![
+            interaction_frame::SurfaceMutation {
                 surface: interaction_frame::SurfaceId::MessageLeftDialogList,
-                scope,
+                scope: user_scope.clone(),
                 revision: self.revision,
-                base_revision,
+                base_revision: None,
                 causation_id: None,
-                mutation,
-            }],
-        };
+                mutation: interaction_frame::TypedSurfaceMutation::DialogListSnapshot {
+                    view: self.interaction_view(),
+                },
+            },
+            interaction_frame::SurfaceMutation {
+                surface: interaction_frame::SurfaceId::MessageUnreadSummary,
+                scope: user_scope,
+                revision: unread_snapshot.revision,
+                base_revision: None,
+                causation_id: None,
+                mutation: interaction_frame::TypedSurfaceMutation::UnreadSummarySnapshot {
+                    view: unread_snapshot.view,
+                },
+            },
+        ])
+    }
+
+    fn emit_interaction_frame(&self, mutations: Vec<interaction_frame::SurfaceMutation>) -> Effect {
+        let scope_key = mutations
+            .first()
+            .expect("dialog frame must have at least one mutation")
+            .scope
+            .canonical_key();
+        let frame = crate::projector::build_interaction_frame(
+            format!("dialog-list-{scope_key}-{}", self.revision),
+            mutations,
+        )
+        .expect("dialog list projector builds a valid InteractionFrame");
         emit_frame(frame)
     }
 
@@ -520,6 +571,14 @@ fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogR
         },
         actions: Vec::new(),
     }
+}
+
+fn unread_contribution(row: &DialogListRowVm) -> ViewerChannelUnread {
+    ViewerChannelUnread::new(
+        nonnegative_u32(row.badges.unread_count),
+        nonnegative_u32(row.badges.mention_count),
+        nonnegative_u32(row.badges.pending_urgent_count),
+    )
 }
 
 fn dialog_preview_to_surface_vm(preview: Option<&DialogPreviewVm>) -> interaction_frame::PreviewVm {
@@ -798,13 +857,8 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
 }
 
 fn emit_frame(frame: interaction_frame::InteractionFrame) -> Effect {
-    let payload =
-        serde_json::json!({ "event": interaction_frame::INTERACTION_FRAME_EVENT, "data": frame });
-    Effect::Emit {
-        event: DomainEventBytes(Bytes::from(
-            serde_json::to_vec(&payload).expect("dialog list frame is serializable"),
-        )),
-    }
+    crate::projector::emit_interaction_frame(frame)
+        .expect("dialog list projector builds a valid InteractionFrame")
 }
 
 fn should_precede(candidate: &DialogListRowVm, other: Option<&DialogListRowVm>) -> bool {
@@ -1254,6 +1308,10 @@ mod tests {
             dialog_view(&frame)["sections"][0]["items"][0]["unreadCount"],
             0
         );
+        let unread = &frame["data"]["mutations"][1];
+        assert_eq!(unread["surface"], "message.unread-summary");
+        assert_eq!(unread["mutation"]["kind"], "unreadSummarySnapshot");
+        assert_eq!(unread["mutation"]["view"]["unreadTotal"], 0);
     }
 
     #[test]
@@ -1308,6 +1366,12 @@ mod tests {
             dialog_view(&data)["sections"][0]["items"][0]["channelId"],
             "c1"
         );
+        let unread = &data["data"]["mutations"][1];
+        assert_eq!(unread["surface"], "message.unread-summary");
+        assert_eq!(unread["baseRevision"], 1);
+        assert_eq!(unread["revision"], 2);
+        assert_eq!(unread["mutation"]["kind"], "unreadSummaryPatch");
+        assert_eq!(unread["mutation"]["patch"]["view"]["unreadTotal"], 4);
     }
 
     #[test]
@@ -1434,7 +1498,12 @@ mod tests {
         assert_eq!(mutation["revision"], 2);
         assert_eq!(mutation["mutation"]["kind"], "dialogListPatch");
         assert_eq!(mutation["mutation"]["patch"]["kind"], "replaceView");
-        assert_eq!(frame_data["data"]["mutations"].as_array().unwrap().len(), 1);
+        assert_eq!(frame_data["data"]["mutations"].as_array().unwrap().len(), 2);
+        let unread = &frame_data["data"]["mutations"][1];
+        assert_eq!(unread["surface"], "message.unread-summary");
+        assert_eq!(unread["mutation"]["patch"]["view"]["unreadTotal"], 3);
+        assert_eq!(unread["mutation"]["patch"]["view"]["mentionTotal"], 1);
+        assert_eq!(unread["mutation"]["patch"]["view"]["urgentTotal"], 1);
         assert_eq!(row["title"]["text"], "renamed");
         assert_eq!(row["isTop"], true);
         assert_eq!(row["preview"]["text"], "member absolute");

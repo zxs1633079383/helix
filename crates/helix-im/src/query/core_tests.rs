@@ -175,6 +175,12 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
         mutation["mutation"]["view"]["sections"][0]["items"][0]["preview"]["text"],
         "交互稿已上传"
     );
+    let unread = &value["data"]["mutations"][1];
+    assert_eq!(unread["surface"], "message.unread-summary");
+    assert_eq!(unread["mutation"]["kind"], "unreadSummarySnapshot");
+    assert_eq!(unread["mutation"]["view"]["unreadTotal"], 4);
+    assert_eq!(unread["mutation"]["view"]["mentionTotal"], 1);
+    assert_eq!(unread["mutation"]["view"]["urgentTotal"], 2);
     assert!(mutation["mutation"]["view"]["sections"][0]["items"][0]
         .get("topicRows")
         .is_none());

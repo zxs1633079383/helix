@@ -3,8 +3,7 @@
 //! 这里只编排业务意图：本地覆盖判定、远端 `getLatestPost`、合并、缓存与统一投影。
 //! Storage/HTTP 的物理执行仍由平台 driver 兑现。
 
-use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, Effect};
+use helix_core::effect::Effect;
 use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
 use serde_json::Value;
@@ -18,14 +17,14 @@ use super::MessageQueryRequest;
 mod data;
 
 #[cfg(test)]
+pub(crate) use data::parse_latest_posts_body;
+#[cfg(test)]
 use data::server_id;
 use data::{
-    classify_local_read, dedup_recent_rows, merge_recent_rows, message_key, message_result_effect,
+    classify_local_read, dedup_recent_rows, merge_recent_rows, message_key,
     parse_latest_posts_reply, parse_local_rows, sort_recent_rows_desc,
     stale_local_server_rows_delete_op, visible_remote_rows_and_cache_ops,
 };
-#[cfg(test)]
-pub(crate) use data::parse_latest_posts_body;
 
 /// 平台提供的本地数据能力。它描述物理数据寿命，不承诺某次查询已经完整。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -155,11 +154,7 @@ impl ImModule {
         );
 
         if coverage == LocalReadCoverage::Complete {
-            out.push(message_result_effect(
-                &request,
-                &local_rows_desc,
-                self.config.auth_user_id.as_str(),
-            )?);
+            out.push(self.emit_timeline_snapshot(&request, &local_rows_desc)?);
             return Ok(());
         }
         self.start_remote_message_query(request, local_rows_desc, out)
@@ -184,10 +179,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback failed"
                 );
-                out.push(emit_message_query_failed(
-                    request.channel_id,
-                    format!("remote request failed: {error:?}"),
-                ));
+                out.push(self.emit_timeline_failed(&request)?);
                 return Ok(());
             }
         };
@@ -200,10 +192,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback returned invalid response"
                 );
-                out.push(emit_message_query_failed(
-                    request.channel_id,
-                    error.to_string(),
-                ));
+                out.push(self.emit_timeline_failed(&request)?);
                 return Ok(());
             }
         };
@@ -220,10 +209,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback contained invalid posts"
                 );
-                out.push(emit_message_query_failed(
-                    request.channel_id,
-                    error.to_string(),
-                ));
+                out.push(self.emit_timeline_failed(&request)?);
                 return Ok(());
             }
         };
@@ -249,11 +235,7 @@ impl ImModule {
         );
 
         if self.local_store_mode == LocalStoreMode::Disabled || cache_ops.is_empty() {
-            out.push(message_result_effect(
-                &request,
-                &merged_rows_desc,
-                self.config.auth_user_id.as_str(),
-            )?);
+            out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc)?);
             return Ok(());
         }
 
@@ -302,11 +284,7 @@ impl ImModule {
                 "message query remote cache failed; returning remote result without coverage"
             ),
         }
-        out.push(message_result_effect(
-            &request,
-            &merged_rows_desc,
-            self.config.auth_user_id.as_str(),
-        )?);
+        out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc)?);
         Ok(())
     }
 
@@ -367,23 +345,66 @@ impl ImModule {
             .is_some_and(|target| channel.cursor.value() < *target);
         behind_target || channel.inflight_sync.is_some() || !channel.buffer.is_empty()
     }
-}
 
-/// 最近消息查询的显式失败状态；与成功投影分离，禁止用空列表伪装失败。
-pub fn emit_message_query_failed(channel_id: ChannelId, error: String) -> Effect {
-    let payload = serde_json::json!({
-        "event": "im:post:increment-failed",
-        "data": {
-            "channelId": channel_id.as_str(),
-            "error": error,
-        }
-    });
-    let bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| {
-        br#"{"event":"im:post:increment-failed","data":{"channelId":"","error":"serialize failure"}}"#
-            .to_vec()
-    });
-    Effect::Emit {
-        event: DomainEventBytes(Bytes::from(bytes)),
+    /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。
+    /// `rows_desc` 是当前有界窗口的倒序查询结果；这里反转一次并交给 typed projector，端侧不再
+    /// 消费 `im:messages:query_result` 或 raw storage row。
+    fn emit_timeline_snapshot(
+        &mut self,
+        request: &MessageQueryRequest,
+        rows_desc: &[Value],
+    ) -> Result<Effect, ImError> {
+        let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
+        let shaped = crate::render_ready::shape_message_rows_for_viewer(
+            &rows_asc,
+            self.config.auth_user_id.as_str(),
+        );
+        let rows = shaped.as_array().ok_or_else(|| {
+            ImError::Parse("render-ready timeline rows must be an array".to_string())
+        })?;
+        let mutation = self
+            .state
+            .timeline_projector
+            .snapshot_from_render_ready(
+                crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+                    request.channel_id.as_str(),
+                    request.window_token.as_str(),
+                ),
+                rows,
+            )
+            .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
+        let scope_key = mutation.scope.canonical_key();
+        let revision = mutation.revision;
+        let frame = crate::projector::build_interaction_frame(
+            format!("timeline-{scope_key}-{revision}"),
+            vec![mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))
+    }
+
+    fn emit_timeline_failed(&mut self, request: &MessageQueryRequest) -> Result<Effect, ImError> {
+        let mut failed =
+            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+            );
+        failed.state = crate::interaction_frame::SurfaceLoadState::Failed;
+        let mutation = self
+            .state
+            .timeline_projector
+            .snapshot_from_render_ready(failed, &[])
+            .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
+        let scope_key = mutation.scope.canonical_key();
+        let revision = mutation.revision;
+        let frame = crate::projector::build_interaction_frame(
+            format!("timeline-{scope_key}-{revision}"),
+            vec![mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))
     }
 }
 

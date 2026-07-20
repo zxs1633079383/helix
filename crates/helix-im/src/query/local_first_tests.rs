@@ -8,6 +8,7 @@ fn request(limit: u32) -> MessageQueryRequest {
     MessageQueryRequest {
         channel_id: channel_id(),
         limit,
+        window_token: "latest".to_string(),
     }
 }
 
@@ -147,4 +148,52 @@ fn latest_posts_parser_distinguishes_empty_success_from_failed_status() {
 
     let missing_status = parse_latest_posts_body(br#"{"data":[]}"#).unwrap_err();
     assert!(missing_status.to_string().contains("missing string status"));
+}
+
+#[test]
+fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let rows_desc = vec![serde_json::json!({
+        "id": "message-1",
+        "temporaryId": "temporary-1",
+        "channelId": channel_id().as_str(),
+        "userId": "author-1",
+        "createAt": 10,
+        "message": "hello",
+        "type": "TEXT",
+        "props": {},
+    })];
+
+    let mut request = request(20);
+    request.window_token = "latest-query-1".to_string();
+    let effect = module
+        .emit_timeline_snapshot(&request, &rows_desc)
+        .expect("render-ready facts project to a typed frame");
+    let Effect::Emit { event } = effect else {
+        panic!("timeline query terminal must emit")
+    };
+    let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    assert_eq!(envelope["event"], "im:interaction:frame");
+    assert!(envelope["event"] != "im:messages:query_result");
+    let frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&envelope["data"]).unwrap(),
+    )
+    .expect("live timeline output must satisfy the public Frame contract");
+    assert_eq!(frame.mutations.len(), 1);
+    assert_eq!(
+        frame.mutations[0].surface,
+        crate::interaction_frame::SurfaceId::MessageTimeline
+    );
+    assert_eq!(
+        frame.mutations[0].scope.canonical_key(),
+        format!(
+            "timeline|{}:{}|{}:{}",
+            channel_id().as_str().len(),
+            channel_id().as_str(),
+            "latest-query-1".len(),
+            "latest-query-1"
+        )
+    );
 }

@@ -180,7 +180,7 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
         port_reply_with_body(reload_persist, channel_row_reply(1, 1, "reload-msg")),
         2300,
     );
-    let reload_patch = h.sink.as_slice().iter().any(|e| {
+    let raw_dialog_patch = h.sink.as_slice().iter().any(|e| {
         matches!(e, Effect::Emit { event } if {
             let value: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
             value["event"] == "im:channel:update-by-post"
@@ -188,7 +188,7 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
                 && value["data"]["dialogPatch"]["unreadCount"] == 1
         })
     });
-    assert!(reload_patch, "重拉落库写后读回后必须 emit 覆盖 DialogPatch");
+    assert!(!raw_dialog_patch, "重拉落库写后读回后不得 emit raw DialogPatch");
 }
 
 #[test]

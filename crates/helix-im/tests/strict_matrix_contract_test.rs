@@ -359,13 +359,25 @@ fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
         .http
         .request
         .contains("{type,userIds,displayName,forceCreate}"));
-    for invariant in ["pictureType=USER", "picture.userIds", "不得提交 team/role/owner/picture"] {
+    for invariant in [
+        "pictureType=USER",
+        "picture.userIds",
+        "不得提交 team/role/owner/picture",
+    ] {
         assert!(
             create.http.request.contains(invariant),
             "G-15a request 必须冻结默认头像边界: {invariant}"
         );
     }
-    for field in ["data", "id", "displayName", "type", "teamId", "pictureType", "picture"] {
+    for field in [
+        "data",
+        "id",
+        "displayName",
+        "type",
+        "teamId",
+        "pictureType",
+        "picture",
+    ] {
         assert!(
             create.http.response.contains(field),
             "G-15a response 缺 {field}"
@@ -495,9 +507,14 @@ fn strict_matrix_forbids_aliases_and_requires_exact_snake_case_inputs() {
             );
         }
         for projection in &entry.projections {
+            let expected_schema = if projection.event == "im:interaction:frame" {
+                "InteractionFrame/v1"
+            } else {
+                "RenderNode/v1"
+            };
             assert_eq!(
-                projection.schema, "RenderNode/v1",
-                "{} must be render-ready",
+                projection.schema, expected_schema,
+                "{} projection schema must match its render-ready envelope",
                 entry.gate_id
             );
         }

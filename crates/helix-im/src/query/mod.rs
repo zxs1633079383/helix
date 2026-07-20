@@ -1,6 +1,5 @@
 pub mod core;
 pub(crate) mod dialog_render;
-pub(crate) mod dialog_wire;
 pub(crate) mod dispatch;
 pub mod local_first;
 pub mod read_relay;

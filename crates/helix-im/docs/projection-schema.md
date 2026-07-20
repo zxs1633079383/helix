@@ -42,12 +42,12 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 
 ---
 
-## 1. 投影出口全集（26 工厂 → 25 distinct channel）
+## 1. 投影出口全集（24 工厂 → 23 distinct channel）
 
 > **spec06 FixB 标注**：message-row 信号已从「三键瘦信号」改为「**完整可渲染 MessageItemData**」（fat，
-> 数据在手零回读，见 §2）。`im:channel:update-by-post` 在 2026-07-09 Dialog 指令化投影中升级为
-> **render-ready Dialog patch**：普通/艾特/加急分类、sender、lastPost/lastMessage、事件 delta
-> 与 Helix storage 写后累计 Dialog 终值随事件输出，前端可直接覆盖会话行；`im:channel:update` 仍是批次结束瘦信号。**fat 完整集 =
+> 数据在手零回读，见 §2）。左侧会话列表的写后累计值只进入
+> `message.left-dialog-list` 的 `im:interaction:frame`，由一个原子 property patch 覆盖会话行；
+> `im:channel:update` 仍是 channel surface 的批次结束瘦信号。**fat 完整集 =
 > `message_item_data` 产物**：`channel_id`/`event_seq`/`msg_id`（信号锚 snake）
 > + `id`/`msgId`/`eventSeq`/`text`/`createdAt`（与本地消息查询一致的 canonical render-ready aliases）
 > + `temporaryId`/`channelId`/`userId`/`type`/`message`/`props`/`createAt`/`updateAt`/`readBits`/`viewers`（现网兼容渲染核）
@@ -64,15 +64,10 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > 非空 bool；`systemNotice`=type∈NOTICE_TYPES bool；`pinned`=post_pin 下沉 props.pinned（无→null）；`type` 空串容错 `"TEXT"`。**这些字段都从在手 PostFields/props 派生，
 > 不触 PostFields 扩字段、不碰 parser 热路径**（守 HX-C005·与「加急 expediteMap 不吐」同理：那个要扩 PostFields，故仍 DB 权威）。
 >
-> **issue #54（S5 频道列表族·C013 纯渲染壳·授权契约演进）**：`emit_dialog_list_result` 每行（低频按需 invoke·
-> off hot-path）在保留原始 DB 列之上，叠加 8 个 render-ready 终态键供前端 CL 行 1:1 绑定 data-*：
-> `displayName`（← display_name）、`notice`（归一·`{"text":..}`→text / 纯文本原样 / 空→null·前端删 normalizeNotice）、
-> `isTop`（← is_top INTEGER → bool·前端删 normalizeIsTop）、`createAt`（← create_at·CL 升序键）、
-> `unread`（← unread_count **终值**·前端 badge 直绑·**不再壳 ++**）、`mention`（← mention_count>0 ‖ mention_count_root>0 bool·艾特 badge）、
-> `lastMessage`（← last_post 解析取 message/content/text 预览·非 JSON 兜底整串·空→null）、`urgent`（← last_post 的
-> isUrgent/isExpedite/props.expedite/props.urgent 任一非空 bool·加急 badge）。实现外提 `query_dialog_render.rs`（守 structure-gate）。
-> 原始列仍透传（向后兼容旧消费方）。这是低频 dialogList 投影；热路径 `channel:update-by-post`
-> 只在 `GuardedBump` 写后追加 `Get(channel)` 读回单行累计 Dialog 字段，不让前端按事件 delta 自增。
+> **issue #54（S5 频道列表族·C013 纯渲染壳·授权契约演进）**：低频 `im_query_dialog_list`
+> 将 channel scan 转为 `message.left-dialog-list` snapshot；写后 `GuardedBump + Get(channel)` 只产生
+> 同一 surface 的 property patch。行内 display、头像、预览、badge 与排序均在 Helix 完成，客户端不接收
+> raw dialogList、raw lastPost 或事件 delta。
 
 | 工厂 fn（src 位置） | channel | data 键集（冻结）| 触发路径 |
 |---|---|---|---|
@@ -91,7 +86,6 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect::emit_post_updated` | `im:post:updated` | **fat**（同 `emit_post_received` 完整集）| sync type2 编辑（可见）|
 | `to_effect::emit_post_batch_updated` | `im:post:batch-updated` | `channel_id` `posts` | WS `posts_update` 批量 |
 | `to_effect::emit_post_deleted` | `im:post:deleted` | **fat**（同 `emit_post_received` 完整集·撤回 PostFields 稀疏→多空串）| sync type3 撤回 |
-| `to_effect::emit_channel_update_by_post` | `im:channel:update-by-post` | `op` `source` `channel_id` `channelId` `event_seq` `eventSeq` `msg_id` `msgId` `messageClass` `visible` `senderUserId` `lastPost` `lastMessage` `unreadDelta` `mentionDelta` `urgentDelta` `mentionedUserIds` `urgentUserIds` `mentionList` `urgentPostList` `dialogPatch`（**render-ready Dialog patch**，保留 legacy 三键 anchor）| 在线 post / sync type1 可见 |
 | `to_effect_s1::emit_channel_created` | `im:channel:created` | `id` `channelId` `channel_id` `displayName` `group` `channelType` `channelKind` `memberCount` `createdAt` `lastActivityAt` `top` `projectionSource=channel_created` `props` `channel` | WS `channel_created`；新群即时列表直接消费顶层排序事实，不解析嵌套 raw channel |
 | `to_effect_s1::emit_channel_closed` | `im:channel:closed` | `id` `channelId` `closed` `deleteAt` | WS `channel_close` |
 | `to_effect_s1::emit_channel_member_updated` | `im:channel:member-updated` | `channel_id` `channel` | WS `channel_member_update` |
@@ -100,27 +94,14 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 | `to_effect_s1::emit_schedule_canceled` | `im:channel:schedule-canceled` | 同 created，且 `hasSchedulePost=false` `scheduleStatus=canceled` | WS `post_schedule_canceled`；取消为终态，未授权时正文与摘要均为 `null` |
 | `query::emit_message_query_result` | `im:messages:query_result` | `channel_id` `messages` | invoke `im_query_messages_by_channel` |
 | `query::emit_dialog_list_frame_result` | `im:interaction:frame` | `schemaVersion` `surface` `frameId` `scope` `mode` `baseRevision?` `revision` `causationId?` `snapshot?` `patch?` | invoke `im_query_dialog_list` / 左侧列表写后 patch |
-| `query::emit_dialog_list_result` | `im:channels:projection` | `dialogList`（**fat 完整 DialogItem 行数组**·UC-3）| `im_query_dialog_list` 的 shadow-only 兼容输出 |
 | `query::emit_dialogs_cleared` | `im:channels:loaded`（第二形态）| `reason` | invoke `im_delete_all_dialogs` |
-
-> **`im:channels:projection` UC-3 完整会话列表投影（shadow-only 兼容）**：`im_query_dialog_list` 是
-> **低频按需 invoke**（用户进 IM / 切会话一次性拉取，**非每事件热路径**）——`Scan(channel ORDER BY
-> last_post_at DESC)` 把整张 channel 表行投影成完整 `dialogList`（每行含 `unread_count`/`mention_count`/
-> `mention_count_root`/`last_post`/`unread_post_id`/`last_event_seq` 等，列名 = §4 DB 列）。**前端零计算
-> unread/badge、零回读**（UC-3 unread 计算下放 helix 达成，前端 messageDialog 的 unread 计算移除）。
-> 🔴 **HX-C005 守约**：本命令在 hot-path 外（spec06 §2 边界 line87-89「server 端回读仅限低频非每事件
-> 命中」），故 Scan channel 表合规——与 §2 `im:channel:update-by-post` 的热路径 patch **不矛盾**：
-> 热路径只吐本事件 delta，不回读整行；完整 dialogList 由本**低频**命令补齐。两条路分工：
-> 历史客户端仍可在明确迁移窗口内消费这一兼容投影；已声明 frame 能力的客户端必须消费前置的
-> `im:interaction:frame`，不得以本段内容作为列表回退。
-> 它**替代**前端原「按 channel_id 回读 dialogList + 自算 unread」蠢模式（spec06 P1 回正 line84）。
 
 > **`im:interaction:frame` 左侧会话列表合同**：这是 `message.left-dialog-list` 的唯一生产消费面。
 > snapshot 带 `rows + orderedChannelIds`，patch 仅带变更属性和 `moveRow`；客户端必须在
 > `scope`、`schemaVersion` 与 `baseRevision` 全部匹配时一次性应用，失败只请求新的 snapshot。
 > 行内 `preview` 已替代 raw `lastPost`，`avatar.userIds` 是平台 `faceUri(userId)` 的解析输入，
-> `topicCount` 只给数量而不夹带话题详情。历史 `im:channels:projection` 保留为未迁移消费者的
-> 兼容出口，不能驱动已挂载 frame 的左侧列表。
+> `topicCount` 只给数量而不夹带话题详情。拒绝的 frame 必须记录结构化原因并请求 snapshot；
+> 不存在 raw 列表投影或旧 reducer 回退。
 
 > **`im:channels:loaded` 双形态**：hello 冷启动路径产 `{items:[]}`（`emit_channels_loaded`），
 > delete-all 路径产 `{reason:"delete_all_dialogs"}`（`emit_dialogs_cleared`）——同 channel 名两套
@@ -270,8 +251,8 @@ CommonRes 状态失败时，才 emit 独立状态通道 `im:post:increment-faile
 > 前端按 id 回读本地 DB」——但 message-row 事件 helix **写完那行时数据就在手**（同一份 `PostFields` 正落库），
 > 却只吐个信号逼前端二次查库（N 个渲染组件各查一次 = N 次冗余 DB 读）= **蠢代码**。修复：**message-row 信号
 > 一次吐完整可渲染行（fat），UI 直渲零回读**。原「瘦信号防塞半份」的顾虑是针对「**部分**数据」——吐**完整**
-> 数据无覆盖问题，顾虑自解。2026-07-09 Dialog 侧再把 `im:channel:update-by-post` 升级为
-> **指令化 patch**：只吐本事件可确定的 Dialog patch/delta，不在热路径回读整行累计值。
+> 数据无覆盖问题，顾虑自解。左侧会话列表采用独立的 InteractionFrame reducer：消息投影只确认
+> timeline；列表累计值由 Helix 写后 readback 的 surface patch 表达。
 
 helix emit 分三类，决定前端「拿到事件后做什么」：
 
@@ -296,27 +277,18 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 > 完整字段 → 前端拿不到 = 回退「半份回读」蠢模式 → 测试 fail（`projection_schema_test` 注入缺字段证伪）。
 > 与旧契约相反：旧契约「多一字段即漂移」，新契约「**少一字段即漂移**」（完整才是正解）。
 
-### Dialog patch 类（可见 post 直接 patch 会话行）
+### 左侧列表 frame patch 类（可见 post / member 变更）
 
-`im:channel:update-by-post` 保留 legacy `channel_id/event_seq/msg_id` anchor，同时增加 render-ready
-`dialogPatch`：
+`im:interaction:frame` 的 `message.left-dialog-list` patch 表达一次完整的列表原子转换：
 
-- `messageClass`：`normal` / `mention` / `urgent` / `mention_urgent`；
-- `senderUserId`：`userSnapshot.userId` 优先，回退 `userId`；
-- `lastPost` / `lastMessage`：来自当前可见 post，在手输出，不依赖额外 `update_channel`；
-- `dialogPatch.eventSeq`：当前频道游标的 canonical UI 字段；`lastEventSeq` 继续保留给旧消费方；
-- `unreadDelta` / `mentionDelta` / `urgentDelta`：本事件增量，仅作调试/兼容信号，不作为前端累计源；
-- `dialogPatch.unreadCount` / `mentionCount` / `urgentCount`：`dialog.patchByPost` 来自 `GuardedBump`
-  写后 `Get(channel)` 的本地累计终值；`dialog.patchByMember` 来自后端 `update_channel` 定向单播的
-  `channel_member` 绝对态，带 `projectionAuthority="server-member-absolute"`，用于覆盖前者；
-- `mentionList` / `urgentPostList`：来自写后 `channel` 行的 set-union 结果，语义是绝对覆盖，不是 `[当前 post_id]`；
-- `mentionedUserIds` / `urgentUserIds`：当前事件命中的 userId 列表（先用 userId，不做成员名解析）；
-- `readLastSeq` / `msgCount`：当前由 `update_channel` member 绝对态写入 `channel_member` 并在
-  `dialog.patchByMember` 中输出；普通 `dialog.patchByPost` 不凭空补这些 member 字段。
+- `preview`：来自当前可见 post 的最终展示摘要；
+- `badges`：写后 `Get(channel)` 或定向 `channel_member` 绝对态的 unread / mention / pending urgent 终值；
+- `activityAt` 与 `moveRow`：与同一次 badge/preview 更新共同提交，禁止产生中间位置；
+- `baseRevision` / `revision`：客户端仅在精确连续时应用，否则记录拒绝原因并请求 snapshot。
 
 > 🔴 **HX-C005 守约**：该 patch 使用当前 post 的在手 `PostFields` + `PostChannelUpdate` 计算事件语义，
 > 再通过同一 Persist 批次里的 `GuardedBump -> Get(channel)` 取得写后累计终值。I/O 仍是 Effect/StorageOp，
-> core 不理解 IM 业务列；前端只接收覆盖投影，不做 read-modify-render。
+> core 不理解 IM 业务列；前端只接收 frame，不做 read-modify-render。
 
 ### channel-row thin 类（批次结束单键，历史客户端可低频回读累计 DB 行）
 
@@ -331,7 +303,6 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 - `im:channel:created` / `im:channel:member-updated`（`channel` = 透传帧 data 原始 channel 对象）
 - `im:post:batch-updated`（`posts` = 透传 `posts_update` 帧的 posts 数组）
 - `im:messages:query_result`（`messages` = `Scan message` 的本地 DB 行数组，列名 = §4 DB 列）
-- `im:channels:projection`（`dialogList` = `Scan channel` 的本地 DB 行数组，**完整 DialogItem**·UC-3，列名 = §4 DB 列；仅 shadow 期的低频兼容输出）
 
 透传类**不解释字段**（parser 已在边界零信任解析，此处仅透传），故冻结的是**外层包装键**
 （`channel_id`+载荷键），载荷内部字段不在本文档逐一冻结（由现网 wire 契约保真）。
@@ -399,9 +370,8 @@ helix emit 分三类，决定前端「拿到事件后做什么」：
 ```
 im:post:received        → POST handler（**fat 直渲** message_item_data，零回读·spec06 FixB）
 im:interaction:frame    → 左侧列表 frame reducer（核验 scope/revision 后原子替换或属性 patch）
-im:channel:update       → 仅未迁移客户端的 UPDATE_CHANNEL handler（thin·按 channel_id 低频校准）
+im:channel:update       → channel surface handler（不驱动左侧列表）
 im:messages:query_result→ 投影 handler（直接渲染 `{channel_id, messages:[...]}`，不走 `{items:[]}` 解包）
-im:channels:projection  → 仅未迁移客户端的 shadow 会话列表 handler（直接渲染 dialogList·UC-3）
 im:sync:too_long        → onRustTooLong（按 channelId drop local messages + cursor=resetTo-1 + reload 首屏）
 ...（其余 16 channel 同理；message-row 信号 fat 直渲 / channel-row 信号 thin 低频回读）
 ```

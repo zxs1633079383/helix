@@ -324,22 +324,22 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
     );
 
     h.step(port_reply_ok(increment_persist_corr), 1_200);
-    let committed_dialog = h
-        .sink
-        .as_slice()
-        .iter()
-        .filter_map(emit_value)
-        .find(|value| value["event"] == "im:channels:projection")
-        .expect("channel/member Persist ack 后应发布 render-ready dialog");
-    let committed_row = &committed_dialog["data"]["dialogList"][0];
-    assert_eq!(committed_row["id"], cid(45));
-    assert_eq!(committed_row["channelId"], cid(45));
-    assert_eq!(committed_row["displayName"], "陌生频道");
-    assert_eq!(committed_row["group"], "company");
-    assert_eq!(committed_row["channelType"], "O");
-    assert_eq!(committed_row["channelKind"], "company");
-    assert_eq!(committed_row["loading"], false);
-    assert_eq!(committed_row["unknown"], false);
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| value["event"] == "im:channel:increment"),
+        "channel/member Persist ack 后仍须发布 channel surface"
+    );
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| value["event"] == "im:channels:projection"),
+        "channel hydration 不得回退发布 raw dialogList"
+    );
     let sync_corr = h
         .sink
         .as_slice()
@@ -437,7 +437,6 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
         }]))
         .unwrap(),
     );
-    let mut dialog_projection = None;
     let mut message_http_corr = None;
     for (index, (corr, table)) in readback_scans.into_iter().enumerate() {
         let reply = if table == "channel" {
@@ -457,12 +456,6 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
                 _ => None,
             })
         });
-        for value in h.sink.as_slice().iter().filter_map(emit_value) {
-            match value["event"].as_str() {
-                Some("im:channels:projection") => dialog_projection = Some(value),
-                _ => {}
-            }
-        }
     }
 
     let message_http_corr = message_http_corr.expect("无窗口 proof 的本地消息必须远端补齐");
@@ -510,19 +503,6 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_render_ready_projection(
         .iter()
         .filter_map(emit_value)
         .find(|value| value["event"] == "im:messages:query_result");
-
-    let dialog = dialog_projection.expect("本地 channel 读回应产 render-ready dialog 投影");
-    let row = &dialog["data"]["dialogList"][0];
-    assert_eq!(row["id"], cid(45));
-    assert_eq!(row["displayName"], "陌生频道");
-    assert_eq!(row["unread"], 1);
-    assert_eq!(row["unreadCount"], 1);
-    assert_eq!(row["mentionCount"], 1);
-    assert_eq!(row["urgentCount"], 1);
-    assert_eq!(row["eventSeq"], 2);
-    assert_eq!(row["mention"], true);
-    assert_eq!(row["urgent"], true);
-    assert_eq!(row["lastMessage"], "hydrated hello");
 
     let messages = messages_projection.expect("本地 message 读回应产 render-ready messages 投影");
     assert_eq!(messages["data"]["channel_id"], cid(45));

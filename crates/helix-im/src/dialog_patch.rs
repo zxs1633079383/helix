@@ -5,7 +5,6 @@
 use crate::state::ChannelId;
 use crate::sync_session::PostFields;
 use helix_core::effect::{Row, SqlValue, StorageOp};
-use helix_core::Effect;
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,9 +76,9 @@ impl PendingDialogPatch {
         ]
     }
 
-    pub fn emit_from_channel_reply(&self, reply: &[u8]) -> Option<Effect> {
+    pub fn frame_patch_data_from_channel_reply(&self, reply: &[u8]) -> Option<Value> {
         let projection = projection_from_channel_reply(reply)?;
-        Some(crate::acl::to_effect::emit_channel_update_by_post(
+        Some(crate::acl::to_effect::post_dialog_patch_data(
             self.channel_id,
             self.event_seq,
             self.msg_id.as_str(),

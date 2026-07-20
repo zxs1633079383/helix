@@ -1,11 +1,7 @@
 //! Dialog-row projection emit factories.
 
 use crate::state::ChannelId;
-use bytes::Bytes;
-use helix_core::effect::DomainEventBytes;
-use helix_core::Effect;
-
-pub fn emit_channel_update_by_post(
+pub fn post_dialog_patch_data(
     channel_id: ChannelId,
     event_seq: u64,
     msg_id: &str,
@@ -13,7 +9,7 @@ pub fn emit_channel_update_by_post(
     update: &crate::channel_write::PostChannelUpdate,
     projection: &crate::dialog_patch::DialogPatchProjection,
     source: &str,
-) -> Effect {
+) -> serde_json::Value {
     use serde_json::json;
     let last_post = post_fields_json(channel_id, event_seq, msg_id, fields);
     let message_class = crate::channel_write::message_class(update);
@@ -40,9 +36,7 @@ pub fn emit_channel_update_by_post(
         "mentionList": projection.mention_list.clone(),
         "urgentPostList": projection.urgent_post_list.clone(),
     });
-    let payload = json!({
-        "event": "im:channel:update-by-post",
-        "data": {
+    json!({
             "op": "dialog.patchByPost",
             "source": source,
             "channel_id": channel_id.as_str(),
@@ -64,23 +58,15 @@ pub fn emit_channel_update_by_post(
                 "mentionList": projection.mention_list.clone(),
                 "urgentPostList": projection.urgent_post_list.clone(),
                 "dialogPatch": dialog_patch,
-        }
-    });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_channel_update_by_post: static JSON shape must not fail to serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
+    })
 }
 
 /// 后端 `update_channel` 定向成员绝对态 → 左侧 Dialog 行 badge/lastPost 指令。
-pub fn emit_channel_update_by_member_dialog(
+pub fn member_dialog_patch_data(
     channel_id: ChannelId,
     projection: &crate::dialog_patch::MemberDialogProjection,
     source: &str,
-) -> Effect {
+) -> serde_json::Value {
     use serde_json::json;
     let last_post = projection
         .last_post
@@ -185,17 +171,7 @@ pub fn emit_channel_update_by_member_dialog(
     if let (Some(revision), Some(object)) = (projection.projection_revision, data.as_object_mut()) {
         object.insert("projectionRevision".to_string(), revision.into());
     }
-    let payload = json!({
-        "event": "im:channel:update-by-post",
-        "data": data,
-    });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_channel_update_by_member_dialog: static JSON shape must serialize"),
-    );
-    Effect::Emit {
-        event: DomainEventBytes(bytes),
-    }
+    data
 }
 
 fn post_fields_json(

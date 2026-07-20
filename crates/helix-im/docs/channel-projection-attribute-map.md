@@ -68,9 +68,9 @@ Helix 的可提交 replay 样例位于 `tests/fixtures/dialog_list_frame_v1.json
 
 | 领域来源 | 入口 | 产生的列表变化 |
 |---|---|---|
-| 初始查询、重连、显式 resync | `CorrelationContext::DialogListQuery` | 完整 `snapshot`；先发布 frame，再在 shadow 期发布历史查询投影供未迁移客户端使用。 |
+| 初始查询、重连、显式 resync | `CorrelationContext::DialogListQuery` | 完整 `snapshot`；只发布 `message.left-dialog-list` frame，不保留 raw 查询投影回退。 |
 | 可见 post 写后累计值 | `DialogPatchByPost`、`PersistDialogPatch`、`TooLongReloadPersist` | 一次属性 patch：`preview`、三类 badge、`activityAt` 和必要的 `moveRow`。 |
-| 建群、频道资料/成员更新 | `channel_created`、`update_channel`、`channel_member_update`、settings reply | 新行或只含标题、类型、成员、头像、状态、活动时间、话题数的 patch。 |
+| 建群、频道资料/成员更新 | `channel_created`、`update_channel`、`channel_member_update`、settings reply | 新行或只含标题、类型、成员、头像、状态、活动时间、话题数的 patch；`update_channel` 同时携带成员绝对 badge/preview 时合并为同一 revision。 |
 | 关闭或退出频道 | `channel_close`、`OutboundLeave` reply | 只更新 `state.closed` 或 `state.left`，保持已有行身份与顺序由 Helix 裁决。 |
 
 上述输入都先写入/读取 Helix 权威事实，再由 `DialogListFrameState` 递增 revision 和生成 operation；

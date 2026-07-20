@@ -126,9 +126,9 @@
           ],
           "projections": [
             {
-              "event": "im:channel:update-by-post",
-              "render_kind": "channel.row.v1",
-              "schema": "RenderNode/v1"
+              "event": "im:interaction:frame",
+              "render_kind": "message.left-dialog-list.v1",
+              "schema": "InteractionFrame/v1"
             }
           ],
           "persistence": [
@@ -137,7 +137,7 @@
           ],
           "http": {
             "request": "`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`，单次最多 500 个 cursor",
-            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`，`data={entries:[{channelId,kind,events,nextSeq?,resetTo?,messages?}],serverTime}`；`kind` 当前为 `no_change|events|too_long`（`snapshot` 仅保留未启用），单频道 `events` 最多 500 条、gap 大于 5000 返回 `too_long`；`messages` 仅包含 caller 可见正文。Helix 已实现 HTTP SUCCESS 不推进本地 cursor，将 message/channel 派生写与 `channel_event_cursor` 合入同一相关 Persist，PortReply Ok 后才发布 mutation 与 `im:channel:update-by-post`；Err 保持静默。代码证据 `crates/helix-im/tests/gs_persist_barrier_test.rs::gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state`"
+            "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`，`data={entries:[{channelId,kind,events,nextSeq?,resetTo?,messages?}],serverTime}`；`kind` 当前为 `no_change|events|too_long`（`snapshot` 仅保留未启用），单频道 `events` 最多 500 条、gap 大于 5000 返回 `too_long`；`messages` 仅包含 caller 可见正文。Helix 已实现 HTTP SUCCESS 不推进本地 cursor，将 message/channel 派生写与 `channel_event_cursor` 合入同一相关 Persist，PortReply Ok 后才发布 mutation 与 `message.left-dialog-list` 的 `im:interaction:frame`；Err 保持静默。代码证据 `crates/helix-im/tests/gs_persist_barrier_test.rs::gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state`"
           },
           "ws": {
             "events": "HTTP `/channel/sync/notify` 本身不产生业务 WS；在线并发的 `post` / `posts_update` / `increment_channel_end` 必须作为独立 transport evidence，不能替代 HTTP entries、本地持久化或最终投影"

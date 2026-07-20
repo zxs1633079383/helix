@@ -161,19 +161,9 @@ fn update_channel_writes_member_dialog_absolute_and_emits_projection() {
     ));
     assert!(composite, "member dialog patch 须用复合 PK，ops: {ops:?}");
 
-    let updates = emit_data(&h.sink, "im:channel:update-by-post");
     assert!(
-        updates.iter().any(|data| {
-            data["op"] == "dialog.patchByMember"
-                && data["projectionAuthority"] == "server-member-absolute"
-                && data["dialogPatch"]["unreadCount"] == 7
-                && data["dialogPatch"]["mentionCount"] == 2
-                && data["dialogPatch"]["urgentCount"] == 1
-                && data["senderUserId"] == "u-sender"
-                && data["projectionRevision"] == 44
-                && data["dialogPatch"]["projectionRevision"] == 44
-        }),
-        "update_channel 须 emit 指令化 member dialog 投影，updates: {updates:?}"
+        emit_data(&h.sink, "im:channel:update-by-post").is_empty(),
+        "member 绝对态只可进入 InteractionFrame，不得发布 raw DialogPatch"
     );
 }
 

@@ -76,8 +76,8 @@ pub enum CorrelationContext {
         projections: Vec<(ChannelId, Vec<u8>)>,
     },
 
-    /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后 emit
-    /// `im:channel:update-by-post`。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
+    /// 在线 post/gate 路径：channel GuardedBump + Get(channel) 的 PortReply 回来后发布
+    /// `message.left-dialog-list` 属性 frame。该变体承载“写后累计终值”链路，避免前端按事件 delta 自增。
     DialogPatchByPost {
         pending: crate::dialog_patch::PendingDialogPatch,
     },
@@ -141,7 +141,7 @@ pub enum CorrelationContext {
         assembly: Box<crate::forward::ForwardAssembly>,
     },
 
-    /// UC-3 `im_query_dialog_list` Scan 回报 → emit `im:channels:projection` 完整 dialogList。
+    /// UC-3 `im_query_dialog_list` Scan 回报 → emit `message.left-dialog-list` 完整 snapshot frame。
     DialogListQuery,
 
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。

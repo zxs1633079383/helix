@@ -20,7 +20,7 @@ impl ImModule {
             }
             "im_query_dialog_list" => {
                 // UC-3：低频按需拉全量会话列表（off hot-path）→ Scan channel + 注册 DialogListQuery；
-                // PortReply 回报后 emit `im:channels:projection` 完整 dialogList（前端零计算）。
+                // PortReply 回报后 emit `message.left-dialog-list` 完整 snapshot（前端零计算）。
                 let corr = self.alloc_corr_internal();
                 let effect = crate::query::build_dialog_list_query(payload, corr)?;
                 self.state

@@ -204,8 +204,8 @@ pub(crate) fn message_query_result_bytes(
 /// 构造 `im_query_dialog_list` 的 `Scan(channel ORDER BY is_top,last_post_at,created_at DESC LIMIT)`。
 ///
 /// 返回 `Effect::Persist{Scan}`——调用方（module.rs）alloc corr + 注册
-/// `CorrelationContext::DialogListQuery`，PortReply 回报后 [`emit_dialog_list_result`] 把整份
-/// channel 行投影成完整 dialogList emit。`limit` 取 payload `limit`（缺省 500，clamp ≤2000）。
+/// `CorrelationContext::DialogListQuery`，PortReply 回报后把整份 channel 行投影为完整
+/// `message.left-dialog-list` snapshot frame。`limit` 取 payload `limit`（缺省 500，clamp ≤2000）。
 ///
 /// **无 channel_id 过滤**（会话列表是全量，非按群）：scan 整张 channel 表。置顶优先；同组按
 /// `last_post_at DESC, create_at DESC`，所以新建且尚无消息的会话也能稳定进入 LIMIT 窗口。
@@ -218,25 +218,6 @@ pub fn build_dialog_list_query(payload: &[u8], corr: Correlation) -> Result<Effe
         corr,
         ops: vec![StorageOp::Scan(dialog_list_scan_spec(request))],
     })
-}
-
-/// PortReply 回报（`DialogListQuery` 上下文 Ok）→ emit `im:channels:projection` 完整 dialogList 投影。
-///
-/// `reply_bytes` 是 engine 把 Scan rows 序列化的 JSON 数组 `[{col:val}, ...]`（channel 行，
-/// 列名 = projection-schema §4 DB 列）。整组行作 `data.dialogList`——**完整 DialogItem 行，含
-/// `unread_count`/`mention_count`/`mention_count_root`/`last_post`/`unread_post_id`/`last_event_seq`
-/// 等渲染所需全字段**，前端直接渲染会话列表 + badge，**零计算零回读**（UC-3 unread 计算下放达成）。
-///
-/// 零信任：非法 JSON → 空 dialogList（前端拿空列表，不卡渲染）。
-///
-/// S5（issue #54·C013 业务规则下沉 helix·前端纯绑定）：每行升 **render-ready 终态 CL 行**——
-/// 在保留原始 DB 列（向后兼容）之上，补 8 个 render-ready 派生键供前端 1:1 绑定：
-/// `displayName`/`notice`(归一)/`isTop`(bool)/`createAt`/`unread`(终值)/`mention`(bool)/
-/// `lastMessage`(预览)/`urgent`(bool)。前端壳删 normalizeNotice/normalizeIsTop/unread++ shaping。
-pub fn emit_dialog_list_result(reply_bytes: &[u8]) -> Effect {
-    Effect::Emit {
-        event: DomainEventBytes(Bytes::from(dialog_list_result_bytes(reply_bytes))),
-    }
 }
 
 /// `im_query_dialog_list` 的唯一生产消费面：把本地 channel scan 提升为完整的
@@ -253,47 +234,15 @@ pub fn emit_dialog_list_frame_result(
     )
 }
 
-pub(crate) fn dialog_list_result_bytes(reply_bytes: &[u8]) -> Vec<u8> {
-    let raw: serde_json::Value =
-        serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));
-    let rows: serde_json::Value = match raw {
-        serde_json::Value::Array(items) => serde_json::Value::Array(
-            items
-                .into_iter()
-                .map(crate::query::dialog_render::render_ready_dialog_row)
-                .collect(),
-        ),
-        _ => serde_json::json!([]),
-    };
-    let payload = serde_json::json!({
-        "event": "im:channels:projection",
-        "data": {
-            "dialogList": rows,
-        }
-    });
-    serde_json::to_vec(&payload).expect("dialog list static JSON shape must serialize")
-}
-
-/// 单频道 hydration 的即时 render-ready 投影。
-///
-/// `incrementByChannelId` 已返回完整 channel wire 数据时，先发布这一行解除前端 unknown 状态；
-/// terminal sync 后仍会执行 [`emit_dialog_list_result`] 全量读回，以本地持久化终态覆盖即时值。
-pub fn emit_hydrated_dialog_result(channel_bytes: &[u8]) -> Option<Effect> {
+/// 单频道 hydration 写入成功后，仅在已有左侧列表 snapshot 时发布同一 surface 的属性 patch。
+/// 没有 snapshot 时不伪造半份列表；下次 `im_query_dialog_list` 会给出权威 snapshot。
+pub fn patch_hydrated_dialog_frame(
+    channel_bytes: &[u8],
+    state: &mut crate::dialog_frame::DialogListFrameState,
+) -> Option<Effect> {
     let channel: serde_json::Value = serde_json::from_slice(channel_bytes).ok()?;
-    let dialog = crate::query::dialog_wire::render_ready_dialog_wire_row(channel)?;
-    let payload = serde_json::json!({
-        "event": "im:channels:projection",
-        "data": {
-            "dialogList": [dialog],
-        }
-    });
-    let bytes = Bytes::from(
-        serde_json::to_vec(&payload)
-            .expect("emit_hydrated_dialog_result: static JSON shape must serialize"),
-    );
-    Some(Effect::Emit {
-        event: DomainEventBytes(bytes),
-    })
+    let scope = state.scope()?.clone();
+    state.patch_from_channel_update(scope, &channel)
 }
 
 /// `im_delete_all_dialogs`（测试用）：emit `im:channels:loaded` 刷新信号。

@@ -110,14 +110,13 @@ impl ImModule {
 
             CorrelationContext::DialogPatchByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
-                        if let Some(frame) = crate::dialog_frame::patch_from_legacy_dialog_effect(
+                    if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
+                        if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
                             &mut self.state.dialog_list_frame,
-                            &effect,
+                            &data,
                         ) {
                             out.push(frame);
                         }
-                        out.push(effect);
                     } else {
                         tracing::warn!(
                             channel_id = pending.channel_id.as_str(),
@@ -159,16 +158,15 @@ impl ImModule {
             } => match outcome {
                 PortOutcome::Ok(reply) => {
                     for pending in dialog_patches {
-                        if let Some(effect) = pending.emit_from_channel_reply(reply.0.as_ref()) {
+                        if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
                             if let Some(frame) =
-                                crate::dialog_frame::patch_from_legacy_dialog_effect(
+                                crate::dialog_frame::patch_from_dialog_projection(
                                     &mut self.state.dialog_list_frame,
-                                    &effect,
+                                    &data,
                                 )
                             {
                                 out.push(frame);
                             }
-                            out.push(effect);
                         }
                     }
                     self.finish_increment_hydration(channel_id, out)?;
@@ -270,10 +268,6 @@ impl ImModule {
                         scope,
                         &mut self.state.dialog_list_frame,
                     ));
-                    // Shadow-only compatibility: the typed frame is published first and is the
-                    // sole authority for frame-capable clients. Older consumers can keep their
-                    // existing low-frequency query path until their separate migration lands.
-                    out.push(crate::query::emit_dialog_list_result(reply.0.as_ref()));
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
@@ -286,7 +280,6 @@ impl ImModule {
                         scope,
                         &mut self.state.dialog_list_frame,
                     ));
-                    out.push(crate::query::emit_dialog_list_result(b"[]"));
                 }
             },
 

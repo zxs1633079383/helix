@@ -226,7 +226,7 @@ impl DialogListFrameState {
     }
 
     /// 在写后投影已经提供绝对累计值时，仅改变这条 row 的相关属性并一次性发布。
-    /// 未完成 snapshot 的 channel 不发 patch，继续让旧投影承担过渡展示，避免制造不可应用的增量。
+    /// 未完成 snapshot 的 channel 不发 patch，等待权威 snapshot，避免制造不可应用的增量。
     pub fn patch_from_post_projection(
         &mut self,
         scope: DialogListScope,
@@ -237,69 +237,10 @@ impl DialogListFrameState {
         }
         let channel_id = text(data, &["channelId", "channel_id"])?;
         let previous = self.rows_by_channel.get(&channel_id)?.clone();
-        let dialog_patch = data.get("dialogPatch").unwrap_or(data);
-        let preview = preview_from_post_projection(data);
-        let badges = DialogBadgesVm {
-            unread_count: integer(dialog_patch, &["unreadCount", "unread_count"])
-                .unwrap_or(previous.badges.unread_count),
-            mention_count: integer(dialog_patch, &["mentionCount", "mention_count"])
-                .unwrap_or(previous.badges.mention_count),
-            pending_urgent_count: integer(dialog_patch, &["urgentCount", "urgent_count"])
-                .unwrap_or(previous.badges.pending_urgent_count),
-        };
-        let activity_at = integer(
-            data,
-            &["lastPostAt", "last_post_at", "createdAt", "create_at"],
-        )
-        .or_else(|| preview.as_ref().and_then(|value| value.sent_at))
-        .unwrap_or(previous.activity_at);
         let mut next = previous.clone();
-        next.preview = preview.clone().or(previous.preview);
-        next.badges = badges.clone();
-        next.activity_at = activity_at;
-
-        let base_revision = self.revision;
-        self.revision = self.revision.wrapping_add(1);
-        self.rows_by_channel.insert(channel_id.clone(), next);
-        let mut operations = vec![DialogListPatchOperation::UpsertRow {
-            channel_id: channel_id.clone(),
-            row: None,
-            set: DialogRowSet {
-                title: None,
-                channel_kind: None,
-                member_count: None,
-                avatar: None,
-                preview,
-                badges: Some(badges),
-                state: None,
-                activity_at: Some(activity_at),
-                topic_count: None,
-            },
-            clear: Vec::new(),
-        }];
-        let old_index = self
-            .ordered_channel_ids
-            .iter()
-            .position(|id| id == &channel_id)?;
-        let next_index = self.reposition(&channel_id);
-        if old_index != next_index {
-            operations.push(DialogListPatchOperation::MoveRow {
-                channel_id,
-                to_index: next_index,
-            });
-        }
-        Some(emit_frame(DialogListFrame {
-            schema_version: SCHEMA_VERSION,
-            surface: SURFACE,
-            frame_id: format!("dialog-list-{}", self.revision),
-            scope,
-            mode: "patch",
-            base_revision: Some(base_revision),
-            revision: self.revision,
-            causation_id: None,
-            snapshot: None,
-            patch: Some(DialogListPatch { operations }),
-        }))
+        let mut set = DialogRowSet::default();
+        apply_post_projection_to_row(data, &previous, &mut next, &mut set);
+        self.publish_existing_patch(scope, channel_id, previous, next, set)
     }
 
     /// 频道生命周期或设置推送只能修改在场行明确携带的属性；缺字段不是零值更新。
@@ -315,105 +256,32 @@ impl DialogListFrameState {
         let previous = self.rows_by_channel.get(&channel_id)?.clone();
         let mut next = previous.clone();
         let mut set = DialogRowSet::default();
-        if let Some(title) = text(value, &["displayName", "display_name", "name"])
-            .filter(|value| value != &previous.title)
-        {
-            next.title = title.clone();
-            set.title = Some(title);
-        }
-        if has_any(
-            value,
-            &[
-                "channelKind",
-                "channel_kind",
-                "channelType",
-                "channel_type",
-                "type",
-            ],
-        ) {
-            let channel_kind = normalize_channel_kind(text(
-                value,
-                &[
-                    "channelKind",
-                    "channel_kind",
-                    "channelType",
-                    "channel_type",
-                    "type",
-                ],
-            ));
-            if channel_kind != previous.channel_kind {
-                next.channel_kind = channel_kind.clone();
-                set.channel_kind = Some(channel_kind);
-            }
-        }
-        if let Some(member_count) = integer(value, &["memberCount", "member_count"])
-            .map(|value| value.max(0))
-            .filter(|value| value != &previous.member_count)
-        {
-            next.member_count = member_count;
-            set.member_count = Some(member_count);
-        }
-        if has_avatar_source(value) {
-            let mut avatar = avatar_from_projection(value, &next.channel_kind);
-            select_avatar_users_for_viewer(
-                &mut avatar,
-                &next.channel_kind,
-                scope.viewer_user_id.as_str(),
-            );
-            if avatar != previous.avatar {
-                next.avatar = avatar.clone();
-                set.avatar = Some(avatar);
-            }
-        }
-        let mut state = previous.state.clone();
-        let mut changed_state = false;
-        for (keys, assign) in [
-            (&["isTop", "is_top", "top"][..], StateField::Pinned),
-            (&["muted", "mute"][..], StateField::Muted),
-            (&["online", "isOnline", "is_online"][..], StateField::Online),
-            (&["closed", "deleteAt", "delete_at"][..], StateField::Closed),
-            (&["left", "isRemove", "is_remove"][..], StateField::Left),
-        ] {
-            if let Some(value) = bool_value(value, keys) {
-                changed_state |= assign_state_field(&mut state, assign, value);
-            }
-        }
-        if changed_state {
-            next.state = state.clone();
-            set.state = Some(state);
-        }
-        if let Some(activity_at) = integer(
-            value,
-            &[
-                "lastPostAt",
-                "last_post_at",
-                "lastActivityAt",
-                "last_activity_at",
-            ],
-        )
-        .filter(|value| value != &previous.activity_at)
-        {
-            next.activity_at = activity_at;
-            set.activity_at = Some(activity_at);
-        }
-        if let Some(topic_count) = integer(
-            value,
-            &[
-                "topicCount",
-                "topic_count",
-                "topicMsgCount",
-                "topic_msg_count",
-            ],
-        )
-        .map(|value| value.max(0))
-        .filter(|value| previous.topic_count != Some(*value))
-        {
-            next.topic_count = Some(topic_count);
-            set.topic_count = Some(topic_count);
-        }
-        if set_is_empty(&set) {
+        apply_channel_update_to_row(&scope, value, &previous, &mut next, &mut set);
+        self.publish_existing_patch(scope, channel_id, previous, next, set)
+    }
+
+    /// 合并同一 `update_channel` 领域事实中的频道属性与成员绝对 dialog 属性，只递增一次 revision。
+    pub fn patch_from_channel_and_dialog_projection(
+        &mut self,
+        scope: DialogListScope,
+        channel: &Value,
+        dialog: &Value,
+    ) -> Option<Effect> {
+        if !scope.is_complete() {
             return None;
         }
+        let channel_id = text(channel, &["channelId", "channel_id", "id"])?;
+        if text(dialog, &["channelId", "channel_id"])
+            .as_deref()
+            .is_some_and(|id| id != channel_id)
+        {
+            return None;
+        }
+        let previous = self.rows_by_channel.get(&channel_id)?.clone();
+        let mut next = previous.clone();
+        let mut set = DialogRowSet::default();
+        apply_channel_update_to_row(&scope, channel, &previous, &mut next, &mut set);
+        apply_post_projection_to_row(dialog, &previous, &mut next, &mut set);
         self.publish_existing_patch(scope, channel_id, previous, next, set)
     }
 
@@ -482,6 +350,9 @@ impl DialogListFrameState {
         next: DialogListRowVm,
         set: DialogRowSet,
     ) -> Option<Effect> {
+        if set_is_empty(&set) {
+            return None;
+        }
         let old_index = self
             .ordered_channel_ids
             .iter()
@@ -545,16 +416,148 @@ impl DialogListFrameState {
     }
 }
 
-pub fn patch_from_legacy_dialog_effect(
+fn apply_channel_update_to_row(
+    scope: &DialogListScope,
+    value: &Value,
+    previous: &DialogListRowVm,
+    next: &mut DialogListRowVm,
+    set: &mut DialogRowSet,
+) {
+    if let Some(title) = text(value, &["displayName", "display_name", "name"])
+        .filter(|value| value != &previous.title)
+    {
+        next.title = title.clone();
+        set.title = Some(title);
+    }
+    if has_any(
+        value,
+        &[
+            "channelKind",
+            "channel_kind",
+            "channelType",
+            "channel_type",
+            "type",
+        ],
+    ) {
+        let channel_kind = normalize_channel_kind(text(
+            value,
+            &[
+                "channelKind",
+                "channel_kind",
+                "channelType",
+                "channel_type",
+                "type",
+            ],
+        ));
+        if channel_kind != previous.channel_kind {
+            next.channel_kind = channel_kind.clone();
+            set.channel_kind = Some(channel_kind);
+        }
+    }
+    if let Some(member_count) = integer(value, &["memberCount", "member_count"])
+        .map(|value| value.max(0))
+        .filter(|value| value != &previous.member_count)
+    {
+        next.member_count = member_count;
+        set.member_count = Some(member_count);
+    }
+    if has_avatar_source(value) {
+        let mut avatar = avatar_from_projection(value, &next.channel_kind);
+        select_avatar_users_for_viewer(
+            &mut avatar,
+            &next.channel_kind,
+            scope.viewer_user_id.as_str(),
+        );
+        if avatar != previous.avatar {
+            next.avatar = avatar.clone();
+            set.avatar = Some(avatar);
+        }
+    }
+    let mut state = previous.state.clone();
+    let mut changed_state = false;
+    for (keys, assign) in [
+        (&["isTop", "is_top", "top"][..], StateField::Pinned),
+        (&["muted", "mute"][..], StateField::Muted),
+        (&["online", "isOnline", "is_online"][..], StateField::Online),
+        (&["closed", "deleteAt", "delete_at"][..], StateField::Closed),
+        (&["left", "isRemove", "is_remove"][..], StateField::Left),
+    ] {
+        if let Some(value) = bool_value(value, keys) {
+            changed_state |= assign_state_field(&mut state, assign, value);
+        }
+    }
+    if changed_state {
+        next.state = state.clone();
+        set.state = Some(state);
+    }
+    if let Some(activity_at) = integer(
+        value,
+        &[
+            "lastPostAt",
+            "last_post_at",
+            "lastActivityAt",
+            "last_activity_at",
+        ],
+    )
+    .filter(|value| value != &previous.activity_at)
+    {
+        next.activity_at = activity_at;
+        set.activity_at = Some(activity_at);
+    }
+    if let Some(topic_count) = integer(
+        value,
+        &[
+            "topicCount",
+            "topic_count",
+            "topicMsgCount",
+            "topic_msg_count",
+        ],
+    )
+    .map(|value| value.max(0))
+    .filter(|value| previous.topic_count != Some(*value))
+    {
+        next.topic_count = Some(topic_count);
+        set.topic_count = Some(topic_count);
+    }
+}
+
+fn apply_post_projection_to_row(
+    data: &Value,
+    previous: &DialogListRowVm,
+    next: &mut DialogListRowVm,
+    set: &mut DialogRowSet,
+) {
+    let dialog_patch = data.get("dialogPatch").unwrap_or(data);
+    let preview = preview_from_post_projection(data);
+    let badges = DialogBadgesVm {
+        unread_count: integer(dialog_patch, &["unreadCount", "unread_count"])
+            .unwrap_or(previous.badges.unread_count),
+        mention_count: integer(dialog_patch, &["mentionCount", "mention_count"])
+            .unwrap_or(previous.badges.mention_count),
+        pending_urgent_count: integer(dialog_patch, &["urgentCount", "urgent_count"])
+            .unwrap_or(previous.badges.pending_urgent_count),
+    };
+    let activity_at = integer(
+        data,
+        &["lastPostAt", "last_post_at", "createdAt", "create_at"],
+    )
+    .or_else(|| preview.as_ref().and_then(|item| item.sent_at))
+    .unwrap_or(previous.activity_at);
+
+    next.preview = preview.clone().or(next.preview.clone());
+    next.badges = badges.clone();
+    next.activity_at = activity_at;
+    set.preview = preview;
+    set.badges = Some(badges);
+    set.activity_at = Some(activity_at);
+}
+
+pub fn patch_from_dialog_projection(
     state: &mut DialogListFrameState,
-    effect: &Effect,
+    data: &Value,
 ) -> Option<Effect> {
     let scope = state.scope()?.clone();
-    let Effect::Emit { event } = effect else {
-        return None;
-    };
-    let payload: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
-    state.patch_from_post_projection(scope, payload.get("data")?)
+    state.patch_from_post_projection(scope, data)
 }
 
 pub fn rows_from_dialog_scan(reply_bytes: &[u8]) -> Vec<DialogListRowVm> {
@@ -1147,6 +1150,47 @@ mod tests {
         assert_eq!(set["memberCount"], 0);
         assert_eq!(set["state"]["pinned"], false);
         assert_eq!(set["state"]["muted"], false);
+    }
+
+    #[test]
+    fn combined_channel_and_member_dialog_update_emits_one_atomic_frame() {
+        let mut state = DialogListFrameState::default();
+        state.snapshot(scope(), vec![row("c1", 1)]);
+
+        let frame = state
+            .patch_from_channel_and_dialog_projection(
+                scope(),
+                &serde_json::json!({
+                    "channelId": "c1",
+                    "displayName": "renamed",
+                    "isTop": true
+                }),
+                &serde_json::json!({
+                    "channelId": "c1",
+                    "msgId": "post-1",
+                    "lastMessage": "member absolute",
+                    "senderUserId": "u1",
+                    "lastPostAt": 2,
+                    "dialogPatch": {
+                        "unreadCount": 3,
+                        "mentionCount": 1,
+                        "urgentCount": 1
+                    }
+                }),
+            )
+            .expect("known row gets one combined patch");
+        let frame_data = data(&frame);
+        let patch = &frame_data["data"]["patch"]["operations"];
+        let set = &patch[0]["set"];
+
+        assert_eq!(frame_data["data"]["baseRevision"], 1);
+        assert_eq!(frame_data["data"]["revision"], 2);
+        assert_eq!(patch.as_array().unwrap().len(), 2);
+        assert_eq!(patch[1]["kind"], "moveRow");
+        assert_eq!(set["title"], "renamed");
+        assert_eq!(set["state"]["pinned"], true);
+        assert_eq!(set["preview"]["text"], "member absolute");
+        assert_eq!(set["badges"]["unreadCount"], 3);
     }
 
     #[test]

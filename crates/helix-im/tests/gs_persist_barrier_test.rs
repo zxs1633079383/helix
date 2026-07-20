@@ -265,7 +265,7 @@ fn gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state() {
     );
     h.step(port_reply_with_body(persist_corr, channel_row), 1_200);
     assert!(emitted(&h.sink, "im:post:received"));
-    assert!(emitted(&h.sink, "im:channel:update-by-post"));
+    assert!(!emitted(&h.sink, "im:channel:update-by-post"));
     let sync_state = h
         .sink
         .as_slice()
@@ -398,5 +398,5 @@ fn gs4_hydration_projection_is_released_only_by_persist_ok() {
     let (mut committed, committed_corr) = prepare_hydration_persist();
     committed.step(port_reply_ok(committed_corr), 2_200);
     assert!(emitted(&committed.sink, "im:channel:increment"));
-    assert!(emitted(&committed.sink, "im:channels:projection"));
+    assert!(!emitted(&committed.sink, "im:channels:projection"));
 }

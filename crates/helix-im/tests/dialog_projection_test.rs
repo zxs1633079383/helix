@@ -129,7 +129,7 @@ fn channel_row_reply(
 }
 
 #[test]
-fn visible_post_emits_render_ready_dialog_patch() {
+fn visible_post_keeps_message_persist_and_does_not_emit_raw_dialog_patch() {
     let mut h = Harness::new_with_identity(&[1], AUTH, "", "", "", "");
 
     h.step(
@@ -168,26 +168,14 @@ fn visible_post_emits_render_ready_dialog_patch() {
         ),
         1_100,
     );
-    let patch = emit_payloads(&h, "im:channel:update-by-post");
-    assert_eq!(patch.len(), 1, "可见 post 必须发 Dialog patch");
-    let data = &patch[0]["data"];
-    assert_eq!(data["op"], "dialog.patchByPost");
-    assert_eq!(data["source"], "online_post");
-    assert_eq!(data["messageClass"], "normal");
-    assert_eq!(data["senderUserId"], OTHER);
-    assert_eq!(data["lastMessage"], "hello dialog");
-    assert_eq!(data["unreadDelta"], 1);
-    assert_eq!(data["dialogPatch"]["channelId"], cid(1));
-    assert_eq!(data["dialogPatch"]["lastMessage"], "hello dialog");
-    assert_eq!(data["dialogPatch"]["unreadCount"], 7);
-    assert_eq!(data["dialogPatch"]["mentionCount"], 2);
-    assert_eq!(data["dialogPatch"]["urgentCount"], 1);
-    assert_eq!(data["dialogPatch"]["mentionList"][1], "msg-1-1");
-    assert_eq!(data["lastPost"]["message"], "hello dialog");
+    assert!(
+        emit_payloads(&h, "im:channel:update-by-post").is_empty(),
+        "写后累计值只能进入 InteractionFrame，不能再发布 raw DialogPatch"
+    );
 }
 
 #[test]
-fn own_echo_updates_last_post_without_unread_delta() {
+fn own_echo_updates_durable_last_post_without_raw_dialog_patch() {
     let mut h = Harness::new_with_identity(&[2], AUTH, "", "", "", "");
 
     h.step(
@@ -215,12 +203,7 @@ fn own_echo_updates_last_post_without_unread_delta() {
         ),
         1_100,
     );
-    let patch = emit_payloads(&h, "im:channel:update-by-post");
-    assert_eq!(patch.len(), 1, "自己的 echo 仍要刷新 lastPost");
-    let data = &patch[0]["data"];
-    assert_eq!(data["senderUserId"], AUTH);
-    assert_eq!(data["unreadDelta"], 0);
-    assert_eq!(data["dialogPatch"]["unreadCount"], 0);
+    assert!(emit_payloads(&h, "im:channel:update-by-post").is_empty());
 }
 
 #[test]
@@ -247,14 +230,7 @@ fn mentions_and_urgent_posts_classify_and_bump_dialog_counts() {
         ),
         1_100,
     );
-    let mention_patch = emit_payloads(&mention, "im:channel:update-by-post");
-    let mention_data = &mention_patch[0]["data"];
-    assert_eq!(mention_data["messageClass"], "mention");
-    assert_eq!(mention_data["mentionDelta"], 1);
-    assert_eq!(mention_data["dialogPatch"]["mention"], true);
-    assert_eq!(mention_data["dialogPatch"]["mentionCount"], 1);
-    assert_eq!(mention_data["dialogPatch"]["mentionList"][0], "msg-3-1");
-    assert_eq!(mention_data["mentionedUserIds"][0], AUTH);
+    assert!(emit_payloads(&mention, "im:channel:update-by-post").is_empty());
     assert!(
         mention_bump
             .extra_bumps
@@ -292,14 +268,7 @@ fn mentions_and_urgent_posts_classify_and_bump_dialog_counts() {
         ),
         1_100,
     );
-    let urgent_patch = emit_payloads(&urgent, "im:channel:update-by-post");
-    let urgent_data = &urgent_patch[0]["data"];
-    assert_eq!(urgent_data["messageClass"], "urgent");
-    assert_eq!(urgent_data["urgentDelta"], 1);
-    assert_eq!(urgent_data["dialogPatch"]["urgent"], true);
-    assert_eq!(urgent_data["dialogPatch"]["urgentCount"], 1);
-    assert_eq!(urgent_data["dialogPatch"]["urgentPostList"][0], "msg-4-1");
-    assert_eq!(urgent_data["urgentUserIds"][0], AUTH);
+    assert!(emit_payloads(&urgent, "im:channel:update-by-post").is_empty());
     assert!(
         urgent_bump
             .extra_bumps

@@ -577,15 +577,15 @@ fn empty_type_defaults_to_text() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §1b. channel-row DialogPatch 类（保留 legacy anchor，并补 render-ready patch）
+// §1b. post 后的左侧列表属性数据（只可进入 InteractionFrame）
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn im_channel_update_by_post_is_render_ready_dialog_patch() {
+fn post_dialog_patch_data_is_render_ready_before_frame_reduction() {
     let f = sample_fields();
     let update = sample_post_update();
     let projection = sample_dialog_projection();
-    let e = to_effect::emit_channel_update_by_post(
+    let data = to_effect::post_dialog_patch_data(
         ch(),
         SEQ,
         MSG_ID,
@@ -594,40 +594,9 @@ fn im_channel_update_by_post_is_render_ready_dialog_patch() {
         &projection,
         "online_post",
     );
-    assert_frozen(
-        &e,
-        "im:channel:update-by-post",
-        &[
-            "op",
-            "source",
-            "channel_id",
-            "channelId",
-            "event_seq",
-            "eventSeq",
-            "msg_id",
-            "msgId",
-            "messageClass",
-            "visible",
-            "senderUserId",
-            "lastPost",
-            "lastMessage",
-            "unreadDelta",
-            "mentionDelta",
-            "urgentDelta",
-            "mentionedUserIds",
-            "urgentUserIds",
-            "mentionList",
-            "urgentPostList",
-            "dialogPatch",
-        ],
-    );
-    let Effect::Emit { event } = &e else {
-        panic!("projection must emit JSON");
-    };
-    let value: serde_json::Value =
-        serde_json::from_slice(event.0.as_ref()).expect("projection JSON");
-    assert_eq!(value["data"]["dialogPatch"]["eventSeq"], SEQ);
-    assert_eq!(value["data"]["dialogPatch"]["lastEventSeq"], SEQ);
+    assert_eq!(data["op"], "dialog.patchByPost");
+    assert_eq!(data["dialogPatch"]["eventSeq"], SEQ);
+    assert_eq!(data["dialogPatch"]["lastEventSeq"], SEQ);
 }
 
 #[test]
@@ -1015,48 +984,6 @@ fn im_messages_query_result_invalid_reply_still_freezes_keys() {
 }
 
 #[test]
-fn im_channels_projection_freezes_dialoglist() {
-    // UC-3：会话列表完整投影（前端零计算 unread/badge，直接渲染 dialogList）。
-    let rows = serde_json::to_vec(&serde_json::json!([
-        {
-            "id": "ch1",
-            "display_name": "群A",
-            "type": "P",
-            "team_id": "team-1",
-            "unread_count": 3,
-            "mention_count": 1,
-            "member_count": 2,
-            "last_event_seq": 7,
-            "props": "{\"canEdit\":true}"
-        }
-    ]))
-    .unwrap();
-    let e = query::emit_dialog_list_result(&rows);
-    assert_frozen(&e, "im:channels:projection", &["dialogList"]);
-    let Effect::Emit { event } = e else {
-        panic!("dialog query 必产 Emit")
-    };
-    let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let dialog = &payload["data"]["dialogList"][0];
-    assert_eq!(dialog["id"], "ch1");
-    assert_eq!(dialog["channelId"], "ch1");
-    assert_eq!(dialog["displayName"], "群A");
-    assert_eq!(dialog["group"], "group");
-    assert_eq!(dialog["teamId"], "team-1");
-    assert_eq!(dialog["unreadCount"], 3);
-    assert_eq!(dialog["mentionCount"], 1);
-    assert_eq!(dialog["memberCount"], 2);
-    assert_eq!(dialog["eventSeq"], 7);
-    assert_eq!(dialog["props"], serde_json::json!({"canEdit": true}));
-}
-
-#[test]
-fn im_channels_projection_invalid_reply_still_freezes_keys() {
-    let e = query::emit_dialog_list_result(b"garbage{");
-    assert_frozen(&e, "im:channels:projection", &["dialogList"]);
-}
-
-#[test]
 fn im_interaction_frame_freezes_left_dialog_list_outer_contract() {
     let rows = serde_json::to_vec(&serde_json::json!([
         {"id":"ch1","display_name":"群A","type":"P","unread_count":0}
@@ -1129,15 +1056,6 @@ fn all_26_projection_factories_covered() {
         to_effect::emit_post_updated(ch(), SEQ, MSG_ID, &f),
         to_effect::emit_post_batch_updated(ch(), &posts),
         to_effect::emit_post_deleted(ch(), SEQ, MSG_ID, &f),
-        to_effect::emit_channel_update_by_post(
-            ch(),
-            SEQ,
-            MSG_ID,
-            &f,
-            &sample_post_update(),
-            &sample_dialog_projection(),
-            "online_post",
-        ),
         to_effect_s1::emit_channel_created(ch(), &raw),
         to_effect_s1::emit_channel_closed(ch(), 0),
         to_effect_s1::emit_channel_member_updated(ch(), &raw),
@@ -1152,7 +1070,6 @@ fn all_26_projection_factories_covered() {
         to_effect_s1::emit_schedule_created(ch(), &serde_json::json!({}), None, false),
         to_effect_s1::emit_schedule_canceled(ch(), &serde_json::json!({}), None, false),
         query::emit_message_query_result(&cid, b"[]"),
-        query::emit_dialog_list_result(b"[]"),
         query::emit_dialog_list_frame_result(
             b"[]",
             helix_im::dialog_frame::DialogListScope::new("u1", "team1"),
@@ -1162,8 +1079,8 @@ fn all_26_projection_factories_covered() {
     ];
     assert_eq!(
         effects.len(),
-        26,
-        "projection-schema.md §1 冻结 26 工厂——新增/删除工厂须同步本测试 + 文档表"
+        24,
+        "projection-schema.md §1 冻结 24 个公开投影工厂——新增/删除工厂须同步本测试 + 文档表"
     );
     // 全部产合法 Emit（event 非空 + data 是对象）。
     for e in &effects {
@@ -1175,7 +1092,7 @@ fn all_26_projection_factories_covered() {
             "业务 channel 禁撞 im:__ 总线前缀（防自环）：{name}"
         );
     }
-    // distinct channel 名 = 25（im:channels:loaded 双工厂复用 → 26 工厂收敛成 25 distinct channel）。
+    // distinct channel 名 = 23（im:channels:loaded 双工厂复用 → 24 工厂收敛成 23 distinct channel）。
     let mut names: Vec<String> = effects
         .iter()
         .map(|e| emit_event_and_data_keys(e).unwrap().0)
@@ -1184,8 +1101,8 @@ fn all_26_projection_factories_covered() {
     names.dedup();
     assert_eq!(
         names.len(),
-        25,
-        "25 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 26 工厂 → 25 channel）"
+        23,
+        "23 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 24 工厂 → 23 channel）"
     );
 }
 

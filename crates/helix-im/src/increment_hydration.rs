@@ -143,7 +143,10 @@ impl ImModule {
                     channel_id,
                     raw_increment.as_ref(),
                 ));
-                if let Some(effect) = crate::query::emit_hydrated_dialog_result(&raw_increment) {
+                if let Some(effect) = crate::query::patch_hydrated_dialog_frame(
+                    &raw_increment,
+                    &mut self.state.dialog_list_frame,
+                ) {
                     out.push(effect);
                 }
                 self.after_increment_persist(channel_id, need_sync, out)?;

@@ -30,6 +30,17 @@ fn emit_json(effect: Effect) -> Option<serde_json::Value> {
     None
 }
 
+fn rendered_dialog_list_for_test(reply_bytes: &[u8]) -> serde_json::Value {
+    let rows = serde_json::from_slice::<serde_json::Value>(reply_bytes)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(crate::query::dialog_render::render_ready_dialog_row)
+        .collect::<Vec<_>>();
+    serde_json::json!({ "data": { "dialogList": rows } })
+}
+
 /// 覆盖 helper 的 None 分支（消除 never-taken 行）：传错 variant → None。
 #[test]
 fn helpers_return_none_on_wrong_variant() {
@@ -98,15 +109,14 @@ fn build_dialog_list_query_defaults_and_clamps_limit() {
 }
 
 #[test]
-fn emit_dialog_list_result_wraps_rows_under_dialoglist_with_full_fields() {
+fn render_ready_dialog_rows_keep_full_fields_before_frame_serialization() {
     // 模拟 channel 行扫描结果：完整 DialogItem 字段（含 unread_count 等，前端零计算）。
     let rows = serde_json::to_vec(&serde_json::json!([
         {"id":"ch1","display_name":"群A","unread_count":3,"mention_count":1,"last_post":"hi","last_event_seq":42},
         {"id":"ch2","display_name":"群B","unread_count":0,"mention_count":0,"last_post":"","last_event_seq":7}
     ]))
     .unwrap();
-    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
-    assert_eq!(v["event"], "im:channels:projection");
+    let v = rendered_dialog_list_for_test(&rows);
     // dialogList 携完整可渲染行（含 unread_count，前端不再自算）。
     assert_eq!(v["data"]["dialogList"][0]["id"], "ch1");
     assert_eq!(v["data"]["dialogList"][0]["unread_count"], 3);
@@ -155,7 +165,7 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
 }
 
 #[test]
-fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
+fn render_ready_dialog_rows_keep_terminal_fields_s5() {
     // S5（issue #54）：CL 行升 render-ready 终态——前端零 normalize/零 ++。
     let rows = serde_json::to_vec(&serde_json::json!([
         {
@@ -176,7 +186,7 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
         }
     ]))
     .unwrap();
-    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let v = rendered_dialog_list_for_test(&rows);
     let r0 = &v["data"]["dialogList"][0];
     // ch1：render-ready 终态键齐全。
     assert_eq!(r0["displayName"], "群A");
@@ -217,7 +227,7 @@ fn emit_dialog_list_result_renders_ready_terminal_fields_s5() {
 }
 
 #[test]
-fn emit_dialog_list_result_does_not_treat_inactive_as_closed_after_restart() {
+fn render_ready_dialog_rows_do_not_treat_inactive_as_closed_after_restart() {
     // 回归：新建频道落库默认 is_active=0；冷启动 Scan 时不能因此从 dialogList 消失。
     // 解散(delete_at)和自己退群(is_remove)仍保持两个独立事实。
     let rows = serde_json::to_vec(&serde_json::json!([
@@ -227,7 +237,7 @@ fn emit_dialog_list_result_does_not_treat_inactive_as_closed_after_restart() {
     ]))
     .unwrap();
 
-    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let v = rendered_dialog_list_for_test(&rows);
     let dialogs = v["data"]["dialogList"].as_array().expect("dialogList");
 
     assert_eq!(dialogs[0]["closed"], false);
@@ -238,13 +248,13 @@ fn emit_dialog_list_result_does_not_treat_inactive_as_closed_after_restart() {
 }
 
 #[test]
-fn emit_dialog_list_result_empty_last_post_and_notice_yield_null_s5() {
+fn render_ready_dialog_rows_empty_last_post_and_notice_yield_null_s5() {
     // 边界：last_post/notice 空 → lastMessage/notice = null（前端行不带该属性）。
     let rows = serde_json::to_vec(&serde_json::json!([
         {"id":"ch3","display_name":"群C","last_post":"","notice":"","unread_count":0}
     ]))
     .unwrap();
-    let v = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let v = rendered_dialog_list_for_test(&rows);
     let r = &v["data"]["dialogList"][0];
     assert!(r["lastMessage"].is_null());
     assert!(r["notice"].is_null());
@@ -253,50 +263,13 @@ fn emit_dialog_list_result_empty_last_post_and_notice_yield_null_s5() {
 }
 
 #[test]
-fn emit_dialog_list_result_invalid_reply_yields_empty_dialoglist() {
-    let v = emit_json(emit_dialog_list_result(b"garbage{")).expect("emit");
-    assert_eq!(v["event"], "im:channels:projection");
+fn render_ready_dialog_rows_invalid_reply_yields_empty_list() {
+    let v = rendered_dialog_list_for_test(b"garbage{");
     assert_eq!(v["data"]["dialogList"], serde_json::json!([]));
 }
 
 #[test]
-fn emit_hydrated_dialog_result_is_immediately_render_ready() {
-    let channel = serde_json::to_vec(&serde_json::json!({
-        "id": "ch-hydrated",
-        "displayName": "陌生群",
-        "type": "P",
-        "teamId": "team-1",
-        "unreadCount": 2,
-        "mentionCount": 1,
-        "urgentCount": 1,
-        "lastEventSeq": 9,
-        "memberCount": 3,
-        "hasSchedulePost": true,
-        "lastPost": "{\"message\":\"最后消息\"}"
-    }))
-    .unwrap();
-    let v = emit_json(emit_hydrated_dialog_result(&channel).expect("valid channel")).expect("emit");
-    let dialog = &v["data"]["dialogList"][0];
-    assert_eq!(v["event"], "im:channels:projection");
-    assert_eq!(dialog["id"], "ch-hydrated");
-    assert_eq!(dialog["channelId"], "ch-hydrated");
-    assert_eq!(dialog["displayName"], "陌生群");
-    assert_eq!(dialog["group"], "group");
-    assert_eq!(dialog["channelType"], "P");
-    assert_eq!(dialog["channelKind"], "group");
-    assert_eq!(dialog["unreadCount"], 2);
-    assert_eq!(dialog["mention"], true);
-    assert_eq!(dialog["urgent"], true);
-    assert_eq!(dialog["eventSeq"], 9);
-    assert_eq!(dialog["memberCount"], 3);
-    assert_eq!(dialog["hasSchedulePost"], true);
-    assert_eq!(dialog["lastMessage"], "最后消息");
-    assert_eq!(dialog["loading"], false);
-    assert_eq!(dialog["unknown"], false);
-}
-
-#[test]
-fn dialog_projection_preserves_all_channel_types_and_kinds() {
+fn rendered_dialog_rows_preserve_all_channel_types_and_kinds() {
     let rows = serde_json::to_vec(&serde_json::json!([
         {"id":"topic","type":"T"},
         {"id":"company","type":"O"},
@@ -304,7 +277,7 @@ fn dialog_projection_preserves_all_channel_types_and_kinds() {
         {"id":"direct","type":"D"}
     ]))
     .unwrap();
-    let value = emit_json(emit_dialog_list_result(&rows)).expect("emit");
+    let value = rendered_dialog_list_for_test(&rows);
     let dialogs = value["data"]["dialogList"].as_array().expect("dialogs");
     let expected = [
         ("T", "topic"),

@@ -6,7 +6,7 @@
 //!
 //! sync `events` 路径逐事件 dispatch，按 event_type + 是否命中 messages map（phantom 判定）
 //! emit 对应 `im:*` 业务事件：
-//! - type1 new：`msgId ∈ messages`（可见）→ im:post:received + im:channel:update-by-post（未读 +N）；
+//! - type1 new：`msgId ∈ messages`（可见）→ im:post:received；左侧列表累计态由写后 InteractionFrame 承接；
 //!   `∉`（phantom）→ 不 emit（UI 不渲染，真源 1270-1280）。
 //! - type2 edit：`msgId ∈ messages` → im:post:updated；phantom → noop（真源 1346）。
 //! - type3 revoke：有 msgId → im:post:deleted（无须 body，真源 1402）。
@@ -450,10 +450,10 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
         "Persist ack 后 sync type6 应 emit im:channel:read_echo，got {names_after_persist:?}"
     );
     assert!(
-        names_after_persist
+        !names_after_persist
             .iter()
             .any(|n| n == "im:channel:update-by-post"),
-        "写后 channel row 回包后应 emit im:channel:update-by-post，got {names_after_persist:?}"
+        "写后 channel row 回包不得 emit raw DialogPatch，got {names_after_persist:?}"
     );
     assert_eq!(
         h.module.cursor_for(channel_id(6)),

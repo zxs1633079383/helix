@@ -128,14 +128,17 @@ pub struct DialogRowSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum DialogListPatchOperation {
     UpsertRow {
         channel_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         row: Option<DialogListRowVm>,
         set: DialogRowSet,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
         clear: Vec<String>,
     },
     RemoveRow {
@@ -1093,7 +1096,29 @@ mod tests {
             data["data"]["patch"]["operations"][0]["set"]["badges"]["unreadCount"],
             4
         );
-        assert_eq!(data["data"]["patch"]["operations"][1]["kind"], "moveRow");
+        let operations = &data["data"]["patch"]["operations"];
+        assert_eq!(operations[0]["kind"], "upsertRow");
+        assert_eq!(operations[0]["channelId"], "c1");
+        assert!(operations[0].get("channel_id").is_none());
+        assert_eq!(operations[0]["clear"], serde_json::json!([]));
+        assert_eq!(operations[1]["kind"], "moveRow");
+        assert_eq!(operations[1]["channelId"], "c1");
+        assert!(operations[1].get("channel_id").is_none());
+        assert_eq!(operations[1]["toIndex"], 0);
+        assert!(operations[1].get("to_index").is_none());
+    }
+
+    #[test]
+    fn patch_remove_operation_uses_camel_case_contract_fields() {
+        let operation = serde_json::to_value(DialogListPatchOperation::RemoveRow {
+            channel_id: "c1".to_string(),
+        })
+        .expect("patch operation serializes");
+
+        assert_eq!(
+            operation,
+            serde_json::json!({ "kind": "removeRow", "channelId": "c1" })
+        );
     }
 
     #[test]

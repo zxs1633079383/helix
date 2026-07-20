@@ -735,14 +735,21 @@ fn has_avatar_source(value: &Value) -> bool {
 }
 
 fn avatar_from_projection(value: &Value, channel_kind: &str) -> DialogAvatarVm {
-    let user_ids = user_ids(value);
+    let picture = embedded_object(value, &["picture"]);
+    // `pictureType: USER` carries the authoritative mosaic members in
+    // `picture.userIds`; a channel's unrelated top-level member fields must
+    // not replace that explicit avatar selection.
+    let user_ids = picture
+        .as_ref()
+        .map(user_ids)
+        .filter(|ids| !ids.is_empty())
+        .unwrap_or_else(|| user_ids(value));
     let image_ref = text(
         value,
         &["avatarUrl", "avatar_url", "pictureUrl", "picture_url"],
     )
     .or_else(|| {
-        embedded_object(value, &["picture"])
-            .and_then(|picture| text(&picture, &["url", "uri", "imageRef", "image_ref"]))
+        picture.and_then(|picture| text(&picture, &["url", "uri", "imageRef", "image_ref"]))
     });
     DialogAvatarVm {
         kind: if image_ref.is_some() {
@@ -1147,6 +1154,45 @@ mod tests {
         assert_eq!(
             rows[1]["avatar"]["userIds"],
             serde_json::json!(["u1", "u2", "u3", "u4"])
+        );
+    }
+
+    #[test]
+    fn user_picture_owns_group_avatar_members_and_channel_patch() {
+        let value = serde_json::json!({
+            "id": "group-picture-users",
+            "type": "P",
+            "pictureType": "USER",
+            "picture": { "userIds": ["444", "u1", "u2", "u3", "u4"] }
+        });
+        let group_row = row_from_dialog_projection(&value).expect("group row");
+        assert_eq!(group_row.avatar.kind, "member-grid");
+        assert_eq!(
+            group_row.avatar.user_ids,
+            vec!["444", "u1", "u2", "u3", "u4"]
+        );
+
+        let mut snapshot_state = DialogListFrameState::default();
+        let snapshot = data(&snapshot_state.snapshot(scope(), vec![group_row]));
+        let snapshot_avatar = &snapshot["data"]["snapshot"]["rows"][0]["avatar"];
+        assert_eq!(snapshot_avatar["kind"], "member-grid");
+        assert_eq!(
+            snapshot_avatar["userIds"],
+            serde_json::json!(["444", "u1", "u2", "u3"])
+        );
+
+        let mut state = DialogListFrameState::default();
+        state.snapshot(scope(), vec![row("group-picture-users", 1)]);
+        let patch = data(
+            &state
+                .patch_from_channel_update(scope(), &value)
+                .expect("picture update patches the avatar"),
+        );
+        let avatar = &patch["data"]["patch"]["operations"][0]["set"]["avatar"];
+        assert_eq!(avatar["kind"], "member-grid");
+        assert_eq!(
+            avatar["userIds"],
+            serde_json::json!(["444", "u1", "u2", "u3"])
         );
     }
 

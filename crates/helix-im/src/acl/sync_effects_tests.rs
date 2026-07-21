@@ -11,7 +11,7 @@
 //!     msg_id/channel_id/event_seq 锚）；
 //!   - 去掉撤回事件 → 必无 `im:post:deleted`（不会凭空发出）。
 
-use super::sync_mutation_emits;
+use super::{sync_mutation_emits, sync_mutation_emits_with_auth};
 use crate::state::{ChannelId, Seq};
 use crate::sync_session::{EventEnvelope, EventKind, PostFields};
 use helix_core::Effect;
@@ -213,6 +213,33 @@ fn sync_read_with_authoritative_identity_and_bits_replays_post_read() {
     assert_eq!(data["readerId"], serde_json::json!(READER));
     assert_eq!(data["readBits"], serde_json::json!("1"));
     assert_eq!(data["receiptRevision"], serde_json::json!(1_700_000_123));
+}
+
+/// 已读 replay 的 fat 行仍属于原作者；viewer 身份只用于渲染本人态，不能在回执期间回退为他人。
+#[test]
+fn sync_read_keeps_authenticated_author_as_self_in_both_receipt_projections() {
+    const AUTHOR: &str = "user-author-444";
+    const READER: &str = "user-reader-678";
+    let mut messages = HashMap::new();
+    messages.insert(
+        MSG.to_string(),
+        PostFields {
+            id: MSG.to_string(),
+            user_id: AUTHOR.to_string(),
+            read_bits: "1".to_string(),
+            ..PostFields::default()
+        },
+    );
+
+    let emits = sync_mutation_emits_with_auth(&[read_ev(4, READER)], &messages, AUTHOR);
+    let read_echo = find_emit(&emits, "im:channel:read_echo")
+        .expect("离线 read 必须保留 legacy channel:read_echo");
+    let receipt = find_emit(&emits, "im:post:read").expect("权威 read 同时必须重放 sender receipt");
+
+    for projection in [read_echo, receipt] {
+        assert_eq!(projection["data"]["userId"], serde_json::json!(AUTHOR));
+        assert_eq!(projection["data"]["isSelf"], serde_json::json!(true));
+    }
 }
 
 /// 可证伪对偶：actorId 或 readBits 任一缺失，Helix 不得猜 reader 或伪造离线回执。

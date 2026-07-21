@@ -639,4 +639,36 @@ mod tests {
         assert!(ctx.state.increment_fetched.is_empty());
         assert!(out.as_slice().is_empty());
     }
+
+    #[test]
+    fn dispatch_ws_post_read_keeps_authenticated_author_self() {
+        const AUTHOR: &str = "user-author-444";
+        let mut state = ImState::new();
+        let mut alloc_corr = || helix_core::Correlation::from_raw(1);
+        let mut ctx = ImWsContext::new(&mut state, 1_000, "", AUTHOR, &mut alloc_corr);
+        let frame = frame_from_json(serde_json::json!({
+            "action": "post_read",
+            "data": {
+                "channelId": channel_id_string(123),
+                "postId": "post-read-1",
+                "userId": AUTHOR,
+                "type": "TEXT",
+                "readMap": "1",
+                "updateAt": 1002
+            }
+        }));
+        let mut out = EffectSink::new();
+
+        dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
+
+        let receipt = out
+            .as_slice()
+            .iter()
+            .filter_map(emit_body)
+            .map(|body| serde_json::from_str::<serde_json::Value>(&body).unwrap())
+            .find(|projection| projection["event"] == "im:post:read")
+            .expect("post_read must emit a receipt projection");
+        assert_eq!(receipt["data"]["userId"], serde_json::json!(AUTHOR));
+        assert_eq!(receipt["data"]["isSelf"], serde_json::json!(true));
+    }
 }

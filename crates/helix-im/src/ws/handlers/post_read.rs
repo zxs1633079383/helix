@@ -104,13 +104,16 @@ impl WsMessageHandler for PostReadHandler {
                 fields.read_bits.as_str(),
             )],
         });
-        out.push(crate::acl::to_effect::emit_post_read_with_receipt_revision(
-            channel_id,
-            0,
-            &post_id,
-            &fields,
-            receipt_revision,
-        ));
+        out.push(
+            crate::acl::to_effect::emit_post_read_with_receipt_revision_for_viewer(
+                channel_id,
+                0,
+                &post_id,
+                &fields,
+                receipt_revision,
+                ctx.auth_user_id,
+            ),
+        );
         Ok(())
     }
 }

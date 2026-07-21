@@ -40,7 +40,13 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
             ev.occurred_at,
             ev.viewer_user_id.as_str(),
         ),
-        EventKind::PostRead => crate::acl::to_effect::emit_post_read(ev.id, seq, msg_id, f),
+        EventKind::PostRead => crate::acl::to_effect::emit_post_read_for_viewer(
+            ev.id,
+            seq,
+            msg_id,
+            f,
+            ev.viewer_user_id.as_str(),
+        ),
         EventKind::Other(_) => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id, f),
     }
 }

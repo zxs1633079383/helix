@@ -68,23 +68,25 @@ pub fn sync_mutation_emits_with_auth(
             }
             EventKind::PostRead => {
                 let fields = messages.get(msg_id).unwrap_or(&empty_fields);
-                emits.push(super::to_effect::emit_channel_read_echo(
+                emits.push(super::to_effect::emit_channel_read_echo_for_viewer(
                     ev.channel_id,
                     ev.seq.0,
                     msg_id,
                     fields,
+                    auth_user_id,
                 ));
                 // UC13 离线 sender 回执必须同时由三项权威事实证明：事件锚定 post、actorId
                 // 锚定 reader、messages 快照给出持久化 readBits。缺一项仍保留 legacy
                 // channel:read_echo，但绝不猜 reader 或伪造 post:read。
                 if !ev.actor_id.is_empty() && !fields.read_bits.is_empty() {
-                    emits.push(super::to_effect::emit_sync_post_read(
+                    emits.push(super::to_effect::emit_sync_post_read_for_viewer(
                         ev.channel_id,
                         ev.seq.0,
                         msg_id,
                         fields,
                         ev.actor_id.as_str(),
                         ev.occurred_at,
+                        auth_user_id,
                     ));
                 }
             }

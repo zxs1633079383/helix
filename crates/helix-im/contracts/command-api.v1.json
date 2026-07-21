@@ -2,9 +2,9 @@
   "schema_version": "helix-im-command-api/v1",
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
-    "contract_epoch": 9,
-    "matrix_sha256": "e645e68c9a3143e3e6383f83f1554b2cc04fab1b30560402df397ffc925ccbae",
-    "matrix_semantic_sha256": "2fdd4898f89fba502a3210e51b719d1d459ae8ec6d5bb6f72a4a764a79ad4b08",
+    "contract_epoch": 10,
+    "matrix_sha256": "d3461beb760255f6ae733e3b5f7ceccd32dca22faf8adf0c76c29e0d6786b345",
+    "matrix_semantic_sha256": "bc318cef5ef5bf0512d20fe4a40daae416e04110dc8a389e736b53a61e5850fa",
     "gate_count": 46,
     "command_count": 52
   },
@@ -326,7 +326,8 @@
             ],
             "optional": [
               "props",
-              "reply_to_id"
+              "replied",
+              "req_id"
             ],
             "forbid_unknown": true
           },
@@ -353,7 +354,7 @@
             "pending_send"
           ],
           "http": {
-            "request": "`POST /api/cses/posts/create` body `{viewers,message,mentions,temporaryId,type,simpleMessage,channelId,userId,teamId,userSnapshot,id,props,topicId,revoke,createAt,replyId?,replyRootId?,replyFirstLevelId?}`",
+            "request": "`POST /api/cses/posts/create` body `{viewers,message,mentions,temporaryId,type,simpleMessage,channelId,userId,teamId,userSnapshot,id,props,topicId,revoke,createAt,replyId?,replyRootId?,replyFirstLevelId?}`；`replied={id,reply_id,reply_root_id,reply_first_level_id}` 只在 Helix 组装回复三锚，`req_id` 只透传 `Cses-Track-Id`，两者均不作为 HTTP body 字段",
             "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
           },
           "ws": {
@@ -385,7 +386,8 @@
             ],
             "optional": [
               "text",
-              "reply_to_id"
+              "replied",
+              "req_id"
             ],
             "forbid_unknown": true
           },
@@ -713,10 +715,11 @@
           "input": {
             "required": [
               "post_id",
-              "emoji",
-              "user_id"
+              "emoji"
             ],
-            "optional": [],
+            "optional": [
+              "req_id"
+            ],
             "forbid_unknown": true
           },
           "effects": [
@@ -735,7 +738,7 @@
             "message"
           ],
           "http": {
-            "request": "`POST /api/cses/posts/quickReply` body `{postId,emoji,userId?}`",
+            "request": "`POST /api/cses/posts/quickReply` body `{postId,emoji}`；`req_id` 只透传 `Cses-Track-Id`，actor 由服务端鉴权 session 注入",
             "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
           },
           "ws": {

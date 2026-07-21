@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 9,
+  "contract_epoch": 10,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -506,7 +506,8 @@
             ],
             "optional": [
               "props",
-              "reply_to_id"
+              "replied",
+              "req_id"
             ],
             "forbid_unknown": true
           },
@@ -541,10 +542,11 @@
         "react"
       ],
       "negative_assertions": [
-        "UI 不得生成 temporary_id 或发送态"
+        "UI 不得生成 temporary_id 或发送态",
+        "引用必须传 replied 四字段描述符，不能使用 reply_to_id"
       ],
       "http": {
-        "request": "`POST /api/cses/posts/create` body `{viewers,message,mentions,temporaryId,type,simpleMessage,channelId,userId,teamId,userSnapshot,id,props,topicId,revoke,createAt,replyId?,replyRootId?,replyFirstLevelId?}`",
+        "request": "`POST /api/cses/posts/create` body `{viewers,message,mentions,temporaryId,type,simpleMessage,channelId,userId,teamId,userSnapshot,id,props,topicId,revoke,createAt,replyId?,replyRootId?,replyFirstLevelId?}`；`replied={id,reply_id,reply_root_id,reply_first_level_id}` 只在 Helix 组装回复三锚，`req_id` 只透传 `Cses-Track-Id`，两者均不作为 HTTP body 字段",
         "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
       },
       "ws": {
@@ -579,7 +581,8 @@
             ],
             "optional": [
               "text",
-              "reply_to_id"
+              "replied",
+              "req_id"
             ],
             "forbid_unknown": true
           },
@@ -951,10 +954,11 @@
           "input": {
             "required": [
               "post_id",
-              "emoji",
-              "user_id"
+              "emoji"
             ],
-            "optional": [],
+            "optional": [
+              "req_id"
+            ],
             "forbid_unknown": true
           },
           "effect": [
@@ -978,10 +982,11 @@
         "react"
       ],
       "negative_assertions": [
-        "不得使用 im_send_quick_reply alias 或 reaction 转 emoji"
+        "不得使用 im_send_quick_reply alias 或 reaction 转 emoji",
+        "actor 必须由鉴权 session 注入，客户端不得提交 user_id"
       ],
       "http": {
-        "request": "`POST /api/cses/posts/quickReply` body `{postId,emoji,userId?}`",
+        "request": "`POST /api/cses/posts/quickReply` body `{postId,emoji}`；`req_id` 只透传 `Cses-Track-Id`，actor 由服务端鉴权 session 注入",
         "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
       },
       "ws": {

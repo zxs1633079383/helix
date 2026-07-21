@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 9; raw matrix sha256: `e645e68c9a3143e3e6383f83f1554b2cc04fab1b30560402df397ffc925ccbae`; semantic matrix sha256: `2fdd4898f89fba502a3210e51b719d1d459ae8ec6d5bb6f72a4a764a79ad4b08`。
+> contract epoch: 10; raw matrix sha256: `d3461beb760255f6ae733e3b5f7ceccd32dca22faf8adf0c76c29e0d6786b345`; semantic matrix sha256: `bc318cef5ef5bf0512d20fe4a40daae416e04110dc8a389e736b53a61e5850fa`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界
@@ -19,14 +19,14 @@
 | im_sync_channels | G-S3 / UC-4.4 心跳 gap 补偿 | reason | channel_id, event_seq | sync_request, projection | im:sync:state | active/declared |
 | im_sync_channels | G-04a / UC-1.5-offline 离线撤回重放 | reason | channel_id | sync_request, storage_upsert, projection | im:post:deleted | active/declared |
 | im_channel_load_increment_by_channel_id | G-S4 / UC-4.5 陌生 channel 兜底 | channel_id, req_id | is_read | http_read, storage_upsert, projection | im:channel:increment | active/declared |
-| im_send_message | G-01 / UC-1.1 发文本 | channel_id, text, type | props, reply_to_id | storage_upsert, http_write, timer, projection | im:post:sending, im:post:received | active/declared |
-| im_send_message | G-02 / UC-1.2 发文档 | channel_id, type, props | text, reply_to_id | upload, storage_upsert, http_write, projection | im:post:received | active/declared |
+| im_send_message | G-01 / UC-1.1 发文本 | channel_id, text, type | props, replied, req_id | storage_upsert, http_write, timer, projection | im:post:sending, im:post:received | active/declared |
+| im_send_message | G-02 / UC-1.2 发文档 | channel_id, type, props | text, replied, req_id | upload, storage_upsert, http_write, projection | im:post:received | active/declared |
 | im_send_message | G-03 / UC-1.3 发图片/文件/媒体 | channel_id, type, props | text | upload, http_write, projection | im:post:received | active/declared |
 | im_send_message | G-27 / US-17 他人发消息收推送 | channel_id, text, type | props | http_write, transport_broadcast, projection | im:post:received | active/declared |
 | im_retry_send | G-03a / UC-1.4 重发失败 | message_id | ∅ | storage_read, http_write, projection | im:post:sending, im:post:send-failed | active/declared |
 | im_revoke | G-04 / UC-1.5 撤回 | post_id | ∅ | http_write, storage_upsert, projection | im:post:batch-updated, im:post:deleted | active/declared |
 | im_relay_messages | G-05 / UC-1.7 转发/合并转发 | post_ids, target_channel_ids, mode | ∅ | storage_read, http_write, projection | im:post:received | active/declared |
-| im_quick_reply | G-06 / UC-1.8 快捷回复 emoji | post_id, emoji, user_id | ∅ | http_write, storage_upsert, projection | im:post:updated | active/declared |
+| im_quick_reply | G-06 / UC-1.8 快捷回复 emoji | post_id, emoji | req_id | http_write, storage_upsert, projection | im:post:updated | active/declared |
 | im_urgent_post | G-07 / UC-1.9 加急 + 确认 | post_id, target_ids | ∅ | http_write, projection | im:post:updated, im:post:readers | active/declared |
 | im_urgent_confirm | G-07 / UC-1.9 加急 + 确认 | post_id | ∅ | http_write, projection | im:post:updated, im:post:readers | active/declared |
 | im_create_schedule | G-08 / UC-1.10 定时消息 | channel_id, message, schedule_post_at | type, props | http_write, storage_upsert, projection | im:channel:schedule-created | active/declared |

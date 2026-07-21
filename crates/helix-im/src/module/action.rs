@@ -215,6 +215,16 @@ impl ImModule {
             crate::projector::emit_interaction_frame(frame)
                 .map_err(|error| ImError::Serialize(error.to_string()))?,
         );
+        if !self
+            .state
+            .action_registry
+            .complete_after_terminal_frame(request_id)
+        {
+            tracing::warn!(
+                request_id,
+                "terminal action frame had no in-flight request ledger entry"
+            );
+        }
         Ok(())
     }
 

@@ -6,6 +6,9 @@
 
 ## §0 终态记录
 
+🧭 BRANCH-ID @2026-07-20 22:59 -0700 | 当前 `codex/uc01-16-surface-runtime-candidate`@0786ae9 ↑↓vsmain:↑8 ↓9 · upstream:无 upstream
+🎯 EXPECT 完成 UC01-16 ActionBinding 的 T079/T080 P1 账本修复。可证伪断言：① 已受理 requestId 在对应 corr_map 终态 action Frame 前不因 actionRef revoke/TTL 释放；② 同一 live actionRef 只能有一个不同 requestId 在途；③ 终态 Frame 构造并发出后才同时回收 requestId 与 actionRef 单飞占位，重复 PortReply 无 corr 路由；④ actor/scope/epoch/revision/replay 与 session reset 的 fail-closed 语义不退化；⑤ 仅修改 Helix candidate 的 helix-im action/projector/测试和必要 SESSION，不改 core/driver。@2026-07-20T22:59:00-0700 | 赌注 高 | 可逆 是
+
 🎯 EXPECT 补齐 UC13 离线发送者已读回执重放的 Helix 合同半边。可证伪断言：① 只在 sync type6 同时具备 msgId、actorId 与 messages[msgId].readBits 三项权威事实时，除既有 im:channel:read_echo 外追加 im:post:read；② 新投影显式携 readerId、postId/readBits 与 receiptRevision，不从位图反推用户；③ 任一权威锚缺失时绝不合成 im:post:read；④ 当前 Go post/read 不写 channel_event 的跨仓缺口落 NEED_UC13_OFFLINE_READ.md，不伪报真实链已闭环；⑤ 仅修改 helix-im 投影/同步测试、需求文档与 SESSION，不改 core/driver。@2026-07-16T18:10:00-0700 | 赌注 高 | 可逆 是
 ✅ DONE UC13 离线回执跨仓代码 CODE_DONE、最终真实链待统一验收：sync type6 仅在 msgId+actorId+权威 readBits 闭集成立时双发既有 im:channel:read_echo 与新增 im:post:read，投影携 postId/readerId/readBits/receiptRevision；缺 actor 或 bits 的负向测试均不合成。Go `d6fe376` 已把每条实际 read_bits 0->1 变化与带 msgId/actorId 的 type6 事实同事务提交，幂等重试不追加；NEED_UC13_OFFLINE_READ.md 更新为 RESOLVED_CODE_DONE。Helix 验证：RED 1 fail/1 pass；GREEN 聚焦 2/2 PASS；既有 c3_sync_mutation_emits_test 12/12 PASS；git diff --check PASS；未跑全包、未 repin、未跑真实链。@2026-07-16T18:24:00-0700
 

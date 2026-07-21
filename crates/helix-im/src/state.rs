@@ -256,11 +256,8 @@ impl ImState {
     pub(crate) fn reset_recent_query_coverage(&mut self) {
         self.recent_message_coverage.clear();
         self.message_query_generations.clear();
-        self.timeline_projector.reset();
-        self.action_registry.clear();
-        self.action_receipts.clear();
-        self.participant_receipts_projector.reset();
-        self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
+        // Old action requestIds may be released with the registry only after their authority corr routes are gone.
+        // Otherwise a late HTTP reply could reuse the causation of a newly accepted action in the next session.
         self.corr_map.retain(|_, context| {
             !matches!(
                 context,
@@ -270,6 +267,11 @@ impl ImState {
                     | CorrelationContext::InteractionViewReceipt { .. }
             )
         });
+        self.timeline_projector.reset();
+        self.action_registry.clear();
+        self.action_receipts.clear();
+        self.participant_receipts_projector.reset();
+        self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }
 
     /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与

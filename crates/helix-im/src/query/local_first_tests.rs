@@ -390,6 +390,37 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         })
         .expect("accepted receipt action prepares canonical HTTP work");
 
+    // 回归锚: T080 —— 同一仍 live 的 actionRef 不得并发第二个 requestId。
+    sink.clear();
+    let mut second_request = envelope.clone();
+    second_request.request_id = "receipt-request-second".to_string();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&second_request).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_003,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Http { .. })));
+    let second_rejection = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("second request on a live actionRef is explicitly rejected");
+    assert_eq!(
+        second_rejection["data"]["validationErrors"][0]["field"],
+        "actionRef"
+    );
+
     sink.clear();
     module
         .handle(
@@ -399,7 +430,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
                 )
                 .unwrap(),
             ),
-            1_003,
+            1_004,
             &mut sink,
         )
         .unwrap();
@@ -414,6 +445,61 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         .find(|event| event["event"] == "im:interaction:action-receipt")
         .expect("accepted requestId is replay-protected");
     assert_eq!(replay["data"]["status"], "rejected");
+
+    // 回归锚: T079 —— 新 timeline revision 撤旧 ref 后，旧 corr 尚未终态时 requestId 仍不可复用。
+    let refreshed_timeline = module
+        .emit_timeline_snapshot(&query, &rows_desc, 1_005)
+        .expect("new timeline revision revokes the old action capability");
+    let Effect::Emit { event } = refreshed_timeline else {
+        panic!("refreshed timeline must emit a frame")
+    };
+    let refreshed_event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let refreshed_frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&refreshed_event["data"]).unwrap(),
+    )
+    .unwrap();
+    let refreshed_mutation = &refreshed_frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &refreshed_mutation.mutation
+    else {
+        panic!("new timeline revision must stay a snapshot")
+    };
+    let refreshed_binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "viewReceipt")
+        .expect("refreshed author timeline has a new receipt capability");
+    assert_ne!(binding.action_ref, refreshed_binding.action_ref);
+    let mut reused_request = envelope.clone();
+    reused_request.observed_revision = refreshed_mutation.revision;
+    reused_request.invocation.action_ref = refreshed_binding.action_ref.clone();
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&reused_request).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_006,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Http { .. })));
+    let stale_request_rejection = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("new action must reject the old requestId while its corr is live");
+    assert_eq!(
+        stale_request_rejection["data"]["validationErrors"][0]["field"],
+        "requestId"
+    );
 
     sink.clear();
     module
@@ -432,7 +518,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
                     }]
                 }))),
             },
-            1_004,
+            1_007,
             &mut sink,
         )
         .unwrap();
@@ -456,4 +542,45 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         confirmation.mutations[0].surface,
         crate::interaction_frame::SurfaceId::MessageParticipantReceipts
     );
+
+    // The old corr has already been removed before the terminal Frame released requestId. Reuse is now safe,
+    // and a duplicated old HTTP reply no longer has a corr_map route that could confirm the fresh request.
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&reused_request).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_008,
+            &mut sink,
+        )
+        .unwrap();
+    let fresh_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("terminal action frame releases the requestId for a fresh action");
+    assert_ne!(corr, fresh_corr);
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr,
+                outcome: helix_core::tick::PortOutcome::Ok(http_envelope(serde_json::json!({
+                    "status": "SUCCESS",
+                    "data": []
+                }))),
+            },
+            1_009,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink.as_slice().is_empty());
 }

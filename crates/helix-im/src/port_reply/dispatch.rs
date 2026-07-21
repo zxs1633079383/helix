@@ -110,7 +110,9 @@ impl ImModule {
 
             CorrelationContext::DialogPatchByPost { pending } => match outcome {
                 PortOutcome::Ok(reply) => {
-                    if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
+                    if let Some(data) =
+                        pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
+                    {
                         if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
                             &mut self.state.dialog_list_frame,
                             &data,
@@ -158,13 +160,13 @@ impl ImModule {
             } => match outcome {
                 PortOutcome::Ok(reply) => {
                     for pending in dialog_patches {
-                        if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
-                            if let Some(frame) =
-                                crate::dialog_frame::patch_from_dialog_projection(
-                                    &mut self.state.dialog_list_frame,
-                                    &data,
-                                )
-                            {
+                        if let Some(data) =
+                            pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
+                        {
+                            if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
+                                &mut self.state.dialog_list_frame,
+                                &data,
+                            ) {
                                 out.push(frame);
                             }
                         }

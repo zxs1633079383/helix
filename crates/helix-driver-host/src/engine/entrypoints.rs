@@ -2,9 +2,7 @@ use helix_core::ports::{Clock, FileUploader, FrameSender, HttpRequester, Storage
 use helix_core::{ExecutionShell, Tick};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{
-    run_engine_loop_inner, BatchSink, EngineDeps, TransportRegistration, TransportTable,
-};
+use super::{run_engine_loop_inner, BatchSink, EngineDeps, TransportRegistration, TransportTable};
 use crate::tick_ingress::{
     EngineTickReceiver, EngineTickSender, TickIngressReceiver, TickIngressSender,
 };

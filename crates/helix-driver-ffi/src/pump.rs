@@ -21,14 +21,14 @@ use helix_core::{ExecutionShell, PortError};
 use helix_driver_host::engine::{
     self, register_transport, EngineDeps, TransportRegistration, TransportTable,
 };
+#[cfg(test)]
+use helix_driver_host::TraceHooks;
 use helix_driver_host::{
     spawn_reconnect_supervisor, AsyncMetricSink, AuthTokenRegistry, BoundedMetricRuntime,
     CommandTraceQueue, HostHeaderRegistry, HostNetworkConfig, HostOtelRuntime, HostStorage,
     ReconnectPolicy, ReconnectTraceSink, SharedFileUploader, SharedHttpClient, SharedWsClient,
     TickIngressReceiver, TickIngressSender,
 };
-#[cfg(test)]
-use helix_driver_host::TraceHooks;
 use helix_im::module::ImConfig;
 use helix_im::query::LocalStoreMode;
 use helix_im::ImModule;

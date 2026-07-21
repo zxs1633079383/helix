@@ -28,7 +28,9 @@ impl ImModule {
                     });
                 }
                 for pending in dialog_patches {
-                    if let Some(data) = pending.frame_patch_data_from_channel_reply(reply.0.as_ref()) {
+                    if let Some(data) =
+                        pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
+                    {
                         // 写后 channel reply 已给出累计 unread/mention/urgent 终值。若列表已有
                         // snapshot，只发布同 revision 的属性 patch；客户端不再消费原始 DialogPatch。
                         if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(

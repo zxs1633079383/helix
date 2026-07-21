@@ -188,7 +188,10 @@ fn s6_too_long_preserves_messages_and_emits_reload() {
                 && value["data"]["dialogPatch"]["unreadCount"] == 1
         })
     });
-    assert!(!raw_dialog_patch, "重拉落库写后读回后不得 emit raw DialogPatch");
+    assert!(
+        !raw_dialog_patch,
+        "重拉落库写后读回后不得 emit raw DialogPatch"
+    );
 }
 
 #[test]

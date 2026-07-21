@@ -36,9 +36,9 @@ pub async fn register_transport<Fs>(
             registered_tx,
         })
         .map_err(|_| PortError::Transport("transport registration channel closed".into()))?;
-    registered_rx.await.map_err(|_| {
-        PortError::Transport("transport registration was not acknowledged".into())
-    })
+    registered_rx
+        .await
+        .map_err(|_| PortError::Transport("transport registration was not acknowledged".into()))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

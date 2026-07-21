@@ -51,12 +51,7 @@ pub(super) fn start_native_reconnect(transports: &TransportTable) -> NativeRecon
                     let mut transport = factory.build()?;
                     let activation = transport.connect().await?;
                     let transport = Arc::new(transport);
-                    register_transport(
-                        &register_tx,
-                        transport_id,
-                        Arc::clone(&transport),
-                    )
-                    .await?;
+                    register_transport(&register_tx, transport_id, Arc::clone(&transport)).await?;
                     activation.activate().await
                 }
             },

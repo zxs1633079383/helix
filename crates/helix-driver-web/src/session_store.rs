@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use bytes::Bytes;
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row,
-    ScanSpec, SortDirection, SparseTableSpec, SqlValue, StorageOp, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
+    SortDirection, SparseTableSpec, SqlValue, StorageOp, UpsertSpec,
 };
 use helix_core::port_codec::{classify_port_error, rows_to_reply_bytes};
 use helix_core::ports::Storage;
@@ -625,7 +625,6 @@ impl Storage for WebSessionStore {
         }
         result
     }
-
 }
 
 fn storage_error(message: impl Into<String>) -> PortError {

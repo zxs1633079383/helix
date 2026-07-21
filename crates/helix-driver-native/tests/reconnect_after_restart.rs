@@ -35,7 +35,10 @@ async fn backend_drop_reconnects_with_cookie_and_restores_ping_pong() {
 
     let mut transports = TransportTable::new();
     transports.insert(transport_id, Arc::new(transport));
-    activation.activate().await.expect("activate initial transport");
+    activation
+        .activate()
+        .await
+        .expect("activate initial transport");
     let db_path =
         std::env::temp_dir().join(format!("helix-native-reconnect-{}.db", std::process::id()));
     let _ = std::fs::remove_file(&db_path);

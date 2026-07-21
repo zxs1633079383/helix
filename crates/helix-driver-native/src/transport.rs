@@ -151,10 +151,7 @@ impl NativeTransport {
         Self::from_shared_parts(inner, None)
     }
 
-    fn from_shared_parts(
-        inner: SharedWsClient,
-        reconnect: Option<NativeReconnectFactory>,
-    ) -> Self {
+    fn from_shared_parts(inner: SharedWsClient, reconnect: Option<NativeReconnectFactory>) -> Self {
         Self {
             inner: Some(inner),
             init_error: None,

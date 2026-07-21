@@ -18,14 +18,14 @@ use super::MessageQueryRequest;
 mod data;
 
 #[cfg(test)]
+pub(crate) use data::parse_latest_posts_body;
+#[cfg(test)]
 use data::server_id;
 use data::{
     classify_local_read, dedup_recent_rows, merge_recent_rows, message_key, message_result_effect,
     parse_latest_posts_reply, parse_local_rows, sort_recent_rows_desc,
     stale_local_server_rows_delete_op, visible_remote_rows_and_cache_ops,
 };
-#[cfg(test)]
-pub(crate) use data::parse_latest_posts_body;
 
 /// 平台提供的本地数据能力。它描述物理数据寿命，不承诺某次查询已经完整。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

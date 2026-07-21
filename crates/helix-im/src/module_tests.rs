@@ -68,13 +68,16 @@ fn runtime_identity_enables_member_projection_without_wire_user_id() {
     )
     .unwrap();
 
-    assert!(sink.as_slice().iter().any(|effect| match effect {
-        Effect::Emit { event } => {
-            let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-            envelope["event"] == "im:channel:update"
-        }
-        _ => false,
-    }), "member 绝对态写入后仍须发布 channel surface 通知");
+    assert!(
+        sink.as_slice().iter().any(|effect| match effect {
+            Effect::Emit { event } => {
+                let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+                envelope["event"] == "im:channel:update"
+            }
+            _ => false,
+        }),
+        "member 绝对态写入后仍须发布 channel surface 通知"
+    );
 }
 
 /// Connected → conn 变 Connecting，且不产 resync Http（现网 Go 握手前 resync 会 401）。

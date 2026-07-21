@@ -252,7 +252,30 @@ pub fn emit_dialog_list_frame_result(
     scope: crate::dialog_frame::DialogListScope,
     state: &mut crate::dialog_frame::DialogListFrameState,
 ) -> Option<Effect> {
-    let rows = crate::dialog_frame::rows_from_dialog_scan(reply_bytes)?;
+    emit_dialog_list_frame_result_with_terminal_channels(
+        reply_bytes,
+        scope,
+        state,
+        &std::collections::HashSet::new(),
+    )
+}
+
+/// Same dialog snapshot projection with the durable type7 terminal marker overlaid from the
+/// channel aggregate. The `channel` scan intentionally remains a raw storage read; terminal
+/// truth lives in the cursor projection and is applied in Helix before the renderer receives the
+/// frame, so a restart cannot reopen a locally confirmed closed channel.
+pub fn emit_dialog_list_frame_result_with_terminal_channels(
+    reply_bytes: &[u8],
+    scope: crate::dialog_frame::DialogListScope,
+    state: &mut crate::dialog_frame::DialogListFrameState,
+    terminal_channel_ids: &std::collections::HashSet<String>,
+) -> Option<Effect> {
+    let mut rows = crate::dialog_frame::rows_from_dialog_scan(reply_bytes)?;
+    for row in &mut rows {
+        if terminal_channel_ids.contains(&row.channel_id) {
+            row.state.closed = true;
+        }
+    }
     state.snapshot(scope, rows)
 }
 

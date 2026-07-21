@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use helix_im::interaction_frame::{
-    ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrame, InteractionFrameError,
-    SurfaceDataVm, SurfaceId, TypedSurfaceMutation, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    ActionBinding, ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrame,
+    InteractionFrameError, SurfaceDataVm, SurfaceId, TypedSurfaceMutation, MAX_SAFE_JSON_INTEGER,
+    MIN_SAFE_JSON_INTEGER,
 };
 
 const CANONICAL_SNAPSHOT: &str = include_str!("fixtures/uc01-16-surface-runtime/snapshots.json");
@@ -129,6 +130,42 @@ fn rejected_action_fixture_is_not_an_interaction_frame_success_signal() {
         serde_json::from_str::<ActionInvocation>(r#"{"actionRef":"create-topic","input":[]}"#,)
             .is_err()
     );
+}
+
+#[test]
+fn action_binding_carries_the_renderer_visible_safe_surface_epoch() {
+    let binding = ActionBinding {
+        action_ref: "act.v1.test".to_string(),
+        kind: "viewReceipt".to_string(),
+        input_shape: "object".to_string(),
+        surface_epoch: 7,
+        enabled: true,
+        disabled_reason: None,
+    };
+    binding.validate().expect("binding carries a usable epoch");
+    assert_eq!(
+        serde_json::to_value(&binding).unwrap()["surfaceEpoch"],
+        serde_json::json!(7)
+    );
+
+    let mut zero = binding.clone();
+    zero.surface_epoch = 0;
+    assert!(matches!(
+        zero.validate(),
+        Err(InteractionFrameError::InvalidActionBinding { .. })
+    ));
+
+    let mut unsafe_epoch = binding.clone();
+    unsafe_epoch.surface_epoch = MAX_SAFE_JSON_INTEGER + 1;
+    assert!(matches!(
+        unsafe_epoch.validate(),
+        Err(InteractionFrameError::InvalidActionBinding { .. })
+    ));
+
+    assert!(serde_json::from_str::<ActionBinding>(
+        r#"{"actionRef":"act.v1.test","kind":"viewReceipt","inputShape":"object","enabled":true}"#
+    )
+    .is_err());
 }
 
 #[test]

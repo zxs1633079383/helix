@@ -159,6 +159,16 @@ pub struct ImState {
     /// 已 attach 的有界时间线窗口；只保存 typed VM/revision，raw 行仍由 query/render-ready 边界消费。
     pub(crate) timeline_projector: crate::projector::timeline::TimelineProjector,
 
+    /// 回复抽屉的 HTTP 权威快照/replaceView slot；只存 typed VM，不保留原始回复 body。
+    pub(crate) thread_detail_projector: crate::projector::thread_detail::ThreadDetailProjector,
+
+    /// channel/member/topic 的本地事实重放 slot。它们与 timeline 同属 identity-scoped
+    /// SurfaceRuntime，不能跨登录会话复用 revision。
+    pub(crate) channel_summary_projector:
+        crate::projector::channel_summary::ChannelSummaryProjector,
+    pub(crate) member_roster_projector: crate::projector::member_roster::MemberRosterProjector,
+    pub(crate) topic_list_projector: crate::projector::topic_list::TopicListProjector,
+
     /// Frame 下发时登记的 opaque action lease 与本 session replay ledger。它与 timeline slot 同属
     /// SurfaceRuntime，会话/身份边界必须一起清除。
     pub(crate) action_registry: crate::projector::action::ActionBindingRegistry,
@@ -220,6 +230,13 @@ impl ImState {
             message_query_generations: HashMap::new(),
             dialog_list_frame: crate::dialog_frame::DialogListFrameState::default(),
             timeline_projector: crate::projector::timeline::TimelineProjector::default(),
+            thread_detail_projector:
+                crate::projector::thread_detail::ThreadDetailProjector::default(),
+            channel_summary_projector:
+                crate::projector::channel_summary::ChannelSummaryProjector::default(),
+            member_roster_projector:
+                crate::projector::member_roster::MemberRosterProjector::default(),
+            topic_list_projector: crate::projector::topic_list::TopicListProjector::default(),
             action_registry: crate::projector::action::ActionBindingRegistry::new(
                 crate::projector::action::DEFAULT_ACTION_REGISTRY_CAPACITY,
             )
@@ -268,6 +285,10 @@ impl ImState {
             )
         });
         self.timeline_projector.reset();
+        self.thread_detail_projector.reset();
+        self.channel_summary_projector.reset();
+        self.member_roster_projector.reset();
+        self.topic_list_projector.reset();
         self.action_registry.clear();
         self.action_receipts.clear();
         self.participant_receipts_projector.reset();

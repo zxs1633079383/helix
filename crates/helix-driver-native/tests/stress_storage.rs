@@ -22,9 +22,13 @@
 
 use std::time::Instant;
 
-use helix_core::effect::{MonotonicUpsertSpec, ScanSpec, SqlValue, UpsertSpec};
+use helix_core::effect::{
+    BatchUpdateSpec, GetSpec, MonotonicUpsertSpec, ScanSpec, SqlValue, StorageOp, UpsertSpec,
+};
 use helix_core::ports::Storage;
 use helix_driver_native::NativeStorage;
+use helix_im::acl::to_effect::terminal_tombstone_and_cursor_op;
+use helix_im::state::{ChannelId, Seq};
 
 /// 临时文件 SQLite（参考 engine_integration.rs 的建库方式）。
 async fn make_temp_storage(path: &str) -> NativeStorage {
@@ -173,4 +177,69 @@ async fn parity_native_monotonic_upsert_no_regression() {
         matches!(val, Some(SqlValue::Integer(100))),
         "NativeStorage parity: MAX guard must prevent cursor regression (expected 100, got {val:?})"
     );
+}
+
+/// T095：NativeStorage 只是 HostStorage 的薄壳，但仍要经该公开适配面证明 `atomic_write`
+/// 不会在第二个 SQL 失败后留下 type7 terminal marker。
+#[tokio::test]
+async fn parity_native_terminal_atomic_write_rolls_back_as_one_transaction() {
+    let path = "/tmp/helix_native_terminal_atomic.db";
+    let storage = make_temp_storage(path).await;
+    storage
+        .execute_raw(
+            "CREATE TABLE channel_event_cursor (\
+             channel_id TEXT PRIMARY KEY NOT NULL,\
+             last_event_seq INTEGER NOT NULL DEFAULT 0,\
+             terminal_event_seq INTEGER NOT NULL DEFAULT 0)",
+        )
+        .await
+        .expect("create terminal cursor table");
+    let channel = ChannelId::from_str("ch00000000000000000000001a").expect("valid channel id");
+    let terminal = terminal_tombstone_and_cursor_op(channel, Seq(7));
+    let error = storage
+        .atomic_write(vec![
+            terminal.clone(),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "table_that_does_not_exist",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text("never".into())],
+                patch: vec![("state".into(), SqlValue::Text("closed".into()))],
+            }),
+        ])
+        .await;
+    assert!(error.is_err());
+    assert!(
+        storage
+            .get(GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(channel.as_str().to_string()),
+            })
+            .await
+            .expect("rollback verification query")
+            .is_none(),
+        "failed native atomic write must not leak a terminal row"
+    );
+
+    storage
+        .atomic_write(vec![terminal])
+        .await
+        .expect("native terminal transaction commits");
+    let row = storage
+        .get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(channel.as_str().to_string()),
+        })
+        .await
+        .expect("committed terminal query")
+        .expect("committed terminal row");
+    assert!(matches!(
+        row.iter().find(|(name, _)| name == "last_event_seq"),
+        Some((_, SqlValue::Integer(7)))
+    ));
+    assert!(matches!(
+        row.iter().find(|(name, _)| name == "terminal_event_seq"),
+        Some((_, SqlValue::Integer(7)))
+    ));
 }

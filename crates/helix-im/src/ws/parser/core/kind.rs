@@ -1,12 +1,18 @@
+use crate::error::ImError;
 use crate::sync_session::EventKind;
 
 /// 从 WS type 数字解析 EventKind
-pub(super) fn parse_event_kind(type_num: u8) -> EventKind {
+///
+/// type 7 是 closed terminal tombstone。它只能在 sync parser 的严格 wire 校验后由专属
+/// 原子提交路径消费；legacy WS 数值帧会在 `parse_inbound_value` 明确拒绝，不能借普通 post
+/// gate 或“仅推进 cursor”的兼容分支半消费终态。
+pub(super) fn parse_event_kind(type_num: u8) -> Result<EventKind, ImError> {
     match type_num {
-        1 => EventKind::PostUpsert,
-        2 => EventKind::PostEdit,
-        3 => EventKind::PostRevoke,
-        6 => EventKind::PostRead,
-        n => EventKind::Other(n),
+        1 => Ok(EventKind::PostUpsert),
+        2 => Ok(EventKind::PostEdit),
+        3 => Ok(EventKind::PostRevoke),
+        6 => Ok(EventKind::PostRead),
+        7 => Ok(EventKind::ChannelTerminalClosed),
+        n => Ok(EventKind::Other(n)),
     }
 }

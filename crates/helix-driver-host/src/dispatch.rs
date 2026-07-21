@@ -66,6 +66,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     corr: Some(corr),
                     payload: PersistJobPayload {
                         ops,
+                        atomic: false,
                         trace: trace.storage_trace_context(),
                     },
                 })
@@ -75,6 +76,34 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     MetricId::PersistQueueWaitSeconds,
                     queued_at,
                     "persist",
+                );
+            }
+
+            // ── PersistAtomic（带 corr，跨 StorageOp 同一事务）────────────────
+            OwnedEffect::PersistAtomic { corr, ops } => {
+                trace.on_storage_dispatch(Some(corr), &ops);
+                let key = table_set_key(&ops);
+                let sp = get_or_spawn_persist(
+                    persist_workers,
+                    key,
+                    Arc::clone(storage),
+                    reply_tx.clone(),
+                );
+                let queued_at = metrics.is_enabled().then(Instant::now);
+                sp.submit(Job {
+                    corr: Some(corr),
+                    payload: PersistJobPayload {
+                        ops,
+                        atomic: true,
+                        trace: trace.storage_trace_context(),
+                    },
+                })
+                .await;
+                record_wait(
+                    metrics,
+                    MetricId::PersistQueueWaitSeconds,
+                    queued_at,
+                    "persist_atomic",
                 );
             }
 
@@ -93,6 +122,7 @@ pub(crate) async fn dispatch_effects<S, E, Fs>(
                     corr: None,
                     payload: PersistJobPayload {
                         ops,
+                        atomic: false,
                         trace: trace.storage_trace_context(),
                     },
                 })

@@ -69,6 +69,12 @@ pub struct Channel {
     /// 终止保证：若 persist ok 后 cursor == sync_from_seq（cursor 未前进），
     /// 停止续拉 + log warn（意味着服务端返回的所有事件都低于 fromSeq，幂等丢弃）。
     pub last_sync_from_seq: Option<Seq>,
+    /// 已由 type7 原子提交确认的 closed tombstone 水位。
+    ///
+    /// `Some` 后本地不再接收任何普通事件或发起 resync，避免晚到 post/sync 把已关闭的
+    /// channel 当作活跃频道重新投影。持久化镜像位于 `channel_event_cursor.terminal_event_seq`；
+    /// 该列只记录 closed 这个唯一合法终态，不存服务端任意 payload。
+    pub terminal_event_seq: Option<Seq>,
 }
 
 mod commit;

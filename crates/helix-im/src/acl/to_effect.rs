@@ -5,10 +5,10 @@
 
 pub use super::projection_control_effects::{
     emit_channel_increment, emit_channel_update, emit_channels_loaded, emit_connection_established,
-    member_dialog_patch_data, post_dialog_patch_data,
     emit_post_batch_updated, emit_post_send_failed, emit_post_sending,
     emit_post_sending_with_reply, emit_reconnect_requested, emit_sync_state,
-    emit_sync_state_with_trigger, emit_sync_too_long,
+    emit_sync_state_with_trigger, emit_sync_too_long, member_dialog_patch_data,
+    post_dialog_patch_data,
 };
 pub use super::projection_message_effects::{
     emit_channel_read_echo, emit_post_deleted, emit_post_deleted_for_viewer, emit_post_read,
@@ -17,8 +17,8 @@ pub use super::projection_message_effects::{
 };
 pub use super::storage_effects::{
     advance_cursor, advance_cursor_op, bump_channel_unread, bump_channel_unread_op,
-    get_channel_row_op, reset_channel_dialog_op, update_channel_partial, upsert_channel_full,
-    upsert_channel_member_dialog, upsert_message,
+    get_channel_row_op, reset_channel_dialog_op, terminal_tombstone_and_cursor_op,
+    update_channel_partial, upsert_channel_full, upsert_channel_member_dialog, upsert_message,
 };
 pub use super::sync_effects::{
     batch_upsert_events, batch_upsert_events_with_messages,

@@ -92,6 +92,18 @@ impl ImModule {
                 out,
             )?,
 
+            CorrelationContext::ChannelTerminalPersist {
+                channel_id,
+                terminal_seq,
+                trigger,
+            } => self.handle_channel_terminal_persist_reply(
+                channel_id,
+                terminal_seq,
+                trigger,
+                outcome,
+                out,
+            )?,
+
             CorrelationContext::IncrementBatchPersist { projections } => {
                 self.handle_increment_batch_persist_reply(projections, outcome, out)
             }
@@ -261,6 +273,18 @@ impl ImModule {
                 out,
             )?,
 
+            CorrelationContext::SurfaceStorageSnapshot { request } => {
+                self.handle_surface_storage_snapshot(request, outcome, out)?;
+            }
+
+            CorrelationContext::SurfaceThreadSnapshot { request } => {
+                self.handle_surface_thread_snapshot(request, outcome, out)?;
+            }
+
+            CorrelationContext::SurfaceReceiptSnapshot { request } => {
+                self.handle_surface_receipt_snapshot(request, outcome, out)?;
+            }
+
             CorrelationContext::ForwardSourceLookup { assembly } => {
                 if let Err(error) =
                     crate::forward::handle_lookup_reply(self, *assembly, outcome, out)
@@ -277,11 +301,24 @@ impl ImModule {
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
                     );
-                    if let Some(frame) = crate::query::emit_dialog_list_frame_result(
-                        reply.0.as_ref(),
-                        scope,
-                        &mut self.state.dialog_list_frame,
-                    ) {
+                    let terminal_channel_ids = self
+                        .state
+                        .channels
+                        .iter()
+                        .filter_map(|(channel_id, channel)| {
+                            channel
+                                .is_terminal()
+                                .then(|| channel_id.as_str().to_string())
+                        })
+                        .collect();
+                    if let Some(frame) =
+                        crate::query::emit_dialog_list_frame_result_with_terminal_channels(
+                            reply.0.as_ref(),
+                            scope,
+                            &mut self.state.dialog_list_frame,
+                            &terminal_channel_ids,
+                        )
+                    {
                         out.push(frame);
                     }
                 }
@@ -291,11 +328,24 @@ impl ImModule {
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
                     );
-                    if let Some(frame) = crate::query::emit_dialog_list_frame_result(
-                        b"[]",
-                        scope,
-                        &mut self.state.dialog_list_frame,
-                    ) {
+                    let terminal_channel_ids = self
+                        .state
+                        .channels
+                        .iter()
+                        .filter_map(|(channel_id, channel)| {
+                            channel
+                                .is_terminal()
+                                .then(|| channel_id.as_str().to_string())
+                        })
+                        .collect();
+                    if let Some(frame) =
+                        crate::query::emit_dialog_list_frame_result_with_terminal_channels(
+                            b"[]",
+                            scope,
+                            &mut self.state.dialog_list_frame,
+                            &terminal_channel_ids,
+                        )
+                    {
                         out.push(frame);
                     }
                 }

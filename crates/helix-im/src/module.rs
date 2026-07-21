@@ -17,7 +17,7 @@ use crate::state::{ChannelId, ConnState, CorrelationContext, ImState, SendStatus
 use helix_core::effect::TimerId;
 use helix_core::{CoreError, EffectSink, Module, Tick};
 
-mod action;
+pub(crate) mod action;
 mod trait_impl;
 
 /// Driver 向 sans-I/O IM 模块同步当前 host 身份的内部命令。
@@ -155,6 +155,15 @@ impl ImModule {
             .channels
             .get(&channel_id)
             .map(|ch| ch.cursor.value().0)
+    }
+
+    /// 查询已确认的 type7 terminal tombstone 水位（测试 / 诊断用）。
+    pub fn terminal_event_seq_for(&self, channel_id: ChannelId) -> Option<u64> {
+        self.state
+            .channels
+            .get(&channel_id)
+            .and_then(|channel| channel.terminal_event_seq())
+            .map(|seq| seq.0)
     }
 
     /// 查询 pending_sends 数量（测试用）

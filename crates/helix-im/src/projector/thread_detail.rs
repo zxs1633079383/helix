@@ -160,6 +160,13 @@ impl ThreadDetailProjector {
         })
     }
 
+    pub fn current_revision(&self, channel_id: &str, root_message_id: &str) -> Option<u64> {
+        self.slots.current_revision(&SurfaceScope::Thread {
+            channel_id: channel_id.to_string(),
+            root_message_id: root_message_id.to_string(),
+        })
+    }
+
     pub fn reset(&mut self) {
         self.slots.reset();
     }

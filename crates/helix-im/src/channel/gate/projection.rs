@@ -41,6 +41,9 @@ pub fn emit_for_kind(ev: &EventEnvelope) -> Effect {
             ev.viewer_user_id.as_str(),
         ),
         EventKind::PostRead => crate::acl::to_effect::emit_post_read(ev.id, seq, msg_id, f),
+        // type7 is never a post projection. Legacy WS input rejects it and sync::flow publishes
+        // the closed dialog Frame only after PersistAtomic succeeds.
+        EventKind::ChannelTerminalClosed => Effect::PersistFire { ops: Vec::new() },
         EventKind::Other(_) => crate::acl::to_effect::emit_post_received(ev.id, seq, msg_id, f),
     }
 }
@@ -72,6 +75,11 @@ pub(super) fn collect_dialog_patch_for_post(
 
 pub(super) fn visible_post_for_storage(ev: &EventEnvelope) -> bool {
     use crate::sync_session::EventKind;
-    !matches!(ev.kind, EventKind::PostUpsert)
-        || ev.unread_bump.as_ref().map(|u| u.visible).unwrap_or(true)
+    match ev.kind {
+        EventKind::PostUpsert => ev.unread_bump.as_ref().map(|u| u.visible).unwrap_or(true),
+        EventKind::ChannelTerminalClosed => false,
+        EventKind::PostEdit | EventKind::PostRevoke | EventKind::PostRead | EventKind::Other(_) => {
+            true
+        }
+    }
 }

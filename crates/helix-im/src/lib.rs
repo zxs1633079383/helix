@@ -52,6 +52,7 @@ pub use query::render_ready::members as render_ready_members;
 pub use query::render_ready::replies as render_ready_replies;
 pub mod schema;
 pub mod send;
+pub mod surface_runtime;
 pub use send::pending as pending_send;
 pub use send::pong_compensate;
 pub use send::reconcile as send_reconcile;

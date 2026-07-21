@@ -71,6 +71,30 @@ pub enum CorrelationContext {
         pending_domain_events: Vec<Vec<u8>>,
     },
 
+    /// type7 closed tombstone 的 `PersistAtomic` 回执。成功前不改变内存 cursor/terminal 状态，
+    /// 也不发布 renderer Frame；失败则 context 被一次性消费且无后续副作用。
+    ChannelTerminalPersist {
+        channel_id: ChannelId,
+        terminal_seq: crate::state::Seq,
+        trigger: SyncTrigger,
+    },
+
+    /// Opaque SurfaceResyncRequest 对本地 channel/member/topic 事实的异步读取。
+    /// renderer 只提交 surface+scope，不能选择表、SQL 或领域 command。
+    SurfaceStorageSnapshot {
+        request: crate::surface_runtime::SurfaceResyncRequest,
+    },
+
+    /// thread 由既有 getReplies HTTP 权威回包建立 typed slot。
+    SurfaceThreadSnapshot {
+        request: crate::surface_runtime::SurfaceResyncRequest,
+    },
+
+    /// participant receipt 由既有 post/read/list HTTP 权威回包建立 typed slot。
+    SurfaceReceiptSnapshot {
+        request: crate::surface_runtime::SurfaceResyncRequest,
+    },
+
     /// hello increment 全批 channel/member/cursor 事务回报。
     IncrementBatchPersist {
         projections: Vec<(ChannelId, Vec<u8>)>,

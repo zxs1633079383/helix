@@ -175,6 +175,20 @@ pub fn build_action_invocation_command(payload: &[u8]) -> Result<AppCommand, ImE
     ))
 }
 
+/// Encode a typed `SurfaceResyncRequest` into the private host-to-core command.
+///
+/// This deliberately bypasses `build_command`: a renderer cannot route an opaque surface
+/// resync into a domain command or inject storage/HTTP implementation details.
+pub fn build_surface_resync_command(payload: &[u8]) -> Result<AppCommand, ImError> {
+    let request = crate::surface_runtime::SurfaceResyncRequest::from_payload(payload)?;
+    let canonical =
+        serde_json::to_vec(&request).map_err(|error| ImError::Serialize(error.to_string()))?;
+    Ok(AppCommand::new(
+        crate::surface_runtime::SURFACE_RESYNC_COMMAND,
+        canonical,
+    ))
+}
+
 fn normalize_top_level_keys(obj: &mut Map<String, Value>) {
     let keys: Vec<String> = obj.keys().cloned().collect();
     for key in keys {
@@ -413,6 +427,23 @@ mod tests {
             build_action_invocation_command(unknown_field),
             Err(ImError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn surface_resync_uses_a_separate_typed_private_command() {
+        let command = build_surface_resync_command(
+            br#"{"surface":"message.member-roster","scope":{"kind":"memberRoster","channelId":"channel-1","cursor":"first"}}"#,
+        )
+        .expect("typed surface resync");
+        assert_eq!(command.name, crate::surface_runtime::SURFACE_RESYNC_COMMAND);
+        assert!(build_surface_resync_command(
+            br#"{"surface":"message.member-roster","scope":{"kind":"channel","channelId":"channel-1"}}"#
+        )
+        .is_err());
+        assert!(build_surface_resync_command(
+            br#"{"surface":"message.member-roster","scope":{"kind":"memberRoster","channelId":"channel-1","cursor":"first"},"rawTable":"channel_member"}"#
+        )
+        .is_err());
     }
 
     #[test]

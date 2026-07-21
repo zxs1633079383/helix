@@ -29,6 +29,8 @@ pub struct TimelineWindowRequest {
     pub target_message_id: Option<String>,
     pub page: WindowPageVm,
     pub state: SurfaceLoadState,
+    /// 由 SurfaceRuntime 当前 session epoch 注入；所有 action binding 必须原样暴露该值给 renderer。
+    pub surface_epoch: u64,
     /// runtime identity 缺失时不能下发可 invoke 的 binding；renderer 仍能看到显式禁用原因。
     pub action_authority_available: bool,
 }
@@ -60,6 +62,7 @@ impl TimelineWindowRequest {
                 has_more: false,
             },
             state: SurfaceLoadState::Ready,
+            surface_epoch: 1,
             action_authority_available: true,
         }
     }
@@ -169,6 +172,7 @@ impl TimelineProjector {
             items.push(self.message_from_render_ready(
                 row,
                 request.channel_id.as_str(),
+                request.surface_epoch,
                 request.action_authority_available,
             )?);
         }
@@ -192,11 +196,16 @@ impl TimelineProjector {
         &mut self,
         row: &Value,
         expected_channel_id: &str,
+        surface_epoch: u64,
         action_authority_available: bool,
     ) -> Result<MessageVm, TimelineProjectionError> {
-        message_from_render_ready(row, expected_channel_id, action_authority_available, || {
-            self.issue_action_ref()
-        })
+        message_from_render_ready(
+            row,
+            expected_channel_id,
+            surface_epoch,
+            action_authority_available,
+            || self.issue_action_ref(),
+        )
     }
 
     fn issue_action_ref(&mut self) -> Result<String, TimelineProjectionError> {
@@ -288,9 +297,15 @@ fn row_id_index(rows: &[Value], target: &str) -> Option<usize> {
         .position(|row| row_string(row, &["msgId", "id"]) == target)
 }
 
-fn message_from_render_ready(
+/// Converts an already render-ready message fact into the shared closed `MessageVm`.
+///
+/// Non-timeline surfaces reuse this only with `action_authority_available=false`, so every
+/// capability without an audited authority dispatch remains explicitly disabled rather than
+/// becoming a renderer-selected command.
+pub(crate) fn message_from_render_ready(
     row: &Value,
     expected_channel_id: &str,
+    surface_epoch: u64,
     action_authority_available: bool,
     mut issue_action_ref: impl FnMut() -> Result<String, TimelineProjectionError>,
 ) -> Result<MessageVm, TimelineProjectionError> {
@@ -308,7 +323,12 @@ fn message_from_render_ready(
     let content = content_from_row(row, props, revoked)?;
     let delivery = delivery_from_row(row, revoked)?;
 
-    let actions = action_bindings(row, action_authority_available, &mut issue_action_ref)?;
+    let actions = action_bindings(
+        row,
+        surface_epoch,
+        action_authority_available,
+        &mut issue_action_ref,
+    )?;
     Ok(MessageVm {
         id,
         channel_id,
@@ -418,6 +438,7 @@ fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineP
 
 fn action_bindings(
     row: &Value,
+    surface_epoch: u64,
     action_authority_available: bool,
     issue_action_ref: &mut impl FnMut() -> Result<String, TimelineProjectionError>,
 ) -> Result<Vec<ActionBinding>, TimelineProjectionError> {
@@ -457,6 +478,7 @@ fn action_bindings(
             action_ref: issue_action_ref()?,
             kind: kind.to_string(),
             input_shape: "object".to_string(),
+            surface_epoch,
             enabled,
             disabled_reason,
         });
@@ -781,11 +803,10 @@ mod tests {
             "canViewReceipt": true,
         });
 
+        let mut request = TimelineWindowRequest::latest("channel-1");
+        request.surface_epoch = 42;
         let snapshot = projector
-            .snapshot_from_render_ready(
-                TimelineWindowRequest::latest("channel-1"),
-                &[capability_row],
-            )
+            .snapshot_from_render_ready(request, &[capability_row])
             .expect("valid capability facts project");
         let TypedSurfaceMutation::TimelineSnapshot { view } = snapshot.mutation else {
             panic!("timeline snapshot expected")
@@ -797,6 +818,7 @@ mod tests {
             .expect("receipt binding is present");
         assert!(receipt.enabled);
         assert!(receipt.disabled_reason.is_none());
+        assert_eq!(receipt.surface_epoch, 42);
         assert!(!receipt.action_ref.contains("message-1"));
         assert!(!receipt.action_ref.contains("viewReceipt"));
 

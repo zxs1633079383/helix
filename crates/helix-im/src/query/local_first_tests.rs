@@ -312,6 +312,11 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         .expect("self-authored server message has receipt capability");
     assert!(binding.enabled);
     assert!(!binding.action_ref.contains("message-author-1"));
+    assert_eq!(
+        binding.surface_epoch,
+        module.action_surface_epoch().unwrap(),
+        "renderer must obtain the action epoch from the binding rather than infer it"
+    );
 
     let envelope = crate::interaction_frame::ActionInvocationEnvelope {
         schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
@@ -319,7 +324,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         actor_id: "viewer-1".to_string(),
         surface: mutation.surface,
         scope: mutation.scope.clone(),
-        surface_epoch: 1,
+        surface_epoch: binding.surface_epoch,
         observed_revision: mutation.revision,
         invocation: crate::interaction_frame::ActionInvocation {
             action_ref: binding.action_ref.clone(),
@@ -459,11 +464,12 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
     )
     .unwrap();
     let refreshed_mutation = &refreshed_frame.mutations[0];
-    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
         &refreshed_mutation.mutation
     else {
-        panic!("new timeline revision must stay a snapshot")
+        panic!("attached timeline refresh must be a replace-view patch")
     };
+    let view = &patch.view;
     let refreshed_binding = view.items[0]
         .actions
         .iter()
@@ -583,4 +589,214 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         )
         .unwrap();
     assert!(sink.as_slice().is_empty());
+}
+
+#[test]
+fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-before".to_string();
+    config.company_id = "team-before".to_string();
+    let mut module = ImModule::new(config);
+    let mut query = request(20);
+    query.window_token = "identity-reset-window".to_string();
+    let before_rows = vec![serde_json::json!({
+        "id": "message-before",
+        "temporaryId": "temporary-before",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-before",
+        "createAt": 10,
+        "message": "before",
+        "type": "TEXT",
+        "props": {},
+    })];
+    let Effect::Emit { event } = module
+        .emit_timeline_snapshot(&query, &before_rows, 1_000)
+        .expect("old identity renders an action-bound timeline")
+    else {
+        panic!("timeline must emit a Frame")
+    };
+    let old_frame: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let old_frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&old_frame["data"]).unwrap(),
+    )
+    .unwrap();
+    let old_mutation = &old_frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &old_mutation.mutation
+    else {
+        panic!("old timeline must attach a snapshot")
+    };
+    let old_binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "viewReceipt")
+        .expect("old viewer owns the message");
+    let old_envelope = crate::interaction_frame::ActionInvocationEnvelope {
+        schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        request_id: "old-identity-request".to_string(),
+        actor_id: "viewer-before".to_string(),
+        surface: old_mutation.surface,
+        scope: old_mutation.scope.clone(),
+        surface_epoch: old_binding.surface_epoch,
+        observed_revision: old_mutation.revision,
+        invocation: crate::interaction_frame::ActionInvocation {
+            action_ref: old_binding.action_ref.clone(),
+            input: std::collections::BTreeMap::new(),
+        },
+    };
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&old_envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_001,
+            &mut sink,
+        )
+        .unwrap();
+    let old_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("old action starts its canonical HTTP request");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(helix_core::tick::AppCommand::new(
+                crate::module::RUNTIME_IDENTITY_COMMAND,
+                serde_json::to_vec(&serde_json::json!({
+                    "auth_user_id": "viewer-after",
+                    "company_id": "team-after",
+                }))
+                .unwrap(),
+            )),
+            1_002,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink.as_slice().is_empty());
+
+    let after_rows = vec![serde_json::json!({
+        "id": "message-after",
+        "temporaryId": "temporary-after",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-after",
+        "createAt": 11,
+        "message": "after",
+        "type": "TEXT",
+        "props": {},
+    })];
+    let Effect::Emit { event } = module
+        .emit_timeline_snapshot(&query, &after_rows, 1_003)
+        .expect("new identity renders its own action-bound timeline")
+    else {
+        panic!("timeline must emit a Frame")
+    };
+    let after_frame: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let after_frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&after_frame["data"]).unwrap(),
+    )
+    .unwrap();
+    let after_mutation = &after_frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &after_mutation.mutation
+    else {
+        panic!("identity reset detaches the old timeline before new attach")
+    };
+    let after_binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "viewReceipt")
+        .expect("new viewer owns the new message");
+    let after_envelope = crate::interaction_frame::ActionInvocationEnvelope {
+        schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        request_id: "new-identity-request".to_string(),
+        actor_id: "viewer-after".to_string(),
+        surface: after_mutation.surface,
+        scope: after_mutation.scope.clone(),
+        surface_epoch: after_binding.surface_epoch,
+        observed_revision: after_mutation.revision,
+        invocation: crate::interaction_frame::ActionInvocation {
+            action_ref: after_binding.action_ref.clone(),
+            input: std::collections::BTreeMap::new(),
+        },
+    };
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&after_envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_004,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Http { .. })));
+
+    // The old reply has no corr route after reset. It cannot mutate or complete the new identity action.
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: old_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(http_envelope(serde_json::json!({
+                    "status": "SUCCESS",
+                    "data": [{
+                        "postId": "message-before",
+                        "authorUserId": "viewer-before",
+                        "snapshotId": "old-snapshot",
+                        "snapshotVersion": 1,
+                        "memberIds": ["viewer-before"],
+                        "readBits": "1"
+                    }]
+                }))),
+            },
+            1_005,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink.as_slice().is_empty());
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&after_envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_006,
+            &mut sink,
+        )
+        .unwrap();
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Http { .. })));
+    let rejection = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("the new action remains in flight after the old late reply");
+    assert_eq!(
+        rejection["data"]["validationErrors"][0]["field"],
+        "requestId"
+    );
 }

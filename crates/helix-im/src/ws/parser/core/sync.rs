@@ -24,7 +24,9 @@ pub const SYNC_EVENTS_PER_ENTRY: usize = 500;
 /// ```
 /// helix 逐 channel 发 sync（cursors 单元素），故响应 entries 命中本 channel 至多一条。
 /// `kind`（snake_case 字面量，不可改）：`no_change` / `events` / `too_long` / `snapshot`（保留）。
-/// `ChannelEvent` 游标字段 `eventSeq`(int64)，类型字段 `eventType`(1/2/3/6)。
+/// `ChannelEvent` 游标字段 `eventSeq`(int64)，类型字段 `eventType`(1/2/3/6/7)。
+/// type7 只接受密封 closed wire：`id,channelId,eventSeq,eventType:7,payload:{state:"closed"}`，
+/// 不允许携带 post/actor/content 等额外字段。
 ///
 /// 边界零信任（helix-im 不变量 4）：非法 JSON / status≠SUCCESS / 未知 kind → Err；
 /// entries 缺失或无本 channel 条目 → NoChange（服务端对本 channel 无新事件，安全空转，
@@ -119,6 +121,14 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
                 .or_else(|| entry["reset_to"].as_u64())
                 .unwrap_or(0);
             let messages = parse_channel_events(entry, channel_id)?;
+            if messages
+                .iter()
+                .any(|event| event.kind == EventKind::ChannelTerminalClosed)
+            {
+                return Err(ImError::Parse(
+                    "terminal event is only valid in sync events entries".to_string(),
+                ));
+            }
             Ok(SyncResponse::Snapshot(ChannelSnapshot {
                 channel_id,
                 reset_to: Seq(reset_to),
@@ -136,7 +146,8 @@ pub fn parse_sync_response(bytes: &[u8], channel_id: ChannelId) -> Result<SyncRe
 /// 解析 `SyncEntry.events`（`[ChannelEvent]`）为 `Vec<EventEnvelope>`（边界零信任）。
 ///
 /// ChannelEvent 游标字段 `eventSeq`（int64，权威），兼容 `event_seq` / `seq` 旧字面量；
-/// 类型字段 `eventType`（1/2/3/6），兼容 `event_type`（缺省 1）；
+/// 类型字段 `eventType`（1/2/3/6），兼容 `event_type`（缺省 1）。type7 不走兼容分支，
+/// 必须满足最小 closed wire；
 /// `channelId` 缺省回退到 entry 的 channel_id。`events` 缺失 → 空列表（no_change 形态）。
 fn parse_channel_events(
     entry: &serde_json::Value,
@@ -148,6 +159,10 @@ fn parse_channel_events(
     };
     let mut events = Vec::with_capacity(raw_events.len());
     for ev in raw_events {
+        if ev.get("eventType").and_then(serde_json::Value::as_u64) == Some(7) {
+            events.push(parse_terminal_event(ev, fallback_channel)?);
+            continue;
+        }
         let channel_id = ev
             .get("channelId")
             .and_then(|c| c.as_str())
@@ -163,7 +178,7 @@ fn parse_channel_events(
             .as_u64()
             .or_else(|| ev["event_type"].as_u64())
             .unwrap_or(1) as u8;
-        let kind = parse_event_kind(event_type);
+        let kind = parse_event_kind(event_type)?;
         // HX-C005：`ev`（ChannelEvent Value）已在手，直接提取落库字段——
         // 消除原 `serde_json::to_vec(ev)` 回序列化 + 落库时 `from_slice(raw)` 再解析的三趟开销。
         let fields = extract_post_fields(ev);
@@ -204,6 +219,69 @@ fn parse_channel_events(
     Ok(events)
 }
 
+/// 解析 type7 closed terminal 的最小 wire。
+///
+/// terminal 没有 post、actor 或时间语义。拒绝多余字段，避免终态路径把不可信的附带数据
+/// 保存或投影为消息。只有这里能构造 `ChannelTerminalClosed`；legacy WS 数值帧会拒绝 type7。
+fn parse_terminal_event(
+    event: &serde_json::Value,
+    expected_channel: ChannelId,
+) -> Result<EventEnvelope, ImError> {
+    let object = event
+        .as_object()
+        .ok_or_else(|| ImError::Parse("terminal event must be an object".to_string()))?;
+    const REQUIRED: [&str; 5] = ["id", "channelId", "eventSeq", "eventType", "payload"];
+    if object.len() != REQUIRED.len() || REQUIRED.iter().any(|key| !object.contains_key(*key)) {
+        return Err(ImError::Parse(
+            "terminal event must contain only id,channelId,eventSeq,eventType,payload".to_string(),
+        ));
+    }
+    let id = object
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| ImError::Parse("terminal event missing/invalid id".to_string()))?;
+    let channel_id = object
+        .get("channelId")
+        .and_then(serde_json::Value::as_str)
+        .and_then(ChannelId::from_str)
+        .ok_or_else(|| ImError::Parse("terminal event missing/invalid channelId".to_string()))?;
+    if channel_id != expected_channel {
+        return Err(ImError::Parse(
+            "terminal event channelId does not match sync entry".to_string(),
+        ));
+    }
+    let seq = object
+        .get("eventSeq")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|seq| *seq > 0 && *seq <= i64::MAX as u64)
+        .ok_or_else(|| ImError::Parse("terminal event missing/invalid eventSeq".to_string()))?;
+    if object.get("eventType").and_then(serde_json::Value::as_u64) != Some(7) {
+        return Err(ImError::Parse(
+            "terminal event eventType must be 7".to_string(),
+        ));
+    }
+    let payload = object
+        .get("payload")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| ImError::Parse("terminal event payload must be an object".to_string()))?;
+    if payload.len() != 1
+        || payload.get("state").and_then(serde_json::Value::as_str) != Some("closed")
+    {
+        return Err(ImError::Parse(
+            "terminal event payload must be exactly {state:closed}".to_string(),
+        ));
+    }
+
+    Ok(EventEnvelope::new(
+        channel_id,
+        Seq(seq),
+        EventKind::ChannelTerminalClosed,
+        PostFields::default(),
+    )
+    .with_event_identity(Some(id.to_string()), None, 0, String::new()))
+}
+
 /// 解析 `SyncEntry.messages`（key=msgId → Post JSON 对象）为 owned `PostFields` map（C2 真源）。
 ///
 /// 真源 post.rs:1047 `messages: &HashMap<String, serde_json::Value>`——服务端按可见性过滤后
@@ -224,7 +302,7 @@ fn parse_messages_map(entry: &serde_json::Value) -> std::collections::HashMap<St
 
 /// 分桶顺序（铁律，来自源码事实 2026-06-08）
 ///
-/// 处理顺序必须严格：type1 → type2 → type3 → type6
+/// 处理顺序必须严格：type1 → type2 → type3 → type6 → type7
 /// 不得乱序，否则业务状态不一致。
 pub fn sort_events_by_bucket(events: &mut Vec<EventEnvelope>) {
     events.sort_by_key(|ev| match ev.kind {
@@ -232,6 +310,7 @@ pub fn sort_events_by_bucket(events: &mut Vec<EventEnvelope>) {
         EventKind::PostEdit => 1,
         EventKind::PostRevoke => 2,
         EventKind::PostRead => 3,
-        EventKind::Other(_) => 4,
+        EventKind::ChannelTerminalClosed => 4,
+        EventKind::Other(_) => 5,
     });
 }

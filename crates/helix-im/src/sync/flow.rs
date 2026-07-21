@@ -21,14 +21,20 @@ impl ImModule {
         // A3b：connectionId 身份头（clone 一次，避免后续 &mut self.state 借用冲突）。
         let conn_id = self.state.connection_id.clone();
         // 读取 cursor 和 last_sync_from_seq（不可变借用）
-        let (cursor_seq, prev_from_seq, has_inflight) = match self.state.channels.get(&channel_id) {
-            Some(ch) => (
-                ch.cursor.value(),
-                ch.last_sync_from_seq,
-                ch.inflight_sync.is_some(),
-            ),
-            None => return,
-        };
+        let (cursor_seq, prev_from_seq, has_inflight, is_terminal) =
+            match self.state.channels.get(&channel_id) {
+                Some(ch) => (
+                    ch.cursor.value(),
+                    ch.last_sync_from_seq,
+                    ch.inflight_sync.is_some(),
+                    ch.is_terminal(),
+                ),
+                None => return,
+            };
+
+        if is_terminal {
+            return;
+        }
 
         // B1：若已有在途 sync（意外情况），跳过
         if has_inflight {
@@ -105,7 +111,20 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use crate::parser::parse_sync_response;
-        use crate::sync_session::SyncResponse;
+        use crate::sync_session::{EventKind, SyncResponse};
+
+        if self
+            .state
+            .channels
+            .get(&channel_id)
+            .is_some_and(|channel| channel.is_terminal())
+        {
+            tracing::info!(
+                channel_id = channel_id.as_str(),
+                "ignoring sync reply for terminal channel"
+            );
+            return Ok(());
+        }
 
         // #6 信封解层（仅 SyncPull 路径）：剥 ADR-007 `{status,headers,body:base64(raw_go_body)}` 信封
         // + base64 decode 出裸 Go body 再解析（直喂信封会找不到 data.entries → 静默 NoChange 丢消息）。
@@ -124,6 +143,21 @@ impl ImModule {
                 next_seq,
                 needs_continuation,
             } => {
+                if let Some(terminal) = events
+                    .iter()
+                    .find(|event| matches!(event.kind, EventKind::ChannelTerminalClosed))
+                {
+                    return self.handle_terminal_sync_event(
+                        channel_id,
+                        trigger,
+                        terminal.seq,
+                        events.len(),
+                        !messages.is_empty(),
+                        next_seq,
+                        needs_continuation,
+                        out,
+                    );
+                }
                 if events.is_empty() {
                     if needs_continuation {
                         tracing::warn!(
@@ -268,6 +302,79 @@ impl ImModule {
         }
 
         let _ = corr;
+        Ok(())
+    }
+
+    /// Consume a strict type7 terminal only through an all-write atomic storage boundary.
+    ///
+    /// The current Go contract is a one-event closed response. Any mixed/misaligned batch is not
+    /// partially applied: no cursor, tombstone or Frame is emitted, and the normal scheduler asks
+    /// for a fresh response from the unchanged cursor.
+    #[allow(clippy::too_many_arguments)]
+    fn handle_terminal_sync_event(
+        &mut self,
+        channel_id: ChannelId,
+        trigger: SyncTrigger,
+        terminal_seq: Seq,
+        event_count: usize,
+        has_messages: bool,
+        next_seq: Seq,
+        needs_continuation: bool,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if event_count != 1 || has_messages || next_seq != terminal_seq || needs_continuation {
+            tracing::warn!(
+                channel_id = channel_id.as_str(),
+                event_count,
+                has_messages,
+                next_seq = next_seq.0,
+                terminal_seq = terminal_seq.0,
+                needs_continuation,
+                "rejecting mixed or misaligned terminal sync batch; retaining cursor for recovery"
+            );
+            self.emit_proactive_resync_for(&[channel_id], out);
+            return Ok(());
+        }
+
+        let Some(channel) = self.state.channels.get(&channel_id) else {
+            tracing::warn!(
+                channel_id = channel_id.as_str(),
+                "terminal sync for unknown channel ignored"
+            );
+            return Ok(());
+        };
+        if channel.is_terminal() || terminal_seq <= channel.cursor.value() {
+            // Same seq replay is an idempotent no-op. A restored tombstone is already terminal,
+            // and no second Frame/cursor write must be emitted.
+            return Ok(());
+        }
+        if terminal_seq != Seq(channel.cursor.value().0.saturating_add(1)) {
+            tracing::warn!(
+                channel_id = channel_id.as_str(),
+                cursor = channel.cursor.value().0,
+                terminal_seq = terminal_seq.0,
+                "terminal sync gap rejected; retaining cursor and scheduling recovery"
+            );
+            self.emit_proactive_resync_for(&[channel_id], out);
+            return Ok(());
+        }
+
+        let persist_corr = self.alloc_corr_internal();
+        out.push(Effect::PersistAtomic {
+            corr: persist_corr,
+            ops: vec![crate::acl::to_effect::terminal_tombstone_and_cursor_op(
+                channel_id,
+                terminal_seq,
+            )],
+        });
+        self.state.corr_map.insert(
+            persist_corr,
+            CorrelationContext::ChannelTerminalPersist {
+                channel_id,
+                terminal_seq,
+                trigger,
+            },
+        );
         Ok(())
     }
 

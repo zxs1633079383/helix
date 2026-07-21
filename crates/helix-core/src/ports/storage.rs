@@ -18,7 +18,7 @@
 
 use crate::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec, Row, ScanSpec,
-    UpsertSpec,
+    StorageOp, UpsertSpec,
 };
 use crate::error::PortError;
 use crate::platform::{MaybeSend, MaybeSync};
@@ -118,6 +118,18 @@ pub trait Storage: MaybeSend + MaybeSync + 'static {
     /// O(k) 单语句；scope 等值约束**绝不跨作用域误删**。列名都是 `&'static str` 编译期常量
     /// （由上层提供，driver 不解释含义，守 HX-C001）。`key_vals` 空 → 上层应不产 op（driver 也兜底跳过）。
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError>;
+
+    /// 在一个 storage transaction 中提交一批**写**操作。
+    ///
+    /// 这是 `Effect::PersistAtomic` 的唯一 driver 落点。默认实现刻意 fail-closed：适配器若未
+    /// 明确提供原子事务，调用方得到错误而不是静默退化为逐操作 `Persist`。
+    ///
+    /// `ops` 不得包含 `Get`/`Scan`；支持该 primitive 的 driver 也应在发现读操作时回滚并报错。
+    async fn atomic_write(&self, _ops: Vec<StorageOp>) -> Result<(), PortError> {
+        Err(PortError::Storage(
+            "atomic storage write is not implemented by this driver".to_string(),
+        ))
+    }
 }
 
 // The spec types are defined in crate::effect and imported above.

@@ -165,6 +165,7 @@ impl EngineMetricRecorder {
     pub(crate) fn on_effect_dispatch(&mut self, effect: &OwnedEffect) {
         let corr = match effect {
             OwnedEffect::Persist { corr, .. }
+            | OwnedEffect::PersistAtomic { corr, .. }
             | OwnedEffect::Http { corr, .. }
             | OwnedEffect::UploadFile { corr, .. }
             | OwnedEffect::Request { corr, .. } => Some(corr.raw()),

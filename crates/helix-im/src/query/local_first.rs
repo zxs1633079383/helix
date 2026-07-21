@@ -416,12 +416,22 @@ impl ImModule {
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
+        timeline_request.surface_epoch = self.action_surface_epoch()?;
         timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
-        let mutation = self
-            .state
-            .timeline_projector
-            .snapshot_from_render_ready(timeline_request, rows)
-            .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: timeline_request.channel_id.clone(),
+            window_token: timeline_request.window_token.clone(),
+        };
+        let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
+            self.state
+                .timeline_projector
+                .patch_from_render_ready(timeline_request, rows, None)
+        } else {
+            self.state
+                .timeline_projector
+                .snapshot_from_render_ready(timeline_request, rows)
+        }
+        .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
         let scope_key = mutation.scope.canonical_key();
         let revision = mutation.revision;
@@ -444,13 +454,23 @@ impl ImModule {
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
+        failed.surface_epoch = self.action_surface_epoch()?;
         failed.state = crate::interaction_frame::SurfaceLoadState::Failed;
         failed.action_authority_available = false;
-        let mutation = self
-            .state
-            .timeline_projector
-            .snapshot_from_render_ready(failed, &[])
-            .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: failed.channel_id.clone(),
+            window_token: failed.window_token.clone(),
+        };
+        let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
+            self.state
+                .timeline_projector
+                .patch_from_render_ready(failed, &[], None)
+        } else {
+            self.state
+                .timeline_projector
+                .snapshot_from_render_ready(failed, &[])
+        }
+        .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
         let scope_key = mutation.scope.canonical_key();
         let revision = mutation.revision;

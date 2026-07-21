@@ -58,6 +58,13 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                crate::surface_runtime::SURFACE_RESYNC_COMMAND => {
+                    self.handle_surface_resync(cmd.payload.as_ref(), now_ms, out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {

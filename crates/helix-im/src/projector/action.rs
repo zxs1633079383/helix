@@ -842,6 +842,7 @@ mod tests {
             action_ref: ACTION_REF.to_string(),
             kind: "viewReceipt".to_string(),
             input_shape: "object".to_string(),
+            surface_epoch: 3,
             enabled,
             disabled_reason: (!enabled).then(|| "notAvailable".to_string()),
         }

@@ -19,7 +19,46 @@ impl Channel {
             buffer: BTreeMap::new(),
             inflight_sync: None,
             last_sync_from_seq: None,
+            terminal_event_seq: None,
         }
+    }
+
+    pub(crate) fn is_terminal(&self) -> bool {
+        self.terminal_event_seq.is_some()
+    }
+
+    pub(crate) fn terminal_event_seq(&self) -> Option<Seq> {
+        self.terminal_event_seq
+    }
+
+    /// 从启动 scan 恢复 closed tombstone。终态水位必须已经被 cursor 同批提交；否则宁可
+    /// 不注册该 marker，也不能让一个超前 tombstone 绕过连续游标不变量。
+    pub(crate) fn restore_terminal(&mut self, terminal_seq: Seq) -> bool {
+        if terminal_seq.0 == 0 || terminal_seq > self.cursor.value() {
+            return false;
+        }
+        self.terminal_event_seq = Some(terminal_seq);
+        self.buffer.clear();
+        self.gate = None;
+        self.last_sync_from_seq = None;
+        true
+    }
+
+    /// `PersistAtomic` 成功后的内存提交。持久化回执前绝不调用本方法，因此失败时既不推进
+    /// cursor，也不把 channel 变成 closed。再次校验严格 +1，避免上层错误把 gap terminal
+    /// 锁进不可恢复状态。
+    pub(crate) fn commit_terminal_after_atomic(&mut self, terminal_seq: Seq) -> bool {
+        if self.is_terminal() || terminal_seq != Seq(self.cursor.value().0.saturating_add(1)) {
+            return false;
+        }
+        if !self.cursor.try_advance(terminal_seq) {
+            return false;
+        }
+        self.terminal_event_seq = Some(terminal_seq);
+        self.buffer.clear();
+        self.gate = None;
+        self.last_sync_from_seq = None;
+        true
     }
 
     /// 处理一个入站事件（WS 路径，§4.6）
@@ -50,6 +89,15 @@ impl Channel {
         now_ms: u64,
         dialog_patches: &mut Vec<crate::dialog_patch::PendingDialogPatch>,
     ) -> Result<(), ImError> {
+        if self.is_terminal() {
+            tracing::info!(
+                channel_id = self.id.as_str(),
+                event_seq = ev.seq.0,
+                terminal_event_seq = ?self.terminal_event_seq.map(|seq| seq.0),
+                "dropping late event for terminal channel"
+            );
+            return Ok(());
+        }
         let expected = Seq(self.cursor.value().0 + 1);
         // —— HOP③ 常驻日志（全链 echo 诊断·③ helix 输出/gate 决策）————————————————
         // 关键区分：收到帧后 gate 是 apply-emit / dup-drop / buffer-gap（buffer 即「收到但不吐投影」
@@ -91,6 +139,15 @@ impl Channel {
     ///   由 post 路径 buffer 或 gate 触发的 sync 回拉填上；cursor 卡住不前进直至缺口填平，
     ///   绝不 MAX-jump 跨过空洞）。
     pub fn ingest_cursor_advance(&mut self, seq: Seq, fx: &mut EffectSink) -> Result<(), ImError> {
+        if self.is_terminal() {
+            tracing::info!(
+                channel_id = self.id.as_str(),
+                event_seq = seq.0,
+                terminal_event_seq = ?self.terminal_event_seq.map(|terminal| terminal.0),
+                "dropping late cursor advance for terminal channel"
+            );
+            return Ok(());
+        }
         let expected = Seq(self.cursor.value().0 + 1);
         match seq.cmp(&expected) {
             std::cmp::Ordering::Equal => {

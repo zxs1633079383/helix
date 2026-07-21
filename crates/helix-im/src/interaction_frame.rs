@@ -247,6 +247,8 @@ pub struct ActionBinding {
     pub action_ref: String,
     pub kind: String,
     pub input_shape: String,
+    /// renderer 回送 envelope 时唯一可用的 epoch 真源；不得由 UI 从 revision 或本地计数猜测。
+    pub surface_epoch: u64,
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_reason: Option<String>,
@@ -315,6 +317,16 @@ impl ActionBinding {
         if self.input_shape.is_empty() {
             return Err(InteractionFrameError::InvalidActionBinding {
                 reason: "inputShape must not be empty".to_string(),
+            });
+        }
+        if self.surface_epoch == 0 {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "surfaceEpoch must be greater than zero".to_string(),
+            });
+        }
+        if self.surface_epoch > MAX_SAFE_JSON_INTEGER {
+            return Err(InteractionFrameError::InvalidActionBinding {
+                reason: "surfaceEpoch exceeds the v1 exact-safe wire range".to_string(),
             });
         }
         if self.enabled && self.disabled_reason.is_some() {

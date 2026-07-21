@@ -571,6 +571,15 @@ mod wasm {
                     let outcome = runtime.borrow().store.execute_ops(&ops);
                     enqueue_tick(runtime, Tick::PortReply { corr, outcome }, true);
                 }
+                WebOwnedEffect::PersistAtomic { corr, ops } => {
+                    tracing::debug!(
+                        corr = corr.raw(),
+                        hop = "web.effect.persist_atomic",
+                        "Web dispatch"
+                    );
+                    let outcome = runtime.borrow().store.execute_atomic_write(&ops);
+                    enqueue_tick(runtime, Tick::PortReply { corr, outcome }, true);
+                }
                 WebOwnedEffect::PersistFire { ops } => {
                     fire_ops.extend(ops);
                 }

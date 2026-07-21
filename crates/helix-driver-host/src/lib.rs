@@ -48,7 +48,9 @@ pub use network::{
     HostHeaderRegistry, HostNetworkConfig, PreparedHttpRequest, SharedHttpClient, SharedWsClient,
     WsConnectionActivation,
 };
-pub use ops::{classify_port_error, execute_storage_ops, table_set_key};
+pub use ops::{
+    classify_port_error, execute_storage_ops, execute_storage_ops_atomic, table_set_key,
+};
 pub use otel::{HostOtelConfig, HostOtelRuntime, HostSpanSnapshot, TraceDirection};
 pub use owned_effect::{consume_effects, OwnedEffect};
 pub use reconnect::{spawn_reconnect_supervisor, ReconnectPolicy, ReconnectTraceSink};

@@ -87,6 +87,12 @@ impl ImModule {
                 if !binding.enabled {
                     continue;
                 }
+                if binding.surface_epoch != surface_epoch {
+                    return Err(ImError::Parse(
+                        "timeline action binding surfaceEpoch does not match the current runtime epoch"
+                            .to_string(),
+                    ));
+                }
                 let dispatch = match binding.kind.as_str() {
                     "viewReceipt" => ActionDispatch::ViewReceipt {
                         channel_id: item.channel_id.clone(),
@@ -106,7 +112,7 @@ impl ImModule {
                             actor_id: actor_id.clone(),
                             surface: SurfaceId::MessageTimeline,
                             scope: scope.clone(),
-                            surface_epoch,
+                            surface_epoch: binding.surface_epoch,
                             revision: mutation.revision,
                             expires_at_ms,
                             binding: binding.clone(),
@@ -228,7 +234,7 @@ impl ImModule {
         Ok(())
     }
 
-    fn action_surface_epoch(&self) -> Result<u64, ImError> {
+    pub(crate) fn action_surface_epoch(&self) -> Result<u64, ImError> {
         self.state
             .query_session_epoch
             .checked_add(1)
@@ -295,7 +301,10 @@ impl ImModule {
     }
 }
 
-fn participant_receipt_data(outcome: &PortOutcome, message_id: &str) -> ParticipantReceiptsData {
+pub(crate) fn participant_receipt_data(
+    outcome: &PortOutcome,
+    message_id: &str,
+) -> ParticipantReceiptsData {
     let raw_body = match outcome {
         PortOutcome::Ok(reply) => {
             match crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref()) {

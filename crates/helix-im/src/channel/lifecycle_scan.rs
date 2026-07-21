@@ -24,7 +24,9 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         // engine_loop 约定：rows → JSON 数组 [{"col": val}, ...]
-        // channel_event_cursor 表：channel_id TEXT PK, last_event_seq INTEGER（cursor）
+        // channel_event_cursor 表：channel_id TEXT PK, last_event_seq INTEGER（cursor）+
+        // terminal_event_seq INTEGER（只表示 type7 closed tombstone）。两项由 terminal
+        // PersistAtomic 同批写入；scan 恢复时 marker 超过 cursor 即视作损坏并 fail closed。
         let rows: Vec<serde_json::Value> = if reply.0.is_empty() {
             vec![]
         } else {
@@ -54,11 +56,38 @@ impl ImModule {
                 Some(v) if v >= 0 => v as u64,
                 _ => 0u64,
             };
+            let terminal_seq = match row["terminal_event_seq"].as_i64() {
+                Some(v) if v > 0 => Some(crate::state::Seq(v as u64)),
+                Some(0) | None => None,
+                _ => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        terminal_event_seq = ?row["terminal_event_seq"],
+                        "terminal tombstone marker is invalid; suppressing marker"
+                    );
+                    None
+                }
+            };
             // register_channel 幂等：若已存在则不覆盖（Connected 路径可能已注册）
-            self.state
+            let channel = self
+                .state
                 .channels
                 .entry(channel_id)
                 .or_insert_with(|| crate::channel::Channel::new(channel_id, cursor));
+            if let Some(terminal_seq) = terminal_seq {
+                if !channel.restore_terminal(terminal_seq) {
+                    tracing::error!(
+                        channel_id = channel_id.as_str(),
+                        cursor = channel.cursor.value().0,
+                        terminal_event_seq = terminal_seq.0,
+                        "terminal tombstone is ahead of cursor; channel remains non-terminal and is not safe to resync"
+                    );
+                    // Keep the cursor entry available, but an impossible terminal marker must not allow a
+                    // normal resync to revive a potentially closed channel. Mark it terminal in-memory at
+                    // the current cursor only after this fail-closed boundary is reported.
+                    channel.terminal_event_seq = Some(channel.cursor.value());
+                }
+            }
         }
 
         tracing::info!(

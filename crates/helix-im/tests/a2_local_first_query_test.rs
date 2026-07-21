@@ -115,8 +115,9 @@ fn emitted_values(effects: &[Effect]) -> Vec<Value> {
         .collect()
 }
 
-/// local-first 的唯一终态出口是完整 `message.timeline` Frame；测试不得再从历史 raw
-/// `im:messages:query_result` / `im:post:increment-failed` 读取行或失败信息。
+/// local-first 的唯一终态出口是完整 `message.timeline` Frame；首 attach 为 snapshot，已 attach
+/// 的权威重查为 replace-view patch。测试不得再从历史 raw `im:messages:query_result` /
+/// `im:post:increment-failed` 读取行或失败信息。
 fn timeline_view(event: &Value) -> &Value {
     assert_eq!(event["event"], "im:interaction:frame");
     assert_eq!(event["data"]["schemaVersion"], 1);
@@ -126,8 +127,11 @@ fn timeline_view(event: &Value) -> &Value {
         .iter()
         .find(|mutation| mutation["surface"] == "message.timeline")
         .expect("local-first terminal must include message.timeline");
-    assert_eq!(mutation["mutation"]["kind"], "timelineSnapshot");
-    &mutation["mutation"]["view"]
+    match mutation["mutation"]["kind"].as_str() {
+        Some("timelineSnapshot") => &mutation["mutation"]["view"],
+        Some("timelinePatch") => &mutation["mutation"]["patch"]["view"],
+        other => panic!("expected timeline snapshot/patch, got {other:?}"),
+    }
 }
 
 fn timeline_items(event: &Value) -> &[Value] {

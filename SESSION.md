@@ -6,6 +6,14 @@
 
 ## §0 终态记录
 
+🧭 BRANCH-ID @2026-07-20 17:43 -0700 | 当前 `codex/reply-contract-correlation-20260720`@f078105 ↑↓vsmain:↑0 ↓0 · upstream:无 upstream
+
+🎯 EXPECT 修复 `im_get_replies` 与 `im_get_reply_branch` 读回投影丢失 viewer 身份，导致本人回复被整形为 `isSelf=false`。可证伪断言：① 发起回复读请求时冻结 host 注入的 `auth_user_id`，HTTP 回包整形使用同一 viewer；② root、本人回复、他人回复的 `isSelf` 与 action capabilities 分别正确；③ 协议字段集不变，Angular 不增加基于作者的业务兜底；④ 聚焦 Helix 测试与双账号 G-12 验收通过；⑤ 不改 helix-core、driver 或 Go 服务端。@2026-07-20T20:11:10-07:00 | 赌注 高 | 可逆 是
+
+🎯 EXPECT 收敛回复与快捷表情的 Strict Matrix 事实合同。可证伪断言：① `im_send_message` 的 G-01/G-02 只声明 `replied` 描述符，不再声明已废弃的 `reply_to_id`；② `im_quick_reply` 只接受 `post_id/emoji/req_id`，绝不把调用方 `user_id` 透传到 Go；③ 生成后的 command API 与 Strict Matrix 检查一致，且 Helix 聚焦合同/出站测试通过；④ 不改 helix-core、driver 或投影 schema。@2026-07-20T17:43:00-07:00 | 赌注 高 | 可逆 是
+
+✅ DONE 收敛回复与快捷表情的 Strict Matrix 事实合同。epoch 升至 10；G-01/G-02 以 `replied` 四字段描述符和可选 `req_id` 替换 `reply_to_id`，G-06 不再接受/透传客户端 `user_id`，仅将可选 `req_id` 放入 `Cses-Track-Id`。验证：`cargo check -p helix-im` PASS；`cargo test -p helix-im --test p2_posts_outbound_test --test strict_matrix_contract_test` 27/27 PASS；`node scripts/strict-matrix/check.mjs --check-generated` PASS。@2026-07-20T18:03:00-07:00
+
 🎯 EXPECT 修复 G-15 创建话题的空 picture 边界与投影关联。可证伪断言：① `im_make_topic` 只接收 `root_id/user_ids/req_id`，空 `picture` 不再令 Helix 在 HTTP 前拒绝；② Go 在 session 身份归一、去重后的成员集合上派生 `pictureType=USER` 与至多 9 个 `picture.userIds`；③ topic HTTP 成功后的相关 root/topic 投影继续由服务端权威帧驱动，前端不以 IPC accepted 伪造成功；④ 不改 helix-core 或 driver。@2026-07-20T05:20:00-07:00 | 赌注 高 | 可逆 是
 
 ✅ DONE 修复 G-15 创建话题的空 picture 边界与投影关联。Helix 将 `req_id` 保留在本地关联与 operation-status，HTTP 仅发 `rootId/userIds`；成功、远端失败和引擎校验失败均可关联到同一请求，持久化后才释放 replies 快照。Go 默认 `USER` 头像由服务端成员集合派生；客户端不再发送空 `picture`，只在权威投影齐备后关闭创建界面。验证：Helix UC15/16 与 strict-matrix 聚焦测试通过；Go `internal/api/post`、`internal/app` 聚焦测试通过；客户端聚焦 Jest 65/65 通过。真实双账号链路待新 Helix pin 构建后复测。@2026-07-20T05:55:00-07:00

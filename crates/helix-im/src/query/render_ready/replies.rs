@@ -43,17 +43,18 @@ pub struct ReplyProjectionRequest {
     pub root_hint: String,
     pub mode: ReplyProjectionMode,
     pub revision: u64,
+    pub viewer_user_id: String,
 }
 
 impl ReplyProjectionRequest {
-    pub fn from_command(command: &str, payload: &[u8], revision: u64) -> Option<Self> {
+    pub fn from_command(name: &str, payload: &[u8], revision: u64, viewer: &str) -> Option<Self> {
         let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
         let req_id = value
             .get("req_id")
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.is_empty())?
             .to_string();
-        let (mode, root_key) = match command {
+        let (mode, root_key) = match name {
             "im_get_replies" => (ReplyProjectionMode::Snapshot, "reply_id"),
             "im_get_reply_branch" => (ReplyProjectionMode::Append, "reply_first_level_id"),
             _ => return None,
@@ -73,6 +74,7 @@ impl ReplyProjectionRequest {
                 .to_string(),
             mode,
             revision,
+            viewer_user_id: viewer.to_string(),
         })
     }
 }
@@ -111,7 +113,8 @@ impl FlatReplyProjection {
 ///  - getReplyBranch：HasMorePage[Post]（`{data:[Post]}` / `{list:[Post]}` / 顶层 `[Post]`）
 /// 取 rootPost.id + replies[].id + data[].id + list[].id + 顶层数组[].id。去重保序·仅非空 string。
 /// body 缺/非对象（失败回灌 `{req_id, error}` 或畸形）→ 返空数组（前端 reject 语义·清抽屉）。
-pub fn extract_flat_replies(body: &serde_json::Value) -> FlatReplyProjection {
+/// `viewer_user_id` 是请求发起时冻结的 host 身份，保证回复读投影与 WS/首屏投影使用同一作者视角。
+pub fn extract_flat_replies(body: &serde_json::Value, viewer_user_id: &str) -> FlatReplyProjection {
     // Go HTTP 统一 CommonRes 会把业务结果包在 `data`；先剥一层信封，再按两类业务结果抽取。
     // getReplyBranch 的业务结果自身仍有 `data:[Post]`，下方循环继续处理该数组。
     let body = body
@@ -134,7 +137,9 @@ pub fn extract_flat_replies(body: &serde_json::Value) -> FlatReplyProjection {
         } else {
             projection.reply_ids.push(id.to_string());
         }
-        projection.nodes.push(super::core::shape_row(post, ""));
+        projection
+            .nodes
+            .push(super::core::shape_row(post, viewer_user_id));
     };
     if let Some(obj) = body.as_object() {
         if let Some(root) = obj.get("rootPost") {

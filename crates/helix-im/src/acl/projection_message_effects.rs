@@ -45,7 +45,24 @@ pub fn emit_post_read(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
 ) -> Effect {
-    emit_post_read_with_receipt_revision(channel_id, event_seq, msg_id, fields, 0)
+    emit_post_read_for_viewer(channel_id, event_seq, msg_id, fields, "")
+}
+
+pub fn emit_post_read_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+) -> Effect {
+    emit_post_read_with_receipt_revision_for_viewer(
+        channel_id,
+        event_seq,
+        msg_id,
+        fields,
+        0,
+        viewer_user_id,
+    )
 }
 
 /// 在线 `post_read` 的 render-ready 回执失效版本。
@@ -58,8 +75,26 @@ pub fn emit_post_read_with_receipt_revision(
     fields: &crate::sync_session::PostFields,
     receipt_revision: i64,
 ) -> Effect {
+    emit_post_read_with_receipt_revision_for_viewer(
+        channel_id,
+        event_seq,
+        msg_id,
+        fields,
+        receipt_revision,
+        "",
+    )
+}
+
+pub fn emit_post_read_with_receipt_revision_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    receipt_revision: i64,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
-    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, "", false);
+    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false);
     data["receiptRevision"] = json!(receipt_revision);
     let payload = json!({
         "event": "im:post:read",
@@ -86,8 +121,28 @@ pub fn emit_sync_post_read(
     reader_id: &str,
     receipt_revision: i64,
 ) -> Effect {
+    emit_sync_post_read_for_viewer(
+        channel_id,
+        event_seq,
+        msg_id,
+        fields,
+        reader_id,
+        receipt_revision,
+        "",
+    )
+}
+
+pub fn emit_sync_post_read_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    reader_id: &str,
+    receipt_revision: i64,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
-    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, "", false);
+    let mut data = message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false);
     data["postId"] = json!(msg_id);
     data["readerId"] = json!(reader_id);
     data["receiptRevision"] = json!(receipt_revision);
@@ -111,10 +166,20 @@ pub fn emit_channel_read_echo(
     msg_id: &str,
     fields: &crate::sync_session::PostFields,
 ) -> Effect {
+    emit_channel_read_echo_for_viewer(channel_id, event_seq, msg_id, fields, "")
+}
+
+pub fn emit_channel_read_echo_for_viewer(
+    channel_id: ChannelId,
+    event_seq: u64,
+    msg_id: &str,
+    fields: &crate::sync_session::PostFields,
+    viewer_user_id: &str,
+) -> Effect {
     use serde_json::json;
     let payload = json!({
         "event": "im:channel:read_echo",
-        "data": message_item_data(channel_id, event_seq, msg_id, fields, "", false),
+        "data": message_item_data(channel_id, event_seq, msg_id, fields, viewer_user_id, false),
     });
     let bytes = Bytes::from(
         serde_json::to_vec(&payload)

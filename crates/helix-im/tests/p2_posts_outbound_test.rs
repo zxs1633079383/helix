@@ -186,28 +186,50 @@ fn all_three_urgent_commands_hit_urgent_endpoints() {
 
 #[test]
 fn quick_reply_builds_emoji_body() {
-    // posts.go:181: {postId, userId, emoji}
+    // actor 由 Go 鉴权 session 注入，wire 不允许客户端提交 userId。
     let (url, body) = one_http(run(
         "im_quick_reply",
-        json!({ "post_id": "pq", "emoji": "👍", "user_id": "uq" }),
+        json!({ "post_id": "pq", "emoji": "👍" }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/quickReply");
     assert_eq!(body["postId"], "pq");
     assert_eq!(body["emoji"], "👍");
-    assert_eq!(body["userId"], "uq");
+    assert!(body.get("userId").is_none());
     assert!(body.get("post_id").is_none());
 }
 
 #[test]
-fn quick_reply_user_id_optional_and_requires_post_emoji() {
-    let (_url, body) = one_http(run(
+fn quick_reply_carries_request_id_only_in_transport_header() {
+    let effects = run(
         "im_quick_reply",
-        json!({ "post_id": "p", "emoji": "🎉" }),
-    ));
-    assert!(body.get("userId").is_none());
+        json!({ "post_id": "p", "emoji": "🎉", "req_id": "quick-reply-1" }),
+    );
+    match effects.into_iter().next().unwrap() {
+        Effect::Http { req, .. } => {
+            let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
+            assert!(body.get("req_id").is_none());
+            assert!(body.get("userId").is_none());
+            assert!(req
+                .headers
+                .iter()
+                .any(|(key, value)| key == "Cses-Track-Id" && value == "quick-reply-1"));
+        }
+        other => panic!("expected Effect::Http, got {other:?}"),
+    }
+}
 
+#[test]
+fn quick_reply_rejects_client_user_id_and_invalid_correlation() {
     assert!(err("im_quick_reply", json!({ "emoji": "👍" }))); // 缺 post_id
     assert!(err("im_quick_reply", json!({ "post_id": "p" }))); // 缺 emoji
+    assert!(err(
+        "im_quick_reply",
+        json!({ "post_id": "p", "emoji": "👍", "user_id": "spoofed" })
+    ));
+    assert!(err(
+        "im_quick_reply",
+        json!({ "post_id": "p", "emoji": "👍", "req_id": "" })
+    ));
 }
 
 // ── updatePostProps ────────────────────────────────────────────────────────────

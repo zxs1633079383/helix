@@ -124,6 +124,37 @@ fn g12_freezes_reply_projection_ordering_and_paging_contract() {
     assert!(projection.merge_contract.contains("append"));
 }
 
+#[test]
+fn reply_and_quick_reply_commands_freeze_the_canonical_actor_boundary() {
+    let matrix = matrix();
+    for gate_id in ["G-01", "G-02"] {
+        let send = gate(&matrix, gate_id)
+            .commands
+            .iter()
+            .find(|command| command.name == "im_send_message")
+            .unwrap_or_else(|| panic!("{gate_id} must declare im_send_message"));
+        assert!(send.input.optional.contains(&"replied".to_string()));
+        assert!(send.input.optional.contains(&"req_id".to_string()));
+        assert!(!send.input.optional.contains(&"reply_to_id".to_string()));
+    }
+
+    let quick_reply = gate(&matrix, "G-06")
+        .commands
+        .iter()
+        .find(|command| command.name == "im_quick_reply")
+        .expect("G-06 must declare im_quick_reply");
+    assert_eq!(
+        quick_reply.input.required,
+        vec!["post_id".to_string(), "emoji".to_string()]
+    );
+    assert_eq!(quick_reply.input.optional, vec!["req_id".to_string()]);
+    assert!(!quick_reply.input.required.contains(&"user_id".to_string()));
+    assert!(gate(&matrix, "G-06")
+        .negative_assertions
+        .iter()
+        .any(|rule| rule.contains("鉴权 session") && rule.contains("user_id")));
+}
+
 fn matrix() -> Matrix {
     serde_json::from_str(include_str!("../contracts/strict-matrix.v1.json"))
         .expect("strict matrix JSON must deserialize")
@@ -352,7 +383,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 9);
+    assert_eq!(matrix.contract_epoch, 10);
 
     let create = gate(&matrix, "G-15a");
     assert!(create

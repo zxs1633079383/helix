@@ -21,7 +21,7 @@ fn getreplies_body_extracts_rootpost_then_replies_in_order() {
             {"message": "缺 id"},  // 缺 id → 跳过
         ]
     });
-    let tree = extract_flat_replies(&body);
+    let tree = extract_flat_replies(&body, "viewer");
     assert_eq!(tree.root_message_id, "root1");
     assert_eq!(tree.reply_ids, vec!["r1", "r2"]);
     assert_eq!(tree.reply_count, 2);
@@ -37,7 +37,7 @@ fn common_response_envelope_is_unwrapped_for_replies_and_branch() {
             "replies": [{"id": "first"}]
         }
     });
-    let tree = extract_flat_replies(&replies);
+    let tree = extract_flat_replies(&replies, "viewer");
     assert_eq!(tree.root_message_id, "root");
     assert_eq!(tree.reply_ids, vec!["first"]);
 
@@ -45,35 +45,51 @@ fn common_response_envelope_is_unwrapped_for_replies_and_branch() {
         "status": "SUCCESS",
         "data": {"data": [{"id": "nested"}], "hasMore": false}
     });
-    assert_eq!(extract_flat_replies(&branch).reply_ids, vec!["nested"]);
+    assert_eq!(
+        extract_flat_replies(&branch, "viewer").reply_ids,
+        vec!["nested"]
+    );
 }
 
 #[test]
 fn getreplybranch_body_data_and_list_and_toplevel_array() {
     // getReplyBranch 形态：HasMorePage[Post]（{data:[]} / {list:[]} / 顶层数组）。
     let data_form = serde_json::json!({"data": [{"id": "a"}, {"id": "b"}]});
-    assert_eq!(extract_flat_replies(&data_form).reply_ids, vec!["a", "b"]);
+    assert_eq!(
+        extract_flat_replies(&data_form, "viewer").reply_ids,
+        vec!["a", "b"]
+    );
 
     let list_form = serde_json::json!({"list": [{"id": "c"}]});
-    assert_eq!(extract_flat_replies(&list_form).reply_ids, vec!["c"]);
+    assert_eq!(
+        extract_flat_replies(&list_form, "viewer").reply_ids,
+        vec!["c"]
+    );
 
     let top_array = serde_json::json!([{"id": "x"}, {"id": "y"}, {"id": "x"}]);
-    assert_eq!(extract_flat_replies(&top_array).reply_ids, vec!["x", "y"]);
+    assert_eq!(
+        extract_flat_replies(&top_array, "viewer").reply_ids,
+        vec!["x", "y"]
+    );
 }
 
 #[test]
 fn malformed_or_error_body_yields_empty() {
     // 失败回灌 {req_id, error} 无 reply 形态 / 非对象非数组 → 空（前端 reject·清抽屉）。
-    assert!(extract_flat_replies(&serde_json::json!({"error": "boom"}))
+    assert!(
+        extract_flat_replies(&serde_json::json!({"error": "boom"}), "viewer")
+            .reply_ids
+            .is_empty()
+    );
+    assert!(extract_flat_replies(&serde_json::Value::Null, "viewer")
         .reply_ids
         .is_empty());
-    assert!(extract_flat_replies(&serde_json::Value::Null)
-        .reply_ids
-        .is_empty());
-    assert!(extract_flat_replies(&serde_json::json!("plain string"))
-        .reply_ids
-        .is_empty());
-    assert!(extract_flat_replies(&serde_json::json!(42))
+    assert!(
+        extract_flat_replies(&serde_json::json!("plain string"), "viewer")
+            .reply_ids
+            .is_empty()
+    );
+    assert!(extract_flat_replies(&serde_json::json!(42), "viewer")
         .reply_ids
         .is_empty());
 }
@@ -81,9 +97,11 @@ fn malformed_or_error_body_yields_empty() {
 #[test]
 fn health_body_status_not_treated_as_reply() {
     // UC-12.1 健康探针 body {status:"OK"} 共用 im:read:result·无 reply 形态 → replyIds 空（不误塞）。
-    assert!(extract_flat_replies(&serde_json::json!({"status": "OK"}))
-        .reply_ids
-        .is_empty());
+    assert!(
+        extract_flat_replies(&serde_json::json!({"status": "OK"}), "viewer")
+            .reply_ids
+            .is_empty()
+    );
 }
 
 #[test]
@@ -139,7 +157,7 @@ fn reply_tree_is_single_pass_flat_projection() {
             {"id":"r2", "channelId":"c1", "userId":"u2", "message":"二级", "replyId":"r1", "replyRootId":"root", "replyFirstLevelId":"r1"}
         ]
     });
-    let tree = extract_flat_replies(&body);
+    let tree = extract_flat_replies(&body, "viewer");
     assert_eq!(tree.reply_count, 4, "服务端总数大于本页长度时保留权威总数");
     assert_eq!(tree.reply_ids, vec!["r1", "r2"]);
     assert_eq!(tree.nodes[1]["replyRootId"], "root");
@@ -156,22 +174,64 @@ fn command_semantics_are_explicit_and_not_inferred_from_req_id() {
         "im_get_replies",
         br#"{"req_id":"same","channel_id":"c1","reply_id":"root"}"#,
         8,
+        "viewer-1",
     )
     .unwrap();
     let append = ReplyProjectionRequest::from_command(
         "im_get_reply_branch",
         br#"{"req_id":"same","channel_id":"c1","root_message_id":"root","reply_first_level_id":"first"}"#,
         9,
+        "viewer-1",
     )
     .unwrap();
     assert_eq!(snapshot.mode, ReplyProjectionMode::Snapshot);
     assert_eq!(append.mode, ReplyProjectionMode::Append);
     assert_eq!(snapshot.root_hint, "root");
     assert_eq!(append.root_hint, "root");
-    assert!(
-        ReplyProjectionRequest::from_command("im_get_replies", br#"{"reply_id":"root"}"#, 10)
-            .is_none()
+    assert_eq!(snapshot.viewer_user_id, "viewer-1");
+    assert_eq!(append.viewer_user_id, "viewer-1");
+    assert!(ReplyProjectionRequest::from_command(
+        "im_get_replies",
+        br#"{"reply_id":"root"}"#,
+        10,
+        "viewer-1",
+    )
+    .is_none());
+}
+
+#[test]
+fn reply_read_projection_keeps_request_viewer_for_self_rows() {
+    let request = ReplyProjectionRequest::from_command(
+        "im_get_replies",
+        br#"{"req_id":"rq-1","channel_id":"c1","reply_id":"root"}"#,
+        8,
+        "444",
+    )
+    .unwrap();
+    let body = serde_json::json!({
+        "rootPost": {"id": "root", "channelId": "c1", "userId": "444"},
+        "replies": [
+            {"id": "own", "channelId": "c1", "userId": "444", "replyId": "root", "replyRootId": "root"},
+            {"id": "peer", "channelId": "c1", "userId": "678", "replyId": "root", "replyRootId": "root"}
+        ]
+    });
+
+    let projection = finalize_projection(
+        &request,
+        extract_flat_replies(&body, request.viewer_user_id.as_str()),
     );
+    let event = emit_json(emit_channel_replies(request.req_id.as_str(), projection));
+    let nodes = event["data"]["nodes"].as_array().unwrap();
+
+    assert_eq!(
+        nodes[0]["isSelf"], true,
+        "root authored by viewer remains self"
+    );
+    assert_eq!(nodes[1]["isSelf"], true, "own reply remains self");
+    assert_eq!(nodes[2]["isSelf"], false, "peer reply remains remote");
+    assert_eq!(nodes[1]["actionCapabilities"]["canRevoke"], true);
+    assert_eq!(nodes[1]["actionCapabilities"]["canMarkRead"], false);
+    assert_eq!(nodes[2]["actionCapabilities"]["canMarkRead"], true);
 }
 
 #[test]

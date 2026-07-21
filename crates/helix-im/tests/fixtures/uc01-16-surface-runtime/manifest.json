@@ -1,0 +1,28 @@
+{
+  "fixtureManifestVersion": 1,
+  "interactionFrameSchemaVersion": 1,
+  "sourceRevisions": {
+    "interactionFrameFoundation": "756d853",
+    "dialogUnreadTimelineLiveProducer": "51111912a164d95bd0a025a39e30b879fd935fd5"
+  },
+  "fixtures": {
+    "canonicalSnapshot": "snapshots.json",
+    "patchTransaction": "patch-transaction.json",
+    "duplicateSlot": "duplicate.json",
+    "staleSnapshot": "stale.json",
+    "revisionGap": "gap.json",
+    "scopeMismatch": "scope-mismatch.json",
+    "acceptedAction": "accepted-action.json",
+    "rejectedAction": "rejected-action.json"
+  },
+  "producerStatus": {
+    "message.left-dialog-list": "live: opaque resync -> dialog storage fact -> snapshot/patch Frame",
+    "message.unread-summary": "live: paired with dialog storage fact -> atomic snapshot/absolute badge patch",
+    "message.timeline": "live: local-first query/post/WS facts -> snapshot or patch Frame",
+    "message.thread-detail": "live: opaque resync -> im_get_replies HTTP fact -> snapshot/patch Frame",
+    "message.participant-receipts": "live: opaque resync -> im_post_read_list HTTP fact -> snapshot/patch Frame; unsupported receipt kinds are disabled",
+    "message.channel-summary": "live: opaque resync -> channel storage fact -> snapshot/patch Frame",
+    "message.member-roster": "live: opaque resync -> channel_member storage fact -> snapshot/patch Frame; unaudited actions are disabled",
+    "message.topic-list": "live: opaque resync -> channel storage fact -> snapshot/patch Frame; unaudited actions are disabled"
+  }
+}

@@ -20,12 +20,14 @@ use crate::http_envelope::run_http_envelope;
 use crate::ops::classify_port_error;
 use crate::spawner::{BoundedSpawner, Overflow};
 use crate::storage::{with_storage_trace_context, StorageTraceContext};
-use crate::{execute_storage_ops, PERSIST_QUEUE_CAP};
+use crate::{execute_storage_ops, execute_storage_ops_atomic, PERSIST_QUEUE_CAP};
 
 use crate::HTTP_QUEUE_CAP;
 
 pub struct PersistJobPayload {
     pub ops: Vec<StorageOp>,
+    /// `Effect::PersistAtomic` opt-in; ordinary Persist/PersistFire retain their existing semantics.
+    pub atomic: bool,
     pub trace: Option<StorageTraceContext>,
 }
 
@@ -54,15 +56,17 @@ where
             move |payload: PersistJobPayload| {
                 let storage = Arc::clone(&storage);
                 async move {
-                    match payload.trace {
-                        Some(trace) => {
-                            with_storage_trace_context(
-                                trace,
-                                execute_storage_ops(storage.as_ref(), &payload.ops),
-                            )
-                            .await
+                    let PersistJobPayload { ops, atomic, trace } = payload;
+                    let execute = async {
+                        if atomic {
+                            execute_storage_ops_atomic(storage.as_ref(), &ops).await
+                        } else {
+                            execute_storage_ops(storage.as_ref(), &ops).await
                         }
-                        None => execute_storage_ops(storage.as_ref(), &payload.ops).await,
+                    };
+                    match trace {
+                        Some(trace) => with_storage_trace_context(trace, execute).await,
+                        None => execute.await,
                     }
                 }
             },

@@ -6,6 +6,61 @@ use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
 
 impl ImModule {
+    pub(super) fn handle_channel_terminal_persist_reply(
+        &mut self,
+        channel_id: ChannelId,
+        terminal_seq: crate::state::Seq,
+        trigger: SyncTrigger,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        match outcome {
+            PortOutcome::Ok(_) => {
+                let committed = self
+                    .state
+                    .channels
+                    .get_mut(&channel_id)
+                    .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
+                if !committed {
+                    tracing::error!(
+                        channel_id = channel_id.as_str(),
+                        terminal_seq = terminal_seq.0,
+                        "terminal atomic receipt no longer matches a live channel cursor; suppressing Frame"
+                    );
+                    return Ok(());
+                }
+
+                // This is the only renderer-facing type7 projection. `patch_closed` produces an
+                // `im:interaction:frame` and only after the local tombstone/cursor transaction
+                // has committed; no deleteAt or other absent Go fields are invented.
+                if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+                    if let Some(frame) = self
+                        .state
+                        .dialog_list_frame
+                        .patch_closed(scope, channel_id.as_str())
+                    {
+                        out.push(frame);
+                    }
+                }
+                out.push(crate::acl::to_effect::emit_sync_state_with_trigger(
+                    channel_id,
+                    terminal_seq,
+                    trigger,
+                ));
+                self.finish_increment_hydration(channel_id, out)?;
+            }
+            PortOutcome::Err(error) => {
+                tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    terminal_seq = terminal_seq.0,
+                    error = ?error,
+                    "terminal atomic persist failed; cursor/tombstone/frame remain unchanged"
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn handle_channel_persist_reply(
         &mut self,
         corr: helix_core::Correlation,

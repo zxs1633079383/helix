@@ -7,7 +7,7 @@
 
 use helix_core::effect::{
     BatchDeleteSpec, BatchUpdateSpec, GetSpec, GuardedBumpSpec, MonotonicUpsertSpec,
-    Row as HelixRow, ScanSpec, UpsertSpec,
+    Row as HelixRow, ScanSpec, StorageOp, UpsertSpec,
 };
 use helix_core::ports::Storage;
 use helix_core::PortError;
@@ -64,5 +64,9 @@ impl Storage for NativeStorage {
 
     async fn batch_delete(&self, spec: BatchDeleteSpec) -> Result<(), PortError> {
         self.inner.batch_delete(spec).await
+    }
+
+    async fn atomic_write(&self, ops: Vec<StorageOp>) -> Result<(), PortError> {
+        self.inner.atomic_write(ops).await
     }
 }

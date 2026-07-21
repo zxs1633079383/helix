@@ -1,6 +1,6 @@
 use helix_driver_ffi::api::{
     helix_command, helix_create_with_network, helix_destroy, helix_query, helix_query_free,
-    HelixHandle, FFI_OK, FFI_UNIMPLEMENTED,
+    helix_set_header, HelixHandle, FFI_OK, FFI_UNIMPLEMENTED,
 };
 use helix_driver_ffi::batch::decode_batch;
 use helix_driver_ffi::vtable::CppHostVtable;
@@ -90,6 +90,28 @@ fn wait_for_event(recorder: &Recorder, needle: &str) -> String {
             "missing event {needle}"
         );
         std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn set_runtime_identity(handle: *mut HelixHandle) {
+    for (name, value) in [
+        (b"cookieId".as_slice(), b"viewer-1".as_slice()),
+        (b"companyId", b"team-1"),
+    ] {
+        // SAFETY: handle is live for this test and the static header bytes remain valid for the call.
+        let status = unsafe {
+            helix_set_header(
+                handle,
+                name.as_ptr(),
+                name.len(),
+                value.as_ptr(),
+                value.len(),
+            )
+        };
+        assert_eq!(
+            status, FFI_OK,
+            "runtime identity header must enter the shared command pump"
+        );
     }
 }
 
@@ -271,6 +293,7 @@ fn helix_version_query_returns_abi_json() {
 fn business_query_uses_async_command_and_event_batch() {
     let recorder = Recorder::new(Vec::new());
     let handle = create_recording_handle(&recorder);
+    set_runtime_identity(handle);
     let query_name = b"im_query_dialog_list";
     let query_payload = br#"{"limit":10}"#;
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
@@ -303,8 +326,9 @@ fn business_query_uses_async_command_and_event_batch() {
         )
     };
     assert_eq!(async_status, FFI_OK);
-    let event = wait_for_event(&recorder, "im:channels:projection");
-    assert!(event.contains("dialogList"));
+    let event = wait_for_event(&recorder, "im:interaction:frame");
+    assert!(event.contains("message.left-dialog-list"));
+    assert!(event.contains("dialogListSnapshot"));
 
     // SAFETY: handle was created by this test and not yet destroyed.
     unsafe { helix_destroy(handle) };

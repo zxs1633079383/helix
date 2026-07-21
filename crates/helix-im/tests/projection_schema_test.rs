@@ -1019,19 +1019,12 @@ fn im_interaction_frame_freezes_left_dialog_list_outer_contract() {
         &rows,
         helix_im::dialog_frame::DialogListScope::new("u1", "team1"),
         &mut state,
-    );
+    )
+    .expect("initial revision is available");
     assert_frozen(
         &effect,
         "im:interaction:frame",
-        &[
-            "schemaVersion",
-            "surface",
-            "frameId",
-            "scope",
-            "mode",
-            "revision",
-            "snapshot",
-        ],
+        &["schemaVersion", "transactionId", "mutations"],
     );
 }
 
@@ -1099,7 +1092,8 @@ fn all_26_projection_factories_covered() {
             b"[]",
             helix_im::dialog_frame::DialogListScope::new("u1", "team1"),
             &mut helix_im::dialog_frame::DialogListFrameState::default(),
-        ),
+        )
+        .expect("initial revision is available"),
         query::emit_dialogs_cleared(),
     ];
     assert_eq!(
@@ -1129,15 +1123,6 @@ fn all_26_projection_factories_covered() {
         23,
         "23 distinct channel（im:channels:loaded 被 hello/delete 两工厂复用，故 24 工厂 → 23 channel）"
     );
-}
-
-#[test]
-fn message_query_failure_is_a_separate_status_channel() {
-    let effect = query::local_first::emit_message_query_failed(
-        channel_id(7),
-        "remote unavailable".to_string(),
-    );
-    assert_frozen(&effect, "im:post:increment-failed", &["channelId", "error"]);
 }
 
 /// 连接控制信号 `im:net:reconnect_requested`（F1-gap1）——**不计入** 26 个 RenderNode 投影工厂（无渲染字段，

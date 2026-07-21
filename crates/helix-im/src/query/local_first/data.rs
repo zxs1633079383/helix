@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use helix_core::effect::{Effect, StorageOp};
+use helix_core::effect::StorageOp;
 use helix_core::tick::ReplyBytes;
 use serde_json::Value;
 
@@ -359,18 +359,4 @@ pub(super) fn sort_recent_rows_desc(rows: &mut [Value]) {
             }
         })
     });
-}
-
-pub(super) fn message_result_effect(
-    request: &MessageQueryRequest,
-    rows_desc: &[Value],
-    viewer_user_id: &str,
-) -> Result<Effect, ImError> {
-    let rows = serde_json::to_vec(rows_desc)
-        .map_err(|error| ImError::Serialize(format!("message query result rows: {error}")))?;
-    Ok(crate::query::emit_message_query_result_for_viewer(
-        &request.channel_id,
-        &rows,
-        viewer_user_id,
-    ))
 }

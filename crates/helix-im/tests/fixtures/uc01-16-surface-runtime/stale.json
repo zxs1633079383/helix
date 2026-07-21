@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "transactionId": "stale-dialog-snapshot",
+  "mutations": [{
+    "surface": "message.left-dialog-list",
+    "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+    "revision": 1,
+    "mutation": { "kind": "dialogListSnapshot", "view": { "sections": [], "state": "empty" } }
+  }]
+}

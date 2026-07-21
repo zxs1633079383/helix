@@ -180,8 +180,9 @@ pub const IM_SCHEMA: &[&'static str] = &[
     "CREATE INDEX IF NOT EXISTS idx_channel_member_role ON channel_member(channel_id, role)",
     // ── channel_event_cursor（增量同步游标，S2）─────────────────────────────────
     // 全量替换要求 byte 对齐现网 678 读路径 → IM cursor 写 `channel_event_cursor`
-    // （三列 channel_id PK / last_event_seq / updated_at），与现网
-    // `tables/channel_event_cursor.rs:28-37 migrate` 字符级幂等（IF NOT EXISTS）。
+    // （channel_id PK / last_event_seq / terminal_event_seq / updated_at）。其中
+    // terminal_event_seq 是 type7 closed tombstone 的本地投影；它和 cursor 共行由
+    // PersistAtomic 写入，避免新建/伪造 `channel_event` 业务表或把任意 payload 落盘。
     // 写路径：`acl/to_effect::advance_cursor` 走 `MonotonicUpsert{table=channel_event_cursor,
     //   key_col=channel_id, value_col=last_event_seq, touch_col=updated_at}`——表名/列名作
     //   数据传给 core（守 HX-C001，core 不解释）；MAX guard 由 core MonotonicUpsert 语义保证
@@ -194,6 +195,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
     "CREATE TABLE IF NOT EXISTS channel_event_cursor (\
         channel_id TEXT NOT NULL PRIMARY KEY,\
         last_event_seq INTEGER NOT NULL DEFAULT 0,\
+        terminal_event_seq INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0\
     )",
     // `pending_media` is an internal recovery journal. Transient local paths and
@@ -242,4 +244,5 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN msg_count_root INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN msg_count_private INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel_event_cursor ADD COLUMN terminal_event_seq INTEGER NOT NULL DEFAULT 0",
 ];

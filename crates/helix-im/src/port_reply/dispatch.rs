@@ -92,6 +92,18 @@ impl ImModule {
                 out,
             )?,
 
+            CorrelationContext::ChannelTerminalPersist {
+                channel_id,
+                terminal_seq,
+                trigger,
+            } => self.handle_channel_terminal_persist_reply(
+                channel_id,
+                terminal_seq,
+                trigger,
+                outcome,
+                out,
+            )?,
+
             CorrelationContext::IncrementBatchPersist { projections } => {
                 self.handle_increment_batch_persist_reply(projections, outcome, out)
             }
@@ -219,18 +231,27 @@ impl ImModule {
             CorrelationContext::MessageQueryLocal {
                 request,
                 query_session_epoch,
-            } => {
-                self.handle_message_query_local_reply(*request, query_session_epoch, outcome, out)?
-            }
+                query_generation,
+            } => self.handle_message_query_local_reply(
+                *request,
+                query_session_epoch,
+                query_generation,
+                now_ms,
+                outcome,
+                out,
+            )?,
 
             CorrelationContext::MessageQueryRemote {
                 request,
                 local_rows_desc,
                 query_session_epoch,
+                query_generation,
             } => self.handle_message_query_remote_reply(
                 *request,
                 *local_rows_desc,
                 query_session_epoch,
+                query_generation,
+                now_ms,
                 outcome,
                 out,
             )?,
@@ -240,14 +261,29 @@ impl ImModule {
                 merged_rows_desc,
                 coverage,
                 query_session_epoch,
+                query_generation,
             } => self.handle_message_query_cache_reply(
                 *request,
                 *merged_rows_desc,
                 coverage,
                 query_session_epoch,
+                query_generation,
+                now_ms,
                 outcome,
                 out,
             )?,
+
+            CorrelationContext::SurfaceStorageSnapshot { request } => {
+                self.handle_surface_storage_snapshot(request, outcome, out)?;
+            }
+
+            CorrelationContext::SurfaceThreadSnapshot { request } => {
+                self.handle_surface_thread_snapshot(request, outcome, out)?;
+            }
+
+            CorrelationContext::SurfaceReceiptSnapshot { request } => {
+                self.handle_surface_receipt_snapshot(request, outcome, out)?;
+            }
 
             CorrelationContext::ForwardSourceLookup { assembly } => {
                 if let Err(error) =
@@ -265,11 +301,26 @@ impl ImModule {
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
                     );
-                    out.push(crate::query::emit_dialog_list_frame_result(
-                        reply.0.as_ref(),
-                        scope,
-                        &mut self.state.dialog_list_frame,
-                    ));
+                    let terminal_channel_ids = self
+                        .state
+                        .channels
+                        .iter()
+                        .filter_map(|(channel_id, channel)| {
+                            channel
+                                .is_terminal()
+                                .then(|| channel_id.as_str().to_string())
+                        })
+                        .collect();
+                    if let Some(frame) =
+                        crate::query::emit_dialog_list_frame_result_with_terminal_channels(
+                            reply.0.as_ref(),
+                            scope,
+                            &mut self.state.dialog_list_frame,
+                            &terminal_channel_ids,
+                        )
+                    {
+                        out.push(frame);
+                    }
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
@@ -277,11 +328,26 @@ impl ImModule {
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
                     );
-                    out.push(crate::query::emit_dialog_list_frame_result(
-                        b"[]",
-                        scope,
-                        &mut self.state.dialog_list_frame,
-                    ));
+                    let terminal_channel_ids = self
+                        .state
+                        .channels
+                        .iter()
+                        .filter_map(|(channel_id, channel)| {
+                            channel
+                                .is_terminal()
+                                .then(|| channel_id.as_str().to_string())
+                        })
+                        .collect();
+                    if let Some(frame) =
+                        crate::query::emit_dialog_list_frame_result_with_terminal_channels(
+                            b"[]",
+                            scope,
+                            &mut self.state.dialog_list_frame,
+                            &terminal_channel_ids,
+                        )
+                    {
+                        out.push(frame);
+                    }
                 }
             },
 
@@ -388,6 +454,20 @@ impl ImModule {
 
             CorrelationContext::OutboundPostReaders { req_id } => {
                 crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);
+            }
+
+            CorrelationContext::InteractionViewReceipt {
+                request_id,
+                channel_id,
+                message_id,
+            } => {
+                self.handle_action_view_receipt_reply(
+                    &request_id,
+                    channel_id,
+                    message_id,
+                    outcome,
+                    out,
+                )?;
             }
 
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配

@@ -72,6 +72,30 @@ pub enum CorrelationContext {
         pending_domain_events: Vec<Vec<u8>>,
     },
 
+    /// type7 closed tombstone 的 `PersistAtomic` 回执。成功前不改变内存 cursor/terminal 状态，
+    /// 也不发布 renderer Frame；失败则 context 被一次性消费且无后续副作用。
+    ChannelTerminalPersist {
+        channel_id: ChannelId,
+        terminal_seq: crate::state::Seq,
+        trigger: SyncTrigger,
+    },
+
+    /// Opaque SurfaceResyncRequest 对本地 channel/member/topic 事实的异步读取。
+    /// renderer 只提交 surface+scope，不能选择表、SQL 或领域 command。
+    SurfaceStorageSnapshot {
+        request: crate::surface_runtime::SurfaceResyncRequest,
+    },
+
+    /// thread 由既有 getReplies HTTP 权威回包建立 typed slot。
+    SurfaceThreadSnapshot {
+        request: crate::surface_runtime::SurfaceResyncRequest,
+    },
+
+    /// participant receipt 由既有 post/read/list HTTP 权威回包建立 typed slot。
+    SurfaceReceiptSnapshot {
+        request: crate::surface_runtime::SurfaceResyncRequest,
+    },
+
     /// hello increment 全批 channel/member/cursor 事务回报。
     IncrementBatchPersist {
         projections: Vec<(ChannelId, Vec<u8>)>,
@@ -120,6 +144,7 @@ pub enum CorrelationContext {
     MessageQueryLocal {
         request: Box<crate::query::MessageQueryRequest>,
         query_session_epoch: u64,
+        query_generation: u64,
     },
 
     /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后合并并按能力缓存。
@@ -127,6 +152,7 @@ pub enum CorrelationContext {
         request: Box<crate::query::MessageQueryRequest>,
         local_rows_desc: Box<Vec<serde_json::Value>>,
         query_session_epoch: u64,
+        query_generation: u64,
     },
 
     /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。
@@ -135,6 +161,7 @@ pub enum CorrelationContext {
         merged_rows_desc: Box<Vec<serde_json::Value>>,
         coverage: Option<crate::query::local_first::RecentMessageCoverage>,
         query_session_epoch: u64,
+        query_generation: u64,
     },
 
     /// G-05 ID 转发的本地消息逐条 Get 回报；全部组装完成后才发 createPosts HTTP。
@@ -219,6 +246,15 @@ pub enum CorrelationContext {
 
     /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。
     OutboundPostReaders { req_id: String },
+
+    /// SurfaceRuntime `viewReceipt` action 的同一 canonical `post/read/list` 回包。它保留 legacy
+    /// read/readers emits，并额外投影带 requestId causation 的 typed participant-receipts Frame；HTTP
+    /// accepted 本身不允许确认 renderer pending state。
+    InteractionViewReceipt {
+        request_id: String,
+        channel_id: String,
+        message_id: String,
+    },
 
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,

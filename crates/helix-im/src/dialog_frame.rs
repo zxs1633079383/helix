@@ -1,15 +1,18 @@
 //! 左侧会话列表的跨端 render-ready 投影。
 //!
 //! 这个模块把持久化 channel 行与写后 DialogPatch 转换为唯一的 UI ViewModel。
-//! 客户端只验证 scope/revision 后原子替换或应用属性 patch，不解析 post、计算 badge 或重排。
+//! 客户端只验证 scope/revision 后原子替换 `replaceView`，不解析 post、计算 badge 或重排。
 
 use std::collections::HashMap;
 
-use bytes::Bytes;
-use helix_core::effect::DomainEventBytes;
 use helix_core::Effect;
 use serde::Serialize;
 use serde_json::Value;
+
+use crate::interaction_frame;
+use crate::projector::unread_summary::{
+    UnreadSummaryPatch, UnreadSummaryProjector, UnreadSummarySnapshot, ViewerChannelUnread,
+};
 
 pub const EVENT_NAME: &str = "im:interaction:frame";
 pub const SURFACE: &str = "message.left-dialog-list";
@@ -97,16 +100,9 @@ pub struct DialogListRowVm {
     pub topic_count: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DialogListSnapshot {
-    pub rows: Vec<DialogListRowVm>,
-    pub ordered_channel_ids: Vec<String>,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DialogRowSet {
+struct DialogRowSet {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,16 +129,13 @@ pub struct DialogRowSet {
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
-pub enum DialogListPatchOperation {
+enum DialogListPatchOperation {
     UpsertRow {
         channel_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         row: Option<DialogListRowVm>,
         set: DialogRowSet,
         clear: Vec<String>,
-    },
-    RemoveRow {
-        channel_id: String,
     },
     MoveRow {
         channel_id: String,
@@ -152,27 +145,8 @@ pub enum DialogListPatchOperation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DialogListPatch {
+struct DialogListPatch {
     pub operations: Vec<DialogListPatchOperation>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DialogListFrame {
-    pub schema_version: u32,
-    pub surface: &'static str,
-    pub frame_id: String,
-    pub scope: DialogListScope,
-    pub mode: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_revision: Option<u64>,
-    pub revision: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub causation_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot: Option<DialogListSnapshot>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub patch: Option<DialogListPatch>,
 }
 
 /// 当前 scope 的最后已发布列表。它只保存 render-ready VM，绝不反向读取 storage。
@@ -182,6 +156,7 @@ pub struct DialogListFrameState {
     scope: Option<DialogListScope>,
     rows_by_channel: HashMap<String, DialogListRowVm>,
     ordered_channel_ids: Vec<String>,
+    unread_summary: UnreadSummaryProjector,
 }
 
 impl DialogListFrameState {
@@ -189,8 +164,35 @@ impl DialogListFrameState {
         self.scope.as_ref()
     }
 
-    pub fn snapshot(&mut self, scope: DialogListScope, rows: Vec<DialogListRowVm>) -> Effect {
-        self.revision = self.revision.wrapping_add(1);
+    /// identity 切换后不能保留旧 viewer 已 attach 的 dialog/unread slots。
+    pub(crate) fn reset(&mut self) {
+        self.revision = 0;
+        self.scope = None;
+        self.rows_by_channel.clear();
+        self.ordered_channel_ids.clear();
+        self.unread_summary = UnreadSummaryProjector::default();
+    }
+
+    pub fn snapshot(
+        &mut self,
+        scope: DialogListScope,
+        rows: Vec<DialogListRowVm>,
+    ) -> Option<Effect> {
+        if !scope.is_complete() {
+            tracing::warn!(
+                surface = SURFACE,
+                "dialog list snapshot requires a complete viewer scope; suppressing frame"
+            );
+            return None;
+        }
+        if rows
+            .iter()
+            .any(|row| ensure_dialog_row_wire_safe(row).is_none())
+        {
+            return None;
+        }
+        let revision = self.next_revision()?;
+        self.ensure_unread_can_advance()?;
         self.rows_by_channel.clear();
         self.ordered_channel_ids.clear();
         self.scope = Some(scope.clone());
@@ -206,26 +208,25 @@ impl DialogListFrameState {
             self.ordered_channel_ids.push(row.channel_id.clone());
             self.rows_by_channel.insert(row.channel_id.clone(), row);
         }
-        let snapshot = DialogListSnapshot {
-            rows: self
-                .ordered_channel_ids
-                .iter()
-                .filter_map(|channel_id| self.rows_by_channel.get(channel_id).cloned())
-                .collect(),
-            ordered_channel_ids: self.ordered_channel_ids.clone(),
-        };
-        emit_frame(DialogListFrame {
-            schema_version: SCHEMA_VERSION,
-            surface: SURFACE,
-            frame_id: format!("dialog-list-{}", self.revision),
-            scope,
-            mode: "snapshot",
-            base_revision: None,
-            revision: self.revision,
-            causation_id: None,
-            snapshot: Some(snapshot),
-            patch: None,
-        })
+        // 频道行携带的 unread/mention/urgent 是当前 viewer 的权威绝对值。首次快照可 O(n)
+        // 建 aggregate；之后的每条 row 更新只对对应贡献做 O(1) replace，客户端不参与推导。
+        let unread_snapshot = self
+            .unread_summary
+            .snapshot(
+                self.rows_by_channel
+                    .iter()
+                    .map(|(channel_id, row)| (channel_id.clone(), unread_contribution(row))),
+            )
+            .map_err(|error| {
+                tracing::warn!(
+                    surface = "message.unread-summary",
+                    error = %error,
+                    "unread snapshot rejected after dialog preflight"
+                );
+            })
+            .ok()?;
+        self.revision = revision;
+        self.emit_snapshot(scope, unread_snapshot)
     }
 
     /// 在写后投影已经提供绝对累计值时，仅改变这条 row 的相关属性并一次性发布。
@@ -238,6 +239,7 @@ impl DialogListFrameState {
         if !scope.is_complete() {
             return None;
         }
+        ensure_dialog_projection_numbers_safe(data)?;
         let channel_id = text(data, &["channelId", "channel_id"])?;
         let previous = self.rows_by_channel.get(&channel_id)?.clone();
         let mut next = previous.clone();
@@ -255,6 +257,7 @@ impl DialogListFrameState {
         if !scope.is_complete() {
             return None;
         }
+        ensure_dialog_projection_numbers_safe(value)?;
         let channel_id = text(value, &["channelId", "channel_id", "id"])?;
         let previous = self.rows_by_channel.get(&channel_id)?.clone();
         let mut next = previous.clone();
@@ -273,6 +276,8 @@ impl DialogListFrameState {
         if !scope.is_complete() {
             return None;
         }
+        ensure_dialog_projection_numbers_safe(channel)?;
+        ensure_dialog_projection_numbers_safe(dialog)?;
         let channel_id = text(channel, &["channelId", "channel_id", "id"])?;
         if text(dialog, &["channelId", "channel_id"])
             .as_deref()
@@ -302,13 +307,26 @@ impl DialogListFrameState {
             &row.channel_kind,
             scope.viewer_user_id.as_str(),
         );
+        ensure_dialog_row_wire_safe(&row)?;
         if self.rows_by_channel.contains_key(&row.channel_id) {
             return self.patch_from_channel_update(scope, value);
         }
+        let revision = self.next_revision()?;
+        self.ensure_unread_can_advance()?;
         let base_revision = self.revision;
-        self.revision = self.revision.wrapping_add(1);
         let channel_id = row.channel_id.clone();
         let before_len = self.ordered_channel_ids.len();
+        let unread_patch = self
+            .unread_summary
+            .upsert(channel_id.clone(), unread_contribution(&row))
+            .map_err(|error| {
+                tracing::warn!(
+                    surface = "message.unread-summary",
+                    error = %error,
+                    "unread patch rejected after dialog preflight"
+                );
+            })
+            .ok()?;
         self.rows_by_channel.insert(channel_id.clone(), row.clone());
         let target = self.reposition(&channel_id);
         let mut operations = vec![DialogListPatchOperation::UpsertRow {
@@ -323,7 +341,8 @@ impl DialogListFrameState {
                 to_index: target,
             });
         }
-        Some(self.emit_patch(scope, base_revision, operations))
+        self.revision = revision;
+        self.emit_patch(scope, base_revision, operations, unread_patch)
     }
 
     pub fn patch_closed(&mut self, scope: DialogListScope, channel_id: &str) -> Option<Effect> {
@@ -356,12 +375,25 @@ impl DialogListFrameState {
         if set_is_empty(&set) {
             return None;
         }
+        ensure_dialog_row_wire_safe(&next)?;
         let old_index = self
             .ordered_channel_ids
             .iter()
             .position(|id| id == &channel_id)?;
+        let revision = self.next_revision()?;
+        self.ensure_unread_can_advance()?;
         let base_revision = self.revision;
-        self.revision = self.revision.wrapping_add(1);
+        let unread_patch = self
+            .unread_summary
+            .upsert(channel_id.clone(), unread_contribution(&next))
+            .map_err(|error| {
+                tracing::warn!(
+                    surface = "message.unread-summary",
+                    error = %error,
+                    "unread patch rejected after dialog preflight"
+                );
+            })
+            .ok()?;
         self.rows_by_channel.insert(channel_id.clone(), next);
         let next_index = self.reposition(&channel_id);
         let mut operations = vec![DialogListPatchOperation::UpsertRow {
@@ -378,7 +410,8 @@ impl DialogListFrameState {
                 to_index: next_index,
             });
         }
-        Some(self.emit_patch(scope, base_revision, operations))
+        self.revision = revision;
+        self.emit_patch(scope, base_revision, operations, unread_patch)
     }
 
     fn emit_patch(
@@ -386,19 +419,174 @@ impl DialogListFrameState {
         scope: DialogListScope,
         base_revision: u64,
         operations: Vec<DialogListPatchOperation>,
-    ) -> Effect {
-        emit_frame(DialogListFrame {
-            schema_version: SCHEMA_VERSION,
-            surface: SURFACE,
-            frame_id: format!("dialog-list-{}", self.revision),
-            scope,
-            mode: "patch",
-            base_revision: Some(base_revision),
+        unread_patch: Option<UnreadSummaryPatch>,
+    ) -> Option<Effect> {
+        // 旧 row operation 只用于本 adapter 的确定性状态更新；正式 v1 wire 一律以
+        // 同 surface 的 replaceView 发送完整 VM，平台端不再消费该 legacy delta。
+        let _legacy_patch = DialogListPatch { operations };
+        let user_scope = interaction_frame::SurfaceScope::User {
+            user_id: scope.viewer_user_id,
+            team_id: scope.team_id,
+        };
+        let mut mutations = vec![interaction_frame::SurfaceMutation {
+            surface: interaction_frame::SurfaceId::MessageLeftDialogList,
+            scope: user_scope.clone(),
             revision: self.revision,
+            base_revision: Some(base_revision),
             causation_id: None,
-            snapshot: None,
-            patch: Some(DialogListPatch { operations }),
+            mutation: interaction_frame::TypedSurfaceMutation::DialogListPatch {
+                patch: interaction_frame::ReplaceView {
+                    kind: interaction_frame::ReplaceViewKind::ReplaceView,
+                    view: self.interaction_view(),
+                },
+            },
+        }];
+        if let Some(unread_patch) = unread_patch {
+            mutations.push(interaction_frame::SurfaceMutation {
+                surface: interaction_frame::SurfaceId::MessageUnreadSummary,
+                scope: user_scope.clone(),
+                revision: unread_patch.revision,
+                base_revision: Some(unread_patch.base_revision),
+                causation_id: None,
+                mutation: interaction_frame::TypedSurfaceMutation::UnreadSummaryPatch {
+                    patch: interaction_frame::ReplaceView {
+                        kind: interaction_frame::ReplaceViewKind::ReplaceView,
+                        view: unread_patch.view,
+                    },
+                },
+            });
+        }
+        self.emit_interaction_frame(&user_scope, mutations)
+    }
+
+    fn emit_snapshot(
+        &self,
+        scope: DialogListScope,
+        unread_snapshot: UnreadSummarySnapshot,
+    ) -> Option<Effect> {
+        let user_scope = interaction_frame::SurfaceScope::User {
+            user_id: scope.viewer_user_id,
+            team_id: scope.team_id,
+        };
+        self.emit_interaction_frame(
+            &user_scope,
+            vec![
+                interaction_frame::SurfaceMutation {
+                    surface: interaction_frame::SurfaceId::MessageLeftDialogList,
+                    scope: user_scope.clone(),
+                    revision: self.revision,
+                    base_revision: None,
+                    causation_id: None,
+                    mutation: interaction_frame::TypedSurfaceMutation::DialogListSnapshot {
+                        view: self.interaction_view(),
+                    },
+                },
+                interaction_frame::SurfaceMutation {
+                    surface: interaction_frame::SurfaceId::MessageUnreadSummary,
+                    scope: user_scope.clone(),
+                    revision: unread_snapshot.revision,
+                    base_revision: None,
+                    causation_id: None,
+                    mutation: interaction_frame::TypedSurfaceMutation::UnreadSummarySnapshot {
+                        view: unread_snapshot.view,
+                    },
+                },
+            ],
+        )
+    }
+
+    /// Dialog 和 unread 是同一次 `InteractionFrame` 内的 paired slots。任一 slot 无法推进时，
+    /// 整个 frame 不发布也不改本地行状态，等待重置后重新 attach。
+    fn next_revision(&self) -> Option<u64> {
+        self.revision
+            .checked_add(1)
+            .filter(|revision| *revision <= interaction_frame::MAX_SAFE_JSON_INTEGER)
+            .or_else(|| {
+                tracing::warn!(
+                    surface = SURFACE,
+                    revision = self.revision,
+                    "dialog list revision exceeds the exact-safe wire range; suppressing frame until reset"
+                );
+                None
+            })
+    }
+
+    fn ensure_unread_can_advance(&self) -> Option<()> {
+        self.unread_summary
+            .ensure_can_advance()
+            .map_err(|error| {
+                tracing::warn!(
+                    surface = "message.unread-summary",
+                    error = %error,
+                    "unread revision overflow; suppressing paired dialog frame until reset"
+                );
+            })
+            .ok()
+    }
+
+    fn emit_interaction_frame(
+        &self,
+        scope: &interaction_frame::SurfaceScope,
+        mutations: Vec<interaction_frame::SurfaceMutation>,
+    ) -> Option<Effect> {
+        let scope_key = scope.canonical_key();
+        let frame = crate::projector::build_interaction_frame(
+            format!("dialog-list-{scope_key}-{}", self.revision),
+            mutations,
+        )
+        .map_err(|error| {
+            tracing::warn!(surface = SURFACE, error = %error, "dialog frame validation failed");
         })
+        .ok()?;
+        crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| {
+                tracing::warn!(surface = SURFACE, error = %error, "dialog frame encoding failed");
+            })
+            .ok()
+    }
+
+    fn interaction_view(&self) -> interaction_frame::DialogListVm {
+        let mut pinned = Vec::new();
+        let mut normal = Vec::new();
+        let mut closed = Vec::new();
+        for channel_id in &self.ordered_channel_ids {
+            let Some(row) = self.rows_by_channel.get(channel_id) else {
+                continue;
+            };
+            let target = if row.state.closed || row.state.left {
+                &mut closed
+            } else if row.state.pinned {
+                &mut pinned
+            } else {
+                &mut normal
+            };
+            target.push(dialog_row_to_surface_vm(row));
+        }
+
+        let mut sections = Vec::new();
+        push_dialog_section(
+            &mut sections,
+            interaction_frame::DialogSection::Pinned,
+            pinned,
+            self.revision,
+        );
+        push_dialog_section(
+            &mut sections,
+            interaction_frame::DialogSection::Normal,
+            normal,
+            self.revision,
+        );
+        push_dialog_section(
+            &mut sections,
+            interaction_frame::DialogSection::Closed,
+            closed,
+            self.revision,
+        );
+
+        interaction_frame::DialogListVm {
+            sections,
+            state: interaction_frame::SurfaceLoadState::Ready,
+        }
     }
 
     fn reposition(&mut self, channel_id: &str) -> usize {
@@ -416,6 +604,132 @@ impl DialogListFrameState {
         self.ordered_channel_ids
             .insert(target, channel_id.to_string());
         target
+    }
+}
+
+fn push_dialog_section(
+    sections: &mut Vec<interaction_frame::DialogSectionVm>,
+    kind: interaction_frame::DialogSection,
+    items: Vec<interaction_frame::DialogRowVm>,
+    revision: u64,
+) {
+    if items.is_empty() {
+        return;
+    }
+    let suffix = match kind {
+        interaction_frame::DialogSection::Pinned => "pinned",
+        interaction_frame::DialogSection::Normal => "normal",
+        interaction_frame::DialogSection::Closed => "closed",
+    };
+    sections.push(interaction_frame::DialogSectionVm {
+        kind,
+        items,
+        page: interaction_frame::WindowPageVm {
+            window_token: format!("dialog-list-{revision}-{suffix}"),
+            has_older: false,
+            has_newer: false,
+            has_more: false,
+        },
+    });
+}
+
+fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogRowVm {
+    interaction_frame::DialogRowVm {
+        channel_id: row.channel_id.clone(),
+        channel_kind: match row.channel_kind.as_str() {
+            "direct" => interaction_frame::ChannelKind::Direct,
+            "topic" => interaction_frame::ChannelKind::Topic,
+            _ => interaction_frame::ChannelKind::Group,
+        },
+        title: interaction_frame::ChannelTitleRef {
+            text: row.title.clone(),
+        },
+        avatar: interaction_frame::ChannelAvatarRef {
+            resource: row.avatar.image_ref.clone(),
+            fallback_text: row.title.clone(),
+        },
+        company_tag: None,
+        preview: dialog_preview_to_surface_vm(row.preview.as_ref()),
+        last_activity_at: row.activity_at,
+        unread_count: nonnegative_u32(row.badges.unread_count),
+        mention_count: nonnegative_u32(row.badges.mention_count),
+        urgent_count: nonnegative_u32(row.badges.pending_urgent_count),
+        topic_count: row.topic_count.map_or(0, nonnegative_u32),
+        has_scheduled_message: false,
+        is_top: row.state.pinned,
+        notification_mode: if row.state.muted {
+            interaction_frame::NotificationMode::Muted
+        } else {
+            interaction_frame::NotificationMode::All
+        },
+        lifecycle: interaction_frame::ChannelLifecycleVm {
+            state: if row.state.left {
+                "left".to_string()
+            } else if row.state.closed {
+                "closed".to_string()
+            } else {
+                "active".to_string()
+            },
+            reason: None,
+        },
+        actions: Vec::new(),
+    }
+}
+
+fn unread_contribution(row: &DialogListRowVm) -> ViewerChannelUnread {
+    ViewerChannelUnread::new(
+        nonnegative_u32(row.badges.unread_count),
+        nonnegative_u32(row.badges.mention_count),
+        nonnegative_u32(row.badges.pending_urgent_count),
+    )
+}
+
+fn dialog_preview_to_surface_vm(preview: Option<&DialogPreviewVm>) -> interaction_frame::PreviewVm {
+    let Some(preview) = preview else {
+        return interaction_frame::PreviewVm::Empty;
+    };
+    let author = preview
+        .sender_user_id
+        .as_ref()
+        .map(|user_id| interaction_frame::UserRefVm {
+            user_id: user_id.clone(),
+        });
+    let text = preview.text.clone().unwrap_or_default();
+    if preview.recalled {
+        return interaction_frame::PreviewVm::Recalled {
+            actor: author,
+            text,
+        };
+    }
+    if preview.system {
+        return interaction_frame::PreviewVm::System { text };
+    }
+    match preview.kind.as_str() {
+        "document" => interaction_frame::PreviewVm::Document {
+            author,
+            title: text,
+        },
+        "media" | "non-text" => interaction_frame::PreviewVm::Media {
+            author,
+            media_kind: "media".to_string(),
+            label: text,
+        },
+        "forwarded" => interaction_frame::PreviewVm::Forwarded {
+            author,
+            summary: text,
+        },
+        "empty" => interaction_frame::PreviewVm::Empty,
+        _ => interaction_frame::PreviewVm::Text { author, text },
+    }
+}
+
+fn nonnegative_u32(value: i64) -> u32 {
+    if value <= 0 {
+        0
+    } else if value > i64::from(u32::MAX) {
+        u32::MAX
+    } else {
+        value as u32
     }
 }
 
@@ -563,18 +877,30 @@ pub fn patch_from_dialog_projection(
     state.patch_from_post_projection(scope, data)
 }
 
-pub fn rows_from_dialog_scan(reply_bytes: &[u8]) -> Vec<DialogListRowVm> {
+/// Converts one scan transaction into a complete dialog snapshot input.
+///
+/// A single row that cannot be represented by the v1 exact-safe wire contract
+/// invalidates the whole scan. Dropping it would publish a false authoritative
+/// list and silently remove a channel from an already attached surface.
+pub fn rows_from_dialog_scan(reply_bytes: &[u8]) -> Option<Vec<DialogListRowVm>> {
     let raw: Value = serde_json::from_slice(reply_bytes).unwrap_or_else(|_| serde_json::json!([]));
     let Value::Array(rows) = raw else {
-        return Vec::new();
+        return Some(Vec::new());
     };
-    rows.into_iter()
-        .map(crate::query::dialog_render::render_ready_dialog_row)
-        .filter_map(|row| row_from_dialog_projection(&row))
-        .collect()
+    let mut projected = Vec::with_capacity(rows.len());
+    for row in rows {
+        // Render-ready conversion intentionally defaults malformed legacy fields in a few
+        // places. Validate the raw row first so an unrepresentable persisted integer cannot
+        // be mistaken for a missing value before this authoritative snapshot is committed.
+        ensure_dialog_projection_numbers_safe(&row)?;
+        let render_ready = crate::query::dialog_render::render_ready_dialog_row(row);
+        projected.push(row_from_dialog_projection(&render_ready)?);
+    }
+    Some(projected)
 }
 
 pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
+    ensure_dialog_projection_numbers_safe(value)?;
     let channel_id = text(value, &["channelId", "channel_id", "id"])?;
     let channel_kind = normalize_channel_kind(text(
         value,
@@ -625,7 +951,7 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
     )
     .or_else(|| preview.as_ref().and_then(|item| item.sent_at))
     .unwrap_or(0);
-    Some(DialogListRowVm {
+    let row = DialogListRowVm {
         channel_id,
         title: text(value, &["displayName", "display_name", "name"]).unwrap_or_default(),
         channel_kind,
@@ -642,16 +968,145 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
         state,
         activity_at,
         topic_count: integer(value, &["topicCount", "topic_count"]).map(|value| value.max(0)),
+    };
+    ensure_dialog_row_wire_safe(&row)?;
+    Some(row)
+}
+
+fn ensure_dialog_row_wire_safe(row: &DialogListRowVm) -> Option<()> {
+    if row.channel_id.is_empty() {
+        tracing::warn!(
+            surface = SURFACE,
+            "dialog row has an empty channelId; suppressing frame"
+        );
+        return None;
+    }
+    if !(interaction_frame::MIN_SAFE_JSON_INTEGER..=interaction_frame::MAX_SAFE_JSON_INTEGER as i64)
+        .contains(&row.activity_at)
+    {
+        tracing::warn!(
+            surface = SURFACE,
+            channel_id = row.channel_id.as_str(),
+            activity_at = row.activity_at,
+            "dialog row lastActivityAt exceeds the exact-safe wire range; suppressing frame"
+        );
+        return None;
+    }
+    if row
+        .preview
+        .as_ref()
+        .and_then(|preview| preview.sender_user_id.as_deref())
+        .is_some_and(str::is_empty)
+    {
+        tracing::warn!(
+            surface = SURFACE,
+            channel_id = row.channel_id.as_str(),
+            "dialog preview has an empty senderUserId; suppressing frame"
+        );
+        return None;
+    }
+    Some(())
+}
+
+/// `serde_json::Number::as_i64()` returns `None` for positive `u64` values
+/// above `i64::MAX`. Treating that as a missing field lets a later default or
+/// prior value hide an unrepresentable persisted number. Keep this preflight at
+/// the raw projection boundary so no partial dialog Frame is ever published.
+fn ensure_dialog_projection_numbers_safe(value: &Value) -> Option<()> {
+    const INTEGER_FIELDS: &[&str] = &[
+        "lastPostAt",
+        "last_post_at",
+        "lastActivityAt",
+        "last_activity_at",
+        "createAt",
+        "create_at",
+        "sentAt",
+        "sent_at",
+        "unread",
+        "unreadCount",
+        "unread_count",
+        "mentionCount",
+        "mention_count",
+        "mentionCountRoot",
+        "mention_count_root",
+        "urgentCount",
+        "urgent_count",
+        "topicCount",
+        "topic_count",
+        "topicMsgCount",
+        "topic_msg_count",
+        "memberCount",
+        "member_count",
+        "deleteAt",
+        "delete_at",
+        "isTop",
+        "is_top",
+        "top",
+        "muted",
+        "mute",
+        "online",
+        "isOnline",
+        "is_online",
+        "closed",
+        "left",
+        "isRemove",
+        "is_remove",
+        "urgent",
+        "isUrgent",
+        "isExpedite",
+    ];
+
+    if !named_numbers_are_exact_safe(value, INTEGER_FIELDS) {
+        tracing::warn!(
+            surface = SURFACE,
+            "dialog projection contains a number outside the exact-safe wire range; suppressing frame"
+        );
+        return None;
+    }
+    if let Some(dialog_patch) = value.get("dialogPatch") {
+        if !named_numbers_are_exact_safe(dialog_patch, INTEGER_FIELDS) {
+            tracing::warn!(
+                surface = SURFACE,
+                "dialog patch contains a number outside the exact-safe wire range; suppressing frame"
+            );
+            return None;
+        }
+    }
+    if let Some(last_post) = embedded_object(value, &["lastPost", "last_post"]) {
+        if !named_numbers_are_exact_safe(&last_post, INTEGER_FIELDS) {
+            tracing::warn!(
+                surface = SURFACE,
+                "dialog preview contains a number outside the exact-safe wire range; suppressing frame"
+            );
+            return None;
+        }
+    }
+    Some(())
+}
+
+fn named_numbers_are_exact_safe(value: &Value, keys: &[&str]) -> bool {
+    keys.iter().all(|key| {
+        value
+            .get(*key)
+            .is_none_or(number_is_exact_safe_or_not_an_integer)
     })
 }
 
-fn emit_frame(frame: DialogListFrame) -> Effect {
-    let payload = serde_json::json!({ "event": EVENT_NAME, "data": frame });
-    Effect::Emit {
-        event: DomainEventBytes(Bytes::from(
-            serde_json::to_vec(&payload).expect("dialog list frame is serializable"),
-        )),
-    }
+fn number_is_exact_safe_or_not_an_integer(value: &Value) -> bool {
+    let parsed = match value {
+        Value::Number(number) => number.as_i64(),
+        Value::String(value) if looks_like_integer(value) => value.parse::<i64>().ok(),
+        _ => return true,
+    };
+    parsed.is_some_and(|number| {
+        (interaction_frame::MIN_SAFE_JSON_INTEGER..=interaction_frame::MAX_SAFE_JSON_INTEGER as i64)
+            .contains(&number)
+    })
+}
+
+fn looks_like_integer(value: &str) -> bool {
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn should_precede(candidate: &DialogListRowVm, other: Option<&DialogListRowVm>) -> bool {
@@ -1022,8 +1477,6 @@ fn is_recalled_type(value: Option<&str>) -> bool {
 mod tests {
     use super::*;
 
-    const CANONICAL_FIXTURE: &str = include_str!("../tests/fixtures/dialog_list_frame_v1.json");
-
     fn scope() -> DialogListScope {
         DialogListScope::new("444", "team-a")
     }
@@ -1064,20 +1517,163 @@ mod tests {
         serde_json::from_slice(event.0.as_ref()).unwrap()
     }
 
+    fn surface_mutation(frame: &Value) -> &Value {
+        &frame["data"]["mutations"][0]
+    }
+
+    fn dialog_view(frame: &Value) -> &Value {
+        let mutation = &surface_mutation(frame)["mutation"];
+        mutation
+            .get("view")
+            .unwrap_or_else(|| &mutation["patch"]["view"])
+    }
+
     #[test]
     fn snapshot_is_complete_render_ready_frame() {
         let mut state = DialogListFrameState::default();
-        let frame = data(&state.snapshot(scope(), vec![row("c2", 2), row("c1", 1)]));
+        let snapshot = state
+            .snapshot(scope(), vec![row("c2", 2), row("c1", 1)])
+            .expect("initial revision is available");
+        let frame = data(&snapshot);
         assert_eq!(frame["event"], EVENT_NAME);
-        assert_eq!(frame["data"]["mode"], "snapshot");
+        assert_eq!(frame["data"]["schemaVersion"], SCHEMA_VERSION);
+        assert_eq!(surface_mutation(&frame)["surface"], SURFACE);
         assert_eq!(
-            frame["data"]["snapshot"]["orderedChannelIds"],
-            serde_json::json!(["c2", "c1"])
+            surface_mutation(&frame)["mutation"]["kind"],
+            "dialogListSnapshot"
+        );
+        interaction_frame::InteractionFrame::decode(
+            &serde_json::to_vec(&frame["data"]).expect("interaction frame JSON"),
+        )
+        .expect("live snapshot must satisfy the public InteractionFrame contract");
+        assert_eq!(
+            dialog_view(&frame)["sections"][0]["items"]
+                .as_array()
+                .expect("normal rows")
+                .iter()
+                .map(|row| row["channelId"].clone())
+                .collect::<Vec<_>>(),
+            vec![serde_json::json!("c2"), serde_json::json!("c1")]
         );
         assert_eq!(
-            frame["data"]["snapshot"]["rows"][0]["badges"]["unreadCount"],
+            dialog_view(&frame)["sections"][0]["items"][0]["unreadCount"],
             0
         );
+        let unread = &frame["data"]["mutations"][1];
+        assert_eq!(unread["surface"], "message.unread-summary");
+        assert_eq!(unread["mutation"]["kind"], "unreadSummarySnapshot");
+        assert_eq!(unread["mutation"]["view"]["unreadTotal"], 0);
+    }
+
+    #[test]
+    fn same_revision_in_different_user_scopes_has_distinct_transaction_ids() {
+        let mut first = DialogListFrameState::default();
+        let first_snapshot = first
+            .snapshot(DialogListScope::new("user-a", "team-a"), vec![row("c1", 1)])
+            .expect("initial revision is available");
+        let first_frame = data(&first_snapshot);
+        let mut second = DialogListFrameState::default();
+        let second_snapshot = second
+            .snapshot(DialogListScope::new("user-b", "team-a"), vec![row("c1", 1)])
+            .expect("initial revision is available");
+        let second_frame = data(&second_snapshot);
+
+        assert_eq!(first_frame["data"]["mutations"][0]["revision"], 1);
+        assert_eq!(second_frame["data"]["mutations"][0]["revision"], 1);
+        assert_ne!(
+            first_frame["data"]["transactionId"], second_frame["data"]["transactionId"],
+            "PC recent-transaction cache is runtime-wide, so scope must participate in the id"
+        );
+    }
+
+    #[test]
+    fn revision_overflow_suppresses_the_paired_frame_without_mutating_slots() {
+        let mut state = DialogListFrameState::default();
+        state
+            .snapshot(scope(), vec![row("c1", 1)])
+            .expect("initial revision is available");
+        state.revision = interaction_frame::MAX_SAFE_JSON_INTEGER - 1;
+        state
+            .snapshot(scope(), vec![row("c1", 2)])
+            .expect("the exact-safe maximum itself remains representable");
+        assert_eq!(state.revision, interaction_frame::MAX_SAFE_JSON_INTEGER);
+        let before_rows = state.rows_by_channel.clone();
+        let before_order = state.ordered_channel_ids.clone();
+        let before_unread = state.unread_summary.snapshot_view();
+
+        assert!(
+            state.snapshot(scope(), vec![row("c2", 2)]).is_none(),
+            "overflow must not create a wrapped dialog snapshot"
+        );
+        assert_eq!(state.revision, interaction_frame::MAX_SAFE_JSON_INTEGER);
+        assert_eq!(state.rows_by_channel, before_rows);
+        assert_eq!(state.ordered_channel_ids, before_order);
+        assert_eq!(state.unread_summary.snapshot_view(), before_unread);
+
+        state.revision = 1;
+        state.unread_summary.set_revision_for_test(u64::MAX);
+        assert!(
+            state
+                .patch_from_post_projection(
+                    scope(),
+                    &serde_json::json!({
+                        "channelId": "c1",
+                        "lastMessage": "must not commit",
+                        "lastPostAt": 2,
+                        "dialogPatch": { "unreadCount": 1 }
+                    }),
+                )
+                .is_none(),
+            "unread overflow must suppress the paired dialog patch"
+        );
+        assert_eq!(state.revision, 1);
+        assert_eq!(state.rows_by_channel, before_rows);
+    }
+
+    #[test]
+    fn unsafe_persisted_activity_is_rejected_before_dialog_slots_mutate() {
+        let unsafe_activity = interaction_frame::MAX_SAFE_JSON_INTEGER as i64 + 1;
+        let mut state = DialogListFrameState::default();
+
+        assert!(row_from_dialog_projection(&serde_json::json!({
+            "channelId": "unsafe-row",
+            "lastPostAt": unsafe_activity,
+        }))
+        .is_none());
+        assert!(row_from_dialog_projection(&serde_json::json!({
+            "channelId": "unsafe-u64-row",
+            "lastPostAt": u64::MAX,
+        }))
+        .is_none());
+        assert!(state
+            .snapshot(scope(), vec![row("unsafe-row", unsafe_activity)])
+            .is_none());
+        assert_eq!(state.revision, 0);
+        assert!(state.scope().is_none());
+        assert!(state.rows_by_channel.is_empty());
+        assert!(state.unread_summary.snapshot_view().is_none());
+
+        state
+            .snapshot(scope(), vec![row("c1", 1)])
+            .expect("valid snapshot attaches the slot");
+        let before_rows = state.rows_by_channel.clone();
+        let before_order = state.ordered_channel_ids.clone();
+        let before_unread = state.unread_summary.snapshot_view();
+
+        assert!(state
+            .patch_from_post_projection(
+                scope(),
+                &serde_json::json!({
+                    "channelId": "c1",
+                    "lastPostAt": unsafe_activity,
+                    "dialogPatch": { "unreadCount": 8 }
+                }),
+            )
+            .is_none());
+        assert_eq!(state.revision, 1);
+        assert_eq!(state.rows_by_channel, before_rows);
+        assert_eq!(state.ordered_channel_ids, before_order);
+        assert_eq!(state.unread_summary.snapshot_view(), before_unread);
     }
 
     #[test]
@@ -1098,34 +1694,29 @@ mod tests {
             )
             .expect("known row gets patch");
         let data = data(&frame);
-        assert_eq!(data["data"]["baseRevision"], 1);
+        assert_eq!(surface_mutation(&data)["baseRevision"], 1);
         assert_eq!(
-            data["data"]["patch"]["operations"][0]["set"]["badges"]["unreadCount"],
+            surface_mutation(&data)["mutation"]["kind"],
+            "dialogListPatch"
+        );
+        assert_eq!(
+            surface_mutation(&data)["mutation"]["patch"]["kind"],
+            "replaceView"
+        );
+        assert_eq!(
+            dialog_view(&data)["sections"][0]["items"][0]["unreadCount"],
             4
         );
-        let operations = &data["data"]["patch"]["operations"];
-        assert_eq!(operations[0]["kind"], "upsertRow");
-        assert_eq!(operations[0]["channelId"], "c1");
-        assert!(operations[0].get("channel_id").is_none());
-        assert_eq!(operations[0]["clear"], serde_json::json!([]));
-        assert_eq!(operations[1]["kind"], "moveRow");
-        assert_eq!(operations[1]["channelId"], "c1");
-        assert!(operations[1].get("channel_id").is_none());
-        assert_eq!(operations[1]["toIndex"], 0);
-        assert!(operations[1].get("to_index").is_none());
-    }
-
-    #[test]
-    fn patch_remove_operation_uses_camel_case_contract_fields() {
-        let operation = serde_json::to_value(DialogListPatchOperation::RemoveRow {
-            channel_id: "c1".to_string(),
-        })
-        .expect("patch operation serializes");
-
         assert_eq!(
-            operation,
-            serde_json::json!({ "kind": "removeRow", "channelId": "c1" })
+            dialog_view(&data)["sections"][0]["items"][0]["channelId"],
+            "c1"
         );
+        let unread = &data["data"]["mutations"][1];
+        assert_eq!(unread["surface"], "message.unread-summary");
+        assert_eq!(unread["baseRevision"], 1);
+        assert_eq!(unread["revision"], 2);
+        assert_eq!(unread["mutation"]["kind"], "unreadSummaryPatch");
+        assert_eq!(unread["mutation"]["patch"]["view"]["unreadTotal"], 4);
     }
 
     #[test]
@@ -1146,15 +1737,17 @@ mod tests {
         ];
 
         let mut state = DialogListFrameState::default();
-        let frame = data(&state.snapshot(scope(), vec![direct, group]));
-        let rows = frame["data"]["snapshot"]["rows"].as_array().unwrap();
+        let snapshot = state
+            .snapshot(scope(), vec![direct, group])
+            .expect("initial revision is available");
+        let frame = data(&snapshot);
+        let rows = dialog_view(&frame)["sections"][0]["items"]
+            .as_array()
+            .unwrap();
 
         assert_eq!(rows[0]["channelKind"], "direct");
-        assert_eq!(rows[0]["avatar"]["userIds"], serde_json::json!(["peer"]));
-        assert_eq!(
-            rows[1]["avatar"]["userIds"],
-            serde_json::json!(["u1", "u2", "u3", "u4"])
-        );
+        assert_eq!(rows[0]["avatar"]["fallbackText"], "");
+        assert_eq!(rows[1]["avatar"]["fallbackText"], "group");
     }
 
     #[test]
@@ -1173,13 +1766,13 @@ mod tests {
         );
 
         let mut snapshot_state = DialogListFrameState::default();
-        let snapshot = data(&snapshot_state.snapshot(scope(), vec![group_row]));
-        let snapshot_avatar = &snapshot["data"]["snapshot"]["rows"][0]["avatar"];
-        assert_eq!(snapshot_avatar["kind"], "member-grid");
-        assert_eq!(
-            snapshot_avatar["userIds"],
-            serde_json::json!(["444", "u1", "u2", "u3"])
-        );
+        let snapshot_effect = snapshot_state
+            .snapshot(scope(), vec![group_row])
+            .expect("initial revision is available");
+        let snapshot = data(&snapshot_effect);
+        let snapshot_avatar = &dialog_view(&snapshot)["sections"][0]["items"][0]["avatar"];
+        assert_eq!(snapshot_avatar["resource"], Value::Null);
+        assert_eq!(snapshot_avatar["fallbackText"], "");
 
         let mut state = DialogListFrameState::default();
         state.snapshot(scope(), vec![row("group-picture-users", 1)]);
@@ -1188,12 +1781,9 @@ mod tests {
                 .patch_from_channel_update(scope(), &value)
                 .expect("picture update patches the avatar"),
         );
-        let avatar = &patch["data"]["patch"]["operations"][0]["set"]["avatar"];
-        assert_eq!(avatar["kind"], "member-grid");
-        assert_eq!(
-            avatar["userIds"],
-            serde_json::json!(["444", "u1", "u2", "u3"])
-        );
+        let avatar = &dialog_view(&patch)["sections"][0]["items"][0]["avatar"];
+        assert_eq!(avatar["resource"], Value::Null);
+        assert_eq!(avatar["fallbackText"], "group-picture-users");
     }
 
     #[test]
@@ -1216,11 +1806,11 @@ mod tests {
                 }),
             )
             .expect("explicit false and zero must be emitted");
-        let set = &data(&frame)["data"]["patch"]["operations"][0]["set"];
+        let data = data(&frame);
+        let view = dialog_view(&data);
 
-        assert_eq!(set["memberCount"], 0);
-        assert_eq!(set["state"]["pinned"], false);
-        assert_eq!(set["state"]["muted"], false);
+        assert_eq!(view["sections"][0]["items"][0]["isTop"], false);
+        assert_eq!(view["sections"][0]["items"][0]["notificationMode"], "all");
     }
 
     #[test]
@@ -1251,41 +1841,27 @@ mod tests {
             )
             .expect("known row gets one combined patch");
         let frame_data = data(&frame);
-        let patch = &frame_data["data"]["patch"]["operations"];
-        let set = &patch[0]["set"];
+        let mutation = surface_mutation(&frame_data);
+        let view = dialog_view(&frame_data);
+        let row = &view["sections"][0]["items"][0];
 
-        assert_eq!(frame_data["data"]["baseRevision"], 1);
-        assert_eq!(frame_data["data"]["revision"], 2);
-        assert_eq!(patch.as_array().unwrap().len(), 2);
-        assert_eq!(patch[1]["kind"], "moveRow");
-        assert_eq!(set["title"], "renamed");
-        assert_eq!(set["state"]["pinned"], true);
-        assert_eq!(set["preview"]["text"], "member absolute");
-        assert_eq!(set["badges"]["unreadCount"], 3);
-    }
-
-    #[test]
-    fn canonical_fixture_covers_snapshot_atomic_patch_and_gap_recovery() {
-        let fixture: Value =
-            serde_json::from_str(CANONICAL_FIXTURE).expect("valid canonical fixture");
-        assert_eq!(fixture["schemaVersion"], SCHEMA_VERSION);
-        assert_eq!(fixture["surface"], SURFACE);
-        assert_eq!(fixture["scope"]["viewerUserId"], "444");
-        assert_eq!(fixture["scope"]["teamId"], "team-a");
-
-        let cases = fixture["cases"].as_array().expect("fixture cases");
-        assert_eq!(cases[0]["mode"], "snapshot");
-        assert_eq!(
-            cases[0]["orderedChannelIds"],
-            serde_json::json!(["group-1", "direct-1"])
-        );
-        assert_eq!(cases[1]["baseRevision"], 1);
-        assert_eq!(cases[1]["revision"], 2);
-        assert_eq!(cases[1]["operations"][0]["set"]["badges"]["unreadCount"], 0);
-        assert_eq!(
-            cases[1]["operations"][0]["clear"],
-            serde_json::json!(["topicCount"])
-        );
-        assert_eq!(cases[2]["expected"], "reject-and-request-snapshot");
+        assert_eq!(mutation["baseRevision"], 1);
+        assert_eq!(mutation["revision"], 2);
+        assert_eq!(mutation["mutation"]["kind"], "dialogListPatch");
+        assert_eq!(mutation["mutation"]["patch"]["kind"], "replaceView");
+        assert_eq!(frame_data["data"]["mutations"].as_array().unwrap().len(), 2);
+        let unread = &frame_data["data"]["mutations"][1];
+        assert_eq!(unread["surface"], "message.unread-summary");
+        assert_eq!(unread["mutation"]["patch"]["view"]["unreadTotal"], 3);
+        assert_eq!(unread["mutation"]["patch"]["view"]["mentionTotal"], 1);
+        assert_eq!(unread["mutation"]["patch"]["view"]["urgentTotal"], 1);
+        assert_eq!(row["title"]["text"], "renamed");
+        assert_eq!(row["isTop"], true);
+        assert_eq!(row["preview"]["text"], "member absolute");
+        assert_eq!(row["unreadCount"], 3);
+        interaction_frame::InteractionFrame::decode(
+            &serde_json::to_vec(&frame_data["data"]).expect("interaction frame JSON"),
+        )
+        .expect("live post/member frame must satisfy the public InteractionFrame contract");
     }
 }

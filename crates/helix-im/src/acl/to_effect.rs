@@ -19,8 +19,8 @@ pub use super::projection_message_effects::{
 };
 pub use super::storage_effects::{
     advance_cursor, advance_cursor_op, bump_channel_unread, bump_channel_unread_op,
-    get_channel_row_op, reset_channel_dialog_op, update_channel_partial, upsert_channel_full,
-    upsert_channel_member_dialog, upsert_message,
+    get_channel_row_op, reset_channel_dialog_op, terminal_tombstone_and_cursor_op,
+    update_channel_partial, upsert_channel_full, upsert_channel_member_dialog, upsert_message,
 };
 pub use super::sync_effects::{
     batch_upsert_events, batch_upsert_events_with_messages,

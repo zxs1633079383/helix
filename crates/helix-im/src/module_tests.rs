@@ -2,8 +2,9 @@
 //! A4 hello 握手回放测试（直接断言 `pub(crate)` state）。`#[path]` 子模块：`super` = `module`。
 
 use super::*;
-use helix_core::effect::TransportId;
-use helix_core::tick::InboundBytes;
+use bytes::Bytes;
+use helix_core::effect::{Correlation, TransportId};
+use helix_core::tick::{InboundBytes, PortOutcome, ReplyBytes};
 use helix_core::Effect;
 
 fn module_with_channel() -> ImModule {
@@ -78,6 +79,126 @@ fn runtime_identity_enables_member_projection_without_wire_user_id() {
         }),
         "member 绝对态写入后仍须发布 channel surface 通知"
     );
+}
+
+#[test]
+fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations() {
+    let channel_id = crate::state::test_channel_id(21);
+    let mut m = ImModule::new(ImConfig {
+        auth_user_id: "viewer-a".to_string(),
+        company_id: "team-a".to_string(),
+        ..ImConfig::default()
+    });
+    let mut sink = EffectSink::new();
+    let dialog_corr = Correlation::from_raw(8_001);
+    let message_corr = Correlation::from_raw(8_002);
+    let retained_corr = Correlation::from_raw(8_003);
+    let surface_corr = Correlation::from_raw(8_004);
+
+    m.state
+        .dialog_list_frame
+        .snapshot(
+            crate::dialog_frame::DialogListScope::new("viewer-a", "team-a"),
+            Vec::new(),
+        )
+        .expect("old viewer dialog slot attaches");
+    let timeline_scope = crate::interaction_frame::SurfaceScope::Timeline {
+        channel_id: channel_id.as_str().to_string(),
+        window_token: "latest".to_string(),
+    };
+    m.state
+        .timeline_projector
+        .snapshot_from_render_ready(
+            crate::projector::timeline::TimelineWindowRequest::latest(channel_id.as_str()),
+            &[serde_json::json!({
+                "msgId": "message-a",
+                "channelId": channel_id.as_str(),
+                "userId": "viewer-a",
+                "createAt": 1,
+                "text": "old viewer",
+                "type": "TEXT",
+                "props": {},
+                "actionCapabilities": {},
+            })],
+        )
+        .expect("old viewer timeline slot attaches");
+    m.state
+        .message_query_generations
+        .insert((channel_id, "latest".to_string()), 1);
+    m.state.corr_map.insert(
+        dialog_corr,
+        crate::state::CorrelationContext::DialogListQuery,
+    );
+    m.state.corr_map.insert(
+        message_corr,
+        crate::state::CorrelationContext::MessageQueryLocal {
+            request: Box::new(crate::query::MessageQueryRequest {
+                channel_id,
+                limit: 20,
+                window_token: "latest".to_string(),
+            }),
+            query_session_epoch: m.state.query_session_epoch,
+            query_generation: 1,
+        },
+    );
+    m.state.corr_map.insert(
+        retained_corr,
+        crate::state::CorrelationContext::OutboundReadReply {
+            req_id: "read-stays-owned".to_string(),
+        },
+    );
+    m.state.corr_map.insert(
+        surface_corr,
+        crate::state::CorrelationContext::SurfaceThreadSnapshot {
+            request: crate::surface_runtime::SurfaceResyncRequest {
+                surface: crate::interaction_frame::SurfaceId::MessageThreadDetail,
+                scope: crate::interaction_frame::SurfaceScope::Thread {
+                    channel_id: channel_id.as_str().to_string(),
+                    root_message_id: "message-a".to_string(),
+                },
+            },
+        },
+    );
+
+    let identity = serde_json::json!({
+        "auth_user_id": "viewer-b",
+        "company_id": "team-b"
+    });
+    m.handle(
+        &Tick::Command(helix_core::tick::AppCommand::new(
+            RUNTIME_IDENTITY_COMMAND,
+            serde_json::to_vec(&identity).unwrap(),
+        )),
+        2_000,
+        &mut sink,
+    )
+    .unwrap();
+
+    assert_eq!(m.state.query_session_epoch, 1);
+    assert!(m.state.dialog_list_frame.scope().is_none());
+    assert!(m
+        .state
+        .timeline_projector
+        .current_view(&timeline_scope)
+        .is_none());
+    assert!(m.state.message_query_generations.is_empty());
+    assert!(!m.state.corr_map.contains_key(&dialog_corr));
+    assert!(!m.state.corr_map.contains_key(&message_corr));
+    assert!(!m.state.corr_map.contains_key(&surface_corr));
+    assert!(m.state.corr_map.contains_key(&retained_corr));
+
+    // 回归锚 P1：A 的晚到 scan 已失去 corr，不得用 B 的运行时身份生成 frame。
+    sink.clear();
+    m.handle(
+        &Tick::PortReply {
+            corr: dialog_corr,
+            outcome: PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[]"))),
+        },
+        2_100,
+        &mut sink,
+    )
+    .unwrap();
+    assert!(sink.is_empty());
 }
 
 /// Connected → conn 变 Connecting，且不产 resync Http（现网 Go 握手前 resync 会 401）。

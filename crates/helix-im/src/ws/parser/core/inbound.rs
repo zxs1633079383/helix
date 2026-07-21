@@ -71,7 +71,13 @@ pub fn parse_inbound_value(v: &serde_json::Value) -> Result<EventEnvelope, ImErr
 
     let event_type = data["event_type"].as_u64().unwrap_or(1) as u8;
 
-    let kind = parse_event_kind(event_type);
+    if event_type == 7 {
+        return Err(ImError::Parse(
+            "terminal event type 7 is accepted only through strict sync wire".to_string(),
+        ));
+    }
+
+    let kind = parse_event_kind(event_type)?;
     // HX-C005：字段提取上移此处（`v` 已解析在手），落库路径零再解析、零回序列化。
     // 边界等价铁律：传 ROOT（不是 data）——与历史 parse_inbound 一字不动。
     let fields = extract_post_fields(v);

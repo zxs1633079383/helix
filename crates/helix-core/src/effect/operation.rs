@@ -26,6 +26,19 @@ pub enum Effect {
         ops: Vec<StorageOp>,
     },
 
+    /// 需成功回报的**跨 StorageOp 原子**持久化：带 Correlation。
+    ///
+    /// 与 [`Self::Persist`] 有意分开：`Persist` 保留既有逐操作 fail-fast 语义，不能被悄悄
+    /// 升格为事务；只有调用方明确选择本变体时，driver 才必须把全部写操作放进同一原子提交单元。
+    /// 驱动不具备该能力时必须回 `PortReply::Err`，绝不能降级成普通 `Persist`。
+    ///
+    /// `ops` 仅允许写操作；需要读取结果的业务必须用相关性分成后续 step，避免把读侧语义混入
+    /// 跨平台事务承诺。
+    PersistAtomic {
+        corr: Correlation,
+        ops: Vec<StorageOp>,
+    },
+
     /// 幂等 fire-and-forget 持久化：不带 Correlation，不产出 PortReply。
     ///
     /// ## 约束（强制）

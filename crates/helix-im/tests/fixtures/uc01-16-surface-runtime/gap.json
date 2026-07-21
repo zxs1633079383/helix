@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "transactionId": "patch-gap-transaction",
+  "mutations": [
+    {
+      "surface": "message.unread-summary",
+      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "baseRevision": 1,
+      "revision": 2,
+      "mutation": {
+        "kind": "unreadSummaryPatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": { "unreadTotal": 0, "mentionTotal": 0, "urgentTotal": 0, "unreadChannelCount": 0 }
+        }
+      }
+    },
+    {
+      "surface": "message.left-dialog-list",
+      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "baseRevision": 3,
+      "revision": 4,
+      "mutation": {
+        "kind": "dialogListPatch",
+        "patch": { "kind": "replaceView", "view": { "sections": [], "state": "ready" } }
+      }
+    }
+  ]
+}

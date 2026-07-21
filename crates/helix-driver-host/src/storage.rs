@@ -242,6 +242,17 @@ impl Storage for HostStorage {
         self.record_storage_result("batch_delete", rows, started, &result);
         result
     }
+
+    async fn atomic_write(&self, ops: Vec<helix_core::effect::StorageOp>) -> Result<(), PortError> {
+        if !self.metrics.is_enabled() {
+            return write::atomic_write(self, ops).await;
+        }
+        let operation_count = ops.len();
+        let started = Instant::now();
+        let result = write::atomic_write(self, ops).await;
+        self.record_storage_result("atomic_write", operation_count, started, &result);
+        result
+    }
 }
 
 impl HostStorage {

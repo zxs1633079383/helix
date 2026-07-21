@@ -13,11 +13,16 @@ use helix_im::query::LocalStoreMode;
 use serde_json::{json, Value};
 
 fn query_tick(channel: u64, limit: u32) -> Tick {
+    query_tick_with_window(channel, limit, "latest")
+}
+
+fn query_tick_with_window(channel: u64, limit: u32, window_token: &str) -> Tick {
     Tick::Command(AppCommand::new(
         "im_query_messages_by_channel",
         serde_json::to_vec(&json!({
             "channel_id": cid(channel),
             "limit": limit,
+            "windowToken": window_token,
         }))
         .unwrap(),
     ))
@@ -110,6 +115,31 @@ fn emitted_values(effects: &[Effect]) -> Vec<Value> {
         .collect()
 }
 
+/// local-first 的唯一终态出口是完整 `message.timeline` Frame；首 attach 为 snapshot，已 attach
+/// 的权威重查为 replace-view patch。测试不得再从历史 raw `im:messages:query_result` /
+/// `im:post:increment-failed` 读取行或失败信息。
+fn timeline_view(event: &Value) -> &Value {
+    assert_eq!(event["event"], "im:interaction:frame");
+    assert_eq!(event["data"]["schemaVersion"], 1);
+    let mutation = event["data"]["mutations"]
+        .as_array()
+        .expect("InteractionFrame mutations")
+        .iter()
+        .find(|mutation| mutation["surface"] == "message.timeline")
+        .expect("local-first terminal must include message.timeline");
+    match mutation["mutation"]["kind"].as_str() {
+        Some("timelineSnapshot") => &mutation["mutation"]["view"],
+        Some("timelinePatch") => &mutation["mutation"]["patch"]["view"],
+        other => panic!("expected timeline snapshot/patch, got {other:?}"),
+    }
+}
+
+fn timeline_items(event: &Value) -> &[Value] {
+    timeline_view(event)["items"]
+        .as_array()
+        .expect("TimelineWindowVm items")
+}
+
 #[test]
 fn durable_complete_after_proven_cached_window_uses_local_only() {
     let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Durable);
@@ -149,8 +179,7 @@ fn durable_complete_after_proven_cached_window_uses_local_only() {
         vec![EffectKind::Emit]
     );
     let events = emitted_values(harness.sink.as_slice());
-    assert_eq!(events[0]["event"], "im:messages:query_result");
-    assert_eq!(events[0]["data"]["messages"][0]["msgId"], sid(1));
+    assert_eq!(timeline_items(&events[0])[0]["id"], sid(1));
 
     harness.step(query_tick(1, 2), 2_000);
     let second_scan_corr = corr_for_persist(harness.sink.as_slice());
@@ -172,8 +201,9 @@ fn durable_complete_after_proven_cached_window_uses_local_only() {
         "显式 coverage 对得上时必须零 HTTP"
     );
     let projection = &emitted_values(harness.sink.as_slice())[0];
-    assert_eq!(projection["data"]["messages"][0]["msgId"], sid(1));
-    assert_eq!(projection["data"]["messages"][1]["msgId"], sid(2));
+    let items = timeline_items(projection);
+    assert_eq!(items[0]["id"], sid(1));
+    assert_eq!(items[1]["id"], sid(2));
 }
 
 #[test]
@@ -218,16 +248,12 @@ fn durable_partial_merges_remote_over_local_deduped_and_ordered() {
     harness.step(port_reply_ok(cache_corr), 1_300);
 
     let projection = &emitted_values(harness.sink.as_slice())[0];
-    let messages = projection["data"]["messages"].as_array().unwrap();
+    let messages = timeline_items(projection);
     assert_eq!(messages.len(), 21, "同 server id/temporaryId 必须去重");
-    assert_eq!(
-        messages[0]["msgId"],
-        sid(30),
-        "旧本地行只能补在权威窗口之前"
-    );
-    assert_eq!(messages[1]["msgId"], sid(1));
-    assert_eq!(messages[1]["text"], "remote-wins");
-    assert_eq!(messages[20]["msgId"], sid(20));
+    assert_eq!(messages[0]["id"], sid(30), "旧本地行只能补在权威窗口之前");
+    assert_eq!(messages[1]["id"], sid(1));
+    assert_eq!(messages[1]["content"]["text"], "remote-wins");
+    assert_eq!(messages[20]["id"], sid(20));
 }
 
 #[test]
@@ -261,12 +287,11 @@ fn session_miss_caches_before_emitting_result() {
         vec![EffectKind::Emit]
     );
     let events = emitted_values(harness.sink.as_slice());
-    assert_eq!(events[0]["event"], "im:messages:query_result");
-    assert_eq!(events[0]["data"]["messages"][0]["msgId"], sid(1));
+    assert_eq!(timeline_items(&events[0])[0]["id"], sid(1));
 }
 
 #[test]
-fn remote_quick_reply_is_merged_into_render_ready_props() {
+fn remote_quick_reply_does_not_leak_raw_props_past_typed_timeline_boundary() {
     let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Session);
     harness.step(query_tick(1, 20), 1_000);
     let scan_corr = corr_for_persist(harness.sink.as_slice());
@@ -286,11 +311,11 @@ fn remote_quick_reply_is_merged_into_render_ready_props() {
     harness.step(port_reply_ok(cache_corr), 1_300);
 
     let projection = &emitted_values(harness.sink.as_slice())[0];
-    let row = &projection["data"]["messages"][0];
-    assert_eq!(row["props"]["channel_event_seq"], 2);
-    assert_eq!(row["props"]["quickReply"][":thumbsup:"][0], "444");
-    assert_eq!(row["reactions"], ":thumbsup:");
-    assert_eq!(row["reactionCount"], 1);
+    let row = &timeline_items(projection)[0];
+    assert_eq!(row["id"], sid(1));
+    assert!(row.get("props").is_none());
+    assert!(row.get("reactions").is_none());
+    assert!(row.get("reactionCount").is_none());
 }
 
 #[test]
@@ -332,15 +357,10 @@ fn http_status_failure_emits_explicit_failure_not_empty_success() {
 
     let events = emitted_values(harness.sink.as_slice());
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["event"], "im:post:increment-failed");
-    assert_eq!(events[0]["data"]["channelId"], cid(1));
-    assert!(events[0]["data"]["error"]
-        .as_str()
-        .unwrap()
-        .contains("HTTP status 503"));
-    assert!(events
-        .iter()
-        .all(|event| event["event"] != "im:messages:query_result"));
+    let timeline = timeline_view(&events[0]);
+    assert_eq!(timeline["channelId"], cid(1));
+    assert_eq!(timeline["state"], "failed");
+    assert!(timeline["items"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -388,9 +408,9 @@ fn exhausted_remote_empty_drops_stale_server_rows_and_keeps_optimistic_row() {
     let cache_corr = corr_for_persist(harness.sink.as_slice());
     harness.step(port_reply_ok(cache_corr), 1_300);
     let events = emitted_values(harness.sink.as_slice());
-    let messages = events[0]["data"]["messages"].as_array().unwrap();
+    let messages = timeline_items(&events[0]);
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0]["temporaryId"], "tmp-optimistic");
+    assert_eq!(messages[0]["id"], "tmp-optimistic");
 }
 
 #[test]
@@ -449,6 +469,61 @@ fn disconnect_drops_late_scan_http_and_cache_replies() {
 }
 
 #[test]
+fn later_same_window_query_drops_older_remote_reply() {
+    let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Session);
+
+    harness.step(query_tick_with_window(1, 20, "focus-window"), 1_000);
+    let old_scan_corr = corr_for_persist(harness.sink.as_slice());
+    harness.step(
+        port_reply_with_body(old_scan_corr, Bytes::from_static(b"[]")),
+        1_100,
+    );
+    let old_http_corr = corr_for_http(harness.sink.as_slice());
+
+    // 同一 `(channel, windowToken)` 新请求在旧 HTTP 回包之前开始，必须让旧代际失效。
+    harness.step(query_tick_with_window(1, 20, "focus-window"), 1_200);
+    let current_scan_corr = corr_for_persist(harness.sink.as_slice());
+    harness.step(
+        port_reply_with_body(current_scan_corr, Bytes::from_static(b"[]")),
+        1_300,
+    );
+    let current_http_corr = corr_for_http(harness.sink.as_slice());
+
+    assert!(harness
+        .step(
+            port_reply_with_body(
+                old_http_corr,
+                latest_posts_reply(vec![remote_post(&sid(1), "tmp-old", 100, "old")]),
+            ),
+            1_400,
+        )
+        .is_empty());
+    assert!(emitted_values(harness.sink.as_slice()).is_empty());
+
+    assert!(matches!(
+        harness
+            .step(
+                port_reply_with_body(
+                    current_http_corr,
+                    latest_posts_reply(vec![remote_post(&sid(2), "tmp-current", 200, "current")]),
+                ),
+                1_500,
+            )
+            .as_slice(),
+        [EffectKind::Persist(_)]
+    ));
+    let current_cache_corr = corr_for_persist(harness.sink.as_slice());
+    assert_eq!(
+        harness.step(port_reply_ok(current_cache_corr), 1_600),
+        vec![EffectKind::Emit]
+    );
+    let events = emitted_values(harness.sink.as_slice());
+    let timeline = timeline_view(&events[0]);
+    assert_eq!(timeline["page"]["windowToken"], "focus-window");
+    assert_eq!(timeline["items"][0]["id"], sid(2));
+}
+
+#[test]
 fn cache_failure_emits_remote_result_but_does_not_create_coverage() {
     let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Session);
     harness.step(query_tick(1, 2), 1_000);
@@ -471,8 +546,7 @@ fn cache_failure_emits_remote_result_but_does_not_create_coverage() {
         vec![EffectKind::Emit]
     );
     let events = emitted_values(harness.sink.as_slice());
-    assert_eq!(events[0]["event"], "im:messages:query_result");
-    assert_eq!(events[0]["data"]["messages"][0]["msgId"], sid(1));
+    assert_eq!(timeline_items(&events[0])[0]["id"], sid(1));
 
     harness.step(query_tick(1, 2), 2_000);
     let scan_corr = corr_for_persist(harness.sink.as_slice());
@@ -561,10 +635,10 @@ fn cross_channel_remote_post_is_rejected_without_cache_or_success_projection() {
     );
     assert_eq!(effects, vec![EffectKind::Emit]);
     let events = emitted_values(harness.sink.as_slice());
-    assert_eq!(events[0]["event"], "im:post:increment-failed");
-    assert!(events
-        .iter()
-        .all(|event| event["event"] != "im:messages:query_result"));
+    let timeline = timeline_view(&events[0]);
+    assert_eq!(timeline["channelId"], cid(1));
+    assert_eq!(timeline["state"], "failed");
+    assert!(timeline["items"].as_array().unwrap().is_empty());
     assert!(harness
         .sink
         .as_slice()

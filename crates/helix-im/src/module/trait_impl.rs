@@ -37,12 +37,33 @@ impl Module for ImModule {
                                 source: Box::new(crate::error::ImError::Parse(error.to_string())),
                             }
                         })?;
-                    if let Some(auth_user_id) = identity.auth_user_id {
-                        self.config.auth_user_id = auth_user_id;
+                    let auth_user_id = identity
+                        .auth_user_id
+                        .unwrap_or_else(|| self.config.auth_user_id.clone());
+                    let company_id = identity
+                        .company_id
+                        .unwrap_or_else(|| self.config.company_id.clone());
+                    if auth_user_id != self.config.auth_user_id
+                        || company_id != self.config.company_id
+                    {
+                        self.state.reset_surface_runtime_for_identity_change();
                     }
-                    if let Some(company_id) = identity.company_id {
-                        self.config.company_id = company_id;
-                    }
+                    self.config.auth_user_id = auth_user_id;
+                    self.config.company_id = company_id;
+                }
+                crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND => {
+                    self.handle_action_invocation(cmd.payload.as_ref(), now_ms, out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
+                crate::surface_runtime::SURFACE_RESYNC_COMMAND => {
+                    self.handle_surface_resync(cmd.payload.as_ref(), now_ms, out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
                 }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)

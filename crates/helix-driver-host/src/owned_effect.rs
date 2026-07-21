@@ -24,6 +24,10 @@ pub enum OwnedEffect {
         corr: Correlation,
         ops: Vec<StorageOp>,
     },
+    PersistAtomic {
+        corr: Correlation,
+        ops: Vec<StorageOp>,
+    },
     PersistFire {
         ops: Vec<StorageOp>,
     },
@@ -95,6 +99,10 @@ pub fn consume_effect_batch(effects: &[Effect]) -> OwnedEffectBatch {
                 corr: *corr,
                 ops: ops.clone(),
             },
+            Effect::PersistAtomic { corr, ops } => OwnedEffect::PersistAtomic {
+                corr: *corr,
+                ops: ops.clone(),
+            },
             Effect::PersistFire { ops } => OwnedEffect::PersistFire { ops: ops.clone() },
             Effect::Http { corr, req } => OwnedEffect::Http {
                 corr: *corr,
@@ -133,9 +141,9 @@ pub fn consume_effect_batch(effects: &[Effect]) -> OwnedEffectBatch {
 fn effect_bytes(effect: &Effect) -> usize {
     match effect {
         Effect::Send { frame, .. } => frame.len(),
-        Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
-            ops.len() * std::mem::size_of::<StorageOp>()
-        }
+        Effect::Persist { ops, .. }
+        | Effect::PersistAtomic { ops, .. }
+        | Effect::PersistFire { ops } => ops.len() * std::mem::size_of::<StorageOp>(),
         Effect::Http { req, .. } | Effect::HttpFire { req } => {
             req.body.as_ref().map_or(0, Bytes::len)
         }

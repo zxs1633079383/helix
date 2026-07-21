@@ -136,32 +136,94 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
         {"id":"ch-direct","display_name":"张英","type":"D","member_count":2,"unread_count":0,"last_post_at":1}
     ])).unwrap();
     let mut state = crate::dialog_frame::DialogListFrameState::default();
-    let value = emit_json(emit_dialog_list_frame_result(
+    let frame = emit_dialog_list_frame_result(
         &rows,
         crate::dialog_frame::DialogListScope::new("444", "team-a"),
         &mut state,
-    ))
-    .expect("frame emit");
+    )
+    .expect("initial revision is available");
+    let value = emit_json(frame).expect("frame emit");
 
     assert_eq!(value["event"], "im:interaction:frame");
-    assert_eq!(value["data"]["surface"], "message.left-dialog-list");
-    assert_eq!(value["data"]["scope"]["viewerUserId"], "444");
-    assert_eq!(value["data"]["mode"], "snapshot");
+    assert_eq!(value["data"]["schemaVersion"], 1);
+    let mutation = &value["data"]["mutations"][0];
+    assert_eq!(mutation["surface"], "message.left-dialog-list");
+    assert_eq!(mutation["scope"]["userId"], "444");
+    assert_eq!(mutation["mutation"]["kind"], "dialogListSnapshot");
     assert_eq!(
-        value["data"]["snapshot"]["orderedChannelIds"],
-        serde_json::json!(["ch-group", "ch-direct"])
+        mutation["mutation"]["view"]["sections"]
+            .as_array()
+            .expect("dialog sections")
+            .iter()
+            .flat_map(|section| {
+                section["items"]
+                    .as_array()
+                    .expect("section rows")
+                    .iter()
+                    .map(|row| row["channelId"].clone())
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            serde_json::json!("ch-group"),
+            serde_json::json!("ch-direct")
+        ]
     );
     assert_eq!(
-        value["data"]["snapshot"]["rows"][0]["badges"]["unreadCount"],
+        mutation["mutation"]["view"]["sections"][0]["items"][0]["unreadCount"],
         4
     );
     assert_eq!(
-        value["data"]["snapshot"]["rows"][0]["preview"]["text"],
+        mutation["mutation"]["view"]["sections"][0]["items"][0]["preview"]["text"],
         "交互稿已上传"
     );
-    assert!(value["data"]["snapshot"]["rows"][0]
+    let unread = &value["data"]["mutations"][1];
+    assert_eq!(unread["surface"], "message.unread-summary");
+    assert_eq!(unread["mutation"]["kind"], "unreadSummarySnapshot");
+    assert_eq!(unread["mutation"]["view"]["unreadTotal"], 4);
+    assert_eq!(unread["mutation"]["view"]["mentionTotal"], 1);
+    assert_eq!(unread["mutation"]["view"]["urgentTotal"], 2);
+    assert!(mutation["mutation"]["view"]["sections"][0]["items"][0]
         .get("topicRows")
         .is_none());
+}
+
+#[test]
+fn unsafe_dialog_scan_row_suppresses_the_entire_snapshot_without_partial_commit() {
+    let valid_rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch-safe","display_name":"安全会话","type":"P","last_post_at":1}
+    ]))
+    .unwrap();
+    let mut state = crate::dialog_frame::DialogListFrameState::default();
+    emit_dialog_list_frame_result(
+        &valid_rows,
+        crate::dialog_frame::DialogListScope::new("444", "team-a"),
+        &mut state,
+    )
+    .expect("initial snapshot");
+
+    let mixed_rows = serde_json::to_vec(&serde_json::json!([
+        {"id":"ch-safe","display_name":"安全会话","type":"P","last_post_at":2},
+        {"id":"ch-unsafe","display_name":"不可表示会话","type":"P","last_post_at":u64::MAX}
+    ]))
+    .unwrap();
+    assert!(
+        emit_dialog_list_frame_result(
+            &mixed_rows,
+            crate::dialog_frame::DialogListScope::new("444", "team-a"),
+            &mut state,
+        )
+        .is_none(),
+        "one unsafe persisted row must not publish a partial authoritative list"
+    );
+
+    let next = emit_dialog_list_frame_result(
+        &valid_rows,
+        crate::dialog_frame::DialogListScope::new("444", "team-a"),
+        &mut state,
+    )
+    .expect("a later valid scan remains usable");
+    let value = emit_json(next).expect("frame emit");
+    assert_eq!(value["data"]["mutations"][0]["revision"], 2);
 }
 
 #[test]

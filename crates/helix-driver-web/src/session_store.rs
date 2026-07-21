@@ -197,6 +197,22 @@ impl WebSessionStore {
         outcome
     }
 
+    /// Execute the write-only contract behind `Effect::PersistAtomic`.
+    ///
+    /// Keep `execute_ops_atomic` unchanged for legacy `PersistFire`; the correlated primitive
+    /// rejects reads explicitly so a PortReply means one all-write transaction committed.
+    pub fn execute_atomic_write(&self, ops: &[StorageOp]) -> PortOutcome {
+        if ops
+            .iter()
+            .any(|op| matches!(op, StorageOp::Get(_) | StorageOp::Scan(_)))
+        {
+            return PortOutcome::Err(classify_port_error(storage_error(
+                "atomic storage write does not permit read operations",
+            )));
+        }
+        self.execute_ops_atomic(ops)
+    }
+
     pub fn row_count(&self, table: &'static str) -> Result<usize, PortError> {
         let state = self.lock()?;
         Ok(self.table(&state, table)?.rows.len())
@@ -1488,5 +1504,43 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&bytes).expect("rows JSON");
         assert_eq!(value.as_array().map(Vec::len), Some(1));
         assert_eq!(value[0]["temporary_id"], "tmp-1");
+    }
+
+    #[test]
+    fn terminal_atomic_write_rolls_back_marker_and_rejects_read_ops() {
+        let store = new_store(limits());
+        let terminal = helix_im::acl::to_effect::terminal_tombstone_and_cursor_op(
+            helix_im::state::ChannelId::from_str("ch00000000000000000000001a")
+                .expect("valid terminal channel id"),
+            helix_im::state::Seq(7),
+        );
+        let failed = store.execute_atomic_write(&[
+            terminal.clone(),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "table_that_does_not_exist",
+                key_col: "id",
+                key_vals: vec![text("never")],
+                patch: vec![("state".into(), text("closed"))],
+            }),
+        ]);
+        assert!(matches!(failed, PortOutcome::Err(_)));
+        let state = store
+            .state
+            .lock()
+            .expect("inspect rolled-back session state");
+        assert_eq!(
+            state.tables["channel_event_cursor"].rows.len(),
+            0,
+            "failed atomic batch must roll back the tombstone marker"
+        );
+
+        let read_store = new_store(limits());
+        let read_rejected = read_store.execute_atomic_write(&[StorageOp::Scan(ScanSpec {
+            table: "channel_event_cursor",
+            limit: None,
+            filter: None,
+            order_by: &[],
+        })]);
+        assert!(matches!(read_rejected, PortOutcome::Err(_)));
     }
 }

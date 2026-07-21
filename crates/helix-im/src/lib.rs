@@ -32,6 +32,7 @@ mod forward_shape;
 pub mod http_envelope;
 mod http_outcome;
 mod increment_hydration;
+pub mod interaction_frame;
 mod message_capabilities;
 pub mod mobile_contract;
 pub mod module;
@@ -41,6 +42,7 @@ pub mod parser {
 }
 mod port_reply;
 mod port_reply_emit;
+pub mod projector;
 pub mod query;
 pub use query::read_relay;
 pub use query::render_ready::candidates as render_ready_candidates;
@@ -50,6 +52,7 @@ pub use query::render_ready::members as render_ready_members;
 pub use query::render_ready::replies as render_ready_replies;
 pub mod schema;
 pub mod send;
+pub mod surface_runtime;
 pub use send::pending as pending_send;
 pub use send::pong_compensate;
 pub use send::reconcile as send_reconcile;

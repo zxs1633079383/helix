@@ -90,6 +90,7 @@ pub fn sync_mutation_emits_with_auth(
                     ));
                 }
             }
+            EventKind::ChannelTerminalClosed => {}
             EventKind::Other(_) => {}
         }
     }
@@ -163,6 +164,7 @@ pub fn batch_upsert_events_with_messages_and_auth(
                     }
                 }
             }
+            EventKind::ChannelTerminalClosed => {}
             EventKind::Other(_) => {}
         }
     }

@@ -64,6 +64,22 @@ where
     PortOutcome::Ok(ReplyBytes(last_ok_bytes))
 }
 
+/// Execute a write-only StorageOp batch as one explicit transaction.
+///
+/// This is intentionally separate from [`execute_storage_ops`]: ordinary `Effect::Persist`
+/// keeps its legacy per-operation behavior, while `Effect::PersistAtomic` either commits every
+/// operation or reports an error. Drivers without `Storage::atomic_write` fail closed via the
+/// port's default implementation.
+pub async fn execute_storage_ops_atomic<S>(storage: &S, ops: &[StorageOp]) -> PortOutcome
+where
+    S: Storage + ?Sized,
+{
+    match storage.atomic_write(ops.to_vec()).await {
+        Ok(()) => PortOutcome::Ok(ReplyBytes::default()),
+        Err(error) => PortOutcome::Err(classify_port_error(error)),
+    }
+}
+
 /// Compute the per-table-set routing key used by ordered persist workers.
 pub fn table_set_key(ops: &[StorageOp]) -> String {
     if ops.is_empty() {

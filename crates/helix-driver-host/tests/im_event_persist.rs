@@ -11,9 +11,10 @@
 //! 喂 `event_to_upsert_op` / `batch_upsert_events` 产物，**断言 `message` 表真有行**
 //! （而非断 Effect 字符串）。表名错配 / 缺列 / PK 撞键任一回归都会让此测试红。
 
-use helix_core::effect::{ScanSpec, SqlValue};
+use helix_core::effect::{BatchUpdateSpec, GetSpec, ScanSpec, SqlValue, StorageOp};
 use helix_core::ports::Storage;
-use helix_driver_host::HostStorage;
+use helix_driver_host::{execute_storage_ops_atomic, HostStorage};
+use helix_im::acl::to_effect::terminal_tombstone_and_cursor_op;
 use helix_im::channel::event_to_upsert_op;
 use helix_im::state::{ChannelId, Seq};
 use helix_im::sync_session::{EventEnvelope, EventKind, PostFields};
@@ -477,4 +478,59 @@ async fn durable_failed_message_rehydrates_retry_after_module_restart() {
         "sending",
         "真实 SQLite 失败行必须在续发时恢复 sending"
     );
+}
+
+/// T095：Host SQLite 必须把 closed marker 与 cursor 放在同一笔事务。后续任一写失败时，
+/// 先前的 tombstone upsert 必须回滚，不能留下「已关闭但 cursor 未确认」的半状态。
+#[tokio::test]
+async fn terminal_tombstone_atomic_write_commits_or_rolls_back_as_one_host_transaction() {
+    let storage = storage_with_im_schema().await;
+    let channel = channel_id(71);
+    let terminal = terminal_tombstone_and_cursor_op(channel, Seq(42));
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            terminal.clone(),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "table_that_does_not_exist",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text("never".to_string())],
+                patch: vec![("state".to_string(), SqlValue::Text("closed".to_string()))],
+            }),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(
+        storage
+            .get(GetSpec {
+                table: "channel_event_cursor",
+                key_col: "channel_id",
+                key_val: SqlValue::Text(channel.as_str().to_string()),
+            })
+            .await
+            .expect("rollback verification query")
+            .is_none(),
+        "failed atomic batch must not leave a terminal marker behind"
+    );
+
+    let committed = execute_storage_ops_atomic(&storage, &[terminal]).await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+    let row = storage
+        .get(GetSpec {
+            table: "channel_event_cursor",
+            key_col: "channel_id",
+            key_val: SqlValue::Text(channel.as_str().to_string()),
+        })
+        .await
+        .expect("committed cursor query")
+        .expect("terminal cursor row");
+    assert!(matches!(
+        col(&row, "last_event_seq"),
+        Some(SqlValue::Integer(42))
+    ));
+    assert!(matches!(
+        col(&row, "terminal_event_seq"),
+        Some(SqlValue::Integer(42))
+    ));
 }

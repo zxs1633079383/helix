@@ -182,7 +182,9 @@ pub fn enqueue_and_drain_with_trigger(
     for &channel_id in targets {
         // 跳过已在途（per-channel 守卫）/ 已注销 channel：与旧 emit_proactive_resync_for 同口径。
         match state.channels.get(&channel_id) {
-            Some(ch) if ch.inflight_sync.is_some() => continue,
+            // A type7 tombstone is terminal for this local channel. Do not issue another sync that could
+            // replay late nonterminal events into an already closed surface.
+            Some(ch) if ch.is_terminal() || ch.inflight_sync.is_some() => continue,
             Some(_) => {}
             None => continue,
         }

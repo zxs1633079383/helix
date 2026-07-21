@@ -270,6 +270,16 @@ pub fn event_to_storage_op(ev: &EventEnvelope) -> StorageOp {
         EventKind::PostEdit => edit_content_op(msg_id, &ev.fields),
         EventKind::PostRevoke => revoke_op(msg_id),
         EventKind::PostRead => apply_read_op(msg_id, ev.fields.read_bits.as_str()),
+        // type7 is intercepted by sync::flow and committed via PersistAtomic. Keep this defensive
+        // no-op for callers that accidentally bypass that boundary; it must never materialize a post.
+        EventKind::ChannelTerminalClosed => {
+            StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec {
+                table: "message",
+                key_col: "id",
+                key_vals: Vec::new(),
+                patch: Vec::new(),
+            })
+        }
         // 未知类型：cursor 推进但不落 message（phantom 同口径，HX-C008）。空 patch no-op。
         EventKind::Other(_) => StorageOp::BatchUpdate(helix_core::effect::BatchUpdateSpec {
             table: "message",

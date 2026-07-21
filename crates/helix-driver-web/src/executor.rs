@@ -21,6 +21,10 @@ pub enum WebOwnedEffect {
         corr: Correlation,
         ops: Vec<StorageOp>,
     },
+    PersistAtomic {
+        corr: Correlation,
+        ops: Vec<StorageOp>,
+    },
     PersistFire {
         ops: Vec<StorageOp>,
     },
@@ -103,6 +107,10 @@ impl From<&Effect> for WebOwnedEffect {
                 frame: frame.clone(),
             },
             Effect::Persist { corr, ops } => Self::Persist {
+                corr: *corr,
+                ops: ops.clone(),
+            },
+            Effect::PersistAtomic { corr, ops } => Self::PersistAtomic {
                 corr: *corr,
                 ops: ops.clone(),
             },

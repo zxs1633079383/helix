@@ -3,8 +3,7 @@
 //! 这里只编排业务意图：本地覆盖判定、远端 `getLatestPost`、合并、缓存与统一投影。
 //! Storage/HTTP 的物理执行仍由平台 driver 兑现。
 
-use bytes::Bytes;
-use helix_core::effect::{DomainEventBytes, Effect};
+use helix_core::effect::Effect;
 use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
 use serde_json::Value;
@@ -22,7 +21,7 @@ pub(crate) use data::parse_latest_posts_body;
 #[cfg(test)]
 use data::server_id;
 use data::{
-    classify_local_read, dedup_recent_rows, merge_recent_rows, message_key, message_result_effect,
+    classify_local_read, dedup_recent_rows, merge_recent_rows, message_key,
     parse_latest_posts_reply, parse_local_rows, sort_recent_rows_desc,
     stale_local_server_rows_delete_op, visible_remote_rows_and_cache_ops,
 };
@@ -91,8 +90,11 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let request = super::parse_message_query(payload)?;
+        let query_generation = self
+            .state
+            .begin_message_query_generation(request.channel_id, request.window_token.as_str());
         if self.local_store_mode == LocalStoreMode::Disabled {
-            return self.start_remote_message_query(request, Vec::new(), out);
+            return self.start_remote_message_query(request, Vec::new(), query_generation, out);
         }
 
         let corr = self.alloc_corr_internal();
@@ -102,6 +104,7 @@ impl ImModule {
             CorrelationContext::MessageQueryLocal {
                 request: Box::new(request),
                 query_session_epoch: self.state.query_session_epoch,
+                query_generation,
             },
         );
         Ok(())
@@ -111,10 +114,17 @@ impl ImModule {
         &mut self,
         request: MessageQueryRequest,
         query_session_epoch: u64,
+        query_generation: u64,
+        now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if query_session_epoch != self.state.query_session_epoch {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         let mut local_rows_desc = match outcome {
@@ -155,14 +165,10 @@ impl ImModule {
         );
 
         if coverage == LocalReadCoverage::Complete {
-            out.push(message_result_effect(
-                &request,
-                &local_rows_desc,
-                self.config.auth_user_id.as_str(),
-            )?);
+            out.push(self.emit_timeline_snapshot(&request, &local_rows_desc, now_ms)?);
             return Ok(());
         }
-        self.start_remote_message_query(request, local_rows_desc, out)
+        self.start_remote_message_query(request, local_rows_desc, query_generation, out)
     }
 
     pub(crate) fn handle_message_query_remote_reply(
@@ -170,10 +176,17 @@ impl ImModule {
         request: MessageQueryRequest,
         local_rows_desc: Vec<Value>,
         query_session_epoch: u64,
+        query_generation: u64,
+        now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if query_session_epoch != self.state.query_session_epoch {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         let reply = match outcome {
@@ -184,10 +197,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback failed"
                 );
-                out.push(emit_message_query_failed(
-                    request.channel_id,
-                    format!("remote request failed: {error:?}"),
-                ));
+                out.push(self.emit_timeline_failed(&request, now_ms)?);
                 return Ok(());
             }
         };
@@ -200,10 +210,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback returned invalid response"
                 );
-                out.push(emit_message_query_failed(
-                    request.channel_id,
-                    error.to_string(),
-                ));
+                out.push(self.emit_timeline_failed(&request, now_ms)?);
                 return Ok(());
             }
         };
@@ -220,10 +227,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback contained invalid posts"
                 );
-                out.push(emit_message_query_failed(
-                    request.channel_id,
-                    error.to_string(),
-                ));
+                out.push(self.emit_timeline_failed(&request, now_ms)?);
                 return Ok(());
             }
         };
@@ -249,11 +253,7 @@ impl ImModule {
         );
 
         if self.local_store_mode == LocalStoreMode::Disabled || cache_ops.is_empty() {
-            out.push(message_result_effect(
-                &request,
-                &merged_rows_desc,
-                self.config.auth_user_id.as_str(),
-            )?);
+            out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc, now_ms)?);
             return Ok(());
         }
 
@@ -269,6 +269,7 @@ impl ImModule {
                 merged_rows_desc: Box::new(merged_rows_desc),
                 coverage,
                 query_session_epoch,
+                query_generation,
             },
         );
         Ok(())
@@ -280,15 +281,27 @@ impl ImModule {
         merged_rows_desc: Vec<Value>,
         coverage: Option<RecentMessageCoverage>,
         query_session_epoch: u64,
+        query_generation: u64,
+        now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if query_session_epoch != self.state.query_session_epoch {
+        if !self.is_current_message_query(
+            request.channel_id,
+            &request.window_token,
+            query_session_epoch,
+            query_generation,
+        ) {
             return Ok(());
         }
         match outcome {
             PortOutcome::Ok(_) => {
-                if query_session_epoch == self.state.query_session_epoch {
+                if self.is_current_message_query(
+                    request.channel_id,
+                    &request.window_token,
+                    query_session_epoch,
+                    query_generation,
+                ) {
                     if let Some(coverage) = coverage {
                         self.state
                             .recent_message_coverage
@@ -302,11 +315,7 @@ impl ImModule {
                 "message query remote cache failed; returning remote result without coverage"
             ),
         }
-        out.push(message_result_effect(
-            &request,
-            &merged_rows_desc,
-            self.config.auth_user_id.as_str(),
-        )?);
+        out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc, now_ms)?);
         Ok(())
     }
 
@@ -314,6 +323,7 @@ impl ImModule {
         &mut self,
         request: MessageQueryRequest,
         local_rows_desc: Vec<Value>,
+        query_generation: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
@@ -351,6 +361,7 @@ impl ImModule {
                 request: Box::new(request),
                 local_rows_desc: Box::new(local_rows_desc),
                 query_session_epoch: self.state.query_session_epoch,
+                query_generation,
             },
         );
         Ok(())
@@ -367,23 +378,109 @@ impl ImModule {
             .is_some_and(|target| channel.cursor.value() < *target);
         behind_target || channel.inflight_sync.is_some() || !channel.buffer.is_empty()
     }
-}
 
-/// 最近消息查询的显式失败状态；与成功投影分离，禁止用空列表伪装失败。
-pub fn emit_message_query_failed(channel_id: ChannelId, error: String) -> Effect {
-    let payload = serde_json::json!({
-        "event": "im:post:increment-failed",
-        "data": {
-            "channelId": channel_id.as_str(),
-            "error": error,
+    fn is_current_message_query(
+        &self,
+        channel_id: ChannelId,
+        window_token: &str,
+        query_session_epoch: u64,
+        query_generation: u64,
+    ) -> bool {
+        query_session_epoch == self.state.query_session_epoch
+            && self.state.is_current_message_query_generation(
+                channel_id,
+                window_token,
+                query_generation,
+            )
+    }
+
+    /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。
+    /// `rows_desc` 是当前有界窗口的倒序查询结果；这里反转一次并交给 typed projector，端侧不再
+    /// 消费 `im:messages:query_result` 或 raw storage row。
+    fn emit_timeline_snapshot(
+        &mut self,
+        request: &MessageQueryRequest,
+        rows_desc: &[Value],
+        now_ms: u64,
+    ) -> Result<Effect, ImError> {
+        let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
+        let shaped = crate::render_ready::shape_message_rows_for_viewer(
+            &rows_asc,
+            self.config.auth_user_id.as_str(),
+        );
+        let rows = shaped.as_array().ok_or_else(|| {
+            ImError::Parse("render-ready timeline rows must be an array".to_string())
+        })?;
+        let mut timeline_request =
+            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+            );
+        timeline_request.surface_epoch = self.action_surface_epoch()?;
+        timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: timeline_request.channel_id.clone(),
+            window_token: timeline_request.window_token.clone(),
+        };
+        let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
+            self.state
+                .timeline_projector
+                .patch_from_render_ready(timeline_request, rows, None)
+        } else {
+            self.state
+                .timeline_projector
+                .snapshot_from_render_ready(timeline_request, rows)
         }
-    });
-    let bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| {
-        br#"{"event":"im:post:increment-failed","data":{"channelId":"","error":"serialize failure"}}"#
-            .to_vec()
-    });
-    Effect::Emit {
-        event: DomainEventBytes(Bytes::from(bytes)),
+        .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
+        self.register_timeline_action_bindings(&mutation, now_ms)?;
+        let scope_key = mutation.scope.canonical_key();
+        let revision = mutation.revision;
+        let frame = crate::projector::build_interaction_frame(
+            format!("timeline-{scope_key}-{revision}"),
+            vec![mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))
+    }
+
+    fn emit_timeline_failed(
+        &mut self,
+        request: &MessageQueryRequest,
+        now_ms: u64,
+    ) -> Result<Effect, ImError> {
+        let mut failed =
+            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+            );
+        failed.surface_epoch = self.action_surface_epoch()?;
+        failed.state = crate::interaction_frame::SurfaceLoadState::Failed;
+        failed.action_authority_available = false;
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: failed.channel_id.clone(),
+            window_token: failed.window_token.clone(),
+        };
+        let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
+            self.state
+                .timeline_projector
+                .patch_from_render_ready(failed, &[], None)
+        } else {
+            self.state
+                .timeline_projector
+                .snapshot_from_render_ready(failed, &[])
+        }
+        .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
+        self.register_timeline_action_bindings(&mutation, now_ms)?;
+        let scope_key = mutation.scope.canonical_key();
+        let revision = mutation.revision;
+        let frame = crate::projector::build_interaction_frame(
+            format!("timeline-{scope_key}-{revision}"),
+            vec![mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))
     }
 }
 

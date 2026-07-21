@@ -169,6 +169,37 @@ pub fn advance_cursor_op(channel_id: ChannelId, target_seq: Seq) -> StorageOp {
     })
 }
 
+/// type7 `closed` terminal 的本地 tombstone + cursor 逻辑投影。
+///
+/// 两个水位共存于 `channel_event_cursor` 同一行：`last_event_seq` 是通常 cursor，
+/// `terminal_event_seq` 是只表示 closed 的 marker。调用方必须用 `Effect::PersistAtomic`
+/// 兑现本 op；普通 `advance_cursor_op` 不触碰 terminal 列，因此无法把 closed marker 清掉。
+///
+/// 不创建或伪造 Go 的 `channel_event` 表，也不落 `payload` 的任意文本。严格 wire 已证明唯一
+/// 合法状态是 `closed`，所以 marker 值本身就是完整的本地投影。
+pub fn terminal_tombstone_and_cursor_op(channel_id: ChannelId, target_seq: Seq) -> StorageOp {
+    use helix_core::effect::SqlValue;
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_event_cursor",
+        rows: vec![vec![
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(channel_id.as_str().to_string()),
+            ),
+            (
+                "last_event_seq".to_string(),
+                SqlValue::Integer(target_seq.0 as i64),
+            ),
+            (
+                "terminal_event_seq".to_string(),
+                SqlValue::Integer(target_seq.0 as i64),
+            ),
+        ]],
+        conflict_key: Some("channel_id"),
+        exclude_from_update: Vec::new(),
+    })
+}
+
 /// too_long 覆盖式重拉：重置 channel 的 Dialog 派生字段，但保留本地 message 历史。
 pub fn reset_channel_dialog_op(channel_id: ChannelId) -> StorageOp {
     use helix_core::effect::{BatchUpdateSpec, SqlValue};

@@ -6,6 +6,12 @@ use serde_json::{json, Map, Value};
 
 use crate::error::ImError;
 
+/// FFI/Web 专用的 action invoke 内部命令名。
+///
+/// 它不在公开 command alias 表中；公开端只能经 [`build_action_invocation_command`] 提交严格
+/// versioned envelope，不能把 actionRef 降级为任意 `im_*` command。
+pub const INTERACTION_ACTION_INVOKE_COMMAND: &str = "__helix_interaction_action_invoke";
+
 pub struct CommandAlias {
     pub public: &'static str,
     pub core: &'static str,
@@ -129,9 +135,12 @@ pub fn normalize_command_payload(public: &str, payload: &[u8]) -> Result<Vec<u8>
 /// alias、payload 归一化与静态命令名驻留只在此处发生；平台 driver 只负责把自己的
 /// 字符串/字节边界转换成该函数的入参，并把错误映射为平台错误码。
 pub fn build_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, ImError> {
-    if public_name == crate::module::RUNTIME_IDENTITY_COMMAND {
+    if matches!(
+        public_name,
+        crate::module::RUNTIME_IDENTITY_COMMAND | INTERACTION_ACTION_INVOKE_COMMAND
+    ) {
         return Err(ImError::Parse(
-            "runtime identity command is reserved for platform drivers".to_string(),
+            "reserved runtime command is not part of the public command API".to_string(),
         ));
     }
     let normalized_payload = normalize_command_payload(public_name, payload)?;
@@ -144,6 +153,40 @@ pub fn build_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, Im
         name,
         payload: Bytes::from(normalized_payload),
     })
+}
+
+/// 把严格版本化的 `ActionInvocationEnvelope` 编码为 Helix 内部 action Tick。
+///
+/// 这里故意不复用通用 `build_command`：action invoke 没有公开业务 command 名，也不经过旧 payload
+/// normalization。actor 仍在模块侧与 host runtime identity 做最终等值校验，客户端提供的 actorId
+/// 不能成为授权依据。
+pub fn build_action_invocation_command(payload: &[u8]) -> Result<AppCommand, ImError> {
+    let envelope: crate::interaction_frame::ActionInvocationEnvelope =
+        serde_json::from_slice(payload)
+            .map_err(|error| ImError::Parse(format!("action invocation payload: {error}")))?;
+    envelope
+        .validate()
+        .map_err(|error| ImError::Parse(format!("action invocation payload: {error}")))?;
+    let canonical =
+        serde_json::to_vec(&envelope).map_err(|error| ImError::Serialize(error.to_string()))?;
+    Ok(AppCommand::new(
+        INTERACTION_ACTION_INVOKE_COMMAND,
+        canonical,
+    ))
+}
+
+/// Encode a typed `SurfaceResyncRequest` into the private host-to-core command.
+///
+/// This deliberately bypasses `build_command`: a renderer cannot route an opaque surface
+/// resync into a domain command or inject storage/HTTP implementation details.
+pub fn build_surface_resync_command(payload: &[u8]) -> Result<AppCommand, ImError> {
+    let request = crate::surface_runtime::SurfaceResyncRequest::from_payload(payload)?;
+    let canonical =
+        serde_json::to_vec(&request).map_err(|error| ImError::Serialize(error.to_string()))?;
+    Ok(AppCommand::new(
+        crate::surface_runtime::SURFACE_RESYNC_COMMAND,
+        canonical,
+    ))
 }
 
 fn normalize_top_level_keys(obj: &mut Map<String, Value>) {
@@ -347,6 +390,60 @@ mod tests {
             ),
             Err(ImError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn action_invoke_uses_a_separate_strict_envelope_path() {
+        let payload = br#"{
+            "schemaVersion":1,
+            "requestId":"request-1",
+            "actorId":"viewer-1",
+            "surface":"message.timeline",
+            "scope":{"kind":"timeline","channelId":"channel-1","windowToken":"latest"},
+            "surfaceEpoch":1,
+            "observedRevision":1,
+            "invocation":{"actionRef":"act.v1.0000000000000001","input":{}}
+        }"#;
+        let command = build_action_invocation_command(payload)
+            .expect("valid versioned action envelope enters the private command path");
+        assert_eq!(command.name, INTERACTION_ACTION_INVOKE_COMMAND);
+        assert!(matches!(
+            build_command(INTERACTION_ACTION_INVOKE_COMMAND, payload),
+            Err(ImError::Parse(_))
+        ));
+
+        let unknown_field = br#"{
+            "schemaVersion":1,
+            "requestId":"request-1",
+            "actorId":"viewer-1",
+            "surface":"message.timeline",
+            "scope":{"kind":"timeline","channelId":"channel-1","windowToken":"latest"},
+            "surfaceEpoch":1,
+            "observedRevision":1,
+            "invocation":{"actionRef":"act.v1.0000000000000001","input":{}},
+            "command":"im_post_read_list"
+        }"#;
+        assert!(matches!(
+            build_action_invocation_command(unknown_field),
+            Err(ImError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn surface_resync_uses_a_separate_typed_private_command() {
+        let command = build_surface_resync_command(
+            br#"{"surface":"message.member-roster","scope":{"kind":"memberRoster","channelId":"channel-1","cursor":"first"}}"#,
+        )
+        .expect("typed surface resync");
+        assert_eq!(command.name, crate::surface_runtime::SURFACE_RESYNC_COMMAND);
+        assert!(build_surface_resync_command(
+            br#"{"surface":"message.member-roster","scope":{"kind":"channel","channelId":"channel-1"}}"#
+        )
+        .is_err());
+        assert!(build_surface_resync_command(
+            br#"{"surface":"message.member-roster","scope":{"kind":"memberRoster","channelId":"channel-1","cursor":"first"},"rawTable":"channel_member"}"#
+        )
+        .is_err());
     }
 
     #[test]

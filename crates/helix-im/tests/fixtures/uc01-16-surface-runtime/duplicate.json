@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "transactionId": "duplicate-dialog-slot",
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "revision": 1,
+      "mutation": { "kind": "dialogListSnapshot", "view": { "sections": [], "state": "empty" } }
+    },
+    {
+      "surface": "message.left-dialog-list",
+      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "revision": 2,
+      "mutation": { "kind": "dialogListSnapshot", "view": { "sections": [], "state": "empty" } }
+    }
+  ]
+}

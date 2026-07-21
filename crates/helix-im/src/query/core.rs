@@ -58,6 +58,9 @@ pub(crate) const QUERY_DIALOGS_MAX: u32 = 2000;
 pub struct MessageQueryRequest {
     pub channel_id: ChannelId,
     pub limit: u32,
+    /// SurfaceRuntime 的 timeline slot token。旧调用未提供时固定为 `latest`，使兼容入口仍落到
+    /// 一个明确、可 attach 的有界窗口，而不是把所有时间线混到 channel 级 scope。
+    pub window_token: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +84,28 @@ pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImErro
         .and_then(serde_json::Value::as_u64)
         .map(|value| value.clamp(1, u64::from(QUERY_MESSAGES_MAX)) as u32)
         .unwrap_or(QUERY_MESSAGES_DEFAULT);
-    Ok(MessageQueryRequest { channel_id, limit })
+    let window_token = match value
+        .get("windowToken")
+        .or_else(|| value.get("window_token"))
+    {
+        Some(serde_json::Value::String(value)) => value.as_str(),
+        Some(_) => {
+            return Err(ImError::Parse(
+                "im_query_messages_by_channel windowToken must be string".into(),
+            ));
+        }
+        None => "latest",
+    };
+    if window_token.is_empty() {
+        return Err(ImError::Parse(
+            "im_query_messages_by_channel windowToken must not be empty".into(),
+        ));
+    }
+    Ok(MessageQueryRequest {
+        channel_id,
+        limit,
+        window_token: window_token.to_string(),
+    })
 }
 
 pub fn message_scan_spec(request: &MessageQueryRequest) -> ScanSpec {
@@ -227,11 +251,32 @@ pub fn emit_dialog_list_frame_result(
     reply_bytes: &[u8],
     scope: crate::dialog_frame::DialogListScope,
     state: &mut crate::dialog_frame::DialogListFrameState,
-) -> Effect {
-    state.snapshot(
+) -> Option<Effect> {
+    emit_dialog_list_frame_result_with_terminal_channels(
+        reply_bytes,
         scope,
-        crate::dialog_frame::rows_from_dialog_scan(reply_bytes),
+        state,
+        &std::collections::HashSet::new(),
     )
+}
+
+/// Same dialog snapshot projection with the durable type7 terminal marker overlaid from the
+/// channel aggregate. The `channel` scan intentionally remains a raw storage read; terminal
+/// truth lives in the cursor projection and is applied in Helix before the renderer receives the
+/// frame, so a restart cannot reopen a locally confirmed closed channel.
+pub fn emit_dialog_list_frame_result_with_terminal_channels(
+    reply_bytes: &[u8],
+    scope: crate::dialog_frame::DialogListScope,
+    state: &mut crate::dialog_frame::DialogListFrameState,
+    terminal_channel_ids: &std::collections::HashSet<String>,
+) -> Option<Effect> {
+    let mut rows = crate::dialog_frame::rows_from_dialog_scan(reply_bytes)?;
+    for row in &mut rows {
+        if terminal_channel_ids.contains(&row.channel_id) {
+            row.state.closed = true;
+        }
+    }
+    state.snapshot(scope, rows)
 }
 
 /// 单频道 hydration 写入成功后，仅在已有左侧列表 snapshot 时发布同一 surface 的属性 patch。

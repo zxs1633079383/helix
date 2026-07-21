@@ -8,6 +8,8 @@
 
 🧭 BRANCH-ID @2026-07-20 17:43 -0700 | 当前 `codex/reply-contract-correlation-20260720`@f078105 ↑↓vsmain:↑0 ↓0 · upstream:无 upstream
 
+🎯 EXPECT 完成 UC01-16 ActionBinding 的 T079/T080 P1 账本修复。可证伪断言：① 已受理 requestId 在对应 corr_map 终态 action Frame 前不因 actionRef revoke/TTL 释放；② 同一 live actionRef 只能有一个不同 requestId 在途；③ 终态 Frame 构造并发出后才同时回收 requestId 与 actionRef 单飞占位，重复 PortReply 无 corr 路由；④ actor/scope/epoch/revision/replay 与 session reset 的 fail-closed 语义不退化；⑤ 仅修改 Helix candidate 的 helix-im action/projector/测试和必要 SESSION，不改 core/driver。@2026-07-20T22:59:00-0700 | 赌注 高 | 可逆 是
+
 🎯 EXPECT 修复 `im_get_replies` 与 `im_get_reply_branch` 读回投影丢失 viewer 身份，导致本人回复被整形为 `isSelf=false`。可证伪断言：① 发起回复读请求时冻结 host 注入的 `auth_user_id`，HTTP 回包整形使用同一 viewer；② root、本人回复、他人回复的 `isSelf` 与 action capabilities 分别正确；③ 协议字段集不变，Angular 不增加基于作者的业务兜底；④ 聚焦 Helix 测试与双账号 G-12 验收通过；⑤ 不改 helix-core、driver 或 Go 服务端。@2026-07-20T20:11:10-07:00 | 赌注 高 | 可逆 是
 
 🎯 EXPECT 收敛回复与快捷表情的 Strict Matrix 事实合同。可证伪断言：① `im_send_message` 的 G-01/G-02 只声明 `replied` 描述符，不再声明已废弃的 `reply_to_id`；② `im_quick_reply` 只接受 `post_id/emoji/req_id`，绝不把调用方 `user_id` 透传到 Go；③ 生成后的 command API 与 Strict Matrix 检查一致，且 Helix 聚焦合同/出站测试通过；④ 不改 helix-core、driver 或投影 schema。@2026-07-20T17:43:00-07:00 | 赌注 高 | 可逆 是

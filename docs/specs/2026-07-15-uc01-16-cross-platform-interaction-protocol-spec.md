@@ -223,6 +223,7 @@ enum ActionInput {
 ```rust
 struct ActionBinding {
     action_ref: ActionRef,
+    surface_epoch: u64,
     owner_node_key: NodeKey,
     action_kind: ActionKind,
     enabled: bool,
@@ -233,7 +234,7 @@ struct ActionBinding {
 }
 ```
 
-`action_ref` 是 opaque、surface-scoped 的动作地址。Helix 内部绑定领域上下文和 use case。`ActionValidity` 至少包含 `surface_epoch + context_version + expires_after_revision`；无关 badge 或窗口 patch 不得让整个 surface 的动作集失效。UI 只渲染按钮并回送引用。
+`action_ref` 是 opaque、surface-scoped 的动作地址。Helix 内部绑定领域上下文和 use case。`ActionValidity` 至少包含 `surface_epoch + context_version + expires_after_revision`；无关 badge 或窗口 patch 不得让整个 surface 的动作集失效。v1 binding 必须在 wire 中显式携带 `surface_epoch`，作为 renderer 构造 invoke envelope 的唯一 epoch 真源；UI 不得从 revision、本地计数或默认值猜测。UI 只渲染按钮并回送引用。
 
 例子：群设置页可以同时收到 `channel.close` 和 `channel.leave` 两种语义 kind，但只会收到当前用户有权执行且绑定了独立 `action_ref` 的动作。UI 不根据角色做分支，也看不到对应的 `im_channel_*` 命令。
 
@@ -287,7 +288,45 @@ struct Keyed<T> {
 - Snapshot 权威替换整个 surface；Patch 必须满足 `base_revision == local_revision`。
 - gap、未知 epoch、未知 action_ref 一律 fail closed 并请求 snapshot。
 
-### 4.5 一次性 `UiDirective`
+### 4.5 Surface attach / resync
+
+端侧只能请求一个已知 surface 的权威重放，不能选择表名、HTTP endpoint、领域 command 或 raw
+payload。v1 host-to-core 私有命令是 `__helix_request_surface_snapshot`；宿主必须通过版本化
+`SurfaceResyncRequest` builder 发送 `{ surface, scope }`，并由 Helix 验证 `scope` 与 `surface`
+精确匹配。renderer 不直接构造该私有 command，也不得把 storage 行或 HTTP body 作为 surface
+输入。
+
+八个已接管 surface 的 producer 必须保持以下归属：
+
+| Surface | Helix 权威事实 | 输出 |
+|---|---|---|
+| `message.left-dialog-list` / `message.unread-summary` | channel / member dialog storage | 同一 Frame 的 paired snapshot/patch |
+| `message.timeline` | local message storage，缺失时 Helix HTTP fallback | typed timeline snapshot/patch |
+| `message.thread-detail` | replies HTTP | typed thread snapshot/patch |
+| `message.channel-summary` | channel storage | typed summary snapshot/patch |
+| `message.member-roster` | channel_member storage | typed roster snapshot/patch |
+| `message.topic-list` | topic channel storage | typed topic snapshot/patch |
+| `message.participant-receipts` | canonical read-receipt HTTP | typed receipt snapshot/patch |
+
+缺少 action authority 时 Helix 必须下发显式 disabled binding/reason，而不是让端侧回退为旧
+`im_*` command。所有 attach 的时间复杂度只由其有界 storage/HTTP producer 决定；端侧没有
+二次聚合、扫描或补面循环。
+
+### 4.6 type-7 terminal closed
+
+同步 type-7 只接受 Go 的 sealed wire：
+
+```json
+{"id":"event-close-01","channelId":"<id26>","eventSeq":42,"eventType":7,"payload":{"state":"closed"}}
+```
+
+它不得包含 `msgId`、actor、post、body、时间或任意额外字段，legacy WS 数值帧的 type-7 也必须
+拒绝。Helix 将 closed marker 与 `channel_event_cursor.last_event_seq` 放入单个
+`PersistAtomic`；只在 `PortReply::Ok` 后更新内存 cursor/tombstone 并发布关闭的 dialog
+Frame。`Err`、gap、混合 batch、重复或重启后晚到 WS/sync 都不得推进 cursor、再次写入或复活
+surface。driver 未实现跨 op 原子写时必须 fail closed，不能降级为普通 `Persist`。
+
+### 4.7 一次性 `UiDirective`
 
 ```rust
 struct UiDirective {
@@ -312,7 +351,7 @@ Directive 表达跨端“做什么”，各端决定“怎么做”。它不得�
 
 重复 directive 通过 `directive_id + ack` 幂等处理；`replay_policy` 决定重连后是重放、丢弃还是等待确认。`DirectivePrecondition` 必须阻止延迟到达的旧 `ResetInput` 清空用户随后输入的新内容；不能仅凭 directive ID 假设时序安全。
 
-### 4.6 HostEffect 与 UiDirective 不能混
+### 4.8 HostEffect 与 UiDirective 不能混
 
 | 类型 | 执行者 | 例子 | 是否业务权威 |
 |---|---|---|---|

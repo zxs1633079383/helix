@@ -29,7 +29,8 @@ pub struct Harness {
 /// Effect 的简化分类（用于断言，不含全部字段）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectKind {
-    Persist(u64), // corr.raw()
+    Persist(u64),       // corr.raw()
+    PersistAtomic(u64), // corr.raw()
     PersistFire,
     Http(u64),    // corr.raw()
     HttpFire,     // fire-and-forget HTTP（无 corr）
@@ -45,6 +46,7 @@ impl EffectKind {
     pub fn from_effect(e: &Effect) -> Self {
         match e {
             Effect::Persist { corr, .. } => EffectKind::Persist(corr.raw()),
+            Effect::PersistAtomic { corr, .. } => EffectKind::PersistAtomic(corr.raw()),
             Effect::PersistFire { .. } => EffectKind::PersistFire,
             Effect::Http { corr, .. } => EffectKind::Http(corr.raw()),
             Effect::HttpFire { .. } => EffectKind::HttpFire,

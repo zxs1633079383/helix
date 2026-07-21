@@ -20,6 +20,7 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:messages:query_result",
     "im:messages:older_loaded",
     "im:interaction:frame",
+    "im:interaction:action-receipt",
     "im:channels:loaded",
     "im:channel:increment",
     "im:channel:update",
@@ -70,6 +71,7 @@ pub fn capabilities_json() -> Vec<u8> {
             "batchEventCallback": true,
             "readResultReqId": true,
             "leftDialogListFrameV1": true,
+            "opaqueActionInvokeV1": true,
             "noPerBusinessAbiSymbol": true
         }
     });

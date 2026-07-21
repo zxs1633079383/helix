@@ -159,6 +159,19 @@ pub struct ImState {
     /// 已 attach 的有界时间线窗口；只保存 typed VM/revision，raw 行仍由 query/render-ready 边界消费。
     pub(crate) timeline_projector: crate::projector::timeline::TimelineProjector,
 
+    /// Frame 下发时登记的 opaque action lease 与本 session replay ledger。它与 timeline slot 同属
+    /// SurfaceRuntime，会话/身份边界必须一起清除。
+    pub(crate) action_registry: crate::projector::action::ActionBindingRegistry,
+
+    /// invoke 受理结果的有界 protocol receipt 队列。receipt 不是业务完成，真正终态仍等 causation
+    /// Frame；此队列仅保证前端能可靠知道当前请求是否被 Helix 接受。
+    pub(crate) action_receipts: crate::projector::action::ActionReceiptBus,
+
+    /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
+    /// 直接交给 renderer 推导。
+    pub(crate) participant_receipts_projector:
+        crate::projector::participant_receipts::ParticipantReceiptsProjector,
+
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
@@ -207,6 +220,16 @@ impl ImState {
             message_query_generations: HashMap::new(),
             dialog_list_frame: crate::dialog_frame::DialogListFrameState::default(),
             timeline_projector: crate::projector::timeline::TimelineProjector::default(),
+            action_registry: crate::projector::action::ActionBindingRegistry::new(
+                crate::projector::action::DEFAULT_ACTION_REGISTRY_CAPACITY,
+            )
+            .expect("static action registry capacity must be non-zero"),
+            action_receipts: crate::projector::action::ActionReceiptBus::new(
+                crate::projector::action::DEFAULT_ACTION_RECEIPT_CAPACITY,
+            )
+            .expect("static action receipt capacity must be non-zero"),
+            participant_receipts_projector:
+                crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             query_session_epoch: 0,
         }
     }
@@ -234,6 +257,9 @@ impl ImState {
         self.recent_message_coverage.clear();
         self.message_query_generations.clear();
         self.timeline_projector.reset();
+        self.action_registry.clear();
+        self.action_receipts.clear();
+        self.participant_receipts_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
         self.corr_map.retain(|_, context| {
             !matches!(
@@ -241,6 +267,7 @@ impl ImState {
                 CorrelationContext::MessageQueryLocal { .. }
                     | CorrelationContext::MessageQueryRemote { .. }
                     | CorrelationContext::MessageQueryCache { .. }
+                    | CorrelationContext::InteractionViewReceipt { .. }
             )
         });
     }

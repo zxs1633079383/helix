@@ -19,6 +19,7 @@ pub fn accepts_tick(tick: &Tick) -> bool {
             matches!(
                 cmd.name.as_ref(),
                 crate::module::RUNTIME_IDENTITY_COMMAND
+                    | crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND
                     | "im_send_message"
                     | "im_retry_send"
                     | "im_retry_upload"

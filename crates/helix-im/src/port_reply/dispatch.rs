@@ -224,6 +224,7 @@ impl ImModule {
                 *request,
                 query_session_epoch,
                 query_generation,
+                now_ms,
                 outcome,
                 out,
             )?,
@@ -238,6 +239,7 @@ impl ImModule {
                 *local_rows_desc,
                 query_session_epoch,
                 query_generation,
+                now_ms,
                 outcome,
                 out,
             )?,
@@ -254,6 +256,7 @@ impl ImModule {
                 coverage,
                 query_session_epoch,
                 query_generation,
+                now_ms,
                 outcome,
                 out,
             )?,
@@ -398,6 +401,20 @@ impl ImModule {
 
             CorrelationContext::OutboundPostReaders { req_id } => {
                 crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);
+            }
+
+            CorrelationContext::InteractionViewReceipt {
+                request_id,
+                channel_id,
+                message_id,
+            } => {
+                self.handle_action_view_receipt_reply(
+                    &request_id,
+                    channel_id,
+                    message_id,
+                    outcome,
+                    out,
+                )?;
             }
 
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配

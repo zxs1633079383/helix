@@ -98,10 +98,21 @@ impl ParticipantReceiptsProjector {
         request: ParticipantReceiptsRequest,
         data: ParticipantReceiptsData,
     ) -> Result<SurfaceMutation, ParticipantReceiptsProjectionError> {
+        self.snapshot_with_causation(request, data, None)
+    }
+
+    /// action 触发的首次加载仍以完整 snapshot 发布，但将 invoke requestId 作为 causation 写入
+    /// 权威 Frame；renderer 只能在该 Frame 原子 apply 后完成 pending action。
+    pub fn snapshot_with_causation(
+        &mut self,
+        request: ParticipantReceiptsRequest,
+        data: ParticipantReceiptsData,
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, ParticipantReceiptsProjectionError> {
         ensure_bounded(&data)?;
         let view = view_for(&request, data);
         self.slots
-            .snapshot(scope_for(&request), view)
+            .snapshot_with_causation(scope_for(&request), view, causation_id)
             .map_err(Into::into)
     }
 
@@ -259,5 +270,23 @@ mod tests {
         assert_eq!(view.state, SurfaceLoadState::Forbidden);
         assert!(view.completed.is_empty());
         assert!(view.pending.is_empty());
+    }
+
+    #[test]
+    fn read_receipts_can_preserve_completed_status_when_the_authority_omits_timestamp() {
+        let mut projector = ParticipantReceiptsProjector::default();
+        let mut read_data = data();
+        read_data.completed[0].completed_at = None;
+        projector
+            .snapshot(request(ReceiptKind::Read), read_data)
+            .expect(
+                "post/read/list proves read state but does not expose a per-user read timestamp",
+            );
+
+        let mut template_data = data();
+        template_data.completed[0].completed_at = None;
+        assert!(projector
+            .snapshot(request(ReceiptKind::TemplateConfirmation), template_data)
+            .is_err());
     }
 }

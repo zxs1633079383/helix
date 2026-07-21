@@ -29,6 +29,8 @@ pub struct TimelineWindowRequest {
     pub target_message_id: Option<String>,
     pub page: WindowPageVm,
     pub state: SurfaceLoadState,
+    /// runtime identity 缺失时不能下发可 invoke 的 binding；renderer 仍能看到显式禁用原因。
+    pub action_authority_available: bool,
 }
 
 impl TimelineWindowRequest {
@@ -58,19 +60,31 @@ impl TimelineWindowRequest {
                 has_more: false,
             },
             state: SurfaceLoadState::Ready,
+            action_authority_available: true,
         }
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TimelineProjector {
     slots: BTreeMap<String, TimelineSlot>,
+    /// 仅用于 opaque actionRef 的 Helix 内部发号；绝不包含 channel/message/kind 等业务标识。
+    next_action_ref: u64,
 }
 
 #[derive(Debug, Clone)]
 struct TimelineSlot {
     revision: u64,
     view: TimelineWindowVm,
+}
+
+impl Default for TimelineProjector {
+    fn default() -> Self {
+        Self {
+            slots: BTreeMap::new(),
+            next_action_ref: 1,
+        }
+    }
 }
 
 impl TimelineProjector {
@@ -85,7 +99,7 @@ impl TimelineProjector {
         render_ready_rows: &[Value],
     ) -> Result<SurfaceMutation, TimelineProjectionError> {
         let (scope, slot_key) = scope_and_slot_key(&request)?;
-        let view = build_view(&request, render_ready_rows)?;
+        let view = self.build_view(&request, render_ready_rows)?;
         let revision = self
             .slots
             .get(&slot_key)
@@ -118,7 +132,7 @@ impl TimelineProjector {
                     slot: slot_key.clone(),
                 })?;
         let base_revision = slot.revision;
-        let view = build_view(&request, render_ready_rows)?;
+        let view = self.build_view(&request, render_ready_rows)?;
         let revision = next_revision(base_revision)?;
         let mutation = SurfaceMutation {
             surface: SurfaceId::MessageTimeline,
@@ -143,6 +157,62 @@ impl TimelineProjector {
             .get(&scope.canonical_key())
             .map(|slot| &slot.view)
     }
+
+    fn build_view(
+        &mut self,
+        request: &TimelineWindowRequest,
+        render_ready_rows: &[Value],
+    ) -> Result<TimelineWindowVm, TimelineProjectionError> {
+        let (bounded_rows, page) = bounded_rows(render_ready_rows, &request.anchor, &request.page);
+        let mut items = Vec::with_capacity(bounded_rows.len());
+        for row in bounded_rows {
+            items.push(self.message_from_render_ready(
+                row,
+                request.channel_id.as_str(),
+                request.action_authority_available,
+            )?);
+        }
+
+        let mut anchor = request.anchor.clone();
+        if anchor.message_id.is_none() {
+            anchor.message_id = items.last().map(|item| item.id.clone());
+        }
+        Ok(TimelineWindowVm {
+            channel_id: request.channel_id.clone(),
+            anchor,
+            items,
+            first_unread_message_id: request.first_unread_message_id.clone(),
+            target_message_id: request.target_message_id.clone(),
+            page,
+            state: request.state.clone(),
+        })
+    }
+
+    fn message_from_render_ready(
+        &mut self,
+        row: &Value,
+        expected_channel_id: &str,
+        action_authority_available: bool,
+    ) -> Result<MessageVm, TimelineProjectionError> {
+        message_from_render_ready(row, expected_channel_id, action_authority_available, || {
+            self.issue_action_ref()
+        })
+    }
+
+    fn issue_action_ref(&mut self) -> Result<String, TimelineProjectionError> {
+        let sequence = self.next_action_ref;
+        self.next_action_ref = self
+            .next_action_ref
+            .checked_add(1)
+            .ok_or(TimelineProjectionError::ActionRefOverflow)?;
+        // 两段 reversible-mix 的序列不暴露 domain identity 或可由 renderer 拼出的 command context。
+        // 授权安全仍完全由 registry 的 actor/scope/epoch/revision/TTL/replay 校验承担，而非猜测 ref。
+        Ok(format!(
+            "act.v1.{:016x}{:016x}",
+            mix_action_ref(sequence),
+            mix_action_ref(sequence ^ 0x9e37_79b9_7f4a_7c15)
+        ))
+    }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -161,6 +231,8 @@ pub enum TimelineProjectionError {
     SurfaceDataLimit,
     #[error("timeline revision reached the exact-safe wire limit")]
     RevisionOverflow,
+    #[error("timeline actionRef allocator exhausted its unique sequence")]
+    ActionRefOverflow,
     #[error(transparent)]
     InvalidInteractionFrame(#[from] InteractionFrameError),
 }
@@ -179,31 +251,6 @@ fn scope_and_slot_key(
         window_token: request.window_token.clone(),
     };
     Ok((scope.clone(), scope.canonical_key()))
-}
-
-fn build_view(
-    request: &TimelineWindowRequest,
-    render_ready_rows: &[Value],
-) -> Result<TimelineWindowVm, TimelineProjectionError> {
-    let (bounded_rows, page) = bounded_rows(render_ready_rows, &request.anchor, &request.page);
-    let mut items = Vec::with_capacity(bounded_rows.len());
-    for row in bounded_rows {
-        items.push(message_from_render_ready(row, request.channel_id.as_str())?);
-    }
-
-    let mut anchor = request.anchor.clone();
-    if anchor.message_id.is_none() {
-        anchor.message_id = items.last().map(|item| item.id.clone());
-    }
-    Ok(TimelineWindowVm {
-        channel_id: request.channel_id.clone(),
-        anchor,
-        items,
-        first_unread_message_id: request.first_unread_message_id.clone(),
-        target_message_id: request.target_message_id.clone(),
-        page,
-        state: request.state.clone(),
-    })
 }
 
 fn bounded_rows<'a>(
@@ -244,6 +291,8 @@ fn row_id_index(rows: &[Value], target: &str) -> Option<usize> {
 fn message_from_render_ready(
     row: &Value,
     expected_channel_id: &str,
+    action_authority_available: bool,
+    mut issue_action_ref: impl FnMut() -> Result<String, TimelineProjectionError>,
 ) -> Result<MessageVm, TimelineProjectionError> {
     let id = required_string(row, &["msgId", "id"], "id")?;
     let channel_id = required_string(row, &["channelId", "channel_id"], "channelId")?;
@@ -259,7 +308,7 @@ fn message_from_render_ready(
     let content = content_from_row(row, props, revoked)?;
     let delivery = delivery_from_row(row, revoked)?;
 
-    let actions = action_bindings(row, &id);
+    let actions = action_bindings(row, action_authority_available, &mut issue_action_ref)?;
     Ok(MessageVm {
         id,
         channel_id,
@@ -367,9 +416,13 @@ fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineP
     }
 }
 
-fn action_bindings(row: &Value, message_id: &str) -> Vec<ActionBinding> {
+fn action_bindings(
+    row: &Value,
+    action_authority_available: bool,
+    issue_action_ref: &mut impl FnMut() -> Result<String, TimelineProjectionError>,
+) -> Result<Vec<ActionBinding>, TimelineProjectionError> {
     let Some(capabilities) = row.get("actionCapabilities").and_then(Value::as_object) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let mut actions = Vec::new();
     for (capability, kind) in [
@@ -386,19 +439,37 @@ fn action_bindings(row: &Value, message_id: &str) -> Vec<ActionBinding> {
         ("canTemplateConfirm", "templateConfirm"),
         ("canLocate", "locate"),
     ] {
-        let enabled = capabilities
+        let capability_enabled = capabilities
             .get(capability)
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let enabled = kind == "viewReceipt" && capability_enabled && action_authority_available;
+        let disabled_reason = if enabled {
+            None
+        } else if !action_authority_available {
+            Some("runtimeIdentityRequired".to_string())
+        } else if !capability_enabled {
+            Some("notAvailable".to_string())
+        } else {
+            Some("unsupportedByAuthorityV1".to_string())
+        };
         actions.push(ActionBinding {
-            action_ref: format!("message:{message_id}:{kind}"),
+            action_ref: issue_action_ref()?,
             kind: kind.to_string(),
             input_shape: "object".to_string(),
             enabled,
-            disabled_reason: (!enabled).then(|| "notAvailable".to_string()),
+            disabled_reason,
         });
     }
-    actions
+    Ok(actions)
+}
+
+fn mix_action_ref(mut value: u64) -> u64 {
+    value ^= value >> 30;
+    value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value ^= value >> 27;
+    value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 fn record_from_row(
@@ -699,5 +770,45 @@ mod tests {
             ))
         ));
         assert_eq!(projector.current_view(&scope).cloned(), before);
+    }
+
+    #[test]
+    fn action_refs_are_opaque_and_only_the_live_authority_mapping_is_enabled() {
+        let mut projector = TimelineProjector::default();
+        let mut capability_row = row(1);
+        capability_row["actionCapabilities"] = serde_json::json!({
+            "canReply": true,
+            "canViewReceipt": true,
+        });
+
+        let snapshot = projector
+            .snapshot_from_render_ready(
+                TimelineWindowRequest::latest("channel-1"),
+                &[capability_row],
+            )
+            .expect("valid capability facts project");
+        let TypedSurfaceMutation::TimelineSnapshot { view } = snapshot.mutation else {
+            panic!("timeline snapshot expected")
+        };
+        let receipt = view.items[0]
+            .actions
+            .iter()
+            .find(|action| action.kind == "viewReceipt")
+            .expect("receipt binding is present");
+        assert!(receipt.enabled);
+        assert!(receipt.disabled_reason.is_none());
+        assert!(!receipt.action_ref.contains("message-1"));
+        assert!(!receipt.action_ref.contains("viewReceipt"));
+
+        let reply = view.items[0]
+            .actions
+            .iter()
+            .find(|action| action.kind == "reply")
+            .expect("reply binding is present");
+        assert!(!reply.enabled);
+        assert_eq!(
+            reply.disabled_reason.as_deref(),
+            Some("unsupportedByAuthorityV1")
+        );
     }
 }

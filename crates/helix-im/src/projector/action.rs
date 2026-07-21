@@ -1,25 +1,630 @@
-//! SurfaceRuntime action 的 receipt / causation 决策。
+//! SurfaceRuntime action 的权威受理、receipt 与 causation 决策。
 //!
-//! 这里仅裁决 binding 与 opaque invocation 是否可受理；accepted 不表示业务完成。完成态必须等
-//! 后续 `InteractionFrame` 携带同一 `causationId`，因此端侧不能把 HTTP 成功或 receipt 当成 VM 更新。
+//! renderer 只能回送已经从 Frame 取得的 opaque `actionRef`。注册表把它绑定到 actor、
+//! surface/scope、epoch、revision 和 TTL；这里不执行 HTTP/WS，也不把 accepted 误写成业务完成。
+//! 只有后续已校验 Frame 带同一 `causationId`，平台在原子 apply 后才可确认 UI 终态。
 
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+use bytes::Bytes;
+use helix_core::effect::{DomainEventBytes, Effect};
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, ActionInvocation, ActionReceipt, ActionReceiptStatus, ActionValidationError,
+    ActionBinding, ActionInvocation, ActionInvocationEnvelope, ActionReceipt, ActionReceiptStatus,
+    ActionValidationError, InteractionFrame, InteractionFrameError, SurfaceId, SurfaceScope,
+    INTERACTION_ACTION_RECEIPT_EVENT,
 };
+
+/// 上行 action registry 与 replay ledger 共享的有界容量。
+///
+/// action path 不是 WS message 热路径，但 registry 仍必须 bounded：满时 fail closed，而不是保留无限
+/// requestId 或把旧 binding 当作新页面的能力。
+pub const DEFAULT_ACTION_REGISTRY_CAPACITY: usize = 1_024;
+pub const DEFAULT_ACTION_RECEIPT_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcceptedAction {
     pub receipt: ActionReceipt,
-    /// 与异步领域变更 Frame 中 `causationId` 完全相同的 opaque 值。
+    /// 与后续领域事实 Frame 中 `causationId` 完全相同的 opaque 值。
     pub causation_id: String,
+}
+
+/// 已被 binding 固定的 application use case。它永不由 renderer 的 input 推导，也不携带 raw
+/// command name；新增可执行 kind 必须在这里显式映射到已有 canonical domain command。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActionDispatch {
+    /// 当前唯一 live 映射：消息作者查看自己的 read receipt。
+    ViewReceipt {
+        channel_id: String,
+        message_id: String,
+    },
+    /// 没有安全 canonical 映射的 action 永远不能被受理。
+    Unsupported,
+}
+
+impl ActionDispatch {
+    fn validate_input(&self, invocation: &ActionInvocation) -> Result<(), ActionProjectionError> {
+        match self {
+            Self::ViewReceipt { .. } if !invocation.input.is_empty() => {
+                Err(ActionProjectionError::InvalidInvocation(
+                    "viewReceipt does not accept input fields".to_string(),
+                ))
+            }
+            Self::ViewReceipt { .. } => Ok(()),
+            Self::Unsupported => Err(ActionProjectionError::UnsupportedDispatch),
+        }
+    }
+}
+
+/// 已通过 binding/actor/scope/epoch/revision/TTL/replay 预检、但尚未写入 replay ledger 的请求。
+///
+/// 模块先用 `dispatch` 建立既有 canonical command 的 effect plan，再调用 registry commit。这样
+/// effect 建模失败不会留下“accepted 但无后续动作”的 requestId。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthorizedAction {
+    pub accepted: AcceptedAction,
+    pub dispatch: ActionDispatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActionAuthorization {
+    Accepted(AuthorizedAction),
+    Rejected(ActionReceipt),
+}
+
+impl ActionAuthorization {
+    pub fn receipt(&self) -> &ActionReceipt {
+        match self {
+            Self::Accepted(authorized) => &authorized.accepted.receipt,
+            Self::Rejected(receipt) => receipt,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionEvaluation {
     Accepted(AcceptedAction),
     Rejected(ActionReceipt),
+}
+
+impl ActionEvaluation {
+    pub fn receipt(&self) -> &ActionReceipt {
+        match self {
+            Self::Accepted(accepted) => &accepted.receipt,
+            Self::Rejected(receipt) => receipt,
+        }
+    }
+}
+
+/// 在发出某一 Frame 时由 Helix 赋予的 action lease。
+///
+/// `binding.action_ref` 必须来自 Helix 的 action-id 分配边界，端侧只透传它。这里不依赖随机数或
+/// 系统时间；ref 与 expiry 都由上层在确定性 Tick/IdSource 边界传入。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionBindingGrant {
+    pub actor_id: String,
+    pub surface: SurfaceId,
+    pub scope: SurfaceScope,
+    pub surface_epoch: u64,
+    pub revision: u64,
+    pub expires_at_ms: u64,
+    pub binding: ActionBinding,
+    pub dispatch: ActionDispatch,
+}
+
+impl ActionBindingGrant {
+    fn validate(&self, now_ms: u64) -> Result<(), ActionProjectionError> {
+        if self.actor_id.is_empty() {
+            return Err(ActionProjectionError::InvalidGrant(
+                "actorId must not be empty".to_string(),
+            ));
+        }
+        if !self.scope.valid_for(self.surface) {
+            return Err(ActionProjectionError::InvalidGrant(
+                "scope does not match surface".to_string(),
+            ));
+        }
+        if self.surface_epoch == 0 {
+            return Err(ActionProjectionError::InvalidGrant(
+                "surfaceEpoch must be greater than zero".to_string(),
+            ));
+        }
+        if self.revision == 0 {
+            return Err(ActionProjectionError::InvalidGrant(
+                "revision must be greater than zero".to_string(),
+            ));
+        }
+        if self.expires_at_ms <= now_ms {
+            return Err(ActionProjectionError::InvalidGrant(
+                "expiresAtMs must be later than the current Tick time".to_string(),
+            ));
+        }
+        self.binding
+            .validate()
+            .map_err(|error| ActionProjectionError::InvalidBinding(error.to_string()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegisteredActionBinding {
+    actor_id: String,
+    surface: SurfaceId,
+    scope_key: String,
+    surface_epoch: u64,
+    revision: u64,
+    expires_at_ms: u64,
+    binding: ActionBinding,
+    dispatch: ActionDispatch,
+}
+
+/// actor/surface-scoped action capability registry.
+///
+/// 所有 map/set 都只按 key 查找或按 expiry 有序回收；不会从 HashMap 的随机迭代顺序生成 Effect。
+/// `grant`、`invoke` 与 `prune` 的复杂度分别为 O(log n)、O(log n) 和 O(expired * log n)，其中 n
+/// 由 `capacity` 严格上界限制。
+#[derive(Debug)]
+pub struct ActionBindingRegistry {
+    capacity: usize,
+    grants: BTreeMap<String, RegisteredActionBinding>,
+    grants_by_expiry: BTreeSet<(u64, String)>,
+    /// 当前 identity/session 内已受理的 causation key。它不随 binding TTL 清理：同一 requestId
+    /// 在 ref 刷新或重新授权后也必须继续 fail closed，直到明确 session/identity reset。
+    accepted_requests: BTreeSet<String>,
+}
+
+impl ActionBindingRegistry {
+    pub fn new(capacity: usize) -> Result<Self, ActionProjectionError> {
+        if capacity == 0 {
+            return Err(ActionProjectionError::ZeroRegistryCapacity);
+        }
+        Ok(Self {
+            capacity,
+            grants: BTreeMap::new(),
+            grants_by_expiry: BTreeSet::new(),
+            accepted_requests: BTreeSet::new(),
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.grants.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.grants.is_empty()
+    }
+
+    /// 注册或刷新同一 action ref 的 lease。刷新不会改变 ref 的 actor/scope 绑定；上层需要变更上下文时
+    /// 必须发出新的 opaque ref，避免陈旧 renderer 继续命中新业务对象。
+    pub fn grant(
+        &mut self,
+        grant: ActionBindingGrant,
+        now_ms: u64,
+    ) -> Result<(), ActionProjectionError> {
+        self.prune_expired(now_ms);
+        grant.validate(now_ms)?;
+
+        let action_ref = grant.binding.action_ref.clone();
+        if let Some(previous) = self.grants.get(&action_ref) {
+            if previous.actor_id != grant.actor_id
+                || previous.surface != grant.surface
+                || previous.scope_key != grant.scope.canonical_key()
+                || previous.surface_epoch != grant.surface_epoch
+                || previous.dispatch != grant.dispatch
+            {
+                return Err(ActionProjectionError::ActionRefContextChanged(action_ref));
+            }
+        } else if self.grants.len() >= self.capacity {
+            return Err(ActionProjectionError::RegistryFull {
+                capacity: self.capacity,
+            });
+        }
+
+        if let Some(previous) = self.grants.remove(&action_ref) {
+            self.grants_by_expiry
+                .remove(&(previous.expires_at_ms, action_ref.clone()));
+        }
+        self.grants_by_expiry
+            .insert((grant.expires_at_ms, action_ref.clone()));
+        self.grants.insert(
+            action_ref,
+            RegisteredActionBinding {
+                actor_id: grant.actor_id,
+                surface: grant.surface,
+                scope_key: grant.scope.canonical_key(),
+                surface_epoch: grant.surface_epoch,
+                revision: grant.revision,
+                expires_at_ms: grant.expires_at_ms,
+                binding: grant.binding,
+                dispatch: grant.dispatch,
+            },
+        );
+        Ok(())
+    }
+
+    /// 按当前受信 runtime identity 预检一次 action，但不记录 replay ledger。
+    ///
+    /// `actorId` 是协议回放字段，不是前端授权来源；它必须与 driver 经 header/profile 注入的 runtime
+    /// identity 完全一致。空 runtime identity 一律 fail closed。
+    pub fn authorize_for_actor(
+        &mut self,
+        envelope: &ActionInvocationEnvelope,
+        trusted_actor_id: &str,
+        now_ms: u64,
+    ) -> Result<ActionAuthorization, ActionProjectionError> {
+        envelope
+            .validate()
+            .map_err(ActionProjectionError::InvalidEnvelope)?;
+        if trusted_actor_id.is_empty() {
+            return rejected_authorization(
+                &envelope.request_id,
+                "actorId",
+                "runtime actor is unavailable",
+            );
+        }
+        if envelope.actor_id != trusted_actor_id {
+            return rejected_authorization(
+                &envelope.request_id,
+                "actorId",
+                "actor does not match runtime identity",
+            );
+        }
+        self.authorize(envelope, now_ms)
+    }
+
+    /// 将已预检的请求记入 replay ledger。调用方必须先成功建立 canonical effect plan，再调用本函数。
+    pub fn commit_authorization(
+        &mut self,
+        authorization: ActionAuthorization,
+        receipts: &mut ActionReceiptBus,
+    ) -> Result<ActionEvaluation, ActionProjectionError> {
+        receipts.ensure_space()?;
+        match authorization {
+            ActionAuthorization::Rejected(receipt) => {
+                receipts.publish(receipt.clone())?;
+                Ok(ActionEvaluation::Rejected(receipt))
+            }
+            ActionAuthorization::Accepted(authorized) => {
+                if self.accepted_requests.len() >= self.capacity {
+                    let evaluation = rejected(
+                        &authorized.accepted.receipt.request_id,
+                        "requestId",
+                        "accepted request ledger is at capacity",
+                    )?;
+                    receipts.publish(evaluation.receipt().clone())?;
+                    return Ok(evaluation);
+                }
+                self.accepted_requests
+                    .insert(authorized.accepted.receipt.request_id.clone());
+                receipts.publish(authorized.accepted.receipt.clone())?;
+                Ok(ActionEvaluation::Accepted(authorized.accepted))
+            }
+        }
+    }
+
+    /// 受理一条版本化 invoke envelope。
+    ///
+    /// 格式错误仍作为 protocol error 返回；格式正确但无法执行的请求一律返回可序列化 `rejected`
+    /// receipt，因此端侧不会把 transport 成功或空响应误认作 action 已完成。
+    pub fn invoke(
+        &mut self,
+        envelope: &ActionInvocationEnvelope,
+        now_ms: u64,
+    ) -> Result<ActionEvaluation, ActionProjectionError> {
+        match self.authorize(envelope, now_ms)? {
+            ActionAuthorization::Rejected(receipt) => Ok(ActionEvaluation::Rejected(receipt)),
+            ActionAuthorization::Accepted(authorized) => self.commit_without_receipt(authorized),
+        }
+    }
+
+    fn authorize(
+        &mut self,
+        envelope: &ActionInvocationEnvelope,
+        now_ms: u64,
+    ) -> Result<ActionAuthorization, ActionProjectionError> {
+        envelope
+            .validate()
+            .map_err(ActionProjectionError::InvalidEnvelope)?;
+
+        let action_ref = envelope.invocation.action_ref.as_str();
+        let Some(grant) = self.grants.get(action_ref).cloned() else {
+            self.prune_expired(now_ms);
+            return rejected_authorization(
+                &envelope.request_id,
+                "actionRef",
+                "unknown action binding",
+            );
+        };
+        if grant.expires_at_ms <= now_ms {
+            self.remove_grant(action_ref);
+            self.prune_expired(now_ms);
+            return rejected_authorization(
+                &envelope.request_id,
+                "actionRef",
+                "action binding expired",
+            );
+        }
+        self.prune_expired(now_ms);
+
+        if self.accepted_requests.contains(&envelope.request_id) {
+            return rejected_authorization(
+                &envelope.request_id,
+                "requestId",
+                "requestId was already accepted",
+            );
+        }
+        if grant.actor_id != envelope.actor_id {
+            return rejected_authorization(
+                &envelope.request_id,
+                "actorId",
+                "actor does not own action binding",
+            );
+        }
+        if grant.surface != envelope.surface {
+            return rejected_authorization(
+                &envelope.request_id,
+                "surface",
+                "surface does not own action binding",
+            );
+        }
+        if grant.scope_key != envelope.scope.canonical_key() {
+            return rejected_authorization(
+                &envelope.request_id,
+                "scope",
+                "scope does not own action binding",
+            );
+        }
+        if grant.surface_epoch != envelope.surface_epoch {
+            return rejected_authorization(
+                &envelope.request_id,
+                "surfaceEpoch",
+                "surface epoch does not own action binding",
+            );
+        }
+        if grant.revision != envelope.observed_revision {
+            return rejected_authorization(
+                &envelope.request_id,
+                "observedRevision",
+                "action binding belongs to a different revision",
+            );
+        }
+
+        let evaluation = evaluate_action(
+            &grant.binding,
+            envelope.request_id.clone(),
+            &envelope.invocation,
+        )?;
+        let ActionEvaluation::Accepted(accepted) = evaluation else {
+            let ActionEvaluation::Rejected(receipt) = evaluation else {
+                unreachable!("ActionEvaluation has two variants")
+            };
+            return Ok(ActionAuthorization::Rejected(receipt));
+        };
+        match grant.dispatch.validate_input(&envelope.invocation) {
+            Ok(()) => Ok(ActionAuthorization::Accepted(AuthorizedAction {
+                accepted,
+                dispatch: grant.dispatch,
+            })),
+            Err(ActionProjectionError::UnsupportedDispatch) => rejected_authorization(
+                &envelope.request_id,
+                "actionRef",
+                "action binding has no authority mapping",
+            ),
+            Err(ActionProjectionError::InvalidInvocation(message)) => {
+                rejected_authorization(&envelope.request_id, "input", &message)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// 受理和 receipt publish 是一个连续的纯内存步骤。先检查 bus 容量，避免已经记录 accepted
+    /// requestId 却无法把 receipt 交给平台的半完成状态。
+    pub fn invoke_and_publish(
+        &mut self,
+        envelope: &ActionInvocationEnvelope,
+        now_ms: u64,
+        receipts: &mut ActionReceiptBus,
+    ) -> Result<ActionEvaluation, ActionProjectionError> {
+        let authorization = self.authorize(envelope, now_ms)?;
+        self.commit_authorization(authorization, receipts)
+    }
+
+    /// 身份切换或 session reset 时调用；旧 actor 的 action ref 与 replay key 都不能泄漏到新 scope。
+    pub fn clear(&mut self) {
+        self.grants.clear();
+        self.grants_by_expiry.clear();
+        self.accepted_requests.clear();
+    }
+
+    /// 新的同一 surface/scope revision 发出时撤销旧 renderer 所持有的 action lease。
+    ///
+    /// `grant` / `authorize` 仍是 O(log n) 查找；这里仅在 Frame projection 边界运行一次，扫描上界
+    /// 为 registry capacity，避免高频重投影把仍未过期的旧 ref 堆满 registry。
+    pub fn revoke_scope(
+        &mut self,
+        actor_id: &str,
+        surface: SurfaceId,
+        scope: &SurfaceScope,
+        surface_epoch: u64,
+    ) {
+        let scope_key = scope.canonical_key();
+        let action_refs = self
+            .grants
+            .iter()
+            .filter(|(_, grant)| {
+                grant.actor_id == actor_id
+                    && grant.surface == surface
+                    && grant.scope_key == scope_key
+                    && grant.surface_epoch == surface_epoch
+            })
+            .map(|(action_ref, _)| action_ref.clone())
+            .collect::<Vec<_>>();
+        for action_ref in action_refs {
+            self.remove_grant(&action_ref);
+        }
+    }
+
+    fn commit_without_receipt(
+        &mut self,
+        authorized: AuthorizedAction,
+    ) -> Result<ActionEvaluation, ActionProjectionError> {
+        if self.accepted_requests.len() >= self.capacity {
+            return rejected(
+                &authorized.accepted.receipt.request_id,
+                "requestId",
+                "accepted request ledger is at capacity",
+            );
+        }
+        self.accepted_requests
+            .insert(authorized.accepted.receipt.request_id.clone());
+        Ok(ActionEvaluation::Accepted(authorized.accepted))
+    }
+
+    fn remove_grant(&mut self, action_ref: &str) {
+        if let Some(previous) = self.grants.remove(action_ref) {
+            self.grants_by_expiry
+                .remove(&(previous.expires_at_ms, action_ref.to_string()));
+        }
+    }
+
+    fn prune_expired(&mut self, now_ms: u64) {
+        loop {
+            let Some((expires_at_ms, action_ref)) = self.grants_by_expiry.first().cloned() else {
+                break;
+            };
+            if expires_at_ms > now_ms {
+                break;
+            }
+            self.grants_by_expiry
+                .remove(&(expires_at_ms, action_ref.clone()));
+            if self
+                .grants
+                .get(&action_ref)
+                .is_some_and(|grant| grant.expires_at_ms == expires_at_ms)
+            {
+                self.grants.remove(&action_ref);
+            }
+        }
+    }
+}
+
+/// 有界 action receipt 队列。driver/FFI 可以在一个 Effect batch 边界 drain 它，但不能让 receipt
+/// 自己更新业务 VM。
+#[derive(Debug)]
+pub struct ActionReceiptBus {
+    capacity: usize,
+    pending: VecDeque<ActionReceipt>,
+}
+
+/// 把 action receipt 作为单独、可订阅的 protocol event 下行。它不是业务 Frame，accepted 也不代表
+/// action 完成；renderer 必须继续等待 matching causation Frame 的原子 apply。
+pub fn emit_action_receipt(receipt: ActionReceipt) -> Result<Effect, ActionProjectionError> {
+    receipt
+        .validate()
+        .map_err(|error| ActionProjectionError::InvalidReceipt(error.to_string()))?;
+    let payload = serde_json::json!({
+        "event": INTERACTION_ACTION_RECEIPT_EVENT,
+        "data": receipt,
+    });
+    let bytes = serde_json::to_vec(&payload)
+        .expect("ActionReceipt only contains JSON-serializable contract fields");
+    Ok(Effect::Emit {
+        event: DomainEventBytes(Bytes::from(bytes)),
+    })
+}
+
+impl ActionReceiptBus {
+    pub fn new(capacity: usize) -> Result<Self, ActionProjectionError> {
+        if capacity == 0 {
+            return Err(ActionProjectionError::ZeroReceiptBusCapacity);
+        }
+        Ok(Self {
+            capacity,
+            pending: VecDeque::with_capacity(capacity),
+        })
+    }
+
+    pub fn len(&self) -> usize {
+        self.pending.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
+    pub fn drain(&mut self) -> Vec<ActionReceipt> {
+        self.pending.drain(..).collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.pending.clear();
+    }
+
+    fn ensure_space(&self) -> Result<(), ActionProjectionError> {
+        if self.pending.len() >= self.capacity {
+            return Err(ActionProjectionError::ReceiptBusFull {
+                capacity: self.capacity,
+            });
+        }
+        Ok(())
+    }
+
+    fn publish(&mut self, receipt: ActionReceipt) -> Result<(), ActionProjectionError> {
+        self.ensure_space()?;
+        receipt
+            .validate()
+            .map_err(|error| ActionProjectionError::InvalidReceipt(error.to_string()))?;
+        self.pending.push_back(receipt);
+        Ok(())
+    }
+}
+
+/// 下行 Frame 中能证明某 action 有了**权威候选结果**的 mutation 集。
+///
+/// 该匹配不等于 renderer 已确认；平台必须先让对应 Frame 原子 apply 成功，才可以从 pending overlay
+/// 切到最终 UI。此函数仅防止 HTTP 成功或不相关 Frame 误触发确认。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionFrameConfirmation {
+    pub request_id: String,
+    pub transaction_id: String,
+    pub mutations: Vec<ActionFrameMutation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionFrameMutation {
+    pub surface: SurfaceId,
+    pub scope: SurfaceScope,
+    pub revision: u64,
+}
+
+pub fn matching_frame_confirmation(
+    frame: &InteractionFrame,
+    request_id: &str,
+) -> Result<Option<ActionFrameConfirmation>, ActionProjectionError> {
+    if request_id.is_empty() {
+        return Err(ActionProjectionError::EmptyRequestId);
+    }
+    frame
+        .validate()
+        .map_err(ActionProjectionError::InvalidFrame)?;
+    let mutations = frame
+        .mutations
+        .iter()
+        .filter(|mutation| mutation.causation_id.as_deref() == Some(request_id))
+        .map(|mutation| ActionFrameMutation {
+            surface: mutation.surface,
+            scope: mutation.scope.clone(),
+            revision: mutation.revision,
+        })
+        .collect::<Vec<_>>();
+    if mutations.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(ActionFrameConfirmation {
+        request_id: request_id.to_string(),
+        transaction_id: frame.transaction_id.clone(),
+        mutations,
+    }))
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -32,13 +637,30 @@ pub enum ActionProjectionError {
     InvalidInvocation(String),
     #[error("action receipt is not a valid v1 receipt: {0}")]
     InvalidReceipt(String),
+    #[error("action invocation envelope is invalid: {0}")]
+    InvalidEnvelope(InteractionFrameError),
+    #[error("action frame is invalid: {0}")]
+    InvalidFrame(InteractionFrameError),
+    #[error("action binding grant is invalid: {0}")]
+    InvalidGrant(String),
+    #[error("action registry capacity must be greater than zero")]
+    ZeroRegistryCapacity,
+    #[error("action receipt bus capacity must be greater than zero")]
+    ZeroReceiptBusCapacity,
+    #[error("action registry is full (capacity {capacity})")]
+    RegistryFull { capacity: usize },
+    #[error("action receipt bus is full (capacity {capacity})")]
+    ReceiptBusFull { capacity: usize },
+    #[error("actionRef {0} cannot change actor, surface, scope or epoch while it is active")]
+    ActionRefContextChanged(String),
+    #[error("action binding has no supported canonical dispatch")]
+    UnsupportedDispatch,
 }
 
 /// 受理一个由 renderer 从 `ActionBinding` 原样回传的动作。
 ///
-/// action ref 不匹配、binding 禁用或 input shape 不支持均返回 `rejected` receipt；只有 receipt
-/// `accepted` 才携带可用于后续 Frame 的 causation id。该 id 就是 caller 的 opaque `requestId`，不
-/// 在 UI/FFI 层重编码或拆解。
+/// 这个纯函数保留给 registry 与单元测试复用。它只检查 binding 自身和 input shape；actor/scope/TTL/
+/// revision/replay 由 [`ActionBindingRegistry`] 在调用前完成。
 pub fn evaluate_action(
     binding: &ActionBinding,
     request_id: impl Into<String>,
@@ -94,6 +716,27 @@ pub fn evaluate_action(
         }));
     }
 
+    rejected_with_errors(request_id, errors)
+}
+
+fn rejected(
+    request_id: &str,
+    field: &str,
+    message: &str,
+) -> Result<ActionEvaluation, ActionProjectionError> {
+    rejected_with_errors(
+        request_id.to_string(),
+        vec![ActionValidationError {
+            field: field.to_string(),
+            message: message.to_string(),
+        }],
+    )
+}
+
+fn rejected_with_errors(
+    request_id: String,
+    errors: Vec<ActionValidationError>,
+) -> Result<ActionEvaluation, ActionProjectionError> {
     let receipt = ActionReceipt {
         request_id,
         status: ActionReceiptStatus::Rejected,
@@ -105,41 +748,92 @@ pub fn evaluate_action(
     Ok(ActionEvaluation::Rejected(receipt))
 }
 
+fn rejected_authorization(
+    request_id: &str,
+    field: &str,
+    message: &str,
+) -> Result<ActionAuthorization, ActionProjectionError> {
+    let ActionEvaluation::Rejected(receipt) = rejected(request_id, field, message)? else {
+        unreachable!("rejected helper always returns a rejection")
+    };
+    Ok(ActionAuthorization::Rejected(receipt))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::interaction_frame::SurfaceDataVm;
+    use crate::interaction_frame::{
+        ActionInvocationEnvelope, InteractionFrame, SurfaceMutation, TypedSurfaceMutation,
+        UnreadSummaryVm, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        INTERACTION_FRAME_SCHEMA_VERSION,
+    };
+
+    const ACTION_REF: &str = "act.v1.5BXd5bpZ4w6zWZbL";
 
     fn binding(enabled: bool) -> ActionBinding {
         ActionBinding {
-            action_ref: "message:message-1:createTopic".to_string(),
-            kind: "createTopic".to_string(),
+            action_ref: ACTION_REF.to_string(),
+            kind: "viewReceipt".to_string(),
             input_shape: "object".to_string(),
             enabled,
             disabled_reason: (!enabled).then(|| "notAvailable".to_string()),
         }
     }
 
+    fn scope() -> SurfaceScope {
+        SurfaceScope::Timeline {
+            channel_id: "channel-1".to_string(),
+            window_token: "latest".to_string(),
+        }
+    }
+
     fn invocation(action_ref: &str) -> ActionInvocation {
         ActionInvocation {
             action_ref: action_ref.to_string(),
-            input: BTreeMap::from([(
-                "title".to_string(),
-                SurfaceDataVm::String("Roadmap".to_string()),
-            )]),
+            input: BTreeMap::new(),
         }
+    }
+
+    fn envelope(request_id: &str) -> ActionInvocationEnvelope {
+        ActionInvocationEnvelope {
+            schema_version: ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+            request_id: request_id.to_string(),
+            actor_id: "viewer-1".to_string(),
+            surface: SurfaceId::MessageTimeline,
+            scope: scope(),
+            surface_epoch: 3,
+            observed_revision: 7,
+            invocation: invocation(ACTION_REF),
+        }
+    }
+
+    fn grant(enabled: bool, expires_at_ms: u64) -> ActionBindingGrant {
+        ActionBindingGrant {
+            actor_id: "viewer-1".to_string(),
+            surface: SurfaceId::MessageTimeline,
+            scope: scope(),
+            surface_epoch: 3,
+            revision: 7,
+            expires_at_ms,
+            binding: binding(enabled),
+            dispatch: ActionDispatch::ViewReceipt {
+                channel_id: "channel-1".to_string(),
+                message_id: "message-1".to_string(),
+            },
+        }
+    }
+
+    fn registry() -> ActionBindingRegistry {
+        ActionBindingRegistry::new(4).expect("nonzero bounded registry")
     }
 
     #[test]
     fn accepted_action_only_exposes_a_pending_causation_key() {
-        let ActionEvaluation::Accepted(accepted) = evaluate_action(
-            &binding(true),
-            "request-1",
-            &invocation("message:message-1:createTopic"),
-        )
-        .unwrap() else {
+        let ActionEvaluation::Accepted(accepted) =
+            evaluate_action(&binding(true), "request-1", &invocation(ACTION_REF)).unwrap()
+        else {
             panic!("enabled matching action must be accepted")
         };
         assert_eq!(accepted.receipt.status, ActionReceiptStatus::Accepted);
@@ -152,12 +846,161 @@ mod tests {
         let ActionEvaluation::Rejected(receipt) = evaluate_action(
             &binding(false),
             "request-2",
-            &invocation("message:message-1:revoke"),
+            &invocation("act.v1.different"),
         )
         .unwrap() else {
             panic!("mismatched disabled action must be rejected")
         };
         assert_eq!(receipt.status, ActionReceiptStatus::Rejected);
         assert_eq!(receipt.validation_errors.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn registry_rejects_unknown_expired_and_replayed_action_refs() {
+        let mut registry = registry();
+        let unknown = registry.invoke(&envelope("request-unknown"), 10).unwrap();
+        assert!(matches!(&unknown, ActionEvaluation::Rejected(_)));
+        assert_eq!(
+            unknown.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "actionRef"
+        );
+
+        registry.grant(grant(true, 20), 10).unwrap();
+        let expired = registry.invoke(&envelope("request-expired"), 20).unwrap();
+        assert!(matches!(&expired, ActionEvaluation::Rejected(_)));
+        assert_eq!(
+            expired.receipt().validation_errors.as_ref().unwrap()[0].message,
+            "action binding expired"
+        );
+
+        registry.grant(grant(true, 40), 21).unwrap();
+        let accepted = registry.invoke(&envelope("request-once"), 22).unwrap();
+        assert!(matches!(&accepted, ActionEvaluation::Accepted(_)));
+        let replay = registry.invoke(&envelope("request-once"), 23).unwrap();
+        assert!(matches!(&replay, ActionEvaluation::Rejected(_)));
+        assert_eq!(
+            replay.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "requestId"
+        );
+    }
+
+    #[test]
+    fn registry_rejects_actor_scope_epoch_and_revision_mismatch_before_dispatch() {
+        let mut registry = registry();
+        registry.grant(grant(true, 40), 10).unwrap();
+
+        let mut wrong_actor = envelope("request-actor");
+        wrong_actor.actor_id = "viewer-2".to_string();
+        let actor = registry.invoke(&wrong_actor, 11).unwrap();
+        assert_eq!(
+            actor.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "actorId"
+        );
+
+        let mut wrong_scope = envelope("request-scope");
+        wrong_scope.scope = SurfaceScope::Timeline {
+            channel_id: "channel-2".to_string(),
+            window_token: "latest".to_string(),
+        };
+        let scoped = registry.invoke(&wrong_scope, 11).unwrap();
+        assert_eq!(
+            scoped.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "scope"
+        );
+
+        let mut wrong_epoch = envelope("request-epoch");
+        wrong_epoch.surface_epoch = 4;
+        let epoch = registry.invoke(&wrong_epoch, 11).unwrap();
+        assert_eq!(
+            epoch.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "surfaceEpoch"
+        );
+
+        let mut wrong_revision = envelope("request-revision");
+        wrong_revision.observed_revision = 8;
+        let revision = registry.invoke(&wrong_revision, 11).unwrap();
+        assert_eq!(
+            revision.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "observedRevision"
+        );
+    }
+
+    #[test]
+    fn registry_requires_the_host_runtime_actor_before_binding_lookup() {
+        let mut registry = registry();
+        registry.grant(grant(true, 40), 10).unwrap();
+
+        let authorization = registry
+            .authorize_for_actor(&envelope("request-runtime-actor"), "viewer-2", 11)
+            .unwrap();
+        let ActionAuthorization::Rejected(receipt) = authorization else {
+            panic!("caller actor is not an authority source")
+        };
+        assert_eq!(receipt.status, ActionReceiptStatus::Rejected);
+        assert_eq!(
+            receipt.validation_errors.as_ref().unwrap()[0].field,
+            "actorId"
+        );
+    }
+
+    #[test]
+    fn receipt_bus_is_bounded_and_does_not_lose_an_accepted_request() {
+        let mut registry = registry();
+        registry.grant(grant(true, 40), 10).unwrap();
+        let mut receipts = ActionReceiptBus::new(1).unwrap();
+
+        let accepted = registry
+            .invoke_and_publish(&envelope("request-bus-1"), 11, &mut receipts)
+            .unwrap();
+        assert!(matches!(&accepted, ActionEvaluation::Accepted(_)));
+        assert_eq!(receipts.len(), 1);
+        assert!(matches!(
+            registry.invoke_and_publish(&envelope("request-bus-2"), 12, &mut receipts),
+            Err(ActionProjectionError::ReceiptBusFull { capacity: 1 })
+        ));
+        let replay = registry.invoke(&envelope("request-bus-2"), 12).unwrap();
+        assert!(matches!(&replay, ActionEvaluation::Accepted(_)));
+    }
+
+    #[test]
+    fn matching_causation_requires_a_valid_frame_and_exact_request_id() {
+        let frame = InteractionFrame {
+            schema_version: INTERACTION_FRAME_SCHEMA_VERSION,
+            transaction_id: "transaction-1".to_string(),
+            mutations: vec![SurfaceMutation {
+                surface: SurfaceId::MessageUnreadSummary,
+                scope: SurfaceScope::User {
+                    user_id: "viewer-1".to_string(),
+                    team_id: "team-1".to_string(),
+                },
+                revision: 1,
+                base_revision: None,
+                causation_id: Some("request-1".to_string()),
+                mutation: TypedSurfaceMutation::UnreadSummarySnapshot {
+                    view: UnreadSummaryVm {
+                        unread_total: 1,
+                        mention_total: 0,
+                        urgent_total: 0,
+                        unread_channel_count: 1,
+                    },
+                },
+            }],
+        };
+
+        let confirmation = matching_frame_confirmation(&frame, "request-1")
+            .unwrap()
+            .expect("matching causation must be discoverable after frame validation");
+        assert_eq!(confirmation.transaction_id, "transaction-1");
+        assert_eq!(confirmation.mutations.len(), 1);
+        assert!(matching_frame_confirmation(&frame, "request-2")
+            .unwrap()
+            .is_none());
+
+        let mut invalid = frame;
+        invalid.mutations[0].revision = 0;
+        assert!(matches!(
+            matching_frame_confirmation(&invalid, "request-1"),
+            Err(ActionProjectionError::InvalidFrame(_))
+        ));
     }
 }

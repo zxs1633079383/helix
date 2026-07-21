@@ -219,6 +219,15 @@ pub enum CorrelationContext {
     /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。
     OutboundPostReaders { req_id: String },
 
+    /// SurfaceRuntime `viewReceipt` action 的同一 canonical `post/read/list` 回包。它保留 legacy
+    /// read/readers emits，并额外投影带 requestId causation 的 typed participant-receipts Frame；HTTP
+    /// accepted 本身不允许确认 renderer pending state。
+    InteractionViewReceipt {
+        request_id: String,
+        channel_id: String,
+        message_id: String,
+    },
+
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,
 

@@ -17,6 +17,7 @@ use crate::state::{ChannelId, ConnState, CorrelationContext, ImState, SendStatus
 use helix_core::effect::TimerId;
 use helix_core::{CoreError, EffectSink, Module, Tick};
 
+mod action;
 mod trait_impl;
 
 /// Driver 向 sans-I/O IM 模块同步当前 host 身份的内部命令。

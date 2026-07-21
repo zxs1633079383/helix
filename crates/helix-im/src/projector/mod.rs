@@ -77,6 +77,17 @@ impl<V: SurfaceView> TypedSurfaceProjector<V> {
         scope: SurfaceScope,
         view: V,
     ) -> Result<SurfaceMutation, SurfaceProjectorError> {
+        self.snapshot_with_causation(scope, view, None)
+    }
+
+    /// 有些权威 HTTP 回包首次建立一个 surface 时也必须携带 action causation。这个仍是完整
+    /// snapshot，而不是把 receipt/accepted 当作 VM 完成信号。
+    pub(crate) fn snapshot_with_causation(
+        &mut self,
+        scope: SurfaceScope,
+        view: V,
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, SurfaceProjectorError> {
         let slot_key = scope.canonical_key();
         let revision = self
             .slots
@@ -87,7 +98,7 @@ impl<V: SurfaceView> TypedSurfaceProjector<V> {
             scope,
             revision,
             base_revision: None,
-            causation_id: None,
+            causation_id,
             mutation: V::snapshot(view.clone()),
         };
         mutation.validate()?;

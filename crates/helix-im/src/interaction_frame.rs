@@ -10,6 +10,11 @@ use thiserror::Error;
 
 pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
+/// Action invoke 的受理结果。`accepted` 只代表 Helix 已接管该 requestId；业务终态仍必须等同
+/// requestId 的权威 Frame causation。
+pub const INTERACTION_ACTION_RECEIPT_EVENT: &str = "im:interaction:action-receipt";
+/// 上行 ActionBinding invoke 的独立版本；不能借用下行 Frame 的版本号来默许未知字段。
+pub const ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION: u32 = 1;
 /// v1 wire integers must remain lossless when consumed as JavaScript `number` values.
 pub const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 pub const MIN_SAFE_JSON_INTEGER: i64 = -9_007_199_254_740_991;
@@ -158,7 +163,11 @@ impl SurfaceScope {
         key
     }
 
-    fn valid_for(&self, surface: SurfaceId) -> bool {
+    /// 验证 scope 是否与公开 surface 合同精确匹配。
+    ///
+    /// 上行 action envelope 和下行 mutation 都复用这条规则，避免某个端只校验 scope 的字段非空，
+    /// 却把 thread/channel 等上下文错投给不相容的 surface。
+    pub fn valid_for(&self, surface: SurfaceId) -> bool {
         match (surface, self) {
             (
                 SurfaceId::MessageLeftDialogList | SurfaceId::MessageUnreadSummary,
@@ -250,6 +259,24 @@ pub struct ActionInvocation {
     pub input: BTreeMap<String, SurfaceDataVm>,
 }
 
+/// renderer 回送给 Helix 的版本化、surface-scoped 动作请求。
+///
+/// `request_id` 是端到端 causation key；`actor_id` 由受信 platform runtime 注入，而不是由 UI
+/// 自行推导。`surface_epoch` 与 `observed_revision` 让旧页面/旧 Frame 的 action binding 在进入
+/// 命令映射前 fail closed。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActionInvocationEnvelope {
+    pub schema_version: u32,
+    pub request_id: String,
+    pub actor_id: String,
+    pub surface: SurfaceId,
+    pub scope: SurfaceScope,
+    pub surface_epoch: u64,
+    pub observed_revision: u64,
+    pub invocation: ActionInvocation,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ActionReceipt {
@@ -326,6 +353,44 @@ impl ActionInvocation {
                 .map_err(|reason| InteractionFrameError::InvalidActionInvocation { reason })?;
         }
         Ok(())
+    }
+}
+
+impl ActionInvocationEnvelope {
+    pub fn validate(&self) -> Result<(), InteractionFrameError> {
+        if self.schema_version != ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION {
+            return Err(InteractionFrameError::ActionInvocationSchemaVersion(
+                self.schema_version,
+            ));
+        }
+        if self.request_id.is_empty() {
+            return Err(InteractionFrameError::InvalidActionInvocationEnvelope {
+                reason: "requestId must not be empty".to_string(),
+            });
+        }
+        if self.actor_id.is_empty() {
+            return Err(InteractionFrameError::InvalidActionInvocationEnvelope {
+                reason: "actorId must not be empty".to_string(),
+            });
+        }
+        if !self.scope.valid_for(self.surface) {
+            return Err(InteractionFrameError::InvalidActionInvocationEnvelope {
+                reason: "scope does not match surface".to_string(),
+            });
+        }
+        validate_wire_u64(self.surface, "surfaceEpoch", self.surface_epoch)?;
+        if self.surface_epoch == 0 {
+            return Err(InteractionFrameError::InvalidActionInvocationEnvelope {
+                reason: "surfaceEpoch must be greater than zero".to_string(),
+            });
+        }
+        validate_wire_u64(self.surface, "observedRevision", self.observed_revision)?;
+        if self.observed_revision == 0 {
+            return Err(InteractionFrameError::InvalidActionInvocationEnvelope {
+                reason: "observedRevision must be greater than zero".to_string(),
+            });
+        }
+        self.invocation.validate()
     }
 }
 
@@ -472,6 +537,8 @@ pub enum InteractionFrameError {
     Decode(String),
     #[error("unsupported interaction frame schema version: {0}")]
     SchemaVersion(u32),
+    #[error("unsupported action invocation schema version: {0}")]
+    ActionInvocationSchemaVersion(u32),
     #[error("interaction frame transactionId must not be empty")]
     EmptyTransactionId,
     #[error("interaction frame must contain at least one mutation")]
@@ -504,6 +571,8 @@ pub enum InteractionFrameError {
     InvalidActionBinding { reason: String },
     #[error("invalid ActionInvocation: {reason}")]
     InvalidActionInvocation { reason: String },
+    #[error("invalid ActionInvocationEnvelope: {reason}")]
+    InvalidActionInvocationEnvelope { reason: String },
     #[error("invalid ActionReceipt: {reason}")]
     InvalidActionReceipt { reason: String },
     #[error("duplicate surface slot {surface}@{scope}")]
@@ -1275,18 +1344,18 @@ fn validate_participant_receipts(
     for row in &view.completed {
         validate_user(surface, &row.user)?;
         if row.status != ReceiptStatus::Completed {
+            return invalid_view(surface, "completed receipt rows require completed status");
+        }
+        if let Some(completed_at) = row.completed_at {
+            validate_wire_i64(surface, "completedAt", completed_at)?;
+        } else if *receipt_kind != ReceiptKind::Read {
             return invalid_view(
                 surface,
-                "completed receipt rows require completed status and timestamp",
+                "completed receipt rows without timestamps are only valid for read receipts",
             );
         }
-        let Some(completed_at) = row.completed_at else {
-            return invalid_view(
-                surface,
-                "completed receipt rows require completed status and timestamp",
-            );
-        };
-        validate_wire_i64(surface, "completedAt", completed_at)?;
+        // `post/read/list` authoritatively exposes readBits but no per-recipient read instant. For read receipts
+        // the omitted optional field means "timestamp unknown", never a fabricated observation time.
         if !users.insert(row.user.user_id.as_str()) {
             return invalid_view(
                 surface,

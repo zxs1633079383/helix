@@ -51,6 +51,13 @@ impl Module for ImModule {
                     self.config.auth_user_id = auth_user_id;
                     self.config.company_id = company_id;
                 }
+                crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND => {
+                    self.handle_action_invocation(cmd.payload.as_ref(), now_ms, out)
+                        .map_err(|e| CoreError::ModuleError {
+                            module: self.name(),
+                            source: Box::new(e),
+                        })?;
+                }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {

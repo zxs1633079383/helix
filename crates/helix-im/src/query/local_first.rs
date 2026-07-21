@@ -115,6 +115,7 @@ impl ImModule {
         request: MessageQueryRequest,
         query_session_epoch: u64,
         query_generation: u64,
+        now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -164,7 +165,7 @@ impl ImModule {
         );
 
         if coverage == LocalReadCoverage::Complete {
-            out.push(self.emit_timeline_snapshot(&request, &local_rows_desc)?);
+            out.push(self.emit_timeline_snapshot(&request, &local_rows_desc, now_ms)?);
             return Ok(());
         }
         self.start_remote_message_query(request, local_rows_desc, query_generation, out)
@@ -176,6 +177,7 @@ impl ImModule {
         local_rows_desc: Vec<Value>,
         query_session_epoch: u64,
         query_generation: u64,
+        now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -195,7 +197,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback failed"
                 );
-                out.push(self.emit_timeline_failed(&request)?);
+                out.push(self.emit_timeline_failed(&request, now_ms)?);
                 return Ok(());
             }
         };
@@ -208,7 +210,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback returned invalid response"
                 );
-                out.push(self.emit_timeline_failed(&request)?);
+                out.push(self.emit_timeline_failed(&request, now_ms)?);
                 return Ok(());
             }
         };
@@ -225,7 +227,7 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback contained invalid posts"
                 );
-                out.push(self.emit_timeline_failed(&request)?);
+                out.push(self.emit_timeline_failed(&request, now_ms)?);
                 return Ok(());
             }
         };
@@ -251,7 +253,7 @@ impl ImModule {
         );
 
         if self.local_store_mode == LocalStoreMode::Disabled || cache_ops.is_empty() {
-            out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc)?);
+            out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc, now_ms)?);
             return Ok(());
         }
 
@@ -280,6 +282,7 @@ impl ImModule {
         coverage: Option<RecentMessageCoverage>,
         query_session_epoch: u64,
         query_generation: u64,
+        now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -312,7 +315,7 @@ impl ImModule {
                 "message query remote cache failed; returning remote result without coverage"
             ),
         }
-        out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc)?);
+        out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc, now_ms)?);
         Ok(())
     }
 
@@ -398,6 +401,7 @@ impl ImModule {
         &mut self,
         request: &MessageQueryRequest,
         rows_desc: &[Value],
+        now_ms: u64,
     ) -> Result<Effect, ImError> {
         let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
         let shaped = crate::render_ready::shape_message_rows_for_viewer(
@@ -407,17 +411,18 @@ impl ImModule {
         let rows = shaped.as_array().ok_or_else(|| {
             ImError::Parse("render-ready timeline rows must be an array".to_string())
         })?;
+        let mut timeline_request =
+            crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
+                request.channel_id.as_str(),
+                request.window_token.as_str(),
+            );
+        timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
         let mutation = self
             .state
             .timeline_projector
-            .snapshot_from_render_ready(
-                crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
-                    request.channel_id.as_str(),
-                    request.window_token.as_str(),
-                ),
-                rows,
-            )
+            .snapshot_from_render_ready(timeline_request, rows)
             .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
+        self.register_timeline_action_bindings(&mutation, now_ms)?;
         let scope_key = mutation.scope.canonical_key();
         let revision = mutation.revision;
         let frame = crate::projector::build_interaction_frame(
@@ -429,18 +434,24 @@ impl ImModule {
             .map_err(|error| ImError::Serialize(error.to_string()))
     }
 
-    fn emit_timeline_failed(&mut self, request: &MessageQueryRequest) -> Result<Effect, ImError> {
+    fn emit_timeline_failed(
+        &mut self,
+        request: &MessageQueryRequest,
+        now_ms: u64,
+    ) -> Result<Effect, ImError> {
         let mut failed =
             crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
         failed.state = crate::interaction_frame::SurfaceLoadState::Failed;
+        failed.action_authority_available = false;
         let mutation = self
             .state
             .timeline_projector
             .snapshot_from_render_ready(failed, &[])
             .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
+        self.register_timeline_action_bindings(&mutation, now_ms)?;
         let scope_key = mutation.scope.canonical_key();
         let revision = mutation.revision;
         let frame = crate::projector::build_interaction_frame(

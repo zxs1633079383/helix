@@ -19,7 +19,8 @@ use crate::interaction_frame::{
 /// 上行 action registry 与 replay ledger 共享的有界容量。
 ///
 /// action path 不是 WS message 热路径，但 registry 仍必须 bounded：满时 fail closed，而不是保留无限
-/// requestId 或把旧 binding 当作新页面的能力。
+/// requestId 或把旧 binding 当作新页面的能力。replay key 只在其绑定的 live actionRef 存在时保留；
+/// actionRef 失权时会与其 replay key 一起回收，因此有限 ledger 不会把长会话永久锁死。
 pub const DEFAULT_ACTION_REGISTRY_CAPACITY: usize = 1_024;
 pub const DEFAULT_ACTION_RECEIPT_CAPACITY: usize = 256;
 
@@ -65,6 +66,8 @@ impl ActionDispatch {
 pub struct AuthorizedAction {
     pub accepted: AcceptedAction,
     pub dispatch: ActionDispatch,
+    /// 已认证的 capability 是 replay key 的所有者；只在 registry 内用于随 capability 一起回收。
+    action_ref: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,8 +102,10 @@ impl ActionEvaluation {
 
 /// 在发出某一 Frame 时由 Helix 赋予的 action lease。
 ///
-/// `binding.action_ref` 必须来自 Helix 的 action-id 分配边界，端侧只透传它。这里不依赖随机数或
-/// 系统时间；ref 与 expiry 都由上层在确定性 Tick/IdSource 边界传入。
+/// `binding.action_ref` 必须来自 Helix 的 action-id 分配边界，端侧只透传它。SurfaceRuntime 的
+/// `TimelineProjector` 在一个 runtime session 内单调发号且不重新签发 retired ref；registry 依赖此
+/// producer invariant，才能在 lease 失权时安全回收其 replay key。这里不依赖随机数或系统时间；ref
+/// 与 expiry 都由上层在确定性 Tick/IdSource 边界传入。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionBindingGrant {
     pub actor_id: String,
@@ -168,9 +173,11 @@ pub struct ActionBindingRegistry {
     capacity: usize,
     grants: BTreeMap<String, RegisteredActionBinding>,
     grants_by_expiry: BTreeSet<(u64, String)>,
-    /// 当前 identity/session 内已受理的 causation key。它不随 binding TTL 清理：同一 requestId
-    /// 在 ref 刷新或重新授权后也必须继续 fail closed，直到明确 session/identity reset。
+    /// 当前 live action capability 下已受理的 causation key。它绝不按容量或年龄单独淘汰；只有其
+    /// actionRef 被 revoke/TTL 失权或 session/identity reset 时才会原子回收。
     accepted_requests: BTreeSet<String>,
+    /// `actionRef -> requestId[]` 反向索引，使 capability 失权时无需扫描整个 replay ledger。
+    accepted_requests_by_action_ref: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl ActionBindingRegistry {
@@ -183,6 +190,7 @@ impl ActionBindingRegistry {
             grants: BTreeMap::new(),
             grants_by_expiry: BTreeSet::new(),
             accepted_requests: BTreeSet::new(),
+            accepted_requests_by_action_ref: BTreeMap::new(),
         })
     }
 
@@ -285,19 +293,9 @@ impl ActionBindingRegistry {
                 Ok(ActionEvaluation::Rejected(receipt))
             }
             ActionAuthorization::Accepted(authorized) => {
-                if self.accepted_requests.len() >= self.capacity {
-                    let evaluation = rejected(
-                        &authorized.accepted.receipt.request_id,
-                        "requestId",
-                        "accepted request ledger is at capacity",
-                    )?;
-                    receipts.publish(evaluation.receipt().clone())?;
-                    return Ok(evaluation);
-                }
-                self.accepted_requests
-                    .insert(authorized.accepted.receipt.request_id.clone());
-                receipts.publish(authorized.accepted.receipt.clone())?;
-                Ok(ActionEvaluation::Accepted(authorized.accepted))
+                let evaluation = self.commit_without_receipt(authorized)?;
+                receipts.publish(evaluation.receipt().clone())?;
+                Ok(evaluation)
             }
         }
     }
@@ -404,6 +402,7 @@ impl ActionBindingRegistry {
             Ok(()) => Ok(ActionAuthorization::Accepted(AuthorizedAction {
                 accepted,
                 dispatch: grant.dispatch,
+                action_ref: envelope.invocation.action_ref.clone(),
             })),
             Err(ActionProjectionError::UnsupportedDispatch) => rejected_authorization(
                 &envelope.request_id,
@@ -434,6 +433,7 @@ impl ActionBindingRegistry {
         self.grants.clear();
         self.grants_by_expiry.clear();
         self.accepted_requests.clear();
+        self.accepted_requests_by_action_ref.clear();
     }
 
     /// 新的同一 surface/scope revision 发出时撤销旧 renderer 所持有的 action lease。
@@ -468,15 +468,26 @@ impl ActionBindingRegistry {
         &mut self,
         authorized: AuthorizedAction,
     ) -> Result<ActionEvaluation, ActionProjectionError> {
+        let request_id = authorized.accepted.receipt.request_id.clone();
+        if self.accepted_requests.contains(&request_id) {
+            return rejected(&request_id, "requestId", "requestId was already accepted");
+        }
         if self.accepted_requests.len() >= self.capacity {
             return rejected(
-                &authorized.accepted.receipt.request_id,
+                &request_id,
                 "requestId",
                 "accepted request ledger is at capacity",
             );
         }
-        self.accepted_requests
-            .insert(authorized.accepted.receipt.request_id.clone());
+        let inserted = self.accepted_requests.insert(request_id.clone());
+        debug_assert!(
+            inserted,
+            "replay check and insert must stay atomic in the state machine"
+        );
+        self.accepted_requests_by_action_ref
+            .entry(authorized.action_ref)
+            .or_default()
+            .insert(request_id);
         Ok(ActionEvaluation::Accepted(authorized.accepted))
     }
 
@@ -484,6 +495,17 @@ impl ActionBindingRegistry {
         if let Some(previous) = self.grants.remove(action_ref) {
             self.grants_by_expiry
                 .remove(&(previous.expires_at_ms, action_ref.to_string()));
+            self.release_replay_requests(action_ref);
+        }
+    }
+
+    fn release_replay_requests(&mut self, action_ref: &str) {
+        let Some(request_ids) = self.accepted_requests_by_action_ref.remove(action_ref) else {
+            return;
+        };
+        for request_id in request_ids {
+            let removed = self.accepted_requests.remove(&request_id);
+            debug_assert!(removed, "replay indexes must be updated together");
         }
     }
 
@@ -495,14 +517,14 @@ impl ActionBindingRegistry {
             if expires_at_ms > now_ms {
                 break;
             }
-            self.grants_by_expiry
-                .remove(&(expires_at_ms, action_ref.clone()));
             if self
                 .grants
                 .get(&action_ref)
                 .is_some_and(|grant| grant.expires_at_ms == expires_at_ms)
             {
-                self.grants.remove(&action_ref);
+                self.remove_grant(&action_ref);
+            } else {
+                self.grants_by_expiry.remove(&(expires_at_ms, action_ref));
             }
         }
     }
@@ -809,6 +831,12 @@ mod tests {
         }
     }
 
+    fn envelope_for_action_ref(request_id: &str, action_ref: &str) -> ActionInvocationEnvelope {
+        let mut envelope = envelope(request_id);
+        envelope.invocation = invocation(action_ref);
+        envelope
+    }
+
     fn grant(enabled: bool, expires_at_ms: u64) -> ActionBindingGrant {
         ActionBindingGrant {
             actor_id: "viewer-1".to_string(),
@@ -823,6 +851,12 @@ mod tests {
                 message_id: "message-1".to_string(),
             },
         }
+    }
+
+    fn grant_for_action_ref(action_ref: &str, expires_at_ms: u64) -> ActionBindingGrant {
+        let mut grant = grant(true, expires_at_ms);
+        grant.binding.action_ref = action_ref.to_string();
+        grant
     }
 
     fn registry() -> ActionBindingRegistry {
@@ -865,8 +899,15 @@ mod tests {
             "actionRef"
         );
 
-        registry.grant(grant(true, 20), 10).unwrap();
-        let expired = registry.invoke(&envelope("request-expired"), 20).unwrap();
+        registry
+            .grant(grant_for_action_ref("act.v1.expired", 20), 10)
+            .unwrap();
+        let expired = registry
+            .invoke(
+                &envelope_for_action_ref("request-expired", "act.v1.expired"),
+                20,
+            )
+            .unwrap();
         assert!(matches!(&expired, ActionEvaluation::Rejected(_)));
         assert_eq!(
             expired.receipt().validation_errors.as_ref().unwrap()[0].message,
@@ -876,11 +917,113 @@ mod tests {
         registry.grant(grant(true, 40), 21).unwrap();
         let accepted = registry.invoke(&envelope("request-once"), 22).unwrap();
         assert!(matches!(&accepted, ActionEvaluation::Accepted(_)));
-        let replay = registry.invoke(&envelope("request-once"), 23).unwrap();
+        registry.grant(grant(true, 60), 23).unwrap();
+        let replay = registry.invoke(&envelope("request-once"), 24).unwrap();
         assert!(matches!(&replay, ActionEvaluation::Rejected(_)));
         assert_eq!(
             replay.receipt().validation_errors.as_ref().unwrap()[0].field,
             "requestId"
+        );
+    }
+
+    // 回归锚: UC01-16 ActionBinding replay ledger capacity.
+    #[test]
+    fn registry_reclaims_retired_replay_keys_without_replaying_old_envelopes() {
+        let mut registry = ActionBindingRegistry::new(DEFAULT_ACTION_REGISTRY_CAPACITY)
+            .expect("default capacity is nonzero");
+        for sequence in 0..DEFAULT_ACTION_REGISTRY_CAPACITY {
+            let action_ref = format!("act.v1.replay-ledger.{sequence:04}");
+            let request_id = format!("request-replay-ledger.{sequence:04}");
+            registry
+                .grant(grant_for_action_ref(&action_ref, 20), 10)
+                .unwrap();
+            assert!(matches!(
+                registry
+                    .invoke(&envelope_for_action_ref(&request_id, &action_ref), 11)
+                    .unwrap(),
+                ActionEvaluation::Accepted(_)
+            ));
+        }
+
+        registry.revoke_scope("viewer-1", SurfaceId::MessageTimeline, &scope(), 3);
+        assert!(registry.is_empty());
+        assert!(registry.accepted_requests.is_empty());
+        assert!(registry.accepted_requests_by_action_ref.is_empty());
+
+        registry
+            .grant(grant_for_action_ref("act.v1.replay-ledger.fresh", 30), 12)
+            .unwrap();
+        assert!(matches!(
+            registry
+                .invoke(
+                    &envelope_for_action_ref(
+                        "request-replay-ledger.fresh",
+                        "act.v1.replay-ledger.fresh",
+                    ),
+                    13,
+                )
+                .unwrap(),
+            ActionEvaluation::Accepted(_)
+        ));
+
+        let replay = registry
+            .invoke(
+                &envelope_for_action_ref("request-replay-ledger.0000", "act.v1.replay-ledger.0000"),
+                13,
+            )
+            .unwrap();
+        assert_eq!(
+            replay.receipt().validation_errors.as_ref().unwrap()[0].field,
+            "actionRef"
+        );
+    }
+
+    #[test]
+    fn registry_reclaims_replay_keys_when_binding_ttl_expires() {
+        let mut registry = ActionBindingRegistry::new(1).expect("nonzero bounded registry");
+        let retired = envelope_for_action_ref("request-ttl-retired", "act.v1.ttl-retired");
+        registry
+            .grant(grant_for_action_ref("act.v1.ttl-retired", 20), 10)
+            .unwrap();
+        assert!(matches!(
+            registry.invoke(&retired, 11).unwrap(),
+            ActionEvaluation::Accepted(_)
+        ));
+        assert_eq!(
+            registry
+                .invoke(&retired, 12)
+                .unwrap()
+                .receipt()
+                .validation_errors
+                .as_ref()
+                .unwrap()[0]
+                .field,
+            "requestId"
+        );
+
+        registry
+            .grant(grant_for_action_ref("act.v1.ttl-fresh", 40), 20)
+            .unwrap();
+        assert!(registry.accepted_requests.is_empty());
+        assert!(matches!(
+            registry
+                .invoke(
+                    &envelope_for_action_ref("request-ttl-fresh", "act.v1.ttl-fresh"),
+                    21,
+                )
+                .unwrap(),
+            ActionEvaluation::Accepted(_)
+        ));
+        assert_eq!(
+            registry
+                .invoke(&retired, 21)
+                .unwrap()
+                .receipt()
+                .validation_errors
+                .as_ref()
+                .unwrap()[0]
+                .field,
+            "actionRef"
         );
     }
 

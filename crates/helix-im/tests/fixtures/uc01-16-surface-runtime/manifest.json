@@ -16,13 +16,13 @@
     "rejectedAction": "rejected-action.json"
   },
   "producerStatus": {
-    "message.left-dialog-list": "live: dialog query snapshot and existing list patch",
-    "message.unread-summary": "live: paired with dialog snapshot and absolute badge patch",
-    "message.timeline": "live: local-first terminal query snapshot; post and WS patch blocked",
-    "message.thread-detail": "blocked: typed outlet only; no query or WS producer",
-    "message.participant-receipts": "blocked: typed outlet only; no query or WS producer",
-    "message.channel-summary": "blocked: typed outlet only; no query or WS producer",
-    "message.member-roster": "blocked: typed outlet only; no query or WS producer",
-    "message.topic-list": "blocked: typed outlet only; no query or WS producer"
+    "message.left-dialog-list": "live: opaque resync -> dialog storage fact -> snapshot/patch Frame",
+    "message.unread-summary": "live: paired with dialog storage fact -> atomic snapshot/absolute badge patch",
+    "message.timeline": "live: local-first query/post/WS facts -> snapshot or patch Frame",
+    "message.thread-detail": "live: opaque resync -> im_get_replies HTTP fact -> snapshot/patch Frame",
+    "message.participant-receipts": "live: opaque resync -> im_post_read_list HTTP fact -> snapshot/patch Frame; unsupported receipt kinds are disabled",
+    "message.channel-summary": "live: opaque resync -> channel storage fact -> snapshot/patch Frame",
+    "message.member-roster": "live: opaque resync -> channel_member storage fact -> snapshot/patch Frame; unaudited actions are disabled",
+    "message.topic-list": "live: opaque resync -> channel storage fact -> snapshot/patch Frame; unaudited actions are disabled"
   }
 }

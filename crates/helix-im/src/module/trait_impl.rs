@@ -149,6 +149,7 @@ impl Module for ImModule {
                                     name,
                                     cmd.payload.as_ref(),
                                     corr.raw(),
+                                    self.config.auth_user_id.as_str(),
                                 )
                                 .expect("reply command with req_id must build projection request");
                                 if request.mode

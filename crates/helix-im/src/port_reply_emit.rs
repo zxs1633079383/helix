@@ -93,7 +93,10 @@ pub(crate) fn emit_replies(
                     serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
                 let mut projection = crate::render_ready_replies::finalize_projection(
                     request,
-                    crate::render_ready_replies::extract_flat_replies(&body),
+                    crate::render_ready_replies::extract_flat_replies(
+                        &body,
+                        request.viewer_user_id.as_str(),
+                    ),
                 );
                 if crate::render_ready_replies::accept_projection(
                     &mut projection,

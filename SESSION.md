@@ -8,6 +8,8 @@
 
 🧭 BRANCH-ID @2026-07-20 17:43 -0700 | 当前 `codex/reply-contract-correlation-20260720`@f078105 ↑↓vsmain:↑0 ↓0 · upstream:无 upstream
 
+🎯 EXPECT 修复 `im_get_replies` 与 `im_get_reply_branch` 读回投影丢失 viewer 身份，导致本人回复被整形为 `isSelf=false`。可证伪断言：① 发起回复读请求时冻结 host 注入的 `auth_user_id`，HTTP 回包整形使用同一 viewer；② root、本人回复、他人回复的 `isSelf` 与 action capabilities 分别正确；③ 协议字段集不变，Angular 不增加基于作者的业务兜底；④ 聚焦 Helix 测试与双账号 G-12 验收通过；⑤ 不改 helix-core、driver 或 Go 服务端。@2026-07-20T20:11:10-07:00 | 赌注 高 | 可逆 是
+
 🎯 EXPECT 收敛回复与快捷表情的 Strict Matrix 事实合同。可证伪断言：① `im_send_message` 的 G-01/G-02 只声明 `replied` 描述符，不再声明已废弃的 `reply_to_id`；② `im_quick_reply` 只接受 `post_id/emoji/req_id`，绝不把调用方 `user_id` 透传到 Go；③ 生成后的 command API 与 Strict Matrix 检查一致，且 Helix 聚焦合同/出站测试通过；④ 不改 helix-core、driver 或投影 schema。@2026-07-20T17:43:00-07:00 | 赌注 高 | 可逆 是
 
 ✅ DONE 收敛回复与快捷表情的 Strict Matrix 事实合同。epoch 升至 10；G-01/G-02 以 `replied` 四字段描述符和可选 `req_id` 替换 `reply_to_id`，G-06 不再接受/透传客户端 `user_id`，仅将可选 `req_id` 放入 `Cses-Track-Id`。验证：`cargo check -p helix-im` PASS；`cargo test -p helix-im --test p2_posts_outbound_test --test strict_matrix_contract_test` 27/27 PASS；`node scripts/strict-matrix/check.mjs --check-generated` PASS。@2026-07-20T18:03:00-07:00

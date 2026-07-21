@@ -120,8 +120,20 @@ message.topic-list             TopicListVm
 message.participant-receipts   ParticipantReceiptsVm
 ```
 
+<!-- uc01-16-surface-runtime-contract:begin -->
+schemaVersion=1
+event=im:interaction:frame
+surfaces=message.left-dialog-list,message.unread-summary,message.timeline,message.thread-detail,message.channel-summary,message.member-roster,message.topic-list,message.participant-receipts
+patch=replaceView
+apply=whole-frame-atomic
+scope-key=utf8-byte-length
+action-confirm=matching-causation-frame-only
+ffi=one-callback-batch-and-copy-borrowed-bytes
+producers=dialog+unread,timeline-snapshot;thread+receipts+channel+member+topic=blocked
+<!-- uc01-16-surface-runtime-contract:end -->
+
 每个 patch 只接受完整 `{ kind: "replaceView", view: TypedVm }`，并且必须带精确的
-`baseRevision`。FFI/C++/Dart 只复制 bytes、按 `(surface, canonicalScope)` 做 schema/revision
+`baseRevision`。FFI/C++/QuickJS 只复制 bytes、按 `(surface, canonicalScope)` 做 schema/revision
 校验和整 Frame 原子 apply；它们不得从 raw event、HTTP body 或 SQLite row 推导 VM。canonical scope
 key 的字段长度按 UTF-8 **字节数**计算。
 
@@ -135,9 +147,10 @@ key 的字段长度按 UTF-8 **字节数**计算。
 }
 ```
 
-`accepted` 仅允许端侧建立 pending overlay；只有后续 Frame 的 `causationId` 与同一 `requestId`
-匹配才可确认最终 UI。当前 Helix/FFI **尚未**提供通用 `invoke(actionRef, input)` C ABI 或
-`ActionReceipt` 总线事件名；移动端不得臆造该调用，直到对应 command/FFI producer 落地。
+`helix_invoke_action` 接收版本化 `ActionInvocationEnvelope`；它只表示 request 已进入 Helix Tick，
+而非业务完成。v1 目前仅将 `viewReceipt` 绑定到既有的 `im_post_read_list` 权威命令，其他 binding
+必须以 `unsupportedByAuthorityV1` 禁用。`im:interaction:action-receipt` 的 `accepted` 仅允许端侧建立
+pending overlay；只有后续 Frame 的 `causationId` 与同一 `requestId` 匹配才可确认最终 UI。
 
 当前真实 producer 边界：`im_query_dialog_list` 已产生 dialog + unread Frame；
 `im_query_messages_by_channel` 的 local-first 终态已产生带 `windowToken`（缺省 `latest`）的 timeline

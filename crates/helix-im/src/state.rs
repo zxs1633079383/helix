@@ -189,6 +189,10 @@ pub struct ImState {
         crate::projector::action::PendingAuthorityAction,
     >,
 
+    /// G05 request-scoped, bounded target ledger. Only trusted WS authority may consume an entry;
+    /// HTTP acceptance merely prunes explicit failures and never establishes delivery.
+    pub(crate) pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger,
+
     /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
     /// 直接交给 renderer 推导。
     pub(crate) participant_receipts_projector:
@@ -260,6 +264,7 @@ impl ImState {
             )
             .expect("static action receipt capacity must be non-zero"),
             pending_authority_actions: BTreeMap::new(),
+            pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger::default(),
             participant_receipts_projector:
                 crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             query_session_epoch: 0,
@@ -308,6 +313,7 @@ impl ImState {
         self.action_registry.clear();
         self.action_receipts.clear();
         self.pending_authority_actions.clear();
+        self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
         self.participant_receipts_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }

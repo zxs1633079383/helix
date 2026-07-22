@@ -4,7 +4,7 @@ use helix_core::effect::{Effect, GetSpec, SqlValue, StorageOp};
 use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::error::ImError;
 use crate::module::ImModule;
@@ -12,6 +12,128 @@ use crate::state::{ChannelId, CorrelationContext};
 
 const MAX_FORWARD_POSTS: usize = 100;
 const MAX_FORWARD_TARGETS: usize = 50;
+const MAX_PENDING_FORWARD_REQUESTS: usize = 64;
+
+/// Bounded request-to-target authority ledger for forward delivery.
+///
+/// HTTP acceptance never completes a target. A target remains eligible only until a trusted
+/// `envelope.tracing.csesTrackId` post is durably projected with the same request id.
+#[derive(Debug, Default)]
+pub(crate) struct PendingForwardDeliveryLedger {
+    targets_by_request: BTreeMap<String, BTreeSet<ChannelId>>,
+    insertion_order: VecDeque<String>,
+}
+
+impl PendingForwardDeliveryLedger {
+    pub(crate) fn register(&mut self, request_id: String, targets: &[String]) {
+        let targets = targets
+            .iter()
+            .filter_map(|target| ChannelId::from_str(target))
+            .collect::<BTreeSet<_>>();
+        if targets.is_empty() {
+            return;
+        }
+        if !self.targets_by_request.contains_key(&request_id) {
+            while self.targets_by_request.len() >= MAX_PENDING_FORWARD_REQUESTS {
+                let Some(oldest) = self.insertion_order.pop_front() else {
+                    break;
+                };
+                self.targets_by_request.remove(&oldest);
+            }
+            self.insertion_order.push_back(request_id.clone());
+        }
+        self.targets_by_request.insert(request_id, targets);
+    }
+
+    pub(crate) fn matching_request(
+        &self,
+        request_id: &str,
+        channel_id: ChannelId,
+    ) -> Option<String> {
+        self.targets_by_request
+            .get(request_id)
+            .is_some_and(|targets| targets.contains(&channel_id))
+            .then(|| request_id.to_string())
+    }
+
+    pub(crate) fn retain_http_accepted_targets(&mut self, request_id: &str, body: &Value) {
+        let Some(targets) = self.targets_by_request.get_mut(request_id) else {
+            return;
+        };
+        let Some(results) = body
+            .get("data")
+            .and_then(|data| data.get("targets"))
+            .and_then(Value::as_array)
+        else {
+            return;
+        };
+        for result in results {
+            if result.get("status").and_then(Value::as_str) == Some("accepted") {
+                continue;
+            }
+            if let Some(channel_id) = result
+                .get("channelId")
+                .and_then(Value::as_str)
+                .and_then(ChannelId::from_str)
+            {
+                targets.remove(&channel_id);
+            }
+        }
+        self.remove_if_empty(request_id);
+    }
+
+    /// Returns true only when this target completed the final still-accepted target.
+    pub(crate) fn complete_target(&mut self, request_id: &str, channel_id: ChannelId) -> bool {
+        let existed = self.targets_by_request.contains_key(request_id);
+        if let Some(targets) = self.targets_by_request.get_mut(request_id) {
+            targets.remove(&channel_id);
+        }
+        let completed = existed
+            && self
+                .targets_by_request
+                .get(request_id)
+                .is_some_and(BTreeSet::is_empty);
+        self.remove_if_empty(request_id);
+        completed
+    }
+
+    pub(crate) fn cancel(&mut self, request_id: &str) {
+        self.targets_by_request.remove(request_id);
+        self.insertion_order
+            .retain(|candidate| candidate != request_id);
+    }
+
+    fn remove_if_empty(&mut self, request_id: &str) {
+        if self
+            .targets_by_request
+            .get(request_id)
+            .is_some_and(BTreeSet::is_empty)
+        {
+            self.cancel(request_id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multi_target_ledger_completes_only_on_the_last_remaining_target() {
+        let first = crate::state::test_channel_id(50);
+        let last = crate::state::test_channel_id(51);
+        let mut ledger = PendingForwardDeliveryLedger::default();
+        ledger.register(
+            "forward-1".to_string(),
+            &[first.as_str().to_string(), last.as_str().to_string()],
+        );
+
+        assert!(!ledger.complete_target("forward-1", first));
+        assert!(ledger.matching_request("forward-1", last).is_some());
+        assert!(ledger.complete_target("forward-1", last));
+        assert!(ledger.matching_request("forward-1", last).is_none());
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ForwardMode {
@@ -82,6 +204,10 @@ pub(crate) fn start(
         rows: Vec::new(),
         now_ms,
     };
+    module
+        .state
+        .pending_forward_deliveries
+        .register(assembly.req_id.clone(), &assembly.target_channel_ids);
     schedule_next_lookup(module, assembly, out);
     Ok(())
 }
@@ -102,6 +228,10 @@ pub(crate) fn handle_lookup_reply(
         PortOutcome::Err(_) => None,
     };
     let Some(row) = row else {
+        module
+            .state
+            .pending_forward_deliveries
+            .cancel(&assembly.req_id);
         out.push(crate::query::render_ready::batch_result::emit_target_error(
             &assembly.req_id,
             &assembly.target_channel_ids,

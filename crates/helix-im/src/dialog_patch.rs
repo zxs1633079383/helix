@@ -15,6 +15,7 @@ pub struct PendingDialogPatch {
     pub fields: PostFields,
     pub update: crate::channel_write::PostChannelUpdate,
     pub source: String,
+    pub causation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +67,13 @@ impl PendingDialogPatch {
             fields: fields.clone(),
             update: update.clone(),
             source: source.to_string(),
+            causation_id: None,
         }
+    }
+
+    pub fn with_causation_id(mut self, causation_id: Option<String>) -> Self {
+        self.causation_id = causation_id.filter(|value| !value.is_empty());
+        self
     }
 
     pub fn storage_ops(&self) -> Vec<StorageOp> {

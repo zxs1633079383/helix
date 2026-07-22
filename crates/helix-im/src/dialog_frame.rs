@@ -302,6 +302,15 @@ impl DialogListFrameState {
         scope: DialogListScope,
         data: &Value,
     ) -> Option<Effect> {
+        self.patch_from_post_projection_with_causation(scope, data, None)
+    }
+
+    pub fn patch_from_post_projection_with_causation(
+        &mut self,
+        scope: DialogListScope,
+        data: &Value,
+        causation_id: Option<String>,
+    ) -> Option<Effect> {
         if !scope.is_complete() {
             return None;
         }
@@ -311,7 +320,14 @@ impl DialogListFrameState {
         let mut next = previous.clone();
         let mut set = DialogRowSet::default();
         apply_post_projection_to_row(data, &previous, &mut next, &mut set);
-        self.publish_existing_patch(scope, channel_id, previous, next, set)
+        self.publish_existing_patch_with_causation(
+            scope,
+            channel_id,
+            previous,
+            next,
+            set,
+            causation_id,
+        )
     }
 
     /// 频道生命周期或设置推送只能修改在场行明确携带的属性；缺字段不是零值更新。
@@ -438,6 +454,18 @@ impl DialogListFrameState {
         next: DialogListRowVm,
         set: DialogRowSet,
     ) -> Option<Effect> {
+        self.publish_existing_patch_with_causation(scope, channel_id, previous, next, set, None)
+    }
+
+    fn publish_existing_patch_with_causation(
+        &mut self,
+        scope: DialogListScope,
+        channel_id: String,
+        previous: DialogListRowVm,
+        next: DialogListRowVm,
+        set: DialogRowSet,
+        causation_id: Option<String>,
+    ) -> Option<Effect> {
         if set_is_empty(&set) {
             return None;
         }
@@ -477,7 +505,7 @@ impl DialogListFrameState {
             });
         }
         self.revision = revision;
-        self.emit_patch(scope, base_revision, operations, unread_patch)
+        self.emit_patch_with_causation(scope, base_revision, operations, unread_patch, causation_id)
     }
 
     fn emit_patch(
@@ -486,6 +514,17 @@ impl DialogListFrameState {
         base_revision: u64,
         operations: Vec<DialogListPatchOperation>,
         unread_patch: Option<UnreadSummaryPatch>,
+    ) -> Option<Effect> {
+        self.emit_patch_with_causation(scope, base_revision, operations, unread_patch, None)
+    }
+
+    fn emit_patch_with_causation(
+        &self,
+        scope: DialogListScope,
+        base_revision: u64,
+        operations: Vec<DialogListPatchOperation>,
+        unread_patch: Option<UnreadSummaryPatch>,
+        causation_id: Option<String>,
     ) -> Option<Effect> {
         // 旧 row operation 只用于本 adapter 的确定性状态更新；正式 v1 wire 一律以
         // 同 surface 的 replaceView 发送完整 VM，平台端不再消费该 legacy delta。
@@ -499,7 +538,7 @@ impl DialogListFrameState {
             scope: user_scope.clone(),
             revision: self.revision,
             base_revision: Some(base_revision),
-            causation_id: None,
+            causation_id: causation_id.clone(),
             mutation: interaction_frame::TypedSurfaceMutation::DialogListPatch {
                 patch: interaction_frame::ReplaceView {
                     kind: interaction_frame::ReplaceViewKind::ReplaceView,
@@ -513,7 +552,7 @@ impl DialogListFrameState {
                 scope: user_scope.clone(),
                 revision: unread_patch.revision,
                 base_revision: Some(unread_patch.base_revision),
-                causation_id: None,
+                causation_id,
                 mutation: interaction_frame::TypedSurfaceMutation::UnreadSummaryPatch {
                     patch: interaction_frame::ReplaceView {
                         kind: interaction_frame::ReplaceViewKind::ReplaceView,
@@ -983,8 +1022,16 @@ pub fn patch_from_dialog_projection(
     state: &mut DialogListFrameState,
     data: &Value,
 ) -> Option<Effect> {
+    patch_from_dialog_projection_with_causation(state, data, None)
+}
+
+pub fn patch_from_dialog_projection_with_causation(
+    state: &mut DialogListFrameState,
+    data: &Value,
+    causation_id: Option<String>,
+) -> Option<Effect> {
     let scope = state.scope()?.clone();
-    state.patch_from_post_projection(scope, data)
+    state.patch_from_post_projection_with_causation(scope, data, causation_id)
 }
 
 /// Converts one scan transaction into a complete dialog snapshot input.

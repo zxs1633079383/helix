@@ -125,11 +125,26 @@ impl ImModule {
                     if let Some(data) =
                         pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
                     {
-                        if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
-                            &mut self.state.dialog_list_frame,
-                            &data,
-                        ) {
+                        let causation_id = pending.causation_id.clone();
+                        if let Some(frame) =
+                            crate::dialog_frame::patch_from_dialog_projection_with_causation(
+                                &mut self.state.dialog_list_frame,
+                                &data,
+                                causation_id.clone(),
+                            )
+                        {
                             out.push(frame);
+                            if let Some(request_id) = causation_id {
+                                let batch_complete = self
+                                    .state
+                                    .pending_forward_deliveries
+                                    .complete_target(&request_id, pending.channel_id);
+                                if batch_complete {
+                                    self.state
+                                        .action_registry
+                                        .complete_after_terminal_frame(&request_id);
+                                }
+                            }
                         }
                     } else {
                         tracing::warn!(
@@ -476,6 +491,15 @@ impl ImModule {
             }
 
             CorrelationContext::OutboundCreatePosts { req_id } => {
+                if let PortOutcome::Ok(reply) = outcome {
+                    if let Ok(raw) = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref()) {
+                        if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&raw) {
+                            self.state
+                                .pending_forward_deliveries
+                                .retain_http_accepted_targets(&req_id, &body);
+                        }
+                    }
+                }
                 crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);
             }
 

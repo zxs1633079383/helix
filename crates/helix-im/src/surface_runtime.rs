@@ -19,7 +19,7 @@ use crate::interaction_frame::{
     NotificationMode, PreviewVm, ReceiptKind, SurfaceId, SurfaceLoadState, SurfaceMutation,
     SurfaceScope, ThreadDetailVm, TopicListVm, TopicRowVm, UserRefVm, WindowPageVm,
 };
-use crate::projector::participant_receipts::{ParticipantReceiptsData, ParticipantReceiptsRequest};
+use crate::projector::participant_receipts::ParticipantReceiptsRequest;
 use crate::state::CorrelationContext;
 use crate::ImModule;
 
@@ -92,7 +92,7 @@ impl ImModule {
                     "windowToken": window_token,
                 }))
                 .map_err(|error| ImError::Serialize(error.to_string()))?;
-                self.handle_query_command("im_query_messages_by_channel", &payload, out)
+                self.dispatch_surface_timeline_resync(&payload, out)
             }
             (SurfaceId::MessageThreadDetail, SurfaceScope::Thread { .. }) => {
                 self.start_thread_snapshot(request, out)
@@ -308,23 +308,15 @@ impl ImModule {
             *receipt_kind,
             "surface-resync",
         );
-        let mutation = if self
+        // A renderer resync may follow a local detach that forgot every prior
+        // revision. Replaying an in-memory patch would make that fresh slot
+        // fail closed on an unknown baseRevision, so explicit resync always
+        // re-establishes the slot with a complete base-less snapshot.
+        let mutation = self
             .state
             .participant_receipts_projector
-            .current_view(channel_id, message_id, *receipt_kind)
-            .is_some()
-        {
-            self.state.participant_receipts_projector.patch(
-                request_data,
-                ParticipantReceiptsData::forbidden(),
-                None,
-            )
-        } else {
-            self.state
-                .participant_receipts_projector
-                .snapshot_forbidden(request_data)
-        }
-        .map_err(|error| ImError::Parse(format!("receipt unavailable projection: {error}")))?;
+            .snapshot_forbidden(request_data)
+            .map_err(|error| ImError::Parse(format!("receipt unavailable projection: {error}")))?;
         out.push(frame_for_mutation("surface-receipt", mutation)?);
         Ok(())
     }
@@ -340,36 +332,20 @@ impl ImModule {
             (SurfaceId::MessageChannelSummary, SurfaceScope::Channel { channel_id }) => {
                 let view =
                     channel_summary_view(channel_id, rows.first(), self.action_surface_epoch()?);
-                if self
-                    .state
+                self.state
                     .channel_summary_projector
-                    .current_view(channel_id)
-                    .is_some()
-                {
-                    self.state
-                        .channel_summary_projector
-                        .patch_settings_or_lifecycle(view, None)
-                } else {
-                    self.state.channel_summary_projector.snapshot(view)
-                }
-                .map_err(|error| ImError::Parse(format!("channel summary projection: {error}")))?
+                    .snapshot(view)
+                    .map_err(|error| {
+                        ImError::Parse(format!("channel summary projection: {error}"))
+                    })?
             }
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =
                     member_roster_view(channel_id, cursor, &rows, self.action_surface_epoch()?);
-                if self
-                    .state
+                self.state
                     .member_roster_projector
-                    .current_view(channel_id, cursor)
-                    .is_some()
-                {
-                    self.state
-                        .member_roster_projector
-                        .patch_membership_lifecycle(view, None)
-                } else {
-                    self.state.member_roster_projector.snapshot(view)
-                }
-                .map_err(|error| ImError::Parse(format!("member roster projection: {error}")))?
+                    .snapshot(view)
+                    .map_err(|error| ImError::Parse(format!("member roster projection: {error}")))?
             }
             (
                 SurfaceId::MessageTopicList,
@@ -384,17 +360,10 @@ impl ImModule {
                     &rows,
                     self.action_surface_epoch()?,
                 );
-                if self
-                    .state
+                self.state
                     .topic_list_projector
-                    .current_view(parent_channel_id, cursor)
-                    .is_some()
-                {
-                    self.state.topic_list_projector.patch_topic_link(view, None)
-                } else {
-                    self.state.topic_list_projector.snapshot(view)
-                }
-                .map_err(|error| ImError::Parse(format!("topic list projection: {error}")))?
+                    .snapshot(view)
+                    .map_err(|error| ImError::Parse(format!("topic list projection: {error}")))?
             }
             _ => {
                 return Err(ImError::Parse(
@@ -456,18 +425,11 @@ impl ImModule {
             projection.has_more,
             self.action_surface_epoch()?,
         )?;
-        let mutation = match self
+        let mutation = self
             .state
             .thread_detail_projector
-            .current_revision(channel_id, root_message_id)
-        {
-            Some(revision) => self
-                .state
-                .thread_detail_projector
-                .replace(view, revision, None),
-            None => self.state.thread_detail_projector.snapshot(view),
-        }
-        .map_err(|error| ImError::Parse(format!("thread projection: {error}")))?;
+            .snapshot(view)
+            .map_err(|error| ImError::Parse(format!("thread projection: {error}")))?;
         out.push(frame_for_mutation("surface-thread", mutation)?);
         Ok(())
     }
@@ -495,21 +457,11 @@ impl ImModule {
             *receipt_kind,
             "surface-resync",
         );
-        let mutation = if self
+        let mutation = self
             .state
             .participant_receipts_projector
-            .current_view(channel_id, message_id, *receipt_kind)
-            .is_some()
-        {
-            self.state
-                .participant_receipts_projector
-                .patch(request_data, data, None)
-        } else {
-            self.state
-                .participant_receipts_projector
-                .snapshot(request_data, data)
-        }
-        .map_err(|error| ImError::Parse(format!("receipt projection: {error}")))?;
+            .snapshot(request_data, data)
+            .map_err(|error| ImError::Parse(format!("receipt projection: {error}")))?;
         out.push(frame_for_mutation("surface-receipt", mutation)?);
         Ok(())
     }

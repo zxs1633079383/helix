@@ -75,6 +75,18 @@ impl WsFrame {
             .ok_or_else(|| ImError::InvalidWsFrame("missing data".to_string()))
     }
 
+    /// Request correlation is trusted only from the server envelope. Post payload/props values
+    /// are deliberately ignored so renderer-controlled content cannot forge action completion.
+    pub(crate) fn cses_track_id(&self) -> Option<&str> {
+        let value = self
+            .root
+            .get("tracing")?
+            .get("csesTrackId")?
+            .as_str()?
+            .trim();
+        (!value.is_empty() && value.len() <= 64).then_some(value)
+    }
+
     pub(crate) fn event_seq(&self) -> Option<Seq> {
         self.data()
             .and_then(|data| data.get("event_seq"))

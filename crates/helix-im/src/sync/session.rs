@@ -92,6 +92,8 @@ pub struct EventEnvelope {
     pub unread_bump: Option<crate::channel_write::PostChannelUpdate>,
     /// 当前投影视角用户；仅用于生成 `isSelf` 与消息动作 capability，不参与存储。
     pub viewer_user_id: String,
+    /// Trusted action causation copied from the WS envelope, never from post content.
+    pub causation_id: Option<String>,
 }
 
 impl EventEnvelope {
@@ -123,6 +125,7 @@ impl EventEnvelope {
             event_payload: String::new(),
             unread_bump: None,
             viewer_user_id: String::new(),
+            causation_id: None,
         }
     }
 
@@ -164,6 +167,11 @@ impl EventEnvelope {
 
     pub fn with_viewer_user_id(mut self, viewer_user_id: &str) -> Self {
         self.viewer_user_id = viewer_user_id.to_string();
+        self
+    }
+
+    pub fn with_causation_id(mut self, causation_id: Option<String>) -> Self {
+        self.causation_id = causation_id.filter(|value| !value.is_empty());
         self
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::state::{ChannelId, ImState};
 use helix_core::Correlation;
@@ -14,7 +14,7 @@ pub(crate) struct ImWsContext<'a> {
     /// WS handler 只能判定某个 gate 已经接受了可见消息；最终的 local-first
     /// 时间线读回必须等 handler 返回后由 `ImModule` 调度，避免在这里复制
     /// query/coverage/correlation 状态机。
-    attached_timeline_refreshes: BTreeSet<ChannelId>,
+    attached_timeline_refreshes: BTreeMap<ChannelId, Option<String>>,
 }
 
 impl<'a> ImWsContext<'a> {
@@ -31,7 +31,7 @@ impl<'a> ImWsContext<'a> {
             api_base_url,
             auth_user_id,
             alloc_corr,
-            attached_timeline_refreshes: BTreeSet::new(),
+            attached_timeline_refreshes: BTreeMap::new(),
         }
     }
 
@@ -42,10 +42,28 @@ impl<'a> ImWsContext<'a> {
     /// 请求在当前 WS step 完成后重读已 attach 的最新时间线。集合去重保证一次
     /// 连续 gate flush 至多追加一次 readback，不让原始 post payload 越过 Frame 边界。
     pub(crate) fn request_attached_timeline_refresh(&mut self, channel_id: ChannelId) {
-        self.attached_timeline_refreshes.insert(channel_id);
+        self.attached_timeline_refreshes
+            .entry(channel_id)
+            .or_insert(None);
     }
 
-    pub(crate) fn take_attached_timeline_refreshes(&mut self) -> BTreeSet<ChannelId> {
+    pub(crate) fn request_attached_timeline_refresh_with_causation(
+        &mut self,
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+    ) {
+        let entry = self
+            .attached_timeline_refreshes
+            .entry(channel_id)
+            .or_insert(None);
+        if causation_id.is_some() {
+            *entry = causation_id;
+        }
+    }
+
+    pub(crate) fn take_attached_timeline_refreshes(
+        &mut self,
+    ) -> BTreeMap<ChannelId, Option<String>> {
         std::mem::take(&mut self.attached_timeline_refreshes)
     }
 

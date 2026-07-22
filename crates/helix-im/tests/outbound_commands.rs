@@ -15,15 +15,20 @@ fn corr() -> Correlation {
 }
 
 /// 取出单条 Http 的 (url, body-json)；非单条 Http → panic。
-fn one_http(effects: Vec<Effect>) -> (String, Value) {
+fn one_http_with_headers(effects: Vec<Effect>) -> (String, Value, Vec<(String, String)>) {
     assert_eq!(effects.len(), 1, "outbound 命令当前恒产单条 Effect::Http");
     match effects.into_iter().next().unwrap() {
         Effect::Http { req, .. } => {
             let body: Value = serde_json::from_slice(&req.body.unwrap()).unwrap();
-            (req.url, body)
+            (req.url, body, req.headers)
         }
         other => panic!("expected Effect::Http, got {other:?}"),
     }
+}
+
+fn one_http(effects: Vec<Effect>) -> (String, Value) {
+    let (url, body, _) = one_http_with_headers(effects);
+    (url, body)
 }
 
 fn run(name: &str, payload: Value) -> Vec<Effect> {
@@ -183,11 +188,11 @@ fn schedule_requires_positive_time_and_object_props() {
 
 #[test]
 fn create_and_make_topic_build_body_with_real_endpoint() {
-    let (url, body) = one_http(run(
+    let (url, body, headers) = one_http_with_headers(run(
         "im_create_channel",
         json!({
             "type": "O", "user_ids": ["u1"], "display_name": "g",
-            "force_create": true
+            "force_create": true, "req_id": "create-request-1"
         }),
     ));
     assert_eq!(url, "http://x/api/cses/channel/create");
@@ -198,6 +203,21 @@ fn create_and_make_topic_build_body_with_real_endpoint() {
             "forceCreate": true
         })
     );
+    assert!(headers
+        .iter()
+        .any(|(key, value)| key == "Cses-Track-Id" && value == "create-request-1"));
+    assert!(
+        body.get("req_id").is_none(),
+        "req_id 只能进入 transport header"
+    );
+
+    assert!(fails(
+        "im_create_channel",
+        json!({
+            "type": "O", "user_ids": ["u1"], "display_name": "g",
+            "force_create": true, "req_id": ""
+        })
+    ));
 
     let (url, body) = one_http(run(
         "im_make_topic",
@@ -221,6 +241,19 @@ fn create_and_make_topic_build_body_with_real_endpoint() {
         corr(),
     )
     .is_err());
+}
+
+#[test]
+fn leave_keeps_request_id_in_transport_header_only() {
+    let (url, body, headers) = one_http_with_headers(run(
+        "im_channel_leave",
+        json!({ "channel_id": "ch2", "req_id": "leave-request-1" }),
+    ));
+    assert_eq!(url, "http://x/api/cses/channel/member/leave");
+    assert_eq!(body, json!({ "channelId": "ch2" }));
+    assert!(headers
+        .iter()
+        .any(|(key, value)| key == "Cses-Track-Id" && value == "leave-request-1"));
 }
 
 #[test]

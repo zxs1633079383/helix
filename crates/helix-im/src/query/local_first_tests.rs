@@ -238,6 +238,38 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
 }
 
 #[test]
+fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_patch() {
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let rows_desc = vec![serde_json::json!({
+        "id": "message-1",
+        "temporaryId": "temporary-1",
+        "channelId": channel_id().as_str(),
+        "userId": "author-1",
+        "createAt": 10,
+        "message": "hello",
+        "type": "TEXT",
+        "props": {},
+    })];
+
+    module
+        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_000, None)
+        .expect("first authoritative fact establishes the timeline slot");
+    let effect = module
+        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_001, None)
+        .expect("ordinary authoritative refresh advances the existing slot");
+    let Effect::Emit { event } = effect else {
+        panic!("ordinary refresh must emit one typed Frame")
+    };
+    let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let mutation = &envelope["data"]["mutations"][0];
+    assert_eq!(mutation["mutation"]["kind"], "timelinePatch");
+    assert_eq!(mutation["baseRevision"], 1);
+    assert_eq!(mutation["revision"], 2);
+}
+
+#[test]
 fn attached_timeline_refreshes_after_a_durable_fact_even_before_first_snapshot() {
     let mut module = ImModule::new(crate::module::ImConfig::default());
     let scope = crate::interaction_frame::SurfaceScope::Timeline {
@@ -790,7 +822,7 @@ fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
     let mut module = ImModule::new(config);
 
     let effect = module
-        .emit_timeline_failed(&request(20), 1_000)
+        .emit_timeline_failed(&request(20), 1_000, false)
         .expect("failure state still projects to a typed frame");
     let Effect::Emit { event } = effect else {
         panic!("timeline query failure must emit a Frame")

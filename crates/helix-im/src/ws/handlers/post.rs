@@ -82,9 +82,15 @@ impl WsMessageHandler for PostHandler {
             }
             update
         });
+        let forward_causation = frame.cses_track_id().and_then(|request_id| {
+            ctx.state
+                .pending_forward_deliveries
+                .matching_request(request_id, ev.channel_id)
+        });
         let ev = ev
             .with_unread_bump(unread_bump)
-            .with_viewer_user_id(ctx.auth_user_id);
+            .with_viewer_user_id(ctx.auth_user_id)
+            .with_causation_id(forward_causation.clone());
 
         // ingest（落库 + cursor 推进 + ⑤ 未读 bump 由 gate 发出）。**陌生 channel 自动注册**
         // （Round-3 UC-4.5 偏差修复，对齐真源 `on_ws_event` 的 `gate_states.entry().or_insert_with`
@@ -152,7 +158,7 @@ impl WsMessageHandler for PostHandler {
         super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
 
         if timeline_readback_required {
-            ctx.request_attached_timeline_refresh(ingest_channel);
+            ctx.request_attached_timeline_refresh_with_causation(ingest_channel, forward_causation);
         }
 
         // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。

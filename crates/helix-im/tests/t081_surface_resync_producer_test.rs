@@ -1,7 +1,8 @@
 //! T081-T085：八个 Surface 都必须经 opaque resync -> 实际 storage/HTTP fact -> typed Frame。
 //!
 //! 这不是 projector fixture 测试：每个断言都先走 module command/correlation 再回放 PortReply，
-//! 并对重复事实确认 replaceView patch，防止 renderer 通过 raw row 或领域 command 自行补面。
+//! 并对重复 resync 确认仍返回无 baseRevision 的完整 snapshot，防止已 detach renderer
+//! 收到仅对内核旧 slot 有效的 replaceView patch。
 
 mod common;
 use common::*;
@@ -137,13 +138,14 @@ fn dialog_unread_and_timeline_resync_replay_real_fact_producers() {
         ),
         6,
     );
-    let timeline_patch = mutation(timeline.sink.as_slice(), "message.timeline");
-    assert_eq!(timeline_patch["mutation"]["kind"], "timelinePatch");
-    assert_eq!(timeline_patch["baseRevision"], 1);
+    let timeline_replay = mutation(timeline.sink.as_slice(), "message.timeline");
+    assert_eq!(timeline_replay["mutation"]["kind"], "timelineSnapshot");
+    assert_eq!(timeline_replay["baseRevision"], serde_json::Value::Null);
+    assert_eq!(timeline_replay["revision"], 2);
 }
 
 #[test]
-fn channel_member_and_topic_storage_replay_attach_then_patch_without_raw_rows() {
+fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() {
     let mut h = Harness::new(&[]);
     let channel = "channel-storage";
 
@@ -175,9 +177,10 @@ fn channel_member_and_topic_storage_replay_attach_then_patch_without_raw_rows() 
     );
     let summary_patch_corr = corr_of(h.sink.as_slice().first().unwrap());
     h.step(port_reply_with_body(summary_patch_corr, summary_row), 4);
-    let summary_patch = mutation(h.sink.as_slice(), "message.channel-summary");
-    assert_eq!(summary_patch["mutation"]["kind"], "channelSummaryPatch");
-    assert_eq!(summary_patch["baseRevision"], 1);
+    let summary_replay = mutation(h.sink.as_slice(), "message.channel-summary");
+    assert_eq!(summary_replay["mutation"]["kind"], "channelSummarySnapshot");
+    assert_eq!(summary_replay["baseRevision"], serde_json::Value::Null);
+    assert_eq!(summary_replay["revision"], 2);
 
     h.step(
         surface_command(
@@ -213,9 +216,10 @@ fn channel_member_and_topic_storage_replay_attach_then_patch_without_raw_rows() 
     );
     let roster_patch_corr = corr_of(h.sink.as_slice().first().unwrap());
     h.step(port_reply_with_body(roster_patch_corr, roster_row), 8);
-    let roster_patch = mutation(h.sink.as_slice(), "message.member-roster");
-    assert_eq!(roster_patch["mutation"]["kind"], "memberRosterPatch");
-    assert_eq!(roster_patch["baseRevision"], 1);
+    let roster_replay = mutation(h.sink.as_slice(), "message.member-roster");
+    assert_eq!(roster_replay["mutation"]["kind"], "memberRosterSnapshot");
+    assert_eq!(roster_replay["baseRevision"], serde_json::Value::Null);
+    assert_eq!(roster_replay["revision"], 2);
 
     let topic_row = Bytes::from(
         serde_json::to_vec(&json!([
@@ -247,13 +251,14 @@ fn channel_member_and_topic_storage_replay_attach_then_patch_without_raw_rows() 
     );
     let topic_patch_corr = corr_of(h.sink.as_slice().first().unwrap());
     h.step(port_reply_with_body(topic_patch_corr, topic_row), 12);
-    let topic_patch = mutation(h.sink.as_slice(), "message.topic-list");
-    assert_eq!(topic_patch["mutation"]["kind"], "topicListPatch");
-    assert_eq!(topic_patch["baseRevision"], 1);
+    let topic_replay = mutation(h.sink.as_slice(), "message.topic-list");
+    assert_eq!(topic_replay["mutation"]["kind"], "topicListSnapshot");
+    assert_eq!(topic_replay["baseRevision"], serde_json::Value::Null);
+    assert_eq!(topic_replay["revision"], 2);
 }
 
 #[test]
-fn thread_and_receipt_http_authority_replay_attach_then_patch() {
+fn thread_and_receipt_explicit_resync_always_replays_complete_snapshots() {
     let mut h = Harness::new(&[]);
     let channel = "channel-http";
     h.step(
@@ -295,9 +300,10 @@ fn thread_and_receipt_http_authority_replay_attach_then_patch() {
         ),
         4,
     );
-    let thread_patch = mutation(h.sink.as_slice(), "message.thread-detail");
-    assert_eq!(thread_patch["mutation"]["kind"], "threadDetailPatch");
-    assert_eq!(thread_patch["baseRevision"], 1);
+    let thread_replay = mutation(h.sink.as_slice(), "message.thread-detail");
+    assert_eq!(thread_replay["mutation"]["kind"], "threadDetailSnapshot");
+    assert_eq!(thread_replay["baseRevision"], serde_json::Value::Null);
+    assert_eq!(thread_replay["revision"], 2);
 
     h.step(
         surface_command(
@@ -338,10 +344,11 @@ fn thread_and_receipt_http_authority_replay_attach_then_patch() {
         ),
         8,
     );
-    let receipt_patch = mutation(h.sink.as_slice(), "message.participant-receipts");
+    let receipt_replay = mutation(h.sink.as_slice(), "message.participant-receipts");
     assert_eq!(
-        receipt_patch["mutation"]["kind"],
-        "participantReceiptsPatch"
+        receipt_replay["mutation"]["kind"],
+        "participantReceiptsSnapshot"
     );
-    assert_eq!(receipt_patch["baseRevision"], 1);
+    assert_eq!(receipt_replay["baseRevision"], serde_json::Value::Null);
+    assert_eq!(receipt_replay["revision"], 2);
 }

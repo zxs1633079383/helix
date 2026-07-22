@@ -14,6 +14,10 @@ use crate::state::{ChannelId, CorrelationContext};
 
 use super::MessageQueryRequest;
 
+/// Internal causation sentinel carried through the existing correlated local-first pipeline.
+/// It is consumed before Frame publication and never becomes renderer-visible causation.
+const SURFACE_TIMELINE_RESYNC_CAUSATION: &str = "__helix_surface_timeline_resync";
+
 mod data;
 
 #[cfg(test)]
@@ -146,6 +150,23 @@ impl ImModule {
         self.dispatch_message_query_with_causation_and_deferred_send(payload, true, None, None, out)
     }
 
+    /// Runs the normal authoritative local-first read but forces its terminal
+    /// publication to be a complete snapshot. A detached renderer has no
+    /// retained base revision, even when the in-memory projector still does.
+    pub(crate) fn dispatch_surface_timeline_resync(
+        &mut self,
+        payload: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.dispatch_message_query_with_causation_and_deferred_send(
+            payload,
+            true,
+            Some(SURFACE_TIMELINE_RESYNC_CAUSATION.to_string()),
+            None,
+            out,
+        )
+    }
+
     /// Runs the same local-first query as an explicit renderer request, while
     /// preserving command-owned causation and an optional internal send continuation.
     /// The renderer never supplies either value.
@@ -219,7 +240,7 @@ impl ImModule {
                         "message query local scan reply malformed"
                     );
                     if !allow_remote_fallback {
-                        out.push(self.emit_timeline_failed(&request, now_ms)?);
+                        out.push(self.emit_timeline_failed(&request, now_ms, false)?);
                         self.emit_deferred_posts_create_after_timeline_frame(
                             deferred_send_http,
                             out,
@@ -237,7 +258,7 @@ impl ImModule {
                     "message query local scan failed"
                 );
                 if !allow_remote_fallback {
-                    out.push(self.emit_timeline_failed(&request, now_ms)?);
+                    out.push(self.emit_timeline_failed(&request, now_ms, false)?);
                     self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                     return Ok(());
                 }
@@ -319,7 +340,11 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback failed"
                 );
-                out.push(self.emit_timeline_failed(&request, now_ms)?);
+                out.push(self.emit_timeline_failed(
+                    &request,
+                    now_ms,
+                    causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION),
+                )?);
                 self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
             }
@@ -333,7 +358,11 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback returned invalid response"
                 );
-                out.push(self.emit_timeline_failed(&request, now_ms)?);
+                out.push(self.emit_timeline_failed(
+                    &request,
+                    now_ms,
+                    causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION),
+                )?);
                 self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
             }
@@ -351,7 +380,11 @@ impl ImModule {
                     error = ?error,
                     "message query remote fallback contained invalid posts"
                 );
-                out.push(self.emit_timeline_failed(&request, now_ms)?);
+                out.push(self.emit_timeline_failed(
+                    &request,
+                    now_ms,
+                    causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION),
+                )?);
                 self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
             }
@@ -578,7 +611,12 @@ impl ImModule {
         now_ms: u64,
         causation_id: Option<String>,
     ) -> Result<Effect, ImError> {
-        let terminal_action_request = causation_id.clone();
+        let explicit_resync = causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION);
+        let terminal_action_request = if explicit_resync {
+            None
+        } else {
+            causation_id.clone()
+        };
         let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
         let shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows_asc,
@@ -598,7 +636,11 @@ impl ImModule {
             channel_id: timeline_request.channel_id.clone(),
             window_token: timeline_request.window_token.clone(),
         };
-        let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
+        let mutation = if explicit_resync {
+            self.state
+                .timeline_projector
+                .snapshot_from_render_ready(timeline_request, rows)
+        } else if self.state.timeline_projector.current_view(&scope).is_some() {
             self.state.timeline_projector.patch_from_render_ready(
                 timeline_request,
                 rows,
@@ -621,10 +663,15 @@ impl ImModule {
         let effect = crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))?;
         if let Some(request_id) = terminal_action_request {
-            if !self
+            let batch_complete = self
                 .state
-                .action_registry
-                .complete_after_terminal_frame(&request_id)
+                .pending_forward_deliveries
+                .complete_target(&request_id, request.channel_id);
+            if batch_complete
+                && !self
+                    .state
+                    .action_registry
+                    .complete_after_terminal_frame(&request_id)
             {
                 tracing::warn!(
                     request_id,
@@ -639,6 +686,7 @@ impl ImModule {
         &mut self,
         request: &MessageQueryRequest,
         now_ms: u64,
+        explicit_resync: bool,
     ) -> Result<Effect, ImError> {
         let mut failed =
             crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
@@ -652,7 +700,11 @@ impl ImModule {
             channel_id: failed.channel_id.clone(),
             window_token: failed.window_token.clone(),
         };
-        let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
+        let mutation = if explicit_resync {
+            self.state
+                .timeline_projector
+                .snapshot_from_render_ready(failed, &[])
+        } else if self.state.timeline_projector.current_view(&scope).is_some() {
             self.state
                 .timeline_projector
                 .patch_from_render_ready(failed, &[], None)

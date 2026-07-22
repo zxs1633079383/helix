@@ -74,9 +74,12 @@ pub(super) fn collect_dialog_patch_for_post(
         .as_deref()
         .filter(|id| !id.is_empty())
         .unwrap_or(ev.fields.id.as_str());
-    out.push(crate::dialog_patch::PendingDialogPatch::new(
-        ev.id, ev.seq.0, msg_id, &ev.fields, update, source,
-    ));
+    out.push(
+        crate::dialog_patch::PendingDialogPatch::new(
+            ev.id, ev.seq.0, msg_id, &ev.fields, update, source,
+        )
+        .with_causation_id(ev.causation_id.clone()),
+    );
 }
 
 pub(super) fn visible_post_for_storage(ev: &EventEnvelope) -> bool {

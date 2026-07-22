@@ -284,8 +284,8 @@ impl ImModule {
         // driver serializes Persist/PersistFire by the same `message` table key,
         // so this local-first query observes that accepted durable write before
         // producing the next typed Frame.
-        for channel_id in timeline_refreshes {
-            self.refresh_attached_latest_timeline(channel_id, None, out)
+        for (channel_id, causation_id) in timeline_refreshes {
+            self.refresh_attached_latest_timeline(channel_id, causation_id, out)
                 .map_err(|e| CoreError::ModuleError {
                     module: module_name,
                     source: Box::new(e),

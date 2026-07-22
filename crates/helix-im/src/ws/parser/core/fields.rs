@@ -33,8 +33,27 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     let channel_id = pick_str("channel_id")
         .or_else(|| pick_str("channelId"))
         .unwrap_or_default();
-    let user_id = pick_str("user_id")
-        .or_else(|| pick_str("userId"))
+    let user_id = post
+        .get("userSnapshot")
+        .or_else(|| post.get("user_snapshot"))
+        .or_else(|| root.get("userSnapshot"))
+        .or_else(|| root.get("user_snapshot"))
+        .and_then(|snapshot| {
+            snapshot
+                .get("userId")
+                .or_else(|| snapshot.get("user_id"))
+                .and_then(|value| value.as_str())
+        })
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| pick_str("user_id").filter(|value| !value.is_empty()))
+        .or_else(|| pick_str("userId").filter(|value| !value.is_empty()))
+        // Historical reconnect/system rows use createBy=SYS while the old
+        // user snapshot is empty. Preserve that authoritative identity in the
+        // typed field so both the immediate Frame and the SQLite readback stay
+        // renderable.
+        .or_else(|| pick_str("create_by").filter(|value| !value.is_empty()))
+        .or_else(|| pick_str("createBy").filter(|value| !value.is_empty()))
         .unwrap_or_default();
     // type 空→"TEXT"（render-ready 下沉·C013 业务默认下沉 helix·与 send_build.rs:165 一致·#53）
     let msg_type = pick_str("type")
@@ -203,5 +222,16 @@ mod tests {
         }));
 
         assert_eq!(fields.reply_count, 9);
+    }
+
+    #[test]
+    fn historical_system_creator_becomes_persisted_author_identity() {
+        let fields = extract_post_fields(&json!({
+            "id": "legacy-reconnect",
+            "userSnapshot": { "userId": "" },
+            "createBy": "SYS"
+        }));
+
+        assert_eq!(fields.user_id, "SYS");
     }
 }

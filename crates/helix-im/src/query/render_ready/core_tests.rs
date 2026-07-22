@@ -70,6 +70,20 @@ fn db_text_props_restore_channel_event_seq_for_timeline_vm() {
 }
 
 #[test]
+fn historical_wire_creator_survives_render_ready_shaping() {
+    let rows = json!([{
+        "id": "legacy-reconnect",
+        "channelId": "ch1",
+        "message": "recovered",
+        "userSnapshot": { "userId": "" },
+        "createBy": "SYS"
+    }]);
+
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["userId"], "SYS");
+}
+
+#[test]
 fn durable_unsend_is_rendered_as_retryable_failed_after_restart() {
     let rows = json!([{
         "temporary_id": "tmp-failed",

@@ -169,7 +169,17 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
     } else {
         msg_type_raw
     };
-    let user_id = get_str(row, &["user_id", "userId"]);
+    let direct_user_id = get_str(row, &["user_id", "userId"]);
+    let user_snapshot = json_value(row, &["user_snapshot", "userSnapshot"], json!({}));
+    let snapshot_user_id = get_str(&user_snapshot, &["user_id", "userId"]);
+    let creator_user_id = get_str(row, &["create_by", "createBy"]);
+    let user_id = if !direct_user_id.is_empty() {
+        direct_user_id
+    } else if !snapshot_user_id.is_empty() {
+        snapshot_user_id
+    } else {
+        creator_user_id
+    };
     let create_at = row
         .get("create_at")
         .or_else(|| row.get("createAt"))

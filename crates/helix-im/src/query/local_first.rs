@@ -221,12 +221,16 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if !self.is_current_message_query(
-            request.channel_id,
-            &request.window_token,
-            query_session_epoch,
-            query_generation,
-        ) {
+        let explicit_surface_resync =
+            causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION);
+        if !explicit_surface_resync
+            && !self.is_current_message_query(
+                request.channel_id,
+                &request.window_token,
+                query_session_epoch,
+                query_generation,
+            )
+        {
             return Ok(());
         }
         let mut local_rows_desc = match outcome {
@@ -324,12 +328,16 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if !self.is_current_message_query(
-            request.channel_id,
-            &request.window_token,
-            query_session_epoch,
-            query_generation,
-        ) {
+        let explicit_surface_resync =
+            causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION);
+        if !explicit_surface_resync
+            && !self.is_current_message_query(
+                request.channel_id,
+                &request.window_token,
+                query_session_epoch,
+                query_generation,
+            )
+        {
             return Ok(());
         }
         let reply = match outcome {
@@ -454,12 +462,16 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if !self.is_current_message_query(
-            request.channel_id,
-            &request.window_token,
-            query_session_epoch,
-            query_generation,
-        ) {
+        let explicit_surface_resync =
+            causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION);
+        if !explicit_surface_resync
+            && !self.is_current_message_query(
+                request.channel_id,
+                &request.window_token,
+                query_session_epoch,
+                query_generation,
+            )
+        {
             return Ok(());
         }
         match outcome {

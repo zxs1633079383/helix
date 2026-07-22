@@ -180,6 +180,23 @@ pub struct DialogListFrameState {
 }
 
 impl DialogListFrameState {
+    /// Re-publish the already materialized dialog list after a trusted forward
+    /// delivery was observed as a gate duplicate. The channel cursor proves
+    /// the post was persisted before this authority-only refresh is emitted.
+    pub(crate) fn authority_refresh_with_causation(
+        &mut self,
+        scope: DialogListScope,
+        causation_id: String,
+    ) -> Option<Effect> {
+        if causation_id.is_empty() {
+            return None;
+        }
+        let revision = self.next_revision()?;
+        let base_revision = self.revision;
+        self.revision = revision;
+        self.emit_patch_with_causation(scope, base_revision, Vec::new(), None, Some(causation_id))
+    }
+
     pub fn scope(&self) -> Option<&DialogListScope> {
         self.scope.as_ref()
     }
@@ -1811,6 +1828,38 @@ mod tests {
             first_frame["data"]["transactionId"], second_frame["data"]["transactionId"],
             "PC recent-transaction cache is runtime-wide, so scope must participate in the id"
         );
+    }
+
+    #[test]
+    fn authority_refresh_advances_revision_and_preserves_action_causation() {
+        let mut state = DialogListFrameState::default();
+        state
+            .snapshot(scope(), vec![row("c1", 1)])
+            .expect("initial revision is available");
+
+        let refresh = state
+            .authority_refresh_with_causation(scope(), "forward-authority-1".to_string())
+            .expect("materialized authority can be re-published");
+        let frame = data(&refresh);
+
+        assert_eq!(surface_mutation(&frame)["revision"], 2);
+        assert_eq!(surface_mutation(&frame)["baseRevision"], 1);
+        assert_eq!(
+            surface_mutation(&frame)["causationId"],
+            "forward-authority-1"
+        );
+        assert_eq!(
+            surface_mutation(&frame)["mutation"]["kind"],
+            "dialogListPatch"
+        );
+        assert_eq!(
+            dialog_view(&frame)["sections"][0]["items"][0]["channelId"],
+            "c1"
+        );
+        interaction_frame::InteractionFrame::decode(
+            &serde_json::to_vec(&frame["data"]).expect("interaction frame JSON"),
+        )
+        .expect("authority refresh must satisfy the public InteractionFrame contract");
     }
 
     #[test]

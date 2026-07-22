@@ -144,10 +144,38 @@ impl WsMessageHandler for PostHandler {
         // 捕获 backfill 触发所需键（ev 即将 move 进 ch.ingest）。
         let pin_effect = post_pin_effect_from_notice(&ev);
         let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
+        let duplicate_forward_readback = forward_causation.as_ref().and_then(|request_id| {
+            if ev.seq.0 > ch.cursor.value().0 {
+                return None;
+            }
+            let update = ev.unread_bump.as_ref()?.clone();
+            if !update.visible {
+                return None;
+            }
+            let msg_id = ev
+                .msg_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+                .unwrap_or(ev.fields.id.as_str());
+            Some(
+                crate::dialog_patch::PendingDialogPatch::new(
+                    ev.channel_id,
+                    ev.seq.0,
+                    msg_id,
+                    &ev.fields,
+                    &update,
+                    "post-forward-authority",
+                )
+                .with_causation_id(Some(request_id.clone())),
+            )
+        });
 
         let recent_start = out.as_slice().len();
         let mut dialog_patches = Vec::new();
         ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut dialog_patches)?;
+        if let Some(pending) = duplicate_forward_readback {
+            dialog_patches.push(pending);
+        }
         // Only a contiguous gate apply (possibly flushing a buffered run) has
         // actually appended an authoritative message write. Buffer/drop paths
         // must not fabricate a timeline Frame from the raw WS payload. Do not

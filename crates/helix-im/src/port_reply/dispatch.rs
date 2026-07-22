@@ -125,16 +125,37 @@ impl ImModule {
                     if let Some(data) =
                         pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
                     {
-                        let causation_id = pending.causation_id.clone();
-                        if let Some(frame) =
+                        let request_id = pending.causation_id.clone();
+                        let is_final_target = request_id.as_ref().is_some_and(|request_id| {
+                            self.state
+                                .pending_forward_deliveries
+                                .is_final_target(request_id, pending.channel_id)
+                        });
+                        let terminal_causation = if is_final_target {
+                            request_id.clone()
+                        } else {
+                            None
+                        };
+                        let mut frame =
                             crate::dialog_frame::patch_from_dialog_projection_with_causation(
                                 &mut self.state.dialog_list_frame,
                                 &data,
-                                causation_id.clone(),
-                            )
-                        {
+                                terminal_causation.clone(),
+                            );
+                        if frame.is_none() {
+                            if let (Some(scope), Some(causation_id)) = (
+                                self.state.dialog_list_frame.scope().cloned(),
+                                terminal_causation,
+                            ) {
+                                frame = self
+                                    .state
+                                    .dialog_list_frame
+                                    .authority_refresh_with_causation(scope, causation_id);
+                            }
+                        }
+                        if let Some(frame) = frame {
                             out.push(frame);
-                            if let Some(request_id) = causation_id {
+                            if let Some(request_id) = request_id {
                                 let batch_complete = self
                                     .state
                                     .pending_forward_deliveries

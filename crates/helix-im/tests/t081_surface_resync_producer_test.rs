@@ -145,6 +145,43 @@ fn dialog_unread_and_timeline_resync_replay_real_fact_producers() {
 }
 
 #[test]
+fn timeline_resync_survives_a_newer_ordinary_query_generation() {
+    let mut timeline = Harness::new_with_store_mode(&[1], LocalStoreMode::Disabled);
+    let scope = json!({ "kind":"timeline", "channelId":cid(1), "windowToken":"latest" });
+    let query = json!({ "channelId":cid(1), "windowToken":"latest" });
+
+    timeline.step(surface_command("message.timeline", scope), 1);
+    let resync_corr = corr_of(timeline.sink.as_slice().first().expect("resync HTTP"));
+
+    timeline.step(command_json("im_query_messages_by_channel", query), 2);
+    let ordinary_corr = corr_of(
+        timeline
+            .sink
+            .as_slice()
+            .first()
+            .expect("newer ordinary query HTTP"),
+    );
+
+    let remote = json!({ "status":"SUCCESS", "data": { "posts": [{
+        "id":"post-1", "temporaryId":"tmp-1", "channelId":cid(1), "userId":"author-1",
+        "createAt":11, "type":"TEXT", "message":"hello", "props":{}
+    }]}});
+    let body = || enveloped(Bytes::from(serde_json::to_vec(&remote).unwrap()));
+
+    timeline.step(port_reply_with_body(resync_corr, body()), 3);
+    let recovery = mutation(timeline.sink.as_slice(), "message.timeline");
+    assert_eq!(recovery["mutation"]["kind"], "timelineSnapshot");
+    assert_eq!(recovery["baseRevision"], serde_json::Value::Null);
+    assert_eq!(recovery["revision"], 1);
+
+    timeline.step(port_reply_with_body(ordinary_corr, body()), 4);
+    let continuous = mutation(timeline.sink.as_slice(), "message.timeline");
+    assert_eq!(continuous["mutation"]["kind"], "timelinePatch");
+    assert_eq!(continuous["baseRevision"], 1);
+    assert_eq!(continuous["revision"], 2);
+}
+
+#[test]
 fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() {
     let mut h = Harness::new(&[]);
     let channel = "channel-storage";

@@ -56,6 +56,12 @@ impl PendingForwardDeliveryLedger {
             .then(|| request_id.to_string())
     }
 
+    pub(crate) fn is_final_target(&self, request_id: &str, channel_id: ChannelId) -> bool {
+        self.targets_by_request
+            .get(request_id)
+            .is_some_and(|targets| targets.len() == 1 && targets.contains(&channel_id))
+    }
+
     pub(crate) fn retain_http_accepted_targets(&mut self, request_id: &str, body: &Value) {
         let Some(targets) = self.targets_by_request.get_mut(request_id) else {
             return;
@@ -130,6 +136,7 @@ mod tests {
 
         assert!(!ledger.complete_target("forward-1", first));
         assert!(ledger.matching_request("forward-1", last).is_some());
+        assert!(ledger.is_final_target("forward-1", last));
         assert!(ledger.complete_target("forward-1", last));
         assert!(ledger.matching_request("forward-1", last).is_none());
     }

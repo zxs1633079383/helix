@@ -292,7 +292,7 @@ fn trusted_target_post_completes_only_after_dialog_persist_readback_frame() {
                 "action": "post",
                 "tracing": {"csesTrackId": request_id},
                 "data": {
-                    "event_seq": 2,
+                    "event_seq": 1,
                     "channelId": target_ok,
                     "post": {
                         "id": delivered_id,
@@ -320,7 +320,7 @@ fn trusted_target_post_completes_only_after_dialog_persist_readback_frame() {
             Effect::Persist { corr, .. } => Some(corr.raw()),
             _ => None,
         })
-        .expect("trusted target authority schedules a correlated Persist");
+        .expect("trusted duplicate target authority schedules a correlated readback Persist");
     assert!(
         harness.sink.as_slice().iter().all(|effect| {
             let Effect::Emit { event } = effect else {
@@ -343,14 +343,14 @@ fn trusted_target_post_completes_only_after_dialog_persist_readback_frame() {
     );
 
     // A later distinct authoritative post for the same accepted target remains eligible. The
-    // failed local transaction did not consume the request ledger.
+    // failed duplicate readback did not consume the request ledger.
     harness.step(
         helix_core::Tick::Inbound(helix_core::tick::InboundBytes(
             serde_json::to_vec(&json!({
                 "action": "post",
                 "tracing": {"csesTrackId": request_id},
                 "data": {
-                    "event_seq": 3,
+                    "event_seq": 2,
                     "channelId": target_ok,
                     "post": {
                         "id": sid(52), "channelId": target_ok, "userId": "444",

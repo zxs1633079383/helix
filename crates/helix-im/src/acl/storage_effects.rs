@@ -4,6 +4,75 @@ use crate::state::{ChannelId, Seq, TemporaryId};
 use helix_core::effect::{MonotonicUpsertSpec, Row, StorageOp, UpsertSpec};
 use helix_core::{Correlation, Effect};
 
+/// Canonical, bounded recovery evidence for exactly one remote event. `event_hash` is calculated
+/// by the parser over its normalized fields; raw WS/PG JSON is deliberately not persisted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryLedgerEntry {
+    pub tenant_id: String,
+    pub channel_id: String,
+    pub event_seq: u64,
+    pub event_kind: String,
+    pub message_id: Option<String>,
+    pub event_hash: String,
+    pub coverage_id: String,
+    pub applied_at_ms: i64,
+}
+
+/// One committed contiguous range. The caller owns canonical fact hashing and correlation;
+/// this module only converts it to one O(1) keyed upsert operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryCoverage {
+    pub coverage_id: String,
+    pub tenant_id: String,
+    pub channel_id: String,
+    pub from_seq: u64,
+    pub to_seq: u64,
+    pub event_count: u64,
+    pub facts_hash: String,
+    pub correlation_id: String,
+    pub committed_at_ms: i64,
+}
+
+pub fn recovery_ledger_op(entry: RecoveryLedgerEntry) -> StorageOp {
+    use helix_core::effect::SqlValue;
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_event_ledger",
+        rows: vec![vec![
+            ("tenant_id".to_string(), SqlValue::Text(entry.tenant_id)),
+            ("channel_id".to_string(), SqlValue::Text(entry.channel_id)),
+            ("event_seq".to_string(), SqlValue::Integer(entry.event_seq as i64)),
+            ("event_kind".to_string(), SqlValue::Text(entry.event_kind)),
+            ("message_id".to_string(), entry.message_id.map_or(SqlValue::Null, SqlValue::Text)),
+            ("event_hash".to_string(), SqlValue::Text(entry.event_hash)),
+            ("coverage_id".to_string(), SqlValue::Text(entry.coverage_id)),
+            ("applied_at_ms".to_string(), SqlValue::Integer(entry.applied_at_ms)),
+        ]],
+        conflict_key: Some("tenant_id,channel_id,event_seq"),
+        exclude_from_update: Vec::new(),
+    })
+}
+
+pub fn recovery_coverage_op(coverage: RecoveryCoverage) -> StorageOp {
+    use helix_core::effect::SqlValue;
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_sync_coverage",
+        rows: vec![vec![
+            ("coverage_id".to_string(), SqlValue::Text(coverage.coverage_id)),
+            ("tenant_id".to_string(), SqlValue::Text(coverage.tenant_id)),
+            ("channel_id".to_string(), SqlValue::Text(coverage.channel_id)),
+            ("from_seq".to_string(), SqlValue::Integer(coverage.from_seq as i64)),
+            ("to_seq".to_string(), SqlValue::Integer(coverage.to_seq as i64)),
+            ("event_count".to_string(), SqlValue::Integer(coverage.event_count as i64)),
+            ("facts_hash".to_string(), SqlValue::Text(coverage.facts_hash)),
+            ("correlation_id".to_string(), SqlValue::Text(coverage.correlation_id)),
+            ("commit_state".to_string(), SqlValue::Text("committed".to_string())),
+            ("committed_at_ms".to_string(), SqlValue::Integer(coverage.committed_at_ms)),
+        ]],
+        conflict_key: Some("coverage_id"),
+        exclude_from_update: Vec::new(),
+    })
+}
+
 /// 乐观落库：INSERT INTO messages ON CONFLICT(temporary_id) DO UPDATE
 ///
 /// `conflict_key = "temporary_id"` 是 IM 业务键名，由此函数提供给 core，

@@ -30,7 +30,7 @@
 - [X] T007 Add ninth-surface, runtime, unique-slot, schema-v2, epoch/revision and ActionBinding fail-closed cases to `crates/helix-im/tests/interaction_frame_contract_test.rs`.
 - [X] T008 [P] Extend `IM_SPARSE_TABLE_SPECS`, `IM_SCHEMA`, and additive migration literals for `channel_event_ledger` and `channel_sync_coverage` in `crates/helix-im/src/schema.rs`.
 - [X] T009 [P] Add schema migration/idempotence and transaction rollback coverage for the new IM tables in `crates/helix-driver-host/tests/im_event_persist.rs`.
-- [ ] T010 Define O(1) ledger/coverage `StorageOp` builders with canonical event/fact hash inputs in `crates/helix-im/src/acl/storage_effects.rs`.
+- [X] T010 Define O(1) ledger/coverage `StorageOp` builders with canonical event/fact hash inputs in `crates/helix-im/src/acl/storage_effects.rs`.
 - [ ] T011 Convert sync fact persistence to one correlated write-only `PersistAtomic` write set containing facts, ledger, coverage, and cursor in `crates/helix-im/src/sync/flow.rs`.
 - [ ] T012 Prove a failed atomic write rolls back facts, ledger, coverage and cursor without emitting a final frame in `crates/helix-im/tests/gs_persist_barrier_test.rs`.
 - [ ] T013 Create the attach-aware `SurfaceChangeSet` and channel interaction-bundle interface in `crates/helix-im/src/surface_composer.rs`.

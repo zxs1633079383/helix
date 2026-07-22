@@ -61,6 +61,12 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 
 ## 3. 编译 / 测试 cadence
 
+### 3.0 完成态自动提交授权
+
+- 每完成一个可独立验收的 Task、Phase 或任务，验证通过后自动创建分类清晰的 Conventional Commit，无需再次询问。
+- 未完成、blocked、partial、验证失败或仍混有其他任务改动时禁止提交；先继续完成或拆分工作树。
+- commit body 遵循 `docs/COMMIT_CONVENTION.md`，写明影响范围、协议/依赖边界、真实验证和 Harness 更新；不得自动 push。
+
 - 改完一个完整模块 / commit 前：`cargo check -p <crate>` 一次
 - **三端 Rust 验收**（phase 完成前 / 改 port 或 driver 后必跑；真浏览器 E2E 另行执行）：
   ```bash

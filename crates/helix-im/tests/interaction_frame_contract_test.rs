@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use helix_im::interaction_frame::{
     ActionBinding, ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrame,
-    InteractionFrameError, SurfaceDataVm, SurfaceId, TypedSurfaceMutation, MAX_SAFE_JSON_INTEGER,
-    MIN_SAFE_JSON_INTEGER,
+    InteractionFrameError, InteractionFrameV2, SurfaceDataVm, SurfaceId, TypedSurfaceMutation,
+    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 const CANONICAL_SNAPSHOT: &str = include_str!("fixtures/uc01-16-surface-runtime/snapshots.json");
@@ -39,6 +39,57 @@ fn canonical_snapshot_decodes_all_eight_surface_vms() {
     assert_eq!(frame.schema_version, 1);
     assert_eq!(frame.mutations.len(), 8);
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn v2_composer_requires_runtime_epoch_and_a_channel_scoped_binding() {
+    let valid = serde_json::json!({
+        "schemaVersion": 2,
+        "transactionId": "sync-transaction-1",
+        "causationId": "sync-corr-1",
+        "runtime": { "connection": "online", "initialSync": "ready", "recovery": "recovered" },
+        "mutations": [{
+            "surface": "message.composer",
+            "scope": { "kind": "channel", "channelId": "channel-1" },
+            "revision": 1,
+            "surfaceEpoch": 7,
+            "mutation": {
+                "kind": "composerSnapshot",
+                "view": {
+                    "channelId": "channel-1",
+                    "state": "ready",
+                    "draftPolicy": "message.compose.text.v1",
+                    "capabilityEpoch": 7,
+                    "actions": [{
+                        "actionRef": "opaque-send-1",
+                        "kind": "im.send-message",
+                        "inputShape": "message.compose.text.v1",
+                        "surfaceEpoch": 7,
+                        "enabled": true
+                    }]
+                }
+            }
+        }]
+    });
+    InteractionFrameV2::decode(serde_json::to_vec(&valid).unwrap().as_slice())
+        .expect("v2 composer frame is valid");
+
+    let mut missing_epoch = valid.clone();
+    missing_epoch["mutations"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("surfaceEpoch");
+    assert!(matches!(
+        InteractionFrameV2::decode(serde_json::to_vec(&missing_epoch).unwrap().as_slice()),
+        Err(InteractionFrameError::Decode(_))
+    ));
+
+    let mut disabled_hydration = valid;
+    disabled_hydration["mutations"][0]["mutation"]["view"]["state"] = serde_json::json!("hydrating");
+    assert!(matches!(
+        InteractionFrameV2::decode(serde_json::to_vec(&disabled_hydration).unwrap().as_slice()),
+        Err(InteractionFrameError::InvalidView { .. })
+    ));
 }
 
 #[test]

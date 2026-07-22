@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
+/// V2 is introduced alongside the legacy decoder so all three consumers can move in lockstep.
+/// Producers do not switch this default until their V2 fixture mirror and cache gates are ready.
+pub const INTERACTION_FRAME_SCHEMA_VERSION_V2: u32 = 2;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
 /// Action invoke 的受理结果。`accepted` 只代表 Helix 已接管该 requestId；业务终态仍必须等同
 /// requestId 的权威 Frame causation。
@@ -28,6 +31,7 @@ pub enum SurfaceId {
     MessageTimeline,
     MessageThreadDetail,
     MessageChannelSummary,
+    MessageComposer,
     MessageMemberRoster,
     MessageTopicList,
     MessageParticipantReceipts,
@@ -41,6 +45,7 @@ impl SurfaceId {
             Self::MessageTimeline => "message.timeline",
             Self::MessageThreadDetail => "message.thread-detail",
             Self::MessageChannelSummary => "message.channel-summary",
+            Self::MessageComposer => "message.composer",
             Self::MessageMemberRoster => "message.member-roster",
             Self::MessageTopicList => "message.topic-list",
             Self::MessageParticipantReceipts => "message.participant-receipts",
@@ -69,6 +74,7 @@ impl<'de> Deserialize<'de> for SurfaceId {
             "message.timeline" => Ok(Self::MessageTimeline),
             "message.thread-detail" => Ok(Self::MessageThreadDetail),
             "message.channel-summary" => Ok(Self::MessageChannelSummary),
+            "message.composer" => Ok(Self::MessageComposer),
             "message.member-roster" => Ok(Self::MessageMemberRoster),
             "message.topic-list" => Ok(Self::MessageTopicList),
             "message.participant-receipts" => Ok(Self::MessageParticipantReceipts),
@@ -80,6 +86,7 @@ impl<'de> Deserialize<'de> for SurfaceId {
                     "message.timeline",
                     "message.thread-detail",
                     "message.channel-summary",
+                    "message.composer",
                     "message.member-roster",
                     "message.topic-list",
                     "message.participant-receipts",
@@ -187,7 +194,7 @@ impl SurfaceScope {
                     root_message_id,
                 },
             ) => !channel_id.is_empty() && !root_message_id.is_empty(),
-            (SurfaceId::MessageChannelSummary, Self::Channel { channel_id }) => {
+            (SurfaceId::MessageChannelSummary | SurfaceId::MessageComposer, Self::Channel { channel_id }) => {
                 !channel_id.is_empty()
             }
             (SurfaceId::MessageMemberRoster, Self::MemberRoster { channel_id, cursor }) => {
@@ -543,6 +550,83 @@ impl SurfaceMutation {
     }
 }
 
+/// The V2 envelope is deliberately a distinct type while the V1 producer is still live.
+/// It prevents a partially migrated producer from silently emitting V2-only fields on the V1
+/// wire; the final cutover changes the producer alias after PC/mobile parity has passed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InteractionFrameV2 {
+    pub schema_version: u32,
+    pub transaction_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<String>,
+    pub runtime: InteractionRuntimeVm,
+    pub mutations: Vec<SurfaceMutationV2>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub directives: Vec<UiDirective>,
+}
+
+impl InteractionFrameV2 {
+    pub fn decode(bytes: &[u8]) -> Result<Self, InteractionFrameError> {
+        let frame: Self = serde_json::from_slice(bytes)
+            .map_err(|error| InteractionFrameError::Decode(error.to_string()))?;
+        frame.validate()?;
+        Ok(frame)
+    }
+
+    pub fn validate(&self) -> Result<(), InteractionFrameError> {
+        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION_V2 {
+            return Err(InteractionFrameError::SchemaVersion(self.schema_version));
+        }
+        if self.transaction_id.is_empty() {
+            return Err(InteractionFrameError::EmptyTransactionId);
+        }
+        if self.causation_id.as_deref().is_some_and(str::is_empty) {
+            return Err(InteractionFrameError::EmptyFrameCausationId);
+        }
+        if self.mutations.is_empty() {
+            return Err(InteractionFrameError::EmptyMutations);
+        }
+        self.runtime.validate()?;
+        let mut slots = BTreeSet::new();
+        for mutation in &self.mutations {
+            mutation.validate()?;
+            let slot = (mutation.mutation.surface, mutation.mutation.scope.canonical_key());
+            if !slots.insert(slot.clone()) {
+                return Err(InteractionFrameError::DuplicateSlot {
+                    surface: slot.0.as_str(),
+                    scope: slot.1,
+                });
+            }
+        }
+        for directive in &self.directives {
+            directive.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SurfaceMutationV2 {
+    #[serde(flatten)]
+    pub mutation: SurfaceMutation,
+    pub surface_epoch: u64,
+}
+
+impl SurfaceMutationV2 {
+    fn validate(&self) -> Result<(), InteractionFrameError> {
+        self.mutation.validate()?;
+        validate_wire_u64(self.mutation.surface, "surfaceEpoch", self.surface_epoch)?;
+        if self.surface_epoch == 0 {
+            return Err(InteractionFrameError::ZeroSurfaceEpoch {
+                surface: self.mutation.surface.as_str(),
+            });
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum InteractionFrameError {
     #[error("interaction frame JSON decode failed: {0}")]
@@ -555,6 +639,18 @@ pub enum InteractionFrameError {
     EmptyTransactionId,
     #[error("interaction frame must contain at least one mutation")]
     EmptyMutations,
+    #[error("interaction frame causationId must not be empty")]
+    EmptyFrameCausationId,
+    #[error("schema v2 interaction frame requires runtime")]
+    MissingV2Runtime,
+    #[error("schema v1 interaction frame must not carry v2 runtime or directives")]
+    V1CarriesV2Fields,
+    #[error("surface {surface} v2 mutation requires surfaceEpoch")]
+    MissingSurfaceEpoch { surface: &'static str },
+    #[error("surface {surface} has surfaceEpoch 0")]
+    ZeroSurfaceEpoch { surface: &'static str },
+    #[error("surface {surface} schema v1 mutation must not carry surfaceEpoch")]
+    V1CarriesSurfaceEpoch { surface: &'static str },
     #[error("surface {surface} has an invalid scope")]
     ScopeMismatch { surface: &'static str },
     #[error("surface {surface} has revision 0")]
@@ -587,6 +683,10 @@ pub enum InteractionFrameError {
     InvalidActionInvocationEnvelope { reason: String },
     #[error("invalid ActionReceipt: {reason}")]
     InvalidActionReceipt { reason: String },
+    #[error("invalid runtime: {reason}")]
+    InvalidRuntime { reason: String },
+    #[error("invalid UI directive: {reason}")]
+    InvalidDirective { reason: String },
     #[error("duplicate surface slot {surface}@{scope}")]
     DuplicateSlot {
         surface: &'static str,
@@ -913,6 +1013,73 @@ pub struct ChannelSummaryVm {
     pub settings_version: u64,
 }
 
+/// Runtime belongs to the same atomic frame publication as the changed surfaces. It is not a
+/// renderer-derived sync state and must never be delivered as a raw event fallback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InteractionRuntimeVm {
+    pub connection: RuntimeConnectionState,
+    pub initial_sync: RuntimeSyncState,
+    pub recovery: RuntimeRecoveryState,
+}
+
+impl InteractionRuntimeVm {
+    fn validate(&self) -> Result<(), InteractionFrameError> {
+        if matches!(self.recovery, RuntimeRecoveryState::Recovered)
+            && !matches!(self.connection, RuntimeConnectionState::Online)
+        {
+            return Err(InteractionFrameError::InvalidRuntime {
+                reason: "recovered runtime requires an online connection".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeConnectionState { Connecting, Online, Offline }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeSyncState { Idle, Syncing, Ready, Failed }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeRecoveryState { Idle, Syncing, Recovered, Failed, Blocked }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiDirective {
+    pub directive_id: String,
+    pub kind: String,
+}
+
+impl UiDirective {
+    fn validate(&self) -> Result<(), InteractionFrameError> {
+        if self.directive_id.is_empty() || self.kind.is_empty() {
+            return Err(InteractionFrameError::InvalidDirective {
+                reason: "directiveId and kind must not be empty".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ComposerState { Hydrating, Ready, Forbidden, Failed }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ComposerVm {
+    pub channel_id: String,
+    pub state: ComposerState,
+    pub draft_policy: String,
+    pub actions: Vec<ActionBinding>,
+    pub capability_epoch: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ChannelRole {
@@ -1048,6 +1215,8 @@ pub enum TypedSurfaceMutation {
     ChannelSummaryPatch {
         patch: ReplaceView<ChannelSummaryVm>,
     },
+    ComposerSnapshot { view: ComposerVm },
+    ComposerPatch { patch: ReplaceView<ComposerVm> },
     MemberRosterSnapshot {
         view: MemberRosterVm,
     },
@@ -1086,6 +1255,7 @@ impl TypedSurfaceMutation {
             Self::ChannelSummarySnapshot { .. } | Self::ChannelSummaryPatch { .. } => {
                 SurfaceId::MessageChannelSummary
             }
+            Self::ComposerSnapshot { .. } | Self::ComposerPatch { .. } => SurfaceId::MessageComposer,
             Self::MemberRosterSnapshot { .. } | Self::MemberRosterPatch { .. } => {
                 SurfaceId::MessageMemberRoster
             }
@@ -1105,6 +1275,7 @@ impl TypedSurfaceMutation {
                 | Self::TimelinePatch { .. }
                 | Self::ThreadDetailPatch { .. }
                 | Self::ChannelSummaryPatch { .. }
+                | Self::ComposerPatch { .. }
                 | Self::MemberRosterPatch { .. }
                 | Self::TopicListPatch { .. }
                 | Self::ParticipantReceiptsPatch { .. }
@@ -1122,6 +1293,8 @@ impl TypedSurfaceMutation {
             Self::ThreadDetailPatch { patch } => validate_thread_detail(&patch.view, scope),
             Self::ChannelSummarySnapshot { view } => validate_channel_summary(view, scope),
             Self::ChannelSummaryPatch { patch } => validate_channel_summary(&patch.view, scope),
+            Self::ComposerSnapshot { view } => validate_composer(view, scope),
+            Self::ComposerPatch { patch } => validate_composer(&patch.view, scope),
             Self::MemberRosterSnapshot { view } => validate_member_roster(view, scope),
             Self::MemberRosterPatch { patch } => validate_member_roster(&patch.view, scope),
             Self::TopicListSnapshot { view } => validate_topic_list(view, scope),
@@ -1257,6 +1430,25 @@ fn validate_channel_summary(
     validate_wire_u64(surface, "settingsVersion", view.settings_version)?;
     validate_lifecycle(surface, &view.lifecycle)?;
     validate_action_bindings(surface, &view.actions)
+}
+
+fn validate_composer(view: &ComposerVm, scope: &SurfaceScope) -> Result<(), InteractionFrameError> {
+    let surface = SurfaceId::MessageComposer;
+    let SurfaceScope::Channel { channel_id } = scope else {
+        return invalid_view(surface, "composer requires a channel scope");
+    };
+    if view.channel_id != *channel_id || view.draft_policy.is_empty() || view.capability_epoch == 0 {
+        return invalid_view(surface, "composer channelId, draftPolicy and capabilityEpoch must be valid");
+    }
+    validate_wire_u64(surface, "capabilityEpoch", view.capability_epoch)?;
+    validate_action_bindings(surface, &view.actions)?;
+    if view.actions.iter().any(|binding| binding.surface_epoch != view.capability_epoch) {
+        return invalid_view(surface, "composer actions must use capabilityEpoch");
+    }
+    if !matches!(view.state, ComposerState::Ready) && view.actions.iter().any(|binding| binding.enabled) {
+        return invalid_view(surface, "non-ready composer must not enable actions");
+    }
+    Ok(())
 }
 
 fn validate_member_roster(

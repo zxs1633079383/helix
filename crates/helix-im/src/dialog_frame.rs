@@ -909,10 +909,10 @@ fn apply_channel_update_to_row(
         &[
             "rootMessageId",
             "root_message_id",
-            "rootId",
-            "root_id",
             "rootPostId",
             "root_post_id",
+            "rootId",
+            "root_id",
         ],
     )
     .filter(|value| Some(value) != previous.root_message_id.as_ref())
@@ -1155,10 +1155,10 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
             &[
                 "rootMessageId",
                 "root_message_id",
-                "rootId",
-                "root_id",
                 "rootPostId",
                 "root_post_id",
+                "rootId",
+                "root_id",
             ],
         ),
         member_count: integer(value, &["memberCount", "member_count"])
@@ -2095,6 +2095,7 @@ mod tests {
             "id": "topic-1",
             "type": "T",
             "displayName": "design review",
+            "rootId": "parent-channel-1",
             "rootPostId": "root-post-1"
         }))
         .expect("topic row");

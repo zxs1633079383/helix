@@ -94,7 +94,7 @@
 - **已撤销的执行细节**：原 W0 浏览器 HTTP/WS probe、W0→W4 顺序、`helix-driver-web` Dedicated Worker、固定 Web session store/bounded cache 方案和对应 CI 激活节律不再生效。历史 `helix-driver-wasm` 已在正式 Web driver/gate 落地后删除，不得复活为第二套实现。
 - **仍有效的数据正确性底线**：若 Web 最终选择跨刷新缓存，禁止消息/投影未持久化却单独持久化一个表示已完整应用的 cursor；必须联合记录可证明的数据覆盖范围，或明确冷启动重新同步。
 - **理由**：必须复用的是业务语义，不是每个平台的物理 I/O 和持久化实现。先冻结统一业务门面与能力适配边界，再决定 Web driver/runtime 形状，才能避免把浏览器限制反向污染 PC/Flutter 默认实现，也避免 UI 复制业务流程。
-- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate/HX-C003 与历史 wasm 清理已落地。真 Go send/echo/断连恢复继续按 ROADMAP M4 验收，旧执行方案继续失效。实施真源为 [`../过会方案/helix-三端Rust业务门面与平台适配设计.md`](../过会方案/helix-三端Rust业务门面与平台适配设计.md)。
+- **状态**：原则与代码模块方案均已定（2026-07-14 用户拍板）；A1-A4、A5 最小浏览器 glue、Go query 鉴权、正式 Web gate/HX-C003 与历史 wasm 清理已落地。真 Go send/echo/断连恢复继续按 ROADMAP M4 验收，旧执行方案继续失效。实施文件、类型和验收以 [`../ROADMAP.md`](../ROADMAP.md) M4 活账为准。
 
 ## ADR-015 — Helix 统一多端 UI 交互语义，业务模块产出 InteractionProtocol
 

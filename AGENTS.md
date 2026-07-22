@@ -2,7 +2,7 @@
 
 > Helix = 一个 **runtime-agnostic（运行时无关）确定性业务内核基座**。一次实现，产品目标集合为三端：
 > **native（Tauri 桌面 / PC）· FFI（Flutter 手机端）· Web**。
-> 当前交付事实：native/FFI 已产品化；Web 的 A1-A5 Rust 平台壳、最小浏览器 glue、正式 gate 与真浏览器→真 Go 产品链均已落地并完成本地环境验收。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，按 [`docs/过会方案/helix-三端Rust业务门面与平台适配设计.md`](docs/过会方案/helix-三端Rust业务门面与平台适配设计.md) 分阶段实施；原 W0 浏览器探针与 W0→W4 路线继续失效，历史 `helix-driver-wasm` 已删除。
+> 当前交付事实：native/FFI 已产品化；Web 的 A1-A5 Rust 平台壳、最小浏览器 glue、正式 gate 与真浏览器→真 Go 产品链均已落地并完成本地环境验收。新的三端 Rust 业务门面与平台适配架构已于 2026-07-14 拍板，当前决策以 [`docs/harness/decisions.md`](docs/harness/decisions.md) 的 ADR-014 与 [`docs/ROADMAP.md`](docs/ROADMAP.md) M4 为准；原 W0 浏览器探针与 W0→W4 路线继续失效，历史 `helix-driver-wasm` 已删除。
 > IM 只是跑在它上面的**第一个业务模块**；core layer 本身不认识任何业务。
 > 概念祖先：Bun（runtime 跑 JS）/ Dioxus core（headless 核跑 6 端）。
 

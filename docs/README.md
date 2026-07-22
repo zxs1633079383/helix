@@ -41,7 +41,7 @@
 | [`helix-sync-v2-设计.md`](./过会方案/helix-sync-v2-设计.md) | sync-v2 真 Go wire 契约 + 完成 spec（合并；**数据路径已真 Go 端到端验证**）。当前 UC/HTTP/WS/存储综合口径见 `crates/helix-im/docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md` |
 | [`helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) | 未来方向：core 加 `view()`/ViewModel 投影（先 D 后 A） |
 | [`helix-crux-参照对照.md`](./过会方案/helix-crux-参照对照.md) | Crux 能力边界三分法 + 还能从 Crux 取的方向 |
-| [`helix-三端Rust业务门面与平台适配设计.md`](./过会方案/helix-三端Rust业务门面与平台适配设计.md) | **Web/三端当前实施真源**：统一 client API、local-first、WS port 缩窄、host/Web driver 分工与 A1-A5 迁移 |
+| [`harness/decisions.md`](./harness/decisions.md) ADR-014 + [`ROADMAP.md`](./ROADMAP.md) M4 | **Web/三端当前实施真源**：统一 client API、local-first、WS port 缩窄、host/Web driver 分工与 A1-A5 迁移 |
 
 ### harness/（护栏层 · 按需 grep，非广读）
 → [`harness/README.md`](./harness/README.md)：active/archived harness 的唯一索引 + [`OPERATING.md`](./harness/OPERATING.md)（什么事→调什么）+ [`decisions.md`](./harness/decisions.md)（ADR + 过会拍板）+ [`log.md`](./harness/log.md)（踩坑流水）。

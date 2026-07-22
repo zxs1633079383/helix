@@ -192,6 +192,10 @@ impl ImModule {
                 // recovery advances the local cursor. Stale facts are already
                 // committed evidence, not an authority violation.
                 events.retain(|event| event.seq > from_exclusive);
+                // The Go response is assembled from a viewer-filtered set and
+                // does not promise array order. Canonicalize before validating
+                // uniqueness/monotonicity so replay is deterministic.
+                events.sort_by_key(|event| event.seq);
                 if let Some(terminal) = events
                     .iter()
                     .find(|event| matches!(event.kind, EventKind::ChannelTerminalClosed))

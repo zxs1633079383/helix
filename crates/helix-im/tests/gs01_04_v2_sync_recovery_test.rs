@@ -104,6 +104,35 @@ fn gs02_accepts_viewer_filtered_gaps_but_rejects_non_increasing_evidence() {
 }
 
 #[test]
+fn gs02_wire_order_can_be_canonicalized_without_accepting_duplicate_sequence() {
+    let channel = channel_id('c');
+    let first = EventEnvelope::new(
+        channel,
+        Seq(8),
+        EventKind::PostUpsert,
+        PostFields::default(),
+    );
+    let later = EventEnvelope::new(
+        channel,
+        Seq(10),
+        EventKind::PostUpsert,
+        PostFields::default(),
+    );
+    let mut wire_events = vec![later, first];
+    wire_events.sort_by_key(|event| event.seq);
+    assert!(SyncBatchFacts::from_events(channel, Seq(7), Seq(10), wire_events).is_ok());
+
+    let duplicate = EventEnvelope::new(
+        channel,
+        Seq(8),
+        EventKind::PostUpsert,
+        PostFields::default(),
+    );
+    assert!(SyncBatchFacts::from_events(channel, Seq(7), Seq(8), vec![duplicate.clone(), duplicate])
+        .is_err());
+}
+
+#[test]
 fn gs03_unknown_channel_has_no_ready_composer_before_its_commit_boundary() {
     let channel = channel_id('c');
     let mut session = RecoverySession::default();

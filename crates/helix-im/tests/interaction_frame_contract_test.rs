@@ -15,6 +15,9 @@ const SCOPE_MISMATCH: &str = include_str!("fixtures/uc01-16-surface-runtime/scop
 const GAP: &str = include_str!("fixtures/uc01-16-surface-runtime/gap.json");
 const REJECTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/rejected-action.json");
 const ACCEPTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/accepted-action.json");
+const GS01_RECONNECT_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs01-reconnect-canonical-v2.json");
+const GS03_HYDRATION_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs03-unknown-channel-hydration-v2.json");
+const GS_DUPLICATE_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs-duplicate-v2.json");
 
 #[test]
 fn canonical_snapshot_decodes_all_eight_surface_vms() {
@@ -90,6 +93,45 @@ fn v2_composer_requires_runtime_epoch_and_a_channel_scoped_binding() {
         InteractionFrameV2::decode(serde_json::to_vec(&disabled_hydration).unwrap().as_slice()),
         Err(InteractionFrameError::InvalidView { .. })
     ));
+}
+
+#[test]
+fn gs_v2_fixtures_keep_composer_and_summary_in_a_valid_committed_frame() {
+    for fixture in [GS01_RECONNECT_V2, GS03_HYDRATION_V2] {
+        let frame = InteractionFrameV2::decode(fixture.as_bytes())
+            .expect("GS V2 fixture must be a strict InteractionFrameV2");
+        assert!(frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface == SurfaceId::MessageComposer));
+        assert_eq!(frame.runtime.connection, helix_im::interaction_frame::RuntimeConnectionState::Online);
+    }
+}
+
+#[test]
+fn gs_v2_duplicate_fixture_rejects_the_whole_frame() {
+    assert!(matches!(
+        InteractionFrameV2::decode(GS_DUPLICATE_V2.as_bytes()),
+        Err(InteractionFrameError::DuplicateSlot { .. })
+    ));
+}
+
+#[test]
+fn v2_consumer_gate_has_no_v1_or_raw_projection_fallback() {
+    let v2 = InteractionFrameV2::decode(GS01_RECONNECT_V2.as_bytes())
+        .expect("strict V2 decoder accepts the committed recovery fixture");
+    assert_eq!(v2.schema_version, 2);
+    assert!(matches!(
+        InteractionFrame::decode(GS01_RECONNECT_V2.as_bytes()),
+        Err(InteractionFrameError::Decode(_))
+    ));
+
+    let projector = include_str!("../src/projector/mod.rs");
+    assert!(projector.contains("emit_interaction_frame_v2"));
+    assert!(
+        !projector.contains("raw fallback"),
+        "a rejected V2 frame must stay rejected instead of being rewritten as a raw projection"
+    );
 }
 
 #[test]

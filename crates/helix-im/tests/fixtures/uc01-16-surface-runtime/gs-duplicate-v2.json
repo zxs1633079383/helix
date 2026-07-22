@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "gs-duplicate-1",
+  "runtime": { "connection": "online", "initialSync": "ready", "recovery": "recovered" },
+  "mutations": [
+    { "surface": "message.composer", "scope": { "kind": "channel", "channelId": "channel-1" }, "surfaceEpoch": 1, "revision": 1, "mutation": { "kind": "composerSnapshot", "view": { "channelId": "channel-1", "state": "ready", "draftPolicy": "message.compose.text.v1", "capabilityEpoch": 1, "actions": [] } } },
+    { "surface": "message.composer", "scope": { "kind": "channel", "channelId": "channel-1" }, "surfaceEpoch": 2, "revision": 2, "mutation": { "kind": "composerSnapshot", "view": { "channelId": "channel-1", "state": "ready", "draftPolicy": "message.compose.text.v1", "capabilityEpoch": 2, "actions": [] } } }
+  ],
+  "directives": []
+}

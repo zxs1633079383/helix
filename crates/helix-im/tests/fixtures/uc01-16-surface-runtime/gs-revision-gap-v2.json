@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "gs-revision-gap-1",
+  "causationId": "sync-gap-invalid-1",
+  "runtime": { "connection": "online", "initialSync": "ready", "recovery": "recovered" },
+  "mutations": [
+    {
+      "surface": "message.composer",
+      "scope": { "kind": "channel", "channelId": "channel-1" },
+      "surfaceEpoch": 3,
+      "revision": 3,
+      "baseRevision": 2,
+      "causationId": "sync-gap-invalid-1",
+      "mutation": {
+        "kind": "composerPatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "channelId": "channel-1",
+            "state": "ready",
+            "draftPolicy": "message.compose.text.v1",
+            "capabilityEpoch": 3,
+            "actions": [{
+              "actionRef": "opaque-send-channel-1-epoch-3",
+              "kind": "im.send-message",
+              "inputShape": "message.compose.text.v1",
+              "surfaceEpoch": 3,
+              "enabled": true
+            }]
+          }
+        }
+      }
+    }
+  ],
+  "directives": []
+}

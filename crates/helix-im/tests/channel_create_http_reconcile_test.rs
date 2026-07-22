@@ -118,3 +118,42 @@ fn create_http_business_failure_does_not_fabricate_channel() {
     assert!(effects.is_empty());
     assert!(emitted_data(&harness.sink, "im:channel:created").is_none());
 }
+
+#[test]
+fn create_http_counts_response_owner_when_request_contains_only_invitees() {
+    let mut harness = Harness::new_with_identity(&[], "creator", "team-1", "", "", "");
+    let _ = harness.step(
+        command_json(
+            "im_create_channel",
+            serde_json::json!({
+                "type": "O",
+                "user_ids": ["member-a"],
+                "display_name": "邀请成员",
+                "force_create": true
+            }),
+        ),
+        1_700_000_000_000,
+    );
+    let response = serde_json::to_vec(&serde_json::json!({
+        "status": "SUCCESS",
+        "data": {
+            "id": cid(72),
+            "type": "P",
+            "displayName": "邀请成员",
+            "teamId": "team-1",
+            "owner": { "id": "creator", "role": "OWNER" }
+        }
+    }))
+    .unwrap();
+
+    let _ = harness.step(
+        port_reply_with_body(1, enveloped(bytes::Bytes::from(response))),
+        1_700_000_000_100,
+    );
+
+    let projection = emitted_data(&harness.sink, "im:channel:created")
+        .expect("建群回包必须发布成员总数");
+    assert_eq!(projection["memberCount"], 2);
+    // `members` 保留请求邀请者原始形状；owner 仍从回包独立落库。
+    assert_eq!(projection["channel"]["members"].as_array().unwrap().len(), 1);
+}

@@ -30,17 +30,25 @@ impl ImModule {
             }
         };
 
-        let member_count = members.len() as u64;
-        let Some(channel_object) = channel.as_object_mut() else {
-            tracing::warn!("channel create http data is not an object");
-            return;
-        };
-        channel_object
-            .entry("memberCount".to_string())
-            .or_insert_with(|| serde_json::Value::from(member_count));
-        channel_object
-            .entry("members".to_string())
-            .or_insert_with(|| serde_json::Value::Array(members));
+        {
+            let Some(channel_object) = channel.as_object_mut() else {
+                tracing::warn!("channel create http data is not an object");
+                return;
+            };
+            channel_object
+                .entry("members".to_string())
+                .or_insert_with(|| serde_json::Value::Array(members));
+        }
+        // create 请求只携带被邀请者，HTTP 回包另带 owner。标量必须从
+        // 去重后的权威 roster 得出，不能把 user_ids.len() 冒充总成员数。
+        let member_count = crate::channel_write::collect_members(&channel).len() as u64;
+        channel
+            .as_object_mut()
+            .expect("channel object was checked above")
+            .insert(
+                "memberCount".to_string(),
+                serde_json::Value::from(member_count),
+            );
 
         let Some(channel_id) = channel
             .get("id")

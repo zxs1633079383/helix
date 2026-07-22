@@ -23,10 +23,15 @@
               "mentionCount": 1,
               "urgentCount": 0,
               "topicCount": 1,
+              "memberCount": 3,
+              "memberLeaves": [],
               "hasScheduledMessage": false,
               "isTop": false,
               "notificationMode": "all",
               "lifecycle": { "state": "active" },
+              "settingsVersion": 1,
+              "purpose": "Design discussions",
+              "header": "Welcome",
               "actions": []
             }],
             "page": { "windowToken": "dialog-normal-1", "hasOlder": false, "hasNewer": false, "hasMore": false }
@@ -133,6 +138,7 @@
           "purpose": "Surface contract",
           "lifecycle": { "state": "active" },
           "memberCount": 3,
+          "viewerRole": "owner",
           "onlineCount": 1,
           "topicCount": 1,
           "notificationMode": "all",

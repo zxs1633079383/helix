@@ -18,6 +18,7 @@
           "avatar": { "resource": null, "fallbackText": "Hydrated" },
           "lifecycle": { "state": "active" },
           "memberCount": 2,
+          "viewerRole": "member",
           "topicCount": 0,
           "notificationMode": "all",
           "actions": [],

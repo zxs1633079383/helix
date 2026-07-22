@@ -95,7 +95,7 @@ fn scope_for(view: &ChannelSummaryVm) -> SurfaceScope {
 mod tests {
     use super::*;
     use crate::interaction_frame::{
-        ChannelAvatarRef, ChannelLifecycleVm, ChannelTitleRef, NotificationMode,
+        ChannelAvatarRef, ChannelLifecycleVm, ChannelRole, ChannelTitleRef, NotificationMode,
         TypedSurfaceMutation,
     };
 
@@ -117,6 +117,7 @@ mod tests {
                 reason: None,
             },
             member_count: 3,
+            viewer_role: ChannelRole::Owner,
             online_count: Some(1),
             topic_count: 0,
             notification_mode: NotificationMode::All,

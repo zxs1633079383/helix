@@ -841,10 +841,17 @@ pub struct DialogRowVm {
     pub mention_count: u32,
     pub urgent_count: u32,
     pub topic_count: u32,
+    pub member_count: u32,
+    pub member_leaves: Vec<String>,
     pub has_scheduled_message: bool,
     pub is_top: bool,
     pub notification_mode: NotificationMode,
     pub lifecycle: ChannelLifecycleVm,
+    pub settings_version: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
     pub actions: Vec<ActionBinding>,
 }
 
@@ -965,6 +972,12 @@ pub struct MessageVm {
     pub actions: Vec<ActionBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quick_actions: Vec<MessageQuickActionVm>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_root_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_first_level_id: Option<String>,
     pub reply_summary: SurfaceDataVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_thread: Option<ReplyThreadSummaryVm>,
@@ -1049,6 +1062,7 @@ pub struct ChannelSummaryVm {
     pub purpose: Option<String>,
     pub lifecycle: ChannelLifecycleVm,
     pub member_count: u32,
+    pub viewer_role: ChannelRole,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub online_count: Option<u32>,
     pub topic_count: u32,
@@ -1678,6 +1692,15 @@ fn validate_message(
     validate_wire_i64(surface, "createdAt", message.created_at)?;
     validate_user(surface, &message.author)?;
     validate_action_bindings(surface, &message.actions)?;
+    for (field, value) in [
+        ("replyId", message.reply_id.as_deref()),
+        ("replyRootId", message.reply_root_id.as_deref()),
+        ("replyFirstLevelId", message.reply_first_level_id.as_deref()),
+    ] {
+        if value.is_some_and(str::is_empty) {
+            return invalid_view(surface, format!("message {field} must not be empty"));
+        }
+    }
     if message.quick_actions.len() > 3
         || message
             .quick_actions

@@ -563,6 +563,7 @@ fn channel_summary_view(
         purpose: optional_text(row, &["purpose"]),
         lifecycle: lifecycle(row),
         member_count: nonnegative_u32(row, &["member_count", "memberCount"]),
+        viewer_role: member_role(text(row, &["role"]).to_ascii_uppercase().as_str()),
         online_count: None,
         topic_count: nonnegative_u32(row, &["thread_count", "topic_count", "topicCount"]),
         notification_mode: NotificationMode::All,

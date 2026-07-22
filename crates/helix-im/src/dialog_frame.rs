@@ -3,7 +3,7 @@
 //! 这个模块把持久化 channel 行与写后 DialogPatch 转换为唯一的 UI ViewModel。
 //! 客户端只验证 scope/revision 后原子替换 `replaceView`，不解析 post、计算 badge 或重排。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use helix_core::Effect;
 use serde::Serialize;
@@ -93,6 +93,13 @@ pub struct DialogListRowVm {
     pub title: String,
     pub channel_kind: String,
     pub member_count: i64,
+    pub member_leaves: Vec<String>,
+    pub has_scheduled_message: bool,
+    pub settings_version: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
     pub avatar: DialogAvatarVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<DialogPreviewVm>,
@@ -112,6 +119,16 @@ struct DialogRowSet {
     pub channel_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_leaves: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_scheduled_message: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<DialogAvatarVm>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -705,7 +722,9 @@ fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogR
         mention_count: nonnegative_u32(row.badges.mention_count),
         urgent_count: nonnegative_u32(row.badges.pending_urgent_count),
         topic_count: row.topic_count.map_or(0, nonnegative_u32),
-        has_scheduled_message: false,
+        member_count: nonnegative_u32(row.member_count),
+        member_leaves: row.member_leaves.clone(),
+        has_scheduled_message: row.has_scheduled_message,
         is_top: row.state.pinned,
         notification_mode: if row.state.muted {
             interaction_frame::NotificationMode::Muted
@@ -722,6 +741,9 @@ fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogR
             },
             reason: None,
         },
+        settings_version: row.settings_version,
+        purpose: row.purpose.clone(),
+        header: row.header.clone(),
         actions: Vec::new(),
     }
 }
@@ -827,6 +849,44 @@ fn apply_channel_update_to_row(
     {
         next.member_count = member_count;
         set.member_count = Some(member_count);
+    }
+    if let Some(leaves) =
+        projected_member_leaves(value).filter(|value| value != &previous.member_leaves)
+    {
+        next.member_leaves = leaves.clone();
+        set.member_leaves = Some(leaves);
+    }
+    if let Some(has_schedule) = bool_value(
+        value,
+        &[
+            "hasSchedulePost",
+            "has_schedule_post",
+            "hasScheduledMessage",
+        ],
+    )
+    .filter(|value| value != &previous.has_scheduled_message)
+    {
+        next.has_scheduled_message = has_schedule;
+        set.has_scheduled_message = Some(has_schedule);
+    }
+    if let Some(version) = integer(value, &["settingVersion", "setting_version"])
+        .map(|value| value.max(0) as u64)
+        .filter(|value| value != &previous.settings_version)
+    {
+        next.settings_version = version;
+        set.settings_version = Some(version);
+    }
+    if let Some(purpose) =
+        text(value, &["purpose"]).filter(|value| Some(value) != previous.purpose.as_ref())
+    {
+        next.purpose = Some(purpose.clone());
+        set.purpose = Some(purpose);
+    }
+    if let Some(header) =
+        text(value, &["header"]).filter(|value| Some(value) != previous.header.as_ref())
+    {
+        next.header = Some(header.clone());
+        set.header = Some(header);
     }
     if has_avatar_source(value) {
         let mut avatar = avatar_from_projection(value, &next.channel_kind);
@@ -1008,6 +1068,21 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
         member_count: integer(value, &["memberCount", "member_count"])
             .unwrap_or(0)
             .max(0),
+        member_leaves: projected_member_leaves(value).unwrap_or_default(),
+        has_scheduled_message: bool_value(
+            value,
+            &[
+                "hasSchedulePost",
+                "has_schedule_post",
+                "hasScheduledMessage",
+            ],
+        )
+        .unwrap_or(false),
+        settings_version: integer(value, &["settingVersion", "setting_version"])
+            .unwrap_or(0)
+            .max(0) as u64,
+        purpose: text(value, &["purpose"]),
+        header: text(value, &["header"]),
         avatar,
         preview,
         badges: DialogBadgesVm {
@@ -1087,6 +1162,8 @@ fn ensure_dialog_projection_numbers_safe(value: &Value) -> Option<()> {
         "topic_msg_count",
         "memberCount",
         "member_count",
+        "settingVersion",
+        "setting_version",
         "deleteAt",
         "delete_at",
         "isTop",
@@ -1209,6 +1286,11 @@ fn set_is_empty(set: &DialogRowSet) -> bool {
     set.title.is_none()
         && set.channel_kind.is_none()
         && set.member_count.is_none()
+        && set.member_leaves.is_none()
+        && set.has_scheduled_message.is_none()
+        && set.settings_version.is_none()
+        && set.purpose.is_none()
+        && set.header.is_none()
         && set.avatar.is_none()
         && set.preview.is_none()
         && set.badges.is_none()
@@ -1501,6 +1583,32 @@ fn bool_value(value: &Value, keys: &[&str]) -> Option<bool> {
     })
 }
 
+fn projected_member_leaves(value: &Value) -> Option<Vec<String>> {
+    let direct = ["memberLeaves", "member_leaves"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_array));
+    let nested = ["memberChange", "member_change"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_object))
+        .and_then(|change| change.get("leave").and_then(Value::as_array));
+    let items = direct.or(nested)?;
+    let mut leaves = Vec::with_capacity(items.len().min(200));
+    let mut seen = HashSet::with_capacity(items.len().min(200));
+    for item in items.iter().take(200) {
+        let user_id = item.as_str().map(str::to_owned).or_else(|| {
+            ["id", "userId", "user_id"]
+                .iter()
+                .find_map(|key| item.get(*key).and_then(Value::as_str).map(str::to_owned))
+        });
+        if let Some(user_id) = user_id.filter(|value| !value.is_empty()) {
+            if seen.insert(user_id.clone()) {
+                leaves.push(user_id);
+            }
+        }
+    }
+    Some(leaves)
+}
+
 fn normalize_channel_kind(value: Option<String>) -> String {
     match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
         Some("direct") | Some("single") | Some("private") | Some("d") => "direct".to_string(),
@@ -1554,6 +1662,11 @@ mod tests {
             title: channel_id.to_string(),
             channel_kind: "group".to_string(),
             member_count: 2,
+            member_leaves: Vec::new(),
+            has_scheduled_message: false,
+            settings_version: 0,
+            purpose: None,
+            header: None,
             avatar: DialogAvatarVm {
                 kind: "member-grid".to_string(),
                 user_ids: vec!["u1".to_string()],
@@ -1929,6 +2042,36 @@ mod tests {
 
         assert_eq!(view["sections"][0]["items"][0]["isTop"], false);
         assert_eq!(view["sections"][0]["items"][0]["notificationMode"], "all");
+    }
+
+    #[test]
+    fn channel_patch_projects_schedule_membership_and_settings_authority() {
+        let mut state = DialogListFrameState::default();
+        state.snapshot(scope(), vec![row("c1", 1)]);
+
+        let frame = state
+            .patch_from_channel_update(
+                scope(),
+                &serde_json::json!({
+                    "channelId": "c1",
+                    "memberCount": 1,
+                    "memberChange": { "leave": [{ "userId": "678" }, "678"] },
+                    "hasSchedulePost": true,
+                    "settingVersion": 9,
+                    "purpose": "new purpose",
+                    "header": "new header"
+                }),
+            )
+            .expect("authoritative channel fields must produce a dialog patch");
+        let data = data(&frame);
+        let item = &dialog_view(&data)["sections"][0]["items"][0];
+
+        assert_eq!(item["memberCount"], 1);
+        assert_eq!(item["memberLeaves"], serde_json::json!(["678"]));
+        assert_eq!(item["hasScheduledMessage"], true);
+        assert_eq!(item["settingsVersion"], 9);
+        assert_eq!(item["purpose"], "new purpose");
+        assert_eq!(item["header"], "new header");
     }
 
     #[test]

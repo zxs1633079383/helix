@@ -394,6 +394,12 @@ pub(crate) fn message_from_render_ready(
         delivery,
         actions,
         quick_actions,
+        reply_id: optional_non_empty_string(row, &["replyId", "reply_id"]),
+        reply_root_id: optional_non_empty_string(row, &["replyRootId", "reply_root_id"]),
+        reply_first_level_id: optional_non_empty_string(
+            row,
+            &["replyFirstLevelId", "reply_first_level_id"],
+        ),
         reply_summary,
         reply_thread,
         reactions,
@@ -749,6 +755,11 @@ fn row_string(row: &Value, keys: &[&str]) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or_default()
         .to_string()
+}
+
+fn optional_non_empty_string(row: &Value, keys: &[&str]) -> Option<String> {
+    let value = row_string(row, keys);
+    (!value.is_empty()).then_some(value)
 }
 
 fn integer_at(

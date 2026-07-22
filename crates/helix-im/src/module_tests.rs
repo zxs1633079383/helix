@@ -255,6 +255,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
             }),
             query_session_epoch: m.state.query_session_epoch,
             query_generation: 1,
+            allow_remote_fallback: true,
             causation_id: None,
             deferred_send_http: None,
         },

@@ -154,6 +154,10 @@ pub enum CorrelationContext {
         request: Box<crate::query::MessageQueryRequest>,
         query_session_epoch: u64,
         query_generation: u64,
+        /// Explicit renderer queries may prove a missing window via HTTP. A
+        /// refresh following a confirmed local write must stay local-only,
+        /// otherwise one send is amplified into repeated getLatestPost calls.
+        allow_remote_fallback: bool,
         /// Command-owned causation carried only for a projector refresh that
         /// follows a confirmed durable mutation. Ordinary renderer queries use None.
         causation_id: Option<String>,

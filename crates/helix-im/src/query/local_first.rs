@@ -129,6 +129,7 @@ impl ImModule {
             .map_err(|error| ImError::Serialize(format!("attached timeline refresh: {error}")))?;
         self.dispatch_message_query_with_causation_and_deferred_send(
             &bytes,
+            false,
             causation_id,
             deferred_send_http,
             out,
@@ -142,7 +143,7 @@ impl ImModule {
         payload: &[u8],
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        self.dispatch_message_query_with_causation_and_deferred_send(payload, None, None, out)
+        self.dispatch_message_query_with_causation_and_deferred_send(payload, true, None, None, out)
     }
 
     /// Runs the same local-first query as an explicit renderer request, while
@@ -151,6 +152,7 @@ impl ImModule {
     fn dispatch_message_query_with_causation_and_deferred_send(
         &mut self,
         payload: &[u8],
+        allow_remote_fallback: bool,
         causation_id: Option<String>,
         deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
@@ -178,6 +180,7 @@ impl ImModule {
                 request: Box::new(request),
                 query_session_epoch: self.state.query_session_epoch,
                 query_generation,
+                allow_remote_fallback,
                 causation_id,
                 deferred_send_http,
             },
@@ -190,6 +193,7 @@ impl ImModule {
         request: MessageQueryRequest,
         query_session_epoch: u64,
         query_generation: u64,
+        allow_remote_fallback: bool,
         causation_id: Option<String>,
         deferred_send_http: Option<crate::state::TemporaryId>,
         now_ms: u64,
@@ -211,8 +215,17 @@ impl ImModule {
                     tracing::warn!(
                         channel_id = request.channel_id.as_str(),
                         error = ?error,
-                        "message query local scan reply malformed; falling back to remote"
+                        allow_remote_fallback,
+                        "message query local scan reply malformed"
                     );
+                    if !allow_remote_fallback {
+                        out.push(self.emit_timeline_failed(&request, now_ms)?);
+                        self.emit_deferred_posts_create_after_timeline_frame(
+                            deferred_send_http,
+                            out,
+                        )?;
+                        return Ok(());
+                    }
                     Vec::new()
                 }
             },
@@ -220,12 +233,29 @@ impl ImModule {
                 tracing::warn!(
                     channel_id = request.channel_id.as_str(),
                     error = ?error,
-                    "message query local scan failed; falling back to remote"
+                    allow_remote_fallback,
+                    "message query local scan failed"
                 );
+                if !allow_remote_fallback {
+                    out.push(self.emit_timeline_failed(&request, now_ms)?);
+                    self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+                    return Ok(());
+                }
                 Vec::new()
             }
         };
         sort_recent_rows_desc(&mut local_rows_desc);
+
+        if !allow_remote_fallback {
+            out.push(self.emit_timeline_snapshot_with_causation(
+                &request,
+                &local_rows_desc,
+                now_ms,
+                causation_id,
+            )?);
+            self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
+            return Ok(());
+        }
 
         let coverage = classify_local_read(
             self.local_store_mode,

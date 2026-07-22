@@ -267,6 +267,76 @@ fn attached_timeline_refreshes_after_a_durable_fact_even_before_first_snapshot()
 }
 
 #[test]
+fn durable_fact_refresh_uses_local_rows_without_get_latest_post_fallback() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let scope = crate::interaction_frame::SurfaceScope::Timeline {
+        channel_id: channel_id().as_str().to_string(),
+        window_token: "latest".to_string(),
+    };
+    module.state.timeline_projector.register_attachment(&scope);
+
+    let mut sink = EffectSink::new();
+    module
+        .refresh_attached_latest_timeline(
+            channel_id(),
+            Some("durable-send-refresh".to_string()),
+            &mut sink,
+        )
+        .expect("durable fact schedules one local readback");
+    let refresh_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("durable refresh starts with a local message scan");
+    let local_rows = vec![serde_json::json!({
+        "id": "message-local",
+        "temporaryId": "temporary-local",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 10,
+        "message": "local durable fact",
+        "type": "TEXT",
+        "sendStatus": "sending",
+        "props": {},
+    })];
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: refresh_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&local_rows).unwrap()),
+                )),
+            },
+            1_001,
+            &mut sink,
+        )
+        .expect("durable local rows project directly");
+
+    assert!(
+        sink.as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })),
+        "a confirmed local write must never trigger getLatestPost"
+    );
+    assert!(
+        sink.as_slice()
+            .iter()
+            .filter_map(emitted_event)
+            .any(|event| event["event"] == "im:interaction:frame"),
+        "the local readback must release the attached timeline Frame"
+    );
+}
+
+#[test]
 fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_frame() {
     use helix_core::Module;
 
@@ -348,11 +418,6 @@ fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_f
         }),
     ];
     sort_recent_rows_desc(&mut refreshed_rows);
-    module.state.recent_message_coverage.insert(
-        channel_id(),
-        RecentMessageCoverage::from_remote(&refreshed_rows, refreshed_rows.len())
-            .expect("the fixture is an exhausted local latest window"),
-    );
 
     sink.clear();
     module
@@ -417,8 +482,21 @@ fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_f
     let http_index = sink
         .as_slice()
         .iter()
-        .position(|effect| matches!(effect, Effect::Http { .. }))
+        .position(|effect| {
+            matches!(
+                effect,
+                Effect::Http { req, .. } if req.url.ends_with("/posts/create")
+            )
+        })
         .expect("ordinary text starts posts/create after the P1 Frame");
+    assert_eq!(
+        sink.as_slice()
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Http { .. }))
+            .count(),
+        1,
+        "P1 readback must not add getLatestPost beside posts/create"
+    );
     assert!(
         frame_index < http_index,
         "the durable sending Frame must leave Helix before posts/create can settle it"
@@ -575,11 +653,6 @@ fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_atta
         .find(|row| row["temporaryId"].as_str() == Some(temporary_id.as_str()))
         .expect("the optimistic row remains in the readback window")["sendStatus"] =
         serde_json::json!("sending");
-    module.state.recent_message_coverage.insert(
-        channel_id(),
-        RecentMessageCoverage::from_remote(&settled_rows, settled_rows.len())
-            .expect("the fixture is an exhausted local latest window"),
-    );
 
     sink.clear();
     module
@@ -620,7 +693,7 @@ fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_atta
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Http { corr, .. } => Some(*corr),
+            Effect::Http { corr, req } if req.url.ends_with("/posts/create") => Some(*corr),
             _ => None,
         })
         .expect("the ordinary send chain owns one posts/create HTTP correlation after P1 Frame");

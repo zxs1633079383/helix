@@ -9,10 +9,11 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageVm, ReplaceView,
-    ReplaceViewKind, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope,
-    TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm,
-    WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageReactionVm,
+    MessageVm, ReplaceView, ReplaceViewKind, ReplyThreadPreviewVm, ReplyThreadSummaryVm,
+    SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
+    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
+    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -341,6 +342,8 @@ pub(crate) fn message_from_render_ready(
     let props = row.get("props").unwrap_or(&Value::Null);
     let content = content_from_row(row, props, revoked)?;
     let delivery = delivery_from_row(row, revoked)?;
+    let reply_thread = reply_thread_from_row(row);
+    let reactions = reactions_from_props(props);
 
     let actions = action_bindings(
         row,
@@ -365,6 +368,8 @@ pub(crate) fn message_from_render_ready(
                 ("replyMessages", "replyMessages"),
             ],
         )?,
+        reply_thread,
+        reactions,
         read_receipt: record_from_row(
             row,
             &[("readBits", "readBits"), ("readerIds", "readerIds")],
@@ -378,6 +383,86 @@ pub(crate) fn message_from_render_ready(
         bookmarked: bool_at(row, &["bookmarked"]),
         topic_link: optional_data(row.get("topic"))?,
     })
+}
+
+fn reply_thread_from_row(row: &Value) -> Option<ReplyThreadSummaryVm> {
+    let reply_count = row
+        .get("replyCount")
+        .or_else(|| row.get("reply_count"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default()
+        .min(u32::MAX as u64) as u32;
+    let source = row
+        .get("replyMessages")
+        .or_else(|| row.get("reply_messages"));
+    let mut rows: Vec<&Value> = match source {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(Value::Object(items)) => items.values().collect(),
+        _ => Vec::new(),
+    };
+    rows.sort_by_key(|item| {
+        (
+            item.get("createAt")
+                .or_else(|| item.get("createdAt"))
+                .and_then(Value::as_i64)
+                .unwrap_or_default(),
+            row_string(item, &["msgId", "id"]),
+        )
+    });
+    let items: Vec<ReplyThreadPreviewVm> = rows
+        .into_iter()
+        .filter_map(|item| {
+            let id = row_string(item, &["msgId", "id"]);
+            let user_id = row_string(item, &["userId", "user_id"]);
+            if id.is_empty() || user_id.is_empty() {
+                return None;
+            }
+            Some(ReplyThreadPreviewVm {
+                id,
+                author: UserRefVm { user_id },
+                text: row_string(item, &["text", "message"]),
+            })
+        })
+        .take(3)
+        .collect();
+    let reply_count = reply_count.max(items.len() as u32);
+    (reply_count > 0).then_some(ReplyThreadSummaryVm { items, reply_count })
+}
+
+fn reactions_from_props(props: &Value) -> Vec<MessageReactionVm> {
+    let mut reactions = Vec::new();
+    match props.get("quickReply") {
+        Some(Value::Array(items)) => {
+            for item in items {
+                let emoji = row_string(item, &["emoji"]);
+                let count = item
+                    .get("userIds")
+                    .or_else(|| item.get("user_ids"))
+                    .and_then(Value::as_array)
+                    .map(Vec::len)
+                    .unwrap_or_default();
+                if !emoji.is_empty() && count > 0 {
+                    reactions.push(MessageReactionVm {
+                        emoji,
+                        count: count.min(u32::MAX as usize) as u32,
+                    });
+                }
+            }
+        }
+        Some(Value::Object(items)) => {
+            for (emoji, users) in items {
+                let count = users.as_array().map(Vec::len).unwrap_or_default();
+                if !emoji.is_empty() && count > 0 {
+                    reactions.push(MessageReactionVm {
+                        emoji: emoji.clone(),
+                        count: count.min(u32::MAX as usize) as u32,
+                    });
+                }
+            }
+        }
+        _ => {}
+    }
+    reactions
 }
 
 fn content_from_row(
@@ -691,6 +776,37 @@ mod tests {
 
         assert!(projector.is_attached(&scope));
         assert!(projector.current_view(&scope).is_none());
+    }
+
+    #[test]
+    fn message_projection_caps_reply_preview_and_preserves_authoritative_count_and_reactions() {
+        let mut source = row(1);
+        source["replyCount"] = serde_json::json!(5);
+        source["replyMessages"] = serde_json::json!([
+            {"id":"reply-1","userId":"user-1","message":"一","createAt":1},
+            {"id":"reply-2","userId":"user-2","message":"二","createAt":2},
+            {"id":"reply-3","userId":"user-3","message":"三","createAt":3},
+            {"id":"reply-4","userId":"user-4","message":"四","createAt":4}
+        ]);
+        source["props"] = serde_json::json!({
+            "quickReply": [
+                {"emoji":"😊","userIds":["user-1","user-2"]},
+                {"emoji":"👍","userIds":["user-3"]}
+            ]
+        });
+
+        let message = message_from_render_ready(&source, "channel-1", 1, false, || {
+            Ok("action-ref".to_string())
+        })
+        .expect("render-ready message");
+
+        let thread = message.reply_thread.expect("reply summary");
+        assert_eq!(thread.items.len(), 3);
+        assert_eq!(thread.reply_count, 5);
+        assert_eq!(thread.items[2].text, "三");
+        assert_eq!(message.reactions[0].emoji, "😊");
+        assert_eq!(message.reactions[0].count, 2);
+        assert_eq!(message.reactions[1].count, 1);
     }
 
     #[test]

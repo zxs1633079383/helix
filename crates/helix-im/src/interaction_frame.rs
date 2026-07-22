@@ -958,6 +958,10 @@ pub struct MessageVm {
     pub delivery: DeliveryVm,
     pub actions: Vec<ActionBinding>,
     pub reply_summary: SurfaceDataVm,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_thread: Option<ReplyThreadSummaryVm>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<MessageReactionVm>,
     pub read_receipt: SurfaceDataVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_confirmation: Option<SurfaceDataVm>,
@@ -967,6 +971,28 @@ pub struct MessageVm {
     pub bookmarked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub topic_link: Option<SurfaceDataVm>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplyThreadPreviewVm {
+    pub id: String,
+    pub author: UserRefVm,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplyThreadSummaryVm {
+    pub items: Vec<ReplyThreadPreviewVm>,
+    pub reply_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MessageReactionVm {
+    pub emoji: String,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1601,6 +1627,24 @@ fn validate_message(
     validate_user(surface, &message.author)?;
     validate_action_bindings(surface, &message.actions)?;
     validate_data_for_surface(surface, &message.reply_summary)?;
+    if let Some(thread) = &message.reply_thread {
+        if thread.items.len() > 3 || thread.reply_count < thread.items.len() as u32 {
+            return invalid_view(
+                surface,
+                "reply thread preview must be capped at three items",
+            );
+        }
+        for item in &thread.items {
+            require_nonempty(surface, "reply preview id", &item.id)?;
+            validate_user(surface, &item.author)?;
+        }
+    }
+    for reaction in &message.reactions {
+        require_nonempty(surface, "reaction emoji", &reaction.emoji)?;
+        if reaction.count == 0 {
+            return invalid_view(surface, "reaction count must be positive");
+        }
+    }
     validate_data_for_surface(surface, &message.read_receipt)?;
     if let Some(data) = &message.template_confirmation {
         validate_data_for_surface(surface, data)?;

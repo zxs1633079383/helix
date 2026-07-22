@@ -213,6 +213,8 @@ mod tests {
             delivery: DeliveryVm::Sent,
             actions: Vec::new(),
             reply_summary: SurfaceDataVm::Record(BTreeMap::new()),
+            reply_thread: None,
+            reactions: Vec::new(),
             read_receipt: SurfaceDataVm::Record(BTreeMap::new()),
             template_confirmation: None,
             urgency: None,

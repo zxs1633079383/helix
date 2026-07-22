@@ -173,6 +173,20 @@ impl ImModule {
                 let commit_target = next_seq.max(max_event_seq);
                 let persist_corr = self.alloc_corr_internal();
                 let auth_user_id = self.config.auth_user_id.as_str();
+                let tenant_id = self.config.company_id.clone();
+                let from_seq = self
+                    .state
+                    .channels
+                    .get(&channel_id)
+                    .map(|channel| channel.cursor.value().0.saturating_add(1))
+                    .unwrap_or(1);
+                let coverage_id = format!(
+                    "sync:{}:{}:{}:{}",
+                    tenant_id,
+                    channel_id.as_str(),
+                    from_seq,
+                    persist_corr.raw()
+                );
                 let dialog_patches = crate::acl::to_effect::sync_dialog_patch_plans(
                     &events,
                     &messages,
@@ -189,19 +203,51 @@ impl ImModule {
                         &pending.update,
                     ));
                 }
-                // G-S2/G-S3：message/channel 派生写与 cursor 必须属于同一个相关事务。
-                // Persist 回执前既不推进内存 cursor，也不发布 mutation/dialog/sync-state。
+                // A recovery batch is write-only and atomic: facts, per-event evidence, the
+                // range receipt, then cursor. A driver must never report a read result as the
+                // durable commit receipt.
+                let mut canonical_facts = String::new();
+                for event in &events {
+                    canonical_facts.push_str(&event.seq.0.to_string());
+                    canonical_facts.push(':');
+                    canonical_facts.push_str(&event.kind.type_num().to_string());
+                    canonical_facts.push(':');
+                    canonical_facts.push_str(event.msg_id.as_deref().unwrap_or(""));
+                    canonical_facts.push('|');
+                    persist_ops.push(crate::acl::to_effect::recovery_ledger_op(
+                        crate::acl::to_effect::RecoveryLedgerEntry {
+                            tenant_id: tenant_id.clone(),
+                            channel_id: channel_id.as_str().to_string(),
+                            event_seq: event.seq.0,
+                            event_kind: event.kind.type_num().to_string(),
+                            message_id: event.msg_id.clone(),
+                            event_hash: format!("{}:{}", event.event_id, event.event_payload),
+                            coverage_id: coverage_id.clone(),
+                            applied_at_ms: event.occurred_at,
+                        },
+                    ));
+                }
+                persist_ops.push(crate::acl::to_effect::recovery_coverage_op(
+                    crate::acl::to_effect::RecoveryCoverage {
+                        coverage_id,
+                        tenant_id,
+                        channel_id: channel_id.as_str().to_string(),
+                        from_seq,
+                        to_seq: commit_target.0,
+                        event_count: events.len() as u64,
+                        facts_hash: canonical_facts,
+                        correlation_id: persist_corr.raw().to_string(),
+                        committed_at_ms: 0,
+                    },
+                ));
                 persist_ops.push(crate::acl::to_effect::advance_cursor_op(
                     channel_id,
                     commit_target,
                 ));
-                if !dialog_patches.is_empty() {
-                    persist_ops.push(crate::acl::to_effect::get_channel_row_op(channel_id));
-                }
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.insert(persist_corr, commit_target);
                 }
-                out.push(Effect::Persist {
+                out.push(Effect::PersistAtomic {
                     corr: persist_corr,
                     ops: persist_ops,
                 });

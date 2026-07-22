@@ -216,7 +216,7 @@ fn prepare_sync_persist() -> (Harness, u64, Vec<&'static str>) {
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, ops } => Some((
+            Effect::PersistAtomic { corr, ops } => Some((
                 corr.raw(),
                 ops.iter().filter_map(table_name).collect::<Vec<_>>(),
             )),
@@ -227,16 +227,24 @@ fn prepare_sync_persist() -> (Harness, u64, Vec<&'static str>) {
 }
 
 #[test]
-fn gs2_gs3_sync_transaction_contains_message_then_cursor_and_err_stays_silent() {
+fn gs2_gs3_sync_transaction_is_atomic_and_rolls_back_facts_ledger_coverage_and_cursor() {
     let (mut h, persist_corr, tables) = prepare_sync_persist();
     let message = tables.iter().position(|table| *table == "message").unwrap();
     let cursor = tables
         .iter()
         .position(|table| *table == "channel_event_cursor")
         .unwrap();
+    let ledger = tables
+        .iter()
+        .position(|table| *table == "channel_event_ledger")
+        .unwrap();
+    let coverage = tables
+        .iter()
+        .position(|table| *table == "channel_sync_coverage")
+        .unwrap();
     assert!(
-        message < cursor,
-        "sync 同批事务必须先写 message 再写 cursor，got {tables:?}"
+        message < ledger && ledger < coverage && coverage < cursor,
+        "sync 原子事务必须 facts -> ledger -> coverage -> cursor，got {tables:?}"
     );
 
     h.step(port_reply_err(persist_corr), 1_200);
@@ -306,7 +314,7 @@ fn gs3_pong_gap_trigger_survives_http_and_persist_barrier() {
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, .. } => Some(corr.raw()),
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .expect("pong gap sync 必须形成持久化屏障");

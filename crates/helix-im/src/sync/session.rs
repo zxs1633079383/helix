@@ -403,15 +403,18 @@ impl SyncBatchFacts {
         if events.is_empty() {
             return Err("sync batch facts require at least one event");
         }
-        let mut expected = Seq(from_exclusive.0.saturating_add(1));
+        let mut previous = from_exclusive;
         for event in &events {
             if event.channel_id != channel_id || event.id != channel_id {
                 return Err("sync batch event channel differs from request channel");
             }
-            if event.seq != expected {
-                return Err("sync batch event sequence is not contiguous");
+            // sync/notify is viewer-filtered: invisible channel events create
+            // legitimate gaps. The returned facts must still be strictly
+            // increasing and newer than the committed cursor.
+            if event.seq <= previous {
+                return Err("sync batch event sequence is not strictly increasing");
             }
-            expected = Seq(expected.0.saturating_add(1));
+            previous = event.seq;
         }
         let last = events.last().map(|event| event.seq).unwrap_or(Seq(0));
         if authority_head < last {

@@ -76,7 +76,7 @@ fn gs01_reconnect_equal_and_persist_failure_replay_has_no_false_completion() {
 }
 
 #[test]
-fn gs02_rejects_non_contiguous_sync_evidence_before_persist() {
+fn gs02_accepts_viewer_filtered_gaps_but_rejects_non_increasing_evidence() {
     let channel = channel_id('b');
     let first = EventEnvelope::new(
         channel,
@@ -84,15 +84,22 @@ fn gs02_rejects_non_contiguous_sync_evidence_before_persist() {
         EventKind::PostUpsert,
         PostFields::default(),
     );
-    let gap = EventEnvelope::new(
+    let visible_after_gap = EventEnvelope::new(
         channel,
         Seq(10),
         EventKind::PostUpsert,
         PostFields::default(),
     );
+    assert!(SyncBatchFacts::from_events(
+        channel,
+        Seq(7),
+        Seq(10),
+        vec![first.clone(), visible_after_gap.clone()]
+    )
+    .is_ok());
     assert!(matches!(
-        SyncBatchFacts::from_events(channel, Seq(7), Seq(10), vec![first, gap]),
-        Err("sync batch event sequence is not contiguous")
+        SyncBatchFacts::from_events(channel, Seq(7), Seq(10), vec![visible_after_gap, first]),
+        Err("sync batch event sequence is not strictly increasing")
     ));
 }
 

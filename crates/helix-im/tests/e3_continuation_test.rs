@@ -313,7 +313,7 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
         )
         .expect_err("stale duplicate recovery batch must fail closed");
     assert!(
-        error.to_string().contains("not contiguous"),
+        error.to_string().contains("not strictly increasing"),
         "unexpected recovery rejection: {error}"
     );
     assert!(

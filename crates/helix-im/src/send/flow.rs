@@ -13,9 +13,10 @@ impl ImModule {
     /// 1. Persist{P1, 乐观落库 Sending}
     /// 2. Emit(im:post:sending)
     ///
-    /// 普通文本会在同一步继续吐 `Http{H1, POST /posts/create}` + `ScheduleTimer{T1, 15s}`；
-    /// rich/file 若存在上传门控，首步只发 `media/upload/prepare`；PUT 成功后停在
-    /// WaitingComplete，完整 complete/posts.create 链由 G-03 B2 接续。
+    /// 普通文本会先等待 P1 的已 attach timeline 读回产生真实 Frame，随后才吐
+    /// `Http{H1, POST /posts/create}` + `ScheduleTimer{T1, 15s}`；rich/file 若存在
+    /// 上传门控，首步只发 `media/upload/prepare`；PUT 成功后停在 WaitingComplete，完整
+    /// complete/posts.create 链由 G-03 B2 接续。
     pub(crate) fn handle_send_message(
         &mut self,
         payload: &[u8],
@@ -141,10 +142,6 @@ impl ImModule {
             tmp_id.clone(),
         );
 
-        if upload_plan.media.is_empty() {
-            self.emit_posts_create_http(channel_id, tmp_id, &body, out)?;
-        }
-
         Ok(())
     }
 
@@ -187,6 +184,23 @@ impl ImModule {
         body: &serde_json::Value,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let (timeout_timer, request_id) = {
+            let pending = self
+                .state
+                .pending_sends
+                .get_mut(&temporary_id)
+                .ok_or_else(|| {
+                    ImError::Parse(format!(
+                        "missing pending send while emitting posts/create: {}",
+                        temporary_id.0
+                    ))
+                })?;
+            if pending.http_started {
+                return Ok(());
+            }
+            pending.http_started = true;
+            (pending.timeout_timer, pending.request_id.clone())
+        };
         let h1_corr = self.alloc_corr_internal();
         let body_bytes = serde_json::to_vec(body).map_err(|e| ImError::Serialize(e.to_string()))?;
         out.push(Effect::Http {
@@ -199,12 +213,7 @@ impl ImModule {
                     h.extend(crate::acl::sync_http_effects::session_auth_headers(
                         self.state.connection_id.as_deref(),
                     ));
-                    if let Some(request_id) = self
-                        .state
-                        .pending_sends
-                        .get(&temporary_id)
-                        .and_then(|pending| pending.request_id.as_deref())
-                    {
+                    if let Some(request_id) = request_id.as_deref() {
                         h.push(("Cses-Track-Id".to_string(), request_id.to_string()));
                     }
                     h
@@ -212,17 +221,6 @@ impl ImModule {
                 body: Some(bytes::Bytes::from(body_bytes)),
             },
         });
-        let timeout_timer = self
-            .state
-            .pending_sends
-            .get(&temporary_id)
-            .map(|ps| ps.timeout_timer)
-            .ok_or_else(|| {
-                ImError::Parse(format!(
-                    "missing pending send while emitting posts/create: {}",
-                    temporary_id.0
-                ))
-            })?;
         out.push(Effect::ScheduleTimer {
             id: timeout_timer,
             after_ms: self.config.send_timeout_ms,

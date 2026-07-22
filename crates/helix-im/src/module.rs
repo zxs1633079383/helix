@@ -263,17 +263,35 @@ impl ImModule {
             *next_corr += 1;
             corr
         };
-        let mut ctx = crate::ws::ImWsContext::new(
-            &mut self.state,
-            now_ms,
-            api_base_url,
-            auth_user_id,
-            &mut alloc_corr,
-        );
-        crate::ws::dispatch_ws(&mut ctx, frame, out).map_err(|e| CoreError::ModuleError {
+        let (result, timeline_refreshes) = {
+            let mut ctx = crate::ws::ImWsContext::new(
+                &mut self.state,
+                now_ms,
+                api_base_url,
+                auth_user_id,
+                &mut alloc_corr,
+            );
+            let result = crate::ws::dispatch_ws(&mut ctx, frame, out);
+            let timeline_refreshes = ctx.take_attached_timeline_refreshes();
+            (result, timeline_refreshes)
+        };
+        result.map_err(|e| CoreError::ModuleError {
             module: module_name,
             source: Box::new(e),
-        })
+        })?;
+
+        // The post handler has already appended its PersistFire write. The host
+        // driver serializes Persist/PersistFire by the same `message` table key,
+        // so this local-first query observes that accepted durable write before
+        // producing the next typed Frame.
+        for channel_id in timeline_refreshes {
+            self.refresh_attached_latest_timeline(channel_id, None, out)
+                .map_err(|e| CoreError::ModuleError {
+                    module: module_name,
+                    source: Box::new(e),
+                })?;
+        }
+        Ok(())
     }
 }
 

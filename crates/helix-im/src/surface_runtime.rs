@@ -84,6 +84,9 @@ impl ImModule {
                     window_token,
                 },
             ) => {
+                self.state
+                    .timeline_projector
+                    .register_attachment(&request.scope);
                 let payload = serde_json::to_vec(&serde_json::json!({
                     "channelId": channel_id,
                     "windowToken": window_token,
@@ -749,4 +752,37 @@ fn nonnegative_u32(value: &Value, keys: &[&str]) -> u32 {
 
 fn nonnegative_u64(value: &Value, keys: &[&str]) -> u64 {
     integer(value, keys).clamp(0, crate::interaction_frame::MAX_SAFE_JSON_INTEGER as i64) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeline_resync_registers_attachment_before_the_first_snapshot() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let scope = SurfaceScope::Timeline {
+            channel_id: "ch00000000000000000000000a".to_string(),
+            window_token: "latest".to_string(),
+        };
+        let request = SurfaceResyncRequest {
+            surface: SurfaceId::MessageTimeline,
+            scope: scope.clone(),
+        };
+        let mut sink = EffectSink::new();
+
+        module
+            .handle_surface_resync(
+                &serde_json::to_vec(&request).expect("surface request serializes"),
+                1,
+                &mut sink,
+            )
+            .expect("timeline resync starts an authoritative local query");
+
+        assert!(module.state.timeline_projector.is_attached(&scope));
+        assert!(sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+    }
 }

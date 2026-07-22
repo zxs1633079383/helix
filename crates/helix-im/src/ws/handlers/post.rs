@@ -55,7 +55,7 @@ impl WsMessageHandler for PostHandler {
         let echo_tmp_id = ev.fields.temporary_id.clone();
         let echo_server_id = ServerId::from_str(ev.fields.id.as_str());
         let is_echo = is_echo_frame(ctx, &echo_tmp_id, &ev, frame);
-        reconcile_post_echo(ctx, &echo_tmp_id, echo_server_id, out);
+        reconcile_post_echo(ctx, ev.channel_id, &echo_tmp_id, echo_server_id, out);
 
         // S3 path3：未读 +1 决策（未读自增 SQL + lastPost 组）。**⑤ 修复（gate 单一发出点）**：
         // 决策在此用「原始帧 + auth + 完整 echo 判定」算定后 attach 到 envelope，由 gate 在
@@ -142,7 +142,18 @@ impl WsMessageHandler for PostHandler {
         let recent_start = out.as_slice().len();
         let mut dialog_patches = Vec::new();
         ch.ingest_collecting_dialog_patches(ev, out, ctx.now_ms, &mut dialog_patches)?;
+        // Only a contiguous gate apply (possibly flushing a buffered run) has
+        // actually appended an authoritative message write. Buffer/drop paths
+        // must not fabricate a timeline Frame from the raw WS payload. Do not
+        // use the handler's unread visibility hint here: it has narrower
+        // semantics than the gate's actual persisted-message decision.
+        let timeline_readback_required =
+            super::gate::recent_effects_persist_message(&out.as_slice()[recent_start..]);
         super::gate::schedule_reload_if_recent_too_long(ctx, ingest_channel, recent_start, out)?;
+
+        if timeline_readback_required {
+            ctx.request_attached_timeline_refresh(ingest_channel);
+        }
 
         // gate buffer/drop 下 post 的 DOM 结算（gate apply 路径已自然 emit → post_settle=None）。
         if let Some(eff) = post_settle {

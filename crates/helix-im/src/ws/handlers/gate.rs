@@ -20,6 +20,7 @@
 //! type2 内容 patch（保留本地 read_bits）/ type3 撤回 / type6 已读位覆盖，各按语义落库 + emit，
 //! 故落库 + emit 全由 gate 完成——调用方**不再**自行 push 内容 op / emit / advance_cursor。
 
+use helix_core::effect::StorageOp;
 use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
@@ -37,6 +38,26 @@ use super::super::{ImWsContext, WsFrame};
 /// 取 2：gap > 2 ⇒ seq ≥ cursor+4（至少 3 条中间事件缺失）才算「真缺口」。echo gate-gap 整类
 /// 实证 gap 极大（cursor=2 / server seq=22 ⇒ gap=20）；常规相邻乱序 gap=1。
 const GAP_IMMEDIATE_RESYNC_THRESHOLD: u64 = 2;
+
+/// True only when the current WS handler has appended an authoritative local
+/// message-table mutation. Consumers use this to schedule a typed timeline
+/// readback after the handler returns, rather than projecting raw WS content.
+pub(super) fn recent_effects_persist_message(effects: &[Effect]) -> bool {
+    effects.iter().any(|effect| {
+        let Effect::PersistFire { ops } = effect else {
+            return false;
+        };
+        ops.iter().any(|op| match op {
+            StorageOp::BatchUpsert(spec) => spec.table == "message",
+            StorageOp::BatchUpdate(spec) => spec.table == "message",
+            StorageOp::MonotonicUpsert(spec) => spec.table == "message",
+            StorageOp::GuardedBump(spec) => spec.table == "message",
+            StorageOp::Get(spec) => spec.table == "message",
+            StorageOp::Scan(spec) => spec.table == "message",
+            StorageOp::BatchDelete(spec) => spec.table == "message",
+        })
+    })
+}
 
 /// 根治 echo gate-gap 整类：检测到**大缺口**即对该 channel **立即**触发 proactive resync。
 ///

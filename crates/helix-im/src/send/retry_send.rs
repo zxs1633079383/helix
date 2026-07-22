@@ -358,6 +358,7 @@ fn continue_retry(
         .or_insert_with(|| PendingSend::new(temporary_id.clone(), timeout_timer, connection_id));
     pending.status = SendStatus::Sending;
     pending.timeout_timer = timeout_timer;
+    pending.http_started = false;
     pending.body = Some(body.clone());
     if request_id.is_some() {
         pending.request_id = request_id;

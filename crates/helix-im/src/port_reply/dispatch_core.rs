@@ -217,6 +217,46 @@ impl ImModule {
                         )?;
                     }
                 }
+                let channel_id = self
+                    .state
+                    .pending_sends
+                    .get(&temporary_id)
+                    .and_then(|pending| pending.body.as_ref())
+                    .and_then(|body| body.get("channelId"))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(ChannelId::from_str);
+                let causation_id = self
+                    .state
+                    .pending_sends
+                    .get(&temporary_id)
+                    .and_then(|pending| pending.request_id.clone());
+                if let Some(channel_id) = channel_id {
+                    let defer_http =
+                        self.state
+                            .pending_sends
+                            .get(&temporary_id)
+                            .is_some_and(|pending| {
+                                pending.remaining_uploads == 0 && !pending.upload_failed
+                            });
+                    let refresh_scheduled = self
+                        .refresh_attached_latest_timeline_with_deferred_send(
+                            channel_id,
+                            causation_id,
+                            defer_http.then_some(temporary_id.clone()),
+                            out,
+                        )?;
+                    if defer_http && !refresh_scheduled {
+                        let body = self
+                            .state
+                            .pending_sends
+                            .get(&temporary_id)
+                            .and_then(|pending| pending.body.clone())
+                            .ok_or_else(|| {
+                                ImError::Parse("P1 ordinary send missing cached body".to_string())
+                            })?;
+                        self.emit_posts_create_http(channel_id, temporary_id, &body, out)?;
+                    }
+                }
             }
             PortOutcome::Err(e) => {
                 self.state
@@ -242,21 +282,51 @@ impl ImModule {
         match outcome {
             PortOutcome::Ok(reply) => {
                 let reconcile_corr = self.alloc_corr_internal();
-                crate::send_reconcile::reconcile_send_http(
+                let causation_id = self
+                    .state
+                    .pending_sends
+                    .get(&temporary_id)
+                    .and_then(|pending| pending.request_id.clone());
+                if crate::send_reconcile::reconcile_send_http(
                     &mut self.state,
                     &temporary_id,
                     reply.0.as_ref(),
                     reconcile_corr,
                     out,
-                );
+                ) {
+                    self.state.corr_map.insert(
+                        reconcile_corr,
+                        crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                            channel_id,
+                            causation_id,
+                        },
+                    );
+                }
             }
             PortOutcome::Err(e) => {
                 tracing::warn!(
                     tmp_id = ?temporary_id, error = ?e,
                     "posts/create http failed, marking pending send failed immediately"
                 );
-                if let Some(ps) = self.state.pending_sends.get_mut(&temporary_id) {
-                    ps.mark_failed_immediately(out);
+                let reconcile_corr = self.alloc_corr_internal();
+                let causation_id = self
+                    .state
+                    .pending_sends
+                    .get(&temporary_id)
+                    .and_then(|pending| pending.request_id.clone());
+                if self
+                    .state
+                    .pending_sends
+                    .get_mut(&temporary_id)
+                    .is_some_and(|pending| pending.mark_failed_immediately(reconcile_corr, out))
+                {
+                    self.state.corr_map.insert(
+                        reconcile_corr,
+                        crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                            channel_id,
+                            causation_id,
+                        },
+                    );
                 }
                 out.push(crate::acl::to_effect::emit_post_send_failed(
                     channel_id.as_str(),

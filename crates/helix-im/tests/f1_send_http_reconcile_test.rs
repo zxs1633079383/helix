@@ -28,8 +28,7 @@ fn posts_create_reply(corr_raw: u64, raw_go_body: serde_json::Value) -> Tick {
     port_reply_with_body(corr_raw, enveloped(raw))
 }
 
-/// send 命令产出的 Http(H1) corr（posts/create）。Persist(P1) 先产，故 Http 是第二个 corr-bearing
-/// effect；这里直接抠 Http corr。
+/// P1 durable acknowledgement 之后产出的 Http(H1) corr（posts/create）。
 fn http_corr(effects: &[EffectKind]) -> u64 {
     effects
         .iter()
@@ -40,7 +39,22 @@ fn http_corr(effects: &[EffectKind]) -> u64 {
                 None
             }
         })
-        .expect("send should emit Http(H1)")
+        .expect("P1 acknowledgement should emit Http(H1)")
+}
+
+/// 普通文本的真实顺序是 Command → P1 Persist 回执 → posts/create。Harness 没有
+/// attached timeline，因此 P1 回执直接启动 HTTP；带 surface 的顺序额外由 local-first
+/// Frame 回放测试守住。
+fn start_posts_create(harness: &mut Harness, initial_effects: &[EffectKind]) -> u64 {
+    let p1_corr = initial_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary send must begin with P1 persist");
+    let post_p1_effects = harness.step(port_reply_ok(p1_corr), 1_001);
+    http_corr(&post_p1_effects)
 }
 
 // ─── 正路：HTTP 200 {status:SUCCESS} 兜底标 Sent（无需 WS echo）────────────────
@@ -48,13 +62,13 @@ fn http_corr(effects: &[EffectKind]) -> u64 {
 #[test]
 fn send_http_success_advances_to_sent_without_ws_echo() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
-    // 发送后乐观行 Local（P1 未回报）—— 旧 bug 下会永停于此到 15s 超时。
+    // P1 已确认并启动 H1，但 HTTP 结果尚未回来。
     assert_eq!(
         h.module.pending_send_status("tmp_f1"),
-        Some(SendStatus::Local),
+        Some(SendStatus::Sending),
         "before HTTP reply, pending send must NOT be Sent"
     );
 
@@ -91,8 +105,8 @@ fn send_http_success_advances_to_sent_without_ws_echo() {
 #[test]
 fn send_http_success_with_server_id_persists_sent_row() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": { "id": sid(7) } }));
     let reply_effects = h.step(reply, 1100);
@@ -119,8 +133,8 @@ fn send_http_success_with_server_id_persists_sent_row() {
 #[test]
 fn send_http_success_without_server_id_still_marks_sent() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
     // SUCCESS 但 data 无可解 id（防御性取 data.id/data.post.id/id 全 miss）。
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} }));
@@ -204,8 +218,8 @@ fn echo_persisted_id(h: &Harness, tmp: &str) -> Option<String> {
 #[test]
 fn send_http_no_server_id_then_ws_echo_backfills_id() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
     // HTTP 200 SUCCESS 但无 server id（cses Pulsar 异步建）→ 标 Sent + 保留 pending（修复点）。
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} }));
@@ -240,8 +254,8 @@ fn send_http_no_server_id_then_gapped_echo_still_backfills_id() {
     // 证 path2（cursor gate）不挡 id 补写：echo seq=9 ≫ cursor(0)+1（gap）→ 消息行落库进 buffer
     // 等回补，但 reconcile_post_echo 在 gate 之前**无条件**跑 → id 仍按 temporary_id 幂等补写。
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_g", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_g", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
     let _ = h.step(
         posts_create_reply(h1, json!({ "status": "SUCCESS", "data": {} })),
         1100,
@@ -267,8 +281,8 @@ fn send_http_no_server_id_then_gapped_echo_still_backfills_id() {
 #[test]
 fn send_http_non_success_does_not_advance_to_sent() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
     // 4xx body 误判防御：HTTP 层 200 但 body status != SUCCESS（边界零信任，不当成功）。
     let reply = posts_create_reply(h1, json!({ "status": "FAIL", "message": "rejected" }));
@@ -286,8 +300,8 @@ fn send_http_non_success_does_not_advance_to_sent() {
 #[test]
 fn send_http_err_does_not_advance_to_sent() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
     h.step(port_reply_err(h1), 1100);
 
@@ -303,8 +317,8 @@ fn send_http_err_does_not_advance_to_sent() {
 #[test]
 fn send_http_then_late_ws_echo_idempotent() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
-    let h1 = http_corr(&effects);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_f1", "hello"), 1000);
+    let h1 = start_posts_create(&mut h, &initial_effects);
 
     // HTTP 兜底先到 → Sent + 移除 pending（reconcile 清理）。
     let reply = posts_create_reply(h1, json!({ "status": "SUCCESS", "data": { "id": sid(7) } }));

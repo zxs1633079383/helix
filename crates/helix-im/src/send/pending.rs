@@ -39,6 +39,10 @@ pub struct PendingSend {
     pub request_id: Option<String>,
     /// rich/file 上传完成后才真正发 posts/create；普通文本无此缓存。
     pub body: Option<Value>,
+    /// `posts/create` 已经出站的单飞闸。普通文本必须先把 P1 的真实 timeline Frame
+    /// 发给已 attach 的 surface，随后才允许这一跳 HTTP；上传链和 retry 也复用此闸，
+    /// 防止重复的 projector 回包把同一 temporary_id 再次发出。
+    pub http_started: bool,
     /// 仍待成功的上传数；归零后才发 posts/create。
     pub remaining_uploads: usize,
     /// 上传失败与 Post send status 分离：失败只改 props.upload.status，不走 unsend/timer 失败态。
@@ -62,6 +66,7 @@ impl PendingSend {
             connection_id,
             request_id: None,
             body: None,
+            http_started: false,
             remaining_uploads: 0,
             upload_failed: false,
         }
@@ -144,16 +149,35 @@ impl PendingSend {
     ///
     /// 与 [`on_timeout`] 写同一个 DB 终态（`send_status='unsend'`），但不等待墙钟；
     /// UC-1.4 的失败态由真实 HTTP PortError 立即驱动。
-    pub fn mark_failed_immediately(&mut self, fx: &mut EffectSink) {
+    pub fn mark_failed_immediately(&mut self, corr: Correlation, fx: &mut EffectSink) -> bool {
         // 幂等：已对账或已失败的终态不重复写。
         if self.status == SendStatus::Sent || self.status == SendStatus::UnSend {
-            return;
+            return false;
         }
 
-        self.persist_unsend(fx);
+        self.status = SendStatus::UnSend;
+        fx.push(Effect::Persist {
+            corr,
+            ops: vec![StorageOp::BatchUpsert(UpsertSpec {
+                table: "message",
+                rows: vec![vec![
+                    (
+                        "temporary_id".to_string(),
+                        SqlValue::Text(self.temporary_id.0.clone()),
+                    ),
+                    (
+                        "send_status".to_string(),
+                        SqlValue::Text("unsend".to_string()),
+                    ),
+                ]],
+                conflict_key: Some("temporary_id"),
+                exclude_from_update: Vec::new(),
+            })],
+        });
         fx.push(Effect::CancelTimer {
             id: self.timeout_timer,
         });
+        true
     }
 
     /// 15s 超时触发 → 标 UnSend（无自动补发）。

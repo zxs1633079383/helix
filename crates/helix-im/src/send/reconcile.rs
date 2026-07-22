@@ -67,26 +67,26 @@ pub(crate) fn reconcile_send_http(
     reply: &[u8],
     reconcile_corr: Correlation,
     out: &mut EffectSink,
-) {
+) -> bool {
     // 仅当仍有在途 PendingSend 才处理（WS echo 先到已清理 → no-op，幂等）。
     if !state.pending_sends.contains_key(temporary_id) {
-        return;
+        return false;
     }
 
     // 解信封 → 裸 Go body；信封/base64 畸形 → 不标 Sent（不 panic）。
     let Ok(raw_body) = crate::http_envelope::unwrap_sync_envelope(reply) else {
         tracing::warn!(tmp_id = ?temporary_id, "posts/create reply envelope decode failed, not advancing");
-        return;
+        return false;
     };
     // 解 JSON body；坏 JSON → 不标 Sent。
     let Ok(body) = serde_json::from_slice::<serde_json::Value>(raw_body.as_ref()) else {
         tracing::warn!(tmp_id = ?temporary_id, "posts/create reply body JSON parse failed, not advancing");
-        return;
+        return false;
     };
     // status 必须严格 == "SUCCESS"（防 4xx body 误判，边界零信任）。
     if body.get("status").and_then(serde_json::Value::as_str) != Some("SUCCESS") {
         tracing::warn!(tmp_id = ?temporary_id, "posts/create reply status != SUCCESS, not advancing (will timeout)");
-        return;
+        return false;
     }
 
     if let Some(server_id) = extract_post_server_id(&body) {
@@ -124,6 +124,7 @@ pub(crate) fn reconcile_send_http(
         // 必达（cses-im-server 实测真广播 echo 给发送者）→ reconcile_post_echo 即时清栈，无泄漏。
         ps.mark_sent_pending_server_id(reconcile_corr, out);
     }
+    true
 }
 
 /// 从 `posts/create` 裸 Go 响应 body 防御性抠 server post id。

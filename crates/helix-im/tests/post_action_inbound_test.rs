@@ -261,6 +261,23 @@ fn first_schedule_timer(effects: &[EffectKind]) -> u64 {
         .expect("send should schedule a 15s timeout timer")
 }
 
+/// Normal text does not arm its send timeout until P1 has been acknowledged.
+/// This Harness has no attached timeline, so the P1 callback may start H1
+/// directly; attached-surface Frame ordering is verified in local-first tests.
+fn acknowledge_optimistic_persist(
+    harness: &mut Harness,
+    effects: &[EffectKind],
+) -> Vec<EffectKind> {
+    let corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary send must begin with a P1 persist");
+    harness.step(port_reply_ok(corr), 1_001)
+}
+
 /// 回归锚: C1 —— echo 经 `post` 路径完整对账（BLOCKING 修复）。
 ///
 /// 本端先 send（注册 tmp_echo 乐观行 + 15s timer），随后真 Go `post` echo 帧（同 temporary_id）
@@ -275,7 +292,8 @@ fn echo_post_frame_reconciles_via_temporary_id_upsert() {
     let mut h = harness_with_seed(1, 40_112);
 
     // 1. 本端 send（注册乐观行 tmp_echo + 15s timer）
-    let send_effects = h.step(send_message_cmd(1, "tmp_echo", "from-me"), 1_000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_echo", "from-me"), 1_000);
+    let send_effects = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timeout_timer = first_schedule_timer(&send_effects);
     assert_eq!(
         h.module.pending_send_count(),
@@ -375,7 +393,8 @@ fn post_echo_then_15s_timer_does_not_mark_unsend() {
     let mut h = harness_with_seed(1, 40_112);
 
     // 1. 本端 send → 拿到 15s timer
-    let send_effects = h.step(send_message_cmd(1, "tmp_live", "from-me"), 1_000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_live", "from-me"), 1_000);
+    let send_effects = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timeout_timer = first_schedule_timer(&send_effects);
 
     // 2. `post` echo（cursor+1）到达 → reconcile（CancelTimer + 移除 PendingSend）
@@ -506,7 +525,8 @@ fn echo_reconciles_even_when_channel_unregistered() {
     };
 
     // 1. 本端 send（注册乐观行 tmp_cold + 15s timer）—— send 不依赖 channel 注册。
-    let send_effects = h.step(send_message_cmd(5, "tmp_cold", "from-me-cold"), 1_000);
+    let initial_effects = h.step(send_message_cmd(5, "tmp_cold", "from-me-cold"), 1_000);
+    let send_effects = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timeout_timer = first_schedule_timer(&send_effects);
     assert_eq!(
         h.module.pending_send_count(),

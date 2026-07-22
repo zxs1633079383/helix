@@ -126,6 +126,15 @@ pub enum CorrelationContext {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
     },
+    /// 发送事实已由本地存储确认后，重新读取已 attach 的 latest timeline。
+    ///
+    /// 这把 P1、HTTP 对账、WS echo 和失败终态统一收敛为同一条
+    /// "durable fact -> local-first projector -> typed Frame" 路径；renderer 不消费
+    /// `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
+    TimelineRefreshAfterSendPersist {
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+    },
     /// G-03a Native 重启后的失败消息重试：先按 temporary_id 查 durable message，
     /// 未命中再按 id 回退。读回后重建 PendingSend 与 posts/create body，复用既有发送链。
     RetrySendRehydrate {
@@ -145,6 +154,13 @@ pub enum CorrelationContext {
         request: Box<crate::query::MessageQueryRequest>,
         query_session_epoch: u64,
         query_generation: u64,
+        /// Command-owned causation carried only for a projector refresh that
+        /// follows a confirmed durable mutation. Ordinary renderer queries use None.
+        causation_id: Option<String>,
+        /// P1 has made an ordinary text send durable. The first authoritative
+        /// timeline Frame must leave the core before its posts/create HTTP starts.
+        /// It is an internal continuation, never renderer input.
+        deferred_send_http: Option<TemporaryId>,
     },
 
     /// 最近消息 local-first 第 2 段：`getLatestPost` HTTP 回报后合并并按能力缓存。
@@ -153,6 +169,8 @@ pub enum CorrelationContext {
         local_rows_desc: Box<Vec<serde_json::Value>>,
         query_session_epoch: u64,
         query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<TemporaryId>,
     },
 
     /// 最近消息 local-first 第 3 段：cache Persist 回报后才记录当前会话 coverage 并 emit。
@@ -162,6 +180,8 @@ pub enum CorrelationContext {
         coverage: Option<crate::query::local_first::RecentMessageCoverage>,
         query_session_epoch: u64,
         query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<TemporaryId>,
     },
 
     /// G-05 ID 转发的本地消息逐条 Get 回报；全部组装完成后才发 createPosts HTTP。

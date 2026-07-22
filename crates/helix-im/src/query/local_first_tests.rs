@@ -208,7 +208,7 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
     let mut request = request(20);
     request.window_token = "latest-query-1".to_string();
     let effect = module
-        .emit_timeline_snapshot(&request, &rows_desc, 1_000)
+        .emit_timeline_snapshot_with_causation(&request, &rows_desc, 1_000, None)
         .expect("render-ready facts project to a typed frame");
     let Effect::Emit { event } = effect else {
         panic!("timeline query terminal must emit")
@@ -235,6 +235,479 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
             "latest-query-1"
         )
     );
+}
+
+#[test]
+fn attached_timeline_refreshes_after_a_durable_fact_even_before_first_snapshot() {
+    let mut module = ImModule::new(crate::module::ImConfig::default());
+    let scope = crate::interaction_frame::SurfaceScope::Timeline {
+        channel_id: channel_id().as_str().to_string(),
+        window_token: "latest".to_string(),
+    };
+    module.state.timeline_projector.register_attachment(&scope);
+    assert!(module
+        .state
+        .timeline_projector
+        .current_view(&scope)
+        .is_none());
+
+    let mut sink = helix_core::EffectSink::new();
+    module
+        .refresh_attached_latest_timeline(
+            channel_id(),
+            Some("send-request-before-snapshot".to_string()),
+            &mut sink,
+        )
+        .expect("attached slot must schedule its authoritative local readback");
+
+    assert!(sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Persist { .. })));
+}
+
+#[test]
+fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_frame() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    config.company_id = "team-1".to_string();
+    let mut module = ImModule::new(config);
+    let initial_rows = vec![serde_json::json!({
+        "id": "message-before",
+        "temporaryId": "temporary-before",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 10,
+        "message": "before",
+        "type": "TEXT",
+        "props": {},
+    })];
+    module
+        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows, 1_000, None)
+        .expect("the renderer attaches the latest timeline before sending");
+
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(helix_core::tick::AppCommand::new(
+                "im_send_message",
+                serde_json::to_vec(&serde_json::json!({
+                    "channel_id": channel_id().as_str(),
+                    "text": "new message",
+                    "req_id": "send-request-1",
+                }))
+                .unwrap(),
+            )),
+            1_001,
+            &mut sink,
+        )
+        .expect("the send command starts the ordinary optimistic chain");
+    let optimistic_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("send must persist its optimistic row before HTTP settles");
+    assert!(
+        sink.as_slice().iter().all(|effect| !matches!(effect, Effect::Http { .. })),
+        "ordinary text must not start posts/create before P1 has produced the authoritative timeline Frame"
+    );
+    let temporary_id = module
+        .state
+        .pending_sends
+        .keys()
+        .next()
+        .expect("send owns one pending temporary id")
+        .0
+        .clone();
+    let mut refreshed_rows = vec![
+        serde_json::json!({
+            "id": "message-before",
+            "temporaryId": "temporary-before",
+            "channelId": channel_id().as_str(),
+            "userId": "viewer-1",
+            "createAt": 10,
+            "message": "before",
+            "type": "TEXT",
+            "props": {},
+        }),
+        serde_json::json!({
+            "id": temporary_id,
+            "temporaryId": temporary_id,
+            "channelId": channel_id().as_str(),
+            "userId": "viewer-1",
+            "createAt": 11,
+            "message": "new message",
+            "type": "TEXT",
+            "sendStatus": "sending",
+            "props": {},
+        }),
+    ];
+    sort_recent_rows_desc(&mut refreshed_rows);
+    module.state.recent_message_coverage.insert(
+        channel_id(),
+        RecentMessageCoverage::from_remote(&refreshed_rows, refreshed_rows.len())
+            .expect("the fixture is an exhausted local latest window"),
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: optimistic_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::new(),
+                )),
+            },
+            1_002,
+            &mut sink,
+        )
+        .expect("P1 acknowledgement schedules a local-first projector refresh");
+    let refresh_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("an attached timeline refresh must read authoritative local rows");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: refresh_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&refreshed_rows).unwrap()),
+                )),
+            },
+            1_003,
+            &mut sink,
+        )
+        .expect("the confirmed local rows project without a legacy UI reducer");
+    let frame_event = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("the attached timeline receives a typed Frame patch");
+    let frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&frame_event["data"]).unwrap(),
+    )
+    .expect("the refresh output satisfies the public InteractionFrame contract");
+    let mutation = frame
+        .mutations
+        .iter()
+        .find(|mutation| mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline)
+        .expect("the Frame includes the timeline surface");
+    assert_eq!(mutation.causation_id.as_deref(), Some("send-request-1"));
+    assert!(matches!(
+        mutation.mutation,
+        crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
+    ));
+    let frame_index = sink
+        .as_slice()
+        .iter()
+        .position(|effect| matches!(effect, Effect::Emit { .. }))
+        .expect("P1 local readback emits its typed Frame");
+    let http_index = sink
+        .as_slice()
+        .iter()
+        .position(|effect| matches!(effect, Effect::Http { .. }))
+        .expect("ordinary text starts posts/create after the P1 Frame");
+    assert!(
+        frame_index < http_index,
+        "the durable sending Frame must leave Helix before posts/create can settle it"
+    );
+}
+
+#[test]
+fn optimistic_send_without_an_attached_timeline_releases_http_after_p1() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    config.company_id = "team-1".to_string();
+    let mut module = ImModule::new(config);
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(helix_core::tick::AppCommand::new(
+                "im_send_message",
+                serde_json::to_vec(&serde_json::json!({
+                    "channel_id": channel_id().as_str(),
+                    "text": "unattached message",
+                    "req_id": "send-request-unattached",
+                }))
+                .unwrap(),
+            )),
+            1_001,
+            &mut sink,
+        )
+        .expect("the ordinary send starts its P1 persist");
+    let optimistic_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary text has one P1 correlation");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })),
+        "HTTP still waits for the P1 acknowledgement"
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: optimistic_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::new(),
+                )),
+            },
+            1_002,
+            &mut sink,
+        )
+        .expect("P1 acknowledgement does not require a detached surface readback");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Http { .. })),
+        "a detached renderer cannot block the durable ordinary send from reaching posts/create"
+    );
+}
+
+#[test]
+fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_attached_timeline() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    config.company_id = "team-1".to_string();
+    let mut module = ImModule::new(config);
+    let initial_rows = vec![serde_json::json!({
+        "id": "message-before",
+        "temporaryId": "temporary-before",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 10,
+        "message": "before",
+        "type": "TEXT",
+        "props": {},
+    })];
+    module
+        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows, 2_000, None)
+        .expect("the timeline is attached before the HTTP send settles");
+
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(helix_core::tick::AppCommand::new(
+                "im_send_message",
+                serde_json::to_vec(&serde_json::json!({
+                    "channel_id": channel_id().as_str(),
+                    "text": "settled message",
+                    "req_id": "send-request-2",
+                }))
+                .unwrap(),
+            )),
+            2_001,
+            &mut sink,
+        )
+        .expect("the ordinary send chain starts");
+    let optimistic_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("the send chain starts with its P1 optimistic persist");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })),
+        "ordinary text HTTP waits for its P1 timeline Frame"
+    );
+    let temporary_id = module
+        .state
+        .pending_sends
+        .keys()
+        .next()
+        .expect("send owns one pending temporary id")
+        .0
+        .clone();
+    let mut settled_rows = vec![
+        serde_json::json!({
+            "id": "message-before",
+            "temporaryId": "temporary-before",
+            "channelId": channel_id().as_str(),
+            "userId": "viewer-1",
+            "createAt": 10,
+            "message": "before",
+            "type": "TEXT",
+            "props": {},
+        }),
+        serde_json::json!({
+            "id": temporary_id,
+            "temporaryId": temporary_id,
+            "channelId": channel_id().as_str(),
+            "userId": "viewer-1",
+            "createAt": 11,
+            "message": "settled message",
+            "type": "TEXT",
+            "sendStatus": "sent",
+            "props": {},
+        }),
+    ];
+    sort_recent_rows_desc(&mut settled_rows);
+    let mut sending_rows = settled_rows.clone();
+    sending_rows
+        .iter_mut()
+        .find(|row| row["temporaryId"].as_str() == Some(temporary_id.as_str()))
+        .expect("the optimistic row remains in the readback window")["sendStatus"] =
+        serde_json::json!("sending");
+    module.state.recent_message_coverage.insert(
+        channel_id(),
+        RecentMessageCoverage::from_remote(&settled_rows, settled_rows.len())
+            .expect("the fixture is an exhausted local latest window"),
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: optimistic_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::new(),
+                )),
+            },
+            2_002,
+            &mut sink,
+        )
+        .expect("P1 acknowledgement schedules its authoritative local readback");
+    let optimistic_refresh_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("P1 must read back its durable sending row before HTTP");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: optimistic_refresh_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&sending_rows).unwrap()),
+                )),
+            },
+            2_003,
+            &mut sink,
+        )
+        .expect("P1 readback emits a sending Frame before posts/create");
+    let http_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Http { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("the ordinary send chain owns one posts/create HTTP correlation after P1 Frame");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: http_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(http_envelope(serde_json::json!({
+                    "status": "SUCCESS"
+                }))),
+            },
+            2_004,
+            &mut sink,
+        )
+        .expect("HTTP settlement creates a durable terminal write");
+    let terminal_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("sent state must be acknowledged by local storage first");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Emit { .. })),
+        "HTTP accepted is not itself a renderer confirmation"
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: terminal_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::new(),
+                )),
+            },
+            2_005,
+            &mut sink,
+        )
+        .expect("terminal durable acknowledgement schedules the projector readback");
+    let refresh_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(*corr),
+            _ => None,
+        })
+        .expect("the terminal receipt re-enters local-first rather than raw event rendering");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: refresh_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&settled_rows).unwrap()),
+                )),
+            },
+            2_006,
+            &mut sink,
+        )
+        .expect("the durable sent row projects to the attached timeline");
+    let frame_event = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("only the readback releases the typed timeline patch");
+    let frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&frame_event["data"]).unwrap(),
+    )
+    .expect("the terminal projection satisfies the Frame contract");
+    let mutation = frame
+        .mutations
+        .iter()
+        .find(|mutation| mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline)
+        .expect("the terminal Frame patches the timeline");
+    assert_eq!(mutation.causation_id.as_deref(), Some("send-request-2"));
+    assert!(matches!(
+        mutation.mutation,
+        crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
+    ));
 }
 
 #[test]
@@ -289,7 +762,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
     let mut query = request(20);
     query.window_token = "action-window".to_string();
     let timeline_effect = module
-        .emit_timeline_snapshot(&query, &rows_desc, 1_000)
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None)
         .expect("author timeline emits an action-bound Frame");
     let Effect::Emit { event } = timeline_effect else {
         panic!("timeline must emit a frame")
@@ -453,7 +926,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
 
     // 回归锚: T079 —— 新 timeline revision 撤旧 ref 后，旧 corr 尚未终态时 requestId 仍不可复用。
     let refreshed_timeline = module
-        .emit_timeline_snapshot(&query, &rows_desc, 1_005)
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_005, None)
         .expect("new timeline revision revokes the old action capability");
     let Effect::Emit { event } = refreshed_timeline else {
         panic!("refreshed timeline must emit a frame")
@@ -612,7 +1085,7 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         "props": {},
     })];
     let Effect::Emit { event } = module
-        .emit_timeline_snapshot(&query, &before_rows, 1_000)
+        .emit_timeline_snapshot_with_causation(&query, &before_rows, 1_000, None)
         .expect("old identity renders an action-bound timeline")
     else {
         panic!("timeline must emit a Frame")
@@ -696,7 +1169,7 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         "props": {},
     })];
     let Effect::Emit { event } = module
-        .emit_timeline_snapshot(&query, &after_rows, 1_003)
+        .emit_timeline_snapshot_with_causation(&query, &after_rows, 1_003, None)
         .expect("new identity renders its own action-bound timeline")
     else {
         panic!("timeline must emit a Frame")

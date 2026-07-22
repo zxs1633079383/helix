@@ -3,7 +3,7 @@
 //! 输入是现有 `query::render_ready` 已经完成身份、顺序和 capability 裁决的消息行；本模块
 //! 只在 Helix 内把它们收紧成 `TimelineWindowVm`。客户端不会再读取 raw row 或自行排序。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 use thiserror::Error;
@@ -71,6 +71,11 @@ impl TimelineWindowRequest {
 #[derive(Debug)]
 pub struct TimelineProjector {
     slots: BTreeMap<String, TimelineSlot>,
+    // An attach request may race the first durable fact for its channel. Keep
+    // that intent separately from the first snapshot so terminal writes can
+    // schedule the authoritative readback instead of falling back to a raw
+    // post event while the initial storage query is in flight.
+    attached_slots: BTreeSet<String>,
     /// 仅用于 opaque actionRef 的 Helix 内部发号；绝不包含 channel/message/kind 等业务标识。
     next_action_ref: u64,
 }
@@ -85,6 +90,7 @@ impl Default for TimelineProjector {
     fn default() -> Self {
         Self {
             slots: BTreeMap::new(),
+            attached_slots: BTreeSet::new(),
             next_action_ref: 1,
         }
     }
@@ -93,6 +99,17 @@ impl Default for TimelineProjector {
 impl TimelineProjector {
     pub fn reset(&mut self) {
         self.slots.clear();
+        self.attached_slots.clear();
+    }
+
+    pub fn register_attachment(&mut self, scope: &SurfaceScope) {
+        if matches!(scope, SurfaceScope::Timeline { .. }) {
+            self.attached_slots.insert(scope.canonical_key());
+        }
+    }
+
+    pub fn is_attached(&self, scope: &SurfaceScope) -> bool {
+        self.attached_slots.contains(&scope.canonical_key())
     }
 
     /// 建立完整 snapshot。`render_ready_rows` 必须已经是时间正序；本函数不会重新排序。
@@ -116,6 +133,7 @@ impl TimelineProjector {
             mutation: TypedSurfaceMutation::TimelineSnapshot { view: view.clone() },
         };
         mutation.validate()?;
+        self.attached_slots.insert(slot_key.clone());
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(mutation)
     }
@@ -151,6 +169,7 @@ impl TimelineProjector {
             },
         };
         mutation.validate()?;
+        self.attached_slots.insert(slot_key.clone());
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(mutation)
     }
@@ -658,6 +677,20 @@ mod tests {
             "props": {},
             "actionCapabilities": {},
         })
+    }
+
+    #[test]
+    fn attachment_is_visible_before_the_first_snapshot_arrives() {
+        let scope = SurfaceScope::Timeline {
+            channel_id: "channel-1".to_string(),
+            window_token: "latest".to_string(),
+        };
+        let mut projector = TimelineProjector::default();
+
+        projector.register_attachment(&scope);
+
+        assert!(projector.is_attached(&scope));
+        assert!(projector.current_view(&scope).is_none());
     }
 
     #[test]

@@ -1,4 +1,6 @@
-use crate::state::ImState;
+use std::collections::BTreeSet;
+
+use crate::state::{ChannelId, ImState};
 use helix_core::Correlation;
 
 pub(crate) struct ImWsContext<'a> {
@@ -9,6 +11,10 @@ pub(crate) struct ImWsContext<'a> {
     /// 用于 path3 未读 sender 豁免 + 可见性门控、path1 channel `user_id` 列（BLOCKING-1）。
     pub(crate) auth_user_id: &'a str,
     alloc_corr: &'a mut dyn FnMut() -> Correlation,
+    /// WS handler 只能判定某个 gate 已经接受了可见消息；最终的 local-first
+    /// 时间线读回必须等 handler 返回后由 `ImModule` 调度，避免在这里复制
+    /// query/coverage/correlation 状态机。
+    attached_timeline_refreshes: BTreeSet<ChannelId>,
 }
 
 impl<'a> ImWsContext<'a> {
@@ -25,11 +31,22 @@ impl<'a> ImWsContext<'a> {
             api_base_url,
             auth_user_id,
             alloc_corr,
+            attached_timeline_refreshes: BTreeSet::new(),
         }
     }
 
     pub(crate) fn alloc_corr(&mut self) -> Correlation {
         (self.alloc_corr)()
+    }
+
+    /// 请求在当前 WS step 完成后重读已 attach 的最新时间线。集合去重保证一次
+    /// 连续 gate flush 至多追加一次 readback，不让原始 post payload 越过 Frame 边界。
+    pub(crate) fn request_attached_timeline_refresh(&mut self, channel_id: ChannelId) {
+        self.attached_timeline_refreshes.insert(channel_id);
+    }
+
+    pub(crate) fn take_attached_timeline_refreshes(&mut self) -> BTreeSet<ChannelId> {
+        std::mem::take(&mut self.attached_timeline_refreshes)
     }
 
     /// 拆借：同时拿到 `&mut ImState` 与 corr 分配器（split borrow），供 SyncScheduler

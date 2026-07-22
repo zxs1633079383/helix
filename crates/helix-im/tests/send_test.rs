@@ -1,8 +1,9 @@
 //! 发送链路测试（Phase B Commit 3）
 //!
 //! 验证 §4.5 发送机制：
-//! - im_send_message → Persist{P1} + Http{H1} + ScheduleTimer{T1, 15s} + Emit(im:post:sending)
-//! - PortReply(P1 Ok) → PendingSend 状态推进到 Sending
+//! - im_send_message → Persist{P1} + Emit(im:post:sending)
+//! - PortReply(P1 Ok) → attached surface 的真实 Frame；无 attached surface 时直接吐
+//!   Http{H1} + ScheduleTimer{T1, 15s}
 //! - timer 15s 超时 → UnSend + PersistFire（标记 unsend）
 //! - 幂等：双重发送命令各自独立（不互相影响）
 
@@ -23,26 +24,47 @@ fn http_corr(effects: &[EffectKind]) -> u64 {
                 None
             }
         })
-        .expect("send should emit Http(H1)")
+        .expect("P1 acknowledgement should emit Http(H1)")
+}
+
+fn p1_corr(effects: &[EffectKind]) -> u64 {
+    effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary send must begin with P1 persist")
+}
+
+fn acknowledge_optimistic_persist(
+    harness: &mut Harness,
+    initial_effects: &[EffectKind],
+    now_ms: u64,
+) -> Vec<EffectKind> {
+    harness.step(port_reply_ok(p1_corr(initial_effects)), now_ms)
 }
 
 fn unsend_persist_fire_for_tmp(h: &Harness, tmp: &str) -> bool {
     h.sink.as_slice().iter().any(|e| match e {
-        Effect::PersistFire { ops } => ops.iter().any(|op| match op {
-            StorageOp::BatchUpsert(spec) if spec.table == "message" => {
-                spec.conflict_key == Some("temporary_id")
-                    && spec.rows.iter().any(|row| {
-                        let has_tmp = row.iter().any(|(k, v)| {
-                            k == "temporary_id" && matches!(v, SqlValue::Text(t) if t == tmp)
-                        });
-                        let has_unsend = row.iter().any(|(k, v)| {
-                            k == "send_status" && matches!(v, SqlValue::Text(s) if s == "unsend")
-                        });
-                        has_tmp && has_unsend
-                    })
-            }
-            _ => false,
-        }),
+        Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
+            ops.iter().any(|op| match op {
+                StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                    spec.conflict_key == Some("temporary_id")
+                        && spec.rows.iter().any(|row| {
+                            let has_tmp = row.iter().any(|(k, v)| {
+                                k == "temporary_id" && matches!(v, SqlValue::Text(t) if t == tmp)
+                            });
+                            let has_unsend = row.iter().any(|(k, v)| {
+                                k == "send_status"
+                                    && matches!(v, SqlValue::Text(s) if s == "unsend")
+                            });
+                            has_tmp && has_unsend
+                        })
+                }
+                _ => false,
+            })
+        }
         _ => false,
     })
 }
@@ -89,7 +111,7 @@ fn last_sending_projection(h: &Harness) -> Option<Value> {
 #[test]
 fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
     let mut h = Harness::new(&[1]);
-    h.step(
+    let first_effects = h.step(
         command_json(
             "im_send_message",
             serde_json::json!({
@@ -122,6 +144,8 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
     });
     assert!(persisted_same_id, "optimistic row must use the minted id");
 
+    let _ = acknowledge_optimistic_persist(&mut h, &first_effects, 1_700_000_000_001);
+
     let http_same_id = h.sink.as_slice().iter().any(|effect| match effect {
         Effect::Http { req, .. } if req.url.ends_with("/posts/create") => {
             req.body
@@ -135,7 +159,7 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
     });
     assert!(http_same_id, "posts/create must use the minted id");
 
-    h.step(
+    let _second_effects = h.step(
         command_json(
             "im_send_message",
             serde_json::json!({
@@ -157,47 +181,53 @@ fn send_message_mints_one_temporary_id_for_projection_persist_and_http() {
 #[test]
 fn send_message_emits_four_effects() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
 
     // 应产出 Persist{P1}（乐观落库）
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::Persist(_))),
-        "im_send_message should emit Persist(P1), got: {:?}",
-        effects
-    );
-    // 应产出 Http{H1}（POST /posts/create）
-    assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::Http(_))),
-        "im_send_message should emit Http(H1), got: {:?}",
-        effects
-    );
-    // 应产出 ScheduleTimer{T1, 15s}
-    assert!(
-        effects
+        initial_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::ScheduleTimer(_))),
-        "im_send_message should emit ScheduleTimer(T1), got: {:?}",
-        effects
+            .any(|e| matches!(e, EffectKind::Persist(_))),
+        "im_send_message should emit Persist(P1), got: {:?}",
+        initial_effects
+    );
+    // P1 尚未确认时不得抢跑 Http{H1} / timer。
+    assert!(
+        initial_effects
+            .iter()
+            .all(|e| !matches!(e, EffectKind::Http(_) | EffectKind::ScheduleTimer(_))),
+        "im_send_message must wait for P1 before HTTP/timer, got: {:?}",
+        initial_effects
     );
     // 应产出 Emit(im:post:sending)
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::Emit)),
+        initial_effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::Emit)),
         "im_send_message should emit Emit(im:post:sending), got: {:?}",
-        effects
+        initial_effects
     );
-    // 恰好 4 个 Effect
+    let after_p1 = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
+    assert!(
+        after_p1.iter().any(|e| matches!(e, EffectKind::Http(_))),
+        "P1 acknowledgement should emit Http(H1), got: {:?}",
+        after_p1
+    );
     assert_eq!(
-        effects.len(),
-        4,
-        "im_send_message should emit exactly 4 effects, got: {:?}",
-        effects
+        after_p1
+            .iter()
+            .filter(|e| matches!(e, EffectKind::ScheduleTimer(_)))
+            .count(),
+        1,
+        "P1 acknowledgement should arm exactly one send timeout, got: {:?}",
+        after_p1
     );
 }
 
 #[test]
 fn send_message_forwards_request_id_as_trace_header() {
     let mut h = Harness::new(&[1]);
-    h.step(
+    let initial_effects = h.step(
         send_message_cmd_json(serde_json::json!({
             "channel_id": cid(1),
             "temporary_id": "tmp_trace_1",
@@ -206,6 +236,7 @@ fn send_message_forwards_request_id_as_trace_header() {
         })),
         1000,
     );
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
 
     let request = h
         .sink
@@ -260,8 +291,9 @@ fn send_two_messages_each_independent() {
         "two messages should have different Persist corrs"
     );
 
-    // 各自 timer 也不同
-    let t1 = e1
+    // P1 后各自 timer 也不同。
+    let after_p1 = acknowledge_optimistic_persist(&mut h, &e1, 1002);
+    let t1 = after_p1
         .iter()
         .find_map(|e| {
             if let EffectKind::ScheduleTimer(id) = e {
@@ -271,7 +303,8 @@ fn send_two_messages_each_independent() {
             }
         })
         .unwrap();
-    let t2 = e2
+    let after_p2 = acknowledge_optimistic_persist(&mut h, &e2, 1003);
+    let t2 = after_p2
         .iter()
         .find_map(|e| {
             if let EffectKind::ScheduleTimer(id) = e {
@@ -290,26 +323,13 @@ fn send_two_messages_each_independent() {
 fn send_p1_persist_ok_advances_status() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
-    let p1_corr = effects
-        .iter()
-        .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
-                Some(*c)
-            } else {
-                None
-            }
-        })
-        .expect("P1 corr");
-
-    // P1 落库成功
-    let reply_effects = h.step(port_reply_ok(p1_corr), 1100);
-    // P1 PortReply 不产出额外 Effect（只是状态推进）
-    // 不应产出新 Persist 或 Http
+    // P1 落库成功：无 attach surface 的 Harness 直接推进 H1 + timeout。
+    let reply_effects = acknowledge_optimistic_persist(&mut h, &effects, 1100);
     assert!(
-        !reply_effects
+        reply_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::Persist(_))),
-        "P1 ok should not emit new Persist, got: {:?}",
+            .any(|e| matches!(e, EffectKind::Http(_) | EffectKind::ScheduleTimer(_))),
+        "P1 ok should start H1 and its timeout, got: {:?}",
         reply_effects
     );
     // pending_send 仍存在（等待 echo 对账）
@@ -325,7 +345,8 @@ fn send_p1_persist_ok_advances_status() {
 #[test]
 fn send_timeout_marks_unsend() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let timeout_timer = effects
         .iter()
         .find_map(|e| {
@@ -357,7 +378,8 @@ fn send_timeout_marks_unsend() {
 #[test]
 fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projection() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_fail", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_fail", "hello"), 1000);
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let h1 = http_corr(&effects);
     let timeout_timer = effects
         .iter()
@@ -398,14 +420,9 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
 fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_late_p1", "hello"), 1000);
-    let p1 = effects
-        .iter()
-        .find_map(|effect| match effect {
-            EffectKind::Persist(corr) => Some(*corr),
-            _ => None,
-        })
-        .expect("P1 corr");
-    let h1 = http_corr(&effects);
+    let p1 = p1_corr(&effects);
+    let after_p1 = acknowledge_optimistic_persist(&mut h, &effects, 1001);
+    let h1 = http_corr(&after_p1);
 
     h.step(port_reply_err(h1), 1050);
     assert_eq!(
@@ -438,7 +455,8 @@ fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
 #[test]
 fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_retry_send", "hello retry"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_retry_send", "hello retry"), 1000);
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let h1 = http_corr(&effects);
     let first_body = h.last_http_body().expect("first posts/create body");
     h.step(port_reply_err(h1), 1100);
@@ -481,7 +499,7 @@ fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
 #[test]
 fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(
+    let initial_effects = h.step(
         send_message_cmd_json(serde_json::json!({
             "channel_id": cid(1),
             "temporary_id": "tmp_retry_reply",
@@ -495,6 +513,7 @@ fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
         })),
         1_000,
     );
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1_001);
     h.step(port_reply_err(http_corr(&effects)), 1_100);
 
     h.step(
@@ -699,7 +718,8 @@ fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
 #[test]
 fn send_echo_reconcile_cancels_timer() {
     let mut h = Harness::new(&[1]);
-    let effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1001);
     let timeout_timer = effects
         .iter()
         .find_map(|e| {

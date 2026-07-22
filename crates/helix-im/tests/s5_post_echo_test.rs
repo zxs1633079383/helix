@@ -41,12 +41,27 @@ fn post_echo_frame(channel_id: u64, seq: u64, temporary_id: &str, server_id: u64
     Tick::Inbound(InboundBytes(serde_json::to_vec(&payload).unwrap().into()))
 }
 
+fn acknowledge_optimistic_persist(
+    harness: &mut Harness,
+    effects: &[EffectKind],
+) -> Vec<EffectKind> {
+    let corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary send must begin with P1 persist");
+    harness.step(port_reply_ok(corr), 1_001)
+}
+
 /// 回归锚: S5 —— echo 走真源 `post` action → reconcile + CancelTimer + cursor 推进。
 #[test]
 fn s5_post_action_echo_reconciles() {
     let mut h = Harness::new(&[1]);
     // 1. 发送 → PendingSend(Local) + 15s timeout timer。
-    let send = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_e", "hello"), 1000);
+    let send = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timeout_timer = send
         .iter()
         .find_map(|e| match e {
@@ -56,7 +71,7 @@ fn s5_post_action_echo_reconciles() {
         .expect("send 须 arm 15s timeout timer");
     assert_eq!(
         h.module.pending_send_status("tmp_e"),
-        Some(SendStatus::Local)
+        Some(SendStatus::Sending)
     );
 
     // 2. echo 走 `post` action（真源）。seq=1（== cursor+1，连续）。

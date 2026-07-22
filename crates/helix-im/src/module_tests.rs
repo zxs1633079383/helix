@@ -28,6 +28,122 @@ fn has_http(sink: &EffectSink) -> bool {
 }
 
 #[test]
+fn online_post_requeries_an_attached_timeline_after_its_durable_write() {
+    let channel_id = crate::state::test_channel_id(31);
+    let mut module = ImModule::new(ImConfig::default());
+    module.register_channel(channel_id, 0);
+    let mut sink = EffectSink::new();
+    let surface_request = crate::surface_runtime::SurfaceResyncRequest {
+        surface: crate::interaction_frame::SurfaceId::MessageTimeline,
+        scope: crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: channel_id.as_str().to_string(),
+            window_token: "latest".to_string(),
+        },
+    };
+    module
+        .handle_surface_resync(
+            &serde_json::to_vec(&surface_request).expect("surface request serializes"),
+            1,
+            &mut sink,
+        )
+        .expect("timeline attaches before online post");
+    sink.clear();
+
+    let post = serde_json::json!({
+        "action": "post",
+        "data": {
+            "channelId": channel_id.as_str(),
+            "event_seq": 1,
+            "post": {
+                "id": "message-online-1",
+                "channelId": channel_id.as_str(),
+                "userId": "user-online-1",
+                "createAt": 1_000,
+                "type": "TEXT",
+                "message": "online frame fact",
+                "props": { "channel_event_seq": 1 }
+            }
+        }
+    });
+    module
+        .handle(
+            &Tick::Inbound(InboundBytes(serde_json::to_vec(&post).unwrap().into())),
+            1_000,
+            &mut sink,
+        )
+        .expect("online post dispatches");
+
+    let message_write_index = sink
+        .as_slice()
+        .iter()
+        .position(|effect| {
+            matches!(effect, Effect::PersistFire { ops } if ops.iter().any(|op| match op {
+                helix_core::effect::StorageOp::BatchUpsert(spec) => spec.table == "message",
+                _ => false,
+            }))
+        })
+        .expect("accepted online post persists a message fact");
+    let readback_index = sink
+        .as_slice()
+        .iter()
+        .position(|effect| matches!(effect, Effect::Persist { ops, .. } if matches!(ops.as_slice(), [helix_core::effect::StorageOp::Scan(spec)] if spec.table == "message")))
+        .unwrap_or_else(|| panic!("attached timeline receives a local-first readback: {:?}", sink.as_slice()));
+
+    assert!(
+        message_write_index < readback_index,
+        "the typed Frame readback must be queued after the WS message write"
+    );
+}
+
+#[test]
+fn legacy_post_requeries_an_attached_timeline_after_its_durable_write() {
+    let channel_id = crate::state::test_channel_id(32);
+    let mut module = ImModule::new(ImConfig::default());
+    module.register_channel(channel_id, 0);
+    let mut sink = EffectSink::new();
+    let surface_request = crate::surface_runtime::SurfaceResyncRequest {
+        surface: crate::interaction_frame::SurfaceId::MessageTimeline,
+        scope: crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: channel_id.as_str().to_string(),
+            window_token: "latest".to_string(),
+        },
+    };
+    module
+        .handle_surface_resync(
+            &serde_json::to_vec(&surface_request).expect("surface request serializes"),
+            1,
+            &mut sink,
+        )
+        .expect("timeline attaches before legacy post");
+    sink.clear();
+
+    let post = serde_json::json!({
+        "event": "posted",
+        "data": {
+            "channel_id": channel_id.as_str(),
+            "seq": 1,
+            "event_type": 1,
+            "msg_id": "message-legacy-1",
+            "actor_id": "user-legacy-1",
+            "created_at": 1_000,
+            "payload": null
+        }
+    });
+    module
+        .handle(
+            &Tick::Inbound(InboundBytes(serde_json::to_vec(&post).unwrap().into())),
+            1_000,
+            &mut sink,
+        )
+        .expect("legacy post dispatches");
+
+    assert!(
+        sink.as_slice().iter().any(|effect| matches!(effect, Effect::Persist { ops, .. } if matches!(ops.as_slice(), [helix_core::effect::StorageOp::Scan(spec)] if spec.table == "message"))),
+        "attached legacy post also schedules a local-first timeline readback"
+    );
+}
+
+#[test]
 fn runtime_identity_enables_member_projection_without_wire_user_id() {
     let mut m = ImModule::new(ImConfig::default());
     let mut sink = EffectSink::new();
@@ -139,6 +255,8 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
             }),
             query_session_epoch: m.state.query_session_epoch,
             query_generation: 1,
+            causation_id: None,
+            deferred_send_http: None,
         },
     );
     m.state.corr_map.insert(

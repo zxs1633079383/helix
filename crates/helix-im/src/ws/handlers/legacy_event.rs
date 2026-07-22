@@ -23,15 +23,22 @@ impl WsMessageHandler for LegacyEventHandler {
         match crate::ws::parser::parse_inbound_value(frame.root()) {
             Ok(ev) => {
                 let (ingest_channel, ingest_seq) = (ev.channel_id, ev.seq);
+                let mut timeline_readback_required = false;
                 if let Some(ch) = ctx.state.channels.get_mut(&ev.channel_id) {
                     let recent_start = out.as_slice().len();
                     ch.ingest(ev, out, ctx.now_ms)?;
+                    timeline_readback_required = super::gate::recent_effects_persist_message(
+                        &out.as_slice()[recent_start..],
+                    );
                     super::gate::schedule_reload_if_recent_too_long(
                         ctx,
                         ingest_channel,
                         recent_start,
                         out,
                     )?;
+                }
+                if timeline_readback_required {
+                    ctx.request_attached_timeline_refresh(ingest_channel);
                 }
                 // 根治：legacy 内容帧大缺口同样立即 backfill 追平 cursor。
                 super::gate::trigger_backfill_if_large_gap(ctx, ingest_channel, ingest_seq, out);

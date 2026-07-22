@@ -204,6 +204,19 @@ impl ImModule {
                 channel_id,
                 temporary_id,
             } => self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out),
+            CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                causation_id,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    self.refresh_attached_latest_timeline(channel_id, causation_id, out)?
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    error = ?error,
+                    "send terminal persist failed; suppressing timeline refresh"
+                ),
+            },
             CorrelationContext::RetrySendRehydrate {
                 message_id,
                 requested_at_ms,
@@ -232,10 +245,14 @@ impl ImModule {
                 request,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
             } => self.handle_message_query_local_reply(
                 *request,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
                 now_ms,
                 outcome,
                 out,
@@ -246,11 +263,15 @@ impl ImModule {
                 local_rows_desc,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
             } => self.handle_message_query_remote_reply(
                 *request,
                 *local_rows_desc,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
                 now_ms,
                 outcome,
                 out,
@@ -262,12 +283,16 @@ impl ImModule {
                 coverage,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
             } => self.handle_message_query_cache_reply(
                 *request,
                 *merged_rows_desc,
                 coverage,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
                 now_ms,
                 outcome,
                 out,

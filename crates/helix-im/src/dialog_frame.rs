@@ -16,7 +16,10 @@ use crate::projector::unread_summary::{
 
 pub const EVENT_NAME: &str = "im:interaction:frame";
 pub const SURFACE: &str = "message.left-dialog-list";
-pub const SCHEMA_VERSION: u32 = 1;
+/// `dialog_frame` is an InteractionFrame producer, so its test/documentation
+/// anchor must follow the shared wire version rather than retain the retired
+/// v1 literal after the rich-view v2 migration.
+pub const SCHEMA_VERSION: u32 = interaction_frame::INTERACTION_FRAME_SCHEMA_VERSION;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1317,7 +1320,14 @@ fn preview_from_dialog(value: &Value) -> Option<DialogPreviewVm> {
 
 fn preview_from_post_projection(value: &Value) -> Option<DialogPreviewVm> {
     let preview_text = text(value, &["lastMessage", "last_message", "message", "text"]);
-    let kind_source = text(value, &["messageClass", "type", "msgType", "msg_type"]);
+    // messageClass describes delivery/notification semantics (normal, mention,
+    // urgent), not the post's content kind. The preview icon must follow the
+    // authoritative lastPost.type instead.
+    let post = embedded_object(value, &["lastPost", "last_post"]);
+    let kind_source = post
+        .as_ref()
+        .and_then(|post| text(post, &["type", "msgType", "msg_type"]))
+        .or_else(|| text(value, &["type", "msgType", "msg_type"]));
     preview_text.as_ref()?;
     Some(DialogPreviewVm {
         source_id: text(value, &["msgId", "msg_id", "id"]),
@@ -1763,6 +1773,30 @@ mod tests {
         assert_eq!(unread["revision"], 2);
         assert_eq!(unread["mutation"]["kind"], "unreadSummaryPatch");
         assert_eq!(unread["mutation"]["patch"]["view"]["unreadTotal"], 4);
+    }
+
+    #[test]
+    fn post_preview_kind_uses_last_post_type_not_message_class() {
+        for message_class in ["normal", "mention", "urgent"] {
+            let preview = preview_from_post_projection(&serde_json::json!({
+                "lastMessage": "plain text",
+                "messageClass": message_class,
+                "lastPost": { "type": "TEXT" }
+            }))
+            .expect("text post projects a preview");
+
+            assert_eq!(preview.kind, "text");
+            assert!(!preview.system);
+            assert!(!preview.recalled);
+        }
+
+        let preview = preview_from_post_projection(&serde_json::json!({
+            "lastMessage": "photo",
+            "messageClass": "normal",
+            "lastPost": { "type": "IMAGE" }
+        }))
+        .expect("image post projects a preview");
+        assert_eq!(preview.kind, "non-text");
     }
 
     #[test]

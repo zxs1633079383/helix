@@ -83,10 +83,76 @@ impl RecentMessageCoverage {
 }
 
 impl ImModule {
+    /// A durable mutation may change an already attached latest timeline without
+    /// another renderer intent. Re-enter the existing local-first projector
+    /// after the write acknowledgement instead of leaking a legacy `im:post:*`
+    /// payload to a client-side reducer.
+    pub(crate) fn refresh_attached_latest_timeline(
+        &mut self,
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.refresh_attached_latest_timeline_with_deferred_send(
+            channel_id,
+            causation_id,
+            None,
+            out,
+        )
+        .map(|_| ())
+    }
+
+    /// P1 may only release an ordinary text send's HTTP after the attached
+    /// timeline has emitted a typed Frame from its durable local fact. When no
+    /// timeline is attached there is no renderer transition to protect, so the
+    /// caller receives `false` and may start HTTP directly after P1.
+    pub(crate) fn refresh_attached_latest_timeline_with_deferred_send(
+        &mut self,
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
+        out: &mut EffectSink,
+    ) -> Result<bool, ImError> {
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: channel_id.as_str().to_string(),
+            window_token: "latest".to_string(),
+        };
+        if !self.state.timeline_projector.is_attached(&scope) {
+            return Ok(false);
+        }
+        let payload = serde_json::json!({
+            "channel_id": channel_id.as_str(),
+            "window_token": "latest",
+            "limit": super::QUERY_MESSAGES_DEFAULT,
+        });
+        let bytes = serde_json::to_vec(&payload)
+            .map_err(|error| ImError::Serialize(format!("attached timeline refresh: {error}")))?;
+        self.dispatch_message_query_with_causation_and_deferred_send(
+            &bytes,
+            causation_id,
+            deferred_send_http,
+            out,
+        )?;
+        Ok(true)
+    }
+
     /// `im_query_messages_by_channel` 的唯一异步入口。
     pub(crate) fn dispatch_message_query(
         &mut self,
         payload: &[u8],
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.dispatch_message_query_with_causation_and_deferred_send(payload, None, None, out)
+    }
+
+    /// Runs the same local-first query as an explicit renderer request, while
+    /// preserving command-owned causation and an optional internal send continuation.
+    /// The renderer never supplies either value.
+    fn dispatch_message_query_with_causation_and_deferred_send(
+        &mut self,
+        payload: &[u8],
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let request = super::parse_message_query(payload)?;
@@ -94,7 +160,14 @@ impl ImModule {
             .state
             .begin_message_query_generation(request.channel_id, request.window_token.as_str());
         if self.local_store_mode == LocalStoreMode::Disabled {
-            return self.start_remote_message_query(request, Vec::new(), query_generation, out);
+            return self.start_remote_message_query(
+                request,
+                Vec::new(),
+                query_generation,
+                causation_id,
+                deferred_send_http,
+                out,
+            );
         }
 
         let corr = self.alloc_corr_internal();
@@ -105,6 +178,8 @@ impl ImModule {
                 request: Box::new(request),
                 query_session_epoch: self.state.query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
             },
         );
         Ok(())
@@ -115,6 +190,8 @@ impl ImModule {
         request: MessageQueryRequest,
         query_session_epoch: u64,
         query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
         now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
@@ -165,10 +242,23 @@ impl ImModule {
         );
 
         if coverage == LocalReadCoverage::Complete {
-            out.push(self.emit_timeline_snapshot(&request, &local_rows_desc, now_ms)?);
+            out.push(self.emit_timeline_snapshot_with_causation(
+                &request,
+                &local_rows_desc,
+                now_ms,
+                causation_id,
+            )?);
+            self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
             return Ok(());
         }
-        self.start_remote_message_query(request, local_rows_desc, query_generation, out)
+        self.start_remote_message_query(
+            request,
+            local_rows_desc,
+            query_generation,
+            causation_id,
+            deferred_send_http,
+            out,
+        )
     }
 
     pub(crate) fn handle_message_query_remote_reply(
@@ -177,6 +267,8 @@ impl ImModule {
         local_rows_desc: Vec<Value>,
         query_session_epoch: u64,
         query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
         now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
@@ -198,6 +290,7 @@ impl ImModule {
                     "message query remote fallback failed"
                 );
                 out.push(self.emit_timeline_failed(&request, now_ms)?);
+                self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
             }
         };
@@ -211,6 +304,7 @@ impl ImModule {
                     "message query remote fallback returned invalid response"
                 );
                 out.push(self.emit_timeline_failed(&request, now_ms)?);
+                self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
             }
         };
@@ -228,6 +322,7 @@ impl ImModule {
                     "message query remote fallback contained invalid posts"
                 );
                 out.push(self.emit_timeline_failed(&request, now_ms)?);
+                self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
             }
         };
@@ -253,7 +348,13 @@ impl ImModule {
         );
 
         if self.local_store_mode == LocalStoreMode::Disabled || cache_ops.is_empty() {
-            out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc, now_ms)?);
+            out.push(self.emit_timeline_snapshot_with_causation(
+                &request,
+                &merged_rows_desc,
+                now_ms,
+                causation_id,
+            )?);
+            self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
             return Ok(());
         }
 
@@ -270,6 +371,8 @@ impl ImModule {
                 coverage,
                 query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
             },
         );
         Ok(())
@@ -282,6 +385,8 @@ impl ImModule {
         coverage: Option<RecentMessageCoverage>,
         query_session_epoch: u64,
         query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
         now_ms: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
@@ -315,7 +420,13 @@ impl ImModule {
                 "message query remote cache failed; returning remote result without coverage"
             ),
         }
-        out.push(self.emit_timeline_snapshot(&request, &merged_rows_desc, now_ms)?);
+        out.push(self.emit_timeline_snapshot_with_causation(
+            &request,
+            &merged_rows_desc,
+            now_ms,
+            causation_id,
+        )?);
+        self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
         Ok(())
     }
 
@@ -324,6 +435,8 @@ impl ImModule {
         request: MessageQueryRequest,
         local_rows_desc: Vec<Value>,
         query_generation: u64,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
@@ -362,9 +475,40 @@ impl ImModule {
                 local_rows_desc: Box::new(local_rows_desc),
                 query_session_epoch: self.state.query_session_epoch,
                 query_generation,
+                causation_id,
+                deferred_send_http,
             },
         );
         Ok(())
+    }
+
+    fn emit_deferred_posts_create_after_timeline_frame(
+        &mut self,
+        deferred_send_http: Option<crate::state::TemporaryId>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let Some(temporary_id) = deferred_send_http else {
+            return Ok(());
+        };
+        let (channel_id, body) = self
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| {
+                pending.body.as_ref().and_then(|body| {
+                    body.get("channelId")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(ChannelId::from_str)
+                        .map(|channel_id| (channel_id, body.clone()))
+                })
+            })
+            .ok_or_else(|| {
+                ImError::Parse(format!(
+                    "deferred posts/create missing pending send body: {}",
+                    temporary_id.0
+                ))
+            })?;
+        self.emit_posts_create_http(channel_id, temporary_id, &body, out)
     }
 
     fn message_query_has_known_gap(&self, channel_id: ChannelId) -> bool {
@@ -397,11 +541,12 @@ impl ImModule {
     /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。
     /// `rows_desc` 是当前有界窗口的倒序查询结果；这里反转一次并交给 typed projector，端侧不再
     /// 消费 `im:messages:query_result` 或 raw storage row。
-    fn emit_timeline_snapshot(
+    fn emit_timeline_snapshot_with_causation(
         &mut self,
         request: &MessageQueryRequest,
         rows_desc: &[Value],
         now_ms: u64,
+        causation_id: Option<String>,
     ) -> Result<Effect, ImError> {
         let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
         let shaped = crate::render_ready::shape_message_rows_for_viewer(
@@ -423,9 +568,11 @@ impl ImModule {
             window_token: timeline_request.window_token.clone(),
         };
         let mutation = if self.state.timeline_projector.current_view(&scope).is_some() {
-            self.state
-                .timeline_projector
-                .patch_from_render_ready(timeline_request, rows, None)
+            self.state.timeline_projector.patch_from_render_ready(
+                timeline_request,
+                rows,
+                causation_id,
+            )
         } else {
             self.state
                 .timeline_projector

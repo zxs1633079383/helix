@@ -295,12 +295,30 @@ fn build_from_command_type_id_default_when_absent() {
 
 // ─── 端到端：handle_send_message 经 build_message_object ─────────────────────
 
+/// 普通文本只有在 P1 乐观行被持久化确认后才启动 posts/create。这个 Harness 没有
+/// attached timeline，因此回执会直接产出 H1；带 Surface 的 Frame-first 顺序由
+/// `query::local_first` 的回放测试验证。
+fn acknowledge_optimistic_persist(
+    harness: &mut Harness,
+    initial_effects: &[EffectKind],
+) -> Vec<EffectKind> {
+    let p1_corr = initial_effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary send starts with one P1 persist");
+    harness.step(port_reply_ok(p1_corr), 1_001)
+}
+
 #[test]
 fn send_emits_http_body_with_create_at_not_created_at() {
     let mut h =
         Harness::new_with_identity(&[1], "u_self", "team_x", "张立超", "后端开发", "技术部");
     let now = 1_700_000_000_123u64;
-    let _ = h.step(send_message_cmd(1, "tmp_send", "hello world"), now);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_send", "hello world"), now);
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
 
     let body = h.last_http_body().expect("send 须产 Http body");
     // fail-hard ②：含 createAt 不含 createdAt（B3）。
@@ -347,7 +365,7 @@ fn send_empty_message_intercepted_no_effects() {
 #[test]
 fn send_viewers_from_command_preserved() {
     let mut h = Harness::new(&[1]);
-    let _ = h.step(
+    let initial_effects = h.step(
         send_message_cmd_json(json!({
             "channel_id": cid(1),
             "temporary_id": "tmp_v",
@@ -356,6 +374,7 @@ fn send_viewers_from_command_preserved() {
         })),
         1000,
     );
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let body = h.last_http_body().unwrap();
     assert_eq!(body["viewers"], json!(["u_a", "u_b"]));
 }
@@ -364,7 +383,7 @@ fn send_viewers_from_command_preserved() {
 fn send_document_and_edit_id_through_handler() {
     // 端到端：handle_send_message 解析命令 type/id 透传进 body（UC-1.2 + UC-1.6）。
     let mut h = Harness::new(&[1]);
-    let _ = h.step(
+    let initial_effects = h.step(
         send_message_cmd_json(json!({
             "channel_id": cid(1),
             "temporary_id": "tmp_doc",
@@ -374,6 +393,7 @@ fn send_document_and_edit_id_through_handler() {
         })),
         1000,
     );
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let body = h.last_http_body().unwrap();
     assert_eq!(body["type"], json!("DOCUMENT"), "DOCUMENT 透传到 wire body");
     assert_eq!(
@@ -387,7 +407,8 @@ fn send_document_and_edit_id_through_handler() {
 fn send_default_type_text_id_empty_no_regression() {
     // 默认值不回归：普通发消息（无 type/id）→ type=TEXT、id=""。
     let mut h = Harness::new(&[1]);
-    let _ = h.step(send_message_cmd(1, "tmp_plain", "hi"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_plain", "hi"), 1000);
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let body = h.last_http_body().unwrap();
     assert_eq!(body["type"], json!("TEXT"));
     assert_eq!(body["id"], json!(""));
@@ -396,7 +417,7 @@ fn send_default_type_text_id_empty_no_regression() {
 #[test]
 fn send_reply_merges_root_fields() {
     let mut h = Harness::new(&[1]);
-    let _ = h.step(
+    let initial_effects = h.step(
         send_message_cmd_json(json!({
             "channel_id": cid(1),
             "temporary_id": "tmp_r",
@@ -410,9 +431,6 @@ fn send_reply_merges_root_fields() {
         })),
         1000,
     );
-    let body = h.last_http_body().unwrap();
-    assert_eq!(body["replyId"], json!("m_root"));
-    assert_eq!(body["replyRootId"], json!("m_root"));
     let sending = h
         .sink
         .as_slice()
@@ -424,6 +442,10 @@ fn send_reply_merges_root_fields() {
             _ => None,
         })
         .expect("回复发送必须立即给 UI 一条带关系锚的乐观投影");
+    let _ = acknowledge_optimistic_persist(&mut h, &initial_effects);
+    let body = h.last_http_body().unwrap();
+    assert_eq!(body["replyId"], json!("m_root"));
+    assert_eq!(body["replyRootId"], json!("m_root"));
     assert_eq!(sending["data"]["replyId"], "m_root");
     assert_eq!(sending["data"]["replyRootId"], "m_root");
     assert_eq!(sending["data"]["replyFirstLevelId"], "");
@@ -445,7 +467,8 @@ fn send_reply_merges_root_fields() {
 #[test]
 fn post_action_is_the_send_echo_reconcile_path() {
     let mut h = Harness::new(&[1]);
-    let send = h.step(send_message_cmd(1, "tmp_p", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_p", "hello"), 1000);
+    let send = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timer = send
         .iter()
         .find_map(|e| match e {
@@ -480,7 +503,8 @@ fn post_action_is_the_send_echo_reconcile_path() {
 #[test]
 fn send_post_echo_reconciles_and_cancels_timer() {
     let mut h = Harness::new(&[1]);
-    let send = h.step(send_message_cmd(1, "tmp_ok", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_ok", "hello"), 1000);
+    let send = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timer = send
         .iter()
         .find_map(|e| match e {
@@ -531,7 +555,8 @@ fn send_post_echo_reconciles_and_cancels_timer() {
 #[test]
 fn send_timeout_marks_unsend_when_no_echo() {
     let mut h = Harness::new(&[1]);
-    let send = h.step(send_message_cmd(1, "tmp_t", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_t", "hello"), 1000);
+    let send = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timer = send
         .iter()
         .find_map(|e| match e {

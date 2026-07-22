@@ -69,6 +69,23 @@ fn first_schedule_timer(effects: &[EffectKind]) -> u64 {
         .expect("send should schedule a 15s timeout timer")
 }
 
+/// Ordinary text starts posts/create only after P1 has been durably acknowledged.
+/// This keeps the replay aligned with the real Frame-first send path instead of
+/// injecting an impossible server echo before HTTP and its timeout exist.
+fn acknowledge_optimistic_persist(
+    harness: &mut Harness,
+    effects: &[EffectKind],
+) -> Vec<EffectKind> {
+    let corr = effects
+        .iter()
+        .find_map(|effect| match effect {
+            EffectKind::Persist(corr) => Some(*corr),
+            _ => None,
+        })
+        .expect("ordinary send must own one P1 persist correlation");
+    harness.step(port_reply_ok(corr), 1_001)
+}
+
 // ─── echo 到达 → reconcile 全链路 ────────────────────────────────────────────
 
 #[test]
@@ -76,13 +93,18 @@ fn echo_reconciles_pending_send() {
     let mut h = Harness::new(&[1]);
 
     // 1. 发送命令 → PendingSend(Local) 注册
-    let send_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
+    assert_eq!(
+        h.module.pending_send_status("tmp_1"),
+        Some(SendStatus::Local)
+    );
+    let send_effects = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timeout_timer = first_schedule_timer(&send_effects);
     assert_eq!(h.module.pending_send_count(), 1, "send registers 1 pending");
     assert_eq!(
         h.module.pending_send_status("tmp_1"),
-        Some(SendStatus::Local),
-        "before echo status is Local"
+        Some(SendStatus::Sending),
+        "P1 acknowledgement advances the durable optimistic row before echo"
     );
 
     // 2. echo 帧到达（带 temporary_id=tmp_1，server_id=42，seq=1）。
@@ -183,7 +205,8 @@ fn echo_overwrites_message_id_and_status() {
 #[test]
 fn echo_before_timeout_keeps_sent_idempotent() {
     let mut h = Harness::new(&[1]);
-    let send_effects = h.step(send_message_cmd(1, "tmp_2", "hello"), 1000);
+    let initial_effects = h.step(send_message_cmd(1, "tmp_2", "hello"), 1000);
+    let send_effects = acknowledge_optimistic_persist(&mut h, &initial_effects);
     let timeout_timer = first_schedule_timer(&send_effects);
 
     // echo 先到 → 对账落定后移除 pending（post 真路径，post.rs:245）。

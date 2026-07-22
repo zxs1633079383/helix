@@ -11,7 +11,7 @@
 
 use helix_core::EffectSink;
 
-use crate::state::{ServerId, TemporaryId};
+use crate::state::{ChannelId, CorrelationContext, ServerId, TemporaryId};
 use crate::sync_session::EventEnvelope;
 
 use super::super::{ImWsContext, WsFrame};
@@ -78,6 +78,7 @@ pub(super) fn is_echo_frame(
 /// 与他人推送的新消息一致。边界零信任不 panic。
 pub(super) fn reconcile_post_echo(
     ctx: &mut ImWsContext<'_>,
+    channel_id: ChannelId,
     temporary_id: &str,
     server_id: Option<ServerId>,
     out: &mut EffectSink,
@@ -98,11 +99,12 @@ pub(super) fn reconcile_post_echo(
     }
     let reconcile_corr = ctx.alloc_corr();
     // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于 O(1) 清路由。
-    let persist_corr = ctx
+    let (persist_corr, causation_id) = ctx
         .state
         .pending_sends
         .get(&tmp)
-        .and_then(|ps| ps.persist_corr);
+        .map(|ps| (ps.persist_corr, ps.request_id.clone()))
+        .unwrap_or((None, None));
     if let Some(ps) = ctx.state.pending_sends.get_mut(&tmp) {
         ps.reconcile(server_id, reconcile_corr, out);
     }
@@ -112,5 +114,69 @@ pub(super) fn reconcile_post_echo(
     // 对账落定后移除该 send 的 OptimisticSend 路由（防 corr_map 泄漏）。
     if let Some(corr) = persist_corr {
         ctx.state.corr_map.remove(&corr);
+    }
+    // The reconcile Persist is the durable terminal fact. Its PortReply re-enters
+    // the attached local-first timeline projector, so the renderer receives a
+    // typed replaceView Frame rather than consuming the legacy post echo.
+    ctx.state.corr_map.insert(
+        reconcile_corr,
+        CorrelationContext::TimelineRefreshAfterSendPersist {
+            channel_id,
+            causation_id,
+        },
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn self_echo_terminal_persist_registers_the_attached_timeline_refresh_route() {
+        let channel_id = crate::state::test_channel_id(41);
+        let temporary_id = TemporaryId("temporary-echo-1".to_string());
+        let mut state = crate::state::ImState::new();
+        let mut pending = crate::pending_send::PendingSend::new(
+            temporary_id.clone(),
+            helix_core::TimerId::from_raw(91),
+            None,
+        );
+        pending.request_id = Some("send-request-echo".to_string());
+        state.pending_sends.insert(temporary_id.clone(), pending);
+        let mut next_corr = 700_u64;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut sink = EffectSink::new();
+
+        {
+            let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
+            reconcile_post_echo(
+                &mut ctx,
+                channel_id,
+                temporary_id.0.as_str(),
+                Some(crate::state::test_server_id(41)),
+                &mut sink,
+            );
+        }
+
+        let terminal_corr = sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                helix_core::Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("self echo writes the terminal sent fact");
+        assert_eq!(
+            state.corr_map.get(&terminal_corr),
+            Some(&CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                causation_id: Some("send-request-echo".to_string()),
+            }),
+            "the echo terminal receipt must re-enter the typed timeline projector"
+        );
     }
 }

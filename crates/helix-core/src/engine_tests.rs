@@ -2,6 +2,63 @@ use super::*;
 use crate::effect::TimerId;
 use crate::module_host::Module;
 
+struct AtomicPersistModule;
+
+impl Module for AtomicPersistModule {
+    fn name(&self) -> &'static str {
+        "atomic-persist-test"
+    }
+
+    fn accepts(&self, tick: &Tick) -> bool {
+        matches!(tick, Tick::Command(_))
+    }
+
+    fn handle(&mut self, tick: &Tick, _now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
+        match tick {
+            Tick::Command(_) => out.push(Effect::PersistAtomic {
+                corr: crate::Correlation::from_raw(77),
+                ops: Vec::new(),
+            }),
+            Tick::PortReply { corr, .. } if corr.raw() == 77 => {
+                out.push(Effect::Emit {
+                    event: crate::effect::DomainEventBytes(bytes::Bytes::from_static(
+                        b"atomic-committed",
+                    )),
+                });
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn atomic_persist_reply_routes_back_to_emitting_module() {
+    let mut shell = ExecutionShell::new();
+    shell.register(AtomicPersistModule);
+
+    let first = shell
+        .step(
+            Tick::Command(crate::tick::AppCommand::new("atomic", Vec::new())),
+            1,
+        )
+        .expect("command step");
+    assert!(matches!(first, [Effect::PersistAtomic { corr, .. }] if corr.raw() == 77));
+
+    let reply = shell
+        .step(
+            Tick::PortReply {
+                corr: crate::Correlation::from_raw(77),
+                outcome: crate::tick::PortOutcome::Ok(crate::tick::ReplyBytes(
+                    bytes::Bytes::from_static(b"ok"),
+                )),
+            },
+            2,
+        )
+        .expect("atomic persist reply step");
+    assert!(matches!(reply, [Effect::Emit { event }] if event.0.as_ref() == b"atomic-committed"));
+}
+
 /// 空 shell，step 任何 Inbound 都返回空 Effect（no-op）
 #[test]
 fn empty_shell_step_no_effects() {

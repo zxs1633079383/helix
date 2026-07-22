@@ -191,6 +191,7 @@ impl ExecutionShell {
         for effect in &self.scratch.as_slice()[start..] {
             match effect {
                 Effect::Persist { corr, .. }
+                | Effect::PersistAtomic { corr, .. }
                 | Effect::Http { corr, .. }
                 | Effect::UploadFile { corr, .. }
                 | Effect::Request { corr, .. } => {

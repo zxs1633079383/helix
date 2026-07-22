@@ -175,11 +175,23 @@ impl ImModule {
                 self.finish_increment_hydration(channel_id, out)?;
             }
             SyncResponse::Events {
-                events,
+                mut events,
                 messages,
                 next_seq,
                 needs_continuation,
             } => {
+                let from_exclusive = self
+                    .state
+                    .channels
+                    .get(&channel_id)
+                    .map(|channel| channel.cursor.value())
+                    .ok_or_else(|| {
+                        ImError::Parse("sync reply has no registered channel".to_string())
+                    })?;
+                // The Go endpoint may replay a stale prefix while a concurrent
+                // recovery advances the local cursor. Stale facts are already
+                // committed evidence, not an authority violation.
+                events.retain(|event| event.seq > from_exclusive);
                 if let Some(terminal) = events
                     .iter()
                     .find(|event| matches!(event.kind, EventKind::ChannelTerminalClosed))
@@ -206,14 +218,6 @@ impl ImModule {
                     return Ok(());
                 }
 
-                let from_exclusive = self
-                    .state
-                    .channels
-                    .get(&channel_id)
-                    .map(|channel| channel.cursor.value())
-                    .ok_or_else(|| {
-                        ImError::Parse("sync reply has no registered channel".to_string())
-                    })?;
                 let facts =
                     SyncBatchFacts::from_events(channel_id, from_exclusive, next_seq, events)
                         .map_err(|reason| {

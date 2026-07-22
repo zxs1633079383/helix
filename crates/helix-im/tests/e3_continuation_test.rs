@@ -304,18 +304,13 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
     let batch2_dup = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
     use helix_core::Module;
     h.sink.clear();
-    let error = h
-        .module
+    h.module
         .handle(
             &port_reply_with_body(sync_corr2, enveloped(batch2_dup)),
             4000,
             &mut h.sink,
         )
-        .expect_err("stale duplicate recovery batch must fail closed");
-    assert!(
-        error.to_string().contains("not strictly increasing"),
-        "unexpected recovery rejection: {error}"
-    );
+        .expect("stale duplicate recovery prefix is already committed evidence");
     assert!(
         h.sink
             .as_slice()

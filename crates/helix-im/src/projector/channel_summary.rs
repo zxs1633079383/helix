@@ -107,6 +107,7 @@ mod tests {
             },
             avatar: ChannelAvatarRef {
                 resource: None,
+                user_ids: Vec::new(),
                 fallback_text: "Design".to_string(),
             },
             notice_summary: None,

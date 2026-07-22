@@ -120,6 +120,7 @@ mod tests {
                 message_count: 1,
                 avatar: ChannelAvatarRef {
                     resource: None,
+                    user_ids: Vec::new(),
                     fallback_text: "Roadmap".to_string(),
                 },
                 lifecycle: ChannelLifecycleVm {

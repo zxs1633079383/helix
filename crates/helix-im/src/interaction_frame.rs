@@ -725,6 +725,8 @@ pub struct ChannelTitleRef {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChannelAvatarRef {
     pub resource: Option<String>,
+    #[serde(default)]
+    pub user_ids: Vec<String>,
     pub fallback_text: String,
 }
 

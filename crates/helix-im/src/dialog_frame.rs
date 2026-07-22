@@ -695,6 +695,7 @@ fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogR
         },
         avatar: interaction_frame::ChannelAvatarRef {
             resource: row.avatar.image_ref.clone(),
+            user_ids: row.avatar.user_ids.clone(),
             fallback_text: row.title.clone(),
         },
         company_tag: None,
@@ -1240,21 +1241,31 @@ fn has_avatar_source(value: &Value) -> bool {
 
 fn avatar_from_projection(value: &Value, channel_kind: &str) -> DialogAvatarVm {
     let picture = embedded_object(value, &["picture"]);
+    let picture_type =
+        text(value, &["pictureType", "picture_type"]).map(|value| value.to_ascii_uppercase());
     // `pictureType: USER` carries the authoritative mosaic members in
     // `picture.userIds`; a channel's unrelated top-level member fields must
     // not replace that explicit avatar selection.
-    let user_ids = picture
-        .as_ref()
-        .map(user_ids)
-        .filter(|ids| !ids.is_empty())
-        .unwrap_or_else(|| user_ids(value));
-    let image_ref = text(
-        value,
-        &["avatarUrl", "avatar_url", "pictureUrl", "picture_url"],
-    )
-    .or_else(|| {
-        picture.and_then(|picture| text(&picture, &["url", "uri", "imageRef", "image_ref"]))
-    });
+    let user_ids = if picture_type.as_deref() == Some("PICTURE") {
+        Vec::new()
+    } else {
+        picture
+            .as_ref()
+            .map(user_ids)
+            .filter(|ids| !ids.is_empty())
+            .unwrap_or_else(|| user_ids(value))
+    };
+    let image_ref = if matches!(picture_type.as_deref(), Some("USER") | Some("NAME")) {
+        None
+    } else {
+        text(
+            value,
+            &["avatarUrl", "avatar_url", "pictureUrl", "picture_url"],
+        )
+        .or_else(|| {
+            picture.and_then(|picture| text(&picture, &["url", "uri", "imageRef", "image_ref"]))
+        })
+    };
     DialogAvatarVm {
         kind: if image_ref.is_some() {
             "image".to_string()
@@ -1826,7 +1837,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(rows[0]["channelKind"], "direct");
+        assert_eq!(rows[0]["avatar"]["userIds"], serde_json::json!(["peer"]));
         assert_eq!(rows[0]["avatar"]["fallbackText"], "");
+        assert_eq!(
+            rows[1]["avatar"]["userIds"],
+            serde_json::json!(["u1", "u2", "u3", "u4"])
+        );
         assert_eq!(rows[1]["avatar"]["fallbackText"], "group");
     }
 
@@ -1852,6 +1868,10 @@ mod tests {
         let snapshot = data(&snapshot_effect);
         let snapshot_avatar = &dialog_view(&snapshot)["sections"][0]["items"][0]["avatar"];
         assert_eq!(snapshot_avatar["resource"], Value::Null);
+        assert_eq!(
+            snapshot_avatar["userIds"],
+            serde_json::json!(["444", "u1", "u2", "u3"])
+        );
         assert_eq!(snapshot_avatar["fallbackText"], "");
 
         let mut state = DialogListFrameState::default();
@@ -1863,7 +1883,25 @@ mod tests {
         );
         let avatar = &dialog_view(&patch)["sections"][0]["items"][0]["avatar"];
         assert_eq!(avatar["resource"], Value::Null);
+        assert_eq!(
+            avatar["userIds"],
+            serde_json::json!(["444", "u1", "u2", "u3"])
+        );
         assert_eq!(avatar["fallbackText"], "group-picture-users");
+
+        let custom_picture = row_from_dialog_projection(&serde_json::json!({
+            "id": "group-custom-picture",
+            "type": "P",
+            "pictureType": "PICTURE",
+            "picture": { "uri": "tenant/channel.png", "userIds": ["ignored"] }
+        }))
+        .expect("custom picture row");
+        assert_eq!(custom_picture.avatar.kind, "image");
+        assert!(custom_picture.avatar.user_ids.is_empty());
+        assert_eq!(
+            custom_picture.avatar.image_ref.as_deref(),
+            Some("tenant/channel.png")
+        );
     }
 
     #[test]

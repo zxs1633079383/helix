@@ -520,6 +520,7 @@ fn channel_summary_view(
         },
         avatar: ChannelAvatarRef {
             resource: None,
+            user_ids: Vec::new(),
             fallback_text: title,
         },
         notice_summary: optional_text(row, &["header"]),
@@ -608,6 +609,7 @@ fn topic_list_view(
                 message_count: nonnegative_u32(row, &["topic_msg_count", "topicMsgCount"]),
                 avatar: ChannelAvatarRef {
                     resource: None,
+                    user_ids: Vec::new(),
                     fallback_text: title,
                 },
                 lifecycle: lifecycle(row),

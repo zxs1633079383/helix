@@ -19,6 +19,7 @@
             {
               "id": "message-reply",
               "channelId": "channel-1",
+              "eventSeq": 7,
               "author": { "userId": "user-1" },
               "createdAt": 1700000000,
               "content": { "kind": "text", "text": "reply" },

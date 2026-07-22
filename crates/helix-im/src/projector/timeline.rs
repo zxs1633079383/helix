@@ -351,16 +351,37 @@ pub(crate) fn message_from_render_ready(
     let props = row.get("props").unwrap_or(&Value::Null);
     let content = content_from_row(row, props, revoked)?;
     let delivery = delivery_from_row(row, revoked)?;
-    let reply_thread = reply_thread_from_row(row);
-    let reactions = reactions_from_props(props);
-    let quick_actions = quick_actions_from_row(row);
-
-    let actions = action_bindings(
-        row,
-        surface_epoch,
-        action_authority_available,
-        &mut issue_action_ref,
-    )?;
+    let (actions, quick_actions, reply_summary, reply_thread, reactions, topic_link) = if revoked {
+        (
+            Vec::new(),
+            Vec::new(),
+            SurfaceDataVm::Record(BTreeMap::new()),
+            None,
+            Vec::new(),
+            None,
+        )
+    } else {
+        (
+            action_bindings(
+                row,
+                surface_epoch,
+                action_authority_available,
+                &mut issue_action_ref,
+            )?,
+            quick_actions_from_row(row),
+            record_from_row(
+                row,
+                &[
+                    ("replyCount", "replyCount"),
+                    ("replyRootId", "replyRootId"),
+                    ("replyMessages", "replyMessages"),
+                ],
+            )?,
+            reply_thread_from_row(row),
+            reactions_from_props(props),
+            optional_data(row.get("topic"))?,
+        )
+    };
     Ok(MessageVm {
         id,
         channel_id,
@@ -373,14 +394,7 @@ pub(crate) fn message_from_render_ready(
         delivery,
         actions,
         quick_actions,
-        reply_summary: record_from_row(
-            row,
-            &[
-                ("replyCount", "replyCount"),
-                ("replyRootId", "replyRootId"),
-                ("replyMessages", "replyMessages"),
-            ],
-        )?,
+        reply_summary,
         reply_thread,
         reactions,
         read_receipt: record_from_row(
@@ -394,7 +408,7 @@ pub(crate) fn message_from_render_ready(
         urgency: urgency_data(row)?,
         pinned: bool_at(row, &["pinned", "isTop"]),
         bookmarked: bool_at(row, &["bookmarked"]),
-        topic_link: optional_data(row.get("topic"))?,
+        topic_link,
     })
 }
 
@@ -879,6 +893,54 @@ mod tests {
                 MessageQuickActionVm::CreateTopic
             ]
         );
+    }
+
+    #[test]
+    fn recalled_message_is_a_terminal_non_interactive_system_row() {
+        let mut source = row(1);
+        source["revoke"] = serde_json::json!(true);
+        source["replyCount"] = serde_json::json!(1);
+        source["replyMessages"] = serde_json::json!([
+            {"id":"reply-1","userId":"user-2","message":"reply","createAt":2}
+        ]);
+        source["props"] = serde_json::json!({
+            "quickReply": [{"emoji":"👍","userIds":["user-2"]}]
+        });
+        source["topic"] = serde_json::json!({"topicChannelId":"topic-1"});
+        source["actionCapabilities"] = serde_json::json!({
+            "canReact": true,
+            "canReply": true,
+            "canForward": true,
+            "canRevoke": true
+        });
+        let mut issued_refs = 0;
+
+        let message = message_from_render_ready(&source, "channel-1", 1, true, || {
+            issued_refs += 1;
+            Ok(format!("action-ref-{issued_refs}"))
+        })
+        .expect("recalled render-ready message");
+        let encoded = serde_json::to_value(&message).expect("serialize recalled message");
+
+        assert!(matches!(message.content, MessageContentVm::Recalled { .. }));
+        assert!(matches!(message.delivery, DeliveryVm::Recalled));
+        assert!(message.actions.is_empty());
+        assert!(message.quick_actions.is_empty());
+        assert!(message.reply_thread.is_none());
+        assert!(message.reactions.is_empty());
+        assert!(message.topic_link.is_none());
+        assert_eq!(
+            message.reply_summary,
+            SurfaceDataVm::Record(BTreeMap::new())
+        );
+        assert_eq!(
+            issued_refs, 0,
+            "recalled rows must not mint executable action refs"
+        );
+        assert!(encoded.get("quickActions").is_none());
+        assert!(encoded.get("replyThread").is_none());
+        assert!(encoded.get("reactions").is_none());
+        assert!(encoded.get("topicLink").is_none());
     }
 
     #[test]

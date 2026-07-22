@@ -164,6 +164,52 @@ impl DialogListFrameState {
         self.scope.as_ref()
     }
 
+    /// Materialize the already committed dialog/unread slots for a V2 recovery
+    /// frame.  This is a read-only conversion: it never increments revisions
+    /// and therefore cannot turn a storage failure into visible state.
+    pub(crate) fn v2_snapshot_mutations(
+        &self,
+        surface_epoch: u64,
+    ) -> Option<Vec<interaction_frame::SurfaceMutationV2>> {
+        let scope = self.scope.as_ref()?;
+        if !scope.is_complete() || self.revision == 0 || surface_epoch == 0 {
+            return None;
+        }
+        let unread = self.unread_summary.snapshot_view()?;
+        let user_scope = interaction_frame::SurfaceScope::User {
+            user_id: scope.viewer_user_id.clone(),
+            team_id: scope.team_id.clone(),
+        };
+        Some(vec![
+            interaction_frame::SurfaceMutationV2 {
+                mutation: interaction_frame::SurfaceMutation {
+                    surface: interaction_frame::SurfaceId::MessageLeftDialogList,
+                    scope: user_scope.clone(),
+                    revision: self.revision,
+                    base_revision: None,
+                    causation_id: None,
+                    mutation: interaction_frame::TypedSurfaceMutation::DialogListSnapshot {
+                        view: self.interaction_view(),
+                    },
+                },
+                surface_epoch,
+            },
+            interaction_frame::SurfaceMutationV2 {
+                mutation: interaction_frame::SurfaceMutation {
+                    surface: interaction_frame::SurfaceId::MessageUnreadSummary,
+                    scope: user_scope,
+                    revision: unread.revision,
+                    base_revision: None,
+                    causation_id: None,
+                    mutation: interaction_frame::TypedSurfaceMutation::UnreadSummarySnapshot {
+                        view: unread.view,
+                    },
+                },
+                surface_epoch,
+            },
+        ])
+    }
+
     /// identity 切换后不能保留旧 viewer 已 attach 的 dialog/unread slots。
     pub(crate) fn reset(&mut self) {
         self.revision = 0;

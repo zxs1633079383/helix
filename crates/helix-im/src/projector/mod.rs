@@ -19,7 +19,7 @@ use helix_core::effect::{DomainEventBytes, Effect};
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    InteractionFrame, InteractionFrameError, SurfaceId, SurfaceMutation, SurfaceScope,
+    InteractionFrame, InteractionFrameError, InteractionFrameV2, SurfaceId, SurfaceMutation, SurfaceScope,
     TypedSurfaceMutation, INTERACTION_FRAME_EVENT,
 };
 
@@ -184,6 +184,24 @@ pub(crate) fn emit_interaction_frame(
     });
     let bytes = serde_json::to_vec(&payload)
         .expect("InteractionFrame only contains JSON-serializable typed view models");
+    Ok(Effect::Emit {
+        event: DomainEventBytes(Bytes::from(bytes)),
+    })
+}
+
+/// V2 has a distinct producer until the raw V1 producer is separately removed.
+/// This encoder still emits one atomic DomainEvent and never exposes individual
+/// surface mutations to a driver.
+pub(crate) fn emit_interaction_frame_v2(
+    frame: InteractionFrameV2,
+) -> Result<Effect, InteractionFrameError> {
+    frame.validate()?;
+    let payload = serde_json::json!({
+        "event": INTERACTION_FRAME_EVENT,
+        "data": frame,
+    });
+    let bytes = serde_json::to_vec(&payload)
+        .expect("InteractionFrameV2 only contains JSON-serializable typed view models");
     Ok(Effect::Emit {
         event: DomainEventBytes(Bytes::from(bytes)),
     })

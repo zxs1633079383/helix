@@ -4,8 +4,12 @@
 //! storage or transport dependency, so an uncommitted batch cannot fabricate a renderer state.
 
 use crate::interaction_frame::{
-    InteractionFrameV2, InteractionRuntimeVm, SurfaceMutationV2, UiDirective,
+    InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState, RuntimeRecoveryState,
+    RuntimeSyncState, SurfaceMutationV2, UiDirective,
 };
+use crate::module::ImModule;
+use crate::sync_session::RecoveryPhase;
+use helix_core::EffectSink;
 
 /// The bounded set of attached slots affected by one committed recovery batch.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -52,5 +56,66 @@ impl SurfaceChangeSet {
         };
         frame.validate().map_err(|_| "invalid composed frame")?;
         Ok(frame)
+    }
+}
+
+impl ImModule {
+    /// Publish recovery UI only from committed slots.  The caller invokes this
+    /// after the matching PersistOk, so a failed or stale persistence reply has
+    /// no route to a V2 frame.
+    pub(crate) fn emit_recovery_v2_frame(
+        &mut self,
+        persisted_corr: Option<helix_core::Correlation>,
+        out: &mut EffectSink,
+    ) {
+        let session = &self.state.recovery_session;
+        if !session.is_active_for(self.config.auth_user_id.as_str()) {
+            return;
+        }
+        let recovery = match session.phase {
+            RecoveryPhase::Recovered => RuntimeRecoveryState::Recovered,
+            RecoveryPhase::Failed => RuntimeRecoveryState::Failed,
+            RecoveryPhase::Blocked => RuntimeRecoveryState::Blocked,
+            RecoveryPhase::Idle => RuntimeRecoveryState::Idle,
+            RecoveryPhase::Comparing | RecoveryPhase::Pulling | RecoveryPhase::AwaitingCommit => {
+                RuntimeRecoveryState::Syncing
+            }
+        };
+        let Some(user_mutations) = self
+            .state
+            .dialog_list_frame
+            .v2_snapshot_mutations(session.session_epoch)
+        else {
+            return;
+        };
+        let runtime = InteractionRuntimeVm {
+            connection: RuntimeConnectionState::Online,
+            initial_sync: if matches!(recovery, RuntimeRecoveryState::Recovered) {
+                RuntimeSyncState::Ready
+            } else {
+                RuntimeSyncState::Syncing
+            },
+            recovery,
+        };
+        let transaction_id = match persisted_corr {
+            Some(corr) => format!("recovery:{}:persist:{}", session.session_epoch, corr.raw()),
+            None => format!("recovery:{}:compare", session.session_epoch),
+        };
+        let frame = SurfaceChangeSet {
+            runtime: Some(runtime),
+            user_mutations,
+            ..SurfaceChangeSet::default()
+        }
+        .into_frame(
+            transaction_id,
+            persisted_corr.map(|corr| format!("recovery-persist:{}", corr.raw())),
+        );
+        match frame {
+            Ok(frame) => match crate::projector::emit_interaction_frame_v2(frame) {
+                Ok(effect) => out.push(effect),
+                Err(error) => tracing::warn!(error = %error, "recovery V2 frame suppressed"),
+            },
+            Err(reason) => tracing::warn!(reason, "recovery V2 frame suppressed"),
+        }
     }
 }

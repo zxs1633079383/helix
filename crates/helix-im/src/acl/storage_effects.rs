@@ -33,6 +33,17 @@ pub struct RecoveryCoverage {
     pub committed_at_ms: i64,
 }
 
+/// `channel_event_ledger` predates a separate actor column.  Its tenant key is
+/// therefore an opaque, length-prefixed tenant+actor scope rather than a plain
+/// company id.  This stays collision-free without a destructive primary-key
+/// migration and aligns with the native store path's same two-part boundary.
+pub fn recovery_tenant_actor_scope(tenant_id: &str, actor_id: &str) -> Option<String> {
+    if tenant_id.is_empty() || actor_id.is_empty() {
+        return None;
+    }
+    Some(format!("{}:{}:{}", tenant_id.len(), tenant_id, actor_id))
+}
+
 pub fn recovery_ledger_op(entry: RecoveryLedgerEntry) -> StorageOp {
     use helix_core::effect::SqlValue;
     StorageOp::BatchUpsert(UpsertSpec {

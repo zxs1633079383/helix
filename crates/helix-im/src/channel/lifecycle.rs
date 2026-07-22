@@ -157,6 +157,10 @@ impl ImModule {
     pub(crate) fn handle_hello(&mut self, connection_id: String, out: &mut EffectSink) {
         self.state.conn = ConnState::Connected;
         self.state.connection_id = Some(connection_id.clone());
+        // A hello is the only point at which a transport becomes an authority
+        // session.  This records a new epoch but deliberately emits no UI
+        // completion; only matching PersistOk can make recovery visible.
+        self.state.recovery_session.begin(&self.config.auth_user_id);
         // §7：每个 hello 窗口起点清空上一会话残留的 increment 批次集（防 sync 风暴）。
         self.state.reset_increment_batch();
         out.push(crate::acl::to_effect::emit_connection_established(

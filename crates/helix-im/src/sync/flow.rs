@@ -111,7 +111,9 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         use crate::parser::parse_sync_response;
-        use crate::sync_session::{EventKind, SyncResponse};
+        use crate::sync_session::{
+            CommittedRecoveryHead, EventKind, RecoveryComparison, SyncBatchFacts, SyncResponse,
+        };
 
         if self
             .state
@@ -135,6 +137,41 @@ impl ImModule {
 
         match response {
             SyncResponse::NoChange => {
+                // `no_change` is the authority's explicit answer for the submitted
+                // cursor. It creates no storage write, but it can complete an
+                // already attached recovery view through the same V2-only path.
+                if self
+                    .state
+                    .recovery_session
+                    .is_active_for(self.config.auth_user_id.as_str())
+                {
+                    let cursor = self
+                        .state
+                        .channels
+                        .get(&channel_id)
+                        .map(|channel| channel.cursor.value())
+                        .unwrap_or(Seq(0));
+                    let comparison = self.state.recovery_session.compare(
+                        CommittedRecoveryHead {
+                            cursor,
+                            ledger_to_seq: cursor,
+                            coverage_to_seq: cursor,
+                        },
+                        crate::sync_session::AuthorityHead { event_seq: cursor },
+                    );
+                    tracing::info!(
+                        hop = "recovery.compare",
+                        corr = corr.raw(),
+                        channel_id = channel_id.as_str(),
+                        local_cursor = cursor.0,
+                        authority_head = cursor.0,
+                        comparison = ?comparison,
+                        "recovery no-change comparison completed without VM content"
+                    );
+                    if comparison == RecoveryComparison::Equal {
+                        self.emit_recovery_v2_frame(None, out);
+                    }
+                }
                 self.finish_increment_hydration(channel_id, out)?;
             }
             SyncResponse::Events {
@@ -169,11 +206,75 @@ impl ImModule {
                     return Ok(());
                 }
 
-                let max_event_seq = events.iter().map(|e| e.seq).max().unwrap_or(Seq(0));
-                let commit_target = next_seq.max(max_event_seq);
+                let from_exclusive = self
+                    .state
+                    .channels
+                    .get(&channel_id)
+                    .map(|channel| channel.cursor.value())
+                    .ok_or_else(|| ImError::Parse("sync reply has no registered channel".to_string()))?;
+                let facts = SyncBatchFacts::from_events(
+                    channel_id,
+                    from_exclusive,
+                    next_seq,
+                    events,
+                )
+                .map_err(|reason| ImError::Parse(format!("invalid sync batch facts: {reason}")))?;
+                if self
+                    .state
+                    .recovery_session
+                    .is_active_for(self.config.auth_user_id.as_str())
+                {
+                    let cursor = self
+                        .state
+                        .channels
+                        .get(&channel_id)
+                        .map(|channel| channel.cursor.value())
+                        .unwrap_or(Seq(0));
+                    let comparison = self.state.recovery_session.compare(
+                        CommittedRecoveryHead {
+                            cursor,
+                            ledger_to_seq: cursor,
+                            coverage_to_seq: cursor,
+                        },
+                        facts.authority_head,
+                    );
+                    if !matches!(comparison, RecoveryComparison::Pull { .. }) {
+                        tracing::warn!(
+                            hop = "recovery.compare_rejected",
+                            corr = corr.raw(),
+                            channel_id = channel_id.as_str(),
+                            comparison = ?comparison,
+                            "recovery batch does not require a contiguous pull; retaining local state"
+                        );
+                        if comparison == RecoveryComparison::Equal {
+                            self.emit_recovery_v2_frame(None, out);
+                        } else {
+                            self.emit_recovery_v2_frame(None, out);
+                            self.emit_proactive_resync_for(&[channel_id], out);
+                        }
+                        return Ok(());
+                    }
+                }
+                let commit_target = facts.authority_head.event_seq;
+                let events = facts.events;
+                tracing::info!(
+                    hop = "recovery.compare",
+                    corr = corr.raw(),
+                    channel_id = channel_id.as_str(),
+                    from_seq = from_exclusive.0,
+                    authority_head = commit_target.0,
+                    event_count = events.len(),
+                    "recovery batch accepted without rendering VM content"
+                );
                 let persist_corr = self.alloc_corr_internal();
                 let auth_user_id = self.config.auth_user_id.as_str();
-                let tenant_id = self.config.company_id.clone();
+                let tenant_id = crate::acl::to_effect::recovery_tenant_actor_scope(
+                    self.config.company_id.as_str(),
+                    self.config.auth_user_id.as_str(),
+                )
+                .ok_or_else(|| {
+                    ImError::Parse("recovery persistence requires a tenant and actor identity".to_string())
+                })?;
                 let from_seq = self
                     .state
                     .channels
@@ -247,10 +348,27 @@ impl ImModule {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.pending_commits.insert(persist_corr, commit_target);
                 }
+                if self
+                    .state
+                    .recovery_session
+                    .is_active_for(self.config.auth_user_id.as_str())
+                {
+                    self.state
+                        .recovery_session
+                        .await_commit(channel_id, commit_target);
+                }
                 out.push(Effect::PersistAtomic {
                     corr: persist_corr,
                     ops: persist_ops,
                 });
+                tracing::info!(
+                    hop = "recovery.persist_dispatched",
+                    upstream_corr = corr.raw(),
+                    corr = persist_corr.raw(),
+                    channel_id = channel_id.as_str(),
+                    to_seq = commit_target.0,
+                    "recovery atomic write dispatched"
+                );
                 self.state.corr_map.insert(
                     persist_corr,
                     CorrelationContext::ChannelPersist {

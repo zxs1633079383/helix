@@ -77,6 +77,10 @@ impl ImModule {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.on_persist_ok(corr, out)?;
                 }
+                let recovery_active = self
+                    .state
+                    .recovery_session
+                    .is_active_for(self.config.auth_user_id.as_str());
                 for bytes in pending_domain_events {
                     out.push(Effect::Emit {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
@@ -88,11 +92,17 @@ impl ImModule {
                     {
                         // 写后 channel reply 已给出累计 unread/mention/urgent 终值。若列表已有
                         // snapshot，只发布同 revision 的属性 patch；客户端不再消费原始 DialogPatch。
-                        if let Some(frame) = crate::dialog_frame::patch_from_dialog_projection(
+                        let frame = crate::dialog_frame::patch_from_dialog_projection(
                             &mut self.state.dialog_list_frame,
                             &data,
-                        ) {
-                            out.push(frame);
+                        );
+                        // During a V2 authority recovery, mutate the committed
+                        // dialog slots but do not leak a parallel V1 frame.  The
+                        // composed V2 snapshot below is the sole renderer batch.
+                        if !recovery_active {
+                            if let Some(frame) = frame {
+                                out.push(frame);
+                            }
                         }
                     }
                 }
@@ -107,6 +117,21 @@ impl ImModule {
                     committed_seq,
                     trigger,
                 ));
+                if recovery_active
+                    && self
+                        .state
+                        .recovery_session
+                        .commit_ok(channel_id, committed_seq)
+                {
+                    tracing::info!(
+                        hop = "recovery.persist_ok",
+                        corr = corr.raw(),
+                        channel_id = channel_id.as_str(),
+                        committed_seq = committed_seq.0,
+                        "recovery commit acknowledged; composing V2 frame"
+                    );
+                    self.emit_recovery_v2_frame(Some(corr), out);
+                }
                 // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
                 if wants_continuation {
                     self.maybe_continue_sync(channel_id, trigger, out);
@@ -124,6 +149,19 @@ impl ImModule {
                 // persist 失败：清除 last_sync_from_seq 避免遗留脏状态
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.last_sync_from_seq = None;
+                }
+                if self
+                    .state
+                    .recovery_session
+                    .is_active_for(self.config.auth_user_id.as_str())
+                {
+                    self.state.recovery_session.commit_failed(channel_id);
+                    tracing::warn!(
+                        hop = "recovery.persist_failed",
+                        corr = corr.raw(),
+                        channel_id = channel_id.as_str(),
+                        "recovery persistence failed; no V2 frame was emitted"
+                    );
                 }
             }
         }

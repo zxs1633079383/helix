@@ -209,6 +209,23 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
 
         let metric_context = perf_metrics.on_tick(&tick, queue_wait);
 
+        // A PortReply closes an already-correlated storage/HTTP hop.  Keep only
+        // the correlation and result class here: reply bytes may contain a VM
+        // or authority payload and must never enter a generic driver log.
+        if let Tick::PortReply { corr, outcome } = &tick {
+            let outcome_class = if matches!(outcome, helix_core::tick::PortOutcome::Ok(_)) {
+                "ok"
+            } else {
+                "err"
+            };
+            tracing::debug!(
+                hop = "host.port_reply",
+                corr = corr.raw(),
+                outcome = outcome_class,
+                "correlated port reply returned to the deterministic shell"
+            );
+        }
+
         if let Tick::Disconnected(transport_id) = &tick {
             if let Some(tx) = &transport_lifecycle_tx {
                 tx.send(TransportLifecycleEvent::Disconnected {

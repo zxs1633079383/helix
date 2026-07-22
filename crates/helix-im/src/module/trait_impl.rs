@@ -317,11 +317,16 @@ impl Module for ImModule {
                 // 否则握手前发 sync/notify 会被 Go 401/403（缺 connectionId 身份头）。
                 // 故此处只置 Connecting，resync 推迟到 hello Inbound 分支（handle_hello）。
                 self.state.conn = ConnState::Connecting;
+                // Do not publish a runtime transition here: the server hello
+                // establishes the recovery epoch, and PersistOk is the only
+                // completion boundary for a V2 frame.
+                self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Comparing;
                 tracing::debug!("helix-im: transport connected, awaiting hello handshake");
             }
 
             Tick::Disconnected(_transport) => {
                 self.state.conn = ConnState::Disconnected;
+                self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Failed;
                 self.state.reset_recent_query_coverage();
                 // 清除所有 channel 的 inflight_sync（连接断开，所有在途 Http 不会回报）
                 // 若不清除，重连后 proactive resync 会被 B1 守卫全部跳过

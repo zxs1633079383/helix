@@ -256,3 +256,191 @@ pub struct SyncSession {
     pub from_seq: Seq,
     pub corr: helix_core::Correlation,
 }
+
+/// One reconnect/relogin authority window.  It deliberately contains only
+/// correlation-free state: the actual network and storage work is still
+/// represented by Effects and their matching PortReply contexts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoverySession {
+    pub phase: RecoveryPhase,
+    pub session_epoch: u64,
+    pub actor_id: String,
+    pub pending_commits: std::collections::BTreeMap<ChannelId, Seq>,
+}
+
+impl Default for RecoverySession {
+    fn default() -> Self {
+        Self {
+            phase: RecoveryPhase::Idle,
+            session_epoch: 0,
+            actor_id: String::new(),
+            pending_commits: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl RecoverySession {
+    /// Start a new trust boundary.  Epoch zero is intentionally never emitted
+    /// on the V2 wire, so the first usable session is one.
+    pub fn begin(&mut self, actor_id: &str) {
+        self.session_epoch = self.session_epoch.saturating_add(1).max(1);
+        self.actor_id.clear();
+        self.actor_id.push_str(actor_id);
+        self.pending_commits.clear();
+        self.phase = RecoveryPhase::Comparing;
+    }
+
+    pub fn invalidate(&mut self) {
+        self.pending_commits.clear();
+        self.phase = RecoveryPhase::Idle;
+        self.actor_id.clear();
+    }
+
+    pub fn compare(
+        &mut self,
+        local: CommittedRecoveryHead,
+        authority: AuthorityHead,
+    ) -> RecoveryComparison {
+        let comparison = compare_committed_recovery(local, authority);
+        self.phase = match comparison {
+            RecoveryComparison::Equal => RecoveryPhase::Recovered,
+            RecoveryComparison::Pull { .. } => RecoveryPhase::Pulling,
+            RecoveryComparison::AuthorityReloadRequired => RecoveryPhase::Blocked,
+        };
+        comparison
+    }
+
+    pub fn await_commit(&mut self, channel_id: ChannelId, committed_to: Seq) {
+        self.pending_commits.insert(channel_id, committed_to);
+        self.phase = RecoveryPhase::AwaitingCommit;
+    }
+
+    /// A storage acknowledgement is meaningful only when it matches exactly
+    /// the batch that this session registered.  Late A-session acknowledgements
+    /// are therefore a no-op rather than a renderer-visible completion.
+    pub fn commit_ok(&mut self, channel_id: ChannelId, committed_to: Seq) -> bool {
+        if self.pending_commits.remove(&channel_id) != Some(committed_to) {
+            return false;
+        }
+        self.phase = if self.pending_commits.is_empty() {
+            RecoveryPhase::Recovered
+        } else {
+            RecoveryPhase::AwaitingCommit
+        };
+        true
+    }
+
+    pub fn commit_failed(&mut self, channel_id: ChannelId) {
+        self.pending_commits.remove(&channel_id);
+        self.phase = RecoveryPhase::Failed;
+    }
+
+    pub fn is_active_for(&self, actor_id: &str) -> bool {
+        self.session_epoch != 0 && self.actor_id == actor_id && !self.actor_id.is_empty()
+    }
+}
+
+/// Recovery is deliberately a pure comparison model. The caller obtains both
+/// inputs through ports, persists any chosen batch, and only then advances the
+/// in-memory head; this type cannot manufacture a UI completion on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryPhase {
+    Idle,
+    Comparing,
+    Pulling,
+    AwaitingCommit,
+    Recovered,
+    Failed,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthorityHead {
+    pub event_seq: Seq,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommittedRecoveryHead {
+    pub cursor: Seq,
+    pub ledger_to_seq: Seq,
+    pub coverage_to_seq: Seq,
+}
+
+impl CommittedRecoveryHead {
+    pub const fn is_coherent(self) -> bool {
+        self.cursor.0 == self.ledger_to_seq.0 && self.cursor.0 == self.coverage_to_seq.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryComparison {
+    Equal,
+    Pull { from_exclusive: Seq, to_inclusive: Seq },
+    AuthorityReloadRequired,
+}
+
+/// A normalized sync batch whose sequence evidence has already been checked.
+/// The parser stays responsible for wire decoding; this type owns the
+/// cross-entry invariants shared by reconnect and incremental recovery.
+#[derive(Debug, Clone)]
+pub struct SyncBatchFacts {
+    pub channel_id: ChannelId,
+    pub from_exclusive: Seq,
+    pub authority_head: AuthorityHead,
+    pub events: Vec<EventEnvelope>,
+}
+
+impl SyncBatchFacts {
+    pub fn from_events(
+        channel_id: ChannelId,
+        from_exclusive: Seq,
+        authority_head: Seq,
+        events: Vec<EventEnvelope>,
+    ) -> Result<Self, &'static str> {
+        if events.is_empty() {
+            return Err("sync batch facts require at least one event");
+        }
+        let mut expected = Seq(from_exclusive.0.saturating_add(1));
+        for event in &events {
+            if event.channel_id != channel_id || event.id != channel_id {
+                return Err("sync batch event channel differs from request channel");
+            }
+            if event.seq != expected {
+                return Err("sync batch event sequence is not contiguous");
+            }
+            expected = Seq(expected.0.saturating_add(1));
+        }
+        let last = events.last().map(|event| event.seq).unwrap_or(Seq(0));
+        if authority_head < last {
+            return Err("sync batch authority head precedes final event");
+        }
+        Ok(Self {
+            channel_id,
+            from_exclusive,
+            authority_head: AuthorityHead {
+                event_seq: authority_head,
+            },
+            events,
+        })
+    }
+}
+
+/// Compare only committed local evidence with an authority head. An incoherent
+/// local ledger/coverage or local-ahead state is a fail-closed authority reload,
+/// never a client-side attempt to fill a missing sequence.
+pub const fn compare_committed_recovery(
+    local: CommittedRecoveryHead,
+    authority: AuthorityHead,
+) -> RecoveryComparison {
+    if !local.is_coherent() || local.cursor.0 > authority.event_seq.0 {
+        return RecoveryComparison::AuthorityReloadRequired;
+    }
+    if local.cursor.0 == authority.event_seq.0 {
+        RecoveryComparison::Equal
+    } else {
+        RecoveryComparison::Pull {
+            from_exclusive: local.cursor,
+            to_inclusive: authority.event_seq,
+        }
+    }
+}

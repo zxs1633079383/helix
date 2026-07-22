@@ -126,6 +126,10 @@ pub struct ImState {
     /// 与 hello 会话同生命周期（`reset_increment_batch` 同步 reset）。详见 `sync_scheduler.rs`。
     pub sync_scheduler: crate::sync_scheduler::SyncScheduler,
 
+    /// 当前 reconnect/relogin 的 authority recovery 会话。它不保存业务事实，只把比较、
+    /// 持久化回执和 renderer V2 epoch 绑定到同一个身份边界。
+    pub recovery_session: crate::sync_session::RecoverySession,
+
     /// UC-10：本 hello 会话累积 mention+urgent post id，global increment-end 拉 queryTodoList 后清空。
     pub about_me_post_ids: Vec<String>,
 
@@ -221,6 +225,7 @@ impl ImState {
             backfill_healed: false,
             client_seq: 0,
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
+            recovery_session: crate::sync_session::RecoverySession::default(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
@@ -298,12 +303,27 @@ impl ImState {
     /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与
     /// coverage 都不能在新 viewer 下继续出帧。该清理不影响发送/同步等非 query 业务 corr。
     pub(crate) fn reset_surface_runtime_for_identity_change(&mut self) {
+        self.recovery_session.invalidate();
+        // Tenant/actor facts are never portable.  A B session must rediscover
+        // channels and cursors from its own store rather than treating A's
+        // in-memory aggregates as a locally trusted snapshot.
+        self.channels.clear();
+        self.sync_scheduler.reset();
+        self.hydration_pending.clear();
+        self.pending_increment_ops.clear();
+        self.pending_increment_projections.clear();
         self.reset_recent_query_coverage();
         self.dialog_list_frame.reset();
         self.corr_map.retain(|_, context| {
             !matches!(
                 context,
-                CorrelationContext::DialogListQuery
+                CorrelationContext::ChannelPersist { .. }
+                    | CorrelationContext::ChannelTerminalPersist { .. }
+                    | CorrelationContext::SyncPull { .. }
+                    | CorrelationContext::IncrementBatchPersist { .. }
+                    | CorrelationContext::IncrementHydrationPersist { .. }
+                    | CorrelationContext::OutboundIncrementHydration { .. }
+                    | CorrelationContext::DialogListQuery
                     | CorrelationContext::SurfaceStorageSnapshot { .. }
                     | CorrelationContext::SurfaceThreadSnapshot { .. }
                     | CorrelationContext::SurfaceReceiptSnapshot { .. }

@@ -15,6 +15,7 @@ fn db_snake_row_shaped_to_render_ready() {
         "read_bits": 5,
         "revoke": 1,
         "props": {
+            "channel_event_seq": 42,
             "document": { "id": "doc-1" },
             "template": { "userIds": ["u9"] }
         },
@@ -44,14 +45,28 @@ fn db_snake_row_shaped_to_render_ready() {
     assert_eq!(r["replyId"], "root-1");
     assert_eq!(r["replyRootId"], "root-1");
     assert_eq!(r["replyFirstLevelId"], "first-1");
-    assert!(r["eventSeq"].is_null());
+    assert_eq!(r["eventSeq"], 42);
     assert_eq!(
         r["props"],
         serde_json::json!({
+            "channel_event_seq": 42,
             "document": {"id":"doc-1"},
             "template": {"userIds":["u9"]}
         })
     );
+}
+
+#[test]
+fn db_text_props_restore_channel_event_seq_for_timeline_vm() {
+    let rows = json!([{
+        "id": "server-event-seq",
+        "channel_id": "ch1",
+        "message": "persisted",
+        "props": "{\"channel_event_seq\":7}"
+    }]);
+
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["eventSeq"], 7);
 }
 
 #[test]

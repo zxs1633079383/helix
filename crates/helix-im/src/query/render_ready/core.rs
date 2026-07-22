@@ -5,7 +5,8 @@
 //! 纯绑定（不再壳内 snake 抽取 / 归一 readBits / dedup）。整形/去重/归一**下沉 helix**。
 //!
 //! 统一字段集（camelCase·与前端 `MessageRow` 对齐）：
-//!   `msgId`（server id·缺退 temporaryId） · `temporaryId` · `channelId` · `eventSeq`(null·读族无列)
+//!   `msgId`（server id·缺退 temporaryId） · `temporaryId` · `channelId` · `eventSeq`
+//!   （优先行字段，回退持久化 `props.channel_event_seq`，均缺则 null）
 //!   · `sendStatus`("sent"·读族=已落库) · `readBits`(string·number→string 归一) · `text`
 //!   · `type`(空→"TEXT") · `revoked`(bool·DB `revoke` 0/1) · `createAt`(i64|null) · `userId`。
 //!
@@ -50,6 +51,15 @@ fn props_value(row: &Value) -> Value {
         Some(Value::String(s)) => serde_json::from_str(s).unwrap_or(Value::Null),
         _ => Value::Null,
     }
+}
+
+fn event_seq_value(row: &Value, props: &Value) -> Value {
+    row.get("event_seq")
+        .or_else(|| row.get("eventSeq"))
+        .and_then(Value::as_u64)
+        .or_else(|| props.get("channel_event_seq").and_then(Value::as_u64))
+        .map(Value::from)
+        .unwrap_or(Value::Null)
 }
 
 fn topic_value(row: &Value) -> Value {
@@ -176,6 +186,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         _ => "sent",
     };
     let props = props_value(row);
+    let event_seq = event_seq_value(row, &props);
     let forward_detail = super::forward::detail(msg_type, &props);
     let expedite_map = row
         .get("expedite_map")
@@ -222,7 +233,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "msgId": msg_id,
         "temporaryId": temporary_id,
         "channelId": channel_id,
-        "eventSeq": Value::Null,
+        "eventSeq": event_seq,
         "sendStatus": send_status,
         "readBits": read_bits_str(row),
         "text": text,

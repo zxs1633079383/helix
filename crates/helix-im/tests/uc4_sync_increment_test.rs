@@ -519,5 +519,5 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_typed_timeline_projectio
     assert_eq!(item["content"]["text"], "hydrated hello");
     assert_eq!(item["readReceipt"]["readBits"], "10");
     assert!(item.get("props").is_none());
-    assert!(item.get("eventSeq").is_none());
+    assert_eq!(item["eventSeq"], 0);
 }

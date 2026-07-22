@@ -364,6 +364,8 @@ pub(crate) fn message_from_render_ready(
     Ok(MessageVm {
         id,
         channel_id,
+        event_seq: unsigned_integer_at(row, &["eventSeq", "event_seq"], "eventSeq")?
+            .unwrap_or_default(),
         author: UserRefVm { user_id: author_id },
         created_at: integer_at(row, &["createdAt", "createAt", "create_at"], "createdAt")?
             .unwrap_or_default(),
@@ -755,6 +757,26 @@ fn integer_at(
     Ok(None)
 }
 
+fn unsigned_integer_at(
+    row: &Value,
+    keys: &[&str],
+    field: &'static str,
+) -> Result<Option<u64>, TimelineProjectionError> {
+    for key in keys {
+        let Some(Value::Number(number)) = row.get(*key) else {
+            continue;
+        };
+        let Some(value) = number.as_u64() else {
+            return Err(unsafe_wire_number(field));
+        };
+        if value > MAX_SAFE_JSON_INTEGER {
+            return Err(unsafe_wire_number(field));
+        }
+        return Ok(Some(value));
+    }
+    Ok(None)
+}
+
 fn unsafe_wire_number(field: &'static str) -> TimelineProjectionError {
     TimelineProjectionError::InvalidInteractionFrame(InteractionFrameError::UnsafeWireNumber {
         surface: "message.timeline",
@@ -788,6 +810,7 @@ mod tests {
         serde_json::json!({
             "msgId": format!("message-{index}"),
             "channelId": "channel-1",
+            "eventSeq": index,
             "userId": "user-1",
             "createAt": index,
             "text": format!("text-{index}"),
@@ -839,6 +862,7 @@ mod tests {
         })
         .expect("render-ready message");
 
+        assert_eq!(serde_json::to_value(&message).unwrap()["eventSeq"], 1);
         let thread = message.reply_thread.expect("reply summary");
         assert_eq!(thread.items.len(), 3);
         assert_eq!(thread.reply_count, 5);
@@ -846,6 +870,7 @@ mod tests {
         assert_eq!(message.reactions[0].emoji, "😊");
         assert_eq!(message.reactions[0].count, 2);
         assert_eq!(message.reactions[1].count, 1);
+        assert_eq!(message.event_seq, 1);
         assert_eq!(
             message.quick_actions,
             vec![
@@ -1022,7 +1047,13 @@ mod tests {
         assert!(!receipt.action_ref.contains("message-1"));
         assert!(!receipt.action_ref.contains("viewReceipt"));
 
-        for kind in ["reply", "createTopic", "markRead", "templateConfirm", "locate"] {
+        for kind in [
+            "reply",
+            "createTopic",
+            "markRead",
+            "templateConfirm",
+            "locate",
+        ] {
             let action = view.items[0]
                 .actions
                 .iter()

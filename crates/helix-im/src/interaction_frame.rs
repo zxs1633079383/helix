@@ -956,6 +956,8 @@ pub enum DeliveryVm {
 pub struct MessageVm {
     pub id: String,
     pub channel_id: String,
+    #[serde(default)]
+    pub event_seq: u64,
     pub author: UserRefVm,
     pub created_at: i64,
     pub content: MessageContentVm,

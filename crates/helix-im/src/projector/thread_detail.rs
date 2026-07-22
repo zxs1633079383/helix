@@ -203,6 +203,7 @@ mod tests {
         MessageVm {
             id: id.to_string(),
             channel_id: "channel-1".to_string(),
+            event_seq: 1,
             author: UserRefVm {
                 user_id: "user-1".to_string(),
             },

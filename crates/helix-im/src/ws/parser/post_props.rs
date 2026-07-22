@@ -14,6 +14,14 @@ use serde_json::Value;
 /// 其余原样 stringify（对齐参考实现 e1a9c99 / 5db0d15）。真实 post echo 恒带 props
 /// （`channel_event_seq` 等），缺省分支仅理论边界。
 pub(crate) fn merge_props_with_quickreply(post: &Value, root: &Value) -> String {
+    merge_props_with_quickreply_and_event_seq(post, root, None)
+}
+
+pub(crate) fn merge_props_with_quickreply_and_event_seq(
+    post: &Value,
+    root: &Value,
+    event_seq: Option<u64>,
+) -> String {
     let base = post
         .get("props")
         .or_else(|| root.get("props"))
@@ -23,12 +31,17 @@ pub(crate) fn merge_props_with_quickreply(post: &Value, root: &Value) -> String 
         .get("quickReply")
         .or_else(|| root.get("quickReply"))
         .filter(|v| !v.is_null());
-    match (base, quick_reply) {
-        (Value::Object(mut map), Some(qr)) => {
-            map.insert("quickReply".to_string(), qr.clone());
+    match base {
+        Value::Object(mut map) => {
+            if let Some(qr) = quick_reply {
+                map.insert("quickReply".to_string(), qr.clone());
+            }
+            if let Some(seq) = event_seq {
+                map.insert("channel_event_seq".to_string(), Value::from(seq));
+            }
             Value::Object(map).to_string()
         }
-        (base, _) => {
+        base => {
             if base.is_null() {
                 String::new()
             } else {
@@ -40,7 +53,7 @@ pub(crate) fn merge_props_with_quickreply(post: &Value, root: &Value) -> String 
 
 #[cfg(test)]
 mod tests {
-    use super::merge_props_with_quickreply;
+    use super::{merge_props_with_quickreply, merge_props_with_quickreply_and_event_seq};
     use serde_json::json;
 
     /// UC-1.8：顶层 quickReply 合并进 props.quickReply（反应数据搭 props 顺风车进投影）。
@@ -91,5 +104,14 @@ mod tests {
         assert_eq!(missing, "{}", "props 缺省 + 无 quickReply → 空对象串");
         let explicit_null = merge_props_with_quickreply(&json!({ "props": null }), &json!({}));
         assert_eq!(explicit_null, "", "显式 null props → 空串");
+    }
+
+    #[test]
+    fn sequenced_live_post_persists_event_seq_inside_props() {
+        let post = json!({"props": {}, "message": "live"});
+        let out = merge_props_with_quickreply_and_event_seq(&post, &json!({}), Some(27));
+        let parsed: serde_json::Value =
+            serde_json::from_str(&out).expect("props 应为合法 JSON");
+        assert_eq!(parsed["channel_event_seq"], 27);
     }
 }

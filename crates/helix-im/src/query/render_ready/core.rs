@@ -238,6 +238,13 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         .and_then(Value::as_i64)
         .unwrap_or_default()
         .max(json_container_len(&reply_messages));
+    let template_received = template_received_bool(row);
+    let template_reader_ids = template_reader_ids(&props);
+    let template_confirmation = json!({
+        "templateReceived": template_received,
+        "confirmedCount": template_confirmed_count,
+        "readerIds": template_reader_ids,
+    });
     let mut data = json!({
         "id": msg_id,
         "msgId": msg_id,
@@ -253,9 +260,10 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "topic": topic_value(row),
         "revoke": revoke_bool(row),
         "revoked": revoke_bool(row),
-        "templateReceived": template_received_bool(row),
+        "templateReceived": template_received,
         "templateConfirmedCount": template_confirmed_count,
-        "readerIds": template_reader_ids(&props),
+        "readerIds": template_reader_ids,
+        "templateConfirmation": template_confirmation,
         "serverId": if has_server_id { Value::String(server_id.to_string()) } else { Value::Null },
         "isSelf": is_self,
         "actionCapabilities": action_capabilities,

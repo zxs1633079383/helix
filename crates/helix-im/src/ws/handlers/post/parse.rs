@@ -30,7 +30,7 @@ pub(super) fn parse_post_frame(frame: &WsFrame) -> Option<EventEnvelope> {
                 .get("channel_event_seq")
                 .and_then(serde_json::Value::as_u64)
         })?);
-    let fields = crate::ws::parser::extract_post_fields(data);
+    let fields = crate::ws::parser::extract_post_fields_with_event_seq(data, Some(seq.0));
     let msg_id = post
         .get("id")
         .and_then(serde_json::Value::as_str)

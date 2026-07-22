@@ -11,6 +11,13 @@ use crate::sync_session::PostFields;
 /// （用于取 seq/type），复用同一棵树提取字段——避免落库路径（`event_to_upsert_op`）再
 /// `from_slice(raw)` 重解析。
 pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
+    extract_post_fields_with_event_seq(root, None)
+}
+
+pub(crate) fn extract_post_fields_with_event_seq(
+    root: &serde_json::Value,
+    event_seq: Option<u64>,
+) -> PostFields {
     // post 字段可能在顶层，也可能嵌套在 "post" / "data" 子对象下——按优先级探查。
     let post = root
         .get("post")
@@ -73,7 +80,11 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
         .unwrap_or(0);
     // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）+ UC-1.8 顶层 quickReply
     // emoji 反应合并进 props.quickReply（逻辑外提收口行数基线，详见 ws::parser::post_props）。
-    let props = super::super::post_props::merge_props_with_quickreply(post, root);
+    let props = super::super::post_props::merge_props_with_quickreply_and_event_seq(
+        post,
+        root,
+        event_seq,
+    );
     let user_snapshot = post
         .get("userSnapshot")
         .or_else(|| post.get("user_snapshot"))

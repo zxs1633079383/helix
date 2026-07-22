@@ -9,7 +9,7 @@ mod increment;
 mod kind;
 mod sync;
 
-pub(crate) use fields::extract_post_fields;
+pub(crate) use fields::{extract_post_fields, extract_post_fields_with_event_seq};
 pub use inbound::{parse_inbound, parse_inbound_value};
 pub use increment::parse_increment_channel;
 pub use sync::{parse_sync_response, sort_events_by_bucket, SYNC_EVENTS_PER_ENTRY};

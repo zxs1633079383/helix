@@ -38,6 +38,9 @@ fn db_snake_row_shaped_to_render_ready() {
     assert_eq!(r["revoke"], true);
     assert_eq!(r["actionCapabilities"]["canLocate"], false);
     assert_eq!(r["templateReceived"], true);
+    assert_eq!(r["templateConfirmation"]["templateReceived"], true);
+    assert_eq!(r["templateConfirmation"]["confirmedCount"], 1);
+    assert_eq!(r["templateConfirmation"]["readerIds"], json!(["u9"]));
     assert_eq!(r["createAt"], 1700);
     assert_eq!(r["createdAt"], 1700);
     assert_eq!(r["userId"], "u9");

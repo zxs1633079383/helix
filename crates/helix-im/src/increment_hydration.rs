@@ -192,6 +192,7 @@ impl ImModule {
         if !self.state.hydration_pending.remove(&channel_id) {
             return Ok(());
         }
+        self.refresh_attached_channel_summary(channel_id, out)?;
         self.handle_query_command("im_query_dialog_list", b"{}", out)?;
         let payload = serde_json::to_vec(&serde_json::json!({
             "channel_id": channel_id.as_str(),

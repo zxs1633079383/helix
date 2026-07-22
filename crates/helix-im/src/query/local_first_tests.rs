@@ -270,6 +270,45 @@ fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_patch() {
 }
 
 #[test]
+fn full_authoritative_recent_window_exposes_load_older_page_contract() {
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let mut rows_desc: Vec<Value> = (1..=REMOTE_RECENT_WINDOW)
+        .map(|index| {
+            serde_json::json!({
+                "id": format!("message-{index:03}"),
+                "temporaryId": format!("temporary-{index:03}"),
+                "channelId": channel_id().as_str(),
+                "userId": "author-1",
+                "createAt": index as i64,
+                "message": format!("message {index}"),
+                "type": "TEXT",
+                "props": {},
+            })
+        })
+        .collect();
+    sort_recent_rows_desc(&mut rows_desc);
+    let coverage = RecentMessageCoverage::from_remote(&rows_desc, REMOTE_RECENT_WINDOW)
+        .expect("full remote window establishes a non-exhausted proof");
+    module
+        .state
+        .recent_message_coverage
+        .insert(channel_id(), coverage);
+
+    let effect = module
+        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_000, None)
+        .expect("authoritative recent window projects");
+    let Effect::Emit { event } = effect else {
+        panic!("timeline projection must emit")
+    };
+    let envelope: Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let page = &envelope["data"]["mutations"][0]["mutation"]["view"]["page"];
+    assert_eq!(page["hasOlder"], true);
+    assert_eq!(page["hasMore"], true);
+}
+
+#[test]
 fn attached_timeline_refreshes_after_a_durable_fact_even_before_first_snapshot() {
     let mut module = ImModule::new(crate::module::ImConfig::default());
     let scope = crate::interaction_frame::SurfaceScope::Timeline {

@@ -197,6 +197,30 @@ impl ImModule {
         Ok(())
     }
 
+    pub(crate) fn refresh_attached_channel_summary(
+        &mut self,
+        channel_id: ChannelId,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self
+            .state
+            .channel_summary_projector
+            .current_view(channel_id.as_str())
+            .is_none()
+        {
+            return Ok(());
+        }
+        self.start_storage_snapshot(
+            SurfaceResyncRequest {
+                surface: SurfaceId::MessageChannelSummary,
+                scope: SurfaceScope::Channel {
+                    channel_id: channel_id.as_str().to_string(),
+                },
+            },
+            out,
+        )
+    }
+
     fn start_thread_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
@@ -803,12 +827,8 @@ mod tests {
         assert_channel_authority(&admin, "channel-close", 2, false);
         assert_channel_authority(&admin, "channel-leave", 2, true);
 
-        let member = channel_summary_view(
-            "ch00000000000000000000000c",
-            Some(&row),
-            Some("MEMBER"),
-            3,
-        );
+        let member =
+            channel_summary_view("ch00000000000000000000000c", Some(&row), Some("MEMBER"), 3);
         assert_eq!(member.viewer_role, ChannelRole::Member);
         assert_channel_authority(&member, "channel-settings", 3, false);
         assert_channel_authority(&member, "channel-close", 3, false);

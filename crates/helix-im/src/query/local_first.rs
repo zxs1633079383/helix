@@ -642,6 +642,19 @@ impl ImModule {
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
+        if self
+            .state
+            .recent_message_coverage
+            .get(&request.channel_id)
+            .is_some_and(|coverage| !coverage.remote_exhausted)
+        {
+            // A full authoritative recent window proves only that older rows
+            // may exist. Preserve that proof in the render contract so shells
+            // can expose the bounded load-older action without guessing from
+            // the visible row count.
+            timeline_request.page.has_older = true;
+            timeline_request.page.has_more = true;
+        }
         timeline_request.surface_epoch = self.action_surface_epoch()?;
         timeline_request.action_authority_available = !self.config.auth_user_id.is_empty();
         let scope = crate::interaction_frame::SurfaceScope::Timeline {

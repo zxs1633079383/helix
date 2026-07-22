@@ -74,6 +74,8 @@ impl ImModule {
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(reply) => {
+                let has_durable_message_changes = !pending_domain_events.is_empty();
+                let hydration_already_pending = self.state.hydration_pending.contains(&channel_id);
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.on_persist_ok(corr, out)?;
                 }
@@ -137,6 +139,15 @@ impl ImModule {
                     self.maybe_continue_sync(channel_id, trigger, out);
                 } else {
                     self.finish_increment_hydration(channel_id, out)?;
+                    if has_durable_message_changes && !hydration_already_pending {
+                        // The legacy domain event is observability only. A Frame-only
+                        // renderer must be refreshed from the committed local fact;
+                        // otherwise a recipient can persist the WS post while its
+                        // attached timeline remains stale indefinitely. This is one
+                        // indexed attachment lookup plus one bounded local Scan.
+                        self.state.invalidate_recent_message_coverage(channel_id);
+                        self.refresh_attached_latest_timeline(channel_id, None, out)?;
+                    }
                 }
             }
             PortOutcome::Err(e) => {
@@ -361,5 +372,39 @@ impl ImModule {
         // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
         self.drain_sync_queue(out);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn committed_recipient_batch_refreshes_an_attached_timeline_from_storage() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: channel_id.as_str().to_string(),
+            window_token: "latest".to_string(),
+        };
+        module.state.timeline_projector.register_attachment(&scope);
+        let mut out = EffectSink::new();
+
+        module
+            .handle_channel_persist_reply(
+                helix_core::Correlation::from_raw(7),
+                channel_id,
+                SyncTrigger::Routine,
+                false,
+                Vec::new(),
+                vec![br#"{"event":"im:post:received","data":{}}"#.to_vec()],
+                &PortOutcome::Ok(helix_core::tick::ReplyBytes(bytes::Bytes::new())),
+                &mut out,
+            )
+            .expect("committed recipient batch schedules its render readback");
+
+        assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
     }
 }

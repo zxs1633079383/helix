@@ -1,0 +1,205 @@
+flowchart TD
+    %% 当前代码真源：2026-07-22
+    %% 实线 = cses-client 当前 Helix pin 可达的实运行路径
+    %% 虚线 = Helix main 已有但 cses-client 尚未 repin 的 V2 候选路径
+
+    subgraph UI["PC Angular message-v4 左侧 Dialog"]
+        U0["应用启动 ShellService.start"]
+        U1["invoke im_query_dialog_list"]
+        U2["Tauri listen im:__bus__"]
+        U3["ProjectionStore.ingest"]
+        U4["SurfaceRuntime apply InteractionFrame"]
+        U5["message.left-dialog-list"]
+        U6["行点击 emit channelSelected channelId"]
+        U7["MessagePage.activateChannel"]
+        U8["ProjectionStore.setActiveChannel\nattach timeline surface + request snapshot"]
+        U9["话题展开是 Angular local signal\n不改 Helix domain"]
+        U0 --> U1
+        U2 --> U3 --> U4 --> U5
+        U5 --> U6 --> U7 --> U8
+        U5 --> U9
+    end
+
+    subgraph NATIVE["cses-client Tauri / helix-driver-native"]
+        N0["helix_command / transport inbound"]
+        N1["Tick::Command / Tick::Inbound / Tick::Connected"]
+        N2["HostEngine biased select\nPortReply 优先于 transport/timer"]
+        N3["Shell.step tick now_ms"]
+        N4["dispatch Effect batch"]
+        N5["HTTP reqwest request pool"]
+        N6["WS tokio-tungstenite"]
+        N7["SQLite rusqlite StorageOp"]
+        N8["Tick::PortReply corr + outcome"]
+        N9["NativeEventSink tokio broadcast"]
+        N10["Tauri AppHandle.emit im:__bus__"]
+        N0 --> N1 --> N2 --> N3 --> N4
+        N4 --> N5 --> N8
+        N4 --> N6
+        N4 --> N7 --> N8
+        N8 --> N2
+        N4 --> N9 --> N10 --> U2
+    end
+
+    subgraph CORE["helix-core sans-IO"]
+        C0["Tick tagged union"]
+        C1["Module::on_tick"]
+        C2["Effect batch\nHttp / Persist / PersistAtomic / Emit"]
+        C0 --> C1 --> C2
+    end
+    N3 --> C0
+    C2 --> N4
+
+    subgraph BOOT["Helix 本地对话快照"]
+        B0["im_query_dialog_list command"]
+        B1["Effect::Persist Scan channel\nORDER BY is_top,last_post_at,create_at DESC"]
+        B2["PortReply rows"]
+        B3["render_ready_dialog_row\nsnake_case -> camelCase"]
+        B4["DialogListFrameState snapshot"]
+        B5["InteractionFrame v1\nreplaceView dialog + unread-summary"]
+        B0 --> B1 --> B2 --> B3 --> B4 --> B5
+    end
+    U1 --> N0
+    C1 --> B0
+    B1 --> C2
+    N8 --> B2
+    B5 --> C2
+
+    subgraph GO["cses-im-server 权威离线同步"]
+        G0["PostgreSQL\nchannel / channel_member / channel_event / post"]
+        G1["POST /api/cses/channels/load/increment"]
+        G2["LoadIncrementChannels async worker\nHTTP success 只表示 worker 已启动"]
+        G3["查成员频道并组装 IncrementChannel\nlastEventSeq + unread + needSync + topicMsgCount"]
+        G4["WS increment_channel x N"]
+        G5["WS increment_channel_end\n空集合也发 end"]
+        G6["POST /api/cses/channel/sync/notify\ncursors channelId + fromSeq"]
+        G7["成员权限 fail-closed\n批量查 max event_seq"]
+        G8{"gap = maxSeq - fromSeq"}
+        G9["no_change\nnextSeq = fromSeq"]
+        G10["events 最多 500\nnextSeq 锦标最后 event_seq\nmessages 按 viewer 过滤"]
+        G11["too_long when gap > 5000\nresetTo = maxSeq"]
+        G12["event types\n1 new / 2 edit / 3 delete / 6 read / 7 close"]
+        G13["WS ping cursors + allHash"]
+        G14["ReconcileCursors"]
+        G15["pong gaps / hashMismatch\n只报漂移，不带消息正文"]
+        G16["POST /api/cses/channel/load/incrementByChannelId\n陌生频道单点 hydration"]
+        G0 --> G3
+        G1 --> G2 --> G3 --> G4 --> G5
+        G6 --> G7 --> G8
+        G8 -- "gap <= 0" --> G9
+        G8 -- "0 < gap <= 5000" --> G10 --> G12
+        G8 -- "gap > 5000" --> G11
+        G13 --> G14 --> G15
+        G16 --> G3
+    end
+
+    subgraph IM["helix-im 同步状态机"]
+        H0["Connected 后等 Go hello"]
+        H1["hello 建 recovery session\n发 LoadIncrement"]
+        H2["increment_channel\n缓存 channel/member 写操作\n记录 server lastEventSeq，不假装本地 cursor"]
+        H3["increment_channel_end\n选 needSync 和未完成 channel"]
+        H4["SyncScheduler\n合并去重 channel cursor"]
+        H5["Effect::Http sync/notify"]
+        H6["handle_sync_reply"]
+        H7{"response kind"}
+        H8["no_change\n不改业务事实"]
+        H9["events 校验 event_seq 连续\n不可见 phantom 只推 cursor"]
+        H10["type7 close\ntombstone + terminal cursor"]
+        H11["too_long\n清派生 Dialog 字段 + latest post 恢复"]
+        H12["post_updates_from_fields\n自己/不可见 unread +0\n他人可见 unread +1\nmentions 命中 mention +1\nexpedite target 命中 urgent +1"]
+        H13["GuardedBump channel\nlast_post / sender / unread / mention / urgent"]
+        H14["DialogListFrameState\n有序对话 + 未读摘要"]
+        H0 --> H1 --> H2 --> H3 --> H4 --> H5 --> H6 --> H7
+        H7 -- "no_change" --> H8
+        H7 -- "events" --> H9 --> H12 --> H13
+        H7 -- "type7" --> H10
+        H7 -- "too_long" --> H11
+        H13 --> H14
+    end
+
+    N6 --> H0
+    H1 --> C2 --> G1
+    G4 --> N6 --> H2
+    G5 --> N6 --> H3
+    H5 --> C2 --> N5 --> G6
+    G9 --> N5 --> N8 --> H6
+    G10 --> N5
+    G11 --> N5
+    G15 --> N6 --> H4
+    U8 --> N0 --> H4
+
+    subgraph PIN["A. cses-client 当前 pin 477ca58 的实运行路径"]
+        P0["Effect::Persist\nmessage/channel/cursor 写 + 末尾 Get channel row"]
+        P1["SQLite 顺序执行\n返回最后一次 Get rows"]
+        P2["Tick::PortReply Ok + channel row"]
+        P3["on_persist_ok\n此时才推进内存 cursor"]
+        P4["PendingDialogPatch 从 row 组装 patch"]
+        P5["InteractionFrame v1 replaceView\ndialog + unread-summary"]
+        P0 --> P1 --> P2 --> P3 --> P4 --> P5
+    end
+    H13 --> P0
+    P0 --> C2 --> N7
+    N7 --> P1 --> N8
+    N8 --> P2
+    P5 --> C2
+
+    subgraph V2["B. Helix main ca79d82 已有，但 cses-client 尚未 repin 的候选路径"]
+        V0["Effect::PersistAtomic\n事件事实 + channel 派生 + recovery ledger + coverage receipt + cursor"]
+        V1["rusqlite transaction\n只允许写操作"]
+        V2A["Tick::PortReply Ok\nReplyBytes 为空"]
+        V3["on_persist_ok + recovery commit_ok"]
+        V4["SurfaceComposer\n只组合已 attach 且已提交的 surface"]
+        V5["InteractionFrameV2\nruntime online/ready/recovered\nViewMutation + transaction/revision/epoch"]
+        V6["当前缺口\nPendingDialogPatch 仍依赖 PortReply channel row\n但 PersistAtomic 不返回 row\n真 host 下离线新消息的 Dialog 回读缺一环"]
+        V0 --> V1 --> V2A --> V3 --> V4 --> V5
+        V2A --> V6
+    end
+    H13 -. "main candidate" .-> V0
+    V0 -.-> C2
+    C2 -.-> N7
+    N7 -.-> V1
+    V5 -.-> C2
+
+    subgraph ROW["左侧 Dialog 行字段投影"]
+        R0["channel.display_name\n-> displayName -> title.text"]
+        R1["picture / targetUsers\n-> ChannelAvatarRef.resource + fallbackText\n有 resource 显示 img，否则显示标题首字"]
+        R2["channel.last_post JSON\n-> PreviewVm Text/Document/Media/System/Recalled/Empty"]
+        R3["last_post.userId\n-> PreviewVm.author.userId\n当前 Angular 直接显示 userId，未解析昵称"]
+        R4["unread_count / mention_count / urgent_count\n-> badge + @ + urgent 标识"]
+        R5["topic_msg_count\n-> topicCount -> #count"]
+        R6["row.actions = empty\n左侧 Dialog 选中不走 ActionBinding"]
+        R7["ActionBinding 当前主要已接 timeline viewReceipt\n经 actionRef -> Tick::Command -> im_post_read_list"]
+        R0 --> U5
+        R1 --> U5
+        R2 --> U5
+        R3 --> U5
+        R4 --> U5
+        R5 --> U5
+        R6 --> U6
+        R7 --> N0
+    end
+    H14 --> R0
+    H14 --> R1
+    H14 --> R2
+    H14 --> R3
+    H14 --> R4
+    H14 --> R5
+    H14 --> R6
+
+    subgraph FAIL["失败和恢复不变量"]
+        F0["HTTP/parse/sequence/Persist 失败"]
+        F1["不推进 cursor\n不发最终业务 Frame"]
+        F2["recovery failed/syncing 状态\n保留已有可用 Cache"]
+        F3["pong gap / hashMismatch / explicit recover\n回到 SyncScheduler"]
+        F0 --> F1 --> F2 --> F3 --> H4
+    end
+    N8 -- "Err" --> F0
+    H9 -- "event_seq 不连续" --> F0
+
+    classDef live fill:#e8f5e9,stroke:#2e7d32,color:#1b1b1b;
+    classDef server fill:#e3f2fd,stroke:#1565c0,color:#1b1b1b;
+    classDef candidate fill:#fff8e1,stroke:#f9a825,color:#1b1b1b,stroke-dasharray: 6 4;
+    classDef gap fill:#ffebee,stroke:#c62828,color:#1b1b1b;
+    class G0,G1,G2,G3,G4,G5,G6,G7,G8,G9,G10,G11,G12,G13,G14,G15,G16 server;
+    class P0,P1,P2,P3,P4,P5,U0,U1,U2,U3,U4,U5,U6,U7,U8,U9 live;
+    class V0,V1,V2A,V3,V4,V5 candidate;
+    class V6,F0,F1,F2,F3 gap;

@@ -1,30 +1,63 @@
-# helix-im docs（IM 模块专属文档）
+# helix-im InteractionFrame v2 文档入口
 
-> 本目录只放 **helix-im 业务模块**自己的设计文档（IM 范畴）。
-> core 层通用契约在仓库根 `docs/`（如 [`docs/过会方案/helix-eventbus-设计.md`](../../../docs/过会方案/helix-eventbus-设计.md)）；本目录是它在 IM 侧的**落地实例**。
-> 2026-07-13 熵减规则：本页是 IM 模块 docs 的唯一入口。已删除的 takeover/sync-v2 阶段稿不再作路由；当前 UC 事实、投影字段和发布证据分别进入下方三个稳定入口。
+> 这是 V2 Agent 的最小上下文入口。先读 [`AGENTS.md`](./AGENTS.md)，再从本页按 Gate
+> 取用合同；不要以旧 V1 文档、raw emit 或端侧 ProjectionStore 建立 V2 运行时上下文。
+> V2 文档当前是实施合同，不是 runtime green 声明。
 
-## 当前事实入口
+## 只读这四类来源
 
-| 目录/文档 | 一句话 |
-|---|---|
-| [`前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](./前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **UC 消费视角真源**：Gate、command、Effect、HTTP、WS、Go DB、Helix storage 与 UI VM 的当前综合口径 |
-| [`Strict Matrix/README.md`](./Strict%20Matrix/README.md) | **UC 发布真源入口**：机器合同、生成矩阵、远端存储真源和持久证据包；缺任一证据面即 Red |
-| [`projection-schema.md`](./projection-schema.md) | **投影 payload 契约真源（C2 冻结）**：21 个 `im:__bus__` 投影 emit 工厂字段集 + 信号/透传/控制三类 + 命名陷阱词典。配 `tests/projection_schema_test.rs` 强制对账（缺失/多余即 fail）|
-| [`uc-automation/uc-command-set-spec.md`](./uc-automation/uc-command-set-spec.md) | 当前 UC command/query/event 契约入口；新增/删改 UC 先对齐这里，再改测试和下游文档 |
+| 优先级 | 文档 | 用途 |
+|---|---|---|
+| 1 | [`interaction-v2/`](./interaction-v2/) | V2 的逐 Gate 实施合同、Frame 语义、覆盖台账和运行辅助材料。 |
+| 2 | [`UC01-16-界面投影视图模型与交互帧合同.md`](./UC01-16-界面投影视图模型与交互帧合同.md) | 上位的 Surface、ViewModel、ActionBinding、Projector、InteractionFrame 与 SurfaceRuntime 边界。 |
+| 3 | [`UC01-27双视角功能与交互说明.md`](./UC01-27双视角功能与交互说明.md) | 发起者/接收者的产品交互、权限差异和双视角收敛目标。 |
+| 4 | [`前端UC投影指令与数据清单-最新代码分析-2026-07-09.md`](./前端UC投影指令与数据清单-最新代码分析-2026-07-09.md) | **仅按需的 V1/旧链前置参考**：字段、旧输入和迁移风险核验；不参与 V2 默认上下文，也不定义 V2 wire/fallback。 |
 
-## 支撑材料与历史材料
+当前代码、回放、测试和真实链路仍负责验证实现事实；它们不能被文档的“已覆盖”措辞替代。
 
-| 目录/文档 | 一句话 |
-|---|---|
-| [`csesapi-migration/`](./csesapi-migration/真机curl真源.md) | 迁移真源：真机 curl 6 抓 + createPosts 三方证据定论（附录 A）+ [全量图谱](./csesapi-migration/full-map/00-README-index.md) + [缺口矩阵](./csesapi-migration/full-map/30-capability-gap-matrix.md) |
-| [`design/`](./design/README.md) | mermaid 设计图：WS 入站管线 / send echo 对账 / sync 流 / gate 状态机 |
-| [`eventbus/`](./eventbus/) | IM EventBus 设计：场景全集（结合现网 cses-client）+ 下游消费者域卡 |
-| [`uc-automation/uc-test-order-spec.md`](./uc-automation/uc-test-order-spec.md) | 历史 DAG / 执行顺序参照；当前 UC 完整性以 `uc-command-set-spec.md` 为准 |
+## Gate 路由
 
-## 维护铁律
+| Gate | V2 分册 | 先解决的问题 |
+|---|---|---|
+| GS01-GS04 | [`01-GS01-GS04-同步到Frame完整时序与数据.md`](./interaction-v2/01-GS01-GS04-同步到Frame完整时序与数据.md) | hello、离线补偿、gap、陌生频道 hydration 如何在 `PersistOk` 后形成 Frame。 |
+| G01 | [`02-G01-文本发送到Frame完整时序与数据.md`](./interaction-v2/02-G01-文本发送到Frame完整时序与数据.md) | `message.composer` capability、temporary identity、Sending/Sent/Failed 与双用户收敛。 |
+| Frame/端侧消费 | [`03-FrameCache原子替换与三端渲染合同.md`](./interaction-v2/03-FrameCache原子替换与三端渲染合同.md) | typed decode、epoch/revision、原子 apply、ack/resync、directive 与 overlay 边界。 |
+| G02-G03a | [`04-G02-G03a-文档媒体上传与重试.md`](./interaction-v2/04-G02-G03a-文档媒体上传与重试.md) | 文档、媒体过程态与同一 temporary row 的重试。 |
+| G04-G07 | [`05-G04-G07-消息变更转发回应与加急.md`](./interaction-v2/05-G04-G07-消息变更转发回应与加急.md) | 撤回、转发、reaction、加急及确认。 |
+| G08-G12 | [`06-G08-G12-定时窗口定位与回复.md`](./interaction-v2/06-G08-G12-定时窗口定位与回复.md) | 定时、窗口、定位和 reply 的有界读取与投影。 |
+| G13-G14a | [`07-G13-G14a-未读回执与模板确认.md`](./interaction-v2/07-G13-G14a-未读回执与模板确认.md) | Viewer read、逐消息 receipt、模板确认的独立事实和 Surface。 |
+| G15-G16c | [`08-G15-G16c-建群话题与频道治理.md`](./interaction-v2/08-G15-G16c-建群话题与频道治理.md) | 建群、话题、关闭、退出和成员/频道治理。 |
+| 全 Gate/硬切 | [`09-全Gate覆盖矩阵与raw-emit下线清单.md`](./interaction-v2/09-全Gate覆盖矩阵与raw-emit下线清单.md) | Gate 状态、九项迁移闭环与 legacy raw emit 的物理下线范围。 |
 
-- **域卡 = 消费侧契约**：描述"下游域拿 IM 事件能干什么、需要哪些上下文"，不写 UI 实现细节。
-- **事件 type 唯一源**：所有 `im:*` 事件名以 `src/acl/to_effect.rs:140` 的生成点为准；域卡引用必须与之一致，漂移即修。
-- **新增下游域** → 照域卡模板（8 字段）补一张，强制过 §0 反推判据。
-- **当前 green 不来自本文**：本文只路由文档；runtime green 必须来自测试/gate/reviewer/collector。
+G04-G16c 的 Go HTTP/WS、Persist 屏障与完整 Frame 数据展开见
+[`interaction-v2/完整时序和数据/README.md`](./interaction-v2/完整时序和数据/README.md)。该目录是源码对齐说明，
+不替代本表的目标合同或 `09` 的验证状态。
+
+每次 V2 任务先读 [`00-首批纵切总览与硬切准入.md`](./interaction-v2/00-首批纵切总览与硬切准入.md)，
+再按表选择一个 Gate 分册。改 Frame wire/Cache/ack/resync 时加读 `03`；改 Gate 状态或
+raw emit 时加读 `09`。`flows/` 只服务 GS01-GS04 和 G01 的运行、证据与人工介入，不替代
+其实现合同。
+
+## V2 共同模型
+
+V2 的唯一业务 UI 下行是版本化 `InteractionFrame v2`：`runtime`、typed surface
+mutations 与一次性 `UiDirective` 在同一批次中交付。业务事实先经 Helix 持久化；只有
+`PersistOk -> SurfaceComposer -> InteractionFrame` 才能改变可见业务 UI。HTTP 2xx、raw
+WS、legacy emit 和 accepted receipt 都不能代替该链路。
+
+九个 Surface 为：
+
+`message.left-dialog-list`、`message.unread-summary`、`message.timeline`、
+`message.thread-detail`、`message.channel-summary`、`message.member-roster`、
+`message.topic-list`、`message.participant-receipts`、`message.composer`。
+
+`helix-im` 负责领域事实、影响面、排序、未读、权限、epoch/revision 和 action grant；PC/Mobile
+只做强类型 decode、Frame Cache 原子替换、renderer 映射与本地 overlay。未知类型、旧 epoch
+或 base revision gap 必须 fail-closed/resync，不能回退为 raw event reducer。
+
+## 何时才读 V1
+
+只有以下情形可按需打开“前端 UC 投影指令与数据清单”中的对应段落：核对旧字段、识别
+raw WS/HTTP 输入、评估迁移兼容风险，或对照旧链的已知事实。它的内容只能解释迁移起点，
+不能改变 V2 的 Surface owner、typed union、Persist barrier、Frame 原子性或 raw emit 硬切
+策略。发现 V1 未覆盖的新需求时，先补 V2 Gate 合同，再讨论实现。

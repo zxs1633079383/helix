@@ -518,15 +518,11 @@ impl ImModule {
                             ImError::Parse(format!("locate timeline projection: {error}"))
                         })?
                     {
-                        let frame = crate::projector::build_interaction_frame(
+                        out.push(self.build_registered_timeline_frame(
                             format!("locate-{req_id}"),
                             vec![mutation],
-                        )
-                        .map_err(|error| ImError::Serialize(error.to_string()))?;
-                        out.push(
-                            crate::projector::emit_interaction_frame(frame)
-                                .map_err(|error| ImError::Serialize(error.to_string()))?,
-                        );
+                            now_ms,
+                        )?);
                     }
                 }
             }
@@ -562,15 +558,11 @@ impl ImModule {
                                     ImError::Parse(format!("timeline receipt projection: {error}"))
                                 })?;
                             if !mutations.is_empty() {
-                                let frame = crate::projector::build_interaction_frame(
+                                out.push(self.build_registered_timeline_frame(
                                     format!("timeline-receipts-{req_id}"),
                                     mutations,
-                                )
-                                .map_err(|error| ImError::Serialize(error.to_string()))?;
-                                out.push(
-                                    crate::projector::emit_interaction_frame(frame)
-                                        .map_err(|error| ImError::Serialize(error.to_string()))?,
-                                );
+                                    now_ms,
+                                )?);
                             }
                         }
                     }

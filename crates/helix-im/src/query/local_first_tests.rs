@@ -848,6 +848,110 @@ fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
 }
 
 #[test]
+fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let rows_desc = vec![serde_json::json!({
+        "id": "message-author-1",
+        "temporaryId": "temporary-author-1",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 10,
+        "message": "hello",
+        "type": "TEXT",
+        "props": {},
+    })];
+    let mut query = request(20);
+    query.window_token = "receipt-patch-window".to_string();
+    let Effect::Emit { event } = module
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None)
+        .expect("initial query frame grants timeline actions")
+    else {
+        panic!("timeline query must emit a frame")
+    };
+    let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let initial_frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&event["data"]).unwrap(),
+    )
+    .unwrap();
+    let initial_mutation = &initial_frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &initial_mutation.mutation
+    else {
+        panic!("initial timeline must be a snapshot")
+    };
+    let initial_binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "viewReceipt")
+        .expect("self-authored message has a receipt action")
+        .clone();
+
+    let mutations = module
+        .state
+        .timeline_projector
+        .patch_receipts(&[serde_json::json!({
+            "postId": "message-author-1",
+            "readCount": 1,
+        })])
+        .expect("receipt authority advances the attached timeline");
+    assert_eq!(mutations.len(), 1);
+    let patch_revision = mutations[0].revision;
+    let patch_scope = mutations[0].scope.clone();
+    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
+        &mutations[0].mutation
+    else {
+        panic!("receipt authority must produce a timeline patch")
+    };
+    let patch_binding = patch.view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "viewReceipt")
+        .expect("receipt patch preserves the visible receipt action");
+    assert_eq!(patch_binding.action_ref, initial_binding.action_ref);
+    assert_ne!(patch_revision, initial_mutation.revision);
+
+    let effect = module
+        .build_registered_timeline_frame("timeline-receipts-test".to_string(), mutations, 1_001)
+        .expect("non-query patch regrants bindings before frame emission");
+    assert!(matches!(effect, Effect::Emit { .. }));
+
+    let envelope = crate::interaction_frame::ActionInvocationEnvelope {
+        schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        request_id: "receipt-after-patch".to_string(),
+        actor_id: "viewer-1".to_string(),
+        surface: crate::interaction_frame::SurfaceId::MessageTimeline,
+        scope: patch_scope,
+        surface_epoch: initial_binding.surface_epoch,
+        observed_revision: patch_revision,
+        invocation: crate::interaction_frame::ActionInvocation {
+            action_ref: initial_binding.action_ref,
+            input: std::collections::BTreeMap::new(),
+        },
+    };
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_002,
+            &mut sink,
+        )
+        .expect("the visible patch revision authorizes the unchanged action ref");
+    assert!(sink
+        .as_slice()
+        .iter()
+        .any(|effect| matches!(effect, Effect::Http { .. })));
+}
+
+#[test]
 fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completion() {
     use helix_core::Module;
 

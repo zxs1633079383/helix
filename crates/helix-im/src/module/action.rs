@@ -130,6 +130,26 @@ impl ImModule {
         Ok(())
     }
 
+    /// 在非 query 路径发出 timeline Frame 前，同步更新 registry 的 revision lease。
+    ///
+    /// `TimelineProjector` 的 locate/receipt patch 会复用现有 view 里的 opaque actionRef；虽然 ref
+    /// 不变，但 renderer 观察到的是新 revision。Frame 与 registry 必须在同一个编排边界推进，不能
+    /// 让端侧回退到旧 revision 猜测授权。
+    pub(crate) fn build_registered_timeline_frame(
+        &mut self,
+        frame_id: String,
+        mutations: Vec<SurfaceMutation>,
+        now_ms: u64,
+    ) -> Result<Effect, ImError> {
+        for mutation in &mutations {
+            self.register_timeline_action_bindings(mutation, now_ms)?;
+        }
+        let frame = crate::projector::build_interaction_frame(frame_id, mutations)
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))
+    }
+
     /// 受理 FFI/Web 送入的严格 envelope。`accepted` 只代表 canonical HTTP effect 已成功建模并登记
     /// corr；它绝不直接下发 participant receipt VM，也不让端侧把 accepted 当作 action 完成。
     pub(crate) fn handle_action_invocation(

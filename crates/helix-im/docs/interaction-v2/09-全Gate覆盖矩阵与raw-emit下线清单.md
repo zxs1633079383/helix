@@ -84,6 +84,30 @@
 
 本次仅产出文档，**未执行 producer/consumer 删除，也没有把任一 Gate 标记为 runtime green**。物理删除须等用户 review 明确通过后单独实施和验证。
 
+## 3.1 SPEC-001 V2 consumer gate and current raw-owner inventory (T048)
+
+The GS01-GS04 candidate has a fail-closed consumer rule: `InteractionFrameV2::decode` is the
+only accepted V2 recovery input. A V2 envelope cannot be decoded as `InteractionFrame`, and an
+invalid V2 envelope does not become a legacy `im:*` projection. The Rust contract test
+`v2_consumer_gate_has_no_v1_or_raw_projection_fallback` keeps this boundary explicit; PC and
+mobile retain their independently strict schema decoders.
+
+This is **deletion readiness inventory only**, captured against the current source tree. These
+legacy producers remain live and are not a fallback for GS01-GS04:
+
+| Owner | Current raw producer family | Required V2 replacement before separately authorised deletion |
+|---|---|---|
+| `crates/helix-im/src/channel/gate/projection.rs` | `im:post:*` from contiguous WS gate application | G01-G14a typed timeline/thread/dialog/receipt Frames |
+| `crates/helix-im/src/ws/handlers/post/parse.rs` | `im:post:received` unsequenced ingress | G01 typed post/frame path |
+| `crates/helix-im/src/ws/handlers/posts_update.rs` | `im:post:batch-updated` and delete projection | G04-G07 typed affected-surface Frames |
+| `crates/helix-im/src/increment_hydration.rs` | `im:channel:increment` | GS01-GS04 dialog/summary/unread/composer Frames |
+| `crates/helix-im/src/port_reply/dispatch*.rs` | channel/member/reply/read raw projections | G13-G16c typed surface Frames |
+| `crates/helix-im/src/client_api/capabilities.rs` | public legacy event capability list | Cutover must remove the matching producer and consumer entries together |
+
+No row above is approval to remove code. The required four-plane source pin, readonly database
+evidence and real-chain verification are still recorded by SPEC-001 T049/T050 before a human may
+authorise the independent physical deletion change.
+
 ## 5. 审查和实施准入
 
 ### 文档自审

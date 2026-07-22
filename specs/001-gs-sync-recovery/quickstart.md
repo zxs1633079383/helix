@@ -42,7 +42,7 @@ Expected results: global syncing appears while recovery is pending, dialog/unrea
 ## Phase B: Readonly data evidence
 
 1. Use local SQLite MCP to list tables and verify the fact tables, `channel_event_cursor`, `channel_event_ledger`, and `channel_sync_coverage`.
-2. Read the selected local channel's cursor, coverage rows, ledger range, message rows and members with strict `tenant_id`, `channel_id`, `event_seq` predicates and a limit.
+2. Read the selected local channel's cursor, coverage rows, ledger range, message rows and members with strict `tenant_actor_scope`, `channel_id`, `event_seq` predicates and a limit. The recovery ledger scope is an opaque, length-prefixed tenant/actor key; do not split or reconstruct it in a query client.
 3. Use PG MCP to read the corresponding `channel_event_head`, `channel_event`, `post`, `channel`, and `channel_member` rows over the same range.
 4. Compare identity, event range/count/hash, final cursor and documented fact mappings. Save query shape, not credentials or unbounded data.
 
@@ -76,3 +76,11 @@ local projected messages/channel/members == remote facts under documented mappin
 ## Stop And Escalate
 
 Stop and request human intervention for local-ahead-of-remote, unresolvable authority conflict, missing readonly access, any need for DB write/DDL in a real environment, real-user data exposure, or a request to change the signed-off V2 interaction semantics. Do not “repair” evidence by editing SQLite, PG or the Frame cache.
+
+## Readonly Query Parameters
+
+Use `:tenant_actor_scope` only for `channel_event_ledger` and `channel_sync_coverage`; it is the
+exact opaque result of the active candidate's `recovery_tenant_actor_scope(tenant, actor)`.
+`channel_member.team_id` remains `:tenant`, because it is a source fact rather than recovery
+audit partitioning. Keep every query bounded by `:channel`, `:from_seq`, `:to_seq`, and
+`1 <= :limit <= 500`; read-only MCP is validation evidence, never a migration or repair tool.

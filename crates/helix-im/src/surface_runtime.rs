@@ -15,9 +15,9 @@ use serde_json::Value;
 use crate::error::ImError;
 use crate::interaction_frame::{
     ActionBinding, ChannelAvatarRef, ChannelLifecycleVm, ChannelRole, ChannelSummaryVm,
-    ChannelTitleRef, MemberRosterVm, MemberRowVm, MembershipState, NotificationMode, PreviewVm,
-    ReceiptKind, SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, ThreadDetailVm,
-    TopicListVm, TopicRowVm, UserRefVm, WindowPageVm,
+    ChannelTitleRef, ComposerState, ComposerVm, MemberRosterVm, MemberRowVm, MembershipState,
+    NotificationMode, PreviewVm, ReceiptKind, SurfaceId, SurfaceLoadState, SurfaceMutation,
+    SurfaceScope, ThreadDetailVm, TopicListVm, TopicRowVm, UserRefVm, WindowPageVm,
 };
 use crate::projector::participant_receipts::{ParticipantReceiptsData, ParticipantReceiptsRequest};
 use crate::state::CorrelationContext;
@@ -97,6 +97,9 @@ impl ImModule {
             (SurfaceId::MessageThreadDetail, SurfaceScope::Thread { .. }) => {
                 self.start_thread_snapshot(request, out)
             }
+            (SurfaceId::MessageComposer, SurfaceScope::Channel { .. }) => {
+                self.emit_composer_snapshot(request, out)
+            }
             (SurfaceId::MessageChannelSummary, SurfaceScope::Channel { .. })
             | (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { .. })
             | (SurfaceId::MessageTopicList, SurfaceScope::TopicList { .. }) => {
@@ -109,6 +112,39 @@ impl ImModule {
                 "surface resync surface/scope mismatch".to_string(),
             )),
         }
+    }
+
+    fn emit_composer_snapshot(
+        &mut self,
+        request: SurfaceResyncRequest,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let SurfaceScope::Channel { channel_id } = &request.scope else {
+            return Err(ImError::Parse(
+                "composer snapshot requires channel scope".to_string(),
+            ));
+        };
+        let surface_epoch = self.action_surface_epoch()?;
+        let mutation = self
+            .state
+            .composer_projector
+            .snapshot(ComposerVm {
+                channel_id: channel_id.clone(),
+                state: ComposerState::Ready,
+                draft_policy: "message.compose.text.v1".to_string(),
+                actions: vec![ActionBinding {
+                    action_ref: format!("disabled:im.send-message:{channel_id}"),
+                    kind: "im.send-message".to_string(),
+                    input_shape: "message.compose.text.v1".to_string(),
+                    surface_epoch,
+                    enabled: false,
+                    disabled_reason: Some("unsupportedByAuthorityV1".to_string()),
+                }],
+                capability_epoch: surface_epoch,
+            })
+            .map_err(|error| ImError::Parse(format!("composer projection: {error}")))?;
+        out.push(frame_for_mutation("surface-composer", mutation)?);
+        Ok(())
     }
 
     fn start_storage_snapshot(
@@ -786,5 +822,46 @@ mod tests {
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::Persist { .. })));
+    }
+
+    #[test]
+    fn composer_resync_emits_one_typed_snapshot_without_io() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let request = SurfaceResyncRequest {
+            surface: SurfaceId::MessageComposer,
+            scope: SurfaceScope::Channel {
+                channel_id: "ch00000000000000000000000b".to_string(),
+            },
+        };
+        let mut sink = EffectSink::new();
+
+        module
+            .handle_surface_resync(
+                &serde_json::to_vec(&request).expect("surface request serializes"),
+                1,
+                &mut sink,
+            )
+            .expect("composer resync emits an authoritative snapshot");
+
+        assert_eq!(
+            sink.as_slice().len(),
+            1,
+            "composer attach must remain O(1) and I/O-free"
+        );
+        let Effect::Emit { event } = &sink.as_slice()[0] else {
+            panic!("composer attach must emit exactly one typed Frame")
+        };
+        let envelope: Value = serde_json::from_slice(event.0.as_ref()).expect("frame JSON");
+        let mutation = &envelope["data"]["mutations"][0];
+        assert_eq!(mutation["surface"], "message.composer");
+        assert_eq!(mutation["scope"]["kind"], "channel");
+        assert_eq!(mutation["revision"], 1);
+        assert_eq!(mutation["mutation"]["kind"], "composerSnapshot");
+        assert_eq!(mutation["mutation"]["view"]["state"], "ready");
+        assert_eq!(
+            mutation["mutation"]["view"]["draftPolicy"],
+            "message.compose.text.v1"
+        );
+        assert_eq!(mutation["mutation"]["view"]["actions"][0]["enabled"], false);
     }
 }

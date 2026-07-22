@@ -170,6 +170,7 @@ pub struct ImState {
     /// SurfaceRuntime，不能跨登录会话复用 revision。
     pub(crate) channel_summary_projector:
         crate::projector::channel_summary::ChannelSummaryProjector,
+    pub(crate) composer_projector: crate::projector::composer::ComposerProjector,
     pub(crate) member_roster_projector: crate::projector::member_roster::MemberRosterProjector,
     pub(crate) topic_list_projector: crate::projector::topic_list::TopicListProjector,
 
@@ -239,6 +240,7 @@ impl ImState {
                 crate::projector::thread_detail::ThreadDetailProjector::default(),
             channel_summary_projector:
                 crate::projector::channel_summary::ChannelSummaryProjector::default(),
+            composer_projector: crate::projector::composer::ComposerProjector::default(),
             member_roster_projector:
                 crate::projector::member_roster::MemberRosterProjector::default(),
             topic_list_projector: crate::projector::topic_list::TopicListProjector::default(),
@@ -292,6 +294,7 @@ impl ImState {
         self.timeline_projector.reset();
         self.thread_detail_projector.reset();
         self.channel_summary_projector.reset();
+        self.composer_projector.reset();
         self.member_roster_projector.reset();
         self.topic_list_projector.reset();
         self.action_registry.clear();

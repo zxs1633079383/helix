@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 pub mod action;
 pub mod channel_summary;
+pub mod composer;
 pub mod member_roster;
 pub mod participant_receipts;
 pub mod thread_detail;

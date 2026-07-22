@@ -33,7 +33,7 @@
 - [X] T010 Define O(1) ledger/coverage `StorageOp` builders with canonical event/fact hash inputs in `crates/helix-im/src/acl/storage_effects.rs`.
 - [X] T011 Convert sync fact persistence to one correlated write-only `PersistAtomic` write set containing facts, ledger, coverage, and cursor in `crates/helix-im/src/sync/flow.rs`.
 - [X] T012 Prove a failed atomic write rolls back facts, ledger, coverage and cursor without emitting a final frame in `crates/helix-im/tests/gs_persist_barrier_test.rs`.
-- [ ] T013 Create the attach-aware `SurfaceChangeSet` and channel interaction-bundle interface in `crates/helix-im/src/surface_composer.rs`.
+- [X] T013 Create the attach-aware `SurfaceChangeSet` and channel interaction-bundle interface in `crates/helix-im/src/surface_composer.rs`.
 - [ ] T014 Add V2 GS01-GS04 canonical, duplicate, revision-gap, persist-failure and unknown-channel fixtures in `crates/helix-im/tests/fixtures/uc01-16-surface-runtime/`.
 - [ ] T015 [P] Add `message.composer` scope, `ComposerVm`, runtime decoding and strict v2 validation in `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-contract.types.ts` and `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-contract.codec.ts`.
 - [ ] T016 Update FrameCache staging so runtime plus all attached V2 slots publish through one version swap and only post-commit directives/acks run in `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts`.

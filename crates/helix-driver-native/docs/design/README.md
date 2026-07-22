@@ -27,7 +27,7 @@ WS 协议 / HTTP / SQLite 的真正执行已下沉 `helix-driver-host`（ADR-007
 1. **回灌必达**：PortReply 走独立 unbounded `reply_tx`，永不堵塞 worker。🔴 红线：reply_tx 绝不能改有界——否则 Block 死锁环回来。
 2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满 `submit().await` 把背压传导回 tick_tx（慢而不丢）。HttpFire 走 DropNewest（满即丢当前条目 + warn）。🔴 红线：抽水绝不放泵循环。
 3. **同 key 写顺序**：Persist per-table-set `BoundedSpawner` 强制 N=1（单消费者保序）；多表 ops 走组合键独立实例。Http/HttpFire 无写序要求（N=8）。
-4. **回灌优先**：biased `select!` 把 `reply_rx` 排在 `tick_rx` 前，防 PortReply 饥饿。
+4. **回灌优先但不饿死入站**：biased `select!` 把 `reply_rx` 排在 `tick_rx` 前；连续 64 条 PortReply 后若 tick 已排队，强制消费 1 条入站，再恢复回灌优先。
 5. **graceful drain**：`run_engine_loop` 返回 = 全部已接收 Persist + 必达 Http 已落地（shutdown：drop tx → join workers → drain replies）。HttpFire 可丢，不纳入保证。
 
 ## ⚠️ 已知缺口（图中标 ⚠️）

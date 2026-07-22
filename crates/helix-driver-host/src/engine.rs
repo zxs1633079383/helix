@@ -18,7 +18,8 @@
 //! 2. 主循环不等 I/O：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx
 //!    （🔴 抽水绝不放泵循环）。HttpFire 走 DropNewest（满即丢当前条目，泵不阻塞）。
 //! 3. 同 key 写顺序：Persist per-table-set N=1 单消费者保序。
-//! 4. 回灌优先：biased select reply_rx 在前。
+//! 4. 回灌优先但不饿死入站：biased select reply_rx 在前；连续 64 条回灌后若入站已排队，
+//!    强制消费 1 条入站，再恢复回灌优先。
 //! 5. graceful drain：返回 = 全部已接收 Persist **已落地** + 必达 Http **已持久化(乐观态)**。
 //!    必达 Http drain 有上限（`HTTP_DRAIN_LIMIT`）：在途请求超时则 abort，不等满网络 timeout。
 //!    「必达」由乐观态(status=Sending)落库 + 重连重发对账承担，不由「drain 必等满网络」承担——
@@ -47,6 +48,8 @@ mod shutdown;
 mod types;
 use perf_metrics::EngineMetricRecorder;
 use shutdown::drain_pools;
+
+const MAX_CONSECUTIVE_REPLIES: usize = 64;
 
 pub use entrypoints::{run_engine_loop, run_engine_loop_stamped};
 
@@ -168,44 +171,61 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
     // 事件泵主循环。
     //
     // biased select!：reply_rx 排在前 → PortReply 优先于新入站 Tick（不变量4）。
+    // 有界公平闸避免持续 sync PortReply 洪峰让用户 Command / 新 WS 帧永久排队。
     // shutdown_armed：oneshot 只允许被 poll 到完成一次（poll-after-completion 会 panic），
     // 完成后该分支永久解除武装。
     let mut shutdown_armed = true;
+    let mut consecutive_replies = 0usize;
     loop {
         perf_metrics.record_queue_snapshot(tick_rx.len(), tick_rx.max_capacity());
-        let (tick, queue_wait) = tokio::select! {
-            biased;
+        let forced_ingress = if consecutive_replies >= MAX_CONSECUTIVE_REPLIES {
+            tick_rx.try_recv().ok()
+        } else {
+            None
+        };
+        let (tick, queue_wait) = if let Some(queued) = forced_ingress {
+            queued
+        } else {
+            tokio::select! {
+                biased;
 
-            // 优先：PortReply 回灌
-            Some(reply) = reply_rx.recv() => (reply, None),
+                // 优先：PortReply 回灌
+                Some(reply) = reply_rx.recv() => (reply, None),
 
-            // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
-            // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
-            // I/O」）。排在 reply_rx 之后保「回灌优先」（不变量4）；排在 shutdown/tick 之前确保
-            // 连接成功的句柄尽快可见，缩短「连上但句柄未入表」窗口（μs 级）。
-            Some(registration) = transport_rx.recv() => {
-                let TransportRegistration { id, sender, registered_tx } = registration;
-                tracing::info!(transport_id = id.raw(), "transport 连接成功，注册入路由表");
-                transports.insert(id, sender);
-                registered_tx.send(()).ok();
-                continue;
-            }
+                // 紧随回灌：transport 注册（连接成功后投递的句柄进表）。
+                // insert 是 O(1) 内存操作、非 I/O，单独 continue 不进 step（守不变量2「主循环不等
+                // I/O」）。排在 reply_rx 之后保「回灌优先」（不变量4）；排在 shutdown/tick 之前确保
+                // 连接成功的句柄尽快可见，缩短「连上但句柄未入表」窗口（μs 级）。
+                Some(registration) = transport_rx.recv() => {
+                    let TransportRegistration { id, sender, registered_tx } = registration;
+                    tracing::info!(transport_id = id.raw(), "transport 连接成功，注册入路由表");
+                    transports.insert(id, sender);
+                    registered_tx.send(()).ok();
+                    continue;
+                }
 
-            // 次选：shutdown 信号（graceful drain 入口）
-            res = &mut shutdown_rx, if shutdown_armed => {
-                shutdown_armed = false;
-                if res.is_ok() { break; }
-                continue;
-            }
+                // 次选：shutdown 信号（graceful drain 入口）
+                res = &mut shutdown_rx, if shutdown_armed => {
+                    shutdown_armed = false;
+                    if res.is_ok() { break; }
+                    continue;
+                }
 
-            // 三选：入站 Tick（Command / Inbound / Timer / …）
-            queued = tick_rx.recv() => {
-                match queued {
-                    Some(t) => t,
-                    None => break, // tick 通道关闭，进入 graceful drain
+                // 三选：入站 Tick（Command / Inbound / Timer / …）
+                queued = tick_rx.recv() => {
+                    match queued {
+                        Some(t) => t,
+                        None => break, // tick 通道关闭，进入 graceful drain
+                    }
                 }
             }
         };
+
+        if matches!(tick, Tick::PortReply { .. }) {
+            consecutive_replies = consecutive_replies.saturating_add(1);
+        } else {
+            consecutive_replies = 0;
+        }
 
         let metric_context = perf_metrics.on_tick(&tick, queue_wait);
 

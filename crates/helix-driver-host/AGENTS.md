@@ -27,7 +27,7 @@ PC Tauri（native）与 Flutter FFI **共享**的 host driver 层（ADR-007）�
 1. **回灌必达**：PortReply 走独立 unbounded reply_tx（🔴 绝不改有界，否则 Block 死锁环回来）。
 2. **主循环不等 I/O**：Persist / 必达 Http 入有界队列即返回；满则 Block 传导回 tick_tx（🔴 抽水绝不放泵循环）。HttpFire DropNewest（满即丢当前条目，泵不阻塞）。
 3. **同 key 写顺序**：Persist per-table-set BoundedSpawner 强制 N=1（单消费者保序）。
-4. **回灌优先**：biased select reply_rx 在前。
+4. **回灌优先但不饿死入站**：biased select reply_rx 在前；连续 64 条 PortReply 后若 tick 已排队，强制消费 1 条入站，再恢复回灌优先。
 5. **graceful drain**：`run_engine_loop` 返回 = 全部已接收 Persist **已落地** + 必达 Http **已持久化(乐观态)**。必达 Http drain **有上限**（`HTTP_DRAIN_LIMIT`，3s）：在途 reqwest 超时则 abort，**生命周期绝不被网络 I/O 阻塞**（fix/lifecycle-net-decouple）。「必达」由乐观态(status=Sending)落库 + 重连重发对账承担，不由「drain 必等满网络」承担。Persist drain 无上限（本地 DB 写，毫秒级，保「同 key 写序+全落地」）。HttpFire 可丢，不纳入。
 
 > Block 模式死锁安全：抽水在独立 worker task + reply_tx unbounded → 依赖链单向 DAG（泵等 worker，worker 不等泵）→ 无环。已压测验证（native stress_engine 复用此核）。

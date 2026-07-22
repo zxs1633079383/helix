@@ -13,7 +13,7 @@
 2. **主循环不等 I/O（Block 传导回源）**：Persist / 必达 Http 入有界队列即返回；队满时 `submit().await` 把背压传导回 tick_tx（慢而不丢，绝不 drop）。HttpFire 走 DropNewest（try_send 满即丢当前条目 + warn，泵不阻塞）。
    🔴 红线：抽水绝不放泵循环——任何「dispatch 末尾 await worker 完成」都会引入自死锁。抽水在独立 worker task，submit 即返回循环。
 3. **同 key 写顺序**：Persist per-table-set BoundedSpawner **强制 N=1**（单消费者保序）；多表 ops 走组合键独立实例（跨 key 不保证相对顺序——需有序就合进同一 Persist）。Http/HttpFire 无写序要求（N=8）。
-4. **回灌优先**：biased select reply_rx 在前
+4. **回灌优先但不饿死入站**：biased select reply_rx 在前；连续 64 条 PortReply 后若 tick 已排队，强制消费 1 条入站，再恢复回灌优先
 5. **graceful drain**：「run_engine_loop 返回 = 全部已接收 Persist **已落地** + 必达 Http **已持久化(乐观态)**」。Persist drain 无上限（本地 DB 写，毫秒级，`shutdown` drop tx → join workers → drain replies）；**必达 Http drain 有上限**（`shutdown_with_timeout(HTTP_DRAIN_LIMIT=3s)`，在途 reqwest 超时则 abort，**生命周期绝不被网络 I/O 阻塞**，fix/lifecycle-net-decouple）。「必达」由乐观态(status=Sending)落库 + 重连重发对账承担，不由「drain 必等满网络」承担。HttpFire 可丢，不纳入「必达落地」保证。
 
 ### Block 模式死锁安全（与现有 Persist 模型同构，已压测验证）

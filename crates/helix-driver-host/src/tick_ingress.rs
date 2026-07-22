@@ -69,6 +69,12 @@ impl TickIngressReceiver {
         self.rx.len()
     }
 
+    pub(crate) fn try_recv(&mut self) -> Result<(Tick, Duration), mpsc::error::TryRecvError> {
+        self.rx
+            .try_recv()
+            .map(|item| (item.tick, item.enqueued_at.elapsed()))
+    }
+
     pub(crate) fn max_capacity(&self) -> usize {
         self.rx.max_capacity()
     }
@@ -114,6 +120,15 @@ impl EngineTickReceiver {
         match self {
             Self::Raw(rx) => rx.len(),
             Self::Stamped(rx) => rx.len(),
+        }
+    }
+
+    pub(crate) fn try_recv(
+        &mut self,
+    ) -> Result<(Tick, Option<Duration>), mpsc::error::TryRecvError> {
+        match self {
+            Self::Raw(rx) => rx.try_recv().map(|tick| (tick, None)),
+            Self::Stamped(rx) => rx.try_recv().map(|(tick, wait)| (tick, Some(wait))),
         }
     }
 

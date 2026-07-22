@@ -9,8 +9,12 @@ use serde_json::{json, Value};
 use std::collections::HashSet;
 
 pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
-    let receipts: Vec<Value> = body
-        .get("data")
+    let receipts = project(body);
+    emit_value(json!({ "reqId": req_id, "receipts": receipts }))
+}
+
+pub(crate) fn project(body: &Value) -> Vec<Value> {
+    body.get("data")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -123,8 +127,7 @@ pub(crate) fn emit(req_id: &str, body: &Value) -> Effect {
                 "unreaders": unreaders,
             }))
         })
-        .collect();
-    emit_value(json!({ "reqId": req_id, "receipts": receipts }))
+        .collect()
 }
 
 fn unavailable_receipt(

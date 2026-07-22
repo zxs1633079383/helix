@@ -405,6 +405,28 @@ fn make_topic_maps_only_canonical_fields() {
 }
 
 #[test]
+fn make_topic_forwards_optional_user_confirmed_display_name() {
+    let (url, body) = one_http(run(
+        "im_make_topic",
+        json!({
+            "root_id": "r1",
+            "user_ids": ["u1", "u2"],
+            "display_name": "设计评审",
+            "req_id": "topic-request-2"
+        }),
+    ));
+    assert_eq!(url, "http://x/api/cses/posts/makeTopic");
+    assert_eq!(
+        body,
+        json!({
+            "rootId": "r1",
+            "userIds": ["u1", "u2"],
+            "displayName": "设计评审"
+        })
+    );
+}
+
+#[test]
 fn create_channel_maps_only_canonical_fields() {
     let (url, body) = one_http(run(
         "im_create_channel",
@@ -476,6 +498,13 @@ fn create_channel_and_make_topic_reject_legacy_unknown_and_wrong_types() {
     assert!(err(
         "im_make_topic",
         json!({ "root_id": "r1", "user_ids": ["u1"] })
+    ));
+    assert!(err(
+        "im_make_topic",
+        json!({
+            "root_id": "r1", "user_ids": ["u1"],
+            "display_name": 42, "req_id": "topic-request-1"
+        })
     ));
 }
 

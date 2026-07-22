@@ -86,25 +86,34 @@ inventory::submit! {
     }
 }
 
-/// G-15 POST /api/cses/posts/makeTopic — 只透传 root post 与目标用户。source channel、
-/// display name、team、creator role 和默认 USER 图片均由 Go 用 root post + session 派生；`req_id`
-/// 只作为 host/Helix 关联键，不能泄漏进 HTTP body。
+/// G-15 POST /api/cses/posts/makeTopic — 透传 root post、目标用户与用户确认的话题名。
+/// source channel、team、creator role 和默认 USER 图片仍由 Go 用 root post + session 派生；
+/// `req_id` 只作为 host/Helix 关联键，不能泄漏进 HTTP body。
 struct MakeTopicCommand;
 impl OutboundCommand for MakeTopicCommand {
     fn name(&self) -> &'static str {
         "im_make_topic"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
-        require_exact_keys(args, &["root_id", "user_ids", "req_id"], self.name())?;
+        require_exact_keys(
+            args,
+            &["root_id", "user_ids", "display_name", "req_id"],
+            self.name(),
+        )?;
         let root_id = require_str(args, "root_id", self.name())?;
         let user_ids = require_non_empty_string_array(args, "user_ids", self.name())?;
         require_str(args, "req_id", self.name())?;
+        let mut body = json!({
+            "rootId": root_id,
+            "userIds": user_ids,
+        });
+        if args.get("display_name").is_some() {
+            let display_name = require_str(args, "display_name", self.name())?;
+            body["displayName"] = serde_json::Value::String(display_name.to_string());
+        }
         Ok((
             "posts/makeTopic",
-            json!({
-                "rootId": root_id,
-                "userIds": user_ids,
-            }),
+            body,
         ))
     }
 }

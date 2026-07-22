@@ -1,5 +1,7 @@
 ## 0. 当前任务
 
+🎯 EXPECT 修复 G05 Native 多目标转发终局 overlay：只改 cses-client 转发 overlay 的关闭/尺寸契约与 focused harness 诊断，不把 createPosts HTTP 受理当成投递成功；可证伪断言：提交后的 overlay 在 Helix terminal causation Frame 到达前后都不会被 backdrop/Escape 隐式销毁，两个目标仍只在 matching WS + PersistOk Frame 后投影为 pending，Angular focused tests 与 tsc 通过 | 赌注 中 | 可逆 是 | @2026-07-22T12:13:00-0700
+
 🎯 EXPECT 并行实现 G08-G12 的专属 Rust query/schedule/timeline/reply 模块与 focused 测试、必要的 cses-client 专属组件测试；可证伪断言：不修改已声明共享 owner 文件，G08 owner-only hydrate、G09 取消/到点 G01 边界、G10 Observation/Action、G11 VM target/directive 无 payload、G12 query graph/G01 reply 依赖均有回归，批量 focused Rust/Angular 验证通过后才更新 task/handoff，不运行 Native E2E | 赌注 高 | 可逆 是 | @2026-07-22T08:18:00-0700
 
 🎯 EXPECT 调用 Spec Kit implement 完成 G04-G16 的 Helix/Go/cses-client 纵切，并在依赖允许时按不重叠 owner/file set 并行；可证伪断言：① 004-016 逐组执行 before_implement admission，测试先于实现且完成 task 才标 `[X]`；② ActionBinding/Tick/authority/PersistOk/完整 Frame/Angular UI 不回退 raw reducer；③ 最后只由 017 构建 final Native candidate，双账号连续 UC04-16 required fail=0/skip=0；④ 每个 UC 产出 handoff.md，记录真实完成、证据、耗时与未决项；⑤ 同一失败签名最多自动修复两次，第三次 NeedsHuman | 赌注 高 | 可逆 是 | @2026-07-22T08:05:00-0700

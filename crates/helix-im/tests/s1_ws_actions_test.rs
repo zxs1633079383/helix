@@ -50,15 +50,27 @@ fn emit_data(sink: &helix_core::EffectSink, event_name: &str) -> Vec<serde_json:
         .collect()
 }
 
-/// 取本批所有 StorageOp（展开 Persist/PersistFire 的 ops）。
+/// 取本批所有 StorageOp（展开 Persist/PersistAtomic/PersistFire 的 ops）。
 fn storage_ops(sink: &helix_core::EffectSink) -> Vec<StorageOp> {
     sink.as_slice()
         .iter()
         .flat_map(|e| match e {
-            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => ops.clone(),
+            Effect::Persist { ops, .. }
+            | Effect::PersistAtomic { ops, .. }
+            | Effect::PersistFire { ops } => ops.clone(),
             _ => Vec::new(),
         })
         .collect()
+}
+
+fn persist_atomic_corr(sink: &helix_core::EffectSink) -> u64 {
+    sink.as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("WS mutation must wait on one atomic persistence barrier")
 }
 
 /// 断言：存在一个写 `table` 表、含 `col` 列且值匹配的 BatchUpdate/BatchUpsert。
@@ -323,6 +335,7 @@ fn post_update_edits_content_only_and_emits_s1() {
         1_000,
     );
     let ops = storage_ops(&h.sink);
+    let corr = persist_atomic_corr(&h.sink);
     assert!(
         has_write_to_table(&ops, "message"),
         "post_update 须写 message"
@@ -347,6 +360,8 @@ fn post_update_edits_content_only_and_emits_s1() {
         )),
         "post_update 明确携带 expediteMap 时必须持久化，ops: {ops:?}"
     );
+    assert!(emit_names(&h.sink).is_empty(), "PersistOk 前不得发布编辑终态");
+    let _ = h.step(port_reply_ok(corr), 1_001);
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:post:updated"));
     let updated = emit_data(&h.sink, "im:post:updated");
     assert_eq!(
@@ -459,7 +474,7 @@ fn posts_update_batch_revoke_and_edit_s1() {
             "action": "posts_update",
             "data": {
                 "channelId": cid(3),
-                "event_seq": 11,
+                "event_seq": 1,
                 "posts": [
                     { "id": "00000000000000000000000010", "channelId": cid(3), "revoke": true },
                     { "id": "00000000000000000000000011", "channelId": cid(3), "message": "edit2" }
@@ -469,6 +484,7 @@ fn posts_update_batch_revoke_and_edit_s1() {
         1_000,
     );
     let ops = storage_ops(&h.sink);
+    let corr = persist_atomic_corr(&h.sink);
     // 撤回行 → patch revoke=1。
     assert!(
         matches!(
@@ -485,11 +501,13 @@ fn posts_update_batch_revoke_and_edit_s1() {
     assert!(has_edit, "posts_update 编辑行须写内容，ops: {ops:?}");
     // 回归锚: A4 —— posts_update emit im:post:batch-updated（非 im:post:updated），
     // payload 形态 {posts:[...]}（前端 message_loop.rs:187/341 专门按此事件名+形态解析）。
+    assert!(emit_names(&h.sink).is_empty(), "PersistOk 前不得发布批量终态");
+    let _ = h.step(port_reply_ok(corr), 1_001);
     assert!(
         emit_names(&h.sink)
             .iter()
             .any(|n| n == "im:post:batch-updated"),
-        "posts_update 须 emit im:post:batch-updated（A4），got {:?}",
+        "posts_update 须在 PersistOk 后 emit im:post:batch-updated（A4），got {:?}",
         emit_names(&h.sink)
     );
     assert!(
@@ -518,7 +536,7 @@ fn posts_update_revoke_emits_viewer_ready_system_event_from_optional_event_metad
             "action": "posts_update",
             "data": {
                 "channelId": cid(3),
-                "event_seq": 12,
+                "event_seq": 1,
                 "posts": [{
                     "id": "00000000000000000000000010",
                     "channelId": cid(3),
@@ -527,31 +545,34 @@ fn posts_update_revoke_emits_viewer_ready_system_event_from_optional_event_metad
                 }],
                 "actor_id": "viewer-444",
                 "target_msg_id": "00000000000000000000000010",
-                "event_id": format!("revoke:{}:12", cid(3)),
-                "occurred_at": 1_700_000_012_i64,
+                "event_id": format!("revoke:{}:1", cid(3)),
+                "occurred_at": 1_700_000_001_i64,
                 "system_event": {
                     "type": "system",
                     "kind": "system",
                     "system": true,
                     "systemEvent": "message-recalled",
-                    "eventId": format!("revoke:{}:12", cid(3)),
-                    "eventSeq": 12,
+                    "eventId": format!("revoke:{}:1", cid(3)),
+                    "eventSeq": 1,
                     "channelId": cid(3),
                     "actorId": "viewer-444",
                     "targetMsgId": "00000000000000000000000010",
                     "recalledMsgId": "00000000000000000000000010",
-                    "occurredAt": 1_700_000_012_i64
+                    "occurredAt": 1_700_000_001_i64
                 }
             }
         })),
         1_000,
     );
+    let corr = persist_atomic_corr(&h.sink);
+    assert!(emit_data(&h.sink, "im:post:deleted").is_empty());
+    let _ = h.step(port_reply_ok(corr), 1_001);
     let deleted = emit_data(&h.sink, "im:post:deleted");
     assert_eq!(deleted.len(), 1);
     let data = &deleted[0];
     assert_eq!(data["systemEvent"], "message-recalled");
-    assert_eq!(data["eventId"], format!("revoke:{}:12", cid(3)));
-    assert_eq!(data["eventSeq"], 12);
+    assert_eq!(data["eventId"], format!("revoke:{}:1", cid(3)));
+    assert_eq!(data["eventSeq"], 1);
     assert_eq!(data["actorId"], "viewer-444");
     assert_eq!(data["targetMsgId"], "00000000000000000000000010");
     assert_eq!(data["displayText"], "你撤回了一条消息");
@@ -569,7 +590,7 @@ fn posts_update_revoke_without_actor_metadata_falls_back_visible_and_not_self() 
             "action": "posts_update",
             "data": {
                 "channelId": cid(3),
-                "event_seq": 13,
+                "event_seq": 1,
                 "posts": [{
                     "id": "00000000000000000000000010",
                     "channelId": cid(3),
@@ -580,6 +601,9 @@ fn posts_update_revoke_without_actor_metadata_falls_back_visible_and_not_self() 
         })),
         1_000,
     );
+    let corr = persist_atomic_corr(&h.sink);
+    assert!(emit_data(&h.sink, "im:post:deleted").is_empty());
+    let _ = h.step(port_reply_ok(corr), 1_001);
     let deleted = emit_data(&h.sink, "im:post:deleted");
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0]["actorAvailable"], false);

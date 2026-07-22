@@ -181,6 +181,111 @@ impl TimelineProjector {
             .map(|slot| &slot.view)
     }
 
+    pub(crate) fn patch_located_target(
+        &mut self,
+        target_message_id: &str,
+    ) -> Result<Option<SurfaceMutation>, TimelineProjectionError> {
+        let Some((slot_key, slot)) = self
+            .slots
+            .iter()
+            .find(|(_, slot)| {
+                slot.view
+                    .items
+                    .iter()
+                    .any(|item| item.id == target_message_id)
+            })
+            .map(|(key, slot)| (key.clone(), slot.clone()))
+        else {
+            return Ok(None);
+        };
+        let mut view = slot.view;
+        view.anchor = TimelineAnchorVm {
+            message_id: Some(target_message_id.to_string()),
+            mode: TimelineAnchorMode::Locate,
+        };
+        view.target_message_id = Some(target_message_id.to_string());
+        let revision = next_revision(slot.revision)?;
+        let scope = SurfaceScope::Timeline {
+            channel_id: view.channel_id.clone(),
+            window_token: view.page.window_token.clone(),
+        };
+        let mutation = SurfaceMutation {
+            surface: SurfaceId::MessageTimeline,
+            scope,
+            revision,
+            base_revision: Some(slot.revision),
+            causation_id: None,
+            mutation: TypedSurfaceMutation::TimelinePatch {
+                patch: ReplaceView {
+                    kind: ReplaceViewKind::ReplaceView,
+                    view: view.clone(),
+                },
+            },
+        };
+        mutation.validate()?;
+        self.slots.insert(slot_key, TimelineSlot { revision, view });
+        Ok(Some(mutation))
+    }
+
+    pub(crate) fn patch_receipts(
+        &mut self,
+        receipts: &[Value],
+    ) -> Result<Vec<SurfaceMutation>, TimelineProjectionError> {
+        let by_post: BTreeMap<&str, &Value> = receipts
+            .iter()
+            .filter_map(|receipt| {
+                receipt
+                    .get("postId")
+                    .and_then(Value::as_str)
+                    .map(|id| (id, receipt))
+            })
+            .collect();
+        if by_post.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys: Vec<String> = self.slots.keys().cloned().collect();
+        let mut mutations = Vec::new();
+        for slot_key in keys {
+            let Some(slot) = self.slots.get(&slot_key).cloned() else {
+                continue;
+            };
+            let mut view = slot.view;
+            let mut changed = false;
+            for item in &mut view.items {
+                let Some(receipt) = by_post.get(item.id.as_str()) else {
+                    continue;
+                };
+                item.read_receipt = surface_data(receipt, 0)?;
+                changed = true;
+            }
+            if !changed {
+                continue;
+            }
+            let revision = next_revision(slot.revision)?;
+            let scope = SurfaceScope::Timeline {
+                channel_id: view.channel_id.clone(),
+                window_token: view.page.window_token.clone(),
+            };
+            let mutation = SurfaceMutation {
+                surface: SurfaceId::MessageTimeline,
+                scope,
+                revision,
+                base_revision: Some(slot.revision),
+                causation_id: None,
+                mutation: TypedSurfaceMutation::TimelinePatch {
+                    patch: ReplaceView {
+                        kind: ReplaceViewKind::ReplaceView,
+                        view: view.clone(),
+                    },
+                },
+            };
+            mutation.validate()?;
+            self.slots.insert(slot_key, TimelineSlot { revision, view });
+            mutations.push(mutation);
+        }
+        Ok(mutations)
+    }
+
     fn build_view(
         &mut self,
         request: &TimelineWindowRequest,
@@ -196,6 +301,7 @@ impl TimelineProjector {
                 request.action_authority_available,
             )?);
         }
+        enrich_reply_threads(&mut items);
         if let Some(target) = request.target_message_id.as_deref() {
             if !items.iter().any(|item| item.id == target) {
                 return Err(TimelineProjectionError::TargetNotInWindow {
@@ -248,6 +354,54 @@ impl TimelineProjector {
             mix_action_ref(sequence),
             mix_action_ref(sequence ^ 0x9e37_79b9_7f4a_7c15)
         ))
+    }
+}
+
+fn enrich_reply_threads(items: &mut [MessageVm]) {
+    let mut children: BTreeMap<String, Vec<ReplyThreadPreviewVm>> = BTreeMap::new();
+    for item in items.iter() {
+        let root_id = item.reply_root_id.as_deref().or(item.reply_id.as_deref());
+        let Some(root_id) = root_id.filter(|id| !id.is_empty() && *id != item.id) else {
+            continue;
+        };
+        let text = match &item.content {
+            MessageContentVm::Text { text }
+            | MessageContentVm::SystemEvent { text, .. }
+            | MessageContentVm::Recalled { text } => text.clone(),
+            MessageContentVm::Document { title, .. } => title.clone(),
+            MessageContentVm::Media { file_name, .. } => file_name.clone(),
+            MessageContentVm::Forwarded { summary, .. } => summary.clone(),
+        };
+        children
+            .entry(root_id.to_string())
+            .or_default()
+            .push(ReplyThreadPreviewVm {
+                id: item.id.clone(),
+                author: item.author.clone(),
+                text,
+            });
+    }
+    for item in items.iter_mut() {
+        let Some(replies) = children.get(&item.id) else {
+            continue;
+        };
+        let projected_count = replies.len().min(u32::MAX as usize) as u32;
+        let existing_count = item
+            .reply_thread
+            .as_ref()
+            .map_or(0, |thread| thread.reply_count);
+        item.reply_thread = Some(ReplyThreadSummaryVm {
+            items: replies
+                .iter()
+                .rev()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
+            reply_count: existing_count.max(projected_count),
+        });
     }
 }
 
@@ -858,6 +1012,61 @@ mod tests {
 
         assert!(projector.is_attached(&scope));
         assert!(projector.current_view(&scope).is_none());
+    }
+
+    #[test]
+    fn locate_and_receipt_authority_patch_the_existing_timeline_vm() {
+        let mut projector = TimelineProjector::default();
+        projector
+            .snapshot_from_render_ready(TimelineWindowRequest::latest("channel-1"), &[row(1)])
+            .unwrap();
+
+        let locate = projector
+            .patch_located_target("message-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(locate.revision, 2);
+        let receipts = serde_json::json!([{
+            "postId": "message-1", "state": "ready", "readBits": "1",
+            "readerCount": 1, "unreadCount": 0, "snapshotId": "snapshot-1",
+            "snapshotVersion": 3, "authorExcluded": true, "contractVersion": 2
+        }]);
+        let receipt_patches = projector
+            .patch_receipts(receipts.as_array().unwrap())
+            .unwrap();
+        assert_eq!(receipt_patches.len(), 1);
+        assert_eq!(receipt_patches[0].base_revision, Some(2));
+        let scope = SurfaceScope::Timeline {
+            channel_id: "channel-1".to_string(),
+            window_token: "latest".to_string(),
+        };
+        let view = projector.current_view(&scope).unwrap();
+        assert_eq!(view.target_message_id.as_deref(), Some("message-1"));
+        let SurfaceDataVm::Record(receipt) = &view.items[0].read_receipt else {
+            panic!("receipt record")
+        };
+        assert_eq!(
+            receipt.get("snapshotId"),
+            Some(&SurfaceDataVm::String("snapshot-1".to_string()))
+        );
+    }
+
+    #[test]
+    fn bounded_timeline_derives_reply_preview_from_authoritative_reply_anchors() {
+        let root = row(1);
+        let mut reply = row(2);
+        reply["replyId"] = serde_json::json!("message-1");
+        reply["replyRootId"] = serde_json::json!("message-1");
+        let mut projector = TimelineProjector::default();
+        let mutation = projector
+            .snapshot_from_render_ready(TimelineWindowRequest::latest("channel-1"), &[root, reply])
+            .unwrap();
+        let TypedSurfaceMutation::TimelineSnapshot { view } = mutation.mutation else {
+            panic!("timeline")
+        };
+        let thread = view.items[0].reply_thread.as_ref().expect("reply thread");
+        assert_eq!(thread.reply_count, 1);
+        assert_eq!(thread.items[0].id, "message-2");
     }
 
     #[test]

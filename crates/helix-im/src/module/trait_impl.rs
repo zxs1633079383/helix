@@ -190,7 +190,22 @@ impl Module for ImModule {
                                     })
                                     .unwrap_or(false)
                             {
-                                CorrelationContext::OutboundLocatePost { req_id }
+                                let post_id = serde_json::from_slice::<serde_json::Value>(
+                                    cmd.payload.as_ref(),
+                                )
+                                .ok()
+                                .and_then(|value| {
+                                    value
+                                        .get("post_ids")
+                                        .and_then(serde_json::Value::as_array)
+                                        .cloned()
+                                })
+                                .and_then(|ids| {
+                                    ids.into_iter()
+                                        .find_map(|id| id.as_str().map(str::to_owned))
+                                })
+                                .unwrap_or_default();
+                                CorrelationContext::OutboundLocatePost { req_id, post_id }
                             } else if name == "im_post_read_list" {
                                 CorrelationContext::OutboundPostReaders { req_id }
                             } else {

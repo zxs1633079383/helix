@@ -114,6 +114,10 @@ impl WsMessageHandler for PostReadHandler {
                 ctx.auth_user_id,
             ),
         );
+        // read_bits 已先以权威覆盖写进入本地存储；随后仍需经过 attached timeline 的
+        // local-first readback 重新生成 typed InteractionFrame，不能让 PC 从 raw
+        // `im:post:read` 自行拼 VM。失效 coverage 后调度一次即可，保持同一 WS step 去重。
+        ctx.request_attached_timeline_refresh(channel_id);
         Ok(())
     }
 }

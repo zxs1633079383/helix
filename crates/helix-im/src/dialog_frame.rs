@@ -92,6 +92,8 @@ pub struct DialogListRowVm {
     pub channel_id: String,
     pub title: String,
     pub channel_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_message_id: Option<String>,
     pub member_count: i64,
     pub member_leaves: Vec<String>,
     pub has_scheduled_message: bool,
@@ -117,6 +119,8 @@ struct DialogRowSet {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_message_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -763,6 +767,7 @@ fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogR
             "topic" => interaction_frame::ChannelKind::Topic,
             _ => interaction_frame::ChannelKind::Group,
         },
+        root_message_id: row.root_message_id.clone(),
         title: interaction_frame::ChannelTitleRef {
             text: row.title.clone(),
         },
@@ -898,6 +903,22 @@ fn apply_channel_update_to_row(
             next.channel_kind = channel_kind.clone();
             set.channel_kind = Some(channel_kind);
         }
+    }
+    if let Some(root_message_id) = text(
+        value,
+        &[
+            "rootMessageId",
+            "root_message_id",
+            "rootId",
+            "root_id",
+            "rootPostId",
+            "root_post_id",
+        ],
+    )
+    .filter(|value| Some(value) != previous.root_message_id.as_ref())
+    {
+        next.root_message_id = Some(root_message_id.clone());
+        set.root_message_id = Some(root_message_id);
     }
     if let Some(member_count) = integer(value, &["memberCount", "member_count"])
         .map(|value| value.max(0))
@@ -1129,6 +1150,17 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
         channel_id,
         title: text(value, &["displayName", "display_name", "name"]).unwrap_or_default(),
         channel_kind,
+        root_message_id: text(
+            value,
+            &[
+                "rootMessageId",
+                "root_message_id",
+                "rootId",
+                "root_id",
+                "rootPostId",
+                "root_post_id",
+            ],
+        ),
         member_count: integer(value, &["memberCount", "member_count"])
             .unwrap_or(0)
             .max(0),
@@ -1349,6 +1381,7 @@ fn assign_state_field(state: &mut DialogStateVm, field: StateField, value: bool)
 fn set_is_empty(set: &DialogRowSet) -> bool {
     set.title.is_none()
         && set.channel_kind.is_none()
+        && set.root_message_id.is_none()
         && set.member_count.is_none()
         && set.member_leaves.is_none()
         && set.has_scheduled_message.is_none()
@@ -1725,6 +1758,7 @@ mod tests {
             channel_id: channel_id.to_string(),
             title: channel_id.to_string(),
             channel_kind: "group".to_string(),
+            root_message_id: None,
             member_count: 2,
             member_leaves: Vec::new(),
             has_scheduled_message: false,
@@ -2053,6 +2087,27 @@ mod tests {
             serde_json::json!(["u1", "u2", "u3", "u4"])
         );
         assert_eq!(rows[1]["avatar"]["fallbackText"], "group");
+    }
+
+    #[test]
+    fn topic_dialog_frame_preserves_root_message_correlation() {
+        let topic = row_from_dialog_projection(&serde_json::json!({
+            "id": "topic-1",
+            "type": "T",
+            "displayName": "design review",
+            "rootPostId": "root-post-1"
+        }))
+        .expect("topic row");
+
+        let mut state = DialogListFrameState::default();
+        let snapshot = state
+            .snapshot(scope(), vec![topic])
+            .expect("topic snapshot");
+        let frame = data(&snapshot);
+        let row = &dialog_view(&frame)["sections"][0]["items"][0];
+
+        assert_eq!(row["channelKind"], "topic");
+        assert_eq!(row["rootMessageId"], "root-post-1");
     }
 
     #[test]

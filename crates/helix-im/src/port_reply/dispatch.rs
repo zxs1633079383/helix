@@ -507,8 +507,28 @@ impl ImModule {
                 );
             }
 
-            CorrelationContext::OutboundLocatePost { req_id } => {
+            CorrelationContext::OutboundLocatePost { req_id, post_id } => {
                 crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
+                if matches!(outcome, PortOutcome::Ok(_)) && !post_id.is_empty() {
+                    if let Some(mutation) = self
+                        .state
+                        .timeline_projector
+                        .patch_located_target(&post_id)
+                        .map_err(|error| {
+                            ImError::Parse(format!("locate timeline projection: {error}"))
+                        })?
+                    {
+                        let frame = crate::projector::build_interaction_frame(
+                            format!("locate-{req_id}"),
+                            vec![mutation],
+                        )
+                        .map_err(|error| ImError::Serialize(error.to_string()))?;
+                        out.push(
+                            crate::projector::emit_interaction_frame(frame)
+                                .map_err(|error| ImError::Serialize(error.to_string()))?,
+                        );
+                    }
+                }
             }
 
             CorrelationContext::OutboundCreatePosts { req_id } => {
@@ -526,6 +546,35 @@ impl ImModule {
 
             CorrelationContext::OutboundPostReaders { req_id } => {
                 crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);
+                if let PortOutcome::Ok(reply) = outcome {
+                    if let Ok(raw_body) =
+                        crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())
+                    {
+                        if let Ok(body) =
+                            serde_json::from_slice::<serde_json::Value>(raw_body.as_ref())
+                        {
+                            let receipts = crate::query::render_ready::receipts::project(&body);
+                            let mutations = self
+                                .state
+                                .timeline_projector
+                                .patch_receipts(&receipts)
+                                .map_err(|error| {
+                                    ImError::Parse(format!("timeline receipt projection: {error}"))
+                                })?;
+                            if !mutations.is_empty() {
+                                let frame = crate::projector::build_interaction_frame(
+                                    format!("timeline-receipts-{req_id}"),
+                                    mutations,
+                                )
+                                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                                out.push(
+                                    crate::projector::emit_interaction_frame(frame)
+                                        .map_err(|error| ImError::Serialize(error.to_string()))?,
+                                );
+                            }
+                        }
+                    }
+                }
             }
 
             CorrelationContext::InteractionViewReceipt {

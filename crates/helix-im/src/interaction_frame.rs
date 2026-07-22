@@ -831,6 +831,8 @@ pub struct DialogSectionVm {
 pub struct DialogRowVm {
     pub channel_id: String,
     pub channel_kind: ChannelKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_message_id: Option<String>,
     pub title: ChannelTitleRef,
     pub avatar: ChannelAvatarRef,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -670,5 +670,12 @@ mod tests {
             .expect("post_read must emit a receipt projection");
         assert_eq!(receipt["data"]["userId"], serde_json::json!(AUTHOR));
         assert_eq!(receipt["data"]["isSelf"], serde_json::json!(true));
+        assert_eq!(
+            ctx.take_attached_timeline_refreshes()
+                .get(&channel_id(123))
+                .cloned(),
+            Some(None),
+            "post_read must re-enter the typed timeline readback path"
+        );
     }
 }

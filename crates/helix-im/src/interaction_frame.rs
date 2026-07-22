@@ -957,6 +957,8 @@ pub struct MessageVm {
     pub content: MessageContentVm,
     pub delivery: DeliveryVm,
     pub actions: Vec<ActionBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quick_actions: Vec<MessageQuickActionVm>,
     pub reply_summary: SurfaceDataVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_thread: Option<ReplyThreadSummaryVm>,
@@ -971,6 +973,14 @@ pub struct MessageVm {
     pub bookmarked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub topic_link: Option<SurfaceDataVm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MessageQuickActionVm {
+    React,
+    QuoteReply,
+    CreateTopic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1626,6 +1636,20 @@ fn validate_message(
     validate_wire_i64(surface, "createdAt", message.created_at)?;
     validate_user(surface, &message.author)?;
     validate_action_bindings(surface, &message.actions)?;
+    if message.quick_actions.len() > 3
+        || message
+            .quick_actions
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len()
+            != message.quick_actions.len()
+    {
+        return invalid_view(
+            surface,
+            "message quick actions must be unique and capped at three items",
+        );
+    }
     validate_data_for_surface(surface, &message.reply_summary)?;
     if let Some(thread) = &message.reply_thread {
         if thread.items.len() > 3 || thread.reply_count < thread.items.len() as u32 {

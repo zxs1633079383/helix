@@ -9,11 +9,11 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageReactionVm,
-    MessageVm, ReplaceView, ReplaceViewKind, ReplyThreadPreviewVm, ReplyThreadSummaryVm,
-    SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
-    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
-    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
+    MessageReactionVm, MessageVm, ReplaceView, ReplaceViewKind, ReplyThreadPreviewVm,
+    ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation,
+    SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation,
+    UserRefVm, WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -344,6 +344,7 @@ pub(crate) fn message_from_render_ready(
     let delivery = delivery_from_row(row, revoked)?;
     let reply_thread = reply_thread_from_row(row);
     let reactions = reactions_from_props(props);
+    let quick_actions = quick_actions_from_row(row);
 
     let actions = action_bindings(
         row,
@@ -360,6 +361,7 @@ pub(crate) fn message_from_render_ready(
         content,
         delivery,
         actions,
+        quick_actions,
         reply_summary: record_from_row(
             row,
             &[
@@ -383,6 +385,26 @@ pub(crate) fn message_from_render_ready(
         bookmarked: bool_at(row, &["bookmarked"]),
         topic_link: optional_data(row.get("topic"))?,
     })
+}
+
+fn quick_actions_from_row(row: &Value) -> Vec<MessageQuickActionVm> {
+    let Some(capabilities) = row.get("actionCapabilities").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    [
+        ("canReact", MessageQuickActionVm::React),
+        ("canReply", MessageQuickActionVm::QuoteReply),
+        ("canCreateTopic", MessageQuickActionVm::CreateTopic),
+    ]
+    .into_iter()
+    .filter_map(|(key, action)| {
+        capabilities
+            .get(key)
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            .then_some(action)
+    })
+    .collect()
 }
 
 fn reply_thread_from_row(row: &Value) -> Option<ReplyThreadSummaryVm> {
@@ -794,6 +816,11 @@ mod tests {
                 {"emoji":"👍","userIds":["user-3"]}
             ]
         });
+        source["actionCapabilities"] = serde_json::json!({
+            "canReact": true,
+            "canReply": true,
+            "canCreateTopic": true
+        });
 
         let message = message_from_render_ready(&source, "channel-1", 1, false, || {
             Ok("action-ref".to_string())
@@ -807,6 +834,14 @@ mod tests {
         assert_eq!(message.reactions[0].emoji, "😊");
         assert_eq!(message.reactions[0].count, 2);
         assert_eq!(message.reactions[1].count, 1);
+        assert_eq!(
+            message.quick_actions,
+            vec![
+                MessageQuickActionVm::React,
+                MessageQuickActionVm::QuoteReply,
+                MessageQuickActionVm::CreateTopic
+            ]
+        );
     }
 
     #[test]

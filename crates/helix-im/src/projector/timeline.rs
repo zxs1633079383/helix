@@ -196,6 +196,13 @@ impl TimelineProjector {
                 request.action_authority_available,
             )?);
         }
+        if let Some(target) = request.target_message_id.as_deref() {
+            if !items.iter().any(|item| item.id == target) {
+                return Err(TimelineProjectionError::TargetNotInWindow {
+                    target: target.to_string(),
+                });
+            }
+        }
 
         let mut anchor = request.anchor.clone();
         if anchor.message_id.is_none() {
@@ -262,6 +269,8 @@ pub enum TimelineProjectionError {
     RevisionOverflow,
     #[error("timeline actionRef allocator exhausted its unique sequence")]
     ActionRefOverflow,
+    #[error("timeline locate target {target} is absent from the bounded window")]
+    TargetNotInWindow { target: String },
     #[error(transparent)]
     InvalidInteractionFrame(#[from] InteractionFrameError),
 }
@@ -581,6 +590,7 @@ fn action_bindings(
         ("canRevoke", "revoke"),
         ("canRetry", "retry"),
         ("canUrgentConfirm", "urgentConfirm"),
+        ("canUrgentCancel", "urgentCancel"),
         ("canMarkRead", "markRead"),
         ("canViewReceipt", "viewReceipt"),
         ("canTemplateConfirm", "templateConfirm"),
@@ -590,13 +600,15 @@ fn action_bindings(
             .get(capability)
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let enabled = kind == "viewReceipt" && capability_enabled && action_authority_available;
+        let enabled = crate::projector::action::ActionDispatch::supports_timeline_kind(kind)
+            && capability_enabled
+            && action_authority_available;
         let disabled_reason = if enabled {
             None
-        } else if !action_authority_available {
-            Some("runtimeIdentityRequired".to_string())
         } else if !capability_enabled {
             Some("notAvailable".to_string())
+        } else if !action_authority_available {
+            Some("runtimeIdentityRequired".to_string())
         } else {
             Some("unsupportedByAuthorityV1".to_string())
         };
@@ -984,7 +996,11 @@ mod tests {
         let mut capability_row = row(1);
         capability_row["actionCapabilities"] = serde_json::json!({
             "canReply": true,
+            "canCreateTopic": true,
+            "canMarkRead": true,
             "canViewReceipt": true,
+            "canTemplateConfirm": true,
+            "canLocate": true,
         });
 
         let mut request = TimelineWindowRequest::latest("channel-1");
@@ -1006,15 +1022,45 @@ mod tests {
         assert!(!receipt.action_ref.contains("message-1"));
         assert!(!receipt.action_ref.contains("viewReceipt"));
 
-        let reply = view.items[0]
-            .actions
-            .iter()
-            .find(|action| action.kind == "reply")
-            .expect("reply binding is present");
-        assert!(!reply.enabled);
-        assert_eq!(
-            reply.disabled_reason.as_deref(),
-            Some("unsupportedByAuthorityV1")
-        );
+        for kind in ["reply", "createTopic", "markRead", "templateConfirm", "locate"] {
+            let action = view.items[0]
+                .actions
+                .iter()
+                .find(|action| action.kind == kind)
+                .unwrap_or_else(|| panic!("{kind} binding is present"));
+            assert!(!action.enabled, "{kind}");
+            assert_eq!(
+                action.disabled_reason.as_deref(),
+                Some("unsupportedByAuthorityV1"),
+                "{kind} cannot be enabled by a row capability before the terminal authority Frame exists"
+            );
+        }
+    }
+
+    #[test]
+    fn locate_target_must_be_present_in_the_complete_bounded_vm() {
+        let mut projector = TimelineProjector::default();
+        let mut request = TimelineWindowRequest::latest_with_window_token("channel-1", "locate-1");
+        request.anchor = TimelineAnchorVm {
+            message_id: Some("message-2".to_string()),
+            mode: TimelineAnchorMode::Locate,
+        };
+        request.target_message_id = Some("message-2".to_string());
+        let mutation = projector
+            .snapshot_from_render_ready(request.clone(), &[row(1), row(2), row(3)])
+            .unwrap();
+        let TypedSurfaceMutation::TimelineSnapshot { view } = mutation.mutation else {
+            panic!("timeline snapshot expected")
+        };
+        assert_eq!(view.target_message_id.as_deref(), Some("message-2"));
+
+        request.window_token = "locate-missing".to_string();
+        request.page.window_token = "locate-missing".to_string();
+        request.target_message_id = Some("message-99".to_string());
+        assert!(matches!(
+            projector.snapshot_from_render_ready(request, &[row(1), row(2)]),
+            Err(TimelineProjectionError::TargetNotInWindow { target })
+                if target == "message-99"
+        ));
     }
 }

@@ -578,6 +578,7 @@ impl ImModule {
         now_ms: u64,
         causation_id: Option<String>,
     ) -> Result<Effect, ImError> {
+        let terminal_action_request = causation_id.clone();
         let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
         let shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows_asc,
@@ -617,8 +618,21 @@ impl ImModule {
             vec![mutation],
         )
         .map_err(|error| ImError::Serialize(error.to_string()))?;
-        crate::projector::emit_interaction_frame(frame)
-            .map_err(|error| ImError::Serialize(error.to_string()))
+        let effect = crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        if let Some(request_id) = terminal_action_request {
+            if !self
+                .state
+                .action_registry
+                .complete_after_terminal_frame(&request_id)
+            {
+                tracing::warn!(
+                    request_id,
+                    "timeline action frame had no in-flight request ledger entry"
+                );
+            }
+        }
+        Ok(effect)
     }
 
     fn emit_timeline_failed(

@@ -12,7 +12,7 @@
 //! → 消息丢失）。gate 已 kind-aware（type2 走 `edit_content_op` patch + emit `im:post:updated`），
 //! 故落库 + emit + cursor 全由 gate 完成，本 handler 只解析 + 喂 gate。
 
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
 use crate::state::ChannelId;
@@ -67,8 +67,6 @@ pub(super) fn apply_post_update(
     else {
         return;
     };
-    ctx.state.invalidate_recent_message_coverage(channel_id);
-
     let msg_id = post
         .get("id")
         .or_else(|| post.get("postId"))
@@ -79,29 +77,93 @@ pub(super) fn apply_post_update(
 
     // type=2 fields 取自该 post 子树；经 gate ingest（落库 patch + emit + cursor 一并 kind-aware）。
     let fields = extract_post_fields(post);
-    if frame.event_seq().is_none() {
-        let msg_id_ref = msg_id
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(fields.id.as_str());
-        out.push(crate::acl::to_effect::emit_post_updated_for_viewer(
-            channel_id,
-            0,
-            msg_id_ref,
-            &fields,
-            ctx.auth_user_id,
-        ));
+    let Some(target_seq) = frame.event_seq() else {
         return;
+    };
+    let Some(cursor) = ctx
+        .state
+        .channels
+        .get(&channel_id)
+        .map(|channel| channel.cursor.value())
+    else {
+        return;
+    };
+    let expected = crate::state::Seq(cursor.0.saturating_add(1));
+    match target_seq.cmp(&expected) {
+        std::cmp::Ordering::Less => return,
+        std::cmp::Ordering::Greater => {
+            let _ = super::gate::gate_ingest_content_event(
+                ctx,
+                frame,
+                channel_id,
+                EventKind::PostEdit,
+                fields,
+                msg_id,
+                out,
+            );
+            return;
+        }
+        std::cmp::Ordering::Equal => {}
     }
-    let _ = super::gate::gate_ingest_content_event(
-        ctx,
-        frame,
+
+    let msg_id_ref = msg_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fields.id.as_str());
+    let pending_domain_event = match crate::acl::to_effect::emit_post_updated_for_viewer(
         channel_id,
-        EventKind::PostEdit,
-        fields,
-        msg_id,
-        out,
+        target_seq.0,
+        msg_id_ref,
+        &fields,
+        ctx.auth_user_id,
+    ) {
+        Effect::Emit { event } => event.0.to_vec(),
+        _ => return,
+    };
+    let corr = ctx.alloc_corr();
+    let authority_kind = if post
+        .get("expediteMap")
+        .or_else(|| post.get("expedite_map"))
+        .is_some()
+    {
+        crate::projector::action::AuthorityMutationKind::Urgent
+    } else {
+        crate::projector::action::AuthorityMutationKind::Reaction
+    };
+    let pending_action = ctx
+        .state
+        .pending_authority_actions
+        .get(&(authority_kind, msg_id_ref.to_string()))
+        .cloned()
+        .or_else(|| {
+            [
+                crate::projector::action::AuthorityMutationKind::Reaction,
+                crate::projector::action::AuthorityMutationKind::Urgent,
+            ]
+            .into_iter()
+            .find_map(|kind| {
+                ctx.state
+                    .pending_authority_actions
+                    .get(&(kind, msg_id_ref.to_string()))
+                    .cloned()
+            })
+        });
+    ctx.state.corr_map.insert(
+        corr,
+        crate::state::CorrelationContext::PostUpdateAtomic {
+            channel_id,
+            target_seq,
+            pending_domain_event,
+            pending_action,
+        },
     );
+    out.push(Effect::PersistAtomic {
+        corr,
+        ops: vec![
+            crate::channel::edit_content_op(msg_id_ref, &fields),
+            crate::acl::to_effect::advance_cursor_op(channel_id, target_seq),
+        ],
+    });
 }
 
 static POST_UPDATE_HANDLER: PostUpdateHandler = PostUpdateHandler;

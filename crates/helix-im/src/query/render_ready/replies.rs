@@ -209,7 +209,62 @@ pub fn finalize_projection(
     if projection.root_message_id.is_empty() {
         projection.root_message_id.clone_from(&request.root_hint);
     }
+    if !projection_matches_request(request, &projection) {
+        // Reject the complete authority batch instead of leaking a mixed-channel or unrelated
+        // reply relation to a renderer. Preserve request identity only so pending UI can resolve.
+        projection.channel_id.clone_from(&request.channel_id);
+        projection.root_message_id.clone_from(&request.root_hint);
+        projection.reply_ids.clear();
+        projection.nodes.clear();
+        projection.reply_count = 0;
+        projection.has_more = false;
+    }
     projection
+}
+
+/// Validate reply authority against the request context captured when HTTP began.
+pub fn projection_matches_request(
+    request: &ReplyProjectionRequest,
+    projection: &FlatReplyProjection,
+) -> bool {
+    if !request.channel_id.is_empty()
+        && !projection.channel_id.is_empty()
+        && projection.channel_id != request.channel_id
+    {
+        return false;
+    }
+    if request.mode == ReplyProjectionMode::Snapshot
+        && !request.root_hint.is_empty()
+        && !projection.root_message_id.is_empty()
+        && projection.root_message_id != request.root_hint
+    {
+        return false;
+    }
+    projection.nodes.iter().all(|node| {
+        let channel = node
+            .get("channelId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if !request.channel_id.is_empty() && !channel.is_empty() && channel != request.channel_id {
+            return false;
+        }
+        let id = node
+            .get("msgId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if id == projection.root_message_id {
+            return true;
+        }
+        let relation = node
+            .get("replyRootId")
+            .or_else(|| node.get("replyId"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        relation.is_empty()
+            || relation == projection.root_message_id.as_str()
+            || (request.mode == ReplyProjectionMode::Append
+                && relation == request.root_hint.as_str())
+    })
 }
 
 /// 在 Helix 内完成乱序抑制和 append 跨页去重，Angular 不解释 revision/模式。

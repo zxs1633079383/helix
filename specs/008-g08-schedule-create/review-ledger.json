@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/008-g08-schedule-create",
+  "phase": "verifying",
+  "event_seq": 6,
+  "next_action": "repair_r4_evidence",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "82186b29fd932ffe": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "0623d81e9e0cf8ccdd931f4ccdd7660029e20513b8f180d2ac4ca711890cfad5",
+      "checked_at": "2026-07-22T11:33:56Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pass",
+      "fingerprint": "03b4a392f9fd65d925727c92c4e6fa1a3e2ddf03972a716985641c9460220c55",
+      "checked_at": "2026-07-22T11:34:17Z",
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pass",
+      "fingerprint": "1d0433163fb77f434d2c0f430c4dbc86baa1deb5df85bb4ee6d8b08968414644",
+      "checked_at": "2026-07-22T11:34:39Z",
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "blocked",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-22T11:33:56Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-22T11:34:17Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-22T11:34:39Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-22T11:50:31Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-22T11:54:28Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-22T11:54:28Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    }
+  ]
+}

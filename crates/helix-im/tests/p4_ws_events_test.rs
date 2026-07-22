@@ -379,7 +379,7 @@ fn in_memory_post_without_event_seq_does_not_advance_cursor() {
 // 否则 cursor 落后服务端水位 → 后续 from_seq < 水位 → sync 风暴（HX-C008 / B6）。
 #[test]
 fn cursor_anchors_next_seq_not_max_event_seq() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     h.start(0);
     h.step(
         Tick::Connected(helix_core::effect::TransportId::from_raw(0)),
@@ -430,7 +430,7 @@ fn cursor_anchors_next_seq_not_max_event_seq() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            helix_core::Effect::Persist { corr, .. } => Some(corr.raw()),
+            helix_core::Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
         .expect("events 响应应产出 Persist（落库）");

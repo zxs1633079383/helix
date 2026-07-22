@@ -61,6 +61,27 @@ impl Channel {
         true
     }
 
+    /// Commit a strictly contiguous, already-durable non-terminal event without issuing a second cursor write.
+    /// The caller must have included `advance_cursor_op` in the matching `PersistAtomic` batch.
+    pub(crate) fn commit_contiguous_after_atomic(
+        &mut self,
+        target_seq: Seq,
+        fx: &mut EffectSink,
+    ) -> Result<bool, ImError> {
+        if self.is_terminal() || target_seq != Seq(self.cursor.value().0.saturating_add(1)) {
+            return Ok(false);
+        }
+        if !self.cursor.try_advance(target_seq) {
+            return Ok(false);
+        }
+        let mut dialog_patches = Vec::new();
+        self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;
+        for pending in dialog_patches {
+            fx.push(crate::acl::to_effect::bump_channel_unread(&pending.update));
+        }
+        Ok(true)
+    }
+
     /// 处理一个入站事件（WS 路径，§4.6）
     ///
     /// - seq == cursor+1 → 立即 apply（PersistFire）+ flush_contiguous_from_buffer

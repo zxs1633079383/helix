@@ -6,7 +6,7 @@ use crate::send::upload_props::{
     CompletedMedia, FailedMediaOp, PendingMediaOp, PendingMediaPrepare, PendingMediaPut,
     PendingUpload, UploadTarget,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod values;
 pub use values::{
@@ -182,6 +182,13 @@ pub struct ImState {
     /// Frame；此队列仅保证前端能可靠知道当前请求是否被 Helix 接受。
     pub(crate) action_receipts: crate::projector::action::ActionReceiptBus,
 
+    /// In-flight mutation causation keyed by authority family and message id. Renderer input can never choose
+    /// this key; it is derived from the trusted ActionDispatch grant.
+    pub(crate) pending_authority_actions: BTreeMap<
+        (crate::projector::action::AuthorityMutationKind, String),
+        crate::projector::action::PendingAuthorityAction,
+    >,
+
     /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
     /// 直接交给 renderer 推导。
     pub(crate) participant_receipts_projector:
@@ -252,6 +259,7 @@ impl ImState {
                 crate::projector::action::DEFAULT_ACTION_RECEIPT_CAPACITY,
             )
             .expect("static action receipt capacity must be non-zero"),
+            pending_authority_actions: BTreeMap::new(),
             participant_receipts_projector:
                 crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             query_session_epoch: 0,
@@ -299,6 +307,7 @@ impl ImState {
         self.topic_list_projector.reset();
         self.action_registry.clear();
         self.action_receipts.clear();
+        self.pending_authority_actions.clear();
         self.participant_receipts_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }

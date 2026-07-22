@@ -1,0 +1,21 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+error[E0599]: no method named `into_vec` found for struct `helix_core::EffectSink` in the current scope
+   --> crates/helix-im/src/module/action.rs:357:36
+    |
+357 |                 let effects = sink.into_vec();
+    |                                    ^^^^^^^^
+    |
+help: there is a method `into` with a similar name
+    |
+357 -                 let effects = sink.into_vec();
+357 +                 let effects = sink.into();
+    |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `helix-im` (lib) due to 1 previous error
+real 7.04
+user 4.51
+sys 0.95
+
+START=2026-07-22T12:00:52Z END=2026-07-22T12:00:59Z EXIT=101

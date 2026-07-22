@@ -51,7 +51,7 @@ fn setup_initial_sync(h: &mut Harness) -> u64 {
 
 #[test]
 fn continuation_three_batches_then_stops() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr1 = setup_initial_sync(&mut h);
 
     // 第一批：seq 1-500（满批 500 → 派生续拉）
@@ -62,7 +62,7 @@ fn continuation_three_batches_then_stops() {
     let persist_corr1 = p1_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -98,7 +98,7 @@ fn continuation_three_batches_then_stops() {
     let persist_corr2 = p2_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -134,7 +134,7 @@ fn continuation_three_batches_then_stops() {
     let persist_corr3 = p3_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -171,7 +171,7 @@ fn continuation_three_batches_then_stops() {
     assert!(
         !after_p4_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::Persist(_))),
+            .any(|e| matches!(e, EffectKind::Persist(_) | EffectKind::PersistAtomic(_))),
         "no_change should NOT emit Persist, got: {:?}",
         after_p4_effects
     );
@@ -197,7 +197,7 @@ fn continuation_three_batches_then_stops() {
 
 #[test]
 fn continuation_stops_on_empty_events_with_continuation_flag() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = setup_initial_sync(&mut h);
 
     // 服务端返回空 events（kind=events 但列表空，服务端 bug 场景）→ 防御性不落库不续拉
@@ -214,7 +214,7 @@ fn continuation_stops_on_empty_events_with_continuation_flag() {
         effects
     );
     assert!(
-        !effects.iter().any(|e| matches!(e, EffectKind::Persist(_))),
+        !effects.iter().any(|e| matches!(e, EffectKind::Persist(_) | EffectKind::PersistAtomic(_))),
         "empty events should NOT emit Persist, got: {:?}",
         effects
     );
@@ -224,7 +224,7 @@ fn continuation_stops_on_empty_events_with_continuation_flag() {
 
 #[test]
 fn continuation_inflight_guard_prevents_concurrent_sync() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = setup_initial_sync(&mut h);
 
     // 第一批满批 500 → 派生续拉意图
@@ -233,7 +233,7 @@ fn continuation_inflight_guard_prevents_concurrent_sync() {
     let persist_corr1 = p1_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -270,7 +270,7 @@ fn continuation_inflight_guard_prevents_concurrent_sync() {
 fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
     // 场景：第一批续拉正常（cursor 推进到 500），
     // 第二批服务端返回了 seq 1-500（全部重复，cursor 不能前进）→ 第三次续拉不发出
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = setup_initial_sync(&mut h);
 
     // 第一批：seq 1-500（满批 → 派生续拉）→ persist ok → 发出第二次 sync Http（fromSeq=500）
@@ -279,7 +279,7 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
     let persist_corr1 = p1_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -302,30 +302,26 @@ fn continuation_aborts_if_cursor_not_advanced_on_second_continuation() {
     // 第二批：seq 1-500（全 dup），满批 500 → 派生续拉意图
     // commit_target = 500，cursor.try_advance(500) → cursor 当前 500，500 <= 500 → 不推进
     let batch2_dup = sync_reply_events(1, &(1..=500).collect::<Vec<_>>());
-    let p2_effects = h.step(
-        port_reply_with_body(sync_corr2, enveloped(batch2_dup)),
-        4000,
+    use helix_core::Module;
+    h.sink.clear();
+    let error = h
+        .module
+        .handle(
+            &port_reply_with_body(sync_corr2, enveloped(batch2_dup)),
+            4000,
+            &mut h.sink,
+        )
+        .expect_err("stale duplicate recovery batch must fail closed");
+    assert!(
+        error.to_string().contains("not contiguous"),
+        "unexpected recovery rejection: {error}"
     );
-    let persist_corr2 = p2_effects
-        .iter()
-        .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
-                Some(*c)
-            } else {
-                None
-            }
-        })
-        .expect("Persist corr2");
-
-    // persist ok → cursor 仍 500（未前进）
-    // maybe_continue_sync: cursor(500) <= last_sync_from_seq(500) → abort
-    let after_p2_effects = h.step(port_reply_ok(persist_corr2), 4100);
-    let http_count = after_p2_effects
-        .iter()
-        .filter(|e| matches!(e, EffectKind::Http(_)))
-        .count();
-    assert_eq!(
-        http_count, 0,
-        "continuation should abort when cursor did not advance past prev fromSeq (all dup), got: {:?}", after_p2_effects
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, helix_core::Effect::Http { .. })),
+        "rejected duplicate recovery batch must not schedule another continuation"
     );
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(500));
 }

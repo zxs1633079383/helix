@@ -34,7 +34,7 @@ fn drive_sync_pull(h: &mut Harness) -> u64 {
 
 #[test]
 fn http6_raw_go_body_drives_persist_and_emit() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = drive_sync_pull(&mut h);
 
     // 真 wire `events`+messages map 裸 Go body。用「可见」消息（msgId 在 messages map）→ 非 phantom
@@ -54,7 +54,7 @@ fn http6_raw_go_body_drives_persist_and_emit() {
 
     let persist_count = effects
         .iter()
-        .filter(|e| matches!(e, EffectKind::Persist(_)))
+        .filter(|e| matches!(e, EffectKind::PersistAtomic(_)))
         .count();
     let emit_count_before_persist = effects
         .iter()
@@ -73,7 +73,7 @@ fn http6_raw_go_body_drives_persist_and_emit() {
     let persist_corr = effects
         .iter()
         .find_map(|effect| match effect {
-            EffectKind::Persist(corr) => Some(*corr),
+            EffectKind::PersistAtomic(corr) => Some(*corr),
             _ => None,
         })
         .expect("ADR-007 解层后必须生成相关 Persist");
@@ -122,12 +122,13 @@ fn http6_legacy_envelope_is_silently_swallowed() {
 /// 分支变回「函数在、零调用」死代码（离线未读 +N 落 DB 被静默丢）。本测试钉死 module.rs 的
 /// `persist_ops.extend(sync_unread_bump_ops(..))` 调用点：删之 → 无 GuardedBump unread_count op
 /// → FAIL（HX-C011 可证伪；per-phase byte-diff 漏掉的正是这种「消费侧 call-site 未接线」缺陷）。
-/// auth_user_id 空（Harness 默认）→ 保守计入 → 每条可见 type1 给 unread +1（3 条 → +3）。
+/// viewer-444 不在消息 viewers 且不是 sender，因此本地可见性必须显式由 fixture 授予；本测试
+/// 只对已进入 recovery authority 批的可见 type1 检查 unread bump。
 #[test]
 fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
     use helix_core::effect::{Effect, StorageOp};
 
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = drive_sync_pull(&mut h);
     let raw = sync_reply_events_with_messages(
         1,
@@ -145,7 +146,7 @@ fn http6_offline_sync_visible_type1_bumps_unread_guardedbump() {
         .as_slice()
         .iter()
         .filter_map(|e| match e {
-            Effect::Persist { ops, .. } => Some(
+            Effect::PersistAtomic { ops, .. } => Some(
                 ops.iter()
                     .filter_map(|op| match op {
                         StorageOp::GuardedBump(s) if s.bump_col == "unread_count" => {

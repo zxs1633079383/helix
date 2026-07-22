@@ -497,6 +497,114 @@ impl ImModule {
                 )?;
             }
 
+            CorrelationContext::InteractionMutationAck { pending } => {
+                if let PortOutcome::Err(error) = outcome {
+                    self.state
+                        .pending_authority_actions
+                        .remove(&(pending.kind, pending.message_id.clone()));
+                    self.state
+                        .action_registry
+                        .complete_after_terminal_frame(&pending.request_id);
+                    tracing::warn!(error = ?error, "interaction mutation authority request failed");
+                }
+            }
+
+            CorrelationContext::PostsUpdateAtomic {
+                channel_id,
+                target_seq,
+                pending_domain_events,
+                pending_action,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    let committed = self
+                        .state
+                        .channels
+                        .get_mut(&channel_id)
+                        .map(|channel| channel.commit_contiguous_after_atomic(target_seq, out))
+                        .transpose()?
+                        .unwrap_or(false);
+                    if !committed {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            target_seq = target_seq.0,
+                            "posts_update atomic reply no longer matches contiguous cursor"
+                        );
+                    } else {
+                        self.state.invalidate_recent_message_coverage(channel_id);
+                        for bytes in pending_domain_events {
+                            out.push(helix_core::Effect::Emit {
+                                event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(
+                                    bytes,
+                                )),
+                            });
+                        }
+                        let causation_id = pending_action
+                            .as_ref()
+                            .map(|pending| pending.request_id.clone());
+                        if let Some(pending) = pending_action {
+                            self.state
+                                .pending_authority_actions
+                                .remove(&(pending.kind, pending.message_id.clone()));
+                        }
+                        self.refresh_attached_latest_timeline(channel_id, causation_id, out)?;
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        target_seq = target_seq.0,
+                        error = ?error,
+                        "posts_update atomic persist failed; cursor and projections remain unchanged"
+                    );
+                }
+            },
+
+            CorrelationContext::PostUpdateAtomic {
+                channel_id,
+                target_seq,
+                pending_domain_event,
+                pending_action,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    let committed = self
+                        .state
+                        .channels
+                        .get_mut(&channel_id)
+                        .map(|channel| channel.commit_contiguous_after_atomic(target_seq, out))
+                        .transpose()?
+                        .unwrap_or(false);
+                    if committed {
+                        self.state.invalidate_recent_message_coverage(channel_id);
+                        out.push(helix_core::Effect::Emit {
+                            event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(
+                                pending_domain_event,
+                            )),
+                        });
+                        let causation_id = pending_action
+                            .as_ref()
+                            .map(|pending| pending.request_id.clone());
+                        if let Some(pending) = pending_action {
+                            self.state
+                                .pending_authority_actions
+                                .remove(&(pending.kind, pending.message_id.clone()));
+                        }
+                        self.refresh_attached_latest_timeline(channel_id, causation_id, out)?;
+                    } else {
+                        tracing::warn!(
+                            channel_id = channel_id.as_str(),
+                            target_seq = target_seq.0,
+                            "post_update atomic reply no longer matches contiguous cursor"
+                        );
+                    }
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    target_seq = target_seq.0,
+                    error = ?error,
+                    "post_update atomic persist failed; cursor and projection remain unchanged"
+                ),
+            },
+
             // UC-10 通知/待办：global increment-end 触发的 `queryTodoList` HTTP 回报 → 装配
             // `im:todo:updated{items}`（解 data.channels[].posts[]，真源 channel.rs:252-296）。
             // Ok → 剥 ADR-007 信封得裸响应体 → emit_todo_updated（status≠SUCCESS/结构缺失 → 空

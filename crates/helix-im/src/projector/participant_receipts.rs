@@ -87,6 +87,10 @@ pub struct ParticipantReceiptsProjector {
 pub enum ParticipantReceiptsProjectionError {
     #[error("participant receipt window has {actual} rows; maximum is {maximum}")]
     RowLimit { actual: usize, maximum: usize },
+    #[error(
+        "template confirmation authority unavailable; only an explicit forbidden state is valid"
+    )]
+    TemplateConfirmationAuthorityUnavailable,
     #[error(transparent)]
     Slot(#[from] SurfaceProjectorError),
 }
@@ -109,6 +113,7 @@ impl ParticipantReceiptsProjector {
         data: ParticipantReceiptsData,
         causation_id: Option<String>,
     ) -> Result<SurfaceMutation, ParticipantReceiptsProjectionError> {
+        ensure_authority(&request, &data)?;
         ensure_bounded(&data)?;
         let view = view_for(&request, data);
         self.slots
@@ -123,6 +128,7 @@ impl ParticipantReceiptsProjector {
         data: ParticipantReceiptsData,
         causation_id: Option<String>,
     ) -> Result<SurfaceMutation, ParticipantReceiptsProjectionError> {
+        ensure_authority(&request, &data)?;
         ensure_bounded(&data)?;
         let view = view_for(&request, data);
         self.slots
@@ -154,6 +160,18 @@ impl ParticipantReceiptsProjector {
     pub fn reset(&mut self) {
         self.slots.reset();
     }
+}
+
+fn ensure_authority(
+    request: &ParticipantReceiptsRequest,
+    data: &ParticipantReceiptsData,
+) -> Result<(), ParticipantReceiptsProjectionError> {
+    if request.kind == ReceiptKind::TemplateConfirmation
+        && data.state != SurfaceLoadState::Forbidden
+    {
+        return Err(ParticipantReceiptsProjectionError::TemplateConfirmationAuthorityUnavailable);
+    }
+    Ok(())
 }
 
 fn scope_for(request: &ParticipantReceiptsRequest) -> SurfaceScope {

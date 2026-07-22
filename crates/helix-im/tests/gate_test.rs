@@ -19,7 +19,7 @@ use helix_core::Tick;
 
 #[test]
 fn gate_contiguous_ws_applies_immediately() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // cursor = 0，喂 seq=1（连续）
     let effects = h.step(inbound_event(1, 1, 1), 1000);
     // 应产出：PersistFire（落库）+ PersistFire（advance_cursor）+ Emit
@@ -150,7 +150,7 @@ fn gate_timer_fires_sync_http() {
 
 #[test]
 fn sync_success_path_peek_then_commit_cursor() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 大缺口（seq=3 / cursor=0 / gap=3 > 阈值）→ **立即** backfill resync（根治
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不等 1s gate timer。
     let gate_effects = h.step(inbound_event(1, 3, 1), 1000);
@@ -177,7 +177,7 @@ fn sync_success_path_peek_then_commit_cursor() {
     let persist_corr = peek_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -185,16 +185,10 @@ fn sync_success_path_peek_then_commit_cursor() {
         })
         .expect("should emit Persist after sync success, meaning peek phase triggered batch write");
 
-    // 第二个 PortReply（写库成功）→ commit cursor + PersistFire advance_cursor
+    // 第二个 PortReply（原子写成功）→ commit cursor；cursor op 已在同一批中。
     let commit_effects = h.step(port_reply_ok(persist_corr), 2200);
-    // 应产出 PersistFire（advance_cursor）
-    assert!(
-        commit_effects
-            .iter()
-            .any(|e| matches!(e, EffectKind::PersistFire)),
-        "persist ok should advance cursor (PersistFire), got: {:?}",
-        commit_effects
-    );
+    assert_eq!(h.module.cursor_for(channel_id(1)), Some(3));
+    assert!(commit_effects.iter().any(|e| matches!(e, EffectKind::Emit)));
 }
 
 // ─── cursor 锚 nextSeq（权威水位）而非 max(event.seq)——防尾部稀疏 cursor 落后 ──────
@@ -204,7 +198,7 @@ fn sync_success_path_peek_then_commit_cursor() {
 // 否则停在 10 → 下次 sync from=10 → 服务端又算 gap=40 → 稀疏 sync 风暴。
 #[test]
 fn sync_cursor_anchors_to_next_seq_not_max_event() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 大缺口（喂乱序 seq=99 → buffer + 立即 backfill resync·根治 fix/im-sync-cursor-catchup）：
     // sync Http 在 ingest 当步即发出（不等 1s gate timer）。
     let gate_effects = h.step(inbound_event(1, 99, 1), 1000);
@@ -225,7 +219,7 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
     let persist_corr = peek_effects
         .iter()
         .find_map(|e| {
-            if let EffectKind::Persist(c) = e {
+            if let EffectKind::PersistAtomic(c) = e {
                 Some(*c)
             } else {
                 None
@@ -246,7 +240,7 @@ fn sync_cursor_anchors_to_next_seq_not_max_event() {
 
 #[test]
 fn sync_too_long_resets_cursor_and_emits() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 大缺口（seq=3 / gap=3 > 阈值）→ **立即** backfill resync（根治 fix/im-sync-cursor-catchup）。
     let gate_effects = h.step(inbound_event(1, 3, 1), 1000);
     let sync_corr = gate_effects
@@ -400,7 +394,7 @@ fn cursor_never_decreases_under_any_input() {
 // 守 HX-C008：cursor 仍由 sync commit **严格推进**，不绕 gate / 不破排序（缺口真填上，非放行）。
 #[test]
 fn large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 前置：连续 seq 1,2 → cursor=2。
     h.step(inbound_event(1, 1, 1), 1000);
     h.step(inbound_event(1, 2, 1), 1001);
@@ -443,7 +437,7 @@ fn large_gap_echo_triggers_immediate_backfill_then_flushes_buffered_echo() {
     let persist_corr = p
         .iter()
         .find_map(|e| match e {
-            EffectKind::Persist(c) => Some(*c),
+            EffectKind::PersistAtomic(c) => Some(*c),
             _ => None,
         })
         .expect("backfill 回报产 Persist");

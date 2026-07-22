@@ -1,5 +1,19 @@
 ## 0. 当前任务
 
+🎯 EXPECT 并行实现 G08-G12 的专属 Rust query/schedule/timeline/reply 模块与 focused 测试、必要的 cses-client 专属组件测试；可证伪断言：不修改已声明共享 owner 文件，G08 owner-only hydrate、G09 取消/到点 G01 边界、G10 Observation/Action、G11 VM target/directive 无 payload、G12 query graph/G01 reply 依赖均有回归，批量 focused Rust/Angular 验证通过后才更新 task/handoff，不运行 Native E2E | 赌注 高 | 可逆 是 | @2026-07-22T08:18:00-0700
+
+🎯 EXPECT 调用 Spec Kit implement 完成 G04-G16 的 Helix/Go/cses-client 纵切，并在依赖允许时按不重叠 owner/file set 并行；可证伪断言：① 004-016 逐组执行 before_implement admission，测试先于实现且完成 task 才标 `[X]`；② ActionBinding/Tick/authority/PersistOk/完整 Frame/Angular UI 不回退 raw reducer；③ 最后只由 017 构建 final Native candidate，双账号连续 UC04-16 required fail=0/skip=0；④ 每个 UC 产出 handoff.md，记录真实完成、证据、耗时与未决项；⑤ 同一失败签名最多自动修复两次，第三次 NeedsHuman | 赌注 高 | 可逆 是 | @2026-07-22T08:05:00-0700
+
+🎯 EXPECT 补齐 `004-017` 的 discovery/data-model/contracts/review-ledger/verification 共同治理文件与逐组 Constitution Check，并修正 tests-first、跨仓 worktree、CURRENT/TARGET/GAP、两次自动修复上限及各 Gate 特有语义；可证伪断言：① 14 组治理文件完整且无模板占位；② 004-016 测试任务先于生产实现，017 复现红灯先于 owner repair；③ 14 组 R1-R3 均由 loop_engine 生成当前指纹 PASS；④ 最终逐组 speckit-analyze 无 CRITICAL，若仍有问题则按 Gate 列出而不伪称通过 | 赌注 高 | 可逆 是 | @2026-07-22T07:20:00-0700
+
+🎯 EXPECT 将 017 从只读验收编排升级为有代码修改权限的收敛修复循环；可证伪断言：① Spec 明确不得在 Red/Partial 报告后停止，必须按日志与五面证据定位并修改 Helix/Go/cses-client；② Plan 允许每个修复批次一次增量 Native rebuild，禁止按 UC 重编，并要求最终 candidate 全批重跑；③ Tasks 拆出 Helix、Go、Angular/UI 三类修复、影响面回归、最终全批与 Index-Dual 双尺寸复验；④ 完成条件是 G04-G16 required=0 fail/skip，而非“已发现问题” | 赌注 高 | 可逆 是 | @2026-07-22T06:08:00-0700
+
+✅ DONE 017 已升级为跨三仓 `run -> classify -> repair -> rebuild -> verify -> rerun` 收敛执行包：Spec 新增 10 条强制修复需求和不得 Red/Partial 停止的退出闸门；Plan 明确 Helix/Go/cses-client owner、日志/PG/SQLite/Frame/DOM 六面诊断、repair-batch 构建纪律与 Index-Dual 视觉修复；Tasks 扩为 T001-T035，35/35 均有独立 Loop Task Contract，包含生产代码修复、可证伪回归、增量重建、影响面重跑和 final candidate 全批 Full Green；本轮只更新规格，未运行 cargo/Native/E2E | @2026-07-22T06:18:00-0700
+
+🎯 EXPECT 在 `specs/` 按 Gate G04-G16 拆出 13 组独立 `spec.md/plan.md/tasks.md`，另设只负责任务汇总验收的 UC04-16 E2E 包；每组明确 ActionBinding、Tick、权威事实、PersistAtomic、Surface/完整 VM row、InteractionFrame、Angular 组件与 PD UI 效果；单 Gate 只做 focused 合同/fixture 验证，Rust Native、双账号、远端 PG、本地 SQLite 与 DOM/视觉验收只在全部 Gate 开发完成后统一执行一次；不改生产代码与现有 001-003 Spec | 赌注 高 | 可逆 是 | @2026-07-22T05:35:00-0700
+
+✅ DONE 已新增 G04-G16 共 13 组独立 Spec/Plan/Tasks（每组 10 个细粒度 task）与 1 组只负责汇总验收的 017 E2E 包，共 42 个分组文档，另有 1 个执行索引；每组均覆盖 ActionBinding、Tick/Effect、权威事实、PersistAtomic、Surface/完整 VM row、InteractionFrame、Angular 组件与 PD UI 状态；017 固定一次 Native build 后连续跑 UC04-16，并分列双账号、Go HTTP/WS、远端 PG、本地 SQLite、Frame、DOM 与双尺寸视觉证据；未改生产代码、未运行 cargo/Native/E2E | @2026-07-22T05:52:00-0700
+
 🎯 EXPECT 将 `rich-v2.json` 收编为 Helix formal pin 内的 InteractionFrame V2 fixture。可证伪断言：① fixture 含完整 runtime、surfaceEpoch、causationId 和 directives envelope；② Rust `InteractionFrameV2::decode` 可直接解码并保留 reply thread、reaction 与 quick actions；③ manifest 显式登记该 fixture；④ 不改生产投影逻辑、driver 或 wire schema | 赌注 中 | 可逆 是 | @2026-07-22T03:41:00-0700
 
 ✅ DONE `rich-v2.json` 已进入 Helix fixture manifest，并使用完整 V2 envelope 固定 reply thread、reaction、quick actions 与 topic link；Rust InteractionFrame 合同 17/17、fixture manifest 4/4 通过，未改生产投影逻辑或 wire schema | @2026-07-22T03:46:00-0700

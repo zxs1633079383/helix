@@ -4,6 +4,7 @@ use helix_core::effect::{Effect, GetSpec, SqlValue, StorageOp};
 use helix_core::tick::PortOutcome;
 use helix_core::EffectSink;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 use crate::error::ImError;
 use crate::module::ImModule;
@@ -44,6 +45,10 @@ pub(crate) fn start(
 ) -> Result<(), ImError> {
     let value: Value = serde_json::from_slice(payload)
         .map_err(|error| ImError::Parse(format!("im_relay_messages payload: {error}")))?;
+    require_exact_keys(
+        &value,
+        &["post_ids", "target_channel_ids", "mode", "req_id"],
+    )?;
     let source_post_ids = required_strings(&value, "post_ids", MAX_FORWARD_POSTS)?;
     let target_channel_ids = required_strings(&value, "target_channel_ids", MAX_FORWARD_TARGETS)?;
     if target_channel_ids
@@ -191,7 +196,7 @@ fn required_strings(value: &Value, key: &str, max: usize) -> Result<Vec<String>,
                 "im_relay_messages: '{key}' 必须为 1..={max} 个字符串"
             ))
         })?;
-    values
+    let values: Vec<String> = values
         .iter()
         .map(|item| {
             item.as_str()
@@ -199,5 +204,24 @@ fn required_strings(value: &Value, key: &str, max: usize) -> Result<Vec<String>,
                 .map(str::to_string)
                 .ok_or_else(|| ImError::Parse(format!("im_relay_messages: '{key}' 含空值")))
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    let mut unique = BTreeSet::new();
+    if values.iter().any(|item| !unique.insert(item.as_str())) {
+        return Err(ImError::Parse(format!(
+            "im_relay_messages: '{key}' 不允许重复值"
+        )));
+    }
+    Ok(values)
+}
+
+fn require_exact_keys(value: &Value, allowed: &[&str]) -> Result<(), ImError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| ImError::Parse("im_relay_messages: payload 必须是 object".to_string()))?;
+    if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ImError::Parse(format!(
+            "im_relay_messages: 未知或非 canonical 字段 '{unknown}'"
+        )));
+    }
+    Ok(())
 }

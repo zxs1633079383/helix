@@ -3,6 +3,8 @@
 //! topic 与 root-message link 已在 Helix 形成完整 `TopicListVm` 后才能进入这里；客户端不根据
 //! `im_make_topic`、channel row 或消息关联字段拼装话题列表。
 
+use std::collections::BTreeSet;
+
 use thiserror::Error;
 
 pub use crate::interaction_frame::TopicListVm;
@@ -39,6 +41,13 @@ pub struct TopicListProjector {
 pub enum TopicListProjectionError {
     #[error("topic list has {actual} items; maximum is {maximum}")]
     ItemLimit { actual: usize, maximum: usize },
+    #[error("topicCount {topic_count} is smaller than {visible_count} visible rows")]
+    TopicCountUnderflow {
+        topic_count: u32,
+        visible_count: usize,
+    },
+    #[error("duplicate topic channel id '{topic_channel_id}'")]
+    DuplicateTopicChannelId { topic_channel_id: String },
     #[error(transparent)]
     Slot(#[from] SurfaceProjectorError),
 }
@@ -92,6 +101,20 @@ fn ensure_bounded(view: &TopicListVm) -> Result<(), TopicListProjectionError> {
             actual: view.items.len(),
             maximum: MAX_TOPIC_LIST_ITEMS,
         });
+    }
+    if usize::try_from(view.topic_count).unwrap_or(usize::MAX) < view.items.len() {
+        return Err(TopicListProjectionError::TopicCountUnderflow {
+            topic_count: view.topic_count,
+            visible_count: view.items.len(),
+        });
+    }
+    let mut ids = BTreeSet::new();
+    for item in &view.items {
+        if !ids.insert(item.topic_channel_id.as_str()) {
+            return Err(TopicListProjectionError::DuplicateTopicChannelId {
+                topic_channel_id: item.topic_channel_id.clone(),
+            });
+        }
     }
     Ok(())
 }

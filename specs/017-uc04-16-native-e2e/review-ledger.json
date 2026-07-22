@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/017-uc04-16-native-e2e",
+  "phase": "ready",
+  "event_seq": 3,
+  "next_action": "admit_implementation",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {},
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "55ed84b5a99567fe041a6dc1fc66783dce2d776dea4a0666ee89a1f3334bb6e8",
+      "checked_at": "2026-07-22T11:34:10Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pass",
+      "fingerprint": "b0170f52c957718845a9dce4359e01e897bd1d9aa5c1cc7c08c96e6ac1c22c9b",
+      "checked_at": "2026-07-22T11:34:31Z",
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pass",
+      "fingerprint": "ac1f7696de7ab9d5620d0040b9cf44618c836cd5e3be99b518f8a4136df28d9c",
+      "checked_at": "2026-07-22T11:34:53Z",
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-22T11:34:10Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-22T11:34:31Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-22T11:34:53Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    }
+  ]
+}

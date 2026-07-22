@@ -9,7 +9,7 @@ use crate::error::ImError;
 
 use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
 
-/// POST /api/cses/posts/quickReply — emoji 快捷回复。真源 `{postId, userId, emoji}`。
+/// POST /api/cses/posts/quickReply — emoji 快捷回复。真源 `{postId, emoji}`；actor 由会话注入。
 struct QuickReplyCommand;
 impl OutboundCommand for QuickReplyCommand {
     fn name(&self) -> &'static str {

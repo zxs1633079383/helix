@@ -144,7 +144,7 @@ fn phantom_event_produces_no_upsert_but_cursor_advances() {
 
 #[test]
 fn all_phantom_batch_still_advances_cursor() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 大缺口（cursor=0 / seq=99·gap=99 > 阈值）→ **立即** backfill resync（根治 echo gate-gap·
     // fix/im-sync-cursor-catchup）。不再等 1s gate timer：sync Http 在 ingest 当步即发出，cursor
     // 经其回报 commit 追平。此处直接取当步 immediate sync 的 corr 驱动后续 phantom 回报。
@@ -168,10 +168,10 @@ fn all_phantom_batch_still_advances_cursor() {
     let persist_corr = p_effects
         .iter()
         .find_map(|e| match e {
-            EffectKind::Persist(c) => Some(*c),
+            EffectKind::PersistAtomic(c) => Some(*c),
             _ => None,
         })
-        .expect("phantom 批仍发 Persist（空 ops，驱动 PortReply Ok 驱动 cursor 推进）");
+        .expect("phantom 批仍发 PersistAtomic（ledger/coverage/cursor 同批，PortReply Ok 后推进）");
 
     // persist ok → cursor 推进到 nextSeq=5（phantom 不卡 cursor，HX-C008 §1.6）。
     h.step(port_reply_ok(persist_corr), 3100);

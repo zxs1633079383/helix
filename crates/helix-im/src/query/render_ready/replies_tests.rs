@@ -52,6 +52,38 @@ fn common_response_envelope_is_unwrapped_for_replies_and_branch() {
 }
 
 #[test]
+fn finalization_rejects_mixed_channel_and_unrelated_root_authority() {
+    let request = ReplyProjectionRequest {
+        req_id: "rq-authority".into(),
+        channel_id: "channel-1".into(),
+        root_hint: "root-1".into(),
+        mode: ReplyProjectionMode::Snapshot,
+        revision: 9,
+        viewer_user_id: "viewer".into(),
+    };
+    let mixed = extract_flat_replies(
+        &serde_json::json!({
+            "rootPost": {"id":"root-1","channelId":"channel-1"},
+            "replies": [{"id":"reply-cross","channelId":"channel-2","replyId":"root-1"}]
+        }),
+        "viewer",
+    );
+    let rejected = finalize_projection(&request, mixed);
+    assert!(rejected.nodes.is_empty());
+    assert!(rejected.reply_ids.is_empty());
+    assert_eq!(rejected.root_message_id, "root-1");
+
+    let unrelated = extract_flat_replies(
+        &serde_json::json!({
+            "rootPost": {"id":"other-root","channelId":"channel-1"},
+            "replies": [{"id":"reply-1","channelId":"channel-1","replyId":"other-root"}]
+        }),
+        "viewer",
+    );
+    assert!(finalize_projection(&request, unrelated).nodes.is_empty());
+}
+
+#[test]
 fn getreplybranch_body_data_and_list_and_toplevel_array() {
     // getReplyBranch 形态：HasMorePage[Post]（{data:[]} / {list:[]} / 顶层数组）。
     let data_form = serde_json::json!({"data": [{"id": "a"}, {"id": "b"}]});

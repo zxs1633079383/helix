@@ -378,7 +378,7 @@ fn online_vs_offline_read_emit_names_differ() {
 
 #[test]
 fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
-    let mut h = Harness::new(&[6]);
+    let mut h = Harness::new_with_identity(&[6], "viewer-444", "tenant-1", "", "", "");
     // 大缺口（cursor=0 / seq=99）→ **立即** backfill resync（根治 echo gate-gap·
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
     let gate_effects = h.step(inbound_event(6, 99, 1), 1000);
@@ -424,16 +424,10 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            Effect::Persist { corr, ops }
-                if ops
-                    .iter()
-                    .any(|op| matches!(op, StorageOp::Get(s) if s.table == "channel")) =>
-            {
-                Some(corr.raw())
-            }
+            Effect::PersistAtomic { corr, .. } => Some(corr.raw()),
             _ => None,
         })
-        .expect("sync DialogPatch persist corr");
+        .expect("sync authority batch PersistAtomic corr");
     h.step(
         port_reply_with_body(persist_corr, channel_row_reply(6, 1)),
         3100,

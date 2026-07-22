@@ -502,7 +502,9 @@ pub fn sync_reply_events_with_messages(
                 "temporary_id": mid,
                 "channel_id": cid(channel_id),
                 "message": text,
+                "userId": "sender-678",
                 "readBits": read_bits,
+                "viewers": ["viewer-444"],
             }),
         );
     }

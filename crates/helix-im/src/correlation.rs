@@ -280,6 +280,30 @@ pub enum CorrelationContext {
         message_id: String,
     },
 
+    /// Mutation HTTP replies are transport acknowledgements only. The authoritative WS/sync handler owns
+    /// persistence and the terminal InteractionFrame, so this corr route intentionally performs no UI work.
+    InteractionMutationAck {
+        pending: crate::projector::action::PendingAuthorityAction,
+    },
+
+    /// `posts_update` carries one channel event sequence and N message mutations. The entire write-set,
+    /// including the cursor, is committed atomically; renderer events are released only after this corr succeeds.
+    PostsUpdateAtomic {
+        channel_id: ChannelId,
+        target_seq: crate::state::Seq,
+        pending_domain_events: Vec<Vec<u8>>,
+        pending_action: Option<crate::projector::action::PendingAuthorityAction>,
+    },
+
+    /// Single `post_update` fact and its channel cursor share one durable commit. The render-ready update is
+    /// retained until the matching transaction reply succeeds.
+    PostUpdateAtomic {
+        channel_id: ChannelId,
+        target_seq: crate::state::Seq,
+        pending_domain_event: Vec<u8>,
+        pending_action: Option<crate::projector::action::PendingAuthorityAction>,
+    },
+
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,
 

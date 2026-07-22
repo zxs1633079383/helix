@@ -1,0 +1,21 @@
+PASS src/pages/message-v4/components/__tests__/g16-governance-interaction.test.ts (5.845 s)
+  MessageUiChannelManagementComponent
+    ✓ close 与 self leave 是两个独立 intent，不能复用一个泛化 action (79 ms)
+    ✓ version conflict 保留旧 Frame 并暴露重新 hydrate 状态 (11 ms)
+
+PASS src/pages/message-v4/components/__tests__/g14-receipt-template-interaction.test.ts
+  MessageUiReadReceiptComponent
+    ✓ 将 received 与 business confirmation blocked 分开呈现 (29 ms)
+    ✓ forbidden 不泄露成员明细 (5 ms)
+
+PASS src/pages/message-v4/components/__tests__/g13-channel-read-interaction.test.ts
+  message read reporting
+    ✓ 只搬运 host 可见事实，不在 Angular 计算 unread 或 userId
+
+Test Suites: 3 passed, 3 total
+Tests:       5 passed, 5 total
+Snapshots:   0 total
+Time:        6.934 s, estimated 17 s
+Ran all test suites within paths "src/pages/message-v4/components/__tests__/g13-channel-read-interaction.test.ts", "src/pages/message-v4/components/__tests__/g14-receipt-template-interaction.test.ts", "src/pages/message-v4/components/__tests__/g16-governance-interaction.test.ts".
+
+START=2026-07-22T12:02:43Z END=2026-07-22T12:02:51Z EXIT=0

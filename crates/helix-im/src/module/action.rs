@@ -1,8 +1,8 @@
 //! SurfaceRuntime action 的 application 编排。
 //!
-//! registry 只做 lease/actor/replay 决策；本模块把唯一已审计的 `viewReceipt` binding 映射到既有
-//! `im_post_read_list` canonical command，并仅在该 HTTP 回包投影成带同一 causation 的 Frame 后让
-//! renderer 完成 pending action。
+//! registry 只做 lease/actor/replay 决策；本模块把已审计 binding 映射到既有 canonical command。
+//! 查询型 `viewReceipt` 仅在 HTTP 权威回包投影成带同一 causation 的 Frame 后让 renderer 完成；
+//! 写族则继续等待对应 WS/sync authority 与 PersistOk，不能把 HTTP ack 当作业务完成。
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,9 +13,9 @@ use serde_json::Value;
 
 use crate::error::ImError;
 use crate::interaction_frame::{
-    ActionInvocationEnvelope, ChannelRole, ParticipantReceiptRowVm, ReceiptKind, ReceiptStatus,
-    SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation, TypedSurfaceMutation, UserRefVm,
-    MAX_SAFE_JSON_INTEGER,
+    ActionInvocation, ActionInvocationEnvelope, ChannelRole, ParticipantReceiptRowVm, ReceiptKind,
+    ReceiptStatus, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation,
+    TypedSurfaceMutation, UserRefVm, MAX_SAFE_JSON_INTEGER,
 };
 use crate::projector::action::{
     emit_action_receipt, ActionAuthorization, ActionBindingGrant, ActionDispatch, ActionEvaluation,
@@ -30,14 +30,19 @@ use crate::ImModule;
 /// TTL 仍保留为失焦/断线/旧页面的第二道 fail-closed 防线。
 const ACTION_BINDING_TTL_MS: u64 = 60_000;
 
-struct PreparedAction {
-    corr: helix_core::Correlation,
-    context: CorrelationContext,
-    effects: Vec<Effect>,
+enum PreparedAction {
+    Routed {
+        corr: helix_core::Correlation,
+        context: CorrelationContext,
+        effects: Vec<Effect>,
+    },
+    Forward {
+        payload: Vec<u8>,
+    },
 }
 
 impl ImModule {
-    /// 把已验证的 timeline mutation 中唯一可执行的 binding 登记为 actor-scoped lease。
+    /// 把已验证的 timeline mutation 中可执行的 binding 登记为 actor-scoped lease。
     ///
     /// renderer 拿到的 ref 不包含 message/channel/command；真正的 dispatch context 只在这个 registry
     /// 内由同一 Frame 的 typed VM 固定。每个新 revision 先撤销同 scope 旧 grant，因此 registry 不会
@@ -93,18 +98,17 @@ impl ImModule {
                             .to_string(),
                     ));
                 }
-                let dispatch = match binding.kind.as_str() {
-                    "viewReceipt" => ActionDispatch::ViewReceipt {
-                        channel_id: item.channel_id.clone(),
-                        message_id: item.id.clone(),
-                    },
-                    _ => {
-                        return Err(ImError::Parse(format!(
-                            "timeline enabled action '{}' has no authority mapping",
-                            binding.kind
-                        )))
-                    }
-                };
+                let dispatch = ActionDispatch::from_timeline_binding(
+                    binding.kind.as_str(),
+                    item.channel_id.as_str(),
+                    item.id.as_str(),
+                )
+                .ok_or_else(|| {
+                    ImError::Parse(format!(
+                        "timeline enabled action '{}' has no authority mapping",
+                        binding.kind
+                    ))
+                })?;
                 self.state
                     .action_registry
                     .grant(
@@ -166,6 +170,7 @@ impl ImModule {
                 // and leave an accepted action with no eventual authoritative reply.
                 let prepared = self.prepare_action(
                     &authorized.dispatch,
+                    &envelope.invocation,
                     authorized.accepted.causation_id.as_str(),
                 )?;
                 let evaluation = {
@@ -179,9 +184,27 @@ impl ImModule {
                 };
                 self.emit_pending_action_receipts(out)?;
                 if matches!(evaluation, ActionEvaluation::Accepted(_)) {
-                    self.state.corr_map.insert(prepared.corr, prepared.context);
-                    for effect in prepared.effects {
-                        out.push(effect);
+                    match prepared {
+                        PreparedAction::Routed {
+                            corr,
+                            context,
+                            effects,
+                        } => {
+                            if let CorrelationContext::InteractionMutationAck { pending } = &context
+                            {
+                                self.state.pending_authority_actions.insert(
+                                    (pending.kind, pending.message_id.clone()),
+                                    pending.clone(),
+                                );
+                            }
+                            self.state.corr_map.insert(corr, context);
+                            for effect in effects {
+                                out.push(effect);
+                            }
+                        }
+                        PreparedAction::Forward { payload } => {
+                            crate::forward::start(self, &payload, now_ms, out)?;
+                        }
                     }
                 }
                 Ok(())
@@ -247,6 +270,7 @@ impl ImModule {
     fn prepare_action(
         &mut self,
         dispatch: &ActionDispatch,
+        invocation: &ActionInvocation,
         request_id: &str,
     ) -> Result<PreparedAction, ImError> {
         match dispatch {
@@ -273,7 +297,7 @@ impl ImModule {
                         "im_post_read_list must produce exactly one HTTP effect".to_string(),
                     ));
                 }
-                Ok(PreparedAction {
+                Ok(PreparedAction::Routed {
                     corr,
                     context: CorrelationContext::InteractionViewReceipt {
                         request_id: request_id.to_string(),
@@ -283,10 +307,102 @@ impl ImModule {
                     effects,
                 })
             }
+            ActionDispatch::RevokeMessage { message_id, .. } => self.prepare_outbound_action(
+                "im_revoke",
+                serde_json::json!({ "post_id": message_id, "req_id": request_id }),
+                dispatch
+                    .pending_authority_action(request_id)
+                    .expect("revoke dispatch must create pending authority"),
+            ),
+            ActionDispatch::ToggleReaction { message_id, .. } => self.prepare_outbound_action(
+                "im_quick_reply",
+                serde_json::json!({
+                    "post_id": message_id,
+                    "emoji": action_input_string(invocation, "emoji")?,
+                    "req_id": request_id,
+                }),
+                dispatch
+                    .pending_authority_action(request_id)
+                    .expect("reaction dispatch must create pending authority"),
+            ),
+            ActionDispatch::UrgentMessage { message_id, .. } => {
+                let mut payload = serde_json::json!({
+                    "post_id": message_id,
+                    "target_ids": action_input_strings(invocation, "targetIds")?,
+                    "req_id": request_id,
+                });
+                if let Some(message) = action_optional_input_string(invocation, "message")? {
+                    payload["message"] = serde_json::Value::String(message);
+                }
+                self.prepare_outbound_action(
+                    "im_urgent_post",
+                    payload,
+                    dispatch
+                        .pending_authority_action(request_id)
+                        .expect("urgent dispatch must create pending authority"),
+                )
+            }
+            ActionDispatch::ConfirmUrgent { message_id, .. } => self.prepare_outbound_action(
+                "im_urgent_confirm",
+                serde_json::json!({ "post_id": message_id, "req_id": request_id }),
+                dispatch
+                    .pending_authority_action(request_id)
+                    .expect("urgent confirm dispatch must create pending authority"),
+            ),
+            ActionDispatch::CancelUrgent { message_id, .. } => self.prepare_outbound_action(
+                "im_urgent_cancel",
+                serde_json::json!({ "post_id": message_id, "req_id": request_id }),
+                dispatch
+                    .pending_authority_action(request_id)
+                    .expect("urgent cancel dispatch must create pending authority"),
+            ),
+            ActionDispatch::ForwardMessages {
+                source_message_ids, ..
+            } => {
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "post_ids": source_message_ids,
+                    "target_channel_ids": action_input_strings(invocation, "targetChannelIds")?,
+                    "mode": action_input_string(invocation, "mode")?,
+                    "req_id": request_id,
+                }))
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                Ok(PreparedAction::Forward { payload })
+            }
             ActionDispatch::Unsupported => Err(ImError::Parse(
                 "action dispatch has no canonical authority mapping".to_string(),
             )),
         }
+    }
+
+    fn prepare_outbound_action(
+        &mut self,
+        command: &'static str,
+        payload: serde_json::Value,
+        pending: crate::projector::action::PendingAuthorityAction,
+    ) -> Result<PreparedAction, ImError> {
+        let corr = self.alloc_corr_internal();
+        let payload =
+            serde_json::to_vec(&payload).map_err(|error| ImError::Serialize(error.to_string()))?;
+        let effects = crate::commands::handle_outbound(
+            command,
+            &payload,
+            self.config.api_base_url.as_str(),
+            self.config.default_api_base_url.as_str(),
+            self.state.connection_id.as_deref(),
+            corr,
+        )?;
+        if effects.len() != 1 || !matches!(effects.first(), Some(Effect::Http { .. })) {
+            return Err(ImError::Parse(format!(
+                "{command} must produce exactly one HTTP effect"
+            )));
+        }
+        Ok(PreparedAction::Routed {
+            corr,
+            // HTTP is only transport acceptance. Until the authority event arrives this route intentionally
+            // has no business-frame completion; the dedicated WS/sync handler owns that terminal barrier.
+            context: CorrelationContext::InteractionMutationAck { pending },
+            effects,
+        })
     }
 
     fn emit_pending_action_receipts(&mut self, out: &mut EffectSink) -> Result<(), ImError> {
@@ -298,6 +414,45 @@ impl ImModule {
             );
         }
         Ok(())
+    }
+}
+
+fn action_input_string(invocation: &ActionInvocation, key: &str) -> Result<String, ImError> {
+    match invocation.input.get(key) {
+        Some(SurfaceDataVm::String(value)) if !value.is_empty() => Ok(value.clone()),
+        _ => Err(ImError::Parse(format!(
+            "action input '{key}' must be a non-empty string"
+        ))),
+    }
+}
+
+fn action_optional_input_string(
+    invocation: &ActionInvocation,
+    key: &str,
+) -> Result<Option<String>, ImError> {
+    match invocation.input.get(key) {
+        None => Ok(None),
+        Some(SurfaceDataVm::String(value)) if !value.is_empty() => Ok(Some(value.clone())),
+        _ => Err(ImError::Parse(format!(
+            "action input '{key}' must be a non-empty string"
+        ))),
+    }
+}
+
+fn action_input_strings(invocation: &ActionInvocation, key: &str) -> Result<Vec<String>, ImError> {
+    match invocation.input.get(key) {
+        Some(SurfaceDataVm::Array(values)) => values
+            .iter()
+            .map(|value| match value {
+                SurfaceDataVm::String(value) if !value.is_empty() => Ok(value.clone()),
+                _ => Err(ImError::Parse(format!(
+                    "action input '{key}' must contain non-empty strings"
+                ))),
+            })
+            .collect(),
+        _ => Err(ImError::Parse(format!(
+            "action input '{key}' must be an array"
+        ))),
     }
 }
 

@@ -9,6 +9,88 @@ use thiserror::Error;
 
 use crate::interaction_frame::{UnreadSummaryVm, MAX_SAFE_JSON_INTEGER};
 
+/// Host 可见区 observation 的最小确定性输入。tracker 按 channel/surface slot 独立持有，
+/// 因此这里不重复携带 channelId，也不允许 renderer 提交 viewer identity。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelReadObservation {
+    pub surface_epoch: u64,
+    pub window_token: String,
+    pub boundary: u64,
+    pub visible: bool,
+}
+
+impl ChannelReadObservation {
+    pub fn new(
+        surface_epoch: u64,
+        window_token: impl Into<String>,
+        boundary: u64,
+        visible: bool,
+    ) -> Self {
+        Self {
+            surface_epoch,
+            window_token: window_token.into(),
+            boundary,
+            visible,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelReadObservationDecision {
+    AwaitingStability,
+    Advance { boundary: u64 },
+    Noop,
+}
+
+/// 把高频 viewport observation 收敛为一次单调 read intent。
+///
+/// 两次 observation 必须处于相同 epoch/window 且 boundary 不回退；已提交 boundary 之后的
+/// 重复输入是 O(1) self-loop。真正的 unread 清零仍必须等待 Go authority + PersistOk。
+#[derive(Debug, Default)]
+pub struct ChannelReadObservationTracker {
+    pending: Option<ChannelReadObservation>,
+    committed_boundary: u64,
+}
+
+impl ChannelReadObservationTracker {
+    pub fn observe(
+        &mut self,
+        observation: ChannelReadObservation,
+    ) -> ChannelReadObservationDecision {
+        if !observation.visible
+            || observation.surface_epoch == 0
+            || observation.window_token.is_empty()
+            || observation.boundary <= self.committed_boundary
+        {
+            if !observation.visible {
+                self.pending = None;
+            }
+            return ChannelReadObservationDecision::Noop;
+        }
+
+        let stable = self.pending.as_ref().is_some_and(|pending| {
+            pending.surface_epoch == observation.surface_epoch
+                && pending.window_token == observation.window_token
+                && observation.boundary >= pending.boundary
+        });
+        if !stable {
+            self.pending = Some(observation);
+            return ChannelReadObservationDecision::AwaitingStability;
+        }
+
+        self.committed_boundary = observation.boundary;
+        self.pending = None;
+        ChannelReadObservationDecision::Advance {
+            boundary: observation.boundary,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.pending = None;
+        self.committed_boundary = 0;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewerChannelUnread {
     pub unread_count: u32,

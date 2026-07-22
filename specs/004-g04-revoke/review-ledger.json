@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/004-g04-revoke",
+  "phase": "verifying",
+  "event_seq": 8,
+  "next_action": "repair_r4_evidence",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "22a0b203cd1c2cf4": 1,
+    "82186b29fd932ffe": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "7289e79acf2b69c577ce2982aa63a386d3e2861f0634bc99abe5401e2ba5c647",
+      "checked_at": "2026-07-22T11:33:50Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pass",
+      "fingerprint": "896fa2ffc8afad23ef6f292839d3d0a85e912be5ebfe338173f94eb03e354ed4",
+      "checked_at": "2026-07-22T11:34:11Z",
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pass",
+      "fingerprint": "372dc87304464237c4a8ebb39ecfa8e26a85af0eb385a5a06a83dc6b78971e8d",
+      "checked_at": "2026-07-22T11:34:33Z",
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "blocked",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-22T11:33:13Z",
+      "kind": "failure",
+      "detail": "r1_spec:22a0b203cd1c2cf4: attempt 1"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-22T11:33:13Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: spec.md missing completed section ### Trigger; spec.md missing completed section ### Goal; spec.md missing completed section ### Completion; spec.md missing completed section ### Boundaries; spec.md missing completed section ### Human Gate"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-22T11:33:50Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-22T11:34:11Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-22T11:34:33Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-22T11:50:24Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-22T11:51:57Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-22T11:51:57Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    }
+  ]
+}

@@ -35,8 +35,32 @@ pub struct AcceptedAction {
 /// command name；新增可执行 kind 必须在这里显式映射到已有 canonical domain command。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionDispatch {
-    /// 当前唯一 live 映射：消息作者查看自己的 read receipt。
+    /// 查询当前消息的 read receipt。
     ViewReceipt {
+        channel_id: String,
+        message_id: String,
+    },
+    RevokeMessage {
+        channel_id: String,
+        message_id: String,
+    },
+    ForwardMessages {
+        channel_id: String,
+        source_message_ids: Vec<String>,
+    },
+    ToggleReaction {
+        channel_id: String,
+        message_id: String,
+    },
+    UrgentMessage {
+        channel_id: String,
+        message_id: String,
+    },
+    ConfirmUrgent {
+        channel_id: String,
+        message_id: String,
+    },
+    CancelUrgent {
         channel_id: String,
         message_id: String,
     },
@@ -44,17 +68,221 @@ pub enum ActionDispatch {
     Unsupported,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AuthorityMutationKind {
+    Revoke,
+    Reaction,
+    Urgent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingAuthorityAction {
+    pub request_id: String,
+    pub channel_id: String,
+    pub message_id: String,
+    pub kind: AuthorityMutationKind,
+}
+
+impl ActionDispatch {
+    /// 将 timeline VM 中的语义 action kind 固定到已经显式审计的 authority dispatch。
+    ///
+    /// 这个映射是 projector 与 application registry 的共同真源。只存在 legacy HTTP/read-result
+    /// 或尚未有 PersistOk + causation Frame 的 G08-G16 动作必须返回 `None`，即使 render-ready row
+    /// 宣称了 capability 也只能下发 disabled binding。尤其 `templateConfirm` 不是
+    /// `templateReceived`，当前 Go 没有 confirmation authority，必须保持 fail closed。
+    pub(crate) fn from_timeline_binding(
+        kind: &str,
+        channel_id: &str,
+        message_id: &str,
+    ) -> Option<Self> {
+        let channel_id = channel_id.to_string();
+        let message_id = message_id.to_string();
+        match kind {
+            "viewReceipt" => Some(Self::ViewReceipt {
+                channel_id,
+                message_id,
+            }),
+            "revoke" => Some(Self::RevokeMessage {
+                channel_id,
+                message_id,
+            }),
+            "forward" => Some(Self::ForwardMessages {
+                channel_id,
+                source_message_ids: vec![message_id],
+            }),
+            "react" => Some(Self::ToggleReaction {
+                channel_id,
+                message_id,
+            }),
+            "urgent" => Some(Self::UrgentMessage {
+                channel_id,
+                message_id,
+            }),
+            "urgentConfirm" => Some(Self::ConfirmUrgent {
+                channel_id,
+                message_id,
+            }),
+            "urgentCancel" => Some(Self::CancelUrgent {
+                channel_id,
+                message_id,
+            }),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn supports_timeline_kind(kind: &str) -> bool {
+        matches!(
+            kind,
+            "viewReceipt"
+                | "revoke"
+                | "forward"
+                | "react"
+                | "urgent"
+                | "urgentConfirm"
+                | "urgentCancel"
+        )
+    }
+
+    pub(crate) fn pending_authority_action(
+        &self,
+        request_id: &str,
+    ) -> Option<PendingAuthorityAction> {
+        let (kind, channel_id, message_id) = match self {
+            Self::RevokeMessage {
+                channel_id,
+                message_id,
+            } => (AuthorityMutationKind::Revoke, channel_id, message_id),
+            Self::ToggleReaction {
+                channel_id,
+                message_id,
+            } => (AuthorityMutationKind::Reaction, channel_id, message_id),
+            Self::UrgentMessage {
+                channel_id,
+                message_id,
+            }
+            | Self::ConfirmUrgent {
+                channel_id,
+                message_id,
+            }
+            | Self::CancelUrgent {
+                channel_id,
+                message_id,
+            } => (AuthorityMutationKind::Urgent, channel_id, message_id),
+            _ => return None,
+        };
+        Some(PendingAuthorityAction {
+            request_id: request_id.to_string(),
+            channel_id: channel_id.clone(),
+            message_id: message_id.clone(),
+            kind,
+        })
+    }
+}
+
 impl ActionDispatch {
     fn validate_input(&self, invocation: &ActionInvocation) -> Result<(), ActionProjectionError> {
         match self {
-            Self::ViewReceipt { .. } if !invocation.input.is_empty() => {
+            Self::ViewReceipt { .. }
+            | Self::RevokeMessage { .. }
+            | Self::ConfirmUrgent { .. }
+            | Self::CancelUrgent { .. }
+                if !invocation.input.is_empty() =>
+            {
                 Err(ActionProjectionError::InvalidInvocation(
-                    "viewReceipt does not accept input fields".to_string(),
+                    "action does not accept input fields".to_string(),
                 ))
             }
-            Self::ViewReceipt { .. } => Ok(()),
+            Self::ViewReceipt { .. }
+            | Self::RevokeMessage { .. }
+            | Self::ConfirmUrgent { .. }
+            | Self::CancelUrgent { .. } => Ok(()),
+            Self::ForwardMessages { .. } => validate_forward_input(&invocation.input),
+            Self::ToggleReaction { .. } => validate_reaction_input(&invocation.input),
+            Self::UrgentMessage { .. } => validate_urgent_input(&invocation.input),
             Self::Unsupported => Err(ActionProjectionError::UnsupportedDispatch),
         }
+    }
+}
+
+fn validate_forward_input(
+    input: &BTreeMap<String, crate::interaction_frame::SurfaceDataVm>,
+) -> Result<(), ActionProjectionError> {
+    require_exact_input_keys(input, &["targetChannelIds", "mode"])?;
+    require_string_array(input, "targetChannelIds", 50)?;
+    match input.get("mode") {
+        Some(crate::interaction_frame::SurfaceDataVm::String(mode))
+            if mode == "individual" || mode == "merged" =>
+        {
+            Ok(())
+        }
+        _ => Err(ActionProjectionError::InvalidInvocation(
+            "mode must be 'individual' or 'merged'".to_string(),
+        )),
+    }
+}
+
+fn validate_reaction_input(
+    input: &BTreeMap<String, crate::interaction_frame::SurfaceDataVm>,
+) -> Result<(), ActionProjectionError> {
+    require_exact_input_keys(input, &["emoji"])?;
+    require_non_empty_string(input, "emoji").map(|_| ())
+}
+
+fn validate_urgent_input(
+    input: &BTreeMap<String, crate::interaction_frame::SurfaceDataVm>,
+) -> Result<(), ActionProjectionError> {
+    require_exact_input_keys(input, &["targetIds", "message"])?;
+    require_string_array(input, "targetIds", 100)?;
+    if input.contains_key("message") {
+        require_non_empty_string(input, "message")?;
+    }
+    Ok(())
+}
+
+fn require_exact_input_keys(
+    input: &BTreeMap<String, crate::interaction_frame::SurfaceDataVm>,
+    allowed: &[&str],
+) -> Result<(), ActionProjectionError> {
+    if let Some(key) = input.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ActionProjectionError::InvalidInvocation(format!(
+            "unknown input field '{key}'"
+        )));
+    }
+    Ok(())
+}
+
+fn require_non_empty_string<'a>(
+    input: &'a BTreeMap<String, crate::interaction_frame::SurfaceDataVm>,
+    key: &str,
+) -> Result<&'a str, ActionProjectionError> {
+    match input.get(key) {
+        Some(crate::interaction_frame::SurfaceDataVm::String(value)) if !value.is_empty() => {
+            Ok(value)
+        }
+        _ => Err(ActionProjectionError::InvalidInvocation(format!(
+            "{key} must be a non-empty string"
+        ))),
+    }
+}
+
+fn require_string_array(
+    input: &BTreeMap<String, crate::interaction_frame::SurfaceDataVm>,
+    key: &str,
+    max: usize,
+) -> Result<(), ActionProjectionError> {
+    match input.get(key) {
+        Some(crate::interaction_frame::SurfaceDataVm::Array(values))
+            if !values.is_empty()
+                && values.len() <= max
+                && values.iter().all(|value| {
+                    matches!(value, crate::interaction_frame::SurfaceDataVm::String(text) if !text.is_empty())
+                }) =>
+        {
+            Ok(())
+        }
+        _ => Err(ActionProjectionError::InvalidInvocation(format!(
+            "{key} must contain 1..={max} non-empty strings"
+        ))),
     }
 }
 
@@ -905,6 +1133,48 @@ mod tests {
 
     fn registry() -> ActionBindingRegistry {
         ActionBindingRegistry::new(4).expect("nonzero bounded registry")
+    }
+
+    #[test]
+    fn timeline_dispatch_map_only_admits_explicit_authority_paths() {
+        for kind in [
+            "viewReceipt",
+            "revoke",
+            "forward",
+            "react",
+            "urgent",
+            "urgentConfirm",
+            "urgentCancel",
+        ] {
+            assert!(ActionDispatch::supports_timeline_kind(kind), "{kind}");
+            assert!(
+                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1").is_some(),
+                "{kind} must share the projector/application dispatch source"
+            );
+        }
+
+        for kind in [
+            "reply",
+            "createTopic",
+            "retry",
+            "markRead",
+            "templateConfirm",
+            "locate",
+            "createSchedule",
+            "cancelSchedule",
+            "markChannelRead",
+            "closeChannel",
+            "leaveChannel",
+            "changeMembers",
+            "changeRole",
+            "changeSettings",
+        ] {
+            assert!(!ActionDispatch::supports_timeline_kind(kind), "{kind}");
+            assert!(
+                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1").is_none(),
+                "{kind} must remain disabled until authority, persistence and causation Frame exist"
+            );
+        }
     }
 
     #[test]

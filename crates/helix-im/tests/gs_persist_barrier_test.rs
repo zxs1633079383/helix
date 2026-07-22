@@ -188,7 +188,7 @@ fn gs1_persist_ok_publishes_increment_then_loaded() {
 }
 
 fn prepare_sync_persist() -> (Harness, u64, Vec<&'static str>) {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = h
         .step(inbound_event(1, 99, 1), 1_000)
         .into_iter()
@@ -292,7 +292,7 @@ fn gs2_gs3_sync_commit_publishes_mutation_dialog_and_sync_state() {
 
 #[test]
 fn gs3_pong_gap_trigger_survives_http_and_persist_barrier() {
-    let mut h = Harness::new(&[1]);
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = h
         .step(pong_gap(1), 1_000)
         .into_iter()

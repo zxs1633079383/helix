@@ -314,7 +314,8 @@ fn remote_quick_reply_does_not_leak_raw_props_past_typed_timeline_boundary() {
     let row = &timeline_items(projection)[0];
     assert_eq!(row["id"], sid(1));
     assert!(row.get("props").is_none());
-    assert!(row.get("reactions").is_none());
+    assert_eq!(row["reactions"][0]["emoji"], ":thumbsup:");
+    assert_eq!(row["reactions"][0]["count"], 1);
     assert!(row.get("reactionCount").is_none());
 }
 

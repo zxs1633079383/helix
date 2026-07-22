@@ -78,7 +78,10 @@ fn schedule_projection(
         .and_then(serde_json::Value::as_u64)
         .or(revision_fallback)
         .unwrap_or(0);
-    let message = if can_view_content {
+    // A cancellation is terminal. Even the owner must not receive a retired draft body in the
+    // canceled projection, otherwise a late consumer could resurrect already removed content.
+    let can_view_active_content = can_view_content && has_schedule_post;
+    let message = if can_view_active_content {
         schedule_field(data, &["message"])
             .and_then(serde_json::Value::as_str)
             .map_or(serde_json::Value::Null, |value| {
@@ -87,7 +90,7 @@ fn schedule_projection(
     } else {
         serde_json::Value::Null
     };
-    let message_preview = if can_view_content {
+    let message_preview = if can_view_active_content {
         schedule_field(data, &["messagePreview", "message_preview"])
             .and_then(serde_json::Value::as_str)
             .map(|value| value.chars().take(96).collect::<String>())
@@ -110,6 +113,30 @@ fn schedule_projection(
         "messagePreview": message_preview,
         "scheduleMessagePreview": message_preview,
     })
+}
+
+/// Normalize `getSchedule` only when the response belongs to the attached channel and viewer.
+pub fn owner_schedule_hydration(
+    data: &serde_json::Value,
+    expected_channel_id: &str,
+    viewer_user_id: &str,
+) -> Option<serde_json::Value> {
+    if expected_channel_id.is_empty() || viewer_user_id.is_empty() {
+        return None;
+    }
+    let channel_id =
+        schedule_field(data, &["channelId", "channel_id"]).and_then(serde_json::Value::as_str)?;
+    if channel_id != expected_channel_id || !schedule_preview_authorized(data, viewer_user_id) {
+        return None;
+    }
+    Some(schedule_projection(
+        ChannelId::from_str(channel_id)?,
+        data,
+        None,
+        true,
+        "scheduled",
+        true,
+    ))
 }
 
 /// `post_schedule_created` → render-ready `im:channel:schedule-created`。
@@ -150,4 +177,50 @@ pub fn emit_schedule_canceled(
             false,
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owner_hydration_is_channel_and_viewer_scoped() {
+        let channel_id = "chfixx00000000000000000001";
+        let response = serde_json::json!({
+            "channelId": channel_id,
+            "scheduleId": "schedule-1",
+            "scheduleOwnerUserId": "owner-1",
+            "message": "owner secret",
+            "sendAt": 1_780_000_000_000_i64,
+            "revision": 7
+        });
+        let hydrated = owner_schedule_hydration(&response, channel_id, "owner-1").unwrap();
+        assert_eq!(hydrated["scheduleId"], "schedule-1");
+        assert_eq!(hydrated["scheduleMessage"], "owner secret");
+        assert!(owner_schedule_hydration(&response, "channel-2", "owner-1").is_none());
+        assert!(owner_schedule_hydration(&response, channel_id, "observer-1").is_none());
+    }
+
+    #[test]
+    fn canceled_projection_never_republishes_retired_draft_content() {
+        let effect = emit_schedule_canceled(
+            ChannelId::from_str("chfixx00000000000000000001").unwrap(),
+            &serde_json::json!({
+                "channelId": "chfixx00000000000000000001",
+                "scheduleOwnerUserId": "owner-1",
+                "message": "retired secret",
+                "messagePreview": "retired",
+                "revision": 8
+            }),
+            None,
+            true,
+        );
+        let Effect::Emit { event } = effect else {
+            panic!("expected emit")
+        };
+        let payload: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+        assert_eq!(payload["data"]["scheduleStatus"], "canceled");
+        assert!(payload["data"]["scheduleMessage"].is_null());
+        assert!(payload["data"]["scheduleMessagePreview"].is_null());
+    }
 }

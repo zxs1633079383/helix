@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-ANGULAR-FOCUSED",
+      "command": "npx jest --runInBand --runTestsByPath G13/G14/G16 focused component tests",
+      "started_at": "2026-07-22T12:02:43Z",
+      "ended_at": "2026-07-22T12:02:51Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/016-g16-channel-governance/evidence/angular-focused.log",
+          "sha256": "f04985b72fda90c158c5c145c85bef94cf98987354a39dcef8919e5e7b742a80"
+        }
+      ]
+    },
+    {
+      "id": "V-RUST-FOCUSED",
+      "command": "cargo test -p helix-im --test g13_channel_read_interaction_test --test g14_receipt_template_interaction_test --test g15_topic_interaction_test --test g16_governance_interaction_test",
+      "started_at": "2026-07-22T12:00:52Z",
+      "ended_at": "2026-07-22T12:00:59Z",
+      "result": "BLOCKED",
+      "files": [
+        {
+          "path": "specs/016-g16-channel-governance/evidence/rust-focused.log",
+          "sha256": "ca13cf6422c0985d287dc273cc0751cf6e9b4fed39a71c8361b9406f01dc275a"
+        }
+      ]
+    }
+  ]
+}

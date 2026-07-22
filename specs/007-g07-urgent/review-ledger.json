@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/007-g07-urgent",
+  "phase": "implementing",
+  "event_seq": 4,
+  "next_action": "implement_tasks",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {},
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "0ee24135a7d8ffafd4fdff371e69b8775896290fd7e2e6bc8b4bf7f11e2ae14b",
+      "checked_at": "2026-07-22T11:33:54Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pass",
+      "fingerprint": "2597dbc28089f965d6f2a51b62e5cae7ae4ea9075160552a0f937aaf60e1d160",
+      "checked_at": "2026-07-22T11:34:16Z",
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pass",
+      "fingerprint": "3add1e4fd88a4681d78fdbac8a3737e131edd79d20fd8d31281d77f46edcdcbe",
+      "checked_at": "2026-07-22T11:34:37Z",
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-22T11:33:54Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-22T11:34:16Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-22T11:34:37Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-22T11:50:29Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    }
+  ]
+}

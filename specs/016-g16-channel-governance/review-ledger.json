@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/016-g16-channel-governance",
+  "phase": "ready",
+  "event_seq": 10,
+  "next_action": "admit_implementation",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "82186b29fd932ffe": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "275fa914a9b8997d65a91edffe02120c3b2c5f15c485eac57dc48cde4a38bc28",
+      "checked_at": "2026-07-22T11:34:08Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pass",
+      "fingerprint": "1419467a1068f23203e3d5d94cd2095dd56efcfb671f4374b10d2e85c4f0cc0a",
+      "checked_at": "2026-07-22T11:34:30Z",
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pass",
+      "fingerprint": "c2b5f7521cadba812659d3b3eba823be2fdd60ae5a92fb9869bf49f6ee166924",
+      "checked_at": "2026-07-22T12:05:16Z",
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "blocked",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-22T11:34:08Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-22T11:34:30Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-22T11:34:51Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-22T11:50:46Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-22T11:52:41Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-22T11:52:41Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-22T12:04:39Z",
+      "kind": "phase",
+      "detail": "verifying->implementing: recorded evidence V-ANGULAR-FOCUSED"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-22T12:04:40Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence V-RUST-FOCUSED"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-22T12:05:16Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-22T12:05:16Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    }
+  ]
+}

@@ -42,6 +42,12 @@ impl OutboundCommand for MemberRoleCommand {
                 ImError::Parse(format!("{}: 缺/空 user_ids（非空字符串数组）", self.name()))
             })?;
         let role = require_str(args, "role", self.name())?;
+        if !matches!(role, "CREATOR" | "ADMIN" | "MEMBER") {
+            return Err(ImError::Parse(format!(
+                "{}: role 必须是 CREATOR/ADMIN/MEMBER",
+                self.name()
+            )));
+        }
         Ok((
             "channel/member/change/role",
             json!({ "channelId": channel_id, "userIds": user_ids, "role": role }),

@@ -12,10 +12,13 @@
 //! 不接管频道推导，也不把旧调用方携带的 `channel_id` 继续发到 wire。
 
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 use crate::error::ImError;
 
 use crate::outbound::registry::{require_str, OutboundCommand, OutboundRegistration};
+
+const MAX_URGENT_TARGETS: usize = 100;
 
 /// POST /api/cses/posts/urgentPost — 消息加急 → post_update。
 /// 真源 UrgentPostVO：targetIds 非空校验在 Go `Validate()`（"请选择用户后再操作"）→ 本地也校验
@@ -26,17 +29,38 @@ impl OutboundCommand for UrgentPostCommand {
         "im_urgent_post"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(
+            args,
+            &["post_id", "target_ids", "message", "req_id", "channel_id"],
+            self.name(),
+        )?;
         let post_id = require_str(args, "post_id", self.name())?;
-        let target_ids = args
+        let target_values = args
             .get("target_ids")
             .and_then(Value::as_array)
-            .filter(|a| !a.is_empty() && a.iter().all(|v| v.is_string()))
+            .filter(|items| !items.is_empty() && items.len() <= MAX_URGENT_TARGETS)
             .ok_or_else(|| {
                 ImError::Parse(format!(
-                    "{}: 缺/空 target_ids（非空字符串数组）",
+                    "{}: target_ids 必须为 1..={MAX_URGENT_TARGETS} 个非空字符串",
                     self.name()
                 ))
             })?;
+        let mut unique = BTreeSet::new();
+        let mut target_ids = Vec::with_capacity(target_values.len());
+        for target in target_values {
+            let target = target
+                .as_str()
+                .filter(|target| !target.is_empty())
+                .ok_or_else(|| ImError::Parse(format!("{}: target_ids 含空值", self.name())))?;
+            if !unique.insert(target) {
+                return Err(ImError::Parse(format!(
+                    "{}: target_ids 不允许重复值",
+                    self.name()
+                )));
+            }
+            target_ids.push(target);
+        }
+        require_optional_request_id(args, self.name())?;
         let mut b = json!({
             "postId": post_id,
             "targetIds": target_ids,
@@ -64,7 +88,9 @@ impl OutboundCommand for UrgentConfirmCommand {
         "im_urgent_confirm"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(args, &["post_id", "req_id", "channel_id"], self.name())?;
         let post_id = require_str(args, "post_id", self.name())?;
+        require_optional_request_id(args, self.name())?;
         Ok(("posts/urgentConfirm", json!({ "postId": post_id })))
     }
 }
@@ -84,7 +110,9 @@ impl OutboundCommand for UrgentCancelCommand {
         "im_urgent_cancel"
     }
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(args, &["post_id", "req_id", "channel_id"], self.name())?;
         let post_id = require_str(args, "post_id", self.name())?;
+        require_optional_request_id(args, self.name())?;
         Ok(("posts/urgentCancel", json!({ "postId": post_id })))
     }
 }
@@ -94,4 +122,25 @@ inventory::submit! {
         name: "im_urgent_cancel",
         command: &URGENT_CANCEL,
     }
+}
+
+fn require_exact_keys(args: &Value, allowed: &[&str], cmd: &str) -> Result<(), ImError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须是 object")))?;
+    if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ImError::Parse(format!(
+            "{cmd}: 未知或非 canonical 字段 '{unknown}'"
+        )));
+    }
+    Ok(())
+}
+
+fn require_optional_request_id(args: &Value, cmd: &str) -> Result<(), ImError> {
+    if let Some(value) = args.get("req_id") {
+        if value.as_str().filter(|value| !value.is_empty()).is_none() {
+            return Err(ImError::Parse(format!("{cmd}: req_id 必须是非空字符串")));
+        }
+    }
+    Ok(())
 }

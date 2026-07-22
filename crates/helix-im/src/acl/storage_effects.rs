@@ -51,12 +51,21 @@ pub fn recovery_ledger_op(entry: RecoveryLedgerEntry) -> StorageOp {
         rows: vec![vec![
             ("tenant_id".to_string(), SqlValue::Text(entry.tenant_id)),
             ("channel_id".to_string(), SqlValue::Text(entry.channel_id)),
-            ("event_seq".to_string(), SqlValue::Integer(entry.event_seq as i64)),
+            (
+                "event_seq".to_string(),
+                SqlValue::Integer(entry.event_seq as i64),
+            ),
             ("event_kind".to_string(), SqlValue::Text(entry.event_kind)),
-            ("message_id".to_string(), entry.message_id.map_or(SqlValue::Null, SqlValue::Text)),
+            (
+                "message_id".to_string(),
+                entry.message_id.map_or(SqlValue::Null, SqlValue::Text),
+            ),
             ("event_hash".to_string(), SqlValue::Text(entry.event_hash)),
             ("coverage_id".to_string(), SqlValue::Text(entry.coverage_id)),
-            ("applied_at_ms".to_string(), SqlValue::Integer(entry.applied_at_ms)),
+            (
+                "applied_at_ms".to_string(),
+                SqlValue::Integer(entry.applied_at_ms),
+            ),
         ]],
         conflict_key: Some("tenant_id,channel_id,event_seq"),
         exclude_from_update: Vec::new(),
@@ -68,16 +77,43 @@ pub fn recovery_coverage_op(coverage: RecoveryCoverage) -> StorageOp {
     StorageOp::BatchUpsert(UpsertSpec {
         table: "channel_sync_coverage",
         rows: vec![vec![
-            ("coverage_id".to_string(), SqlValue::Text(coverage.coverage_id)),
+            (
+                "coverage_id".to_string(),
+                SqlValue::Text(coverage.coverage_id),
+            ),
             ("tenant_id".to_string(), SqlValue::Text(coverage.tenant_id)),
-            ("channel_id".to_string(), SqlValue::Text(coverage.channel_id)),
-            ("from_seq".to_string(), SqlValue::Integer(coverage.from_seq as i64)),
-            ("to_seq".to_string(), SqlValue::Integer(coverage.to_seq as i64)),
-            ("event_count".to_string(), SqlValue::Integer(coverage.event_count as i64)),
-            ("facts_hash".to_string(), SqlValue::Text(coverage.facts_hash)),
-            ("correlation_id".to_string(), SqlValue::Text(coverage.correlation_id)),
-            ("commit_state".to_string(), SqlValue::Text("committed".to_string())),
-            ("committed_at_ms".to_string(), SqlValue::Integer(coverage.committed_at_ms)),
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(coverage.channel_id),
+            ),
+            (
+                "from_seq".to_string(),
+                SqlValue::Integer(coverage.from_seq as i64),
+            ),
+            (
+                "to_seq".to_string(),
+                SqlValue::Integer(coverage.to_seq as i64),
+            ),
+            (
+                "event_count".to_string(),
+                SqlValue::Integer(coverage.event_count as i64),
+            ),
+            (
+                "facts_hash".to_string(),
+                SqlValue::Text(coverage.facts_hash),
+            ),
+            (
+                "correlation_id".to_string(),
+                SqlValue::Text(coverage.correlation_id),
+            ),
+            (
+                "commit_state".to_string(),
+                SqlValue::Text("committed".to_string()),
+            ),
+            (
+                "committed_at_ms".to_string(),
+                SqlValue::Integer(coverage.committed_at_ms),
+            ),
         ]],
         conflict_key: Some("coverage_id"),
         exclude_from_update: Vec::new(),

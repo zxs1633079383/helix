@@ -545,13 +545,25 @@ async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_togethe
     let ledger = StorageOp::BatchUpsert(UpsertSpec {
         table: "channel_event_ledger",
         rows: vec![vec![
-            ("tenant_id".to_string(), SqlValue::Text("team-1".to_string())),
+            (
+                "tenant_id".to_string(),
+                SqlValue::Text("team-1".to_string()),
+            ),
             ("channel_id".to_string(), SqlValue::Text(cid(81))),
             ("event_seq".to_string(), SqlValue::Integer(7)),
             ("event_kind".to_string(), SqlValue::Text("post".to_string())),
-            ("message_id".to_string(), SqlValue::Text("post-7".to_string())),
-            ("event_hash".to_string(), SqlValue::Text("event-hash-7".to_string())),
-            ("coverage_id".to_string(), SqlValue::Text(coverage.to_string())),
+            (
+                "message_id".to_string(),
+                SqlValue::Text("post-7".to_string()),
+            ),
+            (
+                "event_hash".to_string(),
+                SqlValue::Text("event-hash-7".to_string()),
+            ),
+            (
+                "coverage_id".to_string(),
+                SqlValue::Text(coverage.to_string()),
+            ),
             ("applied_at_ms".to_string(), SqlValue::Integer(7_000)),
         ]],
         conflict_key: Some("tenant_id,channel_id,event_seq"),
@@ -560,15 +572,30 @@ async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_togethe
     let coverage_op = StorageOp::BatchUpsert(UpsertSpec {
         table: "channel_sync_coverage",
         rows: vec![vec![
-            ("coverage_id".to_string(), SqlValue::Text(coverage.to_string())),
-            ("tenant_id".to_string(), SqlValue::Text("team-1".to_string())),
+            (
+                "coverage_id".to_string(),
+                SqlValue::Text(coverage.to_string()),
+            ),
+            (
+                "tenant_id".to_string(),
+                SqlValue::Text("team-1".to_string()),
+            ),
             ("channel_id".to_string(), SqlValue::Text(cid(81))),
             ("from_seq".to_string(), SqlValue::Integer(7)),
             ("to_seq".to_string(), SqlValue::Integer(7)),
             ("event_count".to_string(), SqlValue::Integer(1)),
-            ("facts_hash".to_string(), SqlValue::Text("facts-hash-7".to_string())),
-            ("correlation_id".to_string(), SqlValue::Text("corr-7".to_string())),
-            ("commit_state".to_string(), SqlValue::Text("committed".to_string())),
+            (
+                "facts_hash".to_string(),
+                SqlValue::Text("facts-hash-7".to_string()),
+            ),
+            (
+                "correlation_id".to_string(),
+                SqlValue::Text("corr-7".to_string()),
+            ),
+            (
+                "commit_state".to_string(),
+                SqlValue::Text("committed".to_string()),
+            ),
             ("committed_at_ms".to_string(), SqlValue::Integer(7_000)),
         ]],
         conflict_key: Some("coverage_id"),
@@ -600,7 +627,12 @@ async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_togethe
         .expect("coverage rollback query")
         .is_none());
     assert!(storage
-        .scan(ScanSpec { table: "channel_event_ledger", limit: None, filter: None, order_by: &[] })
+        .scan(ScanSpec {
+            table: "channel_event_ledger",
+            limit: None,
+            filter: None,
+            order_by: &[]
+        })
         .await
         .expect("ledger rollback query")
         .is_empty());

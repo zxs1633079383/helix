@@ -78,8 +78,18 @@ fn gs01_reconnect_equal_and_persist_failure_replay_has_no_false_completion() {
 #[test]
 fn gs02_rejects_non_contiguous_sync_evidence_before_persist() {
     let channel = channel_id('b');
-    let first = EventEnvelope::new(channel, Seq(8), EventKind::PostUpsert, PostFields::default());
-    let gap = EventEnvelope::new(channel, Seq(10), EventKind::PostUpsert, PostFields::default());
+    let first = EventEnvelope::new(
+        channel,
+        Seq(8),
+        EventKind::PostUpsert,
+        PostFields::default(),
+    );
+    let gap = EventEnvelope::new(
+        channel,
+        Seq(10),
+        EventKind::PostUpsert,
+        PostFields::default(),
+    );
     assert!(matches!(
         SyncBatchFacts::from_events(channel, Seq(7), Seq(10), vec![first, gap]),
         Err("sync batch event sequence is not contiguous")

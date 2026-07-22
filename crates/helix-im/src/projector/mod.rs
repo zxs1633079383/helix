@@ -20,8 +20,8 @@ use helix_core::effect::{DomainEventBytes, Effect};
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    InteractionFrame, InteractionFrameError, InteractionFrameV2, SurfaceId, SurfaceMutation, SurfaceScope,
-    TypedSurfaceMutation, INTERACTION_FRAME_EVENT,
+    InteractionFrame, InteractionFrameError, InteractionFrameV2, SurfaceId, SurfaceMutation,
+    SurfaceScope, TypedSurfaceMutation, INTERACTION_FRAME_EVENT,
 };
 
 /// 各强类型 ViewModel 到 closed mutation 的唯一映射。

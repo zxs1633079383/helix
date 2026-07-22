@@ -194,9 +194,10 @@ impl SurfaceScope {
                     root_message_id,
                 },
             ) => !channel_id.is_empty() && !root_message_id.is_empty(),
-            (SurfaceId::MessageChannelSummary | SurfaceId::MessageComposer, Self::Channel { channel_id }) => {
-                !channel_id.is_empty()
-            }
+            (
+                SurfaceId::MessageChannelSummary | SurfaceId::MessageComposer,
+                Self::Channel { channel_id },
+            ) => !channel_id.is_empty(),
             (SurfaceId::MessageMemberRoster, Self::MemberRoster { channel_id, cursor }) => {
                 !channel_id.is_empty() && !cursor.is_empty()
             }
@@ -591,7 +592,10 @@ impl InteractionFrameV2 {
         let mut slots = BTreeSet::new();
         for mutation in &self.mutations {
             mutation.validate()?;
-            let slot = (mutation.mutation.surface, mutation.mutation.scope.canonical_key());
+            let slot = (
+                mutation.mutation.surface,
+                mutation.mutation.scope.canonical_key(),
+            );
             if !slots.insert(slot.clone()) {
                 return Err(InteractionFrameError::DuplicateSlot {
                     surface: slot.0.as_str(),
@@ -1076,15 +1080,30 @@ impl InteractionRuntimeVm {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum RuntimeConnectionState { Connecting, Online, Offline }
+pub enum RuntimeConnectionState {
+    Connecting,
+    Online,
+    Offline,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum RuntimeSyncState { Idle, Syncing, Ready, Failed }
+pub enum RuntimeSyncState {
+    Idle,
+    Syncing,
+    Ready,
+    Failed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum RuntimeRecoveryState { Idle, Syncing, Recovered, Failed, Blocked }
+pub enum RuntimeRecoveryState {
+    Idle,
+    Syncing,
+    Recovered,
+    Failed,
+    Blocked,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1106,7 +1125,12 @@ impl UiDirective {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum ComposerState { Hydrating, Ready, Forbidden, Failed }
+pub enum ComposerState {
+    Hydrating,
+    Ready,
+    Forbidden,
+    Failed,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1253,8 +1277,12 @@ pub enum TypedSurfaceMutation {
     ChannelSummaryPatch {
         patch: ReplaceView<ChannelSummaryVm>,
     },
-    ComposerSnapshot { view: ComposerVm },
-    ComposerPatch { patch: ReplaceView<ComposerVm> },
+    ComposerSnapshot {
+        view: ComposerVm,
+    },
+    ComposerPatch {
+        patch: ReplaceView<ComposerVm>,
+    },
     MemberRosterSnapshot {
         view: MemberRosterVm,
     },
@@ -1293,7 +1321,9 @@ impl TypedSurfaceMutation {
             Self::ChannelSummarySnapshot { .. } | Self::ChannelSummaryPatch { .. } => {
                 SurfaceId::MessageChannelSummary
             }
-            Self::ComposerSnapshot { .. } | Self::ComposerPatch { .. } => SurfaceId::MessageComposer,
+            Self::ComposerSnapshot { .. } | Self::ComposerPatch { .. } => {
+                SurfaceId::MessageComposer
+            }
             Self::MemberRosterSnapshot { .. } | Self::MemberRosterPatch { .. } => {
                 SurfaceId::MessageMemberRoster
             }
@@ -1475,15 +1505,25 @@ fn validate_composer(view: &ComposerVm, scope: &SurfaceScope) -> Result<(), Inte
     let SurfaceScope::Channel { channel_id } = scope else {
         return invalid_view(surface, "composer requires a channel scope");
     };
-    if view.channel_id != *channel_id || view.draft_policy.is_empty() || view.capability_epoch == 0 {
-        return invalid_view(surface, "composer channelId, draftPolicy and capabilityEpoch must be valid");
+    if view.channel_id != *channel_id || view.draft_policy.is_empty() || view.capability_epoch == 0
+    {
+        return invalid_view(
+            surface,
+            "composer channelId, draftPolicy and capabilityEpoch must be valid",
+        );
     }
     validate_wire_u64(surface, "capabilityEpoch", view.capability_epoch)?;
     validate_action_bindings(surface, &view.actions)?;
-    if view.actions.iter().any(|binding| binding.surface_epoch != view.capability_epoch) {
+    if view
+        .actions
+        .iter()
+        .any(|binding| binding.surface_epoch != view.capability_epoch)
+    {
         return invalid_view(surface, "composer actions must use capabilityEpoch");
     }
-    if !matches!(view.state, ComposerState::Ready) && view.actions.iter().any(|binding| binding.enabled) {
+    if !matches!(view.state, ComposerState::Ready)
+        && view.actions.iter().any(|binding| binding.enabled)
+    {
         return invalid_view(surface, "non-ready composer must not enable actions");
     }
     Ok(())

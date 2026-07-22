@@ -375,7 +375,10 @@ impl CommittedRecoveryHead {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryComparison {
     Equal,
-    Pull { from_exclusive: Seq, to_inclusive: Seq },
+    Pull {
+        from_exclusive: Seq,
+        to_inclusive: Seq,
+    },
     AuthorityReloadRequired,
 }
 

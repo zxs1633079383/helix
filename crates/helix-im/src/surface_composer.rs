@@ -35,7 +35,9 @@ impl SurfaceChangeSet {
         transaction_id: String,
         causation_id: Option<String>,
     ) -> Result<InteractionFrameV2, &'static str> {
-        let runtime = self.runtime.ok_or("committed change set requires runtime")?;
+        let runtime = self
+            .runtime
+            .ok_or("committed change set requires runtime")?;
         let mut mutations = self.user_mutations;
         for bundle in self.channel_bundles {
             if bundle.channel_id.is_empty() {

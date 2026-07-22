@@ -75,7 +75,9 @@ mod tests {
         ));
 
         projector.reset();
-        let next_session = projector.snapshot(composer()).expect("new session snapshot");
+        let next_session = projector
+            .snapshot(composer())
+            .expect("new session snapshot");
         assert_eq!(next_session.revision, 1);
     }
 }

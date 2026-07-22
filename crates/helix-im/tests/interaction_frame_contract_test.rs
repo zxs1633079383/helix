@@ -15,8 +15,10 @@ const SCOPE_MISMATCH: &str = include_str!("fixtures/uc01-16-surface-runtime/scop
 const GAP: &str = include_str!("fixtures/uc01-16-surface-runtime/gap.json");
 const REJECTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/rejected-action.json");
 const ACCEPTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/accepted-action.json");
-const GS01_RECONNECT_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs01-reconnect-canonical-v2.json");
-const GS03_HYDRATION_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs03-unknown-channel-hydration-v2.json");
+const GS01_RECONNECT_V2: &str =
+    include_str!("fixtures/uc01-16-surface-runtime/gs01-reconnect-canonical-v2.json");
+const GS03_HYDRATION_V2: &str =
+    include_str!("fixtures/uc01-16-surface-runtime/gs03-unknown-channel-hydration-v2.json");
 const GS_DUPLICATE_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs-duplicate-v2.json");
 const RICH_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/rich-v2.json");
 
@@ -89,7 +91,8 @@ fn v2_composer_requires_runtime_epoch_and_a_channel_scoped_binding() {
     ));
 
     let mut disabled_hydration = valid;
-    disabled_hydration["mutations"][0]["mutation"]["view"]["state"] = serde_json::json!("hydrating");
+    disabled_hydration["mutations"][0]["mutation"]["view"]["state"] =
+        serde_json::json!("hydrating");
     assert!(matches!(
         InteractionFrameV2::decode(serde_json::to_vec(&disabled_hydration).unwrap().as_slice()),
         Err(InteractionFrameError::InvalidView { .. })
@@ -105,7 +108,10 @@ fn gs_v2_fixtures_keep_composer_and_summary_in_a_valid_committed_frame() {
             .mutations
             .iter()
             .any(|mutation| mutation.mutation.surface == SurfaceId::MessageComposer));
-        assert_eq!(frame.runtime.connection, helix_im::interaction_frame::RuntimeConnectionState::Online);
+        assert_eq!(
+            frame.runtime.connection,
+            helix_im::interaction_frame::RuntimeConnectionState::Online
+        );
     }
 }
 

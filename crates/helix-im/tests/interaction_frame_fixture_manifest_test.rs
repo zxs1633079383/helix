@@ -93,7 +93,10 @@ fn manifest_lists_all_eight_v1_surfaces_with_their_actual_live_producer_status()
 #[test]
 fn v2_migration_reserves_all_gs01_gs04_fixtures_without_claiming_v1_is_v2() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
-    assert_eq!(manifest.v2_migration.source_pin, "b4339e252e865ea294c51001388b1ef0de3ba42e");
+    assert_eq!(
+        manifest.v2_migration.source_pin,
+        "b4339e252e865ea294c51001388b1ef0de3ba42e"
+    );
     assert_eq!(manifest.v2_migration.target_schema_version, 2);
     assert_eq!(manifest.v2_migration.required_fixtures.len(), 7);
     assert!(manifest
@@ -101,7 +104,10 @@ fn v2_migration_reserves_all_gs01_gs04_fixtures_without_claiming_v1_is_v2() {
         .required_fixtures
         .values()
         .all(|name| name.ends_with("-v2.json")));
-    assert!(manifest.v2_migration.consumer_rule.contains("never a fallback"));
+    assert!(manifest
+        .v2_migration
+        .consumer_rule
+        .contains("never a fallback"));
 }
 
 #[test]

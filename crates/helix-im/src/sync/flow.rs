@@ -211,14 +211,14 @@ impl ImModule {
                     .channels
                     .get(&channel_id)
                     .map(|channel| channel.cursor.value())
-                    .ok_or_else(|| ImError::Parse("sync reply has no registered channel".to_string()))?;
-                let facts = SyncBatchFacts::from_events(
-                    channel_id,
-                    from_exclusive,
-                    next_seq,
-                    events,
-                )
-                .map_err(|reason| ImError::Parse(format!("invalid sync batch facts: {reason}")))?;
+                    .ok_or_else(|| {
+                        ImError::Parse("sync reply has no registered channel".to_string())
+                    })?;
+                let facts =
+                    SyncBatchFacts::from_events(channel_id, from_exclusive, next_seq, events)
+                        .map_err(|reason| {
+                            ImError::Parse(format!("invalid sync batch facts: {reason}"))
+                        })?;
                 if self
                     .state
                     .recovery_session
@@ -273,7 +273,9 @@ impl ImModule {
                     self.config.auth_user_id.as_str(),
                 )
                 .ok_or_else(|| {
-                    ImError::Parse("recovery persistence requires a tenant and actor identity".to_string())
+                    ImError::Parse(
+                        "recovery persistence requires a tenant and actor identity".to_string(),
+                    )
                 })?;
                 let from_seq = self
                     .state

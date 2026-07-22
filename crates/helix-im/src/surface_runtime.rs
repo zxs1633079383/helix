@@ -20,6 +20,7 @@ use crate::interaction_frame::{
     SurfaceScope, ThreadDetailVm, TopicListVm, TopicRowVm, UserRefVm, WindowPageVm,
 };
 use crate::projector::participant_receipts::ParticipantReceiptsRequest;
+use crate::state::ChannelId;
 use crate::state::CorrelationContext;
 use crate::ImModule;
 
@@ -330,8 +331,15 @@ impl ImModule {
         let rows = storage_rows(outcome);
         let mutation = match (&request.surface, &request.scope) {
             (SurfaceId::MessageChannelSummary, SurfaceScope::Channel { channel_id }) => {
-                let view =
-                    channel_summary_view(channel_id, rows.first(), self.action_surface_epoch()?);
+                let viewer_role = ChannelId::from_str(channel_id)
+                    .and_then(|id| self.state.viewer_channel_roles.get(&id))
+                    .map(String::as_str);
+                let view = channel_summary_view(
+                    channel_id,
+                    rows.first(),
+                    viewer_role,
+                    self.action_surface_epoch()?,
+                );
                 self.state
                     .channel_summary_projector
                     .snapshot(view)
@@ -492,6 +500,7 @@ fn storage_rows(outcome: &PortOutcome) -> Vec<Value> {
 fn channel_summary_view(
     channel_id: &str,
     row: Option<&Value>,
+    viewer_role: Option<&str>,
     surface_epoch: u64,
 ) -> ChannelSummaryVm {
     let row = row.unwrap_or(&Value::Null);
@@ -501,6 +510,8 @@ fn channel_summary_view(
     } else {
         title
     };
+    let stored_role = text(row, &["role"]);
+    let viewer_role = viewer_role.unwrap_or(stored_role.as_str());
     ChannelSummaryVm {
         channel_id: channel_id.to_string(),
         title: ChannelTitleRef {
@@ -515,7 +526,7 @@ fn channel_summary_view(
         purpose: optional_text(row, &["purpose"]),
         lifecycle: lifecycle(row),
         member_count: nonnegative_u32(row, &["member_count", "memberCount"]),
-        viewer_role: member_role(text(row, &["role"]).to_ascii_uppercase().as_str()),
+        viewer_role: member_role(viewer_role),
         online_count: None,
         topic_count: nonnegative_u32(row, &["thread_count", "topic_count", "topicCount"]),
         notification_mode: NotificationMode::All,
@@ -748,6 +759,20 @@ fn nonnegative_u64(value: &Value, keys: &[&str]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_summary_prefers_session_viewer_role_over_sparse_storage_row() {
+        let row = serde_json::json!({
+            "id": "ch00000000000000000000000c",
+            "display_name": "Governance",
+            "role": "MEMBER"
+        });
+
+        let owner =
+            channel_summary_view("ch00000000000000000000000c", Some(&row), Some("CREATOR"), 1);
+
+        assert_eq!(owner.viewer_role, ChannelRole::Owner);
+    }
 
     #[test]
     fn timeline_resync_registers_attachment_before_the_first_snapshot() {

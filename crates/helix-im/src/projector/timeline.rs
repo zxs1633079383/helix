@@ -500,7 +500,7 @@ pub(crate) fn message_from_render_ready(
             actual: channel_id,
         });
     }
-    let author_id = required_string(row, &["userId", "user_id"], "author.userId")?;
+    let author_id = author_id_from_row(row)?;
     let revoked = bool_at(row, &["revoked", "revoke"]);
     let props = row.get("props").unwrap_or(&Value::Null);
     let content = content_from_row(row, props, revoked)?;
@@ -903,6 +903,25 @@ fn required_string(
         .ok_or(TimelineProjectionError::MissingRowField { field })
 }
 
+fn author_id_from_row(row: &Value) -> Result<String, TimelineProjectionError> {
+    let direct = row_string(row, &["userId", "user_id"]);
+    if !direct.is_empty() {
+        return Ok(direct);
+    }
+    let snapshot = row
+        .get("userSnapshot")
+        .or_else(|| row.get("user_snapshot"))
+        .map(|value| row_string(value, &["userId", "user_id"]))
+        .unwrap_or_default();
+    if !snapshot.is_empty() {
+        return Ok(snapshot);
+    }
+    // Historical system/reconnect rows can predate userId while still carrying
+    // the authoritative creator identity. They remain renderable as SYS rows;
+    // a row with no identity at all still fails closed below.
+    required_string(row, &["createBy", "create_by"], "author.userId")
+}
+
 fn row_string(row: &Value, keys: &[&str]) -> String {
     keys.iter()
         .find_map(|key| row.get(*key).and_then(Value::as_str))
@@ -998,6 +1017,37 @@ mod tests {
             "props": {},
             "actionCapabilities": {},
         })
+    }
+
+    #[test]
+    fn historical_row_uses_snapshot_then_creator_as_author_identity() {
+        let from_snapshot = serde_json::json!({
+            "msgId": "snapshot-author",
+            "channelId": "channel-1",
+            "userSnapshot": { "userId": "user-from-snapshot" },
+            "text": "legacy",
+            "type": "TEXT",
+            "props": {}
+        });
+        let from_creator = serde_json::json!({
+            "msgId": "system-author",
+            "channelId": "channel-1",
+            "createBy": "SYS",
+            "userSnapshot": { "userId": "" },
+            "text": "legacy",
+            "type": "TEXT",
+            "props": {}
+        });
+
+        let snapshot_vm =
+            message_from_render_ready(&from_snapshot, "channel-1", 1, false, || unreachable!())
+                .unwrap();
+        let creator_vm =
+            message_from_render_ready(&from_creator, "channel-1", 1, false, || unreachable!())
+                .unwrap();
+
+        assert_eq!(snapshot_vm.author.user_id, "user-from-snapshot");
+        assert_eq!(creator_vm.author.user_id, "SYS");
     }
 
     #[test]

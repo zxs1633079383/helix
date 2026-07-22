@@ -4,7 +4,7 @@
 
 **Decision**: 将当前 `interaction_frame.rs` 的 V1 八 Surface、泛型 `SurfaceDataVm` 下行视为迁移起点；GS01-GS04 直接产出 typed `InteractionFrame v2`，包含第九个 `message.composer` Surface，而不是在 V1 增补 raw event 兼容层。
 
-**Rationale**: 当前 Rust 与 Angular contracts 都列出八个 Surface，且客户端已具备 schema v2 常量、Frame decode、按 slot 暂存与单 signal swap 的原子 cache 基础。V2 目标合同已冻结九 Surface 和 composer ownership。继续在 raw `im:*` 上叠一个 reducer，会让 client 同时消费两个业务真源。
+**Rationale**: 当前 source pin `b4339e252e865ea294c51001388b1ef0de3ba42e` 的 Rust 合同仍是 `INTERACTION_FRAME_SCHEMA_VERSION = 1`，`SurfaceId` 仅有八项，所有 payload 均经 `SurfaceDataVm` 泛型树传递；不能把目标 V2 当作已落地事实。V2 目标合同冻结九 Surface 和 composer ownership，必须以同一 producer/consumer 升级实现，而不是在 raw `im:*` 上叠一个 renderer reducer。
 
 **Alternatives considered**:
 
@@ -88,6 +88,20 @@
 
 - 只跑 `cargo test`：拒绝。缺 UI 与真实证据。
 - 直接改 SQLite/PG 把结果调成一致：拒绝。破坏证据可信度，违反 FR-011。
+
+## R10 - 当前 source 基线与迁移边界（T001）
+
+**Observed at**: `b4339e252e865ea294c51001388b1ef0de3ba42e`（本 feature 的 docs 基线父提交）。这不是 V2 已完成声明。
+
+| 面 | 当前事实 | V2 工作项 |
+|---|---|---|
+| Frame | `crates/helix-im/src/interaction_frame.rs` 是 schema v1；`SurfaceId` 只有 dialog、unread、timeline、thread、channel-summary、member-roster、topic-list、participant-receipts 八项；typed mutation 仍可携 `SurfaceDataVm`。 | 升为 schema v2，新增独立 `message.composer` 与明确 runtime payload；不能让新消息类型扩散修改已有 Row/VM 根字段。 |
+| Frame producer | `projector/mod.rs` 组装 `im:interaction:frame`；`projector/action.rs` 以当前 schema 常量下行。 | GS01-GS04 只能在相关 `PersistAtomic` 的 matching `PersistOk` 后经 composer 组装 V2 Frame。 |
+| IM schema route | `crates/helix-im/src/schema.rs` 通过 `IM_SCHEMA`/`IM_SCHEMA_MIGRATIONS` 将 DDL 作为业务数据暴露；`helix-driver-host/src/storage.rs::execute_raw` 只执行该 DDL。现有 sparse 表含 `message`、`channel`、`channel_member`、`channel_event_cursor`。 | 新增 ledger/coverage 仍由 helix-im 定义 DDL 和 StorageOp，host 不解释 IM 语义。 |
+| raw producer inventory | `module/trait_impl.rs` 仍生产控制/读取类 emit；`channel/older_context/effects.rs` 生产 `im:messages:older_loaded`；`channel/gate/commit.rs` 生产 `im:sync:too_long`；`channel/gate/projection.rs` 仍有 `im:post:*` 分支。 | 本 feature 不物理删除它们；T048 只建立删前 inventory/no-fallback gate。V2 consumer 一律拒绝把它们当业务下行。 |
+| SQLite/PG 实况 | readonly discovery（tenant key `444`）仅有 9 张 SQLite 表，缺 `channel_event_cursor`、`channel_event_ledger`、`channel_sync_coverage`；PG 可见 `channel`、`channel_member`、`post`、`channel_event`、`channel_event_head`。 | 这是当前未迁移库，不是失败修复对象；实现后以隔离 fixture/test tenant 的同 pin schema 验收。 |
+
+**Implication**: Phase 2 不是“打开 V2 开关”，而是 Rust producer、PC/mobile decoder/cache、fixture 与持久化账本的同一合同迁移。任何一端仍以 V1/raw event 作为回退输入，T050 即为 `BLOCKED`。
 
 ## R9 - 30 分钟进度
 

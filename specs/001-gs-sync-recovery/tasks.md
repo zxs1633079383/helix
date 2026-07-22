@@ -16,11 +16,11 @@
 
 **Purpose**: Freeze the actual V1 baseline and the local database/schema owners before adding V2 behavior.
 
-- [ ] T001 Record current V1 eight-surface/Frame contract, `IM_SCHEMA` execution route, existing raw emit producers, and the expected ninth composer surface in `specs/001-gs-sync-recovery/research.md`.
-- [ ] T002 Record bounded readonly SQLite/PG query shapes, evidence-pack fields, and the 30-minute progress record in `specs/001-gs-sync-recovery/contracts/sync-recovery-evidence.md`.
-- [ ] T003 [P] Add GS01-GS04 V2 fixture naming, source pin and manifest rules in `crates/helix-im/tests/fixtures/uc01-16-surface-runtime/manifest.json`.
-- [ ] T004 [P] Add the matching PC fixture mirror manifest contract in `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/__fixtures__/uc01-16-surface-runtime/fixture-manifest.json`.
-- [ ] T005 [P] Record the mobile GS01-GS04 fixture migration boundary and source-pin check in `/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/uc01-16/GS01-04/canonical_expected.json`.
+- [X] T001 Record current V1 eight-surface/Frame contract, `IM_SCHEMA` execution route, existing raw emit producers, and the expected ninth composer surface in `specs/001-gs-sync-recovery/research.md`.
+- [X] T002 Record bounded readonly SQLite/PG query shapes, evidence-pack fields, and the 30-minute progress record in `specs/001-gs-sync-recovery/contracts/sync-recovery-evidence.md`.
+- [X] T003 [P] Add GS01-GS04 V2 fixture naming, source pin and manifest rules in `crates/helix-im/tests/fixtures/uc01-16-surface-runtime/manifest.json`.
+- [X] T004 [P] Add the matching PC fixture mirror manifest contract in `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/__fixtures__/uc01-16-surface-runtime/fixture-manifest.json`.
+- [X] T005 [P] Record the mobile GS01-GS04 fixture migration boundary and source-pin check in `/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/uc01-16/GS01-04/canonical_expected.json`.
 
 ## Phase 2: Foundational V2 Contract And Persistence
 

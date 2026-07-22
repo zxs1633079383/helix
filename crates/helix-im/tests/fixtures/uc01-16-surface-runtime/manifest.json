@@ -24,5 +24,19 @@
     "message.channel-summary": "live: opaque resync -> channel storage fact -> snapshot/patch Frame",
     "message.member-roster": "live: opaque resync -> channel_member storage fact -> snapshot/patch Frame; unaudited actions are disabled",
     "message.topic-list": "live: opaque resync -> channel storage fact -> snapshot/patch Frame; unaudited actions are disabled"
+  },
+  "v2Migration": {
+    "sourcePin": "b4339e252e865ea294c51001388b1ef0de3ba42e",
+    "targetSchemaVersion": 2,
+    "requiredFixtures": {
+      "gs01ReconnectCanonical": "gs01-reconnect-canonical-v2.json",
+      "gs01EqualSequence": "gs01-equal-sequence-v2.json",
+      "gs02GapRecovery": "gs02-gap-recovery-v2.json",
+      "gs03UnknownChannelHydration": "gs03-unknown-channel-hydration-v2.json",
+      "gs04ReloginIsolation": "gs04-relogin-isolation-v2.json",
+      "persistFailure": "gs-persist-failure-v2.json",
+      "revisionGap": "gs-revision-gap-v2.json"
+    },
+    "consumerRule": "PC and mobile must verify this source pin and fixture hashes before accepting schemaVersion=2; raw im:* events are never a fallback."
   }
 }

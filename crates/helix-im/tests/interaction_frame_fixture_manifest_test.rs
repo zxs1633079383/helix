@@ -19,6 +19,16 @@ struct FixtureManifest {
     source_revisions: BTreeMap<String, String>,
     fixtures: BTreeMap<String, String>,
     producer_status: BTreeMap<String, String>,
+    v2_migration: V2Migration,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct V2Migration {
+    source_pin: String,
+    target_schema_version: u32,
+    required_fixtures: BTreeMap<String, String>,
+    consumer_rule: String,
 }
 
 #[test]
@@ -59,7 +69,7 @@ fn manifest_pins_the_contract_foundation_and_live_producer_revision() {
 }
 
 #[test]
-fn manifest_lists_all_eight_surfaces_and_marks_unwired_producers_blocked() {
+fn manifest_lists_all_eight_v1_surfaces_with_their_actual_live_producer_status() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
     assert_eq!(manifest.producer_status.len(), 8);
     for surface in [
@@ -73,10 +83,24 @@ fn manifest_lists_all_eight_surfaces_and_marks_unwired_producers_blocked() {
             manifest
                 .producer_status
                 .get(surface)
-                .is_some_and(|status| status.starts_with("blocked:")),
-            "{surface} must stay explicitly blocked until a real producer is wired"
+                .is_some_and(|status| status.starts_with("live:")),
+            "{surface} must name its actual V1 producer status"
         );
     }
+}
+
+#[test]
+fn v2_migration_reserves_all_gs01_gs04_fixtures_without_claiming_v1_is_v2() {
+    let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
+    assert_eq!(manifest.v2_migration.source_pin, "b4339e252e865ea294c51001388b1ef0de3ba42e");
+    assert_eq!(manifest.v2_migration.target_schema_version, 2);
+    assert_eq!(manifest.v2_migration.required_fixtures.len(), 7);
+    assert!(manifest
+        .v2_migration
+        .required_fixtures
+        .values()
+        .all(|name| name.ends_with("-v2.json")));
+    assert!(manifest.v2_migration.consumer_rule.contains("never a fallback"));
 }
 
 #[test]

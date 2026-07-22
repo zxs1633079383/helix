@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "uc01-16-rich-v2",
+  "causationId": "rich-v2-causation",
+  "runtime": { "connection": "online", "initialSync": "ready", "recovery": "recovered" },
+  "mutations": [
+    {
+      "surface": "message.timeline",
+      "scope": { "kind": "timeline", "channelId": "channel-1", "windowToken": "latest" },
+      "surfaceEpoch": 1,
+      "revision": 1,
+      "causationId": "rich-v2-timeline",
+      "mutation": {
+        "kind": "timelineSnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "anchor": { "messageId": "message-reply", "mode": "latest" },
+          "items": [
+            {
+              "id": "message-reply",
+              "channelId": "channel-1",
+              "author": { "userId": "user-1" },
+              "createdAt": 1700000000,
+              "content": { "kind": "text", "text": "reply" },
+              "delivery": { "kind": "sent" },
+              "actions": [],
+              "quickActions": ["react", "quoteReply", "createTopic"],
+              "replySummary": {
+                "kind": "available",
+                "targetMessageId": "message-origin",
+                "author": { "userId": "user-2" },
+                "preview": { "kind": "text", "text": "original" },
+                "availability": { "kind": "available" }
+              },
+              "replyThread": {
+                "items": [
+                  { "id": "reply-1", "author": { "userId": "user-2" }, "text": "第一条回复" },
+                  { "id": "reply-2", "author": { "userId": "user-3" }, "text": "第二条回复" },
+                  { "id": "reply-3", "author": { "userId": "user-4" }, "text": "第三条回复" }
+                ],
+                "replyCount": 4
+              },
+              "reactions": [{ "emoji": "😊", "count": 2 }],
+              "readReceipt": {},
+              "pinned": false,
+              "bookmarked": false,
+              "topicLink": {
+                "parentChannelId": "channel-1",
+                "topicChannelId": "topic-1",
+                "rootMessageId": "message-reply",
+                "title": "Roadmap"
+              }
+            }
+          ],
+          "page": { "windowToken": "latest", "hasOlder": false, "hasNewer": false, "hasMore": false },
+          "state": "ready"
+        }
+      }
+    }
+  ],
+  "directives": []
+}

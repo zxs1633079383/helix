@@ -61,6 +61,7 @@ fn manifest_pins_the_contract_foundation_and_live_producer_revision() {
             "gap.json".to_string(),
             "patch-transaction.json".to_string(),
             "rejected-action.json".to_string(),
+            "rich-v2.json".to_string(),
             "scope-mismatch.json".to_string(),
             "snapshots.json".to_string(),
             "stale.json".to_string(),

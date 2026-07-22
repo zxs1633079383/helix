@@ -13,7 +13,8 @@
     "revisionGap": "gap.json",
     "scopeMismatch": "scope-mismatch.json",
     "acceptedAction": "accepted-action.json",
-    "rejectedAction": "rejected-action.json"
+    "rejectedAction": "rejected-action.json",
+    "richContentV2": "rich-v2.json"
   },
   "producerStatus": {
     "message.left-dialog-list": "live: opaque resync -> dialog storage fact -> snapshot/patch Frame",

@@ -18,6 +18,7 @@ const ACCEPTED_ACTION: &str = include_str!("fixtures/uc01-16-surface-runtime/acc
 const GS01_RECONNECT_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs01-reconnect-canonical-v2.json");
 const GS03_HYDRATION_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs03-unknown-channel-hydration-v2.json");
 const GS_DUPLICATE_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs-duplicate-v2.json");
+const RICH_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/rich-v2.json");
 
 #[test]
 fn canonical_snapshot_decodes_all_eight_surface_vms() {
@@ -114,6 +115,31 @@ fn gs_v2_duplicate_fixture_rejects_the_whole_frame() {
         InteractionFrameV2::decode(GS_DUPLICATE_V2.as_bytes()),
         Err(InteractionFrameError::DuplicateSlot { .. })
     ));
+}
+
+#[test]
+fn rich_v2_fixture_preserves_reply_reaction_and_quick_action_contracts() {
+    let frame = InteractionFrameV2::decode(RICH_V2.as_bytes())
+        .expect("rich fixture must be a strict InteractionFrameV2");
+    let value = serde_json::to_value(frame).expect("rich frame serializes");
+    let items = value["mutations"][0]["mutation"]["view"]["items"]
+        .as_array()
+        .expect("timeline items");
+
+    assert_eq!(
+        items[0]["quickActions"],
+        serde_json::json!(["react", "quoteReply", "createTopic"])
+    );
+    assert_eq!(items[0]["replyThread"]["replyCount"], 4);
+    assert_eq!(
+        items[0]["replyThread"]["items"].as_array().map(Vec::len),
+        Some(3)
+    );
+    assert_eq!(
+        items[0]["reactions"],
+        serde_json::json!([{ "emoji": "😊", "count": 2 }])
+    );
+    assert_eq!(items[0]["topicLink"]["topicChannelId"], "topic-1");
 }
 
 #[test]

@@ -512,6 +512,10 @@ fn channel_summary_view(
     };
     let stored_role = text(row, &["role"]);
     let viewer_role = viewer_role.unwrap_or(stored_role.as_str());
+    let role = member_role(viewer_role);
+    let can_manage = matches!(role, ChannelRole::Owner | ChannelRole::Admin);
+    let can_close = matches!(role, ChannelRole::Owner);
+    let can_leave = !matches!(role, ChannelRole::Owner);
     ChannelSummaryVm {
         channel_id: channel_id.to_string(),
         title: ChannelTitleRef {
@@ -526,15 +530,15 @@ fn channel_summary_view(
         purpose: optional_text(row, &["purpose"]),
         lifecycle: lifecycle(row),
         member_count: nonnegative_u32(row, &["member_count", "memberCount"]),
-        viewer_role: member_role(viewer_role),
+        viewer_role: role,
         online_count: None,
         topic_count: nonnegative_u32(row, &["thread_count", "topic_count", "topicCount"]),
         notification_mode: NotificationMode::All,
-        actions: vec![disabled_action(
-            "channel-settings",
-            channel_id,
-            surface_epoch,
-        )],
+        actions: vec![
+            authority_action("channel-settings", channel_id, surface_epoch, can_manage),
+            authority_action("channel-close", channel_id, surface_epoch, can_close),
+            authority_action("channel-leave", channel_id, surface_epoch, can_leave),
+        ],
         settings_version: nonnegative_u64(row, &["updated_at", "updateAt"]),
     }
 }
@@ -705,6 +709,22 @@ fn disabled_action(kind: &str, identity: &str, surface_epoch: u64) -> ActionBind
     }
 }
 
+fn authority_action(
+    kind: &str,
+    identity: &str,
+    surface_epoch: u64,
+    enabled: bool,
+) -> ActionBinding {
+    ActionBinding {
+        action_ref: format!("channel:{kind}:{identity}:{surface_epoch}"),
+        kind: kind.to_string(),
+        input_shape: "object".to_string(),
+        surface_epoch,
+        enabled,
+        disabled_reason: (!enabled).then(|| "roleForbidden".to_string()),
+    }
+}
+
 fn page(cursor: &str) -> WindowPageVm {
     WindowPageVm {
         window_token: cursor.to_string(),
@@ -772,6 +792,47 @@ mod tests {
             channel_summary_view("ch00000000000000000000000c", Some(&row), Some("CREATOR"), 1);
 
         assert_eq!(owner.viewer_role, ChannelRole::Owner);
+        assert_channel_authority(&owner, "channel-settings", 1, true);
+        assert_channel_authority(&owner, "channel-close", 1, true);
+        assert_channel_authority(&owner, "channel-leave", 1, false);
+
+        let admin =
+            channel_summary_view("ch00000000000000000000000c", Some(&row), Some("ADMIN"), 2);
+        assert_eq!(admin.viewer_role, ChannelRole::Admin);
+        assert_channel_authority(&admin, "channel-settings", 2, true);
+        assert_channel_authority(&admin, "channel-close", 2, false);
+        assert_channel_authority(&admin, "channel-leave", 2, true);
+
+        let member = channel_summary_view(
+            "ch00000000000000000000000c",
+            Some(&row),
+            Some("MEMBER"),
+            3,
+        );
+        assert_eq!(member.viewer_role, ChannelRole::Member);
+        assert_channel_authority(&member, "channel-settings", 3, false);
+        assert_channel_authority(&member, "channel-close", 3, false);
+        assert_channel_authority(&member, "channel-leave", 3, true);
+    }
+
+    fn assert_channel_authority(
+        summary: &ChannelSummaryVm,
+        kind: &str,
+        surface_epoch: u64,
+        enabled: bool,
+    ) {
+        let binding = summary
+            .actions
+            .iter()
+            .find(|binding| binding.kind == kind)
+            .unwrap_or_else(|| panic!("missing {kind} binding"));
+        assert_eq!(binding.enabled, enabled);
+        assert_eq!(binding.surface_epoch, surface_epoch);
+        assert!(binding.action_ref.contains(kind));
+        assert_eq!(
+            binding.disabled_reason.as_deref(),
+            (!enabled).then_some("roleForbidden")
+        );
     }
 
     #[test]

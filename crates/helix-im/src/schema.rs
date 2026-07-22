@@ -41,6 +41,16 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: None,
     },
     SparseTableSpec {
+        table: "channel_event_ledger",
+        identity_cols: &["tenant_id", "channel_id", "event_seq"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
+        table: "channel_sync_coverage",
+        identity_cols: &["coverage_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
         table: "pending_media",
         identity_cols: &["temporary_id", "target_key"],
         scope_col: Some("temporary_id"),
@@ -198,6 +208,35 @@ pub const IM_SCHEMA: &[&'static str] = &[
         terminal_event_seq INTEGER NOT NULL DEFAULT 0,\
         updated_at INTEGER NOT NULL DEFAULT 0\
     )",
+    // V2 recovery evidence is deliberately a compact, IM-owned audit projection. The raw remote
+    // payload never enters SQLite; its canonical hash lets a readonly PG comparison detect a
+    // cursor that would otherwise look committed while facts are incomplete.
+    "CREATE TABLE IF NOT EXISTS channel_event_ledger (\
+        tenant_id TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        event_seq INTEGER NOT NULL,\
+        event_kind TEXT NOT NULL,\
+        message_id TEXT,\
+        event_hash TEXT NOT NULL,\
+        coverage_id TEXT NOT NULL,\
+        applied_at_ms INTEGER NOT NULL,\
+        PRIMARY KEY (tenant_id, channel_id, event_seq)\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_channel_event_ledger_coverage ON channel_event_ledger(tenant_id, channel_id, coverage_id)",
+    "CREATE TABLE IF NOT EXISTS channel_sync_coverage (\
+        coverage_id TEXT PRIMARY KEY,\
+        tenant_id TEXT NOT NULL,\
+        channel_id TEXT NOT NULL,\
+        from_seq INTEGER NOT NULL,\
+        to_seq INTEGER NOT NULL,\
+        event_count INTEGER NOT NULL,\
+        facts_hash TEXT NOT NULL,\
+        correlation_id TEXT NOT NULL,\
+        commit_state TEXT NOT NULL CHECK (commit_state = 'committed'),\
+        committed_at_ms INTEGER NOT NULL,\
+        UNIQUE (tenant_id, channel_id, from_seq, to_seq)\
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_channel_sync_coverage_range ON channel_sync_coverage(tenant_id, channel_id, from_seq, to_seq)",
     // `pending_media` is an internal recovery journal. Transient local paths and
     // signed PUT credentials live only here, never in public message.props.
     "CREATE TABLE IF NOT EXISTS pending_media (\
@@ -245,4 +284,8 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE channel_member ADD COLUMN msg_count_private INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN last_read_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_event_cursor ADD COLUMN terminal_event_seq INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS channel_event_ledger (tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, event_seq INTEGER NOT NULL, event_kind TEXT NOT NULL, message_id TEXT, event_hash TEXT NOT NULL, coverage_id TEXT NOT NULL, applied_at_ms INTEGER NOT NULL, PRIMARY KEY (tenant_id, channel_id, event_seq))",
+    "CREATE INDEX IF NOT EXISTS idx_channel_event_ledger_coverage ON channel_event_ledger(tenant_id, channel_id, coverage_id)",
+    "CREATE TABLE IF NOT EXISTS channel_sync_coverage (coverage_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, channel_id TEXT NOT NULL, from_seq INTEGER NOT NULL, to_seq INTEGER NOT NULL, event_count INTEGER NOT NULL, facts_hash TEXT NOT NULL, correlation_id TEXT NOT NULL, commit_state TEXT NOT NULL CHECK (commit_state = 'committed'), committed_at_ms INTEGER NOT NULL, UNIQUE (tenant_id, channel_id, from_seq, to_seq))",
+    "CREATE INDEX IF NOT EXISTS idx_channel_sync_coverage_range ON channel_sync_coverage(tenant_id, channel_id, from_seq, to_seq)",
 ];

@@ -11,7 +11,7 @@
 //! 喂 `event_to_upsert_op` / `batch_upsert_events` 产物，**断言 `message` 表真有行**
 //! （而非断 Effect 字符串）。表名错配 / 缺列 / PK 撞键任一回归都会让此测试红。
 
-use helix_core::effect::{BatchUpdateSpec, GetSpec, ScanSpec, SqlValue, StorageOp};
+use helix_core::effect::{BatchUpdateSpec, GetSpec, ScanSpec, SqlValue, StorageOp, UpsertSpec};
 use helix_core::ports::Storage;
 use helix_driver_host::{execute_storage_ops_atomic, HostStorage};
 use helix_im::acl::to_effect::terminal_tombstone_and_cursor_op;
@@ -533,4 +533,87 @@ async fn terminal_tombstone_atomic_write_commits_or_rolls_back_as_one_host_trans
         col(&row, "terminal_event_seq"),
         Some(SqlValue::Integer(42))
     ));
+}
+
+/// GS01-GS04 的 recovery evidence 不能只验证建表。coverage、ledger 与 cursor 以后会被
+/// 放进同一 PersistAtomic；这里先锁住 driver 对新增两张业务表的通用事务语义：后续写失败时，
+/// 已执行的 coverage/ledger upsert 都不能残留。
+#[tokio::test]
+async fn recovery_ledger_and_coverage_migrate_idempotently_and_roll_back_together() {
+    let storage = storage_with_im_schema().await;
+    let coverage = "coverage-rollback-1";
+    let ledger = StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_event_ledger",
+        rows: vec![vec![
+            ("tenant_id".to_string(), SqlValue::Text("team-1".to_string())),
+            ("channel_id".to_string(), SqlValue::Text(cid(81))),
+            ("event_seq".to_string(), SqlValue::Integer(7)),
+            ("event_kind".to_string(), SqlValue::Text("post".to_string())),
+            ("message_id".to_string(), SqlValue::Text("post-7".to_string())),
+            ("event_hash".to_string(), SqlValue::Text("event-hash-7".to_string())),
+            ("coverage_id".to_string(), SqlValue::Text(coverage.to_string())),
+            ("applied_at_ms".to_string(), SqlValue::Integer(7_000)),
+        ]],
+        conflict_key: Some("tenant_id,channel_id,event_seq"),
+        exclude_from_update: Vec::new(),
+    });
+    let coverage_op = StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_sync_coverage",
+        rows: vec![vec![
+            ("coverage_id".to_string(), SqlValue::Text(coverage.to_string())),
+            ("tenant_id".to_string(), SqlValue::Text("team-1".to_string())),
+            ("channel_id".to_string(), SqlValue::Text(cid(81))),
+            ("from_seq".to_string(), SqlValue::Integer(7)),
+            ("to_seq".to_string(), SqlValue::Integer(7)),
+            ("event_count".to_string(), SqlValue::Integer(1)),
+            ("facts_hash".to_string(), SqlValue::Text("facts-hash-7".to_string())),
+            ("correlation_id".to_string(), SqlValue::Text("corr-7".to_string())),
+            ("commit_state".to_string(), SqlValue::Text("committed".to_string())),
+            ("committed_at_ms".to_string(), SqlValue::Integer(7_000)),
+        ]],
+        conflict_key: Some("coverage_id"),
+        exclude_from_update: Vec::new(),
+    });
+
+    let failed = execute_storage_ops_atomic(
+        &storage,
+        &[
+            coverage_op.clone(),
+            ledger.clone(),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "table_that_does_not_exist",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text("rollback".to_string())],
+                patch: vec![("state".to_string(), SqlValue::Text("bad".to_string()))],
+            }),
+        ],
+    )
+    .await;
+    assert!(matches!(failed, helix_core::tick::PortOutcome::Err(_)));
+    assert!(storage
+        .get(GetSpec {
+            table: "channel_sync_coverage",
+            key_col: "coverage_id",
+            key_val: SqlValue::Text(coverage.to_string()),
+        })
+        .await
+        .expect("coverage rollback query")
+        .is_none());
+    assert!(storage
+        .scan(ScanSpec { table: "channel_event_ledger", limit: None, filter: None, order_by: &[] })
+        .await
+        .expect("ledger rollback query")
+        .is_empty());
+
+    let committed = execute_storage_ops_atomic(&storage, &[coverage_op, ledger]).await;
+    assert!(matches!(committed, helix_core::tick::PortOutcome::Ok(_)));
+    assert!(storage
+        .get(GetSpec {
+            table: "channel_sync_coverage",
+            key_col: "coverage_id",
+            key_val: SqlValue::Text(coverage.to_string()),
+        })
+        .await
+        .expect("coverage committed query")
+        .is_some());
 }

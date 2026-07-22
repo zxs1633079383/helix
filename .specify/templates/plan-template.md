@@ -42,17 +42,45 @@
 
 [Gates determined based on constitution file]
 
+## Loop Detail Contract
+
+> This is the technical counterpart of the external Loop Contract in `spec.md`.
+> Source claims must link to `discovery.md`; each identifier is consumed by a task
+> contract in `tasks.md`.
+
+### Inputs and Context
+
+- **I-001**: [Authoritative source, permitted reads, and relevant precondition]
+
+### Action Chain
+
+- **A-001**: [Input/state] -> [effect or change] -> [observable output]
+
+### State Contract
+
+- **S-001**: [State] -> [allowed transition] -> [terminal or next state]
+
+Use `N/A: [reason]` only when the feature has no persistent business state.
+
+### Validators
+
+- **V-001**: [Independent command, rule, or inspection] proves [requirement].
+
 ## Project Structure
 
 ### Documentation (this feature)
 
 ```text
 specs/[###-feature]/
+├── discovery.md         # Source facts and unresolved questions
 ├── plan.md              # This file (/speckit-plan command output)
 ├── research.md          # Phase 0 output (/speckit-plan command)
 ├── data-model.md        # Phase 1 output (/speckit-plan command)
 ├── quickstart.md        # Phase 1 output (/speckit-plan command)
+├── verification.md      # Repeatable acceptance procedure
+├── review-ledger.json   # Loop state, fingerprints, and gate verdicts
 ├── contracts/           # Phase 1 output (/speckit-plan command)
+├── evidence/            # Hashed outputs from real verification runs
 └── tasks.md             # Phase 2 output (/speckit-tasks command - NOT created by /speckit-plan)
 ```
 

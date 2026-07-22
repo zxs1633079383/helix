@@ -1,12 +1,15 @@
 <!--
 Sync Impact Report
-- Version change: template -> 1.0.0
+- Version change: 1.0.0 -> 1.1.0
 - Ratified principles: runtime-agnostic layering, deterministic effect flow,
-  InteractionFrame V2 authority, evidence-first validation, and minimal governed change.
-- Templates checked: the generic plan/spec/tasks templates already require a
-  constitution gate and task traceability; no template text needs a Helix-specific rewrite.
-- Follow-up: every active feature plan must replace any template-constitution
-  fallback with these executable gates before implementation starts.
+  InteractionFrame V2 authority, evidence-first validation, minimal governed change,
+  and Spec Kit loop-state admission.
+- Templates updated: .specify/templates/spec-template.md,
+  .specify/templates/plan-template.md, and .specify/templates/tasks-template.md.
+- Added project extension: helix-loop supplies the persistent ledger, invalidation
+  graph, validators, and negative tests that enforce these gates.
+- Follow-up: existing feature bundles remain historical inputs. A bundle adopts this
+  profile when its next Spec Kit command creates the required loop artifacts.
 -->
 
 # Helix Constitution
@@ -59,6 +62,28 @@ reference is physically removed exactly once, only after the applicable V2/27-Ga
 review accepts the recorded deletion inventory; final regression evidence follows
 the deletion.
 
+### VI. Spec Kit Loop Admission
+
+Spec Kit remains the author of `spec.md`, `plan.md`, and `tasks.md`. Each feature
+also has a source-discovery record, a persistent review ledger, and durable
+verification evidence. The ledger is the sole workflow state: it records input
+fingerprints, gate verdicts, the next allowed action, and bounded retry history.
+The loop may advance only through a passing independent validator.
+
+Reviews have one owner and one purpose: R1 validates behavior and completion,
+R2 validates design, R3 validates task traceability, and R4 validates implemented
+evidence. An unchanged fingerprint reuses its prior verdict. A changed source,
+specification, plan, task list, or verification artifact invalidates only the
+dependent downstream gates. The engine returns to the earliest invalid phase; it
+does not rerun a whole feature review by habit.
+
+Every feature records trigger, goal, completion, inputs and context, action,
+validator, workflow state, boundaries, and any human gate exactly once in the
+artifact that owns it. A business state machine belongs in the plan; workflow
+state belongs only in the review ledger. A repeated failure with the same
+task/validator signature may receive at most two automatic repair attempts.
+The next recurrence enters `NeedsHuman`.
+
 ## Constraints And Safety
 
 Hot paths use bounded work: atomic frame application is `O(k)` in mutations and
@@ -76,9 +101,10 @@ bounded diagnostic requires them.
 ## Development Workflow And Quality Gates
 
 Before implementation, the feature has a spec, plan, data model, wire contract,
-task list, and Constitution Check with no unresolved template placeholders. Tasks
-are executed in dependency order, tests precede their implementation, and completed
-tasks are marked in the task list only after their stated evidence exists. Work that
+task list, source discovery, valid R1-R3 ledger gates, and Constitution Check with
+no unresolved template placeholders. Tasks are executed in dependency order, tests
+precede their implementation, and completed tasks are marked in the task list only
+after their stated evidence exists. Work that
 exceeds 30 minutes reports completed work, current evidence, blocker, and next step.
 
 Worktrees isolate each repository touched by a feature. Preserve pre-existing dirty
@@ -97,4 +123,4 @@ written rationale, migration impact, and explicit human approval before it gover
 new work. Each implementation review verifies these principles, records any justified
 exception, and rejects a plan that silently weakens them.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21
+**Version**: 1.1.0 | **Ratified**: 2026-07-21 | **Last Amended**: 2026-07-21

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "extensions": {
+    "helix-loop": {
+      "version": "1.1.1",
+      "source": "local",
+      "manifest_hash": "sha256:2ab7d556ea87e8b0aff767fe70041f41c7ff0ad989db56690963e4f956e9f31a",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "codex": [
+          "speckit.helix-loop.advance",
+          "speckit.helix-loop.uninstall"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-07-22T06:04:37.341578+00:00"
+    }
+  }
+}

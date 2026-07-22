@@ -1,0 +1,89 @@
+installed:
+- helix-loop
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_specify:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Run the loop gate. Resolve its reported source or specification findings
+      before planning.
+    description: Initialize source discovery and validate the feature specification.
+    condition: null
+  before_plan:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Reuse a current R1 verdict or repair the reported R1 findings before planning.
+    description: Admit planning only when the R1 specification verdict is current.
+    condition: null
+  after_plan:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Resolve reported plan findings before task generation.
+    description: Validate plan detail, state, and verification contracts.
+    condition: null
+  before_tasks:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Reuse a current R2 verdict or repair the reported R2 findings before task
+      generation.
+    description: Admit task generation only when the R2 plan verdict is current.
+    condition: null
+  after_tasks:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Resolve reported task-contract findings before implementation.
+    description: Validate task-to-requirement and task-to-plan traceability.
+    condition: null
+  before_implement:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Do not implement until the loop reports IMPLEMENTATION_ADMITTED.
+    description: Admit implementation only when R1-R3 are current and passing.
+    condition: null
+  after_implement:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Record real verification output and resolve its result before claiming
+      completion.
+    description: Validate hashed evidence produced by implementation verification.
+    condition: null
+  before_converge:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Converge only the reported gap; do not reopen unchanged reviews.
+    description: Start a targeted convergence pass from verified evidence only.
+    condition: null
+  after_converge:
+  - extension: helix-loop
+    command: speckit.helix-loop.advance
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Close only with R4 PASS and unchanged tasks; otherwise continue from tasking.
+    description: Close the feature or return only appended work to tasking.
+    condition: null

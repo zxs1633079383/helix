@@ -13,3 +13,7 @@ crates/helix-driver-ffi/smoke/build/
 .agents/runs/
 .agents/tmp/
 .gstack/
+
+# Python extension runtime caches
+__pycache__/
+*.py[cod]

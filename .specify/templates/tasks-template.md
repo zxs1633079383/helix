@@ -18,6 +18,8 @@ description: "Task list template for feature implementation"
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
 - Include exact file paths in descriptions
+- Every task MUST have exactly one row in **Loop Task Contracts**. The row records
+  requirement, plan item, change scope, precondition, validator, and done signal.
 
 ## Path Conventions
 
@@ -250,3 +252,13 @@ With multiple developers:
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
+
+## Loop Task Contracts *(mandatory)*
+
+> This table is the compiler boundary between `plan.md` and implementation. It is
+> not a second task list. Every checkbox task above must appear once, and no row may
+> claim a task that does not exist.
+
+| Task | Requirement | Plan Item | Change Scope | Preconditions | Validator | Done Signal |
+|------|-------------|-----------|--------------|---------------|-----------|-------------|
+| T001 | FR-001 | A-001 | `path/to/file` | R1-R3 PASS | `command` | [observable result] |

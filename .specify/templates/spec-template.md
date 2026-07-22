@@ -6,6 +6,8 @@
 
 **Status**: Draft
 
+**Loop Profile**: `helix-loop/v1`
+
 **Input**: User description: "$ARGUMENTS"
 
 ## User Scenarios & Testing *(mandatory)*
@@ -67,6 +69,33 @@
 ---
 
 [Add more user stories as needed, each with an assigned priority]
+
+## Loop Contract *(mandatory)*
+
+> This is the external feature contract. Keep implementation mechanisms in
+> `plan.md`; keep source citations in `discovery.md`.
+
+### Trigger
+
+[What event or precondition starts this feature path?]
+
+### Goal
+
+[What user- or system-visible result must this feature deliver?]
+
+### Completion
+
+[What observable evidence proves the goal is complete? Do not use an intermediate
+transport acknowledgement as completion.]
+
+### Boundaries
+
+[What is explicitly out of scope? What retry, time, cost, or failure limit stops
+automatic work?]
+
+### Human Gate
+
+[Which decisions require explicit approval? Write "None" only with a reason.]
 
 ### Edge Cases
 

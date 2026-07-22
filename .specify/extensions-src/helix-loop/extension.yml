@@ -1,0 +1,86 @@
+schema_version: "1.0"
+
+extension:
+  id: helix-loop
+  name: Helix Spec Kit Loop
+  version: "1.1.1"
+  description: Persistent gate state and deterministic review invalidation for Spec Kit features.
+  category: workflow
+  effect: read-write
+
+requires:
+  speckit_version: ">=0.12.16"
+
+provides:
+  commands:
+    - name: speckit.helix-loop.advance
+      file: commands/advance.md
+      description: Advance, reuse, or block the active feature's Spec Kit loop gate.
+    - name: speckit.helix-loop.uninstall
+      file: commands/uninstall.md
+      description: Safely remove the Helix Spec Kit Loop profile without deleting feature artifacts.
+
+hooks:
+  after_specify:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Initialize source discovery and validate the feature specification.
+    prompt: Run the loop gate. Resolve its reported source or specification findings before planning.
+  before_plan:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Admit planning only when the R1 specification verdict is current.
+    prompt: Reuse a current R1 verdict or repair the reported R1 findings before planning.
+  after_plan:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Validate plan detail, state, and verification contracts.
+    prompt: Resolve reported plan findings before task generation.
+  before_tasks:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Admit task generation only when the R2 plan verdict is current.
+    prompt: Reuse a current R2 verdict or repair the reported R2 findings before task generation.
+  after_tasks:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Validate task-to-requirement and task-to-plan traceability.
+    prompt: Resolve reported task-contract findings before implementation.
+  before_implement:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Admit implementation only when R1-R3 are current and passing.
+    prompt: Do not implement until the loop reports IMPLEMENTATION_ADMITTED.
+  after_implement:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Validate hashed evidence produced by implementation verification.
+    prompt: Record real verification output and resolve its result before claiming completion.
+  before_converge:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Start a targeted convergence pass from verified evidence only.
+    prompt: Converge only the reported gap; do not reopen unchanged reviews.
+  after_converge:
+    extension: helix-loop
+    command: speckit.helix-loop.advance
+    optional: false
+    priority: 10
+    description: Close the feature or return only appended work to tasking.
+    prompt: Close only with R4 PASS and unchanged tasks; otherwise continue from tasking.

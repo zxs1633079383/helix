@@ -210,7 +210,10 @@ impl DialogListFrameState {
     /// ask the renderer to join a raw `topic.channelId` back to a channel row.
     pub(crate) fn topic_link_metadata(&self, topic_channel_id: &str) -> Option<(String, String)> {
         let row = self.rows_by_channel.get(topic_channel_id)?;
-        if row.channel_kind != "topic" || row.title.is_empty() {
+        // The live Go `channel_created` topic payload carries rootId/rootPostId but
+        // omits type=T. A message's topic.channelId plus this rooted dialog row is
+        // already sufficient authority to close TopicLink without shell-side joins.
+        if row.title.is_empty() {
             return None;
         }
         let root_message_id = row.root_message_id.as_deref()?.trim();
@@ -2120,7 +2123,6 @@ mod tests {
     fn topic_dialog_frame_preserves_root_message_correlation() {
         let topic = row_from_dialog_projection(&serde_json::json!({
             "id": "topic-1",
-            "type": "T",
             "displayName": "design review",
             "rootId": "parent-channel-1",
             "rootPostId": "root-post-1"
@@ -2134,7 +2136,7 @@ mod tests {
         let frame = data(&snapshot);
         let row = &dialog_view(&frame)["sections"][0]["items"][0];
 
-        assert_eq!(row["channelKind"], "topic");
+        assert_eq!(row["channelKind"], "unknown");
         assert_eq!(row["rootMessageId"], "root-post-1");
         assert_eq!(
             state.topic_link_metadata("topic-1"),

@@ -1,0 +1,62 @@
+classDiagram
+direction LR
+
+class GoAuthority {
+  +increment_channel
+  +update_channel
+  +channel_close
+  +channel_member_update
+}
+
+class DialogListFrameState {
+  +HashMap rows_by_channel
+  +Vec ordered_channel_ids
+  +patch_from_channel_update()
+  +interaction_view()
+}
+
+class LegacyOperations {
+  +UpsertRow
+  +MoveRow
+  +operations
+}
+
+class InteractionFrameV1 {
+  +schemaVersion = 1
+  +transactionId
+  +mutations
+}
+
+class ReplaceViewPatch {
+  +kind = replaceView
+  +DialogListVm view
+}
+
+class AngularCodec {
+  +isReplaceViewPatch()
+  +exactKeys()
+}
+
+class SurfaceRuntime {
+  +stageMutation()
+  +viewForMutation()
+  +atomicSwap()
+}
+
+class DialogListComponent {
+  +render sections
+  +render rows
+}
+
+GoAuthority --> DialogListFrameState : 权威事件
+DialogListFrameState --> LegacyOperations : 内部计算
+DialogListFrameState ..> LegacyOperations : 正式 wire 前丢弃
+DialogListFrameState --> ReplaceViewPatch : 重建全部列表
+ReplaceViewPatch --> InteractionFrameV1
+InteractionFrameV1 --> AngularCodec
+AngularCodec --> SurfaceRuntime
+SurfaceRuntime --> DialogListComponent
+
+note for DialogListFrameState "单行命中不是全表读库\n但 interaction_view 为 O(n)"
+note for ReplaceViewPatch "每次传输全部 pinned/normal/closed"
+note for SurfaceRuntime "当前 patch 直接替换完整 VM"

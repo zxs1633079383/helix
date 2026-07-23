@@ -1,0 +1,75 @@
+classDiagram
+direction LR
+
+class AuthorityFactAdapter {
+  +from_ws()
+  +from_hydration()
+}
+
+class DialogListProjector {
+  +Map rows_by_channel
+  +OrderIndex sections
+  +impact()
+  +build_delta()
+}
+
+class DialogListDeltaPatch {
+  +kind = rowDelta
+  +operations
+  +sectionPages
+}
+
+class UpsertRow {
+  +channelId
+  +row?
+  +set
+  +clear
+}
+
+class RemoveRow {
+  +channelId
+}
+
+class MoveRow {
+  +channelId
+  +section
+  +position
+}
+
+class InteractionFrameV2 {
+  +schemaVersion = 2
+  +surfaceEpoch
+  +baseRevision
+  +causationId
+}
+
+class AngularDeltaAdapter {
+  +decodeExact()
+  +stageCopyOnWrite()
+  +validateResult()
+}
+
+class DialogSlotState {
+  +Map rowsByChannel
+  +SectionOrder orders
+  +revision
+  +surfaceEpoch
+}
+
+class UnreadSummaryPatch {
+  +replaceView
+}
+
+AuthorityFactAdapter --> DialogListProjector
+DialogListProjector --> DialogListDeltaPatch
+DialogListDeltaPatch *-- UpsertRow
+DialogListDeltaPatch *-- RemoveRow
+DialogListDeltaPatch *-- MoveRow
+DialogListDeltaPatch --> InteractionFrameV2
+UnreadSummaryPatch --> InteractionFrameV2 : 同帧
+InteractionFrameV2 --> AngularDeltaAdapter
+AngularDeltaAdapter --> DialogSlotState : 校验后原子 swap
+
+note for MoveRow "位置由 Helix 决定\n使用 start/before/after 稳定锚点"
+note for AngularDeltaAdapter "Angular 不重算业务排序\n任一失败整帧拒绝"
+note for DialogSlotState "常态 wire O(k)\nstage O(k + shifted)"

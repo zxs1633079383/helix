@@ -1,0 +1,25 @@
+flowchart TD
+    A[用户正在查看消息页] --> B{会话列表是否已有可用 snapshot}
+    B -- 否 --> C[请求完整会话列表 snapshot]
+    C --> D[建立 surfaceEpoch revision 和 section window]
+    B -- 是 --> E[收到频道权威变化]
+    D --> E
+    E --> F{变化是否影响当前 viewer}
+    F -- 否 --> G[不生成该 viewer 的 mutation]
+    F -- 是 --> H[Helix 生成行增量]
+    H --> I{行新增 更新 删除或跨 section}
+    I -- 新增或更新 --> J[upsertRow]
+    I -- 删除或退出可见范围 --> K[removeRow]
+    I -- 排序或 section 变化 --> L[moveRow]
+    J --> M[携带受影响 section page]
+    K --> M
+    L --> M
+    M --> N{baseRevision epoch anchor window 是否匹配}
+    N -- 是 --> O[dialog 与 unread 原子提交]
+    O --> P[列表保持当前位置并更新目标行]
+    N -- 否 --> Q[拒绝整帧]
+    Q --> R[显示恢复态并请求 snapshot]
+    R --> D
+
+    S[用户刷新或晚加入] --> C
+    T[用户打开分页外区域] --> C

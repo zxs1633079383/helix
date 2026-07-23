@@ -1,0 +1,26 @@
+sequenceDiagram
+autonumber
+participant Go as Go 权威事实
+participant Helix as Helix DialogListFrameState
+participant Builder as V1 Frame Builder
+participant Bus as Tauri im:interaction:frame
+participant Codec as Angular Codec
+participant Runtime as SurfaceRuntime
+participant UI as 左侧会话列表
+
+Go->>Helix: 单频道 update_channel 等事件
+Helix->>Helix: HashMap 更新目标 row
+Helix->>Helix: retain + position + insert 重排 O(n)
+Helix->>Helix: 生成 UpsertRow/MoveRow
+Helix-->>Helix: operations 被赋给 _legacy_patch 后丢弃
+Helix->>Helix: interaction_view 遍历全部 n 行
+Helix->>Builder: DialogListPatch replaceView(DialogListVm)
+Builder->>Bus: schemaVersion=1 完整列表 payload
+Bus->>Codec: InteractionFrame
+Codec->>Codec: 仅接受 replaceView
+Codec->>Runtime: 完整 DialogListVm
+Runtime->>Runtime: baseRevision 校验后替换整个 VM
+Runtime->>UI: 重新绑定全部 section/items
+
+Note over Go,Helix: 在线事件不是每次全表读库
+Note over Helix,UI: 但组装、传输与应用仍随总行数 n 增长

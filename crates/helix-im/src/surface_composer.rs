@@ -60,6 +60,30 @@ impl SurfaceChangeSet {
 }
 
 impl ImModule {
+    /// Close a fan-out pong compensation only after both HTTP scheduling and
+    /// every matching storage receipt have drained. A committed batch performs
+    /// one cold authority read instead of N per-channel dialog readbacks.
+    pub(crate) fn try_finalize_pong_gap_dialog_surface(
+        &mut self,
+        persisted_corr: Option<helix_core::Correlation>,
+        out: &mut EffectSink,
+    ) -> Result<bool, crate::error::ImError> {
+        let Some(committed_change) = self
+            .state
+            .pong_gap_batch
+            .take_completion(self.state.sync_scheduler.is_idle())
+        else {
+            return Ok(false);
+        };
+        if committed_change {
+            self.refresh_attached_dialog_list(
+                persisted_corr.map(|corr| format!("pong-gap-complete-{}", corr.raw())),
+                out,
+            )?;
+        }
+        Ok(true)
+    }
+
     /// Publish one recovery authority boundary after every scheduled sync and
     /// matching local commit has drained. Subsequent online syncs are ordinary
     /// incremental work and may emit their own targeted dialog patch.

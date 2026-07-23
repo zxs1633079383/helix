@@ -130,6 +130,10 @@ pub struct ImState {
     /// 持久化回执和 renderer V2 epoch 绑定到同一个身份边界。
     pub recovery_session: crate::sync_session::RecoverySession,
 
+    /// `hashMismatch` fan-out 的批次屏障。只跟踪在途 Persist correlation，
+    /// 避免每个 channel commit 都单独发布 dialog Frame。
+    pub(crate) pong_gap_batch: crate::sync::pong_batch::PongGapBatch,
+
     /// UC-10：本 hello 会话累积 mention+urgent post id，global increment-end 拉 queryTodoList 后清空。
     pub about_me_post_ids: Vec<String>,
 
@@ -238,6 +242,7 @@ impl ImState {
             client_seq: 0,
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
             recovery_session: crate::sync_session::RecoverySession::default(),
+            pong_gap_batch: crate::sync::pong_batch::PongGapBatch::default(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
@@ -279,6 +284,7 @@ impl ImState {
         self.increment_target.clear();
         self.backfill_healed = false;
         self.sync_scheduler.reset();
+        self.pong_gap_batch.reset();
         self.about_me_post_ids.clear();
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();

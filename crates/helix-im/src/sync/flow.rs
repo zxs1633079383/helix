@@ -410,6 +410,9 @@ impl ImModule {
                         .recovery_session
                         .await_commit(channel_id, commit_target);
                 }
+                if trigger == SyncTrigger::PongGap {
+                    self.state.pong_gap_batch.register_persist(persist_corr);
+                }
                 out.push(Effect::PersistAtomic {
                     corr: persist_corr,
                     ops: persist_ops,
@@ -526,6 +529,9 @@ impl ImModule {
                     ch.gate = None;
                     ch.pending_commits.insert(persist_corr, reset_to);
                     ch.last_sync_from_seq = None;
+                }
+                if trigger == SyncTrigger::PongGap {
+                    self.state.pong_gap_batch.register_persist(persist_corr);
                 }
                 out.push(Effect::Persist {
                     corr: persist_corr,
@@ -682,6 +688,9 @@ impl ImModule {
             self.state
                 .recovery_session
                 .await_commit(channel_id, terminal_seq);
+        }
+        if trigger == SyncTrigger::PongGap {
+            self.state.pong_gap_batch.register_persist(persist_corr);
         }
         self.state.corr_map.insert(
             persist_corr,

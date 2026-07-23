@@ -16,6 +16,8 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let pong_batch_active =
+            trigger == SyncTrigger::PongGap && self.state.pong_gap_batch.is_active();
         match outcome {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
@@ -25,12 +27,14 @@ impl ImModule {
                     .channels
                     .get_mut(&channel_id)
                     .is_some_and(|channel| channel.commit_terminal_after_atomic(terminal_seq));
+                self.state.pong_gap_batch.finish_persist(corr, committed);
                 if !committed {
                     tracing::error!(
                         channel_id = channel_id.as_str(),
                         terminal_seq = terminal_seq.0,
                         "terminal atomic receipt no longer matches a live channel cursor; suppressing Frame"
                     );
+                    self.try_finalize_pong_gap_dialog_surface(Some(corr), out)?;
                     return Ok(());
                 }
                 tracing::info!(
@@ -52,13 +56,15 @@ impl ImModule {
                 // This is the only renderer-facing type7 projection. `patch_closed` produces an
                 // `im:interaction:frame` and only after the local tombstone/cursor transaction
                 // has committed; no deleteAt or other absent Go fields are invented.
-                if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
-                    if let Some(frame) = self
-                        .state
-                        .dialog_list_frame
-                        .patch_closed(scope, channel_id.as_str())
-                    {
-                        out.push(frame);
+                if !pong_batch_active {
+                    if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+                        if let Some(frame) = self
+                            .state
+                            .dialog_list_frame
+                            .patch_closed(scope, channel_id.as_str())
+                        {
+                            out.push(frame);
+                        }
                     }
                 }
                 out.push(crate::acl::to_effect::emit_sync_state_with_trigger(
@@ -82,8 +88,10 @@ impl ImModule {
                     self.state.invalidate_recent_message_coverage(channel_id);
                     self.refresh_attached_latest_timeline(channel_id, None, out)?;
                 }
+                self.try_finalize_pong_gap_dialog_surface(Some(corr), out)?;
             }
             PortOutcome::Err(error) => {
+                self.state.pong_gap_batch.finish_persist(corr, false);
                 tracing::warn!(
                     hop = "sync.persist_failed",
                     corr = corr.raw(),
@@ -92,6 +100,7 @@ impl ImModule {
                     error = ?error,
                     "terminal atomic persist failed; cursor/tombstone/frame remain unchanged"
                 );
+                self.try_finalize_pong_gap_dialog_surface(Some(corr), out)?;
             }
         }
         Ok(())
@@ -108,6 +117,8 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
+        let pong_batch_active =
+            trigger == SyncTrigger::PongGap && self.state.pong_gap_batch.is_active();
         match outcome {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
@@ -115,6 +126,7 @@ impl ImModule {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.on_persist_ok(corr, out)?;
                 }
+                self.state.pong_gap_batch.finish_persist(corr, true);
                 let committed_seq = self
                     .state
                     .channels
@@ -143,7 +155,10 @@ impl ImModule {
                 // PersistAtomic is a write-only barrier. Read back only the affected
                 // channel row so the attached dialog preview observes committed data
                 // without turning each recovery batch into a full-list scan.
-                if !recovery_active && self.state.dialog_list_frame.scope().is_some() {
+                if !recovery_active
+                    && !pong_batch_active
+                    && self.state.dialog_list_frame.scope().is_some()
+                {
                     if let Some(pending) = dialog_patches.into_iter().last() {
                         let readback_corr = self.alloc_corr_internal();
                         let pending =
@@ -199,8 +214,10 @@ impl ImModule {
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
                     }
                 }
+                self.try_finalize_pong_gap_dialog_surface(Some(corr), out)?;
             }
             PortOutcome::Err(e) => {
+                self.state.pong_gap_batch.finish_persist(corr, false);
                 tracing::warn!(
                     hop = "sync.persist_failed",
                     channel_id = channel_id.as_str(),
@@ -225,6 +242,7 @@ impl ImModule {
                         "recovery persistence failed; no V2 frame was emitted"
                     );
                 }
+                self.try_finalize_pong_gap_dialog_surface(Some(corr), out)?;
             }
         }
         Ok(())
@@ -437,6 +455,7 @@ impl ImModule {
         // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
         self.drain_sync_queue(out);
         self.try_finalize_recovery_surface(None, out)?;
+        self.try_finalize_pong_gap_dialog_surface(None, out)?;
         Ok(())
     }
 }
@@ -444,6 +463,7 @@ impl ImModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn committed_recipient_batch_refreshes_an_attached_timeline_from_storage() {
         let mut module = ImModule::new(crate::module::ImConfig::default());
@@ -472,5 +492,71 @@ mod tests {
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::Persist { .. })));
+    }
+
+    #[test]
+    fn thousand_channel_pong_batch_schedules_one_dialog_authority_scan() {
+        let mut module = ImModule::new(crate::module::ImConfig {
+            auth_user_id: "actor".to_string(),
+            company_id: "team".to_string(),
+            ..crate::module::ImConfig::default()
+        });
+        module.state.dialog_list_frame.snapshot(
+            crate::dialog_frame::DialogListScope::new("actor", "team"),
+            Vec::new(),
+        );
+        assert!(module.state.pong_gap_batch.begin_fanout(1_000));
+
+        let mut pending = Vec::with_capacity(1_000);
+        for index in 1..=1_000 {
+            let channel_id =
+                ChannelId::from_str(format!("c{index:025}").as_str()).expect("valid channel id");
+            let corr = helix_core::Correlation::from_raw(index as u64);
+            let mut channel = crate::channel::Channel::new(channel_id, 0);
+            channel.pending_commits.insert(corr, crate::state::Seq(1));
+            module.state.channels.insert(channel_id, channel);
+            module.state.pong_gap_batch.register_persist(corr);
+            pending.push((corr, channel_id));
+        }
+
+        let mut out = EffectSink::new();
+        for (corr, channel_id) in pending {
+            module
+                .handle_channel_persist_reply(
+                    corr,
+                    channel_id,
+                    SyncTrigger::PongGap,
+                    false,
+                    Vec::new(),
+                    Vec::new(),
+                    &PortOutcome::Ok(helix_core::tick::ReplyBytes(bytes::Bytes::new())),
+                    &mut out,
+                )
+                .expect("pong persist reply");
+        }
+
+        let dialog_scans = out
+            .as_slice()
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Persist { ops, .. }
+                        if ops.iter().any(
+                            |op| matches!(
+                                op,
+                                helix_core::effect::StorageOp::Scan(spec)
+                                    if spec.table == "channel"
+                            )
+                        )
+                )
+            })
+            .count();
+        assert_eq!(dialog_scans, 1);
+        assert!(!module.state.corr_map.values().any(|context| matches!(
+            context,
+            crate::state::CorrelationContext::DialogPatchByPost { .. }
+        )));
+        assert!(!module.state.pong_gap_batch.is_active());
     }
 }

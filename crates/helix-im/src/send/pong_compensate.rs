@@ -112,6 +112,11 @@ pub fn compensate_from_pong(
         return;
     }
 
+    // A hash mismatch can fan out to every known channel. Treat that fan-out as
+    // one renderer transaction even though sync and persistence stay bounded
+    // and independently correlated per channel.
+    state.pong_gap_batch.begin_fanout(targets.len());
+
     // targets 已确定性有序（gap 保持 wire 顺序 + roots 升序），enqueue_and_drain 内部跳过
     // 已在途 / 不存在 channel，并经全局窗口 K 限流 dispatch sync/notify。
     crate::sync_scheduler::enqueue_and_drain_with_trigger(

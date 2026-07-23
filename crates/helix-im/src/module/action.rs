@@ -41,6 +41,7 @@ enum PreparedAction {
     },
     Retry {
         payload: Vec<u8>,
+        channel_id: crate::state::ChannelId,
         window_token: String,
     },
 }
@@ -240,12 +241,14 @@ impl ImModule {
                         }
                         PreparedAction::Retry {
                             payload,
+                            channel_id,
                             window_token,
                         } => {
                             crate::send::retry_send::handle_retry_send_for_window(
                                 self,
                                 &payload,
                                 now_ms,
+                                channel_id,
                                 window_token,
                                 out,
                             )?;
@@ -360,14 +363,38 @@ impl ImModule {
                     .expect("revoke dispatch must create pending authority"),
             ),
             ActionDispatch::RetryMessage {
+                channel_id,
                 message_id,
                 window_token,
-                ..
             } => {
+                let temporary_id = crate::state::TemporaryId(message_id.clone());
+                if self
+                    .state
+                    .pending_sends
+                    .get(&temporary_id)
+                    .is_some_and(|pending| pending.upload_failed)
+                {
+                    crate::send::upload_props::validate_java_api_base_url(
+                        &self.config.default_api_base_url,
+                    )?;
+                    if !self
+                        .state
+                        .failed_media_ops
+                        .keys()
+                        .any(|(failed_id, _)| failed_id == &temporary_id)
+                    {
+                        return Err(ImError::Parse(
+                            "media retry has no recoverable upload operation".to_string(),
+                        ));
+                    }
+                }
                 let payload =
                     crate::send::retry_send::prepare_retry_send_payload(message_id, request_id)?;
                 Ok(PreparedAction::Retry {
                     payload,
+                    channel_id: crate::state::ChannelId::from_str(channel_id).ok_or_else(|| {
+                        ImError::Parse("retry action has an invalid channel scope".to_string())
+                    })?,
                     window_token: window_token.clone(),
                 })
             }

@@ -53,7 +53,7 @@ pub struct Connection {
     pub ws_url: String,
     #[serde(default = "d_api_base")]
     pub api_base: String,
-    /// 空 = 派生（api_base 去 `/api/cses` 尾段，vote/score 第二网关）。
+    /// Java/default 业务网关；必须由平台独立提供，空表示未注入。
     #[serde(default)]
     pub default_api_base: String,
 }

@@ -7,6 +7,27 @@ use helix_core::tick::PortOutcome;
 use helix_core::{Correlation, Effect, EffectSink};
 
 impl ImModule {
+    pub(crate) fn defer_media_put_until_progress_commits(
+        &mut self,
+        upload_corr: Correlation,
+        operation: &crate::send::upload_props::PendingMediaOp,
+    ) -> bool {
+        let crate::send::upload_props::PendingMediaOp::Put(pending) = operation else {
+            return false;
+        };
+        let must_wait = self
+            .state
+            .file_upload_progress
+            .get(&upload_corr)
+            .is_some_and(|state| state.inflight_persist.is_some());
+        if must_wait {
+            self.state
+                .media_put_after_progress
+                .insert(upload_corr, pending.clone());
+        }
+        must_wait
+    }
+
     pub(crate) fn register_file_upload_progress(
         &mut self,
         upload_corr: Correlation,
@@ -116,11 +137,19 @@ impl ImModule {
         }
         if let Some(percent) = next_percent {
             self.persist_file_upload_progress(route.upload_corr, percent, out)?;
+        } else if let Some(pending) = self
+            .state
+            .media_put_after_progress
+            .remove(&route.upload_corr)
+        {
+            self.finish_file_upload_progress(route.upload_corr);
+            self.persist_media_complete_stage(pending, out)?;
         }
         Ok(())
     }
 
     pub(crate) fn finish_file_upload_progress(&mut self, upload_corr: Correlation) {
+        self.state.media_put_after_progress.remove(&upload_corr);
         if let Some(state) = self.state.file_upload_progress.remove(&upload_corr) {
             if let Some((persist_corr, _)) = state.inflight_persist {
                 self.state
@@ -415,6 +444,108 @@ mod tests {
             image.progress_policy(),
             helix_core::FileUploadProgressPolicy::Disabled
         );
+    }
+
+    #[test]
+    fn put_success_waits_for_inflight_progress_persist_before_terminal_stage() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let upload_corr = Correlation::from_raw(702);
+        let temporary_id = TemporaryId("tmp-progress-terminal".to_string());
+        let channel_id = channel_id();
+        module.register_file_upload_progress(
+            upload_corr,
+            temporary_id.clone(),
+            channel_id,
+            &UploadTarget::File,
+        );
+
+        let mut out = EffectSink::new();
+        module
+            .handle_file_upload_progress(
+                upload_corr,
+                FileUploadProgress {
+                    completed_bytes: 55,
+                    total_bytes: 100,
+                },
+                &mut out,
+            )
+            .unwrap();
+        let progress_corr = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("55% progress persist");
+        let route = module
+            .state
+            .file_upload_progress_persists
+            .remove(&progress_corr)
+            .expect("progress reply route");
+        let pending = crate::send::upload_props::PendingMediaPut {
+            temporary_id,
+            channel_id,
+            target: UploadTarget::File,
+            input: crate::send::upload_props::MediaInput {
+                local_path: "/tmp/report.pdf".to_string(),
+                file_name: "report.pdf".to_string(),
+                content_type: "application/pdf".to_string(),
+                size: 100,
+                sha256: "a".repeat(64),
+            },
+            prepared: crate::send::upload_props::PreparedMedia {
+                upload_id: "b".repeat(64),
+                file_id: "mf_0123456789abcdefghijklm".to_string(),
+                method: "PUT".to_string(),
+                url: "https://oss.invalid/signed".to_string(),
+                public_url: "https://java.invalid/oss/media/object/mf_0123456789abcdefghijklm"
+                    .to_string(),
+                object_key: "media/mf_0123456789abcdefghijklm".to_string(),
+                headers: Vec::new(),
+            },
+        };
+        let operation = crate::send::upload_props::PendingMediaOp::Put(pending);
+        assert!(
+            module.defer_media_put_until_progress_commits(upload_corr, &operation),
+            "PUT success must wait while an older message progress write is inflight"
+        );
+
+        out.clear();
+        module
+            .handle_file_upload_progress_persist_reply(
+                progress_corr,
+                route,
+                &PortOutcome::Ok(ReplyBytes::default()),
+                &mut out,
+            )
+            .unwrap();
+
+        assert!(out.as_slice().iter().any(|effect| {
+            let Effect::Persist { ops, .. } = effect else {
+                return false;
+            };
+            ops.iter().any(|op| {
+                matches!(
+                    op,
+                    StorageOp::BatchUpsert(spec)
+                        if spec.table == "pending_media"
+                            && spec.rows.iter().flatten().any(|(column, value)|
+                                column == "stage"
+                                    && matches!(
+                                        value,
+                                        helix_core::effect::SqlValue::Text(stage)
+                                            if stage == "complete"
+                                    )
+                            )
+                )
+            })
+        }));
+        assert!(!module.state.file_upload_progress.contains_key(&upload_corr));
+        assert!(!module
+            .state
+            .media_put_after_progress
+            .contains_key(&upload_corr));
     }
 
     #[test]

@@ -136,7 +136,7 @@ pub fn decode_scan(bytes: &[u8]) -> Result<Vec<FailedMediaOp>, ImError> {
     }
     let rows: Vec<Value> = serde_json::from_slice(bytes)
         .map_err(|error| ImError::Parse(format!("pending_media scan: {error}")))?;
-    Ok(rows.iter().filter_map(|row| decode_row(row).ok()).collect())
+    rows.iter().map(decode_row).collect()
 }
 
 fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {

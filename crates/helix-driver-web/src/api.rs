@@ -30,7 +30,10 @@ impl From<WebLocalStoreMode> for LocalStoreMode {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WebConfig {
     pub ws_url: String,
+    /// Go IM base URL.
     pub api_base_url: String,
+    /// Java/default business gateway supplied independently by the frontend.
+    /// It may use a completely different origin from `api_base_url`.
     pub default_api_base_url: String,
     pub auth_user_id: String,
     pub company_id: String,
@@ -590,13 +593,12 @@ mod wasm {
                 WebOwnedEffect::HttpFire { req } => {
                     spawn_http(Rc::downgrade(runtime), None, req);
                 }
-                WebOwnedEffect::UploadFile { corr, req } => {
+                WebOwnedEffect::UploadFile { corr, req: _ } => {
+                    // 浏览器不能消费 native localPath；错误只报告 capability 缺失，
+                    // 绝不把用户本地路径写入 runtime issue / trace。
                     record_issue(
                         runtime,
-                        format!(
-                            "browser local-path upload is unsupported: {}",
-                            req.local_path
-                        ),
+                        "browser local-path upload is unsupported".to_string(),
                     );
                     enqueue_tick(
                         runtime,
@@ -727,7 +729,43 @@ mod wasm {
 
 #[cfg(test)]
 mod tests {
-    use super::BoundedIssueQueue;
+    use super::{BoundedIssueQueue, WebConfig};
+
+    #[test]
+    fn web_config_keeps_frontend_supplied_go_and_java_origins_distinct() {
+        let config: WebConfig = serde_json::from_str(
+            r#"{
+                "wsUrl":"wss://go.example.test/api/v4/websocket",
+                "apiBaseUrl":"https://go.example.test/api/cses",
+                "defaultApiBaseUrl":"https://java.example.test",
+                "authUserId":"user-1",
+                "companyId":"company-1",
+                "userName":"user",
+                "orgName":"org",
+                "deptName":"dept",
+                "pingIntervalMs":30000,
+                "sendTimeoutMs":5000,
+                "httpTimeoutMs":10000,
+                "localStoreMode":"session",
+                "sessionStore":{
+                    "maxRowsPerTable":100,
+                    "maxRowsPerScope":50,
+                    "maxScanRows":100
+                },
+                "maxPendingActions":4,
+                "maxPendingEventBatches":4,
+                "maxEventsPerBatch":4,
+                "maxRuntimeIssues":4,
+                "sessionAuth":null,
+                "botAuth":null
+            }"#,
+        )
+        .expect("valid WebConfig");
+
+        let im_config = config.im_config();
+        assert_eq!(im_config.api_base_url, "https://go.example.test/api/cses");
+        assert_eq!(im_config.default_api_base_url, "https://java.example.test");
+    }
 
     #[test]
     fn runtime_issue_queue_is_bounded_and_reports_overflow() {

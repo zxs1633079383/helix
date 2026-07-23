@@ -390,6 +390,8 @@ impl Module for ImModule {
                 module: self.name(),
                 source: Box::new(e),
             })?;
+        self.state.media_recovery_ready = false;
+        self.state.pending_media_recovery_compensation = None;
         let corr = self.alloc_corr_internal();
         out.push(helix_core::Effect::Persist {
             corr,

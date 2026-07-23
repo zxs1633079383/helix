@@ -60,7 +60,8 @@ typedef struct CppHostVtable {
    ## buffer 所有权 = 借出契约（冻结，不新增 free 符号）
 
    `ptr..ptr+len` 由 Rust own，仅在 `cb` 回调期间有效，回调返回后 Rust 就地 drop。**这是正确
-   边界，无 UAF**——不改 ownership-transfer、不新增 `helix_free_batch`（保 §1.3 七符号冻结）。
+   边界，无 UAF**——不改 ownership-transfer、不新增 `helix_free_batch`；本轮唯一 additive
+   C ABI 是显式 Go/Java/WS 初始化入口，不改变批 buffer 所有权。
    Dart 异步如何吸收：**C++ shim 在回调线程内 `malloc + memcpy`** 到稳定堆，再投递给 Dart
    isolate（`docs/flutter-demo-pointer.md` ①稳定化）。稳定化是 shim 层的事，非 Rust 导出。
 
@@ -122,10 +123,34 @@ int32_t helix_command(HelixHandle *handle,
                       uintptr_t payload_len);
 
 /*
- 创建带 shared host network client 的 Helix 句柄（C++ 直连模型）。
+ 创建带独立 Go / Java endpoint 的 Helix 句柄（C++ 直连模型）。
 
  返回不透明指针；宿主必须持有并传给所有后续 API 调用，最终调用 `helix_destroy` 释放。
  失败时返回 null（字符串无效 / 网络客户端初始化失败）。
+
+ 新接入必须使用本入口：`go_api_base_url` 供 IM 消息接口使用，
+ `java_api_base_url` 由前端登录/环境配置独立注入，供 OSS 与默认业务网关使用。
+
+ # Safety
+
+ - 三个 URL：非 null，各自指向至少对应 `_len` 字节、
+   在本函数调用期间有效的 UTF-8 内存。
+ - `vtable`：函数指针若非 None，在 `helix_destroy` 返回前必须保持有效（C++ 侧管生命周期）。
+ */
+HelixHandle *helix_create_with_endpoints(const uint8_t *go_api_base_url,
+                                         uintptr_t go_api_base_url_len,
+                                         const uint8_t *java_api_base_url,
+                                         uintptr_t java_api_base_url_len,
+                                         const uint8_t *ws_url,
+                                         uintptr_t ws_url_len,
+                                         struct CppHostVtable vtable);
+
+/*
+ 创建仅带 Go / WS endpoint 的兼容句柄。
+
+ 此符号保留原 ABI，现有文本消息等 Go-only 调用无需改动；它不再从 Go 地址推测 Java 地址，
+ 因而不适用于 rich/file OSS 或其它 Java 默认网关能力。新接入必须改用
+ [`helix_create_with_endpoints`] 并由前端显式传入 Java base。
 
  # Safety
 
@@ -151,7 +176,7 @@ HelixHandle *helix_create_with_network(const uint8_t *api_base_url,
 
  # Safety
 
- - `handle` 必须是 `helix_create_with_network` 返回的有效指针，或 null（null 时无操作）。
+ - `handle` 必须是任一 Helix create 入口返回的有效指针，或 null（null 时无操作）。
  - 调用方必须保证此后不再向 `handle` 传递给任何 helix API（独占所有权契约，无 double-free）。
  - **C++ 不得在本函数返回前释放 vtable.ctx**：join 完成前 pump 仍可能回调；本函数返回即安全。
  */
@@ -162,7 +187,7 @@ void helix_destroy(HelixHandle *handle);
 
  # Safety
 
- - `handle`：helix_create_with_network 返回的有效指针，或 null（返回 FFI_NULL）。
+ - `handle`：任一 Helix create 入口返回的有效指针，或 null（返回 FFI_NULL）。
  - `name` / `value`：各自指向至少对应 `_len` 字节、在本函数调用期间有效的 UTF-8 内存。
  */
 int32_t helix_set_header(HelixHandle *handle,

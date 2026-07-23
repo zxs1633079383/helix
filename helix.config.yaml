@@ -5,7 +5,7 @@
 connection:
   ws_url:   "ws://127.0.0.1:8066/api/v4/websocket"   # 路径不变，仅 8065→8066
   api_base: "http://127.0.0.1:8066/api/cses"          # 前缀 /api/cses 不变
-  default_api_base: ""                                 # 空 = 自动 = api_base 去 /api/cses 尾段（vote/score 第二网关）
+  default_api_base: ""                                 # Java/default 业务网关；必须显式配置，禁止从 Go api_base 推测
   go_log:   "/tmp/cses-im-server.log"                  # cses-im-server devLogFile 同路径（脚本 yq 读，host-cli 不用）
   go_port:  8066                                        # 脚本 lsof 就绪检查用（host-cli 不用）
   start_hint: "IDEA 右击 run 或 go run ./cmd/server（依赖 PG/Pulsar/Redis 自起；无需 grpc）"  # 脚本错误提示（host-cli 不用）

@@ -45,7 +45,7 @@ pub unsafe extern "C" fn helix_command(
         Err(code) => return code,
     };
 
-    // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
+    // SAFETY: handle 非 null 已检查；来自任一 Helix create 入口。
     let handle_ref = unsafe { &*handle };
     send_command_tick(handle_ref, cmd, trace)
 }

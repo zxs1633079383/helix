@@ -110,8 +110,7 @@ mod tests {
     fn sequenced_live_post_persists_event_seq_inside_props() {
         let post = json!({"props": {}, "message": "live"});
         let out = merge_props_with_quickreply_and_event_seq(&post, &json!({}), Some(27));
-        let parsed: serde_json::Value =
-            serde_json::from_str(&out).expect("props 应为合法 JSON");
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("props 应为合法 JSON");
         assert_eq!(parsed["channel_event_seq"], 27);
     }
 }

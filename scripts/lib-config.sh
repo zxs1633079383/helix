@@ -7,7 +7,7 @@
 #   HELIX_CONFIG_PATH   — helix.config.yaml 绝对路径（传给 host-cli --config）
 #   HELIX_WS_URL        — connection.ws_url
 #   HELIX_API_BASE      — connection.api_base
-#   HELIX_DEFAULT_API_BASE — connection.default_api_base（空则派生）
+#   HELIX_DEFAULT_API_BASE — connection.default_api_base（Java；空则保持空）
 #   HELIX_GO_LOG        — connection.go_log（脚本 tailing 服务端日志用）
 #   HELIX_GO_PORT       — connection.go_port（脚本 nc/lsof 就绪探针用）
 #   HELIX_START_HINT    — connection.start_hint（端口不通时输出的启动提示）
@@ -67,10 +67,6 @@ HELIX_WS_URL="${HELIX_WS_URL:-$(_hx_yq '.connection.ws_url')}"
 HELIX_API_BASE="${HELIX_API_BASE:-$(_hx_yq '.connection.api_base')}"
 
 _hx_default_api="$(_hx_yq '.connection.default_api_base')"
-if [ -z "$_hx_default_api" ]; then
-  # 派生：去掉 /api/cses 尾段（与 host_env.rs default_api_base 同逻辑）
-  _hx_default_api="${HELIX_API_BASE%/api/cses}"
-fi
 HELIX_DEFAULT_API_BASE="${HELIX_DEFAULT_API_BASE:-$_hx_default_api}"
 unset _hx_default_api
 

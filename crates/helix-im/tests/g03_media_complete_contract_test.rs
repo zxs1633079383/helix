@@ -52,39 +52,44 @@ fn rich_cmd() -> Tick {
 
 fn prepare_data(content_type: &str) -> Value {
     json!({
-        "uploadId": "upload-1",
+        "isSuccess": true,
+        "uploadToken": "upload-token-1",
         "fileId": "file-1",
         "method": "PUT",
-        "url": "http://test/media/upload/upload-1",
-        "publicUrl": "http://test/media/object/file-1",
-        "objectKey": "object-internal-file-1",
-        "headers": {"Content-Type": content_type}
+        "url": "https://oss.test/media/file-1?signature=short-lived",
+        "stablePath": "/oss/media/object/file-1",
+        "objectKey": "media/file-1",
+        "expiresAt": 1_700_000_600_000_u64,
+        "headers": {
+            "Content-Type": content_type,
+            "x-oss-forbid-overwrite": "true"
+        }
     })
 }
 
-fn complete_data(file_name: &str, content_type: &str, size: u64, sha256: &str) -> Value {
+fn complete_data(_file_name: &str, content_type: &str, size: u64, sha256: &str) -> Value {
     json!({
-        "id": "file-1",
-        "uploadId": "upload-1",
+        "isSuccess": true,
+        "state": "completed",
         "fileId": "file-1",
-        "url": "http://test/media/object/file-1",
-        "size": size,
+        "objectKey": "media/file-1",
+        "stablePath": "/oss/media/object/file-1",
+        "contentLength": size,
         "contentType": content_type,
-        "fileName": file_name,
         "sha256": sha256,
-        "channelId": cid(1),
-        "userId": "server-owned-user",
-        "teamId": "server-owned-team",
-        "etag": "server-internal-etag",
-        "state": "completed"
+        "etag": "server-internal-etag"
     })
 }
 
 fn envelope(status: &str, data: Value) -> Tick {
-    let common_res = Bytes::from(
-        serde_json::to_vec(&json!({"status": status, "data": data})).expect("CommonRes json"),
-    );
-    port_reply_with_body(0, enveloped(common_res))
+    let mut response = data;
+    response["isSuccess"] = json!(status == "SUCCESS");
+    port_reply_with_body(
+        0,
+        enveloped(Bytes::from(
+            serde_json::to_vec(&response).expect("Java media response json"),
+        )),
+    )
 }
 
 fn http_effects(h: &Harness, suffix: &str) -> Vec<(u64, HttpRequest)> {
@@ -116,7 +121,7 @@ fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, ops }
+            Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(|op| match op {
                     StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
                         spec.rows.iter().flatten().any(|(column, value)| {
@@ -148,7 +153,7 @@ fn drive_to_put(h: &mut Harness, cmd: Tick, content_type: &str) {
     h.step(cmd, 1000);
     let initial_corr = pending_stage_corr(h, "prepare");
     h.step(port_reply_ok(initial_corr), 1001);
-    let prepare_corr = http_effects(h, "/media/upload/prepare")[0].0;
+    let prepare_corr = http_effects(h, "/oss/getPresignedUrl")[0].0;
     h.step(
         reply_with_corr(
             prepare_corr,
@@ -165,7 +170,7 @@ fn drive_to_complete(h: &mut Harness, cmd: Tick, content_type: &str) -> u64 {
     h.step(port_reply_ok(upload_corr(h)), 1020);
     let complete_corr = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(complete_corr), 1021);
-    http_effects(h, "/media/upload/complete")
+    http_effects(h, "/oss/verifyUpload")
         .last()
         .expect("complete request")
         .0
@@ -180,7 +185,9 @@ fn message_upserts(h: &Harness) -> Vec<UpsertSpec> {
         .as_slice()
         .iter()
         .flat_map(|effect| match effect {
-            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => ops.as_slice(),
+            Effect::Persist { ops, .. }
+            | Effect::PersistAtomic { ops, .. }
+            | Effect::PersistFire { ops } => ops.as_slice(),
             _ => &[],
         })
         .filter_map(|op| match op {
@@ -188,6 +195,25 @@ fn message_upserts(h: &Harness) -> Vec<UpsertSpec> {
             _ => None,
         })
         .collect()
+}
+
+fn completion_commit_corr(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| {
+            match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(op, StorageOp::BatchDelete(spec) if spec.table == "pending_media")
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        }
+        })
+        .expect("trusted media completion atomic commit")
 }
 
 fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
@@ -203,7 +229,7 @@ fn last_props(h: &Harness) -> Value {
 }
 
 #[test]
-fn put_success_emits_only_complete_with_upload_id() {
+fn put_success_emits_only_java_verify_with_expected_identity() {
     let mut h = Harness::new(&[1]);
     drive_to_put(&mut h, file_cmd(), "application/pdf");
 
@@ -218,13 +244,25 @@ fn put_success_emits_only_complete_with_upload_id() {
             .count(),
         1
     );
-    let completes = http_effects(&h, "/media/upload/complete");
+    let completes = http_effects(&h, "/oss/verifyUpload");
     assert_eq!(completes.len(), 1);
     assert_eq!(completes[0].1.method, "POST");
-    assert_eq!(completes[0].1.url, "http://test/media/upload/complete");
+    assert_eq!(completes[0].1.url, "http://localhost:3399/oss/verifyUpload");
     let body: Value =
         serde_json::from_slice(completes[0].1.body.as_ref().unwrap().as_ref()).unwrap();
-    assert_eq!(body, json!({"uploadId": "upload-1"}));
+    assert_eq!(body["mediaUpload"], true);
+    assert!(body["clientUploadId"]
+        .as_str()
+        .is_some_and(|value| value.ends_with(":file")));
+    assert_eq!(body["uploadToken"], "upload-token-1");
+    assert_eq!(body["fileId"], "file-1");
+    assert_eq!(body["objectKey"], "media/file-1");
+    assert_eq!(body["contentType"], "application/pdf");
+    assert_eq!(body["size"], 9);
+    assert_eq!(
+        body["sha256"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
     assert_eq!(posts_create_count(&h), 0);
 }
 
@@ -251,9 +289,13 @@ fn complete_success_persists_trusted_reference_before_posts_create() {
 
     assert_eq!(message_upserts(&h).len(), 1);
     let props = last_props(&h);
+    assert_eq!(props["file"]["bucket"], "file");
     assert_eq!(props["file"]["id"], "file-1");
     assert_eq!(props["file"]["name"], "doc.pdf");
-    assert_eq!(props["file"]["url"], "http://test/media/object/file-1");
+    assert_eq!(
+        props["file"]["url"],
+        "http://localhost:3399/oss/media/object/file-1"
+    );
     assert_eq!(props["file"]["contentType"], "application/pdf");
     assert_eq!(props["file"]["size"], 9);
     assert_eq!(
@@ -277,6 +319,13 @@ fn complete_success_persists_trusted_reference_before_posts_create() {
     ] {
         assert!(!persisted.contains(forbidden), "leaked {forbidden}");
     }
+    assert_eq!(
+        props["file"]["uri"],
+        "http://localhost:3399/oss/media/object/file-1"
+    );
+    assert_eq!(posts_create_count(&h), 0);
+    let commit = completion_commit_corr(&h);
+    h.step(port_reply_ok(commit), 1031);
     assert_eq!(posts_create_count(&h), 1);
 }
 
@@ -304,22 +353,54 @@ fn rich_complete_preserves_render_metadata_in_posts_create() {
     assert_eq!(props["files"][0]["id"], "file-1");
     assert_eq!(props["files"][0]["width"], 800);
     assert_eq!(props["files"][0]["height"], 600);
+    assert_eq!(props["files"][0]["bucket"], "file");
     assert_eq!(props["files"][0]["upload"]["status"], "completed");
+    assert_eq!(posts_create_count(&h), 0);
+    let commit = completion_commit_corr(&h);
+    h.step(port_reply_ok(commit), 1031);
     assert_eq!(posts_create_count(&h), 1);
+}
+
+#[test]
+fn complete_atomic_commit_failure_never_posts_and_remains_retryable() {
+    let mut h = Harness::new(&[1]);
+    let corr = drive_to_complete(&mut h, file_cmd(), "application/pdf");
+    h.step(
+        reply_with_corr(
+            corr,
+            envelope(
+                "SUCCESS",
+                complete_data(
+                    "doc.pdf",
+                    "application/pdf",
+                    9,
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                ),
+            ),
+        ),
+        1030,
+    );
+    let commit = completion_commit_corr(&h);
+    h.step(common::port_reply_err(commit), 1031);
+
+    assert_eq!(posts_create_count(&h), 0);
+    assert_eq!(last_props(&h)["file"]["upload"]["status"], "failed");
+    assert_eq!(
+        h.module.pending_send_status("tmp-complete-file"),
+        Some(helix_im::state::SendStatus::UnSend)
+    );
 }
 
 #[test]
 fn complete_field_mismatch_or_missing_fails_closed() {
     let mut cases = Vec::new();
     for field in [
-        "uploadId",
         "fileId",
-        "size",
+        "objectKey",
+        "stablePath",
+        "contentLength",
         "sha256",
         "contentType",
-        "channelId",
-        "url",
-        "fileName",
         "state",
     ] {
         let mut data = complete_data(
@@ -332,14 +413,12 @@ fn complete_field_mismatch_or_missing_fails_closed() {
         cases.push((format!("missing-{field}"), data));
     }
     let mismatches = [
-        ("uploadId", json!("other-upload")),
         ("fileId", json!("other-file")),
-        ("size", json!(10)),
+        ("objectKey", json!("media/other-file")),
+        ("stablePath", json!("/oss/media/object/other-file")),
+        ("contentLength", json!(10)),
         ("sha256", json!("other-sha")),
         ("contentType", json!("image/png")),
-        ("channelId", json!(cid(2))),
-        ("url", json!("http://test/media/object/other-file")),
-        ("fileName", json!("other.pdf")),
     ];
     for (field, value) in mismatches {
         let mut data = complete_data(

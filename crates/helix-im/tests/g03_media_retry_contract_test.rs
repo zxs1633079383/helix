@@ -81,36 +81,40 @@ fn media_input(media: Media) -> Value {
 fn prepare_data(media: Media) -> Value {
     let input = media_input(media);
     json!({
-        "uploadId": media.upload,
+        "isSuccess": true,
+        "uploadToken": media.upload,
         "fileId": media.file,
         "method": "PUT",
-        "url": format!("http://test/media/upload/{}", media.upload),
-        "publicUrl": format!("http://test/media/object/{}", media.file),
-        "objectKey": format!("internal-{}", media.file),
-        "headers": {"Content-Type": input["contentType"]}
+        "url": format!("https://oss.test/media/{}?signature={}", media.file, media.upload),
+        "stablePath": format!("/oss/media/object/{}", media.file),
+        "objectKey": format!("media/{}", media.file),
+        "headers": {
+            "Content-Type": input["contentType"],
+            "x-oss-forbid-overwrite": "true"
+        }
     })
 }
 
 fn complete_data(media: Media) -> Value {
     let input = media_input(media);
     json!({
-        "id": media.file,
-        "uploadId": media.upload,
+        "isSuccess": true,
+        "state": "completed",
         "fileId": media.file,
-        "url": format!("http://test/media/object/{}", media.file),
-        "size": input["size"],
+        "objectKey": format!("media/{}", media.file),
+        "stablePath": format!("/oss/media/object/{}", media.file),
+        "contentLength": input["size"],
         "contentType": input["contentType"],
-        "fileName": media.name,
         "sha256": media.sha,
-        "channelId": cid(1),
-        "state": "completed"
+        "etag": "etag-internal"
     })
 }
 
 fn common_res(data: Value) -> Tick {
-    let common_res =
-        Bytes::from(serde_json::to_vec(&json!({"status": "SUCCESS", "data": data})).unwrap());
-    port_reply_with_body(0, enveloped(common_res))
+    port_reply_with_body(
+        0,
+        enveloped(Bytes::from(serde_json::to_vec(&data).unwrap())),
+    )
 }
 
 fn with_corr(corr: u64, tick: Tick) -> Tick {
@@ -156,7 +160,7 @@ fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, ops }
+            Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(|op| match op {
                     StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
                         spec.rows.iter().flatten().any(|(column, value)| {
@@ -172,6 +176,48 @@ fn pending_stage_corr(h: &Harness, stage: &str) -> u64 {
             _ => None,
         })
         .expect("pending media stage persist")
+}
+
+fn retry_reset_corr(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                        spec.rows.iter().flatten().any(|(column, value)| {
+                            column == "send_status"
+                                && matches!(value, SqlValue::Text(value) if value == "sending")
+                        })
+                    }
+                    _ => false,
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("media retry reset atomic persist")
+}
+
+fn completion_commit_corr(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| {
+            match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(op, StorageOp::BatchDelete(spec) if spec.table == "pending_media")
+                }) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        }
+        })
+        .expect("trusted media completion atomic commit")
 }
 
 fn release_initial(h: &mut Harness, now: u64) {
@@ -190,7 +236,7 @@ fn put_ok(h: &mut Harness, corr: u64, now: u64) -> u64 {
     h.step(port_reply_ok(corr), now);
     let persist = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(persist), now + 1);
-    http(h, "/media/upload/complete")[0].0
+    http(h, "/oss/verifyUpload")[0].0
 }
 
 fn posts(h: &Harness) -> usize {
@@ -257,16 +303,26 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
     let mut h = Harness::new(&[1]);
     h.step(file_cmd(), 1000);
     release_initial(&mut h, 1001);
-    let first_prepare = http(&h, "/media/upload/prepare")[0].0;
+    let first_prepare = http(&h, "/oss/getPresignedUrl")[0].0;
     h.step(common::port_reply_err(first_prepare), 1010);
     assert_retryable_media_failure(&h, "tmp-retry-file", true);
 
     h.step(retry("tmp-retry-file"), 1020);
     assert_eq!(
         h.module.pending_send_status("tmp-retry-file"),
+        Some(SendStatus::UnSend),
+        "retry reset durable ack 前内存状态仍须保持失败"
+    );
+    assert!(http(&h, "/oss/getPresignedUrl").is_empty());
+    let retry_reset = retry_reset_corr(&h);
+    let duplicate = h.step(retry("tmp-retry-file"), 1021);
+    assert!(duplicate.is_empty(), "retry reset 在途必须幂等");
+    h.step(port_reply_ok(retry_reset), 1022);
+    assert_eq!(
+        h.module.pending_send_status("tmp-retry-file"),
         Some(SendStatus::Sending)
     );
-    let retries = http(&h, "/media/upload/prepare");
+    let retries = http(&h, "/oss/getPresignedUrl");
     assert_eq!(retries.len(), 1);
     assert_eq!(posts(&h), 0);
     let duplicate = h.step(retry("tmp-retry-file"), 1030);
@@ -275,6 +331,9 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
     let upload = prepare_ok(&mut h, retries[0].0, FILE, 1040);
     let complete = put_ok(&mut h, upload, 1050);
     h.step(with_corr(complete, common_res(complete_data(FILE))), 1060);
+    assert_eq!(posts(&h), 0);
+    let completion_commit = completion_commit_corr(&h);
+    h.step(port_reply_ok(completion_commit), 1061);
     assert_eq!(posts(&h), 1);
     let body: Value = serde_json::from_slice(
         http(&h, "/posts/create")[0]
@@ -289,29 +348,60 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
 }
 
 #[test]
+fn retry_reset_persist_failure_keeps_failed_state_and_never_starts_java_io() {
+    let mut h = Harness::new(&[1]);
+    h.step(file_cmd(), 1000);
+    release_initial(&mut h, 1001);
+    let first_prepare = http(&h, "/oss/getPresignedUrl")[0].0;
+    h.step(common::port_reply_err(first_prepare), 1010);
+
+    h.step(retry("tmp-retry-file"), 1020);
+    let reset = retry_reset_corr(&h);
+    assert!(http(&h, "/oss/getPresignedUrl").is_empty());
+    h.step(common::port_reply_err(reset), 1021);
+    assert_eq!(
+        h.module.pending_send_status("tmp-retry-file"),
+        Some(SendStatus::UnSend)
+    );
+    assert!(http(&h, "/oss/getPresignedUrl").is_empty());
+
+    h.step(retry("tmp-retry-file"), 1030);
+    let _ = retry_reset_corr(&h);
+    assert!(
+        http(&h, "/oss/getPresignedUrl").is_empty(),
+        "只有 retry reset PersistOk 才能释放 Java prepare"
+    );
+}
+
+#[test]
 fn put_failure_retries_from_prepare_and_never_reuses_the_old_signed_url() {
     let mut h = Harness::new(&[1]);
     h.step(file_cmd(), 1000);
     release_initial(&mut h, 1001);
-    let prepare = http(&h, "/media/upload/prepare")[0].0;
+    let prepare = http(&h, "/oss/getPresignedUrl")[0].0;
     let first_upload = prepare_ok(&mut h, prepare, FILE, 1010);
     h.step(common::port_reply_err(first_upload), 1020);
     assert_retryable_media_failure(&h, "tmp-retry-file", true);
 
     h.step(retry("tmp-retry-file"), 1030);
+    assert!(http(&h, "/oss/getPresignedUrl").is_empty());
+    let retry_reset = retry_reset_corr(&h);
+    h.step(port_reply_ok(retry_reset), 1031);
     assert_eq!(
         h.module.pending_send_status("tmp-retry-file"),
         Some(SendStatus::Sending)
     );
-    let prepares = http(&h, "/media/upload/prepare");
+    let prepares = http(&h, "/oss/getPresignedUrl");
     assert_eq!(prepares.len(), 1);
-    assert!(http(&h, "/media/upload/complete").is_empty());
+    assert!(http(&h, "/oss/verifyUpload").is_empty());
     let duplicate = h.step(retry("tmp-retry-file"), 1040);
     assert!(duplicate.is_empty());
 
     let retried_upload = prepare_ok(&mut h, prepares[0].0, FILE, 1050);
     let complete = put_ok(&mut h, retried_upload, 1050);
     h.step(with_corr(complete, common_res(complete_data(FILE))), 1060);
+    let completion_commit = completion_commit_corr(&h);
+    h.step(port_reply_ok(completion_commit), 1061);
     assert_eq!(posts(&h), 1);
 }
 
@@ -320,13 +410,22 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     let mut h = Harness::new(&[1]);
     h.step(rich_cmd(), 1000);
     release_initial(&mut h, 1001);
-    let prepares = http(&h, "/media/upload/prepare");
+    let prepares = http(&h, "/oss/getPresignedUrl");
     let upload_a = prepare_ok(&mut h, prepares[0].0, A, 1010);
     let upload_b = prepare_ok(&mut h, prepares[1].0, B, 1020);
     let complete_a = put_ok(&mut h, upload_a, 1030);
-    let complete_b = put_ok(&mut h, upload_b, 1040);
+    h.step(port_reply_ok(upload_b), 1040);
+    let complete_b_stage = pending_stage_corr(&h, "complete");
+    h.step(port_reply_ok(complete_b_stage), 1041);
+    assert!(
+        http(&h, "/oss/verifyUpload").is_empty(),
+        "第二个 verify 必须等待第一个完成原子提交"
+    );
     h.step(with_corr(complete_a, common_res(complete_data(A))), 1050);
     assert_eq!(posts(&h), 0);
+    let first_commit = completion_commit_corr(&h);
+    h.step(port_reply_ok(first_commit), 1051);
+    let complete_b = http(&h, "/oss/verifyUpload")[0].0;
     let mut mismatch = complete_data(B);
     mismatch["sha256"] = json!("wrong");
     h.step(with_corr(complete_b, common_res(mismatch)), 1060);
@@ -334,6 +433,9 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     assert_retryable_media_failure(&h, "tmp-retry-rich", false);
 
     h.step(retry("tmp-retry-rich"), 1070);
+    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    let retry_reset = retry_reset_corr(&h);
+    h.step(port_reply_ok(retry_reset), 1071);
     assert_eq!(
         h.module.pending_send_status("tmp-retry-rich"),
         Some(SendStatus::Sending)
@@ -343,8 +445,8 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
         .as_slice()
         .iter()
         .all(|effect| !matches!(effect, Effect::UploadFile { .. })));
-    assert!(http(&h, "/media/upload/prepare").is_empty());
-    let retried_complete = http(&h, "/media/upload/complete");
+    assert!(http(&h, "/oss/getPresignedUrl").is_empty());
+    let retried_complete = http(&h, "/oss/verifyUpload");
     assert_eq!(retried_complete.len(), 1);
     let duplicate = h.step(retry("tmp-retry-rich"), 1080);
     assert!(duplicate.is_empty());
@@ -353,5 +455,8 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
         with_corr(retried_complete[0].0, common_res(complete_data(B))),
         1090,
     );
+    assert_eq!(posts(&h), 0);
+    let completion_commit = completion_commit_corr(&h);
+    h.step(port_reply_ok(completion_commit), 1091);
     assert_eq!(posts(&h), 1);
 }

@@ -813,14 +813,29 @@ fn content_from_row(
         kind.as_str(),
         "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA"
     ) {
+        let (resource, primary_resource) = media_resource_from_props(kind.as_str(), props);
+        let file_name = {
+            let nested = row_string(primary_resource, &["name", "fileName", "title"]);
+            if nested.is_empty() {
+                row_string(row, &["fileName", "title", "text"])
+            } else {
+                nested
+            }
+        };
+        let size = integer_at(primary_resource, &["size"], "size")?
+            .or(integer_at(row, &["size"], "size")?)
+            .unwrap_or_default()
+            .max(0) as u64;
         return Ok(MessageContentVm::Media {
             media_type: kind.to_ascii_lowercase(),
-            resource: surface_data(props, 0)?,
-            thumbnail: optional_data(row.get("thumbnail"))?,
-            file_name: row_string(row, &["fileName", "title", "text"]),
-            size: integer_at(row, &["size"], "size")?
-                .unwrap_or_default()
-                .max(0) as u64,
+            resource: surface_data(resource, 0)?,
+            thumbnail: optional_data(
+                primary_resource
+                    .get("thumbnail")
+                    .or_else(|| row.get("thumbnail")),
+            )?,
+            file_name,
+            size,
             availability: SurfaceDataVm::Record(BTreeMap::new()),
         });
     }
@@ -872,9 +887,34 @@ fn content_from_row(
     Ok(MessageContentVm::Text { text })
 }
 
+fn media_resource_from_props<'a>(kind: &str, props: &'a Value) -> (&'a Value, &'a Value) {
+    if kind == "IMAGE" {
+        let resources = props.get("files").unwrap_or(props);
+        let primary = resources
+            .as_array()
+            .and_then(|items| items.first())
+            .unwrap_or(resources);
+        (resources, primary)
+    } else {
+        let resource = props.get("file").unwrap_or(props);
+        (resource, resource)
+    }
+}
+
 fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineProjectionError> {
     if revoked {
         return Ok(DeliveryVm::Recalled);
+    }
+    let send_status = row_string(row, &["sendStatus", "send_status"]);
+    if matches!(send_status.as_str(), "failed" | "unsend") {
+        return Ok(DeliveryVm::Failed {
+            reason: row_string(row, &["failureReason", "error"]),
+            retryable: row
+                .get("actionCapabilities")
+                .and_then(|capabilities| capabilities.get("canRetry"))
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| bool_at(row, &["canRetry"])),
+        });
     }
     let is_file_uploading = row_string(row, &["type"]) == "FILE"
         && row
@@ -895,16 +935,8 @@ fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineP
             .clamp(0, 100) as u8,
         });
     }
-    match row_string(row, &["sendStatus", "send_status"]).as_str() {
+    match send_status.as_str() {
         "sending" => Ok(DeliveryVm::Sending),
-        "failed" | "unsend" => Ok(DeliveryVm::Failed {
-            reason: row_string(row, &["failureReason", "error"]),
-            retryable: row
-                .get("actionCapabilities")
-                .and_then(|capabilities| capabilities.get("canRetry"))
-                .and_then(Value::as_bool)
-                .unwrap_or_else(|| bool_at(row, &["canRetry"])),
-        }),
         _ => Ok(DeliveryVm::Sent),
     }
 }
@@ -1481,6 +1513,119 @@ mod tests {
             message_from_render_ready(&image, "channel-1", 1, false, || Ok("unused".to_string()))
                 .unwrap();
         assert_eq!(image_message.delivery, DeliveryVm::Sending);
+    }
+
+    #[test]
+    fn recovered_unsend_overrides_stale_file_uploading_substate() {
+        let mut file = row(1);
+        file["type"] = serde_json::json!("FILE");
+        file["sendStatus"] = serde_json::json!("unsend");
+        file["progressPercent"] = serde_json::json!(35);
+        file["canRetry"] = serde_json::json!(true);
+        file["actionCapabilities"] = serde_json::json!({
+            "canRetry": true
+        });
+        file["props"] = serde_json::json!({
+            "file": {"upload": {"status": "uploading"}}
+        });
+
+        let message =
+            message_from_render_ready(&file, "channel-1", 1, true, || Ok("retry-ref".to_string()))
+                .unwrap();
+        assert_eq!(
+            message.delivery,
+            DeliveryVm::Failed {
+                reason: String::new(),
+                retryable: true,
+            }
+        );
+        assert!(message
+            .actions
+            .iter()
+            .any(|action| action.kind == "retry" && action.enabled));
+    }
+
+    #[test]
+    fn final_file_content_projects_the_stable_props_file_reference() {
+        let mut file = row(1);
+        file["type"] = serde_json::json!("FILE");
+        file["fileName"] = serde_json::json!("stale-top-level.pdf");
+        file["size"] = serde_json::json!(1);
+        file["props"] = serde_json::json!({
+            "file": {
+                "bucket": "file",
+                "name": "report.pdf",
+                "size": 4096,
+                "contentType": "application/pdf",
+                "url": "https://java.example/oss/media/object/mf_report",
+                "uri": "https://java.example/oss/media/object/mf_report"
+            },
+            "unrelated": "must-not-leak-into-resource"
+        });
+
+        let message =
+            message_from_render_ready(&file, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("stable FILE props must project");
+        let content = serde_json::to_value(message.content).expect("serialize FILE content");
+
+        assert_eq!(content["kind"], "media");
+        assert_eq!(content["mediaType"], "file");
+        assert_eq!(content["fileName"], "report.pdf");
+        assert_eq!(content["size"], 4096);
+        assert_eq!(
+            content["resource"],
+            serde_json::json!({
+                "bucket": "file",
+                "name": "report.pdf",
+                "size": 4096,
+                "contentType": "application/pdf",
+                "url": "https://java.example/oss/media/object/mf_report",
+                "uri": "https://java.example/oss/media/object/mf_report"
+            })
+        );
+        assert!(content["resource"].get("file").is_none());
+        assert!(content["resource"].get("unrelated").is_none());
+    }
+
+    #[test]
+    fn final_image_content_projects_the_complete_props_files_gallery() {
+        let mut image = row(2);
+        image["type"] = serde_json::json!("IMAGE");
+        image["fileName"] = serde_json::json!("stale-top-level.png");
+        image["size"] = serde_json::json!(1);
+        image["props"] = serde_json::json!({
+            "imagePosition": "bottom",
+            "files": [
+                {
+                    "bucket": "file",
+                    "name": "a.png",
+                    "size": 11,
+                    "contentType": "image/png",
+                    "url": "https://java.example/oss/media/object/mf_a",
+                    "uri": "https://java.example/oss/media/object/mf_a"
+                },
+                {
+                    "bucket": "file",
+                    "name": "b.png",
+                    "size": 22,
+                    "contentType": "image/png",
+                    "url": "https://java.example/oss/media/object/mf_b",
+                    "uri": "https://java.example/oss/media/object/mf_b"
+                }
+            ]
+        });
+
+        let message =
+            message_from_render_ready(&image, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("stable IMAGE props must project");
+        let content = serde_json::to_value(message.content).expect("serialize IMAGE content");
+
+        assert_eq!(content["kind"], "media");
+        assert_eq!(content["mediaType"], "image");
+        assert_eq!(content["fileName"], "a.png");
+        assert_eq!(content["size"], 11);
+        assert_eq!(content["resource"], image["props"]["files"]);
+        assert!(content["resource"].is_array());
     }
 
     #[test]

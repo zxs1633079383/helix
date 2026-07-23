@@ -12,15 +12,11 @@ const APP_NAMESPACE: &str = "com.jinqidongli.cses.dev";
 const TMP_STORE_BASE: &str = "/tmp/helix_host_cli";
 const MISSING_COMPANY_SENTINEL: &str = "__missing_company__";
 
-/// 派生第二（默认业务）网关 base（spec06 方案 A）：vote/score 走 restHost（无 `/api/cses`）。
-/// `configured`（= `connection.default_api_base`）非空则用之 > `api_base` 去 `/api/cses` 尾段
-/// （host 注入网关拓扑，HX-C001）。
-pub fn default_api_base(api_base: &str, configured: &str) -> String {
-    if !configured.is_empty() {
-        configured.to_string()
-    } else {
-        api_base.trim_end_matches("/api/cses").to_string()
-    }
+/// 读取平台显式注入的 Java/default 业务网关 base。
+///
+/// 空串保持为空，让依赖 Java 的能力明确失败；禁止从 Go `api_base` 裁路径猜测另一个服务地址。
+pub fn default_api_base(configured: &str) -> String {
+    configured.to_string()
 }
 
 /// 派生 SQLite DB 绝对路径：runtime.db 显式覆盖优先；否则按 app/backend/company/account/schema
@@ -201,6 +197,15 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    #[test]
+    fn default_api_base_is_explicit_and_never_derived_from_go() {
+        assert_eq!(
+            default_api_base("https://java.example.test"),
+            "https://java.example.test"
+        );
+        assert!(default_api_base("").is_empty());
+    }
 
     fn temp_home(label: &str) -> PathBuf {
         let path =

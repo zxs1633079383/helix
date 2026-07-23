@@ -140,12 +140,23 @@ pub enum CorrelationContext {
         window_token: Option<String>,
         causation_id: Option<String>,
     },
+    /// 首笔媒体 message+journal 事务失败后的原子补偿 barrier。
+    /// 成功前 `media_retry_inflight` 保持占用，禁止 retry 启动任何 Java/OSS I/O；
+    /// 失败则继续 fail-closed，防止没有 durable journal 的上传逃逸。
+    MediaFailureCompensation {
+        temporary_id: TemporaryId,
+        channel_id: ChannelId,
+        window_token: Option<String>,
+        causation_id: Option<String>,
+    },
     /// G-03a Native 重启后的失败消息重试：先按 temporary_id 查 durable message，
     /// 未命中再按 id 回退。读回后重建 PendingSend 与 posts/create body，复用既有发送链。
     RetrySendRehydrate {
         message_id: String,
         requested_at_ms: u64,
         request_id: Option<String>,
+        /// Surface action 的可信 scope channel；legacy command 没有 action ledger，保持 None。
+        action_channel_id: Option<ChannelId>,
         window_token: Option<String>,
         lookup_by_id: bool,
     },

@@ -187,12 +187,12 @@ fn last_message_upsert(h: &Harness) -> UpsertSpec {
         .iter()
         .rev()
         .find_map(|effect| match effect {
-            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
-                ops.iter().find_map(|op| match op {
-                    StorageOp::BatchUpsert(spec) if spec.table == "message" => Some(spec.clone()),
-                    _ => None,
-                })
-            }
+            Effect::Persist { ops, .. }
+            | Effect::PersistAtomic { ops, .. }
+            | Effect::PersistFire { ops } => ops.iter().find_map(|op| match op {
+                StorageOp::BatchUpsert(spec) if spec.table == "message" => Some(spec.clone()),
+                _ => None,
+            }),
             _ => None,
         })
         .expect("message upsert")
@@ -267,7 +267,7 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
 }
 
 #[test]
-#[ignore = "旧输入要求客户端 publicUrl；新合同禁止客户端提供 Go-owned publicUrl"]
+#[ignore = "旧输入要求客户端 publicUrl；新合同禁止客户端提供 server-owned publicUrl"]
 fn upload_input_without_public_url_is_rejected_before_any_effect() {
     let mut h = Harness::new(&[1]);
     let command = send_message_cmd_json(json!({
@@ -904,7 +904,7 @@ mod g03_prepare_contract {
             .as_slice()
             .iter()
             .filter_map(|effect| match effect {
-                Effect::Http { corr, req } if req.url.ends_with("/media/upload/prepare") => {
+                Effect::Http { corr, req } if req.url.ends_with("/oss/getPresignedUrl") => {
                     Some((corr.raw(), req.clone()))
                 }
                 _ => None,
@@ -928,7 +928,7 @@ mod g03_prepare_contract {
             .as_slice()
             .iter()
             .find_map(|effect| match effect {
-                Effect::Persist { corr, ops }
+                Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops }
                     if ops.iter().any(|op| match op {
                         StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => {
                             spec.rows.iter().flatten().any(|(column, value)| {
@@ -967,14 +967,12 @@ mod g03_prepare_contract {
             .iter()
             .rev()
             .find_map(|effect| match effect {
-                Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
-                    ops.iter().find_map(|op| match op {
-                        StorageOp::BatchUpsert(spec) if spec.table == "message" => {
-                            Some(spec.clone())
-                        }
-                        _ => None,
-                    })
-                }
+                Effect::Persist { ops, .. }
+                | Effect::PersistAtomic { ops, .. }
+                | Effect::PersistFire { ops } => ops.iter().find_map(|op| match op {
+                    StorageOp::BatchUpsert(spec) if spec.table == "message" => Some(spec.clone()),
+                    _ => None,
+                }),
                 _ => None,
             })
             .expect("message upsert")
@@ -988,25 +986,26 @@ mod g03_prepare_contract {
     }
 
     fn prepare_reply(data: Value) -> Tick {
-        let common_res = Bytes::from(
-            serde_json::to_vec(&json!({"status": "SUCCESS", "data": data}))
-                .expect("prepare reply json"),
-        );
-        port_reply_with_body(0, enveloped(common_res))
+        port_reply_with_body(
+            0,
+            enveloped(Bytes::from(
+                serde_json::to_vec(&data).expect("prepare reply json"),
+            )),
+        )
     }
 
     fn valid_prepare_data() -> Value {
         json!({
-            "uploadId": "upload-1",
+            "isSuccess": true,
+            "uploadToken": "upload-token-1",
             "fileId": "file-1",
             "method": "PUT",
-            "url": "http://test/media/upload/upload-1",
-            "publicUrl": "http://test/media/object/file-1",
-            "objectKey": "file-1",
+            "url": "https://oss.test/media/file-1?signature=short-lived",
+            "stablePath": "/oss/media/object/file-1",
+            "objectKey": "media/file-1",
             "headers": {
                 "Content-Type": "application/pdf",
-                "Cookieid": "server-owned-user",
-                "companyId": "server-owned-team"
+                "x-oss-forbid-overwrite": "true"
             }
         })
     }
@@ -1023,13 +1022,19 @@ mod g03_prepare_contract {
         let prepares = prepare_effects(&h);
         assert_eq!(prepares.len(), 1);
         assert_eq!(prepares[0].1.method, "POST");
-        assert_eq!(prepares[0].1.url, "http://test/media/upload/prepare");
+        assert_eq!(
+            prepares[0].1.url,
+            "http://localhost:3399/oss/getPresignedUrl"
+        );
         assert!(upload_effects(&h).is_empty());
         assert_eq!(posts_create_count(&h), 0);
         let prepare_body: Value =
             serde_json::from_slice(prepares[0].1.body.as_ref().expect("prepare body").as_ref())
                 .expect("prepare json");
-        assert_eq!(prepare_body["channelId"], cid(1));
+        assert_eq!(prepare_body["mediaUpload"], true);
+        assert!(prepare_body["clientUploadId"]
+            .as_str()
+            .is_some_and(|value| value.ends_with(":file")));
         assert_eq!(prepare_body["fileName"], "doc.pdf");
         assert_eq!(prepare_body["contentType"], "application/pdf");
         assert_eq!(prepare_body["size"], 9);
@@ -1049,6 +1054,26 @@ mod g03_prepare_contract {
     }
 
     #[test]
+    fn missing_java_base_fails_before_optimistic_sending_is_persisted() {
+        let mut module = helix_im::ImModule::new(helix_im::module::ImConfig {
+            api_base_url: "http://go.test/api/cses".to_string(),
+            default_api_base_url: String::new(),
+            ..Default::default()
+        });
+        let mut out = EffectSink::new();
+
+        let error = module
+            .handle(&file_cmd("tmp-no-java"), 1000, &mut out)
+            .expect_err("media send without frontend Java base must fail-fast");
+
+        assert!(error.to_string().contains("Java API base is required"));
+        assert!(
+            out.is_empty(),
+            "missing Java endpoint must not leave an optimistic message spinning"
+        );
+    }
+
+    #[test]
     fn rich_image_uses_the_same_prepare_contract() {
         let mut h = Harness::new(&[1]);
         h.step(rich_cmd(), 1000);
@@ -1065,9 +1090,10 @@ mod g03_prepare_contract {
     }
 
     #[test]
-    fn mobile_cannot_supply_go_owned_upload_fields() {
+    fn mobile_cannot_supply_server_owned_upload_fields() {
         for forbidden in [
             "uploadId",
+            "uploadToken",
             "fileId",
             "method",
             "url",
@@ -1162,9 +1188,15 @@ mod g03_prepare_contract {
         let req = &uploads[0].1;
         assert_eq!(req.local_path, "/tmp/doc.pdf");
         assert_eq!(req.method, "PUT");
-        assert_eq!(req.object_key, "file-1");
-        assert_eq!(req.urls.upload_url(), "http://test/media/upload/upload-1");
-        assert_eq!(req.urls.public_url(), "http://test/media/object/file-1");
+        assert_eq!(req.object_key, "media/file-1");
+        assert_eq!(
+            req.urls.upload_url(),
+            "https://oss.test/media/file-1?signature=short-lived"
+        );
+        assert_eq!(
+            req.urls.public_url(),
+            "http://localhost:3399/oss/media/object/file-1"
+        );
         assert_eq!(req.content_type.as_deref(), Some("application/pdf"));
         assert_eq!(req.size, Some(9));
         assert_eq!(posts_create_count(&h), 0);
@@ -1175,14 +1207,20 @@ mod g03_prepare_contract {
         let invalid_data = [
             json!({}),
             json!({
-                "uploadId": "upload-1", "fileId": "file-1", "method": "POST",
-                "url": "http://test/upload", "publicUrl": "http://test/file",
-                "objectKey": "file-1", "headers": {}
+                "isSuccess": true, "uploadToken": "upload-token-1",
+                "fileId": "file-1", "method": "POST",
+                "url": "http://test/upload", "stablePath": "/oss/media/object/file-1",
+                "objectKey": "media/file-1", "headers": {}
             }),
             json!({
-                "uploadId": "upload-1", "fileId": "file-1", "method": "PUT",
-                "url": "http://test/upload", "publicUrl": "http://test/file",
-                "objectKey": "file-1", "headers": {"Content-Type": "image/png"}
+                "isSuccess": true, "uploadToken": "upload-token-1",
+                "fileId": "file-1", "method": "PUT",
+                "url": "http://test/upload", "stablePath": "/oss/media/object/file-1",
+                "objectKey": "media/file-1",
+                "headers": {
+                    "Content-Type": "image/png",
+                    "x-oss-forbid-overwrite": "true"
+                }
             }),
         ];
         for (index, data) in invalid_data.into_iter().enumerate() {
@@ -1209,9 +1247,8 @@ mod g03_prepare_contract {
         h.step(file_cmd("tmp-prepare-failure"), 1000);
         release_stage(&mut h, "prepare", 1001);
         let corr = prepare_effects(&h)[0].0;
-        let common_res =
-            Bytes::from_static(br#"{"status":"FAIL","message":"conflict","data":null}"#);
-        let outcome = match port_reply_with_body(0, enveloped(common_res)) {
+        let response = Bytes::from_static(br#"{"isSuccess":false,"message":"conflict"}"#);
+        let outcome = match port_reply_with_body(0, enveloped(response)) {
             Tick::PortReply { outcome, .. } => outcome,
             _ => unreachable!(),
         };

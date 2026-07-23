@@ -52,7 +52,7 @@ async fn main() {
     let ws_url = cfg.connection.ws_url.clone();
     // api base 含 /api/cses；default_api_base 承载 vote/score 第二网关。
     let api_base_url = cfg.connection.api_base.clone();
-    let default_api_base_url = default_api_base(&api_base_url, &cfg.connection.default_api_base);
+    let default_api_base_url = default_api_base(&cfg.connection.default_api_base);
     // cookieId(=userId) + companyId 是 sync-v2/paas-grpc 鉴权两件套。
     let cookie_id = cfg.identity.cookie_id.clone();
     let company_id = cfg.identity.company_id.clone();
@@ -150,6 +150,7 @@ async fn main() {
     }
     let mut net_config = HostNetworkConfig::new(api_base_url.clone(), ws_url.clone());
     net_config.default_api_base_url = default_api_base_url.clone();
+    let upload_timeout = net_config.timeout;
     let shared_client = match SharedHttpClient::new(net_config) {
         Ok(c) => c.with_metric_sink(Arc::clone(&metrics)),
         Err(e) => {
@@ -268,7 +269,7 @@ async fn main() {
     let config = EngineConfig {
         storage,
         http,
-        uploader: SharedFileUploader::default(),
+        uploader: SharedFileUploader::default().with_timeout(upload_timeout),
         event_sink,
         metrics,
         max_http_inflight,

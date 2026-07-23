@@ -171,6 +171,27 @@ fn vote_command_uses_default_gateway_base() {
     }
 }
 
+/// 旧 ABI 没有 Java 地址时必须 fail-closed，不能让相对 URL 被 host 回落拼到 Go base。
+#[test]
+fn default_gateway_without_java_base_fails_closed() {
+    let corr = Correlation::from_raw(71);
+    let payload = serde_json::to_vec(&json!({ "id": "v1" })).unwrap();
+    let error = handle_outbound(
+        "im_vote_read",
+        &payload,
+        "http://h:8065/api/cses",
+        "",
+        Some("c1"),
+        corr,
+    )
+    .expect_err("缺 Java base 时必须拒绝 default gateway");
+
+    assert!(
+        error.to_string().contains("default_api_base_url"),
+        "错误必须指出缺失的 Java base，实际={error}"
+    );
+}
+
 /// 回归：既有 IM 命令 `gateway()==Im` 仍走 **api_base_url**（IM 网关，含 `/api/cses`），
 /// 第二 base 不串扰。证「88 既有命令零改动」。
 #[test]

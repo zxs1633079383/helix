@@ -319,14 +319,114 @@ impl ImModule {
                 }
             }
             PortOutcome::Err(e) => {
-                self.state
+                let planned = self
+                    .state
                     .pending_media_after_optimistic
-                    .remove(&temporary_id);
+                    .remove(&temporary_id)
+                    .unwrap_or_default();
                 tracing::warn!(
                     tmp_id = ?temporary_id,
                     error = ?e,
                     "P1 optimistic persist failed"
                 );
+
+                // `im:post:sending` 已在 P1 同 step 发布；若首笔 message+journal 写失败后
+                // 只停止外部 I/O，renderer 会永久停在 sending。这里立即形成失败终态。
+                // 媒体补偿仍要把失败消息与原始 prepare journal 原子写回：进程若随后重启，
+                // retry 必须先恢复 journal 并重新走 Java prepare，绝不能直发未校验 props。
+                let terminal = self.state.pending_sends.get_mut(&temporary_id).and_then(|pending| {
+                    pending.status = SendStatus::UnSend;
+                    pending.persist_corr = None;
+                    pending.upload_failed = !planned.is_empty();
+                    let body = pending.body.as_mut()?;
+                    if let Some(props) = body.get_mut("props") {
+                        for media in &planned {
+                            if let Err(error) = crate::send::upload_props::mark_media_stage(
+                                props,
+                                &media.target,
+                                "failed",
+                            ) {
+                                tracing::warn!(
+                                    tmp_id = temporary_id.0.as_str(),
+                                    error = ?error,
+                                    "failed to project media failure after optimistic persist error"
+                                );
+                            }
+                        }
+                    }
+                    let channel_id = body
+                        .get("channelId")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(ChannelId::from_str)?;
+                    Some((
+                        channel_id,
+                        body.clone(),
+                        pending.timeline_readback.clone(),
+                        pending.timeout_timer,
+                    ))
+                });
+
+                for media in &planned {
+                    self.state.failed_media_ops.insert(
+                        (temporary_id.clone(), media.target.clone()),
+                        crate::send::upload_props::FailedMediaOp::Prepare(media.clone()),
+                    );
+                }
+                let media_compensation = !planned.is_empty();
+                if media_compensation {
+                    // 复用 retry inflight gate：补偿事务成功前（以及失败后）均不允许用户
+                    // retry 启动 Java/OSS I/O。成功回执由专用 correlation context 释放。
+                    self.state.media_retry_inflight.insert(temporary_id.clone());
+                }
+
+                if let Some((channel_id, body, timeline_readback, timeout_timer)) = terminal {
+                    let terminal_corr = self.alloc_corr_internal();
+                    let mut terminal_ops = vec![
+                        crate::pending_send::optimistic_message_persist_op(
+                            temporary_id.0.as_str(),
+                            channel_id.as_str(),
+                            &body,
+                        ),
+                        crate::pending_send::send_status_persist_op(&temporary_id, "unsend"),
+                    ];
+                    if planned.is_empty() {
+                        out.push(Effect::Persist {
+                            corr: terminal_corr,
+                            ops: terminal_ops,
+                        });
+                    } else {
+                        let operations = planned
+                            .into_iter()
+                            .map(crate::send::upload_props::PendingMediaOp::Prepare)
+                            .collect::<Vec<_>>();
+                        terminal_ops
+                            .push(crate::send::upload_props::durable_upsert_many(&operations)?);
+                        out.push(Effect::PersistAtomic {
+                            corr: terminal_corr,
+                            ops: terminal_ops,
+                        });
+                    }
+                    let context = if media_compensation {
+                        crate::state::CorrelationContext::MediaFailureCompensation {
+                            temporary_id: temporary_id.clone(),
+                            channel_id,
+                            window_token: timeline_readback.window_token,
+                            causation_id: timeline_readback.causation_id,
+                        }
+                    } else {
+                        crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                            channel_id,
+                            window_token: timeline_readback.window_token,
+                            causation_id: timeline_readback.causation_id,
+                        }
+                    };
+                    self.state.corr_map.insert(terminal_corr, context);
+                    out.push(Effect::CancelTimer { id: timeout_timer });
+                    out.push(crate::acl::to_effect::emit_post_send_failed(
+                        channel_id.as_str(),
+                        temporary_id.0.as_str(),
+                    ));
+                }
             }
         }
         Ok(())

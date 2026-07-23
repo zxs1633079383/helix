@@ -14,8 +14,8 @@ pub use durable::{
 pub use persistence::{media_send_state_persist_op, props_persist_op, sanitized_for_persistence};
 pub use plan::build_upload_plan;
 pub use request::{
-    complete_upload_request, file_upload_request, media_upload_request, parse_complete_reply,
-    parse_prepare_reply, prepare_upload_request,
+    client_upload_id, complete_upload_request, file_upload_request, media_upload_request,
+    parse_complete_reply, parse_prepare_reply, prepare_upload_request, validate_java_api_base_url,
 };
 pub use state::{
     mark_media_complete, mark_media_stage, mark_upload_failed, mark_upload_success,
@@ -96,6 +96,22 @@ pub struct CompletedMedia {
 }
 
 #[derive(Debug, Clone)]
+pub struct PendingMediaCompletionCommit {
+    pub pending: PendingMediaPut,
+    pub reference: TrustedMediaReference,
+    pub props_after: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingMediaRetryReset {
+    pub temporary_id: TemporaryId,
+    pub channel_id: crate::state::ChannelId,
+    pub body_after: Value,
+    pub timeline_readback: crate::pending_send::TimelineReadbackContext,
+    pub operations: Vec<FailedMediaOp>,
+}
+
+#[derive(Debug, Clone)]
 pub enum PendingMediaOp {
     Prepare(PendingMediaPrepare),
     Put(PendingMediaPut),
@@ -120,6 +136,13 @@ impl FailedMediaOp {
         match self {
             Self::Prepare(pending) => &pending.target,
             Self::Complete(pending) => &pending.target,
+        }
+    }
+
+    pub fn channel_id(&self) -> crate::state::ChannelId {
+        match self {
+            Self::Prepare(pending) => pending.channel_id,
+            Self::Complete(pending) => pending.channel_id,
         }
     }
 }

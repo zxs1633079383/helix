@@ -30,9 +30,11 @@ pub const RUNTIME_IDENTITY_COMMAND: &str = "__helix_runtime_identity";
 pub struct ImConfig {
     /// WS endpoint（如 "wss://api.example.com/ws"）
     pub ws_url: String,
-    /// HTTP API base URL（如 "https://api.example.com"）
+    /// Go IM HTTP API base URL（通常含 `/api/cses`）。
     pub api_base_url: String,
-    /// 第二业务网关 base（host 注入 `env.restHost`，无 `/api/cses`）；仅 `Gateway::Default` 命令使用。
+    /// Java base（host/前端显式注入 `env.restHost`，无 `/api/cses`）。
+    ///
+    /// 媒体 prepare/verify 与 `Gateway::Default` 命令使用；不得从 Go `api_base_url` 推导。
     pub default_api_base_url: String,
     /// 当前登录用户 Id26；host 注入，供未读 sender 豁免、可见性门控与 channel 归属列使用。
     pub auth_user_id: String,

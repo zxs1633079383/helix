@@ -164,6 +164,10 @@ fn redact_json(value: &mut serde_json::Value) {
             for (name, value) in fields {
                 if is_sensitive_field(name) {
                     *value = serde_json::Value::String(REDACTED.to_string());
+                } else if name.to_ascii_lowercase().ends_with("url") {
+                    if let serde_json::Value::String(url) = value {
+                        *url = visible_url(url, false);
+                    }
                 } else {
                     redact_json(value);
                 }
@@ -253,5 +257,21 @@ mod tests {
 
         let url = visible_url("http://host/path?cookieId=u1&token=t1", false);
         assert_eq!(url, "http://host/path?cookieId=<redacted>&token=<redacted>");
+    }
+
+    #[test]
+    fn json_presigned_url_query_is_redacted_by_default() {
+        let data = Bytes::from_static(
+            br#"{"isSuccess":true,"uploadToken":"proof-secret","url":"https://bucket.oss-cn-beijing.aliyuncs.com/media/mf_1?OSSAccessKeyId=secret&Signature=signed","stablePath":"/oss/media/object/mf_1"}"#,
+        );
+
+        let visible = preview_payload(&data, false);
+        assert!(visible.contains("https://bucket.oss-cn-beijing.aliyuncs.com/media/mf_1"));
+        assert!(visible.contains("OSSAccessKeyId=<redacted>"));
+        assert!(visible.contains("Signature=<redacted>"));
+        assert!(!visible.contains("secret"));
+        assert!(!visible.contains("signed"));
+        assert!(!visible.contains("proof-secret"));
+        assert!(visible.contains("/oss/media/object/mf_1"));
     }
 }

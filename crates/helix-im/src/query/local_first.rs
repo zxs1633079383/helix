@@ -253,7 +253,9 @@ impl ImModule {
     ) -> Result<(), ImError> {
         let explicit_surface_resync =
             causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION);
+        let causal_action_readback = causation_id.is_some() && !explicit_surface_resync;
         if !explicit_surface_resync
+            && !causal_action_readback
             && !self.is_current_message_query(
                 request.channel_id,
                 &request.window_token,
@@ -274,7 +276,12 @@ impl ImModule {
                         "message query local scan reply malformed"
                     );
                     if !allow_remote_fallback {
-                        out.push(self.emit_timeline_failed(&request, now_ms, false)?);
+                        out.push(self.emit_timeline_failed(
+                            &request,
+                            now_ms,
+                            false,
+                            causation_id,
+                        )?);
                         self.emit_deferred_posts_create_after_timeline_frame(
                             deferred_send_http,
                             out,
@@ -292,7 +299,7 @@ impl ImModule {
                     "message query local scan failed"
                 );
                 if !allow_remote_fallback {
-                    out.push(self.emit_timeline_failed(&request, now_ms, false)?);
+                    out.push(self.emit_timeline_failed(&request, now_ms, false, causation_id)?);
                     self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                     return Ok(());
                 }
@@ -382,6 +389,7 @@ impl ImModule {
                     &request,
                     now_ms,
                     causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION),
+                    causation_id,
                 )?);
                 self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
@@ -400,6 +408,7 @@ impl ImModule {
                     &request,
                     now_ms,
                     causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION),
+                    causation_id,
                 )?);
                 self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
@@ -422,6 +431,7 @@ impl ImModule {
                     &request,
                     now_ms,
                     causation_id.as_deref() == Some(SURFACE_TIMELINE_RESYNC_CAUSATION),
+                    causation_id,
                 )?);
                 self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                 return Ok(());
@@ -755,6 +765,7 @@ impl ImModule {
         request: &MessageQueryRequest,
         now_ms: u64,
         explicit_resync: bool,
+        causation_id: Option<String>,
     ) -> Result<Effect, ImError> {
         let mut failed =
             crate::projector::timeline::TimelineWindowRequest::latest_with_window_token(
@@ -775,11 +786,11 @@ impl ImModule {
         } else if self.state.timeline_projector.current_view(&scope).is_some() {
             self.state
                 .timeline_projector
-                .patch_from_render_ready(failed, &[], None)
+                .patch_from_render_ready(failed, &[], causation_id.clone())
         } else {
             self.state
                 .timeline_projector
-                .snapshot_from_render_ready(failed, &[])
+                .snapshot_from_render_ready_with_causation(failed, &[], causation_id.clone())
         }
         .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
@@ -790,8 +801,16 @@ impl ImModule {
             vec![mutation],
         )
         .map_err(|error| ImError::Serialize(error.to_string()))?;
-        crate::projector::emit_interaction_frame(frame)
-            .map_err(|error| ImError::Serialize(error.to_string()))
+        let effect = crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        if let Some(request_id) =
+            causation_id.filter(|request_id| request_id != SURFACE_TIMELINE_RESYNC_CAUSATION)
+        {
+            self.state
+                .action_registry
+                .complete_after_terminal_frame(&request_id);
+        }
+        Ok(effect)
     }
 }
 

@@ -13,7 +13,7 @@ function webConfig(overrides = {}) {
   return {
     wsUrl: "wss://im.example.test/ws?existing=kept",
     apiBaseUrl: "https://im.example.test/api",
-    defaultApiBaseUrl: "https://im.example.test/api",
+    defaultApiBaseUrl: "https://java.example.test",
     authUserId: "user-1",
     companyId: "company-must-not-enter-ws-url",
     userName: "user",
@@ -513,11 +513,12 @@ test("bounded drains reject oversized output and unsafe drop counters", () => {
 
 test("factory initializes wasm before construction and passes the untouched WebConfig shape", async () => {
   const order = [];
+  let constructedConfig;
   class ConstructedClient extends FakeClient {
     constructor(configJson) {
       super();
       order.push("construct");
-      this.config = JSON.parse(configJson);
+      constructedConfig = JSON.parse(configJson);
     }
   }
   const config = webConfig();
@@ -537,6 +538,11 @@ test("factory initializes wasm before construction and passes the untouched WebC
     onEventBatch: () => {},
   });
   assert.deepEqual(order, ["init", "construct"]);
+  assert.deepEqual(constructedConfig, config);
+  assert.notEqual(
+    new URL(constructedConfig.apiBaseUrl).origin,
+    new URL(constructedConfig.defaultApiBaseUrl).origin,
+  );
   assert.equal(adapter.websocketUrl.includes("companyId"), false);
   adapter.shutdown();
 });

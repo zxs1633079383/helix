@@ -144,6 +144,33 @@ fn build_simple_message_short_text_full() {
     assert_eq!(body["simpleMessage"], json!("短"));
 }
 
+#[test]
+fn build_image_simple_message_keeps_frontend_prefix_and_caption() {
+    let mut input = base_input("配图说明", 1);
+    input.msg_type = "IMAGE";
+    input.props = json!({
+        "files": [{"name": "a.png"}],
+        "imagePosition": "bottom"
+    });
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["simpleMessage"], json!("[图片]配图说明"));
+}
+
+#[test]
+fn build_file_simple_message_uses_stable_file_name() {
+    let mut input = base_input("", 1);
+    input.msg_type = "FILE";
+    input.props = json!({
+        "file": {
+            "mediaInput": {
+                "fileName": "季度报告.pdf"
+            }
+        }
+    });
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["simpleMessage"], json!("[文件]季度报告.pdf"));
+}
+
 // findReplyRootId 三分支 ──────────────────────────────────────────────────────
 
 fn input_with_reply<'a>(replied: RepliedRef<'a>) -> BuildInput<'a> {

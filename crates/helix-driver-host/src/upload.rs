@@ -1,6 +1,7 @@
 //! Shared local-file uploader for native and FFI host drivers.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use futures_util::stream;
@@ -15,6 +16,7 @@ use helix_core::PortError;
 #[derive(Clone)]
 pub struct SharedFileUploader {
     client: Client,
+    timeout: Duration,
 }
 
 impl Default for SharedFileUploader {
@@ -25,7 +27,15 @@ impl Default for SharedFileUploader {
 
 impl SharedFileUploader {
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     fn classify_error(e: reqwest::Error) -> PortError {
@@ -128,10 +138,11 @@ impl FileUploader for SharedFileUploader {
             builder = builder.header(header::CONTENT_TYPE, content_type);
         }
 
-        let response = builder
-            .body(body)
-            .send()
+        let response = tokio::time::timeout(self.timeout, builder.body(body).send())
             .await
+            .map_err(|_| {
+                PortError::Transport(format!("timeout after {} ms", self.timeout.as_millis()))
+            })?
             .map_err(Self::classify_error)?;
         let status = response.status();
         if !status.is_success() {

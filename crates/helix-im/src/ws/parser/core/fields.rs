@@ -80,11 +80,8 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .unwrap_or(0);
     // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）+ UC-1.8 顶层 quickReply
     // emoji 反应合并进 props.quickReply（逻辑外提收口行数基线，详见 ws::parser::post_props）。
-    let props = super::super::post_props::merge_props_with_quickreply_and_event_seq(
-        post,
-        root,
-        event_seq,
-    );
+    let props =
+        super::super::post_props::merge_props_with_quickreply_and_event_seq(post, root, event_seq);
     let user_snapshot = post
         .get("userSnapshot")
         .or_else(|| post.get("user_snapshot"))

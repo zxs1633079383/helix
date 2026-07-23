@@ -384,7 +384,9 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_typed_timeline_projectio
         |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_sync_coverage")
     ));
     assert!(
-        recovery_ops.iter().any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
+        recovery_ops
+            .iter()
+            .any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
             if spec.table == "channel_event_cursor"
                 && spec.scope_key == cid(45)
                 && spec.value == 2)),
@@ -418,8 +420,7 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_typed_timeline_projectio
         "未 attach timeline 时不得凭空发布 InteractionFrame"
     );
     assert!(
-        !h
-            .sink
+        !h.sink
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::PersistFire { ops }

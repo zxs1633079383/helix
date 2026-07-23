@@ -80,6 +80,9 @@ pub fn mark_media_complete(
     for field in [
         "mediaInput",
         "localPath",
+        "localUrl",
+        "local_url",
+        "local_path",
         "objectKey",
         "uploadId",
         "fileId",
@@ -93,6 +96,7 @@ pub fn mark_media_complete(
     ] {
         object.remove(field);
     }
+    object.insert("bucket".to_string(), json!("file"));
     object.insert("id".to_string(), json!(&reference.file_id));
     object.insert("name".to_string(), json!(&reference.file_name));
     object.insert("url".to_string(), json!(&reference.url));

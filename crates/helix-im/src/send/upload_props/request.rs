@@ -6,17 +6,19 @@ use helix_core::effect::{
 use serde_json::{json, Value};
 
 pub fn prepare_upload_request(
-    api_base_url: &str,
-    channel_id: &str,
+    java_api_base_url: &str,
+    client_upload_id: &str,
     input: &MediaInput,
     mut headers: Vec<(String, String)>,
 ) -> Result<HttpRequest, ImError> {
+    let java_api_base_url = require_java_api_base_url(java_api_base_url)?;
     headers.insert(
         0,
         ("Content-Type".to_string(), "application/json".to_string()),
     );
     let body = serde_json::to_vec(&json!({
-        "channelId": channel_id,
+        "mediaUpload": true,
+        "clientUploadId": client_upload_id,
         "fileName": input.file_name,
         "contentType": input.content_type,
         "size": input.size,
@@ -25,26 +27,36 @@ pub fn prepare_upload_request(
     .map_err(|error| ImError::Serialize(error.to_string()))?;
     Ok(HttpRequest {
         method: "POST".to_string(),
-        url: format!("{api_base_url}/media/upload/prepare"),
+        url: format!("{java_api_base_url}/oss/getPresignedUrl"),
         headers,
         body: Some(bytes::Bytes::from(body)),
     })
 }
 
 pub fn complete_upload_request(
-    api_base_url: &str,
-    upload_id: &str,
+    java_api_base_url: &str,
+    pending: &PendingMediaPut,
     mut headers: Vec<(String, String)>,
 ) -> Result<HttpRequest, ImError> {
+    let java_api_base_url = require_java_api_base_url(java_api_base_url)?;
     headers.insert(
         0,
         ("Content-Type".to_string(), "application/json".to_string()),
     );
-    let body = serde_json::to_vec(&json!({"uploadId": upload_id}))
-        .map_err(|error| ImError::Serialize(error.to_string()))?;
+    let body = serde_json::to_vec(&json!({
+        "mediaUpload": true,
+        "clientUploadId": client_upload_id(&pending.temporary_id.0, &pending.target),
+        "uploadToken": pending.prepared.upload_id,
+        "fileId": pending.prepared.file_id,
+        "objectKey": pending.prepared.object_key,
+        "contentType": pending.input.content_type,
+        "size": pending.input.size,
+        "sha256": pending.input.sha256,
+    }))
+    .map_err(|error| ImError::Serialize(error.to_string()))?;
     Ok(HttpRequest {
         method: "POST".to_string(),
-        url: format!("{api_base_url}/media/upload/complete"),
+        url: format!("{java_api_base_url}/oss/verifyUpload"),
         headers,
         body: Some(bytes::Bytes::from(body)),
     })
@@ -53,81 +65,87 @@ pub fn complete_upload_request(
 pub fn parse_prepare_reply(
     bytes: &[u8],
     input: &MediaInput,
-    channel_id: &str,
+    java_api_base_url: &str,
 ) -> Result<PreparedMedia, String> {
-    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "media prepare")
+    let java_api_base_url = checked_java_api_base_url(java_api_base_url)?;
+    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "Java media prepare")
         .map_err(|error| error.to_string())?;
     let root: Value = serde_json::from_slice(&raw)
-        .map_err(|error| format!("media prepare CommonRes: {error}"))?;
-    let status = root
-        .get("status")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "media prepare CommonRes.status must be string".to_string())?;
-    if status != "SUCCESS" {
-        return Err(format!("media prepare CommonRes status is {status}"));
+        .map_err(|error| format!("Java media prepare response: {error}"))?;
+    if root.get("isSuccess").and_then(Value::as_bool) != Some(true) {
+        return Err("Java media prepare isSuccess must be true".to_string());
     }
     let data = root
-        .get("data")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "media prepare CommonRes.data must be object".to_string())?;
+        .as_object()
+        .ok_or_else(|| "Java media prepare response must be object".to_string())?;
     let required = |key: &str| {
         data.get(key)
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| format!("media prepare data.{key} must be non-empty string"))
+            .ok_or_else(|| format!("Java media prepare {key} must be non-empty string"))
     };
     let method = required("method")?;
     if method != "PUT" {
-        return Err("media prepare data.method must be PUT".to_string());
+        return Err("Java media prepare method must be PUT".to_string());
     }
     let url = required("url")?;
-    let public_url = required("publicUrl")?;
-    if !is_http_url(&url) || !is_http_url(&public_url) {
-        return Err("media prepare URLs must use http or https".to_string());
+    if !is_http_url(&url) {
+        return Err("Java media prepare url must use http or https".to_string());
     }
-    if let Some(size) = data.get("size") {
-        if size.as_u64() != Some(input.size) {
-            return Err("media prepare data.size conflicts with mediaInput".to_string());
-        }
+    let file_id = required("fileId")?;
+    let upload_token = required("uploadToken")?;
+    if upload_token.len() > 256 {
+        return Err("Java media prepare uploadToken is too long".to_string());
     }
-    if let Some(content_type) = data.get("contentType") {
-        if content_type.as_str() != Some(input.content_type.as_str()) {
-            return Err("media prepare data.contentType conflicts with mediaInput".to_string());
-        }
+    let object_key = required("objectKey")?;
+    let expected_object_key = format!("media/{file_id}");
+    if object_key != expected_object_key {
+        return Err("Java media prepare objectKey conflicts with fileId".to_string());
     }
-    if let Some(response_channel) = data.get("channelId") {
-        if response_channel.as_str() != Some(channel_id) {
-            return Err("media prepare data.channelId conflicts with request".to_string());
-        }
+    let stable_path = required("stablePath")?;
+    let expected_stable_path = format!("/oss/media/object/{file_id}");
+    if stable_path != expected_stable_path {
+        return Err("Java media prepare stablePath conflicts with fileId".to_string());
     }
+    let public_url = format!("{java_api_base_url}{stable_path}");
     let headers = data
         .get("headers")
         .and_then(Value::as_object)
-        .ok_or_else(|| "media prepare data.headers must be object".to_string())?
+        .ok_or_else(|| "Java media prepare headers must be object".to_string())?
         .iter()
         .map(|(name, value)| {
             value
                 .as_str()
                 .map(|header| (name.clone(), header.to_string()))
-                .ok_or_else(|| format!("media prepare header {name} must be string"))
+                .ok_or_else(|| format!("Java media prepare header {name} must be string"))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if let Some((_, content_type)) = headers
+    let content_type = headers
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
-    {
-        if content_type != &input.content_type {
-            return Err("media prepare Content-Type header conflicts with mediaInput".to_string());
-        }
+        .map(|(_, value)| value)
+        .ok_or_else(|| "Java media prepare headers missing Content-Type".to_string())?;
+    if content_type != &input.content_type {
+        return Err("Java media prepare Content-Type conflicts with mediaInput".to_string());
+    }
+    let forbid_overwrite = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-oss-forbid-overwrite"))
+        .map(|(_, value)| value)
+        .ok_or_else(|| "Java media prepare headers missing x-oss-forbid-overwrite".to_string())?;
+    if forbid_overwrite != "true" {
+        return Err("Java media prepare x-oss-forbid-overwrite must be true".to_string());
     }
     Ok(PreparedMedia {
-        upload_id: required("uploadId")?,
-        file_id: required("fileId")?,
+        // 复用既有 durable `upload_id` 槽保存 Java 签发的完整性票据；它不是 OSS URL，
+        // 但仍只允许进入内部 pending_media，绝不能进入公开 props。
+        upload_id: upload_token,
+        file_id,
         method,
         url,
         public_url,
-        object_key: required("objectKey")?,
+        object_key,
         headers,
     })
 }
@@ -136,78 +154,61 @@ pub fn parse_complete_reply(
     bytes: &[u8],
     pending: &PendingMediaPut,
 ) -> Result<TrustedMediaReference, String> {
-    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "media complete")
+    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "Java media verify")
         .map_err(|error| error.to_string())?;
     let root: Value = serde_json::from_slice(&raw)
-        .map_err(|error| format!("media complete CommonRes: {error}"))?;
-    let status = root
-        .get("status")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "media complete CommonRes.status must be string".to_string())?;
-    if status != "SUCCESS" {
-        return Err(format!("media complete CommonRes status is {status}"));
+        .map_err(|error| format!("Java media verify response: {error}"))?;
+    if root.get("isSuccess").and_then(Value::as_bool) != Some(true) {
+        return Err("Java media verify isSuccess must be true".to_string());
     }
     let data = root
-        .get("data")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "media complete CommonRes.data must be object".to_string())?;
+        .as_object()
+        .ok_or_else(|| "Java media verify response must be object".to_string())?;
     let required = |key: &str| {
         data.get(key)
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| format!("media complete data.{key} must be non-empty string"))
+            .ok_or_else(|| format!("Java media verify {key} must be non-empty string"))
     };
     let state = required("state")?;
     if state != "completed" {
-        return Err("media complete data.state must be completed".to_string());
-    }
-    let upload_id = required("uploadId")?;
-    if upload_id != pending.prepared.upload_id {
-        return Err("media complete data.uploadId conflicts with prepare".to_string());
+        return Err("Java media verify state must be completed".to_string());
     }
     let file_id = required("fileId")?;
     if file_id != pending.prepared.file_id {
-        return Err("media complete data.fileId conflicts with prepare".to_string());
+        return Err("Java media verify fileId conflicts with prepare".to_string());
     }
-    if let Some(id) = data.get("id") {
-        if id.as_str() != Some(file_id.as_str()) {
-            return Err("media complete data.id conflicts with fileId".to_string());
-        }
-    }
-    let url = required("url")?;
-    if url != pending.prepared.public_url {
-        return Err("media complete data.url conflicts with prepare publicUrl".to_string());
+    let object_key = required("objectKey")?;
+    if object_key != pending.prepared.object_key {
+        return Err("Java media verify objectKey conflicts with prepare".to_string());
     }
     let size = data
-        .get("size")
+        .get("contentLength")
         .and_then(Value::as_u64)
         .filter(|value| *value > 0)
-        .ok_or_else(|| "media complete data.size must be positive u64".to_string())?;
+        .ok_or_else(|| "Java media verify contentLength must be positive u64".to_string())?;
     if size != pending.input.size {
-        return Err("media complete data.size conflicts with mediaInput".to_string());
+        return Err("Java media verify contentLength conflicts with mediaInput".to_string());
     }
     let sha256 = required("sha256")?;
     if sha256 != pending.input.sha256 {
-        return Err("media complete data.sha256 conflicts with mediaInput".to_string());
+        return Err("Java media verify sha256 conflicts with mediaInput".to_string());
     }
     let content_type = required("contentType")?;
     if content_type != pending.input.content_type {
-        return Err("media complete data.contentType conflicts with mediaInput".to_string());
+        return Err("Java media verify contentType conflicts with mediaInput".to_string());
     }
-    let channel_id = required("channelId")?;
-    if channel_id != pending.channel_id.as_str() {
-        return Err("media complete data.channelId conflicts with prepare".to_string());
-    }
-    let file_name = required("fileName")?;
-    if file_name != pending.input.file_name {
-        return Err("media complete data.fileName conflicts with mediaInput".to_string());
+    let stable_path = required("stablePath")?;
+    let expected_stable_path = format!("/oss/media/object/{file_id}");
+    if stable_path != expected_stable_path {
+        return Err("Java media verify stablePath conflicts with fileId".to_string());
     }
 
     Ok(TrustedMediaReference {
         file_id,
-        url,
-        file_name,
+        url: pending.prepared.public_url.clone(),
+        file_name: pending.input.file_name.clone(),
         content_type,
         size,
         sha256,
@@ -234,6 +235,34 @@ pub fn media_upload_request(
 
 fn is_http_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
+}
+
+pub fn client_upload_id(temporary_id: &str, target: &UploadTarget) -> String {
+    match target {
+        UploadTarget::RichImage { index } => format!("{temporary_id}:rich:{index}"),
+        UploadTarget::File => format!("{temporary_id}:file"),
+    }
+}
+
+fn require_java_api_base_url(value: &str) -> Result<&str, ImError> {
+    checked_java_api_base_url(value).map_err(ImError::Parse)
+}
+
+pub fn validate_java_api_base_url(value: &str) -> Result<(), ImError> {
+    require_java_api_base_url(value).map(|_| ())
+}
+
+fn checked_java_api_base_url(value: &str) -> Result<&str, String> {
+    let value = value.trim_end_matches('/');
+    if value.is_empty() {
+        return Err(
+            "Java API base is required for media upload; frontend must inject restHost".to_string(),
+        );
+    }
+    if !is_http_url(value) {
+        return Err("Java API base must use http or https".to_string());
+    }
+    Ok(value)
 }
 
 pub fn file_upload_request(

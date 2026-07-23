@@ -69,6 +69,47 @@ fn create_with_network_allows_set_and_remove_header() {
 }
 
 #[test]
+fn create_with_endpoints_accepts_distinct_go_and_java_origins() {
+    let go_api = b"https://go.example.test/api/cses";
+    let java_api = b"https://java.example.test";
+    let ws = b"wss://go.example.test/api/v4/websocket";
+    let handle = unsafe {
+        helix_create_with_endpoints(
+            go_api.as_ptr(),
+            go_api.len(),
+            java_api.as_ptr(),
+            java_api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+
+    assert!(!handle.is_null());
+    unsafe { helix_destroy(handle) };
+}
+
+#[test]
+fn create_with_endpoints_rejects_missing_java_base() {
+    let go_api = b"https://go.example.test/api/cses";
+    let java_api = b"";
+    let ws = b"wss://go.example.test/api/v4/websocket";
+    let handle = unsafe {
+        helix_create_with_endpoints(
+            go_api.as_ptr(),
+            go_api.len(),
+            java_api.as_ptr(),
+            java_api.len(),
+            ws.as_ptr(),
+            ws.len(),
+            test_vtable(),
+        )
+    };
+
+    assert!(handle.is_null());
+}
+
+#[test]
 fn set_header_rejects_invalid_utf8() {
     let api = b"https://api.example.test";
     let ws = b"wss://ws.example.test/socket";

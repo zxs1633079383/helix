@@ -51,7 +51,7 @@ fn manifest_pins_the_contract_foundation_and_live_producer_revision() {
             .source_revisions
             .get("dialogUnreadTimelineLiveProducer")
             .map(String::as_str),
-        Some("51111912a164d95bd0a025a39e30b879fd935fd5")
+        Some("ea415a818deaf38c874232db4024df2e65584d96")
     );
     assert_eq!(
         manifest.fixtures.values().cloned().collect::<BTreeSet<_>>(),
@@ -93,7 +93,10 @@ fn manifest_lists_all_eight_surfaces_with_their_actual_v2_producer_status() {
 #[test]
 fn v2_migration_reserves_all_gs01_gs04_fixtures_without_claiming_v1_is_v2() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
-    assert_eq!(manifest.v2_migration.source_pin, "pending-cutover-commit");
+    assert_eq!(
+        manifest.v2_migration.source_pin,
+        "ea415a818deaf38c874232db4024df2e65584d96"
+    );
     assert_eq!(manifest.v2_migration.target_schema_version, 2);
     assert_eq!(manifest.v2_migration.required_fixtures.len(), 7);
     assert!(manifest

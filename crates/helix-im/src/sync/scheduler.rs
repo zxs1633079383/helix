@@ -228,6 +228,17 @@ pub fn drain(
                 trigger,
             },
         );
+        tracing::info!(
+            hop = "sync.dispatch",
+            corr = sync_corr.raw(),
+            track_id = crate::acl::sync_http_effects::sync_track_id(sync_corr),
+            channel_id = channel_id.as_str(),
+            from_seq = from_seq.0,
+            trigger = ?trigger,
+            scheduler_inflight = state.sync_scheduler.inflight(),
+            scheduler_pending = state.sync_scheduler.pending_len(),
+            "sync/notify dispatched"
+        );
         out.push(crate::acl::to_effect::sync_notify(
             api_base_url,
             channel_id,

@@ -87,10 +87,17 @@ impl ImModule {
             sync_corr,
             conn_id.as_deref(),
         ));
-        tracing::debug!(
+        tracing::info!(
+            hop = "sync.dispatch",
+            corr = sync_corr.raw(),
+            track_id = crate::acl::sync_http_effects::sync_track_id(sync_corr),
             channel_id = channel_id.as_str(),
             from_seq = cursor_seq.0,
-            "E3: continuation sync Http emitted"
+            trigger = ?trigger,
+            continuation = true,
+            scheduler_inflight = self.state.sync_scheduler.inflight(),
+            scheduler_pending = self.state.sync_scheduler.pending_len(),
+            "sync/notify continuation dispatched"
         );
     }
 
@@ -115,6 +122,16 @@ impl ImModule {
             CommittedRecoveryHead, EventKind, RecoveryComparison, SyncBatchFacts, SyncResponse,
         };
 
+        tracing::info!(
+            hop = "sync.reply_received",
+            corr = corr.raw(),
+            track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+            channel_id = channel_id.as_str(),
+            trigger = ?trigger,
+            reply_bytes = reply.0.len(),
+            "sync/notify port reply received"
+        );
+
         if self
             .state
             .channels
@@ -137,6 +154,22 @@ impl ImModule {
 
         match response {
             SyncResponse::NoChange => {
+                let local_cursor = self
+                    .state
+                    .channels
+                    .get(&channel_id)
+                    .map(|channel| channel.cursor.value().0)
+                    .unwrap_or(0);
+                tracing::info!(
+                    hop = "sync.response",
+                    corr = corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+                    channel_id = channel_id.as_str(),
+                    trigger = ?trigger,
+                    kind = "no_change",
+                    local_cursor,
+                    "sync/notify response decoded"
+                );
                 // `no_change` is the authority's explicit answer for the submitted
                 // cursor. It creates no storage write, but it can complete an
                 // already attached recovery view through the same V2-only path.
@@ -180,6 +213,19 @@ impl ImModule {
                 next_seq,
                 needs_continuation,
             } => {
+                tracing::info!(
+                    hop = "sync.response",
+                    corr = corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+                    channel_id = channel_id.as_str(),
+                    trigger = ?trigger,
+                    kind = "events",
+                    event_count = events.len(),
+                    message_count = messages.len(),
+                    next_seq = next_seq.0,
+                    needs_continuation,
+                    "sync/notify response decoded"
+                );
                 let from_exclusive = self
                     .state
                     .channels
@@ -202,6 +248,7 @@ impl ImModule {
                 {
                     let terminal_seq = terminal.seq;
                     return self.handle_terminal_sync_event(
+                        corr,
                         channel_id,
                         trigger,
                         from_exclusive,
@@ -376,9 +423,14 @@ impl ImModule {
                 tracing::info!(
                     hop = "recovery.persist_dispatched",
                     upstream_corr = corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(corr),
                     corr = persist_corr.raw(),
                     channel_id = channel_id.as_str(),
+                    from_seq = from_exclusive.0,
                     to_seq = commit_target.0,
+                    event_count = events.len(),
+                    message_count = messages.len(),
+                    needs_continuation,
                     "recovery atomic write dispatched"
                 );
                 self.state.corr_map.insert(
@@ -404,6 +456,16 @@ impl ImModule {
                 );
             }
             SyncResponse::TooLong { reset_to } => {
+                tracing::warn!(
+                    hop = "sync.response",
+                    corr = corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+                    channel_id = channel_id.as_str(),
+                    trigger = ?trigger,
+                    kind = "too_long",
+                    reset_to = reset_to.0,
+                    "sync/notify response requires snapshot recovery"
+                );
                 // 覆盖式恢复不先删除本地 message：若 getLatestPost 失败，旧历史仍可读；
                 // 成功回包沿既有 BatchUpsert 链按主键覆盖消息最终态。
                 let reset_cursor = Seq(reset_to.0.saturating_sub(1));
@@ -446,6 +508,17 @@ impl ImModule {
                 }
             }
             SyncResponse::Snapshot(snap) => {
+                tracing::info!(
+                    hop = "sync.response",
+                    corr = corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+                    channel_id = channel_id.as_str(),
+                    trigger = ?trigger,
+                    kind = "snapshot",
+                    reset_to = snap.reset_to.0,
+                    message_count = snap.messages.len(),
+                    "sync/notify response decoded"
+                );
                 // Snapshot 与 too_long 共用“覆盖而非先删”不变量：只产 BatchUpsert，
                 // 持久化失败时既有 message 行保持不变。
                 let persist_corr = self.alloc_corr_internal();
@@ -477,7 +550,6 @@ impl ImModule {
             }
         }
 
-        let _ = corr;
         Ok(())
     }
 
@@ -491,6 +563,7 @@ impl ImModule {
     #[allow(clippy::too_many_arguments)]
     fn handle_terminal_sync_event(
         &mut self,
+        upstream_corr: helix_core::Correlation,
         channel_id: ChannelId,
         trigger: SyncTrigger,
         from_exclusive: Seq,
@@ -594,6 +667,19 @@ impl ImModule {
             corr: persist_corr,
             ops,
         });
+        tracing::info!(
+            hop = "sync.terminal_persist_dispatched",
+            upstream_corr = upstream_corr.raw(),
+            track_id = crate::acl::sync_http_effects::sync_track_id(upstream_corr),
+            corr = persist_corr.raw(),
+            channel_id = channel_id.as_str(),
+            from_seq = from_exclusive.0,
+            terminal_seq = terminal_seq.0,
+            event_count = events.len(),
+            message_count = messages.len(),
+            trigger = ?trigger,
+            "terminal sync atomic write dispatched"
+        );
         if self
             .state
             .recovery_session

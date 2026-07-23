@@ -5,6 +5,12 @@ use bytes::Bytes;
 use helix_core::effect::HttpRequest;
 use helix_core::{AuthKind, Correlation, Effect, AUTH_KIND_HEADER};
 
+const CSES_TRACK_ID_HEADER: &str = "Cses-Track-Id";
+
+pub(crate) fn sync_track_id(corr: Correlation) -> String {
+    format!("helix-sync:{}", corr.raw())
+}
+
 /// 触发 /sync/notify HTTP 请求（pull 模型，设计文档 §1.4）。
 pub fn sync_notify(
     base_url: &str,
@@ -20,6 +26,7 @@ pub fn sync_notify(
     });
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     headers.extend(session_auth_headers(connection_id));
+    headers.push((CSES_TRACK_ID_HEADER.to_string(), sync_track_id(corr)));
     Effect::Http {
         corr,
         req: HttpRequest {
@@ -81,4 +88,34 @@ pub fn session_auth_headers(connection_id: Option<&str>) -> Vec<(String, String)
         AuthKind::Session.as_str().to_string(),
     ));
     headers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_notify_carries_corr_derived_track_id() {
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let corr = Correlation::from_raw(42);
+        let Effect::Http {
+            corr: effect_corr,
+            req,
+        } = sync_notify(
+            "http://localhost/api/cses",
+            channel_id,
+            Seq(7),
+            corr,
+            Some("conn-1"),
+        )
+        else {
+            panic!("sync_notify must emit Http");
+        };
+
+        assert_eq!(effect_corr, corr);
+        assert!(req
+            .headers
+            .iter()
+            .any(|(key, value)| key == CSES_TRACK_ID_HEADER && value == "helix-sync:42"));
+    }
 }

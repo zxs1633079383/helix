@@ -66,6 +66,13 @@ assert!(terminal_is_unique_and_last);
 assert_eq!(next_seq, terminal_seq);
 PersistAtomic(prefix_message_ops + terminal_tombstone_and_cursor);
 
+// ✅ 每次 pull 用同一 corr 派生安全 track id，逐跳记录状态而非原始正文
+Cses-Track-Id: helix-sync:<corr>;
+sync.dispatch(channel_id, from_seq, trigger, scheduler_inflight, scheduler_pending);
+sync.response(kind, event_count, message_count, next_seq);
+sync.persist_dispatched(upstream_corr, persist_corr, to_seq);
+sync.persist_ok(persist_corr, committed_seq);
+
 // ✅ ChannelEvent 游标字段是 eventSeq（int64），非 seq；类型是 eventType，非 event_type
 let seq = ev["eventSeq"].as_u64().or_else(|| ev["event_seq"].as_u64())...;
 ```
@@ -91,6 +98,7 @@ emit_proactive_resync_for(channel_id);
 - grep：`grep -n 'SYNC_EVENTS_PER_ENTRY\|next_seq.max' crates/helix-im/src/{parser,module}.rs` 期望命中（续拉 + 锚定都在）。
 - 单测：`cargo test -p helix-im --test gate_test sync_cursor_anchors_to_next_seq_not_max_event`（证 nextSeq=50 / max(event.seq)=10 时 cursor 跳 50）；`--test e3_continuation_test`（满批续拉 → no_change 收尾）。
 - terminal 回归：`cargo test -p helix-im --test t095_terminal_event_rejection_test`；其中 mixed case 必须证明 `[type1@1,type7@2]` 只产生一个原子批次、回执后 cursor/terminal=2，且 HTTP 回包处理步不再产生新的 sync Http。
+- 关联日志：同一请求必须能按 `helix-sync:<corr>` 对齐 Helix `sync.dispatch` / `sync.response` 与 Go completion；日志只能包含 channel/cursor/kind/count/水位，不得包含 cookie、token、headers、原始 body、message/payload。
 - 行为真源核对：`cses-im-server/internal/app/sync.go`（syncOne/syncOneEvents）+ `cses-client/src-tauri/src/features/im/{domain/sync.rs,handlers/post.rs}`。
 
 ## §5 Recurrence Log

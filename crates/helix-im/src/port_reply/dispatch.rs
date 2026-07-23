@@ -98,6 +98,7 @@ impl ImModule {
                 trigger,
                 pending_domain_events,
             } => self.handle_channel_terminal_persist_reply(
+                corr,
                 channel_id,
                 terminal_seq,
                 trigger,

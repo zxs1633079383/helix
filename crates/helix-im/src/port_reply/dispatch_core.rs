@@ -8,6 +8,7 @@ use helix_core::{Effect, EffectSink};
 impl ImModule {
     pub(super) fn handle_channel_terminal_persist_reply(
         &mut self,
+        corr: helix_core::Correlation,
         channel_id: ChannelId,
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
@@ -32,6 +33,15 @@ impl ImModule {
                     );
                     return Ok(());
                 }
+                tracing::info!(
+                    hop = "sync.persist_ok",
+                    corr = corr.raw(),
+                    channel_id = channel_id.as_str(),
+                    committed_seq = terminal_seq.0,
+                    terminal = true,
+                    trigger = ?trigger,
+                    "terminal sync atomic write committed"
+                );
 
                 for bytes in pending_domain_events {
                     out.push(Effect::Emit {
@@ -71,6 +81,8 @@ impl ImModule {
             }
             PortOutcome::Err(error) => {
                 tracing::warn!(
+                    hop = "sync.persist_failed",
+                    corr = corr.raw(),
                     channel_id = channel_id.as_str(),
                     terminal_seq = terminal_seq.0,
                     error = ?error,
@@ -99,6 +111,22 @@ impl ImModule {
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
                     ch.on_persist_ok(corr, out)?;
                 }
+                let committed_seq = self
+                    .state
+                    .channels
+                    .get(&channel_id)
+                    .map(|channel| channel.cursor.value().0)
+                    .unwrap_or(0);
+                tracing::info!(
+                    hop = "sync.persist_ok",
+                    corr = corr.raw(),
+                    channel_id = channel_id.as_str(),
+                    committed_seq,
+                    terminal = false,
+                    trigger = ?trigger,
+                    wants_continuation,
+                    "sync atomic write committed"
+                );
                 let recovery_active = self
                     .state
                     .recovery_session
@@ -172,6 +200,7 @@ impl ImModule {
             }
             PortOutcome::Err(e) => {
                 tracing::warn!(
+                    hop = "sync.persist_failed",
                     channel_id = channel_id.as_str(),
                     corr = corr.raw(),
                     error = ?e,
@@ -385,7 +414,12 @@ impl ImModule {
                 self.handle_sync_reply(corr, channel_id, trigger, reply, out)?
             }
             PortOutcome::Err(e) => tracing::warn!(
-                channel_id = channel_id.as_str(), corr = corr.raw(), error = ?e,
+                hop = "sync.request_failed",
+                channel_id = channel_id.as_str(),
+                corr = corr.raw(),
+                track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+                trigger = ?trigger,
+                error = ?e,
                 "sync/notify failed"
             ),
         }

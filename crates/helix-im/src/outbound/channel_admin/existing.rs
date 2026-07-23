@@ -111,10 +111,7 @@ impl OutboundCommand for MakeTopicCommand {
             let display_name = require_str(args, "display_name", self.name())?;
             body["displayName"] = serde_json::Value::String(display_name.to_string());
         }
-        Ok((
-            "posts/makeTopic",
-            body,
-        ))
+        Ok(("posts/makeTopic", body))
     }
 }
 static MAKE_TOPIC: MakeTopicCommand = MakeTopicCommand;

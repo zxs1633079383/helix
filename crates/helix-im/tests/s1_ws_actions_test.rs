@@ -360,7 +360,10 @@ fn post_update_edits_content_only_and_emits_s1() {
         )),
         "post_update 明确携带 expediteMap 时必须持久化，ops: {ops:?}"
     );
-    assert!(emit_names(&h.sink).is_empty(), "PersistOk 前不得发布编辑终态");
+    assert!(
+        emit_names(&h.sink).is_empty(),
+        "PersistOk 前不得发布编辑终态"
+    );
     let _ = h.step(port_reply_ok(corr), 1_001);
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:post:updated"));
     let updated = emit_data(&h.sink, "im:post:updated");
@@ -501,7 +504,10 @@ fn posts_update_batch_revoke_and_edit_s1() {
     assert!(has_edit, "posts_update 编辑行须写内容，ops: {ops:?}");
     // 回归锚: A4 —— posts_update emit im:post:batch-updated（非 im:post:updated），
     // payload 形态 {posts:[...]}（前端 message_loop.rs:187/341 专门按此事件名+形态解析）。
-    assert!(emit_names(&h.sink).is_empty(), "PersistOk 前不得发布批量终态");
+    assert!(
+        emit_names(&h.sink).is_empty(),
+        "PersistOk 前不得发布批量终态"
+    );
     let _ = h.step(port_reply_ok(corr), 1_001);
     assert!(
         emit_names(&h.sink)

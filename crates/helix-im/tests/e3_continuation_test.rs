@@ -214,7 +214,9 @@ fn continuation_stops_on_empty_events_with_continuation_flag() {
         effects
     );
     assert!(
-        !effects.iter().any(|e| matches!(e, EffectKind::Persist(_) | EffectKind::PersistAtomic(_))),
+        !effects
+            .iter()
+            .any(|e| matches!(e, EffectKind::Persist(_) | EffectKind::PersistAtomic(_))),
         "empty events should NOT emit Persist, got: {:?}",
         effects
     );

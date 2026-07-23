@@ -128,8 +128,13 @@ fn gs02_wire_order_can_be_canonicalized_without_accepting_duplicate_sequence() {
         EventKind::PostUpsert,
         PostFields::default(),
     );
-    assert!(SyncBatchFacts::from_events(channel, Seq(7), Seq(8), vec![duplicate.clone(), duplicate])
-        .is_err());
+    assert!(SyncBatchFacts::from_events(
+        channel,
+        Seq(7),
+        Seq(8),
+        vec![duplicate.clone(), duplicate]
+    )
+    .is_err());
 }
 
 #[test]

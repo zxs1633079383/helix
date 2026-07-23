@@ -38,14 +38,18 @@ use common::channel_id;
 // ─── 辅助 ────────────────────────────────────────────────────────────────────
 
 fn make_module(channel_num: u64) -> ImModule {
+    make_module_with_identity(channel_num, "", "")
+}
+
+fn make_module_with_identity(channel_num: u64, auth_user_id: &str, company_id: &str) -> ImModule {
     let config = ImConfig {
         ws_url: "ws://stress".to_string(),
         api_base_url: "http://stress".to_string(),
         default_api_base_url: "http://localhost:3399".to_string(),
         ping_interval_ms: 8_000,
         send_timeout_ms: 15_000,
-        auth_user_id: String::new(),
-        company_id: String::new(),
+        auth_user_id: auth_user_id.to_owned(),
+        company_id: company_id.to_owned(),
         user_name: String::new(),
         org_name: String::new(),
         dept_name: String::new(),
@@ -230,7 +234,7 @@ fn stress_gap_5000_ws_flush() {
 #[test]
 fn stress_gap_5000_sync_backfill() {
     const GAP: u64 = 5_000;
-    let mut module = make_module(1);
+    let mut module = make_module_with_identity(1, "viewer-444", "tenant-1");
     let mut sink = EffectSink::new();
 
     // 1. 喂一条远端 seq=5001（缺口 1..=5000）→ buffer + **立即** backfill resync（根治

@@ -938,6 +938,8 @@ pub enum MessageContentVm {
     },
     SystemEvent {
         event_kind: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        member_id: Option<String>,
         text: String,
     },
     Recalled {

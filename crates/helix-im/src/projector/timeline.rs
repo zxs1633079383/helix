@@ -715,9 +715,43 @@ fn content_from_row(
             availability: SurfaceDataVm::Record(BTreeMap::new()),
         });
     }
-    if kind.contains("SYSTEM") {
+    if matches!(
+        kind.as_str(),
+        "NOTICE" | "SYSTEM" | "SYSTEN" | "MEETING_NOTICE" | "TODO_NOTICE"
+            | "APPROVAL_NOTICE" | "ANNOUNCEMENT"
+    ) {
+        let event_type = row_string(props, &["eventType", "event_type", "type"]);
+        let event_kind = match event_type.to_ascii_lowercase().as_str() {
+            "leave" => "member-leave".to_string(),
+            "join" => "member-join".to_string(),
+            value if !value.is_empty() => value.to_string(),
+            _ => kind.to_ascii_lowercase(),
+        };
+        let member = props
+            .get("users")
+            .or_else(|| props.get("members"))
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .unwrap_or(&Value::Null);
+        let member_id = optional_non_empty_string(member, &["id", "userId", "user_id"]);
+        let member_name = row_string(member, &["name", "displayName", "display_name"]);
+        let text = if text.is_empty() {
+            let subject = if member_name.is_empty() {
+                member_id.as_deref().unwrap_or("成员")
+            } else {
+                member_name.as_str()
+            };
+            match event_kind.as_str() {
+                "member-leave" => format!("{subject}退出群聊"),
+                "member-join" => format!("{subject}加入群聊"),
+                _ => String::new(),
+            }
+        } else {
+            text
+        };
         return Ok(MessageContentVm::SystemEvent {
-            event_kind: kind.to_ascii_lowercase(),
+            event_kind,
+            member_id,
             text,
         });
     }
@@ -1211,6 +1245,28 @@ mod tests {
         assert!(encoded.get("replyThread").is_none());
         assert!(encoded.get("reactions").is_none());
         assert!(encoded.get("topicLink").is_none());
+    }
+
+    #[test]
+    fn notice_member_leave_is_a_render_ready_system_event() {
+        let mut source = row(1);
+        source["type"] = serde_json::json!("NOTICE");
+        source["text"] = serde_json::json!("");
+        source["props"] = serde_json::json!({
+            "type": "leave",
+            "users": [{"id": "678", "name": "擎天柱"}]
+        });
+
+        let message = message_from_render_ready(&source, "channel-1", 1, false, || {
+            Ok("unused".to_string())
+        })
+        .expect("notice member leave");
+        let encoded = serde_json::to_value(&message).expect("serialize member leave");
+
+        assert_eq!(encoded["content"]["kind"], "systemEvent");
+        assert_eq!(encoded["content"]["eventKind"], "member-leave");
+        assert_eq!(encoded["content"]["memberId"], "678");
+        assert_eq!(encoded["content"]["text"], "擎天柱退出群聊");
     }
 
     #[test]

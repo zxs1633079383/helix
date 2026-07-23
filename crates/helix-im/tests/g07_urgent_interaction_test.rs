@@ -87,10 +87,17 @@ fn urgent_wire_is_strict_and_never_accepts_renderer_owned_authority_fields() {
         "http://test/api/cses",
         None,
         Correlation::from_raw(3),
-    ).expect("legacy public command may carry channel_id for compatibility");
+    )
+    .expect("legacy public command may carry channel_id for compatibility");
     let body = match &compatibility[0] {
-        Effect::Http { req, .. } => serde_json::from_slice::<serde_json::Value>(req.body.as_ref().expect("body")).unwrap(),
+        Effect::Http { req, .. } => {
+            serde_json::from_slice::<serde_json::Value>(req.body.as_ref().expect("body")).unwrap()
+        }
         other => panic!("expected HTTP, got {other:?}"),
     };
-    assert_eq!(body, json!({ "postId": "p1" }), "channel authority remains server-owned");
+    assert_eq!(
+        body,
+        json!({ "postId": "p1" }),
+        "channel authority remains server-owned"
+    );
 }

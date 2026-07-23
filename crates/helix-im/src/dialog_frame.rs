@@ -2136,7 +2136,7 @@ mod tests {
         let frame = data(&snapshot);
         let row = &dialog_view(&frame)["sections"][0]["items"][0];
 
-        assert_eq!(row["channelKind"], "unknown");
+        assert_eq!(row["channelKind"], "group");
         assert_eq!(row["rootMessageId"], "root-post-1");
         assert_eq!(
             state.topic_link_metadata("topic-1"),

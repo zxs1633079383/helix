@@ -281,6 +281,7 @@ fn stress_gap_5000_sync_backfill() {
                 "temporary_id": mid,
                 "channel_id": cid(1),
                 "message": "stress body",
+                "viewers": ["all"],
                 "readBits": "",
             }),
         );
@@ -326,10 +327,10 @@ fn stress_gap_5000_sync_backfill() {
         .as_slice()
         .iter()
         .find_map(|e| match e {
-            Effect::Persist { corr, ops } => {
+            Effect::PersistAtomic { corr, ops } => {
                 // A3/CAP-9：全 5000 条可见 type1 → 5000 message upsert + 5000 channel 未读 +1
-                // GuardedBump（离线未读落 DB，非仅 emit）+ 1 个 cursor 单调提交
-                // + 1 个写后 Get(channel) 读回累计 DialogPatch。
+                // GuardedBump（离线未读落 DB，非仅 emit）。恢复证据、coverage 与 cursor
+                // 必须在同一 PersistAtomic 内提交，不能夹带写后读。
                 use helix_core::effect::StorageOp;
                 let msg_upserts = ops
                     .iter()
@@ -339,9 +340,13 @@ fn stress_gap_5000_sync_backfill() {
                     .iter()
                     .filter(|op| matches!(op, StorageOp::GuardedBump(s) if s.table == "channel"))
                     .count();
-                let channel_gets = ops
+                let ledger_upserts = ops
                     .iter()
-                    .filter(|op| matches!(op, StorageOp::Get(s) if s.table == "channel"))
+                    .filter(|op| matches!(op, StorageOp::BatchUpsert(s) if s.table == "channel_event_ledger"))
+                    .count();
+                let coverage_upserts = ops
+                    .iter()
+                    .filter(|op| matches!(op, StorageOp::BatchUpsert(s) if s.table == "channel_sync_coverage"))
                     .count();
                 let cursor_writes = ops
                     .iter()
@@ -359,13 +364,15 @@ fn stress_gap_5000_sync_backfill() {
                 );
                 assert_eq!(
                     ops.len(),
-                    (GAP as usize) * 2 + 2,
-                    "persist batch = 5000 msg + 5000 bump + 1 cursor + 1 Get(channel)"
+                    (GAP as usize) * 3 + 2,
+                    "atomic batch = 5000 msg + 5000 bump + 5000 ledger + 1 coverage + 1 cursor"
                 );
                 assert_eq!(cursor_writes, 1, "G-S2/G-S3 cursor 必须与消息同批提交");
-                assert_eq!(
-                    channel_gets, 1,
-                    "DialogPatch 只需批尾 1 次写后 Get(channel)"
+                assert_eq!(ledger_upserts, GAP as usize, "每条远端事件必须有一条恢复证据");
+                assert_eq!(coverage_upserts, 1, "整段恢复必须只写一条 coverage");
+                assert!(
+                    ops.iter().all(|op| !matches!(op, StorageOp::Get(_))),
+                    "恢复原子事务不得夹带写后读"
                 );
                 Some(*corr)
             }

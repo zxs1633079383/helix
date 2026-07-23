@@ -200,7 +200,7 @@ impl Channel {
     /// 3. flush_contiguous_from_buffer（尝试继续处理缓冲中已就绪的事件）
     pub fn on_persist_ok(&mut self, corr: Correlation, fx: &mut EffectSink) -> Result<(), ImError> {
         if let Some(target_seq) = self.pending_commits.remove(&corr) {
-            self.commit_cursor(target_seq, fx)?;
+            self.commit_cursor(target_seq)?;
             // 尝试放行 buffer 中已就绪的连续段
             let mut dialog_patches = Vec::new();
             self.flush_contiguous_from_buffer(fx, &mut dialog_patches)?;

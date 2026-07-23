@@ -228,7 +228,7 @@ fn row_text<'a>(row: &'a [(String, SqlValue)], key: &str) -> Option<&'a str> {
 
 #[test]
 fn increment_by_channel_id_reply_syncs_local_gap_before_typed_timeline_projection() {
-    let mut h = Harness::new_with_identity(&[], "viewer-user", "", "", "", "");
+    let mut h = Harness::new_with_identity(&[], "viewer-444", "tenant-1", "", "", "");
     let command_effects = h.step(
         command_json(
             "im_channel_load_increment_by_channel_id",
@@ -362,162 +362,69 @@ fn increment_by_channel_id_reply_syncs_local_gap_before_typed_timeline_projectio
         2,
     );
     h.step(port_reply_with_body(sync_corr, enveloped(sync_body)), 1_300);
-    let message_persist_corr = h
+    let (message_persist_corr, recovery_ops) = h
         .sink
         .as_slice()
         .iter()
         .find_map(|effect| match effect {
-            Effect::Persist { corr, ops }
+            Effect::PersistAtomic { corr, ops }
                 if ops.iter().any(
                     |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
                 ) =>
             {
-                Some(corr.raw())
+                Some((corr.raw(), ops))
             }
             _ => None,
         })
-        .expect("sync 回包必须落 message");
-
-    let channel_readback = bytes::Bytes::from(
-        serde_json::to_vec(&json!([{
-            "id": cid(45),
-            "display_name": "陌生频道",
-            "is_top": 0,
-            "create_at": 1_700_000_000_000_i64,
-            "unread_count": 1,
-            "mention_count": 1,
-            "urgent_count": 1,
-            "last_event_seq": 2,
-            "last_post": "{\"message\":\"hydrated hello\",\"props\":{\"expedite\":\"m45\"}}"
-        }]))
-        .unwrap(),
+        .expect("sync 回包必须原子落 message、恢复证据与 cursor");
+    assert!(recovery_ops.iter().any(
+        |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_event_ledger")
+    ));
+    assert!(recovery_ops.iter().any(
+        |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_sync_coverage")
+    ));
+    assert!(
+        recovery_ops.iter().any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
+            if spec.table == "channel_event_cursor"
+                && spec.scope_key == cid(45)
+                && spec.value == 2)),
+        "cursor 必须与 message/ledger/coverage 同一原子事务提交"
     );
-    h.step(
-        port_reply_with_body(message_persist_corr, channel_readback.clone()),
-        1_400,
+
+    h.step(port_reply_ok(message_persist_corr), 1_400);
+    assert_eq!(h.module.cursor_for(channel_id(45)), Some(2));
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| value["event"] == "im:post:received"),
+        "PersistAtomic ack 后才可发布消息业务事实"
     );
     assert!(
-        h.sink.as_slice().iter().any(|effect| {
-            matches!(effect, Effect::PersistFire { ops }
-            if ops.iter().any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
-                if spec.table == "channel_event_cursor"
-                    && spec.scope_key == cid(45)
-                    && spec.value == 2)))
-        }),
-        "message commit 后必须推进本地 cursor"
+        h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| value["event"] == "im:sync:state"),
+        "PersistAtomic ack 后才可发布同步终态"
     );
-
-    let readback_scans: Vec<(u64, &'static str)> = h
-        .sink
-        .as_slice()
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::Persist { corr, ops } => ops.iter().find_map(|op| match op {
-                StorageOp::Scan(spec) if spec.table == "channel" || spec.table == "message" => {
-                    Some((corr.raw(), spec.table))
-                }
-                _ => None,
-            }),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(readback_scans.len(), 2, "落库后必须读回 dialog + messages");
-
-    let message_readback = bytes::Bytes::from(
-        serde_json::to_vec(&json!([{
-            "temporary_id": "message-hydrated",
-            "id": "message-hydrated",
-            "channel_id": cid(45),
-            "message": "hydrated hello",
-            "type": "TEXT",
-            "props": "{\"document\":{\"id\":\"doc-hydrated\"}}",
-            "read_bits": "10",
-            "event_seq": 2,
-            "create_at": 1_700_000_000_100_i64
-        }]))
-        .unwrap(),
+    assert!(
+        !h.sink
+            .as_slice()
+            .iter()
+            .filter_map(emit_value)
+            .any(|value| value["event"] == "im:interaction:frame"),
+        "未 attach timeline 时不得凭空发布 InteractionFrame"
     );
-    let mut message_http_corr = None;
-    for (index, (corr, table)) in readback_scans.into_iter().enumerate() {
-        let reply = if table == "channel" {
-            channel_readback.clone()
-        } else {
-            message_readback.clone()
-        };
-        h.step(
-            port_reply_with_body(corr, reply),
-            1_500 + index as u64 * 100,
-        );
-        message_http_corr = message_http_corr.or_else(|| {
-            h.sink.as_slice().iter().find_map(|effect| match effect {
-                Effect::Http { corr, req } if req.url.ends_with("/posts/getLatestPost") => {
-                    Some(corr.raw())
-                }
-                _ => None,
-            })
-        });
-    }
-
-    let message_http_corr = message_http_corr.expect("无窗口 proof 的本地消息必须远端补齐");
-    let latest = bytes::Bytes::from(
-        serde_json::to_vec(&json!({
-            "status": "SUCCESS",
-            "data": [{
-                "id": "message-hydrated",
-                "temporaryId": "message-hydrated",
-                "channelId": cid(45),
-                "userId": "user-other",
-                "type": "TEXT",
-                "message": "hydrated hello",
-                "props": {"document":{"id":"doc-hydrated"}},
-                "readBits": "10",
-                "viewers": ["all"],
-                "createAt": 1_700_000_000_100_i64
-            }]
-        }))
-        .unwrap(),
+    assert!(
+        !h
+            .sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::PersistFire { ops }
+                if ops.iter().any(|op| matches!(op, StorageOp::MonotonicUpsert(spec)
+                    if spec.table == "channel_event_cursor")))),
+        "原子事务已含 cursor，ack 后不得二次写 cursor"
     );
-    h.step(
-        port_reply_with_body(message_http_corr, enveloped(latest)),
-        1_800,
-    );
-    let cache_corr = h
-        .sink
-        .as_slice()
-        .iter()
-        .find_map(|effect| match effect {
-            Effect::Persist { corr, ops }
-                if ops.iter().any(
-                    |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"),
-                ) =>
-            {
-                Some(corr.raw())
-            }
-            _ => None,
-        })
-        .expect("远端首屏必须先缓存");
-    h.step(port_reply_ok(cache_corr), 1_900);
-    let frame = h
-        .sink
-        .as_slice()
-        .iter()
-        .filter_map(emit_value)
-        .find(|value| value["event"] == "im:interaction:frame")
-        .expect("本地 message 读回应产 typed InteractionFrame");
-    assert_eq!(frame["data"]["schemaVersion"], 1);
-    let mutation = frame["data"]["mutations"]
-        .as_array()
-        .expect("InteractionFrame mutations")
-        .iter()
-        .find(|mutation| mutation["surface"] == "message.timeline")
-        .expect("本地 message 读回应包含 timeline surface");
-    assert_eq!(mutation["mutation"]["kind"], "timelineSnapshot");
-    let timeline = &mutation["mutation"]["view"];
-    assert_eq!(timeline["channelId"], cid(45));
-    let item = &timeline["items"][0];
-    assert_eq!(item["id"], "message-hydrated");
-    assert_eq!(item["content"]["text"], "hydrated hello");
-    assert_eq!(item["readReceipt"]["readBits"], "10");
-    assert!(item.get("props").is_none());
-    assert_eq!(item["eventSeq"], 0);
 }

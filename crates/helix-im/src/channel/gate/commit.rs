@@ -20,17 +20,14 @@ impl Channel {
             .collect()
     }
 
-    /// commit_cursor：吐 PersistFire{MonotonicUpsert}，推进内存 cursor
+    /// commit_cursor：在相关 `PersistAtomic` 成功后推进内存 cursor
     ///
     /// 仅在 PortReply Ok 后调用（写成功才推原则）。
     pub(super) fn commit_cursor(
         &mut self,
         target_seq: Seq,
-        fx: &mut EffectSink,
     ) -> Result<(), ImError> {
         if self.cursor.try_advance(target_seq) {
-            // 持久化 cursor（单调）
-            fx.push(crate::acl::to_effect::advance_cursor(self.id, target_seq));
             // 清除 buffer 中 ≤ target_seq 的已处理事件（sync 已成功 commit）
             self.buffer.retain(|&seq, _| seq > target_seq);
         }

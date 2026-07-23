@@ -18,6 +18,10 @@ impl ImModule {
     ) -> Result<(), ImError> {
         let pong_batch_active =
             trigger == SyncTrigger::PongGap && self.state.pong_gap_batch.is_active();
+        let recovery_active = self
+            .state
+            .recovery_session
+            .is_collecting_for(self.config.auth_user_id.as_str());
         match outcome {
             PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
@@ -56,7 +60,7 @@ impl ImModule {
                 // This is the only renderer-facing type7 projection. `patch_closed` produces an
                 // `im:interaction:frame` and only after the local tombstone/cursor transaction
                 // has committed; no deleteAt or other absent Go fields are invented.
-                if !pong_batch_active {
+                if !recovery_active && !pong_batch_active {
                     if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
                         if let Some(frame) = self
                             .state

@@ -200,6 +200,36 @@ fn runtime_identity_enables_member_projection_without_wire_user_id() {
 }
 
 #[test]
+fn runtime_identity_after_hello_reopens_recovery_for_the_trusted_actor() {
+    let mut m = ImModule::new(ImConfig::default());
+    m.state.conn = crate::state::ConnState::Connected;
+    m.state.connection_id = Some("connection-b".to_string());
+    m.state.recovery_session.begin("bootstrap");
+    let mut sink = EffectSink::new();
+    let identity = serde_json::json!({
+        "auth_user_id": "viewer-b",
+        "company_id": "team-b"
+    });
+
+    m.handle(
+        &Tick::Command(helix_core::tick::AppCommand::new(
+            RUNTIME_IDENTITY_COMMAND,
+            serde_json::to_vec(&identity).unwrap(),
+        )),
+        2_000,
+        &mut sink,
+    )
+    .unwrap();
+
+    assert!(m.state.recovery_session.is_collecting_for("viewer-b"));
+    assert_eq!(m.state.recovery_session.actor_id, "viewer-b");
+    assert!(
+        sink.is_empty(),
+        "重绑恢复会话只更新确定性内核状态，不直接发布 Frame"
+    );
+}
+
+#[test]
 fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations() {
     let channel_id = crate::state::test_channel_id(21);
     let mut m = ImModule::new(ImConfig {

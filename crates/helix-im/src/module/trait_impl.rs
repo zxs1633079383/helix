@@ -50,6 +50,23 @@ impl Module for ImModule {
                     }
                     self.config.auth_user_id = auth_user_id;
                     self.config.company_id = company_id;
+                    // Native may deliver the trusted runtime identity after the WS hello.
+                    // The identity reset intentionally invalidates A's recovery window, but a
+                    // live B transport must immediately open its own window; otherwise every
+                    // startup sync commit is misclassified as ordinary online work and emits
+                    // one dialog Frame per channel.
+                    if self.state.connection_id.is_some()
+                        && self.state.conn == crate::state::ConnState::Connected
+                        && !self.config.auth_user_id.is_empty()
+                        && !self
+                            .state
+                            .recovery_session
+                            .is_active_for(self.config.auth_user_id.as_str())
+                    {
+                        self.state
+                            .recovery_session
+                            .begin(self.config.auth_user_id.as_str());
+                    }
                 }
                 crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND => {
                     self.handle_action_invocation(cmd.payload.as_ref(), now_ms, out)

@@ -1,21 +1,25 @@
-# G13 Implementation Handoff
+# G13 Handoff
 
-## 状态
+## 完成状态
 
-`PARTIAL - awaiting shared ActionDispatch/PersistOk/Frame integration`
+**FULL GREEN**。频道已读已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- 新增 O(1) `ChannelReadObservationTracker`：同 epoch/window 连续 observation 才产单调 boundary intent；重复、回退和不可见 observation 不重复推进。
-- Angular `message-read-reporting` 只搬运 HostObservation，不计算 unread、viewer 或业务成功。
-- 新增 focused Rust/Angular tests；Rust 首轮按预期因 tracker 缺失红灯。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 证据
+## 最终证据
 
-- Angular：`evidence/angular-focused.log`，1/1 PASS（与 G14/G16 合批共 5/5）。
-- Rust：`evidence/rust-focused.log` 的最终调用被并发 shared `module/action.rs` 编译错误阻断；shared owner 已修，需 root 聚合重跑。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-13`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`60ca96f9...`（完整值见同目录 `result.sha256`）。
 
-## 未决
+## 未决项
 
-- shared `markChannelRead/observeChannelViewport -> im_channels_view` ActionDispatch、corr/authority、PersistAtomic 与 dialog/unread/timeline terminal Frame。
-- Native/PG/SQLite/Frame/DOM/visual 只由 017 最终 candidate 验收。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

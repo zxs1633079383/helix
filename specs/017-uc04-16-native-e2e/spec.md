@@ -74,7 +74,7 @@
 - **FR-005**: 构建 MUST 按 repair batch 聚合；每批最多一次受影响 target rebuild，最终 candidate 再进行一次完整 Native rebuild。
 - **FR-006**: 修复后 MUST 先验证失败 Gate/依赖 Gate；共享 contract/Persist/Frame/SurfaceRuntime 变化 MUST 重跑全批。
 - **FR-007**: 最终每个 Gate MUST 具有 actor/observer、Go/PG、SQLite、Frame、DOM 和 visual 同窗证据。
-- **FR-008**: Index-Dual 关键样式、状态和交互 MUST 被实现并在桌面/移动双尺寸重验，不得以报告 partial 代替修复。
+- **FR-008**: Index-Dual 关键样式、状态和交互 MUST 被实现并在 final Native 的 actor/observer 桌面视口重验，不得以报告 partial 代替修复；移动端属于独立 FFI 验收，不得混入本 Native Gate。
 - **FR-009**: 执行 MUST 保留三仓既有脏改动并保护凭据，日志和证据必须脱敏。
 - **FR-010**: 只要 required fail/skip、六面证据冲突或关键 visual partial 非零，017 MUST 继续修复循环，不得 Seal。
 
@@ -88,7 +88,7 @@
 4. 两 profile 的本地 SQLite entity/cursor/revision 与 PersistAtomic write-set 一致。
 5. ActionBinding、Tick、Frame causation、Surface/完整 VM row、apply/ack 无 gap、partial apply 或 legacy reducer。
 6. Message-v4 DOM/ARIA/data-*、成功/失败/恢复交互正确。
-7. Index-Dual 与真实页面在 `1440x900`、`390x844` 的关键样式、状态和交互均为 `aligned`；非关键像素差异有明确 waiver。
+7. Index-Dual 与 final Native actor/observer 的 `1440x900` 真实页面关键样式、状态和交互均为 `aligned`；非关键像素差异有明确 waiver。
 8. 所有修复、重跑、timeout、retry、blocked 与 wall-clock 时间进入最终 Strict Matrix/evidence ledger。
 
 ## Failure and Stop Policy

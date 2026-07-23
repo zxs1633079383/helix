@@ -1,23 +1,25 @@
 # G07 Handoff
 
-## 状态
+## 完成状态
 
-`IN_PROGRESS`。三命令 canonical wire、输入零信任与 Angular empty/submitting/failed/forbidden 状态已覆盖；三类 binding 和四 viewer terminal Frame 待共享 runtime 收口。
+**FULL GREEN**。加急与确认/取消已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- urgentPost/confirm/cancel 接受严格字段集；targetIds 有界、非空、无重复，actor/channel/userId 禁止由 renderer 注入。
-- Urgent panel 暴露 `data-urgent-state` 与 `aria-busy`，空目标、无权限、提交态不会误触发完成。
-- 新增 G07 Rust/Angular focused tests。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 真实验证
+## 最终证据
 
-- `2026-07-22T12:01:49Z..12:01:56Z`：G05/G07 focused Jest，7s，2 suites/2 tests PASS。
-- 既有 UC05/UC08 与 production visuals 在相邻回归中 16/16 PASS。
-- `2026-07-22T12:05:32Z..12:05:59Z`：`cargo check -p helix-im --tests`，27s，PASS；未单独运行 Native build。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-07`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`654355bf...`（完整值见同目录 `result.sha256`）。
 
-## 待完成
+## 未决项
 
-- shared `UrgentPost/UrgentConfirm/UrgentCancel` ActionDispatch 与 `canUrgentCancel` authority capability。
-- 发起者、目标、非目标、无权限四 viewer 的 PersistOk 后完整 Frame/causation。
-- Rust focused test PASS、017 双账号/双库/视觉。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

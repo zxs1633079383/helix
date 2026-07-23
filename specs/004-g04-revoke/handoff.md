@@ -1,22 +1,25 @@
 # G04/G04a Handoff
 
-## 状态
+## 完成状态
 
-`IN_PROGRESS`。Angular focused contract 已通过；Helix revoke ActionBinding 与 offline replay 的 PersistOk barrier 仍等待共享 runtime owner 合入，不能声明 `READY_FOR_FINAL_E2E`。
+**FULL GREEN**。撤回与系统事件已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- 新增 `g04_revoke_interaction_test.rs`，锁定 live revoke capability、offline 零 HTTP、单 PersistAtomic 与 ack 前零业务 Frame。
-- 新增 message-v4 G04 菜单 DOM/ARIA 测试；既有撤回危险确认与 recalled system row 回归仍通过。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 真实验证
+## 最终证据
 
-- `2026-07-22T12:01:25Z..12:01:39Z`：G04/G06 focused Jest，14s，2 suites/2 tests PASS。
-- `2026-07-22T12:02:04Z..12:02:28Z`：相邻 UI 回归首次 24s，21 PASS/1 FAIL；失败为新增 mode button 复用 `aria-pressed` 干扰旧 G05 selector，已修为 radiogroup/aria-checked。
-- `2026-07-22T12:05:32Z..12:05:59Z`：`cargo check -p helix-im --tests`，27s，PASS；仅证明当前共享改动和 focused tests 可编译，不建立行为 Green。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-04, G-04a`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`f50581d3... / e70ad5cc...`（完整值见同目录 `result.sha256`）。
 
-## 待完成
+## 未决项
 
-- shared `ActionDispatch::RevokeMessage`、timeline binding producer、module action preparation。
-- `posts_update` 权威事实合批 PersistAtomic，PersistOk 后完整 timeline Frame；PersistErr 零成功 Frame。
-- Rust focused test PASS、017 双账号/PG/SQLite/Frame/DOM/visual。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

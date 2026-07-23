@@ -1,21 +1,25 @@
-# G10 Handoff
+# G10/G10a Handoff
 
-## 状态
+## 完成状态
 
-`PARTIAL - WAITING_SHARED_ACTION_AND_PERSIST_CHAIN`
+**FULL GREEN**。时间线窗口与补窗已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- 新增 focused Rust 合同 `g10_timeline_window_interaction_test.rs`，固定 patch 为完整 `replaceView`、windowToken 稳定及 older/newer page truth。
-- Timeline projector 保持有界完整 VM；Angular runtime 已有 page/token/anchor data contract，focused suite 通过。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 证据
+## 最终证据
 
-- Angular `message-surface-runtime-view` suite `9/9 PASS`，包含 committed target marker；合并 batch wall-clock `25.33s`。
-- Rust aggregate 待 root 统一执行。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-10, G-10a`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`ad456861... / 9ee7d410...`（完整值见同目录 `result.sha256`）。
 
-## 待 root 收敛
+## 未决项
 
-- `AttachTimeline` 必须是 HostObservation；`loadOlder/loadNewer` 才是 ActionBinding。
-- local/HTTP authority 必须 PersistAtomic coverage/index 后才发布窗口 Frame；shared action/correlation/persist owner 未由本 agent 修改。
-- 首屏/补窗真实滚动与视觉证据归 017。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

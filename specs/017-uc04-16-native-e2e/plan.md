@@ -50,7 +50,7 @@
 - **V-001**: readiness/contract/source-pin/dirty-worktree preflight，缺一项即不启动 Native。
 - **V-002**: 红灯测试必须在修复前失败、修复后通过；只改 expectation 不合格。
 - **V-003**: final candidate UC04-16 required fail/skip=0，并有双用户 PG/SQLite/Frame/DOM 同窗证据。
-- **V-004**: 1440x900 与 390x844 复验 Index-Dual 关键视觉与交互；关键 partial=0。
+- **V-004**: actor/observer 的 1440x900 final Native 视口复验 Index-Dual 关键视觉与交互；关键 partial=0。
 - **V-005**: evidence ledger 校验命令、起止时间、wall-clock、哈希、retry/timeout/NeedsHuman 记录完整。
 
 ## Domain and Ownership
@@ -133,7 +133,7 @@
 | Local SQLite | actor-scoped entity/cursor/revision atomic | Helix Persist write-set/storage |
 | Frame | full VM、causation、revision、epoch、atomic impact | Helix projector/composer |
 | PC DOM | Frame-only state、ARIA/data-*、interaction | Angular SurfaceRuntime/component |
-| Visual | Index-Dual 双尺寸关键项 aligned | Angular template/SCSS/overlay |
+| Visual | Index-Dual 与双账号 final Native 桌面视口关键项 aligned | Angular template/SCSS/overlay |
 
 ## Visual Repair
 

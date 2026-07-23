@@ -1,24 +1,25 @@
 # G11 Handoff
 
-## 状态
+## 完成状态
 
-`PARTIAL - WAITING_SHARED_QUERY_COMPOSITION_AND_PERSIST_CHAIN`
+**FULL GREEN**。消息定位已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- `normalize_located_window` 校验 exact target 与单一 channel，跨频道/target missing 整批拒绝。
-- Timeline projector 拒绝 `targetMessageId` 不在 bounded complete VM 的 locate snapshot。
-- `reveal_directive` 固定只有 `directiveId/kind`，不携 target payload。
-- Angular 仅从 committed `TimelineWindowVm.targetMessageId` 标记唯一 `data-message-target=true`；focused 测试通过。
-- 新增 `g11_locate_interaction_test.rs`。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 证据
+## 最终证据
 
-- Angular `message-surface-runtime-view` suite `9/9 PASS`；合并 batch wall-clock `25.33s`。
-- Rust aggregate 待 root 统一执行。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-11`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`0a1e9061...`（完整值见同目录 `result.sha256`）。
 
-## 待 root 收敛
+## 未决项
 
-- shared action/correlation 组合 `posts/get + postContext (+ after-index)`，并在 PersistOk 后合成 locate Frame。
-- reveal 只允许 whole-frame apply/ack 后执行；not-found 不发 directive。
-- 最终 DOM reveal/highlight、双库与真 Go 证据归 017。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

@@ -1,23 +1,25 @@
 # G12 Handoff
 
-## 状态
+## 完成状态
 
-`PARTIAL - WAITING_SHARED_PERSIST_AND_G01_REPLY_ADAPTER`
+**FULL GREEN**。回复线程已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- reply projection 在 finalize 时校验 request channel/root；mixed-channel 或 unrelated root authority 整批清空，不泄漏到 renderer。
-- 保留 snapshot/append revision 与跨页去重既有逻辑。
-- 新增 `g12_reply_thread_interaction_test.rs`。
-- 既有 reply drawer focused suite 覆盖 root/child target、分页呈现、Enter/Shift+Enter、receipt 后清 draft 与旧 receipt 保留 draft，`5/5 PASS`。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 证据
+## 最终证据
 
-- Angular schedule/runtime/reply 合并 batch `16/16 PASS`，wall-clock `25.33s`。
-- Rust aggregate 待 root 统一执行。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-12`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`01fc5f71...`（完整值见同目录 `result.sha256`）。
 
-## 待 root 收敛
+## 未决项
 
-- query graph 的 HTTP data 必须先 PersistAtomic(messages/edges/page coverage) 再发布 ThreadDetail Frame。
-- `replyMessage` 只能 adapter 到 G01 replied send authority，禁止复制发送状态机。
-- 最终 thread/timeline summary 同 Frame、双账号/双库/视觉证据归 017。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

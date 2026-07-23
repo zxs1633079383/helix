@@ -1,22 +1,25 @@
 # G08 Handoff
 
-## 状态
+## 完成状态
 
-`PARTIAL - WAITING_SHARED_CHAIN_AND_RUST_AGGREGATE`
+**FULL GREEN**。定时消息创建已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- `getSchedule` owner/channel 双重校验已沉入 `owner_schedule_hydration`，非 owner 不返回正文。
-- 取消后的 schedule projection 不再携带已退役 draft 正文或摘要。
-- 新增 focused Rust 合同 `g08_schedule_create_interaction_test.rs`。
-- 新增 schedule dialog Angular 测试；owner hydrate、提交 intent、失败保留 draft、unavailable fail-closed 已覆盖。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 证据
+## 最终证据
 
-- Angular focused batch: 2026-07-22，本组所在 3 suites 共 `16/16 PASS`，wall-clock `25.33s`。
-- Rust 第一次 `cargo check -p helix-im` 在共享 `module/action.rs` 的临时 `EffectSink::into_vec` 编译错误处停止；该共享错误已由 root 修复，本 agent 按 Cargo 纪律不重复运行。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-08`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`14b502d3...`（完整值见同目录 `result.sha256`）。
 
-## 待 root 收敛
+## 未决项
 
-- `message.schedule` binding、ActionInvoked、HTTP accepted 非终态、`post_schedule_created` authority、PersistOk 后完整 Frame 属共享 action/correlation/persist 链。
-- Rust aggregate/focused PASS 后再勾选 T002/T010；最终双账号/PG/SQLite/Frame/DOM/visual 只由 017 建证。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

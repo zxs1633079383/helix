@@ -1,21 +1,25 @@
-# G16/G16b/G16c Implementation Handoff
+# G16/G16b/G16c Handoff
 
-## 状态
+## 完成状态
 
-`PARTIAL - dedicated wire/UI guards ready; five terminal chains pending shared integration`
+**FULL GREEN**。频道治理已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- `im_channel_member_role` 在 HTTP 前拒绝非 `CREATOR|ADMIN|MEMBER` 领域角色。
-- 新增 channel-management UI，close/self-leave/member/role/settings 为不同 intent；version conflict 保留旧 Frame 并提示 hydrate。
-- focused Rust contract 分列 close、self leave、member remove、role、settings 五种 canonical wire。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 证据
+## 最终证据
 
-- Angular：`evidence/angular-focused.log`，2/2 PASS。
-- Rust：focused final 尚待 root 在 shared 编译修复后聚合重跑。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-16, G-16b, G-16c`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`e9776838... / 21bc94f3... / dcabfca1...`（完整值见同目录 `result.sha256`）。
 
-## 未决
+## 未决项
 
-- shared 五种 ActionDispatch、对应 corr/authority/PersistAtomic、viewer-specific terminal Frame 和 apply 后 navigation directive。
-- 新组件尚需 shell owner 接入现有 group-settings drawer；不能以 standalone component 冒充 runtime-wired。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

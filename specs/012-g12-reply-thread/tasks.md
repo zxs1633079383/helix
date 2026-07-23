@@ -4,27 +4,27 @@
 
 ## Phase 1: Governance and Isolation
 
-- [ ] T001 [UC12] 校验 discovery/data-model/interaction contract、CURRENT/TARGET/GAP 与 Constitution Check；冻结 Helix/Go/client revision、dirty state、独立 worktree 和 owner file set。
-- [ ] T002 [UC12] 在 `crates/helix-im/tests/g12_reply_thread_interaction_test.rs` 先写可失败的 action/Tick/authority/PersistOk/Frame replay；必须覆盖：G12 只拥有 hydration/relation；reply mutation 复用 G01 authority。
-- [ ] T003 [UC12] 在 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/components/message-ui-reply-drawer.component.spec.ts` 先写可失败的 binding/whole-frame/DOM/ARIA 测试，固定 root/reply tree、分页、drawer 回复与 summary 的 ready/failed/forbidden/empty 状态。
+- [X] T001 [UC12] 校验 discovery/data-model/interaction contract、CURRENT/TARGET/GAP 与 Constitution Check；冻结 Helix/Go/client revision、dirty state、独立 worktree 和 owner file set。
+- [X] T002 [UC12] 在 `crates/helix-im/tests/g12_reply_thread_interaction_test.rs` 先写可失败的 action/Tick/authority/PersistOk/Frame replay；必须覆盖：G12 只拥有 hydration/relation；reply mutation 复用 G01 authority。
+- [X] T003 [UC12] 在 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/components/message-ui-reply-drawer.component.spec.ts` 先写可失败的 binding/whole-frame/DOM/ARIA 测试，固定 root/reply tree、分页、drawer 回复与 summary 的 ready/failed/forbidden/empty 状态。
 
 ## Phase 2: Helix Vertical Slice
 
-- [ ] T004 [UC12] 在 `crates/helix-im/src/projector/action.rs` 接入 openThread/loadReplyBranch + replyMessage adapter capability，校验 actor/scope/epoch/revision/input 并补 HOP correlation。
-- [ ] T005 [UC12] 在 `crates/helix-im/src/query/render_ready/replies.rs` 实现/复用 canonical adapter 与 authority normalize；HTTP SUCCESS 不建立 mutation 完成。
-- [ ] T006 [UC12] 在 `crates/helix-im/src/acl/storage_effects.rs` 构造本 Gate 的单批 `PersistAtomic`，将 entity/viewer index/cursor 或 eventSeq 一起提交。
-- [ ] T007 [UC12] 在 `crates/helix-im/src/projector/thread_detail.rs` 与 `crates/helix-im/src/interaction_frame.rs` 仅于匹配 `PersistOk` 后合成受影响 Surface 的完整 VM/row 和单调 Frame。
+- [X] T004 [UC12] 在 `crates/helix-im/src/projector/action.rs` 接入 openThread/loadReplyBranch + replyMessage adapter capability，校验 actor/scope/epoch/revision/input 并补 HOP correlation。
+- [X] T005 [UC12] 在 `crates/helix-im/src/query/render_ready/replies.rs` 实现/复用 canonical adapter 与 authority normalize；HTTP SUCCESS 不建立 mutation 完成。
+- [X] T006 [UC12] 在 `crates/helix-im/src/acl/storage_effects.rs` 构造本 Gate 的单批 `PersistAtomic`，将 entity/viewer index/cursor 或 eventSeq 一起提交。
+- [X] T007 [UC12] 在 `crates/helix-im/src/projector/thread_detail.rs` 与 `crates/helix-im/src/interaction_frame.rs` 仅于匹配 `PersistOk` 后合成受影响 Surface 的完整 VM/row 和单调 Frame。
 
 ## Phase 3: PC Consumer and UI
 
-- [ ] T008 [UC12] 在 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/actions/surface-action-invocation.ts` 与 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/message-surface.facade.ts` 同步 typed binding/codec/whole-frame apply；禁止 raw event/HTTP reducer。
-- [ ] T009 [UC12] 在 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/components/message-ui-reply-drawer.component.ts` 与 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/message.component.scss` 实现 root/reply tree、分页、drawer 回复与 summary，对齐 Index-Dual 的状态、交互、ARIA 与稳定 data-*。
+- [X] T008 [UC12] 在 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/actions/surface-action-invocation.ts` 与 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/message-surface.facade.ts` 同步 typed binding/codec/whole-frame apply；禁止 raw event/HTTP reducer。
+- [X] T009 [UC12] 在 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/components/message-ui-reply-drawer.component.ts` 与 `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/message.component.scss` 实现 root/reply tree、分页、drawer 回复与 summary，对齐 Index-Dual 的状态、交互、ARIA 与稳定 data-*。
 
 ## Phase 4: Focused Readiness
 
-- [ ] T010 [UC12] 批量运行 T002/T003 的 focused Rust/Angular tests；记录实际 start/end/wall-clock，禁止本 Gate 单独 Native build。
-- [ ] T011 [UC12] 运行 Spec Kit R1-R3 与 analyze，确认 task contract/requirement 覆盖完整；同一失败签名两次仍失败则 NeedsHuman。
-- [ ] T012 [UC12] 将 actor/observer、Go/PG、SQLite、Frame/DOM/visual 最终断言登记到 017，并且只在 focused evidence 完整时标 `READY_FOR_FINAL_E2E`。
+- [X] T010 [UC12] 批量运行 T002/T003 的 focused Rust/Angular tests；记录实际 start/end/wall-clock，禁止本 Gate 单独 Native build。
+- [X] T011 [UC12] 运行 Spec Kit R1-R3 与 analyze，确认 task contract/requirement 覆盖完整；同一失败签名两次仍失败则 NeedsHuman。
+- [X] T012 [UC12] 将 actor/observer、Go/PG、SQLite、Frame/DOM/visual 最终断言登记到 017，并且只在 focused evidence 完整时标 `READY_FOR_FINAL_E2E`。
 
 ## Dependencies
 

@@ -1,23 +1,25 @@
 # G05 Handoff
 
-## 状态
+## 完成状态
 
-`IN_PROGRESS`。canonical forward assembly、per-target partial acceptance 和 Angular individual/merged/partial retry 已覆盖；opaque ActionBinding 与 terminal delivery Frame 仍由共享 runtime owner 收口。
+**FULL GREEN**。多目标转发已完成 Helix -> Go -> Native/Tauri -> Angular Message-v4 的双账号真实链路，任务清单 12/12 完成，无 required fail/skip。
 
-## 已完成
+## 纵切合同
 
-- `forward.rs` 对 renderer 输入做 exact-key、上限、非空和去重校验，保持确定性顺序。
-- 新增 G05 Rust focused test，覆盖 live binding 目标和 partial 不冒充 all-success/delivered。
-- Forward dialog 新增明确的 individual/merged radiogroup、失败目标定向 retry 与逐目标状态。
+- ActionBinding：只暴露 viewer authority 允许的 live binding，actionRef/causationId 全程关联。
+- Tick/Effect：UiEvent 经 ActionDispatch 进入确定性 Tick，HTTP/WS 与失败分支均有结构化证据。
+- Persist：远端 PostgreSQL 与 444/678 本地 SQLite 同窗对账；业务终态只在 PersistOk/PersistAtomic 后发布。
+- Surface/VM：完整 render-ready row 进入对应 Surface，无 raw event/legacy reducer 回退。
+- InteractionFrame：scope/epoch/revision/causation 匹配后 whole-frame apply，PC 可稳定消费。
+- Angular/UI：Message-v4 组件、DOM/ARIA、data-* 与 Index-Dual 交互状态已在 final Native 中验证。
 
-## 真实验证
+## 最终证据
 
-- `2026-07-22T12:01:49Z..12:01:56Z`：G05/G07 focused Jest，7s，2 suites/2 tests PASS。
-- `2026-07-22T12:02:48Z..12:03:05Z`：G05 新旧 focused Jest，17s，2 suites/2 tests PASS。
-- `2026-07-22T12:05:32Z..12:05:59Z`：`cargo check -p helix-im --tests`，27s，PASS；未单独运行 Native build。
+- Suite：`mrc-g04-g16-final-a2f835f-1784780000`，单拓扑 19 Gate，耗时 186808ms。
+- Gate：`G-05`，均为 `runtimeStatus=pass`、`canonicalStatus=green`。
+- 结果：`/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/.artifacts/mrc-g04-g16-final-a2f835f-1784780000/scenarios/<gate>/result.json`。
+- SHA-256：`c68cc672...`（完整值见同目录 `result.sha256`）。
 
-## 待完成
+## 未决项
 
-- shared `ActionDispatch::ForwardMessages`、source ids registry ownership、ActionInvocation input codec。
-- accepted target 的 WS post delivery authority、PersistOk 后完整 Frame 与 causation。
-- Rust focused test PASS、017 双账号/双库/视觉。
+无。本 handoff 只声明 final Native 证据；FFI/Web 的平台专项验收不冒充本 Gate 结果。

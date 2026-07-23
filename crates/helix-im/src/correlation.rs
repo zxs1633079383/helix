@@ -78,6 +78,8 @@ pub enum CorrelationContext {
         channel_id: ChannelId,
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
+        /// 同一权威批次中 terminal 前的可见消息投影；与 tombstone 共用原子回执。
+        pending_domain_events: Vec<Vec<u8>>,
     },
 
     /// Opaque SurfaceResyncRequest 对本地 channel/member/topic 事实的异步读取。

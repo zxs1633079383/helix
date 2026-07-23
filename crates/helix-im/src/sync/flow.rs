@@ -200,12 +200,14 @@ impl ImModule {
                     .iter()
                     .find(|event| matches!(event.kind, EventKind::ChannelTerminalClosed))
                 {
+                    let terminal_seq = terminal.seq;
                     return self.handle_terminal_sync_event(
                         channel_id,
                         trigger,
-                        terminal.seq,
-                        events.len(),
-                        !messages.is_empty(),
+                        from_exclusive,
+                        terminal_seq,
+                        events,
+                        messages,
                         next_seq,
                         needs_continuation,
                         out,
@@ -479,36 +481,75 @@ impl ImModule {
         Ok(())
     }
 
-    /// Consume a strict type7 terminal only through an all-write atomic storage boundary.
+    /// Consume a sealed type7 terminal only through an all-write atomic storage boundary.
     ///
-    /// The current Go contract is a one-event closed response. Any mixed/misaligned batch is not
-    /// partially applied: no cursor, tombstone or Frame is emitted, and the normal scheduler asks
-    /// for a fresh response from the unchanged cursor.
+    /// Go returns every viewer-visible fact after `fromSeq`, so a newly discovered closed channel
+    /// can legitimately contain visible message events followed by type7 in one response. The
+    /// visible prefix and terminal cursor/tombstone therefore commit as one transaction. An invalid
+    /// deterministic response is retained for a later reconnect/manual retry rather than immediately
+    /// requesting the identical response forever.
     #[allow(clippy::too_many_arguments)]
     fn handle_terminal_sync_event(
         &mut self,
         channel_id: ChannelId,
         trigger: SyncTrigger,
+        from_exclusive: Seq,
         terminal_seq: Seq,
-        event_count: usize,
-        has_messages: bool,
+        events: Vec<crate::sync_session::EventEnvelope>,
+        messages: std::collections::HashMap<String, crate::sync_session::PostFields>,
         next_seq: Seq,
         needs_continuation: bool,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        if event_count != 1 || has_messages || next_seq != terminal_seq || needs_continuation {
+        let terminal_count = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.kind,
+                    crate::sync_session::EventKind::ChannelTerminalClosed
+                )
+            })
+            .count();
+        let terminal_is_last = events.last().is_some_and(|event| {
+            matches!(
+                event.kind,
+                crate::sync_session::EventKind::ChannelTerminalClosed
+            )
+        });
+        if terminal_count != 1
+            || !terminal_is_last
+            || next_seq != terminal_seq
+            || needs_continuation
+        {
             tracing::warn!(
                 channel_id = channel_id.as_str(),
-                event_count,
-                has_messages,
+                event_count = events.len(),
+                terminal_count,
+                terminal_is_last,
                 next_seq = next_seq.0,
                 terminal_seq = terminal_seq.0,
                 needs_continuation,
-                "rejecting mixed or misaligned terminal sync batch; retaining cursor for recovery"
+                "rejecting malformed terminal sync batch; retaining cursor without immediate retry"
             );
-            self.emit_proactive_resync_for(&[channel_id], out);
             return Ok(());
         }
+        let events = match crate::sync_session::SyncBatchFacts::from_events(
+            channel_id,
+            from_exclusive,
+            next_seq,
+            events,
+        ) {
+            Ok(facts) => facts.events,
+            Err(reason) => {
+                tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    terminal_seq = terminal_seq.0,
+                    reason,
+                    "rejecting incoherent terminal sync facts; retaining cursor without immediate retry"
+                );
+                return Ok(());
+            }
+        };
 
         let Some(channel) = self.state.channels.get(&channel_id) else {
             tracing::warn!(
@@ -522,31 +563,53 @@ impl ImModule {
             // and no second Frame/cursor write must be emitted.
             return Ok(());
         }
-        if terminal_seq != Seq(channel.cursor.value().0.saturating_add(1)) {
-            tracing::warn!(
-                channel_id = channel_id.as_str(),
-                cursor = channel.cursor.value().0,
-                terminal_seq = terminal_seq.0,
-                "terminal sync gap rejected; retaining cursor and scheduling recovery"
-            );
-            self.emit_proactive_resync_for(&[channel_id], out);
-            return Ok(());
-        }
-
         let persist_corr = self.alloc_corr_internal();
+        let prefix = &events[..events.len().saturating_sub(1)];
+        let auth_user_id = self.config.auth_user_id.as_str();
+        let mut ops = crate::acl::to_effect::batch_upsert_events_with_messages_and_auth(
+            prefix,
+            &messages,
+            auth_user_id,
+        );
+        for pending in
+            crate::acl::to_effect::sync_dialog_patch_plans(prefix, &messages, auth_user_id)
+        {
+            ops.push(crate::acl::to_effect::bump_channel_unread_op(
+                &pending.update,
+            ));
+        }
+        ops.push(crate::acl::to_effect::terminal_tombstone_and_cursor_op(
+            channel_id,
+            terminal_seq,
+        ));
+        let pending_domain_events =
+            crate::acl::to_effect::sync_mutation_emits_with_auth(prefix, &messages, auth_user_id)
+                .into_iter()
+                .filter_map(|effect| match effect {
+                    Effect::Emit { event } => Some(event.0.as_ref().to_vec()),
+                    _ => None,
+                })
+                .collect();
         out.push(Effect::PersistAtomic {
             corr: persist_corr,
-            ops: vec![crate::acl::to_effect::terminal_tombstone_and_cursor_op(
-                channel_id,
-                terminal_seq,
-            )],
+            ops,
         });
+        if self
+            .state
+            .recovery_session
+            .is_active_for(self.config.auth_user_id.as_str())
+        {
+            self.state
+                .recovery_session
+                .await_commit(channel_id, terminal_seq);
+        }
         self.state.corr_map.insert(
             persist_corr,
             CorrelationContext::ChannelTerminalPersist {
                 channel_id,
                 terminal_seq,
                 trigger,
+                pending_domain_events,
             },
         );
         Ok(())

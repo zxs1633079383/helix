@@ -46,6 +46,48 @@ fn strict_terminal_reply_with_extra_field(channel_id: u64, seq: u64) -> Bytes {
     Bytes::from(serde_json::to_vec(&reply).unwrap())
 }
 
+fn mixed_terminal_reply(channel_id: u64) -> Bytes {
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {
+                "entries": [{
+                    "channelId": cid(channel_id),
+                    "kind": "events",
+                    "events": [{
+                        "id": "event-system-post-1",
+                        "channelId": cid(channel_id),
+                        "eventSeq": 1,
+                        "eventType": 1,
+                        "msgId": "system-post-1"
+                    }, {
+                        "id": "event-close-2",
+                        "channelId": cid(channel_id),
+                        "eventSeq": 2,
+                        "eventType": 7,
+                        "payload": {"state": "closed"}
+                    }],
+                    "messages": {
+                        "system-post-1": {
+                            "id": "system-post-1",
+                            "temporary_id": "system-post-1",
+                            "channel_id": cid(channel_id),
+                            "message": "频道已关闭",
+                            "userId": "system",
+                            "viewers": ["viewer-1"],
+                            "createAt": 1_700_000_001_i64
+                        }
+                    },
+                    "nextSeq": 2,
+                    "resetTo": Value::Null
+                }],
+                "serverTime": 1_700_000_002_i64
+            }
+        }))
+        .unwrap(),
+    )
+}
+
 fn first_http_corr(harness: &Harness) -> u64 {
     harness
         .sink
@@ -187,6 +229,69 @@ fn strict_go_type7_wire_requires_atomic_commit_before_closed_frame_and_is_idempo
     assert_eq!(
         harness.module.terminal_event_seq_for(channel_id(1)),
         Some(1)
+    );
+}
+
+#[test]
+fn mixed_visible_prefix_and_terminal_commit_once_without_resync_loop() {
+    let mut harness = Harness::new_with_identity(&[1], "viewer-1", "team-1", "", "", "");
+    attach_dialog_surface(&mut harness, 1_100);
+    let sync_corr = start_gap_sync(&mut harness, 1_110);
+    harness.sink.clear();
+
+    harness.step(
+        port_reply_with_body(sync_corr, enveloped(mixed_terminal_reply(1))),
+        1_111,
+    );
+    let (atomic_corr, op_count) = harness
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } => Some((corr.raw(), ops.len())),
+            _ => None,
+        })
+        .expect("valid mixed terminal recovery must cross one atomic persistence barrier");
+    assert!(
+        op_count >= 2,
+        "the atomic batch must retain the visible prefix and terminal cursor/tombstone"
+    );
+    assert!(
+        harness
+            .sink
+            .as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })),
+        "a deterministic valid response must not immediately request itself again"
+    );
+    assert_eq!(harness.module.cursor_for(channel_id(1)), Some(0));
+    assert_eq!(harness.module.terminal_event_seq_for(channel_id(1)), None);
+
+    harness.step(port_reply_ok(atomic_corr), 1_112);
+    assert_eq!(harness.module.cursor_for(channel_id(1)), Some(2));
+    assert_eq!(
+        harness.module.terminal_event_seq_for(channel_id(1)),
+        Some(2)
+    );
+    let emitted: Vec<Value> = harness
+        .sink
+        .as_slice()
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Emit { event } => serde_json::from_slice(event.0.as_ref()).ok(),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        emitted
+            .iter()
+            .any(|event| event["event"] == "im:post:received"),
+        "visible prefix projection releases only after the shared atomic receipt"
+    );
+    assert_eq!(
+        interaction_frames(harness.sink.as_slice()).len(),
+        1,
+        "the same receipt publishes one closed dialog Frame"
     );
 }
 

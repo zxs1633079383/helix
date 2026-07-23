@@ -45,10 +45,10 @@ impl Channel {
     }
 
     /// `PersistAtomic` 成功后的内存提交。持久化回执前绝不调用本方法，因此失败时既不推进
-    /// cursor，也不把 channel 变成 closed。再次校验严格 +1，避免上层错误把 gap terminal
-    /// 锁进不可恢复状态。
+    /// cursor，也不把 channel 变成 closed。sync/notify 是 viewer-filtered，terminal 前可包含
+    /// 同批可见事件或不可见序号；调用方已验证整批严格递增并把可见前缀与 tombstone 同事务写入。
     pub(crate) fn commit_terminal_after_atomic(&mut self, terminal_seq: Seq) -> bool {
-        if self.is_terminal() || terminal_seq != Seq(self.cursor.value().0.saturating_add(1)) {
+        if self.is_terminal() || terminal_seq <= self.cursor.value() {
             return false;
         }
         if !self.cursor.try_advance(terminal_seq) {

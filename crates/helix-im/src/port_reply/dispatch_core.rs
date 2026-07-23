@@ -11,11 +11,14 @@ impl ImModule {
         channel_id: ChannelId,
         terminal_seq: crate::state::Seq,
         trigger: SyncTrigger,
+        pending_domain_events: Vec<Vec<u8>>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
+                let has_durable_message_changes = !pending_domain_events.is_empty();
+                let hydration_already_pending = self.state.hydration_pending.contains(&channel_id);
                 let committed = self
                     .state
                     .channels
@@ -28,6 +31,12 @@ impl ImModule {
                         "terminal atomic receipt no longer matches a live channel cursor; suppressing Frame"
                     );
                     return Ok(());
+                }
+
+                for bytes in pending_domain_events {
+                    out.push(Effect::Emit {
+                        event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
+                    });
                 }
 
                 // This is the only renderer-facing type7 projection. `patch_closed` produces an
@@ -47,7 +56,18 @@ impl ImModule {
                     terminal_seq,
                     trigger,
                 ));
+                if self
+                    .state
+                    .recovery_session
+                    .commit_ok(channel_id, terminal_seq)
+                {
+                    self.emit_recovery_v2_frame(None, out);
+                }
                 self.finish_increment_hydration(channel_id, out)?;
+                if has_durable_message_changes && !hydration_already_pending {
+                    self.state.invalidate_recent_message_coverage(channel_id);
+                    self.refresh_attached_latest_timeline(channel_id, None, out)?;
+                }
             }
             PortOutcome::Err(error) => {
                 tracing::warn!(

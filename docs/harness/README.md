@@ -35,7 +35,7 @@
 | [HX-C005](./HX-C005-hotpath-zero-alloc.md) | active | major | 热路径零分配 O(1)（`&'static str` 不 String）| grep | 1 | 2026-06-08 |
 | [HX-C006](./HX-C006-ffi-boundary-discipline.md) | active | blocker | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| grep + review | 1 | 2026-06-08 |
 | [HX-C007](./HX-C007-effect-batch-across-boundary.md) | active | major | Effect/事件跨 Web/FFI 边界批处理，不逐条 | batch API + browser/FFI verification | 1 | 2026-06-08 |
-| [HX-C008](./HX-C008-sync-pull-wire-contract.md) | active | blocker | sync/notify pull 契约：cursor 锚 nextSeq + 续拉看 len≥500（无显式 flag）| grep + 单测 | 1 | 2026-06-16 |
+| [HX-C008](./HX-C008-sync-pull-wire-contract.md) | active | blocker | sync/notify pull 契约：cursor 锚 nextSeq + 满批续拉 + mixed terminal 原子提交 | grep + 单测 | 2 | 2026-07-22 |
 | [HX-C009](./HX-C009-expect-reconcile-loop-integrity.md) | active | major | 预期对账证据完整性（EXPECT 可证伪·DRIFT-PRED 如实记录·不阻断开发）| grep + 人工复核 | 2 | 2026-07-13 |
 | [HX-C010](./HX-C010-deterministic-effect-ordering-from-collections.md) | active | major | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序破可回放）| 回放测试 pin 顺序 + grep | 1 | 2026-06-18 |
 | [HX-C011](./HX-C011-test-falsifiability.md) | active | major | 测试可证伪性铁律：压测/并发不变量测试必带「破坏即 fail」证伪 · 禁墙钟下界断言（结构化/计数证不变量）| grep wall>=断言 + 破坏→fail 证明 | 3 | 2026-06-18 |

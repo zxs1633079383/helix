@@ -122,7 +122,7 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 | HX-C005 | 热路径零分配 O(1)（`&'static str` 不 String）| active |
 | HX-C006 | FFI 边界铁律（no unwind / 单 owner / spawn_blocking）| active |
 | HX-C007 | Effect/事件跨 Web/FFI 边界批处理，不逐条 | active |
-| HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq（非 max event）+ 续拉看 len≥500（真 wire 无显式 flag）| active |
+| HX-C008 | sync/notify pull 契约：cursor 锚 nextSeq + 满批续拉 + mixed terminal 原子提交 | active |
 | HX-C009 | 预期对账证据完整性（EXPECT 可证伪 · DRIFT-PRED 如实记录 · 不阻断开发）| active |
 | HX-C010 | 集合迭代→有序 Effect 生产必须确定性有序（有序集合/迭代前 sort，防 SipHash 随机序）| active |
 | HX-C011 | 测试可证伪性铁律（压测/并发必带破坏即fail 证伪 · 禁墙钟下界断言，结构化/计数证不变量）| active |

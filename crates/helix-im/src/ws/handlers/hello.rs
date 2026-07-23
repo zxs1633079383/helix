@@ -30,6 +30,10 @@ impl WsMessageHandler for HelloHandler {
 
         ctx.state.conn = ConnState::Connected;
         ctx.state.connection_id = Some(connection_id.to_string());
+        // This registry handler is the production hello entrypoint. Establish
+        // the recovery epoch here; the legacy ImModule helper is not invoked by
+        // registry dispatch.
+        ctx.state.recovery_session.begin(ctx.auth_user_id);
         ctx.state.reset_increment_batch();
         out.push(crate::acl::to_effect::emit_connection_established(
             connection_id,

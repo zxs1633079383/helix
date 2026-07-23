@@ -134,11 +134,12 @@ impl ImModule {
                                 .pending_forward_deliveries
                                 .is_final_target(request_id, pending.channel_id)
                         });
-                        let terminal_causation = if is_final_target {
-                            request_id.clone()
-                        } else {
-                            None
-                        };
+                        let terminal_causation =
+                            if is_final_target || pending.source == "sync_events" {
+                                request_id.clone()
+                            } else {
+                                None
+                            };
                         let mut frame =
                             crate::dialog_frame::patch_from_dialog_projection_with_causation(
                                 &mut self.state.dialog_list_frame,
@@ -158,7 +159,7 @@ impl ImModule {
                         }
                         if let Some(frame) = frame {
                             out.push(frame);
-                            if let Some(request_id) = request_id {
+                            if let Some(request_id) = request_id.filter(|_| is_final_target) {
                                 let batch_complete = self
                                     .state
                                     .pending_forward_deliveries

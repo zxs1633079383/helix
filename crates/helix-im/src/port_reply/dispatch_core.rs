@@ -105,7 +105,7 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         match outcome {
-            PortOutcome::Ok(reply) => {
+            PortOutcome::Ok(_) => {
                 let has_durable_message_changes = !pending_domain_events.is_empty();
                 let hydration_already_pending = self.state.hydration_pending.contains(&channel_id);
                 if let Some(ch) = self.state.channels.get_mut(&channel_id) {
@@ -136,24 +136,24 @@ impl ImModule {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
                     });
                 }
-                for pending in dialog_patches {
-                    if let Some(data) =
-                        pending.frame_patch_data_from_channel_reply(reply.0.as_ref())
-                    {
-                        // 写后 channel reply 已给出累计 unread/mention/urgent 终值。若列表已有
-                        // snapshot，只发布同 revision 的属性 patch；客户端不再消费原始 DialogPatch。
-                        let frame = crate::dialog_frame::patch_from_dialog_projection(
-                            &mut self.state.dialog_list_frame,
-                            &data,
+                // PersistAtomic is a write-only barrier. Read back only the affected
+                // channel row so the attached dialog preview observes committed data
+                // without turning each recovery batch into a full-list scan.
+                if self.state.dialog_list_frame.scope().is_some() {
+                    if let Some(pending) = dialog_patches.into_iter().last() {
+                        let readback_corr = self.alloc_corr_internal();
+                        let pending =
+                            pending.with_causation_id(Some(format!("sync-persist-{}", corr.raw())));
+                        out.push(Effect::Persist {
+                            corr: readback_corr,
+                            ops: vec![crate::acl::to_effect::get_channel_row_op(
+                                pending.channel_id,
+                            )],
+                        });
+                        self.state.corr_map.insert(
+                            readback_corr,
+                            crate::state::CorrelationContext::DialogPatchByPost { pending },
                         );
-                        // During a V2 authority recovery, mutate the committed
-                        // dialog slots but do not leak a parallel V1 frame.  The
-                        // composed V2 snapshot below is the sole renderer batch.
-                        if !recovery_active {
-                            if let Some(frame) = frame {
-                                out.push(frame);
-                            }
-                        }
                     }
                 }
                 let committed_seq = self
@@ -189,14 +189,9 @@ impl ImModule {
                     self.finish_increment_hydration(channel_id, out)?;
                     if has_durable_message_changes && !hydration_already_pending {
                         // The legacy domain event is observability only. A Frame-only
-                        // renderer must refresh both attached message surfaces from
-                        // the committed local fact. The dialog scan is off the live
-                        // message hot path and runs once per completed recovery batch.
+                        // renderer refreshes attached message surfaces from committed
+                        // local facts; the dialog preview readback is scheduled above.
                         self.state.invalidate_recent_message_coverage(channel_id);
-                        self.refresh_attached_dialog_list(
-                            Some(format!("sync-persist-{}", corr.raw())),
-                            out,
-                        )?;
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
                     }
                 }

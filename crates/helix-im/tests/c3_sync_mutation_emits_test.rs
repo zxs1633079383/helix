@@ -437,7 +437,7 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
     );
 
     // Persist Ok 同时释放 mutation、sync-state 并推进 cursor。PersistAtomic 是纯写屏障，
-    // 因此 attached dialog 必须在 ack 后发起权威 channel Scan，不能依赖虚构的写后 row body。
+    // 因此 attached dialog 必须在 ack 后发起目标 channel Get，不能依赖虚构的写后 row body。
     let persist_corr = h
         .sink
         .as_slice()
@@ -473,13 +473,13 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
             Effect::Persist { corr, ops }
                 if ops
                     .iter()
-                    .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "channel")) =>
+                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel")) =>
             {
                 Some(corr.raw())
             }
             _ => None,
         })
-        .expect("PersistOk 后必须从本地 channel 真源刷新 attached dialog");
+        .expect("PersistOk 后必须从本地 channel 真源回读目标 dialog");
     h.step(
         port_reply_with_body(refresh_corr, channel_row_reply(6, 1)),
         3200,
@@ -497,7 +497,7 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
             }
             _ => None,
         })
-        .expect("channel Scan 回报必须发布 left-dialog-list V2 Frame");
+        .expect("channel Get 回报必须发布 left-dialog-list V2 Frame");
     assert_eq!(
         dialog_frame["data"]["mutations"][0]["causationId"],
         format!("sync-persist-{persist_corr}")

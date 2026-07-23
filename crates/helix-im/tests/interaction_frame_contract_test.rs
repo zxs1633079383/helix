@@ -426,7 +426,7 @@ fn exact_safe_boundaries_and_finite_surface_data_decimals_remain_valid() {
         serde_json::json!(MIN_SAFE_JSON_INTEGER);
     snapshot["mutations"][2]["mutation"]["view"]["items"][0]["createdAt"] =
         serde_json::json!(MAX_SAFE_JSON_INTEGER as i64);
-    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["replySummary"] =
+    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["readReceipt"] =
         serde_json::json!(0.125);
     snapshot["mutations"][2]["mutation"]["view"]["items"][0]["content"] = serde_json::json!({
         "kind": "media",
@@ -542,7 +542,7 @@ fn assert_unsafe_producer_number(frame: InteractionFrameV2, field: &'static str)
 
 fn assert_invalid_surface_data(value: serde_json::Value, expected_reason: &str) {
     let mut frame = frame_value(CANONICAL_SNAPSHOT);
-    frame["mutations"][2]["mutation"]["view"]["items"][0]["replySummary"] = value;
+    frame["mutations"][2]["mutation"]["view"]["items"][0]["readReceipt"] = value;
     let error = decode_value(&frame).expect_err("unsafe generic surface data must be rejected");
     assert!(matches!(
         error,

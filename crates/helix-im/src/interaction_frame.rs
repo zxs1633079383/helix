@@ -982,6 +982,69 @@ pub enum MessageContentVm {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+pub enum ReferenceAvailabilityVm {
+    Available,
+    Recalled { text: String },
+    Unavailable { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ReplyPreviewVm {
+    Text {
+        text: String,
+    },
+    Document {
+        title: String,
+    },
+    Media {
+        media_type: String,
+        file_name: String,
+    },
+    Forwarded {
+        summary: String,
+    },
+    System {
+        text: String,
+    },
+    Recalled {
+        text: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ReplySummaryVm {
+    None,
+    Available {
+        target_message_id: String,
+        author: UserRefVm,
+        preview: ReplyPreviewVm,
+        availability: ReferenceAvailabilityVm,
+    },
+    Unavailable {
+        target_message_id: String,
+        availability: ReferenceAvailabilityVm,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum DeliveryVm {
     Uploading { progress_percent: u8 },
     Sending,
@@ -1010,7 +1073,7 @@ pub struct MessageVm {
     pub reply_root_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_first_level_id: Option<String>,
-    pub reply_summary: SurfaceDataVm,
+    pub reply_summary: ReplySummaryVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_thread: Option<ReplyThreadSummaryVm>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1780,7 +1843,7 @@ fn validate_message(
             "message quick actions must be unique and capped at three items",
         );
     }
-    validate_data_for_surface(surface, &message.reply_summary)?;
+    validate_reply_summary(surface, &message.reply_summary)?;
     if let Some(thread) = &message.reply_thread {
         if thread.items.len() > 3 || thread.reply_count < thread.items.len() as u32 {
             return invalid_view(
@@ -1834,6 +1897,69 @@ fn validate_message(
         MessageContentVm::Text { .. }
         | MessageContentVm::SystemEvent { .. }
         | MessageContentVm::Recalled { .. } => Ok(()),
+    }
+}
+
+fn validate_reply_summary(
+    surface: SurfaceId,
+    summary: &ReplySummaryVm,
+) -> Result<(), InteractionFrameError> {
+    match summary {
+        ReplySummaryVm::None => Ok(()),
+        ReplySummaryVm::Available {
+            target_message_id,
+            author,
+            preview,
+            availability,
+        } => {
+            require_nonempty(surface, "reply target message id", target_message_id)?;
+            validate_user(surface, author)?;
+            if !matches!(availability, ReferenceAvailabilityVm::Available) {
+                return invalid_view(
+                    surface,
+                    "available reply summary requires available reference state",
+                );
+            }
+            match preview {
+                ReplyPreviewVm::Text { text }
+                | ReplyPreviewVm::System { text }
+                | ReplyPreviewVm::Recalled { text } => {
+                    require_nonempty(surface, "reply preview text", text)?;
+                }
+                ReplyPreviewVm::Document { title } => {
+                    require_nonempty(surface, "reply preview document title", title)?;
+                }
+                ReplyPreviewVm::Media {
+                    media_type,
+                    file_name,
+                } => {
+                    require_nonempty(surface, "reply preview media type", media_type)?;
+                    require_nonempty(surface, "reply preview file name", file_name)?;
+                }
+                ReplyPreviewVm::Forwarded { summary } => {
+                    require_nonempty(surface, "reply preview forwarded summary", summary)?;
+                }
+            }
+            Ok(())
+        }
+        ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability,
+        } => {
+            require_nonempty(surface, "reply target message id", target_message_id)?;
+            match availability {
+                ReferenceAvailabilityVm::Recalled { text } => {
+                    require_nonempty(surface, "recalled reply label", text)
+                }
+                ReferenceAvailabilityVm::Unavailable { reason } => {
+                    require_nonempty(surface, "unavailable reply reason", reason)
+                }
+                ReferenceAvailabilityVm::Available => invalid_view(
+                    surface,
+                    "unavailable reply summary cannot carry available reference state",
+                ),
+            }
+        }
     }
 }
 

@@ -10,10 +10,11 @@ use thiserror::Error;
 
 use crate::interaction_frame::{
     ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
-    MessageReactionVm, MessageVm, ReplaceView, ReplaceViewKind, ReplyThreadPreviewVm,
-    ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation,
-    SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation,
-    UserRefVm, WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplaceView, ReplaceViewKind,
+    ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm,
+    SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
+    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
+    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -557,7 +558,7 @@ pub(crate) fn message_from_render_ready(
         (
             Vec::new(),
             Vec::new(),
-            SurfaceDataVm::Record(BTreeMap::new()),
+            ReplySummaryVm::None,
             None,
             Vec::new(),
             None,
@@ -571,14 +572,7 @@ pub(crate) fn message_from_render_ready(
                 &mut issue_action_ref,
             )?,
             quick_actions_from_row(row),
-            record_from_row(
-                row,
-                &[
-                    ("replyCount", "replyCount"),
-                    ("replyRootId", "replyRootId"),
-                    ("replyMessages", "replyMessages"),
-                ],
-            )?,
+            reply_summary_from_row(row),
             reply_thread_from_row(row),
             reactions_from_props(props),
             topic_link_from_row(row, expected_channel_id, &id)?,
@@ -687,6 +681,94 @@ fn topic_link_from_row(
         0,
     )
     .map(Some)
+}
+
+fn reply_summary_from_row(row: &Value) -> ReplySummaryVm {
+    let replied = row
+        .get("repliedMessage")
+        .or_else(|| row.get("replied_message"))
+        .filter(|value| value.is_object());
+    let target_message_id =
+        optional_non_empty_string(row, &["replyId", "reply_id"]).or_else(|| {
+            replied.and_then(|message| optional_non_empty_string(message, &["msgId", "id"]))
+        });
+    let Some(target_message_id) = target_message_id else {
+        return ReplySummaryVm::None;
+    };
+    let Some(replied) = replied else {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Unavailable {
+                reason: "referencedMessageUnavailable".to_string(),
+            },
+        };
+    };
+    if bool_at(replied, &["revoked", "revoke"]) {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Recalled {
+                text: "消息已撤回".to_string(),
+            },
+        };
+    }
+    let author_id = row_string(replied, &["userId", "user_id"]);
+    let Some(preview) = reply_preview_from_row(replied) else {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Unavailable {
+                reason: "referencedMessageUnavailable".to_string(),
+            },
+        };
+    };
+    if author_id.is_empty() {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Unavailable {
+                reason: "referencedAuthorUnavailable".to_string(),
+            },
+        };
+    }
+    ReplySummaryVm::Available {
+        target_message_id,
+        author: UserRefVm { user_id: author_id },
+        preview,
+        availability: ReferenceAvailabilityVm::Available,
+    }
+}
+
+fn reply_preview_from_row(row: &Value) -> Option<ReplyPreviewVm> {
+    let text = row_string(row, &["text", "message"]);
+    let kind = row_string(row, &["type"]).to_ascii_uppercase();
+    if kind.contains("FORWARD") {
+        return (!text.is_empty()).then_some(ReplyPreviewVm::Forwarded { summary: text });
+    }
+    if kind.contains("DOCUMENT") {
+        let title = row_string(row, &["fileName", "title", "text", "message"]);
+        return (!title.is_empty()).then_some(ReplyPreviewVm::Document { title });
+    }
+    if matches!(
+        kind.as_str(),
+        "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA"
+    ) {
+        let file_name = row_string(row, &["fileName", "title", "text", "message"]);
+        return (!kind.is_empty() && !file_name.is_empty()).then_some(ReplyPreviewVm::Media {
+            media_type: kind.to_ascii_lowercase(),
+            file_name,
+        });
+    }
+    if matches!(
+        kind.as_str(),
+        "NOTICE"
+            | "SYSTEM"
+            | "SYSTEN"
+            | "MEETING_NOTICE"
+            | "TODO_NOTICE"
+            | "APPROVAL_NOTICE"
+            | "ANNOUNCEMENT"
+    ) {
+        return (!text.is_empty()).then_some(ReplyPreviewVm::System { text });
+    }
+    (!text.is_empty()).then_some(ReplyPreviewVm::Text { text })
 }
 
 fn reply_thread_from_row(row: &Value) -> Option<ReplyThreadSummaryVm> {
@@ -1390,10 +1472,7 @@ mod tests {
         assert!(message.reply_thread.is_none());
         assert!(message.reactions.is_empty());
         assert!(message.topic_link.is_none());
-        assert_eq!(
-            message.reply_summary,
-            SurfaceDataVm::Record(BTreeMap::new())
-        );
+        assert_eq!(message.reply_summary, ReplySummaryVm::None);
         assert_eq!(
             issued_refs, 0,
             "recalled rows must not mint executable action refs"
@@ -1402,6 +1481,56 @@ mod tests {
         assert!(encoded.get("replyThread").is_none());
         assert!(encoded.get("reactions").is_none());
         assert!(encoded.get("topicLink").is_none());
+    }
+
+    #[test]
+    fn reply_summary_is_a_closed_v2_union() {
+        let plain =
+            message_from_render_ready(&row(1), "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("plain message");
+        assert_eq!(plain.reply_summary, ReplySummaryVm::None);
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap()["replySummary"],
+            serde_json::json!({"kind":"none"})
+        );
+
+        let mut quoted = row(2);
+        quoted["replyId"] = serde_json::json!("message-1");
+        quoted["repliedMessage"] = serde_json::json!({
+            "id": "message-1",
+            "userId": "user-1",
+            "type": "TEXT",
+            "message": "被引用正文"
+        });
+        let available =
+            message_from_render_ready(&quoted, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("quoted message");
+        assert_eq!(
+            serde_json::to_value(&available).unwrap()["replySummary"],
+            serde_json::json!({
+                "kind": "available",
+                "targetMessageId": "message-1",
+                "author": {"userId": "user-1"},
+                "preview": {"kind": "text", "text": "被引用正文"},
+                "availability": {"kind": "available"}
+            })
+        );
+
+        quoted["repliedMessage"] = Value::Null;
+        let unavailable =
+            message_from_render_ready(&quoted, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("unavailable quoted message remains renderable");
+        assert_eq!(
+            serde_json::to_value(&unavailable).unwrap()["replySummary"],
+            serde_json::json!({
+                "kind": "unavailable",
+                "targetMessageId": "message-1",
+                "availability": {
+                    "kind": "unavailable",
+                    "reason": "referencedMessageUnavailable"
+                }
+            })
+        );
     }
 
     #[test]

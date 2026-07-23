@@ -196,7 +196,8 @@ mod tests {
 
     use super::*;
     use crate::interaction_frame::{
-        DeliveryVm, MessageContentVm, SurfaceDataVm, TypedSurfaceMutation, UserRefVm,
+        DeliveryVm, MessageContentVm, ReplySummaryVm, SurfaceDataVm, TypedSurfaceMutation,
+        UserRefVm,
     };
 
     fn message(id: &str) -> MessageVm {
@@ -217,7 +218,7 @@ mod tests {
             reply_id: None,
             reply_root_id: None,
             reply_first_level_id: None,
-            reply_summary: SurfaceDataVm::Record(BTreeMap::new()),
+            reply_summary: ReplySummaryVm::None,
             reply_thread: None,
             reactions: Vec::new(),
             read_receipt: SurfaceDataVm::Record(BTreeMap::new()),

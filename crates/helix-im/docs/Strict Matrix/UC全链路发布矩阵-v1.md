@@ -1,9 +1,9 @@
 # Helix IM Strict Matrix v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 10; raw matrix sha256: `d3461beb760255f6ae733e3b5f7ceccd32dca22faf8adf0c76c29e0d6786b345`; semantic matrix sha256: `bc318cef5ef5bf0512d20fe4a40daae416e04110dc8a389e736b53a61e5850fa`。
+> contract epoch: 11; raw matrix sha256: `4bf722b0c01af93a66624ceeddc9b33e43b88e886f5b2bf8226125f784cf6401`; semantic matrix sha256: `d4f33ee651b923a4775ed4966ea144dbe4a3b5310403362a3dd75a5ffe0cb1ef`。
 > raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。
-> `declared` 与 `blocked` 均不可被运行证据晋升为 Green；只有实现 render-ready projection（RenderNode/v1 或指定 InteractionFrame/v1）、直接 core command 与八面证据均完整的 `implemented` UC 才可晋升。
+> `declared` 与 `blocked` 均不可被运行证据晋升为 Green；只有实现 render-ready projection（RenderNode/v1 或指定 InteractionFrame/v2）、直接 core command 与八面证据均完整的 `implemented` UC 才可晋升。
 
 > 这张表不是“功能清单”，而是 `UC × UI × Helix × HTTP × WS × Storage × Native` 发布闸门。任一证据平面缺失、过期、无法关联或仅由 mock 产生，该 UC 整行即为 Red。
 

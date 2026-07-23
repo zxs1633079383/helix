@@ -163,7 +163,7 @@ function validateMatrix(matrix, schema, sourceDocumentExists) {
         if (projections.length === 0) fail(`${label}: 未声明投影`);
         for (const projection of projections) {
             if (!isObject(projection) || !/^im:[a-z0-9:._-]+$/.test(projection.event ?? '')) fail(`${label}: projection event 错误`);
-            const isInteractionFrame = projection.schema === 'InteractionFrame/v1';
+            const isInteractionFrame = projection.schema === 'InteractionFrame/v2';
             if (isInteractionFrame) {
                 if (projection.event !== 'im:interaction:frame' || projection.render_kind !== 'message.left-dialog-list.v1') {
                     fail(`${label}: InteractionFrame 必须绑定 message.left-dialog-list surface`);
@@ -275,7 +275,7 @@ function renderMarkdown(matrix, cases, hashes) {
     }, {});
     return `# Helix IM Strict Matrix v1
 
-> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 render-ready projection（RenderNode/v1 或指定 InteractionFrame/v1）、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
+> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 render-ready projection（RenderNode/v1 或指定 InteractionFrame/v2）、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
 
 > 这张表不是“功能清单”，而是 \`UC × UI × Helix × HTTP × WS × Storage × Native\` 发布闸门。任一证据平面缺失、过期、无法关联或仅由 mock 产生，该 UC 整行即为 Red。
 

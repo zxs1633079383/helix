@@ -2,9 +2,9 @@
   "schema_version": "helix-im-command-api/v1",
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
-    "contract_epoch": 10,
-    "matrix_sha256": "d3461beb760255f6ae733e3b5f7ceccd32dca22faf8adf0c76c29e0d6786b345",
-    "matrix_semantic_sha256": "bc318cef5ef5bf0512d20fe4a40daae416e04110dc8a389e736b53a61e5850fa",
+    "contract_epoch": 11,
+    "matrix_sha256": "4bf722b0c01af93a66624ceeddc9b33e43b88e886f5b2bf8226125f784cf6401",
+    "matrix_semantic_sha256": "d4f33ee651b923a4775ed4966ea144dbe4a3b5310403362a3dd75a5ffe0cb1ef",
     "gate_count": 46,
     "command_count": 52
   },
@@ -128,7 +128,7 @@
             {
               "event": "im:interaction:frame",
               "render_kind": "message.left-dialog-list.v1",
-              "schema": "InteractionFrame/v1"
+              "schema": "InteractionFrame/v2"
             }
           ],
           "persistence": [

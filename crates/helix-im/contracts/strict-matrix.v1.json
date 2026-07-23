@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 10,
+  "contract_epoch": 11,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -339,7 +339,7 @@
         {
           "event": "im:interaction:frame",
           "render_kind": "message.left-dialog-list.v1",
-          "schema": "InteractionFrame/v1"
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],

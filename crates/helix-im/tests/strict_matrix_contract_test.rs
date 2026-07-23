@@ -383,7 +383,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 10);
+    assert_eq!(matrix.contract_epoch, 11);
 
     let create = gate(&matrix, "G-15a");
     assert!(create
@@ -551,7 +551,7 @@ fn strict_matrix_forbids_aliases_and_requires_exact_snake_case_inputs() {
         }
         for projection in &entry.projections {
             let expected_schema = if projection.event == "im:interaction:frame" {
-                "InteractionFrame/v1"
+                "InteractionFrame/v2"
             } else {
                 "RenderNode/v1"
             };

@@ -1,0 +1,28 @@
+classDiagram
+    class Angular入口["当前 Angular 入口：发起加急或点击确认"]
+    class ShellService["当前 handler/service：命名命令或 binding 转换"]
+    class CommandPort["当前 CommandPort：`im_urgent_post`"]
+    class Tauri命令["当前 Tauri command：协议转换"]
+    class Helix处理["当前 Helix action/query handler（G07）"]
+    class Tick["当前 `Tick`"]
+    class Effect["当前 `Effect`：`http_write`、`projection`"]
+    class 持久化["当前 Persist handler：message、message_receipt"]
+    class V1投影["当前 V1 projector：`message.row.v1`"]
+    class V1帧["当前 V1：`InteractionFrameV1`，`schemaVersion=1`"]
+    class V1节点["当前 V1：`RenderNode/v1`，仍可达"]
+    class V1解码["当前 V1 consumer：`normalizeLegacyFrame`"]
+    class SurfaceRuntime["当前 `ProjectionStore/SurfaceRuntime`"]
+    class 组件["当前组件：message-ui-urgent、message-ui-read-receipt、message-surface-runtime-view"]
+    Angular入口 --> ShellService
+    ShellService --> CommandPort
+    CommandPort --> Tauri命令
+    Tauri命令 --> Helix处理
+    Helix处理 --> Tick
+    Tick --> Effect
+    Effect --> 持久化
+    持久化 --> V1投影
+    V1投影 --> V1帧
+    V1帧 --> V1节点
+    V1节点 --> V1解码
+    V1解码 --> SurfaceRuntime
+    SurfaceRuntime --> 组件

@@ -1,0 +1,16 @@
+flowchart TD
+    A["当前输入：单条可见、打开回执或点击已收到"] --> B["Angular 当前入口"]
+    B --> C["V1 入口或命名命令：`im_post_read`"]
+    C --> D["Tauri 协议转换"]
+    D --> E["Helix `Tick`"]
+    E --> F["`Effect`：`http_write`、`storage_upsert`、`projection`"]
+    F --> G["Go HTTP/WS 权威事实"]
+    G --> H["当前 Persist：message_receipt"]
+    H --> I["V1 producer：`schemaVersion=1`"]
+    I --> J["`RenderNode/v1`：read.receipt.v1"]
+    J --> K["V1 decode / `normalizeLegacyFrame`"]
+    K --> L["`ProjectionStore/SurfaceRuntime`"]
+    L --> M["组件：message-ui-read-receipt、message-template-content"]
+    B -. "当前旁路：部分 Gate 直接命名 Command" .-> D
+    G -. "raw event 只能触发恢复，不得重建业务 VM" .-> L
+    I -. "缺少 `runtime/surfaceEpoch/causationId/directives` 完整 V2 合同" .-> K

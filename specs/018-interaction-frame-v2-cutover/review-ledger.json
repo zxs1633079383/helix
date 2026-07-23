@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/018-interaction-frame-v2-cutover",
-  "phase": "specifying",
-  "event_seq": 4,
-  "next_action": "rerun_r1_after_cutover_order_change",
+  "phase": "planning",
+  "event_seq": 5,
+  "next_action": "run_speckit_plan",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -12,9 +12,9 @@
   },
   "gates": {
     "r1_spec": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "afe65677a556d7c227249fc7a0cb22fb38f4269ff024cb8598d7af9a81ac384e",
+      "checked_at": "2026-07-23T10:12:04Z",
       "issues": []
     },
     "r2_plan": {
@@ -64,6 +64,12 @@
       "at": "2026-07-23T10:18:00Z",
       "kind": "phase",
       "detail": "planning->specifying: user requires V1 produce/consume cut before first full E2E; R1 invalidated"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-23T10:12:04Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
     }
   ]
 }

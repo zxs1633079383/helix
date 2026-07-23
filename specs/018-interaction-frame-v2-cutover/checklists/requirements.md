@@ -30,9 +30,10 @@
 - [x] Feature meets the measurable outcomes defined in Success Criteria
 - [x] Implementation design remains deferred to the future plan except for the explicitly requested Strict Matrix ownership map
 - [x] Strict Matrix is a separately reviewable feature artifact
+- [x] 19 per-Gate specifications cover all 25 machine Gates and link their PG, SQLite, component, tool, evidence, and two-run acceptance contracts
 - [x] Legacy deletion is gated by V2-only evidence and followed by regression
 - [x] Existing FULL GREEN evidence is not misrepresented as V2 cutover proof
 
 ## Notes
 
-- Iteration 1 passed. The specification intentionally names protocol entities because the requested feature is a protocol migration; framework-specific implementation ownership remains in `strict-matrix.md` and the future `plan.md`.
+- Iteration 2 passed after adding the per-Gate Spec index and common acceptance contract. The specification intentionally names protocol entities because the requested feature is a protocol migration; framework-specific ownership remains in `strict-matrix.md` and each Gate's linked implementation evidence files.

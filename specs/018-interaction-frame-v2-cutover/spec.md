@@ -14,6 +14,8 @@
 
 **Current Source Discovery**: [discovery.md](discovery.md)
 
+**Per-Gate Specifications**: [per-gate-spec-index.md](per-gate-spec-index.md)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - 用户在协议切换后继续完成全部 IM 交互 (Priority: P1)
@@ -127,6 +129,7 @@
 - **FR-023**: 既有 004-017 FULL GREEN 只作为业务功能基线；除非证据明确断言目标 Frame 全为 V2，否则不得继承为本 Feature 的 V2 PASS。
 - **FR-024**: 所有 hop 必须携带可对齐的 runId、gateId、requestId/operationId、causationId、transactionId、surface/scope、persist operation id 和 FrameApplied ack。
 - **FR-025**: 迁移过程不得恢复 raw reducer、producer 双写或客户端业务重算；发现缺口时必须修复对应 V2 链路。
+- **FR-026**: 每个已绑定业务 UC 必须有独立 Gate Spec，明确目标、角色、输入、数据面、组件影响、可执行工具、证据清单和首轮纯 V2/删除后二次回归标准；公共规则只从统一验收合同引用。
 
 ### Key Entities
 

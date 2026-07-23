@@ -40,87 +40,87 @@
 
 ### GS01
 
-- [ ] T021 [P] [US1] 在 `crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs` 与 cses-client `surface-runtime/__tests__/gs01-04-sync-recovery-dom.test.ts` 增加 GS01 V2-only、PersistErr、重复/乱序和 FrameApplied RED test
-- [ ] T022 [US1] 在 `crates/helix-im/src/sync/{session,increment,flow}.rs` 与 `src/surface_composer.rs` 实现 GS01 matching PersistOk 后 dialog/unread V2 snapshot
-- [ ] T023 [US1] 在 cses-client `surface-runtime/` 和 Native frame evidence 登记 GS01 V2 apply/ack/DOM、PG 与 SQLite delta
+- [X] T021 [P] [US1] 在 `crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs` 与 cses-client `surface-runtime/__tests__/gs01-04-sync-recovery-dom.test.ts` 增加 GS01 V2-only、PersistErr、重复/乱序和 FrameApplied RED test
+- [X] T022 [US1] 在 `crates/helix-im/src/sync/{session,increment,flow}.rs` 与 `src/surface_composer.rs` 实现 GS01 matching PersistOk 后 dialog/unread V2 snapshot
+- [X] T023 [US1] 在 cses-client `surface-runtime/` 和 Native frame evidence 登记 GS01 V2 apply/ack/DOM、PG 与 SQLite delta
 
 ### GS02
 
-- [ ] T024 [P] [US1] 在 Helix GS recovery test 和 cses-client 恢复 DOM test 增加 full/mixed/no_change/满批/重复/PersistErr RED test
-- [ ] T025 [US1] 在 `crates/helix-im/src/sync/{explicit,flow}.rs` 与 `src/channel/gate/{flow,commit}.rs` 实现连续 batch、message+cursor atomic persist 和 V2 compose
-- [ ] T026 [US1] 在 Native evidence collector 登记 GS02 fromSeq/nextSeq、PG event、SQLite cursor/message、FrameApplied 与 DOM
+- [X] T024 [P] [US1] 在 Helix GS recovery test 和 cses-client 恢复 DOM test 增加 full/mixed/no_change/满批/重复/PersistErr RED test
+- [X] T025 [US1] 在 `crates/helix-im/src/sync/{explicit,flow}.rs` 与 `src/channel/gate/{flow,commit}.rs` 实现连续 batch、message+cursor atomic persist 和 V2 compose
+- [X] T026 [US1] 在 Native evidence collector 登记 GS02 fromSeq/nextSeq、PG event、SQLite cursor/message、FrameApplied 与 DOM
 
 ### GS03
 
-- [ ] T027 [P] [US1] 在 `src/send/pong_compensate_tests.rs`、`tests/p4_sync_scheduler_test.rs` 和 client sync tests 增加普通 pong/重复 gap/并发/no_change/PersistErr RED test
-- [ ] T028 [US1] 在 `src/send/pong_compensate.rs` 与 `src/sync/scheduler.rs` 实现 only-gap 去重、有界队列/重试和 post-persist V2 compose
-- [ ] T029 [US1] 在 Native diagnostics/evidence collector 登记 gap decision、queue、PG head、SQLite cursor、FrameApplied 和非 gap 零请求
+- [X] T027 [P] [US1] 在 `src/send/pong_compensate_tests.rs`、`tests/p4_sync_scheduler_test.rs` 和 client sync tests 增加普通 pong/重复 gap/并发/no_change/PersistErr RED test
+- [X] T028 [US1] 在 `src/send/pong_compensate.rs` 与 `src/sync/scheduler.rs` 实现 only-gap 去重、有界队列/重试和 post-persist V2 compose
+- [X] T029 [US1] 在 Native diagnostics/evidence collector 登记 gap decision、queue、PG head、SQLite cursor、FrameApplied 和非 gap 零请求
 
 ### GS04
 
-- [ ] T030 [P] [US1] 在 `tests/uc45_unknown_channel_post_test.rs`、GS recovery test 和 client DOM test 增加 unknown/forbidden/PersistErr/pre-commit no-send RED test
-- [ ] T031 [US1] 在 `src/channel/gate/flow.rs`、`src/sync/flow.rs`、`src/surface_composer.rs` 实现 hydrate write-set 和 summary/composer/timeline V2 bundle
-- [ ] T032 [US1] 在 client facade/components/evidence collector 验证 GS04 PG/SQLite identity、binding 权限、FrameApplied 和三 Surface DOM
+- [X] T030 [P] [US1] 在 `tests/uc45_unknown_channel_post_test.rs`、GS recovery test 和 client DOM test 增加 unknown/forbidden/PersistErr/pre-commit no-send RED test
+- [X] T031 [US1] 在 `src/channel/gate/flow.rs`、`src/sync/flow.rs`、`src/surface_composer.rs` 实现 hydrate write-set 和 summary/composer/timeline V2 bundle
+- [X] T032 [US1] 在 client facade/components/evidence collector 验证 GS04 PG/SQLite identity、binding 权限、FrameApplied 和三 Surface DOM
 
 ### G01-G02
 
-- [ ] T033 [P] [US1] 在 `tests/send_test.rs`、`f1_send_http_reconcile_test.rs` 与 client composer/runtime tests 增加 G01 binding/HTTP2xx/duplicate/late/PersistErr RED test
-- [ ] T034 [US1] 在 `src/module/action.rs`、`src/send/{flow,pending,reconcile}.rs`、`src/surface_composer.rs` 实现 G01 temporary→canonical V2-only flow
-- [ ] T035 [US1] 在 client composer/projection/runtime/evidence collector 验证 G01 clear-after-apply、双用户 DOM 和双库 identity
-- [ ] T036 [P] [US1] 在 Helix contract/send tests 与 client content/codec tests 增加 G02 DOCUMENT typed/unknown/missing/failure RED test
-- [ ] T037 [US1] 在 `src/interaction_frame.rs` 和 send content normalize 实现 G02 typed document VM 并复用 G01 settle
-- [ ] T038 [US1] 在 client contract/document component/evidence collector 删除 raw props business branch 并登记 G02 双库/双用户证据
+- [X] T033 [P] [US1] 在 `tests/send_test.rs`、`f1_send_http_reconcile_test.rs` 与 client composer/runtime tests 增加 G01 binding/HTTP2xx/duplicate/late/PersistErr RED test
+- [X] T034 [US1] 在 `src/module/action.rs`、`src/send/{flow,pending,reconcile}.rs`、`src/surface_composer.rs` 实现 G01 temporary→canonical V2-only flow
+- [X] T035 [US1] 在 client composer/projection/runtime/evidence collector 验证 G01 clear-after-apply、双用户 DOM 和双库 identity
+- [X] T036 [P] [US1] 在 Helix contract/send tests 与 client content/codec tests 增加 G02 DOCUMENT typed/unknown/missing/failure RED test
+- [X] T037 [US1] 在 `src/interaction_frame.rs` 和 send content normalize 实现 G02 typed document VM 并复用 G01 settle
+- [X] T038 [US1] 在 client contract/document component/evidence collector 删除 raw props business branch 并登记 G02 双库/双用户证据
 
 ### G04-G09
 
-- [ ] T039 [P] [US1] 在 Helix/client G04 tests 增加 online/offline/权限/重复/PersistErr RED test
-- [ ] T040 [US1] 在 Helix revoke normalize/persist/composer 实现 G04/G04a 共同撤回 V2 事实
-- [ ] T041 [US1] 在 client action/message/thread/evidence 验证 G04 旧 binding 失效和双库/双用户撤回态
-- [ ] T042 [P] [US1] 在 Helix/client G05 tests 增加多目标/部分失败/重复/late RED test
-- [ ] T043 [US1] 在 `src/forward.rs`、render-ready forward 和 composer 实现 G05 target-scoped V2 终局
-- [ ] T044 [US1] 在 client forward overlay/runtime/evidence 验证 G05 逐目标双库/observer terminal
-- [ ] T045 [P] [US1] 在 Helix/client G06 tests 增加 reaction 并发/重复/切换/拒绝/PersistErr RED test
-- [ ] T046 [US1] 在 Helix quick-reply normalize、timeline/thread projector/composer 实现 G06 权威 V2 聚合
-- [ ] T047 [US1] 在 client quick-actions/action-menu/evidence 验证 G06 双库聚合与双用户状态
-- [ ] T048 [P] [US1] 在 Helix/client G07 tests 增加 urgent/confirm/非目标/重复/PersistErr RED test
-- [ ] T049 [US1] 在 Helix urgent/receipt projector/composer 实现 G07 分离 binding 和 viewer V2 Frame
-- [ ] T050 [US1] 在 client urgent/receipt/evidence 验证 G07 PG/SQLite receipt 与双用户按钮/人数
-- [ ] T051 [P] [US1] 在 Helix/client G08 tests 增加 owner/observer/过去时间/重复/PersistErr RED test
-- [ ] T052 [US1] 在 Helix schedule create/hydrate/storage/composer 实现 G08 owner-scoped V2 Frame
-- [ ] T053 [US1] 在 client schedule/evidence 验证 G08 双库、owner banner 和 observer no-leak
-- [ ] T054 [P] [US1] 在 Helix/client G09 tests 增加跨 actor/重复/失败/PersistErr RED test
-- [ ] T055 [US1] 在 Helix schedule cancel/storage/composer 实现 G09 owner terminal V2 Frame
-- [ ] T056 [US1] 在 client schedule/evidence 验证 G09 双库 terminal、owner DOM 和重复零 mutation
+- [X] T039 [P] [US1] 在 Helix/client G04 tests 增加 online/offline/权限/重复/PersistErr RED test
+- [X] T040 [US1] 在 Helix revoke normalize/persist/composer 实现 G04/G04a 共同撤回 V2 事实
+- [X] T041 [US1] 在 client action/message/thread/evidence 验证 G04 旧 binding 失效和双库/双用户撤回态
+- [X] T042 [P] [US1] 在 Helix/client G05 tests 增加多目标/部分失败/重复/late RED test
+- [X] T043 [US1] 在 `src/forward.rs`、render-ready forward 和 composer 实现 G05 target-scoped V2 终局
+- [X] T044 [US1] 在 client forward overlay/runtime/evidence 验证 G05 逐目标双库/observer terminal
+- [X] T045 [P] [US1] 在 Helix/client G06 tests 增加 reaction 并发/重复/切换/拒绝/PersistErr RED test
+- [X] T046 [US1] 在 Helix quick-reply normalize、timeline/thread projector/composer 实现 G06 权威 V2 聚合
+- [X] T047 [US1] 在 client quick-actions/action-menu/evidence 验证 G06 双库聚合与双用户状态
+- [X] T048 [P] [US1] 在 Helix/client G07 tests 增加 urgent/confirm/非目标/重复/PersistErr RED test
+- [X] T049 [US1] 在 Helix urgent/receipt projector/composer 实现 G07 分离 binding 和 viewer V2 Frame
+- [X] T050 [US1] 在 client urgent/receipt/evidence 验证 G07 PG/SQLite receipt 与双用户按钮/人数
+- [X] T051 [P] [US1] 在 Helix/client G08 tests 增加 owner/observer/过去时间/重复/PersistErr RED test
+- [X] T052 [US1] 在 Helix schedule create/hydrate/storage/composer 实现 G08 owner-scoped V2 Frame
+- [X] T053 [US1] 在 client schedule/evidence 验证 G08 双库、owner banner 和 observer no-leak
+- [X] T054 [P] [US1] 在 Helix/client G09 tests 增加跨 actor/重复/失败/PersistErr RED test
+- [X] T055 [US1] 在 Helix schedule cancel/storage/composer 实现 G09 owner terminal V2 Frame
+- [X] T056 [US1] 在 client schedule/evidence 验证 G09 双库 terminal、owner DOM 和重复零 mutation
 
 ### G10-G16
 
-- [ ] T057 [P] [US1] 在 Helix/client G10 tests 增加 complete/incomplete/end/并发/stale/PersistErr RED test
-- [ ] T058 [US1] 在 Helix render-ready/timeline/composer 实现 G10 bounded local-first/backfill V2 window
-- [ ] T059 [US1] 在 client timeline/anchor/evidence 验证 G10 零出网、双库 window、DOM 去重和 anchor
-- [ ] T060 [P] [US1] 在 Helix/client G11 tests 增加 local/remote/not-found/stale/PersistErr RED test
-- [ ] T061 [US1] 在 Helix locate/timeline/composer 实现 G11 context Frame 和 post-commit reveal
-- [ ] T062 [US1] 在 client runtime/anchor/evidence 验证 G11 target、FrameApplied 顺序和 DOM focus
-- [ ] T063 [P] [US1] 在 Helix/client G12 tests 增加分页/缺 root/循环/重复/PersistErr RED test
-- [ ] T064 [US1] 在 Helix replies/thread/timeline/composer 实现 G12 三锚 graph V2 compose
-- [ ] T065 [US1] 在 client reply/thread/evidence 验证 G12 双库三锚、共享 identity 和 DOM
-- [ ] T066 [P] [US1] 在 Helix/client G13 tests 增加单调/重复/节流/viewer/PersistErr RED test
-- [ ] T067 [US1] 在 Helix read/projectors/composer 实现 G13 boundary PersistOk 后三 Surface V2 update
-- [ ] T068 [US1] 在 client read/dialog/evidence 验证 G13 双库 boundary、双用户未读和零乐观清零
-- [ ] T069 [P] [US1] 在 Helix/client G14 tests 增加重复/跨 post/viewer/语义混写/PersistErr RED test
-- [ ] T070 [US1] 在 Helix receipt/template projectors/composer 实现 G14/G14a 分离 V2 状态
-- [ ] T071 [US1] 在 client receipt/template/evidence 验证 G14 双库、author/reader DOM 和术语
-- [ ] T072 [P] [US1] 在 Helix/client G15 tests 增加 topic/channel/重复/无效成员/PersistErr RED test
-- [ ] T073 [US1] 在 Helix channel-create/topic/reply projectors/composer 实现 G15/G15a entity bundle V2 compose
-- [ ] T074 [US1] 在 client create-topic/chat/evidence 验证 G15 双库 identity、membership 和首批 Surface
-- [ ] T075 [P] [US1] 在 Helix/client G16 tests 增加 close/leave/remove/settings/conflict/PersistErr RED test
-- [ ] T076 [US1] 在 Helix channel admin/member/settings projectors/composer 实现 G16 viewer-specific terminal V2 Frame
-- [ ] T077 [US1] 在 client governance/runtime/evidence 验证 G16 双库 lifecycle 与 actor/target/observer DOM
+- [X] T057 [P] [US1] 在 Helix/client G10 tests 增加 complete/incomplete/end/并发/stale/PersistErr RED test
+- [X] T058 [US1] 在 Helix render-ready/timeline/composer 实现 G10 bounded local-first/backfill V2 window
+- [X] T059 [US1] 在 client timeline/anchor/evidence 验证 G10 零出网、双库 window、DOM 去重和 anchor
+- [X] T060 [P] [US1] 在 Helix/client G11 tests 增加 local/remote/not-found/stale/PersistErr RED test
+- [X] T061 [US1] 在 Helix locate/timeline/composer 实现 G11 context Frame 和 post-commit reveal
+- [X] T062 [US1] 在 client runtime/anchor/evidence 验证 G11 target、FrameApplied 顺序和 DOM focus
+- [X] T063 [P] [US1] 在 Helix/client G12 tests 增加分页/缺 root/循环/重复/PersistErr RED test
+- [X] T064 [US1] 在 Helix replies/thread/timeline/composer 实现 G12 三锚 graph V2 compose
+- [X] T065 [US1] 在 client reply/thread/evidence 验证 G12 双库三锚、共享 identity 和 DOM
+- [X] T066 [P] [US1] 在 Helix/client G13 tests 增加单调/重复/节流/viewer/PersistErr RED test
+- [X] T067 [US1] 在 Helix read/projectors/composer 实现 G13 boundary PersistOk 后三 Surface V2 update
+- [X] T068 [US1] 在 client read/dialog/evidence 验证 G13 双库 boundary、双用户未读和零乐观清零
+- [X] T069 [P] [US1] 在 Helix/client G14 tests 增加重复/跨 post/viewer/语义混写/PersistErr RED test
+- [X] T070 [US1] 在 Helix receipt/template projectors/composer 实现 G14/G14a 分离 V2 状态
+- [X] T071 [US1] 在 client receipt/template/evidence 验证 G14 双库、author/reader DOM 和术语
+- [X] T072 [P] [US1] 在 Helix/client G15 tests 增加 topic/channel/重复/无效成员/PersistErr RED test
+- [X] T073 [US1] 在 Helix channel-create/topic/reply projectors/composer 实现 G15/G15a entity bundle V2 compose
+- [X] T074 [US1] 在 client create-topic/chat/evidence 验证 G15 双库 identity、membership 和首批 Surface
+- [X] T075 [P] [US1] 在 Helix/client G16 tests 增加 close/leave/remove/settings/conflict/PersistErr RED test
+- [X] T076 [US1] 在 Helix channel admin/member/settings projectors/composer 实现 G16 viewer-specific terminal V2 Frame
+- [X] T077 [US1] 在 client governance/runtime/evidence 验证 G16 双库 lifecycle 与 actor/target/observer DOM
 
 ## Phase 4: User Story 2 - V2 Is The Only Maintained Protocol (Priority: P1)
 
 **Goal**: 先证明运行时纯 V2，再物理删除 V1 并保持回归。
 
-- [ ] T078 [US2] 将 T021-T077 的 focused evidence 汇总到 `specs/018-interaction-frame-v2-cutover/verification.md`，要求 19/19 READY 且 pin/hash 一致
+- [X] T078 [US2] 将 T021-T077 的 focused evidence 汇总到 `specs/018-interaction-frame-v2-cutover/verification.md`，要求 19/19 READY 且 pin/hash 一致
 - [ ] T079 [US2] 在 cses-client 构建单一 `V2OnlyFirstRun` Native candidate，并通过 25-Gate profile 连续执行所有 Gate
 - [ ] T080 [US2] 运行 collect/generate-matrix/reduce，要求 25/25、fail=0、skip=0、v1Frames=0、rawBusinessFallbacks=0、FrameApplied 完整
 - [ ] T081 [US2] 根据 `discovery.md` 和首轮 evidence 审批 V1 deletion inventory，区分 InteractionFrame/RenderNode V1 与合法独立版本

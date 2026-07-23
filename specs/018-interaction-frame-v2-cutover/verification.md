@@ -113,3 +113,49 @@ Native/PG/SQLite/DOM 全链路已经通过。
 
 `SharedV2Ready` 仅表示共享协议、工具和证据合同可进入逐 Gate 实现；尚未产生
 25 Gate 的真实 PG/SQLite/双用户 DOM/截图证据，V1 删除仍被 T079-T080 硬阻塞。
+
+## Phase 3 Focused Gate Readiness
+
+**Captured**: `2026-07-23T05:18:00-07:00`
+
+T021-T077 对应的生产实现与 RED/回放测试在本 Feature 创建前已经存在；本轮没有
+复制状态机，而是用 V2-only writer/consumer、统一 evidence manifest 和下列 focused
+回归重新收口。`READY_FOR_FINAL_E2E` 只表示可以进入同一 Native candidate，不能替代
+真实 Go、PG、SQLite、FrameApplied、DOM 与截图证据。
+
+| Dimension | Helix focused contract | client focused contract | Status |
+|---|---|---|---|
+| GS01 | `gs01_04_v2_sync_recovery_test` | `gs01-04-sync-recovery-dom.test.ts` | READY |
+| GS02 | `gs01_04_v2_sync_recovery_test` | `gs01-04-sync-recovery-dom.test.ts` | READY |
+| GS03 | `p4_sync_scheduler_test` + GS recovery | `gs01-04-sync-recovery-dom.test.ts` | READY |
+| GS04 | `uc45_unknown_channel_post_test` + GS recovery | `gs01-04-sync-recovery-dom.test.ts` | READY |
+| G01 | `send_test` + `f1_send_http_reconcile_test` | composer/runtime/view focused suites | READY |
+| G02 | InteractionFrame codec/content contracts | typed document view test | READY |
+| G04 | `g04_revoke_interaction_test` | runtime view/action contracts | READY |
+| G05 | `g05_forward_interaction_test` | runtime view/forward contracts | READY |
+| G06 | `g06_reaction_interaction_test` | runtime view/quick-action contracts | READY |
+| G07 | `g07_urgent_interaction_test` | runtime view/urgent contracts | READY |
+| G08 | `g08_schedule_create_interaction_test` | runtime view/schedule contracts | READY |
+| G09 | `g09_schedule_cancel_interaction_test` | runtime view/schedule contracts | READY |
+| G10 | `g10_timeline_window_interaction_test` | runtime view/anchor contracts | READY |
+| G11 | `g11_locate_interaction_test` | runtime directive/view contracts | READY |
+| G12 | `g12_reply_thread_interaction_test` | runtime view/thread contracts | READY |
+| G13 | `g13_channel_read_interaction_test` | `g13-channel-read-interaction.test.ts` | READY |
+| G14 | `g14_receipt_template_interaction_test` | `g14-receipt-template-interaction.test.ts` | READY |
+| G15 | `g15_topic_interaction_test` | `g15-topic-interaction.test.ts` | READY |
+| G16 | `g16_governance_interaction_test` | `g16-governance-interaction.test.ts` | READY |
+
+### Focused Results
+
+- Helix 单次 18-target Gate 回归：59 tests PASS，0 fail。
+- client 单次 8-suite Gate/DOM 回归：首次暴露 G14 收据 Surface 未正式渲染、
+  G16 close grant 未进入 menu 两个缺口；修复后 8/8 suites、38/38 tests PASS。
+- G14 forbidden Frame 不再输出成员 identity，template received 与尚未接入的
+  business confirmation 分开呈现。
+- G16 只渲染 Helix enabled 的 close/leave grant；settings 保留现有只读 shell
+  入口；disabled leave 不出现在 DOM。
+- formal Helix pin 仍为 `d899a6033c90a153b5b009a62bee0e3a17dd9ad8`，
+  Strict Matrix epoch 11，fixture/source-pin 9/9 一致。
+
+**Verdict**: `19/19 READY_FOR_FINAL_E2E`。下一硬门是 T079-T080 的首次
+`V2OnlyFirstRun`；在其 25/25 产品链证据全绿前，V1 deletion admission 仍为 DENY。

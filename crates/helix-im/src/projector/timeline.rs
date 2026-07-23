@@ -154,7 +154,9 @@ impl TimelineProjector {
                     slot: slot_key.clone(),
                 })?;
         let base_revision = slot.revision;
-        let view = self.build_view(&request, render_ready_rows)?;
+        let previous_view = slot.view.clone();
+        let mut view = self.build_view(&request, render_ready_rows)?;
+        preserve_receipt_snapshot(&previous_view, &mut view);
         let revision = next_revision(base_revision)?;
         let mutation = SurfaceMutation {
             surface: SurfaceId::MessageTimeline,
@@ -357,6 +359,52 @@ impl TimelineProjector {
     }
 }
 
+fn preserve_receipt_snapshot(previous: &TimelineWindowVm, next: &mut TimelineWindowVm) {
+    let receipts: BTreeMap<&str, &BTreeMap<String, SurfaceDataVm>> = previous
+        .items
+        .iter()
+        .filter_map(|item| match &item.read_receipt {
+            SurfaceDataVm::Record(receipt) => Some((item.id.as_str(), receipt)),
+            _ => None,
+        })
+        .collect();
+
+    for item in &mut next.items {
+        let Some(previous_receipt) = receipts.get(item.id.as_str()) else {
+            continue;
+        };
+        let SurfaceDataVm::Record(current_receipt) = &item.read_receipt else {
+            continue;
+        };
+        let mut merged = (*previous_receipt).clone();
+        merged.extend(current_receipt.clone());
+        let Some((reader_count, unread_count)) = merged.get("readBits").and_then(|value| {
+            let SurfaceDataVm::String(read_bits) = value else {
+                return None;
+            };
+            read_bits
+                .bytes()
+                .all(|bit| bit == b'0' || bit == b'1')
+                .then(|| {
+                    let reader_count = read_bits.bytes().filter(|bit| *bit == b'1').count();
+                    (reader_count, read_bits.len() - reader_count)
+                })
+        }) else {
+            item.read_receipt = SurfaceDataVm::Record(merged);
+            continue;
+        };
+        merged.insert(
+            "readerCount".to_string(),
+            SurfaceDataVm::Number(serde_json::Number::from(reader_count as u64)),
+        );
+        merged.insert(
+            "unreadCount".to_string(),
+            SurfaceDataVm::Number(serde_json::Number::from(unread_count as u64)),
+        );
+        item.read_receipt = SurfaceDataVm::Record(merged);
+    }
+}
+
 fn enrich_reply_threads(items: &mut [MessageVm]) {
     let mut children: BTreeMap<String, Vec<ReplyThreadPreviewVm>> = BTreeMap::new();
     for item in items.iter() {
@@ -533,7 +581,7 @@ pub(crate) fn message_from_render_ready(
             )?,
             reply_thread_from_row(row),
             reactions_from_props(props),
-            optional_data(row.get("topic"))?,
+            topic_link_from_row(row, expected_channel_id, &id)?,
         )
     };
     Ok(MessageVm {
@@ -590,6 +638,55 @@ fn quick_actions_from_row(row: &Value) -> Vec<MessageQuickActionVm> {
             .then_some(action)
     })
     .collect()
+}
+
+fn topic_link_from_row(
+    row: &Value,
+    expected_channel_id: &str,
+    message_id: &str,
+) -> Result<Option<SurfaceDataVm>, TimelineProjectionError> {
+    let Some(topic) = row.get("topic").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let Some(topic_channel_id) = topic
+        .get("topicChannelId")
+        .or_else(|| topic.get("channelId"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(title) = topic
+        .get("title")
+        .or_else(|| topic.get("displayName"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        // A bare Go `topic.channelId` is a durable relation, but not a closed
+        // TopicLink VM. Keep the message renderable until Helix can join the
+        // authoritative topic dialog metadata.
+        return Ok(None);
+    };
+    let root_message_id = topic
+        .get("rootMessageId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(message_id);
+    let parent_channel_id = topic
+        .get("parentChannelId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(expected_channel_id);
+    surface_data(
+        &serde_json::json!({
+            "parentChannelId": parent_channel_id,
+            "topicChannelId": topic_channel_id,
+            "rootMessageId": root_message_id,
+            "title": title,
+        }),
+        0,
+    )
+    .map(Some)
 }
 
 fn reply_thread_from_row(row: &Value) -> Option<ReplyThreadSummaryVm> {
@@ -717,8 +814,13 @@ fn content_from_row(
     }
     if matches!(
         kind.as_str(),
-        "NOTICE" | "SYSTEM" | "SYSTEN" | "MEETING_NOTICE" | "TODO_NOTICE"
-            | "APPROVAL_NOTICE" | "ANNOUNCEMENT"
+        "NOTICE"
+            | "SYSTEM"
+            | "SYSTEN"
+            | "MEETING_NOTICE"
+            | "TODO_NOTICE"
+            | "APPROVAL_NOTICE"
+            | "ANNOUNCEMENT"
     ) {
         let event_type = row_string(props, &["eventType", "event_type", "type"]);
         let event_kind = match event_type.to_ascii_lowercase().as_str() {
@@ -1133,6 +1235,33 @@ mod tests {
             receipt.get("snapshotId"),
             Some(&SurfaceDataVm::String("snapshot-1".to_string()))
         );
+
+        let mut refreshed = row(1);
+        refreshed["readBits"] = serde_json::json!("1");
+        projector
+            .patch_from_render_ready(
+                TimelineWindowRequest::latest("channel-1"),
+                &[refreshed],
+                None,
+            )
+            .unwrap();
+        let view = projector.current_view(&scope).unwrap();
+        let SurfaceDataVm::Record(receipt) = &view.items[0].read_receipt else {
+            panic!("receipt record")
+        };
+        assert_eq!(
+            receipt.get("snapshotId"),
+            Some(&SurfaceDataVm::String("snapshot-1".to_string())),
+            "timeline readback must preserve the queried member snapshot"
+        );
+        assert_eq!(
+            receipt.get("readerCount"),
+            Some(&SurfaceDataVm::Number(serde_json::Number::from(1))),
+        );
+        assert_eq!(
+            receipt.get("unreadCount"),
+            Some(&SurfaceDataVm::Number(serde_json::Number::from(0))),
+        );
     }
 
     #[test]
@@ -1200,6 +1329,34 @@ mod tests {
     }
 
     #[test]
+    fn topic_relation_requires_and_normalizes_a_closed_topic_link() {
+        let mut source = row(1);
+        source["topic"] = serde_json::json!({"channelId":"topic-1"});
+        let unresolved =
+            message_from_render_ready(&source, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("bare topic relation keeps the timeline row renderable");
+        assert!(unresolved.topic_link.is_none());
+
+        source["topic"] = serde_json::json!({
+            "channelId":"topic-1",
+            "displayName":"design review",
+        });
+        let resolved =
+            message_from_render_ready(&source, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("closed topic link");
+        let encoded = serde_json::to_value(resolved).expect("serialize topic link");
+        assert_eq!(
+            encoded["topicLink"],
+            serde_json::json!({
+                "parentChannelId":"channel-1",
+                "topicChannelId":"topic-1",
+                "rootMessageId":"message-1",
+                "title":"design review",
+            })
+        );
+    }
+
+    #[test]
     fn recalled_message_is_a_terminal_non_interactive_system_row() {
         let mut source = row(1);
         source["revoke"] = serde_json::json!(true);
@@ -1257,10 +1414,9 @@ mod tests {
             "users": [{"id": "678", "name": "擎天柱"}]
         });
 
-        let message = message_from_render_ready(&source, "channel-1", 1, false, || {
-            Ok("unused".to_string())
-        })
-        .expect("notice member leave");
+        let message =
+            message_from_render_ready(&source, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("notice member leave");
         let encoded = serde_json::to_value(&message).expect("serialize member leave");
 
         assert_eq!(encoded["content"]["kind"], "systemEvent");

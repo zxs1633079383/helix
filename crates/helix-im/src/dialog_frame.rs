@@ -205,6 +205,21 @@ impl DialogListFrameState {
         self.scope.as_ref()
     }
 
+    /// Resolve the already materialized topic metadata used to close a root message's
+    /// `TopicLinkVm`. The dialog frame is authoritative Helix state here; callers must not
+    /// ask the renderer to join a raw `topic.channelId` back to a channel row.
+    pub(crate) fn topic_link_metadata(&self, topic_channel_id: &str) -> Option<(String, String)> {
+        let row = self.rows_by_channel.get(topic_channel_id)?;
+        if row.channel_kind != "topic" || row.title.is_empty() {
+            return None;
+        }
+        let root_message_id = row.root_message_id.as_deref()?.trim();
+        if root_message_id.is_empty() {
+            return None;
+        }
+        Some((root_message_id.to_string(), row.title.clone()))
+    }
+
     /// Materialize the already committed dialog/unread slots for a V2 recovery
     /// frame.  This is a read-only conversion: it never increments revisions
     /// and therefore cannot turn a storage failure into visible state.
@@ -1184,8 +1199,8 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
                 "updateAt",
             ],
         )
-            .unwrap_or(0)
-            .max(0) as u64,
+        .unwrap_or(0)
+        .max(0) as u64,
         purpose: text(value, &["purpose"]),
         header: text(value, &["header"]),
         avatar,
@@ -2121,6 +2136,10 @@ mod tests {
 
         assert_eq!(row["channelKind"], "topic");
         assert_eq!(row["rootMessageId"], "root-post-1");
+        assert_eq!(
+            state.topic_link_metadata("topic-1"),
+            Some(("root-post-1".to_string(), "design review".to_string()))
+        );
     }
 
     #[test]
@@ -2251,7 +2270,10 @@ mod tests {
         let projected = rows_from_dialog_scan(&rows).expect("dialog scan projects");
 
         assert_eq!(projected[0].settings_version, 1_784_767_436_979);
-        assert_eq!(projected[0].purpose.as_deref(), Some("authoritative purpose"));
+        assert_eq!(
+            projected[0].purpose.as_deref(),
+            Some("authoritative purpose")
+        );
     }
 
     #[test]

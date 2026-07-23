@@ -630,9 +630,14 @@ impl ImModule {
             causation_id.clone()
         };
         let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
-        let shaped = crate::render_ready::shape_message_rows_for_viewer(
+        let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows_asc,
             self.config.auth_user_id.as_str(),
+        );
+        close_topic_links(
+            &mut shaped,
+            request.channel_id.as_str(),
+            &self.state.dialog_list_frame,
         );
         let rows = shaped.as_array().ok_or_else(|| {
             ImError::Parse("render-ready timeline rows must be an array".to_string())
@@ -749,6 +754,55 @@ impl ImModule {
         .map_err(|error| ImError::Serialize(error.to_string()))?;
         crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))
+    }
+}
+
+fn close_topic_links(
+    shaped: &mut Value,
+    parent_channel_id: &str,
+    dialogs: &crate::dialog_frame::DialogListFrameState,
+) {
+    let Some(rows) = shaped.as_array_mut() else {
+        return;
+    };
+    for row in rows {
+        let Some(row_object) = row.as_object_mut() else {
+            continue;
+        };
+        let Some(topic_channel_id) = row_object
+            .get("topic")
+            .and_then(Value::as_object)
+            .and_then(|topic| {
+                topic
+                    .get("topicChannelId")
+                    .or_else(|| topic.get("channelId"))
+            })
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let Some((root_message_id, title)) = dialogs.topic_link_metadata(&topic_channel_id) else {
+            continue;
+        };
+        let row_message_id = row_object
+            .get("msgId")
+            .or_else(|| row_object.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if row_message_id != root_message_id {
+            continue;
+        }
+        row_object.insert(
+            "topic".to_string(),
+            serde_json::json!({
+                "parentChannelId": parent_channel_id,
+                "topicChannelId": topic_channel_id,
+                "rootMessageId": root_message_id,
+                "title": title,
+            }),
+        );
     }
 }
 

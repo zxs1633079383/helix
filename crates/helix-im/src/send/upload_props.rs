@@ -11,7 +11,7 @@ pub use durable::{
     decode_scan as decode_durable_scan, delete_op as durable_delete_op,
     upsert_many as durable_upsert_many, upsert_op as durable_upsert_op,
 };
-pub use persistence::{props_persist_op, sanitized_for_persistence};
+pub use persistence::{media_send_state_persist_op, props_persist_op, sanitized_for_persistence};
 pub use plan::build_upload_plan;
 pub use request::{
     complete_upload_request, file_upload_request, media_upload_request, parse_complete_reply,
@@ -105,7 +105,6 @@ pub enum PendingMediaOp {
 #[derive(Debug, Clone)]
 pub enum FailedMediaOp {
     Prepare(PendingMediaPrepare),
-    Put(PendingMediaPut),
     Complete(PendingMediaPut),
 }
 
@@ -113,14 +112,14 @@ impl FailedMediaOp {
     pub fn temporary_id(&self) -> &TemporaryId {
         match self {
             Self::Prepare(pending) => &pending.temporary_id,
-            Self::Put(pending) | Self::Complete(pending) => &pending.temporary_id,
+            Self::Complete(pending) => &pending.temporary_id,
         }
     }
 
     pub fn target(&self) -> &UploadTarget {
         match self {
             Self::Prepare(pending) => &pending.target,
-            Self::Put(pending) | Self::Complete(pending) => &pending.target,
+            Self::Complete(pending) => &pending.target,
         }
     }
 }

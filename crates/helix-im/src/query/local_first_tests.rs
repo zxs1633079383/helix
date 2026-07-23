@@ -991,6 +991,335 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
 }
 
 #[test]
+fn retry_action_invocation_runs_canonical_media_retry_after_acceptance_and_releases_on_frame() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let channel_id = channel_id();
+    let temporary_id = crate::state::TemporaryId("tmp-action-retry-file".to_string());
+    let mut pending = crate::pending_send::PendingSend::new(
+        temporary_id.clone(),
+        helix_core::TimerId::from_raw(91),
+        None,
+    );
+    pending.status = crate::state::SendStatus::UnSend;
+    pending.upload_failed = true;
+    pending.remaining_uploads = 1;
+    pending.body = Some(serde_json::json!({
+        "temporaryId": temporary_id.0,
+        "channelId": channel_id.as_str(),
+        "type": "FILE",
+        "message": "",
+        "props": {
+            "file": {
+                "name": "report.pdf",
+                "upload": {"status": "failed"}
+            }
+        }
+    }));
+    module
+        .state
+        .pending_sends
+        .insert(temporary_id.clone(), pending);
+    module.state.failed_media_ops.insert(
+        (
+            temporary_id.clone(),
+            crate::send::upload_props::UploadTarget::File,
+        ),
+        crate::send::upload_props::FailedMediaOp::Prepare(
+            crate::send::upload_props::PendingMediaPrepare {
+                temporary_id: temporary_id.clone(),
+                channel_id,
+                target: crate::send::upload_props::UploadTarget::File,
+                input: crate::send::upload_props::MediaInput {
+                    local_path: "/tmp/report.pdf".to_string(),
+                    file_name: "report.pdf".to_string(),
+                    content_type: "application/pdf".to_string(),
+                    size: 9,
+                    sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
+                },
+            },
+        ),
+    );
+
+    let rows_desc = vec![serde_json::json!({
+        "temporary_id": temporary_id.0,
+        "channel_id": channel_id.as_str(),
+        "user_id": "viewer-1",
+        "create_at": 10,
+        "message": "",
+        "type": "FILE",
+        "props": {
+            "file": {
+                "name": "report.pdf",
+                "upload": {"status": "failed"}
+            }
+        },
+        "send_status": "unsend",
+        "upload_progress_percent": 0
+    })];
+    let mut query = request(20);
+    query.window_token = "retry-action-window".to_string();
+    let Effect::Emit { event } = module
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None)
+        .expect("failed media timeline grants retry")
+    else {
+        panic!("failed media query must emit a timeline frame")
+    };
+    let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&event["data"]).unwrap(),
+    )
+    .unwrap();
+    let mutation = &frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &mutation.mutation
+    else {
+        panic!("initial retry timeline must be a snapshot")
+    };
+    let binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "retry")
+        .expect("failed media exposes retry capability")
+        .clone();
+    assert!(binding.enabled);
+    assert!(!binding.action_ref.contains(temporary_id.0.as_str()));
+
+    let envelope = crate::interaction_frame::ActionInvocationEnvelope {
+        schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        request_id: "retry-action-request".to_string(),
+        actor_id: "viewer-1".to_string(),
+        surface: mutation.surface,
+        scope: mutation.scope.clone(),
+        surface_epoch: binding.surface_epoch,
+        observed_revision: mutation.revision,
+        invocation: crate::interaction_frame::ActionInvocation {
+            action_ref: binding.action_ref.clone(),
+            input: std::collections::BTreeMap::new(),
+        },
+    };
+
+    let mut invalid = envelope.clone();
+    invalid.request_id = "retry-action-invalid-input".to_string();
+    invalid.invocation.input.insert(
+        "unexpected".to_string(),
+        crate::interaction_frame::SurfaceDataVm::String("value".to_string()),
+    );
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&invalid).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_001,
+            &mut sink,
+        )
+        .expect("non-empty retry input is rejected as a receipt");
+    let rejected = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("invalid retry invocation emits a receipt");
+    assert_eq!(rejected["data"]["status"], "rejected");
+    assert_eq!(rejected["data"]["validationErrors"][0]["field"], "input");
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Http { .. } | Effect::Persist { .. })));
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.causation_id.as_deref()),
+        None,
+        "prepare rejection must not mutate pending media"
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_002,
+            &mut sink,
+        )
+        .expect("accepted retry invokes the canonical local command");
+    let accepted = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("accepted retry publishes a receipt");
+    assert_eq!(accepted["data"]["status"], "accepted");
+    assert!(sink.as_slice().iter().all(|effect| {
+        emitted_event(effect).is_none_or(|event| event["event"] != "im:interaction:frame")
+    }));
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.causation_id.as_deref()),
+        Some("retry-action-request")
+    );
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.window_token.as_deref()),
+        Some("retry-action-window"),
+        "accepted retry must freeze the granting window for later progress and terminal frames"
+    );
+    let retry_persist_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::BatchUpsert(spec)
+                            if spec.table == "message"
+                                && spec.rows.iter().flatten().any(|(column, value)| {
+                                    column == "send_status"
+                                        && matches!(
+                                            value,
+                                            helix_core::effect::SqlValue::Text(status)
+                                                if status == "sending"
+                                        )
+                                })
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("canonical im_retry_send persists the sending state");
+    assert_eq!(
+        module.state.corr_map.get(&retry_persist_corr),
+        Some(
+            &crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                window_token: Some("retry-action-window".to_string()),
+                causation_id: Some("retry-action-request".to_string()),
+            }
+        ),
+        "accepted retry must retain the exact timeline scope until PersistOk"
+    );
+    assert!(sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Http { req, .. } if req.url.ends_with("/media/upload/prepare")
+    )));
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: retry_persist_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes::default()),
+            },
+            1_003,
+            &mut sink,
+        )
+        .expect("retry sending PersistOk schedules causal timeline readback");
+    let scan_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::Scan(spec) if spec.table == "message"
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("retry state re-enters local-first timeline projection");
+
+    sink.clear();
+    let sending_rows = serde_json::json!([{
+        "temporary_id": temporary_id.0,
+        "channel_id": channel_id.as_str(),
+        "user_id": "viewer-1",
+        "create_at": 10,
+        "message": "",
+        "type": "FILE",
+        "props": "{\"file\":{\"name\":\"report.pdf\",\"upload\":{\"status\":\"preparing\"}}}",
+        "send_status": "sending",
+        "upload_progress_percent": 0
+    }]);
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: scan_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&sending_rows).unwrap()),
+                )),
+            },
+            1_004,
+            &mut sink,
+        )
+        .expect("causal sending readback emits the retry terminal frame");
+    let causal_frame = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("retry PersistOk readback emits a typed frame");
+    let causal_frame = crate::interaction_frame::InteractionFrame::decode(
+        &serde_json::to_vec(&causal_frame["data"]).unwrap(),
+    )
+    .unwrap();
+    assert!(crate::projector::action::matching_frame_confirmation(
+        &causal_frame,
+        "retry-action-request"
+    )
+    .unwrap()
+    .is_some());
+    assert_eq!(
+        causal_frame.mutations[0].scope, mutation.scope,
+        "retry terminal Frame must return to the scope that granted the actionRef"
+    );
+    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
+        &causal_frame.mutations[0].mutation
+    else {
+        panic!("retry sending readback must patch the attached timeline")
+    };
+    let retry = patch.view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "retry")
+        .expect("sending view keeps the typed retry binding disabled");
+    assert!(!retry.enabled);
+    assert!(
+        !module
+            .state
+            .action_registry
+            .complete_after_terminal_frame("retry-action-request"),
+        "the causal frame must already have released the accepted action ledger"
+    );
+}
+
+#[test]
 fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completion() {
     use helix_core::Module;
 

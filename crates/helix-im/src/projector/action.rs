@@ -44,6 +44,11 @@ pub enum ActionDispatch {
         channel_id: String,
         message_id: String,
     },
+    RetryMessage {
+        channel_id: String,
+        message_id: String,
+        window_token: String,
+    },
     ForwardMessages {
         channel_id: String,
         source_message_ids: Vec<String>,
@@ -94,6 +99,7 @@ impl ActionDispatch {
         kind: &str,
         channel_id: &str,
         message_id: &str,
+        window_token: &str,
     ) -> Option<Self> {
         let channel_id = channel_id.to_string();
         let message_id = message_id.to_string();
@@ -105,6 +111,11 @@ impl ActionDispatch {
             "revoke" => Some(Self::RevokeMessage {
                 channel_id,
                 message_id,
+            }),
+            "retry" => Some(Self::RetryMessage {
+                channel_id,
+                message_id,
+                window_token: window_token.to_string(),
             }),
             "forward" => Some(Self::ForwardMessages {
                 channel_id,
@@ -135,6 +146,7 @@ impl ActionDispatch {
             kind,
             "viewReceipt"
                 | "revoke"
+                | "retry"
                 | "forward"
                 | "react"
                 | "urgent"
@@ -184,6 +196,7 @@ impl ActionDispatch {
         match self {
             Self::ViewReceipt { .. }
             | Self::RevokeMessage { .. }
+            | Self::RetryMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
                 if !invocation.input.is_empty() =>
@@ -194,6 +207,7 @@ impl ActionDispatch {
             }
             Self::ViewReceipt { .. }
             | Self::RevokeMessage { .. }
+            | Self::RetryMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. } => Ok(()),
             Self::ForwardMessages { .. } => validate_forward_input(&invocation.input),
@@ -1140,6 +1154,7 @@ mod tests {
         for kind in [
             "viewReceipt",
             "revoke",
+            "retry",
             "forward",
             "react",
             "urgent",
@@ -1148,7 +1163,8 @@ mod tests {
         ] {
             assert!(ActionDispatch::supports_timeline_kind(kind), "{kind}");
             assert!(
-                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1").is_some(),
+                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1", "latest",)
+                    .is_some(),
                 "{kind} must share the projector/application dispatch source"
             );
         }
@@ -1156,7 +1172,6 @@ mod tests {
         for kind in [
             "reply",
             "createTopic",
-            "retry",
             "markRead",
             "templateConfirm",
             "locate",
@@ -1171,7 +1186,13 @@ mod tests {
         ] {
             assert!(!ActionDispatch::supports_timeline_kind(kind), "{kind}");
             assert!(
-                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1").is_none(),
+                ActionDispatch::from_timeline_binding(
+                    kind,
+                    "channel-1",
+                    "message-1",
+                    "latest",
+                )
+                .is_none(),
                 "{kind} must remain disabled until authority, persistence and causation Frame exist"
             );
         }

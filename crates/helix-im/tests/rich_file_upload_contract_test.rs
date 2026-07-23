@@ -16,8 +16,8 @@ fn rich_two_image_cmd() -> Tick {
         "type": "rich",
         "text": "hello",
         "props": {
-            "textPosition": "bottom",
-            "images": [
+            "imagePosition": "bottom",
+            "files": [
                 {
                     "localPath": "/tmp/a.png",
                     "width": 800,
@@ -55,8 +55,8 @@ fn rich_single_image_cmd(tmp: &str) -> Tick {
         "type": "rich",
         "text": "hello",
         "props": {
-            "textPosition": "bottom",
-            "images": [{
+            "imagePosition": "bottom",
+            "files": [{
                 "localPath": "/tmp/a.png",
                 "upload": {
                     "method": "PUT",
@@ -253,14 +253,14 @@ fn rich_two_images_initial_step_persists_uploading_props_and_defers_posts_create
 
     let spec = last_message_upsert(&h);
     let row = spec.rows.first().expect("message row");
-    assert_eq!(row_text(row, "type"), Some("rich"));
+    assert_eq!(row_text(row, "type"), Some("IMAGE"));
     let props = props_from_spec(&spec);
-    assert_eq!(props["images"][0]["upload"]["status"], "uploading");
-    assert_eq!(props["images"][1]["upload"]["status"], "uploading");
-    assert!(props["images"][0]["upload"].get("url").is_none());
-    assert!(props["images"][0]["upload"].get("headers").is_none());
+    assert_eq!(props["files"][0]["upload"]["status"], "uploading");
+    assert_eq!(props["files"][1]["upload"]["status"], "uploading");
+    assert!(props["files"][0]["upload"].get("url").is_none());
+    assert!(props["files"][0]["upload"].get("headers").is_none());
     assert_eq!(
-        props["images"][0]["upload"]["publicUrl"],
+        props["files"][0]["upload"]["publicUrl"],
         "https://cdn/a.png"
     );
     assert_eq!(props["frontendCustom"]["keep"], true);
@@ -311,8 +311,8 @@ fn rich_file_shape_violations_are_rejected_before_any_effect() {
                 "type": "rich",
                 "text": "hello",
                 "props": {
-                    "textPosition": "top",
-                    "images": [{
+                    "imagePosition": "top",
+                    "files": [{
                         "localPath": "/tmp/a.png",
                         "upload": {
                             "method": "PUT",
@@ -391,8 +391,8 @@ fn rich_uploads_only_post_after_all_success() {
         "one upload success is not enough"
     );
     let first_props = props_from_spec(&last_message_upsert(&h));
-    assert_eq!(first_props["images"][0]["upload"]["status"], "success");
-    assert_eq!(first_props["images"][1]["upload"]["status"], "uploading");
+    assert_eq!(first_props["files"][0]["upload"]["status"], "success");
+    assert_eq!(first_props["files"][1]["upload"]["status"], "uploading");
     assert_eq!(first_props["frontendCustom"]["keep"], true);
 
     let second_ok = Tick::PortReply {
@@ -416,18 +416,16 @@ fn rich_uploads_only_post_after_all_success() {
         "last upload success should arm post timer in the same step"
     );
     let body = last_posts_create_body(&h);
-    assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
-    assert_eq!(body["props"]["images"][1]["upload"]["status"], "success");
+    assert_eq!(body["props"]["files"][0]["upload"]["status"], "success");
+    assert_eq!(body["props"]["files"][1]["upload"]["status"], "success");
     assert_eq!(
-        body["props"]["images"][0]["upload"]["publicUrl"],
+        body["props"]["files"][0]["upload"]["publicUrl"],
         "https://cdn/a.png"
     );
-    assert!(body["props"]["images"][0]["upload"].get("url").is_none());
-    assert!(body["props"]["images"][0]["upload"]
-        .get("headers")
-        .is_none());
-    assert_eq!(body["props"]["images"][0]["width"], 800);
-    assert_eq!(body["props"]["images"][1]["height"], 600);
+    assert!(body["props"]["files"][0]["upload"].get("url").is_none());
+    assert!(body["props"]["files"][0]["upload"].get("headers").is_none());
+    assert_eq!(body["props"]["files"][0]["width"], 800);
+    assert_eq!(body["props"]["files"][1]["height"], 600);
     assert_eq!(body["props"]["frontendCustom"]["keep"], true);
 }
 
@@ -454,7 +452,7 @@ fn upload_failure_only_marks_target_failed_without_posts_create_or_unsend() {
         "upload failure must not send posts/create"
     );
     let props = props_from_spec(&last_message_upsert(&h));
-    assert_eq!(props["images"][0]["upload"]["status"], "failed");
+    assert_eq!(props["files"][0]["upload"]["status"], "failed");
     assert_eq!(props["frontendCustom"]["keep"], true);
     assert_eq!(
         h.module.pending_send_status("tmp-rich-fail"),
@@ -515,8 +513,8 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
     assert_eq!(req.urls.upload_url(), "https://upload/b?signature=write-b");
     assert_eq!(req.urls.public_url(), "https://cdn/b.png");
     let retry_props = props_from_spec(&last_message_upsert(&h));
-    assert_eq!(retry_props["images"][0]["upload"]["status"], "success");
-    assert_eq!(retry_props["images"][1]["upload"]["status"], "uploading");
+    assert_eq!(retry_props["files"][0]["upload"]["status"], "success");
+    assert_eq!(retry_props["files"][1]["upload"]["status"], "uploading");
     assert_eq!(retry_props["frontendCustom"]["keep"], true);
 
     let retry_corr = *upload_effect_corrs(&h).last().expect("retry upload corr");
@@ -543,8 +541,8 @@ fn retry_failed_rich_image_emits_one_upload_without_posts_create() {
         "retry success should re-arm post timer with posts/create"
     );
     let body = last_posts_create_body(&h);
-    assert_eq!(body["props"]["images"][0]["upload"]["status"], "success");
-    assert_eq!(body["props"]["images"][1]["upload"]["status"], "success");
+    assert_eq!(body["props"]["files"][0]["upload"]["status"], "success");
+    assert_eq!(body["props"]["files"][1]["upload"]["status"], "success");
 }
 
 #[test]
@@ -705,7 +703,7 @@ fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
     assert_eq!(posts_create_count(&h), 0, "file should defer posts/create");
     let initial_spec = last_message_upsert(&h);
     let initial_row = initial_spec.rows.first().expect("message row");
-    assert_eq!(row_text(initial_row, "type"), Some("file"));
+    assert_eq!(row_text(initial_row, "type"), Some("FILE"));
     let initial_props = props_from_spec(&initial_spec);
     assert_eq!(initial_props["file"]["upload"]["status"], "uploading");
     assert_eq!(initial_props["frontendCustom"]["keep"], true);
@@ -747,7 +745,7 @@ fn file_initial_step_uploads_then_posts_create_with_public_url_only() {
         "success should emit posts/create"
     );
     let body = last_posts_create_body(&h);
-    assert_eq!(body["type"], "file");
+    assert_eq!(body["type"], "FILE");
     assert_eq!(body["props"]["file"]["upload"]["status"], "success");
     assert_eq!(body["props"]["file"]["upload"]["objectKey"], "im/doc.pdf");
     assert_eq!(body["props"]["file"]["upload"]["etag"], "etag-doc");
@@ -849,7 +847,8 @@ fn file_upload_failures_only_mark_failed_without_posts_create_or_unsend() {
 
 mod g03_prepare_contract {
     use super::common::{
-        cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, EffectKind, Harness,
+        cid, enveloped, port_reply_ok, port_reply_with_body, send_message_cmd_json, EffectKind,
+        Harness,
     };
     use bytes::Bytes;
     use helix_core::effect::{
@@ -890,8 +889,8 @@ mod g03_prepare_contract {
             "type": "rich",
             "text": "hello",
             "props": {
-                "textPosition": "bottom",
-                "images": [{
+                "imagePosition": "bottom",
+                "files": [{
                     "width": 800,
                     "height": 600,
                     "mediaInput": media_input("/tmp/a.png", "a.png", "image/png", 3)
@@ -989,13 +988,11 @@ mod g03_prepare_contract {
     }
 
     fn prepare_reply(data: Value) -> Tick {
-        port_reply_with_body(
-            0,
-            Bytes::from(
-                serde_json::to_vec(&json!({"status": "SUCCESS", "data": data}))
-                    .expect("prepare reply json"),
-            ),
-        )
+        let common_res = Bytes::from(
+            serde_json::to_vec(&json!({"status": "SUCCESS", "data": data}))
+                .expect("prepare reply json"),
+        );
+        port_reply_with_body(0, enveloped(common_res))
     }
 
     fn valid_prepare_data() -> Value {
@@ -1212,10 +1209,9 @@ mod g03_prepare_contract {
         h.step(file_cmd("tmp-prepare-failure"), 1000);
         release_stage(&mut h, "prepare", 1001);
         let corr = prepare_effects(&h)[0].0;
-        let outcome = match port_reply_with_body(
-            0,
-            Bytes::from_static(br#"{"status":"FAIL","message":"conflict","data":null}"#),
-        ) {
+        let common_res =
+            Bytes::from_static(br#"{"status":"FAIL","message":"conflict","data":null}"#);
+        let outcome = match port_reply_with_body(0, enveloped(common_res)) {
             Tick::PortReply { outcome, .. } => outcome,
             _ => unreachable!(),
         };

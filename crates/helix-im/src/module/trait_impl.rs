@@ -318,6 +318,14 @@ impl Module for ImModule {
                     })?;
             }
 
+            Tick::PortProgress { corr, progress } => {
+                self.handle_file_upload_progress(*corr, *progress, out)
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?;
+            }
+
             Tick::Timer(id) => {
                 self.handle_timer(*id, now_ms, out)
                     .map_err(|e| CoreError::ModuleError {

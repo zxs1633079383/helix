@@ -33,7 +33,10 @@ pub mod tick;
 
 // Re-export most-used types at crate root for ergonomic imports
 pub use auth::{apply_auth_intent, AuthKind, AUTH_KIND_HEADER};
-pub use effect::{Correlation, DomainEventBytes, Effect, EffectSink, TimerId};
+pub use effect::{
+    Correlation, DomainEventBytes, Effect, EffectSink, FileUploadProgress,
+    FileUploadProgressPolicy, TimerId,
+};
 pub use engine::ExecutionShell;
 pub use error::{CoreError, PortError};
 pub use module_host::{Module, ModuleHost};

@@ -62,6 +62,18 @@ fn event_seq_value(row: &Value, props: &Value) -> Value {
         .unwrap_or(Value::Null)
 }
 
+fn upload_progress_percent(row: &Value) -> u8 {
+    row.get("upload_progress_percent")
+        .or_else(|| row.get("progressPercent"))
+        .and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_i64().map(|n| n.max(0) as u64))
+        })
+        .unwrap_or_default()
+        .min(100) as u8
+}
+
 fn topic_value(row: &Value) -> Value {
     match row.get("topic") {
         Some(Value::Object(_)) => row["topic"].clone(),
@@ -252,6 +264,7 @@ pub(crate) fn shape_row(row: &Value, viewer_user_id: &str) -> Value {
         "channelId": channel_id,
         "eventSeq": event_seq,
         "sendStatus": send_status,
+        "progressPercent": upload_progress_percent(row),
         "readBits": read_bits_str(row),
         "text": text,
         "type": msg_type,

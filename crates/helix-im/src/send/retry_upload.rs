@@ -1,6 +1,6 @@
 use crate::module::ImModule;
 use crate::send::upload_props::{file_upload_request, PendingUpload, UploadTarget};
-use crate::state::TemporaryId;
+use crate::state::{ChannelId, TemporaryId};
 use crate::ImError;
 use helix_core::{Effect, EffectSink};
 use serde::Deserialize;
@@ -38,7 +38,7 @@ pub(crate) fn handle_retry_upload(
     let temporary_id = TemporaryId(cmd.temporary_id);
     let target = cmd.target.into_upload_target();
 
-    let (req, props_json) = {
+    let (req, props_json, channel_id) = {
         let pending_send = module
             .state
             .pending_sends
@@ -47,6 +47,11 @@ pub(crate) fn handle_retry_upload(
         let body = pending_send.body.as_mut().ok_or_else(|| {
             ImError::Parse("im_retry_upload missing cached send body".to_string())
         })?;
+        let channel_id = body
+            .get("channelId")
+            .and_then(Value::as_str)
+            .and_then(ChannelId::from_str)
+            .ok_or_else(|| ImError::Parse("im_retry_upload missing channelId".to_string()))?;
         let props = body
             .get_mut("props")
             .ok_or_else(|| ImError::Parse("im_retry_upload missing props".to_string()))?;
@@ -58,7 +63,7 @@ pub(crate) fn handle_retry_upload(
         let req = file_upload_request(props, &target)?;
         let props_json =
             serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
-        (req, props_json)
+        (req, props_json, channel_id)
     };
 
     let persist_corr = module.alloc_corr_internal();
@@ -71,6 +76,7 @@ pub(crate) fn handle_retry_upload(
     });
 
     let corr = module.alloc_corr_internal();
+    module.register_file_upload_progress(corr, temporary_id.clone(), channel_id, &target);
     module.state.pending_uploads.insert(
         corr,
         PendingUpload {
@@ -112,9 +118,9 @@ fn set_target_status(
 
 fn has_failed_target(props: &Value) -> bool {
     props
-        .get("images")
+        .get("files")
         .and_then(Value::as_array)
-        .map(|images| images.iter().any(node_failed))
+        .map(|files| files.iter().any(node_failed))
         .unwrap_or(false)
         || props.get("file").map(node_failed).unwrap_or(false)
 }
@@ -150,9 +156,9 @@ fn target_upload_mut<'a>(
 fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value, ImError> {
     match target {
         UploadTarget::RichImage { index } => props
-            .get("images")
+            .get("files")
             .and_then(Value::as_array)
-            .and_then(|images| images.get(*index))
+            .and_then(|files| files.get(*index))
             .ok_or_else(|| ImError::Parse("missing rich image retry target".to_string())),
         UploadTarget::File => props
             .get("file")
@@ -166,9 +172,9 @@ fn target_node_mut<'a>(
 ) -> Result<&'a mut Value, ImError> {
     match target {
         UploadTarget::RichImage { index } => props
-            .get_mut("images")
+            .get_mut("files")
             .and_then(Value::as_array_mut)
-            .and_then(|images| images.get_mut(*index))
+            .and_then(|files| files.get_mut(*index))
             .ok_or_else(|| ImError::Parse("missing rich image retry target".to_string())),
         UploadTarget::File => props
             .get_mut("file")

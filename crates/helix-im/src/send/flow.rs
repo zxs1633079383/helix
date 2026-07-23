@@ -118,7 +118,7 @@ impl ImModule {
         let conn = self.state.connection_id.clone();
         let mut ps = PendingSend::new(tmp_id.clone(), t1_timer, conn);
         ps.status = SendStatus::Local;
-        ps.request_id = cmd
+        ps.timeline_readback.causation_id = cmd
             .get("req_id")
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.is_empty())
@@ -199,7 +199,10 @@ impl ImModule {
                 return Ok(());
             }
             pending.http_started = true;
-            (pending.timeout_timer, pending.request_id.clone())
+            (
+                pending.timeout_timer,
+                pending.timeline_readback.causation_id.clone(),
+            )
         };
         let h1_corr = self.alloc_corr_internal();
         let body_bytes = serde_json::to_vec(body).map_err(|e| ImError::Serialize(e.to_string()))?;

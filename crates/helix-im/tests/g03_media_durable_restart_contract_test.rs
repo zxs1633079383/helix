@@ -7,8 +7,8 @@ mod common;
 
 use bytes::Bytes;
 use common::{
-    cid, command_json, port_reply_err, port_reply_ok, port_reply_with_body, send_message_cmd_json,
-    Harness,
+    cid, command_json, enveloped, port_reply_err, port_reply_ok, port_reply_with_body,
+    send_message_cmd_json, Harness,
 };
 use helix_core::effect::{Effect, HttpRequest, SqlValue, StorageOp};
 use helix_core::Tick;
@@ -77,7 +77,7 @@ fn message_row(temporary_id: &str, msg_type: &str, props: Value, status: &str) -
         "channel_id": cid(1),
         "user_id": "user-1",
         "type": msg_type,
-        "message": if msg_type == "rich" { "hello" } else { "" },
+        "message": if matches!(msg_type, "rich" | "IMAGE") { "hello" } else { "" },
         "props": serde_json::to_string(&props).unwrap(),
         "viewers": "[]",
         "mentions": "[]",
@@ -195,27 +195,31 @@ fn upload_count(h: &Harness) -> usize {
 }
 
 fn complete_success(upload_id: &str, file_id: &str, name: &str, size: u64, sha: &str) -> Tick {
-    port_reply_with_body(
-        0,
-        Bytes::from(
-            serde_json::to_vec(&json!({
-                "status": "SUCCESS",
-                "data": {
-                    "id": file_id,
-                    "uploadId": upload_id,
-                    "fileId": file_id,
-                    "url": format!("http://test/media/object/{file_id}"),
-                    "size": size,
-                    "contentType": if name.ends_with(".png") { "image/png" } else { "application/pdf" },
-                    "fileName": name,
-                    "sha256": sha,
-                    "channelId": cid(1),
-                    "state": "completed"
-                }
-            }))
-            .unwrap(),
-        ),
-    )
+    let common_res = Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {
+                "id": file_id,
+                "uploadId": upload_id,
+                "fileId": file_id,
+                "url": format!("http://test/media/object/{file_id}"),
+                "size": size,
+                "contentType": if name.ends_with(".png") { "image/png" } else { "application/pdf" },
+                "fileName": name,
+                "sha256": sha,
+                "channelId": cid(1),
+                "state": "completed"
+            }
+        }))
+        .unwrap(),
+    );
+    port_reply_with_body(0, enveloped(common_res))
+}
+
+fn prepare_success(data: Value) -> Bytes {
+    let common_res =
+        Bytes::from(serde_json::to_vec(&json!({"status": "SUCCESS", "data": data})).unwrap());
+    enveloped(common_res)
 }
 
 fn with_corr(corr: u64, tick: Tick) -> Tick {
@@ -283,22 +287,34 @@ fn prepare_and_put_stage_persist_errors_never_advance_external_io() {
     let prepare = http(&h, "/media/upload/prepare")[0].0;
     let prepare_reply = port_reply_with_body(
         prepare,
-        Bytes::from(
-            serde_json::to_vec(&json!({
-                "status":"SUCCESS",
-                "data": {
-                    "uploadId":"upload-1", "fileId":"file-1", "method":"PUT",
-                    "url":"http://test/media/upload/upload-1",
-                    "publicUrl":"http://test/media/object/file-1",
-                    "objectKey":"object-file-1",
-                    "headers":{"Content-Type":"application/pdf"}
-                }
-            }))
-            .unwrap(),
-        ),
+        prepare_success(json!({
+            "uploadId":"upload-1", "fileId":"file-1", "method":"PUT",
+            "url":"http://test/media/upload/upload-1",
+            "publicUrl":"http://test/media/object/file-1",
+            "objectKey":"object-file-1",
+            "headers":{"Content-Type":"application/pdf"}
+        })),
     );
     h.step(prepare_reply, 1002);
     let put_persist = persist_corr_for_upsert_stage(&h, "put");
+    let put_row = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+                StorageOp::BatchUpsert(spec) if spec.table == "pending_media" => spec.rows.first(),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("put journal row");
+    assert!(put_row.iter().any(|(column, value)| column == "upload_url"
+        && matches!(value, SqlValue::Text(value) if value.is_empty())));
+    assert!(put_row
+        .iter()
+        .any(|(column, value)| column == "headers_json"
+            && matches!(value, SqlValue::Text(value) if value == "[]")));
     assert_eq!(upload_count(&h), 0);
     h.step(port_reply_err(put_persist), 1003);
     assert_eq!(upload_count(&h), 0);
@@ -312,19 +328,13 @@ fn prepare_and_put_stage_persist_errors_never_advance_external_io() {
     h.step(
         port_reply_with_body(
             prepare,
-            Bytes::from(
-                serde_json::to_vec(&json!({
-                    "status":"SUCCESS",
-                    "data": {
-                        "uploadId":"upload-1", "fileId":"file-1", "method":"PUT",
-                        "url":"http://test/media/upload/upload-1",
-                        "publicUrl":"http://test/media/object/file-1",
-                        "objectKey":"object-file-1",
-                        "headers":{"Content-Type":"application/pdf"}
-                    }
-                }))
-                .unwrap(),
-            ),
+            prepare_success(json!({
+                "uploadId":"upload-1", "fileId":"file-1", "method":"PUT",
+                "url":"http://test/media/upload/upload-1",
+                "publicUrl":"http://test/media/object/file-1",
+                "objectKey":"object-file-1",
+                "headers":{"Content-Type":"application/pdf"}
+            })),
         ),
         2002,
     );
@@ -377,7 +387,7 @@ fn restart_from_prepare_retries_prepare_with_same_temporary_id() {
 }
 
 #[test]
-fn restart_from_put_retries_put_without_repeating_prepare() {
+fn restart_from_put_retries_prepare_without_reusing_persisted_credentials() {
     let row = pending_row(
         TMP,
         "file",
@@ -401,8 +411,8 @@ fn restart_from_put_retries_put_without_repeating_prepare() {
         ),
     );
 
-    assert!(http(&h, "/media/upload/prepare").is_empty());
-    assert_eq!(upload_count(&h), 1);
+    assert_eq!(http(&h, "/media/upload/prepare").len(), 1);
+    assert_eq!(upload_count(&h), 0);
     assert!(http(&h, "/media/upload/complete").is_empty());
 }
 
@@ -511,8 +521,8 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
         "file-b",
     );
     let props = json!({
-        "textPosition": "bottom",
-        "images": [
+        "imagePosition": "bottom",
+        "files": [
             {"id":"file-a","name":"a.png","url":"http://test/media/object/file-a","uri":"http://test/media/object/file-a","contentType":"image/png","size":3,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","upload":{"status":"completed"}},
             {"height":600,"upload":{"status":"completing"}}
         ]
@@ -551,8 +561,12 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
     )
     .unwrap();
     assert_eq!(body["temporaryId"], "tmp-durable-rich");
-    assert_eq!(body["props"]["images"][0]["id"], "file-a");
-    assert_eq!(body["props"]["images"][1]["id"], "file-b");
+    assert_eq!(body["type"], "IMAGE");
+    assert_eq!(body["props"]["imagePosition"], "bottom");
+    assert!(body["props"].get("images").is_none());
+    assert!(body["props"].get("textPosition").is_none());
+    assert_eq!(body["props"]["files"][0]["id"], "file-a");
+    assert_eq!(body["props"]["files"][1]["id"], "file-b");
 }
 
 #[test]

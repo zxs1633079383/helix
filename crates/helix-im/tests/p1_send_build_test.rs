@@ -293,6 +293,20 @@ fn build_from_command_type_id_default_when_absent() {
     assert_eq!(body["id"], json!(""));
 }
 
+#[test]
+fn media_message_types_are_canonicalized_for_posts_create() {
+    for (input, expected) in [
+        ("rich", "IMAGE"),
+        ("IMAGE", "IMAGE"),
+        ("file", "FILE"),
+        ("FILE", "FILE"),
+    ] {
+        let cmd = json!({"text":"caption", "type":input, "props":{"media":true}});
+        let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
+        assert_eq!(body["type"], expected);
+    }
+}
+
 // ─── 端到端：handle_send_message 经 build_message_object ─────────────────────
 
 /// 普通文本只有在 P1 乐观行被持久化确认后才启动 posts/create。这个 Harness 没有

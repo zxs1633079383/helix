@@ -5,13 +5,13 @@ use crate::ImError;
 use helix_core::effect::{GetSpec, SqlValue, StorageOp};
 use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod rehydrate;
 use rehydrate::{decode_single_row, rebuild_body, row_str};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct RetrySendCommand {
     #[serde(alias = "messageId")]
     message_id: String,
@@ -19,10 +19,66 @@ struct RetrySendCommand {
     req_id: Option<String>,
 }
 
+pub(crate) fn prepare_retry_send_payload(
+    message_id: &str,
+    request_id: &str,
+) -> Result<Vec<u8>, ImError> {
+    if message_id.is_empty() || request_id.is_empty() {
+        return Err(ImError::Parse(
+            "im_retry_send action payload requires message_id and req_id".to_string(),
+        ));
+    }
+    serde_json::to_vec(&RetrySendCommand {
+        message_id: message_id.to_string(),
+        req_id: Some(request_id.to_string()),
+    })
+    .map_err(|error| ImError::Serialize(error.to_string()))
+}
+
+#[cfg(test)]
+mod action_payload_tests {
+    use super::*;
+
+    #[test]
+    fn retry_action_payload_contains_only_canonical_message_and_request_ids() {
+        let payload = prepare_retry_send_payload("temporary-1", "request-1").unwrap();
+        let value: Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "message_id": "temporary-1",
+                "req_id": "request-1"
+            })
+        );
+        assert!(prepare_retry_send_payload("", "request-1").is_err());
+        assert!(prepare_retry_send_payload("temporary-1", "").is_err());
+    }
+}
+
 pub(crate) fn handle_retry_send(
     module: &mut ImModule,
     payload: &[u8],
     now_ms: u64,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    handle_retry_send_with_window(module, payload, now_ms, None, out)
+}
+
+pub(crate) fn handle_retry_send_for_window(
+    module: &mut ImModule,
+    payload: &[u8],
+    now_ms: u64,
+    window_token: String,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    handle_retry_send_with_window(module, payload, now_ms, Some(window_token), out)
+}
+
+fn handle_retry_send_with_window(
+    module: &mut ImModule,
+    payload: &[u8],
+    now_ms: u64,
+    window_token: Option<String>,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
     let cmd: RetrySendCommand = serde_json::from_slice(payload)
@@ -34,10 +90,18 @@ pub(crate) fn handle_retry_send(
     }
     let temporary_id = TemporaryId(cmd.message_id.clone());
     if module.state.pending_sends.contains_key(&temporary_id) {
-        return retry_from_memory(module, temporary_id, cmd.req_id, out);
+        return retry_from_memory(module, temporary_id, cmd.req_id, window_token, out);
     }
 
-    emit_durable_lookup(module, cmd.message_id, now_ms, cmd.req_id, false, out);
+    emit_durable_lookup(
+        module,
+        cmd.message_id,
+        now_ms,
+        cmd.req_id,
+        window_token,
+        false,
+        out,
+    );
     Ok(())
 }
 
@@ -45,6 +109,7 @@ fn retry_from_memory(
     module: &mut ImModule,
     temporary_id: TemporaryId,
     request_id: Option<String>,
+    window_token: Option<String>,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
     if module.state.media_retry_inflight.contains(&temporary_id) {
@@ -56,7 +121,15 @@ fn retry_from_memory(
         .get(&temporary_id)
         .is_some_and(|pending| pending.upload_failed);
     if media_failed {
-        return retry_failed_media(module, temporary_id, out);
+        if let Some(request_id) = request_id {
+            let pending = module
+                .state
+                .pending_sends
+                .get_mut(&temporary_id)
+                .ok_or_else(|| ImError::Parse("im_retry_send missing pending send".to_string()))?;
+            pending.timeline_readback.causation_id = Some(request_id);
+        }
+        return retry_failed_media(module, temporary_id, window_token, out);
     }
     let body = {
         let pending = module
@@ -67,7 +140,7 @@ fn retry_from_memory(
         let media_body = pending.body.as_ref().is_some_and(|body| {
             matches!(
                 body.get("type").and_then(Value::as_str),
-                Some("file" | "FILE" | "rich")
+                Some("file" | "FILE" | "rich" | "IMAGE")
             )
         });
         if media_body && pending.remaining_uploads == 0 && pending.status != SendStatus::UnSend {
@@ -84,12 +157,13 @@ fn retry_from_memory(
             .clone()
             .ok_or_else(|| ImError::Parse("im_retry_send missing cached send body".to_string()))?
     };
-    continue_retry(module, temporary_id, body, request_id, out)
+    continue_retry(module, temporary_id, body, request_id, window_token, out)
 }
 
 fn retry_failed_media(
     module: &mut ImModule,
     temporary_id: TemporaryId,
+    window_token: Option<String>,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
     use crate::send::upload_props::{FailedMediaOp, PendingMediaOp, UploadTarget};
@@ -113,7 +187,7 @@ fn retry_failed_media(
         return Ok(());
     }
 
-    let props_json = {
+    let (props_json, channel_id, timeline_readback) = {
         let pending = module
             .state
             .pending_sends
@@ -124,29 +198,62 @@ fn retry_failed_media(
         let body = pending.body.as_mut().ok_or_else(|| {
             ImError::Parse("im_retry_send missing pending media body".to_string())
         })?;
+        let channel_id = body
+            .get("channelId")
+            .and_then(Value::as_str)
+            .and_then(ChannelId::from_str)
+            .ok_or_else(|| {
+                ImError::Parse("im_retry_send pending media body missing channelId".to_string())
+            })?;
         let props = body
             .get_mut("props")
             .ok_or_else(|| ImError::Parse("im_retry_send missing media props".to_string()))?;
         for operation in &failed {
             let status = match operation {
                 FailedMediaOp::Prepare(_) => "preparing",
-                FailedMediaOp::Put(_) => "uploading",
                 FailedMediaOp::Complete(_) => "completing",
             };
             crate::send::upload_props::mark_media_stage(props, operation.target(), status)?;
         }
         pending.upload_failed = false;
-        serde_json::to_string(props).map_err(|error| ImError::Serialize(error.to_string()))?
+        pending.status = SendStatus::Sending;
+        // 用户显式 retry 的单次边界整体复制：后续 progress / terminal Frame 必须同时保留
+        // 授权 window 与 causation，不能让二者分叉。
+        let timeline_readback = crate::pending_send::TimelineReadbackContext {
+            window_token,
+            causation_id: pending.timeline_readback.causation_id.clone(),
+        };
+        pending.timeline_readback = timeline_readback.clone(); // hot-path-audit: cold (≤1Hz, bounded action retry context)
+        let props_json =
+            serde_json::to_string(props).map_err(|error| ImError::Serialize(error.to_string()))?;
+        (props_json, channel_id, timeline_readback)
     };
 
     let persist_corr = module.alloc_corr_internal();
+    let reset_file_progress = failed
+        .iter()
+        .any(|operation| matches!(operation.target(), UploadTarget::File));
     out.push(Effect::Persist {
         corr: persist_corr,
-        ops: vec![crate::pending_send::props_persist_op(
+        ops: vec![crate::send::upload_props::media_send_state_persist_op(
             &temporary_id,
             props_json,
+            "sending",
+            reset_file_progress.then_some(0),
         )],
     });
+    let crate::pending_send::TimelineReadbackContext {
+        window_token,
+        causation_id,
+    } = timeline_readback;
+    module.state.corr_map.insert(
+        persist_corr,
+        CorrelationContext::TimelineRefreshAfterSendPersist {
+            channel_id,
+            window_token,
+            causation_id,
+        },
+    );
     module
         .state
         .media_retry_inflight
@@ -162,18 +269,6 @@ fn retry_failed_media(
                     pending.input,
                     out,
                 )?;
-            }
-            FailedMediaOp::Put(pending) => {
-                let req = crate::send::upload_props::media_upload_request(
-                    &pending.input,
-                    &pending.prepared,
-                )?;
-                let corr = module.alloc_corr_internal();
-                module
-                    .state
-                    .pending_media_ops
-                    .insert(corr, PendingMediaOp::Put(pending));
-                out.push(Effect::UploadFile { corr, req });
             }
             FailedMediaOp::Complete(pending) => {
                 let corr = module.alloc_corr_internal();
@@ -204,6 +299,7 @@ fn emit_durable_lookup(
     message_id: String,
     requested_at_ms: u64,
     request_id: Option<String>,
+    window_token: Option<String>,
     lookup_by_id: bool,
     out: &mut EffectSink,
 ) {
@@ -215,6 +311,7 @@ fn emit_durable_lookup(
             message_id: message_id.clone(),
             requested_at_ms,
             request_id,
+            window_token,
             lookup_by_id,
         },
     );
@@ -233,6 +330,7 @@ pub(crate) fn handle_rehydrate_reply(
     message_id: String,
     requested_at_ms: u64,
     request_id: Option<String>,
+    window_token: Option<String>,
     lookup_by_id: bool,
     outcome: &PortOutcome,
     out: &mut EffectSink,
@@ -252,7 +350,15 @@ pub(crate) fn handle_rehydrate_reply(
     let row = decode_single_row(bytes)?;
     let Some(row) = row else {
         if !lookup_by_id {
-            emit_durable_lookup(module, message_id, requested_at_ms, request_id, true, out);
+            emit_durable_lookup(
+                module,
+                message_id,
+                requested_at_ms,
+                request_id,
+                window_token,
+                true,
+                out,
+            );
             return Ok(());
         }
         return Err(ImError::Parse(
@@ -281,6 +387,7 @@ pub(crate) fn handle_rehydrate_reply(
             temporary_id,
             body,
             request_id,
+            window_token,
             durable_media_count,
             out,
         );
@@ -296,7 +403,7 @@ pub(crate) fn handle_rehydrate_reply(
         )));
     }
 
-    continue_retry(module, temporary_id, body, request_id, out)
+    continue_retry(module, temporary_id, body, request_id, window_token, out)
 }
 
 fn continue_durable_media_retry(
@@ -304,6 +411,7 @@ fn continue_durable_media_retry(
     temporary_id: TemporaryId,
     body: Value,
     request_id: Option<String>,
+    window_token: Option<String>,
     remaining_uploads: usize,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
@@ -314,7 +422,7 @@ fn continue_durable_media_retry(
         module.state.connection_id.clone(),
     );
     pending.status = SendStatus::Sending;
-    pending.request_id = request_id;
+    pending.timeline_readback.causation_id = request_id;
     pending.body = Some(body);
     pending.remaining_uploads = remaining_uploads;
     pending.upload_failed = true;
@@ -322,7 +430,7 @@ fn continue_durable_media_retry(
         .state
         .pending_sends
         .insert(temporary_id.clone(), pending);
-    retry_failed_media(module, temporary_id, out)
+    retry_failed_media(module, temporary_id, window_token, out)
 }
 
 fn continue_retry(
@@ -330,6 +438,7 @@ fn continue_retry(
     temporary_id: TemporaryId,
     body: Value,
     request_id: Option<String>,
+    window_token: Option<String>,
     out: &mut EffectSink,
 ) -> Result<(), ImError> {
     let channel_id = body
@@ -361,8 +470,9 @@ fn continue_retry(
     pending.http_started = false;
     pending.body = Some(body.clone());
     if request_id.is_some() {
-        pending.request_id = request_id;
+        pending.timeline_readback.causation_id = request_id;
     }
+    pending.timeline_readback.window_token = window_token;
 
     out.push(Effect::PersistFire {
         ops: vec![crate::pending_send::send_status_persist_op(

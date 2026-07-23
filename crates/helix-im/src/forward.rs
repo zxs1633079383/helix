@@ -56,6 +56,10 @@ impl PendingForwardDeliveryLedger {
             .then(|| request_id.to_string())
     }
 
+    pub(crate) fn contains_request(&self, request_id: &str) -> bool {
+        self.targets_by_request.contains_key(request_id)
+    }
+
     pub(crate) fn is_final_target(&self, request_id: &str, channel_id: ChannelId) -> bool {
         self.targets_by_request
             .get(request_id)
@@ -134,10 +138,12 @@ mod tests {
             &[first.as_str().to_string(), last.as_str().to_string()],
         );
 
+        assert!(ledger.contains_request("forward-1"));
         assert!(!ledger.complete_target("forward-1", first));
         assert!(ledger.matching_request("forward-1", last).is_some());
         assert!(ledger.is_final_target("forward-1", last));
         assert!(ledger.complete_target("forward-1", last));
+        assert!(!ledger.contains_request("forward-1"));
         assert!(ledger.matching_request("forward-1", last).is_none());
     }
 }

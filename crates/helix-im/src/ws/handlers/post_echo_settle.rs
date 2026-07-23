@@ -99,12 +99,12 @@ pub(super) fn reconcile_post_echo(
     }
     let reconcile_corr = ctx.alloc_corr();
     // R4-retain：取出该 send 的 P1 Persist corr（send 时回填），用于 O(1) 清路由。
-    let (persist_corr, causation_id) = ctx
+    let (persist_corr, timeline_readback) = ctx
         .state
         .pending_sends
         .get(&tmp)
-        .map(|ps| (ps.persist_corr, ps.request_id.clone()))
-        .unwrap_or((None, None));
+        .map(|ps| (ps.persist_corr, ps.timeline_readback.clone()))
+        .unwrap_or_default();
     if let Some(ps) = ctx.state.pending_sends.get_mut(&tmp) {
         ps.reconcile(server_id, reconcile_corr, out);
     }
@@ -118,13 +118,17 @@ pub(super) fn reconcile_post_echo(
     // The reconcile Persist is the durable terminal fact. Its PortReply re-enters
     // the attached local-first timeline projector, so the renderer receives a
     // typed replaceView Frame rather than consuming the legacy post echo.
-    ctx.state.corr_map.insert(
-        reconcile_corr,
+    ctx.state.corr_map.insert(reconcile_corr, {
+        let crate::pending_send::TimelineReadbackContext {
+            window_token,
+            causation_id,
+        } = timeline_readback;
         CorrelationContext::TimelineRefreshAfterSendPersist {
             channel_id,
+            window_token,
             causation_id,
-        },
-    );
+        }
+    });
 }
 
 #[cfg(test)]
@@ -141,7 +145,7 @@ mod tests {
             helix_core::TimerId::from_raw(91),
             None,
         );
-        pending.request_id = Some("send-request-echo".to_string());
+        pending.timeline_readback.causation_id = Some("send-request-echo".to_string());
         state.pending_sends.insert(temporary_id.clone(), pending);
         let mut next_corr = 700_u64;
         let mut alloc_corr = || {
@@ -174,9 +178,63 @@ mod tests {
             state.corr_map.get(&terminal_corr),
             Some(&CorrelationContext::TimelineRefreshAfterSendPersist {
                 channel_id,
+                window_token: None,
                 causation_id: Some("send-request-echo".to_string()),
             }),
             "the echo terminal receipt must re-enter the typed timeline projector"
+        );
+    }
+
+    #[test]
+    // 回归锚: G03a（WS echo 终态沿用 retry window + causation）
+    fn retry_self_echo_preserves_the_authorizing_window_and_causation() {
+        let channel_id = crate::state::test_channel_id(42);
+        let temporary_id = TemporaryId("temporary-retry-echo".to_string());
+        let mut state = crate::state::ImState::new();
+        let mut pending = crate::pending_send::PendingSend::new(
+            temporary_id.clone(),
+            helix_core::TimerId::from_raw(92),
+            None,
+        );
+        pending.timeline_readback = crate::pending_send::TimelineReadbackContext {
+            window_token: Some("retry-echo-window".to_string()),
+            causation_id: Some("retry-echo-request".to_string()),
+        };
+        state.pending_sends.insert(temporary_id.clone(), pending);
+
+        let mut next_corr = 210;
+        let mut alloc_corr = || {
+            let corr = helix_core::Correlation::from_raw(next_corr);
+            next_corr += 1;
+            corr
+        };
+        let mut sink = EffectSink::new();
+        {
+            let mut ctx = ImWsContext::new(&mut state, 1_000, "", "", &mut alloc_corr);
+            reconcile_post_echo(
+                &mut ctx,
+                channel_id,
+                temporary_id.0.as_str(),
+                Some(crate::state::test_server_id(42)),
+                &mut sink,
+            );
+        }
+
+        let terminal_corr = sink
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                helix_core::Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("retry self echo writes the terminal sent fact");
+        assert_eq!(
+            state.corr_map.get(&terminal_corr),
+            Some(&CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                window_token: Some("retry-echo-window".to_string()),
+                causation_id: Some("retry-echo-request".to_string()),
+            })
         );
     }
 }

@@ -1,5 +1,11 @@
 # Rich/File 消息上传发送设计
 
+> [!WARNING]
+> **Superseded / 历史方案，禁止作为当前实现依据。**
+> 本文中的“前端提供预签名 URL / headers”链路已经失效；当前合同由 Rust 只请求 Go、Go broker Java 预签名服务，并按 **Prepare → PUT → Complete** 执行。请以
+> [`G02-G03a - 文档、媒体、上传过程态与重试`](../../../crates/helix-im/docs/interaction-v2/04-G02-G03a-文档媒体上传与重试.md)
+> 为 canonical 文档。
+
 日期：2026-07-14 纠偏更新
 状态：代码合同已落地；本地 HTTP 可证伪测试通过后方可称实现通过，真实对象存储仍待验收
 

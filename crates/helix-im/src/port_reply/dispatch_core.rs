@@ -289,7 +289,7 @@ impl ImModule {
                     .state
                     .pending_sends
                     .get(&temporary_id)
-                    .and_then(|pending| pending.request_id.clone());
+                    .and_then(|pending| pending.timeline_readback.causation_id.clone());
                 if let Some(channel_id) = channel_id {
                     let defer_http =
                         self.state
@@ -339,14 +339,19 @@ impl ImModule {
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
+        let timeline_readback = self
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .map(|pending| pending.timeline_readback.clone())
+            .unwrap_or_default();
         match outcome {
             PortOutcome::Ok(reply) => {
                 let reconcile_corr = self.alloc_corr_internal();
-                let causation_id = self
-                    .state
-                    .pending_sends
-                    .get(&temporary_id)
-                    .and_then(|pending| pending.request_id.clone());
+                let crate::pending_send::TimelineReadbackContext {
+                    window_token,
+                    causation_id,
+                } = timeline_readback;
                 if crate::send_reconcile::reconcile_send_http(
                     &mut self.state,
                     &temporary_id,
@@ -358,6 +363,7 @@ impl ImModule {
                         reconcile_corr,
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
                             channel_id,
+                            window_token,
                             causation_id,
                         },
                     );
@@ -369,11 +375,10 @@ impl ImModule {
                     "posts/create http failed, marking pending send failed immediately"
                 );
                 let reconcile_corr = self.alloc_corr_internal();
-                let causation_id = self
-                    .state
-                    .pending_sends
-                    .get(&temporary_id)
-                    .and_then(|pending| pending.request_id.clone());
+                let crate::pending_send::TimelineReadbackContext {
+                    window_token,
+                    causation_id,
+                } = timeline_readback;
                 if self
                     .state
                     .pending_sends
@@ -384,6 +389,7 @@ impl ImModule {
                         reconcile_corr,
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
                             channel_id,
+                            window_token,
                             causation_id,
                         },
                     );
@@ -432,6 +438,246 @@ impl ImModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn install_retry_pending(
+        module: &mut ImModule,
+        temporary_id: &TemporaryId,
+        window_token: Option<&str>,
+        causation_id: Option<&str>,
+    ) {
+        let mut pending = crate::pending_send::PendingSend::new(
+            temporary_id.clone(),
+            helix_core::TimerId::from_raw(991),
+            None,
+        );
+        pending.status = SendStatus::Sending;
+        pending.timeline_readback = crate::pending_send::TimelineReadbackContext {
+            window_token: window_token.map(str::to_string),
+            causation_id: causation_id.map(str::to_string),
+        };
+        module
+            .state
+            .pending_sends
+            .insert(temporary_id.clone(), pending);
+    }
+
+    fn successful_posts_create_reply() -> helix_core::tick::ReplyBytes {
+        let raw = serde_json::to_vec(&serde_json::json!({
+            "status": "SUCCESS",
+            "data": {"id": crate::state::test_server_id(42).as_str()}
+        }))
+        .unwrap();
+        let envelope = serde_json::json!({
+            "status": 200,
+            "headers": [],
+            "body": helix_core::port_codec::base64_encode(&raw)
+        });
+        helix_core::tick::ReplyBytes(bytes::Bytes::from(serde_json::to_vec(&envelope).unwrap()))
+    }
+
+    fn terminal_refresh<'a>(
+        module: &'a ImModule,
+        out: &EffectSink,
+    ) -> (
+        helix_core::Correlation,
+        &'a crate::state::CorrelationContext,
+    ) {
+        let corr = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, .. } => Some(*corr),
+                _ => None,
+            })
+            .expect("terminal send outcome persists a durable fact");
+        (
+            corr,
+            module
+                .state
+                .corr_map
+                .get(&corr)
+                .expect("terminal persist retains its timeline refresh context"),
+        )
+    }
+
+    #[test]
+    // 回归锚: G03a（posts/create 成功终态沿用 retry window + causation）
+    fn posts_create_success_preserves_retry_window_and_causation() {
+        use helix_core::{Module, Tick};
+
+        let mut config = crate::module::ImConfig::default();
+        config.auth_user_id = "viewer".to_string();
+        let mut module = ImModule::new(config);
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: channel_id.as_str().to_string(),
+            window_token: "retry-http-window".to_string(),
+        };
+        module.state.timeline_projector.register_attachment(&scope);
+        let temporary_id = TemporaryId("tmp-retry-http-success".to_string());
+        install_retry_pending(
+            &mut module,
+            &temporary_id,
+            Some("retry-http-window"),
+            Some("retry-http-request"),
+        );
+
+        let mut out = EffectSink::new();
+        module.handle_outbound_send_http_reply(
+            channel_id,
+            temporary_id,
+            &PortOutcome::Ok(successful_posts_create_reply()),
+            &mut out,
+        );
+
+        let (terminal_corr, terminal_context) = terminal_refresh(&module, &out);
+        assert_eq!(
+            terminal_context,
+            &crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                window_token: Some("retry-http-window".to_string()),
+                causation_id: Some("retry-http-request".to_string()),
+            }
+        );
+
+        out.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: terminal_corr,
+                    outcome: PortOutcome::Ok(helix_core::tick::ReplyBytes::default()),
+                },
+                2,
+                &mut out,
+            )
+            .expect("successful posts/create persist schedules the exact retry timeline");
+        let scan_corr = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Persist { corr, ops }
+                    if ops.iter().any(|op| {
+                        matches!(
+                            op,
+                            helix_core::effect::StorageOp::Scan(spec)
+                                if spec.table == "message"
+                        )
+                    }) =>
+                {
+                    Some(*corr)
+                }
+                _ => None,
+            })
+            .expect("successful retry terminal re-enters local-first projection");
+
+        let rows = serde_json::json!([{
+            "id": crate::state::test_server_id(42).as_str(),
+            "temporary_id": "tmp-retry-http-success",
+            "channel_id": channel_id.as_str(),
+            "user_id": "viewer",
+            "type": "FILE",
+            "message": "",
+            "props": "{\"file\":{\"name\":\"report.pdf\",\"upload\":{\"status\":\"uploaded\"}}}",
+            "send_status": "sent",
+            "upload_progress_percent": 100,
+            "create_at": 1
+        }]);
+        out.clear();
+        module
+            .handle(
+                &Tick::PortReply {
+                    corr: scan_corr,
+                    outcome: PortOutcome::Ok(helix_core::tick::ReplyBytes(bytes::Bytes::from(
+                        serde_json::to_vec(&rows).unwrap(),
+                    ))),
+                },
+                3,
+                &mut out,
+            )
+            .expect("successful retry readback emits the terminal frame");
+        let frame = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Emit { event } => {
+                    serde_json::from_slice::<serde_json::Value>(event.0.as_ref())
+                        .ok()
+                        .filter(|value| value["event"] == "im:interaction:frame")
+                }
+                _ => None,
+            })
+            .expect("successful retry readback emits a typed Frame");
+        let decoded = crate::interaction_frame::InteractionFrame::decode(
+            &serde_json::to_vec(&frame["data"]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(decoded.mutations[0].scope, scope);
+        assert_eq!(
+            decoded.mutations[0].causation_id.as_deref(),
+            Some("retry-http-request")
+        );
+        assert_eq!(
+            frame["data"]["mutations"][0]["mutation"]["view"]["items"][0]["delivery"]["kind"],
+            "sent"
+        );
+    }
+
+    #[test]
+    // 回归锚: G03a（posts/create 失败终态沿用 retry window + causation）
+    fn posts_create_failure_preserves_retry_window_and_causation() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let temporary_id = TemporaryId("tmp-retry-http-failure".to_string());
+        install_retry_pending(
+            &mut module,
+            &temporary_id,
+            Some("retry-http-window"),
+            Some("retry-http-request"),
+        );
+
+        let mut out = EffectSink::new();
+        module.handle_outbound_send_http_reply(
+            channel_id,
+            temporary_id,
+            &PortOutcome::Err(helix_core::tick::PortError::Network),
+            &mut out,
+        );
+
+        assert_eq!(
+            terminal_refresh(&module, &out).1,
+            &crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                window_token: Some("retry-http-window".to_string()),
+                causation_id: Some("retry-http-request".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn ordinary_send_terminal_keeps_latest_fallback() {
+        let mut module = ImModule::new(crate::module::ImConfig::default());
+        let channel_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let temporary_id = TemporaryId("tmp-ordinary-http-failure".to_string());
+        install_retry_pending(&mut module, &temporary_id, None, Some("ordinary-request"));
+
+        let mut out = EffectSink::new();
+        module.handle_outbound_send_http_reply(
+            channel_id,
+            temporary_id,
+            &PortOutcome::Err(helix_core::tick::PortError::Network),
+            &mut out,
+        );
+
+        assert_eq!(
+            terminal_refresh(&module, &out).1,
+            &crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                window_token: None,
+                causation_id: Some("ordinary-request".to_string()),
+            }
+        );
+    }
+
     #[test]
     fn committed_recipient_batch_refreshes_an_attached_timeline_from_storage() {
         let mut module = ImModule::new(crate::module::ImConfig::default());

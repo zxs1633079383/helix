@@ -2,10 +2,12 @@ mod common;
 
 use bytes::Bytes;
 use common::{
-    cid, command_json, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness,
+    cid, command_json, enveloped, port_reply_ok, port_reply_with_body, send_message_cmd_json,
+    Harness,
 };
 use helix_core::effect::{Effect, HttpRequest, SqlValue, StorageOp};
 use helix_core::Tick;
+use helix_im::state::SendStatus;
 use serde_json::{json, Value};
 
 #[derive(Clone, Copy)]
@@ -52,8 +54,8 @@ fn rich_cmd() -> Tick {
         "type": "rich",
         "text": "hello",
         "props": {
-            "textPosition": "bottom",
-            "images": [
+            "imagePosition": "bottom",
+            "files": [
                 {"mediaInput": media_input(A)},
                 {"mediaInput": media_input(B)}
             ]
@@ -106,10 +108,9 @@ fn complete_data(media: Media) -> Value {
 }
 
 fn common_res(data: Value) -> Tick {
-    port_reply_with_body(
-        0,
-        Bytes::from(serde_json::to_vec(&json!({"status": "SUCCESS", "data": data})).unwrap()),
-    )
+    let common_res =
+        Bytes::from(serde_json::to_vec(&json!({"status": "SUCCESS", "data": data})).unwrap());
+    port_reply_with_body(0, enveloped(common_res))
 }
 
 fn with_corr(corr: u64, tick: Tick) -> Tick {
@@ -196,6 +197,61 @@ fn posts(h: &Harness) -> usize {
     http(h, "/posts/create").len()
 }
 
+fn assert_retryable_media_failure(h: &Harness, temporary_id: &str, resets_progress: bool) {
+    assert_eq!(
+        h.module.pending_send_status(temporary_id),
+        Some(SendStatus::UnSend),
+        "media failure must update the in-memory send terminal"
+    );
+    let row = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { ops, .. } => ops.iter().find_map(|op| match op {
+                StorageOp::BatchUpsert(spec) if spec.table == "message" => {
+                    spec.rows.iter().find(|row| {
+                        row.iter().any(|(column, value)| {
+                            column == "temporary_id"
+                                && matches!(value, SqlValue::Text(value) if value == temporary_id)
+                        })
+                    })
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("media failure must persist the message terminal");
+    assert!(row.iter().any(|(column, value)| {
+        column == "send_status" && matches!(value, SqlValue::Text(value) if value == "unsend")
+    }));
+    assert!(row.iter().any(|(column, value)| {
+        column == "props"
+            && matches!(
+                value,
+                SqlValue::Text(value)
+                    if serde_json::from_str::<Value>(value)
+                        .ok()
+                        .is_some_and(|props| props.to_string().contains("\"status\":\"failed\""))
+            )
+    }));
+    assert_eq!(
+        row.iter().any(|(column, value)| {
+            column == "upload_progress_percent" && matches!(value, SqlValue::Integer(0))
+        }),
+        resets_progress
+    );
+    assert!(h.sink.as_slice().iter().any(|effect| match effect {
+        Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref())
+            .ok()
+            .is_some_and(|value| {
+                value["event"] == "im:post:send-failed"
+                    && value["data"]["temporaryId"] == temporary_id
+            }),
+        _ => false,
+    }));
+}
+
 #[test]
 fn prepare_failure_retries_prepare_without_new_business_id() {
     let mut h = Harness::new(&[1]);
@@ -203,8 +259,13 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
     release_initial(&mut h, 1001);
     let first_prepare = http(&h, "/media/upload/prepare")[0].0;
     h.step(common::port_reply_err(first_prepare), 1010);
+    assert_retryable_media_failure(&h, "tmp-retry-file", true);
 
     h.step(retry("tmp-retry-file"), 1020);
+    assert_eq!(
+        h.module.pending_send_status("tmp-retry-file"),
+        Some(SendStatus::Sending)
+    );
     let retries = http(&h, "/media/upload/prepare");
     assert_eq!(retries.len(), 1);
     assert_eq!(posts(&h), 0);
@@ -228,21 +289,27 @@ fn prepare_failure_retries_prepare_without_new_business_id() {
 }
 
 #[test]
-fn put_failure_retries_put_without_repeating_prepare_or_complete() {
+fn put_failure_retries_from_prepare_and_never_reuses_the_old_signed_url() {
     let mut h = Harness::new(&[1]);
     h.step(file_cmd(), 1000);
     release_initial(&mut h, 1001);
     let prepare = http(&h, "/media/upload/prepare")[0].0;
     let first_upload = prepare_ok(&mut h, prepare, FILE, 1010);
     h.step(common::port_reply_err(first_upload), 1020);
+    assert_retryable_media_failure(&h, "tmp-retry-file", true);
 
     h.step(retry("tmp-retry-file"), 1030);
-    assert!(http(&h, "/media/upload/prepare").is_empty());
+    assert_eq!(
+        h.module.pending_send_status("tmp-retry-file"),
+        Some(SendStatus::Sending)
+    );
+    let prepares = http(&h, "/media/upload/prepare");
+    assert_eq!(prepares.len(), 1);
     assert!(http(&h, "/media/upload/complete").is_empty());
-    let retried_upload = upload_corr(&h);
     let duplicate = h.step(retry("tmp-retry-file"), 1040);
     assert!(duplicate.is_empty());
 
+    let retried_upload = prepare_ok(&mut h, prepares[0].0, FILE, 1050);
     let complete = put_ok(&mut h, retried_upload, 1050);
     h.step(with_corr(complete, common_res(complete_data(FILE))), 1060);
     assert_eq!(posts(&h), 1);
@@ -264,8 +331,13 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     mismatch["sha256"] = json!("wrong");
     h.step(with_corr(complete_b, common_res(mismatch)), 1060);
     assert_eq!(posts(&h), 0);
+    assert_retryable_media_failure(&h, "tmp-retry-rich", false);
 
     h.step(retry("tmp-retry-rich"), 1070);
+    assert_eq!(
+        h.module.pending_send_status("tmp-retry-rich"),
+        Some(SendStatus::Sending)
+    );
     assert!(h
         .sink
         .as_slice()

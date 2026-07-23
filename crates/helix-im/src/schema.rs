@@ -92,6 +92,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         simple_message TEXT NOT NULL DEFAULT '',\
         read_bits TEXT NOT NULL DEFAULT '',\
         send_status TEXT NOT NULL DEFAULT '',\
+        upload_progress_percent INTEGER NOT NULL DEFAULT 0,\
         revoke INTEGER NOT NULL DEFAULT 0,\
         create_at INTEGER NOT NULL DEFAULT 0,\
         update_at INTEGER NOT NULL DEFAULT 0\
@@ -237,8 +238,8 @@ pub const IM_SCHEMA: &[&'static str] = &[
         UNIQUE (tenant_id, channel_id, from_seq, to_seq)\
     )",
     "CREATE INDEX IF NOT EXISTS idx_channel_sync_coverage_range ON channel_sync_coverage(tenant_id, channel_id, from_seq, to_seq)",
-    // `pending_media` is an internal recovery journal. Transient local paths and
-    // signed PUT credentials live only here, never in public message.props.
+    // `pending_media` is an internal recovery journal. Local paths stay out of
+    // public props; legacy upload_url/headers_json columns are retained but always written empty.
     "CREATE TABLE IF NOT EXISTS pending_media (\
         temporary_id TEXT NOT NULL,\
         target_key TEXT NOT NULL,\
@@ -266,6 +267,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
 /// `duplicate column name`。
 pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE message ADD COLUMN upload_progress_percent INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel ADD COLUMN header TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",

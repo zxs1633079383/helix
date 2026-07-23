@@ -31,4 +31,4 @@ pub use frame_sender::FrameSender;
 pub use http::HttpRequester;
 pub use id::{IdSource, Random};
 pub use storage::Storage;
-pub use upload::FileUploader;
+pub use upload::{FileUploadProgressReporter, FileUploader};

@@ -1,6 +1,8 @@
 use super::{MediaInput, PendingMediaPut, PreparedMedia, TrustedMediaReference, UploadTarget};
 use crate::ImError;
-use helix_core::effect::{FileUploadRequest, FileUploadUrls, HttpRequest};
+use helix_core::effect::{
+    FileUploadProgressPolicy, FileUploadRequest, FileUploadUrls, HttpRequest,
+};
 use serde_json::{json, Value};
 
 pub fn prepare_upload_request(
@@ -53,7 +55,9 @@ pub fn parse_prepare_reply(
     input: &MediaInput,
     channel_id: &str,
 ) -> Result<PreparedMedia, String> {
-    let root: Value = serde_json::from_slice(bytes)
+    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "media prepare")
+        .map_err(|error| error.to_string())?;
+    let root: Value = serde_json::from_slice(&raw)
         .map_err(|error| format!("media prepare CommonRes: {error}"))?;
     let status = root
         .get("status")
@@ -132,7 +136,9 @@ pub fn parse_complete_reply(
     bytes: &[u8],
     pending: &PendingMediaPut,
 ) -> Result<TrustedMediaReference, String> {
-    let root: Value = serde_json::from_slice(bytes)
+    let raw = crate::http_envelope::unwrap_success_envelope(bytes, "media complete")
+        .map_err(|error| error.to_string())?;
+    let root: Value = serde_json::from_slice(&raw)
         .map_err(|error| format!("media complete CommonRes: {error}"))?;
     let status = root
         .get("status")
@@ -211,13 +217,15 @@ pub fn parse_complete_reply(
 pub fn media_upload_request(
     input: &MediaInput,
     prepared: &PreparedMedia,
+    target: &UploadTarget,
 ) -> Result<FileUploadRequest, ImError> {
     Ok(FileUploadRequest {
         local_path: input.local_path.clone(),
         object_key: prepared.object_key.clone(),
         method: prepared.method.clone(),
         urls: FileUploadUrls::new(prepared.url.clone(), prepared.public_url.clone())
-            .map_err(|reason| ImError::Parse(format!("media prepare invalid urls: {reason}")))?,
+            .map_err(|reason| ImError::Parse(format!("media prepare invalid urls: {reason}")))?
+            .with_progress_policy(progress_policy(target)),
         headers: prepared.headers.clone(),
         content_type: Some(input.content_type.clone()),
         size: Some(input.size),
@@ -280,19 +288,27 @@ pub fn file_upload_request(
         object_key: object_key.to_string(),
         method: method.to_string(),
         urls: FileUploadUrls::new(upload_url.to_string(), public_url.to_string())
-            .map_err(|reason| ImError::Parse(format!("upload target invalid urls: {reason}")))?,
+            .map_err(|reason| ImError::Parse(format!("upload target invalid urls: {reason}")))?
+            .with_progress_policy(progress_policy(target)),
         headers,
         content_type: optional_string(node, upload, "contentType")?,
         size: optional_u64(node, upload, "size")?,
     })
 }
 
+fn progress_policy(target: &UploadTarget) -> FileUploadProgressPolicy {
+    match target {
+        UploadTarget::RichImage { .. } => FileUploadProgressPolicy::Disabled,
+        UploadTarget::File => FileUploadProgressPolicy::PercentStep(5),
+    }
+}
+
 fn target_node<'a>(props: &'a Value, target: &UploadTarget) -> Result<&'a Value, ImError> {
     match target {
         UploadTarget::RichImage { index } => props
-            .get("images")
+            .get("files")
             .and_then(Value::as_array)
-            .and_then(|images| images.get(*index))
+            .and_then(|files| files.get(*index))
             .ok_or_else(|| ImError::Parse("missing rich image target".to_string())),
         UploadTarget::File => props
             .get("file")

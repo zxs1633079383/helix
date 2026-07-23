@@ -36,12 +36,6 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             "complete",
         ),
     };
-    let headers_json = serde_json::to_string(
-        &prepared
-            .map(|value| value.headers.as_slice())
-            .unwrap_or_default(),
-    )
-    .map_err(|error| ImError::Serialize(error.to_string()))?;
     let prepared_text =
         |read: fn(&PreparedMedia) -> &String| prepared.map(read).cloned().unwrap_or_default();
 
@@ -88,7 +82,8 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
             ),
             (
                 "upload_url".to_string(),
-                SqlValue::Text(prepared_text(|value| &value.url)),
+                // 预签名写地址是短期 secret，任何 durable stage 都只落空值。
+                SqlValue::Text(String::new()),
             ),
             (
                 "public_url".to_string(),
@@ -98,7 +93,11 @@ pub fn upsert_op(operation: &PendingMediaOp) -> Result<StorageOp, ImError> {
                 "object_key".to_string(),
                 SqlValue::Text(prepared_text(|value| &value.object_key)),
             ),
-            ("headers_json".to_string(), SqlValue::Text(headers_json)),
+            (
+                "headers_json".to_string(),
+                // 签名头与 upload_url 同寿命，不跨失败或进程重启复用。
+                SqlValue::Text("[]".to_string()),
+            ),
         ]],
         conflict_key: None,
         exclude_from_update: Vec::new(),
@@ -172,12 +171,9 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
     };
     match required("stage")?.as_str() {
         "prepare" => Ok(FailedMediaOp::Prepare(prepare)),
-        "put" | "complete" => {
-            let headers: Vec<(String, String)> =
-                serde_json::from_str(row.get("headers_json").and_then(Value::as_str).ok_or_else(
-                    || ImError::Parse("pending_media invalid headers_json".to_string()),
-                )?)
-                .map_err(|_| ImError::Parse("pending_media invalid headers_json".to_string()))?;
+        // PUT 未确认完成时，旧预签名可能已经失效；重启只能回到 Prepare。
+        "put" => Ok(FailedMediaOp::Prepare(prepare)),
+        "complete" => {
             let pending = PendingMediaPut {
                 temporary_id,
                 channel_id,
@@ -187,17 +183,13 @@ fn decode_row(row: &Value) -> Result<FailedMediaOp, ImError> {
                     upload_id: required("upload_id")?,
                     file_id: required("file_id")?,
                     method: required("method")?,
-                    url: required("upload_url")?,
+                    url: String::new(),
                     public_url: required("public_url")?,
                     object_key: required("object_key")?,
-                    headers,
+                    headers: Vec::new(),
                 },
             };
-            if row.get("stage").and_then(Value::as_str) == Some("put") {
-                Ok(FailedMediaOp::Put(pending))
-            } else {
-                Ok(FailedMediaOp::Complete(pending))
-            }
+            Ok(FailedMediaOp::Complete(pending))
         }
         _ => Err(ImError::Parse("pending_media invalid stage".to_string())),
     }

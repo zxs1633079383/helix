@@ -23,7 +23,7 @@ async fn test_bounded_spawner_drop_newest_no_block() {
         1,
         Overflow::DropNewest,
         reply_tx,
-        move |_payload: u64| {
+        move |_corr, _payload: u64| {
             let executed = Arc::clone(&executed_c);
             let gate = Arc::clone(&gate_c);
             async move {
@@ -68,15 +68,20 @@ async fn test_bounded_spawner_block_no_loss() {
     let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
 
     let executed_c = Arc::clone(&executed);
-    let sp: BoundedSpawner<u64> =
-        BoundedSpawner::new(1, 1, Overflow::Block, reply_tx, move |_payload: u64| {
+    let sp: BoundedSpawner<u64> = BoundedSpawner::new(
+        1,
+        1,
+        Overflow::Block,
+        reply_tx,
+        move |_corr, _payload: u64| {
             let executed = Arc::clone(&executed_c);
             async move {
                 tokio::time::sleep(Duration::from_millis(1)).await;
                 executed.fetch_add(1, Ordering::SeqCst);
                 PortOutcome::Ok(ReplyBytes::default())
             }
-        });
+        },
+    );
 
     const N: u64 = 50;
     for i in 0..N {
@@ -107,7 +112,7 @@ async fn test_bounded_spawner_n1_preserves_order() {
         8,
         Overflow::Block,
         reply_tx,
-        move |payload: u64| {
+        move |_corr, payload: u64| {
             let order = Arc::clone(&order_c);
             async move {
                 // 故意让靠前的条目「执行体」更慢，若并发(N>1)会乱序——N=1 必有序。
@@ -147,8 +152,12 @@ async fn shutdown_with_timeout_caps_and_aborts_inflight() {
     let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
 
     let entered_c = Arc::clone(&entered);
-    let sp: BoundedSpawner<u64> =
-        BoundedSpawner::new(1, 1, Overflow::Block, reply_tx, move |_payload: u64| {
+    let sp: BoundedSpawner<u64> = BoundedSpawner::new(
+        1,
+        1,
+        Overflow::Block,
+        reply_tx,
+        move |_corr, _payload: u64| {
             let entered = Arc::clone(&entered_c);
             async move {
                 entered.fetch_add(1, Ordering::SeqCst);
@@ -156,7 +165,8 @@ async fn shutdown_with_timeout_caps_and_aborts_inflight() {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 PortOutcome::Ok(ReplyBytes::default())
             }
-        });
+        },
+    );
 
     sp.submit(Job {
         corr: Some(Correlation::from_raw(1)),
@@ -198,14 +208,19 @@ async fn shutdown_with_timeout_returns_true_when_drained_in_limit() {
     let (reply_tx, _reply_rx) = mpsc::unbounded_channel::<Tick>();
 
     let executed_c = Arc::clone(&executed);
-    let sp: BoundedSpawner<u64> =
-        BoundedSpawner::new(1, 8, Overflow::Block, reply_tx, move |_payload: u64| {
+    let sp: BoundedSpawner<u64> = BoundedSpawner::new(
+        1,
+        8,
+        Overflow::Block,
+        reply_tx,
+        move |_corr, _payload: u64| {
             let executed = Arc::clone(&executed_c);
             async move {
                 executed.fetch_add(1, Ordering::SeqCst);
                 PortOutcome::Ok(ReplyBytes::default())
             }
-        });
+        },
+    );
 
     for i in 0..5u64 {
         sp.submit(Job {
@@ -233,7 +248,7 @@ async fn test_bounded_spawner_reports_via_reply_tx() {
         8,
         Overflow::Block,
         reply_tx,
-        move |_payload: u64| async move { PortOutcome::Ok(ReplyBytes::default()) },
+        move |_corr, _payload: u64| async move { PortOutcome::Ok(ReplyBytes::default()) },
     );
 
     sp.submit(Job {

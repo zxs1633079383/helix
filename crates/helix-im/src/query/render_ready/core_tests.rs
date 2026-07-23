@@ -45,6 +45,7 @@ fn db_snake_row_shaped_to_render_ready() {
     assert_eq!(r["createdAt"], 1700);
     assert_eq!(r["userId"], "u9");
     assert_eq!(r["sendStatus"], "sent");
+    assert_eq!(r["progressPercent"], 0);
     assert_eq!(r["replyId"], "root-1");
     assert_eq!(r["replyRootId"], "root-1");
     assert_eq!(r["replyFirstLevelId"], "first-1");
@@ -57,6 +58,27 @@ fn db_snake_row_shaped_to_render_ready() {
             "template": {"userIds":["u9"]}
         })
     );
+}
+
+#[test]
+fn file_upload_progress_column_is_shaped_as_bounded_camel_case_percent() {
+    let rows = json!([{
+        "temporary_id": "tmp-file",
+        "channel_id": "ch1",
+        "type": "FILE",
+        "props": "{\"file\":{\"upload\":{\"status\":\"uploading\"}}}",
+        "upload_progress_percent": 35
+    }]);
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["progressPercent"], 35);
+
+    let oversized = json!([{
+        "temporaryId": "tmp-file-2",
+        "channelId": "ch1",
+        "type": "FILE",
+        "progressPercent": 101
+    }]);
+    assert_eq!(shape_message_rows(&oversized)[0]["progressPercent"], 100);
 }
 
 #[test]

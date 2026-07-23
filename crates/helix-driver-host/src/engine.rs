@@ -221,7 +221,7 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
             }
         };
 
-        if matches!(tick, Tick::PortReply { .. }) {
+        if matches!(tick, Tick::PortReply { .. } | Tick::PortProgress { .. }) {
             consecutive_replies = consecutive_replies.saturating_add(1);
         } else {
             consecutive_replies = 0;
@@ -243,6 +243,15 @@ pub(super) async fn run_engine_loop_inner<S, H, U, E, Tr, C>(
                 corr = corr.raw(),
                 outcome = outcome_class,
                 "correlated port reply returned to the deterministic shell"
+            );
+        }
+        if let Tick::PortProgress { corr, progress } = &tick {
+            tracing::debug!(
+                hop = "host.port_progress",
+                corr = corr.raw(),
+                completed_bytes = progress.completed_bytes,
+                total_bytes = progress.total_bytes,
+                "correlated upload progress returned to the deterministic shell"
             );
         }
 

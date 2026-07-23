@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use super::FileUploadUrls;
+use super::{FileUploadProgressPolicy, FileUploadUrls};
 
 /// HTTP 请求（driver 的 HttpRequester 解析并发出）
 #[derive(Debug, Clone)]
@@ -29,6 +29,13 @@ pub struct FileUploadRequest {
     pub headers: Vec<(String, String)>,
     pub content_type: Option<String>,
     pub size: Option<u64>,
+}
+
+impl FileUploadRequest {
+    /// 进度策略随已有私有 URL 封装携带，避免破坏公开结构体的字段级构造兼容。
+    pub fn progress_policy(&self) -> FileUploadProgressPolicy {
+        self.urls.progress_policy()
+    }
 }
 
 /// 文件上传结果（driver 包装后通过 PortReply 回传）。

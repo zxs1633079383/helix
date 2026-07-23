@@ -122,9 +122,9 @@ fn target_node_mut<'a>(
 ) -> Result<&'a mut Value, ImError> {
     match target {
         UploadTarget::RichImage { index } => props
-            .get_mut("images")
+            .get_mut("files")
             .and_then(Value::as_array_mut)
-            .and_then(|images| images.get_mut(*index))
+            .and_then(|files| files.get_mut(*index))
             .ok_or_else(|| ImError::Parse("missing rich image target".to_string())),
         UploadTarget::File => props
             .get_mut("file")

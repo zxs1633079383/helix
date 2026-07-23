@@ -97,8 +97,21 @@ impl ImModule {
         causation_id: Option<String>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        self.refresh_attached_latest_timeline_with_deferred_send(
+        self.refresh_attached_timeline(channel_id, "latest", causation_id, out)
+    }
+
+    /// Action authority is scope-bound: its causal terminal Frame must return to the exact
+    /// timeline window that granted the opaque actionRef.
+    pub(crate) fn refresh_attached_timeline(
+        &mut self,
+        channel_id: ChannelId,
+        window_token: &str,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.refresh_attached_timeline_window_with_deferred_send(
             channel_id,
+            window_token,
             causation_id,
             None,
             out,
@@ -117,16 +130,33 @@ impl ImModule {
         deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<bool, ImError> {
+        self.refresh_attached_timeline_window_with_deferred_send(
+            channel_id,
+            "latest",
+            causation_id,
+            deferred_send_http,
+            out,
+        )
+    }
+
+    fn refresh_attached_timeline_window_with_deferred_send(
+        &mut self,
+        channel_id: ChannelId,
+        window_token: &str,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
+        out: &mut EffectSink,
+    ) -> Result<bool, ImError> {
         let scope = crate::interaction_frame::SurfaceScope::Timeline {
             channel_id: channel_id.as_str().to_string(),
-            window_token: "latest".to_string(),
+            window_token: window_token.to_string(),
         };
         if !self.state.timeline_projector.is_attached(&scope) {
             return Ok(false);
         }
         let payload = serde_json::json!({
             "channel_id": channel_id.as_str(),
-            "window_token": "latest",
+            "window_token": window_token,
             "limit": super::QUERY_MESSAGES_DEFAULT,
         });
         let bytes = serde_json::to_vec(&payload)
@@ -679,7 +709,7 @@ impl ImModule {
         } else {
             self.state
                 .timeline_projector
-                .snapshot_from_render_ready(timeline_request, rows)
+                .snapshot_from_render_ready_with_causation(timeline_request, rows, causation_id)
         }
         .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
@@ -693,20 +723,28 @@ impl ImModule {
         let effect = crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))?;
         if let Some(request_id) = terminal_action_request {
-            let batch_complete = self
+            let is_forward_action = self
                 .state
                 .pending_forward_deliveries
-                .complete_target(&request_id, request.channel_id);
-            if batch_complete
-                && !self
+                .contains_request(&request_id);
+            let terminal_action_frame = if is_forward_action {
+                self.state
+                    .pending_forward_deliveries
+                    .complete_target(&request_id, request.channel_id)
+            } else {
+                true
+            };
+            if terminal_action_frame {
+                let action_completed = self
                     .state
                     .action_registry
-                    .complete_after_terminal_frame(&request_id)
-            {
-                tracing::warn!(
-                    request_id,
-                    "timeline action frame had no in-flight request ledger entry"
-                );
+                    .complete_after_terminal_frame(&request_id);
+                if is_forward_action && !action_completed {
+                    tracing::warn!(
+                        request_id,
+                        "timeline action frame had no in-flight request ledger entry"
+                    );
+                }
             }
         }
         Ok(effect)

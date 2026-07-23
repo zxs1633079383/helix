@@ -18,7 +18,19 @@ use helix_core::{Correlation, Effect, EffectSink, TimerId};
 use serde_json::Value;
 
 mod persistence;
-pub use persistence::{optimistic_message_persist_op, send_status_persist_op};
+pub use persistence::{
+    optimistic_message_persist_op, send_status_persist_op, upload_progress_persist_op,
+};
+
+/// 一次发送 attempt 的 timeline 因果回读地址。
+///
+/// window 与 causation 必须整体复制：只复制其中一个会让 action retry 的后续 Frame
+/// 退回 `latest` 或失去 request confirmation。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TimelineReadbackContext {
+    pub window_token: Option<String>,
+    pub causation_id: Option<String>,
+}
 
 /// 待对账的单条消息发送记录
 pub struct PendingSend {
@@ -35,8 +47,11 @@ pub struct PendingSend {
     /// `temporary_id`（HashMap key）天然去重不双份；本字段记录「这条是哪个 connectionId 下发的」，
     /// 让重连后能判定「跨会话补回 vs 本会话 echo」（None = 发送时尚未握手，无 connectionId）。
     pub connection_id: Option<String>,
-    /// 调用方请求关联 ID；仅作为 HTTP 横切追踪头透传，不参与业务判断。
-    pub request_id: Option<String>,
+    /// 调用方 request causation 与 action 授权 retry 的原始 timeline window。
+    ///
+    /// 普通发送与 legacy 命令保持 `None`，readback 按 `latest`；action retry 必须在整个
+    /// progress / failure / posts.create / WS echo 生命周期内保留原 window，不能只用于首帧。
+    pub timeline_readback: TimelineReadbackContext,
     /// rich/file 上传完成后才真正发 posts/create；普通文本无此缓存。
     pub body: Option<Value>,
     /// `posts/create` 已经出站的单飞闸。普通文本必须先把 P1 的真实 timeline Frame
@@ -45,7 +60,8 @@ pub struct PendingSend {
     pub http_started: bool,
     /// 仍待成功的上传数；归零后才发 posts/create。
     pub remaining_uploads: usize,
-    /// 上传失败与 Post send status 分离：失败只改 props.upload.status，不走 unsend/timer 失败态。
+    /// 上传失败闸。失败时 send status 同步进入 UnSend 供公开 VM 暴露 retry；
+    /// 本字段继续区分“重试媒体阶段”与“重试 posts/create”。
     pub upload_failed: bool,
 }
 
@@ -64,7 +80,7 @@ impl PendingSend {
             timeout_timer,
             persist_corr: None,
             connection_id,
-            request_id: None,
+            timeline_readback: TimelineReadbackContext::default(),
             body: None,
             http_started: false,
             remaining_uploads: 0,

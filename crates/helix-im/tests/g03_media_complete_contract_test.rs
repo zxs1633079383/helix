@@ -1,7 +1,7 @@
 mod common;
 
 use bytes::Bytes;
-use common::{cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness};
+use common::{cid, enveloped, port_reply_ok, port_reply_with_body, send_message_cmd_json, Harness};
 use helix_core::effect::{Effect, HttpRequest, SqlValue, StorageOp, UpsertSpec};
 use helix_core::Tick;
 use serde_json::{json, Value};
@@ -34,8 +34,8 @@ fn rich_cmd() -> Tick {
         "type": "rich",
         "text": "hello",
         "props": {
-            "textPosition": "bottom",
-            "images": [{
+            "imagePosition": "bottom",
+            "files": [{
                 "width": 800,
                 "height": 600,
                 "mediaInput": {
@@ -81,12 +81,10 @@ fn complete_data(file_name: &str, content_type: &str, size: u64, sha256: &str) -
 }
 
 fn envelope(status: &str, data: Value) -> Tick {
-    port_reply_with_body(
-        0,
-        Bytes::from(
-            serde_json::to_vec(&json!({"status": status, "data": data})).expect("CommonRes json"),
-        ),
-    )
+    let common_res = Bytes::from(
+        serde_json::to_vec(&json!({"status": status, "data": data})).expect("CommonRes json"),
+    );
+    port_reply_with_body(0, enveloped(common_res))
 }
 
 fn http_effects(h: &Harness, suffix: &str) -> Vec<(u64, HttpRequest)> {
@@ -303,10 +301,10 @@ fn rich_complete_preserves_render_metadata_in_posts_create() {
     );
 
     let props = last_props(&h);
-    assert_eq!(props["images"][0]["id"], "file-1");
-    assert_eq!(props["images"][0]["width"], 800);
-    assert_eq!(props["images"][0]["height"], 600);
-    assert_eq!(props["images"][0]["upload"]["status"], "completed");
+    assert_eq!(props["files"][0]["id"], "file-1");
+    assert_eq!(props["files"][0]["width"], 800);
+    assert_eq!(props["files"][0]["height"], 600);
+    assert_eq!(props["files"][0]["upload"]["status"], "completed");
     assert_eq!(posts_create_count(&h), 1);
 }
 

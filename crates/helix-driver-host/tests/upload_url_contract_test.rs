@@ -58,7 +58,10 @@ async fn put_uses_signed_upload_url_but_response_only_contains_public_url() {
             method: "PUT".to_string(),
             urls: FileUploadUrls::new(signed_upload_url.clone(), public_url.to_string())
                 .expect("distinct upload urls"),
-            headers: Vec::new(),
+            headers: vec![
+                ("Content-Type".to_string(), "text/plain".to_string()),
+                ("x-oss-forbid-overwrite".to_string(), "true".to_string()),
+            ],
             content_type: Some("text/plain".to_string()),
             size: Some(7),
         })
@@ -77,6 +80,20 @@ async fn put_uses_signed_upload_url_but_response_only_contains_public_url() {
     assert_eq!(response.etag.as_deref(), Some("test-etag"));
     assert!(!response.public_url.contains("X-Amz-Signature"));
     assert_ne!(response.public_url, signed_upload_url);
+    assert_eq!(
+        request_text
+            .lines()
+            .filter(|line| line.to_ascii_lowercase().starts_with("content-type:"))
+            .count(),
+        1,
+        "ticket Content-Type is authoritative and must not be appended twice: {request_text}"
+    );
+    assert!(
+        request_text
+            .to_ascii_lowercase()
+            .contains("x-oss-forbid-overwrite: true"),
+        "signed OSS headers must be forwarded unchanged: {request_text}"
+    );
 
     tokio::fs::remove_file(local_path)
         .await

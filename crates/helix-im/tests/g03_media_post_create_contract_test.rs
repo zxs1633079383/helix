@@ -2,7 +2,7 @@ mod common;
 
 use bytes::Bytes;
 use common::{
-    cid, port_reply_ok, port_reply_with_body, send_message_cmd_json, EffectKind, Harness,
+    cid, enveloped, port_reply_ok, port_reply_with_body, send_message_cmd_json, EffectKind, Harness,
 };
 use helix_core::effect::{Effect, HttpRequest, SqlValue, StorageOp};
 use helix_core::Tick;
@@ -63,8 +63,8 @@ fn rich_cmd() -> Tick {
         "type": "rich",
         "text": "hello",
         "props": {
-            "textPosition": "bottom",
-            "images": [
+            "imagePosition": "bottom",
+            "files": [
                 {"width": 800, "mediaInput": media_input(IMAGE_A)},
                 {"height": 600, "mediaInput": media_input(IMAGE_B)}
             ],
@@ -118,10 +118,9 @@ fn complete_data(media: MediaFixture) -> Value {
 }
 
 fn success(data: Value) -> Tick {
-    port_reply_with_body(
-        0,
-        Bytes::from(serde_json::to_vec(&json!({"status": "SUCCESS", "data": data})).unwrap()),
-    )
+    let common_res =
+        Bytes::from(serde_json::to_vec(&json!({"status": "SUCCESS", "data": data})).unwrap());
+    port_reply_with_body(0, enveloped(common_res))
 }
 
 fn reply(corr: u64, tick: Tick) -> Tick {
@@ -244,6 +243,18 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
     let effects = h.step(reply(complete, success(complete_data(FILE))), 1030);
 
     assert_eq!(posts_count(&h), 1);
+    assert!(h.sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Persist { ops, .. }
+            if ops.iter().any(|op| matches!(
+                op,
+                StorageOp::BatchUpdate(spec)
+                    if spec.table == "message"
+                        && spec.patch.iter().any(|(column, value)|
+                            column == "upload_progress_percent"
+                                && matches!(value, SqlValue::Integer(100)))
+            ))
+    )));
     assert_eq!(
         effects
             .iter()
@@ -252,6 +263,7 @@ fn single_attachment_complete_posts_once_and_arms_timer() {
         1
     );
     let body = posts_body(&h);
+    assert_eq!(body["type"], "FILE");
     assert_eq!(body["message"], "quarterly report");
     assert_eq!(body["props"]["file"]["id"], FILE.file_id);
     assert_eq!(
@@ -297,10 +309,14 @@ fn multi_attachment_out_of_order_waits_for_all_and_posts_exactly_once() {
         1
     );
     let body = posts_body(&h);
-    assert_eq!(body["props"]["images"][0]["id"], IMAGE_A.file_id);
-    assert_eq!(body["props"]["images"][1]["id"], IMAGE_B.file_id);
-    assert_eq!(body["props"]["images"][0]["width"], 800);
-    assert_eq!(body["props"]["images"][1]["height"], 600);
+    assert_eq!(body["type"], "IMAGE");
+    assert_eq!(body["props"]["imagePosition"], "bottom");
+    assert!(body["props"].get("images").is_none());
+    assert!(body["props"].get("textPosition").is_none());
+    assert_eq!(body["props"]["files"][0]["id"], IMAGE_A.file_id);
+    assert_eq!(body["props"]["files"][1]["id"], IMAGE_B.file_id);
+    assert_eq!(body["props"]["files"][0]["width"], 800);
+    assert_eq!(body["props"]["files"][1]["height"], 600);
     assert_no_transient_fields(&body["props"]);
 
     let duplicate_final = h.step(reply(complete_a, success(complete_data(IMAGE_A))), 1080);

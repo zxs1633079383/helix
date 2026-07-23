@@ -131,6 +131,15 @@ fn should_intercept_empty(text: &str, props: &Value) -> bool {
     !(has_valid_message || has_valid_props)
 }
 
+fn canonical_message_type(msg_type: &str) -> &str {
+    match msg_type {
+        "rich" | "IMAGE" => "IMAGE",
+        "file" | "FILE" => "FILE",
+        "" => "TEXT",
+        other => other,
+    }
+}
+
 /// 组装 `posts/create` body（现网 buildMessageObject + sendMessage 空消息拦截）。
 ///
 /// 返回 `None` = 空消息被拦截（不产出 Http）；`Some(body)` = 完整 camelCase wire body。
@@ -162,11 +171,7 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     body.insert("mentions".to_string(), input.mentions.clone());
     body.insert("temporaryId".to_string(), json!(input.temporary_id));
     // type：默认 "TEXT"，文档/图片等富媒体透传真值（UC-1.2）。空串容错为 "TEXT"。
-    let msg_type = if input.msg_type.is_empty() {
-        "TEXT"
-    } else {
-        input.msg_type
-    };
+    let msg_type = canonical_message_type(input.msg_type);
     body.insert("type".to_string(), json!(msg_type));
     body.insert("simpleMessage".to_string(), json!(simple_message));
     body.insert("channelId".to_string(), json!(input.channel_id));

@@ -39,6 +39,10 @@ enum PreparedAction {
     Forward {
         payload: Vec<u8>,
     },
+    Retry {
+        payload: Vec<u8>,
+        window_token: String,
+    },
 }
 
 impl ImModule {
@@ -61,6 +65,14 @@ impl ImModule {
                 "timeline action binding has an invalid surface scope".to_string(),
             ));
         }
+        let window_token = match &scope {
+            crate::interaction_frame::SurfaceScope::Timeline { window_token, .. } => window_token,
+            _ => {
+                return Err(ImError::Parse(
+                    "timeline action binding requires a timeline scope".to_string(),
+                ))
+            }
+        };
         let items = match &mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { view } => &view.items,
             TypedSurfaceMutation::TimelinePatch { patch } => &patch.view.items,
@@ -102,6 +114,7 @@ impl ImModule {
                     binding.kind.as_str(),
                     item.channel_id.as_str(),
                     item.id.as_str(),
+                    window_token.as_str(),
                 )
                 .ok_or_else(|| {
                     ImError::Parse(format!(
@@ -150,8 +163,8 @@ impl ImModule {
             .map_err(|error| ImError::Serialize(error.to_string()))
     }
 
-    /// 受理 FFI/Web 送入的严格 envelope。`accepted` 只代表 canonical HTTP effect 已成功建模并登记
-    /// corr；它绝不直接下发 participant receipt VM，也不让端侧把 accepted 当作 action 完成。
+    /// 受理 FFI/Web 送入的严格 envelope。`accepted` 只代表 canonical work 已成功建模并登记；
+    /// 它绝不直接下发 participant receipt VM，也不让端侧把 accepted 当作 action 完成。
     pub(crate) fn handle_action_invocation(
         &mut self,
         payload: &[u8],
@@ -224,6 +237,18 @@ impl ImModule {
                         }
                         PreparedAction::Forward { payload } => {
                             crate::forward::start(self, &payload, now_ms, out)?;
+                        }
+                        PreparedAction::Retry {
+                            payload,
+                            window_token,
+                        } => {
+                            crate::send::retry_send::handle_retry_send_for_window(
+                                self,
+                                &payload,
+                                now_ms,
+                                window_token,
+                                out,
+                            )?;
                         }
                     }
                 }
@@ -334,6 +359,18 @@ impl ImModule {
                     .pending_authority_action(request_id)
                     .expect("revoke dispatch must create pending authority"),
             ),
+            ActionDispatch::RetryMessage {
+                message_id,
+                window_token,
+                ..
+            } => {
+                let payload =
+                    crate::send::retry_send::prepare_retry_send_payload(message_id, request_id)?;
+                Ok(PreparedAction::Retry {
+                    payload,
+                    window_token: window_token.clone(),
+                })
+            }
             ActionDispatch::ToggleReaction { message_id, .. } => self.prepare_outbound_action(
                 "im_quick_reply",
                 serde_json::json!({

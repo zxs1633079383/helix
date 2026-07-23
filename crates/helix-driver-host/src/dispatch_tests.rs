@@ -7,18 +7,21 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use helix_core::effect::{
-    BatchDeleteSpec, BatchUpdateSpec, Correlation, DomainEventBytes, FileUploadRequest,
-    FileUploadResponse, FileUploadUrls, GetSpec, GuardedBumpSpec, HttpRequest, MonotonicUpsertSpec,
-    Row, ScanSpec, StorageOp, TransportId, UpsertSpec,
+    BatchDeleteSpec, BatchUpdateSpec, Correlation, DomainEventBytes, FileUploadProgress,
+    FileUploadProgressPolicy, FileUploadRequest, FileUploadResponse, FileUploadUrls, GetSpec,
+    GuardedBumpSpec, HttpRequest, MonotonicUpsertSpec, Row, ScanSpec, StorageOp, TransportId,
+    UpsertSpec,
 };
-use helix_core::ports::{EventSink, FileUploader, FrameSender, Storage};
+use helix_core::ports::{
+    EventSink, FileUploadProgressReporter, FileUploader, FrameSender, Storage,
+};
 use helix_core::tick::{PortOutcome, ReplyBytes, Tick};
 use helix_core::PortError;
 
 use crate::engine::TransportTable;
 use crate::owned_effect::OwnedEffect;
 use crate::pools::spawn_upload_pool;
-use crate::spawner::{BoundedSpawner, Overflow};
+use crate::spawner::{BoundedSpawner, Job, Overflow};
 use crate::timer::TimerRegistry;
 use crate::trace::{TraceCarrier, TraceHooks, TraceHooksImpl, TraceScope};
 
@@ -77,6 +80,33 @@ impl FileUploader for StubUploader {
     }
 }
 
+struct ProgressUploader {
+    response: FileUploadResponse,
+}
+
+#[async_trait::async_trait]
+impl FileUploader for ProgressUploader {
+    async fn upload(&self, _: FileUploadRequest) -> Result<FileUploadResponse, PortError> {
+        Ok(self.response.clone())
+    }
+
+    async fn upload_with_progress(
+        &self,
+        _: FileUploadRequest,
+        progress: Option<Arc<dyn FileUploadProgressReporter>>,
+    ) -> Result<FileUploadResponse, PortError> {
+        if let Some(progress) = progress {
+            for completed_bytes in 1..=100 {
+                progress.report(FileUploadProgress {
+                    completed_bytes,
+                    total_bytes: 100,
+                });
+            }
+        }
+        Ok(self.response.clone())
+    }
+}
+
 #[derive(Default)]
 struct RecordingFrameSender {
     frames: Mutex<Vec<Bytes>>,
@@ -131,6 +161,67 @@ fn make_upload_request() -> FileUploadRequest {
     }
 }
 
+fn make_upload_request_with_policy(policy: FileUploadProgressPolicy) -> FileUploadRequest {
+    let mut req = make_upload_request();
+    req.urls = req.urls.with_progress_policy(policy);
+    req
+}
+
+#[tokio::test]
+async fn upload_pool_emits_at_most_twenty_ticks_at_five_percent_steps() {
+    let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Tick>();
+    let upload_pool = spawn_upload_pool(
+        1,
+        Arc::new(ProgressUploader {
+            response: FileUploadResponse {
+                object_key: "im/uploads/file.png".to_string(),
+                public_url: "https://cdn.example.com/im/uploads/file.png".to_string(),
+                etag: None,
+            },
+        }),
+        reply_tx,
+        Overflow::Block,
+    );
+
+    upload_pool
+        .submit(Job {
+            corr: Some(Correlation::from_raw(501)),
+            payload: make_upload_request_with_policy(FileUploadProgressPolicy::PercentStep(5)),
+        })
+        .await;
+    upload_pool
+        .submit(Job {
+            corr: Some(Correlation::from_raw(502)),
+            payload: make_upload_request_with_policy(FileUploadProgressPolicy::Disabled),
+        })
+        .await;
+    upload_pool.shutdown().await;
+
+    let mut enabled_progress = Vec::new();
+    let mut disabled_progress = 0;
+    let mut enabled_terminal = 0;
+    let mut disabled_terminal = 0;
+    while let Ok(tick) = reply_rx.try_recv() {
+        match tick {
+            Tick::PortProgress { corr, progress } if corr.raw() == 501 => {
+                enabled_progress.push(
+                    ((u128::from(progress.completed_bytes) * 100)
+                        / u128::from(progress.total_bytes)) as u8,
+                );
+            }
+            Tick::PortProgress { corr, .. } if corr.raw() == 502 => disabled_progress += 1,
+            Tick::PortReply { corr, .. } if corr.raw() == 501 => enabled_terminal += 1,
+            Tick::PortReply { corr, .. } if corr.raw() == 502 => disabled_terminal += 1,
+            _ => {}
+        }
+    }
+
+    assert_eq!(enabled_progress, (5..=100).step_by(5).collect::<Vec<_>>());
+    assert_eq!(disabled_progress, 0);
+    assert_eq!(enabled_terminal, 1);
+    assert_eq!(disabled_terminal, 1);
+}
+
 #[tokio::test]
 async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
     let (tick_tx, _tick_rx) = mpsc::channel::<Tick>(1);
@@ -142,7 +233,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         1,
         Overflow::Block,
         reply_tx.clone(),
-        |_req: HttpRequest| async move {
+        |_corr, _req: HttpRequest| async move {
             panic!("http pool should stay unused in upload dispatch test")
         },
     );
@@ -151,7 +242,7 @@ async fn upload_effect_dispatch_records_trace_and_replies_with_expected_json() {
         1,
         Overflow::DropNewest,
         reply_tx.clone(),
-        |_req: HttpRequest| async move {
+        |_corr, _req: HttpRequest| async move {
             panic!("http fire pool should stay unused in upload dispatch test")
         },
     );
@@ -246,14 +337,14 @@ async fn send_effect_requires_only_frame_sender_capability() {
         1,
         Overflow::Block,
         reply_tx.clone(),
-        |_req: HttpRequest| async move { panic!("http pool should stay unused") },
+        |_corr, _req: HttpRequest| async move { panic!("http pool should stay unused") },
     );
     let http_fire_pool: BoundedSpawner<HttpRequest> = BoundedSpawner::new(
         1,
         1,
         Overflow::DropNewest,
         reply_tx.clone(),
-        |_req: HttpRequest| async move { panic!("http fire pool should stay unused") },
+        |_corr, _req: HttpRequest| async move { panic!("http fire pool should stay unused") },
     );
     let upload_pool = spawn_upload_pool(
         1,

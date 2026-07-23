@@ -119,6 +119,18 @@ impl TimelineProjector {
         request: TimelineWindowRequest,
         render_ready_rows: &[Value],
     ) -> Result<SurfaceMutation, TimelineProjectionError> {
+        self.snapshot_from_render_ready_with_causation(request, render_ready_rows, None)
+    }
+
+    /// Durable action outcomes may race the first completed snapshot for an already attached
+    /// timeline. Keep the terminal causation on that snapshot as well as on ordinary patches;
+    /// otherwise the renderer cannot confirm the accepted action after a slot reset.
+    pub(crate) fn snapshot_from_render_ready_with_causation(
+        &mut self,
+        request: TimelineWindowRequest,
+        render_ready_rows: &[Value],
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, TimelineProjectionError> {
         let (scope, slot_key) = scope_and_slot_key(&request)?;
         let view = self.build_view(&request, render_ready_rows)?;
         let revision = self
@@ -130,7 +142,7 @@ impl TimelineProjector {
             scope,
             revision,
             base_revision: None,
-            causation_id: None,
+            causation_id,
             mutation: TypedSurfaceMutation::TimelineSnapshot { view: view.clone() },
         };
         mutation.validate()?;
@@ -864,20 +876,34 @@ fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineP
     if revoked {
         return Ok(DeliveryVm::Recalled);
     }
-    match row_string(row, &["sendStatus", "send_status"]).as_str() {
-        "uploading" => Ok(DeliveryVm::Uploading {
+    let is_file_uploading = row_string(row, &["type"]) == "FILE"
+        && row
+            .get("props")
+            .and_then(|props| props.get("file"))
+            .and_then(|file| file.get("upload"))
+            .and_then(|upload| upload.get("status"))
+            .and_then(Value::as_str)
+            .is_some_and(|status| matches!(status, "preparing" | "uploading" | "completing"));
+    if is_file_uploading {
+        return Ok(DeliveryVm::Uploading {
             progress_percent: integer_at(
                 row,
-                &["progressPercent", "progress_percent"],
+                &["progressPercent", "upload_progress_percent"],
                 "progressPercent",
             )?
             .unwrap_or_default()
             .clamp(0, 100) as u8,
-        }),
+        });
+    }
+    match row_string(row, &["sendStatus", "send_status"]).as_str() {
         "sending" => Ok(DeliveryVm::Sending),
         "failed" | "unsend" => Ok(DeliveryVm::Failed {
             reason: row_string(row, &["failureReason", "error"]),
-            retryable: bool_at(row, &["canRetry"]),
+            retryable: row
+                .get("actionCapabilities")
+                .and_then(|capabilities| capabilities.get("canRetry"))
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| bool_at(row, &["canRetry"])),
         }),
         _ => Ok(DeliveryVm::Sent),
     }
@@ -1426,6 +1452,38 @@ mod tests {
     }
 
     #[test]
+    fn only_file_upload_status_projects_percent_delivery() {
+        let mut file = row(1);
+        file["type"] = serde_json::json!("FILE");
+        file["sendStatus"] = serde_json::json!("sending");
+        file["progressPercent"] = serde_json::json!(35);
+        file["props"] = serde_json::json!({
+            "file": {"upload": {"status": "uploading"}}
+        });
+        let file_message =
+            message_from_render_ready(&file, "channel-1", 1, false, || Ok("unused".to_string()))
+                .unwrap();
+        assert_eq!(
+            file_message.delivery,
+            DeliveryVm::Uploading {
+                progress_percent: 35
+            }
+        );
+
+        let mut image = row(2);
+        image["type"] = serde_json::json!("IMAGE");
+        image["sendStatus"] = serde_json::json!("sending");
+        image["progressPercent"] = serde_json::json!(35);
+        image["props"] = serde_json::json!({
+            "files": [{"upload": {"status": "uploading"}}]
+        });
+        let image_message =
+            message_from_render_ready(&image, "channel-1", 1, false, || Ok("unused".to_string()))
+                .unwrap();
+        assert_eq!(image_message.delivery, DeliveryVm::Sending);
+    }
+
+    #[test]
     fn snapshot_bounds_latest_window_and_patch_replaces_complete_view() {
         let mut projector = TimelineProjector::default();
         let rows = (0..80).map(row).collect::<Vec<_>>();
@@ -1545,7 +1603,10 @@ mod tests {
         assert_eq!(projector.current_view(&scope).cloned(), before);
 
         let mut unsafe_upload_progress = row(5);
-        unsafe_upload_progress["sendStatus"] = serde_json::json!("uploading");
+        unsafe_upload_progress["type"] = serde_json::json!("FILE");
+        unsafe_upload_progress["props"] = serde_json::json!({
+            "file": {"upload": {"status": "uploading"}}
+        });
         unsafe_upload_progress["progressPercent"] = serde_json::json!(u64::MAX);
         assert!(matches!(
             projector.patch_from_render_ready(request, &[unsafe_upload_progress], None),

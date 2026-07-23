@@ -40,7 +40,17 @@ impl ImModule {
             return Ok(());
         }
 
+        if let Some(route) = self.state.file_upload_progress_persists.remove(&corr) {
+            return self.handle_file_upload_progress_persist_reply(corr, route, outcome, out);
+        }
+
         if let Some(pending_media) = self.state.pending_media_ops.remove(&corr) {
+            if matches!(
+                &pending_media,
+                crate::send::upload_props::PendingMediaOp::Put(_)
+            ) {
+                self.finish_file_upload_progress(corr);
+            }
             return self.handle_media_port_reply(pending_media, outcome, out);
         }
 
@@ -49,6 +59,7 @@ impl ImModule {
         }
 
         if let Some(pending_upload) = self.state.pending_uploads.remove(&corr) {
+            self.finish_file_upload_progress(corr);
             return self.handle_upload_port_reply(pending_upload, outcome, out);
         }
 
@@ -245,11 +256,15 @@ impl ImModule {
             } => self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out),
             CorrelationContext::TimelineRefreshAfterSendPersist {
                 channel_id,
+                window_token,
                 causation_id,
             } => match outcome {
-                PortOutcome::Ok(_) => {
-                    self.refresh_attached_latest_timeline(channel_id, causation_id, out)?
-                }
+                PortOutcome::Ok(_) => self.refresh_attached_timeline(
+                    channel_id,
+                    window_token.as_deref().unwrap_or("latest"),
+                    causation_id,
+                    out,
+                )?,
                 PortOutcome::Err(error) => tracing::warn!(
                     channel_id = channel_id.as_str(),
                     error = ?error,
@@ -260,6 +275,7 @@ impl ImModule {
                 message_id,
                 requested_at_ms,
                 request_id,
+                window_token,
                 lookup_by_id,
             } => {
                 crate::send::retry_send::handle_rehydrate_reply(
@@ -267,6 +283,7 @@ impl ImModule {
                     message_id,
                     requested_at_ms,
                     request_id,
+                    window_token,
                     lookup_by_id,
                     outcome,
                     out,

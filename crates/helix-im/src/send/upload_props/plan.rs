@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
 const MAX_MEDIA_SIZE: u64 = 64 << 20;
+const MAX_RICH_IMAGES: usize = 9;
 const GO_OWNED_FIELDS: [&str; 12] = [
     "uploadId",
     "fileId",
@@ -26,7 +27,7 @@ pub fn build_upload_plan(
     mut props: Value,
 ) -> Result<UploadPlan, ImError> {
     let media = match msg_type {
-        "rich" => build_rich_plan(&mut props)?,
+        "rich" | "IMAGE" => build_rich_plan(&mut props)?,
         "file" | "FILE" => build_file_plan(message, &mut props)?,
         _ => Vec::new(),
     };
@@ -44,25 +45,35 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
             "rich message must not contain props.file".to_string(),
         ));
     }
-    match props.get("textPosition").and_then(Value::as_str) {
+    if props.get("images").is_some() || props.get("textPosition").is_some() {
+        return Err(ImError::Parse(
+            "rich message must use props.files and imagePosition".to_string(),
+        ));
+    }
+    match props.get("imagePosition").and_then(Value::as_str) {
         Some("top" | "bottom") => {}
         _ => {
             return Err(ImError::Parse(
-                "rich message requires textPosition top/bottom".to_string(),
+                "rich message requires imagePosition top/bottom".to_string(),
             ))
         }
     }
-    let images = props
-        .get_mut("images")
+    let files = props
+        .get_mut("files")
         .and_then(Value::as_array_mut)
-        .ok_or_else(|| ImError::Parse("rich message requires props.images".to_string()))?;
-    if images.is_empty() {
+        .ok_or_else(|| ImError::Parse("rich message requires props.files".to_string()))?;
+    if files.is_empty() {
         return Err(ImError::Parse(
             "rich message requires at least one image".to_string(),
         ));
     }
+    if files.len() > MAX_RICH_IMAGES {
+        return Err(ImError::Parse(format!(
+            "rich message supports at most {MAX_RICH_IMAGES} images"
+        )));
+    }
 
-    images
+    files
         .iter_mut()
         .enumerate()
         .map(|(index, image)| {
@@ -75,9 +86,9 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
 }
 
 fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
-    if props.get("images").is_some() {
+    if props.get("files").is_some() {
         return Err(ImError::Parse(
-            "file message must not contain props.images".to_string(),
+            "file message must not contain props.files".to_string(),
         ));
     }
     let file = props
@@ -394,6 +405,16 @@ mod tests {
     }
 
     #[test]
+    fn file_plan_rejects_image_files_collection() {
+        let mut props = file_props();
+        props["files"] = json!([]);
+
+        let error = build_upload_plan("FILE", "", props)
+            .expect_err("FILE must keep the single props.file contract");
+        assert!(error.to_string().contains("must not contain props.files"));
+    }
+
+    #[test]
     fn invalid_go_metadata_boundaries_are_rejected_before_planning() {
         let invalid = [
             ("fileName", json!("../report.pdf")),
@@ -455,5 +476,55 @@ mod tests {
         assert_eq!(plan.media[0].input.local_path, "/tmp/report.pdf");
         assert!(plan.props["file"].get("mediaInput").is_none());
         assert_eq!(plan.props["file"]["upload"]["status"], "preparing");
+    }
+
+    #[test]
+    fn rich_image_count_is_bounded_to_nine() {
+        let image = || {
+            json!({
+                "mediaInput": {
+                    "localPath": "/tmp/a.png",
+                    "fileName": "a.png",
+                    "contentType": "image/png",
+                    "size": 3,
+                    "sha256": VALID_SHA256
+                }
+            })
+        };
+        let nine = Value::Array((0..9).map(|_| image()).collect());
+        let plan = build_upload_plan(
+            "IMAGE",
+            "caption",
+            json!({"imagePosition":"bottom", "files":nine}),
+        )
+        .expect("nine images are accepted");
+        assert_eq!(plan.media.len(), 9);
+        assert_eq!(plan.props["imagePosition"], "bottom");
+        assert!(plan.props.get("images").is_none());
+        assert!(plan.props.get("textPosition").is_none());
+
+        let legacy_error = build_upload_plan(
+            "IMAGE",
+            "caption",
+            json!({
+                "imagePosition": "bottom",
+                "files": [image()],
+                "textPosition": "bottom",
+                "images": [image()]
+            }),
+        )
+        .expect_err("legacy image fields must not be persisted beside canonical fields");
+        assert!(legacy_error
+            .to_string()
+            .contains("must use props.files and imagePosition"));
+
+        let ten = Value::Array((0..10).map(|_| image()).collect());
+        let error = build_upload_plan(
+            "IMAGE",
+            "caption",
+            json!({"imagePosition":"bottom", "files":ten}),
+        )
+        .expect_err("ten images must fail closed");
+        assert!(error.to_string().contains("at most 9"));
     }
 }

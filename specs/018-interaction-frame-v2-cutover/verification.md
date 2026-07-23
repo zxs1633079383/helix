@@ -39,3 +39,46 @@
 ## Required Runs
 
 后续 V-001 至 V-008 的原始输出必须写入 `evidence/`，并通过 `loop_engine.py record-evidence` 登记 hash。失败输出不得被摘要文本覆盖。
+
+## Phase 2 Shared V2 Foundation
+
+**Completed subset captured**: `2026-07-23T05:35:00-07:00`
+
+| Task | Status | Evidence |
+|---|---|---|
+| T006 | PASS | Helix V2 contract + V1 fail-closed tests；`interaction_frame_contract_test` 17/17 PASS |
+| T007 | PASS | client V2-only codec + V1/unknown rejection；focused Jest PASS |
+| T008 | PASS | epoch/stale/atomic/directive/ack runtime tests；focused Jest PASS |
+| T009 | PENDING | 25-Gate profile/counter/artifact-isolation evidence contract 尚未实现 |
+| T010 | PASS | Helix production writer 唯一输出 InteractionFrame V2；commit `ea415a818deaf38c874232db4024df2e65584d96` |
+| T011 | PASS | client production codec 仅接受 schemaVersion=2，无 V1 normalize/union |
+| T012 | PASS | client slot state 纳入 surfaceEpoch，epoch/revision 整帧 staged swap |
+| T013 | PASS | Angular → Tauri → Helix private `FrameApplied` typed command，content-free ack tests PASS |
+| T014 | PASS | Helix matrix epoch 11、`InteractionFrame/v2`、fixture producer pin 与 client mirror/hash 对齐 |
+| T015-T020 | PENDING | Native profile、counter/reducer、SCSS/CSS、manifest、diagnostics 与 shared validators 尚未完成 |
+
+### Formal Revisions And Hashes
+
+| Artifact | Value |
+|---|---|
+| Helix V2 producer commit | `ea415a818deaf38c874232db4024df2e65584d96` |
+| Helix formal pin (matrix + fixture manifest) | `d899a6033c90a153b5b009a62bee0e3a17dd9ad8` |
+| cses-client V2 consumer commit | `11bd41b1b3a540ee26d6a95ab4b0468d929d98f5` |
+| client generated `Cargo.lock` SHA-256 | `c6aceb0b8b5e6c9f91d2ca17f47b240417c0a5dab97d00925ec0c32b1f119f95` |
+| client fixture manifest SHA-256 | `572914e80235227a690ffefeafcc2e5280f5e55e6807b26e3a824f6f010c4447` |
+| client generated Strict Matrix TS SHA-256 | `f49fe63be8005d1bab7446f7a8315e6272cb0d703f57cec98fe62a67d5318582` |
+
+### Verification Runs
+
+| Command | Result | Wall Time / Notes |
+|---|---|---|
+| `cargo test -p helix-im --quiet` | PASS | 全量 lib + integration；约 26s；ignored tests 保持原状态 |
+| focused Helix V2 contract/manifest/projection tests | PASS | 68/68；1.7s |
+| client codec/runtime/action/parity/store/shell focused Jest | PASS | 7 suites、71 tests；13.1s |
+| client runtime/shell post-ack focused Jest | PASS | 2 suites、33 tests；17.0s |
+| `npx tsc -p src/tsconfig.app.json --noEmit` | PASS | isolated worktree 复用 ignored `node_modules` 与 `release.local.json` |
+| `cargo check --manifest-path src-tauri/Cargo.toml` | PASS | 首轮因 isolated worktree 缺 ignored staged resources/dist 失败；补齐同源 ignored artifacts 后通过；既有 warnings |
+| focused Native `frame_applied_queues_the_content_free_private_command` | PASS | 1/1 |
+| `npm run test:message-v4:strict-contract` | PASS | epoch 11；Helix pin/hash 与 generated consumer 一致；Cargo.lock matched |
+
+Phase 2 尚未完成，`SharedV2Ready` 不成立；不得据此进入 25 Gate READY 或宣称 Native/PG/SQLite/DOM 全链路通过。

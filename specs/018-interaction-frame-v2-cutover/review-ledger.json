@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/018-interaction-frame-v2-cutover",
+  "phase": "specifying",
+  "event_seq": 4,
+  "next_action": "rerun_r1_after_cutover_order_change",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "99d08a36e6986a4a": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-23T04:44:43Z",
+      "kind": "failure",
+      "detail": "r1_spec:99d08a36e6986a4a: attempt 1"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-23T04:44:43Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md has no source lock; discovery.md needs at least one F-xxx fact with path:line evidence"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-23T04:45:16Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-23T10:18:00Z",
+      "kind": "phase",
+      "detail": "planning->specifying: user requires V1 produce/consume cut before first full E2E; R1 invalidated"
+    }
+  ]
+}

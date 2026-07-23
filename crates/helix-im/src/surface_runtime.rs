@@ -63,6 +63,65 @@ impl SurfaceResyncRequest {
 }
 
 impl ImModule {
+    pub(crate) fn append_thread_branch_frame(
+        &mut self,
+        request_id: &str,
+        projection: crate::render_ready_replies::FlatReplyProjection,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let Some(expected_revision) = self.state.thread_detail_projector.current_revision(
+            projection.channel_id.as_str(),
+            projection.root_message_id.as_str(),
+        ) else {
+            return Ok(());
+        };
+        let surface_epoch = self.action_surface_epoch()?;
+        let mut sequence = 0u64;
+        let mut replies = Vec::with_capacity(projection.nodes.len());
+        for row in &projection.nodes {
+            let id = text(row, &["msgId", "id"]);
+            if id.is_empty() || id == projection.root_message_id {
+                continue;
+            }
+            replies.push(
+                crate::projector::timeline::message_from_render_ready(
+                    row,
+                    projection.channel_id.as_str(),
+                    surface_epoch,
+                    true,
+                    || {
+                        sequence = sequence.saturating_add(1);
+                        Ok(format!("disabled-thread-branch-{sequence}"))
+                    },
+                )
+                .map_err(|error| ImError::Parse(format!("thread branch projection: {error}")))?,
+            );
+        }
+        if replies.is_empty() {
+            return Ok(());
+        }
+        let mutation = self
+            .state
+            .thread_detail_projector
+            .append(
+                projection.channel_id.as_str(),
+                projection.root_message_id.as_str(),
+                expected_revision,
+                replies,
+                projection.reply_count as u32,
+                WindowPageVm {
+                    window_token: format!("thread:{}", projection.root_message_id),
+                    has_older: projection.has_more,
+                    has_newer: false,
+                    has_more: projection.has_more,
+                },
+                Some(request_id.to_string()),
+            )
+            .map_err(|error| ImError::Parse(format!("thread branch append: {error}")))?;
+        out.push(frame_for_mutation("thread-branch", mutation)?);
+        Ok(())
+    }
+
     pub(crate) fn handle_surface_resync(
         &mut self,
         payload: &[u8],

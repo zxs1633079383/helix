@@ -498,13 +498,18 @@ impl ImModule {
             //   + emit `im:channel:replies`（显式 snapshot/append + revision + 分页元数据）。
             // 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
             CorrelationContext::OutboundReplies { request } => {
-                crate::port_reply_emit::emit_replies(
+                let projection = crate::port_reply_emit::emit_replies(
                     &request,
                     outcome,
                     &mut self.state.reply_projection_revisions,
                     &mut self.state.reply_projection_seen_ids,
                     out,
                 );
+                if request.mode == crate::render_ready_replies::ReplyProjectionMode::Append {
+                    if let Some(projection) = projection {
+                        self.append_thread_branch_frame(&request.req_id, projection, out)?;
+                    }
+                }
             }
 
             CorrelationContext::OutboundLocatePost { req_id, post_id } => {

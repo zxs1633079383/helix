@@ -323,11 +323,49 @@ fn thread_and_receipt_explicit_resync_always_replays_complete_snapshots() {
     );
 
     h.step(
+        command_json(
+            "im_get_reply_branch",
+            json!({
+                "channel_id": channel,
+                "root_message_id": "root-1",
+                "reply_first_level_id": "reply-1",
+                "req_id": "branch-1",
+                "page_number": 1,
+                "page_size": 20
+            }),
+        ),
+        3,
+    );
+    let branch_corr = corr_of(h.sink.as_slice().first().expect("branch HTTP"));
+    let branch_body = json!({ "status":"SUCCESS", "data": {
+        "data": [{
+            "id":"reply-2", "channelId":channel, "userId":"author-3", "createAt":3,
+            "type":"TEXT", "message":"nested", "props":{}, "replyId":"reply-1",
+            "replyRootId":"root-1", "replyFirstLevelId":"reply-1"
+        }],
+        "hasMore": false
+    }});
+    h.step(
+        port_reply_with_body(
+            branch_corr,
+            enveloped(Bytes::from(serde_json::to_vec(&branch_body).unwrap())),
+        ),
+        4,
+    );
+    let branch = mutation(h.sink.as_slice(), "message.thread-detail");
+    assert_eq!(branch["mutation"]["kind"], "threadDetailPatch");
+    assert_eq!(branch["baseRevision"], 1);
+    assert_eq!(
+        branch["mutation"]["patch"]["view"]["orderedReplyIds"],
+        json!(["reply-1", "reply-2"])
+    );
+
+    h.step(
         surface_command(
             "message.thread-detail",
             json!({ "kind":"thread", "channelId":channel, "rootMessageId":"root-1" }),
         ),
-        3,
+        5,
     );
     let thread_patch_corr = corr_of(h.sink.as_slice().first().unwrap());
     h.step(
@@ -340,7 +378,7 @@ fn thread_and_receipt_explicit_resync_always_replays_complete_snapshots() {
     let thread_replay = mutation(h.sink.as_slice(), "message.thread-detail");
     assert_eq!(thread_replay["mutation"]["kind"], "threadDetailSnapshot");
     assert_eq!(thread_replay["baseRevision"], serde_json::Value::Null);
-    assert_eq!(thread_replay["revision"], 2);
+    assert_eq!(thread_replay["revision"], 3);
 
     h.step(
         surface_command(

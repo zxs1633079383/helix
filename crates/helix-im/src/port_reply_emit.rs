@@ -80,7 +80,7 @@ pub(crate) fn emit_replies(
     revisions: &mut std::collections::HashMap<String, u64>,
     seen_ids: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
     out: &mut EffectSink,
-) {
+) -> Option<crate::render_ready_replies::FlatReplyProjection> {
     let req_id = request.req_id.as_str();
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
@@ -103,9 +103,11 @@ pub(crate) fn emit_replies(
                     revisions,
                     seen_ids,
                 ) {
+                    let accepted = projection.clone();
                     out.push(crate::render_ready_replies::emit_channel_replies(
                         req_id, projection,
                     ));
+                    return Some(accepted);
                 }
             }
             Err(e) => {
@@ -147,6 +149,7 @@ pub(crate) fn emit_replies(
             }
         }
     }
+    None
 }
 
 /// G-11 单消息定位读回：保留通用 read result，并额外输出 Helix 已整形的 highlighted 行。

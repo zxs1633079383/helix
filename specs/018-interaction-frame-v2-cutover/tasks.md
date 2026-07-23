@@ -6,11 +6,11 @@
 
 ## Phase 1: Setup And Source Lock
 
-- [ ] T001 记录 Helix/cses-client/Go branch、HEAD、dirty status、四包 pin、Cargo.lock hash、Matrix hash 与 fixture hash 到 `specs/018-interaction-frame-v2-cutover/verification.md`
-- [ ] T002 在 `specs/018-interaction-frame-v2-cutover/discovery.md` 更新 V1 producer/consumer/normalize/raw fallback 与合法独立 `v1` inventory
-- [ ] T003 [P] 校验 19 个 `11/12/13` Gate 文件和 25 Gate 覆盖，在 `specs/018-interaction-frame-v2-cutover/per-gate-spec-index.md` 记录检查结果
-- [ ] T004 [P] 在 `specs/018-interaction-frame-v2-cutover/quickstart.md` 固定实际 focused、SCSS/CSS、Native、PG/SQLite readonly 命令和 artifact root
-- [ ] T005 为实现创建隔离的 Helix/cses-client worktree 并在 `specs/018-interaction-frame-v2-cutover/verification.md` 记录 branch identity；不得覆盖当前脏工作树
+- [X] T001 记录 Helix/cses-client/Go branch、HEAD、dirty status、四包 pin、Cargo.lock hash、Matrix hash 与 fixture hash 到 `specs/018-interaction-frame-v2-cutover/verification.md`
+- [X] T002 在 `specs/018-interaction-frame-v2-cutover/discovery.md` 更新 V1 producer/consumer/normalize/raw fallback 与合法独立 `v1` inventory
+- [X] T003 [P] 校验 19 个 `11/12/13` Gate 文件和 25 Gate 覆盖，在 `specs/018-interaction-frame-v2-cutover/per-gate-spec-index.md` 记录检查结果
+- [X] T004 [P] 在 `specs/018-interaction-frame-v2-cutover/quickstart.md` 固定实际 focused、SCSS/CSS、Native、PG/SQLite readonly 命令和 artifact root
+- [X] T005 为实现创建隔离的 Helix/cses-client worktree 并在 `specs/018-interaction-frame-v2-cutover/verification.md` 记录 branch identity；不得覆盖当前脏工作树
 
 ## Phase 2: Shared V2-only Foundation
 

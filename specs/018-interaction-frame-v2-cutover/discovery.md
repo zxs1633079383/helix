@@ -1,12 +1,12 @@
 # Source Discovery: InteractionFrame V2 双仓硬切
 
-**Captured**: 2026-07-23 03:18 PDT
+**Captured**: 2026-07-23 03:52 PDT
 
 **Scope**: `/System/Volumes/Data/workspace/rust/helix` 与 `/System/Volumes/Data/workspace/angular/cses-client`
 
-**Source Lock**: `helix=8a7c8a06a61b;helix-business=d2ee63348cc5;cses-client=8d71085453c6;native-helix-pin=154c7ba606629c402aa039f9c2c1e28cd0e2859c`
+**Source Lock**: `helix=3b430c6cb1cd;cses-client=8d71085453c6;cses-im-server=6ddb52453641;native-helix-pin=154c7ba606629c402aa039f9c2c1e28cd0e2859c`
 
-**Worktree State**: `helix dirty with pre-existing WS parser/test changes; cses-client relevant paths clean; this feature edits specification artifacts only`
+**Worktree State**: `source Helix/client/Go all contain pre-existing dirty or untracked files; implementation is isolated in codex/018-interaction-frame-v2-cutover worktrees`
 
 **Rule**: 本文件记录 CURRENT；`spec.md` 与 `strict-matrix.md` 记录 TARGET/GAP。源码快照不是运行时 PASS。
 
@@ -16,18 +16,19 @@
 - **F-002**: Helix V2 emitter 是与 V1 emitter 分离的独立入口，当前不能代表全部 Gate 已切换。 | **Evidence**: `crates/helix-im/src/projector/mod.rs:193`
 - **F-003**: Angular Frame union 同时包含 InteractionFrameV1 与 InteractionFrameV2。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-contract.types.ts:486`
 - **F-004**: Angular codec 同时接受 V1/V2，并继续执行 legacy normalize。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-contract.codec.ts:49`
-- **F-005**: Angular V2 apply 在原子 swap 后确认 causation、执行 directive，并调用可选 `frameAppliedHandler`；生产源码尚未注册该 handler，因此不能声称 FrameApplied 已回传 Helix。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts:344`
+- **F-005**: Angular V2 apply 在原子 swap 后确认 causation、执行 directive，并调用可选 `frameAppliedHandler`；全仓只有测试注册该 handler，因此不能声称生产 FrameApplied 已回传 Helix。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts:222`
 - **F-006**: Native 当前 Helix pin 与本次 Helix source lock 不同，最终候选尚未冻结。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src-tauri/Cargo.toml:87`
 - **F-007**: 旧 017 final Native 证据记录业务 Gate Green，但没有逐 Frame schema 计数。 | **Evidence**: `specs/017-uc04-16-native-e2e/evidence/final-native.md:1`
 
 ## Snapshot
 
-- Helix 当前 HEAD：`8a7c8a06a61b`；最新业务祖先为 `d2ee63348cc5`。
+- Helix 当前实现基线：`3b430c6cb1cd`。
 - cses-client 当前 HEAD：`8d71085453c6`。
+- cses-im-server 当前 HEAD：`6ddb52453641`。
 - cses-client `src-tauri/Cargo.toml` 当前 Helix pin：`154c7ba606629c402aa039f9c2c1e28cd0e2859c`。
 - cses-client 生成 Strict Matrix 声明的 Helix revision同为 `154c7ba606629c402aa039f9c2c1e28cd0e2859c`。
-- Helix `main` 与 Native pin 从 `d2ee633` 各自前进一个不同提交；当前生成合同跟随 pin，但最终候选仍未冻结。
-- Helix 工作树存在与本 Spec 无关的 WS parser/test 脏改动；本次只新增 Spec Kit 文档，不覆盖这些改动。
+- Helix 实现基线与 Native pin 已明显分叉；当前生成合同仍跟随旧 pin，最终候选尚未冻结。
+- Helix 源工作树存在 WS parser/test/G01 图等脏改动；cses-client 源工作树存在 message-v4 UI/SCSS 脏改动；Go 源工作树存在未跟踪文件。隔离 worktree 不包含这些未提交内容。
 
 ## Helix CURRENT
 
@@ -138,3 +139,32 @@ im:interaction:frame
 4. 首次全量 E2E 前必须切断 V1 producer/consumer；双读代码可以暂存，但生产运行时不得可达。
 5. 首次纯 V2 E2E 必须显式统计并断言 V1 为 0；物理删除后必须生成新的回归证据，删除前 Green 不能签收删除后的 candidate。
 6. `ActionInvocationEnvelope`、Strict Matrix 文档 schema 等独立版本不随 InteractionFrame 盲目升级。
+
+## V1 Deletion Inventory
+
+### InteractionFrame/RenderNode V1：首轮纯 V2 全绿后删除
+
+| Repository | Category | Current reachable surface |
+|---|---|---|
+| Helix | producer | `INTERACTION_FRAME_SCHEMA_VERSION=1`、`build_interaction_frame`、`emit_interaction_frame` 及 module/query/dialog/surface runtime 调用点 |
+| Helix | contract | `RenderNode/v1` 与 `*.row.v1` 在 Strict Matrix/command API payload 中的业务渲染声明 |
+| Helix | fixture/test | `dialog_list_frame_v1.json` 与 `duplicate/gap/stale/snapshots/scope-mismatch/patch-transaction` schema 1 fixtures、V1 断言 |
+| cses-client | consumer | `InteractionFrameV1` union、V1 codec 分支、`normalizeLegacyFrame` 与下游 legacy rich-field normalization |
+| cses-client | fixture/test | mirrored schema 1 Frame fixtures、V1 apply/codec/projection-bus tests |
+| cses-client | generated contract | generated `RenderNode/v1`、`*.row.v1` 业务映射与旧 reducer acceptance assumptions |
+
+### 合法独立 `v1`：不得按名称误删
+
+| Contract | Reason retained |
+|---|---|
+| `ActionInvocationEnvelope` schema 1 | 独立上行协议，不是 InteractionFrame V1 |
+| `helix-im-command-api/v1` 文件/schema 标识 | 命令 API 文档版本；其中旧 render payload 要迁移，但 API 版本名不自动升级 |
+| `helix-im-strict-matrix/v1` 文件/schema 标识 | Matrix 文档格式版本；其中 `RenderNode/v1` 业务声明要迁移 |
+| E2E scenario、doctor、source-pin、evidence schema 的 `/v1` | 各工具自身版本，不是 UI Frame wire |
+| `message.compose.text.v1` 等 input shape | Action input schema，除非另有协议变更不得跟随 Frame 盲改 |
+
+### Raw fallback inventory
+
+- Angular 生产 projection registry 已限定 renderable facts 进入 `im:interaction:frame`，不得重新订阅 raw post/channel/member 事件。
+- 当前主要可达兜底是 Frame V1 decode/normalize，而不是独立 raw render reducer。
+- evidence collector 尚未统计 `rawBusinessFallbacks`；在 T016 完成前只能记录“未观测”，不能记为零。

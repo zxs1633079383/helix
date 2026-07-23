@@ -40,7 +40,14 @@ npm run message:real-chain:doctor
 
 ## 4. SCSS/CSS Gate
 
-实施任务必须在 `package.json` 增加正式脚本。预期组合：
+当前可执行的样式构建入口：
+
+```bash
+cd /System/Volumes/Data/workspace/angular/cses-client/worktrees/018-interaction-frame-v2-cutover
+npm run build:fast
+```
+
+T017 必须在 `package.json` 增加统一的 `message:ui:style-gate`，组合：
 
 ```text
 Sass/CSS build
@@ -49,7 +56,7 @@ target component style-loaded assertion
 actor/observer screenshot capture
 ```
 
-脚本不存在或任一组件没有实际样式证据时，最终 Gate 为 BLOCKED。
+在 T017 完成前脚本不存在是预期 RED；T017 后脚本不存在或任一组件没有实际样式证据时，最终 Gate 为 BLOCKED。
 
 ## 5. First V2-only Native Run
 
@@ -101,3 +108,29 @@ artifact paths and hashes
 ```
 
 缺证据面报告 `BLOCKED/INCONCLUSIVE`，不从旧 017 或首次运行继承 Green。
+
+## 9. Database Read-only Evidence
+
+远端 PG 只允许通过配置的 `cses-pre-postgres-ro.query` 执行单条有界
+`SELECT`/`WITH ... SELECT`，`limit <= 500`。本地 SQLite 只允许：
+
+```bash
+sqlite3 -readonly "$HELIX_TENANT_DB" \
+  "SELECT <bounded columns> FROM <gate table> WHERE <gate identity> LIMIT 100;"
+```
+
+或配置的 `helix-local-sqlite-ro.query(tenantKey, sql, limit)`。查询必须使用
+Gate identity 与运行时间窗，不输出凭据、消息正文或无界行集。任何工具不可用时
+对应 Gate 为 `BLOCKED`，不得手工写库制造结果。
+
+## 10. Artifact Roots
+
+两轮 artifact 必须隔离：
+
+```text
+tests/e2e/.artifacts/interaction-frame-v2-cutover/V2OnlyFirstRun/<runId>/
+tests/e2e/.artifacts/interaction-frame-v2-cutover/PostDeletionRun/<runId>/
+```
+
+首轮与删除后必须使用不同 `candidateId`、`runId`、`evidenceEpoch` 和目录；
+reducer 发现跨目录 hash/path 复用时 fail-closed。

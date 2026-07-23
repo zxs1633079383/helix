@@ -1,5 +1,8 @@
 ## 0. 当前任务
 
+🎯 EXPECT 补齐媒体进度到 FFI 前端边界的组合证据：生产 TimelineProjector 必须把已提交的 FILE 35% 投成 `Uploading{progressPercent:35}`、同批 IMAGE 即使携带脏百分比也只能投成 `Sending`，且完整 `im:interaction:frame` 经 FfiEventSink 后由 `on_domain_events_batch` 宿主回调原样收到；只改 FFI 既有 parity 测试与本条 SESSION，不复制 host 媒体 E2E，不改生产代码，cargo 调用 ≤2 次 | 赌注 中 | 可逆 是 | @2026-07-24T04:20:00+0800
+✅ DONE 新增 FFI 前端边界组合测试：生产 TimelineProjector 将同为 35% 源行的 FILE 投成 `Uploading{progressPercent:35}`、IMAGE 收紧为 `Sending` 且不携带百分比；生产 FfiEventSink 单次非空 flush 经 `on_domain_events_batch` 恰好一次批回调，宿主解码后收到完整 `im:interaction:frame`。`cargo check -p helix-driver-ffi` 与 `cargo test -p helix-driver-ffi` 全量通过，热路径审计、rustfmt 与 diff check 通过；本测试组合已提交 progress readback 与 FFI egress 两个生产边界，不重复模拟网络/OSS | @2026-07-24T04:32:00+0800
+
 🎯 EXPECT 补一条不拆段的本地真实媒体链验收：同一个 host engine 必须把 rich 九图和 FILE 依次送到三个不同 origin（Java prepare/verify、真实流式 PUT、Go posts/create），并用真 SQLite 对账最终消息；可证伪断言：① Java 收 10 prepare+10 verify、OSS 收 10 个完整 PUT、Go 只收 2 个 posts/create；② rich 全链无图片 PortProgress，FILE 至少产生一个 5% 中间进度且最终 100；③ Go body 只含稳定 Java URL，不含签名 query/localPath/mediaInput；④ 只新增 host 集成测试与本条 SESSION，完成前 cargo 调用 ≤2 次 | 赌注 高 | 可逆 是 | @2026-07-24T03:40:00+0800
 ✅ DONE 新增 host 同链 E2E：一个生产 `run_engine_loop` 依次完成 rich 九图与 FILE，独立本地 origin 实收 Java prepare/verify 各 10 次、OSS 完整 PUT 10 次、Go posts/create 仅 2 次；CrossCuttingHttp 注入 cookieId 且不向 OSS 泄漏凭据，Java 一次性票据逐字段绑定，Go 只收到稳定 Java URL；rich 无 reporter/百分比写，FILE 首个持久化桶 5%、终态 100，真 SQLite 两行均 sent 且 pending_media 清空。目标测试 1/1 与 `cargo test -p helix-driver-host` 全量通过 | @2026-07-24T03:58:30+0800
 ⚡ DRIFT-PRED 原预判 cargo 调用 ≤2；整包通过后的安全复核又识别出测试桩未强制 Java 票据绑定及 OSS 凭据隔离会留下假绿，补强后追加第 3 次目标复验并通过 → 候选教训：跨服务协议桩不仅要对账路径和计数，还必须模拟真实服务的认证、一次性票据绑定与跨 origin 凭据隔离 | @2026-07-24T03:58:30+0800

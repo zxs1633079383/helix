@@ -379,6 +379,24 @@ fn online_vs_offline_read_emit_names_differ() {
 #[test]
 fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
     let mut h = Harness::new_with_identity(&[6], "viewer-444", "tenant-1", "", "", "");
+    h.step(
+        command_json("im_query_dialog_list", serde_json::json!({})),
+        1,
+    );
+    let dialog_scan_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("initial dialog list scan correlation");
+    h.step(
+        port_reply_with_body(dialog_scan_corr, channel_row_reply(6, 0)),
+        2,
+    );
+
     // 大缺口（cursor=0 / seq=99）→ **立即** backfill resync（根治 echo gate-gap·
     // fix/im-sync-cursor-catchup）：sync Http 在 ingest 当步即发出，不再等 1s gate timer。
     let gate_effects = h.step(inbound_event(6, 99, 1), 1000);
@@ -418,7 +436,8 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
         "Persist ack 前不得 emit im:channel:read_echo，got {names_before_persist:?}"
     );
 
-    // Persist Ok 同时释放 mutation、DialogPatch、sync-state 并推进 cursor。
+    // Persist Ok 同时释放 mutation、sync-state 并推进 cursor。PersistAtomic 是纯写屏障，
+    // 因此 attached dialog 必须在 ack 后发起权威 channel Scan，不能依赖虚构的写后 row body。
     let persist_corr = h
         .sink
         .as_slice()
@@ -428,10 +447,7 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
             _ => None,
         })
         .expect("sync authority batch PersistAtomic corr");
-    h.step(
-        port_reply_with_body(persist_corr, channel_row_reply(6, 1)),
-        3100,
-    );
+    h.step(port_reply_ok(persist_corr), 3100);
     let names_after_persist = emit_names(h.sink.as_slice());
     assert!(
         names_after_persist.iter().any(|n| n == "im:post:received"),
@@ -448,6 +464,43 @@ fn handle_sync_reply_releases_mutation_events_after_persist_ack() {
             .iter()
             .any(|n| n == "im:channel:update-by-post"),
         "写后 channel row 回包不得 emit raw DialogPatch，got {names_after_persist:?}"
+    );
+    let refresh_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "channel")) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("PersistOk 后必须从本地 channel 真源刷新 attached dialog");
+    h.step(
+        port_reply_with_body(refresh_corr, channel_row_reply(6, 1)),
+        3200,
+    );
+    let dialog_frame = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Emit { event } => {
+                let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                (envelope["event"] == "im:interaction:frame"
+                    && envelope["data"]["mutations"][0]["surface"] == "message.left-dialog-list")
+                    .then_some(envelope)
+            }
+            _ => None,
+        })
+        .expect("channel Scan 回报必须发布 left-dialog-list V2 Frame");
+    assert_eq!(
+        dialog_frame["data"]["mutations"][0]["causationId"],
+        format!("sync-persist-{persist_corr}")
     );
     assert_eq!(
         h.module.cursor_for(channel_id(6)),

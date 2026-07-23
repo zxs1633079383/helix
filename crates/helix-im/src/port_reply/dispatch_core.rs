@@ -189,11 +189,14 @@ impl ImModule {
                     self.finish_increment_hydration(channel_id, out)?;
                     if has_durable_message_changes && !hydration_already_pending {
                         // The legacy domain event is observability only. A Frame-only
-                        // renderer must be refreshed from the committed local fact;
-                        // otherwise a recipient can persist the WS post while its
-                        // attached timeline remains stale indefinitely. This is one
-                        // indexed attachment lookup plus one bounded local Scan.
+                        // renderer must refresh both attached message surfaces from
+                        // the committed local fact. The dialog scan is off the live
+                        // message hot path and runs once per completed recovery batch.
                         self.state.invalidate_recent_message_coverage(channel_id);
+                        self.refresh_attached_dialog_list(
+                            Some(format!("sync-persist-{}", corr.raw())),
+                            out,
+                        )?;
                         self.refresh_attached_latest_timeline(channel_id, None, out)?;
                     }
                 }

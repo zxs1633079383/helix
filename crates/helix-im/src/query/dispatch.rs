@@ -4,6 +4,25 @@ use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
 impl ImModule {
+    /// A committed recovery batch may change the preview of an already attached
+    /// dialog list. Re-read the authoritative local rows after PersistOk rather
+    /// than deriving a partial preview from the sync payload.
+    pub(crate) fn refresh_attached_dialog_list(
+        &mut self,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<bool, ImError> {
+        if self.state.dialog_list_frame.scope().is_none() {
+            return Ok(false);
+        }
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "req_id": causation_id,
+        }))
+        .map_err(|error| ImError::Serialize(format!("attached dialog refresh: {error}")))?;
+        self.handle_query_command("im_query_dialog_list", &payload, out)?;
+        Ok(true)
+    }
+
     /// P6 投影/状态命令分发（薄壳，契约在 `crate::query`）。
     ///
     /// - `im_query_messages_by_channel`：进入 local-first 三段状态机；driver 不解释 fallback。

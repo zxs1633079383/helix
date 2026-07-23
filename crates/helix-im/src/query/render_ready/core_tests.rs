@@ -73,6 +73,20 @@ fn db_text_props_restore_channel_event_seq_for_timeline_vm() {
 }
 
 #[test]
+fn dedicated_event_seq_survives_empty_historical_props() {
+    let rows = json!([{
+        "id": "server-event-seq-column",
+        "channel_id": "ch1",
+        "message": "persisted",
+        "event_seq": 9,
+        "props": "{}"
+    }]);
+
+    let out = shape_message_rows(&rows);
+    assert_eq!(out[0]["eventSeq"], 9);
+}
+
+#[test]
 fn historical_wire_creator_survives_render_ready_shaping() {
     let rows = json!([{
         "id": "legacy-reconnect",

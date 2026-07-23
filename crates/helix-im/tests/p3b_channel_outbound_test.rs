@@ -611,6 +611,17 @@ fn post_unread_bump_is_single_guarded_bump_not_rmw_b5() {
         "前进守卫列 = last_root_post_at（防重复/旧消息回退）"
     );
     assert!(
+        bump.set_cols.iter().any(|(column, value)| {
+            column == "last_post_at"
+                && matches!(
+                    value,
+                    helix_core::effect::SqlValue::Integer(timestamp)
+                        if *timestamp == bump.guard_val
+                )
+        }),
+        "可见消息必须同步推进 last_post_at，确保恢复后的会话进入有界首屏并刷新预览"
+    );
+    assert!(
         !has_get_before_write,
         "unread bump 路径禁 Get-before-write（RMW 反模式：读出 +1 写回）"
     );

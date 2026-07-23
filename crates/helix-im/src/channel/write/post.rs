@@ -5,7 +5,7 @@ use crate::state::ChannelId;
 /// path3 决策结果：新消息对 channel 行的更新意图（纯计算，无副作用）。
 ///
 /// 现网 `update_channel_from_post` 两组更新：
-/// - **lastPost 组**（`last_root_post_at`/`last_post`/`has_schedule_post`）：`visible` 且
+/// - **lastPost 组**（`last_root_post_at`/`last_post_at`/`last_post`/`has_schedule_post`）：`visible` 且
 ///   `msg_create_at >= local.last_root_post_at` 才更新。
 /// - **未读组**（`unread_count` +1 + `unread_post_id`）：`should_increment` 且
 ///   `msg_create_at > local.last_root_post_at` 才 +1（**SQL 自增**，非覆盖）。

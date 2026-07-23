@@ -39,6 +39,7 @@ fn online_post_requeries_an_attached_timeline_after_its_durable_write() {
             channel_id: channel_id.as_str().to_string(),
             window_token: "latest".to_string(),
         },
+        causation_id: None,
     };
     module
         .handle_surface_resync(
@@ -107,6 +108,7 @@ fn legacy_post_requeries_an_attached_timeline_after_its_durable_write() {
             channel_id: channel_id.as_str().to_string(),
             window_token: "latest".to_string(),
         },
+        causation_id: None,
     };
     module
         .handle_surface_resync(
@@ -243,7 +245,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
         .insert((channel_id, "latest".to_string()), 1);
     m.state.corr_map.insert(
         dialog_corr,
-        crate::state::CorrelationContext::DialogListQuery,
+        crate::state::CorrelationContext::DialogListQuery { causation_id: None },
     );
     m.state.corr_map.insert(
         message_corr,
@@ -275,6 +277,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
                     channel_id: channel_id.as_str().to_string(),
                     root_message_id: "message-a".to_string(),
                 },
+                causation_id: None,
             },
             expected_revision: None,
         },

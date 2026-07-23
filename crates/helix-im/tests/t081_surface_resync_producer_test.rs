@@ -66,13 +66,25 @@ fn surface_command(surface: &str, scope: serde_json::Value) -> helix_core::Tick 
     )
 }
 
+fn correlated_surface_command(
+    surface: &str,
+    scope: serde_json::Value,
+    causation_id: &str,
+) -> helix_core::Tick {
+    command_json(
+        SURFACE_RESYNC,
+        json!({ "surface": surface, "scope": scope, "causationId": causation_id }),
+    )
+}
+
 #[test]
 fn dialog_unread_and_timeline_resync_replay_real_fact_producers() {
     let mut dialog = Harness::new_with_identity(&[], "viewer-1", "team-1", "", "", "");
     dialog.step(
-        surface_command(
+        correlated_surface_command(
             "message.left-dialog-list",
             json!({ "kind":"user", "userId":"viewer-1", "teamId":"team-1" }),
+            "dialog-request-1",
         ),
         1,
     );
@@ -97,12 +109,17 @@ fn dialog_unread_and_timeline_resync_replay_real_fact_producers() {
             "message.unread-summary".to_string()
         ]
     );
+    assert_eq!(
+        mutation(dialog.sink.as_slice(), "message.left-dialog-list")["causationId"],
+        "dialog-request-1"
+    );
 
     let mut timeline = Harness::new_with_store_mode(&[1], LocalStoreMode::Disabled);
     timeline.step(
-        surface_command(
+        correlated_surface_command(
             "message.timeline",
             json!({ "kind":"timeline", "channelId":cid(1), "windowToken":"latest" }),
+            "timeline-request-1",
         ),
         3,
     );
@@ -121,6 +138,10 @@ fn dialog_unread_and_timeline_resync_replay_real_fact_producers() {
     assert_eq!(
         frame_surfaces(timeline.sink.as_slice()),
         vec!["message.timeline"]
+    );
+    assert_eq!(
+        mutation(timeline.sink.as_slice(), "message.timeline")["causationId"],
+        "timeline-request-1"
     );
 
     timeline.step(

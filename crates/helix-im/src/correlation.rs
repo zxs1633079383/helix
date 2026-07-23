@@ -197,7 +197,7 @@ pub enum CorrelationContext {
     },
 
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit `message.left-dialog-list` 完整 snapshot frame。
-    DialogListQuery,
+    DialogListQuery { causation_id: Option<String> },
 
     /// spec06 缺陷A：读族 outbound **HTTP** 回报（request-response 回灌）。
     ///

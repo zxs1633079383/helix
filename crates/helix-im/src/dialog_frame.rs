@@ -293,6 +293,15 @@ impl DialogListFrameState {
         scope: DialogListScope,
         rows: Vec<DialogListRowVm>,
     ) -> Option<Effect> {
+        self.snapshot_with_causation(scope, rows, None)
+    }
+
+    pub fn snapshot_with_causation(
+        &mut self,
+        scope: DialogListScope,
+        rows: Vec<DialogListRowVm>,
+        causation_id: Option<String>,
+    ) -> Option<Effect> {
         if !scope.is_complete() {
             tracing::warn!(
                 surface = SURFACE,
@@ -341,7 +350,7 @@ impl DialogListFrameState {
             })
             .ok()?;
         self.revision = revision;
-        self.emit_snapshot(scope, unread_snapshot)
+        self.emit_snapshot(scope, unread_snapshot, causation_id)
     }
 
     /// 在写后投影已经提供绝对累计值时，仅改变这条 row 的相关属性并一次性发布。
@@ -617,6 +626,7 @@ impl DialogListFrameState {
         &self,
         scope: DialogListScope,
         unread_snapshot: UnreadSummarySnapshot,
+        causation_id: Option<String>,
     ) -> Option<Effect> {
         let user_scope = interaction_frame::SurfaceScope::User {
             user_id: scope.viewer_user_id,
@@ -630,7 +640,7 @@ impl DialogListFrameState {
                     scope: user_scope.clone(),
                     revision: self.revision,
                     base_revision: None,
-                    causation_id: None,
+                    causation_id: causation_id.clone(),
                     mutation: interaction_frame::TypedSurfaceMutation::DialogListSnapshot {
                         view: self.interaction_view(),
                     },
@@ -640,7 +650,7 @@ impl DialogListFrameState {
                     scope: user_scope.clone(),
                     revision: unread_snapshot.revision,
                     base_revision: None,
-                    causation_id: None,
+                    causation_id,
                     mutation: interaction_frame::TypedSurfaceMutation::UnreadSummarySnapshot {
                         view: unread_snapshot.view,
                     },

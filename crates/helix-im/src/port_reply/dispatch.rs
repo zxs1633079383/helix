@@ -364,7 +364,7 @@ impl ImModule {
 
             // 左侧会话列表 Scan 回报首先发布完整 render-ready frame；Err 同样发布空 snapshot，
             // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
-            CorrelationContext::DialogListQuery => match outcome {
+            CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
                     let surface_epoch = self.action_surface_epoch()?;
                     self.state
@@ -390,6 +390,7 @@ impl ImModule {
                             scope,
                             &mut self.state.dialog_list_frame,
                             &terminal_channel_ids,
+                            causation_id.clone(),
                         )
                     {
                         out.push(frame);
@@ -421,6 +422,7 @@ impl ImModule {
                             scope,
                             &mut self.state.dialog_list_frame,
                             &terminal_channel_ids,
+                            causation_id,
                         )
                     {
                         out.push(frame);

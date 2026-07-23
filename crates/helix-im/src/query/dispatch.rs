@@ -23,9 +23,12 @@ impl ImModule {
                 // PortReply 回报后 emit `message.left-dialog-list` 完整 snapshot（前端零计算）。
                 let corr = self.alloc_corr_internal();
                 let effect = crate::query::build_dialog_list_query(payload, corr)?;
-                self.state
-                    .corr_map
-                    .insert(corr, CorrelationContext::DialogListQuery);
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::DialogListQuery {
+                        causation_id: crate::query::read_relay::read_req_id(payload),
+                    },
+                );
                 out.push(effect);
             }
             "im_delete_all_dialogs" => {

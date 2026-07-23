@@ -120,6 +120,15 @@ impl TimelineProjector {
         request: TimelineWindowRequest,
         render_ready_rows: &[Value],
     ) -> Result<SurfaceMutation, TimelineProjectionError> {
+        self.snapshot_from_render_ready_with_causation(request, render_ready_rows, None)
+    }
+
+    pub fn snapshot_from_render_ready_with_causation(
+        &mut self,
+        request: TimelineWindowRequest,
+        render_ready_rows: &[Value],
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, TimelineProjectionError> {
         let (scope, slot_key) = scope_and_slot_key(&request)?;
         let view = self.build_view(&request, render_ready_rows)?;
         let revision = self
@@ -131,7 +140,7 @@ impl TimelineProjector {
             scope,
             revision,
             base_revision: None,
-            causation_id: None,
+            causation_id,
             mutation: TypedSurfaceMutation::TimelineSnapshot { view: view.clone() },
         };
         mutation.validate()?;

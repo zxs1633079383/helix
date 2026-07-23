@@ -41,6 +41,8 @@ pub const SURFACE_RESYNC_COMMAND: &str = "__helix_request_surface_snapshot";
 pub struct SurfaceResyncRequest {
     pub surface: SurfaceId,
     pub scope: SurfaceScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<String>,
 }
 
 impl SurfaceResyncRequest {
@@ -139,7 +141,11 @@ impl ImModule {
                 SurfaceScope::User { .. },
             ) => {
                 // The existing dialog storage producer publishes both atomically in one Frame.
-                self.handle_query_command("im_query_dialog_list", br#"{}"#, out)
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "req_id": request.causation_id,
+                }))
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                self.handle_query_command("im_query_dialog_list", &payload, out)
             }
             (
                 SurfaceId::MessageTimeline,
@@ -156,7 +162,11 @@ impl ImModule {
                     "windowToken": window_token,
                 }))
                 .map_err(|error| ImError::Serialize(error.to_string()))?;
-                self.dispatch_surface_timeline_resync(&payload, out)
+                self.dispatch_surface_timeline_resync(
+                    &payload,
+                    request.causation_id.as_deref(),
+                    out,
+                )
             }
             (SurfaceId::MessageThreadDetail, SurfaceScope::Thread { .. }) => {
                 self.start_thread_snapshot(request, out)
@@ -283,6 +293,7 @@ impl ImModule {
                 scope: SurfaceScope::Channel {
                     channel_id: channel_id.as_str().to_string(),
                 },
+                causation_id: None,
             },
             out,
         )
@@ -974,6 +985,7 @@ mod tests {
         let request = SurfaceResyncRequest {
             surface: SurfaceId::MessageTimeline,
             scope: scope.clone(),
+            causation_id: None,
         };
         let mut sink = EffectSink::new();
 
@@ -1000,6 +1012,7 @@ mod tests {
             scope: SurfaceScope::Channel {
                 channel_id: "ch00000000000000000000000b".to_string(),
             },
+            causation_id: None,
         };
         let mut sink = EffectSink::new();
 

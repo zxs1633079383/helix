@@ -871,7 +871,7 @@ fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
     let mut module = ImModule::new(config);
 
     let effect = module
-        .emit_timeline_failed(&request(20), 1_000, false)
+        .emit_timeline_failed(&request(20), 1_000, None)
         .expect("failure state still projects to a typed frame");
     let Effect::Emit { event } = effect else {
         panic!("timeline query failure must emit a Frame")

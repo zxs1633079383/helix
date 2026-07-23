@@ -69,9 +69,13 @@ impl ImModule {
                 if self
                     .state
                     .recovery_session
-                    .commit_ok(channel_id, terminal_seq)
+                    .is_collecting_for(self.config.auth_user_id.as_str())
+                    && self
+                        .state
+                        .recovery_session
+                        .commit_ok(channel_id, terminal_seq)
                 {
-                    self.emit_recovery_v2_frame(None, out);
+                    self.try_finalize_recovery_surface(Some(corr), out)?;
                 }
                 self.finish_increment_hydration(channel_id, out)?;
                 if has_durable_message_changes && !hydration_already_pending {
@@ -130,7 +134,7 @@ impl ImModule {
                 let recovery_active = self
                     .state
                     .recovery_session
-                    .is_active_for(self.config.auth_user_id.as_str());
+                    .is_collecting_for(self.config.auth_user_id.as_str());
                 for bytes in pending_domain_events {
                     out.push(Effect::Emit {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
@@ -139,7 +143,7 @@ impl ImModule {
                 // PersistAtomic is a write-only barrier. Read back only the affected
                 // channel row so the attached dialog preview observes committed data
                 // without turning each recovery batch into a full-list scan.
-                if self.state.dialog_list_frame.scope().is_some() {
+                if !recovery_active && self.state.dialog_list_frame.scope().is_some() {
                     if let Some(pending) = dialog_patches.into_iter().last() {
                         let readback_corr = self.alloc_corr_internal();
                         let pending =
@@ -178,9 +182,9 @@ impl ImModule {
                         corr = corr.raw(),
                         channel_id = channel_id.as_str(),
                         committed_seq = committed_seq.0,
-                        "recovery commit acknowledged; composing V2 frame"
+                        "recovery commit acknowledged; checking bounded completion"
                     );
-                    self.emit_recovery_v2_frame(Some(corr), out);
+                    self.try_finalize_recovery_surface(Some(corr), out)?;
                 }
                 // E3：续拉检查（cursor 已推进后才发，确保 fromSeq 严格递增）
                 if wants_continuation {
@@ -211,7 +215,7 @@ impl ImModule {
                 if self
                     .state
                     .recovery_session
-                    .is_active_for(self.config.auth_user_id.as_str())
+                    .is_collecting_for(self.config.auth_user_id.as_str())
                 {
                     self.state.recovery_session.commit_failed(channel_id);
                     tracing::warn!(
@@ -411,18 +415,28 @@ impl ImModule {
             PortOutcome::Ok(reply) => {
                 self.handle_sync_reply(corr, channel_id, trigger, reply, out)?
             }
-            PortOutcome::Err(e) => tracing::warn!(
-                hop = "sync.request_failed",
-                channel_id = channel_id.as_str(),
-                corr = corr.raw(),
-                track_id = crate::acl::sync_http_effects::sync_track_id(corr),
-                trigger = ?trigger,
-                error = ?e,
-                "sync/notify failed"
-            ),
+            PortOutcome::Err(e) => {
+                if self
+                    .state
+                    .recovery_session
+                    .is_collecting_for(self.config.auth_user_id.as_str())
+                {
+                    self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Failed;
+                }
+                tracing::warn!(
+                    hop = "sync.request_failed",
+                    channel_id = channel_id.as_str(),
+                    corr = corr.raw(),
+                    track_id = crate::acl::sync_http_effects::sync_track_id(corr),
+                    trigger = ?trigger,
+                    error = ?e,
+                    "sync/notify failed"
+                );
+            }
         }
         // 窗口已释放 → drain 队首续发下一 channel（B4，HX-C011 在途恒 ≤ K）。
         self.drain_sync_queue(out);
+        self.try_finalize_recovery_surface(None, out)?;
         Ok(())
     }
 }

@@ -71,6 +71,10 @@ impl SyncScheduler {
         self.pending.len()
     }
 
+    pub fn is_idle(&self) -> bool {
+        self.inflight == 0 && self.pending.is_empty()
+    }
+
     /// 是否还能立即 dispatch（在途未满窗）。
     pub fn has_window(&self) -> bool {
         self.inflight < MAX_INFLIGHT_SYNC

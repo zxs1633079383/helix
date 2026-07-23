@@ -1,5 +1,9 @@
 ## 0. 当前任务
 
+🎯 EXPECT 补一条不拆段的本地真实媒体链验收：同一个 host engine 必须把 rich 九图和 FILE 依次送到三个不同 origin（Java prepare/verify、真实流式 PUT、Go posts/create），并用真 SQLite 对账最终消息；可证伪断言：① Java 收 10 prepare+10 verify、OSS 收 10 个完整 PUT、Go 只收 2 个 posts/create；② rich 全链无图片 PortProgress，FILE 至少产生一个 5% 中间进度且最终 100；③ Go body 只含稳定 Java URL，不含签名 query/localPath/mediaInput；④ 只新增 host 集成测试与本条 SESSION，完成前 cargo 调用 ≤2 次 | 赌注 高 | 可逆 是 | @2026-07-24T03:40:00+0800
+✅ DONE 新增 host 同链 E2E：一个生产 `run_engine_loop` 依次完成 rich 九图与 FILE，独立本地 origin 实收 Java prepare/verify 各 10 次、OSS 完整 PUT 10 次、Go posts/create 仅 2 次；CrossCuttingHttp 注入 cookieId 且不向 OSS 泄漏凭据，Java 一次性票据逐字段绑定，Go 只收到稳定 Java URL；rich 无 reporter/百分比写，FILE 首个持久化桶 5%、终态 100，真 SQLite 两行均 sent 且 pending_media 清空。目标测试 1/1 与 `cargo test -p helix-driver-host` 全量通过 | @2026-07-24T03:58:30+0800
+⚡ DRIFT-PRED 原预判 cargo 调用 ≤2；整包通过后的安全复核又识别出测试桩未强制 Java 票据绑定及 OSS 凭据隔离会留下假绿，补强后追加第 3 次目标复验并通过 → 候选教训：跨服务协议桩不仅要对账路径和计数，还必须模拟真实服务的认证、一次性票据绑定与跨 origin 凭据隔离 | @2026-07-24T03:58:30+0800
+
 🎯 EXPECT 收口 Surface retry action 的 accepted ledger：storage Err/not-found、内存 no-op 与 local-first 查询代际竞争都必须回到原 window 的同 causation 终态 Frame；可证伪断言：① action durable lookup 失败后仍产生 causal local readback；② causal readback 不被普通新查询 generation 丢弃；③ Failed Frame 携带 requestId 并释放 actionRef ledger；④ 不改旧 `im_retry_upload` 公开语义，只跑一次 helix-im 目标测试 | 赌注 高 | 可逆 是 | @2026-07-24T02:51:30+08:00
 ✅ DONE Surface retry action 的可信 channel/window 已贯穿 durable lookup；内存 no-op、storage Err/not-found、解析/状态错误统一回到原 timeline causal readback，action causal query 不再被普通 generation 淘汰，Failed Frame 携带 requestId 并释放 ledger。`cargo test -p helix-im --lib durable_retry_ -- --nocapture` 2/2 通过；旧 `im_retry_upload` 未改 | @2026-07-24T03:04:00+08:00
 

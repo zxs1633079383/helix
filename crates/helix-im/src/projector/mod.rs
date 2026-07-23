@@ -212,6 +212,15 @@ pub(crate) fn emit_interaction_frame(
     frame: InteractionFrameV2,
 ) -> Result<Effect, InteractionFrameError> {
     frame.validate()?;
+    tracing::debug!(
+        hop = "interaction_frame.emit",
+        corr_key = %frame.transaction_id,
+        transaction_id = %frame.transaction_id,
+        causation_id = frame.causation_id.as_deref().unwrap_or(""),
+        mutation_count = frame.mutations.len(),
+        directive_count = frame.directives.len(),
+        "emitting validated InteractionFrame V2"
+    );
     let payload = serde_json::json!({
         "event": INTERACTION_FRAME_EVENT,
         "data": frame,

@@ -49,19 +49,24 @@
 | T006 | PASS | Helix V2 contract + V1 fail-closed tests；`interaction_frame_contract_test` 17/17 PASS |
 | T007 | PASS | client V2-only codec + V1/unknown rejection；focused Jest PASS |
 | T008 | PASS | epoch/stale/atomic/directive/ack runtime tests；focused Jest PASS |
-| T009 | PENDING | 25-Gate profile/counter/artifact-isolation evidence contract 尚未实现 |
-| T010 | PASS | Helix production writer 唯一输出 InteractionFrame V2；commit `ea415a818deaf38c874232db4024df2e65584d96` |
+| T009 | PASS | 25-Gate profile、v1/v2/raw/ack counter 与 candidate/evidenceEpoch 隔离测试 PASS |
+| T010 | PASS | Helix production writer 唯一输出 InteractionFrame V2；commit `ea415a800b329947ce0757b8595df19b715f7d55` |
 | T011 | PASS | client production codec 仅接受 schemaVersion=2，无 V1 normalize/union |
 | T012 | PASS | client slot state 纳入 surfaceEpoch，epoch/revision 整帧 staged swap |
 | T013 | PASS | Angular → Tauri → Helix private `FrameApplied` typed command，content-free ack tests PASS |
 | T014 | PASS | Helix matrix epoch 11、`InteractionFrame/v2`、fixture producer pin 与 client mirror/hash 对齐 |
-| T015-T020 | PENDING | Native profile、counter/reducer、SCSS/CSS、manifest、diagnostics 与 shared validators 尚未完成 |
+| T015 | PASS | Native `interaction-frame-v2-cutover` profile 精确选择 25 Gate，排除 G03/G03a |
+| T016 | PASS | 双 actor content-free Frame probe + reducer fail-closed counters 已接通 |
+| T017 | PASS | Sass 编译、style-loaded、444/678 overflow/遮挡与双用户截图 gate 可执行 |
+| T018 | PASS | 25 Gate PG/SQLite identity/delta/privacy 合同及机器校验 PASS |
+| T019 | PASS | action/frame/ack correlation safe trace 已补齐；不记录 token、cookie、正文或 VM |
+| T020 | PASS | V-001 至 V-004 全绿；SharedV2Ready 成立，详见下表 |
 
 ### Formal Revisions And Hashes
 
 | Artifact | Value |
 |---|---|
-| Helix V2 producer commit | `ea415a818deaf38c874232db4024df2e65584d96` |
+| Helix V2 producer commit | `ea415a800b329947ce0757b8595df19b715f7d55` |
 | Helix formal pin (matrix + fixture manifest) | `d899a6033c90a153b5b009a62bee0e3a17dd9ad8` |
 | cses-client V2 consumer commit | `11bd41b1b3a540ee26d6a95ab4b0468d929d98f5` |
 | client generated `Cargo.lock` SHA-256 | `c6aceb0b8b5e6c9f91d2ca17f47b240417c0a5dab97d00925ec0c32b1f119f95` |
@@ -81,4 +86,30 @@
 | focused Native `frame_applied_queues_the_content_free_private_command` | PASS | 1/1 |
 | `npm run test:message-v4:strict-contract` | PASS | epoch 11；Helix pin/hash 与 generated consumer 一致；Cargo.lock matched |
 
-Phase 2 尚未完成，`SharedV2Ready` 不成立；不得据此进入 25 Gate READY 或宣称 Native/PG/SQLite/DOM 全链路通过。
+Phase 2 已完成，`SharedV2Ready` 成立；这只允许进入逐 Gate READY 工作，不等于
+Native/PG/SQLite/DOM 全链路已经通过。
+
+### SharedV2Ready Final Run
+
+**Window**: `2026-07-23T04:58:00-07:00` 至 `2026-07-23T05:10:51-07:00`
+
+| Validator | Command | Result | Wall Time / Artifact |
+|---|---|---|---|
+| V-001 | `cargo test -p helix-im --test interaction_frame_contract_test --no-default-features` | PASS，17/17 | 约 5.4s |
+| V-002 | `cargo test -p helix-im` | PASS，全量 lib/integration | 约 27s |
+| V-003 | `npm run message:command-api:gate && npm run message:projection-ownership && npm run message:surface-runtime:source-pin` | PASS，epoch 11，formal pin `d899a603...`，fixture 9/9 | 7.6s |
+| V-004 | focused Jest + desktop E2E Jest + reducer Playwright + desktop TS + Sass | PASS，59 + 18 + 35 tests；TS clean；CSS hash 固定 | Jest 7.4s；其余见命令输出 |
+| Native Rust | `CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 cargo check` | PASS，修正 safe-trace borrow 后一次完整复验 | 2m53s；既有 warnings |
+| Index | `python3 scripts/verify-interaction-frame-v2-index.py` | PASS，19 Spec + 19 Plan + 19 Tasks + 25 Gate + T021-T077 | <1s |
+| DB manifest | `python3 scripts/verify-interaction-frame-v2-evidence-manifest.py` | PASS，25 Gate contracts | <1s；manifest SHA-256 `18daacbf...` |
+
+关键 artifact SHA-256：
+
+- client `frame-evidence.ts`: `aa9765d2842ae6009ea777dd0ca9d5488c5653dbbda9a93597a10556a30ae04e`
+- client `reduce-evidence.mjs`: `9a27accc9251998adaeb620197e03c52d8b04e8391c2909919968fcb4e73ba6a`
+- compiled message-v4 CSS: `29b7ee8fe1066a1521eed0ed0e5b7c1dd78cc736dcce0318c6697777de07ed5f`
+- evidence manifest: `18daacbf1736e01f24c4bdf5e1a5e9d13d10ba25e7b0ddbde07293e07eef60da`
+- manifest verifier: `9bb871e31823f60c2df8b724fcde1690a98e8bd25a9362bceddb46d9f281221d`
+
+`SharedV2Ready` 仅表示共享协议、工具和证据合同可进入逐 Gate 实现；尚未产生
+25 Gate 的真实 PG/SQLite/双用户 DOM/截图证据，V1 删除仍被 T079-T080 硬阻塞。

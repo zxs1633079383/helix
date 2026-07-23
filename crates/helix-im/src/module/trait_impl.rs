@@ -74,7 +74,8 @@ impl Module for ImModule {
                             })?;
                     tracing::info!(
                         hop = "interaction_frame.applied",
-                        transaction_id = ack.transaction_id,
+                        corr_key = %ack.transaction_id,
+                        transaction_id = %ack.transaction_id,
                         applied_slots = ack.applied_slots,
                         result = ?ack.result,
                         "renderer committed InteractionFrame V2"

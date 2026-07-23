@@ -19,18 +19,18 @@
 - [X] T006 [P] 在 `crates/helix-im/tests/interaction_frame_contract_test.rs` 增加 V1 fail-closed、schema/slot/epoch/revision/transaction/directive 的共享 RED contract
 - [X] T007 [P] 在 cses-client `src/pages/message-v4/surface-runtime/__tests__/surface-contract.codec.test.ts` 增加 V2-only codec、V1/unknown schema 拒绝 RED test
 - [X] T008 [P] 在 cses-client `surface-runtime/__tests__/surface-runtime.service.test.ts` 增加 epoch change/stale、整帧原子性、FrameApplied/directive 顺序 RED test
-- [ ] T009 [P] 在 cses-client `tests/e2e/desktop/__tests__/evidence-contract.test.ts` 增加 25-Gate profile、v1/v2/raw/ack counters 和删除前后 artifact 隔离 RED test
+- [X] T009 [P] 在 cses-client `tests/e2e/desktop/__tests__/evidence-contract.test.ts` 增加 25-Gate profile、v1/v2/raw/ack counters 和删除前后 artifact 隔离 RED test
 - [X] T010 在 `crates/helix-im/src/interaction_frame.rs`、`src/projector/mod.rs` 与 `src/surface_composer.rs` 建立唯一 V2 builder/emitter，并让生产 V1 writer fail-closed
 - [X] T011 在 cses-client `surface-contract.types.ts` 与 `surface-contract.codec.ts` 将生产合同收敛为 InteractionFrameV2，移除可达 V1 union/normalize
 - [X] T012 在 cses-client `surface-runtime.service.ts` 将 surfaceEpoch 纳入 slot 状态/比较，并保持 whole-frame staging/version swap
 - [X] T013 在 cses-client SurfaceRuntime/Tauri bridge 与 Helix port reply 路径接通生产 `FrameApplied(transactionId, slots, result)`
 - [X] T014 在 Helix fixture manifest、client fixture mirror、Strict Matrix generated contract 中将目标业务合同统一为 schemaVersion=2 和同一 source pin
-- [ ] T015 在 cses-client `tests/e2e/desktop/harness/uc-scenario.registry.ts` 与 `run-scenario.ts` 增加显式 25-Gate `interaction-frame-v2-cutover` profile
-- [ ] T016 在 cses-client `tests/e2e/desktop/harness/frame-evidence.ts`、`evidence-collector.ts` 与 reducer 增加 v1Frames/v2Frames/rawBusinessFallbacks/FrameApplied counters
-- [ ] T017 在 cses-client `package.json` 和 message-v4 E2E harness 增加 SCSS/CSS 编译、样式载入、444/678 overflow/遮挡 gate
-- [ ] T018 [P] 在 `specs/018-interaction-frame-v2-cutover/contracts/evidence-manifest-v2.md` 固定每 Gate PG/SQLite 主键、actor/observer、before/after delta 和隐私约束
-- [ ] T019 [P] 在 Helix/client diagnostics 增加 action/tick/effect/persist/frame/ack correlation 字段，禁止输出 token/cookie/正文/无界 VM
-- [ ] T020 运行 V-001 至 V-004 shared validators，并将结果、起止时间和 artifact hash 写入 `specs/018-interaction-frame-v2-cutover/verification.md`
+- [X] T015 在 cses-client `tests/e2e/desktop/harness/uc-scenario.registry.ts` 与 `run-scenario.ts` 增加显式 25-Gate `interaction-frame-v2-cutover` profile
+- [X] T016 在 cses-client `tests/e2e/desktop/harness/frame-evidence.ts`、`evidence-collector.ts` 与 reducer 增加 v1Frames/v2Frames/rawBusinessFallbacks/FrameApplied counters
+- [X] T017 在 cses-client `package.json` 和 message-v4 E2E harness 增加 SCSS/CSS 编译、样式载入、444/678 overflow/遮挡 gate
+- [X] T018 [P] 在 `specs/018-interaction-frame-v2-cutover/contracts/evidence-manifest-v2.md` 固定每 Gate PG/SQLite 主键、actor/observer、before/after delta 和隐私约束
+- [X] T019 [P] 在 Helix/client diagnostics 增加 action/tick/effect/persist/frame/ack correlation 字段，禁止输出 token/cookie/正文/无界 VM
+- [X] T020 运行 V-001 至 V-004 shared validators，并将结果、起止时间和 artifact hash 写入 `specs/018-interaction-frame-v2-cutover/verification.md`
 
 ## Phase 3: User Story 1 - 25 Gate Business Continuity (Priority: P1)
 

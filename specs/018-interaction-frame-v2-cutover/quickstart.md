@@ -44,10 +44,11 @@ npm run message:real-chain:doctor
 
 ```bash
 cd /System/Volumes/Data/workspace/angular/cses-client/worktrees/018-interaction-frame-v2-cutover
-npm run build:fast
+npm run message:ui:style-gate
 ```
 
-T017 必须在 `package.json` 增加统一的 `message:ui:style-gate`，组合：
+`message:ui:style-gate` 编译 message-v4 所属 Angular/Sass/CSS；25-Gate Native
+profile 的 `capturePerspectives` 同时执行：
 
 ```text
 Sass/CSS build
@@ -56,7 +57,8 @@ target component style-loaded assertion
 actor/observer screenshot capture
 ```
 
-在 T017 完成前脚本不存在是预期 RED；T017 后脚本不存在或任一组件没有实际样式证据时，最终 Gate 为 BLOCKED。
+任一组件没有实际样式、出现横向 overflow、thread/composer 遮挡或任一 actor
+缺截图时，当前 Gate 为 BLOCKED。
 
 ## 5. First V2-only Native Run
 
@@ -64,7 +66,7 @@ actor/observer screenshot capture
 cd /System/Volumes/Data/workspace/angular/cses-client
 npm run message:desktop:frame-prerequisites
 npm run message:desktop:build
-npm run message:desktop:scenario:all -- --profile interaction-frame-v2-cutover
+npm run message:desktop:scenario:v2-cutover
 npm run message:real-chain:collect
 npm run message:real-chain:generate-matrix
 npm run message:real-chain:reduce -- --profile interaction-frame-v2-cutover

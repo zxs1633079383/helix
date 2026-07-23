@@ -1,29 +1,56 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "transactionId": "patch-gap-transaction",
   "mutations": [
     {
       "surface": "message.unread-summary",
-      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "scope": {
+        "kind": "user",
+        "userId": "user-1",
+        "teamId": "team-1"
+      },
       "baseRevision": 1,
       "revision": 2,
       "mutation": {
         "kind": "unreadSummaryPatch",
         "patch": {
           "kind": "replaceView",
-          "view": { "unreadTotal": 0, "mentionTotal": 0, "urgentTotal": 0, "unreadChannelCount": 0 }
+          "view": {
+            "unreadTotal": 0,
+            "mentionTotal": 0,
+            "urgentTotal": 0,
+            "unreadChannelCount": 0
+          }
         }
-      }
+      },
+      "surfaceEpoch": 1
     },
     {
       "surface": "message.left-dialog-list",
-      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "scope": {
+        "kind": "user",
+        "userId": "user-1",
+        "teamId": "team-1"
+      },
       "baseRevision": 3,
       "revision": 4,
       "mutation": {
         "kind": "dialogListPatch",
-        "patch": { "kind": "replaceView", "view": { "sections": [], "state": "ready" } }
-      }
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "sections": [],
+            "state": "ready"
+          }
+        }
+      },
+      "surfaceEpoch": 1
     }
-  ]
+  ],
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "directives": []
 }

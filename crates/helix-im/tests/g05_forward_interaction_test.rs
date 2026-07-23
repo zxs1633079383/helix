@@ -4,7 +4,7 @@ mod common;
 use common::*;
 
 use helix_core::Effect;
-use helix_im::interaction_frame::{InteractionFrame, SurfaceId, TypedSurfaceMutation};
+use helix_im::interaction_frame::{InteractionFrameV2, SurfaceId, TypedSurfaceMutation};
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
@@ -274,7 +274,7 @@ fn trusted_target_post_completes_only_after_dialog_persist_readback_frame() {
                 (value["event"] == "im:interaction:frame")
                     .then(|| serde_json::to_vec(&value["data"]).ok())
                     .flatten()
-                    .and_then(|bytes| InteractionFrame::decode(&bytes).ok())
+                    .and_then(|bytes| InteractionFrameV2::decode(&bytes).ok())
             }
             _ => None,
         })
@@ -397,7 +397,7 @@ fn trusted_target_post_completes_only_after_dialog_persist_readback_frame() {
                 (value["event"] == "im:interaction:frame")
                     .then(|| serde_json::to_vec(&value["data"]).ok())
                     .flatten()
-                    .and_then(|bytes| InteractionFrame::decode(&bytes).ok())
+                    .and_then(|bytes| InteractionFrameV2::decode(&bytes).ok())
             }
             _ => None,
         })

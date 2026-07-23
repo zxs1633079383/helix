@@ -144,8 +144,12 @@ impl ImModule {
         for mutation in &mutations {
             self.register_timeline_action_bindings(mutation, now_ms)?;
         }
-        let frame = crate::projector::build_interaction_frame(frame_id, mutations)
-            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        let frame = crate::projector::build_online_interaction_frame(
+            frame_id,
+            self.action_surface_epoch()?,
+            mutations,
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
         crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))
     }
@@ -255,8 +259,9 @@ impl ImModule {
             .map_err(|error| ImError::Parse(format!("action receipt projection: {error}")))?;
         let scope_key = mutation.scope.canonical_key();
         let revision = mutation.revision;
-        let frame = crate::projector::build_interaction_frame(
+        let frame = crate::projector::build_online_interaction_frame(
             format!("action-receipt-{scope_key}-{revision}"),
+            self.action_surface_epoch()?,
             vec![mutation],
         )
         .map_err(|error| ImError::Serialize(error.to_string()))?;

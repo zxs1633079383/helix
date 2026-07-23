@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use helix_im::interaction_frame::{InteractionFrame, INTERACTION_FRAME_SCHEMA_VERSION};
+use helix_im::interaction_frame::{InteractionFrameV2, INTERACTION_FRAME_SCHEMA_VERSION};
 use serde::Deserialize;
 
 const MANIFEST: &str = include_str!("fixtures/uc01-16-surface-runtime/manifest.json");
@@ -70,7 +70,7 @@ fn manifest_pins_the_contract_foundation_and_live_producer_revision() {
 }
 
 #[test]
-fn manifest_lists_all_eight_v1_surfaces_with_their_actual_live_producer_status() {
+fn manifest_lists_all_eight_surfaces_with_their_actual_v2_producer_status() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
     assert_eq!(manifest.producer_status.len(), 8);
     for surface in [
@@ -84,8 +84,8 @@ fn manifest_lists_all_eight_v1_surfaces_with_their_actual_live_producer_status()
             manifest
                 .producer_status
                 .get(surface)
-                .is_some_and(|status| status.starts_with("live:")),
-            "{surface} must name its actual V1 producer status"
+                .is_some_and(|status| status.starts_with("v2-live:")),
+            "{surface} must name its actual V2 producer status"
         );
     }
 }
@@ -93,10 +93,7 @@ fn manifest_lists_all_eight_v1_surfaces_with_their_actual_live_producer_status()
 #[test]
 fn v2_migration_reserves_all_gs01_gs04_fixtures_without_claiming_v1_is_v2() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
-    assert_eq!(
-        manifest.v2_migration.source_pin,
-        "b4339e252e865ea294c51001388b1ef0de3ba42e"
-    );
+    assert_eq!(manifest.v2_migration.source_pin, "pending-cutover-commit");
     assert_eq!(manifest.v2_migration.target_schema_version, 2);
     assert_eq!(manifest.v2_migration.required_fixtures.len(), 7);
     assert!(manifest
@@ -119,6 +116,6 @@ fn every_frame_fixture_declares_the_pinned_schema_version() {
             Some(u64::from(INTERACTION_FRAME_SCHEMA_VERSION))
         );
     }
-    InteractionFrame::decode(SNAPSHOT.as_bytes()).expect("canonical snapshot remains decodable");
-    InteractionFrame::decode(PATCH.as_bytes()).expect("canonical patch remains decodable");
+    InteractionFrameV2::decode(SNAPSHOT.as_bytes()).expect("canonical snapshot remains decodable");
+    InteractionFrameV2::decode(PATCH.as_bytes()).expect("canonical patch remains decodable");
 }

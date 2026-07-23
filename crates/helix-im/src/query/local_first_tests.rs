@@ -216,17 +216,17 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
     let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(envelope["event"], "im:interaction:frame");
     assert!(envelope["event"] != "im:messages:query_result");
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&envelope["data"]).unwrap(),
     )
     .expect("live timeline output must satisfy the public Frame contract");
     assert_eq!(frame.mutations.len(), 1);
     assert_eq!(
-        frame.mutations[0].surface,
+        frame.mutations[0].mutation.surface,
         crate::interaction_frame::SurfaceId::MessageTimeline
     );
     assert_eq!(
-        frame.mutations[0].scope.canonical_key(),
+        frame.mutations[0].mutation.scope.canonical_key(),
         format!(
             "timeline|{}:{}|{}:{}",
             channel_id().as_str().len(),
@@ -531,18 +531,23 @@ fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_f
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("the attached timeline receives a typed Frame patch");
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&frame_event["data"]).unwrap(),
     )
     .expect("the refresh output satisfies the public InteractionFrame contract");
     let mutation = frame
         .mutations
         .iter()
-        .find(|mutation| mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline)
+        .find(|mutation| {
+            mutation.mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline
+        })
         .expect("the Frame includes the timeline surface");
-    assert_eq!(mutation.causation_id.as_deref(), Some("send-request-1"));
+    assert_eq!(
+        mutation.mutation.causation_id.as_deref(),
+        Some("send-request-1")
+    );
     assert!(matches!(
-        mutation.mutation,
+        mutation.mutation.mutation,
         crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
     ));
     let frame_index = sink
@@ -838,18 +843,23 @@ fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_atta
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("only the readback releases the typed timeline patch");
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&frame_event["data"]).unwrap(),
     )
     .expect("the terminal projection satisfies the Frame contract");
     let mutation = frame
         .mutations
         .iter()
-        .find(|mutation| mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline)
+        .find(|mutation| {
+            mutation.mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline
+        })
         .expect("the terminal Frame patches the timeline");
-    assert_eq!(mutation.causation_id.as_deref(), Some("send-request-2"));
+    assert_eq!(
+        mutation.mutation.causation_id.as_deref(),
+        Some("send-request-2")
+    );
     assert!(matches!(
-        mutation.mutation,
+        mutation.mutation.mutation,
         crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
     ));
 }
@@ -870,12 +880,12 @@ fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
     assert_eq!(envelope["event"], "im:interaction:frame");
     assert_ne!(envelope["event"], "im:post:increment-failed");
 
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&envelope["data"]).unwrap(),
     )
     .expect("failed timeline output must satisfy the public Frame contract");
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
-        &frame.mutations[0].mutation
+        &frame.mutations[0].mutation.mutation
     else {
         panic!("failure must stay a complete timeline snapshot")
     };
@@ -912,11 +922,11 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
         panic!("timeline query must emit a frame")
     };
     let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let initial_frame = crate::interaction_frame::InteractionFrame::decode(
+    let initial_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&event["data"]).unwrap(),
     )
     .unwrap();
-    let initial_mutation = &initial_frame.mutations[0];
+    let initial_mutation = &initial_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &initial_mutation.mutation
     else {
@@ -1016,11 +1026,11 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         panic!("timeline must emit a frame")
     };
     let timeline_event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let timeline_frame = crate::interaction_frame::InteractionFrame::decode(
+    let timeline_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&timeline_event["data"]).unwrap(),
     )
     .unwrap();
-    let mutation = &timeline_frame.mutations[0];
+    let mutation = &timeline_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &mutation.mutation
     else {
@@ -1180,11 +1190,11 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         panic!("refreshed timeline must emit a frame")
     };
     let refreshed_event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let refreshed_frame = crate::interaction_frame::InteractionFrame::decode(
+    let refreshed_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&refreshed_event["data"]).unwrap(),
     )
     .unwrap();
-    let refreshed_mutation = &refreshed_frame.mutations[0];
+    let refreshed_mutation = &refreshed_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
         &refreshed_mutation.mutation
     else {
@@ -1255,7 +1265,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("canonical HTTP reply produces a typed Frame");
-    let authority_frame = crate::interaction_frame::InteractionFrame::decode(
+    let authority_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&authority_frame["data"]).unwrap(),
     )
     .unwrap();
@@ -1339,11 +1349,11 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         panic!("timeline must emit a Frame")
     };
     let old_frame: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let old_frame = crate::interaction_frame::InteractionFrame::decode(
+    let old_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&old_frame["data"]).unwrap(),
     )
     .unwrap();
-    let old_mutation = &old_frame.mutations[0];
+    let old_mutation = &old_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &old_mutation.mutation
     else {
@@ -1423,11 +1433,11 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         panic!("timeline must emit a Frame")
     };
     let after_frame: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let after_frame = crate::interaction_frame::InteractionFrame::decode(
+    let after_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&after_frame["data"]).unwrap(),
     )
     .unwrap();
-    let after_mutation = &after_frame.mutations[0];
+    let after_mutation = &after_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &after_mutation.mutation
     else {

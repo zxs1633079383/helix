@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::interaction_frame::{
     ActionBinding, ActionInvocation, ActionInvocationEnvelope, ActionReceipt, ActionReceiptStatus,
-    ActionValidationError, InteractionFrame, InteractionFrameError, SurfaceId, SurfaceScope,
+    ActionValidationError, InteractionFrameError, InteractionFrameV2, SurfaceId, SurfaceScope,
     INTERACTION_ACTION_RECEIPT_EVENT,
 };
 
@@ -891,7 +891,7 @@ pub struct ActionFrameMutation {
 }
 
 pub fn matching_frame_confirmation(
-    frame: &InteractionFrame,
+    frame: &InteractionFrameV2,
     request_id: &str,
 ) -> Result<Option<ActionFrameConfirmation>, ActionProjectionError> {
     if request_id.is_empty() {
@@ -903,11 +903,11 @@ pub fn matching_frame_confirmation(
     let mutations = frame
         .mutations
         .iter()
-        .filter(|mutation| mutation.causation_id.as_deref() == Some(request_id))
+        .filter(|mutation| mutation.mutation.causation_id.as_deref() == Some(request_id))
         .map(|mutation| ActionFrameMutation {
-            surface: mutation.surface,
-            scope: mutation.scope.clone(),
-            revision: mutation.revision,
+            surface: mutation.mutation.surface,
+            scope: mutation.mutation.scope.clone(),
+            revision: mutation.mutation.revision,
         })
         .collect::<Vec<_>>();
     if mutations.is_empty() {
@@ -1058,8 +1058,9 @@ mod tests {
 
     use super::*;
     use crate::interaction_frame::{
-        ActionInvocationEnvelope, InteractionFrame, SurfaceMutation, TypedSurfaceMutation,
-        UnreadSummaryVm, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        ActionInvocationEnvelope, InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState,
+        RuntimeRecoveryState, RuntimeSyncState, SurfaceMutation, SurfaceMutationV2,
+        TypedSurfaceMutation, UnreadSummaryVm, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
         INTERACTION_FRAME_SCHEMA_VERSION,
     };
 
@@ -1487,27 +1488,37 @@ mod tests {
 
     #[test]
     fn matching_causation_requires_a_valid_frame_and_exact_request_id() {
-        let frame = InteractionFrame {
+        let frame = InteractionFrameV2 {
             schema_version: INTERACTION_FRAME_SCHEMA_VERSION,
             transaction_id: "transaction-1".to_string(),
-            mutations: vec![SurfaceMutation {
-                surface: SurfaceId::MessageUnreadSummary,
-                scope: SurfaceScope::User {
-                    user_id: "viewer-1".to_string(),
-                    team_id: "team-1".to_string(),
-                },
-                revision: 1,
-                base_revision: None,
-                causation_id: Some("request-1".to_string()),
-                mutation: TypedSurfaceMutation::UnreadSummarySnapshot {
-                    view: UnreadSummaryVm {
-                        unread_total: 1,
-                        mention_total: 0,
-                        urgent_total: 0,
-                        unread_channel_count: 1,
+            causation_id: Some("request-1".to_string()),
+            runtime: InteractionRuntimeVm {
+                connection: RuntimeConnectionState::Online,
+                initial_sync: RuntimeSyncState::Ready,
+                recovery: RuntimeRecoveryState::Idle,
+            },
+            mutations: vec![SurfaceMutationV2 {
+                surface_epoch: 1,
+                mutation: SurfaceMutation {
+                    surface: SurfaceId::MessageUnreadSummary,
+                    scope: SurfaceScope::User {
+                        user_id: "viewer-1".to_string(),
+                        team_id: "team-1".to_string(),
+                    },
+                    revision: 1,
+                    base_revision: None,
+                    causation_id: Some("request-1".to_string()),
+                    mutation: TypedSurfaceMutation::UnreadSummarySnapshot {
+                        view: UnreadSummaryVm {
+                            unread_total: 1,
+                            mention_total: 0,
+                            urgent_total: 0,
+                            unread_channel_count: 1,
+                        },
                     },
                 },
             }],
+            directives: Vec::new(),
         };
 
         let confirmation = matching_frame_confirmation(&frame, "request-1")
@@ -1520,7 +1531,7 @@ mod tests {
             .is_none());
 
         let mut invalid = frame;
-        invalid.mutations[0].revision = 0;
+        invalid.mutations[0].mutation.revision = 0;
         assert!(matches!(
             matching_frame_confirmation(&invalid, "request-1"),
             Err(ActionProjectionError::InvalidFrame(_))

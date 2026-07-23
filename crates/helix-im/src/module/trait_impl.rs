@@ -65,6 +65,21 @@ impl Module for ImModule {
                             source: Box::new(e),
                         })?;
                 }
+                crate::interaction_frame::FRAME_APPLIED_COMMAND => {
+                    let ack =
+                        crate::interaction_frame::FrameApplied::from_payload(cmd.payload.as_ref())
+                            .map_err(|error| CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(crate::error::ImError::Parse(error.to_string())),
+                            })?;
+                    tracing::info!(
+                        hop = "interaction_frame.applied",
+                        transaction_id = ack.transaction_id,
+                        applied_slots = ack.applied_slots,
+                        result = ?ack.result,
+                        "renderer committed InteractionFrame V2"
+                    );
+                }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
                         .map_err(|e| CoreError::ModuleError {

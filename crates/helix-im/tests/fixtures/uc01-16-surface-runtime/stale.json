@@ -1,10 +1,29 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "transactionId": "stale-dialog-snapshot",
-  "mutations": [{
-    "surface": "message.left-dialog-list",
-    "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
-    "revision": 1,
-    "mutation": { "kind": "dialogListSnapshot", "view": { "sections": [], "state": "empty" } }
-  }]
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": {
+        "kind": "user",
+        "userId": "user-1",
+        "teamId": "team-1"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "dialogListSnapshot",
+        "view": {
+          "sections": [],
+          "state": "empty"
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "directives": []
 }

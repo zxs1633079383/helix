@@ -8,11 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
-/// V2 is introduced alongside the legacy decoder so all three consumers can move in lockstep.
-/// Producers do not switch this default until their V2 fixture mirror and cache gates are ready.
-pub const INTERACTION_FRAME_SCHEMA_VERSION_V2: u32 = 2;
+pub const LEGACY_INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
+pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 2;
+pub const INTERACTION_FRAME_SCHEMA_VERSION_V2: u32 = INTERACTION_FRAME_SCHEMA_VERSION;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
+pub const FRAME_APPLIED_COMMAND: &str = "__helix_frame_applied";
 /// Action invoke 的受理结果。`accepted` 只代表 Helix 已接管该 requestId；业务终态仍必须等同
 /// requestId 的权威 Frame causation。
 pub const INTERACTION_ACTION_RECEIPT_EVENT: &str = "im:interaction:action-receipt";
@@ -269,6 +269,34 @@ pub struct ActionInvocation {
     pub input: BTreeMap<String, SurfaceDataVm>,
 }
 
+/// Renderer-to-core acknowledgement emitted only after a complete V2 frame
+/// has been committed and its directives have been attempted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FrameApplied {
+    pub transaction_id: String,
+    pub applied_slots: u32,
+    pub result: FrameAppliedResult,
+}
+
+impl FrameApplied {
+    pub fn from_payload(payload: &[u8]) -> Result<Self, InteractionFrameError> {
+        let ack: Self = serde_json::from_slice(payload)
+            .map_err(|error| InteractionFrameError::Decode(error.to_string()))?;
+        if ack.transaction_id.is_empty() {
+            return Err(InteractionFrameError::EmptyTransactionId);
+        }
+        Ok(ack)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameAppliedResult {
+    Applied,
+    DirectiveFailed,
+}
+
 /// renderer 回送给 Helix 的版本化、surface-scoped 动作请求。
 ///
 /// `request_id` 是端到端 causation key；`actor_id` 由受信 platform runtime 注入，而不是由 UI
@@ -466,7 +494,7 @@ impl InteractionFrame {
     }
 
     pub fn validate(&self) -> Result<(), InteractionFrameError> {
-        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION {
+        if self.schema_version != LEGACY_INTERACTION_FRAME_SCHEMA_VERSION {
             return Err(InteractionFrameError::SchemaVersion(self.schema_version));
         }
         if self.transaction_id.is_empty() {
@@ -563,7 +591,7 @@ pub struct InteractionFrameV2 {
     pub causation_id: Option<String>,
     pub runtime: InteractionRuntimeVm,
     pub mutations: Vec<SurfaceMutationV2>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub directives: Vec<UiDirective>,
 }
 
@@ -1046,12 +1074,30 @@ pub struct TimelineWindowVm {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThreadDetailVm {
     pub channel_id: String,
+    pub detail_context: DetailContextVm,
     pub root: MessageVm,
     pub ordered_reply_ids: Vec<String>,
     pub nodes: BTreeMap<String, MessageVm>,
     pub reply_count: u32,
     pub page: WindowPageVm,
     pub state: SurfaceLoadState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum DetailContextVm {
+    Reply,
+    Topic {
+        parent_channel_id: String,
+        topic_channel_id: String,
+        root_message_id: String,
+        title: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1474,6 +1520,21 @@ fn validate_thread_detail(
     };
     if view.channel_id != *channel_id || view.root.id != *root_message_id {
         return invalid_view(surface, "thread root and channel must match scope");
+    }
+    if let DetailContextVm::Topic {
+        parent_channel_id,
+        topic_channel_id,
+        root_message_id: context_root_id,
+        title,
+    } = &view.detail_context
+    {
+        if parent_channel_id.is_empty()
+            || topic_channel_id != channel_id
+            || context_root_id != root_message_id
+            || title.is_empty()
+        {
+            return invalid_view(surface, "topic detail context must match thread scope");
+        }
     }
     validate_page(surface, &view.page)?;
     validate_message(surface, &view.root, channel_id)?;

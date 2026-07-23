@@ -118,7 +118,11 @@ impl ImModule {
                 Some(request_id.to_string()),
             )
             .map_err(|error| ImError::Parse(format!("thread branch append: {error}")))?;
-        out.push(frame_for_mutation("thread-branch", mutation)?);
+        out.push(frame_for_mutation(
+            "thread-branch",
+            self.action_surface_epoch()?,
+            mutation,
+        )?);
         Ok(())
     }
 
@@ -203,7 +207,11 @@ impl ImModule {
                 capability_epoch: surface_epoch,
             })
             .map_err(|error| ImError::Parse(format!("composer projection: {error}")))?;
-        out.push(frame_for_mutation("surface-composer", mutation)?);
+        out.push(frame_for_mutation(
+            "surface-composer",
+            self.action_surface_epoch()?,
+            mutation,
+        )?);
         Ok(())
     }
 
@@ -409,7 +417,11 @@ impl ImModule {
             .participant_receipts_projector
             .snapshot_forbidden(request_data)
             .map_err(|error| ImError::Parse(format!("receipt unavailable projection: {error}")))?;
-        out.push(frame_for_mutation("surface-receipt", mutation)?);
+        out.push(frame_for_mutation(
+            "surface-receipt",
+            self.action_surface_epoch()?,
+            mutation,
+        )?);
         Ok(())
     }
 
@@ -470,7 +482,11 @@ impl ImModule {
                 ))
             }
         };
-        out.push(frame_for_mutation("surface-storage", mutation)?);
+        out.push(frame_for_mutation(
+            "surface-storage",
+            self.action_surface_epoch()?,
+            mutation,
+        )?);
         Ok(())
     }
 
@@ -538,7 +554,11 @@ impl ImModule {
             .thread_detail_projector
             .snapshot(view)
             .map_err(|error| ImError::Parse(format!("thread projection: {error}")))?;
-        out.push(frame_for_mutation("surface-thread", mutation)?);
+        out.push(frame_for_mutation(
+            "surface-thread",
+            self.action_surface_epoch()?,
+            mutation,
+        )?);
         Ok(())
     }
 
@@ -570,19 +590,31 @@ impl ImModule {
             .participant_receipts_projector
             .snapshot(request_data, data)
             .map_err(|error| ImError::Parse(format!("receipt projection: {error}")))?;
-        out.push(frame_for_mutation("surface-receipt", mutation)?);
+        out.push(frame_for_mutation(
+            "surface-receipt",
+            self.action_surface_epoch()?,
+            mutation,
+        )?);
         Ok(())
     }
 }
 
-fn frame_for_mutation(prefix: &str, mutation: SurfaceMutation) -> Result<Effect, ImError> {
+fn frame_for_mutation(
+    prefix: &str,
+    surface_epoch: u64,
+    mutation: SurfaceMutation,
+) -> Result<Effect, ImError> {
     let transaction_id = format!(
         "{prefix}-{}-{}",
         mutation.scope.canonical_key(),
         mutation.revision
     );
-    let frame = crate::projector::build_interaction_frame(transaction_id, vec![mutation])
-        .map_err(|error| ImError::Serialize(error.to_string()))?;
+    let frame = crate::projector::build_online_interaction_frame(
+        transaction_id,
+        surface_epoch,
+        vec![mutation],
+    )
+    .map_err(|error| ImError::Serialize(error.to_string()))?;
     crate::projector::emit_interaction_frame(frame)
         .map_err(|error| ImError::Serialize(error.to_string()))
 }
@@ -784,6 +816,7 @@ fn thread_detail_view(
         .collect();
     Ok(ThreadDetailVm {
         channel_id: channel_id.to_string(),
+        detail_context: crate::interaction_frame::DetailContextVm::Reply,
         root,
         reply_count: reply_count.max(visible_ids.len()) as u32,
         ordered_reply_ids: visible_ids,

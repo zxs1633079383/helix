@@ -139,6 +139,10 @@ impl ImModule {
     ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
+                let surface_epoch = self.action_surface_epoch()?;
+                self.state
+                    .dialog_list_frame
+                    .set_surface_epoch(surface_epoch);
                 out.push(crate::acl::to_effect::emit_channel_increment(
                     channel_id,
                     raw_increment.as_ref(),

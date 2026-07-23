@@ -232,6 +232,7 @@ mod tests {
     fn thread() -> ThreadDetailVm {
         ThreadDetailVm {
             channel_id: "channel-1".to_string(),
+            detail_context: crate::interaction_frame::DetailContextVm::Reply,
             root: message("root-1"),
             ordered_reply_ids: vec!["reply-1".to_string()],
             nodes: BTreeMap::from([("reply-1".to_string(), message("reply-1"))]),

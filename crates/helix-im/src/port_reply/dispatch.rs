@@ -366,6 +366,10 @@ impl ImModule {
             // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
             CorrelationContext::DialogListQuery => match outcome {
                 PortOutcome::Ok(reply) => {
+                    let surface_epoch = self.action_surface_epoch()?;
+                    self.state
+                        .dialog_list_frame
+                        .set_surface_epoch(surface_epoch);
                     let scope = crate::dialog_frame::DialogListScope::new(
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
@@ -393,6 +397,10 @@ impl ImModule {
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
+                    let surface_epoch = self.action_surface_epoch()?;
+                    self.state
+                        .dialog_list_frame
+                        .set_surface_epoch(surface_epoch);
                     let scope = crate::dialog_frame::DialogListScope::new(
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),

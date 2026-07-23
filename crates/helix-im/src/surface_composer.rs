@@ -48,16 +48,14 @@ impl SurfaceChangeSet {
             }
             mutations.push(bundle.composer);
         }
-        let frame = InteractionFrameV2 {
-            schema_version: 2,
+        crate::projector::build_interaction_frame(
             transaction_id,
             causation_id,
             runtime,
             mutations,
-            directives: self.directives,
-        };
-        frame.validate().map_err(|_| "invalid composed frame")?;
-        Ok(frame)
+            self.directives,
+        )
+        .map_err(|_| "invalid composed frame")
     }
 }
 
@@ -113,7 +111,7 @@ impl ImModule {
             persisted_corr.map(|corr| format!("recovery-persist:{}", corr.raw())),
         );
         match frame {
-            Ok(frame) => match crate::projector::emit_interaction_frame_v2(frame) {
+            Ok(frame) => match crate::projector::emit_interaction_frame(frame) {
                 Ok(effect) => out.push(effect),
                 Err(error) => tracing::warn!(error = %error, "recovery V2 frame suppressed"),
             },

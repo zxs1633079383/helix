@@ -56,7 +56,6 @@ impl Module for ImModule {
                     // startup sync commit is misclassified as ordinary online work and emits
                     // one dialog Frame per channel.
                     if self.state.connection_id.is_some()
-                        && self.state.conn == crate::state::ConnState::Connected
                         && !self.config.auth_user_id.is_empty()
                         && !self
                             .state
@@ -364,7 +363,12 @@ impl Module for ImModule {
                 // 必须等收到 hello（→ Connected + connectionId）才能 resync——
                 // 否则握手前发 sync/notify 会被 Go 401/403（缺 connectionId 身份头）。
                 // 故此处只置 Connecting，resync 推迟到 hello Inbound 分支（handle_hello）。
-                self.state.conn = ConnState::Connecting;
+                // Native reader 与 activation tick 来自两个异步源；hello 可能先入队。
+                // connectionId 是服务端握手的权威凭据，晚到的 transport tick 不得把
+                // 已握手状态从 Connected 降回 Connecting。
+                if self.state.connection_id.is_none() {
+                    self.state.conn = ConnState::Connecting;
+                }
                 // Do not publish a runtime transition here: the server hello
                 // establishes the recovery epoch, and PersistOk is the only
                 // completion boundary for a V2 frame.

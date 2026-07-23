@@ -202,7 +202,7 @@ fn runtime_identity_enables_member_projection_without_wire_user_id() {
 #[test]
 fn runtime_identity_after_hello_reopens_recovery_for_the_trusted_actor() {
     let mut m = ImModule::new(ImConfig::default());
-    m.state.conn = crate::state::ConnState::Connected;
+    m.state.conn = crate::state::ConnState::Connecting;
     m.state.connection_id = Some("connection-b".to_string());
     m.state.recovery_session.begin("bootstrap");
     let mut sink = EffectSink::new();
@@ -227,6 +227,24 @@ fn runtime_identity_after_hello_reopens_recovery_for_the_trusted_actor() {
         sink.is_empty(),
         "重绑恢复会话只更新确定性内核状态，不直接发布 Frame"
     );
+}
+
+#[test]
+fn late_transport_connected_tick_cannot_downgrade_a_completed_hello() {
+    let mut m = ImModule::new(ImConfig::default());
+    m.state.conn = crate::state::ConnState::Connected;
+    m.state.connection_id = Some("server-hello".to_string());
+    let mut sink = EffectSink::new();
+
+    m.handle(
+        &Tick::Connected(helix_core::effect::TransportId::from_raw(0)),
+        2_000,
+        &mut sink,
+    )
+    .unwrap();
+
+    assert_eq!(m.state.conn, crate::state::ConnState::Connected);
+    assert_eq!(m.state.connection_id.as_deref(), Some("server-hello"));
 }
 
 #[test]

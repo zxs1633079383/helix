@@ -2,6 +2,8 @@
 
 **Gate**: GS03 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 在线用户收到 `pong.gaps` 或 hash mismatch 后，只对确有差异的频道执行有界补偿；同步状态可见，但最后一致业务画面不得被清空。

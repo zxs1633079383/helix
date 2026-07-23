@@ -2,6 +2,8 @@
 
 **Gate**: G11 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 用户请求定位指定消息时，Helix 先准备包含目标的完整窗口；只有窗口整帧提交后才执行 reveal/focus directive。

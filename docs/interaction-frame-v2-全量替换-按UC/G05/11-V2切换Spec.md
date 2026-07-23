@@ -2,6 +2,8 @@
 
 **Gate**: G05 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 转发者选择多个目标频道后，每个目标独立形成权威结果；一个目标失败不得被其他目标成功遮蔽。

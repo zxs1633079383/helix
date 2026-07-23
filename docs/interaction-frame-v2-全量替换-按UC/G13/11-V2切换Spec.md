@@ -2,6 +2,8 @@
 
 **Gate**: G13 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 频道变为可见或用户点击已读时，Helix 更新频道已读边界和未读摘要；不允许 UI 自行清零后等待服务端补偿。

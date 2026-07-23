@@ -2,6 +2,8 @@
 
 **Gate**: G15、G15a | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 创建者建立话题或新群聊后，权威频道、成员和首条内容持久化，再原子建立首批 Surface；新成员按 viewer 权限看到新频道。

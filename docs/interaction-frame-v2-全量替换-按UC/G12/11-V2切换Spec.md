@@ -2,6 +2,8 @@
 
 **Gate**: G12 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 用户打开回复线程、分支或提交回复时，Helix 建立完整 root/replies 图；线程抽屉与主时间线共享 canonical message identity。

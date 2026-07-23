@@ -2,6 +2,8 @@
 
 **Gate**: G08 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 定时任务创建者选择时间并提交，owner-only 定时状态在权威创建并持久化后出现；普通频道成员在真正发送前不可看到草稿。

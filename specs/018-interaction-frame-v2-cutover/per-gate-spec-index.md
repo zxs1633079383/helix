@@ -1,6 +1,6 @@
 # InteractionFrame V2 逐 Gate Spec 索引
 
-> 19 份业务 Spec 共同覆盖 25 个机器 Gate。公共工具、证据面和两阶段切换顺序见 [`09-逐Gate-Spec公共验收合同.md`](../../docs/interaction-frame-v2-全量替换-按UC/09-逐Gate-Spec公共验收合同.md)。
+> 19 组 `Spec → Plan → Tasks` 共同覆盖 25 个机器 Gate；每份 Spec 顶部链接自己的 Plan/Tasks。公共工具、证据面和两阶段切换顺序见 [`09-逐Gate-Spec公共验收合同.md`](../../docs/interaction-frame-v2-全量替换-按UC/09-逐Gate-Spec公共验收合同.md)，全局执行真源为 [plan.md](plan.md) 与 [tasks.md](tasks.md)。
 
 | 业务 Spec | 机器 Gate | 规格 |
 |---|---|---|

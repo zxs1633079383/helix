@@ -2,6 +2,8 @@
 
 **Gate**: GS04 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 用户进入本地未知频道时，Helix 对单频道执行增量加载并建立可操作的频道头、composer 与时间线；未获权限或持久化失败时不得制造可发送 UI。

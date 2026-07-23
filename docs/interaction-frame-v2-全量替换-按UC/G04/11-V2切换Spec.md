@@ -2,6 +2,8 @@
 
 **Gate**: G04、G04a | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 作者或管理员在线撤回消息，或用户离线恢复 type-3 事实；两条入口必须归一为同一撤回态、系统提示和失效 ActionBinding。

@@ -2,6 +2,8 @@
 
 **Gate**: G07 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 发起者加急消息，被加急用户确认；权威收件事实驱动加急标识、确认人数和按钮权限。

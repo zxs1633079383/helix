@@ -2,6 +2,8 @@
 
 **Gate**: GS02 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 重连用户收到 sync notify 后，从本地 cursor 有界补齐离线事件；缓存继续可见，只有消息与 cursor 原子提交成功后才更新会话、未读和时间线 Surface。

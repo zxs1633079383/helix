@@ -2,6 +2,8 @@
 
 **Gate**: G06 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 用户提交 reaction/快捷回复后，以服务端权威聚合更新时间线与线程；Angular 不自行累加 emoji 计数。

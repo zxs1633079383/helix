@@ -2,6 +2,8 @@
 
 **Gate**: GS01 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 重新上线用户建立连接并收到 `hello` 后，Helix 通过 HostObservation 完成全量增量恢复；只有已持久化频道事实才能形成会话列表和未读摘要 V2 Frame。同账号窗口及频道成员按各自 viewer 权限得到一致结果。

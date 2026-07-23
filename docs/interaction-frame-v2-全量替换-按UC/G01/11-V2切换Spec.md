@@ -2,6 +2,8 @@
 
 **Gate**: G01 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 发送者提交文本后，同一消息行从 temporary identity 的发送中状态收敛到服务端 canonical identity；观察者只在权威 `post` 到达并持久化后看到消息。

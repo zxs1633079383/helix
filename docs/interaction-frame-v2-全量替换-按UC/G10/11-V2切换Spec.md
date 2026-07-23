@@ -2,6 +2,8 @@
 
 **Gate**: G10、G10a | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 用户 attach 频道时获得首屏有界窗口，上拉时向前补窗；本地数据完整时零网络，缺口才回源，提交后保持滚动锚点。

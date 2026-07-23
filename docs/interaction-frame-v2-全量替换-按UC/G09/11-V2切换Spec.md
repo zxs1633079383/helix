@@ -2,6 +2,8 @@
 
 **Gate**: G09 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 定时任务所有者确认取消后，owner-only 定时状态从频道摘要和会话行移除；其他用户不接收该草稿或取消详情。

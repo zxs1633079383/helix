@@ -2,6 +2,8 @@
 
 **Gate**: G02 | **父规格**: `018-interaction-frame-v2-cutover` | **状态**: Draft
 
+**执行**: [Plan](12-V2切换Plan.md) → [Tasks](13-V2切换Tasks.md)
+
 ## 目标与用户场景
 
 发送者提交文档消息后，Helix 使用 typed document VM 表达发送中、成功与失败；Angular 不解析 raw props 决定业务状态。

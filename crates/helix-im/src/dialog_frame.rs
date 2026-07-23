@@ -1174,7 +1174,16 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
             ],
         )
         .unwrap_or(false),
-        settings_version: integer(value, &["settingVersion", "setting_version"])
+        settings_version: integer(
+            value,
+            &[
+                "settingVersion",
+                "setting_version",
+                "updatedAt",
+                "updated_at",
+                "updateAt",
+            ],
+        )
             .unwrap_or(0)
             .max(0) as u64,
         purpose: text(value, &["purpose"]),
@@ -1260,6 +1269,9 @@ fn ensure_dialog_projection_numbers_safe(value: &Value) -> Option<()> {
         "member_count",
         "settingVersion",
         "setting_version",
+        "updatedAt",
+        "updated_at",
+        "updateAt",
         "deleteAt",
         "delete_at",
         "isTop",
@@ -2224,6 +2236,22 @@ mod tests {
         assert_eq!(item["settingsVersion"], 9);
         assert_eq!(item["purpose"], "new purpose");
         assert_eq!(item["header"], "new header");
+    }
+
+    #[test]
+    fn dialog_scan_keeps_persisted_settings_version() {
+        let rows = serde_json::to_vec(&serde_json::json!([{
+            "id": "c1",
+            "display_name": "settings channel",
+            "updated_at": 1_784_767_436_979_i64,
+            "purpose": "authoritative purpose"
+        }]))
+        .expect("dialog rows serialize");
+
+        let projected = rows_from_dialog_scan(&rows).expect("dialog scan projects");
+
+        assert_eq!(projected[0].settings_version, 1_784_767_436_979);
+        assert_eq!(projected[0].purpose.as_deref(), Some("authoritative purpose"));
     }
 
     #[test]

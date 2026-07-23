@@ -276,6 +276,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
                     root_message_id: "message-a".to_string(),
                 },
             },
+            expected_revision: None,
         },
     );
 

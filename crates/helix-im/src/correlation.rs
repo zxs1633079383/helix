@@ -89,6 +89,7 @@ pub enum CorrelationContext {
     /// thread 由既有 getReplies HTTP 权威回包建立 typed slot。
     SurfaceThreadSnapshot {
         request: crate::surface_runtime::SurfaceResyncRequest,
+        expected_revision: Option<u64>,
     },
 
     /// participant receipt 由既有 post/read/list HTTP 权威回包建立 typed slot。

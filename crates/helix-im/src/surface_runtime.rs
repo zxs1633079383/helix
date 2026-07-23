@@ -295,6 +295,10 @@ impl ImModule {
             ));
         };
         let corr = self.alloc_corr_internal();
+        let expected_revision = self
+            .state
+            .thread_detail_projector
+            .current_revision(channel_id, root_message_id);
         let payload = serde_json::to_vec(&serde_json::json!({
             "channel_id": channel_id,
             "reply_id": root_message_id,
@@ -316,9 +320,13 @@ impl ImModule {
                 "im_get_replies must produce exactly one HTTP effect".to_string(),
             ));
         }
-        self.state
-            .corr_map
-            .insert(corr, CorrelationContext::SurfaceThreadSnapshot { request });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::SurfaceThreadSnapshot {
+                request,
+                expected_revision,
+            },
+        );
         for effect in effects {
             out.push(effect);
         }
@@ -469,6 +477,7 @@ impl ImModule {
     pub(crate) fn handle_surface_thread_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
+        expected_revision: Option<u64>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -481,6 +490,14 @@ impl ImModule {
                 "thread snapshot requires thread scope".to_string(),
             ));
         };
+        if self
+            .state
+            .thread_detail_projector
+            .current_revision(channel_id, root_message_id)
+            != expected_revision
+        {
+            return Ok(());
+        }
         let raw = match outcome {
             PortOutcome::Ok(reply) => crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())
                 .map_err(|error| ImError::Parse(format!("thread response envelope: {error}")))?,

@@ -97,6 +97,17 @@ pub fn compensate_from_pong(
         }
     }
 
+    tracing::info!(
+        hop = "pong.compensation_decision",
+        gap_count = gap_channels.len(),
+        hash_mismatch,
+        known_channel_count = state.channels.len(),
+        target_count = targets.len(),
+        scheduler_inflight = state.sync_scheduler.inflight(),
+        scheduler_pending = state.sync_scheduler.pending_len(),
+        "pong gap compensation evaluated"
+    );
+
     if targets.is_empty() {
         return;
     }

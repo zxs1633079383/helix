@@ -130,8 +130,7 @@ fn s4_four_bucket_strict_order() {
 /// 回归锚: S4 —— db_ok 失败 → cursor 不推进（写库成功才 commit，否则 re-pull）。
 #[test]
 fn s4_persist_err_does_not_advance_cursor() {
-    let mut h =
-        Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
+    let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     // 大缺口（seq=99 / cursor=0）→ **立即** backfill resync（根治 fix/im-sync-cursor-catchup）：
     // sync Http 在 ingest 当步即发出，不再等 1s gate timer fire。
     let gate = h.step(inbound_event(1, 99, 1), 1000);

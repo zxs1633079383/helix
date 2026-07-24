@@ -151,9 +151,12 @@ fn create_http_counts_response_owner_when_request_contains_only_invitees() {
         1_700_000_000_100,
     );
 
-    let projection = emitted_data(&harness.sink, "im:channel:created")
-        .expect("建群回包必须发布成员总数");
+    let projection =
+        emitted_data(&harness.sink, "im:channel:created").expect("建群回包必须发布成员总数");
     assert_eq!(projection["memberCount"], 2);
     // `members` 保留请求邀请者原始形状；owner 仍从回包独立落库。
-    assert_eq!(projection["channel"]["members"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        projection["channel"]["members"].as_array().unwrap().len(),
+        1
+    );
 }

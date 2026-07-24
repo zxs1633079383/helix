@@ -75,6 +75,24 @@ pub fn compensate_from_pong(
     alloc_corr: &mut dyn FnMut() -> Correlation,
     out: &mut EffectSink,
 ) {
+    // The reconnect recovery queue already contains the authoritative channel
+    // cohort. Re-enqueuing the same hash-mismatch fan-out every heartbeat can
+    // keep the scheduler permanently non-idle and prevent its single bounded
+    // recovery Frame from ever being published.
+    if state.recovery_session.is_collecting() {
+        tracing::info!(
+            hop = "pong.compensation_decision",
+            gap_count = gap_channels.len(),
+            hash_mismatch,
+            known_channel_count = state.channels.len(),
+            target_count = 0,
+            scheduler_inflight = state.sync_scheduler.inflight(),
+            scheduler_pending = state.sync_scheduler.pending_len(),
+            "pong gap compensation deferred until recovery authority boundary"
+        );
+        return;
+    }
+
     // 收集本次「过了节流闸门」的待补偿 channel（test-and-set 即记账，确定性有序）。
     let mut targets: Vec<ChannelId> = Vec::new();
 

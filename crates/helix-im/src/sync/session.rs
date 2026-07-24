@@ -355,6 +355,10 @@ impl RecoverySession {
         self.is_active_for(actor_id) && !self.completion_published
     }
 
+    pub fn is_collecting(&self) -> bool {
+        self.session_epoch != 0 && !self.actor_id.is_empty() && !self.completion_published
+    }
+
     pub fn has_pending_commits(&self) -> bool {
         !self.pending_commits.is_empty()
     }

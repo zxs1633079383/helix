@@ -102,6 +102,48 @@ fn gap_channels_trigger_compensation_sync() {
 }
 
 #[test]
+fn pong_fanout_is_deferred_while_recovery_is_collecting() {
+    let mut state = ImState::new();
+    let c1 = test_channel_id(1);
+    state.channels.insert(c1, Channel::new(c1, 5));
+    state.recovery_session.begin("actor");
+
+    let mut out = EffectSink::new();
+    let mut alloc = mk_corr();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_000,
+        &[c1],
+        true,
+        &mut alloc,
+        &mut out,
+    );
+
+    assert_eq!(
+        count_sync_http(&out),
+        0,
+        "recovery cohort 未完成时不得用 pong fan-out 续填全局队列"
+    );
+
+    state.recovery_session.mark_completion_published();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_001,
+        &[c1],
+        false,
+        &mut alloc,
+        &mut out,
+    );
+    assert_eq!(
+        count_sync_http(&out),
+        1,
+        "recovery authority boundary 发布后恢复普通 pong 补偿"
+    );
+}
+
+#[test]
 fn unknown_gap_channel_is_skipped_not_panicked() {
     // gap 指向不存在的 channel（已注销 / 从未注册）→ enqueue_and_drain 内部 None => skip，0 补偿。
     let mut state = ImState::new();

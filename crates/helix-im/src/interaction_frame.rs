@@ -8,9 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const LEGACY_INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 2;
-pub const INTERACTION_FRAME_SCHEMA_VERSION_V2: u32 = INTERACTION_FRAME_SCHEMA_VERSION;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
 pub const FRAME_APPLIED_COMMAND: &str = "__helix_frame_applied";
 /// Action invoke 的受理结果。`accepted` 只代表 Helix 已接管该 requestId；业务终态仍必须等同
@@ -18,7 +16,7 @@ pub const FRAME_APPLIED_COMMAND: &str = "__helix_frame_applied";
 pub const INTERACTION_ACTION_RECEIPT_EVENT: &str = "im:interaction:action-receipt";
 /// 上行 ActionBinding invoke 的独立版本；不能借用下行 Frame 的版本号来默许未知字段。
 pub const ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION: u32 = 1;
-/// v1 wire integers must remain lossless when consumed as JavaScript `number` values.
+/// Wire integers must remain lossless when consumed as JavaScript `number` values.
 pub const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 pub const MIN_SAFE_JSON_INTEGER: i64 = -9_007_199_254_740_991;
 const MAX_SURFACE_DATA_DEPTH: usize = 8;
@@ -479,48 +477,6 @@ impl ActionReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct InteractionFrame {
-    pub schema_version: u32,
-    pub transaction_id: String,
-    pub mutations: Vec<SurfaceMutation>,
-}
-
-impl InteractionFrame {
-    pub fn decode(bytes: &[u8]) -> Result<Self, InteractionFrameError> {
-        let frame: Self = serde_json::from_slice(bytes)
-            .map_err(|error| InteractionFrameError::Decode(error.to_string()))?;
-        frame.validate()?;
-        Ok(frame)
-    }
-
-    pub fn validate(&self) -> Result<(), InteractionFrameError> {
-        if self.schema_version != LEGACY_INTERACTION_FRAME_SCHEMA_VERSION {
-            return Err(InteractionFrameError::SchemaVersion(self.schema_version));
-        }
-        if self.transaction_id.is_empty() {
-            return Err(InteractionFrameError::EmptyTransactionId);
-        }
-        if self.mutations.is_empty() {
-            return Err(InteractionFrameError::EmptyMutations);
-        }
-
-        let mut slots = BTreeSet::new();
-        for mutation in &self.mutations {
-            mutation.validate()?;
-            let slot = (mutation.surface, mutation.scope.canonical_key());
-            if !slots.insert(slot.clone()) {
-                return Err(InteractionFrameError::DuplicateSlot {
-                    surface: slot.0.as_str(),
-                    scope: slot.1,
-                });
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SurfaceMutation {
     pub surface: SurfaceId,
     pub scope: SurfaceScope,
@@ -579,9 +535,6 @@ impl SurfaceMutation {
     }
 }
 
-/// The V2 envelope is deliberately a distinct type while the V1 producer is still live.
-/// It prevents a partially migrated producer from silently emitting V2-only fields on the V1
-/// wire; the final cutover changes the producer alias after PC/mobile parity has passed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InteractionFrameV2 {
@@ -604,7 +557,7 @@ impl InteractionFrameV2 {
     }
 
     pub fn validate(&self) -> Result<(), InteractionFrameError> {
-        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION_V2 {
+        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION {
             return Err(InteractionFrameError::SchemaVersion(self.schema_version));
         }
         if self.transaction_id.is_empty() {
@@ -675,19 +628,15 @@ pub enum InteractionFrameError {
     EmptyFrameCausationId,
     #[error("schema v2 interaction frame requires runtime")]
     MissingV2Runtime,
-    #[error("schema v1 interaction frame must not carry v2 runtime or directives")]
-    V1CarriesV2Fields,
-    #[error("surface {surface} v2 mutation requires surfaceEpoch")]
+    #[error("interaction frame mutation requires surfaceEpoch for surface {surface}")]
     MissingSurfaceEpoch { surface: &'static str },
     #[error("surface {surface} has surfaceEpoch 0")]
     ZeroSurfaceEpoch { surface: &'static str },
-    #[error("surface {surface} schema v1 mutation must not carry surfaceEpoch")]
-    V1CarriesSurfaceEpoch { surface: &'static str },
     #[error("surface {surface} has an invalid scope")]
     ScopeMismatch { surface: &'static str },
     #[error("surface {surface} has revision 0")]
     ZeroRevision { surface: &'static str },
-    #[error("surface {surface} field {field} exceeds the v1 JavaScript exact-safe numeric range")]
+    #[error("surface {surface} field {field} exceeds the JavaScript exact-safe numeric range")]
     UnsafeWireNumber {
         surface: &'static str,
         field: &'static str,

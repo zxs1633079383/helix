@@ -263,7 +263,7 @@ fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() 
     );
     assert_eq!(
         roster["mutation"]["view"]["items"][0]["actions"][0]["disabledReason"],
-        "unsupportedByAuthorityV1"
+        "unsupportedByAuthority"
     );
     h.step(
         surface_command(
@@ -298,7 +298,7 @@ fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() 
     assert_eq!(topic["mutation"]["kind"], "topicListSnapshot");
     assert_eq!(
         topic["mutation"]["view"]["items"][0]["actions"][0]["disabledReason"],
-        "unsupportedByAuthorityV1"
+        "unsupportedByAuthority"
     );
     h.step(
         surface_command(

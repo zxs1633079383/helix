@@ -149,16 +149,10 @@ fn rich_v2_fixture_preserves_reply_reaction_and_quick_action_contracts() {
 }
 
 #[test]
-fn v2_consumer_gate_has_no_v1_or_raw_projection_fallback() {
+fn producer_and_consumer_gate_has_no_raw_projection_fallback() {
     let v2 = InteractionFrameV2::decode(GS01_RECONNECT_V2.as_bytes())
         .expect("strict V2 decoder accepts the committed recovery fixture");
     assert_eq!(v2.schema_version, 2);
-    let mut v1: serde_json::Value = serde_json::from_str(GS01_RECONNECT_V2).unwrap();
-    v1["schemaVersion"] = serde_json::json!(1);
-    assert!(matches!(
-        InteractionFrameV2::decode(serde_json::to_vec(&v1).unwrap().as_slice()),
-        Err(InteractionFrameError::SchemaVersion(1))
-    ));
 
     let projector = include_str!("../src/projector/mod.rs");
     assert_eq!(projector.matches("fn emit_interaction_frame(").count(), 1);
@@ -347,7 +341,7 @@ fn unknown_mutation_kind_and_missing_patch_baseline_are_rejected() {
 }
 
 #[test]
-fn decoder_rejects_v1_wire_integers_outside_the_js_exact_safe_domain() {
+fn decoder_rejects_wire_integers_outside_the_js_exact_safe_domain() {
     assert_unsafe_wire_number(
         CANONICAL_SNAPSHOT,
         |frame| {

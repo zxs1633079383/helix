@@ -212,7 +212,7 @@ impl ImModule {
                     input_shape: "message.compose.text.v1".to_string(),
                     surface_epoch,
                     enabled: false,
-                    disabled_reason: Some("unsupportedByAuthorityV1".to_string()),
+                    disabled_reason: Some("unsupportedByAuthority".to_string()),
                 }],
                 capability_epoch: surface_epoch,
             })
@@ -801,7 +801,7 @@ fn thread_detail_view(
         .map_err(|error| ImError::Parse(format!("thread message projection: {error}")))?;
         for binding in &mut vm.actions {
             binding.enabled = false;
-            binding.disabled_reason = Some("unsupportedByAuthorityV1".to_string());
+            binding.disabled_reason = Some("unsupportedByAuthority".to_string());
         }
         Ok(vm)
     };
@@ -849,7 +849,7 @@ fn disabled_action(kind: &str, identity: &str, surface_epoch: u64) -> ActionBind
         input_shape: "object".to_string(),
         surface_epoch,
         enabled: false,
-        disabled_reason: Some("unsupportedByAuthorityV1".to_string()),
+        disabled_reason: Some("unsupportedByAuthority".to_string()),
     }
 }
 

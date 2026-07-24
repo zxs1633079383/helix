@@ -99,15 +99,15 @@ function validateMatrix(matrix, schema, sourceDocumentExists) {
     unique(aliases, 'forbidden_aliases');
     const forbiddenAliases = new Set(aliases);
     const renderProtocol = matrix.render_protocol;
-    if (!isObject(renderProtocol) || renderProtocol.name !== 'RenderNode' || renderProtocol.version !== 1) fail('RenderNode/v1 未冻结');
+    if (!isObject(renderProtocol) || renderProtocol.name !== 'InteractionFrame' || renderProtocol.version !== 2) fail('InteractionFrame/v2 未冻结');
     const envelopeFields = requireArray(renderProtocol.envelope_fields, 'render_protocol.envelope_fields');
-    for (const field of ['entity_id', 'entity_revision', 'render_kind', 'props', 'allowed_actions', 'correlation']) {
-        if (!envelopeFields.includes(field)) fail(`RenderNode 缺字段 ${field}`);
+    for (const field of ['schemaVersion', 'transactionId', 'causationId', 'runtime', 'mutations', 'directives']) {
+        if (!envelopeFields.includes(field)) fail(`InteractionFrame 缺字段 ${field}`);
     }
     const renderKinds = requireArray(renderProtocol.render_kinds, 'render_protocol.render_kinds');
     const renderKindSet = new Set();
     for (const kind of renderKinds) {
-        if (!isObject(kind) || !/^[a-z]+(?:[._][a-z]+)+\.v1$/.test(kind.kind ?? '')) fail('render_kind 格式错误');
+        if (!isObject(kind) || !/^[a-z]+(?:[._-][a-z]+)+$/.test(kind.kind ?? '')) fail('render_kind 格式错误');
         if (renderKindSet.has(kind.kind)) fail(`重复 render_kind: ${kind.kind}`);
         renderKindSet.add(kind.kind);
         if (requireArray(kind.required_props, `${kind.kind}.required_props`).length === 0) fail(`${kind.kind} 无 render props`);
@@ -163,29 +163,15 @@ function validateMatrix(matrix, schema, sourceDocumentExists) {
         if (projections.length === 0) fail(`${label}: 未声明投影`);
         for (const projection of projections) {
             if (!isObject(projection) || !/^im:[a-z0-9:._-]+$/.test(projection.event ?? '')) fail(`${label}: projection event 错误`);
-            const isInteractionFrame = projection.schema === 'InteractionFrame/v2';
-            if (isInteractionFrame) {
-                if (projection.event !== 'im:interaction:frame' || projection.render_kind !== 'message.left-dialog-list.v1') {
-                    fail(`${label}: InteractionFrame 必须绑定 message.left-dialog-list surface`);
-                }
-            } else {
-                if (projection.schema !== 'RenderNode/v1') fail(`${label}: projection schema 非法`);
-                if (!renderKindSet.has(projection.render_kind)) fail(`${label}: 未登记 render_kind ${projection.render_kind}`);
+            if (projection.schema !== 'InteractionFrame/v2'
+                || projection.event !== 'im:interaction:frame'
+                || !renderKindSet.has(projection.render_kind)) {
+                fail(`${label}: projection 必须绑定已登记的 InteractionFrame/v2 surface`);
             }
             if (projection.required_data_fields !== undefined) {
                 unique(requireArray(projection.required_data_fields, `${label}.required_data_fields`), `${label}.required_data_fields`);
             }
             if (projection.merge_contract !== undefined) requireString(projection.merge_contract, `${label}.merge_contract`);
-        }
-        if (label === 'G-12') {
-            const replies = projections.find(projection => projection.event === 'im:channel:replies');
-            const required = ['reqId', 'channelId', 'rootMessageId', 'projectionMode', 'revision', 'replyIds', 'nodes', 'replyCount', 'cursor', 'hasMore'];
-            if (!replies || JSON.stringify(replies.required_data_fields) !== JSON.stringify(required)) {
-                fail('G-12: reply projection 字段或顺序未冻结');
-            }
-            if (!replies.merge_contract?.includes('旧 revision') || !replies.merge_contract?.includes('append')) {
-                fail('G-12: 乱序/增量合并合同缺失');
-            }
         }
         requireArray(entry.allowed_actions, `${label}.allowed_actions`);
         if (JSON.stringify(entry.evidence.required_facets) !== JSON.stringify(expectedFacets)) fail(`${label}: 证据面不完整`);
@@ -275,7 +261,7 @@ function renderMarkdown(matrix, cases, hashes) {
     }, {});
     return `# Helix IM Strict Matrix v1
 
-> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 render-ready projection（RenderNode/v1 或指定 InteractionFrame/v2）、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
+> 由 \`contracts/strict-matrix.v1.json\` 生成；禁止手工修改。\n> contract epoch: ${matrix.contract_epoch}; raw matrix sha256: \`${hashes.raw}\`; semantic matrix sha256: \`${hashes.semantic}\`。\n> raw hash 绑定正式 commit blob 与下游 pin；semantic hash 仅用于内容诊断，二者不可混用。\n> \`declared\` 与 \`blocked\` 均不可被运行证据晋升为 Green；只有实现 InteractionFrame/v2、直接 core command 与八面证据均完整的 \`implemented\` UC 才可晋升。
 
 > 这张表不是“功能清单”，而是 \`UC × UI × Helix × HTTP × WS × Storage × Native\` 发布闸门。任一证据平面缺失、过期、无法关联或仅由 mock 产生，该 UC 整行即为 Red。
 
@@ -288,7 +274,7 @@ function renderMarkdown(matrix, cases, hashes) {
 
 ## Fail-closed 发布判定
 
-- **UI**：必须有真实用户操作、RenderNode 消费结果、稳定 DOM 断言和必要的双视角截图；可点击 mock 不代表通过。
+- **UI**：必须有真实用户操作、InteractionFrame 消费结果、稳定 DOM 断言和必要的双视角截图；可点击 mock 不代表通过。
 - **Helix**：必须证明直接 core command 、Effect、权威 projection 及反向断言；Tauri alias 或 UI 推导不可替代。
 - **HTTP**：必须保留 request/response 与 \`req_id\`。若该 UC 不应发 HTTP，必须给出“未发生”的反向证明，不允许留空。
 - **WS**：必须保留发送/接收 frame、事件顺序和观察者结果。不应产生 WS 的 UC 同样必须有反向证明。
@@ -296,7 +282,7 @@ function renderMarkdown(matrix, cases, hashes) {
 - **Native**：必须由真实 Tauri/FFI 进程执行，并将本行所有证据绑定到同一组关联键；browser-only 或旧 run 证据不可顶替。
 - **N/A 不是空值**：只允许“带理由、带反向证据的 not-applicable”。任何空单元格、未知状态或无法关联的证据均按 Red 处理。
 
-## RenderNode/v1
+## InteractionFrame/v2
 
 | render_kind | 必须 props |
 | --- | --- |
@@ -418,7 +404,7 @@ function renderConsumerTypeScript(matrix, cases, hashes, revision) {
         matrixSha256: hashes.raw,
         matrixSemanticSha256: hashes.semantic,
         helixRevision: revision ?? null,
-        renderProtocol: 'RenderNode/v1',
+        renderProtocol: 'InteractionFrame/v2',
         forbiddenAliases: matrix.forbidden_aliases,
         source: 'helix-im/contracts/strict-matrix.v1.json'
     };

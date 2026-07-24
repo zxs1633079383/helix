@@ -92,128 +92,113 @@
     ]
   },
   "render_protocol": {
-    "name": "RenderNode",
-    "version": 1,
+    "name": "InteractionFrame",
+    "version": 2,
     "envelope_fields": [
-      "entity_id",
-      "entity_revision",
-      "render_kind",
-      "props",
-      "allowed_actions",
-      "correlation"
+      "schemaVersion",
+      "transactionId",
+      "causationId",
+      "runtime",
+      "mutations",
+      "directives"
     ],
     "render_kinds": [
       {
-        "kind": "system.sync.v1",
+        "kind": "interaction.runtime",
         "required_props": [
-          "state",
+          "connection",
+          "initialSync",
           "recovery"
         ]
       },
       {
-        "kind": "dialog.list.v1",
+        "kind": "message.left-dialog-list",
         "required_props": [
-          "items",
-          "active_channel_id"
-        ]
-      },
-      {
-        "kind": "channel.row.v1",
-        "required_props": [
-          "channel_id",
-          "display_name",
-          "unread_count",
-          "member_revision"
-        ]
-      },
-      {
-        "kind": "message.row.v1",
-        "required_props": [
-          "message_id",
-          "channel_id",
-          "author",
-          "body",
-          "lifecycle",
-          "reply",
-          "receipt",
-          "visibility"
-        ]
-      },
-      {
-        "kind": "reply.tree.v1",
-        "required_props": [
-          "channel_id",
-          "root_message_id",
-          "nodes",
-          "reply_count",
-          "ordered_reply_ids",
-          "projection_mode",
+          "surface",
+          "scope",
+          "surfaceEpoch",
           "revision",
-          "cursor",
-          "has_more"
+          "mutation"
         ]
       },
       {
-        "kind": "read.receipt.v1",
+        "kind": "message.unread-summary",
         "required_props": [
-          "message_id",
-          "reader_count",
-          "unread_count",
-          "readers",
-          "unreaders",
-          "snapshot_id",
-          "snapshot_version"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "member.row.v1",
+        "kind": "message.timeline",
         "required_props": [
-          "channel_id",
-          "user_id",
-          "member_state",
-          "profile_revision"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "announcement.card.v1",
+        "kind": "message.thread-detail",
         "required_props": [
-          "announcement_id",
-          "read_state"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "participation.card.v1",
+        "kind": "message.channel-summary",
         "required_props": [
-          "entity_id",
-          "state"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "todo.card.v1",
+        "kind": "message.composer",
         "required_props": [
-          "todo_id",
-          "state"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "module.card.v1",
+        "kind": "message.member-roster",
         "required_props": [
-          "module_id",
-          "read_state"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "company.group.v1",
+        "kind": "message.topic-list",
         "required_props": [
-          "team_id",
-          "state"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       },
       {
-        "kind": "search.result.v1",
+        "kind": "message.participant-receipts",
         "required_props": [
-          "items",
-          "query"
+          "surface",
+          "scope",
+          "surfaceEpoch",
+          "revision",
+          "mutation"
         ]
       }
     ]
@@ -275,9 +260,9 @@
       ],
       "projections": [
         {
-          "event": "im:channels:loaded",
-          "render_kind": "dialog.list.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.left-dialog-list",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -338,7 +323,7 @@
       "projections": [
         {
           "event": "im:interaction:frame",
-          "render_kind": "message.left-dialog-list.v1",
+          "render_kind": "message.left-dialog-list",
           "schema": "InteractionFrame/v2"
         }
       ],
@@ -397,9 +382,9 @@
       ],
       "projections": [
         {
-          "event": "im:sync:state",
-          "render_kind": "system.sync.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "interaction.runtime",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -459,9 +444,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:increment",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -525,14 +510,14 @@
       ],
       "projections": [
         {
-          "event": "im:post:sending",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:post:received",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -600,9 +585,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:received",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -666,9 +651,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:received",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -729,14 +714,14 @@
       ],
       "projections": [
         {
-          "event": "im:post:sending",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:post:send-failed",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -790,14 +775,14 @@
       ],
       "projections": [
         {
-          "event": "im:post:batch-updated",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:post:deleted",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -854,9 +839,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:deleted",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -911,9 +896,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:received",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -973,9 +958,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:updated",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1045,14 +1030,14 @@
       ],
       "projections": [
         {
-          "event": "im:post:updated",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:post:readers",
-          "render_kind": "read.receipt.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.participant-receipts",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1113,9 +1098,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:schedule-created",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1170,9 +1155,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:schedule-canceled",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1230,9 +1215,9 @@
       ],
       "projections": [
         {
-          "event": "im:messages:query_result",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1292,9 +1277,9 @@
       ],
       "projections": [
         {
-          "event": "im:messages:older_loaded",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1350,9 +1335,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:located",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1432,9 +1417,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:replies",
-          "render_kind": "reply.tree.v1",
-          "schema": "RenderNode/v1",
+          "event": "im:interaction:frame",
+          "render_kind": "message.thread-detail",
+          "schema": "InteractionFrame/v2",
           "required_data_fields": [
             "reqId",
             "channelId",
@@ -1504,14 +1489,14 @@
       ],
       "projections": [
         {
-          "event": "im:post:read",
-          "render_kind": "read.receipt.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.participant-receipts",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:channel:update",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -1566,9 +1551,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:read",
-          "render_kind": "read.receipt.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.participant-receipts",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -1620,9 +1605,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:updated",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1680,14 +1665,14 @@
       ],
       "projections": [
         {
-          "event": "im:channel:created",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:channel:members",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1749,14 +1734,14 @@
       ],
       "projections": [
         {
-          "event": "im:channel:created",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:channel:replies",
-          "render_kind": "reply.tree.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.thread-detail",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -1829,14 +1814,14 @@
       ],
       "projections": [
         {
-          "event": "im:channel:closed",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         },
         {
-          "event": "im:channel:left",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -1889,9 +1874,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:members",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -1978,9 +1963,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:settings-updated",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2036,9 +2021,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:update",
-          "render_kind": "channel.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.channel-summary",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2107,9 +2092,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:updated",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2194,9 +2179,9 @@
       ],
       "projections": [
         {
-          "event": "im:announcement:updated",
-          "render_kind": "announcement.card.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2253,9 +2238,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:members",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -2308,9 +2293,9 @@
       ],
       "projections": [
         {
-          "event": "im:read:result",
-          "render_kind": "search.result.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2366,9 +2351,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:members",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2427,9 +2412,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:member-updated",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2486,9 +2471,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:members",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2564,9 +2549,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:members",
-          "render_kind": "member.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2623,9 +2608,9 @@
       ],
       "projections": [
         {
-          "event": "im:read:result",
-          "render_kind": "search.result.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2693,9 +2678,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:updated",
-          "render_kind": "participation.card.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2762,9 +2747,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:updated",
-          "render_kind": "participation.card.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2828,9 +2813,9 @@
       ],
       "projections": [
         {
-          "event": "im:read:result",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2886,9 +2871,9 @@
       ],
       "projections": [
         {
-          "event": "im:todo:updated",
-          "render_kind": "todo.card.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2944,9 +2929,9 @@
       ],
       "projections": [
         {
-          "event": "im:system-notice:updated",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -2999,9 +2984,9 @@
       ],
       "projections": [
         {
-          "event": "im:module:read",
-          "render_kind": "module.card.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -3056,9 +3041,9 @@
       ],
       "projections": [
         {
-          "event": "im:channel:created",
-          "render_kind": "company.group.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [
@@ -3116,9 +3101,9 @@
       ],
       "projections": [
         {
-          "event": "im:company-group:updated",
-          "render_kind": "company.group.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.member-roster",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [],
@@ -3176,9 +3161,9 @@
       ],
       "projections": [
         {
-          "event": "im:post:received",
-          "render_kind": "message.row.v1",
-          "schema": "RenderNode/v1"
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [

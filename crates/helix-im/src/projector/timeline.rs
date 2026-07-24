@@ -9,12 +9,12 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
-    MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplaceView, ReplaceViewKind,
-    ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm,
-    SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
-    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
-    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    ActionBinding, DeliveryVm, InteractionFrameError, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    MessageContentVm, MessageQuickActionVm, MessageReactionVm, MessageVm, ReferenceAvailabilityVm,
+    ReplaceView, ReplaceViewKind, ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm,
+    ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation,
+    SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation,
+    UserRefVm, WindowPageVm,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -1059,7 +1059,7 @@ fn action_bindings(
         } else if !action_authority_available {
             Some("runtimeIdentityRequired".to_string())
         } else {
-            Some("unsupportedByAuthorityV1".to_string())
+            Some("unsupportedByAuthority".to_string())
         };
         actions.push(ActionBinding {
             action_ref: issue_action_ref()?,
@@ -1844,11 +1844,7 @@ mod tests {
         assert!(mark_read.enabled);
         assert!(mark_read.disabled_reason.is_none());
 
-        for kind in [
-            "reply",
-            "createTopic",
-            "templateConfirm",
-        ] {
+        for kind in ["reply", "createTopic", "templateConfirm"] {
             let action = view.items[0]
                 .actions
                 .iter()
@@ -1857,7 +1853,7 @@ mod tests {
             assert!(!action.enabled, "{kind}");
             assert_eq!(
                 action.disabled_reason.as_deref(),
-                Some("unsupportedByAuthorityV1"),
+                Some("unsupportedByAuthority"),
                 "{kind} cannot be enabled by a row capability before the terminal authority Frame exists"
             );
         }

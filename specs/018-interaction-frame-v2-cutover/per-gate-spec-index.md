@@ -28,6 +28,12 @@
 | G16 | G16/G16b/G16c | [01](../../docs/interaction-frame-v2-全量替换-按UC/G16/01-V1当前类图.mmd) [02](../../docs/interaction-frame-v2-全量替换-按UC/G16/02-V2目标类图.mmd) [03](../../docs/interaction-frame-v2-全量替换-按UC/G16/03-V1当前执行流程.mmd) [04](../../docs/interaction-frame-v2-全量替换-按UC/G16/04-V2目标执行流程.mmd) [05](../../docs/interaction-frame-v2-全量替换-按UC/G16/05-用户交互流程.mmd) | [06](../../docs/interaction-frame-v2-全量替换-按UC/G16/06-Angular组件与交互合同.md) | [07](../../docs/interaction-frame-v2-全量替换-按UC/G16/07-Helix命令与Frame合同.md) | [08](../../docs/interaction-frame-v2-全量替换-按UC/G16/08-Go接口与WS推送.md) | [09](../../docs/interaction-frame-v2-全量替换-按UC/G16/09-远端PG与本地SQLite.md) | [10](../../docs/interaction-frame-v2-全量替换-按UC/G16/10-V1下线与V2验收.md) | [Spec](../../docs/interaction-frame-v2-全量替换-按UC/G16/11-V2切换Spec.md) | [Plan](../../docs/interaction-frame-v2-全量替换-按UC/G16/12-V2切换Plan.md) | [Tasks](../../docs/interaction-frame-v2-全量替换-按UC/G16/13-V2切换Tasks.md) | `T075-T077` |
 <!-- GATE_MATRIX_END -->
 
+## 字段级扩展
+
+- G01：[字段级类图](../../docs/interaction-frame-v2-全量替换-按UC/G01/14-G01全领域字段级类图.mmd) · [全链时序](../../docs/interaction-frame-v2-全量替换-按UC/G01/15-G01发送全链路时序图.mmd) · [状态与跨 Surface 影响](../../docs/interaction-frame-v2-全量替换-按UC/G01/16-G01发送状态与跨Surface影响图.mmd) · [Spec 输入基线](../../docs/interaction-frame-v2-全量替换-按UC/G01/17-G01字段级设计基线与规格输入.md)
+
+字段级扩展不改变 19×13 的既有机器矩阵；后续 UC/GS 按 G01 模板完成后，统一升级校验器的扩展分母。
+
 ## 机器校验
 
 ```bash

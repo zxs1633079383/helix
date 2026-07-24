@@ -29,6 +29,8 @@
 - [当前代码差距与工具审计](08-当前代码差距与工具审计.md)
 - [逐 Gate Spec 公共验收合同](09-逐Gate-Spec公共验收合同.md)
 
+字段级设计先以 [G01 发文本](G01/17-G01字段级设计基线与规格输入.md) 为模板：类图落实 command、聚合、双库、WS、Frame、Surface、组件字段；时序图落实持久化屏障与回执；状态图落实竞态和跨 Surface 影响。后续 UC/GS 必须保持 CURRENT/TARGET 分栏，禁止把影响面清单直接写成已实现 mutation。
+
 每个已绑定 UC 目录按 `11-V2切换Spec.md` → `12-V2切换Plan.md` → `13-V2切换Tasks.md` 顺序执行；`06`-`10` 保留组件、Frame、Go、数据库和下线细节。018 下的 `plan.md/tasks.md` 是 Spec Kit 聚合与 R2/R3 真源，各 Gate 的 `12/13` 是同一全局任务 ID 的就近执行视图。
 
 ## UC

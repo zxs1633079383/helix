@@ -532,7 +532,7 @@ impl ImModule {
             CorrelationContext::OutboundLocatePost { req_id, post_id } => {
                 crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
                 if matches!(outcome, PortOutcome::Ok(_)) && !post_id.is_empty() {
-                    if let Some(mutation) = self
+                    if let Some(mut mutation) = self
                         .state
                         .timeline_projector
                         .patch_located_target(&post_id)
@@ -540,11 +540,15 @@ impl ImModule {
                             ImError::Parse(format!("locate timeline projection: {error}"))
                         })?
                     {
+                        mutation.causation_id = Some(req_id.clone());
                         out.push(self.build_registered_timeline_frame(
                             format!("locate-{req_id}"),
                             vec![mutation],
                             now_ms,
                         )?);
+                        self.state
+                            .action_registry
+                            .complete_after_terminal_frame(&req_id);
                     }
                 }
             }
@@ -557,6 +561,23 @@ impl ImModule {
                                 .pending_forward_deliveries
                                 .retain_http_accepted_targets(&req_id, &body);
                         }
+                    }
+                    let mutations = self
+                        .state
+                        .timeline_projector
+                        .refresh_attached_with_causation(&req_id)
+                        .map_err(|error| {
+                            ImError::Parse(format!("forward acceptance projection: {error}"))
+                        })?;
+                    if !mutations.is_empty() {
+                        out.push(self.build_registered_timeline_frame(
+                            format!("forward-accepted-{req_id}"),
+                            mutations,
+                            now_ms,
+                        )?);
+                        self.state
+                            .action_registry
+                            .complete_after_terminal_frame(&req_id);
                     }
                 }
                 crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);

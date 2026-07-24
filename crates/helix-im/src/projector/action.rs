@@ -40,6 +40,10 @@ pub enum ActionDispatch {
         channel_id: String,
         message_id: String,
     },
+    LocatePost {
+        channel_id: String,
+        message_id: String,
+    },
     RevokeMessage {
         channel_id: String,
         message_id: String,
@@ -87,7 +91,7 @@ impl ActionDispatch {
     /// 将 timeline VM 中的语义 action kind 固定到已经显式审计的 authority dispatch。
     ///
     /// 这个映射是 projector 与 application registry 的共同真源。只存在 legacy HTTP/read-result
-    /// 或尚未有 PersistOk + causation Frame 的 G08-G16 动作必须返回 `None`，即使 render-ready row
+    /// 或尚未有 PersistOk + causation Frame 的动作必须返回 `None`，即使 render-ready row
     /// 宣称了 capability 也只能下发 disabled binding。尤其 `templateConfirm` 不是
     /// `templateReceived`，当前 Go 没有 confirmation authority，必须保持 fail closed。
     pub(crate) fn from_timeline_binding(
@@ -99,6 +103,10 @@ impl ActionDispatch {
         let message_id = message_id.to_string();
         match kind {
             "viewReceipt" => Some(Self::ViewReceipt {
+                channel_id,
+                message_id,
+            }),
+            "locate" => Some(Self::LocatePost {
                 channel_id,
                 message_id,
             }),
@@ -134,6 +142,7 @@ impl ActionDispatch {
         matches!(
             kind,
             "viewReceipt"
+                | "locate"
                 | "revoke"
                 | "forward"
                 | "react"
@@ -183,6 +192,7 @@ impl ActionDispatch {
     fn validate_input(&self, invocation: &ActionInvocation) -> Result<(), ActionProjectionError> {
         match self {
             Self::ViewReceipt { .. }
+            | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
@@ -193,6 +203,7 @@ impl ActionDispatch {
                 ))
             }
             Self::ViewReceipt { .. }
+            | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. } => Ok(()),
@@ -1140,6 +1151,7 @@ mod tests {
     fn timeline_dispatch_map_only_admits_explicit_authority_paths() {
         for kind in [
             "viewReceipt",
+            "locate",
             "revoke",
             "forward",
             "react",
@@ -1160,7 +1172,6 @@ mod tests {
             "retry",
             "markRead",
             "templateConfirm",
-            "locate",
             "createSchedule",
             "cancelSchedule",
             "markChannelRead",

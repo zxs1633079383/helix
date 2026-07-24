@@ -239,6 +239,48 @@ impl TimelineProjector {
         Ok(Some(mutation))
     }
 
+    pub(crate) fn refresh_attached_with_causation(
+        &mut self,
+        causation_id: &str,
+    ) -> Result<Vec<SurfaceMutation>, TimelineProjectionError> {
+        let slots = self
+            .slots
+            .iter()
+            .map(|(key, slot)| (key.clone(), slot.clone()))
+            .collect::<Vec<_>>();
+        let mut mutations = Vec::with_capacity(slots.len());
+        for (slot_key, slot) in slots {
+            let revision = next_revision(slot.revision)?;
+            let scope = SurfaceScope::Timeline {
+                channel_id: slot.view.channel_id.clone(),
+                window_token: slot.view.page.window_token.clone(),
+            };
+            let mutation = SurfaceMutation {
+                surface: SurfaceId::MessageTimeline,
+                scope,
+                revision,
+                base_revision: Some(slot.revision),
+                causation_id: Some(causation_id.to_string()),
+                mutation: TypedSurfaceMutation::TimelinePatch {
+                    patch: ReplaceView {
+                        kind: ReplaceViewKind::ReplaceView,
+                        view: slot.view.clone(),
+                    },
+                },
+            };
+            mutation.validate()?;
+            self.slots.insert(
+                slot_key,
+                TimelineSlot {
+                    revision,
+                    view: slot.view,
+                },
+            );
+            mutations.push(mutation);
+        }
+        Ok(mutations)
+    }
+
     pub(crate) fn patch_receipts(
         &mut self,
         receipts: &[Value],
@@ -1728,13 +1770,19 @@ mod tests {
         assert_eq!(receipt.surface_epoch, 42);
         assert!(!receipt.action_ref.contains("message-1"));
         assert!(!receipt.action_ref.contains("viewReceipt"));
+        let locate = view.items[0]
+            .actions
+            .iter()
+            .find(|action| action.kind == "locate")
+            .expect("locate binding is present");
+        assert!(locate.enabled);
+        assert!(locate.disabled_reason.is_none());
 
         for kind in [
             "reply",
             "createTopic",
             "markRead",
             "templateConfirm",
-            "locate",
         ] {
             let action = view.items[0]
                 .actions

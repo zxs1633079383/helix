@@ -332,6 +332,36 @@ impl ImModule {
                     effects,
                 })
             }
+            ActionDispatch::LocatePost { message_id, .. } => {
+                let corr = self.alloc_corr_internal();
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "post_ids": [message_id],
+                    "req_id": request_id,
+                    "locate": true,
+                }))
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                let effects = crate::commands::handle_outbound(
+                    "im_get_posts",
+                    &payload,
+                    self.config.api_base_url.as_str(),
+                    self.config.default_api_base_url.as_str(),
+                    self.state.connection_id.as_deref(),
+                    corr,
+                )?;
+                if effects.len() != 1 || !matches!(effects.first(), Some(Effect::Http { .. })) {
+                    return Err(ImError::Parse(
+                        "im_get_posts locate must produce exactly one HTTP effect".to_string(),
+                    ));
+                }
+                Ok(PreparedAction::Routed {
+                    corr,
+                    context: CorrelationContext::OutboundLocatePost {
+                        req_id: request_id.to_string(),
+                        post_id: message_id.clone(),
+                    },
+                    effects,
+                })
+            }
             ActionDispatch::RevokeMessage { message_id, .. } => self.prepare_outbound_action(
                 "im_revoke",
                 serde_json::json!({ "post_id": message_id, "req_id": request_id }),

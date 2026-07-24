@@ -1,69 +1,54 @@
-# G13 InteractionFrame V2 已切换
+# G13：频道已读
 
-> 本文范围排除 G03/G03a，不得将上传链路混入本次 Frame V2 清退。
+> 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
 
-## UC 摘要
+## 当前对接
 
-| 项目 | 内容 |
+| 项目 | 当前代码事实 |
 |---|---|
-| 业务 UC | G13 |
-| 机器 Gate | G13 |
-| 用户目标 | 更新频道已读边界和未读摘要 |
-| 用户角色 | 阅读用户 |
-| 观察者角色 | 不适用 |
-| Angular 入口 | 频道可见或点击已读 |
-| ActionBinding 或观察输入 | `ActionBinding(channel_read)` / `HostObservation` |
-| Helix Command | `im_channels_view` |
-| 主要 Tick | `Tick::Command`、`Tick::Inbound`、`Tick::PortReply` 或 `Tick::Timer`，按本 UC 输入选择 |
-| 主要 Effect | `http_write`、`storage_upsert`、`projection` |
-| PersistAtomic 写集 | `channel`、`message_receipt` |
-| 当前 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2`，V1 已物理删除 |
-| 目标 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2` |
-| 涉及 Surface | `message.left-dialog-list`、`message.unread-summary`、`message.timeline` |
-| Angular 组件 | message-ui-surface-dialog-list、message-read-reporting |
-| Go HTTP | `POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}` |
-| Go WS | `post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)` |
-| 远端 PG | `post`、`channel_member`、`channel`、`channel_event` |
-| 本地 SQLite | `channel`、`message_receipt` |
-| 当前现状 | Helix 仅生产 `InteractionFrame/v2`，cses-client 仅消费 V2；V1 producer/reader/normalize/fixture 已物理删除 |
-| 目标状态 | Helix 在匹配持久化屏障后组装完整 V2 VM，Angular 只做协议校验、原子缓存与渲染 |
-| 迁移缺口 | 无；删除后回归与文档收口已完成 |
-| 验收状态 | V1 已删除；删除后 25-Gate 回归执行中 |
+| Machine Gate | `G-13` |
+| 用户/系统入口 | 打开频道或显式标记频道已读 |
+| 入口模式 | direct command；`markChannelRead` ActionBinding 仍未审计 |
+| Helix command | `im_channels_view` |
+| Effect 类别 | `http_write`、`storage_upsert`、`projection` |
+| canonical Frame Surface | `message.participant-receipts`、`message.channel-summary` |
+| 合同 persistence | `channel`、`message_receipt` |
+| MessageV4 组件 | `MessageSurfaceRuntimeViewComponent`、`MessageComponent` |
 
-## 完整路径摘要
+## 实际调用链
 
-阅读用户输入或服务端事实
-→ Angular/Tauri
-→ `ActionBinding(channel_read)` / `HostObservation`
-→ `Tick`
-→ `Effect`
-→ Go authority
-→ `PersistAtomic`
-→ `PersistOk`
-→ `SurfaceComposer`
-→ `InteractionFrameV2`
-→ Angular 整帧验证与原子应用
-→ message-ui-surface-dialog-list、message-read-reporting
-→ 未读计数与已读边界同帧变化。
+`readChannel` -> `ShellService.readChannel` -> `im_channels_view`
 
-## 四段事实
+`-> Tauri command/event adapter -> ImModule::handle -> Effect -> matching PersistOk/authority read
+-> projector/SurfaceComposer -> InteractionFrameV2 -> Native opaque sink -> ProjectionBusService
+-> ProjectionStore -> SurfaceRuntime -> typed component`
 
-### 当前现状
+纯本地已提交事实查询可以不新增持久化；任何写入型事实都不能用 HTTP/command receipt 代替
+匹配的提交屏障。频道摘要与参与者回执由各自 Surface 提交，客户端不从 raw readBits 推导全局事实。
 
-Helix formal commit `32e3a0659e4f29add1284be2ba1972eb28f0f938` 已删除 InteractionFrame V1 type/codec/writer 与 V1 fixture；cses-client commit `a4770d6d6` 已重钉四个 Helix crate，并在 Native event sink 与 Angular codec 双层只接受 `schemaVersion=2`。Strict Matrix 与生成 consumer 均为 `InteractionFrame/v2`。
+## HTTP / WS
 
-### 目标状态
+- G-13: `POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`
 
-更新频道已读边界和未读摘要 的业务决策归 Helix domain/application；Go 只提供权威 HTTP/WS/PG 事实；Tauri 只传输；Angular adapter 只消费完整 VM，组件只保留输入焦点、抽屉开关和滚动锚点等本地 UI 状态。
+- G-13: `post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)`
 
-### 迁移缺口
+HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这些 raw payload。
 
-生产协议迁移已完成；剩余工作是删除后同一新 candidate 的 25-Gate 连续回归、静态残留扫描与 Spec/Plan/Tasks 收口。
+## 源码证据
 
-### 证据
+- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1463`
+- Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
+- Helix 专属测试：`crates/helix-im/tests/g13_channel_read_interaction_test.rs`
+- cses-client command/action：`src/pages/message-v4/shell.service.ts`、
+  `src/pages/message-v4/actions/surface-action-invocation.ts`
+- cses-client 组件：`src/pages/message-v4/message.component.ts`、
+  `src/pages/message-v4/components/message-surface-runtime-view.component.ts`
+- cses-client 专属测试：`src/pages/message-v4/components/__tests__/g13-channel-read-interaction.test.ts`
 
-- Helix Gate 合同：`/System/Volumes/Data/workspace/rust/helix/crates/helix-im/contracts/strict-matrix.v1.json:1478`
-- Helix V2 唯一 Frame 合同：`crates/helix-im/src/interaction_frame.rs` 与 `crates/helix-im/src/surface_composer.rs`
-- Helix V1 删除提交：`32e3a0659e4f29add1284be2ba1972eb28f0f938`
-- Angular 原子 apply：`/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts:274`
-- Go 权威入口：`/System/Volumes/Data/workspace/golang/cses-im-server/internal/api/channel/handlers_create.go:184`
+## 当前边界
+
+- Frame producer/Native reader/Angular codec 均只接受 V2。
+- 本页 Surface 只按 canonical Matrix 列出；更广的业务影响面必须等代码真实提交对应 mutation
+  后才能加入。
+- `pending_send` 若出现在合同中，指 Helix 内存聚合；物理发送状态在 SQLite `message`
+  行，不存在 `pending_send` 表。

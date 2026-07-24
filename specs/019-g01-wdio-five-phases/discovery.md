@@ -10,7 +10,7 @@
 
 - **F-001**: 当前 Helix wire 合同只接受 `InteractionFrameV2`，schema version 为 2；command accepted 只代表 Helix 接管 request，业务终态仍需 matching-causation Frame。 | **Evidence**: `crates/helix-im/src/interaction_frame.rs:11`
 - **F-002**: G01 当前 Angular 上行从 active channel 组装 `channel_id/type/text/props?/replied?`，再直接调用 `im_send_message`；尚不是 Composer `ActionBinding(message.create)` 上行。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/shell.service.ts:409`
-- **F-003**: G01 先在 SQLite `message` 行持久化 `sending`，当前 strict matrix 的两阶段 producer 都声明为 `message.timeline`；DialogLeft、Unread、Composer 是目标影响面，不是已证明的当前 G01 mutation。 | **Evidence**: `docs/interaction-frame-v2-全量替换-按UC/G01/17-G01字段级设计基线与规格输入.md:23`
+- **F-003**: G01 先在 SQLite `message` 行持久化 `sending`，当前 strict matrix 的两阶段 producer 都声明为 `message.timeline`；DialogLeft、Unread、Composer 是目标影响面，不是已证明的当前 G01 mutation。 | **Evidence**: `docs/interaction-frame-v2-全量替换-按UC/G01/README.md`
 - **F-004**: `PendingSend` 是 Helix 内存聚合，记录 temporary ID、发送状态、timeout、persist correlation、connection ID、request ID、body 和 single-flight/upload 状态，不是 SQLite 表。 | **Evidence**: `crates/helix-im/src/send/pending.rs:23`
 - **F-005**: 现有原生桌面测试路线要求第一阶段建立测试专用依赖和 capability，第二阶段分开报告 DOM、Mock、real invoke，第三阶段替换 raw W3C 通用驱动，第四阶段使用隔离双实例，第五阶段复用现有恢复 Harness。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/docs/原生桌面测试体系/06-实施路线与验收标准.md:15`
 - **F-006**: 当前 cses-client 生产依赖与配置尚未出现 `tauri-plugin-wdio`、`tauri-plugin-wdio-webdriver`、`@wdio/tauri-service`、WDIO runner/reporter 或 `wdio.conf.ts`；文档也把这些能力标记为未安装。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/docs/原生桌面测试体系/01-苹果英特尔环境与现状盘点.md:21`

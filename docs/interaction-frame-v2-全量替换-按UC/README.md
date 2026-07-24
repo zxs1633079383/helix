@@ -1,57 +1,61 @@
-# InteractionFrame V2 全量切换与 V1 清退文档体系
+# InteractionFrame V2 当前代码对接：按 UC
 
-> 本文范围排除 G03/G03a，不得将上传链路混入本次 Frame V2 清退。
+> 源码审计时间：2026-07-24 PDT。本目录只描述当前生产代码，不再保存 Frame V1 历史页，
+> 也不复制已完成的 Spec/Plan/Tasks。正式实施历史与验收任务见
+> [018 InteractionFrame V2 cutover](../../specs/018-interaction-frame-v2-cutover/)。
 
-本目录按 19 个已绑定业务 UC、25 个机器 Gate 描述切换前 V1、当前 V2、删除状态与验收入口，并额外收录尚未绑定机器 Gate 的会话列表行增量提案。当前生产合同只允许 `InteractionFrame/v2`；V1 producer、consumer、normalize、fixture 与正向兼容测试已经物理删除。
+## 结论
 
-切换顺序是硬约束：**先让 Helix V2-only produce、cses-client V2-only consume，再跑首次纯 V2 E2E；首次验收通过后物理删除全部 V1，最后跑删除后二次 E2E。** 全部步骤均已完成：删除后 25 Gate 回归、余下 Task、规格/证据索引和 Spec Kit loop 已闭合。25/25 不是单独的完成条件，V1 物理删除与后续任务完成共同构成最终验收。
+- Helix Frame producer 是 V2-only：唯一公开类型为 `InteractionFrameV2`，常量
+  `INTERACTION_FRAME_SCHEMA_VERSION=2`，一个 `Effect::Emit` 携带一个完整 Frame。
+- cses-client Native sink 只接受 `schemaVersion=2` 并 opaque 转发；Angular
+  `decodeInteractionFrame` 同样 fail-closed，随后由 `SurfaceRuntime` 原子 apply。
+- Frame V1 type/codec/writer/reader/normalize/fixture 已从当前生产树物理消失，因此各 UC 的
+  V1 文档已下线。本目录不再用“V1 清退中”描述当前状态。
+- 交互入口还不是全量 ActionBinding。当前既有 typed `ActionBinding -> im_invoke_action`，
+  也有 `ShellService -> HELIX_COMMAND_NAMES` direct command；每个 UC 页按实际代码标明。
+- `ActionInvocationEnvelope/v1`、`strict-matrix.v1.json` 和测试报告 `schemaVersion=1`
+  是独立版本域，不是 Frame V1，禁止误删。
 
-## 领域归属与依赖方向
+## 依赖方向
 
-- domain：Helix 决定消息排序、权限、未读、回执、身份收敛与完整 Surface VM，不依赖 HTTP、DB、Tauri 或 Angular。
-- application：Helix 以 `Tick` 编排 `Effect`，并在 `PersistOk` 后调用 `SurfaceComposer`。
-- infrastructure：Go HTTP/WS/PG 和 Helix SQLite driver 实现端口；Tauri 只传输 opaque Frame。
-- interface：Angular codec/adapter 只做协议转换、整帧校验与渲染，不重建业务事实。
-- 使用 State 表达恢复态，Adapter 隔离平台组件，Repository 隔离持久化，Strategy 仅用于真实的 Surface impact policy；不为每个 UC 复制新框架。
+`MessageV4 intent -> CommandPort/ActionInvocation -> Tauri transport -> Helix Module -> Effect -> PersistOk/authority read -> InteractionFrameV2 -> Native opaque sink -> ProjectionBus -> ProjectionStore -> SurfaceRuntime -> typed component`
 
-热路径按 mutation 单次遍历，slot 使用 `Map` 平均 `O(1)` 查找，因此一帧为 `O(m)` 时间、`O(m)` staging 空间；不得退化为 Surface 与 mutation 的无索引 `O(s*m)` 扫描。
+Helix 拥有业务事实、权限、排序、ActionBinding 与完整 Surface VM；Angular 只保留 route、draft、
+overlay 和诊断等 shell state，不从 raw event 重建业务事实。
 
-## 导航
+## 阅读顺序
 
-- [范围与版本](00-范围与源码版本.md)
-- [全 UC 严格矩阵](01-全UC严格矩阵.md)
-- [切换前 V1 公共架构（历史快照）](02-V1当前公共架构.md)
-- [V2 目标公共架构](03-V2目标公共架构.md)
-- [V1 下线清单](04-V1下线清单.md)
-- [跨仓固定与验收](05-跨仓版本固定与验收.md)
-- [协议与术语](06-协议与领域术语.md)
-- [完整性检查](07-文档完整性检查.md)
-- [当前代码差距与工具审计](08-当前代码差距与工具审计.md)
-- [逐 Gate Spec 公共验收合同](09-逐Gate-Spec公共验收合同.md)
+1. [源码核验与版本](./00-源码核验与版本.md)
+2. [19 UC / 25 Gate 当前矩阵](./01-按UC当前代码矩阵.md)
+3. [V2 当前公共架构](./02-V2当前公共架构.md)
+4. [协议版本边界](./03-协议版本边界.md)
+5. [验收证据边界](./04-验收证据边界.md)
+6. [文档完整性检查](./05-文档完整性检查.md)
 
-字段级设计先以 [G01 发文本](G01/17-G01字段级设计基线与规格输入.md) 为模板：类图落实 command、聚合、双库、WS、Frame、Surface、组件字段；时序图落实持久化屏障与回执；状态图落实竞态和跨 Surface 影响。后续 UC/GS 必须保持 CURRENT/TARGET 分栏，禁止把影响面清单直接写成已实现 mutation。
+## 业务 UC
 
-每个已绑定 UC 目录按 `11-V2切换Spec.md` → `12-V2切换Plan.md` → `13-V2切换Tasks.md` 顺序执行；`06`-`10` 保留组件、Frame、Go、数据库和下线细节。018 下的 `plan.md/tasks.md` 是 Spec Kit 聚合与 R2/R3 真源，各 Gate 的 `12/13` 是同一全局任务 ID 的就近执行视图。
+| UC 文件夹 | 机器 Gate | 当前业务 |
+|---|---|---|
+| [GS01](./GS01/README.md) | G-S1 | 连接建立后的全量增量恢复 |
+| [GS02](./GS02/README.md) | G-S2 | sync notify 离线恢复 |
+| [GS03](./GS03/README.md) | G-S3 | pong gap 有界补偿 |
+| [GS04](./GS04/README.md) | G-S4 | 陌生频道 hydrate |
+| [G01](./G01/README.md) | G-01 | 发送文本 |
+| [G02](./G02/README.md) | G-02 | 发送文档消息 |
+| [G04](./G04/README.md) | G-04、G-04a | 在线撤回与离线撤回重放 |
+| [G05](./G05/README.md) | G-05 | 单条与多选转发 |
+| [G06](./G06/README.md) | G-06 | reaction / 快捷回复 |
+| [G07](./G07/README.md) | G-07 | 加急与确认 |
+| [G08](./G08/README.md) | G-08 | 创建定时消息 |
+| [G09](./G09/README.md) | G-09 | 取消定时消息 |
+| [G10](./G10/README.md) | G-10、G-10a | 首屏窗口与向前补窗 |
+| [G11](./G11/README.md) | G-11 | 按 postId 定位 |
+| [G12](./G12/README.md) | G-12 | 回复线程与分支 |
+| [G13](./G13/README.md) | G-13 | 频道已读 |
+| [G14](./G14/README.md) | G-14、G-14a | 单条已读与模板已收到 |
+| [G15](./G15/README.md) | G-15、G-15a | 创建话题与群聊 |
+| [G16](./G16/README.md) | G-16、G-16b、G-16c | 频道关闭、退出与设置 |
 
-## UC
-
-- [GS01](GS01/README.md)：建立连接后完成全量增量恢复；Gate GS01
-- [GS02](GS02/README.md)：按 cursor 补齐离线事件；Gate GS02
-- [GS03](GS03/README.md)：发现心跳 gap 后执行有界恢复；Gate GS03
-- [GS04](GS04/README.md)：补齐陌生频道并建立可操作 Surface；Gate GS04
-- [G01](G01/README.md)：发送文本并收敛临时身份与服务端身份；Gate G01
-- [G02](G02/README.md)：发送文档类型消息并按 typed VM 渲染；Gate G02
-- [G04](G04/README.md)：在线撤回并在离线恢复中得到同一撤回态；Gate G04、G04a
-- [G05](G05/README.md)：向多个目标频道转发消息；Gate G05
-- [G06](G06/README.md)：提交快捷回复或 reaction 并展示权威聚合；Gate G06
-- [G07](G07/README.md)：加急消息并收集确认事实；Gate G07
-- [G08](G08/README.md)：创建定时消息；Gate G08
-- [G09](G09/README.md)：取消本人定时消息；Gate G09
-- [G10](G10/README.md)：加载首屏窗口并向前补窗；Gate G10、G10a
-- [G11](G11/README.md)：定位指定消息并在提交后揭示；Gate G11
-- [G12](G12/README.md)：打开回复线程并加载回复分支；Gate G12
-- [G13](G13/README.md)：更新频道已读边界和未读摘要；Gate G13
-- [G14](G14/README.md)：上报单条已读并确认模板已收到；Gate G14、G14a
-- [G15](G15/README.md)：创建话题或新群聊并建立首批 Surface；Gate G15、G15a
-- [G16](G16/README.md)：关闭、退出或修改频道治理属性；Gate G16、G16b、G16c
-- [会话列表行增量提案](G17/README.md)：由全量 `replaceView` 演进为行增量；不是已用于频道置顶的 canonical `G-17`，不进入本次完成分母
+`G03/G03a` 媒体上传不在本次 25 Gate 分母。旧目录中的 `G17` 是“会话列表 row delta”
+提案，但 canonical `G-17` 实际是频道置顶；为避免 Gate 冲突，该提案不再放在本目录。

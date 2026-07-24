@@ -1,69 +1,58 @@
-# G16 InteractionFrame V2 已切换
+# G16：频道关闭、退出与设置
 
-> 本文范围排除 G03/G03a，不得将上传链路混入本次 Frame V2 清退。
+> 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
 
-## UC 摘要
+## 当前对接
 
-| 项目 | 内容 |
+| 项目 | 当前代码事实 |
 |---|---|
-| 业务 UC | G16 |
-| 机器 Gate | G16、G16b、G16c |
-| 用户目标 | 关闭、退出或修改频道治理属性 |
-| 用户角色 | 频道管理员或成员 |
-| 观察者角色 | 其余频道成员 |
-| Angular 入口 | 关闭、退出或保存设置 |
-| ActionBinding 或观察输入 | `ActionBinding(close/leave/settings)` |
-| Helix Command | `im_channel_close` / `im_channel_leave` / `im_channel_change_info` |
-| 主要 Tick | `Tick::Command`、`Tick::Inbound`、`Tick::PortReply` 或 `Tick::Timer`，按本 UC 输入选择 |
-| 主要 Effect | `http_write`、`storage_upsert`、`projection`、`transport_broadcast` |
-| PersistAtomic 写集 | `channel`、`channel_member` |
-| 当前 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2`，V1 已物理删除 |
-| 目标 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2` |
-| 涉及 Surface | `message.channel-summary`、`message.left-dialog-list`、`message.composer`、`message.member-roster` |
-| Angular 组件 | message-ui-group-settings-drawer、message-ui-header、message-surface-runtime-view |
-| Go HTTP | `POST /api/cses/channel/close` body `{channelId}` |
-| Go WS | `channel_close` |
-| 远端 PG | `channel`、`channel_member`、`channel_event` |
-| 本地 SQLite | `channel`、`channel_member` |
-| 当前现状 | Helix 仅生产 `InteractionFrame/v2`，cses-client 仅消费 V2；V1 producer/reader/normalize/fixture 已物理删除 |
-| 目标状态 | Helix 在匹配持久化屏障后组装完整 V2 VM，Angular 只做协议校验、原子缓存与渲染 |
-| 迁移缺口 | 无；删除后回归与文档收口已完成 |
-| 验收状态 | V1 已删除；删除后 25-Gate 回归执行中 |
+| Machine Gate | `G-16`、`G-16b`、`G-16c` |
+| 用户/系统入口 | 群设置、关闭/退出确认、属性修改 |
+| 入口模式 | direct command；治理 ActionBinding 当前保持 disabled |
+| Helix command | `im_channel_close`、`im_channel_leave`、`im_channel_change_display_name`、`im_channel_change_notice`、`im_channel_change_info` |
+| Effect 类别 | `http_write`、`storage_upsert`、`projection`、`transport_broadcast` |
+| canonical Frame Surface | `message.channel-summary`、`message.member-roster` |
+| 合同 persistence | `channel`、`channel_member` |
+| MessageV4 组件 | `MessageUiGroupSettingsDrawerComponent`、`MessageUiChannelManagementComponent`、`MessageSurfaceRuntimeViewComponent` |
 
-## 完整路径摘要
+## 实际调用链
 
-频道管理员或成员输入或服务端事实
-→ Angular/Tauri
-→ `ActionBinding(close/leave/settings)`
-→ `Tick`
-→ `Effect`
-→ Go authority
-→ `PersistAtomic`
-→ `PersistOk`
-→ `SurfaceComposer`
-→ `InteractionFrameV2`
-→ Angular 整帧验证与原子应用
-→ message-ui-group-settings-drawer、message-ui-header、message-surface-runtime-view
-→ 禁用输入、移除频道、成员变化或设置更新。
+`confirmGovernanceAction/updateGroupSettings` -> `im_channel_close` / `im_channel_leave` / `im_channel_change_*`
 
-## 四段事实
+`-> Tauri command/event adapter -> ImModule::handle -> Effect -> matching PersistOk/authority read
+-> projector/SurfaceComposer -> InteractionFrameV2 -> Native opaque sink -> ProjectionBusService
+-> ProjectionStore -> SurfaceRuntime -> typed component`
 
-### 当前现状
+纯本地已提交事实查询可以不新增持久化；任何写入型事实都不能用 HTTP/command receipt 代替
+匹配的提交屏障。频道生命周期、成员 roster 与 settingsVersion 均由 Frame 权威返回；版本冲突不由 UI 猜测覆盖。
 
-Helix formal commit `32e3a0659e4f29add1284be2ba1972eb28f0f938` 已删除 InteractionFrame V1 type/codec/writer 与 V1 fixture；cses-client commit `a4770d6d6` 已重钉四个 Helix crate，并在 Native event sink 与 Angular codec 双层只接受 `schemaVersion=2`。Strict Matrix 与生成 consumer 均为 `InteractionFrame/v2`。
+## HTTP / WS
 
-### 目标状态
+- G-16: `POST /api/cses/channel/close` body `{channelId}`
+- G-16b: `POST /api/cses/channel/member/leave` body `{channelId,userId?,newCreator?}`
+- G-16c: `POST /api/cses/channel/change/info` body `{channelId,name?,displayName?,header?,purpose?,orient?,module?,pictureType?,picture?,source?,expectedVersion?}`；其他专用命令见 UC-5.5
 
-关闭、退出或修改频道治理属性 的业务决策归 Helix domain/application；Go 只提供权威 HTTP/WS/PG 事实；Tauri 只传输；Angular adapter 只消费完整 VM，组件只保留输入焦点、抽屉开关和滚动锚点等本地 UI 状态。
+- G-16: `channel_close`
+- G-16b: `channel_member_update`, `quit_company`（公司域也可能推）
+- G-16c: `update_channel`, `update_channel_notice`
 
-### 迁移缺口
+HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这些 raw payload。
 
-生产协议迁移已完成；剩余工作是删除后同一新 candidate 的 25-Gate 连续回归、静态残留扫描与 Spec/Plan/Tasks 收口。
+## 源码证据
 
-### 证据
+- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1773`、`crates/helix-im/contracts/strict-matrix.v1.json:1849`、`crates/helix-im/contracts/strict-matrix.v1.json:1905`
+- Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
+- Helix 专属测试：`crates/helix-im/tests/g16_governance_interaction_test.rs`
+- cses-client command/action：`src/pages/message-v4/shell.service.ts`、
+  `src/pages/message-v4/actions/surface-action-invocation.ts`
+- cses-client 组件：`src/pages/message-v4/message.component.ts`、
+  `src/pages/message-v4/components/message-surface-runtime-view.component.ts`
+- cses-client 专属测试：`src/pages/message-v4/components/__tests__/g16-governance-interaction.test.ts`
 
-- Helix Gate 合同：`/System/Volumes/Data/workspace/rust/helix/crates/helix-im/contracts/strict-matrix.v1.json:1788`
-- Helix V2 唯一 Frame 合同：`crates/helix-im/src/interaction_frame.rs` 与 `crates/helix-im/src/surface_composer.rs`
-- Helix V1 删除提交：`32e3a0659e4f29add1284be2ba1972eb28f0f938`
-- Angular 原子 apply：`/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts:274`
-- Go 权威入口：`/System/Volumes/Data/workspace/golang/cses-im-server/internal/app/cses_channel.go:164`
+## 当前边界
+
+- Frame producer/Native reader/Angular codec 均只接受 V2。
+- 本页 Surface 只按 canonical Matrix 列出；更广的业务影响面必须等代码真实提交对应 mutation
+  后才能加入。
+- `pending_send` 若出现在合同中，指 Helix 内存聚合；物理发送状态在 SQLite `message`
+  行，不存在 `pending_send` 表。

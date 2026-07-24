@@ -1,69 +1,54 @@
-# G02 InteractionFrame V2 已切换
+# G02：发送文档消息
 
-> 本文范围排除 G03/G03a，不得将上传链路混入本次 Frame V2 清退。
+> 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
 
-## UC 摘要
+## 当前对接
 
-| 项目 | 内容 |
+| 项目 | 当前代码事实 |
 |---|---|
-| 业务 UC | G02 |
-| 机器 Gate | G02 |
-| 用户目标 | 发送文档类型消息并按 typed VM 渲染 |
-| 用户角色 | 发送者 |
-| 观察者角色 | 频道其他成员 |
-| Angular 入口 | 选择文档内容并提交 |
-| ActionBinding 或观察输入 | `ActionBinding(message.create)` |
-| Helix Command | `im_send_message` |
-| 主要 Tick | `Tick::Command`、`Tick::Inbound`、`Tick::PortReply` 或 `Tick::Timer`，按本 UC 输入选择 |
-| 主要 Effect | `upload`、`storage_upsert`、`http_write`、`projection` |
-| PersistAtomic 写集 | `message`、`pending_send` |
-| 当前 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2`，V1 已物理删除 |
-| 目标 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2` |
-| 涉及 Surface | `message.composer`、`message.timeline` |
-| Angular 组件 | message-ui-composer、message-document-content |
-| Go HTTP | `POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage="【文档】 http://doc.cses7.com/doc/abc123"`，`props.document={version:1,url:"http://doc.cses7.com/doc/abc123",title:"打开文档",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}` |
-| Go WS | `post` |
-| 远端 PG | `post`、`channel`、`channel_member`、`channel_event` |
-| 本地 SQLite | `message`、`pending_send` |
-| 当前现状 | Helix 仅生产 `InteractionFrame/v2`，cses-client 仅消费 V2；V1 producer/reader/normalize/fixture 已物理删除 |
-| 目标状态 | Helix 在匹配持久化屏障后组装完整 V2 VM，Angular 只做协议校验、原子缓存与渲染 |
-| 迁移缺口 | 无；删除后回归与文档收口已完成 |
-| 验收状态 | V1 已删除；删除后 25-Gate 回归执行中 |
+| Machine Gate | `G-02` |
+| 用户/系统入口 | composer 选择文档内容并提交 |
+| 入口模式 | direct command |
+| Helix command | `im_send_message` |
+| Effect 类别 | `upload`、`storage_upsert`、`http_write`、`projection` |
+| canonical Frame Surface | `message.timeline` |
+| 合同 persistence | `message`、`pending_send` |
+| MessageV4 组件 | `MessageUiComposerComponent`、`MessageDocumentContentComponent`、`MessageSurfaceRuntimeViewComponent` |
 
-## 完整路径摘要
+## 实际调用链
 
-发送者输入或服务端事实
-→ Angular/Tauri
-→ `ActionBinding(message.create)`
-→ `Tick`
-→ `Effect`
-→ Go authority
-→ `PersistAtomic`
-→ `PersistOk`
-→ `SurfaceComposer`
-→ `InteractionFrameV2`
-→ Angular 整帧验证与原子应用
-→ message-ui-composer、message-document-content
-→ 文档消息与失败后的输入恢复。
+`MessageComponent.submitComposer` -> `ShellService.sendDocument` -> `im_send_message`
 
-## 四段事实
+`-> Tauri command/event adapter -> ImModule::handle -> Effect -> matching PersistOk/authority read
+-> projector/SurfaceComposer -> InteractionFrameV2 -> Native opaque sink -> ProjectionBusService
+-> ProjectionStore -> SurfaceRuntime -> typed component`
 
-### 当前现状
+纯本地已提交事实查询可以不新增持久化；任何写入型事实都不能用 HTTP/command receipt 代替
+匹配的提交屏障。文档行只读取 typed `SurfaceMessageVm.content=document`，不解析 raw props 还原业务状态。
 
-Helix formal commit `32e3a0659e4f29add1284be2ba1972eb28f0f938` 已删除 InteractionFrame V1 type/codec/writer 与 V1 fixture；cses-client commit `a4770d6d6` 已重钉四个 Helix crate，并在 Native event sink 与 Angular codec 双层只接受 `schemaVersion=2`。Strict Matrix 与生成 consumer 均为 `InteractionFrame/v2`。
+## HTTP / WS
 
-### 目标状态
+- G-02: `POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage="【文档】 http://doc.cses7.com/doc/abc123"`，`props.document={version:1,url:"http://doc.cses7.com/doc/abc123",title:"打开文档",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}`
 
-发送文档类型消息并按 typed VM 渲染 的业务决策归 Helix domain/application；Go 只提供权威 HTTP/WS/PG 事实；Tauri 只传输；Angular adapter 只消费完整 VM，组件只保留输入焦点、抽屉开关和滚动锚点等本地 UI 状态。
+- G-02: `post`
 
-### 迁移缺口
+HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这些 raw payload。
 
-生产协议迁移已完成；剩余工作是删除后同一新 candidate 的 25-Gate 连续回归、静态残留扫描与 Spec/Plan/Tasks 收口。
+## 源码证据
 
-### 证据
+- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:552`
+- Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
+- Helix 专属测试：`crates/helix-im/tests/p1_send_build_test.rs`
+- cses-client command/action：`src/pages/message-v4/shell.service.ts`、
+  `src/pages/message-v4/actions/surface-action-invocation.ts`
+- cses-client 组件：`src/pages/message-v4/message.component.ts`、
+  `src/pages/message-v4/components/message-surface-runtime-view.component.ts`
+- cses-client 专属测试：`src/pages/message-v4/components/__tests__/message-surface-runtime-view.component.test.ts`
 
-- Helix Gate 合同：`/System/Volumes/Data/workspace/rust/helix/crates/helix-im/contracts/strict-matrix.v1.json:567`
-- Helix V2 唯一 Frame 合同：`crates/helix-im/src/interaction_frame.rs` 与 `crates/helix-im/src/surface_composer.rs`
-- Helix V1 删除提交：`32e3a0659e4f29add1284be2ba1972eb28f0f938`
-- Angular 原子 apply：`/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts:274`
-- Go 权威入口：`/System/Volumes/Data/workspace/golang/cses-im-server/internal/api/post/handlers_create.go:14`
+## 当前边界
+
+- Frame producer/Native reader/Angular codec 均只接受 V2。
+- 本页 Surface 只按 canonical Matrix 列出；更广的业务影响面必须等代码真实提交对应 mutation
+  后才能加入。
+- `pending_send` 若出现在合同中，指 Helix 内存聚合；物理发送状态在 SQLite `message`
+  行，不存在 `pending_send` 表。

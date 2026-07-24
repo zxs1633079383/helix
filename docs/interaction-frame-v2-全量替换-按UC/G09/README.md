@@ -1,69 +1,54 @@
-# G09 InteractionFrame V2 已切换
+# G09：取消定时消息
 
-> 本文范围排除 G03/G03a，不得将上传链路混入本次 Frame V2 清退。
+> 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
 
-## UC 摘要
+## 当前对接
 
-| 项目 | 内容 |
+| 项目 | 当前代码事实 |
 |---|---|
-| 业务 UC | G09 |
-| 机器 Gate | G09 |
-| 用户目标 | 取消本人定时消息 |
-| 用户角色 | 定时任务所有者 |
-| 观察者角色 | 不适用，服务端为 owner-only |
-| Angular 入口 | 确认取消 |
-| ActionBinding 或观察输入 | `ActionBinding(schedule_cancel)` |
-| Helix Command | `im_cancel_schedule` |
-| 主要 Tick | `Tick::Command`、`Tick::Inbound`、`Tick::PortReply` 或 `Tick::Timer`，按本 UC 输入选择 |
-| 主要 Effect | `http_write`、`storage_upsert`、`projection` |
-| PersistAtomic 写集 | `channel_schedule` |
-| 当前 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2`，V1 已物理删除 |
-| 目标 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2` |
-| 涉及 Surface | `message.channel-summary`、`message.left-dialog-list` |
-| Angular 组件 | message-ui-schedule-dialog、message-ui-confirm-dialog |
-| Go HTTP | `POST /api/cses/posts/cancelSchedule` body `{channelId}` |
-| Go WS | `post_schedule_canceled` |
-| 远端 PG | `post_schedule`、`channel`、`channel_member` |
-| 本地 SQLite | `channel_schedule` |
-| 当前现状 | Helix 仅生产 `InteractionFrame/v2`，cses-client 仅消费 V2；V1 producer/reader/normalize/fixture 已物理删除 |
-| 目标状态 | Helix 在匹配持久化屏障后组装完整 V2 VM，Angular 只做协议校验、原子缓存与渲染 |
-| 迁移缺口 | 无；删除后回归与文档收口已完成 |
-| 验收状态 | V1 已删除；删除后 25-Gate 回归执行中 |
+| Machine Gate | `G-09` |
+| 用户/系统入口 | 频道菜单确认取消定时 |
+| 入口模式 | 当前主要 direct command；代码保留 binding 优先分支 |
+| Helix command | `im_cancel_schedule` |
+| Effect 类别 | `http_write`、`storage_upsert`、`projection` |
+| canonical Frame Surface | `message.channel-summary` |
+| 合同 persistence | `channel_schedule` |
+| MessageV4 组件 | `MessageUiConfirmDialogComponent`、`MessageSurfaceRuntimeViewComponent`、`MessageComponent` |
 
-## 完整路径摘要
+## 实际调用链
 
-定时任务所有者输入或服务端事实
-→ Angular/Tauri
-→ `ActionBinding(schedule_cancel)`
-→ `Tick`
-→ `Effect`
-→ Go authority
-→ `PersistAtomic`
-→ `PersistOk`
-→ `SurfaceComposer`
-→ `InteractionFrameV2`
-→ Angular 整帧验证与原子应用
-→ message-ui-schedule-dialog、message-ui-confirm-dialog
-→ 取消结果与重复取消幂等。
+`confirmCancelSchedule` -> binding（若存在）或 `ShellService.cancelSchedule` -> `im_cancel_schedule`
 
-## 四段事实
+`-> Tauri command/event adapter -> ImModule::handle -> Effect -> matching PersistOk/authority read
+-> projector/SurfaceComposer -> InteractionFrameV2 -> Native opaque sink -> ProjectionBusService
+-> ProjectionStore -> SurfaceRuntime -> typed component`
 
-### 当前现状
+纯本地已提交事实查询可以不新增持久化；任何写入型事实都不能用 HTTP/command receipt 代替
+匹配的提交屏障。取消终态等待 channel-summary Frame，不根据 command receipt 直接移除标记。
 
-Helix formal commit `32e3a0659e4f29add1284be2ba1972eb28f0f938` 已删除 InteractionFrame V1 type/codec/writer 与 V1 fixture；cses-client commit `a4770d6d6` 已重钉四个 Helix crate，并在 Native event sink 与 Angular codec 双层只接受 `schemaVersion=2`。Strict Matrix 与生成 consumer 均为 `InteractionFrame/v2`。
+## HTTP / WS
 
-### 目标状态
+- G-09: `POST /api/cses/posts/cancelSchedule` body `{channelId}`
 
-取消本人定时消息 的业务决策归 Helix domain/application；Go 只提供权威 HTTP/WS/PG 事实；Tauri 只传输；Angular adapter 只消费完整 VM，组件只保留输入焦点、抽屉开关和滚动锚点等本地 UI 状态。
+- G-09: `post_schedule_canceled`
 
-### 迁移缺口
+HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这些 raw payload。
 
-生产协议迁移已完成；剩余工作是删除后同一新 candidate 的 25-Gate 连续回归、静态残留扫描与 Spec/Plan/Tasks 收口。
+## 源码证据
 
-### 证据
+- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1130`
+- Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
+- Helix 专属测试：`crates/helix-im/tests/g09_schedule_cancel_interaction_test.rs`
+- cses-client command/action：`src/pages/message-v4/shell.service.ts`、
+  `src/pages/message-v4/actions/surface-action-invocation.ts`
+- cses-client 组件：`src/pages/message-v4/message.component.ts`、
+  `src/pages/message-v4/components/message-surface-runtime-view.component.ts`
+- cses-client 专属测试：`src/pages/message-v4/components/__tests__/message-surface-runtime-view.component.test.ts`
 
-- Helix Gate 合同：`/System/Volumes/Data/workspace/rust/helix/crates/helix-im/contracts/strict-matrix.v1.json:1145`
-- Helix V2 唯一 Frame 合同：`crates/helix-im/src/interaction_frame.rs` 与 `crates/helix-im/src/surface_composer.rs`
-- Helix V1 删除提交：`32e3a0659e4f29add1284be2ba1972eb28f0f938`
-- Angular 原子 apply：`/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-runtime.service.ts:274`
-- Go 权威入口：`/System/Volumes/Data/workspace/golang/cses-im-server/internal/api/post/handlers_write.go:181`
+## 当前边界
+
+- Frame producer/Native reader/Angular codec 均只接受 V2。
+- 本页 Surface 只按 canonical Matrix 列出；更广的业务影响面必须等代码真实提交对应 mutation
+  后才能加入。
+- `pending_send` 若出现在合同中，指 Helix 内存聚合；物理发送状态在 SQLite `message`
+  行，不存在 `pending_send` 表。

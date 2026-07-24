@@ -102,7 +102,7 @@ fn gap_channels_trigger_compensation_sync() {
 }
 
 #[test]
-fn pong_fanout_is_deferred_while_recovery_is_collecting() {
+fn explicit_pong_gap_is_prioritized_while_recovery_is_collecting() {
     let mut state = ImState::new();
     let c1 = test_channel_id(1);
     state.channels.insert(c1, Channel::new(c1, 5));
@@ -122,10 +122,12 @@ fn pong_fanout_is_deferred_while_recovery_is_collecting() {
 
     assert_eq!(
         count_sync_http(&out),
-        0,
-        "recovery cohort 未完成时不得用 pong fan-out 续填全局队列"
+        1,
+        "明确 gap 必须越过 routine recovery backlog 及时补偿"
     );
 
+    state.channels.get_mut(&c1).unwrap().inflight_sync = None;
+    state.sync_scheduler.release_window();
     state.recovery_session.mark_completion_published();
     compensate_from_pong(
         &mut state,
@@ -139,7 +141,33 @@ fn pong_fanout_is_deferred_while_recovery_is_collecting() {
     assert_eq!(
         count_sync_http(&out),
         1,
-        "recovery authority boundary 发布后恢复普通 pong 补偿"
+        "5s 节流仍阻止同一 channel 立即重复补偿"
+    );
+}
+
+#[test]
+fn hash_only_mismatch_is_deferred_while_recovery_is_collecting() {
+    let mut state = ImState::new();
+    let c1 = test_channel_id(1);
+    state.channels.insert(c1, Channel::new(c1, 5));
+    state.recovery_session.begin("actor");
+
+    let mut out = EffectSink::new();
+    let mut alloc = mk_corr();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_000,
+        &[],
+        true,
+        &mut alloc,
+        &mut out,
+    );
+
+    assert_eq!(
+        count_sync_http(&out),
+        0,
+        "无明确 channel 的 hash mismatch 不得续填 recovery 队列"
     );
 }
 

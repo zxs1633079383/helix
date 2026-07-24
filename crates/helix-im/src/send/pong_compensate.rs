@@ -76,10 +76,11 @@ pub fn compensate_from_pong(
     out: &mut EffectSink,
 ) {
     // The reconnect recovery queue already contains the authoritative channel
-    // cohort. Re-enqueuing the same hash-mismatch fan-out every heartbeat can
-    // keep the scheduler permanently non-idle and prevent its single bounded
-    // recovery Frame from ever being published.
-    if state.recovery_session.is_collecting() {
+    // cohort. A hash-only mismatch must not refill that global queue on every
+    // heartbeat. Explicit gaps are different: they identify a bounded active
+    // channel and must be promoted ahead of a potentially large routine
+    // recovery backlog.
+    if state.recovery_session.is_collecting() && gap_channels.is_empty() {
         tracing::info!(
             hop = "pong.compensation_decision",
             gap_count = gap_channels.len(),
@@ -88,7 +89,7 @@ pub fn compensate_from_pong(
             target_count = 0,
             scheduler_inflight = state.sync_scheduler.inflight(),
             scheduler_pending = state.sync_scheduler.pending_len(),
-            "pong gap compensation deferred until recovery authority boundary"
+            "hash-only pong compensation deferred until recovery authority boundary"
         );
         return;
     }
@@ -124,7 +125,7 @@ pub fn compensate_from_pong(
 
     // targets 已确定性有序（gap 保持 wire 顺序 + roots 升序），enqueue_and_drain 内部跳过
     // 已在途 / 不存在 channel，并经全局窗口 K 限流 dispatch sync/notify。
-    crate::sync_scheduler::enqueue_and_drain_with_trigger(
+    crate::sync_scheduler::prioritize_and_drain_with_trigger(
         state,
         api_base_url,
         &targets,

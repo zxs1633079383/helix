@@ -1,4 +1,4 @@
-# Feature Specification: InteractionFrame V2 双仓硬切
+ # Feature Specification: InteractionFrame V2 双仓硬切
 
 **Feature Branch**: `main (no feature branch created)`
 

@@ -1,24 +1,29 @@
 # Mobile InteractionFrame V2 全量替换：Spec 输入
 
-> 审计时间：2026-07-24 PDT。本文档集是创建正式 Spec 前的源码事实与目标边界，不是
-> Spec、Plan、Tasks，也不是 V2-only 已完成声明。
+> 审计时间：2026-07-24 PDT。本文档集是创建正式 Mobile Spec 前的源码事实与目标边界，
+> 不是 Spec、Plan、Tasks，也不把 PC 018 的静态硬切升级为移动端或删除后二次 E2E 完成。
 
 ## 结论先行
 
-范围是 **19 个业务 UC、25 个机器 Gate**，明确排除 `G03/G03a`。当前代码尚不能直接进入
-V2-only 验收：
+范围是 **19 个业务 UC、25 个机器 Gate**，明确排除 `G03/G03a`。最新代码必须分三层判断：
 
-- Helix 通用 projector 仍默认生产 `schemaVersion=1`；正式 V2 只在恢复链局部发布
-  `message.left-dialog-list` 与 `message.unread-summary`。
+- Helix 018 worktree HEAD `57d2ddab` 已将唯一 builder/emitter 收敛到
+  `InteractionFrameV2`，默认 schema 为 2，并物理删除 V1 类型、常量和 fixture。
+- cses-client 018 worktree HEAD `846afd3fa` 已钉住上述 Helix revision；Native ingress 与
+  Angular codec 均只接受完整 V2。它是 PC consumer 对照，不等于 Mobile 已切换。
 - Mobile 工作树正在扩展 schema 2 的 rich VM 校验和 attach/resync 回送，但 C++ frame 根结构仍是
   `{schemaVersion,transactionId,mutations}`，没有正式 V2 的 `runtime/directives`，mutation 也没有
   `surfaceEpoch`；`message.composer` 仍不在封闭 `SurfaceId` 中。
 - Mobile 同时接受 V1/V2，Venus 仍有 raw DomainEvent 广播面，实际产品 QuickJS 页面源码仍
   `SOURCE_MISSING`。
-- Mobile 的 source lock、command contract 与 UC manifest 当前仍固定 Helix `477ca58`，不是
-  Helix 当前业务源码祖先 `d2ee633`。
+- Mobile 的 source lock、command contract 与 UC manifest 当前仍固定 Helix `477ca58`，没有
+  固定到 018 删除提交 `57d2ddab`。
+- 018 的删除后二次 25-Gate Native 回归 `T092-T096` 仍未完成，R4 仍是 blocked；不得把
+  静态 V2-only 与 focused PASS 写成产品全链 Green。
 
-因此正式 Spec 应描述“从当前双栈迁移到 V2-only”的工作，而不能把本目录的 TARGET 当成现状。
+因此正式 Mobile Spec 应以 018 的 Helix V2-only producer 为上游基线，只实施 Mobile pin、
+strict V2 consumer、QuickJS/raw fallback 清退与移动端 25-Gate 验收，不再重复规划 Helix V1
+producer 迁移。
 
 ## 阅读顺序
 
@@ -70,9 +75,9 @@ V2-only 验收：
 - 正式 Spec/Plan/Tasks 只在 `specs/` 产生。本目录每个业务 UC 仅保留一个平台增量入口，避免
   重新形成 25 Gate × Spec/Plan/Tasks 的平行真源。
 
-切换顺序唯一为：
+Mobile 切换顺序唯一为：
 
-`固定 candidate -> producer/consumer 双切断 -> 首轮纯 V2 -> 审批并物理删除 V1 -> 新 candidate 二次纯 V2`
+`固定 018 或其后继 Helix candidate -> Mobile 禁收 V1/禁 raw fallback -> 首轮移动端纯 V2 -> 物理删除 Mobile legacy reader/fixture/reducer -> 新 candidate 二次纯 V2`
 
 `schemaVersion` 字段保留且 V2 必须为 `2`；不得误删独立版本域
 `InteractionProtocol/v1` 或 `ActionInvocationEnvelope/v1`。

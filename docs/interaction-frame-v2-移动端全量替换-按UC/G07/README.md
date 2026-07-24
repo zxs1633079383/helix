@@ -10,5 +10,3 @@
 | 完整 VM | TimelineWindowVm + ParticipantReceiptsVm + UnreadSummaryVm |
 | 移动 UI 结果 | 加急标识、确认人数、目标列表与按钮权限一致，actor/observer 视图按权限分离 |
 | 共享 PC/Helix 真源 | [G07](../../interaction-frame-v2-全量替换-按UC/G07/README.md) |
-
-本 Gate 先冻结 V1，再切断 producer 与 consumer，首轮纯 V2 后物理删除 V1，最后二次验收。

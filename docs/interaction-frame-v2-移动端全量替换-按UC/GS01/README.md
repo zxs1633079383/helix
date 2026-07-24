@@ -10,5 +10,3 @@
 | 完整 VM | DialogListVm + UnreadSummaryVm |
 | 移动 UI 结果 | 连接完成后，会话列表与未读摘要一次出现；连接受理不能显示为空列表成功 |
 | 共享 PC/Helix 真源 | [GS01](../../interaction-frame-v2-全量替换-按UC/GS01/README.md) |
-
-本 Gate 先冻结 V1，再切断 producer 与 consumer，首轮纯 V2 后物理删除 V1，最后二次验收。

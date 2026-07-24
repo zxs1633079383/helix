@@ -10,5 +10,3 @@
 | 完整 VM | ThreadDetailVm + TimelineWindowVm |
 | 移动 UI 结果 | 线程 root/replies 图完整出现；回复发送终态与主时间线一致，不由 JS 拼 reply tree |
 | 共享 PC/Helix 真源 | [G12](../../interaction-frame-v2-全量替换-按UC/G12/README.md) |
-
-本 Gate 先冻结 V1，再切断 producer 与 consumer，首轮纯 V2 后物理删除 V1，最后二次验收。

@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: 连接建立、Surface attach 或全量恢复
+    UI->>Port: ShellService.start/requestInteractionFrameSnapshot -&gt; im_query_dialog_list
+    Port->>Helix: im_query_dialog_list
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (message.left-dialog-list)
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied

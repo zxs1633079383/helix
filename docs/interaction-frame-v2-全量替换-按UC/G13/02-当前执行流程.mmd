@@ -1,0 +1,11 @@
+flowchart LR
+    A["打开频道或显式标记频道已读"] --> B["direct command；markChannelRead ActionBinding 仍未审计"]
+    B --> C["im_channels_view"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_write / storage_upsert / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.participant-receipts / message.channel-summary"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["频道已读 UI"]

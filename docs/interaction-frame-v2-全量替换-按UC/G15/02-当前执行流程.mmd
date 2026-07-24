@@ -1,0 +1,11 @@
+flowchart LR
+    A["话题创建器或新建群聊对话框提交"] --> B["direct command"]
+    B --> C["im_make_topic / im_create_channel"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_write / storage_upsert / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.channel-summary / message.thread-detail / message.member-roster"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["创建话题与群聊 UI"]

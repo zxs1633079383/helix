@@ -11,7 +11,7 @@
 - cses-client Native sink 只接受 `schemaVersion=2` 并 opaque 转发；Angular
   `decodeInteractionFrame` 同样 fail-closed，随后由 `SurfaceRuntime` 原子 apply。
 - Frame V1 type/codec/writer/reader/normalize/fixture 已从当前生产树物理消失，因此各 UC 的
-  V1 文档已下线。本目录不再用“V1 清退中”描述当前状态。
+  V1 文档已下线；当前 V2 类图、流程图与分层合同仍按 UC 保留。
 - 交互入口还不是全量 ActionBinding。当前既有 typed `ActionBinding -> im_invoke_action`，
   也有 `ShellService -> HELIX_COMMAND_NAMES` direct command；每个 UC 页按实际代码标明。
 - `ActionInvocationEnvelope/v1`、`strict-matrix.v1.json` 和测试报告 `schemaVersion=1`

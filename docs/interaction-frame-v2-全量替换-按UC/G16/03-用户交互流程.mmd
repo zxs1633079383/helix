@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: 群设置、关闭/退出确认、属性修改
+    UI->>Port: confirmGovernanceAction/updateGroupSettings -&gt; im_channel_close / im_channel_leave / im_channel_change_*
+    Port->>Helix: im_channel_close / im_channel_leave / im_channel_change_display_name / im_channel_change_notice / im_channel_change_info
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (message.channel-summary / message.member-roster)
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied

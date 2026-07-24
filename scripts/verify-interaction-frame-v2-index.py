@@ -47,6 +47,17 @@ ROOT_DOCS = {
     "05-文档完整性检查.md",
 }
 
+UC_DOCS = [
+    "01-当前类图.mmd",
+    "02-当前执行流程.mmd",
+    "03-用户交互流程.mmd",
+    "04-Angular组件与交互合同.md",
+    "05-Helix命令与Frame合同.md",
+    "06-Go接口与WS推送.md",
+    "07-远端PG与本地SQLite.md",
+    "README.md",
+]
+
 MATRIX_RE = re.compile(
     r"<!-- GATE_MATRIX_START -->\n(?P<body>.*?)\n<!-- GATE_MATRIX_END -->",
     re.DOTALL,
@@ -89,8 +100,8 @@ def verify_doc_shape(errors: list[str]) -> None:
 
     for uc in sorted(expected_ucs):
         files = sorted(path.name for path in (DOC_ROOT / uc).iterdir() if path.is_file())
-        if files != ["README.md"]:
-            errors.append(f"{uc} 应只保留 README.md，实际为 {files}")
+        if files != UC_DOCS:
+            errors.append(f"{uc} 应保留 8 份当前代码文档，实际为 {files}")
 
 
 def verify_global_tasks(errors: list[str]) -> None:
@@ -170,7 +181,7 @@ def main() -> int:
         return 1
 
     print(
-        "PASS: 19 UC README；25 Gate；V1 切换期文档已下线；"
+        "PASS: 19 UC x 8 当前文档；25 Gate；V1 切换期文档已下线；"
         "T021-T077 历史任务映射连续唯一"
     )
     return 0

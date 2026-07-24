@@ -298,6 +298,13 @@ write('05-文档完整性检查.md', integrityContract());
 
 for (const uc of ucDefinitions) {
   write(`${uc.dir}/README.md`, ucReadme(uc));
+  write(`${uc.dir}/01-当前类图.mmd`, ucClassDiagram(uc));
+  write(`${uc.dir}/02-当前执行流程.mmd`, ucExecutionFlow(uc));
+  write(`${uc.dir}/03-用户交互流程.mmd`, ucUserFlow(uc));
+  write(`${uc.dir}/04-Angular组件与交互合同.md`, ucAngularContract(uc));
+  write(`${uc.dir}/05-Helix命令与Frame合同.md`, ucHelixContract(uc));
+  write(`${uc.dir}/06-Go接口与WS推送.md`, ucGoContract(uc));
+  write(`${uc.dir}/07-远端PG与本地SQLite.md`, ucStorageContract(uc));
 }
 
 console.log(
@@ -324,7 +331,7 @@ function rootReadme() {
 - cses-client Native sink 只接受 \`schemaVersion=2\` 并 opaque 转发；Angular
   \`decodeInteractionFrame\` 同样 fail-closed，随后由 \`SurfaceRuntime\` 原子 apply。
 - Frame V1 type/codec/writer/reader/normalize/fixture 已从当前生产树物理消失，因此各 UC 的
-  V1 文档已下线。本目录不再用“V1 清退中”描述当前状态。
+  V1 文档已下线；当前 V2 类图、流程图与分层合同仍按 UC 保留。
 - 交互入口还不是全量 ActionBinding。当前既有 typed \`ActionBinding -> im_invoke_action\`，
   也有 \`ShellService -> HELIX_COMMAND_NAMES\` direct command；每个 UC 页按实际代码标明。
 - \`ActionInvocationEnvelope/v1\`、\`strict-matrix.v1.json\` 和测试报告 \`schemaVersion=1\`
@@ -560,7 +567,7 @@ function integrityContract() {
 - 19 个业务 UC 文件夹；
 - 25 个且仅 25 个 machine Gate；
 - \`G03/G03a\` 不进入分母；
-- 每个 UC 文件夹只保留一个当前代码入口 \`README.md\`；
+- 每个 UC 文件夹保留 README 索引和 7 个当前代码细分面；
 - 不存在文件名或正文把 Frame V1 描述为当前/可选路径；
 - 不复制逐 UC Spec/Plan/Tasks，唯一实施历史位于 \`specs/018-*\`；
 - 根矩阵中的 command、effect、projection、persistence 必须来自当前
@@ -621,6 +628,16 @@ function ucReadme(uc) {
 
 > 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
 
+## 细分文档
+
+1. [当前类图](./01-当前类图.mmd)
+2. [当前执行流程](./02-当前执行流程.mmd)
+3. [用户交互流程](./03-用户交互流程.mmd)
+4. [Angular 组件与交互合同](./04-Angular组件与交互合同.md)
+5. [Helix 命令与 Frame 合同](./05-Helix命令与Frame合同.md)
+6. [Go 接口与 WS 推送](./06-Go接口与WS推送.md)
+7. [远端 PG 与本地 SQLite](./07-远端PG与本地SQLite.md)
+
 ## 当前对接
 
 | 项目 | 当前代码事实 |
@@ -672,6 +689,251 @@ HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这
 - \`pending_send\` 若出现在合同中，指 Helix 内存聚合；物理发送状态在 SQLite \`message\`
   行，不存在 \`pending_send\` 表。
 `;
+}
+
+function ucClassDiagram(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const commands = unique(
+    cases.flatMap((item) => item.commands.map((command) => command.name)),
+  );
+  const surfaces = unique(
+    cases.flatMap((item) =>
+      item.projections.map((projection) => projection.render_kind),
+    ),
+  );
+  const persistence = unique(cases.flatMap((item) => item.persistence));
+  return `classDiagram
+direction LR
+
+class MessageV4 {
+  +intent()
+  +renderTypedVm()
+}
+class CommandIngress {
+  +commands: ${mermaidText(commands.join(', '))}
+}
+class ImModule {
+  +handle()
+  +produceEffects()
+}
+class PersistBarrier {
+  +contracts: ${mermaidText(persistence.join(', ') || 'none')}
+}
+class InteractionFrameV2 {
+  +schemaVersion: 2
+  +surfaces: ${mermaidText(surfaces.join(', '))}
+}
+class SurfaceRuntime {
+  +stage()
+  +atomicApply()
+  +frameApplied()
+}
+
+MessageV4 --> CommandIngress : intent
+CommandIngress --> ImModule : command/inbound
+ImModule --> PersistBarrier : Effect
+PersistBarrier --> InteractionFrameV2 : committed facts
+InteractionFrameV2 --> SurfaceRuntime : opaque frame
+SurfaceRuntime --> MessageV4 : typed VM
+`;
+}
+
+function ucExecutionFlow(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const commands = unique(
+    cases.flatMap((item) => item.commands.map((command) => command.name)),
+  ).join(' / ');
+  const effects = unique(
+    cases.flatMap((item) =>
+      item.commands.flatMap((command) => command.effect),
+    ),
+  ).join(' / ');
+  const surfaces = unique(
+    cases.flatMap((item) =>
+      item.projections.map((projection) => projection.render_kind),
+    ),
+  ).join(' / ');
+  return `flowchart LR
+    A["${mermaidText(uc.entry)}"] --> B["${mermaidText(uc.ingress)}"]
+    B --> C["${mermaidText(commands)}"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: ${mermaidText(effects)}"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: ${mermaidText(surfaces)}"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["${mermaidText(uc.title)} UI"]
+`;
+}
+
+function ucUserFlow(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const commands = unique(
+    cases.flatMap((item) => item.commands.map((command) => command.name)),
+  ).join(' / ');
+  const surfaces = unique(
+    cases.flatMap((item) =>
+      item.projections.map((projection) => projection.render_kind),
+    ),
+  ).join(' / ');
+  return `sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: ${mermaidText(uc.entry)}
+    UI->>Port: ${mermaidText(uc.clientFlow)}
+    Port->>Helix: ${mermaidText(commands)}
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (${mermaidText(surfaces)})
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied
+`;
+}
+
+function ucAngularContract(uc) {
+  return `# ${uc.dir} Angular 组件与交互合同
+
+## 当前组件
+
+${uc.components}
+
+## 当前入口
+
+- 用户/系统入口：${uc.entry}
+- 入口模式：${uc.ingress}
+- 调用链：${uc.clientFlow}
+
+## 消费边界
+
+- Angular 只接受 \`schemaVersion=2\`。
+- \`ProjectionBusService -> ProjectionStore -> SurfaceRuntime\` 先 stage 全帧，再原子 publish。
+- 组件只读取 typed Surface VM，不从 raw HTTP、WS、props 或 command receipt 重建业务事实。
+- route、draft、overlay 可留在 shell；服务端事实、权限、排序、revision 和 ActionBinding 属于 Helix。
+
+## 验证
+
+- 专属测试：\`${uc.clientTest}\`
+- 公共 codec/runtime：\`surface-contract.codec.test.ts\`、\`surface-runtime.service.test.ts\`
+`;
+}
+
+function ucHelixContract(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const rows = cases
+    .flatMap((item) =>
+      item.commands.map((command) => {
+        const effects = command.effect.map((effect) => `\`${effect}\``).join('、');
+        return `| \`${item.gate_id}\` | \`${command.name}\` | ${effects} |`;
+      }),
+    )
+    .join('\n');
+  const surfaces = unique(
+    cases.flatMap((item) =>
+      item.projections.map((projection) => projection.render_kind),
+    ),
+  )
+    .map((surface) => `\`${surface}\``)
+    .join('、');
+  return `# ${uc.dir} Helix 命令与 Frame 合同
+
+## 命令与 Effect
+
+| Gate | command | Effect |
+|---|---|---|
+${rows}
+
+## Frame
+
+- producer：\`ImModule::handle -> projector/SurfaceComposer -> Effect::Emit\`
+- schema：\`InteractionFrameV2\`，\`schemaVersion=2\`
+- canonical Surface：${surfaces}
+- 写路径只有在 matching \`PersistOk\` 或权威 readback 后才能发布终态 Frame。
+- 一个 \`Effect::Emit\` 携带一个完整 Frame，driver 不逐 mutation 拆分。
+
+## 源码与测试
+
+- \`crates/helix-im/src/interaction_frame.rs\`
+- \`crates/helix-im/src/projector/mod.rs\`
+- \`${uc.helixTest}\`
+`;
+}
+
+function ucGoContract(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const http = cases
+    .map((item) => `| \`${item.gate_id}\` | ${item.http.request} |`)
+    .join('\n');
+  const ws = cases
+    .map((item) => `| \`${item.gate_id}\` | ${item.ws.events} |`)
+    .join('\n');
+  return `# ${uc.dir} Go 接口与 WS 推送
+
+## HTTP
+
+| Gate | 当前 Strict Matrix 请求 |
+|---|---|
+${http}
+
+## WS
+
+| Gate | 当前 Strict Matrix 事件 |
+|---|---|
+${ws}
+
+## 边界
+
+- HTTP accepted 只证明基础设施受理，不能代替 Helix 提交终态。
+- raw WS 进入 Helix inbound/sync，不允许 MessageV4 直接修改 DOM。
+- 运行态 Green 必须用同一 correlation 串联 fresh Go、PG、SQLite、Frame、DOM 和双端证据。
+`;
+}
+
+function ucStorageContract(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const persistence = unique(cases.flatMap((item) => item.persistence));
+  const rows = persistence
+    .map((name) => {
+      const physical =
+        name === 'pending_send'
+          ? 'Helix 内存 PendingSend；SQLite 状态位于 message 行'
+          : '领域 persistence 名称；物理表须以 StorageOp/schema 当前代码核验';
+      return `| \`${name}\` | ${physical} |`;
+    })
+    .join('\n');
+  return `# ${uc.dir} 远端 PG 与本地 SQLite
+
+## 当前 persistence 合同
+
+| 合同名 | 物理边界 |
+|---|---|
+${rows || '| 无 | 本 Gate 不声明持久化合同 |'}
+
+## 提交规则
+
+- Strict Matrix 的 persistence 是领域合同名，不自动等于 SQLite 或 PG 表名。
+- 本地写入必须由 matching \`PersistOk\` 关闭 barrier；远端写入还需权威响应或后续 WS/sync 事实。
+- cursor 不得在消息或投影尚未持久化时单独前移。
+- 静态文档不证明真实 PG DSN、SQLite 文件或当前进程已写入；运行验收必须单独取证。
+`;
+}
+
+function unique(values) {
+  return [...new Set(values)];
+}
+
+function mermaidText(value) {
+  return String(value)
+    .replaceAll('"', "'")
+    .replaceAll('`', '')
+    .replaceAll('\n', ' ')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function verifyV2OnlySources() {

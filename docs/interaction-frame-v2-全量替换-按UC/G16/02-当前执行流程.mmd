@@ -1,0 +1,11 @@
+flowchart LR
+    A["群设置、关闭/退出确认、属性修改"] --> B["direct command；治理 ActionBinding 当前保持 disabled"]
+    B --> C["im_channel_close / im_channel_leave / im_channel_change_display_name / im_channel_change_notice / im_channel_change_info"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: http_write / storage_upsert / projection / transport_broadcast"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: message.channel-summary / message.member-roster"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["频道关闭、退出与设置 UI"]

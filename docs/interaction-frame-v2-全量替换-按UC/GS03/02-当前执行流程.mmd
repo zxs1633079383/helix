@@ -1,0 +1,11 @@
+flowchart LR
+    A["pong.gaps 或 hash mismatch"] --> B["Inbound + Timer；不是 UI ActionBinding"]
+    B --> C["im_sync_channels"]
+    C --> D["ImModule::handle"]
+    D --> E["Effect: sync_request / projection"]
+    E --> F{"PersistOk / authority read"}
+    F --> G["InteractionFrameV2 schemaVersion=2"]
+    G --> H["Surface: interaction.runtime"]
+    H --> I["Native opaque sink"]
+    I --> J["SurfaceRuntime atomic apply"]
+    J --> K["pong gap 有界补偿 UI"]

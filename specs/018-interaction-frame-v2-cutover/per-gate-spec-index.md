@@ -1,6 +1,6 @@
 # InteractionFrame V2 按 UC 当前源码索引
 
-> 2026-07-24 已按 Helix、cses-client MessageV4 当前源码重建。原 19 组 V1/V2 对照图与逐 UC `Spec/Plan/Tasks` 是切换期材料；生产链已 V2-only 后不再作为当前合同保留。历史实施任务仍由 [plan.md](plan.md)、[tasks.md](tasks.md) 与 [verification.md](verification.md) 保存。
+> 2026-07-24 已按 Helix、cses-client MessageV4 当前源码重建。Frame V1 对照页与逐 UC `Spec/Plan/Tasks` 是切换期材料，不再作为当前合同保留；各 UC 继续维护当前 V2 类图、流程图和分层合同。历史实施任务仍由 [plan.md](plan.md)、[tasks.md](tasks.md) 与 [verification.md](verification.md) 保存。
 
 当前实现合同入口：
 
@@ -43,7 +43,7 @@ python3 scripts/verify-interaction-frame-v2-index.py
 
 通过条件：
 
-- 19 个 UC 目录各只保留一份当前源码 `README.md`。
+- 19 个 UC 目录各保留 README 索引和 7 份当前源码细分文档。
 - 19 行索引精确覆盖 25 个当前机器 Gate。
 - `G-03/G-03a` 不属于本次 19 UC 切换范围；旧目录 `G17` 不得冒充当前机器 Gate `G-17`。
 - 全局历史任务仍连续且唯一覆盖 `T021-T077`。

@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User as 用户或系统
+    participant UI as MessageV4
+    participant Port as CommandPort
+    participant Helix as Helix IM
+    participant Infra as HTTP/WS/SQLite
+    participant Runtime as SurfaceRuntime
+
+    User->>UI: 切换频道；上拉更早历史
+    UI->>Port: activateChannel/loadOlder -&gt; im_query_messages_by_channel / im_load_older_context
+    Port->>Helix: im_query_messages_by_channel / im_load_older_context
+    Helix->>Infra: Effect batch
+    Infra-->>Helix: PersistOk / authority result
+    Helix-->>Runtime: InteractionFrameV2 (message.timeline)
+    Runtime-->>UI: atomic typed VM publish
+    Runtime-->>Helix: FrameApplied

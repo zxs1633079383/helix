@@ -18,7 +18,7 @@
 | Angular 入口 | 无直接用户入口；由已 attach 的 `message.left-dialog-list` 接收投影 |
 | ActionBinding 或观察输入 | `HostObservation` / `Inbound`；无新增 ActionBinding |
 | Helix Command | 初始或恢复仍为 `im_query_dialog_list`；在线增量没有新增业务 Command |
-| 当前 Frame 版本 | V1 `schemaVersion=1` 正式 writer；V2 envelope 已存在，但 dialog patch 仍复用 `replaceView` |
+| 当前 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2`，V1 已物理删除 |
 | 目标 Frame 版本 | `InteractionFrameV2`，`schemaVersion=2`，新增 typed dialog row delta |
 | 涉及 Surface | `message.left-dialog-list`、`message.unread-summary` |
 | Angular 组件 | `message-surface-runtime-view`、`message-ui-surface-dialog-list` |
@@ -44,7 +44,7 @@
 
 ## V1 与 V2 核心对比
 
-| 维度 | V1 当前事实 | V2 目标 |
+| 维度 | 提案切换前事实 | V2 目标 |
 |---|---|---|
 | envelope | 正式 writer 为 `schemaVersion=1` | `InteractionFrameV2 schemaVersion=2` |
 | dialog patch | `DialogListPatch { replaceView: DialogListVm }` | `DialogListDeltaPatch { operations, sectionPages }` |

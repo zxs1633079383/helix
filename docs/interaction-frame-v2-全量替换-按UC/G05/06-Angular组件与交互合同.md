@@ -15,12 +15,12 @@
 | 发送 Command | 当前为 `im_relay_messages`；目标由 binding 解析后进入 `im_invoke_action` |
 | 接收 Frame | `ProjectionBusService -> ProjectionStore.applyEnvelope -> SurfaceRuntime` |
 | 接收 ActionReceipt | 只更新 pending/awaiting-frame/rejected，不把 accepted 当完成 |
-| 发送 FrameApplied | 目标必须回传；当前生产注册点未定位 |
+| 发送 FrameApplied | 生产 bridge 已回传 `FrameApplied(transactionId, slots, result)` |
 | DOM 验收点 | `data-surface`、`data-message-id`、`data-delivery-kind` 及本 UC 控件状态 |
 | ARIA 验收点 | 控件名称、disabled、status/alert 与 tab 语义 |
 | data-* 验收点 | `data-surface`、`data-revision`、本 UC identity 与状态字段 |
-| 当前 V1/V2 状态 | 当前 V1，尚未完成 V2 替换 |
-| 迁移缺口 | 逐 Gate 证明 projected binding 或明确 Observation，并接通生产 FrameApplied。 |
+| 当前 Frame 版本状态 | 仅 V2；V1 consumer/normalize 已物理删除 |
+| 迁移缺口 | 无生产协议缺口；删除后 E2E 负责验证组件与 DOM |
 
 ## 当前调用链
 

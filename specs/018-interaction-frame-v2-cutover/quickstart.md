@@ -19,10 +19,16 @@ cd /System/Volumes/Data/workspace/angular/cses-client
 npm run message:command-api:gate
 npm run message:projection-ownership
 npm run message:surface-runtime:source-pin
-npm run message:ui:authority
-npm run message:ui:selector-contract
-npm run message:real-chain:doctor
+node scripts/message-ui/check-native-selector-compat.mjs \
+  --contract tests/e2e/contracts/message-v4-native-selector.contract.json \
+  --source src/pages/message-v4 \
+  --scenario tests/e2e/scenarios/uc01-16-surface-runtime.scenario.ts \
+  --strict-scenario
 ```
+
+`message:ui:authority` 需要旧 numeric UC matrix 与 registry 参数，不能无参执行；
+`message:real-chain:doctor` 需要一个具体 artifact 路径。二者只在对应输入存在时运行，
+不得把 usage/error 输出记作验证失败或通过。
 
 预期：V1 输入 fail-closed；V2 epoch/revision/atomic apply/FrameApplied 全部通过；source pin/hash 一致。
 

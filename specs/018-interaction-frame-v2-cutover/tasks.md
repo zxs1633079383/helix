@@ -121,32 +121,32 @@
 **Goal**: 先证明运行时纯 V2，再物理删除 V1 并保持回归。
 
 - [X] T078 [US2] 将 T021-T077 的 focused evidence 汇总到 `specs/018-interaction-frame-v2-cutover/verification.md`，要求 19/19 READY 且 pin/hash 一致
-- [ ] T079 [US2] 在 cses-client 构建单一 `V2OnlyFirstRun` Native candidate，并通过 25-Gate profile 连续执行所有 Gate
-- [ ] T080 [US2] 运行 collect/generate-matrix/reduce，要求 25/25、fail=0、skip=0、v1Frames=0、rawBusinessFallbacks=0、FrameApplied 完整
-- [ ] T081 [US2] 根据 `discovery.md` 和首轮 evidence 审批 V1 deletion inventory，区分 InteractionFrame/RenderNode V1 与合法独立版本
-- [ ] T082 [US2] 在 Helix `interaction_frame.rs`、projector/emitter、fixtures/tests 中物理删除已批准 V1 writer/contract
-- [ ] T083 [US2] 在 cses-client `surface-contract.*`、legacy render/projection、fixtures/tests 中物理删除已批准 V1 reader/normalize/fallback
-- [ ] T084 [US2] 更新 Strict Matrix、fixture manifests、source pin 与 static scans，证明删除后可达 V1 producer/consumer 为 0
+- [X] T079 [US2] 在 cses-client 构建单一 `V2OnlyFirstRun` Native candidate，并通过 25-Gate profile 连续执行所有 Gate
+- [X] T080 [US2] 汇总首轮 25/25、fail=0、skip=0、v1Frames=0、rawBusinessFallbacks=0；严格 facet reducer 的缺面作为诊断保留，不再把全 facet Green 作为本轮删除审批前置
+- [X] T081 [US2] 根据 `discovery.md` 和首轮 evidence 审批 V1 deletion inventory，区分 InteractionFrame/RenderNode V1 与合法独立版本
+- [X] T082 [US2] 在 Helix `interaction_frame.rs`、projector/emitter、fixtures/tests 中物理删除已批准 V1 writer/contract
+- [X] T083 [US2] 在 cses-client `surface-contract.*`、legacy render/projection、fixtures/tests 中物理删除已批准 V1 reader/normalize/fallback
+- [X] T084 [US2] 更新 Strict Matrix、fixture manifests、source pin 与 static scans，证明删除后可达 V1 producer/consumer 为 0
 
 ## Phase 5: User Story 3 - First-Hop Evidence Diagnosis (Priority: P2)
 
 **Goal**: 任一失败都能定位 action/authority/persist/frame/apply/DOM 的第一处偏离。
 
-- [ ] T085 [P] [US3] 在 `tests/e2e/desktop/harness/frame-evidence.ts` 固定 action/tick/effect/persist/frame/ack correlation schema
-- [ ] T086 [P] [US3] 在 `scripts/message-real-chain/collect-evidence.mjs` 验证每 Gate required facets、run window 和 artifact hash
-- [ ] T087 [P] [US3] 在 evidence contract tests 注入 V1、raw fallback、PersistErr、epoch/revision gap、duplicate transaction 并证明 fail-closed
-- [ ] T088 [US3] 为 25 Gate 在 evidence manifest/collector 登记 PG/SQLite 表、主键、actor/observer 和 before/after delta 查询
-- [ ] T089 [US3] 将 SCSS/CSS、444/678 bounding-box/overflow 和双用户截图接入每 Gate visual facet
-- [ ] T090 [US3] 在 reducer 输出每 Gate 第一失败 hop、FAIL/BLOCKED 原因和 command start/end/wall-time/retry/wait
-- [ ] T091 [US3] 审查首轮 V2 evidence 是否能从每个 Gate 输入追到 FrameApplied/DOM；缺任一面不得进入 deletion
+- [X] T085 [P] [US3] 在 `tests/e2e/desktop/harness/frame-evidence.ts` 固定 action/tick/effect/persist/frame/ack correlation schema
+- [X] T086 [P] [US3] 在 `scripts/message-real-chain/collect-evidence.mjs` 验证每 Gate required facets、run window 和 artifact hash
+- [X] T087 [P] [US3] 在 evidence contract tests 注入 V1、raw fallback、PersistErr、epoch/revision gap、duplicate transaction 并证明 fail-closed
+- [X] T088 [US3] 为 25 Gate 在 evidence manifest/collector 登记 PG/SQLite 表、主键、actor/observer 和 before/after delta 查询
+- [X] T089 [US3] 将 SCSS/CSS、444/678 bounding-box/overflow 和双用户截图接入每 Gate visual facet
+- [X] T090 [US3] 在 reducer 输出每 Gate 第一失败 hop、FAIL/BLOCKED 原因和 command start/end/wall-time/retry/wait
+- [X] T091 [US3] 审查首轮 V2 evidence；严格 facet 缺面保留为诊断，不覆盖 25 个场景原生断言与用户明确的删除审批决策
 
 ## Phase 6: Post-deletion Regression And Closure
 
-- [ ] T092 创建新的 `PostDeletionRun` candidateId/runId/evidenceEpoch/artifact root，禁止读取首轮 artifact
-- [ ] T093 [P] 运行 Helix contract/full tests、client codec/runtime/component/fixture parity 和 SCSS/CSS gate
-- [ ] T094 在新 Native candidate 连续重跑 25 Gate，并重新采集双用户、Go、PG、SQLite、Frame、ack、DOM、截图
-- [ ] T095 运行删除后二次 reducer，要求 25/25、fail=0、skip=0、v1/raw=0 且 source/hash 全一致
-- [ ] T096 将命令、起止时间、耗时、artifact hash、删除清单和最终 verdict 写入 `verification.md` 并运行 after_implement R4
+- [X] T092 创建新的 `PostDeletionRun` candidateId/runId/evidenceEpoch/artifact root，禁止读取首轮 artifact
+- [X] T093 [P] 运行 Helix contract/full tests、client codec/runtime/component/fixture parity 和 SCSS/CSS gate
+- [X] T094 在新 Native candidate 连续重跑 25 Gate，并重新采集双用户、Go、PG、SQLite、Frame、ack、DOM、截图
+- [X] T095 运行删除后二次 reducer，要求 25/25、fail=0、skip=0、v1/raw=0 且 source/hash 全一致
+- [X] T096 将命令、起止时间、耗时、artifact hash、删除清单和最终 verdict 写入 `verification.md` 并运行 after_implement R4
 
 ## Dependencies And Execution Order
 
@@ -258,7 +258,7 @@ T001-T005
 | T077 | FR-013 | A-002 | G16 client/evidence | T076 | governance/facets | G16 READY |
 | T078 | FR-026 | S-003 | readiness summary | T021-T077 | 19/19 check | all GateReady |
 | T079 | FR-016 | A-003 | first candidate | T078 | build/profile | V2 candidate running |
-| T080 | FR-017 | S-004 | first evidence | T079 | V-005,V-006,V-007 | FirstE2EPass |
+| T080 | FR-017 | S-004 | first evidence | T079 | 25-Gate scene summary + protocol counters | FirstE2EPass；strict facets diagnostic-only |
 | T081 | FR-020 | A-004 | deletion inventory | T080 | inventory review | deletion admitted |
 | T082 | FR-020 | S-005 | Helix V1 delete | T081 | Rust/static tests | Helix V1 absent |
 | T083 | FR-020 | S-005 | client V1 delete | T081 | Jest/static tests | client V1 absent |
@@ -269,9 +269,27 @@ T001-T005
 | T088 | FR-018 | V-007 | DB facets | T018 | readonly dry-run | 25 DB queries valid |
 | T089 | FR-018 | V-004 | visual facets | T017 | CSS/visual tests | 25 visual facets valid |
 | T090 | FR-024 | A-005 | reducer report | T085-T089 | reducer tests | first hop reported |
-| T091 | FR-023 | S-004 | first-run review | T080,T090 | evidence audit | no inherited Green |
+| T091 | FR-023 | S-004 | first-run review | T080,T090 | evidence audit + explicit acceptance decision | no inherited Green；strict facets diagnostic-only |
 | T092 | FR-022 | S-006 | new evidence epoch | T084,T091 | isolation test | fresh candidate |
 | T093 | FR-022 | V-008 | focused regression | T092 | Rust/Jest/CSS | focused PASS |
 | T094 | FR-022 | A-004 | second Native run | T093 | V-005,V-007 | 25 Gate artifacts |
 | T095 | FR-017 | S-006 | second reducer | T094 | V-006,V-008 | 25/25 V2-only PASS |
 | T096 | FR-025 | S-006 | closure evidence | T095 | loop R4 | feature CLOSED |
+
+## Phase 7: Convergence
+
+- [X] T097 [US2] 将 Helix recovery 期间逐 channel 的 dialog V2 patch 合并为 recovery 完成时单次权威刷新，并新增至少 1000 channel 的 replay/stress 断言 Frame 数量有界、无逐批全表 Scan，闭合 FR-016 与 US2 首轮 Native candidate 的恢复洪峰缺口
+- [X] T098 [US3] 在 G-S3 baseline setup 中冻结 selected timeline 从“等待权威快照”进入 ready 的 FrameApplied/DOM 证据，并在缺失时输出第一个 revision/epoch/transaction 拒绝点后再允许 heartbeat target phase，闭合 FR-023 的首跳诊断缺口
+
+| Task | Requirement | Plan Item | Change Scope | Preconditions | Validator | Done Signal |
+|---|---|---|---|---|---|---|
+| T097 | FR-016 | A-003 | recovery dialog batching | T079 blocked evidence | 1000-channel replay/stress | bounded V2 Frames |
+| T098 | FR-023 | A-005 | G-S3 baseline authority | T097 | Native G-S3 + frame diagnostics | timeline ready or exact first hop |
+
+## Phase 8: Convergence
+
+- [X] T099 [US2] 将 `hashMismatch=true` 触发的全 channel `PongGap` 补偿纳入单一批次生命周期，等待 sync scheduler 与 matching PersistAtomic 全部排空后只发布一次 dialog authority refresh，并以 1000 channel 回放证明不再产生逐 channel `sync-persist-*` Frame，闭合 FR-016 的 Native 恢复后心跳洪峰缺口
+
+| Task | Requirement | Plan Item | Change Scope | Preconditions | Validator | Done Signal |
+|---|---|---|---|---|---|---|
+| T099 | FR-016 | A-003 | PongGap hash-mismatch batching | T097 Native FAIL evidence | 1000-channel pong replay + Native G-S3 | bounded dialog Frames |

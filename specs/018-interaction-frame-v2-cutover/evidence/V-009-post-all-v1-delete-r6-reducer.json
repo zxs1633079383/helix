@@ -1,0 +1,2129 @@
+{
+  "schemaVersion": 2,
+  "profile": "interaction-frame-v2-cutover",
+  "candidateId": "frame-v2-post-all-v1-delete-32e3a065-client-pin",
+  "evidenceEpoch": "post-all-v1-delete",
+  "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+  "summary": {
+    "expected": 25,
+    "green": 7,
+    "partial": 10,
+    "blocked": 8
+  },
+  "gates": [
+    {
+      "gateId": "G-S1",
+      "status": "partial",
+      "firstMissingBoundary": "cold-sync-send:helixProjection",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "cold-sync-send",
+          "command": "im_send_message",
+          "gateId": "G-S1",
+          "status": "partial",
+          "firstMissingBoundary": "helixProjection",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-S1",
+            "reqId": "mrc-773930cafaefde69-g-s1-444:im_send_message:7",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "cold-sync-send"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "helixProjection",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "cold-sync-send:helixProjection"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-S2",
+      "status": "partial",
+      "firstMissingBoundary": "offline-sync-send:identity678Ws",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "offline-sync-send",
+          "command": "im_send_message",
+          "gateId": "G-S2",
+          "status": "partial",
+          "firstMissingBoundary": "identity678Ws",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-S2",
+            "reqId": "mrc-3280450ec1b087e5-g-s2-444:im_send_message:8",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "offline-sync-send"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "identity678Ws",
+            "helixProjection",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "offline-sync-send:identity678Ws"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-S3",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "heartbeat-gap-recovery",
+          "command": "im_send_message",
+          "gateId": "G-S3",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-S3",
+            "reqId": "mrc-6d1deefc3412c1f9-g-s3-444:im_send_message:10",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "heartbeat-gap-recovery"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-S4",
+      "status": "partial",
+      "firstMissingBoundary": "unknown-channel-hydration:identity678Ws",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "unknown-channel-hydration",
+          "command": "im_channel_load_increment_by_channel_id",
+          "gateId": "G-S4",
+          "status": "partial",
+          "firstMissingBoundary": "identity678Ws",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-S4",
+            "reqId": "mrc-96b099db6be973c6-g-s4:channel-increment:f1406859",
+            "channelId": "bjap3e7baib55naeesf7bj96xo",
+            "operationId": "unknown-channel-hydration"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "goRequest",
+            "goRemoteReadback",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "identity678Ws",
+            "goWs",
+            "helixProjection",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "unknown-channel-hydration:identity678Ws"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-01",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "send-text",
+          "command": "im_send_message",
+          "gateId": "G-01",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-01",
+            "reqId": "mrc-afcc852e64bb63a2-g-01-444:im_send_message:21",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "send-text"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-02",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "send-document",
+          "command": "im_send_message",
+          "gateId": "G-02",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-02",
+            "reqId": "mrc-32c27a45711eff52-g-02-444:im_send_message:22",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "send-document"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-04",
+      "status": "partial",
+      "firstMissingBoundary": "revoke-message:clientCommand",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "revoke-message",
+          "command": "im_revoke",
+          "gateId": "G-04",
+          "status": "partial",
+          "firstMissingBoundary": "clientCommand",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-04",
+            "reqId": "mrc-043a4337f19912fd-g-04:surface-action:31f5d2de",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "revoke-message"
+          },
+          "presentFacets": [
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientCommand",
+            "identity678Http",
+            "clientDom",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "revoke-message:clientCommand"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-04a",
+      "status": "partial",
+      "firstMissingBoundary": "offline-revoke-recovery:clientCommand",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "offline-revoke-recovery",
+          "command": "im_revoke",
+          "gateId": "G-04a",
+          "status": "partial",
+          "firstMissingBoundary": "clientCommand",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-04a",
+            "reqId": "mrc-f41d984b6ed8d870-g-04a:surface-action:ab796e9b",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "offline-revoke-recovery"
+          },
+          "presentFacets": [
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientCommand",
+            "identity678Http",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "offline-revoke-recovery:clientCommand"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-05",
+      "status": "partial",
+      "firstMissingBoundary": "forward-two-targets:clientCommand",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "forward-two-targets",
+          "command": "im_relay_messages",
+          "gateId": "G-05",
+          "status": "partial",
+          "firstMissingBoundary": "clientCommand",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-05",
+            "reqId": "mrc-64b44ddde989cb72-g-05:surface-action:deff7d60",
+            "channelId": "wieu3uks6pryjy3wg96habcrse",
+            "operationId": "forward-two-targets"
+          },
+          "presentFacets": [
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientCommand",
+            "identity678Http",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "forward-two-targets:clientCommand"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-06",
+      "status": "blocked",
+      "firstMissingBoundary": "clientDom:operation-coverage",
+      "reason": "operation-dom-coverage-missing",
+      "correlation": null,
+      "presentFacets": [],
+      "missingFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "operationCoverage": {
+        "expectedMissing": [
+          "data-reactions includes reaction",
+          "visible reaction text on both profiles"
+        ],
+        "negativeMissing": []
+      }
+    },
+    {
+      "gateId": "G-07",
+      "status": "partial",
+      "firstMissingBoundary": "mark-urgent:clientCommand",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "mark-urgent",
+          "command": "im_urgent_post",
+          "gateId": "G-07",
+          "status": "partial",
+          "firstMissingBoundary": "clientCommand",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-07",
+            "reqId": "mrc-6af9b012e4437215-g-07:surface-action:431fcff5",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "mark-urgent"
+          },
+          "presentFacets": [
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientCommand",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        },
+        {
+          "operationId": "confirm-urgent",
+          "command": "im_urgent_confirm",
+          "gateId": "G-07",
+          "status": "partial",
+          "firstMissingBoundary": "clientCommand",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-07",
+            "reqId": "mrc-6af9b012e4437215-g-07:surface-action:c0a855fb",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "confirm-urgent"
+          },
+          "presentFacets": [
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientCommand",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "mark-urgent:clientCommand"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-08",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "create-schedule",
+          "command": "im_create_schedule",
+          "gateId": "G-08",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-08",
+            "reqId": "mrc-2b94df36fc8b55b0-g-08-444:im_create_schedule:43",
+            "channelId": "bj3xwbbirty1bqmebbt5subuse",
+            "operationId": "create-schedule"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-09",
+      "status": "partial",
+      "firstMissingBoundary": "cancel-schedule:clientDom",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "create-schedule-prerequisite",
+          "command": "im_create_schedule",
+          "gateId": "G-09",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-09",
+            "reqId": "mrc-8031e75a07a11048-g-09-444:im_create_schedule:51",
+            "channelId": "7o3t3juzmfr55crtap98pb4pww",
+            "operationId": "create-schedule-prerequisite"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        },
+        {
+          "operationId": "cancel-schedule",
+          "command": "im_cancel_schedule",
+          "gateId": "G-09",
+          "status": "partial",
+          "firstMissingBoundary": "clientDom",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-09",
+            "reqId": "mrc-8031e75a07a11048-g-09-444:im_cancel_schedule:53",
+            "channelId": "7o3t3juzmfr55crtap98pb4pww",
+            "operationId": "cancel-schedule"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientDom",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "cancel-schedule:clientDom"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-10",
+      "status": "partial",
+      "firstMissingBoundary": "query-first-window:helixProjection",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "query-first-window",
+          "command": "__helix_request_surface_snapshot",
+          "gateId": "G-10",
+          "status": "partial",
+          "firstMissingBoundary": "helixProjection",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-10",
+            "reqId": "mrc-626aba814a94a5d8-g-10-678:__helix_request_surface_snapshot:34",
+            "channelId": "7o3t3juzmfr55crtap98pb4pww",
+            "operationId": "query-first-window"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "helixProjection",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "query-first-window:helixProjection"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-10a",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "load-older-context",
+          "command": "im_load_older_context",
+          "gateId": "G-10a",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-10a",
+            "reqId": "mrc-269e9fd79f894df9-g-10a-444:im_load_older_context:71",
+            "channelId": "3bqbokcxojg6drkp7udixd816y",
+            "operationId": "load-older-context"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-11",
+      "status": "partial",
+      "firstMissingBoundary": "locate-post:clientCommand",
+      "reason": "missing-facet",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "locate-post",
+          "command": "im_get_posts",
+          "gateId": "G-11",
+          "status": "partial",
+          "firstMissingBoundary": "clientCommand",
+          "reason": "missing-facet",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-11",
+            "reqId": "mrc-2cf04d1b6dbf3bb2-g-11:surface-action:bbeefb28",
+            "channelId": "7o3t3juzmfr55crtap98pb4pww",
+            "operationId": "locate-post"
+          },
+          "presentFacets": [
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientCommand",
+            "goWs",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "locate-post:clientCommand"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-12",
+      "status": "blocked",
+      "firstMissingBoundary": "clientDom:operation-coverage",
+      "reason": "operation-dom-coverage-missing",
+      "correlation": null,
+      "presentFacets": [],
+      "missingFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "operationCoverage": {
+        "expectedMissing": [
+          "引用动作把 source id 带入 composer 和新消息",
+          "目标消息回复摘要/计数随引用发送更新"
+        ],
+        "negativeMissing": []
+      }
+    },
+    {
+      "gateId": "G-13",
+      "status": "blocked",
+      "firstMissingBoundary": "clientDom:operation-coverage",
+      "reason": "operation-dom-coverage-missing",
+      "correlation": null,
+      "presentFacets": [],
+      "missingFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "operationCoverage": {
+        "expectedMissing": [
+          "444 回执从未读收敛为已读"
+        ],
+        "negativeMissing": []
+      }
+    },
+    {
+      "gateId": "G-14",
+      "status": "blocked",
+      "firstMissingBoundary": "clientDom:operation-coverage",
+      "reason": "operation-dom-coverage-missing",
+      "correlation": null,
+      "presentFacets": [],
+      "missingFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "operationCoverage": {
+        "expectedMissing": [
+          "444 消息行从 1人未读收敛到已读，带 snapshotId/version；678 不展示回执入口",
+          "回执面板按发送时快照展示已读/未读成员及 Ucenter 头像姓名部门职位"
+        ],
+        "negativeMissing": []
+      }
+    },
+    {
+      "gateId": "G-14a",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "confirm-template-received",
+          "command": "im_template_received",
+          "gateId": "G-14a",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-14a",
+            "reqId": "mrc-bfd42aaa1006ba60-g-14a-678:im_template_received:39",
+            "channelId": "7o3t3juzmfr55crtap98pb4pww",
+            "operationId": "confirm-template-received"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-15a",
+      "status": "green",
+      "firstMissingBoundary": null,
+      "reason": null,
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "create-444-to-678",
+          "command": "im_create_channel",
+          "gateId": "G-15a",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-15a",
+            "reqId": "mrc-3b0001ebe65f3905-g-15a-444:im_create_channel:98",
+            "channelId": "hyzk7p33gin15rzudmy1a7ip5w",
+            "operationId": "create-444-to-678"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        },
+        {
+          "operationId": "create-678-to-444",
+          "command": "im_create_channel",
+          "gateId": "G-15a",
+          "status": "green",
+          "firstMissingBoundary": null,
+          "reason": null,
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-15a",
+            "reqId": "mrc-3b0001ebe65f3905-g-15a-678:im_create_channel:41",
+            "channelId": "c3n6myzycpf49maqhx1qaamopo",
+            "operationId": "create-678-to-444"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker",
+        "identity678Http"
+      ]
+    },
+    {
+      "gateId": "G-15",
+      "status": "blocked",
+      "firstMissingBoundary": "clientDom:operation-coverage",
+      "reason": "operation-dom-coverage-missing",
+      "correlation": null,
+      "presentFacets": [],
+      "missingFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ],
+      "operationCoverage": {
+        "expectedMissing": [
+          "单击话题卡后 active channel 与消息区进入 topic channel"
+        ],
+        "negativeMissing": []
+      }
+    },
+    {
+      "gateId": "G-16",
+      "status": "blocked",
+      "firstMissingBoundary": "owner-close:driverResult",
+      "reason": "invalid-evidence",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "owner-close",
+          "command": "im_channel_close",
+          "gateId": "G-16",
+          "status": "blocked",
+          "firstMissingBoundary": "driverResult",
+          "reason": "invalid-evidence",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-16",
+            "reqId": "mrc-49dc1827f9069735-g-16-444:im_channel_close:126",
+            "channelId": "j6yxdicuujytmykq44inqecbtw",
+            "operationId": "owner-close"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [
+            "driverResult"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        },
+        {
+          "operationId": "member-leave",
+          "command": "im_channel_leave",
+          "gateId": "G-16",
+          "status": "blocked",
+          "firstMissingBoundary": "driverResult",
+          "reason": "invalid-evidence",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-16",
+            "reqId": "mrc-49dc1827f9069735-g-16-678:im_channel_leave:66",
+            "channelId": "o5iihwsbg7888jj9f5yi9mt35o",
+            "operationId": "member-leave"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [
+            "driverResult"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "owner-close:driverResult"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker",
+        "identity678Http"
+      ]
+    },
+    {
+      "gateId": "G-16b",
+      "status": "blocked",
+      "firstMissingBoundary": "member-leave-broadcast:driverResult",
+      "reason": "invalid-evidence",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "member-leave-broadcast",
+          "command": "im_channel_leave",
+          "gateId": "G-16b",
+          "status": "blocked",
+          "firstMissingBoundary": "driverResult",
+          "reason": "invalid-evidence",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-16b",
+            "reqId": "mrc-9385e8683e94fe05-g-16b-678:im_channel_leave:71",
+            "channelId": "et4dbowak3rrmy85an7j95udoc",
+            "operationId": "member-leave-broadcast"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "codeReference"
+          ],
+          "missingFacets": [
+            "clientDom",
+            "driverResult",
+            "noMockMarker"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "member-leave-broadcast:driverResult"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    },
+    {
+      "gateId": "G-16c",
+      "status": "blocked",
+      "firstMissingBoundary": "update-channel-settings:driverResult",
+      "reason": "invalid-evidence",
+      "correlation": null,
+      "operations": [
+        {
+          "operationId": "update-channel-settings",
+          "command": "im_channel_change_info",
+          "gateId": "G-16c",
+          "status": "blocked",
+          "firstMissingBoundary": "driverResult",
+          "reason": "invalid-evidence",
+          "correlation": {
+            "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+            "gateId": "G-16c",
+            "reqId": "mrc-f574cc0b836ea7a1-g-16c-444:im_channel_change_info:143",
+            "channelId": "4oru7mms57bijbu46akn71m4dy",
+            "operationId": "update-channel-settings"
+          },
+          "presentFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "codeReference",
+            "noMockMarker"
+          ],
+          "missingFacets": [
+            "driverResult"
+          ],
+          "requiredFacets": [
+            "clientCommand",
+            "identity444Http",
+            "identity444Ws",
+            "identity678Http",
+            "identity678Ws",
+            "goRequest",
+            "goWs",
+            "goRemoteReadback",
+            "helixProjection",
+            "helixLocalReadback",
+            "clientDom",
+            "driverResult",
+            "codeReference",
+            "noMockMarker"
+          ]
+        }
+      ],
+      "presentFacets": [],
+      "missingFacets": [
+        "update-channel-settings:driverResult"
+      ],
+      "requiredFacets": [
+        "clientCommand",
+        "identity444Http",
+        "identity444Ws",
+        "identity678Http",
+        "identity678Ws",
+        "goRequest",
+        "goWs",
+        "goRemoteReadback",
+        "helixProjection",
+        "helixLocalReadback",
+        "clientDom",
+        "driverResult",
+        "codeReference",
+        "noMockMarker"
+      ]
+    }
+  ],
+  "frameProtocol": {
+    "counters": {
+      "v1Frames": 0,
+      "v2Frames": 482,
+      "appliedV2Frames": 482,
+      "rawBusinessFallbacks": 0,
+      "frameAppliedAcks": 482
+    },
+    "pass": true
+  },
+  "artifactIsolation": {
+    "pass": true,
+    "failures": []
+  },
+  "rejectedEvidence": [
+    {
+      "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "gateId": "G-16",
+      "reqId": "mrc-49dc1827f9069735-g-16-444:im_channel_close:126",
+      "channelId": "j6yxdicuujytmykq44inqecbtw",
+      "operationId": "owner-close",
+      "facet": "driverResult",
+      "reason": "invalid-facet"
+    },
+    {
+      "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "gateId": "G-16",
+      "reqId": "mrc-49dc1827f9069735-g-16-678:im_channel_leave:66",
+      "channelId": "o5iihwsbg7888jj9f5yi9mt35o",
+      "operationId": "member-leave",
+      "facet": "driverResult",
+      "reason": "invalid-facet"
+    },
+    {
+      "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "gateId": "G-16b",
+      "reqId": "mrc-9385e8683e94fe05-g-16b-678:im_channel_leave:71",
+      "channelId": "et4dbowak3rrmy85an7j95udoc",
+      "operationId": "member-leave-broadcast",
+      "facet": "driverResult",
+      "reason": "invalid-facet"
+    },
+    {
+      "runId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "gateId": "G-16c",
+      "reqId": "mrc-f574cc0b836ea7a1-g-16c-444:im_channel_change_info:143",
+      "channelId": "4oru7mms57bijbu46akn71m4dy",
+      "operationId": "update-channel-settings",
+      "facet": "driverResult",
+      "reason": "invalid-facet"
+    }
+  ],
+  "scenarioStatuses": [
+    {
+      "gateId": "G-01",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-afcc852e64bb63a2-g-01",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-02",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-32c27a45711eff52-g-02",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-04",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-043a4337f19912fd-g-04",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-04a",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-f41d984b6ed8d870-g-04a",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-05",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-64b44ddde989cb72-g-05",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-06",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-e44cdec32b77a243-g-06",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-07",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-6af9b012e4437215-g-07",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-08",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-2b94df36fc8b55b0-g-08",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-09",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-8031e75a07a11048-g-09",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-10",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-626aba814a94a5d8-g-10",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-10a",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-269e9fd79f894df9-g-10a",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-11",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-2cf04d1b6dbf3bb2-g-11",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-12",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-de3c9494b2447253-g-12",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-13",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-2c7380aadbe54661-g-13",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-14",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-e52e13726cda0132-g-14",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-14a",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-bfd42aaa1006ba60-g-14a",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-15",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-54c910c481bbb57c-g-15",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-15a",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-3b0001ebe65f3905-g-15a",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-16",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-49dc1827f9069735-g-16",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-16b",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-9385e8683e94fe05-g-16b",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-16c",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-f574cc0b836ea7a1-g-16c",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-S1",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-773930cafaefde69-g-s1",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-S2",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-3280450ec1b087e5-g-s2",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-S3",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-6d1deefc3412c1f9-g-s3",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    },
+    {
+      "gateId": "G-S4",
+      "suiteRunId": "mrc-frame-v2-final-all-v1-deleted-1784892804",
+      "scenarioRunId": "mrc-96b099db6be973c6-g-s4",
+      "runtimeStatus": "pass",
+      "canonicalClaim": "green"
+    }
+  ]
+}

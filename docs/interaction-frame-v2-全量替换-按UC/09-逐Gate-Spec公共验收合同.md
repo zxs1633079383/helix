@@ -48,10 +48,16 @@ Gate 实现阶段应优先运行对应 feature spec/task 指定的 focused test�
 npm run message:command-api:gate
 npm run message:projection-ownership
 npm run message:surface-runtime:source-pin
-npm run message:ui:authority
-npm run message:ui:selector-contract
-npm run message:real-chain:doctor
+node scripts/message-ui/check-native-selector-compat.mjs \
+  --contract tests/e2e/contracts/message-v4-native-selector.contract.json \
+  --source src/pages/message-v4 \
+  --scenario tests/e2e/scenarios/uc01-16-surface-runtime.scenario.ts \
+  --strict-scenario
 ```
+
+`message:ui:authority` 与 `message:real-chain:doctor` 都不是无参 gate：前者需要旧
+numeric UC matrix/registry，后者需要具体 artifact。缺少输入时不执行，也不把 usage
+输出误记为 PASS。
 
 ### Native 与证据聚合
 
@@ -63,11 +69,11 @@ npm run message:real-chain:generate-matrix
 npm run message:real-chain:reduce
 ```
 
-`message:desktop:scenario:all` 当前仍需新增显式 25-Gate V2 profile，以及 `v1Frames`、`v2Frames`、`rawBusinessFallbacks` 和 `FrameApplied` 采集；能力未补齐前只能判 BLOCKED，不能判 V2 PASS。
+删除后验收使用 `message:desktop:scenario:v2-cutover` 的显式 25-Gate profile，并生成新的 candidate、seed root 与 evidence epoch。场景原生断言负责业务、UI、存储和协议判定；严格 facet reducer 保留为非阻断诊断，不能把缺面写成 Green。
 
 ### SCSS/CSS 与视觉
 
-当前没有独立的 SCSS/CSS 验收脚本。实施计划必须新增可执行 gate，至少覆盖：
+SCSS/CSS 验收必须执行 quickstart 固定的可执行 gate，至少覆盖：
 
 1. Sass/CSS 编译无错误；
 2. 本 Gate 目标组件样式实际载入；
@@ -88,5 +94,5 @@ npm run message:real-chain:reduce
 1. Gate 专属 Spec 的所有验收项有本轮证据；
 2. 公共证据面无缺失，actor/observer、PG、SQLite、Frame、DOM 与截图关联到同一 causation；
 3. V1 producer/consumer 和 raw fallback 在生产路径零命中；
-4. 首轮纯 V2 candidate 与物理删除 V1 后的新 candidate 均通过；
+4. 首轮纯 V2 candidate 已通过，物理删除 V1 后的新 candidate 也通过；
 5. 不以 HTTP 2xx、WS 入队、旧数据库行、单张截图或旧 017 Green 单独代替完成。

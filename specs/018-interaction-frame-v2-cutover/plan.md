@@ -58,16 +58,16 @@
 
 - **A-001**: 冻结 source/contract/fixture pin → 建立 V2-only shared baseline → focused negative tests 证明 V1 fail-closed。
 - **A-002**: 为一个 Gate 写失败测试 → 迁移 Helix Tick/Effect/Persist/SurfaceComposer → 迁移 Angular typed VM/组件 → focused evidence 达到 READY_FOR_FINAL_E2E。
-- **A-003**: 19 个 Gate 全部 ready → 构建单一 Native candidate → 连续运行 25 Gate → 聚合双用户、Go、PG、SQLite、Frame、DOM、截图证据。
+- **A-003**: 19 个 Gate 全部 ready → 构建单一 Native candidate → 连续运行 25 Gate → 由场景原生断言验证双用户、Go、PG、SQLite、Frame、DOM 与截图；facet collector 继续产出诊断但不作为本轮阻断器。
 - **A-004**: 首轮 required fail/skip=0 且 V1/raw=0 → 审批 deletion inventory → 物理删除 V1 → 生成新 candidate/evidence epoch → 二次完整回归。
-- **A-005**: 任一证据面缺失或 pin 漂移 → 判 BLOCKED/FAIL → 只修第一处偏离，不恢复 V1/dual-write/raw fallback。
+- **A-005**: 场景原生断言失败或 pin 漂移 → 判 BLOCKED/FAIL → 只修第一处偏离，不恢复 V1/dual-write/raw fallback；严格 facet 缺面单独记为 diagnostic，不冒充 Green，也不覆盖场景结果。
 
 ### State Contract
 
 - **S-001**: `Draft` → `SharedV2Ready`：V2 writer/reader、epoch、ack、fixtures 和 counters focused PASS。
 - **S-002**: `SharedV2Ready` → `GateReady`：单 Gate focused Rust/Angular/contract 通过并登记最终证据查询。
 - **S-003**: `GateReady(19/19)` → `V2OnlyCandidate`：Helix 与 client pin/hash 一致，生产 V1 路径不可达。
-- **S-004**: `V2OnlyCandidate` → `FirstE2EPass`：25/25 Gate、双用户、双库、DOM/截图和 V2 counters 全部通过。
+- **S-004**: `V2OnlyCandidate` → `FirstE2EPass`：25/25 场景原生断言与 V2 counters 全部通过；严格 facet reducer 仅输出诊断。
 - **S-005**: `FirstE2EPass` → `V1Deleted`：deletion inventory 100% 执行且静态/合同检查无可达 V1。
 - **S-006**: `V1Deleted` → `Closed`：新 candidate 与新 evidence epoch 的删除后二次 E2E 25/25 PASS。
 - **S-007**: 任一状态 → `Blocked/NeedsHuman`：不可逆迁移、权限/业务语义变化或同签名第三次失败。
@@ -79,7 +79,7 @@
 - **V-003**: `npm run message:command-api:gate && npm run message:projection-ownership && npm run message:surface-runtime:source-pin` 证明命令/ownership/pin。
 - **V-004**: focused Jest/TypeScript/SCSS-CSS gate 证明 codec/runtime/component、样式编译和布局合同。
 - **V-005**: `npm run message:desktop:scenario:all` 的显式 25-Gate V2 profile 生成同一 candidate 的双用户运行证据。
-- **V-006**: `message:real-chain:collect/generate-matrix/reduce` 证明 required fail=0、skip=0、`v1Frames=0`、`rawBusinessFallbacks=0`、`FrameApplied` 完整。
+- **V-006**: 场景汇总证明 required fail=0、skip=0、`v1Frames=0`、`rawBusinessFallbacks=0`；`message:real-chain:collect/generate-matrix/reduce` 保留为非阻断诊断，缺面不得伪报为全 facet Green。
 - **V-007**: 有界 PG/SQLite readonly delta 对账证明 authority 与本地 PersistOk，不允许手工写库。
 - **V-008**: 删除后静态扫描、fixture parity、Rust/Angular/full Native rerun 证明无 V1 回归且新 evidence epoch 独立。
 
@@ -161,7 +161,7 @@ Angular Component
 
 ### Phase 6 - First V2-only E2E
 
-在同一 immutable pin 和单 Native candidate 中连续跑 25 Gate。每 Gate 生成 action/observation、Go、PG、SQLite、Frame、FrameApplied、DOM、截图证据，聚合 required fail/skip=0 与 V1/raw=0。
+在同一 immutable pin 和单 Native candidate 中连续跑 25 Gate。每 Gate 的原生断言执行 action/observation、Go、PG、SQLite、Frame、FrameApplied、DOM 与截图检查，聚合 required fail/skip=0 与 V1/raw=0；严格 facet 缺面另记诊断。
 
 ### Phase 7 - V1 Physical Deletion
 

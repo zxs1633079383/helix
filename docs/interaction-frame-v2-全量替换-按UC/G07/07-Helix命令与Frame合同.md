@@ -39,4 +39,4 @@
 | directives | 仅 加急标识、确认人数与按钮权限 所需的 reveal、focus、clear 或 detach 语义 |
 | FrameApplied 条件 | 所有 mutation 校验并提交，directive 已按提交后顺序执行 |
 
-当前默认 V1 builder 仍位于 `/System/Volumes/Data/workspace/rust/helix/crates/helix-im/src/projector/mod.rs:159`；V2 recovery composer 位于 `/System/Volumes/Data/workspace/rust/helix/crates/helix-im/src/surface_composer.rs:32`。因此当前不能把正式类型缩写成未定义的“ActionFrame”。
+当前正式合同仅为 `InteractionFrameV2`：Helix commit `32e3a0659e4f29add1284be2ba1972eb28f0f938` 已物理删除 V1 type/codec/writer；客户端 commit `a4770d6d6` 仅消费 V2。`ActionInvocationEnvelope` 的独立 schema 版本不属于 Frame V1。

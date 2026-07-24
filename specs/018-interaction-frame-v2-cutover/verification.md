@@ -159,3 +159,142 @@ T021-T077 对应的生产实现与 RED/回放测试在本 Feature 创建前已�
 
 **Verdict**: `19/19 READY_FOR_FINAL_E2E`。下一硬门是 T079-T080 的首次
 `V2OnlyFirstRun`；在其 25/25 产品链证据全绿前，V1 deletion admission 仍为 DENY。
+
+## Phase 4 V2OnlyFirstRun Attempt
+
+**Window**: `2026-07-23T13:11:57.600Z` 至 `2026-07-23T13:13:08.516Z`
+
+| Item | Result | Evidence |
+|---|---|---|
+| isolated Native origin | PASS | desktop-e2e 从 `http://127.0.0.1:14201` 启动，Tauri event ACL 可用，启动阶段已观察 `__helix_frame_applied` |
+| correlation namespace | PASS | request id 从错误的 `<run>-444-444` 收口为 `<run>-444`；Go evidence 能按 exact reqId 命中 |
+| shared channel setup | PASS | `im_create_channel` HTTP 200；`channel_created` 对 444/678 均为 verified delivery；PG readback 有 channel + 两成员 |
+| G-S1 message transport | BLOCKED | `im_send_message` HTTP 200，但 Go body 等待 5s 后返回非 SUCCESS，未产生 `post` WS |
+| Frame/SQLite/DOM continuation | NOT RUN | 缺 exact `post` WS，fail-closed 停在 Go broadcast boundary，未把后续面伪记为通过 |
+
+原始输出：[V-005-native-first-run-blocked.json](evidence/V-005-native-first-run-blocked.json)，
+SHA-256 `11bb53b8a38fab14be7b3e79c86b847415c6d7b062d2be7850afe073078136e9`。
+双端 host 日志位于同一 candidate artifact root：
+`tests/e2e/.artifacts/mrc-frame-prereq-1784812304909/{444,678}/host.stdout.log`。
+
+Go 日志在同一时间窗给出：
+
+- `posts/create`：HTTP 200、146 bytes、`5.00072325s`，exact track id
+  `mrc-frame-prereq-1784812304909-444:im_send_message:3`。
+- Helix consumer：`posts/create reply status != SUCCESS, not advancing`。
+- 环境：`telepresence status` 为 User/Root daemon not running、Traffic Manager not connected；
+  x9/gRPC trace 报 `name resolver error: produced zero addresses`。
+
+已按 HX-C016 尝试 `telepresence connect`；本机 sudo 凭证不接受历史记录的四空格，
+因此未修改用户 GoLand 进程，也未继续执行会破坏证据边界的 25 Gate。cses-client
+修复提交为 `b37bc0eb2`，focused Jest 20/20、SurfaceRuntime 21/21、desktop TypeScript
+compile 和 Rust origin 单测 1/1 均通过。
+
+**Task verdict**:
+
+- T079：`BLOCKED_EXTERNAL`，尚未完成。
+- T080-T096：`PENDING`，不得标 `[X]`。
+- V1 deletion admission：`DENY`；T081-T084 不得提前执行。
+- after_implement R4：`BLOCKED`，原因 `evidence manifest has no PASS run`。
+
+## Phase 4 G-S3 Resume Attempt
+
+**Window**: `2026-07-23T09:28:08-07:00` 至约 `2026-07-23T09:30:24-07:00`
+
+| Item | Result | Evidence |
+|---|---|---|
+| Helix sync dialog readback | PASS | `2300059` 将每批全表 channel Scan 收敛为目标 channel Get；`cargo test -p helix-im` 全量退出码 0 |
+| Native candidate | PASS | cses-client pin `2300059`；`npm run message:desktop:build` 通过，耗时 1m25s |
+| G-S3 baseline command/Go | PASS | exact reqId `mrc-6e8aa0e7bb6f8073-g-s3-444:im_send_message:8`；Go post `iis1a6dsm7f8xgf474yrb5qjoh` |
+| remote PG readback | PASS | `public.post` 按 id/channel/marker 精确回读 1 行，`create_by=444` |
+| observer SQLite readback | PASS | channel `hn95kg8jybyg5r46c9yp6tn81r` 有 seq=2 baseline message；cursor=2；channel last_post 为同一 marker |
+| V2 authority counters | PARTIAL | `v1Frames=0`、`rawBusinessFallbacks=0`；`v2Frames=192`、`appliedV2Frames=181` |
+| observer DOM | BLOCKED | 失败截图显示 dialog preview 已是 baseline，但已选中内容区仍为“等待权威快照”，timeline message 未形成可断言 DOM |
+| heartbeat target phase | NOT RUN | baseline DOM setup fail-closed；场景未暂停 observer，也未发送目标 marker |
+
+本次 raw artifact：
+`tests/e2e/.artifacts/mrc-message-v4-1784824070406/scenarios/g-s3/result.json`。
+observer 失败截图：
+`tests/e2e/.artifacts/mrc-message-v4-1784824070406/678/scenarios/g-s3/failure-678.png`。
+
+失败账号的 observer SQLite 当前有 `1274` 个 channel。启动恢复仍产生大量逐 channel
+dialog V2 patch；虽已消除逐批全表 Scan，但 SurfaceRuntime 只应用 `181/192` 个采样
+Frame，最终 timeline authority snapshot 没有到达 DOM。G-S3 场景同时已修正为记录
+baseline reqId，并要求目标 `im_send_message` 排除该 reqId，避免再次把 baseline 当成
+目标发送证据。
+
+**Task verdict**:
+
+- T079：仍为 `BLOCKED_RUNTIME`，首个 Red Gate 为 G-S3 `dom-projection`。
+- T080-T096：保持 `PENDING`；不得生成 25/25 或删除 V1。
+- V1 deletion admission：继续 `DENY`。
+- 下一步：按 loop engine `event_seq=20` 进入 `speckit-converge`，把恢复批次 Frame
+  洪峰与 timeline authority 未消费补成新的 append-only convergence tasks。
+
+## Phase 6 Post-deletion Final Run
+
+**Window**: `2026-07-24T11:10:51.410-07:00` 至 `2026-07-24T11:16:17.298-07:00`
+
+| Item | Result | Evidence |
+|---|---|---|
+| candidate identity | PASS | Helix `57d2ddab8c8095877a769988751ebefff61bddfb`；cses-client `846afd3fa`；Go `3f43d28`；candidate `frame-v2-post-v1-delete-57d2ddab-846afd3fa-go-3f43d28` |
+| evidence epoch / isolation | PASS | epoch `post-v1-delete`；run `mrc-frame-v2-final-25-1784891421`；reducer `artifactIsolation.pass=true` |
+| Helix V1 physical deletion | PASS | V1 contract、producer、writer 与兼容入口已物理删除；`cargo test -p helix-im` 全量通过 |
+| cses-client V1 physical deletion | PASS | V1 consumer、normalizer 与兼容分支已物理删除；Native transport 4/4、focused Jest、build 与 sync contract 通过 |
+| focused regression | PASS | desktop UC 3 suites / 22 tests；SCSS/CSS style gate；strict contract 与四仓 pin lock 全部通过 |
+| second Native run | PASS | GS1-4、G1-2、G4-16 共 25 个场景，runtime 25/25 PASS，canonical 25/25 Green，fail=0，skip=0 |
+| V2-only protocol | PASS | `v1Frames=0`、`rawBusinessFallbacks=0`、`v2Frames=478`、`appliedV2Frames=478`、`frameAppliedAcks=478` |
+| ordered evidence digest | PASS | 25 个 `result.json` 有序 hash-list SHA256 `3c37df02f80072d4b9769a9e5c0b0167686b0251a52cfcced1e70f435c88c136` |
+| dual-account visual evidence | PASS | G01 账号 444 截图 SHA256 `c165e5a0d140fac939c0e4ce9bf02cc932a7e19b8d93cc7d46abb4d7357e3517`；账号 678 截图 SHA256 `4e93cb9b59831bb66189fed1649f85b1342938c99b2913818b920dc435c073e2` |
+| dual-end/storage evidence | PASS | 场景原生断言逐项关联 Go/Helix/client 日志、真实 profile SQLite 与远端 PG；25 个 `result.json` 全部判定 PASS |
+| strict facet reducer | DIAGNOSTIC | 7 Green / 10 Partial / 8 Blocked；`frameProtocol.pass=true`。依用户明确验收口径，该统计只诊断 facet schema/correlation，不覆盖场景原生断言 verdict |
+
+最终命令使用 `CSES_E2E_PROFILE_SEED_ROOT=<post-v1-synced-profile-root>` 作为真实 SQLite
+启动输入；它不继承旧 run 的 `result.json`、evidence verdict 或 reducer 结果。删除后 run
+使用独立 artifact root：
+
+`/System/Volumes/Data/workspace/angular/cses-client/worktrees/018-interaction-frame-v2-cutover/tests/e2e/.artifacts/mrc-frame-v2-final-25-1784891421`
+
+本轮修复了三处 Native harness 问题：重启后的 profile/correlation 顺序、初始 sync
+必须同时具备 ready Frame 与非空 dialog、G02 actor DOM 使用服务端权威 message id。
+同时确认旧 Go 进程仍要求 legacy `users`，当前 Go `3f43d28` 的 canonical create
+请求使用 `userIds`；重编当前源码后 targeted G-S1/G02/G08/G09 与全量 25 场景均通过。
+
+远端链路未依赖 Telepresence：Go、PG、Pulsar、ES 与 Paas 使用 staging NodePort，
+本地独立 Redis 仅承载当前候选运行态。账号口令未写入文档或 artifact 索引。
+
+**Final verdict**: `CLOSED`。T092-T096 完成；V1 已下线且删除后 Native 25/25、
+V2-only counters 与后续 focused regression 均通过。
+
+## Phase 7 Final Capability Residual Removal
+
+Phase 6 后的 convergence 生产源码扫描发现 `helix_capabilities.features` 仍宣告
+`leftDialogListFrameV1=true`。它没有消费方，但仍属于生产 ABI 的 V1 残留，因此在
+Helix `32e3a0659e4f29add1284be2ba1972eb28f0f938` 中物理删除，并把 cses-client
+四个 Helix crate pin、Cargo lock 与生成合同统一更新到该 revision。
+
+**Window**: `2026-07-24T11:33:53.072-07:00` 至 `2026-07-24T11:39:13.901-07:00`
+
+| Item | Result | Evidence |
+|---|---|---|
+| final candidate | PASS | `frame-v2-post-all-v1-delete-32e3a065-client-pin`；epoch `post-all-v1-delete` |
+| pinned source identity | PASS | Helix `32e3a0659e4f29add1284be2ba1972eb28f0f938`；cses-client `a4770d6d62a1124e29b2ea08d10ebb3017bd8889`；Go `3f43d28` |
+| final suite | PASS | `mrc-frame-v2-final-all-v1-deleted-1784892804`；单一 topology 连续执行 25 场景 |
+| scene-native verdict | PASS | runtime 25/25 PASS；canonical 25/25 Green；fail=0；skip=0 |
+| final V2-only protocol | PASS | `v1Frames=0`、`rawBusinessFallbacks=0`、`v2Frames=482`、`appliedV2Frames=482`、`frameAppliedAcks=482` |
+| artifact isolation | PASS | reducer `artifactIsolation.pass=true`，failure=0 |
+| strict facet diagnostic | DIAGNOSTIC | 7 Green / 10 Partial / 8 Blocked；不覆盖场景原生 verdict |
+| final G01 screenshots | PASS | 444 SHA256 `292451a56b029a20037a437f572f5935b6927fd9e425b5a40339102473fdab7a`；678 SHA256 `d3584782ca6aa67db79e31157509ad9fed1a263d1fa67f2b05e10260f7e8ad30` |
+| final pin/contracts | PASS | Native build、strict contract、surface-runtime source pin 与 Cargo lock 均匹配 `32e3a065` |
+| final V1 static scan | PASS | 生产源码 `InteractionFrameV1`、`FrameV1`、`leftDialogListFrameV1`、`normalizeLegacyFrame`、`rawBusinessFallback` 均为 0 命中 |
+
+最终 artifact root：
+
+`/System/Volumes/Data/workspace/angular/cses-client/worktrees/018-interaction-frame-v2-cutover/tests/e2e/.artifacts/mrc-frame-v2-final-all-v1-deleted-1784892804`
+
+首次尝试因漏传 desktop-e2e 专用 `CSES_E2E_IM_HOST`，Native 按编译期地址连接并
+fail-closed；补齐该真实 Go host 后先跑 G-S1 smoke，再完成上表 25/25。失败尝试没有
+进入最终 evidence manifest。
+
+**Final verdict**: `CLOSED`。所有 InteractionFrame V1 生产/消费/能力声明均已物理删除，
+最终 pin 候选删除后再次通过 Native 25/25 与 V2-only counters。

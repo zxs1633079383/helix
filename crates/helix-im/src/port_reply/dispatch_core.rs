@@ -151,6 +151,13 @@ impl ImModule {
                     .state
                     .recovery_session
                     .is_collecting_for(self.config.auth_user_id.as_str());
+                let recovery_channel_attached = recovery_active
+                    && self.state.timeline_projector.is_attached(
+                        &crate::interaction_frame::SurfaceScope::Timeline {
+                            channel_id: channel_id.as_str().to_string(),
+                            window_token: "latest".to_string(),
+                        },
+                    );
                 for bytes in pending_domain_events {
                     out.push(Effect::Emit {
                         event: helix_core::effect::DomainEventBytes(bytes::Bytes::from(bytes)),
@@ -158,8 +165,10 @@ impl ImModule {
                 }
                 // PersistAtomic is a write-only barrier. Read back only the affected
                 // channel row so the attached dialog preview observes committed data
-                // without turning each recovery batch into a full-list scan.
-                if !recovery_active
+                // without turning each recovery batch into a full-list scan. During
+                // recovery, only the currently attached channel may bypass the final
+                // authority snapshot; this keeps the work bounded by visible surfaces.
+                if (!recovery_active || recovery_channel_attached)
                     && !pong_batch_active
                     && self.state.dialog_list_frame.scope().is_some()
                 {
@@ -493,6 +502,92 @@ mod tests {
             .expect("committed recipient batch schedules its render readback");
 
         assert!(out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+    }
+
+    #[test]
+    fn recovery_batch_reads_back_only_the_attached_channel_dialog_row() {
+        let mut module = ImModule::new(crate::module::ImConfig {
+            auth_user_id: "observer".to_string(),
+            company_id: "team".to_string(),
+            ..crate::module::ImConfig::default()
+        });
+        let attached_id = ChannelId::from_str("ch00000000000000000000000a").unwrap();
+        let background_id = ChannelId::from_str("ch00000000000000000000000b").unwrap();
+        let attached_scope = crate::interaction_frame::SurfaceScope::Timeline {
+            channel_id: attached_id.as_str().to_string(),
+            window_token: "latest".to_string(),
+        };
+        module
+            .state
+            .timeline_projector
+            .register_attachment(&attached_scope);
+        module.state.dialog_list_frame.snapshot(
+            crate::dialog_frame::DialogListScope::new("observer", "team"),
+            Vec::new(),
+        );
+        module.state.recovery_session.begin("observer");
+
+        let pending_patch = |channel_id| PendingDialogPatch {
+            channel_id,
+            event_seq: 1,
+            msg_id: "msg-1".to_string(),
+            fields: crate::sync_session::PostFields::default(),
+            update: crate::channel_write::PostChannelUpdate {
+                channel_id,
+                unread_delta: 1,
+                unread_post_id: Some("msg-1".to_string()),
+                last_post: "{}".to_string(),
+                has_schedule_post: false,
+                msg_create_at: 1,
+                visible: true,
+                sender_user_id: "actor".to_string(),
+                post_id: "msg-1".to_string(),
+                last_message: "recovered".to_string(),
+                mentions: Vec::new(),
+                urgent_user_ids: Vec::new(),
+                mention_hit: false,
+                urgent_hit: false,
+            },
+            source: "sync_events".to_string(),
+            causation_id: None,
+        };
+
+        let mut attached_out = EffectSink::new();
+        module
+            .handle_channel_persist_reply(
+                helix_core::Correlation::from_raw(7),
+                attached_id,
+                SyncTrigger::Routine,
+                false,
+                vec![pending_patch(attached_id)],
+                Vec::new(),
+                &PortOutcome::Ok(helix_core::tick::ReplyBytes(bytes::Bytes::new())),
+                &mut attached_out,
+            )
+            .expect("attached recovery channel schedules a bounded dialog readback");
+
+        let mut background_out = EffectSink::new();
+        module
+            .handle_channel_persist_reply(
+                helix_core::Correlation::from_raw(8),
+                background_id,
+                SyncTrigger::Routine,
+                false,
+                vec![pending_patch(background_id)],
+                Vec::new(),
+                &PortOutcome::Ok(helix_core::tick::ReplyBytes(bytes::Bytes::new())),
+                &mut background_out,
+            )
+            .expect("background recovery channel stays coalesced");
+
+        assert!(attached_out
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })));
+        assert!(!background_out
             .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::Persist { .. })));

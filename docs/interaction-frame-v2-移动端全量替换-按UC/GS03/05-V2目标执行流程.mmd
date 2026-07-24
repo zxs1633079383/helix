@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：`pong.gaps`"] --> B["读取 `message.left-dialog-list`、`message.unread-summary`、`message.timeline` 完整 VM"]
+  B --> C["Frame 内 `Inbound` + `Timer`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`sync_request`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`"]
+  I --> J["WS/PortReply：`pong.data` 固定包含 `text=pong`，对账时可含 `gaps:[{channelId,fromSeq,maxSeq}]` 与 `hashMismatch`；普通 pong 可只有 `text`。随后触发的 HTTP `/channel/sync/notify` 本身不产生业务 WS；并发 `post` / `posts_update` / `increment_channel_end` 不得替代补偿 HTTP、本地持久化或最终投影"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `channel_event_cursor`、`message`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.left-dialog-list`、`message.unread-summary`、`message.timeline`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 InteractionRuntimeVm + 受影响 Surface VM"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：补偿期间显示同步状态但不清空旧视图；合法补偿提交后只刷新受影响 Surface"]
+  S --> T["FrameApplied / directive ack / action terminal"]

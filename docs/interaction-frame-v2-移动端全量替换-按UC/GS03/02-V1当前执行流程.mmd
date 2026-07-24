@@ -1,0 +1,12 @@
+flowchart TD
+  A["`pong.gaps`"] --> B["im.sync.channels"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_sync_channels`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`"]
+  F --> G["`pong.data` 固定包含 `text=pong`，对账时可含 `gaps:[{channelId,fromSeq,maxSeq}]` 与 `hashMismatch`；普通 pong 可只有 `text`。随后触发的 HTTP `/channel/sync/notify` 本身不产生业务 WS；并发 `post` / `posts_update` / `increment_channel_end` 不得替代补偿 HTTP、本地持久化或最终投影"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：补偿期间显示同步状态但不清空旧视图；合法补偿提交后只刷新受影响 Surface"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

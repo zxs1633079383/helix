@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.channel-summary`、`message.left-dialog-list`、`message.composer`、`message.member-roster`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 关闭、退出或保存设置
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    设置保存后频道头、会话行和成员相关权限按 expectedVersion 原子更新
+  end note

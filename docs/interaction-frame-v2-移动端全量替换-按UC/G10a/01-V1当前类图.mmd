@@ -1,0 +1,16 @@
+classDiagram
+  class QuickJSPage["Venus QuickJS：im.posts.queryMessagesByChannel / im.posts.loadOlderContext"]
+  class VenusApi["VenusImApi / registrar"]
+  class Driver["HelixImDriverRuntime"]
+  class FFI["helix_command / on_domain_events_batch"]
+  class Helix["当前 Helix command：im_query_messages_by_channel / im_load_older_context"]
+  class RawEvent["V1 raw DomainEvent / projection"]
+  class Listener["im.on / MobileImSdk legacy reducer"]
+  class PageState["JS/C++ 自建 UI 状态：围绕锚点补齐 before context，整窗提交后保持锚点位置，失败不破坏当前窗口"]
+  QuickJSPage --> VenusApi
+  VenusApi --> Driver
+  Driver --> FFI
+  FFI --> Helix
+  Helix --> RawEvent
+  RawEvent --> Listener
+  Listener --> PageState

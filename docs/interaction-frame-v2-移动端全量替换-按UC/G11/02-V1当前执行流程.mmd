@@ -1,0 +1,12 @@
+flowchart TD
+  A["请求定位 `postId`"] --> B["im.posts.locate"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_get_posts`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["本地优先；远端可用 `POST /api/cses/posts/get` body `{postIds:[...]}` / `posts/postContext`"]
+  F --> G["无"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：目标窗口提交后执行 RevealMessage，目标不存在或失败时不移动当前滚动位置"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

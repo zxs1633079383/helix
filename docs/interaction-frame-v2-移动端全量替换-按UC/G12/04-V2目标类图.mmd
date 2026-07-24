@@ -1,0 +1,25 @@
+classDiagram
+  class Page["Venus QuickJS page"]
+  class ReadonlySurface["im.surface.view / pending"]
+  class HostAction["host-owned ActionBinding(open_reply_tree/reply) invoke"]
+  class MobileSdk["MobileImSdk"]
+  class SurfaceRuntime["SurfaceRuntime"]
+  class CoreBridge["CoreBridge / FFI"]
+  class HelixAuthority["Helix V2 authority：`im_get_replies` / `im_get_reply_branch`"]
+  class Frame["InteractionFrameV2 schemaVersion=2"]
+  class Mutations["`message.thread-detail`、`message.timeline`"]
+  class Vm["ThreadDetailVm + TimelineWindowVm"]
+  class Ack["FrameApplied / ActionReceipt / resync"]
+  Page --> ReadonlySurface
+  ReadonlySurface --> HostAction
+  HostAction --> MobileSdk
+  MobileSdk --> SurfaceRuntime
+  MobileSdk --> CoreBridge
+  CoreBridge --> HelixAuthority
+  HelixAuthority --> Frame
+  Frame *-- Mutations
+  Mutations *-- Vm
+  Frame --> SurfaceRuntime
+  SurfaceRuntime --> ReadonlySurface
+  SurfaceRuntime --> Ack
+  Ack --> CoreBridge

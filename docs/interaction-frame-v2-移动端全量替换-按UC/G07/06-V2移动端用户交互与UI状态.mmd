@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.timeline`、`message.participant-receipts`、`message.unread-summary`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 发起加急或点击确认
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    加急标识、确认人数、目标列表与按钮权限一致，actor/observer 视图按权限分离
+  end note

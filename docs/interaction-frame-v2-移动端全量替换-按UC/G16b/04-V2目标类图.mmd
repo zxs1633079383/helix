@@ -1,0 +1,27 @@
+classDiagram
+  class Page["Venus QuickJS page"]
+  class ReadonlySurface["im.surface.view / pending"]
+  class HostAction["host-owned ActionBinding(close/leave/settings) invoke"]
+  class GateRole["G16b：channel_leave 成员退出"]
+  class MobileSdk["MobileImSdk"]
+  class SurfaceRuntime["SurfaceRuntime"]
+  class CoreBridge["CoreBridge / FFI"]
+  class HelixAuthority["Helix V2 authority：`im_channel_close` / `im_channel_leave` / `im_channel_change_info`"]
+  class Frame["InteractionFrameV2 schemaVersion=2"]
+  class Mutations["`message.channel-summary`、`message.left-dialog-list`、`message.composer`、`message.member-roster`"]
+  class Vm["ChannelSummaryVm + DialogListVm + ComposerVm + MemberRosterVm"]
+  class Ack["FrameApplied / ActionReceipt / resync"]
+  Page --> ReadonlySurface
+  ReadonlySurface --> HostAction
+  GateRole --> HostAction
+  HostAction --> MobileSdk
+  MobileSdk --> SurfaceRuntime
+  MobileSdk --> CoreBridge
+  CoreBridge --> HelixAuthority
+  HelixAuthority --> Frame
+  Frame *-- Mutations
+  Mutations *-- Vm
+  Frame --> SurfaceRuntime
+  SurfaceRuntime --> ReadonlySurface
+  SurfaceRuntime --> Ack
+  Ack --> CoreBridge

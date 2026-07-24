@@ -1,0 +1,12 @@
+flowchart TD
+  A["连接建立与 `hello`"] --> B["im.sync.dialogList"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_query_dialog_list`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/channels/load/increment` body `{timestamp,cursors:[{channelId,fromSeq}]}`；单频道 `POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`"]
+  F --> G["`hello` 建立连接；零个或多个 `increment_channel.data` 承载频道快照，服务端水位读取成功时包含 `lastEventSeq`，根群 cursor 对账时包含 `needSync`；同一连接最后收到 `increment_channel_end` 只证明该批 WS 入队结束，不证明本地持久化或最终投影完成"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：连接完成后，会话列表与未读摘要一次出现；连接受理不能显示为空列表成功"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

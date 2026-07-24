@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：发起加急或点击确认"] --> B["读取 `message.timeline`、`message.participant-receipts`、`message.unread-summary` 完整 VM"]
+  B --> C["Frame 内 `ActionBinding(urgent/urgent_confirm)`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`http_write`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/posts/urgentPost` body `{channelId,postId,targetIds,message?}`；`POST /api/cses/posts/urgentConfirm` body `{postId,channelId}`"]
+  I --> J["WS/PortReply：`post_update`, `update_channel`"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `message`、`message_receipt`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.timeline`、`message.participant-receipts`、`message.unread-summary`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 TimelineWindowVm + ParticipantReceiptsVm + UnreadSummaryVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：加急标识、确认人数、目标列表与按钮权限一致，actor/observer 视图按权限分离"]
+  S --> T["FrameApplied / directive ack / action terminal"]

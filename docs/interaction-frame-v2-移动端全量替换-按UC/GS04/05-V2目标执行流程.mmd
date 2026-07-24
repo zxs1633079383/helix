@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：选择频道或未知 `channelId`"] --> B["读取 `message.channel-summary`、`message.composer`、`message.timeline` 完整 VM"]
+  B --> C["Frame 内 `HostObservation`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`http_read`、`storage_upsert`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`"]
+  I --> J["WS/PortReply：无直接 WS；后续可能收到 `increment_channel`"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `channel`、`channel_member`、`message`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.channel-summary`、`message.composer`、`message.timeline`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 ChannelSummaryVm + ComposerVm + TimelineWindowVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：未知频道加载成功后频道头、输入区和时间线同时可用；失败时保留原频道"]
+  S --> T["FrameApplied / directive ack / action terminal"]

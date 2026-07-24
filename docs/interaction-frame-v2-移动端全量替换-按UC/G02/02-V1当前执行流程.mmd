@@ -1,0 +1,12 @@
+flowchart TD
+  A["选择文档内容并提交"] --> B["im.send"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_send_message`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage="【文档】 http://doc.cses7.com/doc/abc123"`，`props.document={version:1,url:"http://doc.cses7.com/doc/abc123",title:"打开文档",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}`"]
+  F --> G["`post`"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：文档消息显示文档卡片、发送状态和失败后的输入恢复，不由 JS 解读 document props"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

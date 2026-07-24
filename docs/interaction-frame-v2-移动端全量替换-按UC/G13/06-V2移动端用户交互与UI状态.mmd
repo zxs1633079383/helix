@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.left-dialog-list`、`message.unread-summary`、`message.timeline`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 频道可见或点击已读
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    会话未读数、频道已读边界和时间线读态同帧变化，重复可见观察幂等
+  end note

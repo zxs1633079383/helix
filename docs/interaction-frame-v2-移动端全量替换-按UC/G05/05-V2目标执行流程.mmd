@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：选择目标并提交转发"] --> B["读取 `message.timeline`、`message.left-dialog-list`、`message.composer` 完整 VM"]
+  B --> C["Frame 内 `ActionBinding(forward)`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`storage_read`、`http_write`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/posts/createPosts` body `{posts:[Post...],channelIds:[...]}`"]
+  I --> J["WS/PortReply：`post` per target channel"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `message`、`channel`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.timeline`、`message.left-dialog-list`、`message.composer`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 源/目标 TimelineWindowVm + DialogListVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：每个目标频道独立呈现转发终态，源频道与失败目标不被假成功覆盖"]
+  S --> T["FrameApplied / directive ack / action terminal"]

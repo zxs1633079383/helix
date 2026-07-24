@@ -1,0 +1,25 @@
+classDiagram
+  class Page["Venus QuickJS page"]
+  class ReadonlySurface["im.surface.view / pending"]
+  class HostAction["host-owned HostObservation invoke"]
+  class MobileSdk["MobileImSdk"]
+  class SurfaceRuntime["SurfaceRuntime"]
+  class CoreBridge["CoreBridge / FFI"]
+  class HelixAuthority["Helix V2 authority：`im_query_dialog_list`"]
+  class Frame["InteractionFrameV2 schemaVersion=2"]
+  class Mutations["`message.left-dialog-list`、`message.unread-summary`"]
+  class Vm["DialogListVm + UnreadSummaryVm"]
+  class Ack["FrameApplied / ActionReceipt / resync"]
+  Page --> ReadonlySurface
+  ReadonlySurface --> HostAction
+  HostAction --> MobileSdk
+  MobileSdk --> SurfaceRuntime
+  MobileSdk --> CoreBridge
+  CoreBridge --> HelixAuthority
+  HelixAuthority --> Frame
+  Frame *-- Mutations
+  Mutations *-- Vm
+  Frame --> SurfaceRuntime
+  SurfaceRuntime --> ReadonlySurface
+  SurfaceRuntime --> Ack
+  Ack --> CoreBridge

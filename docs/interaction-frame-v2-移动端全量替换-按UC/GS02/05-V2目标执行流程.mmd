@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：`sync notify` 入站"] --> B["读取 `message.left-dialog-list`、`message.unread-summary`、`message.timeline` 完整 VM"]
+  B --> C["Frame 内 `Inbound`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`sync_request`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/channel/sync/notify` body `{cursors:[{channelId,fromSeq}]}`，单次最多 500 个 cursor"]
+  I --> J["WS/PortReply：HTTP `/channel/sync/notify` 本身不产生业务 WS；在线并发的 `post` / `posts_update` / `increment_channel_end` 必须作为独立 transport evidence，不能替代 HTTP entries、本地持久化或最终投影"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `channel_event_cursor`、`message`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.left-dialog-list`、`message.unread-summary`、`message.timeline`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 恢复运行态与受影响完整 VM"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：恢复期间保留最后一致视图，提交后会话、未读和受影响时间线同帧更新"]
+  S --> T["FrameApplied / directive ack / action terminal"]

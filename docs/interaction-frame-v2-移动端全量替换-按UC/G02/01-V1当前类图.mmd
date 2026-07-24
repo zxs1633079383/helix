@@ -1,0 +1,16 @@
+classDiagram
+  class QuickJSPage["Venus QuickJS：im.send"]
+  class VenusApi["VenusImApi / registrar"]
+  class Driver["HelixImDriverRuntime"]
+  class FFI["helix_command / on_domain_events_batch"]
+  class Helix["当前 Helix command：im_send_message"]
+  class RawEvent["V1 raw DomainEvent / projection"]
+  class Listener["im.on / MobileImSdk legacy reducer"]
+  class PageState["JS/C++ 自建 UI 状态：文档消息显示文档卡片、发送状态和失败后的输入恢复，不由 JS 解读 document props"]
+  QuickJSPage --> VenusApi
+  VenusApi --> Driver
+  Driver --> FFI
+  FFI --> Helix
+  Helix --> RawEvent
+  RawEvent --> Listener
+  Listener --> PageState

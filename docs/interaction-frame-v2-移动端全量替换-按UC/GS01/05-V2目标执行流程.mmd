@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：连接建立与 `hello`"] --> B["读取 `message.left-dialog-list`、`message.unread-summary` 完整 VM"]
+  B --> C["Frame 内 `HostObservation`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`local_scan`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/channels/load/increment` body `{timestamp,cursors:[{channelId,fromSeq}]}`；单频道 `POST /api/cses/channel/load/incrementByChannelId` body `{channelId}`"]
+  I --> J["WS/PortReply：`hello` 建立连接；零个或多个 `increment_channel.data` 承载频道快照，服务端水位读取成功时包含 `lastEventSeq`，根群 cursor 对账时包含 `needSync`；同一连接最后收到 `increment_channel_end` 只证明该批 WS 入队结束，不证明本地持久化或最终投影完成"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `channel`、`channel_member`、`channel_event_cursor`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.left-dialog-list`、`message.unread-summary`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 DialogListVm + UnreadSummaryVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：连接完成后，会话列表与未读摘要一次出现；连接受理不能显示为空列表成功"]
+  S --> T["FrameApplied / directive ack / action terminal"]

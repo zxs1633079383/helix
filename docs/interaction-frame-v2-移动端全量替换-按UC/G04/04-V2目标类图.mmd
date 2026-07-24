@@ -1,0 +1,27 @@
+classDiagram
+  class Page["Venus QuickJS page"]
+  class ReadonlySurface["im.surface.view / pending"]
+  class HostAction["host-owned ActionBinding(revoke) / Inbound invoke"]
+  class GateRole["G04 actor：主动提交撤回并等待 receipt"]
+  class MobileSdk["MobileImSdk"]
+  class SurfaceRuntime["SurfaceRuntime"]
+  class CoreBridge["CoreBridge / FFI"]
+  class HelixAuthority["Helix V2 authority：`im_revoke`"]
+  class Frame["InteractionFrameV2 schemaVersion=2"]
+  class Mutations["`message.timeline`、`message.thread-detail`、`message.left-dialog-list`"]
+  class Vm["TimelineWindowVm + ThreadDetailVm + DialogListVm"]
+  class Ack["FrameApplied / ActionReceipt / resync"]
+  Page --> ReadonlySurface
+  ReadonlySurface --> HostAction
+  GateRole --> HostAction
+  HostAction --> MobileSdk
+  MobileSdk --> SurfaceRuntime
+  MobileSdk --> CoreBridge
+  CoreBridge --> HelixAuthority
+  HelixAuthority --> Frame
+  Frame *-- Mutations
+  Mutations *-- Vm
+  Frame --> SurfaceRuntime
+  SurfaceRuntime --> ReadonlySurface
+  SurfaceRuntime --> Ack
+  Ack --> CoreBridge

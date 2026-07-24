@@ -1,0 +1,27 @@
+classDiagram
+  class Page["Venus QuickJS page"]
+  class ReadonlySurface["im.surface.view / pending"]
+  class HostAction["host-owned HostObservation / ActionBinding(load_older) invoke"]
+  class GateRole["G10a：sync gap before-context repair"]
+  class MobileSdk["MobileImSdk"]
+  class SurfaceRuntime["SurfaceRuntime"]
+  class CoreBridge["CoreBridge / FFI"]
+  class HelixAuthority["Helix V2 authority：`im_query_messages_by_channel` / `im_load_older_context`"]
+  class Frame["InteractionFrameV2 schemaVersion=2"]
+  class Mutations["`message.timeline`"]
+  class Vm["TimelineWindowVm"]
+  class Ack["FrameApplied / ActionReceipt / resync"]
+  Page --> ReadonlySurface
+  ReadonlySurface --> HostAction
+  HostAction --> GateRole
+  HostAction --> MobileSdk
+  MobileSdk --> SurfaceRuntime
+  MobileSdk --> CoreBridge
+  CoreBridge --> HelixAuthority
+  HelixAuthority --> Frame
+  Frame *-- Mutations
+  Mutations *-- Vm
+  Frame --> SurfaceRuntime
+  SurfaceRuntime --> ReadonlySurface
+  SurfaceRuntime --> Ack
+  Ack --> CoreBridge

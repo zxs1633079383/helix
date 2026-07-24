@@ -1,0 +1,16 @@
+classDiagram
+  class QuickJSPage["Venus QuickJS：im.posts.urgentPost / im.posts.urgentConfirm"]
+  class VenusApi["VenusImApi / registrar"]
+  class Driver["HelixImDriverRuntime"]
+  class FFI["helix_command / on_domain_events_batch"]
+  class Helix["当前 Helix command：im_urgent_post / im_urgent_confirm"]
+  class RawEvent["V1 raw DomainEvent / projection"]
+  class Listener["im.on / MobileImSdk legacy reducer"]
+  class PageState["JS/C++ 自建 UI 状态：加急标识、确认人数、目标列表与按钮权限一致，actor/observer 视图按权限分离"]
+  QuickJSPage --> VenusApi
+  VenusApi --> Driver
+  Driver --> FFI
+  FFI --> Helix
+  Helix --> RawEvent
+  RawEvent --> Listener
+  Listener --> PageState

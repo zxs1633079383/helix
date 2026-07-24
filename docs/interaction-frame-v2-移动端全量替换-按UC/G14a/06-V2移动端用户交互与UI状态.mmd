@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.participant-receipts`、`message.timeline`、`message.thread-detail`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 单条可见、打开回执或点击已收到
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    模板已收到状态只在权威提交后出现，重复确认幂等，失败保留按钮
+  end note

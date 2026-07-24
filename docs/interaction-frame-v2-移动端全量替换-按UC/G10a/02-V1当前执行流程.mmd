@@ -1,0 +1,12 @@
+flowchart TD
+  A["attach 频道或上拉"] --> B["im.posts.queryMessagesByChannel / im.posts.loadOlderContext"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_query_messages_by_channel` / `im_load_older_context`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/posts/postContext` body `{postId,before}`"]
+  F --> G["无直接 WS"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：围绕锚点补齐 before context，整窗提交后保持锚点位置，失败不破坏当前窗口"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

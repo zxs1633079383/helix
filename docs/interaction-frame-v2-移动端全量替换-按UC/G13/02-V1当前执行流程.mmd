@@ -1,0 +1,12 @@
+flowchart TD
+  A["频道可见或点击已读"] --> B["im.posts.readChannel"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_channels_view`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`"]
+  F --> G["`post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)`"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：会话未读数、频道已读边界和时间线读态同帧变化，重复可见观察幂等"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

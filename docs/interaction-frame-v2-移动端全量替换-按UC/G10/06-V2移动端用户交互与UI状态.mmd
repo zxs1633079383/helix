@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.timeline`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: attach 频道或上拉
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    首屏显示有界时间线；上拉追加旧消息且保持滚动锚点，Partial/Miss 显式回源
+  end note

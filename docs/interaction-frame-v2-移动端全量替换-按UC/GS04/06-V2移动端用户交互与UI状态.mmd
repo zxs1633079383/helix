@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.channel-summary`、`message.composer`、`message.timeline`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 选择频道或未知 `channelId`
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    未知频道加载成功后频道头、输入区和时间线同时可用；失败时保留原频道
+  end note

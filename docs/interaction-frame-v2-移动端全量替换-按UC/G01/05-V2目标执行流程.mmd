@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：输入文本并提交"] --> B["读取 `message.composer`、`message.timeline`、`message.left-dialog-list`、`message.unread-summary` 完整 VM"]
+  B --> C["Frame 内 `ActionBinding(message.create)`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`storage_upsert`、`http_write`、`timer`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/posts/create` body `{viewers,message,mentions,temporaryId,type,simpleMessage,channelId,userId,teamId,userSnapshot,id,props,topicId,revoke,createAt,replyId?,replyRootId?,replyFirstLevelId?}`；`replied={id,reply_id,reply_root_id,reply_first_level_id}` 只在 Helix 组装回复三锚，`req_id` 只透传 `Cses-Track-Id`，两者均不作为 HTTP body 字段"]
+  I --> J["WS/PortReply：正常发送主推 `post`；`update_channel` 不是普通发送主链路单独推送，仅在读标记/频道变更/撤回最后一条/加急等副链出现；错误本地 `im:post:send-failed`"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `message`、`pending_send`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.composer`、`message.timeline`、`message.left-dialog-list`、`message.unread-summary`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 ComposerVm + TimelineWindowVm + DialogListVm + UnreadSummaryVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：同一消息行从 sending 收敛为 sent 或 failed，禁止 JS 再造第二条临时消息"]
+  S --> T["FrameApplied / directive ack / action terminal"]

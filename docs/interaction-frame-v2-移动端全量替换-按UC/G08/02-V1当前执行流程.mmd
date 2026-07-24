@@ -1,0 +1,12 @@
+flowchart TD
+  A["选择时间并提交"] --> B["im.posts.createSchedule"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_create_schedule`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/posts/createSchedule` body `{post:{channelId,message,temporaryId?},schedulePostAt}`"]
+  F --> G["`post_schedule_created`"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：定时消息提交中、已创建和失败状态可恢复，observer 不显示 owner 草稿"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

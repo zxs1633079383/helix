@@ -1,0 +1,104 @@
+# Mobile Frame V2 全量切换 Tasks
+
+- [ ] M001 [GS01] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M002 [GS01] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M003 [GS01] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M004 [GS01] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M005 [GS02] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M006 [GS02] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M007 [GS02] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M008 [GS02] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M009 [GS03] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M010 [GS03] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M011 [GS03] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M012 [GS03] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M013 [GS04] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M014 [GS04] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M015 [GS04] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M016 [GS04] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M017 [G01] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M018 [G01] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M019 [G01] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M020 [G01] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M021 [G02] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M022 [G02] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M023 [G02] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M024 [G02] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M025 [G04] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M026 [G04] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M027 [G04] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M028 [G04] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M029 [G04a] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M030 [G04a] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M031 [G04a] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M032 [G04a] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M033 [G05] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M034 [G05] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M035 [G05] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M036 [G05] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M037 [G06] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M038 [G06] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M039 [G06] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M040 [G06] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M041 [G07] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M042 [G07] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M043 [G07] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M044 [G07] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M045 [G08] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M046 [G08] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M047 [G08] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M048 [G08] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M049 [G09] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M050 [G09] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M051 [G09] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M052 [G09] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M053 [G10] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M054 [G10] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M055 [G10] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M056 [G10] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M057 [G10a] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M058 [G10a] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M059 [G10a] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M060 [G10a] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M061 [G11] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M062 [G11] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M063 [G11] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M064 [G11] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M065 [G12] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M066 [G12] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M067 [G12] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M068 [G12] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M069 [G13] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M070 [G13] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M071 [G13] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M072 [G13] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M073 [G14] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M074 [G14] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M075 [G14] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M076 [G14] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M077 [G14a] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M078 [G14a] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M079 [G14a] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M080 [G14a] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M081 [G15] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M082 [G15] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M083 [G15] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M084 [G15] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M085 [G15a] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M086 [G15a] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M087 [G15a] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M088 [G15a] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M089 [G16] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M090 [G16] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M091 [G16] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M092 [G16] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M093 [G16b] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M094 [G16b] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M095 [G16b] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M096 [G16b] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+- [ ] M097 [G16c] 冻结 V1 producer/consumer、页面旁路与跨仓证据
+- [ ] M098 [G16c] 实现 V2 action/Frame/Surface/QuickJS 平台接线及 focused tests
+- [ ] M099 [G16c] 在首轮纯 V2 candidate 收集 HTTP/WS/PG/SQLite/Frame/UI 证据
+- [ ] M100 [G16c] 删除 V1 producer+consumer 支持并在新 candidate 二次验收
+
+完成条件不是文件存在，而是 25 Gate 首轮和删除后二次证据均闭合。

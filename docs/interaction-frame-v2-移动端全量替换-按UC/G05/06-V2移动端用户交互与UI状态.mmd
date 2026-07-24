@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.timeline`、`message.left-dialog-list`、`message.composer`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 选择目标并提交转发
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    每个目标频道独立呈现转发终态，源频道与失败目标不被假成功覆盖
+  end note

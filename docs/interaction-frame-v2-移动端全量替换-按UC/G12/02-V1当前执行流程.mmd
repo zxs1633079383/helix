@@ -1,0 +1,12 @@
+flowchart TD
+  A["打开线程、分支或提交回复"] --> B["im.posts.getReplies / im.posts.getReplyBranch"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_get_replies` / `im_get_reply_branch`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/posts/getReplies` body `{replyId,pageNumber,pageSize,revoke?}`；`POST /api/cses/posts/getReplyBranch` body `{replyFirstLevelId,pageNumber,pageSize,revoke?}`"]
+  F --> G["无直接 WS"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：线程 root/replies 图完整出现；回复发送终态与主时间线一致，不由 JS 拼 reply tree"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

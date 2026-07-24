@@ -1,0 +1,16 @@
+classDiagram
+  class QuickJSPage["Venus QuickJS：im.channels.makeTopic / im.channels.create"]
+  class VenusApi["VenusImApi / registrar"]
+  class Driver["HelixImDriverRuntime"]
+  class FFI["helix_command / on_domain_events_batch"]
+  class Helix["当前 Helix command：im_make_topic / im_create_channel"]
+  class RawEvent["V1 raw DomainEvent / projection"]
+  class Listener["im.on / MobileImSdk legacy reducer"]
+  class PageState["JS/C++ 自建 UI 状态：新群聊在首批四个 Surface 原子出现，成员与 viewer 隔离由权威事实决定"]
+  QuickJSPage --> VenusApi
+  VenusApi --> Driver
+  Driver --> FFI
+  FFI --> Helix
+  Helix --> RawEvent
+  RawEvent --> Listener
+  Listener --> PageState

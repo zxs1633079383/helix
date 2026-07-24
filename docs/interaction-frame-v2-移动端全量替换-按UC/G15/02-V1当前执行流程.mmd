@@ -1,0 +1,12 @@
+flowchart TD
+  A["提交话题或群聊创建表单"] --> B["im.channels.makeTopic / im.channels.create"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_make_topic` / `im_create_channel`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/posts/makeTopic` body `{rootId,userIds}`；`req_id` 只用于 Helix/客户端关联，不能进入 HTTP body；未提供自定义图片时服务端从归一化成员派生 `pictureType=USER/picture.userIds`，客户端不得提交空 picture 占位"]
+  F --> G["`channel_created`, `post_update`"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：新话题在 topic list、频道摘要、会话列表和成员表中原子出现"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

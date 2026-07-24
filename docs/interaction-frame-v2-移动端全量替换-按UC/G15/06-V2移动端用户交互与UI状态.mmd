@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.topic-list`、`message.channel-summary`、`message.left-dialog-list`、`message.member-roster`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 提交话题或群聊创建表单
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    新话题在 topic list、频道摘要、会话列表和成员表中原子出现
+  end note

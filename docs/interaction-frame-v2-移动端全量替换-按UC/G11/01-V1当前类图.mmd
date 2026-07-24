@@ -1,0 +1,16 @@
+classDiagram
+  class QuickJSPage["Venus QuickJS：im.posts.locate"]
+  class VenusApi["VenusImApi / registrar"]
+  class Driver["HelixImDriverRuntime"]
+  class FFI["helix_command / on_domain_events_batch"]
+  class Helix["当前 Helix command：im_get_posts"]
+  class RawEvent["V1 raw DomainEvent / projection"]
+  class Listener["im.on / MobileImSdk legacy reducer"]
+  class PageState["JS/C++ 自建 UI 状态：目标窗口提交后执行 RevealMessage，目标不存在或失败时不移动当前滚动位置"]
+  QuickJSPage --> VenusApi
+  VenusApi --> Driver
+  Driver --> FFI
+  FFI --> Helix
+  Helix --> RawEvent
+  RawEvent --> Listener
+  Listener --> PageState

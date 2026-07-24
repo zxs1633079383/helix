@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：选择时间并提交"] --> B["读取 `message.channel-summary`、`message.left-dialog-list`、`message.timeline` 完整 VM"]
+  B --> C["Frame 内 `ActionBinding(schedule_create)`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`http_write`、`storage_upsert`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/posts/createSchedule` body `{post:{channelId,message,temporaryId?},schedulePostAt}`"]
+  I --> J["WS/PortReply：`post_schedule_created`"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `channel_schedule`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.channel-summary`、`message.left-dialog-list`、`message.timeline`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 ChannelSummaryVm + DialogListVm + 可选 TimelineWindowVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：定时消息提交中、已创建和失败状态可恢复，observer 不显示 owner 草稿"]
+  S --> T["FrameApplied / directive ack / action terminal"]

@@ -1,0 +1,12 @@
+flowchart TD
+  A["关闭、退出或保存设置"] --> B["im.channels.close / im.channels.leave / im.channels.changeInfo"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_channel_close` / `im_channel_leave` / `im_channel_change_info`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["`POST /api/cses/channel/member/leave` body `{channelId,userId?,newCreator?}`"]
+  F --> G["`channel_member_update`, `quit_company`（公司域也可能推）"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：退出后成员表、频道可见性和输入权限一致；observer 看到成员变化"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

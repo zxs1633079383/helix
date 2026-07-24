@@ -1,0 +1,12 @@
+flowchart TD
+  A["撤回操作或 type-3 同步事实"] --> B["im.posts.revoke"]
+  B --> C["Venus/C++ JSON stringify 或 host observation"]
+  C --> D["`im_revoke`"]
+  D --> E["Helix V1 Tick/Effect 路径"]
+  E --> F["无 UI 主动 HTTP；由 `channels/load/increment` / `sync/notify` 拉到事件"]
+  F --> G["`increment_channel`, `posts_update`, sync events"]
+  G --> H["批量 raw DomainEvent 回调 C++"]
+  H --> I["Venus owning-thread tick / MobileImSdk legacy reducer"]
+  I --> J["JS/C++ 重建：观察者从同步事实得到撤回态与 cursor 提交，不执行主动撤回 HTTP"]
+  E -. "Persist/HTTP/WS 失败" .-> X["raw failure event 或 SOURCE_MISSING"]
+  X --> I

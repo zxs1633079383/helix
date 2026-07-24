@@ -1,0 +1,22 @@
+flowchart TD
+  A["Venus QuickJS：attach 频道或上拉"] --> B["读取 `message.timeline` 完整 VM"]
+  B --> C["Frame 内 `HostObservation` / `ActionBinding(load_older)`"]
+  C --> D["native 注入 actor/requestId/observedRevision/surfaceEpoch"]
+  D --> E["ActionInvocationEnvelope / HostObservation / Inbound"]
+  E --> F["MobileImSdk -> CoreBridge -> helix-driver-ffi"]
+  F --> G["`Tick::Command/Inbound/PortReply/Timer`"]
+  G --> H["`local_scan`、`http_read`、`storage_upsert`、`projection`"]
+  H --> I["Go authority：`POST /api/cses/posts/postContext` body `{postId,before}`"]
+  I --> J["WS/PortReply：无直接 WS"]
+  J --> K["`PersistAtomic -> PersistOk`；SQLite `message`"]
+  K --> L{"PersistOk?"}
+  L -- "否" --> X["保留旧 VM；ActionReceipt failed；可重试"]
+  L -- "是" --> M["SurfaceComposer：`message.timeline`"]
+  M --> N["InteractionFrameV2 schemaVersion=2"]
+  N --> O["FFI batch -> C++ SurfaceRuntime 整帧校验"]
+  O --> P{"epoch/revision/causation 合法?"}
+  P -- "否" --> Y["保留最后一致 VM；请求 snapshot/resync"]
+  P -- "是" --> Q["原子提交 TimelineWindowVm"]
+  Q --> R["QuickJS im.surface.view/pending"]
+  R --> S["移动 UI：围绕锚点补齐 before context，整窗提交后保持锚点位置，失败不破坏当前窗口"]
+  S --> T["FrameApplied / directive ack / action terminal"]

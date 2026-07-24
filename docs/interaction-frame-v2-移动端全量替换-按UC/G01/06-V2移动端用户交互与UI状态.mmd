@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Attached: attach `message.composer`、`message.timeline`、`message.left-dialog-list`、`message.unread-summary`
+  Attached --> Ready: V2 snapshot applied
+  Ready --> Pending: 输入文本并提交
+  Pending --> Ready: admission rejected
+  Pending --> Failed: HTTP/WS/Persist/action rejected
+  Failed --> Pending: retry from current ActionBinding
+  Pending --> Ready: matching causation Frame committed
+  Ready --> Resync: epoch/revision gap or cache failure
+  Resync --> Ready: authoritative snapshot
+  Ready --> [*]: detach
+  note right of Ready
+    同一消息行从 sending 收敛为 sent 或 failed，禁止 JS 再造第二条临时消息
+  end note

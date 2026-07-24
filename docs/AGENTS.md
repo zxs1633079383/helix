@@ -35,8 +35,12 @@
 
 ## 写作与证据
 
-- 25 个机器 Gate 必须独立、source-grounded，禁止复制标题后用通用内容冒充完成。
-- Mobile 每个 Gate 必须有一张从 Venus/QuickJS 输入，经 Helix/Go/存储，再回到 C++/QuickJS UI 的连续总图；共享 Helix 内部细节可以链接 PC Gate，但总链不可割裂。
+- PC 目录继续按既有逐 Gate 结构维护；Mobile 目录按 19 个业务 UC 维护单文件平台增量入口，
+  子 Gate G04a/G10a/G14a/G15a/G16b/G16c 并回父 UC，但 25 Gate 机器分母保持不变。
+- Mobile 公共连续总图只在根级目标架构维护；逐 UC 只写特有输入、Surface、UI 终态和负向断言，
+  共享 Helix/Go/存储细节链接 PC Gate，不复制后形成第二真源。
+- Mobile 目录不得预生成 Spec/Plan/Tasks；正式产物进入 `specs/`，避免 discovery 文档与 Spec Kit
+  互相引用形成循环。
 - 每个事实给出绝对源码路径和行号或稳定合同链接。无法证明时只允许
   `SOURCE_MISSING`、`CONTRACT_DRIFT`、`TARGET_DECISION_REQUIRED`、`NOT_APPLICABLE`。
 - 共享字段发生冲突时 fail-closed，不得静默选择一端，也不得用 Mobile 当前 V1 reducer 反向定义 V2。

@@ -1,14 +1,16 @@
-# G16 Mobile InteractionFrame V2 替换
+# G16 频道治理：Mobile V2 Spec 输入
 
-| 项目 | 合同 |
-|---|---|
-| 用户入口 | 关闭、退出或保存设置 |
-| Helix 输入 | `ActionBinding(close/leave/settings)` |
-| Command | `im_channel_close` / `im_channel_leave` / `im_channel_change_info` |
-| QuickJS binding | `im.channels.close`、`im.channels.leave`、`im.channels.changeInfo` |
-| Surface | `message.channel-summary`、`message.left-dialog-list`、`message.composer`、`message.member-roster` |
-| 完整 VM | ChannelSummaryVm + DialogListVm + ComposerVm + MemberRosterVm |
-| 移动 UI 结果 | 关闭后输入区禁用、频道从列表移除或标记关闭，其他频道保持可用 |
-| 共享 PC/Helix 真源 | [G16](../../interaction-frame-v2-全量替换-按UC/G16/README.md) |
+| Gate | 输入/调用面 | Mobile UI 终态 |
+|---|---|---|
+| G16 | `ActionBinding(close)` / `im.channels.close` | 输入区禁用，频道从列表移除或标记关闭，其他频道不受影响 |
+| G16b | `ActionBinding(leave)` / `im.channels.leave` | 成员表、频道可见性和输入权限一致；observer 看到成员变化 |
+| G16c | `ActionBinding(settings)` / `im.channels.changeInfo` | 频道头、会话行和成员权限按 `expectedVersion` 原子更新 |
 
-本 Gate 先冻结 V1，再切断 producer 与 consumer，首轮纯 V2 后物理删除 V1，最后二次验收。
+Surface 为 `message.channel-summary`、`message.left-dialog-list`、`message.composer`、
+`message.member-roster`；完整 VM 为
+`ChannelSummaryVm + DialogListVm + ComposerVm + MemberRosterVm`。确认框和表单属于 Venus；
+terminal tombstone、权限和 expectedVersion 冲突属于 Helix/authority。
+
+共享领域、HTTP/WS/PG/SQLite 与负向合同见
+[PC/Helix G16](../../interaction-frame-v2-全量替换-按UC/G16/README.md)。Go 当前
+`3f43d28` 已修正关闭会话已读回执假成功，正式 Spec 不得复用旧假成功口径。

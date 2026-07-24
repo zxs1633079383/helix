@@ -1,18 +1,28 @@
 # 当前代码差距与 CONTRACT_DRIFT
 
-| 差距 | 当前证据 | 目标 |
-|---|---|---|
-| Venus 仍直接广播 raw DomainEvent | `venus/HelixImDriverRuntime.cpp:151-160` | batch 先进入唯一 SurfaceRuntime |
-| VenusImApi 仍向 JS 暴露任意 event listener | `venus/VenusImApi.cpp:79-135` | migrated business event 不进入 UI |
-| MobileImSdk 同时保留 legacy reducer | `cpp/MobileImSdk.cpp:2300` | typed surface mode 物理删除 fallback |
-| C++ 把 schema 2 标在 V1 形状上 | `cpp/SurfaceRuntime.cpp:1695-1709` 只接受根 `schemaVersion/transactionId/mutations`，mutation 无 `surfaceEpoch` | 接受 Helix `InteractionFrameV2` 的 `causationId/runtime/surfaceEpoch/directives` 并整帧校验 |
-| C++ Surface 集不完整 | `cpp/SurfaceRuntime.hpp:15-29` 缺 `message.composer` | 九个 Helix Surface 全部有封闭 C++ 类型 |
-| Surface VM 仍以 typed wrapper 包 opaque JSON | `cpp/SurfaceRuntime.hpp:48-67` | 生成合同校验完整字段 |
-| QuickJS 仍有 `im.store.*` | `quickjs/bind_mobile_im.cpp:2019-2023` | migrated Surface 只读 `im.surface.*` |
-| Venus 与 MobileImSdk 两套注入面 | 两套独立源码目录 | Venus 复用唯一 MobileImSdk runtime |
-| Android/iOS Helix revision 漂移 | Venus 全链文档 §10 | 同源制品与 manifest gate |
-| 实际产品页面源码不在本仓 | 只有 demo/test JS | `SOURCE_MISSING`，实施前绑定真实页面 |
+> 审计时间：2026-07-24 PDT。CURRENT 包含 Mobile 未提交工作树；因此只能作为 Spec
+> discovery，不能作为 candidate 完成证据。
 
-上面两项意味着当前 Mobile 的 `kInteractionFrameSchemaVersion = 2` 不能被当作 V2 consumer
-完成证据：版本数字相同，但 wire shape 仍漂移。修复方向是升级 C++ consumer 对齐 Helix V2，
-不是让 Helix producer 删除正式字段。
+| 优先级 | 差距 | CURRENT 源码事实 | TARGET |
+|---|---|---|---|
+| P0 | Helix 尚未 V2-only | `interaction_frame.rs` 默认常量仍为 1；`build_interaction_frame/emit_interaction_frame` 仍是通用可达 writer；V2 emitter 主要由 recovery `SurfaceComposer` 使用 | 25 Gate 的生产路径只发布正式 V2，V1 命中可计数并 fail-closed |
+| P0 | Mobile source pin 漂移 | `contract/helix-source.lock.json`、command contract、UC manifest 都指向 `477ca58`，当前 Helix 业务源码为 `d2ee633` | 同一 immutable Helix revision 生成全部合同与制品 |
+| P0 | C++ 不是正式 V2 envelope consumer | dirty `SurfaceRuntime.cpp::decode` 虽识别 schema 2，但根仍只允许 `schemaVersion/transactionId/mutations`；没有 `runtime/directives`，mutation 没有 `surfaceEpoch` | 精确接受 Rust `InteractionFrameV2`，未知/缺失字段 fail-closed |
+| P0 | Surface 集不完整 | `SurfaceRuntime.hpp::SurfaceId` 只有八项，缺 `message.composer` | 九个 Helix Surface 与封闭 VM/mutation 类型齐全 |
+| P0 | V1 consumer 仍生产可达 | dirty header 明确保留 `kLegacyInteractionFrameSchemaVersion=1`，decoder 同时接受 1/2 | 首轮前切断 V1，首轮后物理删除 |
+| P0 | Venus raw 输入仍可达 | `HelixImDriverRuntime` 仍广播 DomainEvent，`VenusImApi` 仍暴露 event listener | migrated business event 只进入唯一 `MobileImSdk + SurfaceRuntime` |
+| P1 | dirty snapshot 回路未完成正式合同 | `MobileImSdk` 已开始把 attach/resync 映射为 `__helix_request_surface_snapshot`，并在 hello/sync/query 后重发 | 以 private command + typed Frame/ack 闭环，并覆盖背压/重复/重连 |
+| P1 | VM 类型边界仍是 JSON 容器 | C++ 有 distinct wrapper 和 rich 字段校验，但 VM 最终仍以 `std::string json` 保存 | 生成合同负责完整字段校验；renderer 不做业务解释 |
+| P1 | QuickJS legacy store 仍存在 | `quickjs/bind_mobile_im.cpp` 同时暴露 `im.store.*` 与 `im.surface.*` | migrated Surface 只读 `im.surface.*` |
+| BLOCKED | 真实产品页面缺失 | 当前仓只有 adapter/demo/test，无法定位 19 UC 的正式 Venus 页面 | Spec 实施前登记页面、renderer key、节点和 owner |
+| P1 | 制品 manifest 漂移 | 旧文档指向的 `src/include/cses_im/manifest.json` 不存在 | 固定真实 Android/iOS 制品 manifest 与 hash |
+
+关键结论：
+
+1. `kInteractionFrameSchemaVersion = 2` 只证明版本分支存在，不证明 V2 wire 完成。
+2. dirty rich-v2 校验属于进行中的 consumer 扩展，不得倒逼 Helix 删除
+   `causationId/runtime/surfaceEpoch/directives`。
+3. 当前 Mobile 已有 ActionInvocation envelope staging 与 private snapshot request 地基，但公开
+   `im.*` 业务 command、raw event 与 V1 decode 尚未完成物理清退。
+4. 正式 Spec 必须先解决 P0 公共基座，再进入 19 UC 纵切；否则每个 UC 会重复修同一 decoder、
+   pin、Venus runtime 与证据工具问题。

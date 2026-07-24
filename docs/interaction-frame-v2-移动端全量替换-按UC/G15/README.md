@@ -1,14 +1,14 @@
-# G15 Mobile InteractionFrame V2 替换
+# G15 话题/群聊创建：Mobile V2 Spec 输入
 
-| 项目 | 合同 |
-|---|---|
-| 用户入口 | 提交话题或群聊创建表单 |
-| Helix 输入 | `ActionBinding(make_topic/create_channel)` |
-| Command | `im_make_topic` / `im_create_channel` |
-| QuickJS binding | `im.channels.makeTopic`、`im.channels.create` |
-| Surface | `message.topic-list`、`message.channel-summary`、`message.left-dialog-list`、`message.member-roster` |
-| 完整 VM | TopicListVm + ChannelSummaryVm + DialogListVm + MemberRosterVm |
-| 移动 UI 结果 | 新话题在 topic list、频道摘要、会话列表和成员表中原子出现 |
-| 共享 PC/Helix 真源 | [G15](../../interaction-frame-v2-全量替换-按UC/G15/README.md) |
+| Gate | 输入/调用面 | Mobile UI 终态 |
+|---|---|---|
+| G15 | `ActionBinding(make_topic)` / `im.channels.makeTopic` | 新话题在 topic list、频道摘要、会话列表和成员表原子出现 |
+| G15a | `ActionBinding(create_channel)` / `im.channels.create` | 新群聊首批四 Surface 原子出现，成员与 viewer 隔离由权威事实决定 |
 
-本 Gate 先冻结 V1，再切断 producer 与 consumer，首轮纯 V2 后物理删除 V1，最后二次验收。
+Surface 为 `message.topic-list`、`message.channel-summary`、`message.left-dialog-list`、
+`message.member-roster`；完整 VM 为
+`TopicListVm + ChannelSummaryVm + DialogListVm + MemberRosterVm`。表单与 overlay 属于 Venus，
+频道/成员事实、权限和跨 Surface 原子性属于 Helix。
+
+共享领域、HTTP/WS/PG/SQLite 与负向合同见
+[PC/Helix G15](../../interaction-frame-v2-全量替换-按UC/G15/README.md)。

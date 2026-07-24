@@ -8,3 +8,11 @@
 - PersistErr、epoch/revision gap、duplicate transaction、late receipt 保留最后一致 VM。
 - QuickJS UI 只读 Surface VM；不得查询 row 表或从 raw event 重算业务状态。
 - actor/observer、PG/SQLite 与移动 UI 证据来自同一 candidate 和 run window。
+
+正式 Spec 的公共完成判据还必须包含：
+
+- 19 个业务 UC、25 个机器 Gate 全部进入 profile；`G03/G03a` 明确不在分母。
+- Helix/Mobile/source lock/headers/Android/iOS/Matrix/command contract/fixtures 为同一 source pin。
+- `v1Frames`、`v2Frames`、`rawBusinessFallbacks`、frame reject/resync/ack 有机器计数，不靠日志目测。
+- 实际 Venus 页面路径与 renderer key 已登记；demo/test binding 不替代产品 UI。
+- 删除后二次运行使用新 candidate、run id、artifact root 与 evidence epoch，不能复用首次产物。

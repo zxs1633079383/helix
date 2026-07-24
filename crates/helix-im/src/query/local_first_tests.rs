@@ -176,6 +176,20 @@ fn exhausted_remote_window_drops_stale_server_rows_but_keeps_optimistic_rows() {
 }
 
 #[test]
+fn exhausted_remote_window_keeps_newer_committed_local_rows_during_replica_lag() {
+    let remote = vec![row(2), row(1)];
+    let newer_committed = row(3);
+
+    let merged = merge_recent_rows(vec![newer_committed.clone()], remote.clone(), true, 20);
+
+    assert!(merged.iter().any(|item| item == &newer_committed));
+    assert!(
+        stale_local_server_rows_delete_op(channel_id(), &[newer_committed], &remote).is_none(),
+        "滞后的 latest endpoint 不能删除已由 sync 持久化的更新事实"
+    );
+}
+
+#[test]
 fn latest_posts_parser_distinguishes_empty_success_from_failed_status() {
     let empty = parse_latest_posts_body(br#"{"status":"SUCCESS","data":[]}"#).unwrap();
     assert!(empty.is_empty());

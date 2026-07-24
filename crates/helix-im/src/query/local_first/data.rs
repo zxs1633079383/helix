@@ -219,17 +219,23 @@ pub(super) fn merge_recent_rows(
 ) -> Vec<Value> {
     let capacity = local_rows_desc.len() + remote_rows_desc.len();
     let oldest_remote_create_at = remote_rows_desc.iter().map(create_at).min();
+    let newest_remote_create_at = remote_rows_desc.iter().map(create_at).max();
     // 低频查询、上限 500；remote 先入使权威行覆盖同 server id/temporaryId 的本地副本。
-    // exhausted 时远端已证明当前用户可见集合到头，本地仅保留尚无 server id 的乐观消息。
+    // exhausted 时远端只证明其当前快照到头；本地仍保留比远端最新行更新的已提交事实，
+    // 避免读副本延迟把刚由 sync 持久化的消息误判为 stale。
     // 未 exhausted 时，本地 server 行也只能补在权威最近窗口之前，不能挤回窗口内。
     let eligible_local = local_rows_desc.into_iter().filter(|row| {
         if server_id(row).is_empty() {
             return !temporary_id(row).is_empty();
         }
-        !remote_exhausted
-            && oldest_remote_create_at
-                .map(|oldest| create_at(row) < oldest)
-                .unwrap_or(false)
+        if remote_exhausted {
+            return newest_remote_create_at
+                .map(|newest| create_at(row) > newest)
+                .unwrap_or(false);
+        }
+        oldest_remote_create_at
+            .map(|oldest| create_at(row) < oldest)
+            .unwrap_or(false)
     });
     let mut merged = Vec::with_capacity(capacity);
     for row in remote_rows_desc.into_iter().chain(eligible_local) {
@@ -250,10 +256,14 @@ pub(super) fn stale_local_server_rows_delete_op(
     local_rows_desc: &[Value],
     remote_rows_desc: &[Value],
 ) -> Option<StorageOp> {
+    let newest_remote_create_at = remote_rows_desc.iter().map(create_at).max();
     let key_vals = local_rows_desc
         .iter()
         .filter(|local| {
             !server_id(local).is_empty()
+                && newest_remote_create_at
+                    .map(|newest| create_at(local) <= newest)
+                    .unwrap_or(true)
                 && !remote_rows_desc
                     .iter()
                     .any(|remote| rows_share_message_identity(local, remote))

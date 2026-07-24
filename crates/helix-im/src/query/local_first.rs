@@ -373,6 +373,7 @@ impl ImModule {
         let (mut remote_rows_desc, mut cache_ops) = match visible_remote_rows_and_cache_ops(
             request.channel_id,
             remote_posts,
+            &local_rows_desc,
             self.config.auth_user_id.as_str(),
         ) {
             Ok(result) => result,

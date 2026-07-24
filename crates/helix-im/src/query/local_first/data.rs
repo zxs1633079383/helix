@@ -1,6 +1,7 @@
 //! local-first 的纯数据规则：coverage 判定、远端解码、合并与缓存 op。
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use helix_core::effect::StorageOp;
 use helix_core::tick::ReplyBytes;
@@ -125,21 +126,40 @@ pub(crate) fn post_event_seq(post: &Value) -> Option<u64> {
         .or_else(|| post.get("event_seq"))
         .and_then(Value::as_u64)
         .or_else(|| {
-            post.get("props")
-                .and_then(|props| props.get("channel_event_seq"))
-                .and_then(Value::as_u64)
+            let props = post.get("props")?;
+            if let Some(raw) = props.as_str() {
+                serde_json::from_str::<Value>(raw)
+                    .ok()?
+                    .get("channel_event_seq")
+                    .and_then(Value::as_u64)
+            } else {
+                props.get("channel_event_seq").and_then(Value::as_u64)
+            }
         })
 }
 
 pub(super) fn visible_remote_rows_and_cache_ops(
     channel_id: ChannelId,
     posts: Vec<Value>,
+    local_rows_desc: &[Value],
     auth_user_id: &str,
 ) -> Result<(Vec<Value>, Vec<StorageOp>), ImError> {
+    let local_sequences = local_event_sequences(local_rows_desc);
     let mut rows = Vec::with_capacity(posts.len());
     let mut ops = Vec::with_capacity(posts.len());
     for mut post in posts {
         let mut fields = crate::ws::parser::extract_post_fields(&post);
+        if post_event_seq(&post).is_none() {
+            let local_sequence = local_sequences
+                .server
+                .get(fields.id.as_str())
+                .or_else(|| local_sequences.temporary.get(fields.temporary_id.as_str()))
+                .copied();
+            if let Some(sequence) = local_sequence {
+                preserve_local_event_sequence(&mut post, sequence);
+                fields = crate::ws::parser::extract_post_fields(&post);
+            }
+        }
         if fields.channel_id.is_empty() {
             fields.channel_id = channel_id.as_str().to_string();
         } else if fields.channel_id != channel_id.as_str() {
@@ -177,6 +197,60 @@ pub(super) fn visible_remote_rows_and_cache_ops(
         rows.push(post);
     }
     Ok((rows, ops))
+}
+
+#[derive(Default)]
+struct LocalEventSequences {
+    server: BTreeMap<String, u64>,
+    temporary: BTreeMap<String, u64>,
+}
+
+fn local_event_sequences(local_rows_desc: &[Value]) -> LocalEventSequences {
+    let mut sequences = LocalEventSequences::default();
+    for row in local_rows_desc {
+        let Some(sequence) = post_event_seq(row) else {
+            continue;
+        };
+        let server = server_id(row);
+        if !server.is_empty() {
+            sequences
+                .server
+                .entry(server.to_string())
+                .and_modify(|stored| *stored = (*stored).max(sequence))
+                .or_insert(sequence);
+        }
+        let temporary = temporary_id(row);
+        if !temporary.is_empty() {
+            sequences
+                .temporary
+                .entry(temporary.to_string())
+                .and_modify(|stored| *stored = (*stored).max(sequence))
+                .or_insert(sequence);
+        }
+    }
+    sequences
+}
+
+fn preserve_local_event_sequence(post: &mut Value, sequence: u64) {
+    let Some(object) = post.as_object_mut() else {
+        return;
+    };
+    object.insert("eventSeq".to_string(), Value::from(sequence));
+    let props = object
+        .remove("props")
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut props = match props {
+        Value::Object(props) => props,
+        Value::String(raw) => serde_json::from_str::<Value>(&raw)
+            .ok()
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default(),
+        _ => serde_json::Map::new(),
+    };
+    props
+        .entry("channel_event_seq".to_string())
+        .or_insert_with(|| Value::from(sequence));
+    object.insert("props".to_string(), Value::Object(props));
 }
 
 fn normalize_remote_row(

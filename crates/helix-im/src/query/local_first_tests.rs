@@ -190,6 +190,76 @@ fn exhausted_remote_window_keeps_newer_committed_local_rows_during_replica_lag()
 }
 
 #[test]
+fn remote_latest_preserves_local_sequence_metadata_for_the_same_message() {
+    let local = serde_json::json!({
+        "id": "message-sequenced",
+        "temporary_id": "temporary-sequenced",
+        "channel_id": channel_id().as_str(),
+        "props": r#"{"channel_event_seq":4,"local_only":"kept-locally"}"#,
+    });
+    let remote = serde_json::json!({
+        "id": "message-sequenced",
+        "temporaryId": "temporary-sequenced",
+        "channelId": channel_id().as_str(),
+        "userId": "author-1",
+        "createAt": 10,
+        "message": "remote authority",
+        "type": "TEXT",
+        "props": {"remote_only": true},
+    });
+
+    let (rows, ops) =
+        visible_remote_rows_and_cache_ops(channel_id(), vec![remote], &[local], "viewer-1")
+            .expect("same-identity remote row should remain cacheable");
+
+    assert_eq!(data::post_event_seq(&rows[0]), Some(4));
+    assert_eq!(rows[0]["props"]["remote_only"], true);
+    assert_eq!(rows[0]["props"]["channel_event_seq"], 4);
+    assert!(rows[0]["props"].get("local_only").is_none());
+
+    let helix_core::effect::StorageOp::BatchUpsert(spec) = &ops[0] else {
+        panic!("latest cache operation should be a message upsert");
+    };
+    let props = spec.rows[0]
+        .iter()
+        .find_map(|(column, value)| (column == "props").then_some(value))
+        .expect("message cache row should persist props");
+    let helix_core::effect::SqlValue::Text(props) = props else {
+        panic!("message props should be stored as JSON text");
+    };
+    let props: Value = serde_json::from_str(&props).expect("cached props should be valid JSON");
+    assert_eq!(props["remote_only"], true);
+    assert_eq!(props["channel_event_seq"], 4);
+}
+
+#[test]
+fn remote_sequence_metadata_remains_authoritative_over_local_cache() {
+    let local = serde_json::json!({
+        "id": "message-sequenced",
+        "temporary_id": "temporary-sequenced",
+        "props": r#"{"channel_event_seq":4}"#,
+    });
+    let remote = serde_json::json!({
+        "id": "message-sequenced",
+        "temporaryId": "temporary-sequenced",
+        "channelId": channel_id().as_str(),
+        "userId": "author-1",
+        "createAt": 10,
+        "message": "remote authority",
+        "type": "TEXT",
+        "eventSeq": 9,
+        "props": {"channel_event_seq": 9},
+    });
+
+    let (rows, _) =
+        visible_remote_rows_and_cache_ops(channel_id(), vec![remote], &[local], "viewer-1")
+            .expect("remote sequence should remain authoritative");
+
+    assert_eq!(data::post_event_seq(&rows[0]), Some(9));
+    assert_eq!(rows[0]["props"]["channel_event_seq"], 9);
+}
+
+#[test]
 fn latest_posts_parser_distinguishes_empty_success_from_failed_status() {
     let empty = parse_latest_posts_body(br#"{"status":"SUCCESS","data":[]}"#).unwrap();
     assert!(empty.is_empty());

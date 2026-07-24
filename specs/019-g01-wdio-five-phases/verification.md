@@ -2,21 +2,21 @@
 
 ## Required Runs
 
-- **V-001 Production Boundary**: `yarn test:message:wdio:production-boundary`
+- **V-001 Production Boundary**: `yarn message:wdio:production-boundary`
   - Expected: production artifact contains zero WDIO plugin, capability, Mock bridge or test log ingress.
-- **V-002 Mock/UI Lane**: `yarn test:message:wdio:mock --gate G01`
+- **V-002 Mock/UI Lane**: `yarn message:wdio:g01:mock`
   - Expected: UI-only、`sending -> sent`、`sending -> failed`、IPC reject and reset/restore cases all pass within the declared budget; result level never exceeds `mock`.
-- **V-003 Real Integration Lane**: `yarn test:message:wdio:invoke --gate G01`
+- **V-003 Real Integration Lane**: `yarn message:wdio:g01:integration`
   - Expected: no Mock remains; health、read-only query and send command execute through real Tauri/Helix; matching Frame and DOM are present with correlated console and Tauri logs.
-- **V-004 Single Real-Chain Lane**: `yarn test:message:wdio:affected --gate G01 --lane single-real`
+- **V-004 Single Real-Chain Lane**: `yarn message:wdio:g01:single-real`
   - Expected: Actor UI、Go HTTP、SQLite、PG、Frame、FrameApplied and Actor DOM correlate; P95 scenario time is at most 15 seconds.
-- **V-005 Dual Real-Chain Lane**: `yarn test:message:wdio:cross --gate G01`
+- **V-005 Dual Real-Chain Lane**: `yarn message:wdio:g01:dual-real`
   - Expected: isolated 444/678 instances correlate Actor send and Observer receive across all required evidence planes; P95 scenario time is at most 30 seconds.
-- **V-006 Report V1 Consistency**: `yarn test:message:wdio:report-contract --gate G01`
+- **V-006 Report V1 Consistency**: `yarn message:wdio:report-contract`
   - Expected: Spec/JUnit/summary/manifest counts and process exit code agree; one injected failure retains screenshot and redacted dual-side logs.
-- **V-007 Performance Contract**: `yarn test:message:wdio:performance --gate G01 --warm`
+- **V-007 Performance Contract**: `yarn message:wdio:g01:performance`
   - Expected: Mock P95 <= 10 seconds, single-real P95 <= 15 seconds, dual-real P95 <= 30 seconds, one topology launch, zero ordinary profile restarts, and every slow case has phase attribution.
-- **V-008 Sensitive Data Scan**: `yarn test:message:wdio:artifact-redaction --gate G01`
+- **V-008 Sensitive Data Scan**: `yarn message:wdio:artifact-redaction`
   - Expected: zero password、token、authorization、Cookie、raw business payload or unapproved message content occurrences.
 
 ## Evidence Rules

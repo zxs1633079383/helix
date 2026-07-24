@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/019-g01-wdio-five-phases",
-  "phase": "planning",
-  "event_seq": 3,
-  "next_action": "run_speckit_plan",
+  "phase": "ready",
+  "event_seq": 5,
+  "next_action": "admit_implementation",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -18,15 +18,15 @@
       "issues": []
     },
     "r2_plan": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "e95f22d53829b97dcc2674e42cfaa2ed9866893f683cbdc4fb67f304d9a94dcf",
+      "checked_at": "2026-07-24T15:00:15Z",
       "issues": []
     },
     "r3_tasks": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "0f4a97f8b4672610a40d925c3d575eb0c8b6fff97ebe83749da4e64173815982",
+      "checked_at": "2026-07-24T15:03:25Z",
       "issues": []
     },
     "r4_evidence": {
@@ -58,6 +58,18 @@
       "at": "2026-07-24T14:47:17Z",
       "kind": "phase",
       "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-24T15:00:15Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-24T15:03:25Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
     }
   ]
 }

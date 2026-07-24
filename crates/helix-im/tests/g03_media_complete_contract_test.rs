@@ -170,7 +170,7 @@ fn drive_to_complete(h: &mut Harness, cmd: Tick, content_type: &str) -> u64 {
     h.step(port_reply_ok(upload_corr(h)), 1020);
     let complete_corr = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(complete_corr), 1021);
-    http_effects(h, "/oss/verifyUpload")
+    http_effects(h, "/oss/completeMediaUpload")
         .last()
         .expect("complete request")
         .0
@@ -244,10 +244,13 @@ fn put_success_emits_only_java_verify_with_expected_identity() {
             .count(),
         1
     );
-    let completes = http_effects(&h, "/oss/verifyUpload");
+    let completes = http_effects(&h, "/oss/completeMediaUpload");
     assert_eq!(completes.len(), 1);
     assert_eq!(completes[0].1.method, "POST");
-    assert_eq!(completes[0].1.url, "http://localhost:3399/oss/verifyUpload");
+    assert_eq!(
+        completes[0].1.url,
+        "http://localhost:3399/oss/completeMediaUpload"
+    );
     let body: Value =
         serde_json::from_slice(completes[0].1.body.as_ref().unwrap().as_ref()).unwrap();
     assert_eq!(body["mediaUpload"], true);

@@ -342,7 +342,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
         "sha256",
         "/oss/getPresignedUrl",
         "PUT",
-        "/oss/verifyUpload",
+        "/oss/completeMediaUpload",
         "api_base_url",
         "default_api_base_url",
         "pending_media",

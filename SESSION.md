@@ -1,5 +1,9 @@
 ## 0. 当前任务
 
+🎯 EXPECT 手机端既有 `POST /oss/verifyUpload` 的 bucket+key 合同与匿名兼容行为保持不变；Java 新增强制登录的 `POST /oss/completeMediaUpload`，Rust 媒体 Complete 阶段只改走新路由，Go 生产代码零 diff。可证伪断言：① 旧/新接口各有真实 HTTP 合同测试；② Rust 全仓不再把新媒体完成请求发到 `/oss/verifyUpload`；③ Java OSS 全测、Rust 媒体合同与 host 同链 E2E 全绿；④ 不发布、不 push，Rust agent cargo 调用 ≤3 次 | 赌注 高 | 可逆 是 | @2026-07-24T10:39:52+0800
+✅ DONE 旧 `/oss/verifyUpload` 已恢复并锁定手机端匿名 bucket+key 合同；新 `/oss/completeMediaUpload` 以 required `@UserSession` 和 userId 二次校验承接 Rust 媒体票据完成链。Java OSS 45/45、Rust 媒体合同 35/35、host rich 九图+FILE 同链 E2E 1/1 通过；同链证明 cookieId+deviceId 只进入 Java/Go 控制面而不泄漏到 OSS PUT。隔离 composite build 明确以本地 `paas-service-oss` 编译 CSES，`:server:compileJava` 27/27 成功且主脏 checkout 基线未变；Go 生产代码零 diff，Rust 执行 agent cargo 恰好 3 次，未发布、未 push | @2026-07-24T10:54:29+0800
+⚡ DRIFT-PRED 新接口的真实 session 绑定除 cookieId 外还要求 deviceId，原 host 同链只证明了 cookieId 注入；补齐 deviceId 的 Java/Go 透传和 OSS 跨 origin 禁泄漏断言后复验通过 → 候选教训：登录态跨端合同必须同时锁住完整身份头集合与对象存储凭据隔离，不能只验证单个 token | @2026-07-24T10:54:29+0800
+
 🎯 EXPECT 补齐媒体进度到 FFI 前端边界的组合证据：生产 TimelineProjector 必须把已提交的 FILE 35% 投成 `Uploading{progressPercent:35}`、同批 IMAGE 即使携带脏百分比也只能投成 `Sending`，且完整 `im:interaction:frame` 经 FfiEventSink 后由 `on_domain_events_batch` 宿主回调原样收到；只改 FFI 既有 parity 测试与本条 SESSION，不复制 host 媒体 E2E，不改生产代码，cargo 调用 ≤2 次 | 赌注 中 | 可逆 是 | @2026-07-24T04:20:00+0800
 ✅ DONE 新增 FFI 前端边界组合测试：生产 TimelineProjector 将同为 35% 源行的 FILE 投成 `Uploading{progressPercent:35}`、IMAGE 收紧为 `Sending` 且不携带百分比；生产 FfiEventSink 单次非空 flush 经 `on_domain_events_batch` 恰好一次批回调，宿主解码后收到完整 `im:interaction:frame`。`cargo check -p helix-driver-ffi` 与 `cargo test -p helix-driver-ffi` 全量通过，热路径审计、rustfmt 与 diff check 通过；本测试组合已提交 progress readback 与 FFI egress 两个生产边界，不重复模拟网络/OSS | @2026-07-24T04:32:00+0800
 

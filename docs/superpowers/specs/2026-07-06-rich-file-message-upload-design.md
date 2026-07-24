@@ -18,7 +18,7 @@ UI 选文件
   → Helix PersistAtomic(message + pending_media prepare journal)
   → Rust → Java POST /oss/getPresignedUrl
   → Rust host → OSS PUT
-  → Rust → Java POST /oss/verifyUpload
+  → Rust → Java POST /oss/completeMediaUpload
   → Rust → Go POST /api/cses/posts/create
 ```
 
@@ -110,7 +110,7 @@ Rust 只接受 `method=PUT`、`objectKey=media/{fileId}`、
 shared host driver 流式读取 `localPath` 并对 prepare URL 执行 PUT。成功后：
 
 ```http
-POST {javaBase}/oss/verifyUpload
+POST {javaBase}/oss/completeMediaUpload
 X-Auth-Kind: session
 Content-Type: application/json
 ```

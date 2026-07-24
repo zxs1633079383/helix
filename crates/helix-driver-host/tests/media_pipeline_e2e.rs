@@ -30,6 +30,7 @@ const CHANNEL_ID: &str = "chfixx00000000000000000001";
 const RICH_TEMPORARY_ID: &str = "tmp-media-pipeline-rich";
 const FILE_TEMPORARY_ID: &str = "tmp-media-pipeline-file";
 const AUTH_USER_ID: &str = "usfixx00000000000000000001";
+const AUTH_DEVICE_ID: &str = "device-media-pipeline";
 const IMAGE_BODY: &[u8] = b"rich-image-body";
 const IMAGE_SHA256: &str = "f00b8dba93aa1833104e65662acf6a5da7c5d52431e4d70646d6a1c1dde6f291";
 const FILE_SIZE: usize = 20 * 64 * 1024;
@@ -413,6 +414,11 @@ async fn run_java_server(
             Some(AUTH_USER_ID),
             "Java media control plane must receive the platform-injected session credential"
         );
+        assert_eq!(
+            request.headers.get("deviceid").map(String::as_str),
+            Some(AUTH_DEVICE_ID),
+            "Java media control plane must receive the platform-injected device identity"
+        );
         assert!(
             !request.headers.contains_key("x-auth-kind"),
             "internal auth intent must be stripped before Java sees the request"
@@ -460,7 +466,7 @@ async fn run_java_server(
                     }
                 })
             }
-            "/java/oss/verifyUpload" => {
+            "/java/oss/completeMediaUpload" => {
                 verify_count += 1;
                 let upload_token = body["uploadToken"].as_str().expect("verify uploadToken");
                 let ticket = issued.remove(upload_token).unwrap_or_else(|| {
@@ -543,7 +549,7 @@ async fn run_oss_server(
                 .map(String::as_str),
             Some("true")
         );
-        for forbidden in ["cookieid", "authorization", "x-auth-kind"] {
+        for forbidden in ["cookieid", "deviceid", "authorization", "x-auth-kind"] {
             assert!(
                 !request.headers.contains_key(forbidden),
                 "OSS PUT must not receive platform credential header {forbidden}"
@@ -586,6 +592,11 @@ async fn run_go_server(listener: TcpListener, post_tx: mpsc::UnboundedSender<usi
             request.headers.get("cookieid").map(String::as_str),
             Some(AUTH_USER_ID),
             "Go posts/create must receive the same platform session credential"
+        );
+        assert_eq!(
+            request.headers.get("deviceid").map(String::as_str),
+            Some(AUTH_DEVICE_ID),
+            "Go posts/create must receive the same platform device identity"
         );
         assert!(
             !request.headers.contains_key("x-auth-kind"),
@@ -832,6 +843,10 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
             .with_timeout(Duration::from_secs(10)),
     )
     .expect("build shared HTTP client with independent Go and Java bases");
+    shared_http
+        .headers()
+        .set_header_sync("deviceId", AUTH_DEVICE_ID)
+        .expect("inject platform device identity");
     let auth = AuthTokenRegistry::new();
     auth.set_session("cookieId", AUTH_USER_ID);
     let event_sink = Arc::new(NoopSink);
@@ -961,7 +976,7 @@ async fn rich_and_file_share_one_host_pipeline_across_java_oss_and_go_origins() 
         .collect::<Vec<_>>();
     let verify_records = java_records
         .iter()
-        .filter(|record| record.path == "/java/oss/verifyUpload")
+        .filter(|record| record.path == "/java/oss/completeMediaUpload")
         .collect::<Vec<_>>();
     assert_eq!(prepare_records.len(), 10);
     assert_eq!(verify_records.len(), 10);

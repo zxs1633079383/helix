@@ -236,7 +236,7 @@ fn put_ok(h: &mut Harness, corr: u64, now: u64) -> u64 {
     h.step(port_reply_ok(corr), now);
     let persist = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(persist), now + 1);
-    http(h, "/oss/verifyUpload")[0].0
+    http(h, "/oss/completeMediaUpload")[0].0
 }
 
 fn posts(h: &Harness) -> usize {
@@ -393,7 +393,7 @@ fn put_failure_retries_from_prepare_and_never_reuses_the_old_signed_url() {
     );
     let prepares = http(&h, "/oss/getPresignedUrl");
     assert_eq!(prepares.len(), 1);
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     let duplicate = h.step(retry("tmp-retry-file"), 1040);
     assert!(duplicate.is_empty());
 
@@ -418,14 +418,14 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     let complete_b_stage = pending_stage_corr(&h, "complete");
     h.step(port_reply_ok(complete_b_stage), 1041);
     assert!(
-        http(&h, "/oss/verifyUpload").is_empty(),
+        http(&h, "/oss/completeMediaUpload").is_empty(),
         "第二个 verify 必须等待第一个完成原子提交"
     );
     h.step(with_corr(complete_a, common_res(complete_data(A))), 1050);
     assert_eq!(posts(&h), 0);
     let first_commit = completion_commit_corr(&h);
     h.step(port_reply_ok(first_commit), 1051);
-    let complete_b = http(&h, "/oss/verifyUpload")[0].0;
+    let complete_b = http(&h, "/oss/completeMediaUpload")[0].0;
     let mut mismatch = complete_data(B);
     mismatch["sha256"] = json!("wrong");
     h.step(with_corr(complete_b, common_res(mismatch)), 1060);
@@ -433,7 +433,7 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
     assert_retryable_media_failure(&h, "tmp-retry-rich", false);
 
     h.step(retry("tmp-retry-rich"), 1070);
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     let retry_reset = retry_reset_corr(&h);
     h.step(port_reply_ok(retry_reset), 1071);
     assert_eq!(
@@ -446,7 +446,7 @@ fn complete_failure_retries_only_complete_and_preserves_multi_barrier() {
         .iter()
         .all(|effect| !matches!(effect, Effect::UploadFile { .. })));
     assert!(http(&h, "/oss/getPresignedUrl").is_empty());
-    let retried_complete = http(&h, "/oss/verifyUpload");
+    let retried_complete = http(&h, "/oss/completeMediaUpload");
     assert_eq!(retried_complete.len(), 1);
     let duplicate = h.step(retry("tmp-retry-rich"), 1080);
     assert!(duplicate.is_empty());

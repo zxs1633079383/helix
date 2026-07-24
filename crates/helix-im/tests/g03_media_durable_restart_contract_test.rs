@@ -377,7 +377,7 @@ fn startup_recovery_atomically_marks_orphan_messages_retryable_before_opening_re
         _ => false,
     }));
     assert!(http(&h, "/oss/getPresignedUrl").is_empty());
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
 }
 
 #[test]
@@ -504,7 +504,7 @@ fn prepare_and_put_stage_persist_errors_never_advance_external_io() {
     assert_eq!(upload_count(&h), 0);
     h.step(port_reply_err(put_persist), 1003);
     assert_eq!(upload_count(&h), 0);
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
 
     let mut h = Harness::new(&[1]);
     h.step(file_command(), 2000);
@@ -537,9 +537,9 @@ fn prepare_and_put_stage_persist_errors_never_advance_external_io() {
         .unwrap();
     h.step(port_reply_ok(upload), 2004);
     let complete_persist = persist_corr_for_upsert_stage(&h, "complete");
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     h.step(port_reply_err(complete_persist), 2005);
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
 }
 
 #[test]
@@ -599,7 +599,7 @@ fn restart_from_put_retries_prepare_without_reusing_persisted_credentials() {
 
     assert_eq!(http(&h, "/oss/getPresignedUrl").len(), 1);
     assert_eq!(upload_count(&h), 0);
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
 }
 
 #[test]
@@ -629,7 +629,7 @@ fn restart_from_complete_retries_complete_without_repeating_prepare_or_put() {
 
     assert!(http(&h, "/oss/getPresignedUrl").is_empty());
     assert_eq!(upload_count(&h), 0);
-    assert_eq!(http(&h, "/oss/verifyUpload").len(), 1);
+    assert_eq!(http(&h, "/oss/completeMediaUpload").len(), 1);
 }
 
 #[test]
@@ -688,7 +688,7 @@ fn corrupted_durable_row_fails_the_whole_recovery_scan_without_starting_io() {
     assert!(result.is_err(), "malformed journal scan must fail closed");
     assert_eq!(upload_count(&h), 0);
     assert!(http(&h, "/oss/getPresignedUrl").is_empty());
-    assert!(http(&h, "/oss/verifyUpload").is_empty());
+    assert!(http(&h, "/oss/completeMediaUpload").is_empty());
     assert!(http(&h, "/posts/create").is_empty());
     assert!(h.sink.as_slice().is_empty());
 }
@@ -719,10 +719,10 @@ fn multi_attachment_partial_restart_completes_remaining_barrier_and_posts_once()
         "tmp-durable-rich",
         message_row("tmp-durable-rich", "rich", props, "sending"),
     );
-    assert_eq!(http(&h, "/oss/verifyUpload").len(), 1);
+    assert_eq!(http(&h, "/oss/completeMediaUpload").len(), 1);
     assert!(http(&h, "/posts/create").is_empty());
 
-    let corr = http(&h, "/oss/verifyUpload")[0].0;
+    let corr = http(&h, "/oss/completeMediaUpload")[0].0;
     h.step(
         with_corr(
             corr,
@@ -782,7 +782,7 @@ fn completion_deletes_internal_rows_and_second_restart_does_not_repost() {
             "sending",
         ),
     );
-    let corr = http(&h, "/oss/verifyUpload")[0].0;
+    let corr = http(&h, "/oss/completeMediaUpload")[0].0;
     h.step(
         with_corr(
             corr,
@@ -856,7 +856,7 @@ fn restart_after_final_completion_commit_retries_only_posts_create() {
     let body: Value = serde_json::from_slice(posts[0].1.body.as_ref().unwrap().as_ref()).unwrap();
     assert_eq!(body["temporaryId"], TMP);
     assert!(http(&restarted, "/oss/getPresignedUrl").is_empty());
-    assert!(http(&restarted, "/oss/verifyUpload").is_empty());
+    assert!(http(&restarted, "/oss/completeMediaUpload").is_empty());
     assert_eq!(upload_count(&restarted), 0);
 
     let duplicate = restarted.step(

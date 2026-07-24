@@ -56,7 +56,7 @@ pub fn complete_upload_request(
     .map_err(|error| ImError::Serialize(error.to_string()))?;
     Ok(HttpRequest {
         method: "POST".to_string(),
-        url: format!("{java_api_base_url}/oss/verifyUpload"),
+        url: format!("{java_api_base_url}/oss/completeMediaUpload"),
         headers,
         body: Some(bytes::Bytes::from(body)),
     })

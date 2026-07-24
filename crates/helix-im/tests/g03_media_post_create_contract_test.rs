@@ -230,7 +230,7 @@ fn put_one(h: &mut Harness, corr: u64, now_ms: u64) -> Option<u64> {
     h.step(port_reply_ok(corr), now_ms);
     let persist = pending_stage_corr(h, "complete");
     h.step(port_reply_ok(persist), now_ms + 1);
-    http_effects(h, "/oss/verifyUpload")
+    http_effects(h, "/oss/completeMediaUpload")
         .first()
         .map(|(corr, _)| *corr)
 }
@@ -401,7 +401,7 @@ fn multi_attachment_out_of_order_waits_for_all_and_posts_exactly_once() {
 
     // 重放旧 corr 不得越过原子提交 barrier；真实提交成功后才释放下一个 verify。
     h.step(port_reply_ok(first_commit), 1061);
-    let complete_a = http_effects(&h, "/oss/verifyUpload")[0].0;
+    let complete_a = http_effects(&h, "/oss/completeMediaUpload")[0].0;
     h.step(reply(complete_a, success(complete_data(IMAGE_A))), 1070);
     assert_eq!(posts_count(&h), 0);
     assert!(
@@ -483,7 +483,7 @@ fn one_mismatched_attachment_closes_the_multi_attachment_gate() {
     assert_eq!(posts_count(&h), 0);
     let first_commit = completion_commit_corr(&h);
     h.step(port_reply_ok(first_commit), 1051);
-    let complete_b = http_effects(&h, "/oss/verifyUpload")[0].0;
+    let complete_b = http_effects(&h, "/oss/completeMediaUpload")[0].0;
     let mut mismatch = complete_data(IMAGE_B);
     mismatch["sha256"] = json!("wrong-sha");
     let failure_effects = h.step(reply(complete_b, success(mismatch)), 1060);

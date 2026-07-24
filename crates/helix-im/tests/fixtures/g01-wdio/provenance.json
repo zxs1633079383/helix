@@ -1,0 +1,134 @@
+[
+  {
+    "fixtureId": "g01-sending-v2",
+    "fixtureSha256": "1a7a8742a7231f8a29b2a1bc63dad1e4d4c21e4865142f0d4da7b5b11999365f",
+    "generatedAt": "2026-07-24T04:26:11-07:00",
+    "helixCommit": "32e3a0659e4f29add1284be2ba1972eb28f0f938",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/anchor/messageId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt",
+      "/mutations/*/mutation/view/items/*/content/text",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/anchor/messageId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/createdAt",
+      "/mutations/*/mutation/patch/view/items/*/content/text"
+    ],
+    "placeholderValues": {
+      "actorId": "g01-wdio-actor",
+      "channelId": "chfixx00000000000000000001",
+      "createdAt": 1700000000002,
+      "marker": "g01-wdio-fixture-marker",
+      "messageId": "helix_tmp_0000018bcfe56804_0000000000000001",
+      "postId": "srvfix00000000000000000001",
+      "reqId": "g01-wdio-request-1",
+      "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001",
+      "transactionId": "timeline-timeline|26:chfixx00000000000000000001|6:latest-2"
+    },
+    "producer": "ImModule::handle -> handle_optimistic_send_reply -> refresh_attached_latest_timeline_with_deferred_send -> emit_timeline_snapshot_with_causation -> projector::emit_interaction_frame",
+    "schemaVersion": 2,
+    "semanticSha256": "8078010b064d1f905ab21b0e9561e08b41472db4942845e9b8a0491d49fe1d51",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  },
+  {
+    "fixtureId": "g01-sent-v2",
+    "fixtureSha256": "cb2eb7ad88592c7a9d03ac832d9049827cccd7354f4b0fa5dd933f7849ab0577",
+    "generatedAt": "2026-07-24T04:26:11-07:00",
+    "helixCommit": "32e3a0659e4f29add1284be2ba1972eb28f0f938",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/anchor/messageId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt",
+      "/mutations/*/mutation/view/items/*/content/text",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/anchor/messageId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/createdAt",
+      "/mutations/*/mutation/patch/view/items/*/content/text"
+    ],
+    "placeholderValues": {
+      "actorId": "g01-wdio-actor",
+      "channelId": "chfixx00000000000000000001",
+      "createdAt": 1700000000002,
+      "marker": "g01-wdio-fixture-marker",
+      "messageId": "srvfix00000000000000000001",
+      "postId": "srvfix00000000000000000001",
+      "reqId": "g01-wdio-request-1",
+      "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001",
+      "transactionId": "timeline-timeline|26:chfixx00000000000000000001|6:latest-3"
+    },
+    "producer": "ImModule::handle -> handle_optimistic_send_reply -> refresh_attached_latest_timeline_with_deferred_send -> emit_timeline_snapshot_with_causation -> projector::emit_interaction_frame",
+    "schemaVersion": 2,
+    "semanticSha256": "637f612972fed56751073005e80ef31eb47820064411c90b0c288bb4b96a5c41",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  },
+  {
+    "fixtureId": "g01-failed-v2",
+    "fixtureSha256": "a31041d52f947d01584b259427fbb16a4a7f77e1b1a0f209bbf5c1700f71bf61",
+    "generatedAt": "2026-07-24T04:26:11-07:00",
+    "helixCommit": "32e3a0659e4f29add1284be2ba1972eb28f0f938",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/anchor/messageId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt",
+      "/mutations/*/mutation/view/items/*/content/text",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/anchor/messageId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/createdAt",
+      "/mutations/*/mutation/patch/view/items/*/content/text"
+    ],
+    "placeholderValues": {
+      "actorId": "g01-wdio-actor",
+      "channelId": "chfixx00000000000000000001",
+      "createdAt": 1700000000002,
+      "marker": "g01-wdio-fixture-marker",
+      "messageId": "helix_tmp_0000018bcfe56804_0000000000000001",
+      "postId": "srvfix00000000000000000001",
+      "reqId": "g01-wdio-request-1",
+      "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001",
+      "transactionId": "timeline-timeline|26:chfixx00000000000000000001|6:latest-3"
+    },
+    "producer": "ImModule::handle -> handle_optimistic_send_reply -> refresh_attached_latest_timeline_with_deferred_send -> emit_timeline_snapshot_with_causation -> projector::emit_interaction_frame",
+    "schemaVersion": 2,
+    "semanticSha256": "2921b0d5be418c51c5a457c4829d90d54dd6084cc8c9c8c262b0fe029dc8779e",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  }
+]

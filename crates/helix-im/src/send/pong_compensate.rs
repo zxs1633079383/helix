@@ -12,14 +12,14 @@
 //!   - pong 帧（无 `action`、`status==OK` + 带 `gaps`/`hashMismatch`）由 `WsFrame::action()` 合成
 //!     `__pong__` action → `ws::handlers::pong` 路由到本模块；
 //!   - `gaps[].channelId` 去重 + 5s 节流（`SyncScheduler::should_pong_compensate`）逐个补偿；
-//!   - `hashMismatch==true` → 全量已知根群（`state.channels` 键）对账升级补偿（共享同节流闸门）；
+//!   - `hashMismatch==true` 只作为根集合漂移诊断信号；没有显式 gap 时不做全频道 sync；
 //!   - 补偿复用 `sync_scheduler::enqueue_and_drain`（全局并发窗口 + per-channel 防自踩守卫，
 //!     与重连 sync 风暴闸同一入口）。
 //!
 //! ## 不变量
 //!
-//! - **确定性有序**（HX-C010）：hashMismatch 全量根群补偿前对 channel 集合 `sort_unstable`，
-//!   杜绝 HashMap SipHash 随机迭代序导致非确定 Effect 序。
+//! - **有界补偿**：只有 `gaps[].channelId` 能进入 sync 队列，根集合 hash 漂移不能放大成
+//!   O(known_channels) 的周期性 fan-out。
 //! - **节流去重**：同 channel 短期内多 pong 携同 gap 只补一次（5s 闸门，防 pong 风暴）。
 //! - **零信任**：pong `data` 任意字段缺/坏 → 安全回退空（不 panic / 不误补），HX-C001 边界铁律。
 //! - **sans-IO**：纯算定 `Effect`（sync HTTP 由 driver 发），不读墙钟（`now_ms` host 注入）。
@@ -61,8 +61,8 @@ pub fn parse_hash_mismatch(data: &serde_json::Value) -> bool {
 /// 处理 pong 回带的 gap 补偿（消费侧主入口）。
 ///
 /// - `gaps[].channelId`：去重后逐个过 5s 节流闸门 → 命中的入队 `enqueue_and_drain` 补偿 sync。
-/// - `hashMismatch==true`：对全量已知根群（`state.channels` 键，**确定性升序**）逐个过同一节流
-///   闸门 → 命中的一并入队补偿（与 gap 共享闸门避免对同 channel 双拉）。
+/// - `hashMismatch==true`：只记录根集合漂移。服务端没有给出频道级差异时，逐根 sync 无法修复
+///   集合成员差异，反而会在每次心跳把所有频道重新入队；频道权威集合继续由 hello/increment 恢复。
 ///
 /// 复用 `sync_scheduler::enqueue_and_drain`：自带「已在途 channel 跳过 + 全局并发窗口 K」守卫，
 /// 与重连风暴闸同口径——pong 补偿不会绕过窗口打爆 driver。`now_ms` 由 host 注入（确定性）。
@@ -103,18 +103,6 @@ pub fn compensate_from_pong(
         }
     }
 
-    // 2) hashMismatch 全量根群对账升级：取已知 channel 键，确定性升序（HX-C010），过同一闸门。
-    if hash_mismatch {
-        let mut roots: Vec<ChannelId> = state.channels.keys().copied().collect();
-        roots.sort_unstable();
-        for ch in roots {
-            // 与 gap 共享 should_pong_compensate：gap 已补的 channel 此处闸门命中跳过（防双拉）。
-            if state.sync_scheduler.should_pong_compensate(ch, now_ms) {
-                targets.push(ch);
-            }
-        }
-    }
-
     tracing::info!(
         hop = "pong.compensation_decision",
         gap_count = gap_channels.len(),
@@ -130,9 +118,8 @@ pub fn compensate_from_pong(
         return;
     }
 
-    // A hash mismatch can fan out to every known channel. Treat that fan-out as
-    // one renderer transaction even though sync and persistence stay bounded
-    // and independently correlated per channel.
+    // Explicit gaps form one bounded renderer transaction even though sync and
+    // persistence stay independently correlated per channel.
     state.pong_gap_batch.begin_fanout(targets.len());
 
     // targets 已确定性有序（gap 保持 wire 顺序 + roots 升序），enqueue_and_drain 内部跳过

@@ -65,15 +65,15 @@ fn pong_with_gaps_routes_and_compensates() {
 }
 
 #[test]
-fn pong_hash_mismatch_compensates_all_known_channels() {
+fn pong_hash_mismatch_without_gaps_does_not_scan_known_channels() {
     let mut h = Harness::new(&[1, 2, 3]);
 
     let _ = h.step(pong_frame(&[], true), 1_000);
 
     assert_eq!(
         count_sync_http(&h),
-        3,
-        "pong hashMismatch=true 应对全量已知根群（3 个）补偿"
+        0,
+        "pong hashMismatch=true 无显式 gap 时不得扫描全部已知频道"
     );
 }
 

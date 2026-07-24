@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/019-g01-wdio-five-phases",
+  "phase": "planning",
+  "event_seq": 3,
+  "next_action": "run_speckit_plan",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "324df701aa92e7b5": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "86c16a6b89292012657274ddd0d2e41b29e733507b9f8bdc0a6a564755a99d81",
+      "checked_at": "2026-07-24T14:47:17Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-24T14:46:17Z",
+      "kind": "failure",
+      "detail": "r1_spec:324df701aa92e7b5: attempt 1"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-24T14:46:17Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md still contains a template placeholder"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-24T14:47:17Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    }
+  ]
+}

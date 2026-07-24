@@ -134,11 +134,12 @@ impl ImModule {
                                 .pending_forward_deliveries
                                 .is_final_target(request_id, pending.channel_id)
                         });
-                        let terminal_causation = if is_final_target {
-                            request_id.clone()
-                        } else {
-                            None
-                        };
+                        let terminal_causation =
+                            if is_final_target || pending.source == "sync_events" {
+                                request_id.clone()
+                            } else {
+                                None
+                            };
                         let mut frame =
                             crate::dialog_frame::patch_from_dialog_projection_with_causation(
                                 &mut self.state.dialog_list_frame,
@@ -158,7 +159,7 @@ impl ImModule {
                         }
                         if let Some(frame) = frame {
                             out.push(frame);
-                            if let Some(request_id) = request_id {
+                            if let Some(request_id) = request_id.filter(|_| is_final_target) {
                                 let batch_complete = self
                                     .state
                                     .pending_forward_deliveries
@@ -364,8 +365,12 @@ impl ImModule {
 
             // 左侧会话列表 Scan 回报首先发布完整 render-ready frame；Err 同样发布空 snapshot，
             // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
-            CorrelationContext::DialogListQuery => match outcome {
+            CorrelationContext::DialogListQuery { causation_id } => match outcome {
                 PortOutcome::Ok(reply) => {
+                    let surface_epoch = self.action_surface_epoch()?;
+                    self.state
+                        .dialog_list_frame
+                        .set_surface_epoch(surface_epoch);
                     let scope = crate::dialog_frame::DialogListScope::new(
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
@@ -386,6 +391,7 @@ impl ImModule {
                             scope,
                             &mut self.state.dialog_list_frame,
                             &terminal_channel_ids,
+                            causation_id.clone(),
                         )
                     {
                         out.push(frame);
@@ -393,6 +399,10 @@ impl ImModule {
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(error = ?e, "dialog list scan failed");
+                    let surface_epoch = self.action_surface_epoch()?;
+                    self.state
+                        .dialog_list_frame
+                        .set_surface_epoch(surface_epoch);
                     let scope = crate::dialog_frame::DialogListScope::new(
                         self.config.auth_user_id.as_str(),
                         self.config.company_id.as_str(),
@@ -413,6 +423,7 @@ impl ImModule {
                             scope,
                             &mut self.state.dialog_list_frame,
                             &terminal_channel_ids,
+                            causation_id,
                         )
                     {
                         out.push(frame);
@@ -521,7 +532,7 @@ impl ImModule {
             CorrelationContext::OutboundLocatePost { req_id, post_id } => {
                 crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
                 if matches!(outcome, PortOutcome::Ok(_)) && !post_id.is_empty() {
-                    if let Some(mutation) = self
+                    if let Some(mut mutation) = self
                         .state
                         .timeline_projector
                         .patch_located_target(&post_id)
@@ -529,11 +540,15 @@ impl ImModule {
                             ImError::Parse(format!("locate timeline projection: {error}"))
                         })?
                     {
+                        mutation.causation_id = Some(req_id.clone());
                         out.push(self.build_registered_timeline_frame(
                             format!("locate-{req_id}"),
                             vec![mutation],
                             now_ms,
                         )?);
+                        self.state
+                            .action_registry
+                            .complete_after_terminal_frame(&req_id);
                     }
                 }
             }
@@ -546,6 +561,23 @@ impl ImModule {
                                 .pending_forward_deliveries
                                 .retain_http_accepted_targets(&req_id, &body);
                         }
+                    }
+                    let mutations = self
+                        .state
+                        .timeline_projector
+                        .refresh_attached_with_causation(&req_id)
+                        .map_err(|error| {
+                            ImError::Parse(format!("forward acceptance projection: {error}"))
+                        })?;
+                    if !mutations.is_empty() {
+                        out.push(self.build_registered_timeline_frame(
+                            format!("forward-accepted-{req_id}"),
+                            mutations,
+                            now_ms,
+                        )?);
+                        self.state
+                            .action_registry
+                            .complete_after_terminal_frame(&req_id);
                     }
                 }
                 crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);

@@ -20,6 +20,7 @@ pub fn accepts_tick(tick: &Tick) -> bool {
                 cmd.name.as_ref(),
                 crate::module::RUNTIME_IDENTITY_COMMAND
                     | crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND
+                    | crate::interaction_frame::FRAME_APPLIED_COMMAND
                     | crate::surface_runtime::SURFACE_RESYNC_COMMAND
                     | "im_send_message"
                     | "im_retry_send"

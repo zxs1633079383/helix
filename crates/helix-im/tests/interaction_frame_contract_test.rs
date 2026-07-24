@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use helix_im::interaction_frame::{
-    ActionBinding, ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrame,
-    InteractionFrameError, InteractionFrameV2, SurfaceDataVm, SurfaceId, TypedSurfaceMutation,
-    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    ActionBinding, ActionInvocation, ActionReceipt, ActionReceiptStatus, InteractionFrameError,
+    InteractionFrameV2, SurfaceDataVm, SurfaceId, TypedSurfaceMutation, MAX_SAFE_JSON_INTEGER,
+    MIN_SAFE_JSON_INTEGER,
 };
 
 const CANONICAL_SNAPSHOT: &str = include_str!("fixtures/uc01-16-surface-runtime/snapshots.json");
@@ -29,7 +29,7 @@ fn canonical_snapshot_decodes_all_eight_surface_vms() {
     let actual: BTreeSet<_> = frame
         .mutations
         .iter()
-        .map(|mutation| mutation.surface)
+        .map(|mutation| mutation.mutation.surface)
         .collect();
     let expected = BTreeSet::from([
         SurfaceId::MessageLeftDialogList,
@@ -42,7 +42,7 @@ fn canonical_snapshot_decodes_all_eight_surface_vms() {
         SurfaceId::MessageParticipantReceipts,
     ]);
 
-    assert_eq!(frame.schema_version, 1);
+    assert_eq!(frame.schema_version, 2);
     assert_eq!(frame.mutations.len(), 8);
     assert_eq!(actual, expected);
 }
@@ -149,17 +149,14 @@ fn rich_v2_fixture_preserves_reply_reaction_and_quick_action_contracts() {
 }
 
 #[test]
-fn v2_consumer_gate_has_no_v1_or_raw_projection_fallback() {
+fn producer_and_consumer_gate_has_no_raw_projection_fallback() {
     let v2 = InteractionFrameV2::decode(GS01_RECONNECT_V2.as_bytes())
         .expect("strict V2 decoder accepts the committed recovery fixture");
     assert_eq!(v2.schema_version, 2);
-    assert!(matches!(
-        InteractionFrame::decode(GS01_RECONNECT_V2.as_bytes()),
-        Err(InteractionFrameError::Decode(_))
-    ));
 
     let projector = include_str!("../src/projector/mod.rs");
-    assert!(projector.contains("emit_interaction_frame_v2"));
+    assert_eq!(projector.matches("fn emit_interaction_frame(").count(), 1);
+    assert!(!projector.contains("emit_interaction_frame_v2"));
     assert!(
         !projector.contains("raw fallback"),
         "a rejected V2 frame must stay rejected instead of being rewritten as a raw projection"
@@ -177,7 +174,7 @@ fn patch_transaction_uses_replace_view_and_advances_all_affected_slots() {
     assert!(patch
         .mutations
         .iter()
-        .all(|mutation| mutation.mutation.is_patch()));
+        .all(|mutation| mutation.mutation.mutation.is_patch()));
     cache
         .apply(&patch)
         .expect("matching-base patch applies atomically");
@@ -202,14 +199,14 @@ fn patch_transaction_uses_replace_view_and_advances_all_affected_slots() {
 #[test]
 fn duplicate_and_scope_mismatch_fixtures_reject_the_complete_frame() {
     let duplicate =
-        InteractionFrame::decode(DUPLICATE.as_bytes()).expect_err("duplicate slot rejected");
+        InteractionFrameV2::decode(DUPLICATE.as_bytes()).expect_err("duplicate slot rejected");
     assert!(matches!(
         duplicate,
         InteractionFrameError::DuplicateSlot { .. }
     ));
 
     let mismatch =
-        InteractionFrame::decode(SCOPE_MISMATCH.as_bytes()).expect_err("scope mismatch rejected");
+        InteractionFrameV2::decode(SCOPE_MISMATCH.as_bytes()).expect_err("scope mismatch rejected");
     assert!(matches!(
         mismatch,
         InteractionFrameError::ScopeMismatch { .. }
@@ -303,13 +300,14 @@ fn accepted_action_fixture_is_pending_until_a_matching_frame_causation_arrives()
 
     let mut frame = decode(PATCH_TRANSACTION);
     for mutation in &mut frame.mutations {
-        mutation.causation_id = Some("action-accepted-1".to_string());
+        mutation.mutation.causation_id = Some("action-accepted-1".to_string());
     }
     frame.validate().expect("matching causation frame is valid");
     assert!(frame
         .mutations
         .iter()
-        .all(|mutation| mutation.causation_id.as_deref() == Some(receipt.request_id.as_str())));
+        .all(|mutation| mutation.mutation.causation_id.as_deref()
+            == Some(receipt.request_id.as_str())));
 }
 
 #[test]
@@ -318,7 +316,7 @@ fn unknown_mutation_kind_and_missing_patch_baseline_are_rejected() {
         serde_json::from_str(CANONICAL_SNAPSHOT).expect("canonical fixture is JSON");
     unknown["mutations"][0]["mutation"]["kind"] = serde_json::json!("futureDialogMutation");
     assert!(matches!(
-        InteractionFrame::decode(
+        InteractionFrameV2::decode(
             serde_json::to_vec(&unknown)
                 .expect("fixture remains JSON")
                 .as_slice()
@@ -333,7 +331,7 @@ fn unknown_mutation_kind_and_missing_patch_baseline_are_rejected() {
         .expect("patch mutation object")
         .remove("baseRevision");
     assert!(matches!(
-        InteractionFrame::decode(
+        InteractionFrameV2::decode(
             serde_json::to_vec(&missing_base)
                 .expect("fixture remains JSON")
                 .as_slice()
@@ -343,7 +341,7 @@ fn unknown_mutation_kind_and_missing_patch_baseline_are_rejected() {
 }
 
 #[test]
-fn decoder_rejects_v1_wire_integers_outside_the_js_exact_safe_domain() {
+fn decoder_rejects_wire_integers_outside_the_js_exact_safe_domain() {
     assert_unsafe_wire_number(
         CANONICAL_SNAPSHOT,
         |frame| {
@@ -422,7 +420,7 @@ fn exact_safe_boundaries_and_finite_surface_data_decimals_remain_valid() {
         serde_json::json!(MIN_SAFE_JSON_INTEGER);
     snapshot["mutations"][2]["mutation"]["view"]["items"][0]["createdAt"] =
         serde_json::json!(MAX_SAFE_JSON_INTEGER as i64);
-    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["replySummary"] =
+    snapshot["mutations"][2]["mutation"]["view"]["items"][0]["readReceipt"] =
         serde_json::json!(0.125);
     snapshot["mutations"][2]["mutation"]["view"]["items"][0]["content"] = serde_json::json!({
         "kind": "media",
@@ -449,11 +447,12 @@ fn exact_safe_boundaries_and_finite_surface_data_decimals_remain_valid() {
 #[test]
 fn producer_validation_rejects_unsafe_numbers_before_serialization() {
     let mut frame = decode(CANONICAL_SNAPSHOT);
-    frame.mutations[0].revision = MAX_SAFE_JSON_INTEGER + 1;
+    frame.mutations[0].mutation.revision = MAX_SAFE_JSON_INTEGER + 1;
     assert_unsafe_producer_number(frame, "revision");
 
     let mut frame = decode(CANONICAL_SNAPSHOT);
-    let TypedSurfaceMutation::TimelineSnapshot { view } = &mut frame.mutations[2].mutation else {
+    let TypedSurfaceMutation::TimelineSnapshot { view } = &mut frame.mutations[2].mutation.mutation
+    else {
         panic!("canonical fixture must contain a timeline snapshot");
     };
     view.items[0].created_at = MIN_SAFE_JSON_INTEGER - 1;
@@ -485,25 +484,24 @@ fn surface_data_rejects_unsafe_integer_decimal_and_unrepresentable_numbers() {
         "decimal",
     );
 
-    let unrepresentable =
-        CANONICAL_SNAPSHOT.replacen("\"replySummary\": {}", "\"replySummary\": 1e400", 1);
+    let unrepresentable = CANONICAL_SNAPSHOT.replacen("\"eventSeq\": 0", "\"eventSeq\": 1e400", 1);
     assert!(matches!(
-        InteractionFrame::decode(unrepresentable.as_bytes()),
+        InteractionFrameV2::decode(unrepresentable.as_bytes()),
         Err(InteractionFrameError::Decode(_))
     ));
 }
 
-fn decode(json: &str) -> InteractionFrame {
-    InteractionFrame::decode(json.as_bytes()).expect("fixture must satisfy the wire contract")
+fn decode(json: &str) -> InteractionFrameV2 {
+    InteractionFrameV2::decode(json.as_bytes()).expect("fixture must satisfy the wire contract")
 }
 
 fn frame_value(json: &str) -> serde_json::Value {
     serde_json::from_str(json).expect("fixture must be JSON")
 }
 
-fn decode_value(value: &serde_json::Value) -> Result<InteractionFrame, InteractionFrameError> {
+fn decode_value(value: &serde_json::Value) -> Result<InteractionFrameV2, InteractionFrameError> {
     let bytes = serde_json::to_vec(value).expect("mutated fixture remains JSON");
-    InteractionFrame::decode(&bytes)
+    InteractionFrameV2::decode(&bytes)
 }
 
 fn assert_unsafe_wire_number(
@@ -523,7 +521,7 @@ fn assert_unsafe_wire_number(
     ));
 }
 
-fn assert_unsafe_producer_number(frame: InteractionFrame, field: &'static str) {
+fn assert_unsafe_producer_number(frame: InteractionFrameV2, field: &'static str) {
     let error = frame
         .validate()
         .expect_err("producer cannot emit unsafe wire numbers");
@@ -538,7 +536,7 @@ fn assert_unsafe_producer_number(frame: InteractionFrame, field: &'static str) {
 
 fn assert_invalid_surface_data(value: serde_json::Value, expected_reason: &str) {
     let mut frame = frame_value(CANONICAL_SNAPSHOT);
-    frame["mutations"][2]["mutation"]["view"]["items"][0]["replySummary"] = value;
+    frame["mutations"][2]["mutation"]["view"]["items"][0]["readReceipt"] = value;
     let error = decode_value(&frame).expect_err("unsafe generic surface data must be rejected");
     assert!(matches!(
         error,
@@ -549,7 +547,7 @@ fn assert_invalid_surface_data(value: serde_json::Value, expected_reason: &str) 
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct TestFrameCache {
-    slots: BTreeMap<(SurfaceId, String), u64>,
+    slots: BTreeMap<(SurfaceId, String), (u64, u64)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -560,26 +558,35 @@ enum ApplyError {
 
 impl TestFrameCache {
     fn revision(&self, surface: SurfaceId, scope: &str) -> Option<u64> {
-        self.slots.get(&(surface, scope.to_owned())).copied()
+        self.slots
+            .get(&(surface, scope.to_owned()))
+            .map(|(_, revision)| *revision)
     }
 
-    fn apply(&mut self, frame: &InteractionFrame) -> Result<(), ApplyError> {
+    fn apply(&mut self, frame: &InteractionFrameV2) -> Result<(), ApplyError> {
         frame
             .validate()
             .expect("cache receives only schema-valid frames");
         let mut staged = self.slots.clone();
 
-        for mutation in &frame.mutations {
+        for v2 in &frame.mutations {
+            let mutation = &v2.mutation;
             let slot = (mutation.surface, mutation.scope.canonical_key());
             let current = staged.get(&slot).copied();
             if mutation.mutation.is_patch() {
-                if current != mutation.base_revision {
+                if current.map(|(epoch, revision)| (epoch, Some(revision)))
+                    != Some((v2.surface_epoch, mutation.base_revision))
+                {
                     return Err(ApplyError::ResyncRequired);
                 }
-            } else if current.is_some_and(|revision| mutation.revision <= revision) {
-                return Err(ApplyError::Stale);
+            } else if let Some((epoch, revision)) = current {
+                if v2.surface_epoch < epoch
+                    || (v2.surface_epoch == epoch && mutation.revision <= revision)
+                {
+                    return Err(ApplyError::Stale);
+                }
             }
-            staged.insert(slot, mutation.revision);
+            staged.insert(slot, (v2.surface_epoch, mutation.revision));
         }
 
         self.slots = staged;

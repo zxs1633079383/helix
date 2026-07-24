@@ -176,6 +176,90 @@ fn exhausted_remote_window_drops_stale_server_rows_but_keeps_optimistic_rows() {
 }
 
 #[test]
+fn exhausted_remote_window_keeps_newer_committed_local_rows_during_replica_lag() {
+    let remote = vec![row(2), row(1)];
+    let newer_committed = row(3);
+
+    let merged = merge_recent_rows(vec![newer_committed.clone()], remote.clone(), true, 20);
+
+    assert!(merged.iter().any(|item| item == &newer_committed));
+    assert!(
+        stale_local_server_rows_delete_op(channel_id(), &[newer_committed], &remote).is_none(),
+        "滞后的 latest endpoint 不能删除已由 sync 持久化的更新事实"
+    );
+}
+
+#[test]
+fn remote_latest_preserves_local_sequence_metadata_for_the_same_message() {
+    let local = serde_json::json!({
+        "id": "message-sequenced",
+        "temporary_id": "temporary-sequenced",
+        "channel_id": channel_id().as_str(),
+        "props": r#"{"channel_event_seq":4,"local_only":"kept-locally"}"#,
+    });
+    let remote = serde_json::json!({
+        "id": "message-sequenced",
+        "temporaryId": "temporary-sequenced",
+        "channelId": channel_id().as_str(),
+        "userId": "author-1",
+        "createAt": 10,
+        "message": "remote authority",
+        "type": "TEXT",
+        "props": {"remote_only": true},
+    });
+
+    let (rows, ops) =
+        visible_remote_rows_and_cache_ops(channel_id(), vec![remote], &[local], "viewer-1")
+            .expect("same-identity remote row should remain cacheable");
+
+    assert_eq!(data::post_event_seq(&rows[0]), Some(4));
+    assert_eq!(rows[0]["props"]["remote_only"], true);
+    assert_eq!(rows[0]["props"]["channel_event_seq"], 4);
+    assert!(rows[0]["props"].get("local_only").is_none());
+
+    let helix_core::effect::StorageOp::BatchUpsert(spec) = &ops[0] else {
+        panic!("latest cache operation should be a message upsert");
+    };
+    let props = spec.rows[0]
+        .iter()
+        .find_map(|(column, value)| (column == "props").then_some(value))
+        .expect("message cache row should persist props");
+    let helix_core::effect::SqlValue::Text(props) = props else {
+        panic!("message props should be stored as JSON text");
+    };
+    let props: Value = serde_json::from_str(&props).expect("cached props should be valid JSON");
+    assert_eq!(props["remote_only"], true);
+    assert_eq!(props["channel_event_seq"], 4);
+}
+
+#[test]
+fn remote_sequence_metadata_remains_authoritative_over_local_cache() {
+    let local = serde_json::json!({
+        "id": "message-sequenced",
+        "temporary_id": "temporary-sequenced",
+        "props": r#"{"channel_event_seq":4}"#,
+    });
+    let remote = serde_json::json!({
+        "id": "message-sequenced",
+        "temporaryId": "temporary-sequenced",
+        "channelId": channel_id().as_str(),
+        "userId": "author-1",
+        "createAt": 10,
+        "message": "remote authority",
+        "type": "TEXT",
+        "eventSeq": 9,
+        "props": {"channel_event_seq": 9},
+    });
+
+    let (rows, _) =
+        visible_remote_rows_and_cache_ops(channel_id(), vec![remote], &[local], "viewer-1")
+            .expect("remote sequence should remain authoritative");
+
+    assert_eq!(data::post_event_seq(&rows[0]), Some(9));
+    assert_eq!(rows[0]["props"]["channel_event_seq"], 9);
+}
+
+#[test]
 fn latest_posts_parser_distinguishes_empty_success_from_failed_status() {
     let empty = parse_latest_posts_body(br#"{"status":"SUCCESS","data":[]}"#).unwrap();
     assert!(empty.is_empty());
@@ -216,17 +300,17 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
     let envelope: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
     assert_eq!(envelope["event"], "im:interaction:frame");
     assert!(envelope["event"] != "im:messages:query_result");
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&envelope["data"]).unwrap(),
     )
     .expect("live timeline output must satisfy the public Frame contract");
     assert_eq!(frame.mutations.len(), 1);
     assert_eq!(
-        frame.mutations[0].surface,
+        frame.mutations[0].mutation.surface,
         crate::interaction_frame::SurfaceId::MessageTimeline
     );
     assert_eq!(
-        frame.mutations[0].scope.canonical_key(),
+        frame.mutations[0].mutation.scope.canonical_key(),
         format!(
             "timeline|{}:{}|{}:{}",
             channel_id().as_str().len(),
@@ -335,6 +419,61 @@ fn attached_timeline_refreshes_after_a_durable_fact_even_before_first_snapshot()
         .as_slice()
         .iter()
         .any(|effect| matches!(effect, Effect::Persist { .. })));
+}
+
+#[test]
+fn transport_disconnect_preserves_attached_timeline_for_recovery_patch() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let rows = vec![serde_json::json!({
+        "id": "message-before-disconnect",
+        "temporaryId": "temporary-before-disconnect",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 10,
+        "message": "before disconnect",
+        "type": "TEXT",
+        "props": {},
+    })];
+    module
+        .emit_timeline_snapshot_with_causation(&request(20), &rows, 1_000, None)
+        .expect("initial attached timeline snapshot");
+    let scope = crate::interaction_frame::SurfaceScope::Timeline {
+        channel_id: channel_id().as_str().to_string(),
+        window_token: "latest".to_string(),
+    };
+
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Disconnected(helix_core::effect::TransportId::from_raw(1)),
+            1_001,
+            &mut sink,
+        )
+        .expect("transport disconnect is a silent query-session boundary");
+    assert!(sink.as_slice().is_empty());
+    assert!(module.state.timeline_projector.is_attached(&scope));
+    assert!(
+        module.state.timeline_projector.current_view(&scope).is_some(),
+        "same-identity renderer revision remains mounted across a socket reconnect"
+    );
+
+    module
+        .refresh_attached_latest_timeline(
+            channel_id(),
+            Some("recovery-persist-1".to_string()),
+            &mut sink,
+        )
+        .expect("a recovered durable fact must re-enter the attached timeline");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })),
+        "recovery must schedule authoritative local readback instead of dropping the V2 frame"
+    );
 }
 
 #[test]
@@ -531,18 +670,23 @@ fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_f
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("the attached timeline receives a typed Frame patch");
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&frame_event["data"]).unwrap(),
     )
     .expect("the refresh output satisfies the public InteractionFrame contract");
     let mutation = frame
         .mutations
         .iter()
-        .find(|mutation| mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline)
+        .find(|mutation| {
+            mutation.mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline
+        })
         .expect("the Frame includes the timeline surface");
-    assert_eq!(mutation.causation_id.as_deref(), Some("send-request-1"));
+    assert_eq!(
+        mutation.mutation.causation_id.as_deref(),
+        Some("send-request-1")
+    );
     assert!(matches!(
-        mutation.mutation,
+        mutation.mutation.mutation,
         crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
     ));
     let frame_index = sink
@@ -838,18 +982,23 @@ fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_atta
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("only the readback releases the typed timeline patch");
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&frame_event["data"]).unwrap(),
     )
     .expect("the terminal projection satisfies the Frame contract");
     let mutation = frame
         .mutations
         .iter()
-        .find(|mutation| mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline)
+        .find(|mutation| {
+            mutation.mutation.surface == crate::interaction_frame::SurfaceId::MessageTimeline
+        })
         .expect("the terminal Frame patches the timeline");
-    assert_eq!(mutation.causation_id.as_deref(), Some("send-request-2"));
+    assert_eq!(
+        mutation.mutation.causation_id.as_deref(),
+        Some("send-request-2")
+    );
     assert!(matches!(
-        mutation.mutation,
+        mutation.mutation.mutation,
         crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { .. }
     ));
 }
@@ -861,7 +1010,7 @@ fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
     let mut module = ImModule::new(config);
 
     let effect = module
-        .emit_timeline_failed(&request(20), 1_000, false)
+        .emit_timeline_failed(&request(20), 1_000, None)
         .expect("failure state still projects to a typed frame");
     let Effect::Emit { event } = effect else {
         panic!("timeline query failure must emit a Frame")
@@ -870,12 +1019,12 @@ fn remote_failure_emits_failed_timeline_frame_not_legacy_status_event() {
     assert_eq!(envelope["event"], "im:interaction:frame");
     assert_ne!(envelope["event"], "im:post:increment-failed");
 
-    let frame = crate::interaction_frame::InteractionFrame::decode(
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&envelope["data"]).unwrap(),
     )
     .expect("failed timeline output must satisfy the public Frame contract");
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
-        &frame.mutations[0].mutation
+        &frame.mutations[0].mutation.mutation
     else {
         panic!("failure must stay a complete timeline snapshot")
     };
@@ -912,11 +1061,11 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
         panic!("timeline query must emit a frame")
     };
     let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let initial_frame = crate::interaction_frame::InteractionFrame::decode(
+    let initial_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&event["data"]).unwrap(),
     )
     .unwrap();
-    let initial_mutation = &initial_frame.mutations[0];
+    let initial_mutation = &initial_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &initial_mutation.mutation
     else {
@@ -1016,11 +1165,11 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         panic!("timeline must emit a frame")
     };
     let timeline_event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let timeline_frame = crate::interaction_frame::InteractionFrame::decode(
+    let timeline_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&timeline_event["data"]).unwrap(),
     )
     .unwrap();
-    let mutation = &timeline_frame.mutations[0];
+    let mutation = &timeline_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &mutation.mutation
     else {
@@ -1180,11 +1329,11 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         panic!("refreshed timeline must emit a frame")
     };
     let refreshed_event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let refreshed_frame = crate::interaction_frame::InteractionFrame::decode(
+    let refreshed_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&refreshed_event["data"]).unwrap(),
     )
     .unwrap();
-    let refreshed_mutation = &refreshed_frame.mutations[0];
+    let refreshed_mutation = &refreshed_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
         &refreshed_mutation.mutation
     else {
@@ -1255,7 +1404,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
         .filter_map(emitted_event)
         .find(|event| event["event"] == "im:interaction:frame")
         .expect("canonical HTTP reply produces a typed Frame");
-    let authority_frame = crate::interaction_frame::InteractionFrame::decode(
+    let authority_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&authority_frame["data"]).unwrap(),
     )
     .unwrap();
@@ -1339,11 +1488,11 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         panic!("timeline must emit a Frame")
     };
     let old_frame: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let old_frame = crate::interaction_frame::InteractionFrame::decode(
+    let old_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&old_frame["data"]).unwrap(),
     )
     .unwrap();
-    let old_mutation = &old_frame.mutations[0];
+    let old_mutation = &old_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &old_mutation.mutation
     else {
@@ -1423,11 +1572,11 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         panic!("timeline must emit a Frame")
     };
     let after_frame: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
-    let after_frame = crate::interaction_frame::InteractionFrame::decode(
+    let after_frame = crate::interaction_frame::InteractionFrameV2::decode(
         &serde_json::to_vec(&after_frame["data"]).unwrap(),
     )
     .unwrap();
-    let after_mutation = &after_frame.mutations[0];
+    let after_mutation = &after_frame.mutations[0].mutation;
     let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
         &after_mutation.mutation
     else {

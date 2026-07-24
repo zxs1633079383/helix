@@ -11,6 +11,7 @@ pub use capabilities::{
     capabilities_json, BUS_CHANNEL, CONTRACT_VERSION, META_QUERIES, PUBLIC_EVENTS,
 };
 pub use command::{
-    build_action_invocation_command, build_command, build_surface_resync_command, command_alias,
-    normalize_command_payload, CommandAlias, COMMAND_ALIASES, INTERACTION_ACTION_INVOKE_COMMAND,
+    build_action_invocation_command, build_command, build_frame_applied_command,
+    build_surface_resync_command, command_alias, normalize_command_payload, CommandAlias,
+    COMMAND_ALIASES, INTERACTION_ACTION_INVOKE_COMMAND,
 };

@@ -144,8 +144,12 @@ impl ImModule {
         for mutation in &mutations {
             self.register_timeline_action_bindings(mutation, now_ms)?;
         }
-        let frame = crate::projector::build_interaction_frame(frame_id, mutations)
-            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        let frame = crate::projector::build_online_interaction_frame(
+            frame_id,
+            self.action_surface_epoch()?,
+            mutations,
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
         crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))
     }
@@ -255,8 +259,9 @@ impl ImModule {
             .map_err(|error| ImError::Parse(format!("action receipt projection: {error}")))?;
         let scope_key = mutation.scope.canonical_key();
         let revision = mutation.revision;
-        let frame = crate::projector::build_interaction_frame(
+        let frame = crate::projector::build_online_interaction_frame(
             format!("action-receipt-{scope_key}-{revision}"),
+            self.action_surface_epoch()?,
             vec![mutation],
         )
         .map_err(|error| ImError::Serialize(error.to_string()))?;
@@ -294,6 +299,20 @@ impl ImModule {
         request_id: &str,
     ) -> Result<PreparedAction, ImError> {
         match dispatch {
+            ActionDispatch::MarkRead {
+                channel_id,
+                message_id,
+            } => self.prepare_outbound_action(
+                "im_post_read",
+                serde_json::json!({
+                    "channel_id": channel_id,
+                    "posts": [message_id],
+                    "req_id": request_id,
+                }),
+                dispatch
+                    .pending_authority_action(request_id)
+                    .expect("mark-read dispatch must create pending authority"),
+            ),
             ActionDispatch::ViewReceipt {
                 channel_id,
                 message_id,
@@ -323,6 +342,36 @@ impl ImModule {
                         request_id: request_id.to_string(),
                         channel_id: channel_id.clone(),
                         message_id: message_id.clone(),
+                    },
+                    effects,
+                })
+            }
+            ActionDispatch::LocatePost { message_id, .. } => {
+                let corr = self.alloc_corr_internal();
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "post_ids": [message_id],
+                    "req_id": request_id,
+                    "locate": true,
+                }))
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                let effects = crate::commands::handle_outbound(
+                    "im_get_posts",
+                    &payload,
+                    self.config.api_base_url.as_str(),
+                    self.config.default_api_base_url.as_str(),
+                    self.state.connection_id.as_deref(),
+                    corr,
+                )?;
+                if effects.len() != 1 || !matches!(effects.first(), Some(Effect::Http { .. })) {
+                    return Err(ImError::Parse(
+                        "im_get_posts locate must produce exactly one HTTP effect".to_string(),
+                    ));
+                }
+                Ok(PreparedAction::Routed {
+                    corr,
+                    context: CorrelationContext::OutboundLocatePost {
+                        req_id: request_id.to_string(),
+                        post_id: message_id.clone(),
                     },
                     effects,
                 })

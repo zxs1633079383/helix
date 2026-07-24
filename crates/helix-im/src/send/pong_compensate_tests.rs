@@ -4,7 +4,7 @@
 //! - parse_gap_channels 漏去重 / 取错键（channel_id snake 而非 channelId camel）→ 计数 FAIL
 //! - compensate_from_pong 不补 gap channel → Http 计数 0 FAIL
 //! - 节流失效（同 channel 5s 内补两次）→ 第二次 Http 非 0 FAIL
-//! - hashMismatch 不触发全量根群补偿 → Http 计数 FAIL
+//! - hashMismatch 无显式 gap 却触发全量根群补偿 → Http 计数 FAIL
 //! - 根群补偿非确定性有序（HashMap 随机序）→ 多跑序断言 FAIL
 
 use super::*;
@@ -102,6 +102,76 @@ fn gap_channels_trigger_compensation_sync() {
 }
 
 #[test]
+fn explicit_pong_gap_is_prioritized_while_recovery_is_collecting() {
+    let mut state = ImState::new();
+    let c1 = test_channel_id(1);
+    state.channels.insert(c1, Channel::new(c1, 5));
+    state.recovery_session.begin("actor");
+
+    let mut out = EffectSink::new();
+    let mut alloc = mk_corr();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_000,
+        &[c1],
+        true,
+        &mut alloc,
+        &mut out,
+    );
+
+    assert_eq!(
+        count_sync_http(&out),
+        1,
+        "明确 gap 必须越过 routine recovery backlog 及时补偿"
+    );
+
+    state.channels.get_mut(&c1).unwrap().inflight_sync = None;
+    state.sync_scheduler.release_window();
+    state.recovery_session.mark_completion_published();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_001,
+        &[c1],
+        false,
+        &mut alloc,
+        &mut out,
+    );
+    assert_eq!(
+        count_sync_http(&out),
+        1,
+        "5s 节流仍阻止同一 channel 立即重复补偿"
+    );
+}
+
+#[test]
+fn hash_only_mismatch_is_deferred_while_recovery_is_collecting() {
+    let mut state = ImState::new();
+    let c1 = test_channel_id(1);
+    state.channels.insert(c1, Channel::new(c1, 5));
+    state.recovery_session.begin("actor");
+
+    let mut out = EffectSink::new();
+    let mut alloc = mk_corr();
+    compensate_from_pong(
+        &mut state,
+        "http://t",
+        1_000,
+        &[],
+        true,
+        &mut alloc,
+        &mut out,
+    );
+
+    assert_eq!(
+        count_sync_http(&out),
+        0,
+        "无明确 channel 的 hash mismatch 不得续填 recovery 队列"
+    );
+}
+
+#[test]
 fn unknown_gap_channel_is_skipped_not_panicked() {
     // gap 指向不存在的 channel（已注销 / 从未注册）→ enqueue_and_drain 内部 None => skip，0 补偿。
     let mut state = ImState::new();
@@ -176,7 +246,7 @@ fn throttle_dedups_same_channel_within_5s() {
 }
 
 #[test]
-fn hash_mismatch_compensates_all_known_root_channels() {
+fn hash_mismatch_without_explicit_gaps_does_not_fan_out() {
     let mut state = ImState::new();
     let c1 = test_channel_id(1);
     let c2 = test_channel_id(2);
@@ -187,7 +257,7 @@ fn hash_mismatch_compensates_all_known_root_channels() {
 
     let mut out = EffectSink::new();
     let mut alloc = mk_corr();
-    // 无 gap，hashMismatch=true → 全量已知根群（3 个）补偿。
+    // 无 gap，hashMismatch=true 只说明根集合不一致；逐根 sync 不能修复集合差异。
     compensate_from_pong(
         &mut state,
         "http://t",
@@ -197,12 +267,16 @@ fn hash_mismatch_compensates_all_known_root_channels() {
         &mut alloc,
         &mut out,
     );
-    assert_eq!(count_sync_http(&out), 3, "hashMismatch 对全量已知根群补偿");
+    assert_eq!(
+        count_sync_http(&out),
+        0,
+        "hashMismatch 不得放大成全量根群周期补偿"
+    );
 }
 
 #[test]
-fn gap_and_hash_mismatch_share_throttle_no_double_pull() {
-    // gap 命中 c1，同时 hashMismatch → c1 不应被补两次（共享节流闸门）。
+fn gap_remains_bounded_when_hash_mismatch_is_also_true() {
+    // gap 命中 c1，同时 hashMismatch → 只补显式 c1，不能附带扫描 c2。
     let mut state = ImState::new();
     let c1 = test_channel_id(1);
     let c2 = test_channel_id(2);
@@ -220,10 +294,9 @@ fn gap_and_hash_mismatch_share_throttle_no_double_pull() {
         &mut alloc,
         &mut out,
     );
-    // c1（gap + 根群）只补一次 + c2（仅根群）补一次 = 2，而非 3。
     assert_eq!(
         count_sync_http(&out),
-        2,
-        "gap 已补的 channel 在 hashMismatch 路径被节流跳过（防双拉）"
+        1,
+        "hashMismatch 同时存在时仍只补显式 gap channel"
     );
 }

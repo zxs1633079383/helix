@@ -210,6 +210,13 @@ pub fn bump_channel_unread_op(upd: &crate::channel_write::PostChannelUpdate) -> 
             "last_post".to_string(),
             SqlValue::Text(upd.last_post.clone()),
         ));
+        // Dialog scans order by last_post_at. Advancing only the guard column
+        // leaves a recovered channel outside the bounded first window even
+        // though its durable last_post is already newer.
+        set_cols.push((
+            "last_post_at".to_string(),
+            SqlValue::Integer(upd.msg_create_at),
+        ));
     }
     if upd.has_schedule_post {
         set_cols.push(("has_schedule_post".to_string(), SqlValue::Integer(1)));

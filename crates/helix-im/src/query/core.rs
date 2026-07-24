@@ -257,6 +257,7 @@ pub fn emit_dialog_list_frame_result(
         scope,
         state,
         &std::collections::HashSet::new(),
+        None,
     )
 }
 
@@ -269,6 +270,7 @@ pub fn emit_dialog_list_frame_result_with_terminal_channels(
     scope: crate::dialog_frame::DialogListScope,
     state: &mut crate::dialog_frame::DialogListFrameState,
     terminal_channel_ids: &std::collections::HashSet<String>,
+    causation_id: Option<String>,
 ) -> Option<Effect> {
     let mut rows = crate::dialog_frame::rows_from_dialog_scan(reply_bytes)?;
     for row in &mut rows {
@@ -276,7 +278,7 @@ pub fn emit_dialog_list_frame_result_with_terminal_channels(
             row.state.closed = true;
         }
     }
-    state.snapshot(scope, rows)
+    state.snapshot_with_causation(scope, rows, causation_id)
 }
 
 /// 单频道 hydration 写入成功后，仅在已有左侧列表 snapshot 时发布同一 surface 的属性 patch。

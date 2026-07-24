@@ -120,7 +120,7 @@ fn emitted_values(effects: &[Effect]) -> Vec<Value> {
 /// `im:post:increment-failed` 读取行或失败信息。
 fn timeline_view(event: &Value) -> &Value {
     assert_eq!(event["event"], "im:interaction:frame");
-    assert_eq!(event["data"]["schemaVersion"], 1);
+    assert_eq!(event["data"]["schemaVersion"], 2);
     let mutation = event["data"]["mutations"]
         .as_array()
         .expect("InteractionFrame mutations")

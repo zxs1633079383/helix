@@ -4,6 +4,24 @@ use crate::state::CorrelationContext;
 use helix_core::EffectSink;
 
 impl ImModule {
+    /// Recovery completion is a cold authority boundary. One full scan here is
+    /// cheaper and more coherent than publishing one dialog Frame per channel.
+    pub(crate) fn refresh_attached_dialog_list(
+        &mut self,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<bool, ImError> {
+        if self.state.dialog_list_frame.scope().is_none() {
+            return Ok(false);
+        }
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "req_id": causation_id,
+        }))
+        .map_err(|error| ImError::Serialize(format!("attached dialog refresh: {error}")))?;
+        self.handle_query_command("im_query_dialog_list", &payload, out)?;
+        Ok(true)
+    }
+
     /// P6 投影/状态命令分发（薄壳，契约在 `crate::query`）。
     ///
     /// - `im_query_messages_by_channel`：进入 local-first 三段状态机；driver 不解释 fallback。
@@ -23,9 +41,12 @@ impl ImModule {
                 // PortReply 回报后 emit `message.left-dialog-list` 完整 snapshot（前端零计算）。
                 let corr = self.alloc_corr_internal();
                 let effect = crate::query::build_dialog_list_query(payload, corr)?;
-                self.state
-                    .corr_map
-                    .insert(corr, CorrelationContext::DialogListQuery);
+                self.state.corr_map.insert(
+                    corr,
+                    CorrelationContext::DialogListQuery {
+                        causation_id: crate::query::read_relay::read_req_id(payload),
+                    },
+                );
                 out.push(effect);
             }
             "im_delete_all_dialogs" => {

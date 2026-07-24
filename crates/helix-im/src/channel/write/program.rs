@@ -96,10 +96,16 @@ pub fn program_full(
         "last_post",
         SqlValue::Text(s("lastPost").unwrap_or_default()),
     ));
-    row.push((
-        "last_post_at",
-        SqlValue::Integer(i("lastPostAt").unwrap_or(0)),
-    ));
+    match i("lastPostAt") {
+        Some(v) => row.push(("last_post_at", SqlValue::Integer(v))),
+        None => {
+            // Recovery can persist a newer message before the following
+            // increment_channel snapshot arrives. An omitted server timestamp
+            // must not erase that durable ordering boundary on conflict.
+            row.push(("last_post_at", SqlValue::Integer(0)));
+            omit.push("last_post_at");
+        }
+    }
     row.push(("delete_at", SqlValue::Integer(i("deleteAt").unwrap_or(0))));
     row.push(("props", SqlValue::Text(j("props", "{}"))));
     row.push((

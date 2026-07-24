@@ -1,14 +1,15 @@
+%% 切换前历史快照：不得作为当前生产合同；当前仅 InteractionFrame/v2
 flowchart TD
     A["当前输入：确认取消"] --> B["Angular 当前入口"]
-    B --> C["V1 入口或命名命令：`im_cancel_schedule`"]
+    B --> C["切换前入口或命名命令：`im_cancel_schedule`"]
     C --> D["Tauri 协议转换"]
     D --> E["Helix `Tick`"]
     E --> F["`Effect`：`http_write`、`storage_upsert`、`projection`"]
     F --> G["Go HTTP/WS 权威事实"]
     G --> H["当前 Persist：channel_schedule"]
-    H --> I["V1 producer：`schemaVersion=1`"]
+    H --> I["切换前 V1 producer：`schemaVersion=1`"]
     I --> J["`RenderNode/v1`：channel.row.v1"]
-    J --> K["V1 decode / `normalizeLegacyFrame`"]
+    J --> K["切换前 V1 decode / `normalizeLegacyFrame`"]
     K --> L["`ProjectionStore/SurfaceRuntime`"]
     L --> M["组件：message-ui-schedule-dialog、message-ui-confirm-dialog"]
     B -. "当前旁路：部分 Gate 直接命名 Command" .-> D

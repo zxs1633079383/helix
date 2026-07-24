@@ -130,6 +130,10 @@ pub struct ImState {
     /// 持久化回执和 renderer V2 epoch 绑定到同一个身份边界。
     pub recovery_session: crate::sync_session::RecoverySession,
 
+    /// `hashMismatch` fan-out 的批次屏障。只跟踪在途 Persist correlation，
+    /// 避免每个 channel commit 都单独发布 dialog Frame。
+    pub(crate) pong_gap_batch: crate::sync::pong_batch::PongGapBatch,
+
     /// UC-10：本 hello 会话累积 mention+urgent post id，global increment-end 拉 queryTodoList 后清空。
     pub about_me_post_ids: Vec<String>,
 
@@ -238,6 +242,7 @@ impl ImState {
             client_seq: 0,
             sync_scheduler: crate::sync_scheduler::SyncScheduler::new(),
             recovery_session: crate::sync_session::RecoverySession::default(),
+            pong_gap_batch: crate::sync::pong_batch::PongGapBatch::default(),
             about_me_post_ids: Vec::new(),
             pending_increment_bootstrap_after_scan: false,
             pending_increment_ops: Vec::new(),
@@ -279,6 +284,7 @@ impl ImState {
         self.increment_target.clear();
         self.backfill_healed = false;
         self.sync_scheduler.reset();
+        self.pong_gap_batch.reset();
         self.about_me_post_ids.clear();
         self.pending_increment_bootstrap_after_scan = false;
         self.pending_increment_ops.clear();
@@ -291,6 +297,25 @@ impl ImState {
     }
 
     pub(crate) fn reset_recent_query_coverage(&mut self) {
+        self.reset_query_session_correlations();
+        self.timeline_projector.reset();
+        self.thread_detail_projector.reset();
+        self.channel_summary_projector.reset();
+        self.composer_projector.reset();
+        self.member_roster_projector.reset();
+        self.topic_list_projector.reset();
+        self.participant_receipts_projector.reset();
+    }
+
+    /// A transport reconnect invalidates query coverage and in-flight replies, but it is not an
+    /// identity boundary. The renderer keeps the same attached slots and revisions while the
+    /// socket reconnects, so preserving projector state lets recovered durable facts publish the
+    /// next V2 patch against the revision that is still mounted in the UI.
+    pub(crate) fn reset_transport_query_session(&mut self) {
+        self.reset_query_session_correlations();
+    }
+
+    fn reset_query_session_correlations(&mut self) {
         self.recent_message_coverage.clear();
         self.message_query_generations.clear();
         // Old action requestIds may be released with the registry only after their authority corr routes are gone.
@@ -304,17 +329,10 @@ impl ImState {
                     | CorrelationContext::InteractionViewReceipt { .. }
             )
         });
-        self.timeline_projector.reset();
-        self.thread_detail_projector.reset();
-        self.channel_summary_projector.reset();
-        self.composer_projector.reset();
-        self.member_roster_projector.reset();
-        self.topic_list_projector.reset();
         self.action_registry.clear();
         self.action_receipts.clear();
         self.pending_authority_actions.clear();
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
-        self.participant_receipts_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }
 
@@ -341,7 +359,7 @@ impl ImState {
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
-                    | CorrelationContext::DialogListQuery
+                    | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::SurfaceStorageSnapshot { .. }
                     | CorrelationContext::SurfaceThreadSnapshot { .. }
                     | CorrelationContext::SurfaceReceiptSnapshot { .. }

@@ -23,7 +23,9 @@ use helix_core::effect::StorageOp;
 ///   三级回退保证 PK 恒非空、且对同一事件**确定性幂等**（re-sync 同批 = 同 PK 覆盖 = O(1)，
 ///   不产生重复行、不引发 sync 风暴）。
 /// - `channel_id`：`fields.channel_id` 缺省时回退 envelope 权威 channel_id（parser 已校验）。
-/// - `props`：保留服务端原始 props 对象（业务扩展）；用于已读位 / event_seq 等下游对账。
+/// - `props`：保留服务端原始 props 对象（业务扩展）。
+/// - `event_seq`：协议级稳定字段独立列。实时 WS/sync 的非零序号覆盖旧值；不携序号的
+///   历史 HTTP 回填排除该列，不能把已持久化的权威序号擦成 0。
 ///
 /// ## 复杂度（诚实标注，HX-C005）
 ///
@@ -55,6 +57,11 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
     } else {
         format!("evt:{}:{}", ev.channel_id.as_str(), ev.seq.0)
     };
+
+    let mut exclude_from_update = vec!["send_status"];
+    if ev.seq.0 == 0 {
+        exclude_from_update.push("event_seq");
+    }
 
     StorageOp::BatchUpsert(UpsertSpec {
         table: "message",
@@ -106,6 +113,7 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
             ),
             ("reply_count".to_string(), SqlValue::Integer(f.reply_count)),
             ("read_bits".to_string(), SqlValue::Text(f.read_bits.clone())),
+            ("event_seq".to_string(), SqlValue::Integer(ev.seq.0 as i64)),
             (
                 "send_status".to_string(),
                 SqlValue::Text("sent".to_string()),
@@ -116,7 +124,7 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
         // 服务端 WS post 已是权威送达事实：新行直接写 sent。若 temporary_id 命中本地
         // 乐观行，则保留本地发送态，由 PendingSend::reconcile 在同一处理链显式落定 sent
         // 并撤销超时 timer，避免普通回放/重放越权覆盖 failed/unsend。
-        exclude_from_update: vec!["send_status"],
+        exclude_from_update,
     })
 }
 

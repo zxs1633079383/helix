@@ -187,6 +187,42 @@ fn gs1_persist_ok_publishes_increment_then_loaded() {
     );
 }
 
+#[test]
+fn gs1_persists_all_channels_but_bounds_initial_projection_window() {
+    let mut h = Harness::new(&[]);
+    h.start(0);
+    h.step(Tick::Connected(TransportId::from_raw(0)), 10);
+    h.step(hello_inbound("CONN-GS1-BOUND"), 20);
+    h.sink.clear();
+    for channel_num in 1..=501 {
+        h.module
+            .ingest_increment(&increment(channel_num, 0, false), &mut h.sink);
+    }
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+    let (persist_corr, tables) = increment_batch_persist(&h);
+    assert!(
+        tables
+            .iter()
+            .filter(|table| **table == "channel")
+            .count()
+            >= 501,
+        "首屏窗口不得裁掉同批 SQLite channel 写入"
+    );
+
+    h.step(port_reply_ok(persist_corr), 100);
+    let events: Vec<String> = h.sink.as_slice().iter().filter_map(event_name).collect();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.as_str() == "im:channel:increment")
+            .count(),
+        500,
+        "首屏逐频道投影必须受 dialog window 上限约束"
+    );
+    assert_eq!(events.last().map(String::as_str), Some("im:channels:loaded"));
+}
+
 fn prepare_sync_persist() -> (Harness, u64, Vec<&'static str>) {
     let mut h = Harness::new_with_identity(&[1], "viewer-444", "tenant-1", "", "", "");
     let sync_corr = h

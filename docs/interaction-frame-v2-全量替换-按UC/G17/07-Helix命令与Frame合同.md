@@ -11,7 +11,7 @@ G17 不新增用户 Command。它消费以下事实：
 
 当前没有 exact Gate、render kind、required props 或 allowed action，因此为 `CONTRACT_DRIFT`。
 
-## V1 当前事实
+## 提案切换前事实
 
 `DialogListFrameState` 已维护：
 

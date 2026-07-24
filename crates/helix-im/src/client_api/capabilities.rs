@@ -71,7 +71,6 @@ pub fn capabilities_json() -> Vec<u8> {
             "helixOwnedTemporaryId": true,
             "batchEventCallback": true,
             "readResultReqId": true,
-            "leftDialogListFrameV1": true,
             "opaqueActionInvokeV1": true,
             "opaqueSurfaceResyncV1": true,
             "noPerBusinessAbiSymbol": true
@@ -103,7 +102,6 @@ mod tests {
         assert!(!queries.iter().any(|q| q == "im_query_dialog_list"));
         assert!(!queries.iter().any(|q| q == "im_query_messages_by_channel"));
         assert_eq!(caps["features"]["sendFailedProjection"], true);
-        assert_eq!(caps["features"]["leftDialogListFrameV1"], true);
         assert_eq!(caps["features"]["opaqueSurfaceResyncV1"], true);
         let events = caps["events"].as_array().unwrap();
         assert!(events.iter().any(|e| e == "im:post:sending"));

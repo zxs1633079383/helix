@@ -51,6 +51,7 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
     for col in [
         "unread_count",
         "unread_post_id",
+        "last_post_at",
         "purpose",
         "header",
         "is_remove",
@@ -72,6 +73,26 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
         get(&row, "updated_at"),
         Some(SqlValue::Integer(200))
     ));
+}
+
+/// 回归锚: 恢复消息先推进本地排序时间后，缺省的 channel snapshot 不得覆盖回 0。
+#[test]
+fn program_full_omits_missing_last_post_at_on_conflict() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000012",
+        "type": "P",
+        "lastPost": "{\"createAt\":1700000000000}"
+    });
+    let (row, omit) = program_full(&data, "", 0).expect("valid id");
+
+    assert!(matches!(
+        get(&row, "last_post_at"),
+        Some(SqlValue::Integer(0))
+    ));
+    assert!(
+        omit.contains(&"last_post_at"),
+        "缺省 lastPostAt 必须保留已由消息恢复路径推进的 durable value"
+    );
 }
 
 /// 回归锚: S3 path1 —— created_at/updated_at 缺省回退 now_ms；DM target_users 仅 D 写。

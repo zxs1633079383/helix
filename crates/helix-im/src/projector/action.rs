@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::interaction_frame::{
     ActionBinding, ActionInvocation, ActionInvocationEnvelope, ActionReceipt, ActionReceiptStatus,
-    ActionValidationError, InteractionFrame, InteractionFrameError, SurfaceId, SurfaceScope,
+    ActionValidationError, InteractionFrameError, InteractionFrameV2, SurfaceId, SurfaceScope,
     INTERACTION_ACTION_RECEIPT_EVENT,
 };
 
@@ -37,6 +37,14 @@ pub struct AcceptedAction {
 pub enum ActionDispatch {
     /// 查询当前消息的 read receipt。
     ViewReceipt {
+        channel_id: String,
+        message_id: String,
+    },
+    MarkRead {
+        channel_id: String,
+        message_id: String,
+    },
+    LocatePost {
         channel_id: String,
         message_id: String,
     },
@@ -73,6 +81,7 @@ pub enum AuthorityMutationKind {
     Revoke,
     Reaction,
     Urgent,
+    Read,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +96,7 @@ impl ActionDispatch {
     /// 将 timeline VM 中的语义 action kind 固定到已经显式审计的 authority dispatch。
     ///
     /// 这个映射是 projector 与 application registry 的共同真源。只存在 legacy HTTP/read-result
-    /// 或尚未有 PersistOk + causation Frame 的 G08-G16 动作必须返回 `None`，即使 render-ready row
+    /// 或尚未有 PersistOk + causation Frame 的动作必须返回 `None`，即使 render-ready row
     /// 宣称了 capability 也只能下发 disabled binding。尤其 `templateConfirm` 不是
     /// `templateReceived`，当前 Go 没有 confirmation authority，必须保持 fail closed。
     pub(crate) fn from_timeline_binding(
@@ -98,7 +107,15 @@ impl ActionDispatch {
         let channel_id = channel_id.to_string();
         let message_id = message_id.to_string();
         match kind {
+            "markRead" => Some(Self::MarkRead {
+                channel_id,
+                message_id,
+            }),
             "viewReceipt" => Some(Self::ViewReceipt {
+                channel_id,
+                message_id,
+            }),
+            "locate" => Some(Self::LocatePost {
                 channel_id,
                 message_id,
             }),
@@ -133,7 +150,9 @@ impl ActionDispatch {
     pub(crate) fn supports_timeline_kind(kind: &str) -> bool {
         matches!(
             kind,
-            "viewReceipt"
+            "markRead"
+                | "viewReceipt"
+                | "locate"
                 | "revoke"
                 | "forward"
                 | "react"
@@ -148,6 +167,10 @@ impl ActionDispatch {
         request_id: &str,
     ) -> Option<PendingAuthorityAction> {
         let (kind, channel_id, message_id) = match self {
+            Self::MarkRead {
+                channel_id,
+                message_id,
+            } => (AuthorityMutationKind::Read, channel_id, message_id),
             Self::RevokeMessage {
                 channel_id,
                 message_id,
@@ -182,7 +205,9 @@ impl ActionDispatch {
 impl ActionDispatch {
     fn validate_input(&self, invocation: &ActionInvocation) -> Result<(), ActionProjectionError> {
         match self {
-            Self::ViewReceipt { .. }
+            Self::MarkRead { .. }
+            | Self::ViewReceipt { .. }
+            | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
@@ -192,7 +217,9 @@ impl ActionDispatch {
                     "action does not accept input fields".to_string(),
                 ))
             }
-            Self::ViewReceipt { .. }
+            Self::MarkRead { .. }
+            | Self::ViewReceipt { .. }
+            | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. } => Ok(()),
@@ -891,7 +918,7 @@ pub struct ActionFrameMutation {
 }
 
 pub fn matching_frame_confirmation(
-    frame: &InteractionFrame,
+    frame: &InteractionFrameV2,
     request_id: &str,
 ) -> Result<Option<ActionFrameConfirmation>, ActionProjectionError> {
     if request_id.is_empty() {
@@ -903,11 +930,11 @@ pub fn matching_frame_confirmation(
     let mutations = frame
         .mutations
         .iter()
-        .filter(|mutation| mutation.causation_id.as_deref() == Some(request_id))
+        .filter(|mutation| mutation.mutation.causation_id.as_deref() == Some(request_id))
         .map(|mutation| ActionFrameMutation {
-            surface: mutation.surface,
-            scope: mutation.scope.clone(),
-            revision: mutation.revision,
+            surface: mutation.mutation.surface,
+            scope: mutation.mutation.scope.clone(),
+            revision: mutation.mutation.revision,
         })
         .collect::<Vec<_>>();
     if mutations.is_empty() {
@@ -1058,8 +1085,9 @@ mod tests {
 
     use super::*;
     use crate::interaction_frame::{
-        ActionInvocationEnvelope, InteractionFrame, SurfaceMutation, TypedSurfaceMutation,
-        UnreadSummaryVm, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        ActionInvocationEnvelope, InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState,
+        RuntimeRecoveryState, RuntimeSyncState, SurfaceMutation, SurfaceMutationV2,
+        TypedSurfaceMutation, UnreadSummaryVm, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
         INTERACTION_FRAME_SCHEMA_VERSION,
     };
 
@@ -1138,7 +1166,9 @@ mod tests {
     #[test]
     fn timeline_dispatch_map_only_admits_explicit_authority_paths() {
         for kind in [
+            "markRead",
             "viewReceipt",
+            "locate",
             "revoke",
             "forward",
             "react",
@@ -1157,9 +1187,7 @@ mod tests {
             "reply",
             "createTopic",
             "retry",
-            "markRead",
             "templateConfirm",
-            "locate",
             "createSchedule",
             "cancelSchedule",
             "markChannelRead",
@@ -1487,27 +1515,37 @@ mod tests {
 
     #[test]
     fn matching_causation_requires_a_valid_frame_and_exact_request_id() {
-        let frame = InteractionFrame {
+        let frame = InteractionFrameV2 {
             schema_version: INTERACTION_FRAME_SCHEMA_VERSION,
             transaction_id: "transaction-1".to_string(),
-            mutations: vec![SurfaceMutation {
-                surface: SurfaceId::MessageUnreadSummary,
-                scope: SurfaceScope::User {
-                    user_id: "viewer-1".to_string(),
-                    team_id: "team-1".to_string(),
-                },
-                revision: 1,
-                base_revision: None,
-                causation_id: Some("request-1".to_string()),
-                mutation: TypedSurfaceMutation::UnreadSummarySnapshot {
-                    view: UnreadSummaryVm {
-                        unread_total: 1,
-                        mention_total: 0,
-                        urgent_total: 0,
-                        unread_channel_count: 1,
+            causation_id: Some("request-1".to_string()),
+            runtime: InteractionRuntimeVm {
+                connection: RuntimeConnectionState::Online,
+                initial_sync: RuntimeSyncState::Ready,
+                recovery: RuntimeRecoveryState::Idle,
+            },
+            mutations: vec![SurfaceMutationV2 {
+                surface_epoch: 1,
+                mutation: SurfaceMutation {
+                    surface: SurfaceId::MessageUnreadSummary,
+                    scope: SurfaceScope::User {
+                        user_id: "viewer-1".to_string(),
+                        team_id: "team-1".to_string(),
+                    },
+                    revision: 1,
+                    base_revision: None,
+                    causation_id: Some("request-1".to_string()),
+                    mutation: TypedSurfaceMutation::UnreadSummarySnapshot {
+                        view: UnreadSummaryVm {
+                            unread_total: 1,
+                            mention_total: 0,
+                            urgent_total: 0,
+                            unread_channel_count: 1,
+                        },
                     },
                 },
             }],
+            directives: Vec::new(),
         };
 
         let confirmation = matching_frame_confirmation(&frame, "request-1")
@@ -1520,7 +1558,7 @@ mod tests {
             .is_none());
 
         let mut invalid = frame;
-        invalid.mutations[0].revision = 0;
+        invalid.mutations[0].mutation.revision = 0;
         assert!(matches!(
             matching_frame_confirmation(&invalid, "request-1"),
             Err(ActionProjectionError::InvalidFrame(_))

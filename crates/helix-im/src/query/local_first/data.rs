@@ -1,6 +1,7 @@
 //! local-first 的纯数据规则：coverage 判定、远端解码、合并与缓存 op。
 
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use helix_core::effect::StorageOp;
 use helix_core::tick::ReplyBytes;
@@ -125,21 +126,40 @@ pub(crate) fn post_event_seq(post: &Value) -> Option<u64> {
         .or_else(|| post.get("event_seq"))
         .and_then(Value::as_u64)
         .or_else(|| {
-            post.get("props")
-                .and_then(|props| props.get("channel_event_seq"))
-                .and_then(Value::as_u64)
+            let props = post.get("props")?;
+            if let Some(raw) = props.as_str() {
+                serde_json::from_str::<Value>(raw)
+                    .ok()?
+                    .get("channel_event_seq")
+                    .and_then(Value::as_u64)
+            } else {
+                props.get("channel_event_seq").and_then(Value::as_u64)
+            }
         })
 }
 
 pub(super) fn visible_remote_rows_and_cache_ops(
     channel_id: ChannelId,
     posts: Vec<Value>,
+    local_rows_desc: &[Value],
     auth_user_id: &str,
 ) -> Result<(Vec<Value>, Vec<StorageOp>), ImError> {
+    let local_sequences = local_event_sequences(local_rows_desc);
     let mut rows = Vec::with_capacity(posts.len());
     let mut ops = Vec::with_capacity(posts.len());
     for mut post in posts {
         let mut fields = crate::ws::parser::extract_post_fields(&post);
+        if post_event_seq(&post).is_none() {
+            let local_sequence = local_sequences
+                .server
+                .get(fields.id.as_str())
+                .or_else(|| local_sequences.temporary.get(fields.temporary_id.as_str()))
+                .copied();
+            if let Some(sequence) = local_sequence {
+                preserve_local_event_sequence(&mut post, sequence);
+                fields = crate::ws::parser::extract_post_fields(&post);
+            }
+        }
         if fields.channel_id.is_empty() {
             fields.channel_id = channel_id.as_str().to_string();
         } else if fields.channel_id != channel_id.as_str() {
@@ -177,6 +197,60 @@ pub(super) fn visible_remote_rows_and_cache_ops(
         rows.push(post);
     }
     Ok((rows, ops))
+}
+
+#[derive(Default)]
+struct LocalEventSequences {
+    server: BTreeMap<String, u64>,
+    temporary: BTreeMap<String, u64>,
+}
+
+fn local_event_sequences(local_rows_desc: &[Value]) -> LocalEventSequences {
+    let mut sequences = LocalEventSequences::default();
+    for row in local_rows_desc {
+        let Some(sequence) = post_event_seq(row) else {
+            continue;
+        };
+        let server = server_id(row);
+        if !server.is_empty() {
+            sequences
+                .server
+                .entry(server.to_string())
+                .and_modify(|stored| *stored = (*stored).max(sequence))
+                .or_insert(sequence);
+        }
+        let temporary = temporary_id(row);
+        if !temporary.is_empty() {
+            sequences
+                .temporary
+                .entry(temporary.to_string())
+                .and_modify(|stored| *stored = (*stored).max(sequence))
+                .or_insert(sequence);
+        }
+    }
+    sequences
+}
+
+fn preserve_local_event_sequence(post: &mut Value, sequence: u64) {
+    let Some(object) = post.as_object_mut() else {
+        return;
+    };
+    object.insert("eventSeq".to_string(), Value::from(sequence));
+    let props = object
+        .remove("props")
+        .unwrap_or_else(|| serde_json::json!({}));
+    let mut props = match props {
+        Value::Object(props) => props,
+        Value::String(raw) => serde_json::from_str::<Value>(&raw)
+            .ok()
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default(),
+        _ => serde_json::Map::new(),
+    };
+    props
+        .entry("channel_event_seq".to_string())
+        .or_insert_with(|| Value::from(sequence));
+    object.insert("props".to_string(), Value::Object(props));
 }
 
 fn normalize_remote_row(
@@ -219,17 +293,23 @@ pub(super) fn merge_recent_rows(
 ) -> Vec<Value> {
     let capacity = local_rows_desc.len() + remote_rows_desc.len();
     let oldest_remote_create_at = remote_rows_desc.iter().map(create_at).min();
+    let newest_remote_create_at = remote_rows_desc.iter().map(create_at).max();
     // 低频查询、上限 500；remote 先入使权威行覆盖同 server id/temporaryId 的本地副本。
-    // exhausted 时远端已证明当前用户可见集合到头，本地仅保留尚无 server id 的乐观消息。
+    // exhausted 时远端只证明其当前快照到头；本地仍保留比远端最新行更新的已提交事实，
+    // 避免读副本延迟把刚由 sync 持久化的消息误判为 stale。
     // 未 exhausted 时，本地 server 行也只能补在权威最近窗口之前，不能挤回窗口内。
     let eligible_local = local_rows_desc.into_iter().filter(|row| {
         if server_id(row).is_empty() {
             return !temporary_id(row).is_empty();
         }
-        !remote_exhausted
-            && oldest_remote_create_at
-                .map(|oldest| create_at(row) < oldest)
-                .unwrap_or(false)
+        if remote_exhausted {
+            return newest_remote_create_at
+                .map(|newest| create_at(row) > newest)
+                .unwrap_or(false);
+        }
+        oldest_remote_create_at
+            .map(|oldest| create_at(row) < oldest)
+            .unwrap_or(false)
     });
     let mut merged = Vec::with_capacity(capacity);
     for row in remote_rows_desc.into_iter().chain(eligible_local) {
@@ -250,10 +330,14 @@ pub(super) fn stale_local_server_rows_delete_op(
     local_rows_desc: &[Value],
     remote_rows_desc: &[Value],
 ) -> Option<StorageOp> {
+    let newest_remote_create_at = remote_rows_desc.iter().map(create_at).max();
     let key_vals = local_rows_desc
         .iter()
         .filter(|local| {
             !server_id(local).is_empty()
+                && newest_remote_create_at
+                    .map(|newest| create_at(local) <= newest)
+                    .unwrap_or(true)
                 && !remote_rows_desc
                     .iter()
                     .any(|remote| rows_share_message_identity(local, remote))

@@ -15,16 +15,16 @@
 | 发送 Command | 当前为 `im_channel_load_increment_by_channel_id`；目标由 binding 解析后进入 `im_invoke_action` |
 | 接收 Frame | `ProjectionBusService -> ProjectionStore.applyEnvelope -> SurfaceRuntime` |
 | 接收 ActionReceipt | 只更新 pending/awaiting-frame/rejected，不把 accepted 当完成 |
-| 发送 FrameApplied | 目标必须回传；当前生产注册点未定位 |
+| 发送 FrameApplied | 生产 bridge 已回传 `FrameApplied(transactionId, slots, result)` |
 | DOM 验收点 | `data-surface`、`data-message-id`、`data-delivery-kind` 及本 UC 控件状态 |
 | ARIA 验收点 | 控件名称、disabled、status/alert 与 tab 语义 |
 | data-* 验收点 | `data-surface`、`data-revision`、本 UC identity 与状态字段 |
-| 当前 V1/V2 状态 | V1/V2 并存；恢复 composer 已有局部 V2，canonical Matrix 仍为 V1 |
-| 迁移缺口 | 逐 Gate 证明 projected binding 或明确 Observation，并接通生产 FrameApplied。 |
+| 当前 Frame 版本状态 | 仅 V2；V1 consumer/normalize 已物理删除 |
+| 迁移缺口 | 无生产协议缺口；删除后 E2E 负责验证组件与 DOM |
 
 ## 当前调用链
 
-组件 → output → `MessageComponent` handler → `ShellService` → `im_channel_load_increment_by_channel_id`；当前缺口：该路径尚未证明全部使用 projected ActionBinding。
+组件 → output → `MessageComponent` handler → `ShellService` → canonical command；V2 `ProjectionBusService → ProjectionStore → SurfaceRuntime` 是唯一业务 Frame 消费路径。
 
 当前页面从 facade 读取九个 VM，证据：`/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/message.component.ts:110`。九 Surface attach 由 `MessageSurfaceFacade` 统一管理，证据：`/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/message-surface.facade.ts:35`。
 

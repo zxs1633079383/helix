@@ -10,7 +10,7 @@
 | Helix projector state | render-ready row、section order、per-slot revision/epoch | 远端事务权威 |
 | Angular slot state | 已验证 VM 和短生命周期 UI 状态 | 业务排序、未读推导 |
 
-## V1 当前读写
+## 提案切换前读写
 
 初始 `im_query_dialog_list` 使用：
 

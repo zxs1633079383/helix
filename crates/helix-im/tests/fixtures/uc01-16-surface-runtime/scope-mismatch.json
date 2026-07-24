@@ -1,19 +1,39 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "transactionId": "timeline-user-scope-mismatch",
-  "mutations": [{
-    "surface": "message.timeline",
-    "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
-    "revision": 1,
-    "mutation": {
-      "kind": "timelineSnapshot",
-      "view": {
-        "channelId": "channel-1",
-        "anchor": { "mode": "latest" },
-        "items": [],
-        "page": { "windowToken": "latest-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
-        "state": "ready"
-      }
+  "mutations": [
+    {
+      "surface": "message.timeline",
+      "scope": {
+        "kind": "user",
+        "userId": "user-1",
+        "teamId": "team-1"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "timelineSnapshot",
+        "view": {
+          "channelId": "channel-1",
+          "anchor": {
+            "mode": "latest"
+          },
+          "items": [],
+          "page": {
+            "windowToken": "latest-1",
+            "hasOlder": false,
+            "hasNewer": false,
+            "hasMore": false
+          },
+          "state": "ready"
+        }
+      },
+      "surfaceEpoch": 1
     }
-  }]
+  ],
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "directives": []
 }

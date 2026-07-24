@@ -1,21 +1,36 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "transactionId": "uc01-16-canonical-patch-2",
   "mutations": [
     {
       "surface": "message.left-dialog-list",
-      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "scope": {
+        "kind": "user",
+        "userId": "user-1",
+        "teamId": "team-1"
+      },
       "baseRevision": 1,
       "revision": 2,
       "causationId": "post-2",
       "mutation": {
         "kind": "dialogListPatch",
-        "patch": { "kind": "replaceView", "view": { "sections": [], "state": "ready" } }
-      }
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "sections": [],
+            "state": "ready"
+          }
+        }
+      },
+      "surfaceEpoch": 1
     },
     {
       "surface": "message.unread-summary",
-      "scope": { "kind": "user", "userId": "user-1", "teamId": "team-1" },
+      "scope": {
+        "kind": "user",
+        "userId": "user-1",
+        "teamId": "team-1"
+      },
       "baseRevision": 1,
       "revision": 2,
       "causationId": "post-2",
@@ -23,13 +38,23 @@
         "kind": "unreadSummaryPatch",
         "patch": {
           "kind": "replaceView",
-          "view": { "unreadTotal": 0, "mentionTotal": 0, "urgentTotal": 0, "unreadChannelCount": 0 }
+          "view": {
+            "unreadTotal": 0,
+            "mentionTotal": 0,
+            "urgentTotal": 0,
+            "unreadChannelCount": 0
+          }
         }
-      }
+      },
+      "surfaceEpoch": 1
     },
     {
       "surface": "message.timeline",
-      "scope": { "kind": "timeline", "channelId": "channel-1", "windowToken": "latest-1" },
+      "scope": {
+        "kind": "timeline",
+        "channelId": "channel-1",
+        "windowToken": "latest-1"
+      },
       "baseRevision": 1,
       "revision": 2,
       "causationId": "post-2",
@@ -39,13 +64,27 @@
           "kind": "replaceView",
           "view": {
             "channelId": "channel-1",
-            "anchor": { "mode": "latest" },
+            "anchor": {
+              "mode": "latest"
+            },
             "items": [],
-            "page": { "windowToken": "latest-1", "hasOlder": false, "hasNewer": false, "hasMore": false },
+            "page": {
+              "windowToken": "latest-1",
+              "hasOlder": false,
+              "hasNewer": false,
+              "hasMore": false
+            },
             "state": "ready"
           }
         }
-      }
+      },
+      "surfaceEpoch": 1
     }
-  ]
+  ],
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "directives": []
 }

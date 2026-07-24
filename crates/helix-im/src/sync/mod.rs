@@ -3,5 +3,6 @@
 pub(crate) mod explicit;
 pub(crate) mod flow;
 pub mod increment;
+pub(crate) mod pong_batch;
 pub mod scheduler;
 pub mod session;

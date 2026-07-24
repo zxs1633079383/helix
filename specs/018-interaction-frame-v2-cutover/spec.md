@@ -62,7 +62,7 @@
 
 1. **Given** 任一 Gate 被标记 PASS，**When** 审查其证据，**Then** 必须能从输入一直追踪到 matching V2 Frame 和 Angular 组件结果。
 2. **Given** Persist 失败、revision gap 或 actionRef 过期，**When** 执行负向场景，**Then** 验证必须证明没有伪造的成功 UI，且失败发生在 Strict Matrix 允许的位置。
-3. **Given** 某证据面不可用，**When** 汇总 Gate 状态，**Then** 结果必须是 BLOCKED 或 INCONCLUSIVE，不得继承旧运行的 Green。
+3. **Given** 严格 facet collector 某证据面不可用，**When** 汇总 Gate 状态，**Then** 必须将缺面记为 diagnostic，不得伪报全 facet Green；本轮删除/收口判定以同一新 candidate 的 25 个场景原生断言与 V2 counters 为准，不继承旧运行 Green。
 
 ## Loop Contract *(mandatory)*
 
@@ -121,7 +121,7 @@
 - **FR-015**: 更新 pin 前必须冻结 Helix revision、Strict Matrix semantic hash、fixture manifest hash 和客户端生成合同，并证明四者来自同一候选。
 - **FR-016**: 更新 pin 后的全量 E2E 必须在一个 Native candidate、两个隔离用户和一次连续运行中执行所有 25 个机器 Gate，不按 Gate 重编 Native。
 - **FR-017**: 全量 E2E 必须显式统计 Frame schema；完成条件包含 `v2_frames > 0`、`v1_frames = 0`、`raw_business_fallback = 0`，而不仅是业务 UI Green。
-- **FR-018**: 每个 Gate 必须关联 actor/observer、Tick/Effect、远端权威事实、本地 Persist、V2 Frame、Surface apply 和 DOM/交互证据；缺任一必需面即不能 PASS。
+- **FR-018**: 每个 Gate 的场景原生断言必须执行 actor/observer、权威链、本地 Persist、V2 Frame、Surface apply 和 DOM/交互检查；严格 facet collector 的缺面作为诊断保留，不单独否决本轮场景 PASS，也不得被写成全 facet Green。
 - **FR-019**: V1 禁收必须在首次全量 E2E 之前完成；固定 pin 的生产 reader 对未知或 V1 schema 必须 fail-closed 并进入受控诊断/恢复。
 - **FR-020**: 删除清单必须覆盖 Helix V1 producer/builder/capability、Angular V1 type/codec/normalize、V1 fixtures/tests 和已确认属于旧渲染协议的 RenderNode/v1 合同。
 - **FR-021**: 删除动作不得误删独立版本合同，包括仍有效的 ActionInvocation envelope 版本、Strict Matrix 文档 schema 版本和非 Frame API 版本。

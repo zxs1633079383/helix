@@ -91,6 +91,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
         quick_reply TEXT NOT NULL DEFAULT '',\
         simple_message TEXT NOT NULL DEFAULT '',\
         read_bits TEXT NOT NULL DEFAULT '',\
+        event_seq INTEGER NOT NULL DEFAULT 0,\
         send_status TEXT NOT NULL DEFAULT '',\
         revoke INTEGER NOT NULL DEFAULT 0,\
         create_at INTEGER NOT NULL DEFAULT 0,\
@@ -266,6 +267,7 @@ pub const IM_SCHEMA: &[&'static str] = &[
 /// `duplicate column name`。
 pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE message ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel ADD COLUMN header TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",

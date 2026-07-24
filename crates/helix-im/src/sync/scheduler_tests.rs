@@ -125,3 +125,29 @@ fn pong_throttle_test_and_set_and_reset() {
     s.reset();
     assert!(s.should_pong_compensate(ch, 6_100), "reset 后节流戳清空");
 }
+
+#[test]
+fn explicit_gap_moves_to_front_and_upgrades_trigger() {
+    let mut scheduler = SyncScheduler::new();
+    let routine_a = test_channel_id(1);
+    let explicit_gap = test_channel_id(2);
+    let routine_b = test_channel_id(3);
+    scheduler.enqueue_with_trigger(routine_a, SyncTrigger::Routine);
+    scheduler.enqueue_with_trigger(explicit_gap, SyncTrigger::Routine);
+    scheduler.enqueue_with_trigger(routine_b, SyncTrigger::Routine);
+
+    scheduler.prioritize_with_trigger(&[explicit_gap], SyncTrigger::PongGap);
+
+    assert_eq!(
+        scheduler.next_dispatch(),
+        Some((explicit_gap, SyncTrigger::PongGap))
+    );
+    assert_eq!(
+        scheduler.next_dispatch(),
+        Some((routine_a, SyncTrigger::Routine))
+    );
+    assert_eq!(
+        scheduler.next_dispatch(),
+        Some((routine_b, SyncTrigger::Routine))
+    );
+}

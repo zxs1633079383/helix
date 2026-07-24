@@ -20,8 +20,9 @@ use helix_core::effect::{DomainEventBytes, Effect};
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    InteractionFrame, InteractionFrameError, InteractionFrameV2, SurfaceId, SurfaceMutation,
-    SurfaceScope, TypedSurfaceMutation, INTERACTION_FRAME_EVENT,
+    InteractionFrameError, InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState,
+    RuntimeRecoveryState, RuntimeSyncState, SurfaceId, SurfaceMutation, SurfaceMutationV2,
+    SurfaceScope, TypedSurfaceMutation, UiDirective, INTERACTION_FRAME_EVENT,
 };
 
 /// 各强类型 ViewModel 到 closed mutation 的唯一映射。
@@ -160,43 +161,66 @@ fn next_revision(current: u64, surface: SurfaceId) -> Result<u64, SurfaceProject
 /// 变更，因此已 attach 的 slots 要么共同提交，要么共同请求 resync。
 pub(crate) fn build_interaction_frame(
     transaction_id: String,
-    mutations: Vec<SurfaceMutation>,
-) -> Result<InteractionFrame, InteractionFrameError> {
-    let frame = InteractionFrame {
+    causation_id: Option<String>,
+    runtime: InteractionRuntimeVm,
+    mutations: Vec<SurfaceMutationV2>,
+    directives: Vec<UiDirective>,
+) -> Result<InteractionFrameV2, InteractionFrameError> {
+    let frame = InteractionFrameV2 {
         schema_version: crate::interaction_frame::INTERACTION_FRAME_SCHEMA_VERSION,
         transaction_id,
+        causation_id,
+        runtime,
         mutations,
+        directives,
     };
     frame.validate()?;
     Ok(frame)
 }
 
-/// 把已校验的 Frame 封装为单个下行 effect。
-///
-/// 一个 `Effect::Emit` 对应一个 Frame；FFI sink 会把该 event 原样装进同一次 callback batch。
-/// Projector 不拆分 mutation，也不让 driver 解码/重编码 JSON。
-pub(crate) fn emit_interaction_frame(
-    frame: InteractionFrame,
-) -> Result<Effect, InteractionFrameError> {
-    frame.validate()?;
-    let payload = serde_json::json!({
-        "event": INTERACTION_FRAME_EVENT,
-        "data": frame,
-    });
-    let bytes = serde_json::to_vec(&payload)
-        .expect("InteractionFrame only contains JSON-serializable typed view models");
-    Ok(Effect::Emit {
-        event: DomainEventBytes(Bytes::from(bytes)),
-    })
+pub(crate) fn build_online_interaction_frame(
+    transaction_id: String,
+    surface_epoch: u64,
+    mutations: Vec<SurfaceMutation>,
+) -> Result<InteractionFrameV2, InteractionFrameError> {
+    let mut causations = mutations
+        .iter()
+        .filter_map(|mutation| mutation.causation_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let causation_id = (causations.len() == 1).then(|| causations.pop_first().unwrap());
+    build_interaction_frame(
+        transaction_id,
+        causation_id,
+        InteractionRuntimeVm {
+            connection: RuntimeConnectionState::Online,
+            initial_sync: RuntimeSyncState::Ready,
+            recovery: RuntimeRecoveryState::Idle,
+        },
+        mutations
+            .into_iter()
+            .map(|mutation| SurfaceMutationV2 {
+                mutation,
+                surface_epoch,
+            })
+            .collect(),
+        Vec::new(),
+    )
 }
 
-/// V2 has a distinct producer until the raw V1 producer is separately removed.
-/// This encoder still emits one atomic DomainEvent and never exposes individual
-/// surface mutations to a driver.
-pub(crate) fn emit_interaction_frame_v2(
+/// 一个 `Effect::Emit` 对应一个完整 V2 Frame；driver 不拆分或重编码 mutation。
+pub(crate) fn emit_interaction_frame(
     frame: InteractionFrameV2,
 ) -> Result<Effect, InteractionFrameError> {
     frame.validate()?;
+    tracing::debug!(
+        hop = "interaction_frame.emit",
+        corr_key = %frame.transaction_id,
+        transaction_id = %frame.transaction_id,
+        causation_id = frame.causation_id.as_deref().unwrap_or(""),
+        mutation_count = frame.mutations.len(),
+        directive_count = frame.directives.len(),
+        "emitting validated InteractionFrame V2"
+    );
     let payload = serde_json::json!({
         "event": INTERACTION_FRAME_EVENT,
         "data": frame,
@@ -318,7 +342,7 @@ mod tests {
                 },
             },
         ];
-        let frame = build_interaction_frame("post:message-1".to_string(), mutations)
+        let frame = build_online_interaction_frame("post:message-1".to_string(), 1, mutations)
             .expect("all three typed slots form one valid frame");
         let effect = emit_interaction_frame(frame).expect("single batch effect");
         let helix_core::effect::Effect::Emit { event } = effect else {
@@ -371,13 +395,14 @@ mod tests {
 
     #[test]
     fn create_topic_channel_member_change_commits_all_attached_surfaces_atomically() {
-        let canonical = crate::interaction_frame::InteractionFrame::decode(include_bytes!(
+        let canonical = crate::interaction_frame::InteractionFrameV2::decode(include_bytes!(
             "../../tests/fixtures/uc01-16-surface-runtime/snapshots.json"
         ))
         .expect("canonical fixture");
         let mutations = canonical
             .mutations
             .into_iter()
+            .map(|mutation| mutation.mutation)
             .filter(|mutation| {
                 matches!(
                     mutation.surface,
@@ -390,17 +415,19 @@ mod tests {
             })
             .map(patch_from_snapshot)
             .collect::<Vec<_>>();
-        let frame = build_interaction_frame("create-topic:request-1".to_string(), mutations)
-            .expect("all attached surface views form one transaction");
+        let frame =
+            build_online_interaction_frame("create-topic:request-1".to_string(), 1, mutations)
+                .expect("all attached surface views form one transaction");
         assert_eq!(frame.mutations.len(), 5);
         assert!(frame
             .mutations
             .iter()
-            .all(|mutation| mutation.causation_id.as_deref() == Some("create-topic:request-1")));
+            .all(|mutation| mutation.mutation.causation_id.as_deref()
+                == Some("create-topic:request-1")));
         assert!(frame
             .mutations
             .iter()
-            .all(|mutation| mutation.mutation.is_patch()));
+            .all(|mutation| mutation.mutation.mutation.is_patch()));
     }
 
     fn patch_from_snapshot(mut mutation: SurfaceMutation) -> SurfaceMutation {

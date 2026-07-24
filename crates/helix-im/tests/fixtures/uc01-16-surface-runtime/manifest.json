@@ -1,9 +1,9 @@
 {
   "fixtureManifestVersion": 1,
-  "interactionFrameSchemaVersion": 1,
+  "interactionFrameSchemaVersion": 2,
   "sourceRevisions": {
     "interactionFrameFoundation": "756d853",
-    "dialogUnreadTimelineLiveProducer": "51111912a164d95bd0a025a39e30b879fd935fd5"
+    "dialogUnreadTimelineLiveProducer": "ea415a800b329947ce0757b8595df19b715f7d55"
   },
   "fixtures": {
     "canonicalSnapshot": "snapshots.json",
@@ -17,17 +17,17 @@
     "richContentV2": "rich-v2.json"
   },
   "producerStatus": {
-    "message.left-dialog-list": "live: opaque resync -> dialog storage fact -> snapshot/patch Frame",
-    "message.unread-summary": "live: paired with dialog storage fact -> atomic snapshot/absolute badge patch",
-    "message.timeline": "live: local-first query/post/WS facts -> snapshot or patch Frame",
-    "message.thread-detail": "live: opaque resync -> im_get_replies HTTP fact -> snapshot/patch Frame",
-    "message.participant-receipts": "live: opaque resync -> im_post_read_list HTTP fact -> snapshot/patch Frame; unsupported receipt kinds are disabled",
-    "message.channel-summary": "live: opaque resync -> channel storage fact -> snapshot/patch Frame",
-    "message.member-roster": "live: opaque resync -> channel_member storage fact -> snapshot/patch Frame; unaudited actions are disabled",
-    "message.topic-list": "live: opaque resync -> channel storage fact -> snapshot/patch Frame; unaudited actions are disabled"
+    "message.left-dialog-list": "v2-live: opaque resync -> dialog storage fact -> snapshot/patch Frame",
+    "message.unread-summary": "v2-live: paired with dialog storage fact -> atomic snapshot/absolute badge patch",
+    "message.timeline": "v2-live: local-first query/post/WS facts -> snapshot or patch Frame",
+    "message.thread-detail": "v2-live: opaque resync -> im_get_replies HTTP fact -> snapshot/patch Frame",
+    "message.participant-receipts": "v2-live: opaque resync -> im_post_read_list HTTP fact -> snapshot/patch Frame; unsupported receipt kinds are disabled",
+    "message.channel-summary": "v2-live: opaque resync -> channel storage fact -> snapshot/patch Frame",
+    "message.member-roster": "v2-live: opaque resync -> channel_member storage fact -> snapshot/patch Frame; unaudited actions are disabled",
+    "message.topic-list": "v2-live: opaque resync -> channel storage fact -> snapshot/patch Frame; unaudited actions are disabled"
   },
   "v2Migration": {
-    "sourcePin": "b4339e252e865ea294c51001388b1ef0de3ba42e",
+    "sourcePin": "ea415a800b329947ce0757b8595df19b715f7d55",
     "targetSchemaVersion": 2,
     "requiredFixtures": {
       "gs01ReconnectCanonical": "gs01-reconnect-canonical-v2.json",
@@ -38,6 +38,6 @@
       "persistFailure": "gs-persist-failure-v2.json",
       "revisionGap": "gs-revision-gap-v2.json"
     },
-    "consumerRule": "PC and mobile must verify this source pin and fixture hashes before accepting schemaVersion=2; raw im:* events are never a fallback."
+    "consumerRule": "PC and mobile accept only schemaVersion=2 from the pinned source; raw im:* events are never a fallback."
   }
 }

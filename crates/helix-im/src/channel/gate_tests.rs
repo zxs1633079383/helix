@@ -13,6 +13,24 @@ fn gapped_ev(ch: u64, seq: u64) -> EventEnvelope {
     )
 }
 
+#[test]
+fn message_upsert_keeps_dedicated_event_seq_across_historical_refill() {
+    let live = event_to_upsert_op(&gapped_ev(1, 7));
+    let StorageOp::BatchUpsert(live) = live else {
+        panic!("live post must use BatchUpsert");
+    };
+    assert!(live.rows[0].iter().any(|(column, value)| {
+        column == "event_seq" && matches!(value, helix_core::effect::SqlValue::Integer(7))
+    }));
+    assert!(!live.exclude_from_update.contains(&"event_seq"));
+
+    let historical = event_to_upsert_op(&gapped_ev(1, 0));
+    let StorageOp::BatchUpsert(historical) = historical else {
+        panic!("historical post must use BatchUpsert");
+    };
+    assert!(historical.exclude_from_update.contains(&"event_seq"));
+}
+
 fn is_too_long_emit(e: &Effect) -> bool {
     matches!(e, Effect::Emit { event }
             if String::from_utf8_lossy(event.0.as_ref()).contains("im:sync:too_long"))

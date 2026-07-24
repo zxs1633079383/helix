@@ -177,6 +177,7 @@ struct DialogListPatch {
 #[derive(Debug, Default)]
 pub struct DialogListFrameState {
     revision: u64,
+    surface_epoch: u64,
     scope: Option<DialogListScope>,
     rows_by_channel: HashMap<String, DialogListRowVm>,
     ordered_channel_ids: Vec<String>,
@@ -184,6 +185,13 @@ pub struct DialogListFrameState {
 }
 
 impl DialogListFrameState {
+    pub(crate) fn set_surface_epoch(&mut self, surface_epoch: u64) -> Option<()> {
+        if surface_epoch == 0 {
+            return None;
+        }
+        self.surface_epoch = surface_epoch;
+        Some(())
+    }
     /// Re-publish the already materialized dialog list after a trusted forward
     /// delivery was observed as a gate duplicate. The channel cursor proves
     /// the post was persisted before this authority-only refresh is emitted.
@@ -227,9 +235,10 @@ impl DialogListFrameState {
     /// frame.  This is a read-only conversion: it never increments revisions
     /// and therefore cannot turn a storage failure into visible state.
     pub(crate) fn v2_snapshot_mutations(
-        &self,
+        &mut self,
         surface_epoch: u64,
     ) -> Option<Vec<interaction_frame::SurfaceMutationV2>> {
+        self.set_surface_epoch(surface_epoch)?;
         let scope = self.scope.as_ref()?;
         if !scope.is_complete() || self.revision == 0 || surface_epoch == 0 {
             return None;
@@ -272,6 +281,7 @@ impl DialogListFrameState {
     /// identity 切换后不能保留旧 viewer 已 attach 的 dialog/unread slots。
     pub(crate) fn reset(&mut self) {
         self.revision = 0;
+        self.surface_epoch = 0;
         self.scope = None;
         self.rows_by_channel.clear();
         self.ordered_channel_ids.clear();
@@ -282,6 +292,15 @@ impl DialogListFrameState {
         &mut self,
         scope: DialogListScope,
         rows: Vec<DialogListRowVm>,
+    ) -> Option<Effect> {
+        self.snapshot_with_causation(scope, rows, None)
+    }
+
+    pub fn snapshot_with_causation(
+        &mut self,
+        scope: DialogListScope,
+        rows: Vec<DialogListRowVm>,
+        causation_id: Option<String>,
     ) -> Option<Effect> {
         if !scope.is_complete() {
             tracing::warn!(
@@ -331,7 +350,7 @@ impl DialogListFrameState {
             })
             .ok()?;
         self.revision = revision;
-        self.emit_snapshot(scope, unread_snapshot)
+        self.emit_snapshot(scope, unread_snapshot, causation_id)
     }
 
     /// 在写后投影已经提供绝对累计值时，仅改变这条 row 的相关属性并一次性发布。
@@ -607,6 +626,7 @@ impl DialogListFrameState {
         &self,
         scope: DialogListScope,
         unread_snapshot: UnreadSummarySnapshot,
+        causation_id: Option<String>,
     ) -> Option<Effect> {
         let user_scope = interaction_frame::SurfaceScope::User {
             user_id: scope.viewer_user_id,
@@ -620,7 +640,7 @@ impl DialogListFrameState {
                     scope: user_scope.clone(),
                     revision: self.revision,
                     base_revision: None,
-                    causation_id: None,
+                    causation_id: causation_id.clone(),
                     mutation: interaction_frame::TypedSurfaceMutation::DialogListSnapshot {
                         view: self.interaction_view(),
                     },
@@ -630,7 +650,7 @@ impl DialogListFrameState {
                     scope: user_scope.clone(),
                     revision: unread_snapshot.revision,
                     base_revision: None,
-                    causation_id: None,
+                    causation_id,
                     mutation: interaction_frame::TypedSurfaceMutation::UnreadSummarySnapshot {
                         view: unread_snapshot.view,
                     },
@@ -674,8 +694,9 @@ impl DialogListFrameState {
         mutations: Vec<interaction_frame::SurfaceMutation>,
     ) -> Option<Effect> {
         let scope_key = scope.canonical_key();
-        let frame = crate::projector::build_interaction_frame(
+        let frame = crate::projector::build_online_interaction_frame(
             format!("dialog-list-{scope_key}-{}", self.revision),
+            self.surface_epoch.max(1),
             mutations,
         )
         .map_err(|error| {
@@ -1850,7 +1871,7 @@ mod tests {
             surface_mutation(&frame)["mutation"]["kind"],
             "dialogListSnapshot"
         );
-        interaction_frame::InteractionFrame::decode(
+        interaction_frame::InteractionFrameV2::decode(
             &serde_json::to_vec(&frame["data"]).expect("interaction frame JSON"),
         )
         .expect("live snapshot must satisfy the public InteractionFrame contract");
@@ -1920,7 +1941,7 @@ mod tests {
             dialog_view(&frame)["sections"][0]["items"][0]["channelId"],
             "c1"
         );
-        interaction_frame::InteractionFrame::decode(
+        interaction_frame::InteractionFrameV2::decode(
             &serde_json::to_vec(&frame["data"]).expect("interaction frame JSON"),
         )
         .expect("authority refresh must satisfy the public InteractionFrame contract");
@@ -2324,7 +2345,7 @@ mod tests {
         assert_eq!(row["isTop"], true);
         assert_eq!(row["preview"]["text"], "member absolute");
         assert_eq!(row["unreadCount"], 3);
-        interaction_frame::InteractionFrame::decode(
+        interaction_frame::InteractionFrameV2::decode(
             &serde_json::to_vec(&frame_data["data"]).expect("interaction frame JSON"),
         )
         .expect("live post/member frame must satisfy the public InteractionFrame contract");

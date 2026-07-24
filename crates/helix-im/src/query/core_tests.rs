@@ -145,7 +145,7 @@ fn emit_dialog_list_frame_result_projects_scoped_render_ready_snapshot() {
     let value = emit_json(frame).expect("frame emit");
 
     assert_eq!(value["event"], "im:interaction:frame");
-    assert_eq!(value["data"]["schemaVersion"], 1);
+    assert_eq!(value["data"]["schemaVersion"], 2);
     let mutation = &value["data"]["mutations"][0];
     assert_eq!(mutation["surface"], "message.left-dialog-list");
     assert_eq!(mutation["scope"]["userId"], "444");

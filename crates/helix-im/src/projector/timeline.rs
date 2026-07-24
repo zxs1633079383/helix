@@ -9,11 +9,12 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
-    MessageReactionVm, MessageVm, ReplaceView, ReplaceViewKind, ReplyThreadPreviewVm,
+    ActionBinding, DeliveryVm, InteractionFrameError, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    MessageContentVm, MessageQuickActionVm, MessageReactionVm, MessageVm, ReferenceAvailabilityVm,
+    ReplaceView, ReplaceViewKind, ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm,
     ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation,
     SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation,
-    UserRefVm, WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
+    UserRefVm, WindowPageVm,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -119,6 +120,15 @@ impl TimelineProjector {
         request: TimelineWindowRequest,
         render_ready_rows: &[Value],
     ) -> Result<SurfaceMutation, TimelineProjectionError> {
+        self.snapshot_from_render_ready_with_causation(request, render_ready_rows, None)
+    }
+
+    pub fn snapshot_from_render_ready_with_causation(
+        &mut self,
+        request: TimelineWindowRequest,
+        render_ready_rows: &[Value],
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, TimelineProjectionError> {
         let (scope, slot_key) = scope_and_slot_key(&request)?;
         let view = self.build_view(&request, render_ready_rows)?;
         let revision = self
@@ -130,7 +140,7 @@ impl TimelineProjector {
             scope,
             revision,
             base_revision: None,
-            causation_id: None,
+            causation_id,
             mutation: TypedSurfaceMutation::TimelineSnapshot { view: view.clone() },
         };
         mutation.validate()?;
@@ -227,6 +237,48 @@ impl TimelineProjector {
         mutation.validate()?;
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(Some(mutation))
+    }
+
+    pub(crate) fn refresh_attached_with_causation(
+        &mut self,
+        causation_id: &str,
+    ) -> Result<Vec<SurfaceMutation>, TimelineProjectionError> {
+        let slots = self
+            .slots
+            .iter()
+            .map(|(key, slot)| (key.clone(), slot.clone()))
+            .collect::<Vec<_>>();
+        let mut mutations = Vec::with_capacity(slots.len());
+        for (slot_key, slot) in slots {
+            let revision = next_revision(slot.revision)?;
+            let scope = SurfaceScope::Timeline {
+                channel_id: slot.view.channel_id.clone(),
+                window_token: slot.view.page.window_token.clone(),
+            };
+            let mutation = SurfaceMutation {
+                surface: SurfaceId::MessageTimeline,
+                scope,
+                revision,
+                base_revision: Some(slot.revision),
+                causation_id: Some(causation_id.to_string()),
+                mutation: TypedSurfaceMutation::TimelinePatch {
+                    patch: ReplaceView {
+                        kind: ReplaceViewKind::ReplaceView,
+                        view: slot.view.clone(),
+                    },
+                },
+            };
+            mutation.validate()?;
+            self.slots.insert(
+                slot_key,
+                TimelineSlot {
+                    revision,
+                    view: slot.view,
+                },
+            );
+            mutations.push(mutation);
+        }
+        Ok(mutations)
     }
 
     pub(crate) fn patch_receipts(
@@ -557,7 +609,7 @@ pub(crate) fn message_from_render_ready(
         (
             Vec::new(),
             Vec::new(),
-            SurfaceDataVm::Record(BTreeMap::new()),
+            ReplySummaryVm::None,
             None,
             Vec::new(),
             None,
@@ -571,14 +623,7 @@ pub(crate) fn message_from_render_ready(
                 &mut issue_action_ref,
             )?,
             quick_actions_from_row(row),
-            record_from_row(
-                row,
-                &[
-                    ("replyCount", "replyCount"),
-                    ("replyRootId", "replyRootId"),
-                    ("replyMessages", "replyMessages"),
-                ],
-            )?,
+            reply_summary_from_row(row),
             reply_thread_from_row(row),
             reactions_from_props(props),
             topic_link_from_row(row, expected_channel_id, &id)?,
@@ -689,6 +734,94 @@ fn topic_link_from_row(
     .map(Some)
 }
 
+fn reply_summary_from_row(row: &Value) -> ReplySummaryVm {
+    let replied = row
+        .get("repliedMessage")
+        .or_else(|| row.get("replied_message"))
+        .filter(|value| value.is_object());
+    let target_message_id =
+        optional_non_empty_string(row, &["replyId", "reply_id"]).or_else(|| {
+            replied.and_then(|message| optional_non_empty_string(message, &["msgId", "id"]))
+        });
+    let Some(target_message_id) = target_message_id else {
+        return ReplySummaryVm::None;
+    };
+    let Some(replied) = replied else {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Unavailable {
+                reason: "referencedMessageUnavailable".to_string(),
+            },
+        };
+    };
+    if bool_at(replied, &["revoked", "revoke"]) {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Recalled {
+                text: "消息已撤回".to_string(),
+            },
+        };
+    }
+    let author_id = row_string(replied, &["userId", "user_id"]);
+    let Some(preview) = reply_preview_from_row(replied) else {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Unavailable {
+                reason: "referencedMessageUnavailable".to_string(),
+            },
+        };
+    };
+    if author_id.is_empty() {
+        return ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability: ReferenceAvailabilityVm::Unavailable {
+                reason: "referencedAuthorUnavailable".to_string(),
+            },
+        };
+    }
+    ReplySummaryVm::Available {
+        target_message_id,
+        author: UserRefVm { user_id: author_id },
+        preview,
+        availability: ReferenceAvailabilityVm::Available,
+    }
+}
+
+fn reply_preview_from_row(row: &Value) -> Option<ReplyPreviewVm> {
+    let text = row_string(row, &["text", "message"]);
+    let kind = row_string(row, &["type"]).to_ascii_uppercase();
+    if kind.contains("FORWARD") {
+        return (!text.is_empty()).then_some(ReplyPreviewVm::Forwarded { summary: text });
+    }
+    if kind.contains("DOCUMENT") {
+        let title = row_string(row, &["fileName", "title", "text", "message"]);
+        return (!title.is_empty()).then_some(ReplyPreviewVm::Document { title });
+    }
+    if matches!(
+        kind.as_str(),
+        "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA"
+    ) {
+        let file_name = row_string(row, &["fileName", "title", "text", "message"]);
+        return (!kind.is_empty() && !file_name.is_empty()).then_some(ReplyPreviewVm::Media {
+            media_type: kind.to_ascii_lowercase(),
+            file_name,
+        });
+    }
+    if matches!(
+        kind.as_str(),
+        "NOTICE"
+            | "SYSTEM"
+            | "SYSTEN"
+            | "MEETING_NOTICE"
+            | "TODO_NOTICE"
+            | "APPROVAL_NOTICE"
+            | "ANNOUNCEMENT"
+    ) {
+        return (!text.is_empty()).then_some(ReplyPreviewVm::System { text });
+    }
+    (!text.is_empty()).then_some(ReplyPreviewVm::Text { text })
+}
+
 fn reply_thread_from_row(row: &Value) -> Option<ReplyThreadSummaryVm> {
     let reply_count = row
         .get("replyCount")
@@ -790,11 +923,15 @@ fn content_from_row(
         });
     }
     if kind.contains("DOCUMENT") {
+        let document = props.get("document").unwrap_or(&Value::Null);
         return Ok(MessageContentVm::Document {
-            document_id: row_string(row, &["documentId", "id", "msgId"]),
-            title: row_string(row, &["fileName", "title", "text"]),
-            summary: text,
-            access: surface_data(props, 0)?,
+            document_id: optional_non_empty_string(document, &["id", "documentId"])
+                .unwrap_or_else(|| row_string(row, &["documentId", "id", "msgId"])),
+            title: optional_non_empty_string(document, &["title"])
+                .unwrap_or_else(|| row_string(row, &["fileName", "title", "text"])),
+            summary: optional_non_empty_string(document, &["url", "summary"])
+                .unwrap_or_else(|| text.clone()),
+            access: surface_data(document, 0)?,
         });
     }
     if matches!(
@@ -922,7 +1059,7 @@ fn action_bindings(
         } else if !action_authority_available {
             Some("runtimeIdentityRequired".to_string())
         } else {
-            Some("unsupportedByAuthorityV1".to_string())
+            Some("unsupportedByAuthority".to_string())
         };
         actions.push(ActionBinding {
             action_ref: issue_action_ref()?,
@@ -1329,6 +1466,61 @@ mod tests {
     }
 
     #[test]
+    fn document_projection_uses_typed_document_props_instead_of_placeholder_text() {
+        let mut source = row(1);
+        source["type"] = serde_json::json!("DOCUMENT");
+        source["message"] = serde_json::json!("【文档】 http://doc.cses7.com/doc/document-1");
+        source["props"] = serde_json::json!({
+            "document": {
+                "id": "document-1",
+                "title": "项目周报",
+                "url": "http://doc.cses7.com/doc/document-1",
+                "version": 1,
+                "placeholder": true
+            }
+        });
+
+        let message =
+            message_from_render_ready(&source, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("document message");
+
+        let MessageContentVm::Document {
+            document_id,
+            title,
+            summary,
+            access,
+        } = message.content
+        else {
+            panic!("document content")
+        };
+        assert_eq!(document_id, "document-1");
+        assert_eq!(title, "项目周报");
+        assert_eq!(summary, "http://doc.cses7.com/doc/document-1");
+        assert_eq!(
+            access,
+            SurfaceDataVm::Record(BTreeMap::from([
+                (
+                    "id".to_string(),
+                    SurfaceDataVm::String("document-1".to_string())
+                ),
+                ("placeholder".to_string(), SurfaceDataVm::Bool(true)),
+                (
+                    "title".to_string(),
+                    SurfaceDataVm::String("项目周报".to_string())
+                ),
+                (
+                    "url".to_string(),
+                    SurfaceDataVm::String("http://doc.cses7.com/doc/document-1".to_string())
+                ),
+                (
+                    "version".to_string(),
+                    SurfaceDataVm::Number(serde_json::Number::from(1))
+                ),
+            ]))
+        );
+    }
+
+    #[test]
     fn topic_relation_requires_and_normalizes_a_closed_topic_link() {
         let mut source = row(1);
         source["topic"] = serde_json::json!({"channelId":"topic-1"});
@@ -1390,10 +1582,7 @@ mod tests {
         assert!(message.reply_thread.is_none());
         assert!(message.reactions.is_empty());
         assert!(message.topic_link.is_none());
-        assert_eq!(
-            message.reply_summary,
-            SurfaceDataVm::Record(BTreeMap::new())
-        );
+        assert_eq!(message.reply_summary, ReplySummaryVm::None);
         assert_eq!(
             issued_refs, 0,
             "recalled rows must not mint executable action refs"
@@ -1402,6 +1591,56 @@ mod tests {
         assert!(encoded.get("replyThread").is_none());
         assert!(encoded.get("reactions").is_none());
         assert!(encoded.get("topicLink").is_none());
+    }
+
+    #[test]
+    fn reply_summary_is_a_closed_v2_union() {
+        let plain =
+            message_from_render_ready(&row(1), "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("plain message");
+        assert_eq!(plain.reply_summary, ReplySummaryVm::None);
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap()["replySummary"],
+            serde_json::json!({"kind":"none"})
+        );
+
+        let mut quoted = row(2);
+        quoted["replyId"] = serde_json::json!("message-1");
+        quoted["repliedMessage"] = serde_json::json!({
+            "id": "message-1",
+            "userId": "user-1",
+            "type": "TEXT",
+            "message": "被引用正文"
+        });
+        let available =
+            message_from_render_ready(&quoted, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("quoted message");
+        assert_eq!(
+            serde_json::to_value(&available).unwrap()["replySummary"],
+            serde_json::json!({
+                "kind": "available",
+                "targetMessageId": "message-1",
+                "author": {"userId": "user-1"},
+                "preview": {"kind": "text", "text": "被引用正文"},
+                "availability": {"kind": "available"}
+            })
+        );
+
+        quoted["repliedMessage"] = Value::Null;
+        let unavailable =
+            message_from_render_ready(&quoted, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("unavailable quoted message remains renderable");
+        assert_eq!(
+            serde_json::to_value(&unavailable).unwrap()["replySummary"],
+            serde_json::json!({
+                "kind": "unavailable",
+                "targetMessageId": "message-1",
+                "availability": {
+                    "kind": "unavailable",
+                    "reason": "referencedMessageUnavailable"
+                }
+            })
+        );
     }
 
     #[test]
@@ -1590,14 +1829,22 @@ mod tests {
         assert_eq!(receipt.surface_epoch, 42);
         assert!(!receipt.action_ref.contains("message-1"));
         assert!(!receipt.action_ref.contains("viewReceipt"));
+        let locate = view.items[0]
+            .actions
+            .iter()
+            .find(|action| action.kind == "locate")
+            .expect("locate binding is present");
+        assert!(locate.enabled);
+        assert!(locate.disabled_reason.is_none());
+        let mark_read = view.items[0]
+            .actions
+            .iter()
+            .find(|action| action.kind == "markRead")
+            .expect("mark-read binding is present");
+        assert!(mark_read.enabled);
+        assert!(mark_read.disabled_reason.is_none());
 
-        for kind in [
-            "reply",
-            "createTopic",
-            "markRead",
-            "templateConfirm",
-            "locate",
-        ] {
+        for kind in ["reply", "createTopic", "templateConfirm"] {
             let action = view.items[0]
                 .actions
                 .iter()
@@ -1606,7 +1853,7 @@ mod tests {
             assert!(!action.enabled, "{kind}");
             assert_eq!(
                 action.disabled_reason.as_deref(),
-                Some("unsupportedByAuthorityV1"),
+                Some("unsupportedByAuthority"),
                 "{kind} cannot be enabled by a row capability before the terminal authority Frame exists"
             );
         }

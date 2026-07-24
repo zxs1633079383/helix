@@ -8,17 +8,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 1;
-/// V2 is introduced alongside the legacy decoder so all three consumers can move in lockstep.
-/// Producers do not switch this default until their V2 fixture mirror and cache gates are ready.
-pub const INTERACTION_FRAME_SCHEMA_VERSION_V2: u32 = 2;
+pub const INTERACTION_FRAME_SCHEMA_VERSION: u32 = 2;
 pub const INTERACTION_FRAME_EVENT: &str = "im:interaction:frame";
+pub const FRAME_APPLIED_COMMAND: &str = "__helix_frame_applied";
 /// Action invoke 的受理结果。`accepted` 只代表 Helix 已接管该 requestId；业务终态仍必须等同
 /// requestId 的权威 Frame causation。
 pub const INTERACTION_ACTION_RECEIPT_EVENT: &str = "im:interaction:action-receipt";
 /// 上行 ActionBinding invoke 的独立版本；不能借用下行 Frame 的版本号来默许未知字段。
 pub const ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION: u32 = 1;
-/// v1 wire integers must remain lossless when consumed as JavaScript `number` values.
+/// Wire integers must remain lossless when consumed as JavaScript `number` values.
 pub const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 pub const MIN_SAFE_JSON_INTEGER: i64 = -9_007_199_254_740_991;
 const MAX_SURFACE_DATA_DEPTH: usize = 8;
@@ -269,6 +267,34 @@ pub struct ActionInvocation {
     pub input: BTreeMap<String, SurfaceDataVm>,
 }
 
+/// Renderer-to-core acknowledgement emitted only after a complete V2 frame
+/// has been committed and its directives have been attempted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FrameApplied {
+    pub transaction_id: String,
+    pub applied_slots: u32,
+    pub result: FrameAppliedResult,
+}
+
+impl FrameApplied {
+    pub fn from_payload(payload: &[u8]) -> Result<Self, InteractionFrameError> {
+        let ack: Self = serde_json::from_slice(payload)
+            .map_err(|error| InteractionFrameError::Decode(error.to_string()))?;
+        if ack.transaction_id.is_empty() {
+            return Err(InteractionFrameError::EmptyTransactionId);
+        }
+        Ok(ack)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrameAppliedResult {
+    Applied,
+    DirectiveFailed,
+}
+
 /// renderer 回送给 Helix 的版本化、surface-scoped 动作请求。
 ///
 /// `request_id` 是端到端 causation key；`actor_id` 由受信 platform runtime 注入，而不是由 UI
@@ -451,48 +477,6 @@ impl ActionReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct InteractionFrame {
-    pub schema_version: u32,
-    pub transaction_id: String,
-    pub mutations: Vec<SurfaceMutation>,
-}
-
-impl InteractionFrame {
-    pub fn decode(bytes: &[u8]) -> Result<Self, InteractionFrameError> {
-        let frame: Self = serde_json::from_slice(bytes)
-            .map_err(|error| InteractionFrameError::Decode(error.to_string()))?;
-        frame.validate()?;
-        Ok(frame)
-    }
-
-    pub fn validate(&self) -> Result<(), InteractionFrameError> {
-        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION {
-            return Err(InteractionFrameError::SchemaVersion(self.schema_version));
-        }
-        if self.transaction_id.is_empty() {
-            return Err(InteractionFrameError::EmptyTransactionId);
-        }
-        if self.mutations.is_empty() {
-            return Err(InteractionFrameError::EmptyMutations);
-        }
-
-        let mut slots = BTreeSet::new();
-        for mutation in &self.mutations {
-            mutation.validate()?;
-            let slot = (mutation.surface, mutation.scope.canonical_key());
-            if !slots.insert(slot.clone()) {
-                return Err(InteractionFrameError::DuplicateSlot {
-                    surface: slot.0.as_str(),
-                    scope: slot.1,
-                });
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SurfaceMutation {
     pub surface: SurfaceId,
     pub scope: SurfaceScope,
@@ -551,9 +535,6 @@ impl SurfaceMutation {
     }
 }
 
-/// The V2 envelope is deliberately a distinct type while the V1 producer is still live.
-/// It prevents a partially migrated producer from silently emitting V2-only fields on the V1
-/// wire; the final cutover changes the producer alias after PC/mobile parity has passed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InteractionFrameV2 {
@@ -563,7 +544,7 @@ pub struct InteractionFrameV2 {
     pub causation_id: Option<String>,
     pub runtime: InteractionRuntimeVm,
     pub mutations: Vec<SurfaceMutationV2>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub directives: Vec<UiDirective>,
 }
 
@@ -576,7 +557,7 @@ impl InteractionFrameV2 {
     }
 
     pub fn validate(&self) -> Result<(), InteractionFrameError> {
-        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION_V2 {
+        if self.schema_version != INTERACTION_FRAME_SCHEMA_VERSION {
             return Err(InteractionFrameError::SchemaVersion(self.schema_version));
         }
         if self.transaction_id.is_empty() {
@@ -647,19 +628,15 @@ pub enum InteractionFrameError {
     EmptyFrameCausationId,
     #[error("schema v2 interaction frame requires runtime")]
     MissingV2Runtime,
-    #[error("schema v1 interaction frame must not carry v2 runtime or directives")]
-    V1CarriesV2Fields,
-    #[error("surface {surface} v2 mutation requires surfaceEpoch")]
+    #[error("interaction frame mutation requires surfaceEpoch for surface {surface}")]
     MissingSurfaceEpoch { surface: &'static str },
     #[error("surface {surface} has surfaceEpoch 0")]
     ZeroSurfaceEpoch { surface: &'static str },
-    #[error("surface {surface} schema v1 mutation must not carry surfaceEpoch")]
-    V1CarriesSurfaceEpoch { surface: &'static str },
     #[error("surface {surface} has an invalid scope")]
     ScopeMismatch { surface: &'static str },
     #[error("surface {surface} has revision 0")]
     ZeroRevision { surface: &'static str },
-    #[error("surface {surface} field {field} exceeds the v1 JavaScript exact-safe numeric range")]
+    #[error("surface {surface} field {field} exceeds the JavaScript exact-safe numeric range")]
     UnsafeWireNumber {
         surface: &'static str,
         field: &'static str,
@@ -954,6 +931,69 @@ pub enum MessageContentVm {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+pub enum ReferenceAvailabilityVm {
+    Available,
+    Recalled { text: String },
+    Unavailable { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ReplyPreviewVm {
+    Text {
+        text: String,
+    },
+    Document {
+        title: String,
+    },
+    Media {
+        media_type: String,
+        file_name: String,
+    },
+    Forwarded {
+        summary: String,
+    },
+    System {
+        text: String,
+    },
+    Recalled {
+        text: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ReplySummaryVm {
+    None,
+    Available {
+        target_message_id: String,
+        author: UserRefVm,
+        preview: ReplyPreviewVm,
+        availability: ReferenceAvailabilityVm,
+    },
+    Unavailable {
+        target_message_id: String,
+        availability: ReferenceAvailabilityVm,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum DeliveryVm {
     Uploading { progress_percent: u8 },
     Sending,
@@ -982,7 +1022,7 @@ pub struct MessageVm {
     pub reply_root_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_first_level_id: Option<String>,
-    pub reply_summary: SurfaceDataVm,
+    pub reply_summary: ReplySummaryVm,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_thread: Option<ReplyThreadSummaryVm>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1046,12 +1086,30 @@ pub struct TimelineWindowVm {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThreadDetailVm {
     pub channel_id: String,
+    pub detail_context: DetailContextVm,
     pub root: MessageVm,
     pub ordered_reply_ids: Vec<String>,
     pub nodes: BTreeMap<String, MessageVm>,
     pub reply_count: u32,
     pub page: WindowPageVm,
     pub state: SurfaceLoadState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum DetailContextVm {
+    Reply,
+    Topic {
+        parent_channel_id: String,
+        topic_channel_id: String,
+        root_message_id: String,
+        title: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1475,6 +1533,21 @@ fn validate_thread_detail(
     if view.channel_id != *channel_id || view.root.id != *root_message_id {
         return invalid_view(surface, "thread root and channel must match scope");
     }
+    if let DetailContextVm::Topic {
+        parent_channel_id,
+        topic_channel_id,
+        root_message_id: context_root_id,
+        title,
+    } = &view.detail_context
+    {
+        if parent_channel_id.is_empty()
+            || topic_channel_id != channel_id
+            || context_root_id != root_message_id
+            || title.is_empty()
+        {
+            return invalid_view(surface, "topic detail context must match thread scope");
+        }
+    }
     validate_page(surface, &view.page)?;
     validate_message(surface, &view.root, channel_id)?;
     let mut ordered = BTreeSet::new();
@@ -1719,7 +1792,7 @@ fn validate_message(
             "message quick actions must be unique and capped at three items",
         );
     }
-    validate_data_for_surface(surface, &message.reply_summary)?;
+    validate_reply_summary(surface, &message.reply_summary)?;
     if let Some(thread) = &message.reply_thread {
         if thread.items.len() > 3 || thread.reply_count < thread.items.len() as u32 {
             return invalid_view(
@@ -1773,6 +1846,69 @@ fn validate_message(
         MessageContentVm::Text { .. }
         | MessageContentVm::SystemEvent { .. }
         | MessageContentVm::Recalled { .. } => Ok(()),
+    }
+}
+
+fn validate_reply_summary(
+    surface: SurfaceId,
+    summary: &ReplySummaryVm,
+) -> Result<(), InteractionFrameError> {
+    match summary {
+        ReplySummaryVm::None => Ok(()),
+        ReplySummaryVm::Available {
+            target_message_id,
+            author,
+            preview,
+            availability,
+        } => {
+            require_nonempty(surface, "reply target message id", target_message_id)?;
+            validate_user(surface, author)?;
+            if !matches!(availability, ReferenceAvailabilityVm::Available) {
+                return invalid_view(
+                    surface,
+                    "available reply summary requires available reference state",
+                );
+            }
+            match preview {
+                ReplyPreviewVm::Text { text }
+                | ReplyPreviewVm::System { text }
+                | ReplyPreviewVm::Recalled { text } => {
+                    require_nonempty(surface, "reply preview text", text)?;
+                }
+                ReplyPreviewVm::Document { title } => {
+                    require_nonempty(surface, "reply preview document title", title)?;
+                }
+                ReplyPreviewVm::Media {
+                    media_type,
+                    file_name,
+                } => {
+                    require_nonempty(surface, "reply preview media type", media_type)?;
+                    require_nonempty(surface, "reply preview file name", file_name)?;
+                }
+                ReplyPreviewVm::Forwarded { summary } => {
+                    require_nonempty(surface, "reply preview forwarded summary", summary)?;
+                }
+            }
+            Ok(())
+        }
+        ReplySummaryVm::Unavailable {
+            target_message_id,
+            availability,
+        } => {
+            require_nonempty(surface, "reply target message id", target_message_id)?;
+            match availability {
+                ReferenceAvailabilityVm::Recalled { text } => {
+                    require_nonempty(surface, "recalled reply label", text)
+                }
+                ReferenceAvailabilityVm::Unavailable { reason } => {
+                    require_nonempty(surface, "unavailable reply reason", reason)
+                }
+                ReferenceAvailabilityVm::Available => invalid_view(
+                    surface,
+                    "unavailable reply summary cannot carry available reference state",
+                ),
+            }
+        }
     }
 }
 

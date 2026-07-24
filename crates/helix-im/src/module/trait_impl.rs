@@ -50,6 +50,22 @@ impl Module for ImModule {
                     }
                     self.config.auth_user_id = auth_user_id;
                     self.config.company_id = company_id;
+                    // Native may deliver the trusted runtime identity after the WS hello.
+                    // The identity reset intentionally invalidates A's recovery window, but a
+                    // live B transport must immediately open its own window; otherwise every
+                    // startup sync commit is misclassified as ordinary online work and emits
+                    // one dialog Frame per channel.
+                    if self.state.connection_id.is_some()
+                        && !self.config.auth_user_id.is_empty()
+                        && !self
+                            .state
+                            .recovery_session
+                            .is_active_for(self.config.auth_user_id.as_str())
+                    {
+                        self.state
+                            .recovery_session
+                            .begin(self.config.auth_user_id.as_str());
+                    }
                 }
                 crate::client_api::INTERACTION_ACTION_INVOKE_COMMAND => {
                     self.handle_action_invocation(cmd.payload.as_ref(), now_ms, out)
@@ -64,6 +80,22 @@ impl Module for ImModule {
                             module: self.name(),
                             source: Box::new(e),
                         })?;
+                }
+                crate::interaction_frame::FRAME_APPLIED_COMMAND => {
+                    let ack =
+                        crate::interaction_frame::FrameApplied::from_payload(cmd.payload.as_ref())
+                            .map_err(|error| CoreError::ModuleError {
+                                module: self.name(),
+                                source: Box::new(crate::error::ImError::Parse(error.to_string())),
+                            })?;
+                    tracing::info!(
+                        hop = "interaction_frame.applied",
+                        corr_key = %ack.transaction_id,
+                        transaction_id = %ack.transaction_id,
+                        applied_slots = ack.applied_slots,
+                        result = ?ack.result,
+                        "renderer committed InteractionFrame V2"
+                    );
                 }
                 "im_send_message" => {
                     self.handle_send_message(cmd.payload.as_ref(), now_ms, out)
@@ -331,7 +363,12 @@ impl Module for ImModule {
                 // 必须等收到 hello（→ Connected + connectionId）才能 resync——
                 // 否则握手前发 sync/notify 会被 Go 401/403（缺 connectionId 身份头）。
                 // 故此处只置 Connecting，resync 推迟到 hello Inbound 分支（handle_hello）。
-                self.state.conn = ConnState::Connecting;
+                // Native reader 与 activation tick 来自两个异步源；hello 可能先入队。
+                // connectionId 是服务端握手的权威凭据，晚到的 transport tick 不得把
+                // 已握手状态从 Connected 降回 Connecting。
+                if self.state.connection_id.is_none() {
+                    self.state.conn = ConnState::Connecting;
+                }
                 // Do not publish a runtime transition here: the server hello
                 // establishes the recovery epoch, and PersistOk is the only
                 // completion boundary for a V2 frame.
@@ -342,7 +379,7 @@ impl Module for ImModule {
             Tick::Disconnected(_transport) => {
                 self.state.conn = ConnState::Disconnected;
                 self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Failed;
-                self.state.reset_recent_query_coverage();
+                self.state.reset_transport_query_session();
                 // 清除所有 channel 的 inflight_sync（连接断开，所有在途 Http 不会回报）
                 // 若不清除，重连后 proactive resync 会被 B1 守卫全部跳过
                 for ch in self.state.channels.values_mut() {

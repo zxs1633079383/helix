@@ -137,7 +137,10 @@ pub fn normalize_command_payload(public: &str, payload: &[u8]) -> Result<Vec<u8>
 pub fn build_command(public_name: &str, payload: &[u8]) -> Result<AppCommand, ImError> {
     if matches!(
         public_name,
-        crate::module::RUNTIME_IDENTITY_COMMAND | INTERACTION_ACTION_INVOKE_COMMAND
+        crate::module::RUNTIME_IDENTITY_COMMAND
+            | INTERACTION_ACTION_INVOKE_COMMAND
+            | crate::surface_runtime::SURFACE_RESYNC_COMMAND
+            | crate::interaction_frame::FRAME_APPLIED_COMMAND
     ) {
         return Err(ImError::Parse(
             "reserved runtime command is not part of the public command API".to_string(),
@@ -185,6 +188,19 @@ pub fn build_surface_resync_command(payload: &[u8]) -> Result<AppCommand, ImErro
         serde_json::to_vec(&request).map_err(|error| ImError::Serialize(error.to_string()))?;
     Ok(AppCommand::new(
         crate::surface_runtime::SURFACE_RESYNC_COMMAND,
+        canonical,
+    ))
+}
+
+/// Encode the renderer's content-free post-commit acknowledgement as a
+/// private command. It never enters the public IM command namespace.
+pub fn build_frame_applied_command(payload: &[u8]) -> Result<AppCommand, ImError> {
+    let ack = crate::interaction_frame::FrameApplied::from_payload(payload)
+        .map_err(|error| ImError::Parse(format!("frame applied payload: {error}")))?;
+    let canonical =
+        serde_json::to_vec(&ack).map_err(|error| ImError::Serialize(error.to_string()))?;
+    Ok(AppCommand::new(
+        crate::interaction_frame::FRAME_APPLIED_COMMAND,
         canonical,
     ))
 }
@@ -444,6 +460,30 @@ mod tests {
             br#"{"surface":"message.member-roster","scope":{"kind":"memberRoster","channelId":"channel-1","cursor":"first"},"rawTable":"channel_member"}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn frame_applied_uses_a_content_free_typed_private_command() {
+        let command = build_frame_applied_command(
+            br#"{"transactionId":"tx-1","appliedSlots":2,"result":"applied"}"#,
+        )
+        .expect("typed frame acknowledgement");
+        assert_eq!(
+            command.name,
+            crate::interaction_frame::FRAME_APPLIED_COMMAND
+        );
+        assert!(build_frame_applied_command(
+            br#"{"transactionId":"","appliedSlots":2,"result":"applied"}"#
+        )
+        .is_err());
+        assert!(build_frame_applied_command(
+            br#"{"transactionId":"tx-1","appliedSlots":2,"result":"applied","payload":{"text":"secret"}}"#
+        )
+        .is_err());
+        assert!(matches!(
+            build_command(crate::interaction_frame::FRAME_APPLIED_COMMAND, br#"{}"#),
+            Err(ImError::Parse(_))
+        ));
     }
 
     #[test]

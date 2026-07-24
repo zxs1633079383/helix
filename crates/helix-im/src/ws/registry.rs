@@ -408,7 +408,7 @@ mod tests {
             &mut state,
             1_000,
             "https://example.test/api",
-            "",
+            "viewer",
             &mut alloc_corr,
         );
         let frame =
@@ -420,6 +420,10 @@ mod tests {
 
         assert_eq!(ctx.state.conn, ConnState::Connected);
         assert_eq!(ctx.state.connection_id.as_deref(), Some("CONN_REG"));
+        assert!(
+            ctx.state.recovery_session.is_collecting_for("viewer"),
+            "production registry hello must establish the actor recovery epoch"
+        );
         assert!(
             ctx.state.increment_fetched.is_empty(),
             "hello should reset the previous increment batch"

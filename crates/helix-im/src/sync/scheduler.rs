@@ -71,6 +71,10 @@ impl SyncScheduler {
         self.pending.len()
     }
 
+    pub fn is_idle(&self) -> bool {
+        self.inflight == 0 && self.pending.is_empty()
+    }
+
     /// 是否还能立即 dispatch（在途未满窗）。
     pub fn has_window(&self) -> bool {
         self.inflight < MAX_INFLIGHT_SYNC
@@ -89,6 +93,21 @@ impl SyncScheduler {
             true
         } else {
             false
+        }
+    }
+
+    /// Promote an explicit authority gap ahead of routine recovery backlog.
+    ///
+    /// Pong gaps are a cold heartbeat path, so rebuilding the bounded pending
+    /// queue is acceptable. The batch operation stays O(n + m), preserves wire
+    /// order, and upgrades an already queued Routine entry to `PongGap`.
+    pub fn prioritize_with_trigger(&mut self, channel_ids: &[ChannelId], trigger: SyncTrigger) {
+        let prioritized: HashSet<ChannelId> = channel_ids.iter().copied().collect();
+        self.pending
+            .retain(|(channel_id, _)| !prioritized.contains(channel_id));
+        for &channel_id in channel_ids.iter().rev() {
+            self.enqueued.insert(channel_id);
+            self.pending.push_front((channel_id, trigger));
         }
     }
 
@@ -192,6 +211,35 @@ pub fn enqueue_and_drain_with_trigger(
             .sync_scheduler
             .enqueue_with_trigger(channel_id, trigger);
     }
+    drain(state, api_base_url, alloc_corr, out);
+}
+
+/// Put explicit pong gaps ahead of the routine reconnect cohort and drain.
+///
+/// Unlike ordinary enqueue, an already queued channel is moved to the front
+/// and its trigger is upgraded. An already in-flight channel remains owned by
+/// that request and is not duplicated.
+pub fn prioritize_and_drain_with_trigger(
+    state: &mut ImState,
+    api_base_url: &str,
+    targets: &[ChannelId],
+    trigger: SyncTrigger,
+    alloc_corr: &mut dyn FnMut() -> Correlation,
+    out: &mut EffectSink,
+) {
+    let eligible: Vec<ChannelId> = targets
+        .iter()
+        .copied()
+        .filter(|channel_id| {
+            state
+                .channels
+                .get(channel_id)
+                .is_some_and(|channel| !channel.is_terminal() && channel.inflight_sync.is_none())
+        })
+        .collect();
+    state
+        .sync_scheduler
+        .prioritize_with_trigger(&eligible, trigger);
     drain(state, api_base_url, alloc_corr, out);
 }
 

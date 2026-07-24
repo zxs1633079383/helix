@@ -103,8 +103,11 @@ fn g12_freezes_reply_projection_ordering_and_paging_contract() {
     let projection = g12
         .projections
         .iter()
-        .find(|projection| projection.event == "im:channel:replies")
-        .expect("G-12 must declare im:channel:replies");
+        .find(|projection| {
+            projection.event == "im:interaction:frame"
+                && projection.schema == "InteractionFrame/v2"
+        })
+        .expect("G-12 must declare its InteractionFrame/v2 projection");
     assert_eq!(
         projection.required_data_fields,
         [
@@ -383,7 +386,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 10);
+    assert_eq!(matrix.contract_epoch, 11);
 
     let create = gate(&matrix, "G-15a");
     assert!(create
@@ -550,14 +553,14 @@ fn strict_matrix_forbids_aliases_and_requires_exact_snake_case_inputs() {
             );
         }
         for projection in &entry.projections {
-            let expected_schema = if projection.event == "im:interaction:frame" {
-                "InteractionFrame/v1"
-            } else {
-                "RenderNode/v1"
-            };
             assert_eq!(
-                projection.schema, expected_schema,
-                "{} projection schema must match its render-ready envelope",
+                projection.event, "im:interaction:frame",
+                "{} must not publish a legacy business projection",
+                entry.gate_id
+            );
+            assert_eq!(
+                projection.schema, "InteractionFrame/v2",
+                "{} projection schema must be V2-only",
                 entry.gate_id
             );
         }

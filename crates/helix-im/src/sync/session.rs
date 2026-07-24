@@ -274,6 +274,7 @@ pub struct RecoverySession {
     pub session_epoch: u64,
     pub actor_id: String,
     pub pending_commits: std::collections::BTreeMap<ChannelId, Seq>,
+    completion_published: bool,
 }
 
 impl Default for RecoverySession {
@@ -283,6 +284,7 @@ impl Default for RecoverySession {
             session_epoch: 0,
             actor_id: String::new(),
             pending_commits: std::collections::BTreeMap::new(),
+            completion_published: false,
         }
     }
 }
@@ -295,11 +297,13 @@ impl RecoverySession {
         self.actor_id.clear();
         self.actor_id.push_str(actor_id);
         self.pending_commits.clear();
+        self.completion_published = false;
         self.phase = RecoveryPhase::Comparing;
     }
 
     pub fn invalidate(&mut self) {
         self.pending_commits.clear();
+        self.completion_published = false;
         self.phase = RecoveryPhase::Idle;
         self.actor_id.clear();
     }
@@ -345,6 +349,22 @@ impl RecoverySession {
 
     pub fn is_active_for(&self, actor_id: &str) -> bool {
         self.session_epoch != 0 && self.actor_id == actor_id && !self.actor_id.is_empty()
+    }
+
+    pub fn is_collecting_for(&self, actor_id: &str) -> bool {
+        self.is_active_for(actor_id) && !self.completion_published
+    }
+
+    pub fn is_collecting(&self) -> bool {
+        self.session_epoch != 0 && !self.actor_id.is_empty() && !self.completion_published
+    }
+
+    pub fn has_pending_commits(&self) -> bool {
+        !self.pending_commits.is_empty()
+    }
+
+    pub fn mark_completion_published(&mut self) {
+        self.completion_published = true;
     }
 }
 

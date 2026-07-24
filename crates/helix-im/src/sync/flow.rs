@@ -176,7 +176,7 @@ impl ImModule {
                 if self
                     .state
                     .recovery_session
-                    .is_active_for(self.config.auth_user_id.as_str())
+                    .is_collecting_for(self.config.auth_user_id.as_str())
                 {
                     let cursor = self
                         .state
@@ -201,9 +201,6 @@ impl ImModule {
                         comparison = ?comparison,
                         "recovery no-change comparison completed without VM content"
                     );
-                    if comparison == RecoveryComparison::Equal {
-                        self.emit_recovery_v2_frame(None, out);
-                    }
                 }
                 self.finish_increment_hydration(channel_id, out)?;
             }
@@ -279,7 +276,7 @@ impl ImModule {
                 if self
                     .state
                     .recovery_session
-                    .is_active_for(self.config.auth_user_id.as_str())
+                    .is_collecting_for(self.config.auth_user_id.as_str())
                 {
                     let cursor = self
                         .state
@@ -303,10 +300,7 @@ impl ImModule {
                             comparison = ?comparison,
                             "recovery batch does not require a contiguous pull; retaining local state"
                         );
-                        if comparison == RecoveryComparison::Equal {
-                            self.emit_recovery_v2_frame(None, out);
-                        } else {
-                            self.emit_recovery_v2_frame(None, out);
+                        if comparison != RecoveryComparison::Equal {
                             self.emit_proactive_resync_for(&[channel_id], out);
                         }
                         return Ok(());
@@ -410,11 +404,14 @@ impl ImModule {
                 if self
                     .state
                     .recovery_session
-                    .is_active_for(self.config.auth_user_id.as_str())
+                    .is_collecting_for(self.config.auth_user_id.as_str())
                 {
                     self.state
                         .recovery_session
                         .await_commit(channel_id, commit_target);
+                }
+                if trigger == SyncTrigger::PongGap {
+                    self.state.pong_gap_batch.register_persist(persist_corr);
                 }
                 out.push(Effect::PersistAtomic {
                     corr: persist_corr,
@@ -532,6 +529,9 @@ impl ImModule {
                     ch.gate = None;
                     ch.pending_commits.insert(persist_corr, reset_to);
                     ch.last_sync_from_seq = None;
+                }
+                if trigger == SyncTrigger::PongGap {
+                    self.state.pong_gap_batch.register_persist(persist_corr);
                 }
                 out.push(Effect::Persist {
                     corr: persist_corr,
@@ -683,11 +683,14 @@ impl ImModule {
         if self
             .state
             .recovery_session
-            .is_active_for(self.config.auth_user_id.as_str())
+            .is_collecting_for(self.config.auth_user_id.as_str())
         {
             self.state
                 .recovery_session
                 .await_commit(channel_id, terminal_seq);
+        }
+        if trigger == SyncTrigger::PongGap {
+            self.state.pong_gap_batch.register_persist(persist_corr);
         }
         self.state.corr_map.insert(
             persist_corr,

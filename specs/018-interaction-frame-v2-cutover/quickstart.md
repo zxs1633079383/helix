@@ -19,10 +19,16 @@ cd /System/Volumes/Data/workspace/angular/cses-client
 npm run message:command-api:gate
 npm run message:projection-ownership
 npm run message:surface-runtime:source-pin
-npm run message:ui:authority
-npm run message:ui:selector-contract
-npm run message:real-chain:doctor
+node scripts/message-ui/check-native-selector-compat.mjs \
+  --contract tests/e2e/contracts/message-v4-native-selector.contract.json \
+  --source src/pages/message-v4 \
+  --scenario tests/e2e/scenarios/uc01-16-surface-runtime.scenario.ts \
+  --strict-scenario
 ```
+
+`message:ui:authority` 需要旧 numeric UC matrix 与 registry 参数，不能无参执行；
+`message:real-chain:doctor` 需要一个具体 artifact 路径。二者只在对应输入存在时运行，
+不得把 usage/error 输出记作验证失败或通过。
 
 预期：V1 输入 fail-closed；V2 epoch/revision/atomic apply/FrameApplied 全部通过；source pin/hash 一致。
 
@@ -40,7 +46,15 @@ npm run message:real-chain:doctor
 
 ## 4. SCSS/CSS Gate
 
-实施任务必须在 `package.json` 增加正式脚本。预期组合：
+当前可执行的样式构建入口：
+
+```bash
+cd /System/Volumes/Data/workspace/angular/cses-client/worktrees/018-interaction-frame-v2-cutover
+npm run message:ui:style-gate
+```
+
+`message:ui:style-gate` 编译 message-v4 所属 Angular/Sass/CSS；25-Gate Native
+profile 的 `capturePerspectives` 同时执行：
 
 ```text
 Sass/CSS build
@@ -49,7 +63,8 @@ target component style-loaded assertion
 actor/observer screenshot capture
 ```
 
-脚本不存在或任一组件没有实际样式证据时，最终 Gate 为 BLOCKED。
+任一组件没有实际样式、出现横向 overflow、thread/composer 遮挡或任一 actor
+缺截图时，当前 Gate 为 BLOCKED。
 
 ## 5. First V2-only Native Run
 
@@ -57,7 +72,7 @@ actor/observer screenshot capture
 cd /System/Volumes/Data/workspace/angular/cses-client
 npm run message:desktop:frame-prerequisites
 npm run message:desktop:build
-npm run message:desktop:scenario:all -- --profile interaction-frame-v2-cutover
+npm run message:desktop:scenario:v2-cutover
 npm run message:real-chain:collect
 npm run message:real-chain:generate-matrix
 npm run message:real-chain:reduce -- --profile interaction-frame-v2-cutover
@@ -101,3 +116,29 @@ artifact paths and hashes
 ```
 
 缺证据面报告 `BLOCKED/INCONCLUSIVE`，不从旧 017 或首次运行继承 Green。
+
+## 9. Database Read-only Evidence
+
+远端 PG 只允许通过配置的 `cses-pre-postgres-ro.query` 执行单条有界
+`SELECT`/`WITH ... SELECT`，`limit <= 500`。本地 SQLite 只允许：
+
+```bash
+sqlite3 -readonly "$HELIX_TENANT_DB" \
+  "SELECT <bounded columns> FROM <gate table> WHERE <gate identity> LIMIT 100;"
+```
+
+或配置的 `helix-local-sqlite-ro.query(tenantKey, sql, limit)`。查询必须使用
+Gate identity 与运行时间窗，不输出凭据、消息正文或无界行集。任何工具不可用时
+对应 Gate 为 `BLOCKED`，不得手工写库制造结果。
+
+## 10. Artifact Roots
+
+两轮 artifact 必须隔离：
+
+```text
+tests/e2e/.artifacts/interaction-frame-v2-cutover/V2OnlyFirstRun/<runId>/
+tests/e2e/.artifacts/interaction-frame-v2-cutover/PostDeletionRun/<runId>/
+```
+
+首轮与删除后必须使用不同 `candidateId`、`runId`、`evidenceEpoch` 和目录；
+reducer 发现跨目录 hash/path 复用时 fail-closed。

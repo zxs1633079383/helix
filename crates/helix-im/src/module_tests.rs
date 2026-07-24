@@ -39,6 +39,7 @@ fn online_post_requeries_an_attached_timeline_after_its_durable_write() {
             channel_id: channel_id.as_str().to_string(),
             window_token: "latest".to_string(),
         },
+        causation_id: None,
     };
     module
         .handle_surface_resync(
@@ -107,6 +108,7 @@ fn legacy_post_requeries_an_attached_timeline_after_its_durable_write() {
             channel_id: channel_id.as_str().to_string(),
             window_token: "latest".to_string(),
         },
+        causation_id: None,
     };
     module
         .handle_surface_resync(
@@ -198,6 +200,54 @@ fn runtime_identity_enables_member_projection_without_wire_user_id() {
 }
 
 #[test]
+fn runtime_identity_after_hello_reopens_recovery_for_the_trusted_actor() {
+    let mut m = ImModule::new(ImConfig::default());
+    m.state.conn = crate::state::ConnState::Connecting;
+    m.state.connection_id = Some("connection-b".to_string());
+    m.state.recovery_session.begin("bootstrap");
+    let mut sink = EffectSink::new();
+    let identity = serde_json::json!({
+        "auth_user_id": "viewer-b",
+        "company_id": "team-b"
+    });
+
+    m.handle(
+        &Tick::Command(helix_core::tick::AppCommand::new(
+            RUNTIME_IDENTITY_COMMAND,
+            serde_json::to_vec(&identity).unwrap(),
+        )),
+        2_000,
+        &mut sink,
+    )
+    .unwrap();
+
+    assert!(m.state.recovery_session.is_collecting_for("viewer-b"));
+    assert_eq!(m.state.recovery_session.actor_id, "viewer-b");
+    assert!(
+        sink.is_empty(),
+        "重绑恢复会话只更新确定性内核状态，不直接发布 Frame"
+    );
+}
+
+#[test]
+fn late_transport_connected_tick_cannot_downgrade_a_completed_hello() {
+    let mut m = ImModule::new(ImConfig::default());
+    m.state.conn = crate::state::ConnState::Connected;
+    m.state.connection_id = Some("server-hello".to_string());
+    let mut sink = EffectSink::new();
+
+    m.handle(
+        &Tick::Connected(helix_core::effect::TransportId::from_raw(0)),
+        2_000,
+        &mut sink,
+    )
+    .unwrap();
+
+    assert_eq!(m.state.conn, crate::state::ConnState::Connected);
+    assert_eq!(m.state.connection_id.as_deref(), Some("server-hello"));
+}
+
+#[test]
 fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations() {
     let channel_id = crate::state::test_channel_id(21);
     let mut m = ImModule::new(ImConfig {
@@ -243,7 +293,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
         .insert((channel_id, "latest".to_string()), 1);
     m.state.corr_map.insert(
         dialog_corr,
-        crate::state::CorrelationContext::DialogListQuery,
+        crate::state::CorrelationContext::DialogListQuery { causation_id: None },
     );
     m.state.corr_map.insert(
         message_corr,
@@ -275,6 +325,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
                     channel_id: channel_id.as_str().to_string(),
                     root_message_id: "message-a".to_string(),
                 },
+                causation_id: None,
             },
             expected_revision: None,
         },

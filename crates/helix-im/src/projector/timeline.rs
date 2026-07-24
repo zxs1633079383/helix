@@ -923,11 +923,15 @@ fn content_from_row(
         });
     }
     if kind.contains("DOCUMENT") {
+        let document = props.get("document").unwrap_or(&Value::Null);
         return Ok(MessageContentVm::Document {
-            document_id: row_string(row, &["documentId", "id", "msgId"]),
-            title: row_string(row, &["fileName", "title", "text"]),
-            summary: text,
-            access: surface_data(props, 0)?,
+            document_id: optional_non_empty_string(document, &["id", "documentId"])
+                .unwrap_or_else(|| row_string(row, &["documentId", "id", "msgId"])),
+            title: optional_non_empty_string(document, &["title"])
+                .unwrap_or_else(|| row_string(row, &["fileName", "title", "text"])),
+            summary: optional_non_empty_string(document, &["url", "summary"])
+                .unwrap_or_else(|| text.clone()),
+            access: surface_data(document, 0)?,
         });
     }
     if matches!(
@@ -1458,6 +1462,61 @@ mod tests {
                 MessageQuickActionVm::QuoteReply,
                 MessageQuickActionVm::CreateTopic
             ]
+        );
+    }
+
+    #[test]
+    fn document_projection_uses_typed_document_props_instead_of_placeholder_text() {
+        let mut source = row(1);
+        source["type"] = serde_json::json!("DOCUMENT");
+        source["message"] = serde_json::json!("【文档】 http://doc.cses7.com/doc/document-1");
+        source["props"] = serde_json::json!({
+            "document": {
+                "id": "document-1",
+                "title": "项目周报",
+                "url": "http://doc.cses7.com/doc/document-1",
+                "version": 1,
+                "placeholder": true
+            }
+        });
+
+        let message =
+            message_from_render_ready(&source, "channel-1", 1, false, || Ok("unused".to_string()))
+                .expect("document message");
+
+        let MessageContentVm::Document {
+            document_id,
+            title,
+            summary,
+            access,
+        } = message.content
+        else {
+            panic!("document content")
+        };
+        assert_eq!(document_id, "document-1");
+        assert_eq!(title, "项目周报");
+        assert_eq!(summary, "http://doc.cses7.com/doc/document-1");
+        assert_eq!(
+            access,
+            SurfaceDataVm::Record(BTreeMap::from([
+                (
+                    "id".to_string(),
+                    SurfaceDataVm::String("document-1".to_string())
+                ),
+                ("placeholder".to_string(), SurfaceDataVm::Bool(true)),
+                (
+                    "title".to_string(),
+                    SurfaceDataVm::String("项目周报".to_string())
+                ),
+                (
+                    "url".to_string(),
+                    SurfaceDataVm::String("http://doc.cses7.com/doc/document-1".to_string())
+                ),
+                (
+                    "version".to_string(),
+                    SurfaceDataVm::Number(serde_json::Number::from(1))
+                ),
+            ]))
         );
     }
 

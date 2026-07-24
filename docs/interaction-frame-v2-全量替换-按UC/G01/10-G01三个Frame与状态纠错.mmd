@@ -1,0 +1,85 @@
+stateDiagram-v2
+    [*] --> ComposerReady
+    ComposerReady --> CommandQueued: direct im_send_message
+    CommandQueued --> Local: PendingSend status Local
+    Local --> SendingPersisted: P1 PersistOk
+    SendingPersisted --> SendingFrame: timeline readback
+
+    state SendingFrame {
+        [*] --> FrameV2Sending
+        FrameV2Sending: schemaVersion 2
+        FrameV2Sending: one message.timeline mutation
+        FrameV2Sending: timelinePatch replaceView
+        FrameV2Sending: MessageVm id is temporaryId
+        FrameV2Sending: eventSeq 0
+        FrameV2Sending: delivery kind sending
+    }
+
+    SendingFrame --> SentPersisted: HTTP SUCCESS
+    SendingFrame --> FailedPersisted: HTTP PortError or timeout
+    SendingFrame --> SentPersisted: authoritative WS echo
+    FailedPersisted --> SentPersisted: late authoritative WS echo
+    SentPersisted --> SentFrame: terminal PersistOk and timeline readback
+    FailedPersisted --> FailedFrame: terminal PersistOk and timeline readback
+
+    state SentFrame {
+        [*] --> FrameV2Sent
+        FrameV2Sent: schemaVersion 2
+        FrameV2Sent: one message.timeline mutation
+        FrameV2Sent: revision increments from sending
+        FrameV2Sent: MessageVm id becomes server id
+        FrameV2Sent: delivery kind sent
+    }
+
+    state FailedFrame {
+        [*] --> FrameV2Failed
+        FrameV2Failed: one message.timeline mutation
+        FrameV2Failed: MessageVm id remains temporaryId
+        FrameV2Failed: delivery failed with reason and retryable
+    }
+
+    SentFrame --> [*]
+    FailedFrame --> [*]
+
+    SentFrame --> WsPostOptional: independent WS delivery
+    SendingFrame --> WsPostOptional: WS may race HTTP terminal
+    WsPostOptional --> DialogWriteRead: gate apply and attached dialog
+    DialogWriteRead --> DialogListFrame: GuardedBump plus Get channel PersistOk
+
+    state DialogListFrame {
+        [*] --> DialogMutation
+        DialogMutation: message.left-dialog-list always
+        DialogMutation: message.unread-summary when contribution changes
+        DialogMutation: full replaceView VM
+    }
+
+    state DialogLeftIndependent {
+        [*] --> DialogQueryOrRecovery
+        DialogQueryOrRecovery --> DialogListFrame
+    }
+
+    note right of CommandQueued
+        AcceptedCommand is not a Frame
+        and is not a delivery state.
+    end note
+
+    note right of SendingFrame
+        Producer-backed G01 fixture:
+        sending.frame-v2.json
+    end note
+
+    note right of SentFrame
+        Producer-backed G01 fixture:
+        sent.frame-v2.json
+    end note
+
+    note right of DialogLeftIndependent
+        Query and recovery can produce the same Surface
+        without a G01 send.
+    end note
+
+    note right of WsPostOptional
+        This may look like the third Frame in a runtime trace.
+        It is conditional, may race sent, and belongs to
+        the inbound post correlation rather than the direct command replay.
+    end note

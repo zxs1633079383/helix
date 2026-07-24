@@ -269,6 +269,12 @@ const ucDefinitions = [
 ];
 
 const includedGateIds = ucDefinitions.flatMap((uc) => uc.gates);
+const g01DeepDocs = new Set([
+  '08-G01全领域字段级类图.mmd',
+  '09-G01发送全链路时序图.mmd',
+  '10-G01三个Frame与状态纠错.mmd',
+  '11-G01字段级数据合同与测试证据.md',
+]);
 if (includedGateIds.length !== 25 || new Set(includedGateIds).size !== 25) {
   throw new Error('cutover scope must contain exactly 25 unique machine gates');
 }
@@ -624,6 +630,23 @@ function ucReadme(uc) {
       return `\`crates/helix-im/contracts/strict-matrix.v1.json:${line}\``;
     })
     .join('、');
+  const deepDocs = uc.dir === 'G01'
+    ? `
+
+## G01 字段级深挖
+
+8. [全领域字段级类图](./08-G01全领域字段级类图.mmd)
+9. [发送全链路时序图](./09-G01发送全链路时序图.mmd)
+10. [三个 Frame 与状态纠错](./10-G01三个Frame与状态纠错.mmd)
+11. [字段级数据合同与测试证据](./11-G01字段级数据合同与测试证据.md)
+
+最重要的当前事实：普通发送入口是 direct \`im_send_message\`，不是
+\`ActionBinding(message.create)\`；producer-backed direct 成功路径是 \`sending\` 与
+\`sent\` 两个 \`message.timeline\` Frame。若随后收到可 apply 的 WS \`post\`，
+\`DialogPatchByPost\` 还可能产生含 \`message.left-dialog-list\`（未读变化时配对
+\`message.unread-summary\`）的独立 Frame；它不是固定第三帧，也不能假定与
+\`sent\` 的先后。`
+    : '';
   return `# ${uc.dir}：${uc.title}
 
 > 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
@@ -636,7 +659,7 @@ function ucReadme(uc) {
 4. [Angular 组件与交互合同](./04-Angular组件与交互合同.md)
 5. [Helix 命令与 Frame 合同](./05-Helix命令与Frame合同.md)
 6. [Go 接口与 WS 推送](./06-Go接口与WS推送.md)
-7. [远端 PG 与本地 SQLite](./07-远端PG与本地SQLite.md)
+7. [远端 PG 与本地 SQLite](./07-远端PG与本地SQLite.md)${deepDocs}
 
 ## 当前对接
 
@@ -1098,6 +1121,7 @@ function resetDocumentationTree() {
         continue;
       }
       for (const child of readdirSync(path)) {
+        if (entry.name === 'G01' && g01DeepDocs.has(child)) continue;
         rmSync(join(path, child), { recursive: true, force: true });
       }
       continue;

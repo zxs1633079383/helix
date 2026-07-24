@@ -12,6 +12,20 @@
 6. [Go 接口与 WS 推送](./06-Go接口与WS推送.md)
 7. [远端 PG 与本地 SQLite](./07-远端PG与本地SQLite.md)
 
+## G01 字段级深挖
+
+8. [全领域字段级类图](./08-G01全领域字段级类图.mmd)
+9. [发送全链路时序图](./09-G01发送全链路时序图.mmd)
+10. [三个 Frame 与状态纠错](./10-G01三个Frame与状态纠错.mmd)
+11. [字段级数据合同与测试证据](./11-G01字段级数据合同与测试证据.md)
+
+最重要的当前事实：普通发送入口是 direct `im_send_message`，不是
+`ActionBinding(message.create)`；producer-backed direct 成功路径是 `sending` 与
+`sent` 两个 `message.timeline` Frame。若随后收到可 apply 的 WS `post`，
+`DialogPatchByPost` 还可能产生含 `message.left-dialog-list`（未读变化时配对
+`message.unread-summary`）的独立 Frame；它不是固定第三帧，也不能假定与
+`sent` 的先后。
+
 ## 当前对接
 
 | 项目 | 当前代码事实 |

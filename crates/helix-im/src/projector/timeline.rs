@@ -1777,11 +1777,17 @@ mod tests {
             .expect("locate binding is present");
         assert!(locate.enabled);
         assert!(locate.disabled_reason.is_none());
+        let mark_read = view.items[0]
+            .actions
+            .iter()
+            .find(|action| action.kind == "markRead")
+            .expect("mark-read binding is present");
+        assert!(mark_read.enabled);
+        assert!(mark_read.disabled_reason.is_none());
 
         for kind in [
             "reply",
             "createTopic",
-            "markRead",
             "templateConfirm",
         ] {
             let action = view.items[0]

@@ -40,6 +40,10 @@ pub enum ActionDispatch {
         channel_id: String,
         message_id: String,
     },
+    MarkRead {
+        channel_id: String,
+        message_id: String,
+    },
     LocatePost {
         channel_id: String,
         message_id: String,
@@ -77,6 +81,7 @@ pub enum AuthorityMutationKind {
     Revoke,
     Reaction,
     Urgent,
+    Read,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +107,10 @@ impl ActionDispatch {
         let channel_id = channel_id.to_string();
         let message_id = message_id.to_string();
         match kind {
+            "markRead" => Some(Self::MarkRead {
+                channel_id,
+                message_id,
+            }),
             "viewReceipt" => Some(Self::ViewReceipt {
                 channel_id,
                 message_id,
@@ -141,7 +150,8 @@ impl ActionDispatch {
     pub(crate) fn supports_timeline_kind(kind: &str) -> bool {
         matches!(
             kind,
-            "viewReceipt"
+            "markRead"
+                | "viewReceipt"
                 | "locate"
                 | "revoke"
                 | "forward"
@@ -157,6 +167,10 @@ impl ActionDispatch {
         request_id: &str,
     ) -> Option<PendingAuthorityAction> {
         let (kind, channel_id, message_id) = match self {
+            Self::MarkRead {
+                channel_id,
+                message_id,
+            } => (AuthorityMutationKind::Read, channel_id, message_id),
             Self::RevokeMessage {
                 channel_id,
                 message_id,
@@ -191,7 +205,8 @@ impl ActionDispatch {
 impl ActionDispatch {
     fn validate_input(&self, invocation: &ActionInvocation) -> Result<(), ActionProjectionError> {
         match self {
-            Self::ViewReceipt { .. }
+            Self::MarkRead { .. }
+            | Self::ViewReceipt { .. }
             | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
@@ -202,7 +217,8 @@ impl ActionDispatch {
                     "action does not accept input fields".to_string(),
                 ))
             }
-            Self::ViewReceipt { .. }
+            Self::MarkRead { .. }
+            | Self::ViewReceipt { .. }
             | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
@@ -1150,6 +1166,7 @@ mod tests {
     #[test]
     fn timeline_dispatch_map_only_admits_explicit_authority_paths() {
         for kind in [
+            "markRead",
             "viewReceipt",
             "locate",
             "revoke",
@@ -1170,7 +1187,6 @@ mod tests {
             "reply",
             "createTopic",
             "retry",
-            "markRead",
             "templateConfirm",
             "createSchedule",
             "cancelSchedule",

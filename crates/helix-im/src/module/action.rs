@@ -299,6 +299,20 @@ impl ImModule {
         request_id: &str,
     ) -> Result<PreparedAction, ImError> {
         match dispatch {
+            ActionDispatch::MarkRead {
+                channel_id,
+                message_id,
+            } => self.prepare_outbound_action(
+                "im_post_read",
+                serde_json::json!({
+                    "channel_id": channel_id,
+                    "posts": [message_id],
+                    "req_id": request_id,
+                }),
+                dispatch
+                    .pending_authority_action(request_id)
+                    .expect("mark-read dispatch must create pending authority"),
+            ),
             ActionDispatch::ViewReceipt {
                 channel_id,
                 message_id,

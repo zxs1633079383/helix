@@ -379,7 +379,7 @@ impl Module for ImModule {
             Tick::Disconnected(_transport) => {
                 self.state.conn = ConnState::Disconnected;
                 self.state.recovery_session.phase = crate::sync_session::RecoveryPhase::Failed;
-                self.state.reset_recent_query_coverage();
+                self.state.reset_transport_query_session();
                 // 清除所有 channel 的 inflight_sync（连接断开，所有在途 Http 不会回报）
                 // 若不清除，重连后 proactive resync 会被 B1 守卫全部跳过
                 for ch in self.state.channels.values_mut() {

@@ -338,6 +338,61 @@ fn attached_timeline_refreshes_after_a_durable_fact_even_before_first_snapshot()
 }
 
 #[test]
+fn transport_disconnect_preserves_attached_timeline_for_recovery_patch() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let rows = vec![serde_json::json!({
+        "id": "message-before-disconnect",
+        "temporaryId": "temporary-before-disconnect",
+        "channelId": channel_id().as_str(),
+        "userId": "viewer-1",
+        "createAt": 10,
+        "message": "before disconnect",
+        "type": "TEXT",
+        "props": {},
+    })];
+    module
+        .emit_timeline_snapshot_with_causation(&request(20), &rows, 1_000, None)
+        .expect("initial attached timeline snapshot");
+    let scope = crate::interaction_frame::SurfaceScope::Timeline {
+        channel_id: channel_id().as_str().to_string(),
+        window_token: "latest".to_string(),
+    };
+
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Disconnected(helix_core::effect::TransportId::from_raw(1)),
+            1_001,
+            &mut sink,
+        )
+        .expect("transport disconnect is a silent query-session boundary");
+    assert!(sink.as_slice().is_empty());
+    assert!(module.state.timeline_projector.is_attached(&scope));
+    assert!(
+        module.state.timeline_projector.current_view(&scope).is_some(),
+        "same-identity renderer revision remains mounted across a socket reconnect"
+    );
+
+    module
+        .refresh_attached_latest_timeline(
+            channel_id(),
+            Some("recovery-persist-1".to_string()),
+            &mut sink,
+        )
+        .expect("a recovered durable fact must re-enter the attached timeline");
+    assert!(
+        sink.as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Persist { .. })),
+        "recovery must schedule authoritative local readback instead of dropping the V2 frame"
+    );
+}
+
+#[test]
 fn durable_fact_refresh_uses_local_rows_without_get_latest_post_fallback() {
     use helix_core::Module;
 

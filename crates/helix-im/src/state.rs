@@ -297,6 +297,25 @@ impl ImState {
     }
 
     pub(crate) fn reset_recent_query_coverage(&mut self) {
+        self.reset_query_session_correlations();
+        self.timeline_projector.reset();
+        self.thread_detail_projector.reset();
+        self.channel_summary_projector.reset();
+        self.composer_projector.reset();
+        self.member_roster_projector.reset();
+        self.topic_list_projector.reset();
+        self.participant_receipts_projector.reset();
+    }
+
+    /// A transport reconnect invalidates query coverage and in-flight replies, but it is not an
+    /// identity boundary. The renderer keeps the same attached slots and revisions while the
+    /// socket reconnects, so preserving projector state lets recovered durable facts publish the
+    /// next V2 patch against the revision that is still mounted in the UI.
+    pub(crate) fn reset_transport_query_session(&mut self) {
+        self.reset_query_session_correlations();
+    }
+
+    fn reset_query_session_correlations(&mut self) {
         self.recent_message_coverage.clear();
         self.message_query_generations.clear();
         // Old action requestIds may be released with the registry only after their authority corr routes are gone.
@@ -310,17 +329,10 @@ impl ImState {
                     | CorrelationContext::InteractionViewReceipt { .. }
             )
         });
-        self.timeline_projector.reset();
-        self.thread_detail_projector.reset();
-        self.channel_summary_projector.reset();
-        self.composer_projector.reset();
-        self.member_roster_projector.reset();
-        self.topic_list_projector.reset();
         self.action_registry.clear();
         self.action_receipts.clear();
         self.pending_authority_actions.clear();
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
-        self.participant_receipts_projector.reset();
         self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }
 

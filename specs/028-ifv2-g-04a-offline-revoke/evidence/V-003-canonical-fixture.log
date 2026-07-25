@@ -1,0 +1,7 @@
+fixture_producer=c9c37ea8fcb398715cff872d4adbdc8a0e412c46
+$ UPDATE_G04A_WDIO_FIXTURES=1 cargo test -p helix-im --test g04a_wdio_fixture_contract_test -- --nocapture
+result=PASS 1/1 explicit-update=true
+$ cargo test -p helix-im --test g04a_wdio_fixture_contract_test -- --nocapture
+result=PASS 1/1 explicit-update=false golden=byte-exact
+frames=4 schemaVersion=2
+surfaces=message.left-dialog-list,message.timeline

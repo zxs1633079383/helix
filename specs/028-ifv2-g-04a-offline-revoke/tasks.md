@@ -62,16 +62,16 @@
 
 **Purpose**: Mobile 生产链原子 apply 与 typed view。
 
-- [ ] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g04a-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g04a-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04a/
-- [ ] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g04a-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
-- [ ] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G04AFrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
-- [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 对齐 G-04a command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
-- [ ] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_sync_channels 生产 command admission 与 Frame event pump，不注册测试 API
-- [ ] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
-- [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.timeline Frame，unknown schema/surface/revision fail-closed
-- [ ] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-04a 的 im.surface.view typed view/action，不增加 raw reducer
-- [ ] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-04a V1 producer/consumer/raw fallback=0
-- [ ] T032 [US3] 运行 G04AFrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/028-ifv2-g-04a-offline-revoke/verification.md
+- [x] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g04a-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g04a-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04a/
+- [x] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g04a-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
+- [x] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G04AFrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
+- [x] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 对齐 G-04a command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
+- [x] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_sync_channels 生产 command admission 与 Frame event pump，不注册测试 API
+- [x] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
+- [x] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.timeline Frame，unknown schema/surface/revision fail-closed
+- [x] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-04a 的 im.surface.view typed view/action，不增加 raw reducer
+- [x] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-04a V1 producer/consumer/raw fallback=0
+- [x] T032 [US3] 运行 G04AFrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/028-ifv2-g-04a-offline-revoke/verification.md
 
 ---
 
@@ -79,12 +79,12 @@
 
 **Purpose**: 行为、代码、Frame V2 与证据一致。
 
-- [ ] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/g04a-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04a/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04a/ 的 inventory/schema/raw/semantic hash，写入 specs/028-ifv2-g-04a-offline-revoke/verification.md
-- [ ] T034 [US4] 执行 G-04a 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/028-ifv2-g-04a-offline-revoke/verification.md
-- [ ] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/028-ifv2-g-04a-offline-revoke/verification.md
-- [ ] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/028-ifv2-g-04a-offline-revoke/verification.md
-- [ ] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/028-ifv2-g-04a-offline-revoke/evidence/gate-report.json
-- [ ] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-04a 标记 review-green 并解锁下一 Gate
+- [x] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/g04a-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04a/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04a/ 的 inventory/schema/raw/semantic hash，写入 specs/028-ifv2-g-04a-offline-revoke/verification.md
+- [x] T034 [US4] 执行 G-04a 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/028-ifv2-g-04a-offline-revoke/verification.md
+- [x] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/028-ifv2-g-04a-offline-revoke/verification.md
+- [x] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/028-ifv2-g-04a-offline-revoke/verification.md
+- [x] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/028-ifv2-g-04a-offline-revoke/evidence/gate-report.json
+- [x] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-04a 标记 review-green 并解锁下一 Gate
 
 ## Dependencies And Execution Order
 

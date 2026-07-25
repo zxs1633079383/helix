@@ -113,3 +113,96 @@
   `src-tauri/target/debug/cses-client`。启动日志中 `tauri-driver not found`
   仅为外部 service 探测噪声；四条 embedded WebDriver lane 实际均完成执行，
   不作为 Green 替代证据。
+
+## T023-T031 Mobile Contract Implementation
+
+- Mobile commits：生产 pin `e246cbf`、Fixture mirror `0725f65`、typed view
+  contract `e6cafba`、真实链 typed timeline `883fca7`。production Helix pin
+  固定为 `bde8d79fba6335f9d6d8ed3feafab05a80fcd151`，正式 bundle
+  `artifacts/helix/helix-bde8d79-g04a.bundle` SHA-256 为
+  `ab47694baf9b50160c87644beb47f14b2379a2d0d938a674f39b93a60a0480d8`。
+- `sync-g04a-helix-fixtures.mjs --check` 与
+  `check-g04a-fixture-parity.mjs` 均退出 0；四份 Frame 与 provenance
+  byte-exact 镜像 Helix，校验覆盖 pin、schema、inventory、raw/semantic
+  SHA-256、surface inventory 与禁止补写业务字段。
+- `G04AFrameContractTest.*`：5/5 PASS。测试链接生产 `MobileImSdk`、
+  `MobileFfiBridge`、`SurfaceRuntime`、QuickJS binding 与 C ABI，覆盖 fresh
+  group、revocable snapshot、offline recalled patch、cold recovered snapshot、
+  duplicate/revision/schema/surface 原子拒绝、DomainEvent batch 和只读
+  `im.surface.view`。
+- `Uc05RevokeTest.*-Uc05RevokeTest.RealChain`：8/8 PASS；随后
+  `run-uc01-16-gtest.sh --only UC05`：9/9 PASS。真实链每次创建 fresh 双用户群，
+  Observer 在线建立 typed timeline baseline；Observer 离线期间 Actor 撤回；
+  Observer 以同一 view DB 重启后调用生产 `im_sync_channels`，最终证据为
+  `frameApplied=true`、`typedView=true`、`replay=true`，且 recalled row 恰好
+  一条、actions 为空。
+- T027-T030 未制造 Gate 特判：当前生产 `MobileImSdk::syncChannels` 已提供
+  command admission 和 Frame event pump；`MobileFfiBridge` 保持整批
+  DomainEvent 边界；`SurfaceRuntime` 原子 apply 并对 unknown
+  schema/surface/revision fail-closed；QuickJS 只暴露 `im.surface.view` typed
+  view。实现已满足合同，因此本 Gate 只增加 source-grounded 测试与真实链，
+  不复制第二套 reducer。
+- `check-surface-runtime-source-pin.mjs` PASS，输出 G02=6、G03a=8、G04=4、
+  G04a=4；`check-surface-runtime-legacy-hard-cut.mjs` PASS，输出 production
+  V1 producers=0、consumers=0 且 G01/G02/G03a/G04/G04a typed-only。
+- 共享全量 `run-uc01-16-gtest.sh` 完整运行 780410ms：150 tests，136 PASS、
+  14 FAIL，进程退出 1。G-04a 对应 `Uc05RevokeTest.RealChain` 在该同一 session
+  中再次 PASS（7893ms），失败均来自尚未进入本轮纵向闭环的 GS02/GS03/GS04、
+  UC01/UC02、UC06-UC08、UC10-UC15 真实链。该全量结果作为后续 Gate 的真实
+  blocker 清单保留，不拿来替代或否定 G-04a required Mobile Contract；本 Gate
+  自身 required filter 为 9/9 PASS、skip=0、fail=0。
+
+结论：G-04a Mobile Contract required lane 为 Green；共享全量回归仍为 Red，
+其 14 个失败必须在各自顺序 Gate 内关闭，不在 G-04a 恢复 raw query、V1 consumer
+或前端业务 reducer 来制造总绿。
+
+## T033-T037 Cross-repo Review Green
+
+- 三仓 inventory 均为 4 Frame + 1 provenance，逐文件 byte-exact SHA-256
+  一致：`group-created=56b191ad...`、`revocable=ac33de58...`、
+  `offline-recalled=bb5a126f...`、`recovered-recalled=ad2d4712...`、
+  `provenance=ac7ef7c8...`。PC 与 Mobile parity gate 同时复核
+  schemaVersion=2、semantic hash 与 surface inventory，consumer 没有补写业务字段。
+- 行为 Review 为 Green：每次 canonical/real 验收创建 fresh 双用户群；只有 Helix
+  签发 revoke capability 的 Actor 可执行撤回；Observer 离线期间不靠本地猜测改变
+  timeline。Actor 权威撤回完成后，Observer 通过真实 `im_sync_channels` 收敛；
+  sync/admission/persist 失败不伪造 recalled；duplicate sync、重复 terminal Frame
+  与迟到 inbound 不重复推进 revision；cold recovery 直接恢复 recalled snapshot，
+  不复活 action。PC single/dual real 与 Mobile UC05 对 Actor/Observer 最终用户结果
+  给出独立真实链证据。
+- 代码边界 Review 为 Green：离线 authority、cursor、PersistAtomic barrier、终态、
+  幂等和 recovery reducer 只在 Helix。PC production bundle 扫描 2735 文件，
+  `mockProductionReachable=false`；Mobile production SDK/Bridge/SurfaceRuntime/
+  QuickJS 仅做 command admission、整批 DomainEvent transport、原子 apply 与 typed
+  view，生产 V1 producer=0、consumer=0，未注册测试注入或 raw reducer。
+- Frame V2 Review 为 Green：`group-created` 为
+  `message.left-dialog-list` patch `base=1 -> revision=2`；`revocable` 为
+  `message.timeline` snapshot revision 1，文本 sent 且包含 Helix 签发 actions；
+  `offline-recalled` 为 timeline patch `base=1 -> revision=2`，
+  `content/delivery=recalled` 且 actions/quickActions 为空；`recovered-recalled`
+  为无 baseRevision 的 recalled snapshot revision 1。四份 Frame 均
+  `surfaceEpoch=1`、runtime=`online/ready/idle`、directives 为空。G-04a
+  authority 来自 durable sync fact，envelope/mutation 的 `causationId` 缺省是生产
+  合同，不伪造 request correlation；transactionId、scope channel 与 revision
+  共同完成关联。
+- required lanes 为 Helix、Fixture、PC Mock、PC Real、Mobile Contract 与
+  production boundary，全部 Pass；required failure=0、required skip=0。共享 Mobile
+  26 Gate 全量回归的 14 个失败作为未来顺序 Gate blocker 留档，不计入 G-04a
+  required pass rate，也不被本 Gate 掩盖或修补。
+- 机器汇总见 `evidence/gate-report.json`，当前 `finalVerdict=Green`；仍须 T038
+  quickstart/diff check、evidence manifest 与 mandatory after_implement R4 决定
+  是否真正 `CLOSED`。
+
+## T038 Final Review
+
+- quickstart 中 Helix、PC 与 Mobile 的 G-04a required commands 已按前述证据完成；
+  共享 Mobile 全量 runner 也完整结束并保留 14 个未来 Gate blocker，没有提前中止
+  或把失败改写为通过。
+- 三仓 `git diff --check` 均退出 0；PC tracked tree clean，Mobile tracked tree
+  clean 且只保留任务前已有的 bundle 与 `tests/.DS_Store` 未跟踪项。
+- `evidence/gate-report.json` 满足本 Feature 的
+  `cross-repo-report.schema.json` 必填字段、枚举与 Gate 常量；
+  `evidence/evidence.json` 登记 V-001 至 V-007 七个 hashed PASS run。
+- mandatory after_implement、targeted converge 与 after_converge 由
+  `speckit-helix-loop-advance` 执行；只有 ledger 最终返回 `CLOSED`，总控才可把
+  G-04a 标记 `review-green` 并解锁 G-05。

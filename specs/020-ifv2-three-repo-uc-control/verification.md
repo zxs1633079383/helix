@@ -157,3 +157,34 @@ Contract/QuickJS 重新 Green，满足 G02 前序准入。该结论不新增真�
 
 结论：G-04 `review-green`，总控顺序解锁 G-04a；G-04a 必须再次创建 fresh group，
 不得复用本 Gate 的 post、channel、surface revision 或本地缓存。
+
+### T006 G04a Three-repository Review Green
+
+- 子 Feature：`specs/028-ifv2-g-04a-offline-revoke`，全部 T001-T038 完成，
+  helix-loop R4 `PASS` 并最终 `CLOSED`。
+- Source pins：Helix
+  `bde8d79fba6335f9d6d8ed3feafab05a80fcd151`；Fixture producer
+  `c9c37ea8fcb398715cff872d4adbdc8a0e412c46`；cses-client
+  `f0cc3d187f4d84165a485d21abe91175264519f4`；Mobile
+  `883fca7f744feb6d38c48ff6b607fe7818c42bf3`，production Helix pin
+  `bde8d79fba6335f9d6d8ed3feafab05a80fcd151`。
+- Helix：build/zero-runtime PASS，G04a deterministic scenario 7/7，
+  authority/persist interaction 5/5，canonical Fixture contract 1/1。
+- Fixture：四份 schemaVersion=2 producer Frame 与 provenance 在
+  Helix/PC/Mobile byte-exact、semantic hash 和 Surface inventory 100% 一致；
+  provenance SHA-256 为
+  `ac7ef7c8c301da9e7ee76b1815038e75f4313d549fcc2330836b75074f5b435e`。
+- PC：Mock 3/3、report 1/1、single-real 1/1、dual-real 1/1；fresh group、
+  真实 explicit sync、Tauri/Helix/SQLite/HTTP/FrameApplied/Actor/Observer DOM
+  链闭合。
+- Mobile：G04a production-linked 5/5、UC05 focused 9/9；SDK/FFI batch/
+  SurfaceRuntime/QuickJS typed view/C ABI、source pin 与 V1 hard-cut 全部 PASS。
+- Review：behavior、code boundary、Frame V2、evidence 全 Green；结构化报告
+  SHA-256 为
+  `6d748549638002ce6be77289cd1d734d02c97eec780b5bc10bb6f2f2dd2aedcc`。
+- 非阻塞观察：共享 Mobile 150-test runner 中 G04a 再次 PASS，但 14 条尚未进入
+  纵向闭环的后续 Gate real-chain 失败；失败清单已保留到 G04a V-006，未恢复
+  V1/raw reducer 或将其伪造成全量 Green。
+
+结论：G-04a `review-green`，总控顺序解锁 G-05；G-05 必须创建 fresh group 和
+独立 source lock，不得复用本 Gate 的 channel、post、cursor 或 surface revision。

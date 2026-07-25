@@ -1,6 +1,55 @@
 # Research: G-05 转发/合并转发
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `8f3a14d81ffcb9d7d90224d2838fe3d623eeeb0e`；cses-client `f0cc3d187f4d84165a485d21abe91175264519f4`；Mobile `883fca7f744feb6d38c48ff6b607fe7818c42bf3`
+
+## CURRENT - 生产链与已有证据
+
+- Helix `crates/helix-im/src/forward.rs:27-116` 用有界
+  `PendingForwardDeliveryLedger` 保存 request-to-target authority；HTTP 只裁剪
+  accepted targets，只有可信 WS post 经 durable dialog readback 后才完成 target。
+- Helix `crates/helix-im/src/forward.rs:181-283` 严格接收
+  `post_ids/target_channel_ids/mode/req_id`，逐条读取本地 message row，再由
+  `forward_shape.rs` 装配 production Post 并调用 `im_create_posts`。
+- Helix `crates/helix-im/src/ws/handlers/post.rs:85-93` 只信任顶层
+  `envelope.tracing.csesTrackId`；`port_reply/dispatch.rs:126-173` 在 channel
+  readback 成功并实际发出 terminal Frame 后消费 authority ledger。
+- Helix `crates/helix-im/tests/g05_forward_interaction_test.rs:11-411` 已覆盖 opaque
+  forward action、per-target partial admission、伪造 props 拒绝与 Persist barrier，
+  但没有可复用完整 ScenarioRunner、恢复/重复/迟到完整矩阵及 canonical Fixture。
+- PC production 已在 `src-tauri/src/features/helix_im/commands.rs` 注册
+  `im_relay_messages`，但当前没有 G05 fixture loader、WDIO Mock/single-real/
+  dual-real、专属 PageObject 或 report。
+- Mobile production 已由 `MobileImSdk.cpp:1426-1440` admission
+  `im_relay_messages`，经 `MobileFfiBridge.cpp:212-224` 批量 DomainEvent 边界、
+  `SurfaceRuntime.cpp:2112` typed apply 与 QuickJS `im.surface.view` 暴露。
+  `Uc06RelayTest.cpp:18-42` 已创建 source/target fresh group，但 real-chain 仍以
+  raw `im:post:received` 和 HTTP readback 作为完成证据，没有断言 canonical
+  Frame 与 QuickJS typed view。
+
+## TARGET - G05 纵向闭环
+
+- 一个 `G05ScenarioRunner` 仅通过 `ImModule::handle` 驱动
+  Command/PortReply/Inbound，覆盖 source lookup、HTTP partial/business/transport
+  failure、可信 WS authority、Persist failure replay、duplicate/late reply 与 cold
+  recovery。
+- canonical Fixture 必须来自实际 `Effect::Emit` 解码，至少区分 source
+  revocable timeline、HTTP accepted 非终态、WS target timeline 与
+  left-dialog terminal，不把两条独立 correlation 合并成固定帧序。
+- PC 只做 AcceptedCommand 与完整 Frame replay 的机械消费；Real lane 必须从 UI
+  fresh source/target group 经真实 Tauri/Helix/HTTP/WS/FrameApplied 到 DOM。
+- Mobile GTest 链接生产 SDK/Bridge/SurfaceRuntime/QuickJS binding，并以
+  `im.surface.view` typed timeline/dialog 作为最终证据；不得在测试或 JS 增加转发
+  reducer。
+
+## GAP - 本 Feature 必须关闭
+
+- 缺少 `g05_full_flow_test.rs`、`support/g05_scenario.rs`、
+  `g05_wdio_fixture_contract_test.rs` 和 `fixtures/g05-wdio/`。
+- 缺少 PC G05 mirror/parity/loader/Mock/Real/PageObject/reporter 与生产边界登记。
+- 缺少 Mobile G05 fixture parity、完整 Frame contract、typed real-chain 断言与
+  source-pin/legacy hard-cut 的 G05 登记。
+- 现有 HTTP acceptance 路径可能刷新 attached timeline，但它不是 delivery
+  terminal；新测试必须防止把 admission、raw WS 或远端 readback单独升级为 Green。
 
 ## Decision 1 - 唯一业务真源
 

@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im && cargo test -p helix-im --test g06_full_flow_test --test g06_reaction_interaction_test -- --nocapture",
+      "started_at": "2026-07-25T14:38:00-07:00",
+      "ended_at": "2026-07-25T14:38:07-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/030-ifv2-g-06-quick-reaction/evidence/v001-helix-flow.log",
+          "sha256": "dfa4c7606561b3ed82167751e9b072d1f2b944fe8003aabfd35bc279de8801ba"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g06_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-25T14:37:00-07:00",
+      "ended_at": "2026-07-25T14:37:01-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/030-ifv2-g-06-quick-reaction/evidence/v002-helix-fixture.log",
+          "sha256": "7ccb4edd70682e8ed407801322e7716059136d28047c9415295aeda231520527"
+        }
+      ]
+    }
+  ]
+}

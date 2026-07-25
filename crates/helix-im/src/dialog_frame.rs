@@ -1064,6 +1064,7 @@ fn apply_channel_update_to_row(
     }
 }
 
+/// 将写后累计 dialogPatch 合并进现有行，时间以同一投影内的权威绝对值为准。
 fn apply_post_projection_to_row(
     data: &Value,
     previous: &DialogListRowVm,
@@ -1081,9 +1082,15 @@ fn apply_post_projection_to_row(
             .unwrap_or(previous.badges.pending_urgent_count),
     };
     let activity_at = integer(
-        data,
+        dialog_patch,
         &["lastPostAt", "last_post_at", "createdAt", "create_at"],
     )
+    .or_else(|| {
+        integer(
+            data,
+            &["lastPostAt", "last_post_at", "createdAt", "create_at"],
+        )
+    })
     .or_else(|| preview.as_ref().and_then(|item| item.sent_at))
     .unwrap_or(previous.activity_at);
 
@@ -2037,6 +2044,7 @@ mod tests {
         assert_eq!(state.unread_summary.snapshot_view(), before_unread);
     }
 
+    /// 证明写后累计 dialogPatch 的绝对时间和 badge 在一次 revision 中原子生效。
     #[test]
     fn post_patch_uses_absolute_badges_and_moves_row_atomically() {
         let mut state = DialogListFrameState::default();
@@ -2049,8 +2057,12 @@ mod tests {
                     "msgId": "post-1",
                     "lastMessage": "hello",
                     "senderUserId": "u1",
-                    "lastPostAt": 3,
-                    "dialogPatch": { "unreadCount": 4, "mentionCount": 1, "urgentCount": 2 }
+                    "dialogPatch": {
+                        "lastPostAt": 3,
+                        "unreadCount": 4,
+                        "mentionCount": 1,
+                        "urgentCount": 2
+                    }
                 }),
             )
             .expect("known row gets patch");
@@ -2071,6 +2083,10 @@ mod tests {
         assert_eq!(
             dialog_view(&data)["sections"][0]["items"][0]["channelId"],
             "c1"
+        );
+        assert_eq!(
+            dialog_view(&data)["sections"][0]["items"][0]["lastActivityAt"],
+            3
         );
         let unread = &data["data"]["mutations"][1];
         assert_eq!(unread["surface"], "message.unread-summary");

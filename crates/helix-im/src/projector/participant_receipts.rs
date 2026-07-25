@@ -9,9 +9,10 @@ use thiserror::Error;
 
 pub use crate::interaction_frame::ParticipantReceiptsVm;
 use crate::interaction_frame::{
-    ParticipantReceiptRowVm, ReceiptKind, SurfaceDataVm, SurfaceId, SurfaceLoadState,
-    SurfaceMutation, SurfaceScope, TypedSurfaceMutation, WindowPageVm,
+    ChannelRole, ParticipantReceiptRowVm, ReceiptKind, ReceiptStatus, SurfaceDataVm, SurfaceId,
+    SurfaceLoadState, SurfaceMutation, SurfaceScope, TypedSurfaceMutation, UserRefVm, WindowPageVm,
 };
+use serde_json::Value;
 
 use super::{SurfaceProjectorError, SurfaceView, TypedSurfaceProjector};
 
@@ -51,6 +52,7 @@ pub struct ParticipantReceiptsData {
 }
 
 impl ParticipantReceiptsData {
+    /// 构造权限不足的显式空视图，禁止端侧把空集合解释成业务成功。
     pub fn forbidden() -> Self {
         Self {
             summary: SurfaceDataVm::Record(BTreeMap::new()),
@@ -58,6 +60,144 @@ impl ParticipantReceiptsData {
             pending: Vec::new(),
             state: SurfaceLoadState::Forbidden,
         }
+    }
+
+    /// 从持久 message.expedite_map 建立加急确认的权威 completed/pending 视图。
+    pub(crate) fn from_urgent_message_row(row: Option<&Value>) -> Self {
+        let Some(row) = row else {
+            return receipt_state(
+                "failed",
+                "urgent message row is unavailable",
+                SurfaceLoadState::Failed,
+            );
+        };
+        let expedite_map = row
+            .get("expedite_map")
+            .or_else(|| row.get("expediteMap"))
+            .and_then(|value| match value {
+                Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
+                Value::Object(_) => Some(value.clone()),
+                _ => None,
+            });
+        let Some(expedite_map) = expedite_map else {
+            return receipt_state(
+                "failed",
+                "urgent authority is unavailable",
+                SurfaceLoadState::Failed,
+            );
+        };
+        let requester_id = expedite_map
+            .get("sender")
+            .and_then(Value::as_object)
+            .and_then(|sender| sender.get("id"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .unwrap_or_default();
+        let Some(recipients) = expedite_map.get("recipients").and_then(Value::as_object) else {
+            return receipt_state(
+                "failed",
+                "urgent recipients are unavailable",
+                SurfaceLoadState::Failed,
+            );
+        };
+        if recipients.len() > MAX_PARTICIPANT_RECEIPT_ROWS {
+            return receipt_state(
+                "failed",
+                "urgent receipt window exceeds the bounded surface contract",
+                SurfaceLoadState::Failed,
+            );
+        }
+        let mut completed = Vec::with_capacity(recipients.len());
+        let mut pending = Vec::with_capacity(recipients.len());
+        for (user_id, recipient) in recipients {
+            if user_id.is_empty() {
+                return receipt_state(
+                    "failed",
+                    "urgent recipients contain an empty user id",
+                    SurfaceLoadState::Failed,
+                );
+            }
+            let is_completed = recipient
+                .get("status")
+                .and_then(Value::as_i64)
+                .unwrap_or_default()
+                > 0;
+            let row = ParticipantReceiptRowVm {
+                user: UserRefVm {
+                    user_id: user_id.clone(),
+                },
+                member_role: ChannelRole::Member,
+                status: if is_completed {
+                    ReceiptStatus::Completed
+                } else {
+                    ReceiptStatus::Pending
+                },
+                completed_at: if is_completed {
+                    recipient
+                        .get("confirmedAt")
+                        .or_else(|| recipient.get("confirmAt"))
+                        .or_else(|| recipient.get("updateAt"))
+                        .and_then(Value::as_i64)
+                } else {
+                    None
+                },
+            };
+            if is_completed {
+                completed.push(row);
+            } else {
+                pending.push(row);
+            }
+        }
+        let mut summary = BTreeMap::new();
+        summary.insert(
+            "state".to_string(),
+            SurfaceDataVm::String(if pending.is_empty() {
+                "acknowledged".to_string()
+            } else {
+                "active".to_string()
+            }),
+        );
+        summary.insert(
+            "requesterId".to_string(),
+            SurfaceDataVm::String(requester_id.to_string()),
+        );
+        summary.insert(
+            "requiredCount".to_string(),
+            SurfaceDataVm::Number(serde_json::Number::from(recipients.len() as u64)),
+        );
+        summary.insert(
+            "completedCount".to_string(),
+            SurfaceDataVm::Number(serde_json::Number::from(completed.len() as u64)),
+        );
+        Self {
+            summary: SurfaceDataVm::Record(summary),
+            completed,
+            pending,
+            state: SurfaceLoadState::Ready,
+        }
+    }
+}
+
+/// 构造加急回执解析失败时的显式 surface state。
+fn receipt_state(
+    state: &str,
+    reason: &str,
+    load_state: SurfaceLoadState,
+) -> ParticipantReceiptsData {
+    let mut summary = BTreeMap::new();
+    summary.insert(
+        "state".to_string(),
+        SurfaceDataVm::String(state.to_string()),
+    );
+    summary.insert(
+        "reason".to_string(),
+        SurfaceDataVm::String(reason.to_string()),
+    );
+    ParticipantReceiptsData {
+        summary: SurfaceDataVm::Record(summary),
+        completed: Vec::new(),
+        pending: Vec::new(),
+        state: load_state,
     }
 }
 

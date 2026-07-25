@@ -7,7 +7,11 @@ use helix_im::interaction_frame::TypedSurfaceMutation;
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
+#[path = "support/g07_scenario.rs"]
+mod scenario;
+
 #[test]
+/// 验证 urgent/post、confirm、cancel 作为三个独立 opaque action binding。
 fn urgent_post_confirm_and_cancel_are_independent_live_bindings() {
     let mut projector = TimelineProjector::default();
     let mutation = projector
@@ -41,6 +45,7 @@ fn urgent_post_confirm_and_cancel_are_independent_live_bindings() {
 }
 
 #[test]
+/// 验证 urgent wire 严格拒绝 renderer-owned authority 字段。
 fn urgent_wire_is_strict_and_never_accepts_renderer_owned_authority_fields() {
     let effects = handle_outbound(
         "im_urgent_post",
@@ -100,4 +105,34 @@ fn urgent_wire_is_strict_and_never_accepts_renderer_owned_authority_fields() {
         json!({ "postId": "p1" }),
         "channel authority remains server-owned"
     );
+}
+
+#[test]
+/// 验证 PersistAtomic 失败不发布 Frame，重放后保持同一 causation。
+fn urgent_authority_waits_for_persist_and_replays_once() {
+    let trace = scenario::G07ScenarioRunner::run_persist_failure_replay();
+    scenario::assert_urgent_timeline_contract(
+        &trace.urgent_active_after_replay,
+        false,
+        Some(scenario::REQUEST_ID),
+    );
+}
+
+#[test]
+/// 验证 duplicate WS 与迟到 HTTP 不重复发布 urgent mutation。
+fn urgent_duplicate_and_late_terminal_are_idempotent() {
+    let trace = scenario::G07ScenarioRunner::run_urgent_post();
+    scenario::assert_urgent_timeline_contract(
+        &trace.urgent_active,
+        false,
+        Some(scenario::REQUEST_ID),
+    );
+}
+
+#[test]
+/// 验证 durable expedite_map 可恢复 pending participant receipts。
+fn urgent_recovery_restores_timeline_and_receipt_fields() {
+    let trace = scenario::G07ScenarioRunner::run_recovery();
+    scenario::assert_urgent_timeline_contract(&trace.recovered_timeline, false, None);
+    scenario::assert_urgent_receipts_contract(&trace.recovered_receipts, false);
 }

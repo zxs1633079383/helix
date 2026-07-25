@@ -48,3 +48,21 @@
 - Mobile 继续使用 `UcJsContractFixture::RC.createChannel` 与 `sendMessage`
   创建 fresh group/source post；不依赖固定旧 channel 或前序 Gate 遗留数据。
 - 三端现有共享前置满足 G07，无需新增第二套 CreateGroup 业务逻辑。
+
+## T004-T008 Helix Production Flow
+
+- 新增 `G07ScenarioRunner`，仅以 production `ImModule::handle` 驱动 fresh
+  group、urgent/urgentConfirm opaque action、HTTP、`post_update`、PersistAtomic、
+  local readback 与 Surface resync。
+- 发起者链输出 active timeline + pending urgent receipt；Observer 链先提交连续
+  eventSeq authority，再输出 acknowledged timeline + completed receipt。HTTP
+  failure、Persist failure/replay、duplicate WS、late HTTP 与 cold-start recovery
+  均不依赖平台 reducer。
+- 修复 production `message.participant-receipts`：`urgentConfirmation` 不再固定
+  forbidden，而是 O(1) `StorageOp::Get(message.id)` 后从 durable
+  `expedite_map` 生成 Helix-owned `requiredCount/completedCount` 与
+  completed/pending rows；template confirmation 仍显式 forbidden，read receipt
+  仍走既有 HTTP authority。
+- `cargo test -p helix-im --test g07_full_flow_test --test
+  g07_urgent_interaction_test -- --nocapture`：exit `0`；full-flow `8/8`，
+  focused `5/5`，fail `0`、skip `0`。

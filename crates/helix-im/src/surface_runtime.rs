@@ -352,6 +352,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 按 receipt kind 路由 read HTTP、urgent 本地权威行或显式 forbidden 快照。
     fn start_receipt_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
@@ -367,8 +368,24 @@ impl ImModule {
                 "receipt snapshot requires receipt scope".to_string(),
             ));
         };
-        if *receipt_kind != ReceiptKind::Read {
+        if *receipt_kind == ReceiptKind::TemplateConfirmation {
             return self.emit_receipt_forbidden(request, out);
+        }
+        if *receipt_kind == ReceiptKind::UrgentConfirmation {
+            let corr = self.alloc_corr_internal();
+            let message_id = message_id.clone();
+            self.state
+                .corr_map
+                .insert(corr, CorrelationContext::SurfaceReceiptSnapshot { request });
+            out.push(Effect::Persist {
+                corr,
+                ops: vec![StorageOp::Get(GetSpec {
+                    table: "message",
+                    key_col: "id",
+                    key_val: SqlValue::Text(message_id),
+                })],
+            });
+            return Ok(());
         }
         let corr = self.alloc_corr_internal();
         let payload = serde_json::to_vec(&serde_json::json!({
@@ -573,6 +590,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 将 receipt authority 回包投影成对应 kind 的完整 typed snapshot。
     pub(crate) fn handle_surface_receipt_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
@@ -589,7 +607,14 @@ impl ImModule {
                 "receipt snapshot requires receipt scope".to_string(),
             ));
         };
-        let data = crate::module::action::participant_receipt_data(outcome, message_id);
+        let data = if *receipt_kind == ReceiptKind::UrgentConfirmation {
+            let rows = storage_rows(outcome);
+            crate::projector::participant_receipts::ParticipantReceiptsData::from_urgent_message_row(
+                rows.first(),
+            )
+        } else {
+            crate::module::action::participant_receipt_data(outcome, message_id)
+        };
         let request_data = ParticipantReceiptsRequest::new(
             channel_id,
             message_id,

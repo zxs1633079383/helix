@@ -182,6 +182,43 @@ pub struct ReactionRecoveryScenarioTrace {
     pub recovered: InteractionFrameV2,
 }
 
+/// 汇总 G07 发起加急后的 timeline 与 participant-receipts Frames。
+pub struct UrgentPostScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub urgentable: InteractionFrameV2,
+    pub urgent_active: InteractionFrameV2,
+    pub receipts_pending: InteractionFrameV2,
+}
+
+/// 汇总 G07 被加急者确认后的 timeline 与 participant-receipts Frames。
+pub struct UrgentConfirmScenarioTrace {
+    pub confirmable: InteractionFrameV2,
+    pub urgent_confirmed: InteractionFrameV2,
+    pub receipts_completed: InteractionFrameV2,
+}
+
+/// 汇总 G07 HTTP 失败分支，证明 action admission 不产生加急终态。
+pub struct UrgentFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub urgentable: InteractionFrameV2,
+    pub emitted_frame_count: usize,
+    pub persisted_write_count: usize,
+}
+
+/// 汇总 G07 PersistAtomic 失败后同一 authority fact 重放的收敛结果。
+pub struct UrgentPersistFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub urgentable: InteractionFrameV2,
+    pub urgent_active_after_replay: InteractionFrameV2,
+}
+
+/// 汇总 G07 durable expedite_map 冷启动恢复出的 timeline 与 receipt Frames。
+pub struct UrgentRecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub recovered_timeline: InteractionFrameV2,
+    pub recovered_receipts: InteractionFrameV2,
+}
+
 /// 汇总 G04a explicit sync、持久屏障与 recalled timeline 的成功结果。
 pub struct OfflineRevokeScenarioTrace {
     pub group_created: InteractionFrameV2,
@@ -608,6 +645,113 @@ impl G01ScenarioRunner {
         }
     }
 
+    /// 回放 G07 发起加急、WS authority、持久屏障与 pending receipt snapshot。
+    pub fn run_urgent_post_ws_for(
+        spec: SendScenarioSpec,
+        target_id: &str,
+    ) -> UrgentPostScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let requester_id = runner.spec.actor_id;
+        let group_created = runner.create_group_prerequisite();
+        let urgentable = runner.attach_urgent_timeline(requester_id, target_id, false, false);
+        let http_corr = runner.start_urgent(&urgentable, target_id);
+        let urgent_active =
+            runner.finish_urgent_ws(http_corr, requester_id, target_id, false, false);
+        let receipts_pending = runner.attach_urgent_receipts(requester_id, target_id, false, 20);
+        UrgentPostScenarioTrace {
+            group_created,
+            urgentable,
+            urgent_active,
+            receipts_pending,
+        }
+    }
+
+    /// 回放 G07 被加急者确认、WS authority 与 completed receipt snapshot。
+    pub fn run_urgent_confirm_ws_for(
+        spec: SendScenarioSpec,
+        requester_id: &str,
+    ) -> UrgentConfirmScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let target_id = runner.spec.actor_id;
+        let _group_created = runner.create_group_prerequisite();
+        runner.prime_urgent_authority(requester_id, target_id);
+        let confirmable = runner.attach_urgent_timeline(requester_id, target_id, true, false);
+        let http_corr = runner.start_urgent_confirm(&confirmable);
+        let urgent_confirmed =
+            runner.finish_urgent_ws(http_corr, requester_id, target_id, true, false);
+        let receipts_completed = runner.attach_urgent_receipts(requester_id, target_id, true, 20);
+        UrgentConfirmScenarioTrace {
+            confirmable,
+            urgent_confirmed,
+            receipts_completed,
+        }
+    }
+
+    /// 回放 G07 HTTP 基础设施失败并统计其零业务副作用。
+    pub fn run_urgent_http_failure_for(
+        spec: SendScenarioSpec,
+        target_id: &str,
+    ) -> UrgentFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let requester_id = runner.spec.actor_id;
+        let group_created = runner.create_group_prerequisite();
+        let urgentable = runner.attach_urgent_timeline(requester_id, target_id, false, false);
+        let http_corr = runner.start_urgent(&urgentable, target_id);
+        runner.step(http_error(http_corr), runner.spec.created_at as u64 + 10);
+        UrgentFailureScenarioTrace {
+            group_created,
+            urgentable,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. } | Effect::PersistAtomic { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G07 authority 持久失败并以同一 WS fact 重放成功。
+    pub fn run_urgent_persist_failure_for(
+        spec: SendScenarioSpec,
+        target_id: &str,
+    ) -> UrgentPersistFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let requester_id = runner.spec.actor_id;
+        let group_created = runner.create_group_prerequisite();
+        let urgentable = runner.attach_urgent_timeline(requester_id, target_id, false, false);
+        let http_corr = runner.start_urgent(&urgentable, target_id);
+        let urgent_active_after_replay =
+            runner.finish_urgent_ws(http_corr, requester_id, target_id, false, true);
+        UrgentPersistFailureScenarioTrace {
+            group_created,
+            urgentable,
+            urgent_active_after_replay,
+        }
+    }
+
+    /// 从 durable expedite_map 冷启动恢复 G07 timeline 与 receipt snapshots。
+    pub fn run_urgent_recovery_for(
+        spec: SendScenarioSpec,
+        target_id: &str,
+    ) -> UrgentRecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let requester_id = runner.spec.actor_id;
+        let group_created = runner.create_group_prerequisite();
+        let recovered_timeline =
+            runner.attach_urgent_timeline(requester_id, target_id, true, false);
+        let recovered_receipts = runner.attach_urgent_receipts(requester_id, target_id, false, 20);
+        UrgentRecoveryScenarioTrace {
+            group_created,
+            recovered_timeline,
+            recovered_receipts,
+        }
+    }
+
     /// 回放 G04a explicit sync 拉取 revoke fact、原子持久与 typed Frame。
     pub fn run_offline_revoke_sync_for(spec: SendScenarioSpec) -> OfflineRevokeScenarioTrace {
         let mut runner = Self::new_for(spec);
@@ -652,9 +796,7 @@ impl G01ScenarioRunner {
     }
 
     /// 回放 G04a sync/notify HTTP 失败且保留既有 revocable timeline。
-    pub fn run_offline_revoke_http_failure_for(
-        spec: SendScenarioSpec,
-    ) -> OfflineRevokeNoopTrace {
+    pub fn run_offline_revoke_http_failure_for(spec: SendScenarioSpec) -> OfflineRevokeNoopTrace {
         let mut runner = Self::new_for(spec);
         let group_created = runner.create_group_prerequisite();
         let revocable = runner.attach_revoke_timeline(false);
@@ -686,10 +828,7 @@ impl G01ScenarioRunner {
         let revocable = runner.attach_revoke_timeline(false);
         let first_sync = runner.start_explicit_sync(999_999, 4);
         runner.step(
-            ok(
-                first_sync.corr,
-                sync_revoke_http_envelope(&runner.spec, 1),
-            ),
+            ok(first_sync.corr, sync_revoke_http_envelope(&runner.spec, 1)),
             runner.spec.created_at as u64 + 5,
         );
         let failed_corr =
@@ -1161,6 +1300,327 @@ impl G01ScenarioRunner {
         self.only_frame()
     }
 
+    /// 通过 production local-first query 挂载 G07 urgent timeline。
+    fn attach_urgent_timeline(
+        &mut self,
+        requester_id: &str,
+        target_id: &str,
+        active: bool,
+        confirmed: bool,
+    ) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "im_query_messages_by_channel",
+                json!({
+                    "channel_id": self.spec.channel_id,
+                    "limit": 20,
+                    "windowToken": "latest",
+                    "req_id": self.spec.request_id,
+                }),
+            ),
+            self.spec.created_at as u64,
+        );
+        let local = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                local,
+                rows_bytes(json!([urgent_message_row(
+                    &self.spec,
+                    requester_id,
+                    target_id,
+                    active,
+                    confirmed
+                )])),
+            ),
+            self.spec.created_at as u64 + 1,
+        );
+        if self.frames().is_empty() {
+            let remote = self.only_http_corr("/posts/getLatestPost");
+            self.step(
+                ok(
+                    remote,
+                    http_envelope(json!({
+                        "status": "SUCCESS",
+                        "data": [urgent_message_row(
+                            &self.spec,
+                            requester_id,
+                            target_id,
+                            active,
+                            confirmed
+                        )]
+                    })),
+                ),
+                self.spec.created_at as u64 + 2,
+            );
+            if self.frames().is_empty() {
+                let cache = self.only_persist_corr_with(|ops| !ops.is_empty());
+                self.step(ok(cache, Bytes::new()), self.spec.created_at as u64 + 3);
+            }
+        }
+        self.only_frame()
+    }
+
+    /// 在确认者 runtime 中先提交发起加急 fact，使后续 confirm eventSeq 保持连续。
+    fn prime_urgent_authority(&mut self, requester_id: &str, target_id: &str) {
+        self.step(
+            urgent_ws_frame(&self.spec, requester_id, target_id, false),
+            self.spec.created_at as u64 - 10,
+        );
+        let persist_corr =
+            self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        self.step(
+            ok(persist_corr, Bytes::new()),
+            self.spec.created_at as u64 - 9,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "unattached urgent authority cannot fabricate a timeline Frame"
+        );
+    }
+
+    /// 从 Helix 签发的 urgent binding 构造严格 action envelope。
+    fn start_urgent(&mut self, frame: &InteractionFrameV2, target_id: &str) -> Correlation {
+        self.start_urgent_action(
+            frame,
+            "urgent",
+            json!({"targetIds": [target_id], "message": "please confirm"}),
+            "/posts/urgentPost",
+            json!({
+                "postId": self.spec.server_id,
+                "targetIds": [target_id],
+                "message": "please confirm"
+            }),
+        )
+    }
+
+    /// 从 Helix 签发的 urgentConfirm binding 构造无输入 action envelope。
+    fn start_urgent_confirm(&mut self, frame: &InteractionFrameV2) -> Correlation {
+        self.start_urgent_action(
+            frame,
+            "urgentConfirm",
+            json!({}),
+            "/posts/urgentConfirm",
+            json!({"postId": self.spec.server_id}),
+        )
+    }
+
+    /// 复用 action authority 合同提交 G07 action 并核对 canonical HTTP wire。
+    fn start_urgent_action(
+        &mut self,
+        frame: &InteractionFrameV2,
+        action_kind: &str,
+        input: Value,
+        endpoint: &str,
+        expected_body: Value,
+    ) -> Correlation {
+        let mutation = frame
+            .mutations
+            .first()
+            .expect("urgent timeline contains one mutation");
+        let action = first_message(frame)
+            .actions
+            .iter()
+            .find(|action| action.kind == action_kind)
+            .unwrap_or_else(|| panic!("urgent timeline contains {action_kind} binding"));
+        assert!(
+            action.enabled,
+            "{action_kind} authority binding must be live"
+        );
+        let payload = serde_json::to_vec(&json!({
+            "schemaVersion": 1,
+            "requestId": self.spec.request_id,
+            "actorId": self.spec.actor_id,
+            "surface": "message.timeline",
+            "scope": mutation.mutation.scope,
+            "surfaceEpoch": action.surface_epoch,
+            "observedRevision": mutation.mutation.revision,
+            "invocation": {
+                "actionRef": action.action_ref,
+                "input": input
+            }
+        }))
+        .expect("urgent action envelope serializes");
+        let action_command = helix_im::client_api::build_action_invocation_command(&payload)
+            .expect("urgent action envelope is accepted by the production client API");
+        self.step(
+            Tick::Command(action_command),
+            self.spec.created_at as u64 + 2,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "AcceptedCommand/action receipt must not fabricate urgent UI"
+        );
+        let corr = self.only_http_corr(endpoint);
+        let body = self
+            .effects()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http {
+                    corr: effect_corr,
+                    req,
+                } if *effect_corr == corr => req.body.as_ref(),
+                _ => None,
+            })
+            .and_then(|body| serde_json::from_slice::<Value>(body.as_ref()).ok())
+            .expect("urgent HTTP body remains inspectable");
+        assert_eq!(
+            body, expected_body,
+            "actor and channel authority must not cross the urgent wire"
+        );
+        corr
+    }
+
+    /// 完成 G07 WS authority，并验证 Persist、duplicate 与 late HTTP 边界。
+    fn finish_urgent_ws(
+        &mut self,
+        http_corr: Correlation,
+        requester_id: &str,
+        target_id: &str,
+        confirmed: bool,
+        persist_failed_once: bool,
+    ) -> InteractionFrameV2 {
+        self.step(
+            urgent_ws_frame(&self.spec, requester_id, target_id, confirmed),
+            self.spec.created_at as u64 + 10,
+        );
+        let persist_corr =
+            self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        if persist_failed_once {
+            self.step(
+                Tick::PortReply {
+                    corr: persist_corr,
+                    outcome: PortOutcome::Err(PortError::Storage(500)),
+                },
+                self.spec.created_at as u64 + 11,
+            );
+            assert!(
+                self.frames().is_empty(),
+                "failed urgent persistence cannot publish terminal UI"
+            );
+            self.step(
+                urgent_ws_frame(&self.spec, requester_id, target_id, confirmed),
+                self.spec.created_at as u64 + 12,
+            );
+            let replay_corr =
+                self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+            return self.complete_urgent_persist(
+                replay_corr,
+                requester_id,
+                target_id,
+                confirmed,
+                self.spec.created_at as u64 + 13,
+            );
+        }
+        let terminal = self.complete_urgent_persist(
+            persist_corr,
+            requester_id,
+            target_id,
+            confirmed,
+            self.spec.created_at as u64 + 11,
+        );
+        self.step(
+            urgent_ws_frame(&self.spec, requester_id, target_id, confirmed),
+            self.spec.created_at as u64 + 13,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "duplicate urgent authority must be ignored after cursor commit"
+        );
+        self.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status": "SUCCESS", "data": {}})),
+            ),
+            self.spec.created_at as u64 + 14,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "late urgent HTTP success must not repeat the terminal Frame"
+        );
+        terminal
+    }
+
+    /// 在 G07 PersistAtomic 成功后回灌 durable row 并取得唯一 timeline Frame。
+    fn complete_urgent_persist(
+        &mut self,
+        persist_corr: Correlation,
+        requester_id: &str,
+        target_id: &str,
+        confirmed: bool,
+        now_ms: u64,
+    ) -> InteractionFrameV2 {
+        self.step(ok(persist_corr, Bytes::new()), now_ms);
+        assert!(
+            self.frames().is_empty(),
+            "urgent PersistOk only schedules attached timeline readback"
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([urgent_message_row(
+                    &self.spec,
+                    requester_id,
+                    target_id,
+                    true,
+                    confirmed
+                )])),
+            ),
+            now_ms + 1,
+        );
+        self.only_frame()
+    }
+
+    /// 通过 production surface resync 从 durable expedite_map 生成 G07 receipt Frame。
+    fn attach_urgent_receipts(
+        &mut self,
+        requester_id: &str,
+        target_id: &str,
+        confirmed: bool,
+        offset_ms: u64,
+    ) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "__helix_request_surface_snapshot",
+                json!({
+                    "surface": "message.participant-receipts",
+                    "scope": {
+                        "kind": "participantReceipts",
+                        "channelId": self.spec.channel_id,
+                        "messageId": self.spec.server_id,
+                        "receiptKind": "urgentConfirmation"
+                    },
+                    "causationId": format!("{}:urgent-receipts", self.spec.request_id)
+                }),
+            ),
+            self.spec.created_at as u64 + offset_ms,
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([urgent_message_row(
+                    &self.spec,
+                    requester_id,
+                    target_id,
+                    true,
+                    confirmed
+                )])),
+            ),
+            self.spec.created_at as u64 + offset_ms + 1,
+        );
+        self.only_frame()
+    }
+
     /// 提交公开 explicit sync command，并读取实际 sync/notify 的 Helix cursor。
     fn start_explicit_sync(
         &mut self,
@@ -1235,10 +1695,7 @@ impl G01ScenarioRunner {
             "committed offline revoke must advance the Helix cursor"
         );
         self.step(
-            ok(
-                duplicate.corr,
-                sync_revoke_http_envelope(&self.spec, 1),
-            ),
+            ok(duplicate.corr, sync_revoke_http_envelope(&self.spec, 1)),
             self.spec.created_at as u64 + offset_ms + 1,
         );
         assert!(
@@ -2141,6 +2598,43 @@ fn reaction_message_row(spec: &SendScenarioSpec, reacted: bool) -> Value {
     })
 }
 
+/// 构造 G07 local-first query 与 authority readback 使用的 durable message row。
+fn urgent_message_row(
+    spec: &SendScenarioSpec,
+    requester_id: &str,
+    target_id: &str,
+    active: bool,
+    confirmed: bool,
+) -> Value {
+    let expedite_map = if active {
+        json!({
+            "sender": {"id": requester_id},
+            "recipients": {
+                (target_id): {
+                    "status": if confirmed { 1 } else { 0 },
+                    "confirmAt": if confirmed { Some(spec.created_at + 10) } else { None }
+                }
+            }
+        })
+    } else {
+        json!({})
+    };
+    json!({
+        "temporary_id": spec.server_id,
+        "id": spec.server_id,
+        "channel_id": spec.channel_id,
+        "user_id": requester_id,
+        "create_at": spec.created_at,
+        "message": spec.marker,
+        "type": spec.message_type,
+        "send_status": "sent",
+        "event_seq": if confirmed { 2 } else if active { 1 } else { 0 },
+        "props": serde_json::to_string(&spec.props).expect("urgent props serialize"),
+        "expedite_map": serde_json::to_string(&expedite_map)
+            .expect("urgent authority serializes"),
+    })
+}
+
 /// 构造冷启动 retry lookup 使用的 durable failed message row。
 fn durable_failed_row(spec: &SendScenarioSpec, temporary_id: &str) -> Value {
     json!({
@@ -2267,6 +2761,40 @@ fn reaction_ws_frame(spec: &SendScenarioSpec) -> Tick {
             }
         }))
         .expect("reaction WS frame serializes"),
+    )))
+}
+
+/// 构造 Go `post_update` 的权威加急或确认 fact，cursor 固定推进到 1。
+fn urgent_ws_frame(
+    spec: &SendScenarioSpec,
+    requester_id: &str,
+    target_id: &str,
+    confirmed: bool,
+) -> Tick {
+    Tick::Inbound(InboundBytes(Bytes::from(
+        serde_json::to_vec(&json!({
+            "action": "post_update",
+            "data": {
+                "id": spec.server_id,
+                "channelId": spec.channel_id,
+                "userId": requester_id,
+                "createAt": spec.created_at,
+                "message": spec.marker,
+                "type": spec.message_type,
+                "props": {},
+                "expediteMap": {
+                    "sender": {"id": requester_id},
+                    "recipients": {
+                        (target_id): {
+                            "status": if confirmed { 1 } else { 0 },
+                            "confirmAt": if confirmed { Some(spec.created_at + 10) } else { None }
+                        }
+                    }
+                },
+                "event_seq": if confirmed { 2 } else { 1 }
+            }
+        }))
+        .expect("urgent WS frame serializes"),
     )))
 }
 

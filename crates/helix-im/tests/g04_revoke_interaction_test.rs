@@ -12,6 +12,9 @@ use serde_json::json;
 #[path = "support/g04_scenario.rs"]
 mod scenario;
 
+#[path = "support/g04a_scenario.rs"]
+mod offline_scenario;
+
 /// 从一条 render-ready row 提取 Helix 签发的 timeline actions。
 fn timeline_actions(
     capabilities: serde_json::Value,
@@ -124,4 +127,13 @@ fn online_revoke_persist_failure_replays_without_partial_frame() {
         &trace.recalled_after_replay,
         Some(scenario::g04_scenario_spec().request_id),
     );
+}
+
+#[test]
+/// 证明 G04a 公开 sync command 只采用 Helix cursor，提交后 Frame 不继承平台 causation。
+fn offline_revoke_uses_helix_cursor_and_emits_authority_frame_after_commit() {
+    let trace = offline_scenario::G04AScenarioRunner::run_offline_revoke();
+    assert_eq!(trace.submitted_from_seq, 0);
+    offline_scenario::assert_revocable_contract(&trace.revocable);
+    offline_scenario::assert_offline_recalled_contract(&trace.recalled);
 }

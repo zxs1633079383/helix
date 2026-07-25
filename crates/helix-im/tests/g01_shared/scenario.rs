@@ -154,6 +154,35 @@ pub struct RevokeRecoveryScenarioTrace {
     pub recovered: InteractionFrameV2,
 }
 
+/// 汇总 G04a explicit sync、持久屏障与 recalled timeline 的成功结果。
+pub struct OfflineRevokeScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub revocable: InteractionFrameV2,
+    pub recalled: InteractionFrameV2,
+    pub submitted_from_seq: u64,
+}
+
+/// 汇总 G04a 无变更或 HTTP 失败分支的可观察副作用计数。
+pub struct OfflineRevokeNoopTrace {
+    pub group_created: InteractionFrameV2,
+    pub revocable: InteractionFrameV2,
+    pub emitted_frame_count: usize,
+    pub persisted_write_count: usize,
+}
+
+/// 汇总 G04a PersistAtomic 失败后重新拉取同一 authority batch 的结果。
+pub struct OfflineRevokePersistFailureTrace {
+    pub group_created: InteractionFrameV2,
+    pub revocable: InteractionFrameV2,
+    pub recalled_after_replay: InteractionFrameV2,
+}
+
+/// 保留一次 explicit sync 的 correlation 与 Helix 自有 cursor。
+struct ExplicitSyncStage {
+    corr: Correlation,
+    from_seq: u64,
+}
+
 /// 通过公开 `ImModule::handle` 驱动发送类 Gate 的共享确定性测试场景。
 pub struct G01ScenarioRunner {
     spec: SendScenarioSpec,
@@ -486,6 +515,112 @@ impl G01ScenarioRunner {
         }
     }
 
+    /// 回放 G04a explicit sync 拉取 revoke fact、原子持久与 typed Frame。
+    pub fn run_offline_revoke_sync_for(spec: SendScenarioSpec) -> OfflineRevokeScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let sync = runner.start_explicit_sync(999_999, 4);
+        let recalled = runner.finish_offline_revoke_sync(sync.corr, 5);
+        runner.assert_duplicate_offline_authority_is_ignored(20);
+        OfflineRevokeScenarioTrace {
+            group_created,
+            revocable,
+            recalled,
+            submitted_from_seq: sync.from_seq,
+        }
+    }
+
+    /// 回放 G04a authority 明确 no_change 且不产生业务写或 Frame。
+    pub fn run_offline_revoke_no_change_for(spec: SendScenarioSpec) -> OfflineRevokeNoopTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let sync = runner.start_explicit_sync(777_777, 4);
+        runner.step(
+            ok(sync.corr, sync_no_change_http_envelope(&runner.spec, 0)),
+            runner.spec.created_at as u64 + 5,
+        );
+        OfflineRevokeNoopTrace {
+            group_created,
+            revocable,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. } | Effect::PersistAtomic { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G04a sync/notify HTTP 失败且保留既有 revocable timeline。
+    pub fn run_offline_revoke_http_failure_for(
+        spec: SendScenarioSpec,
+    ) -> OfflineRevokeNoopTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let sync = runner.start_explicit_sync(888_888, 4);
+        runner.step(http_error(sync.corr), runner.spec.created_at as u64 + 5);
+        OfflineRevokeNoopTrace {
+            group_created,
+            revocable,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. } | Effect::PersistAtomic { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G04a PersistAtomic 失败后由新 sync corr 重拉同一事实并收敛。
+    pub fn run_offline_revoke_persist_failure_for(
+        spec: SendScenarioSpec,
+    ) -> OfflineRevokePersistFailureTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let first_sync = runner.start_explicit_sync(999_999, 4);
+        runner.step(
+            ok(
+                first_sync.corr,
+                sync_revoke_http_envelope(&runner.spec, 1),
+            ),
+            runner.spec.created_at as u64 + 5,
+        );
+        let failed_corr =
+            runner.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        runner.step(
+            Tick::PortReply {
+                corr: failed_corr,
+                outcome: PortOutcome::Err(PortError::Storage(500)),
+            },
+            runner.spec.created_at as u64 + 6,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "failed offline PersistAtomic cannot publish recalled UI"
+        );
+        let replay_sync = runner.start_explicit_sync(999_999, 7);
+        let recalled_after_replay = runner.finish_offline_revoke_sync(replay_sync.corr, 8);
+        OfflineRevokePersistFailureTrace {
+            group_created,
+            revocable,
+            recalled_after_replay,
+        }
+    }
+
     /// 以单调注入时间推进 Tick，并只保留当前 step 的 Effect 批次。
     fn step(&mut self, tick: Tick, now_ms: u64) {
         self.sink.clear();
@@ -748,6 +883,100 @@ impl G01ScenarioRunner {
             now_ms + 1,
         );
         self.only_frame()
+    }
+
+    /// 提交公开 explicit sync command，并读取实际 sync/notify 的 Helix cursor。
+    fn start_explicit_sync(
+        &mut self,
+        untrusted_event_seq: u64,
+        offset_ms: u64,
+    ) -> ExplicitSyncStage {
+        let payload = serde_json::to_vec(&json!({
+            "channelId": self.spec.channel_id,
+            "reason": "offline_revoke_replay",
+            "eventSeq": untrusted_event_seq,
+        }))
+        .expect("explicit sync payload serializes");
+        let command = helix_im::client_api::build_command("im_sync_channels", &payload)
+            .expect("public explicit sync command normalizes");
+        self.step(
+            Tick::Command(command),
+            self.spec.created_at as u64 + offset_ms,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "sync command admission cannot fabricate recalled UI"
+        );
+        let (corr, body) = self
+            .effects()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { corr, req } if req.url.ends_with("/channel/sync/notify") => {
+                    Some((*corr, req.body.as_ref().expect("sync body")))
+                }
+                _ => None,
+            })
+            .expect("explicit sync emits one sync/notify HTTP effect");
+        let body: Value = serde_json::from_slice(body.as_ref()).expect("sync body is JSON");
+        assert_eq!(
+            body["cursors"][0]["channelId"], self.spec.channel_id,
+            "explicit sync targets only the requested fresh group"
+        );
+        let from_seq = body["cursors"][0]["fromSeq"]
+            .as_u64()
+            .expect("Helix sync cursor is numeric");
+        assert_ne!(
+            from_seq, untrusted_event_seq,
+            "platform eventSeq must never override the Helix-owned cursor"
+        );
+        ExplicitSyncStage { corr, from_seq }
+    }
+
+    /// 完成 G04a sync reply、PersistAtomic、readback 与唯一 recalled Frame。
+    fn finish_offline_revoke_sync(
+        &mut self,
+        sync_corr: Correlation,
+        offset_ms: u64,
+    ) -> InteractionFrameV2 {
+        self.step(
+            ok(sync_corr, sync_revoke_http_envelope(&self.spec, 1)),
+            self.spec.created_at as u64 + offset_ms,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "sync authority reply must wait for PersistAtomic"
+        );
+        let persist_corr =
+            self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        self.complete_revoke_persist(persist_corr, self.spec.created_at as u64 + offset_ms + 1)
+    }
+
+    /// 证明已提交 cursor 后的 stale sync batch 与迟到 WS fact 都不会重复 Frame。
+    fn assert_duplicate_offline_authority_is_ignored(&mut self, offset_ms: u64) {
+        let duplicate = self.start_explicit_sync(999_999, offset_ms);
+        assert_eq!(
+            duplicate.from_seq, 1,
+            "committed offline revoke must advance the Helix cursor"
+        );
+        self.step(
+            ok(
+                duplicate.corr,
+                sync_revoke_http_envelope(&self.spec, 1),
+            ),
+            self.spec.created_at as u64 + offset_ms + 1,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "stale sync replay after cursor commit must be a no-op"
+        );
+        self.step(
+            revoke_ws_frame(&self.spec),
+            self.spec.created_at as u64 + offset_ms + 2,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "late WS duplicate after offline replay must be a no-op"
+        );
     }
 
     /// 建立 latest timeline attachment，但不把 setup Frame 计入 G01 发送合同。
@@ -1508,6 +1737,50 @@ fn http_envelope(body: Value) -> Bytes {
         }))
         .expect("HTTP envelope serializes"),
     )
+}
+
+/// 构造 G04a 真 Go `events` 回包，并以 type3 authority fact 撤回目标消息。
+fn sync_revoke_http_envelope(spec: &SendScenarioSpec, next_seq: u64) -> Bytes {
+    http_envelope(json!({
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": spec.channel_id,
+                "kind": "events",
+                "events": [{
+                    "id": format!("offline-revoke:{}:{next_seq}", spec.channel_id),
+                    "channelId": spec.channel_id,
+                    "eventSeq": next_seq,
+                    "eventType": 3,
+                    "msgId": spec.server_id,
+                    "actorId": spec.actor_id,
+                    "createAt": spec.created_at + next_seq as i64,
+                    "payload": {"reason": "offline_revoke_replay"}
+                }],
+                "messages": {},
+                "nextSeq": next_seq,
+                "resetTo": Value::Null
+            }],
+            "serverTime": spec.created_at + next_seq as i64
+        }
+    }))
+}
+
+/// 构造 G04a 真 Go `no_change` 回包，证明追平分支不产生业务写或 Frame。
+fn sync_no_change_http_envelope(spec: &SendScenarioSpec, next_seq: u64) -> Bytes {
+    http_envelope(json!({
+        "status": "SUCCESS",
+        "data": {
+            "entries": [{
+                "channelId": spec.channel_id,
+                "kind": "no_change",
+                "events": [],
+                "nextSeq": next_seq,
+                "resetTo": Value::Null
+            }],
+            "serverTime": spec.created_at + next_seq as i64
+        }
+    }))
 }
 
 /// 将 JSON rows 编码为 host storage reply bytes。

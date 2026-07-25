@@ -312,14 +312,20 @@ impl ImState {
     /// socket reconnects, so preserving projector state lets recovered durable facts publish the
     /// next V2 patch against the revision that is still mounted in the UI.
     pub(crate) fn reset_transport_query_session(&mut self) {
-        self.reset_query_session_correlations();
+        self.drop_query_session_correlations();
     }
 
+    /// 完整 query/session reset 同时撤销 renderer capability；仅 identity 或 projector 重建可走此边界。
     fn reset_query_session_correlations(&mut self) {
+        self.drop_query_session_correlations();
+        self.action_registry.clear();
+        self.clear_pending_action_state();
+    }
+
+    /// 丢弃断线后不可再消费的 query correlation，并推进 session epoch 使迟到回包 fail closed。
+    fn drop_query_session_correlations(&mut self) {
         self.recent_message_coverage.clear();
         self.message_query_generations.clear();
-        // Old action requestIds may be released with the registry only after their authority corr routes are gone.
-        // Otherwise a late HTTP reply could reuse the causation of a newly accepted action in the next session.
         self.corr_map.retain(|_, context| {
             !matches!(
                 context,
@@ -329,11 +335,14 @@ impl ImState {
                     | CorrelationContext::InteractionViewReceipt { .. }
             )
         });
-        self.action_registry.clear();
+        self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
+    }
+
+    /// 清理依赖旧 transport authority 回包的 action 辅助态，不触碰是否保留 grant 的策略。
+    fn clear_pending_action_state(&mut self) {
         self.action_receipts.clear();
         self.pending_authority_actions.clear();
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
-        self.query_session_epoch = self.query_session_epoch.wrapping_add(1);
     }
 
     /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与

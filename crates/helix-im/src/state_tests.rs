@@ -4,7 +4,9 @@
 //! WHITELIST baseline 不得靠「上调数字」抹掉 FAIL（#1/#7 后门第二形态），src 测试外提回正。
 //! `super::` 指向 `state` 模块，故 `test_channel_id`/`Id26`/`ChannelId` 路径与内联时一致。
 
-use super::{ChannelId, Id26, ServerId};
+use super::{ChannelId, Id26, ImState, ServerId};
+use crate::interaction_frame::{ActionBinding, SurfaceId, SurfaceScope};
+use crate::projector::action::{ActionBindingGrant, ActionDispatch};
 
 /// 测试 fixture：产 26 位 `[a-z0-9]` 合法 ChannelId（`chfixx` 前缀 + 20 位 hex）。
 /// 从 `state.rs` 外提至此守 ≤351 baseline（结构闸 §1，drift-review 后门第二形态收敛）；
@@ -68,4 +70,43 @@ fn hash_u64_deterministic() {
     let a = test_channel_id(7);
     assert_eq!(a.hash_u64(), a.hash_u64());
     assert_ne!(test_channel_id(7).hash_u64(), test_channel_id(8).hash_u64());
+}
+
+#[test]
+/// 证明 transport reset 只失效 query correlation，不撤销 renderer 当前仍挂载的 action grant。
+fn transport_query_reset_preserves_live_action_grant() {
+    let mut state = ImState::new();
+    let scope = SurfaceScope::Timeline {
+        channel_id: "channel-1".to_string(),
+        window_token: "latest".to_string(),
+    };
+    state
+        .action_registry
+        .grant(
+            ActionBindingGrant {
+                actor_id: "viewer-1".to_string(),
+                surface: SurfaceId::MessageTimeline,
+                scope,
+                surface_epoch: 3,
+                revision: 7,
+                expires_at_ms: 60_000,
+                binding: ActionBinding {
+                    action_ref: "act.v1.transport-live".to_string(),
+                    kind: "retry".to_string(),
+                    input_shape: "object".to_string(),
+                    surface_epoch: 3,
+                    enabled: true,
+                    disabled_reason: None,
+                },
+                dispatch: ActionDispatch::RetryMessage {
+                    message_id: "message-1".to_string(),
+                },
+            },
+            1,
+        )
+        .expect("live retry grant must register");
+
+    state.reset_transport_query_session();
+
+    assert_eq!(state.action_registry.len(), 1);
 }

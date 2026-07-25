@@ -18,6 +18,7 @@
 9. [发送全链路时序图](./09-G01发送全链路时序图.mmd)
 10. [三个 Frame 与状态纠错](./10-G01三个Frame与状态纠错.mmd)
 11. [字段级数据合同与测试证据](./11-G01字段级数据合同与测试证据.md)
+12. `12-G01-完整主链路.mmd` 当前属于本地待纳管草稿，不作为本页已验收真源。
 
 最重要的当前事实：普通发送入口是 direct `im_send_message`，不是
 `ActionBinding(message.create)`；producer-backed direct 成功路径是 `sending` 与
@@ -35,7 +36,7 @@
 | 入口模式 | direct command；当前没有 `message.create` ActionBinding |
 | Helix command | `im_send_message` |
 | Effect 类别 | `storage_upsert`、`http_write`、`timer`、`projection` |
-| canonical Frame Surface | `message.timeline` |
+| canonical Frame Surface | HTTP：`message.timeline`；WS：独立的 `message.timeline` 与条件性 `message.left-dialog-list` |
 | 合同 persistence | `message`、`pending_send` |
 | MessageV4 组件 | `MessageUiComposerComponent`、`MessageSurfaceRuntimeViewComponent` |
 
@@ -62,12 +63,15 @@ HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这
 
 - Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:477`
 - Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
-- Helix 专属测试：`crates/helix-im/tests/p1_send_build_test.rs`
+- Helix 完整回放：`crates/helix-im/tests/g01_full_flow_test.rs`
+- Helix/WDIO 跨仓合同：`crates/helix-im/tests/g01_wdio_fixture_contract_test.rs`、
+  `crates/helix-im/tests/fixtures/g01-wdio/`
 - cses-client command/action：`src/pages/message-v4/shell.service.ts`、
   `src/pages/message-v4/actions/surface-action-invocation.ts`
 - cses-client 组件：`src/pages/message-v4/message.component.ts`、
   `src/pages/message-v4/components/message-surface-runtime-view.component.ts`
-- cses-client 专属测试：`src/pages/message-v4/__tests__/shell.service.test.ts`
+- cses-client Fixture/Mock：`tests/e2e/wdio/fixtures/g01/`、
+  `tests/e2e/wdio/specs/g01-mock-suite.e2e.ts`
 
 ## 当前边界
 

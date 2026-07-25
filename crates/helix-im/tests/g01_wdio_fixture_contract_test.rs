@@ -1,355 +1,97 @@
-//! G01 WDIO Frame V2 fixture 真源。
+//! G01 WDIO Frame V2 canonical Fixture 真源。
 //!
-//! 这些 fixture 不是测试手写的 ViewModel。测试通过公开 `ImModule::handle` 入口回放
-//! `query -> send -> PersistOk -> local readback -> HTTP -> PersistOk -> local readback`，
-//! 再保存 Helix 当前 producer/serializer 发出的完整 `InteractionFrameV2`。
+//! 所有文件都来自共享 `G01ScenarioRunner` 的公开 `ImModule::handle` 回放；普通测试只比较
+//! actual Frame 与 checked-in Golden，只有显式设置 `UPDATE_G01_WDIO_FIXTURES=1` 才写盘。
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use bytes::Bytes;
-use helix_core::effect::{Correlation, Effect};
-use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
-use helix_core::{EffectSink, Module, Tick};
-use helix_im::interaction_frame::{InteractionFrameV2, SurfaceId, TypedSurfaceMutation};
-use helix_im::module::ImConfig;
-use helix_im::ImModule;
+use helix_im::interaction_frame::{InteractionFrameV2, TypedSurfaceMutation};
 use serde_json::{json, Value};
 
-const CHANNEL_ID: &str = "chfixx00000000000000000001";
-const SERVER_ID: &str = "srvfix00000000000000000001";
-const REQUEST_ID: &str = "g01-wdio-request-1";
-const MARKER: &str = "g01-wdio-fixture-marker";
-const CREATED_AT: i64 = 1_700_000_000_002;
-const HELIX_COMMIT: &str = "32e3a0659e4f29add1284be2ba1972eb28f0f938";
-const GENERATED_AT: &str = "2026-07-24T04:26:11-07:00";
-const PRODUCER: &str = concat!(
-    "ImModule::handle -> handle_optimistic_send_reply -> ",
-    "refresh_attached_latest_timeline_with_deferred_send -> ",
-    "emit_timeline_snapshot_with_causation -> projector::emit_interaction_frame"
-);
+#[path = "g01_shared/scenario.rs"]
+mod scenario;
 
-struct Replay {
-    module: ImModule,
-    sink: EffectSink,
+use scenario::{
+    assert_dialog_contract, assert_timeline_contract, delivery_kinds, first_message, surface_names,
+    G01ScenarioRunner, Terminal, ACTOR_ID, CHANNEL_ID, CREATED_AT, MARKER, REQUEST_ID, SERVER_ID,
+};
+
+const HELIX_COMMIT: &str = "ee8440e7b6e19d75153f46349e57fbb6c00ca8cf";
+const GENERATED_AT: &str = "2026-07-24T19:20:00-07:00";
+const PRODUCER: &str =
+    "G01ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";
+
+/// 描述一个 canonical Fixture 的稳定 ID、文件名和 producer 输出。
+struct FixtureCase {
+    fixture_id: &'static str,
+    file_name: &'static str,
+    frame: InteractionFrameV2,
 }
 
-impl Replay {
-    fn new() -> Self {
-        let config = ImConfig {
-            api_base_url: "http://g01-wdio.invalid".to_string(),
-            default_api_base_url: "http://g01-wdio.invalid".to_string(),
-            auth_user_id: "g01-wdio-actor".to_string(),
-            company_id: "g01-wdio-company".to_string(),
-            user_name: "G01 Actor".to_string(),
-            ..ImConfig::default()
-        };
-        Self {
-            module: ImModule::new(config),
-            sink: EffectSink::new(),
-        }
-    }
-
-    fn step(&mut self, tick: Tick, now_ms: u64) {
-        self.sink.clear();
-        self.module
-            .handle(&tick, now_ms, &mut self.sink)
-            .expect("G01 public producer replay must succeed");
-    }
-
-    fn only_corr(&self, kind: CorrKind) -> Correlation {
-        let mut matches = self
-            .sink
-            .as_slice()
-            .iter()
-            .filter_map(|effect| match (kind, effect) {
-                (CorrKind::Persist, Effect::Persist { corr, .. }) => Some(*corr),
-                (CorrKind::Http, Effect::Http { corr, .. }) => Some(*corr),
-                _ => None,
-            });
-        let corr = matches.next().expect("expected one matching correlation");
-        assert!(
-            matches.next().is_none(),
-            "fixture replay must have one unambiguous matching correlation"
-        );
-        corr
-    }
-
-    fn emitted_frame(&self) -> InteractionFrameV2 {
-        self.sink
-            .as_slice()
-            .iter()
-            .filter_map(|effect| {
-                let Effect::Emit { event } = effect else {
-                    return None;
-                };
-                let envelope: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
-                (envelope["event"] == "im:interaction:frame")
-                    .then(|| serde_json::to_vec(&envelope["data"]).ok())
-                    .flatten()
-            })
-            .map(|bytes| {
-                InteractionFrameV2::decode(&bytes)
-                    .expect("Helix producer output must decode as InteractionFrameV2")
-            })
-            .next()
-            .expect("expected one emitted InteractionFrameV2")
-    }
-}
-
-#[derive(Clone, Copy)]
-enum CorrKind {
-    Persist,
-    Http,
-}
-
-#[derive(Clone, Copy)]
-enum Terminal {
-    Sent,
-    Failed,
-}
-
-fn command(name: &'static str, payload: Value) -> Tick {
-    Tick::Command(AppCommand::new(
-        name,
-        serde_json::to_vec(&payload).expect("command fixture serializes"),
-    ))
-}
-
-fn ok(corr: Correlation, bytes: Bytes) -> Tick {
-    Tick::PortReply {
-        corr,
-        outcome: PortOutcome::Ok(ReplyBytes(bytes)),
-    }
-}
-
-fn http_error(corr: Correlation) -> Tick {
-    Tick::PortReply {
-        corr,
-        outcome: PortOutcome::Err(PortError::Http(500)),
-    }
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b0 = u32::from(chunk[0]);
-        let b1 = u32::from(chunk.get(1).copied().unwrap_or_default());
-        let b2 = u32::from(chunk.get(2).copied().unwrap_or_default());
-        let value = (b0 << 16) | (b1 << 8) | b2;
-        encoded.push(TABLE[((value >> 18) & 63) as usize] as char);
-        encoded.push(TABLE[((value >> 12) & 63) as usize] as char);
-        encoded.push(if chunk.len() > 1 {
-            TABLE[((value >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        encoded.push(if chunk.len() > 2 {
-            TABLE[(value & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    encoded
-}
-
-fn http_envelope(body: Value) -> Bytes {
-    let raw = serde_json::to_vec(&body).expect("HTTP fixture serializes");
-    Bytes::from(
-        serde_json::to_vec(&json!({
-            "status": 200,
-            "headers": {},
-            "body": base64(&raw),
-        }))
-        .expect("HTTP envelope serializes"),
-    )
-}
-
-fn attach_timeline(replay: &mut Replay) {
-    replay.step(
-        command(
-            "im_query_messages_by_channel",
-            json!({
-                "channel_id": CHANNEL_ID,
-                "limit": 20,
-                "windowToken": "latest",
-            }),
-        ),
-        1_700_000_000_000,
-    );
-    let local_corr = replay.only_corr(CorrKind::Persist);
-    replay.step(ok(local_corr, Bytes::from_static(b"[]")), 1_700_000_000_001);
-    let remote_corr = replay.only_corr(CorrKind::Http);
-    replay.step(
-        ok(
-            remote_corr,
-            http_envelope(json!({"status": "SUCCESS", "data": []})),
-        ),
-        1_700_000_000_002,
+/// 从唯一 ScenarioRunner 生成 HTTP 与 WS 两条 correlation 的五份 Frame。
+fn produce_cases() -> Vec<FixtureCase> {
+    let sent = G01ScenarioRunner::run_http(Terminal::Sent);
+    let failed = G01ScenarioRunner::run_http(Terminal::Failed);
+    let ws = G01ScenarioRunner::run_ws_echo_with_dialog();
+    assert_eq!(
+        sent.sending, failed.sending,
+        "sending Frame cannot depend on its future HTTP terminal"
     );
     assert_eq!(
-        surface_names(&replay.emitted_frame()),
-        BTreeSet::from(["message.timeline"])
+        sent.sending, ws.sending,
+        "dialog attachment cannot mutate the independent timeline sending Frame"
     );
-
-    replay.step(
-        command(
-            "__helix_request_surface_snapshot",
-            json!({
-                "surface": "message.timeline",
-                "scope": {
-                    "kind": "timeline",
-                    "channelId": CHANNEL_ID,
-                    "windowToken": "latest"
-                },
-                "causationId": "g01-wdio-attach-1"
-            }),
-        ),
-        1_700_000_000_003,
+    assert_eq!(
+        sent.temporary_id, ws.temporary_id,
+        "HTTP and WS branches must correlate the same optimistic message"
     );
-    let _pending_initial_snapshot = replay.only_corr(CorrKind::Persist);
-    // Attachment is registered before this readback completes. The already rendered snapshot
-    // above makes the following P1 fact a causally linked patch rather than a synthetic snapshot.
-}
-
-fn message_row(id: &str, temporary_id: &str, status: &str) -> Value {
-    json!({
-        "id": id,
-        "temporaryId": temporary_id,
-        "channelId": CHANNEL_ID,
-        "userId": "g01-wdio-actor",
-        "createAt": CREATED_AT,
-        "message": MARKER,
-        "type": "TEXT",
-        "sendStatus": status,
-        "props": {},
-    })
-}
-
-fn temporary_id(replay: &Replay) -> String {
-    replay
-        .sink
-        .as_slice()
-        .iter()
-        .find_map(|effect| {
-            let Effect::Emit { event } = effect else {
-                return None;
-            };
-            let envelope: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
-            (envelope["event"] == "im:post:sending")
-                .then(|| envelope["data"]["temporaryId"].as_str().map(str::to_string))
-                .flatten()
-        })
-        .expect("send command must expose the Helix-minted temporary identity")
-}
-
-fn produce(terminal: Terminal) -> (InteractionFrameV2, InteractionFrameV2) {
-    let mut replay = Replay::new();
-    attach_timeline(&mut replay);
-    replay.step(
-        command(
-            "im_send_message",
-            json!({
-                "channel_id": CHANNEL_ID,
-                "text": MARKER,
-                "type": "TEXT",
-                "req_id": REQUEST_ID,
-            }),
-        ),
-        1_700_000_000_004,
+    assert_ne!(
+        ws.timeline_corr, ws.dialog_corr,
+        "WS timeline and dialog must keep independent persist barriers"
     );
-    let temporary_id = temporary_id(&replay);
-    let p1_corr = replay.only_corr(CorrKind::Persist);
-
-    replay.step(ok(p1_corr, Bytes::new()), 1_700_000_000_005);
-    let sending_read_corr = replay.only_corr(CorrKind::Persist);
-    replay.step(
-        ok(
-            sending_read_corr,
-            Bytes::from(
-                serde_json::to_vec(&json!([message_row(
-                    &temporary_id,
-                    &temporary_id,
-                    "sending"
-                )]))
-                .expect("sending local readback serializes"),
-            ),
-        ),
-        1_700_000_000_006,
-    );
-    let sending = replay.emitted_frame();
-    let posts_create_corr = replay.only_corr(CorrKind::Http);
-
-    match terminal {
-        Terminal::Sent => replay.step(
-            ok(
-                posts_create_corr,
-                http_envelope(json!({"status": "SUCCESS", "data": {"id": SERVER_ID}})),
-            ),
-            1_700_000_000_007,
-        ),
-        Terminal::Failed => replay.step(http_error(posts_create_corr), 1_700_000_000_007),
-    }
-    let terminal_persist_corr = replay.only_corr(CorrKind::Persist);
-    replay.step(ok(terminal_persist_corr, Bytes::new()), 1_700_000_000_008);
-    let terminal_read_corr = replay.only_corr(CorrKind::Persist);
-    let status = match terminal {
-        Terminal::Sent => "sent",
-        Terminal::Failed => "unsend",
-    };
-    let id = match terminal {
-        Terminal::Sent => SERVER_ID,
-        Terminal::Failed => temporary_id.as_str(),
-    };
-    replay.step(
-        ok(
-            terminal_read_corr,
-            Bytes::from(
-                serde_json::to_vec(&json!([message_row(id, &temporary_id, status)]))
-                    .expect("terminal local readback serializes"),
-            ),
-        ),
-        1_700_000_000_009,
-    );
-    (sending, replay.emitted_frame())
+    assert_timeline_contract(&sent.sending, "sending", &sent.temporary_id);
+    assert_timeline_contract(&sent.terminal, "sent", SERVER_ID);
+    assert_timeline_contract(&failed.terminal, "failed", &failed.temporary_id);
+    assert_timeline_contract(&ws.timeline_sent, "sent", SERVER_ID);
+    assert_dialog_contract(&ws.dialog);
+    vec![
+        FixtureCase {
+            fixture_id: "g01-sending-v2",
+            file_name: "sending.frame-v2.json",
+            frame: sent.sending,
+        },
+        FixtureCase {
+            fixture_id: "g01-sent-v2",
+            file_name: "sent.frame-v2.json",
+            frame: sent.terminal,
+        },
+        FixtureCase {
+            fixture_id: "g01-failed-v2",
+            file_name: "failed.frame-v2.json",
+            frame: failed.terminal,
+        },
+        FixtureCase {
+            fixture_id: "g01-ws-timeline-sent-v2",
+            file_name: "ws-timeline-sent.frame-v2.json",
+            frame: ws.timeline_sent,
+        },
+        FixtureCase {
+            fixture_id: "g01-ws-left-dialog-list-v2",
+            file_name: "ws-left-dialog-list.frame-v2.json",
+            frame: ws.dialog,
+        },
+    ]
 }
 
-fn surface_names(frame: &InteractionFrameV2) -> BTreeSet<&'static str> {
-    frame
-        .mutations
-        .iter()
-        .map(|mutation| mutation.mutation.surface.as_str())
-        .collect()
-}
-
-fn delivery_kinds(frame: &InteractionFrameV2) -> BTreeSet<&str> {
-    frame
-        .mutations
-        .iter()
-        .filter_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => Some(&view.items),
-            TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view.items),
-            _ => None,
-        })
-        .flatten()
-        .map(|item| match item.delivery {
-            helix_im::interaction_frame::DeliveryVm::Sending => "sending",
-            helix_im::interaction_frame::DeliveryVm::Sent => "sent",
-            helix_im::interaction_frame::DeliveryVm::Failed { .. } => "failed",
-            helix_im::interaction_frame::DeliveryVm::Uploading { .. } => "uploading",
-            helix_im::interaction_frame::DeliveryVm::Recalled => "recalled",
-        })
-        .collect()
-}
-
+/// 生成仓库稳定的 pretty JSON bytes，并固定末尾换行。
 fn canonical_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
     let mut bytes = serde_json::to_vec_pretty(frame).expect("Frame serializes");
     bytes.push(b'\n');
     bytes
 }
 
+/// 生成跨仓 parity 使用的业务语义摘要，排除 transaction 等可参数化身份。
 fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
     let mutation_kinds: Vec<&str> = frame
         .mutations
@@ -357,6 +99,10 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         .map(|mutation| match mutation.mutation.mutation {
             TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
             TypedSurfaceMutation::TimelinePatch { .. } => "timelinePatch",
+            TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
+            TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
+            TypedSurfaceMutation::UnreadSummarySnapshot { .. } => "unreadSummarySnapshot",
+            TypedSurfaceMutation::UnreadSummaryPatch { .. } => "unreadSummaryPatch",
             _ => "other",
         })
         .collect();
@@ -370,6 +116,7 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
     .expect("semantic projection serializes")
 }
 
+/// 返回 Helix canonical G01 Fixture 目录。
 fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -377,52 +124,44 @@ fn fixture_dir() -> PathBuf {
         .join("g01-wdio")
 }
 
-fn fixture_name(fixture_id: &str) -> &str {
-    match fixture_id {
-        "g01-sending-v2" => "sending.frame-v2.json",
-        "g01-sent-v2" => "sent.frame-v2.json",
-        "g01-failed-v2" => "failed.frame-v2.json",
-        _ => panic!("unknown fixture id"),
-    }
-}
-
-fn first_message(frame: &InteractionFrameV2) -> &helix_im::interaction_frame::MessageVm {
+/// 返回 Frame 的第一条 timeline messageId；dialog-only Frame 没有消息节点。
+fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
     frame
         .mutations
         .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-            _ => None,
+        .any(|mutation| {
+            matches!(
+                mutation.mutation.mutation,
+                TypedSurfaceMutation::TimelineSnapshot { .. }
+                    | TypedSurfaceMutation::TimelinePatch { .. }
+            )
         })
-        .expect("G01 fixture contains its message identity")
+        .then(|| first_message(frame).id.as_str())
 }
 
-fn first_message_id(frame: &InteractionFrameV2) -> &str {
-    first_message(frame).id.as_str()
-}
-
-fn provenance_entry(
-    fixture_id: &str,
-    frame: &InteractionFrameV2,
-    bytes: &[u8],
-    temporary_id: &str,
-) -> Value {
+/// 为每份 Fixture 生成可审计的 producer、hash、surface 和参数白名单。
+fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Value {
+    let transaction_id = case.frame.transaction_id.clone();
     json!({
-        "fixtureId": fixture_id,
-        "schemaVersion": frame.schema_version,
+        "fixtureId": case.fixture_id,
+        "fileName": case.file_name,
+        "schemaVersion": case.frame.schema_version,
         "helixCommit": HELIX_COMMIT,
         "producer": PRODUCER,
         "sourceKind": "rust-export",
-        "semanticSha256": sha256_hex(&semantic_bytes(frame)),
+        "semanticSha256": sha256_hex(&semantic_bytes(&case.frame)),
         "fixtureSha256": sha256_hex(bytes),
-        "surfaces": surface_names(frame),
+        "surfaces": surface_names(&case.frame),
         "generatedAt": GENERATED_AT,
         "parameterizableFields": [
             "/transactionId",
             "/causationId",
             "/mutations/*/causationId",
+            "/mutations/*/surfaceEpoch",
+            "/mutations/*/revision",
+            "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
+            "/mutations/*/scope/userId",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/anchor/messageId",
             "/mutations/*/mutation/view/items/*/id",
@@ -436,92 +175,69 @@ fn provenance_entry(
             "/mutations/*/mutation/patch/view/items/*/channelId",
             "/mutations/*/mutation/patch/view/items/*/author/userId",
             "/mutations/*/mutation/patch/view/items/*/createdAt",
-            "/mutations/*/mutation/patch/view/items/*/content/text"
+            "/mutations/*/mutation/patch/view/items/*/content/text",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/preview/text",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
+            "/mutations/*/mutation/view/sections/*/items/*/channelId",
+            "/mutations/*/mutation/view/sections/*/items/*/preview/text",
+            "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt"
+        ],
+        "rebaseFields": [
+            "/transactionId",
+            "/mutations/*/surfaceEpoch",
+            "/mutations/*/revision",
+            "/mutations/*/baseRevision"
         ],
         "placeholderValues": {
-            "actorId": "g01-wdio-actor",
+            "actorId": ACTOR_ID,
             "channelId": CHANNEL_ID,
             "createdAt": CREATED_AT,
             "marker": MARKER,
             "temporaryId": temporary_id,
             "postId": SERVER_ID,
             "reqId": REQUEST_ID,
-            "transactionId": frame.transaction_id,
-            "messageId": first_message_id(frame)
+            "transactionId": transaction_id,
+            "messageId": optional_message_id(&case.frame),
+            "surfaceEpoch": case.frame.mutations[0].surface_epoch,
+            "revision": case.frame.mutations[0].mutation.revision,
+            "baseRevision": case.frame.mutations[0].mutation.base_revision
         }
     })
 }
 
 #[test]
+/// 证明 producer actual、字段语义、Golden bytes 与 provenance 始终为同一份合同。
 fn current_g01_producer_matches_canonical_v2_fixtures_and_provenance() {
-    let (sending_from_sent, sent) = produce(Terminal::Sent);
-    let (sending_from_failed, failed) = produce(Terminal::Failed);
-    assert_eq!(
-        sending_from_sent, sending_from_failed,
-        "sending fixture must not depend on the future terminal outcome"
-    );
-
-    let cases = [
-        ("g01-sending-v2", sending_from_sent, "sending"),
-        ("g01-sent-v2", sent, "sent"),
-        ("g01-failed-v2", failed, "failed"),
-    ];
-    let temporary_id = first_message_id(&cases[0].1).to_string();
-    assert_eq!(first_message_id(&cases[1].1), SERVER_ID);
-    assert_eq!(first_message_id(&cases[2].1), temporary_id.as_str());
-    for (_, frame, expected_delivery) in &cases {
-        frame.validate().expect("producer Frame remains valid");
-        assert_eq!(frame.schema_version, 2);
-        assert_eq!(
-            surface_names(frame),
-            BTreeSet::from(["message.timeline"]),
-            "G01 current producer must not gain fixture-only surfaces"
-        );
-        assert!(
-            delivery_kinds(frame).contains(expected_delivery),
-            "fixture must contain its expected delivery state"
-        );
-        assert!(
-            frame
-                .mutations
-                .iter()
-                .all(|mutation| mutation.mutation.surface == SurfaceId::MessageTimeline),
-            "current ordinary G01 producer only emits message.timeline"
-        );
-        let message = first_message(frame);
-        assert_eq!(message.channel_id, CHANNEL_ID);
-        let helix_im::interaction_frame::MessageContentVm::Text { text } = &message.content else {
-            panic!("G01 fixture must preserve the current text content contract")
-        };
-        assert_eq!(text, MARKER);
-    }
-
+    let cases = produce_cases();
+    assert_eq!(cases.len(), 5, "G01 canonical inventory is explicit");
+    let temporary_id = first_message(&cases[0].frame).id.clone();
     let directory = fixture_dir();
-    let mut provenance = Vec::new();
-    for (fixture_id, frame, _) in &cases {
-        let bytes = canonical_bytes(frame);
-        provenance.push(provenance_entry(
-            fixture_id,
-            frame,
-            &bytes,
-            temporary_id.as_str(),
-        ));
-        if std::env::var_os("UPDATE_G01_WDIO_FIXTURES").is_some() {
+    let update = std::env::var_os("UPDATE_G01_WDIO_FIXTURES").is_some();
+    let mut provenance = Vec::with_capacity(cases.len());
+
+    for case in &cases {
+        case.frame.validate().expect("producer Frame remains valid");
+        assert_eq!(case.frame.schema_version, 2);
+        assert!(!surface_names(&case.frame).is_empty());
+        let bytes = canonical_bytes(&case.frame);
+        provenance.push(provenance_entry(case, &bytes, &temporary_id));
+        if update {
             fs::create_dir_all(&directory).expect("fixture directory is writable");
-            fs::write(directory.join(fixture_name(fixture_id)), &bytes)
-                .expect("fixture export succeeds");
+            fs::write(directory.join(case.file_name), &bytes).expect("fixture export succeeds");
         }
     }
+
     let mut provenance_bytes =
         serde_json::to_vec_pretty(&provenance).expect("provenance serializes");
     provenance_bytes.push(b'\n');
-    if std::env::var_os("UPDATE_G01_WDIO_FIXTURES").is_some() {
+    if update {
         fs::write(directory.join("provenance.json"), &provenance_bytes)
             .expect("provenance export succeeds");
     }
 
-    for (fixture_id, frame, _) in &cases {
-        let path = directory.join(fixture_name(fixture_id));
+    for case in &cases {
+        let path = directory.join(case.file_name);
         let checked_in = fs::read(&path).unwrap_or_else(|error| {
             panic!(
                 "{} missing ({error}); run UPDATE_G01_WDIO_FIXTURES=1 cargo test -p helix-im --test g01_wdio_fixture_contract_test",
@@ -530,12 +246,11 @@ fn current_g01_producer_matches_canonical_v2_fixtures_and_provenance() {
         });
         assert_eq!(
             checked_in,
-            canonical_bytes(frame),
+            canonical_bytes(&case.frame),
             "{} drifted from current Helix producer",
             path.display()
         );
-        InteractionFrameV2::decode(&checked_in)
-            .expect("checked-in fixture remains decodable by current serializer");
+        InteractionFrameV2::decode(&checked_in).expect("checked-in fixture remains current V2");
     }
     assert_eq!(
         fs::read(directory.join("provenance.json")).expect("provenance exists"),
@@ -544,7 +259,7 @@ fn current_g01_producer_matches_canonical_v2_fixtures_and_provenance() {
     );
 }
 
-// Test-only SHA-256 avoids adding a hash dependency to the runtime-agnostic helix-im crate.
+/// 计算测试资产 SHA-256，避免给 runtime-agnostic crate 增加 hash 依赖。
 fn sha256_hex(input: &[u8]) -> String {
     const INITIAL: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
@@ -562,7 +277,6 @@ fn sha256_hex(input: &[u8]) -> String {
         0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
         0xc67178f2,
     ];
-
     let bit_len = (input.len() as u64) * 8;
     let mut padded = input.to_vec();
     padded.push(0x80);
@@ -595,7 +309,6 @@ fn sha256_hex(input: &[u8]) -> String {
                 .wrapping_add(words[index - 7])
                 .wrapping_add(s1);
         }
-
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = state;
         for index in 0..64 {
             let sum1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);

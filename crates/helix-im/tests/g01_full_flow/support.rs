@@ -1,13 +1,12 @@
 use bytes::Bytes;
-use helix_core::effect::{Correlation, Effect, StorageOp, TimerId};
-use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
+use helix_core::effect::{Correlation, Effect, StorageOp};
+use helix_core::tick::{AppCommand, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
 use serde_json::{json, Value};
 
 pub const CHANNEL_ID: &str = "chflow00000000000000000001";
-pub const SERVER_ID: &str = "svflow00000000000000000001";
 pub const ACTOR_ID: &str = "g01-flow-actor";
 pub const TEAM_ID: &str = "g01-flow-team";
 pub const REQUEST_ID: &str = "g01-flow-request";
@@ -106,12 +105,6 @@ impl Replay {
     }
 }
 
-pub struct SendingStage {
-    pub temporary_id: String,
-    pub http_corr: Correlation,
-    pub timer_id: TimerId,
-}
-
 /// 构造公开 command ingress，保持测试只走 `Tick::Command`。
 pub fn command(name: &'static str, payload: Value) -> Tick {
     Tick::Command(AppCommand::new(
@@ -128,14 +121,6 @@ pub fn ok(corr: Correlation, bytes: Bytes) -> Tick {
     }
 }
 
-/// 构造 posts/create 的 HTTP 500 PortReply。
-pub fn http_error(corr: Correlation) -> Tick {
-    Tick::PortReply {
-        corr,
-        outcome: PortOutcome::Err(PortError::Http(500)),
-    }
-}
-
 /// 按 host driver 的 ADR-007 形状封装 HTTP 响应。
 pub fn http_envelope(body: Value) -> Bytes {
     let raw = serde_json::to_vec(&body).expect("HTTP body serializes");
@@ -147,29 +132,6 @@ pub fn http_envelope(body: Value) -> Bytes {
         }))
         .expect("HTTP envelope serializes"),
     )
-}
-
-/// 建立 dialog-list attachment，使后续 WS post 可产左侧列表 Frame。
-pub fn attach_dialog(replay: &mut Replay) {
-    replay.step(
-        command("im_query_dialog_list", json!({})),
-        CREATED_AT as u64,
-    );
-    let corr = replay.only_persist_corr_with(|ops| {
-        ops.iter()
-            .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "channel"))
-    });
-    replay.step(
-        ok(
-            corr,
-            Bytes::from(
-                serde_json::to_vec(&json!([channel_row(0, "", CREATED_AT - 1)]))
-                    .expect("dialog row serializes"),
-            ),
-        ),
-        CREATED_AT as u64 + 1,
-    );
-    assert_frame_surface(replay, "message.left-dialog-list");
 }
 
 /// 建立 latest timeline attachment，使发送状态进入 typed Frame。
@@ -224,146 +186,6 @@ pub fn attach_timeline(replay: &mut Replay) {
     });
 }
 
-/// 推进到 sending Frame、posts/create 和超时 timer 同时可观察的阶段。
-pub fn start_sending(replay: &mut Replay) -> SendingStage {
-    replay.step(
-        command(
-            "im_send_message",
-            json!({
-                "channel_id": CHANNEL_ID,
-                "text": TEXT,
-                "type": "TEXT",
-                "req_id": REQUEST_ID,
-            }),
-        ),
-        CREATED_AT as u64 + 10,
-    );
-    assert!(
-        replay
-            .effects()
-            .iter()
-            .all(|effect| !matches!(effect, Effect::Http { .. })),
-        "posts/create must not run before the optimistic Persist barrier"
-    );
-    assert!(
-        replay.frames().is_empty(),
-        "a render-ready timeline Frame requires durable readback"
-    );
-    let temporary_id = replay.event("im:post:sending").expect("sending projection")["data"]
-        ["temporaryId"]
-        .as_str()
-        .expect("temporaryId")
-        .to_string();
-    let p1_corr = replay.only_persist_corr_with(|ops| has_table_write(ops, "message"));
-
-    replay.step(ok(p1_corr, Bytes::new()), CREATED_AT as u64 + 11);
-    assert!(
-        replay
-            .effects()
-            .iter()
-            .all(|effect| !matches!(effect, Effect::Http { .. })),
-        "attached timeline must publish sending before posts/create starts"
-    );
-    let read_corr = replay.only_persist_corr_with(|ops| {
-        ops.iter()
-            .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
-    });
-    replay.step(
-        ok(
-            read_corr,
-            Bytes::from(
-                serde_json::to_vec(&json!([message_row(
-                    &temporary_id,
-                    &temporary_id,
-                    "sending"
-                )]))
-                .expect("sending row serializes"),
-            ),
-        ),
-        CREATED_AT as u64 + 12,
-    );
-    assert_delivery(replay, "sending", &temporary_id);
-    let http_corr = replay.only_http_corr("/posts/create");
-    let timer_id = replay
-        .effects()
-        .iter()
-        .find_map(|effect| match effect {
-            Effect::ScheduleTimer { id, after_ms } if *after_ms == 15_000 => Some(*id),
-            _ => None,
-        })
-        .expect("sending stage schedules the 15 second timeout");
-
-    SendingStage {
-        temporary_id,
-        http_corr,
-        timer_id,
-    }
-}
-
-/// 构造 driver Scan 回灌使用的本地 message row。
-pub fn message_row(id: &str, temporary_id: &str, status: &str) -> Value {
-    json!({
-        "id": id,
-        "temporaryId": temporary_id,
-        "channelId": CHANNEL_ID,
-        "userId": ACTOR_ID,
-        "createAt": CREATED_AT,
-        "message": TEXT,
-        "type": "TEXT",
-        "sendStatus": status,
-        "props": {},
-    })
-}
-
-/// 构造 dialog 写后 Get 回灌使用的累计 channel row。
-pub fn channel_row(unread_count: i64, last_post: &str, last_root_post_at: i64) -> Value {
-    json!({
-        "id": CHANNEL_ID,
-        "team_id": TEAM_ID,
-        "display_name": "G01 Flow Group",
-        "type": "P",
-        "unread_count": unread_count,
-        "mention_count": 0,
-        "urgent_count": 0,
-        "mention_list": [],
-        "urgent_post_list": [],
-        "unread_post_id": "",
-        "last_post": last_post,
-        "last_post_at": last_root_post_at,
-        "last_root_post_at": last_root_post_at,
-    })
-}
-
-/// 构造携 temporaryId 和 serverId 的权威 `post` echo。
-pub fn echo_frame(temporary_id: &str) -> Tick {
-    let payload = json!({
-        "v": 1,
-        "action": "post",
-        "data": {
-            "id": SERVER_ID,
-            "temporaryId": temporary_id,
-            "channelId": CHANNEL_ID,
-            "event_seq": 1,
-            "createAt": CREATED_AT + 20,
-            "message": TEXT,
-            "simpleMessage": TEXT,
-            "type": "TEXT",
-            "userId": ACTOR_ID,
-            "userSnapshot": {"userId": ACTOR_ID, "teamId": TEAM_ID},
-            "viewers": ["all"],
-            "mentions": [],
-            "props": {"channel_event_seq": 1}
-        },
-        "broadcast": {},
-        "seq": 1
-    });
-    Tick::Inbound(InboundBytes(
-        serde_json::to_vec(&payload)
-            .expect("WS echo serializes")
-            .into(),
-    ))
-}
-
 /// 判断一组 StorageOp 是否包含指定表的业务写。
 pub fn has_table_write(ops: &[StorageOp], table: &str) -> bool {
     ops.iter().any(|op| match op {
@@ -385,29 +207,6 @@ pub fn assert_frame_surface(replay: &Replay, expected: &str) {
                     .is_some_and(|mutations| mutations.iter().any(|m| m["surface"] == expected))
         }),
         "missing V2 surface {expected}; frames={frames:?}"
-    );
-}
-
-/// 断言 timeline Frame 含指定消息身份和 delivery 终态。
-pub fn assert_delivery(replay: &Replay, expected: &str, expected_id: &str) {
-    let items = replay
-        .frames()
-        .into_iter()
-        .flat_map(|frame| frame["mutations"].as_array().cloned().unwrap_or_default())
-        .filter(|mutation| mutation["surface"] == "message.timeline")
-        .flat_map(|mutation| {
-            mutation["mutation"]["view"]["items"]
-                .as_array()
-                .or_else(|| mutation["mutation"]["patch"]["view"]["items"].as_array())
-                .cloned()
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        items
-            .iter()
-            .any(|item| { item["id"] == expected_id && item["delivery"]["kind"] == expected }),
-        "missing timeline item id={expected_id} delivery={expected}; items={items:?}"
     );
 }
 

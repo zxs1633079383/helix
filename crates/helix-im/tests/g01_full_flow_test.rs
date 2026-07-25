@@ -9,6 +9,8 @@
 mod group_prerequisite;
 #[path = "g01_full_flow/http_terminal.rs"]
 mod http_terminal;
+#[path = "g01_shared/scenario.rs"]
+mod scenario;
 #[path = "g01_full_flow/support.rs"]
 mod support;
 #[path = "g01_full_flow/ws_inbound.rs"]

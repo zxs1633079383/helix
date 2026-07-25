@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/023-ifv2-g-s3-pong-gap-recovery",
+  "phase": "planning",
+  "event_seq": 1,
+  "next_action": "run_speckit_plan",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {},
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "61fcb9072b62b5d9a423f0f9570d6a500397757259b030ed63ba9ff766343f2d",
+      "checked_at": "2026-07-25T07:19:12Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-25T07:19:12Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    }
+  ]
+}

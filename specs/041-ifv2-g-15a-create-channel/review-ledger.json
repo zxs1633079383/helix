@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/041-ifv2-g-15a-create-channel",
+  "phase": "planning",
+  "event_seq": 1,
+  "next_action": "run_speckit_plan",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {},
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "8ea38cd0b414792ad53e04c710e80c02898cf15f13ab7b270366dda5a14ff7bb",
+      "checked_at": "2026-07-25T07:19:17Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-25T07:19:17Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    }
+  ]
+}

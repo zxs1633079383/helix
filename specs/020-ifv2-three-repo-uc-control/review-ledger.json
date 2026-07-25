@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/020-ifv2-three-repo-uc-control",
+  "phase": "planning",
+  "event_seq": 5,
+  "next_action": "run_speckit_plan",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "7368c5aea1f185c3": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "19cdb833e70f96389e04a7ea03c38f717dd8c44e2d8763a5576be20023cde70f",
+      "checked_at": "2026-07-25T07:22:56Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-25T07:18:41Z",
+      "kind": "failure",
+      "detail": "r1_spec:7368c5aea1f185c3: attempt 1"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-25T07:18:41Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md has no source lock"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-25T07:19:00Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-25T07:22:56Z",
+      "kind": "phase",
+      "detail": "planning->specifying: input fingerprint changed for r1_spec"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-25T07:22:56Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    }
+  ]
+}

@@ -38,6 +38,7 @@ EXPECTED_ROWS = (
 )
 
 ROOT_DOCS = {
+    "AGENTS.md",
     "README.md",
     "00-源码核验与版本.md",
     "01-按UC当前代码矩阵.md",
@@ -46,6 +47,7 @@ ROOT_DOCS = {
     "04-验收证据边界.md",
     "05-文档完整性检查.md",
     "06-G02-G15-FrameV2字段与验收总索引.md",
+    "07-26Gate三仓纵向闭环总Spec索引.md",
 }
 
 UC_DOCS = [

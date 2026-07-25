@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/022-ifv2-g-s2-offline-sync-notify",
-  "phase": "planning",
-  "event_seq": 1,
-  "next_action": "run_speckit_plan",
+  "phase": "ready",
+  "event_seq": 6,
+  "next_action": "admit_implementation",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -16,15 +16,15 @@
       "issues": []
     },
     "r2_plan": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "183a482551305b6c41b994c29180a0610aebb8a7c1bfef9ef922a186b668c820",
+      "checked_at": "2026-07-25T07:43:37Z",
       "issues": []
     },
     "r3_tasks": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "346469178bc3dd922545076bbe2143df7997554342ccef8f0274f7f87c4d76ef",
+      "checked_at": "2026-07-25T07:43:37Z",
       "issues": []
     },
     "r4_evidence": {
@@ -44,6 +44,36 @@
       "at": "2026-07-25T07:19:12Z",
       "kind": "phase",
       "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-25T07:40:26Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-25T07:41:28Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-25T07:43:37Z",
+      "kind": "phase",
+      "detail": "ready->planning: input fingerprint changed for r2_plan"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-25T07:43:37Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-25T07:43:37Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
     }
   ]
 }

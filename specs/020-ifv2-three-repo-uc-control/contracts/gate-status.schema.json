@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "gateId",
+    "order",
+    "lanes",
+    "review",
+    "verdict"
+  ],
+  "properties": {
+    "gateId": {
+      "type": "string"
+    },
+    "order": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 26
+    },
+    "lanes": {
+      "type": "object"
+    },
+    "review": {
+      "type": "object"
+    },
+    "verdict": {
+      "enum": [
+        "Green",
+        "Red",
+        "Blocked",
+        "Partial",
+        "Draft"
+      ]
+    }
+  }
+}

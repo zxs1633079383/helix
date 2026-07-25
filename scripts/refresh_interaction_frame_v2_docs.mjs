@@ -545,6 +545,7 @@ overlay 和诊断等 shell state，不从 raw event 重建业务事实。
 6. [文档完整性检查](./05-文档完整性检查.md)
 7. [G02-G15 FrameV2 字段与验收总索引](./06-G02-G15-FrameV2字段与验收总索引.md)
 8. [26 Gate 三仓纵向闭环总 Spec 索引](./07-26Gate三仓纵向闭环总Spec索引.md)
+9. [26 Gate Plan/Task 实施索引](./08-26Gate-Plan-Task实施索引.md)
 
 ## 业务 UC
 

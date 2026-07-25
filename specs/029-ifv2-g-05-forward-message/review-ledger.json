@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/029-ifv2-g-05-forward-message",
-  "phase": "planning",
-  "event_seq": 1,
-  "next_action": "run_speckit_plan",
+  "phase": "ready",
+  "event_seq": 6,
+  "next_action": "admit_implementation",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -16,15 +16,15 @@
       "issues": []
     },
     "r2_plan": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "8d64cc2870c79554a2ec5472518f59b669bbf72fe9cac5a30daca17193e414aa",
+      "checked_at": "2026-07-25T07:43:41Z",
       "issues": []
     },
     "r3_tasks": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "da07714e0e8c9ae0ea273eac911c0c2d4ef15cd90599b13496408f2550b26527",
+      "checked_at": "2026-07-25T07:43:41Z",
       "issues": []
     },
     "r4_evidence": {
@@ -44,6 +44,36 @@
       "at": "2026-07-25T07:19:14Z",
       "kind": "phase",
       "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-25T07:40:28Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-25T07:41:30Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-25T07:43:41Z",
+      "kind": "phase",
+      "detail": "ready->planning: input fingerprint changed for r2_plan"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-25T07:43:41Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-25T07:43:41Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
     }
   ]
 }

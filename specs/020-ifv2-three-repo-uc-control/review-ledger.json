@@ -1,14 +1,15 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/020-ifv2-three-repo-uc-control",
-  "phase": "planning",
-  "event_seq": 5,
-  "next_action": "run_speckit_plan",
+  "phase": "ready",
+  "event_seq": 12,
+  "next_action": "admit_implementation",
   "budget": {
     "max_same_failure_attempts": 2
   },
   "failure_attempts": {
-    "7368c5aea1f185c3": 1
+    "7368c5aea1f185c3": 1,
+    "82186b29fd932ffe": 1
   },
   "gates": {
     "r1_spec": {
@@ -18,22 +19,24 @@
       "issues": []
     },
     "r2_plan": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "345764b148a740393f57506a9d929f77a3cb15c6cb56e9f82ea341e6531d845f",
+      "checked_at": "2026-07-25T07:40:26Z",
       "issues": []
     },
     "r3_tasks": {
-      "status": "pending",
-      "fingerprint": null,
-      "checked_at": null,
+      "status": "pass",
+      "fingerprint": "71c56f868be8a35207e125b64fa7d4547081cd30e4aa51694dac4b177680935a",
+      "checked_at": "2026-07-25T07:43:36Z",
       "issues": []
     },
     "r4_evidence": {
-      "status": "pending",
+      "status": "blocked",
       "fingerprint": null,
       "checked_at": null,
-      "issues": []
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
     }
   },
   "convergence": {
@@ -70,6 +73,48 @@
       "at": "2026-07-25T07:22:56Z",
       "kind": "phase",
       "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 6,
+      "at": "2026-07-25T07:40:26Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-25T07:41:21Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-25T07:42:59Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-25T07:42:59Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-25T07:42:59Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-25T07:43:36Z",
+      "kind": "phase",
+      "detail": "verifying->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-25T07:43:36Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
     }
   ]
 }

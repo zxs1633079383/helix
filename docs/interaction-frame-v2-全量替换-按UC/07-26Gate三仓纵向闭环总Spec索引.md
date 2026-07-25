@@ -3,6 +3,8 @@
 > 总控 Feature：[020-ifv2-three-repo-uc-control](../../specs/020-ifv2-three-repo-uc-control/spec.md)
 >
 > 机器索引：[gate-spec-manifest.json](../../specs/020-ifv2-three-repo-uc-control/gate-spec-manifest.json)
+>
+> Plan/Task 实施索引：[08-26Gate-Plan-Task实施索引.md](./08-26Gate-Plan-Task实施索引.md)
 
 ## 范围
 

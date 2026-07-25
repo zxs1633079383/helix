@@ -727,6 +727,7 @@ function renderMasterIndex(childRecords) {
 
 > 本索引是总控 Spec 的人类可读视图；机器真源为 [gate-spec-manifest.json](gate-spec-manifest.json)。
 > 一个 Gate 完成 Helix、PC、Mobile 与 UC Review 后，才能进入下一行。
+> 实施入口见 [plan-task-index.md](plan-task-index.md)。
 
 ${rows.join('\n')}
 
@@ -766,6 +767,8 @@ function renderDocsIndex(childRecords) {
 > 总控 Feature：[020-ifv2-three-repo-uc-control](../../specs/020-ifv2-three-repo-uc-control/spec.md)
 >
 > 机器索引：[gate-spec-manifest.json](../../specs/020-ifv2-three-repo-uc-control/gate-spec-manifest.json)
+>
+> Plan/Task 实施索引：[08-26Gate-Plan-Task实施索引.md](./08-26Gate-Plan-Task实施索引.md)
 
 ## 范围
 

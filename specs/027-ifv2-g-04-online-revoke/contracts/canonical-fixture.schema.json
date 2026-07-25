@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "G-04 canonical fixture manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gateId",
+    "schemaVersion",
+    "producer",
+    "fixtures",
+    "rawSha256",
+    "semanticSha256",
+    "surfaces"
+  ],
+  "properties": {
+    "gateId": {
+      "const": "G-04"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "producer": {
+      "type": "object"
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "rawSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "semanticSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "surfaces": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "message.timeline"
+        ]
+      }
+    }
+  }
+}

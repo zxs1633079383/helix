@@ -48,6 +48,7 @@ ROOT_DOCS = {
     "05-文档完整性检查.md",
     "06-G02-G15-FrameV2字段与验收总索引.md",
     "07-26Gate三仓纵向闭环总Spec索引.md",
+    "08-26Gate-Plan-Task实施索引.md",
 }
 
 UC_DOCS = [

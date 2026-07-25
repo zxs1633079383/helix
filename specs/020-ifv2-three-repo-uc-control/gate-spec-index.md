@@ -2,6 +2,7 @@
 
 > 本索引是总控 Spec 的人类可读视图；机器真源为 [gate-spec-manifest.json](gate-spec-manifest.json)。
 > 一个 Gate 完成 Helix、PC、Mobile 与 UC Review 后，才能进入下一行。
+> 实施入口见 [plan-task-index.md](plan-task-index.md)。
 
 | 顺序 | Gate | UC | 业务 | Spec Kit Feature | 状态/依赖 |
 |---:|---|---|---|---|---|

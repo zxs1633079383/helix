@@ -43,3 +43,31 @@
 - Mobile command contract 先调用生产 `im.channels.create`；canonical Frame
   prerequisite 仍由 Helix producer 提供，GTest 不手写 group VM。
 - 三端本 Gate 每次验收均创建新群；共享 prerequisite 当前无需生产代码修改。
+
+## T004-T012 Helix Producer Green
+
+- producer commit：`c9c37ea8fcb398715cff872d4adbdc8a0e412c46`。共享
+  `G04AScenarioRunner` 只经公开 `im_sync_channels`、`ImModule::handle`、
+  `Effect::PersistAtomic`、匹配 `PortReply` 和 `Effect::Emit` 运行；未新增测试旁路。
+- 当前生产链已满足目标，无需修改 `sync/increment.rs`、`surface_composer.rs` 或
+  projector：平台 `eventSeq=999999` 未进入请求，fresh channel 实际
+  `fromSeq=0`；type3 authority fact 只在原子持久成功后产生
+  `message.timeline` recalled Frame。提交后 cursor 为 1，重复 sync 与迟到 WS
+  均无业务 Effect。
+- `cargo check -p helix-im`：退出码 0。
+- `cargo test -p helix-im --test g04a_full_flow_test --test
+  g04_revoke_interaction_test -- --nocapture`：退出码 0；G04a 7/7、focused
+  interaction 5/5。
+- 显式更新命令 `UPDATE_G04A_WDIO_FIXTURES=1 cargo test -p helix-im --test
+  g04a_wdio_fixture_contract_test -- --nocapture`：退出码 0；随后不带更新开关
+  重跑 1/1 通过，证明普通测试只比较 Golden。
+- canonical inventory 为 4：`group-created`、`revocable`、
+  `offline-recalled`、`recovered-recalled`，schema 全为 2；surface inventory
+  分别为一个 `message.left-dialog-list` 与三个 `message.timeline`。
+- raw SHA-256：
+  `56b191ad60c644427cdea784de5cc867eeae018efd697bf3fe7deb63d1c05325`、
+  `ac33de58a0055b3ca96fd39aabd40b861a4784795ff8639778e6259108a5baed`、
+  `bb5a126f0581a1db8b09e943f108c0d6d1c6b3bc149fb4ed9d5e178268874a95`、
+  `ad2d4712c24e07b336d858a0272a09877aa255567a4f59993e46b8c579d3bd11`；
+  provenance raw SHA-256 为
+  `ac7ef7c8c301da9e7ee76b1815038e75f4313d549fcc2330836b75074f5b435e`。

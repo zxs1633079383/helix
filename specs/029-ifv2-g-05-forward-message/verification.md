@@ -47,3 +47,43 @@
   与 target group；GTest 的 command fixture 不把固定测试 ID 冒充真实前置完成。
 - 三端无需新增第二套 CreateGroup 业务逻辑；本 Gate 只消费其权威 channel ID，
   因此 T003 无生产代码修改。
+
+## T004-T012 Helix Producer Green
+
+- production behavior commit：
+  `3798ffdd0bfd89b8922829dd252327bb0a2075ec`；Fixture commit：
+  `b61d39bee004a4e195a18fbb0c00fe56301dc6f2`。
+- `G05ScenarioRunner` 只通过 public `client_api::build_command`、
+  `ImModule::handle`、匹配 `PortReply`、可信 `Tick::Inbound` 与
+  `Effect::Emit` 回放；没有测试专用 reducer 或直接修改 module state。
+- RED 回放证实并修复两个生产问题：createPosts HTTP admission 曾发布无事实变化的
+  causation Frame 并提前完成 ActionRegistry；attached target timeline 曾先消费
+  authority ledger，导致随后 left-dialog Frame 丢失 causation。当前模型明确为
+  timeline reconciliation 与 dialog patch 两条独立投影，dialog attached 时由其
+  durable readback 完成 final target；headless 无 dialog 时 timeline 才是唯一终态。
+- `cargo check -p helix-im`：退出码 0；`cargo tree -p helix-core` 对
+  `tokio|sqlx|reqwest|web-sys|tauri` 搜索为空。
+- `cargo test -p helix-im --test g05_full_flow_test --test
+  g05_forward_interaction_test -- --nocapture`：退出码 0，6/6 full-flow 与
+  3/3 focused contract 全过。覆盖 fresh target、source authority、业务拒绝、
+  transport failure、WS-first/late HTTP、duplicate inbound 与 dialog PersistErr
+  replay。
+- 显式更新命令 `UPDATE_G05_WDIO_FIXTURES=1 cargo test -p helix-im --test
+  g05_wdio_fixture_contract_test -- --nocapture`：退出码 0；普通模式重跑 1/1
+  通过，证明未设置开关时只比较 checked-in Golden。
+- canonical inventory 为 4：`group-created`、`source-forwardable`、
+  `target-forwarded`、`target-dialog`，schema 全为 2；surface inventory 为两个
+  `message.left-dialog-list` 与两个 `message.timeline`。
+- raw SHA-256：group-created
+  `4f3a10813d059d7eb58cb2918f2944ceefd1f2bbf8253107283c1c20e7861123`；
+  source-forwardable
+  `cc0195a098bd739a3b3ae8cae3d2b147f2f68dce066f451aa5c6b34d5ae3c5c1`；
+  target-forwarded
+  `1406445940595964e560f0128c68eadb6c3527bfd4b0b1478028376f6935334b`；
+  target-dialog
+  `bca69ee5f98e2f08564dcd6d632f4d00a90993eed104f2322d107b37097ed641`；
+  provenance
+  `164b1b1b82afce5f945459e4acc37d2dd934bc8395a2e6610841e2808e1ed808`。
+
+结论：G-05 Helix producer 与 canonical Fixture required lane 为 Green；PC 与
+Mobile 尚未开始，Gate 整体仍为 `implementing`，不得进入 G06。

@@ -18,8 +18,8 @@ use scenario::{
     CHANNEL_ID, CREATED_AT, GROUP_NAME, MARKER, OBSERVER_ID, REQUEST_ID, SERVER_ID,
 };
 
-const HELIX_COMMIT: &str = "ee8440e7b6e19d75153f46349e57fbb6c00ca8cf";
-const GENERATED_AT: &str = "2026-07-24T19:20:00-07:00";
+const HELIX_COMMIT: &str = "82445ae1b69d10bb01ea183a7fa00df88c80d993";
+const GENERATED_AT: &str = "2026-07-25T09:00:00-07:00";
 const PRODUCER: &str =
     "G01ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";
 

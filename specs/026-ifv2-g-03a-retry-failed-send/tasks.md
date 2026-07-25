@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-02 review-green 到 specs/026-ifv2-g-03a-retry-failed-send/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/send/retry_send.rs、crates/helix-im/tests/send_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc04RetrySendTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/026-ifv2-g-03a-retry-failed-send/research.md
+- [x] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-02 review-green 到 specs/026-ifv2-g-03a-retry-failed-send/verification.md
+- [x] T002 [P] 按 crates/helix-im/src/send/retry_send.rs、crates/helix-im/tests/send_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc04RetrySendTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/026-ifv2-g-03a-retry-failed-send/research.md
 
 ---
 
@@ -21,7 +21,7 @@
 
 **Purpose**: 复用三端 fresh-group prerequisite；完成前不得进入业务 story。
 
-- [ ] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
+- [x] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
 
 ---
 

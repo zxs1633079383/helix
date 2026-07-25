@@ -49,3 +49,45 @@
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。
+
+## T002 CURRENT / TARGET / GAP Revalidation
+
+### Helix
+
+- **CURRENT**：`im_retry_send{message_id}` 先查内存 `pending_sends`；冷启动依次按
+  `temporary_id`、server `id` 查询 durable `message`。failed/unsend 才可 retry；
+  sent 幂等忽略；原 `temporaryId`、body、reply anchors、createAt 与 request trace
+  被复用，不分配第二条消息身份。
+- **CURRENT**：现有 `send_test.rs` 已覆盖 cached body、reply anchors、native restart
+  rehydrate、server-id fallback 与 late P1 后仍可 retry。
+- **GAP**：`continue_retry` 当前用 `PersistFire(sending)` 后立即 Emit/HTTP，没有
+  `PersistOk` barrier；尚无 G03a 六类 ScenarioRunner、InteractionFrameV2 字段合同或
+  canonical Fixture。该顺序不能直接满足本 Spec 的 durable-before-visible 要求。
+- **TARGET**：通过有 correlation 的 terminal persist barrier 推进 sending Frame/HTTP，
+  并以 HTTP failure、WS-first/late HTTP、duplicate inbound、cold recovery 证明同一
+  temporary identity 的单一 terminal authority。
+
+### PC
+
+- **CURRENT**：MessageV4 `retry` Action 只在 `sendStatus=failed` 且 Helix Action
+  存在时显示；`ShellService` 仅发送 `im_retry_send{message_id}`，不重建原 payload。
+  Tauri command 已注册，production command port 已存在。
+- **GAP**：没有 G03a Fixture mirror、typed loader、Mock lane、PageObject、
+  single/dual real 或 reporter。当前真实 harness 也没有通用的“文本发送失败一次后恢复”
+  可观察能力；不得用 Mock 或手写 failed VM 替代。
+- **TARGET**：失败 Frame 先由 Helix producer 建立；Mock 只 replay。Real lane 必须通过
+  test-only 且 production-unreachable 的 transport failure control，或现有真实可证伪
+  失败机制，先得到同一 fresh group 的 failed row，再恢复链路执行真实 retry。
+
+### Mobile
+
+- **CURRENT**：生产 `MobileImSdk::retrySend`、QuickJS `im.posts.retrySend` 与 Venus
+  `ImPostsApi` 已机械转发 `messageId -> im_retry_send`；不构造原消息 body。
+- **CURRENT**：旧 `Uc04RetrySendTest` 的 real case 通过缺失本地 FILE 制造 media
+  failure，并使用 characterization-only `im.store`/raw events 验证恢复。
+- **GAP**：该旧 case 进入 G03 文件上传/media retry 路径，与 Strict Matrix G03a
+  `storage_read -> http_write -> message.timeline` 不同，不能作为 G03a V2 Contract。
+  当前也没有 G03A canonical mirror、SurfaceRuntime/QuickJS typed view 或 C ABI 字段合同。
+- **TARGET**：新增 production-linked G03A Frame GTest，验证同一 temporary identity 从
+  failed -> retry sending -> sent、schema/revision fail-closed 与 typed `im.surface.view`；
+  不把 media reducer、`im.store` 或 raw event 带回生产合同。

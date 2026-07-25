@@ -59,3 +59,20 @@
   生产 SDK/QuickJS 链接的 GTest binary 成功生成。
 - 结论：三端复用的是同一个“每 case 新建权威群后再执行 UC”合同；Mock 只 replay Helix
   Frame，不在端侧补业务 reducer。
+
+## T004-T008 Helix Producer
+
+- RED 首跑：`cargo test -p helix-im --test g02_full_flow_test -- --nocapture`，3/6 PASS；
+  暴露三项真实缺口：业务拒绝 timeout 使用 `PersistFire` 无 Frame barrier、DOCUMENT dialog
+  降级 generic media、cold recovery 需要 remote/cache persist 后才能形成 snapshot。
+- 生产修复：发送 timeout 改走有回报 terminal Persist，并注册
+  `TimelineRefreshAfterSendPersist`；DOCUMENT dialog preview 映射为 typed document。
+  `send/flow.rs` 现有 DOCUMENT 路径已确认不创建 upload plan，无需为了测试改写生产入口。
+- 共享 runner：G01/G02 共用同一 `ImModule::handle` 回放器；Gate 只注入身份、message type、
+  fixed props/time/id。G02 六类 case 全走 `Tick::{Command,PortReply,Inbound,Timer}` 与真实 Effect。
+- GREEN：
+  `cargo test -p helix-im --test g01_full_flow_test --test g01_wdio_fixture_contract_test --test g02_full_flow_test --test interaction_frame_contract_test -- --nocapture`，
+  G01 4/4、G01 Fixture 1/1、G02 6/6、Frame contract 20/20 PASS。
+- Frame 字段：schema/runtime/transaction/causation、surface/scope/epoch/revision/baseRevision、
+  mutation、directives、message actions、delivery、Document title/summary/access、eventSeq 均有
+  typed 断言。late HTTP 与 duplicate WS 在 runner 内断言不重复 terminal write/Frame。

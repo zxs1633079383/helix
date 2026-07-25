@@ -22,10 +22,47 @@ pub const TEAM_ID: &str = "g01-wdio-company";
 pub const CREATED_AT: i64 = 1_700_000_000_002;
 pub const GROUP_NAME: &str = "G01 Fixture Group";
 
-/// 标识 G01 HTTP 终态分支，避免用布尔值混淆 sent 与 failed。
+/// 描述发送类 Gate 的确定性身份、内容和 correlation 输入。
+#[derive(Clone)]
+pub struct SendScenarioSpec {
+    pub channel_id: &'static str,
+    pub server_id: &'static str,
+    pub request_id: &'static str,
+    pub marker: &'static str,
+    pub message_type: &'static str,
+    pub props: Value,
+    pub actor_id: &'static str,
+    pub observer_id: &'static str,
+    pub team_id: &'static str,
+    pub created_at: i64,
+    pub group_name: &'static str,
+    pub api_base_url: &'static str,
+}
+
+/// 返回与既有 G01 Golden 字节完全兼容的普通文本场景参数。
+pub fn g01_scenario_spec() -> SendScenarioSpec {
+    SendScenarioSpec {
+        channel_id: CHANNEL_ID,
+        server_id: SERVER_ID,
+        request_id: REQUEST_ID,
+        marker: MARKER,
+        message_type: "TEXT",
+        props: json!({}),
+        actor_id: ACTOR_ID,
+        observer_id: OBSERVER_ID,
+        team_id: TEAM_ID,
+        created_at: CREATED_AT,
+        group_name: GROUP_NAME,
+        api_base_url: "http://g01-wdio.invalid",
+    }
+}
+
+/// 标识发送类 Gate 的 HTTP/timeout 终态分支，避免布尔值混淆失败来源。
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub enum Terminal {
     Sent,
+    BusinessFailed,
     Failed,
 }
 
@@ -48,31 +85,51 @@ pub struct WsScenarioTrace {
     pub dialog_corr: Correlation,
 }
 
-/// 通过公开 `ImModule::handle` 驱动 G01 的唯一确定性测试场景。
+/// 汇总冷启动本地持久事实恢复出的 timeline Frame。
+#[allow(dead_code)]
+pub struct RecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub recovered: InteractionFrameV2,
+}
+
+/// 通过公开 `ImModule::handle` 驱动发送类 Gate 的共享确定性测试场景。
 pub struct G01ScenarioRunner {
+    spec: SendScenarioSpec,
     module: ImModule,
     sink: EffectSink,
 }
 
+#[allow(dead_code)]
 impl G01ScenarioRunner {
     /// 创建与 checked-in G01 Fixture 身份和时钟完全一致的回放实例。
     pub fn new() -> Self {
+        Self::new_for(g01_scenario_spec())
+    }
+
+    /// 以 Gate 专属身份和消息内容创建共享发送回放实例。
+    pub fn new_for(spec: SendScenarioSpec) -> Self {
         Self {
             module: ImModule::new(ImConfig {
-                api_base_url: "http://g01-wdio.invalid".to_string(),
-                default_api_base_url: "http://g01-wdio.invalid".to_string(),
-                auth_user_id: ACTOR_ID.to_string(),
-                company_id: TEAM_ID.to_string(),
-                user_name: "G01 Actor".to_string(),
+                api_base_url: spec.api_base_url.to_string(),
+                default_api_base_url: spec.api_base_url.to_string(),
+                auth_user_id: spec.actor_id.to_string(),
+                company_id: spec.team_id.to_string(),
+                user_name: "Fixture Actor".to_string(),
                 ..ImConfig::default()
             }),
+            spec,
             sink: EffectSink::new(),
         }
     }
 
     /// 回放 HTTP success/error 并在每个持久化屏障处验证禁止提前发布 Frame。
     pub fn run_http(terminal: Terminal) -> HttpScenarioTrace {
-        let mut runner = Self::new();
+        Self::run_http_for(g01_scenario_spec(), terminal)
+    }
+
+    /// 回放任一发送类 Gate 的 HTTP success/business failure/infrastructure failure。
+    pub fn run_http_for(spec: SendScenarioSpec, terminal: Terminal) -> HttpScenarioTrace {
+        let mut runner = Self::new_for(spec);
         let group_created = runner.create_group_prerequisite();
         runner.attach_timeline();
         let sending = runner.start_sending();
@@ -87,12 +144,20 @@ impl G01ScenarioRunner {
 
     /// 回放 WS post 先行结算并验证迟到 HTTP 不会重复写终态。
     pub fn run_ws_echo_with_dialog() -> WsScenarioTrace {
-        let mut runner = Self::new();
+        Self::run_ws_echo_with_dialog_for(g01_scenario_spec())
+    }
+
+    /// 回放任一发送类 Gate 的 WS 先行结算和迟到 HTTP 幂等分支。
+    pub fn run_ws_echo_with_dialog_for(spec: SendScenarioSpec) -> WsScenarioTrace {
+        let mut runner = Self::new_for(spec);
         let group_created = runner.create_group_prerequisite();
         runner.attach_timeline();
         let sending = runner.start_sending();
 
-        runner.step(echo_frame(&sending.temporary_id), CREATED_AT as u64 + 20);
+        runner.step(
+            echo_frame(&runner.spec, &sending.temporary_id),
+            runner.spec.created_at as u64 + 20,
+        );
         assert!(
             runner.effects().iter().any(
                 |effect| matches!(effect, Effect::CancelTimer { id } if *id == sending.timer_id)
@@ -117,7 +182,10 @@ impl G01ScenarioRunner {
             "timeline and dialog must retain independent correlation barriers"
         );
 
-        runner.step(ok(timeline_corr, Bytes::new()), CREATED_AT as u64 + 21);
+        runner.step(
+            ok(timeline_corr, Bytes::new()),
+            runner.spec.created_at as u64 + 21,
+        );
         assert!(
             runner.frames().is_empty(),
             "terminal PersistOk only schedules the timeline readback"
@@ -130,22 +198,28 @@ impl G01ScenarioRunner {
             ok(
                 timeline_read,
                 rows_bytes(json!([message_row(
-                    SERVER_ID,
+                    &runner.spec,
+                    runner.spec.server_id,
                     &sending.temporary_id,
                     "sent",
                     1
                 )])),
             ),
-            CREATED_AT as u64 + 22,
+            runner.spec.created_at as u64 + 22,
         );
         let timeline_sent = runner.only_frame();
 
         runner.step(
             ok(
                 dialog_corr,
-                rows_bytes(json!([channel_row(0, MARKER, CREATED_AT + 20)])),
+                rows_bytes(json!([channel_row(
+                    &runner.spec,
+                    0,
+                    runner.spec.marker,
+                    runner.spec.created_at + 20
+                )])),
             ),
-            CREATED_AT as u64 + 23,
+            runner.spec.created_at as u64 + 23,
         );
         let dialog = runner.only_frame();
 
@@ -154,10 +228,10 @@ impl G01ScenarioRunner {
                 sending.http_corr,
                 http_envelope(json!({
                     "status": "SUCCESS",
-                    "data": {"id": SERVER_ID}
+                    "data": {"id": runner.spec.server_id}
                 })),
             ),
-            CREATED_AT as u64 + 24,
+            runner.spec.created_at as u64 + 24,
         );
         assert!(
             runner
@@ -170,6 +244,21 @@ impl G01ScenarioRunner {
             runner.frames().is_empty(),
             "late HTTP success after WS settlement must not repeat terminal Frame"
         );
+        runner.step(
+            echo_frame(&runner.spec, &sending.temporary_id),
+            runner.spec.created_at as u64 + 25,
+        );
+        assert!(
+            runner
+                .effects()
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
+            "duplicate authoritative WS echo must not repeat terminal message writes"
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "duplicate authoritative WS echo must not repeat terminal timeline Frame"
+        );
 
         WsScenarioTrace {
             group_created,
@@ -179,6 +268,74 @@ impl G01ScenarioRunner {
             temporary_id: sending.temporary_id,
             timeline_corr,
             dialog_corr,
+        }
+    }
+
+    /// 从持久化 document/text row 冷启动恢复 timeline，证明 Frame 不依赖端侧缓存。
+    pub fn run_recovery_for(spec: SendScenarioSpec) -> RecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        runner.step(
+            command(
+                "im_query_messages_by_channel",
+                json!({
+                    "channel_id": runner.spec.channel_id,
+                    "limit": 20,
+                    "windowToken": "latest",
+                    "req_id": runner.spec.request_id,
+                }),
+            ),
+            runner.spec.created_at as u64 + 30,
+        );
+        let local = runner.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        runner.step(
+            ok(
+                local,
+                rows_bytes(json!([message_row(
+                    &runner.spec,
+                    runner.spec.server_id,
+                    runner.spec.server_id,
+                    "sent",
+                    1
+                )])),
+            ),
+            runner.spec.created_at as u64 + 31,
+        );
+        let recovered = if runner.frames().is_empty() {
+            let remote = runner.only_http_corr("/posts/getLatestPost");
+            runner.step(
+                ok(
+                    remote,
+                    http_envelope(json!({
+                        "status": "SUCCESS",
+                        "data": [message_row(
+                            &runner.spec,
+                            runner.spec.server_id,
+                            runner.spec.server_id,
+                            "sent",
+                            1
+                        )]
+                    })),
+                ),
+                runner.spec.created_at as u64 + 32,
+            );
+            if runner.frames().is_empty() {
+                let cache = runner.only_persist_corr_with(|ops| !ops.is_empty());
+                runner.step(
+                    ok(cache, Bytes::new()),
+                    runner.spec.created_at as u64 + 33,
+                );
+            }
+            runner.only_frame()
+        } else {
+            runner.only_frame()
+        };
+        RecoveryScenarioTrace {
+            group_created,
+            recovered,
         }
     }
 
@@ -203,13 +360,13 @@ impl G01ScenarioRunner {
                 "im_create_channel",
                 json!({
                     "type": "O",
-                    "user_ids": [OBSERVER_ID],
-                    "display_name": GROUP_NAME,
+                    "user_ids": [self.spec.observer_id],
+                    "display_name": self.spec.group_name,
                     "force_create": true,
-                    "req_id": "g01-create-group-request-1",
+                    "req_id": format!("{}:create-group", self.spec.request_id),
                 }),
             ),
-            1_699_999_999_992,
+            self.spec.created_at as u64 - 10,
         );
         let create_corr = self.only_http_corr("/channel/create");
         let create_body = self
@@ -223,10 +380,10 @@ impl G01ScenarioRunner {
             .expect("create-group HTTP body remains inspectable");
         assert_eq!(
             create_body["userIds"],
-            json!([OBSERVER_ID]),
-            "current actor is the implicit owner; only 678 is invited"
+            json!([self.spec.observer_id]),
+            "current actor is the implicit owner; only the observer is invited"
         );
-        assert_eq!(create_body["displayName"], GROUP_NAME);
+        assert_eq!(create_body["displayName"], self.spec.group_name);
 
         self.step(
             ok(
@@ -234,18 +391,18 @@ impl G01ScenarioRunner {
                 http_envelope(json!({
                     "status": "SUCCESS",
                     "data": {
-                        "id": CHANNEL_ID,
+                        "id": self.spec.channel_id,
                         "type": "P",
-                        "displayName": GROUP_NAME,
-                        "teamId": TEAM_ID,
-                        "createAt": CREATED_AT - 5,
-                        "owner": {"id": ACTOR_ID, "role": "OWNER"},
+                        "displayName": self.spec.group_name,
+                        "teamId": self.spec.team_id,
+                        "createAt": self.spec.created_at - 5,
+                        "owner": {"id": self.spec.actor_id, "role": "OWNER"},
                         "pictureType": "USER",
-                        "picture": {"userIds": [ACTOR_ID, OBSERVER_ID]}
+                        "picture": {"userIds": [self.spec.actor_id, self.spec.observer_id]}
                     }
                 })),
             ),
-            1_699_999_999_993,
+            self.spec.created_at as u64 - 9,
         );
         let persisted_tables = self
             .effects()
@@ -274,7 +431,7 @@ impl G01ScenarioRunner {
                     .ok()
                     .is_some_and(|envelope| {
                         envelope["event"] == "im:channel:created"
-                            && envelope["data"]["channelId"] == CHANNEL_ID
+                            && envelope["data"]["channelId"] == self.spec.channel_id
                     })
             }),
             "authoritative create reply must publish the created channel identity"
@@ -288,25 +445,28 @@ impl G01ScenarioRunner {
             command(
                 "im_query_messages_by_channel",
                 json!({
-                    "channel_id": CHANNEL_ID,
+                    "channel_id": self.spec.channel_id,
                     "limit": 20,
                     "windowToken": "latest",
                 }),
             ),
-            1_700_000_000_000,
+            self.spec.created_at as u64 - 2,
         );
         let local = self.only_persist_corr_with(|ops| {
             ops.iter()
                 .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
         });
-        self.step(ok(local, Bytes::from_static(b"[]")), 1_700_000_000_001);
+        self.step(
+            ok(local, Bytes::from_static(b"[]")),
+            self.spec.created_at as u64 - 1,
+        );
         let remote = self.only_http_corr("/posts/getLatestPost");
         self.step(
             ok(
                 remote,
                 http_envelope(json!({"status": "SUCCESS", "data": []})),
             ),
-            1_700_000_000_002,
+            self.spec.created_at as u64,
         );
         assert_eq!(
             surface_names(&self.only_frame()),
@@ -319,13 +479,13 @@ impl G01ScenarioRunner {
                     "surface": "message.timeline",
                     "scope": {
                         "kind": "timeline",
-                        "channelId": CHANNEL_ID,
+                        "channelId": self.spec.channel_id,
                         "windowToken": "latest"
                     },
-                    "causationId": "g01-wdio-attach-1"
+                    "causationId": format!("{}:attach", self.spec.request_id)
                 }),
             ),
-            1_700_000_000_003,
+            self.spec.created_at as u64 + 1,
         );
         let _attachment_read = self.only_persist_corr_with(|ops| {
             ops.iter()
@@ -337,13 +497,16 @@ impl G01ScenarioRunner {
     fn attach_empty_dialog(&mut self) {
         self.step(
             command("im_query_dialog_list", json!({})),
-            1_699_999_999_990,
+            self.spec.created_at as u64 - 12,
         );
         let corr = self.only_persist_corr_with(|ops| {
             ops.iter()
                 .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "channel"))
         });
-        self.step(ok(corr, rows_bytes(json!([]))), 1_699_999_999_991);
+        self.step(
+            ok(corr, rows_bytes(json!([]))),
+            self.spec.created_at as u64 - 11,
+        );
         assert!(
             surface_names(&self.only_frame()).contains("message.left-dialog-list"),
             "dialog setup must attach the left-list surface"
@@ -356,13 +519,14 @@ impl G01ScenarioRunner {
             command(
                 "im_send_message",
                 json!({
-                    "channel_id": CHANNEL_ID,
-                    "text": MARKER,
-                    "type": "TEXT",
-                    "req_id": REQUEST_ID,
+                    "channel_id": self.spec.channel_id,
+                    "text": self.spec.marker,
+                    "type": self.spec.message_type,
+                    "props": self.spec.props.clone(),
+                    "req_id": self.spec.request_id,
                 }),
             ),
-            1_700_000_000_004,
+            self.spec.created_at as u64 + 2,
         );
         assert!(
             self.effects()
@@ -376,7 +540,7 @@ impl G01ScenarioRunner {
         );
         let temporary_id = self.temporary_id();
         let p1 = self.only_persist_corr_with(|ops| has_table_write(ops, "message"));
-        self.step(ok(p1, Bytes::new()), 1_700_000_000_005);
+        self.step(ok(p1, Bytes::new()), self.spec.created_at as u64 + 3);
         assert!(
             self.frames().is_empty(),
             "optimistic PersistOk only schedules the attached timeline readback"
@@ -389,13 +553,14 @@ impl G01ScenarioRunner {
             ok(
                 read,
                 rows_bytes(json!([message_row(
+                    &self.spec,
                     &temporary_id,
                     &temporary_id,
                     "sending",
                     0
                 )])),
             ),
-            1_700_000_000_006,
+            self.spec.created_at as u64 + 4,
         );
         let frame = self.only_frame();
         let http_corr = self.only_http_corr("/posts/create");
@@ -423,19 +588,44 @@ impl G01ScenarioRunner {
                     sending.http_corr,
                     http_envelope(json!({
                         "status": "SUCCESS",
-                        "data": {"id": SERVER_ID}
+                        "data": {"id": self.spec.server_id}
                     })),
                 ),
-                1_700_000_000_007,
+                self.spec.created_at as u64 + 5,
             ),
-            Terminal::Failed => self.step(http_error(sending.http_corr), 1_700_000_000_007),
+            Terminal::BusinessFailed => {
+                self.step(
+                    ok(
+                        sending.http_corr,
+                        http_envelope(json!({
+                            "status": "ERROR",
+                            "message": "document access rejected"
+                        })),
+                    ),
+                    self.spec.created_at as u64 + 5,
+                );
+                assert!(
+                    self.effects()
+                        .iter()
+                        .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
+                    "business rejection must wait for the armed timeout instead of fabricating sent"
+                );
+                self.step(
+                    Tick::Timer(sending.timer_id),
+                    self.spec.created_at as u64 + 15_002,
+                );
+            }
+            Terminal::Failed => self.step(
+                http_error(sending.http_corr),
+                self.spec.created_at as u64 + 5,
+            ),
         }
         assert!(
             self.frames().is_empty(),
             "HTTP completion is not render-ready before terminal persistence"
         );
         let persist = self.only_persist_corr_with(|ops| has_table_write(ops, "message"));
-        self.step(ok(persist, Bytes::new()), 1_700_000_000_008);
+        self.step(ok(persist, Bytes::new()), self.spec.created_at as u64 + 15_003);
         assert!(
             self.frames().is_empty(),
             "terminal PersistOk only schedules the terminal readback"
@@ -445,15 +635,23 @@ impl G01ScenarioRunner {
                 .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
         });
         let (id, status) = match terminal {
-            Terminal::Sent => (SERVER_ID, "sent"),
-            Terminal::Failed => (sending.temporary_id.as_str(), "unsend"),
+            Terminal::Sent => (self.spec.server_id, "sent"),
+            Terminal::BusinessFailed | Terminal::Failed => {
+                (sending.temporary_id.as_str(), "unsend")
+            }
         };
         self.step(
             ok(
                 read,
-                rows_bytes(json!([message_row(id, &sending.temporary_id, status, 0)])),
+                rows_bytes(json!([message_row(
+                    &self.spec,
+                    id,
+                    &sending.temporary_id,
+                    status,
+                    0
+                )])),
             ),
-            1_700_000_000_009,
+            self.spec.created_at as u64 + 15_004,
         );
         self.only_frame()
     }
@@ -609,10 +807,32 @@ pub fn assert_timeline_contract(
     expected_delivery: &str,
     expected_id: &str,
 ) {
+    let spec = g01_scenario_spec();
+    assert_timeline_contract_for(
+        frame,
+        &spec,
+        expected_delivery,
+        expected_id,
+        Some(spec.request_id),
+    );
+    let MessageContentVm::Text { text } = &first_message(frame).content else {
+        panic!("G01 timeline contract requires text content")
+    };
+    assert_eq!(text, MARKER);
+}
+
+/// 逐字段验证任一发送类 Gate 的 timeline envelope、slot 与消息公共语义。
+pub fn assert_timeline_contract_for(
+    frame: &InteractionFrameV2,
+    spec: &SendScenarioSpec,
+    expected_delivery: &str,
+    expected_id: &str,
+    expected_causation: Option<&str>,
+) {
     frame.validate().expect("timeline Frame remains valid");
     assert_eq!(frame.schema_version, 2);
     assert!(!frame.transaction_id.is_empty());
-    assert_eq!(frame.causation_id.as_deref(), Some(REQUEST_ID));
+    assert_eq!(frame.causation_id.as_deref(), expected_causation);
     assert_eq!(format!("{:?}", frame.runtime.connection), "Online");
     assert_eq!(format!("{:?}", frame.runtime.initial_sync), "Ready");
     assert_eq!(format!("{:?}", frame.runtime.recovery), "Idle");
@@ -622,22 +842,34 @@ pub fn assert_timeline_contract(
     assert_eq!(mutation.mutation.surface, SurfaceId::MessageTimeline);
     assert_eq!(mutation.surface_epoch, 1);
     assert!(mutation.mutation.revision > 0);
-    assert!(mutation.mutation.base_revision.is_some());
-    assert_eq!(mutation.mutation.causation_id.as_deref(), Some(REQUEST_ID));
+    assert_eq!(
+        mutation.mutation.base_revision.is_some(),
+        expected_causation.is_some(),
+        "send refresh is a patch while cold recovery starts with a snapshot"
+    );
+    assert_eq!(
+        mutation.mutation.causation_id.as_deref(),
+        expected_causation
+    );
     let message = first_message(frame);
     assert_eq!(message.id, expected_id);
-    assert_eq!(message.channel_id, CHANNEL_ID);
-    assert_eq!(message.author.user_id, ACTOR_ID);
-    assert_eq!(message.created_at, CREATED_AT);
-    let MessageContentVm::Text { text } = &message.content else {
-        panic!("G01 timeline contract requires text content")
-    };
-    assert_eq!(text, MARKER);
+    assert_eq!(message.channel_id, spec.channel_id);
+    assert_eq!(message.author.user_id, spec.actor_id);
+    assert_eq!(message.created_at, spec.created_at);
     assert!(delivery_kinds(frame).contains(expected_delivery));
 }
 
 /// 逐字段验证建群前置 Frame 已把同一权威 channel 插入双用户左侧会话。
 pub fn assert_group_created_contract(frame: &InteractionFrameV2) {
+    let spec = g01_scenario_spec();
+    assert_group_created_contract_for(frame, &spec);
+}
+
+/// 逐字段验证任一 Gate 的建群前置 Frame 使用其权威 channel 与双用户 roster。
+pub fn assert_group_created_contract_for(
+    frame: &InteractionFrameV2,
+    spec: &SendScenarioSpec,
+) {
     frame.validate().expect("group-created Frame remains valid");
     assert_eq!(frame.schema_version, 2);
     assert!(!frame.transaction_id.is_empty());
@@ -655,27 +887,33 @@ pub fn assert_group_created_contract(frame: &InteractionFrameV2) {
     assert_eq!(
         dialog_mutation.mutation.scope,
         SurfaceScope::User {
-            user_id: ACTOR_ID.to_string(),
-            team_id: TEAM_ID.to_string(),
+            user_id: spec.actor_id.to_string(),
+            team_id: spec.team_id.to_string(),
         }
     );
-    let row = dialog_row(frame, CHANNEL_ID);
-    assert_eq!(row.channel_id, CHANNEL_ID);
-    assert_eq!(row.title.text, GROUP_NAME);
+    let row = dialog_row(frame, spec.channel_id);
+    assert_eq!(row.channel_id, spec.channel_id);
+    assert_eq!(row.title.text, spec.group_name);
     assert_eq!(format!("{:?}", row.channel_kind), "Group");
     assert_eq!(row.member_count, 2);
     assert_eq!(
         row.avatar.user_ids,
-        vec![ACTOR_ID.to_string(), OBSERVER_ID.to_string()],
+        vec![spec.actor_id.to_string(), spec.observer_id.to_string()],
         "group member-grid preserves the deterministic two-user roster"
     );
-    assert_eq!(row.last_activity_at, CREATED_AT - 5);
+    assert_eq!(row.last_activity_at, spec.created_at - 5);
     assert_eq!(format!("{:?}", row.preview), "Empty");
     assert_eq!(row.lifecycle.state, "active");
 }
 
 /// 验证 WS dialog Frame 至少包含左侧会话 slot 及本次 marker/时间。
 pub fn assert_dialog_contract(frame: &InteractionFrameV2) {
+    let spec = g01_scenario_spec();
+    assert_dialog_contract_for(frame, &spec);
+}
+
+/// 验证任一发送类 Gate 的 WS dialog Frame 包含其 channel、摘要与权威时间。
+pub fn assert_dialog_contract_for(frame: &InteractionFrameV2, spec: &SendScenarioSpec) {
     frame.validate().expect("dialog Frame remains valid");
     assert_eq!(frame.schema_version, 2);
     assert!(!frame.transaction_id.is_empty());
@@ -692,20 +930,25 @@ pub fn assert_dialog_contract(frame: &InteractionFrameV2) {
     assert_eq!(
         dialog_mutation.mutation.scope,
         SurfaceScope::User {
-            user_id: ACTOR_ID.to_string(),
-            team_id: TEAM_ID.to_string(),
+            user_id: spec.actor_id.to_string(),
+            team_id: spec.team_id.to_string(),
         },
         "dialog Frame must target the attached actor/team slot"
     );
-    let row = dialog_row(frame, CHANNEL_ID);
+    let row = dialog_row(frame, spec.channel_id);
     assert_eq!(
         row.last_activity_at,
-        CREATED_AT + 20,
+        spec.created_at + 20,
         "WS dialog must expose the authoritative post activity; row={row:?}"
     );
-    match &row.preview {
-        helix_im::interaction_frame::PreviewVm::Text { text, .. } => assert_eq!(text, MARKER),
-        preview => panic!("G01 dialog preview must be text, got {preview:?}"),
+    match (&row.preview, spec.message_type) {
+        (helix_im::interaction_frame::PreviewVm::Text { text, .. }, "TEXT") => {
+            assert_eq!(text, spec.marker)
+        }
+        (helix_im::interaction_frame::PreviewVm::Document { title, .. }, "DOCUMENT") => {
+            assert_eq!(title, spec.marker)
+        }
+        (preview, kind) => panic!("send dialog preview mismatch for {kind}, got {preview:?}"),
     }
 }
 
@@ -751,28 +994,39 @@ fn rows_bytes(rows: Value) -> Bytes {
     Bytes::from(serde_json::to_vec(&rows).expect("storage rows serialize"))
 }
 
-/// 构造 driver Scan 回灌使用的本地 message row。
-fn message_row(id: &str, temporary_id: &str, status: &str, event_seq: u64) -> Value {
+/// 构造 driver Scan 回灌使用的 Gate 专属本地 message row。
+fn message_row(
+    spec: &SendScenarioSpec,
+    id: &str,
+    temporary_id: &str,
+    status: &str,
+    event_seq: u64,
+) -> Value {
     json!({
         "id": id,
         "temporaryId": temporary_id,
-        "channelId": CHANNEL_ID,
-        "userId": ACTOR_ID,
-        "createAt": CREATED_AT,
-        "message": MARKER,
-        "type": "TEXT",
+        "channelId": spec.channel_id,
+        "userId": spec.actor_id,
+        "createAt": spec.created_at,
+        "message": spec.marker,
+        "type": spec.message_type,
         "sendStatus": status,
         "event_seq": event_seq,
-        "props": {},
+        "props": spec.props,
     })
 }
 
 /// 构造 dialog 写后 Get 使用的累计 channel row。
-fn channel_row(unread_count: i64, last_post: &str, last_root_post_at: i64) -> Value {
+fn channel_row(
+    spec: &SendScenarioSpec,
+    unread_count: i64,
+    last_post: &str,
+    last_root_post_at: i64,
+) -> Value {
     json!({
-        "id": CHANNEL_ID,
-        "team_id": TEAM_ID,
-        "display_name": "G01 Flow Group",
+        "id": spec.channel_id,
+        "team_id": spec.team_id,
+        "display_name": spec.group_name,
         "type": "P",
         "unread_count": unread_count,
         "mention_count": 0,
@@ -781,31 +1035,32 @@ fn channel_row(unread_count: i64, last_post: &str, last_root_post_at: i64) -> Va
         "urgent_post_list": [],
         "unread_post_id": "",
         "last_post": last_post,
+        "last_message_type": spec.message_type,
         "last_post_at": last_root_post_at,
         "last_root_post_at": last_root_post_at,
     })
 }
 
 /// 构造携 temporaryId、serverId 和 event_seq 的权威 WS post。
-fn echo_frame(temporary_id: &str) -> Tick {
+fn echo_frame(spec: &SendScenarioSpec, temporary_id: &str) -> Tick {
     Tick::Inbound(InboundBytes(
         serde_json::to_vec(&json!({
             "v": 1,
             "action": "post",
             "data": {
-                "id": SERVER_ID,
+                "id": spec.server_id,
                 "temporaryId": temporary_id,
-                "channelId": CHANNEL_ID,
+                "channelId": spec.channel_id,
                 "event_seq": 1,
-                "create_at": CREATED_AT + 20,
-                "message": MARKER,
-                "simpleMessage": MARKER,
-                "type": "TEXT",
-                "userId": ACTOR_ID,
-                "userSnapshot": {"userId": ACTOR_ID, "teamId": TEAM_ID},
+                "create_at": spec.created_at + 20,
+                "message": spec.marker,
+                "simpleMessage": spec.marker,
+                "type": spec.message_type,
+                "userId": spec.actor_id,
+                "userSnapshot": {"userId": spec.actor_id, "teamId": spec.team_id},
                 "viewers": ["all"],
                 "mentions": [],
-                "props": {"channel_event_seq": 1}
+                "props": merge_channel_event_seq(&spec.props)
             },
             "broadcast": {},
             "seq": 1
@@ -813,6 +1068,13 @@ fn echo_frame(temporary_id: &str) -> Tick {
         .expect("WS echo serializes")
         .into(),
     ))
+}
+
+/// 合并 WS authority 序号而不改写 Gate 自身的 props 业务字段。
+fn merge_channel_event_seq(props: &Value) -> Value {
+    let mut merged = props.as_object().cloned().unwrap_or_default();
+    merged.insert("channel_event_seq".to_string(), json!(1));
+    Value::Object(merged)
 }
 
 /// 判断一组 StorageOp 是否包含指定表的业务写。

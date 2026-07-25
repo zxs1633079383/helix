@@ -1774,11 +1774,17 @@ fn normalize_channel_kind(value: Option<String>) -> String {
     }
 }
 
+/// 将权威 post type 映射为 dialog typed preview，禁止用 messageClass 猜内容类型。
 fn preview_kind(value: Option<&str>) -> String {
     if is_recalled_type(value) {
         "recalled".to_string()
     } else if is_system_type(value) {
         "system".to_string()
+    } else if value
+        .map(|value| value.eq_ignore_ascii_case("DOCUMENT"))
+        .unwrap_or(false)
+    {
+        "document".to_string()
     } else if value
         .map(|value| value.eq_ignore_ascii_case("TEXT"))
         .unwrap_or(true)
@@ -2097,6 +2103,7 @@ mod tests {
     }
 
     #[test]
+    /// 证明 preview 类型只追随 lastPost.type，DOCUMENT 不降级成 generic media。
     fn post_preview_kind_uses_last_post_type_not_message_class() {
         for message_class in ["normal", "mention", "urgent"] {
             let preview = preview_from_post_projection(&serde_json::json!({
@@ -2118,6 +2125,14 @@ mod tests {
         }))
         .expect("image post projects a preview");
         assert_eq!(preview.kind, "non-text");
+
+        let document = preview_from_post_projection(&serde_json::json!({
+            "lastMessage": "打开文档",
+            "messageClass": "normal",
+            "lastPost": { "type": "DOCUMENT" }
+        }))
+        .expect("document post projects a typed preview");
+        assert_eq!(document.kind, "document");
     }
 
     #[test]

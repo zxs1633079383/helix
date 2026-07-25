@@ -22,6 +22,58 @@ const GS03_HYDRATION_V2: &str =
 const GS_DUPLICATE_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/gs-duplicate-v2.json");
 const RICH_V2: &str = include_str!("fixtures/uc01-16-surface-runtime/rich-v2.json");
 
+#[path = "support/g02_scenario.rs"]
+mod g02_scenario;
+
+#[test]
+/// 证明 G02 HTTP success 与业务 timeout 都必须跨终态 Persist/readback 才发布 Frame。
+fn g02_terminal_frames_preserve_persist_barrier_and_causation() {
+    let sent = g02_scenario::G02ScenarioRunner::run_http(g02_scenario::Terminal::Sent);
+    let failed =
+        g02_scenario::G02ScenarioRunner::run_http(g02_scenario::Terminal::BusinessFailed);
+    g02_scenario::assert_document_timeline_contract(
+        &sent.terminal,
+        "sent",
+        g02_scenario::SERVER_ID,
+    );
+    g02_scenario::assert_document_timeline_contract(
+        &failed.terminal,
+        "failed",
+        &failed.temporary_id,
+    );
+    assert_eq!(
+        sent.terminal.causation_id.as_deref(),
+        Some(g02_scenario::REQUEST_ID)
+    );
+    assert_eq!(
+        failed.terminal.causation_id.as_deref(),
+        Some(g02_scenario::REQUEST_ID)
+    );
+}
+
+#[test]
+/// 证明 G02 WS 先行结算保留 eventSeq，迟到 HTTP 与重复 inbound 不产生第二终态。
+fn g02_ws_authority_keeps_event_seq_and_idempotent_terminal() {
+    let ws = g02_scenario::G02ScenarioRunner::run_ws_echo_with_dialog();
+    g02_scenario::assert_document_timeline_contract(
+        &ws.timeline_sent,
+        "sent",
+        g02_scenario::SERVER_ID,
+    );
+    assert_eq!(g02_scenario::first_message(&ws.timeline_sent).event_seq, 1);
+    assert_ne!(ws.timeline_corr, ws.dialog_corr);
+}
+
+#[test]
+/// 证明 G02 recovery 从持久 row 重建完整 Document content 而非 raw fallback。
+fn g02_recovery_restores_typed_document_frame() {
+    let recovery = g02_scenario::G02ScenarioRunner::run_recovery();
+    g02_scenario::assert_recovered_document_timeline_contract(
+        &recovery.recovered,
+        g02_scenario::SERVER_ID,
+    );
+}
+
 #[test]
 fn canonical_snapshot_decodes_all_eight_surface_vms() {
     let frame = decode(CANONICAL_SNAPSHOT);

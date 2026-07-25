@@ -113,7 +113,7 @@ impl ImModule {
             .map(|(id, _)| id.clone());
 
         if let Some(tmp_id) = maybe_tmp {
-            let failed_channel_id = self
+            let failed_context = self
                 .state
                 .pending_sends
                 .get(&tmp_id)
@@ -122,16 +122,33 @@ impl ImModule {
                         && pending.status != crate::state::SendStatus::UnSend
                         && !pending.upload_failed
                 })
-                .and_then(|pending| pending.body.as_ref())
-                .and_then(|body| body.get("channelId"))
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string);
-            if let Some(ps) = self.state.pending_sends.get_mut(&tmp_id) {
-                ps.on_timeout(out);
-            }
-            if let Some(channel_id) = failed_channel_id {
+                .and_then(|pending| {
+                    let channel_id = pending
+                        .body
+                        .as_ref()
+                        .and_then(|body| body.get("channelId"))
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(crate::state::ChannelId::from_str)?;
+                    Some((channel_id, pending.request_id.clone()))
+                });
+            if let Some((channel_id, causation_id)) = failed_context {
+                let reconcile_corr = self.alloc_corr_internal();
+                if self
+                    .state
+                    .pending_sends
+                    .get_mut(&tmp_id)
+                    .is_some_and(|pending| pending.mark_failed_immediately(reconcile_corr, out))
+                {
+                    self.state.corr_map.insert(
+                        reconcile_corr,
+                        crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                            channel_id,
+                            causation_id,
+                        },
+                    );
+                }
                 out.push(crate::acl::to_effect::emit_post_send_failed(
-                    &channel_id,
+                    channel_id.as_str(),
                     tmp_id.0.as_str(),
                 ));
             }

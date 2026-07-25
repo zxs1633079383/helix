@@ -87,3 +87,42 @@
 
 结论：G-05 Helix producer 与 canonical Fixture required lane 为 Green；PC 与
 Mobile 尚未开始，Gate 整体仍为 `implementing`，不得进入 G06。
+
+## T013-T022 PC Mock/Real/Report Green
+
+- cses-client commits：production overlay 修复 `e36d6c35f`；G05 三链验收
+  `424d1c9e5`。Tauri production Helix dependencies 统一 pin
+  `3798ffdd0bfd89b8922829dd252327bb0a2075ec`。
+- Fixture sync check：`G05_FIXTURE_PARITY_OK count=4`；WDIO contract Jest
+  4 suites、19 tests 全过。四份 Frame raw/semantic hash、schema、surface
+  inventory 与 provenance 授权的 dynamic path 均 fail-closed。
+- `yarn message:wdio:build`：Angular `wdio-e2e` bundle 与 Tauri debug
+  candidate 构建退出码 0；candidate 为
+  `src-tauri/target/debug/cses-client`，真实链接上述 Helix pin。
+- Mock run `mock-20260725202840193-88968`：退出码 0，2/2；证明
+  `AcceptedCommand` 不产生业务 ViewModel、dialog authority 与 target timeline
+  为独立 correlation，transport rejection 不伪造 target Frame。
+- single-real run `single-real-20260725203458024-94018`：退出码 0，1/1；
+  从 MessageV4 UI 新建 source/target 群，闭合真实 `im_invoke_action`、
+  `createPosts`、Go WS `post`、SQLite/PG、dialog Frame/FrameApplied 与 target
+  DOM。证据位于该 run 的 `shared/evidence/single-real*.json`。
+- dual-real run `dual-real-20260725203521691-94328`：退出码 0，1/1；
+  Actor dialog 与 Observer target timeline 独立等待，最终 canonical post id
+  在 Actor/Observer/SQLite/PG 一致。证据位于该 run 的
+  `shared/evidence/dual-real*.json`。
+- report run `report-20260725202909644-89360`：退出码 0，1/1；Mock、
+  single-real、dual-real 报告均带 evidence level、case status、artifact hash
+  与 redaction verdict。
+- `CSES_WDIO_BOUNDARY_GATE=G05 node
+  scripts/message-wdio/check-production-boundary.mjs`：
+  `checkedFiles=2735`、`mockProductionReachable=false`、`ok=true`。
+- 真实回归发现并修复两个非测试旁路问题：重复使用 opaque `actionRef` 时页面
+  读取旧 terminal history；user-scope dialog Frame 曾被测试工具错误按 timeline
+  `channelId` 过滤。当前生产页面读取最新 action request，证据 latch 按 surface
+  scope 规则匹配。
+- WDIO service 启动仍打印全局 `tauri-driver not found` 诊断，但 embedded
+  WebKit driver 实际创建 session 且所有 required G05 lanes 退出码 0；该诊断
+  不作为跳过或 Green 替代。
+
+结论：G-05 PC Mock、PC Real、report 与 production boundary 为 Green；Mobile
+尚未开始，Gate 整体保持 `implementing`，不得进入 G06。

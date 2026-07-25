@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 单条可见上报；模板确认已收到
-    UI->>Port: markMessageRead/markTemplateReceived -&gt; im_post_read / im_template_received
+    UI->>Port: markMessageRead/markTemplateReceived → im_post_read / im_template_received
     Port->>Helix: im_post_read / im_template_received
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 话题创建器或新建群聊对话框提交
-    UI->>Port: createTopic/createChat -&gt; im_make_topic / im_create_channel
+    UI->>Port: createTopic/createChat → im_make_topic / im_create_channel
     Port->>Helix: im_make_topic / im_create_channel
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

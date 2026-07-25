@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 切换频道；上拉更早历史
-    UI->>Port: activateChannel/loadOlder -&gt; im_query_messages_by_channel / im_load_older_context
+    UI->>Port: activateChannel/loadOlder → im_query_messages_by_channel / im_load_older_context
     Port->>Helix: im_query_messages_by_channel / im_load_older_context
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

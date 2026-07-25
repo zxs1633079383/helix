@@ -1,0 +1,18 @@
+flowchart TD
+  START["G07 scenario start"] --> S1
+  S1["1. urgent-action"]
+  S2["2. urgent-timeline-frame"]
+  S3["3. confirm-action"]
+  S4["4. participant-receipts-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：MessageVm.urgency + ParticipantReceiptsVm{kind=urgentConfirmation,summary,completed,pending,page,state}"]
+  RULE["不变量：targetIds、required/completed 数量与可确认权限由 Helix 裁决；PC/Mobile 不从数组自行计数"]
+  DRIFT["当前漂移：当前 focused test 固定 urgent/confirm/cancel binding 与 wire，但完整 timeline + receipts 双 Surface replay 尚未固化为 Fixture；Strict Matrix 还漏列源码已接受的 urgent message/req_id 与 confirm 兼容输入 channel_id"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

@@ -1,0 +1,19 @@
+flowchart LR
+  I["Intent<br/>发起加急或点击确认"]
+  C["Canonical ingress<br/>ActionBinding urgent/urgentConfirm"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>MessageVm.urgency + ParticipantReceiptsVm{kind=urgentConfirmation,summary,completed,pending,page,state}"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB

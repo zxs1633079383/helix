@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 消息菜单撤回；observer 收到离线 type-3 事实
-    UI->>Port: requestSurfaceAction -&gt; im_invoke_action；离线事实不经过 UI command
+    UI->>Port: requestSurfaceAction → im_invoke_action；离线事实不经过 UI command
     Port->>Helix: im_revoke / im_sync_channels
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

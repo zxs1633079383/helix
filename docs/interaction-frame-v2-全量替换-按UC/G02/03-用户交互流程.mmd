@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: composer 选择文档内容并提交
-    UI->>Port: MessageComponent.submitComposer -&gt; ShellService.sendDocument -&gt; im_send_message
+    UI->>Port: MessageComponent.submitComposer → ShellService.sendDocument → im_send_message
     Port->>Helix: im_send_message
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

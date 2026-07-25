@@ -1,0 +1,18 @@
+flowchart TD
+  START["G04 scenario start"] --> S1
+  S1["1. revoke-action-or-command"]
+  S2["2. actor-recalled-frame"]
+  S3["3. observer-online-recalled-frame"]
+  S4["4. observer-offline-replay-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：MessageContentVm::Recalled{text}、DeliveryVm::Recalled；原 message id/channel/author/createAt 保持同一逻辑行"]
+  RULE["不变量：撤回文案、可见性和生命周期均由 Helix 给出；在线与离线重放必须收敛到同一 recalled VM"]
+  DRIFT["当前漂移：G04a 已覆盖原子 Persist 屏障，但尚无按 online/offline 分层的 Helix canonical Frame Fixture 与新 WDIO lane"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

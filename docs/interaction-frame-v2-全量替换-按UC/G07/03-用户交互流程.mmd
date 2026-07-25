@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 发起加急或点击确认
-    UI->>Port: submitUrgent/actionRequested -&gt; im_invoke_action
+    UI->>Port: submitUrgent/actionRequested → im_invoke_action
     Port->>Helix: im_urgent_post / im_urgent_confirm
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

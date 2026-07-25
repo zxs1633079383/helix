@@ -1,0 +1,18 @@
+flowchart TD
+  START["G13 scenario start"] --> S1
+  S1["1. channel-view-command"]
+  S2["2. post-read-or-update-channel-authority"]
+  S3["3. receipt-frame"]
+  S4["4. channel-summary-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：ParticipantReceiptsVm(kind=read) 与 ChannelSummaryVm；read completion 必须绑定 viewer/channel authority"]
+  RULE["不变量：未读清零和 readBits 不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威"]
+  DRIFT["当前漂移：Strict Matrix 声明 receipts + channel-summary，但 ChannelSummaryVm 无 unread 字段；必须在 producer Fixture 中证明真正承载值或修正 Matrix"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

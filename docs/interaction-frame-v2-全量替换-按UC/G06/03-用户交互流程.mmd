@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 点击 emoji
-    UI->>Port: MessageComponent.sendReaction -&gt; im_invoke_action
+    UI->>Port: MessageComponent.sendReaction → im_invoke_action
     Port->>Helix: im_quick_reply
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: composer 打开定时对话框并提交
-    UI->>Port: submitSchedule -&gt; binding（若存在）或 ShellService.createSchedule -&gt; im_create_schedule
+    UI->>Port: submitSchedule → binding（若存在）或 ShellService.createSchedule → im_create_schedule
     Port->>Helix: im_create_schedule
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

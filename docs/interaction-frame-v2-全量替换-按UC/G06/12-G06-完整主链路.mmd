@@ -1,0 +1,19 @@
+flowchart LR
+  I["Intent<br/>点击 emoji"]
+  C["Canonical ingress<br/>ActionBinding react"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>MessageVm.reactions=[{emoji,count}] 与 actions[kind=react]；count 为权威聚合后的非负整数"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB

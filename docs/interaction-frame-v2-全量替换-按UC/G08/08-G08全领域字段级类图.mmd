@@ -1,0 +1,65 @@
+classDiagram
+direction LR
+
+class Intent {
+  +gate: G-08
+  +entry: composer 打开定时对话框并提交
+}
+class CanonicalCommand {
+  +name: im_create_schedule
+  +payload: strict object
+}
+class Tick {
+  +Command
+  +Inbound
+  +PortReply
+}
+class Effect {
+  +Http
+  +Persist
+  +ScheduleTimer
+  +Emit
+}
+class InteractionFrameV2 {
+  +schemaVersion: 2
+  +transactionId: string
+  +causationId: string?
+  +runtime: InteractionRuntimeVm
+  +mutations: SurfaceMutationV2[]
+  +directives: UiDirective[]
+}
+class SurfaceMutationV2 {
+  +surface: message.channel-summary
+  +scope: SurfaceScope
+  +revision: u64
+  +baseRevision: u64?
+  +surfaceEpoch: u64
+  +causationId: string?
+  +mutation: TypedSurfaceMutation
+}
+class PcSurfaceRuntime {
+  +stage(frame)
+  +atomicApply()
+  +frameApplied()
+  +typedDom()
+}
+class MobileSurfaceRuntime {
+  +ingest(frame)
+  +atomicApply()
+  +ackNext()
+  +viewJson()
+}
+class Venus {
+  +dispatchCanonicalCommand()
+  +pumpDomainEvents()
+  +im.surface.view()
+}
+
+Intent --> CanonicalCommand
+CanonicalCommand --> Tick
+Tick --> Effect
+Effect --> InteractionFrameV2 : committed authority
+InteractionFrameV2 *-- SurfaceMutationV2
+InteractionFrameV2 --> PcSurfaceRuntime
+InteractionFrameV2 --> MobileSurfaceRuntime
+MobileSurfaceRuntime --> Venus

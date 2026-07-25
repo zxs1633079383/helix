@@ -1,0 +1,19 @@
+flowchart LR
+  I["Intent<br/>composer 打开定时对话框并提交"]
+  C["Canonical ingress<br/>当前主要 direct command；代码保留“有 enabled binding 则用”的过渡分支"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>声明 Surface 为 message.channel-summary；owner-only schedule hydrate 至少包含 channelId/scheduleId/scheduleOwnerUserId/scheduleMessage"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB

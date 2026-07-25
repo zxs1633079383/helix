@@ -1,0 +1,20 @@
+flowchart TD
+  START["G15 scenario start"] --> S1
+  S1["1. create-channel-or-topic-command"]
+  S2["2. http-authority"]
+  S3["3. channel-member-persist"]
+  S4["4. channel-or-thread-frame"]
+  S5["5. observer-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> S5
+  S5 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：ChannelSummaryVm、MemberRosterVm、ThreadDetailVm(detailContext=topic)；topic/channel/member/root/revision 必须同源"]
+  RULE["不变量：actor 为隐式 session owner；userIds 只传显式邀请者；topic root/reply 关系不得由 renderer 拼接"]
+  DRIFT["当前漂移：focused Rust g15_topic_interaction_test 当前验证 TopicListVm 不变量，而 Matrix 声明 channel-summary/thread-detail/member-roster；需先对齐 producer 与 Matrix"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

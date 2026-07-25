@@ -1,0 +1,19 @@
+flowchart LR
+  I["Intent<br/>单条可见上报；模板确认已收到"]
+  C["Canonical ingress<br/>direct command；receipt popover 查询可使用独立 binding"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>ParticipantReceiptsVm(kind=read)；模板使用 MessageVm.templateConfirmation，不得与 read receipt 合并成本地 bool"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB

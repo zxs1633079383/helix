@@ -1,0 +1,31 @@
+sequenceDiagram
+  actor U as 用户/系统
+  participant PC as PC MessageV4
+  participant MOB as Mobile QuickJS/Venus
+  participant PORT as Tauri/FFI Port
+  participant H as Helix ImModule
+  participant STORE as SQLite Driver
+  participant GO as cses-im-server/PG
+  participant WS as Go WS/sync
+  participant FRAME as InteractionFrameV2
+  participant SR as PC/Mobile SurfaceRuntime
+
+  U->>PC: composer 打开定时对话框并提交
+  U->>MOB: 同一业务 intent
+  PC->>PORT: 当前主要 direct command；代码保留“有 enabled binding 则用”的过渡分支
+  MOB->>PORT: canonical facade command
+  PORT->>H: im_create_schedule
+  H-->>PORT: command/action receipt 仅表示受理
+  H->>STORE: Persist/Scan/Get authority
+  STORE-->>H: matching PortReply
+  H->>GO: HTTP effect（仅需要时）
+  GO-->>H: authority response
+  GO-->>WS: durable event/outbox
+  WS-->>H: post_schedule_created
+  H->>STORE: inbound fact atomic persist/readback
+  STORE-->>H: PersistOk
+  H-->>FRAME: Effect::Emit full frame
+  FRAME->>SR: decode + validate + atomic apply
+  SR-->>PORT: FrameApplied(transactionId)
+  SR-->>PC: typed DOM
+  SR-->>MOB: im.surface.view typed JSON

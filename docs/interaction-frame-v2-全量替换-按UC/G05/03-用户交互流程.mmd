@@ -7,7 +7,7 @@ sequenceDiagram
     participant Runtime as SurfaceRuntime
 
     User->>UI: 消息行或多选工具条发起转发
-    UI->>Port: submitForward -&gt; im_invoke_action 或 ShellService.relayMessages -&gt; im_relay_messages
+    UI->>Port: submitForward → im_invoke_action 或 ShellService.relayMessages → im_relay_messages
     Port->>Helix: im_relay_messages
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result

@@ -1,0 +1,19 @@
+flowchart LR
+  I["Intent<br/>切换频道；上拉更早历史"]
+  C["Canonical ingress<br/>Surface attach/resync + direct query"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>TimelineWindowVm{channelId,anchor,items,firstUnreadMessageId?,targetMessageId?,page,state}；page 含 windowToken/hasOlder/hasNewer/hasMore"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB

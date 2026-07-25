@@ -45,6 +45,7 @@ ROOT_DOCS = {
     "03-协议版本边界.md",
     "04-验收证据边界.md",
     "05-文档完整性检查.md",
+    "06-G02-G15-FrameV2字段与验收总索引.md",
 }
 
 UC_DOCS = [
@@ -64,6 +65,15 @@ G01_DEEP_DOCS = [
     "10-G01三个Frame与状态纠错.mmd",
     "11-G01字段级数据合同与测试证据.md",
 ]
+
+G01_OPTIONAL_DOCS = [
+    "12-G01-完整主链路.mmd",
+    "13-G01-Helix-PC-Mobile-V2验收合同.md",
+    "AGENTS.md",
+    "handoff.md",
+]
+
+DEEP_UCS = {"G02", "G04", "G05", "G06", "G07", "G08", "G10", "G13", "G14", "G15"}
 
 MATRIX_RE = re.compile(
     r"<!-- GATE_MATRIX_START -->\n(?P<body>.*?)\n<!-- GATE_MATRIX_END -->",
@@ -92,6 +102,7 @@ def parse_matrix(index_text: str, errors: list[str]) -> list[list[str]]:
 
 
 def verify_doc_shape(errors: list[str]) -> None:
+    """Verify the root, base UC, G01 curated, and selected deep-GN inventories."""
     expected_ucs = {uc for uc, _, _ in EXPECTED_ROWS}
     actual_ucs = {path.name for path in DOC_ROOT.iterdir() if path.is_dir()}
     if actual_ucs != expected_ucs:
@@ -107,12 +118,48 @@ def verify_doc_shape(errors: list[str]) -> None:
 
     for uc in sorted(expected_ucs):
         files = sorted(path.name for path in (DOC_ROOT / uc).iterdir() if path.is_file())
-        expected_files = sorted(UC_DOCS + (G01_DEEP_DOCS if uc == "G01" else []))
-        if files != expected_files:
+        allowed_optional_docs = G01_OPTIONAL_DOCS if uc == "G01" else []
+        deep_docs = (
+            [
+                f"08-{uc}全领域字段级类图.mmd",
+                f"09-{uc}完整主链路时序图.mmd",
+                f"10-{uc}-Frame阶段与接受值.mmd",
+                f"11-{uc}字段级数据合同与测试证据.md",
+                f"12-{uc}-完整主链路.mmd",
+                f"13-{uc}-Helix-PC-Mobile-V2验收合同.md",
+                "handoff.md",
+            ]
+            if uc in DEEP_UCS
+            else []
+        )
+        expected_files = sorted(
+            UC_DOCS + (G01_DEEP_DOCS if uc == "G01" else deep_docs)
+        )
+        missing_files = sorted(set(expected_files) - set(files))
+        extra_files = sorted(
+            set(files) - set(expected_files) - set(allowed_optional_docs)
+        )
+        if missing_files or extra_files:
             expected_count = len(expected_files)
             errors.append(
-                f"{uc} 应保留 {expected_count} 份当前代码文档，实际为 {files}"
+                f"{uc} 应保留 {expected_count} 份当前代码文档："
+                f"missing={missing_files}, extra={extra_files}"
             )
+
+
+def verify_document_links(errors: list[str]) -> None:
+    """Require every local Markdown link in the generated tree to resolve."""
+    for doc_path in DOC_ROOT.rglob("*.md"):
+        doc_text = doc_path.read_text(encoding="utf-8")
+        for raw_target in LINK_RE.findall(doc_text):
+            target = raw_target.split("#", 1)[0]
+            if not target or target.startswith(("http://", "https://", "mailto:")):
+                continue
+            resolved = (doc_path.parent / target).resolve()
+            if not resolved.exists():
+                errors.append(
+                    f"{doc_path.relative_to(DOC_ROOT)} 本地链接不存在：{raw_target}"
+                )
 
 
 def verify_global_tasks(errors: list[str]) -> None:
@@ -181,8 +228,10 @@ def verify_matrix(errors: list[str]) -> None:
 
 
 def main() -> int:
+    """Run every documentation and historical task mapping check."""
     errors: list[str] = []
     verify_doc_shape(errors)
+    verify_document_links(errors)
     verify_global_tasks(errors)
     verify_matrix(errors)
 
@@ -192,7 +241,9 @@ def main() -> int:
         return 1
 
     print(
-        "PASS: 18 UC x 8 + G01 x 12 当前文档；25 Gate；V1 切换期文档已下线；"
+        "PASS: 8 个基础 UC x 8 + 10 个深挖 UC x 15 + "
+        "G01 x 12（允许已存在的人工 handoff 扩展）当前文档；"
+        "25 Gate；V1 切换期文档已下线；"
         "T021-T077 历史任务映射连续唯一"
     )
     return 0

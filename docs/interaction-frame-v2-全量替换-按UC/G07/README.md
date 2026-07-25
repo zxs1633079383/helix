@@ -12,6 +12,19 @@
 6. [Go 接口与 WS 推送](./06-Go接口与WS推送.md)
 7. [远端 PG 与本地 SQLite](./07-远端PG与本地SQLite.md)
 
+## G07 字段级主链路与三端验收
+
+8. [全领域字段级类图](./08-G07全领域字段级类图.mmd)
+9. [完整主链路时序图](./09-G07完整主链路时序图.mmd)
+10. [Frame 阶段与接受值](./10-G07-Frame阶段与接受值.mmd)
+11. [字段级数据合同与测试证据](./11-G07字段级数据合同与测试证据.md)
+12. [完整主链路总览](./12-G07-完整主链路.mmd)
+13. [Helix、PC、Mobile V2 验收合同](./13-G07-Helix-PC-Mobile-V2验收合同.md)
+14. [当前 handoff](./handoff.md)
+
+这些文档固定区分 `CURRENT/HISTORICAL/TARGET/BLOCKED/FORBIDDEN`。历史 25-Gate
+Native 产物只作 `HISTORICAL` 输入；没有用当前 pin 重新运行时不得写成当前 Green。
+
 ## 当前对接
 
 | 项目 | 当前代码事实 |

@@ -274,7 +274,178 @@ const g01DeepDocs = new Set([
   '09-G01发送全链路时序图.mmd',
   '10-G01三个Frame与状态纠错.mmd',
   '11-G01字段级数据合同与测试证据.md',
+  '12-G01-完整主链路.mmd',
+  '13-G01-Helix-PC-Mobile-V2验收合同.md',
+  'AGENTS.md',
+  'handoff.md',
 ]);
+const deepUcDirs = new Set([
+  'G02',
+  'G04',
+  'G05',
+  'G06',
+  'G07',
+  'G08',
+  'G10',
+  'G13',
+  'G14',
+  'G15',
+]);
+const deepUcProfiles = {
+  G02: {
+    stages: [
+      'document-command',
+      'uploading-or-sending-frame',
+      'terminal-timeline-frame',
+      'observer-post-frame',
+    ],
+    observable:
+      '`MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 uploading/sending/sent/failed',
+    invariant:
+      '`type=DOCUMENT` 且 `props.document` 必须由 Helix 解析为 typed document；PC/Mobile 不读取 raw props 兜底',
+    drift:
+      '当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；upload effect 与 Document VM 的阶段对应需由新 replay 固定',
+    mobileTest: 'tests/gtest/uc/Uc02DocumentSendTest.cpp',
+  },
+  G04: {
+    stages: [
+      'revoke-action-or-command',
+      'actor-recalled-frame',
+      'observer-online-recalled-frame',
+      'observer-offline-replay-frame',
+    ],
+    observable:
+      '`MessageContentVm::Recalled{text}`、`DeliveryVm::Recalled`；原 message id/channel/author/createAt 保持同一逻辑行',
+    invariant:
+      '撤回文案、可见性和生命周期均由 Helix 给出；在线与离线重放必须收敛到同一 recalled VM',
+    drift:
+      'G04a 已覆盖原子 Persist 屏障，但尚无按 online/offline 分层的 Helix canonical Frame Fixture 与新 WDIO lane',
+    mobileTest: 'tests/gtest/uc/Uc05RevokeTest.cpp',
+  },
+  G05: {
+    stages: [
+      'forward-command',
+      'source-read-assembly',
+      'http-target-acceptance',
+      'per-target-authority-frame',
+      'batch-terminal-report',
+    ],
+    observable:
+      '`MessageContentVm::Forwarded{summary,items}`；每个 target 以 channelId/postId/reqId 独立相关',
+    invariant:
+      'HTTP accepted 不是投递完成；只有可信 target `post` 经 Persist/readback 后才能关闭该 target',
+    drift:
+      'Strict Matrix 声明 canonical timeline，但 focused test 还观察到条件性 left-dialog-list Frame；同时 Matrix 未列 optional req_id，而源码接受 req_id。Fixture 前必须先消除两处 Matrix/source 漂移',
+    mobileTest: 'tests/gtest/uc/Uc06RelayTest.cpp',
+  },
+  G06: {
+    stages: [
+      'react-action',
+      'http-acceptance',
+      'post-update-inbound',
+      'timeline-reaction-frame',
+    ],
+    observable:
+      '`MessageVm.reactions=[{emoji,count}]` 与 `actions[kind=react]`；count 为权威聚合后的非负整数',
+    invariant:
+      'renderer 不发送 `desired_selected/user_id`，也不本地增减 count；actor 由鉴权 session 注入',
+    drift:
+      '当前 Rust focused test 固定 command/wire/action binding，但缺少 post_update 到 reaction Frame 的 canonical replay Fixture',
+    mobileTest: 'tests/gtest/uc/Uc07QuickReplyTest.cpp',
+  },
+  G07: {
+    stages: [
+      'urgent-action',
+      'urgent-timeline-frame',
+      'confirm-action',
+      'participant-receipts-frame',
+    ],
+    observable:
+      '`MessageVm.urgency` + `ParticipantReceiptsVm{kind=urgentConfirmation,summary,completed,pending,page,state}`',
+    invariant:
+      'targetIds、required/completed 数量与可确认权限由 Helix 裁决；PC/Mobile 不从数组自行计数',
+    drift:
+      '当前 focused test 固定 urgent/confirm/cancel binding 与 wire，但完整 timeline + receipts 双 Surface replay 尚未固化为 Fixture；Strict Matrix 还漏列源码已接受的 urgent message/req_id 与 confirm 兼容输入 channel_id',
+    mobileTest: 'tests/gtest/uc/Uc08UrgentTest.cpp',
+  },
+  G08: {
+    stages: [
+      'schedule-command',
+      'http-authority',
+      'post-schedule-created-inbound',
+      'schedule-summary-frame',
+    ],
+    observable:
+      '声明 Surface 为 `message.channel-summary`；owner-only schedule hydrate 至少包含 channelId/scheduleId/scheduleOwnerUserId/scheduleMessage',
+    invariant:
+      'observer 与跨频道不得读取 owner-only schedule 内容；UI 不可先写本地 scheduled badge',
+    drift:
+      '`ChannelSummaryVm` 当前没有显式 schedule 字段，focused test 也只验证 owner hydrate；这是 Fixture/WDIO 前必须解决的 CONTRACT_DRIFT',
+    mobileTest: 'tests/gtest/uc/Uc09ScheduleTest.cpp',
+  },
+  G10: {
+    stages: [
+      'surface-attach',
+      'local-coverage-decision',
+      'timeline-snapshot',
+      'older-command',
+      'replace-view-patch',
+    ],
+    observable:
+      '`TimelineWindowVm{channelId,anchor,items,firstUnreadMessageId?,targetMessageId?,page,state}`；page 含 windowToken/hasOlder/hasNewer/hasMore',
+    invariant:
+      'Complete 分支零 HTTP；Partial/Miss 才回源；补窗保持 windowToken 并用完整 bounded replace-view，不由 UI merge/sort',
+    drift:
+      'Rust 已有窗口 patch focused test，Mobile 也有 UC10 command GTest；按 Complete/Partial/Miss 的 canonical Frame inventory 与 WDIO 新 lane 尚未建立',
+    mobileTest: 'tests/gtest/uc/Uc10HistoryTest.cpp',
+  },
+  G13: {
+    stages: [
+      'channel-view-command',
+      'post-read-or-update-channel-authority',
+      'receipt-frame',
+      'channel-summary-frame',
+    ],
+    observable:
+      '`ParticipantReceiptsVm(kind=read)` 与 `ChannelSummaryVm`；read completion 必须绑定 viewer/channel authority',
+    invariant:
+      '未读清零和 readBits 不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威',
+    drift:
+      'Strict Matrix 声明 receipts + channel-summary，但 ChannelSummaryVm 无 unread 字段；必须在 producer Fixture 中证明真正承载值或修正 Matrix',
+    mobileTest: 'tests/gtest/uc/Uc13ReadTest.cpp',
+  },
+  G14: {
+    stages: [
+      'single-read-command',
+      'read-receipts-frame',
+      'template-received-command',
+      'template-timeline-frame',
+    ],
+    observable:
+      '`ParticipantReceiptsVm(kind=read)`；模板使用 `MessageVm.templateConfirmation`，不得与 read receipt 合并成本地 bool',
+    invariant:
+      '`im_post_read` 只接受 channel_id + posts；`im_template_received` 只声明 received，不冒充 template confirmation authority',
+    drift:
+      '当前 template confirmation projector 在 authority unavailable 时 fail closed；需要分别固化 received 与 confirmation 的正负 Fixture。Matrix 说明仍写 camel postId，而当前 builder/test canonical 输入为 snake_case post_id',
+    mobileTest: 'tests/gtest/uc/Uc14TemplateReceivedTest.cpp',
+  },
+  G15: {
+    stages: [
+      'create-channel-or-topic-command',
+      'http-authority',
+      'channel-member-persist',
+      'channel-or-thread-frame',
+      'observer-frame',
+    ],
+    observable:
+      '`ChannelSummaryVm`、`MemberRosterVm`、`ThreadDetailVm(detailContext=topic)`；topic/channel/member/root/revision 必须同源',
+    invariant:
+      'actor 为隐式 session owner；userIds 只传显式邀请者；topic root/reply 关系不得由 renderer 拼接',
+    drift:
+      'focused Rust `g15_topic_interaction_test` 当前验证 `TopicListVm` 不变量，而 Matrix 声明 channel-summary/thread-detail/member-roster；需先对齐 producer 与 Matrix',
+    mobileTest: 'tests/gtest/uc/Uc15ChannelCreateTest.cpp',
+  },
+};
 if (includedGateIds.length !== 25 || new Set(includedGateIds).size !== 25) {
   throw new Error('cutover scope must contain exactly 25 unique machine gates');
 }
@@ -301,6 +472,7 @@ write('02-V2当前公共架构.md', commonArchitecture());
 write('03-协议版本边界.md', protocolBoundary());
 write('04-验收证据边界.md', evidenceBoundary());
 write('05-文档完整性检查.md', integrityContract());
+write('06-G02-G15-FrameV2字段与验收总索引.md', deepGateIndex());
 
 for (const uc of ucDefinitions) {
   write(`${uc.dir}/README.md`, ucReadme(uc));
@@ -311,12 +483,25 @@ for (const uc of ucDefinitions) {
   write(`${uc.dir}/05-Helix命令与Frame合同.md`, ucHelixContract(uc));
   write(`${uc.dir}/06-Go接口与WS推送.md`, ucGoContract(uc));
   write(`${uc.dir}/07-远端PG与本地SQLite.md`, ucStorageContract(uc));
+  if (deepUcDirs.has(uc.dir)) {
+    write(`${uc.dir}/08-${uc.dir}全领域字段级类图.mmd`, deepClassDiagram(uc));
+    write(`${uc.dir}/09-${uc.dir}完整主链路时序图.mmd`, deepSequenceDiagram(uc));
+    write(`${uc.dir}/10-${uc.dir}-Frame阶段与接受值.mmd`, deepFrameStages(uc));
+    write(`${uc.dir}/11-${uc.dir}字段级数据合同与测试证据.md`, deepFieldContract(uc));
+    write(`${uc.dir}/12-${uc.dir}-完整主链路.mmd`, deepMainChain(uc));
+    write(
+      `${uc.dir}/13-${uc.dir}-Helix-PC-Mobile-V2验收合同.md`,
+      deepAcceptanceContract(uc),
+    );
+    write(`${uc.dir}/handoff.md`, deepHandoff(uc));
+  }
 }
 
 console.log(
   `refreshed ${ucDefinitions.length} UC folders / ${includedGateIds.length} gates at ${relative(repoRoot, docsRoot)}`,
 );
 
+// Builds the discoverable root index without promoting historical runs to current evidence.
 function rootReadme() {
   const rows = ucDefinitions
     .map(
@@ -358,6 +543,7 @@ overlay 和诊断等 shell state，不从 raw event 重建业务事实。
 4. [协议版本边界](./03-协议版本边界.md)
 5. [验收证据边界](./04-验收证据边界.md)
 6. [文档完整性检查](./05-文档完整性检查.md)
+7. [G02-G15 FrameV2 字段与验收总索引](./06-G02-G15-FrameV2字段与验收总索引.md)
 
 ## 业务 UC
 
@@ -565,6 +751,7 @@ SQLite、Frame、DOM 和双端证据。Mock fixture、command receipt、HTTP 200
 `;
 }
 
+// Defines the generated documentation inventory and its fail-closed verification commands.
 function integrityContract() {
   return `# 文档完整性检查
 
@@ -574,6 +761,8 @@ function integrityContract() {
 - 25 个且仅 25 个 machine Gate；
 - \`G03/G03a\` 不进入分母；
 - 每个 UC 文件夹保留 README 索引和 7 个当前代码细分面；
+- G02/G04/G05/G06/G07/G08/G10/G13/G14/G15 各追加 7 个字段级、主链路、
+  三端验收与 handoff 文档；
 - 不存在文件名或正文把 Frame V1 描述为当前/可选路径；
 - 不复制逐 UC Spec/Plan/Tasks，唯一实施历史位于 \`specs/018-*\`；
 - 根矩阵中的 command、effect、projection、persistence 必须来自当前
@@ -583,6 +772,7 @@ function integrityContract() {
 
 \`\`\`bash
 node scripts/refresh_interaction_frame_v2_docs.mjs
+python3 scripts/verify-interaction-frame-v2-index.py
 find docs/interaction-frame-v2-全量替换-按UC -type f | sort
 rg -n 'InteractionFrameV1|normalizeLegacyFrame|RenderNodeV1|InteractionFrame/v1' \\
   crates/helix-im/src \\
@@ -596,6 +786,7 @@ git diff --check
 `;
 }
 
+// Builds one UC landing page and links the deep contract set only where it is generated.
 function ucReadme(uc) {
   const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
   const commands = [
@@ -646,7 +837,22 @@ function ucReadme(uc) {
 \`DialogPatchByPost\` 还可能产生含 \`message.left-dialog-list\`（未读变化时配对
 \`message.unread-summary\`）的独立 Frame；它不是固定第三帧，也不能假定与
 \`sent\` 的先后。`
-    : '';
+    : deepUcDirs.has(uc.dir)
+      ? `
+
+## ${uc.dir} 字段级主链路与三端验收
+
+8. [全领域字段级类图](./08-${uc.dir}全领域字段级类图.mmd)
+9. [完整主链路时序图](./09-${uc.dir}完整主链路时序图.mmd)
+10. [Frame 阶段与接受值](./10-${uc.dir}-Frame阶段与接受值.mmd)
+11. [字段级数据合同与测试证据](./11-${uc.dir}字段级数据合同与测试证据.md)
+12. [完整主链路总览](./12-${uc.dir}-完整主链路.mmd)
+13. [Helix、PC、Mobile V2 验收合同](./13-${uc.dir}-Helix-PC-Mobile-V2验收合同.md)
+14. [当前 handoff](./handoff.md)
+
+这些文档固定区分 \`CURRENT/HISTORICAL/TARGET/BLOCKED/FORBIDDEN\`。历史 25-Gate
+Native 产物只作 \`HISTORICAL\` 输入；没有用当前 pin 重新运行时不得写成当前 Green。`
+      : '';
   return `# ${uc.dir}：${uc.title}
 
 > 当前代码页；Frame V1 已物理下线。本页只描述当前 canonical 路径，不保存迁移前快照。
@@ -790,8 +996,10 @@ function ucExecutionFlow(uc) {
 `;
 }
 
+// Renders the base UC sequence while hardening only the selected deep-GN labels.
 function ucUserFlow(uc) {
   const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const sequenceLabel = deepUcDirs.has(uc.dir) ? mermaidSequenceText : mermaidText;
   const commands = unique(
     cases.flatMap((item) => item.commands.map((command) => command.name)),
   ).join(' / ');
@@ -808,12 +1016,12 @@ function ucUserFlow(uc) {
     participant Infra as HTTP/WS/SQLite
     participant Runtime as SurfaceRuntime
 
-    User->>UI: ${mermaidText(uc.entry)}
-    UI->>Port: ${mermaidText(uc.clientFlow)}
-    Port->>Helix: ${mermaidText(commands)}
+    User->>UI: ${sequenceLabel(uc.entry)}
+    UI->>Port: ${sequenceLabel(uc.clientFlow)}
+    Port->>Helix: ${sequenceLabel(commands)}
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result
-    Helix-->>Runtime: InteractionFrameV2 (${mermaidText(surfaces)})
+    Helix-->>Runtime: InteractionFrameV2 (${sequenceLabel(surfaces)})
     Runtime-->>UI: atomic typed VM publish
     Runtime-->>Helix: FrameApplied
 `;
@@ -946,6 +1154,663 @@ ${rows || '| 无 | 本 Gate 不声明持久化合同 |'}
 `;
 }
 
+// Builds the cross-Gate field registry shared by every deep acceptance document.
+function deepGateIndex() {
+  const selectedCases = ucDefinitions
+    .filter((uc) => deepUcDirs.has(uc.dir))
+    .flatMap((uc) => uc.gates.map((gateId) => canonicalCases.get(gateId)));
+  const commandRows = selectedCases
+    .flatMap((item) =>
+      item.commands.map((command) => {
+        const required = command.input.required.map((field) => `\`${field}\``).join('、') || '无';
+        const optional = command.input.optional.map((field) => `\`${field}\``).join('、') || '无';
+        const effects = command.effect.map((effect) => `\`${effect}\``).join('、');
+        return `| \`${item.gate_id}\` | \`${command.name}\` | ${required} | ${optional} | ${command.input.forbid_unknown ? '是' : '否'} | ${effects} |`;
+      }),
+    )
+    .join('\n');
+  const surfaceRows = [
+    ['message.timeline', 'Timeline{channelId,windowToken}', 'TimelineSnapshot/TimelinePatch', 'TimelineWindowVm'],
+    ['message.channel-summary', 'Channel{channelId}', 'ChannelSummarySnapshot/ChannelSummaryPatch', 'ChannelSummaryVm'],
+    ['message.thread-detail', 'Thread{channelId,rootMessageId}', 'ThreadDetailSnapshot/ThreadDetailPatch', 'ThreadDetailVm'],
+    ['message.member-roster', 'MemberRoster{channelId,cursor}', 'MemberRosterSnapshot/MemberRosterPatch', 'MemberRosterVm'],
+    ['message.participant-receipts', 'ParticipantReceipts{channelId,messageId,receiptKind}', 'ParticipantReceiptsSnapshot/ParticipantReceiptsPatch', 'ParticipantReceiptsVm'],
+  ]
+    .map((row) => `| \`${row[0]}\` | \`${row[1]}\` | \`${row[2]}\` | \`${row[3]}\` |`)
+    .join('\n');
+  return `# G02-G15 InteractionFrameV2 字段与验收总索引
+
+> 查证日期：${generatedAt}。范围只包含 G02、G04、G05、G06、G07、G08、G10、
+> G13、G14、G15 及其 a 子 Gate；G01 仅作为平台能力和文档形态参考。
+
+## 1. 统一所有权
+
+\`\`\`text
+UI intent / Mobile JS intent
+-> canonical command 或 ActionInvocationEnvelope
+-> Helix Tick::Command / Tick::Inbound / PortReply
+-> Effect batch
+-> matching PersistOk 或权威 readback
+-> InteractionFrameV2
+-> PC SurfaceRuntime / Mobile SurfaceRuntime 原子 apply
+-> FrameApplied
+-> typed DOM / im.surface.view
+\`\`\`
+
+Helix 统一拥有权限、排序、计数、状态、typed VM 和 action。Go 拥有 HTTP、WS 与远端
+持久化事实。PC/Mobile 只做协议转换、slot apply、ack 与展示，不得各自生长业务 reducer。
+
+## 2. InteractionFrameV2 envelope
+
+| 字段 | 类型与允许值 | 约束 |
+|---|---|---|
+| \`schemaVersion\` | \`2\` | 其他值 fail closed |
+| \`transactionId\` | 非空 string | apply/ack/去重主键 |
+| \`causationId?\` | 非空 string | 可选；command/request/authority correlation |
+| \`runtime.connection\` | \`connecting/online/offline\` | \`recovered\` 时必须 online |
+| \`runtime.initialSync\` | \`idle/syncing/ready/failed\` | renderer 不推导 |
+| \`runtime.recovery\` | \`idle/syncing/recovered/failed/blocked\` | 与 surfaces 同帧原子发布 |
+| \`mutations\` | 非空数组 | 同一帧禁止重复 canonical slot |
+| \`directives\` | \`[{directiveId,kind}]\` | 两字段均非空；执行失败回 ack |
+
+## 3. SurfaceMutationV2
+
+| 字段 | 类型与允许值 | 约束 |
+|---|---|---|
+| \`surface\` | 下表固定枚举 | 必须与 mutation kind 匹配 |
+| \`scope\` | surface 专属 tagged union | 所有身份字段非空 |
+| \`revision\` | \`1..=9007199254740991\` | slot 内单调增加 |
+| \`baseRevision?\` | 同上 | patch 必填且 \`revision > baseRevision\`；snapshot 禁止 |
+| \`surfaceEpoch\` | \`1..=9007199254740991\` | 只能由 Helix 生产 |
+| \`causationId?\` | 非空 string | mutation 级 authority correlation |
+| \`mutation\` | typed tagged union | patch 为 \`replaceView\`，不暴露局部业务 reducer |
+
+| Surface | Scope | mutation.kind | View |
+|---|---|---|---|
+${surfaceRows}
+
+## 4. 关键 typed VM 字段
+
+### TimelineWindowVm
+
+\`channelId, anchor{messageId?,mode=latest|locate|unread}, items[], firstUnreadMessageId?,
+targetMessageId?, page{windowToken,hasOlder,hasNewer,hasMore},
+state=loading|ready|empty|forbidden|failed\`
+
+每个 \`MessageVm\`：
+
+\`id, channelId, eventSeq, author{userId}, createdAt, content, delivery, actions,
+quickActions, replyId?, replyRootId?, replyFirstLevelId?, replySummary, replyThread?,
+reactions[{emoji,count}], readReceipt, templateConfirmation?, urgency?, pinned,
+bookmarked, topicLink?\`
+
+\`content.kind\` 允许：
+
+- \`text{text}\`
+- \`document{documentId,title,summary,access}\`
+- \`media{mediaType,resource,thumbnail?,fileName,size,availability}\`
+- \`forwarded{summary,items}\`
+- \`systemEvent{eventKind,memberId?,text}\`
+- \`recalled{text}\`
+
+\`delivery.kind\` 允许：
+\`uploading{progressPercent=0..100}/sending/sent/failed{reason,retryable}/recalled\`。
+
+### ChannelSummaryVm
+
+\`channelId,title{text},avatar{resource?,userIds,fallbackText},noticeSummary?,purpose?,
+lifecycle{state,reason?},memberCount,viewerRole=owner|admin|member,onlineCount?,
+topicCount,notificationMode=all|mentions|muted,actions,settingsVersion\`
+
+### ThreadDetailVm
+
+\`channelId,detailContext,root,orderedReplyIds,nodes,replyCount,page,state\`。
+\`detailContext\` 为 \`reply\`，或
+\`topic{parentChannelId,topicChannelId,rootMessageId,title}\`。
+
+### MemberRosterVm
+
+\`channelId,items,page,memberCount,onlineCount?,state\`；每个成员为
+\`user{userId},nickname?,role,presence=online|away|offline,
+membershipState=active|left|removed,actions\`。
+
+### ParticipantReceiptsVm
+
+\`channelId,messageId,kind=read|templateConfirmation|urgentConfirmation,summary,
+completed[],pending[],page,state\`；每行包含
+\`user{userId},memberRole,status=pending|completed,completedAt?\`。
+
+## 5. canonical inbound command
+
+| Gate | command | required | optional | 禁未知字段 | Effect |
+|---|---|---|---|---|---|
+${commandRows}
+
+上表是 Helix canonical snake_case command。Mobile/Angular 公共 facade 可以接收 camelCase
+intent，但必须通过 Helix 共享 normalization 生成同一 canonical payload；不得在两端分别维护
+字段别名和默认值。
+
+## 6. ActionInvocationEnvelope
+
+仅 ActionBinding 路径使用：
+
+\`schemaVersion=1, requestId, actorId, surface, scope, surfaceEpoch,
+observedRevision, invocation{actionRef,input}\`。
+
+\`schemaVersion=1\` 是 action ingress 版本，不是 InteractionFrame V1。requestId/actorId/
+surfaceEpoch/observedRevision/actionRef 均必须非空或正数；stale epoch/revision 必须拒绝。
+
+## 7. 统一证据等级
+
+| 等级 | 能证明 | 不能证明 |
+|---|---|---|
+| Helix unit/replay | Tick/Effect/Persist barrier/完整 Frame | Tauri、Go、SQLite executor、DOM |
+| Fixture parity | 三仓 byte/hash/semantic contract 一致 | 真实 Rust/HTTP/WS |
+| WDIO Mock | 真 Angular bus/runtime/DOM 消费完整 Frame | Tauri/Helix/Go 已执行 |
+| real invoke | 真 \`window.__TAURI__.core.invoke\` 进入 Rust | Observer/WS/PG/双端完成 |
+| single-real | Actor 的 Go/SQLite/Frame/DOM | Observer delivery |
+| dual-real | Actor/Observer 同一 authority 闭环 | 未运行的失败/恢复分支 |
+| Mobile GN GTest | QuickJS/C++/FFI/V2 apply/ack/view | 真机网络或 PC DOM |
+| Venus real | Venus API 到真实 helix-driver-ffi 与 SurfaceRuntime | PC、Go 或双账号自动成立 |
+
+## 8. 当前总 Handoff
+
+- \`CURRENT\`：Helix V2 类型、selected Gate focused tests、PC 旧 desktop scenarios、
+  Mobile UC command GTest/real-chain manifest、通用 Mobile/Venus V2 consumer。
+- \`HISTORICAL\`：2026-07-22 的旧 Native Gate artifacts；只能帮助定位场景，不能证明当前
+  pin、WDIO 平台或 Mobile V2 consumer。
+- \`TARGET\`：每个 GN 的 Helix canonical Frame Fixture、provenance/hash、WDIO
+  mock/integration/single/dual、GN GTest、Venus Frame 终态断言和统一 Report。
+- \`BLOCKED\`：在未重新运行当前 pin 前，所有 GN 的 PC-Mobile canonical Green 均保持
+  blocked/unknown。
+- \`FORBIDDEN\`：Fixture、command receipt、HTTP 200、旧 artifacts 或单端 DOM 互相替代。
+`;
+}
+
+// Builds the field-level cross-domain class diagram for one selected GN.
+function deepClassDiagram(uc) {
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const commands = unique(cases.flatMap((item) => item.commands.map((command) => command.name)));
+  const surfaces = unique(cases.flatMap((item) => item.projections.map((projection) => projection.render_kind)));
+  return `classDiagram
+direction LR
+
+class Intent {
+  +gate: ${mermaidText(uc.gates.join(', '))}
+  +entry: ${mermaidText(uc.entry)}
+}
+class CanonicalCommand {
+  +name: ${mermaidText(commands.join(', '))}
+  +payload: strict object
+}
+class Tick {
+  +Command
+  +Inbound
+  +PortReply
+}
+class Effect {
+  +Http
+  +Persist
+  +ScheduleTimer
+  +Emit
+}
+class InteractionFrameV2 {
+  +schemaVersion: 2
+  +transactionId: string
+  +causationId: string?
+  +runtime: InteractionRuntimeVm
+  +mutations: SurfaceMutationV2[]
+  +directives: UiDirective[]
+}
+class SurfaceMutationV2 {
+  +surface: ${mermaidText(surfaces.join(', '))}
+  +scope: SurfaceScope
+  +revision: u64
+  +baseRevision: u64?
+  +surfaceEpoch: u64
+  +causationId: string?
+  +mutation: TypedSurfaceMutation
+}
+class PcSurfaceRuntime {
+  +stage(frame)
+  +atomicApply()
+  +frameApplied()
+  +typedDom()
+}
+class MobileSurfaceRuntime {
+  +ingest(frame)
+  +atomicApply()
+  +ackNext()
+  +viewJson()
+}
+class Venus {
+  +dispatchCanonicalCommand()
+  +pumpDomainEvents()
+  +im.surface.view()
+}
+
+Intent --> CanonicalCommand
+CanonicalCommand --> Tick
+Tick --> Effect
+Effect --> InteractionFrameV2 : committed authority
+InteractionFrameV2 *-- SurfaceMutationV2
+InteractionFrameV2 --> PcSurfaceRuntime
+InteractionFrameV2 --> MobileSurfaceRuntime
+MobileSurfaceRuntime --> Venus
+`;
+}
+
+// Builds the complete authority-to-render sequence without assuming every stage emits a Frame.
+function deepSequenceDiagram(uc) {
+  const profile = deepUcProfiles[uc.dir];
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const commands = unique(cases.flatMap((item) => item.commands.map((command) => command.name))).join(' / ');
+  const ws = unique(cases.map((item) => item.ws.events)).join('；');
+  return `sequenceDiagram
+  actor U as 用户/系统
+  participant PC as PC MessageV4
+  participant MOB as Mobile QuickJS/Venus
+  participant PORT as Tauri/FFI Port
+  participant H as Helix ImModule
+  participant STORE as SQLite Driver
+  participant GO as cses-im-server/PG
+  participant WS as Go WS/sync
+  participant FRAME as InteractionFrameV2
+  participant SR as PC/Mobile SurfaceRuntime
+
+  U->>PC: ${mermaidSequenceText(uc.entry)}
+  U->>MOB: 同一业务 intent
+  PC->>PORT: ${mermaidSequenceText(uc.ingress)}
+  MOB->>PORT: canonical facade command
+  PORT->>H: ${mermaidSequenceText(commands)}
+  H-->>PORT: command/action receipt 仅表示受理
+  H->>STORE: Persist/Scan/Get authority
+  STORE-->>H: matching PortReply
+  H->>GO: HTTP effect（仅需要时）
+  GO-->>H: authority response
+  GO-->>WS: durable event/outbox
+  WS-->>H: ${mermaidSequenceText(ws)}
+  H->>STORE: inbound fact atomic persist/readback
+  STORE-->>H: PersistOk
+  H-->>FRAME: Effect::Emit full frame
+  FRAME->>SR: decode + validate + atomic apply
+  SR-->>PORT: FrameApplied(transactionId)
+  SR-->>PC: typed DOM
+  SR-->>MOB: im.surface.view typed JSON
+`;
+}
+
+// Builds a Gate-specific stage graph that makes partial ordering and blocked stages explicit.
+function deepFrameStages(uc) {
+  const profile = deepUcProfiles[uc.dir];
+  const nodes = profile.stages
+    .map((stage, index) => `  S${index + 1}["${index + 1}. ${mermaidText(stage)}"]`)
+    .join('\n');
+  const edges = profile.stages
+    .slice(1)
+    .map((_, index) => `  S${index + 1} --> S${index + 2}`)
+    .join('\n');
+  return `flowchart TD
+  START["${uc.dir} scenario start"] --> S1
+${nodes}
+${edges}
+  S${profile.stages.length} --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：${mermaidText(profile.observable)}"]
+  RULE["不变量：${mermaidText(profile.invariant)}"]
+  DRIFT["当前漂移：${mermaidText(profile.drift)}"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT
+`;
+}
+
+// Builds the detailed command, wire, Frame, VM, and test evidence contract for one GN.
+function deepFieldContract(uc) {
+  const profile = deepUcProfiles[uc.dir];
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const commandRows = cases
+    .flatMap((item) =>
+      item.commands.map((command) => {
+        const required = command.input.required.map((field) => `\`${field}\``).join('、') || '无';
+        const optional = command.input.optional.map((field) => `\`${field}\``).join('、') || '无';
+        return `| \`${item.gate_id}\` | \`${command.name}\` | ${required} | ${optional} | ${command.input.forbid_unknown ? '拒绝' : '允许'} |`;
+      }),
+    )
+    .join('\n');
+  const authorityRows = cases
+    .map(
+      (item) =>
+        `| \`${item.gate_id}\` | ${item.http.request} | ${item.http.response} | ${item.ws.events} |`,
+    )
+    .join('\n');
+  const surfaceRows = cases
+    .flatMap((item) => item.projections.map((projection) => `| \`${item.gate_id}\` | \`${projection.render_kind}\` | \`${projection.schema}\` |`))
+    .join('\n');
+  const negative = unique(cases.flatMap((item) => item.negative_assertions))
+    .map((assertion) => `- ${assertion}`)
+    .join('\n');
+  const pcScenarios = uc.gates
+    .map((gateId) => `tests/e2e/scenarios/${gateId.toLowerCase()}-${legacyScenarioSlug(gateId)}.scenario.ts`)
+    .map((path) => `- \`${path}\``)
+    .join('\n');
+  return `# ${uc.dir} 字段级数据合同与测试证据
+
+> 状态：合同已梳理；新 WDIO、per-GN Fixture 和 Mobile Frame GTest 尚未因此自动完成。
+
+## 1. Canonical inbound
+
+| Gate | command | required | optional | unknown |
+|---|---|---|---|---|
+${commandRows}
+
+canonical payload 使用 snake_case，且仅允许表中字段。camelCase 只可存在于公共 facade
+intent；PC 与 Mobile 必须委托 Helix 共享 normalization，不能各写一套字段转换。
+
+## 2. HTTP、WS 与远端权威
+
+| Gate | HTTP request | HTTP response | WS/sync inbound |
+|---|---|---|---|
+${authorityRows}
+
+HTTP 200/accepted 不是 Frame 终态。写路径必须等待 matching PersistOk 或权威 readback；
+observer 必须依赖自身 WS/sync/恢复链，不能读取 actor 的 intent。
+
+## 3. InteractionFrameV2
+
+完整 envelope 必须包含：
+
+\`schemaVersion=2, transactionId, causationId?, runtime{connection,initialSync,recovery},
+mutations[], directives[]\`。
+
+每个 mutation 必须包含：
+
+\`surface, scope, revision, baseRevision?, surfaceEpoch, causationId?, mutation\`。
+
+| Gate | canonical Surface | schema |
+|---|---|---|
+${surfaceRows}
+
+本 GN 的 typed 接受值：
+
+${profile.observable}
+
+业务不变量：
+
+${profile.invariant}
+
+## 4. Frame inventory
+
+${profile.stages.map((stage, index) => `${index + 1}. \`${stage}\``).join('\n')}
+
+上述是阶段 inventory，不代表每一阶段都必然独立出 Frame。Fixture producer 必须从真实
+\`Tick/PortReply/Inbound -> ImModule::handle -> Effect::Emit\` 捕获 actual Frame，再固定
+允许的部分顺序、可选 Frame 和终态。
+
+## 5. 负向合同
+
+${negative}
+- schemaVersion 非 2、未知字段、重复 slot、scope/surface 不匹配、patch 缺 baseRevision
+  均必须 fail closed。
+- PC/Mobile 不得从 raw WS、HTTP、SQLite row 或 command receipt 重建 typed VM。
+
+## 6. 当前测试证据
+
+- Helix focused：\`${uc.helixTest}\`
+- cses-client focused：\`${uc.clientTest}\`
+- 历史 desktop scenario：
+${pcScenarios}
+- Mobile command/UC GTest：\`${profile.mobileTest}\`
+- Mobile real-chain manifest：\`real-chain/uc-manifest.json\`
+- Mobile/Venus 通用 V2 runtime：\`cpp/SurfaceRuntime.cpp\`、
+  \`venus/HelixImQuickJsBinding.cpp\`、\`venus/api/ImSurfaceApi.cpp\`
+
+## 7. 当前 CONTRACT_DRIFT
+
+${profile.drift}
+
+在该漂移被 producer replay、Matrix 和三端 Fixture 同时对齐前，本 GN 最大 claim 为
+\`contract-declared/source-focused\`，不能写 \`PC-Mobile canonical Green\`。
+`;
+}
+
+// Builds the compact end-to-end flow used as the implementation and review entry point.
+function deepMainChain(uc) {
+  const profile = deepUcProfiles[uc.dir];
+  return `flowchart LR
+  I["Intent<br/>${mermaidText(uc.entry)}"]
+  C["Canonical ingress<br/>${mermaidText(uc.ingress)}"]
+  H["Helix<br/>Tick -> Effect -> Persist barrier"]
+  A["Authority<br/>Go HTTP / WS / SQLite / PG"]
+  F["InteractionFrameV2<br/>${mermaidText(profile.observable)}"]
+  PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
+  MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
+  R["Unified report<br/>command/effect/store/frame/ack/render"]
+
+  I --> C --> H
+  H --> A --> H
+  H --> F
+  F --> PC --> R
+  F --> MOB --> R
+
+  X["FORBIDDEN<br/>端侧业务 reducer / raw fallback / receipt 冒充终态"]
+  X -.fail closed.-> PC
+  X -.fail closed.-> MOB
+`;
+}
+
+// Builds the executable Helix-PC-Mobile acceptance contract while keeping claims layered.
+function deepAcceptanceContract(uc) {
+  const profile = deepUcProfiles[uc.dir];
+  const cases = uc.gates.map((gateId) => canonicalCases.get(gateId));
+  const surfaces = unique(cases.flatMap((item) => item.projections.map((projection) => projection.render_kind)));
+  return `# ${uc.dir} Helix、PC、Mobile V2 验收合同
+
+> 本文冻结目标验收合同，不把已有 focused test、旧 desktop artifact 或 command GTest
+> 写成当前三端 Green。
+
+## 1. 完成定义
+
+\`${uc.dir}\` canonical Green =
+
+\`Helix producer replay ∩ canonical Fixture/provenance ∩ PC WDIO Mock ∩ real invoke
+∩ single/dual real ∩ console+Tauri/Helix logs ∩ FrameApplied+DOM
+∩ Mobile GN GTest ∩ Venus real FFI/apply/ack/view ∩ unified report\`。
+
+## 2. Helix producer
+
+- 从真实 Tick/PortReply/Inbound 生成完整 Frame，不手写 JSON 作为 producer。
+- 断言 command、Effect 顺序、Persist barrier、authority correlation、Frame inventory、
+  typed VM 与负向/幂等/恢复路径。
+- Fixture inventory 至少覆盖：${profile.stages.map((stage) => `\`${stage}\``).join('、')}。
+- Fixture 带 Helix commit、contract epoch、raw SHA-256、semantic SHA-256、surface inventory。
+- 普通测试只比较 Golden；显式 UPDATE 开关才允许更新。
+
+当前 focused 入口：\`${uc.helixTest}\`。
+
+## 3. PC WDIO
+
+| Lane | Required assertion | 最大 claim |
+|---|---|---|
+| contracts | schema/provenance/hash/inventory/negative decode | fixture-contract |
+| mock | Accepted 与 Frame replay 分离；真实 bus/runtime/DOM | mock |
+| integration | 真 Tauri invoke 进入 Helix；日志可相关 | integration |
+| single-real | Actor Go/SQLite/FrameApplied/DOM | single-real-chain |
+| dual-real | Actor/Observer 同 authority；各自 FrameApplied/DOM | dual-real-chain |
+| report | stage、artifact、redaction、claim boundary | reporting-contract |
+
+禁止在 \`wdio.conf.ts\` 写 ${uc.dir} 分支。Platform 提供 lane/candidate/hooks；通用模块提供
+Mock、real invoke、multiremote、assertion、report、observability；${uc.dir} domain 只提供
+Fixture、page workflow、业务 stage 与 typed assertion。
+
+## 4. PC 断言
+
+- Surface：${surfaces.map((surface) => `\`${surface}\``).join('、')}。
+- 接受值：${profile.observable}。
+- 不变量：${profile.invariant}。
+- 每个 required transaction 都有 matching FrameApplied，无 FrameRejected。
+- DOM 只在 apply 后标绿，不通过 fixed sleep、raw event 或 store mutation 取巧。
+- Actor/Observer profile、auth、device、SQLite、WebDriver port 和 WS session 隔离。
+
+## 5. Mobile GN GTest
+
+目标文件：
+
+\`tests/gtest/surface_runtime/${uc.dir}FrameContractTest.cpp\`
+
+必须覆盖：
+
+1. 同源 Fixture byte/hash parity。
+2. \`schemaVersion=2\` decode；V1/未知字段/重复 slot/坏 revision fail closed。
+3. C++ \`SurfaceRuntime::ingest\` 原子 apply 与 transaction ack。
+4. QuickJS facade 产生与 PC 同一 canonical command/payload。
+5. \`im.surface.view\` 返回与 PC typed VM 等价的字段和值。
+6. duplicate/out-of-order/patch base mismatch/late authority 幂等。
+7. 不出现 raw business reducer 或 Mobile-owned counter/status。
+
+现有 command 层入口：\`${profile.mobileTest}\`；它不能替代上述 Frame GTest。
+
+## 6. Venus 真实接码
+
+\`\`\`text
+Venus ImRootApi
+-> HelixImQuickJsBinding::dispatchCommand
+-> HelixImDriverRuntime / helix-driver-ffi
+-> CppHostVtable.on_domain_events_batch
+-> enqueueDomainEvents / pumpDomainEvents
+-> mobile_surface_runtime_ingest_event
+-> SurfaceRuntime atomic apply
+-> mobile_surface_runtime_ack_next
+-> __helix_frame_applied
+-> im.surface.view
+\`\`\`
+
+Venus 必须使用同一 Helix command builder 与 Frame consumer，禁止针对 ${uc.dir} 在 JS/C++
+增加业务状态机。
+
+## 7. 日志与 Report
+
+同一 \`suiteRunId/scenarioRunId\` 至少关联：
+
+\`gateId,operationId,requestId/reqId,causationId,transactionId,channelId,
+messageId/postId,eventSeq,surface,scope,revision,surfaceEpoch,FrameApplied,DOM/view\`。
+
+Browser console 保存 action、IPC admission、FrameReceived/Applied/Rejected、DOM latch。
+Tauri/Helix 保存 command、Tick、Effect、Persist/HTTP/Inbound、Effect::Emit。
+Go/PG/WS 保存 track、commit/outbox/delivery/readback。日志不得保存 token、cookie、密码或
+完整敏感 payload；redaction 失败即 run 失败。
+
+报告 stage：
+
+${profile.stages.map((stage) => `- \`${uc.dir.toLowerCase()}.${stage}\``).join('\n')}
+- \`${uc.dir.toLowerCase()}.pc-mobile-parity\`
+- \`${uc.dir.toLowerCase()}.correlation\`
+
+每个 stage 输出 \`status,startedAt,completedAt,durationMs,expected,actual,assertions,
+evidence,blockedBy,claimBoundary\`。
+
+## 8. 当前 stop condition
+
+${profile.drift}
+
+只有 producer replay、Matrix、Fixture、PC 与 Mobile 断言对同一字段/Surface/终态达成一致，
+才进入真实运行；真实前置缺失时保持 BLOCKED，不用 Mock 或历史 artifact 代替。
+`;
+}
+
+// Builds the current-state handoff with explicit ownership and stop conditions.
+function deepHandoff(uc) {
+  const profile = deepUcProfiles[uc.dir];
+  return `# ${uc.dir} FrameV2 三端 Handoff
+
+> 更新时间：${generatedAt}。本文区分当前事实、历史证据、目标与阻塞。
+
+## CURRENT
+
+- Helix V2 schema 与 typed Surface 已存在。
+- Helix focused test：\`${uc.helixTest}\`。
+- cses-client typed component test：\`${uc.clientTest}\`。
+- cses-client 仍有旧 desktop scenario/artifact，但新 WDIO Platform 下的 ${uc.dir}
+  fixture/mock/real specs 尚未因此自动存在。
+- Mobile 已有 command/UC GTest \`${profile.mobileTest}\`、real-chain manifest 与通用
+  SurfaceRuntime/Venus V2 consumer。
+
+## HISTORICAL
+
+2026-07-22 的 Native Gate artifacts 可用于识别旧场景和失败签名；它们不证明当前 Helix
+pin、新 WDIO candidate、Mobile Frame consumer 或当前 Go 进程仍为 Green。
+
+## TARGET
+
+1. Helix 新建 ${uc.dir} scenario replay 与 canonical V2 Fixture。
+2. Fixture provenance/hash 同步到 PC 与 Mobile。
+3. PC domain 接入 contracts/mock/integration/single-real/dual-real/report。
+4. Mobile 新建 \`tests/gtest/surface_runtime/${uc.dir}FrameContractTest.cpp\`。
+5. Venus 用真实 helix-driver-ffi 完成 command -> frame -> apply -> ack -> view。
+6. 两端对 ${profile.observable} 做字段级等价断言。
+
+## BLOCKED / CONTRACT_DRIFT
+
+${profile.drift}
+
+因此当前最大 claim：
+
+\`source-focused + command-contract + generic-v2-consumer-present\`。
+
+不得声明：
+
+\`current ${uc.dir} PC-Mobile canonical Green\`。
+
+## FORBIDDEN
+
+- PC/Mobile 各自实现状态、排序、计数、权限、分页或恢复业务逻辑。
+- 把 AcceptedCommand、ActionReceipt、HTTP 200、raw WS 或 Fixture replay 当业务终态。
+- 固定 sleep、固定 Frame 序号，或从旧 artifact 复制动态 ID。
+- Fixture 没有 Helix producer provenance/hash。
+- 通用 WDIO/Mobile runtime 反向依赖 ${uc.dir} 业务字段。
+
+## NEXT OWNERS
+
+| 工作 | Owner | Handoff 输出 |
+|---|---|---|
+| Frame producer/Fixture | Helix gate frame producer | actual Frame、Golden、provenance |
+| WDIO lane/platform | WDIO Platform | domain-neutral lane/candidate/hooks |
+| ${uc.dir} PC workflow | PC Gate domain | page workflow、typed assertions、stage report |
+| Mobile GN GTest | Mobile Gate contract | fixture parity、FFI/apply/ack/view |
+| Venus integration | Mobile V2 runtime | real driver batch ingress 与 raw fallback=0 |
+| 最终裁决 | Cross-platform reviewer | evidence plane 交集与最大 claim |
+
+## STOP CONDITION
+
+- 若 producer/Matrix/typed VM 不一致：标记 \`CONTRACT_DRIFT\`，停止生成 Fixture。
+- 若 Fixture provenance/hash 不完整：停止 PC/Mobile Mock。
+- 若当前 Go/凭据/PG/双账号不可用：real lane 标记 \`BLOCKED\`，不降级。
+- 只有 Helix、PC、Mobile 三方字段与终态一致且报告无越级，才允许 canonical Green。
+`;
+}
+
+// Maps a machine Gate to the existing legacy desktop scenario filename suffix.
+function legacyScenarioSlug(gateId) {
+  const slugs = {
+    'G-02': 'document',
+    'G-04': 'revoke',
+    'G-04a': 'offline-revoke',
+    'G-05': 'forward',
+    'G-06': 'quick-reply',
+    'G-07': 'urgent',
+    'G-08': 'schedule-create',
+    'G-10': 'first-window',
+    'G-10a': 'load-older',
+    'G-13': 'channel-read',
+    'G-14': 'post-read',
+    'G-14a': 'template-received',
+    'G-15': 'create-topic',
+    'G-15a': 'create-channel',
+  };
+  return slugs[gateId] ?? 'unknown';
+}
+
 function unique(values) {
   return [...new Set(values)];
 }
@@ -957,6 +1822,11 @@ function mermaidText(value) {
     .replaceAll('\n', ' ')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+// Removes sequence-control tokens while preserving the source label's business meaning.
+function mermaidSequenceText(value) {
+  return mermaidText(value).replaceAll('-&gt;', '→').replaceAll(';', '；');
 }
 
 function verifyV2OnlySources() {
@@ -1111,6 +1981,7 @@ function assertNoMatches(cwd, pattern, roots, label) {
   }
 }
 
+// Removes generated files while retaining the manually curated G01 deep contracts.
 function resetDocumentationTree() {
   const keepDirectories = new Set(ucDefinitions.map((uc) => uc.dir));
   for (const entry of readdirSync(docsRoot, { withFileTypes: true })) {

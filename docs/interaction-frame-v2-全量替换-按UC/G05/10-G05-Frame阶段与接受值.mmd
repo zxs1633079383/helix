@@ -1,0 +1,20 @@
+flowchart TD
+  START["G05 scenario start"] --> S1
+  S1["1. forward-command"]
+  S2["2. source-read-assembly"]
+  S3["3. http-target-acceptance"]
+  S4["4. per-target-authority-frame"]
+  S5["5. batch-terminal-report"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> S5
+  S5 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：MessageContentVm::Forwarded{summary,items}；每个 target 以 channelId/postId/reqId 独立相关"]
+  RULE["不变量：HTTP accepted 不是投递完成；只有可信 target post 经 Persist/readback 后才能关闭该 target"]
+  DRIFT["当前漂移：Strict Matrix 声明 canonical timeline，但 focused test 还观察到条件性 left-dialog-list Frame；同时 Matrix 未列 optional req_id，而源码接受 req_id。Fixture 前必须先消除两处 Matrix/source 漂移"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

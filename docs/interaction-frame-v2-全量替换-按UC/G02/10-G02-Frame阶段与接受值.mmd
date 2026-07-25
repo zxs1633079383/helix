@@ -1,0 +1,18 @@
+flowchart TD
+  START["G02 scenario start"] --> S1
+  S1["1. document-command"]
+  S2["2. uploading-or-sending-frame"]
+  S3["3. terminal-timeline-frame"]
+  S4["4. observer-post-frame"]
+  S1 --> S2
+  S2 --> S3
+  S3 --> S4
+  S4 --> ACK["FrameApplied + typed render"]
+  ACK --> REPORT["stage report + evidence"]
+
+  VALUES["接受值：MessageContentVm::Document{documentId,title,summary,access}；DeliveryVm 只允许 uploading/sending/sent/failed"]
+  RULE["不变量：type=DOCUMENT 且 props.document 必须由 Helix 解析为 typed document；PC/Mobile 不读取 raw props 兜底"]
+  DRIFT["当前漂移：当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；upload effect 与 Document VM 的阶段对应需由新 replay 固定"]
+  VALUES -.约束.-> ACK
+  RULE -.fail closed.-> REPORT
+  DRIFT -.BLOCKED until reconciled.-> REPORT

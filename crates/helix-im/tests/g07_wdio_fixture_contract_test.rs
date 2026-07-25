@@ -257,7 +257,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "createdAt": CREATED_AT,
             "marker": MARKER,
             "postId": SERVER_ID,
-            "reqId": REQUEST_ID,
+            "reqId": case.frame.causation_id.as_deref().unwrap_or(REQUEST_ID),
             "transactionId": case.frame.transaction_id,
             "messageId": optional_message_id(&case.frame),
             "surfaceEpoch": case.frame.mutations[0].surface_epoch,

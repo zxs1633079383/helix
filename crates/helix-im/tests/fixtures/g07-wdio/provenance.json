@@ -307,7 +307,7 @@
       "messageId": "srvurgent00000000000000001",
       "observerId": "g07-wdio-observer",
       "postId": "srvurgent00000000000000001",
-      "reqId": "g07-wdio-request-1",
+      "reqId": "g07-wdio-confirm-request-1",
       "revision": 2,
       "surfaceEpoch": 1,
       "teamId": "g07-wdio-company",

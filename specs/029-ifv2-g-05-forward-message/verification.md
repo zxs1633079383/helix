@@ -83,7 +83,7 @@
   target-dialog
   `bca69ee5f98e2f08564dcd6d632f4d00a90993eed104f2322d107b37097ed641`；
   provenance
-  `164b1b1b82afce5f945459e4acc37d2dd934bc8395a2e6610841e2808e1ed808`。
+  `cd92103657bd7cdc3ef848e957ec8f8d3e4581fe8a3a40392d6ce7d6c4b44ec7`。
 
 结论：G-05 Helix producer 与 canonical Fixture required lane 为 Green；PC 与
 Mobile 尚未开始，Gate 整体仍为 `implementing`，不得进入 G06。
@@ -126,3 +126,96 @@ Mobile 尚未开始，Gate 整体仍为 `implementing`，不得进入 G06。
 
 结论：G-05 PC Mock、PC Real、report 与 production boundary 为 Green；Mobile
 尚未开始，Gate 整体保持 `implementing`，不得进入 G06。
+
+## T023-T032 Mobile Contract Green
+
+- Mobile commits：Helix 生产真源固定 `bc716bb`；Fixture 镜像合同
+  `6b19ca7`；G05 typed view 与 UC06 真实链 `1b6b778`。Mobile production
+  Helix pin 为 `0147ee8856aa2b072c7a7537d3c968d5bbbfdd50`，bundle SHA-256
+  为 `f01ead551d1eefd059119beb5c7146322a6973425fae9aec20a6211e475f8bbd`。
+- `node scripts/sync-g05-helix-fixtures.mjs --check` 与
+  `node scripts/check-g05-fixture-parity.mjs`：退出码 0，
+  `G05_MOBILE_FIXTURE_PARITY_OK count=4`；四份 Frame 与 provenance 均
+  byte-exact，schema、surface inventory、raw/semantic hash 无 Mobile 补字段。
+- `G05FrameContractTest.*`：5/5 通过。覆盖 envelope/runtime/mutation/scope、
+  revision/causation、source forward action、target sent row、target dialog
+  preview/activity、timeline/dialog 独立顺序、duplicate/schema/surface/revision
+  fail-closed atomicity、生产 C ABI 与 QuickJS typed view。
+- `Uc06RelayTest.*-Uc06RelayTest.RealChain`：8/8 通过；`--only UC06`：
+  9/9 通过。真实 run `mrc-mobile-uc-20260725205931-8304` 从两个 fresh group
+  开始，Actor `im_relay_messages` batch terminal 成功，Observer 经生产
+  DomainEvent batch、SurfaceRuntime 与 `im.surface.view` 观察到唯一 forwarded
+  sent row。
+- 生产调用链复核为 `MobileImSdk::relayMessages -> MobileFfiBridge ->
+  helix-driver-ffi DomainEvent batch -> SurfaceRuntime atomic apply -> QuickJS
+  im.surface.view`；现有生产接线已满足 G05，因此未在 Mobile 增加第二套 reducer。
+- `check-surface-runtime-legacy-hard-cut.mjs`：
+  `production V1 producers=0 consumers=0`，G01/G02/G03a/G04/G04a/G05 均
+  typed-only；source-pin 与 diff check 同时通过。
+- 共享 `run-uc01-16-gtest.sh` 完整执行 150 项，退出码 1，137 pass/13 fail。
+  G05 `Uc06RelayTest.RealChain` 通过；失败项为 GS02、GS03、GS04、UC01、
+  UC02、UC07、UC08、UC10、UC11、UC12、UC13、UC14、UC15 的真实链缺口，
+  分别归入后续/既有 Gate 债务，不反向伪装成 G05 required lane 失败，也不把
+  全量回归声明为 Green。
+
+结论：G-05 Mobile canonical contract、生产 SDK/Bridge、SurfaceRuntime 与
+QuickJS typed view required lane 为 Green；共享回归债务已显式保留。
+
+## T033-T037 Cross-repo Review
+
+### Fixture Parity
+
+- Helix、cses-client 与 Mobile 三目录 inventory 均为四份 Frame 加一份
+  provenance，逐文件 SHA-256 完全一致。raw hash 依次为
+  `4f3a1081...`、`cc0195a0...`、`14064459...`、`bca69ee5...`，
+  provenance 为 `cd921036...`。
+- semantic SHA-256 依次为 `2609222d...`、`de358371...`、
+  `ce2e7067...`、`2d524d5c...`；三端 checker 使用同一 projection 规则，
+  未发现平台字段补写。
+
+### Behavior Review
+
+- 每次 canonical/real 验收均新建 source/target group，不依赖前序 Gate 遗留
+  channel；source row 必须具备 `canForward=true` 后才接受转发。
+- Actor command 终态、Observer target timeline 与 target dialog 是独立
+  correlation；不假设 dialog 为固定第三帧。目标 timeline 只出现一个 sent
+  forwarded row，dialog preview/lastActivityAt 来自权威 WS/persist readback。
+- Helix scenario 覆盖权限/业务拒绝、transport failure、duplicate inbound、
+  WS-first/late HTTP、headless recovery 与 dialog PersistErr；迟到 HTTP success
+  不重复 terminal write/Frame。
+
+### Code Boundary Review
+
+- 转发 authority、幂等、persist barrier 与 Frame composition 只存在于 Helix
+  生产 `ImModule::handle` 链。PC 仅 invoke/action + apply Frame，Mobile 仅
+  SDK admission、whole DomainEvent batch、atomic apply 与 typed view。
+- PC production-boundary 扫描 2735 文件，
+  `mockProductionReachable=false`；Mobile production V1 producer/consumer
+  均为 0，未注册 `im.store`、test action API 或 raw reducer。
+- Mock/GTest/Fixture 只验证生产边界，不为缺失生产代码补业务字段或状态机。
+
+### Frame V2 Review
+
+- 四份 Frame 均 `schemaVersion=2`、runtime `online/ready/idle`，directive
+  为空；source timeline snapshot 为 revision 1、无 causation，target timeline
+  patch 为 base 1 -> revision 2、causation=reqId。
+- left-dialog-list 分别为 base 2 -> revision 3 与 base 3 -> revision 4；
+  target dialog causation=reqId。scope、surfaceEpoch、transactionId、
+  mutation causation 与 action epoch 均由 typed contract 校验。
+- `group-created/source-forwardable/target-forwarded/target-dialog` 保持两条
+  timeline/dialog correlation，不把 HTTP terminal 与 WS dialog 错排成单线状态机。
+
+结论：行为、代码边界、Frame V2 与证据四项 Review 均为 Green；等待 mandatory
+after_implement loop 的 R4 evidence 判定后才可关闭 T038。
+
+## T038 Mandatory Loop Closure
+
+- `evidence/evidence.json` 已登记 `V-007`，绑定
+  `gate-report.json` SHA-256
+  `2ef5c194a25da0189bcc822339ad9d7845d5b9546c7d05095bb2ac37e4c263f9`。
+- mandatory after_implement：R4 evidence `PASS`；`speckit-converge` 检查
+  FR 18、SC 6、用户故事 3、计划链 7，未发现 missing/partial/contradicts/
+  unrequested gap，未追加任务。
+- mandatory after_converge：`CLOSED`。G-05 现为 `review-green`，允许总控按
+  顺序进入下一 Gate；Mobile 共享回归中的 13 个非 G05 failure 仍保留为各自
+  Gate 的真实待办，不随本次关闭消失。

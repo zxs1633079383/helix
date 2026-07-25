@@ -1,6 +1,6 @@
 # Research: G-04 撤回
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `bc03fb0d13c7062ada71467fc6ae14ea861d31ef`；cses-client `08c1843b7b7751029b6fb9b40ec54eb122f646d0`；Mobile `7bc78ef0b2510232a182b9999413bfe1a1bebe35`
 
 ## Decision 1 - 唯一业务真源
 
@@ -46,6 +46,19 @@
 
 - 当前 Helix owner：`crates/helix-im/src/module/action.rs`；现有聚焦测试：`crates/helix-im/tests/g04_revoke_interaction_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp`。
+- `ActionDispatch::RevokeMessage` 只接受 Helix 签发的 opaque binding，把受信
+  `message_id` 映射为 `im_revoke`；平台不能提交 postId 业务 payload。
+- `im_revoke` 只产生 `POST /api/cses/posts/revoke {postId}`；HTTP Ok 只保留等待
+  WS authority 的 pending action，HTTP Err 只终止该请求，均不产生撤回成功 Frame。
+- WS `posts_update` 对 revoked post 构造 message revoke op、cursor 和 viewer-ready
+  event 的单个 `PersistAtomic`；只有匹配 `PersistOk` 后才提交 cursor、释放事件并
+  以同一 requestId 刷新 attached timeline。
+- timeline 从 durable `revoke/revoked=true` 投影 `content=Recalled`、
+  `delivery=Recalled` 且清空 actions/quickActions/reply/reaction/topic；恢复 snapshot
+  复用同一 projector，不由平台替换撤回文案或生命周期。
+- 当前缺口集中在完整六类 ScenarioRunner、canonical Fixture/Golden/provenance、
+  PC 独立 Mock/Real/report 和 Mobile production-linked Frame 合同，不需要新建第二套
+  生产 reducer。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

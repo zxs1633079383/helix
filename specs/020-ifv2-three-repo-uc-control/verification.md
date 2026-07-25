@@ -70,3 +70,28 @@
 结论：当前 source lock 下 G01 的 Helix producer、PC Mock/Real/report 和 Mobile
 Contract/QuickJS 重新 Green，满足 G02 前序准入。该结论不新增真手机双账号或受控真实
 网络失败声明。
+
+### T003 G02 Three-repository Review Green
+
+- 子 Feature：`specs/025-ifv2-g-02-document-message`，全部 T001-T038 完成，
+  helix-loop R4 `PASS` 并最终 `CLOSED`。
+- Source pins：Helix
+  `1774d5a38e694b4a56e2b85ea9055c3e825f2222`；Fixture producer
+  `ac15abd0b29ef62ea5d359fb22030800dd0dee2b`；cses-client
+  `39695bbd00d978d619505a79560de8af2e89631e`；Mobile
+  `6730b5be8d11e334ef632a986173598f18ec9e9a`。
+- Helix：build/zero-runtime PASS，G02 deterministic scenario 6/6，canonical
+  Fixture contract 1/1。
+- Fixture：六份 schemaVersion=2 producer Frame 在 Helix/PC/Mobile 的
+  inventory、raw/semantic SHA-256 与 Surface inventory 100% 一致。
+- PC：Mock 3/3、report 1/1、single-real 1/1、dual-real 1/1；真实
+  Tauri/Helix/SQLite/HTTP/WS/FrameApplied/DOM 链闭合。
+- Mobile：production-linked GTest 6/6，SDK/FFI batch/SurfaceRuntime/QuickJS typed
+  view/C ABI、source pin 与 V1 hard-cut 全部 PASS。
+- Review：behavior、code boundary、Frame V2、evidence 全 Green；结构化报告见
+  `specs/025-ifv2-g-02-document-message/evidence/gate-report.json`。
+- 非阻塞观察：旧 `run-uc01-16-gtest.sh --only UC02` real harness 仍等待已经退出
+  production contract 的 raw V1 query；没有为其新增 Mobile reducer。
+
+结论：G-02 `review-green`，总控顺序解锁 G-03a；后续 Gate 不得复用 G02 运行遗留群，
+仍须通过共享 CreateGroupPrerequisite 创建新群。

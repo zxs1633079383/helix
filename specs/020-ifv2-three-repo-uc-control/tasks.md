@@ -17,7 +17,7 @@
 
 **Purpose**: 按需逐 Gate 进入子 Feature。
 
-- [ ] T003 [US1] 仅在 G-01 review-green 后执行 specs/025-ifv2-g-02-document-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T003 [US1] 仅在 G-01 review-green 后执行 specs/025-ifv2-g-02-document-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [ ] T004 [US1] 仅在 G-02 review-green 后执行 specs/026-ifv2-g-03a-retry-failed-send/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [ ] T005 [US1] 仅在 G-03a review-green 后执行 specs/027-ifv2-g-04-online-revoke/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [ ] T006 [US1] 仅在 G-04 review-green 后执行 specs/028-ifv2-g-04a-offline-revoke/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md

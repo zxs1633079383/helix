@@ -76,3 +76,25 @@
 - Frame 字段：schema/runtime/transaction/causation、surface/scope/epoch/revision/baseRevision、
   mutation、directives、message actions、delivery、Document title/summary/access、eventSeq 均有
   typed 断言。late HTTP 与 duplicate WS 在 runner 内断言不重复 terminal write/Frame。
+
+## T009-T012 Canonical Fixture / Helix Green
+
+- Fixture RED：普通
+  `cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture`
+  因 `group-created.frame-v2.json` 不存在而 exit 101，证明测试不会静默生成或覆盖 Golden。
+- 显式生成：
+  `UPDATE_G02_WDIO_FIXTURES=1 cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture`。
+  producer pin 为 `82445ae1b69d10bb01ea183a7fa00df88c80d993`。
+- Inventory：`group-created`、`sending`、`sent`、`failed`、`ws-timeline-sent`、
+  `ws-left-dialog-list` 共 6 份 Frame；schemaVersion 全为 2。timeline Surface 为
+  `message.timeline`，建群/WS 摘要 Surface 为 `message.left-dialog-list`。
+- 字段合同：Document `title=打开文档`、`summary/url` 为固定 URL、`placeholder=true`；
+  这些业务字段不在 parameterizableFields。动态字段仅限 provenance 声明的 actor/team/channel、
+  message identity、transaction/revision/epoch 和 group identity。
+- Hash 真源：每份 provenance 同时记录 raw `fixtureSha256` 与包含 Document/dialog typed 语义的
+  `semanticSha256`；普通测试逐字比较 canonical JSON 与 provenance。
+- 最终命令：
+  - `cargo check -p helix-im`：exit 0。
+  - `cargo test -p helix-im --test g02_full_flow_test -- --nocapture`：6/6 PASS。
+  - `cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture`：1/1 PASS。
+- **Helix Green**：G02 T001-T012 完成；PC/Mobile 只能只读同步这组 producer-authored Fixture。

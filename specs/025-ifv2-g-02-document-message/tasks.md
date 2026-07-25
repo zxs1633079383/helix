@@ -34,10 +34,10 @@
 - [x] T006 [US1] 在 crates/helix-im/src/send/flow.rs 对齐 im_send_message 的生产 handler、authority 与幂等语义，禁止测试旁路。G02 固定发送 `http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15` 并渲染文档消息卡片；不是附件、文件上传或上传进度状态机，Strict Matrix 已完成纠偏。
 - [x] T007 [US1] 在 crates/helix-im/tests/interaction_frame_contract_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
 - [x] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.timeline 完整 mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g02_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/g02_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g02-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g02-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 g02_full_flow_test/g02_wdio_fixture_contract_test，并登记原始输出到 specs/025-ifv2-g-02-document-message/verification.md
+- [x] T009 [P] [US1] 先在 crates/helix-im/tests/g02_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [x] T010 [US1] 由 crates/helix-im/tests/support/g02_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g02-wdio/ canonical JSON，不手写平台 VM
+- [x] T011 [US1] 在 crates/helix-im/tests/fixtures/g02-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [x] T012 [US1] 运行 cargo check 与 g02_full_flow_test/g02_wdio_fixture_contract_test，并登记原始输出到 specs/025-ifv2-g-02-document-message/verification.md
 
 ---
 

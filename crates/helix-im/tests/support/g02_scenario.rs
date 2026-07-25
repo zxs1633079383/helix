@@ -57,6 +57,7 @@ pub fn g02_scenario_spec() -> SendScenarioSpec {
 /// 为 G02 提供共享发送 ScenarioRunner 的轻量领域入口。
 pub struct G02ScenarioRunner;
 
+#[allow(dead_code)]
 impl G02ScenarioRunner {
     /// 回放 G02 HTTP success/business failure/infrastructure failure。
     pub fn run_http(terminal: Terminal) -> HttpScenarioTrace {
@@ -92,6 +93,7 @@ pub fn assert_document_timeline_contract(
 }
 
 /// 逐字段验证冷启动 query Frame 的 typed Document 内容，query causation 可为空。
+#[allow(dead_code)]
 pub fn assert_recovered_document_timeline_contract(
     frame: &InteractionFrameV2,
     expected_id: &str,

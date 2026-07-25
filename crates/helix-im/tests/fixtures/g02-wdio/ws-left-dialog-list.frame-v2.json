@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "dialog-list-user|14:g02-wdio-actor|16:g02-wdio-company-3",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": {
+        "kind": "user",
+        "userId": "g02-wdio-actor",
+        "teamId": "g02-wdio-company"
+      },
+      "revision": 3,
+      "baseRevision": 2,
+      "mutation": {
+        "kind": "dialogListPatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "sections": [
+              {
+                "kind": "normal",
+                "items": [
+                  {
+                    "channelId": "chdocx00000000000000000001",
+                    "channelKind": "group",
+                    "title": {
+                      "text": "G02 Fixture Group"
+                    },
+                    "avatar": {
+                      "resource": null,
+                      "userIds": [
+                        "g02-wdio-actor",
+                        "g02-wdio-observer"
+                      ],
+                      "fallbackText": "G02 Fixture Group"
+                    },
+                    "preview": {
+                      "kind": "document",
+                      "author": {
+                        "userId": "g02-wdio-actor"
+                      },
+                      "title": "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15"
+                    },
+                    "lastActivityAt": 1700000100022,
+                    "unreadCount": 0,
+                    "mentionCount": 0,
+                    "urgentCount": 0,
+                    "topicCount": 0,
+                    "memberCount": 2,
+                    "memberLeaves": [],
+                    "hasScheduledMessage": false,
+                    "isTop": false,
+                    "notificationMode": "all",
+                    "lifecycle": {
+                      "state": "active"
+                    },
+                    "settingsVersion": 0,
+                    "actions": []
+                  }
+                ],
+                "page": {
+                  "windowToken": "dialog-list-3-normal",
+                  "hasOlder": false,
+                  "hasNewer": false,
+                  "hasMore": false
+                }
+              }
+            ],
+            "state": "ready"
+          }
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

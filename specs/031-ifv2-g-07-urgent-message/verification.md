@@ -16,3 +16,35 @@
 - 每次运行保留原始输出并通过 `loop_engine.py record-evidence` 登记；失败输出不得被说明文字替换。
 - Mock、AcceptedCommand、HTTP 2xx、单端 replay 或 GTest 不能代替 PC Real 与跨仓 Review。
 - 当前 Feature 只定义验收合同；在实现与运行证据出现前，本 Gate 状态保持 Draft。
+
+## T001 Source Lock - 2026-07-25
+
+- Helix：`ccbc354ab2444736400ad45195556fecffce7b94`；前序 G06
+  T001-T038 全部完成，mandatory R4 `PASS` 且最终 `CLOSED`。
+- cses-client：`ab7833996be5156f4d0e0655c18e7f9c65488961`，tracked tree
+  clean；Tauri 四个 Helix production dependency 统一 pin
+  `3798ffdd0bfd89b8922829dd252327bb0a2075ec`。
+- Mobile：`3bd7650a2545e4a8a2d56b552d2ad20ee1bbce8e`，tracked tree
+  clean；任务前已有八份 Helix bundle 与 `tests/.DS_Store` 保持未跟踪。
+  production Helix pin 为
+  `6a2703971a2e452c191d6a3b6481a5a3c51998fc`，bundle SHA-256 为
+  `deefc3ea88a6c01fd394ab618d4177843e56238dbeae71157ec302e20104a9ad`。
+- Strict Matrix 机器真源
+  `crates/helix-im/contracts/strict-matrix.v1.json` raw SHA-256 为
+  `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`；
+  人读生成文档 raw SHA-256 为
+  `6f186cf291dc6336798b1178bf3d97493588eea8ccc467f026766654d3fe2354`。
+- 当前只具备 urgent outbound、基础 ActionBinding 与平台 admission；没有 G07
+  完整 ScenarioRunner、canonical Fixture、PC 独立 lanes 或 Mobile typed
+  UC08 contract。因此仅满足 implementation admission，不声明任一 lane Green。
+
+## T003 Shared CreateGroupPrerequisite
+
+- Helix 复用 G01 production prerequisite：`im_create_channel` 取得权威
+  `channelId`，随后在同一 fresh group 发送 source post；G07 只消费权威
+  post/channel ID，不复制建群 handler。
+- PC 继续使用 `g01-group-prerequisite.ts` 从真实 MessageV4 UI 创建群并选择
+  Actor 444、Observer 678；Mock 只 replay Helix canonical Frame。
+- Mobile 继续使用 `UcJsContractFixture::RC.createChannel` 与 `sendMessage`
+  创建 fresh group/source post；不依赖固定旧 channel 或前序 Gate 遗留数据。
+- 三端现有共享前置满足 G07，无需新增第二套 CreateGroup 业务逻辑。

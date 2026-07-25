@@ -87,6 +87,36 @@ pub struct WsScenarioTrace {
     pub dialog_corr: Correlation,
 }
 
+/// 汇总一次失败后重试的 HTTP 终态 Frames。
+pub struct RetryHttpScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub initial_sending: InteractionFrameV2,
+    pub initial_failed: InteractionFrameV2,
+    pub retry_sending: InteractionFrameV2,
+    pub retry_terminal: InteractionFrameV2,
+    pub temporary_id: String,
+}
+
+/// 汇总失败重试后由 WS 先行结算的 timeline 与 dialog Frames。
+pub struct RetryWsScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub initial_failed: InteractionFrameV2,
+    pub retry_sending: InteractionFrameV2,
+    pub timeline_sent: InteractionFrameV2,
+    pub dialog: InteractionFrameV2,
+    pub temporary_id: String,
+    pub timeline_corr: Correlation,
+    pub dialog_corr: Correlation,
+}
+
+/// 汇总 cold-start durable failed row 重建后的 retry Frames。
+pub struct RetryRecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub retry_sending: InteractionFrameV2,
+    pub retry_sent: InteractionFrameV2,
+    pub temporary_id: String,
+}
+
 /// 汇总冷启动本地持久事实恢复出的 timeline Frame。
 #[allow(dead_code)]
 pub struct RecoveryScenarioTrace {
@@ -144,6 +174,97 @@ impl G01ScenarioRunner {
         }
     }
 
+    /// 回放首次发送失败后，以相同 temporaryId 重试到指定 HTTP 终态。
+    pub fn run_retry_http_for(
+        spec: SendScenarioSpec,
+        retry_terminal: Terminal,
+    ) -> RetryHttpScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        runner.attach_timeline();
+        let initial = runner.start_sending();
+        let initial_failed = runner.finish_http(&initial, Terminal::Failed);
+        let retry = runner.start_retry(&initial.temporary_id, 16_000);
+        let retry_terminal = runner.finish_http_at(
+            &retry,
+            retry_terminal,
+            runner.spec.created_at as u64 + 16_003,
+        );
+        RetryHttpScenarioTrace {
+            group_created,
+            initial_sending: initial.frame,
+            initial_failed,
+            retry_sending: retry.frame,
+            retry_terminal,
+            temporary_id: retry.temporary_id,
+        }
+    }
+
+    /// 回放首次失败、重试、WS 先行结算以及迟到 HTTP/重复 WS 幂等分支。
+    pub fn run_retry_ws_echo_with_dialog_for(spec: SendScenarioSpec) -> RetryWsScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        runner.attach_timeline();
+        let initial = runner.start_sending();
+        let initial_failed = runner.finish_http(&initial, Terminal::Failed);
+        let retry = runner.start_retry(&initial.temporary_id, 16_000);
+        let (timeline_sent, dialog, timeline_corr, dialog_corr) = runner.finish_ws(&retry, 32_000);
+        RetryWsScenarioTrace {
+            group_created,
+            initial_failed,
+            retry_sending: retry.frame,
+            timeline_sent,
+            dialog,
+            temporary_id: retry.temporary_id,
+            timeline_corr,
+            dialog_corr,
+        }
+    }
+
+    /// 从 durable failed row 冷启动重试并返回 sending 与 sent typed Frames。
+    pub fn run_retry_recovery_for(spec: SendScenarioSpec) -> RetryRecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        runner.attach_timeline();
+        runner.step(
+            command(
+                "im_retry_send",
+                json!({
+                    "message_id": "tmp-g03a-recovered",
+                    "req_id": runner.spec.request_id,
+                }),
+            ),
+            runner.spec.created_at as u64 + 40_000,
+        );
+        let lookup = runner.only_persist_corr_with(|ops| {
+            ops.iter().any(
+                |op| matches!(op, StorageOp::Get(spec) if spec.table == "message" && spec.key_col == "temporary_id"),
+            )
+        });
+        runner.step(
+            ok(
+                lookup,
+                rows_bytes(json!([durable_failed_row(
+                    &runner.spec,
+                    "tmp-g03a-recovered"
+                )])),
+            ),
+            runner.spec.created_at as u64 + 40_001,
+        );
+        let retry = runner.complete_retry_start("tmp-g03a-recovered", 40_002);
+        let retry_terminal = runner.finish_http_at(
+            &retry,
+            Terminal::Sent,
+            runner.spec.created_at as u64 + 40_005,
+        );
+        RetryRecoveryScenarioTrace {
+            group_created,
+            retry_sending: retry.frame,
+            retry_sent: retry_terminal,
+            temporary_id: retry.temporary_id,
+        }
+    }
+
     /// 回放 WS post 先行结算并验证迟到 HTTP 不会重复写终态。
     pub fn run_ws_echo_with_dialog() -> WsScenarioTrace {
         Self::run_ws_echo_with_dialog_for(g01_scenario_spec())
@@ -155,112 +276,7 @@ impl G01ScenarioRunner {
         let group_created = runner.create_group_prerequisite();
         runner.attach_timeline();
         let sending = runner.start_sending();
-
-        runner.step(
-            echo_frame(&runner.spec, &sending.temporary_id),
-            runner.spec.created_at as u64 + 20,
-        );
-        assert!(
-            runner.effects().iter().any(
-                |effect| matches!(effect, Effect::CancelTimer { id } if *id == sending.timer_id)
-            ),
-            "authoritative WS echo must cancel the sending timeout"
-        );
-        let timeline_corr = runner.only_persist_corr_with(|ops| {
-            has_table_write(ops, "message")
-                && !ops
-                    .iter()
-                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
-        });
-        let dialog_corr = runner.only_persist_corr_with(|ops| {
-            ops.iter()
-                .any(|op| matches!(op, StorageOp::GuardedBump(spec) if spec.table == "channel"))
-                && ops
-                    .iter()
-                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
-        });
-        assert_ne!(
-            timeline_corr, dialog_corr,
-            "timeline and dialog must retain independent correlation barriers"
-        );
-
-        runner.step(
-            ok(timeline_corr, Bytes::new()),
-            runner.spec.created_at as u64 + 21,
-        );
-        assert!(
-            runner.frames().is_empty(),
-            "terminal PersistOk only schedules the timeline readback"
-        );
-        let timeline_read = runner.only_persist_corr_with(|ops| {
-            ops.iter()
-                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
-        });
-        runner.step(
-            ok(
-                timeline_read,
-                rows_bytes(json!([message_row(
-                    &runner.spec,
-                    runner.spec.server_id,
-                    &sending.temporary_id,
-                    "sent",
-                    1
-                )])),
-            ),
-            runner.spec.created_at as u64 + 22,
-        );
-        let timeline_sent = runner.only_frame();
-
-        runner.step(
-            ok(
-                dialog_corr,
-                rows_bytes(json!([channel_row(
-                    &runner.spec,
-                    0,
-                    runner.spec.marker,
-                    runner.spec.created_at + 20
-                )])),
-            ),
-            runner.spec.created_at as u64 + 23,
-        );
-        let dialog = runner.only_frame();
-
-        runner.step(
-            ok(
-                sending.http_corr,
-                http_envelope(json!({
-                    "status": "SUCCESS",
-                    "data": {"id": runner.spec.server_id}
-                })),
-            ),
-            runner.spec.created_at as u64 + 24,
-        );
-        assert!(
-            runner
-                .effects()
-                .iter()
-                .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
-            "late HTTP success after WS settlement must not repeat terminal write"
-        );
-        assert!(
-            runner.frames().is_empty(),
-            "late HTTP success after WS settlement must not repeat terminal Frame"
-        );
-        runner.step(
-            echo_frame(&runner.spec, &sending.temporary_id),
-            runner.spec.created_at as u64 + 25,
-        );
-        assert!(
-            runner
-                .effects()
-                .iter()
-                .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
-            "duplicate authoritative WS echo must not repeat terminal message writes"
-        );
-        assert!(
-            runner.frames().is_empty(),
-            "duplicate authoritative WS echo must not repeat terminal timeline Frame"
-        );
+        let (timeline_sent, dialog, timeline_corr, dialog_corr) = runner.finish_ws(&sending, 20);
 
         WsScenarioTrace {
             group_created,
@@ -326,10 +342,7 @@ impl G01ScenarioRunner {
             );
             if runner.frames().is_empty() {
                 let cache = runner.only_persist_corr_with(|ops| !ops.is_empty());
-                runner.step(
-                    ok(cache, Bytes::new()),
-                    runner.spec.created_at as u64 + 33,
-                );
+                runner.step(ok(cache, Bytes::new()), runner.spec.created_at as u64 + 33);
             }
             runner.only_frame()
         } else {
@@ -582,8 +595,89 @@ impl G01ScenarioRunner {
         }
     }
 
+    /// 从 failed pending send 进入重试 Persist/readback/HTTP 阶段。
+    fn start_retry(&mut self, temporary_id: &str, offset_ms: u64) -> SendingStage {
+        self.step(
+            command(
+                "im_retry_send",
+                json!({
+                    "message_id": temporary_id,
+                    "req_id": self.spec.request_id,
+                }),
+            ),
+            self.spec.created_at as u64 + offset_ms,
+        );
+        assert!(
+            self.effects()
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Http { .. })),
+            "retry posts/create must wait for its sending PersistOk"
+        );
+        assert!(
+            self.frames().is_empty(),
+            "retry command cannot fabricate a typed Frame before readback"
+        );
+        self.complete_retry_start(temporary_id, offset_ms + 1)
+    }
+
+    /// 在当前 step 的 retry Persist 后完成 readback，并捕获新的 HTTP/timer correlation。
+    fn complete_retry_start(&mut self, temporary_id: &str, offset_ms: u64) -> SendingStage {
+        let persist = self.only_persist_corr_with(|ops| has_table_write(ops, "message"));
+        self.step(
+            ok(persist, Bytes::new()),
+            self.spec.created_at as u64 + offset_ms,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "retry PersistOk only schedules the attached timeline readback"
+        );
+        let read = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                read,
+                rows_bytes(json!([message_row(
+                    &self.spec,
+                    temporary_id,
+                    temporary_id,
+                    "sending",
+                    0
+                )])),
+            ),
+            self.spec.created_at as u64 + offset_ms + 1,
+        );
+        let frame = self.only_frame();
+        let http_corr = self.only_http_corr("/posts/create");
+        let timer_id = self
+            .effects()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::ScheduleTimer { id, after_ms } if *after_ms == 15_000 => Some(*id),
+                _ => None,
+            })
+            .expect("retry sending stage schedules a fresh timeout");
+        SendingStage {
+            temporary_id: temporary_id.to_string(),
+            http_corr,
+            timer_id,
+            frame,
+        }
+    }
+
     /// 跨 terminal Persist/readback 推进 HTTP 分支并返回唯一终态 Frame。
     fn finish_http(&mut self, sending: &SendingStage, terminal: Terminal) -> InteractionFrameV2 {
+        self.finish_http_at(sending, terminal, self.spec.created_at as u64 + 5)
+    }
+
+    /// 从指定单调时间推进 HTTP/timeout、终态 Persist 与 timeline readback。
+    fn finish_http_at(
+        &mut self,
+        sending: &SendingStage,
+        terminal: Terminal,
+        terminal_at_ms: u64,
+    ) -> InteractionFrameV2 {
         match terminal {
             Terminal::Sent => self.step(
                 ok(
@@ -593,7 +687,7 @@ impl G01ScenarioRunner {
                         "data": {"id": self.spec.server_id}
                     })),
                 ),
-                self.spec.created_at as u64 + 5,
+                terminal_at_ms,
             ),
             Terminal::BusinessFailed => {
                 self.step(
@@ -604,7 +698,7 @@ impl G01ScenarioRunner {
                             "message": "document access rejected"
                         })),
                     ),
-                    self.spec.created_at as u64 + 5,
+                    terminal_at_ms,
                 );
                 assert!(
                     self.effects()
@@ -612,22 +706,16 @@ impl G01ScenarioRunner {
                         .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
                     "business rejection must wait for the armed timeout instead of fabricating sent"
                 );
-                self.step(
-                    Tick::Timer(sending.timer_id),
-                    self.spec.created_at as u64 + 15_002,
-                );
+                self.step(Tick::Timer(sending.timer_id), terminal_at_ms + 15_000);
             }
-            Terminal::Failed => self.step(
-                http_error(sending.http_corr),
-                self.spec.created_at as u64 + 5,
-            ),
+            Terminal::Failed => self.step(http_error(sending.http_corr), terminal_at_ms),
         }
         assert!(
             self.frames().is_empty(),
             "HTTP completion is not render-ready before terminal persistence"
         );
         let persist = self.only_persist_corr_with(|ops| has_table_write(ops, "message"));
-        self.step(ok(persist, Bytes::new()), self.spec.created_at as u64 + 15_003);
+        self.step(ok(persist, Bytes::new()), terminal_at_ms + 15_001);
         assert!(
             self.frames().is_empty(),
             "terminal PersistOk only schedules the terminal readback"
@@ -653,9 +741,126 @@ impl G01ScenarioRunner {
                     0
                 )])),
             ),
-            self.spec.created_at as u64 + 15_004,
+            terminal_at_ms + 15_002,
         );
         self.only_frame()
+    }
+
+    /// 以 WS authority 结算当前发送阶段，并验证迟到 HTTP 与重复 WS 不重写终态。
+    fn finish_ws(
+        &mut self,
+        sending: &SendingStage,
+        offset_ms: u64,
+    ) -> (
+        InteractionFrameV2,
+        InteractionFrameV2,
+        Correlation,
+        Correlation,
+    ) {
+        self.step(
+            echo_frame(&self.spec, &sending.temporary_id),
+            self.spec.created_at as u64 + offset_ms,
+        );
+        assert!(
+            self.effects().iter().any(
+                |effect| matches!(effect, Effect::CancelTimer { id } if *id == sending.timer_id)
+            ),
+            "authoritative WS echo must cancel the sending timeout"
+        );
+        let timeline_corr = self.only_persist_corr_with(|ops| {
+            has_table_write(ops, "message")
+                && !ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
+        });
+        let dialog_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::GuardedBump(spec) if spec.table == "channel"))
+                && ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
+        });
+        assert_ne!(
+            timeline_corr, dialog_corr,
+            "timeline and dialog must retain independent correlation barriers"
+        );
+
+        self.step(
+            ok(timeline_corr, Bytes::new()),
+            self.spec.created_at as u64 + offset_ms + 1,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "terminal PersistOk only schedules the timeline readback"
+        );
+        let timeline_read = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                timeline_read,
+                rows_bytes(json!([message_row(
+                    &self.spec,
+                    self.spec.server_id,
+                    &sending.temporary_id,
+                    "sent",
+                    1
+                )])),
+            ),
+            self.spec.created_at as u64 + offset_ms + 2,
+        );
+        let timeline_sent = self.only_frame();
+
+        self.step(
+            ok(
+                dialog_corr,
+                rows_bytes(json!([channel_row(
+                    &self.spec,
+                    0,
+                    self.spec.marker,
+                    self.spec.created_at + 20
+                )])),
+            ),
+            self.spec.created_at as u64 + offset_ms + 3,
+        );
+        let dialog = self.only_frame();
+
+        self.step(
+            ok(
+                sending.http_corr,
+                http_envelope(json!({
+                    "status": "SUCCESS",
+                    "data": {"id": self.spec.server_id}
+                })),
+            ),
+            self.spec.created_at as u64 + offset_ms + 4,
+        );
+        assert!(
+            self.effects()
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
+            "late HTTP success after WS settlement must not repeat terminal write"
+        );
+        assert!(
+            self.frames().is_empty(),
+            "late HTTP success after WS settlement must not repeat terminal Frame"
+        );
+        self.step(
+            echo_frame(&self.spec, &sending.temporary_id),
+            self.spec.created_at as u64 + offset_ms + 5,
+        );
+        assert!(
+            self.effects()
+                .iter()
+                .all(|effect| !matches!(effect, Effect::Persist { ops, .. } if has_table_write(ops, "message"))),
+            "duplicate authoritative WS echo must not repeat terminal message writes"
+        );
+        assert!(
+            self.frames().is_empty(),
+            "duplicate authoritative WS echo must not repeat terminal timeline Frame"
+        );
+        (timeline_sent, dialog, timeline_corr, dialog_corr)
     }
 
     /// 按 endpoint suffix 提取唯一 HTTP correlation，避免依赖 Effect 排序。
@@ -868,10 +1073,7 @@ pub fn assert_group_created_contract(frame: &InteractionFrameV2) {
 }
 
 /// 逐字段验证任一 Gate 的建群前置 Frame 使用其权威 channel 与双用户 roster。
-pub fn assert_group_created_contract_for(
-    frame: &InteractionFrameV2,
-    spec: &SendScenarioSpec,
-) {
+pub fn assert_group_created_contract_for(frame: &InteractionFrameV2, spec: &SendScenarioSpec) {
     frame.validate().expect("group-created Frame remains valid");
     assert_eq!(frame.schema_version, 2);
     assert!(!frame.transaction_id.is_empty());
@@ -1015,6 +1217,32 @@ fn message_row(
         "sendStatus": status,
         "event_seq": event_seq,
         "props": spec.props,
+    })
+}
+
+/// 构造冷启动 retry lookup 使用的 durable failed message row。
+fn durable_failed_row(spec: &SendScenarioSpec, temporary_id: &str) -> Value {
+    json!({
+        "temporary_id": temporary_id,
+        "id": "",
+        "channel_id": spec.channel_id,
+        "user_id": spec.actor_id,
+        "type": spec.message_type,
+        "message": spec.marker,
+        "props": serde_json::to_string(&spec.props).expect("scenario props serialize"),
+        "viewers": "[]",
+        "mentions": "[]",
+        "user_snapshot": serde_json::to_string(&json!({
+            "userId": spec.actor_id,
+            "teamId": spec.team_id,
+        }))
+        .expect("scenario user snapshot serializes"),
+        "topic": "",
+        "reply_id": "",
+        "reply_root_id": "",
+        "reply_first_level_id": "",
+        "create_at": spec.created_at,
+        "send_status": "unsend",
     })
 }
 

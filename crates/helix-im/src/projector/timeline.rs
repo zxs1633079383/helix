@@ -997,6 +997,7 @@ fn content_from_row(
     Ok(MessageContentVm::Text { text })
 }
 
+/// 将持久行状态投影成 renderer delivery，并复用同一 capability 真源判定 retryable。
 fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineProjectionError> {
     if revoked {
         return Ok(DeliveryVm::Recalled);
@@ -1014,10 +1015,18 @@ fn delivery_from_row(row: &Value, revoked: bool) -> Result<DeliveryVm, TimelineP
         "sending" => Ok(DeliveryVm::Sending),
         "failed" | "unsend" => Ok(DeliveryVm::Failed {
             reason: row_string(row, &["failureReason", "error"]),
-            retryable: bool_at(row, &["canRetry"]),
+            retryable: retryable_from_row(row),
         }),
         _ => Ok(DeliveryVm::Sent),
     }
+}
+
+/// 兼容 direct row 与 render-ready `actionCapabilities` 两种 canRetry 位置。
+fn retryable_from_row(row: &Value) -> bool {
+    bool_at(row, &["canRetry"])
+        || row
+            .get("actionCapabilities")
+            .is_some_and(|capabilities| bool_at(capabilities, &["canRetry"]))
 }
 
 fn action_bindings(
@@ -1546,6 +1555,31 @@ mod tests {
                 "title":"design review",
             })
         );
+    }
+
+    #[test]
+    /// 证明 failed delivery 与 retry action 读取同一 render-ready capability。
+    fn failed_delivery_is_retryable_when_retry_action_is_available() {
+        let mut source = row(1);
+        source["sendStatus"] = serde_json::json!("unsend");
+        source["actionCapabilities"] = serde_json::json!({"canRetry": true});
+
+        let message = message_from_render_ready(&source, "channel-1", 1, true, || {
+            Ok("retry-action-ref".to_string())
+        })
+        .expect("failed render-ready message");
+
+        assert!(matches!(
+            message.delivery,
+            DeliveryVm::Failed {
+                retryable: true,
+                ..
+            }
+        ));
+        assert!(message
+            .actions
+            .iter()
+            .any(|action| action.kind == "retry" && action.enabled));
     }
 
     #[test]

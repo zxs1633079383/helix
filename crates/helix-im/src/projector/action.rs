@@ -72,6 +72,9 @@ pub enum ActionDispatch {
         channel_id: String,
         message_id: String,
     },
+    RetryMessage {
+        message_id: String,
+    },
     /// 没有安全 canonical 映射的 action 永远不能被受理。
     Unsupported,
 }
@@ -143,10 +146,12 @@ impl ActionDispatch {
                 channel_id,
                 message_id,
             }),
+            "retry" => Some(Self::RetryMessage { message_id }),
             _ => None,
         }
     }
 
+    /// 判定 timeline action 是否具备已审计的 canonical command 接线。
     pub(crate) fn supports_timeline_kind(kind: &str) -> bool {
         matches!(
             kind,
@@ -159,9 +164,11 @@ impl ActionDispatch {
                 | "urgent"
                 | "urgentConfirm"
                 | "urgentCancel"
+                | "retry"
         )
     }
 
+    /// 仅为等待远端 authority 的写操作建立 WS 终态 correlation。
     pub(crate) fn pending_authority_action(
         &self,
         request_id: &str,
@@ -203,6 +210,7 @@ impl ActionDispatch {
 }
 
 impl ActionDispatch {
+    /// 校验 action input 只包含该 canonical command 明确允许的字段。
     fn validate_input(&self, invocation: &ActionInvocation) -> Result<(), ActionProjectionError> {
         match self {
             Self::MarkRead { .. }
@@ -211,6 +219,7 @@ impl ActionDispatch {
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
+            | Self::RetryMessage { .. }
                 if !invocation.input.is_empty() =>
             {
                 Err(ActionProjectionError::InvalidInvocation(
@@ -222,7 +231,8 @@ impl ActionDispatch {
             | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
-            | Self::CancelUrgent { .. } => Ok(()),
+            | Self::CancelUrgent { .. }
+            | Self::RetryMessage { .. } => Ok(()),
             Self::ForwardMessages { .. } => validate_forward_input(&invocation.input),
             Self::ToggleReaction { .. } => validate_reaction_input(&invocation.input),
             Self::UrgentMessage { .. } => validate_urgent_input(&invocation.input),
@@ -1164,6 +1174,7 @@ mod tests {
     }
 
     #[test]
+    /// 证明只有具备 canonical command 的 timeline action 会被 projector 启用。
     fn timeline_dispatch_map_only_admits_explicit_authority_paths() {
         for kind in [
             "markRead",
@@ -1175,6 +1186,7 @@ mod tests {
             "urgent",
             "urgentConfirm",
             "urgentCancel",
+            "retry",
         ] {
             assert!(ActionDispatch::supports_timeline_kind(kind), "{kind}");
             assert!(
@@ -1186,7 +1198,6 @@ mod tests {
         for kind in [
             "reply",
             "createTopic",
-            "retry",
             "templateConfirm",
             "createSchedule",
             "cancelSchedule",

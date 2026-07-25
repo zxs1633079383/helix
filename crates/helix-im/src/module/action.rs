@@ -39,6 +39,9 @@ enum PreparedAction {
     Forward {
         payload: Vec<u8>,
     },
+    Retry {
+        payload: Vec<u8>,
+    },
 }
 
 impl ImModule {
@@ -229,6 +232,11 @@ impl ImModule {
                         PreparedAction::Forward { payload } => {
                             crate::forward::start(self, &payload, now_ms, out)?;
                         }
+                        PreparedAction::Retry { payload } => {
+                            crate::send::retry_send::handle_retry_send(
+                                self, &payload, now_ms, out,
+                            )?;
+                        }
                     }
                 }
                 Ok(())
@@ -292,6 +300,7 @@ impl ImModule {
             })
     }
 
+    /// 将已授权 action 转成生产 command 输入，提交前不改变业务状态。
     fn prepare_action(
         &mut self,
         dispatch: &ActionDispatch,
@@ -436,6 +445,14 @@ impl ImModule {
                 }))
                 .map_err(|error| ImError::Serialize(error.to_string()))?;
                 Ok(PreparedAction::Forward { payload })
+            }
+            ActionDispatch::RetryMessage { message_id } => {
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "message_id": message_id,
+                    "req_id": request_id,
+                }))
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                Ok(PreparedAction::Retry { payload })
             }
             ActionDispatch::Unsupported => Err(ImError::Parse(
                 "action dispatch has no canonical authority mapping".to_string(),

@@ -10,6 +10,7 @@
 
 - producer：`ImModule::handle -> projector/SurfaceComposer -> Effect::Emit`
 - schema：`InteractionFrameV2`，`schemaVersion=2`
+- 建群前置 canonical Surface：`message.left-dialog-list`
 - HTTP canonical Surface：`message.timeline`
 - WS canonical Surface：独立 `message.timeline` 结算，以及已 attach 时条件性
   `message.left-dialog-list` patch；两者使用不同 correlation，不保证顺序。
@@ -32,6 +33,7 @@ Tick/PortReply/Inbound
 
 库存固定为：
 
+- `group-created.frame-v2.json`
 - `sending.frame-v2.json`
 - `sent.frame-v2.json`
 - `failed.frame-v2.json`

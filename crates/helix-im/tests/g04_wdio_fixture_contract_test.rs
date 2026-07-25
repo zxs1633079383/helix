@@ -215,26 +215,34 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/view/items/*/channelId",
             "/mutations/*/mutation/view/items/*/author/userId",
             "/mutations/*/mutation/view/items/*/createdAt",
+            "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/patch/view/channelId",
             "/mutations/*/mutation/patch/view/anchor/messageId",
             "/mutations/*/mutation/patch/view/items/*/id",
             "/mutations/*/mutation/patch/view/items/*/channelId",
             "/mutations/*/mutation/patch/view/items/*/author/userId",
             "/mutations/*/mutation/patch/view/items/*/createdAt",
+            "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
             "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
             "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt",
             "/mutations/*/mutation/view/sections/*/items/*/title/text",
-            "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*"
+            "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch"
         ],
         "rebaseFields": [
             "/transactionId",
             "/mutations/*/surfaceEpoch",
             "/mutations/*/revision",
-            "/mutations/*/baseRevision"
+            "/mutations/*/baseRevision",
+            "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch"
         ],
         "placeholderValues": {
             "actorId": ACTOR_ID,

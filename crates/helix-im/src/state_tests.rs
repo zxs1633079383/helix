@@ -73,8 +73,8 @@ fn hash_u64_deterministic() {
 }
 
 #[test]
-/// 证明 transport reset 只失效 query correlation，不撤销 renderer 当前仍挂载的 action grant。
-fn transport_query_reset_preserves_live_action_grant() {
+/// 证明重连 hello 的批次 reset 只失效 query correlation，不撤销 renderer 当前 live grant。
+fn reconnect_batch_reset_preserves_live_action_grant() {
     let mut state = ImState::new();
     let scope = SurfaceScope::Timeline {
         channel_id: "channel-1".to_string(),
@@ -106,7 +106,7 @@ fn transport_query_reset_preserves_live_action_grant() {
         )
         .expect("live retry grant must register");
 
-    state.reset_transport_query_session();
+    state.reset_increment_batch();
 
     assert_eq!(state.action_registry.len(), 1);
 }

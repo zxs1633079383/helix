@@ -293,7 +293,7 @@ impl ImState {
         self.viewer_channel_roles.clear();
         self.reply_projection_revisions.clear();
         self.reply_projection_seen_ids.clear();
-        self.reset_recent_query_coverage();
+        self.reset_transport_query_session();
     }
 
     pub(crate) fn reset_recent_query_coverage(&mut self) {

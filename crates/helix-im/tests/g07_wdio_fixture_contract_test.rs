@@ -31,7 +31,7 @@ struct FixtureCase {
     frame: InteractionFrameV2,
 }
 
-/// 从唯一 ScenarioRunner 生成建群、加急、确认及两类 receipt 共六份 Frame。
+/// 从唯一 ScenarioRunner 生成建群、成员、加急、确认及两类 receipt 共七份 Frame。
 fn produce_cases() -> Vec<FixtureCase> {
     let post = G07ScenarioRunner::run_urgent_post();
     let confirm = G07ScenarioRunner::run_urgent_confirm();
@@ -42,6 +42,7 @@ fn produce_cases() -> Vec<FixtureCase> {
     assert_eq!(post.urgentable, failed.urgentable);
     assert_eq!(post.urgent_active, replayed.urgent_active_after_replay);
     assert_group_created_contract_for(&post.group_created, &g07_scenario_spec());
+    assert_member_roster_contract(&post.member_roster);
     assert_urgentable_contract(&post.urgentable);
     assert_urgent_timeline_contract(&post.urgent_active, false, Some(REQUEST_ID));
     assert_urgent_receipts_contract(&post.receipts_pending, false);
@@ -58,6 +59,11 @@ fn produce_cases() -> Vec<FixtureCase> {
             fixture_id: "g07-group-created-v2",
             file_name: "group-created.frame-v2.json",
             frame: post.group_created,
+        },
+        FixtureCase {
+            fixture_id: "g07-member-roster-v2",
+            file_name: "member-roster.frame-v2.json",
+            frame: post.member_roster,
         },
         FixtureCase {
             fixture_id: "g07-urgentable-v2",
@@ -85,6 +91,28 @@ fn produce_cases() -> Vec<FixtureCase> {
             frame: confirm.receipts_completed,
         },
     ]
+}
+
+/// 断言加急选择器消费的成员 roster 完整包含 Actor 与 Observer。
+fn assert_member_roster_contract(frame: &InteractionFrameV2) {
+    let view = frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::MemberRosterSnapshot { view } => Some(view),
+            TypedSurfaceMutation::MemberRosterPatch { patch } => Some(&patch.view),
+            _ => None,
+        })
+        .expect("G07 member roster Frame must contain a typed roster view");
+    assert_eq!(view.channel_id, CHANNEL_ID);
+    assert_eq!(view.member_count, 2);
+    assert_eq!(
+        view.items
+            .iter()
+            .map(|item| item.user.user_id.as_str())
+            .collect::<Vec<_>>(),
+        [ACTOR_ID, OBSERVER_ID]
+    );
 }
 
 /// 生成稳定 pretty JSON bytes，并固定末尾换行。
@@ -228,6 +256,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/view/items/*/id",
             "/mutations/*/mutation/view/items/*/channelId",
             "/mutations/*/mutation/view/items/*/author/userId",
+            "/mutations/*/mutation/view/items/*/user/userId",
             "/mutations/*/mutation/view/items/*/createdAt",
             "/mutations/*/mutation/view/items/*/content/text",
             "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
@@ -249,6 +278,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/patch/view/items/*/id",
             "/mutations/*/mutation/patch/view/items/*/channelId",
             "/mutations/*/mutation/patch/view/items/*/author/userId",
+            "/mutations/*/mutation/patch/view/items/*/user/userId",
             "/mutations/*/mutation/patch/view/items/*/createdAt",
             "/mutations/*/mutation/patch/view/items/*/content/text",
             "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch",
@@ -297,7 +327,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 /// 证明 actual producer、字段语义、Golden bytes 与 provenance 始终同源。
 fn current_g07_producer_matches_canonical_v2_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 6, "G07 canonical inventory is explicit");
+    assert_eq!(cases.len(), 7, "G07 canonical inventory is explicit");
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G07_WDIO_FIXTURES").is_some();
     let mut provenance = Vec::with_capacity(cases.len());

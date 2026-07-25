@@ -185,6 +185,7 @@ pub struct ReactionRecoveryScenarioTrace {
 /// 汇总 G07 发起加急后的 timeline 与 participant-receipts Frames。
 pub struct UrgentPostScenarioTrace {
     pub group_created: InteractionFrameV2,
+    pub member_roster: InteractionFrameV2,
     pub urgentable: InteractionFrameV2,
     pub urgent_active: InteractionFrameV2,
     pub receipts_pending: InteractionFrameV2,
@@ -653,6 +654,7 @@ impl G01ScenarioRunner {
         let mut runner = Self::new_for(spec);
         let requester_id = runner.spec.actor_id;
         let group_created = runner.create_group_prerequisite();
+        let member_roster = runner.attach_member_roster();
         let urgentable = runner.attach_urgent_timeline(requester_id, target_id, false, false);
         let http_corr = runner.start_urgent(&urgentable, target_id);
         let urgent_active =
@@ -660,6 +662,7 @@ impl G01ScenarioRunner {
         let receipts_pending = runner.attach_urgent_receipts(requester_id, target_id, false, 20);
         UrgentPostScenarioTrace {
             group_created,
+            member_roster,
             urgentable,
             urgent_active,
             receipts_pending,
@@ -1617,6 +1620,50 @@ impl G01ScenarioRunner {
                 )])),
             ),
             self.spec.created_at as u64 + offset_ms + 1,
+        );
+        self.only_frame()
+    }
+
+    /// 通过 production surface resync 生成加急选择器所需的双成员 roster。
+    fn attach_member_roster(&mut self) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "__helix_request_surface_snapshot",
+                json!({
+                    "surface": "message.member-roster",
+                    "scope": {
+                        "kind": "memberRoster",
+                        "channelId": self.spec.channel_id,
+                        "cursor": "first"
+                    },
+                    "causationId": format!("{}:member-roster", self.spec.request_id)
+                }),
+            ),
+            self.spec.created_at as u64 - 1,
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "channel_member"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([
+                    {
+                        "channel_id": self.spec.channel_id,
+                        "user_id": self.spec.actor_id,
+                        "user_name": "G07 Actor",
+                        "role": "ADMIN"
+                    },
+                    {
+                        "channel_id": self.spec.channel_id,
+                        "user_id": self.spec.observer_id,
+                        "user_name": "G07 Observer",
+                        "role": "MEMBER"
+                    }
+                ])),
+            ),
+            self.spec.created_at as u64,
         );
         self.only_frame()
     }

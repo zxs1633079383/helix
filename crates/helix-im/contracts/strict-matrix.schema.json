@@ -184,7 +184,7 @@
         "ws": { "$ref": "#/$defs/wsContract" },
         "remote_store": { "$ref": "#/$defs/remoteStore" },
         "persistence": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-        "projections": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/projection" } },
+        "projections": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/projection" } },
         "allowed_actions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "evidence": {
           "type": "object",

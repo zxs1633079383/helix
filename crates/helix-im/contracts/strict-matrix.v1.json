@@ -513,11 +513,6 @@
           "event": "im:interaction:frame",
           "render_kind": "message.timeline",
           "schema": "InteractionFrame/v2"
-        },
-        {
-          "event": "im:interaction:frame",
-          "render_kind": "message.timeline",
-          "schema": "InteractionFrame/v2"
         }
       ],
       "allowed_actions": [

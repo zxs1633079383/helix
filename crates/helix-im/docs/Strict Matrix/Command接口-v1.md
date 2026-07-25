@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 11; raw matrix sha256: `fcdf3e990acb507e69556ede2b1b9122b4ca2499c9348cfc0a1145eea6e830b4`; semantic matrix sha256: `444a0ca2620e9a30b5cc0c951bf3d4359132db3f198ec9f462f9c4206816a4c7`。
+> contract epoch: 11; raw matrix sha256: `50b5de03e8f619effef765e254838926f1bd18de6ba70080e590912297880ef6`; semantic matrix sha256: `2bea566b5f2d243830382c3419770d6f3559f46e7353fde9a0356c782a1db32b`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界
@@ -19,7 +19,7 @@
 | im_sync_channels | G-S3 / UC-4.4 心跳 gap 补偿 | reason | channel_id, event_seq | sync_request, projection | im:interaction:frame | active/declared |
 | im_sync_channels | G-04a / UC-1.5-offline 离线撤回重放 | reason | channel_id | sync_request, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_channel_load_increment_by_channel_id | G-S4 / UC-4.5 陌生 channel 兜底 | channel_id, req_id | is_read | http_read, storage_upsert, projection | im:interaction:frame | active/declared |
-| im_send_message | G-01 / UC-1.1 发文本 | channel_id, text, type | props, replied, req_id | storage_upsert, http_write, timer, projection | im:interaction:frame, im:interaction:frame | active/declared |
+| im_send_message | G-01 / UC-1.1 发文本 | channel_id, text, type | props, replied, req_id | storage_upsert, http_write, timer, projection | im:interaction:frame | active/declared |
 | im_send_message | G-02 / UC-1.2 发文档 | channel_id, type, props | text, replied, req_id | storage_upsert, http_write, timer, projection | im:interaction:frame | active/declared |
 | im_send_message | G-03 / UC-1.3 发图片/文件/媒体 | channel_id, type, props | text | upload, http_write, projection | im:interaction:frame | active/declared |
 | im_send_message | G-27 / US-17 他人发消息收推送 | channel_id, text, type | props | http_write, transport_broadcast, projection | im:interaction:frame | active/declared |

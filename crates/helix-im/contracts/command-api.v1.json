@@ -3,8 +3,8 @@
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
     "contract_epoch": 11,
-    "matrix_sha256": "fcdf3e990acb507e69556ede2b1b9122b4ca2499c9348cfc0a1145eea6e830b4",
-    "matrix_semantic_sha256": "444a0ca2620e9a30b5cc0c951bf3d4359132db3f198ec9f462f9c4206816a4c7",
+    "matrix_sha256": "50b5de03e8f619effef765e254838926f1bd18de6ba70080e590912297880ef6",
+    "matrix_semantic_sha256": "2bea566b5f2d243830382c3419770d6f3559f46e7353fde9a0356c782a1db32b",
     "gate_count": 46,
     "command_count": 52
   },
@@ -338,11 +338,6 @@
             "projection"
           ],
           "projections": [
-            {
-              "event": "im:interaction:frame",
-              "render_kind": "message.timeline",
-              "schema": "InteractionFrame/v2"
-            },
             {
               "event": "im:interaction:frame",
               "render_kind": "message.timeline",

@@ -1,0 +1,6 @@
+$ cargo test -p helix-im --test g03a_wdio_fixture_contract_test -- --nocapture
+result=PASS 1/1
+fixtureProducer=441c01209fa0995bdbc10081601acf6972827fbf
+inventory=group-created,group-timeline-empty,initial-sending,failed,retry-sending,retry-sent,ws-timeline-sent,ws-left-dialog-list
+frames=8 schemaVersion=2 goldenUpdate=false
+policy=only UPDATE_G03A_WDIO_FIXTURES=1 may replace canonical JSON

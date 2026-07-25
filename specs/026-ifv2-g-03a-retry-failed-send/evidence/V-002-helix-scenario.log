@@ -1,0 +1,6 @@
+$ cargo test -p helix-im --test g03a_full_flow_test -- --nocapture
+result=PASS 6/6
+assertions=fresh-group,initial-failure,retry-success,business-failure,infrastructure-failure,ws-first,late-http,duplicate-inbound,cold-recovery
+$ cargo test -p helix-im --test send_test retry_send -- --nocapture
+result=PASS 4/4
+boundary=Tick/PortReply/Inbound -> ImModule::handle -> ordered Effect/Persist barrier -> Effect::Emit

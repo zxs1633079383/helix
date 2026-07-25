@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 修复 G03a Mock fresh-group 后缺失 timeline attachment 的真实合同；可证伪断言：① Helix `ImModule::handle` 额外导出建群后的空 timeline snapshot canonical Fixture，不由 PC 手写初始 revision；② G03a provenance/mirror inventory 从 7 增至 8 且 raw/semantic hash 全量一致；③ PC Mock 在每例 fresh group 上先 replay 该 snapshot，再执行 failed→retry sending→sent/failed；④ Helix focused fixture test、PC parity/typecheck/Mock lane 全绿 | 赌注 中 | 可逆 是 | @2026-07-25T06:30:00-0700
+
 🎯 EXPECT 按 Spec 026 完成 G03a 重发失败三仓纵向闭环；可证伪断言：① retry 必须复用原 temporaryId/原消息体，只在 Helix 处理 durable lookup、terminal authority、竞态和 recovery，PC/Mobile 不新增 retry reducer；② canonical Fixture 仅由 `ImModule::handle -> Effect::Emit` 生成并在三仓 byte-exact/semantic parity；③ PC Mock/single-real/dual-real/report 与 Mobile production-linked GTest/QuickJS typed view 分层全绿；④ 每次真实验收先创建新群，不复用 G02 遗留数据；⑤ G03a 仅在行为、代码边界、Frame V2 与 R4 全 Green 后解锁 G04，Cargo 本 Phase 控制在最终 check/test 2-3 次 | 赌注 高 | 可逆 是 | @2026-07-25T05:42:00-0700
 
 🎯 EXPECT 使用 Spec Kit 为 020 总控与 25 个 Active 子 Feature 生成可执行 Plan/Task；可证伪断言：① 每个 Feature 具备 plan、research、data-model、contracts、quickstart、tasks，并通过 R2/R3 mandatory loop；② 子 Task 明确覆盖 Helix 完整场景/Fixture/Golden、cses-client WDIO Mock/Real/断言/报告、Mobile mirror/GTest/生产 SDK-Bridge-SurfaceRuntime/QuickJS typed view 与跨仓 Review，且路径精确；③ 总控只编排 G01→G02 试点→G03a→G04-G16c→GS1-GS4，不复制各 Gate 业务实现；④ 新增机器和人读 Plan/Task 索引，支持按 Gate 进入而不全量加载；⑤ 26/26 R2、26/26 R3、任务格式/合同表/链接/JSON/脚本语法与 `git diff --check` 通过，不改三仓生产代码、不把计划冒充测试 Green | 赌注 高 | 可逆 是 | @2026-07-25T00:33:06-0700

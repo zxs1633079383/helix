@@ -90,6 +90,7 @@ pub struct WsScenarioTrace {
 /// 汇总一次失败后重试的 HTTP 终态 Frames。
 pub struct RetryHttpScenarioTrace {
     pub group_created: InteractionFrameV2,
+    pub group_timeline_empty: InteractionFrameV2,
     pub initial_sending: InteractionFrameV2,
     pub initial_failed: InteractionFrameV2,
     pub retry_sending: InteractionFrameV2,
@@ -100,6 +101,7 @@ pub struct RetryHttpScenarioTrace {
 /// 汇总失败重试后由 WS 先行结算的 timeline 与 dialog Frames。
 pub struct RetryWsScenarioTrace {
     pub group_created: InteractionFrameV2,
+    pub group_timeline_empty: InteractionFrameV2,
     pub initial_failed: InteractionFrameV2,
     pub retry_sending: InteractionFrameV2,
     pub timeline_sent: InteractionFrameV2,
@@ -181,7 +183,7 @@ impl G01ScenarioRunner {
     ) -> RetryHttpScenarioTrace {
         let mut runner = Self::new_for(spec);
         let group_created = runner.create_group_prerequisite();
-        runner.attach_timeline();
+        let group_timeline_empty = runner.attach_timeline();
         let initial = runner.start_sending();
         let initial_failed = runner.finish_http(&initial, Terminal::Failed);
         let retry = runner.start_retry(&initial.temporary_id, 16_000);
@@ -192,6 +194,7 @@ impl G01ScenarioRunner {
         );
         RetryHttpScenarioTrace {
             group_created,
+            group_timeline_empty,
             initial_sending: initial.frame,
             initial_failed,
             retry_sending: retry.frame,
@@ -204,13 +207,14 @@ impl G01ScenarioRunner {
     pub fn run_retry_ws_echo_with_dialog_for(spec: SendScenarioSpec) -> RetryWsScenarioTrace {
         let mut runner = Self::new_for(spec);
         let group_created = runner.create_group_prerequisite();
-        runner.attach_timeline();
+        let group_timeline_empty = runner.attach_timeline();
         let initial = runner.start_sending();
         let initial_failed = runner.finish_http(&initial, Terminal::Failed);
         let retry = runner.start_retry(&initial.temporary_id, 16_000);
         let (timeline_sent, dialog, timeline_corr, dialog_corr) = runner.finish_ws(&retry, 32_000);
         RetryWsScenarioTrace {
             group_created,
+            group_timeline_empty,
             initial_failed,
             retry_sending: retry.frame,
             timeline_sent,
@@ -455,7 +459,7 @@ impl G01ScenarioRunner {
     }
 
     /// 建立 latest timeline attachment，但不把 setup Frame 计入 G01 发送合同。
-    fn attach_timeline(&mut self) {
+    fn attach_timeline(&mut self) -> InteractionFrameV2 {
         self.step(
             command(
                 "im_query_messages_by_channel",
@@ -483,8 +487,9 @@ impl G01ScenarioRunner {
             ),
             self.spec.created_at as u64,
         );
+        let empty_timeline = self.only_frame();
         assert_eq!(
-            surface_names(&self.only_frame()),
+            surface_names(&empty_timeline),
             BTreeSet::from(["message.timeline"])
         );
         self.step(
@@ -506,6 +511,7 @@ impl G01ScenarioRunner {
             ops.iter()
                 .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
         });
+        empty_timeline
     }
 
     /// 以空频道快照建立 dialog attachment，使建群 Frame 本身插入首条会话。

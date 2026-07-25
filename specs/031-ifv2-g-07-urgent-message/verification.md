@@ -66,3 +66,21 @@
 - `cargo test -p helix-im --test g07_full_flow_test --test
   g07_urgent_interaction_test -- --nocapture`：exit `0`；full-flow `8/8`，
   focused `5/5`，fail `0`、skip `0`。
+
+## T009-T012 Canonical Fixture
+
+- Fixture producer 固定为 Helix source commit
+  `768dc9b3597523c6c40279e387d85e9f240fde8a`；只有
+  `UPDATE_G07_WDIO_FIXTURES=1` 可覆盖 Golden。
+- inventory 共 `6` 份完整 Frame：`group-created`、`urgentable`、
+  `urgent-active`、`receipts-pending`、`urgent-confirmed`、
+  `receipts-completed`。timeline 与 participant-receipts 保持独立
+  transaction，不假设固定 Frame 序号。
+- provenance raw SHA-256：
+  `6e27d72ba56ae98bf2c3453425c970721a2e32a8fa4e233ef35123ecd2b4b629`；
+  每份 raw/semantic hash、schemaVersion=2、surface inventory 与允许动态字段
+  已逐项记录。
+- `cargo check -p helix-im`：exit `0`。
+- `cargo test -p helix-im --test g07_wdio_fixture_contract_test --
+  --nocapture`：exit `0`，`1/1`，fail `0`、skip `0`；普通模式逐字比较
+  checked-in JSON 与当前 production trace。

@@ -4,7 +4,7 @@
     "fixtureId": "g02-group-created-v2",
     "fixtureSha256": "5f117415b2d553c4d2da5d869a0e4eaf050f36100e1422a10e1d0444fe856b66",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -75,7 +75,7 @@
     "fixtureId": "g02-sending-v2",
     "fixtureSha256": "29d2ec949d627a02d320fb795de536fcf8f23fed97153b8a8786f49fbba601b7",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -146,7 +146,7 @@
     "fixtureId": "g02-sent-v2",
     "fixtureSha256": "13a6f1fd8dda9cc9e904940d6aa505e967f248e5e1064fae94daeeaa868f704e",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -217,7 +217,7 @@
     "fixtureId": "g02-failed-v2",
     "fixtureSha256": "1a60e7547191c5715e09eb31390b6851a01092e739503330789d2bf0dcb9a0f5",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -288,7 +288,7 @@
     "fixtureId": "g02-ws-timeline-sent-v2",
     "fixtureSha256": "9ae54e98b3544d60812ffa6e591cbb231566ec4cae2f20ab91bac82706b0f451",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -357,9 +357,9 @@
   {
     "fileName": "ws-left-dialog-list.frame-v2.json",
     "fixtureId": "g02-ws-left-dialog-list-v2",
-    "fixtureSha256": "8297b06cab7900a280bf4ea08251136c6b8f878c2afe46ef70f726714cda2eb9",
+    "fixtureSha256": "a29e922a4ddef779be7346f47029406a57176a43c5eecd405a2d658fdd79df1b",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -419,7 +419,7 @@
       "/mutations/*/baseRevision"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "6a903334cab657cde10a3a21d09831e6d6974e45358e4ab2ddd1776dd5066e89",
+    "semanticSha256": "9fc86e7352d412678bc0dbdaefcfdc1840d2e0f5ae7a322153ff4848fe7d60c6",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.left-dialog-list"

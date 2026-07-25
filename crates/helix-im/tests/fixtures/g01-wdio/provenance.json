@@ -4,7 +4,7 @@
     "fixtureId": "g01-group-created-v2",
     "fixtureSha256": "24e307fe5f6b26c9007a48eae3a7fbb512bf626a24f8cf2cfb367f6bf61b83ed",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -78,7 +78,7 @@
     "fixtureId": "g01-sending-v2",
     "fixtureSha256": "1a7a8742a7231f8a29b2a1bc63dad1e4d4c21e4865142f0d4da7b5b11999365f",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -152,7 +152,7 @@
     "fixtureId": "g01-sent-v2",
     "fixtureSha256": "cb2eb7ad88592c7a9d03ac832d9049827cccd7354f4b0fa5dd933f7849ab0577",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -226,7 +226,7 @@
     "fixtureId": "g01-failed-v2",
     "fixtureSha256": "a31041d52f947d01584b259427fbb16a4a7f77e1b1a0f209bbf5c1700f71bf61",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -300,7 +300,7 @@
     "fixtureId": "g01-ws-timeline-sent-v2",
     "fixtureSha256": "e2361a96a73f3d62158e81d38ab6f55fc9065428e70961b0b8f08a61bf93b627",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -374,7 +374,7 @@
     "fixtureId": "g01-ws-left-dialog-list-v2",
     "fixtureSha256": "8014bfc481ea9a4a54de86bb6327741729ff107eb5a258938a46f765c441d001",
     "generatedAt": "2026-07-25T09:00:00-07:00",
-    "helixCommit": "82445ae1b69d10bb01ea183a7fa00df88c80d993",
+    "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",

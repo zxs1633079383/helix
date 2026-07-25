@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 11; raw matrix sha256: `50b5de03e8f619effef765e254838926f1bd18de6ba70080e590912297880ef6`; semantic matrix sha256: `2bea566b5f2d243830382c3419770d6f3559f46e7353fde9a0356c782a1db32b`。
+> contract epoch: 11; raw matrix sha256: `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`; semantic matrix sha256: `d0804a5f273a0c82c48a6ae2f16d37cc1bef973e895b036e26f6ef66b5480220`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界
@@ -23,8 +23,8 @@
 | im_send_message | G-02 / UC-1.2 发文档 | channel_id, type, props | text, replied, req_id | storage_upsert, http_write, timer, projection | im:interaction:frame | active/declared |
 | im_send_message | G-03 / UC-1.3 发图片/文件/媒体 | channel_id, type, props | text | upload, http_write, projection | im:interaction:frame | active/declared |
 | im_send_message | G-27 / US-17 他人发消息收推送 | channel_id, text, type | props | http_write, transport_broadcast, projection | im:interaction:frame | active/declared |
-| im_retry_send | G-03a / UC-1.4 重发失败 | message_id | ∅ | storage_read, http_write, projection | im:interaction:frame, im:interaction:frame | active/declared |
-| im_revoke | G-04 / UC-1.5 撤回 | post_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame, im:interaction:frame | active/declared |
+| im_retry_send | G-03a / UC-1.4 重发失败 | message_id | ∅ | storage_read, http_write, projection | im:interaction:frame | active/declared |
+| im_revoke | G-04 / UC-1.5 撤回 | post_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_relay_messages | G-05 / UC-1.7 转发/合并转发 | post_ids, target_channel_ids, mode | ∅ | storage_read, http_write, projection | im:interaction:frame | active/declared |
 | im_quick_reply | G-06 / UC-1.8 快捷回复 emoji | post_id, emoji | req_id | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_urgent_post | G-07 / UC-1.9 加急 + 确认 | post_id, target_ids | ∅ | http_write, projection | im:interaction:frame, im:interaction:frame | active/declared |
@@ -41,8 +41,8 @@
 | im_template_received | G-14a / UC-3.3 模板已收到 | post_id | ∅ | http_write, projection | im:interaction:frame | active/declared |
 | im_create_channel | G-15a / UC-5.1 创建群聊 | type, user_ids, display_name, force_create | ∅ | http_write, storage_upsert, projection | im:interaction:frame, im:interaction:frame | active/declared |
 | im_make_topic | G-15 / UC-5.2 创建话题 | root_id, user_ids, req_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame, im:interaction:frame | active/declared |
-| im_channel_close | G-16 / UC-5.3 关闭/退出群 | channel_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame, im:interaction:frame | active/declared |
-| im_channel_leave | G-16 / UC-5.3 关闭/退出群 | channel_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame, im:interaction:frame | active/declared |
+| im_channel_close | G-16 / UC-5.3 关闭/退出群 | channel_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
+| im_channel_leave | G-16 / UC-5.3 关闭/退出群 | channel_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_channel_leave | G-16b / UC-5.3b member leave 广播 | channel_id | ∅ | http_write, transport_broadcast, projection | im:interaction:frame | active/declared |
 | im_channel_change_display_name | G-16c / UC-5.4 群属性修改 | channel_id, display_name | ∅ | http_write, projection | im:interaction:frame | active/declared |
 | im_channel_change_notice | G-16c / UC-5.4 群属性修改 | channel_id, notice | ∅ | http_write, projection | im:interaction:frame | active/declared |

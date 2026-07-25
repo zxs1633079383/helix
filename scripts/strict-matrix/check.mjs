@@ -81,6 +81,7 @@ function validateStrictInput(input, label) {
     if (overlap) fail(`${label}.input required/optional 重复 ${overlap}`);
 }
 
+// Validates one fail-closed Matrix before any generated contract is refreshed.
 function validateMatrix(matrix, schema, sourceDocumentExists) {
     if (!isObject(schema) || schema.$id !== 'https://helix.im/contracts/strict-matrix/v1/schema.json') {
         fail('JSON Schema 缺失或版本错误');
@@ -161,6 +162,7 @@ function validateMatrix(matrix, schema, sourceDocumentExists) {
         if (requireArray(entry.persistence, `${label}.persistence`).length === 0) fail(`${label}: 未声明持久化`);
         const projections = requireArray(entry.projections, `${label}.projections`);
         if (projections.length === 0) fail(`${label}: 未声明投影`);
+        unique(projections.map(stableJson), `${label}.projections`);
         for (const projection of projections) {
             if (!isObject(projection) || !/^im:[a-z0-9:._-]+$/.test(projection.event ?? '')) fail(`${label}: projection event 错误`);
             if (projection.schema !== 'InteractionFrame/v2'

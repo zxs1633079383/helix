@@ -34,10 +34,10 @@
 - [x] T006 [US1] 在 crates/helix-im/src/module/action.rs 对齐 im_revoke 的生产 handler、authority 与幂等语义，禁止测试旁路。
 - [x] T007 [US1] 在 crates/helix-im/tests/g04_revoke_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
 - [x] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.timeline 完整 mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g04_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/g04_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g04-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g04-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 g04_full_flow_test/g04_wdio_fixture_contract_test，并登记原始输出到 specs/027-ifv2-g-04-online-revoke/verification.md
+- [x] T009 [P] [US1] 先在 crates/helix-im/tests/g04_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [x] T010 [US1] 由 crates/helix-im/tests/support/g04_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g04-wdio/ canonical JSON，不手写平台 VM
+- [x] T011 [US1] 在 crates/helix-im/tests/fixtures/g04-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [x] T012 [US1] 运行 cargo check 与 g04_full_flow_test/g04_wdio_fixture_contract_test，并登记原始输出到 specs/027-ifv2-g-04-online-revoke/verification.md
 
 ---
 

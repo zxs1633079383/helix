@@ -58,3 +58,24 @@
 - `cargo test -p helix-im --test g04_full_flow_test -- --nocapture`：6/6 PASS。
 - 本阶段未发现生产 reducer 缺口，故 `module/action.rs`、`surface_composer.rs` 与
   projector 无需行为修改；新增内容只扩展共享 ScenarioRunner 与字段级合同。
+
+## T009-T012 Helix Canonical Fixture Green
+
+- 唯一 producer 为 `G04ScenarioRunner -> ImModule::handle -> Effect::Emit ->
+  InteractionFrameV2::decode`，producer revision 固定为
+  `f323cd7a997fba0cb330299d98eb0b8bd73d4813`。
+- canonical inventory 共 4 份：`group-created`、`revocable`、`recalled` 与
+  `recovered-recalled`；建群 Frame 为 `message.left-dialog-list`，其余为
+  `message.timeline`，全部 `schemaVersion=2`。
+- `provenance.json` 为每份 Fixture 记录 raw/semantic SHA-256、surface inventory、
+  producer、source revision 与允许参数化/rebase 字段；`shasum -a 256` 与记录的
+  `fixtureSha256` 逐份一致。
+- 显式更新命令
+  `UPDATE_G04_WDIO_FIXTURES=1 cargo test -p helix-im --test
+  g04_wdio_fixture_contract_test -- --nocapture`：1/1 PASS。
+- `cargo check -p helix-im`：退出码 0。
+- `cargo test -p helix-im --test g04_full_flow_test --test
+  g04_revoke_interaction_test --test g04_wdio_fixture_contract_test --
+  --nocapture`：6/6 + 4/4 + 1/1 PASS。
+- 普通 Fixture contract 测试只重新生成 actual Frame 并执行 byte-exact Golden
+  比较，不设置 `UPDATE_G04_WDIO_FIXTURES` 时不会写盘。

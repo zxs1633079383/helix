@@ -9,9 +9,9 @@ mod shared;
 
 #[allow(unused_imports)]
 pub use shared::{
-    assert_group_created_contract_for, first_message, surface_names, RevokeFailureScenarioTrace,
-    RevokePersistFailureScenarioTrace, RevokeRecoveryScenarioTrace, RevokeWsScenarioTrace,
-    SendScenarioSpec,
+    assert_group_created_contract_for, first_message, sha256_hex, surface_names,
+    RevokeFailureScenarioTrace, RevokePersistFailureScenarioTrace, RevokeRecoveryScenarioTrace,
+    RevokeWsScenarioTrace, SendScenarioSpec,
 };
 
 pub const CHANNEL_ID: &str = "chrevoke000000000000000001";

@@ -15,10 +15,42 @@
       "const": "G-02"
     },
     "sourcePins": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "required": [
+        "helix",
+        "fixtureProducer",
+        "csesClient",
+        "mobileQuickJs",
+        "strictMatrixSha256",
+        "pcCandidateSha256"
+      ],
+      "properties": {
+        "helix": {
+          "type": "string"
+        },
+        "fixtureProducer": {
+          "type": "string"
+        },
+        "csesClient": {
+          "type": "string"
+        },
+        "mobileQuickJs": {
+          "type": "string"
+        },
+        "strictMatrixSha256": {
+          "type": "string"
+        },
+        "pcCandidateSha256": {
+          "type": "string"
+        }
+      }
     },
     "lanes": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "helix",
         "fixture",
@@ -26,16 +58,57 @@
         "pcReal",
         "mobileContract",
         "productionBoundary"
-      ]
+      ],
+      "properties": {
+        "helix": {
+          "$ref": "#/$defs/lane"
+        },
+        "fixture": {
+          "$ref": "#/$defs/lane"
+        },
+        "pcMock": {
+          "$ref": "#/$defs/lane"
+        },
+        "pcReal": {
+          "$ref": "#/$defs/lane"
+        },
+        "mobileContract": {
+          "$ref": "#/$defs/lane"
+        },
+        "productionBoundary": {
+          "$ref": "#/$defs/lane"
+        }
+      }
     },
     "review": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "behavior",
         "codeBoundary",
         "frameV2",
         "evidence"
-      ]
+      ],
+      "properties": {
+        "behavior": {
+          "$ref": "#/$defs/reviewVerdict"
+        },
+        "codeBoundary": {
+          "$ref": "#/$defs/reviewVerdict"
+        },
+        "frameV2": {
+          "$ref": "#/$defs/reviewVerdict"
+        },
+        "evidence": {
+          "$ref": "#/$defs/reviewVerdict"
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "finalVerdict": {
       "enum": [
@@ -44,6 +117,44 @@
         "Blocked",
         "Partial"
       ]
+    }
+  },
+  "$defs": {
+    "lane": {
+      "type": "object",
+      "required": [
+        "status",
+        "required"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "Pass",
+            "Fail",
+            "Blocked",
+            "Skipped"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "reviewVerdict": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "Green",
+            "Red",
+            "Blocked",
+            "Partial"
+          ]
+        }
+      }
     }
   }
 }

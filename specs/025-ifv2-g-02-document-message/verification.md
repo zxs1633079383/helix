@@ -132,3 +132,93 @@
   错误不落在本次 G02 文件。实际 Angular+Tauri candidate 生产编译已通过。
 - PC commits：`f2e230d10`（G02 Fixture/Mock/Real/report）与 `39695bbd0`
  （canonical sent DOM 竞态修复）。**PC Green**：T013-T022 完成。
+
+## T023-T032 Mobile Contract Green
+
+- Mobile 提交 `08492c7` 建立 G02 六份 canonical Fixture 的 byte-exact mirror、
+  inventory/schema/raw/semantic SHA-256、Surface inventory、producer ancestor 与 source
+  pin 校验；Fixture producer 固定为
+  `ac15abd0b29ef62ea5d359fb22030800dd0dee2b`。
+- Mobile production source pin 更新到 Helix
+  `1774d5a38e694b4a56e2b85ea9055c3e825f2222`，Strict Matrix raw SHA-256 为
+  `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`；
+  producer 是该 pin 的祖先，生产 FFI C/C++ header 未变化。
+- Mobile 提交 `6730b5b` 新增 `G02FrameContractTest`，直接链接生产
+  `MobileImSdk`、`MobileFfiBridge`、`SurfaceRuntime`、QuickJS binding 与 C ABI。
+  覆盖 fresh group、sending/sent/failed、WS timeline/dialog 独立收敛、迟到 HTTP
+  幂等、schema/surface/revision fail-closed、DomainEvent batch 与
+  `im.surface.view` typed view。
+- `./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter
+  'G02FrameContractTest.*'`：6/6 PASS。
+- `./scripts/run-gtest-js-spec.sh unit --gtest-filter
+  'Uc02DocumentSendTest.*-Uc02DocumentSendTest.RealChain'`：6/6 PASS。
+- 全量 `./scripts/run-gtest-js-spec.sh surface-runtime`：52 PASS、1 个显式
+  source-pin 环境 SKIP；独立 `check-surface-runtime-source-pin.mjs` 已 PASS。
+- `check-surface-runtime-legacy-hard-cut.mjs`：production V1 producers=0、
+  consumers=0，G01/G02 typed-only；`im.store`、raw reducer 和测试注入不进入生产链。
+- 已运行 `./scripts/run-uc01-16-gtest.sh --only UC02`：6/7，旧
+  `Uc02DocumentSendTest.RealChain` 在等待 raw `im:messages:query_result` 时失败。
+  该 runner 使用 `MOBILE_ENABLE_LEGACY_V1_CHARACTERIZATION=1` 和 `im.store`，
+  属非 required legacy harness 观察项；不以新增端侧 reducer 修复，也不作为 V2
+  Mobile Contract Green 的替代证据。
+- **Mobile Contract Green**：required mirror、生产 SDK/Bridge、原子
+  SurfaceRuntime、QuickJS typed view、C ABI 与 V2 hard-cut 全部通过；本 Gate 未修改
+  Venus/QuickJS 生产接线能力，因此按总控合同不新增专属 Venus Gate。
+
+## T033 Fixture Parity Review
+
+- 三仓 inventory 均为
+  `group-created`、`sending`、`sent`、`failed`、`ws-timeline-sent`、
+  `ws-left-dialog-list` 六份，schemaVersion 全为 2。
+- PC `sync-helix-fixtures.mjs --check --gate=g02` 与 Mobile
+  `check-g02-fixture-parity.mjs` 均确认 producer
+  `ac15abd0b29ef62ea5d359fb22030800dd0dee2b`，raw/semantic SHA-256 与
+  Surface inventory 逐份一致。
+- Canonical raw SHA-256：failed
+  `1a60e7547191c5715e09eb31390b6851a01092e739503330789d2bf0dcb9a0f5`；
+  group-created
+  `5f117415b2d553c4d2da5d869a0e4eaf050f36100e1422a10e1d0444fe856b66`；
+  sending
+  `29d2ec949d627a02d320fb795de536fcf8f23fed97153b8a8786f49fbba601b7`；
+  sent
+  `13a6f1fd8dda9cc9e904940d6aa505e967f248e5e1064fae94daeeaa868f704e`；
+  WS dialog
+  `a29e922a4ddef779be7346f47029406a57176a43c5eecd405a2d658fdd79df1b`；
+  WS timeline
+  `9ae54e98b3544d60812ffa6e591cbb231566ec4cae2f20ab91bac82706b0f451`。
+
+## T034-T036 Consistency Review
+
+- **Behavior Green**：每次 canonical 验收先创建新的双用户群；固定 URL 被解释为
+  Document card 而不是附件上传。HTTP terminal 与 WS reconciliation 是两条独立
+  correlation；failed、WS-first、late HTTP、duplicate inbound 和 cold recovery 均不产生
+  第二次 terminal write/Frame。PC single/dual real 分别 1/1 PASS，Actor/Observer
+  timeline、dialog preview、server post identity 与 typed Document DOM 收敛。
+- **Code Boundary Green**：业务权限、Document VM、delivery、dialog preview、排序和
+  terminal authority 只由 `helix-im` 生产。PC production-boundary 扫描 2735 文件，
+  `mockProductionReachable=false`；Mobile production V1 producer/consumer/raw
+  reducer=0。两端 Fixture、Mock bridge、WDIO/GTest 注入不进入 production build。
+- **Frame V2 Green**：六份 Frame 均断言 schema/runtime、transactionId、causationId、
+  surface/scope、surfaceEpoch、baseRevision/revision、mutation、actions/directives、
+  Document access、delivery、postId/eventSeq。PC `FrameApplied` 与 Mobile ack 都使用
+  producer transaction/correlation，不假设 dialog 是固定第三帧。
+- **Evidence Green**：V-001 到 V-007 原始输出保存在
+  `specs/025-ifv2-g-02-document-message/evidence/`；一次 Mobile GTest CLI 参数拼写失败
+  也保留为 `V-006-attempt1-invalid-cli.log`，随后以正确命令 6/6 PASS。
+
+## Final Source Pins
+
+- Helix：`1774d5a38e694b4a56e2b85ea9055c3e825f2222`。
+- Fixture producer：`ac15abd0b29ef62ea5d359fb22030800dd0dee2b`。
+- cses-client：`39695bbd00d978d619505a79560de8af2e89631e`。
+- Mobile：`6730b5be8d11e334ef632a986173598f18ec9e9a`。
+- Candidate SHA-256：
+  `ddd2e703f0cb34b3c116c937b5bdea9d83be84fd6859cdd2ef4b2f88abb5d737`。
+
+## T038 R4 Verdict
+
+- Mandatory `after_implement` hook 已执行；task checkbox 更新触发 R3 指纹重算后，
+  loop 重新给出 `IMPLEMENTATION_ADMITTED`。
+- R4 evidence verdict：`PASS`；证据日志去除 reporter 尾随空白并重算 hash 后再次
+  收敛，最终 loop phase/verdict 为 `closed`/`CLOSED`。
+- G-02 最终状态：`review-green`；下一 Gate `G-03a` 已解锁。

@@ -37,11 +37,17 @@ yarn message:wdio:g02:dual-real
 
 ```bash
 cd /System/Volumes/Data/workspace/c/mobile-qucik-c++
+node scripts/check-g02-fixture-parity.mjs
 ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter='G02FrameContractTest.*'
-./scripts/run-uc01-16-gtest.sh
+node scripts/check-surface-runtime-source-pin.mjs
+node scripts/check-surface-runtime-legacy-hard-cut.mjs
 ```
 
-期望：mirror parity、生产 SDK/Bridge/SurfaceRuntime/QuickJS typed view、V2-only hard-cut 全通过。仅当本 Gate 修改 Venus/QuickJS 接线能力时追加专属 Venus Gate，否则使用共享回归。
+期望：mirror parity、生产 SDK/Bridge/SurfaceRuntime/QuickJS typed view、V2-only
+hard-cut 全通过。`run-uc01-16-gtest.sh --only UC02` 仍可作为 legacy real harness
+观察项运行，但它依赖已经退出生产合同的 raw `im:messages:query_result`/`im.store`，
+不得替代或阻塞本 Gate 的 V2 Mobile Contract。仅当本 Gate 修改 Venus/QuickJS
+接线能力时追加专属 Venus Gate，否则使用共享回归。
 
 ## 5. Review
 

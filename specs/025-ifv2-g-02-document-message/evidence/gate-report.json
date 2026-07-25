@@ -1,0 +1,91 @@
+{
+  "gateId": "G-02",
+  "sourcePins": {
+    "helix": "1774d5a38e694b4a56e2b85ea9055c3e825f2222",
+    "fixtureProducer": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
+    "csesClient": "39695bbd00d978d619505a79560de8af2e89631e",
+    "mobileQuickJs": "6730b5be8d11e334ef632a986173598f18ec9e9a",
+    "strictMatrixSha256": "b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac",
+    "pcCandidateSha256": "ddd2e703f0cb34b3c116c937b5bdea9d83be84fd6859cdd2ef4b2f88abb5d737"
+  },
+  "lanes": {
+    "helix": {
+      "status": "Pass",
+      "required": true,
+      "assertions": "cargo check; 6/6 deterministic full-flow scenarios; runtime dependencies=0"
+    },
+    "fixture": {
+      "status": "Pass",
+      "required": true,
+      "count": 6,
+      "schemaVersion": 2,
+      "producer": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
+      "parity": "Helix=PC=Mobile raw and semantic SHA-256"
+    },
+    "pcMock": {
+      "status": "Pass",
+      "required": true,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "claim": "mock"
+    },
+    "pcReal": {
+      "status": "Pass",
+      "required": true,
+      "singleReal": "1/1",
+      "dualReal": "1/1",
+      "claim": "real Tauri invoke, Helix, SQLite, HTTP, WS, FrameApplied and DOM"
+    },
+    "mobileContract": {
+      "status": "Pass",
+      "required": true,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "claim": "production SDK, FFI batch, SurfaceRuntime, QuickJS typed view and C ABI"
+    },
+    "productionBoundary": {
+      "status": "Pass",
+      "required": true,
+      "pcProductionFilesScanned": 2735,
+      "pcMockProductionReachable": false,
+      "mobileV1Producers": 0,
+      "mobileV1Consumers": 0,
+      "mobileRawReducers": 0
+    }
+  },
+  "review": {
+    "behavior": {
+      "status": "Green",
+      "finding": "Fresh two-user group, fixed document card, failure, race, recovery and Actor/Observer results agree."
+    },
+    "codeBoundary": {
+      "status": "Green",
+      "finding": "Helix owns business reduction; PC and Mobile mechanically apply typed Frames."
+    },
+    "frameV2": {
+      "status": "Green",
+      "finding": "Envelope, scope, epoch, revision, mutation, action, directive and correlation fields agree."
+    },
+    "evidence": {
+      "status": "Green",
+      "requiredPassRate": 1,
+      "requiredFailed": 0,
+      "requiredSkipped": 0
+    }
+  },
+  "observations": [
+    {
+      "status": "NonBlockingLegacyHarnessGap",
+      "command": "./scripts/run-uc01-16-gtest.sh --only UC02",
+      "result": "6/7; RealChain waits for retired raw im:messages:query_result under MOBILE_ENABLE_LEGACY_V1_CHARACTERIZATION=1",
+      "decision": "Do not add a Mobile reducer; this lane is not the V2 Mobile Contract."
+    },
+    {
+      "status": "NonBlockingDiagnostic",
+      "result": "Standalone tauri-driver is absent, while the configured embedded WDIO provider completed Mock and Real lanes."
+    }
+  ],
+  "finalVerdict": "Green"
+}

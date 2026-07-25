@@ -1,0 +1,12 @@
+started_at=2026-07-25T12:31:52Z
+$ cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/g02_wdio_fixture_contract_test.rs (target/debug/deps/g02_wdio_fixture_contract_test-5d2f7f7a75ee0a07)
+
+running 1 test
+test current_g02_producer_matches_canonical_v2_fixtures_and_provenance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+exit_code=0
+ended_at=2026-07-25T12:31:54Z

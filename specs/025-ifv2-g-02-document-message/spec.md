@@ -118,7 +118,7 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 ### Gate Contract Snapshot
 
 - **Commands**: `im_send_message`
-- **Effects**: `upload、storage_upsert、http_write、projection`
+- **Effects**: `storage_upsert、http_write、timer、projection`
 - **Persistence facts**: `message、pending_send`
 - **Frame surfaces**: `message.timeline (InteractionFrame/v2)`
 - **Allowed actions**: `retry_send、revoke、reply`

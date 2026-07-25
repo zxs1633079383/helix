@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/025-ifv2-g-02-document-message",
-  "phase": "ready",
-  "event_seq": 8,
-  "next_action": "admit_implementation",
+  "phase": "implementing",
+  "event_seq": 9,
+  "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -86,6 +86,12 @@
       "at": "2026-07-25T07:43:39Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-25T08:01:32Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

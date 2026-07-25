@@ -1,10 +1,10 @@
 # Research: G-02 发文档
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `cfc0895969efcc01b8b25d6e66ef7392042c4c89`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
 
 ## Decision 1 - 唯一业务真源
 
-**Decision**: `G-02` 的 command（im_send_message）、effect（upload、storage_upsert、http_write、projection）、持久事实（message、pending_send）与 Surface（message.timeline）只由 Helix 生产路径决定。
+**Decision**: `G-02` 的 command（im_send_message）、effect（storage_upsert、http_write、timer、projection）、持久事实（message、pending_send）与 Surface（message.timeline）只由 Helix 生产路径决定。文档链接不是媒体字节，不产生 upload effect。
 
 **Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
 
@@ -36,7 +36,11 @@
 
 ## Decision 5 - Gate-specific authority
 
-**Decision**: HTTP 为 ``POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage="【文档】 http://doc.cses7.com/doc/abc123"`，`props.document={version:1,url:"http://doc.cses7.com/doc/abc123",title:"打开文档",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}``；WS 为 ``post``；远端表为 `post、channel、channel_member、channel_event`。Transport success 不自动等于 durable terminal。
+**Decision**: HTTP 为 `POST /api/cses/posts/create`，`type=DOCUMENT`，
+`message/simpleMessage="【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15"`，
+`props.document={version:1,url:"http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15",title:"打开文档",placeholder:true}`；
+WS 为 `post`；远端表为 `post、channel、channel_member、channel_event`。
+Transport success 不自动等于 durable terminal。
 
 **Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
 
@@ -46,6 +50,16 @@
 
 - 当前 Helix owner：`crates/helix-im/src/send/flow.rs`；现有聚焦测试：`crates/helix-im/tests/interaction_frame_contract_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc02DocumentSendTest.cpp`。
-- Gate 特例：G02 固定发送 `http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15` 并渲染文档消息卡片；不是附件、文件上传或上传进度状态机，Strict Matrix 的 `upload` effect 必须在实现前纠偏。
+- Gate 特例：G02 固定发送 `http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15` 并渲染文档消息卡片；不是附件、文件上传或上传进度状态机，Strict Matrix 已完成纠偏。
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。
+
+## CURRENT / TARGET / GAP
+
+| 层 | CURRENT | TARGET | GAP |
+|---|---|---|---|
+| Helix command | `im_send_message` 已保留 opaque `props.document`，无 `mediaInput` 时直接 P1 -> posts/create | 固定 URL 的 happy/failure/race/recovery 独立 replay | 缺 G02 ScenarioRunner 与完整流程测试 |
+| Helix Frame | `timeline.rs` 已把 `type=DOCUMENT` 投影为 typed `MessageContentVm::Document` | sending/sent/failed/WS observer 均为完整 V2 Frame | 缺 G02 canonical Fixture/provenance |
+| PC | composer、ShellService、typed renderer 已存在 | 同源 Fixture Mock + fresh-group single/dual Real + report | 缺 G02 WDIO 专属供应链 |
+| Mobile | generic UC command/real-chain readback 已存在 | 同源 Fixture、Frame GTest、固定 URL、QuickJS typed view | 缺 G02 Frame contract 与 mirror parity |
+| Shared prerequisite | Helix/PC/Mobile 已有 G01 fresh-group helper | 每次 G02 canonical run 创建新群并复用同一 helper | 只需验证复用，不复制建群业务逻辑 |

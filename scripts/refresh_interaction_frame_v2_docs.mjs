@@ -269,6 +269,11 @@ const ucDefinitions = [
 ];
 
 const includedGateIds = ucDefinitions.flatMap((uc) => uc.gates);
+const rootCuratedDocs = new Set([
+  '07-26Gate三仓纵向闭环总Spec索引.md',
+  '08-26Gate-Plan-Task实施索引.md',
+  'AGENTS.md',
+]);
 const g01DeepDocs = new Set([
   '08-G01全领域字段级类图.mmd',
   '09-G01发送全链路时序图.mmd',
@@ -295,16 +300,16 @@ const deepUcProfiles = {
   G02: {
     stages: [
       'document-command',
-      'uploading-or-sending-frame',
+      'sending-frame',
       'terminal-timeline-frame',
       'observer-post-frame',
     ],
     observable:
-      '`MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 uploading/sending/sent/failed',
+      '`MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 sending/sent/failed',
     invariant:
       '`type=DOCUMENT` 且 `props.document` 必须由 Helix 解析为 typed document；PC/Mobile 不读取 raw props 兜底',
     drift:
-      '当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；upload effect 与 Document VM 的阶段对应需由新 replay 固定',
+      '当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；固定 URL 的 Document VM 与 HTTP/WS 终态需由新 replay 固定',
     mobileTest: 'tests/gtest/uc/Uc02DocumentSendTest.cpp',
   },
   G04: {
@@ -1984,7 +1989,7 @@ function assertNoMatches(cwd, pattern, roots, label) {
   }
 }
 
-// Removes generated files while retaining the manually curated G01 deep contracts.
+// Removes generated files while retaining root governance and manually curated G01 contracts.
 function resetDocumentationTree() {
   const keepDirectories = new Set(ucDefinitions.map((uc) => uc.dir));
   for (const entry of readdirSync(docsRoot, { withFileTypes: true })) {
@@ -2000,6 +2005,7 @@ function resetDocumentationTree() {
       }
       continue;
     }
+    if (rootCuratedDocs.has(entry.name)) continue;
     rmSync(path, { force: true });
   }
   for (const dir of keepDirectories) {

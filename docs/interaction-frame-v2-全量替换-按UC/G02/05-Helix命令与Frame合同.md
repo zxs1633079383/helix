@@ -4,7 +4,7 @@
 
 | Gate | command | Effect |
 |---|---|---|
-| `G-02` | `im_send_message` | `upload`、`storage_upsert`、`http_write`、`projection` |
+| `G-02` | `im_send_message` | `storage_upsert`、`http_write`、`timer`、`projection` |
 
 ## Frame
 

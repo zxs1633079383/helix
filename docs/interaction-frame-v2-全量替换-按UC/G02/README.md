@@ -33,7 +33,7 @@ Native 产物只作 `HISTORICAL` 输入；没有用当前 pin 重新运行时不
 | 用户/系统入口 | composer 选择文档内容并提交 |
 | 入口模式 | direct command |
 | Helix command | `im_send_message` |
-| Effect 类别 | `upload`、`storage_upsert`、`http_write`、`projection` |
+| Effect 类别 | `storage_upsert`、`http_write`、`timer`、`projection` |
 | canonical Frame Surface | `message.timeline` |
 | 合同 persistence | `message`、`pending_send` |
 | MessageV4 组件 | `MessageUiComposerComponent`、`MessageDocumentContentComponent`、`MessageSurfaceRuntimeViewComponent` |
@@ -51,7 +51,7 @@ Native 产物只作 `HISTORICAL` 输入；没有用当前 pin 重新运行时不
 
 ## HTTP / WS
 
-- G-02: `POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage="【文档】 http://doc.cses7.com/doc/abc123"`，`props.document={version:1,url:"http://doc.cses7.com/doc/abc123",title:"打开文档",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}`
+- G-02: `POST /api/cses/posts/create`，`type=DOCUMENT`；canonical message/simpleMessage=`"【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15"`，`props.document={version:1,url:"http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15",title:"打开文档",placeholder:true}`；这是文档消息卡片，不是文件附件或上传任务
 
 - G-02: `post`
 

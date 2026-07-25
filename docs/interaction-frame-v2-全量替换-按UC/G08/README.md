@@ -59,7 +59,7 @@ HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这
 
 ## 源码证据
 
-- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1068`
+- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1069`
 - Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
 - Helix 专属测试：`crates/helix-im/tests/g08_schedule_create_interaction_test.rs`
 - cses-client command/action：`src/pages/message-v4/shell.service.ts`、

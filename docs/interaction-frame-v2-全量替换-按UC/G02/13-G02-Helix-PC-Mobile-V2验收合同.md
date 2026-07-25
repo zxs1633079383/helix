@@ -16,7 +16,7 @@
 - 从真实 Tick/PortReply/Inbound 生成完整 Frame，不手写 JSON 作为 producer。
 - 断言 command、Effect 顺序、Persist barrier、authority correlation、Frame inventory、
   typed VM 与负向/幂等/恢复路径。
-- Fixture inventory 至少覆盖：`document-command`、`uploading-or-sending-frame`、`terminal-timeline-frame`、`observer-post-frame`。
+- Fixture inventory 至少覆盖：`document-command`、`sending-frame`、`terminal-timeline-frame`、`observer-post-frame`。
 - Fixture 带 Helix commit、contract epoch、raw SHA-256、semantic SHA-256、surface inventory。
 - 普通测试只比较 Golden；显式 UPDATE 开关才允许更新。
 
@@ -40,7 +40,7 @@ Fixture、page workflow、业务 stage 与 typed assertion。
 ## 4. PC 断言
 
 - Surface：`message.timeline`。
-- 接受值：`MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 uploading/sending/sent/failed。
+- 接受值：`MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 sending/sent/failed。
 - 不变量：`type=DOCUMENT` 且 `props.document` 必须由 Helix 解析为 typed document；PC/Mobile 不读取 raw props 兜底。
 - 每个 required transaction 都有 matching FrameApplied，无 FrameRejected。
 - DOM 只在 apply 后标绿，不通过 fixed sleep、raw event 或 store mutation 取巧。
@@ -97,7 +97,7 @@ Go/PG/WS 保存 track、commit/outbox/delivery/readback。日志不得保存 tok
 报告 stage：
 
 - `g02.document-command`
-- `g02.uploading-or-sending-frame`
+- `g02.sending-frame`
 - `g02.terminal-timeline-frame`
 - `g02.observer-post-frame`
 - `g02.pc-mobile-parity`
@@ -108,7 +108,7 @@ evidence,blockedBy,claimBoundary`。
 
 ## 8. 当前 stop condition
 
-当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；upload effect 与 Document VM 的阶段对应需由新 replay 固定
+当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；固定 URL 的 Document VM 与 HTTP/WS 终态需由新 replay 固定
 
 只有 producer replay、Matrix、Fixture、PC 与 Mobile 断言对同一字段/Surface/终态达成一致，
 才进入真实运行；真实前置缺失时保持 BLOCKED，不用 Mock 或历史 artifact 代替。

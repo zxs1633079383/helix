@@ -3,7 +3,7 @@ flowchart LR
   C["Canonical ingress<br/>direct command"]
   H["Helix<br/>Tick -> Effect -> Persist barrier"]
   A["Authority<br/>Go HTTP / WS / SQLite / PG"]
-  F["InteractionFrameV2<br/>MessageContentVm::Document{documentId,title,summary,access}；DeliveryVm 只允许 uploading/sending/sent/failed"]
+  F["InteractionFrameV2<br/>MessageContentVm::Document{documentId,title,summary,access}；DeliveryVm 只允许 sending/sent/failed"]
   PC["PC<br/>WDIO Mock -> real invoke -> dual real"]
   MOB["Mobile<br/>GN GTest -> FFI -> Venus"]
   R["Unified report<br/>command/effect/store/frame/ack/render"]

@@ -195,8 +195,8 @@ impl G01ScenarioRunner {
         self.sink.as_slice()
     }
 
-    /// 先挂载空 dialog，再以 444/678 等价双用户建群回包产出权威 V2 前置 Frame。
-    fn create_group_prerequisite(&mut self) -> InteractionFrameV2 {
+    /// 先挂载空 dialog，再以双用户建群回包产出所有发送类 UC 可复用的权威 V2 前置 Frame。
+    pub fn create_group_prerequisite(&mut self) -> InteractionFrameV2 {
         self.attach_empty_dialog();
         self.step(
             command(

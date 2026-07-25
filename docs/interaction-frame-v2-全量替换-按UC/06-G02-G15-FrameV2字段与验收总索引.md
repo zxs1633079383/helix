@@ -108,7 +108,7 @@ completed[],pending[],page,state`；每行包含
 
 | Gate | command | required | optional | 禁未知字段 | Effect |
 |---|---|---|---|---|---|
-| `G-02` | `im_send_message` | `channel_id`、`type`、`props` | `text`、`replied`、`req_id` | 是 | `upload`、`storage_upsert`、`http_write`、`projection` |
+| `G-02` | `im_send_message` | `channel_id`、`type`、`props` | `text`、`replied`、`req_id` | 是 | `storage_upsert`、`http_write`、`timer`、`projection` |
 | `G-04` | `im_revoke` | `post_id` | 无 | 是 | `http_write`、`storage_upsert`、`projection` |
 | `G-04a` | `im_sync_channels` | `reason` | `channel_id` | 是 | `sync_request`、`storage_upsert`、`projection` |
 | `G-05` | `im_relay_messages` | `post_ids`、`target_channel_ids`、`mode` | 无 | 是 | `storage_read`、`http_write`、`projection` |

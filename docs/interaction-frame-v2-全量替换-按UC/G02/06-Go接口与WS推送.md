@@ -4,7 +4,7 @@
 
 | Gate | 当前 Strict Matrix 请求 |
 |---|---|
-| `G-02` | `POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage="【文档】 http://doc.cses7.com/doc/abc123"`，`props.document={version:1,url:"http://doc.cses7.com/doc/abc123",title:"打开文档",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}` |
+| `G-02` | `POST /api/cses/posts/create`，`type=DOCUMENT`；canonical message/simpleMessage=`"【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15"`，`props.document={version:1,url:"http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15",title:"打开文档",placeholder:true}`；这是文档消息卡片，不是文件附件或上传任务 |
 
 ## WS
 

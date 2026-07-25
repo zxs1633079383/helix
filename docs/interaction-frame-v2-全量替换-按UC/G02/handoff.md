@@ -24,11 +24,11 @@ pin、新 WDIO candidate、Mobile Frame consumer 或当前 Go 进程仍为 Green
 3. PC domain 接入 contracts/mock/integration/single-real/dual-real/report。
 4. Mobile 新建 `tests/gtest/surface_runtime/G02FrameContractTest.cpp`。
 5. Venus 用真实 helix-driver-ffi 完成 command -> frame -> apply -> ack -> view。
-6. 两端对 `MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 uploading/sending/sent/failed 做字段级等价断言。
+6. 两端对 `MessageContentVm::Document{documentId,title,summary,access}`；`DeliveryVm` 只允许 sending/sent/failed 做字段级等价断言。
 
 ## BLOCKED / CONTRACT_DRIFT
 
-当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；upload effect 与 Document VM 的阶段对应需由新 replay 固定
+当前 focused Rust 真源仍复用发送测试，尚无 G02 独立 canonical Frame Fixture；固定 URL 的 Document VM 与 HTTP/WS 终态需由新 replay 固定
 
 因此当前最大 claim：
 

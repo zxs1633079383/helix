@@ -1,7 +1,7 @@
 # Source Discovery
 
 **Feature**: `specs/025-ifv2-g-02-document-message`
-**Source Lock**: `helix=ff412d354699be64554b7764ac1b1410a4a9b154;cses-client=13e42ef2793ea5c9f39b29f5d1ce86b1aca074db;mobile=674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: `helix=cfc0895969efcc01b8b25d6e66ef7392042c4c89;cses-client=13e42ef2793ea5c9f39b29f5d1ce86b1aca074db;mobile=674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
 **Worktree State**: Helix Spec 生成中；cses-client clean；Mobile 保留用户既有文档与 artifact 改动，本 Feature 不覆盖。
 
 ## Facts *(mandatory)*
@@ -13,8 +13,10 @@
 - **F-005**: canonical Fixture 只能来自公开 `ImModule::handle` 的 `Effect::Emit`，平台端不得手写业务 VM。 | **Evidence**: `crates/helix-im/tests/AGENTS.md:11`
 - **F-006**: MessageV4 codec 对非当前 InteractionFrame schema fail-closed，随后才允许 SurfaceRuntime 原子 apply。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-contract.codec.ts:46`
 - **F-007**: Mobile production event pump 把 `im:interaction:frame` 作为迁移 Surface 的唯一业务输入，legacy characterization 受显式宏隔离。 | **Evidence**: `/System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp:2155`
-- **F-008**: 当前 Strict Matrix 原始 SHA-256 为 `ef7a752be7ca77d27723a256051cc5c8d8b9cd733ce4d4b9a918e6a2880e109d`；后续 plan 必须重新锁定三仓 HEAD、Helix pin 与 Fixture manifest，不能继承本次静态快照。 | **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json`
-- **F-009**: G02 的产品语义是发送文档链接并渲染文档消息卡片；Strict Matrix 当前登记的 `upload` effect 与该语义存在待核对漂移，plan 阶段必须以生产调用链纠正，禁止把 G03 文件上传能力带入 G02。 | **Evidence**: 用户确认的 G02 验收语义 + `crates/helix-im/contracts/strict-matrix.v1.json`
+- **F-008**: G02 实施基线的 Strict Matrix 原始 SHA-256 为 `fcdf3e990acb507e69556ede2b1b9122b4ca2499c9348cfc0a1145eea6e830b4`；cses-client Helix pin 为 `ee8440e7b6e19d75153f46349e57fbb6c00ca8cf`，Mobile source pin 为 `8ac3d2cf693d6012101444bfae5f2e89f707ebe9`。 | **Evidence**: `crates/helix-im/contracts/strict-matrix.v1.json` + `/System/Volumes/Data/workspace/angular/cses-client/src-tauri/Cargo.toml:89` + Mobile `surface-runtime-source-pin-gate`
+- **F-009**: G02 的产品语义是发送固定文档链接并渲染文档消息卡片；生产 `build_upload_plan` 只对 `mediaInput` 建上传计划，`DOCUMENT` 的 `props.document` 直接进入 P1、posts/create 与 timeline typed projection。Strict Matrix 已删除错误 `upload` effect，G03 文件上传不进入 G02。 | **Evidence**: `crates/helix-im/src/send/flow.rs:49` + `crates/helix-im/src/projector/timeline.rs:925` + `crates/helix-im/contracts/strict-matrix.v1.json`
+- **F-010**: PC 已有 DOCUMENT composer、`ShellService.sendDocument` 和 typed document renderer，但没有 G02 canonical Fixture、专属 WDIO Mock/Real/report。 | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/components/message-ui-composer.component.ts:138` + `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/shell.service.ts:65`
+- **F-011**: Mobile 现有 `Uc02DocumentSendTest` 只覆盖 generic command/real-chain readback，使用 `https://doc.invalid`，尚未覆盖固定 URL、G02 Frame Golden、SurfaceRuntime 原子 apply 与 QuickJS typed document view。 | **Evidence**: `/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc02DocumentSendTest.cpp`
 
 ## Unknowns
 

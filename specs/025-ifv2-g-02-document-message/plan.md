@@ -26,7 +26,7 @@
 
 **Constraints**: Helix 是唯一业务 reducer；Fixture/Mock/GTest 不补业务字段；测试入口默认 production build 不可达；外部输入零 unwrap/expect；FFI batch 不逐条 callback
 
-**Scale/Scope**: 单一 `G-02`；command=im_send_message；effect=upload、storage_upsert、http_write、projection；surface=message.timeline。G02 固定发送 `http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15` 并渲染文档消息卡片；不是附件、文件上传或上传进度状态机，Strict Matrix 的 `upload` effect 必须在实现前纠偏。
+**Scale/Scope**: 单一 `G-02`；command=im_send_message；effect=storage_upsert、http_write、timer、projection；surface=message.timeline。G02 固定发送 `http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15` 并渲染文档消息卡片；不是附件、文件上传或上传进度状态机。
 
 ## Constitution Check
 

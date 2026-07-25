@@ -3,8 +3,8 @@
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
     "contract_epoch": 11,
-    "matrix_sha256": "ef7a752be7ca77d27723a256051cc5c8d8b9cd733ce4d4b9a918e6a2880e109d",
-    "matrix_semantic_sha256": "899795bc12a12b088720795004c899a75a5bcdba6eedd21cf4c7af230870f2f2",
+    "matrix_sha256": "fcdf3e990acb507e69556ede2b1b9122b4ca2499c9348cfc0a1145eea6e830b4",
+    "matrix_semantic_sha256": "444a0ca2620e9a30b5cc0c951bf3d4359132db3f198ec9f462f9c4206816a4c7",
     "gate_count": 46,
     "command_count": 52
   },
@@ -392,9 +392,9 @@
             "forbid_unknown": true
           },
           "effects": [
-            "upload",
             "storage_upsert",
             "http_write",
+            "timer",
             "projection"
           ],
           "projections": [
@@ -409,7 +409,7 @@
             "pending_send"
           ],
           "http": {
-            "request": "`POST /api/cses/posts/create`，同上，`type=DOCUMENT`；占位字段建议 `message/simpleMessage=\"【文档】 http://doc.cses7.com/doc/abc123\"`，`props.document={version:1,url:\"http://doc.cses7.com/doc/abc123\",title:\"打开文档\",placeholder:true}`；后续替换为 message-v3 的 `props.document={snapshot,version:1}`",
+            "request": "`POST /api/cses/posts/create`，`type=DOCUMENT`；canonical message/simpleMessage=`\"【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15\"`，`props.document={version:1,url:\"http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15\",title:\"打开文档\",placeholder:true}`；这是文档消息卡片，不是文件附件或上传任务",
             "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
           },
           "ws": {

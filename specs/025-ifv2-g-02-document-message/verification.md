@@ -16,3 +16,46 @@
 - 每次运行保留原始输出并通过 `loop_engine.py record-evidence` 登记；失败输出不得被说明文字替换。
 - Mock、AcceptedCommand、HTTP 2xx、单端 replay 或 GTest 不能代替 PC Real 与跨仓 Review。
 - 当前 Feature 只定义验收合同；在实现与运行证据出现前，本 Gate 状态保持 Draft。
+
+## Source Lock - 2026-07-25
+
+- Helix：`cfc0895969efcc01b8b25d6e66ef7392042c4c89`。
+- cses-client：`13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`，clean。
+- Mobile：`674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`；保留运行前已有
+  Mobile 文档、bundle 与 `.DS_Store` 脏项。
+- cses-client Helix pin：`ee8440e7b6e19d75153f46349e57fbb6c00ca8cf`。
+- Mobile source pin：`8ac3d2cf693d6012101444bfae5f2e89f707ebe9`。
+- Strict Matrix raw SHA-256：
+  `fcdf3e990acb507e69556ede2b1b9122b4ca2499c9348cfc0a1145eea6e830b4`。
+- 前序 G01：总控 T002 已在当前三仓 HEAD 重新验证 Helix、PC Mock/Real/report、
+  Mobile GTest/QuickJS 全绿，见
+  `specs/020-ifv2-three-repo-uc-control/verification.md`。
+
+## CURRENT / TARGET / GAP Revalidation
+
+- Helix CURRENT 已支持 DOCUMENT command、opaque `props.document` 和 typed
+  document timeline projection；缺 G02 独立完整流程与 Fixture。
+- PC CURRENT 已支持文档 composer、`sendDocument` 和 typed renderer；缺 G02
+  Fixture parity、WDIO Mock/Real/report。
+- Mobile CURRENT 只有 generic UC02 command/real-chain readback；缺 G02 Frame
+  Golden、SurfaceRuntime/QuickJS typed view 字段合同。
+- G02 不产生 upload effect。Strict Matrix 已改为
+  `storage_upsert -> http_write -> timer -> projection`，固定 URL 为
+  `http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15`。
+
+## T003 Shared CreateGroupPrerequisite
+
+- Helix：`G01ScenarioRunner::create_group_prerequisite` 已提升为公开、确定性的发送类 UC
+  前置阶段；仍只通过 `Tick::Command -> HTTP PortReply -> Persist/Emit` 取得权威 channel，
+  不允许测试直接制造 channel 状态。
+- PC：新增 domain-neutral `prepareMockCreatedGroup`，G01 适配器只提供 canonical group
+  Fixture/rebase；通用 helper 不包含 G01 marker、Fixture ID 或业务成功条件。
+- Mobile：新增 `createFreshGroupPrerequisite` 并让旧 `createChannel` 兼容入口委托给它；
+  每个 UC 仍调用生产 `im.channels.create`、等待 `im:channel:created` 并核验持久化快照。
+- PC focused contracts：
+  `yarn message:wdio:contracts --runTestsByPath tests/e2e/wdio/harness/__tests__/fixture-loader.test.ts tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts`，
+  2 suites / 16 tests PASS。
+- Mobile compile boundary：`./scripts/run-gtest-js-spec.sh unit --compile-only`，exit 0，
+  生产 SDK/QuickJS 链接的 GTest binary 成功生成。
+- 结论：三端复用的是同一个“每 case 新建权威群后再执行 UC”合同；Mock 只 replay Helix
+  Frame，不在端侧补业务 reducer。

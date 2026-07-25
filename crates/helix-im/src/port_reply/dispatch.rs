@@ -562,24 +562,10 @@ impl ImModule {
                                 .retain_http_accepted_targets(&req_id, &body);
                         }
                     }
-                    let mutations = self
-                        .state
-                        .timeline_projector
-                        .refresh_attached_with_causation(&req_id)
-                        .map_err(|error| {
-                            ImError::Parse(format!("forward acceptance projection: {error}"))
-                        })?;
-                    if !mutations.is_empty() {
-                        out.push(self.build_registered_timeline_frame(
-                            format!("forward-accepted-{req_id}"),
-                            mutations,
-                            now_ms,
-                        )?);
-                        self.state
-                            .action_registry
-                            .complete_after_terminal_frame(&req_id);
-                    }
                 }
+                // createPosts 仅确认各 target admission，不是 delivery authority。只有携同一
+                // csesTrackId 的 WS post 经 dialog 持久化读回后才允许发布 terminal Frame；
+                // 因而这里也不能完成 ActionRegistry，避免 WS-first 后迟到 HTTP 重复确认。
                 crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);
             }
 

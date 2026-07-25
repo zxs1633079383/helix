@@ -689,20 +689,25 @@ impl ImModule {
         let effect = crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))?;
         if let Some(request_id) = terminal_action_request {
-            let batch_complete = self
-                .state
-                .pending_forward_deliveries
-                .complete_target(&request_id, request.channel_id);
-            if batch_complete
-                && !self
+            // 转发的 timeline reconciliation 与 left-dialog patch 是两条独立投影。
+            // dialog 已 attach 时保留 target authority，直到其写后读 Frame 发出；否则
+            // headless timeline 是唯一可观察终态，才在这里消费 ledger。
+            if self.state.dialog_list_frame.scope().is_none() {
+                let batch_complete = self
                     .state
-                    .action_registry
-                    .complete_after_terminal_frame(&request_id)
-            {
-                tracing::warn!(
-                    request_id,
-                    "timeline action frame had no in-flight request ledger entry"
-                );
+                    .pending_forward_deliveries
+                    .complete_target(&request_id, request.channel_id);
+                if batch_complete
+                    && !self
+                        .state
+                        .action_registry
+                        .complete_after_terminal_frame(&request_id)
+                {
+                    tracing::warn!(
+                        request_id,
+                        "timeline action frame had no in-flight request ledger entry"
+                    );
+                }
             }
         }
         Ok(effect)

@@ -9,6 +9,7 @@ use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
 #[test]
+/// 证明 TimelineProjector 仅以 opaque binding 暴露 Helix 签发的转发权限。
 fn forward_capability_produces_an_opaque_live_binding() {
     let channel_id = cid(5);
     let mut projector = TimelineProjector::default();
@@ -38,6 +39,7 @@ fn forward_capability_produces_an_opaque_live_binding() {
 }
 
 #[test]
+/// 证明 per-target HTTP admission 只报告 pending/failed，不声称权威送达。
 fn per_target_partial_acceptance_never_claims_all_success_or_delivery() {
     let mut harness = Harness::new(&[]);
     harness.step(
@@ -96,6 +98,7 @@ fn per_target_partial_acceptance_never_claims_all_success_or_delivery() {
 }
 
 #[test]
+/// 证明只有可信顶层 tracing 且 dialog 持久读回成功才确认最终 target。
 fn trusted_target_post_completes_only_after_dialog_persist_readback_frame() {
     let target_ok = cid(50);
     let target_failed = cid(51);

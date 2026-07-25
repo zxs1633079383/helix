@@ -9,12 +9,12 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, InteractionFrameError, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
-    MessageContentVm, MessageQuickActionVm, MessageReactionVm, MessageVm, ReferenceAvailabilityVm,
-    ReplaceView, ReplaceViewKind, ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm,
-    ReplyThreadSummaryVm, SurfaceDataVm, SurfaceId, SurfaceLoadState, SurfaceMutation,
-    SurfaceScope, TimelineAnchorMode, TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation,
-    UserRefVm, WindowPageVm,
+    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
+    MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplaceView, ReplaceViewKind,
+    ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm,
+    SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
+    TimelineAnchorVm, TimelineWindowVm, TypedSurfaceMutation, UserRefVm, WindowPageVm,
+    MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
 /// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
@@ -237,48 +237,6 @@ impl TimelineProjector {
         mutation.validate()?;
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(Some(mutation))
-    }
-
-    pub(crate) fn refresh_attached_with_causation(
-        &mut self,
-        causation_id: &str,
-    ) -> Result<Vec<SurfaceMutation>, TimelineProjectionError> {
-        let slots = self
-            .slots
-            .iter()
-            .map(|(key, slot)| (key.clone(), slot.clone()))
-            .collect::<Vec<_>>();
-        let mut mutations = Vec::with_capacity(slots.len());
-        for (slot_key, slot) in slots {
-            let revision = next_revision(slot.revision)?;
-            let scope = SurfaceScope::Timeline {
-                channel_id: slot.view.channel_id.clone(),
-                window_token: slot.view.page.window_token.clone(),
-            };
-            let mutation = SurfaceMutation {
-                surface: SurfaceId::MessageTimeline,
-                scope,
-                revision,
-                base_revision: Some(slot.revision),
-                causation_id: Some(causation_id.to_string()),
-                mutation: TypedSurfaceMutation::TimelinePatch {
-                    patch: ReplaceView {
-                        kind: ReplaceViewKind::ReplaceView,
-                        view: slot.view.clone(),
-                    },
-                },
-            };
-            mutation.validate()?;
-            self.slots.insert(
-                slot_key,
-                TimelineSlot {
-                    revision,
-                    view: slot.view,
-                },
-            );
-            mutations.push(mutation);
-        }
-        Ok(mutations)
     }
 
     pub(crate) fn patch_receipts(

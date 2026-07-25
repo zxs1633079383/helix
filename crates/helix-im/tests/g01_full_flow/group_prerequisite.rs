@@ -13,7 +13,7 @@ fn create_group_authority_precedes_first_g01_send() {
             "im_create_channel",
             json!({
                 "type": "O",
-                "user_ids": [ACTOR_ID, "g01-member-a"],
+                "user_ids": ["g01-member-a"],
                 "display_name": "G01 Flow Group",
                 "force_create": true
             }),
@@ -33,7 +33,11 @@ fn create_group_authority_precedes_first_g01_send() {
         })
         .expect("create-channel HTTP body");
     assert_eq!(create_body["displayName"], "G01 Flow Group");
-    assert_eq!(create_body["userIds"], json!([ACTOR_ID, "g01-member-a"]));
+    assert_eq!(
+        create_body["userIds"],
+        json!(["g01-member-a"]),
+        "actor is the implicit owner and must not be resubmitted as an invitee"
+    );
 
     replay.step(
         ok(
@@ -45,7 +49,10 @@ fn create_group_authority_precedes_first_g01_send() {
                     "type": "P",
                     "displayName": "G01 Flow Group",
                     "teamId": TEAM_ID,
-                    "createAt": CREATED_AT - 5
+                    "createAt": CREATED_AT - 5,
+                    "owner": {"id": ACTOR_ID, "role": "OWNER"},
+                    "pictureType": "USER",
+                    "picture": {"userIds": [ACTOR_ID, "g01-member-a"]}
                 }
             })),
         ),

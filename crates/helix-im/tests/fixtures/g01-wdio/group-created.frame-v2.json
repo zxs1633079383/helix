@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "dialog-list-user|14:g01-wdio-actor|16:g01-wdio-company-2",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": {
+        "kind": "user",
+        "userId": "g01-wdio-actor",
+        "teamId": "g01-wdio-company"
+      },
+      "revision": 2,
+      "baseRevision": 1,
+      "mutation": {
+        "kind": "dialogListPatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "sections": [
+              {
+                "kind": "normal",
+                "items": [
+                  {
+                    "channelId": "chfixx00000000000000000001",
+                    "channelKind": "group",
+                    "title": {
+                      "text": "G01 Fixture Group"
+                    },
+                    "avatar": {
+                      "resource": null,
+                      "userIds": [
+                        "g01-wdio-actor",
+                        "g01-wdio-observer"
+                      ],
+                      "fallbackText": "G01 Fixture Group"
+                    },
+                    "preview": {
+                      "kind": "empty"
+                    },
+                    "lastActivityAt": 1699999999997,
+                    "unreadCount": 0,
+                    "mentionCount": 0,
+                    "urgentCount": 0,
+                    "topicCount": 0,
+                    "memberCount": 2,
+                    "memberLeaves": [],
+                    "hasScheduledMessage": false,
+                    "isTop": false,
+                    "notificationMode": "all",
+                    "lifecycle": {
+                      "state": "active"
+                    },
+                    "settingsVersion": 0,
+                    "actions": []
+                  }
+                ],
+                "page": {
+                  "windowToken": "dialog-list-2-normal",
+                  "hasOlder": false,
+                  "hasNewer": false,
+                  "hasMore": false
+                }
+              }
+            ],
+            "state": "ready"
+          }
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

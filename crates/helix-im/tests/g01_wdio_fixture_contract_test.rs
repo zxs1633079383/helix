@@ -13,8 +13,9 @@ use serde_json::{json, Value};
 mod scenario;
 
 use scenario::{
-    assert_dialog_contract, assert_timeline_contract, delivery_kinds, first_message, surface_names,
-    G01ScenarioRunner, Terminal, ACTOR_ID, CHANNEL_ID, CREATED_AT, MARKER, REQUEST_ID, SERVER_ID,
+    assert_dialog_contract, assert_group_created_contract, assert_timeline_contract,
+    delivery_kinds, first_message, surface_names, G01ScenarioRunner, Terminal, ACTOR_ID,
+    CHANNEL_ID, CREATED_AT, GROUP_NAME, MARKER, OBSERVER_ID, REQUEST_ID, SERVER_ID,
 };
 
 const HELIX_COMMIT: &str = "ee8440e7b6e19d75153f46349e57fbb6c00ca8cf";
@@ -29,7 +30,7 @@ struct FixtureCase {
     frame: InteractionFrameV2,
 }
 
-/// 从唯一 ScenarioRunner 生成 HTTP 与 WS 两条 correlation 的五份 Frame。
+/// 从唯一 ScenarioRunner 生成建群前置及 HTTP/WS 两条 correlation 的六份 Frame。
 fn produce_cases() -> Vec<FixtureCase> {
     let sent = G01ScenarioRunner::run_http(Terminal::Sent);
     let failed = G01ScenarioRunner::run_http(Terminal::Failed);
@@ -37,6 +38,14 @@ fn produce_cases() -> Vec<FixtureCase> {
     assert_eq!(
         sent.sending, failed.sending,
         "sending Frame cannot depend on its future HTTP terminal"
+    );
+    assert_eq!(
+        sent.group_created, failed.group_created,
+        "group prerequisite cannot depend on its future message terminal"
+    );
+    assert_eq!(
+        sent.group_created, ws.group_created,
+        "HTTP and WS message branches must start from the same created group"
     );
     assert_eq!(
         sent.sending, ws.sending,
@@ -50,6 +59,7 @@ fn produce_cases() -> Vec<FixtureCase> {
         ws.timeline_corr, ws.dialog_corr,
         "WS timeline and dialog must keep independent persist barriers"
     );
+    assert_group_created_contract(&sent.group_created);
     assert_timeline_contract(&sent.sending, "sending", &sent.temporary_id);
     assert_timeline_contract(&sent.terminal, "sent", SERVER_ID);
     assert_timeline_contract(&failed.terminal, "failed", &failed.temporary_id);
@@ -61,6 +71,11 @@ fn produce_cases() -> Vec<FixtureCase> {
     );
     assert_dialog_contract(&ws.dialog);
     vec![
+        FixtureCase {
+            fixture_id: "g01-group-created-v2",
+            file_name: "group-created.frame-v2.json",
+            frame: sent.group_created,
+        },
         FixtureCase {
             fixture_id: "g01-sending-v2",
             file_name: "sending.frame-v2.json",
@@ -185,9 +200,15 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
             "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/patch/view/sections/*/items/*/preview/text",
             "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/fallbackText",
             "/mutations/*/mutation/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/view/sections/*/items/*/preview/text",
-            "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt"
+            "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt",
+            "/mutations/*/mutation/view/sections/*/items/*/title/text",
+            "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/view/sections/*/items/*/avatar/fallbackText"
         ],
         "rebaseFields": [
             "/transactionId",
@@ -197,8 +218,10 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
         ],
         "placeholderValues": {
             "actorId": ACTOR_ID,
+            "observerId": OBSERVER_ID,
             "teamId": scenario::TEAM_ID,
             "channelId": CHANNEL_ID,
+            "groupName": GROUP_NAME,
             "createdAt": CREATED_AT,
             "marker": MARKER,
             "temporaryId": temporary_id,
@@ -217,8 +240,8 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
 /// 证明 producer actual、字段语义、Golden bytes 与 provenance 始终为同一份合同。
 fn current_g01_producer_matches_canonical_v2_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 5, "G01 canonical inventory is explicit");
-    let temporary_id = first_message(&cases[0].frame).id.clone();
+    assert_eq!(cases.len(), 6, "G01 canonical inventory is explicit");
+    let temporary_id = first_message(&cases[1].frame).id.clone();
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G01_WDIO_FIXTURES").is_some();
     let mut provenance = Vec::with_capacity(cases.len());

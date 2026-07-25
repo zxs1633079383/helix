@@ -5,8 +5,8 @@ use helix_core::effect::{Correlation, Effect, StorageOp, TimerId};
 use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    DeliveryVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId, SurfaceScope,
-    TypedSurfaceMutation,
+    DeliveryVm, DialogRowVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId,
+    SurfaceScope, TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -17,8 +17,10 @@ pub const SERVER_ID: &str = "srvfix00000000000000000001";
 pub const REQUEST_ID: &str = "g01-wdio-request-1";
 pub const MARKER: &str = "g01-wdio-fixture-marker";
 pub const ACTOR_ID: &str = "g01-wdio-actor";
+pub const OBSERVER_ID: &str = "g01-wdio-observer";
 pub const TEAM_ID: &str = "g01-wdio-company";
 pub const CREATED_AT: i64 = 1_700_000_000_002;
+pub const GROUP_NAME: &str = "G01 Fixture Group";
 
 /// 标识 G01 HTTP 终态分支，避免用布尔值混淆 sent 与 failed。
 #[derive(Clone, Copy)]
@@ -29,6 +31,7 @@ pub enum Terminal {
 
 /// 汇总 HTTP 分支产生的 canonical timeline Frames。
 pub struct HttpScenarioTrace {
+    pub group_created: InteractionFrameV2,
     pub sending: InteractionFrameV2,
     pub terminal: InteractionFrameV2,
     pub temporary_id: String,
@@ -36,6 +39,7 @@ pub struct HttpScenarioTrace {
 
 /// 汇总 WS 分支的独立 timeline 与 dialog 结算 Frames。
 pub struct WsScenarioTrace {
+    pub group_created: InteractionFrameV2,
     pub sending: InteractionFrameV2,
     pub timeline_sent: InteractionFrameV2,
     pub dialog: InteractionFrameV2,
@@ -69,10 +73,12 @@ impl G01ScenarioRunner {
     /// 回放 HTTP success/error 并在每个持久化屏障处验证禁止提前发布 Frame。
     pub fn run_http(terminal: Terminal) -> HttpScenarioTrace {
         let mut runner = Self::new();
+        let group_created = runner.create_group_prerequisite();
         runner.attach_timeline();
         let sending = runner.start_sending();
         let terminal_frame = runner.finish_http(&sending, terminal);
         HttpScenarioTrace {
+            group_created,
             sending: sending.frame,
             terminal: terminal_frame,
             temporary_id: sending.temporary_id,
@@ -82,7 +88,7 @@ impl G01ScenarioRunner {
     /// 回放 WS post 先行结算并验证迟到 HTTP 不会重复写终态。
     pub fn run_ws_echo_with_dialog() -> WsScenarioTrace {
         let mut runner = Self::new();
-        runner.attach_dialog();
+        let group_created = runner.create_group_prerequisite();
         runner.attach_timeline();
         let sending = runner.start_sending();
 
@@ -166,6 +172,7 @@ impl G01ScenarioRunner {
         );
 
         WsScenarioTrace {
+            group_created,
             sending: sending.frame,
             timeline_sent,
             dialog,
@@ -186,6 +193,93 @@ impl G01ScenarioRunner {
     /// 暴露当前 step 的 Effect，供因果屏障和幂等断言使用。
     fn effects(&self) -> &[Effect] {
         self.sink.as_slice()
+    }
+
+    /// 先挂载空 dialog，再以 444/678 等价双用户建群回包产出权威 V2 前置 Frame。
+    fn create_group_prerequisite(&mut self) -> InteractionFrameV2 {
+        self.attach_empty_dialog();
+        self.step(
+            command(
+                "im_create_channel",
+                json!({
+                    "type": "O",
+                    "user_ids": [OBSERVER_ID],
+                    "display_name": GROUP_NAME,
+                    "force_create": true,
+                    "req_id": "g01-create-group-request-1",
+                }),
+            ),
+            1_699_999_999_992,
+        );
+        let create_corr = self.only_http_corr("/channel/create");
+        let create_body = self
+            .effects()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { corr, req } if *corr == create_corr => req.body.as_ref(),
+                _ => None,
+            })
+            .and_then(|body| serde_json::from_slice::<Value>(body.as_ref()).ok())
+            .expect("create-group HTTP body remains inspectable");
+        assert_eq!(
+            create_body["userIds"],
+            json!([OBSERVER_ID]),
+            "current actor is the implicit owner; only 678 is invited"
+        );
+        assert_eq!(create_body["displayName"], GROUP_NAME);
+
+        self.step(
+            ok(
+                create_corr,
+                http_envelope(json!({
+                    "status": "SUCCESS",
+                    "data": {
+                        "id": CHANNEL_ID,
+                        "type": "P",
+                        "displayName": GROUP_NAME,
+                        "teamId": TEAM_ID,
+                        "createAt": CREATED_AT - 5,
+                        "owner": {"id": ACTOR_ID, "role": "OWNER"},
+                        "pictureType": "USER",
+                        "picture": {"userIds": [ACTOR_ID, OBSERVER_ID]}
+                    }
+                })),
+            ),
+            1_699_999_999_993,
+        );
+        let persisted_tables = self
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::PersistFire { ops } => Some(ops.as_slice()),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|op| match op {
+                StorageOp::BatchUpsert(spec) => Some(spec.table),
+                StorageOp::BatchUpdate(spec) => Some(spec.table),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        assert!(
+            persisted_tables.contains("channel") && persisted_tables.contains("channel_member"),
+            "authoritative create reply must persist channel and member facts"
+        );
+        assert!(
+            self.effects().iter().any(|effect| {
+                let Effect::Emit { event } = effect else {
+                    return false;
+                };
+                serde_json::from_slice::<Value>(event.0.as_ref())
+                    .ok()
+                    .is_some_and(|envelope| {
+                        envelope["event"] == "im:channel:created"
+                            && envelope["data"]["channelId"] == CHANNEL_ID
+                    })
+            }),
+            "authoritative create reply must publish the created channel identity"
+        );
+        self.only_frame()
     }
 
     /// 建立 latest timeline attachment，但不把 setup Frame 计入 G01 发送合同。
@@ -239,8 +333,8 @@ impl G01ScenarioRunner {
         });
     }
 
-    /// 建立 dialog attachment，使 WS post 可以发布左侧会话 Frame。
-    fn attach_dialog(&mut self) {
+    /// 以空频道快照建立 dialog attachment，使建群 Frame 本身插入首条会话。
+    fn attach_empty_dialog(&mut self) {
         self.step(
             command("im_query_dialog_list", json!({})),
             1_699_999_999_990,
@@ -249,13 +343,7 @@ impl G01ScenarioRunner {
             ops.iter()
                 .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "channel"))
         });
-        self.step(
-            ok(
-                corr,
-                rows_bytes(json!([channel_row(0, "", CREATED_AT - 1)])),
-            ),
-            1_699_999_999_991,
-        );
+        self.step(ok(corr, rows_bytes(json!([]))), 1_699_999_999_991);
         assert!(
             surface_names(&self.only_frame()).contains("message.left-dialog-list"),
             "dialog setup must attach the left-list surface"
@@ -363,12 +451,7 @@ impl G01ScenarioRunner {
         self.step(
             ok(
                 read,
-                rows_bytes(json!([message_row(
-                    id,
-                    &sending.temporary_id,
-                    status,
-                    0
-                )])),
+                rows_bytes(json!([message_row(id, &sending.temporary_id, status, 0)])),
             ),
             1_700_000_000_009,
         );
@@ -503,6 +586,23 @@ pub fn first_message(frame: &InteractionFrameV2) -> &MessageVm {
         .expect("G01 timeline Frame contains its message")
 }
 
+/// 返回 dialog Frame 中指定 channel 的 render-ready 行。
+pub fn dialog_row<'a>(frame: &'a InteractionFrameV2, channel_id: &str) -> &'a DialogRowVm {
+    frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::DialogListSnapshot { view } => Some(view),
+            TypedSurfaceMutation::DialogListPatch { patch } => Some(&patch.view),
+            _ => None,
+        })
+        .into_iter()
+        .flat_map(|view| &view.sections)
+        .flat_map(|section| &section.items)
+        .find(|row| row.channel_id == channel_id)
+        .expect("dialog Frame contains the requested channel")
+}
+
 /// 逐字段验证 G01 timeline Frame 的 envelope、slot 和 render-ready 消息语义。
 pub fn assert_timeline_contract(
     frame: &InteractionFrameV2,
@@ -536,6 +636,44 @@ pub fn assert_timeline_contract(
     assert!(delivery_kinds(frame).contains(expected_delivery));
 }
 
+/// 逐字段验证建群前置 Frame 已把同一权威 channel 插入双用户左侧会话。
+pub fn assert_group_created_contract(frame: &InteractionFrameV2) {
+    frame.validate().expect("group-created Frame remains valid");
+    assert_eq!(frame.schema_version, 2);
+    assert!(!frame.transaction_id.is_empty());
+    assert!(frame.directives.is_empty());
+    assert_eq!(
+        surface_names(frame),
+        BTreeSet::from(["message.left-dialog-list"]),
+        "zero-unread group creation must publish only its dialog mutation"
+    );
+    let dialog_mutation = frame
+        .mutations
+        .iter()
+        .find(|mutation| mutation.mutation.surface == SurfaceId::MessageLeftDialogList)
+        .expect("group-created Frame contains its dialog mutation");
+    assert_eq!(
+        dialog_mutation.mutation.scope,
+        SurfaceScope::User {
+            user_id: ACTOR_ID.to_string(),
+            team_id: TEAM_ID.to_string(),
+        }
+    );
+    let row = dialog_row(frame, CHANNEL_ID);
+    assert_eq!(row.channel_id, CHANNEL_ID);
+    assert_eq!(row.title.text, GROUP_NAME);
+    assert_eq!(format!("{:?}", row.channel_kind), "Group");
+    assert_eq!(row.member_count, 2);
+    assert_eq!(
+        row.avatar.user_ids,
+        vec![ACTOR_ID.to_string(), OBSERVER_ID.to_string()],
+        "group member-grid preserves the deterministic two-user roster"
+    );
+    assert_eq!(row.last_activity_at, CREATED_AT - 5);
+    assert_eq!(format!("{:?}", row.preview), "Empty");
+    assert_eq!(row.lifecycle.state, "active");
+}
+
 /// 验证 WS dialog Frame 至少包含左侧会话 slot 及本次 marker/时间。
 pub fn assert_dialog_contract(frame: &InteractionFrameV2) {
     frame.validate().expect("dialog Frame remains valid");
@@ -559,21 +697,7 @@ pub fn assert_dialog_contract(frame: &InteractionFrameV2) {
         },
         "dialog Frame must target the attached actor/team slot"
     );
-    let dialog = frame
-        .mutations
-        .iter()
-        .find_map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::DialogListSnapshot { view } => Some(view),
-            TypedSurfaceMutation::DialogListPatch { patch } => Some(&patch.view),
-            _ => None,
-        })
-        .expect("dialog Frame contains a typed dialog view");
-    let row = dialog
-        .sections
-        .iter()
-        .flat_map(|section| &section.items)
-        .find(|row| row.channel_id == CHANNEL_ID)
-        .expect("dialog Frame contains the sent channel");
+    let row = dialog_row(frame, CHANNEL_ID);
     assert_eq!(
         row.last_activity_at,
         CREATED_AT + 20,

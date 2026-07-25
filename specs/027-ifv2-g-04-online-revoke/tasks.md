@@ -45,16 +45,16 @@
 
 **Purpose**: PC 机械消费同源 Frame 并完成真实链。
 
-- [ ] T013 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/sync-helix-fixtures.mjs 的 G-04 manifest/filename/hash/surface 映射，只读同步到 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04/
-- [ ] T014 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04/__tests__/fixture-parity.test.ts 编写 schema/inventory/raw/semantic hash 与禁止字段补写 RED tests
-- [ ] T015 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/fixture-loader.ts 的 G-04 typed loading API，不解释业务字段
-- [ ] T016 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts 先写 G-04 AcceptedCommand/replay/correlation RED tests，再扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/tauri-mock-bridge.ts
-- [ ] T017 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/pageobjects/g04.page.ts 封装真实 MessageV4 操作、Surface ready、DOM 字段、FrameApplied 与自动等待，不引入业务计算
-- [ ] T018 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g04-mock.e2e.ts 以 Helix Fixture replay 验证完整 happy/failure/race DOM、transactionId 与 claim=mock
-- [ ] T019 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g04-single-real.e2e.ts 从真实 UI 创建 fresh group 并执行 G-04，关联 invoke/Helix/SQLite/HTTP/WS/FrameApplied/DOM
-- [ ] T020 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g04-dual-real.e2e.ts 验证 Actor/Observer 对 撤回 的最终 timeline/dialog/receipt 可见结果；不适用字段以合同理由显式断言
-- [ ] T021 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/g04-summary.ts 与 /System/Volumes/Data/workspace/angular/cses-client/package.json 增加 g04:mock/single-real/dual-real/report 命令和分层 assertion/report 汇总
-- [ ] T022 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/check-production-boundary.mjs，证明 G-04 Fixture/Mock/WDIO API 不进入 production bundle
+- [x] T013 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/sync-helix-fixtures.mjs 的 G-04 manifest/filename/hash/surface 映射，只读同步到 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04/
+- [x] T014 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04/__tests__/fixture-parity.test.ts 编写 schema/inventory/raw/semantic hash 与禁止字段补写 RED tests
+- [x] T015 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/fixture-loader.ts 的 G-04 typed loading API，不解释业务字段
+- [x] T016 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts 先写 G-04 AcceptedCommand/replay/correlation RED tests，再扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/tauri-mock-bridge.ts
+- [x] T017 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/pageobjects/g04.page.ts 封装真实 MessageV4 操作、Surface ready、DOM 字段、FrameApplied 与自动等待，不引入业务计算
+- [x] T018 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g04-mock.e2e.ts 以 Helix Fixture replay 验证完整 happy/failure/race DOM、transactionId 与 claim=mock
+- [x] T019 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g04-single-real.e2e.ts 从真实 UI 创建 fresh group 并执行 G-04，关联 invoke/Helix/SQLite/HTTP/WS/FrameApplied/DOM
+- [x] T020 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g04-dual-real.e2e.ts 验证 Actor/Observer 对 撤回 的最终 timeline/dialog/receipt 可见结果；不适用字段以合同理由显式断言
+- [x] T021 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/g04-summary.ts 与 /System/Volumes/Data/workspace/angular/cses-client/package.json 增加 g04:mock/single-real/dual-real/report 命令和分层 assertion/report 汇总
+- [x] T022 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/check-production-boundary.mjs，证明 G-04 Fixture/Mock/WDIO API 不进入 production bundle
 
 ---
 

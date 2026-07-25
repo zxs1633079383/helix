@@ -79,3 +79,34 @@
   --nocapture`：6/6 + 4/4 + 1/1 PASS。
 - 普通 Fixture contract 测试只重新生成 actual Frame 并执行 byte-exact Golden
   比较，不设置 `UPDATE_G04_WDIO_FIXTURES` 时不会写盘。
+
+## T013-T022 PC Green
+
+- PC mirror 只由 `sync-helix-fixtures.mjs --gate=g04` 从 Helix canonical 目录同步；
+  `--check` 返回 `G04_FIXTURE_PARITY_OK count=4`，未补写业务字段。
+- fresh runtime rebase 首轮暴露 `ActionBinding.surfaceEpoch` 未随 mutation epoch 更新。
+  修复回到 Helix provenance 真源 `43008acfc464a17711613fe5f37a56bb1146d22e`，
+  明确授权 timeline/dialog action epoch 路径；PC loader 只按白名单机械替换。
+- focused contracts：Fixture parity、TauriMockBridge 与 G04 reporter 共 3 suites、
+  14/14 PASS；`yarn tsc -p tests/e2e/wdio/tsconfig.json --noEmit` 退出码 0。
+- `yarn message:wdio:g04:mock`：2/2 PASS。命令 admission 只返回
+  `AcceptedCommand`，recalled/recovery DOM 均来自完整 Helix Frame replay。
+- Tauri 四个生产 Helix 依赖统一回钉
+  `43008acfc464a17711613fe5f37a56bb1146d22e`；`yarn message:wdio:build`
+  完成 Angular WDIO candidate 与 Rust debug binary，candidate SHA-256 为
+  `a0bcaf714d263fc09fc853f75c1ddcb15b733d1deabb8029951e8847f0018fe2`。
+- `yarn message:wdio:g04:single-real`：1/1 PASS。证据目录
+  `artifacts/message-wdio/single-real-20260725171610025-68431/`，覆盖 fresh
+  group、真实 UI、`im_invoke_action`、SQLite、`/api/cses/posts/revoke`、
+  `posts_update`、FrameApplied 与 recalled DOM。
+- `yarn message:wdio:g04:dual-real`：1/1 PASS。证据目录
+  `artifacts/message-wdio/dual-real-20260725171634953-68740/`，Actor 444 与
+  Observer 678 在隔离 profile 中收敛到同一 recalled messageId；本 Gate
+  canonical surface 仅为 `message.timeline`，dialog mutation 明确 N/A。
+- `yarn message:wdio:g04:report`：1/1 PASS；single/dual report 均
+  `exitCode=0`、`redactionVerdict=pass`，并保存 JSON、Markdown、JUnit、
+  Go/SQLite/PG/Frame/DOM evidence hash。
+- `yarn message:wdio:g04:boundary`：
+  `checkedFiles=2735`、`mockProductionReachable=false`、`ok=true`。
+- 日志中的 `tauri-driver not found` 为 service 探测诊断；实际 lane 使用
+  embedded provider 并均以退出码 0 完成，不作为跳过或替代证据。

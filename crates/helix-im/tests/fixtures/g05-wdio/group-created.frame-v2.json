@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "dialog-list-user|14:g05-wdio-actor|16:g05-wdio-company-3",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": {
+        "kind": "user",
+        "userId": "g05-wdio-actor",
+        "teamId": "g05-wdio-company"
+      },
+      "revision": 3,
+      "baseRevision": 2,
+      "mutation": {
+        "kind": "dialogListPatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "sections": [
+              {
+                "kind": "normal",
+                "items": [
+                  {
+                    "channelId": "chfixx000000000000000001f5",
+                    "channelKind": "group",
+                    "title": {
+                      "text": "G05 Target Group"
+                    },
+                    "avatar": {
+                      "resource": null,
+                      "userIds": [
+                        "g05-wdio-actor",
+                        "g05-wdio-observer"
+                      ],
+                      "fallbackText": "G05 Target Group"
+                    },
+                    "preview": {
+                      "kind": "empty"
+                    },
+                    "lastActivityAt": 1700000499996,
+                    "unreadCount": 0,
+                    "mentionCount": 0,
+                    "urgentCount": 0,
+                    "topicCount": 0,
+                    "memberCount": 2,
+                    "memberLeaves": [],
+                    "hasScheduledMessage": false,
+                    "isTop": false,
+                    "notificationMode": "all",
+                    "lifecycle": {
+                      "state": "active"
+                    },
+                    "settingsVersion": 0,
+                    "actions": []
+                  },
+                  {
+                    "channelId": "chfixx000000000000000001f4",
+                    "channelKind": "group",
+                    "title": {
+                      "text": "G05 Source Group"
+                    },
+                    "avatar": {
+                      "resource": null,
+                      "userIds": [
+                        "g05-wdio-actor",
+                        "g05-wdio-observer"
+                      ],
+                      "fallbackText": "G05 Source Group"
+                    },
+                    "preview": {
+                      "kind": "empty"
+                    },
+                    "lastActivityAt": 1700000499993,
+                    "unreadCount": 0,
+                    "mentionCount": 0,
+                    "urgentCount": 0,
+                    "topicCount": 0,
+                    "memberCount": 2,
+                    "memberLeaves": [],
+                    "hasScheduledMessage": false,
+                    "isTop": false,
+                    "notificationMode": "all",
+                    "lifecycle": {
+                      "state": "active"
+                    },
+                    "settingsVersion": 0,
+                    "actions": []
+                  }
+                ],
+                "page": {
+                  "windowToken": "dialog-list-3-normal",
+                  "hasOlder": false,
+                  "hasNewer": false,
+                  "hasMore": false
+                }
+              }
+            ],
+            "state": "ready"
+          }
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

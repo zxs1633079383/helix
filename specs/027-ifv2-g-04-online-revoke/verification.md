@@ -43,3 +43,18 @@
   权威 `im:channel:created`；不复用 G03a 遗留群或失败消息。
 - 三端 prerequisite 已由 G01-G03a 闭环持续验证，本 Gate 只复用合同，不修改共享
   生产业务逻辑。
+
+## T004-T008 Helix Scenario Green
+
+- `G04ScenarioRunner` 复用共享 fresh-group producer，并通过生产
+  `im_query_messages_by_channel` 取得 Helix 签发的 opaque revoke binding。
+- action ingress 使用严格 `ActionInvocationEnvelope`；renderer 不提交 channelId、
+  postId 或业务 command，`module/action.rs` 从已授权 binding 映射到 `im_revoke`。
+- HTTP accepted/success/error 均不直接产生 recalled Frame。权威 `posts_update`
+  先形成 message revoke + cursor 的 `PersistAtomic`，只有 `PersistOk` 后才 readback
+  durable row 并生成 `content=Recalled`、`delivery=Recalled`、actions 为空的完整 Frame。
+- 场景覆盖 fresh group、happy path、HTTP infrastructure failure、PersistAtomic
+  failure/replay、duplicate WS、late HTTP 和 cold-start durable recovery。
+- `cargo test -p helix-im --test g04_full_flow_test -- --nocapture`：6/6 PASS。
+- 本阶段未发现生产 reducer 缺口，故 `module/action.rs`、`surface_composer.rs` 与
+  projector 无需行为修改；新增内容只扩展共享 ScenarioRunner 与字段级合同。

@@ -9,6 +9,10 @@ use helix_im::interaction_frame::TypedSurfaceMutation;
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
+#[path = "support/g04_scenario.rs"]
+mod scenario;
+
+/// 从一条 render-ready row 提取 Helix 签发的 timeline actions。
 fn timeline_actions(
     capabilities: serde_json::Value,
 ) -> Vec<helix_im::interaction_frame::ActionBinding> {
@@ -31,6 +35,7 @@ fn timeline_actions(
 }
 
 #[test]
+/// 证明只有 authority capability 才会生成可执行 opaque revoke binding。
 fn revoke_capability_is_live_only_when_authority_grants_it() {
     let actions = timeline_actions(json!({ "canRevoke": true }));
     let revoke = actions
@@ -45,6 +50,7 @@ fn revoke_capability_is_live_only_when_authority_grants_it() {
 }
 
 #[test]
+/// 证明离线撤回 fact 在 PersistAtomic 成功前不发布业务 projection。
 fn offline_revoke_fact_waits_for_one_atomic_persist_before_business_projection() {
     let channel_id = cid(4);
     let message_id = sid(4);
@@ -96,5 +102,26 @@ fn offline_revoke_fact_waits_for_one_atomic_persist_before_business_projection()
             .iter()
             .any(|effect| matches!(effect, Effect::Emit { .. })),
         "business projection must wait for the matching PersistOk"
+    );
+}
+
+#[test]
+/// 证明在线 action 的 WS authority 在 PersistOk 后才产生 recalled Frame。
+fn online_revoke_waits_for_authority_persist_and_preserves_causation() {
+    let trace = scenario::G04ScenarioRunner::run_ws_revoke();
+    scenario::assert_revocable_contract(&trace.revocable);
+    scenario::assert_recalled_contract(
+        &trace.recalled,
+        Some(scenario::g04_scenario_spec().request_id),
+    );
+}
+
+#[test]
+/// 证明撤回持久失败可重放且不会先发布部分 recalled 状态。
+fn online_revoke_persist_failure_replays_without_partial_frame() {
+    let trace = scenario::G04ScenarioRunner::run_persist_failure_replay();
+    scenario::assert_recalled_contract(
+        &trace.recalled_after_replay,
+        Some(scenario::g04_scenario_spec().request_id),
     );
 }

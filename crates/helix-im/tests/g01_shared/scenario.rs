@@ -126,6 +126,34 @@ pub struct RecoveryScenarioTrace {
     pub recovered: InteractionFrameV2,
 }
 
+/// 汇总 G04 online revoke 的可撤回与权威撤回 Frames。
+pub struct RevokeWsScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub revocable: InteractionFrameV2,
+    pub recalled: InteractionFrameV2,
+}
+
+/// 汇总 G04 HTTP 失败分支，证明 accepted 不改变既有可见状态。
+pub struct RevokeFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub revocable: InteractionFrameV2,
+    pub emitted_frame_count: usize,
+    pub persisted_write_count: usize,
+}
+
+/// 汇总 G04 authority 持久化失败后的重放收敛结果。
+pub struct RevokePersistFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub revocable: InteractionFrameV2,
+    pub recalled_after_replay: InteractionFrameV2,
+}
+
+/// 汇总 cold-start durable revoked row 重建出的 timeline Frame。
+pub struct RevokeRecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub recovered: InteractionFrameV2,
+}
+
 /// 通过公开 `ImModule::handle` 驱动发送类 Gate 的共享确定性测试场景。
 pub struct G01ScenarioRunner {
     spec: SendScenarioSpec,
@@ -358,6 +386,106 @@ impl G01ScenarioRunner {
         }
     }
 
+    /// 回放 G04 action admission、WS authority、PersistAtomic 与 recalled timeline。
+    pub fn run_revoke_ws_for(spec: SendScenarioSpec) -> RevokeWsScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let http_corr = runner.start_revoke(&revocable);
+        let recalled = runner.finish_revoke_ws(http_corr, false);
+        RevokeWsScenarioTrace {
+            group_created,
+            revocable,
+            recalled,
+        }
+    }
+
+    /// 回放 G04 HTTP 基础设施失败，证明没有伪成功 Persist 或 Frame。
+    pub fn run_revoke_http_failure_for(spec: SendScenarioSpec) -> RevokeFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let http_corr = runner.start_revoke(&revocable);
+        runner.step(http_error(http_corr), runner.spec.created_at as u64 + 10);
+        RevokeFailureScenarioTrace {
+            group_created,
+            revocable,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. } | Effect::PersistAtomic { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G04 authority Persist 失败并以同一 WS fact 重放成功。
+    pub fn run_revoke_persist_failure_for(
+        spec: SendScenarioSpec,
+    ) -> RevokePersistFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let revocable = runner.attach_revoke_timeline(false);
+        let http_corr = runner.start_revoke(&revocable);
+        runner.step(
+            revoke_ws_frame(&runner.spec),
+            runner.spec.created_at as u64 + 10,
+        );
+        let failed_corr =
+            runner.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        runner.step(
+            Tick::PortReply {
+                corr: failed_corr,
+                outcome: PortOutcome::Err(PortError::Storage(500)),
+            },
+            runner.spec.created_at as u64 + 11,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "failed revoke PersistAtomic must not publish a business Frame"
+        );
+        runner.step(
+            revoke_ws_frame(&runner.spec),
+            runner.spec.created_at as u64 + 12,
+        );
+        let replay_corr =
+            runner.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        let recalled_after_replay =
+            runner.complete_revoke_persist(replay_corr, runner.spec.created_at as u64 + 13);
+        runner.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status": "SUCCESS", "data": {}})),
+            ),
+            runner.spec.created_at as u64 + 15,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "late HTTP after replayed WS authority must not publish another Frame"
+        );
+        RevokePersistFailureScenarioTrace {
+            group_created,
+            revocable,
+            recalled_after_replay,
+        }
+    }
+
+    /// 从 durable revoked row 冷启动恢复 G04 recalled snapshot。
+    pub fn run_revoke_recovery_for(spec: SendScenarioSpec) -> RevokeRecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let recovered = runner.attach_revoke_timeline(true);
+        RevokeRecoveryScenarioTrace {
+            group_created,
+            recovered,
+        }
+    }
+
     /// 以单调注入时间推进 Tick，并只保留当前 step 的 Effect 批次。
     fn step(&mut self, tick: Tick, now_ms: u64) {
         self.sink.clear();
@@ -454,6 +582,170 @@ impl G01ScenarioRunner {
                     })
             }),
             "authoritative create reply must publish the created channel identity"
+        );
+        self.only_frame()
+    }
+
+    /// 通过生产 local-first query 挂载一条可撤回或已撤回 timeline row。
+    fn attach_revoke_timeline(&mut self, revoked: bool) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "im_query_messages_by_channel",
+                json!({
+                    "channel_id": self.spec.channel_id,
+                    "limit": 20,
+                    "windowToken": "latest",
+                    "req_id": self.spec.request_id,
+                }),
+            ),
+            self.spec.created_at as u64,
+        );
+        let local = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                local,
+                rows_bytes(json!([revoke_message_row(&self.spec, revoked)])),
+            ),
+            self.spec.created_at as u64 + 1,
+        );
+        if self.frames().is_empty() {
+            let remote = self.only_http_corr("/posts/getLatestPost");
+            self.step(
+                ok(
+                    remote,
+                    http_envelope(json!({
+                        "status": "SUCCESS",
+                        "data": [revoke_message_row(&self.spec, revoked)]
+                    })),
+                ),
+                self.spec.created_at as u64 + 2,
+            );
+            if self.frames().is_empty() {
+                let cache = self.only_persist_corr_with(|ops| !ops.is_empty());
+                self.step(ok(cache, Bytes::new()), self.spec.created_at as u64 + 3);
+            }
+        }
+        self.only_frame()
+    }
+
+    /// 从 Helix 签发的 opaque revoke binding 构造严格 action envelope。
+    fn start_revoke(&mut self, frame: &InteractionFrameV2) -> Correlation {
+        let mutation = frame
+            .mutations
+            .first()
+            .expect("revoke timeline contains one mutation");
+        let action = first_message(frame)
+            .actions
+            .iter()
+            .find(|action| action.kind == "revoke")
+            .expect("revoke timeline contains its authority binding");
+        assert!(action.enabled, "revoke authority binding must be live");
+        let payload = serde_json::to_vec(&json!({
+            "schemaVersion": 1,
+            "requestId": self.spec.request_id,
+            "actorId": self.spec.actor_id,
+            "surface": "message.timeline",
+            "scope": mutation.mutation.scope,
+            "surfaceEpoch": action.surface_epoch,
+            "observedRevision": mutation.mutation.revision,
+            "invocation": {
+                "actionRef": action.action_ref,
+                "input": {}
+            }
+        }))
+        .expect("revoke action envelope serializes");
+        let action_command = helix_im::client_api::build_action_invocation_command(&payload)
+            .expect("revoke action envelope is accepted by the production client API");
+        self.step(
+            Tick::Command(action_command),
+            self.spec.created_at as u64 + 2,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "AcceptedCommand/action receipt must not fabricate recalled UI"
+        );
+        self.only_http_corr("/posts/revoke")
+    }
+
+    /// 完成在线撤回 WS authority，并验证重复 WS 与迟到 HTTP 幂等。
+    fn finish_revoke_ws(
+        &mut self,
+        http_corr: Correlation,
+        persist_failed_once: bool,
+    ) -> InteractionFrameV2 {
+        self.step(
+            revoke_ws_frame(&self.spec),
+            self.spec.created_at as u64 + 10,
+        );
+        let persist_corr =
+            self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        if persist_failed_once {
+            self.step(
+                Tick::PortReply {
+                    corr: persist_corr,
+                    outcome: PortOutcome::Err(PortError::Storage(500)),
+                },
+                self.spec.created_at as u64 + 11,
+            );
+            assert!(
+                self.frames().is_empty(),
+                "failed revoke persistence cannot publish recalled UI"
+            );
+            self.step(
+                revoke_ws_frame(&self.spec),
+                self.spec.created_at as u64 + 12,
+            );
+            let replay_corr =
+                self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+            return self.complete_revoke_persist(replay_corr, self.spec.created_at as u64 + 13);
+        }
+        let recalled = self.complete_revoke_persist(persist_corr, self.spec.created_at as u64 + 11);
+        self.step(
+            revoke_ws_frame(&self.spec),
+            self.spec.created_at as u64 + 13,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "duplicate revoke authority must be ignored after cursor commit"
+        );
+        self.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status": "SUCCESS", "data": {}})),
+            ),
+            self.spec.created_at as u64 + 14,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "late HTTP success must not repeat the recalled Frame"
+        );
+        recalled
+    }
+
+    /// 在 PersistAtomic 成功后回灌 durable row，并取得唯一 recalled Frame。
+    fn complete_revoke_persist(
+        &mut self,
+        persist_corr: Correlation,
+        now_ms: u64,
+    ) -> InteractionFrameV2 {
+        self.step(ok(persist_corr, Bytes::new()), now_ms);
+        assert!(
+            self.frames().is_empty(),
+            "revoke PersistOk only schedules attached timeline readback"
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([revoke_message_row(&self.spec, true)])),
+            ),
+            now_ms + 1,
         );
         self.only_frame()
     }
@@ -899,6 +1191,25 @@ impl G01ScenarioRunner {
         corr
     }
 
+    /// 按 StorageOp 语义提取唯一 PersistAtomic correlation。
+    fn only_persist_atomic_corr_with(
+        &self,
+        predicate: impl Fn(&[StorageOp]) -> bool,
+    ) -> Correlation {
+        let mut matches = self.effects().iter().filter_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } if predicate(ops) => Some(*corr),
+            _ => None,
+        });
+        let corr = matches
+            .next()
+            .expect("expected one matching PersistAtomic effect");
+        assert!(
+            matches.next().is_none(),
+            "PersistAtomic correlation must be causally unambiguous"
+        );
+        corr
+    }
+
     /// 解码当前 step 发布的所有完整 InteractionFrameV2。
     fn frames(&self) -> Vec<InteractionFrameV2> {
         self.effects()
@@ -1226,6 +1537,29 @@ fn message_row(
     })
 }
 
+/// 构造 G04 local-first query 与撤回 readback 使用的 render-ready message row。
+fn revoke_message_row(spec: &SendScenarioSpec, revoked: bool) -> Value {
+    json!({
+        "id": spec.server_id,
+        "temporaryId": spec.server_id,
+        "channelId": spec.channel_id,
+        "userId": spec.actor_id,
+        "createAt": spec.created_at,
+        "message": spec.marker,
+        "type": spec.message_type,
+        "sendStatus": "sent",
+        "event_seq": if revoked { 1 } else { 0 },
+        "revoke": revoked,
+        "props": spec.props,
+        "actionCapabilities": {
+            "canRevoke": !revoked,
+            "canReply": !revoked,
+            "canForward": !revoked,
+            "canReact": !revoked
+        }
+    })
+}
+
 /// 构造冷启动 retry lookup 使用的 durable failed message row。
 fn durable_failed_row(spec: &SendScenarioSpec, temporary_id: &str) -> Value {
     json!({
@@ -1304,6 +1638,31 @@ fn echo_frame(spec: &SendScenarioSpec, temporary_id: &str) -> Tick {
         .expect("WS echo serializes")
         .into(),
     ))
+}
+
+/// 构造 Go `posts_update` 的权威撤回 fact，cursor 固定推进到 1。
+fn revoke_ws_frame(spec: &SendScenarioSpec) -> Tick {
+    Tick::Inbound(InboundBytes(Bytes::from(
+        serde_json::to_vec(&json!({
+            "action": "posts_update",
+            "data": {
+                "event_seq": 1,
+                "channelId": spec.channel_id,
+                "actor_id": spec.actor_id,
+                "occurred_at": spec.created_at + 10,
+                "posts": [{
+                    "id": spec.server_id,
+                    "channelId": spec.channel_id,
+                    "userId": spec.actor_id,
+                    "message": spec.marker,
+                    "type": spec.message_type,
+                    "revoke": true,
+                    "props": spec.props
+                }]
+            }
+        }))
+        .expect("revoke WS frame serializes"),
+    )))
 }
 
 /// 合并 WS authority 序号而不改写 Gate 自身的 props 业务字段。

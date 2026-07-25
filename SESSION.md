@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 按 Spec 030 完成 G06 快捷回复 emoji 三仓纵向闭环；可证伪断言：① Helix `im_quick_reply` 独占权限、HTTP/WS authority、持久终态和完整 Frame V2 字段，PC/Mobile 不新增 reaction reducer；② canonical Fixture 只由生产 `ImModule::handle -> Effect::Emit` 生成并在三仓 byte-exact/semantic 一致；③ 每次真实验收创建 fresh group 与 source post，PC Mock/single-real/dual-real/report 和 Mobile production-linked GTest/QuickJS typed view required fail=0/skip=0；④ G06 行为、代码、Frame V2 与 production-boundary Review 通过且 R4 CLOSED 前不进入 G07；⑤ Cargo 仅在 Helix 模块完成和 Gate 验收运行 2-3 次 | 赌注 高 | 可逆 是 | @2026-07-25T14:24:00-0700
+
 🎯 EXPECT 按 Spec 028 完成 G04a 离线撤回重放三仓纵向闭环；可证伪断言：① `im_sync_channels` 只接受 channel intent，cursor 与 sync/notify authority 由 Helix `sync::explicit`/`sync::flow` 决定，不在 PC/Mobile 恢复 raw query reducer；② Helix ScenarioRunner 从生产 PortReply 的 viewer-filtered sync batch 经过 PersistAtomic/PersistOk 生成 recalled Frame，并覆盖 failure/duplicate/late/recovery；③ canonical Fixture 在三仓 byte-exact/semantic 一致，PC Mock/single-real/dual-real/report 与 Mobile production-linked GTest/QuickJS typed view 全绿；④ G04a 通过行为、代码、Frame V2、production-boundary 与 R4 CLOSED 前不进入 G05；⑤ 每次验收创建 fresh group，不复用 G04 channel/post/revision | 赌注 高 | 可逆 是 | @2026-07-25T10:57:24-0700
 
 🎯 EXPECT 续跑 Spec 027 完成 G04 在线撤回三仓纵向闭环；可证伪断言：① Mobile source pin 固定到包含 G04 canonical Fixture 的 Helix 正式提交并以 bundle/hash 复现，不读取 dirty worktree；② Mobile mirror 与 Helix raw/semantic/provenance 全量一致，GTest 链接生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 并只通过 `im.surface.view` 验证 typed view；③ PC 已有 Mock/single-real/dual-real/report 证据保持有效，三仓不新增第二套业务 reducer；④ G04 必须通过行为、代码、Frame V2、production-boundary 与 R4 Review 并 CLOSED 后才进入 G04a；⑤ Mobile repin、Fixture、合同实现分别验证并分类提交，不纳入既有无关 bundle/.DS_Store | 赌注 高 | 可逆 是 | @2026-07-25T10:23:58-0700

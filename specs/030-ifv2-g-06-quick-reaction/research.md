@@ -1,6 +1,6 @@
 # Research: G-06 快捷回复 emoji
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `714677ab1e5f6a5126fa45fea0a12da744cbae65`；cses-client `424d1c9e5e79351a74149c1f1c0088eb92f85352`；Mobile `1b6b77856d5d5118fce87336a85e42a959012693`
 
 ## Decision 1 - 唯一业务真源
 
@@ -49,3 +49,44 @@
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。
+
+## T002 Current / Target / Gap
+
+### CURRENT
+
+- `quick_reply.rs` 已把 canonical direct command 冻结为 `post_id + emoji`，可选
+  `req_id` 只进入 transport correlation；HTTP body 仅 `{postId,emoji}`，未知
+  字段 fail-closed。
+- MessageV4 `react` ActionBinding 已走 `ImModule::handle` 的
+  `ActionDispatch::ToggleReaction`，注册 `PendingAuthorityAction`；权威
+  `post_update` 先 `PersistAtomic(message patch + cursor)`，仅 PersistOk 后 Emit
+  `im:post:updated` 并 refresh attached timeline。
+- 当前 focused test 只覆盖 react binding enabled 与 HTTP wire，不覆盖完整
+  prerequisite、HTTP failure、WS/persist barrier、duplicate/late/recovery，也没有
+  G06 canonical Frame/Fixture。
+- Mobile `MobileImSdk::quickReply` 与 `Uc07QuickReplyTest` 仍要求并发送
+  `user_id`；这直接违反 Strict Matrix “actor 由鉴权 session 注入、客户端不得提交
+  user_id”。当前 real-chain 也因等待 raw `im:post:updated` 超时而失败，尚未以
+  `im.surface.view` 作为用户结果真源。
+- PC 尚无 G06 独立 Fixture parity、Mock/single-real/dual-real/report lane。
+
+### TARGET
+
+- 复用 G01 CreateGroupPrerequisite 创建 fresh group/source post；经 production
+  ActionBinding 或 direct command 只提交 `post_id/emoji/req_id`。
+- Helix 以 HTTP admission + 权威 `post_update` + PersistAtomic/PersistOk 为
+  terminal authority，发布带 causation 的完整 `message.timeline`
+  InteractionFrame V2；duplicate/late/failure 不产生伪成功。
+- 同一 canonical Fixture byte-exact 镜像到 PC/Mobile；PC 机械 replay/real DOM，
+  Mobile 通过生产 SDK/Bridge/SurfaceRuntime/QuickJS `im.surface.view` 验证
+  reaction emoji、count、selected 与 correlation。
+
+### GAP
+
+- 新增 G06 ScenarioRunner、六类 full-flow、focused authority/persist 测试、
+  Fixture producer/Golden/provenance。
+- 若回放证明 direct command 没有 pending authority 或 Frame causation，需要在
+  Helix 生产 handler/command 编排修复，不能在 Fixture 补写。
+- PC 需要 G06 四条独立验收 lane 与 production-boundary。
+- Mobile 必须删除 `QuickReplyInput.user_id` 生产输入及 JS 必填校验，并把真实链从
+  raw event/readback 等待改为生产 typed view；不得新增本地 reaction reducer。

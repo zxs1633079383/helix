@@ -176,6 +176,38 @@
         "docs/GOAL.md"
       ],
       "boundary_file": ".agents/agents/domains/runtime-core/AGENTS.md"
+    },
+    "helix-gate-frame-producer": {
+      "agent": "domains/helix-gate-frame-producer-domain-agent",
+      "constraints": [
+        "hxc010-deterministic-effect-order",
+        "hxc012-expect-for-substantial-task"
+      ],
+      "diagram": ".agents/diagrams/domains/helix-gate-frame-producer.mmd",
+      "modules": [
+        "im"
+      ],
+      "paths": [
+        "crates/helix-im/tests",
+        "crates/helix-im/tests/fixtures"
+      ],
+      "boundary_file": ".agents/agents/domains/helix-gate-frame-producer/AGENTS.md"
+    },
+    "frame-fixture-supply-chain": {
+      "agent": "domains/frame-fixture-supply-chain-domain-agent",
+      "constraints": [
+        "hxc012-expect-for-substantial-task"
+      ],
+      "diagram": ".agents/diagrams/domains/frame-fixture-supply-chain.mmd",
+      "modules": [
+        "im",
+        "governance"
+      ],
+      "paths": [
+        "crates/helix-im/tests/fixtures",
+        "docs/interaction-frame-v2-全量替换-按UC"
+      ],
+      "boundary_file": ".agents/agents/domains/frame-fixture-supply-chain/AGENTS.md"
     }
   }
 }

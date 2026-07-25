@@ -166,6 +166,85 @@
         "reviewers/harness-reviewer-agent"
       ],
       "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "gate-v2-orchestration",
+      "match": {
+        "keywords": [
+          "Gate V2",
+          "逐 Gate",
+          "handoff",
+          "PC Mobile V2",
+          "canonical Green"
+        ],
+        "paths": [
+          "docs/interaction-frame-v2-全量替换-按UC"
+        ]
+      },
+      "primary_agents": [
+        "project/gate-acceptance-orchestrator-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/cross-platform-gate-reviewer-agent"
+      ],
+      "required_references": [
+        "goal",
+        "roadmap-p0",
+        "gate-v2-local-rules"
+      ],
+      "workflow": "route-and-synthesize"
+    },
+    {
+      "id": "helix-gate-frame-producer",
+      "match": {
+        "keywords": [
+          "ScenarioRunner",
+          "Frame producer",
+          "canonical Fixture",
+          "Golden"
+        ],
+        "paths": [
+          "crates/helix-im/tests"
+        ]
+      },
+      "primary_agents": [
+        "domains/helix-gate-frame-producer-domain-agent",
+        "modules/im-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/test-reviewer-agent"
+      ],
+      "required_references": [
+        "projection-schema",
+        "gate-test-local-rules"
+      ],
+      "workflow": "adversarial-workflow"
+    },
+    {
+      "id": "frame-fixture-supply-chain",
+      "match": {
+        "keywords": [
+          "Fixture sync",
+          "provenance",
+          "semantic hash",
+          "consumer mirror"
+        ],
+        "paths": [
+          "crates/helix-im/tests/fixtures"
+        ]
+      },
+      "primary_agents": [
+        "domains/frame-fixture-supply-chain-domain-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent",
+        "reviewers/cross-platform-gate-reviewer-agent"
+      ],
+      "required_references": [
+        "gate-fixture-local-rules"
+      ],
+      "workflow": "adversarial-workflow"
     }
   ]
 }

@@ -1,0 +1,7 @@
+flowchart LR
+  Scenario["Gate Scenario"] --> Tick["Tick / PortReply / Inbound"]
+  Tick --> Handle["ImModule::handle"]
+  Handle --> Effect["Effect / Persist barrier"]
+  Effect --> Emit["Effect::Emit"]
+  Emit --> Frame["InteractionFrameV2"]
+  Frame --> Golden["canonical Fixture + provenance"]

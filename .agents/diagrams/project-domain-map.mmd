@@ -30,6 +30,8 @@ flowchart TB
     mobile_ffi["移动端 FFI 契约领域"]
     native_tauri["PC/Tauri 接缝领域"]
     harness_governance["Harness / Roadmap / Evidence 治理领域"]
+    gate_frame_producer["逐 Gate Frame producer 领域"]
+    fixture_supply_chain["Frame Fixture 供应链领域"]
   end
   Core -.-> runtime_core
   IM -.-> im_message
@@ -54,6 +56,9 @@ flowchart TB
   CLI -.-> harness_governance
   Gov -.-> harness_governance
   Gov -.-> projection_observability
+  IM -.-> gate_frame_producer
+  gate_frame_producer --> fixture_supply_chain
+  fixture_supply_chain -.-> Gov
   GOAL --> Core
   P0 --> Native
   P0 --> Host

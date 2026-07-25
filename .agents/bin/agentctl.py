@@ -226,6 +226,7 @@ def collect_context(summary: str, paths: list[str]) -> dict:
 
 
 def route_task(root: Path, impact: dict) -> dict:
+    """按路径、关键词和约束汇总执行 Agent、Reviewer 与必读引用。"""
     cfg = config(root)
     result = {
         "workflow": "classify-and-act",
@@ -242,6 +243,7 @@ def route_task(root: Path, impact: dict) -> dict:
         if any_prefix(paths, match.get("paths", [])) or any_keyword(keywords, match.get("keywords", [])):
             result["primary_agents"].extend(rule.get("primary_agents", []))
             result["reviewer_agents"].extend(rule.get("reviewer_agents", []))
+            result["required_references"].extend(rule.get("required_references", []))
             if rule.get("workflow"):
                 result["workflow"] = rule["workflow"]
 

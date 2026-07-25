@@ -510,6 +510,66 @@
         "fixture",
         "e2e"
       ]
+    },
+    "project/gate-acceptance-orchestrator-agent": {
+      "file": ".agents/agents/project/gate-acceptance-orchestrator-agent.md",
+      "kind": "project",
+      "full_constraints": true,
+      "owned_paths": [
+        "docs/interaction-frame-v2-全量替换-按UC"
+      ],
+      "triggers": [
+        "Gate V2",
+        "逐 Gate",
+        "handoff",
+        "跨端验收",
+        "canonical Green"
+      ]
+    },
+    "domains/helix-gate-frame-producer-domain-agent": {
+      "file": ".agents/agents/domains/helix-gate-frame-producer-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "im"
+      ],
+      "owned_paths": [
+        "crates/helix-im/tests",
+        "crates/helix-im/tests/fixtures"
+      ],
+      "triggers": [
+        "ScenarioRunner",
+        "Frame producer",
+        "canonical Fixture",
+        "Golden",
+        "provenance"
+      ]
+    },
+    "domains/frame-fixture-supply-chain-domain-agent": {
+      "file": ".agents/agents/domains/frame-fixture-supply-chain-domain-agent.md",
+      "kind": "domain",
+      "modules": [
+        "im",
+        "governance"
+      ],
+      "triggers": [
+        "Fixture sync",
+        "provenance",
+        "semantic hash",
+        "consumer mirror",
+        "source pin"
+      ]
+    },
+    "reviewers/cross-platform-gate-reviewer-agent": {
+      "file": ".agents/agents/reviewers/cross-platform-gate-reviewer-agent.md",
+      "kind": "reviewer",
+      "full_constraints": true,
+      "triggers": [
+        "cross-platform Gate",
+        "三端一致",
+        "canonical Green",
+        "PC Mobile V2",
+        "Gate review"
+      ]
     }
   }
 }

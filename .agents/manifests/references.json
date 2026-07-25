@@ -49,16 +49,28 @@
       "when": "loopforge/Tauri 接入 RecordingSink 或投影录放时读取"
     },
     {
-      "id": "takeover-plan",
-      "kind": "migration-map",
-      "path": "crates/helix-im/docs/takeover-plan/00-README.md",
-      "when": "IM 全接管、HTTP/WS/UC 能力映射任务读取"
-    },
-    {
       "id": "full-map-index",
       "kind": "source-truth-index",
       "path": "crates/helix-im/docs/csesapi-migration/full-map/00-README-index.md",
       "when": "csesapi 迁移和能力缺口对账读取"
+    },
+    {
+      "id": "gate-v2-local-rules",
+      "kind": "agent-boundary",
+      "path": "docs/interaction-frame-v2-全量替换-按UC/AGENTS.md",
+      "when": "逐 Gate V2 总控和 handoff 任务必读"
+    },
+    {
+      "id": "gate-test-local-rules",
+      "kind": "agent-boundary",
+      "path": "crates/helix-im/tests/AGENTS.md",
+      "when": "逐 Gate ScenarioRunner、full-flow 或 producer test 必读"
+    },
+    {
+      "id": "gate-fixture-local-rules",
+      "kind": "agent-boundary",
+      "path": "crates/helix-im/tests/fixtures/AGENTS.md",
+      "when": "canonical Fixture、provenance 或跨仓同步必读"
     }
   ]
 }

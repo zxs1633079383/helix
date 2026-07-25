@@ -1,0 +1,7 @@
+flowchart LR
+  Producer["Helix canonical Fixture"] --> Provenance["inventory + provenance"]
+  Provenance --> Hash["raw + semantic hash"]
+  Hash --> PC["cses-client read-only mirror"]
+  Hash --> Mobile["Mobile read-only mirror"]
+  PC --> Parity["schema / loader / replay parity"]
+  Mobile --> Parity

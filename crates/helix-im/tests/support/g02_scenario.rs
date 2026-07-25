@@ -23,6 +23,8 @@ pub const DOCUMENT_URL: &str =
 pub const DOCUMENT_TITLE: &str = "打开文档";
 pub const MARKER: &str =
     "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15";
+pub const SIMPLE_MESSAGE: &str =
+    "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a3";
 pub const ACTOR_ID: &str = "g02-wdio-actor";
 pub const OBSERVER_ID: &str = "g02-wdio-observer";
 pub const TEAM_ID: &str = "g02-wdio-company";
@@ -36,6 +38,7 @@ pub fn g02_scenario_spec() -> SendScenarioSpec {
         server_id: SERVER_ID,
         request_id: REQUEST_ID,
         marker: MARKER,
+        simple_message: SIMPLE_MESSAGE,
         message_type: "DOCUMENT",
         props: json!({
             "document": {

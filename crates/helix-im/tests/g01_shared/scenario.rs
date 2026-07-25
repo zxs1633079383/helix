@@ -29,6 +29,7 @@ pub struct SendScenarioSpec {
     pub server_id: &'static str,
     pub request_id: &'static str,
     pub marker: &'static str,
+    pub simple_message: &'static str,
     pub message_type: &'static str,
     pub props: Value,
     pub actor_id: &'static str,
@@ -46,6 +47,7 @@ pub fn g01_scenario_spec() -> SendScenarioSpec {
         server_id: SERVER_ID,
         request_id: REQUEST_ID,
         marker: MARKER,
+        simple_message: MARKER,
         message_type: "TEXT",
         props: json!({}),
         actor_id: ACTOR_ID,
@@ -943,10 +945,10 @@ pub fn assert_dialog_contract_for(frame: &InteractionFrameV2, spec: &SendScenari
     );
     match (&row.preview, spec.message_type) {
         (helix_im::interaction_frame::PreviewVm::Text { text, .. }, "TEXT") => {
-            assert_eq!(text, spec.marker)
+            assert_eq!(text, spec.simple_message)
         }
         (helix_im::interaction_frame::PreviewVm::Document { title, .. }, "DOCUMENT") => {
-            assert_eq!(title, spec.marker)
+            assert_eq!(title, spec.simple_message)
         }
         (preview, kind) => panic!("send dialog preview mismatch for {kind}, got {preview:?}"),
     }
@@ -1054,7 +1056,7 @@ fn echo_frame(spec: &SendScenarioSpec, temporary_id: &str) -> Tick {
                 "event_seq": 1,
                 "create_at": spec.created_at + 20,
                 "message": spec.marker,
-                "simpleMessage": spec.marker,
+                "simpleMessage": spec.simple_message,
                 "type": spec.message_type,
                 "userId": spec.actor_id,
                 "userSnapshot": {"userId": spec.actor_id, "teamId": spec.team_id},

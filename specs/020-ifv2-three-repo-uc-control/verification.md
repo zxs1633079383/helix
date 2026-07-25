@@ -95,3 +95,33 @@ Contract/QuickJS 重新 Green，满足 G02 前序准入。该结论不新增真�
 
 结论：G-02 `review-green`，总控顺序解锁 G-03a；后续 Gate 不得复用 G02 运行遗留群，
 仍须通过共享 CreateGroupPrerequisite 创建新群。
+
+### T004 G03a Three-repository Review Green
+
+- 子 Feature：`specs/026-ifv2-g-03a-retry-failed-send`，全部 T001-T038 完成，
+  helix-loop R4 `PASS` 并最终 `CLOSED`。
+- Source pins：Helix
+  `af3fee1e2e9735d9cd9574a525e05b9d36333d58`；Fixture producer
+  `441c01209fa0995bdbc10081601acf6972827fbf`；cses-client
+  `08c1843b7b7751029b6fb9b40ec54eb122f646d0`；Mobile
+  `7bc78ef0b2510232a182b9999413bfe1a1bebe35`。
+- Helix：build/zero-runtime PASS，G03a deterministic scenario 6/6，canonical
+  Fixture contract 1/1。
+- Fixture：八份 schemaVersion=2 producer Frame 在 Helix/PC/Mobile 的
+  inventory、raw/semantic SHA-256 与 Surface inventory 100% 一致；
+  provenance SHA-256 为
+  `8d0d478eaf9158a8db7e19bb413871ea9def4bca103f51e284fa239c5c7be4e7`。
+- PC：Mock 2/2、report 1/1、single-real 1/1、dual-real 1/1；真实
+  Tauri/Helix/SQLite/HTTP/WS/FrameApplied/Actor/Observer DOM 链闭合。
+- Mobile：production-linked G03a 7/7、UC04 retry 7/7，SDK/FFI
+  batch/SurfaceRuntime/QuickJS typed view/C ABI、source pin 与 V1 hard-cut
+  全部 PASS。
+- Review：behavior、code boundary、Frame V2、evidence 全 Green；结构化报告
+  SHA-256 为
+  `71e17b4c6b519df580a37612ad14e147aa3e66a37f2c98e486b53e6bcdc2090c`。
+- 非阻塞观察：Mobile 共享 legacy characterization 中尚未迁移 Gate 的 16 个
+  RealChain 仍等待 raw event/query；没有为其恢复 `im.store`、raw reducer 或
+  V1 consumer。
+
+结论：G-03a `review-green`，总控顺序解锁 G-04；G-04 仍须创建 fresh group，
+不得依赖本 Gate 的失败消息、channel 或运行缓存。

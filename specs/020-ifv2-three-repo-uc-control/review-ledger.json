@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/020-ifv2-three-repo-uc-control",
   "phase": "implementing",
-  "event_seq": 13,
+  "event_seq": 16,
   "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
@@ -26,8 +26,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "71c56f868be8a35207e125b64fa7d4547081cd30e4aa51694dac4b177680935a",
-      "checked_at": "2026-07-25T07:43:36Z",
+      "fingerprint": "2d077c0b1f78e14bb5d8d0cedae62827cbdce5c1bd07d9ff563b092ffdf90303",
+      "checked_at": "2026-07-25T16:23:58Z",
       "issues": []
     },
     "r4_evidence": {
@@ -119,6 +119,24 @@
     {
       "seq": 13,
       "at": "2026-07-25T07:52:49Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 14,
+      "at": "2026-07-25T16:23:58Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 15,
+      "at": "2026-07-25T16:23:58Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 16,
+      "at": "2026-07-25T16:23:58Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
     }

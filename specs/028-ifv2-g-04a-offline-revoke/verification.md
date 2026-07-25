@@ -71,3 +71,45 @@
   `ad2d4712c24e07b336d858a0272a09877aa255567a4f59993e46b8c579d3bd11`；
   provenance raw SHA-256 为
   `ac7ef7c8c301da9e7ee76b1815038e75f4313d549fcc2330836b75074f5b435e`。
+
+## T013-T022 PC Mock/Real/Report Green
+
+- cses-client commits：Fixture mirror `e6d3edfed063de22d0a40849bab028eb091f7a95`；
+  production Helix pin `2283c3600`；Mock/Real/report `4b8721fec`；补齐 failure 与
+  duplicate Frame `f0cc3d187`。Tauri 四个生产 dependency 统一 pin
+  `c9c37ea8fcb398715cff872d4adbdc8a0e412c46`。
+- `node scripts/message-wdio/sync-helix-fixtures.mjs --gate=g04a --check`：
+  退出码 0，`G04A_FIXTURE_PARITY_OK count=4`；PC mirror 与 Helix raw bytes、
+  schema、surface inventory、raw/semantic SHA-256 一致。
+- `yarn message:wdio:g04a:mock`：退出码 0，3/3 通过。覆盖 AcceptedCommand 与
+  Frame 分离、authority 前 DOM 不变、admission failure 不伪造 recalled、
+  duplicate terminal Frame 不推进 revision，以及 cold recovered snapshot。
+- `yarn message:wdio:g04a:single-real`：退出码 0，run
+  `single-real-20260725183605324-12955`。真实 UI 建立 fresh 双用户群，真实
+  Tauri invoke 发起撤回与 explicit sync；run-scoped Go fault 只丢 Actor
+  `posts_update`。最终 sync HTTP 200、FrameApplied、recalled DOM、Actor SQLite
+  与 PostgreSQL `revoke=true` 闭合。report SHA-256
+  `f4d4cdc794f6157bda6673e87eb7b5465a6ad6dbb2cd55d65d39d1d568391f75`，
+  real evidence SHA-256
+  `5a0c3c261964e77277694708b0290b21f6b874499c25174642689ae360d6cca6`。
+- `yarn message:wdio:g04a:dual-real`：退出码 0，run
+  `dual-real-20260725183627257-13264`。Actor 在线收到撤回；Observer 的
+  `posts_update` 被当前运行故障窗抑制，Observer 仅经真实
+  `im_sync_channels` 收敛；双端 recalled DOM、SQLite 与 PG 关联同一 post。
+  report SHA-256
+  `e53ad426bb805c0f39a6cece91b4de76c20eeb40e8c221ba5e992288d109190d`，
+  real evidence SHA-256
+  `713db0bdded7ff821956ca6da89a181ee1477a058b2136d01d4205b7021cdf6b`。
+- 证据分级保持真实：`/posts/revoke` 使用 validated `mrc-*` track 并为
+  verified；`/channel/sync/notify` 使用生产 Helix `helix-sync:<corr>`，
+  Go 正确记录为 current-run observed、`verified=false`。报告保留
+  `source=fault-sync-notify` 与该布尔值，不将内部 sync track 冒充用户操作
+  verified；真实 command admission、HTTP 200、Frame、DOM 与 storage 共同闭环。
+- `yarn message:wdio:contracts`：33 suites、109 tests 全过；`yarn
+  message:wdio:g04a:report` 1/1；`yarn message:wdio:g04a:boundary` 输出
+  `checkedFiles=2735, mockProductionReachable=false`；candidate boundary check
+  退出码 0。single/dual artifact redaction 各扫描 6 文件并通过。
+- `yarn message:wdio:build` 完成 Angular candidate 与 Rust/Tauri 构建，产物
+  `src-tauri/target/debug/cses-client`。启动日志中 `tauri-driver not found`
+  仅为外部 service 探测噪声；四条 embedded WebDriver lane 实际均完成执行，
+  不作为 Green 替代证据。

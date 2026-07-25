@@ -62,16 +62,16 @@
 
 **Purpose**: Mobile 生产链原子 apply 与 typed view。
 
-- [ ] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g04-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g04-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04/
-- [ ] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g04-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
-- [ ] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G04FrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
-- [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 对齐 G-04 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
-- [ ] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_revoke 生产 command admission 与 Frame event pump，不注册测试 API
-- [ ] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
-- [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.timeline Frame，unknown schema/surface/revision fail-closed
-- [ ] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-04 的 im.surface.view typed view/action，不增加 raw reducer
-- [ ] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-04 V1 producer/consumer/raw fallback=0
-- [ ] T032 [US3] 运行 G04FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/027-ifv2-g-04-online-revoke/verification.md
+- [x] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g04-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g04-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04/
+- [x] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g04-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
+- [x] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G04FrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
+- [x] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 对齐 G-04 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
+- [x] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_revoke 生产 command admission 与 Frame event pump，不注册测试 API
+- [x] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
+- [x] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.timeline Frame，unknown schema/surface/revision fail-closed
+- [x] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-04 的 im.surface.view typed view/action，不增加 raw reducer
+- [x] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-04 V1 producer/consumer/raw fallback=0
+- [x] T032 [US3] 运行 G04FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc05RevokeTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/027-ifv2-g-04-online-revoke/verification.md
 
 ---
 

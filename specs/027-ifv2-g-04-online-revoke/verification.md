@@ -110,3 +110,45 @@
   `checkedFiles=2735`、`mockProductionReachable=false`、`ok=true`。
 - 日志中的 `tauri-driver not found` 为 service 探测诊断；实际 lane 使用
   embedded provider 并均以退出码 0 完成，不作为跳过或替代证据。
+
+## T023-T032 Mobile Contract Green
+
+- Mobile production source pin 通过正式 bundle 固定到
+  `ee9b8f4492fd82aa846141be6f01f5729fc64bf8`；bundle SHA-256 为
+  `d3715f022fbca9f83cdefa332917f934729bb4e42cc8b8b6142af1e4b1dfee03`。
+  `make helix-abi-gate` 证明八个 FFI symbol、C/C++ header 与 production pin
+  完全一致。
+- `sync-g04-helix-fixtures.mjs` 只读同步 4 份 canonical Frame；
+  `check-g04-fixture-parity.mjs` 返回
+  `G04_MOBILE_FIXTURE_PARITY_OK count=4` 与
+  `G04_MOBILE_CONTRACT_OK fixtures=4`。校验覆盖 producer reachability、
+  schema/inventory、raw/semantic SHA-256、surface inventory 及 action
+  `surfaceEpoch` rebase 白名单。
+- `G04FrameContractTest` 使用生产 `MobileImSdk`、`MobileFfiBridge`、
+  `SurfaceRuntime`、QuickJS binding 和 C ABI，覆盖 fresh group、revocable
+  ActionBinding、权威 recalled patch、cold recovery、schema/surface/revision
+  原子拒绝、opaque action transport、DomainEvent batch 和只读
+  `im.surface.view`；focused 5/5 PASS。
+- 全量 surface-runtime 回归：65 tests，64 PASS、1 SKIP。唯一 skip 是需要显式
+  `HELIX_SURFACE_RUNTIME_SNAPSHOTS` 的重复 parity probe；正式
+  `check-surface-runtime-source-pin.mjs` 已独立 PASS，并证明 G02=6、
+  G03a=8、G04=4 的 producer 均可从 production pin 到达。
+- `Uc05RevokeTest.*-Uc05RevokeTest.RealChain`：7/7 PASS；command admission
+  先执行 `im.channels.create` 再 `im.posts.revoke`，payload 仍只发送
+  `post_id`。现有通用生产实现已完整提供 `im_revoke` admission、整批
+  DomainEvent ingress、原子 Frame apply 和 QuickJS typed view，因此
+  `MobileImSdk.cpp`、`MobileFfiBridge.cpp`、`SurfaceRuntime.cpp` 与 Venus
+  API 无需新增 G04 特判或第二套 reducer。
+- `check-surface-runtime-legacy-hard-cut.mjs` PASS：
+  `production V1 producers=0 consumers=0 G01/G02/G03a/G04 typed-only`；
+  G04 contract 静态拒绝 `applyEventProjection`、`mobile_vmstore_`、
+  `im.store.snapshot` 和生产 JS action injection。
+- 共享 Venus 回归 `run-venus-g01-frame-gate.sh` PASS，输出
+  `VENUS_G01_FRAME_V2_OK`；本 Gate 未改 Venus/QuickJS 接线能力，按总控合同
+  不新增专属 Venus Gate。
+- 额外执行 `run-uc01-16-gtest.sh --only UC05`：unit/contract 7 项通过，
+  非 required 的 Mobile real-chain 在 setup 阶段等待
+  `im:messages:query_result` 超时，实际监听者是 09:15 启动的 GoLand 8066
+  进程；失败发生在远端 readback，尚未进入 revoke。该事实登记为环境/旧 real
+  harness blocker，不用来替代或否定本 Gate 已要求并通过的 Mobile Contract，
+  也不冒充 Mobile real Green。

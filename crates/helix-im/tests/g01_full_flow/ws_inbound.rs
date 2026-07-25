@@ -4,6 +4,7 @@ use helix_core::effect::{Effect, StorageOp};
 use crate::support::*;
 
 #[test]
+/// 证明 WS echo 的 timeline 结算与 dialog patch 使用独立 correlation。
 fn ws_post_inbound_reconciles_timeline_and_independently_patches_dialog() {
     let mut replay = Replay::new();
     attach_dialog(&mut replay);

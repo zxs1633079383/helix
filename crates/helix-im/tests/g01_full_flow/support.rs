@@ -20,6 +20,7 @@ pub struct Replay {
 }
 
 impl Replay {
+    /// 创建带稳定身份和端点的确定性 Helix 回放实例。
     pub fn new() -> Self {
         Self {
             module: ImModule::new(ImConfig {
@@ -34,6 +35,7 @@ impl Replay {
         }
     }
 
+    /// 以单调注入时间推进一次 Tick，并只保留该 step 的 Effect。
     pub fn step(&mut self, tick: Tick, now_ms: u64) {
         self.sink.clear();
         self.module
@@ -41,10 +43,12 @@ impl Replay {
             .expect("G01 replay step must succeed");
     }
 
+    /// 暴露当前 step 的 Effect 批次供因果断言使用。
     pub fn effects(&self) -> &[Effect] {
         self.sink.as_slice()
     }
 
+    /// 按 endpoint suffix 取得唯一 HTTP correlation，避免依赖 Effect 顺序。
     pub fn only_http_corr(&self, suffix: &str) -> Correlation {
         let mut matches = self.effects().iter().filter_map(|effect| match effect {
             Effect::Http { corr, req } if req.url.ends_with(suffix) => Some(*corr),
@@ -58,6 +62,7 @@ impl Replay {
         corr
     }
 
+    /// 按 StorageOp 语义取得唯一 Persist correlation。
     pub fn only_persist_corr_with(&self, predicate: impl Fn(&[StorageOp]) -> bool) -> Correlation {
         let mut matches = self.effects().iter().filter_map(|effect| match effect {
             Effect::Persist { corr, ops } if predicate(ops) => Some(*corr),
@@ -73,6 +78,7 @@ impl Replay {
         corr
     }
 
+    /// 从当前 Effect 批次提取指定 Helix 事件信封。
     pub fn event(&self, name: &str) -> Option<Value> {
         self.effects().iter().find_map(|effect| {
             let Effect::Emit { event } = effect else {
@@ -83,6 +89,7 @@ impl Replay {
         })
     }
 
+    /// 提取当前批次中 `im:interaction:frame` 的纯 Frame data。
     pub fn frames(&self) -> Vec<Value> {
         self.effects()
             .iter()
@@ -105,6 +112,7 @@ pub struct SendingStage {
     pub timer_id: TimerId,
 }
 
+/// 构造公开 command ingress，保持测试只走 `Tick::Command`。
 pub fn command(name: &'static str, payload: Value) -> Tick {
     Tick::Command(AppCommand::new(
         name,
@@ -112,6 +120,7 @@ pub fn command(name: &'static str, payload: Value) -> Tick {
     ))
 }
 
+/// 构造携带指定回包字节的成功 PortReply。
 pub fn ok(corr: Correlation, bytes: Bytes) -> Tick {
     Tick::PortReply {
         corr,
@@ -119,6 +128,7 @@ pub fn ok(corr: Correlation, bytes: Bytes) -> Tick {
     }
 }
 
+/// 构造 posts/create 的 HTTP 500 PortReply。
 pub fn http_error(corr: Correlation) -> Tick {
     Tick::PortReply {
         corr,
@@ -126,6 +136,7 @@ pub fn http_error(corr: Correlation) -> Tick {
     }
 }
 
+/// 按 host driver 的 ADR-007 形状封装 HTTP 响应。
 pub fn http_envelope(body: Value) -> Bytes {
     let raw = serde_json::to_vec(&body).expect("HTTP body serializes");
     Bytes::from(
@@ -138,6 +149,7 @@ pub fn http_envelope(body: Value) -> Bytes {
     )
 }
 
+/// 建立 dialog-list attachment，使后续 WS post 可产左侧列表 Frame。
 pub fn attach_dialog(replay: &mut Replay) {
     replay.step(
         command("im_query_dialog_list", json!({})),
@@ -160,6 +172,7 @@ pub fn attach_dialog(replay: &mut Replay) {
     assert_frame_surface(replay, "message.left-dialog-list");
 }
 
+/// 建立 latest timeline attachment，使发送状态进入 typed Frame。
 pub fn attach_timeline(replay: &mut Replay) {
     replay.step(
         command(
@@ -211,6 +224,7 @@ pub fn attach_timeline(replay: &mut Replay) {
     });
 }
 
+/// 推进到 sending Frame、posts/create 和超时 timer 同时可观察的阶段。
 pub fn start_sending(replay: &mut Replay) -> SendingStage {
     replay.step(
         command(
@@ -286,6 +300,7 @@ pub fn start_sending(replay: &mut Replay) -> SendingStage {
     }
 }
 
+/// 构造 driver Scan 回灌使用的本地 message row。
 pub fn message_row(id: &str, temporary_id: &str, status: &str) -> Value {
     json!({
         "id": id,
@@ -300,6 +315,7 @@ pub fn message_row(id: &str, temporary_id: &str, status: &str) -> Value {
     })
 }
 
+/// 构造 dialog 写后 Get 回灌使用的累计 channel row。
 pub fn channel_row(unread_count: i64, last_post: &str, last_root_post_at: i64) -> Value {
     json!({
         "id": CHANNEL_ID,
@@ -318,6 +334,7 @@ pub fn channel_row(unread_count: i64, last_post: &str, last_root_post_at: i64) -
     })
 }
 
+/// 构造携 temporaryId 和 serverId 的权威 `post` echo。
 pub fn echo_frame(temporary_id: &str) -> Tick {
     let payload = json!({
         "v": 1,
@@ -347,6 +364,7 @@ pub fn echo_frame(temporary_id: &str) -> Tick {
     ))
 }
 
+/// 判断一组 StorageOp 是否包含指定表的业务写。
 pub fn has_table_write(ops: &[StorageOp], table: &str) -> bool {
     ops.iter().any(|op| match op {
         StorageOp::BatchUpsert(spec) => spec.table == table,
@@ -356,6 +374,7 @@ pub fn has_table_write(ops: &[StorageOp], table: &str) -> bool {
     })
 }
 
+/// 断言当前 Effect 批次含指定 V2 surface mutation。
 pub fn assert_frame_surface(replay: &Replay, expected: &str) {
     let frames = replay.frames();
     assert!(
@@ -369,6 +388,7 @@ pub fn assert_frame_surface(replay: &Replay, expected: &str) {
     );
 }
 
+/// 断言 timeline Frame 含指定消息身份和 delivery 终态。
 pub fn assert_delivery(replay: &Replay, expected: &str, expected_id: &str) {
     let items = replay
         .frames()
@@ -391,6 +411,7 @@ pub fn assert_delivery(replay: &Replay, expected: &str, expected_id: &str) {
     );
 }
 
+/// 以固定字母表编码测试 HTTP 信封，避免引入运行时依赖。
 fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);

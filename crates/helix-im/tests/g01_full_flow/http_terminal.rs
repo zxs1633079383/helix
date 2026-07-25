@@ -5,6 +5,7 @@ use serde_json::json;
 use crate::support::*;
 
 #[test]
+/// 证明 HTTP success 必须跨 terminal Persist/readback 后才发布 sent Frame。
 fn http_success_releases_sent_frame_only_after_terminal_persist_readback() {
     let mut replay = Replay::new();
     attach_timeline(&mut replay);
@@ -61,6 +62,7 @@ fn http_success_releases_sent_frame_only_after_terminal_persist_readback() {
 }
 
 #[test]
+/// 证明 HTTP error 必须跨 unsend Persist/readback 后才发布 failed Frame。
 fn http_error_releases_failed_frame_only_after_unsend_readback() {
     let mut replay = Replay::new();
     attach_timeline(&mut replay);

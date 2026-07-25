@@ -4,6 +4,7 @@ use serde_json::json;
 use crate::support::*;
 
 #[test]
+/// 证明 G15a 权威建群事实先于该 channel 的首次 G01 optimistic write。
 fn create_group_authority_precedes_first_g01_send() {
     let mut replay = Replay::new();
 

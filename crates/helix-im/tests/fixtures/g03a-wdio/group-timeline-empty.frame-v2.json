@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "timeline-timeline|26:chretry0000000000000000001|6:latest-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.timeline",
+      "scope": {
+        "kind": "timeline",
+        "channelId": "chretry0000000000000000001",
+        "windowToken": "latest"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "timelineSnapshot",
+        "view": {
+          "channelId": "chretry0000000000000000001",
+          "anchor": {
+            "mode": "latest"
+          },
+          "items": [],
+          "page": {
+            "windowToken": "latest",
+            "hasOlder": false,
+            "hasNewer": false,
+            "hasMore": false
+          },
+          "state": "ready"
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

@@ -19,7 +19,7 @@ use scenario::{
     TEAM_ID,
 };
 
-const HELIX_COMMIT: &str = "bb4c6b4054566fe1bd5efa55de928dd96114927c";
+const HELIX_COMMIT: &str = "441c01209fa0995bdbc10081601acf6972827fbf";
 const GENERATED_AT: &str = "2026-07-25T09:00:00-07:00";
 const PRODUCER: &str =
     "G03aScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";
@@ -31,7 +31,7 @@ struct FixtureCase {
     frame: InteractionFrameV2,
 }
 
-/// 从唯一 ScenarioRunner 生成失败、retry 与 HTTP/WS 两条 correlation 的七份 Frame。
+/// 从唯一 ScenarioRunner 生成建群、空 timeline、retry 与 HTTP/WS correlation 的八份 Frame。
 fn produce_cases() -> Vec<FixtureCase> {
     let sent = G03aScenarioRunner::run_http(Terminal::Sent);
     let business_failed = G03aScenarioRunner::run_http(Terminal::BusinessFailed);
@@ -54,6 +54,10 @@ fn produce_cases() -> Vec<FixtureCase> {
         "HTTP and WS message branches must start from the same created group"
     );
     assert_eq!(
+        sent.group_timeline_empty, ws.group_timeline_empty,
+        "HTTP and WS branches must share one canonical empty timeline attachment"
+    );
+    assert_eq!(
         sent.initial_failed, ws.initial_failed,
         "retry branches must start from the same failed row"
     );
@@ -67,6 +71,19 @@ fn produce_cases() -> Vec<FixtureCase> {
     );
     let spec = g03a_scenario_spec();
     assert_group_created_contract_for(&sent.group_created, &spec);
+    let empty_timeline_items = sent
+        .group_timeline_empty
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineSnapshot { view } => Some(&view.items),
+            _ => None,
+        })
+        .expect("group timeline prerequisite contains a typed timeline snapshot");
+    assert!(
+        empty_timeline_items.is_empty(),
+        "fresh-group timeline prerequisite must not synthesize messages"
+    );
     assert_retry_timeline_contract(&sent.initial_sending, "sending", &sent.temporary_id);
     assert_retry_timeline_contract(&sent.initial_failed, "failed", &sent.temporary_id);
     assert_retry_timeline_contract(&sent.retry_sending, "sending", &sent.temporary_id);
@@ -84,6 +101,11 @@ fn produce_cases() -> Vec<FixtureCase> {
             fixture_id: "g03a-group-created-v2",
             file_name: "group-created.frame-v2.json",
             frame: sent.group_created,
+        },
+        FixtureCase {
+            fixture_id: "g03a-group-timeline-empty-v2",
+            file_name: "group-timeline-empty.frame-v2.json",
+            frame: sent.group_timeline_empty,
         },
         FixtureCase {
             fixture_id: "g03a-initial-sending-v2",
@@ -219,14 +241,12 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
     frame
         .mutations
         .iter()
-        .any(|mutation| {
-            matches!(
-                mutation.mutation.mutation,
-                TypedSurfaceMutation::TimelineSnapshot { .. }
-                    | TypedSurfaceMutation::TimelinePatch { .. }
-            )
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
+            TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
+            _ => None,
         })
-        .then(|| first_message(frame).id.as_str())
+        .map(|message| message.id.as_str())
 }
 
 /// 为每份 Fixture 生成可审计的 producer、hash、surface 和参数白名单。
@@ -306,8 +326,12 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
 /// 证明 producer actual、字段语义、Golden bytes 与 provenance 始终为同一份合同。
 fn current_g03a_producer_matches_canonical_v2_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 7, "G03a canonical inventory is explicit");
-    let temporary_id = first_message(&cases[1].frame).id.clone();
+    assert_eq!(cases.len(), 8, "G03a canonical inventory is explicit");
+    let temporary_id = cases
+        .iter()
+        .find_map(|case| optional_message_id(&case.frame))
+        .expect("G03a inventory contains its initial message identity")
+        .to_string();
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G03A_WDIO_FIXTURES").is_some();
     let mut provenance = Vec::with_capacity(cases.len());

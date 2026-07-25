@@ -1,0 +1,86 @@
+verification_id=V-007
+command=node scripts/message-wdio/reduce-performance.mjs four-fresh-reports
+started_at=2026-07-25T00:03:00Z
+{
+  "dual-real": {
+    "samples": 2,
+    "warmP95Ms": 19311,
+    "budgetMs": 30000,
+    "withinBudget": true,
+    "profileRestarts": 0,
+    "ordinaryRestartFree": true,
+    "stageAverageMs": {
+      "setupMs": 0,
+      "actionMs": 9714,
+      "commandAckMs": 0,
+      "frameMs": 0,
+      "domMs": 0,
+      "evidenceMs": 0,
+      "screenshotMs": 0,
+      "reportMs": 0
+    },
+    "timeoutReasons": []
+  },
+  "mock": {
+    "samples": 3,
+    "warmP95Ms": 1667,
+    "budgetMs": 10000,
+    "withinBudget": true,
+    "profileRestarts": 0,
+    "ordinaryRestartFree": true,
+    "stageAverageMs": {
+      "setupMs": 0,
+      "actionMs": 1141,
+      "commandAckMs": 0,
+      "frameMs": 0,
+      "domMs": 0,
+      "evidenceMs": 0,
+      "screenshotMs": 0,
+      "reportMs": 0
+    },
+    "timeoutReasons": []
+  },
+  "single-real": {
+    "samples": 1,
+    "warmP95Ms": 3085,
+    "budgetMs": 15000,
+    "withinBudget": true,
+    "profileRestarts": 0,
+    "ordinaryRestartFree": true,
+    "stageAverageMs": {
+      "setupMs": 0,
+      "actionMs": 3085,
+      "commandAckMs": 0,
+      "frameMs": 0,
+      "domMs": 0,
+      "evidenceMs": 0,
+      "screenshotMs": 0,
+      "reportMs": 0
+    },
+    "timeoutReasons": []
+  },
+  "ui": {
+    "samples": 1,
+    "warmP95Ms": 1194,
+    "budgetMs": 10000,
+    "withinBudget": true,
+    "profileRestarts": 0,
+    "ordinaryRestartFree": true,
+    "stageAverageMs": {
+      "setupMs": 0,
+      "actionMs": 1194,
+      "commandAckMs": 0,
+      "frameMs": 0,
+      "domMs": 0,
+      "evidenceMs": 0,
+      "screenshotMs": 0,
+      "reportMs": 0
+    },
+    "timeoutReasons": []
+  }
+}
+zsh:[:4: unknown condition: -eq
+zsh:[:4: unknown condition: -eq
+ended_at=2026-07-25T00:03:00Z
+result=FAIL
+exit_code=

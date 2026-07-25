@@ -41,3 +41,35 @@
 - Mobile 继续复用 `createFreshGroupPrerequisite`，调用生产
   `im.channels.create` 并等待权威 `im:channel:created`；不复用 G02 遗留群。
 - 三端能力已在 G02 闭环中重新验证，本 Gate 只复用合同，无需修改共享生产代码。
+
+## T004-T012 Helix Producer Green - 2026-07-25
+
+- 生产 revision：`bb4c6b4054566fe1bd5efa55de928dd96114927c`。
+- `im_retry_send` 复用原 `temporaryId` 与 cached/durable body；retry 的
+  `sending` 写改为有 correlation 的 `Persist`，只有 `PersistOk` 后才启动
+  `posts/create` 与 15 秒 timer。
+- `message.timeline` 的 failed delivery 与 retry ActionBinding 共用
+  `actionCapabilities.canRetry`；Frame 内 `delivery.retryable=true` 且 `retry`
+  binding 可执行，不由 PC/Mobile 补业务字段。
+- `G03aScenarioRunner` 通过公开 `ImModule::handle` 覆盖 fresh group、首次发送失败、
+  retry happy、业务失败、基础设施失败、WS 先行/迟到 HTTP/重复 WS 和 cold-start
+  durable recovery。timeline 与 dialog 使用独立 correlation。
+- canonical inventory 为 7 份 Frame，加一份 `provenance.json`：
+  `group-created`、`initial-sending`、`failed`、`retry-sending`、`retry-sent`、
+  `ws-timeline-sent`、`ws-left-dialog-list`。普通测试只比较 checked-in Golden；
+  唯一更新开关为 `UPDATE_G03A_WDIO_FIXTURES=1`。
+
+### Commands
+
+| Evidence | Command | Result |
+|---|---|---|
+| V-001 | `cargo check -p helix-im` | PASS，exit 0 |
+| V-001 | `cargo tree -p helix-core` | PASS；无 tokio/sqlx/reqwest/web-sys/tauri |
+| V-002 | `cargo test -p helix-im --test g03a_full_flow_test -- --nocapture` | PASS，6/6 |
+| V-002 focused | `cargo test -p helix-im --test send_test retry_send -- --nocapture` | PASS，4/4 |
+| V-003 | `UPDATE_G03A_WDIO_FIXTURES=1 cargo test -p helix-im --test g03a_wdio_fixture_contract_test -- --nocapture` | PASS，1/1；显式生成并立即 Golden 比较 |
+
+### Stop Condition
+
+- Helix producer、typed Frame 与 canonical Fixture 为 Green。
+- PC 与 Mobile 尚未同步，G03a 整体仍为 `in-progress`，不得提前进入下一 Gate。

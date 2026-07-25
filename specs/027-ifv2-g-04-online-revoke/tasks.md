@@ -79,12 +79,12 @@
 
 **Purpose**: 行为、代码、Frame V2 与证据一致。
 
-- [ ] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/g04-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04/ 的 inventory/schema/raw/semantic hash，写入 specs/027-ifv2-g-04-online-revoke/verification.md
-- [ ] T034 [US4] 执行 G-04 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/027-ifv2-g-04-online-revoke/verification.md
-- [ ] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/027-ifv2-g-04-online-revoke/verification.md
-- [ ] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/027-ifv2-g-04-online-revoke/verification.md
-- [ ] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/027-ifv2-g-04-online-revoke/evidence/gate-report.json
-- [ ] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-04 标记 review-green 并解锁下一 Gate
+- [x] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/g04-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g04/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g04/ 的 inventory/schema/raw/semantic hash，写入 specs/027-ifv2-g-04-online-revoke/verification.md
+- [x] T034 [US4] 执行 G-04 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/027-ifv2-g-04-online-revoke/verification.md
+- [x] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/027-ifv2-g-04-online-revoke/verification.md
+- [x] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/027-ifv2-g-04-online-revoke/verification.md
+- [x] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/027-ifv2-g-04-online-revoke/evidence/gate-report.json
+- [x] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-04 标记 review-green 并解锁下一 Gate
 
 ## Dependencies And Execution Order
 

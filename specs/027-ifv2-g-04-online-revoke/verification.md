@@ -152,3 +152,39 @@
   进程；失败发生在远端 readback，尚未进入 revoke。该事实登记为环境/旧 real
   harness blocker，不用来替代或否定本 Gate 已要求并通过的 Mobile Contract，
   也不冒充 Mobile real Green。
+
+## T033-T037 Cross-repo Review Green
+
+- 三仓 inventory 均为 4 Frame + 1 provenance；逐文件 byte-exact SHA-256 一致：
+  `group-created=fd497911...`、`revocable=d81060e3...`、
+  `recalled=f757d098...`、`recovered=91e0f89d...`、
+  `provenance=1792edb6...`。semantic hash、schemaVersion=2 与 surface inventory
+  已分别由 PC/Mobile parity gate 对账。
+- 行为 Review 为 Green：每次运行先创建 fresh two-user group；撤回能力来自
+  Helix 签发的 opaque ActionBinding；HTTP success/failure 不构造 recalled；
+  `posts_update -> PersistAtomic -> PersistOk` 才产生权威 recalled；persist failure
+  可重放，duplicate WS 与 late HTTP 不重复结算，cold recovery 不复活 action。
+- 代码边界 Review 为 Green：业务 authority、persist barrier、终态与恢复只在
+  Helix；PC production bundle 不可达 Fixture/Mock；Mobile 生产 SDK/Bridge/
+  SurfaceRuntime/QuickJS 只负责 admission、整批 transport、原子 apply 与 typed
+  view，V1 producer/consumer/raw reducer 均为 0。
+- Frame V2 Review 为 Green：group-created 是 dialog patch `base=1 -> revision=2`；
+  revocable 是 timeline snapshot revision 1 且 revoke action enabled；
+  recalled 是 timeline patch `1 -> 2`、causation=`g04-wdio-request-1`、
+  `content/delivery=recalled`、actions/quickActions 为空；recovery 是无
+  baseRevision 的 recalled snapshot revision 1。全部 runtime 为
+  online/ready/idle、surfaceEpoch=1、directives 为空。
+- required lanes 为 Helix、Fixture、PC Mock、PC Real、Mobile Contract 与
+  production boundary，全部 Pass；required failure=0、required skip=0。
+  非 required Mobile real harness observation 已单独记录，不进入 required
+  pass rate。
+- 机器汇总见 `evidence/gate-report.json`；当前 finalVerdict 为 `Green`，仍须
+  T038 quickstart、diff check 与 mandatory after_implement/R4 决定是否 CLOSED。
+
+## T038 Final Review
+
+- quickstart required commands、三仓 `git diff --check`、报告 JSON 合同与证据
+  manifest 校验通过。
+- mandatory after_implement 返回 R4 `PASS`；converge 未发现新增 buildable
+  gap，after_converge 最终返回 `CLOSED`。
+- 最终状态：G-04 `review-green`；仅解锁 G-04a，不跨 Gate 并行实现。

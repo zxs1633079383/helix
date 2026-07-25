@@ -1,0 +1,10 @@
+cses_client_commit=c91cafc8359495daff2969ca4ed0db729027829f
+$ yarn message:wdio:g04:single-real
+result=PASS 1/1
+evidence=artifacts/message-wdio/single-real-20260725171610025-68431/
+assertions=fresh-group,real-ui,im_invoke_action,Helix,SQLite,HTTP,posts_update,FrameApplied,recalled-DOM
+$ yarn message:wdio:g04:dual-real
+result=PASS 1/1
+evidence=artifacts/message-wdio/dual-real-20260725171634953-68740/
+assertions=Actor-444,Observer-678,same-recalled-messageId
+redactionVerdict=pass

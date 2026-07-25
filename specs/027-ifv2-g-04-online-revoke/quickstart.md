@@ -37,11 +37,20 @@ yarn message:wdio:g04:dual-real
 
 ```bash
 cd /System/Volumes/Data/workspace/c/mobile-qucik-c++
-./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter='G04FrameContractTest.*'
-./scripts/run-uc01-16-gtest.sh
+node scripts/check-g04-fixture-parity.mjs
+./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter 'G04FrameContractTest.*'
+./scripts/run-gtest-js-spec.sh unit --gtest-filter 'Uc05RevokeTest.*-Uc05RevokeTest.RealChain'
+node scripts/check-surface-runtime-source-pin.mjs
+node scripts/check-surface-runtime-legacy-hard-cut.mjs
+./scripts/run-venus-g01-frame-gate.sh
 ```
 
 期望：mirror parity、生产 SDK/Bridge/SurfaceRuntime/QuickJS typed view、V2-only hard-cut 全通过。仅当本 Gate 修改 Venus/QuickJS 接线能力时追加专属 Venus Gate，否则使用共享回归。
+
+`./scripts/run-uc01-16-gtest.sh --only UC05` 属 Mobile real-chain 观察面，不是
+`Mobile Contract Green` 的 required lane；运行时必须使用 fresh Go 进程并单独报告，
+不得用其结果替代上述 production-linked contract，也不得因旧 real harness 失败而恢复
+V1/raw reducer。
 
 ## 5. Review
 

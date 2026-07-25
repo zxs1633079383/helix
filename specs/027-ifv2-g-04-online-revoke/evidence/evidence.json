@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im; cargo tree -p helix-core runtime scan",
+      "started_at": "2026-07-25T17:44:50Z",
+      "ended_at": "2026-07-25T17:45:01Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-001-helix-build.log",
+          "sha256": "750700e84bc922a86369abe9f1b700d7d992188aa15cfd45248c65c52db23da9"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g04_full_flow_test --test g04_revoke_interaction_test -- --nocapture",
+      "started_at": "2026-07-25T17:45:02Z",
+      "ended_at": "2026-07-25T17:45:08Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-002-helix-scenario.log",
+          "sha256": "553cad456611eea34cc4b10bb26ffdc5985420229227c04ab766e6dfd16ec35f"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "cargo test -p helix-im --test g04_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-25T17:45:02Z",
+      "ended_at": "2026-07-25T17:45:08Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-003-canonical-fixture.log",
+          "sha256": "4e6078ef40ed04e2abff9127245651f2b8dcab759542080cd6c13a24f30bbc86"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "G04 PC fixture parity, focused contracts, Mock, report and production boundary",
+      "started_at": "2026-07-25T17:14:30Z",
+      "ended_at": "2026-07-25T17:16:10Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-004-pc-mock-report.log",
+          "sha256": "836eb0542502a296917280f259dfde295506d8a74ee2cb6b895366088a44cdfc"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "yarn message:wdio:g04:single-real; yarn message:wdio:g04:dual-real",
+      "started_at": "2026-07-25T17:16:10Z",
+      "ended_at": "2026-07-25T17:17:01Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-005-pc-real.log",
+          "sha256": "bab34e9654f762e70fe119587e5cfda2ad792e1e956228a72170cbade5542780"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G04 Mobile parity, production-linked GTest, source pin, hard cut and shared Venus gate",
+      "started_at": "2026-07-25T17:23:58Z",
+      "ended_at": "2026-07-25T17:44:20Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-006-mobile-contract.log",
+          "sha256": "4d06443f7c01ceece835677e19df12724997da932c378cf151a6207bee999244"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "compare Helix PC Mobile G04 fixtures; behavior code-boundary FrameV2 evidence review",
+      "started_at": "2026-07-25T17:44:20Z",
+      "ended_at": "2026-07-25T17:45:10Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/027-ifv2-g-04-online-revoke/evidence/V-007-cross-repo-review.log",
+          "sha256": "215f43353d8d0a52023a71ecf75f71cc94b99e9a202a169ab1c7a95798819a3d"
+        }
+      ]
+    }
+  ]
+}

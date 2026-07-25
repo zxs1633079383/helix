@@ -45,6 +45,21 @@ fn acknowledge_optimistic_persist(
     harness.step(port_reply_ok(p1_corr(initial_effects)), now_ms)
 }
 
+// Advances a retry only after its sending status update has become durable.
+fn acknowledge_retry_persist(
+    harness: &mut Harness,
+    retry_effects: &[EffectKind],
+    now_ms: u64,
+) -> Vec<EffectKind> {
+    assert!(
+        retry_effects
+            .iter()
+            .all(|effect| !matches!(effect, EffectKind::Http(_))),
+        "retry HTTP must wait for the sending persist barrier"
+    );
+    harness.step(port_reply_ok(p1_corr(retry_effects)), now_ms)
+}
+
 fn unsend_persist_fire_for_tmp(h: &Harness, tmp: &str) -> bool {
     h.sink.as_slice().iter().any(|e| match e {
         Effect::Persist { ops, .. } | Effect::PersistFire { ops } => {
@@ -417,6 +432,7 @@ fn pending_send_http_error_marks_unsend_cancels_timer_and_emits_failed_projectio
 }
 
 #[test]
+/// 证明迟到的初始 P1 回包不会阻断随后经过新持久屏障的 retry。
 fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
     let mut h = Harness::new(&[1]);
     let effects = h.step(send_message_cmd(1, "tmp_late_p1", "hello"), 1000);
@@ -437,13 +453,14 @@ fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
         "late P1 must not overwrite the terminal retryable state"
     );
 
-    let retry_effects = h.step(
+    let retry_persist = h.step(
         command_json(
             "im_retry_send",
             serde_json::json!({ "message_id": "tmp_late_p1" }),
         ),
         1200,
     );
+    let retry_effects = acknowledge_retry_persist(&mut h, &retry_persist, 1201);
     assert!(
         retry_effects
             .iter()
@@ -453,6 +470,7 @@ fn late_optimistic_persist_reply_does_not_reopen_failed_send() {
 }
 
 #[test]
+/// 证明 retry 在持久化 sending 后复用原 body、temporaryId 与 posts/create。
 fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_retry_send", "hello retry"), 1000);
@@ -464,13 +482,14 @@ fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
         h.module.pending_send_status("tmp_retry_send"),
         Some(SendStatus::UnSend)
     );
-    let retry_effects = h.step(
+    let retry_persist = h.step(
         command_json(
             "im_retry_send",
             serde_json::json!({ "message_id": "tmp_retry_send" }),
         ),
         1200,
     );
+    let retry_effects = acknowledge_retry_persist(&mut h, &retry_persist, 1201);
 
     assert!(
         retry_effects
@@ -497,6 +516,7 @@ fn retry_send_reuses_cached_body_and_temporary_id_after_real_http_error() {
 }
 
 #[test]
+/// 证明 retry 的乐观投影保留原消息回复锚点。
 fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(
@@ -516,22 +536,23 @@ fn retry_send_keeps_reply_anchors_in_optimistic_projection() {
     let effects = acknowledge_optimistic_persist(&mut h, &initial_effects, 1_001);
     h.step(port_reply_err(http_corr(&effects)), 1_100);
 
-    h.step(
+    let retry_persist = h.step(
         command_json(
             "im_retry_send",
             serde_json::json!({ "message_id": "tmp_retry_reply" }),
         ),
         1_200,
     );
-
     let sending = sending_projection_for_tmp(&h, "tmp_retry_reply")
         .expect("retry must emit a render-ready optimistic row");
     assert_eq!(sending["data"]["replyId"], "reply-target");
     assert_eq!(sending["data"]["replyRootId"], "root-message");
     assert_eq!(sending["data"]["replyFirstLevelId"], "first-level");
+    acknowledge_retry_persist(&mut h, &retry_persist, 1_201);
 }
 
 #[test]
+/// 证明冷启动 durable row 经 retry 持久屏障恢复原发送合同。
 fn retry_send_rehydrates_failed_message_after_native_restart() {
     let mut h = Harness::new(&[1]);
     let lookup_effects = h.step(
@@ -587,26 +608,28 @@ fn retry_send_rehydrates_failed_message_after_native_restart() {
         "create_at": 1234,
         "send_status": "unsend"
     }]);
-    let retry_effects = h.step(
+    let retry_persist = h.step(
         port_reply_with_body(
             lookup_corr,
             bytes::Bytes::from(serde_json::to_vec(&row).unwrap()),
         ),
         2_010,
     );
-
     assert!(
-        retry_effects
+        retry_persist
             .iter()
-            .any(|effect| matches!(effect, EffectKind::PersistFire)),
-        "rehydrated retry must persist sending"
+            .any(|effect| matches!(effect, EffectKind::Persist(_))),
+        "rehydrated retry must persist sending behind a reply barrier"
     );
     assert!(
-        retry_effects
+        retry_persist
             .iter()
             .any(|effect| matches!(effect, EffectKind::Emit)),
         "rehydrated retry must emit the optimistic sending projection"
     );
+    let sending = sending_projection_for_tmp(&h, "tmp_durable_retry")
+        .expect("durable retry must emit a render-ready optimistic row");
+    let retry_effects = acknowledge_retry_persist(&mut h, &retry_persist, 2_011);
     assert!(
         retry_effects
             .iter()
@@ -634,8 +657,6 @@ fn retry_send_rehydrates_failed_message_after_native_restart() {
     assert_eq!(retry_body["replyId"], "reply-1");
     assert_eq!(retry_body["replyRootId"], "root-1");
     assert_eq!(retry_body["replyFirstLevelId"], "first-1");
-    let sending = sending_projection_for_tmp(&h, "tmp_durable_retry")
-        .expect("durable retry must emit a render-ready optimistic row");
     assert_eq!(sending["data"]["replyId"], "reply-1");
     assert_eq!(sending["data"]["replyRootId"], "root-1");
     assert_eq!(sending["data"]["replyFirstLevelId"], "first-1");
@@ -652,6 +673,7 @@ fn retry_send_rehydrates_failed_message_after_native_restart() {
 }
 
 #[test]
+/// 证明 server id fallback 命中后仍以 durable temporaryId 继续 retry。
 fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
     let mut h = Harness::new(&[1]);
     let first = h.step(
@@ -697,13 +719,14 @@ fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
         "props": "{}",
         "send_status": "unsend"
     }]);
-    let retry = h.step(
+    let retry_persist = h.step(
         port_reply_with_body(
             second_corr,
             bytes::Bytes::from(serde_json::to_vec(&row).unwrap()),
         ),
         3_020,
     );
+    let retry = acknowledge_retry_persist(&mut h, &retry_persist, 3_021);
     assert!(retry
         .iter()
         .any(|effect| matches!(effect, EffectKind::Http(_))));

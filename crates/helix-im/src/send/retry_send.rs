@@ -325,6 +325,7 @@ fn continue_durable_media_retry(
     retry_failed_media(module, temporary_id, out)
 }
 
+// Re-enters the ordinary P1 barrier while preserving the failed message identity and body.
 fn continue_retry(
     module: &mut ImModule,
     temporary_id: TemporaryId,
@@ -350,13 +351,14 @@ fn continue_retry(
     }
 
     let timeout_timer = module.alloc_timer();
+    let persist_corr = module.alloc_corr_internal();
     let connection_id = module.state.connection_id.clone();
     let pending = module
         .state
         .pending_sends
         .entry(temporary_id.clone())
         .or_insert_with(|| PendingSend::new(temporary_id.clone(), timeout_timer, connection_id));
-    pending.status = SendStatus::Sending;
+    pending.status = SendStatus::Local;
     pending.timeout_timer = timeout_timer;
     pending.http_started = false;
     pending.body = Some(body.clone());
@@ -364,7 +366,15 @@ fn continue_retry(
         pending.request_id = request_id;
     }
 
-    out.push(Effect::PersistFire {
+    pending.persist_corr = Some(persist_corr);
+    module.state.corr_map.insert(
+        persist_corr,
+        CorrelationContext::OptimisticSend {
+            temporary_id: temporary_id.clone(),
+        },
+    );
+    out.push(Effect::Persist {
+        corr: persist_corr,
         ops: vec![crate::pending_send::send_status_persist_op(
             &temporary_id,
             "sending",
@@ -383,5 +393,5 @@ fn continue_retry(
             .and_then(Value::as_str)
             .unwrap_or(""),
     ));
-    module.emit_posts_create_http(channel_id, temporary_id, &body, out)
+    Ok(())
 }

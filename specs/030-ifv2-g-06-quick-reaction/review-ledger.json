@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "feature_directory": "specs/030-ifv2-g-06-quick-reaction",
   "phase": "implementing",
-  "event_seq": 10,
-  "next_action": "implement_tasks",
+  "event_seq": 12,
+  "next_action": "validate_evidence",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -98,6 +98,18 @@
       "at": "2026-07-25T21:27:02Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-25T21:35:10Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence V-001"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-25T21:35:10Z",
+      "kind": "phase",
+      "detail": "implementing->implementing: recorded evidence V-002"
     }
   ]
 }

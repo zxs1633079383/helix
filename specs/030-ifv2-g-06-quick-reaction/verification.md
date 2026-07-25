@@ -68,3 +68,34 @@
 - `cargo check -p helix-im`：exit `0`。
 - `cargo test -p helix-im --test g06_full_flow_test --test
   g06_reaction_interaction_test -- --nocapture`：exit `0`，`12/12` 通过。
+
+## T009-T012 Canonical Fixture And Helix Green
+
+- producer：
+  `G06ScenarioRunner -> ImModule::handle -> Effect::Emit ->
+  InteractionFrameV2::decode`，source revision
+  `4084a6f3b0f9f8928f9559b0cda0e5dd700a8fcd`。
+- inventory：
+  `group-created.frame-v2.json`、`reactable.frame-v2.json`、
+  `reacted.frame-v2.json`、`recovered-reacted.frame-v2.json`；普通测试
+  未设置更新开关时只比较 Golden，不写盘。
+- raw SHA-256：
+  `8b62d9f62ed579b932ff682eaac40214545844bee5ffe9e0e071397f3f8a1010`、
+  `169063bc94e1834b09a2ccb79fe0cdefd1127a6755ae068269592bc58bafb7f2`、
+  `1c44cad20b7a29703def1a3485b74bb868d7b87a13bf4ddd8a8bf2ab4eaa8f55`、
+  `4df26140063c35d5a42fc77d529a0651df599871b776f281d2738b06cc1dbe37`；
+  provenance raw SHA-256
+  `049f0bc7a42158f60ae7ac79b29dd7afcedddd742836b01db6d08f9fa15cfeeb`。
+- semantic SHA-256：
+  `445a9105088a86e7c5e83b894e86f827f11e8e8e7eab9732b26c8636d426042a`、
+  `7c41f9268e071e43a8dd50300512a702a334e6de15d0f620999234eaf0a63a0e`、
+  `d87f4567b9b4ec2e4b5d8bc0abe8fb103bce5b81a3ab74360740ae1fe158e204`、
+  `dab2a986b7f7d6228809c92c66019e66e4928befe88980cb0f6f3d74289ad67f`。
+- `UPDATE_G06_WDIO_FIXTURES=1 cargo test -p helix-im --test
+  g06_wdio_fixture_contract_test -- --nocapture`：exit `0`，显式生成
+  `1/1 PASS`。
+- 普通 `cargo test -p helix-im --test g06_wdio_fixture_contract_test --
+  --nocapture`：exit `0`，Golden/provenance `1/1 PASS`。
+- 原始输出：
+  `evidence/v001-helix-flow.log` 与 `evidence/v002-helix-fixture.log`。
+  至此 G06 Helix producer 与 canonical Fixture Green；PC/Mobile 尚未 Green。

@@ -8,6 +8,7 @@ use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
 #[path = "support/g06_scenario.rs"]
+#[allow(dead_code)]
 mod scenario;
 
 use scenario::{

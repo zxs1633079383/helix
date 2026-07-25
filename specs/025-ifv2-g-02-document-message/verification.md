@@ -84,7 +84,7 @@
   因 `group-created.frame-v2.json` 不存在而 exit 101，证明测试不会静默生成或覆盖 Golden。
 - 显式生成：
   `UPDATE_G02_WDIO_FIXTURES=1 cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture`。
-  producer pin 为 `82445ae1b69d10bb01ea183a7fa00df88c80d993`。
+  初始 producer pin 为 `82445ae1b69d10bb01ea183a7fa00df88c80d993`。
 - Inventory：`group-created`、`sending`、`sent`、`failed`、`ws-timeline-sent`、
   `ws-left-dialog-list` 共 6 份 Frame；schemaVersion 全为 2。timeline Surface 为
   `message.timeline`，建群/WS 摘要 Surface 为 `message.left-dialog-list`。
@@ -98,3 +98,37 @@
   - `cargo test -p helix-im --test g02_full_flow_test -- --nocapture`：6/6 PASS。
   - `cargo test -p helix-im --test g02_wdio_fixture_contract_test -- --nocapture`：1/1 PASS。
 - **Helix Green**：G02 T001-T012 完成；PC/Mobile 只能只读同步这组 producer-authored Fixture。
+
+## T013-T022 PC Mock / Real / Report Green
+
+- single-real 首轮证明 canonical dialog preview 与真实 Go `simpleMessage` 漂移：Fixture 使用完整
+  message，而生产 `posts/create` 摘要为 50 Unicode scalar。修复只发生在 Helix Scenario
+  producer，`marker` 与 `simple_message` 明确分离；当前 producer pin 为
+  `ac15abd0b29ef62ea5d359fb22030800dd0dee2b`，G01/G02 Golden 普通模式均 PASS。
+- PC 只读同步 G01/G02 各 6 份 Fixture；inventory、schemaVersion、raw SHA-256、
+  semantic SHA-256、surface inventory 与 producer pin 检查全部 PASS。动态替换仍仅允许
+  provenance 声明字段及 runtime revision rebase，不允许补写 document/dialog VM。
+- `yarn message:wdio:contracts`：27 suites / 91 tests PASS。
+- `yarn message:wdio:g02:boundary`：扫描 2735 个 production files，
+  `mockProductionReachable=false`。
+- `yarn message:wdio:build`：Angular `wdio-e2e` 与 Tauri `wdio-e2e` candidate 均 PASS；
+  candidate SHA-256 为
+  `ddd2e703f0cb34b3c116c937b5bdea9d83be84fd6859cdd2ef4b2f88abb5d737`。
+- Mock：`yarn message:wdio:g02:mock`，happy/failure/WS timeline+dialog 3/3 PASS。
+  回归 `yarn message:wdio:g01:mock` 4/4 PASS；AcceptedCommand 与 Frame replay 分离。
+- Real：每 case 通过真实 MessageV4 UI 新建 444+678 fresh group，再发送固定文档 URL。
+  `single-real` 1/1 PASS，`dual-real` 1/1 PASS；最终报告 source pin 为 client
+  `39695bbd00d978d619505a79560de8af2e89631e`、Helix
+  `ac15abd0b29ef62ea5d359fb22030800dd0dee2b`。
+- 提交后复跑额外复现 HTTP terminal 早于 WS reconciliation：G02 PageObject 曾把 temporary
+  sent row 当 canonical row，导致 PG/DOM ID 对账 RED。现与 G01 共用同一观察不变量：
+  `delivery=sent` 必须等待非 `helix_tmp_` 且 `messageId != temporaryId`；修复后
+  single-real 与 dual-real 再次全绿。
+- Reporter：G02 Mock/single-real/dual-real/report 分别保持
+  `mock`/`single-real-chain`/`dual-real-chain`/`ui-only` evidence level；
+  JSON/JUnit/Markdown 同源，redaction scan PASS。缺少独立 `tauri-driver` 的 diagnostics
+  不阻断本仓实际使用的 embedded provider，也未掩盖 readiness 或 case 失败。
+- 根 `yarn tsc --noEmit` 仍被既有 Jasmine type globals 与缺失 `@worktile/gantt` 阻塞；
+  错误不落在本次 G02 文件。实际 Angular+Tauri candidate 生产编译已通过。
+- PC commits：`f2e230d10`（G02 Fixture/Mock/Real/report）与 `39695bbd0`
+ （canonical sent DOM 竞态修复）。**PC Green**：T013-T022 完成。

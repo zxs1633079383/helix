@@ -34,6 +34,7 @@
     ],
     "placeholderValues": {
       "actorId": "g05-wdio-actor",
+      "baseRevision": 2,
       "createdAt": 1700000500002,
       "marker": "g05-forward-fixture-marker",
       "observerId": "g05-wdio-observer",
@@ -100,6 +101,7 @@
     ],
     "placeholderValues": {
       "actorId": "g05-wdio-actor",
+      "baseRevision": null,
       "createdAt": 1700000500002,
       "marker": "g05-forward-fixture-marker",
       "observerId": "g05-wdio-observer",
@@ -166,6 +168,7 @@
     ],
     "placeholderValues": {
       "actorId": "g05-wdio-actor",
+      "baseRevision": 1,
       "createdAt": 1700000500002,
       "marker": "g05-forward-fixture-marker",
       "observerId": "g05-wdio-observer",
@@ -232,6 +235,7 @@
     ],
     "placeholderValues": {
       "actorId": "g05-wdio-actor",
+      "baseRevision": 3,
       "createdAt": 1700000500002,
       "marker": "g05-forward-fixture-marker",
       "observerId": "g05-wdio-observer",

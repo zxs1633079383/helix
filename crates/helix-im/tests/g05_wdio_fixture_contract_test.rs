@@ -205,7 +205,8 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "reqId": REQUEST_ID,
             "transactionId": case.frame.transaction_id,
             "surfaceEpoch": case.frame.mutations[0].surface_epoch,
-            "revision": case.frame.mutations[0].mutation.revision
+            "revision": case.frame.mutations[0].mutation.revision,
+            "baseRevision": case.frame.mutations[0].mutation.base_revision
         }
     })
 }

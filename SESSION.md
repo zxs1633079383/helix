@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 按 Spec 028 完成 G04a 离线撤回重放三仓纵向闭环；可证伪断言：① `im_sync_channels` 只接受 channel intent，cursor 与 sync/notify authority 由 Helix `sync::explicit`/`sync::flow` 决定，不在 PC/Mobile 恢复 raw query reducer；② Helix ScenarioRunner 从生产 PortReply 的 viewer-filtered sync batch 经过 PersistAtomic/PersistOk 生成 recalled Frame，并覆盖 failure/duplicate/late/recovery；③ canonical Fixture 在三仓 byte-exact/semantic 一致，PC Mock/single-real/dual-real/report 与 Mobile production-linked GTest/QuickJS typed view 全绿；④ G04a 通过行为、代码、Frame V2、production-boundary 与 R4 CLOSED 前不进入 G05；⑤ 每次验收创建 fresh group，不复用 G04 channel/post/revision | 赌注 高 | 可逆 是 | @2026-07-25T10:57:24-0700
+
 🎯 EXPECT 续跑 Spec 027 完成 G04 在线撤回三仓纵向闭环；可证伪断言：① Mobile source pin 固定到包含 G04 canonical Fixture 的 Helix 正式提交并以 bundle/hash 复现，不读取 dirty worktree；② Mobile mirror 与 Helix raw/semantic/provenance 全量一致，GTest 链接生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 并只通过 `im.surface.view` 验证 typed view；③ PC 已有 Mock/single-real/dual-real/report 证据保持有效，三仓不新增第二套业务 reducer；④ G04 必须通过行为、代码、Frame V2、production-boundary 与 R4 Review 并 CLOSED 后才进入 G04a；⑤ Mobile repin、Fixture、合同实现分别验证并分类提交，不纳入既有无关 bundle/.DS_Store | 赌注 高 | 可逆 是 | @2026-07-25T10:23:58-0700
 ✅ DONE G04 已完成 T001-T038 三仓纵向闭环并由 helix-loop 最终 CLOSED：Helix 6/6 full-flow、4/4 authority/persist、1/1 canonical Fixture；四份 Frame 与 provenance 在 Helix/PC/Mobile byte-exact/semantic 100% 一致；PC Mock 2/2、single-real 1/1、dual-real 1/1、report/boundary PASS；Mobile production-linked G04 5/5、UC05 non-real 7/7、source-pin/ABI/V1 hard-cut/共享 Venus PASS。行为、代码边界、Frame V2 与 evidence Review 均 Green，required fail/skip=0。Mobile real harness 额外观察在既有 GoLand 8066 进程上于 revoke 前 remote readback 超时，已作为非 required blocker 单列，未恢复 V1/raw reducer。总控 T005 完成，仅解锁 G04a | @2026-07-25T10:52:55-0700
 

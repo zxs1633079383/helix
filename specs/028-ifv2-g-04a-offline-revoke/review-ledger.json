@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/028-ifv2-g-04a-offline-revoke",
-  "phase": "ready",
-  "event_seq": 6,
-  "next_action": "admit_implementation",
+  "phase": "implementing",
+  "event_seq": 7,
+  "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -74,6 +74,12 @@
       "at": "2026-07-25T07:43:41Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-25T17:55:22Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

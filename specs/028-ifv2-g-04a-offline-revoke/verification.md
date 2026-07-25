@@ -16,3 +16,30 @@
 - 每次运行保留原始输出并通过 `loop_engine.py record-evidence` 登记；失败输出不得被说明文字替换。
 - Mock、AcceptedCommand、HTTP 2xx、单端 replay 或 GTest 不能代替 PC Real 与跨仓 Review。
 - 当前 Feature 只定义验收合同；在实现与运行证据出现前，本 Gate 状态保持 Draft。
+
+## T001 Source Lock - 2026-07-25
+
+- Helix：`394839c76be083947bbbb2993286e4582055a50b`；前序 G04 子 Feature
+  T001-T038 全部完成，mandatory R4 `PASS` 且最终 `CLOSED`。
+- cses-client：`c91cafc8359495daff2969ca4ed0db729027829f`，tracked tree clean；
+  Tauri 四个 Helix dependency 当前统一 pin
+  `43008acfc464a17711613fe5f37a56bb1146d22e`。
+- Mobile：`094a15149f448b7ce952b71688e5bae9fe278769`；tracked tree clean，
+  保留任务前已有 bundle 与 `tests/.DS_Store` 未跟踪项。production Helix pin 为
+  `ee9b8f4492fd82aa846141be6f01f5729fc64bf8`。
+- Strict Matrix
+  `crates/helix-im/docs/Strict Matrix/UC全链路发布矩阵-v1.md` raw SHA-256 为
+  `6f186cf291dc6336798b1178bf3d97493588eea8ccc467f026766654d3fe2354`。
+- 当前已有 explicit sync、viewer-filtered batch、PersistAtomic 与 recalled
+  projector，但没有 G04a 完整 ScenarioRunner、canonical Fixture、PC 独立 lane
+  或 Mobile G04a typed contract；只满足实现准入，不声明 Green。
+
+## T003 Shared CreateGroupPrerequisite
+
+- Helix 复用 G01/G04 已验证的生产 fresh-group prerequisite，取得权威 channel，
+  再发送并持久化一条具备 revoke capability 的消息；不复用 G04 post/cursor。
+- PC 复用 domain-neutral fresh group helper；G04a 只新增离线/重连/sync 操作，
+  不复制群创建 reducer。
+- Mobile command contract 先调用生产 `im.channels.create`；canonical Frame
+  prerequisite 仍由 Helix producer 提供，GTest 不手写 group VM。
+- 三端本 Gate 每次验收均创建新群；共享 prerequisite 当前无需生产代码修改。

@@ -26,6 +26,19 @@
           "sha256": "7ccb4edd70682e8ed407801322e7716059136d28047c9415295aeda231520527"
         }
       ]
+    },
+    {
+      "id": "V-007",
+      "command": "G06 quickstart: Helix scenario and fixture; PC mock/single-real/dual-real/report; Mobile G06FrameContract and UC07 focused/real; cross-repo review",
+      "started_at": "2026-07-25T21:48:14Z",
+      "ended_at": "2026-07-25T22:22:44Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/030-ifv2-g-06-quick-reaction/evidence/gate-report.json",
+          "sha256": "2806103c88b510472b6b38a05ea7068847c44dbe4aefb94730b83b138c8153f2"
+        }
+      ]
     }
   ]
 }

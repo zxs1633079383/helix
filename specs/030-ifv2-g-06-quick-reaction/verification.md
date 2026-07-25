@@ -133,3 +133,96 @@
   embedded provider 启动时会打印本机缺少外部 `tauri-driver` 的诊断，
   但四条 lane 均建立 WebKit session 并由真实退出码判定，不将该提示当作
   Green 或 blocker。
+
+## T023-T032 Mobile Contract Green
+
+- Mobile commits：生产 Helix 真源固定 `9fcc7fa`；G06 Fixture 镜像合同
+  `9b65fca`；生产 SDK、QuickJS typed view、GTest 与 UC07 真实链
+  `3bd7650a2545e4a8a2d56b552d2ad20ee1bbce8e`。Mobile production
+  Helix pin 为 `6a2703971a2e452c191d6a3b6481a5a3c51998fc`，bundle
+  SHA-256 为
+  `deefc3ea88a6c01fd394ab618d4177843e56238dbeae71157ec302e20104a9ad`。
+- `check-g06-fixture-parity.mjs`：exit `0`，
+  `G06_MOBILE_FIXTURE_PARITY_OK count=4`；四份 Frame 与 provenance
+  byte-exact，schema、surface inventory、raw/semantic hash 无 Mobile 补字段。
+- `G06FrameContractTest.*`：`5/5` 通过。覆盖完整 envelope/runtime、
+  timeline mutation/action、revision/causation、duplicate/schema/surface/revision
+  fail-closed、durable recovery、生产 SDK admission、FFI DomainEvent batch、
+  C ABI 与 QuickJS `im.surface.view`。
+- Mobile 生产 command 仅提交 `post_id + emoji`；actor 由认证会话确定，
+  QuickJS 返回 admission，但 reaction 终态只接受 Helix Frame。不存在
+  `user_id`、本地 reaction patch、`im.store` 或 raw reducer。
+- focused SDK/QuickJS/UC07（排除真实链）`9/9` 通过；共享
+  `run-uc01-16-gtest.sh --only UC07` 最终 `8/8` 通过，真实 run
+  `mrc-mobile-uc-20260725221735-56208` 从 fresh group/source post 开始，经
+  `im_quick_reply -> MobileFfiBridge -> Helix/Go -> DomainEvent batch ->
+  SurfaceRuntime atomic apply -> QuickJS typed view` 收敛。
+- 首次真实链尝试错误等待已被 V2 consumer 隐藏的 `im:post:updated`
+  lifecycle event，真实失败并保留；修复为按权威 query/Frame latch 等待 typed
+  view，不以 fixed sleep 或 V1 event consumer 冒充成功。
+- `check-surface-runtime-source-pin.mjs` 与
+  `check-surface-runtime-legacy-hard-cut.mjs` 均 exit `0`：
+  `production V1 producers=0 consumers=0`，G01-G06 typed-only；
+  `sync-helix-command-api.mjs --check` 与 diff check 同时通过。
+
+结论：G-06 Mobile canonical mirror、生产 SDK/Bridge、SurfaceRuntime、
+QuickJS typed view 与 focused real-chain required lane 为 Green。
+
+## T033-T037 Cross-repo Review
+
+### Fixture Parity
+
+- Helix、cses-client 与 Mobile 三目录 inventory 均为四份 Frame 加一份
+  provenance，逐文件 SHA-256 完全一致。raw hash 依次为
+  `8b62d9f6...`、`169063bc...`、`1c44cad2...`、`4df26140...`，
+  provenance 为 `049f0bc7...`。
+- semantic SHA-256 依次为 `445a9105...`、`7c41f926...`、
+  `d87f4567...`、`dab2a986...`；三端 checker 使用同一 reaction 语义规则，
+  未发现平台补写 actor、reaction aggregate 或 ViewModel 字段。
+
+### Behavior Review
+
+- 每次 canonical/real 验收都先创建 fresh group 与 source post，不依赖前序
+  Gate 遗留 channel。客户端只能提交 post/emoji 或 opaque react action，
+  authenticated actor、绝对 reaction aggregate 与 eventSeq 均来自权威链。
+- Actor/Observer 的 HTTP terminal、WS reconciliation 与 timeline Frame
+  不被错误排列为固定帧序；duplicate inbound、WS-first/late HTTP、
+  PersistAtomic failure 与 recovery 均由 Helix scenario 覆盖。
+- PC single/dual real 和 Mobile focused real 最终都在 typed timeline 观察
+  emoji count=1；失败链不会由 shell 本地补 reaction。
+
+### Code Boundary Review
+
+- reaction authority、幂等、persist barrier、投影与 Frame composition 只在
+  Helix production `ImModule::handle` 链。PC 仅 opaque action/invoke + atomic
+  Frame apply；Mobile 仅 SDK admission、whole DomainEvent batch、atomic apply
+  与 typed view。
+- PC production boundary 扫描 2735 文件，
+  `mockProductionReachable=false`；Mobile production V1 producer/consumer
+  与 raw reducer 均为 0。Fixture、Mock bridge、WDIO/GTest 注入 API 在 production
+  build 不可达。
+
+### Frame V2 Review
+
+- 四份 Frame 均 `schemaVersion=2`、runtime `online/ready/idle`、directive
+  为空。reactable timeline snapshot revision 1 无 causation；reacted patch
+  `baseRevision=1 -> revision=2`，frame/mutation causation 均为 requestId。
+- recovered-reacted 为可独立恢复的 revision 1 snapshot；reaction row 保留
+  sent delivery、eventSeq、emoji/count 与 opaque `react` ActionBinding。
+- scope、surfaceEpoch、transactionId、revision 与 actionRef 均由三端 typed
+  contract 校验；PC/Mobile 不解释 actionRef 或重算 reaction。
+
+结论：行为、代码边界、Frame V2 与证据 Review 均为 Green；等待 mandatory
+after_implement loop 的 R4 evidence 判定后才可关闭 T038。
+
+## T038 Mandatory Loop Closure
+
+- `evidence/evidence.json` 已登记 `V-007`，绑定
+  `gate-report.json` SHA-256
+  `2806103c88b510472b6b38a05ea7068847c44dbe4aefb94730b83b138c8153f2`。
+- mandatory after_implement：R4 evidence `PASS`；targeted convergence 检查
+  FR 18、SC 6、用户故事 3、计划链与 38 项任务，未发现
+  missing/partial/contradicts/unrequested gap，未追加任务。
+- mandatory after_converge：`CLOSED`。G-06 现为 `review-green`，允许总控按
+  顺序进入 G-07；首次 Mobile 真实链的 V1 lifecycle 等待失败已明确保留为
+  修复证据，不被最终成功报告覆盖。

@@ -32,7 +32,7 @@
               {
                 "id": "srvfix00000000000000000001",
                 "channelId": "chfixx00000000000000000001",
-                "eventSeq": 0,
+                "eventSeq": 1,
                 "author": {
                   "userId": "g01-wdio-actor"
                 },

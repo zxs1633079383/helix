@@ -194,7 +194,7 @@
   {
     "fileName": "ws-timeline-sent.frame-v2.json",
     "fixtureId": "g01-ws-timeline-sent-v2",
-    "fixtureSha256": "cb2eb7ad88592c7a9d03ac832d9049827cccd7354f4b0fa5dd933f7849ab0577",
+    "fixtureSha256": "e2361a96a73f3d62158e81d38ab6f55fc9065428e70961b0b8f08a61bf93b627",
     "generatedAt": "2026-07-24T19:20:00-07:00",
     "helixCommit": "ee8440e7b6e19d75153f46349e57fbb6c00ca8cf",
     "parameterizableFields": [

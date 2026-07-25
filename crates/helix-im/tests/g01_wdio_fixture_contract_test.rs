@@ -54,6 +54,11 @@ fn produce_cases() -> Vec<FixtureCase> {
     assert_timeline_contract(&sent.terminal, "sent", SERVER_ID);
     assert_timeline_contract(&failed.terminal, "failed", &failed.temporary_id);
     assert_timeline_contract(&ws.timeline_sent, "sent", SERVER_ID);
+    assert_eq!(
+        first_message(&ws.timeline_sent).event_seq,
+        1,
+        "WS timeline Frame must preserve the authoritative event_seq"
+    );
     assert_dialog_contract(&ws.dialog);
     vec![
         FixtureCase {

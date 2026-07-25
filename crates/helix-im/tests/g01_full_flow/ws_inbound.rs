@@ -1,5 +1,5 @@
 use crate::scenario::{
-    assert_dialog_contract, assert_timeline_contract, G01ScenarioRunner, SERVER_ID,
+    assert_dialog_contract, assert_timeline_contract, first_message, G01ScenarioRunner, SERVER_ID,
 };
 
 #[test]
@@ -9,5 +9,6 @@ fn ws_post_inbound_reconciles_timeline_and_independently_patches_dialog() {
     assert_ne!(trace.timeline_corr, trace.dialog_corr);
     assert_timeline_contract(&trace.sending, "sending", &trace.temporary_id);
     assert_timeline_contract(&trace.timeline_sent, "sent", SERVER_ID);
+    assert_eq!(first_message(&trace.timeline_sent).event_seq, 1);
     assert_dialog_contract(&trace.dialog);
 }

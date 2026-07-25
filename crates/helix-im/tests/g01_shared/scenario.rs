@@ -125,7 +125,8 @@ impl G01ScenarioRunner {
                 rows_bytes(json!([message_row(
                     SERVER_ID,
                     &sending.temporary_id,
-                    "sent"
+                    "sent",
+                    1
                 )])),
             ),
             CREATED_AT as u64 + 22,
@@ -301,7 +302,8 @@ impl G01ScenarioRunner {
                 rows_bytes(json!([message_row(
                     &temporary_id,
                     &temporary_id,
-                    "sending"
+                    "sending",
+                    0
                 )])),
             ),
             1_700_000_000_006,
@@ -360,7 +362,12 @@ impl G01ScenarioRunner {
         self.step(
             ok(
                 read,
-                rows_bytes(json!([message_row(id, &sending.temporary_id, status)])),
+                rows_bytes(json!([message_row(
+                    id,
+                    &sending.temporary_id,
+                    status,
+                    0
+                )])),
             ),
             1_700_000_000_009,
         );
@@ -607,7 +614,7 @@ fn rows_bytes(rows: Value) -> Bytes {
 }
 
 /// 构造 driver Scan 回灌使用的本地 message row。
-fn message_row(id: &str, temporary_id: &str, status: &str) -> Value {
+fn message_row(id: &str, temporary_id: &str, status: &str, event_seq: u64) -> Value {
     json!({
         "id": id,
         "temporaryId": temporary_id,
@@ -617,6 +624,7 @@ fn message_row(id: &str, temporary_id: &str, status: &str) -> Value {
         "message": MARKER,
         "type": "TEXT",
         "sendStatus": status,
+        "event_seq": event_seq,
         "props": {},
     })
 }

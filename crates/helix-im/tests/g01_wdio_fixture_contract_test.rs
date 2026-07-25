@@ -167,6 +167,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
             "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
             "/mutations/*/scope/userId",
+            "/mutations/*/scope/teamId",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/anchor/messageId",
             "/mutations/*/mutation/view/items/*/id",
@@ -196,6 +197,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
         ],
         "placeholderValues": {
             "actorId": ACTOR_ID,
+            "teamId": scenario::TEAM_ID,
             "channelId": CHANNEL_ID,
             "createdAt": CREATED_AT,
             "marker": MARKER,

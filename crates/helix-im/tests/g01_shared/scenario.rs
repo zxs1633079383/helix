@@ -5,7 +5,8 @@ use helix_core::effect::{Correlation, Effect, StorageOp, TimerId};
 use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    DeliveryVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId, TypedSurfaceMutation,
+    DeliveryVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId, SurfaceScope,
+    TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -544,6 +545,19 @@ pub fn assert_dialog_contract(frame: &InteractionFrameV2) {
     assert!(
         surface_names(frame).contains("message.left-dialog-list"),
         "WS contract must include the dialog-list mutation"
+    );
+    let dialog_mutation = frame
+        .mutations
+        .iter()
+        .find(|mutation| mutation.mutation.surface == SurfaceId::MessageLeftDialogList)
+        .expect("dialog Frame contains its typed mutation");
+    assert_eq!(
+        dialog_mutation.mutation.scope,
+        SurfaceScope::User {
+            user_id: ACTOR_ID.to_string(),
+            team_id: TEAM_ID.to_string(),
+        },
+        "dialog Frame must target the attached actor/team slot"
     );
     let dialog = frame
         .mutations

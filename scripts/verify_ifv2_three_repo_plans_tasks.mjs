@@ -36,7 +36,7 @@ const MASTER_REQUIRED = [
   'plan-task-index.json',
   'plan-task-index.md',
 ];
-const TASK_RE = /^- \[ \] (T\d{3})\b/gm;
+const TASK_RE = /^- \[[ xX]\] (T\d{3})\b/gm;
 const CONTRACT_RE = /^\|\s*(T\d{3})\s*\|/gm;
 const LINK_RE = /\[[^\]]+\]\(([^)]+)\)/g;
 const PLACEHOLDER_RE = /\[(?:FEATURE|DATE|NEEDS CLARIFICATION|Command and expected falsifiable result)/i;
@@ -72,7 +72,11 @@ function validateFeature(feature, required, expectedTasks, errors) {
   for (const gate of ['r1_spec', 'r2_plan', 'r3_tasks']) {
     if (ledger.gates?.[gate]?.status !== 'pass') errors.push(`${feature} ${gate} is not pass`);
   }
-  if (ledger.phase !== 'ready' || ledger.next_action !== 'admit_implementation') {
+  const controlledStates = new Set([
+    'ready:admit_implementation',
+    'implementing:implement_tasks',
+  ]);
+  if (!controlledStates.has(`${ledger.phase}:${ledger.next_action}`)) {
     errors.push(`${feature} is not ready for controlled implementation`);
   }
   const combined = required

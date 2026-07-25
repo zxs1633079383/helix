@@ -19,3 +19,54 @@
 
 - 规格检查只证明 Spec 可进入 plan，不证明任何业务 Gate 已实现或 Green。
 - 每个 delivery run 必须引用原始 artifact、source pin、fixture hash 和结构化 report；聚合结论不得遮蔽 blocked/partial。
+
+## Program Setup Revalidation - 2026-07-25
+
+### T001 Manifest And Index
+
+- Helix HEAD：`94754ef79f79d375b732d4854df9ef3a85f7ef90`。
+- `node scripts/verify_ifv2_three_repo_plans_tasks.mjs`：PASS；26 个
+  Feature 的 R1-R3、25 x 38 子任务、32 个总控任务、合同、索引、链接与 JSON
+  全部有效。
+- `python3 scripts/verify-interaction-frame-v2-index.py`：PASS；UC 文档库存、
+  25 Gate 与历史任务映射有效。
+- 首次运行暴露校验器只接受实现前 `ready/admit_implementation`，却拒绝
+  mandatory pre-hook 合法进入的 `implementing/implement_tasks`。校验器已收紧为
+  只接受这两个受控状态；没有放宽 R1-R3、数量、顺序或链接检查。
+
+### T002 G01 Current Three-repository Baseline
+
+- Source lock：
+  - Helix：`94754ef79f79d375b732d4854df9ef3a85f7ef90`。
+  - cses-client：`13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`，运行前后 clean。
+  - Mobile QuickJS：`674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`；运行前已有
+    Mobile 文档、bundle 与 `.DS_Store` 脏项，本轮未覆盖或提交。
+- Helix：
+  - `cargo check -p helix-im`：PASS。
+  - `cargo test -p helix-im --test g01_full_flow_test -- --nocapture`：
+    4/4 PASS。
+  - `cargo test -p helix-im --test g01_wdio_fixture_contract_test
+    -- --nocapture`：1/1 PASS；六份 Fixture producer/provenance 与 Golden
+    一致。
+- cses-client：`yarn message:wdio:all` PASS，耗时 `248.40s`：
+  contracts 83/83、safe entry 1/1、UI 1/1、Mock 4/4、integration 2/2、
+  single-real 1/1、dual-real 2/2、report 1/1；最终 artifact scan
+  `report-20260725075841077-15142` 为 5 files、redaction pass。
+  integration/performance 中非 required 的无样本 performance case 保持 skip，
+  不提升为性能证据；embedded provider 的 `tauri-driver not found` 诊断未阻断
+  真实 Native sessions。
+- Mobile：
+  - `node scripts/sync-g01-helix-fixtures.mjs --check`：6/6 parity PASS，
+    Fixture producer commit
+    `ee8440e7b6e19d75153f46349e57fbb6c00ca8cf`。
+  - `make surface-runtime-source-pin-gate`：PASS；Mobile Rust pin
+    `8ac3d2cf693d6012101444bfae5f2e89f707ebe9`。
+  - `make surface-runtime-hard-cut-gate`：PASS；生产 V1 producer=0、
+    consumer=0。
+  - `./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter
+    'G01FrameContractTest.*'`：5/5 PASS。
+  - `./scripts/run-venus-g01-frame-gate.sh`：`VENUS_G01_FRAME_V2_OK`。
+
+结论：当前 source lock 下 G01 的 Helix producer、PC Mock/Real/report 和 Mobile
+Contract/QuickJS 重新 Green，满足 G02 前序准入。该结论不新增真手机双账号或受控真实
+网络失败声明。

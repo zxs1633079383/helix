@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/020-ifv2-three-repo-uc-control",
-  "phase": "ready",
-  "event_seq": 12,
-  "next_action": "admit_implementation",
+  "phase": "implementing",
+  "event_seq": 13,
+  "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -115,6 +115,12 @@
       "at": "2026-07-25T07:43:36Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 13,
+      "at": "2026-07-25T07:52:49Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

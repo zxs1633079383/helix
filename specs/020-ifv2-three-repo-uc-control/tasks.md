@@ -8,8 +8,8 @@
 
 **Purpose**: 锁定机器索引与 G01 当前基线。
 
-- [ ] T001 校验 specs/020-ifv2-three-repo-uc-control/gate-spec-manifest.json 与 plan-task-index.json 的 26 Active/20 Gap/唯一顺序
-- [ ] T002 复验 specs/019-g01-wdio-five-phases/verification.md 的最终候选 source/hash/Mock/Real/Mobile 基线
+- [x] T001 校验 specs/020-ifv2-three-repo-uc-control/gate-spec-manifest.json 与 plan-task-index.json 的 26 Active/20 Gap/唯一顺序
+- [x] T002 复验 specs/019-g01-wdio-five-phases/verification.md 的最终候选 source/hash/Mock/Real/Mobile 基线
 
 ---
 

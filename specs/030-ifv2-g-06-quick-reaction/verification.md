@@ -50,3 +50,21 @@
   fresh group/source post；不使用固定旧 channel 作为 canonical real 前置。
 - 三端共享能力当前足够，无需新增第二套 CreateGroup 生产逻辑；后续 G06
   Scenario/Real lane 必须证明每个 run 使用新 channel。
+
+## T004-T008 Helix Production Flow
+
+- `crates/helix-im/tests/g06_full_flow_test.rs` 通过生产
+  `ImModule::handle` 覆盖 fresh group、opaque action happy path、客户端
+  `user_id` 非 canonical 业务失败、HTTP 基础设施失败、重复 WS/迟到 HTTP
+  竞态、PersistAtomic 失败重放与 durable recovery，共 `7/7` 通过。
+- `crates/helix-im/tests/g06_reaction_interaction_test.rs` 对 direct command
+  wire、ActionBinding、持久屏障、causation、重放和恢复执行字段级断言，共
+  `5/5` 通过。
+- 生产 handler 当前已经严格接收 `post_id + emoji + optional req_id`，HTTP
+  body 仅 `{postId,emoji}`；WS `post_update` 经 message+cursor
+  `PersistAtomic` 后触发 attached timeline readback。测试证明无需修改
+  `quick_reply.rs`、`surface_composer.rs` 或 projector 生产代码，不以测试旁路
+  制造 Frame。
+- `cargo check -p helix-im`：exit `0`。
+- `cargo test -p helix-im --test g06_full_flow_test --test
+  g06_reaction_interaction_test -- --nocapture`：exit `0`，`12/12` 通过。

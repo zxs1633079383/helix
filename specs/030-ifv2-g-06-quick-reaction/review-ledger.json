@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/030-ifv2-g-06-quick-reaction",
   "phase": "implementing",
-  "event_seq": 7,
+  "event_seq": 10,
   "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
@@ -23,8 +23,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "33e611c8a7d2a8f7e043c009680c00d6daa7594925f88ff4ea07942cfeafdadc",
-      "checked_at": "2026-07-25T07:43:42Z",
+      "fingerprint": "163ae968a7a323fcd9df1049d84ee221398cab0ba8304d52521dcf7993ff9bff",
+      "checked_at": "2026-07-25T21:26:54Z",
       "issues": []
     },
     "r4_evidence": {
@@ -78,6 +78,24 @@
     {
       "seq": 7,
       "at": "2026-07-25T21:21:20Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-25T21:26:54Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-25T21:26:54Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-25T21:27:02Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
     }

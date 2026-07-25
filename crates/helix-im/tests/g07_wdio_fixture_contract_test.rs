@@ -6,7 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{InteractionFrameV2, TypedSurfaceMutation};
+use helix_im::interaction_frame::{
+    InteractionFrameV2, SurfaceScope, TypedSurfaceMutation,
+};
 use serde_json::{json, Value};
 
 #[path = "support/g07_scenario.rs"]
@@ -227,6 +229,16 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
         })
 }
 
+/// 返回成员列表 scope 的可重绑定 cursor；其他 surface 不声明该参数。
+fn optional_roster_cursor(frame: &InteractionFrameV2) -> Option<&str> {
+    frame.mutations.iter().find_map(
+        |mutation| match &mutation.mutation.scope {
+            SurfaceScope::MemberRoster { cursor, .. } => Some(cursor.as_str()),
+            _ => None,
+        },
+    )
+}
+
 /// 为每份 Fixture 生成 producer、hash、surface 与动态字段白名单。
 fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
     json!({
@@ -248,6 +260,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/revision",
             "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
+            "/mutations/*/scope/cursor",
             "/mutations/*/scope/messageId",
             "/mutations/*/scope/userId",
             "/mutations/*/scope/teamId",
@@ -264,6 +277,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/view/items/*/urgency/urgentTargetIds/*",
             "/mutations/*/mutation/view/items/*/urgency/urgentConfirmedIds/*",
             "/mutations/*/mutation/view/anchor/messageId",
+            "/mutations/*/mutation/view/page/windowToken",
             "/mutations/*/mutation/view/completed/*/user/userId",
             "/mutations/*/mutation/view/completed/*/completedAt",
             "/mutations/*/mutation/view/pending/*/user/userId",
@@ -286,6 +300,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/patch/view/items/*/urgency/urgentTargetIds/*",
             "/mutations/*/mutation/patch/view/items/*/urgency/urgentConfirmedIds/*",
             "/mutations/*/mutation/patch/view/anchor/messageId",
+            "/mutations/*/mutation/patch/view/page/windowToken",
             "/mutations/*/mutation/patch/view/completed/*/user/userId",
             "/mutations/*/mutation/patch/view/completed/*/completedAt",
             "/mutations/*/mutation/patch/view/pending/*/user/userId",
@@ -316,6 +331,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "reqId": case.frame.causation_id.as_deref().unwrap_or(REQUEST_ID),
             "transactionId": case.frame.transaction_id,
             "messageId": optional_message_id(&case.frame),
+            "cursor": optional_roster_cursor(&case.frame),
             "surfaceEpoch": case.frame.mutations[0].surface_epoch,
             "revision": case.frame.mutations[0].mutation.revision,
             "baseRevision": case.frame.mutations[0].mutation.base_revision

@@ -99,3 +99,37 @@
 - 原始输出：
   `evidence/v001-helix-flow.log` 与 `evidence/v002-helix-fixture.log`。
   至此 G06 Helix producer 与 canonical Fixture Green；PC/Mobile 尚未 Green。
+
+## T013-T022 PC Mock/Real/Report Green
+
+- cses-client commits：
+  `935cda7718e3b049a9a8c651265f4290d0d70ac4` 只读同步 G06
+  canonical Fixture、typed loader、raw/semantic parity 与 TauriMockBridge
+  receipt/frame 分离合同；
+  `ab7833996be5156f4d0e0655c18e7f9c65488961` 完成 production
+  reaction binding 可观测属性、Mock、Single Real、Dual Real 与报告 lane。
+- `node scripts/message-wdio/sync-helix-fixtures.mjs --gate=g06 --check`：
+  exit `0`，`G06_FIXTURE_PARITY_OK count=4`，Helix producer pin
+  `4084a6f3b0f9f8928f9559b0cda0e5dd700a8fcd`。
+- Fixture/Bridge/report Jest：exit `0`，`17/17`；WDIO TypeScript：
+  exit `0`；MessageSurfaceRuntime reaction selector 单测包含于 `26/26` PASS；
+  `message:wdio:build` exit `0`。
+- `message:wdio:g06:boundary`：exit `0`，
+  `checkedFiles=2735`、`mockProductionReachable=false`。Fixture、Mock bridge
+  与 WDIO-only API 未进入 production bundle。
+- Mock：exit `0`，`2/2`；报告 SHA-256
+  `0cda3a7e1a1cdadb3712c3151e87a59f6c84ac8193a1b0b7576f9f8453f88bfa`，
+  `evidenceLevel=mock`，未提升为真实链证据。
+- Single Real：exit `0`，`1/1`；真实 MessageV4 UI fresh group →
+  `im_invoke_action` → Helix → SQLite/PG → `/api/cses/posts/quickReply` →
+  WS `post_update` → FrameApplied → Actor DOM 闭合。报告 SHA-256
+  `dc07106f5b4752f9f2353d6e14864555de0bc66add2ff52da53502370e645a55`。
+- Dual Real：exit `0`，`1/1`；Actor/Observer 在隔离 profile 对同一
+  canonical post/reaction 收敛，两个 FrameApplied 与两个 DOM 均关联。
+  报告 SHA-256
+  `cb83410e0ea94287b77322969fa59a078b638e75da1380e61ae34258841aed3b`。
+- 独立 report contract：exit `0`，`1/1`；报告 SHA-256
+  `b1db72bb81c9bda659d7e6bf03cf05f201d526eb6a3fa8873164e506a46dd59a`。
+  embedded provider 启动时会打印本机缺少外部 `tauri-driver` 的诊断，
+  但四条 lane 均建立 WebKit session 并由真实退出码判定，不将该提示当作
+  Green 或 blocker。

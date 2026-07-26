@@ -1,6 +1,29 @@
 # Research: G-10 切群首屏
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `48e8d74df519d343d99b6797b6d032644823876f`；cses-client `a0a083dd6e65051ab60d6d9bb3e044f4b3984f7a`；Mobile `3b0ff15feeb95e0d1fe89040d7e9b2ed96a3734f`；PC Helix production pin `5308d2b77174e687423c28c862fde42406408456`
+
+## T002 Current / Target / Gap Revalidation
+
+### Helix
+
+- **CURRENT**: `query/local_first.rs` 已由 `im_query_messages_by_channel` 进入 local scan，按 coverage 决定 Complete 直接投影或 Partial/Miss 触发 `im_get_latest_post`；远端行在 cache persist barrier 后才发完整 `message.timeline` Frame。`TimelineProjector` 持有 scope/revision，并注册 `loadOlder`、`reply` 等 opaque ActionBinding。
+- **CURRENT**: `g10_timeline_window_interaction_test.rs` 只验证 projector 的完整 `replaceView` patch、window token 和 page flags，尚未覆盖生产 `ImModule::handle`、persist failure、late/duplicate reply、query generation、recovery 或 canonical Fixture。
+- **TARGET**: 共享 ScenarioRunner 必须从真实 Tick/PortReply 驱动 local Complete、remote cache、失败、竞态与 resync，捕获 `Effect::Emit` 并生成字段级 Golden。
+- **GAP**: 当前没有 `g10_full_flow_test.rs`、`support/g10_scenario.rs`、`g10_wdio_fixture_contract_test.rs` 或 `fixtures/g10-wdio/`；现有 projector test 不能建立 Helix Green。
+
+### cses-client
+
+- **CURRENT**: MessageV4 已按 attach/snapshot/query 顺序提交 `im_query_messages_by_channel`，SurfaceRuntime 机械消费 `message.timeline`；但 G10 没有专属 Fixture、loader、Mock/real specs、PageObject 或 reporter。
+- **CURRENT**: `uc-map.md` 明确 G10 为 `partial-not-green`，旧 evidence 不能证明当前 pin 的 producer、真实 bus ingress 与 DOM 因果链。
+- **TARGET**: byte-exact mirror Helix canonical Fixture；Mock 只模拟 AcceptedCommand 并 replay 完整 Frame；single/dual real 从 fresh group 经真实 Tauri invoke/FrameApplied/DOM；report 分层列证据。
+- **GAP**: PC 生产 pin 尚未包含待生成的 G10 canonical Fixture；必须在 Helix Green commit 后 repin，禁止从旧 raw `im:messages:query_result` 补 UI 状态。
+
+### Mobile
+
+- **CURRENT**: `MobileImSdk::queryMessagesByChannel` 已进入生产 `im_query_messages_by_channel` admission，`pollBridgeEvents` 只将 `im:interaction:frame` 交给 SurfaceRuntime；QuickJS command binding 已存在。
+- **CURRENT**: `Uc10HistoryTest.cpp` 把 G10/G10a 混在同一旧 raw-event real scenario，等待 `im:messages:query_result` / `im:messages:older_loaded` 并断言 snapshot store；它不是 G10 Frame V2 typed-view 合同。
+- **TARGET**: G10 独立 mirror/parity、production-linked `G10FrameContractTest`、fresh-group command admission、DomainEvent batch、atomic SurfaceRuntime apply 与 QuickJS `im.surface.view`。
+- **GAP**: 没有 `tests/fixtures/g10/`、同步/hash gate 或 G10 Frame GTest；旧 UC 测试需保留 G10a 边界但不得以 raw event/store 作为 G10 完成证据。
 
 ## Decision 1 - 唯一业务真源
 

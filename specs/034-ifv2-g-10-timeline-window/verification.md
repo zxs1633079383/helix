@@ -1,5 +1,14 @@
 # Verification Procedure: G-10
 
+## T001 Source Lock（2026-07-25）
+
+- Helix HEAD：`48e8d74df519d343d99b6797b6d032644823876f`；G10 开始时仅 mandatory loop 更新本 Feature ledger。
+- cses-client HEAD：`a0a083dd6e65051ab60d6d9bb3e044f4b3984f7a`；生产 Tauri 依赖 pin 为 `5308d2b77174e687423c28c862fde42406408456`。
+- Mobile HEAD：`3b0ff15feeb95e0d1fe89040d7e9b2ed96a3734f`；既有未跟踪 Helix bundle 与 `tests/.DS_Store` 不属于本 Gate。
+- Strict Matrix SHA-256：`b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`。
+- 前序 G09：loop `event_seq=19`、`phase=closed`、R1-R4 全 PASS；gate report SHA-256 为 `92dd695adc64a3982b008af5a829eccf18afc7d77baef151365ec71c964b6430`。
+- G10 admission：loop `event_seq=7`、`phase=implementing`、`IMPLEMENTATION_ADMITTED`。全局 SpecKit current-feature 仍指向 G09，因此 G10 全程必须显式传 `--feature specs/034-ifv2-g-10-timeline-window`，不得让默认脚本误写 G09。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

@@ -215,3 +215,51 @@ Contract/QuickJS 重新 Green，满足 G02 前序准入。该结论不新增真�
 结论：G-05 至 G-11 均为 `review-green`；总控 T007-T014 完成并按顺序解锁
 G-12。G-12 必须创建 fresh group/thread，不复用 G-11 的 channel、post 或
 surface revision。
+
+### T015 G12 Three-repository Review Green
+
+- 子 Feature：`specs/037-ifv2-g-12-reply-thread`，T001-T038 全部完成，
+  helix-loop R1-R4 `PASS` 并最终 `CLOSED`。
+- Source pins：Helix `1b797413f2c1b14abde5eacf60eb942b21e9d650`；
+  Fixture producer `a2207d73f8e72da7374b916b2167ee3a25b9f6c3`；
+  cses-client `6174658be34a779ded68311848cd5c4851ec9d01`；Mobile
+  `4281946`。
+- Helix：full flow 9/9、interaction 3/3、Fixture contract 1/1。
+- Fixture：三份 schemaVersion=2 producer Frame 在三仓 byte-exact；
+  provenance SHA-256
+  `c1bc03de83f24e4375ee1006244596a35e305137e679d993452e52f54c922eb1`。
+- PC：Mock 3/3、single-real 1/1、dual-real 1/1、report 1/1；
+  production boundary PASS。
+- Mobile：Frame 5/5、focused contract 8/8、共享 Venus PASS；SDK/Bridge/
+  SurfaceRuntime/C ABI/QuickJS typed view 与 V1 hard-cut 全部 PASS。
+- Review：behavior、code boundary、Frame V2、evidence 均 Green，required
+  fail=0、skip=0；结构化报告位于
+  `specs/037-ifv2-g-12-reply-thread/evidence/gate-report.json`。
+
+结论：G-12 `review-green`，总控顺序解锁 G-13。
+
+### T016 G13 Three-repository Review Green
+
+- 子 Feature：`specs/038-ifv2-g-13-channel-read`，T001-T038 全部完成，
+  helix-loop R1-R4 `PASS` 并最终 `CLOSED`。
+- Source pins：Helix `c8768f8b6f169f67509c0ec717ef6902c7779e19`；
+  Fixture producer `a13e17151efd1e7eefc94677110598b6347b08a9`；
+  cses-client `e67384f9a1c78bb2da3aafe4ef4206563d231aa4`；Mobile
+  `fe0fa86a3bc27bf3ba416c3c7f07c89b6c80ecbb`。
+- Helix：scenario/interaction 12/12、Fixture contract 1/1，HTTP admission
+  与 viewer `update_channel` authority 分离，PersistOk 后才发布 paired Frame。
+- Fixture：四份 schemaVersion=2 producer Frame 与 provenance 在三仓
+  byte-exact；provenance SHA-256
+  `aea3480b12bbf40e6063a097e7d91eeffdcaa380919ddf7c964d61b34cc6acb6`。
+- PC：Mock 3/3、single-real 1/1、dual-real 1/1、report 1/1；
+  fresh-group、Tauri invoke、FrameApplied 与 Actor/Observer DOM 闭合。
+- Mobile：Frame 6/6、UC13 8/8、真实 fresh-group read chain、QuickJS typed
+  dialog/unread view、C ABI、source pin、Strict Matrix 27/27 与 V1 hard-cut
+  全部 PASS。
+- Review：behavior、code boundary、Frame V2、evidence 均 Green，required
+  fail=0、skip=0；结构化报告位于
+  `specs/038-ifv2-g-13-channel-read/evidence/gate-report.json`。
+
+结论：G-13 `review-green`，总控顺序解锁 G-14；G-14 只负责
+`im_post_read`/participant receipts，不得复用 G13 的 channel、post 或
+surface revision。

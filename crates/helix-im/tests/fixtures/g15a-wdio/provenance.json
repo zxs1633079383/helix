@@ -2,10 +2,10 @@
   {
     "fileName": "channel-created.frame-v2.json",
     "fixtureId": "g15a-channel-created-v2",
-    "fixtureSha256": "1a3bced6f2672f55b07c3ff233de7c3417522d92e0edbf498f2213c5de716cc1",
+    "fixtureSha256": "7af79514d959c45dd21c74a2f2980917ae7486da7a82b15cc2d6e4a5a4a42631",
     "gateId": "G-15a",
     "generatedAt": "2026-07-26T08:20:05-07:00",
-    "helixCommit": "cd48e148d78aeb96f879788769c9740b4344255e",
+    "helixCommit": "57d06fc173af3ac6a9f4d088be3fb2e7e87ceea0",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -43,7 +43,7 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "8e5c935ff9d9c8186a36db8f726f672e786060dcca874a3d5d9c2928e4e09759",
+    "semanticSha256": "d3919a4f7f61ffbc0d8cfa5bac74067f5e6176afc07065ab416835ba099f87da",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.channel-summary",
@@ -56,7 +56,7 @@
     "fixtureSha256": "03e3b59aca0cc1148cad2cf02988ac750a2f884b33d07ba4e54c6aaec3a86845",
     "gateId": "G-15a",
     "generatedAt": "2026-07-26T08:20:05-07:00",
-    "helixCommit": "cd48e148d78aeb96f879788769c9740b4344255e",
+    "helixCommit": "57d06fc173af3ac6a9f4d088be3fb2e7e87ceea0",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -106,7 +106,7 @@
     "fixtureSha256": "de004b2e82a1c961b444f69e5e535ffffe18fc19dd8e9c5d911e0864eefabe08",
     "gateId": "G-15a",
     "generatedAt": "2026-07-26T08:20:05-07:00",
-    "helixCommit": "cd48e148d78aeb96f879788769c9740b4344255e",
+    "helixCommit": "57d06fc173af3ac6a9f4d088be3fb2e7e87ceea0",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",

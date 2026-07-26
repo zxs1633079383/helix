@@ -146,10 +146,22 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/revision",
             "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
+            "/mutations/*/scope/userId",
+            "/mutations/*/scope/teamId",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/view/sections/*/items/*/channelId",
+            "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt",
+            "/mutations/*/mutation/view/sections/*/items/*/title/text",
+            "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/patch/view/channelId",
-            "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch"
+            "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch"
         ],
         "rebaseFields": [
             "/transactionId",

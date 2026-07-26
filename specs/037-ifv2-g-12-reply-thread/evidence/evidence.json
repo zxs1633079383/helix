@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-007",
+      "command": "G12 cross-repo Helix+Fixture+PC Mock/Real+Mobile Contract+R4 review",
+      "started_at": "2026-07-26T07:41:24Z",
+      "ended_at": "2026-07-26T09:30:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/037-ifv2-g-12-reply-thread/evidence/gate-report.json",
+          "sha256": "7d3c2477a56d23866d2f0e81a685fec10269ef866ced9ab47d318272d612c75c"
+        }
+      ]
+    }
+  ]
+}

@@ -25,9 +25,9 @@
 ## T004-T008 Helix Production Flow
 
 - `cargo check -p helix-im` 最终 exit `0`。
-- `g12_full_flow_test` 为 `8/8`，覆盖 fresh group、wire admission、snapshot、
-  branch patch、HTTP failure、mixed authority、duplicate reply 与 detached
-  recovery。
+- `g12_full_flow_test` 最终为 `9/9`，覆盖 fresh group、wire admission、
+  snapshot、branch patch、空回复终态、HTTP failure、mixed authority、
+  duplicate reply 与 detached recovery。
 - `g12_reply_thread_interaction_test` 为 `3/3`，证明读-only G12 无伪造
   Persist barrier，terminal batch 只有完整 Frame，late/duplicate 与恢复均由
   Helix correlation/projector 决定。
@@ -64,8 +64,101 @@
 - Helix Green 命令：`cargo check -p helix-im`、`cargo test -p helix-im
   --test g12_full_flow_test -- --nocapture` 与 `cargo test -p helix-im --test
   g12_wdio_fixture_contract_test -- --nocapture` 均为 exit `0`。跨端 mirror
-  尚未完成，因此这里只关闭 Helix producer/Fixture 阶段，不提前标记 G12
-  review-green。
+  在 T013-T033 完成 byte-exact 对账后关闭。
+
+## T013-T022 PC Mock/Real/Report
+
+- cses-client 接受提交为
+  `6174658be34a779ded68311848cd5c4851ec9d01`；Tauri 四个 Helix production
+  dependency 统一 pin
+  `1b797413f2c1b14abde5eacf60eb942b21e9d650`。Fixture 同步器、typed
+  loader、AcceptedCommand/replay 分离、G12 PageObject、reporter 与
+  production boundary 均完成。
+- production MessageV4 只补齐 thread-detail surface attach 与 drawer
+  可观察入口；reply authority、树合并、revision 与终态仍由 Helix
+  `InteractionFrameV2` 决定。focused Angular 为 `14/14`，Fixture/bridge/
+  reporter 为 `38/38`，WDIO TypeScript、production candidate build 均为
+  exit `0`。
+- Mock runId `mock-20260726085609921-34662` 为 `3/3`、exit `0`，覆盖
+  canonical branch、command admission failure 与 duplicate Frame，claim
+  仅为 `mock`。
+- single-real runId `single-real-20260726085414486-33678`、dual-real runId
+  `dual-real-20260726085445281-33947` 与 report runId
+  `report-20260726085630577-34835` 均为 exit `0`。真实链分别为 `1/1`、
+  `1/1`、`1/1`，从 MessageV4 创建 fresh group，经真实 Tauri invoke、
+  Helix HTTP、`im:__bus__` Frame ingress、SurfaceRuntime atomic apply 与
+  DOM 自动等待闭合；dual-real 证明 Actor/Observer 最终都看到 sent reply。
+- production boundary 扫描 `2735` 个生产文件，结果
+  `mockProductionReachable=false`。embedded runner 的
+  `tauri-driver not found` 仅为非致命诊断；实际 WebKit/Tauri session 已启动
+  并完成 real suite，未把 Mock 或该诊断冒充真实链证据。
+
+## T023-T032 Mobile Contract
+
+- Mobile 分类提交为 `7f66684`（Helix production pin）、`767f7bf`
+  （canonical mirror）与 `4281946`（GTest/QuickJS typed view）。
+  production Helix pin 为
+  `1b797413f2c1b14abde5eacf60eb942b21e9d650`，bundle SHA-256 为
+  `6ef97f3d3d669034f51357e01141688278a4383ebaad4f578045a4ca57897fea`。
+- `sync-g12-helix-fixtures.mjs --check` 与
+  `check-g12-fixture-parity.mjs` 均为 `3/3 PASS`；producer
+  `a2207d73...` 可从 production pin `1b797413...` 到达。source-pin、
+  ABI、Command API 与 legacy hard-cut 均通过，G01-G12 production V1
+  producer/consumer/raw fallback 为 `0`。
+- `G12FrameContractTest.*` 为 `5/5`，覆盖完整 envelope、fresh-group
+  prerequisite、thread snapshot/branch、schema/surface/revision
+  fail-closed、SDK command admission、完整 DomainEvent batch、
+  SurfaceRuntime atomic apply、QuickJS `im.surface.view` typed view 与
+  production C ABI ack。
+- `Uc12RepliesTest.*-Uc12RepliesTest.RealChain` 为 `8/8`。真实 UC runner
+  已改为 fresh group 后经 `im.posts.getReplies/getReplyBranch` 只观察
+  `message.thread-detail` typed view；本次环境未提供
+  `MOBILE_UC_RUNTIME_CONTEXT_FILE`，因此 Mobile RealChain 明确不计入 required
+  Mobile Contract lane，也不以 dry-run 冒充 Green。
+- `MobileImSdk -> MobileFfiBridge/helix-driver-ffi -> DomainEvent batch ->
+  SurfaceRuntime -> QuickJS typed view` 的生产接线已存在并由
+  production-linked GTest 证明，未复制第二套 reply reducer。本 Gate 未修改
+  Venus 接线能力，按合同执行共享 `run-venus-helix-im-smoke.sh`，结果 PASS。
+
+## T033 Three-repo Fixture Parity
+
+- Helix、PC、Mobile 的 `provenance.json` SHA-256 均为
+  `c1bc03de83f24e4375ee1006244596a35e305137e679d993452e52f54c922eb1`。
+- 三仓 inventory 均为 `group-created`、`thread-snapshot`、
+  `thread-branch`，schemaVersion 全为 `2`，surface inventory 分别为
+  `message.left-dialog-list`、`message.thread-detail`、
+  `message.thread-detail`。
+- 三份 Frame raw SHA-256 在三仓逐文件相同：
+  `5753a7e4...0ab6`、`43420727...c37`、`6a11b920...6e2`；semantic
+  SHA-256 分别为 `bdec76a9...3e3a`、`fd903984...ff8b`、
+  `3effc6ad...fcd3`。provenance byte-exact 一致，PC/Mobile 未补字段。
+
+## T034-T036 Review
+
+- **Behavior Green**：fresh group、root/first-level/nested reply、snapshot、
+  branch patch、空结果、HTTP failure、mixed authority、duplicate/late reply
+  与 detached recovery 共用 Helix reply-thread model。HTTP success 本身不是
+  UI 终态；single/dual real 均等待 FrameApplied 与 typed DOM。
+- **Code Boundary Green**：reply authority、排序、branch 合并、revision 与
+  完整 Frame 只在 Helix `read_relay + projector/surface runtime`。PC/Mobile
+  只做 production command admission、完整 Frame atomic apply 与平台渲染；
+  Fixture、Mock、WDIO API、raw reducer 和测试注入默认 production 不可达。
+- **Frame V2 Green**：schema `2`、transaction/causation、thread scope、
+  surfaceEpoch、snapshot revision `1`、branch `baseRevision=1 ->
+  revision=2`、root/nodes/orderedReplyIds/replyCount/page/actions 与完整
+  `message.thread-detail` VM 已字段级对齐；duplicate、unknown schema/surface
+  与 revision gap 均不部分 apply。
+
+## T037-T038 Gate Report And Quickstart
+
+- 结构化汇总见 `evidence/gate-report.json`。required lanes
+  fail=`0`、skip=`0`、final verdict=`Green`；Mobile RealChain 缺少 runtime
+  context 作为非 required observation 保留，未提升为合同或真实链证明。
+- Helix、PC Mock/Real/Report、Mobile parity/GTest/typed view、production
+  boundary、共享 Venus 回归与三仓 byte parity 均完成；三仓
+  `git diff --check` 通过。
+- mandatory after_implement 只有在 R4 接受本证据、tasks fingerprint 不再
+  变化时才允许最终 `CLOSED`。
 
 ## Required Runs
 

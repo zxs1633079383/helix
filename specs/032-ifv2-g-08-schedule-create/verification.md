@@ -23,6 +23,34 @@ cses-client is clean. Mobile retains eight untracked Helix bundles plus
   [research.md](research.md)；旧 `specs/008-g08-schedule-create` 的完成标记不作为本轮证据。
 - **Stop condition**: 当前仍为 `IMPLEMENTATION_ADMITTED`，不是 Helix/PC/Mobile Green。
 
+## Helix Producer Evidence
+
+| Plane | Command | Result | Boundary |
+|---|---|---|---|
+| Build | `cargo check -p helix-im` | PASS, exit 0, 5.00s | production crate |
+| Full flow | `cargo test -p helix-im --test g08_full_flow_test -- --nocapture` | PASS, 7/7, 6.43s | prerequisite/happy/business/infrastructure/race/persist/recovery |
+| Fixture update | `UPDATE_G08_WDIO_FIXTURES=1 cargo test -p helix-im --test g08_wdio_fixture_contract_test -- --nocapture` | PASS, 1/1, 6.21s | explicit canonical export only |
+| Golden compare | `cargo test -p helix-im --test g08_wdio_fixture_contract_test -- --nocapture` | PASS, 1/1, 0.12s | ordinary run cannot rewrite Fixture |
+| Schedule regression | `outbound_commands` + `p2_posts_outbound_test` + `projection_schema_test` | PASS, 13/13 + 18/18 + 47/47 | command/wire/helper contracts |
+| WS regression | `cargo test -p helix-im --test s1_ws_actions_test schedule_created_sets_flag_s1 -- --nocapture` | PASS, 1/1 | raw G08 producer absent; atomic writes present |
+
+Production commits:
+
+- `8358082b3fd01b96b332c79deca8d2017315dd19`: strict command, HTTP/WS correlation,
+  `channel_schedule` authority fact, atomic read model, typed channel-summary and seven scenarios.
+- `6880f003f20a206790c94e0c478d17e9282dc708`: four canonical Frames plus producer/hash provenance.
+
+Canonical inventory:
+
+- `group-created.frame-v2.json`
+- `channel-summary-empty.frame-v2.json`
+- `channel-summary-scheduled.frame-v2.json`
+- `channel-summary-recovery.frame-v2.json`
+
+**Helix verdict**: T004-T012 Green. T003 remains open until PC and Mobile both prove that
+their canonical cases reuse the same fresh-group prerequisite. G08 as a whole remains
+`implementing`; Mock/Real/Mobile/Review evidence is not yet available.
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

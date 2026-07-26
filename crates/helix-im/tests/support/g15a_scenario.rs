@@ -309,7 +309,7 @@ pub fn assert_created_contract(frame: &InteractionFrameV2, causation: Option<&st
         roster.mutation.scope,
         SurfaceScope::MemberRoster {
             channel_id: CHANNEL_ID.to_string(),
-            cursor: "first".to_string()
+            cursor: "initial".to_string()
         }
     );
     assert_eq!(roster.mutation.causation_id.as_deref(), causation);

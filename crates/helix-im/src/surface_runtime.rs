@@ -88,7 +88,7 @@ impl ImModule {
             self.config.auth_user_id.as_str(),
             surface_epoch,
         );
-        let roster = member_roster_view(channel_id.as_str(), "first", member_rows, surface_epoch);
+        let roster = member_roster_view(channel_id.as_str(), "initial", member_rows, surface_epoch);
         let mut summary_mutation = self
             .state
             .channel_summary_projector

@@ -284,9 +284,8 @@ pub enum CorrelationContext {
 
     /// S8 回复族（UC-2.4·issue #57）：`im_get_replies` / `im_get_reply_branch` HTTP 回报。
     ///
-    /// 读族无 WS 回声、HTTP 响应体即数据 → 注册本上下文，`handle_port_reply` **双 emit**：
-    /// `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）+ 显式 snapshot/append、
-    /// revision、分页元数据的 `im:channel:replies`。请求上下文来自 command+payload，不猜 reqId。
+    /// 读族无 WS 回声、HTTP 响应体即 authority；本上下文冻结请求身份、snapshot/append
+    /// 模式与 revision，PortReply 只允许生成完整 `message.thread-detail` Frame。
     OutboundReplies {
         request: crate::render_ready_replies::ReplyProjectionRequest,
     },

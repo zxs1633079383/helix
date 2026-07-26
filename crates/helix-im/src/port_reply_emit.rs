@@ -1,9 +1,7 @@
 //! `handle_port_reply` 双 emit 读族臂的 emit helper（从 port_reply.rs 外提，收口 port_reply.rs 行数基线）。
 //!
-//! S7 byIds 成员快照（issue #56）/ S8 回复族（issue #57）两条读族回报臂同构：剥 ADR-007 信封 →
-//! ① 透传 `im:read:result{req_id, body}`（冻结 verbatim ② 契约面）② 解析 body emit render-ready 投影。
-//! 信封畸形 / Err → 回灌 read error（不丢 req_id·前端 reject）+（回复族）补发空 replyIds 清抽屉。
-//! 纯搬运·零行为变更（逻辑逐字对应原 port_reply.rs 两臂）。
+//! S7 byIds 成员快照仍保留双 emit；G12 回复族只把 authority body 规范化为 Helix 内部投影，
+//! 随后由 `message.thread-detail` InteractionFrame V2 作为唯一渲染输出。
 
 use crate::http_envelope::unwrap_sync_envelope;
 use helix_core::tick::PortOutcome;
@@ -70,27 +68,24 @@ pub(crate) fn emit_contact_candidates(req_id: &str, outcome: &PortOutcome, out: 
     }
 }
 
-/// S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → 双 emit。
-/// Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
-///   + emit `im:channel:replies`（显式 snapshot/append + revision + 分页元数据）。
-/// 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
-pub(crate) fn emit_replies(
+/// 将 G12 HTTP authority 规范化为内部 reply projection；失败不产生 raw 渲染事件。
+pub(crate) fn normalize_replies(
     request: &crate::render_ready_replies::ReplyProjectionRequest,
     outcome: &PortOutcome,
     revisions: &mut std::collections::HashMap<String, u64>,
     seen_ids: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
-    out: &mut EffectSink,
 ) -> Option<crate::render_ready_replies::FlatReplyProjection> {
     let req_id = request.req_id.as_str();
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
             Ok(raw_body) => {
-                out.push(crate::read_relay::emit_read_result(
-                    req_id,
-                    raw_body.as_ref(),
-                ));
-                let body: serde_json::Value =
-                    serde_json::from_slice(raw_body.as_ref()).unwrap_or(serde_json::Value::Null);
+                let body: serde_json::Value = match serde_json::from_slice(raw_body.as_ref()) {
+                    Ok(body) => body,
+                    Err(error) => {
+                        tracing::warn!(req_id, error = ?error, "replies authority JSON decode failed");
+                        return None;
+                    }
+                };
                 let mut projection = crate::render_ready_replies::finalize_projection(
                     request,
                     crate::render_ready_replies::extract_flat_replies(
@@ -103,50 +98,15 @@ pub(crate) fn emit_replies(
                     revisions,
                     seen_ids,
                 ) {
-                    let accepted = projection.clone();
-                    out.push(crate::render_ready_replies::emit_channel_replies(
-                        req_id, projection,
-                    ));
-                    return Some(accepted);
+                    return Some(projection);
                 }
             }
             Err(e) => {
                 tracing::warn!(req_id, error = ?e, "replies reply envelope decode failed");
-                out.push(crate::read_relay::emit_read_error(
-                    req_id,
-                    "response envelope decode failed",
-                ));
-                let mut projection = crate::render_ready_replies::finalize_projection(
-                    request,
-                    crate::render_ready_replies::FlatReplyProjection::empty(),
-                );
-                if crate::render_ready_replies::accept_projection(
-                    &mut projection,
-                    revisions,
-                    seen_ids,
-                ) {
-                    out.push(crate::render_ready_replies::emit_channel_replies(
-                        req_id, projection,
-                    ));
-                }
             }
         },
         PortOutcome::Err(e) => {
             tracing::warn!(req_id, error = ?e, "replies http failed");
-            out.push(crate::read_relay::emit_read_error(
-                req_id,
-                "http request failed",
-            ));
-            let mut projection = crate::render_ready_replies::finalize_projection(
-                request,
-                crate::render_ready_replies::FlatReplyProjection::empty(),
-            );
-            if crate::render_ready_replies::accept_projection(&mut projection, revisions, seen_ids)
-            {
-                out.push(crate::render_ready_replies::emit_channel_replies(
-                    req_id, projection,
-                ));
-            }
         }
     }
     None

@@ -22,6 +22,25 @@
   `RC.createFreshGroupPrerequisite`。G12 每次 canonical/real run 必须调用该
   能力创建独立 channel/thread，不复制建群 reducer，也不复用 G11 数据。
 
+## T004-T008 Helix Production Flow
+
+- `cargo check -p helix-im` 最终 exit `0`。
+- `g12_full_flow_test` 为 `8/8`，覆盖 fresh group、wire admission、snapshot、
+  branch patch、HTTP failure、mixed authority、duplicate reply 与 detached
+  recovery。
+- `g12_reply_thread_interaction_test` 为 `3/3`，证明读-only G12 无伪造
+  Persist barrier，terminal batch 只有完整 Frame，late/duplicate 与恢复均由
+  Helix correlation/projector 决定。
+- `read_relay_test` 为 `11/11`；原本期待 raw `im:read:result` /
+  `im:channel:replies` 的 stale snapshot 回归已改为只接受
+  `im:interaction:frame`，迟到旧 authority 为零输出。
+- 生产链现为 `OutboundReplies -> normalize authority ->
+  project_reply_thread_frame`：`im_get_replies` 首次产生 revision 1
+  `threadDetailSnapshot`，attached `im_get_reply_branch` 产生
+  baseRevision 1 / revision 2 的完整 `threadDetailPatch`。HTTP/error/mixed
+  authority 不产生空成功 Frame；detached branch 保持 view-silent，后续
+  snapshot 恢复。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

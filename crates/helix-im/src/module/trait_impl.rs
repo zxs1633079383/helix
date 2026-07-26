@@ -197,14 +197,21 @@ impl Module for ImModule {
                             } else if name == "im_user_candidates" {
                                 CorrelationContext::OutboundContactCandidates { req_id }
                             } else if name == "im_get_replies" || name == "im_get_reply_branch" {
-                                // S8：回复族 → 双 emit（im:read:result 冻结 + im:channel:replies render-ready）。
-                                let request = crate::render_ready_replies::ReplyProjectionRequest::from_command(
-                                    name,
-                                    cmd.payload.as_ref(),
-                                    corr.raw(),
-                                    self.config.auth_user_id.as_str(),
-                                )
-                                .expect("reply command with req_id must build projection request");
+                                // G12 回复族冻结请求语义，PortReply 只生成 typed thread Frame。
+                                let request =
+                                    crate::render_ready_replies::ReplyProjectionRequest::from_command(
+                                        name,
+                                        cmd.payload.as_ref(),
+                                        corr.raw(),
+                                        self.config.auth_user_id.as_str(),
+                                    )
+                                    .ok_or_else(|| CoreError::ModuleError {
+                                        module: self.name(),
+                                        source: Box::new(crate::ImError::Parse(
+                                            "reply command requires a valid req_id and payload"
+                                                .to_string(),
+                                        )),
+                                    })?;
                                 if request.mode
                                     == crate::render_ready_replies::ReplyProjectionMode::Snapshot
                                     && !request.root_hint.is_empty()

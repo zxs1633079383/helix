@@ -615,21 +615,23 @@ impl ImModule {
                 crate::port_reply_emit::emit_contact_candidates(&req_id, outcome, out);
             }
 
-            // S8 回复族（UC-2.4·issue #57·终局切）：getReplies/getReplyBranch HTTP 回报 → **双 emit**。
-            // Ok → 剥信封得裸响应体 → emit `im:read:result{req_id, body}`（冻结 verbatim ② 契约面照旧）
-            //   + emit `im:channel:replies`（显式 snapshot/append + revision + 分页元数据）。
-            // 信封畸形 / Err → emit `im:read:result{req_id, error}` + emit 空 replyIds（前端 reject·清抽屉）。
+            // G12 回复族只发布完整 `message.thread-detail` Frame；HTTP/raw reply 不再是渲染合同。
             CorrelationContext::OutboundReplies { request } => {
-                let projection = crate::port_reply_emit::emit_replies(
+                let projection = crate::port_reply_emit::normalize_replies(
                     &request,
                     outcome,
                     &mut self.state.reply_projection_revisions,
                     &mut self.state.reply_projection_seen_ids,
-                    out,
                 );
-                if request.mode == crate::render_ready_replies::ReplyProjectionMode::Append {
-                    if let Some(projection) = projection {
-                        self.append_thread_branch_frame(&request.req_id, projection, out)?;
+                if let Some(projection) = projection {
+                    if let Err(error) =
+                        self.project_reply_thread_frame(&request.req_id, projection, out)
+                    {
+                        tracing::warn!(
+                            req_id = request.req_id,
+                            error = ?error,
+                            "reply authority did not produce a valid thread Frame"
+                        );
                     }
                 }
             }

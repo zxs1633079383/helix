@@ -65,63 +65,90 @@ impl SurfaceResyncRequest {
 }
 
 impl ImModule {
-    pub(crate) fn append_thread_branch_frame(
+    /// 将已校验的 G12 authority 投影为 snapshot 或 attached-thread patch。
+    pub(crate) fn project_reply_thread_frame(
         &mut self,
         request_id: &str,
         projection: crate::render_ready_replies::FlatReplyProjection,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let Some(expected_revision) = self.state.thread_detail_projector.current_revision(
-            projection.channel_id.as_str(),
-            projection.root_message_id.as_str(),
-        ) else {
-            return Ok(());
-        };
         let surface_epoch = self.action_surface_epoch()?;
-        let mut sequence = 0u64;
-        let mut replies = Vec::with_capacity(projection.nodes.len());
-        for row in &projection.nodes {
-            let id = text(row, &["msgId", "id"]);
-            if id.is_empty() || id == projection.root_message_id {
-                continue;
-            }
-            replies.push(
-                crate::projector::timeline::message_from_render_ready(
-                    row,
+        let mutation = match projection.projection_mode {
+            crate::render_ready_replies::ReplyProjectionMode::Snapshot => {
+                let view = thread_detail_view(
                     projection.channel_id.as_str(),
+                    projection.root_message_id.as_str(),
+                    projection.nodes,
+                    projection.reply_ids,
+                    projection.reply_count,
+                    projection.has_more,
                     surface_epoch,
-                    true,
-                    || {
-                        sequence = sequence.saturating_add(1);
-                        Ok(format!("disabled-thread-branch-{sequence}"))
-                    },
-                )
-                .map_err(|error| ImError::Parse(format!("thread branch projection: {error}")))?,
-            );
-        }
-        if replies.is_empty() {
-            return Ok(());
-        }
-        let mutation = self
-            .state
-            .thread_detail_projector
-            .append(
-                projection.channel_id.as_str(),
-                projection.root_message_id.as_str(),
-                expected_revision,
-                replies,
-                projection.reply_count as u32,
-                WindowPageVm {
-                    window_token: format!("thread:{}", projection.root_message_id),
-                    has_older: projection.has_more,
-                    has_newer: false,
-                    has_more: projection.has_more,
-                },
-                Some(request_id.to_string()),
-            )
-            .map_err(|error| ImError::Parse(format!("thread branch append: {error}")))?;
+                )?;
+                let mut mutation = self
+                    .state
+                    .thread_detail_projector
+                    .snapshot(view)
+                    .map_err(|error| ImError::Parse(format!("thread projection: {error}")))?;
+                mutation.causation_id = Some(request_id.to_string());
+                mutation
+            }
+            crate::render_ready_replies::ReplyProjectionMode::Append => {
+                let Some(expected_revision) = self.state.thread_detail_projector.current_revision(
+                    projection.channel_id.as_str(),
+                    projection.root_message_id.as_str(),
+                ) else {
+                    return Ok(());
+                };
+                let mut sequence = 0u64;
+                let mut replies = Vec::with_capacity(projection.nodes.len());
+                for row in &projection.nodes {
+                    let id = text(row, &["msgId", "id"]);
+                    if id.is_empty() || id == projection.root_message_id {
+                        continue;
+                    }
+                    replies.push(
+                        crate::projector::timeline::message_from_render_ready(
+                            row,
+                            projection.channel_id.as_str(),
+                            surface_epoch,
+                            true,
+                            || {
+                                sequence = sequence.saturating_add(1);
+                                Ok(format!("disabled-thread-branch-{sequence}"))
+                            },
+                        )
+                        .map_err(|error| {
+                            ImError::Parse(format!("thread branch projection: {error}"))
+                        })?,
+                    );
+                }
+                if replies.is_empty() {
+                    return Ok(());
+                }
+                self.state
+                    .thread_detail_projector
+                    .append(
+                        projection.channel_id.as_str(),
+                        projection.root_message_id.as_str(),
+                        expected_revision,
+                        replies,
+                        projection.reply_count as u32,
+                        WindowPageVm {
+                            window_token: format!("thread:{}", projection.root_message_id),
+                            has_older: projection.has_more,
+                            has_newer: false,
+                            has_more: projection.has_more,
+                        },
+                        Some(request_id.to_string()),
+                    )
+                    .map_err(|error| ImError::Parse(format!("thread branch append: {error}")))?
+            }
+        };
         out.push(frame_for_mutation(
-            "thread-branch",
+            match projection.projection_mode {
+                crate::render_ready_replies::ReplyProjectionMode::Snapshot => "thread-snapshot",
+                crate::render_ready_replies::ReplyProjectionMode::Append => "thread-branch",
+            },
             self.action_surface_epoch()?,
             mutation,
         )?);
@@ -620,26 +647,11 @@ impl ImModule {
                 "thread authority channel does not match scope".to_string(),
             ));
         }
-        let view = thread_detail_view(
-            channel_id,
-            root_message_id,
-            projection.nodes,
-            projection.reply_ids,
-            projection.reply_count,
-            projection.has_more,
-            self.action_surface_epoch()?,
-        )?;
-        let mutation = self
-            .state
-            .thread_detail_projector
-            .snapshot(view)
-            .map_err(|error| ImError::Parse(format!("thread projection: {error}")))?;
-        out.push(frame_for_mutation(
-            "surface-thread",
-            self.action_surface_epoch()?,
-            mutation,
-        )?);
-        Ok(())
+        self.project_reply_thread_frame(
+            request.causation_id.as_deref().unwrap_or("surface-thread"),
+            projection,
+            out,
+        )
     }
 
     /// 将 receipt authority 回包投影成对应 kind 的完整 typed snapshot。

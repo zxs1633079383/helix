@@ -334,15 +334,20 @@ fn members_by_ids_emits_authoritative_snapshot_projection() {
     assert_eq!(members["data"]["channelId"], channel_id);
 }
 
+/// 证明 G12 新快照只产 Frame，迟到旧 authority 不再泄漏 raw read/reply event。
 #[test]
-fn stale_reply_snapshot_only_emits_correlated_read_result() {
+fn stale_reply_snapshot_is_suppressed_after_latest_frame() {
     let mut h = Harness::new(&[]);
+    let channel_id = cid(31);
+    let root_id = cid(32);
+    let latest_reply_id = cid(33);
+    let stale_reply_id = cid(34);
     h.step(
         outbound_cmd(
             "im_get_replies",
             serde_json::json!({
-                "reply_id":"root",
-                "channel_id":"c1",
+                "reply_id":root_id,
+                "channel_id":channel_id,
                 "req_id":"old"
             }),
         ),
@@ -353,8 +358,8 @@ fn stale_reply_snapshot_only_emits_correlated_read_result() {
         outbound_cmd(
             "im_get_replies",
             serde_json::json!({
-                "reply_id":"root",
-                "channel_id":"c1",
+                "reply_id":root_id,
+                "channel_id":channel_id,
                 "req_id":"new"
             }),
         ),
@@ -363,27 +368,62 @@ fn stale_reply_snapshot_only_emits_correlated_read_result() {
     let new_corr = http_corr(&h.sink).unwrap();
 
     let latest = bytes::Bytes::from(
-        br#"{"data":{"rootPost":{"id":"root","channelId":"c1"},"replies":[{"id":"r2","channelId":"c1","replyRootId":"root"}]}}"#.to_vec(),
+        serde_json::to_vec(&serde_json::json!({
+            "data": {
+                "rootPost": {
+                    "id": root_id,
+                    "channelId": channel_id,
+                    "userId": "viewer",
+                    "type": "TEXT",
+                    "message": "root"
+                },
+                "replies": [{
+                    "id": latest_reply_id,
+                    "channelId": channel_id,
+                    "userId": "viewer",
+                    "type": "TEXT",
+                    "message": "latest",
+                    "replyRootId": root_id
+                }]
+            }
+        }))
+        .expect("latest G12 authority serializes"),
     );
     h.step(port_reply_with_body(new_corr, enveloped(latest)), 1002);
     let latest_emits = emit_jsons(&h.sink);
-    assert_eq!(latest_emits.len(), 2);
-    assert_eq!(latest_emits[1]["event"], "im:channel:replies");
-    assert_eq!(latest_emits[1]["data"]["projectionMode"], "snapshot");
-    assert_eq!(latest_emits[1]["data"]["revision"], new_corr);
+    assert_eq!(latest_emits.len(), 1);
+    assert_eq!(latest_emits[0]["event"], "im:interaction:frame");
+    assert_eq!(latest_emits[0]["data"]["causationId"], "new");
+    assert_eq!(
+        latest_emits[0]["data"]["mutations"][0]["mutation"]["kind"],
+        "threadDetailSnapshot"
+    );
 
     let stale = bytes::Bytes::from(
-        br#"{"data":{"rootPost":{"id":"root","channelId":"c1"},"replies":[{"id":"r1","channelId":"c1","replyRootId":"root"}]}}"#.to_vec(),
+        serde_json::to_vec(&serde_json::json!({
+            "data": {
+                "rootPost": {
+                    "id": root_id,
+                    "channelId": channel_id,
+                    "userId": "viewer",
+                    "type": "TEXT",
+                    "message": "root"
+                },
+                "replies": [{
+                    "id": stale_reply_id,
+                    "channelId": channel_id,
+                    "userId": "viewer",
+                    "type": "TEXT",
+                    "message": "stale",
+                    "replyRootId": root_id
+                }]
+            }
+        }))
+        .expect("stale G12 authority serializes"),
     );
     h.step(port_reply_with_body(old_corr, enveloped(stale)), 1003);
     let stale_emits = emit_jsons(&h.sink);
-    assert_eq!(
-        stale_emits.len(),
-        1,
-        "旧 revision 只保留 req_id 对应的 read result"
-    );
-    assert_eq!(stale_emits[0]["event"], "im:read:result");
-    assert_eq!(stale_emits[0]["data"]["req_id"], "old");
+    assert!(stale_emits.is_empty(), "旧 revision 不得输出任何渲染事件");
 }
 
 // ─── is_read 注册表覆盖（读族标注正确性，防漂移）──────────────────────────────────

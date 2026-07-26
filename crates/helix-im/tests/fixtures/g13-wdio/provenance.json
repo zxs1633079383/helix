@@ -81,7 +81,7 @@
     ],
     "placeholderValues": {
       "actorId": "g13-wdio-actor",
-      "baseRevision": 0,
+      "baseRevision": null,
       "channelId": "chfixx0000000000000000001d",
       "createdAt": 1700001400000,
       "groupName": "G13 Fixture Group",
@@ -189,7 +189,7 @@
     ],
     "placeholderValues": {
       "actorId": "g13-wdio-actor",
-      "baseRevision": 0,
+      "baseRevision": null,
       "channelId": "chfixx0000000000000000001d",
       "createdAt": 1700001400000,
       "groupName": "G13 Fixture Group",

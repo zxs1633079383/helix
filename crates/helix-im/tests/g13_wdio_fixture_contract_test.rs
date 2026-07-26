@@ -170,7 +170,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "transactionId": case.frame.transaction_id,
             "surfaceEpoch": first_mutation.surface_epoch,
             "revision": first_mutation.mutation.revision,
-            "baseRevision": first_mutation.mutation.base_revision.unwrap_or(0)
+            "baseRevision": first_mutation.mutation.base_revision
         }
     })
 }

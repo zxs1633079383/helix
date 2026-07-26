@@ -19,7 +19,7 @@ use scenario::{
     REQUEST_ID, TEAM_ID,
 };
 
-const HELIX_COMMIT: &str = "73568e32ace2c9a90cc91728f77a077f52079cca";
+const HELIX_COMMIT: &str = "cd48e148d78aeb96f879788769c9740b4344255e";
 const GENERATED_AT: &str = "2026-07-26T08:20:05-07:00";
 const PRODUCER: &str =
     "G15aScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";

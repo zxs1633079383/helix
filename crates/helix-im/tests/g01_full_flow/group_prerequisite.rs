@@ -58,11 +58,18 @@ fn create_group_authority_precedes_first_g01_send() {
         ),
         CREATED_AT as u64 - 9,
     );
+    assert!(
+        replay.frames().is_empty(),
+        "create authority cannot publish before its durable barrier"
+    );
+    let create_persist = replay.only_persist_atomic_corr_with(|ops| {
+        has_table_write(ops, "channel") && has_table_write(ops, "channel_member")
+    });
     let created_tables = replay
         .effects()
         .iter()
         .flat_map(|effect| match effect {
-            Effect::Persist { ops, .. } | Effect::PersistFire { ops } => ops.as_slice(),
+            Effect::PersistAtomic { corr, ops } if *corr == create_persist => ops.as_slice(),
             _ => &[],
         })
         .filter_map(|op| match op {
@@ -75,10 +82,16 @@ fn create_group_authority_precedes_first_g01_send() {
         created_tables.contains("channel") && created_tables.contains("channel_member"),
         "authoritative create response must persist channel and membership facts; tables={created_tables:?}"
     );
-    let created = replay
-        .event("im:channel:created")
-        .expect("created projection");
-    assert_eq!(created["data"]["channelId"], CHANNEL_ID);
+    replay.step(
+        ok(create_persist, bytes::Bytes::new()),
+        CREATED_AT as u64 - 8,
+    );
+    assert!(
+        replay.event("im:channel:created").is_none(),
+        "G-15a completion cannot expose the retired raw created event"
+    );
+    assert_frame_surface(&replay, "message.channel-summary");
+    assert_frame_surface(&replay, "message.member-roster");
 
     attach_timeline(&mut replay);
     replay.step(

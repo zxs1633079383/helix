@@ -207,6 +207,10 @@ pub struct ImState {
     pub(crate) committed_schedule_revisions: BTreeMap<ChannelId, u64>,
     pub(crate) inflight_schedule_revisions: BTreeMap<ChannelId, u64>,
 
+    /// G-15a 创建权威的提交账本；区分在途与已提交以允许失败重放并抑制 HTTP/WS 竞态。
+    pub(crate) inflight_channel_creates: HashSet<ChannelId>,
+    pub(crate) committed_channel_creates: HashSet<ChannelId>,
+
     /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
     /// 直接交给 renderer 推导。
     pub(crate) participant_receipts_projector:
@@ -288,6 +292,8 @@ impl ImState {
             pending_schedule_cancel_requests: BTreeMap::new(),
             committed_schedule_revisions: BTreeMap::new(),
             inflight_schedule_revisions: BTreeMap::new(),
+            inflight_channel_creates: HashSet::new(),
+            committed_channel_creates: HashSet::new(),
             participant_receipts_projector:
                 crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             committed_post_reads: BTreeMap::new(),
@@ -365,6 +371,7 @@ impl ImState {
         self.pending_schedule_requests.clear();
         self.pending_schedule_cancel_requests.clear();
         self.inflight_schedule_revisions.clear();
+        self.inflight_channel_creates.clear();
     }
 
     /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与
@@ -376,6 +383,7 @@ impl ImState {
         // in-memory aggregates as a locally trusted snapshot.
         self.channels.clear();
         self.committed_schedule_revisions.clear();
+        self.committed_channel_creates.clear();
         self.committed_post_reads.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
@@ -398,6 +406,8 @@ impl ImState {
                     | CorrelationContext::SurfaceThreadSnapshot { .. }
                     | CorrelationContext::SurfaceReceiptSnapshot { .. }
                     | CorrelationContext::PostReadPersist { .. }
+                    | CorrelationContext::OutboundChannelCreate { .. }
+                    | CorrelationContext::ChannelCreatePersist { .. }
             )
         });
     }

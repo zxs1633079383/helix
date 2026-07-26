@@ -65,6 +65,56 @@ impl SurfaceResyncRequest {
 }
 
 impl ImModule {
+    /// 将已提交的新频道权威事实组成一个 summary+roster 原子 InteractionFrame。
+    pub(crate) fn project_created_channel_frame(
+        &mut self,
+        channel_id: ChannelId,
+        channel: &Value,
+        member_rows: &[Value],
+        causation_id: Option<String>,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let surface_epoch = self.action_surface_epoch()?;
+        let viewer_role = self
+            .state
+            .viewer_channel_roles
+            .get(&channel_id)
+            .map(String::as_str);
+        let summary = channel_summary_view(
+            channel_id.as_str(),
+            Some(channel),
+            viewer_role,
+            self.config.auth_user_id.as_str(),
+            surface_epoch,
+        );
+        let roster = member_roster_view(channel_id.as_str(), "created", member_rows, surface_epoch);
+        let mut summary_mutation = self
+            .state
+            .channel_summary_projector
+            .snapshot(summary)
+            .map_err(|error| ImError::Parse(format!("created channel summary: {error}")))?;
+        summary_mutation.causation_id = causation_id.clone();
+        let mut roster_mutation = self
+            .state
+            .member_roster_projector
+            .snapshot(roster)
+            .map_err(|error| ImError::Parse(format!("created member roster: {error}")))?;
+        roster_mutation.causation_id = causation_id.clone();
+        self.register_channel_summary_action_bindings(&summary_mutation, now_ms)?;
+        let frame = crate::projector::build_online_interaction_frame(
+            format!("channel-created-{}", channel_id.as_str()),
+            surface_epoch,
+            vec![summary_mutation, roster_mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        out.push(
+            crate::projector::emit_interaction_frame(frame)
+                .map_err(|error| ImError::Serialize(error.to_string()))?,
+        );
+        Ok(())
+    }
+
     /// G14 durable authority 到达后，仅为当前已 attach 的 read receipt slot 启动权威重取。
     pub(crate) fn refresh_attached_read_receipts(
         &mut self,
@@ -757,7 +807,7 @@ fn storage_rows(outcome: &PortOutcome) -> Vec<Value> {
 }
 
 /// 从 channel read model 构造 viewer-scoped 摘要，正文权限只在 Helix 判定。
-fn channel_summary_view(
+pub(crate) fn channel_summary_view(
     channel_id: &str,
     row: Option<&Value>,
     viewer_role: Option<&str>,
@@ -777,8 +827,7 @@ fn channel_summary_view(
     let can_manage = matches!(role, ChannelRole::Owner | ChannelRole::Admin);
     let can_close = matches!(role, ChannelRole::Owner);
     let can_leave = !matches!(role, ChannelRole::Owner);
-    let has_scheduled_message =
-        integer(row, &["has_schedule_post", "hasSchedulePost"]) > 0;
+    let has_scheduled_message = integer(row, &["has_schedule_post", "hasSchedulePost"]) > 0;
     let schedule_owner_user_id =
         optional_text(row, &["schedule_owner_user_id", "scheduleOwnerUserId"]);
     let owns_schedule = schedule_owner_user_id
@@ -788,15 +837,9 @@ fn channel_summary_view(
         .then(|| optional_text(row, &["schedule_message", "scheduleMessage"]))
         .flatten();
     let schedule_message_preview = owns_schedule
-        .then(|| {
-            optional_text(
-                row,
-                &["schedule_message_preview", "scheduleMessagePreview"],
-            )
-        })
+        .then(|| optional_text(row, &["schedule_message_preview", "scheduleMessagePreview"]))
         .flatten();
-    let schedule_revision =
-        nonnegative_u64(row, &["schedule_revision", "scheduleRevision"]);
+    let schedule_revision = nonnegative_u64(row, &["schedule_revision", "scheduleRevision"]);
     let schedule_send_at = integer(row, &["schedule_send_at", "scheduleSendAt"]);
     let schedule_send_at = (schedule_send_at > 0).then_some(schedule_send_at);
     let mut actions = vec![
@@ -843,7 +886,7 @@ fn channel_summary_view(
     }
 }
 
-fn member_roster_view(
+pub(crate) fn member_roster_view(
     channel_id: &str,
     cursor: &str,
     rows: &[Value],
@@ -1089,41 +1132,38 @@ mod tests {
             "role": "MEMBER"
         });
 
-        let owner =
-            channel_summary_view(
-                "ch00000000000000000000000c",
-                Some(&row),
-                Some("CREATOR"),
-                "viewer-owner",
-                1,
-            );
+        let owner = channel_summary_view(
+            "ch00000000000000000000000c",
+            Some(&row),
+            Some("CREATOR"),
+            "viewer-owner",
+            1,
+        );
 
         assert_eq!(owner.viewer_role, ChannelRole::Owner);
         assert_channel_authority(&owner, "channel-settings", 1, true);
         assert_channel_authority(&owner, "channel-close", 1, true);
         assert_channel_authority(&owner, "channel-leave", 1, false);
 
-        let admin =
-            channel_summary_view(
-                "ch00000000000000000000000c",
-                Some(&row),
-                Some("ADMIN"),
-                "viewer-admin",
-                2,
-            );
+        let admin = channel_summary_view(
+            "ch00000000000000000000000c",
+            Some(&row),
+            Some("ADMIN"),
+            "viewer-admin",
+            2,
+        );
         assert_eq!(admin.viewer_role, ChannelRole::Admin);
         assert_channel_authority(&admin, "channel-settings", 2, true);
         assert_channel_authority(&admin, "channel-close", 2, false);
         assert_channel_authority(&admin, "channel-leave", 2, true);
 
-        let member =
-            channel_summary_view(
-                "ch00000000000000000000000c",
-                Some(&row),
-                Some("MEMBER"),
-                "viewer-member",
-                3,
-            );
+        let member = channel_summary_view(
+            "ch00000000000000000000000c",
+            Some(&row),
+            Some("MEMBER"),
+            "viewer-member",
+            3,
+        );
         assert_eq!(member.viewer_role, ChannelRole::Member);
         assert_channel_authority(&member, "channel-settings", 3, false);
         assert_channel_authority(&member, "channel-close", 3, false);

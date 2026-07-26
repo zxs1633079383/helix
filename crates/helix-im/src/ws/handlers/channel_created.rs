@@ -20,10 +20,12 @@ const CHANNEL_CREATED_ACTION: &str = "channel_created";
 struct ChannelCreatedHandler;
 
 impl WsMessageHandler for ChannelCreatedHandler {
+    /// 返回新建频道 authority 的唯一 WS action。
     fn action(&self) -> &'static str {
         CHANNEL_CREATED_ACTION
     }
 
+    /// 把 channel_created 权威帧放入 G-15a 原子持久屏障。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -42,29 +44,26 @@ impl WsMessageHandler for ChannelCreatedHandler {
             return Ok(());
         };
 
-        super::channel_member_update::apply_channel_full_and_members(ctx, channel_id, data, out);
-
-        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
-            if let Some(frame) = ctx
-                .state
-                .dialog_list_frame
-                .patch_insert_channel(scope, data)
-            {
-                out.push(frame);
-            }
-        }
-
-        // 旧透传仅供未迁移消费者过渡；已挂载 frame 的客户端不会以它重建左侧列表。
-        let raw = serde_json::to_vec(data).unwrap_or_default();
-        out.push(crate::acl::to_effect_s1::emit_channel_created(
-            channel_id, &raw,
-        ));
+        let causation_id = data
+            .get("reqId")
+            .or_else(|| data.get("req_id"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        super::channel_member_update::queue_channel_create_persist(
+            ctx,
+            channel_id,
+            data.clone(),
+            causation_id,
+            out,
+        );
         Ok(())
     }
 }
 
 static CHANNEL_CREATED_HANDLER: ChannelCreatedHandler = ChannelCreatedHandler;
 #[cfg(target_arch = "wasm32")]
+/// 在 wasm inventory 不可自动发现时保留静态 handler。
 pub(super) fn inventory_link_anchor() {
     std::hint::black_box(&CHANNEL_CREATED_HANDLER);
 }

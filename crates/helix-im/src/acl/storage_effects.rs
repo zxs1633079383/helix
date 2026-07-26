@@ -141,15 +141,23 @@ pub fn upsert_channel_full(
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
     exclude_from_update: Vec<&'static str>,
 ) -> Effect {
-    let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     Effect::PersistFire {
-        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-            table: "channel",
-            rows: vec![row],
-            conflict_key: Some("id"),
-            exclude_from_update,
-        })],
+        ops: vec![upsert_channel_full_op(cols, exclude_from_update)],
     }
+}
+
+/// 返回可并入相关事务的 channel 全量 upsert。
+pub fn upsert_channel_full_op(
+    cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
+    exclude_from_update: Vec<&'static str>,
+) -> StorageOp {
+    let row: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel",
+        rows: vec![row],
+        conflict_key: Some("id"),
+        exclude_from_update,
+    })
 }
 
 /// S3 path2/3：channel 部分更新（UPDATE channel SET <cols> WHERE id=?）。

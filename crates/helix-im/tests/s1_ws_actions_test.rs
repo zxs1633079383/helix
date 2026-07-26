@@ -655,7 +655,7 @@ fn posts_update_missing_posts_array_noop_s1() {
 
 // ─── channel_created（path1 全量 upsert + 成员）──────────────────────────────
 
-/// 回归锚: S1 —— channel_created 全量 upsert channel + memberChange.join 写 channel_member + emit。
+/// 回归锚: S1 —— channel_created 原子写 channel/member，提交后只发完整 V2 Frame。
 #[test]
 fn channel_created_full_upsert_and_members_s1() {
     let mut h = Harness::new(&[]);
@@ -685,17 +685,23 @@ fn channel_created_full_upsert_and_members_s1() {
         matches!(upsert_row_value(&ops, "channel_member", "user_id"), Some(helix_core::effect::SqlValue::Text(s)) if s == "u-aaa"),
         "memberChange.join 须写 channel_member 行，ops: {ops:?}"
     );
-    assert!(emit_names(&h.sink)
+    assert!(emit_names(&h.sink).is_empty());
+    let persist = persist_atomic_corr(&h.sink);
+    h.step(port_reply_ok(persist), 1_001);
+    assert_eq!(emit_names(&h.sink), vec!["im:interaction:frame"]);
+    let frame = emit_data(&h.sink, "im:interaction:frame")
+        .pop()
+        .expect("created V2 frame");
+    let surfaces = frame["mutations"]
+        .as_array()
+        .expect("mutations")
         .iter()
-        .any(|n| n == "im:channel:created"));
-    let created = emit_data(&h.sink, "im:channel:created");
-    assert_eq!(created[0]["channelType"], "O");
-    assert_eq!(created[0]["channelKind"], "company");
-    assert_eq!(created[0]["group"], "company");
-    assert_eq!(created[0]["createdAt"], 1_700_000_000_000_i64);
-    assert_eq!(created[0]["lastActivityAt"], 1_700_000_100_000_i64);
-    assert_eq!(created[0]["top"], true);
-    assert_eq!(created[0]["projectionSource"], "channel_created");
+        .filter_map(|mutation| mutation["surface"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        surfaces,
+        std::collections::BTreeSet::from(["message.channel-summary", "message.member-roster",])
+    );
 }
 
 /// 回归锚: member-leave —— memberChange.leave → BatchDelete channel_member 删离场成员

@@ -77,6 +77,25 @@ impl Replay {
         corr
     }
 
+    /// 按 StorageOp 语义取得唯一 PersistAtomic correlation。
+    pub fn only_persist_atomic_corr_with(
+        &self,
+        predicate: impl Fn(&[StorageOp]) -> bool,
+    ) -> Correlation {
+        let mut matches = self.effects().iter().filter_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops } if predicate(ops) => Some(*corr),
+            _ => None,
+        });
+        let corr = matches
+            .next()
+            .expect("expected one matching PersistAtomic effect");
+        assert!(
+            matches.next().is_none(),
+            "PersistAtomic correlation must be causally unambiguous"
+        );
+        corr
+    }
+
     /// 从当前 Effect 批次提取指定 Helix 事件信封。
     pub fn event(&self, name: &str) -> Option<Value> {
         self.effects().iter().find_map(|effect| {

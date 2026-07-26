@@ -13,7 +13,7 @@
 //! 物理删离场行（与 `increment_channel.rs:69` 同口径）。注：helix 成员是 **upsert（非 replace）**，
 //! 离场行只能靠此显式 BatchDelete 清除，不会被后续全量帧覆盖掉——故必须走删除路径。
 
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
 use crate::state::{ChannelId, Seq};
@@ -88,6 +88,66 @@ pub(crate) fn apply_channel_full_and_members(
     data: &serde_json::Value,
     out: &mut EffectSink,
 ) {
+    for op in channel_full_and_member_ops(ctx, channel_id, data) {
+        out.push(Effect::PersistFire { ops: vec![op] });
+    }
+}
+
+/// 为 G-15a 合并 HTTP/WS authority，单一 PersistAtomic 成功前不发布任何终态 Frame。
+pub(crate) fn queue_channel_create_persist(
+    ctx: &mut ImWsContext<'_>,
+    channel_id: ChannelId,
+    mut channel: serde_json::Value,
+    causation_id: Option<String>,
+    out: &mut EffectSink,
+) {
+    if ctx.state.committed_channel_creates.contains(&channel_id)
+        || ctx.state.inflight_channel_creates.contains(&channel_id)
+    {
+        return;
+    }
+    let member_rows = crate::channel_write::collect_members(&channel)
+        .into_iter()
+        .map(|member| {
+            serde_json::json!({
+                "channel_id": channel_id.as_str(),
+                "user_id": member.user_id,
+                "team_id": member.team_id,
+                "role": member.role,
+                "nick_name": member.nick_name,
+            })
+        })
+        .collect::<Vec<_>>();
+    if let Some(object) = channel.as_object_mut() {
+        object.insert(
+            "memberCount".to_string(),
+            serde_json::Value::from(member_rows.len() as u64),
+        );
+    }
+    let ops = channel_full_and_member_ops(ctx, channel_id, &channel);
+    if ops.is_empty() {
+        return;
+    }
+    let corr = ctx.alloc_corr();
+    ctx.state.inflight_channel_creates.insert(channel_id);
+    ctx.state.corr_map.insert(
+        corr,
+        crate::state::CorrelationContext::ChannelCreatePersist {
+            channel_id,
+            channel: Box::new(channel),
+            member_rows,
+            causation_id,
+        },
+    );
+    out.push(Effect::PersistAtomic { corr, ops });
+}
+
+/// 将 channel 与 roster 权威事实编译为可原子提交的 StorageOp 批次。
+fn channel_full_and_member_ops(
+    ctx: &mut ImWsContext<'_>,
+    channel_id: ChannelId,
+    data: &serde_json::Value,
+) -> Vec<helix_core::effect::StorageOp> {
     crate::channel_capabilities::remember_viewer_role(
         ctx.state,
         channel_id,
@@ -125,28 +185,31 @@ pub(crate) fn apply_channel_full_and_members(
     }
 
     // path1 全 54 列 upsert（user_id 写 host 注入真身份 ctx.auth_user_id；now_ms host 经 Clock 注入）。
+    let mut ops = Vec::new();
     if let Some((cols, exclude)) =
         crate::channel_write::program_full(data, ctx.auth_user_id, ctx.now_ms)
     {
-        out.push(crate::acl::to_effect::upsert_channel_full(cols, exclude));
+        ops.push(crate::acl::to_effect::upsert_channel_full_op(cols, exclude));
     }
 
     // 四源（members/adminUsers/boss/owner）+ memberChange.join → channel_member 行（复合 PK upsert）。
     // 与 increment_channel / channel_created 三路径同口径（`channel_write::collect_members`）。
     let members = crate::channel_write::collect_members(data);
-    if let Some(eff) = crate::acl::to_effect_s1::upsert_channel_members(channel_id, members) {
-        out.push(eff);
+    if let Some(op) = crate::acl::to_effect_s1::upsert_channel_members_op(channel_id, members) {
+        ops.push(op);
     }
 
     // memberChange.leave → 从 channel_member 删离场成员（复合 PK 作用域删，scope=channel_id 不跨群）。
     let leaves = crate::channel_write::collect_member_leaves(data);
-    if let Some(eff) = crate::acl::to_effect_s1::delete_channel_members(channel_id, leaves) {
-        out.push(eff);
+    if let Some(op) = crate::acl::to_effect_s1::delete_channel_members_op(channel_id, leaves) {
+        ops.push(op);
     }
+    ops
 }
 
 static CHANNEL_MEMBER_UPDATE_HANDLER: ChannelMemberUpdateHandler = ChannelMemberUpdateHandler;
 #[cfg(target_arch = "wasm32")]
+/// 在 wasm inventory 不可自动发现时保留静态 handler。
 pub(super) fn inventory_link_anchor() {
     std::hint::black_box(&CHANNEL_MEMBER_UPDATE_HANDLER);
 }

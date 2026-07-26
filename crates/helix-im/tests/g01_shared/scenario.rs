@@ -1278,11 +1278,20 @@ impl G01ScenarioRunner {
             ),
             self.spec.created_at as u64 - 9,
         );
+        assert!(
+            self.frames().is_empty(),
+            "create authority cannot publish dialog or typed surfaces before PersistAtomic"
+        );
+        let create_persist_corr = self.only_persist_atomic_corr_with(|ops| {
+            has_table_write(ops, "channel") && has_table_write(ops, "channel_member")
+        });
         let persisted_tables = self
             .effects()
             .iter()
             .filter_map(|effect| match effect {
-                Effect::PersistFire { ops } => Some(ops.as_slice()),
+                Effect::PersistAtomic { corr, ops } if *corr == create_persist_corr => {
+                    Some(ops.as_slice())
+                }
                 _ => None,
             })
             .flatten()
@@ -1296,21 +1305,36 @@ impl G01ScenarioRunner {
             persisted_tables.contains("channel") && persisted_tables.contains("channel_member"),
             "authoritative create reply must persist channel and member facts"
         );
+        self.step(
+            ok(create_persist_corr, Bytes::new()),
+            self.spec.created_at as u64 - 8,
+        );
         assert!(
-            self.effects().iter().any(|effect| {
+            self.effects().iter().all(|effect| {
                 let Effect::Emit { event } = effect else {
-                    return false;
+                    return true;
                 };
                 serde_json::from_slice::<Value>(event.0.as_ref())
                     .ok()
-                    .is_some_and(|envelope| {
-                        envelope["event"] == "im:channel:created"
-                            && envelope["data"]["channelId"] == self.spec.channel_id
-                    })
+                    .is_none_or(|envelope| envelope["event"] == "im:interaction:frame")
             }),
-            "authoritative create reply must publish the created channel identity"
+            "create completion must publish only InteractionFrame V2"
         );
-        self.only_frame()
+        let frames = self.frames();
+        assert_eq!(
+            frames.len(),
+            2,
+            "create commit publishes prerequisite dialog and atomic summary/roster Frame"
+        );
+        frames
+            .into_iter()
+            .find(|frame| {
+                frame
+                    .mutations
+                    .iter()
+                    .any(|mutation| mutation.mutation.surface == SurfaceId::MessageLeftDialogList)
+            })
+            .expect("create commit includes the reusable dialog prerequisite Frame")
     }
 
     /// 通过生产 local-first query 挂载一条可撤回或已撤回 timeline row。

@@ -247,7 +247,18 @@ pub enum CorrelationContext {
     /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member
     /// 并发同一 render-ready `im:channel:created`，避免前端退回全量 dialog scan。
-    OutboundChannelCreate { members: Vec<serde_json::Value> },
+    OutboundChannelCreate {
+        members: Vec<serde_json::Value>,
+        request_id: Option<String>,
+    },
+
+    /// G-15a channel/member 权威事实原子提交后才允许发布 dialog 与 typed create Frame。
+    ChannelCreatePersist {
+        channel_id: ChannelId,
+        channel: Box<serde_json::Value>,
+        member_rows: Vec<serde_json::Value>,
+        causation_id: Option<String>,
+    },
 
     /// G-15 makeTopic HTTP 回包：仅在服务端确认 root/topic 关联后进入本地持久屏障。
     OutboundMakeTopic {

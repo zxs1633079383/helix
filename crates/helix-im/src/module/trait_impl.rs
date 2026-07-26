@@ -318,6 +318,11 @@ impl Module for ImModule {
                         if let Ok(args) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
                         {
+                            let request_id = args
+                                .get("req_id")
+                                .and_then(serde_json::Value::as_str)
+                                .filter(|value| !value.is_empty())
+                                .map(str::to_string);
                             if let Some(members) = args
                                 .get("user_ids")
                                 .and_then(serde_json::Value::as_array)
@@ -332,7 +337,10 @@ impl Module for ImModule {
                             {
                                 self.state.corr_map.insert(
                                     corr,
-                                    CorrelationContext::OutboundChannelCreate { members },
+                                    CorrelationContext::OutboundChannelCreate {
+                                        members,
+                                        request_id,
+                                    },
                                 );
                             }
                         }

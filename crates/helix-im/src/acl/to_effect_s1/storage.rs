@@ -34,6 +34,16 @@ pub struct MemberRow {
 /// 由 driver ambient 时钟写穿——本工厂只产协议字段列；缺省靠表 DEFAULT。
 /// 空成员集 → None（无写意图）。复杂度 O(rows)（逐行单 upsert，每行 O(1)）。
 pub fn upsert_channel_members(channel_id: ChannelId, members: Vec<MemberRow>) -> Option<Effect> {
+    Some(Effect::PersistFire {
+        ops: vec![upsert_channel_members_op(channel_id, members)?],
+    })
+}
+
+/// 返回可并入相关事务的成员批量 upsert，空 roster 保持 no-op。
+pub fn upsert_channel_members_op(
+    channel_id: ChannelId,
+    members: Vec<MemberRow>,
+) -> Option<StorageOp> {
     if members.is_empty() {
         return None;
     }
@@ -50,14 +60,12 @@ pub fn upsert_channel_members(channel_id: ChannelId, members: Vec<MemberRow>) ->
             ]
         })
         .collect();
-    Some(Effect::PersistFire {
-        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-            table: "channel_member",
-            rows,
-            conflict_key: Some("channel_id,user_id"),
-            exclude_from_update: Vec::new(),
-        })],
-    })
+    Some(StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_member",
+        rows,
+        conflict_key: Some("channel_id,user_id"),
+        exclude_from_update: Vec::new(),
+    }))
 }
 
 /// `memberChange.leave` 的成员离场批量删行（`DELETE FROM channel_member WHERE channel_id=?
@@ -67,18 +75,26 @@ pub fn upsert_channel_members(channel_id: ChannelId, members: Vec<MemberRow>) ->
 /// 下这些成员。scope=channel_id 作用域约束**绝不跨 channel 误删**（复合 PK 第一段）。
 /// 空 leaver 集 → None（无删意图）。复杂度 O(k) 单语句。
 pub fn delete_channel_members(channel_id: ChannelId, user_ids: Vec<String>) -> Option<Effect> {
+    Some(Effect::PersistFire {
+        ops: vec![delete_channel_members_op(channel_id, user_ids)?],
+    })
+}
+
+/// 返回可并入相关事务的 scoped 成员删除，空离场集保持 no-op。
+pub fn delete_channel_members_op(
+    channel_id: ChannelId,
+    user_ids: Vec<String>,
+) -> Option<StorageOp> {
     if user_ids.is_empty() {
         return None;
     }
-    Some(Effect::PersistFire {
-        ops: vec![StorageOp::BatchDelete(BatchDeleteSpec {
-            table: "channel_member",
-            scope_col: "channel_id",
-            scope_val: SqlValue::Text(channel_id.as_str().to_string()),
-            key_col: "user_id",
-            key_vals: user_ids.into_iter().map(SqlValue::Text).collect(),
-        })],
-    })
+    Some(StorageOp::BatchDelete(BatchDeleteSpec {
+        table: "channel_member",
+        scope_col: "channel_id",
+        scope_val: SqlValue::Text(channel_id.as_str().to_string()),
+        key_col: "user_id",
+        key_vals: user_ids.into_iter().map(SqlValue::Text).collect(),
+    }))
 }
 
 /// `update_channel_member_nickName` 定点改昵称（写 `channel_member` 表，复合 PK，spec §S1）。

@@ -614,8 +614,29 @@ impl ImModule {
                 }
             },
 
-            CorrelationContext::OutboundChannelCreate { members } => {
-                self.handle_outbound_channel_create_reply(members, outcome, now_ms, out);
+            CorrelationContext::OutboundChannelCreate {
+                members,
+                request_id,
+            } => {
+                self.handle_outbound_channel_create_reply(
+                    members, request_id, outcome, now_ms, out,
+                );
+            }
+            CorrelationContext::ChannelCreatePersist {
+                channel_id,
+                channel,
+                member_rows,
+                causation_id,
+            } => {
+                self.handle_channel_create_persist_reply(
+                    channel_id,
+                    *channel,
+                    member_rows,
+                    causation_id,
+                    outcome,
+                    now_ms,
+                    out,
+                )?;
             }
 
             CorrelationContext::OutboundMakeTopic {

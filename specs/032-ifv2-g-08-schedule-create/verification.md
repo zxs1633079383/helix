@@ -1,5 +1,28 @@
 # Verification Procedure: G-08
 
+## Source Lock
+
+| Source | Locked value | Evidence |
+|---|---|---|
+| Helix HEAD | `4799972d96a3a0f03064587e0f091eeaf9ab72af` | `git rev-parse HEAD` |
+| cses-client HEAD | `60ad2d03173b093ccb4d8e42d34d2f6b97c31909` | `git -C .../cses-client rev-parse HEAD` |
+| Mobile HEAD | `9ab37d2a1137ebbfa7d14ab0f01533e1b847a5ff` | `git -C .../mobile-qucik-c++ rev-parse HEAD` |
+| PC Helix pin | `768dc9b3597523c6c40279e387d85e9f240fde8a` | `cses-client/src-tauri/Cargo.toml` |
+| Strict Matrix SHA-256 | `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac` | `shasum -a 256 crates/helix-im/contracts/strict-matrix.v1.json` |
+| Prerequisite | G07 `phase=closed`, `event_seq=23`, `next_action=none` | `specs/031-ifv2-g-07-urgent-message/review-ledger.json` |
+
+Source lock recorded at `2026-07-25T17:30:00-07:00`. Helix only contains the
+SpecKit-selected `.specify/feature.json` and G08 ledger transition before implementation.
+cses-client is clean. Mobile retains eight untracked Helix bundles plus
+`tests/.DS_Store`; G08 must not stage, delete, or rewrite them.
+
+## Phase 1 Verdict
+
+- **T001 PASS**: 三仓 HEAD、PC producer pin、Strict Matrix hash 与 G07 CLOSED 前置均已锁定。
+- **T002 PASS**: CURRENT/TARGET/GAP 已按当前生产源码和测试重新写入
+  [research.md](research.md)；旧 `specs/008-g08-schedule-create` 的完成标记不作为本轮证据。
+- **Stop condition**: 当前仍为 `IMPLEMENTATION_ADMITTED`，不是 Helix/PC/Mobile Green。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

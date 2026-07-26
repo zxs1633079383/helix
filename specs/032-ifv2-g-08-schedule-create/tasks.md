@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-07 review-green 到 specs/032-ifv2-g-08-schedule-create/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/tests/g08_schedule_create_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc09ScheduleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/032-ifv2-g-08-schedule-create/research.md
+- [x] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-07 review-green 到 specs/032-ifv2-g-08-schedule-create/verification.md
+- [x] T002 [P] 按 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/tests/g08_schedule_create_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc09ScheduleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/032-ifv2-g-08-schedule-create/research.md
 
 ---
 

@@ -1,0 +1,137 @@
+COMMAND: inspect checked real-chain artifact result.json and facet hashes
+{
+  "runId": "mrc-g14a-repair-1784775900-g-14a",
+  "suiteRunId": "mrc-g14a-repair-1784775900",
+  "scenarioRunId": "mrc-g14a-repair-1784775900-g-14a",
+  "gateId": "G-14a",
+  "startedAt": "2026-07-23T03:05:17.534Z",
+  "completedAt": "2026-07-23T03:05:24.351Z",
+  "result": {
+    "runtimeStatus": "pass",
+    "canonicalStatus": "green",
+    "correlations": {
+      "reqId": "mrc-g14a-repair-1784775900-g-14a-678:im_template_received:6",
+      "channelId": "ymjybxr9a3fe9m7n9akjw5qcur",
+      "messageId": "z5iup1t7cjrqzp39r9kf5chqbc",
+      "confirmUserId": "678"
+    }
+  },
+  "requiredFacets": [
+    "clientCommand",
+    "identity444Http",
+    "identity444Ws",
+    "identity678Http",
+    "identity678Ws",
+    "goRequest",
+    "goWs",
+    "goRemoteReadback",
+    "helixProjection",
+    "helixLocalReadback",
+    "clientDom",
+    "driverResult",
+    "codeReference",
+    "noMockMarker"
+  ],
+  "missingFacets": [],
+  "operationCoverage": {
+    "expectedMissing": [],
+    "negativeMissing": []
+  },
+  "operations": [
+    {
+      "operationId": "confirm-template-received",
+      "command": "im_template_received",
+      "reqId": "mrc-g14a-repair-1784775900-g-14a-678:im_template_received:6",
+      "channelId": "ymjybxr9a3fe9m7n9akjw5qcur",
+      "missingFacets": []
+    }
+  ],
+  "evidenceFacets": [
+    "clientCommand",
+    "goRequest",
+    "goWs",
+    "identity444Http",
+    "identity444Ws",
+    "identity678Http",
+    "identity678Ws",
+    "goRemoteReadback",
+    "helixProjection",
+    "helixLocalReadback",
+    "clientDom",
+    "driverResult",
+    "codeReference",
+    "noMockMarker"
+  ]
+}
+{
+  "assertionCount": 26,
+  "passed": 26,
+  "failed": 0
+}
+FACET HASH VERIFICATION:
+ef7b6359dd0b7c51a473ea7a8a4c8e4304c2b2f0eaeef52dfa7330f7f6b8dbe3  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/clientCommand.json
+542ba2078ce00a3a0719911a5b1b937e9fd1c1a5b2e51c46f22dc1c50e068aea  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/clientDom.json
+c41db58a5971d94617366aa88a609c3911ebd0d055d5f285a878b700d9c527a1  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/codeReference.json
+fe793ccce1c53a479620ff644a3f93ded8dfad987729712cab4ca653bf790576  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/driverResult.json
+16d9a2396683e951a78c6e8b5741541c957941f82d3482c3e80242e83faf46bf  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/goRemoteReadback.json
+64fe662974811178efdf214cb85941c18f67c2e790b1048bcba0d167f74db045  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/goRequest.json
+89b0cf288e42fd3873f6e4a1b1f2b04dac436788e156f4d36bfdcd488ba54f27  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/goWs.json
+d58407e4a01d60b53c6116d354bbb31744ee54a4029aa121db15d0099abc241c  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/helixLocalReadback.json
+e4b189a1c6c9b3cd89d8776f2066b993a1fcc04bc3cbd36d448473bc3ddb5427  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/helixProjection.json
+77e110cbd4d2e87ca896c0ff73fb8f500d8575d8263a4122df5eedabe062c0ee  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/identity444Http.json
+c8d0dc3c3ebcedafdba4cb42cd06385d6c830fd313c04102bede7ab15bcd239a  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/identity444Ws.json
+7bbc0fb7551ba9b20f9b4c4906f41f55080d461500f70d4d0d93cfed8d8eda78  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/identity678Http.json
+fd9891324c856c84ee2324d29746d1192c86379a99b4f211fbb5e25e72936ef4  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/identity678Ws.json
+6393c3f28211ae1febbcfd5cbf03f0b3518c4e4935bb2ab20826b3a51e9a3282  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/facets/confirm-template-received/noMockMarker.json
+RESULT HASH VERIFICATION:
+6c6970c85ca58d784476abe641d8205b670c10453a7f98aae11eb358c80e87bc  tests/e2e/.artifacts/mrc-g14a-repair-1784775900/scenarios/g-14a/result.json
+6c6970c85ca58d784476abe641d8205b670c10453a7f98aae11eb358c80e87bc  result.json
+COMMAND: yarn message:wdio:g14a:single-real
+yarn run v1.22.22
+$ node scripts/message-wdio/run-lane.mjs g14a-single-real single-real
+
+Execution of 1 workers started at 2026-07-26T14:49:26.623Z
+
+2026-07-26T14:49:26.946Z ERROR diagnostics: ❌ Tauri Driver: tauri-driver not found. Install it with: cargo install tauri-driver
+Or enable auto-installation by setting autoInstallTauriDriver: true in service options.
+[0-0] RUNNING in undefined - file:///tests/e2e/wdio/specs/g14a-single-real.e2e.ts
+[0-0] PASSED in undefined - file:///tests/e2e/wdio/specs/g14a-single-real.e2e.ts
+
+ "spec" Reporter:
+------------------------------------------------------------------
+[webkit 605.1.15 macos #0-0] Running: webkit (v605.1.15) on macos
+[webkit 605.1.15 macos #0-0] Session ID: 37e9f289-7ca0-4437-b114-717587b6af7e
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] » tests/e2e/wdio/specs/g14a-single-real.e2e.ts
+[webkit 605.1.15 macos #0-0] G14a single real-chain
+[webkit 605.1.15 macos #0-0]    ✓ confirms a real template post through the production single-session boundary
+[webkit 605.1.15 macos #0-0]
+[webkit 605.1.15 macos #0-0] 1 passing (5.9s)
+
+
+Spec Files:	 1 passed, 1 total (100% completed) in 00:00:21
+
+Done in 27.35s.
+COMMAND: yarn message:wdio:g14a:dual-real
+yarn run v1.22.22
+$ node scripts/message-wdio/run-lane.mjs g14a-dual-real dual-real
+
+Execution of 1 workers started at 2026-07-26T14:49:54.978Z
+
+[0-0] RUNNING in MultiRemote - file:///tests/e2e/wdio/specs/g14a-dual-real.e2e.ts
+[0-0] PASSED in MultiRemote - file:///tests/e2e/wdio/specs/g14a-dual-real.e2e.ts
+
+ "spec" Reporter:
+------------------------------------------------------------------
+[MultiremoteBrowser on webkit and webkit #0-0] Running: MultiremoteBrowser on webkit and webkit
+[MultiremoteBrowser on webkit and webkit #0-0]
+[MultiremoteBrowser on webkit and webkit #0-0] » tests/e2e/wdio/specs/g14a-dual-real.e2e.ts
+[MultiremoteBrowser on webkit and webkit #0-0] G14a dual-account real-chain
+[MultiremoteBrowser on webkit and webkit #0-0]    ✓ confirms Observer template through UI and converges both production consumers
+[MultiremoteBrowser on webkit and webkit #0-0]
+[MultiremoteBrowser on webkit and webkit #0-0] 1 passing (12.8s)
+
+
+Spec Files:	 1 passed, 1 total (100% completed) in 00:00:22
+
+Done in 28.45s.

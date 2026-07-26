@@ -144,6 +144,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/scope/channelId",
             "/mutations/*/scope/rootMessageId",
             "/mutations/*/scope/teamId",
+            "/mutations/*/scope/userId",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/root/id",
             "/mutations/*/mutation/view/root/channelId",
@@ -180,7 +181,12 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt",
             "/mutations/*/mutation/view/sections/*/items/*/title/text",
             "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
-            "/mutations/*/mutation/view/sections/*/items/*/avatar/fallbackText"
+            "/mutations/*/mutation/view/sections/*/items/*/avatar/fallbackText",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
+            "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/fallbackText"
         ],
         "rebaseFields": [
             "/transactionId",

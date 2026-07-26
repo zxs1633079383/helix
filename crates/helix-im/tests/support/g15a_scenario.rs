@@ -305,6 +305,13 @@ pub fn assert_created_contract(frame: &InteractionFrameV2, causation: Option<&st
         .iter()
         .find(|mutation| mutation.mutation.surface == SurfaceId::MessageMemberRoster)
         .expect("roster mutation");
+    assert_eq!(
+        roster.mutation.scope,
+        SurfaceScope::MemberRoster {
+            channel_id: CHANNEL_ID.to_string(),
+            cursor: "first".to_string()
+        }
+    );
     assert_eq!(roster.mutation.causation_id.as_deref(), causation);
     let roster_view = match &roster.mutation.mutation {
         TypedSurfaceMutation::MemberRosterSnapshot { view } => view,

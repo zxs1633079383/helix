@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "transactionId": "surface-storage-memberRoster|26:chfixx00000000000000000015|7:created-1",
+  "transactionId": "surface-storage-memberRoster|26:chfixx00000000000000000015|7:initial-1",
   "runtime": {
     "connection": "online",
     "initialSync": "ready",
@@ -12,7 +12,7 @@
       "scope": {
         "kind": "memberRoster",
         "channelId": "chfixx00000000000000000015",
-        "cursor": "created"
+        "cursor": "initial"
       },
       "revision": 1,
       "mutation": {
@@ -60,7 +60,7 @@
             }
           ],
           "page": {
-            "windowToken": "created",
+            "windowToken": "initial",
             "hasOlder": false,
             "hasNewer": false,
             "hasMore": false

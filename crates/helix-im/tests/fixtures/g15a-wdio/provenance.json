@@ -5,7 +5,7 @@
     "fixtureSha256": "7af79514d959c45dd21c74a2f2980917ae7486da7a82b15cc2d6e4a5a4a42631",
     "gateId": "G-15a",
     "generatedAt": "2026-07-26T08:20:05-07:00",
-    "helixCommit": "57d06fc173af3ac6a9f4d088be3fb2e7e87ceea0",
+    "helixCommit": "c02e20190740aaa6a3fb29632ff5068a10dd499d",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -56,7 +56,7 @@
     "fixtureSha256": "03e3b59aca0cc1148cad2cf02988ac750a2f884b33d07ba4e54c6aaec3a86845",
     "gateId": "G-15a",
     "generatedAt": "2026-07-26T08:20:05-07:00",
-    "helixCommit": "57d06fc173af3ac6a9f4d088be3fb2e7e87ceea0",
+    "helixCommit": "c02e20190740aaa6a3fb29632ff5068a10dd499d",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -103,10 +103,10 @@
   {
     "fileName": "member-roster-recovery.frame-v2.json",
     "fixtureId": "g15a-member-roster-recovery-v2",
-    "fixtureSha256": "de004b2e82a1c961b444f69e5e535ffffe18fc19dd8e9c5d911e0864eefabe08",
+    "fixtureSha256": "07059b78824f9a55186b7dd89321442559226a659ad6f3d26338f43edacabb6a",
     "gateId": "G-15a",
     "generatedAt": "2026-07-26T08:20:05-07:00",
-    "helixCommit": "57d06fc173af3ac6a9f4d088be3fb2e7e87ceea0",
+    "helixCommit": "c02e20190740aaa6a3fb29632ff5068a10dd499d",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -132,7 +132,7 @@
       "revision": 1,
       "surfaceEpoch": 1,
       "teamId": "g15a-company",
-      "transactionId": "surface-storage-memberRoster|26:chfixx00000000000000000015|7:created-1"
+      "transactionId": "surface-storage-memberRoster|26:chfixx00000000000000000015|7:initial-1"
     },
     "producer": "G15aScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [
@@ -144,7 +144,7 @@
       "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "80dc010ca0e22b04ff6a84386f926e881f94dde81fcd6c6c369670943d0d8cec",
+    "semanticSha256": "a6fc893a5ed1d4f9c8526c8fe821b2d0b12e293c4baf4dec847c6d2f44e9ff7d",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.member-roster"

@@ -263,3 +263,32 @@ surface revision。
 结论：G-13 `review-green`，总控顺序解锁 G-14；G-14 只负责
 `im_post_read`/participant receipts，不得复用 G13 的 channel、post 或
 surface revision。
+
+### T017-T021 G14 Through G16 Three-repository Review Green
+
+- 子 Feature `039` 至 `043` 的任务均为 `38/38`，review ledger 均为
+  `phase=closed`、`next_action=none`；顺序覆盖 G-14、G-14a、G-15a、
+  G-15 与 G-16。
+- 每个 Gate 的 canonical Fixture 均由 Helix 生产
+  `ImModule::handle -> Effect::Emit` 链生成；PC 与 Mobile 只机械消费
+  schemaVersion=2 Frame，不新增业务 reducer 或 raw fallback。
+- 每个 Gate 均完成 Helix full-flow/interaction/Fixture、PC
+  Mock/single-real/dual-real/report/production-boundary，以及 Mobile
+  production-linked GTest、SDK/Bridge/SurfaceRuntime、QuickJS typed view、
+  source pin 与 V1 hard-cut 验收。
+- G-16 source lock：Helix acceptance
+  `0e15c912fb062570445ba634ab7c83ff5b26d501`，Fixture producer
+  `63b7eee5d356e1af08e32cc1fb92c2a466bc7841`，cses-client
+  `aac3c1583519b9308acb7c8dd0e415fa1dfc3813`，Mobile
+  `46455d4d4e88870b75e72fdf1caa9f518eb87835`。
+- G-16 三仓五份 Fixture 与 provenance byte-exact，SHA-256 为
+  `c83b8041f35414b9b47719a78e68284576254a608a43ea551393e0d43ae9f4d2`；
+  required lanes pass=`6`、fail=`0`、skip=`0`，行为、代码边界、
+  Frame V2 与 evidence Review 全部 Green。
+- 非阻塞观察：PC dual-real 首次因 Observer SurfaceRuntime 未 ready 失败，
+  补齐真实 readiness 后独立 candidate 2/2 PASS；并发 Mobile real runner
+  期间另一个重叠 candidate 失败，原始证据已保留，未覆盖独立通过结果。
+
+结论：G-14 至 G-16 均为 `review-green`；总控 T017-T021 完成并按顺序解锁
+G-16b。G-16b 必须创建 fresh group，验证成员退出广播，不复用 G-16 的
+channel、surface revision 或本地缓存。

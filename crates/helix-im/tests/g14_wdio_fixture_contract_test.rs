@@ -184,6 +184,8 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
             "/mutations/*/scope/messageId",
+            "/mutations/*/scope/userId",
+            "/mutations/*/scope/teamId",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/messageId",
             "/mutations/*/mutation/view/completed/*/user/userId",

@@ -200,6 +200,9 @@ pub struct ImState {
     /// G08 command request 只为下一条匹配 authority Frame 提供 causation，不建立成功事实。
     pub(crate) pending_schedule_requests: BTreeMap<ChannelId, String>,
 
+    /// G09 cancel request 与 G08 create request 分槽，避免竞态时串用 causation。
+    pub(crate) pending_schedule_cancel_requests: BTreeMap<ChannelId, String>,
+
     /// 已提交与在途 schedule revision 分开保存，保证失败可重放且重复 WS 不产生双写。
     pub(crate) committed_schedule_revisions: BTreeMap<ChannelId, u64>,
     pub(crate) inflight_schedule_revisions: BTreeMap<ChannelId, u64>,
@@ -278,6 +281,7 @@ impl ImState {
             pending_authority_actions: BTreeMap::new(),
             pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger::default(),
             pending_schedule_requests: BTreeMap::new(),
+            pending_schedule_cancel_requests: BTreeMap::new(),
             committed_schedule_revisions: BTreeMap::new(),
             inflight_schedule_revisions: BTreeMap::new(),
             participant_receipts_projector:
@@ -354,6 +358,7 @@ impl ImState {
         self.pending_authority_actions.clear();
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
         self.pending_schedule_requests.clear();
+        self.pending_schedule_cancel_requests.clear();
         self.inflight_schedule_revisions.clear();
     }
 

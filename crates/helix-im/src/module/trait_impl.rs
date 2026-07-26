@@ -279,6 +279,34 @@ impl Module for ImModule {
                                 );
                             }
                         }
+                    } else if name == "im_cancel_schedule" {
+                        if let Ok(args) =
+                            serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
+                        {
+                            if let Some(channel_id) = args
+                                .get("channel_id")
+                                .and_then(serde_json::Value::as_str)
+                                .and_then(ChannelId::from_str)
+                            {
+                                let request_id = args
+                                    .get("req_id")
+                                    .and_then(serde_json::Value::as_str)
+                                    .filter(|value| !value.is_empty())
+                                    .map(str::to_string);
+                                if let Some(request_id) = request_id.as_ref() {
+                                    self.state
+                                        .pending_schedule_cancel_requests
+                                        .insert(channel_id, request_id.clone());
+                                }
+                                self.state.corr_map.insert(
+                                    corr,
+                                    CorrelationContext::OutboundScheduleCancel {
+                                        channel_id,
+                                        request_id,
+                                    },
+                                );
+                            }
+                        }
                     } else if name == "im_create_channel" {
                         if let Ok(args) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())

@@ -202,8 +202,21 @@ pub enum CorrelationContext {
         request_id: Option<String>,
     },
 
+    /// G09 HTTP 只确认 transport 结果；成功等待 WS authority，失败撤销 cancel causation。
+    OutboundScheduleCancel {
+        channel_id: ChannelId,
+        request_id: Option<String>,
+    },
+
     /// G08 schedule fact 与 channel read model 原子提交后才允许重读并发布 Frame。
     ScheduleCreatedPersist {
+        channel_id: ChannelId,
+        revision: u64,
+        causation_id: Option<String>,
+    },
+
+    /// G09 canceled fact 与 channel read model 原子提交后才允许重读并发布 Frame。
+    ScheduleCanceledPersist {
         channel_id: ChannelId,
         revision: u64,
         causation_id: Option<String>,

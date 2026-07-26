@@ -24,6 +24,7 @@ pub(crate) struct ScheduleFact {
     pub(crate) send_at: i64,
     pub(crate) status: String,
     pub(crate) revision: u64,
+    pub(crate) has_schedule_post: bool,
 }
 
 impl ScheduleFact {
@@ -95,6 +96,32 @@ impl ScheduleFact {
                 .unwrap_or("scheduled")
                 .to_string(),
             revision,
+            has_schedule_post: true,
+        })
+    }
+
+    /// 仅从合法 G09 cancel authority 构造清空正文的 durable terminal fact。
+    pub(crate) fn from_canceled_ws(
+        data: &serde_json::Value,
+        revision_fallback: Option<u64>,
+    ) -> Option<Self> {
+        let channel_id = schedule_field(data, &["channelId", "channel_id"])
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChannelId::from_str)?;
+        let revision = schedule_field(data, &["revision"])
+            .and_then(serde_json::Value::as_u64)
+            .or(revision_fallback)
+            .filter(|revision| *revision > 0)?;
+        Some(Self {
+            channel_id,
+            schedule_id: String::new(),
+            owner_user_id: String::new(),
+            message: String::new(),
+            message_preview: String::new(),
+            send_at: 0,
+            status: "canceled".to_string(),
+            revision,
+            has_schedule_post: false,
         })
     }
 
@@ -126,7 +153,10 @@ impl ScheduleFact {
             ),
         ];
         let channel_patch: Row = vec![
-            ("has_schedule_post".to_string(), SqlValue::Integer(1)),
+            (
+                "has_schedule_post".to_string(),
+                SqlValue::Integer(i64::from(self.has_schedule_post)),
+            ),
             (
                 "schedule_id".to_string(),
                 SqlValue::Text(self.schedule_id.clone()),

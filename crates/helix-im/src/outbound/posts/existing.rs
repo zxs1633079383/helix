@@ -134,7 +134,7 @@ inventory::submit! {
     }
 }
 
-/// 拒绝未冻结的 command 字段，避免平台偷偷扩张 G08 业务协议。
+/// 拒绝未冻结的 command 字段，避免平台偷偷扩张 G08/G09 业务协议。
 fn require_exact_keys(args: &Value, allowed: &[&str], cmd: &str) -> Result<(), ImError> {
     let object = args
         .as_object()
@@ -152,7 +152,9 @@ impl OutboundCommand for CancelScheduleCommand {
     fn name(&self) -> &'static str {
         "im_cancel_schedule"
     }
+    /// 将冻结后的 G09 command 转为 Go wire，req_id 只留在 Helix correlation。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(args, &["channel_id", "req_id"], self.name())?;
         let channel_id = require_str(args, "channel_id", self.name())?;
         Ok(("posts/cancelSchedule", json!({ "channelId": channel_id })))
     }

@@ -6,11 +6,9 @@
 //! wire（`SchedulePostData` types.rs:367）：`channelId`。helix：定点列 patch
 //! （`channel_set_cols`：UPDATE channel SET has_schedule_post=0 WHERE id=?）。缺 channelId → noop。
 
-use helix_core::effect::SqlValue;
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
-use crate::state::ChannelId;
 
 use super::super::{ImWsContext, WsFrame, WsHandlerRegistration, WsMessageHandler};
 
@@ -19,10 +17,12 @@ const SCHEDULE_CANCELED_ACTION: &str = "post_schedule_canceled";
 struct ScheduleCanceledHandler;
 
 impl WsMessageHandler for ScheduleCanceledHandler {
+    /// 返回该 handler 消费的唯一 G09 authority action。
     fn action(&self) -> &'static str {
         SCHEDULE_CANCELED_ACTION
     }
 
+    /// 将 G09 cancel authority 放入原子持久屏障，成功前不发布 terminal Frame。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -32,33 +32,57 @@ impl WsMessageHandler for ScheduleCanceledHandler {
         let Ok(data) = frame.data_required() else {
             return Ok(());
         };
-        let Some(channel_id) = data
-            .get("channelId")
-            .or_else(|| data.get("channel_id"))
-            .and_then(serde_json::Value::as_str)
-            .and_then(ChannelId::from_str)
-        else {
-            return Ok(());
-        };
-
-        out.push(crate::acl::to_effect_s1::channel_set_cols(
-            channel_id,
-            vec![("has_schedule_post", SqlValue::Integer(0))],
-        ));
-        let can_view_content =
-            crate::acl::to_effect_s1::schedule_preview_authorized(data, ctx.auth_user_id);
-        out.push(crate::acl::to_effect_s1::emit_schedule_canceled(
-            channel_id,
+        let Some(fact) = crate::acl::to_effect_s1::ScheduleFact::from_canceled_ws(
             data,
             frame.event_seq().map(|seq| seq.0),
-            can_view_content,
-        ));
+        ) else {
+            return Ok(());
+        };
+        let committed = ctx
+            .state
+            .committed_schedule_revisions
+            .get(&fact.channel_id)
+            .copied()
+            .unwrap_or(0);
+        let inflight = ctx
+            .state
+            .inflight_schedule_revisions
+            .get(&fact.channel_id)
+            .copied()
+            .unwrap_or(0);
+        if fact.revision <= committed.max(inflight) {
+            return Ok(());
+        }
+        let channel_id = fact.channel_id;
+        let revision = fact.revision;
+        let causation_id = ctx
+            .state
+            .pending_schedule_cancel_requests
+            .get(&channel_id)
+            .cloned();
+        let corr = ctx.alloc_corr();
+        ctx.state
+            .inflight_schedule_revisions
+            .insert(channel_id, revision);
+        ctx.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ScheduleCanceledPersist {
+                channel_id,
+                revision,
+                causation_id,
+            },
+        );
+        out.push(Effect::PersistAtomic {
+            corr,
+            ops: fact.storage_ops(),
+        });
         Ok(())
     }
 }
 
 static SCHEDULE_CANCELED_HANDLER: ScheduleCanceledHandler = ScheduleCanceledHandler;
 #[cfg(target_arch = "wasm32")]
+/// 在 wasm inventory 不可自动发现时保留静态 handler。
 pub(super) fn inventory_link_anchor() {
     std::hint::black_box(&SCHEDULE_CANCELED_HANDLER);
 }

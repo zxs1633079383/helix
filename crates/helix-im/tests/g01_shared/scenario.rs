@@ -248,6 +248,34 @@ pub struct ScheduleRecoveryScenarioTrace {
     pub recovered_summary: InteractionFrameV2,
 }
 
+/// 汇总 G09 的 G08 前置、cancel authority、持久屏障与 terminal Frame。
+pub struct ScheduleCanceledScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub scheduled_summary: InteractionFrameV2,
+    pub canceled_summary: InteractionFrameV2,
+}
+
+/// 汇总 G09 HTTP 失败，证明 transport failure 不覆盖已排程事实。
+pub struct ScheduleCancelFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub scheduled_summary: InteractionFrameV2,
+    pub emitted_frame_count: usize,
+    pub persisted_write_count: usize,
+}
+
+/// 汇总 G09 PersistAtomic 失败后同一 cancel revision 的安全重放。
+pub struct ScheduleCancelPersistFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub scheduled_summary: InteractionFrameV2,
+    pub canceled_after_replay: InteractionFrameV2,
+}
+
+/// 汇总 G09 canceled read model 的冷启动恢复 Frame。
+pub struct ScheduleCancelRecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub recovered_summary: InteractionFrameV2,
+}
+
 /// 汇总 G04a explicit sync、持久屏障与 recalled timeline 的成功结果。
 pub struct OfflineRevokeScenarioTrace {
     pub group_created: InteractionFrameV2,
@@ -420,6 +448,111 @@ impl G01ScenarioRunner {
         let group_created = runner.create_group_prerequisite();
         let recovered_summary = runner.attach_channel_summary(true);
         ScheduleRecoveryScenarioTrace {
+            group_created,
+            recovered_summary,
+        }
+    }
+
+    /// 回放 G08 建立排程后再执行 G09，迟到 HTTP 不重复发布 cancel Frame。
+    pub fn run_schedule_canceled_for(spec: SendScenarioSpec) -> ScheduleCanceledScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let _empty_summary = runner.attach_channel_summary(false);
+        let scheduled_summary = runner.establish_schedule();
+        let http_corr = runner.start_cancel_schedule_command();
+        let persist_corr = runner.ingest_schedule_canceled();
+        let canceled_summary = runner.finish_schedule_cancel_persist(persist_corr);
+        runner.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status":"SUCCESS","data":{"accepted":true}})),
+            ),
+            runner.spec.created_at as u64 + 13,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "late cancel HTTP success cannot republish a terminal Frame"
+        );
+        ScheduleCanceledScenarioTrace {
+            group_created,
+            scheduled_summary,
+            canceled_summary,
+        }
+    }
+
+    /// 回放 G09 HTTP failure，保持已排程摘要不变且不产生持久写。
+    pub fn run_schedule_cancel_http_failure_for(
+        spec: SendScenarioSpec,
+    ) -> ScheduleCancelFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let _empty_summary = runner.attach_channel_summary(false);
+        let scheduled_summary = runner.establish_schedule();
+        let http_corr = runner.start_cancel_schedule_command();
+        runner.step(
+            Tick::PortReply {
+                corr: http_corr,
+                outcome: PortOutcome::Err(PortError::Http(500)),
+            },
+            runner.spec.created_at as u64 + 9,
+        );
+        ScheduleCancelFailureScenarioTrace {
+            group_created,
+            scheduled_summary,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. }
+                            | Effect::PersistAtomic { .. }
+                            | Effect::PersistFire { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G09 persist failure，并以同一 revision 重放到单一 canceled Frame。
+    pub fn run_schedule_cancel_persist_failure_for(
+        spec: SendScenarioSpec,
+    ) -> ScheduleCancelPersistFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let _empty_summary = runner.attach_channel_summary(false);
+        let scheduled_summary = runner.establish_schedule();
+        let _http_corr = runner.start_cancel_schedule_command();
+        let failed_corr = runner.ingest_schedule_canceled();
+        runner.step(
+            Tick::PortReply {
+                corr: failed_corr,
+                outcome: PortOutcome::Err(PortError::Storage(500)),
+            },
+            runner.spec.created_at as u64 + 11,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "failed cancel persist cannot publish a partial Frame"
+        );
+        let replay_corr = runner.ingest_schedule_canceled();
+        let canceled_after_replay = runner.finish_schedule_cancel_persist(replay_corr);
+        ScheduleCancelPersistFailureScenarioTrace {
+            group_created,
+            scheduled_summary,
+            canceled_after_replay,
+        }
+    }
+
+    /// 仅凭 durable canceled channel read model 恢复 G09 typed summary。
+    pub fn run_schedule_cancel_recovery_for(
+        spec: SendScenarioSpec,
+    ) -> ScheduleCancelRecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let recovered_summary = runner.attach_canceled_channel_summary();
+        ScheduleCancelRecoveryScenarioTrace {
             group_created,
             recovered_summary,
         }
@@ -1987,6 +2120,32 @@ impl G01ScenarioRunner {
         self.only_frame()
     }
 
+    /// 挂载一个已 durable cancel 的 channel-summary，供 G09 冷启动恢复验证。
+    fn attach_canceled_channel_summary(&mut self) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "__helix_request_surface_snapshot",
+                json!({
+                    "surface": "message.channel-summary",
+                    "scope": {"kind":"channel","channelId":self.spec.channel_id}
+                }),
+            ),
+            self.spec.created_at as u64,
+        );
+        let corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
+        });
+        self.step(
+            ok(
+                corr,
+                rows_bytes(json!([canceled_schedule_channel_row(&self.spec)])),
+            ),
+            self.spec.created_at as u64 + 1,
+        );
+        self.only_frame()
+    }
+
     /// 提交 G08 command 并返回唯一 HTTP correlation；本阶段不得有业务 Frame。
     fn start_schedule_command(&mut self) -> Correlation {
         self.step(
@@ -2052,6 +2211,100 @@ impl G01ScenarioRunner {
         assert!(
             self.effects().is_empty(),
             "duplicate committed schedule revision must be an exact no-op"
+        );
+        frame
+    }
+
+    /// 通过完整 G08 command/authority/persist 链建立 G09 的排程前置。
+    fn establish_schedule(&mut self) -> InteractionFrameV2 {
+        let http_corr = self.start_schedule_command();
+        let persist_corr = self.ingest_schedule_created();
+        let scheduled = self.finish_schedule_persist(persist_corr);
+        self.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status":"SUCCESS","data":{"accepted":true}})),
+            ),
+            self.spec.created_at as u64 + 7,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "G08 transport completion cannot duplicate its authority Frame"
+        );
+        scheduled
+    }
+
+    /// 提交 G09 cancel command 并返回唯一 HTTP correlation；本阶段不得改变摘要。
+    fn start_cancel_schedule_command(&mut self) -> Correlation {
+        self.step(
+            command(
+                "im_cancel_schedule",
+                json!({
+                    "channel_id": self.spec.channel_id,
+                    "req_id": self.spec.request_id
+                }),
+            ),
+            self.spec.created_at as u64 + 8,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "cancel command admission cannot establish terminal UI"
+        );
+        self.only_http_corr("/posts/cancelSchedule")
+    }
+
+    /// 注入 G09 cancel authority，并返回清理 fact/read-model 的 PersistAtomic correlation。
+    fn ingest_schedule_canceled(&mut self) -> Correlation {
+        self.step(
+            schedule_canceled_frame(&self.spec),
+            self.spec.created_at as u64 + 10,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "cancel authority must wait for the matching PersistAtomic reply"
+        );
+        self.only_persist_atomic_corr_with(|ops| {
+            has_table_write(ops, "channel_schedule") && has_table_write(ops, "channel")
+        })
+    }
+
+    /// 完成 G09 原子提交和 channel readback，并拒绝重复 cancel 与迟到 create。
+    fn finish_schedule_cancel_persist(&mut self, persist_corr: Correlation) -> InteractionFrameV2 {
+        self.step(
+            ok(persist_corr, Bytes::from_static(br#"{}"#)),
+            self.spec.created_at as u64 + 11,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "cancel PersistOk must schedule readback before publishing a Frame"
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([canceled_schedule_channel_row(&self.spec)])),
+            ),
+            self.spec.created_at as u64 + 12,
+        );
+        let frame = self.only_frame();
+        self.step(
+            schedule_canceled_frame(&self.spec),
+            self.spec.created_at as u64 + 12,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "duplicate committed cancel revision must be an exact no-op"
+        );
+        self.step(
+            schedule_created_frame(&self.spec),
+            self.spec.created_at as u64 + 12,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "late older create revision cannot resurrect a canceled schedule"
         );
         frame
     }
@@ -3006,6 +3259,29 @@ fn schedule_created_frame(spec: &SendScenarioSpec) -> Tick {
     ))
 }
 
+/// 构造 G09 `post_schedule_canceled` authority 帧，revision 必须高于 G08 create。
+fn schedule_canceled_frame(spec: &SendScenarioSpec) -> Tick {
+    Tick::Inbound(InboundBytes(
+        serde_json::to_vec(&json!({
+            "v": 1,
+            "action": "post_schedule_canceled",
+            "eventSeq": 9,
+            "data": {
+                "channelId": spec.channel_id,
+                "scheduleId": "g08-schedule-1",
+                "scheduleOwnerUserId": spec.actor_id,
+                "message": spec.marker,
+                "messagePreview": spec.simple_message,
+                "sendAt": spec.created_at + 60_000,
+                "status": "scheduled",
+                "revision": 9
+            }
+        }))
+        .expect("G09 authority frame serializes")
+        .into(),
+    ))
+}
+
 /// 构造 channel-summary readback 行；排程字段只来自 Helix 已提交 read model。
 fn schedule_channel_row(spec: &SendScenarioSpec, scheduled: bool) -> Value {
     json!({
@@ -3022,6 +3298,25 @@ fn schedule_channel_row(spec: &SendScenarioSpec, scheduled: bool) -> Value {
         "schedule_send_at": if scheduled { spec.created_at + 60_000 } else { 0 },
         "schedule_status": if scheduled { "scheduled" } else { "" },
         "schedule_revision": if scheduled { 8 } else { 0 }
+    })
+}
+
+/// 构造 G09 durable canceled read model；正文与 cancel action 必须已清空。
+fn canceled_schedule_channel_row(spec: &SendScenarioSpec) -> Value {
+    json!({
+        "id": spec.channel_id,
+        "display_name": spec.group_name,
+        "role": "OWNER",
+        "member_count": 2,
+        "updated_at": spec.created_at,
+        "has_schedule_post": 0,
+        "schedule_id": "",
+        "schedule_owner_user_id": "",
+        "schedule_message": "",
+        "schedule_message_preview": "",
+        "schedule_send_at": 0,
+        "schedule_status": "canceled",
+        "schedule_revision": 9
     })
 }
 

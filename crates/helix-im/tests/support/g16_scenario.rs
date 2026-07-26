@@ -296,7 +296,7 @@ fn channel_row(closed: bool, left: bool) -> Value {
         "member_count": 2,
         "updated_at": 16,
         "delete_at": if closed {1_700_001_600_010_i64} else {0},
-        "is_active": if closed {0} else {1},
+        "is_active": 0,
         "is_remove": if left {1} else {0}
     })
 }

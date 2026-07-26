@@ -1178,9 +1178,7 @@ fn lifecycle(row: &Value) -> ChannelLifecycleVm {
             reason: Some("memberLeft".to_string()),
         };
     }
-    if integer(row, &["delete_at", "deleteAt"]) > 0
-        || integer(row, &["is_active", "isActive"]) == 0 && row.get("is_active").is_some()
-    {
+    if integer(row, &["delete_at", "deleteAt"]) > 0 {
         return ChannelLifecycleVm {
             state: "closed".to_string(),
             reason: Some("channelClosed".to_string()),

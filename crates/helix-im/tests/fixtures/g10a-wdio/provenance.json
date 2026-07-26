@@ -4,7 +4,7 @@
     "fixtureId": "g10a-group-created-v2",
     "fixtureSha256": "1fbdf45cbef3a4cfaedf4146efdfa2b32a605e473a48ab7596390905d98a8ac2",
     "generatedAt": "2026-07-25T23:15:00-07:00",
-    "helixCommit": "c58930ee99bf4a7042e93a1d9aaa68c3910ad81a",
+    "helixCommit": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -79,7 +79,7 @@
     "fixtureId": "g10a-timeline-loaded-v2",
     "fixtureSha256": "c84ea558ad06d3feaa5c550b657a3330c630762a5fdc2e4b531444276c259dfb",
     "generatedAt": "2026-07-25T23:15:00-07:00",
-    "helixCommit": "c58930ee99bf4a7042e93a1d9aaa68c3910ad81a",
+    "helixCommit": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -154,7 +154,7 @@
     "fixtureId": "g10a-timeline-http-failed-v2",
     "fixtureSha256": "e1dd0048f1f6474208a49d1a6bd09e4d0ce9f92b17a80ce6867873c315f9104b",
     "generatedAt": "2026-07-25T23:15:00-07:00",
-    "helixCommit": "c58930ee99bf4a7042e93a1d9aaa68c3910ad81a",
+    "helixCommit": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -229,7 +229,7 @@
     "fixtureId": "g10a-timeline-persist-failed-v2",
     "fixtureSha256": "e1dd0048f1f6474208a49d1a6bd09e4d0ce9f92b17a80ce6867873c315f9104b",
     "generatedAt": "2026-07-25T23:15:00-07:00",
-    "helixCommit": "c58930ee99bf4a7042e93a1d9aaa68c3910ad81a",
+    "helixCommit": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -304,7 +304,7 @@
     "fixtureId": "g10a-timeline-race-current-v2",
     "fixtureSha256": "c84ea558ad06d3feaa5c550b657a3330c630762a5fdc2e4b531444276c259dfb",
     "generatedAt": "2026-07-25T23:15:00-07:00",
-    "helixCommit": "c58930ee99bf4a7042e93a1d9aaa68c3910ad81a",
+    "helixCommit": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -379,7 +379,7 @@
     "fixtureId": "g10a-timeline-exhausted-v2",
     "fixtureSha256": "c9bc7cb42099c01557ef275274fca737565287dfdc5832f35bfba412c6ff6d49",
     "generatedAt": "2026-07-25T23:15:00-07:00",
-    "helixCommit": "c58930ee99bf4a7042e93a1d9aaa68c3910ad81a",
+    "helixCommit": "d2b1bf6c1304155d6897a7238cfaefd2bae3d176",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",

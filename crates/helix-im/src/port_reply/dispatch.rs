@@ -189,6 +189,46 @@ impl ImModule {
                 }
             },
 
+            CorrelationContext::UpdateChannelDialogPersist {
+                scope,
+                channel,
+                member_dialog,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    if self.state.dialog_list_frame.scope() != Some(&scope) {
+                        tracing::debug!(
+                            corr = corr.raw(),
+                            "update_channel PersistOk belongs to a detached dialog scope"
+                        );
+                    } else {
+                        let frame = match member_dialog.as_deref() {
+                            Some(dialog) => self
+                                .state
+                                .dialog_list_frame
+                                .patch_from_channel_and_dialog_projection(
+                                    scope,
+                                    channel.as_ref(),
+                                    dialog,
+                                ),
+                            None => self
+                                .state
+                                .dialog_list_frame
+                                .patch_from_channel_update(scope, channel.as_ref()),
+                        };
+                        if let Some(frame) = frame {
+                            out.push(frame);
+                        }
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        corr = corr.raw(),
+                        error = ?error,
+                        "update_channel persistence failed; suppress paired dialog/unread Frame"
+                    );
+                }
+            },
+
             CorrelationContext::TooLongReload {
                 channel_id,
                 reset_to,

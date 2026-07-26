@@ -386,6 +386,7 @@ impl ImState {
                     | CorrelationContext::IncrementBatchPersist { .. }
                     | CorrelationContext::IncrementHydrationPersist { .. }
                     | CorrelationContext::OutboundIncrementHydration { .. }
+                    | CorrelationContext::UpdateChannelDialogPersist { .. }
                     | CorrelationContext::DialogListQuery { .. }
                     | CorrelationContext::SurfaceStorageSnapshot { .. }
                     | CorrelationContext::SurfaceThreadSnapshot { .. }

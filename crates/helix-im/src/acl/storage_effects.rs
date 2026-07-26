@@ -157,19 +157,27 @@ pub fn update_channel_partial(
     channel_id: ChannelId,
     cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
 ) -> Option<Effect> {
+    Some(Effect::PersistFire {
+        ops: vec![update_channel_partial_op(channel_id, cols)?],
+    })
+}
+
+/// 返回可并入相关事务的 channel 稀疏更新，空字段集保持 no-op。
+pub fn update_channel_partial_op(
+    channel_id: ChannelId,
+    cols: Vec<(&'static str, helix_core::effect::SqlValue)>,
+) -> Option<StorageOp> {
     if cols.is_empty() {
         return None;
     }
     use helix_core::effect::{BatchUpdateSpec, SqlValue};
     let patch: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
-    Some(Effect::PersistFire {
-        ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
-            table: "channel",
-            key_col: "id",
-            key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
-            patch,
-        })],
-    })
+    Some(StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "channel",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+        patch,
+    }))
 }
 
 /// `update_channel` 后端 per-member 绝对态补丁 → `channel_member` 复合 PK upsert。
@@ -178,17 +186,22 @@ pub fn update_channel_partial(
 /// Go 后端会按可见性/mention/urgent 计算 member 维度计数后定向广播 `update_channel`，
 /// Helix 只覆盖帧中出现的字段，不把 member 计数写回 channel 行。
 pub fn upsert_channel_member_dialog(row: Row) -> Option<Effect> {
+    Some(Effect::PersistFire {
+        ops: vec![upsert_channel_member_dialog_op(row)?],
+    })
+}
+
+/// 返回可并入相关事务的当前 viewer 对话绝对态 upsert。
+pub fn upsert_channel_member_dialog_op(row: Row) -> Option<StorageOp> {
     if row.is_empty() {
         return None;
     }
-    Some(Effect::PersistFire {
-        ops: vec![StorageOp::BatchUpsert(UpsertSpec {
-            table: "channel_member",
-            rows: vec![row],
-            conflict_key: Some("channel_id,user_id"),
-            exclude_from_update: Vec::new(),
-        })],
-    })
+    Some(StorageOp::BatchUpsert(UpsertSpec {
+        table: "channel_member",
+        rows: vec![row],
+        conflict_key: Some("channel_id,user_id"),
+        exclude_from_update: Vec::new(),
+    }))
 }
 
 /// S3 path3：新消息触发 channel 写——未读 +1 SQL 自增 + lastPost 组。

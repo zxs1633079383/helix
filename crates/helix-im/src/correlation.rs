@@ -110,6 +110,14 @@ pub enum CorrelationContext {
         pending: crate::dialog_patch::PendingDialogPatch,
     },
 
+    /// `update_channel` 的公共 channel 稀疏字段与当前 viewer `channel_member`
+    /// 绝对态已进入同一相关 Persist；仅成功回执允许推进 paired dialog/unread Frame。
+    UpdateChannelDialogPersist {
+        scope: crate::dialog_frame::DialogListScope,
+        channel: Box<serde_json::Value>,
+        member_dialog: Option<Box<serde_json::Value>>,
+    },
+
     /// too_long 后 Helix 主动发起 getLatestPost 首屏重拉的 HTTP 回报。
     TooLongReload {
         channel_id: ChannelId,

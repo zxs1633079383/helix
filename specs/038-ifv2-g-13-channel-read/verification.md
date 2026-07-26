@@ -16,6 +16,14 @@
 - **Target**: `update_channel -> Effect::Persist(channel/channel_member) -> Tick::PortReply(PersistOk) -> one InteractionFrameV2(message.left-dialog-list + message.unread-summary)`.
 - **Gap**: add the Persist barrier, deterministic scenario/Fixture, PC Mock/Real/report, and Mobile production-linked typed-view contract. `post_read` and `message.participant-receipts` remain G14.
 
+## Helix Producer Evidence
+
+- `cargo check -p helix-im`: PASS, exit 0.
+- `cargo test -p helix-im --test g13_full_flow_test --test g13_channel_read_interaction_test -- --nocapture`: PASS, 12/12.
+- Happy path proves `im_channels_view` does not carry `userId/unreadCount`, HTTP SUCCESS emits no Frame, and `update_channel` releases exactly one paired dialog/unread Frame only after matching PersistOk.
+- Failure/race coverage proves PersistErr, duplicate authority and late PersistOk produce zero additional Frame.
+- Recovery coverage rebuilds the read snapshot from durable dialog storage without a platform cache.
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

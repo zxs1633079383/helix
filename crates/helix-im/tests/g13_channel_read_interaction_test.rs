@@ -6,6 +6,10 @@ use helix_im::projector::unread_summary::{
 };
 use serde_json::{json, Value};
 
+#[path = "support/g13_scenario.rs"]
+mod scenario;
+
+/// 返回 canonical outbound command 的唯一 HTTP URL 与 body。
 fn one_http(name: &str, payload: Value) -> (String, Value) {
     let effects = handle_outbound(
         name,
@@ -25,6 +29,7 @@ fn one_http(name: &str, payload: Value) -> (String, Value) {
     }
 }
 
+/// 证明稳定可见边界只推进一次 read observation。
 #[test]
 fn stable_visibility_advances_once_per_monotonic_boundary() {
     let mut tracker = ChannelReadObservationTracker::default();
@@ -47,6 +52,7 @@ fn stable_visibility_advances_once_per_monotonic_boundary() {
     );
 }
 
+/// 证明 epoch/window 改变必须重新获得两次稳定 observation。
 #[test]
 fn epoch_or_window_change_requires_a_new_stability_pair() {
     let mut tracker = ChannelReadObservationTracker::default();
@@ -65,6 +71,7 @@ fn epoch_or_window_change_requires_a_new_stability_pair() {
     );
 }
 
+/// 证明 channel-view wire 不携带客户端伪造的已读 authority。
 #[test]
 fn canonical_channel_view_wire_does_not_smuggle_read_authority() {
     let (url, body) = one_http(
@@ -78,4 +85,37 @@ fn canonical_channel_view_wire_does_not_smuggle_read_authority() {
     );
     assert!(body.get("unreadCount").is_none());
     assert!(body.get("userId").is_none());
+}
+
+/// 证明 update_channel 的 paired Frame 只由 matching PersistOk 释放。
+#[test]
+fn update_channel_read_authority_obeys_persist_barrier() {
+    let trace = scenario::G13ScenarioRunner::run_success();
+    scenario::assert_initial_contract(&trace.initial);
+    scenario::assert_terminal_contract(&trace.terminal);
+}
+
+/// 证明 PersistErr、重复 authority 与迟到 reply 都不会发布伪终态。
+#[test]
+fn read_authority_failures_and_races_are_idempotent() {
+    assert_eq!(
+        scenario::G13ScenarioRunner::run_persist_failure().frame_count,
+        0
+    );
+    assert_eq!(
+        scenario::G13ScenarioRunner::run_duplicate_authority().frame_count,
+        0
+    );
+    assert_eq!(
+        scenario::G13ScenarioRunner::run_late_persist_reply().frame_count,
+        0
+    );
+}
+
+/// 证明 durable row 可在 cold attach 时重建 paired typed snapshot。
+#[test]
+fn read_state_recovers_from_durable_dialog_row() {
+    let frame = scenario::G13ScenarioRunner::run_recovery();
+    frame.validate().expect("G13 recovered Frame validates");
+    assert_eq!(frame.mutations.len(), 2);
 }

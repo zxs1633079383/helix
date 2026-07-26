@@ -1094,12 +1094,18 @@ fn apply_post_projection_to_row(
     .or_else(|| preview.as_ref().and_then(|item| item.sent_at))
     .unwrap_or(previous.activity_at);
 
-    next.preview = preview.clone().or(next.preview.clone());
-    next.badges = badges.clone();
-    next.activity_at = activity_at;
-    set.preview = preview;
-    set.badges = Some(badges);
-    set.activity_at = Some(activity_at);
+    if let Some(preview) = preview.filter(|value| previous.preview.as_ref() != Some(value)) {
+        next.preview = Some(preview.clone());
+        set.preview = Some(preview);
+    }
+    if badges != previous.badges {
+        next.badges = badges.clone();
+        set.badges = Some(badges);
+    }
+    if activity_at != previous.activity_at {
+        next.activity_at = activity_at;
+        set.activity_at = Some(activity_at);
+    }
 }
 
 pub fn patch_from_dialog_projection(

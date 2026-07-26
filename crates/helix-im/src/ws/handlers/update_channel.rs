@@ -23,6 +23,7 @@ impl WsMessageHandler for UpdateChannelHandler {
         UPDATE_CHANNEL_ACTION
     }
 
+    /// 将 update_channel 权威字段先写入相关事务，PersistOk 后才发布可见 Frame。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -53,9 +54,10 @@ impl WsMessageHandler for UpdateChannelHandler {
         );
 
         // 收 Some 字段 → PATCH（空集 = 无可写字段，update_channel_partial 返回 None → 不 push）。
+        let mut ops = Vec::with_capacity(2);
         let cols = crate::channel_write::collect_present(channel);
-        if let Some(eff) = crate::acl::to_effect::update_channel_partial(channel_id, cols) {
-            out.push(eff);
+        if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
+            ops.push(op);
         }
         let member_dialog = if let Some((row, projection)) =
             crate::dialog_patch::member_dialog_from_update_channel(
@@ -63,8 +65,8 @@ impl WsMessageHandler for UpdateChannelHandler {
                 channel_id,
                 ctx.auth_user_id,
             ) {
-            if let Some(eff) = crate::acl::to_effect::upsert_channel_member_dialog(row) {
-                out.push(eff);
+            if let Some(op) = crate::acl::to_effect::upsert_channel_member_dialog_op(row) {
+                ops.push(op);
             }
             Some(crate::acl::to_effect::member_dialog_patch_data(
                 channel_id,
@@ -74,20 +76,25 @@ impl WsMessageHandler for UpdateChannelHandler {
         } else {
             None
         };
-        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
-            let frame = match member_dialog.as_ref() {
-                Some(dialog) => ctx
-                    .state
-                    .dialog_list_frame
-                    .patch_from_channel_and_dialog_projection(scope, channel, dialog),
-                None => ctx
-                    .state
-                    .dialog_list_frame
-                    .patch_from_channel_update(scope, channel),
-            };
-            if let Some(frame) = frame {
-                out.push(frame);
-            }
+        if let Some(scope) = ctx
+            .state
+            .dialog_list_frame
+            .scope()
+            .cloned()
+            .filter(|_| !ops.is_empty())
+        {
+            let corr = ctx.alloc_corr();
+            out.push(helix_core::Effect::Persist { corr, ops });
+            ctx.state.corr_map.insert(
+                corr,
+                crate::state::CorrelationContext::UpdateChannelDialogPersist {
+                    scope,
+                    channel: Box::new(channel.clone()),
+                    member_dialog: member_dialog.map(Box::new),
+                },
+            );
+        } else if !ops.is_empty() {
+            out.push(helix_core::Effect::PersistFire { ops });
         }
         // 独立 update_channel 推送（per-member 改群属性如对话置顶 channel/change/top、改群名/公告
         // 等定向本人 PATCH）落库后须 emit `im:channel:update`（thin·{channel_id}）通知对应 channel

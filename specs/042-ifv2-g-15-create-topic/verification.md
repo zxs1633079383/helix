@@ -39,3 +39,64 @@
 - `ws-topic-dialog.frame-v2.json`：raw SHA-256 `3ac61c8b5b552f8a4be69e1b881efbc0b5b7cf4d8bf4f755b16b06e2bed88454`；semantic SHA-256 `f7cff76dcec9decb1dae5a6c75c41e975a3abddb370d66995d197c301baa15c4`。
 - `ws-topic-created.frame-v2.json`：raw SHA-256 `3924220e80418b39b04f2599f0db067f0ba114a6fd269cb904bfbf729ac01421`；semantic SHA-256 `dd03e4fd1d179dd57bfb075afe25c98938dfef7a5d2147160da65eca9f4659c1`。
 - 两条 correlation 独立：HTTP/Persist/readback 发布 `message.thread-detail`；`channel_created` 发布 dialog 与 topic summary/roster，storage recovery 独立发布 `message.channel-summary`。测试不假设固定第三帧。
+
+## PC Mock / Real / Report Green
+
+- consumer commit：`88bdcd22169c151a321343cea73209952ec16dab`；生产 Tauri Helix pin：`064f814a0f4fc4df8b9299652d0e615f5857b875`。
+- Mock run `mock-20260726195759933-47689`：3/3 PASS、exit 0、retry 0；分别覆盖 HTTP thread 早到后的 scope recovery、WS dialog 先到竞态与 admission failure 可重试。
+- single-real run `single-real-20260726200838621-56221`：1/1 PASS、exit 0、retry 0；从 MessageV4 创建 fresh group、发送 root、创建话题，经真实 Tauri invoke、Helix/SQLite、`/api/cses/posts/makeTopic`、WS、FrameApplied 与 DOM 闭合。
+- dual-real run `dual-real-20260726201156870-59140`：1/1 PASS、exit 0、retry 0；Actor 与 Observer 最终得到同一 topic channelId，Actor thread Frame 的 causationId 与 admission reqId 一致。
+- report run `report-20260726201234835-59708`：1/1 PASS、exit 0、redaction PASS。
+- G15 focused Jest：47 PASS；Angular shell/topic tests：14 PASS；TypeScript、production boundary 与 WDIO build 均 PASS。
+- Fixture 不是 command 同步返回值；`mockAccepted()` 只返回 AcceptedCommand，`replay()` 才把完整 Frame 注入 `im:__bus__`。Angular 只在 dialog Frame 揭示 topic scope 后发起 thread recovery query，不计算 topic channel、root relation、权限或终态。
+
+## Mobile Contract Green
+
+- consumer commits：`477e156d6f4b85caeebaf6fd80bd50204c4f0792`（mirror/source pin）与 `c5896e16b3ce3a050b5d15b925c48415c39501b0`（生产 SDK/QuickJS/typed view）。
+- production Helix pin：`02dd062b85fceb6489e8d7f9659af60e55ed86ec`，其 ancestry 包含 canonical producer `064f814a0f4fc4df8b9299652d0e615f5857b875`；增量 bundle SHA-256 `44a98e073fbb0ee1500ae9d485e94dbcbe496b6feb8f4fe2da4ab7e5630f9886`。
+- `G15FrameContractTest`：6/6 PASS；覆盖完整 envelope、HTTP/WS 双 correlation 任意顺序、summary recovery、schema/surface/revision fail-closed、生产 DomainEvent batch、C ABI 与 QuickJS typed view。
+- G15/SDK/QuickJS focused：12/12 PASS；`im_make_topic` 只进入 `root_id,user_ids,display_name?,req_id`，旧 `picture/channel_id/topic/team_id/self_id/member_ids` 不进入生产 admission。
+- `run-uc01-16-gtest.sh --only UC15`：10/10 PASS；证明共享 fresh-group prerequisite 与 UC15 生产链接可用。该 lane 的真实操作覆盖 G15a 前置，不冒充 Mobile G15 real；Mobile G15 的 required 证据边界是 production-linked Contract GTest。
+- source-pin、G15 fixture parity、legacy hard-cut 与 Strict Matrix：全部 PASS；production V1 producer=0、consumer=0，`im.store`、raw reducer、测试注入 ABI 默认构建不可达。
+- QuickJS 接线被修改，因此执行共享 `run-venus-g01-frame-gate.sh`：PASS；未新增 G15 专属 Venus reducer 或 Gate。
+
+## Three-repo Fixture Parity
+
+| Artifact | Helix / PC / Mobile raw SHA-256 | Count |
+|---|---|---:|
+| `channel-summary-recovery.frame-v2.json` | `13ba2758d5c9d237376d3450f46b70379426518d298995cfc8ae1200ca1edf84` | 3 |
+| `topic-thread-created.frame-v2.json` | `c6f9a96ee2ded44462b11c68760ed75a59fafcfea371b5d70edda2cff7eeb734` | 3 |
+| `ws-topic-created.frame-v2.json` | `3924220e80418b39b04f2599f0db067f0ba114a6fd269cb904bfbf729ac01421` | 3 |
+| `ws-topic-dialog.frame-v2.json` | `3ac61c8b5b552f8a4be69e1b881efbc0b5b7cf4d8bf4f755b16b06e2bed88454` | 3 |
+| `provenance.json` | `be1cbec9a648e2b9ed5700a4a9c211009ba08cc5d378ea8e32f4885b4962e90f` | 3 |
+
+- inventory、schemaVersion=2、surface inventory、raw SHA 与 semantic SHA 三端一致率 100%。
+- 动态替换只允许 provenance 声明的 identity/correlation 字段与 runtime revision rebase；PC/Mobile 未补业务字段。
+
+## R4 Review
+
+### Behavior
+
+- PASS：权限与 actor 身份由 Helix command/authority 校验；平台不传 owner、role、picture 或 topic relation。
+- PASS：HTTP terminal 仅在 relation Persist Ok 与 readback 后发布 thread；业务/基础设施/persist failure 均不发布伪成功 Frame。
+- PASS：HTTP thread 与 WS dialog/channel-created 是独立 correlation，可任意竞态；迟到或重复结果幂等，不要求固定第三帧。
+- PASS：cold summary recovery 使用独立 snapshot；Actor/Observer PC real 最终收敛到相同 topic channelId。
+
+### Code Boundary
+
+- PASS：业务 reducer 只存在于 `helix-im` 的生产 `ImModule::handle -> Effect -> PortReply/Inbound -> Effect::Emit` 链。
+- PASS：PC Fixture/Mock/WDIO API 未进入 production bundle；Angular 仅 attach/recovery/apply/render。
+- PASS：Mobile GTest 链接生产 SDK、Bridge、SurfaceRuntime 与 QuickJS binding；FFI 保持 batch crossing，未逐 mutation callback。
+- PASS：Mobile 默认 production build 不注册 `im.store`、raw business reducer、test injection 或 characterization-only ABI。
+
+### Frame V2
+
+- PASS：四份 Frame 均含 `schemaVersion=2`、非空 `transactionId`、完整 runtime 与 directives 数组。
+- PASS：thread scope 冻结 `topic channelId + rootMessageId`，detailContext 冻结 parent/topic/root/title；dialog row 冻结 `channelKind=topic + rootMessageId`。
+- PASS：WS dialog patch 为 revision 2/baseRevision 1；其余 snapshot 为 revision 1/baseRevision null；unknown schema/surface/gap 原子拒绝。
+- PASS：HTTP terminal causationId=`req_id`；WS dialog 可无 causation；channel-created 保留 req correlation；actions/directives 为空是生产事实而非平台补省略。
+
+### Evidence
+
+- PASS：required lanes Helix、Fixture、PC Mock、PC Real、Mobile Contract、production boundary 与三项 Review 均有独立证据；fail=0、skip=0。
+- 非阻断提示：`g15_topic_interaction_test` 的独立 test binary 对共享 ScenarioRunner 的 WS helper 报 dead-code warning；该 helper 在 `g15_full_flow_test` 中真实执行，不影响行为或合同。

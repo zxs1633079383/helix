@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/g15_full_flow_test.rs (target/debug/deps/g15_full_flow_test-36bd683cb3f1f013)
+
+running 7 tests
+test infrastructure_failure_is_fail_closed ... ok
+test business_failure_is_fail_closed ... ok
+test persistence_failure_is_fail_closed ... ok
+test recovery_rebuilds_topic_summary ... ok
+test happy_path_is_durable_and_field_complete ... ok
+test late_reply_is_idempotent ... ok
+test ws_authority_publishes_observable_topic_surfaces ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

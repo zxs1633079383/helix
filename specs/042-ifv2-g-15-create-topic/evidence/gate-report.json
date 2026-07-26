@@ -1,0 +1,54 @@
+{
+  "gateId": "G-15",
+  "sourcePins": {
+    "helix": "02dd062b85fceb6489e8d7f9659af60e55ed86ec",
+    "fixtureProducer": "064f814a0f4fc4df8b9299652d0e615f5857b875",
+    "pc": "88bdcd22169c151a321343cea73209952ec16dab",
+    "mobile": "c5896e16b3ce3a050b5d15b925c48415c39501b0"
+  },
+  "lanes": {
+    "helix": {
+      "status": "pass",
+      "evidence": "v001-helix-producer.log,v002-helix-scenario.log"
+    },
+    "fixture": {
+      "status": "pass",
+      "evidence": "v003-canonical-fixture.log",
+      "inventory": 4,
+      "threeRepoByteParity": true
+    },
+    "pcMock": {
+      "status": "pass",
+      "evidence": "v004-pc-mock.json",
+      "runId": "mock-20260726195759933-47689"
+    },
+    "pcReal": {
+      "status": "pass",
+      "evidence": "v005-pc-real.json",
+      "runIds": [
+        "single-real-20260726200838621-56221",
+        "dual-real-20260726201156870-59140"
+      ]
+    },
+    "mobileContract": {
+      "status": "pass",
+      "evidence": "v006-mobile-contract.log",
+      "frameTests": 6,
+      "focusedTests": 12
+    },
+    "productionBoundary": {
+      "status": "pass",
+      "pcFixtureInBundle": false,
+      "mobileV1Producer": 0,
+      "mobileV1Consumer": 0,
+      "mobileRawReducer": 0
+    }
+  },
+  "review": {
+    "behavior": "pass",
+    "codeBoundary": "pass",
+    "frameV2": "pass",
+    "evidence": "pass"
+  },
+  "finalVerdict": "Green"
+}

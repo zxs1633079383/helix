@@ -45,6 +45,7 @@ pub fn g08_scenario_spec() -> SendScenarioSpec {
 /// 为 G08 暴露 happy/failure/replay/recovery 的共享生产回放入口。
 pub struct G08ScenarioRunner;
 
+#[allow(dead_code)]
 impl G08ScenarioRunner {
     /// 回放 command、WS authority、原子持久化、readback 与迟到 HTTP。
     pub fn run_created() -> ScheduleCreatedScenarioTrace {

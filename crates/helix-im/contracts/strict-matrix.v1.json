@@ -1703,7 +1703,9 @@
               "user_ids",
               "req_id"
             ],
-            "optional": [],
+            "optional": [
+              "display_name"
+            ],
             "forbid_unknown": true
           },
           "effect": [
@@ -1737,7 +1739,7 @@
         "topic root 和 reply 关系不得由 UI 拼接"
       ],
       "http": {
-        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,userIds}`；`req_id` 只用于 Helix/客户端关联，不能进入 HTTP body；未提供自定义图片时服务端从归一化成员派生 `pictureType=USER/picture.userIds`，客户端不得提交空 picture 占位",
+        "request": "`POST /api/cses/posts/makeTopic` body `{rootId,userIds,displayName?}`；`display_name` 只透传用户确认的话题名，`req_id` 只用于 Helix/客户端关联且不能进入 HTTP body；默认图片仍由服务端从归一化成员派生，客户端不得提交空 picture 占位",
         "response": "HTTP 200 application/json；`CommonRes.status=SUCCESS`；权威响应 `data={rootMessageId,channelId,revision}`；Helix 必须先持久化服务端 `channelId` 与 `revision`，仅 Persist Ok 后发布成功投影"
       },
       "ws": {

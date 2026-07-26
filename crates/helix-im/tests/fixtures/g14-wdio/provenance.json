@@ -23,6 +23,12 @@
       "/mutations/*/mutation/patch/view/messageId",
       "/mutations/*/mutation/patch/view/completed/*/user/userId",
       "/mutations/*/mutation/patch/view/pending/*/user/userId",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -54,10 +60,77 @@
       "/mutations/*/baseRevision"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "3f54f3dc5eb485af27034879ab6d8c65f5e1aeb3cc0e6db9088ef527e585d1cb",
+    "semanticSha256": "4ac33ad554d6f0b53a93e834fd1f19744ae4892fd6287a413a4a500ed1637626",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.left-dialog-list"
+    ]
+  },
+  {
+    "fileName": "readable-message.frame-v2.json",
+    "fixtureId": "g14-readable-message-v2",
+    "fixtureSha256": "9c7b460fab178cf0cbfa66101d5900225a86a16ed55aa186cd04ba8069500fc8",
+    "gateId": "G-14",
+    "generatedAt": "2026-07-26T04:35:00-07:00",
+    "helixCommit": "5b8b7db031faf55f1fa52de15bac746a20f82b13",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/messageId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/messageId",
+      "/mutations/*/mutation/view/completed/*/user/userId",
+      "/mutations/*/mutation/view/pending/*/user/userId",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/messageId",
+      "/mutations/*/mutation/patch/view/completed/*/user/userId",
+      "/mutations/*/mutation/patch/view/pending/*/user/userId",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/view/sections/*/items/*/channelId",
+      "/mutations/*/mutation/view/sections/*/items/*/title/text",
+      "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
+      "/mutations/*/mutation/view/sections/*/items/*/avatar/fallbackText",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/fallbackText"
+    ],
+    "placeholderValues": {
+      "actorId": "g14-wdio-actor",
+      "authorId": "g14-wdio-author",
+      "baseRevision": null,
+      "channelId": "chfixx0000000000000000001e",
+      "createdAt": 1700001500000,
+      "groupName": "G14 Fixture Group",
+      "observerId": "g14-wdio-observer",
+      "postId": "srvfix0000000000000000001e",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "g14-wdio-company",
+      "transactionId": "timeline-timeline|26:chfixx0000000000000000001e|19:g14-readable-window-1"
+    },
+    "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "664ab7ea30dfb4fac09906296d28bbef518f4c2d8245901f8299d58856809d79",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
     ]
   },
   {
@@ -84,6 +157,12 @@
       "/mutations/*/mutation/patch/view/messageId",
       "/mutations/*/mutation/patch/view/completed/*/user/userId",
       "/mutations/*/mutation/patch/view/pending/*/user/userId",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -115,7 +194,7 @@
       "/mutations/*/baseRevision"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "a1c9e4b0b6592a7bb8302d11710ddccdb65177d0f359ae67b07417126d8c3cc4",
+    "semanticSha256": "cbe3cd12b8b4548b1314f834d7751c16f8d9f08be334e91ed9c7ea30768f8514",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.participant-receipts"
@@ -145,6 +224,12 @@
       "/mutations/*/mutation/patch/view/messageId",
       "/mutations/*/mutation/patch/view/completed/*/user/userId",
       "/mutations/*/mutation/patch/view/pending/*/user/userId",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -176,7 +261,7 @@
       "/mutations/*/baseRevision"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "a82d62af89631c37ec040f044823f75a94153ad6dd1aeb1ef9ea81302fb07014",
+    "semanticSha256": "5b24600d23a0885f3f5c4531628d75f82814397eea028c2b457386ffdbcc80b5",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.participant-receipts"
@@ -206,6 +291,12 @@
       "/mutations/*/mutation/patch/view/messageId",
       "/mutations/*/mutation/patch/view/completed/*/user/userId",
       "/mutations/*/mutation/patch/view/pending/*/user/userId",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/items/*/channelId",
+      "/mutations/*/mutation/patch/view/items/*/id",
+      "/mutations/*/mutation/patch/view/items/*/author/userId",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -237,7 +328,7 @@
       "/mutations/*/baseRevision"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "a82d62af89631c37ec040f044823f75a94153ad6dd1aeb1ef9ea81302fb07014",
+    "semanticSha256": "5b24600d23a0885f3f5c4531628d75f82814397eea028c2b457386ffdbcc80b5",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.participant-receipts"

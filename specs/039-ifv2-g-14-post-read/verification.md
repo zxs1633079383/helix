@@ -35,6 +35,6 @@
 - `cargo test -p helix-im --lib --test s1_ws_actions_test post_read -- --nocapture`：lib 3/3、S1 3/3 PASS，证明既有 post_read 合同已同步升级为 PersistOk 后释放。
 - `UPDATE_G14_WDIO_FIXTURES=1 cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture`：1/1 PASS，仅本次显式生成 canonical JSON。
 - `cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture`：1/1 PASS，普通运行只比较 production actual 与 checked-in Golden。
-- canonical inventory：4 份 Frame；schemaVersion 全为 2；surface inventory 为 `message.left-dialog-list` 与 `message.participant-receipts`。
-- producer pin：`5b8b7db031faf55f1fa52de15bac746a20f82b13`；provenance raw SHA-256：`0e23163c947f8726d336e7357ec90ef3654078383cc97cb8f1e8f873abc1b7d3`。
+- canonical inventory：5 份 Frame；schemaVersion 全为 2；surface inventory 为 `message.left-dialog-list`、`message.timeline` 与 `message.participant-receipts`。其中 `readable-message.frame-v2.json` 是 PC/Mobile 发起真实单条已读意图所需的 producer-authored timeline 前置，包含 enabled opaque `markRead` binding，平台不得手写 action。
+- producer pin：`5b8b7db031faf55f1fa52de15bac746a20f82b13`；provenance raw SHA-256：`cdee97343dea55eba0aea603f89bc6b59e1296570d21a17daa1463fffc95d373`。
 - 行为边界：HTTP success 只代表 admission；WS `post_read` 先写 `message.read_bits`，matching PersistOk 后才触发 receipt authority refresh；duplicate/late reply 不重复写或出 Frame。

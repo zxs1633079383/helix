@@ -3,10 +3,12 @@ use helix_core::effect::{Correlation, Effect, HttpRequest, StorageOp};
 use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    InteractionFrameV2, ParticipantReceiptsVm, ReceiptKind, ReceiptStatus, SurfaceScope,
-    TypedSurfaceMutation,
+    InteractionFrameV2, ParticipantReceiptsVm, ReceiptKind, ReceiptStatus, SurfaceId,
+    SurfaceScope, TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
+use helix_im::query::LocalStoreMode;
+use helix_im::state::ChannelId;
 use helix_im::ImModule;
 use serde_json::{json, Value};
 
@@ -49,6 +51,7 @@ pub fn g14_scenario_spec() -> SendScenarioSpec {
 /// 汇总 G14 admission、初始 receipt、持久屏障与终态 Frame。
 pub struct PostReadSuccessTrace {
     pub group_created: InteractionFrameV2,
+    pub readable_message: InteractionFrameV2,
     pub initial: InteractionFrameV2,
     pub terminal: InteractionFrameV2,
     pub request: HttpRequest,
@@ -71,6 +74,7 @@ impl G14ScenarioRunner {
     /// 回放 fresh group、direct command、WS authority、PersistOk 与 attached receipt refresh。
     pub fn run_success() -> PostReadSuccessTrace {
         let group_created = group_created_frame();
+        let readable_message = Self::run_readable_message();
         let mut replay = Replay::new();
         let initial = replay.attach_receipts("000", 1);
         let command_corr = replay.start_post_read();
@@ -94,6 +98,7 @@ impl G14ScenarioRunner {
         replay.reply(receipt_corr, receipt_authority("010", 2), 4);
         PostReadSuccessTrace {
             group_created,
+            readable_message,
             initial,
             terminal: replay.only_frame(),
             request,
@@ -150,6 +155,29 @@ impl G14ScenarioRunner {
     pub fn run_recovery() -> InteractionFrameV2 {
         let mut replay = Replay::new();
         replay.attach_receipts("010", 2)
+    }
+
+    /// 从生产 timeline 查询生成带 enabled markRead binding 的可读消息前置 Frame。
+    pub fn run_readable_message() -> InteractionFrameV2 {
+        let mut replay = Replay::new();
+        let scan_corr = replay.start_timeline_query();
+        replay.reply(
+            scan_corr,
+            PortOutcome::Ok(ReplyBytes(Bytes::from_static(b"[]"))),
+            1,
+        );
+        let http_corr = replay.only_http_corr("/posts/getLatestPost");
+        replay.reply(http_corr, readable_message_authority(), 2);
+        let persist_corr = replay.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"))
+        });
+        replay.reply(
+            persist_corr,
+            PortOutcome::Ok(ReplyBytes(Bytes::new())),
+            3,
+        );
+        replay.only_frame()
     }
 }
 
@@ -210,6 +238,32 @@ pub fn receipt_view(frame: &InteractionFrameV2) -> &ParticipantReceiptsVm {
         .expect("G14 Frame has participant receipt view")
 }
 
+/// 验证 PC/Mobile 只能从 Helix Frame 获得单条已读 UI intent 所需的 opaque binding。
+pub fn assert_readable_message_contract(frame: &InteractionFrameV2) {
+    frame.validate().expect("G14 readable timeline Frame remains valid");
+    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.mutations.len(), 1);
+    let mutation = &frame.mutations[0];
+    assert_eq!(mutation.mutation.surface, SurfaceId::MessageTimeline);
+    let view = match &mutation.mutation.mutation {
+        TypedSurfaceMutation::TimelineSnapshot { view } => view,
+        TypedSurfaceMutation::TimelinePatch { patch } => &patch.view,
+        other => panic!("expected G14 timeline mutation, got {other:?}"),
+    };
+    assert_eq!(view.channel_id, CHANNEL_ID);
+    assert_eq!(view.items.len(), 1);
+    let message = &view.items[0];
+    assert_eq!(message.id, POST_ID);
+    assert_eq!(message.author.user_id, OBSERVER_ID);
+    let mark_read = message
+        .actions
+        .iter()
+        .find(|action| action.kind == "markRead")
+        .expect("G14 readable message exposes markRead");
+    assert!(mark_read.enabled);
+    assert!(mark_read.disabled_reason.is_none());
+}
+
 /// 用共享生产建群回放生成 G14 fresh-group prerequisite Frame。
 fn group_created_frame() -> InteractionFrameV2 {
     let mut runner = shared::G01ScenarioRunner::new_for(g14_scenario_spec());
@@ -225,15 +279,23 @@ struct Replay {
 impl Replay {
     /// 创建带固定 actor/team/api 的 G14 production module。
     fn new() -> Self {
-        Self {
-            module: ImModule::new(ImConfig {
+        let mut module = ImModule::new_with_local_store(
+            ImConfig {
                 api_base_url: "http://g14-wdio.invalid".to_string(),
                 default_api_base_url: "http://g14-wdio.invalid".to_string(),
                 auth_user_id: ACTOR_ID.to_string(),
                 company_id: TEAM_ID.to_string(),
                 user_name: "G14 Fixture Actor".to_string(),
                 ..ImConfig::default()
-            }),
+            },
+            LocalStoreMode::Session,
+        );
+        module.register_channel(
+            ChannelId::from_str(CHANNEL_ID).expect("G14 fixture channel id is valid"),
+            0,
+        );
+        Self {
+            module,
             sink: EffectSink::new(),
         }
     }
@@ -282,6 +344,25 @@ impl Replay {
             CREATED_AT as u64 + 10,
         );
         self.only_http_corr("/post/read")
+    }
+
+    /// 发起一条本地覆盖充分的 timeline 查询并返回 storage scan correlation。
+    fn start_timeline_query(&mut self) -> Correlation {
+        self.step(
+            command(
+                "im_query_messages_by_channel",
+                json!({
+                    "channel_id": CHANNEL_ID,
+                    "limit": 1,
+                    "windowToken": "g14-readable-window"
+                }),
+            ),
+            CREATED_AT as u64,
+        );
+        self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        })
     }
 
     /// 注入无 event_seq 的真实 post_read authority 并返回 message persist correlation。
@@ -373,7 +454,12 @@ impl Replay {
     /// 返回当前 step 唯一 InteractionFrameV2。
     fn only_frame(&self) -> InteractionFrameV2 {
         let frames = self.frames();
-        assert_eq!(frames.len(), 1, "expected one G14 Frame");
+        assert_eq!(
+            frames.len(),
+            1,
+            "expected one G14 Frame, effects={:?}",
+            self.sink.as_slice()
+        );
         frames.into_iter().next().expect("one G14 Frame exists")
     }
 
@@ -405,6 +491,27 @@ impl Replay {
                 .count(),
         }
     }
+}
+
+/// 构造一条来自 Observer、尚未被 Actor 阅读的远端权威消息。
+fn readable_message_authority() -> PortOutcome {
+    PortOutcome::Ok(ReplyBytes(http_envelope(json!({
+        "status": "SUCCESS",
+        "data": [{
+            "id": POST_ID,
+            "temporaryId": "g14-readable-temporary",
+            "channelId": CHANNEL_ID,
+            "userId": OBSERVER_ID,
+            "type": "TEXT",
+            "message": "g14-readable-message",
+            "simpleMessage": "g14-readable-message",
+            "createAt": CREATED_AT,
+            "eventSeq": 1,
+            "readMap": "",
+            "viewers": ["all"],
+            "mentions": []
+        }]
+    }))))
 }
 
 /// 解码 im:interaction:frame 外层事件中的 V2 payload。

@@ -14,9 +14,9 @@ use serde_json::{json, Value};
 mod scenario;
 
 use scenario::{
-    assert_group_created_contract_for, assert_receipt_contract, g14_scenario_spec, receipt_view,
-    sha256_hex, surface_names, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID, CREATED_AT,
-    GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID,
+    assert_group_created_contract_for, assert_readable_message_contract, assert_receipt_contract,
+    g14_scenario_spec, receipt_view, sha256_hex, surface_names, G14ScenarioRunner, ACTOR_ID,
+    AUTHOR_ID, CHANNEL_ID, CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID,
 };
 
 const HELIX_COMMIT: &str = "5b8b7db031faf55f1fa52de15bac746a20f82b13";
@@ -31,11 +31,12 @@ struct FixtureCase {
     frame: InteractionFrameV2,
 }
 
-/// 从唯一 G14 ScenarioRunner 生成前置、pending、terminal 与 recovery Frame。
+/// 从唯一 G14 ScenarioRunner 生成群聊、可读消息、pending、terminal 与 recovery Frame。
 fn produce_cases() -> Vec<FixtureCase> {
     let success = G14ScenarioRunner::run_success();
     let recovery = G14ScenarioRunner::run_recovery();
     assert_group_created_contract_for(&success.group_created, &g14_scenario_spec());
+    assert_readable_message_contract(&success.readable_message);
     assert_receipt_contract(&success.initial, 1, false);
     assert_receipt_contract(&success.terminal, 2, true);
     assert_receipt_contract(&recovery, 1, true);
@@ -44,6 +45,11 @@ fn produce_cases() -> Vec<FixtureCase> {
             fixture_id: "g14-group-created-v2",
             file_name: "group-created.frame-v2.json",
             frame: success.group_created,
+        },
+        FixtureCase {
+            fixture_id: "g14-readable-message-v2",
+            file_name: "readable-message.frame-v2.json",
+            frame: success.readable_message,
         },
         FixtureCase {
             fixture_id: "g14-receipts-pending-v2",
@@ -76,9 +82,36 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
         "schemaVersion": frame.schema_version,
         "runtime": frame.runtime,
         "surfaces": surface_names(frame),
+        "readableMessage": readable_message_contract(frame),
         "receipts": receipt_contract(frame),
     }))
     .expect("G14 semantic projection serializes")
+}
+
+/// 提取 G14 可读消息的稳定内容与 markRead 能力，不纳入 opaque actionRef。
+fn readable_message_contract(frame: &InteractionFrameV2) -> Value {
+    let Some(view) = frame.mutations.iter().find_map(|mutation| match &mutation.mutation.mutation {
+        TypedSurfaceMutation::TimelineSnapshot { view } => Some(view),
+        TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view),
+        _ => None,
+    }) else {
+        return Value::Null;
+    };
+    json!({
+        "channelId": view.channel_id,
+        "items": view.items.iter().map(|item| json!({
+            "author": item.author,
+            "content": item.content,
+            "delivery": item.delivery,
+            "markRead": item.actions.iter().find(|action| action.kind == "markRead").map(|action| json!({
+                "kind": action.kind,
+                "inputShape": action.input_shape,
+                "enabled": action.enabled,
+                "disabledReason": action.disabled_reason,
+            }))
+        })).collect::<Vec<_>>(),
+        "state": view.state,
+    })
 }
 
 /// 提取 participant receipt summary、completed 与 pending 的稳定字段。
@@ -150,6 +183,12 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/patch/view/messageId",
             "/mutations/*/mutation/patch/view/completed/*/user/userId",
             "/mutations/*/mutation/patch/view/pending/*/user/userId",
+            "/mutations/*/mutation/view/items/*/channelId",
+            "/mutations/*/mutation/view/items/*/id",
+            "/mutations/*/mutation/view/items/*/author/userId",
+            "/mutations/*/mutation/patch/view/items/*/channelId",
+            "/mutations/*/mutation/patch/view/items/*/id",
+            "/mutations/*/mutation/patch/view/items/*/author/userId",
             "/mutations/*/mutation/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/view/sections/*/items/*/title/text",
             "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -186,9 +225,9 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 #[test]
 fn current_g14_producer_matches_canonical_v2_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 4, "G14 canonical inventory is explicit");
-    assert_eq!(receipt_view(&cases[1].frame).pending.len(), 2);
-    assert_eq!(receipt_view(&cases[2].frame).completed.len(), 1);
+    assert_eq!(cases.len(), 5, "G14 canonical inventory is explicit");
+    assert_eq!(receipt_view(&cases[2].frame).pending.len(), 2);
+    assert_eq!(receipt_view(&cases[3].frame).completed.len(), 1);
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G14_WDIO_FIXTURES").is_some();
     let mut provenance = Vec::with_capacity(cases.len());

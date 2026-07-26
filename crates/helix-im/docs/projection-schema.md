@@ -141,22 +141,20 @@ helix 自造的信号字段用 snake_case。前端 dispatcher 按本表逐 chann
 > `data` **外层**键集恒为 `{req_id, body}`（成功）/ `{req_id, error}`（失败），由 `read_relay_test` 断言。
 > 写族保持 fire-and-forget（数据走 WS 回声），**不**走本通道。
 
-### 1.3 上拉翻页投影（**不计入** §1 RenderNode 投影集 · D3 NEED_HELIX_FIX_PULL_REFRESH）
+### 1.3 上拉翻页投影（InteractionFrame V2 · G10a）
 
 `im_load_older_context` 解上拉到顶的远端兜底翻页（UC-2.2）：多轮 `posts/postContext` 编排（moving anchor +
 严格更早过滤 + temporaryId 去重 + pivot 推进，≤8 轮，对齐 legacy `fetch_older_posts_by_context`），凑够
-`limit` 条严格更早 / 服务端耗尽 → emit `im:messages:older_loaded`。`messages[]` 是**严格更早 wire Post
-升序数组透传**（camelCase `createAt`/`temporaryId`/server `id`，**后端权威不改业务数据**，HX-C005），故
-inner Post 形态不冻结（同 §1.2 透传语义）；`data` **外层**键集恒为 `{channelId, messages, hasMore}`。
+`limit` 条严格更早 / 服务端耗尽后，必须先把 viewer-visible message 写入本地存储；PersistOk 后完整 Scan
+同一 bounded window，最终发布 `message.timeline` replaceView patch。端侧不再接收 raw Post 或自行 prepend。
 
-| 工厂 fn（src 位置） | channel | data 键集 | 触发路径 | 归属 |
+| 工厂 fn（src 位置） | channel | typed payload | 触发路径 | 归属 |
 |---|---|---|---|---|
-| `older_context::emit_older_loaded` | `im:messages:older_loaded` | `{channelId, messages, hasMore}`（messages=严格更早 wire Post 升序数组透传）| invoke `im_load_older_context` → 多轮 postContext HTTP 收尾 | helix-im 编排，前端 prepend |
+| `port_reply::dispatch_read::handle_load_older_readback_reply` | `im:interaction:frame` | `message.timeline` 完整 `TimelineWindowVm` patch | invoke → 多轮 HTTP → message Persist → bounded Scan | Helix 原子发布，端侧只 apply |
 
-> **为何不冻结 inner 字段集**：messages 元素 = 后端 postContext 返回的 wire Post 原样透传（同读族），逐字段
-> 由后端定。**外层** `{channelId, messages, hasMore}` 由 `tests/p3c_load_older_context_test.rs` 断言。
-> `hasMore` 语义：停因「凑够 target / 轮数耗尽」→ `true`（还有更早可拉）；停因「服务端无更早 / pivot 卡住 /
-> 空批」→ `false`（到顶）。多轮在 corr_map 续接（每轮单 `Effect::Http`，sans-IO 不阻塞，HX-C001）。
+`page.hasOlder/hasMore` 仍由停因决定：凑够 target / 轮数耗尽 → `true`；服务端无更早 / pivot 卡住 /
+空批 → `false`。HTTP、字段校验、Persist 或 readback 失败发布保留上一完整 items 的 failed patch，不发布
+部分成功。多轮在 corr_map 续接（每轮单 `Effect::Http`，sans-IO 不阻塞，HX-C001）。
 
 ### 1.4 通知/待办装配信号（**不计入** §1 RenderNode 投影集 · UC-10 通知/待办）
 

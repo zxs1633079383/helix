@@ -336,8 +336,18 @@ pub enum CorrelationContext {
     /// UC-10 `posts/queryTodoList` HTTP 回报 → emit `im:todo:updated{items}`（内核自驱、无 req_id）。
     TodoQuery,
 
-    /// D3 `im_load_older_context` 多轮 HTTP 续接（alloc 新 corr / emit older_loaded；HX-C001/C002）。
+    /// G10a 多轮 HTTP 续接；终点只能进入 message persist barrier，不能直接发布 raw rows。
     LoadOlderContext {
+        state: Box<crate::older_context::LoadOlderState>,
+    },
+
+    /// G10a 旧消息 write barrier；成功后才允许读取完整 bounded window。
+    LoadOlderCache {
+        state: Box<crate::older_context::LoadOlderState>,
+    },
+
+    /// G10a 持久化后的完整 timeline readback；只从该结果构造 Frame V2。
+    LoadOlderReadback {
         state: Box<crate::older_context::LoadOlderState>,
     },
 }

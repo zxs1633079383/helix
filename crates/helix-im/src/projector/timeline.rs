@@ -99,6 +99,80 @@ impl Default for TimelineProjector {
 }
 
 impl TimelineProjector {
+    /// Returns the unique attached window that currently contains `anchor_message_id`.
+    ///
+    /// G10a's wire command intentionally carries no renderer-owned window token. Helix resolves
+    /// that token from its attached typed state and rejects ambiguous or detached anchors.
+    pub(crate) fn window_context_for_anchor(
+        &self,
+        channel_id: &str,
+        anchor_message_id: &str,
+    ) -> Option<(String, usize)> {
+        let mut matches = self.slots.values().filter(|slot| {
+            slot.view.channel_id == channel_id
+                && slot
+                    .view
+                    .items
+                    .iter()
+                    .any(|item| item.id == anchor_message_id)
+        });
+        let first = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some((first.view.page.window_token.clone(), first.view.items.len()))
+    }
+
+    /// Advances one attached G10a window to a failure state without dropping its existing items.
+    ///
+    /// HTTP or persistence failure ends the loading transaction but cannot erase the last
+    /// authoritative timeline merely to signal failure.
+    pub(crate) fn patch_failed_for_anchor(
+        &mut self,
+        channel_id: &str,
+        anchor_message_id: &str,
+    ) -> Result<Option<SurfaceMutation>, TimelineProjectionError> {
+        let Some((slot_key, slot)) = self
+            .slots
+            .iter()
+            .filter(|(_, slot)| {
+                slot.view.channel_id == channel_id
+                    && slot
+                        .view
+                        .items
+                        .iter()
+                        .any(|item| item.id == anchor_message_id)
+            })
+            .map(|(key, slot)| (key.clone(), slot.clone()))
+            .next()
+        else {
+            return Ok(None);
+        };
+        let mut view = slot.view;
+        view.state = SurfaceLoadState::Failed;
+        let revision = next_revision(slot.revision)?;
+        let scope = SurfaceScope::Timeline {
+            channel_id: view.channel_id.clone(),
+            window_token: view.page.window_token.clone(),
+        };
+        let mutation = SurfaceMutation {
+            surface: SurfaceId::MessageTimeline,
+            scope,
+            revision,
+            base_revision: Some(slot.revision),
+            causation_id: None,
+            mutation: TypedSurfaceMutation::TimelinePatch {
+                patch: ReplaceView {
+                    kind: ReplaceViewKind::ReplaceView,
+                    view: view.clone(),
+                },
+            },
+        };
+        mutation.validate()?;
+        self.slots.insert(slot_key, TimelineSlot { revision, view });
+        Ok(Some(mutation))
+    }
+
     pub fn reset(&mut self) {
         self.slots.clear();
         self.attached_slots.clear();

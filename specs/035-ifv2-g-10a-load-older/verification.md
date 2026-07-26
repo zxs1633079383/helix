@@ -9,6 +9,16 @@
 - 前序 G10：commit `4f398cc`，loop `event_seq=14`、`phase=closed`、R1-R4 全 PASS。
 - G10a admission：loop `event_seq=7`、`phase=implementing`、`IMPLEMENTATION_ADMITTED`。后续命令必须显式传 `--feature specs/035-ifv2-g-10a-load-older`。
 
+## T003-T008 Helix Producer
+
+- Shared prerequisite：G10a 复用 `G01ScenarioRunner::create_group_prerequisite`，每个 canonical trace 生成 fresh group Frame；未新增第二套建群 reducer。
+- Production chain 已从 raw `im:messages:older_loaded` 改为 `postContext HTTP rounds -> visible message BatchUpsert -> PersistOk -> bounded message Scan -> message.timeline Frame V2`。Helix capabilities 与生产 source 不再暴露 raw older-loaded producer。
+- attached window 与 anchor 由 `TimelineProjector` 的 typed state 解析；direct command 不接受 window token。detached/ambiguous anchor 在 HTTP 前 fail-closed。
+- HTTP、畸形 authority、Persist 或 readback 失败只发布保留既有 20 rows 的 failed replaceView；success 在 durable readback 后发布 40-row patch；exhaustion recovery 将 `hasOlder/hasMore` 置 false。
+- `cargo check -p helix-im`：PASS，退出码 0，6.87s。
+- focused suite：G10a full-flow `8/8`、既有 mobile older-context `5/5`、paging properties `13/13`、G10/G10a interaction `5/5`，fail=0、skip=0。
+- duplicate persist/readback correlation 均产生 0 Effect；success patch 的 `baseRevision` 精确等于初始 G10 revision。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

@@ -18,7 +18,6 @@ pub const PUBLIC_EVENTS: &[&str] = &[
     "im:post:send-failed",
     "im:post:increment-failed",
     "im:messages:query_result",
-    "im:messages:older_loaded",
     "im:interaction:frame",
     "im:interaction:action-receipt",
     "im:channels:loaded",

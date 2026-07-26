@@ -52,7 +52,7 @@ pub(super) fn classify_local_read(
     }
 }
 
-pub(super) fn parse_local_rows(bytes: &[u8]) -> Result<Vec<Value>, ImError> {
+pub(crate) fn parse_local_rows(bytes: &[u8]) -> Result<Vec<Value>, ImError> {
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|error| ImError::Parse(format!("message scan reply: {error}")))?;
     let rows = value
@@ -138,7 +138,8 @@ pub(crate) fn post_event_seq(post: &Value) -> Option<u64> {
         })
 }
 
-pub(super) fn visible_remote_rows_and_cache_ops(
+/// 将 Go wire Post 统一转换为可见 render-ready row 与同源 message upsert。
+pub(crate) fn visible_remote_rows_and_cache_ops(
     channel_id: ChannelId,
     posts: Vec<Value>,
     local_rows_desc: &[Value],
@@ -432,7 +433,8 @@ fn create_at(row: &Value) -> i64 {
         .unwrap_or(0)
 }
 
-pub(super) fn sort_recent_rows_desc(rows: &mut [Value]) {
+/// 以 storage scan 的 canonical 时间倒序稳定排列 readback rows。
+pub(crate) fn sort_recent_rows_desc(rows: &mut [Value]) {
     rows.sort_by(|left, right| {
         create_at(right).cmp(&create_at(left)).then_with(|| {
             match (message_key(right), message_key(left)) {

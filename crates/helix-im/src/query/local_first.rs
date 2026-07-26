@@ -26,9 +26,9 @@ pub(crate) use data::parse_latest_posts_body;
 use data::server_id;
 use data::{
     classify_local_read, dedup_recent_rows, merge_recent_rows, message_key,
-    parse_latest_posts_reply, parse_local_rows, sort_recent_rows_desc,
-    stale_local_server_rows_delete_op, visible_remote_rows_and_cache_ops,
+    parse_latest_posts_reply, stale_local_server_rows_delete_op,
 };
+pub(crate) use data::{parse_local_rows, sort_recent_rows_desc, visible_remote_rows_and_cache_ops};
 
 /// 平台提供的本地数据能力。它描述物理数据寿命，不承诺某次查询已经完整。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -280,6 +280,7 @@ impl ImModule {
                 &local_rows_desc,
                 now_ms,
                 causation_id,
+                None,
             )?);
             self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
             return Ok(());
@@ -305,6 +306,7 @@ impl ImModule {
                 &local_rows_desc,
                 now_ms,
                 causation_id,
+                None,
             )?);
             self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
             return Ok(());
@@ -415,6 +417,7 @@ impl ImModule {
                 &merged_rows_desc,
                 now_ms,
                 causation_id,
+                None,
             )?);
             self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
             return Ok(());
@@ -490,6 +493,7 @@ impl ImModule {
             &merged_rows_desc,
             now_ms,
             causation_id,
+            None,
         )?);
         self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
         Ok(())
@@ -606,12 +610,13 @@ impl ImModule {
     /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。
     /// `rows_desc` 是当前有界窗口的倒序查询结果；这里反转一次并交给 typed projector，端侧不再
     /// 消费 `im:messages:query_result` 或 raw storage row。
-    fn emit_timeline_snapshot_with_causation(
+    pub(crate) fn emit_timeline_snapshot_with_causation(
         &mut self,
         request: &MessageQueryRequest,
         rows_desc: &[Value],
         now_ms: u64,
         causation_id: Option<String>,
+        page_override: Option<crate::interaction_frame::WindowPageVm>,
     ) -> Result<Effect, ImError> {
         let explicit_resync = is_surface_timeline_resync(&causation_id);
         let renderer_causation = surface_timeline_renderer_causation(&causation_id);
@@ -638,7 +643,9 @@ impl ImModule {
                 request.channel_id.as_str(),
                 request.window_token.as_str(),
             );
-        if self
+        if let Some(page) = page_override {
+            timeline_request.page = page;
+        } else if self
             .state
             .recent_message_coverage
             .get(&request.channel_id)

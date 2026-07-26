@@ -57,9 +57,20 @@ impl ImModule {
             }
             // D3 上拉翻页（NEED_HELIX_FIX_PULL_REFRESH）：解析锚点 → 发首轮 postContext Http +
             // 注册 LoadOlderContext 续接态。多轮编排在 handle_port_reply 的 LoadOlderContext 臂（每轮
-            // 回报推进 anchor，凑够/耗尽 → emit im:messages:older_loaded）。
+            // 回报推进 anchor，凑够/耗尽 → message persist barrier → timeline Frame V2）。
             n if n == crate::older_context::LOAD_OLDER_CONTEXT => {
-                let st = crate::older_context::parse_request(payload)?;
+                let mut st = crate::older_context::parse_request(payload)?;
+                let (window_token, visible_items) = self
+                    .state
+                    .timeline_projector
+                    .window_context_for_anchor(st.channel_id().as_str(), st.anchor_post_id())
+                    .ok_or_else(|| {
+                        ImError::Parse(
+                            "im_load_older_context requires one attached timeline containing anchor"
+                                .to_string(),
+                        )
+                    })?;
+                st.attach_window(window_token, visible_items);
                 let corr = self.alloc_corr_internal();
                 let (_, body) = crate::older_context::build_post_context_body(&st);
                 out.push(crate::older_context::post_context_http_tracked(

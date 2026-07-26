@@ -6,6 +6,9 @@ use helix_im::interaction_frame::{
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
+#[path = "support/g10a_scenario.rs"]
+#[allow(dead_code)]
+mod older_scenario;
 #[path = "support/g10_scenario.rs"]
 mod scenario;
 
@@ -81,4 +84,27 @@ fn production_query_generation_drops_late_and_duplicate_replies() {
         Some("g10-current"),
         true,
     );
+}
+
+/// Proves G10a advances the same scope only after message persistence and durable readback.
+#[test]
+fn production_load_older_uses_the_existing_timeline_revision_chain() {
+    let trace = older_scenario::G10AScenarioRunner::run_success();
+    assert!(trace.persisted_before_frame);
+    assert_eq!(
+        trace.initial.mutations[0].mutation.scope,
+        trace.loaded.mutations[0].mutation.scope
+    );
+    assert_eq!(
+        trace.loaded.mutations[0].mutation.base_revision,
+        Some(trace.initial.mutations[0].mutation.revision)
+    );
+}
+
+/// Proves G10a duplicate PortReplies cannot append another terminal timeline revision.
+#[test]
+fn production_load_older_drops_consumed_correlations() {
+    let trace = older_scenario::G10AScenarioRunner::run_duplicate_replies();
+    assert_eq!(trace.duplicate_persist_effects, 0);
+    assert_eq!(trace.duplicate_readback_effects, 0);
 }

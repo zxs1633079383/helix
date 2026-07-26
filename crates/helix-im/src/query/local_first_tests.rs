@@ -292,7 +292,7 @@ fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
     let mut request = request(20);
     request.window_token = "latest-query-1".to_string();
     let effect = module
-        .emit_timeline_snapshot_with_causation(&request, &rows_desc, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&request, &rows_desc, 1_000, None, None)
         .expect("render-ready facts project to a typed frame");
     let Effect::Emit { event } = effect else {
         panic!("timeline query terminal must emit")
@@ -338,10 +338,10 @@ fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_patch() {
     })];
 
     module
-        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_000, None, None)
         .expect("first authoritative fact establishes the timeline slot");
     let effect = module
-        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_001, None)
+        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_001, None, None)
         .expect("ordinary authoritative refresh advances the existing slot");
     let Effect::Emit { event } = effect else {
         panic!("ordinary refresh must emit one typed Frame")
@@ -381,7 +381,7 @@ fn full_authoritative_recent_window_exposes_load_older_page_contract() {
         .insert(channel_id(), coverage);
 
     let effect = module
-        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&request(20), &rows_desc, 1_000, None, None)
         .expect("authoritative recent window projects");
     let Effect::Emit { event } = effect else {
         panic!("timeline projection must emit")
@@ -439,7 +439,7 @@ fn transport_disconnect_preserves_attached_timeline_for_recovery_patch() {
         "props": {},
     })];
     module
-        .emit_timeline_snapshot_with_causation(&request(20), &rows, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&request(20), &rows, 1_000, None, None)
         .expect("initial attached timeline snapshot");
     let scope = crate::interaction_frame::SurfaceScope::Timeline {
         channel_id: channel_id().as_str().to_string(),
@@ -457,7 +457,11 @@ fn transport_disconnect_preserves_attached_timeline_for_recovery_patch() {
     assert!(sink.as_slice().is_empty());
     assert!(module.state.timeline_projector.is_attached(&scope));
     assert!(
-        module.state.timeline_projector.current_view(&scope).is_some(),
+        module
+            .state
+            .timeline_projector
+            .current_view(&scope)
+            .is_some(),
         "same-identity renderer revision remains mounted across a socket reconnect"
     );
 
@@ -565,7 +569,7 @@ fn optimistic_send_persist_refreshes_an_attached_timeline_as_a_causally_linked_f
         "props": {},
     })];
     module
-        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows, 1_000, None, None)
         .expect("the renderer attaches the latest timeline before sending");
 
     let mut sink = EffectSink::new();
@@ -797,7 +801,7 @@ fn http_send_settlement_waits_for_its_durable_receipt_before_refreshing_the_atta
         "props": {},
     })];
     module
-        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows, 2_000, None)
+        .emit_timeline_snapshot_with_causation(&request(50), &initial_rows, 2_000, None, None)
         .expect("the timeline is attached before the HTTP send settles");
 
     let mut sink = EffectSink::new();
@@ -1055,7 +1059,7 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
     let mut query = request(20);
     query.window_token = "receipt-patch-window".to_string();
     let Effect::Emit { event } = module
-        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None, None)
         .expect("initial query frame grants timeline actions")
     else {
         panic!("timeline query must emit a frame")
@@ -1159,7 +1163,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
     let mut query = request(20);
     query.window_token = "action-window".to_string();
     let timeline_effect = module
-        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None, None)
         .expect("author timeline emits an action-bound Frame");
     let Effect::Emit { event } = timeline_effect else {
         panic!("timeline must emit a frame")
@@ -1323,7 +1327,7 @@ fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completio
 
     // 回归锚: T079 —— 新 timeline revision 撤旧 ref 后，旧 corr 尚未终态时 requestId 仍不可复用。
     let refreshed_timeline = module
-        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_005, None)
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_005, None, None)
         .expect("new timeline revision revokes the old action capability");
     let Effect::Emit { event } = refreshed_timeline else {
         panic!("refreshed timeline must emit a frame")
@@ -1482,7 +1486,7 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         "props": {},
     })];
     let Effect::Emit { event } = module
-        .emit_timeline_snapshot_with_causation(&query, &before_rows, 1_000, None)
+        .emit_timeline_snapshot_with_causation(&query, &before_rows, 1_000, None, None)
         .expect("old identity renders an action-bound timeline")
     else {
         panic!("timeline must emit a Frame")
@@ -1566,7 +1570,7 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
         "props": {},
     })];
     let Effect::Emit { event } = module
-        .emit_timeline_snapshot_with_causation(&query, &after_rows, 1_003, None)
+        .emit_timeline_snapshot_with_causation(&query, &after_rows, 1_003, None, None)
         .expect("new identity renders its own action-bound timeline")
     else {
         panic!("timeline must emit a Frame")

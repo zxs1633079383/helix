@@ -832,12 +832,27 @@ impl ImModule {
             // 已渲染待办；下次 hello 重连会重拉，边界零信任不 panic）。
             CorrelationContext::TodoQuery => self.handle_todo_query_reply(outcome, out),
 
-            // D3 上拉翻页：postContext HTTP 回报 → ingest_round 推进 → 续（再发一轮 Http）/停（emit）。
-            // Ok → 剥信封 → 取 data 数组喂 ingest_round；Continue 则 alloc 新 corr 重发 + 重注册，
-            // Done 则 emit im:messages:older_loaded。Err / 信封畸形 → 用当前已收集态收尾 emit（前端拿
-            // 部分历史 + hasMore，不永久挂起；边界零信任不 panic）。
+            // G10a 上拉翻页：HTTP 回报只推进分页态；Done 必须进入 message persist barrier。
             CorrelationContext::LoadOlderContext { state } => {
-                self.handle_load_older_context_reply(state, outcome, out);
+                self.handle_load_older_context_reply(state, outcome, now_ms, out)?;
+            }
+
+            // G10a message write barrier：只有成功回执才允许扫描完整 bounded window。
+            CorrelationContext::LoadOlderCache { state } => match outcome {
+                PortOutcome::Ok(_) => self.schedule_load_older_readback(state, out)?,
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        channel_id = state.channel_id().as_str(),
+                        error = ?error,
+                        "load_older_context message persist failed"
+                    );
+                    self.emit_load_older_failed_frame(&state, now_ms, out)?;
+                }
+            },
+
+            // G10a durable readback：完整 storage rows 是唯一 success Frame 输入。
+            CorrelationContext::LoadOlderReadback { state } => {
+                self.handle_load_older_readback_reply(state, outcome, now_ms, out)?;
             }
         }
 

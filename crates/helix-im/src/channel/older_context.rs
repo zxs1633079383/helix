@@ -3,7 +3,7 @@
 //! 解 NEED_HELIX_FIX_PULL_REFRESH：legacy `fetch_older_posts_by_context` 是 8 轮 `posts/postContext`
 //! 翻页循环（moving anchor + 严格更早过滤 + 跨批去重 + pivot 推进），而 helix `im_post_context` 仅**单次**
 //! request/response，翻不到顶。本命令把那段翻页**编排**下沉：每轮 postContext 回报推进 anchor，凑够 target
-//! 条严格更早 / 服务端无更早 / pivot 卡住 / 轮数耗尽 → emit `im:messages:older_loaded` 供前端 prepend。
+//! 条严格更早 / 服务端无更早 / pivot 卡住 / 轮数耗尽 → durable message readback 后发布 timeline Frame。
 //!
 //! sans-IO（HX-C001）：每 HTTP = `Effect::Http` 经 `PortReply` 回报，多轮**不是**同步 `for` 而是
 //! corr_map 续接状态机（module.rs 注册 `LoadOlderContext` 携 [`LoadOlderState`]，每回报 → `ingest_round`
@@ -63,6 +63,10 @@ pub struct LoadOlderState {
     has_more: bool,
     /// 响应缺锚或字段畸形后锁死；已收集消息会清空，不发布伪历史。
     failed: bool,
+    /// Helix 从已 attach timeline 解析出的 opaque window token；wire command 不信任端侧补传。
+    window_token: Option<String>,
+    /// 本次 readback 应返回的完整窗口大小，受 typed timeline 60 行上限约束。
+    readback_limit: u32,
 }
 
 impl LoadOlderState {
@@ -80,29 +84,78 @@ impl LoadOlderState {
             rounds: 0,
             has_more: false,
             failed: false,
+            window_token: None,
+            readback_limit: 0,
         }
     }
 
+    /// 返回当前上拉所属频道。
     pub fn channel_id(&self) -> &ChannelId {
         &self.channel_id
     }
+
+    /// G10a direct command 不接受 renderer request id；跨轮次由内部 correlation 唯一标识。
     pub fn request_id(&self) -> Option<&str> {
         None
     }
+
+    /// 返回首轮权威响应建立的 anchor 时间；响应前固定为 0。
     pub fn anchor_create_at(&self) -> i64 {
         self.anchor_create_at.unwrap_or_default()
     }
+
+    /// 返回 canonical `before` 目标。
     pub fn target(&self) -> u32 {
         self.target
     }
+
+    /// 返回下一轮 postContext 的服务端 pivot。
     pub fn pivot_id(&self) -> &str {
         &self.pivot_id
     }
+
+    /// 返回已去重、严格更早的消息数量。
     pub fn older_count(&self) -> usize {
         self.older.len()
     }
+
+    /// 返回服务端是否仍可能存在更早消息。
     pub fn has_more(&self) -> bool {
         self.has_more
+    }
+
+    /// 将 wire intent 绑定到 Helix 已 attach 的 typed timeline，而不是相信平台窗口状态。
+    pub(crate) fn attach_window(&mut self, window_token: String, visible_items: usize) {
+        self.window_token = Some(window_token);
+        self.readback_limit = visible_items
+            .saturating_add(self.target as usize)
+            .min(crate::projector::timeline::MAX_TIMELINE_WINDOW_ITEMS)
+            as u32;
+    }
+
+    /// 返回 Helix 已解析的 attached window token。
+    pub(crate) fn window_token(&self) -> Option<&str> {
+        self.window_token.as_deref()
+    }
+
+    /// 返回持久化后完整 readback 的有界行数。
+    pub(crate) fn readback_limit(&self) -> u32 {
+        self.readback_limit.max(1)
+    }
+
+    /// 返回原始 anchor id，用于 attached-window 与 failure patch 关联。
+    pub(crate) fn anchor_post_id(&self) -> &str {
+        self.anchor_post_id.as_str()
+    }
+
+    /// 返回已完成严格校验和确定性排序的旧消息副本。
+    pub(crate) fn older_rows(&self) -> Vec<Value> {
+        self.older.clone()
+    }
+
+    /// 返回本轮响应是否因缺锚或畸形字段失效。
+    pub(crate) fn failed(&self) -> bool {
+        self.failed
     }
 
     /// 吃一轮 postContext 响应（wire Post 数组）→ 推进态 + 返回续/停决策（逐字对齐 legacy 翻页循环）。
@@ -269,9 +322,7 @@ pub fn extract_post_rows(raw_body: &[u8]) -> Vec<Value> {
 }
 
 mod effects;
-pub use effects::{
-    emit_older_loaded, emit_older_loaded_for_viewer, post_context_http, post_context_http_tracked,
-};
+pub use effects::{post_context_http, post_context_http_tracked};
 mod request;
 pub use request::{build_post_context_body, parse_request};
 

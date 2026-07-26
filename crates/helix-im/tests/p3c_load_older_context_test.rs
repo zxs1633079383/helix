@@ -6,11 +6,11 @@
 //! - pivot 推进（本批最旧、带非空 server `id` 的一条；服务端 self 消息带真 id 越过本地 id='' 墙）
 //! - 续/停判定（凑够 target / 服务端无更早 / pivot 无法前进 / 轮数耗尽 → 停）
 //! - hasMore 推断（停因「无更早 / pivot 无法前进 / 服务端空批」→ false；停因「凑够 target」→ true）
-//! - emit 投影 `im:messages:older_loaded{channelId, messages[], hasMore}`（透传 wire Post camelCase）
+//! - 终态只保留确定性旧消息集合，生产路径在持久化读回后投影 Frame V2
 
 use helix_im::older_context::{
-    build_post_context_body, emit_older_loaded, parse_request, post_context_http_tracked,
-    LoadOlderState, RoundDecision,
+    build_post_context_body, parse_request, post_context_http_tracked, LoadOlderState,
+    RoundDecision,
 };
 use helix_im::state::ChannelId;
 use serde_json::json;
@@ -261,43 +261,4 @@ fn pivot_advances_to_oldest_with_server_id() {
         post("id-old2", "t-old2", 800),
     ]);
     assert_eq!(st.pivot_id(), "id-old2");
-}
-
-// ── emit_older_loaded ───────────────────────────────────────────────────────
-
-#[test]
-fn emit_older_loaded_shape_matches_contract() {
-    let mut st = state("p-anchor", 20);
-    st.ingest_round(&[
-        post("p-anchor", "t-anchor", 1_000),
-        post("id-old1", "t-old1", 900),
-        post("id-old2", "t-old2", 800),
-    ]);
-    let effect = emit_older_loaded(&st);
-    let v = effect_to_json(effect);
-    assert_eq!(v["event"], "im:messages:older_loaded");
-    assert_eq!(v["data"]["channelId"], CH);
-    // 升序回灌（前端 prepend）：800 在 900 前。
-    assert_eq!(v["data"]["messages"][0]["createAt"], 800);
-    assert_eq!(v["data"]["messages"][1]["createAt"], 900);
-    // 透传 camelCase 字段（HX-C005 不改业务数据）。
-    assert_eq!(v["data"]["messages"][0]["temporaryId"], "t-old2");
-    assert_eq!(v["data"]["hasMore"], false);
-}
-
-#[test]
-fn emit_older_loaded_empty_yields_empty_messages_no_panic() {
-    let st = state("p-anchor", 20);
-    let v = effect_to_json(emit_older_loaded(&st));
-    assert_eq!(v["data"]["messages"], json!([]));
-    assert_eq!(v["data"]["hasMore"], false);
-}
-
-fn effect_to_json(effect: helix_core::effect::Effect) -> serde_json::Value {
-    match effect {
-        helix_core::effect::Effect::Emit { event } => {
-            serde_json::from_slice(event.0.as_ref()).unwrap()
-        }
-        _ => panic!("expected Emit"),
-    }
 }

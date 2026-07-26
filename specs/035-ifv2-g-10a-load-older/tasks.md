@@ -21,7 +21,7 @@
 
 **Purpose**: 复用三端 fresh-group prerequisite；完成前不得进入业务 story。
 
-- [ ] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
+- [x] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
 
 ---
 
@@ -29,11 +29,11 @@
 
 **Purpose**: 完整业务流、生产 Frame、Fixture 与 Golden。
 
-- [ ] T004 [P] [US1] 先在 crates/helix-im/tests/g10a_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
-- [ ] T005 [US1] 在 crates/helix-im/tests/support/g10a_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
-- [ ] T006 [US1] 在 crates/helix-im/src/channel/older_context.rs 对齐 im_load_older_context 的生产 handler、authority 与幂等语义，禁止测试旁路。
-- [ ] T007 [US1] 在 crates/helix-im/tests/g10_timeline_window_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
-- [ ] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.timeline 完整 mutation/action/directive，缺口回 Helix 修复
+- [x] T004 [P] [US1] 先在 crates/helix-im/tests/g10a_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
+- [x] T005 [US1] 在 crates/helix-im/tests/support/g10a_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
+- [x] T006 [US1] 在 crates/helix-im/src/channel/older_context.rs 对齐 im_load_older_context 的生产 handler、authority 与幂等语义，禁止测试旁路。
+- [x] T007 [US1] 在 crates/helix-im/tests/g10_timeline_window_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
+- [x] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.timeline 完整 mutation/action/directive，缺口回 Helix 修复
 - [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g10a_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
 - [ ] T010 [US1] 由 crates/helix-im/tests/support/g10a_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g10a-wdio/ canonical JSON，不手写平台 VM
 - [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g10a-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段

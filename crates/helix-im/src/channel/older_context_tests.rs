@@ -4,7 +4,6 @@
 //! 与 `tests/p3c_load_older_context_test.rs`（公共 API 性质）互补。
 
 use super::*;
-use helix_core::Effect;
 use serde_json::json;
 
 const CH: &str = "ch00000000000000000000000a";
@@ -28,6 +27,7 @@ fn sort_key_orders_by_createat_then_temporary_id() {
 }
 
 #[test]
+// Proves stop keeps the canonical oldest-first subset before persistence.
 fn stop_truncates_to_target_and_sorts_ascending() {
     let mut s = LoadOlderState::new(
         ChannelId::from_str(CH).unwrap(),
@@ -46,13 +46,9 @@ fn stop_truncates_to_target_and_sorts_ascending() {
     assert!(matches!(d, RoundDecision::Done)); // 凑够 target
     assert_eq!(s.older_count(), 2);
     // 最早两条（600, 700）升序。
-    let e = emit_older_loaded(&s);
-    let v = match e {
-        Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref()).unwrap(),
-        _ => panic!("emit"),
-    };
-    assert_eq!(v["data"]["messages"][0]["createAt"], 600);
-    assert_eq!(v["data"]["messages"][1]["createAt"], 700);
+    let older = s.older_rows();
+    assert_eq!(older[0]["createAt"], 600);
+    assert_eq!(older[1]["createAt"], 700);
 }
 
 #[test]

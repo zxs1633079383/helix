@@ -188,3 +188,30 @@ Contract/QuickJS 重新 Green，满足 G02 前序准入。该结论不新增真�
 
 结论：G-04a `review-green`，总控顺序解锁 G-05；G-05 必须创建 fresh group 和
 独立 source lock，不得复用本 Gate 的 channel、post、cursor 或 surface revision。
+
+### T007-T014 G05 Through G11 Three-repository Review Green
+
+- 子 Feature `029` 至 `036` 的任务均为 `38/38`，review ledger 均为
+  `phase=closed`、`next_action=none`；顺序覆盖 G-05、G-06、G-07、G-08、
+  G-09、G-10、G-10a 与 G-11。
+- 每个 Gate 的 Helix canonical Fixture 均由生产
+  `ImModule::handle -> Effect::Emit` 生成；PC 与 Mobile 只同步 canonical
+  bytes，并完成各自的 raw/semantic/provenance parity。
+- 每个 Gate 均完成 PC Mock、single-real、dual-real、report 与 production
+  boundary，以及 Mobile production-linked GTest、SDK/Bridge、
+  SurfaceRuntime、QuickJS typed view、V1 hard-cut 和适用的共享 Venus 回归。
+- 各子 Feature 的 `evidence/gate-report.json` 最终结论均为 `Green`，行为、
+  代码边界、Frame V2 与 evidence Review 均已通过 mandatory R4。
+- G-11 source lock：Helix acceptance
+  `60b2d5f579f209a144433db1f96bef8a63f6bd5c`，Fixture producer
+  `5e3ffc026fc8b25f76a7cce162e75734bddb45ca`，cses-client
+  `509d10cae61e66f6d0a90461daa8d1ad192ba1b8`，Mobile
+  `49b9430`；三仓 provenance SHA-256 均为
+  `420c6a7b749b407a6debfbf077fc9843ce997a3897940dd51d66a2ae6178b3fd`。
+- G-11 required lanes fail=`0`、skip=`0`。共享 Mobile 全量 runner 的
+  `141 PASS / 9 FAIL` 中，G11 自身 `7/7 PASS`；其余失败归属后续 Gate
+  RealChain，继续由各 owning Gate 收敛，不将局部绿冒充全量绿。
+
+结论：G-05 至 G-11 均为 `review-green`；总控 T007-T014 完成并按顺序解锁
+G-12。G-12 必须创建 fresh group/thread，不复用 G-11 的 channel、post 或
+surface revision。

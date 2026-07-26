@@ -21,14 +21,14 @@
 - [x] T004 [US1] 仅在 G-02 review-green 后执行 specs/026-ifv2-g-03a-retry-failed-send/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [x] T005 [US1] 仅在 G-03a review-green 后执行 specs/027-ifv2-g-04-online-revoke/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [x] T006 [US1] 仅在 G-04 review-green 后执行 specs/028-ifv2-g-04a-offline-revoke/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T007 [US1] 仅在 G-04a review-green 后执行 specs/029-ifv2-g-05-forward-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T008 [US1] 仅在 G-05 review-green 后执行 specs/030-ifv2-g-06-quick-reaction/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T009 [US1] 仅在 G-06 review-green 后执行 specs/031-ifv2-g-07-urgent-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T010 [US1] 仅在 G-07 review-green 后执行 specs/032-ifv2-g-08-schedule-create/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T011 [US1] 仅在 G-08 review-green 后执行 specs/033-ifv2-g-09-schedule-cancel/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T012 [US1] 仅在 G-09 review-green 后执行 specs/034-ifv2-g-10-timeline-window/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T013 [US1] 仅在 G-10 review-green 后执行 specs/035-ifv2-g-10a-load-older/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
-- [ ] T014 [US1] 仅在 G-10a review-green 后执行 specs/036-ifv2-g-11-locate-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T007 [US1] 仅在 G-04a review-green 后执行 specs/029-ifv2-g-05-forward-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T008 [US1] 仅在 G-05 review-green 后执行 specs/030-ifv2-g-06-quick-reaction/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T009 [US1] 仅在 G-06 review-green 后执行 specs/031-ifv2-g-07-urgent-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T010 [US1] 仅在 G-07 review-green 后执行 specs/032-ifv2-g-08-schedule-create/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T011 [US1] 仅在 G-08 review-green 后执行 specs/033-ifv2-g-09-schedule-cancel/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T012 [US1] 仅在 G-09 review-green 后执行 specs/034-ifv2-g-10-timeline-window/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T013 [US1] 仅在 G-10 review-green 后执行 specs/035-ifv2-g-10a-load-older/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
+- [x] T014 [US1] 仅在 G-10a review-green 后执行 specs/036-ifv2-g-11-locate-message/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [ ] T015 [US1] 仅在 G-11 review-green 后执行 specs/037-ifv2-g-12-reply-thread/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [ ] T016 [US1] 仅在 G-12 review-green 后执行 specs/038-ifv2-g-13-channel-read/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md
 - [ ] T017 [US1] 仅在 G-13 review-green 后执行 specs/039-ifv2-g-14-post-read/tasks.md，并将 R4/report/hash 结果登记到 specs/020-ifv2-three-repo-uc-control/verification.md

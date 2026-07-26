@@ -1,10 +1,10 @@
 # Research: G-13 会话已读
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `c7bf170d7aad8b2afc8185b36ab447b50bd27fa8`；cses-client `6174658be34a779ded68311848cd5c4851ec9d01`；Mobile `42819464ea4746a888a62e60f14dce18dcc27674`
 
 ## Decision 1 - 唯一业务真源
 
-**Decision**: `G-13` 的 command（im_channels_view）、effect（http_write、storage_upsert、projection）、持久事实（channel、message_receipt）与 Surface（message.participant-receipts、message.channel-summary）只由 Helix 生产路径决定。
+**Decision**: `G-13` 的 command（im_channels_view）、effect（http_write、storage_upsert、projection）、持久事实（channel、channel_member）与 Surface（message.left-dialog-list、message.unread-summary）只由 Helix 生产路径决定。
 
 **Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
 
@@ -36,7 +36,7 @@
 
 ## Decision 5 - Gate-specific authority
 
-**Decision**: HTTP 为 ``POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}``；WS 为 ``post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)``；远端表为 `post、channel_member、channel、channel_event`。Transport success 不自动等于 durable terminal。
+**Decision**: HTTP 为 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`，其 SUCCESS 只表示 command accepted；G-13 终态 authority 是定向 `update_channel` 携带的当前 viewer `channel_member` 绝对态。该绝对态本地 PersistOk 后，Helix 在同一 Frame 原子发布 `message.left-dialog-list` 与 `message.unread-summary`。`post_read` 和 `message.participant-receipts` 属 G-14，不得混入 G-13。
 
 **Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
 
@@ -44,7 +44,8 @@
 
 ## Resolved Scope
 
-- 当前 Helix owner：`crates/helix-im/src/outbound/channel_admin/read.rs`；现有聚焦测试：`crates/helix-im/tests/g13_channel_read_interaction_test.rs`。
+- 当前 Helix command owner：`crates/helix-im/src/outbound/channel_admin/change_dedicated.rs`；WS authority：`crates/helix-im/src/ws/handlers/update_channel.rs`；paired projector：`crates/helix-im/src/dialog_frame.rs`；现有聚焦测试：`crates/helix-im/tests/g13_channel_read_interaction_test.rs`。
+- 当前缺口：`update_channel` 在 `PersistFire` 前直接推进内存 projector 并 emit Frame，违反 durable terminal；必须改为相关 PersistOk 才 apply/emit。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp`。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。

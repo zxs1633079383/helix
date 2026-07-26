@@ -1471,17 +1471,17 @@
       ],
       "persistence": [
         "channel",
-        "message_receipt"
+        "channel_member"
       ],
       "projections": [
         {
           "event": "im:interaction:frame",
-          "render_kind": "message.participant-receipts",
+          "render_kind": "message.left-dialog-list",
           "schema": "InteractionFrame/v2"
         },
         {
           "event": "im:interaction:frame",
-          "render_kind": "message.channel-summary",
+          "render_kind": "message.unread-summary",
           "schema": "InteractionFrame/v2"
         }
       ],
@@ -1490,11 +1490,11 @@
         "未读清零不得由 UI 先行写入"
       ],
       "http": {
-        "request": "`POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`",
-        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS；完整 message/data 必须入证据包，并与 Helix 投影及远端事实对账"
+        "request": "`POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`",
+        "response": "HTTP 200 application/json；CommonRes.status=SUCCESS 只表示 view command 受理，未读终态必须等待定向 `update_channel` 的 member 绝对态在本地提交并发布 paired Frame"
       },
       "ws": {
-        "events": "`post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)`"
+        "events": "`update_channel` 携带当前 viewer 的 `unreadCount`, `mentionCount`, `urgentCount`, `lastReadSeq` 等 `channel_member` 绝对态；它与 HTTP reply 独立竞态"
       },
       "remote_store": {
         "database": "mattermost-imv2",
@@ -1504,7 +1504,7 @@
           "channel",
           "channel_event"
         ],
-        "contract": "`post.postRead`, `channel.viewChannels`；`post`, `channel_member`, `channel`, `channel_event`"
+        "contract": "`channel.viewChannels`；`channel_member` 是当前 viewer 对话未读绝对态，`channel` 只承载同帧出现的公共稀疏字段；`post_read` 属 G-14 单条已读"
       }
     },
     {

@@ -1,18 +1,20 @@
 flowchart TD
   START["G13 scenario start"] --> S1
   S1["1. channel-view-command"]
-  S2["2. post-read-or-update-channel-authority"]
-  S3["3. receipt-frame"]
-  S4["4. channel-summary-frame"]
+  S2["2. http-accepted-only"]
+  S3["3. update-channel-member-authority"]
+  S4["4. channel-member-persist"]
+  S5["5. paired-dialog-unread-frame"]
   S1 --> S2
   S2 --> S3
   S3 --> S4
-  S4 --> ACK["FrameApplied + typed render"]
+  S4 --> S5
+  S5 --> ACK["FrameApplied + typed render"]
   ACK --> REPORT["stage report + evidence"]
 
-  VALUES["接受值：ParticipantReceiptsVm(kind=read) 与 ChannelSummaryVm；read completion 必须绑定 viewer/channel authority"]
-  RULE["不变量：未读清零和 readBits 不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威"]
-  DRIFT["当前漂移：Strict Matrix 声明 receipts + channel-summary，但 ChannelSummaryVm 无 unread 字段；必须在 producer Fixture 中证明真正承载值或修正 Matrix"]
+  VALUES["接受值：DialogListVm 对应行 badges 清零并与 UnreadSummaryVm 在同一 Frame 原子更新；read completion 必须绑定 viewer/channel authority"]
+  RULE["不变量：HTTP SUCCESS 不建立完成；未读清零不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威"]
+  DRIFT["当前漂移：已按生产 update_channel 路径修正为 left-dialog-list + unread-summary；仍须由 canonical Fixture 与三端验收锁定持久化屏障"]
   VALUES -.约束.-> ACK
   RULE -.fail closed.-> REPORT
   DRIFT -.BLOCKED until reconciled.-> REPORT

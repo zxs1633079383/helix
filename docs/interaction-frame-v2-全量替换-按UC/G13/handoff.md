@@ -24,11 +24,11 @@ pin、新 WDIO candidate、Mobile Frame consumer 或当前 Go 进程仍为 Green
 3. PC domain 接入 contracts/mock/integration/single-real/dual-real/report。
 4. Mobile 新建 `tests/gtest/surface_runtime/G13FrameContractTest.cpp`。
 5. Venus 用真实 helix-driver-ffi 完成 command -> frame -> apply -> ack -> view。
-6. 两端对 `ParticipantReceiptsVm(kind=read)` 与 `ChannelSummaryVm`；read completion 必须绑定 viewer/channel authority 做字段级等价断言。
+6. 两端对 `DialogListVm` 对应行 badges 清零并与 `UnreadSummaryVm` 在同一 Frame 原子更新；read completion 必须绑定 viewer/channel authority 做字段级等价断言。
 
 ## BLOCKED / CONTRACT_DRIFT
 
-Strict Matrix 声明 receipts + channel-summary，但 ChannelSummaryVm 无 unread 字段；必须在 producer Fixture 中证明真正承载值或修正 Matrix
+已按生产 update_channel 路径修正为 left-dialog-list + unread-summary；仍须由 canonical Fixture 与三端验收锁定持久化屏障
 
 因此当前最大 claim：
 

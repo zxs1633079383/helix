@@ -10,7 +10,7 @@
 
 - producer：`ImModule::handle -> projector/SurfaceComposer -> Effect::Emit`
 - schema：`InteractionFrameV2`，`schemaVersion=2`
-- canonical Surface：`message.participant-receipts`、`message.channel-summary`
+- canonical Surface：`message.left-dialog-list`、`message.unread-summary`
 - 写路径只有在 matching `PersistOk` 或权威 readback 后才能发布终态 Frame。
 - 一个 `Effect::Emit` 携带一个完整 Frame，driver 不逐 mutation 拆分。
 

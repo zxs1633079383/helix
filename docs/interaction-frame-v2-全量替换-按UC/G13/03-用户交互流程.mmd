@@ -11,6 +11,6 @@ sequenceDiagram
     Port->>Helix: im_channels_view
     Helix->>Infra: Effect batch
     Infra-->>Helix: PersistOk / authority result
-    Helix-->>Runtime: InteractionFrameV2 (message.participant-receipts / message.channel-summary)
+    Helix-->>Runtime: InteractionFrameV2 (message.left-dialog-list / message.unread-summary)
     Runtime-->>UI: atomic typed VM publish
     Runtime-->>Helix: FrameApplied

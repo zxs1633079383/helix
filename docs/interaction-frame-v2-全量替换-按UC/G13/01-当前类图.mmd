@@ -13,11 +13,11 @@ class ImModule {
   +produceEffects()
 }
 class PersistBarrier {
-  +contracts: channel, message_receipt
+  +contracts: channel, channel_member
 }
 class InteractionFrameV2 {
   +schemaVersion: 2
-  +surfaces: message.participant-receipts, message.channel-summary
+  +surfaces: message.left-dialog-list, message.unread-summary
 }
 class SurfaceRuntime {
   +stage()

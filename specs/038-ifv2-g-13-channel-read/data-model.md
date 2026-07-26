@@ -17,7 +17,7 @@
 |---|---|---|
 | fixtureId | string | Gate 内唯一并表达独立可观察阶段 |
 | schemaVersion | integer | 必须为 InteractionFrame V2 |
-| surfaces | array | 仅包含 message.participant-receipts、message.channel-summary |
+| surfaces | array | 仅包含 message.left-dialog-list、message.unread-summary，且同一 authority 更新必须在一帧内原子配对 |
 | frame | object | 完整 envelope、scope、revision、mutations、bindings、directives |
 | rawSha256 / semanticSha256 | string | Helix、PC、Mobile 三方一致 |
 | producer | string | 当前 Helix source revision + 测试入口 |

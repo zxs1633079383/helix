@@ -407,16 +407,17 @@ const deepUcProfiles = {
   G13: {
     stages: [
       'channel-view-command',
-      'post-read-or-update-channel-authority',
-      'receipt-frame',
-      'channel-summary-frame',
+      'http-accepted-only',
+      'update-channel-member-authority',
+      'channel-member-persist',
+      'paired-dialog-unread-frame',
     ],
     observable:
-      '`ParticipantReceiptsVm(kind=read)` 与 `ChannelSummaryVm`；read completion 必须绑定 viewer/channel authority',
+      '`DialogListVm` 对应行 badges 清零并与 `UnreadSummaryVm` 在同一 Frame 原子更新；read completion 必须绑定 viewer/channel authority',
     invariant:
-      '未读清零和 readBits 不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威',
+      'HTTP SUCCESS 不建立完成；未读清零不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威',
     drift:
-      'Strict Matrix 声明 receipts + channel-summary，但 ChannelSummaryVm 无 unread 字段；必须在 producer Fixture 中证明真正承载值或修正 Matrix',
+      '已按生产 update_channel 路径修正为 left-dialog-list + unread-summary；仍须由 canonical Fixture 与三端验收锁定持久化屏障',
     mobileTest: 'tests/gtest/uc/Uc13ReadTest.cpp',
   },
   G14: {

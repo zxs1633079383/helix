@@ -4,13 +4,13 @@
 
 | Gate | 当前 Strict Matrix 请求 |
 |---|---|
-| `G-13` | `POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}` |
+| `G-13` | `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}` |
 
 ## WS
 
 | Gate | 当前 Strict Matrix 事件 |
 |---|---|
-| `G-13` | `post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)` |
+| `G-13` | `update_channel` 携带当前 viewer 的 `unreadCount`, `mentionCount`, `urgentCount`, `lastReadSeq` 等 `channel_member` 绝对态；它与 HTTP reply 独立竞态 |
 
 ## 边界
 

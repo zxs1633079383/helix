@@ -119,8 +119,8 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 
 - **Commands**: `im_channels_view`
 - **Effects**: `http_write、storage_upsert、projection`
-- **Persistence facts**: `channel、message_receipt`
-- **Frame surfaces**: `message.participant-receipts (InteractionFrame/v2)、message.channel-summary (InteractionFrame/v2)`
+- **Persistence facts**: `channel、channel_member`
+- **Frame surfaces**: `message.left-dialog-list (InteractionFrame/v2)、message.unread-summary (InteractionFrame/v2)`
 - **Allowed actions**: `无`
 - 当前 UC 文档入口：[G-13](../../docs/interaction-frame-v2-全量替换-按UC/G13/README.md)。
 

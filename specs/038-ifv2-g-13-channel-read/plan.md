@@ -6,7 +6,7 @@
 
 ## Summary
 
-以 Helix 生产 handler `crates/helix-im/src/outbound/channel_admin/read.rs` 为业务真源，补齐 `G-13` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
+以 Helix 生产 command handler `crates/helix-im/src/outbound/channel_admin/change_dedicated.rs`、WS authority `crates/helix-im/src/ws/handlers/update_channel.rs` 与 paired dialog/unread projector 为业务真源，补齐 `G-13` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
 
 ## Technical Context
 
@@ -14,7 +14,7 @@
 
 **Primary Dependencies**: helix-core ports、helix-im `ImModule::handle`/InteractionFrameV2；cses-client TauriMockBridge/SurfaceRuntime/WebdriverIO；MobileImSdk/MobileFfiBridge/SurfaceRuntime/HelixImQuickJsBinding
 
-**Storage**: Helix SQLite StorageOp（channel、message_receipt）；远端 PostgreSQL `post、channel_member、channel、channel_event` 只作有界证据
+**Storage**: Helix SQLite StorageOp（channel、channel_member）；远端 PostgreSQL `post、channel_member、channel、channel_event` 只作有界证据
 
 **Testing**: Rust deterministic replay + Golden；WDIO Mock/single-real/dual-real + reporter；C++ GTest + QuickJS typed view
 
@@ -26,7 +26,7 @@
 
 **Constraints**: Helix 是唯一业务 reducer；Fixture/Mock/GTest 不补业务字段；测试入口默认 production build 不可达；外部输入零 unwrap/expect；FFI batch 不逐条 callback
 
-**Scale/Scope**: 单一 `G-13`；command=im_channels_view；effect=http_write、storage_upsert、projection；surface=message.participant-receipts、message.channel-summary。
+**Scale/Scope**: 单一 `G-13`；command=im_channels_view；HTTP 只作 accepted；`update_channel` + `channel_member` PersistOk 建立终态；surface=message.left-dialog-list、message.unread-summary。
 
 ## Constitution Check
 
@@ -48,14 +48,14 @@
 
 - **I-001**: [discovery.md](discovery.md) 的三仓 source lock、当前工作树边界与代码事实。
 - **I-002**: Strict Matrix 的 command/effect/persistence/projection/HTTP/WS/remote-store 合同。
-- **I-003**: `crates/helix-im/tests/g13_channel_read_interaction_test.rs` 与 `crates/helix-im/src/outbound/channel_admin/read.rs` 的当前生产行为。
+- **I-003**: `crates/helix-im/tests/g13_channel_read_interaction_test.rs`、`crates/helix-im/src/outbound/channel_admin/change_dedicated.rs` 与 `crates/helix-im/src/ws/handlers/update_channel.rs` 的当前生产行为。
 - **I-004**: G01 canonical Fixture、PC WDIO Mock/Real/report 与 Mobile GTest/QuickJS 基线。
 - **I-005**: [contracts/gate-acceptance.md](contracts/gate-acceptance.md)、两个 JSON Schema 与 [quickstart.md](quickstart.md)。
 
 ### Action Chain
 
 - **A-001**: fresh group prerequisite -> im_channels_view command/observation -> `ImModule::handle` -> ordered Effects。
-- **A-002**: Persist/HTTP/WS PortReply 或 Inbound -> terminal authority -> SurfaceComposer -> complete InteractionFrame V2。
+- **A-002**: HTTP accepted 与 WS authority 独立竞态；`update_channel` member 绝对态 -> correlated Persist -> PersistOk -> paired dialog/unread complete InteractionFrame V2。
 - **A-003**: Effect::Emit -> typed decode/assert -> `crates/helix-im/tests/fixtures/g13-wdio/` Golden/provenance。
 - **A-004**: Helix Fixture -> PC mirror/hash -> TauriMockBridge bus replay -> Angular SurfaceRuntime -> DOM/report。
 - **A-005**: 真实 MessageV4 UI -> Tauri invoke -> Helix/SQLite/HTTP/WS -> FrameApplied -> Actor/Observer DOM。
@@ -101,7 +101,9 @@ specs/038-ifv2-g-13-channel-read/
 ### Source Code
 
 ```text
-crates/helix-im/src/outbound/channel_admin/read.rs
+crates/helix-im/src/outbound/channel_admin/change_dedicated.rs
+crates/helix-im/src/ws/handlers/update_channel.rs
+crates/helix-im/src/dialog_frame.rs
 crates/helix-im/tests/g13_channel_read_interaction_test.rs
 crates/helix-im/tests/g13_full_flow_test.rs
 crates/helix-im/tests/g13_wdio_fixture_contract_test.rs

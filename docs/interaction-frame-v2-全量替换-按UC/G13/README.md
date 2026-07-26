@@ -34,8 +34,8 @@ Native 产物只作 `HISTORICAL` 输入；没有用当前 pin 重新运行时不
 | 入口模式 | direct command；`markChannelRead` ActionBinding 仍未审计 |
 | Helix command | `im_channels_view` |
 | Effect 类别 | `http_write`、`storage_upsert`、`projection` |
-| canonical Frame Surface | `message.participant-receipts`、`message.channel-summary` |
-| 合同 persistence | `channel`、`message_receipt` |
+| canonical Frame Surface | `message.left-dialog-list`、`message.unread-summary` |
+| 合同 persistence | `channel`、`channel_member` |
 | MessageV4 组件 | `MessageSurfaceRuntimeViewComponent`、`MessageComponent` |
 
 ## 实际调用链
@@ -51,15 +51,15 @@ Native 产物只作 `HISTORICAL` 输入；没有用当前 pin 重新运行时不
 
 ## HTTP / WS
 
-- G-13: `POST /api/cses/post/read` body `{channelId,endTime?,startTime?,posts?}`；会话级已读 `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`
+- G-13: `POST /api/cses/channels/view` body `{channels:[{id,isRoot}]}`
 
-- G-13: `post_read`, `update_channel`; 离线 sync 可见 `channel_event(type=6)`
+- G-13: `update_channel` 携带当前 viewer 的 `unreadCount`, `mentionCount`, `urgentCount`, `lastReadSeq` 等 `channel_member` 绝对态；它与 HTTP reply 独立竞态
 
 HTTP/WS 是基础设施证据，不是 DOM 真源；MessageV4 不直接消费这些 raw payload。
 
 ## 源码证据
 
-- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1464`
+- Gate 合同：`crates/helix-im/contracts/strict-matrix.v1.json:1449`
 - Helix Frame schema：`crates/helix-im/src/interaction_frame.rs`
 - Helix 专属测试：`crates/helix-im/tests/g13_channel_read_interaction_test.rs`
 - cses-client command/action：`src/pages/message-v4/shell.service.ts`、

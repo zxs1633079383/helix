@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-12 review-green 到 specs/038-ifv2-g-13-channel-read/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/outbound/channel_admin/read.rs、crates/helix-im/tests/g13_channel_read_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/038-ifv2-g-13-channel-read/research.md
+- [X] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-12 review-green 到 specs/038-ifv2-g-13-channel-read/verification.md
+- [X] T002 [P] 按 crates/helix-im/src/outbound/channel_admin/change_dedicated.rs、crates/helix-im/src/ws/handlers/update_channel.rs、crates/helix-im/tests/g13_channel_read_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/038-ifv2-g-13-channel-read/research.md
 
 ---
 
@@ -31,9 +31,9 @@
 
 - [ ] T004 [P] [US1] 先在 crates/helix-im/tests/g13_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
 - [ ] T005 [US1] 在 crates/helix-im/tests/support/g13_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
-- [ ] T006 [US1] 在 crates/helix-im/src/outbound/channel_admin/read.rs 对齐 im_channels_view 的生产 handler、authority 与幂等语义，禁止测试旁路。
+- [ ] T006 [US1] 在 crates/helix-im/src/outbound/channel_admin/change_dedicated.rs 与 crates/helix-im/src/ws/handlers/update_channel.rs 对齐 im_channels_view command、update_channel authority、PersistOk 终态与幂等语义，禁止测试旁路。
 - [ ] T007 [US1] 在 crates/helix-im/tests/g13_channel_read_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
-- [ ] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.participant-receipts、message.channel-summary 完整 mutation/action/directive，缺口回 Helix 修复
+- [ ] T008 [US1] 在 crates/helix-im/src/dialog_frame.rs 与 crates/helix-im/src/projector/unread_summary.rs 校验 message.left-dialog-list、message.unread-summary paired mutation/action/directive，缺口回 Helix 修复
 - [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g13_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
 - [ ] T010 [US1] 由 crates/helix-im/tests/support/g13_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g13-wdio/ canonical JSON，不手写平台 VM
 - [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g13-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
@@ -68,7 +68,7 @@
 - [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 对齐 G-13 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
 - [ ] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_channels_view 生产 command admission 与 Frame event pump，不注册测试 API
 - [ ] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
-- [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.participant-receipts、message.channel-summary Frame，unknown schema/surface/revision fail-closed
+- [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.left-dialog-list、message.unread-summary Frame，unknown schema/surface/revision fail-closed
 - [ ] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-13 的 im.surface.view typed view/action，不增加 raw reducer
 - [ ] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-13 V1 producer/consumer/raw fallback=0
 - [ ] T032 [US3] 运行 G13FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/038-ifv2-g-13-channel-read/verification.md
@@ -118,7 +118,7 @@ T001-T002 -> T003 -> T004-T012 -> T013-T022 -> T023-T032 -> T033-T038
 | T003 | FR-001 | A-001 | `three-repo prerequisite support` | T001 | isolated group tests | new channel per run |
 | T004 | FR-003,FR-005 | A-001,A-002 | `crates/helix-im/tests/g13_full_flow_test.rs` | T002-T003 | V-001 RED | missing production behavior falsified |
 | T005 | FR-003,FR-005 | A-001,A-002 | `crates/helix-im/tests/support/g13_scenario.rs` | T004 | V-001 | reusable deterministic trace |
-| T006 | FR-003,FR-004 | A-001,A-002 | `crates/helix-im/src/outbound/channel_admin/read.rs` | T004-T005 | V-001 | happy/failure/race pass |
+| T006 | FR-003,FR-004 | A-001,A-002 | `crates/helix-im/src/outbound/channel_admin/change_dedicated.rs`, `crates/helix-im/src/ws/handlers/update_channel.rs` | T004-T005 | V-001 | happy/failure/race pass |
 | T007 | FR-004,FR-005 | A-002 | `crates/helix-im/tests/g13_channel_read_interaction_test.rs` | T006 | focused cargo test | terminal authority proven |
 | T008 | FR-003,FR-013 | A-002 | `crates/helix-im/src/surface_composer.rs` | T006-T007 | Frame field assertions | complete V2 frame |
 | T009 | FR-006..FR-008 | A-003 | `crates/helix-im/tests/g13_wdio_fixture_contract_test.rs` | T008 | V-002 RED | fixture drift detected |

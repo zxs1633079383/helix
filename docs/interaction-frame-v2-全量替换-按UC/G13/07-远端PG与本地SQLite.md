@@ -5,7 +5,7 @@
 | 合同名 | 物理边界 |
 |---|---|
 | `channel` | 领域 persistence 名称；物理表须以 StorageOp/schema 当前代码核验 |
-| `message_receipt` | 领域 persistence 名称；物理表须以 StorageOp/schema 当前代码核验 |
+| `channel_member` | 领域 persistence 名称；物理表须以 StorageOp/schema 当前代码核验 |
 
 ## 提交规则
 

@@ -5,7 +5,7 @@ flowchart LR
     D --> E["Effect: http_write / storage_upsert / projection"]
     E --> F{"PersistOk / authority read"}
     F --> G["InteractionFrameV2 schemaVersion=2"]
-    G --> H["Surface: message.participant-receipts / message.channel-summary"]
+    G --> H["Surface: message.left-dialog-list / message.unread-summary"]
     H --> I["Native opaque sink"]
     I --> J["SurfaceRuntime atomic apply"]
     J --> K["频道已读 UI"]

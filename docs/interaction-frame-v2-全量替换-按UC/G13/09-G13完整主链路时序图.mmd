@@ -21,7 +21,7 @@ sequenceDiagram
   H->>GO: HTTP effect（仅需要时）
   GO-->>H: authority response
   GO-->>WS: durable event/outbox
-  WS-->>H: post_read, update_channel； 离线 sync 可见 channel_event(type=6)
+  WS-->>H: update_channel 携带当前 viewer 的 unreadCount, mentionCount, urgentCount, lastReadSeq 等 channel_member 绝对态；它与 HTTP reply 独立竞态
   H->>STORE: inbound fact atomic persist/readback
   STORE-->>H: PersistOk
   H-->>FRAME: Effect::Emit full frame

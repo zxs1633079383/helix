@@ -2,10 +2,10 @@
 
 ## Producer
 
-- 唯一 producer：`crates/helix-im/src/outbound/channel_admin/read.rs` 经 `ImModule::handle -> Effect::Emit`。
+- 唯一 producer：`crates/helix-im/src/outbound/channel_admin/change_dedicated.rs` 接收 command，`crates/helix-im/src/ws/handlers/update_channel.rs` 接收 authority，并经 `ImModule::handle -> Effect::Persist -> Tick::PortReply(PersistOk) -> Effect::Emit`。
 - Commands：im_channels_view。
-- Persistence：channel、message_receipt。
-- Surfaces：message.participant-receipts、message.channel-summary。
+- Persistence：channel、channel_member。
+- Surfaces：message.left-dialog-list、message.unread-summary。
 - Golden：`crates/helix-im/tests/fixtures/g13-wdio/`，普通测试只比较，显式 update 才覆盖。
 
 ## PC Consumer

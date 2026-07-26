@@ -16,7 +16,7 @@
 - 从真实 Tick/PortReply/Inbound 生成完整 Frame，不手写 JSON 作为 producer。
 - 断言 command、Effect 顺序、Persist barrier、authority correlation、Frame inventory、
   typed VM 与负向/幂等/恢复路径。
-- Fixture inventory 至少覆盖：`channel-view-command`、`post-read-or-update-channel-authority`、`receipt-frame`、`channel-summary-frame`。
+- Fixture inventory 至少覆盖：`channel-view-command`、`http-accepted-only`、`update-channel-member-authority`、`channel-member-persist`、`paired-dialog-unread-frame`。
 - Fixture 带 Helix commit、contract epoch、raw SHA-256、semantic SHA-256、surface inventory。
 - 普通测试只比较 Golden；显式 UPDATE 开关才允许更新。
 
@@ -39,9 +39,9 @@ Fixture、page workflow、业务 stage 与 typed assertion。
 
 ## 4. PC 断言
 
-- Surface：`message.participant-receipts`、`message.channel-summary`。
-- 接受值：`ParticipantReceiptsVm(kind=read)` 与 `ChannelSummaryVm`；read completion 必须绑定 viewer/channel authority。
-- 不变量：未读清零和 readBits 不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威。
+- Surface：`message.left-dialog-list`、`message.unread-summary`。
+- 接受值：`DialogListVm` 对应行 badges 清零并与 `UnreadSummaryVm` 在同一 Frame 原子更新；read completion 必须绑定 viewer/channel authority。
+- 不变量：HTTP SUCCESS 不建立完成；未读清零不在 UI 先写；客户端不得提交 userId/unreadCount 冒充服务端权威。
 - 每个 required transaction 都有 matching FrameApplied，无 FrameRejected。
 - DOM 只在 apply 后标绿，不通过 fixed sleep、raw event 或 store mutation 取巧。
 - Actor/Observer profile、auth、device、SQLite、WebDriver port 和 WS session 隔离。
@@ -97,9 +97,10 @@ Go/PG/WS 保存 track、commit/outbox/delivery/readback。日志不得保存 tok
 报告 stage：
 
 - `g13.channel-view-command`
-- `g13.post-read-or-update-channel-authority`
-- `g13.receipt-frame`
-- `g13.channel-summary-frame`
+- `g13.http-accepted-only`
+- `g13.update-channel-member-authority`
+- `g13.channel-member-persist`
+- `g13.paired-dialog-unread-frame`
 - `g13.pc-mobile-parity`
 - `g13.correlation`
 
@@ -108,7 +109,7 @@ evidence,blockedBy,claimBoundary`。
 
 ## 8. 当前 stop condition
 
-Strict Matrix 声明 receipts + channel-summary，但 ChannelSummaryVm 无 unread 字段；必须在 producer Fixture 中证明真正承载值或修正 Matrix
+已按生产 update_channel 路径修正为 left-dialog-list + unread-summary；仍须由 canonical Fixture 与三端验收锁定持久化屏障
 
 只有 producer replay、Matrix、Fixture、PC 与 Mobile 断言对同一字段/Surface/终态达成一致，
 才进入真实运行；真实前置缺失时保持 BLOCKED，不用 Mock 或历史 artifact 代替。

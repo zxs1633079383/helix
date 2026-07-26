@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/038-ifv2-g-13-channel-read",
-  "phase": "ready",
-  "event_seq": 6,
-  "next_action": "admit_implementation",
+  "phase": "implementing",
+  "event_seq": 12,
+  "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -11,20 +11,20 @@
   "gates": {
     "r1_spec": {
       "status": "pass",
-      "fingerprint": "56116fbe61ec047d518b1cb61bbc1b9e50732d7b8fbc397a6e53b1fa6ec1ba4f",
-      "checked_at": "2026-07-25T07:19:16Z",
+      "fingerprint": "f9d52e33b63137d8bd2a8db9e19e82d877f4ca803f519c91e585e2742e4a8e15",
+      "checked_at": "2026-07-26T09:35:41Z",
       "issues": []
     },
     "r2_plan": {
       "status": "pass",
-      "fingerprint": "cbdf321ba7766abc0b52846215af3a0e961b2796623bd1079226ef12ead17224",
-      "checked_at": "2026-07-25T07:43:48Z",
+      "fingerprint": "86f82da191105193f83d706323a829e773c319e0355849348b5a2af5fc3f1f26",
+      "checked_at": "2026-07-26T09:35:48Z",
       "issues": []
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "162aecff653c1f9bc32c0c764fa67bc43d95c9d10ecd70aa32914cc57d6e16ae",
-      "checked_at": "2026-07-25T07:43:48Z",
+      "fingerprint": "15610bce79914e8a0f4bdd9812f5bf3dd2f569c0c77a01767e9993feb7b17193",
+      "checked_at": "2026-07-26T09:35:48Z",
       "issues": []
     },
     "r4_evidence": {
@@ -74,6 +74,42 @@
       "at": "2026-07-25T07:43:48Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-26T09:25:57Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-26T09:35:41Z",
+      "kind": "phase",
+      "detail": "implementing->specifying: input fingerprint changed for r1_spec"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-26T09:35:41Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-26T09:35:48Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-26T09:35:48Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-26T09:35:48Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

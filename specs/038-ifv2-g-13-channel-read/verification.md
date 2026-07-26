@@ -1,5 +1,21 @@
 # Verification Procedure: G-13
 
+## Source Lock
+
+- **Helix HEAD**: `c7bf170d7aad8b2afc8185b36ab447b50bd27fa8` at implementation admission.
+- **cses-client HEAD**: `6174658be34a779ded68311848cd5c4851ec9d01`.
+- **Mobile HEAD**: `42819464ea4746a888a62e60f14dce18dcc27674`.
+- **Downstream Helix pin**: PC/Mobile both start from `1b797413f2c1b14abde5eacf60eb942b21e9d650`; repin only after a committed G13 production producer exists.
+- **Strict Matrix**: source-grounded G13 correction raw SHA-256 `8b551c0d7aead1e44bbba355f65d65f17c883d84fbb2090854f0942bb4904fb7`.
+- **Prerequisite**: G12 `review-ledger.json` is `phase=closed`, `R4=pass`; Helix close commit is `c7bf170d7aad8b2afc8185b36ab447b50bd27fa8`.
+
+## Current / Target / Gap
+
+- **Current command**: `im_channels_view` in `outbound/channel_admin/change_dedicated.rs` emits only `POST /channels/view`; its HTTP reply is admission, not read-state authority.
+- **Current authority**: `ws/handlers/update_channel.rs` parses the current viewer's absolute member dialog fields and can project paired dialog/unread state, but presently emits before a correlated persistence acknowledgement.
+- **Target**: `update_channel -> Effect::Persist(channel/channel_member) -> Tick::PortReply(PersistOk) -> one InteractionFrameV2(message.left-dialog-list + message.unread-summary)`.
+- **Gap**: add the Persist barrier, deterministic scenario/Fixture, PC Mock/Real/report, and Mobile production-linked typed-view contract. `post_read` and `message.participant-receipts` remain G14.
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

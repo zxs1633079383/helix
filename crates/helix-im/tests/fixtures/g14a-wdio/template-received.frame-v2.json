@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "timeline-timeline|26:chtemplate0000000000000001|6:latest-2",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.timeline",
+      "scope": {
+        "kind": "timeline",
+        "channelId": "chtemplate0000000000000001",
+        "windowToken": "latest"
+      },
+      "revision": 2,
+      "baseRevision": 1,
+      "mutation": {
+        "kind": "timelinePatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "channelId": "chtemplate0000000000000001",
+            "anchor": {
+              "messageId": "srvtemplate000000000000001",
+              "mode": "latest"
+            },
+            "items": [
+              {
+                "id": "srvtemplate000000000000001",
+                "channelId": "chtemplate0000000000000001",
+                "eventSeq": 1,
+                "author": {
+                  "userId": "g14a-wdio-observer"
+                },
+                "createdAt": 1700001400102,
+                "content": {
+                  "kind": "text",
+                  "text": "g14a-template-fixture-marker"
+                },
+                "delivery": {
+                  "kind": "sent"
+                },
+                "actions": [
+                  {
+                    "actionRef": "act.v1.255c6046f62fbe29bd64a5d9adefe000",
+                    "kind": "reply",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "unsupportedByAuthority"
+                  },
+                  {
+                    "actionRef": "act.v1.0392754934ea153963033b0ca389c35a",
+                    "kind": "forward",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": true
+                  },
+                  {
+                    "actionRef": "act.v1.d9844bcecca4a8bd4ac78209f18552c9",
+                    "kind": "react",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": true
+                  },
+                  {
+                    "actionRef": "act.v1.302b8631721c51beda27eb19c3a2a69f",
+                    "kind": "urgent",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": true
+                  },
+                  {
+                    "actionRef": "act.v1.ffcb5c99f6aa8871e1ec8deaabc4ba58",
+                    "kind": "createTopic",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "unsupportedByAuthority"
+                  },
+                  {
+                    "actionRef": "act.v1.e34a1ed09841f857ce637ffb158bdee8",
+                    "kind": "revoke",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "notAvailable"
+                  },
+                  {
+                    "actionRef": "act.v1.0eb90a3352640af2ff32a37dde1f1c11",
+                    "kind": "retry",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "notAvailable"
+                  },
+                  {
+                    "actionRef": "act.v1.d633b1846faf2b499491ff89aac68f9b",
+                    "kind": "urgentConfirm",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "notAvailable"
+                  },
+                  {
+                    "actionRef": "act.v1.fd95fa4db404dd7bb5c7e924acf5315b",
+                    "kind": "urgentCancel",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "notAvailable"
+                  },
+                  {
+                    "actionRef": "act.v1.378a5760be593ca5ff49f9357523cf3e",
+                    "kind": "markRead",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": true
+                  },
+                  {
+                    "actionRef": "act.v1.d59eef30db86cab888fca0195de67e12",
+                    "kind": "viewReceipt",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "notAvailable"
+                  },
+                  {
+                    "actionRef": "act.v1.d7a982c106d3fe38e62b6430f1260052",
+                    "kind": "templateConfirm",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": false,
+                    "disabledReason": "notAvailable"
+                  },
+                  {
+                    "actionRef": "act.v1.e8a33702fa0a06dbe8f938e3d92c0f81",
+                    "kind": "locate",
+                    "inputShape": "object",
+                    "surfaceEpoch": 1,
+                    "enabled": true
+                  }
+                ],
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "replySummary": {
+                  "kind": "none"
+                },
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "templateConfirmation": {
+                  "confirmedCount": 1,
+                  "readerIds": [
+                    "g14a-wdio-actor"
+                  ],
+                  "templateReceived": true
+                },
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                },
+                "pinned": false,
+                "bookmarked": false
+              }
+            ],
+            "page": {
+              "windowToken": "latest",
+              "hasOlder": false,
+              "hasNewer": false,
+              "hasMore": false
+            },
+            "state": "ready"
+          }
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

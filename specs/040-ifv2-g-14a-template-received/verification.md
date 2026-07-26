@@ -31,3 +31,5 @@
 - `cargo test -p helix-im --lib --test g14a_full_flow_test --test g14_receipt_template_interaction_test -- --nocapture`：退出码 0；lib 356/356、G14/G14a receipt 8/8、G14a full-flow 7/7。
 - happy path 已证明 `im_template_received -> HTTP admission -> post_update -> PersistAtomic -> PersistOk -> message.timeline Frame`；HTTP 失败、持久失败重放、重复 WS、迟到 HTTP 与 cold recovery 均 fail-closed。
 - Frame 字段 Review 发现并修复模板 `userIds` 污染普通 `readReceipt.readerIds` 的 producer 缺口；模板确认和普通已读回执现由独立 authority 驱动。
+- `UPDATE_G14A_WDIO_FIXTURES=1 cargo test -p helix-im --test g14a_wdio_fixture_contract_test -- --nocapture`：退出码 0，生成 4 份 Frame 与 provenance。
+- `cargo check -p helix-im && cargo test -p helix-im --test g14a_wdio_fixture_contract_test -- --nocapture`：退出码 0；普通模式只比较 Golden，Fixture 1/1 通过。

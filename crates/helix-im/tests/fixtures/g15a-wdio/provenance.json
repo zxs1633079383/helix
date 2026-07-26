@@ -1,0 +1,153 @@
+[
+  {
+    "fileName": "channel-created.frame-v2.json",
+    "fixtureId": "g15a-channel-created-v2",
+    "fixtureSha256": "4e61c95a8cbdca5cfd454135521e3651c761cecf63461cef13fe04a200b57409",
+    "gateId": "G-15a",
+    "generatedAt": "2026-07-26T08:20:05-07:00",
+    "helixCommit": "73568e32ace2c9a90cc91728f77a077f52079cca",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/cursor",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/title/text",
+      "/mutations/*/mutation/view/items/*/user/userId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
+    ],
+    "placeholderValues": {
+      "actorId": "g15a-actor",
+      "baseRevision": null,
+      "channelId": "chfixx00000000000000000015",
+      "groupName": "G15a Fixture Group",
+      "observerId": "g15a-observer",
+      "reqId": "g15a-create-request-1",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "g15a-company",
+      "transactionId": "channel-created-chfixx00000000000000000015"
+    },
+    "producer": "G15aScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "53b38f756ae36f2d743ce14d55a9a13077c6c75ee39926b352fe37d0c8cb45dc",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary",
+      "message.member-roster"
+    ]
+  },
+  {
+    "fileName": "channel-summary-recovery.frame-v2.json",
+    "fixtureId": "g15a-channel-summary-recovery-v2",
+    "fixtureSha256": "03e3b59aca0cc1148cad2cf02988ac750a2f884b33d07ba4e54c6aaec3a86845",
+    "gateId": "G-15a",
+    "generatedAt": "2026-07-26T08:20:05-07:00",
+    "helixCommit": "73568e32ace2c9a90cc91728f77a077f52079cca",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/cursor",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/title/text",
+      "/mutations/*/mutation/view/items/*/user/userId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
+    ],
+    "placeholderValues": {
+      "actorId": "g15a-actor",
+      "baseRevision": null,
+      "channelId": "chfixx00000000000000000015",
+      "groupName": "G15a Fixture Group",
+      "observerId": "g15a-observer",
+      "reqId": "g15a-create-request-1",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "g15a-company",
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000015-1"
+    },
+    "producer": "G15aScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "c7ec217f0e2db2e7f2fb72774b1df6a07685a95f7a8f4ed097bccd7ad643ecad",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "member-roster-recovery.frame-v2.json",
+    "fixtureId": "g15a-member-roster-recovery-v2",
+    "fixtureSha256": "de004b2e82a1c961b444f69e5e535ffffe18fc19dd8e9c5d911e0864eefabe08",
+    "gateId": "G-15a",
+    "generatedAt": "2026-07-26T08:20:05-07:00",
+    "helixCommit": "73568e32ace2c9a90cc91728f77a077f52079cca",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/cursor",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/title/text",
+      "/mutations/*/mutation/view/items/*/user/userId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
+    ],
+    "placeholderValues": {
+      "actorId": "g15a-actor",
+      "baseRevision": null,
+      "channelId": "chfixx00000000000000000015",
+      "groupName": "G15a Fixture Group",
+      "observerId": "g15a-observer",
+      "reqId": "g15a-create-request-1",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "g15a-company",
+      "transactionId": "surface-storage-memberRoster|26:chfixx00000000000000000015|7:created-1"
+    },
+    "producer": "G15aScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "80dc010ca0e22b04ff6a84386f926e881f94dde81fcd6c6c369670943d0d8cec",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.member-roster"
+    ]
+  }
+]

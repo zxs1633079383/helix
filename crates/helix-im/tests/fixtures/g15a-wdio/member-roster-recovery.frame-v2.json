@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "surface-storage-memberRoster|26:chfixx00000000000000000015|7:created-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.member-roster",
+      "scope": {
+        "kind": "memberRoster",
+        "channelId": "chfixx00000000000000000015",
+        "cursor": "created"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "memberRosterSnapshot",
+        "view": {
+          "channelId": "chfixx00000000000000000015",
+          "items": [
+            {
+              "user": {
+                "userId": "g15a-observer"
+              },
+              "nickname": "Observer",
+              "role": "member",
+              "presence": "offline",
+              "membershipState": "active",
+              "actions": [
+                {
+                  "actionRef": "disabled:member-manage:g15a-observer",
+                  "kind": "member-manage",
+                  "inputShape": "object",
+                  "surfaceEpoch": 1,
+                  "enabled": false,
+                  "disabledReason": "unsupportedByAuthority"
+                }
+              ]
+            },
+            {
+              "user": {
+                "userId": "g15a-actor"
+              },
+              "nickname": "Actor",
+              "role": "owner",
+              "presence": "offline",
+              "membershipState": "active",
+              "actions": [
+                {
+                  "actionRef": "disabled:member-manage:g15a-actor",
+                  "kind": "member-manage",
+                  "inputShape": "object",
+                  "surfaceEpoch": 1,
+                  "enabled": false,
+                  "disabledReason": "unsupportedByAuthority"
+                }
+              ]
+            }
+          ],
+          "page": {
+            "windowToken": "created",
+            "hasOlder": false,
+            "hasNewer": false,
+            "hasMore": false
+          },
+          "memberCount": 2,
+          "state": "ready"
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

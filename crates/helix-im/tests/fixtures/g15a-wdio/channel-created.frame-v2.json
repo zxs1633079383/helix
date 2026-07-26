@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "channel-created-chfixx00000000000000000015",
+  "causationId": "g15a-create-request-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.channel-summary",
+      "scope": {
+        "kind": "channel",
+        "channelId": "chfixx00000000000000000015"
+      },
+      "revision": 1,
+      "causationId": "g15a-create-request-1",
+      "mutation": {
+        "kind": "channelSummarySnapshot",
+        "view": {
+          "channelId": "chfixx00000000000000000015",
+          "title": {
+            "text": "G15a Fixture Group"
+          },
+          "avatar": {
+            "resource": null,
+            "userIds": [],
+            "fallbackText": "G15a Fixture Group"
+          },
+          "lifecycle": {
+            "state": "active"
+          },
+          "memberCount": 2,
+          "viewerRole": "owner",
+          "topicCount": 0,
+          "notificationMode": "all",
+          "actions": [
+            {
+              "actionRef": "channel:channel-settings:chfixx00000000000000000015:1",
+              "kind": "channel-settings",
+              "inputShape": "object",
+              "surfaceEpoch": 1,
+              "enabled": true
+            },
+            {
+              "actionRef": "channel:channel-close:chfixx00000000000000000015:1",
+              "kind": "channel-close",
+              "inputShape": "object",
+              "surfaceEpoch": 1,
+              "enabled": true
+            },
+            {
+              "actionRef": "channel:channel-leave:chfixx00000000000000000015:1",
+              "kind": "channel-leave",
+              "inputShape": "object",
+              "surfaceEpoch": 1,
+              "enabled": false,
+              "disabledReason": "roleForbidden"
+            }
+          ],
+          "settingsVersion": 0
+        }
+      },
+      "surfaceEpoch": 1
+    },
+    {
+      "surface": "message.member-roster",
+      "scope": {
+        "kind": "memberRoster",
+        "channelId": "chfixx00000000000000000015",
+        "cursor": "created"
+      },
+      "revision": 1,
+      "causationId": "g15a-create-request-1",
+      "mutation": {
+        "kind": "memberRosterSnapshot",
+        "view": {
+          "channelId": "chfixx00000000000000000015",
+          "items": [
+            {
+              "user": {
+                "userId": "g15a-observer"
+              },
+              "nickname": "Observer",
+              "role": "member",
+              "presence": "offline",
+              "membershipState": "active",
+              "actions": [
+                {
+                  "actionRef": "disabled:member-manage:g15a-observer",
+                  "kind": "member-manage",
+                  "inputShape": "object",
+                  "surfaceEpoch": 1,
+                  "enabled": false,
+                  "disabledReason": "unsupportedByAuthority"
+                }
+              ]
+            },
+            {
+              "user": {
+                "userId": "g15a-actor"
+              },
+              "nickname": "Actor",
+              "role": "owner",
+              "presence": "offline",
+              "membershipState": "active",
+              "actions": [
+                {
+                  "actionRef": "disabled:member-manage:g15a-actor",
+                  "kind": "member-manage",
+                  "inputShape": "object",
+                  "surfaceEpoch": 1,
+                  "enabled": false,
+                  "disabledReason": "unsupportedByAuthority"
+                }
+              ]
+            }
+          ],
+          "page": {
+            "windowToken": "created",
+            "hasOlder": false,
+            "hasNewer": false,
+            "hasMore": false
+          },
+          "memberCount": 2,
+          "state": "ready"
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im && cargo test -p helix-im --lib --test g14a_full_flow_test --test g14_receipt_template_interaction_test -- --nocapture",
+      "started_at": "2026-07-26T06:40:28-07:00",
+      "ended_at": "2026-07-26T06:40:34-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-001-helix-scenario.log",
+          "sha256": "9bb6cb323c2a0ec159b652f8d8e69a942a9326b6df136aac5d2345154e1f2cad"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g14a_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-26T06:40:34-07:00",
+      "ended_at": "2026-07-26T06:40:36-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/040-ifv2-g-14a-template-received/evidence/V-002-helix-fixture.log",
+          "sha256": "eec191caa5b2db417ffc341658498c7b96cecd54ce8ff9b2b42c527301e5c763"
+        }
+      ]
+    }
+  ]
+}

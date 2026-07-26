@@ -605,27 +605,12 @@ impl ImModule {
                     self.config.auth_user_id.as_str(),
                     self.action_surface_epoch()?,
                 );
-                if request.causation_id.is_some()
-                    && self
-                        .state
-                        .channel_summary_projector
-                        .current_view(channel_id)
-                        .is_some()
-                {
-                    self.state
-                        .channel_summary_projector
-                        .patch_settings_or_lifecycle(view, request.causation_id.clone())
-                        .map_err(|error| {
-                            ImError::Parse(format!("channel summary projection: {error}"))
-                        })?
-                } else {
-                    self.state
-                        .channel_summary_projector
-                        .snapshot(view)
-                        .map_err(|error| {
-                            ImError::Parse(format!("channel summary projection: {error}"))
-                        })?
-                }
+                self.state
+                    .channel_summary_projector
+                    .snapshot_with_causation(view, request.causation_id.clone())
+                    .map_err(|error| {
+                        ImError::Parse(format!("channel summary projection: {error}"))
+                    })?
             }
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =

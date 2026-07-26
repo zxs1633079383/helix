@@ -46,8 +46,17 @@ impl ChannelSummaryProjector {
         &mut self,
         view: ChannelSummaryVm,
     ) -> Result<SurfaceMutation, ChannelSummaryProjectionError> {
+        self.snapshot_with_causation(view, None)
+    }
+
+    /// 为显式 resync 生成无 baseRevision 的完整快照，同时保留请求 causation。
+    pub fn snapshot_with_causation(
+        &mut self,
+        view: ChannelSummaryVm,
+        causation_id: Option<String>,
+    ) -> Result<SurfaceMutation, ChannelSummaryProjectionError> {
         self.slots
-            .snapshot(scope_for(&view), view)
+            .snapshot_with_causation(scope_for(&view), view, causation_id)
             .map_err(Into::into)
     }
 

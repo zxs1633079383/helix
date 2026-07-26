@@ -202,6 +202,7 @@ fn timeline_resync_survives_a_newer_ordinary_query_generation() {
     assert_eq!(continuous["revision"], 2);
 }
 
+/// Verifies explicit channel/member/topic resyncs never depend on a renderer's forgotten base.
 #[test]
 fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() {
     let mut h = Harness::new(&[]);
@@ -227,9 +228,10 @@ fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() 
         "channelSummarySnapshot"
     );
     h.step(
-        surface_command(
+        correlated_surface_command(
             "message.channel-summary",
             json!({ "kind":"channel", "channelId":channel }),
+            "summary-resync-2",
         ),
         3,
     );
@@ -239,6 +241,7 @@ fn channel_member_and_topic_explicit_resync_always_replays_complete_snapshots() 
     assert_eq!(summary_replay["mutation"]["kind"], "channelSummarySnapshot");
     assert_eq!(summary_replay["baseRevision"], serde_json::Value::Null);
     assert_eq!(summary_replay["revision"], 2);
+    assert_eq!(summary_replay["causationId"], "summary-resync-2");
 
     h.step(
         surface_command(

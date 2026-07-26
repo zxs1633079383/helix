@@ -219,15 +219,35 @@ impl ImModule {
         mutations: Vec<SurfaceMutation>,
         now_ms: u64,
     ) -> Result<Effect, ImError> {
+        self.build_registered_timeline_frame_with_directives(
+            frame_id,
+            mutations,
+            Vec::new(),
+            now_ms,
+        )
+    }
+
+    /// 构造带一次性 UI 语义的 timeline Frame，并与 action revision lease 原子推进。
+    pub(crate) fn build_registered_timeline_frame_with_directives(
+        &mut self,
+        frame_id: String,
+        mutations: Vec<SurfaceMutation>,
+        directives: Vec<crate::interaction_frame::UiDirective>,
+        now_ms: u64,
+    ) -> Result<Effect, ImError> {
         for mutation in &mutations {
             self.register_timeline_action_bindings(mutation, now_ms)?;
         }
-        let frame = crate::projector::build_online_interaction_frame(
+        let mut frame = crate::projector::build_online_interaction_frame(
             frame_id,
             self.action_surface_epoch()?,
             mutations,
         )
         .map_err(|error| ImError::Serialize(error.to_string()))?;
+        frame.directives = directives;
+        frame
+            .validate()
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
         crate::projector::emit_interaction_frame(frame)
             .map_err(|error| ImError::Serialize(error.to_string()))
     }

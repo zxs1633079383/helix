@@ -267,6 +267,19 @@ impl TimelineProjector {
             .map(|slot| &slot.view)
     }
 
+    /// 返回目标所在的唯一 attached channel，供 locate HTTP authority 做同 scope 校验。
+    pub(crate) fn located_target_channel(&self, target_message_id: &str) -> Option<&str> {
+        self.slots
+            .values()
+            .find(|slot| {
+                slot.view
+                    .items
+                    .iter()
+                    .any(|item| item.id == target_message_id)
+            })
+            .map(|slot| slot.view.channel_id.as_str())
+    }
+
     pub(crate) fn patch_located_target(
         &mut self,
         target_message_id: &str,

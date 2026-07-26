@@ -3,6 +3,7 @@
 use helix_im::render_ready_locate::{normalize_located_window, reveal_directive};
 
 #[test]
+/// 证明 target 身份属于 typed VM，而 directive 始终保持 payload-free。
 fn locate_requires_target_in_matching_channel_and_uses_payload_free_directive() {
     let rows = normalize_located_window(
         br#"{"data":[

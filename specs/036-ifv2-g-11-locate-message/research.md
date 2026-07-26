@@ -1,6 +1,40 @@
 # Research: G-11 按 postId 定位
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `8c732a84cf0c0d29e65646e3aa5bfd7e87675856`；cses-client `f1c4ddc0fbbd4bb4547108627af83a028284a343`；Mobile `26c7616d805f0ba21406f0f9fa3579e212bdd090`
+
+## CURRENT / TARGET / GAP
+
+**CURRENT**:
+
+- Helix direct command 与 opaque action 都把 `im_get_posts {post_ids,req_id,locate:true}` 登记为
+  `OutboundLocatePost`，HTTP success 只调用 `TimelineProjector::patch_located_target`。
+- 当前 patch 仅在目标已经存在于 attached timeline 时生效，但没有校验 HTTP body 中的目标身份和
+  channel；同时仍发布 `im:read:result` 与 `im:post:located` raw 事件。
+- 当前 typed Frame 含 `anchor.mode=locate` 与 `targetMessageId`，但 `directives=[]`；PC 真实场景仍等待
+  `im:post:located`，Mobile UC11 仍等待 raw event、读取 `im.store`，没有通过
+  `im.surface.view` 验证目标。
+- fresh-group 前置已由 Helix `G01ScenarioRunner::create_group_prerequisite`、PC
+  `prepareMockCreatedGroup/createGroupThroughUi` 与 Mobile `RC.createChannel` 共享实现；G11 只需复用，
+  不新增第二套建群领域逻辑。
+
+**TARGET**:
+
+- HTTP reply 必须包含当前 attached timeline 中目标 post，且其 `channelId` 与目标所在 scope 一致；
+  缺目标、跨 channel、畸形 envelope 或 transport failure均 fail closed。
+- 成功只发布一个生产 `InteractionFrameV2`：同一 Frame 原子携带完整 timeline patch 与 payload-free
+  `revealMessage` directive；raw `im:read:result`/`im:post:located` 不再是 G11 consumer 合同。
+- 目标消息在本 Gate 前已经由 G01/G10 权威持久化并进入 attached bounded window，因此 G11 是纯读
+  authority，不伪造额外 message 写屏障；不存在目标窗口时不得向端侧插入孤立 row。
+- PC 与 Mobile 只 apply 同源 Frame；PC 通过 DOM `data-highlighted=true`，Mobile 通过
+  `im.surface.view` 的 `targetMessageId`、anchor 和同一 item identity 验收。
+
+**GAP**:
+
+- Helix 需补 HTTP body identity/channel 校验、同 Frame directive、raw 成功旁路移除及完整
+  ScenarioRunner/Fixture。
+- PC 需把旧 raw projection 等待改为 FrameApplied/typed DOM correlation，并补 Mock/Real/report。
+- Mobile 需同步 Fixture，增加 production-linked Frame GTest，并把 UC11 real chain 从 raw event/
+  `im.store` 改为 QuickJS typed view。
 
 ## Decision 1 - 唯一业务真源
 
@@ -36,7 +70,10 @@
 
 ## Decision 5 - Gate-specific authority
 
-**Decision**: HTTP 为 `本地优先；远端可用 `POST /api/cses/posts/get` body `{postIds:[...]}` / `posts/postContext``；WS 为 `无`；远端表为 `post`。Transport success 不自动等于 durable terminal。
+**Decision**: HTTP 为 `POST /api/cses/posts/get` body `{postIds:[...]}`；WS 为 `无`；远端表为
+`post`。目标已在前置 Gate 的 durable bounded timeline 中，G11 的 terminal authority 是 HTTP body
+中同一 post/channel 身份与当前 attached view 的交集，不新增伪 message 写；transport success 本身
+不等于 locate 成功。
 
 **Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
 

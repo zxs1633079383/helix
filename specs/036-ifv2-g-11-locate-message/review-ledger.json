@@ -1,13 +1,15 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/036-ifv2-g-11-locate-message",
-  "phase": "ready",
-  "event_seq": 6,
-  "next_action": "admit_implementation",
+  "phase": "verifying",
+  "event_seq": 9,
+  "next_action": "repair_r4_evidence",
   "budget": {
     "max_same_failure_attempts": 2
   },
-  "failure_attempts": {},
+  "failure_attempts": {
+    "82186b29fd932ffe": 1
+  },
   "gates": {
     "r1_spec": {
       "status": "pass",
@@ -28,10 +30,12 @@
       "issues": []
     },
     "r4_evidence": {
-      "status": "pending",
+      "status": "blocked",
       "fingerprint": null,
       "checked_at": null,
-      "issues": []
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
     }
   },
   "convergence": {
@@ -74,6 +78,24 @@
       "at": "2026-07-25T07:43:47Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-26T06:33:19Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-26T06:35:31Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-26T06:35:31Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
     }
   ]
 }

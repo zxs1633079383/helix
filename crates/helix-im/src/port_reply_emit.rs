@@ -152,39 +152,6 @@ pub(crate) fn emit_replies(
     None
 }
 
-/// G-11 单消息定位读回：保留通用 read result，并额外输出 Helix 已整形的 highlighted 行。
-pub(crate) fn emit_located_post(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
-    match outcome {
-        PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {
-            Ok(raw_body) => {
-                out.push(crate::read_relay::emit_read_result(
-                    req_id,
-                    raw_body.as_ref(),
-                ));
-                if let Some(effect) =
-                    crate::render_ready_locate::emit_located_post(raw_body.as_ref())
-                {
-                    out.push(effect);
-                }
-            }
-            Err(e) => {
-                tracing::warn!(req_id, error = ?e, "locate post reply envelope decode failed");
-                out.push(crate::read_relay::emit_read_error(
-                    req_id,
-                    "response envelope decode failed",
-                ));
-            }
-        },
-        PortOutcome::Err(e) => {
-            tracing::warn!(req_id, error = ?e, "locate post http failed");
-            out.push(crate::read_relay::emit_read_error(
-                req_id,
-                "http request failed",
-            ));
-        }
-    }
-}
-
 pub(crate) fn emit_create_posts_result(req_id: &str, outcome: &PortOutcome, out: &mut EffectSink) {
     match outcome {
         PortOutcome::Ok(reply) => match unwrap_sync_envelope(reply.0.as_ref()) {

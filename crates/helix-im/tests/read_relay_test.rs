@@ -151,7 +151,8 @@ fn get_schedule_keeps_req_id_local_and_omits_client_owner_from_wire() {
 }
 
 #[test]
-fn locate_post_emits_read_result_and_render_ready_highlighted_projection() {
+/// 证明 G11 已从 raw read/located 双事件硬切到 attached timeline Frame V2。
+fn locate_post_without_attached_timeline_emits_no_raw_projection() {
     let mut h = Harness::new(&[]);
     h.step(
         outbound_cmd(
@@ -167,12 +168,10 @@ fn locate_post_emits_read_result_and_render_ready_highlighted_projection() {
     );
     h.step(port_reply_with_body(corr, enveloped(raw)), 1001);
 
-    let emits = emit_jsons(&h.sink);
-    assert_eq!(emits.len(), 2);
-    assert_eq!(emits[0]["event"], "im:read:result");
-    assert_eq!(emits[1]["event"], "im:post:located");
-    assert_eq!(emits[1]["data"]["id"], "p1");
-    assert_eq!(emits[1]["data"]["highlighted"], true);
+    assert!(
+        emit_jsons(&h.sink).is_empty(),
+        "G11 cannot publish raw read/located events or insert an unattached row"
+    );
 }
 
 // ─── 不变量 2：写命令不注册回灌（fire-and-forget）────────────────────────────────

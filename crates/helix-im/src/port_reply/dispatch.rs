@@ -635,26 +635,54 @@ impl ImModule {
             }
 
             CorrelationContext::OutboundLocatePost { req_id, post_id } => {
-                crate::port_reply_emit::emit_located_post(&req_id, outcome, out);
-                if matches!(outcome, PortOutcome::Ok(_)) && !post_id.is_empty() {
-                    if let Some(mut mutation) = self
-                        .state
-                        .timeline_projector
-                        .patch_located_target(&post_id)
-                        .map_err(|error| {
-                            ImError::Parse(format!("locate timeline projection: {error}"))
-                        })?
-                    {
-                        mutation.causation_id = Some(req_id.clone());
-                        out.push(self.build_registered_timeline_frame(
-                            format!("locate-{req_id}"),
-                            vec![mutation],
-                            now_ms,
-                        )?);
-                        self.state
-                            .action_registry
-                            .complete_after_terminal_frame(&req_id);
-                    }
+                let Some(expected_channel_id) = self
+                    .state
+                    .timeline_projector
+                    .located_target_channel(&post_id)
+                    .map(str::to_string)
+                else {
+                    tracing::warn!(
+                        req_id,
+                        post_id,
+                        "locate target is absent from attached timeline"
+                    );
+                    return Ok(());
+                };
+                let PortOutcome::Ok(reply) = outcome else {
+                    tracing::warn!(req_id, post_id, "locate HTTP authority failed");
+                    return Ok(());
+                };
+                let raw_body = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref())
+                    .map_err(|error| {
+                        ImError::Parse(format!("locate response envelope: {error}"))
+                    })?;
+                crate::render_ready_locate::normalize_located_window(
+                    raw_body.as_ref(),
+                    &expected_channel_id,
+                    &post_id,
+                    self.config.auth_user_id.as_str(),
+                )
+                .map_err(|error| ImError::Parse(format!("locate authority: {error}")))?;
+                if let Some(mut mutation) = self
+                    .state
+                    .timeline_projector
+                    .patch_located_target(&post_id)
+                    .map_err(|error| {
+                        ImError::Parse(format!("locate timeline projection: {error}"))
+                    })?
+                {
+                    mutation.causation_id = Some(req_id.clone());
+                    out.push(self.build_registered_timeline_frame_with_directives(
+                        format!("locate-{req_id}"),
+                        vec![mutation],
+                        vec![crate::render_ready_locate::reveal_directive(format!(
+                            "reveal-{req_id}"
+                        ))],
+                        now_ms,
+                    )?);
+                    self.state
+                        .action_registry
+                        .complete_after_terminal_frame(&req_id);
                 }
             }
 

@@ -51,6 +51,41 @@ Canonical inventory:
 their canonical cases reuse the same fresh-group prerequisite. G08 as a whole remains
 `implementing`; Mock/Real/Mobile/Review evidence is not yet available.
 
+## PC Consumer Evidence
+
+| Plane | Command | Result | Boundary |
+|---|---|---|---|
+| Types | `npx tsc -p tests/e2e/wdio/tsconfig.json --noEmit` | PASS, exit 0 | WDIO typed harness |
+| Contracts | `yarn message:wdio:contracts` | PASS, 41 suites / 136 tests | schema/fixture/bridge/report parity |
+| Mock | `yarn message:wdio:g08:mock` | PASS, 4/4 | happy/admission failure/race/recovery |
+| Single real | `yarn message:wdio:g08:single-real` | PASS, 1/1 | fresh group + invoke/SQLite/PG/HTTP/WS/FrameApplied/DOM |
+| Dual real | `yarn message:wdio:g08:dual-real` | PASS, 1/1 | Actor owner draft + Observer non-leak |
+| Report | `yarn message:wdio:g08:report` | PASS, 1/1 | Gate-specific fail-closed summary |
+| Boundary | `yarn message:wdio:g08:boundary` | PASS, 2735 files | `mockProductionReachable=false` |
+| Native E2E build | `cargo build --features wdio-e2e --bin cses-client` | PASS, exit 0 | real embedded driver binary |
+| Native correlation unit | `cargo test --features wdio-e2e native_e2e_correlation_is_replaceable_without_reading_a_new_environment -- --nocapture` | PASS, 1/1 | E2E-only request correlation |
+| Default cargo check | `cargo check --bin cses-client` | BLOCKED, exit 101 | pre-existing capability discovery sees `wdio:allow-execute` without optional plugin; not used as Green evidence |
+
+Production and test commits:
+
+- `17229c817`: G08 typed production projection, canonical Fixture sync/loader/bridge
+  contracts and initial WDIO consumer wiring.
+- `dd4ff5ce1`: production Helix pin `8358082`, plus explicitly feature-gated native
+  WDIO scenario correlation.
+- `033131ca0`: G08 Mock/single-real/dual-real/report/boundary suites and evidence
+  collection.
+
+PC applies only producer-authored `InteractionFrameV2`. The Mock lane replaces command
+admission and replays canonical Frames through the production bus ingress; it does not
+construct schedule state. The real lanes create a new two-user group per case. Go evidence
+proves exactly one verified `post_schedule_created` delivery to Actor `444`; Observer `678`
+has neither a schedule banner nor a local `channel_schedule` row.
+
+**PC verdict**: T013-T022 Green. The non-zero default `cargo check` is recorded as a
+separate pre-existing capability-discovery gap; candidate build, native WDIO build,
+production-boundary scan and both real lanes passed. G08 remains `implementing` until
+T023-T038 close Mobile and independent review.
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

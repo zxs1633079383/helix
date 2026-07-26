@@ -34,10 +34,10 @@
 - [X] T006 [US1] 在 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/src/ws/handlers/post_read.rs、crates/helix-im/src/correlation.rs 与 crates/helix-im/src/port_reply/dispatch.rs 对齐 im_post_read admission、HTTP/WS authority、Persist barrier、failure 与 duplicate/late reply 行为
 - [X] T007 [US1] 在 crates/helix-im/tests/g14_receipt_template_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
 - [X] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.participant-receipts 完整 mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g14_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/g14_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g14-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g14-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 g14_full_flow_test/g14_wdio_fixture_contract_test，并登记原始输出到 specs/039-ifv2-g-14-post-read/verification.md
+- [X] T009 [P] [US1] 先在 crates/helix-im/tests/g14_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [X] T010 [US1] 由 crates/helix-im/tests/support/g14_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g14-wdio/ canonical JSON，不手写平台 VM
+- [X] T011 [US1] 在 crates/helix-im/tests/fixtures/g14-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [X] T012 [US1] 运行 cargo check 与 g14_full_flow_test/g14_wdio_fixture_contract_test，并登记原始输出到 specs/039-ifv2-g-14-post-read/verification.md
 
 ---
 

@@ -27,3 +27,14 @@
 - 每次运行保留原始输出并通过 `loop_engine.py record-evidence` 登记；失败输出不得被说明文字替换。
 - Mock、AcceptedCommand、HTTP 2xx、单端 replay 或 GTest 不能代替 PC Real 与跨仓 Review。
 - 当前 Feature 只定义验收合同；在实现与运行证据出现前，本 Gate 状态保持 Draft。
+
+## Helix Green
+
+- `cargo check -p helix-im`：exit 0，7.81s。
+- `cargo test -p helix-im --test g14_full_flow_test --test g14_receipt_template_interaction_test -- --nocapture`：13/13 PASS，fail=0，skip=0。
+- `cargo test -p helix-im --lib --test s1_ws_actions_test post_read -- --nocapture`：lib 3/3、S1 3/3 PASS，证明既有 post_read 合同已同步升级为 PersistOk 后释放。
+- `UPDATE_G14_WDIO_FIXTURES=1 cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture`：1/1 PASS，仅本次显式生成 canonical JSON。
+- `cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture`：1/1 PASS，普通运行只比较 production actual 与 checked-in Golden。
+- canonical inventory：4 份 Frame；schemaVersion 全为 2；surface inventory 为 `message.left-dialog-list` 与 `message.participant-receipts`。
+- producer pin：`5b8b7db031faf55f1fa52de15bac746a20f82b13`；provenance raw SHA-256：`0e23163c947f8726d336e7357ec90ef3654078383cc97cb8f1e8f873abc1b7d3`。
+- 行为边界：HTTP success 只代表 admission；WS `post_read` 先写 `message.read_bits`，matching PersistOk 后才触发 receipt authority refresh；duplicate/late reply 不重复写或出 Frame。

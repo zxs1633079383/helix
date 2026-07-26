@@ -133,6 +133,81 @@ impl ImModule {
         Ok(())
     }
 
+    /// 把频道摘要 Frame 中已接线的 action 登记为 actor/channel-scoped lease。
+    pub(crate) fn register_channel_summary_action_bindings(
+        &mut self,
+        mutation: &SurfaceMutation,
+        now_ms: u64,
+    ) -> Result<(), ImError> {
+        if mutation.surface != SurfaceId::MessageChannelSummary {
+            return Ok(());
+        }
+        let scope = mutation.scope.clone();
+        if !scope.valid_for(SurfaceId::MessageChannelSummary) {
+            return Err(ImError::Parse(
+                "channel summary action binding has an invalid surface scope".to_string(),
+            ));
+        }
+        let view = match &mutation.mutation {
+            TypedSurfaceMutation::ChannelSummarySnapshot { view } => view,
+            TypedSurfaceMutation::ChannelSummaryPatch { patch } => &patch.view,
+            _ => {
+                return Err(ImError::Parse(
+                    "channel summary action binding requires a channel summary mutation"
+                        .to_string(),
+                ))
+            }
+        };
+        let actor_id = self.config.auth_user_id.clone();
+        if actor_id.is_empty() {
+            return Ok(());
+        }
+        let surface_epoch = self.action_surface_epoch()?;
+        self.state.action_registry.revoke_scope(
+            actor_id.as_str(),
+            SurfaceId::MessageChannelSummary,
+            &scope,
+            surface_epoch,
+        );
+        let expires_at_ms = now_ms.checked_add(ACTION_BINDING_TTL_MS).ok_or_else(|| {
+            ImError::Parse("channel summary action binding TTL overflowed Tick time".to_string())
+        })?;
+        for binding in &view.actions {
+            if !binding.enabled {
+                continue;
+            }
+            if binding.surface_epoch != surface_epoch {
+                return Err(ImError::Parse(
+                    "channel summary action binding surfaceEpoch does not match the current runtime epoch"
+                        .to_string(),
+                ));
+            }
+            let Some(dispatch) = ActionDispatch::from_channel_summary_binding(
+                binding.kind.as_str(),
+                view.channel_id.as_str(),
+            ) else {
+                continue;
+            };
+            self.state
+                .action_registry
+                .grant(
+                    ActionBindingGrant {
+                        actor_id: actor_id.clone(),
+                        surface: SurfaceId::MessageChannelSummary,
+                        scope: scope.clone(),
+                        surface_epoch: binding.surface_epoch,
+                        revision: mutation.revision,
+                        expires_at_ms,
+                        binding: binding.clone(),
+                        dispatch,
+                    },
+                    now_ms,
+                )
+                .map_err(|error| ImError::Parse(format!("action binding grant: {error}")))?;
+        }
+        Ok(())
+    }
+
     /// 在非 query 路径发出 timeline Frame 前，同步更新 registry 的 revision lease。
     ///
     /// `TimelineProjector` 的 locate/receipt patch 会复用现有 view 里的 opaque actionRef；虽然 ref
@@ -223,6 +298,15 @@ impl ImModule {
                                     (pending.kind, pending.message_id.clone()),
                                     pending.clone(),
                                 );
+                            }
+                            if let CorrelationContext::OutboundScheduleCancel {
+                                channel_id,
+                                request_id: Some(request_id),
+                            } = &context
+                            {
+                                self.state
+                                    .pending_schedule_cancel_requests
+                                    .insert(*channel_id, request_id.clone());
                             }
                             self.state.corr_map.insert(corr, context);
                             for effect in effects {
@@ -434,6 +518,41 @@ impl ImModule {
                     .pending_authority_action(request_id)
                     .expect("urgent cancel dispatch must create pending authority"),
             ),
+            ActionDispatch::CancelSchedule { channel_id } => {
+                let channel_id =
+                    crate::state::ChannelId::from_str(channel_id).ok_or_else(|| {
+                        ImError::Parse(
+                            "cancel schedule action has an invalid channel id".to_string(),
+                        )
+                    })?;
+                let corr = self.alloc_corr_internal();
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "channel_id": channel_id.as_str(),
+                    "req_id": request_id,
+                }))
+                .map_err(|error| ImError::Serialize(error.to_string()))?;
+                let effects = crate::commands::handle_outbound(
+                    "im_cancel_schedule",
+                    &payload,
+                    self.config.api_base_url.as_str(),
+                    self.config.default_api_base_url.as_str(),
+                    self.state.connection_id.as_deref(),
+                    corr,
+                )?;
+                if effects.len() != 1 || !matches!(effects.first(), Some(Effect::Http { .. })) {
+                    return Err(ImError::Parse(
+                        "im_cancel_schedule must produce exactly one HTTP effect".to_string(),
+                    ));
+                }
+                Ok(PreparedAction::Routed {
+                    corr,
+                    context: CorrelationContext::OutboundScheduleCancel {
+                        channel_id,
+                        request_id: Some(request_id.to_string()),
+                    },
+                    effects,
+                })
+            }
             ActionDispatch::ForwardMessages {
                 source_message_ids, ..
             } => {

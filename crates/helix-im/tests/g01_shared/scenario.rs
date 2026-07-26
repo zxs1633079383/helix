@@ -1,12 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bytes::Bytes;
 use helix_core::effect::{Correlation, Effect, StorageOp, TimerId};
 use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    DeliveryVm, DialogRowVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId,
-    SurfaceScope, TypedSurfaceMutation,
+    ActionInvocation, ActionInvocationEnvelope, ActionReceipt, ActionReceiptStatus, DeliveryVm,
+    DialogRowVm, InteractionFrameV2, MessageContentVm, MessageVm, SurfaceId, SurfaceScope,
+    TypedSurfaceMutation, ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
 };
 use helix_im::module::ImConfig;
 use helix_im::ImModule;
@@ -459,7 +460,7 @@ impl G01ScenarioRunner {
         let group_created = runner.create_group_prerequisite();
         let _empty_summary = runner.attach_channel_summary(false);
         let scheduled_summary = runner.establish_schedule();
-        let http_corr = runner.start_cancel_schedule_command();
+        let http_corr = runner.start_cancel_schedule_action(&scheduled_summary);
         let persist_corr = runner.ingest_schedule_canceled();
         let canceled_summary = runner.finish_schedule_cancel_persist(persist_corr);
         runner.step(
@@ -488,7 +489,7 @@ impl G01ScenarioRunner {
         let group_created = runner.create_group_prerequisite();
         let _empty_summary = runner.attach_channel_summary(false);
         let scheduled_summary = runner.establish_schedule();
-        let http_corr = runner.start_cancel_schedule_command();
+        let http_corr = runner.start_cancel_schedule_action(&scheduled_summary);
         runner.step(
             Tick::PortReply {
                 corr: http_corr,
@@ -523,7 +524,7 @@ impl G01ScenarioRunner {
         let group_created = runner.create_group_prerequisite();
         let _empty_summary = runner.attach_channel_summary(false);
         let scheduled_summary = runner.establish_schedule();
-        let _http_corr = runner.start_cancel_schedule_command();
+        let _http_corr = runner.start_cancel_schedule_action(&scheduled_summary);
         let failed_corr = runner.ingest_schedule_canceled();
         runner.step(
             Tick::PortReply {
@@ -2234,21 +2235,59 @@ impl G01ScenarioRunner {
         scheduled
     }
 
-    /// 提交 G09 cancel command 并返回唯一 HTTP correlation；本阶段不得改变摘要。
-    fn start_cancel_schedule_command(&mut self) -> Correlation {
-        self.step(
-            command(
-                "im_cancel_schedule",
-                json!({
-                    "channel_id": self.spec.channel_id,
-                    "req_id": self.spec.request_id
-                }),
-            ),
-            self.spec.created_at as u64 + 8,
-        );
+    /// 从 scheduled Frame 原样回送 cancel binding，并返回唯一生产 HTTP correlation。
+    fn start_cancel_schedule_action(&mut self, scheduled: &InteractionFrameV2) -> Correlation {
+        let mutation = scheduled
+            .mutations
+            .iter()
+            .find(|mutation| mutation.mutation.surface == SurfaceId::MessageChannelSummary)
+            .expect("scheduled Frame contains channel summary");
+        let view = match &mutation.mutation.mutation {
+            TypedSurfaceMutation::ChannelSummarySnapshot { view } => view,
+            TypedSurfaceMutation::ChannelSummaryPatch { patch } => &patch.view,
+            other => panic!("scheduled Frame must contain typed channel summary, got {other:?}"),
+        };
+        let binding = view
+            .actions
+            .iter()
+            .find(|binding| binding.kind == "cancelSchedule" && binding.enabled)
+            .expect("scheduled summary exposes enabled cancelSchedule")
+            .clone();
+        let envelope = ActionInvocationEnvelope {
+            schema_version: ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+            request_id: self.spec.request_id.to_string(),
+            actor_id: self.spec.actor_id.to_string(),
+            surface: SurfaceId::MessageChannelSummary,
+            scope: mutation.mutation.scope.clone(),
+            surface_epoch: binding.surface_epoch,
+            observed_revision: mutation.mutation.revision,
+            invocation: ActionInvocation {
+                action_ref: binding.action_ref,
+                input: BTreeMap::new(),
+            },
+        };
+        let payload = serde_json::to_vec(&envelope).expect("action envelope serializes");
+        let command = helix_im::client_api::build_action_invocation_command(&payload)
+            .expect("scheduled binding builds a production action command");
+        self.step(Tick::Command(command), self.spec.created_at as u64 + 8);
+        let receipt = self
+            .effects()
+            .iter()
+            .find_map(|effect| {
+                let Effect::Emit { event } = effect else {
+                    return None;
+                };
+                let envelope: Value = serde_json::from_slice(event.0.as_ref()).ok()?;
+                (envelope["event"] == "im:interaction:action-receipt")
+                    .then(|| serde_json::from_value::<ActionReceipt>(envelope["data"].clone()).ok())
+                    .flatten()
+            })
+            .expect("channel summary action emits a receipt");
+        assert_eq!(receipt.request_id, self.spec.request_id);
+        assert_eq!(receipt.status, ActionReceiptStatus::Accepted);
         assert!(
             self.frames().is_empty(),
-            "cancel command admission cannot establish terminal UI"
+            "cancel action admission cannot establish terminal UI"
         );
         self.only_http_corr("/posts/cancelSchedule")
     }

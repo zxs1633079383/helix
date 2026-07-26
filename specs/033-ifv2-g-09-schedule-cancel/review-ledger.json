@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "feature_directory": "specs/033-ifv2-g-09-schedule-cancel",
   "phase": "implementing",
-  "event_seq": 7,
+  "event_seq": 10,
   "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
@@ -23,8 +23,8 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "faa8200e08105cd25c6843f56489bb7d6e63429f401289fa0a2aab23c9d30f52",
-      "checked_at": "2026-07-25T07:43:45Z",
+      "fingerprint": "571141b7a58af37fa9b4a209da4cb9d2571ad5e53ce448ac7b1b85b158c5793a",
+      "checked_at": "2026-07-26T03:12:24Z",
       "issues": []
     },
     "r4_evidence": {
@@ -78,6 +78,24 @@
     {
       "seq": 7,
       "at": "2026-07-26T02:28:18Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-26T03:12:16Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-26T03:12:24Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-26T03:12:30Z",
       "kind": "phase",
       "detail": "ready->implementing: R1-R3 admitted implementation"
     }

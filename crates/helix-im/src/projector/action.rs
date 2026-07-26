@@ -72,6 +72,9 @@ pub enum ActionDispatch {
         channel_id: String,
         message_id: String,
     },
+    CancelSchedule {
+        channel_id: String,
+    },
     RetryMessage {
         message_id: String,
     },
@@ -168,6 +171,16 @@ impl ActionDispatch {
         )
     }
 
+    /// 将频道摘要中的语义 action 固定到已经审计的频道 authority dispatch。
+    pub(crate) fn from_channel_summary_binding(kind: &str, channel_id: &str) -> Option<Self> {
+        match kind {
+            "cancelSchedule" => Some(Self::CancelSchedule {
+                channel_id: channel_id.to_string(),
+            }),
+            _ => None,
+        }
+    }
+
     /// 仅为等待远端 authority 的写操作建立 WS 终态 correlation。
     pub(crate) fn pending_authority_action(
         &self,
@@ -219,6 +232,7 @@ impl ActionDispatch {
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
+            | Self::CancelSchedule { .. }
             | Self::RetryMessage { .. }
                 if !invocation.input.is_empty() =>
             {
@@ -232,6 +246,7 @@ impl ActionDispatch {
             | Self::RevokeMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
+            | Self::CancelSchedule { .. }
             | Self::RetryMessage { .. } => Ok(()),
             Self::ForwardMessages { .. } => validate_forward_input(&invocation.input),
             Self::ToggleReaction { .. } => validate_reaction_input(&invocation.input),

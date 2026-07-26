@@ -446,7 +446,7 @@ impl ImModule {
             )?,
 
             CorrelationContext::SurfaceStorageSnapshot { request } => {
-                self.handle_surface_storage_snapshot(request, outcome, out)?;
+                self.handle_surface_storage_snapshot(request, outcome, now_ms, out)?;
             }
 
             CorrelationContext::SurfaceThreadSnapshot {

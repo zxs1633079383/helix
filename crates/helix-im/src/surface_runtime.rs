@@ -485,6 +485,7 @@ impl ImModule {
         &mut self,
         request: SurfaceResyncRequest,
         outcome: &PortOutcome,
+        now_ms: u64,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let rows = storage_rows(outcome);
@@ -554,11 +555,18 @@ impl ImModule {
                 ))
             }
         };
-        out.push(frame_for_mutation(
+        let frame = frame_for_mutation(
             "surface-storage",
             self.action_surface_epoch()?,
-            mutation,
-        )?);
+            mutation.clone(),
+        )?;
+        self.register_channel_summary_action_bindings(&mutation, now_ms)?;
+        out.push(frame);
+        if let Some(request_id) = request.causation_id {
+            self.state
+                .action_registry
+                .complete_after_terminal_frame(request_id.as_str());
+        }
         Ok(())
     }
 

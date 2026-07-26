@@ -31,6 +31,11 @@ pub const IM_SPARSE_TABLE_SPECS: &[SparseTableSpec] = &[
         scope_col: None,
     },
     SparseTableSpec {
+        table: "channel_schedule",
+        identity_cols: &["channel_id"],
+        scope_col: Some("channel_id"),
+    },
+    SparseTableSpec {
         table: "channel_member",
         identity_cols: &["channel_id", "user_id"],
         scope_col: Some("channel_id"),
@@ -157,7 +162,25 @@ pub const IM_SCHEMA: &[&'static str] = &[
         last_root_post_at INTEGER NOT NULL DEFAULT 0,\
         urgent_current_name TEXT NOT NULL DEFAULT '',\
         member_count INTEGER NOT NULL DEFAULT 0,\
-        subtopics_loaded_at INTEGER NOT NULL DEFAULT 0\
+        subtopics_loaded_at INTEGER NOT NULL DEFAULT 0,\
+        schedule_id TEXT NOT NULL DEFAULT '',\
+        schedule_owner_user_id TEXT NOT NULL DEFAULT '',\
+        schedule_message TEXT NOT NULL DEFAULT '',\
+        schedule_message_preview TEXT NOT NULL DEFAULT '',\
+        schedule_send_at INTEGER NOT NULL DEFAULT 0,\
+        schedule_status TEXT NOT NULL DEFAULT '',\
+        schedule_revision INTEGER NOT NULL DEFAULT 0\
+    )",
+    // G08 authority fact; channel columns above are a denormalized read model for one-step Surface recovery.
+    "CREATE TABLE IF NOT EXISTS channel_schedule (\
+        channel_id TEXT PRIMARY KEY,\
+        schedule_id TEXT NOT NULL DEFAULT '',\
+        owner_user_id TEXT NOT NULL DEFAULT '',\
+        message TEXT NOT NULL DEFAULT '',\
+        message_preview TEXT NOT NULL DEFAULT '',\
+        send_at INTEGER NOT NULL DEFAULT 0,\
+        status TEXT NOT NULL DEFAULT '',\
+        revision INTEGER NOT NULL DEFAULT 0\
     )",
     // ── channel_member（复合 PK，对齐 678）────────────────────────────────
     "CREATE TABLE IF NOT EXISTS channel_member (\
@@ -269,6 +292,14 @@ pub const IM_SCHEMA_MIGRATIONS: &[&'static str] = &[
     "ALTER TABLE message ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE message ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel ADD COLUMN header TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel ADD COLUMN schedule_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel ADD COLUMN schedule_owner_user_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel ADD COLUMN schedule_message TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel ADD COLUMN schedule_message_preview TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel ADD COLUMN schedule_send_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE channel ADD COLUMN schedule_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channel ADD COLUMN schedule_revision INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS channel_schedule (channel_id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL DEFAULT '', owner_user_id TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', message_preview TEXT NOT NULL DEFAULT '', send_at INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 0)",
     "ALTER TABLE channel_member ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE channel_member ADD COLUMN unread_post_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE channel_member ADD COLUMN last_post TEXT NOT NULL DEFAULT ''",

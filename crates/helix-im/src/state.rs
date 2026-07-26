@@ -197,6 +197,13 @@ pub struct ImState {
     /// HTTP acceptance merely prunes explicit failures and never establishes delivery.
     pub(crate) pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger,
 
+    /// G08 command request 只为下一条匹配 authority Frame 提供 causation，不建立成功事实。
+    pub(crate) pending_schedule_requests: BTreeMap<ChannelId, String>,
+
+    /// 已提交与在途 schedule revision 分开保存，保证失败可重放且重复 WS 不产生双写。
+    pub(crate) committed_schedule_revisions: BTreeMap<ChannelId, u64>,
+    pub(crate) inflight_schedule_revisions: BTreeMap<ChannelId, u64>,
+
     /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
     /// 直接交给 renderer 推导。
     pub(crate) participant_receipts_projector:
@@ -270,6 +277,9 @@ impl ImState {
             .expect("static action receipt capacity must be non-zero"),
             pending_authority_actions: BTreeMap::new(),
             pending_forward_deliveries: crate::forward::PendingForwardDeliveryLedger::default(),
+            pending_schedule_requests: BTreeMap::new(),
+            committed_schedule_revisions: BTreeMap::new(),
+            inflight_schedule_revisions: BTreeMap::new(),
             participant_receipts_projector:
                 crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             query_session_epoch: 0,
@@ -343,6 +353,8 @@ impl ImState {
         self.action_receipts.clear();
         self.pending_authority_actions.clear();
         self.pending_forward_deliveries = crate::forward::PendingForwardDeliveryLedger::default();
+        self.pending_schedule_requests.clear();
+        self.inflight_schedule_revisions.clear();
     }
 
     /// 身份 scope 切换是 SurfaceRuntime 的硬边界：旧 viewer 的 attach slot、读侧相关性与
@@ -353,6 +365,7 @@ impl ImState {
         // channels and cursors from its own store rather than treating A's
         // in-memory aggregates as a locally trusted snapshot.
         self.channels.clear();
+        self.committed_schedule_revisions.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
         self.pending_increment_ops.clear();

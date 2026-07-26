@@ -196,6 +196,19 @@ pub enum CorrelationContext {
         assembly: Box<crate::forward::ForwardAssembly>,
     },
 
+    /// G08 HTTP 只确认 transport 结果；成功等待 WS authority，失败撤销 request causation。
+    OutboundScheduleCreate {
+        channel_id: ChannelId,
+        request_id: Option<String>,
+    },
+
+    /// G08 schedule fact 与 channel read model 原子提交后才允许重读并发布 Frame。
+    ScheduleCreatedPersist {
+        channel_id: ChannelId,
+        revision: u64,
+        causation_id: Option<String>,
+    },
+
     /// UC-3 `im_query_dialog_list` Scan 回报 → emit `message.left-dialog-list` 完整 snapshot frame。
     DialogListQuery { causation_id: Option<String> },
 

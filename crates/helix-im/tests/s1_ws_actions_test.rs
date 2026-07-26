@@ -970,7 +970,7 @@ fn nickname_update_missing_user_id_noop_s1() {
 
 // ─── post_schedule_created / canceled ─────────────────────────────────────────
 
-/// 回归锚: S1 —— post_schedule_created 置 has_schedule_post=1 + emit。
+/// 回归锚: G08 —— post_schedule_created 原子写 authority fact/read model，未 attach 时不 raw emit。
 #[test]
 fn schedule_created_sets_flag_s1() {
     let mut h = Harness::new_with_identity(&[9], "u-self", "", "", "", "");
@@ -999,21 +999,24 @@ fn schedule_created_sets_flag_s1() {
         ),
         "schedule_created 须置 has_schedule_post=1，ops: {ops:?}"
     );
-    assert!(emit_names(&h.sink)
-        .iter()
-        .any(|n| n == "im:channel:schedule-created"));
-    let updates = emit_data(&h.sink, "im:channel:schedule-created");
-    assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0]["scheduleId"], "schedule-9");
-    assert_eq!(updates[0]["sendAt"], 1_700_000_000_000_i64);
-    assert_eq!(updates[0]["status"], "scheduled");
-    assert_eq!(updates[0]["revision"], 7);
-    assert_eq!(updates[0]["messagePreview"], "下午三点发送");
-    assert_eq!(updates[0]["scheduleMessage"], "下午三点发送完整正文");
-    assert_eq!(updates[0]["scheduleMessagePreview"], "下午三点发送");
-    assert_eq!(updates[0]["scheduleSendAt"], 1_700_000_000_000_i64);
-    assert_eq!(updates[0]["scheduleRevision"], 7);
-    assert_eq!(updates[0]["scheduleStatus"], "scheduled");
+    assert!(
+        ops.iter().any(
+            |op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "channel_schedule")
+        ),
+        "schedule_created 须持久化 channel_schedule authority fact，ops: {ops:?}"
+    );
+    assert!(
+        !emit_names(&h.sink)
+            .iter()
+            .any(|name| name == "im:channel:schedule-created"),
+        "G08 producer 不得继续发布 raw business projection"
+    );
+    assert!(
+        emit_names(&h.sink)
+            .iter()
+            .all(|name| name != "im:interaction:frame"),
+        "未 attach channel-summary 且持久回执未到达时不得发布 Frame"
+    );
 }
 
 /// 回归锚: S1 —— post_schedule_canceled 置 has_schedule_post=0 + emit。

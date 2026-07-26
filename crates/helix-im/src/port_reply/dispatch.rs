@@ -257,6 +257,56 @@ impl ImModule {
                     "send terminal persist failed; suppressing timeline refresh"
                 ),
             },
+            CorrelationContext::OutboundScheduleCreate {
+                channel_id,
+                request_id,
+            } => {
+                if matches!(outcome, PortOutcome::Err(_))
+                    && request_id.as_ref().is_some_and(|request_id| {
+                        self.state.pending_schedule_requests.get(&channel_id) == Some(request_id)
+                    })
+                {
+                    self.state.pending_schedule_requests.remove(&channel_id);
+                }
+            }
+            CorrelationContext::ScheduleCreatedPersist {
+                channel_id,
+                revision,
+                causation_id,
+            } => {
+                if self
+                    .state
+                    .inflight_schedule_revisions
+                    .get(&channel_id)
+                    .is_some_and(|inflight| *inflight == revision)
+                {
+                    self.state.inflight_schedule_revisions.remove(&channel_id);
+                }
+                match outcome {
+                    PortOutcome::Ok(_) => {
+                        self.state
+                            .committed_schedule_revisions
+                            .insert(channel_id, revision);
+                        if causation_id.as_ref().is_some_and(|request_id| {
+                            self.state.pending_schedule_requests.get(&channel_id)
+                                == Some(request_id)
+                        }) {
+                            self.state.pending_schedule_requests.remove(&channel_id);
+                        }
+                        self.refresh_attached_channel_summary_with_causation(
+                            channel_id,
+                            causation_id,
+                            out,
+                        )?;
+                    }
+                    PortOutcome::Err(error) => tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        revision,
+                        error = ?error,
+                        "schedule authority persist failed; suppressing channel summary Frame"
+                    ),
+                }
+            }
             CorrelationContext::RetrySendRehydrate {
                 message_id,
                 requested_at_ms,

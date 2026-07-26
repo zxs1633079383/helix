@@ -1129,8 +1129,34 @@ pub struct ChannelSummaryVm {
     pub online_count: Option<u32>,
     pub topic_count: u32,
     pub notification_mode: NotificationMode,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub has_scheduled_message: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_owner_user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_message_preview: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_send_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_status: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub schedule_revision: u64,
     pub actions: Vec<ActionBinding>,
     pub settings_version: u64,
+}
+
+/// 仅在数值为零时省略新增的向后兼容 projection 字段。
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
+}
+
+/// 仅在布尔值为 false 时省略新增的向后兼容 projection 字段。
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Runtime belongs to the same atomic frame publication as the changed surfaces. It is not a

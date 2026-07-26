@@ -299,6 +299,33 @@ impl ImModule {
         )
     }
 
+    /// 在权威写回后携带原 command causation 重读已 attach 的频道摘要。
+    pub(crate) fn refresh_attached_channel_summary_with_causation(
+        &mut self,
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self
+            .state
+            .channel_summary_projector
+            .current_view(channel_id.as_str())
+            .is_none()
+        {
+            return Ok(());
+        }
+        self.start_storage_snapshot(
+            SurfaceResyncRequest {
+                surface: SurfaceId::MessageChannelSummary,
+                scope: SurfaceScope::Channel {
+                    channel_id: channel_id.as_str().to_string(),
+                },
+                causation_id,
+            },
+            out,
+        )
+    }
+
     fn start_thread_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
@@ -453,6 +480,7 @@ impl ImModule {
         Ok(())
     }
 
+    /// 将 storage readback 变成对应已 attach surface 的完整 typed mutation。
     pub(crate) fn handle_surface_storage_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
@@ -469,14 +497,30 @@ impl ImModule {
                     channel_id,
                     rows.first(),
                     viewer_role,
+                    self.config.auth_user_id.as_str(),
                     self.action_surface_epoch()?,
                 );
-                self.state
-                    .channel_summary_projector
-                    .snapshot(view)
-                    .map_err(|error| {
-                        ImError::Parse(format!("channel summary projection: {error}"))
-                    })?
+                if request.causation_id.is_some()
+                    && self
+                        .state
+                        .channel_summary_projector
+                        .current_view(channel_id)
+                        .is_some()
+                {
+                    self.state
+                        .channel_summary_projector
+                        .patch_settings_or_lifecycle(view, request.causation_id.clone())
+                        .map_err(|error| {
+                            ImError::Parse(format!("channel summary projection: {error}"))
+                        })?
+                } else {
+                    self.state
+                        .channel_summary_projector
+                        .snapshot(view)
+                        .map_err(|error| {
+                            ImError::Parse(format!("channel summary projection: {error}"))
+                        })?
+                }
             }
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =
@@ -665,10 +709,12 @@ fn storage_rows(outcome: &PortOutcome) -> Vec<Value> {
         .unwrap_or_default()
 }
 
+/// 从 channel read model 构造 viewer-scoped 摘要，正文权限只在 Helix 判定。
 fn channel_summary_view(
     channel_id: &str,
     row: Option<&Value>,
     viewer_role: Option<&str>,
+    auth_user_id: &str,
     surface_epoch: u64,
 ) -> ChannelSummaryVm {
     let row = row.unwrap_or(&Value::Null);
@@ -684,6 +730,41 @@ fn channel_summary_view(
     let can_manage = matches!(role, ChannelRole::Owner | ChannelRole::Admin);
     let can_close = matches!(role, ChannelRole::Owner);
     let can_leave = !matches!(role, ChannelRole::Owner);
+    let has_scheduled_message =
+        integer(row, &["has_schedule_post", "hasSchedulePost"]) > 0;
+    let schedule_owner_user_id =
+        optional_text(row, &["schedule_owner_user_id", "scheduleOwnerUserId"]);
+    let owns_schedule = schedule_owner_user_id
+        .as_deref()
+        .is_some_and(|owner| !auth_user_id.is_empty() && owner == auth_user_id);
+    let schedule_message = owns_schedule
+        .then(|| optional_text(row, &["schedule_message", "scheduleMessage"]))
+        .flatten();
+    let schedule_message_preview = owns_schedule
+        .then(|| {
+            optional_text(
+                row,
+                &["schedule_message_preview", "scheduleMessagePreview"],
+            )
+        })
+        .flatten();
+    let schedule_revision =
+        nonnegative_u64(row, &["schedule_revision", "scheduleRevision"]);
+    let schedule_send_at = integer(row, &["schedule_send_at", "scheduleSendAt"]);
+    let schedule_send_at = (schedule_send_at > 0).then_some(schedule_send_at);
+    let mut actions = vec![
+        authority_action("channel-settings", channel_id, surface_epoch, can_manage),
+        authority_action("channel-close", channel_id, surface_epoch, can_close),
+        authority_action("channel-leave", channel_id, surface_epoch, can_leave),
+    ];
+    if has_scheduled_message {
+        actions.push(authority_action(
+            "cancelSchedule",
+            channel_id,
+            surface_epoch,
+            owns_schedule,
+        ));
+    }
     ChannelSummaryVm {
         channel_id: channel_id.to_string(),
         title: ChannelTitleRef {
@@ -702,11 +783,15 @@ fn channel_summary_view(
         online_count: None,
         topic_count: nonnegative_u32(row, &["thread_count", "topic_count", "topicCount"]),
         notification_mode: NotificationMode::All,
-        actions: vec![
-            authority_action("channel-settings", channel_id, surface_epoch, can_manage),
-            authority_action("channel-close", channel_id, surface_epoch, can_close),
-            authority_action("channel-leave", channel_id, surface_epoch, can_leave),
-        ],
+        has_scheduled_message,
+        schedule_id: optional_text(row, &["schedule_id", "scheduleId"]),
+        schedule_owner_user_id,
+        schedule_message,
+        schedule_message_preview,
+        schedule_send_at,
+        schedule_status: optional_text(row, &["schedule_status", "scheduleStatus"]),
+        schedule_revision,
+        actions,
         settings_version: nonnegative_u64(row, &["updated_at", "updateAt"]),
     }
 }
@@ -958,7 +1043,13 @@ mod tests {
         });
 
         let owner =
-            channel_summary_view("ch00000000000000000000000c", Some(&row), Some("CREATOR"), 1);
+            channel_summary_view(
+                "ch00000000000000000000000c",
+                Some(&row),
+                Some("CREATOR"),
+                "viewer-owner",
+                1,
+            );
 
         assert_eq!(owner.viewer_role, ChannelRole::Owner);
         assert_channel_authority(&owner, "channel-settings", 1, true);
@@ -966,14 +1057,26 @@ mod tests {
         assert_channel_authority(&owner, "channel-leave", 1, false);
 
         let admin =
-            channel_summary_view("ch00000000000000000000000c", Some(&row), Some("ADMIN"), 2);
+            channel_summary_view(
+                "ch00000000000000000000000c",
+                Some(&row),
+                Some("ADMIN"),
+                "viewer-admin",
+                2,
+            );
         assert_eq!(admin.viewer_role, ChannelRole::Admin);
         assert_channel_authority(&admin, "channel-settings", 2, true);
         assert_channel_authority(&admin, "channel-close", 2, false);
         assert_channel_authority(&admin, "channel-leave", 2, true);
 
         let member =
-            channel_summary_view("ch00000000000000000000000c", Some(&row), Some("MEMBER"), 3);
+            channel_summary_view(
+                "ch00000000000000000000000c",
+                Some(&row),
+                Some("MEMBER"),
+                "viewer-member",
+                3,
+            );
         assert_eq!(member.viewer_role, ChannelRole::Member);
         assert_channel_authority(&member, "channel-settings", 3, false);
         assert_channel_authority(&member, "channel-close", 3, false);

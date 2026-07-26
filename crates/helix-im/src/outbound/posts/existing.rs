@@ -77,7 +77,20 @@ impl OutboundCommand for CreateScheduleCommand {
     fn name(&self) -> &'static str {
         "im_create_schedule"
     }
+    /// 将冻结后的 G08 command 转为 Go wire，correlation 元字段不进入 body。
     fn build(&self, args: &Value) -> Result<(&'static str, Value), ImError> {
+        require_exact_keys(
+            args,
+            &[
+                "channel_id",
+                "message",
+                "schedule_post_at",
+                "type",
+                "props",
+                "req_id",
+            ],
+            self.name(),
+        )?;
         let channel_id = require_str(args, "channel_id", self.name())?;
         let message = require_str(args, "message", self.name())?;
         let schedule_post_at = args
@@ -119,6 +132,17 @@ inventory::submit! {
         name: "im_create_schedule",
         command: &CREATE_SCHEDULE,
     }
+}
+
+/// 拒绝未冻结的 command 字段，避免平台偷偷扩张 G08 业务协议。
+fn require_exact_keys(args: &Value, allowed: &[&str], cmd: &str) -> Result<(), ImError> {
+    let object = args
+        .as_object()
+        .ok_or_else(|| ImError::Parse(format!("{cmd}: payload 必须为 object")))?;
+    if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ImError::Parse(format!("{cmd}: 未知字段 {unknown}")));
+    }
+    Ok(())
 }
 
 /// #4 POST /api/cses/posts/cancelSchedule — 取消定时 → post_schedule_canceled。

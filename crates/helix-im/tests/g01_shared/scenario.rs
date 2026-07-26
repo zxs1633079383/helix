@@ -220,6 +220,34 @@ pub struct UrgentRecoveryScenarioTrace {
     pub recovered_receipts: InteractionFrameV2,
 }
 
+/// 汇总 G08 command、WS authority、持久屏障与 channel-summary Frame。
+pub struct ScheduleCreatedScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub initial_summary: InteractionFrameV2,
+    pub scheduled_summary: InteractionFrameV2,
+}
+
+/// 汇总 G08 基础设施失败，证明 HTTP admission 不产生 schedule Frame。
+pub struct ScheduleFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub initial_summary: InteractionFrameV2,
+    pub emitted_frame_count: usize,
+    pub persisted_write_count: usize,
+}
+
+/// 汇总 G08 PersistAtomic 失败后同一 authority revision 的安全重放。
+pub struct SchedulePersistFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub initial_summary: InteractionFrameV2,
+    pub scheduled_after_replay: InteractionFrameV2,
+}
+
+/// 汇总 G08 durable channel read model 的冷启动恢复 Frame。
+pub struct ScheduleRecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub recovered_summary: InteractionFrameV2,
+}
+
 /// 汇总 G04a explicit sync、持久屏障与 recalled timeline 的成功结果。
 pub struct OfflineRevokeScenarioTrace {
     pub group_created: InteractionFrameV2,
@@ -296,6 +324,104 @@ impl G01ScenarioRunner {
             sending: sending.frame,
             terminal: terminal_frame,
             temporary_id: sending.temporary_id,
+        }
+    }
+
+    /// 回放 G08 command 后由 WS authority 建立 schedule，并验证迟到 HTTP 不重复终结。
+    pub fn run_schedule_created_for(spec: SendScenarioSpec) -> ScheduleCreatedScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let initial_summary = runner.attach_channel_summary(false);
+        let http_corr = runner.start_schedule_command();
+        let persist_corr = runner.ingest_schedule_created();
+        let scheduled_summary = runner.finish_schedule_persist(persist_corr);
+        runner.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status":"SUCCESS","data":{"accepted":true}})),
+            ),
+            runner.spec.created_at as u64 + 7,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "late HTTP success cannot republish a terminal schedule Frame"
+        );
+        ScheduleCreatedScenarioTrace {
+            group_created,
+            initial_summary,
+            scheduled_summary,
+        }
+    }
+
+    /// 回放 G08 HTTP failure，保持已 attach 的未排程摘要不变。
+    pub fn run_schedule_http_failure_for(spec: SendScenarioSpec) -> ScheduleFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let initial_summary = runner.attach_channel_summary(false);
+        let http_corr = runner.start_schedule_command();
+        runner.step(
+            Tick::PortReply {
+                corr: http_corr,
+                outcome: PortOutcome::Err(PortError::Http(500)),
+            },
+            runner.spec.created_at as u64 + 3,
+        );
+        ScheduleFailureScenarioTrace {
+            group_created,
+            initial_summary,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. }
+                            | Effect::PersistAtomic { .. }
+                            | Effect::PersistFire { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G08 persist failure，并以同一 revision 重放到单一 terminal Frame。
+    pub fn run_schedule_persist_failure_for(
+        spec: SendScenarioSpec,
+    ) -> SchedulePersistFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let initial_summary = runner.attach_channel_summary(false);
+        let _http_corr = runner.start_schedule_command();
+        let failed_corr = runner.ingest_schedule_created();
+        runner.step(
+            Tick::PortReply {
+                corr: failed_corr,
+                outcome: PortOutcome::Err(PortError::Storage(500)),
+            },
+            runner.spec.created_at as u64 + 5,
+        );
+        assert!(
+            runner.frames().is_empty(),
+            "failed schedule persist cannot publish a partial Frame"
+        );
+        let replay_corr = runner.ingest_schedule_created();
+        let scheduled_after_replay = runner.finish_schedule_persist(replay_corr);
+        SchedulePersistFailureScenarioTrace {
+            group_created,
+            initial_summary,
+            scheduled_after_replay,
+        }
+    }
+
+    /// 仅凭 durable channel read model 恢复 G08 typed summary，不依赖平台 reducer。
+    pub fn run_schedule_recovery_for(spec: SendScenarioSpec) -> ScheduleRecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let recovered_summary = runner.attach_channel_summary(true);
+        ScheduleRecoveryScenarioTrace {
+            group_created,
+            recovered_summary,
         }
     }
 
@@ -1835,6 +1961,101 @@ impl G01ScenarioRunner {
         );
     }
 
+    /// 通过 opaque surface snapshot 挂载 channel-summary，并注入未排程或 durable 排程行。
+    fn attach_channel_summary(&mut self, scheduled: bool) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "__helix_request_surface_snapshot",
+                json!({
+                    "surface": "message.channel-summary",
+                    "scope": {"kind":"channel","channelId":self.spec.channel_id}
+                }),
+            ),
+            self.spec.created_at as u64,
+        );
+        let corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
+        });
+        self.step(
+            ok(
+                corr,
+                rows_bytes(json!([schedule_channel_row(&self.spec, scheduled)])),
+            ),
+            self.spec.created_at as u64 + 1,
+        );
+        self.only_frame()
+    }
+
+    /// 提交 G08 command 并返回唯一 HTTP correlation；本阶段不得有业务 Frame。
+    fn start_schedule_command(&mut self) -> Correlation {
+        self.step(
+            command(
+                "im_create_schedule",
+                json!({
+                    "channel_id": self.spec.channel_id,
+                    "message": self.spec.marker,
+                    "schedule_post_at": self.spec.created_at + 60_000,
+                    "req_id": self.spec.request_id
+                }),
+            ),
+            self.spec.created_at as u64 + 2,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "schedule command admission cannot establish terminal UI"
+        );
+        self.only_http_corr("/posts/createSchedule")
+    }
+
+    /// 注入 G08 authority WS，并返回含 fact/read-model 写的唯一 PersistAtomic correlation。
+    fn ingest_schedule_created(&mut self) -> Correlation {
+        self.step(
+            schedule_created_frame(&self.spec),
+            self.spec.created_at as u64 + 4,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "schedule authority must wait for the matching PersistAtomic reply"
+        );
+        self.only_persist_atomic_corr_with(|ops| {
+            has_table_write(ops, "channel_schedule") && has_table_write(ops, "channel")
+        })
+    }
+
+    /// 完成 G08 原子提交和 channel readback，返回唯一 typed terminal Frame。
+    fn finish_schedule_persist(&mut self, persist_corr: Correlation) -> InteractionFrameV2 {
+        self.step(
+            ok(persist_corr, Bytes::from_static(br#"{}"#)),
+            self.spec.created_at as u64 + 5,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "PersistOk must schedule readback before publishing a schedule Frame"
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "channel"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([schedule_channel_row(&self.spec, true)])),
+            ),
+            self.spec.created_at as u64 + 6,
+        );
+        let frame = self.only_frame();
+        self.step(
+            schedule_created_frame(&self.spec),
+            self.spec.created_at as u64 + 6,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "duplicate committed schedule revision must be an exact no-op"
+        );
+        frame
+    }
+
     /// 推进 optimistic P1、readback、sending Frame、HTTP 和 timeout 同步可见的阶段。
     fn start_sending(&mut self) -> SendingStage {
         self.step(
@@ -2760,6 +2981,48 @@ fn echo_frame(spec: &SendScenarioSpec, temporary_id: &str) -> Tick {
         .expect("WS echo serializes")
         .into(),
     ))
+}
+
+/// 构造 G08 `post_schedule_created` authority 帧，revision 固定用于重复与重放验证。
+fn schedule_created_frame(spec: &SendScenarioSpec) -> Tick {
+    Tick::Inbound(InboundBytes(
+        serde_json::to_vec(&json!({
+            "v": 1,
+            "action": "post_schedule_created",
+            "eventSeq": 8,
+            "data": {
+                "channelId": spec.channel_id,
+                "scheduleId": "g08-schedule-1",
+                "scheduleOwnerUserId": spec.actor_id,
+                "message": spec.marker,
+                "messagePreview": spec.simple_message,
+                "sendAt": spec.created_at + 60_000,
+                "status": "scheduled",
+                "revision": 8
+            }
+        }))
+        .expect("G08 authority frame serializes")
+        .into(),
+    ))
+}
+
+/// 构造 channel-summary readback 行；排程字段只来自 Helix 已提交 read model。
+fn schedule_channel_row(spec: &SendScenarioSpec, scheduled: bool) -> Value {
+    json!({
+        "id": spec.channel_id,
+        "display_name": spec.group_name,
+        "role": "OWNER",
+        "member_count": 2,
+        "updated_at": spec.created_at,
+        "has_schedule_post": i64::from(scheduled),
+        "schedule_id": if scheduled { "g08-schedule-1" } else { "" },
+        "schedule_owner_user_id": if scheduled { spec.actor_id } else { "" },
+        "schedule_message": if scheduled { spec.marker } else { "" },
+        "schedule_message_preview": if scheduled { spec.simple_message } else { "" },
+        "schedule_send_at": if scheduled { spec.created_at + 60_000 } else { 0 },
+        "schedule_status": if scheduled { "scheduled" } else { "" },
+        "schedule_revision": if scheduled { 8 } else { 0 }
+    })
 }
 
 /// 构造 Go `posts_update` 的权威撤回 fact，cursor 固定推进到 1。

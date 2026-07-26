@@ -148,6 +148,7 @@ fn leave_carries_new_creator_and_user_id_for_owner_transfer() {
 }
 
 #[test]
+/// 固定 G08 wire nesting，并拒绝调用方尝试注入 Helix-owned temporaryId。
 fn schedule_nests_post_and_schedulepostat() {
     let (url, body) = one_http(run(
         "im_create_schedule",
@@ -156,8 +157,7 @@ fn schedule_nests_post_and_schedulepostat() {
             "message": "later",
             "type": "CUSTOM",
             "props": { "source": "mobile", "priority": 2 },
-            "schedule_post_at": 999,
-            "temporary_id": "legacy-must-not-leak"
+            "schedule_post_at": 999
         }),
     ));
     assert_eq!(url, "http://x/api/cses/posts/createSchedule");
@@ -168,6 +168,15 @@ fn schedule_nests_post_and_schedulepostat() {
     assert_eq!(body["post"]["props"]["source"], "mobile");
     assert_eq!(body["post"]["props"]["priority"], 2);
     assert!(body["post"].get("temporaryId").is_none());
+    assert!(fails(
+        "im_create_schedule",
+        json!({
+            "channel_id": "ch4",
+            "message": "later",
+            "schedule_post_at": 999,
+            "temporary_id": "legacy-must-not-enter"
+        })
+    ));
 }
 
 #[test]

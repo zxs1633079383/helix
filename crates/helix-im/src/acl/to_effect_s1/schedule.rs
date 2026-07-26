@@ -2,13 +2,175 @@
 
 use super::emit;
 use crate::state::ChannelId;
+use helix_core::effect::{BatchUpdateSpec, Row, SqlValue, StorageOp, UpsertSpec};
 use helix_core::Effect;
 
+/// 从兼容 wire 形状读取一个定时消息字段，不把 key 别名泄漏给调用方。
 fn schedule_field<'a>(data: &'a serde_json::Value, keys: &[&str]) -> Option<&'a serde_json::Value> {
     let schedule = data.get("schedule").unwrap_or(data);
     keys.iter()
         .find_map(|key| schedule.get(*key))
         .or_else(|| keys.iter().find_map(|key| data.get(*key)))
+}
+
+/// G08 权威 WS 事实的持久化形状；正文已按当前 viewer 权限裁剪。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScheduleFact {
+    pub(crate) channel_id: ChannelId,
+    pub(crate) schedule_id: String,
+    pub(crate) owner_user_id: String,
+    pub(crate) message: String,
+    pub(crate) message_preview: String,
+    pub(crate) send_at: i64,
+    pub(crate) status: String,
+    pub(crate) revision: u64,
+}
+
+impl ScheduleFact {
+    /// 仅从合法 channel/revision 的 WS authority 构造 viewer-scoped durable fact。
+    pub(crate) fn from_created_ws(
+        data: &serde_json::Value,
+        auth_user_id: &str,
+        revision_fallback: Option<u64>,
+    ) -> Option<Self> {
+        let channel_id = schedule_field(data, &["channelId", "channel_id"])
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChannelId::from_str)?;
+        let revision = schedule_field(data, &["revision"])
+            .and_then(serde_json::Value::as_u64)
+            .or(revision_fallback)
+            .filter(|revision| *revision > 0)?;
+        let can_view_content = schedule_preview_authorized(data, auth_user_id);
+        let message = can_view_content
+            .then(|| schedule_field(data, &["message"]).and_then(serde_json::Value::as_str))
+            .flatten()
+            .unwrap_or_default()
+            .to_string();
+        let message_preview = can_view_content
+            .then(|| {
+                schedule_field(data, &["messagePreview", "message_preview"])
+                    .and_then(serde_json::Value::as_str)
+            })
+            .flatten()
+            .map(|value| value.chars().take(96).collect())
+            .unwrap_or_default();
+        Some(Self {
+            channel_id,
+            schedule_id: schedule_field(data, &["scheduleId", "schedule_id"])
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            owner_user_id: schedule_field(
+                data,
+                &[
+                    "scheduleOwnerUserId",
+                    "schedule_owner_user_id",
+                    "ownerUserId",
+                    "owner_user_id",
+                    "userId",
+                    "user_id",
+                ],
+            )
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+            message,
+            message_preview,
+            send_at: schedule_field(
+                data,
+                &[
+                    "sendAt",
+                    "send_at",
+                    "schedulePostAt",
+                    "schedule_post_at",
+                    "scheduledAt",
+                    "scheduled_at",
+                ],
+            )
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
+            status: schedule_field(data, &["status"])
+                .and_then(serde_json::Value::as_str)
+                .filter(|status| !status.is_empty())
+                .unwrap_or("scheduled")
+                .to_string(),
+            revision,
+        })
+    }
+
+    /// 将 authority fact 与 channel read model 放进同一个原子持久屏障。
+    pub(crate) fn storage_ops(&self) -> Vec<StorageOp> {
+        let schedule_row: Row = vec![
+            (
+                "channel_id".to_string(),
+                SqlValue::Text(self.channel_id.as_str().to_string()),
+            ),
+            (
+                "schedule_id".to_string(),
+                SqlValue::Text(self.schedule_id.clone()),
+            ),
+            (
+                "owner_user_id".to_string(),
+                SqlValue::Text(self.owner_user_id.clone()),
+            ),
+            ("message".to_string(), SqlValue::Text(self.message.clone())),
+            (
+                "message_preview".to_string(),
+                SqlValue::Text(self.message_preview.clone()),
+            ),
+            ("send_at".to_string(), SqlValue::Integer(self.send_at)),
+            ("status".to_string(), SqlValue::Text(self.status.clone())),
+            (
+                "revision".to_string(),
+                SqlValue::Integer(self.revision as i64),
+            ),
+        ];
+        let channel_patch: Row = vec![
+            ("has_schedule_post".to_string(), SqlValue::Integer(1)),
+            (
+                "schedule_id".to_string(),
+                SqlValue::Text(self.schedule_id.clone()),
+            ),
+            (
+                "schedule_owner_user_id".to_string(),
+                SqlValue::Text(self.owner_user_id.clone()),
+            ),
+            (
+                "schedule_message".to_string(),
+                SqlValue::Text(self.message.clone()),
+            ),
+            (
+                "schedule_message_preview".to_string(),
+                SqlValue::Text(self.message_preview.clone()),
+            ),
+            (
+                "schedule_send_at".to_string(),
+                SqlValue::Integer(self.send_at),
+            ),
+            (
+                "schedule_status".to_string(),
+                SqlValue::Text(self.status.clone()),
+            ),
+            (
+                "schedule_revision".to_string(),
+                SqlValue::Integer(self.revision as i64),
+            ),
+        ];
+        vec![
+            StorageOp::BatchUpsert(UpsertSpec {
+                table: "channel_schedule",
+                rows: vec![schedule_row],
+                conflict_key: Some("channel_id"),
+                exclude_from_update: Vec::new(),
+            }),
+            StorageOp::BatchUpdate(BatchUpdateSpec {
+                table: "channel",
+                key_col: "id",
+                key_vals: vec![SqlValue::Text(self.channel_id.as_str().to_string())],
+                patch: channel_patch,
+            }),
+        ]
+    }
 }
 
 /// schedule 全文和摘要只在服务端明确授权，或 owner 与当前登录用户一致时开放。

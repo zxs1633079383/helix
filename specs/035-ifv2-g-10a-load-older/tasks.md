@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-10 review-green 到 specs/035-ifv2-g-10a-load-older/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/channel/older_context.rs、crates/helix-im/tests/g10_timeline_window_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc10HistoryTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/035-ifv2-g-10a-load-older/research.md
+- [x] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-10 review-green 到 specs/035-ifv2-g-10a-load-older/verification.md
+- [x] T002 [P] 按 crates/helix-im/src/channel/older_context.rs、crates/helix-im/tests/g10_timeline_window_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc10HistoryTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/035-ifv2-g-10a-load-older/research.md
 
 ---
 

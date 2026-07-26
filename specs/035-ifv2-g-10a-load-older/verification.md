@@ -1,5 +1,14 @@
 # Verification Procedure: G-10a
 
+## T001 Source Lock（2026-07-25）
+
+- Helix HEAD：`4f398cc05fcdd9346d5d8163ab6110a72be6b949`；G10a 开始时工作树仅含本 Gate mandatory loop ledger 与 SESSION 预期记录。
+- cses-client HEAD：`4105aefaf5c470a77c52a23318edae57cdff3b70`；生产 Tauri Helix pin 为 `e10719adbcf5767c2eab2eb288d86f3e2b210477`。
+- Mobile HEAD：`0e9400c5044d19dd47f7b97899ff2a611ca57a92`；生产 Helix pin 为 `f221c924d4da606035ed040c5d4583ccb5a250dd`，既有未跟踪 bundle 与 `tests/.DS_Store` 不属于本 Gate。
+- Strict Matrix SHA-256：`b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`。
+- 前序 G10：commit `4f398cc`，loop `event_seq=14`、`phase=closed`、R1-R4 全 PASS。
+- G10a admission：loop `event_seq=7`、`phase=implementing`、`IMPLEMENTATION_ADMITTED`。后续命令必须显式传 `--feature specs/035-ifv2-g-10a-load-older`。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

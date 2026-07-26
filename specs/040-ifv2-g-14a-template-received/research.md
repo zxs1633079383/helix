@@ -1,6 +1,14 @@
 # Research: G-14a 模板已收到
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `6755dab003cab2bcb6bf2e91c8133c72b270c95c`；cses-client `0d19677657d68238b85ddeba75a8736804c33ec2`；Mobile `b9cbbb3bd9c71972528f71411bab1edc93709f36`
+
+## Current / Target / Gap
+
+- **Current command**：`TemplateReceivedCommand` 已把公开 `postId` 归一为 `post_id`，并严格构造 `POST post/templateReceived` 的 `{postId}` wire body；HTTP success 只表示服务端受理。
+- **Current authority**：权威更新来自 `post_update`。`apply_post_update` 已把 message edit 与 channel cursor 放进同一个 `PersistAtomic`，matching `PersistOk` 后才释放 render-ready `im:post:updated`；`message_item_data` 已由 `props.template.userIds` 产出 `templateReceived/templateConfirmedCount/readerIds`。
+- **Current platform drift**：Mobile `Uc14TemplateReceivedTest` 仍手写 raw `im:post:updated` 并通过 `ViewModelStore` 断言字段，属于本 Gate 必须切断的第二 consumer；PC 当前也尚无 G14a canonical Fixture/Mock/Real 分层合同。
+- **Target**：fresh group + template message 前置完成后，`im_template_received -> HTTP admission -> WS post_update -> PersistAtomic -> PersistOk -> attached message.timeline InteractionFrameV2`；Frame row 直接携带权威模板字段，PC/Mobile 只机械 apply。
+- **Gap**：新增确定性 ScenarioRunner、完整 Frame Golden/provenance、PC Mock/Real/report、Mobile production-linked SurfaceRuntime/QuickJS contract，并把旧 raw-event/Store 测试改为 typed view；不伪造当前 Go 不提供的 participant receipt authority。
 
 ## Decision 1 - 唯一业务真源
 

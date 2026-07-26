@@ -1,13 +1,15 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/040-ifv2-g-14a-template-received",
-  "phase": "ready",
-  "event_seq": 6,
-  "next_action": "admit_implementation",
+  "phase": "verifying",
+  "event_seq": 13,
+  "next_action": "repair_r4_evidence",
   "budget": {
     "max_same_failure_attempts": 2
   },
-  "failure_attempts": {},
+  "failure_attempts": {
+    "82186b29fd932ffe": 2
+  },
   "gates": {
     "r1_spec": {
       "status": "pass",
@@ -23,15 +25,17 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "d87185f4bd0308b21017aca3d7a8311b72afdaab2b26f6b975837a32e7941a25",
-      "checked_at": "2026-07-25T07:43:49Z",
+      "fingerprint": "24c22123570d872402cc34a806ba0971cacdb98d4a0fe088f70156165a73ffd5",
+      "checked_at": "2026-07-26T13:22:58Z",
       "issues": []
     },
     "r4_evidence": {
-      "status": "pending",
+      "status": "blocked",
       "fingerprint": null,
       "checked_at": null,
-      "issues": []
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
     }
   },
   "convergence": {
@@ -74,6 +78,48 @@
       "at": "2026-07-25T07:43:49Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "phase",
+      "detail": "ready->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 2"
+    },
+    {
+      "seq": 13,
+      "at": "2026-07-26T13:22:58Z",
+      "kind": "phase",
+      "detail": "verifying->verifying: missing evidence/evidence.json"
     }
   ]
 }

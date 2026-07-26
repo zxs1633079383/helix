@@ -12,10 +12,14 @@ use helix_im::projector::participant_receipts::{
 };
 use serde_json::{json, Value};
 
+#[path = "support/g14a_scenario.rs"]
+#[allow(dead_code)]
+mod g14a_scenario;
 #[path = "support/g14_scenario.rs"]
 #[allow(dead_code)]
 mod scenario;
 
+use g14a_scenario::{assert_receivable_contract, assert_received_contract, G14AScenarioRunner};
 use scenario::{assert_receipt_contract, G14ScenarioRunner};
 
 /// 执行一个 outbound 命令并返回唯一 HTTP URL 与 JSON body。
@@ -112,4 +116,19 @@ fn post_read_duplicate_authority_is_suppressed() {
 #[test]
 fn post_read_recovery_rebuilds_complete_receipt_fields() {
     assert_receipt_contract(&G14ScenarioRunner::run_recovery(), 1, true);
+}
+
+/// 证明模板 authority 的 PersistAtomic 失败不会泄漏部分 Frame，重放后才收敛。
+#[test]
+fn template_received_persist_barrier_is_replayable() {
+    let trace = G14AScenarioRunner::run_persist_failure_replay();
+    assert_receivable_contract(&trace.receivable);
+    assert_received_contract(&trace.received_after_replay);
+}
+
+/// 证明模板已收到后的 action 与普通 read receipt 继续保持独立。
+#[test]
+fn template_received_terminal_frame_keeps_receipt_boundaries() {
+    let trace = G14AScenarioRunner::run_ws_received();
+    assert_received_contract(&trace.received);
 }

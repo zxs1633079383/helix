@@ -695,10 +695,7 @@ pub(crate) fn message_from_render_ready(
         reply_summary,
         reply_thread,
         reactions,
-        read_receipt: record_from_row(
-            row,
-            &[("readBits", "readBits"), ("readerIds", "readerIds")],
-        )?,
+        read_receipt: read_receipt_from_row(row, props)?,
         template_confirmation: optional_data(
             row.get("templateConfirmation")
                 .or_else(|| props.get("template")),
@@ -1148,6 +1145,25 @@ fn record_from_row(
     Ok(SurfaceDataVm::Record(record))
 }
 
+/// 隔离模板确认 identities 与普通已读回执，后者只接受独立 receipt authority。
+fn read_receipt_from_row(
+    row: &Value,
+    props: &Value,
+) -> Result<SurfaceDataVm, TimelineProjectionError> {
+    if let Some(value) = row.get("readReceipt").filter(|value| !value.is_null()) {
+        return surface_data(value, 0);
+    }
+    if row.get("templateConfirmation").is_none() && props.get("template").is_none() {
+        return record_from_row(row, &[("readBits", "readBits"), ("readerIds", "readerIds")]);
+    }
+    let mut record = BTreeMap::new();
+    if let Some(value) = row.get("readBits") {
+        record.insert("readBits".to_string(), surface_data(value, 0)?);
+    }
+    record.insert("readerIds".to_string(), SurfaceDataVm::Array(Vec::new()));
+    Ok(SurfaceDataVm::Record(record))
+}
+
 fn urgency_data(row: &Value) -> Result<Option<SurfaceDataVm>, TimelineProjectionError> {
     let mut record = BTreeMap::new();
     for key in [
@@ -1389,6 +1405,41 @@ mod tests {
 
         assert!(projector.is_attached(&scope));
         assert!(projector.current_view(&scope).is_none());
+    }
+
+    /// 证明模板确认 userIds 不会被误投影为普通消息已读回执。
+    #[test]
+    fn template_confirmation_ids_do_not_fabricate_read_receipts() {
+        let source = serde_json::json!({
+            "msgId": "template-1",
+            "channelId": "channel-1",
+            "userId": "author-1",
+            "createAt": 1,
+            "text": "template",
+            "type": "TEMPLATE",
+            "sendStatus": "sent",
+            "readBits": "",
+            "readerIds": ["recipient-1"],
+            "templateConfirmation": {
+                "templateReceived": true,
+                "confirmedCount": 1,
+                "readerIds": ["recipient-1"]
+            },
+            "props": {"template": {"userIds": ["recipient-1"]}},
+            "actionCapabilities": {}
+        });
+
+        let message = message_from_render_ready(&source, "channel-1", 1, false, || {
+            Ok("disabled-template-action".to_string())
+        })
+        .unwrap();
+        let SurfaceDataVm::Record(receipt) = message.read_receipt else {
+            panic!("read receipt remains a record")
+        };
+        assert_eq!(
+            receipt.get("readerIds"),
+            Some(&SurfaceDataVm::Array(Vec::new()))
+        );
     }
 
     #[test]

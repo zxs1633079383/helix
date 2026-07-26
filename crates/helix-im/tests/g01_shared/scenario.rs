@@ -183,6 +183,34 @@ pub struct ReactionRecoveryScenarioTrace {
     pub recovered: InteractionFrameV2,
 }
 
+/// 汇总 G14a 模板消息展示前与权威已收到后的 timeline Frames。
+pub struct TemplateReceivedWsScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub receivable: InteractionFrameV2,
+    pub received: InteractionFrameV2,
+}
+
+/// 汇总 G14a HTTP 失败分支，证明 admission 不会伪造模板已收到。
+pub struct TemplateReceivedFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub receivable: InteractionFrameV2,
+    pub emitted_frame_count: usize,
+    pub persisted_write_count: usize,
+}
+
+/// 汇总 G14a authority 持久失败后重放收敛的 timeline Frame。
+pub struct TemplateReceivedPersistFailureScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub receivable: InteractionFrameV2,
+    pub received_after_replay: InteractionFrameV2,
+}
+
+/// 汇总 G14a durable template confirmation 冷启动恢复出的 timeline Frame。
+pub struct TemplateReceivedRecoveryScenarioTrace {
+    pub group_created: InteractionFrameV2,
+    pub recovered: InteractionFrameV2,
+}
+
 /// 汇总 G07 发起加急后的 timeline 与 participant-receipts Frames。
 pub struct UrgentPostScenarioTrace {
     pub group_created: InteractionFrameV2,
@@ -906,6 +934,75 @@ impl G01ScenarioRunner {
         }
     }
 
+    /// 回放 G14a command admission、WS authority、PersistAtomic 与 received timeline。
+    pub fn run_template_received_ws_for(spec: SendScenarioSpec) -> TemplateReceivedWsScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let receivable = runner.attach_template_timeline(false);
+        let http_corr = runner.start_template_received();
+        let received = runner.finish_template_received_ws(http_corr, false);
+        TemplateReceivedWsScenarioTrace {
+            group_created,
+            receivable,
+            received,
+        }
+    }
+
+    /// 回放 G14a HTTP 基础设施失败，证明没有模板已收到写入或 Frame。
+    pub fn run_template_received_http_failure_for(
+        spec: SendScenarioSpec,
+    ) -> TemplateReceivedFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let receivable = runner.attach_template_timeline(false);
+        let http_corr = runner.start_template_received();
+        runner.step(http_error(http_corr), runner.spec.created_at as u64 + 10);
+        TemplateReceivedFailureScenarioTrace {
+            group_created,
+            receivable,
+            emitted_frame_count: runner.frames().len(),
+            persisted_write_count: runner
+                .effects()
+                .iter()
+                .filter(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Persist { .. } | Effect::PersistAtomic { .. }
+                    )
+                })
+                .count(),
+        }
+    }
+
+    /// 回放 G14a authority PersistAtomic 失败并以同一 WS fact 重放成功。
+    pub fn run_template_received_persist_failure_for(
+        spec: SendScenarioSpec,
+    ) -> TemplateReceivedPersistFailureScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let receivable = runner.attach_template_timeline(false);
+        let http_corr = runner.start_template_received();
+        let received_after_replay = runner.finish_template_received_ws(http_corr, true);
+        TemplateReceivedPersistFailureScenarioTrace {
+            group_created,
+            receivable,
+            received_after_replay,
+        }
+    }
+
+    /// 从 durable template confirmation row 冷启动恢复 G14a timeline snapshot。
+    pub fn run_template_received_recovery_for(
+        spec: SendScenarioSpec,
+    ) -> TemplateReceivedRecoveryScenarioTrace {
+        let mut runner = Self::new_for(spec);
+        let group_created = runner.create_group_prerequisite();
+        let recovered = runner.attach_template_timeline(true);
+        TemplateReceivedRecoveryScenarioTrace {
+            group_created,
+            recovered,
+        }
+    }
+
     /// 回放 G07 发起加急、WS authority、持久屏障与 pending receipt snapshot。
     pub fn run_urgent_post_ws_for(
         spec: SendScenarioSpec,
@@ -1557,6 +1654,163 @@ impl G01ScenarioRunner {
             ok(
                 read_corr,
                 rows_bytes(json!([reaction_message_row(&self.spec, true)])),
+            ),
+            now_ms + 1,
+        );
+        self.only_frame()
+    }
+
+    /// 通过 production local-first query 挂载模板消息的未收到或已收到 timeline row。
+    fn attach_template_timeline(&mut self, received: bool) -> InteractionFrameV2 {
+        self.step(
+            command(
+                "im_query_messages_by_channel",
+                json!({
+                    "channel_id": self.spec.channel_id,
+                    "limit": 20,
+                    "windowToken": "latest",
+                    "req_id": self.spec.request_id,
+                }),
+            ),
+            self.spec.created_at as u64,
+        );
+        let local = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                local,
+                rows_bytes(json!([template_message_row(&self.spec, received)])),
+            ),
+            self.spec.created_at as u64 + 1,
+        );
+        if self.frames().is_empty() {
+            let remote = self.only_http_corr("/posts/getLatestPost");
+            self.step(
+                ok(
+                    remote,
+                    http_envelope(json!({
+                        "status": "SUCCESS",
+                        "data": [template_message_row(&self.spec, received)]
+                    })),
+                ),
+                self.spec.created_at as u64 + 2,
+            );
+            if self.frames().is_empty() {
+                let cache = self.only_persist_corr_with(|ops| !ops.is_empty());
+                self.step(ok(cache, Bytes::new()), self.spec.created_at as u64 + 3);
+            }
+        }
+        self.only_frame()
+    }
+
+    /// 提交 G14a canonical command，并验证 wire 只携 producer 允许的 postId。
+    fn start_template_received(&mut self) -> Correlation {
+        self.step(
+            command(
+                "im_template_received",
+                json!({"post_id": self.spec.server_id}),
+            ),
+            self.spec.created_at as u64 + 2,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "AcceptedCommand must not fabricate template received UI"
+        );
+        let corr = self.only_http_corr("/post/templateReceived");
+        let body = self
+            .effects()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http {
+                    corr: effect_corr,
+                    req,
+                } if *effect_corr == corr => req.body.as_ref(),
+                _ => None,
+            })
+            .and_then(|body| serde_json::from_slice::<Value>(body.as_ref()).ok())
+            .expect("templateReceived HTTP body remains inspectable");
+        assert_eq!(body, json!({"postId": self.spec.server_id}));
+        corr
+    }
+
+    /// 完成 G14a WS authority，并验证 Persist failure、duplicate 与 late HTTP 幂等。
+    fn finish_template_received_ws(
+        &mut self,
+        http_corr: Correlation,
+        persist_failed_once: bool,
+    ) -> InteractionFrameV2 {
+        self.step(
+            template_received_ws_frame(&self.spec),
+            self.spec.created_at as u64 + 10,
+        );
+        let persist_corr =
+            self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+        if persist_failed_once {
+            self.step(
+                Tick::PortReply {
+                    corr: persist_corr,
+                    outcome: PortOutcome::Err(PortError::Storage(500)),
+                },
+                self.spec.created_at as u64 + 11,
+            );
+            assert!(
+                self.frames().is_empty(),
+                "failed template persistence cannot publish received UI"
+            );
+            self.step(
+                template_received_ws_frame(&self.spec),
+                self.spec.created_at as u64 + 12,
+            );
+            let replay_corr =
+                self.only_persist_atomic_corr_with(|ops| has_table_write(ops, "message"));
+            return self
+                .complete_template_received_persist(replay_corr, self.spec.created_at as u64 + 13);
+        }
+        let received =
+            self.complete_template_received_persist(persist_corr, self.spec.created_at as u64 + 11);
+        self.step(
+            template_received_ws_frame(&self.spec),
+            self.spec.created_at as u64 + 13,
+        );
+        assert!(
+            self.effects().is_empty(),
+            "duplicate template authority must be ignored after cursor commit"
+        );
+        self.step(
+            ok(
+                http_corr,
+                http_envelope(json!({"status": "SUCCESS", "data": {}})),
+            ),
+            self.spec.created_at as u64 + 14,
+        );
+        assert!(
+            self.frames().is_empty(),
+            "late HTTP success must not repeat the received Frame"
+        );
+        received
+    }
+
+    /// 在 template PersistAtomic 成功后回灌 durable row，并取得唯一 received Frame。
+    fn complete_template_received_persist(
+        &mut self,
+        persist_corr: Correlation,
+        now_ms: u64,
+    ) -> InteractionFrameV2 {
+        self.step(ok(persist_corr, Bytes::new()), now_ms);
+        assert!(
+            self.frames().is_empty(),
+            "template PersistOk only schedules attached timeline readback"
+        );
+        let read_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| matches!(op, StorageOp::Scan(spec) if spec.table == "message"))
+        });
+        self.step(
+            ok(
+                read_corr,
+                rows_bytes(json!([template_message_row(&self.spec, true)])),
             ),
             now_ms + 1,
         );
@@ -3158,6 +3412,34 @@ fn reaction_message_row(spec: &SendScenarioSpec, reacted: bool) -> Value {
     })
 }
 
+/// 构造 G14a local-first query 与 authority readback 使用的模板消息 row。
+fn template_message_row(spec: &SendScenarioSpec, received: bool) -> Value {
+    json!({
+        "id": spec.server_id,
+        "temporaryId": spec.server_id,
+        "channelId": spec.channel_id,
+        "userId": spec.observer_id,
+        "createAt": spec.created_at,
+        "message": spec.marker,
+        "type": "TEMPLATE",
+        "sendStatus": "sent",
+        "readBits": "",
+        "readerIds": [],
+        "event_seq": if received { 1 } else { 0 },
+        "props": {
+            "template": {
+                "userIds": if received { vec![spec.actor_id] } else { Vec::<&str>::new() }
+            }
+        },
+        "actionCapabilities": {
+            "canRevoke": false,
+            "canReply": true,
+            "canForward": true,
+            "canReact": true
+        }
+    })
+}
+
 /// 构造 G07 local-first query 与 authority readback 使用的 durable message row。
 fn urgent_message_row(
     spec: &SendScenarioSpec,
@@ -3405,6 +3687,30 @@ fn reaction_ws_frame(spec: &SendScenarioSpec) -> Tick {
             }
         }))
         .expect("reaction WS frame serializes"),
+    )))
+}
+
+/// 构造 Go `post_update` 的权威模板已收到 fact，cursor 固定推进到 1。
+fn template_received_ws_frame(spec: &SendScenarioSpec) -> Tick {
+    Tick::Inbound(InboundBytes(Bytes::from(
+        serde_json::to_vec(&json!({
+            "action": "post_update",
+            "data": {
+                "id": spec.server_id,
+                "channelId": spec.channel_id,
+                "userId": spec.observer_id,
+                "createAt": spec.created_at,
+                "message": spec.marker,
+                "type": "TEMPLATE",
+                "props": {
+                    "template": {
+                        "userIds": [spec.actor_id]
+                    }
+                },
+                "event_seq": 1
+            }
+        }))
+        .expect("template received WS frame serializes"),
     )))
 }
 

@@ -195,7 +195,7 @@ impl G15aScenarioRunner {
         );
     }
 
-    /// 请求 created cursor 下的 member-roster storage recovery。
+    /// 请求生产 consumer 使用的 initial cursor 下的 member-roster storage recovery。
     fn attach_roster(&mut self) {
         self.harness.step(
             command_json(
@@ -205,7 +205,7 @@ impl G15aScenarioRunner {
                     "scope": {
                         "kind": "memberRoster",
                         "channelId": CHANNEL_ID,
-                        "cursor": "created"
+                        "cursor": "initial"
                     }
                 }),
             ),

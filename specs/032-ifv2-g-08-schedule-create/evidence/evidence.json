@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-007",
+      "command": "G08 quickstart: Helix full-flow and fixture; PC mock/single-real/dual-real/report; Mobile G08FrameContract and UC09 focused/real; cross-repo parity and boundary review",
+      "started_at": "2026-07-26T00:18:57Z",
+      "ended_at": "2026-07-26T09:05:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/032-ifv2-g-08-schedule-create/evidence/gate-report.json",
+          "sha256": "35ebe2b001dfa3effb5d776c60fa2bd0aaf77a33f7747e2fdf1d3dd9bb976128"
+        }
+      ]
+    }
+  ]
+}

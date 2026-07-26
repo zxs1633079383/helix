@@ -86,6 +86,90 @@ separate pre-existing capability-discovery gap; candidate build, native WDIO bui
 production-boundary scan and both real lanes passed. G08 remains `implementing` until
 T023-T038 close Mobile and independent review.
 
+## T003 Shared CreateGroupPrerequisite
+
+- Helix 的 `G08ScenarioRunner` 复用 G01 production prerequisite，经
+  `im_create_channel` 形成权威 `channelId` 后才执行 `im_create_schedule`；不复制建群
+  handler，也不依赖前序 Gate 遗留 channel。
+- PC 的 single-real/dual-real 均从 MessageV4 UI 创建新的 Actor `444`、Observer
+  `678` 双用户群，再在该群执行 G08；Mock 只 replay Helix canonical Frame。
+- Mobile 的 `Uc09ScheduleTest.RealChain` 复用
+  `UcJsContractFixture::RC.createChannel('schedule')`，run
+  `mrc-mobile-uc-20260726020531-27390` 产生 fresh channel
+  `6ypfee18ujnpidedyjcsdeg4by`，随后才进入 typed schedule summary。
+- 三端均复用已有 CreateGroupPrerequisite 能力，没有新增第二套建群业务 reducer。
+
+## T023-T032 Mobile Contract
+
+- Mobile 生产接受提交为 `e67c5c5779e2bf381d64db6e235b3abe884a8cb9`；
+  Helix source lock 为 `e9003261d42b8666ef27fec6798bbb82f1093d7a`，
+  bundle `helix-e900326-g08.bundle` SHA-256 为
+  `737fdab3b55a9eb52ba7a398c2fc7f3a083b17d69b3180ee8afddbeaf84f1cdf`。
+- G08 mirror parity 通过：`count=4`，fixture producer 为 `8358082b...`；
+  source-pin 通过且 G08 inventory=`4`；legacy hard-cut 通过，production V1
+  producer/consumer/raw fallback 均为 `0`。
+- `G08FrameContractTest.*` 为 `5/5`；UC09 非 real 聚焦合同为 `9/9`；
+  `./scripts/run-uc01-16-gtest.sh --only UC09` 为 `10/10`。生产
+  MobileImSdk command admission、MobileFfiBridge DomainEvent batch、
+  SurfaceRuntime atomic apply、C ABI 与 QuickJS `im.surface.view` 均由同一测试链覆盖。
+- 共享 `./scripts/run-gtest-js-spec.sh surface-runtime` 在修正 `viewerRole`
+  扩展字段的兼容边界后为 `89 passed`，另有 `1` 个要求显式 source 环境的既有
+  parity case skip；该证据面由单独通过的 source-pin Gate 补足。
+- 共享 `./scripts/run-uc01-16-gtest.sh` 已真实执行，runId
+  `mrc-mobile-uc-20260726020531-27390`，总结果 `139/150`。G08 的
+  `Uc09ScheduleTest.RealChain` 通过；11 个失败来自 GS02/GS03/GS04、
+  UC01/UC02/UC10-UC15 的其他 Gate real lane，均为 query/sync/topic 等待超时，
+  与上一 Gate 的共享回归失败集合一致。因此不计入 G08 required lane，但继续作为
+  对应后续 Gate 的真实 blocker，且不把 Mobile 跨 Gate 全集宣称为全绿。
+
+## T033 Three-repo Fixture Parity
+
+- Helix、PC、Mobile 三份 provenance raw SHA-256 均为
+  `bd6f6bf476e198eb290201d792a81618a69704cef167d61289e233b3aafe969c`。
+- 三仓 inventory 均为同一 `4` 份 Frame，schemaVersion 全为 `2`，surface
+  inventory 为 `message.left-dialog-list` 与 `message.channel-summary`。
+- 四份 Frame raw SHA-256 在三仓逐文件均为 `3/3` 相同：
+  `group-created=f692c464...`、`summary-empty=f42136f3...`、
+  `summary-scheduled=df3ad5de...`、`summary-recovery=39825bbb...`。
+- provenance 内 semantic SHA-256 也由 PC/Mobile parity gate 逐项校验，
+  动态替换仅限 manifest 明示的 correlation/scope/revision 字段。
+
+## T034-T036 Independent Review
+
+- **Behavior Green**：fresh group 前置、owner 权限、scheduled 终态、持久化失败、
+  duplicate/late authority、恢复、Actor 可见与 Observer 不泄漏均由 Helix 同一
+  `channel_schedule` authority 模型决定。
+- **Code Boundary Green**：schedule 持久化、终态与 projection 只存在于 Helix
+  production handler/projector；PC 只做 Tauri admission、Frame apply、DOM，
+  Mobile 只做 SDK admission、FFI batch、SurfaceRuntime atomic apply 与 QuickJS
+  typed view。PC 扫描 `2735` 个 production 文件后
+  `mockProductionReachable=false`，Mobile 测试注入和 raw reducer 默认不可达。
+- **Frame V2 Green**：四份完整 envelope 的 schema/runtime/scope/surfaceEpoch/
+  revision/baseRevision/mutation/action/directive/causation 已字段级对齐。
+  `channel-summary-scheduled` 与 recovery 是 producer-authored authority；
+  duplicate、revision gap、unknown schema/surface 和非法 schedule revision
+  均 fail-closed 且不产生部分提交。
+
+## T037 Gate Report
+
+- 结构化汇总见 `evidence/gate-report.json`。G08 required lanes 的 fail=`0`、
+  skip=`0`，pre-review verdict=`Green`。
+- Mobile 跨 Gate 共享回归的 11 个 real-lane failure 与 SurfaceRuntime 的
+  source-environment skip 均保留在 observation，没有被 required lane PASS 掩盖。
+
+## T038 Quickstart And Mandatory Review
+
+- Helix quickstart 最终复跑：`cargo check -p helix-im` exit `0`；
+  `g08_full_flow_test` 为 `7/7`；`g08_wdio_fixture_contract_test` 为 `1/1`，
+  普通 Golden compare 未改写 canonical Fixture。
+- PC 最终产出仍为 Mock `4/4`、single-real `1/1`、dual-real `1/1`、
+  report `1/1`；production-boundary 重跑扫描 `2735` files，exit `0`。
+- Mobile 最终 parity、source-pin、legacy hard-cut 与三仓 `git diff --check`
+  均 exit `0`；G08 专项与真链保持 Green，跨 Gate 11 个 real-lane blocker
+  继续单列。
+- mandatory after_implement loop 在 event `15` 给出 R4 evidence `PASS`；
+  当前进入收敛/关闭流程，只有最终 `CLOSED` 才宣称 G08 完成并解锁下一 Gate。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

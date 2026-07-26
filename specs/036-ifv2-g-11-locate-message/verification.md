@@ -42,3 +42,8 @@
   success 只发布一个 `message.timeline` Frame，`targetMessageId`、`anchor.mode=locate` 与
   payload-free `revealMessage` directive 同 Frame；transport failure、absent target 与 duplicate reply
   均产生 `0` Effect。
+- `UPDATE_G11_WDIO_FIXTURES=1 cargo test -p helix-im --test g11_wdio_fixture_contract_test -- --nocapture`:
+  exit `0`，`1/1`；普通测试同样执行 actual-vs-Golden 比较。
+- Canonical inventory `3`：`group-created`、`timeline-initial`、`timeline-located`。raw SHA-256
+  分别为 `03119203...831a`、`f8bdc187...0214`、`40822b96...21a`；semantic SHA-256 分别为
+  `951d07de...c960`、`b91a6b0d...ad27`、`56fe29d0...65de`。

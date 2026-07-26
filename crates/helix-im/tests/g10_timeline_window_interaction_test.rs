@@ -6,6 +6,10 @@ use helix_im::interaction_frame::{
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use serde_json::json;
 
+#[path = "support/g10_scenario.rs"]
+mod scenario;
+
+/// 构造 projector-only 的 render-ready timeline row。
 fn row(index: usize) -> serde_json::Value {
     json!({
         "id": format!("message-{index}"),
@@ -20,6 +24,7 @@ fn row(index: usize) -> serde_json::Value {
     })
 }
 
+/// 证明窗口更新只允许完整 replaceView，并保持调用方的 opaque token。
 #[test]
 fn older_window_patch_replaces_the_complete_bounded_view_and_keeps_token() {
     let mut projector = TimelineProjector::default();
@@ -51,4 +56,29 @@ fn older_window_patch_replaces_the_complete_bounded_view_and_keeps_token() {
     assert_eq!(patch.view.page.window_token, "window-10");
     assert_eq!(patch.view.items.len(), 5);
     assert!(patch.view.page.has_older && patch.view.page.has_newer);
+}
+
+/// 证明生产 cache persist barrier 后首帧为 snapshot，恢复帧单调变为 patch。
+#[test]
+fn production_recovery_advances_revision_without_changing_scope() {
+    let trace = scenario::G10ScenarioRunner::run_success_and_recovery();
+    let ready = &trace.ready.mutations[0].mutation;
+    let recovered = &trace.recovered.mutations[0].mutation;
+    assert_eq!(ready.scope, recovered.scope);
+    assert_eq!(recovered.base_revision, Some(ready.revision));
+    assert!(recovered.revision > ready.revision);
+}
+
+/// 证明迟到与重复 PortReply 均不能追加 revision 或 terminal Frame。
+#[test]
+fn production_query_generation_drops_late_and_duplicate_replies() {
+    let trace = scenario::G10ScenarioRunner::run_latest_query_wins();
+    assert_eq!(trace.late_effect_count, 0);
+    assert_eq!(trace.duplicate_effect_count, 0);
+    scenario::assert_timeline_contract(
+        &trace.current,
+        SurfaceLoadState::Ready,
+        Some("g10-current"),
+        true,
+    );
 }

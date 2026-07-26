@@ -9,6 +9,15 @@
 - 前序 G09：loop `event_seq=19`、`phase=closed`、R1-R4 全 PASS；gate report SHA-256 为 `92dd695adc64a3982b008af5a829eccf18afc7d77baef151365ec71c964b6430`。
 - G10 admission：loop `event_seq=7`、`phase=implementing`、`IMPLEMENTATION_ADMITTED`。全局 SpecKit current-feature 仍指向 G09，因此 G10 全程必须显式传 `--feature specs/034-ifv2-g-10-timeline-window`，不得让默认脚本误写 G09。
 
+## T003-T008 Helix Producer Revalidation
+
+- Shared prerequisite：G10 复用 `G01ScenarioRunner::create_group_prerequisite` 的生产 `im_create_channel -> HTTP authority -> PersistFire(channel/member) -> message.left-dialog-list Frame`，未新增第二套建群 reducer。
+- Production handler：`local_first.rs` 现有实现已满足 local scan、conditional remote read、cache persist barrier、query generation/epoch、complete snapshot/patch 与 failed Frame；本阶段未为测试修改生产 handler/projector。
+- `cargo check -p helix-im`：PASS，退出码 0。
+- 首轮 focused test：7/8 PASS；唯一失败揭示 cache persist failure 不建立 coverage，因此只读 remote Frame 的 `hasOlder=false`，不是完整 durable coverage。测试合同修正为明确区分 durable cache success 与 cache failure。
+- 批量修正后 `cargo test -p helix-im --test g10_full_flow_test --test g10_timeline_window_interaction_test -- --nocapture`：PASS；full-flow 8/8、interaction 3/3、fail=0、skip=0。
+- 六类场景：prerequisite、happy、business invalid input、HTTP failure、cache persist failure、late/duplicate race、local coverage recovery 均由公开 `ImModule::handle` 或公开 command parser 验证。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

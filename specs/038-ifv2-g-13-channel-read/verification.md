@@ -20,9 +20,12 @@
 
 - `cargo check -p helix-im`: PASS, exit 0.
 - `cargo test -p helix-im --test g13_full_flow_test --test g13_channel_read_interaction_test -- --nocapture`: PASS, 12/12.
+- `cargo test -p helix-im --test g13_wdio_fixture_contract_test -- --nocapture`: PASS, 1/1 in ordinary Golden-compare mode.
 - Happy path proves `im_channels_view` does not carry `userId/unreadCount`, HTTP SUCCESS emits no Frame, and `update_channel` releases exactly one paired dialog/unread Frame only after matching PersistOk.
 - Failure/race coverage proves PersistErr, duplicate authority and late PersistOk produce zero additional Frame.
 - Recovery coverage rebuilds the read snapshot from durable dialog storage without a platform cache.
+- Canonical inventory is four production Frames: `group-created`, `dialog-unread-initial`, `channel-read`, `channel-read-recovery`; producer revision is `a13e17151efd1e7eefc94677110598b6347b08a9`.
+- Raw SHA-256: group `15be2554...1600e`, initial `a91573f5...5e44`, terminal `6b00cf38...bf98`, recovery `8a38be83...249d`; provenance `89d19011...0286`.
 
 ## Required Runs
 

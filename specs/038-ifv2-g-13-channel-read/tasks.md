@@ -34,10 +34,10 @@
 - [X] T006 [US1] 在 crates/helix-im/src/outbound/channel_admin/change_dedicated.rs 与 crates/helix-im/src/ws/handlers/update_channel.rs 对齐 im_channels_view command、update_channel authority、PersistOk 终态与幂等语义，禁止测试旁路。
 - [X] T007 [US1] 在 crates/helix-im/tests/g13_channel_read_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
 - [X] T008 [US1] 在 crates/helix-im/src/dialog_frame.rs 与 crates/helix-im/src/projector/unread_summary.rs 校验 message.left-dialog-list、message.unread-summary paired mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g13_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/g13_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g13-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g13-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 g13_full_flow_test/g13_wdio_fixture_contract_test，并登记原始输出到 specs/038-ifv2-g-13-channel-read/verification.md
+- [X] T009 [P] [US1] 先在 crates/helix-im/tests/g13_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [X] T010 [US1] 由 crates/helix-im/tests/support/g13_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g13-wdio/ canonical JSON，不手写平台 VM
+- [X] T011 [US1] 在 crates/helix-im/tests/fixtures/g13-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [X] T012 [US1] 运行 cargo check 与 g13_full_flow_test/g13_wdio_fixture_contract_test，并登记原始输出到 specs/038-ifv2-g-13-channel-read/verification.md
 
 ---
 

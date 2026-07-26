@@ -36,5 +36,5 @@
 - `UPDATE_G14_WDIO_FIXTURES=1 cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture`：1/1 PASS，仅本次显式生成 canonical JSON。
 - `cargo test -p helix-im --test g14_wdio_fixture_contract_test -- --nocapture`：1/1 PASS，普通运行只比较 production actual 与 checked-in Golden。
 - canonical inventory：6 份 Frame；schemaVersion 全为 2；surface inventory 为 `message.left-dialog-list`、`message.timeline` 与 `message.participant-receipts`。`readable-message.frame-v2.json` 提供 incoming message 与 enabled `markRead` binding；`receipt-viewable-message.frame-v2.json` 提供 own message 与 enabled `viewReceipt` binding。PC/Mobile 只能执行 producer-authored action，不得手写领域意图。
-- producer pin：`5b8b7db031faf55f1fa52de15bac746a20f82b13`；provenance raw SHA-256：`bb4137ee4d87566a2505cb094fa2fa6954df6c6c0a99b855c1f9083dfb010cd5`。
+- producer pin：`5b8b7db031faf55f1fa52de15bac746a20f82b13`；provenance raw SHA-256：`e42d6e3c33c45bc9dd2b9a3515a2339e9ce3e26bd451d89a003f4d0886ae82fc`。
 - 行为边界：HTTP success 只代表 admission；WS `post_read` 先写 `message.read_bits`，matching PersistOk 后才触发 receipt authority refresh；duplicate/late reply 不重复写或出 Frame。

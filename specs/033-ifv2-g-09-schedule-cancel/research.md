@@ -1,10 +1,22 @@
 # Research: G-09 取消定时
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: implementation admission 时 Helix `1a68e0eac9bef49660117921b277d67617e45217`；cses-client `033131ca006f0103beea778a91121ba7b9b887c3`；Mobile `e67c5c5779e2bf381d64db6e235b3abe884a8cb9`。Strict Matrix SHA-256 为 `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`，前序 G08 为 `phase=closed`、R1-R4 PASS。
+
+## Current / Target / Gap
+
+- **CURRENT**: `im_cancel_schedule` 已存在 Go wire builder，但旧
+  `post_schedule_canceled` 在 WS 入站后直接写 flag 并发布 raw domain event；
+  没有独立 cancel request causation、原子 authority fact、revision 幂等或
+  canonical Frame Fixture。Mobile 只覆盖 command alias，PC 没有 G09 专项 mirror/Mock/Real/report。
+- **TARGET**: G08 真实 `scheduled` authority 是 G09 的业务前置；G09 WS cancel
+  以更高 revision 原子更新 `channel_schedule + channel`，仅 PersistOk/readback 后发布
+  `message.channel-summary` canceled Frame。PC/Mobile byte-exact 复用该 Fixture。
+- **GAP**: Helix producer 与 canonical Fixture 已由 `4818572`、`48424aa`、
+  `686a54e` 补齐；PC 与 Mobile 三仓 consumer/real evidence 仍待 T013-T032。
 
 ## Decision 1 - 唯一业务真源
 
-**Decision**: `G-09` 的 command（im_cancel_schedule）、effect（http_write、storage_upsert、projection）、持久事实（channel_schedule）与 Surface（message.channel-summary）只由 Helix 生产路径决定。
+**Decision**: `G-09` 的 command（im_cancel_schedule）、effect（http_write、storage_upsert、projection）、持久事实（channel_schedule）与 Surface（message.channel-summary）只由 Helix 生产路径决定。G08/G09 共用单调 schedule revision，但 create/cancel request causation 分槽，避免竞态串联。
 
 **Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
 

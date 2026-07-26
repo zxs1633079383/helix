@@ -1,5 +1,57 @@
 # Verification Procedure: G-09
 
+## Source Lock And Prerequisite
+
+| Source | Locked value | Evidence |
+|---|---|---|
+| Helix admission HEAD | `1a68e0eac9bef49660117921b277d67617e45217` | `git rev-parse HEAD` |
+| cses-client HEAD | `033131ca006f0103beea778a91121ba7b9b887c3` | `git -C .../cses-client rev-parse HEAD` |
+| Mobile HEAD | `e67c5c5779e2bf381d64db6e235b3abe884a8cb9` | `git -C .../mobile-qucik-c++ rev-parse HEAD` |
+| PC Helix pin | `8358082b3fd01b96b332c79deca8d2017315dd19` | `cses-client/src-tauri/Cargo.toml` |
+| Strict Matrix SHA-256 | `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac` | canonical matrix |
+| Prerequisite | G08 `phase=closed`, `event_seq=21`, R1-R4 PASS | G08 review ledger |
+
+Mobile retains eight unrelated untracked Helix bundles and `tests/.DS_Store`; G09 must
+not stage, delete or rewrite them.
+
+## T001-T002 Source Lock
+
+- T001/T002: source lock and CURRENT/TARGET/GAP are current against production code.
+- Helix side of T003 is proven: `G09ScenarioRunner` reuses the shared G01 fresh-group
+  producer and drives the real G08 createSchedule authority/persist/readback chain before
+  cancel. T003 stays open until PC and Mobile prove the same prerequisite without a second
+  group or schedule reducer.
+
+## T004-T012 Helix Producer Green
+
+| Plane | Command | Result | Boundary |
+|---|---|---|---|
+| Build | `cargo check -p helix-im` | PASS, exit 0, 6.12s | production crate |
+| Full flow | `cargo test -p helix-im --test g09_full_flow_test -- --nocapture` | PASS, 7/7 | prerequisite/happy/business/infrastructure/race/persist/recovery |
+| Fixture update | `UPDATE_G09_WDIO_FIXTURES=1 cargo test -p helix-im --test g09_wdio_fixture_contract_test -- --nocapture` | PASS, 1/1 | explicit export only |
+| Golden compare | `cargo test -p helix-im --test g09_wdio_fixture_contract_test -- --nocapture` | PASS, 1/1 | ordinary run cannot rewrite Fixture |
+| Interaction | `cargo test -p helix-im --test g09_schedule_cancel_interaction_test -- --nocapture` | PASS, 3/3 | field/persist/replay |
+| Outbound | `outbound_commands` + `p2_posts_outbound_test` | PASS, 13/13 + 18/18 | registry and Go wire |
+| WS | `cargo test -p helix-im --test s1_ws_actions_test -- --nocapture` | PASS, 23/23 | G08/G09 authority barrier |
+| Core boundary | `cargo tree -p helix-core` runtime grep | PASS, empty | core stays runtime agnostic |
+
+Production commits:
+
+- `4818572a8bdff3478a36e3fb4f7c6d3c7807b33c`: strict cancel command,
+  independent causation, atomic cancel fact/read model, persist barrier and seven scenarios.
+- `48424aa`: four canonical Frames, Golden update policy and raw/semantic provenance.
+- `686a54e`: old S1 immediate-emit characterization migrated to the G09 durable barrier.
+
+Canonical inventory:
+
+- `group-created.frame-v2.json`
+- `channel-summary-scheduled.frame-v2.json`
+- `channel-summary-canceled.frame-v2.json`
+- `channel-summary-recovery.frame-v2.json`
+
+**Helix verdict**: T004-T012 Green. G09 remains `implementing`; PC/Mobile/Review evidence
+is not yet available.
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

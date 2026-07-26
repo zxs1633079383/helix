@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-08 review-green 到 specs/033-ifv2-g-09-schedule-cancel/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/tests/g09_schedule_cancel_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc09ScheduleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/033-ifv2-g-09-schedule-cancel/research.md
+- [x] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-08 review-green 到 specs/033-ifv2-g-09-schedule-cancel/verification.md
+- [x] T002 [P] 按 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/tests/g09_schedule_cancel_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc09ScheduleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/033-ifv2-g-09-schedule-cancel/research.md
 
 ---
 
@@ -29,15 +29,15 @@
 
 **Purpose**: 完整业务流、生产 Frame、Fixture 与 Golden。
 
-- [ ] T004 [P] [US1] 先在 crates/helix-im/tests/g09_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
-- [ ] T005 [US1] 在 crates/helix-im/tests/support/g09_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
-- [ ] T006 [US1] 在 crates/helix-im/src/outbound/posts/existing.rs 对齐 im_cancel_schedule 的生产 handler、authority 与幂等语义，禁止测试旁路。
-- [ ] T007 [US1] 在 crates/helix-im/tests/g09_schedule_cancel_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
-- [ ] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.channel-summary 完整 mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g09_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/g09_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g09-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g09-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 g09_full_flow_test/g09_wdio_fixture_contract_test，并登记原始输出到 specs/033-ifv2-g-09-schedule-cancel/verification.md
+- [x] T004 [P] [US1] 先在 crates/helix-im/tests/g09_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
+- [x] T005 [US1] 在 crates/helix-im/tests/support/g09_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
+- [x] T006 [US1] 在 crates/helix-im/src/outbound/posts/existing.rs 对齐 im_cancel_schedule 的生产 handler、authority 与幂等语义，禁止测试旁路。
+- [x] T007 [US1] 在 crates/helix-im/tests/g09_schedule_cancel_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
+- [x] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.channel-summary 完整 mutation/action/directive，缺口回 Helix 修复
+- [x] T009 [P] [US1] 先在 crates/helix-im/tests/g09_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [x] T010 [US1] 由 crates/helix-im/tests/support/g09_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g09-wdio/ canonical JSON，不手写平台 VM
+- [x] T011 [US1] 在 crates/helix-im/tests/fixtures/g09-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [x] T012 [US1] 运行 cargo check 与 g09_full_flow_test/g09_wdio_fixture_contract_test，并登记原始输出到 specs/033-ifv2-g-09-schedule-cancel/verification.md
 
 ---
 

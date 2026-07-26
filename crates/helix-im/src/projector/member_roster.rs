@@ -74,11 +74,22 @@ impl MemberRosterProjector {
         })
     }
 
+    /// 返回指定频道当前已 attach 的有序 cursor 集，供 durable authority 精确刷新。
+    pub fn attached_cursors(&self, channel_id: &str) -> Vec<String> {
+        self.slots
+            .current_views()
+            .filter(|view| view.channel_id == channel_id)
+            .map(|view| view.page.window_token.clone())
+            .collect()
+    }
+
+    /// 身份切换时清空全部 roster slot 与 revision。
     pub fn reset(&mut self) {
         self.slots.reset();
     }
 }
 
+/// 从完整 roster VM 构造其唯一合法 memberRoster scope。
 fn scope_for(view: &MemberRosterVm) -> SurfaceScope {
     SurfaceScope::MemberRoster {
         channel_id: view.channel_id.clone(),
@@ -86,6 +97,7 @@ fn scope_for(view: &MemberRosterVm) -> SurfaceScope {
     }
 }
 
+/// 拒绝越过 Frame 常驻窗口上限的 roster VM。
 fn ensure_bounded(view: &MemberRosterVm) -> Result<(), MemberRosterProjectionError> {
     if view.items.len() > MAX_MEMBER_ROSTER_ITEMS {
         return Err(MemberRosterProjectionError::ItemLimit {

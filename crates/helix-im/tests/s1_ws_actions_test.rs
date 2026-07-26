@@ -913,6 +913,12 @@ fn channel_member_update_full_and_members_s1() {
         matches!(upsert_row_value(&ops, "channel_member", "role"), Some(helix_core::effect::SqlValue::Text(s)) if s == "ADMIN"),
         "成员 role 须落 channel_member 且经 normalize_role（MANAGER→ADMIN，对齐现网），ops: {ops:?}"
     );
+    let persist = persist_atomic_corr(&h.sink);
+    assert!(
+        emit_names(&h.sink).is_empty(),
+        "成员终态必须等待 channel/member 原子持久化回执"
+    );
+    h.step(port_reply_ok(persist), 1_001);
     assert!(emit_names(&h.sink)
         .iter()
         .any(|n| n == "im:channel:member-updated"));

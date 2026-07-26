@@ -25,10 +25,12 @@ const CHANNEL_MEMBER_UPDATE_ACTION: &str = "channel_member_update";
 struct ChannelMemberUpdateHandler;
 
 impl WsMessageHandler for ChannelMemberUpdateHandler {
+    /// 返回 registry 使用的稳定 WS action 名。
     fn action(&self) -> &'static str {
         CHANNEL_MEMBER_UPDATE_ACTION
     }
 
+    /// 将 member update 编译为原子持久写，回执前不发布 roster 终态。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -46,36 +48,45 @@ impl WsMessageHandler for ChannelMemberUpdateHandler {
             return Ok(());
         };
 
-        apply_channel_full_and_members(ctx, channel_id, data, out);
-
-        let raw = serde_json::to_vec(data).unwrap_or_default();
-        out.push(crate::acl::to_effect_s1::emit_channel_member_updated(
-            channel_id, &raw,
-        ));
-
-        // S7（issue #56·C013 纯渲染壳）：额外 emit render-ready `im:channel:members`——把
-        // `role→admin` 业务规则 + 四源/join 合并下沉 helix，前端 `applyChannelMembers` 退纯绑定
-        // （keyed upsert + leaves 删行）。冻结的 `im:channel:member-updated`{channel_id,channel}
-        // 上面照旧 emit（UC-6.1 ② 契约面不变）；本投影是额外 render-ready 渲染通道。
+        let event_seq = frame.event_seq();
+        if event_seq.is_some_and(|seq| {
+            ctx.state
+                .committed_member_update_seqs
+                .contains(&(channel_id, seq))
+                || ctx
+                    .state
+                    .inflight_member_update_seqs
+                    .contains(&(channel_id, seq))
+        }) {
+            return Ok(());
+        }
+        let ops = channel_full_and_member_ops(ctx, channel_id, data);
+        if ops.is_empty() {
+            return Ok(());
+        }
+        let raw_channel = serde_json::to_vec(data).unwrap_or_default();
         let members = crate::render_ready_members::members_from_rows(
             crate::channel_write::collect_members(data),
         );
         let leaves = crate::channel_write::collect_member_leaves(data);
-        out.push(crate::render_ready_members::emit_channel_members(
-            channel_id.as_str(),
-            members,
-            leaves,
-            crate::render_ready_members::MemberProjectionMode::Incremental,
-        ));
-        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
-            if let Some(frame) = ctx
-                .state
-                .dialog_list_frame
-                .patch_from_channel_update(scope, data)
-            {
-                out.push(frame);
-            }
+        if let Some(seq) = event_seq {
+            ctx.state
+                .inflight_member_update_seqs
+                .insert((channel_id, seq));
         }
+        let corr = ctx.alloc_corr();
+        ctx.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ChannelMemberUpdatePersist {
+                channel_id,
+                event_seq,
+                raw_channel,
+                members,
+                leaves,
+                causation_id: event_seq.map(|seq| format!("channel-member-update:{}", seq.0)),
+            },
+        );
+        out.push(Effect::PersistAtomic { corr, ops });
         Ok(())
     }
 }
@@ -88,8 +99,9 @@ pub(crate) fn apply_channel_full_and_members(
     data: &serde_json::Value,
     out: &mut EffectSink,
 ) {
-    for op in channel_full_and_member_ops(ctx, channel_id, data) {
-        out.push(Effect::PersistFire { ops: vec![op] });
+    let ops = channel_full_and_member_ops(ctx, channel_id, data);
+    if !ops.is_empty() {
+        out.push(Effect::PersistFire { ops });
     }
 }
 

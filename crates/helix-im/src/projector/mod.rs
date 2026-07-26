@@ -147,6 +147,11 @@ impl<V: SurfaceView> TypedSurfaceProjector<V> {
             .get(&scope.canonical_key())
             .map(|slot| slot.revision)
     }
+
+    /// 只读遍历当前 identity 已 attach 的 typed VM，不暴露 slot key 或可变账本。
+    pub(crate) fn current_views(&self) -> impl Iterator<Item = &V> {
+        self.slots.values().map(|slot| &slot.view)
+    }
 }
 
 fn next_revision(current: u64, surface: SurfaceId) -> Result<u64, SurfaceProjectorError> {

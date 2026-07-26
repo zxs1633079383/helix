@@ -258,6 +258,16 @@ pub enum CorrelationContext {
         causation_id: Option<String>,
     },
 
+    /// G16b 成员变更写集的单次持久屏障；成功前 raw 兼容事件与 roster Frame 均不可见。
+    ChannelMemberUpdatePersist {
+        channel_id: ChannelId,
+        event_seq: Option<crate::state::Seq>,
+        raw_channel: Vec<u8>,
+        members: Vec<crate::render_ready_members::RenderMember>,
+        leaves: Vec<String>,
+        causation_id: Option<String>,
+    },
+
     /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member
     /// 并发同一 render-ready `im:channel:created`，避免前端退回全量 dialog scan。

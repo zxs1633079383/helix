@@ -475,6 +475,33 @@ impl ImModule {
         )
     }
 
+    /// G16b 持久成功后为同频道全部已 attach roster cursor 发起权威本地重读。
+    pub(crate) fn refresh_attached_member_rosters_with_causation(
+        &mut self,
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let cursors = self
+            .state
+            .member_roster_projector
+            .attached_cursors(channel_id.as_str());
+        for cursor in cursors {
+            self.start_storage_snapshot(
+                SurfaceResyncRequest {
+                    surface: SurfaceId::MessageMemberRoster,
+                    scope: SurfaceScope::MemberRoster {
+                        channel_id: channel_id.as_str().to_string(),
+                        cursor,
+                    },
+                    causation_id: causation_id.clone(),
+                },
+                out,
+            )?;
+        }
+        Ok(())
+    }
+
     fn start_thread_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
@@ -660,10 +687,26 @@ impl ImModule {
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =
                     member_roster_view(channel_id, cursor, &rows, self.action_surface_epoch()?);
-                self.state
+                if self
+                    .state
                     .member_roster_projector
-                    .snapshot(view)
-                    .map_err(|error| ImError::Parse(format!("member roster projection: {error}")))?
+                    .current_view(channel_id, cursor)
+                    .is_some()
+                {
+                    self.state
+                        .member_roster_projector
+                        .patch_membership_lifecycle(view, request.causation_id.clone())
+                        .map_err(|error| {
+                            ImError::Parse(format!("member roster projection: {error}"))
+                        })?
+                } else {
+                    self.state
+                        .member_roster_projector
+                        .snapshot(view)
+                        .map_err(|error| {
+                            ImError::Parse(format!("member roster projection: {error}"))
+                        })?
+                }
             }
             (
                 SurfaceId::MessageTopicList,
@@ -808,11 +851,7 @@ impl ImModule {
             .snapshot(view)
             .map_err(|error| ImError::Parse(format!("make-topic projection: {error}")))?;
         mutation.causation_id = Some(projection.req_id);
-        out.push(frame_for_mutation(
-            "make-topic",
-            surface_epoch,
-            mutation,
-        )?);
+        out.push(frame_for_mutation("make-topic", surface_epoch, mutation)?);
         Ok(())
     }
 

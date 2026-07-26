@@ -212,6 +212,10 @@ pub struct ImState {
     pub(crate) inflight_channel_creates: HashSet<ChannelId>,
     pub(crate) committed_channel_creates: HashSet<ChannelId>,
 
+    /// G16b 已提交/在途 WS event 序号分账，失败可重放且重复 authority 不重复出帧。
+    pub(crate) inflight_member_update_seqs: HashSet<(ChannelId, Seq)>,
+    pub(crate) committed_member_update_seqs: HashSet<(ChannelId, Seq)>,
+
     /// action 的权威 HTTP 回包以 typed participant-receipts Frame 发布，不能把 raw read/list body
     /// 直接交给 renderer 推导。
     pub(crate) participant_receipts_projector:
@@ -295,6 +299,8 @@ impl ImState {
             inflight_schedule_revisions: BTreeMap::new(),
             inflight_channel_creates: HashSet::new(),
             committed_channel_creates: HashSet::new(),
+            inflight_member_update_seqs: HashSet::new(),
+            committed_member_update_seqs: HashSet::new(),
             participant_receipts_projector:
                 crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
             committed_post_reads: BTreeMap::new(),
@@ -385,6 +391,8 @@ impl ImState {
         self.channels.clear();
         self.committed_schedule_revisions.clear();
         self.committed_channel_creates.clear();
+        self.inflight_member_update_seqs.clear();
+        self.committed_member_update_seqs.clear();
         self.committed_post_reads.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
@@ -409,6 +417,7 @@ impl ImState {
                     | CorrelationContext::PostReadPersist { .. }
                     | CorrelationContext::OutboundChannelCreate { .. }
                     | CorrelationContext::ChannelCreatePersist { .. }
+                    | CorrelationContext::ChannelMemberUpdatePersist { .. }
             )
         });
     }

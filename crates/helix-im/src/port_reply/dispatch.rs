@@ -673,6 +673,53 @@ impl ImModule {
                 ),
             },
 
+            CorrelationContext::ChannelMemberUpdatePersist {
+                channel_id,
+                event_seq,
+                raw_channel,
+                members,
+                leaves,
+                causation_id,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    if let Some(seq) = event_seq {
+                        self.state
+                            .inflight_member_update_seqs
+                            .remove(&(channel_id, seq));
+                        self.state
+                            .committed_member_update_seqs
+                            .insert((channel_id, seq));
+                    }
+                    out.push(crate::acl::to_effect_s1::emit_channel_member_updated(
+                        channel_id,
+                        &raw_channel,
+                    ));
+                    out.push(crate::render_ready_members::emit_channel_members(
+                        channel_id.as_str(),
+                        members,
+                        leaves,
+                        crate::render_ready_members::MemberProjectionMode::Incremental,
+                    ));
+                    self.refresh_attached_member_rosters_with_causation(
+                        channel_id,
+                        causation_id,
+                        out,
+                    )?;
+                }
+                PortOutcome::Err(error) => {
+                    if let Some(seq) = event_seq {
+                        self.state
+                            .inflight_member_update_seqs
+                            .remove(&(channel_id, seq));
+                    }
+                    tracing::warn!(
+                        channel_id = channel_id.as_str(),
+                        error = ?error,
+                        "channel member update persist failed; suppressing terminal projections"
+                    );
+                }
+            },
+
             CorrelationContext::OutboundChannelCreate {
                 members,
                 request_id,

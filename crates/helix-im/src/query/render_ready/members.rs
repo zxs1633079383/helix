@@ -20,6 +20,7 @@ use bytes::Bytes;
 use helix_core::effect::{DomainEventBytes, Effect};
 
 /// render-ready 成员行（`admin` 成品·`role→admin` 已在 helix 判）。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderMember {
     pub member_id: String,
     pub nickname: String,
@@ -33,6 +34,7 @@ pub enum MemberProjectionMode {
 }
 
 impl MemberProjectionMode {
+    /// 将 closed projection mode 映射为跨端稳定 wire 字面量。
     fn as_str(self) -> &'static str {
         match self {
             Self::Snapshot => "snapshot",

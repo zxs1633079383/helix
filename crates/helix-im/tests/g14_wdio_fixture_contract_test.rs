@@ -14,9 +14,10 @@ use serde_json::{json, Value};
 mod scenario;
 
 use scenario::{
-    assert_group_created_contract_for, assert_readable_message_contract, assert_receipt_contract,
-    g14_scenario_spec, receipt_view, sha256_hex, surface_names, G14ScenarioRunner, ACTOR_ID,
-    AUTHOR_ID, CHANNEL_ID, CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID,
+    assert_group_created_contract_for, assert_readable_message_contract,
+    assert_receipt_contract, assert_receipt_viewable_message_contract, g14_scenario_spec,
+    receipt_view, sha256_hex, surface_names, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID,
+    CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID,
 };
 
 const HELIX_COMMIT: &str = "5b8b7db031faf55f1fa52de15bac746a20f82b13";
@@ -37,6 +38,7 @@ fn produce_cases() -> Vec<FixtureCase> {
     let recovery = G14ScenarioRunner::run_recovery();
     assert_group_created_contract_for(&success.group_created, &g14_scenario_spec());
     assert_readable_message_contract(&success.readable_message);
+    assert_receipt_viewable_message_contract(&success.receipt_viewable_message);
     assert_receipt_contract(&success.initial, 1, false);
     assert_receipt_contract(&success.terminal, 2, true);
     assert_receipt_contract(&recovery, 1, true);
@@ -50,6 +52,11 @@ fn produce_cases() -> Vec<FixtureCase> {
             fixture_id: "g14-readable-message-v2",
             file_name: "readable-message.frame-v2.json",
             frame: success.readable_message,
+        },
+        FixtureCase {
+            fixture_id: "g14-receipt-viewable-message-v2",
+            file_name: "receipt-viewable-message.frame-v2.json",
+            frame: success.receipt_viewable_message,
         },
         FixtureCase {
             fixture_id: "g14-receipts-pending-v2",
@@ -103,12 +110,14 @@ fn readable_message_contract(frame: &InteractionFrameV2) -> Value {
             "author": item.author,
             "content": item.content,
             "delivery": item.delivery,
-            "markRead": item.actions.iter().find(|action| action.kind == "markRead").map(|action| json!({
-                "kind": action.kind,
-                "inputShape": action.input_shape,
-                "enabled": action.enabled,
-                "disabledReason": action.disabled_reason,
-            }))
+            "actions": (["markRead", "viewReceipt"].iter().map(|kind| {
+                item.actions.iter().find(|action| action.kind == *kind).map(|action| json!({
+                    "kind": action.kind,
+                    "inputShape": action.input_shape,
+                    "enabled": action.enabled,
+                    "disabledReason": action.disabled_reason,
+                }))
+            }).collect::<Vec<_>>())
         })).collect::<Vec<_>>(),
         "state": view.state,
     })
@@ -225,9 +234,9 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 #[test]
 fn current_g14_producer_matches_canonical_v2_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 5, "G14 canonical inventory is explicit");
-    assert_eq!(receipt_view(&cases[2].frame).pending.len(), 2);
-    assert_eq!(receipt_view(&cases[3].frame).completed.len(), 1);
+    assert_eq!(cases.len(), 6, "G14 canonical inventory is explicit");
+    assert_eq!(receipt_view(&cases[3].frame).pending.len(), 2);
+    assert_eq!(receipt_view(&cases[4].frame).completed.len(), 1);
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G14_WDIO_FIXTURES").is_some();
     let mut provenance = Vec::with_capacity(cases.len());

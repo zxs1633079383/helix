@@ -52,6 +52,7 @@ pub fn g14_scenario_spec() -> SendScenarioSpec {
 pub struct PostReadSuccessTrace {
     pub group_created: InteractionFrameV2,
     pub readable_message: InteractionFrameV2,
+    pub receipt_viewable_message: InteractionFrameV2,
     pub initial: InteractionFrameV2,
     pub terminal: InteractionFrameV2,
     pub request: HttpRequest,
@@ -75,6 +76,7 @@ impl G14ScenarioRunner {
     pub fn run_success() -> PostReadSuccessTrace {
         let group_created = group_created_frame();
         let readable_message = Self::run_readable_message();
+        let receipt_viewable_message = Self::run_receipt_viewable_message();
         let mut replay = Replay::new();
         let initial = replay.attach_receipts("000", 1);
         let command_corr = replay.start_post_read();
@@ -99,6 +101,7 @@ impl G14ScenarioRunner {
         PostReadSuccessTrace {
             group_created,
             readable_message,
+            receipt_viewable_message,
             initial,
             terminal: replay.only_frame(),
             request,
@@ -159,6 +162,16 @@ impl G14ScenarioRunner {
 
     /// 从生产 timeline 查询生成带 enabled markRead binding 的可读消息前置 Frame。
     pub fn run_readable_message() -> InteractionFrameV2 {
+        Self::run_timeline_message(OBSERVER_ID, "g14-readable-message")
+    }
+
+    /// 从生产 timeline 查询生成带 enabled viewReceipt binding 的发送者消息前置 Frame。
+    pub fn run_receipt_viewable_message() -> InteractionFrameV2 {
+        Self::run_timeline_message(ACTOR_ID, "g14-receipt-viewable-message")
+    }
+
+    /// 通过 local scan、HTTP authority 与 cache PersistOk 生成一条生产 timeline Frame。
+    fn run_timeline_message(author_id: &str, marker: &str) -> InteractionFrameV2 {
         let mut replay = Replay::new();
         let scan_corr = replay.start_timeline_query();
         replay.reply(
@@ -167,7 +180,7 @@ impl G14ScenarioRunner {
             1,
         );
         let http_corr = replay.only_http_corr("/posts/getLatestPost");
-        replay.reply(http_corr, readable_message_authority(), 2);
+        replay.reply(http_corr, timeline_message_authority(author_id, marker), 2);
         let persist_corr = replay.only_persist_corr_with(|ops| {
             ops.iter()
                 .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"))
@@ -262,6 +275,33 @@ pub fn assert_readable_message_contract(frame: &InteractionFrameV2) {
         .expect("G14 readable message exposes markRead");
     assert!(mark_read.enabled);
     assert!(mark_read.disabled_reason.is_none());
+}
+
+/// 验证发送者视角仅暴露 viewReceipt，不允许把自己的消息标记为已读。
+pub fn assert_receipt_viewable_message_contract(frame: &InteractionFrameV2) {
+    frame
+        .validate()
+        .expect("G14 receipt-viewable timeline Frame remains valid");
+    let mutation = &frame.mutations[0];
+    let view = match &mutation.mutation.mutation {
+        TypedSurfaceMutation::TimelineSnapshot { view } => view,
+        TypedSurfaceMutation::TimelinePatch { patch } => &patch.view,
+        other => panic!("expected G14 timeline mutation, got {other:?}"),
+    };
+    let message = &view.items[0];
+    assert_eq!(message.author.user_id, ACTOR_ID);
+    let view_receipt = message
+        .actions
+        .iter()
+        .find(|action| action.kind == "viewReceipt")
+        .expect("G14 sender message exposes viewReceipt");
+    assert!(view_receipt.enabled);
+    let mark_read = message
+        .actions
+        .iter()
+        .find(|action| action.kind == "markRead")
+        .expect("G14 sender message retains disabled markRead");
+    assert!(!mark_read.enabled);
 }
 
 /// 用共享生产建群回放生成 G14 fresh-group prerequisite Frame。
@@ -493,18 +533,18 @@ impl Replay {
     }
 }
 
-/// 构造一条来自 Observer、尚未被 Actor 阅读的远端权威消息。
-fn readable_message_authority() -> PortOutcome {
+/// 构造一条指定作者的远端权威消息供生产 timeline projector 决定 action 能力。
+fn timeline_message_authority(author_id: &str, marker: &str) -> PortOutcome {
     PortOutcome::Ok(ReplyBytes(http_envelope(json!({
         "status": "SUCCESS",
         "data": [{
             "id": POST_ID,
             "temporaryId": "g14-readable-temporary",
             "channelId": CHANNEL_ID,
-            "userId": OBSERVER_ID,
+            "userId": author_id,
             "type": "TEXT",
-            "message": "g14-readable-message",
-            "simpleMessage": "g14-readable-message",
+            "message": marker,
+            "simpleMessage": marker,
             "createAt": CREATED_AT,
             "eventSeq": 1,
             "readMap": "",

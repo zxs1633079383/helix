@@ -38,7 +38,7 @@ yarn message:wdio:g13:dual-real
 ```bash
 cd /System/Volumes/Data/workspace/c/mobile-qucik-c++
 ./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter='G13FrameContractTest.*'
-./scripts/run-uc01-16-gtest.sh
+./scripts/run-uc01-16-gtest.sh --only UC13
 ```
 
 期望：mirror parity、生产 SDK/Bridge/SurfaceRuntime/QuickJS typed view、V2-only hard-cut 全通过。仅当本 Gate 修改 Venus/QuickJS 接线能力时追加专属 Venus Gate，否则使用共享回归。

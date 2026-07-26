@@ -1,0 +1,5 @@
+$ cargo check -p helix-im
+    Checking helix-im v0.1.0 (/System/Volumes/Data/workspace/rust/helix/crates/helix-im)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.66s
+$ cargo tree -p helix-core | grep -iE tokio\|sqlx\|reqwest\|web-sys\|tauri
+PASS: helix-core runtime dependency set is empty

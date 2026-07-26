@@ -91,6 +91,12 @@ fn canonical_channel_view_wire_does_not_smuggle_read_authority() {
 #[test]
 fn update_channel_read_authority_obeys_persist_barrier() {
     let trace = scenario::G13ScenarioRunner::run_success();
+    scenario::assert_group_created_contract_for(
+        &trace.group_created,
+        &scenario::g13_scenario_spec(),
+    );
+    assert!(trace.request.url.ends_with("/channels/view"));
+    assert!(trace.persist_corr.raw() > 0);
     scenario::assert_initial_contract(&trace.initial);
     scenario::assert_terminal_contract(&trace.terminal);
 }
@@ -98,18 +104,15 @@ fn update_channel_read_authority_obeys_persist_barrier() {
 /// 证明 PersistErr、重复 authority 与迟到 reply 都不会发布伪终态。
 #[test]
 fn read_authority_failures_and_races_are_idempotent() {
-    assert_eq!(
-        scenario::G13ScenarioRunner::run_persist_failure().frame_count,
-        0
-    );
-    assert_eq!(
-        scenario::G13ScenarioRunner::run_duplicate_authority().frame_count,
-        0
-    );
-    assert_eq!(
-        scenario::G13ScenarioRunner::run_late_persist_reply().frame_count,
-        0
-    );
+    let persist_failure = scenario::G13ScenarioRunner::run_persist_failure();
+    let duplicate = scenario::G13ScenarioRunner::run_duplicate_authority();
+    let late = scenario::G13ScenarioRunner::run_late_persist_reply();
+    scenario::assert_initial_contract(&persist_failure.initial);
+    scenario::assert_initial_contract(&duplicate.initial);
+    scenario::assert_initial_contract(&late.initial);
+    assert_eq!(persist_failure.frame_count, 0);
+    assert_eq!(duplicate.frame_count, 0);
+    assert_eq!(late.frame_count, 0);
 }
 
 /// 证明 durable row 可在 cold attach 时重建 paired typed snapshot。

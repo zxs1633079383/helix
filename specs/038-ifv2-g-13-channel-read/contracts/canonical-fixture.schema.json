@@ -42,8 +42,8 @@
       "uniqueItems": true,
       "items": {
         "enum": [
-          "message.participant-receipts",
-          "message.channel-summary"
+          "message.left-dialog-list",
+          "message.unread-summary"
         ]
       }
     }

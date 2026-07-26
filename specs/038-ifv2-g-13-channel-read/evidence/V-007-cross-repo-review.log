@@ -1,0 +1,7 @@
+$ G13 three-repo byte parity and report shape review
+15be2554cb439f6fedc60717a1fe809574c288a150da81466e17957c3c41600e  crates/helix-im/tests/fixtures/g13-wdio/group-created.frame-v2.json
+a91573f53312f8c307ae49fc2a5cfd63e3cc33f118917c567b033a6170f95e44  crates/helix-im/tests/fixtures/g13-wdio/dialog-unread-initial.frame-v2.json
+6b00cf380cbef1e8dabdcd432d776927ae0dade6e7e0ae18409a9d1dff00bf98  crates/helix-im/tests/fixtures/g13-wdio/channel-read.frame-v2.json
+8a38be83af62331801a27278051bf6c31a0da69eb1c6a6bdf4fedb1ddf92249d  crates/helix-im/tests/fixtures/g13-wdio/channel-read-recovery.frame-v2.json
+aea3480b12bbf40e6063a097e7d91eeffdcaa380919ddf7c964d61b34cc6acb6  crates/helix-im/tests/fixtures/g13-wdio/provenance.json
+PASS: inventory=4, three mirrors byte-exact, behavior/code/Frame V2/evidence reviews pass

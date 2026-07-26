@@ -18,6 +18,15 @@
 - 批量修正后 `cargo test -p helix-im --test g10_full_flow_test --test g10_timeline_window_interaction_test -- --nocapture`：PASS；full-flow 8/8、interaction 3/3、fail=0、skip=0。
 - 六类场景：prerequisite、happy、business invalid input、HTTP failure、cache persist failure、late/duplicate race、local coverage recovery 均由公开 `ImModule::handle` 或公开 command parser 验证。
 
+## T009-T012 Helix Canonical Fixture
+
+- Producer revision：`e10719adbcf5767c2eab2eb288d86f3e2b210477`；producer chain 固定为 `G10ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode`。
+- 显式执行 `UPDATE_G10_WDIO_FIXTURES=1 cargo test -p helix-im --test g10_wdio_fixture_contract_test -- --nocapture`：1/1 PASS。该次运行先生成 checked-in bytes，随后在同一测试中重新读取并逐字比较、typed decode 和 provenance 对账。
+- inventory=6：fresh group、ready、failed、cache-degraded、race-current、recovery；每份都是完整 Frame，未把竞态阶段拼成固定帧序。
+- raw SHA-256：group `f8826105...`、ready `aebfa041...`、failed `9d45acbd...`、cache-degraded `93589ced...`、race-current `a24b676f...`、recovery `667f3c32...`；provenance raw SHA-256 `6c363649f834a06ac8bf648dc293c4bdef529dbc0da2dbcb9f9838ec676ecb98`。
+- surface inventory：`message.left-dialog-list` 1 份，`message.timeline` 5 份；schemaVersion 全部为 2。
+- Helix Green：build、完整场景、字段合同、Golden/update policy 与 provenance 全 PASS，required fail=0、skip=0。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

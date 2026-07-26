@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "timeline-timeline|26:chfixx00000000000000000010|17:g10-latest-window-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.timeline",
+      "scope": {
+        "kind": "timeline",
+        "channelId": "chfixx00000000000000000010",
+        "windowToken": "g10-latest-window"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "timelineSnapshot",
+        "view": {
+          "channelId": "chfixx00000000000000000010",
+          "anchor": {
+            "mode": "latest"
+          },
+          "items": [],
+          "page": {
+            "windowToken": "g10-latest-window",
+            "hasOlder": false,
+            "hasNewer": false,
+            "hasMore": false
+          },
+          "state": "failed"
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

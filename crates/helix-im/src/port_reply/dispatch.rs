@@ -642,12 +642,23 @@ impl ImModule {
             CorrelationContext::OutboundMakeTopic {
                 root_message_id,
                 req_id,
+                display_name,
             } => {
-                self.handle_outbound_make_topic_reply(&root_message_id, &req_id, outcome, out);
+                self.handle_outbound_make_topic_reply(
+                    &root_message_id,
+                    &req_id,
+                    &display_name,
+                    outcome,
+                    out,
+                );
             }
 
             CorrelationContext::OutboundMakeTopicPersist { projection } => {
                 self.handle_make_topic_persist_reply(projection, outcome, out);
+            }
+
+            CorrelationContext::OutboundMakeTopicFrameRead { projection } => {
+                self.handle_make_topic_thread_readback(projection, outcome, out)?;
             }
 
             CorrelationContext::OutboundChannelSettings { channel_id } => {

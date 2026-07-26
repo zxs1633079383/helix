@@ -1,10 +1,10 @@
 # Research: G-15 创建话题
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `836898c8ed4d09eea39f365defef53c062df5723`；cses-client `01ee73c430c7ab39ab14411b4d0eae7f8b361950`；Mobile `afa41cd8d2dd6567a42d258c3ba504a0210f1125`；Strict Matrix `84b9cc6ce2bd3c7ffe4595371354eb609517b89902228bd27cfb93e85b80c770`
 
 ## Decision 1 - 唯一业务真源
 
-**Decision**: `G-15` 的 command（im_make_topic）、effect（http_write、storage_upsert、projection）、持久事实（channel、message、reply_tree）与 Surface（message.channel-summary、message.thread-detail）只由 Helix 生产路径决定。
+**Decision**: `G-15` 的 command（im_make_topic）、effect（http_write、storage_upsert、projection）、持久事实（channel、message）与 Surface（message.channel-summary、message.thread-detail）只由 Helix 生产路径决定。`reply_tree` 是现有 raw `im:channel:replies` consumer 的兼容投影，不是当前 Helix make-topic 持久写；本 Gate 必须用 typed Frame 取代该 raw 渲染合同，而不能在平台补 row。
 
 **Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
 
@@ -42,9 +42,34 @@
 
 **Alternatives considered**: HTTP 200 即 Green、远端行存在即本地已 apply、固定 HTTP/WS 顺序；全部拒绝。
 
+## Current / Target / Gap
+
+### Current
+
+- command admission 位于 `crates/helix-im/src/module/trait_impl.rs`，wire command 位于 `crates/helix-im/src/outbound/channel_admin/existing.rs`；`crates/helix-im/src/channel/gate/flow.rs` 是通用 channel ingest gate，不是 `im_make_topic` owner。
+- HTTP authority 回灌与持久屏障位于 `crates/helix-im/src/port_reply/dispatch_projection.rs`：成功响应先写 topic `channel` row 与 root `message.topic`，matching `PersistOk` 后才进入 terminal projection。
+- 当前 terminal projection 仍是 raw `im:channel:replies`；`uc15_16_projection_test.rs` 只证明 raw replies 在 persist barrier 后发布。PC 的 `surface-runtime-hard-cut.test.ts` 已明确拒绝该 raw event，Mobile `Uc15ChannelCreateTest.cpp` 仍保留 raw reply-tree characterization，因此三端当前不一致。
+- `channel_created` 是独立 WS authority：它可以通过现有 channel gate 产生 topic channel 的 `message.channel-summary`。HTTP terminal 与 WS channel summary 是两条可竞态 correlation，不能写死为固定先后。
+- Angular 真实入口已经存在：`MessageUiCreateTopicComponent -> ShellService.createTopic -> im_make_topic`；Mobile production admission 已存在：`MobileImSdk::makeTopic`、QuickJS `im.channels.makeTopic`。
+
+### Target
+
+- HTTP success 只在 channel/message durable 后发布 `message.thread-detail` typed Frame；Frame 的 topic context 关联 `topicChannelId/rootMessageId`，不再发布 raw replies。
+- 独立 `channel_created` WS authority 继续通过生产 channel gate 发布 `message.channel-summary`；测试分别验证两条 correlation 的竞态、幂等与 recovery，不把它们伪造成单一固定帧序列。
+- Helix canonical Fixture 是上述生产 `ImModule::handle -> Effect::Emit` 的唯一真源；PC/Mobile byte-exact mirror 并机械 apply。
+- Mobile 删除 G-15 raw `reply_tree_row` characterization，改为链接 production SDK/Bridge/SurfaceRuntime/QuickJS binding 的 typed `im.surface.view` 合同。
+
+### Gap
+
+- Helix 尚无 G-15 ScenarioRunner、完整 flow test、Fixture contract 与 canonical JSON。
+- `handle_make_topic_persist_reply` 尚未生成 InteractionFrame V2，且持久失败/late reply/duplicate authority/recovery 的字段合同不完整。
+- PC 尚无 G-15 fixture mirror、typed loader、Mock/Real/PageObject/report/boundary lane。
+- Mobile 尚无 G-15 mirror/parity/FrameContractTest，UC15 仍消费 raw `im:channel:replies` characterization。
+
 ## Resolved Scope
 
-- 当前 Helix owner：`crates/helix-im/src/channel/gate/flow.rs`；现有聚焦测试：`crates/helix-im/tests/g15_topic_interaction_test.rs`。
+- 当前 Helix owner：`crates/helix-im/src/module/trait_impl.rs`、`crates/helix-im/src/port_reply/dispatch_projection.rs`、`crates/helix-im/src/outbound/channel_admin/existing.rs`；通用 WS authority 复用 `crates/helix-im/src/channel/gate/`。
+- 现有聚焦测试：`crates/helix-im/tests/g15_topic_interaction_test.rs`、`crates/helix-im/tests/uc15_16_projection_test.rs` 与 `crates/helix-im/tests/p3b_channel_outbound_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc15ChannelCreateTest.cpp`。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。

@@ -39,6 +39,24 @@ fn persist_corr_and_tables(h: &Harness) -> (u64, Vec<&'static str>) {
         .expect("权威回包必须形成带回执的持久屏障")
 }
 
+/// 提取 make-topic durable relation 之后的 root message readback correlation。
+fn message_read_corr(h: &Harness) -> u64 {
+    h.sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::Get(spec) if spec.table == "message"),
+                ) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("PersistOk must schedule durable root readback")
+}
+
 fn persisted_channel_value<'a>(
     h: &'a Harness,
     col: &str,
@@ -76,7 +94,8 @@ fn inbound(value: Value) -> Tick {
 }
 
 #[test]
-fn make_topic_emits_replies_only_after_relation_persist_ack() {
+/// 证明 make-topic 只在 relation PersistOk 与 root readback 后发布 typed thread Frame。
+fn make_topic_emits_thread_frame_only_after_relation_persist_ack() {
     let mut h = Harness::new(&[]);
     h.step(
         command_json(
@@ -84,6 +103,7 @@ fn make_topic_emits_replies_only_after_relation_persist_ack() {
             json!({
                 "root_id": sid(15),
                 "user_ids": ["u1"],
+                "display_name": "Topic 15",
                 "req_id": "topic-request-15"
             }),
         ),
@@ -123,13 +143,43 @@ fn make_topic_emits_replies_only_after_relation_persist_ack() {
         port_reply_with_body(persist_corr, bytes::Bytes::new()),
         1_020,
     );
-    let replies = emit_data(&h, "im:channel:replies");
-    assert_eq!(replies.len(), 1);
-    assert_eq!(replies[0]["rootMessageId"], sid(15));
-    assert_eq!(replies[0]["channelId"], cid(15));
-    assert_eq!(replies[0]["reqId"], "topic-request-15");
-    assert_eq!(replies[0]["revision"], 41);
-    assert_eq!(replies[0]["projectionMode"], "snapshot");
+    assert!(emit_data(&h, "im:channel:replies").is_empty());
+    let read_corr = message_read_corr(&h);
+    h.step(
+        port_reply_with_body(
+            read_corr,
+            bytes::Bytes::from(
+                serde_json::to_vec(&json!([{
+                    "id": sid(15),
+                    "channel_id": cid(14),
+                    "user_id": "u1",
+                    "create_at": 1_000,
+                    "type": "TEXT",
+                    "message": "root message",
+                    "props": {}
+                }]))
+                .unwrap(),
+            ),
+        ),
+        1_030,
+    );
+    let frames = emit_data(&h, "im:interaction:frame");
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0]["causationId"], "topic-request-15");
+    assert_eq!(
+        frames[0]["mutations"][0]["surface"],
+        "message.thread-detail"
+    );
+    assert_eq!(
+        frames[0]["mutations"][0]["mutation"]["view"]["detailContext"],
+        json!({
+            "kind": "topic",
+            "parentChannelId": cid(14),
+            "topicChannelId": cid(15),
+            "rootMessageId": sid(15),
+            "title": "Topic 15"
+        })
+    );
 }
 
 #[test]

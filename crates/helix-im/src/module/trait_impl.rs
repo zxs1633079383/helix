@@ -163,7 +163,7 @@ impl Module for ImModule {
                     ) {
                         Ok(effects) => effects,
                         Err(error) if name == "im_make_topic" => {
-                            if let Some((root_message_id, req_id)) = topic_request.as_ref() {
+                            if let Some((root_message_id, req_id, _)) = topic_request.as_ref() {
                                 out.push(crate::acl::to_effect::emit_topic_operation_status(
                                     req_id,
                                     root_message_id,
@@ -345,12 +345,13 @@ impl Module for ImModule {
                             }
                         }
                     } else if name == "im_make_topic" {
-                        if let Some((root_message_id, req_id)) = topic_request {
+                        if let Some((root_message_id, req_id, display_name)) = topic_request {
                             self.state.corr_map.insert(
                                 corr,
                                 CorrelationContext::OutboundMakeTopic {
                                     root_message_id: root_message_id.clone(),
                                     req_id: req_id.clone(),
+                                    display_name,
                                 },
                             );
                             out.push(crate::acl::to_effect::emit_topic_operation_status(
@@ -516,7 +517,8 @@ impl Module for ImModule {
     }
 }
 
-fn make_topic_request_context(payload: &[u8]) -> Option<(String, String)> {
+/// 冻结 make-topic 的 root、request 与用户确认标题，供异步 authority/persist/readback 串联。
+fn make_topic_request_context(payload: &[u8]) -> Option<(String, String, String)> {
     let value = serde_json::from_slice::<serde_json::Value>(payload).ok()?;
     let root_message_id = value
         .get("root_id")
@@ -528,5 +530,11 @@ fn make_topic_request_context(payload: &[u8]) -> Option<(String, String)> {
         .and_then(serde_json::Value::as_str)
         .filter(|id| !id.is_empty())?
         .to_string();
-    Some((root_message_id, req_id))
+    let display_name = value
+        .get("display_name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("话题")
+        .to_string();
+    Some((root_message_id, req_id, display_name))
 }

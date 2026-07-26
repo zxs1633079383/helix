@@ -10,6 +10,7 @@ pub struct MakeTopicProjection {
     pub req_id: String,
     pub root_message_id: String,
     pub topic_channel_id: ChannelId,
+    pub display_name: String,
     pub revision: u64,
 }
 
@@ -264,10 +265,14 @@ pub enum CorrelationContext {
     OutboundMakeTopic {
         root_message_id: String,
         req_id: String,
+        display_name: String,
     },
 
-    /// G-15 topic channel + root message 关联持久成功后释放 render-ready replies 投影。
+    /// G-15 topic channel + root message 关联持久成功后读取 durable root fact。
     OutboundMakeTopicPersist { projection: MakeTopicProjection },
+
+    /// G-15 durable root readback 只允许释放 typed thread-detail Frame。
+    OutboundMakeTopicFrameRead { projection: MakeTopicProjection },
 
     /// 群设置/公告写回：服务端 SUCCESS 必须携带完整权威设置快照与 settingVersion。
     OutboundChannelSettings { channel_id: ChannelId },

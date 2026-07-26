@@ -15,13 +15,14 @@ use serde_json::Value;
 use crate::error::ImError;
 use crate::interaction_frame::{
     ActionBinding, ChannelAvatarRef, ChannelLifecycleVm, ChannelRole, ChannelSummaryVm,
-    ChannelTitleRef, ComposerState, ComposerVm, MemberRosterVm, MemberRowVm, MembershipState,
-    NotificationMode, PreviewVm, ReceiptKind, SurfaceId, SurfaceLoadState, SurfaceMutation,
-    SurfaceScope, ThreadDetailVm, TopicListVm, TopicRowVm, UserRefVm, WindowPageVm,
+    ChannelTitleRef, ComposerState, ComposerVm, DetailContextVm, MemberRosterVm, MemberRowVm,
+    MembershipState, NotificationMode, PreviewVm, ReceiptKind, SurfaceId, SurfaceLoadState,
+    SurfaceMutation, SurfaceScope, ThreadDetailVm, TopicListVm, TopicRowVm, UserRefVm,
+    WindowPageVm,
 };
 use crate::projector::participant_receipts::ParticipantReceiptsRequest;
 use crate::state::ChannelId;
-use crate::state::CorrelationContext;
+use crate::state::{CorrelationContext, MakeTopicProjection};
 use crate::ImModule;
 
 const MEMBER_ROSTER_ORDER: &[ScanOrder] = &[ScanOrder::asc("joined_at"), ScanOrder::asc("user_id")];
@@ -714,6 +715,61 @@ impl ImModule {
             projection,
             out,
         )
+    }
+
+    /// 从 durable root row 构造 make-topic 的 typed thread snapshot，拒绝 raw reply-tree fallback。
+    pub(crate) fn handle_make_topic_thread_readback(
+        &mut self,
+        projection: MakeTopicProjection,
+        outcome: &PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let rows = storage_rows(outcome);
+        let Some(root_row) = rows.first() else {
+            return Ok(());
+        };
+        let parent_channel_id = text(root_row, &["channel_id", "channelId"]);
+        if parent_channel_id.is_empty() {
+            return Err(ImError::Parse(
+                "make-topic root row omitted parent channel".to_string(),
+            ));
+        }
+        let mut topic_root = root_row.clone();
+        if let Some(object) = topic_root.as_object_mut() {
+            object.insert(
+                "channel_id".to_string(),
+                Value::String(projection.topic_channel_id.as_str().to_string()),
+            );
+            object.remove("channelId");
+        }
+        let surface_epoch = self.action_surface_epoch()?;
+        let mut view = thread_detail_view(
+            projection.topic_channel_id.as_str(),
+            projection.root_message_id.as_str(),
+            vec![topic_root],
+            Vec::new(),
+            0,
+            false,
+            surface_epoch,
+        )?;
+        view.detail_context = DetailContextVm::Topic {
+            parent_channel_id,
+            topic_channel_id: projection.topic_channel_id.as_str().to_string(),
+            root_message_id: projection.root_message_id.clone(),
+            title: projection.display_name,
+        };
+        let mut mutation = self
+            .state
+            .thread_detail_projector
+            .snapshot(view)
+            .map_err(|error| ImError::Parse(format!("make-topic projection: {error}")))?;
+        mutation.causation_id = Some(projection.req_id);
+        out.push(frame_for_mutation(
+            "make-topic",
+            surface_epoch,
+            mutation,
+        )?);
+        Ok(())
     }
 
     /// 将 receipt authority 回包投影成对应 kind 的完整 typed snapshot。

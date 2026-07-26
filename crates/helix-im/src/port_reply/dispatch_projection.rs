@@ -1,14 +1,16 @@
 use crate::module::ImModule;
 use crate::state::{ChannelId, ChannelSettingsProjection, CorrelationContext, MakeTopicProjection};
-use helix_core::effect::{BatchUpdateSpec, Row, SqlValue, StorageOp, UpsertSpec};
+use helix_core::effect::{BatchUpdateSpec, GetSpec, Row, SqlValue, StorageOp, UpsertSpec};
 use helix_core::tick::PortOutcome;
 use helix_core::{Effect, EffectSink};
 
 impl ImModule {
+    /// 将 make-topic HTTP authority 收口为 channel/message 的 durable relation barrier。
     pub(super) fn handle_outbound_make_topic_reply(
         &mut self,
         expected_root_message_id: &str,
         req_id: &str,
+        display_name: &str,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
@@ -24,7 +26,12 @@ impl ImModule {
             return;
         }
         let Some(projection) =
-            decode_make_topic_projection(expected_root_message_id, req_id, outcome)
+            decode_make_topic_projection(
+                expected_root_message_id,
+                req_id,
+                display_name,
+                outcome,
+            )
         else {
             out.push(crate::acl::to_effect::emit_topic_operation_status(
                 req_id,
@@ -58,6 +65,10 @@ impl ImModule {
             (
                 "root_post_id".to_string(),
                 SqlValue::Text(projection.root_message_id.clone()),
+            ),
+            (
+                "display_name".to_string(),
+                SqlValue::Text(projection.display_name.clone()),
             ),
             (
                 "updated_at".to_string(),
@@ -94,6 +105,7 @@ impl ImModule {
         );
     }
 
+    /// matching PersistOk 后读取 root durable fact，禁止从 HTTP body直接拼 renderer Frame。
     pub(super) fn handle_make_topic_persist_reply(
         &mut self,
         projection: MakeTopicProjection,
@@ -111,19 +123,19 @@ impl ImModule {
             ));
             return;
         }
-        out.push(crate::render_ready_replies::emit_channel_replies(
-            &projection.req_id,
-            crate::render_ready_replies::FlatReplyProjection {
-                channel_id: projection.topic_channel_id.as_str().to_string(),
-                root_message_id: projection.root_message_id,
-                projection_mode: crate::render_ready_replies::ReplyProjectionMode::Snapshot,
-                revision: projection.revision,
-                reply_ids: Vec::new(),
-                nodes: Vec::new(),
-                reply_count: 0,
-                has_more: false,
-            },
-        ));
+        let read_corr = self.alloc_corr_internal();
+        out.push(Effect::Persist {
+            corr: read_corr,
+            ops: vec![StorageOp::Get(GetSpec {
+                table: "message",
+                key_col: "id",
+                key_val: SqlValue::Text(projection.root_message_id.clone()),
+            })],
+        });
+        self.state.corr_map.insert(
+            read_corr,
+            CorrelationContext::OutboundMakeTopicFrameRead { projection },
+        );
     }
 
     pub(super) fn handle_outbound_channel_settings_reply(
@@ -247,6 +259,7 @@ fn response_data(outcome: &PortOutcome) -> Option<serde_json::Value> {
 fn decode_make_topic_projection(
     expected_root_message_id: &str,
     req_id: &str,
+    display_name: &str,
     outcome: &PortOutcome,
 ) -> Option<MakeTopicProjection> {
     let data = response_data(outcome)?;
@@ -270,6 +283,7 @@ fn decode_make_topic_projection(
         req_id: req_id.to_string(),
         root_message_id: root_message_id.to_string(),
         topic_channel_id,
+        display_name: display_name.to_string(),
         revision,
     })
 }

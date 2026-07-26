@@ -1,5 +1,15 @@
 # Verification Procedure: G-15
 
+## Source Lock
+
+- Helix baseline HEAD：`836898c8ed4d09eea39f365defef53c062df5723`。
+- cses-client baseline HEAD：`01ee73c430c7ab39ab14411b4d0eae7f8b361950`；production Tauri Helix pin：`157daca3760e9c94d7b6bc9f38798e199628b1aa`。
+- Mobile baseline HEAD：`afa41cd8d2dd6567a42d258c3ba504a0210f1125`；`contract/helix-source.lock.json` 是 production source pin 真源，G-15 实现阶段只在 canonical producer commit 后统一 repin。
+- Strict Matrix `UC全链路发布矩阵-v1.md` SHA-256：`84b9cc6ce2bd3c7ffe4595371354eb609517b89902228bd27cfb93e85b80c770`。
+- 前序 G-15a：`specs/041-ifv2-g-15a-create-channel/review-ledger.json` 为 `phase=closed`，R1-R4 全 PASS，event sequence 32。
+- 工作树边界：PC clean；Mobile 仅有用户既有未跟踪 bundle 与 `tests/.DS_Store`；Helix 仅有本 Gate 的 feature/session/loop 状态文件。
+- 本节锁定的是实现前 baseline，不冒充最终 producer/consumer pin；T012/T022/T032 将分别登记最终提交与验证证据。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

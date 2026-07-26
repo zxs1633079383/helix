@@ -4,6 +4,9 @@ use helix_im::interaction_frame::{
 };
 use helix_im::projector::topic_list::TopicListProjector;
 
+#[path = "support/g15_scenario.rs"]
+mod scenario;
+
 fn row(id: &str, root: &str) -> TopicRowVm {
     TopicRowVm {
         topic_channel_id: id.into(),
@@ -63,4 +66,24 @@ fn duplicate_topic_channel_ids_are_rejected() {
         ))
         .unwrap_err();
     assert!(error.to_string().contains("duplicate topic channel id"));
+}
+
+#[test]
+/// 证明 G-15 terminal Frame 的 causation 与 topic/root identity 来自生产 correlation。
+fn production_terminal_frame_preserves_topic_correlation() {
+    let trace = scenario::G15ScenarioRunner::run_http_created();
+    scenario::assert_thread_contract(&trace.thread);
+}
+
+#[test]
+/// 证明 matching relation PersistOk 之前没有 typed terminal Frame。
+fn production_relation_persist_is_a_hard_barrier() {
+    assert_eq!(scenario::G15ScenarioRunner::run_persist_failure(), 0);
+}
+
+#[test]
+/// 证明 cold recovery 使用 durable topic row 而非 raw replies reducer。
+fn production_recovery_rebuilds_summary_without_raw_event() {
+    let trace = scenario::G15ScenarioRunner::run_recovery();
+    scenario::assert_summary_contract(&trace.summary);
 }

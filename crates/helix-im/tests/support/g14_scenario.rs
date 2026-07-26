@@ -3,8 +3,8 @@ use helix_core::effect::{Correlation, Effect, HttpRequest, StorageOp};
 use helix_core::tick::{AppCommand, InboundBytes, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
-    InteractionFrameV2, ParticipantReceiptsVm, ReceiptKind, ReceiptStatus, SurfaceId,
-    SurfaceScope, TypedSurfaceMutation,
+    InteractionFrameV2, ParticipantReceiptsVm, ReceiptKind, ReceiptStatus, SurfaceDataVm,
+    SurfaceId, SurfaceScope, TypedSurfaceMutation,
 };
 use helix_im::module::ImConfig;
 use helix_im::query::LocalStoreMode;
@@ -163,16 +163,16 @@ impl G14ScenarioRunner {
 
     /// 从生产 timeline 查询生成带 enabled markRead binding 的可读消息前置 Frame。
     pub fn run_readable_message() -> InteractionFrameV2 {
-        Self::run_timeline_message(OBSERVER_ID, "g14-readable-message")
+        Self::run_timeline_message(OBSERVER_ID, "g14-readable-message", "00")
     }
 
     /// 从生产 timeline 查询生成带 enabled viewReceipt binding 的发送者消息前置 Frame。
     pub fn run_receipt_viewable_message() -> InteractionFrameV2 {
-        Self::run_timeline_message(ACTOR_ID, "g14-receipt-viewable-message")
+        Self::run_timeline_message(ACTOR_ID, "g14-receipt-viewable-message", "00")
     }
 
     /// 通过 local scan、HTTP authority 与 cache PersistOk 生成一条生产 timeline Frame。
-    fn run_timeline_message(author_id: &str, marker: &str) -> InteractionFrameV2 {
+    fn run_timeline_message(author_id: &str, marker: &str, read_bits: &str) -> InteractionFrameV2 {
         let mut replay = Replay::new();
         let scan_corr = replay.start_timeline_query();
         replay.reply(
@@ -181,16 +181,16 @@ impl G14ScenarioRunner {
             1,
         );
         let http_corr = replay.only_http_corr("/posts/getLatestPost");
-        replay.reply(http_corr, timeline_message_authority(author_id, marker), 2);
+        replay.reply(
+            http_corr,
+            timeline_message_authority(author_id, marker, read_bits),
+            2,
+        );
         let persist_corr = replay.only_persist_corr_with(|ops| {
             ops.iter()
                 .any(|op| matches!(op, StorageOp::BatchUpsert(spec) if spec.table == "message"))
         });
-        replay.reply(
-            persist_corr,
-            PortOutcome::Ok(ReplyBytes(Bytes::new())),
-            3,
-        );
+        replay.reply(persist_corr, PortOutcome::Ok(ReplyBytes(Bytes::new())), 3);
         replay.only_frame()
     }
 }
@@ -254,7 +254,9 @@ pub fn receipt_view(frame: &InteractionFrameV2) -> &ParticipantReceiptsVm {
 
 /// 验证 PC/Mobile 只能从 Helix Frame 获得单条已读 UI intent 所需的 opaque binding。
 pub fn assert_readable_message_contract(frame: &InteractionFrameV2) {
-    frame.validate().expect("G14 readable timeline Frame remains valid");
+    frame
+        .validate()
+        .expect("G14 readable timeline Frame remains valid");
     assert_eq!(frame.schema_version, 2);
     assert_eq!(frame.mutations.len(), 1);
     let mutation = &frame.mutations[0];
@@ -297,6 +299,13 @@ pub fn assert_receipt_viewable_message_contract(frame: &InteractionFrameV2) {
         .find(|action| action.kind == "viewReceipt")
         .expect("G14 sender message exposes viewReceipt");
     assert!(view_receipt.enabled);
+    let SurfaceDataVm::Record(receipt) = &message.read_receipt else {
+        panic!("G14 sender message exposes producer-authored receipt summary");
+    };
+    assert_eq!(
+        receipt.get("readBits"),
+        Some(&SurfaceDataVm::String("00".to_string()))
+    );
     let mark_read = message
         .actions
         .iter()
@@ -534,8 +543,8 @@ impl Replay {
     }
 }
 
-/// 构造一条指定作者的远端权威消息供生产 timeline projector 决定 action 能力。
-fn timeline_message_authority(author_id: &str, marker: &str) -> PortOutcome {
+/// 构造一条带权威已读位图的远端消息供生产 timeline projector 决定 action 与 receipt 摘要。
+fn timeline_message_authority(author_id: &str, marker: &str, read_bits: &str) -> PortOutcome {
     PortOutcome::Ok(ReplyBytes(http_envelope(json!({
         "status": "SUCCESS",
         "data": [{
@@ -548,7 +557,7 @@ fn timeline_message_authority(author_id: &str, marker: &str) -> PortOutcome {
             "simpleMessage": marker,
             "createAt": CREATED_AT,
             "eventSeq": 1,
-            "readMap": "",
+            "readBits": read_bits,
             "viewers": ["all"],
             "mentions": []
         }]

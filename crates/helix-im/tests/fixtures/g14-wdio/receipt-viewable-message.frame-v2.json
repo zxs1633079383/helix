@@ -148,7 +148,7 @@
                 "kind": "none"
               },
               "readReceipt": {
-                "readBits": "",
+                "readBits": "00",
                 "readerIds": []
               },
               "templateConfirmation": {

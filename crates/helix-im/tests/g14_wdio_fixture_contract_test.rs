@@ -17,7 +17,7 @@ use scenario::{
     assert_group_created_contract_for, assert_readable_message_contract,
     assert_receipt_contract, assert_receipt_viewable_message_contract, g14_scenario_spec,
     receipt_view, sha256_hex, surface_names, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID,
-    CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID,
+    CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID, WINDOW_TOKEN,
 };
 
 const HELIX_COMMIT: &str = "5b8b7db031faf55f1fa52de15bac746a20f82b13";
@@ -186,6 +186,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/scope/messageId",
             "/mutations/*/scope/userId",
             "/mutations/*/scope/teamId",
+            "/mutations/*/scope/windowToken",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/messageId",
             "/mutations/*/mutation/view/completed/*/user/userId",
@@ -197,9 +198,11 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/view/items/*/channelId",
             "/mutations/*/mutation/view/items/*/id",
             "/mutations/*/mutation/view/items/*/author/userId",
+            "/mutations/*/mutation/view/page/windowToken",
             "/mutations/*/mutation/patch/view/items/*/channelId",
             "/mutations/*/mutation/patch/view/items/*/id",
             "/mutations/*/mutation/patch/view/items/*/author/userId",
+            "/mutations/*/mutation/patch/view/page/windowToken",
             "/mutations/*/mutation/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/view/sections/*/items/*/title/text",
             "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -224,6 +227,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "postId": POST_ID,
             "groupName": GROUP_NAME,
             "createdAt": CREATED_AT,
+            "windowToken": WINDOW_TOKEN,
             "transactionId": case.frame.transaction_id,
             "surfaceEpoch": first_mutation.surface_epoch,
             "revision": first_mutation.mutation.revision,

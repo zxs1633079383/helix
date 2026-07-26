@@ -27,6 +27,7 @@ pub const OBSERVER_ID: &str = "g14-wdio-observer";
 pub const AUTHOR_ID: &str = "g14-wdio-author";
 pub const TEAM_ID: &str = "g14-wdio-company";
 pub const GROUP_NAME: &str = "G14 Fixture Group";
+pub const WINDOW_TOKEN: &str = "g14-readable-window";
 pub const CREATED_AT: i64 = 1_700_001_500_000;
 
 /// 返回 G14 fresh-group、单条已读与 receipt snapshot 共用的确定性身份。
@@ -394,7 +395,7 @@ impl Replay {
                 json!({
                     "channel_id": CHANNEL_ID,
                     "limit": 1,
-                    "windowToken": "g14-readable-window"
+                    "windowToken": WINDOW_TOKEN
                 }),
             ),
             CREATED_AT as u64,

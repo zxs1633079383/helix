@@ -17,6 +17,7 @@
       "/mutations/*/scope/messageId",
       "/mutations/*/scope/userId",
       "/mutations/*/scope/teamId",
+      "/mutations/*/scope/windowToken",
       "/mutations/*/mutation/view/channelId",
       "/mutations/*/mutation/view/messageId",
       "/mutations/*/mutation/view/completed/*/user/userId",
@@ -28,9 +29,11 @@
       "/mutations/*/mutation/view/items/*/channelId",
       "/mutations/*/mutation/view/items/*/id",
       "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/page/windowToken",
       "/mutations/*/mutation/patch/view/items/*/channelId",
       "/mutations/*/mutation/patch/view/items/*/id",
       "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/page/windowToken",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -52,7 +55,8 @@
       "revision": 2,
       "surfaceEpoch": 1,
       "teamId": "g14-wdio-company",
-      "transactionId": "dialog-list-user|14:g14-wdio-actor|16:g14-wdio-company-2"
+      "transactionId": "dialog-list-user|14:g14-wdio-actor|16:g14-wdio-company-2",
+      "windowToken": "g14-readable-window"
     },
     "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [
@@ -86,6 +90,7 @@
       "/mutations/*/scope/messageId",
       "/mutations/*/scope/userId",
       "/mutations/*/scope/teamId",
+      "/mutations/*/scope/windowToken",
       "/mutations/*/mutation/view/channelId",
       "/mutations/*/mutation/view/messageId",
       "/mutations/*/mutation/view/completed/*/user/userId",
@@ -97,9 +102,11 @@
       "/mutations/*/mutation/view/items/*/channelId",
       "/mutations/*/mutation/view/items/*/id",
       "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/page/windowToken",
       "/mutations/*/mutation/patch/view/items/*/channelId",
       "/mutations/*/mutation/patch/view/items/*/id",
       "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/page/windowToken",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -121,7 +128,8 @@
       "revision": 1,
       "surfaceEpoch": 1,
       "teamId": "g14-wdio-company",
-      "transactionId": "timeline-timeline|26:chfixx0000000000000000001e|19:g14-readable-window-1"
+      "transactionId": "timeline-timeline|26:chfixx0000000000000000001e|19:g14-readable-window-1",
+      "windowToken": "g14-readable-window"
     },
     "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [
@@ -155,6 +163,7 @@
       "/mutations/*/scope/messageId",
       "/mutations/*/scope/userId",
       "/mutations/*/scope/teamId",
+      "/mutations/*/scope/windowToken",
       "/mutations/*/mutation/view/channelId",
       "/mutations/*/mutation/view/messageId",
       "/mutations/*/mutation/view/completed/*/user/userId",
@@ -166,9 +175,11 @@
       "/mutations/*/mutation/view/items/*/channelId",
       "/mutations/*/mutation/view/items/*/id",
       "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/page/windowToken",
       "/mutations/*/mutation/patch/view/items/*/channelId",
       "/mutations/*/mutation/patch/view/items/*/id",
       "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/page/windowToken",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -190,7 +201,8 @@
       "revision": 1,
       "surfaceEpoch": 1,
       "teamId": "g14-wdio-company",
-      "transactionId": "timeline-timeline|26:chfixx0000000000000000001e|19:g14-readable-window-1"
+      "transactionId": "timeline-timeline|26:chfixx0000000000000000001e|19:g14-readable-window-1",
+      "windowToken": "g14-readable-window"
     },
     "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [
@@ -224,6 +236,7 @@
       "/mutations/*/scope/messageId",
       "/mutations/*/scope/userId",
       "/mutations/*/scope/teamId",
+      "/mutations/*/scope/windowToken",
       "/mutations/*/mutation/view/channelId",
       "/mutations/*/mutation/view/messageId",
       "/mutations/*/mutation/view/completed/*/user/userId",
@@ -235,9 +248,11 @@
       "/mutations/*/mutation/view/items/*/channelId",
       "/mutations/*/mutation/view/items/*/id",
       "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/page/windowToken",
       "/mutations/*/mutation/patch/view/items/*/channelId",
       "/mutations/*/mutation/patch/view/items/*/id",
       "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/page/windowToken",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -259,7 +274,8 @@
       "revision": 1,
       "surfaceEpoch": 1,
       "teamId": "g14-wdio-company",
-      "transactionId": "surface-receipt-participantReceipts|26:chfixx0000000000000000001e|26:srvfix0000000000000000001e|4:read-1"
+      "transactionId": "surface-receipt-participantReceipts|26:chfixx0000000000000000001e|26:srvfix0000000000000000001e|4:read-1",
+      "windowToken": "g14-readable-window"
     },
     "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [
@@ -293,6 +309,7 @@
       "/mutations/*/scope/messageId",
       "/mutations/*/scope/userId",
       "/mutations/*/scope/teamId",
+      "/mutations/*/scope/windowToken",
       "/mutations/*/mutation/view/channelId",
       "/mutations/*/mutation/view/messageId",
       "/mutations/*/mutation/view/completed/*/user/userId",
@@ -304,9 +321,11 @@
       "/mutations/*/mutation/view/items/*/channelId",
       "/mutations/*/mutation/view/items/*/id",
       "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/page/windowToken",
       "/mutations/*/mutation/patch/view/items/*/channelId",
       "/mutations/*/mutation/patch/view/items/*/id",
       "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/page/windowToken",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -328,7 +347,8 @@
       "revision": 2,
       "surfaceEpoch": 1,
       "teamId": "g14-wdio-company",
-      "transactionId": "surface-receipt-participantReceipts|26:chfixx0000000000000000001e|26:srvfix0000000000000000001e|4:read-2"
+      "transactionId": "surface-receipt-participantReceipts|26:chfixx0000000000000000001e|26:srvfix0000000000000000001e|4:read-2",
+      "windowToken": "g14-readable-window"
     },
     "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [
@@ -362,6 +382,7 @@
       "/mutations/*/scope/messageId",
       "/mutations/*/scope/userId",
       "/mutations/*/scope/teamId",
+      "/mutations/*/scope/windowToken",
       "/mutations/*/mutation/view/channelId",
       "/mutations/*/mutation/view/messageId",
       "/mutations/*/mutation/view/completed/*/user/userId",
@@ -373,9 +394,11 @@
       "/mutations/*/mutation/view/items/*/channelId",
       "/mutations/*/mutation/view/items/*/id",
       "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/page/windowToken",
       "/mutations/*/mutation/patch/view/items/*/channelId",
       "/mutations/*/mutation/patch/view/items/*/id",
       "/mutations/*/mutation/patch/view/items/*/author/userId",
+      "/mutations/*/mutation/patch/view/page/windowToken",
       "/mutations/*/mutation/view/sections/*/items/*/channelId",
       "/mutations/*/mutation/view/sections/*/items/*/title/text",
       "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
@@ -397,7 +420,8 @@
       "revision": 1,
       "surfaceEpoch": 1,
       "teamId": "g14-wdio-company",
-      "transactionId": "surface-receipt-participantReceipts|26:chfixx0000000000000000001e|26:srvfix0000000000000000001e|4:read-1"
+      "transactionId": "surface-receipt-participantReceipts|26:chfixx0000000000000000001e|26:srvfix0000000000000000001e|4:read-1",
+      "windowToken": "g14-readable-window"
     },
     "producer": "G14ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [

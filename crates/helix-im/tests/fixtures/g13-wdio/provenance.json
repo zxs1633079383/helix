@@ -28,10 +28,13 @@
     ],
     "placeholderValues": {
       "actorId": "g13-wdio-actor",
+      "baseRevision": 1,
       "channelId": "chfixx0000000000000000001d",
       "createdAt": 1700001400000,
       "groupName": "G13 Fixture Group",
       "observerId": "g13-wdio-observer",
+      "revision": 2,
+      "surfaceEpoch": 1,
       "teamId": "g13-wdio-company",
       "transactionId": "dialog-list-user|14:g13-wdio-actor|16:g13-wdio-company-2"
     },
@@ -78,10 +81,13 @@
     ],
     "placeholderValues": {
       "actorId": "g13-wdio-actor",
+      "baseRevision": 0,
       "channelId": "chfixx0000000000000000001d",
       "createdAt": 1700001400000,
       "groupName": "G13 Fixture Group",
       "observerId": "g13-wdio-observer",
+      "revision": 1,
+      "surfaceEpoch": 1,
       "teamId": "g13-wdio-company",
       "transactionId": "dialog-list-user|14:g13-wdio-actor|16:g13-wdio-company-1"
     },
@@ -129,10 +135,13 @@
     ],
     "placeholderValues": {
       "actorId": "g13-wdio-actor",
+      "baseRevision": 1,
       "channelId": "chfixx0000000000000000001d",
       "createdAt": 1700001400000,
       "groupName": "G13 Fixture Group",
       "observerId": "g13-wdio-observer",
+      "revision": 2,
+      "surfaceEpoch": 1,
       "teamId": "g13-wdio-company",
       "transactionId": "dialog-list-user|14:g13-wdio-actor|16:g13-wdio-company-2"
     },
@@ -180,10 +189,13 @@
     ],
     "placeholderValues": {
       "actorId": "g13-wdio-actor",
+      "baseRevision": 0,
       "channelId": "chfixx0000000000000000001d",
       "createdAt": 1700001400000,
       "groupName": "G13 Fixture Group",
       "observerId": "g13-wdio-observer",
+      "revision": 1,
+      "surfaceEpoch": 1,
       "teamId": "g13-wdio-company",
       "transactionId": "dialog-list-user|14:g13-wdio-actor|16:g13-wdio-company-1"
     },

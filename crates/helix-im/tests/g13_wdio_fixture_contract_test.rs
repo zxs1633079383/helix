@@ -117,6 +117,11 @@ fn fixture_dir() -> PathBuf {
 
 /// 为一份 G13 Fixture 生成 producer、hash、surface 与动态字段白名单。
 fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
+    let first_mutation = case
+        .frame
+        .mutations
+        .first()
+        .expect("G13 fixture always contains at least one mutation");
     json!({
         "fixtureId": case.fixture_id,
         "fileName": case.file_name,
@@ -162,7 +167,10 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "channelId": CHANNEL_ID,
             "groupName": GROUP_NAME,
             "createdAt": CREATED_AT,
-            "transactionId": case.frame.transaction_id
+            "transactionId": case.frame.transaction_id,
+            "surfaceEpoch": first_mutation.surface_epoch,
+            "revision": first_mutation.mutation.revision,
+            "baseRevision": first_mutation.mutation.base_revision.unwrap_or(0)
         }
     })
 }

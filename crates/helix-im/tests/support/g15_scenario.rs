@@ -106,6 +106,7 @@ impl G15ScenarioRunner {
     }
 
     /// 回放 relation persist failure，证明 readback 与 terminal Frame 都不可达。
+    #[allow(dead_code)]
     pub fn run_persist_failure() -> usize {
         let mut runner = Self::new();
         let http_corr = runner.start_topic();

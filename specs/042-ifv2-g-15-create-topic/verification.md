@@ -26,3 +26,14 @@
 - 每次运行保留原始输出并通过 `loop_engine.py record-evidence` 登记；失败输出不得被说明文字替换。
 - Mock、AcceptedCommand、HTTP 2xx、单端 replay 或 GTest 不能代替 PC Real 与跨仓 Review。
 - 当前 Feature 只定义验收合同；在实现与运行证据出现前，本 Gate 状态保持 Draft。
+
+## Helix Producer Green
+
+- producer commit：`064f814a0f4fc4df8b9299652d0e615f5857b875`。
+- `cargo check -p helix-im`：退出码 0。
+- `g15_full_flow_test`：6/6 PASS；覆盖业务失败、基础设施失败、relation 持久失败、迟到回包、happy path 与 summary recovery。
+- `g15_topic_interaction_test + uc15_16_projection_test`：13/13 PASS；证明 terminal 不再发布 raw `im:channel:replies`，且 typed thread 只能在 root durable readback 后产生。
+- `g15_wdio_fixture_contract_test`：1/1 PASS；普通模式只比较 Golden，显式 `UPDATE_G15_WDIO_FIXTURES=1` 才生成两份 canonical Frame 与 provenance。
+- `topic-thread-created.frame-v2.json`：raw SHA-256 `c6f9a96ee2ded44462b11c68760ed75a59fafcfea371b5d70edda2cff7eeb734`；semantic SHA-256 `7fd5014feac261377bcc6bf42f68a55872e2b9c71dd7a82c65fec26d8ee10483`。
+- `channel-summary-recovery.frame-v2.json`：raw SHA-256 `13ba2758d5c9d237376d3450f46b70379426518d298995cfc8ae1200ca1edf84`；semantic SHA-256 `a0eea77dbb8d24950fbf5866c1bd0e9548fcb340bbe97ba9522567ea1e68cf5c`。
+- 两条 correlation 独立：HTTP/Persist/readback 发布 `message.thread-detail`；`channel_created`/storage recovery 发布 `message.channel-summary`。测试不假设固定第三帧。

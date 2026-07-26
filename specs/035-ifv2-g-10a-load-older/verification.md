@@ -19,6 +19,17 @@
 - focused suite：G10a full-flow `8/8`、既有 mobile older-context `5/5`、paging properties `13/13`、G10/G10a interaction `5/5`，fail=0、skip=0。
 - duplicate persist/readback correlation 均产生 0 Effect；success patch 的 `baseRevision` 精确等于初始 G10 revision。
 
+## T009-T012 Helix Canonical Fixture
+
+- Fixture producer 固定为 `G10AScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode`，source revision 为 `c58930ee99bf4a7042e93a1d9aaa68c3910ad81a`。
+- inventory 固定为 6 份：`group-created`、`timeline-loaded`、`timeline-http-failed`、`timeline-persist-failed`、`timeline-race-current`、`timeline-exhausted`；另有同源 `provenance.json`。
+- 每份 Frame 均执行 typed `validate/decode`、完整 timeline state/page/items/actions 语义投影、raw SHA-256、semantic SHA-256 与 surface inventory 校验。HTTP/Persist failure 的完整 Frame 相同是领域终态等价，不在平台补造错误原因。
+- 更新命令仅为 `UPDATE_G10A_WDIO_FIXTURES=1 cargo test -p helix-im --test g10a_wdio_fixture_contract_test -- --nocapture`；普通运行只比较 actual producer 与 checked-in bytes。
+- update run：PASS，`1/1`，退出码 0，5.8s。
+- canonical comparison：`cargo test -p helix-im --test g10a_full_flow_test --test g10a_wdio_fixture_contract_test --test g10_timeline_window_interaction_test -- --nocapture`，PASS，分别 `8/8`、`1/1`、`5/5`，退出码 0，5.8s。
+- raw hash：group `1fbdf45c...8ac2`、loaded/race `c84ea558...9dfb`、failed `e1dd0048...104b`、exhausted `c9bc7cb4...6d49`；完整 hash 与动态字段白名单以 `fixtures/g10a-wdio/provenance.json` 为机器真源。
+- **Helix Green**：T001-T012 全部完成；PC/Mobile 只能镜像以上 bytes，不得解释或补造 G10a 业务字段。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

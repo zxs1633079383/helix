@@ -25,6 +25,7 @@ pub const ACTOR_ID: &str = "g10a-wdio-actor";
 pub const OBSERVER_ID: &str = "g10a-wdio-observer";
 pub const TEAM_ID: &str = "g10a-wdio-company";
 pub const CREATED_AT: i64 = 1_700_001_100_000;
+pub const GROUP_NAME: &str = "G10a Fixture Group";
 
 /// Returns deterministic identities shared by the G10a group prerequisite and timeline scope.
 pub fn g10a_scenario_spec() -> SendScenarioSpec {
@@ -40,7 +41,7 @@ pub fn g10a_scenario_spec() -> SendScenarioSpec {
         observer_id: OBSERVER_ID,
         team_id: TEAM_ID,
         created_at: CREATED_AT,
-        group_name: "G10a Fixture Group",
+        group_name: GROUP_NAME,
         api_base_url: "http://g10a-wdio.invalid",
     }
 }

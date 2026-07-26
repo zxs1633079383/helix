@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use helix_core::effect::{Correlation, Effect, StorageOp};
+use helix_core::effect::{Correlation, Effect, HttpRequest, StorageOp};
 use helix_core::tick::{AppCommand, PortError, PortOutcome, ReplyBytes};
 use helix_core::{EffectSink, Module, Tick};
 use helix_im::interaction_frame::{
@@ -26,13 +26,14 @@ pub const OBSERVER_ID: &str = "g10a-wdio-observer";
 pub const TEAM_ID: &str = "g10a-wdio-company";
 pub const CREATED_AT: i64 = 1_700_001_100_000;
 pub const GROUP_NAME: &str = "G10a Fixture Group";
+pub const REQUEST_ID: &str = "g10a-load-request-1";
 
 /// Returns deterministic identities shared by the G10a group prerequisite and timeline scope.
 pub fn g10a_scenario_spec() -> SendScenarioSpec {
     SendScenarioSpec {
         channel_id: CHANNEL_ID,
         server_id: "srvfix00000000000000000028",
-        request_id: "g10a-load-request-1",
+        request_id: REQUEST_ID,
         marker: "g10a-recent-40",
         simple_message: "g10a-recent-preview",
         message_type: "TEXT",
@@ -79,6 +80,23 @@ pub struct LoadOlderRecoveryTrace {
 pub struct G10AScenarioRunner;
 
 impl G10AScenarioRunner {
+    /// Captures the first production postContext request before any port reply.
+    pub fn post_context_request() -> HttpRequest {
+        let mut replay = Replay::new();
+        replay.attach_initial_window();
+        replay.start_load(server_id(21).as_str());
+        replay
+            .effects()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Http { req, .. } if req.url.ends_with("/posts/postContext") => {
+                    Some(req.clone())
+                }
+                _ => None,
+            })
+            .expect("G10a trace contains postContext HTTP")
+    }
+
     /// Replays fresh group, G10 attachment, G10a HTTP, message persist and durable readback.
     pub fn run_success() -> LoadOlderSuccessTrace {
         let group_created = group_created_frame();
@@ -361,6 +379,7 @@ impl Replay {
                 "channel_id": CHANNEL_ID,
                 "anchor_post_id": anchor_post_id,
                 "before": 20,
+                "req_id": REQUEST_ID,
             }))
             .expect("G10a command serializes"),
         )));

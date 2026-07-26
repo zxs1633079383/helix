@@ -68,6 +68,44 @@ fn build_body_uses_target_and_path() {
 }
 
 #[test]
+// Proves transport correlation is accepted without leaking into the Go body.
+fn request_id_is_header_only_sidecar() {
+    let state = parse_request(
+        serde_json::to_vec(&json!({
+            "channel_id": CH,
+            "anchor_post_id": "anchor",
+            "before": 20,
+            "req_id": "mrc-g10a-1",
+        }))
+        .expect("serialize request")
+        .as_slice(),
+    )
+    .expect("parse correlated request");
+
+    assert_eq!(state.request_id(), Some("mrc-g10a-1"));
+    let (_, body) = build_post_context_body(&state);
+    assert!(body.get("req_id").is_none());
+}
+
+#[test]
+// Proves malformed host correlation fails closed before any HTTP Effect can exist.
+fn request_id_rejects_empty_or_non_string_values() {
+    for req_id in [json!(""), json!(7)] {
+        let error = parse_request(
+            serde_json::to_vec(&json!({
+                "channel_id": CH,
+                "anchor_post_id": "anchor",
+                "req_id": req_id,
+            }))
+            .expect("serialize malformed request")
+            .as_slice(),
+        )
+        .expect_err("malformed req_id must fail");
+        assert!(error.to_string().contains("req_id 必须为非空字符串"));
+    }
+}
+
+#[test]
 fn rows_missing_temporary_id_are_not_collected() {
     let mut s = st();
     // 更早但缺 temporaryId → 整轮 fail-closed，不留下部分历史。

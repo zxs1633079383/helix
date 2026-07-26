@@ -67,6 +67,8 @@ pub struct LoadOlderState {
     window_token: Option<String>,
     /// 本次 readback 应返回的完整窗口大小，受 typed timeline 60 行上限约束。
     readback_limit: u32,
+    /// Host 注入的可选 transport correlation，只用于 HTTP header 与真实链证据。
+    request_id: Option<String>,
 }
 
 impl LoadOlderState {
@@ -86,6 +88,7 @@ impl LoadOlderState {
             failed: false,
             window_token: None,
             readback_limit: 0,
+            request_id: None,
         }
     }
 
@@ -94,9 +97,14 @@ impl LoadOlderState {
         &self.channel_id
     }
 
-    /// G10a direct command 不接受 renderer request id；跨轮次由内部 correlation 唯一标识。
+    /// 返回 host transport correlation；它不得进入 Go body 或 Frame 业务字段。
     pub fn request_id(&self) -> Option<&str> {
-        None
+        self.request_id.as_deref()
+    }
+
+    /// 绑定可选 host transport correlation，供每轮 HTTP 保持同一证据键。
+    pub(crate) fn attach_request_id(&mut self, request_id: Option<String>) {
+        self.request_id = request_id;
     }
 
     /// 返回首轮权威响应建立的 anchor 时间；响应前固定为 0。

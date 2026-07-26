@@ -6,18 +6,19 @@ use super::{LoadOlderState, LOAD_OLDER_CONTEXT, TARGET_DEFAULT, TARGET_MAX, TARG
 use crate::error::ImError;
 use crate::state::ChannelId;
 
-/// 解析 `im_load_older_context` payload：`channel_id`/`anchor_post_id`/可选
-/// `before`（缺省 20，范围 1..=100）。旧字段和未知字段一律拒绝。
+/// 解析 `im_load_older_context` payload：业务字段外仅接受可选 transport `req_id`。
 pub fn parse_request(payload: &[u8]) -> Result<LoadOlderState, ImError> {
     let value: Value = serde_json::from_slice(payload)
         .map_err(|error| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} payload: {error}")))?;
     let object = value
         .as_object()
         .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} payload 必须为 object")))?;
-    if let Some(unknown) = object
-        .keys()
-        .find(|key| !matches!(key.as_str(), "channel_id" | "anchor_post_id" | "before"))
-    {
+    if let Some(unknown) = object.keys().find(|key| {
+        !matches!(
+            key.as_str(),
+            "channel_id" | "anchor_post_id" | "before" | "req_id"
+        )
+    }) {
         return Err(ImError::Parse(format!(
             "{LOAD_OLDER_CONTEXT} 未知字段: {unknown}"
         )));
@@ -37,10 +38,26 @@ pub fn parse_request(payload: &[u8]) -> Result<LoadOlderState, ImError> {
         .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} 缺 anchor_post_id")))?
         .to_string();
     let target = parse_before(object.get("before"))?;
+    let request_id = parse_request_id(object.get("req_id"))?;
+    let mut state = LoadOlderState::new(channel_id, anchor_post_id, target);
+    state.attach_request_id(request_id);
 
-    Ok(LoadOlderState::new(channel_id, anchor_post_id, target))
+    Ok(state)
 }
 
+/// Validates the optional host correlation without promoting it into business input.
+fn parse_request_id(value: Option<&Value>) -> Result<Option<String>, ImError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let request_id = value
+        .as_str()
+        .filter(|request_id| !request_id.is_empty())
+        .ok_or_else(|| ImError::Parse(format!("{LOAD_OLDER_CONTEXT} req_id 必须为非空字符串")))?;
+    Ok(Some(request_id.to_string()))
+}
+
+/// Validates the bounded page size used by each postContext round.
 fn parse_before(value: Option<&Value>) -> Result<u32, ImError> {
     let Some(value) = value else {
         return Ok(TARGET_DEFAULT);

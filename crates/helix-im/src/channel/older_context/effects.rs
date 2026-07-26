@@ -16,9 +16,7 @@ pub fn post_context_http(
     post_context_http_tracked(base_url, body, corr, connection_id, None)
 }
 
-/// 与 [`post_context_http`] 相同，可选接收 Helix 内部 operation id 作为 Go `Cses-Track-Id`。
-/// Mobile canonical 不接收 `req_id`；当前 older-context 状态机省略该 header，correlation 由
-/// corr_map 区分每一轮 PortReply。
+/// 与 [`post_context_http`] 相同，并将可选 host correlation 仅写入 `Cses-Track-Id`。
 pub fn post_context_http_tracked(
     base_url: &str,
     body: &Value,

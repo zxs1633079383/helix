@@ -18,6 +18,23 @@ use scenario::{
     G10AScenarioRunner,
 };
 
+/// Proves the native correlation reaches HTTP headers without entering the wire body.
+#[test]
+fn transport_correlation_is_preserved_on_post_context_http() {
+    let http = G10AScenarioRunner::post_context_request();
+    assert!(http
+        .headers
+        .iter()
+        .any(|(name, value)| name == "Cses-Track-Id" && value == scenario::REQUEST_ID));
+    let body: serde_json::Value = serde_json::from_slice(
+        http.body
+            .as_ref()
+            .expect("postContext request contains a body"),
+    )
+    .expect("postContext body is JSON");
+    assert!(body.get("req_id").is_none());
+}
+
 /// Proves every canonical run begins with the shared fresh-group prerequisite.
 #[test]
 fn prerequisite_creates_fresh_group_before_loading_history() {

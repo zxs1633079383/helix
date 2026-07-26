@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{InteractionFrameV2, TypedSurfaceMutation};
+use helix_im::interaction_frame::InteractionFrameV2;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -35,8 +35,11 @@ struct FixtureCase {
 fn produce_cases() -> Vec<FixtureCase> {
     let created = G15ScenarioRunner::run_http_created();
     let recovered = G15ScenarioRunner::run_recovery();
+    let ws_created = G15ScenarioRunner::run_ws_created();
     assert_thread_contract(&created.thread);
     assert_summary_contract(&recovered.summary);
+    let dialog = ws_frame_for(&ws_created.frames, "message.left-dialog-list");
+    let channel = ws_frame_for(&ws_created.frames, "message.channel-summary");
     vec![
         FixtureCase {
             fixture_id: "g15-topic-thread-created-v2",
@@ -48,7 +51,30 @@ fn produce_cases() -> Vec<FixtureCase> {
             file_name: "channel-summary-recovery.frame-v2.json",
             frame: recovered.summary,
         },
+        FixtureCase {
+            fixture_id: "g15-ws-topic-dialog-v2",
+            file_name: "ws-topic-dialog.frame-v2.json",
+            frame: dialog,
+        },
+        FixtureCase {
+            fixture_id: "g15-ws-topic-created-v2",
+            file_name: "ws-topic-created.frame-v2.json",
+            frame: channel,
+        },
     ]
+}
+
+/// 从独立 WS terminal 批次提取包含目标 surface 的唯一完整 Frame。
+fn ws_frame_for(frames: &[InteractionFrameV2], surface: &str) -> InteractionFrameV2 {
+    let mut matching = frames.iter().filter(|frame| {
+        frame
+            .mutations
+            .iter()
+            .any(|mutation| mutation.mutation.surface.as_str() == surface)
+    });
+    let frame = matching.next().expect("G15 WS target Frame").clone();
+    assert!(matching.next().is_none());
+    frame
 }
 
 /// 生成稳定 pretty JSON bytes 并固定末尾换行。
@@ -63,33 +89,12 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
     let views = frame
         .mutations
         .iter()
-        .map(|mutation| match &mutation.mutation.mutation {
-            TypedSurfaceMutation::ThreadDetailSnapshot { view } => json!({
-                "kind": "threadDetailSnapshot",
-                "channelId": view.channel_id,
-                "detailContext": view.detail_context,
-                "root": view.root,
-                "orderedReplyIds": view.ordered_reply_ids,
-                "nodes": view.nodes,
-                "replyCount": view.reply_count,
-                "page": view.page,
-                "state": view.state,
-            }),
-            TypedSurfaceMutation::ChannelSummarySnapshot { view } => json!({
-                "kind": "channelSummarySnapshot",
-                "channelId": view.channel_id,
-                "title": view.title,
-                "memberCount": view.member_count,
-                "viewerRole": view.viewer_role,
-                "lifecycle": view.lifecycle,
-                "actions": view.actions.iter().map(|action| json!({
-                    "kind": action.kind,
-                    "inputShape": action.input_shape,
-                    "enabled": action.enabled,
-                    "disabledReason": action.disabled_reason,
-                })).collect::<Vec<_>>(),
-            }),
-            other => json!({"kind": format!("{other:?}")}),
+        .map(|mutation| {
+            json!({
+                "surface": mutation.mutation.surface,
+                "scope": mutation.mutation.scope,
+                "mutation": mutation.mutation.mutation,
+            })
         })
         .collect::<Vec<_>>();
     serde_json::to_vec(&json!({
@@ -186,13 +191,18 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
 /// 证明 actual producer、完整字段、Golden bytes 与 provenance 始终同源。
 fn current_g15_producer_matches_canonical_v2_fixtures_and_provenance() {
     let cases = produce_cases();
-    assert_eq!(cases.len(), 2, "G15 canonical inventory is explicit");
+    assert_eq!(cases.len(), 4, "G15 canonical inventory is explicit");
     assert_eq!(
         cases
             .iter()
             .flat_map(|case| surface_names(&case.frame))
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["message.channel-summary", "message.thread-detail"])
+        BTreeSet::from([
+            "message.channel-summary",
+            "message.left-dialog-list",
+            "message.member-roster",
+            "message.thread-detail",
+        ])
     );
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G15_WDIO_FIXTURES").is_some();

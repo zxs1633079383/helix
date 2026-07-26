@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use helix_core::effect::{Effect, StorageOp};
-use helix_core::tick::{PortError, PortOutcome};
+use helix_core::tick::{InboundBytes, PortError, PortOutcome};
 use helix_core::Correlation;
 use helix_im::interaction_frame::{
     DetailContextVm, InteractionFrameV2, SurfaceId, SurfaceScope, TypedSurfaceMutation,
@@ -31,6 +31,11 @@ pub struct G15CreatedTrace {
 /// G-15 production recovery 只从 durable topic channel row 重建 summary。
 pub struct G15RecoveryTrace {
     pub summary: InteractionFrameV2,
+}
+
+/// G-15 WS authority 可能同批发布 dialog 与 topic summary/roster，调用方按 surface 取独立 Frame。
+pub struct G15WsCreatedTrace {
+    pub frames: Vec<InteractionFrameV2>,
 }
 
 /// 通过生产 `ImModule::handle` 驱动 make-topic 的 command/HTTP/Persist/readback 回放。
@@ -145,6 +150,59 @@ impl G15ScenarioRunner {
         );
         G15RecoveryTrace {
             summary: runner.only_frame(),
+        }
+    }
+
+    /// 回放独立 `channel_created` WS authority 及其 PersistAtomic terminal Frames。
+    pub fn run_ws_created() -> G15WsCreatedTrace {
+        let mut runner = Self::new();
+        runner.harness.step(
+            command_json(
+                "__helix_request_surface_snapshot",
+                json!({
+                    "surface": "message.left-dialog-list",
+                    "scope": {"kind": "user", "userId": ACTOR_ID, "teamId": TEAM_ID}
+                }),
+            ),
+            1_700_001_510_018,
+        );
+        let dialog_read_corr = only_corr(runner.harness.sink.as_slice(), |effect| {
+            matches!(effect, Effect::Persist { .. })
+        });
+        runner.harness.step(
+            port_reply_with_body(dialog_read_corr.raw(), rows_bytes(json!([]))),
+            1_700_001_510_019,
+        );
+        runner.harness.step(
+            helix_core::Tick::Inbound(InboundBytes(Bytes::from(
+                serde_json::to_vec(&json!({
+                    "action": "channel_created",
+                    "data": {
+                        "id": TOPIC_CHANNEL_ID,
+                        "type": "T",
+                        "displayName": TOPIC_TITLE,
+                        "teamId": TEAM_ID,
+                        "rootId": ROOT_MESSAGE_ID,
+                        "createAt": 1_700_001_510_000_i64,
+                        "reqId": REQUEST_ID,
+                        "members": [
+                            {"id": OBSERVER_ID, "role": "MEMBER", "nickName": "Observer"}
+                        ],
+                        "owner": {"id": ACTOR_ID, "role": "OWNER", "nickName": "Actor"}
+                    }
+                }))
+                .expect("static G15 channel_created serializes"),
+            ))),
+            1_700_001_510_020,
+        );
+        let persist_corr = only_corr(runner.harness.sink.as_slice(), |effect| {
+            matches!(effect, Effect::PersistAtomic { .. })
+        });
+        runner
+            .harness
+            .step(port_reply_ok(persist_corr.raw()), 1_700_001_510_021);
+        G15WsCreatedTrace {
+            frames: runner.frames(),
         }
     }
 
@@ -284,7 +342,9 @@ fn only_corr(effects: &[Effect], predicate: impl Fn(&Effect) -> bool) -> Correla
         .iter()
         .filter(|effect| predicate(effect))
         .filter_map(|effect| match effect {
-            Effect::Http { corr, .. } | Effect::Persist { corr, .. } => Some(*corr),
+            Effect::Http { corr, .. }
+            | Effect::Persist { corr, .. }
+            | Effect::PersistAtomic { corr, .. } => Some(*corr),
             _ => None,
         });
     let corr = correlations.next().expect("matching G15 correlation");

@@ -55,7 +55,7 @@
 ### Target
 
 - HTTP success 只在 channel/message durable 后发布 `message.thread-detail` typed Frame；Frame 的 topic context 关联 `topicChannelId/rootMessageId`，不再发布 raw replies。
-- 独立 `channel_created` WS authority 继续通过生产 channel gate 发布 `message.channel-summary`；测试分别验证两条 correlation 的竞态、幂等与 recovery，不把它们伪造成单一固定帧序列。
+- 独立 `channel_created` WS authority 继续通过生产 channel gate 发布 `message.left-dialog-list` 与完整 `message.channel-summary`/`message.member-roster` Frame；测试分别验证两条 correlation 的竞态、幂等与 recovery，不把它们伪造成单一固定帧序列。
 - Helix canonical Fixture 是上述生产 `ImModule::handle -> Effect::Emit` 的唯一真源；PC/Mobile byte-exact mirror 并机械 apply。
 - Mobile 删除 G-15 raw `reply_tree_row` characterization，改为链接 production SDK/Bridge/SurfaceRuntime/QuickJS binding 的 typed `im.surface.view` 合同。
 

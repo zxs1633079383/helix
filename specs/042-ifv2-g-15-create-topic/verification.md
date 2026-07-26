@@ -34,6 +34,8 @@
 - `g15_full_flow_test`：6/6 PASS；覆盖业务失败、基础设施失败、relation 持久失败、迟到回包、happy path 与 summary recovery。
 - `g15_topic_interaction_test + uc15_16_projection_test`：13/13 PASS；证明 terminal 不再发布 raw `im:channel:replies`，且 typed thread 只能在 root durable readback 后产生。
 - `g15_wdio_fixture_contract_test`：1/1 PASS；普通模式只比较 Golden，显式 `UPDATE_G15_WDIO_FIXTURES=1` 才生成两份 canonical Frame 与 provenance。
-- `topic-thread-created.frame-v2.json`：raw SHA-256 `c6f9a96ee2ded44462b11c68760ed75a59fafcfea371b5d70edda2cff7eeb734`；semantic SHA-256 `7fd5014feac261377bcc6bf42f68a55872e2b9c71dd7a82c65fec26d8ee10483`。
-- `channel-summary-recovery.frame-v2.json`：raw SHA-256 `13ba2758d5c9d237376d3450f46b70379426518d298995cfc8ae1200ca1edf84`；semantic SHA-256 `a0eea77dbb8d24950fbf5866c1bd0e9548fcb340bbe97ba9522567ea1e68cf5c`。
-- 两条 correlation 独立：HTTP/Persist/readback 发布 `message.thread-detail`；`channel_created`/storage recovery 发布 `message.channel-summary`。测试不假设固定第三帧。
+- `topic-thread-created.frame-v2.json`：raw SHA-256 `c6f9a96ee2ded44462b11c68760ed75a59fafcfea371b5d70edda2cff7eeb734`；semantic SHA-256 `4074e60b2d81de7c653b2abaf969c76399391129a3b0e6d255899b4175f9cc79`。
+- `channel-summary-recovery.frame-v2.json`：raw SHA-256 `13ba2758d5c9d237376d3450f46b70379426518d298995cfc8ae1200ca1edf84`；semantic SHA-256 `fa5a165019a7eac4b8180aba1364d5d9c213e7c83ca1228479a2214204e88184`。
+- `ws-topic-dialog.frame-v2.json`：raw SHA-256 `3ac61c8b5b552f8a4be69e1b881efbc0b5b7cf4d8bf4f755b16b06e2bed88454`；semantic SHA-256 `f7cff76dcec9decb1dae5a6c75c41e975a3abddb370d66995d197c301baa15c4`。
+- `ws-topic-created.frame-v2.json`：raw SHA-256 `3924220e80418b39b04f2599f0db067f0ba114a6fd269cb904bfbf729ac01421`；semantic SHA-256 `dd03e4fd1d179dd57bfb075afe25c98938dfef7a5d2147160da65eca9f4659c1`。
+- 两条 correlation 独立：HTTP/Persist/readback 发布 `message.thread-detail`；`channel_created` 发布 dialog 与 topic summary/roster，storage recovery 独立发布 `message.channel-summary`。测试不假设固定第三帧。

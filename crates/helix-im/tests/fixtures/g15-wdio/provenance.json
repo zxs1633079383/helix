@@ -50,7 +50,7 @@
       "/mutations/*/mutation/view/actions/*/surfaceEpoch"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "7fd5014feac261377bcc6bf42f68a55872e2b9c71dd7a82c65fec26d8ee10483",
+    "semanticSha256": "4074e60b2d81de7c653b2abaf969c76399391129a3b0e6d255899b4175f9cc79",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.thread-detail"
@@ -107,10 +107,125 @@
       "/mutations/*/mutation/view/actions/*/surfaceEpoch"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "a0eea77dbb8d24950fbf5866c1bd0e9548fcb340bbe97ba9522567ea1e68cf5c",
+    "semanticSha256": "fa5a165019a7eac4b8180aba1364d5d9c213e7c83ca1228479a2214204e88184",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "ws-topic-dialog.frame-v2.json",
+    "fixtureId": "g15-ws-topic-dialog-v2",
+    "fixtureSha256": "3ac61c8b5b552f8a4be69e1b881efbc0b5b7cf4d8bf4f755b16b06e2bed88454",
+    "gateId": "G-15",
+    "generatedAt": "2026-07-26T12:03:17-07:00",
+    "helixCommit": "064f814a0f4fc4df8b9299652d0e615f5857b875",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/rootMessageId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/detailContext/parentChannelId",
+      "/mutations/*/mutation/view/detailContext/topicChannelId",
+      "/mutations/*/mutation/view/detailContext/rootMessageId",
+      "/mutations/*/mutation/view/detailContext/title",
+      "/mutations/*/mutation/view/root/id",
+      "/mutations/*/mutation/view/root/channelId",
+      "/mutations/*/mutation/view/root/author/userId",
+      "/mutations/*/mutation/view/title/text",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch"
+    ],
+    "placeholderValues": {
+      "actorId": "g15-actor",
+      "baseRevision": 1,
+      "channelId": "chfixx00000000000000000015",
+      "observerId": "g15-observer",
+      "parentChannelId": "chfixx00000000000000000014",
+      "reqId": "g15-topic-request-1",
+      "revision": 2,
+      "rootMessageId": "srvfix00000000000000000015",
+      "surfaceEpoch": 1,
+      "teamId": "g15-company",
+      "topicTitle": "G15 Fixture Topic",
+      "transactionId": "dialog-list-user|9:g15-actor|11:g15-company-2"
+    },
+    "producer": "G15ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/root/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "f7cff76dcec9decb1dae5a6c75c41e975a3abddb370d66995d197c301baa15c4",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list"
+    ]
+  },
+  {
+    "fileName": "ws-topic-created.frame-v2.json",
+    "fixtureId": "g15-ws-topic-created-v2",
+    "fixtureSha256": "3924220e80418b39b04f2599f0db067f0ba114a6fd269cb904bfbf729ac01421",
+    "gateId": "G-15",
+    "generatedAt": "2026-07-26T12:03:17-07:00",
+    "helixCommit": "064f814a0f4fc4df8b9299652d0e615f5857b875",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/rootMessageId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/detailContext/parentChannelId",
+      "/mutations/*/mutation/view/detailContext/topicChannelId",
+      "/mutations/*/mutation/view/detailContext/rootMessageId",
+      "/mutations/*/mutation/view/detailContext/title",
+      "/mutations/*/mutation/view/root/id",
+      "/mutations/*/mutation/view/root/channelId",
+      "/mutations/*/mutation/view/root/author/userId",
+      "/mutations/*/mutation/view/title/text",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch"
+    ],
+    "placeholderValues": {
+      "actorId": "g15-actor",
+      "baseRevision": null,
+      "channelId": "chfixx00000000000000000015",
+      "observerId": "g15-observer",
+      "parentChannelId": "chfixx00000000000000000014",
+      "reqId": "g15-topic-request-1",
+      "revision": 1,
+      "rootMessageId": "srvfix00000000000000000015",
+      "surfaceEpoch": 1,
+      "teamId": "g15-company",
+      "topicTitle": "G15 Fixture Topic",
+      "transactionId": "channel-created-chfixx00000000000000000015"
+    },
+    "producer": "G15ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/root/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "dd03e4fd1d179dd57bfb075afe25c98938dfef7a5d2147160da65eca9f4659c1",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary",
+      "message.member-roster"
     ]
   }
 ]

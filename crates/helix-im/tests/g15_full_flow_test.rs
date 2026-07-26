@@ -45,3 +45,17 @@ fn recovery_rebuilds_topic_summary() {
     let trace = G15ScenarioRunner::run_recovery();
     assert_summary_contract(&trace.summary);
 }
+
+#[test]
+/// 证明独立 WS authority 在 durable commit 后发布 topic dialog 与 summary，而非固定第三帧。
+fn ws_authority_publishes_observable_topic_surfaces() {
+    let trace = G15ScenarioRunner::run_ws_created();
+    let surfaces = trace
+        .frames
+        .iter()
+        .flat_map(|frame| frame.mutations.iter())
+        .map(|mutation| mutation.mutation.surface.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(surfaces.contains("message.left-dialog-list"));
+    assert!(surfaces.contains("message.channel-summary"));
+}

@@ -41,6 +41,32 @@
   authority 不产生空成功 Frame；detached branch 保持 view-silent，后续
   snapshot 恢复。
 
+## T009-T012 Helix Canonical Fixture
+
+- `g12_wdio_fixture_contract_test` 从同一
+  `G12ScenarioRunner -> ImModule::handle -> Effect::Emit` trace 导出三份完整
+  Frame：`group-created.frame-v2.json`、`thread-snapshot.frame-v2.json` 与
+  `thread-branch.frame-v2.json`。测试逐份执行 typed decode、schema 2 校验、
+  thread 字段级语义断言以及 Golden byte 比较。
+- 只有 `UPDATE_G12_WDIO_FIXTURES=1` 可创建或覆盖 Golden；普通测试只比较
+  actual producer 与 checked-in bytes。显式更新与普通比较两次运行均为
+  `1/1 PASS`、exit `0`。
+- `provenance.json` 固定 producer commit
+  `a2207d73f8e72da7374b916b2167ee3a25b9f6c3`、fixture id、schema、
+  surface inventory、raw/semantic SHA-256、动态替换与 revision rebase 白名单。
+  `jq` inventory/schema/hash 校验为 `true`。
+- canonical raw SHA-256：group-created
+  `5753a7e4e6bad20f2b46d345f6483b2600bd10f5cfccb16aa17200d54aaf0ab6`；
+  thread-snapshot
+  `434207276732e4076ddacb206731187e8031a79e25240ce3a3d66e300a2e7c37`；
+  thread-branch
+  `6a11b920460c031129c28b0bff18303fc4f3e56fa4653da28fe065646755c6e2`。
+- Helix Green 命令：`cargo check -p helix-im`、`cargo test -p helix-im
+  --test g12_full_flow_test -- --nocapture` 与 `cargo test -p helix-im --test
+  g12_wdio_fixture_contract_test -- --nocapture` 均为 exit `0`。跨端 mirror
+  尚未完成，因此这里只关闭 Helix producer/Fixture 阶段，不提前标记 G12
+  review-green。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-15 review-green 到 specs/043-ifv2-g-16-channel-close-leave/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/outbound/channel_admin/change_dedicated.rs、crates/helix-im/tests/g16_governance_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/043-ifv2-g-16-channel-close-leave/research.md
+- [X] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-15 review-green 到 specs/043-ifv2-g-16-channel-close-leave/verification.md
+- [X] T002 [P] 按 crates/helix-im/src/outbound/channel_admin/change_dedicated.rs、crates/helix-im/tests/g16_governance_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/043-ifv2-g-16-channel-close-leave/research.md
 
 ---
 

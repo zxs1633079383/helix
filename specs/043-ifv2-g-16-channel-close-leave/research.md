@@ -1,6 +1,6 @@
 # Research: G-16 关闭/退出群
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `509c2e2896d6b7d50528a1fceb9392efe050d0bc`；cses-client `88bdcd22169c151a321343cea73209952ec16dab`；Mobile `c5896e16b3ce3a050b5d15b925c48415c39501b0`
 
 ## Decision 1 - 唯一业务真源
 
@@ -36,16 +36,18 @@
 
 ## Decision 5 - Gate-specific authority
 
-**Decision**: HTTP 为 ``POST /api/cses/channel/close` body `{channelId}``；WS 为 ``channel_close``；远端表为 `channel、channel_member、channel_event`。Transport success 不自动等于 durable terminal。
+**Decision**: owner 关闭使用 `POST /api/cses/channel/close` body `{channelId}` 并等待独立 `channel_close` WS authority；成员自己退出使用 `POST /api/cses/channel/member/leave` body `{channelId}`，当前生产链以 SUCCESS 回包作为本人终态 authority。两条路径都必须先提交本地生命周期事实，才能发布 Frame；剩余成员名单仍由 `channel_member_update` WS 更新。
 
 **Rationale**: terminal authority、persist barrier 与竞态必须从当前生产 handler 和 PortReply/Inbound 证明。
 
 **Alternatives considered**: HTTP 200 即 Green、远端行存在即本地已 apply、固定 HTTP/WS 顺序；全部拒绝。
 
-## Resolved Scope
+## Current / Target / Gap
 
-- 当前 Helix owner：`crates/helix-im/src/outbound/channel_admin/change_dedicated.rs`；现有聚焦测试：`crates/helix-im/tests/g16_governance_interaction_test.rs`。
-- 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp`。
+- **CURRENT**: `im_channel_close` 的 wire builder 实际位于 `outbound/channel_admin/existing.rs`；`im_channel_leave` 位于 `change_dedicated.rs`。现有 HTTP wire test 只验证 endpoint/body。`channel_close` WS 当前 `PersistFire` 后立即发 raw `im:channel:closed` 与可选 dialog Frame；leave HTTP SUCCESS 同样 `PersistFire` 后立即发 raw `im:channel:left`，两者都缺 PersistOk barrier 与 canonical Frame 合同。
+- **CURRENT**: Mobile `Uc16ChannelLifecycleTest.cpp` 仍以 raw `im:channel:closed/left` 驱动 `ViewModelStore` 删除 scoped rows，属于本 Gate 待移除的第二业务 reducer；QuickJS command admission 已有 close/leave 方法，但没有 G16 canonical Frame consumer 测试。
+- **TARGET**: 关闭与退出各自保持独立 authority；本地生命周期 write 经可回报 Persist/PersistAtomic 成功后，Helix 才发布 `message.channel-summary` lifecycle Frame，并在已 attach 时独立发布 dialog lifecycle patch。PC/Mobile 只能消费这些 V2 Frame。
+- **GAP**: 新增 G16 correlation/persist terminal、确定性 ScenarioRunner、Golden/provenance；PC 增加 fixture mirror、Mock/Real/report；Mobile 替换 raw lifecycle reducer 测试为 production-linked Frame/QuickJS typed view 合同。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

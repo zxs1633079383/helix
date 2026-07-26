@@ -1,5 +1,15 @@
 # Verification Procedure: G-16
 
+## Source Lock
+
+- Helix: `509c2e2896d6b7d50528a1fceb9392efe050d0bc`
+- cses-client: `88bdcd22169c151a321343cea73209952ec16dab`
+- Mobile QuickJS: `c5896e16b3ce3a050b5d15b925c48415c39501b0`
+- Strict Matrix SHA-256: `0e45a64ee1629498f44788613fb142489bfffbf7d02d950e8a51ae06afb419cd`
+- 前序 G-15: `phase=closed`、`event_seq=26`、`next_action=none`
+
+工作树边界：Helix 仅含本 Feature 的 SpecKit 状态；PC clean；Mobile 保留既有未跟踪 bundle 与 `tests/.DS_Store`，本 Gate 不删除或提交这些资产。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

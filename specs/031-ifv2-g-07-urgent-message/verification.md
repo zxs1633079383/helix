@@ -72,15 +72,98 @@
 - Fixture producer 固定为 Helix source commit
   `768dc9b3597523c6c40279e387d85e9f240fde8a`；只有
   `UPDATE_G07_WDIO_FIXTURES=1` 可覆盖 Golden。
-- inventory 共 `6` 份完整 Frame：`group-created`、`urgentable`、
-  `urgent-active`、`receipts-pending`、`urgent-confirmed`、
-  `receipts-completed`。timeline 与 participant-receipts 保持独立
+- inventory 共 `7` 份完整 Frame：`group-created`、`member-roster`、
+  `urgentable`、`urgent-active`、`receipts-pending`、`urgent-confirmed`、
+  `receipts-completed`。timeline、member-roster 与 participant-receipts 保持独立
   transaction，不假设固定 Frame 序号。
 - provenance raw SHA-256：
-  `6e27d72ba56ae98bf2c3453425c970721a2e32a8fa4e233ef35123ecd2b4b629`；
+  `5057646b19aec3c88f315ab7564d40ea3cab296faed3acee586c5262136d557c`；
   每份 raw/semantic hash、schemaVersion=2、surface inventory 与允许动态字段
   已逐项记录。
 - `cargo check -p helix-im`：exit `0`。
 - `cargo test -p helix-im --test g07_wdio_fixture_contract_test --
   --nocapture`：exit `0`，`1/1`，fail `0`、skip `0`；普通模式逐字比较
   checked-in JSON 与当前 production trace。
+
+## T013-T022 PC Mock/Real/Report
+
+- cses-client 接受提交为 `60ad2d03173b093ccb4d8e42d34d2f6b97c31909`，
+  production Tauri 的四个 Helix dependency 均 pin 到 fixture producer
+  `768dc9b3597523c6c40279e387d85e9f240fde8a`。
+- Fixture parity、typed loader、AcceptedCommand admission、完整 Frame replay、
+  MessageV4 page object、reporter 与 production-boundary 已完成；聚焦 Jest
+  `19/19`、urgent component `2/2`、WDIO TypeScript、Angular WDIO build 与
+  Tauri debug build 均 exit `0`。
+- Mock run `mock-20260725232835106-7075` 为 `2/2`，claim 仅为 `mock`。
+- single-real run `single-real-20260725233241043-10413` 为 `1/1`；真实链关联
+  UI、Tauri invoke、Helix、SQLite、HTTP、`post_update` WS、FrameApplied 与 DOM。
+- dual-real run `dual-real-20260725233518185-12322` 为 `1/1`；Actor 发起加急、
+  Observer 确认后，两端 timeline 终态相关联。report run
+  `report-20260725233610911-12991` 为 `1/1`。
+- production-boundary 扫描 `2735` 个生产文件，Fixture/Mock/WDIO API
+  production reachable=`false`。
+
+## T023-T032 Mobile Contract
+
+- Mobile 接受提交为 `9ab37d2a1137ebbfa7d14ab0f01533e1b847a5ff`，production
+  Helix source lock 为 `e26bf167df36b17d97909e70e5f0f58f2e07829b`，
+  bundle SHA-256 为
+  `0b5477e444efd40999dfc05d4456450d0605f98509f15d177e81915e8f5921e7`。
+- G07 mirror parity 通过：`count=7`，fixture producer 为 `768dc9b...`；
+  source-pin 通过且 G07 inventory=`7`；legacy hard-cut 通过，
+  production V1 producer/consumer/raw fallback 均为 `0`。
+- `G07FrameContractTest.*` 为 `5/5`；UC08 非 real 聚焦合同为 `8/8`；
+  `./scripts/run-uc01-16-gtest.sh --only UC08` 为 `9/9`，fresh group 中 Actor
+  发起加急、Observer 确认并由生产 QuickJS `im.surface.view` 观察
+  active/acknowledged typed timeline。
+- 共享 `./scripts/run-uc01-16-gtest.sh` 已真实执行，runId
+  `mrc-mobile-uc-20260725235447-26068`；总结果 `139/150`。G07 的
+  `Uc08UrgentTest.RealChain` 通过，11 个失败均来自 GS02/GS03/GS04、
+  UC01/UC02/UC10-UC15 的其他 Gate real lane，因此不计入 G07 required lane，
+  但保留为后续 Gate 的真实 blocker，不把共享结果宣称为全绿。
+- 曾额外尝试在 Mobile real lane 观察 participant-receipts pending row；真实
+  typed view 未暴露该 row。该能力不作为已通过证据，G07 required Mobile
+  contract 仅由 canonical production consumer GTest 与真实 timeline 闭环证明。
+
+## T033 Three-repo Fixture Parity
+
+- Helix、PC、Mobile 三份 provenance raw SHA-256 均为
+  `5057646b19aec3c88f315ab7564d40ea3cab296faed3acee586c5262136d557c`。
+- 三仓 inventory 均为同一 `7` 份 Frame，schemaVersion 全为 `2`，surface
+  inventory 为 `message.left-dialog-list`、`message.member-roster`、
+  `message.timeline` 与 `message.participant-receipts`。
+- 七份 raw SHA-256 在三仓逐文件均为 `3/3` 相同；provenance 内七份
+  semantic SHA-256 也因 provenance byte-exact 一致而相同。平台没有补业务字段。
+
+## T034-T036 Review
+
+- **Behavior Green**：fresh group 前置、发起者权限、target 去重、active 与
+  acknowledged 终态、HTTP/Persist 失败、重复/迟到 authority、恢复以及
+  Actor/Observer 结果均由 Helix 同一模型决定。
+- **Code Boundary Green**：urgent/receipt 聚合只在 Helix production handler 与
+  projector；PC 仅 Tauri admission + Frame apply + DOM，Mobile 仅 SDK admission、
+  FFI DomainEvent batch、SurfaceRuntime atomic apply 与 QuickJS typed view。
+  两端测试 Fixture/Mock/injection 在默认生产构建不可达。
+- **Frame V2 Green**：七份完整 envelope 的 schema/scope/surfaceEpoch/revision/
+  baseRevision/mutation/action/directive/correlation 已字段级对齐。active timeline
+  与 confirmed timeline、pending receipts 与 completed receipts 是可竞态的独立
+  correlation，不强制固定第三帧；重复 transaction 与 stale revision fail-closed。
+
+## T037 Gate Report
+
+- 结构化汇总见 `evidence/gate-report.json`。G07 required lanes 的 fail=`0`、
+  skip=`0`，final verdict=`Green`；共享 Mobile 跨 Gate 红项与未声明的 receipt
+  real observation 均保留在 observation，不被总 PASS 掩盖。
+
+## T038 Quickstart And Mandatory Review
+
+- Helix quickstart 于 `2026-07-25T17:09:00-07:00` 重跑：`cargo check`、
+  full-flow `8/8`、focused interaction `5/5`、fixture contract `1/1`，
+  全部 exit `0`；原始日志及 SHA-256 已登记到 `evidence/evidence.json`。
+- PC G07 final artifacts：Mock `2/2`、single-real `1/1`、dual-real `1/1`、
+  report `1/1`；production-boundary 再跑仍为 `2735` files、exit `0`。
+- Mobile final parity、source pin、legacy hard-cut 与 `git diff --check` 均
+  exit `0`；共享回归的跨 Gate `11` 个 real-lane failure 已如实登记。
+- mandatory after_implement loop 于 event `13` 给出 R4 evidence `PASS`。
+  targeted convergence 与 after_converge 只有在未追加任务时才允许最终
+  `CLOSED`。

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im && cargo test -p helix-im --test g07_full_flow_test --test g07_urgent_interaction_test -- --nocapture",
+      "started_at": "2026-07-25T17:09:00-07:00",
+      "ended_at": "2026-07-25T17:09:10-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/031-ifv2-g-07-urgent-message/evidence/v001-helix-flow.log",
+          "sha256": "8352c244b89df36af8a172fbbd063dc8fec184e2a989165de00970544054a895"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g07_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-25T17:09:10-07:00",
+      "ended_at": "2026-07-25T17:09:11-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/031-ifv2-g-07-urgent-message/evidence/v002-helix-fixture.log",
+          "sha256": "f34d5b60340d1be841e638b0e8b5851f586753859d5ba0e4fd7a14ff87aafbb4"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "G07 quickstart: Helix scenario and fixture; PC mock/single-real/dual-real/report; Mobile G07FrameContract and UC08 focused/real; cross-repo parity and boundary review",
+      "started_at": "2026-07-25T22:25:02Z",
+      "ended_at": "2026-07-26T00:09:55Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/031-ifv2-g-07-urgent-message/evidence/gate-report.json",
+          "sha256": "f14a10f8526adcb13ff6678d9f3fb25a05f46d7bc39f987499df432140038c01"
+        }
+      ]
+    }
+  ]
+}

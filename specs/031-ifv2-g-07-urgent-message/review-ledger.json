@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/031-ifv2-g-07-urgent-message",
-  "phase": "verifying",
-  "event_seq": 9,
-  "next_action": "repair_r4_evidence",
+  "phase": "closed",
+  "event_seq": 23,
+  "next_action": "none",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -25,22 +25,20 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "b4ff782c3ba667caf62c5a46de9c8f8862530f05f172c83f14f8524ec0b15007",
-      "checked_at": "2026-07-25T07:43:43Z",
+      "fingerprint": "b2ef88aa3c4649686a5967f4732fbf1722bd5169885fe6806b7e0a873bc4149a",
+      "checked_at": "2026-07-26T00:14:09Z",
       "issues": []
     },
     "r4_evidence": {
-      "status": "blocked",
-      "fingerprint": null,
-      "checked_at": null,
-      "issues": [
-        "missing evidence/evidence.json"
-      ]
+      "status": "pass",
+      "fingerprint": "691b8dec25dfab4d2b54ef2af3557c0d937fa6336d70735913a62226261bc916",
+      "checked_at": "2026-07-26T00:17:20Z",
+      "issues": []
     }
   },
   "convergence": {
-    "tasks_fingerprint": null,
-    "reason": null
+    "tasks_fingerprint": "b2ef88aa3c4649686a5967f4732fbf1722bd5169885fe6806b7e0a873bc4149a",
+    "reason": "evidence accepted"
   },
   "events": [
     {
@@ -96,6 +94,90 @@
       "at": "2026-07-25T22:25:03Z",
       "kind": "phase",
       "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-26T00:13:01Z",
+      "kind": "phase",
+      "detail": "verifying->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-26T00:13:01Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-26T00:13:08Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 13,
+      "at": "2026-07-26T00:13:08Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: r4_evidence passed"
+    },
+    {
+      "seq": 14,
+      "at": "2026-07-26T00:14:09Z",
+      "kind": "phase",
+      "detail": "verifying->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 15,
+      "at": "2026-07-26T00:14:09Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 16,
+      "at": "2026-07-26T00:14:16Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 17,
+      "at": "2026-07-26T00:14:16Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: r4_evidence passed"
+    },
+    {
+      "seq": 18,
+      "at": "2026-07-26T00:14:27Z",
+      "kind": "phase",
+      "detail": "verifying->converging: targeted convergence started"
+    },
+    {
+      "seq": 19,
+      "at": "2026-07-26T00:14:35Z",
+      "kind": "phase",
+      "detail": "converging->closed: convergence found no additional task"
+    },
+    {
+      "seq": 20,
+      "at": "2026-07-26T00:17:20Z",
+      "kind": "phase",
+      "detail": "closed->verifying: input fingerprint changed for r4_evidence"
+    },
+    {
+      "seq": 21,
+      "at": "2026-07-26T00:17:20Z",
+      "kind": "phase",
+      "detail": "verifying->verifying: r4_evidence passed"
+    },
+    {
+      "seq": 22,
+      "at": "2026-07-26T00:17:26Z",
+      "kind": "phase",
+      "detail": "verifying->converging: targeted convergence started"
+    },
+    {
+      "seq": 23,
+      "at": "2026-07-26T00:17:41Z",
+      "kind": "phase",
+      "detail": "converging->closed: convergence found no additional task"
     }
   ]
 }

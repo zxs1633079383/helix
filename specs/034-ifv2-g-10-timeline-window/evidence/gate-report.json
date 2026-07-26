@@ -1,0 +1,98 @@
+{
+  "gateId": "G-10",
+  "sourcePins": {
+    "helixAcceptance": "f221c924d4da606035ed040c5d4583ccb5a250dd",
+    "fixtureProducer": "e10719adbcf5767c2eab2eb288d86f3e2b210477",
+    "csesClient": "4105aefaf5c470a77c52a23318edae57cdff3b70",
+    "pcHelixPin": "e10719adbcf5767c2eab2eb288d86f3e2b210477",
+    "mobileQuickJs": "0e9400c5044d19dd47f7b97899ff2a611ca57a92",
+    "mobileHelixPin": "f221c924d4da606035ed040c5d4583ccb5a250dd",
+    "mobileHelixBundleSha256": "b17f36b982b2eda2080ac2125bff6efa6672f259229dc28ca25bd9f21fad2bc5",
+    "strictMatrixSha256": "b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac"
+  },
+  "lanes": {
+    "helix": {
+      "status": "Pass",
+      "required": true,
+      "fullFlow": "8/8",
+      "interaction": "3/3",
+      "fixtureContract": "1/1",
+      "failed": 0,
+      "skipped": 0
+    },
+    "fixture": {
+      "status": "Pass",
+      "required": true,
+      "count": 6,
+      "schemaVersion": 2,
+      "provenanceSha256": "4d35068679462d7ee830e1511270e95c031992874d725edfff15863215ea0469",
+      "failed": 0,
+      "skipped": 0
+    },
+    "pcMock": {
+      "status": "Pass",
+      "required": true,
+      "runId": "mock-20260726042101303-33737",
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "claim": "mock"
+    },
+    "pcReal": {
+      "status": "Pass",
+      "required": true,
+      "singleRealRunId": "single-real-20260726043407694-47657",
+      "singleReal": "1/1",
+      "dualRealRunId": "dual-real-20260726043758057-51242",
+      "dualReal": "1/1",
+      "reportRunId": "report-20260726043833628-51883",
+      "report": "1/1",
+      "failed": 0,
+      "skipped": 0
+    },
+    "mobileContract": {
+      "status": "Pass",
+      "required": true,
+      "frameContract": "7/7",
+      "focusedContract": "9/9",
+      "uc10Real": "9/9",
+      "realRunId": "mrc-mobile-uc-20260726044857-63057",
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionBoundary": {
+      "status": "Pass",
+      "required": true,
+      "pcProductionFilesScanned": 2735,
+      "pcMockProductionReachable": false,
+      "mobileV1Producers": 0,
+      "mobileV1Consumers": 0,
+      "mobileRawReducers": 0,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "review": {
+    "behavior": {
+      "status": "Green",
+      "finding": "fresh group, local-complete and partial-remote windows, failures, late or duplicate authority, recovery and Actor/Observer results use one Helix-owned coverage and query-generation model"
+    },
+    "codeBoundary": {
+      "status": "Green",
+      "finding": "Helix owns coverage, conditional HTTP, cache persistence and timeline projection; PC and Mobile only invoke production ports and mechanically apply typed Frame V2"
+    },
+    "frameV2": {
+      "status": "Green",
+      "finding": "six byte-identical fixtures preserve complete schema, scope, epochs, revisions, window token, page, items, actions, directives and correlations across all three repositories"
+    },
+    "evidence": {
+      "status": "Green",
+      "requiredPassRate": 1,
+      "requiredFailed": 0,
+      "requiredSkipped": 0,
+      "loopVerdict": "R4 evidence ready",
+      "observation": "Initial PC failures exposed harness assumptions about explicit fresh-group selection, the real system join notice, and conditional zero-HTTP local completion. Corrected isolated runs passed without adding an Angular business reducer; embedded provider completed despite the non-fatal tauri-driver diagnostic."
+    }
+  },
+  "finalVerdict": "Green"
+}

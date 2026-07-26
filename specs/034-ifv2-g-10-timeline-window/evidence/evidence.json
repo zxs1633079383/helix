@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-007",
+      "command": "G10 three-repo canonical Fixture, PC Mock/Real/report, Mobile GTest/real and production-boundary review",
+      "started_at": "2026-07-26T04:19:22Z",
+      "ended_at": "2026-07-26T05:01:22Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/034-ifv2-g-10-timeline-window/evidence/gate-report.json",
+          "sha256": "72e5d7e9b8673ec5a94f3ef7583df7212d0635a97f536c517691ce6732d4c9b5"
+        }
+      ]
+    }
+  ]
+}

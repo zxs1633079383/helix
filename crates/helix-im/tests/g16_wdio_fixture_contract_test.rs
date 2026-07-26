@@ -17,7 +17,7 @@ use scenario::{
     assert_lifecycle_contract, G16ScenarioRunner, ACTOR_ID, CHANNEL_ID, GROUP_NAME, TEAM_ID,
 };
 
-const HELIX_COMMIT: &str = "5c7affdca936c445e7a68ccb19e0e1922bfb0b6b";
+const HELIX_COMMIT: &str = "63b7eee5d356e1af08e32cc1fb92c2a466bc7841";
 const GENERATED_AT: &str = "2026-07-26T21:45:00-07:00";
 const PRODUCER: &str =
     "G16ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";

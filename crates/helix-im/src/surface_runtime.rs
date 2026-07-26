@@ -116,6 +116,50 @@ impl ImModule {
         Ok(())
     }
 
+    /// 将已持久化的 G16 生命周期事实投影到已 attach 的 channel-summary slot。
+    pub(crate) fn project_channel_lifecycle_frame(
+        &mut self,
+        channel_id: ChannelId,
+        state: &str,
+        reason: Option<&str>,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let Some(mut summary) = self
+            .state
+            .channel_summary_projector
+            .current_view(channel_id.as_str())
+            .cloned()
+        else {
+            return Ok(());
+        };
+        summary.lifecycle = ChannelLifecycleVm {
+            state: state.to_string(),
+            reason: reason.map(str::to_string),
+        };
+        for action in &mut summary.actions {
+            action.enabled = false;
+            action.disabled_reason = Some("channelTerminal".to_string());
+        }
+        let mutation = self
+            .state
+            .channel_summary_projector
+            .patch_settings_or_lifecycle(summary, causation_id)
+            .map_err(|error| ImError::Parse(format!("channel lifecycle summary: {error}")))?;
+        let surface_epoch = self.action_surface_epoch()?;
+        let frame = crate::projector::build_online_interaction_frame(
+            format!("channel-lifecycle-{}", channel_id.as_str()),
+            surface_epoch,
+            vec![mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        out.push(
+            crate::projector::emit_interaction_frame(frame)
+                .map_err(|error| ImError::Serialize(error.to_string()))?,
+        );
+        Ok(())
+    }
+
     /// G14 durable authority 到达后，仅为当前已 attach 的 read receipt slot 启动权威重取。
     pub(crate) fn refresh_attached_read_receipts(
         &mut self,
@@ -896,6 +940,13 @@ pub(crate) fn channel_summary_view(
             owns_schedule,
         ));
     }
+    let lifecycle = lifecycle(row);
+    if lifecycle.state != "active" {
+        for action in &mut actions {
+            action.enabled = false;
+            action.disabled_reason = Some("channelTerminal".to_string());
+        }
+    }
     ChannelSummaryVm {
         channel_id: channel_id.to_string(),
         title: ChannelTitleRef {
@@ -908,7 +959,7 @@ pub(crate) fn channel_summary_view(
         },
         notice_summary: optional_text(row, &["header"]),
         purpose: optional_text(row, &["purpose"]),
-        lifecycle: lifecycle(row),
+        lifecycle,
         member_count: nonnegative_u32(row, &["member_count", "memberCount"]),
         viewer_role: role,
         online_count: None,
@@ -1119,10 +1170,24 @@ fn page(cursor: &str) -> WindowPageVm {
     }
 }
 
+/// 从 durable channel 行区分 self-left、owner-closed 与 active，禁止平台二次推导。
 fn lifecycle(row: &Value) -> ChannelLifecycleVm {
-    let closed = integer(row, &["delete_at", "deleteAt"]) > 0 || integer(row, &["is_remove"]) > 0;
+    if integer(row, &["is_remove"]) > 0 {
+        return ChannelLifecycleVm {
+            state: "left".to_string(),
+            reason: Some("memberLeft".to_string()),
+        };
+    }
+    if integer(row, &["delete_at", "deleteAt"]) > 0
+        || integer(row, &["is_active", "isActive"]) == 0 && row.get("is_active").is_some()
+    {
+        return ChannelLifecycleVm {
+            state: "closed".to_string(),
+            reason: Some("channelClosed".to_string()),
+        };
+    }
     ChannelLifecycleVm {
-        state: if closed { "closed" } else { "active" }.to_string(),
+        state: "active".to_string(),
         reason: None,
     }
 }

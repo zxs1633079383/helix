@@ -8,7 +8,7 @@
 //! → 0 行命中 no-op（幂等）。spec §S3.4 纯本地字段 is_remove 不在此路径动。
 
 use helix_core::effect::SqlValue;
-use helix_core::EffectSink;
+use helix_core::{Effect, EffectSink};
 
 use crate::error::ImError;
 use crate::state::ChannelId;
@@ -20,10 +20,12 @@ const CHANNEL_CLOSE_ACTION: &str = "channel_close";
 struct ChannelCloseHandler;
 
 impl WsMessageHandler for ChannelCloseHandler {
+    /// 返回关闭频道 authority 的唯一 WS action。
     fn action(&self) -> &'static str {
         CHANNEL_CLOSE_ACTION
     }
 
+    /// 将可信 close tombstone 放入 G16 原子持久屏障，提交前不发布终态 Frame。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -48,26 +50,25 @@ impl WsMessageHandler for ChannelCloseHandler {
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
 
-        // delete_at + is_active=0 定点 patch（对齐现网 update_fields）。
-        out.push(crate::acl::to_effect_s1::channel_set_cols(
-            channel_id,
-            vec![
-                ("delete_at", SqlValue::Integer(delete_at)),
-                ("is_active", SqlValue::Integer(0)),
-            ],
-        ));
-        if let Some(scope) = ctx.state.dialog_list_frame.scope().cloned() {
-            if let Some(frame) = ctx
-                .state
-                .dialog_list_frame
-                .patch_closed(scope, channel_id.as_str())
-            {
-                out.push(frame);
-            }
-        }
-        out.push(crate::acl::to_effect_s1::emit_channel_closed(
-            channel_id, delete_at,
-        ));
+        let corr = ctx.alloc_corr();
+        ctx.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::ChannelLifecyclePersist {
+                channel_id,
+                transition: crate::state::ChannelLifecycleTransition::Closed { delete_at },
+                causation_id: None,
+            },
+        );
+        out.push(Effect::PersistAtomic {
+            corr,
+            ops: vec![crate::acl::to_effect_s1::channel_set_cols_op(
+                channel_id,
+                vec![
+                    ("delete_at", SqlValue::Integer(delete_at)),
+                    ("is_active", SqlValue::Integer(0)),
+                ],
+            )],
+        });
         Ok(())
     }
 }

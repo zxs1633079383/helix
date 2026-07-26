@@ -185,6 +185,6 @@ pub use schedule::{
     schedule_preview_authorized,
 };
 pub use storage::{
-    channel_set_cols, delete_channel_members, delete_channel_members_op, update_member_nickname,
-    upsert_channel_members, upsert_channel_members_op, MemberRow,
+    channel_set_cols, channel_set_cols_op, delete_channel_members, delete_channel_members_op,
+    update_member_nickname, upsert_channel_members, upsert_channel_members_op, MemberRow,
 };

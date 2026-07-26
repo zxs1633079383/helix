@@ -585,25 +585,23 @@ impl ImModule {
             }
 
             CorrelationContext::OutboundLeave { channel_id } => match outcome {
-                PortOutcome::Ok(_) => {
-                    out.push(crate::acl::to_effect_s1::channel_set_cols(
-                        channel_id,
-                        vec![("is_remove", helix_core::effect::SqlValue::Integer(1))],
-                    ));
-                    if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
-                        let patch = serde_json::json!({
-                            "channelId": channel_id.as_str(),
-                            "left": true,
-                        });
-                        if let Some(frame) = self
-                            .state
-                            .dialog_list_frame
-                            .patch_from_channel_update(scope, &patch)
-                        {
-                            out.push(frame);
-                        }
-                    }
-                    out.push(crate::acl::to_effect_s1::emit_channel_left(channel_id));
+                PortOutcome::Ok(_) if lifecycle_http_succeeded(outcome) => {
+                    let persist_corr = self.alloc_corr_internal();
+                    self.state.corr_map.insert(
+                        persist_corr,
+                        CorrelationContext::ChannelLifecyclePersist {
+                            channel_id,
+                            transition: crate::state::ChannelLifecycleTransition::Left,
+                            causation_id: None,
+                        },
+                    );
+                    out.push(helix_core::Effect::Persist {
+                        corr: persist_corr,
+                        ops: vec![crate::acl::to_effect_s1::channel_set_cols_op(
+                            channel_id,
+                            vec![("is_remove", helix_core::effect::SqlValue::Integer(1))],
+                        )],
+                    });
                 }
                 PortOutcome::Err(e) => {
                     tracing::warn!(
@@ -612,6 +610,67 @@ impl ImModule {
                         "channel leave http failed; local dialog remains active"
                     );
                 }
+                PortOutcome::Ok(_) => tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    "channel leave business response rejected; local dialog remains active"
+                ),
+            },
+
+            CorrelationContext::ChannelLifecyclePersist {
+                channel_id,
+                transition,
+                causation_id,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    let (state, reason) = match transition {
+                        crate::state::ChannelLifecycleTransition::Closed { .. } => {
+                            ("closed", Some("channelClosed"))
+                        }
+                        crate::state::ChannelLifecycleTransition::Left => {
+                            ("left", Some("memberLeft"))
+                        }
+                    };
+                    self.project_channel_lifecycle_frame(
+                        channel_id,
+                        state,
+                        reason,
+                        causation_id,
+                        out,
+                    )?;
+                    if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+                        let frame = match transition {
+                            crate::state::ChannelLifecycleTransition::Closed { .. } => self
+                                .state
+                                .dialog_list_frame
+                                .patch_closed(scope, channel_id.as_str()),
+                            crate::state::ChannelLifecycleTransition::Left => {
+                                let patch = serde_json::json!({
+                                    "channelId": channel_id.as_str(),
+                                    "left": true,
+                                });
+                                self.state
+                                    .dialog_list_frame
+                                    .patch_from_channel_update(scope, &patch)
+                            }
+                        };
+                        if let Some(frame) = frame {
+                            out.push(frame);
+                        }
+                    }
+                    out.push(match transition {
+                        crate::state::ChannelLifecycleTransition::Closed { delete_at } => {
+                            crate::acl::to_effect_s1::emit_channel_closed(channel_id, delete_at)
+                        }
+                        crate::state::ChannelLifecycleTransition::Left => {
+                            crate::acl::to_effect_s1::emit_channel_left(channel_id)
+                        }
+                    });
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    channel_id = channel_id.as_str(),
+                    error = ?error,
+                    "channel lifecycle persist failed; suppressing terminal projections"
+                ),
             },
 
             CorrelationContext::OutboundChannelCreate {
@@ -1002,4 +1061,24 @@ impl ImModule {
 
         Ok(())
     }
+}
+
+/// 接受空测试回包或显式 SUCCESS 信封，拒绝 transport-ok/business-failed 假终态。
+fn lifecycle_http_succeeded(outcome: &helix_core::tick::PortOutcome) -> bool {
+    let helix_core::tick::PortOutcome::Ok(reply) = outcome else {
+        return false;
+    };
+    if reply.0.is_empty() {
+        return true;
+    }
+    let Ok(raw) = crate::http_envelope::unwrap_sync_envelope(reply.0.as_ref()) else {
+        return false;
+    };
+    let Ok(response) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    response
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|status| status.eq_ignore_ascii_case("SUCCESS"))
 }

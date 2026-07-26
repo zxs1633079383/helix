@@ -876,6 +876,12 @@ fn channel_close_sets_delete_at_and_inactive_s1() {
         ),
         "channel_close 须置 is_active=0"
     );
+    let persist = persist_atomic_corr(&h.sink);
+    assert!(
+        emit_names(&h.sink).is_empty(),
+        "channel_close 持久成功前不得发布终态"
+    );
+    h.step(port_reply_ok(persist), 1_001);
     assert!(emit_names(&h.sink).iter().any(|n| n == "im:channel:closed"));
 }
 

@@ -9,15 +9,23 @@ use helix_core::Effect;
 /// 用于 `channel_close`（delete_at + is_active）/ schedule（has_schedule_post）等定点列写。
 /// 本地无此行 → 0 行命中 no-op（对齐现网 update_fields 幂等）。复杂度 O(1)（WHERE PK=id）。
 pub fn channel_set_cols(channel_id: ChannelId, cols: Vec<(&'static str, SqlValue)>) -> Effect {
-    let patch: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     Effect::PersistFire {
-        ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
-            table: "channel",
-            key_col: "id",
-            key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
-            patch,
-        })],
+        ops: vec![channel_set_cols_op(channel_id, cols)],
     }
+}
+
+/// 返回可放入有回执事务的 channel 定点 patch，供生命周期持久屏障复用。
+pub fn channel_set_cols_op(
+    channel_id: ChannelId,
+    cols: Vec<(&'static str, SqlValue)>,
+) -> StorageOp {
+    let patch: Row = cols.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "channel",
+        key_col: "id",
+        key_vals: vec![SqlValue::Text(channel_id.as_str().to_string())],
+        patch,
+    })
 }
 
 /// 单个成员行（复合 PK channel_id+user_id）。

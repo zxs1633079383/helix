@@ -19,7 +19,8 @@ pub use values::{
 #[path = "correlation.rs"]
 mod correlation;
 pub use correlation::{
-    ChannelSettingsProjection, CorrelationContext, MakeTopicProjection, SyncTrigger,
+    ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext, MakeTopicProjection,
+    SyncTrigger,
 };
 
 // ─── ImState ────────────────────────────────────────────────────────────────

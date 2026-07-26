@@ -24,6 +24,13 @@ pub struct ChannelSettingsProjection {
     pub channel_capabilities: serde_json::Value,
 }
 
+/// G16 durable lifecycle transition; close and self-leave remain distinct authority facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelLifecycleTransition {
+    Closed { delete_at: i64 },
+    Left,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SyncTrigger {
     #[default]
@@ -241,9 +248,15 @@ pub enum CorrelationContext {
     /// `req_id` 前端 bridge 注入（owned String，跨 step 存活，HX-C002；与 corr 解耦）。
     OutboundReadReply { req_id: String },
 
-    /// 自己退群写族 HTTP 回报。成功后本地标记 channel.is_remove=1 并发 render-ready left 投影；
-    /// 剩余成员的 member delete 仍由服务端 channel_member_update WS 权威驱动。
+    /// 自己退群写族 HTTP 回报；SUCCESS 只排队本地持久屏障，不直接发布 renderer 状态。
     OutboundLeave { channel_id: ChannelId },
+
+    /// G16 关闭/退出生命周期事实提交后才允许发布 channel-summary/dialog terminal Frame。
+    ChannelLifecyclePersist {
+        channel_id: ChannelId,
+        transition: ChannelLifecycleTransition,
+        causation_id: Option<String>,
+    },
 
     /// 建群写族 HTTP 回报。服务端可能在 WebSocket 断线期间成功创建 channel，此时不会有
     /// `channel_created` 实时回声；保留已规范化成员，让 HTTP 权威回包也能落当前 channel/member

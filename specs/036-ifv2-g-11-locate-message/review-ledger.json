@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/036-ifv2-g-11-locate-message",
-  "phase": "verifying",
-  "event_seq": 9,
-  "next_action": "repair_r4_evidence",
+  "phase": "closed",
+  "event_seq": 16,
+  "next_action": "none",
   "budget": {
     "max_same_failure_attempts": 2
   },
@@ -25,22 +25,20 @@
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "4179e2481e443ccaa98e8216eb0a6da980b57c0a01fa5bd876a65a12a3bb5e5c",
-      "checked_at": "2026-07-25T07:43:47Z",
+      "fingerprint": "99501a3b7583238d43d5f9117b559bc95c4cac6d8d691e29b525ef2d2ce26232",
+      "checked_at": "2026-07-26T07:36:33Z",
       "issues": []
     },
     "r4_evidence": {
-      "status": "blocked",
-      "fingerprint": null,
-      "checked_at": null,
-      "issues": [
-        "missing evidence/evidence.json"
-      ]
+      "status": "pass",
+      "fingerprint": "c651d4c7bb0abb587532924fb2e8b11a124a3c6e7e1b42bb7545b57db64a515b",
+      "checked_at": "2026-07-26T07:36:40Z",
+      "issues": []
     }
   },
   "convergence": {
-    "tasks_fingerprint": null,
-    "reason": null
+    "tasks_fingerprint": "99501a3b7583238d43d5f9117b559bc95c4cac6d8d691e29b525ef2d2ce26232",
+    "reason": "evidence accepted"
   },
   "events": [
     {
@@ -96,6 +94,48 @@
       "at": "2026-07-26T06:35:31Z",
       "kind": "phase",
       "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-26T07:33:15Z",
+      "kind": "phase",
+      "detail": "verifying->implementing: recorded evidence V-007"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-26T07:36:33Z",
+      "kind": "phase",
+      "detail": "implementing->tasking: input fingerprint changed for r3_tasks"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-26T07:36:33Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 13,
+      "at": "2026-07-26T07:36:40Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 14,
+      "at": "2026-07-26T07:36:40Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: r4_evidence passed"
+    },
+    {
+      "seq": 15,
+      "at": "2026-07-26T07:36:41Z",
+      "kind": "phase",
+      "detail": "verifying->converging: targeted convergence started"
+    },
+    {
+      "seq": 16,
+      "at": "2026-07-26T07:36:41Z",
+      "kind": "phase",
+      "detail": "converging->closed: convergence found no additional task"
     }
   ]
 }

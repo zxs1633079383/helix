@@ -47,3 +47,93 @@
 - Canonical inventory `3`：`group-created`、`timeline-initial`、`timeline-located`。raw SHA-256
   分别为 `03119203...831a`、`f8bdc187...0214`、`40822b96...21a`；semantic SHA-256 分别为
   `951d07de...c960`、`b91a6b0d...ad27`、`56fe29d0...65de`。
+
+## T013-T022 PC Mock/Real/Report
+
+- cses-client 接受提交为 `509d10cae`；Tauri 四个 Helix production dependency
+  统一 pin `5e3ffc026fc8b25f76a7cce162e75734bddb45ca`。Fixture 同步器、
+  typed loader、AcceptedCommand/replay split、MessageV4 page object、G11
+  reporter 与 production boundary 均完成，Angular 未新增 locate reducer。
+- Fixture parity、focused Jest `24/24`、WDIO TypeScript、production candidate
+  build 均 exit `0`。Mock runId
+  `mock-20260726070428498-53337` 为 `3/3`，覆盖成功定位、command admission
+  failure 与 duplicate Frame，claim 仅为 `mock`。
+- single-real runId `single-real-20260726070534306-54241`、dual-real runId
+  `dual-real-20260726070608200-54927`、report runId
+  `report-20260726070501810-53776` 均为 `1/1`、exit `0`。真实链从
+  MessageV4 UI 创建 fresh group，经真实 Tauri invoke、Helix HTTP、
+  `im:__bus__` Frame ingress、SurfaceRuntime apply 与 DOM 自动等待闭合。
+- dual-real 明确验证 locate 是 Actor-local 行为：Observer 不被伪造 locate
+  target 或 Frame。production boundary 扫描 `2735` 个生产文件，
+  Fixture、Mock bridge 与 WDIO-only API production reachable=`false`。
+  embedded single lane 打印非致命 `tauri-driver not found` 诊断，但真实
+  WebKit/Tauri session 已启动并通过，未将该诊断冒充或替代真实链证据。
+
+## T023-T032 Mobile Contract
+
+- Mobile 依次提交 `298d778`（production Helix pin）、`71d6cb6`
+  （canonical mirror）与 `49b9430`（GTest/QuickJS/real chain）。
+  production Helix pin 为 `60b2d5f579f209a144433db1f96bef8a63f6bd5c`，
+  bundle SHA-256 为
+  `127e60902595cddb6324a10c0fe68cb94fb6cf3968e63a813914fa28785673e6`。
+- G11 mirror parity 为 `3/3`；source pin 证明 Fixture producer `5e3ffc...`
+  可达 production pin；legacy hard-cut 报告 G01-G11 production V1
+  producer/consumer/raw fallback 均为 `0`。
+- `G11FrameContractTest.*` 为 `6/6`，覆盖完整 envelope、初始 snapshot、
+  located patch、target/anchor/directive、duplicate、schema V1 fail-closed、
+  SDK command admission、完整 DomainEvent batch、SurfaceRuntime atomic apply、
+  QuickJS `im.surface.view` typed state 与 production C ABI。
+- `./scripts/run-uc01-16-gtest.sh --only UC11` 为 `7/7`；真实链创建 fresh
+  group 与目标消息，生产 `im.posts.locate -> im_get_posts` 最终产生
+  `targetMessageId`、`anchor.mode=locate` 与 sent target row，随后完成 cleanup。
+- 共享 `./scripts/run-uc01-16-gtest.sh` 实际执行 `150` tests、耗时
+  `718161ms`：`141 PASS / 9 FAIL`。同一 runId 中 G11 为 `7/7 PASS`；
+  失败归属为 GS02/GS03/GS04、UC01/UC02、UC12/UC13/UC14/UC15 的
+  RealChain timeout，未被 G11 局部 Green 掩盖，分别留待其 owning Gate
+  复核和收敛；本 Gate 未修改这些测试或业务路径。
+- `MobileImSdk -> MobileFfiBridge/helix-driver-ffi -> DomainEvent batch ->
+  SurfaceRuntime -> QuickJS typed view` 的生产接线已存在并由 production-linked
+  GTest 证明，因此 T027-T030 未复制或修改业务逻辑。本 Gate 未改变 Venus
+  接线能力，按总控合同复用 `run-venus-helix-im-smoke.sh`，结果 PASS。
+
+## T033 Three-repo Fixture Parity
+
+- Helix、PC、Mobile 的 `provenance.json` SHA-256 均为
+  `420c6a7b749b407a6debfbf077fc9843ce997a3897940dd51d66a2ae6178b3fd`。
+- 三仓 inventory 均为 `group-created`、`timeline-initial`、
+  `timeline-located`，schemaVersion 全为 `2`，surface inventory 分别为
+  `message.left-dialog-list`、`message.timeline`、`message.timeline`。
+- 三份 Frame raw SHA-256 在三仓逐文件相同：
+  `03119203...831a`、`f8bdc187...0214`、`40822b96...21a`；provenance
+  byte-exact 一致，因此 semantic SHA-256 与动态字段白名单同样一致，
+  PC/Mobile 未补业务字段。
+- PC Mock 首次运行实际证伪旧 provenance：dialog patch 的允许动态字段错误
+  指向 `mutation/view`。Helix producer 修正为 `mutation/patch/view` 后重新
+  生成合同并提交 `60b2d5f`，两端只同步修正后的 canonical bytes，没有前端绕过。
+
+## T034-T036 Review
+
+- **Behavior Green**：fresh group、attached timeline、同 channel target、
+  HTTP authority、missing/cross-channel/transport failure、duplicate/late reply
+  与 detached recovery 均由 Helix 同一 locate model 决定。HTTP success
+  不是 Frame 终态；Observer 不适用时不伪造跨账号定位传播。
+- **Code Boundary Green**：业务 authority、target 选择与完整 Frame 只在
+  Helix `query/dispatch + surface_composer/projector`。PC 与 Mobile 只做
+  production command admission、完整 Frame atomic apply 与平台渲染；
+  Fixture、Mock、test injection 默认 production build 不可达。
+- **Frame V2 Green**：schema `2`、transaction/causation、timeline scope、
+  surfaceEpoch、`baseRevision=1 -> revision=2`、完整 20-row patch、
+  message actions、`targetMessageId`、`anchor.mode=locate` 与
+  `revealMessage` directive 已字段级对齐；duplicate/unknown schema 均不部分 apply。
+
+## T037-T038 Gate Report And Quickstart
+
+- 结构化汇总见 `evidence/gate-report.json`，并由
+  `loop_engine.py record-evidence` 写入 `evidence/evidence.json` 与 SHA-256；
+  G11 required lanes fail=`0`、skip=`0`，final verdict=`Green`。
+- Helix、PC Mock/Real/Report、Mobile parity/GTest/UC11 real、production
+  boundary、共享 Venus 回归与三仓 byte parity 均完成；三仓
+  `git diff --check` 通过。共享 Mobile 全量 runner 的 9 个其他 Gate
+  RealChain timeout 已作为独立观察记录，不替代或污染 G11 required lane。
+- mandatory after_implement 只有在 R4 接受本证据、tasks fingerprint 不再
+  变化时才允许最终 `CLOSED`。

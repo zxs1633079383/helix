@@ -1019,7 +1019,7 @@ fn schedule_created_sets_flag_s1() {
     );
 }
 
-/// 回归锚: S1 —— post_schedule_canceled 置 has_schedule_post=0 + emit。
+/// 回归锚: G09 —— post_schedule_canceled 原子清理 authority/read model，禁止屏障前 raw emit。
 #[test]
 fn schedule_canceled_clears_flag_s1() {
     let mut h = Harness::new_with_identity(&[9], "u-observer", "", "", "", "");
@@ -1047,19 +1047,29 @@ fn schedule_canceled_clears_flag_s1() {
         ),
         "schedule_canceled 须置 has_schedule_post=0，ops: {ops:?}"
     );
-    assert!(emit_names(&h.sink)
-        .iter()
-        .any(|n| n == "im:channel:schedule-canceled"));
-    let updates = emit_data(&h.sink, "im:channel:schedule-canceled");
-    assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0]["scheduleId"], "schedule-9");
-    assert_eq!(updates[0]["status"], "canceled");
-    assert_eq!(
-        updates[0]["revision"], 22,
-        "缺 revision 时回退服务端 event_seq"
+    assert!(
+        matches!(
+            upsert_row_value(&ops, "channel_schedule", "status"),
+            Some(helix_core::effect::SqlValue::Text(status)) if status == "canceled"
+        ),
+        "schedule_canceled 须持久化 canceled authority fact，ops: {ops:?}"
     );
-    assert!(updates[0]["scheduleMessage"].is_null());
-    assert!(updates[0]["messagePreview"].is_null());
-    assert!(updates[0]["scheduleMessagePreview"].is_null());
-    assert_eq!(updates[0]["scheduleStatus"], "canceled");
+    assert!(
+        matches!(
+            upsert_row_value(&ops, "channel_schedule", "revision"),
+            Some(helix_core::effect::SqlValue::Integer(22))
+        ),
+        "缺 revision 时须以 event_seq 建立单调 cancel revision，ops: {ops:?}"
+    );
+    assert!(
+        emit_names(&h.sink).is_empty(),
+        "G09 producer 不得在 PersistAtomic 回执前发布 raw event 或 Frame"
+    );
+    assert!(
+        h.sink
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::PersistAtomic { .. })),
+        "G09 cancel authority 必须经过原子持久屏障"
+    );
 }

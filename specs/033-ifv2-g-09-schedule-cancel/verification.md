@@ -4,10 +4,10 @@
 
 | Source | Locked value | Evidence |
 |---|---|---|
-| Helix admission HEAD | `1a68e0eac9bef49660117921b277d67617e45217` | `git rev-parse HEAD` |
-| cses-client HEAD | `033131ca006f0103beea778a91121ba7b9b887c3` | `git -C .../cses-client rev-parse HEAD` |
-| Mobile HEAD | `e67c5c5779e2bf381d64db6e235b3abe884a8cb9` | `git -C .../mobile-qucik-c++ rev-parse HEAD` |
-| PC Helix pin | `8358082b3fd01b96b332c79deca8d2017315dd19` | `cses-client/src-tauri/Cargo.toml` |
+| Helix admission HEAD | `5308d2b77174e687423c28c862fde42406408456` | `git rev-parse HEAD` |
+| cses-client HEAD | `a0a083dd6e65051ab60d6d9bb3e044f4b3984f7a` | `git -C .../cses-client rev-parse HEAD` |
+| Mobile HEAD | `3b0ff15feeb95e0d1fe89040d7e9b2ed96a3734f` | `git -C .../mobile-qucik-c++ rev-parse HEAD` |
+| PC Helix pin | `5308d2b77174e687423c28c862fde42406408456` | `cses-client/src-tauri/Cargo.toml` |
 | Strict Matrix SHA-256 | `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac` | canonical matrix |
 | Prerequisite | G08 `phase=closed`, `event_seq=21`, R1-R4 PASS | G08 review ledger |
 
@@ -17,10 +17,10 @@ not stage, delete or rewrite them.
 ## T001-T002 Source Lock
 
 - T001/T002: source lock and CURRENT/TARGET/GAP are current against production code.
-- Helix side of T003 is proven: `G09ScenarioRunner` reuses the shared G01 fresh-group
-  producer and drives the real G08 createSchedule authority/persist/readback chain before
-  cancel. T003 stays open until PC and Mobile prove the same prerequisite without a second
-  group or schedule reducer.
+- T003 三端均复用共享 fresh-group prerequisite。Helix 以 G01 shared scenario
+  驱动 production create；PC single/dual-real 从真实 MessageV4 UI 创建新群；
+  Mobile `run-uc01-16-gtest.sh --only UC09` 通过 `RC.createChannel('schedule')`
+  创建新群。三端均未依赖前序 Gate 遗留频道，也未新增第二套建群 reducer。
 
 ## T004-T012 Helix Producer Green
 
@@ -49,8 +49,82 @@ Canonical inventory:
 - `channel-summary-canceled.frame-v2.json`
 - `channel-summary-recovery.frame-v2.json`
 
-**Helix verdict**: T004-T012 Green. G09 remains `implementing`; PC/Mobile/Review evidence
-is not yet available.
+**Helix verdict**: T004-T012 Green。`5308d2b` 进一步补齐
+`message.channel-summary` 的 `cancelSchedule` ActionBinding registry 与
+`ActionDispatch::CancelSchedule`，shared scenario 从真实 Frame 提取 binding 后再
+驱动既有 cancel HTTP/WS/Persist/readback 链。
+
+## T013-T022 PC Mock/Real/Report
+
+- cses-client 接受提交为 `a0a083dd6e65051ab60d6d9bb3e044f4b3984f7a`；
+  Tauri 四个 Helix production dependency 统一 pin `5308d2b...`。
+- G09 Fixture parity、typed loader、AcceptedCommand、完整 Frame replay、
+  MessageV4 page object、reporter 与 production boundary 已完成。WDIO Jest
+  `21/21`、MessageV4 component `27/27`、WDIO TypeScript 与 production
+  candidate build 全部 exit `0`。
+- Mock run `mock-20260726032808410-97555` 为 `4/4`，覆盖 happy、IPC
+  failure、late stale Frame 与 recovery，claim 仅为 `mock`。
+- single-real run `single-real-20260726032505692-94731` 为 `1/1`；
+  dual-real run `dual-real-20260726032730613-97014` 为 `1/1`；report run
+  `report-20260726032924879-98710` 为 `1/1`。真实链从 UI fresh group 开始，
+  关联 invoke、Helix、SQLite、create/cancel HTTP、actor WS、FrameApplied 与 DOM。
+- production boundary 扫描 `2735` 个生产文件，Fixture/Mock/WDIO API
+  production reachable=`false`。
+
+## T023-T032 Mobile Contract
+
+- Mobile 依次提交 `e160483`（production Helix pin）、`0a78c7b`
+  （canonical mirror）与 `3b0ff15`（GTest/QuickJS/real chain）。
+  production Helix pin 为 `5308d2b...`，bundle SHA-256 为
+  `5f58b688cade09829bb885129a0b5d742764aa92aae8f74b64583c5d9c6dc990`。
+- G09 mirror parity 为 `4/4`；source pin 证明 fixture producer `4818572...`
+  可达 production pin；legacy hard-cut 报告 production V1
+  producer/consumer/raw fallback 均为 `0`。
+- `G09FrameContractTest.*` 为 `5/5`，覆盖完整 envelope、scheduled→canceled
+  revision、ActionInvocation admission、DomainEvent batch、SurfaceRuntime atomic
+  apply、C ABI ack、recovery 与 QuickJS `im.surface.view` terminal 字段。
+- UC09 非 real focused 合同为 `9/9`。共享生产 runner
+  `./scripts/run-uc01-16-gtest.sh --only UC09` 为 `10/10`，runId
+  `mrc-mobile-uc-20260726034322-7498`；真实创建 fresh group、create schedule、
+  cancel schedule、Frame apply、typed view 与 cleanup 全部完成。
+- 本 Gate 未修改 Venus/QuickJS 接线能力，因此按总控合同复用共享 Venus
+  回归，不新增专属 Gate。生产入口仍为 `MobileImSdk -> MobileFfiBridge /
+  helix-driver-ffi -> DomainEvent batch -> SurfaceRuntime -> QuickJS typed view`。
+
+## T033 Three-repo Fixture Parity
+
+- Helix、PC、Mobile 三份 provenance SHA-256 均为
+  `28ba5d6a3db82f49982ccc2b92b90997bd1c6fc44c60e7f145cd091edbc955d8`。
+- inventory 均为 `group-created`、`channel-summary-scheduled`、
+  `channel-summary-canceled`、`channel-summary-recovery`，schemaVersion 全为 `2`。
+- 四份 raw SHA-256 在三仓逐文件相同：
+  `0e496f...`、`ebe678...`、`052bc2...`、`d68487...`。provenance
+  byte-exact 一致，因此 semantic SHA-256 与 surface inventory 同样一致；
+  平台未补业务字段。
+
+## T034-T036 Review
+
+- **Behavior Green**：fresh group、owner schedule prerequisite、取消权限、HTTP/
+  Persist failure、重复/迟到 authority、recovery、Actor/Observer 结果均由 Helix
+  同一 schedule model 决定；AcceptedCommand 不被当成取消终态。
+- **Code Boundary Green**：取消业务只在 Helix command/action/HTTP/WS/persist/
+  projector；PC 与 Mobile 只做生产 admission、完整 Frame atomic apply 与平台渲染。
+  Fixture、Mock、测试注入默认 production build 不可达。
+- **Frame V2 Green**：四份完整 envelope 的 schema/scope/surfaceEpoch/revision/
+  baseRevision/mutation/action/directive/correlation 已字段级对齐。scheduled Frame
+  提供 enabled `cancelSchedule`；canceled/recovery Frame 删除该 action 与 schedule
+  payload，只保留 `scheduleStatus=canceled`、`scheduleRevision=9`。
+
+## T037-T038 Gate Report And Quickstart
+
+- 结构化汇总见 `evidence/gate-report.json`。required lanes fail=`0`、
+  skip=`0`，final verdict=`Green`。
+- Helix、PC Mock/Real/Report、Mobile parity/GTest/real runner、production
+  boundary 与三仓 hash 对账均 exit `0`；`git diff --check` 三仓通过。
+- 首次 Mobile 单独执行 `Uc09ScheduleTest.*` 因缺少 real runner context 正确
+  BLOCKED；随后共享 runner 提供 context 并真实通过 `10/10`，未以跳过替代。
+- mandatory after_implement 与 convergence 只有在 R4 接受本证据、任务 fingerprint
+  不再变化时才允许最终 `CLOSED`。
 
 ## Required Runs
 

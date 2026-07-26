@@ -212,6 +212,9 @@ pub struct ImState {
     pub(crate) participant_receipts_projector:
         crate::projector::participant_receipts::ParticipantReceiptsProjector,
 
+    /// 已经通过持久屏障的 G14 authority 版本；用于 O(1) 丢弃重复或倒退的 WS 回执。
+    pub(crate) committed_post_reads: BTreeMap<String, (i64, String)>,
+
     /// coverage 会话代号；hello/disconnect 递增，旧回包不得污染新会话。
     pub(crate) query_session_epoch: u64,
 }
@@ -223,6 +226,7 @@ impl ImState {
         self.client_seq
     }
 
+    /// 创建不含平台句柄的空 IM 状态，所有 authority 辅助账本从确定性空值开始。
     pub fn new() -> Self {
         Self {
             conn: ConnState::Disconnected,
@@ -286,6 +290,7 @@ impl ImState {
             inflight_schedule_revisions: BTreeMap::new(),
             participant_receipts_projector:
                 crate::projector::participant_receipts::ParticipantReceiptsProjector::default(),
+            committed_post_reads: BTreeMap::new(),
             query_session_epoch: 0,
         }
     }
@@ -371,6 +376,7 @@ impl ImState {
         // in-memory aggregates as a locally trusted snapshot.
         self.channels.clear();
         self.committed_schedule_revisions.clear();
+        self.committed_post_reads.clear();
         self.sync_scheduler.reset();
         self.hydration_pending.clear();
         self.pending_increment_ops.clear();
@@ -391,6 +397,7 @@ impl ImState {
                     | CorrelationContext::SurfaceStorageSnapshot { .. }
                     | CorrelationContext::SurfaceThreadSnapshot { .. }
                     | CorrelationContext::SurfaceReceiptSnapshot { .. }
+                    | CorrelationContext::PostReadPersist { .. }
             )
         });
     }

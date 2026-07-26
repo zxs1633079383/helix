@@ -1,5 +1,16 @@
 # Verification Procedure: G-14
 
+## Source Lock
+
+- Helix HEAD：`d381e42eae0955b5231a55b54fa3eade1ddb81ca`
+- cses-client HEAD：`e67384f9a1c78bb2da3aafe4ef4206563d231aa4`
+- Mobile HEAD：`fe0fa86a3bc27bf3ba416c3c7f07c89b6c80ecbb`
+- cses-client production Helix pin：`c8768f8b6f169f67509c0ec717ef6902c7779e19`
+- Mobile Fixture/source pin：`c8768f8b6f169f67509c0ec717ef6902c7779e19`
+- Strict Matrix SHA-256：`8b551c0d7aead1e44bbba355f65d65f17c883d84fbb2090854f0942bb4904fb7`
+- 前序 G-13：`specs/038-ifv2-g-13-channel-read/review-ledger.json` 为 `phase=closed`，R1-R4 全部 PASS。
+- 工作树边界：cses-client clean；Mobile 只存在用户既有的未跟踪 bundle 与 `tests/.DS_Store`，本 Gate 不覆盖；Helix 仅有当前 Spec 状态与 `SESSION.md` 改动。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

@@ -6,7 +6,7 @@
 
 ## Summary
 
-以 Helix 生产 handler `crates/helix-im/src/outbound/posts/read.rs` 为业务真源，补齐 `G-14` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
+以 Helix 生产 outbound `crates/helix-im/src/outbound/posts/existing.rs`、WS authority `crates/helix-im/src/ws/handlers/post_read.rs` 与 receipt SurfaceRuntime 为业务真源，补齐 `G-14` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
 
 ## Technical Context
 
@@ -14,7 +14,7 @@
 
 **Primary Dependencies**: helix-core ports、helix-im `ImModule::handle`/InteractionFrameV2；cses-client TauriMockBridge/SurfaceRuntime/WebdriverIO；MobileImSdk/MobileFfiBridge/SurfaceRuntime/HelixImQuickJsBinding
 
-**Storage**: Helix SQLite StorageOp（message_receipt）；远端 PostgreSQL `post、channel_member、channel_event` 只作有界证据
+**Storage**: Strict Matrix 领域名 `message_receipt` 在当前物理 schema 落为 `message.read_bits` 覆盖写；远端 PostgreSQL `post、channel_member、channel_event` 只作有界证据
 
 **Testing**: Rust deterministic replay + Golden；WDIO Mock/single-real/dual-real + reporter；C++ GTest + QuickJS typed view
 
@@ -48,7 +48,7 @@
 
 - **I-001**: [discovery.md](discovery.md) 的三仓 source lock、当前工作树边界与代码事实。
 - **I-002**: Strict Matrix 的 command/effect/persistence/projection/HTTP/WS/remote-store 合同。
-- **I-003**: `crates/helix-im/tests/g14_receipt_template_interaction_test.rs` 与 `crates/helix-im/src/outbound/posts/read.rs` 的当前生产行为。
+- **I-003**: `crates/helix-im/tests/g14_receipt_template_interaction_test.rs`、`crates/helix-im/src/outbound/posts/existing.rs` 与 `crates/helix-im/src/ws/handlers/post_read.rs` 的当前生产行为。
 - **I-004**: G01 canonical Fixture、PC WDIO Mock/Real/report 与 Mobile GTest/QuickJS 基线。
 - **I-005**: [contracts/gate-acceptance.md](contracts/gate-acceptance.md)、两个 JSON Schema 与 [quickstart.md](quickstart.md)。
 
@@ -101,7 +101,10 @@ specs/039-ifv2-g-14-post-read/
 ### Source Code
 
 ```text
-crates/helix-im/src/outbound/posts/read.rs
+crates/helix-im/src/outbound/posts/existing.rs
+crates/helix-im/src/ws/handlers/post_read.rs
+crates/helix-im/src/correlation.rs
+crates/helix-im/src/port_reply/dispatch.rs
 crates/helix-im/tests/g14_receipt_template_interaction_test.rs
 crates/helix-im/tests/g14_full_flow_test.rs
 crates/helix-im/tests/g14_wdio_fixture_contract_test.rs
@@ -115,7 +118,7 @@ crates/helix-im/tests/fixtures/g14-wdio/
 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g14-dual-real.e2e.ts
 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/g14-summary.ts
 
-/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp
+/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc14PostReadTest.cpp
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G14FrameContractTest.cpp
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g14/
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp

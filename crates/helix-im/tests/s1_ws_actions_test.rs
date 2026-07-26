@@ -73,6 +73,17 @@ fn persist_atomic_corr(sink: &helix_core::EffectSink) -> u64 {
         .expect("WS mutation must wait on one atomic persistence barrier")
 }
 
+/// 返回单条旁路权威写的相关 Persist correlation。
+fn persist_corr(sink: &helix_core::EffectSink) -> u64 {
+    sink.as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, .. } => Some(corr.raw()),
+            _ => None,
+        })
+        .expect("WS authority must wait on one persistence barrier")
+}
+
 /// 断言：存在一个写 `table` 表、含 `col` 列且值匹配的 BatchUpdate/BatchUpsert。
 fn has_write_to_table(ops: &[StorageOp], table: &str) -> bool {
     ops.iter().any(|op| match op {
@@ -212,9 +223,7 @@ fn update_channel_emits_render_ready_settings_with_server_version() {
 
 /// 回归锚: S1 —— post_read 覆盖式写 read_bits（UPDATE message SET read_bits WHERE id）+ emit。
 ///
-/// BLOCKING-2：post_read cursor 经 channel gate（严格 +1）。Harness 种 cursor=0，故帧 event_seq=1
-/// （== cursor+1）才走立即 apply 路径落库 + emit；非相邻 seq 会进 gate buffer（缺口 arm 1s gate，
-/// 不落库），那是另一组乱序回放测试覆盖的场景。
+/// post_read 是无序覆盖事实，不推进 cursor；但 raw projection 必须等待 message.read_bits PersistOk。
 #[test]
 fn post_read_overwrites_read_bits_and_emits_s1() {
     let mut h = Harness::new(&[1]);
@@ -241,9 +250,15 @@ fn post_read_overwrites_read_bits_and_emits_s1() {
         matches!(patch_value(&ops, "message", "read_bits"), Some(helix_core::effect::SqlValue::Text(s)) if s == "1010"),
         "read_bits 覆盖式写入帧值，ops: {ops:?}"
     );
+    let corr = persist_corr(&h.sink);
+    assert!(
+        !emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
+        "post_read must not emit before PersistOk"
+    );
+    let _ = h.step(port_reply_ok(corr), 1_001);
     assert!(
         emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
-        "post_read 须 emit im:post:read"
+        "post_read 须在 PersistOk 后 emit im:post:read"
     );
 }
 
@@ -281,9 +296,15 @@ fn post_read_without_event_seq_still_writes_and_emits_s1() {
         matches!(patch_value(&ops, "message", "read_bits"), Some(helix_core::effect::SqlValue::Text(s)) if s == "1101"),
         "read_bits 覆盖式写入帧 readMap 值，ops: {ops:?}"
     );
+    let corr = persist_corr(&h.sink);
+    assert!(
+        !emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
+        "无 event_seq 的 post_read 仍必须等待 PersistOk"
+    );
+    let _ = h.step(port_reply_ok(corr), 1_001);
     assert!(
         emit_names(&h.sink).iter().any(|n| n == "im:post:read"),
-        "缺 event_seq 的 post_read echo 仍须 emit im:post:read（#14 根因）"
+        "缺 event_seq 的 post_read echo 仍须在 PersistOk 后 emit im:post:read（#14 根因）"
     );
     let reads = emit_data(&h.sink, "im:post:read");
     assert_eq!(reads[0]["receiptRevision"], 1_782_619_679_604_i64);

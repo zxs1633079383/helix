@@ -1,10 +1,35 @@
 # Research: G-14 单条已读
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `d381e42eae0955b5231a55b54fa3eade1ddb81ca`；cses-client `e67384f9a1c78bb2da3aafe4ef4206563d231aa4`；Mobile `fe0fa86a3bc27bf3ba416c3c7f07c89b6c80ecbb`
+
+## CURRENT / TARGET / GAP
+
+### CURRENT
+
+- `crates/helix-im/src/outbound/posts/existing.rs` 已把 `im_post_read` 映射到 `POST /api/cses/post/read`，并能透传合法非空的 `posts` 字符串数组。
+- `crates/helix-im/src/ws/handlers/post_read.rs` 已解析无 `event_seq` 的 `post_read` 权威帧并生成 `message.read_bits` 覆盖写，但当前使用 `PersistFire`，同时立即发布 raw `im:post:read` 并请求 timeline readback；持久化失败无法阻止终态投影。
+- `crates/helix-im/src/surface_runtime.rs` 已能从 `im_post_read_list` HTTP 权威回包生成 `message.participant-receipts` typed snapshot，但在线 `post_read` 并不会在持久化成功后刷新已 attach 的 receipt slot。
+- `crates/helix-im/tests/g14_receipt_template_interaction_test.rs` 只冻结 wire 与 projector 的局部行为；当前没有 G14 production full-flow、canonical Fixture 或 Golden。
+- cses-client 已有通用 `message.participant-receipts` codec、SurfaceRuntime 与组件，但没有 G14 Fixture、Mock/Real、PageObject 或 report。
+- Mobile 已有通用 Frame V2 production SDK/Bridge/SurfaceRuntime/QuickJS typed view；`Uc13ReadTest.cpp` 只属于 G13 频道级已读，当前没有独立 G14 单条已读测试或 Fixture mirror。
+
+### TARGET
+
+- `post_read` 权威事实必须改为相关 `Persist`，只有 matching `PersistOk` 才发布 raw 兼容事件、刷新 attached timeline，并对已 attach 的 read receipt slot发起 `post/read/list` 权威重取。
+- G14 ScenarioRunner 从 fresh group、receipt attach、`im_post_read` admission、WS authority、PersistOk、receipt authority reply生成完整 `message.participant-receipts` Frame；persist failure、duplicate/late reply 与 recovery 均 fail-closed。
+- Helix canonical Fixture 是 PC/Mobile 唯一合同源；PC/Mobile 只做动态身份重绑定、原子 apply 与 typed view/DOM 断言。
+- Mobile 使用独立 `Uc14PostReadTest.cpp`，不把 G14 单条回执语义并入 G13 的频道未读清零测试。
+
+### GAP
+
+- 缺少 `PostReadPersist` correlation 与 matching PortReply terminal 编排。
+- 缺少已 attach read receipt slot 的 authority 后刷新能力。
+- 缺少 G14 full-flow、字段级 Frame、Fixture/provenance 和三仓 consumer 验收。
+- PC/Mobile production 通用 V2 consumer 已存在；除非测试证明真实缺口，不新增业务 Store、raw reducer 或测试注入 API。
 
 ## Decision 1 - 唯一业务真源
 
-**Decision**: `G-14` 的 command（im_post_read）、effect（http_write、storage_upsert、projection）、持久事实（message_receipt）与 Surface（message.participant-receipts）只由 Helix 生产路径决定。
+**Decision**: `G-14` 的 command（im_post_read）、effect（http_write、storage_upsert、projection）、持久事实（message.read_bits）与 Surface（message.participant-receipts）只由 Helix 生产路径决定。
 
 **Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
 
@@ -44,8 +69,8 @@
 
 ## Resolved Scope
 
-- 当前 Helix owner：`crates/helix-im/src/outbound/posts/read.rs`；现有聚焦测试：`crates/helix-im/tests/g14_receipt_template_interaction_test.rs`。
-- 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp`。
+- 当前 Helix outbound owner：`crates/helix-im/src/outbound/posts/existing.rs`；WS authority owner：`crates/helix-im/src/ws/handlers/post_read.rs`；现有聚焦测试：`crates/helix-im/tests/g14_receipt_template_interaction_test.rs`。
+- 当前 Mobile `Uc13ReadTest.cpp` 只覆盖 G13；G14 必须建立独立 `Uc14PostReadTest.cpp`。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

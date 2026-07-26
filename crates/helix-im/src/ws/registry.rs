@@ -644,8 +644,9 @@ mod tests {
         assert!(out.as_slice().is_empty());
     }
 
+    /// 证明 post_read 在持久屏障前只保留 viewer-aware pending event，不提前刷新 renderer。
     #[test]
-    fn dispatch_ws_post_read_keeps_authenticated_author_self() {
+    fn dispatch_ws_post_read_defers_authenticated_author_until_persist_ok() {
         const AUTHOR: &str = "user-author-444";
         let mut state = ImState::new();
         let mut alloc_corr = || helix_core::Correlation::from_raw(1);
@@ -665,21 +666,41 @@ mod tests {
 
         dispatch_ws(&mut ctx, &frame, &mut out).unwrap();
 
-        let receipt = out
-            .as_slice()
-            .iter()
-            .filter_map(emit_body)
-            .map(|body| serde_json::from_str::<serde_json::Value>(&body).unwrap())
-            .find(|projection| projection["event"] == "im:post:read")
-            .expect("post_read must emit a receipt projection");
+        let receipt = ctx
+            .state
+            .corr_map
+            .values()
+            .find_map(|context| match context {
+                crate::state::CorrelationContext::PostReadPersist {
+                    pending_domain_event,
+                    ..
+                } => serde_json::from_slice::<serde_json::Value>(pending_domain_event).ok(),
+                _ => None,
+            })
+            .expect("post_read must retain a receipt projection behind PersistOk");
         assert_eq!(receipt["data"]["userId"], serde_json::json!(AUTHOR));
         assert_eq!(receipt["data"]["isSelf"], serde_json::json!(true));
-        assert_eq!(
+        assert!(
+            out.as_slice()
+                .iter()
+                .filter_map(emit_body)
+                .all(|body| !body.contains("im:post:read")),
+            "post_read must not emit a receipt before PersistOk"
+        );
+        assert!(
             ctx.take_attached_timeline_refreshes()
                 .get(&channel_id(123))
-                .cloned(),
-            Some(None),
-            "post_read must re-enter the typed timeline readback path"
+                .is_none(),
+            "post_read must not refresh timeline before PersistOk"
+        );
+        let writes = out
+            .as_slice()
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Persist { .. }))
+            .count();
+        assert_eq!(
+            writes, 1,
+            "post_read must establish exactly one correlated persistence barrier"
         );
     }
 }

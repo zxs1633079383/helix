@@ -65,6 +65,36 @@ impl SurfaceResyncRequest {
 }
 
 impl ImModule {
+    /// G14 durable authority 到达后，仅为当前已 attach 的 read receipt slot 启动权威重取。
+    pub(crate) fn refresh_attached_read_receipts(
+        &mut self,
+        channel_id: &str,
+        message_id: &str,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self
+            .state
+            .participant_receipts_projector
+            .current_view(channel_id, message_id, ReceiptKind::Read)
+            .is_none()
+        {
+            return Ok(());
+        }
+        self.start_receipt_snapshot(
+            SurfaceResyncRequest {
+                surface: SurfaceId::MessageParticipantReceipts,
+                scope: SurfaceScope::ParticipantReceipts {
+                    channel_id: channel_id.to_string(),
+                    message_id: message_id.to_string(),
+                    receipt_kind: ReceiptKind::Read,
+                },
+                causation_id,
+            },
+            out,
+        )
+    }
+
     /// 将已校验的 G12 authority 投影为 snapshot 或 attached-thread patch。
     pub(crate) fn project_reply_thread_frame(
         &mut self,

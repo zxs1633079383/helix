@@ -2,9 +2,9 @@
 
 ## Producer
 
-- 唯一 producer：`crates/helix-im/src/outbound/posts/read.rs` 经 `ImModule::handle -> Effect::Emit`。
+- 唯一 producer：`crates/helix-im/src/outbound/posts/existing.rs`、`crates/helix-im/src/ws/handlers/post_read.rs` 与 receipt SurfaceRuntime 经 `ImModule::handle -> Effect::Emit`。
 - Commands：im_post_read。
-- Persistence：message_receipt。
+- Persistence：Strict Matrix 领域名 `message_receipt`，当前物理落点为 `message.read_bits`。
 - Surfaces：message.participant-receipts。
 - Golden：`crates/helix-im/tests/fixtures/g14-wdio/`，普通测试只比较，显式 update 才覆盖。
 

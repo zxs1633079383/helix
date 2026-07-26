@@ -17,7 +17,8 @@
 //!     `+1` cursor 排序、不参与 `flush_contiguous`、**不**推进 cursor——cursor 是消息序列水位，
 //!     把无序的旁路已读回执塞进 gate 推进它会污染同步基线（违 spec §S6 cursor 单调语义）。
 //!
-//! ∴ post_read 走**专用直路**：`apply_read_op`（覆盖 read_bits）+ `emit_post_read`（fat），
+//! ∴ post_read 走**专用相关持久直路**：`apply_read_op`（覆盖 read_bits）先经 `PersistOk`，
+//! 成功后才释放 `emit_post_read`、attached timeline readback 与 receipt authority refresh；
 //! **不经 gate**。守 HX-C005（数据在手不回读：read_bits 取帧内 readMap，不回查 DB）。
 //!
 //! content event（`post` / `post_update` / `post_revoke`）仍走 gate 严格 +1（那是带序的消息事件，
@@ -36,10 +37,12 @@ const POST_READ_ACTION: &str = "post_read";
 struct PostReadHandler;
 
 impl WsMessageHandler for PostReadHandler {
+    /// 声明当前 handler 唯一消费的服务端权威 action。
     fn action(&self) -> &'static str {
         POST_READ_ACTION
     }
 
+    /// 解析 G14 权威位图并建立相关持久屏障；本 step 不直接发布终态投影。
     fn handle(
         &self,
         ctx: &mut ImWsContext<'_>,
@@ -93,41 +96,58 @@ impl WsMessageHandler for PostReadHandler {
             .and_then(serde_json::Value::as_i64)
             .unwrap_or_default();
 
-        // 专用直路（不经 gate）：
-        //   ① 覆盖式落 read_bits（O(1) `UPDATE message SET read_bits WHERE id=postId`；既存行命中，
-        //      消息体尚未落地时 0 行 = 安全 no-op，待后续 type1 sync 带其自身 read_bits）；
-        //   ② emit `im:post:read`（fat·event_seq=0：read 不参与消息序列，投影 event_seq 仅占位键）。
-        // WS 路径用 PersistFire（幂等）。cursor 不推进（read 是旁路回执，非序列事件）。
-        out.push(Effect::PersistFire {
-            ops: vec![crate::channel::apply_read_op(
-                &post_id,
-                fields.read_bits.as_str(),
-            )],
-        });
-        out.push(
-            crate::acl::to_effect::emit_post_read_with_receipt_revision_for_viewer(
+        let authority = (receipt_revision, fields.read_bits.clone());
+        if ctx
+            .state
+            .committed_post_reads
+            .get(&post_id)
+            .is_some_and(|committed| {
+                committed == &authority
+                    || (receipt_revision > 0 && committed.0 > 0 && receipt_revision < committed.0)
+            })
+        {
+            return Ok(());
+        }
+        let pending_domain_event =
+            match crate::acl::to_effect::emit_post_read_with_receipt_revision_for_viewer(
                 channel_id,
                 0,
                 &post_id,
                 &fields,
                 receipt_revision,
                 ctx.auth_user_id,
-            ),
-        );
+            ) {
+                Effect::Emit { event } => event.0.to_vec(),
+                _ => return Ok(()),
+            };
         let pending_action = ctx
             .state
             .pending_authority_actions
-            .remove(&(
+            .get(&(
                 crate::projector::action::AuthorityMutationKind::Read,
                 post_id.clone(),
-            ));
-        // read_bits 已先以权威覆盖写进入本地存储；随后仍需经过 attached timeline 的
-        // local-first readback 重新生成 typed InteractionFrame，不能让 PC 从 raw
-        // `im:post:read` 自行拼 VM。失效 coverage 后调度一次即可，保持同一 WS step 去重。
-        ctx.request_attached_timeline_refresh_with_causation(
-            channel_id,
-            pending_action.map(|pending| pending.request_id),
+            ))
+            .cloned();
+        let corr = ctx.alloc_corr();
+        ctx.state.corr_map.insert(
+            corr,
+            crate::state::CorrelationContext::PostReadPersist {
+                channel_id,
+                message_id: post_id.clone(),
+                receipt_revision,
+                read_bits: fields.read_bits.clone(),
+                pending_domain_event,
+                pending_action,
+            },
         );
+        // read_bits 是旁路权威事实，不推进 channel cursor；但必须等待相关写回执后再对 renderer 可见。
+        out.push(Effect::Persist {
+            corr,
+            ops: vec![crate::channel::apply_read_op(
+                &post_id,
+                fields.read_bits.as_str(),
+            )],
+        });
         Ok(())
     }
 }

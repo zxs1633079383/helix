@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-13 review-green 到 specs/039-ifv2-g-14-post-read/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/outbound/posts/read.rs、crates/helix-im/tests/g14_receipt_template_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/039-ifv2-g-14-post-read/research.md
+- [X] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-13 review-green 到 specs/039-ifv2-g-14-post-read/verification.md
+- [X] T002 [P] 按 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/src/ws/handlers/post_read.rs、crates/helix-im/tests/g14_receipt_template_interaction_test.rs 与 Mobile 当前 G13/G14 边界复核 CURRENT/TARGET/GAP 并更新 specs/039-ifv2-g-14-post-read/research.md
 
 ---
 
@@ -21,7 +21,7 @@
 
 **Purpose**: 复用三端 fresh-group prerequisite；完成前不得进入业务 story。
 
-- [ ] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
+- [X] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
 
 ---
 
@@ -29,11 +29,11 @@
 
 **Purpose**: 完整业务流、生产 Frame、Fixture 与 Golden。
 
-- [ ] T004 [P] [US1] 先在 crates/helix-im/tests/g14_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
-- [ ] T005 [US1] 在 crates/helix-im/tests/support/g14_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
-- [ ] T006 [US1] 在 crates/helix-im/src/outbound/posts/read.rs 对齐 im_post_read 的生产 handler、authority 与幂等语义，禁止测试旁路。
-- [ ] T007 [US1] 在 crates/helix-im/tests/g14_receipt_template_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
-- [ ] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.participant-receipts 完整 mutation/action/directive，缺口回 Helix 修复
+- [X] T004 [P] [US1] 先在 crates/helix-im/tests/g14_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
+- [X] T005 [US1] 在 crates/helix-im/tests/support/g14_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
+- [X] T006 [US1] 在 crates/helix-im/src/outbound/posts/existing.rs、crates/helix-im/src/ws/handlers/post_read.rs、crates/helix-im/src/correlation.rs 与 crates/helix-im/src/port_reply/dispatch.rs 对齐 im_post_read admission、HTTP/WS authority、Persist barrier、failure 与 duplicate/late reply 行为
+- [X] T007 [US1] 在 crates/helix-im/tests/g14_receipt_template_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
+- [X] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.participant-receipts 完整 mutation/action/directive，缺口回 Helix 修复
 - [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g14_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
 - [ ] T010 [US1] 由 crates/helix-im/tests/support/g14_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g14-wdio/ canonical JSON，不手写平台 VM
 - [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g14-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
@@ -65,13 +65,13 @@
 - [ ] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g14-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g14-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g14/
 - [ ] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g14-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
 - [ ] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G14FrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
-- [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 对齐 G-14 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
+- [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc14PostReadTest.cpp 对齐 G-14 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
 - [ ] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_post_read 生产 command admission 与 Frame event pump，不注册测试 API
 - [ ] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
 - [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.participant-receipts Frame，unknown schema/surface/revision fail-closed
 - [ ] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-14 的 im.surface.view typed view/action，不增加 raw reducer
 - [ ] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-14 V1 producer/consumer/raw fallback=0
-- [ ] T032 [US3] 运行 G14FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/039-ifv2-g-14-post-read/verification.md
+- [ ] T032 [US3] 运行 G14FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc14PostReadTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/039-ifv2-g-14-post-read/verification.md
 
 ---
 
@@ -118,7 +118,7 @@ T001-T002 -> T003 -> T004-T012 -> T013-T022 -> T023-T032 -> T033-T038
 | T003 | FR-001 | A-001 | `three-repo prerequisite support` | T001 | isolated group tests | new channel per run |
 | T004 | FR-003,FR-005 | A-001,A-002 | `crates/helix-im/tests/g14_full_flow_test.rs` | T002-T003 | V-001 RED | missing production behavior falsified |
 | T005 | FR-003,FR-005 | A-001,A-002 | `crates/helix-im/tests/support/g14_scenario.rs` | T004 | V-001 | reusable deterministic trace |
-| T006 | FR-003,FR-004 | A-001,A-002 | `crates/helix-im/src/outbound/posts/read.rs` | T004-T005 | V-001 | happy/failure/race pass |
+| T006 | FR-003,FR-004 | A-001,A-002 | `crates/helix-im/src/outbound/posts/existing.rs`; `crates/helix-im/src/ws/handlers/post_read.rs`; `crates/helix-im/src/correlation.rs`; `crates/helix-im/src/port_reply/dispatch.rs` | T004-T005 | V-001 | happy/failure/race pass |
 | T007 | FR-004,FR-005 | A-002 | `crates/helix-im/tests/g14_receipt_template_interaction_test.rs` | T006 | focused cargo test | terminal authority proven |
 | T008 | FR-003,FR-013 | A-002 | `crates/helix-im/src/surface_composer.rs` | T006-T007 | Frame field assertions | complete V2 frame |
 | T009 | FR-006..FR-008 | A-003 | `crates/helix-im/tests/g14_wdio_fixture_contract_test.rs` | T008 | V-002 RED | fixture drift detected |
@@ -138,7 +138,7 @@ T001-T002 -> T003 -> T004-T012 -> T013-T022 -> T023-T032 -> T033-T038
 | T023 | FR-011,FR-013 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g14-helix-fixtures.mjs` | T011-T012 | byte parity | Mobile mirror exact |
 | T024 | FR-011,FR-013 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g14-fixture-parity.mjs` | T023 | Node parity test | mirror fail-closed |
 | T025 | FR-011,FR-013 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G14FrameContractTest.cpp` | T024 | V-005 RED | runtime gaps falsified |
-| T026 | FR-011,FR-013 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc13ReadTest.cpp` | T025 | focused GTest | UC behavior current |
+| T026 | FR-011,FR-013 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc14PostReadTest.cpp` | T025 | focused GTest | UC behavior current |
 | T027 | FR-011,FR-012 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp` | T025-T026 | GTest + boundary scan | SDK production ingress |
 | T028 | FR-011,FR-012 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp` | T027 | FFI lifecycle GTest | batch bridge Green |
 | T029 | FR-011..FR-013 | A-006 | `/System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp` | T028 | Frame contract GTest | atomic typed state |

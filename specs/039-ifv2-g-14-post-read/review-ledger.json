@@ -1,13 +1,15 @@
 {
   "schema_version": "1.0",
   "feature_directory": "specs/039-ifv2-g-14-post-read",
-  "phase": "ready",
-  "event_seq": 6,
-  "next_action": "admit_implementation",
+  "phase": "implementing",
+  "event_seq": 13,
+  "next_action": "implement_tasks",
   "budget": {
     "max_same_failure_attempts": 2
   },
-  "failure_attempts": {},
+  "failure_attempts": {
+    "82186b29fd932ffe": 1
+  },
   "gates": {
     "r1_spec": {
       "status": "pass",
@@ -17,21 +19,23 @@
     },
     "r2_plan": {
       "status": "pass",
-      "fingerprint": "92f242ff12757781bb270c74115810ff7a98504c98f2b9046545b7e2a9237d88",
-      "checked_at": "2026-07-25T07:43:48Z",
+      "fingerprint": "df69e09777667977364646c108e5b95258a990d29d7d5b2aa01181db06bd26f1",
+      "checked_at": "2026-07-26T11:21:51Z",
       "issues": []
     },
     "r3_tasks": {
       "status": "pass",
-      "fingerprint": "47b980082a999922d341e8bc9cf8af7492b6abc0c88f3477017e38c6c282fa39",
-      "checked_at": "2026-07-25T07:43:49Z",
+      "fingerprint": "7b2a358a16c9b19fa503d9c2666d10a208a4909c1c51feafc93b61f9cc01753f",
+      "checked_at": "2026-07-26T11:21:57Z",
       "issues": []
     },
     "r4_evidence": {
-      "status": "pending",
+      "status": "blocked",
       "fingerprint": null,
       "checked_at": null,
-      "issues": []
+      "issues": [
+        "missing evidence/evidence.json"
+      ]
     }
   },
   "convergence": {
@@ -74,6 +78,48 @@
       "at": "2026-07-25T07:43:49Z",
       "kind": "phase",
       "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 7,
+      "at": "2026-07-26T11:13:25Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
+    },
+    {
+      "seq": 8,
+      "at": "2026-07-26T11:15:59Z",
+      "kind": "failure",
+      "detail": "r4_evidence:82186b29fd932ffe: attempt 1"
+    },
+    {
+      "seq": 9,
+      "at": "2026-07-26T11:15:59Z",
+      "kind": "phase",
+      "detail": "implementing->verifying: missing evidence/evidence.json"
+    },
+    {
+      "seq": 10,
+      "at": "2026-07-26T11:21:51Z",
+      "kind": "phase",
+      "detail": "verifying->planning: input fingerprint changed for r2_plan"
+    },
+    {
+      "seq": 11,
+      "at": "2026-07-26T11:21:51Z",
+      "kind": "phase",
+      "detail": "planning->tasking: r2_plan passed"
+    },
+    {
+      "seq": 12,
+      "at": "2026-07-26T11:21:57Z",
+      "kind": "phase",
+      "detail": "tasking->ready: r3_tasks passed"
+    },
+    {
+      "seq": 13,
+      "at": "2026-07-26T11:21:57Z",
+      "kind": "phase",
+      "detail": "ready->implementing: R1-R3 admitted implementation"
     }
   ]
 }

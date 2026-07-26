@@ -108,6 +108,27 @@ impl G12ScenarioRunner {
         }
     }
 
+    /// 回放 attached thread 的空分支成功，证明 command 仍以 causal Frame 结算。
+    pub fn run_empty_branch() -> InteractionFrameV2 {
+        let mut replay = Replay::new();
+        let snapshot_corr = replay.start_snapshot();
+        replay.reply(
+            snapshot_corr,
+            PortOutcome::Ok(ReplyBytes(http_envelope(snapshot_body(
+                CHANNEL_ID, ROOT_ID,
+            )))),
+            1,
+        );
+        replay.only_frame();
+        let branch_corr = replay.start_branch();
+        replay.reply(
+            branch_corr,
+            PortOutcome::Ok(ReplyBytes(http_envelope(empty_branch_body()))),
+            2,
+        );
+        replay.only_frame()
+    }
+
     /// 回放 HTTP failure，证明 raw reply 与伪成功 Frame 均不会泄漏。
     pub fn run_http_failure() -> ReplyNoFrameTrace {
         let mut replay = Replay::new();
@@ -234,6 +255,29 @@ pub fn assert_branch_contract(frame: &InteractionFrameV2) {
     );
     assert_eq!(patch.view.reply_count, 3);
     assert!(patch.view.nodes.contains_key(BRANCH_REPLY_ID));
+}
+
+/// 逐字段验证空 branch 仍推进 revision、保留已有节点并携带 command causation。
+pub fn assert_empty_branch_contract(frame: &InteractionFrameV2) {
+    frame
+        .validate()
+        .expect("G12 empty branch Frame remains valid");
+    assert_eq!(frame.schema_version, 2);
+    assert_eq!(frame.causation_id.as_deref(), Some(BRANCH_REQUEST_ID));
+    assert_eq!(frame.mutations.len(), 1);
+    let mutation = &frame.mutations[0];
+    assert_eq!(mutation.mutation.base_revision, Some(1));
+    assert_eq!(mutation.mutation.revision, 2);
+    let TypedSurfaceMutation::ThreadDetailPatch { patch } = &mutation.mutation.mutation else {
+        panic!("G12 empty branch must settle with a complete thread patch");
+    };
+    assert_eq!(
+        patch.view.ordered_reply_ids,
+        vec![FIRST_REPLY_ID.to_string(), SECOND_REPLY_ID.to_string()]
+    );
+    assert_eq!(patch.view.reply_count, 2);
+    assert_eq!(patch.view.nodes.len(), 2);
+    assert!(!patch.view.nodes.contains_key(BRANCH_REPLY_ID));
 }
 
 /// 从共享生产建群回放生成 G12 fresh-group Frame。
@@ -436,6 +480,17 @@ fn branch_body(channel_id: &str, root_id: &str) -> Bytes {
             "hasMore": false,
         }))
         .expect("G12 branch body serializes"),
+    )
+}
+
+/// 构造成功但无新增 reply 的 getReplyBranch authority body。
+fn empty_branch_body() -> Bytes {
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "data": [],
+            "hasMore": false,
+        }))
+        .expect("G12 empty branch body serializes"),
     )
 }
 

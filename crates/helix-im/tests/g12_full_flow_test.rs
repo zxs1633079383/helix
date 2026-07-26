@@ -6,8 +6,8 @@ mod scenario;
 use serde_json::Value;
 
 use scenario::{
-    assert_branch_contract, assert_group_created_contract_for, assert_snapshot_contract,
-    g12_scenario_spec, G12ScenarioRunner, FIRST_REPLY_ID, ROOT_ID,
+    assert_branch_contract, assert_empty_branch_contract, assert_group_created_contract_for,
+    assert_snapshot_contract, g12_scenario_spec, G12ScenarioRunner, FIRST_REPLY_ID, ROOT_ID,
 };
 
 /// 证明 canonical G12 case 从双用户 fresh group 开始。
@@ -65,6 +65,12 @@ fn happy_path_projects_complete_thread_snapshot() {
 fn branch_path_projects_complete_thread_patch() {
     let trace = G12ScenarioRunner::run_success();
     assert_branch_contract(&trace.branch);
+}
+
+/// 证明 attached 空分支也发布 causal terminal Frame，而不是让平台永久等待。
+#[test]
+fn empty_branch_authority_settles_with_complete_thread_patch() {
+    assert_empty_branch_contract(&G12ScenarioRunner::run_empty_branch());
 }
 
 /// 证明 transport failure 不发布空成功 Frame。

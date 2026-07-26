@@ -122,9 +122,6 @@ impl ImModule {
                         })?,
                     );
                 }
-                if replies.is_empty() {
-                    return Ok(());
-                }
                 self.state
                     .thread_detail_projector
                     .append(

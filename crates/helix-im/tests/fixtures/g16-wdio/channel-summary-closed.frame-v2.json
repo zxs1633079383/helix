@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "channel-lifecycle-chfixx00000000000000000016",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.channel-summary",
+      "scope": {
+        "kind": "channel",
+        "channelId": "chfixx00000000000000000016"
+      },
+      "revision": 2,
+      "baseRevision": 1,
+      "mutation": {
+        "kind": "channelSummaryPatch",
+        "patch": {
+          "kind": "replaceView",
+          "view": {
+            "channelId": "chfixx00000000000000000016",
+            "title": {
+              "text": "G16 Fixture Group"
+            },
+            "avatar": {
+              "resource": null,
+              "userIds": [],
+              "fallbackText": "G16 Fixture Group"
+            },
+            "lifecycle": {
+              "state": "closed",
+              "reason": "channelClosed"
+            },
+            "memberCount": 2,
+            "viewerRole": "owner",
+            "topicCount": 0,
+            "notificationMode": "all",
+            "actions": [
+              {
+                "actionRef": "channel:channel-settings:chfixx00000000000000000016:1",
+                "kind": "channel-settings",
+                "inputShape": "object",
+                "surfaceEpoch": 1,
+                "enabled": false,
+                "disabledReason": "channelTerminal"
+              },
+              {
+                "actionRef": "channel:channel-close:chfixx00000000000000000016:1",
+                "kind": "channel-close",
+                "inputShape": "object",
+                "surfaceEpoch": 1,
+                "enabled": false,
+                "disabledReason": "channelTerminal"
+              },
+              {
+                "actionRef": "channel:channel-leave:chfixx00000000000000000016:1",
+                "kind": "channel-leave",
+                "inputShape": "object",
+                "surfaceEpoch": 1,
+                "enabled": false,
+                "disabledReason": "channelTerminal"
+              }
+            ],
+            "settingsVersion": 16
+          }
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

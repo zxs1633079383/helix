@@ -6,7 +6,7 @@
 
 ## Summary
 
-以 Helix 生产 handler `crates/helix-im/src/outbound/channel_admin/create.rs` 为业务真源，补齐 `G-15a` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
+以 Helix production command `crates/helix-im/src/outbound/channel_admin/existing.rs`、HTTP terminal `crates/helix-im/src/port_reply/dispatch_channel_create.rs` 与 WS authority `crates/helix-im/src/ws/handlers/channel_created.rs` 为业务真源，补齐 `G-15a` 的完整 sans-IO 场景、persist barrier、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
 
 ## Technical Context
 
@@ -101,7 +101,9 @@ specs/041-ifv2-g-15a-create-channel/
 ### Source Code
 
 ```text
-crates/helix-im/src/outbound/channel_admin/create.rs
+crates/helix-im/src/outbound/channel_admin/existing.rs
+crates/helix-im/src/port_reply/dispatch_channel_create.rs
+crates/helix-im/src/ws/handlers/channel_created.rs
 crates/helix-im/tests/channel_create_http_reconcile_test.rs
 crates/helix-im/tests/g15a_full_flow_test.rs
 crates/helix-im/tests/g15a_wdio_fixture_contract_test.rs

@@ -1,0 +1,21 @@
+=== channel-created.frame-v2.json
+7af79514d959c45dd21c74a2f2980917ae7486da7a82b15cc2d6e4a5a4a42631  crates/helix-im/tests/fixtures/g15a-wdio/channel-created.frame-v2.json
+7af79514d959c45dd21c74a2f2980917ae7486da7a82b15cc2d6e4a5a4a42631  /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g15a/channel-created.frame-v2.json
+7af79514d959c45dd21c74a2f2980917ae7486da7a82b15cc2d6e4a5a4a42631  /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g15a/channel-created.frame-v2.json
+=== channel-summary-recovery.frame-v2.json
+03e3b59aca0cc1148cad2cf02988ac750a2f884b33d07ba4e54c6aaec3a86845  crates/helix-im/tests/fixtures/g15a-wdio/channel-summary-recovery.frame-v2.json
+03e3b59aca0cc1148cad2cf02988ac750a2f884b33d07ba4e54c6aaec3a86845  /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g15a/channel-summary-recovery.frame-v2.json
+03e3b59aca0cc1148cad2cf02988ac750a2f884b33d07ba4e54c6aaec3a86845  /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g15a/channel-summary-recovery.frame-v2.json
+=== member-roster-recovery.frame-v2.json
+07059b78824f9a55186b7dd89321442559226a659ad6f3d26338f43edacabb6a  crates/helix-im/tests/fixtures/g15a-wdio/member-roster-recovery.frame-v2.json
+07059b78824f9a55186b7dd89321442559226a659ad6f3d26338f43edacabb6a  /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g15a/member-roster-recovery.frame-v2.json
+07059b78824f9a55186b7dd89321442559226a659ad6f3d26338f43edacabb6a  /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g15a/member-roster-recovery.frame-v2.json
+=== provenance.json
+7bb1d819a500070d1965cf770bdabb065fb6453aeec355a78479d964c3c77fb4  crates/helix-im/tests/fixtures/g15a-wdio/provenance.json
+7bb1d819a500070d1965cf770bdabb065fb6453aeec355a78479d964c3c77fb4  /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g15a/provenance.json
+7bb1d819a500070d1965cf770bdabb065fb6453aeec355a78479d964c3c77fb4  /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g15a/provenance.json
+BEHAVIOR_REVIEW PASS fresh-group=true actor=444 observer=678 permission=owner/member failures=fail-closed race=idempotent recovery=snapshot
+CODE_BOUNDARY_REVIEW PASS helixReducer=ImModule::handle pcProductionMockReachable=false mobileClientReducer=false mobileV1Producer=0 mobileV1Consumer=0
+FRAME_V2_REVIEW PASS schemaVersion=2 surfaces=message.channel-summary,message.member-roster rosterCursor=initial atomicCreate=true recoverySnapshot=true
+EVIDENCE_REVIEW PASS independentLanes=V-001,V-002,V-003,V-004,V-005,V-006,V-007 retainedTransientFailures=1 finalRequiredRuns=pass
+SHARED_REGRESSION BLOCKED required=false file=V-008-mobile-shared-regression-blocked.log cause=legacy-GS01-GS03-create-prerequisite-plus-later-remote-create-timeout owner=future-GS-gates

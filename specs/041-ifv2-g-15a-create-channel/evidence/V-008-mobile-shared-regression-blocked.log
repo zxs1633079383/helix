@@ -1,0 +1,903 @@
+G15A_MOBILE_FIXTURE_PARITY_OK count=3 helix=157daca3760e9c94d7b6bc9f38798e199628b1aa
+G15A_MOBILE_CONTRACT_OK fixtures=3 helix=91f6b0283566e25a8e8b77a5894b9bc6e181bdd8
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = G15AFrameContractTest.*:Uc15ChannelCreateTest.*-Uc15ChannelCreateTest.RealChain
+[==========] Running 15 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 9 tests from Uc15ChannelCreateTest
+[ RUN      ] Uc15ChannelCreateTest.ContractAcceptsCanonicalInput
+[       OK ] Uc15ChannelCreateTest.ContractAcceptsCanonicalInput (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.LegacyCharacterization
+[       OK ] Uc15ChannelCreateTest.LegacyCharacterization (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalFrameReplay
+[       OK ] Uc15ChannelCreateTest.CanonicalFrameReplay (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.SnapshotEqualsPatch
+[       OK ] Uc15ChannelCreateTest.SnapshotEqualsPatch (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.RejectsStaleOrCorruptInput
+[       OK ] Uc15ChannelCreateTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.NoClientBusinessRepair
+[       OK ] Uc15ChannelCreateTest.NoClientBusinessRepair (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalCreateFrameBatchReachesTypedViews
+[       OK ] Uc15ChannelCreateTest.CanonicalCreateFrameBatchReachesTypedViews (2 ms)
+[ RUN      ] Uc15ChannelCreateTest.TopicRepliesProjectionPersistsRootRelation
+[       OK ] Uc15ChannelCreateTest.TopicRepliesProjectionPersistsRootRelation (2 ms)
+[ RUN      ] Uc15ChannelCreateTest.PayloadsContainOnlyCanonicalFields
+[       OK ] Uc15ChannelCreateTest.PayloadsContainOnlyCanonicalFields (1 ms)
+[----------] 9 tests from Uc15ChannelCreateTest (14 ms total)
+
+[----------] 6 tests from G15AFrameContractTest
+[ RUN      ] G15AFrameContractTest.DecodesCompleteCreatedFrameFields
+[       OK ] G15AFrameContractTest.DecodesCompleteCreatedFrameFields (0 ms)
+[ RUN      ] G15AFrameContractTest.AppliesCreatedSummaryAndRosterAtomically
+[       OK ] G15AFrameContractTest.AppliesCreatedSummaryAndRosterAtomically (1 ms)
+[ RUN      ] G15AFrameContractTest.AppliesSummaryAndRosterRecoverySnapshots
+[       OK ] G15AFrameContractTest.AppliesSummaryAndRosterRecoverySnapshots (1 ms)
+[ RUN      ] G15AFrameContractTest.RejectsInvalidFramesWithoutPartialState
+[       OK ] G15AFrameContractTest.RejectsInvalidFramesWithoutPartialState (2 ms)
+[ RUN      ] G15AFrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews
+[       OK ] G15AFrameContractTest.ReplaysProductionBatchIntoQuickJsTypedViews (1 ms)
+[ RUN      ] G15AFrameContractTest.AppliesDomainEventsThroughProductionCAbi
+[       OK ] G15AFrameContractTest.AppliesDomainEventsThroughProductionCAbi (11 ms)
+[----------] 6 tests from G15AFrameContractTest (19 ms total)
+
+[----------] Global test environment tear-down
+[==========] 15 tests from 2 test suites ran. (33 ms total)
+[  PASSED  ] 15 tests.
+UC01-16 contract gate passed: 27 delivery Gates, 19 regression/excluded Gates, Helix 91f6b0283566e25a8e8b77a5894b9bc6e181bdd8
+mobile gtest binary compiled: /System/Volumes/Data/workspace/c/mobile-qucik-c++/build/mobile_js_spec_test
+NATIVE_SESSION_START cases=1 filter=Uc15ChannelCreateTest.*
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = Uc15ChannelCreateTest.*
+[==========] Running 10 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 10 tests from Uc15ChannelCreateTest
+[ RUN      ] Uc15ChannelCreateTest.ContractAcceptsCanonicalInput
+[       OK ] Uc15ChannelCreateTest.ContractAcceptsCanonicalInput (2 ms)
+[ RUN      ] Uc15ChannelCreateTest.LegacyCharacterization
+[       OK ] Uc15ChannelCreateTest.LegacyCharacterization (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalFrameReplay
+[       OK ] Uc15ChannelCreateTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.SnapshotEqualsPatch
+[       OK ] Uc15ChannelCreateTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Uc15ChannelCreateTest.RejectsStaleOrCorruptInput
+[       OK ] Uc15ChannelCreateTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.RealChain
+REAL_CHAIN_RESULT {"gate":"G-15a.setup","channelId":"xffg1otwn3npuqc45ztawdjioc","groupName":"mobile UC15 group-fixture mrc-mobile-uc-20260726181259-79589","command":true,"typedDialog":true,"ucId":"UC15","phase":"G-15a-create","actor":"444","runId":"mrc-mobile-uc-20260726181259-79589"}
+REAL_CHAIN_RESULT {"gate":"G-15a.setup","channelId":"xffg1otwn3npuqc45ztawdjioc","groupName":"mobile UC15 group-fixture mrc-mobile-uc-20260726181259-79589","command":true,"typedDialog":true,"ucId":"UC15","phase":"G-15a-create","actor":"444","runId":"mrc-mobile-uc-20260726181259-79589"}
+REAL_CHAIN_RESULT {"gate":"G-15a.setup","channelId":"xffg1otwn3npuqc45ztawdjioc","groupName":"mobile UC15 group-fixture mrc-mobile-uc-20260726181259-79589","command":true,"typedDialog":true,"ucId":"UC15","phase":"G-15a-create","actor":"444","runId":"mrc-mobile-uc-20260726181259-79589"}
+REAL_CHAIN_RESULT {"gate":"G-15a.setup","channelId":"xffg1otwn3npuqc45ztawdjioc","groupName":"mobile UC15 group-fixture mrc-mobile-uc-20260726181259-79589","command":true,"typedDialog":true,"ucId":"UC15","phase":"G-15a-create","actor":"444","runId":"mrc-mobile-uc-20260726181259-79589"}
+REAL_CHAIN_RESULT {"gate":"G-15a.setup","channelId":"xffg1otwn3npuqc45ztawdjioc","groupName":"mobile UC15 group-fixture mrc-mobile-uc-20260726181259-79589","command":true,"typedDialog":true,"ucId":"UC15","phase":"G-15a-create","actor":"444","runId":"mrc-mobile-uc-20260726181259-79589"}
+REAL_CHAIN_RESULT {"gate":"G-15a","channelId":"xffg1otwn3npuqc45ztawdjioc","command":true,"typedSummary":true,"typedRoster":true,"clientReducer":false,"cleanupCommand":true,"ucId":"UC15","phase":"G-15a-typed-recovery","actor":"444","runId":"mrc-mobile-uc-20260726181259-79589"}
+[       OK ] Uc15ChannelCreateTest.RealChain (1475 ms)
+[ RUN      ] Uc15ChannelCreateTest.NoClientBusinessRepair
+[       OK ] Uc15ChannelCreateTest.NoClientBusinessRepair (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.CanonicalCreateFrameBatchReachesTypedViews
+[       OK ] Uc15ChannelCreateTest.CanonicalCreateFrameBatchReachesTypedViews (2 ms)
+[ RUN      ] Uc15ChannelCreateTest.TopicRepliesProjectionPersistsRootRelation
+[       OK ] Uc15ChannelCreateTest.TopicRepliesProjectionPersistsRootRelation (1 ms)
+[ RUN      ] Uc15ChannelCreateTest.PayloadsContainOnlyCanonicalFields
+[       OK ] Uc15ChannelCreateTest.PayloadsContainOnlyCanonicalFields (1 ms)
+[----------] 10 tests from Uc15ChannelCreateTest (1488 ms total)
+
+[----------] Global test environment tear-down
+[==========] 10 tests from 1 test suite ran. (1488 ms total)
+[  PASSED  ] 10 tests.
+NATIVE_SESSION_COMPLETED cases=1
+FOCUSED_SEQUENCE_COMPLETED UC15
+surface-runtime source pin gate passed: Helix 91f6b0283566e25a8e8b77a5894b9bc6e181bdd8, interaction_frame.rs sha256=ca3d331d5a30e9e1feeb4f363c841ee9e4b587f7d94dc9621d10c9e20efbcea0, manifest sha256=30732bb642000e37b97ec24b07ac3334a8e9da358b83e10fc837133e99740bdd, rich-v2 sha256=fd6a38b2c8a5192ed6243c0b2143329f26022961979def2fa54cd9eb482d1ffc, ffi headers pinned, G02 fixtures=6, G03a fixtures=8, G04 fixtures=4, G04a fixtures=4, G05 fixtures=4, G06 fixtures=4, G07 fixtures=7, G08 fixtures=4, G09 fixtures=4, G10 fixtures=6, G10a fixtures=6, G11 fixtures=3, G12 fixtures=3, G13 fixtures=4, G14 fixtures=6, G14a fixtures=4, G15a fixtures=3, explicit parity=not requested
+surface-runtime legacy hard-cut gate passed: production V1 producers=0 consumers=0 G01/G02/G03a/G04/G04a/G05/G06/G07/G08/G09/G10/G10a/G11/G12/G13/G14/G14a/G15a typed-only
+no-js-facade gate passed
+./scripts/build-helix-ffi.sh
+using pinned helix rev 91f6b0283566e25a8e8b77a5894b9bc6e181bdd8 from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix-src
+    Finished `release` profile [optimized] target(s) in 0.45s
+helix artifacts copied to /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix
+./scripts/build-quickjs.sh
+quickjs artifacts ready: /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/quickjs
+./scripts/run-venus-helix-im-smoke.sh
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /System/Volumes/Data/workspace/c/mobile-qucik-c++/build/venus-cmake
+[ 17%] Built target mobile_surface_runtime
+[ 21%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/HelixImDriverRuntime.cpp.o
+[ 26%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/HelixImQuickJsBinding.cpp.o
+[ 30%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/VenusImApi.cpp.o
+[ 34%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImApiSupport.cpp.o
+[ 39%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImRootApi.cpp.o
+[ 43%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImEventsApi.cpp.o
+[ 47%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImSurfaceApi.cpp.o
+[ 52%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImPostsApi.cpp.o
+[ 56%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImAnnouncementsApi.cpp.o
+[ 60%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImBookmarksApi.cpp.o
+[ 65%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImChannelsApi.cpp.o
+[ 69%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImMembersApi.cpp.o
+[ 73%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImSyncApi.cpp.o
+[ 78%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImTeamsApi.cpp.o
+[ 82%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImModulesApi.cpp.o
+[ 86%] Building CXX object CMakeFiles/venus_driver_quickjs.dir/api/ImInboxApi.cpp.o
+[ 91%] Linking CXX static library libvenus_driver_quickjs.a
+[ 91%] Built target venus_driver_quickjs
+[ 95%] Building CXX object CMakeFiles/venus_driver_quickjs_smoke.dir/main.cpp.o
+[100%] Linking CXX executable venus_driver_quickjs_smoke
+[100%] Built target venus_driver_quickjs_smoke
+[js] 【结果】 im.configure {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.send {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "temporaryId": "tmp-venus",
+  "text": "hello",
+  "type": "TEXT"
+}
+[js] 【结果】 im.send {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.health {
+  "reqId": "health-1"
+}
+[js] 【结果】 im.health {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.ready {
+  "reqId": "ready-1"
+}
+[js] 【结果】 im.ready {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.retrySend {
+  "messageId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.retrySend {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.relayMessages {
+  "postIds": [
+    "post-venus-driver-quickjs"
+  ],
+  "targetChannelIds": [
+    "m9ij9h6un7naic556dc99na3cc"
+  ]
+}
+[js] 【结果】 im.posts.relayMessages {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.quickReply {
+  "postId": "post-venus-driver-quickjs",
+  "emoji": ":wave:",
+  "userId": "user-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.quickReply {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.revoke {
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.revoke {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.urgentPost {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "targetIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.posts.urgentPost {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.urgentConfirm {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.urgentConfirm {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.createSchedule {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "text": "later",
+  "schedulePostAt": 1893456000000
+}
+[js] 【结果】 im.posts.createSchedule {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.cancelSchedule {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.posts.cancelSchedule {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.templateReceived {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.templateReceived {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.pin {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "pinned": true
+}
+[js] 【结果】 im.posts.pin {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.unpin {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.unpin {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.markRead {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postIds": [
+    "post-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.posts.markRead {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.readChannel {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.posts.readChannel {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.queryMessagesByChannel {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "limit": 20
+}
+[js] 【结果】 im.posts.queryMessagesByChannel {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.loadOlderContext {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "limit": 20
+}
+[js] 【结果】 im.posts.loadOlderContext {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.locate {
+  "postIds": [
+    "post-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.posts.locate {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.getReplies {
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.getReplies {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.posts.getReplyBranch {
+  "postId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.posts.getReplyBranch {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.save {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "title": "title",
+  "content": "body"
+}
+[js] 【结果】 im.announcements.save {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.read {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.read {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.delete {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.delete {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.list {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.announcements.list {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.detail {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.detail {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.announcements.acceptList {
+  "announcementId": "post-venus-driver-quickjs"
+}
+[js] 【结果】 im.announcements.acceptList {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.bookmarks.create {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "userId": "user-venus-driver-quickjs"
+}
+[js] 【结果】 im.bookmarks.create {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.bookmarks.delete {
+  "bookmarkId": "bookmark-1"
+}
+[js] 【结果】 im.bookmarks.delete {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.bookmarks.load {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.bookmarks.load {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.create {
+  "displayName": "venus",
+  "selfId": "user-venus-driver-quickjs",
+  "teamId": "team-venus-driver-quickjs",
+  "memberIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.channels.create {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.makeTopic {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "postId": "post-venus-driver-quickjs",
+  "teamId": "team-venus-driver-quickjs"
+}
+[js] 【结果】 im.channels.makeTopic {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeDisplayName {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "displayName": "renamed"
+}
+[js] 【结果】 im.channels.changeDisplayName {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeNotice {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "notice": "notice"
+}
+[js] 【结果】 im.channels.changeNotice {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeInfo {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "purpose": "purpose"
+}
+[js] 【结果】 im.channels.changeInfo {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.changeTop {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "top": true
+}
+[js] 【结果】 im.channels.changeTop {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.close {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.close {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.leave {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.leave {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.query {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.query {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.onlineStatus {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.onlineStatus {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.channels.ensureLoaded {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.channels.ensureLoaded {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.change {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "joinUserIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.members.change {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.setRole {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "userIds": [
+    "user-venus-driver-quickjs"
+  ],
+  "role": "manager"
+}
+[js] 【结果】 im.members.setRole {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.updateNickname {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "userId": "user-venus-driver-quickjs",
+  "nickname": "venus"
+}
+[js] 【结果】 im.members.updateNickname {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.byIds {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "memberIds": [
+    "user-venus-driver-quickjs"
+  ]
+}
+[js] 【结果】 im.members.byIds {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.members.snapshot {
+  "channelId": "m9ij9h6un7naic556dc99na3cc"
+}
+[js] 【结果】 im.members.snapshot {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.sync.dialogList {}
+[js] 【结果】 im.sync.dialogList {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.sync.channels {
+  "channelId": "m9ij9h6un7naic556dc99na3cc",
+  "cursor": "0"
+}
+[js] 【结果】 im.sync.channels {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.teams.upsert {
+  "teamId": "team-venus-driver-quickjs",
+  "teamName": "Venus"
+}
+[js] 【结果】 im.teams.upsert {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.teams.quit {
+  "teamId": "team-venus-driver-quickjs"
+}
+[js] 【结果】 im.teams.quit {
+  "ok": true,
+  "code": 0
+}
+[js] 【调用】 im.modules.getAll {}
+[js] 【结果】 im.modules.getAll {
+  "ok": true,
+  "code": 0
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/revoke"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/urgentPost"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/urgentConfirm"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/cancelSchedule"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/templateReceived"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/add/postPinned"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/remove/postPinned"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/read"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/get"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/getReplies"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/getReplyBranch"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/announcement/save"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/post/announcement/list"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:posts:batch-result {
+  "data": {
+    "acceptedCount": 0,
+    "batchStatus": "failed",
+    "deliveryAuthority": "ws-post",
+    "error": "source post not found: post-venus-driver-quickjs",
+    "failedCount": 1,
+    "reqId": "relay-1785089675499-5",
+    "targets": [
+      {
+        "acceptanceStatus": "failed",
+        "channelId": "m9ij9h6un7naic556dc99na3cc",
+        "deliveryStatus": "not-applicable",
+        "error": "source post not found: post-venus-driver-quickjs"
+      }
+    ]
+  },
+  "event": "im:posts:batch-result"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/create"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/displayName"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/notice"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/info"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/change/top"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/close"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/member/leave"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/query"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/load/incrementByChannelId"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/member/change"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/member/change/nickname"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/channel/sync/notify"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/modules/getAll"
+  },
+  "event": "im:net:offline"
+}
+[js] 【Helix 返回】 im:net:offline {
+  "data": {
+    "url": "http://127.0.0.1:1/posts/getLatestPost"
+  },
+  "event": "im:net:offline"
+}
+venus driver QuickJS smoke passed
+UC01-16 contract gate passed: 27 delivery Gates, 19 regression/excluded Gates, Helix 91f6b0283566e25a8e8b77a5894b9bc6e181bdd8
+mobile gtest binary compiled: /System/Volumes/Data/workspace/c/mobile-qucik-c++/build/mobile_js_spec_test
+WAIVED_GAP phase=execution case=UC03 gates=G-03 reason=本轮用户明确要求跳过 G03 媒体验收，保留缺口且不得计为通过。
+WAIVED_GAP phase=execution case=UC04 gates=G-03a reason=UC04 依赖本轮已跳过的 G03 媒体失败与重试链，保留缺口且不得计为通过。
+NATIVE_SESSION_START cases=18 filter=Gs01HelloSyncTest.*:Gs02OfflineNotifySyncTest.*:Gs03PongGapSyncTest.*:Gs04UnknownChannelHydrationTest.*:Uc01TextSendTest.*:Uc02DocumentSendTest.*:Uc05RevokeTest.*:Uc06RelayTest.*:Uc07QuickReplyTest.*:Uc08UrgentTest.*:Uc09ScheduleTest.*:Uc10HistoryTest.*:Uc11LocateTest.*:Uc12RepliesTest.*:Uc13ReadTest.*:Uc14TemplateReceivedTest.*:Uc15ChannelCreateTest.*:Uc16ChannelLifecycleTest.*
+Running main() from /System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = Gs01HelloSyncTest.*:Gs02OfflineNotifySyncTest.*:Gs03PongGapSyncTest.*:Gs04UnknownChannelHydrationTest.*:Uc01TextSendTest.*:Uc02DocumentSendTest.*:Uc05RevokeTest.*:Uc06RelayTest.*:Uc07QuickReplyTest.*:Uc08UrgentTest.*:Uc09ScheduleTest.*:Uc10HistoryTest.*:Uc11LocateTest.*:Uc12RepliesTest.*:Uc13ReadTest.*:Uc14TemplateReceivedTest.*:Uc15ChannelCreateTest.*:Uc16ChannelLifecycleTest.*
+[==========] Running 151 tests from 18 test suites.
+[----------] Global test environment set-up.
+[----------] 7 tests from Gs01HelloSyncTest
+[ RUN      ] Gs01HelloSyncTest.ContractAcceptsCanonicalInput
+[       OK ] Gs01HelloSyncTest.ContractAcceptsCanonicalInput (1 ms)
+[ RUN      ] Gs01HelloSyncTest.LegacyCharacterization
+[       OK ] Gs01HelloSyncTest.LegacyCharacterization (1 ms)
+[ RUN      ] Gs01HelloSyncTest.CanonicalFrameReplay
+[       OK ] Gs01HelloSyncTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Gs01HelloSyncTest.SnapshotEqualsPatch
+[       OK ] Gs01HelloSyncTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Gs01HelloSyncTest.RejectsStaleOrCorruptInput
+[       OK ] Gs01HelloSyncTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Gs01HelloSyncTest.RealChain
+unknown file: Failure
+C++ exception with description "Error: BLOCKED GS01 owner=go-channel-create: timeout waiting im:channel:created anchors=mobile GS01 hello-full-increment mrc-mobile-uc-20260726181852-82417 observed=[{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"8pwk97xbhpyu9ggco3oasqb1cy","channel_id":"8pwk97xbhpyu9ggco3oasqb1cy","createAt":1784957811415,"createdAt":1784957811415,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"ohicecz4mffhtqpdzm91wnhjwr","isSelf":false,"message":"","msgId":"ohicecz4mffhtqpdzm91wnhjwr","msg_id":"ohicecz4mffhtqpdzm91wnhjwr","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ohicecz4mffhtqpdzm91wnhjwr","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"ohicecz4mffhtqpdzm91wnhjwr","text":"","topic":{},"type":"NOTICE","updateAt":1784957811415,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"8pwk97xbhpyu9ggco3oasqb1cy","channel_id":"8pwk97xbhpyu9ggco3oasqb1cy","createAt":1784957812593,"createdAt":1784957812593,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"36rp8ipgo3fnbyzm99t4pym5ko","isSelf":true,"message":"G01-SINGLE-REAL-single-real-20260725053641695-31881","msgId":"36rp8ipgo3fnbyzm99t4pym5ko","msg_id":"36rp8ipgo3fnbyzm99t4pym5ko","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"36rp8ipgo3fnbyzm99t4pym5ko","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f97c6bf71_0000000000000001","text":"G01-SINGLE-REAL-single-real-20260725053641695-31881","topic":{},"type":"TEXT","updateAt":1784957812593,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"8pwk97xbhpyu9ggco3oasqb1cy","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","channel_id":"gfwixj3iw3f38pz9wkrs8t1ksh","createAt":1784957641697,"createdAt":1784957641697,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"i4q18mo83tbt3kiasbh3n4a5wo","isSelf":false,"message":"","msgId":"i4q18mo83tbt3kiasbh3n4a5wo","msg_id":"i4q18mo83tbt3kiasbh3n4a5wo","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"i4q18mo83tbt3kiasbh3n4a5wo","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"i4q18mo83tbt3kiasbh3n4a5wo","text":"","topic":{},"type":"NOTICE","updateAt":1784957641697,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","channel_id":"gfwixj3iw3f38pz9wkrs8t1ksh","createAt":1784957642974,"createdAt":1784957642974,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"ae8ykhrqbbbjuphi96jaogk3iw","isSelf":true,"message":"G01-INTEGRATION-integration-20260725053352078-30697","msgId":"ae8ykhrqbbbjuphi96jaogk3iw","msg_id":"ae8ykhrqbbbjuphi96jaogk3iw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ae8ykhrqbbbjuphi96jaogk3iw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f97c428de_0000000000000001","text":"G01-INTEGRATION-integration-20260725053352078-30697","topic":{},"type":"TEXT","updateAt":1784957642974,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","channel_id":"gt849ysnmpbp9ej6a5wn7jaimh","createAt":1784953828781,"createdAt":1784953828781,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"i1yunzdenfdu3y4i4jnfyq4cgr","isSelf":false,"message":"","msgId":"i1yunzdenfdu3y4i4jnfyq4cgr","msg_id":"i1yunzdenfdu3y4i4jnfyq4cgr","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"i1yunzdenfdu3y4i4jnfyq4cgr","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"i1yunzdenfdu3y4i4jnfyq4cgr","text":"","topic":{},"type":"NOTICE","updateAt":1784953828781,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","channel_id":"gt849ysnmpbp9ej6a5wn7jaimh","createAt":1784953829397,"createdAt":1784953829397,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"9r11bmkxtiy8pdhsgd5bn6ainw","isSelf":true,"message":"G01-SINGLE-REAL-single-real-20260725043017990-2281","msgId":"9r11bmkxtiy8pdhsgd5bn6ainw","msg_id":"9r11bmkxtiy8pdhsgd5bn6ainw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"9r11bmkxtiy8pdhsgd5bn6ainw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f9789f815_0000000000000001","text":"G01-SINGLE-REAL-single-real-20260725043017990-2281","topic":{},"type":"TEXT","updateAt":1784953829397,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"91fg141btirimccqdmi8bzimkh","channel_id":"91fg141btirimccqdmi8bzimkh","createAt":1784953850363,"createdAt":1784953850363,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"943q719hk7bc8jeiad5f9k1g9c","isSelf":false,"message":"","msgId":"943q719hk7bc8jeiad5f9k1g9c","msg_id":"943q719hk7bc8jeiad5f9k1g9c","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"943q719hk7bc8jeiad5f9k1g9c","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"943q719hk7bc8jeiad5f9k1g9c","text":"","topic":{},"type":"NOTICE","updateAt":1784953850363,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"91fg141btirimccqdmi8bzimkh","channel_id":"91fg141btirimccqdmi8bzimkh","createAt":1784953851067,"createdAt":1784953851067,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"ybj95dss9jy1jdz696g7617baw","isSelf":true,"message":"G01-DUAL-REAL-dual-real-20260725043036821-2552","msgId":"ybj95dss9jy1jdz696g7617baw","msg_id":"ybj95dss9jy1jdz696g7617baw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ybj95dss9jy1jdz696g7617baw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f978a4cbb_0000000000000001","text":"G01-DUAL-REAL-dual-real-20260725043036821-2552","topic":{},"type":"TEXT","updateAt":1784953851067,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"91fg141btirimccqdmi8bzimkh","committedSeq":2},"state":"committed"},"event":"im:sync:state"}]
+    at blocked (GS01 real-chain G-S1-setup actor=userA:17:18)
+    at waitAny (GS01 real-chain G-S1-setup actor=userA:90:10)
+    at createFreshGroupPrerequisite (GS01 real-chain G-S1-setup actor=userA:263:22)
+    at createChannel (GS01 real-chain G-S1-setup actor=userA:271:3)
+    at <anonymous> (GS01 real-chain G-S1-setup actor=userA:351:31)
+    at <eval> (GS01 real-chain G-S1-setup actor=userA:354:3)
+ surfaceRuntimeLastError=<none> surfaceRuntimeRequests={"requests":[]} droppedEventBatches=0" thrown in the test body.
+
+[  FAILED  ] Gs01HelloSyncTest.RealChain (17887 ms)
+[ RUN      ] Gs01HelloSyncTest.NoClientBusinessRepair
+[       OK ] Gs01HelloSyncTest.NoClientBusinessRepair (1 ms)
+[----------] 7 tests from Gs01HelloSyncTest (17895 ms total)
+
+[----------] 9 tests from Gs02OfflineNotifySyncTest
+[ RUN      ] Gs02OfflineNotifySyncTest.ContractAcceptsCanonicalInput
+[       OK ] Gs02OfflineNotifySyncTest.ContractAcceptsCanonicalInput (1 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.LegacyCharacterization
+[       OK ] Gs02OfflineNotifySyncTest.LegacyCharacterization (1 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.CanonicalFrameReplay
+[       OK ] Gs02OfflineNotifySyncTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.SnapshotEqualsPatch
+[       OK ] Gs02OfflineNotifySyncTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.RejectsStaleOrCorruptInput
+[       OK ] Gs02OfflineNotifySyncTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.RealChain
+unknown file: Failure
+C++ exception with description "Error: BLOCKED GS02 owner=go-channel-create: timeout waiting im:channel:created anchors=mobile GS02 offline-notify mrc-mobile-uc-20260726181852-82417 observed=[{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","channel_id":"gfwixj3iw3f38pz9wkrs8t1ksh","createAt":1784957641697,"createdAt":1784957641697,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"i4q18mo83tbt3kiasbh3n4a5wo","isSelf":false,"message":"","msgId":"i4q18mo83tbt3kiasbh3n4a5wo","msg_id":"i4q18mo83tbt3kiasbh3n4a5wo","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"i4q18mo83tbt3kiasbh3n4a5wo","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"i4q18mo83tbt3kiasbh3n4a5wo","text":"","topic":{},"type":"NOTICE","updateAt":1784957641697,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","channel_id":"gfwixj3iw3f38pz9wkrs8t1ksh","createAt":1784957642974,"createdAt":1784957642974,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"ae8ykhrqbbbjuphi96jaogk3iw","isSelf":true,"message":"G01-INTEGRATION-integration-20260725053352078-30697","msgId":"ae8ykhrqbbbjuphi96jaogk3iw","msg_id":"ae8ykhrqbbbjuphi96jaogk3iw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ae8ykhrqbbbjuphi96jaogk3iw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f97c428de_0000000000000001","text":"G01-INTEGRATION-integration-20260725053352078-30697","topic":{},"type":"TEXT","updateAt":1784957642974,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"i3zkyhdpkbnrteydn1q41kx1be","channel_id":"i3zkyhdpkbnrteydn1q41kx1be","createAt":1784957666449,"createdAt":1784957666449,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"7f75r5or3tbq8na1hjwki48abh","isSelf":false,"message":"","msgId":"7f75r5or3tbq8na1hjwki48abh","msg_id":"7f75r5or3tbq8na1hjwki48abh","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"7f75r5or3tbq8na1hjwki48abh","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"7f75r5or3tbq8na1hjwki48abh","text":"","topic":{},"type":"NOTICE","updateAt":1784957666449,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"i3zkyhdpkbnrteydn1q41kx1be","channel_id":"i3zkyhdpkbnrteydn1q41kx1be","createAt":1784957667293,"createdAt":1784957667293,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"1bdmu1jyt3nh7fcnp6md3x59ec","isSelf":true,"message":"G01-SINGLE-REAL-single-real-20260725053412860-30826","msgId":"1bdmu1jyt3nh7fcnp6md3x59ec","msg_id":"1bdmu1jyt3nh7fcnp6md3x59ec","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"1bdmu1jyt3nh7fcnp6md3x59ec","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f97c487dd_0000000000000001","text":"G01-SINGLE-REAL-single-real-20260725053412860-30826","topic":{},"type":"TEXT","updateAt":1784957667293,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"i3zkyhdpkbnrteydn1q41kx1be","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"91fg141btirimccqdmi8bzimkh","channel_id":"91fg141btirimccqdmi8bzimkh","createAt":1784953850363,"createdAt":1784953850363,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"943q719hk7bc8jeiad5f9k1g9c","isSelf":false,"message":"","msgId":"943q719hk7bc8jeiad5f9k1g9c","msg_id":"943q719hk7bc8jeiad5f9k1g9c","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"943q719hk7bc8jeiad5f9k1g9c","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"943q719hk7bc8jeiad5f9k1g9c","text":"","topic":{},"type":"NOTICE","updateAt":1784953850363,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"91fg141btirimccqdmi8bzimkh","channel_id":"91fg141btirimccqdmi8bzimkh","createAt":1784953851067,"createdAt":1784953851067,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"ybj95dss9jy1jdz696g7617baw","isSelf":true,"message":"G01-DUAL-REAL-dual-real-20260725043036821-2552","msgId":"ybj95dss9jy1jdz696g7617baw","msg_id":"ybj95dss9jy1jdz696g7617baw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ybj95dss9jy1jdz696g7617baw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f978a4cbb_0000000000000001","text":"G01-DUAL-REAL-dual-real-20260725043036821-2552","topic":{},"type":"TEXT","updateAt":1784953851067,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"91fg141btirimccqdmi8bzimkh","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","channel_id":"gt849ysnmpbp9ej6a5wn7jaimh","createAt":1784953828781,"createdAt":1784953828781,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"i1yunzdenfdu3y4i4jnfyq4cgr","isSelf":false,"message":"","msgId":"i1yunzdenfdu3y4i4jnfyq4cgr","msg_id":"i1yunzdenfdu3y4i4jnfyq4cgr","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"i1yunzdenfdu3y4i4jnfyq4cgr","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"i1yunzdenfdu3y4i4jnfyq4cgr","text":"","topic":{},"type":"NOTICE","updateAt":1784953828781,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","channel_id":"gt849ysnmpbp9ej6a5wn7jaimh","createAt":1784953829397,"createdAt":1784953829397,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"9r11bmkxtiy8pdhsgd5bn6ainw","isSelf":true,"message":"G01-SINGLE-REAL-single-real-20260725043017990-2281","msgId":"9r11bmkxtiy8pdhsgd5bn6ainw","msg_id":"9r11bmkxtiy8pdhsgd5bn6ainw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"9r11bmkxtiy8pdhsgd5bn6ainw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f9789f815_0000000000000001","text":"G01-SINGLE-REAL-single-real-20260725043017990-2281","topic":{},"type":"TEXT","updateAt":1784953829397,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","committedSeq":2},"state":"committed"},"event":"im:sync:state"}]
+    at blocked (GS02 real-chain G-S2-setup actor=userA:17:18)
+    at waitAny (GS02 real-chain G-S2-setup actor=userA:90:10)
+    at createFreshGroupPrerequisite (GS02 real-chain G-S2-setup actor=userA:263:22)
+    at createChannel (GS02 real-chain G-S2-setup actor=userA:271:3)
+    at <anonymous> (GS02 real-chain G-S2-setup actor=userA:351:31)
+    at <eval> (GS02 real-chain G-S2-setup actor=userA:356:3)
+ surfaceRuntimeLastError=<none> surfaceRuntimeRequests={"requests":[]} droppedEventBatches=0" thrown in the test body.
+
+[  FAILED  ] Gs02OfflineNotifySyncTest.RealChain (15622 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.NoClientBusinessRepair
+[       OK ] Gs02OfflineNotifySyncTest.NoClientBusinessRepair (1 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.ZeroEventSeqIsOmitted
+[       OK ] Gs02OfflineNotifySyncTest.ZeroEventSeqIsOmitted (0 ms)
+[ RUN      ] Gs02OfflineNotifySyncTest.ReasonWithoutEventSeqContractDoesNotLeakIt
+[       OK ] Gs02OfflineNotifySyncTest.ReasonWithoutEventSeqContractDoesNotLeakIt (0 ms)
+[----------] 9 tests from Gs02OfflineNotifySyncTest (15630 ms total)
+
+[----------] 7 tests from Gs03PongGapSyncTest
+[ RUN      ] Gs03PongGapSyncTest.ContractAcceptsCanonicalInput
+[       OK ] Gs03PongGapSyncTest.ContractAcceptsCanonicalInput (0 ms)
+[ RUN      ] Gs03PongGapSyncTest.LegacyCharacterization
+[       OK ] Gs03PongGapSyncTest.LegacyCharacterization (0 ms)
+[ RUN      ] Gs03PongGapSyncTest.CanonicalFrameReplay
+[       OK ] Gs03PongGapSyncTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Gs03PongGapSyncTest.SnapshotEqualsPatch
+[       OK ] Gs03PongGapSyncTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Gs03PongGapSyncTest.RejectsStaleOrCorruptInput
+[       OK ] Gs03PongGapSyncTest.RejectsStaleOrCorruptInput (0 ms)
+[ RUN      ] Gs03PongGapSyncTest.RealChain
+unknown file: Failure
+C++ exception with description "Error: BLOCKED GS03 owner=go-channel-create: timeout waiting im:channel:created anchors=mobile GS03 pong-gap mrc-mobile-uc-20260726181852-82417 observed=[{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"i3zkyhdpkbnrteydn1q41kx1be","channel_id":"i3zkyhdpkbnrteydn1q41kx1be","createAt":1784957666449,"createdAt":1784957666449,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"7f75r5or3tbq8na1hjwki48abh","isSelf":false,"message":"","msgId":"7f75r5or3tbq8na1hjwki48abh","msg_id":"7f75r5or3tbq8na1hjwki48abh","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"7f75r5or3tbq8na1hjwki48abh","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"7f75r5or3tbq8na1hjwki48abh","text":"","topic":{},"type":"NOTICE","updateAt":1784957666449,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"i3zkyhdpkbnrteydn1q41kx1be","channel_id":"i3zkyhdpkbnrteydn1q41kx1be","createAt":1784957667293,"createdAt":1784957667293,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"1bdmu1jyt3nh7fcnp6md3x59ec","isSelf":true,"message":"G01-SINGLE-REAL-single-real-20260725053412860-30826","msgId":"1bdmu1jyt3nh7fcnp6md3x59ec","msg_id":"1bdmu1jyt3nh7fcnp6md3x59ec","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"1bdmu1jyt3nh7fcnp6md3x59ec","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f97c487dd_0000000000000001","text":"G01-SINGLE-REAL-single-real-20260725053412860-30826","topic":{},"type":"TEXT","updateAt":1784957667293,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"i3zkyhdpkbnrteydn1q41kx1be","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","channel_id":"gfwixj3iw3f38pz9wkrs8t1ksh","createAt":1784957641697,"createdAt":1784957641697,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"i4q18mo83tbt3kiasbh3n4a5wo","isSelf":false,"message":"","msgId":"i4q18mo83tbt3kiasbh3n4a5wo","msg_id":"i4q18mo83tbt3kiasbh3n4a5wo","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"i4q18mo83tbt3kiasbh3n4a5wo","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"i4q18mo83tbt3kiasbh3n4a5wo","text":"","topic":{},"type":"NOTICE","updateAt":1784957641697,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","channel_id":"gfwixj3iw3f38pz9wkrs8t1ksh","createAt":1784957642974,"createdAt":1784957642974,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"ae8ykhrqbbbjuphi96jaogk3iw","isSelf":true,"message":"G01-INTEGRATION-integration-20260725053352078-30697","msgId":"ae8ykhrqbbbjuphi96jaogk3iw","msg_id":"ae8ykhrqbbbjuphi96jaogk3iw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ae8ykhrqbbbjuphi96jaogk3iw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f97c428de_0000000000000001","text":"G01-INTEGRATION-integration-20260725053352078-30697","topic":{},"type":"TEXT","updateAt":1784957642974,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"gfwixj3iw3f38pz9wkrs8t1ksh","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"91fg141btirimccqdmi8bzimkh","channel_id":"91fg141btirimccqdmi8bzimkh","createAt":1784953850363,"createdAt":1784953850363,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"943q719hk7bc8jeiad5f9k1g9c","isSelf":false,"message":"","msgId":"943q719hk7bc8jeiad5f9k1g9c","msg_id":"943q719hk7bc8jeiad5f9k1g9c","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"943q719hk7bc8jeiad5f9k1g9c","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"943q719hk7bc8jeiad5f9k1g9c","text":"","topic":{},"type":"NOTICE","updateAt":1784953850363,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"91fg141btirimccqdmi8bzimkh","channel_id":"91fg141btirimccqdmi8bzimkh","createAt":1784953851067,"createdAt":1784953851067,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"ybj95dss9jy1jdz696g7617baw","isSelf":true,"message":"G01-DUAL-REAL-dual-real-20260725043036821-2552","msgId":"ybj95dss9jy1jdz696g7617baw","msg_id":"ybj95dss9jy1jdz696g7617baw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"ybj95dss9jy1jdz696g7617baw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f978a4cbb_0000000000000001","text":"G01-DUAL-REAL-dual-real-20260725043036821-2552","topic":{},"type":"TEXT","updateAt":1784953851067,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"91fg141btirimccqdmi8bzimkh","committedSeq":2},"state":"committed"},"event":"im:sync:state"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":true,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":false,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":false},"canConfirmUrgent":false,"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","channel_id":"gt849ysnmpbp9ej6a5wn7jaimh","createAt":1784953828781,"createdAt":1784953828781,"eventSeq":1,"event_seq":1,"expediteMap":{},"forwardDetail":null,"id":"i1yunzdenfdu3y4i4jnfyq4cgr","isSelf":false,"message":"","msgId":"i1yunzdenfdu3y4i4jnfyq4cgr","msg_id":"i1yunzdenfdu3y4i4jnfyq4cgr","pinned":null,"props":{"operator":{"id":"444","name":"破坏者","role":"","teamId":"64118eebd2b665246b7880eb"},"type":"join","users":[{"id":"444","name":"破坏者","role":"CREATOR","teamId":"64118eebd2b665246b7880eb"},{"id":"678","name":"擎天柱","role":"MEMBER","teamId":"64118eebd2b665246b7880eb"}]},"reactionCount":0,"reactions":null,"readBits":"00","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"i1yunzdenfdu3y4i4jnfyq4cgr","systemNotice":true,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"i1yunzdenfdu3y4i4jnfyq4cgr","text":"","topic":{},"type":"NOTICE","updateAt":1784953828781,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"SYS","viewers":["all"]},"event":"im:post:received"},{"data":{"actionCapabilities":{"canCreateTopic":true,"canForward":true,"canLocate":true,"canMarkRead":false,"canReact":true,"canReply":true,"canRetry":false,"canRevoke":true,"canTemplateConfirm":false,"canUrgent":true,"canUrgentConfirm":false,"canViewReceipt":true},"canConfirmUrgent":false,"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","channel_id":"gt849ysnmpbp9ej6a5wn7jaimh","createAt":1784953829397,"createdAt":1784953829397,"eventSeq":2,"event_seq":2,"expediteMap":{},"forwardDetail":null,"id":"9r11bmkxtiy8pdhsgd5bn6ainw","isSelf":true,"message":"G01-SINGLE-REAL-single-real-20260725043017990-2281","msgId":"9r11bmkxtiy8pdhsgd5bn6ainw","msg_id":"9r11bmkxtiy8pdhsgd5bn6ainw","pinned":null,"props":{},"reactionCount":0,"reactions":null,"readBits":"0","readerIds":[],"repliedMessage":null,"replyCount":0,"replyFirstLevelId":"","replyId":"","replyMessages":{},"replyRootId":"","sendStatus":"sent","serverId":"9r11bmkxtiy8pdhsgd5bn6ainw","systemNotice":false,"templateConfirmedCount":0,"templateReceived":false,"temporaryId":"helix_tmp_0000019f9789f815_0000000000000001","text":"G01-SINGLE-REAL-single-real-20260725043017990-2281","topic":{},"type":"TEXT","updateAt":1784953829397,"urgent":false,"urgentConfirmedCount":0,"urgentConfirmedIds":[],"urgentRequesterId":null,"urgentRequiredCount":0,"urgentState":"inactive","urgentTargetCount":0,"urgentTargetIds":[],"userId":"444","viewers":["all"]},"event":"im:post:received"},{"data":{"recovery":{"channelId":"gt849ysnmpbp9ej6a5wn7jaimh","committedSeq":2},"state":"committed"},"event":"im:sync:state"}]
+    at blocked (GS03 real-chain G-S3-setup actor=userA:17:18)
+    at waitAny (GS03 real-chain G-S3-setup actor=userA:90:10)
+    at createFreshGroupPrerequisite (GS03 real-chain G-S3-setup actor=userA:263:22)
+    at createChannel (GS03 real-chain G-S3-setup actor=userA:271:3)
+    at <anonymous> (GS03 real-chain G-S3-setup actor=userA:351:31)
+    at <eval> (GS03 real-chain G-S3-setup actor=userA:355:3)
+ surfaceRuntimeLastError=<none> surfaceRuntimeRequests={"requests":[]} droppedEventBatches=0" thrown in the test body.
+
+[  FAILED  ] Gs03PongGapSyncTest.RealChain (15550 ms)
+[ RUN      ] Gs03PongGapSyncTest.NoClientBusinessRepair
+[       OK ] Gs03PongGapSyncTest.NoClientBusinessRepair (1 ms)
+[----------] 7 tests from Gs03PongGapSyncTest (15556 ms total)
+
+[----------] 7 tests from Gs04UnknownChannelHydrationTest
+[ RUN      ] Gs04UnknownChannelHydrationTest.ContractAcceptsCanonicalInput
+[       OK ] Gs04UnknownChannelHydrationTest.ContractAcceptsCanonicalInput (1 ms)
+[ RUN      ] Gs04UnknownChannelHydrationTest.LegacyCharacterization
+[       OK ] Gs04UnknownChannelHydrationTest.LegacyCharacterization (1 ms)
+[ RUN      ] Gs04UnknownChannelHydrationTest.CanonicalFrameReplay
+[       OK ] Gs04UnknownChannelHydrationTest.CanonicalFrameReplay (0 ms)
+[ RUN      ] Gs04UnknownChannelHydrationTest.SnapshotEqualsPatch
+[       OK ] Gs04UnknownChannelHydrationTest.SnapshotEqualsPatch (0 ms)
+[ RUN      ] Gs04UnknownChannelHydrationTest.RejectsStaleOrCorruptInput
+[       OK ] Gs04UnknownChannelHydrationTest.RejectsStaleOrCorruptInput (1 ms)
+[ RUN      ] Gs04UnknownChannelHydrationTest.RealChain
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}
+REAL_CHAIN_RESULT {"coldDatabase":true,"initialChannelCount":292,"ucId":"GS04","phase":"G-S4-cold-database","actor":"678","runId":"mrc-mobile-uc-20260726181852-82417"}

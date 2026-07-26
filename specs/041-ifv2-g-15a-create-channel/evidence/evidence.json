@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im; helix-core runtime dependency scan",
+      "started_at": "2026-07-26T11:04:21-07:00",
+      "ended_at": "2026-07-26T11:04:41-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-001-helix-build.log",
+          "sha256": "fa4f9b24942a33d13b4fbf48b2cf2b1d55eb1aaff48c016015b19cc9db69ae52"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test -p helix-im --test g15a_full_flow_test -- --nocapture",
+      "started_at": "2026-07-26T11:04:28-07:00",
+      "ended_at": "2026-07-26T11:04:29-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-002-helix-scenario.log",
+          "sha256": "1cb231b5531ad8002fc5d8f2c32518c57ba59aae242f83798208b4e6b544d4ca"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "cargo test -p helix-im --test g15a_wdio_fixture_contract_test -- --nocapture",
+      "started_at": "2026-07-26T11:04:29-07:00",
+      "ended_at": "2026-07-26T11:04:32-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-003-helix-fixture.log",
+          "sha256": "8c5e89c0dc3459f35f36d5aaa889656111f363c1602d5e652a72372427898e53"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "yarn message:wdio:g15a:mock && yarn message:wdio:g15a:report && yarn message:wdio:g15a:boundary",
+      "started_at": "2026-07-26T11:05:28-07:00",
+      "ended_at": "2026-07-26T11:06:03-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-004-pc-mock.log",
+          "sha256": "7ff9c80bd72286ae55c829abee6aabc197bee5424793748ca0e3c984cdb5ace4"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "yarn message:wdio:g15a:single-real && yarn message:wdio:g15a:dual-real; retain first transient directory miss; rerun dual-real",
+      "started_at": "2026-07-26T11:06:17-07:00",
+      "ended_at": "2026-07-26T11:10:40-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-005-pc-real.log",
+          "sha256": "7a4efd839f673961175183315185ed80a111a7e7af8e3082560faa723214294b"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G15a parity + production-linked GTest + source pin + hard-cut + no-js-facade + shared Venus smoke",
+      "started_at": "2026-07-26T11:31:50-07:00",
+      "ended_at": "2026-07-26T11:33:29-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-006-mobile-contract.log",
+          "sha256": "df2861b00b7765ab3286253412e4e7e990de5f3ca3a19786483419bea81f227e"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "three-repo G15a byte parity plus behavior/code/Frame V2/evidence review; preserve non-required shared regression blocker separately",
+      "started_at": "2026-07-26T11:15:03-07:00",
+      "ended_at": "2026-07-26T11:35:00-07:00",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/041-ifv2-g-15a-create-channel/evidence/V-007-cross-repo-review.log",
+          "sha256": "730d281c09c04204d3974d3d1be550d95a95fd33180c5cf51016adda8482298f"
+        }
+      ]
+    }
+  ]
+}

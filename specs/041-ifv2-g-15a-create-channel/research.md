@@ -1,10 +1,10 @@
 # Research: G-15a 创建群聊
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `2c706dfdb9ca40ff3eec720287f46f9b9cb0e82e`；cses-client `5b4c5fab0d176024658379cf2f1d91830819903c`（production Helix `76da0e...`）；Mobile `bd534176ec8a7be9247a0ef986499eaf4ad2ae5f`（production Helix `f7e7ecf...`）；Strict Matrix `8b551c0d...`。
 
 ## Decision 1 - 唯一业务真源
 
-**Decision**: `G-15a` 的 command（im_create_channel）、effect（http_write、storage_upsert、projection）、持久事实（channel、channel_member）与 Surface（message.channel-summary、message.member-roster）只由 Helix 生产路径决定。
+**Decision**: `G-15a` 的 command（im_create_channel）、effect（http_write、storage_upsert、projection）、持久事实（channel、channel_member）与 Surface（message.channel-summary、message.member-roster）只由 Helix 生产路径决定。真实 command owner 是 `outbound/channel_admin/existing.rs`，terminal reconcile owner 是 `port_reply/dispatch_channel_create.rs`；不得误改只负责 `im_create_specify_owner` 的 `outbound/channel_admin/create.rs`。
 
 **Rationale**: PC 与 Mobile 自行补字段、排序、权限或 reducer 会形成第二套业务逻辑。
 
@@ -42,9 +42,15 @@
 
 **Alternatives considered**: HTTP 200 即 Green、远端行存在即本地已 apply、固定 HTTP/WS 顺序；全部拒绝。
 
+## Current / Target / Gap
+
+- **CURRENT**: canonical command casing 和 HTTP response reconcile 已存在；HTTP/WS 路径会写 channel/member，并发布 raw `im:channel:created` 或可选 dialog Frame；storage resync 已能分别生成 channel-summary/member-roster snapshot。
+- **TARGET**: HTTP/WS authority 先形成单一 atomic persist correlation，matching PersistOk 后一次性发布 G15a terminal Frame；duplicate WS、迟到 HTTP 和重复 PersistOk 均不得重复 terminal write/Frame；cold attach 从 durable channel/member 恢复同字段 snapshot。
+- **GAP**: 现有 create path 使用 `PersistFire` 并在回执前 emit，live path 未发布 Matrix 声明的两个 Surface，PC/Mobile 也没有 G15a canonical mirror/专属 Frame contract。
+
 ## Resolved Scope
 
-- 当前 Helix owner：`crates/helix-im/src/outbound/channel_admin/create.rs`；现有聚焦测试：`crates/helix-im/tests/channel_create_http_reconcile_test.rs`。
+- 当前 Helix owners：`crates/helix-im/src/outbound/channel_admin/existing.rs`、`crates/helix-im/src/port_reply/dispatch_channel_create.rs` 与 `crates/helix-im/src/ws/handlers/channel_created.rs`；现有聚焦测试：`crates/helix-im/tests/channel_create_http_reconcile_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc15ChannelCreateTest.cpp`。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。

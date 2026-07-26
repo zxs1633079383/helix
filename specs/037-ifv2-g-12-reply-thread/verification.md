@@ -1,5 +1,27 @@
 # Verification Procedure: G-12
 
+## T001-T003 Source Lock And Shared Prerequisite
+
+- Source lock：Helix
+  `533f1b654351f6708e34344aa509fcd58b81cf86`；cses-client
+  `509d10cae61e66f6d0a90461daa8d1ad192ba1b8`；Mobile
+  `49b94309710c511c1ffae1bf41f6a55f022fabe2`。
+- Consumer pins：PC 四个 Helix Tauri dependency 当前均为
+  `5e3ffc026fc8b25f76a7cce162e75734bddb45ca`；Mobile production source
+  lock 为 `60b2d5f579f209a144433db1f96bef8a63f6bd5c`，bundle SHA-256 为
+  `127e60902595cddb6324a10c0fe68cb94fb6cf3968e63a813914fa28785673e6`。
+- Strict Matrix SHA-256 为
+  `b6625b033db6ada5a05ae9d7898f664df25cd097a5a0e18d42aaa3d3e00a02ac`。
+  前序 G11 ledger 为 `phase=closed`、R4=`pass`、`next_action=none`。
+- 工作树边界：PC clean；Mobile 仅有既存未跟踪 bundle 与
+  `tests/.DS_Store`，本 Gate 不覆盖；Helix 只有本次 Spec 指针、ledger、
+  SESSION 与 G12 文档改动。
+- 三端共享 fresh-group prerequisite 已存在：Helix
+  `G01ScenarioRunner::create_group_prerequisite`、PC
+  `prepareMockCreatedGroup`/真实建群 harness、Mobile
+  `RC.createFreshGroupPrerequisite`。G12 每次 canonical/real run 必须调用该
+  能力创建独立 channel/thread，不复制建群 reducer，也不复用 G11 数据。
+
 ## Required Runs
 
 - **V-001 Helix build**: plan 必须锁定受影响 crate 并执行对应 `cargo check`；期望退出码 0，且 helix-core 运行时依赖检查仍为空。

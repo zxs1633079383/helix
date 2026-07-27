@@ -1,0 +1,134 @@
+[
+  {
+    "fileName": "dialog-empty.frame-v2.json",
+    "fixtureId": "gs2-dialog-empty-v2",
+    "fixtureSha256": "21742127278ace6e630903d6abb863d78aadc11b12d933584e3e8f1f9a502d37",
+    "gateId": "G-S2",
+    "generatedAt": "2026-07-27T11:30:00-07:00",
+    "helixCommit": "33b6cf2d5621f6fc417a1229111b58bd6854d713",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/*/view/sections/*/items/*/avatar/userIds/*"
+    ],
+    "placeholderValues": {
+      "actorId": "viewer-444",
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "gs2-wdio-company",
+      "transactionId": "dialog-list-user|10:viewer-444|16:gs2-wdio-company-1"
+    },
+    "producer": "Gs2ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "5afb06d7c94d71afd1eec094110473e75dbeec47d32869868076788223facd01",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  },
+  {
+    "fileName": "dialog-synced.frame-v2.json",
+    "fixtureId": "gs2-dialog-synced-v2",
+    "fixtureSha256": "3572ca74c447ddfd1390635f593ca6f1ebfca4cc9524a9f47ac44582f9661018",
+    "gateId": "G-S2",
+    "generatedAt": "2026-07-27T11:30:00-07:00",
+    "helixCommit": "33b6cf2d5621f6fc417a1229111b58bd6854d713",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/*/view/sections/*/items/*/avatar/userIds/*"
+    ],
+    "placeholderValues": {
+      "actorId": "viewer-444",
+      "baseRevision": 1,
+      "causationId": "sync-persist-6",
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "teamId": "gs2-wdio-company",
+      "transactionId": "dialog-list-user|10:viewer-444|16:gs2-wdio-company-2"
+    },
+    "producer": "Gs2ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "78542b079d4864981a22940ab36909b88278a50005f06425825755f9683371fb",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  },
+  {
+    "fileName": "dialog-recovery.frame-v2.json",
+    "fixtureId": "gs2-dialog-recovery-v2",
+    "fixtureSha256": "20b42126f5f959eda35ffc1d61ec13e985039cbdcef3a181f3f9feda4f795232",
+    "gateId": "G-S2",
+    "generatedAt": "2026-07-27T11:30:00-07:00",
+    "helixCommit": "33b6cf2d5621f6fc417a1229111b58bd6854d713",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/*/view/sections/*/items/*/avatar/userIds/*"
+    ],
+    "placeholderValues": {
+      "actorId": "viewer-444",
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "gs2-wdio-company",
+      "transactionId": "dialog-list-user|10:viewer-444|16:gs2-wdio-company-1"
+    },
+    "producer": "Gs2ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "ceda74f787045308e51dc7a4be5635eec0e87c0a44f242cdcbfdbbe0a7789be7",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  }
+]

@@ -22,6 +22,7 @@ pub struct ChannelSettingsProjection {
     pub header: String,
     pub setting_version: u64,
     pub channel_capabilities: serde_json::Value,
+    pub causation_id: Option<String>,
 }
 
 /// G16 durable lifecycle transition; close and self-leave remain distinct authority facts.
@@ -121,9 +122,11 @@ pub enum CorrelationContext {
     /// `update_channel` 的公共 channel 稀疏字段与当前 viewer `channel_member`
     /// 绝对态已进入同一相关 Persist；仅成功回执允许推进 paired dialog/unread Frame。
     UpdateChannelDialogPersist {
-        scope: crate::dialog_frame::DialogListScope,
+        scope: Option<crate::dialog_frame::DialogListScope>,
+        channel_id: ChannelId,
         channel: Box<serde_json::Value>,
         member_dialog: Option<Box<serde_json::Value>>,
+        causation_id: Option<String>,
     },
 
     /// too_long 后 Helix 主动发起 getLatestPost 首屏重拉的 HTTP 回报。
@@ -298,7 +301,10 @@ pub enum CorrelationContext {
     OutboundMakeTopicFrameRead { projection: MakeTopicProjection },
 
     /// 群设置/公告写回：服务端 SUCCESS 必须携带完整权威设置快照与 settingVersion。
-    OutboundChannelSettings { channel_id: ChannelId },
+    OutboundChannelSettings {
+        channel_id: ChannelId,
+        causation_id: Option<String>,
+    },
 
     /// 权威设置写入本地 channel 后才释放 settings-updated。
     OutboundChannelSettingsPersist {

@@ -41,11 +41,54 @@ impl WsMessageHandler for UpdateChannelNoticeHandler {
             return Ok(());
         };
 
-        out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         let settings = data
             .get("settings")
             .filter(|value| value.is_object())
             .unwrap_or(data);
+        let cols = crate::channel_write::collect_present(settings);
+        if let Some(op) = crate::acl::to_effect::update_channel_partial_op(channel_id, cols) {
+            let scope = ctx.state.dialog_list_frame.scope().cloned();
+            let summary_attached = ctx
+                .state
+                .channel_summary_projector
+                .current_view(channel_id.as_str())
+                .is_some();
+            if scope.is_some() || summary_attached {
+                let corr = ctx.alloc_corr();
+                out.push(helix_core::Effect::Persist {
+                    corr,
+                    ops: vec![op],
+                });
+                let mut persisted_settings = settings.clone();
+                if let Some(object) = persisted_settings.as_object_mut() {
+                    for key in ["settingVersion", "setting_version", "capabilitiesByRole"] {
+                        if object.get(key).is_none() {
+                            if let Some(value) = data.get(key) {
+                                object.insert(key.to_string(), value.clone());
+                            }
+                        }
+                    }
+                }
+                let causation_id = frame.cses_track_id().map(str::to_string).or_else(|| {
+                    frame
+                        .event_seq()
+                        .map(|seq| format!("update-notice-{}", seq.0))
+                });
+                ctx.state.corr_map.insert(
+                    corr,
+                    crate::state::CorrelationContext::UpdateChannelDialogPersist {
+                        scope,
+                        channel_id,
+                        channel: Box::new(persisted_settings),
+                        member_dialog: None,
+                        causation_id,
+                    },
+                );
+            } else {
+                out.push(helix_core::Effect::PersistFire { ops: vec![op] });
+            }
+        }
+        out.push(crate::acl::to_effect::emit_channel_update(channel_id));
         if let Some(setting_version) = data
             .get("settingVersion")
             .or_else(|| data.get("setting_version"))

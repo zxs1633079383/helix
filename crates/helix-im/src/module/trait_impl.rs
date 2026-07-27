@@ -367,20 +367,27 @@ impl Module for ImModule {
                         || name == "im_channel_change_notice"
                         || name == "im_channel_change_display_name"
                     {
-                        if let Some(channel_id) =
+                        if let Ok(value) =
                             serde_json::from_slice::<serde_json::Value>(cmd.payload.as_ref())
-                                .ok()
-                                .and_then(|value| {
-                                    value
-                                        .get("channel_id")
-                                        .and_then(|id| id.as_str())
-                                        .and_then(ChannelId::from_str)
-                                })
                         {
-                            self.state.corr_map.insert(
-                                corr,
-                                CorrelationContext::OutboundChannelSettings { channel_id },
-                            );
+                            if let Some(channel_id) = value
+                                .get("channel_id")
+                                .and_then(|id| id.as_str())
+                                .and_then(ChannelId::from_str)
+                            {
+                                let causation_id = value
+                                    .get("req_id")
+                                    .and_then(serde_json::Value::as_str)
+                                    .filter(|value| !value.is_empty())
+                                    .map(str::to_string);
+                                self.state.corr_map.insert(
+                                    corr,
+                                    CorrelationContext::OutboundChannelSettings {
+                                        channel_id,
+                                        causation_id,
+                                    },
+                                );
+                            }
                         }
                     } else if name == "im_channel_leave" {
                         if let Some(channel_id) =

@@ -14,11 +14,37 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 将 G02-G16c 剩余 22 个业务 Gate 按 G01 V1 稳定目录和文档布局同步到 Apifox 项目 8449651；可证伪断言：① 创建或更新恰好 22 个 Gate 文件夹且每个包含总览、Command、PC、Mobile、字段枚举、Frame 状态流、逐 Frame、UI、覆盖、HTTP/WS、Mock、版本 Diff；② 只嵌入 producer 导出的 canonical fixture，缺失 fixture 明确标记 not-proven；③ 所有 payload 先通过 Apifox CLI schema 校验，回读目录归属和数量一致；④ 不修改 Helix/PC/Mobile/Go 业务代码，不把 AcceptedCommand、Mock 或 HTTP 200 冒充真实渲染完成 | 赌注 高 | 可逆 是 | @2026-07-26T20:00:00-0700
+
+🎯 EXPECT 新增消息审批立项前置说明；可证伪断言：① 以阿里 P6 口径明确本期不承诺、现版组织能力不支持、未来规划未确认和核心 Owner 仅组织/消息两方；② 列清需业务产品、三端、测试、安全及运维角色配合，但不把审批 Owner 虚构给第三方；③ 仅在需求、组织能力、责任和排期四项 Gate 通过或管理层明确接受风险后，才进入现有方案决策稿与四份设计文件 | 赌注 低 | 可逆 是 | @2026-07-26T14:35:00-0700
+
+✅ DONE 已新增 106 行立项前置说明，结论先行标明“本期不承诺、方案已预研、依赖和责任未就绪”，拆出需求、组织能力、长期 Owner、可执行排期四个前置问题及对应 Gate；核心 Owner 仍限定组织/消息双方，业务产品、三端、测试、安全和运维仅作为配合角色。文档提供管理层强推时的风险确认项、四份方案跳转及可直接使用的会议开场话术；README 已增加前置 Gate 链接，文件无行尾空白 | @2026-07-26T14:35:00-0700
+
+🎯 EXPECT 将两套消息审批方案改写为阿里 P6 风格评审稿；可证伪断言：① 四个指定文件保持方案边界和事实不变，表达改为结论先行、业务目标、职责、链路、风险与落地动作；② 删除对抗性和空泛架构话术，方案一仍为推荐、方案二仍为需复审的兜底；③ 两张图使用简短泳道和评审术语，Mermaid CLI 解析与目视检查通过 | 赌注 低 | 可逆 是 | @2026-07-26T14:15:00-0700
+
+✅ DONE 四个指定文件已改写为结论先行的 P6 评审口径：两份 Markdown 分别收敛为 114/120 行，统一使用背景目标、核心判断、职责、业务链路、一期范围、合同/模块边界、风险控制和结论；去除对抗性归责，方案一保持推荐并给出并行交付，方案二保持需单独评审的兜底并量化收益与架构成本。两张图改为“组织域/消息域”短泳道和简短动作，Mermaid CLI 解析及 PNG 目视检查通过，四文件无行尾空白 | @2026-07-26T14:15:00-0700
+
 🎯 EXPECT 创建并注册 Gate Contract Specification Agent；可证伪断言：① 新 Agent 只负责自然语言到 source-validated Gate YAML、Strict Matrix requirements 与 Spec 输入，不吞并实施总控、Fixture producer 或终态 reviewer；② Agent metadata、15 个必需章节、两份 schema、模板/示例、manifest/reference/Router/README/diagram 全部机器可解析且示例通过 schema；③ 至少三条合同定义语句命中新 Agent，实施、WDIO、GTest 和最终 Review 仍命中既有 Agent；④ 不修改任何业务生产代码，不运行 Cargo，验证通过后只提交本任务文件和本条 SESSION | 赌注 中 | 可逆 是 | @2026-07-26T20:36:20-07:00
 
 ✅ DONE 已创建 Gate Contract Specification Agent，并完成合同/Strict Matrix 两份 Draft 2020-12 schema、可校验模板、明确标注 EXAMPLE 的样例、manifest/reference/Router/README/局部 AGENTS/总图注册；Router 新增完整短语匹配但排除短英文子串，三条自然语义均返回新 Agent，Gate 实施/WDIO/GTest/最终 Review 仍返回既有总控、Mobile domain 与独立 reviewer。Agent metadata、15 个章节、注册路径、required references、JSON/YAML、schema 正反例、模板/示例、Python 语法、Mermaid CLI 和 diff check 全部通过；未修改业务生产代码，未运行 Cargo | @2026-07-26T20:51:14-07:00
 
 🎯 EXPECT 按 Spec 045 串行完成 G16c 群属性修改三仓纵向闭环；可证伪断言：① G16b 保持 `CLOSED`，锁定三仓 HEAD 与 Strict Matrix hash 后再实现；② Helix 独占 displayName/notice/info 的权限、终态、持久化与 `message.channel-summary` Frame V2，PC/Mobile 不新增业务 reducer；③ canonical Fixture 仅由 production `ImModule::handle -> Effect::Emit` 生成且三仓 byte-exact；④ PC Mock/single-real/dual-real/report 与 Mobile production-linked GTest/QuickJS typed view required fail=0/skip=0；⑤ 行为、代码边界、Frame V2、production-boundary 与 R4 全 Green且 SpecKit `CLOSED` 前不进入 GS1；⑥ Cargo 仅在完整 Helix 模块与 Gate 验收集中运行 2-3 次 | 赌注 高 | 可逆 是 | @2026-07-26T18:20:00-0700
+
+🎯 EXPECT 将消息审批材料补成可直接拍板的决策包；可证伪断言：① 新增单页 README 作为唯一评审入口，明确推荐结论、决策请求、方案比较、双方交付、并行阶段和兜底切换闸门；② 推荐方案补齐最小组件合同与并行工作流，不要求组织部门理解消息内部实现；③ 兜底方案保持显式复审、架构债务和后续抽离条件，不得自动生效 | 赌注 低 | 可逆 是 | @2026-07-26T13:50:00-0700
+
+✅ DONE 已新增 124 行单页决策入口，集中给出推荐结论、四项待拍板事项、方案对比、双方交付物、最小组件合同、四阶段并行建设与兜底复审闸门；方案一同步补齐双方独立交付、最小联调合同及“不得自动转消息侧”的停止条件，两份方案均回链决策稿。文档无行尾空白，既有两张架构图仍保持本轮已验证的 Owner 与风险表达；未修改生产代码 | @2026-07-26T13:50:00-0700
+
+🎯 EXPECT 调整两套消息审批评审稿的真实组织边界；可证伪断言：① 方案一明确由组织架构部门建设和维护独立通用审批组件，并标为推荐方案；② 方案二明确为消息系统内建的风险兜底，不再与方案一写成等价优选；③ 四个文件均同步团队 Owner、选择结论和架构债务，Mermaid CLI 解析通过 | 赌注 低 | 可逆 是 | @2026-07-26T13:35:00-0700
+
+✅ DONE 四个评审文件已同步真实组织边界：方案一明确“组织架构部门负责独立通用审批组件、消息部门负责内容与投递”并标为推荐；方案二改为消息系统内建的风险兜底，列出公共能力绑定 IM、重复建设与后续迁移等架构债务及严格启用条件。两张图已通过 Mermaid CLI 解析并完成 PNG 目视检查，文档保持 200 行以内且无行尾空白 | @2026-07-26T13:35:00-0700
+
+🎯 EXPECT 将两套消息审批方案从详细设计收敛为评审稿；可证伪断言：① 两份 Markdown 均压缩为 200 行以内，只保留结论、边界、主流程、关键规则、风险与选择条件；② 两份 Mermaid 均压缩为单屏主链，节点不超过 20 个且可由 Mermaid CLI 解析；③ 不修改生产代码或扩展既有 Gate 状态 | 赌注 低 | 可逆 是 | @2026-07-26T13:05:00-0700
+
+✅ DONE 两份方案已从 686/613 行压缩为 113/129 行，只保留评审所需结论、责任边界、主流程、一期能力、风险和选择条件；两份 Mermaid 从 88/81 行压缩为 46/44 行，改为自上而下的分区主链并减少交叉关系。两图均通过 Mermaid CLI 解析并完成 PNG 目视检查，4 个文件无行尾空白；未修改生产代码或 Gate 状态 | @2026-07-26T13:05:00-0700
+
+🎯 EXPECT 并行产出公司大群消息可见性审批的两套架构方案及各自 Mermaid 真源；可证伪断言：① 仅新增 `docs/specs/2026-07-26-message-visibility-approval/` 下 4 个文档文件并在 SESSION 记录对账，不修改 Rust/Go/客户端生产代码；② 组件版与自研版共用已确认的组织、多任职、多上级、逐节点动态解析、复合 viewers、审批动作、组织变更、摘要所有权与幂等投递不变量；③ 两版明确区分组织架构提供能力与消息系统责任，不再跑偏为 UI 设计器或单纯流程引擎选型；④ `.mmd` 均可由 Mermaid CLI 解析，Markdown 链接和 `git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-07-26T12:30:00-0700
+
+✅ DONE 已并行产出“组织审批组件接入”与“消息系统自研审批”两套 Markdown 方案及各自 Mermaid 架构真源；两版均区分 CURRENT/TARGET、组织与消息系统边界，并覆盖多任职/多上级、逐节点动态解析、逐级 N、会签/或签、拒绝/退回/撤回/转交、组织变更回查、复合目标统一投递、摘要所有权、权威状态回查与幂等投递。两份 `.mmd` 已通过 Mermaid CLI 实际解析，4 个新增文件均通过 whitespace check；仅修改本任务文档与 SESSION 对账，未运行 Cargo/Go/三端测试，未改生产代码 | @2026-07-26T12:30:00-0700
 
 🎯 EXPECT 按 Spec 042 串行完成 G15 创建话题三仓纵向闭环；可证伪断言：① 前序 G15a 保持 `CLOSED`，先锁定三仓 HEAD、PC/Mobile Helix pin 与 Strict Matrix hash；② Helix 独占 `im_make_topic -> HTTP/WS -> topic channel/root relation persist -> channel-summary/thread-detail Frame V2` 的权限、终态、竞态与恢复语义，PC/Mobile 不新增话题 reducer；③ canonical Fixture 只由 production `ImModule::handle -> Effect::Emit` 生成，PC/Mobile byte-exact mirror 且不补字段；④ PC Mock/single-real/dual-real/report 与 Mobile production-linked GTest/QuickJS typed view required fail=0/skip=0；⑤ 行为、代码边界、Frame V2、production-boundary 与 R4 全 Green 且 SpecKit `CLOSED` 前不进入 G16；⑥ Mobile shared real 的旧 raw CreateGroupPrerequisite 缺口归属后续 GS Gate，不得用来掩盖或替代 G15 required contract | 赌注 高 | 可逆 是 | @2026-07-26T11:38:45-0700
 

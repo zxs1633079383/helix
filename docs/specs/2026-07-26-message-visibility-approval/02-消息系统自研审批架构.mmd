@@ -1,0 +1,48 @@
+flowchart TB
+    U["用户提交消息<br/>目标部门 / 指定人员"]
+
+    subgraph MSG["消息域｜cses-im-server（兜底）"]
+        G{"开关 / 策略"}
+
+        subgraph MA["message_approval｜消息侧自研"]
+            I["审批实例<br/>revision + digest"]
+            N["节点激活<br/>动态解析审批人"]
+            A["逐级 N / 会签 / 或签<br/>拒绝 / 退回 / 转交"]
+            S["审批状态与 Outbox"]
+        end
+
+        V["实时解析成员<br/>生成 viewers"]
+        P["既有消息链<br/>幂等投递"]
+    end
+
+    subgraph ORG["组织域｜仅提供组织能力"]
+        O["组织 API<br/>任职 / 多上级 / 负责人 / 成员"]
+        OE["组织变更事件"]
+    end
+
+    R["PC / Flutter / Web<br/>渲染权威状态"]
+    DEBT["评审接受后启用<br/>公共审批能力绑定 IM"]
+
+    U --> G
+    G -->|"免审"| V
+    G -->|"需审批 / 未命中"| I
+    I --> N
+    N <-->|"每节点查询"| O
+    N --> A
+    A -->|"推进或结束"| S
+    S -->|"下一节点"| N
+    S -->|"全部分支通过"| V
+    OE -.->|"触发当前节点重查"| N
+    V <-->|"投递时查询成员"| O
+    V --> P
+    P --> R
+    MA -.-> DEBT
+
+    classDef approval fill:#fff3d9,stroke:#aa721f,color:#33220b;
+    classDef delivery fill:#e8f3ff,stroke:#3973a8,color:#142536;
+    classDef org fill:#e9f7ec,stroke:#3d8250,color:#183420;
+    classDef debt fill:#fde8e8,stroke:#a84444,color:#4d1717;
+    class I,N,A,S approval;
+    class G,V,P delivery;
+    class O,OE org;
+    class DEBT debt;

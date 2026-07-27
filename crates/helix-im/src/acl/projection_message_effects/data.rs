@@ -200,7 +200,7 @@ pub(super) fn message_item_data(
         "topic": topic,
         "createAt": fields.create_at,
         "createdAt": fields.create_at,
-        "updateAt": fields.create_at,
+        "updateAt": if fields.update_at > 0 { fields.update_at } else { fields.create_at },
         "readBits": fields.read_bits.as_str(),
         "viewers": fields.viewers,
         // —— render-ready 终态字段（issue #53·C013 业务规则下沉 helix·前端纯绑定）——

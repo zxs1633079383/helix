@@ -119,6 +119,7 @@ pub fn event_to_upsert_op(ev: &EventEnvelope) -> StorageOp {
                 SqlValue::Text("sent".to_string()),
             ),
             ("create_at".to_string(), SqlValue::Integer(f.create_at)),
+            ("update_at".to_string(), SqlValue::Integer(f.update_at)),
         ]],
         conflict_key: Some("temporary_id"),
         // 服务端 WS post 已是权威送达事实：新行直接写 sent。若 temporary_id 命中本地

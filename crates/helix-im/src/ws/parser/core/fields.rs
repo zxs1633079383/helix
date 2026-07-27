@@ -14,6 +14,7 @@ pub(crate) fn extract_post_fields(root: &serde_json::Value) -> PostFields {
     extract_post_fields_with_event_seq(root, None)
 }
 
+/// Extracts the same owned post view while injecting a trusted envelope event sequence into props.
 pub(crate) fn extract_post_fields_with_event_seq(
     root: &serde_json::Value,
     event_seq: Option<u64>,
@@ -76,6 +77,13 @@ pub(crate) fn extract_post_fields_with_event_seq(
         .or_else(|| post.get("createAt"))
         .or_else(|| root.get("create_at"))
         .or_else(|| root.get("createAt"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let update_at = post
+        .get("update_at")
+        .or_else(|| post.get("updateAt"))
+        .or_else(|| root.get("update_at"))
+        .or_else(|| root.get("updateAt"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
     // props 保留服务端原始对象（业务扩展 / event_seq / read map 下游对账）+ UC-1.8 顶层 quickReply
@@ -169,6 +177,7 @@ pub(crate) fn extract_post_fields_with_event_seq(
         props,
         user_snapshot,
         create_at,
+        update_at,
         read_bits,
         viewers,
         mentions,
@@ -241,5 +250,18 @@ mod tests {
         }));
 
         assert_eq!(fields.user_id, "SYS");
+    }
+
+    /// Keeps remote create/update clocks distinct so offline storage can be byte-for-byte authoritative.
+    #[test]
+    fn remote_update_at_is_not_collapsed_into_create_at() {
+        let fields = extract_post_fields(&json!({
+            "id": "post-clock",
+            "createAt": 1_000,
+            "updateAt": 1_025
+        }));
+
+        assert_eq!(fields.create_at, 1_000);
+        assert_eq!(fields.update_at, 1_025);
     }
 }

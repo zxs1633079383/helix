@@ -15,7 +15,7 @@ mod scenario;
 
 use scenario::{assert_terminal_contract, Gs3ScenarioRunner};
 
-const HELIX_COMMIT: &str = "deb12e382c2b123b73153e35705936640748963b";
+const HELIX_COMMIT: &str = "e95c6d74c258450351fee348d6fe09ddc938df63";
 const GENERATED_AT: &str = "2026-07-27T13:45:00-07:00";
 const PRODUCER: &str =
     "Gs3ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";

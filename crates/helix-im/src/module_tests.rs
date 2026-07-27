@@ -40,6 +40,7 @@ fn online_post_requeries_an_attached_timeline_after_its_durable_write() {
             window_token: "latest".to_string(),
         },
         causation_id: None,
+        projection_mode: crate::surface_runtime::SurfaceProjectionMode::Snapshot,
     };
     module
         .handle_surface_resync(
@@ -109,6 +110,7 @@ fn legacy_post_requeries_an_attached_timeline_after_its_durable_write() {
             window_token: "latest".to_string(),
         },
         causation_id: None,
+        projection_mode: crate::surface_runtime::SurfaceProjectionMode::Snapshot,
     };
     module
         .handle_surface_resync(
@@ -326,6 +328,7 @@ fn runtime_identity_change_invalidates_old_surface_slots_and_query_correlations(
                     root_message_id: "message-a".to_string(),
                 },
                 causation_id: None,
+                projection_mode: crate::surface_runtime::SurfaceProjectionMode::Snapshot,
             },
             expected_revision: None,
         },

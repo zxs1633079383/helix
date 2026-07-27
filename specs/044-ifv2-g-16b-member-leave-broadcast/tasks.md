@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-16 review-green 到 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/outbound/channel_admin/member_admin.rs、crates/helix-im/tests/g16_governance_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/044-ifv2-g-16b-member-leave-broadcast/research.md
+- [X] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-16 review-green 到 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T002 [P] 按 crates/helix-im/src/outbound/channel_admin/member_admin.rs、crates/helix-im/tests/g16_governance_interaction_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/044-ifv2-g-16b-member-leave-broadcast/research.md
 
 ---
 
@@ -21,7 +21,7 @@
 
 **Purpose**: 复用三端 fresh-group prerequisite；完成前不得进入业务 story。
 
-- [ ] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
+- [X] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
 
 ---
 
@@ -29,15 +29,15 @@
 
 **Purpose**: 完整业务流、生产 Frame、Fixture 与 Golden。
 
-- [ ] T004 [P] [US1] 先在 crates/helix-im/tests/g16b_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
-- [ ] T005 [US1] 在 crates/helix-im/tests/support/g16b_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
-- [ ] T006 [US1] 在 crates/helix-im/src/outbound/channel_admin/member_admin.rs 对齐 im_channel_leave 的生产 handler、authority 与幂等语义，禁止测试旁路。
-- [ ] T007 [US1] 在 crates/helix-im/tests/g16_governance_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
-- [ ] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.member-roster 完整 mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/g16b_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/g16b_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g16b-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/g16b-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 g16b_full_flow_test/g16b_wdio_fixture_contract_test，并登记原始输出到 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T004 [P] [US1] 先在 crates/helix-im/tests/g16b_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
+- [X] T005 [US1] 在 crates/helix-im/tests/support/g16b_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
+- [X] T006 [US1] 在 crates/helix-im/src/outbound/channel_admin/member_admin.rs 对齐 im_channel_leave 的生产 handler、authority 与幂等语义，禁止测试旁路。
+- [X] T007 [US1] 在 crates/helix-im/tests/g16_governance_interaction_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
+- [X] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.member-roster 完整 mutation/action/directive，缺口回 Helix 修复
+- [X] T009 [P] [US1] 先在 crates/helix-im/tests/g16b_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [X] T010 [US1] 由 crates/helix-im/tests/support/g16b_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/g16b-wdio/ canonical JSON，不手写平台 VM
+- [X] T011 [US1] 在 crates/helix-im/tests/fixtures/g16b-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [X] T012 [US1] 运行 cargo check 与 g16b_full_flow_test/g16b_wdio_fixture_contract_test，并登记原始输出到 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
 
 ---
 
@@ -45,16 +45,16 @@
 
 **Purpose**: PC 机械消费同源 Frame 并完成真实链。
 
-- [ ] T013 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/sync-helix-fixtures.mjs 的 G-16b manifest/filename/hash/surface 映射，只读同步到 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g16b/
-- [ ] T014 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g16b/__tests__/fixture-parity.test.ts 编写 schema/inventory/raw/semantic hash 与禁止字段补写 RED tests
-- [ ] T015 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/fixture-loader.ts 的 G-16b typed loading API，不解释业务字段
-- [ ] T016 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts 先写 G-16b AcceptedCommand/replay/correlation RED tests，再扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/tauri-mock-bridge.ts
-- [ ] T017 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/pageobjects/g16b.page.ts 封装真实 MessageV4 操作、Surface ready、DOM 字段、FrameApplied 与自动等待，不引入业务计算
-- [ ] T018 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16b-mock.e2e.ts 以 Helix Fixture replay 验证完整 happy/failure/race DOM、transactionId 与 claim=mock
-- [ ] T019 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16b-single-real.e2e.ts 从真实 UI 创建 fresh group 并执行 G-16b，关联 invoke/Helix/SQLite/HTTP/WS/FrameApplied/DOM
-- [ ] T020 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16b-dual-real.e2e.ts 验证 Actor/Observer 对 member leave 广播 的最终 timeline/dialog/receipt 可见结果；不适用字段以合同理由显式断言
-- [ ] T021 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/g16b-summary.ts 与 /System/Volumes/Data/workspace/angular/cses-client/package.json 增加 g16b:mock/single-real/dual-real/report 命令和分层 assertion/report 汇总
-- [ ] T022 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/check-production-boundary.mjs，证明 G-16b Fixture/Mock/WDIO API 不进入 production bundle
+- [X] T013 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/sync-helix-fixtures.mjs 的 G-16b manifest/filename/hash/surface 映射，只读同步到 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g16b/
+- [X] T014 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g16b/__tests__/fixture-parity.test.ts 编写 schema/inventory/raw/semantic hash 与禁止字段补写 RED tests
+- [X] T015 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/fixture-loader.ts 的 G-16b typed loading API，不解释业务字段
+- [X] T016 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts 先写 G-16b AcceptedCommand/replay/correlation RED tests，再扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/tauri-mock-bridge.ts
+- [X] T017 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/pageobjects/g16b.page.ts 封装真实 MessageV4 操作、Surface ready、DOM 字段、FrameApplied 与自动等待，不引入业务计算
+- [X] T018 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16b-mock.e2e.ts 以 Helix Fixture replay 验证完整 happy/failure/race DOM、transactionId 与 claim=mock
+- [X] T019 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16b-single-real.e2e.ts 从真实 UI 创建 fresh group 并执行 G-16b，关联 invoke/Helix/SQLite/HTTP/WS/FrameApplied/DOM
+- [X] T020 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/g16b-dual-real.e2e.ts 验证 Actor/Observer 对 member leave 广播 的最终 timeline/dialog/receipt 可见结果；不适用字段以合同理由显式断言
+- [X] T021 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/g16b-summary.ts 与 /System/Volumes/Data/workspace/angular/cses-client/package.json 增加 g16b:mock/single-real/dual-real/report 命令和分层 assertion/report 汇总
+- [X] T022 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/check-production-boundary.mjs，证明 G-16b Fixture/Mock/WDIO API 不进入 production bundle
 
 ---
 
@@ -62,16 +62,16 @@
 
 **Purpose**: Mobile 生产链原子 apply 与 typed view。
 
-- [ ] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g16b-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g16b-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g16b/
-- [ ] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g16b-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
-- [ ] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G16BFrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
-- [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 对齐 G-16b command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
-- [ ] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_channel_leave 生产 command admission 与 Frame event pump，不注册测试 API
-- [ ] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
-- [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.member-roster Frame，unknown schema/surface/revision fail-closed
-- [ ] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-16b 的 im.surface.view typed view/action，不增加 raw reducer
-- [ ] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-16b V1 producer/consumer/raw fallback=0
-- [ ] T032 [US3] 运行 G16BFrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-g16b-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/g16b-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g16b/
+- [X] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-g16b-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
+- [X] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/G16BFrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
+- [X] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 对齐 G-16b command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
+- [X] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_channel_leave 生产 command admission 与 Frame event pump，不注册测试 API
+- [X] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
+- [X] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.member-roster Frame，unknown schema/surface/revision fail-closed
+- [X] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-16b 的 im.surface.view typed view/action，不增加 raw reducer
+- [X] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-16b V1 producer/consumer/raw fallback=0
+- [X] T032 [US3] 运行 G16BFrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
 
 ---
 
@@ -79,12 +79,12 @@
 
 **Purpose**: 行为、代码、Frame V2 与证据一致。
 
-- [ ] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/g16b-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g16b/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g16b/ 的 inventory/schema/raw/semantic hash，写入 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
-- [ ] T034 [US4] 执行 G-16b 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
-- [ ] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
-- [ ] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
-- [ ] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/044-ifv2-g-16b-member-leave-broadcast/evidence/gate-report.json
-- [ ] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-16b 标记 review-green 并解锁下一 Gate
+- [X] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/g16b-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/g16b/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/g16b/ 的 inventory/schema/raw/semantic hash，写入 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T034 [US4] 执行 G-16b 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/044-ifv2-g-16b-member-leave-broadcast/verification.md
+- [X] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/044-ifv2-g-16b-member-leave-broadcast/evidence/gate-report.json
+- [X] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-16b 标记 review-green 并解锁下一 Gate
 
 ## Dependencies And Execution Order
 

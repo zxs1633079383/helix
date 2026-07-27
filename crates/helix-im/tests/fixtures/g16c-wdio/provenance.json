@@ -1,0 +1,302 @@
+[
+  {
+    "fileName": "channel-summary-active.frame-v2.json",
+    "fixtureId": "g16c-channel-summary-active-v2",
+    "fixtureSha256": "a69fa951dd09369e703850e27d3e962211fb5d346c6d1440b89ca8c7fc02c24a",
+    "gateId": "G-16c",
+    "generatedAt": "2026-07-26T18:40:00-07:00",
+    "helixCommit": "32740014cf30ed92998ea89a504597fbaef6e7b5",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "placeholderValues": {
+      "baseRevision": null,
+      "causationId": null,
+      "channelId": "chfixx00000000000000000016",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000016-1"
+    },
+    "producer": "G16cScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "46889b019d10f80ff647074b676c66eeae01ca8bc04a3e126d7969048dce5d8d",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "channel-summary-info.frame-v2.json",
+    "fixtureId": "g16c-channel-summary-info-v2",
+    "fixtureSha256": "4bd1a2a727bf78a614d3315a7ba3120bec1a30723e906e15306c657a58a41f3c",
+    "gateId": "G-16c",
+    "generatedAt": "2026-07-26T18:40:00-07:00",
+    "helixCommit": "32740014cf30ed92998ea89a504597fbaef6e7b5",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "placeholderValues": {
+      "baseRevision": 1,
+      "causationId": "g16c-settings-request",
+      "channelId": "chfixx00000000000000000016",
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "transactionId": "channel-settings-chfixx00000000000000000016-8"
+    },
+    "producer": "G16cScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "5d7429f7278bda7eaffcc5758a9e7b91d1b6286ddeaa743d6661d7b58f94a892",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "channel-summary-display-name.frame-v2.json",
+    "fixtureId": "g16c-channel-summary-display-name-v2",
+    "fixtureSha256": "d95d43a4e9e995183ea9fade10fa26fbb420b62b7517cb37f5c41863ebaac519",
+    "gateId": "G-16c",
+    "generatedAt": "2026-07-26T18:40:00-07:00",
+    "helixCommit": "32740014cf30ed92998ea89a504597fbaef6e7b5",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "placeholderValues": {
+      "baseRevision": 1,
+      "causationId": "g16c-display-request",
+      "channelId": "chfixx00000000000000000016",
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "transactionId": "channel-settings-chfixx00000000000000000016-9"
+    },
+    "producer": "G16cScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "50f80b570aba4f682566113fba44ef13b0c364609dee53d26c8ffd13ae1b9f45",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "channel-summary-notice.frame-v2.json",
+    "fixtureId": "g16c-channel-summary-notice-v2",
+    "fixtureSha256": "99f918cbfe25b5738ce39c336921452ffa5ad714a3183b3322192b255bf06bef",
+    "gateId": "G-16c",
+    "generatedAt": "2026-07-26T18:40:00-07:00",
+    "helixCommit": "32740014cf30ed92998ea89a504597fbaef6e7b5",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "placeholderValues": {
+      "baseRevision": 1,
+      "causationId": "g16c-notice-request",
+      "channelId": "chfixx00000000000000000016",
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "transactionId": "channel-settings-chfixx00000000000000000016-10"
+    },
+    "producer": "G16cScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "0514ddcc5890eae6610681b8d43e15a96bbcc5e0a3c78046e482f1eedd1104cb",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "channel-summary-observer.frame-v2.json",
+    "fixtureId": "g16c-channel-summary-observer-v2",
+    "fixtureSha256": "6cfd0e0ae1d4b0b3d9d83061196a1f01e4f7f609658c9e0d036f28b4cb884162",
+    "gateId": "G-16c",
+    "generatedAt": "2026-07-26T18:40:00-07:00",
+    "helixCommit": "32740014cf30ed92998ea89a504597fbaef6e7b5",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "placeholderValues": {
+      "baseRevision": 1,
+      "causationId": "g16c-observer",
+      "channelId": "chfixx00000000000000000016",
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "transactionId": "channel-settings-chfixx00000000000000000016-11"
+    },
+    "producer": "G16cScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "01b516a3f8dc4c9ccab2902e534fbffe20477ae5912f6ca34718ea678aeb6213",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "channel-summary-recovery.frame-v2.json",
+    "fixtureId": "g16c-channel-summary-recovery-v2",
+    "fixtureSha256": "11544aaa35c45b52f08c8c5b6e45fab79e2f8776b65922fb92cddb7e727c463a",
+    "gateId": "G-16c",
+    "generatedAt": "2026-07-26T18:40:00-07:00",
+    "helixCommit": "32740014cf30ed92998ea89a504597fbaef6e7b5",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "placeholderValues": {
+      "baseRevision": null,
+      "causationId": null,
+      "channelId": "chfixx00000000000000000016",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000016-1"
+    },
+    "producer": "G16cScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/actions/*/actionRef",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/actionRef"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "9fa657c9eb0c8f3302dc6f476347daff3ba4c7182035cbb50a7d0e69ed310ce5",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  }
+]

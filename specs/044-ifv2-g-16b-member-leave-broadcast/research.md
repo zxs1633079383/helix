@@ -1,6 +1,6 @@
 # Research: G-16b member leave 广播
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `71d1350b330449ddb1d61b48a854b31c7640f18f`；cses-client `aac3c1583519b9308acb7c8dd0e415fa1dfc3813`；Mobile `46455d4d4e88870b75e72fdf1caa9f518eb87835`
 
 ## Decision 1 - 唯一业务真源
 
@@ -42,9 +42,34 @@
 
 **Alternatives considered**: HTTP 200 即 Green、远端行存在即本地已 apply、固定 HTTP/WS 顺序；全部拒绝。
 
+## Current / Target / Gap
+
+- **CURRENT**: `im_channel_leave` outbound wire 真实 owner 是
+  `crates/helix-im/src/outbound/channel_admin/existing.rs`，G16 已在
+  `CorrelationContext::OutboundLeave -> ChannelLifecyclePersist` 后产出
+  `message.channel-summary lifecycle=left`。它不是 G16b roster 广播的完成信号。
+- **CURRENT**: WS `channel_member_update` 由
+  `crates/helix-im/src/ws/handlers/channel_member_update.rs` 收集 channel/member 写集，
+  其中 `memberChange.leave` 编译为 scoped `BatchDelete(channel_member)`；当前写集使用
+  `PersistFire`，并在持久回执前发布 raw `im:channel:member-updated` 与
+  `im:channel:members`，尚未生产 `message.member-roster` InteractionFrame V2。
+- **CURRENT**: `MemberRosterProjector` 已支持 snapshot 与带 `baseRevision` 的完整
+  `replaceView` patch；`SurfaceRuntime` 已能从 `channel_member` Scan 生成 typed roster，
+  但 WS member update 尚未在 durable barrier 后触发该 readback。
+- **TARGET**: WS authority 的 channel/member/leave 写集先经有回执的原子持久化；成功后只为
+  已 attach roster slot 发起权威 readback，并从生产 projector 生成完整 Frame。未 attach
+  surface 不伪造 Frame，后续 attach 可从 durable fact 恢复 snapshot。
+- **GAP**: 缺 G16b 专属 persist correlation、attached roster refresh、patch 选择、
+  happy/failure/duplicate/recovery ScenarioRunner 与 canonical Fixture；PC/Mobile 也尚无
+  G16b mirror、typed consumer Gate 和真实链报告。
+
 ## Resolved Scope
 
-- 当前 Helix owner：`crates/helix-im/src/outbound/channel_admin/member_admin.rs`；现有聚焦测试：`crates/helix-im/tests/g16_governance_interaction_test.rs`。
+- 当前 outbound wire owner：
+  `crates/helix-im/src/outbound/channel_admin/existing.rs`；当前 WS authority owner：
+  `crates/helix-im/src/ws/handlers/channel_member_update.rs`；现有聚焦测试：
+  `crates/helix-im/tests/s1_ws_actions_test.rs` 与
+  `crates/helix-im/tests/g16_governance_interaction_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/Uc16ChannelLifecycleTest.cpp`。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。

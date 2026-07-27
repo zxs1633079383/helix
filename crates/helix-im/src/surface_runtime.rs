@@ -22,7 +22,7 @@ use crate::interaction_frame::{
 };
 use crate::projector::participant_receipts::ParticipantReceiptsRequest;
 use crate::state::ChannelId;
-use crate::state::{CorrelationContext, MakeTopicProjection};
+use crate::state::{ChannelSettingsProjection, CorrelationContext, MakeTopicProjection};
 use crate::ImModule;
 
 const MEMBER_ROSTER_ORDER: &[ScanOrder] = &[ScanOrder::asc("joined_at"), ScanOrder::asc("user_id")];
@@ -44,6 +44,16 @@ pub struct SurfaceResyncRequest {
     pub scope: SurfaceScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub causation_id: Option<String>,
+    #[serde(skip)]
+    pub(crate) projection_mode: SurfaceProjectionMode,
+}
+
+/// 区分 renderer 显式重建与内核连续 authority 刷新的 mutation 语义。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum SurfaceProjectionMode {
+    #[default]
+    Snapshot,
+    Patch,
 }
 
 impl SurfaceResyncRequest {
@@ -125,7 +135,7 @@ impl ImModule {
         causation_id: Option<String>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        let Some(mut summary) = self
+        let Some(current) = self
             .state
             .channel_summary_projector
             .current_view(channel_id.as_str())
@@ -133,6 +143,7 @@ impl ImModule {
         else {
             return Ok(());
         };
+        let mut summary = current.clone();
         summary.lifecycle = ChannelLifecycleVm {
             state: state.to_string(),
             reason: reason.map(str::to_string),
@@ -149,6 +160,126 @@ impl ImModule {
         let surface_epoch = self.action_surface_epoch()?;
         let frame = crate::projector::build_online_interaction_frame(
             format!("channel-lifecycle-{}", channel_id.as_str()),
+            surface_epoch,
+            vec![mutation],
+        )
+        .map_err(|error| ImError::Serialize(error.to_string()))?;
+        out.push(
+            crate::projector::emit_interaction_frame(frame)
+                .map_err(|error| ImError::Serialize(error.to_string()))?,
+        );
+        Ok(())
+    }
+
+    /// 将已持久化的 HTTP 设置快照投影为已 attach 的 channel-summary patch。
+    pub(crate) fn project_channel_settings_projection_frame(
+        &mut self,
+        projection: &ChannelSettingsProjection,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let mut settings = serde_json::json!({
+            "channelId": projection.channel_id.as_str(),
+            "purpose": projection.purpose,
+            "header": projection.header,
+            "settingVersion": projection.setting_version,
+            "channelCapabilities": projection.channel_capabilities,
+        });
+        if let (Some(object), Some(display_name)) =
+            (settings.as_object_mut(), projection.display_name.as_ref())
+        {
+            object.insert(
+                "displayName".to_string(),
+                serde_json::Value::String(display_name.clone()),
+            );
+        }
+        self.project_channel_settings_value_frame(
+            projection.channel_id,
+            &settings,
+            projection.causation_id.clone(),
+            now_ms,
+            out,
+        )
+    }
+
+    /// 将持久化后的 HTTP/WS 权威设置字段合并进当前 typed summary，不从平台 raw event 重建 VM。
+    pub(crate) fn project_channel_settings_value_frame(
+        &mut self,
+        channel_id: ChannelId,
+        value: &Value,
+        causation_id: Option<String>,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let Some(current) = self
+            .state
+            .channel_summary_projector
+            .current_view(channel_id.as_str())
+            .cloned()
+        else {
+            return Ok(());
+        };
+        let mut summary = current.clone();
+        let settings = value
+            .get("settings")
+            .filter(|value| value.is_object())
+            .unwrap_or(value);
+        let Some(setting_version) = value
+            .get("settingVersion")
+            .or_else(|| value.get("setting_version"))
+            .or_else(|| settings.get("settingVersion"))
+            .or_else(|| settings.get("setting_version"))
+            .and_then(Value::as_u64)
+        else {
+            return Ok(());
+        };
+        if let Some(display_name) = settings
+            .get("displayName")
+            .or_else(|| settings.get("display_name"))
+            .and_then(Value::as_str)
+        {
+            summary.title.text = display_name.to_string();
+            summary.avatar.fallback_text = display_name.to_string();
+        }
+        if let Some(purpose) = settings.get("purpose").and_then(Value::as_str) {
+            summary.purpose = Some(purpose.to_string());
+        }
+        if let Some(header) = settings.get("header").and_then(Value::as_str) {
+            summary.notice_summary = Some(header.to_string());
+        }
+        summary.settings_version = setting_version;
+        let capabilities = value
+            .get("channelCapabilities")
+            .or_else(|| settings.get("channelCapabilities"));
+        if let Some(can_manage) = capabilities
+            .and_then(|value| value.get("canManageSettings"))
+            .and_then(Value::as_bool)
+        {
+            if let Some(action) = summary
+                .actions
+                .iter_mut()
+                .find(|action| action.kind == "channel-settings")
+            {
+                action.enabled = can_manage;
+                action.disabled_reason = (!can_manage).then(|| "authorityDenied".to_string());
+            }
+        }
+        if summary == current {
+            return Ok(());
+        }
+        let mutation = self
+            .state
+            .channel_summary_projector
+            .patch_settings_or_lifecycle(summary, causation_id)
+            .map_err(|error| ImError::Parse(format!("channel settings summary: {error}")))?;
+        self.register_channel_summary_action_bindings(&mutation, now_ms)?;
+        let surface_epoch = self.action_surface_epoch()?;
+        let frame = crate::projector::build_online_interaction_frame(
+            format!(
+                "channel-settings-{}-{}",
+                channel_id.as_str(),
+                setting_version
+            ),
             surface_epoch,
             vec![mutation],
         )
@@ -185,6 +316,7 @@ impl ImModule {
                     receipt_kind: ReceiptKind::Read,
                 },
                 causation_id,
+                projection_mode: SurfaceProjectionMode::Snapshot,
             },
             out,
         )
@@ -449,6 +581,7 @@ impl ImModule {
                     channel_id: channel_id.as_str().to_string(),
                 },
                 causation_id: None,
+                projection_mode: SurfaceProjectionMode::Patch,
             },
             true,
             out,
@@ -477,6 +610,7 @@ impl ImModule {
                     channel_id: channel_id.as_str().to_string(),
                 },
                 causation_id,
+                projection_mode: SurfaceProjectionMode::Patch,
             },
             true,
             out,
@@ -503,6 +637,7 @@ impl ImModule {
                         cursor,
                     },
                     causation_id: causation_id.clone(),
+                    projection_mode: SurfaceProjectionMode::Patch,
                 },
                 true,
                 out,
@@ -697,7 +832,9 @@ impl ImModule {
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =
                     member_roster_view(channel_id, cursor, &rows, self.action_surface_epoch()?);
-                if refresh_existing {
+                if refresh_existing
+                    || matches!(request.projection_mode, SurfaceProjectionMode::Patch)
+                {
                     self.state
                         .member_roster_projector
                         .patch_membership_lifecycle(view, request.causation_id.clone())
@@ -1352,6 +1489,7 @@ mod tests {
             surface: SurfaceId::MessageTimeline,
             scope: scope.clone(),
             causation_id: None,
+            projection_mode: SurfaceProjectionMode::Snapshot,
         };
         let mut sink = EffectSink::new();
 
@@ -1379,6 +1517,7 @@ mod tests {
                 channel_id: "ch00000000000000000000000b".to_string(),
             },
             causation_id: None,
+            projection_mode: SurfaceProjectionMode::Snapshot,
         };
         let mut sink = EffectSink::new();
 

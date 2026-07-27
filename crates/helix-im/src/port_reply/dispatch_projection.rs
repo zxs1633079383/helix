@@ -133,9 +133,11 @@ impl ImModule {
         );
     }
 
+    /// 将成功 HTTP authority 转成单行 channel 持久屏障，失败或不完整回包保持无可见副作用。
     pub(super) fn handle_outbound_channel_settings_reply(
         &mut self,
         expected_channel_id: ChannelId,
+        causation_id: Option<String>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) {
@@ -143,9 +145,19 @@ impl ImModule {
             .state
             .viewer_channel_roles
             .get(&expected_channel_id)
-            .map(String::as_str);
+            .map(String::as_str)
+            .or_else(|| {
+                self.state
+                    .channel_summary_projector
+                    .current_view(expected_channel_id.as_str())
+                    .map(|view| match view.viewer_role {
+                        crate::interaction_frame::ChannelRole::Owner => "CREATOR",
+                        crate::interaction_frame::ChannelRole::Admin => "MANAGER",
+                        crate::interaction_frame::ChannelRole::Member => "MEMBER",
+                    })
+            });
         let Some(projection) =
-            decode_settings_projection(expected_channel_id, outcome, viewer_role)
+            decode_settings_projection(expected_channel_id, causation_id, outcome, viewer_role)
         else {
             return;
         };
@@ -189,21 +201,23 @@ impl ImModule {
         );
     }
 
+    /// 在 channel PersistOk 后同时释放兼容事件与已 attach 的 typed summary Frame。
     pub(super) fn handle_channel_settings_persist_reply(
         &mut self,
         projection: ChannelSettingsProjection,
         outcome: &PortOutcome,
+        now_ms: u64,
         out: &mut EffectSink,
-    ) {
+    ) -> Result<(), crate::error::ImError> {
         if !matches!(outcome, PortOutcome::Ok(_)) {
-            return;
+            return Ok(());
         }
         let mut channel = serde_json::json!({
-            "purpose": projection.purpose,
-            "header": projection.header,
+            "purpose": projection.purpose.clone(),
+            "header": projection.header.clone(),
         });
         if let (Some(settings), Some(display_name)) =
-            (channel.as_object_mut(), projection.display_name)
+            (channel.as_object_mut(), projection.display_name.clone())
         {
             settings.insert(
                 "displayName".to_string(),
@@ -229,10 +243,12 @@ impl ImModule {
             projection.channel_id,
             &channel,
             projection.setting_version,
-            projection.channel_capabilities,
+            projection.channel_capabilities.clone(),
         ) {
             out.push(effect);
         }
+        self.project_channel_settings_projection_frame(&projection, now_ms, out)?;
+        Ok(())
     }
 }
 
@@ -283,8 +299,10 @@ fn decode_make_topic_projection(
     })
 }
 
+/// 只接受同频道、完整设置字段与单调版本的服务端 SUCCESS 快照。
 fn decode_settings_projection(
     expected_channel_id: ChannelId,
+    causation_id: Option<String>,
     outcome: &PortOutcome,
     viewer_role: Option<&str>,
 ) -> Option<ChannelSettingsProjection> {
@@ -324,5 +342,6 @@ fn decode_settings_projection(
             capabilities_by_role,
             viewer_role,
         ),
+        causation_id,
     })
 }

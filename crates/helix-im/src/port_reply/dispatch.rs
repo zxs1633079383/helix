@@ -302,34 +302,45 @@ impl ImModule {
 
             CorrelationContext::UpdateChannelDialogPersist {
                 scope,
+                channel_id,
                 channel,
                 member_dialog,
+                causation_id,
             } => match outcome {
                 PortOutcome::Ok(_) => {
-                    if self.state.dialog_list_frame.scope() != Some(&scope) {
-                        tracing::debug!(
-                            corr = corr.raw(),
-                            "update_channel PersistOk belongs to a detached dialog scope"
-                        );
-                    } else {
-                        let frame = match member_dialog.as_deref() {
-                            Some(dialog) => self
-                                .state
-                                .dialog_list_frame
-                                .patch_from_channel_and_dialog_projection(
-                                    scope,
-                                    channel.as_ref(),
-                                    dialog,
-                                ),
-                            None => self
-                                .state
-                                .dialog_list_frame
-                                .patch_from_channel_update(scope, channel.as_ref()),
-                        };
-                        if let Some(frame) = frame {
-                            out.push(frame);
+                    if let Some(scope) = scope {
+                        if self.state.dialog_list_frame.scope() != Some(&scope) {
+                            tracing::debug!(
+                                corr = corr.raw(),
+                                "update_channel PersistOk belongs to a detached dialog scope"
+                            );
+                        } else {
+                            let frame = match member_dialog.as_deref() {
+                                Some(dialog) => self
+                                    .state
+                                    .dialog_list_frame
+                                    .patch_from_channel_and_dialog_projection(
+                                        scope,
+                                        channel.as_ref(),
+                                        dialog,
+                                    ),
+                                None => self
+                                    .state
+                                    .dialog_list_frame
+                                    .patch_from_channel_update(scope, channel.as_ref()),
+                            };
+                            if let Some(frame) = frame {
+                                out.push(frame);
+                            }
                         }
                     }
+                    self.project_channel_settings_value_frame(
+                        channel_id,
+                        channel.as_ref(),
+                        causation_id,
+                        now_ms,
+                        out,
+                    )?;
                 }
                 PortOutcome::Err(error) => {
                     tracing::warn!(
@@ -917,12 +928,15 @@ impl ImModule {
                 self.handle_make_topic_thread_readback(projection, outcome, out)?;
             }
 
-            CorrelationContext::OutboundChannelSettings { channel_id } => {
-                self.handle_outbound_channel_settings_reply(channel_id, outcome, out);
+            CorrelationContext::OutboundChannelSettings {
+                channel_id,
+                causation_id,
+            } => {
+                self.handle_outbound_channel_settings_reply(channel_id, causation_id, outcome, out);
             }
 
             CorrelationContext::OutboundChannelSettingsPersist { projection } => {
-                self.handle_channel_settings_persist_reply(projection, outcome, out);
+                self.handle_channel_settings_persist_reply(projection, outcome, now_ms, out)?;
             }
 
             // UC-4.5：仍保留通用 read result，同时把 HTTP data=*IncrementChannel 送入既有

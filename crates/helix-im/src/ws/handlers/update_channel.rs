@@ -76,21 +76,38 @@ impl WsMessageHandler for UpdateChannelHandler {
         } else {
             None
         };
-        if let Some(scope) = ctx
+        let scope = ctx.state.dialog_list_frame.scope().cloned();
+        let summary_attached = ctx
             .state
-            .dialog_list_frame
-            .scope()
-            .cloned()
-            .filter(|_| !ops.is_empty())
-        {
+            .channel_summary_projector
+            .current_view(channel_id.as_str())
+            .is_some();
+        if !ops.is_empty() && (scope.is_some() || summary_attached) {
             let corr = ctx.alloc_corr();
             out.push(helix_core::Effect::Persist { corr, ops });
+            let causation_id = frame.cses_track_id().map(str::to_string).or_else(|| {
+                frame
+                    .event_seq()
+                    .map(|seq| format!("update-channel-{}", seq.0))
+            });
+            let mut persisted_channel = channel.clone();
+            if let Some(object) = persisted_channel.as_object_mut() {
+                for key in ["settingVersion", "setting_version", "capabilitiesByRole"] {
+                    if object.get(key).is_none() {
+                        if let Some(value) = data.get(key) {
+                            object.insert(key.to_string(), value.clone());
+                        }
+                    }
+                }
+            }
             ctx.state.corr_map.insert(
                 corr,
                 crate::state::CorrelationContext::UpdateChannelDialogPersist {
                     scope,
-                    channel: Box::new(channel.clone()),
+                    channel_id,
+                    channel: Box::new(persisted_channel),
                     member_dialog: member_dialog.map(Box::new),
+                    causation_id,
                 },
             );
         } else if !ops.is_empty() {

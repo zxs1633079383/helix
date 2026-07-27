@@ -1,0 +1,5 @@
+PASS
+command: cargo test -p helix-im --test t081_surface_resync_producer_test --test g16b_full_flow_test --test g16b_wdio_fixture_contract_test -- --nocapture
+results: t081=4/4 g16b_full_flow=5/5 g16b_fixture=1/1
+failed: 0
+skipped: 0

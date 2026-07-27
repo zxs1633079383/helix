@@ -5,7 +5,7 @@
     "fixtureSha256": "6724d4443f350dd0b0cc5789416242875bfdde62f373e230651fb32595958401",
     "gateId": "G-S4",
     "generatedAt": "2026-07-27T15:20:00-07:00",
-    "helixCommit": "a0f84e80cd247cbb3795fe8c73ae8305ad87123b",
+    "helixCommit": "6ab375542a6931da6a14564b61c5168967abbb11",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -49,7 +49,7 @@
     "fixtureSha256": "c012f2226c35957c2d2f538d46cec4b2f5bb9f8d9c75b7ac34cccd157833b6bb",
     "gateId": "G-S4",
     "generatedAt": "2026-07-27T15:20:00-07:00",
-    "helixCommit": "a0f84e80cd247cbb3795fe8c73ae8305ad87123b",
+    "helixCommit": "6ab375542a6931da6a14564b61c5168967abbb11",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",
@@ -92,7 +92,7 @@
     "fixtureSha256": "08d1438038af7c3ef1e6fe32e92515546598528f175e7c81490c879630e503b1",
     "gateId": "G-S4",
     "generatedAt": "2026-07-27T15:20:00-07:00",
-    "helixCommit": "a0f84e80cd247cbb3795fe8c73ae8305ad87123b",
+    "helixCommit": "6ab375542a6931da6a14564b61c5168967abbb11",
     "parameterizableFields": [
       "/transactionId",
       "/causationId",

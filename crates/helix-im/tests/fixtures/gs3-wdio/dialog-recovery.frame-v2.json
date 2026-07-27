@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "dialog-list-user|10:viewer-444|16:gs3-wdio-company-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": {
+        "kind": "user",
+        "userId": "viewer-444",
+        "teamId": "gs3-wdio-company"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "dialogListSnapshot",
+        "view": {
+          "sections": [
+            {
+              "kind": "normal",
+              "items": [
+                {
+                  "channelId": "chfixx00000000000000000017",
+                  "channelKind": "group",
+                  "title": {
+                    "text": "GS3 Pong Gap Group"
+                  },
+                  "avatar": {
+                    "resource": null,
+                    "userIds": [
+                      "viewer-444",
+                      "gs3-wdio-observer"
+                    ],
+                    "fallbackText": "GS3 Pong Gap Group"
+                  },
+                  "preview": {
+                    "kind": "text",
+                    "author": {
+                      "userId": "gs3-wdio-observer"
+                    },
+                    "text": "GS3 pong recovered message"
+                  },
+                  "lastActivityAt": 1700002220000,
+                  "unreadCount": 1,
+                  "mentionCount": 0,
+                  "urgentCount": 0,
+                  "topicCount": 0,
+                  "memberCount": 2,
+                  "memberLeaves": [],
+                  "hasScheduledMessage": false,
+                  "isTop": false,
+                  "notificationMode": "all",
+                  "lifecycle": {
+                    "state": "active"
+                  },
+                  "settingsVersion": 0,
+                  "actions": []
+                }
+              ],
+              "page": {
+                "windowToken": "dialog-list-1-normal",
+                "hasOlder": false,
+                "hasNewer": false,
+                "hasMore": false
+              }
+            }
+          ],
+          "state": "ready"
+        }
+      },
+      "surfaceEpoch": 1
+    },
+    {
+      "surface": "message.unread-summary",
+      "scope": {
+        "kind": "user",
+        "userId": "viewer-444",
+        "teamId": "gs3-wdio-company"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "unreadSummarySnapshot",
+        "view": {
+          "unreadTotal": 1,
+          "mentionTotal": 0,
+          "urgentTotal": 0,
+          "unreadChannelCount": 1
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

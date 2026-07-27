@@ -1,6 +1,9 @@
 # Research: G-16c 群属性修改
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix acceptance `a6f5bacadeb2c13944f292d46e58dd441d27ffbe`；
+cses-client `48c48b04e6eb980334bade119fb34b859b1e435a`；Mobile
+`1b0b11d33193a80c362491127a9d8d1e5227008c`；Go
+`870200d2931494da7e3fc3ac3a47e80e6646ebe4`。
 
 ## Decision 1 - 唯一业务真源
 
@@ -49,3 +52,14 @@
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。
+
+## Implementation Revalidation
+
+- Helix 生产链由 `change.rs` 的 command/effect/persist barrier 与
+  `surface_composer.rs` 的 `message.channel-summary` snapshot/patch 组成；
+  canonical Fixture producer 固定在 `32740014cf30ed92998ea89a504597fbaef6e7b5`。
+- Go 提交后广播由 `internal/app/post_send_publish.go` 回读 committed channel 与
+  current members；幂等重放只使用持久 post ID 回读的 Type/Props 分类，拒绝 replay
+  payload 伪造 `join/channelUpdate`。
+- PC 与 Mobile 既有 production runtime 已具备 typed Frame apply；实现只增加
+  command routing、机械消费、同源 Fixture 与验收，不新增平台业务 reducer。

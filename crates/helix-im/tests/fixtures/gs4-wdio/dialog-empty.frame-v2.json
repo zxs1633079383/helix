@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "dialog-list-user|10:viewer-444|16:gs4-wdio-company-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.left-dialog-list",
+      "scope": {
+        "kind": "user",
+        "userId": "viewer-444",
+        "teamId": "gs4-wdio-company"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "dialogListSnapshot",
+        "view": {
+          "sections": [],
+          "state": "ready"
+        }
+      },
+      "surfaceEpoch": 1
+    },
+    {
+      "surface": "message.unread-summary",
+      "scope": {
+        "kind": "user",
+        "userId": "viewer-444",
+        "teamId": "gs4-wdio-company"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "unreadSummarySnapshot",
+        "view": {
+          "unreadTotal": 0,
+          "mentionTotal": 0,
+          "urgentTotal": 0,
+          "unreadChannelCount": 0
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

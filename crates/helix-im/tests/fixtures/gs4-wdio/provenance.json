@@ -1,0 +1,132 @@
+[
+  {
+    "fileName": "dialog-empty.frame-v2.json",
+    "fixtureId": "gs4-dialog-empty-v2",
+    "fixtureSha256": "6724d4443f350dd0b0cc5789416242875bfdde62f373e230651fb32595958401",
+    "gateId": "G-S4",
+    "generatedAt": "2026-07-27T15:20:00-07:00",
+    "helixCommit": "a0f84e80cd247cbb3795fe8c73ae8305ad87123b",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/*/view/sections/*/items/*/avatar/userIds/*"
+    ],
+    "placeholderValues": {
+      "actorId": "viewer-444",
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "gs4-wdio-company",
+      "transactionId": "dialog-list-user|10:viewer-444|16:gs4-wdio-company-1"
+    },
+    "producer": "Gs4ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "7ce4624965e5d54e7a123847de7d5698006e93a695bb9683ed6808708a4bde90",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  },
+  {
+    "fileName": "dialog-synced.frame-v2.json",
+    "fixtureId": "gs4-dialog-synced-v2",
+    "fixtureSha256": "c012f2226c35957c2d2f538d46cec4b2f5bb9f8d9c75b7ac34cccd157833b6bb",
+    "gateId": "G-S4",
+    "generatedAt": "2026-07-27T15:20:00-07:00",
+    "helixCommit": "a0f84e80cd247cbb3795fe8c73ae8305ad87123b",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/*/view/sections/*/items/*/avatar/userIds/*"
+    ],
+    "placeholderValues": {
+      "actorId": "viewer-444",
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "teamId": "gs4-wdio-company",
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000018-2"
+    },
+    "producer": "Gs4ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "cd258a0bce1516449d1603f5f59b7daa010dc233b95514a553983a443941f584",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "dialog-recovery.frame-v2.json",
+    "fixtureId": "gs4-dialog-recovery-v2",
+    "fixtureSha256": "08d1438038af7c3ef1e6fe32e92515546598528f175e7c81490c879630e503b1",
+    "gateId": "G-S4",
+    "generatedAt": "2026-07-27T15:20:00-07:00",
+    "helixCommit": "a0f84e80cd247cbb3795fe8c73ae8305ad87123b",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/*/view/sections/*/items/*/avatar/userIds/*"
+    ],
+    "placeholderValues": {
+      "actorId": "viewer-444",
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "teamId": "gs4-wdio-company",
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000018-1"
+    },
+    "producer": "Gs4ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "cd258a0bce1516449d1603f5f59b7daa010dc233b95514a553983a443941f584",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  }
+]

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 2,
+  "transactionId": "surface-storage-channel|26:chfixx00000000000000000018-1",
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "mutations": [
+    {
+      "surface": "message.channel-summary",
+      "scope": {
+        "kind": "channel",
+        "channelId": "chfixx00000000000000000018"
+      },
+      "revision": 1,
+      "mutation": {
+        "kind": "channelSummarySnapshot",
+        "view": {
+          "channelId": "chfixx00000000000000000018",
+          "title": {
+            "text": "GS4 Unknown Channel Group"
+          },
+          "avatar": {
+            "resource": null,
+            "userIds": [],
+            "fallbackText": "GS4 Unknown Channel Group"
+          },
+          "lifecycle": {
+            "state": "active"
+          },
+          "memberCount": 2,
+          "viewerRole": "member",
+          "topicCount": 0,
+          "notificationMode": "all",
+          "actions": [
+            {
+              "actionRef": "channel:channel-settings:chfixx00000000000000000018:1",
+              "kind": "channel-settings",
+              "inputShape": "object",
+              "surfaceEpoch": 1,
+              "enabled": false,
+              "disabledReason": "roleForbidden"
+            },
+            {
+              "actionRef": "channel:channel-close:chfixx00000000000000000018:1",
+              "kind": "channel-close",
+              "inputShape": "object",
+              "surfaceEpoch": 1,
+              "enabled": false,
+              "disabledReason": "roleForbidden"
+            },
+            {
+              "actionRef": "channel:channel-leave:chfixx00000000000000000018:1",
+              "kind": "channel-leave",
+              "inputShape": "object",
+              "surfaceEpoch": 1,
+              "enabled": true
+            }
+          ],
+          "settingsVersion": 0
+        }
+      },
+      "surfaceEpoch": 1
+    }
+  ],
+  "directives": []
+}

@@ -1,0 +1,98 @@
+{
+  "gateId": "G-16b",
+  "sourcePins": {
+    "helixAcceptance": "74ebe9a6ba90c7506abc091f541521f6cd33c8cf",
+    "fixtureProducer": "8c9a9706cb865d0849b17b91485f2e6f2480a4bd",
+    "csesClient": "d89722dbb5d41b9944a3df2d4a32f354fdf24ea5",
+    "pcHelixPin": "74ebe9a6ba90c7506abc091f541521f6cd33c8cf",
+    "mobileQuickJs": "164fd3d95b015d836d715fea1815f29c411d2dea",
+    "mobileHelixPin": "74ebe9a6ba90c7506abc091f541521f6cd33c8cf",
+    "mobileHelixBundleSha256": "e3b1ece09f59d812b2caa32e000168035c12b4bd81b8511a284512c49fe03763",
+    "strictMatrixSha256": "0e45a64ee1629498f44788613fb142489bfffbf7d02d950e8a51ae06afb419cd"
+  },
+  "lanes": {
+    "helix": {
+      "status": "Pass",
+      "required": true,
+      "fullFlow": "5/5",
+      "fixtureContract": "1/1",
+      "explicitResyncRegression": "4/4",
+      "failed": 0,
+      "skipped": 0
+    },
+    "fixture": {
+      "status": "Pass",
+      "required": true,
+      "count": 3,
+      "schemaVersion": 2,
+      "provenanceSha256": "18677799878712f76cfae4fa0acef99491b39df4c3bcf6998d991b1f0418267e",
+      "byteExactMirrors": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "pcMock": {
+      "status": "Pass",
+      "required": true,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "claim": "mock",
+      "runId": "mock-20260727002648509-11847"
+    },
+    "pcReal": {
+      "status": "Pass",
+      "required": true,
+      "singleReal": "1/1",
+      "dualReal": "1/1",
+      "report": "1/1",
+      "failed": 0,
+      "skipped": 0,
+      "singleRunId": "single-real-20260727003952919-22983",
+      "dualRunId": "dual-real-20260727005242330-33969"
+    },
+    "mobileContract": {
+      "status": "Pass",
+      "required": true,
+      "frameContract": "6/6",
+      "uc16Focused": "1/1",
+      "commandApi": "Pass",
+      "sourcePin": "Pass",
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionBoundary": {
+      "status": "Pass",
+      "required": true,
+      "pcProductionFilesScanned": 2735,
+      "pcMockProductionReachable": false,
+      "mobileV1Producers": 0,
+      "mobileV1Consumers": 0,
+      "mobileRawReducers": 0,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "review": {
+    "behavior": {
+      "status": "Green",
+      "finding": "fresh group, durable leave, persist failure, duplicate authority, cold recovery and dual-account broadcast converge on one Helix-owned member roster"
+    },
+    "codeBoundary": {
+      "status": "Green",
+      "finding": "Helix owns membership reduction and roster revision; PC and Mobile only admit production commands and mechanically apply typed Frame V2"
+    },
+    "frameV2": {
+      "status": "Green",
+      "finding": "three byte-identical fixtures preserve schema, memberRoster scope, epoch, snapshot/patch revision, membership fields, disabled actions and correlation"
+    },
+    "evidence": {
+      "status": "Green",
+      "requiredPassRate": 1,
+      "requiredFailed": 0,
+      "requiredSkipped": 0,
+      "loopVerdict": "R4 evidence ready",
+      "observation": "The first PC single-real run exposed an explicit roster resync patch against a detached renderer; Helix now distinguishes explicit snapshot rebuild from internal continuous patch. Repeated Observer channel-created delivery did not materialize a dialog, so the focused dual lane uses Observer's real Tauri im_channel_leave ingress and proves Actor WS FrameApplied plus typed roster DOM without claiming Observer UI lifecycle."
+    }
+  },
+  "finalVerdict": "Green"
+}

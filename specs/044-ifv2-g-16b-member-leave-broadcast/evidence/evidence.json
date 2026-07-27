@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "runs": [
+    {
+      "id": "V-001",
+      "command": "cargo check -p helix-im",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v001-helix-build.txt",
+          "sha256": "b0d0c3b8c96318ed05b5456f706e35ed4c1cf42a0e7d9a36f863167cdb0f63f8"
+        }
+      ]
+    },
+    {
+      "id": "V-002",
+      "command": "cargo test G16b focused scenarios",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v002-helix-scenario.txt",
+          "sha256": "d1e4eed2995707eff9a5a47f46eccb6da4011ee903dbf6b0819fe7f636ed66ab"
+        }
+      ]
+    },
+    {
+      "id": "V-003",
+      "command": "three-repo fixture parity",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v003-fixture-parity.txt",
+          "sha256": "3bd057f39470f95e8b5ed990588bddd001f92a77e504b9896d712cdb71c21f92"
+        }
+      ]
+    },
+    {
+      "id": "V-004",
+      "command": "G16b PC Mock and focused Jest",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v004-pc-mock.txt",
+          "sha256": "03ad0c79b16a38d88d677cee457746543e9ab846590b5fb5a9c54c1b503db8e6"
+        }
+      ]
+    },
+    {
+      "id": "V-005",
+      "command": "G16b PC single-real dual-real report",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v005-pc-real.txt",
+          "sha256": "23fdd1bf11e1c8124d2219810bdfd4a305e092b803c9989cfc78fc551d96dc61"
+        }
+      ]
+    },
+    {
+      "id": "V-006",
+      "command": "G16b Mobile production-linked contract",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v006-mobile.txt",
+          "sha256": "9435cfd4e6ac4edc4fd0da1baf67dfb76f1a8d2eb5c46e16fce4f290579cf095"
+        }
+      ]
+    },
+    {
+      "id": "V-007",
+      "command": "G16b cross-repo review",
+      "started_at": "2026-07-26T23:26:00Z",
+      "ended_at": "2026-07-27T01:00:00Z",
+      "result": "PASS",
+      "files": [
+        {
+          "path": "specs/044-ifv2-g-16b-member-leave-broadcast/evidence/v007-review.txt",
+          "sha256": "c7861ce9c2388004ab369599495321b8836a07b5fd5dc1e65e2be6e981ff2ce7"
+        }
+      ]
+    }
+  ]
+}

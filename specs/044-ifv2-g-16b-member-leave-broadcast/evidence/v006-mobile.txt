@@ -1,0 +1,8 @@
+PASS
+fixture_parity: 3/3
+frame_contract: 6/6
+uc16_member_leave: 1/1
+source_pin: pass
+command_api: pass
+legacy_v1_producers: 0
+legacy_v1_consumers: 0

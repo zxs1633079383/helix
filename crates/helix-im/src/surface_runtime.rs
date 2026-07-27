@@ -44,6 +44,16 @@ pub struct SurfaceResyncRequest {
     pub scope: SurfaceScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub causation_id: Option<String>,
+    #[serde(skip)]
+    pub(crate) projection_mode: SurfaceProjectionMode,
+}
+
+/// 区分 renderer 显式重建与内核连续 authority 刷新的 mutation 语义。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum SurfaceProjectionMode {
+    #[default]
+    Snapshot,
+    Patch,
 }
 
 impl SurfaceResyncRequest {
@@ -185,6 +195,7 @@ impl ImModule {
                     receipt_kind: ReceiptKind::Read,
                 },
                 causation_id,
+                projection_mode: SurfaceProjectionMode::Snapshot,
             },
             out,
         )
@@ -443,6 +454,7 @@ impl ImModule {
                     channel_id: channel_id.as_str().to_string(),
                 },
                 causation_id: None,
+                projection_mode: SurfaceProjectionMode::Patch,
             },
             out,
         )
@@ -470,6 +482,7 @@ impl ImModule {
                     channel_id: channel_id.as_str().to_string(),
                 },
                 causation_id,
+                projection_mode: SurfaceProjectionMode::Patch,
             },
             out,
         )
@@ -495,6 +508,7 @@ impl ImModule {
                         cursor,
                     },
                     causation_id: causation_id.clone(),
+                    projection_mode: SurfaceProjectionMode::Patch,
                 },
                 out,
             )?;
@@ -687,25 +701,22 @@ impl ImModule {
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =
                     member_roster_view(channel_id, cursor, &rows, self.action_surface_epoch()?);
-                if self
-                    .state
-                    .member_roster_projector
-                    .current_view(channel_id, cursor)
-                    .is_some()
-                {
-                    self.state
-                        .member_roster_projector
-                        .patch_membership_lifecycle(view, request.causation_id.clone())
-                        .map_err(|error| {
-                            ImError::Parse(format!("member roster projection: {error}"))
-                        })?
-                } else {
-                    self.state
+                match request.projection_mode {
+                    // 显式 resync 面向可能已遗忘 revision 的 renderer，必须重建完整快照。
+                    SurfaceProjectionMode::Snapshot => self
+                        .state
                         .member_roster_projector
                         .snapshot(view)
                         .map_err(|error| {
                             ImError::Parse(format!("member roster projection: {error}"))
-                        })?
+                        })?,
+                    SurfaceProjectionMode::Patch => self
+                        .state
+                        .member_roster_projector
+                        .patch_membership_lifecycle(view, request.causation_id.clone())
+                        .map_err(|error| {
+                            ImError::Parse(format!("member roster projection: {error}"))
+                        })?,
                 }
             }
             (
@@ -1344,6 +1355,7 @@ mod tests {
             surface: SurfaceId::MessageTimeline,
             scope: scope.clone(),
             causation_id: None,
+            projection_mode: SurfaceProjectionMode::Snapshot,
         };
         let mut sink = EffectSink::new();
 
@@ -1371,6 +1383,7 @@ mod tests {
                 channel_id: "ch00000000000000000000000b".to_string(),
             },
             causation_id: None,
+            projection_mode: SurfaceProjectionMode::Snapshot,
         };
         let mut sink = EffectSink::new();
 

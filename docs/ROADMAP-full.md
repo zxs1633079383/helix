@@ -1,155 +1,371 @@
-# Helix 完整 Roadmap（D + A 全景 · crux-grounded · headless 守卫逐阶段）
+# Helix 完整 Roadmap
 
-> 2026-06-15 · 本文是**全景 + 设计推演**视角；天级 todo / 验收 checklist 见 [`ROADMAP.md`](./ROADMAP.md)（两者分工：本文管"为什么这么排、每阶段守什么线"，ROADMAP.md 管"这周做哪几条"）。
-> 2026-06-15 更新（ADR-006）：当前产品路线收缩为 PC Tauri + Flutter 手机端；Web/WASM 归档暂停。本文中旧 wasm 阶段仅作历史推演，不作为当前 roadmap。
-> 关联：北极星 [`GOAL.md`](./GOAL.md) · 决策权威 [`harness/decisions.md`](./harness/decisions.md) · 机制权威 [`过会方案/helix-core-im-架构设计.md`](./过会方案/helix-core-im-架构设计.md) · 方向A [`过会方案/helix-core-view-方向A设计.md`](./过会方案/helix-core-view-方向A设计.md) · 参照实现 Crux（`/Users/mac28/workspace/rustWorkspace/crux`，源码已核） · 行为真源 cses-client（`src-tauri/features/im` + `message-v3`）。
+> 本文回答“为什么按这个顺序把一份业务与交互语义交付到 PC、Mobile、Web”。
+> 天级任务、当前 pin 和阻塞见 [`ROADMAP.md`](./ROADMAP.md)；目标常量与 TSCR 见
+> [`GOAL.md`](./GOAL.md)。
+>
+> 2026-07-27 重构：删除已被 ADR-014/015 覆盖的“Web archived”和旧 D+A/ViewModel
+> 路线，不再把已完成的 FFI F4、Web A1-A5 或 InteractionFrame V2 写成未来任务。
 
 ---
 
-## §0 贯穿不变量（铁律：core 与 core-view 永远是 headless 通用核）
+## 1. 产品终局
 
-> 这是全篇的轴心。**每个阶段出门前都要过这道闸门**——它证明 core 没被 IM 污染、没碰 I/O、没碰像素，始终是「运行时无关的通用核」，IM 只是 guest #1。
+```text
+                        ┌─────────────────────────────┐
+UiEvent / Observation ─▶ helix-im domain + surfaces  │
+                        │ action / effect / persist   │
+Authority / PortReply ─▶ InteractionFrame V2         │
+                        └──────────────┬──────────────┘
+                                       │ deterministic bytes
+                 ┌─────────────────────┼─────────────────────┐
+                 ▼                     ▼                     ▼
+           PC Tauri/Angular      Mobile FFI/UI         Web WASM/UI
+           mechanical apply     mechanical apply      mechanical apply
+           platform I/O         platform I/O          platform I/O
+```
 
-| 闸门 | 判据（machine-checkable） |
+最终不是“三端调用同一套 API”这么弱，而是：
+
+- 业务动作选择、权限、状态转换、窗口、未读、temporaryId 对账和 fallback 只在
+  `helix-im`；
+- 三端只采集用户意图、执行 Effect、机械 apply Frame 和渲染平台组件；
+- durable 结果都经过 authority + PersistOk；
+- 任一 Gate 的三端结果可由同一 correlation 和 evidence window 复查；
+- 用 TSCR 衡量 active Gate 的三端同核闭环，不再用“代码完成度”或单端百分比。
+
+---
+
+## 2. 两条正交扩展轴
+
+```text
+业务轴： IM ── Presence ── Meeting ── Notify ...
+平台轴： Native ── FFI ── Web ── future platform ...
+
+共享交叉点：helix-core ports + deterministic execution
+业务语义层：每个 Module 自己的 domain + InteractionProtocol
+平台差异层：I/O capability + renderer registry
+```
+
+复杂度目标从 `业务数 × 平台数` 降到 `业务数 + 平台数`。成立条件不是 crate 可以编译，
+而是平台没有复制业务 reducer。第二业务模块和 TSCR 都是这个主张的反证工具：
+
+- 第二模块证明 core 不是 IM 专用框架；
+- TSCR 证明三端没有只在静态合同上“看起来共用”。
+
+---
+
+## 3. 不可交换的实施顺序
+
+### 3.1 先确定性地基，再接真实 I/O
+
+如果 core 先依赖 tokio、SQLite 或 WebSocket，FFI/Web 会被 native 线程模型锁死。
+因此先完成 Tick/Effect/port/Module host、时间/ID 注入、回放和乱序 gate，再让 driver
+实现 I/O。
+
+### 3.2 先权威事实与 Persist barrier，再做 UI 语义
+
+HTTP accepted 或 WS frame 不是业务完成。先建立 authority -> PersistOk -> projection 的
+顺序，才能让 InteractionFrame 的 revision 和终态可信。否则统一 UI 只会统一错误。
+
+### 3.3 先共享 V2 writer/reader，再逐 Gate 迁移
+
+V1/V2 双写、客户端 normalize 和 raw reducer 会制造无法观察的 fallback。必须先建：
+
+- V2-only codec；
+- atomic SurfaceRuntime；
+- epoch/revision/transaction；
+- ActionBinding 与 FrameApplied；
+- source pin/fixture/evidence contract。
+
+之后每个 Gate 才能用同一模板纵切。
+
+### 3.4 先一个 Gate 三端闭环，再扩全量
+
+PC 26 Gate、Mobile 27 contract Gate 或 Web smoke 各自变绿，仍可能完全没有三端同窗
+闭环。P0 先让 G01 产生首个 ThreePlatformGreen，再复制方法到其他 active Gate。
+
+### 3.5 最后物理删除 legacy
+
+静态 hard-cut 是准入，不是删除授权。只有固定 candidate 的 required fail/skip 为 0、
+V1/raw counters 为 0，并且删除后回归再次通过，才删除旧 writer/reader/fixture/docs。
+
+---
+
+## 4. 阶段全景
+
+| Phase | 目标 | 状态 | 退出证据 |
+|---|---|---|---|
+| F0 | runtime-agnostic core 骨架 | 完成 | core 零 runtime、Module/ports、deterministic replay |
+| F1 | IM 收发/同步/持久化地基 | 完成 | 真 Go、乱序/cursor、echo、Persist barrier |
+| F2 | native + shared host | 完成 | SQLite/HTTP/WS/engine loop、Tauri host |
+| F3 | FFI/C++ 产品接线 | 完成到平台接线 | shared loop、batch event、Rust 自持 I/O、ABI |
+| F4 | Web Rust 平台层 | 完成 | final WASM、Browser Fetch/session/WS、真 Go smoke |
+| F5 | InteractionProtocol V2 共享基线 | 完成 | V2 codec/writer/Surface/Action/ack、canonical fixture |
+| F6 | G01-G16c PC/Mobile 纵切 | 主体完成，证据收口中 | per-Gate review、当前 pin 总控、legacy 删除后回归 |
+| F7 | Web 产品 renderer + 首个三端 Gate | 未完成 | G01 ThreePlatformGreen，TSCR > 0 |
+| F8 | 43 active Gate 三端扩展 | 未完成 | current epoch 全部 ThreePlatformGreen |
+| F9 | 第二业务模块 | 未完成 | 新 Module/core 零改、至少一条三端闭环 |
+
+---
+
+## 5. 已完成地基
+
+### F0：确定性内核
+
+产物：
+
+- `Module` host；
+- Tick/Effect 执行模型；
+- FrameSender、Storage、HTTP、Clock、Timer、EventSink、IdSource 等 ports；
+- owned 状态、单线程可运行、时间/ID 注入；
+- 回放、乱序、cursor 单调与 HX-C 护栏。
+
+保持的红线：
+
+- core 不认识 channel/message/UI；
+- core 不执行 I/O；
+- feature additive；
+- 加端和加模块不修改 core。
+
+### F1：IM authority 与持久化
+
+产物：
+
+- hello、increment、sync、pong gap、unknown channel hydration；
+- 发送 optimistic/Persist/HTTP/WS echo/reconcile；
+- phantom、readBits、cursor、离线恢复；
+- local-first/remote fallback 与明确 coverage；
+- durable projection 等待 matching PersistOk。
+
+### F2/F3：native/FFI 共用 host
+
+产物：
+
+- shared SQLite schema/StorageOp；
+- shared HTTP/WS 与 header registry；
+- shared `run_engine_loop`；
+- native/FFI 薄壳；
+- FFI opaque handle、批量 event、C++-host 直连。
+
+这一步已经淘汰旧“Dart 喂帧、Rust 只做库”的路线。Mobile UI 仍需独立真机证据，
+但不再需要另一套业务 engine。
+
+### F4：Web 平台层
+
+产物：
+
+- `helix-driver-web`；
+- Rust Browser Fetch；
+- bounded page-session store/Disabled；
+- ExternalWsBridge、browser timer、bounded event batch；
+- final WASM 与 host-runtime leak gate；
+- 浏览器 query 鉴权、hello、send/echo、断连恢复。
+
+边界：该 crate 明确不做 frontend rendering。Web 平台 I/O 完成不等于 Web 产品 Gate
+完成。
+
+---
+
+## 6. InteractionProtocol V2 主线
+
+### F5：共享协议基线
+
+已经建立：
+
+- `InteractionFrameV2` 的 runtime、mutations、directives；
+- typed Surface/VM、snapshot/patch；
+- `surfaceEpoch`、`revision/baseRevision`、transaction；
+- opaque `ActionBinding` 与独立 ActionInvocation schema；
+- whole-frame staging/commit；
+- FrameApplied、ack/resync；
+- canonical fixture/provenance/source pin；
+- safe correlation 与 evidence contract。
+
+协议边界：
+
+- `helix-im` 决定语义；
+- driver 传输批次；
+- SurfaceRuntime 只验证和原子提交；
+- renderer registry 只映射具体组件；
+- raw event 不写业务 VM。
+
+### F6：PC/Mobile 逐 Gate 纵切
+
+第一批范围为 GS01-GS04 + G01-G16c，共 27 Gate。当前进展：
+
+- Helix producer、canonical fixture、PC/Mobile typed consumer 已覆盖主要范围；
+- G01-G16 的逐 Gate review 主体已完成；
+- G16b/G16c 代码与 fixture 已进入 main，但总控任务状态和最终 program report 尚需收口；
+- GS01-GS04、legacy 删除选择与删除后全量回归仍是开放项；
+- PC/Mobile 都已 pin `98c522a`，但 current-epoch runtime evidence 仍需同窗重建。
+
+此阶段的退出标准不是“27 个子项目都提交”，而是：
+
+```text
+single candidate
++ current Matrix/hash
++ PC aggregate real evidence
++ Mobile aggregate real evidence
++ required fail=0 / skip=0
++ V1/raw=0
++ approved deletion
++ post-delete regression
+```
+
+---
+
+## 7. 三端闭环主线
+
+### F7：Web renderer 与首个 ThreePlatformGreen
+
+最小纵切选择 G01，因为它同时覆盖：
+
+- composer ActionBinding；
+- optimistic Sending；
+- Persist barrier；
+- HTTP create；
+- WS echo/reconcile；
+- timeline/dialog 原子 Frame；
+- actor/observer；
+- ack/resync；
+- 三端最终 UI。
+
+Web 必须新增的是平台实现，不是业务逻辑：
+
+- V2 codec/Surface slot 或复用生成合同；
+- static renderer registry；
+- action invocation；
+- FrameApplied/ack/resync；
+- product DOM 与 evidence hooks。
+
+禁止：
+
+- 在 JS 中解析 raw IM event；
+- 重做 temporaryId 对账；
+- 由 Web 自选业务 command；
+- 用 browser smoke 代替产品 DOM。
+
+F7 退出时 TSCR 从 `0/43` 变为至少 `1/43`。
+
+### F8：扩到全部 active Gate
+
+每个 Gate 使用同一流水线：
+
+```text
+Matrix/Spec
+→ failing contract/replay
+→ Helix command/observation + authority + Persist
+→ canonical Frame V2
+→ PC/Mobile/Web mechanical consumer
+→ current-pinned mock + real + dual + persistence + UI
+→ ThreePlatformGreen
+```
+
+实施批次：
+
+1. GS01-GS04 与 G01-G16c 当前批次收口；
+2. G03 media；
+3. G17-G21 频道/成员/公告/presence；
+4. G25-G27 书签、待办/通知、公司大群与推送；
+5. G22-G24 只有在新 epoch 明确激活后进入。
+
+Gate 拆分、合并或 lifecycle 变化必须升级 Matrix epoch；TSCR 必须带新分母和 hash。
+
+---
+
+## 8. 媒体能力支线
+
+ADR-016 已确定 Rust 直连 Java：
+
+```text
+Helix command
+→ Java prepare
+→ driver PUT object
+→ Java complete/verify
+→ stable capability URL
+→ Go posts/create
+→ WS/authority/Persist/Frame
+```
+
+当前 v1 边界：
+
+- PC/FFI shared host 支持文件上传；
+- 64 MiB 单 PUT 是当前实现边界；
+- Web 有双地址配置槽，但 File/Blob upload 与 CORS 未完成；
+- G03 必须保持 active/declared，直到 current-pinned 真实 object readback 和三端产品证据完成。
+
+不能再把旧用户 waiver 当永久产品状态，也不能用 Go posts/create 200 替代对象完成与回读。
+
+---
+
+## 9. 第二业务模块
+
+当 IM 的首个 ThreePlatformGreen 稳定后，引入一个形状不同的真实模块：
+
+- Presence：高频、短生命周期、弱持久；
+- Meeting：多阶段状态、timer、成员权限；
+- Audit：HTTP + Storage，可能没有 WS。
+
+选择标准是能反证 IM 偶然性，而不是最容易演示。完成条件：
+
+- 新模块只实现自己的 domain、Module、ports 使用和 InteractionProtocol；
+- `helix-core` 一行不改；
+- 三端只新增 renderer/capability adapter；
+- 至少一个 active Gate 达到 ThreePlatformGreen；
+- 多模块共享 engine/storage 的性能与公平性有数字证据。
+
+---
+
+## 10. 性能与可靠性预算
+
+| 边界 | 约束 |
 |---|---|
-| 零运行时依赖 | `cargo tree -p helix-core \| grep -iE 'tokio\|sqlx\|reqwest\|web-sys\|tauri'` = 空 |
-| 零业务概念 | `grep channel/message/temporaryId crates/helix-core` = 0；公开面 `cargo public-api` 对 allowlist 无新业务类型 |
-| 双端编译绿 | native 产品 crate（core/im/driver-native/driver-ffi）全过；wasm 不作为当前必跑目标 |
-| 加模块/加端 core 零改 | 加模块 = `Module`+`register`；加端 = 实现 ports（开闭原则） |
-| 确定性可回放 | 同 Tick 序列 → 同输出 |
-| **（进 A 后追加）** | `grep ViewModel crates/helix-core` = 0 —— ViewModel 是业务类型，只在 helix-im |
+| core step | 单线程、确定性、无 ambient I/O |
+| 热路径 | O(1) 查找/推进，禁无界 scan 与 read-modify-write |
+| Storage | 单写者、batch、PK/索引命中、事务原子 |
+| FFI/Web | Frame/step 批量传输，队列有界并报告 gap/drop |
+| Surface | revision O(1) 判定；大列表使用有界 window/patch |
+| Action | opaque capability O(1) lookup，过期 fail-closed |
+| Evidence | correlation 有界、脱敏，不记录 token/cookie/正文/完整 VM |
 
-**Crux 源码佐证 headless 是真的可达**：`Core<A>` 仅持 `model + app + 一个 yield-effects 的执行器`，零 I/O、零 async runtime、零渲染；Capability 只是返回 `Command` 的构造器，不执行。helix 守同一条线，且更严（见 §5）。
-
----
-
-## §1 两轴正交模型（core 永在交叉点不动）
-
-```
-横向（加业务模块，core 零改）:  IM ──→ +Presence ──→ +Meeting ...
-纵向（加平台端，core/模块零改）: native ──→ ffi（Flutter）
-        交叉点 = helix-core（永远 headless 通用核） → M×P 塌成 M+P
-
-core-view（方向 A）= core 多吐一种通用 Effect(Render) + 一个泛型投影口(view)，
-   不改变它 headless / 通用 / 运行时无关的本质——它仍在交叉点上不动。
-```
+性能主张必须来自 benchmark/stress artifact；没有数字时只写设计目标。
 
 ---
 
-## §2 阶段总览
+## 11. 发布与停止条件
 
-| Phase | 名称 | 轴 | 状态 |
-|---|---|---|---|
-| 0 | 骨架（5 crate / 7 trait / step 壳 / Module host） | core | ✅ 完成 |
-| 1 | 先证最硬骨头（乱序 backfill proptest） | 业务① | ✅ 完成 |
-| 2 | native 落地 + 真 Go 联调 + Tauri 换引擎 | 业务① + native | 🔄 M2 ~90%（仅 Tauri 四接缝剩余；2a/2b/2c ✅） |
-| 3 | 基础 core 完工 + 统一 in-memory Model | 业务①（D 阶段2 收尾） | ⏳ A 的枢纽前提 |
-| 4 | FFI / Flutter 手机端 | +端 | 🔄 M3-F4 启动（F2/F3 ✅，F4 engine 接线拆解中） |
-| 5 | wasm 浏览器端 | +端 | archived（ADR-006 暂停维护） |
-| — | **以上 = 方向 D 当前产品完成：业务①写一次 PC + Flutter 双端一致，地基独立回本** | | |
-| 6 | core-view **通用机制**（Render + view + typegen） | core（仍 headless） | 🔮 未来 |
-| 7 | 方向 A 增量切（一刀一 ViewModel）+ 大列表性能自研层 | 展示②（helix-im） | 🔮 未来 |
-| 支线① | AI 工程化硬化（CI matrix / clippy deny / public-api gate） | 工程化 | 并行 |
-| 支线② | 第二模块验证（presence / meeting，core 零改） | 通用性裁决 | D 后任一时点 |
+### 发布条件
 
----
+- source pin、Matrix hash、fixture、generated contract 一致；
+- scoped required fail=0、skip=0；
+- authority/Persist/Frame/UI/trace 同窗；
+- V1 producer/consumer/raw fallback 为 0；
+- 变更影响的三端 gate 与 ABI/build 通过；
+- TSCR 只由 machine reducer 派生。
 
-## §3 逐阶段详述
+### 停止条件
 
-### ✅ Phase 0 — 骨架
-**产物**：workspace 5 crate · 5 类 Port / 7 trait · `step(Tick,now_ms)→&[Effect]` 纯函数壳 · Module host（accepts/handle/on_start/on_stop + register/dispatch）· Effect 7 variant / Tick 6 variant。
-**headless 守卫**：`cargo tree` 空已实测；core 零业务。
+- 目标要求违反 GOAL 不变量；
+- Matrix/Spec 与代码的业务语义冲突且没有 ADR；
+- current candidate pin/hash 不一致；
+- 缺少真实 connector/credential/设备且无法继续收集对应证据；
+- 同一失败在授权范围内连续三次仍无进展；
+- 为绿灯需要弱化断言、制造数据、恢复 legacy 或越过 owner 边界。
 
-### ✅ Phase 1 — 先证最硬骨头（纪要头号风险）
-**产物**：乱序 backfill 的 proptest——gate / cursor 单调 / 不丢不重 / 确定性。**先证再写 driver**：在最脏的「乱序帧缓冲 + gap 检测 + 按序补齐」链上把架构钉死，过会底气来自此。
-
-### 🔄 Phase 2 — native 落地 + 真 Go 联调 + Tauri 换引擎（M2）
-| 子阶段 | 状态 | 内容 | grounding |
-|---|---|---|---|
-| 2a 业务①搬进 helix-im | ✅ | `handlers/*` + `state.rs GateState` → `handle` + owned 状态；后续 WS registry 重构（main 线）+ sync-v2 全链路 | cses `src-tauri/features/im` 逐文件 |
-| 2b driver-native 实现 ports | ✅ | Transport/Storage/Http 落地；`BoundedSpawner` 背压根治（Persist/Http/HttpFire 统一） | cses 现网并发形态 |
-| 2c UC-1 前置4块 + 真 Go smoke | ✅ | hello 握手 / B4 event_seq / B5 phantom / echo→reconcile + golden fixtures；真消息端到端验过（2026-06-17） | panel-review 揪出的死/缺/脆 |
-| 2d Tauri 四接缝 + 灰度 | ⬜ **未做（M2 唯一剩余）** | 10 命令内部切 Tick / 读旁路 · `NativeEventSink`→`im:__bus__` · 同库灰度 · `store:*` 对齐（B3 readBits ✅） | **Angular message-v3 零改** |
-
-**headless 守卫**：业务①全在 helix-im，平台胶水全在 driver-native，core 零改。交付物 = **换引擎，不是重写客户端**。
-
-### ⏳ Phase 3 — 基础 core 完工 + 统一 in-memory Model（★ A 的枢纽）
-**产物**：收发链路剩余 handler 全搬进 core；helix-im 建**统一 in-memory Model**（频道/消息/未读/成员/草稿，从 Storage port 投影的内存态）。
-**为什么单列**：**这是「先 D 后 A」的转轴**——ViewModel 投影的是业务 Model，没有干净 Model 之前 A 无对象可投。Model 没建好坚决不碰 Phase 6/7。
-**headless 守卫**：Model 是 helix-im 业务状态，core 只见 `table:&'static str`，不知是「消息」还是「草稿」。
-
-### 🔄 Phase 4 — FFI / Flutter 手机端（M3，F4 启动）
-C ABI + Dart FFI 最小 API → rusqlite/SQLite 存储 → `helix_command`/`helix_query` + Dart Stream 事件流 → `panic=abort` cdylib/staticlib（HX-C006）→ Flutter 冒烟 → native vs FFI 同 Tick 剧本一致。
-**进度**：F2（FfiStorage 复用 host）✅ · F3（shared HTTP/WS client + set/remove_header + FfiTransport）✅ · opaque handle/create/destroy ✅；**F4（engine 接线 + 事件回 Dart Stream）2026-06-18 启动**——核心缺口 = FFI 无 engine 泵（`helix_on_ws_frame`/`on_http_response` 不喂 engine、无 command 入口）。**逐子任务拆解（F4.1 泵归属决策 / F4.2 runtime+Tick 入队 / F4.3 事件回 Stream / F4.4 panic+spawn_blocking 核 / F4.5 Flutter 冒烟）见 [`ROADMAP.md` §一 M3 ▶ F4 实装拆解](./ROADMAP.md)**。
-**headless 守卫**：同一份 core 跑 ffi 零改；panic 不跨 `extern "C"`；opaque ptr 单 owner。
-
-### archived Phase 5 — wasm 浏览器端（暂停维护）
-IndexedDB / Worker / OPFS / wasm 包体积相关方案按 ADR-006 归档。当前不做网页端、不补 driver-wasm、不纳入 CI 或交付验收；未来重启 Web 需新增 ADR 重新评估 cache/storage 策略。
-
-> **—— 到此 = 方向 D 当前产品完成。业务①（收发/同步/对账/离线）写一次 PC Tauri + Flutter 双端一致、可回放可单测。这是地基，独立回本——即使 A 不做，投资也不白费（纪要定锚）。——**
-
-### 🔮 Phase 6 — core-view **通用机制**（仍然 headless）
-core **只**加两个**通用**原语：
-- `Effect::Render`（fire-and-forget 通知，对照 Crux `RenderOperation`，Output=()）；
-- `Module::view() -> Option<ViewBytes>`（**不透明字节，core 不解释内容**，对照 Crux `Core::view` 泛型）。
-
-host 加 `Render → view() → im:viewmodel:patch` 链路；typegen 抄 `crux TypeGen::register_app` 先出 ViewModel 的 TS interface。
-**headless 守卫（升级）**：`grep ViewModel crates/helix-core`=0；public-api 只新增 `Render`/`ViewBytes` 两个**通用**条目，无任何 IM ViewModel 类型。**core 加了「投影机制」，但不知道投影内容——它还是通用核**；第二模块（presence）同样能用 `Render`+`view()` 投自己的 ViewModel，core 一行不改。
-
-### 🔮 Phase 7 — 方向 A 增量切 + 大列表性能（**自研层，非抄 Crux**）
-| 刀 | 内容 | 性能方案（[方向A §4.1](./过会方案/helix-core-view-方向A设计.md)） |
-|---|---|---|
-| 第1刀 | 未读角标 | 纯 **A** 全量（验证 Render/typegen/patch 管线，此时与 Crux 等价） |
-| 第2刀 | dialogList 排序 | **B** 窗口化（**自研起点**） |
-| 第3刀 | 消息分组 + mention ranges | **B**+**C**（窗口内 diff） |
-| 第4刀 | 草稿 | 纯 **A** + 进 Model（顺带三端草稿同步） |
-
-顶层 **D 分块** + 全局 **E 脏标记** + **A 兜底**。
-**关键**：Crux 源码确认 `view()` 每次**整份** ship ViewModel、零 diff/windowing（见 §6）——所以大列表增量投影是 helix **在 Crux 之上自研的一层**，roadmap 单列预算，**不算进「抄 Crux」**。
-**headless 守卫**：ViewModel 在 helix-im；windowing/DOM/像素永远在 UI——**core 出数字/切片/补丁，不碰像素 = 不退方向 B**。
-
-### 支线① — AI 工程化硬化（可与任意 Phase 并行）
-CI 双端 matrix → clippy deny-list（`Instant::now`/`println!` 编译期禁）→ per-crate AGENTS.md → `cargo public-api` gate。**把 §0 headless 三证从「手跑/会话纪律」升级成「编译期/CI 闸门」**——这才是不变量真正被守住的方式（对照 Bun：约束嵌进工具链）。落地动作见 [`ROADMAP.md` §二 P2 工程化](./ROADMAP.md)（原「AI工程化对齐-Bun-checklist」已随 docs 缩减并入 ROADMAP）。
-
-### 支线② — 第二模块验证 = 通用核裁决（D 后任一时点）
-`register(MeetingModule)` / `register(PresenceModule)`，**core 零改**跑通。会议用全四能力但形状完全异于 IM（无 temporaryId 对账、无 cursor 同步）；audit 只用 Http+Storage+Timer 不碰 WS。**这是「core 是通用核而非 IM 框架」的代码裁决**（架构设计 §六）——你最在意的不变量，要用第二个形状异于 IM 的模块插得进来证明，不靠嘴说。
+停止时输出 `partial` 或 `blocked`，列明已完成证据、第一阻塞面和恢复动作。
 
 ---
 
-## §4 Crux 构件映射（Phase 6/7 对照真实源码）
+## 12. 战略完成
 
-> 源码已核（`crux_core` 0.19）。helix 今天 = Crux 去掉 `view()`/`ViewModel`/`Render`/typegen 四件。
+Helix 的战略完成态是：
 
-| Crux 真实构件（源码路径） | helix 现状 | Phase 6 要补 |
-|---|---|---|
-| `App{Model,Event,ViewModel,Effect}` + `update→Command<Effect,Event>` + `view(&model)→ViewModel`（`crux_core/src/lib.rs`） | `Module` + `step(Tick)→&[Effect]`（无 view） | helix-im 加纯函数 `view()` |
-| `RenderOperation`（Output=()）fire-and-forget（`capabilities/render.rs`） | EventSink 吐领域事件 | core 加 `Effect::Render` 通用变体 |
-| `Bridge::{update, resolve, view}`，bincode `[u8]`（`bridge/mod.rs`） | `step` + corr 回灌（无 view 出口） | host 加 `view()` 拉取出口 |
-| `EffectId`（u32 Slab 索引）做 effect 续算配对（`bridge/registry.rs`） | `corr_map` ✅ 同机制 | 复用，不改 |
-| `TypeGen::register_app` → Event + ViewModel + EffectFfi + Request 的 Swift/Kotlin/TS/C#（`type_generation/serde.rs`） | 无 | 抄 typegen，先出 TS |
-| shell 三责：forward event / execute effect+resolve / pull view（`examples/counter/.../ffi.rs`） | 三端薄桥（Tauri/wasm/ffi） | 不变 |
+1. 所有 current-epoch active Gate 的 TSCR 为 100%；
+2. 三端没有业务 reducer、命令选择或权威字段补算；
+3. 第二业务模块在 core 零改条件下完成三端闭环；
+4. 新平台接入只实现 ports、bridge 和 renderer；
+5. 性能、可靠性和证据边界由 HX-C/CI/machine reducer 持续守住。
 
----
-
-## §5 helix ⊄ Crux：有意的分歧（别盲抄）
-
-| 维度 | Crux | helix（已拍板） | 取舍 |
-|---|---|---|---|
-| Effect 形态 | `#[effect]` 宏按 Operation 派生变体 | **单一手写 enum**（纪要③） | helix 更简；放弃 capability 模块化，可接受 |
-| update 返回 | `Command<Effect,Event>`，**core 内含 async executor** | `step(Tick)→&[Effect]`，**core 内零 async executor** | **helix headless 更彻底**：执行器/并发全在 driver，core 纯 `match` 单线程可跑，更利三栖 |
-| 输入 | `Event` 单类 | `Tick` 六类（Command/Inbound/PortReply/Timer/Connected/Disconnected） | helix 把网络入站/连接生命周期显式化，贴 IM |
-
-> **抄 Crux 的是**：沙漏形状 + `Render`/`Bridge`/typegen 三件套 + EffectId↔corr 配对范式。
-> **不抄的是**：它的 `Command` async executor——helix 故意不把执行器放进 core，这正是 helix headless 比 Crux 更纯之处。**这条要守住，别被「crux 有 Command 我们也加」带偏。**
-
----
-
-## §6 大列表投影性能 = 自研层（Crux 不白送，单列预算）
-
-Crux 源码实证：`Core::view()` 就一句 `self.app.view(&model)`，bincode **整份** ViewModel 过 Bridge，**crux_core 零 diff / 零 patch / 零 windowing**——官方做法是「整份 ship + shell 自己虚拟滚动」。对 chat 千条消息不够。
-
-所以 Phase 7 的分层方案（[方向A §4.1](./过会方案/helix-core-view-方向A设计.md)：A 全量 / B 窗口化 / C diff-patch / D 分块 / E 脏标记）是 helix **在 Crux 之上自研**：第1刀（未读，纯 A）与 Crux 等价，**第2刀（dialogList）起才进入自研窗口化**。分界点清晰，预算单列。
-
----
-
-> 交叉引用：北极星 [`GOAL.md`](./GOAL.md) · 决策 [`纪要`](./harness/decisions.md) · 机制 [`架构设计`](./过会方案/helix-core-im-架构设计.md) · 方向A [`方向A设计`](./过会方案/helix-core-view-方向A设计.md) · 天级 todo [`ROADMAP.md`](./ROADMAP.md) · 护栏 [`harness/`](./harness/README.md) · 文档地图 [`README.md`](./README.md)。
+在此之前可以准确声明平台层完成、合同完成、Gate review-green 或某端 real-pass，
+但不能声明“Helix 三端目标完成”。

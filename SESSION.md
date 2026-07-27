@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 基于 Helix、cses-client 与 mobile-qucik-c++ 当前 HEAD、消费 pin、ADR-014/015/016、InteractionProtocol Spec 与 Gate 证据，完成 GOAL/README/ROADMAP/ROADMAP-full 四文档熵管理；可证伪断言：① ROADMAP-full 不再把 Web 写成 archived 或把 FFI F4 写成未完成；② README 登记当前 ADR/HX-C/InteractionProtocol canonical 入口；③ ROADMAP 将实现、消费接入、Mock、real、dual-user、persistence、DOM 证据分面，不把任一面冒充全绿；④ GOAL 新增一个具有固定分母、fail-closed 算法与机器入口的北极星指标，且四文档对其名称、公式和停止条件一致；⑤ 只修改四份目标文档与 SESSION 结果记录，不触碰三端生产代码或用户现有审批文档 | 赌注 高 | 可逆 是 | @2026-07-27T00:00:00-0700
+
+✅ DONE 已按当前三端代码与合同重构 GOAL/README/ROADMAP/ROADMAP-full：锁定 PC/Mobile Helix pin `98c522a`、Strict Matrix epoch 11/raw SHA `caadafd2...`、46 Gate/43 active/3 excluded，以及 Web driver 已完成但产品 renderer 缺失的事实；删除 Web archived、FFI F4 未完成和旧 D+A/ViewModel 未来路线。新增唯一北极星指标“三端同核闭环率 TSCR”，固定 fail-closed 公式、ThreePlatformGreen 六项准入、版本化分母和当前可发布值 `0/43`，并把 Helix producer、PC/Mobile contract/real、Web smoke、Mock、dual-user、persistence 与 UI 证据分面。四文档相对链接 0 断链，旧路线术语扫描 0 命中，ADR=16、HX-C=18、Matrix=46/43/3 对账通过，`git diff --check` PASS；未运行 Cargo，未修改三端生产代码或用户现有审批文档 | @2026-07-27T01:50:26-0700
+
 🎯 EXPECT 将 G02-G16c 剩余 22 个业务 Gate 按 G01 V1 稳定目录和文档布局同步到 Apifox 项目 8449651；可证伪断言：① 创建或更新恰好 22 个 Gate 文件夹且每个包含总览、Command、PC、Mobile、字段枚举、Frame 状态流、逐 Frame、UI、覆盖、HTTP/WS、Mock、版本 Diff；② 只嵌入 producer 导出的 canonical fixture，缺失 fixture 明确标记 not-proven；③ 所有 payload 先通过 Apifox CLI schema 校验，回读目录归属和数量一致；④ 不修改 Helix/PC/Mobile/Go 业务代码，不把 AcceptedCommand、Mock 或 HTTP 200 冒充真实渲染完成 | 赌注 高 | 可逆 是 | @2026-07-26T20:00:00-0700
 
 ✅ DONE 已在 Apifox 项目 8449651 的 `Helix Gate 接口合同（G01-G16）` 下创建并回读 22 个剩余 Gate 文件夹，按 G01 V1 布局同步 340 份 Markdown（其中 98 份逐 Frame canonical JSON）、23 个真实 cses-im-server HTTP 资源和 18 个 Gate WS 资源；所有写入 payload 均先经官方 CLI schema validate，HTTP/WS 均为 released。21 个 Gate 的 Rust-export fixture 已逐文件校验 provenance SHA-256，G03 因无 canonical fixture 明确保持 not-proven 且未补造 Frame；独立全项目 Apifox export 复核 22/22 文件夹、340 文档、零重名、资源归属一致。未修改 Helix/PC/Mobile/Go 业务代码，未运行 Cargo | @2026-07-26T22:25:00-0700

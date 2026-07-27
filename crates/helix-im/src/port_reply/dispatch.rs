@@ -219,7 +219,7 @@ impl ImModule {
             )?,
 
             CorrelationContext::IncrementBatchPersist { projections } => {
-                self.handle_increment_batch_persist_reply(projections, outcome, out)
+                self.handle_increment_batch_persist_reply(projections, outcome, out)?
             }
 
             CorrelationContext::IncrementHydrationPersist {

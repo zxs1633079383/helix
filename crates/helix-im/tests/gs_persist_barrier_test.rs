@@ -188,6 +188,60 @@ fn gs1_persist_ok_publishes_increment_then_loaded() {
 }
 
 #[test]
+/// 证明已 attach 的 dialog 只在 GS1 PersistOk 后从 durable channel 表重新扫描。
+fn gs1_persist_ok_refreshes_attached_dialog_from_storage() {
+    let mut h = Harness::new_with_identity(&[], "gs1-actor", "gs1-team", "", "", "");
+    h.step(command_json("im_query_dialog_list", json!({})), 1);
+    let attach_corr = h
+        .sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel"),
+                ) =>
+            {
+                Some(corr.raw())
+            }
+            _ => None,
+        })
+        .expect("dialog attach must scan channel");
+    h.step(
+        port_reply_with_body(attach_corr, bytes::Bytes::from_static(b"[]")),
+        2,
+    );
+    h.step(hello_inbound("CONN-GS1-ATTACHED"), 3);
+    h.module
+        .ingest_increment(&increment(41, 0, false), &mut h.sink);
+    h.sink.clear();
+    h.module.ingest_increment_end(None, &mut h.sink);
+    let (persist_corr, _) = increment_batch_persist(&h);
+    assert!(
+        h.sink.as_slice().iter().all(|effect| !matches!(
+            effect,
+            Effect::Persist { ops, .. }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel"),
+                )
+        )),
+        "global end must not scan before batch PersistOk"
+    );
+
+    h.step(port_reply_ok(persist_corr), 4);
+    assert!(
+        h.sink.as_slice().iter().any(|effect| matches!(
+            effect,
+            Effect::Persist { ops, .. }
+                if ops.iter().any(
+                    |op| matches!(op, StorageOp::Scan(scan) if scan.table == "channel"),
+                )
+        )),
+        "batch PersistOk must schedule one durable dialog scan"
+    );
+}
+
+#[test]
 fn gs1_persists_all_channels_but_bounds_initial_projection_window() {
     let mut h = Harness::new(&[]);
     h.start(0);

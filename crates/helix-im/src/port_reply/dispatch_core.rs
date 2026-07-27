@@ -261,23 +261,29 @@ impl ImModule {
         Ok(())
     }
 
+    /// 在 GS1 批次持久成功后发布兼容事件，并从 durable channel 表刷新已 attach dialog。
     pub(super) fn handle_increment_batch_persist_reply(
         &mut self,
         projections: Vec<(ChannelId, Vec<u8>)>,
         outcome: &PortOutcome,
         out: &mut EffectSink,
-    ) {
+    ) -> Result<(), ImError> {
         match outcome {
             PortOutcome::Ok(_) => {
                 crate::ws::handlers::increment_channel_end::after_increment_batch_persist(
                     projections,
                     out,
                 );
+                // Increment input only proves the batch was queued for persistence. Re-read the
+                // committed rows before composing the renderer snapshot so PC/Mobile never fill
+                // fields from the raw WS payload.
+                self.refresh_attached_dialog_list(None, out)?;
             }
             PortOutcome::Err(error) => {
                 tracing::warn!(error = ?error, "increment batch persist failed; final projections suppressed");
             }
         }
+        Ok(())
     }
 
     pub(super) fn handle_optimistic_send_reply(

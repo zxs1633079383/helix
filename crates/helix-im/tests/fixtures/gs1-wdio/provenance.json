@@ -1,0 +1,119 @@
+[
+  {
+    "fileName": "dialog-empty.frame-v2.json",
+    "fixtureId": "gs1-dialog-empty-v2",
+    "fixtureSha256": "a7acb6c214556510ad778073242265782db56c8e01fe480c21d96394c4f7e8da",
+    "gateId": "G-S1",
+    "generatedAt": "2026-07-27T00:00:00-07:00",
+    "helixCommit": "98c522a3621cc599c134cb78b9e4656668eb67bb",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "placeholderValues": {
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "dialog-list-user|14:gs1-wdio-actor|16:gs1-wdio-company-1"
+    },
+    "producer": "Gs1ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "372703c7d3c1b78b37b031ec4adae1f2ef5c8f159a3ba3a404e65c850748b1b6",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  },
+  {
+    "fileName": "dialog-loaded.frame-v2.json",
+    "fixtureId": "gs1-dialog-loaded-v2",
+    "fixtureSha256": "aee231a82769fb1e8342bcfadd6764af2b0350bb7940a606143b557921ed2def",
+    "gateId": "G-S1",
+    "generatedAt": "2026-07-27T00:00:00-07:00",
+    "helixCommit": "98c522a3621cc599c134cb78b9e4656668eb67bb",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "placeholderValues": {
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 2,
+      "surfaceEpoch": 2,
+      "transactionId": "dialog-list-user|14:gs1-wdio-actor|16:gs1-wdio-company-2"
+    },
+    "producer": "Gs1ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "fa416b2933bdeacfc0eb9e28aad5f6d0208871b312dc23ebe0420ebe19316439",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  },
+  {
+    "fileName": "dialog-recovery.frame-v2.json",
+    "fixtureId": "gs1-dialog-recovery-v2",
+    "fixtureSha256": "80b4446e21509415d1604cc768e8f8276ecdd29c5c802cef389b650548d4e92e",
+    "gateId": "G-S1",
+    "generatedAt": "2026-07-27T00:00:00-07:00",
+    "helixCommit": "98c522a3621cc599c134cb78b9e4656668eb67bb",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "placeholderValues": {
+      "baseRevision": null,
+      "causationId": null,
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "dialog-list-user|14:gs1-wdio-actor|16:gs1-wdio-company-1"
+    },
+    "producer": "Gs1ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "63b1eb221922fee152e0a8683483bc04d728be7e8052df6d18a48d06d6f2c45f",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.left-dialog-list",
+      "message.unread-summary"
+    ]
+  }
+]

@@ -14,6 +14,14 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 补齐 Go `types.RepliedMessage` 到 timeline `replySummary` 的 readback 别名；可证伪断言：① `repliedUserId/replied_user_id` 生成 available author，`isRevoke/is_revoke` 生成 recalled availability；② 原 `userId/user_id` 与 `revoked/revoke` 别名继续兼容；③ 仅修改 `timeline.rs`、聚焦单测与本条 SESSION 记录，聚焦测试及 `git diff --check` 通过 | 赌注 低 | 可逆 是 | @2026-07-27T04:25:00-0700
+
+✅ DONE timeline readback 已优先识别 Go `types.RepliedMessage` 的 `repliedUserId/replied_user_id` 与 `isRevoke/is_revoke`，并继续接受历史 `userId/user_id`、`revoked/revoke`；新增表驱动单测证明 camelCase 与 snake_case 均生成 `replySummary.kind=available`，撤回后生成 recalled availability。`cargo test -p helix-im --lib reply_summary_` 2/2 PASS，`git diff --check` PASS；未提交 | @2026-07-27T04:35:00-0700
+
+🎯 EXPECT 修复 message-v4 回复发送缺少被引用消息快照；可证伪断言：① 仅修改 `send_build.rs`、其聚焦合同测试与本条 SESSION 记录；② `im_send_message.replied.snapshot` 使用 snake_case command 字段，最终 HTTP 仅输出 Go `types.RepliedMessage` 对齐的 camelCase `repliedMessage`；③ snapshot 缺失仍兼容旧 reply 三锚行为；④ 聚焦 `cargo test -p helix-im --test p1_send_build_test` 与 `git diff --check` 通过 | 赌注 中 | 可逆 是 | @2026-07-27T04:00:00-0700
+
+✅ DONE 已扩展 `im_send_message.replied.snapshot` 的 snake_case command 合同，按 message-v3 `buildRepliedMessageInfo` 的短文本/长文本/非文本预览规则生成 Go `types.RepliedMessage` 对齐的 camelCase `body.repliedMessage`，并随既有 optimistic durable row 落入 `replied_message`；旧调用缺 snapshot 时仍只保留 reply 三锚。`cargo check -p helix-im` PASS，聚焦 `cargo test -p helix-im --test p1_send_build_test` 34/34 PASS，`git diff --check` PASS；未修改 cses-client，未提交 | @2026-07-27T04:20:00-0700
+
 🎯 EXPECT 基于 Helix、cses-client 与 mobile-qucik-c++ 当前 HEAD、消费 pin、ADR-014/015/016、InteractionProtocol Spec 与 Gate 证据，完成 GOAL/README/ROADMAP/ROADMAP-full 四文档熵管理；可证伪断言：① ROADMAP-full 不再把 Web 写成 archived 或把 FFI F4 写成未完成；② README 登记当前 ADR/HX-C/InteractionProtocol canonical 入口；③ ROADMAP 将实现、消费接入、Mock、real、dual-user、persistence、DOM 证据分面，不把任一面冒充全绿；④ GOAL 新增一个具有固定分母、fail-closed 算法与机器入口的北极星指标，且四文档对其名称、公式和停止条件一致；⑤ 只修改四份目标文档与 SESSION 结果记录，不触碰三端生产代码或用户现有审批文档 | 赌注 高 | 可逆 是 | @2026-07-27T00:00:00-0700
 
 ✅ DONE 已按当前三端代码与合同重构 GOAL/README/ROADMAP/ROADMAP-full：锁定 PC/Mobile Helix pin `98c522a`、Strict Matrix epoch 11/raw SHA `caadafd2...`、46 Gate/43 active/3 excluded，以及 Web driver 已完成但产品 renderer 缺失的事实；删除 Web archived、FFI F4 未完成和旧 D+A/ViewModel 未来路线。新增唯一北极星指标“三端同核闭环率 TSCR”，固定 fail-closed 公式、ThreePlatformGreen 六项准入、版本化分母和当前可发布值 `0/43`，并把 Helix producer、PC/Mobile contract/real、Web smoke、Mock、dual-user、persistence 与 UI 证据分面。四文档相对链接 0 断链，旧路线术语扫描 0 命中，ADR=16、HX-C=18、Matrix=46/43/3 对账通过，`git diff --check` PASS；未运行 Cargo，未修改三端生产代码或用户现有审批文档 | @2026-07-27T01:50:26-0700

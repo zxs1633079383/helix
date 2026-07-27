@@ -776,6 +776,7 @@ fn topic_link_from_row(
     .map(Some)
 }
 
+/// 将持久行里的当前/历史引用字段统一成封闭的 V2 reply summary。
 fn reply_summary_from_row(row: &Value) -> ReplySummaryVm {
     let replied = row
         .get("repliedMessage")
@@ -796,7 +797,7 @@ fn reply_summary_from_row(row: &Value) -> ReplySummaryVm {
             },
         };
     };
-    if bool_at(replied, &["revoked", "revoke"]) {
+    if bool_at(replied, &["isRevoke", "is_revoke", "revoked", "revoke"]) {
         return ReplySummaryVm::Unavailable {
             target_message_id,
             availability: ReferenceAvailabilityVm::Recalled {
@@ -804,7 +805,10 @@ fn reply_summary_from_row(row: &Value) -> ReplySummaryVm {
             },
         };
     }
-    let author_id = row_string(replied, &["userId", "user_id"]);
+    let author_id = row_string(
+        replied,
+        &["repliedUserId", "replied_user_id", "userId", "user_id"],
+    );
     let Some(preview) = reply_preview_from_row(replied) else {
         return ReplySummaryVm::Unavailable {
             target_message_id,
@@ -1814,6 +1818,59 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    /// 证明 Go RepliedMessage 的 camel/snake readback 均能生成 available 与 recalled union。
+    fn reply_summary_accepts_go_replied_message_wire_aliases() {
+        for (author_key, revoke_key) in [
+            ("repliedUserId", "isRevoke"),
+            ("replied_user_id", "is_revoke"),
+        ] {
+            let mut quoted = row(2);
+            quoted["replyId"] = serde_json::json!("message-1");
+            quoted["repliedMessage"] = serde_json::json!({
+                "repliedUserName": "被回复者",
+                "type": "TEXT",
+                "message": "刚发送的引用快照",
+                "props": {},
+                "viewers": ["all"]
+            });
+            quoted["repliedMessage"][author_key] = Value::String("user-1".to_string());
+            quoted["repliedMessage"][revoke_key] = Value::Bool(false);
+
+            let available = message_from_render_ready(&quoted, "channel-1", 1, false, || {
+                Ok("unused".to_string())
+            })
+            .expect("Go repliedMessage readback remains renderable");
+            assert_eq!(
+                serde_json::to_value(&available).unwrap()["replySummary"],
+                serde_json::json!({
+                    "kind": "available",
+                    "targetMessageId": "message-1",
+                    "author": {"userId": "user-1"},
+                    "preview": {"kind": "text", "text": "刚发送的引用快照"},
+                    "availability": {"kind": "available"}
+                })
+            );
+
+            quoted["repliedMessage"][revoke_key] = Value::Bool(true);
+            let recalled = message_from_render_ready(&quoted, "channel-1", 1, false, || {
+                Ok("unused".to_string())
+            })
+            .expect("recalled Go repliedMessage remains renderable");
+            assert_eq!(
+                serde_json::to_value(&recalled).unwrap()["replySummary"],
+                serde_json::json!({
+                    "kind": "unavailable",
+                    "targetMessageId": "message-1",
+                    "availability": {
+                        "kind": "recalled",
+                        "text": "消息已撤回"
+                    }
+                })
+            );
+        }
     }
 
     #[test]

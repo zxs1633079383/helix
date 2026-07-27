@@ -55,6 +55,28 @@ pub struct RepliedRef<'a> {
     pub reply_root_id: &'a str,
     /// 被回复消息的 replyFirstLevelId。
     pub reply_first_level_id: &'a str,
+    /// 被回复消息的展示快照；缺失时保留旧命令只发送关系锚的兼容行为。
+    pub snapshot: Option<RepliedSnapshot>,
+}
+
+/// 被回复消息在发送时冻结的展示字段（对齐 Go `types.RepliedMessage`）。
+pub struct RepliedSnapshot {
+    /// 被回复者用户 ID。
+    pub replied_user_id: String,
+    /// 被回复者展示名。
+    pub replied_user_name: String,
+    /// 被回复消息原正文。
+    pub message: String,
+    /// 被回复消息的短摘要。
+    pub simple_message: String,
+    /// 被回复消息是否已撤回。
+    pub is_revoke: bool,
+    /// 被回复消息类型。
+    pub msg_type: String,
+    /// 被回复消息富载荷。
+    pub props: Value,
+    /// 被回复消息可见范围。
+    pub viewers: Vec<String>,
 }
 
 /// buildMessageObject 的输入（UI 表单字段 + 注入身份/时间）。
@@ -159,13 +181,31 @@ fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
     prefix.chars().chain(content.chars()).take(50).collect()
 }
 
+/// 按 message-v3 `buildRepliedMessageInfo` 规则生成 Go 接受的 camelCase 引用快照。
+fn build_replied_message(snapshot: &RepliedSnapshot) -> Value {
+    let preview = if snapshot.msg_type != "TEXT" || snapshot.message.chars().count() > 30 {
+        snapshot.simple_message.as_str()
+    } else {
+        snapshot.message.as_str()
+    };
+    json!({
+        "repliedUserId": snapshot.replied_user_id,
+        "repliedUserName": snapshot.replied_user_name,
+        "message": preview,
+        "isRevoke": snapshot.is_revoke,
+        "type": snapshot.msg_type,
+        "props": snapshot.props,
+        "viewers": snapshot.viewers,
+    })
+}
+
 /// 组装 `posts/create` body（现网 buildMessageObject + sendMessage 空消息拦截）。
 ///
 /// 返回 `None` = 空消息被拦截（不产出 Http）；`Some(body)` = 完整 camelCase wire body。
 ///
 /// body 字段集逐字对齐真抓包真源（§1）：`viewers/message/mentions/temporaryId/type/`
 /// `simpleMessage/channelId/userId/teamId/userSnapshot/id/props/topicId/revoke` + 注入
-/// `createAt`（Clock）+ 回复三字段（findReplyRootId 命中时）。
+/// `createAt`（Clock）+ 回复三字段及可选 `repliedMessage` 快照（findReplyRootId 命中时）。
 pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     // 空消息拦截（trim 空 + props 空 → 不发）。
     if should_intercept_empty(input.text, &input.props) {
@@ -222,6 +262,12 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
         body.insert("replyRootId".to_string(), json!(reply_root_id));
         // firstLevel 可能为空串（分支 1）——现网原样写入（不省略 key）。
         body.insert("replyFirstLevelId".to_string(), json!(reply_first_level_id));
+        if let Some(snapshot) = &replied.snapshot {
+            body.insert(
+                "repliedMessage".to_string(),
+                build_replied_message(snapshot),
+            );
+        }
     }
 
     Some(Value::Object(body))
@@ -258,7 +304,8 @@ pub fn optimistic_persist_op(temporary_id: &str, channel_id: &str, text: String)
 ///
 /// 命令载荷字段（前端只传 UI 字段，C1 纯渲染）：`text`（纯文本）/ `viewers`（空数组省略亦可）/
 /// `mentions` / `props` / `topic_id` / `type`（默认 `"TEXT"`，DOCUMENT 等富媒体）/ `id`（默认空串，
-/// 编辑时传被编辑消息真 post id）/ `replied{id,reply_id,reply_root_id,reply_first_level_id}`。
+/// 编辑时传被编辑消息真 post id）/ `replied{id,reply_id,reply_root_id,reply_first_level_id,`
+/// `snapshot{replied_user_id,replied_user_name,message,simple_message,is_revoke,type,props,viewers}}`。
 /// 返回 `None` = 空消息拦截（不发）。`channel_id` / `temporary_id` 由调用方先校验（typed PK）后传入。
 pub fn build_from_command(
     cmd: &Value,
@@ -282,24 +329,16 @@ pub fn build_from_command(
     let mentions = cmd.get("mentions").cloned().unwrap_or_else(|| json!([]));
     let props = cmd.get("props").cloned().unwrap_or_else(|| json!({}));
     let topic_id = cmd["topic_id"].as_str().unwrap_or("");
-    // 被回复消息引用（前端按本地库取出 localRepliedMessage 的 4 字段透传）。
-    let replied_owned = cmd.get("replied").and_then(|r| {
-        let id = r["id"].as_str()?.to_string();
-        Some((
-            id,
-            r["reply_id"].as_str().unwrap_or("").to_string(),
-            r["reply_root_id"].as_str().unwrap_or("").to_string(),
-            r["reply_first_level_id"].as_str().unwrap_or("").to_string(),
-        ))
+    // 被回复消息引用由壳从本地行透传；snapshot 缺失时仍保留旧版只发关系锚的行为。
+    let replied = cmd.get("replied").and_then(|replied| {
+        Some(RepliedRef {
+            id: replied["id"].as_str()?,
+            reply_id: replied["reply_id"].as_str().unwrap_or(""),
+            reply_root_id: replied["reply_root_id"].as_str().unwrap_or(""),
+            reply_first_level_id: replied["reply_first_level_id"].as_str().unwrap_or(""),
+            snapshot: replied.get("snapshot").and_then(parse_replied_snapshot),
+        })
     });
-    let replied = replied_owned
-        .as_ref()
-        .map(|(id, rid, rroot, rfirst)| RepliedRef {
-            id,
-            reply_id: rid,
-            reply_root_id: rroot,
-            reply_first_level_id: rfirst,
-        });
     build_message_object(&BuildInput {
         channel_id,
         temporary_id,
@@ -319,5 +358,35 @@ pub fn build_from_command(
             org_name: identity.org_name,
             dept_name: identity.dept_name,
         },
+    })
+}
+
+/// 解析 command-side snake_case 快照；缺少对象时不阻断旧版回复发送。
+fn parse_replied_snapshot(snapshot: &Value) -> Option<RepliedSnapshot> {
+    snapshot.as_object()?;
+    let replied_user_id = snapshot["replied_user_id"].as_str()?;
+    let replied_user_name = snapshot["replied_user_name"].as_str()?;
+    let message = snapshot["message"].as_str()?;
+    let simple_message = snapshot["simple_message"].as_str()?;
+    let is_revoke = snapshot["is_revoke"].as_bool()?;
+    let msg_type = snapshot["type"].as_str()?;
+    Some(RepliedSnapshot {
+        replied_user_id: replied_user_id.to_string(),
+        replied_user_name: replied_user_name.to_string(),
+        message: message.to_string(),
+        simple_message: simple_message.to_string(),
+        is_revoke,
+        msg_type: msg_type.to_string(),
+        props: snapshot.get("props").cloned().unwrap_or_else(|| json!({})),
+        viewers: snapshot["viewers"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }

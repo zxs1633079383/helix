@@ -20,8 +20,8 @@ use helix_core::effect::{Effect, SqlValue, StorageOp};
 use helix_core::tick::InboundBytes;
 use helix_core::Tick;
 use helix_im::outbound::send_build::{
-    build_from_command, build_message_object, BuildInput, RepliedRef, UserIdentity,
-    MAX_MESSAGE_CHARS,
+    build_from_command, build_message_object, BuildInput, RepliedRef, RepliedSnapshot,
+    UserIdentity, MAX_MESSAGE_CHARS,
 };
 use serde_json::json;
 
@@ -187,6 +187,7 @@ fn reply_branch1_replied_is_root() {
         reply_id: "",
         reply_root_id: "",
         reply_first_level_id: "",
+        snapshot: None,
     }))
     .unwrap();
     assert_eq!(body["replyId"], json!("m_root"));
@@ -202,6 +203,7 @@ fn reply_branch2_replied_has_first_level() {
         reply_id: "m_prev",
         reply_root_id: "m_root",
         reply_first_level_id: "m_first",
+        snapshot: None,
     }))
     .unwrap();
     assert_eq!(body["replyId"], json!("m_x"));
@@ -217,6 +219,7 @@ fn reply_branch3_replied_directly_to_root() {
         reply_id: "m_prev",
         reply_root_id: "m_root",
         reply_first_level_id: "",
+        snapshot: None,
     }))
     .unwrap();
     assert_eq!(body["replyId"], json!("m_y"));
@@ -232,6 +235,91 @@ fn build_from_command_replied_without_id_skipped() {
     let cmd = json!({ "text": "hi", "replied": { "reply_id": "x" } });
     let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
     assert!(body.get("replyId").is_none(), "replied 缺 id → 不当回复");
+}
+
+#[test]
+/// 验证完整 snake_case snapshot 被转换成 Go RepliedMessage 的 camelCase wire。
+fn build_from_command_adds_replied_message_snapshot() {
+    let cmd = json!({
+        "text": "新回复",
+        "replied": {
+            "id": "m_root",
+            "reply_id": "",
+            "reply_root_id": "",
+            "reply_first_level_id": "",
+            "snapshot": {
+                "replied_user_id": "u_target",
+                "replied_user_name": "被回复者",
+                "message": "原始短消息",
+                "simple_message": "原始摘要",
+                "is_revoke": false,
+                "type": "TEXT",
+                "props": {"source": "timeline"},
+                "viewers": ["all"]
+            }
+        }
+    });
+    let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
+    assert_eq!(
+        body["repliedMessage"],
+        json!({
+            "repliedUserId": "u_target",
+            "repliedUserName": "被回复者",
+            "message": "原始短消息",
+            "isRevoke": false,
+            "type": "TEXT",
+            "props": {"source": "timeline"},
+            "viewers": ["all"]
+        })
+    );
+}
+
+#[test]
+/// 验证长文本和非文本快照沿用 message-v3 的 simpleMessage 预览规则。
+fn replied_message_preview_uses_simple_message_for_long_or_non_text() {
+    for (msg_type, message) in [
+        (
+            "TEXT",
+            "这是一条超过三十个字符的原始消息，用于验证回复快照会采用摘要而非完整正文。",
+        ),
+        ("FILE", "季度报告.pdf"),
+    ] {
+        let body = build_message_object(&input_with_reply(RepliedRef {
+            id: "m_target",
+            reply_id: "",
+            reply_root_id: "",
+            reply_first_level_id: "",
+            snapshot: Some(RepliedSnapshot {
+                replied_user_id: "u_target".to_string(),
+                replied_user_name: "被回复者".to_string(),
+                message: message.to_string(),
+                simple_message: "[摘要]".to_string(),
+                is_revoke: false,
+                msg_type: msg_type.to_string(),
+                props: json!({}),
+                viewers: vec!["all".to_string()],
+            }),
+        }))
+        .unwrap();
+        assert_eq!(body["repliedMessage"]["message"], json!("[摘要]"));
+    }
+}
+
+#[test]
+/// 验证旧壳不提供 snapshot 时只写回复关系锚，不伪造 repliedMessage。
+fn build_from_command_without_snapshot_keeps_legacy_reply_contract() {
+    let cmd = json!({
+        "text": "兼容回复",
+        "replied": {
+            "id": "m_root",
+            "reply_id": "",
+            "reply_root_id": "",
+            "reply_first_level_id": ""
+        }
+    });
+    let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
+    assert_eq!(body["replyId"], json!("m_root"));
+    assert!(body.get("repliedMessage").is_none());
 }
 
 #[test]
@@ -456,6 +544,7 @@ fn send_default_type_text_id_empty_no_regression() {
 }
 
 #[test]
+/// 验证完整发送编排同时保留 reply 锚并把引用快照送入 posts/create body。
 fn send_reply_merges_root_fields() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(
@@ -467,7 +556,17 @@ fn send_reply_merges_root_fields() {
                 "id": "m_root",
                 "reply_id": "",
                 "reply_root_id": "",
-                "reply_first_level_id": ""
+                "reply_first_level_id": "",
+                "snapshot": {
+                    "replied_user_id": "u_target",
+                    "replied_user_name": "被回复者",
+                    "message": "原消息",
+                    "simple_message": "原摘要",
+                    "is_revoke": false,
+                    "type": "TEXT",
+                    "props": {},
+                    "viewers": ["all"]
+                }
             }
         })),
         1000,
@@ -487,6 +586,8 @@ fn send_reply_merges_root_fields() {
     let body = h.last_http_body().unwrap();
     assert_eq!(body["replyId"], json!("m_root"));
     assert_eq!(body["replyRootId"], json!("m_root"));
+    assert_eq!(body["repliedMessage"]["repliedUserId"], json!("u_target"));
+    assert_eq!(body["repliedMessage"]["message"], json!("原消息"));
     assert_eq!(sending["data"]["replyId"], "m_root");
     assert_eq!(sending["data"]["replyRootId"], "m_root");
     assert_eq!(sending["data"]["replyFirstLevelId"], "");

@@ -77,6 +77,13 @@ core layer   ★ helix-core ★   ports(FrameSender/Storage/Clock/EventSink/IdSo
 - `cargo tree -p helix-core | grep -iE 'tokio|sqlx|reqwest|web-sys|tauri'` → **必须空**（零运行时证明）
 - **autonomous / sub-agent 模式**：自跑验证并回报；**单任务 prompt 模式**：输出命令让用户决定（除非用户说"你跑"）
 
+### 3.0.1 验证扩张停止条件
+
+- `publish-only`（整理现有改动、分类提交、同步远端、push）只负责安全分类与发布，不承担仓库全量绿色化；默认执行 `git diff --check`、已有证据核验和批次直接相关的聚焦验证。
+- 非 `release` 任务不得因无关历史失败扩大修复范围。聚焦验证失败时，只修复本次 diff 或合并直接引入的问题；连续发现第二个无关失败后立即停止扩张，将对应批次标记为 `blocked` / `partial`，继续处理其他可独立验收批次。
+- `cargo test -p helix-im` 全量测试与三端 Rust 验收只在改动触及共享协议、core、port、driver，或任务明确属于 phase/release 时执行；不得把它们升级为每个小批次的默认提交前置。
+- 一个独立批次满足「文件归属明确、未混入 partial、聚焦验证通过、`git diff --check` 通过」后立即 commit，不等待其他仓库或无关全量验证；push 仍服从本次任务授权与 pre-push gate。
+
 ### 3.1 派 helix Rust agent / workflow 必注入的 Cargo 纪律（🔴 硬性 · 防反复编译空耗）
 
 > **触发**：任何派去改 Rust 的 agent / workflow，prompt **必须**含下面这段。

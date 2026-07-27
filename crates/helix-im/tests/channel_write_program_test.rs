@@ -75,13 +75,34 @@ fn program_full_emits_54_cols_with_guards_omitted_s3() {
     ));
 }
 
-/// 回归锚: 恢复消息先推进本地排序时间后，缺省的 channel snapshot 不得覆盖回 0。
+/// 回归锚: 真帧缺 lastPostAt 时以 lastRootPostAt 恢复 lastPost 的目录排序时间。
 #[test]
-fn program_full_omits_missing_last_post_at_on_conflict() {
+fn program_full_uses_last_root_post_at_for_real_frame_last_post() {
     let data = serde_json::json!({
         "id": "00000000000000000000000012",
         "type": "P",
-        "lastPost": "{\"createAt\":1700000000000}"
+        "lastPost": "{\"createAt\":1700000000000}",
+        "lastRootPostAt": 1700000000000_i64
+    });
+    let (row, omit) = program_full(&data, "", 0).expect("valid id");
+
+    assert!(matches!(
+        get(&row, "last_post_at"),
+        Some(SqlValue::Integer(1700000000000))
+    ));
+    assert!(
+        !omit.contains(&"last_post_at"),
+        "lastPost 对应的 lastRootPostAt 必须进入新行和冲突更新集"
+    );
+}
+
+/// 回归锚: 空 lastPost 不能把缺省 lastRootPostAt 冒充成可见消息排序时间。
+#[test]
+fn program_full_omits_missing_last_post_at_without_last_post() {
+    let data = serde_json::json!({
+        "id": "00000000000000000000000013",
+        "type": "P",
+        "lastRootPostAt": 1700000000000_i64
     });
     let (row, omit) = program_full(&data, "", 0).expect("valid id");
 
@@ -89,10 +110,7 @@ fn program_full_omits_missing_last_post_at_on_conflict() {
         get(&row, "last_post_at"),
         Some(SqlValue::Integer(0))
     ));
-    assert!(
-        omit.contains(&"last_post_at"),
-        "缺省 lastPostAt 必须保留已由消息恢复路径推进的 durable value"
-    );
+    assert!(omit.contains(&"last_post_at"));
 }
 
 /// 回归锚: S3 path1 —— created_at/updated_at 缺省回退 now_ms；DM target_users 仅 D 写。

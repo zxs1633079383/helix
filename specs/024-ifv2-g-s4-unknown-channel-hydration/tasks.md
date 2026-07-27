@@ -12,8 +12,8 @@
 
 **Purpose**: 锁定 source、前序 Gate 与当前代码边界。
 
-- [ ] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-S3 review-green 到 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
-- [ ] T002 [P] 按 crates/helix-im/src/increment_hydration.rs、crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/024-ifv2-g-s4-unknown-channel-hydration/research.md
+- [x] T001 锁定三仓 HEAD、Helix pin、Strict Matrix hash 与前序 G-S3 review-green 到 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T002 [P] 按 crates/helix-im/src/increment_hydration.rs、crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp 复核 CURRENT/TARGET/GAP 并更新 specs/024-ifv2-g-s4-unknown-channel-hydration/research.md
 
 ---
 
@@ -21,7 +21,7 @@
 
 **Purpose**: 复用三端 fresh-group prerequisite；完成前不得进入业务 story。
 
-- [ ] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
+- [x] T003 复用并补齐 fresh group CreateGroupPrerequisite 三仓合同于 crates/helix-im/tests/g01_full_flow/group_prerequisite.rs、crates/helix-im/tests/g01_shared/scenario.rs、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/g01-group-prerequisite.ts、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
 
 ---
 
@@ -29,15 +29,15 @@
 
 **Purpose**: 完整业务流、生产 Frame、Fixture 与 Golden。
 
-- [ ] T004 [P] [US1] 先在 crates/helix-im/tests/gs4_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
-- [ ] T005 [US1] 在 crates/helix-im/tests/support/gs4_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
-- [ ] T006 [US1] 在 crates/helix-im/src/increment_hydration.rs 对齐 im_channel_load_increment_by_channel_id 的生产 handler、authority 与幂等语义，禁止测试旁路。
-- [ ] T007 [US1] 在 crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
-- [ ] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.channel-summary 完整 mutation/action/directive，缺口回 Helix 修复
-- [ ] T009 [P] [US1] 先在 crates/helix-im/tests/gs4_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
-- [ ] T010 [US1] 由 crates/helix-im/tests/support/gs4_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/gs4-wdio/ canonical JSON，不手写平台 VM
-- [ ] T011 [US1] 在 crates/helix-im/tests/fixtures/gs4-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
-- [ ] T012 [US1] 运行 cargo check 与 gs4_full_flow_test/gs4_wdio_fixture_contract_test，并登记原始输出到 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T004 [P] [US1] 先在 crates/helix-im/tests/gs4_full_flow_test.rs 编写 prerequisites/happy/business failure/infrastructure failure/race/recovery RED tests
+- [x] T005 [US1] 在 crates/helix-im/tests/support/gs4_scenario.rs 实现确定性 ScenarioRunner，注入 Tick/PortReply/Inbound/time/id 并捕获 ordered Effects
+- [x] T006 [US1] 在 crates/helix-im/src/increment_hydration.rs 对齐 im_channel_load_increment_by_channel_id 的生产 handler、authority 与幂等语义，禁止测试旁路。
+- [x] T007 [US1] 在 crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs 补 persist barrier、late reply、duplicate inbound 与 recovery 字段级断言
+- [x] T008 [US1] 在 crates/helix-im/src/surface_composer.rs 与 crates/helix-im/src/projector/ 校验 message.channel-summary 完整 mutation/action/directive，缺口回 Helix 修复
+- [x] T009 [P] [US1] 先在 crates/helix-im/tests/gs4_wdio_fixture_contract_test.rs 编写 Fixture inventory、typed decode、字段语义、raw/semantic hash 与 update-policy RED tests
+- [x] T010 [US1] 由 crates/helix-im/tests/support/gs4_scenario.rs 的真实 Emit trace 生成 crates/helix-im/tests/fixtures/gs4-wdio/ canonical JSON，不手写平台 VM
+- [x] T011 [US1] 在 crates/helix-im/tests/fixtures/gs4-wdio/provenance.json 记录 producer、source revision、schema、surface inventory、raw/semantic SHA-256 与允许动态字段
+- [x] T012 [US1] 运行 cargo check 与 gs4_full_flow_test/gs4_wdio_fixture_contract_test，并登记原始输出到 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
 
 ---
 
@@ -45,16 +45,16 @@
 
 **Purpose**: PC 机械消费同源 Frame 并完成真实链。
 
-- [ ] T013 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/sync-helix-fixtures.mjs 的 G-S4 manifest/filename/hash/surface 映射，只读同步到 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/gs4/
-- [ ] T014 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/gs4/__tests__/fixture-parity.test.ts 编写 schema/inventory/raw/semantic hash 与禁止字段补写 RED tests
-- [ ] T015 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/fixture-loader.ts 的 G-S4 typed loading API，不解释业务字段
-- [ ] T016 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts 先写 G-S4 AcceptedCommand/replay/correlation RED tests，再扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/tauri-mock-bridge.ts
-- [ ] T017 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/pageobjects/gs4.page.ts 封装真实 MessageV4 操作、Surface ready、DOM 字段、FrameApplied 与自动等待，不引入业务计算
-- [ ] T018 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs4-mock.e2e.ts 以 Helix Fixture replay 验证完整 happy/failure/race DOM、transactionId 与 claim=mock
-- [ ] T019 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs4-single-real.e2e.ts 从真实 UI 创建 fresh group 并执行 G-S4，关联 invoke/Helix/SQLite/HTTP/WS/FrameApplied/DOM
-- [ ] T020 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs4-dual-real.e2e.ts 验证 Actor/Observer 对 陌生 channel 兜底 的最终 timeline/dialog/receipt 可见结果；不适用字段以合同理由显式断言
-- [ ] T021 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/gs4-summary.ts 与 /System/Volumes/Data/workspace/angular/cses-client/package.json 增加 gs4:mock/single-real/dual-real/report 命令和分层 assertion/report 汇总
-- [ ] T022 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/check-production-boundary.mjs，证明 G-S4 Fixture/Mock/WDIO API 不进入 production bundle
+- [x] T013 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/sync-helix-fixtures.mjs 的 G-S4 manifest/filename/hash/surface 映射，只读同步到 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/gs4/
+- [x] T014 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/gs4/__tests__/fixture-parity.test.ts 编写 schema/inventory/raw/semantic hash 与禁止字段补写 RED tests
+- [x] T015 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/fixture-loader.ts 的 G-S4 typed loading API，不解释业务字段
+- [x] T016 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/__tests__/tauri-mock-bridge.test.ts 先写 G-S4 AcceptedCommand/replay/correlation RED tests，再扩展 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/tauri-mock-bridge.ts
+- [x] T017 [P] [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/pageobjects/gs4.page.ts 封装真实 MessageV4 操作、Surface ready、DOM 字段、FrameApplied 与自动等待，不引入业务计算
+- [x] T018 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs4-mock.e2e.ts 以 Helix Fixture replay 验证完整 happy/failure/race DOM、transactionId 与 claim=mock
+- [x] T019 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs4-single-real.e2e.ts 从真实 UI 创建 fresh group 并执行 G-S4，关联 invoke/Helix/SQLite/HTTP/WS/FrameApplied/DOM
+- [x] T020 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs4-dual-real.e2e.ts 验证 Actor/Observer 对 陌生 channel 兜底 的最终 timeline/dialog/receipt 可见结果；不适用字段以合同理由显式断言
+- [x] T021 [US2] 在 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/gs4-summary.ts 与 /System/Volumes/Data/workspace/angular/cses-client/package.json 增加 gs4:mock/single-real/dual-real/report 命令和分层 assertion/report 汇总
+- [x] T022 [US2] 扩展 /System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/check-production-boundary.mjs，证明 G-S4 Fixture/Mock/WDIO API 不进入 production bundle
 
 ---
 
@@ -62,16 +62,16 @@
 
 **Purpose**: Mobile 生产链原子 apply 与 typed view。
 
-- [ ] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-gs4-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/gs4-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/gs4/
-- [ ] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-gs4-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
-- [ ] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/GS4FrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
-- [ ] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp 对齐 G-S4 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
-- [ ] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_channel_load_increment_by_channel_id 生产 command admission 与 Frame event pump，不注册测试 API
-- [ ] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
-- [ ] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.channel-summary Frame，unknown schema/surface/revision fail-closed
-- [ ] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-S4 的 im.surface.view typed view/action，不增加 raw reducer
-- [ ] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-S4 V1 producer/consumer/raw fallback=0
-- [ ] T032 [US3] 运行 GS4FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T023 [US3] 新增 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/sync-gs4-helix-fixtures.mjs 只读同步 crates/helix-im/tests/fixtures/gs4-wdio/ 到 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/gs4/
+- [x] T024 [P] [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-gs4-fixture-parity.mjs 编写 pin/schema/inventory/raw/semantic hash 与禁止补字段检查
+- [x] T025 [P] [US3] 先在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/GS4FrameContractTest.cpp 编写完整 Frame envelope、mutation、action、directive、revision、failure/race 原子 apply RED tests
+- [x] T026 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp 对齐 G-S4 command admission、fresh group prerequisite、DomainEvent batch 与 QuickJS typed view 行为
+- [x] T027 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp 接入 im_channel_load_increment_by_channel_id 生产 command admission 与 Frame event pump，不注册测试 API
+- [x] T028 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileFfiBridge.cpp 保持 helix-driver-ffi DomainEvent batch 边界与错误分类，禁止逐 mutation callback
+- [x] T029 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/SurfaceRuntime.cpp 原子校验并 apply message.channel-summary Frame，unknown schema/surface/revision fail-closed
+- [x] T030 [US3] 在 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/HelixImQuickJsBinding.cpp 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/venus/api/ImSurfaceApi.cpp 只暴露 G-S4 的 im.surface.view typed view/action，不增加 raw reducer
+- [x] T031 [US3] 扩展 /System/Volumes/Data/workspace/c/mobile-qucik-c++/scripts/check-surface-runtime-legacy-hard-cut.mjs 与 check-surface-runtime-source-pin.mjs，断言 G-S4 V1 producer/consumer/raw fallback=0
+- [x] T032 [US3] 运行 GS4FrameContractTest、/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp 所属 filter 与共享 run-uc01-16-gtest.sh，并登记 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
 
 ---
 
@@ -79,12 +79,38 @@
 
 **Purpose**: 行为、代码、Frame V2 与证据一致。
 
-- [ ] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/gs4-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/gs4/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/gs4/ 的 inventory/schema/raw/semantic hash，写入 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
-- [ ] T034 [US4] 执行 G-S4 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
-- [ ] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
-- [ ] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
-- [ ] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/024-ifv2-g-s4-unknown-channel-hydration/evidence/gate-report.json
-- [ ] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-S4 标记 review-green 并解锁下一 Gate
+- [x] T033 [P] [US4] 对比 crates/helix-im/tests/fixtures/gs4-wdio/、/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/fixtures/gs4/ 与 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/gs4/ 的 inventory/schema/raw/semantic hash，写入 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T034 [US4] 执行 G-S4 行为 Review，核对权限、终态、失败、竞态、恢复和 Actor/Observer 用户结果，记录 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T035 [P] [US4] 执行代码边界 Review，证明业务 reducer 只在 Helix 且 PC/Mobile 测试代码 production-unreachable，记录 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T036 [P] [US4] 执行 Frame V2 Review，核对 envelope/scope/epoch/revision/mutation/action/directive/correlation，记录 specs/024-ifv2-g-s4-unknown-channel-hydration/verification.md
+- [x] T037 [US4] 按 contracts/cross-repo-report.schema.json 汇总 Helix/Fixture/PC Mock/PC Real/Mobile/boundary/blocker 到 specs/024-ifv2-g-s4-unknown-channel-hydration/evidence/gate-report.json
+- [x] T038 [US4] 运行 quickstart.md、git diff check 与 mandatory after_implement loop；仅 R4 PASS 时将 G-S4 标记 review-green 并解锁下一 Gate
+
+---
+
+## Phase 7: Four-persona Cold-start Convergence
+
+**Purpose**: 在 PC 444/678 与 Mobile userA/userB 上物理删除 Helix SQLite 后，以同一路径重启并证明未知频道补水与远端事实 100% 收敛。
+
+- [x] T039 [P] 复核并复用 PC/Mobile guarded reset 的 main/WAL/SHM/journal、链接、锁、路径与零残留合同，不增加第二套删除器 per FR-019
+- [x] T040 在 PC GS4 real specs 实现同 run/profile 的 production seed -> stop -> reset -> recover，checkpoint 位于被删 SQLite 之外 per US1/AC4
+- [x] T041 扩展 PC/Go GS4 parity evidence，对 isolated unknown-channel dataset 的 message/cursor/authority 输出 stable hash 与完整 missing/extra/mismatch，并运行 444/678 single/dual real per FR-020,SC-007
+- [x] T042 [P] 在 Mobile GS04 production flow 执行 userA/userB dispose -> exact reset -> same-path restart，保留权限、幂等与 typed view 断言 per FR-019
+- [x] T043 在 Mobile/Go 完成 GS4 userA/userB message/cursor/authority 全量对账，取得两 persona differences=0 与 typed summary/timeline evidence per FR-020,SC-007
+- [x] T044 将四 persona reset、同路径、零残留、hash、完整差异与 typed projection 写入 verification 和 gate report，重跑 reviews per SC-006,SC-007
+- [x] T045 运行 quickstart、四仓 diff check 与 mandatory after_implement/converge；仅 R4 PASS+CLOSED 才完成 T038 per SC-006,SC-007
+
+## Cold-start Task Contracts
+
+| Task | Requirement | Plan Item | Change Scope | Preconditions | Validator | Done Signal |
+|---|---|---|---|---|---|---|
+| T039 | FR-019 | A-008,V-008 | `PC/Mobile existing reset helpers` | GS3 CLOSED | focused reset tests | guarded reset reused |
+| T040 | US1/AC4 | A-005,A-008 | `PC GS4 orchestration/specs` | T039,T018 | seed/reset/recover test | same run/profile |
+| T041 | FR-020,SC-007 | A-005,A-008,V-004,V-008 | `PC/Go GS4 parity` | T040 | single/dual real | 444/678 parity Green |
+| T042 | FR-019 | A-006,A-008,V-008 | `Mobile GS04 flow` | T039,T026 | focused GTest | userA/userB reset |
+| T043 | FR-020,SC-007 | A-006,A-008,V-005,V-008 | `Mobile/Go GS4 parity` | T042 | GS04 real | userA/userB parity Green |
+| T044 | SC-006,SC-007 | A-007,A-008,V-007,V-008 | `GS4 evidence/reviews` | T041,T043 | schema/review | four-persona Green |
+| T045 | SC-006,SC-007 | V-001..V-008 | `review-ledger/tasks` | T044 | mandatory loop | R4 PASS and CLOSED |
 
 ## Dependencies And Execution Order
 

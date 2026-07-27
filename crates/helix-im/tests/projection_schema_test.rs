@@ -126,6 +126,7 @@ fn sample_fields() -> PostFields {
         props: r#"{"k":"v"}"#.to_string(),
         user_snapshot: r#"{"userId":"u_sender"}"#.to_string(),
         create_at: 1_700_000_000,
+        update_at: 1_700_000_025,
         read_bits: "11".to_string(),
         viewers: vec!["all".to_string()],
         mentions: vec!["u_me".to_string()],

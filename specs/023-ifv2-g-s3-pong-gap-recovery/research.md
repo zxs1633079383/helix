@@ -47,5 +47,18 @@
 - 当前 Helix owner：`crates/helix-im/src/send/pong_compensate.rs`；现有聚焦测试：`crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp`。
 
+## Decision 6 - Four-persona physical cold-start
+
+**Decision**: 复用 GS1/GS2 已验收的 guarded reset；PC 444/678 与 Mobile
+userA/userB 在 production pong-gap seed 后 stop/dispose，仅删除 Helix SQLite
+transaction family，同路径重启并通过只读 Go evidence command 对比 PostgreSQL
+与 SQLite 完整 message/cursor authority。
+
+**Rationale**: pong-gap HTTP/WS 或 Frame 成功不能证明 fresh store 可从远端完整恢复；
+四 persona 的全键集、字段值与 typed projection 必须同时一致。
+
+**Alternatives considered**: 只查 count、只比最新消息、复用 GS2 artifact、删除远端重建；
+全部拒绝。
+
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

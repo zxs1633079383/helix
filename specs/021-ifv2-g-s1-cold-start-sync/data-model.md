@@ -42,6 +42,19 @@
 | evidence | verdict | required pass=100%、fail=0、skip=0 |
 | final | verdict | 四项全 Green 才可 review-green |
 
+## ColdStartParityEvidence
+
+| Field | Type | Rule |
+|---|---|---|
+| runId / gateId / persona / channelId | string | 唯一定位 isolated Gate dataset 与当前可见性边界 |
+| databasePathBefore / databasePathAfter | path | 必须完全相等，禁止用新文件名替代物理删库恢复 |
+| deletedArtifacts | array | 只允许 SQLite main、`-wal`、`-shm`、`-journal` |
+| residualArtifacts | array | Green 时必须为空 |
+| remoteSnapshot / localSnapshot | normalized rows | 按稳定主键排序，字段 allowlist 必须显式 |
+| remoteSha256 / localSha256 | string | Green 时必须相等 |
+| missing / extra / mismatch | arrays | Green 时三个集合均为空 |
+| frameApplied / visibleProjection | evidence | 证明消费收敛，但不得替代 storage parity |
+
 ## State Transitions
 
 `Draft -> HelixGreen -> PcGreen -> MobileGreen -> ReviewGreen`

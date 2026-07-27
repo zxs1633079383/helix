@@ -46,3 +46,7 @@ cd /System/Volumes/Data/workspace/c/mobile-qucik-c++
 ## 5. Review
 
 汇总 Helix、Fixture、PC Mock、PC Real、Mobile Contract、production-boundary 与行为/代码/Frame V2 Review。required pass=100%、fail=0、skip=0 才可 review-green。
+
+## 6. Four-persona Cold-start Acceptance
+
+PC 由 runner 在同一 run/profile 上执行 seed、完整停止、guarded reset 与 recover；Mobile 在同一 case 内对 userA/userB 依次 dispose、reset、同路径 restart。四个 persona 均需输出删除清单、零残留、同路径证明、远端/本地 canonical hash、missing/extra/mismatch 以及 FrameApplied/typed view 证据；任一差异非零即失败。

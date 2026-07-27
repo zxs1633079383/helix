@@ -46,3 +46,16 @@ cd /System/Volumes/Data/workspace/c/mobile-qucik-c++
 ## 5. Review
 
 汇总 Helix、Fixture、PC Mock、PC Real、Mobile Contract、production-boundary 与行为/代码/Frame V2 Review。required pass=100%、fail=0、skip=0 才可 review-green。
+
+## 6. Four-persona Cold-start Acceptance
+
+1. PC 444/678 与 Mobile userA/userB 使用生产流程创建 fresh group、基线消息及
+   离线消息，记录每个 persona 的原 Helix SQLite 路径。
+2. 完全停止 PC Tauri 进程与 Mobile runtime；PC 通过
+   `npm run message:v4:reset-offline-storage` 或显式 `--profile-root`，
+   Mobile 通过 GTest guarded helper，仅删除 main/WAL/SHM/journal。
+3. 断言 residual=0、path unchanged、`remoteDeletionPerformed=false`。
+4. 同路径重启并执行 production `im_sync_channels`，等待 PersistOk 后的
+   `message.left-dialog-list` FrameApplied/typed view。
+5. 对四 persona 分别比较 PostgreSQL 与 SQLite 的 Gate-scoped canonical rows；
+   remote/local hash 必须相等，missing/extra/mismatch 必须全部为 0。

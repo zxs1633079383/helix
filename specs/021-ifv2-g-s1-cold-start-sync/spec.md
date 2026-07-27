@@ -27,6 +27,7 @@
 1. **Given** 当前 actor、observer、群聊与权限满足 Gate 前置，**When** 用户执行或系统触发“hello 全量增量”，**Then** Helix 必须先形成权威业务结果，PC 与 Mobile 只消费其完整 Frame。
 2. **Given** transport 已受理但权威事实或持久化尚未完成，**When** 平台收到中间结果，**Then** 两端均不得显示最终成功。
 3. **Given** 权威失败、权限拒绝、重复事实或迟到回包，**When** 三端处理结束，**Then** 两端保持同一失败/既有状态，不出现重复 mutation。
+4. **Given** PC 444/678 与 Mobile userA/userB 已通过生产流程建立同一隔离 Gate 数据集，**When** 客户端完全停止且仅删除四个 persona 的 Helix SQLite 主库、WAL、SHM 与 journal 后复用原路径重启，**Then** 冷启动同步必须重建完整本地权威数据，逐 persona 规范化对账 `missing=0、extra=0、mismatch=0`，并恢复相同 FrameApplied、DOM 与 typed view。
 
 ---
 
@@ -78,6 +79,8 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - G03 文件/媒体上传与 G17-G27 全部不在本 Feature。
 - 不在 Mock、Angular、C++ 或 QuickJS 中补 Helix 缺失的业务字段、排序或 reducer。
 - 不在本 Feature 物理删除 V1/legacy 文件；最终删除必须等待 26 Gate 全绿和用户选择。
+- 本 Feature 只允许删除测试 persona 的本地 Helix SQLite 主库及其 `-wal`、`-shm`、`-journal` sidecar；禁止删除远端数据、ViewModelStore、认证文件、其他 tenant 或目录。
+- “100% 一致”限定为本次 isolated Gate dataset 对当前 persona 可见的全部可映射权威行与字段；server-only 字段必须在规范化合同中显式列出，不得用抽样、单 marker、行数相等、HTTP 成功、Frame 或 DOM 代替逐行对账。
 - 同一 task/validator/失败签名自动修复最多两次，第三次进入 NeedsHuman。
 
 ### Human Gate
@@ -92,6 +95,8 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - 未附着 Surface 不强制生成 View；以后 attach 时必须能从权威事实恢复 snapshot。
 - Gate-specific: Tauri 不得生成业务 ready 或 sync 状态
 - Gate-specific: HTTP SUCCESS 或 increment_channel_end 均不得单独晋升完成；必须先完成本地持久化，再发布 im:channels:loaded 最终投影；代码证据 crates/helix-im/tests/gs_persist_barrier_test.rs::gs1_http_and_increment_end_do_not_publish_before_same_batch_commit
+- PC/Mobile 进程未完全退出、SQLite artifact 仍被占用、目标路径是符号链接或删库后存在任一 residual artifact 时，冷启动验收必须 fail-closed。
+- 冷启动重启必须复用 seed 阶段的 persona 与数据库路径；通过更换数据库文件名、只清内存状态或复用旧 View cache 均不构成物理删库证明。
 
 ## Requirements *(mandatory)*
 
@@ -115,6 +120,8 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **FR-016**: Review 必须核对三仓同一业务逻辑、Fixture hash/schema、Frame surface/scope/revision/mutation/directive、PC DOM 与 Mobile typed view。
 - **FR-017**: 当前 Gate 的生产可达路径必须保持 InteractionFrame V2-only，V1 Frame 和 raw business render fallback 数量均为 0。
 - **FR-018**: 运行报告必须分别记录 Helix、Fixture、PC Mock、PC Real、Mobile Contract、Review 和 blocker，不得用一个总 PASS 掩盖缺失证据面。
+- **FR-019**: PC 444/678 与 Mobile userA/userB 的真实 Gate lane 必须执行 `seed -> 完全停进程 -> 仅删除 Helix SQLite main/WAL/SHM/journal -> 同路径 restart -> cold sync`；删除前后必须记录受控 artifact 清单、锁检查和零残留证明，且远端数据不得修改或删除。
+- **FR-020**: 冷启动完成后，系统必须按 persona 将 isolated Gate dataset 的全部可映射远端权威行规范化为稳定主键集合，并与对应本地 SQLite 逐行比较；PC Actor/Observer 与 Mobile userA/userB 都必须满足 `missing=0、extra=0、mismatch=0`，同时关联同一 run/correlation 的持久化、FrameApplied 与 DOM/typed view。
 
 ### Gate Contract Snapshot
 
@@ -133,6 +140,7 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **Platform Mirror**: PC 或 Mobile 对 canonical Fixture 的只读副本，hash 与 inventory 必须一致。
 - **Production Boundary**: 证明真实入口使用生产类且测试注入在默认构建不可达的验收面。
 - **UC Review**: 对行为、代码、Frame V2 和证据一致性的独立裁决。
+- **Cold-Start Parity Evidence**: 记录 persona、同一 DB 路径、删除的精确 SQLite artifacts、远端与本地规范化快照 hash、missing/extra/mismatch 明细以及 Frame/UI 收敛结果的结构化证据。
 
 ## Success Criteria *(mandatory)*
 
@@ -144,6 +152,7 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **SC-004**: 所有故意注入的 persist failure、duplicate/late fact、scope/epoch/revision 错误中，伪成功 Frame、DOM 或 typed view 数量为 0。
 - **SC-005**: production-boundary 扫描中，生产构建可达 Fixture/Mock/test injection/raw business reducer 数量为 0。
 - **SC-006**: 行为、代码和 Frame V2 Review 全部为 `review-green`；任何 partial/blocked 都阻止进入下一 Gate。
+- **SC-007**: PC 444/678 与 Mobile userA/userB 四个 persona 的物理删库冷启动均复用原 DB 路径，删除范围越界数为 0，残留 artifact 数为 0；Gate-scoped 远端/本地规范化对账全部 `missing=0、extra=0、mismatch=0`，required FrameApplied/DOM/typed view fail=0、skip=0。
 
 ## Assumptions
 

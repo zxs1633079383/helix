@@ -1,6 +1,6 @@
 # Research: G-S4 陌生 channel 兜底
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix `ef9494262fc4fdc42d355442d3866236c6a4e4de`；cses-client `ed538609be097e583af4b05228303b5c522ec546`；Mobile `084fc8392004398eb162fef528f8b59ffdc5813f`；Go `e4815b7e57e0ed0f54a1b0ebad1b4bfbf2e2880d`
 
 ## Decision 1 - 唯一业务真源
 
@@ -46,6 +46,7 @@
 
 - 当前 Helix owner：`crates/helix-im/src/increment_hydration.rs`；现有聚焦测试：`crates/helix-im/tests/gs01_04_v2_sync_recovery_test.rs`。
 - 当前 Mobile UC 测试：`/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp`。
+- Mobile 的 source lock 与运行时 FFI 必须同时更新；`run-uc01-16-gtest.sh` 只编译 C++ 测试，不负责按新 pin 重建 `third_party/helix/lib/libhelix_driver_ffi.dylib`。
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。

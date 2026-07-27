@@ -42,6 +42,18 @@
 | evidence | verdict | required pass=100%、fail=0、skip=0 |
 | final | verdict | 四项全 Green 才可 review-green |
 
+## ColdStartConvergence
+
+| Field | Type | Rule |
+|---|---|---|
+| persona | enum | pc-444、pc-678、mobile-userA、mobile-userB |
+| databasePath | string | stop 前与 restart 后必须相同 |
+| deletedArtifacts | array | 仅 main/WAL/SHM/journal |
+| residualArtifacts | array | 必须为空 |
+| remoteSha256 / localSha256 | string | 规范化完整 Gate 行集必须相等 |
+| missing / extra / mismatch | array | 三者必须为空 |
+| typedProjection | object | FrameApplied 或 typed dialog/timeline 必须收敛 |
+
 ## State Transitions
 
 `Draft -> HelixGreen -> PcGreen -> MobileGreen -> ReviewGreen`

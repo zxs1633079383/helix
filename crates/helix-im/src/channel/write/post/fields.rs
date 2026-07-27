@@ -105,6 +105,7 @@ fn urgent_hit_from_candidates(
     (hit, candidates)
 }
 
+/// Preserves the remote post clocks and preview fields in the recovered dialog snapshot.
 pub(super) fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> String {
     serde_json::json!({
         "id": fields.id.clone(),
@@ -119,6 +120,7 @@ pub(super) fn sync_last_post_json(fields: &crate::sync_session::PostFields) -> S
         "mentions": fields.mentions.clone(),
         "expediteMap": serde_json::from_str::<serde_json::Value>(&fields.expedite_map).unwrap_or(serde_json::Value::Null),
         "createAt": fields.create_at,
+        "updateAt": if fields.update_at > 0 { fields.update_at } else { fields.create_at },
     })
     .to_string()
 }

@@ -34,6 +34,8 @@ pub struct PostFields {
     /// 服务端原始 userSnapshot 对象的字符串形态，用于 senderUserId 优先级与渲染透传。
     pub user_snapshot: String,
     pub create_at: i64,
+    /// 服务端消息更新时间；缺省保持 0，禁止用本地墙钟伪造远端权威值。
+    pub update_at: i64,
     /// 服务端权威已读位（C2 / type=6 真源 post.rs:1087-1089）。
     /// 缺省空串=该 post 无已读信息；落库时**单调覆盖** message.read_bits 列（非累加）。
     pub read_bits: String,

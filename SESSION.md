@@ -16,6 +16,10 @@
 
 🎯 EXPECT 将 G02-G16c 剩余 22 个业务 Gate 按 G01 V1 稳定目录和文档布局同步到 Apifox 项目 8449651；可证伪断言：① 创建或更新恰好 22 个 Gate 文件夹且每个包含总览、Command、PC、Mobile、字段枚举、Frame 状态流、逐 Frame、UI、覆盖、HTTP/WS、Mock、版本 Diff；② 只嵌入 producer 导出的 canonical fixture，缺失 fixture 明确标记 not-proven；③ 所有 payload 先通过 Apifox CLI schema 校验，回读目录归属和数量一致；④ 不修改 Helix/PC/Mobile/Go 业务代码，不把 AcceptedCommand、Mock 或 HTTP 200 冒充真实渲染完成 | 赌注 高 | 可逆 是 | @2026-07-26T20:00:00-0700
 
+✅ DONE 已在 Apifox 项目 8449651 的 `Helix Gate 接口合同（G01-G16）` 下创建并回读 22 个剩余 Gate 文件夹，按 G01 V1 布局同步 340 份 Markdown（其中 98 份逐 Frame canonical JSON）、23 个真实 cses-im-server HTTP 资源和 18 个 Gate WS 资源；所有写入 payload 均先经官方 CLI schema validate，HTTP/WS 均为 released。21 个 Gate 的 Rust-export fixture 已逐文件校验 provenance SHA-256，G03 因无 canonical fixture 明确保持 not-proven 且未补造 Frame；独立全项目 Apifox export 复核 22/22 文件夹、340 文档、零重名、资源归属一致。未修改 Helix/PC/Mobile/Go 业务代码，未运行 Cargo | @2026-07-26T22:25:00-0700
+
+⚡ DRIFT-PRED Apifox CLI 的大列表和含完整 Frame 的写入回执在非 TTY stdout 超过约 8 KiB 时会截断为非法 JSON，首轮串行同步因此中断；最终改用官方 Apifox 全项目 export 作幂等索引和独立复核，并对 38 份已成功写入文档执行稳定键 update，避免重复资源 → 候选教训：批量同步应以 export 文件而不是 list stdout 作为大项目读模型 | @2026-07-26T22:25:00-0700
+
 🎯 EXPECT 新增消息审批立项前置说明；可证伪断言：① 以阿里 P6 口径明确本期不承诺、现版组织能力不支持、未来规划未确认和核心 Owner 仅组织/消息两方；② 列清需业务产品、三端、测试、安全及运维角色配合，但不把审批 Owner 虚构给第三方；③ 仅在需求、组织能力、责任和排期四项 Gate 通过或管理层明确接受风险后，才进入现有方案决策稿与四份设计文件 | 赌注 低 | 可逆 是 | @2026-07-26T14:35:00-0700
 
 ✅ DONE 已新增 106 行立项前置说明，结论先行标明“本期不承诺、方案已预研、依赖和责任未就绪”，拆出需求、组织能力、长期 Owner、可执行排期四个前置问题及对应 Gate；核心 Owner 仍限定组织/消息双方，业务产品、三端、测试、安全和运维仅作为配合角色。文档提供管理层强推时的风险确认项、四份方案跳转及可直接使用的会议开场话术；README 已增加前置 Gate 链接，文件无行尾空白 | @2026-07-26T14:35:00-0700

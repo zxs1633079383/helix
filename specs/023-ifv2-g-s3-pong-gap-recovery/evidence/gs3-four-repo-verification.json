@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "gateId": "G-S3",
+  "recordedAt": "2026-07-27T14:55:00-07:00",
+  "sourcePins": {
+    "helix": "b571b019ca677a06659e8de58bbeb8b16ae00756",
+    "pc": "49de0b5a4e06d15b523d61c03e28adbd155972d2",
+    "mobile": "c9852e22c7eaafe260814977ccbd31dd6926f73d",
+    "go": "88e754dd012aba8e966b4aaa918ea324f60988a4",
+    "strictMatrixSha256": "caadafd2947ccadf647a134ab7c85f60b1d0feb6966f79a8717b32eef094c9c8"
+  },
+  "runs": [
+    {
+      "id": "helix-gs3",
+      "result": "PASS",
+      "assertions": {
+        "focusedTests": 20,
+        "cargoCheck": true,
+        "fixtureContract": true,
+        "persistBarrier": true,
+        "lateReplyAndDuplicate": true
+      }
+    },
+    {
+      "id": "pc-gs3",
+      "result": "PASS",
+      "assertions": {
+        "mock": "2/2",
+        "singleRealSeedRecover": "2/2",
+        "dualRealSeedRecover": "2/2",
+        "resetDeletedArtifacts": 6,
+        "resetResidualArtifacts": 0,
+        "remoteDeletionPerformed": false,
+        "actorRemoteSha256": "cdd8acaf8bccaa42d0951b618b9b4aaf851e65d68979e1b5a6aaf13a19ab74cc",
+        "actorLocalSha256": "cdd8acaf8bccaa42d0951b618b9b4aaf851e65d68979e1b5a6aaf13a19ab74cc",
+        "observerRemoteSha256": "cdd8acaf8bccaa42d0951b618b9b4aaf851e65d68979e1b5a6aaf13a19ab74cc",
+        "observerLocalSha256": "cdd8acaf8bccaa42d0951b618b9b4aaf851e65d68979e1b5a6aaf13a19ab74cc",
+        "missing": 0,
+        "extra": 0,
+        "mismatch": 0
+      }
+    },
+    {
+      "id": "mobile-gs3",
+      "result": "PASS",
+      "assertions": {
+        "surfaceRuntimeGTest": "179/179",
+        "focusedGs03": "7/7",
+        "resetDeletedArtifactsPerPersona": 3,
+        "resetResidualArtifacts": 0,
+        "remoteDeletionPerformed": false,
+        "userARemoteSha256": "6f185982aed839e15f33feb8821a049c1993fccaac0c65f700e6dd5f588879d2",
+        "userALocalSha256": "6f185982aed839e15f33feb8821a049c1993fccaac0c65f700e6dd5f588879d2",
+        "userBRemoteSha256": "6f185982aed839e15f33feb8821a049c1993fccaac0c65f700e6dd5f588879d2",
+        "userBLocalSha256": "6f185982aed839e15f33feb8821a049c1993fccaac0c65f700e6dd5f588879d2",
+        "missing": 0,
+        "extra": 0,
+        "mismatch": 0
+      }
+    }
+  ],
+  "fixtureParity": {
+    "inventoryCount": 4,
+    "helixPcMobileByteExact": true,
+    "dialogEmptySha256": "40c1621a0c1dd15864017f058e3a506b26a9b022891dfeff47c74888f51664b2",
+    "dialogSyncedSha256": "689b58aa6be1ba3f21b48ac35e90138b313c47763566d52fe28ed607a3847008",
+    "dialogRecoverySha256": "d19f36f3ee5bd5cfd7cbf20cffc754b50dd1527f1df6b5a322f6e7499dc578b7",
+    "provenanceSha256": "c659e7b645cf90e83fc56bed9b42a52a75aa01483778370d9ee82e9e4aaec8c2"
+  }
+}

@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT GS3 仅复用既有 pong compensation、持久屏障、四端 reset/parity 边界并补齐生产 trace、Fixture 与真实链证据；可证伪断言：① GS3 `CLOSED` 前不改 GS4；② helix-core 不新增运行时依赖；③ PC 444/678 与 Mobile userA/userB 删除同路径 Helix SQLite 后，完整 message/cursor authority hash 一致且 missing/extra/mismatch 全 0；④ Rust cargo 调用不超过 3 次且聚焦验证全部通过 | 赌注 高 | 可逆 是 | @2026-07-27T13:40:00-07:00
+✅ DONE GS3 已完成 Helix、Go、PC、Mobile 四仓闭环并由 Spec Kit event 20 `CLOSED`：Helix focused 20 tests 与 check 通过；PC Mock 2/2、single-real seed/recover 2/2、dual-real seed/recover 2/2；Mobile surface-runtime 179/179、focused GS03 7/7。PC 444/678 与 Mobile userA/userB 均只删除 harness 自有同路径 Helix SQLite main/WAL/SHM，residual=0、remoteDeletionPerformed=false；四 persona 的 canonical message/cursor remote/local hash 相等且 missing/extra/mismatch=0。三仓 Fixture byte-exact，未改 helix-core、未新增架构票、未 push | @2026-07-27T14:56:00-07:00
+⚡ DRIFT-PRED Mobile typed surface 会按设计消费 `im:channel:created`、`im:sync:state`、`im:post:received` 与 query-result 等 legacy business events，原 runner 用 raw event 等待导致真实持久化已完成却误判超时；最终改为 durable SQLite cursor + typed dialog/timeline + PostgreSQL 全量对账三面证明 → 候选教训：typed 模式的真实链不得继续把被消费的 raw reducer event 当 UI/完成闸门 | @2026-07-27T14:56:00-07:00
+
 🎯 EXPECT 将 G02-G16c 剩余 22 个业务 Gate 按 G01 V1 稳定目录和文档布局同步到 Apifox 项目 8449651；可证伪断言：① 创建或更新恰好 22 个 Gate 文件夹且每个包含总览、Command、PC、Mobile、字段枚举、Frame 状态流、逐 Frame、UI、覆盖、HTTP/WS、Mock、版本 Diff；② 只嵌入 producer 导出的 canonical fixture，缺失 fixture 明确标记 not-proven；③ 所有 payload 先通过 Apifox CLI schema 校验，回读目录归属和数量一致；④ 不修改 Helix/PC/Mobile/Go 业务代码，不把 AcceptedCommand、Mock 或 HTTP 200 冒充真实渲染完成 | 赌注 高 | 可逆 是 | @2026-07-26T20:00:00-0700
 
 ✅ DONE 已在 Apifox 项目 8449651 的 `Helix Gate 接口合同（G01-G16）` 下创建并回读 22 个剩余 Gate 文件夹，按 G01 V1 布局同步 340 份 Markdown（其中 98 份逐 Frame canonical JSON）、23 个真实 cses-im-server HTTP 资源和 18 个 Gate WS 资源；所有写入 payload 均先经官方 CLI schema validate，HTTP/WS 均为 released。21 个 Gate 的 Rust-export fixture 已逐文件校验 provenance SHA-256，G03 因无 canonical fixture 明确保持 not-proven 且未补造 Frame；独立全项目 Apifox export 复核 22/22 文件夹、340 文档、零重名、资源归属一致。未修改 Helix/PC/Mobile/Go 业务代码，未运行 Cargo | @2026-07-26T22:25:00-0700

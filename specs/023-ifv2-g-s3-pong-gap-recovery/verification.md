@@ -16,3 +16,35 @@
 - 每次运行保留原始输出并通过 `loop_engine.py record-evidence` 登记；失败输出不得被说明文字替换。
 - Mock、AcceptedCommand、HTTP 2xx、单端 replay 或 GTest 不能代替 PC Real 与跨仓 Review。
 - 当前 Feature 只定义验收合同；在实现与运行证据出现前，本 Gate 状态保持 Draft。
+
+## Source Lock
+
+- Helix: `b571b019ca677a06659e8de58bbeb8b16ae00756`
+- PC: `49de0b5a4e06d15b523d61c03e28adbd155972d2`
+- Mobile: `c9852e22c7eaafe260814977ccbd31dd6926f73d`
+- Go: `88e754dd012aba8e966b4aaa918ea324f60988a4`
+- Strict Matrix SHA-256: `caadafd2947ccadf647a134ab7c85f60b1d0feb6966f79a8717b32eef094c9c8`
+- 前序 G-S2: `phase=closed`、R4 `pass`。
+
+## Executed Evidence
+
+| Plane | Result | Falsifiable Evidence |
+|---|---|---|
+| Helix | PASS | `cargo check -p helix-im`；GS3 scenario/Fixture/persist barrier/UC44 focused 共 20 tests pass |
+| Fixture | PASS | Helix、PC、Mobile 四个 JSON 的逐文件 SHA-256 完全一致 |
+| PC Mock | PASS | GS3 mock `2/2`；Fixture parity `3/3`；boundary `checkedFiles=2735` |
+| PC Real | PASS | single seed/recover `2/2`；dual seed/recover `2/2`；444/678 hash 相等且 missing/extra/mismatch=`0/0/0` |
+| PC Reset | PASS | 双 profile 共删除 main/WAL/SHM 6 个，residual=0，`remoteDeletionPerformed=false` |
+| Mobile | PASS | source pin/parity/hard-cut；surface-runtime `179/179`；focused GS03 `7/7` |
+| Mobile Reset | PASS | userA/userB 各删除 main/WAL/SHM 3 个，residual=0，`remoteDeletionPerformed=false` |
+| Mobile Parity | PASS | userA/userB remote/local SHA-256 相等且 missing/extra/mismatch=`0/0/0` |
+
+## Reviews
+
+- **Behavior**: fresh group 后先持久化旧 cursor；Go 故障控制器只丢 Observer 的 post push，并以真实 pong gap 触发补偿；新 cursor 严格大于旧 cursor。
+- **Code boundary**: 补偿与业务权威仍在 Helix；Go 只提供只读证据和测试故障控制；PC/Mobile 不新增业务 reducer。
+- **Frame V2**: typed dialog/timeline 在 gap 恢复及删库重启后均包含相同 channel/post/marker；legacy raw event 被 typed runtime 消费，不作为验收面。
+- **Evidence**: PC 444/678 与 Mobile userA/userB 均从同路径空库恢复；全量 canonical message/cursor 对账而非仅计数对账。
+- **No-change tasks**: T006-T008、T016、T021、T027-T030 经生产调用链复核无需修改，既有 shared handler/bridge/reporter 已满足合同；对应 focused/runtime/boundary tests 已覆盖。
+
+机器证据见 [gs3-four-repo-verification.json](evidence/gs3-four-repo-verification.json) 与 [gate-report.json](evidence/gate-report.json)。

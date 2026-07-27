@@ -346,6 +346,65 @@ fn disabled_is_unsupported_and_goes_directly_remote_without_storage() {
         .all(|effect| { !matches!(effect, Effect::Persist { .. } | Effect::PersistFire { .. }) }));
 }
 
+/// 回放短远端 segment，验证其不会删除本地更早行或关闭加载历史入口。
+#[test]
+fn short_remote_segment_preserves_local_older_rows_and_page_affordance() {
+    let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Durable);
+    harness.step(query_tick(1, 20), 1_000);
+    let scan_corr = corr_for_persist(harness.sink.as_slice());
+    let local = (1..=20)
+        .rev()
+        .map(|index| {
+            local_row(
+                &sid(index),
+                &format!("tmp-{index}"),
+                index as i64 * 100,
+                "local",
+            )
+        })
+        .collect::<Vec<_>>();
+    harness.step(
+        port_reply_with_body(scan_corr, Bytes::from(serde_json::to_vec(&local).unwrap())),
+        1_100,
+    );
+
+    let http_corr = corr_for_http(harness.sink.as_slice());
+    let remote = (10..=20)
+        .map(|index| {
+            remote_post(
+                &sid(index),
+                &format!("tmp-{index}"),
+                index as i64 * 100,
+                "remote",
+            )
+        })
+        .collect();
+    harness.step(
+        port_reply_with_body(http_corr, latest_posts_reply(remote)),
+        1_200,
+    );
+    assert!(!harness.sink.as_slice().iter().any(|effect| {
+        matches!(effect, Effect::Persist { ops, .. }
+            if ops.iter().any(|op| matches!(op, StorageOp::BatchDelete(_))))
+    }));
+
+    let cache_corr = corr_for_persist(harness.sink.as_slice());
+    assert_eq!(
+        harness.step(port_reply_ok(cache_corr), 1_300),
+        vec![EffectKind::Emit]
+    );
+    let events = emitted_values(harness.sink.as_slice());
+    let timeline = timeline_view(&events[0]);
+    assert_eq!(timeline["items"].as_array().unwrap().len(), 20);
+    assert!(timeline["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["id"] == sid(1)));
+    assert_eq!(timeline["page"]["hasOlder"], true);
+    assert_eq!(timeline["page"]["hasMore"], true);
+}
+
 #[test]
 fn http_status_failure_emits_explicit_failure_not_empty_success() {
     let mut harness = Harness::new_with_store_mode(&[1], LocalStoreMode::Disabled);

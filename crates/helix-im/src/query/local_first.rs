@@ -22,11 +22,9 @@ mod data;
 
 #[cfg(test)]
 pub(crate) use data::parse_latest_posts_body;
-#[cfg(test)]
-use data::server_id;
 use data::{
     classify_local_read, dedup_recent_rows, merge_recent_rows, message_key,
-    parse_latest_posts_reply, stale_local_server_rows_delete_op,
+    parse_latest_posts_reply, server_id, stale_local_server_rows_delete_op,
 };
 pub(crate) use data::{parse_local_rows, sort_recent_rows_desc, visible_remote_rows_and_cache_ops};
 
@@ -62,8 +60,8 @@ pub struct RecentMessageCoverage {
 }
 
 impl RecentMessageCoverage {
-    fn from_remote(rows_desc: &[Value], received_count: usize) -> Option<Self> {
-        let remote_exhausted = received_count < REMOTE_RECENT_WINDOW;
+    /// 记录服务端已证明的最近窗口；是否到顶由本地与远端联合判断后显式传入。
+    fn from_remote(rows_desc: &[Value], remote_exhausted: bool) -> Option<Self> {
         // getLatestPost 满 20 后可能把同 segment 一并补回；多出来的行可用于本次展示，
         // 但不能把基础 20 窗口扩张成“服务端证明了 21+ 条完整”。
         let proven_len = if remote_exhausted {
@@ -84,6 +82,32 @@ impl RecentMessageCoverage {
             remote_exhausted,
         })
     }
+}
+
+/// 短远端窗口只有在本地不存在更早服务端消息时，才可证明全局历史到顶。
+fn recent_reply_proves_history_exhausted(
+    local_rows_desc: &[Value],
+    remote_rows_desc: &[Value],
+    received_count: usize,
+) -> bool {
+    if received_count >= REMOTE_RECENT_WINDOW {
+        return false;
+    }
+    let oldest_remote = remote_rows_desc.iter().filter_map(message_create_at).min();
+    !oldest_remote.is_some_and(|oldest| {
+        local_rows_desc.iter().any(|row| {
+            !server_id(row).is_empty()
+                && message_create_at(row).is_some_and(|create_at| create_at < oldest)
+        })
+    })
+}
+
+/// 兼容本地 snake_case 与 render-ready camelCase 行，统一提取消息时间。
+fn message_create_at(row: &Value) -> Option<i64> {
+    row.get("create_at")
+        .or_else(|| row.get("createAt"))
+        .or_else(|| row.get("createdAt"))
+        .and_then(Value::as_i64)
 }
 
 impl ImModule {
@@ -139,6 +163,7 @@ impl ImModule {
         )
     }
 
+    /// 写后回读沿用已挂载窗口的可视页长，避免固定默认值悄然改变 UI 窗口。
     fn refresh_attached_timeline_window_with_deferred_send(
         &mut self,
         channel_id: ChannelId,
@@ -154,10 +179,19 @@ impl ImModule {
         if !self.state.timeline_projector.is_attached(&scope) {
             return Ok(false);
         }
+        let visible_limit = self
+            .state
+            .timeline_projector
+            .current_view(&scope)
+            .map(|view| view.items.len())
+            .filter(|visible| *visible > 0)
+            .and_then(|visible| u32::try_from(visible).ok())
+            .map(|visible| visible.min(super::QUERY_MESSAGES_MAX))
+            .unwrap_or(super::QUERY_MESSAGES_DEFAULT);
         let payload = serde_json::json!({
             "channel_id": channel_id.as_str(),
             "window_token": window_token,
-            "limit": super::QUERY_MESSAGES_DEFAULT,
+            "limit": visible_limit,
         });
         let bytes = serde_json::to_vec(&payload)
             .map_err(|error| ImError::Serialize(format!("attached timeline refresh: {error}")))?;
@@ -427,8 +461,12 @@ impl ImModule {
         dedup_recent_rows(&mut remote_rows_desc);
         sort_recent_rows_desc(&mut remote_rows_desc);
 
-        let remote_exhausted = received_count < REMOTE_RECENT_WINDOW;
-        let coverage = RecentMessageCoverage::from_remote(&remote_rows_desc, received_count);
+        let remote_exhausted = recent_reply_proves_history_exhausted(
+            &local_rows_desc,
+            &remote_rows_desc,
+            received_count,
+        );
+        let coverage = RecentMessageCoverage::from_remote(&remote_rows_desc, remote_exhausted);
         if remote_exhausted {
             if let Some(delete) = stale_local_server_rows_delete_op(
                 request.channel_id,
@@ -642,8 +680,7 @@ impl ImModule {
     }
 
     /// local-first 已完成排序、去重、权限与 render-ready shaping 后的唯一 timeline 出口。
-    /// `rows_desc` 是当前有界窗口的倒序查询结果；这里反转一次并交给 typed projector，端侧不再
-    /// 消费 `im:messages:query_result` 或 raw storage row。
+    /// `rows_desc` 可含一条本地 lookahead；这里只投影请求页长，并把额外行转成分页事实。
     pub(crate) fn emit_timeline_snapshot_with_causation(
         &mut self,
         request: &MessageQueryRequest,
@@ -659,7 +696,9 @@ impl ImModule {
         } else {
             causation_id.clone()
         };
-        let rows_asc = Value::Array(rows_desc.iter().rev().cloned().collect());
+        let visible_len = request.limit as usize;
+        let has_local_older = rows_desc.len() > visible_len;
+        let rows_asc = Value::Array(rows_desc.iter().take(visible_len).rev().cloned().collect());
         let mut shaped = crate::render_ready::shape_message_rows_for_viewer(
             &rows_asc,
             self.config.auth_user_id.as_str(),
@@ -679,11 +718,12 @@ impl ImModule {
             );
         if let Some(page) = page_override {
             timeline_request.page = page;
-        } else if self
-            .state
-            .recent_message_coverage
-            .get(&request.channel_id)
-            .is_some_and(|coverage| !coverage.remote_exhausted)
+        } else if has_local_older
+            || self
+                .state
+                .recent_message_coverage
+                .get(&request.channel_id)
+                .is_some_and(|coverage| !coverage.remote_exhausted)
         {
             // A full authoritative recent window proves only that older rows
             // may exist. Preserve that proof in the render contract so shells

@@ -108,10 +108,11 @@ pub fn parse_message_query(payload: &[u8]) -> Result<MessageQueryRequest, ImErro
     })
 }
 
+/// 为可视窗口额外读取一条 lookahead，仅用于证明本地仍有更早消息，不扩大投影页长。
 pub fn message_scan_spec(request: &MessageQueryRequest) -> ScanSpec {
     ScanSpec {
         table: "message",
-        limit: Some(request.limit),
+        limit: Some(request.limit.saturating_add(1)),
         filter: Some((
             "channel_id",
             SqlValue::Text(request.channel_id.as_str().to_string()),

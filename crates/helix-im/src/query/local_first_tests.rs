@@ -115,7 +115,7 @@ fn empty_rows_are_only_a_miss() {
 fn exact_remote_identity_window_is_complete_but_known_gap_revokes_it() {
     let mut rows = vec![row(2), row(1)];
     sort_recent_rows_desc(&mut rows);
-    let proof = RecentMessageCoverage::from_remote(&rows, 2).unwrap();
+    let proof = RecentMessageCoverage::from_remote(&rows, true).unwrap();
     assert_eq!(
         classify_local_read(
             LocalStoreMode::Session,
@@ -142,7 +142,7 @@ fn exact_remote_identity_window_is_complete_but_known_gap_revokes_it() {
 fn twenty_row_remote_window_never_proves_a_fifty_row_request() {
     let mut remote: Vec<Value> = (1..=20).map(row).collect();
     sort_recent_rows_desc(&mut remote);
-    let proof = RecentMessageCoverage::from_remote(&remote, 20).unwrap();
+    let proof = RecentMessageCoverage::from_remote(&remote, false).unwrap();
     let mut local: Vec<Value> = (1..=50).map(row).collect();
     sort_recent_rows_desc(&mut local);
     assert_eq!(
@@ -161,7 +161,7 @@ fn twenty_row_remote_window_never_proves_a_fifty_row_request() {
 fn fewer_than_twenty_remote_rows_can_prove_exhausted_larger_request() {
     let mut rows = vec![row(2), row(1)];
     sort_recent_rows_desc(&mut rows);
-    let proof = RecentMessageCoverage::from_remote(&rows, 2).unwrap();
+    let proof = RecentMessageCoverage::from_remote(&rows, true).unwrap();
     assert_eq!(
         classify_local_read(
             LocalStoreMode::Durable,
@@ -178,7 +178,7 @@ fn fewer_than_twenty_remote_rows_can_prove_exhausted_larger_request() {
 fn segment_expansion_above_twenty_does_not_prove_a_larger_window() {
     let mut rows: Vec<Value> = (1..=30).map(row).collect();
     sort_recent_rows_desc(&mut rows);
-    let proof = RecentMessageCoverage::from_remote(&rows, 30).unwrap();
+    let proof = RecentMessageCoverage::from_remote(&rows, false).unwrap();
     assert_eq!(proof.remote_keys_desc.len(), REMOTE_RECENT_WINDOW);
     assert_eq!(
         classify_local_read(
@@ -203,6 +203,29 @@ fn exhausted_remote_window_drops_stale_server_rows_but_keeps_optimistic_rows() {
     assert_eq!(merged.len(), 2);
     assert!(merged.iter().any(|item| item == &optimistic));
     assert!(!merged.iter().any(|item| server_id(item) == "message-001"));
+}
+
+/// 锁定短远端 segment 不得覆盖本地已经证明存在的更早服务端历史。
+#[test]
+fn short_recent_segment_preserves_proven_local_older_history() {
+    let mut local: Vec<Value> = (1..=20).map(row).collect();
+    let mut remote: Vec<Value> = (10..=20).map(row).collect();
+    sort_recent_rows_desc(&mut local);
+    sort_recent_rows_desc(&mut remote);
+
+    assert!(!recent_reply_proves_history_exhausted(
+        &local,
+        &remote,
+        remote.len(),
+    ));
+    let merged = merge_recent_rows(local, remote.clone(), false, 20);
+    assert_eq!(merged.len(), 20);
+    assert!(merged.iter().any(|item| server_id(item) == "message-001"));
+    assert!(
+        !RecentMessageCoverage::from_remote(&remote, false)
+            .unwrap()
+            .remote_exhausted
+    );
 }
 
 #[test]
@@ -405,7 +428,7 @@ fn full_authoritative_recent_window_exposes_load_older_page_contract() {
         })
         .collect();
     sort_recent_rows_desc(&mut rows_desc);
-    let coverage = RecentMessageCoverage::from_remote(&rows_desc, REMOTE_RECENT_WINDOW)
+    let coverage = RecentMessageCoverage::from_remote(&rows_desc, false)
         .expect("full remote window establishes a non-exhausted proof");
     module
         .state
@@ -580,6 +603,95 @@ fn durable_fact_refresh_uses_local_rows_without_get_latest_post_fallback() {
             .any(|event| event["event"] == "im:interaction:frame"),
         "the local readback must release the attached timeline Frame"
     );
+}
+
+/// 锁定已挂载 latest 窗口在写后回读时保持原页长，并从本地 lookahead 保留更早历史入口。
+#[test]
+fn durable_fact_refresh_preserves_window_size_and_local_older_affordance() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    let mut module = ImModule::new(config);
+    let mut rows_desc: Vec<Value> = (1..=21)
+        .map(|index| {
+            serde_json::json!({
+                "id": format!("message-{index:03}"),
+                "temporaryId": format!("temporary-{index:03}"),
+                "channelId": channel_id().as_str(),
+                "userId": "viewer-1",
+                "createAt": index,
+                "message": format!("message {index}"),
+                "type": "TEXT",
+                "props": {},
+            })
+        })
+        .collect();
+    sort_recent_rows_desc(&mut rows_desc);
+    let initial_rows = rows_desc.iter().take(20).cloned().collect::<Vec<_>>();
+    let coverage = RecentMessageCoverage::from_remote(&initial_rows, false)
+        .expect("full initial page establishes an older-history possibility");
+    module
+        .state
+        .recent_message_coverage
+        .insert(channel_id(), coverage);
+    module
+        .emit_timeline_snapshot_with_causation(&request(20), &initial_rows, 1_000, None, None)
+        .expect("initial twenty-row timeline attaches");
+    module
+        .state
+        .invalidate_recent_message_coverage(channel_id());
+
+    let mut sink = EffectSink::new();
+    module
+        .refresh_attached_latest_timeline(
+            channel_id(),
+            Some("durable-refresh-with-older".to_string()),
+            &mut sink,
+        )
+        .expect("durable fact schedules one local readback");
+    let (refresh_corr, scan_limit) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => ops.iter().find_map(|op| match op {
+                helix_core::effect::StorageOp::Scan(spec) => {
+                    Some((*corr, spec.limit.expect("message scan stays bounded")))
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("durable refresh starts with a local message scan");
+    assert_eq!(
+        scan_limit, 21,
+        "twenty visible rows require one lookahead row"
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: refresh_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&rows_desc).unwrap()),
+                )),
+            },
+            1_001,
+            &mut sink,
+        )
+        .expect("local lookahead projects the stable attached window");
+
+    let frame = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("durable local readback emits one timeline Frame");
+    let view = &frame["data"]["mutations"][0]["mutation"]["patch"]["view"];
+    assert_eq!(view["items"].as_array().map(Vec::len), Some(20));
+    assert_eq!(view["page"]["hasOlder"], true);
+    assert_eq!(view["page"]["hasMore"], true);
 }
 
 #[test]

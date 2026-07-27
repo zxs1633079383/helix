@@ -52,7 +52,7 @@ fn query_messages_dispatches_filtered_scan() {
         order_by,
     } = scan;
     assert_eq!(table, "message");
-    assert_eq!(limit, Some(25));
+    assert_eq!(limit, Some(26));
     assert!(matches!(
         filter,
         Some(("channel_id", SqlValue::Text(s))) if s == cid(1)

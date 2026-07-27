@@ -31,7 +31,7 @@ fn build_message_query_scans_message_with_channel_filter_and_desc_order() {
     assert_eq!(cid.as_str(), "ch00000000000000000000000a");
     let spec = scan_of(effect).expect("Persist+Scan");
     assert_eq!(spec.table, "message");
-    assert_eq!(spec.limit, Some(30));
+    assert_eq!(spec.limit, Some(31));
     assert!(matches!(
         &spec.filter,
         Some(("channel_id", SqlValue::Text(s))) if s == "ch00000000000000000000000a"
@@ -47,7 +47,7 @@ fn build_message_query_defaults_and_clamps_limit() {
     let (_, default_effect) = build_message_query(&default_payload, corr()).unwrap();
     assert_eq!(
         scan_of(default_effect).expect("default scan").limit,
-        Some(QUERY_MESSAGES_DEFAULT)
+        Some(QUERY_MESSAGES_DEFAULT + 1)
     );
 
     let clamped_payload = serde_json::to_vec(
@@ -57,7 +57,7 @@ fn build_message_query_defaults_and_clamps_limit() {
     let (_, clamped_effect) = build_message_query(&clamped_payload, corr()).unwrap();
     assert_eq!(
         scan_of(clamped_effect).expect("clamped scan").limit,
-        Some(QUERY_MESSAGES_MAX)
+        Some(QUERY_MESSAGES_MAX + 1)
     );
 }
 

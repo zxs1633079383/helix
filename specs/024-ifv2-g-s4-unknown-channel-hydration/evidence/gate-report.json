@@ -1,0 +1,80 @@
+{
+  "gateId": "G-S4",
+  "sourcePins": {
+    "helix": "ef9494262fc4fdc42d355442d3866236c6a4e4de",
+    "pc": "ed538609be097e583af4b05228303b5c522ec546",
+    "mobile": "084fc8392004398eb162fef528f8b59ffdc5813f",
+    "go": "e4815b7e57e0ed0f54a1b0ebad1b4bfbf2e2880d",
+    "strictMatrixSha256": "caadafd2947ccadf647a134ab7c85f60b1d0feb6966f79a8717b32eef094c9c8"
+  },
+  "lanes": {
+    "helix": {
+      "status": "pass",
+      "focusedTests": "7/7",
+      "cargoCheck": true
+    },
+    "fixture": {
+      "status": "pass",
+      "frameCount": 3,
+      "provenanceCount": 1,
+      "helixPcMobileByteExact": true
+    },
+    "pcMock": {
+      "status": "pass",
+      "tests": "2/2"
+    },
+    "pcReal": {
+      "status": "pass",
+      "singleReal": "pass",
+      "dualReal": "pass",
+      "personas": [
+        "444",
+        "678"
+      ],
+      "differences": {
+        "missing": 0,
+        "extra": 0,
+        "mismatch": 0
+      }
+    },
+    "mobileContract": {
+      "status": "pass",
+      "surfaceRuntime": "182/182",
+      "focusedGs04": "7/7",
+      "personas": [
+        "userA",
+        "userB"
+      ],
+      "differences": {
+        "missing": 0,
+        "extra": 0,
+        "mismatch": 0
+      }
+    },
+    "productionBoundary": {
+      "status": "pass",
+      "pc": "pass",
+      "mobileV1ProducerConsumer": 0,
+      "goEvidenceReadOnly": true
+    }
+  },
+  "review": {
+    "behavior": {
+      "status": "pass",
+      "proof": "未知频道补水、非成员拒绝、重复恢复和四 persona 冷启动最终用户结果均闭合"
+    },
+    "codeBoundary": {
+      "status": "pass",
+      "proof": "业务权威只在 Helix；Go 只读证据，PC/Mobile 只机械消费和验收"
+    },
+    "frameV2": {
+      "status": "pass",
+      "proof": "三仓 canonical Frame inventory、schema、raw bytes 与 semantic hashes 一致"
+    },
+    "evidence": {
+      "status": "pass",
+      "proof": "四 persona 仅删除本地 Helix SQLite，零残留，远端/本地完整集合差异为零"
+    }
+  },
+  "finalVerdict": "Green"
+}

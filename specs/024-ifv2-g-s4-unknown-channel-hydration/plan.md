@@ -61,6 +61,7 @@
 - **A-005**: 真实 MessageV4 UI -> Tauri invoke -> Helix/SQLite/HTTP/WS -> FrameApplied -> Actor/Observer DOM。
 - **A-006**: Helix Fixture -> Mobile mirror -> production SDK/FFI DomainEvent batch -> SurfaceRuntime atomic apply -> QuickJS `im.surface.view`。
 - **A-007**: 三仓证据 -> behavior/code/Frame V2 review -> review-green 或 fail-closed blocker。
+- **A-008**: production unknown-channel seed -> stop/dispose -> guarded local SQLite reset -> same-path restart -> production hydration -> PostgreSQL/SQLite canonical parity -> FrameApplied/typed view。
 
 ### State Contract
 
@@ -79,6 +80,7 @@
 - **V-005**: `./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter='GS4FrameContractTest.*'` 证明 Mobile production consumer 与 QuickJS typed view。
 - **V-006**: production-boundary/source scans 证明 Fixture、Mock、测试 ABI、raw reducer 在默认构建不可达。
 - **V-007**: cross-repo review 对齐 command、terminal、Frame、hash、DOM、typed view 与报告，输出 review-green 或 blocker。
+- **V-008**: PC/Mobile 四 persona 的 reset evidence、同路径 restart 与 remote/local canonical parity；任一 residual、path drift、missing、extra 或 mismatch 非零即失败。
 
 ## Project Structure
 
@@ -132,7 +134,8 @@ crates/helix-im/tests/fixtures/gs4-wdio/
 2. Helix RED 场景、生产 handler/persist/projector、Fixture/Golden。
 3. PC mirror、Mock、single/dual real、DOM/report 与 production-boundary。
 4. Mobile mirror、GTest、SDK/Bridge/SurfaceRuntime/QuickJS typed view 与 hard-cut。
-5. 行为、代码、Frame V2、evidence Review 与 R4。
+5. PC/Mobile 四 persona 物理删库、同路径恢复与远端全量对账。
+6. 行为、代码、Frame V2、evidence Review 与 R4。
 
 ## Complexity Tracking
 

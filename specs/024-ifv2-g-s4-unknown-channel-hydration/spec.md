@@ -115,6 +115,8 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **FR-016**: Review 必须核对三仓同一业务逻辑、Fixture hash/schema、Frame surface/scope/revision/mutation/directive、PC DOM 与 Mobile typed view。
 - **FR-017**: 当前 Gate 的生产可达路径必须保持 InteractionFrame V2-only，V1 Frame 和 raw business render fallback 数量均为 0。
 - **FR-018**: 运行报告必须分别记录 Helix、Fixture、PC Mock、PC Real、Mobile Contract、Review 和 blocker，不得用一个总 PASS 掩盖缺失证据面。
+- **FR-019**: PC 444/678 与 Mobile userA/userB 必须在 production seed 完成且进程完全停止后，仅删除各自 Helix SQLite main/WAL/SHM/journal；reset 必须拒绝路径越界、符号链接、活动锁与删除后残留，并证明未删除远端数据。
+- **FR-020**: 四个 persona 必须复用删库前同一数据库路径完成冷启动 unknown-channel hydration，并对隔离 Gate 数据集中的 message、channel_event_cursor 及投影所需权威行执行远端 PostgreSQL/本地 SQLite 规范化全量比较；只有 missing=0、extra=0、mismatch=0 且 FrameApplied/typed view 收敛才可 Green。
 
 ### Gate Contract Snapshot
 
@@ -144,6 +146,7 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **SC-004**: 所有故意注入的 persist failure、duplicate/late fact、scope/epoch/revision 错误中，伪成功 Frame、DOM 或 typed view 数量为 0。
 - **SC-005**: production-boundary 扫描中，生产构建可达 Fixture/Mock/test injection/raw business reducer 数量为 0。
 - **SC-006**: 行为、代码和 Frame V2 Review 全部为 `review-green`；任何 partial/blocked 都阻止进入下一 Gate。
+- **SC-007**: PC 444/678 与 Mobile userA/userB 四个 persona 的本地库删除清单、同路径恢复、零残留、remote/local hash 与完整差异均有证据，且四者 missing=0、extra=0、mismatch=0。
 
 ## Assumptions
 

@@ -63,6 +63,7 @@ pub use sync::increment as sync_increment;
 pub use sync::scheduler as sync_scheduler;
 pub use sync::session as sync_session;
 pub mod todo;
+mod topic_activity;
 pub(crate) mod ws;
 
 pub use error::ImError;

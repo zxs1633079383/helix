@@ -42,13 +42,26 @@ fn individual_post(
     ))
 }
 
+/// 合并 Post 封装最多一批来源行，并把权威频道标题固化进 durable props。
 fn merged_post(module: &ImModule, assembly: &ForwardAssembly) -> Result<Value, ImError> {
+    let source_channel_id = assembly
+        .source_channel_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse("merged forward omitted source channel".to_string()))?;
+    let source_channel_title = assembly
+        .source_channel_title
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ImError::Parse("merged forward omitted source channel title".to_string()))?;
     let items: Vec<Value> = assembly
         .rows
         .iter()
         .map(|row| {
             json!({
+                "id": string_at(row, "id"),
                 "temporaryId": string_at(row, "temporary_id"),
+                "userId": string_at(row, "user_id"),
                 "props": json_column(row, "props", json!({})),
                 "simpleMessage": string_at(row, "simple_message"),
                 "type": string_or(row, "type", "TEXT"),
@@ -69,7 +82,12 @@ fn merged_post(module: &ImModule, assembly: &ForwardAssembly) -> Result<Value, I
         "MULTIPLY".to_string(),
         String::new(),
         "[聊天记录]".to_string(),
-        json!({ "mergeMessage": merge_message }),
+        json!({
+            "forwardTitle": format!("{source_channel_title}的聊天记录"),
+            "sourceChannelId": source_channel_id,
+            "sourceChannelName": source_channel_title,
+            "mergeMessage": merge_message,
+        }),
         json!([]),
     ))
 }
@@ -135,5 +153,44 @@ fn json_column(row: &Value, key: &str, fallback: Value) -> Value {
         }
         Some(value @ Value::Array(_)) | Some(value @ Value::Object(_)) => value.clone(),
         _ => fallback,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::module::ImConfig;
+
+    /// 合并转发标题必须来自已读取的来源频道，且每项保留稳定消息与作者标识。
+    #[test]
+    fn merged_forward_persists_authoritative_source_title_and_item_ids() {
+        let module = ImModule::new(ImConfig::default());
+        let assembly = ForwardAssembly {
+            req_id: "forward-1".to_string(),
+            source_post_ids: vec!["message-1".to_string()],
+            target_channel_ids: vec!["ch00000000000000000000000a".to_string()],
+            mode: ForwardMode::Merged,
+            next_index: 1,
+            rows: vec![json!({
+                "id":"message-1",
+                "channel_id":"ch00000000000000000000000b",
+                "user_id":"user-1",
+                "type":"TEXT",
+                "message":"正文",
+                "simple_message":"正文",
+                "create_at":10
+            })],
+            source_channel_id: Some("ch00000000000000000000000b".to_string()),
+            source_channel_title: Some("研发群".to_string()),
+            now_ms: 20,
+        };
+
+        let posts = assemble_posts(&module, &assembly).expect("merged forward closes");
+        let props = &posts[0]["props"];
+        assert_eq!(props["forwardTitle"], "研发群的聊天记录");
+        assert_eq!(props["sourceChannelName"], "研发群");
+        let items: Value = serde_json::from_str(props["mergeMessage"].as_str().unwrap()).unwrap();
+        assert_eq!(items[0]["id"], "message-1");
+        assert_eq!(items[0]["userId"], "user-1");
     }
 }

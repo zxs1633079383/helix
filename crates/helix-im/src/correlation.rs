@@ -231,6 +231,11 @@ pub enum CorrelationContext {
         assembly: Box<crate::forward::ForwardAssembly>,
     },
 
+    /// G-05 合并转发来源频道 Get 回报；标题闭合后才允许装配 createPosts。
+    ForwardSourceChannelLookup {
+        assembly: Box<crate::forward::ForwardAssembly>,
+    },
+
     /// G08 HTTP 只确认 transport 结果；成功等待 WS authority，失败撤销 request causation。
     OutboundScheduleCreate {
         channel_id: ChannelId,
@@ -364,6 +369,14 @@ pub enum CorrelationContext {
 
     /// G-05 多目标转发 HTTP 接收结果；accepted 不是 delivered，最终送达继续等逐目标 WS post。
     OutboundCreatePosts { req_id: String },
+
+    /// Topic 子频道 dialog activity 提交后读取 parent root，避免客户端反向拼接 topic relation。
+    TopicActivityRootRead {
+        projection: crate::topic_activity::TopicActivityProjection,
+    },
+
+    /// Parent root card activity 持久成功后刷新仍 attach 的父群 timeline。
+    TopicActivityPersist { parent_channel_id: ChannelId },
 
     /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。
     OutboundPostReaders { req_id: String },

@@ -830,6 +830,7 @@ fn surface_timeline_renderer_causation(causation_id: &Option<String>) -> Option<
         .map(str::to_string)
 }
 
+/// 用已物化 topic dialog authority 闭合 parent root relation，并保留 durable activity。
 fn close_topic_links(
     shaped: &mut Value,
     parent_channel_id: &str,
@@ -867,15 +868,35 @@ fn close_topic_links(
         if row_message_id != root_message_id {
             continue;
         }
-        row_object.insert(
-            "topic".to_string(),
-            serde_json::json!({
-                "parentChannelId": parent_channel_id,
-                "topicChannelId": topic_channel_id,
-                "rootMessageId": root_message_id,
-                "title": title,
-            }),
+        let root_created_at = row_object
+            .get("createAt")
+            .or_else(|| row_object.get("create_at"))
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let topic = row_object
+            .entry("topic".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        let Some(topic) = topic.as_object_mut() else {
+            continue;
+        };
+        topic.insert(
+            "parentChannelId".to_string(),
+            Value::String(parent_channel_id.to_string()),
         );
+        topic.insert(
+            "topicChannelId".to_string(),
+            Value::String(topic_channel_id),
+        );
+        topic.insert("rootMessageId".to_string(), Value::String(root_message_id));
+        topic.insert("title".to_string(), Value::String(title));
+        if !topic.get("replyCount").is_some_and(Value::is_u64) {
+            topic.insert("replyCount".to_string(), Value::from(0_u64));
+        }
+        if !topic.get("lastActivityAt").is_some_and(Value::is_i64) {
+            topic.insert("lastActivityAt".to_string(), Value::from(root_created_at));
+        }
+        topic.remove("channelId");
+        topic.remove("latestReplyId");
     }
 }
 

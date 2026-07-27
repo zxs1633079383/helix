@@ -9,7 +9,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::interaction_frame::{
-    ActionBinding, DeliveryVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
+    ActionBinding, DeliveryVm, ForwardModeVm, ForwardSourceVm, ForwardedItemContentVm,
+    ForwardedItemVm, InteractionFrameError, MessageContentVm, MessageQuickActionVm,
     MessageReactionVm, MessageVm, ReferenceAvailabilityVm, ReplaceView, ReplaceViewKind,
     ReplyPreviewVm, ReplySummaryVm, ReplyThreadPreviewVm, ReplyThreadSummaryVm, SurfaceDataVm,
     SurfaceId, SurfaceLoadState, SurfaceMutation, SurfaceScope, TimelineAnchorMode,
@@ -727,6 +728,7 @@ fn quick_actions_from_row(row: &Value) -> Vec<MessageQuickActionVm> {
     .collect()
 }
 
+/// 将 root durable topic JSON 收紧为 strict TopicLink，历史行补 authority-safe activity 默认值。
 fn topic_link_from_row(
     row: &Value,
     expected_channel_id: &str,
@@ -764,16 +766,32 @@ fn topic_link_from_row(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .unwrap_or(expected_channel_id);
-    surface_data(
-        &serde_json::json!({
-            "parentChannelId": parent_channel_id,
-            "topicChannelId": topic_channel_id,
-            "rootMessageId": root_message_id,
-            "title": title,
-        }),
-        0,
-    )
-    .map(Some)
+    let reply_count = topic
+        .get("replyCount")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let last_activity_at = topic
+        .get("lastActivityAt")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(|| {
+            row.get("createAt")
+                .or_else(|| row.get("create_at"))
+                .and_then(Value::as_i64)
+                .unwrap_or_default()
+        });
+    let latest_reply = topic.get("latestReply").cloned();
+    let mut topic_link = serde_json::json!({
+        "parentChannelId": parent_channel_id,
+        "topicChannelId": topic_channel_id,
+        "rootMessageId": root_message_id,
+        "title": title,
+        "replyCount": reply_count,
+        "lastActivityAt": last_activity_at,
+    });
+    if let Some(latest_reply) = latest_reply {
+        topic_link["latestReply"] = latest_reply;
+    }
+    surface_data(&topic_link, 0).map(Some)
 }
 
 /// 将持久行里的当前/历史引用字段统一成封闭的 V2 reply summary。
@@ -963,10 +981,7 @@ fn content_from_row(
             .get("forwardDetail")
             .is_some_and(|value| !value.is_null())
     {
-        return Ok(MessageContentVm::Forwarded {
-            summary: text,
-            items: data_array(row.get("forwardDetail").unwrap_or(&Value::Null))?,
-        });
+        return forwarded_content_from_row(row.get("forwardDetail").unwrap_or(&Value::Null), text);
     }
     if kind.contains("DOCUMENT") {
         let document = props.get("document").unwrap_or(&Value::Null);
@@ -1056,6 +1071,81 @@ fn content_from_row(
         });
     }
     Ok(MessageContentVm::Text { text })
+}
+
+/// 将 render-ready forwardDetail 收紧成最多二十条 typed 记录，卡片前四条由 renderer 只读截取。
+fn forwarded_content_from_row(
+    detail: &Value,
+    fallback_summary: String,
+) -> Result<MessageContentVm, TimelineProjectionError> {
+    let mode = match row_string(detail, &["mode"]).as_str() {
+        "merged" => ForwardModeVm::Merged,
+        _ => ForwardModeVm::Single,
+    };
+    let title =
+        optional_non_empty_string(detail, &["title"]).unwrap_or_else(|| "聊天记录".to_string());
+    let summary = optional_non_empty_string(detail, &["summary"]).unwrap_or(fallback_summary);
+    let source = match (
+        optional_non_empty_string(detail, &["sourceChannelId"]),
+        optional_non_empty_string(detail, &["sourceChannelName"]),
+    ) {
+        (Some(channel_id), Some(channel_title)) => Some(ForwardSourceVm {
+            channel_id,
+            channel_title,
+        }),
+        _ => None,
+    };
+    let items = detail
+        .get("items")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(20)
+        .filter_map(forwarded_item_from_value)
+        .collect();
+    Ok(MessageContentVm::Forwarded {
+        mode,
+        title,
+        summary,
+        source,
+        items,
+    })
+}
+
+/// 单条合并记录缺少稳定 id 或 author authority 时不进入 typed card，避免伪造身份。
+fn forwarded_item_from_value(item: &Value) -> Option<ForwardedItemVm> {
+    let id = optional_non_empty_string(item, &["id", "temporaryId", "temporary_id"])?;
+    let snapshot = item
+        .get("userSnapshot")
+        .or_else(|| item.get("user_snapshot"))
+        .unwrap_or(&Value::Null);
+    let user_id = optional_non_empty_string(item, &["userId", "user_id"])
+        .or_else(|| optional_non_empty_string(snapshot, &["userId", "user_id"]))?;
+    let created_at = integer_at(item, &["createAt", "create_at"], "forward createdAt")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let text = row_string(
+        item,
+        &["text", "message", "simpleMessage", "simple_message"],
+    );
+    let msg_type = row_string(item, &["type"]).to_ascii_uppercase();
+    let content = match msg_type.as_str() {
+        "DOCUMENT" => ForwardedItemContentVm::Document { title: text },
+        "IMAGE" | "VIDEO" | "AUDIO" | "FILE" | "MEDIA" => ForwardedItemContentVm::Media {
+            media_type: msg_type.to_ascii_lowercase(),
+            file_name: text,
+        },
+        "NOTICE" | "SYSTEM" | "SYSTEN" => ForwardedItemContentVm::SystemEvent { text },
+        _ => ForwardedItemContentVm::Text { text },
+    };
+    Some(ForwardedItemVm {
+        id,
+        author: UserRefVm { user_id },
+        created_at,
+        content,
+        availability: ReferenceAvailabilityVm::Available,
+    })
 }
 
 /// Selects the stable media resource shape used by IMAGE and single-file rows.
@@ -1239,14 +1329,6 @@ fn optional_data(value: Option<&Value>) -> Result<Option<SurfaceDataVm>, Timelin
     match value.filter(|value| !value.is_null()) {
         Some(value) => Ok(Some(surface_data(value, 0)?)),
         None => Ok(None),
-    }
-}
-
-fn data_array(value: &Value) -> Result<Vec<SurfaceDataVm>, TimelineProjectionError> {
-    match value {
-        Value::Array(items) => items.iter().map(|item| surface_data(item, 0)).collect(),
-        Value::Null => Ok(Vec::new()),
-        other => Ok(vec![surface_data(other, 0)?]),
     }
 }
 
@@ -1438,6 +1520,47 @@ mod tests {
 
         assert_eq!(snapshot_vm.author.user_id, "user-from-snapshot");
         assert_eq!(creator_vm.author.user_id, "SYS");
+    }
+
+    /// 合并转发必须输出严格 typed card，不能把整个 forwardDetail object 塞进 items。
+    #[test]
+    fn merged_forward_projects_mode_title_and_typed_items() {
+        let source = serde_json::json!({
+            "msgId": "forward-1",
+            "channelId": "channel-1",
+            "userId": "sender-1",
+            "createAt": 20,
+            "text": "",
+            "type": "MULTIPLY",
+            "sendStatus": "sent",
+            "props": {},
+            "actionCapabilities": {},
+            "forwardDetail": {
+                "mode": "merged",
+                "title": "项目群聊天记录",
+                "summary": "共2条消息",
+                "sourceChannelId": "source-channel",
+                "sourceChannelName": "项目群",
+                "items": [
+                    {"id":"item-1","userId":"user-1","text":"第一条","type":"TEXT","createAt":1},
+                    {"id":"item-2","userId":"user-2","text":"文档","type":"DOCUMENT","createAt":2}
+                ]
+            }
+        });
+
+        let message = message_from_render_ready(&source, "channel-1", 1, false, || {
+            Ok("action-ref".to_string())
+        })
+        .unwrap();
+        let encoded = serde_json::to_value(&message.content).unwrap();
+
+        assert_eq!(encoded["kind"], "forwarded");
+        assert_eq!(encoded["mode"], "merged");
+        assert_eq!(encoded["title"], "项目群聊天记录");
+        assert_eq!(encoded["source"]["channelId"], "source-channel");
+        assert_eq!(encoded["items"][0]["content"]["kind"], "text");
+        assert_eq!(encoded["items"][1]["content"]["kind"], "document");
+        assert_eq!(encoded["items"].as_array().map(Vec::len), Some(2));
     }
 
     #[test]
@@ -1672,6 +1795,7 @@ mod tests {
         );
     }
 
+    /// 闭合 topic relation 同时补足历史 activity 默认值，避免 strict client 拒绝整帧。
     #[test]
     fn topic_relation_requires_and_normalizes_a_closed_topic_link() {
         let mut source = row(1);
@@ -1696,6 +1820,8 @@ mod tests {
                 "topicChannelId":"topic-1",
                 "rootMessageId":"message-1",
                 "title":"design review",
+                "replyCount":0,
+                "lastActivityAt":1,
             })
         );
     }

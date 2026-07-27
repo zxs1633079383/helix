@@ -282,6 +282,7 @@ impl ImModule {
                                 }
                             }
                         }
+                        self.schedule_topic_activity_projection(&pending, reply.0.as_ref(), out);
                     } else {
                         tracing::warn!(
                             channel_id = pending.channel_id.as_str(),
@@ -669,6 +670,14 @@ impl ImModule {
                 }
             }
 
+            CorrelationContext::ForwardSourceChannelLookup { assembly } => {
+                if let Err(error) =
+                    crate::forward::handle_source_channel_reply(self, *assembly, outcome, out)
+                {
+                    tracing::warn!(error = ?error, "forward source channel assembly failed");
+                }
+            }
+
             // 左侧会话列表 Scan 回报首先发布完整 render-ready frame；Err 同样发布空 snapshot，
             // 使 frame 客户端能原子结束 loading，而不是用 raw channel 行补算 UI。
             CorrelationContext::DialogListQuery { causation_id } => match outcome {
@@ -1044,6 +1053,14 @@ impl ImModule {
                 // csesTrackId 的 WS post 经 dialog 持久化读回后才允许发布 terminal Frame；
                 // 因而这里也不能完成 ActionRegistry，避免 WS-first 后迟到 HTTP 重复确认。
                 crate::port_reply_emit::emit_create_posts_result(&req_id, outcome, out);
+            }
+
+            CorrelationContext::TopicActivityRootRead { projection } => {
+                self.handle_topic_activity_root_read(projection, outcome, out)?;
+            }
+
+            CorrelationContext::TopicActivityPersist { parent_channel_id } => {
+                self.handle_topic_activity_persist(parent_channel_id, outcome, out)?;
             }
 
             CorrelationContext::OutboundPostReaders { req_id } => {

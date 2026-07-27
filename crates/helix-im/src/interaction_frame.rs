@@ -910,8 +910,12 @@ pub enum MessageContentVm {
         availability: SurfaceDataVm,
     },
     Forwarded {
+        mode: ForwardModeVm,
+        title: String,
         summary: String,
-        items: Vec<SurfaceDataVm>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<ForwardSourceVm>,
+        items: Vec<ForwardedItemVm>,
     },
     SystemEvent {
         event_kind: String,
@@ -922,6 +926,63 @@ pub enum MessageContentVm {
     Recalled {
         text: String,
     },
+}
+
+/// 区分逐条与合并转发，renderer 不再从 raw message type 猜测展示模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ForwardModeVm {
+    Single,
+    Merged,
+}
+
+/// 合并转发的可选来源频道引用；只有 Helix 掌握完整来源事实时才输出。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ForwardSourceVm {
+    pub channel_id: String,
+    pub channel_title: String,
+}
+
+/// 合并转发内部条目的封闭内容联合，禁止 raw props 穿透到 Angular。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ForwardedItemContentVm {
+    Text {
+        text: String,
+    },
+    Document {
+        title: String,
+    },
+    Media {
+        media_type: String,
+        file_name: String,
+    },
+    SystemEvent {
+        text: String,
+    },
+    Recalled {
+        text: String,
+    },
+    Unavailable {
+        text: String,
+    },
+}
+
+/// 合并转发卡片的一条有界摘要，身份、时间、内容与可用性均由 Helix 决定。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ForwardedItemVm {
+    pub id: String,
+    pub author: UserRefVm,
+    pub created_at: i64,
+    pub content: ForwardedItemContentVm,
+    pub availability: ReferenceAvailabilityVm,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1782,6 +1843,7 @@ fn validate_participant_receipts(
     Ok(())
 }
 
+/// 校验单条 timeline VM 的严格字段、边界与 action 引用，不允许部分行进入 Frame。
 fn validate_message(
     surface: SurfaceId,
     message: &MessageVm,
@@ -1863,9 +1925,31 @@ fn validate_message(
             }
             validate_data_for_surface(surface, availability)
         }
-        MessageContentVm::Forwarded { items, .. } => {
+        MessageContentVm::Forwarded {
+            title,
+            source,
+            items,
+            ..
+        } => {
+            require_nonempty(surface, "forward title", title)?;
+            if items.len() > 20 {
+                return invalid_view(surface, "forward items must be capped at twenty records");
+            }
+            if let Some(source) = source {
+                require_nonempty(surface, "forward source channelId", &source.channel_id)?;
+                require_nonempty(
+                    surface,
+                    "forward source channelTitle",
+                    &source.channel_title,
+                )?;
+            }
             for item in items {
-                validate_data_for_surface(surface, item)?;
+                require_nonempty(surface, "forward item id", &item.id)?;
+                validate_user(surface, &item.author)?;
+                validate_wire_i64(surface, "forward item createdAt", item.created_at)?;
+                if let ReferenceAvailabilityVm::Unavailable { reason } = &item.availability {
+                    require_nonempty(surface, "forward item unavailable reason", reason)?;
+                }
             }
             Ok(())
         }

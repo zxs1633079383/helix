@@ -2,6 +2,7 @@
 
 use serde_json::{json, Value};
 
+/// 将 durable MULTIPLY props 转成 bounded render-ready detail，非法记录整体 fail closed。
 pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
     if !msg_type.eq_ignore_ascii_case("MULTIPLY") {
         return Value::Null;
@@ -17,9 +18,10 @@ pub(crate) fn detail(msg_type: &str, props: &Value) -> Value {
     json!({
         "mode": "merged",
         "state": "ready",
-        "title": "聊天记录",
+        "title": string_at(props, &["forwardTitle", "forward_title"]).unwrap_or_else(|| "聊天记录".to_string()),
         "summary": format!("共{item_count}条消息"),
         "itemCount": item_count,
+        "sourceChannelId": string_at(props, &["sourceChannelId", "source_channel_id"]),
         "sourceChannelName": string_at(props, &["sourceChannelName", "source_channel_name"]),
         "items": items,
         "failureReason": Value::Null,
@@ -44,6 +46,7 @@ fn normalize_items(items: Vec<Value>) -> Option<Vec<Value>> {
     items.into_iter().map(normalize_item).collect()
 }
 
+/// 单条来源记录统一 snake/camel 别名，并保留 strict item 所需的 id 与 userId。
 fn normalize_item(item: Value) -> Option<Value> {
     let Value::Object(object) = item else {
         return None;
@@ -58,6 +61,9 @@ fn normalize_item(item: Value) -> Option<Value> {
         .or_else(|| string_at(&snapshot, &["displayName", "userName", "user_name", "name"]));
     let text = string_at(&item, &["text", "message", "content"]).unwrap_or_default();
     let id = string_at(&item, &["id", "temporaryId", "temporary_id"]).unwrap_or_default();
+    let user_id = string_at(&item, &["userId", "user_id"])
+        .or_else(|| string_at(&snapshot, &["userId", "user_id"]))
+        .unwrap_or_default();
     let msg_type = string_at(&item, &["type"]).unwrap_or_else(|| "TEXT".to_string());
     let create_at = item
         .get("createAt")
@@ -66,6 +72,7 @@ fn normalize_item(item: Value) -> Option<Value> {
         .unwrap_or_default();
     Some(json!({
         "id": id,
+        "userId": user_id,
         "author": author.unwrap_or_default(),
         "text": text,
         "type": msg_type,

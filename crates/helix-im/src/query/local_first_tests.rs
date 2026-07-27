@@ -44,6 +44,36 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// 历史 root 只有 topic relation 时也必须闭合 strict activity 字段，并清理内部幂等键。
+#[test]
+fn historical_topic_root_closes_with_authority_safe_activity_defaults() {
+    let parent_channel_id = channel_id();
+    let topic_channel_id = crate::state::test_channel_id(88);
+    let mut dialogs = crate::dialog_frame::DialogListFrameState::default();
+    let scope = crate::dialog_frame::DialogListScope::new("viewer", "company");
+    let topic_dialog = crate::dialog_frame::row_from_dialog_projection(&serde_json::json!({
+        "id": topic_channel_id.as_str(),
+        "displayName": "历史话题",
+        "rootPostId": "root-1"
+    }))
+    .expect("topic dialog projection closes");
+    dialogs.snapshot(scope, vec![topic_dialog]);
+    let mut shaped = serde_json::json!([{
+        "msgId": "root-1",
+        "createAt": 123,
+        "topic": {
+            "channelId": topic_channel_id.as_str(),
+            "latestReplyId": "internal-only"
+        }
+    }]);
+
+    close_topic_links(&mut shaped, parent_channel_id.as_str(), &dialogs);
+
+    assert_eq!(shaped[0]["topic"]["replyCount"], 0);
+    assert_eq!(shaped[0]["topic"]["lastActivityAt"], 123);
+    assert!(shaped[0]["topic"].get("latestReplyId").is_none());
+}
+
 fn http_envelope(body: serde_json::Value) -> helix_core::tick::ReplyBytes {
     let raw = serde_json::to_vec(&body).expect("test receipt body serializes");
     let envelope = serde_json::json!({ "body": base64_encode(&raw) });

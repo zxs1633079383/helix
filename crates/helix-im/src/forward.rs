@@ -154,6 +154,7 @@ pub(crate) enum ForwardMode {
     Merged,
 }
 
+/// G-05 分段本地读期间持有的 bounded assembly，不包含客户端可伪造的来源详情。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForwardAssembly {
     pub(crate) req_id: String,
@@ -162,6 +163,8 @@ pub struct ForwardAssembly {
     pub(crate) mode: ForwardMode,
     pub(crate) next_index: usize,
     pub(crate) rows: Vec<Value>,
+    pub(crate) source_channel_id: Option<String>,
+    pub(crate) source_channel_title: Option<String>,
     pub(crate) now_ms: u64,
 }
 
@@ -215,6 +218,8 @@ pub(crate) fn start(
         mode,
         next_index: 0,
         rows: Vec::new(),
+        source_channel_id: None,
+        source_channel_title: None,
         now_ms,
     };
     module
@@ -225,6 +230,7 @@ pub(crate) fn start(
     Ok(())
 }
 
+/// 消费单条来源消息 Get，全部闭合后按模式进入频道查询或 createPosts。
 pub(crate) fn handle_lookup_reply(
     module: &mut ImModule,
     mut assembly: ForwardAssembly,
@@ -259,6 +265,47 @@ pub(crate) fn handle_lookup_reply(
         return Ok(());
     }
 
+    if assembly.mode == ForwardMode::Merged {
+        schedule_source_channel_lookup(module, assembly, out)?;
+        return Ok(());
+    }
+    dispatch_create_posts(module, assembly, out)
+}
+
+/// 合并转发在 createPosts 前读取来源频道权威标题，避免 renderer 猜测业务文案。
+pub(crate) fn handle_source_channel_reply(
+    module: &mut ImModule,
+    mut assembly: ForwardAssembly,
+    outcome: &PortOutcome,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    let row = match outcome {
+        PortOutcome::Ok(reply) => first_row(reply.0.as_ref()),
+        PortOutcome::Err(_) => None,
+    };
+    let title = row
+        .as_ref()
+        .and_then(|row| {
+            ["display_name", "displayName", "name"]
+                .iter()
+                .find_map(|key| row.get(*key).and_then(Value::as_str))
+        })
+        .filter(|title| !title.is_empty())
+        .map(str::to_string);
+    let Some(title) = title else {
+        cancel_forward_with_error(module, &assembly, "source channel title not found", out);
+        return Ok(());
+    };
+    assembly.source_channel_title = Some(title);
+    dispatch_create_posts(module, assembly, out)
+}
+
+/// 已封闭来源事实的 assembly 才进入 createPosts HTTP；HTTP 仍不代表 WS authority 完成。
+fn dispatch_create_posts(
+    module: &mut ImModule,
+    assembly: ForwardAssembly,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
     let posts = crate::forward_shape::assemble_posts(module, &assembly)?;
     let args = json!({
         "req_id": assembly.req_id,
@@ -288,6 +335,7 @@ pub(crate) fn handle_lookup_reply(
     Ok(())
 }
 
+/// 逐条读取来源消息，保证 forwarding payload 只由本地 durable row 组装。
 fn schedule_next_lookup(module: &mut ImModule, assembly: ForwardAssembly, out: &mut EffectSink) {
     let source_id = assembly.source_post_ids[assembly.next_index].clone();
     let corr = module.alloc_corr_internal();
@@ -307,6 +355,74 @@ fn schedule_next_lookup(module: &mut ImModule, assembly: ForwardAssembly, out: &
     });
 }
 
+/// 合并转发只接受同一来源频道，并在本地 channel 表补齐权威标题。
+fn schedule_source_channel_lookup(
+    module: &mut ImModule,
+    mut assembly: ForwardAssembly,
+    out: &mut EffectSink,
+) -> Result<(), ImError> {
+    let source_channels = assembly
+        .rows
+        .iter()
+        .filter_map(|row| {
+            row.get("channel_id")
+                .or_else(|| row.get("channelId"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        })
+        .collect::<BTreeSet<_>>();
+    if source_channels.len() != 1 {
+        cancel_forward_with_error(
+            module,
+            &assembly,
+            "merged forward requires one source channel",
+            out,
+        );
+        return Ok(());
+    }
+    let source_channel_id = source_channels
+        .into_iter()
+        .next()
+        .expect("one source channel checked above")
+        .to_string();
+    assembly.source_channel_id = Some(source_channel_id.clone());
+    let corr = module.alloc_corr_internal();
+    module.state.corr_map.insert(
+        corr,
+        CorrelationContext::ForwardSourceChannelLookup {
+            assembly: Box::new(assembly),
+        },
+    );
+    out.push(Effect::Persist {
+        corr,
+        ops: vec![StorageOp::Get(GetSpec {
+            table: "channel",
+            key_col: "id",
+            key_val: SqlValue::Text(source_channel_id),
+        })],
+    });
+    Ok(())
+}
+
+/// 统一撤销未闭合的 forwarding ledger，并按目标发布可观察失败。
+fn cancel_forward_with_error(
+    module: &mut ImModule,
+    assembly: &ForwardAssembly,
+    error: &str,
+    out: &mut EffectSink,
+) {
+    module
+        .state
+        .pending_forward_deliveries
+        .cancel(&assembly.req_id);
+    out.push(crate::query::render_ready::batch_result::emit_target_error(
+        &assembly.req_id,
+        &assembly.target_channel_ids,
+        error,
+    ));
+}
+
+/// 从 driver Get 回报提取首个对象行，空行与非法 JSON 都视作 authority 缺失。
 fn first_row(reply: &[u8]) -> Option<Value> {
     serde_json::from_slice::<Value>(reply)
         .ok()?

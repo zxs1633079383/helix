@@ -1,0 +1,128 @@
+{
+  "gateId": "G-S1",
+  "sourcePins": {
+    "helix": "33b6cf2d5621f6fc417a1229111b58bd6854d713",
+    "csesClientBase": "d0d06d87f406646d865cbce07434d5080558a2ae",
+    "mobileBase": "a3580948fa1f115d3e19ac38d27ac624d601d481",
+    "goBase": "f2e919c6ea95a898d25827a2a82ea991a3ad0bf3",
+    "fixtureProducer": "79cc5cb14ee669591a204f7a9e7e2b2f72b14975",
+    "strictMatrixSha256": "caadafd2947ccadf647a134ab7c85f60b1d0feb6966f79a8717b32eef094c9c8"
+  },
+  "lanes": {
+    "helix": {
+      "verdict": "Green",
+      "tests": {
+        "gs1FullFlow": "6/6",
+        "gs1FixtureContract": "1/1",
+        "persistBarrier": "9/9"
+      }
+    },
+    "fixture": {
+      "verdict": "Green",
+      "inventory": [
+        "dialog-empty",
+        "dialog-loaded",
+        "dialog-recovery"
+      ],
+      "parity": "Helix/PC/Mobile schema, raw and semantic hashes equal"
+    },
+    "pcMock": {
+      "verdict": "Green",
+      "nativeCases": "3/3",
+      "claim": "mock"
+    },
+    "pcReal": {
+      "verdict": "Green",
+      "singleRun": "gs1-cold-single-20260727030223",
+      "dualRun": "gs1-cold-dual-20260727032800",
+      "channelId": "tjhu7z453prz8jfytjrw1szayo",
+      "personas": [
+        {
+          "persona": "actor-444",
+          "databasePath": "/tmp/cses-message-wdio/gs1-cold-dual-20260727032800/actor/helix/tenant.db?mode=rwc",
+          "deleted": ["main", "wal", "shm"],
+          "residualCount": 0,
+          "remoteDeletionPerformed": false,
+          "remoteSha256": "ac84fafc50b44658e6141ce7d54cb1c19160f5ce91dbc188add977bd2af39622",
+          "localSha256": "ac84fafc50b44658e6141ce7d54cb1c19160f5ce91dbc188add977bd2af39622",
+          "missing": 0,
+          "extra": 0,
+          "mismatch": 0,
+          "projection": "FrameApplied and dialog DOM converged"
+        },
+        {
+          "persona": "observer-678",
+          "databasePath": "/tmp/cses-message-wdio/gs1-cold-dual-20260727032800/observer/helix/tenant.db?mode=rwc",
+          "deleted": ["main", "wal", "shm"],
+          "residualCount": 0,
+          "remoteDeletionPerformed": false,
+          "remoteSha256": "ac84fafc50b44658e6141ce7d54cb1c19160f5ce91dbc188add977bd2af39622",
+          "localSha256": "ac84fafc50b44658e6141ce7d54cb1c19160f5ce91dbc188add977bd2af39622",
+          "missing": 0,
+          "extra": 0,
+          "mismatch": 0,
+          "projection": "FrameApplied and dialog DOM converged"
+        }
+      ]
+    },
+    "mobileContract": {
+      "verdict": "Green",
+      "runId": "mrc-mobile-uc-20260727104758-27652",
+      "tests": "8/8",
+      "channelId": "6ebp7ypfrigozjrqsq479aqoxw",
+      "personas": [
+        {
+          "persona": "userA",
+          "databasePath": "build/uc-runtime/mrc-mobile-uc-20260727104758-27652-GS01-userA-helix.sqlite",
+          "deleted": ["main", "wal", "shm"],
+          "residualCount": 0,
+          "remoteDeletionPerformed": false,
+          "remoteSha256": "4c4eaef40c36043de841ab9722b7d89ee7ee9eba44baeae336530bee191ad87d",
+          "localSha256": "4c4eaef40c36043de841ab9722b7d89ee7ee9eba44baeae336530bee191ad87d",
+          "missing": 0,
+          "extra": 0,
+          "mismatch": 0,
+          "projection": "typed dialog and timeline Frame applied"
+        },
+        {
+          "persona": "userB",
+          "databasePath": "build/uc-runtime/mrc-mobile-uc-20260727104758-27652-GS01-userB-helix.sqlite",
+          "deleted": ["main", "wal", "shm"],
+          "residualCount": 0,
+          "remoteDeletionPerformed": false,
+          "remoteSha256": "4c4eaef40c36043de841ab9722b7d89ee7ee9eba44baeae336530bee191ad87d",
+          "localSha256": "4c4eaef40c36043de841ab9722b7d89ee7ee9eba44baeae336530bee191ad87d",
+          "missing": 0,
+          "extra": 0,
+          "mismatch": 0,
+          "projection": "typed dialog and timeline Frame applied"
+        }
+      ]
+    },
+    "productionBoundary": {
+      "verdict": "Green",
+      "pc": "Fixture, reset orchestration and parity code are production-unreachable",
+      "mobile": "Reset and parity code are GTest/real-chain only",
+      "go": "gs1-parity is a read-only evidence command"
+    }
+  },
+  "review": {
+    "behavior": {
+      "verdict": "Green",
+      "basis": "permission, terminal, failure, race, recovery and four-persona outcomes verified"
+    },
+    "codeBoundary": {
+      "verdict": "Green",
+      "basis": "business reducer remains in Helix; platform harnesses only orchestrate and assert"
+    },
+    "frameV2": {
+      "verdict": "Green",
+      "basis": "schema, scope, epoch, revision, mutations, actions, directives and correlation verified"
+    },
+    "evidence": {
+      "verdict": "Green",
+      "basis": "physical reset, same-path recovery, zero residual and remote/local parity are explicit"
+    }
+  },
+  "finalVerdict": "Green"
+}

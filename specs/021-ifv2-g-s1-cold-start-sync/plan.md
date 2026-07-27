@@ -6,7 +6,7 @@
 
 ## Summary
 
-以 Helix 生产 handler `crates/helix-im/src/sync/increment.rs` 为业务真源，补齐 `G-S1` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
+以 Helix 生产 handler `crates/helix-im/src/sync/increment.rs` 为业务真源，补齐 `G-S1` 的完整 sans-IO 场景、字段级 InteractionFrame V2、canonical Fixture/Golden/provenance；PC 只读同步 Fixture 后分别完成 WDIO Mock、真实 Tauri/Helix 链、DOM 与 report；Mobile byte-exact 同步同一 Fixture，通过生产 SDK/Bridge/SurfaceRuntime/QuickJS binding 的 GTest 验证 typed view。真实链额外采用同一路径两阶段编排：生产流程 seed，完全停进程后仅删除 PC 444/678 与 Mobile userA/userB 的 Helix SQLite main/WAL/SHM/journal，再 restart/cold sync，并对 isolated Gate dataset 执行逐 persona 远端/本地规范化全量对账。三仓完成后执行行为、代码边界与 Frame V2 Review，只有 review-green 才解锁 `下一 Gate`。
 
 ## Technical Context
 
@@ -22,7 +22,7 @@
 
 **Project Type**: 三仓纵向 UC 交付，Helix domain/application，PC/Mobile platform adapter
 
-**Performance Goals**: core 每 Tick 有界；Frame apply 为 O(k mutations)；fixture parity 为 O(n files)；等待使用 correlation latch，不固定 sleep
+**Performance Goals**: core 每 Tick 有界；Frame apply 为 O(k mutations)；fixture parity 为 O(n files)；冷启动对账以主键 Map/Set 为 O(r) 时间与 O(r) 空间；等待使用 correlation latch，不固定 sleep
 
 **Constraints**: Helix 是唯一业务 reducer；Fixture/Mock/GTest 不补业务字段；测试入口默认 production build 不可达；外部输入零 unwrap/expect；FFI batch 不逐条 callback
 
@@ -61,6 +61,7 @@
 - **A-005**: 真实 MessageV4 UI -> Tauri invoke -> Helix/SQLite/HTTP/WS -> FrameApplied -> Actor/Observer DOM。
 - **A-006**: Helix Fixture -> Mobile mirror -> production SDK/FFI DomainEvent batch -> SurfaceRuntime atomic apply -> QuickJS `im.surface.view`。
 - **A-007**: 三仓证据 -> behavior/code/Frame V2 review -> review-green 或 fail-closed blocker。
+- **A-008**: PC/Mobile production seed -> 完全 dispose/stop -> 精确 SQLite artifact reset -> 同 persona/同 DB 路径 restart -> cold sync -> 远端/本地规范化主键 Map 对账 -> FrameApplied 与 DOM/typed view 收敛。
 
 ### State Contract
 
@@ -79,6 +80,7 @@
 - **V-005**: `./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter='GS1FrameContractTest.*'` 证明 Mobile production consumer 与 QuickJS typed view。
 - **V-006**: production-boundary/source scans 证明 Fixture、Mock、测试 ABI、raw reducer 在默认构建不可达。
 - **V-007**: cross-repo review 对齐 command、terminal、Frame、hash、DOM、typed view 与报告，输出 review-green 或 blocker。
+- **V-008**: PC reset 单测与 GS1 single/dual two-phase lane、Mobile GS01 双 persona real-chain 必须证明 main/WAL/SHM/journal 零残留、同 DB 路径重建、远端未删除以及四 persona `missing=0、extra=0、mismatch=0`。
 
 ## Project Structure
 
@@ -114,8 +116,12 @@ crates/helix-im/tests/fixtures/gs1-wdio/
 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs1-single-real.e2e.ts
 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/specs/gs1-dual-real.e2e.ts
 /System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/reporters/gs1-summary.ts
+/System/Volumes/Data/workspace/angular/cses-client/scripts/message-v4/reset-offline-storage.mjs
+/System/Volumes/Data/workspace/angular/cses-client/scripts/message-wdio/run-lane.mjs
+/System/Volumes/Data/workspace/angular/cses-client/tests/e2e/wdio/harness/storage-evidence.ts
 
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/GsSyncPrerequisiteTest.cpp
+/System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/uc/support/UcJsContractFixture.hpp
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/gtest/surface_runtime/GS1FrameContractTest.cpp
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/tests/fixtures/gs1/
 /System/Volumes/Data/workspace/c/mobile-qucik-c++/cpp/MobileImSdk.cpp
@@ -132,7 +138,8 @@ crates/helix-im/tests/fixtures/gs1-wdio/
 2. Helix RED 场景、生产 handler/persist/projector、Fixture/Golden。
 3. PC mirror、Mock、single/dual real、DOM/report 与 production-boundary。
 4. Mobile mirror、GTest、SDK/Bridge/SurfaceRuntime/QuickJS typed view 与 hard-cut。
-5. 行为、代码、Frame V2、evidence Review 与 R4。
+5. PC/Mobile production seed、精确物理删库、同路径 cold sync、四 persona 远端/本地全量对账。
+6. 行为、代码、Frame V2、evidence Review 与 R4。
 
 ## Complexity Tracking
 

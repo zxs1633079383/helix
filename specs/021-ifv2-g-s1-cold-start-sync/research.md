@@ -1,6 +1,13 @@
 # Research: G-S1 hello 全量增量
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix worktree
+`3ddce5e9b69eb52355d631bae41ea02e09074ea8`；cses-client worktree
+`d0d06d87f406646d865cbce07434d5080558a2ae`；Mobile worktree
+`a3580948fa1f115d3e19ac38d27ac624d601d481`；Go worktree
+`f2e919c6ea95a898d25827a2a82ea991a3ad0bf3`。PC 与 Mobile 均正式 pin
+`98c522a3621cc599c134cb78b9e4656668eb67bb`；该 pin 是 Helix 当前 HEAD
+的祖先，且二者在 `helix-core`、`helix-im`、`helix-driver-host`、
+`helix-driver-native` 上无代码差异。
 
 ## Decision 1 - 唯一业务真源
 
@@ -49,3 +56,15 @@
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。
+
+## Implementation Revalidation
+
+- `sync/increment.rs` 负责 hello 后单次 increment HTTP；逐条 WS
+  `increment_channel` 只缓冲，`increment_channel_end.rs` 将
+  `channel -> channel_member -> channel_event_cursor` 组成带 corr 的持久事务。
+- `gs_persist_barrier_test.rs` 已证明 HTTP success、逐条 increment 与 global end
+  都不能越过 PersistOk；现有缺口是将最终 durable dialog projection 导出为 GS1
+  canonical Frame 与三端同源验收，不是再造同步状态机。
+- Mobile `GsSyncPrerequisiteTest.cpp` 已有 fresh group 和 `im.sync.dialogList()`
+  生产入口；本 Gate 只补 complete DomainEvent batch 与 typed
+  `message.left-dialog-list` 合同。

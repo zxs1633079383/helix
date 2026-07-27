@@ -447,6 +447,28 @@ async fn durable_failed_message_rehydrates_retry_after_module_restart() {
         )
         .expect("durable retry reply");
 
+    let (send_persist_corr, send_persist_ops) = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops } => Some((*corr, ops.clone())),
+            _ => None,
+        })
+        .expect("rehydrated retry must re-enter the optimistic persist barrier");
+    let send_persist_outcome = execute_storage_ops(&storage, &send_persist_ops).await;
+    assert!(matches!(send_persist_outcome, PortOutcome::Ok(_)));
+    sink.clear();
+    module
+        .handle(
+            &Tick::PortReply {
+                corr: send_persist_corr,
+                outcome: send_persist_outcome,
+            },
+            5_020,
+            &mut sink,
+        )
+        .expect("rehydrated optimistic persist reply");
+
     let http_body = sink.as_slice().iter().find_map(|effect| match effect {
         Effect::Http { req, .. } => req
             .body

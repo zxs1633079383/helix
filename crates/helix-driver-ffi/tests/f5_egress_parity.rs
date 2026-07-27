@@ -59,7 +59,8 @@ use helix_driver_host::BatchSink;
 use helix_driver_native::event_sink::NativeEventSink;
 use helix_driver_web::{WebExecutor, WebOwnedEffect};
 use helix_im::interaction_frame::{
-    InteractionFrame, INTERACTION_FRAME_EVENT, INTERACTION_FRAME_SCHEMA_VERSION,
+    InteractionFrameV2, InteractionRuntimeVm, RuntimeConnectionState, RuntimeRecoveryState,
+    RuntimeSyncState, SurfaceMutationV2, INTERACTION_FRAME_EVENT, INTERACTION_FRAME_SCHEMA_VERSION,
 };
 use helix_im::module::ImConfig;
 use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
@@ -309,6 +310,7 @@ fn f5_egress_parity_native_ffi_byte_identical() {
 }
 
 #[test]
+/// 证明文件上传进度经过 FFI 批次时保持 V2 runtime 与 surface epoch 包装。
 fn ffi_callback_delivers_file_progress_frame_without_image_percent() {
     let rows = serde_json::json!([
         {
@@ -332,10 +334,20 @@ fn ffi_callback_delivers_file_progress_frame_without_image_percent() {
             rows.as_array().expect("rows fixture"),
         )
         .expect("committed media rows must project");
-    let frame = InteractionFrame {
+    let frame = InteractionFrameV2 {
         schema_version: INTERACTION_FRAME_SCHEMA_VERSION,
         transaction_id: "ffi-media-progress-1".to_string(),
-        mutations: vec![mutation],
+        causation_id: mutation.causation_id.clone(),
+        runtime: InteractionRuntimeVm {
+            connection: RuntimeConnectionState::Online,
+            initial_sync: RuntimeSyncState::Ready,
+            recovery: RuntimeRecoveryState::Idle,
+        },
+        mutations: vec![SurfaceMutationV2 {
+            mutation,
+            surface_epoch: 1,
+        }],
+        directives: Vec::new(),
     };
     frame.validate().expect("projected frame must be valid");
     let event = DomainEventBytes(Bytes::from(

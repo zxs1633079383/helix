@@ -197,6 +197,16 @@ fn rich_v2_fixture_preserves_reply_reaction_and_quick_action_contracts() {
         serde_json::json!([{ "emoji": "😊", "count": 2 }])
     );
     assert_eq!(items[0]["topicLink"]["topicChannelId"], "topic-1");
+    assert_eq!(items[0]["topicLink"]["replyCount"], 4);
+    assert_eq!(items[0]["topicLink"]["lastActivityAt"], 1700000001_i64);
+    assert_eq!(
+        items[0]["topicLink"]["latestReply"],
+        serde_json::json!({
+            "author": {"userId": "user-2"},
+            "preview": {"kind": "text", "text": "reply"},
+            "createdAt": 1700000001_i64,
+        })
+    );
 }
 
 #[test]

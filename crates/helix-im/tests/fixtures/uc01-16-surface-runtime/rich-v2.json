@@ -49,7 +49,14 @@
                 "parentChannelId": "channel-1",
                 "topicChannelId": "topic-1",
                 "rootMessageId": "message-reply",
-                "title": "Roadmap"
+                "title": "Roadmap",
+                "replyCount": 4,
+                "lastActivityAt": 1700000001,
+                "latestReply": {
+                  "author": { "userId": "user-2" },
+                  "preview": { "kind": "text", "text": "reply" },
+                  "createdAt": 1700000001
+                }
               }
             }
           ],

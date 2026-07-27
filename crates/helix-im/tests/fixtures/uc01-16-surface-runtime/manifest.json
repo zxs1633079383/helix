@@ -3,7 +3,8 @@
   "interactionFrameSchemaVersion": 2,
   "sourceRevisions": {
     "interactionFrameFoundation": "756d853",
-    "dialogUnreadTimelineLiveProducer": "ea415a800b329947ce0757b8595df19b715f7d55"
+    "dialogUnreadTimelineLiveProducer": "ea415a800b329947ce0757b8595df19b715f7d55",
+    "topicActivityProjection": "e6c48f367cc83d5b4372d70beb66cd897e064a75"
   },
   "fixtures": {
     "canonicalSnapshot": "snapshots.json",
@@ -27,7 +28,7 @@
     "message.topic-list": "v2-live: opaque resync -> channel storage fact -> snapshot/patch Frame; unaudited actions are disabled"
   },
   "v2Migration": {
-    "sourcePin": "ea415a800b329947ce0757b8595df19b715f7d55",
+    "sourcePin": "e6c48f367cc83d5b4372d70beb66cd897e064a75",
     "targetSchemaVersion": 2,
     "requiredFixtures": {
       "gs01ReconnectCanonical": "gs01-reconnect-canonical-v2.json",

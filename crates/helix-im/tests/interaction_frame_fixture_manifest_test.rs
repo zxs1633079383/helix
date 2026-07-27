@@ -31,6 +31,7 @@ struct V2Migration {
     consumer_rule: String,
 }
 
+/// Manifest 同时保留 foundation 历史并钉住最新 topic activity producer 语义。
 #[test]
 fn manifest_pins_the_contract_foundation_and_live_producer_revision() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
@@ -52,6 +53,13 @@ fn manifest_pins_the_contract_foundation_and_live_producer_revision() {
             .get("dialogUnreadTimelineLiveProducer")
             .map(String::as_str),
         Some("ea415a800b329947ce0757b8595df19b715f7d55")
+    );
+    assert_eq!(
+        manifest
+            .source_revisions
+            .get("topicActivityProjection")
+            .map(String::as_str),
+        Some("e6c48f367cc83d5b4372d70beb66cd897e064a75")
     );
     assert_eq!(
         manifest.fixtures.values().cloned().collect::<BTreeSet<_>>(),
@@ -90,12 +98,13 @@ fn manifest_lists_all_eight_surfaces_with_their_actual_v2_producer_status() {
     }
 }
 
+/// V2 consumer pin 必须指向已提交的最新 producer 语义，而非本次不可预知的 fixture commit。
 #[test]
 fn v2_migration_reserves_all_gs01_gs04_fixtures_without_claiming_v1_is_v2() {
     let manifest: FixtureManifest = serde_json::from_str(MANIFEST).expect("fixture manifest JSON");
     assert_eq!(
         manifest.v2_migration.source_pin,
-        "ea415a800b329947ce0757b8595df19b715f7d55"
+        "e6c48f367cc83d5b4372d70beb66cd897e064a75"
     );
     assert_eq!(manifest.v2_migration.target_schema_version, 2);
     assert_eq!(manifest.v2_migration.required_fixtures.len(), 7);

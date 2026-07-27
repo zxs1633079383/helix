@@ -1,7 +1,7 @@
 # helix-driver-ffi — 设计图索引
 
 > Flutter FFI 端 driver（C-ABI / uniffi）的结构与数据流沉淀。
-> 图以 mermaid `.mmd` 落盘，真源 = `crates/helix-driver-ffi/src/{api.rs,pump.rs,event_sink.rs,http.rs,lib.rs}`。
+> 图以 mermaid `.mmd` 落盘，真源 = `crates/helix-driver-ffi/src/{api.rs,api/handle.rs,pump.rs,event_sink.rs,http.rs,lib.rs}`。
 > F4 已落地：FFI pump 线程直接装配 shared host `run_engine_loop`、`HostStorage`、`SharedHttpClient`
 > 与 `SharedWsClient`，C++ 侧只通过 C ABI 发命令和接收批量事件。crate 行为真源 = [`../../AGENTS.md`](../../AGENTS.md)。
 > ⚠️ 下方 `.mmd` 图为 F4 落地前快照，「左现状断头 / engine 不被驱动」部分已过时，待重绘（图例见文末）。
@@ -17,7 +17,10 @@
 
 ## ✅ 已落地（src 已实装，含 F4）
 
-- **C-ABI 导出**：`helix_create_with_network` / `helix_destroy` / `helix_set_header` / `helix_remove_header` / `helix_command` / `helix_query`（仅元信息）/ `helix_query_free`。
+- **C-ABI 导出**：推荐 `helix_create_with_endpoints(go, java, ws, vtable)` 显式注入双 HTTP
+  origin；兼容 `helix_create_with_network(go, ws, vtable)` 保留原 ABI、Java 为空且不推测。
+  其余为 `helix_destroy` / `helix_set_header` / `helix_remove_header` /
+  `helix_invoke_action` / `helix_command` / `helix_query`（仅元信息）/ `helix_query_free`。
   > 注：旧 `helix_on_ws_frame` / `helix_on_http_response` **已删**——入站帧由 `SharedWsClient::with_inbound_tick` 在 Rust 内部直发 `Tick::Inbound`，不再经 C++（见 `pump.rs`）。
 - **engine 泵（F4 ✅）**：`pump.rs` 起专用 `std::thread` + current_thread tokio runtime，`block_on` host `run_engine_loop`（复用 `helix-driver-host` 泛型泵核）；装配 storage/http/ws/eventsink/clock + `register(ImModule)`（FFI 身兼 composition root）。
 - **共享 host ports**：pump 直接装配 `HostStorage`（StorageOp 单一真源，含 BatchDelete）、`SharedWsClient`、`FfiHttpRequester(SharedHttpClient)`、`FfiEventSink`。

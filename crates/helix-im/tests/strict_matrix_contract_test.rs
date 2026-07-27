@@ -104,8 +104,7 @@ fn g12_freezes_reply_projection_ordering_and_paging_contract() {
         .projections
         .iter()
         .find(|projection| {
-            projection.event == "im:interaction:frame"
-                && projection.schema == "InteractionFrame/v2"
+            projection.event == "im:interaction:frame" && projection.schema == "InteractionFrame/v2"
         })
         .expect("G-12 must declare its InteractionFrame/v2 projection");
     assert_eq!(
@@ -337,15 +336,17 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 
     for token in [
         "props.file.mediaInput",
-        "props.rich[].mediaInput",
+        "props.files[].mediaInput",
         "localPath",
         "fileName",
         "contentType",
         "size",
         "sha256",
-        "/media/upload/prepare",
+        "/oss/getPresignedUrl",
         "PUT",
-        "/media/upload/complete",
+        "/oss/completeMediaUpload",
+        "api_base_url",
+        "default_api_base_url",
         "pending_media",
         "posts/create",
     ] {
@@ -360,7 +361,8 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
         "size",
         "contentType",
         "sha256",
-        "/media/get",
+        "/oss/media/object/{fileId}",
+        "302",
         "GET",
         "Content-Type",
     ] {
@@ -371,10 +373,13 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
     }
 
     for assertion in [
-        "Mobile 不得提供 Go-owned 字段",
-        "complete 前不得调用 posts/create",
+        "Mobile 不得提供 Java-owned 字段",
+        "Java verify 前不得调用 Go posts/create",
+        "uploadToken 缺失或篡改必须 fail-closed",
+        "未完成对象不得通过稳定 URL 读取或覆盖已完成对象",
         "mismatch/corrupt/restart record 必须 fail-closed",
-        "真实链必须以 /media/get 与 GET object 对拍 size/contentType/SHA",
+        "真实链必须以 /oss/media/object/{fileId} 与 GET object 对拍 size/contentType/SHA",
+        "Go 与 Java base 不得互相推导或串用",
     ] {
         assert!(
             g03.negative_assertions.iter().any(|rule| rule == assertion),
@@ -420,10 +425,7 @@ fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     }
 
     let topic = gate(&matrix, "G-15");
-    assert!(topic
-        .http
-        .request
-        .contains("{rootId,userIds,displayName?}"));
+    assert!(topic.http.request.contains("{rootId,userIds,displayName?}"));
     for invariant in [
         "display_name",
         "用户确认的话题名",

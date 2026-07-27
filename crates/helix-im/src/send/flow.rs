@@ -15,7 +15,7 @@ impl ImModule {
     ///
     /// 普通文本会先等待 P1 的已 attach timeline 读回产生真实 Frame，随后才吐
     /// `Http{H1, POST /posts/create}` + `ScheduleTimer{T1, 15s}`；rich/file 若存在
-    /// 上传门控，首步只发 `media/upload/prepare`；PUT 成功后停在 WaitingComplete，完整
+    /// 上传门控，首步只向 Java 发 `/oss/getPresignedUrl`；PUT 成功后停在 WaitingComplete，完整
     /// complete/posts.create 链由 G-03 B2 接续。
     pub(crate) fn handle_send_message(
         &mut self,
@@ -65,6 +65,13 @@ impl ImModule {
             body["message"].as_str().unwrap_or(""),
             body.get("props").cloned().unwrap_or_else(|| json!({})),
         )?;
+        if !upload_plan.media.is_empty() {
+            // 在写入 optimistic Sending 之前 fail-fast；否则缺少前端 Java endpoint 会让
+            // prepare 构造错误被异步 engine 记录后丢弃，消息永久停在转圈状态。
+            crate::send::upload_props::validate_java_api_base_url(
+                &self.config.default_api_base_url,
+            )?;
+        }
         body["props"] = upload_plan.props.clone();
 
         // 分配 corr / timer。timer 始终绑定这条 Post send，但 upload-gated 路径要等真正 emit
@@ -82,8 +89,9 @@ impl ImModule {
                 input: media.input.clone(),
             })
             .collect::<Vec<_>>();
-        // 1. Persist{P1, 乐观落库 + 内部媒体恢复日志}。两类行在同一有回报批次中，
-        // message.props 始终只持有 sanitized render metadata。
+        // 1. 乐观落库 + 内部媒体恢复日志。媒体消息必须让 message 与 pending_media
+        // 在同一事务提交；否则首个 StorageOp 成功、后一个失败后重启，会把未校验的
+        // render props 当作普通消息直接发给 Go。普通文本仍保留既有 Persist 语义。
         let mut optimistic_ops = vec![crate::pending_send::optimistic_message_persist_op(
             &tmp_id_str,
             channel_id.as_str(),
@@ -97,10 +105,17 @@ impl ImModule {
                 .collect::<Vec<_>>();
             optimistic_ops.push(crate::send::upload_props::durable_upsert_many(&operations)?);
         }
-        out.push(Effect::Persist {
-            corr: p1_corr,
-            ops: optimistic_ops,
-        });
+        if planned_media.is_empty() {
+            out.push(Effect::Persist {
+                corr: p1_corr,
+                ops: optimistic_ops,
+            });
+        } else {
+            out.push(Effect::PersistAtomic {
+                corr: p1_corr,
+                ops: optimistic_ops,
+            });
+        }
 
         // 4. Emit(im:post:sending)（render-ready 乐观行：text/type 由 helix 吐·壳直绑不取 pendingText）。
         out.push(crate::acl::to_effect::emit_post_sending_with_reply(
@@ -118,7 +133,7 @@ impl ImModule {
         let conn = self.state.connection_id.clone();
         let mut ps = PendingSend::new(tmp_id.clone(), t1_timer, conn);
         ps.status = SendStatus::Local;
-        ps.request_id = cmd
+        ps.timeline_readback.causation_id = cmd
             .get("req_id")
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.is_empty())
@@ -154,9 +169,11 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let corr = self.alloc_corr_internal();
+        let client_upload_id =
+            crate::send::upload_props::client_upload_id(temporary_id.0.as_str(), &target);
         let req = crate::send::upload_props::prepare_upload_request(
-            &self.config.api_base_url,
-            channel_id.as_str(),
+            &self.config.default_api_base_url,
+            &client_upload_id,
             &input,
             crate::acl::sync_http_effects::session_auth_headers(
                 self.state.connection_id.as_deref(),
@@ -199,7 +216,10 @@ impl ImModule {
                 return Ok(());
             }
             pending.http_started = true;
-            (pending.timeout_timer, pending.request_id.clone())
+            (
+                pending.timeout_timer,
+                pending.timeline_readback.causation_id.clone(),
+            )
         };
         let h1_corr = self.alloc_corr_internal();
         let body_bytes = serde_json::to_vec(body).map_err(|e| ImError::Serialize(e.to_string()))?;

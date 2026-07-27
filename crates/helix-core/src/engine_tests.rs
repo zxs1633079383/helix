@@ -59,6 +59,118 @@ fn atomic_persist_reply_routes_back_to_emitting_module() {
     assert!(matches!(reply, [Effect::Emit { event }] if event.0.as_ref() == b"atomic-committed"));
 }
 
+struct ProgressModule;
+
+impl Module for ProgressModule {
+    fn name(&self) -> &'static str {
+        "progress-test"
+    }
+
+    fn accepts(&self, tick: &Tick) -> bool {
+        matches!(tick, Tick::Command(_))
+    }
+
+    fn handle(&mut self, tick: &Tick, _now_ms: u64, out: &mut EffectSink) -> Result<(), CoreError> {
+        match tick {
+            Tick::Command(_) => out.push(Effect::UploadFile {
+                corr: crate::Correlation::from_raw(91),
+                req: crate::effect::FileUploadRequest {
+                    local_path: "/tmp/progress".into(),
+                    object_key: "progress".into(),
+                    method: "PUT".into(),
+                    urls: crate::effect::FileUploadUrls::new(
+                        "https://upload.invalid/signed".into(),
+                        "https://cdn.invalid/progress".into(),
+                    )
+                    .expect("valid urls"),
+                    headers: Vec::new(),
+                    content_type: None,
+                    size: Some(100),
+                },
+            }),
+            Tick::PortProgress { .. } => out.push(Effect::Emit {
+                event: crate::DomainEventBytes(bytes::Bytes::from_static(b"progress")),
+            }),
+            Tick::PortReply { .. } => out.push(Effect::Emit {
+                event: crate::DomainEventBytes(bytes::Bytes::from_static(b"terminal")),
+            }),
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn progress_peeks_without_consuming_terminal_correlation() {
+    let mut shell = ExecutionShell::new();
+    shell.register(ProgressModule);
+    shell
+        .step(
+            Tick::Command(crate::tick::AppCommand::new("upload", Vec::new())),
+            1,
+        )
+        .expect("upload effect registers correlation");
+
+    for completed_bytes in [5, 55] {
+        let effects = shell
+            .step(
+                Tick::PortProgress {
+                    corr: crate::Correlation::from_raw(91),
+                    progress: crate::FileUploadProgress {
+                        completed_bytes,
+                        total_bytes: 100,
+                    },
+                },
+                2,
+            )
+            .expect("progress routes");
+        assert!(matches!(effects, [Effect::Emit { event }] if event.0.as_ref() == b"progress"));
+    }
+
+    let terminal = shell
+        .step(
+            Tick::PortReply {
+                corr: crate::Correlation::from_raw(91),
+                outcome: crate::tick::PortOutcome::Ok(crate::tick::ReplyBytes::default()),
+            },
+            3,
+        )
+        .expect("terminal still routes");
+    assert!(matches!(terminal, [Effect::Emit { event }] if event.0.as_ref() == b"terminal"));
+
+    let late = shell
+        .step(
+            Tick::PortProgress {
+                corr: crate::Correlation::from_raw(91),
+                progress: crate::FileUploadProgress {
+                    completed_bytes: 100,
+                    total_bytes: 100,
+                },
+            },
+            4,
+        )
+        .expect("late progress is ignored");
+    assert!(late.is_empty());
+}
+
+#[test]
+fn unknown_progress_is_a_noop() {
+    let mut shell = ExecutionShell::new();
+    let effects = shell
+        .step(
+            Tick::PortProgress {
+                corr: crate::Correlation::from_raw(999),
+                progress: crate::FileUploadProgress {
+                    completed_bytes: 5,
+                    total_bytes: 100,
+                },
+            },
+            1,
+        )
+        .expect("unknown progress must not fail the shell");
+    assert!(effects.is_empty());
+}
+
 /// 空 shell，step 任何 Inbound 都返回空 Effect（no-op）
 #[test]
 fn empty_shell_step_no_effects() {

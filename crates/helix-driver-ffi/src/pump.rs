@@ -235,7 +235,7 @@ pub fn run(args: PumpArgs) {
             ImConfig {
                 ws_url: args.config.ws_url.clone(),
                 api_base_url: args.config.api_base_url.clone(),
-                // 第二网关 base（spec06 方案 A）：vote/score outbound 走它（HostNetworkConfig 已派生注入）。
+                // 第二网关 base 由前端显式注入；媒体控制面据此直连 Java。
                 default_api_base_url: args.config.default_api_base_url.clone(),
                 ..Default::default()
             },
@@ -252,7 +252,9 @@ pub fn run(args: PumpArgs) {
         let deps = EngineDeps {
             storage: Arc::clone(&storage),
             http: Arc::new(http),
-            uploader: Arc::new(SharedFileUploader::default()),
+            uploader: Arc::new(
+                SharedFileUploader::default().with_timeout(args.config.timeout),
+            ),
             event_sink,
             clock,
             trace,

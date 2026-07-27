@@ -63,7 +63,7 @@
   {
     "fileName": "channel-summary-empty.frame-v2.json",
     "fixtureId": "g08-channel-summary-empty-v2",
-    "fixtureSha256": "f42136f36594e952cda266252e87315f04db9d3d564508e145ae243462d8564a",
+    "fixtureSha256": "74d547cf91a9840ba10cd984c0110e878c12727703c88d1f6e1adb0f1b2bd70c",
     "generatedAt": "2026-07-25T23:55:00-07:00",
     "helixCommit": "8358082b3fd01b96b332c79deca8d2017315dd19",
     "parameterizableFields": [
@@ -94,67 +94,6 @@
     "placeholderValues": {
       "actorId": "g08-wdio-actor",
       "baseRevision": null,
-      "channelId": "chfixx00000000000000000008",
-      "createdAt": 1700000800002,
-      "groupName": "G08 Fixture Group",
-      "marker": "g08-schedule-fixture-marker",
-      "observerId": "g08-wdio-observer",
-      "reqId": "g08-wdio-request-1",
-      "revision": 1,
-      "surfaceEpoch": 1,
-      "teamId": "g08-wdio-company",
-      "transactionId": "surface-storage-channel|26:chfixx00000000000000000008-1"
-    },
-    "producer": "G08ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
-    "rebaseFields": [
-      "/transactionId",
-      "/mutations/*/surfaceEpoch",
-      "/mutations/*/revision",
-      "/mutations/*/baseRevision",
-      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
-      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch"
-    ],
-    "schemaVersion": 2,
-    "semanticSha256": "a0dc18ee607d24e331588759d103cbdb217e8f1888262692c80017ce735bd01b",
-    "sourceKind": "rust-export",
-    "surfaces": [
-      "message.channel-summary"
-    ]
-  },
-  {
-    "fileName": "channel-summary-scheduled.frame-v2.json",
-    "fixtureId": "g08-channel-summary-scheduled-v2",
-    "fixtureSha256": "df3ad5defcb16f417cd2074cc64e768e0a7bc898a8ac0415f94a96de92eaae2a",
-    "generatedAt": "2026-07-25T23:55:00-07:00",
-    "helixCommit": "8358082b3fd01b96b332c79deca8d2017315dd19",
-    "parameterizableFields": [
-      "/transactionId",
-      "/causationId",
-      "/mutations/*/causationId",
-      "/mutations/*/surfaceEpoch",
-      "/mutations/*/revision",
-      "/mutations/*/baseRevision",
-      "/mutations/*/scope/channelId",
-      "/mutations/*/scope/userId",
-      "/mutations/*/scope/teamId",
-      "/mutations/*/mutation/view/channelId",
-      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
-      "/mutations/*/mutation/view/sections/*/items/*/channelId",
-      "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt",
-      "/mutations/*/mutation/view/sections/*/items/*/title/text",
-      "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
-      "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch",
-      "/mutations/*/mutation/patch/view/channelId",
-      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
-      "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
-      "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
-      "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
-      "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
-      "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch"
-    ],
-    "placeholderValues": {
-      "actorId": "g08-wdio-actor",
-      "baseRevision": 1,
       "channelId": "chfixx00000000000000000008",
       "createdAt": 1700000800002,
       "groupName": "G08 Fixture Group",
@@ -176,16 +115,16 @@
       "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch"
     ],
     "schemaVersion": 2,
-    "semanticSha256": "1a365620c89753b70b6f59956ab1fb0b517c46ec489598825b27ff2018601014",
+    "semanticSha256": "a0dc18ee607d24e331588759d103cbdb217e8f1888262692c80017ce735bd01b",
     "sourceKind": "rust-export",
     "surfaces": [
       "message.channel-summary"
     ]
   },
   {
-    "fileName": "channel-summary-recovery.frame-v2.json",
-    "fixtureId": "g08-channel-summary-recovery-v2",
-    "fixtureSha256": "39825bbba44cbcd67cc8355ed390a8adc39e161ac71d8f0cb68d5fca5e17f7c5",
+    "fileName": "channel-summary-scheduled.frame-v2.json",
+    "fixtureId": "g08-channel-summary-scheduled-v2",
+    "fixtureSha256": "4fd1ca44eddf38c2784e5d8ae22f1b5d8e437401e5b1d68a93c571a676deb7a0",
     "generatedAt": "2026-07-25T23:55:00-07:00",
     "helixCommit": "8358082b3fd01b96b332c79deca8d2017315dd19",
     "parameterizableFields": [
@@ -222,10 +161,71 @@
       "marker": "g08-schedule-fixture-marker",
       "observerId": "g08-wdio-observer",
       "reqId": "g08-wdio-request-1",
-      "revision": 1,
+      "revision": 3,
       "surfaceEpoch": 1,
       "teamId": "g08-wdio-company",
-      "transactionId": "surface-storage-channel|26:chfixx00000000000000000008-1"
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000008-3"
+    },
+    "producer": "G08ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "1a365620c89753b70b6f59956ab1fb0b517c46ec489598825b27ff2018601014",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.channel-summary"
+    ]
+  },
+  {
+    "fileName": "channel-summary-recovery.frame-v2.json",
+    "fixtureId": "g08-channel-summary-recovery-v2",
+    "fixtureSha256": "c490c43dc16b27af8ed14e20656948ffa7b9555ccce764c0d27c1eb70d590307",
+    "generatedAt": "2026-07-25T23:55:00-07:00",
+    "helixCommit": "8358082b3fd01b96b332c79deca8d2017315dd19",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/scope/userId",
+      "/mutations/*/scope/teamId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/view/sections/*/items/*/channelId",
+      "/mutations/*/mutation/view/sections/*/items/*/lastActivityAt",
+      "/mutations/*/mutation/view/sections/*/items/*/title/text",
+      "/mutations/*/mutation/view/sections/*/items/*/avatar/userIds/*",
+      "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/channelId",
+      "/mutations/*/mutation/patch/view/actions/*/surfaceEpoch",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/title/text",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/avatar/userIds/*",
+      "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch"
+    ],
+    "placeholderValues": {
+      "actorId": "g08-wdio-actor",
+      "baseRevision": null,
+      "channelId": "chfixx00000000000000000008",
+      "createdAt": 1700000800002,
+      "groupName": "G08 Fixture Group",
+      "marker": "g08-schedule-fixture-marker",
+      "observerId": "g08-wdio-observer",
+      "reqId": "g08-wdio-request-1",
+      "revision": 2,
+      "surfaceEpoch": 1,
+      "teamId": "g08-wdio-company",
+      "transactionId": "surface-storage-channel|26:chfixx00000000000000000008-2"
     },
     "producer": "G08ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode",
     "rebaseFields": [

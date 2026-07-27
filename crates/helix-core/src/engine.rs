@@ -90,7 +90,8 @@ impl ExecutionShell {
     /// ## 路由策略
     ///
     /// - `Inbound` / `Command`：线性扫描 `accepts()`
-    /// - `PortReply`：corr_map O(1) 定向投递
+    /// - `PortReply`：corr_map O(1) 定向投递并消费
+    /// - `PortProgress`：corr_map O(1) 定向投递但不消费
     /// - `Timer`：timer_map O(1) 定向投递
     ///
     /// ## BLK-1a 修复
@@ -138,6 +139,24 @@ impl ExecutionShell {
                         tracing::warn!(
                             corr = corr.raw(),
                             "received PortReply for unknown correlation, ignoring"
+                        );
+                    }
+                }
+                return Ok(self.scratch.as_slice());
+            }
+
+            Tick::PortProgress { corr, .. } => {
+                match self.corr_map.peek(corr) {
+                    Some(module_index) => {
+                        self.host
+                            .dispatch_reply(module_index, &tick, now_ms, &mut self.scratch)?;
+                        self.register_effects_to_maps(module_index, 0);
+                    }
+                    None => {
+                        // 终态已消费或从未注册的迟到进度是可接受噪音。
+                        tracing::debug!(
+                            corr = corr.raw(),
+                            "received PortProgress for unknown correlation, ignoring"
                         );
                     }
                 }

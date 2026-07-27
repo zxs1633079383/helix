@@ -3,6 +3,10 @@
 这里仅包含无 UI 的浏览器平台接线：
 
 - 浏览器持有物理 `WebSocket`，只把不透明帧交给 `HelixWebClient`；
+- bootstrap 必须分别提供 Go `apiBaseUrl` 与 Java `defaultApiBaseUrl`；两者允许不同 origin，
+  adapter 原样传给 Rust，禁止从 Go URL 裁路径或拼域名推测 Java 地址；
+- 双地址槽不等于浏览器媒体上传已实现：当前 `Effect::UploadFile` 明确返回 unsupported，
+  runtime issue 只报告能力缺失且不包含本地路径；本轮 rich/file 真实上传验收仅覆盖 native/FFI；
 - WebSocket 鉴权只用 `URLSearchParams` 写入 `cookieId`，并清除基础 URL 中可能覆盖它的旧
   `userId`；不设置自定义握手 header；
 - Rust 继续持有 HTTP、query/local-first、sync、cursor、echo 和业务帧处理；

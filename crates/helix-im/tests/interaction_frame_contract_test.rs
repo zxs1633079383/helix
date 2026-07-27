@@ -29,8 +29,7 @@ mod g02_scenario;
 /// 证明 G02 HTTP success 与业务 timeout 都必须跨终态 Persist/readback 才发布 Frame。
 fn g02_terminal_frames_preserve_persist_barrier_and_causation() {
     let sent = g02_scenario::G02ScenarioRunner::run_http(g02_scenario::Terminal::Sent);
-    let failed =
-        g02_scenario::G02ScenarioRunner::run_http(g02_scenario::Terminal::BusinessFailed);
+    let failed = g02_scenario::G02ScenarioRunner::run_http(g02_scenario::Terminal::BusinessFailed);
     g02_scenario::assert_document_timeline_contract(
         &sent.terminal,
         "sent",

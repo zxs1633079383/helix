@@ -58,7 +58,11 @@ use helix_driver_ffi::vtable::CppHostVtable;
 use helix_driver_host::BatchSink;
 use helix_driver_native::event_sink::NativeEventSink;
 use helix_driver_web::{WebExecutor, WebOwnedEffect};
+use helix_im::interaction_frame::{
+    InteractionFrame, INTERACTION_FRAME_EVENT, INTERACTION_FRAME_SCHEMA_VERSION,
+};
 use helix_im::module::ImConfig;
+use helix_im::projector::timeline::{TimelineProjector, TimelineWindowRequest};
 use helix_im::query::LocalStoreMode;
 use helix_im::state::ChannelId;
 use helix_im::ImModule;
@@ -203,6 +207,11 @@ fn collect_ffi_emits(source_emits: &[DomainEventBytes]) -> Vec<DomainEventBytes>
 
     // 从录制的 batches 中 decode 所有条目
     let batches = batches_arc.lock();
+    assert_eq!(
+        batches.len(),
+        1,
+        "one non-empty flush must invoke one batch callback"
+    );
     let mut out = Vec::new();
     for batch_buf in batches.iter() {
         let decoded = decode_batch(batch_buf)
@@ -297,6 +306,68 @@ fn f5_egress_parity_native_ffi_byte_identical() {
             String::from_utf8_lossy(&expected.0),
         );
     }
+}
+
+#[test]
+fn ffi_callback_delivers_file_progress_frame_without_image_percent() {
+    let rows = serde_json::json!([
+        {
+            "msgId": "file-uploading", "channelId": "channel-1", "eventSeq": 1,
+            "userId": "user-1", "createAt": 1, "text": "", "type": "FILE",
+            "sendStatus": "sending", "progressPercent": 35,
+            "props": {"file": {"name": "report.pdf", "upload": {"status": "uploading"}}},
+            "actionCapabilities": {}
+        },
+        {
+            "msgId": "image-uploading", "channelId": "channel-1", "eventSeq": 2,
+            "userId": "user-1", "createAt": 2, "text": "", "type": "IMAGE",
+            "sendStatus": "sending", "progressPercent": 35,
+            "props": {"files": [{"name": "photo.png", "upload": {"status": "uploading"}}]},
+            "actionCapabilities": {}
+        }
+    ]);
+    let mutation = TimelineProjector::default()
+        .snapshot_from_render_ready(
+            TimelineWindowRequest::latest("channel-1"),
+            rows.as_array().expect("rows fixture"),
+        )
+        .expect("committed media rows must project");
+    let frame = InteractionFrame {
+        schema_version: INTERACTION_FRAME_SCHEMA_VERSION,
+        transaction_id: "ffi-media-progress-1".to_string(),
+        mutations: vec![mutation],
+    };
+    frame.validate().expect("projected frame must be valid");
+    let event = DomainEventBytes(Bytes::from(
+        serde_json::to_vec(&serde_json::json!({
+            "event": INTERACTION_FRAME_EVENT,
+            "data": frame,
+        }))
+        .expect("frame envelope"),
+    ));
+
+    let delivered = collect_ffi_emits(&[event]);
+    assert_eq!(delivered.len(), 1, "one Frame must cross one FFI batch");
+    let envelope: serde_json::Value =
+        serde_json::from_slice(delivered[0].0.as_ref()).expect("callback event JSON");
+    assert_eq!(envelope["event"], INTERACTION_FRAME_EVENT);
+    let items = envelope["data"]["mutations"][0]["mutation"]["view"]["items"]
+        .as_array()
+        .expect("timeline items");
+    let file = items
+        .iter()
+        .find(|item| item["id"] == "file-uploading")
+        .unwrap();
+    let image = items
+        .iter()
+        .find(|item| item["id"] == "image-uploading")
+        .unwrap();
+    assert_eq!(
+        file["delivery"],
+        serde_json::json!({"kind": "uploading", "progressPercent": 35})
+    );
+    assert_eq!(image["delivery"], serde_json::json!({"kind": "sending"}));
+    assert!(image["delivery"].get("progressPercent").is_none());
 }
 
 /// 辅助验证：FfiEventSink 空缓冲 flush 不触发回调（防空批噪声）。

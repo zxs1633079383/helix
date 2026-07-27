@@ -1,4 +1,4 @@
-use helix_core::effect::{SqlValue, StorageOp, UpsertSpec};
+use helix_core::effect::{BatchUpdateSpec, SqlValue, StorageOp, UpsertSpec};
 use serde_json::Value;
 
 use crate::state::TemporaryId;
@@ -95,9 +95,22 @@ pub fn optimistic_message_persist_op(
                 "send_status".to_string(),
                 SqlValue::Text("sending".to_string()),
             ),
+            ("upload_progress_percent".to_string(), SqlValue::Integer(0)),
         ]],
         conflict_key: Some("temporary_id"),
         exclude_from_update: Vec::new(),
+    })
+}
+
+pub fn upload_progress_persist_op(temporary_id: &TemporaryId, progress_percent: u8) -> StorageOp {
+    StorageOp::BatchUpdate(BatchUpdateSpec {
+        table: "message",
+        key_col: "temporary_id",
+        key_vals: vec![SqlValue::Text(temporary_id.0.clone())],
+        patch: vec![(
+            "upload_progress_percent".to_string(),
+            SqlValue::Integer(i64::from(progress_percent)),
+        )],
     })
 }
 

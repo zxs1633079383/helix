@@ -39,8 +39,7 @@ fn produce_cases() -> Vec<FixtureCase> {
     assert_eq!(created.group_created, failed.group_created);
     assert_eq!(created.initial_summary, failed.initial_summary);
     assert_eq!(
-        created.scheduled_summary,
-        replayed.scheduled_after_replay,
+        created.scheduled_summary, replayed.scheduled_after_replay,
         "persist replay must converge to the same terminal Frame"
     );
     assert_group_created_contract_for(&created.group_created, &g08_scenario_spec());

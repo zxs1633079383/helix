@@ -45,7 +45,8 @@ pub struct CppHostVtable {
     /// ## buffer 所有权 = 借出契约（冻结，不新增 free 符号）
     ///
     /// `ptr..ptr+len` 由 Rust own，仅在 `cb` 回调期间有效，回调返回后 Rust 就地 drop。**这是正确
-    /// 边界，无 UAF**——不改 ownership-transfer、不新增 `helix_free_batch`（保 §1.3 七符号冻结）。
+    /// 边界，无 UAF**——不改 ownership-transfer、不新增 `helix_free_batch`；本轮唯一 additive
+    /// C ABI 是显式 Go/Java/WS 初始化入口，不改变批 buffer 所有权。
     /// Dart 异步如何吸收：**C++ shim 在回调线程内 `malloc + memcpy`** 到稳定堆，再投递给 Dart
     /// isolate（`docs/flutter-demo-pointer.md` ①稳定化）。稳定化是 shim 层的事，非 Rust 导出。
     ///

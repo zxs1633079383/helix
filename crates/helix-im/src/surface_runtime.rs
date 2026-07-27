@@ -326,7 +326,7 @@ impl ImModule {
             (SurfaceId::MessageChannelSummary, SurfaceScope::Channel { .. })
             | (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { .. })
             | (SurfaceId::MessageTopicList, SurfaceScope::TopicList { .. }) => {
-                self.start_storage_snapshot(request, out)
+                self.start_storage_snapshot(request, false, out)
             }
             (SurfaceId::MessageParticipantReceipts, SurfaceScope::ParticipantReceipts { .. }) => {
                 self.start_receipt_snapshot(request, out)
@@ -374,9 +374,11 @@ impl ImModule {
         Ok(())
     }
 
+    /// 区分 renderer 重建快照与 durable authority 刷新既有 slot 后发起本地事实读取。
     fn start_storage_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
+        refresh_existing: bool,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let operation = match (&request.surface, &request.scope) {
@@ -413,9 +415,13 @@ impl ImModule {
             }
         };
         let corr = self.alloc_corr_internal();
-        self.state
-            .corr_map
-            .insert(corr, CorrelationContext::SurfaceStorageSnapshot { request });
+        self.state.corr_map.insert(
+            corr,
+            CorrelationContext::SurfaceStorageSnapshot {
+                request,
+                refresh_existing,
+            },
+        );
         out.push(Effect::Persist {
             corr,
             ops: vec![operation],
@@ -444,6 +450,7 @@ impl ImModule {
                 },
                 causation_id: None,
             },
+            true,
             out,
         )
     }
@@ -471,6 +478,7 @@ impl ImModule {
                 },
                 causation_id,
             },
+            true,
             out,
         )
     }
@@ -496,6 +504,7 @@ impl ImModule {
                     },
                     causation_id: causation_id.clone(),
                 },
+                true,
                 out,
             )?;
         }
@@ -656,10 +665,11 @@ impl ImModule {
         Ok(())
     }
 
-    /// 将 storage readback 变成对应已 attach surface 的完整 typed mutation。
+    /// 将 storage readback 按显式重建或既有 slot 刷新语义编译为 typed mutation。
     pub(crate) fn handle_surface_storage_snapshot(
         &mut self,
         request: SurfaceResyncRequest,
+        refresh_existing: bool,
         outcome: &PortOutcome,
         now_ms: u64,
         out: &mut EffectSink,
@@ -687,12 +697,7 @@ impl ImModule {
             (SurfaceId::MessageMemberRoster, SurfaceScope::MemberRoster { channel_id, cursor }) => {
                 let view =
                     member_roster_view(channel_id, cursor, &rows, self.action_surface_epoch()?);
-                if self
-                    .state
-                    .member_roster_projector
-                    .current_view(channel_id, cursor)
-                    .is_some()
-                {
+                if refresh_existing {
                     self.state
                         .member_roster_projector
                         .patch_membership_lifecycle(view, request.causation_id.clone())
@@ -700,12 +705,15 @@ impl ImModule {
                             ImError::Parse(format!("member roster projection: {error}"))
                         })?
                 } else {
-                    self.state
-                        .member_roster_projector
-                        .snapshot(view)
-                        .map_err(|error| {
-                            ImError::Parse(format!("member roster projection: {error}"))
-                        })?
+                    let mut mutation =
+                        self.state
+                            .member_roster_projector
+                            .snapshot(view)
+                            .map_err(|error| {
+                                ImError::Parse(format!("member roster projection: {error}"))
+                            })?;
+                    mutation.causation_id = request.causation_id.clone();
+                    mutation
                 }
             }
             (

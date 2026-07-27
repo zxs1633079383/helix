@@ -40,12 +40,60 @@ pub struct HelixHandle {
     pub(crate) pump_thread: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
-// ── helix_create_with_network ────────────────────────────────────────────────
+// ── handle creation ─────────────────────────────────────────────────────────
 
-/// 创建带 shared host network client 的 Helix 句柄（C++ 直连模型）。
+/// 创建带独立 Go / Java endpoint 的 Helix 句柄（C++ 直连模型）。
 ///
 /// 返回不透明指针；宿主必须持有并传给所有后续 API 调用，最终调用 `helix_destroy` 释放。
 /// 失败时返回 null（字符串无效 / 网络客户端初始化失败）。
+///
+/// 新接入必须使用本入口：`go_api_base_url` 供 IM 消息接口使用，
+/// `java_api_base_url` 由前端登录/环境配置独立注入，供 OSS 与默认业务网关使用。
+///
+/// # Safety
+///
+/// - 三个 URL：非 null，各自指向至少对应 `_len` 字节、
+///   在本函数调用期间有效的 UTF-8 内存。
+/// - `vtable`：函数指针若非 None，在 `helix_destroy` 返回前必须保持有效（C++ 侧管生命周期）。
+#[no_mangle]
+pub unsafe extern "C" fn helix_create_with_endpoints(
+    go_api_base_url: *const u8,
+    go_api_base_url_len: usize,
+    java_api_base_url: *const u8,
+    java_api_base_url_len: usize,
+    ws_url: *const u8,
+    ws_url_len: usize,
+    vtable: CppHostVtable,
+) -> *mut HelixHandle {
+    // SAFETY: 调用方契约保证三个指针非 null 且各自指向对应 len 字节有效 UTF-8 内存。
+    let Ok(go_api_base_url) = (unsafe { ffi_str(go_api_base_url, go_api_base_url_len) }) else {
+        return std::ptr::null_mut();
+    };
+    // SAFETY: 同上。
+    let Ok(java_api_base_url) = (unsafe { ffi_str(java_api_base_url, java_api_base_url_len) })
+    else {
+        return std::ptr::null_mut();
+    };
+    // SAFETY: 同上。
+    let Ok(ws_url) = (unsafe { ffi_str(ws_url, ws_url_len) }) else {
+        return std::ptr::null_mut();
+    };
+    if java_api_base_url.trim().is_empty() {
+        tracing::error!("helix_create_with_endpoints 要求前端显式提供非空 Java base URL");
+        return std::ptr::null_mut();
+    }
+
+    create_handle(
+        network_config(go_api_base_url, java_api_base_url, ws_url),
+        vtable,
+    )
+}
+
+/// 创建仅带 Go / WS endpoint 的兼容句柄。
+///
+/// 此符号保留原 ABI，现有文本消息等 Go-only 调用无需改动；它不再从 Go 地址推测 Java 地址，
+/// 因而不适用于 rich/file OSS 或其它 Java 默认网关能力。新接入必须改用
+/// [`helix_create_with_endpoints`] 并由前端显式传入 Java base。
 ///
 /// # Safety
 ///
@@ -69,11 +117,18 @@ pub unsafe extern "C" fn helix_create_with_network(
         return std::ptr::null_mut();
     };
 
-    // 第二网关 base（spec06 方案 A）：vote/score 走 env.restHost（无 /api/cses）。C ABI 不新增参数
-    // （不破 cbindgen 头/C++ 调用方）→ 由 api_base_url 去掉 `/api/cses` 尾段派生（与 host-cli 同策略）。
-    let default_api_base_url = api_base_url.trim_end_matches("/api/cses").to_string();
-    let mut config = HostNetworkConfig::new(api_base_url, ws_url);
-    config.default_api_base_url = default_api_base_url;
+    create_handle(network_config(api_base_url, String::new(), ws_url), vtable)
+}
+
+fn network_config(
+    go_api_base_url: String,
+    java_api_base_url: String,
+    ws_url: String,
+) -> HostNetworkConfig {
+    HostNetworkConfig::new(go_api_base_url, ws_url).with_default_api_base_url(java_api_base_url)
+}
+
+fn create_handle(config: HostNetworkConfig, vtable: CppHostVtable) -> *mut HelixHandle {
     let headers = HostHeaderRegistry::default();
     let auth = AuthTokenRegistry::new();
     let command_traces = CommandTraceQueue::default();
@@ -209,7 +264,7 @@ fn ffi_db_url() -> String {
 ///
 /// # Safety
 ///
-/// - `handle` 必须是 `helix_create_with_network` 返回的有效指针，或 null（null 时无操作）。
+/// - `handle` 必须是任一 Helix create 入口返回的有效指针，或 null（null 时无操作）。
 /// - 调用方必须保证此后不再向 `handle` 传递给任何 helix API（独占所有权契约，无 double-free）。
 /// - **C++ 不得在本函数返回前释放 vtable.ctx**：join 完成前 pump 仍可能回调；本函数返回即安全。
 #[no_mangle]
@@ -217,7 +272,7 @@ pub unsafe extern "C" fn helix_destroy(handle: *mut HelixHandle) {
     if handle.is_null() {
         return;
     }
-    // SAFETY: handle 由 helix_create_with_network 的 Box::into_raw 产生，
+    // SAFETY: handle 由 Helix create 入口的 Box::into_raw 产生，
     // 调用方契约保证单次 destroy（独占所有权，无 double-free）。
     let boxed = unsafe { Box::from_raw(handle) };
 
@@ -240,4 +295,32 @@ pub unsafe extern "C" fn helix_destroy(handle: *mut HelixHandle) {
     }
 
     drop(boxed);
+}
+
+#[cfg(test)]
+mod endpoint_config_tests {
+    use super::network_config;
+
+    #[test]
+    fn explicit_endpoints_keep_go_and_java_origins_distinct() {
+        let config = network_config(
+            "https://go.example.test/api/cses".to_string(),
+            "https://java.example.test".to_string(),
+            "wss://go.example.test/api/v4/websocket".to_string(),
+        );
+
+        assert_eq!(config.api_base_url, "https://go.example.test/api/cses");
+        assert_eq!(config.default_api_base_url, "https://java.example.test");
+    }
+
+    #[test]
+    fn legacy_network_entry_has_no_inferred_java_base() {
+        let config = network_config(
+            "https://go.example.test/api/cses".to_string(),
+            String::new(),
+            "wss://go.example.test/api/v4/websocket".to_string(),
+        );
+
+        assert!(config.default_api_base_url.is_empty());
+    }
 }

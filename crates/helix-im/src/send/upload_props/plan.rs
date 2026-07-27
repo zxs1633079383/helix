@@ -1,18 +1,25 @@
 use super::{MediaInput, PlannedMedia, UploadPlan, UploadTarget};
 use crate::ImError;
 use serde_json::{json, Map, Value};
-use std::collections::HashMap;
 
 const MEDIA_INPUT_FIELDS: [&str; 5] = ["localPath", "fileName", "contentType", "size", "sha256"];
 const MAX_MEDIA_SIZE: u64 = 64 << 20;
-const GO_OWNED_FIELDS: [&str; 12] = [
+const MAX_RICH_IMAGES: usize = 9;
+const SERVER_OWNED_FIELDS: [&str; 19] = [
+    "bucket",
+    "id",
+    "uri",
     "uploadId",
+    "uploadToken",
     "fileId",
     "method",
     "url",
     "publicUrl",
+    "stablePath",
     "objectKey",
     "headers",
+    "expiresAt",
+    "contentLength",
     "status",
     "state",
     "userId",
@@ -26,7 +33,7 @@ pub fn build_upload_plan(
     mut props: Value,
 ) -> Result<UploadPlan, ImError> {
     let media = match msg_type {
-        "rich" => build_rich_plan(&mut props)?,
+        "rich" | "IMAGE" => build_rich_plan(&mut props)?,
         "file" | "FILE" => build_file_plan(message, &mut props)?,
         _ => Vec::new(),
     };
@@ -44,25 +51,35 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
             "rich message must not contain props.file".to_string(),
         ));
     }
-    match props.get("textPosition").and_then(Value::as_str) {
+    if props.get("images").is_some() || props.get("textPosition").is_some() {
+        return Err(ImError::Parse(
+            "rich message must use props.files and imagePosition".to_string(),
+        ));
+    }
+    match props.get("imagePosition").and_then(Value::as_str) {
         Some("top" | "bottom") => {}
         _ => {
             return Err(ImError::Parse(
-                "rich message requires textPosition top/bottom".to_string(),
+                "rich message requires imagePosition top/bottom".to_string(),
             ))
         }
     }
-    let images = props
-        .get_mut("images")
+    let files = props
+        .get_mut("files")
         .and_then(Value::as_array_mut)
-        .ok_or_else(|| ImError::Parse("rich message requires props.images".to_string()))?;
-    if images.is_empty() {
+        .ok_or_else(|| ImError::Parse("rich message requires props.files".to_string()))?;
+    if files.is_empty() {
         return Err(ImError::Parse(
             "rich message requires at least one image".to_string(),
         ));
     }
+    if files.len() > MAX_RICH_IMAGES {
+        return Err(ImError::Parse(format!(
+            "rich message supports at most {MAX_RICH_IMAGES} images"
+        )));
+    }
 
-    images
+    files
         .iter_mut()
         .enumerate()
         .map(|(index, image)| {
@@ -75,9 +92,9 @@ fn build_rich_plan(props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
 }
 
 fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia>, ImError> {
-    if props.get("images").is_some() {
+    if props.get("files").is_some() {
         return Err(ImError::Parse(
-            "file message must not contain props.images".to_string(),
+            "file message must not contain props.files".to_string(),
         ));
     }
     let file = props
@@ -91,7 +108,7 @@ fn build_file_plan(_message: &str, props: &mut Value) -> Result<Vec<PlannedMedia
 }
 
 fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
-    reject_go_owned_fields(node, label)?;
+    reject_server_owned_fields(node, label)?;
     let object = node
         .as_object_mut()
         .ok_or_else(|| ImError::Parse(format!("{label} must be object")))?;
@@ -117,6 +134,15 @@ fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
         })?;
     let sha256 = validate_sha256(input, label)?;
 
+    // mediaInput 与本地路径别名不进入公开 props；保留前端渲染发送中/失败卡片所需的
+    // 非敏感 metadata。bucket 是现网 getFilePath 的必填合同，固定为 Java file bucket。
+    for field in ["localUrl", "local_url", "localPath", "local_path"] {
+        object.remove(field);
+    }
+    object.insert("bucket".to_string(), json!("file"));
+    object.insert("name".to_string(), json!(&file_name));
+    object.insert("contentType".to_string(), json!(&content_type));
+    object.insert("size".to_string(), json!(size));
     object.insert("upload".to_string(), json!({"status": "preparing"}));
     Ok(MediaInput {
         local_path,
@@ -127,21 +153,21 @@ fn extract_media(node: &mut Value, label: &str) -> Result<MediaInput, ImError> {
     })
 }
 
-fn reject_go_owned_fields(value: &Value, label: &str) -> Result<(), ImError> {
+fn reject_server_owned_fields(value: &Value, label: &str) -> Result<(), ImError> {
     match value {
         Value::Object(object) => {
             for (key, child) in object {
-                if GO_OWNED_FIELDS.contains(&key.as_str()) {
+                if SERVER_OWNED_FIELDS.contains(&key.as_str()) {
                     return Err(ImError::Parse(format!(
-                        "{label} must not supply Go-owned field {key}"
+                        "{label} must not supply server-owned field {key}"
                     )));
                 }
-                reject_go_owned_fields(child, label)?;
+                reject_server_owned_fields(child, label)?;
             }
         }
         Value::Array(items) => {
             for item in items {
-                reject_go_owned_fields(item, label)?;
+                reject_server_owned_fields(item, label)?;
             }
         }
         _ => {}
@@ -222,147 +248,28 @@ fn validate_sha256(input: &Map<String, Value>, label: &str) -> Result<String, Im
     Ok(value.to_string())
 }
 
-// Mirrors Go mime.ParseMediaType's token/parameter grammar without adding an I/O dependency.
+// Java mediaUpload 的 HMAC 与 OSS metadata 都绑定规范化前的精确 Content-Type。
+// v1 只接受无参数的 type/subtype，避免 Rust 接受 `; charset=...` 后被 Java 拒绝。
 fn is_valid_media_type(value: &str) -> bool {
-    let separator = value.find(';').unwrap_or(value.len());
-    let base = &value[..separator];
-    let mut rest = &value[separator..];
-    if !is_valid_media_base(base.trim()) {
+    let Some((media_type, subtype)) = value.split_once('/') else {
         return false;
-    }
-
-    let mut params: HashMap<String, String> = HashMap::new();
-    while !rest.is_empty() {
-        rest = rest.trim_start();
-        if rest.is_empty() {
-            break;
-        }
-        let Some(after_semicolon) = rest.strip_prefix(';') else {
-            return false;
-        };
-        rest = after_semicolon.trim_start();
-        if rest.is_empty() {
-            return true;
-        }
-
-        let key_len = token_len(rest.as_bytes());
-        if key_len == 0 {
-            return false;
-        }
-        let key = rest[..key_len].to_ascii_lowercase();
-        rest = rest[key_len..].trim_start();
-        let Some(after_equals) = rest.strip_prefix('=') else {
-            return false;
-        };
-        rest = after_equals.trim_start();
-        let Some((param_value, remaining)) = consume_media_value(rest) else {
-            return false;
-        };
-        if params
-            .insert(key, param_value.clone())
-            .is_some_and(|previous| previous != param_value)
-        {
-            return false;
-        }
-        rest = remaining;
-    }
-    true
+    };
+    !media_type.is_empty()
+        && !subtype.is_empty()
+        && !subtype.contains('/')
+        && media_type
+            .as_bytes()
+            .iter()
+            .all(|byte| is_media_token(*byte))
+        && subtype.as_bytes().iter().all(|byte| is_media_token(*byte))
 }
 
-fn is_valid_media_base(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    let type_len = token_len(bytes);
-    if type_len == 0 {
-        return false;
-    }
-    if type_len == bytes.len() {
-        return true;
-    }
-    if bytes[type_len] != b'/' {
-        return false;
-    }
-    let subtype = &bytes[type_len + 1..];
-    !subtype.is_empty() && token_len(subtype) == subtype.len()
-}
-
-fn consume_media_value(value: &str) -> Option<(String, &str)> {
-    if let Some(quoted) = value.strip_prefix('"') {
-        let bytes = quoted.as_bytes();
-        let mut output = Vec::with_capacity(bytes.len());
-        let mut index = 0;
-        while index < bytes.len() {
-            match bytes[index] {
-                b'"' => {
-                    return String::from_utf8(output)
-                        .ok()
-                        .map(|parsed| (parsed, &quoted[index + 1..]));
-                }
-                b'\r' | b'\n' => return None,
-                b'\\' if index + 1 < bytes.len() && is_tspecial(bytes[index + 1]) => {
-                    output.push(bytes[index + 1]);
-                    index += 2;
-                }
-                byte => {
-                    output.push(byte);
-                    index += 1;
-                }
-            }
-        }
-        None
-    } else {
-        let len = token_len(value.as_bytes());
-        (len > 0).then(|| (value[..len].to_string(), &value[len..]))
-    }
-}
-
-fn token_len(value: &[u8]) -> usize {
-    value
-        .iter()
-        .position(|byte| !is_token_char(*byte))
-        .unwrap_or(value.len())
-}
-
-fn is_token_char(byte: u8) -> bool {
+fn is_media_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric()
         || matches!(
             byte,
-            b'!' | b'#'
-                | b'$'
-                | b'%'
-                | b'&'
-                | b'\''
-                | b'*'
-                | b'+'
-                | b'-'
-                | b'.'
-                | b'^'
-                | b'_'
-                | b'`'
-                | b'{'
-                | b'|'
-                | b'}'
-                | b'~'
+            b'!' | b'#' | b'$' | b'&' | b'^' | b'_' | b'.' | b'+' | b'-'
         )
-}
-
-fn is_tspecial(byte: u8) -> bool {
-    matches!(
-        byte,
-        b'(' | b')'
-            | b'<'
-            | b'>'
-            | b'@'
-            | b','
-            | b';'
-            | b':'
-            | b'\\'
-            | b'"'
-            | b'/'
-            | b'['
-            | b']'
-            | b'?'
-            | b'='
-    )
 }
 
 #[cfg(test)]
@@ -374,6 +281,8 @@ mod tests {
     fn file_props() -> Value {
         json!({
             "file": {
+                "localUrl": "file:///tmp/report.pdf",
+                "local_path": "/tmp/report.pdf",
                 "mediaInput": {
                     "localPath": "/tmp/report.pdf",
                     "fileName": "report.pdf",
@@ -394,11 +303,22 @@ mod tests {
     }
 
     #[test]
-    fn invalid_go_metadata_boundaries_are_rejected_before_planning() {
+    fn file_plan_rejects_image_files_collection() {
+        let mut props = file_props();
+        props["files"] = json!([]);
+
+        let error = build_upload_plan("FILE", "", props)
+            .expect_err("FILE must keep the single props.file contract");
+        assert!(error.to_string().contains("must not contain props.files"));
+    }
+
+    #[test]
+    fn invalid_server_metadata_boundaries_are_rejected_before_planning() {
         let invalid = [
             ("fileName", json!("../report.pdf")),
             ("fileName", json!("report\\2026.pdf")),
             ("contentType", json!("not a mime")),
+            ("contentType", json!("application/pdf; charset=utf-8")),
             ("size", json!((64_u64 << 20) + 1)),
             (
                 "sha256",
@@ -417,43 +337,98 @@ mod tests {
     }
 
     #[test]
-    fn go_metadata_trimming_and_upper_size_boundary_are_preserved() {
+    fn server_metadata_trimming_and_upper_size_boundary_are_preserved() {
         let mut props = file_props();
         props["file"]["mediaInput"]["fileName"] = json!(" report.pdf ");
-        props["file"]["mediaInput"]["contentType"] = json!(" application/pdf; charset=utf-8 ");
+        props["file"]["mediaInput"]["contentType"] = json!(" application/pdf ");
         props["file"]["mediaInput"]["size"] = json!(64_u64 << 20);
 
         let plan = build_upload_plan("FILE", "caption", props).expect("valid upper boundary");
         assert_eq!(plan.media[0].input.file_name, "report.pdf");
-        assert_eq!(
-            plan.media[0].input.content_type,
-            "application/pdf; charset=utf-8"
-        );
+        assert_eq!(plan.media[0].input.content_type, "application/pdf");
         assert_eq!(plan.media[0].input.size, 64_u64 << 20);
     }
 
     #[test]
+    fn client_cannot_inject_trusted_media_reference_fields() {
+        for (field, value) in [
+            ("id", json!("attacker-id")),
+            ("uri", json!("https://evil.example/file")),
+            ("stablePath", json!("/oss/media/object/attacker")),
+            ("expiresAt", json!(u64::MAX)),
+            ("contentLength", json!(9)),
+        ] {
+            let mut props = file_props();
+            props["file"][field] = value;
+            let error = build_upload_plan("FILE", "", props)
+                .expect_err(&format!("{field} must remain Java/Helix owned"));
+            assert!(
+                error.to_string().contains(field),
+                "unexpected {field} error: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn uppercase_file_extracts_opaque_media_input() {
-        let plan = build_upload_plan(
-            "FILE",
-            "",
-            json!({
-                "file": {
-                    "mediaInput": {
-                        "localPath": "/tmp/report.pdf",
-                        "fileName": "report.pdf",
-                        "contentType": "application/pdf",
-                        "size": 9,
-                        "sha256": VALID_SHA256
-                    }
-                }
-            }),
-        )
-        .expect("uppercase FILE should produce a prepare plan");
+        let plan = build_upload_plan("FILE", "", file_props())
+            .expect("uppercase FILE should produce a prepare plan");
 
         assert_eq!(plan.targets, vec![UploadTarget::File]);
         assert_eq!(plan.media[0].input.local_path, "/tmp/report.pdf");
         assert!(plan.props["file"].get("mediaInput").is_none());
+        assert!(plan.props["file"].get("localUrl").is_none());
+        assert!(plan.props["file"].get("local_path").is_none());
         assert_eq!(plan.props["file"]["upload"]["status"], "preparing");
+    }
+
+    #[test]
+    fn rich_image_count_is_bounded_to_nine() {
+        let image = || {
+            json!({
+                "mediaInput": {
+                    "localPath": "/tmp/a.png",
+                    "fileName": "a.png",
+                    "contentType": "image/png",
+                    "size": 3,
+                    "sha256": VALID_SHA256
+                }
+            })
+        };
+        let nine = Value::Array((0..9).map(|_| image()).collect());
+        let plan = build_upload_plan(
+            "IMAGE",
+            "caption",
+            json!({"imagePosition":"bottom", "files":nine}),
+        )
+        .expect("nine images are accepted");
+        assert_eq!(plan.media.len(), 9);
+        assert_eq!(plan.props["imagePosition"], "bottom");
+        assert!(plan.props.get("images").is_none());
+        assert!(plan.props.get("textPosition").is_none());
+
+        let legacy_error = build_upload_plan(
+            "IMAGE",
+            "caption",
+            json!({
+                "imagePosition": "bottom",
+                "files": [image()],
+                "textPosition": "bottom",
+                "images": [image()]
+            }),
+        )
+        .expect_err("legacy image fields must not be persisted beside canonical fields");
+        assert!(legacy_error
+            .to_string()
+            .contains("must use props.files and imagePosition"));
+
+        let ten = Value::Array((0..10).map(|_| image()).collect());
+        let error = build_upload_plan(
+            "IMAGE",
+            "caption",
+            json!({"imagePosition":"bottom", "files":ten}),
+        )
+        .expect_err("ten images must fail closed");
+        assert!(error.to_string().contains("at most 9"));
     }
 }

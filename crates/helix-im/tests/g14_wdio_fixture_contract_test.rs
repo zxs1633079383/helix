@@ -14,10 +14,10 @@ use serde_json::{json, Value};
 mod scenario;
 
 use scenario::{
-    assert_group_created_contract_for, assert_readable_message_contract,
-    assert_receipt_contract, assert_receipt_viewable_message_contract, g14_scenario_spec,
-    receipt_view, sha256_hex, surface_names, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID,
-    CREATED_AT, GROUP_NAME, OBSERVER_ID, POST_ID, TEAM_ID, WINDOW_TOKEN,
+    assert_group_created_contract_for, assert_readable_message_contract, assert_receipt_contract,
+    assert_receipt_viewable_message_contract, g14_scenario_spec, receipt_view, sha256_hex,
+    surface_names, G14ScenarioRunner, ACTOR_ID, AUTHOR_ID, CHANNEL_ID, CREATED_AT, GROUP_NAME,
+    OBSERVER_ID, POST_ID, TEAM_ID, WINDOW_TOKEN,
 };
 
 const HELIX_COMMIT: &str = "5b8b7db031faf55f1fa52de15bac746a20f82b13";
@@ -97,11 +97,16 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 G14 可读消息的稳定内容与 markRead 能力，不纳入 opaque actionRef。
 fn readable_message_contract(frame: &InteractionFrameV2) -> Value {
-    let Some(view) = frame.mutations.iter().find_map(|mutation| match &mutation.mutation.mutation {
-        TypedSurfaceMutation::TimelineSnapshot { view } => Some(view),
-        TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view),
-        _ => None,
-    }) else {
+    let Some(view) =
+        frame
+            .mutations
+            .iter()
+            .find_map(|mutation| match &mutation.mutation.mutation {
+                TypedSurfaceMutation::TimelineSnapshot { view } => Some(view),
+                TypedSurfaceMutation::TimelinePatch { patch } => Some(&patch.view),
+                _ => None,
+            })
+    else {
         return Value::Null;
     };
     json!({

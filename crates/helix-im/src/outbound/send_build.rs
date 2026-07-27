@@ -131,6 +131,34 @@ fn should_intercept_empty(text: &str, props: &Value) -> bool {
     !(has_valid_message || has_valid_props)
 }
 
+fn canonical_message_type(msg_type: &str) -> &str {
+    match msg_type {
+        "rich" | "IMAGE" => "IMAGE",
+        "file" | "FILE" => "FILE",
+        "" => "TEXT",
+        other => other,
+    }
+}
+
+fn simple_message(msg_type: &str, message: &str, props: &Value) -> String {
+    let (prefix, content) = match msg_type {
+        "IMAGE" => ("[图片]", message),
+        "FILE" => (
+            "[文件]",
+            props
+                .pointer("/file/name")
+                .or_else(|| props.pointer("/file/mediaInput/fileName"))
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(message),
+        ),
+        "AUDIO" => ("[音频]", message),
+        "VIDEO" => ("[视频]", message),
+        _ => ("", message),
+    };
+    prefix.chars().chain(content.chars()).take(50).collect()
+}
+
 /// 组装 `posts/create` body（现网 buildMessageObject + sendMessage 空消息拦截）。
 ///
 /// 返回 `None` = 空消息被拦截（不产出 Http）；`Some(body)` = 完整 camelCase wire body。
@@ -145,8 +173,9 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     }
 
     let message = truncate_chars(input.text);
-    // simpleMessage：现网 message 前 50 字（会话列表摘要）。按 char 截断。
-    let simple_message: String = message.chars().take(50).collect();
+    let msg_type = canonical_message_type(input.msg_type);
+    // 会话列表摘要沿用现网媒体前缀；按 char 保持总长不超过 50。
+    let simple_message = simple_message(msg_type, &message, &input.props);
 
     // viewers 空补 ["all"]（现网 `if (message.viewers.length === 0) viewers = ['all']`）。
     let viewers: Vec<String> = if input.viewers.is_empty() {
@@ -162,11 +191,6 @@ pub fn build_message_object(input: &BuildInput<'_>) -> Option<Value> {
     body.insert("mentions".to_string(), input.mentions.clone());
     body.insert("temporaryId".to_string(), json!(input.temporary_id));
     // type：默认 "TEXT"，文档/图片等富媒体透传真值（UC-1.2）。空串容错为 "TEXT"。
-    let msg_type = if input.msg_type.is_empty() {
-        "TEXT"
-    } else {
-        input.msg_type
-    };
     body.insert("type".to_string(), json!(msg_type));
     body.insert("simpleMessage".to_string(), json!(simple_message));
     body.insert("channelId".to_string(), json!(input.channel_id));

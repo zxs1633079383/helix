@@ -60,7 +60,7 @@ impl<P: Send + 'static> BoundedSpawner<P> {
         run: F,
     ) -> Self
     where
-        F: Fn(P) -> Fut + Clone + Send + 'static,
+        F: Fn(Option<Correlation>, P) -> Fut + Clone + Send + 'static,
         Fut: std::future::Future<Output = PortOutcome> + Send + 'static,
     {
         let (tx, rx) = mpsc::channel::<Job<P>>(queue_cap.max(1));
@@ -85,7 +85,7 @@ impl<P: Send + 'static> BoundedSpawner<P> {
                         let Some(Job { corr, payload }) = job else {
                             break;
                         };
-                        let outcome = run(payload).await; // 执行 I/O（不持泵锁、不持队列锁）
+                        let outcome = run(corr, payload).await; // 执行 I/O（不持泵锁、不持队列锁）
                         if let Some(corr) = corr {
                             // unbounded send：不会阻塞，回灌必达（不变量1）。
                             reply_tx.send(Tick::PortReply { corr, outcome }).ok();

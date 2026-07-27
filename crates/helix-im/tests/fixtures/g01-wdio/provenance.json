@@ -224,7 +224,7 @@
   {
     "fileName": "failed.frame-v2.json",
     "fixtureId": "g01-failed-v2",
-    "fixtureSha256": "a31041d52f947d01584b259427fbb16a4a7f77e1b1a0f209bbf5c1700f71bf61",
+    "fixtureSha256": "cbdff0072fd26226aca28bf985ce28c46a156e5a965858a4c4d5e980346e68d5",
     "generatedAt": "2026-07-25T09:00:00-07:00",
     "helixCommit": "ac15abd0b29ef62ea5d359fb22030800dd0dee2b",
     "parameterizableFields": [

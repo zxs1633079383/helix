@@ -31,14 +31,16 @@ int main() {
     vtable.now_ms = fixed_now_ms;
     vtable.ctx = nullptr;
 
-    const char* api = "https://api.example.test";
-    const char* ws  = "wss://ws.example.test/socket";
-    HelixHandle* h = helix_create_with_network(
-        reinterpret_cast<const uint8_t*>(api), std::strlen(api),
+    const char* go_api   = "https://go.example.test/api/cses";
+    const char* java_api = "https://java.example.test";
+    const char* ws       = "wss://go.example.test/api/v4/websocket";
+    HelixHandle* h = helix_create_with_endpoints(
+        reinterpret_cast<const uint8_t*>(go_api), std::strlen(go_api),
+        reinterpret_cast<const uint8_t*>(java_api), std::strlen(java_api),
         reinterpret_cast<const uint8_t*>(ws),  std::strlen(ws),
         vtable);
-    if (!h) { fprintf(stderr, "FAIL: helix_create_with_network 返回 null\n"); return 1; }
-    printf("  ✓ create handle（storage 开库 + pump 起线程）\n");
+    if (!h) { fprintf(stderr, "FAIL: helix_create_with_endpoints 返回 null\n"); return 1; }
+    printf("  ✓ create handle（Go/Java/WS 独立注入 + storage 开库 + pump 起线程）\n");
 
     const char* name = "im_send_message";
     const char* payload =

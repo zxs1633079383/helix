@@ -44,7 +44,7 @@
                 "delivery": {
                   "kind": "failed",
                   "reason": "",
-                  "retryable": false
+                  "retryable": true
                 },
                 "actions": [
                   {
@@ -96,8 +96,7 @@
                     "kind": "retry",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
-                    "enabled": false,
-                    "disabledReason": "unsupportedByAuthority"
+                    "enabled": true
                   },
                   {
                     "actionRef": "act.v1.d633b1846faf2b499491ff89aac68f9b",

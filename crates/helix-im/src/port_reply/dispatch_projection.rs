@@ -26,12 +26,7 @@ impl ImModule {
             return;
         }
         let Some(projection) =
-            decode_make_topic_projection(
-                expected_root_message_id,
-                req_id,
-                display_name,
-                outcome,
-            )
+            decode_make_topic_projection(expected_root_message_id, req_id, display_name, outcome)
         else {
             out.push(crate::acl::to_effect::emit_topic_operation_status(
                 req_id,

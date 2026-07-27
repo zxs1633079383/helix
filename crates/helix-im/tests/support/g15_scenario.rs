@@ -47,14 +47,7 @@ impl G15ScenarioRunner {
     /// 建立固定身份与 API 边界的确定性 runner。
     pub fn new() -> Self {
         Self {
-            harness: Harness::new_with_identity(
-                &[],
-                ACTOR_ID,
-                TEAM_ID,
-                "",
-                "",
-                "",
-            ),
+            harness: Harness::new_with_identity(&[], ACTOR_ID, TEAM_ID, "", "", ""),
         }
     }
 
@@ -65,9 +58,10 @@ impl G15ScenarioRunner {
         runner.reply_http_success(http_corr);
         let relation_persist_corr = runner.only_persist_corr_for_write();
         assert!(runner.frames().is_empty());
-        runner
-            .harness
-            .step(port_reply_ok(relation_persist_corr.raw()), 1_700_001_510_002);
+        runner.harness.step(
+            port_reply_ok(relation_persist_corr.raw()),
+            1_700_001_510_002,
+        );
         let root_read_corr = runner.only_persist_corr_for_read("message");
         assert!(runner.frames().is_empty());
         runner.reply_root_read(root_read_corr);
@@ -142,10 +136,7 @@ impl G15ScenarioRunner {
         );
         let read_corr = runner.only_persist_corr_for_read("channel");
         runner.harness.step(
-            port_reply_with_body(
-                read_corr.raw(),
-                rows_bytes(json!([topic_channel_row()])),
-            ),
+            port_reply_with_body(read_corr.raw(), rows_bytes(json!([topic_channel_row()]))),
             1_700_001_510_011,
         );
         G15RecoveryTrace {
@@ -253,9 +244,9 @@ impl G15ScenarioRunner {
     /// 提取当前批次唯一 relation write correlation。
     fn only_persist_corr_for_write(&self) -> Correlation {
         only_corr(self.harness.sink.as_slice(), |effect| match effect {
-            Effect::Persist { ops, .. } => ops.iter().any(|op| {
-                matches!(op, StorageOp::BatchUpsert(_) | StorageOp::BatchUpdate(_))
-            }),
+            Effect::Persist { ops, .. } => ops
+                .iter()
+                .any(|op| matches!(op, StorageOp::BatchUpsert(_) | StorageOp::BatchUpdate(_))),
             _ => false,
         })
     }

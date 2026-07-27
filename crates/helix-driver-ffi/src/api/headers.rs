@@ -11,7 +11,7 @@ use super::shared::{ffi_str, FFI_INVALID, FFI_NULL, FFI_OK};
 ///
 /// # Safety
 ///
-/// - `handle`：helix_create_with_network 返回的有效指针，或 null（返回 FFI_NULL）。
+/// - `handle`：任一 Helix create 入口返回的有效指针，或 null（返回 FFI_NULL）。
 /// - `name` / `value`：各自指向至少对应 `_len` 字节、在本函数调用期间有效的 UTF-8 内存。
 #[no_mangle]
 pub unsafe extern "C" fn helix_set_header(
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn helix_set_header(
         Err(code) => return code,
     };
 
-    // SAFETY: handle 非 null 已检查；调用方契约保证来自 helix_create_with_network。
+    // SAFETY: handle 非 null 已检查；调用方契约保证来自任一 Helix create 入口。
     let handle = unsafe { &*handle };
     set_runtime_header(handle, &name, &value)
 }
@@ -61,7 +61,7 @@ pub unsafe extern "C" fn helix_remove_header(
         Err(code) => return code,
     };
 
-    // SAFETY: handle 非 null 已检查；来自 helix_create_with_network。
+    // SAFETY: handle 非 null 已检查；来自任一 Helix create 入口。
     let handle = unsafe { &*handle };
     remove_runtime_header(handle, &name)
 }

@@ -280,6 +280,7 @@ fn tick_kind(tick: &Tick) -> &'static str {
     match tick {
         Tick::Inbound(_) => "inbound",
         Tick::PortReply { .. } => "port_reply",
+        Tick::PortProgress { .. } => "port_progress",
         Tick::Timer(_) => "timer",
         Tick::Command(_) => "command",
         Tick::Connected(_) => "connected",

@@ -23,15 +23,52 @@ impl ImModule {
             self.state.pending_media_rehydrate_corr = None;
             match outcome {
                 PortOutcome::Ok(reply) => {
-                    self.state.failed_media_ops.clear();
-                    for operation in
-                        crate::send::upload_props::decode_durable_scan(reply.0.as_ref())?
-                    {
-                        self.state.failed_media_ops.insert(
-                            (operation.temporary_id().clone(), operation.target().clone()),
-                            operation,
-                        );
+                    let recovered =
+                        crate::send::upload_props::decode_durable_scan(reply.0.as_ref())?;
+                    let recovered = recovered
+                        .into_iter()
+                        .filter(|operation| {
+                            !self
+                                .state
+                                .pending_sends
+                                .contains_key(operation.temporary_id())
+                        })
+                        .collect::<Vec<_>>();
+                    if recovered.is_empty() {
+                        self.state.media_recovery_ready = true;
+                        return Ok(());
                     }
+
+                    let temporary_ids = recovered
+                        .iter()
+                        .map(|operation| operation.temporary_id().0.clone())
+                        .collect::<std::collections::BTreeSet<_>>();
+                    let compensation_corr = self.alloc_corr_internal();
+                    out.push(helix_core::Effect::PersistAtomic {
+                        corr: compensation_corr,
+                        ops: vec![helix_core::effect::StorageOp::BatchUpdate(
+                            helix_core::effect::BatchUpdateSpec {
+                                table: "message",
+                                key_col: "temporary_id",
+                                key_vals: temporary_ids
+                                    .into_iter()
+                                    .map(helix_core::effect::SqlValue::Text)
+                                    .collect(),
+                                patch: vec![
+                                    (
+                                        "send_status".to_string(),
+                                        helix_core::effect::SqlValue::Text("unsend".to_string()),
+                                    ),
+                                    (
+                                        "upload_progress_percent".to_string(),
+                                        helix_core::effect::SqlValue::Integer(0),
+                                    ),
+                                ],
+                            },
+                        )],
+                    });
+                    self.state.pending_media_recovery_compensation =
+                        Some((compensation_corr, recovered));
                 }
                 PortOutcome::Err(error) => {
                     tracing::warn!(error = ?error, "pending_media recovery scan failed");
@@ -40,7 +77,80 @@ impl ImModule {
             return Ok(());
         }
 
+        if self
+            .state
+            .pending_media_recovery_compensation
+            .as_ref()
+            .is_some_and(|(pending_corr, _)| *pending_corr == corr)
+        {
+            let (_, recovered) = self
+                .state
+                .pending_media_recovery_compensation
+                .take()
+                .expect("recovery compensation correlation was checked");
+            match outcome {
+                PortOutcome::Ok(_) => {
+                    let channels = recovered
+                        .iter()
+                        .map(crate::send::upload_props::FailedMediaOp::channel_id)
+                        .collect::<std::collections::BTreeSet<_>>();
+                    for operation in recovered {
+                        // on_start scan 与本会话新 send 可并行。快照中的 live temporary_id
+                        // 可能已推进甚至完成，绝不能把旧 prepare/put 重新注入失败表；
+                        // scan 只负责本进程启动前留下的孤儿 journal。
+                        if self
+                            .state
+                            .pending_sends
+                            .contains_key(operation.temporary_id())
+                        {
+                            continue;
+                        }
+                        self.state
+                            .failed_media_ops
+                            .entry((operation.temporary_id().clone(), operation.target().clone()))
+                            .or_insert(operation);
+                    }
+                    self.state.media_recovery_ready = true;
+                    for channel_id in channels {
+                        self.refresh_attached_latest_timeline(channel_id, None, out)?;
+                    }
+                }
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        error = ?error,
+                        "pending_media recovery compensation failed; retry remains closed"
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        if let Some(commit) = self.state.pending_media_completion_persists.remove(&corr) {
+            return self.handle_media_completion_persist_reply(commit, outcome, out);
+        }
+
+        if let Some(reset) = self.state.pending_media_retry_resets.remove(&corr) {
+            return crate::send::retry_send::handle_media_retry_reset_reply(
+                self, reset, outcome, out,
+            );
+        }
+
+        if let Some(route) = self.state.file_upload_progress_persists.remove(&corr) {
+            return self.handle_file_upload_progress_persist_reply(corr, route, outcome, out);
+        }
+
         if let Some(pending_media) = self.state.pending_media_ops.remove(&corr) {
+            if matches!(
+                &pending_media,
+                crate::send::upload_props::PendingMediaOp::Put(_)
+            ) {
+                if matches!(outcome, PortOutcome::Ok(_))
+                    && self.defer_media_put_until_progress_commits(corr, &pending_media)
+                {
+                    return Ok(());
+                }
+                self.finish_file_upload_progress(corr);
+            }
             return self.handle_media_port_reply(pending_media, outcome, out);
         }
 
@@ -49,6 +159,7 @@ impl ImModule {
         }
 
         if let Some(pending_upload) = self.state.pending_uploads.remove(&corr) {
+            self.finish_file_upload_progress(corr);
             return self.handle_upload_port_reply(pending_upload, outcome, out);
         }
 
@@ -286,11 +397,15 @@ impl ImModule {
             } => self.handle_outbound_send_http_reply(channel_id, temporary_id, outcome, out),
             CorrelationContext::TimelineRefreshAfterSendPersist {
                 channel_id,
+                window_token,
                 causation_id,
             } => match outcome {
-                PortOutcome::Ok(_) => {
-                    self.refresh_attached_latest_timeline(channel_id, causation_id, out)?
-                }
+                PortOutcome::Ok(_) => self.refresh_attached_timeline(
+                    channel_id,
+                    window_token.as_deref().unwrap_or("latest"),
+                    causation_id,
+                    out,
+                )?,
                 PortOutcome::Err(error) => tracing::warn!(
                     channel_id = channel_id.as_str(),
                     error = ?error,
@@ -402,10 +517,34 @@ impl ImModule {
                     ),
                 }
             }
+            CorrelationContext::MediaFailureCompensation {
+                temporary_id,
+                channel_id,
+                window_token,
+                causation_id,
+            } => match outcome {
+                PortOutcome::Ok(_) => {
+                    self.state.media_retry_inflight.remove(&temporary_id);
+                    self.refresh_attached_timeline(
+                        channel_id,
+                        window_token.as_deref().unwrap_or("latest"),
+                        causation_id,
+                        out,
+                    )?;
+                }
+                PortOutcome::Err(error) => tracing::warn!(
+                    tmp_id = temporary_id.0.as_str(),
+                    channel_id = channel_id.as_str(),
+                    error = ?error,
+                    "media failure compensation persist failed; retry remains blocked"
+                ),
+            },
             CorrelationContext::RetrySendRehydrate {
                 message_id,
                 requested_at_ms,
                 request_id,
+                action_channel_id,
+                window_token,
                 lookup_by_id,
             } => {
                 crate::send::retry_send::handle_rehydrate_reply(
@@ -413,6 +552,8 @@ impl ImModule {
                     message_id,
                     requested_at_ms,
                     request_id,
+                    action_channel_id,
+                    window_token,
                     lookup_by_id,
                     outcome,
                     out,
@@ -485,8 +626,17 @@ impl ImModule {
                 out,
             )?,
 
-            CorrelationContext::SurfaceStorageSnapshot { request } => {
-                self.handle_surface_storage_snapshot(request, outcome, now_ms, out)?;
+            CorrelationContext::SurfaceStorageSnapshot {
+                request,
+                refresh_existing,
+            } => {
+                self.handle_surface_storage_snapshot(
+                    request,
+                    refresh_existing,
+                    outcome,
+                    now_ms,
+                    out,
+                )?;
             }
 
             CorrelationContext::SurfaceThreadSnapshot {

@@ -5,8 +5,9 @@
 //! - Rust 持有网络（SharedWsClient / SharedHttpClient）；C++ host 不喂帧/喂响应。
 //! - 事件回传：pump 吐 Effect::Emit → FfiEventSink 攒批 → 每 step 单次
 //!   `CppHostVtable::on_domain_events_batch`（HX-C007）。
-//! - pump：`helix_create_with_network` 起专用线程（current_thread runtime）跑 host
-//!   `run_engine_loop`；命令经 tick channel 进泵，事件经 vtable 回 C++。
+//! - pump：`helix_create_with_endpoints`（推荐）或兼容入口 `helix_create_with_network`
+//!   起专用线程（current_thread runtime）跑 host `run_engine_loop`；命令经 tick channel
+//!   进泵，事件经 vtable 回 C++。
 //!
 //! ## 内存安全约束（HX-C006）
 //!
@@ -24,7 +25,9 @@ mod shared;
 
 pub use action::helix_invoke_action;
 pub use command::helix_command;
-pub use handle::{helix_create_with_network, helix_destroy, HelixHandle};
+pub use handle::{
+    helix_create_with_endpoints, helix_create_with_network, helix_destroy, HelixHandle,
+};
 pub use headers::{helix_remove_header, helix_set_header};
 pub use query::{helix_query, helix_query_free};
 pub use shared::{FFI_BUSY, FFI_INVALID, FFI_NULL, FFI_OK, FFI_UNIMPLEMENTED, FFI_UTF8};

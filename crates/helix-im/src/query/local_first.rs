@@ -97,8 +97,21 @@ impl ImModule {
         causation_id: Option<String>,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        self.refresh_attached_latest_timeline_with_deferred_send(
+        self.refresh_attached_timeline(channel_id, "latest", causation_id, out)
+    }
+
+    /// Action authority is scope-bound: its causal terminal Frame must return to the exact
+    /// timeline window that granted the opaque actionRef.
+    pub(crate) fn refresh_attached_timeline(
+        &mut self,
+        channel_id: ChannelId,
+        window_token: &str,
+        causation_id: Option<String>,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        self.refresh_attached_timeline_window_with_deferred_send(
             channel_id,
+            window_token,
             causation_id,
             None,
             out,
@@ -117,16 +130,33 @@ impl ImModule {
         deferred_send_http: Option<crate::state::TemporaryId>,
         out: &mut EffectSink,
     ) -> Result<bool, ImError> {
+        self.refresh_attached_timeline_window_with_deferred_send(
+            channel_id,
+            "latest",
+            causation_id,
+            deferred_send_http,
+            out,
+        )
+    }
+
+    fn refresh_attached_timeline_window_with_deferred_send(
+        &mut self,
+        channel_id: ChannelId,
+        window_token: &str,
+        causation_id: Option<String>,
+        deferred_send_http: Option<crate::state::TemporaryId>,
+        out: &mut EffectSink,
+    ) -> Result<bool, ImError> {
         let scope = crate::interaction_frame::SurfaceScope::Timeline {
             channel_id: channel_id.as_str().to_string(),
-            window_token: "latest".to_string(),
+            window_token: window_token.to_string(),
         };
         if !self.state.timeline_projector.is_attached(&scope) {
             return Ok(false);
         }
         let payload = serde_json::json!({
             "channel_id": channel_id.as_str(),
-            "window_token": "latest",
+            "window_token": window_token,
             "limit": super::QUERY_MESSAGES_DEFAULT,
         });
         let bytes = serde_json::to_vec(&payload)
@@ -226,7 +256,9 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let explicit_surface_resync = is_surface_timeline_resync(&causation_id);
+        let causal_action_readback = causation_id.is_some() && !explicit_surface_resync;
         if !explicit_surface_resync
+            && !causal_action_readback
             && !self.is_current_message_query(
                 request.channel_id,
                 &request.window_token,
@@ -247,7 +279,7 @@ impl ImModule {
                         "message query local scan reply malformed"
                     );
                     if !allow_remote_fallback {
-                        out.push(self.emit_timeline_failed(&request, now_ms, None)?);
+                        out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
                         self.emit_deferred_posts_create_after_timeline_frame(
                             deferred_send_http,
                             out,
@@ -265,7 +297,7 @@ impl ImModule {
                     "message query local scan failed"
                 );
                 if !allow_remote_fallback {
-                    out.push(self.emit_timeline_failed(&request, now_ms, None)?);
+                    out.push(self.emit_timeline_failed(&request, now_ms, causation_id)?);
                     self.emit_deferred_posts_create_after_timeline_frame(deferred_send_http, out)?;
                     return Ok(());
                 }
@@ -334,7 +366,9 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let explicit_surface_resync = is_surface_timeline_resync(&causation_id);
+        let causal_action_readback = causation_id.is_some() && !explicit_surface_resync;
         if !explicit_surface_resync
+            && !causal_action_readback
             && !self.is_current_message_query(
                 request.channel_id,
                 &request.window_token,
@@ -681,7 +715,7 @@ impl ImModule {
         } else {
             self.state
                 .timeline_projector
-                .snapshot_from_render_ready(timeline_request, rows)
+                .snapshot_from_render_ready_with_causation(timeline_request, rows, causation_id)
         }
         .map_err(|error| ImError::Parse(format!("timeline projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
@@ -699,7 +733,11 @@ impl ImModule {
             // 转发的 timeline reconciliation 与 left-dialog patch 是两条独立投影。
             // dialog 已 attach 时保留 target authority，直到其写后读 Frame 发出；否则
             // headless timeline 是唯一可观察终态，才在这里消费 ledger。
-            if self.state.dialog_list_frame.scope().is_none() {
+            let is_forward_action = self
+                .state
+                .pending_forward_deliveries
+                .contains_request(&request_id);
+            if is_forward_action && self.state.dialog_list_frame.scope().is_none() {
                 let batch_complete = self
                     .state
                     .pending_forward_deliveries
@@ -715,6 +753,10 @@ impl ImModule {
                         "timeline action frame had no in-flight request ledger entry"
                     );
                 }
+            } else if !is_forward_action {
+                self.state
+                    .action_registry
+                    .complete_after_terminal_frame(&request_id);
             }
         }
         Ok(effect)
@@ -747,11 +789,11 @@ impl ImModule {
         } else if self.state.timeline_projector.current_view(&scope).is_some() {
             self.state
                 .timeline_projector
-                .patch_from_render_ready(failed, &[], None)
+                .patch_from_render_ready(failed, &[], causation_id.clone())
         } else {
             self.state
                 .timeline_projector
-                .snapshot_from_render_ready(failed, &[])
+                .snapshot_from_render_ready_with_causation(failed, &[], causation_id.clone())
         }
         .map_err(|error| ImError::Parse(format!("timeline failure projection: {error}")))?;
         self.register_timeline_action_bindings(&mutation, now_ms)?;
@@ -763,8 +805,14 @@ impl ImModule {
             vec![mutation],
         )
         .map_err(|error| ImError::Serialize(error.to_string()))?;
-        crate::projector::emit_interaction_frame(frame)
-            .map_err(|error| ImError::Serialize(error.to_string()))
+        let effect = crate::projector::emit_interaction_frame(frame)
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        if let Some(request_id) = causation_id.filter(|_| !explicit_resync) {
+            self.state
+                .action_registry
+                .complete_after_terminal_frame(&request_id);
+        }
+        Ok(effect)
     }
 }
 

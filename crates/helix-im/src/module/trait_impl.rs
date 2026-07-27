@@ -422,6 +422,14 @@ impl Module for ImModule {
                     })?;
             }
 
+            Tick::PortProgress { corr, progress } => {
+                self.handle_file_upload_progress(*corr, *progress, out)
+                    .map_err(|e| CoreError::ModuleError {
+                        module: self.name(),
+                        source: Box::new(e),
+                    })?;
+            }
+
             Tick::Timer(id) => {
                 self.handle_timer(*id, now_ms, out)
                     .map_err(|e| CoreError::ModuleError {
@@ -491,6 +499,8 @@ impl Module for ImModule {
                 module: self.name(),
                 source: Box::new(e),
             })?;
+        self.state.media_recovery_ready = false;
+        self.state.pending_media_recovery_compensation = None;
         let corr = self.alloc_corr_internal();
         out.push(helix_core::Effect::Persist {
             corr,

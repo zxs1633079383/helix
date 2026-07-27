@@ -6,9 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{
-    InteractionFrameV2, SurfaceScope, TypedSurfaceMutation,
-};
+use helix_im::interaction_frame::{InteractionFrameV2, SurfaceScope, TypedSurfaceMutation};
 use serde_json::{json, Value};
 
 #[path = "support/g07_scenario.rs"]
@@ -231,12 +229,13 @@ fn optional_message_id(frame: &InteractionFrameV2) -> Option<&str> {
 
 /// 返回成员列表 scope 的可重绑定 cursor；其他 surface 不声明该参数。
 fn optional_roster_cursor(frame: &InteractionFrameV2) -> Option<&str> {
-    frame.mutations.iter().find_map(
-        |mutation| match &mutation.mutation.scope {
+    frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.scope {
             SurfaceScope::MemberRoster { cursor, .. } => Some(cursor.as_str()),
             _ => None,
-        },
-    )
+        })
 }
 
 /// 为每份 Fixture 生成 producer、hash、surface 与动态字段白名单。

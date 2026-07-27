@@ -113,9 +113,7 @@ pub fn assert_revocable_contract(frame: &InteractionFrameV2) {
 /// 逐字段验证离线 authority 提交后的 recalled content 与无平台 causation。
 pub fn assert_offline_recalled_contract(frame: &InteractionFrameV2) {
     let spec = g04a_scenario_spec();
-    frame
-        .validate()
-        .expect("G04a recalled Frame remains valid");
+    frame.validate().expect("G04a recalled Frame remains valid");
     assert_eq!(frame.schema_version, 2);
     assert_eq!(
         frame.causation_id, None,

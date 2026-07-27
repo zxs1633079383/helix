@@ -46,9 +46,9 @@ fn message_read_corr(h: &Harness) -> u64 {
         .iter()
         .find_map(|effect| match effect {
             Effect::Persist { corr, ops }
-                if ops.iter().any(
-                    |op| matches!(op, StorageOp::Get(spec) if spec.table == "message"),
-                ) =>
+                if ops
+                    .iter()
+                    .any(|op| matches!(op, StorageOp::Get(spec) if spec.table == "message")) =>
             {
                 Some(corr.raw())
             }

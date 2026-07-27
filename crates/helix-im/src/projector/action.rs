@@ -52,6 +52,11 @@ pub enum ActionDispatch {
         channel_id: String,
         message_id: String,
     },
+    RetryMessage {
+        channel_id: String,
+        message_id: String,
+        window_token: String,
+    },
     ForwardMessages {
         channel_id: String,
         source_message_ids: Vec<String>,
@@ -74,9 +79,6 @@ pub enum ActionDispatch {
     },
     CancelSchedule {
         channel_id: String,
-    },
-    RetryMessage {
-        message_id: String,
     },
     /// 没有安全 canonical 映射的 action 永远不能被受理。
     Unsupported,
@@ -109,6 +111,7 @@ impl ActionDispatch {
         kind: &str,
         channel_id: &str,
         message_id: &str,
+        window_token: &str,
     ) -> Option<Self> {
         let channel_id = channel_id.to_string();
         let message_id = message_id.to_string();
@@ -128,6 +131,11 @@ impl ActionDispatch {
             "revoke" => Some(Self::RevokeMessage {
                 channel_id,
                 message_id,
+            }),
+            "retry" => Some(Self::RetryMessage {
+                channel_id,
+                message_id,
+                window_token: window_token.to_string(),
             }),
             "forward" => Some(Self::ForwardMessages {
                 channel_id,
@@ -149,7 +157,6 @@ impl ActionDispatch {
                 channel_id,
                 message_id,
             }),
-            "retry" => Some(Self::RetryMessage { message_id }),
             _ => None,
         }
     }
@@ -162,12 +169,12 @@ impl ActionDispatch {
                 | "viewReceipt"
                 | "locate"
                 | "revoke"
+                | "retry"
                 | "forward"
                 | "react"
                 | "urgent"
                 | "urgentConfirm"
                 | "urgentCancel"
-                | "retry"
         )
     }
 
@@ -230,10 +237,10 @@ impl ActionDispatch {
             | Self::ViewReceipt { .. }
             | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
+            | Self::RetryMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
             | Self::CancelSchedule { .. }
-            | Self::RetryMessage { .. }
                 if !invocation.input.is_empty() =>
             {
                 Err(ActionProjectionError::InvalidInvocation(
@@ -244,10 +251,10 @@ impl ActionDispatch {
             | Self::ViewReceipt { .. }
             | Self::LocatePost { .. }
             | Self::RevokeMessage { .. }
+            | Self::RetryMessage { .. }
             | Self::ConfirmUrgent { .. }
             | Self::CancelUrgent { .. }
-            | Self::CancelSchedule { .. }
-            | Self::RetryMessage { .. } => Ok(()),
+            | Self::CancelSchedule { .. } => Ok(()),
             Self::ForwardMessages { .. } => validate_forward_input(&invocation.input),
             Self::ToggleReaction { .. } => validate_reaction_input(&invocation.input),
             Self::UrgentMessage { .. } => validate_urgent_input(&invocation.input),
@@ -1196,16 +1203,17 @@ mod tests {
             "viewReceipt",
             "locate",
             "revoke",
+            "retry",
             "forward",
             "react",
             "urgent",
             "urgentConfirm",
             "urgentCancel",
-            "retry",
         ] {
             assert!(ActionDispatch::supports_timeline_kind(kind), "{kind}");
             assert!(
-                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1").is_some(),
+                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1", "latest",)
+                    .is_some(),
                 "{kind} must share the projector/application dispatch source"
             );
         }
@@ -1225,7 +1233,13 @@ mod tests {
         ] {
             assert!(!ActionDispatch::supports_timeline_kind(kind), "{kind}");
             assert!(
-                ActionDispatch::from_timeline_binding(kind, "channel-1", "message-1").is_none(),
+                ActionDispatch::from_timeline_binding(
+                    kind,
+                    "channel-1",
+                    "message-1",
+                    "latest",
+                )
+                .is_none(),
                 "{kind} must remain disabled until authority, persistence and causation Frame exist"
             );
         }

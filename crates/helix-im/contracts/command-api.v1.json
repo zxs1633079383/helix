@@ -3,8 +3,8 @@
   "source": {
     "matrix_path": "crates/helix-im/contracts/strict-matrix.v1.json",
     "contract_epoch": 11,
-    "matrix_sha256": "0e45a64ee1629498f44788613fb142489bfffbf7d02d950e8a51ae06afb419cd",
-    "matrix_semantic_sha256": "0bae63675c09e86b81d3ed3e41872fe5fea544a79a4093866f63dfa2df44fade",
+    "matrix_sha256": "caadafd2947ccadf647a134ab7c85f60b1d0feb6966f79a8717b32eef094c9c8",
+    "matrix_semantic_sha256": "e40a34ee9d96b9c11258ad38293dc33a926dfbefc17d32e7aa603ab2868b5e23",
     "gate_count": 46,
     "command_count": 52
   },
@@ -457,8 +457,8 @@
             "pending_media"
           ],
           "http": {
-            "request": "Mobile 只在 `props.file.mediaInput` 或 `props.rich[].mediaInput` 提交 `{localPath,fileName,contentType,size,sha256}`，不得提交 uploadId/fileId/objectKey/url/publicUrl/headers/state 等 Go-owned 字段。Helix 将内部 `pending_media` 按 Prepare/Put/Complete 阶段持久化并剥离公开 props：① `POST /api/cses/media/upload/prepare` body `{channelId,fileName,contentType,size,sha256}`；② driver 以 prepare 返回的 method/url/headers 执行 `PUT`，对象字节来自 localPath；③ `POST /api/cses/media/upload/complete` body `{uploadId}`。多附件必须全部完成可信校验后，才恰好一次调用 `POST /api/cses/posts/create`；分阶段失败/重启从 `pending_media` 当前阶段重试，不铸造新业务消息 ID，也不得重复已完成阶段",
-            "response": "prepare 只接受 `CommonRes.status=SUCCESS` 且 data 提供服务端生成的 uploadId/fileId/objectKey/url/publicUrl/method/headers；complete 只接受 `CommonRes.status=SUCCESS`、`data.state=completed`，且 uploadId/fileId/objectKey/url/size/contentType/fileName/sha256/channelId 与 `mediaInput` 和 prepare 结果精确匹配，随后形成可信附件引用。真实链证据必须再 `POST /api/cses/media/get` body `{fileId}` 核对 completed/size/contentType/sha256，并对返回 URL 执行 `GET` object，核对 HTTP 200、Content-Length、Content-Type、对象字节长度与 SHA；任一缺失或冲突均 fail-closed，不能以 posts/create 200 或投影单面晋升 Green"
+            "request": "前端必须分别注入 Go `api_base_url` 与 Java `default_api_base_url=env.restHost`，二者可以不同 origin，Rust 不得互相推导。Mobile 只在 `props.file.mediaInput` 或 `props.files[].mediaInput` 提交 `{localPath,fileName,contentType,size,sha256}`，不得提交 uploadToken/fileId/objectKey/url/stablePath/headers/state 等 Java-owned 字段。Helix 将内部 `pending_media` 按 Prepare/Put/Complete 阶段持久化并剥离公开 props：① 直连 Java `POST /oss/getPresignedUrl` body `{mediaUpload:true,clientUploadId,fileName,contentType,size,sha256}`；② driver 以 prepare 返回的 method/url/headers 执行 OSS `PUT`，对象字节来自 localPath；③ 直连 Java `POST /oss/completeMediaUpload` body `{mediaUpload:true,clientUploadId,uploadToken,fileId,objectKey,contentType,size,sha256}`。九张图的 prepare 必须同批吐给 host 并发执行且整条消息转圈，不逐图发百分比；FILE 保留 5% 进度。所有附件 verify 完成后，才恰好一次调用 Go `POST /api/cses/posts/create`；分阶段失败/重启从 `pending_media` 当前阶段重试，不铸造新业务消息 ID，也不得重复已完成阶段。缺 Java base 必须在 optimistic Sending 持久化前失败",
+            "response": "prepare 只接受 Java raw `isSuccess=true`，且服务端返回密钥 HMAC 派生的不可预测 owner-bound fileId/objectKey、绑定完整性声明的 uploadToken、短时 PUT url、稳定 stablePath、method=PUT 及必需 `Content-Type`/`x-oss-forbid-overwrite` headers；verify 必须常量时间验 uploadToken，只接受 Java raw `isSuccess=true,state=completed`，且 fileId/objectKey/stablePath/contentLength（声明 size）/contentType/sha256 与 `mediaInput` 和 prepare 结果精确匹配，Java 对拍 OSS 后写 completed marker，随后形成只含稳定 Java capability URL 的可信附件引用。预签名 URL/headers 永不落库或进入 posts/create，uploadToken 只进入脱敏内部 journal。真实链证据必须再 `GET /oss/media/object/{fileId}`：未完成对象必须失败，完成对象跟随 302 获取 object，并核对 HTTP 200、Content-Length、安全 Content-Type/Disposition、对象字节长度与 SHA；任一缺失或冲突均 fail-closed，不能以 posts/create 200 或投影单面晋升 Green"
           },
           "ws": {
             "events": "`post`"
@@ -467,12 +467,11 @@
             "database": "mattermost-imv2",
             "tables": [
               "post",
-              "media",
               "channel",
               "channel_member",
               "channel_event"
             ],
-            "contract": "`media.upload.prepare` → object PUT → `media.upload.complete` → `media.get`/object GET → `post.createPost`；`media` 保存服务端 upload/file/object 元数据与 completed 状态，`post` 只引用 complete 后的可信附件；`post`, `media`, `channel`, `channel_member`, `channel_event`"
+            "contract": "Java `oss.getPresignedUrl(mediaUpload)` → OSS object PUT → Java `oss.completeMediaUpload(mediaUpload)` → completed marker → Java stable object 302/GET → Go `post.createPost`；Java 以服务端 HMAC uploadToken 绑定 owner/fileId/objectKey/size/type/SHA，OSS 保存对象与完成标记，模糊 PUT 重试只清理未完成对象，Go `post` 只引用 verify 后的稳定附件 URL；`post`, `channel`, `channel_member`, `channel_event`"
           }
         },
         {

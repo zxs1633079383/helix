@@ -144,6 +144,33 @@ fn build_simple_message_short_text_full() {
     assert_eq!(body["simpleMessage"], json!("短"));
 }
 
+#[test]
+fn build_image_simple_message_keeps_frontend_prefix_and_caption() {
+    let mut input = base_input("配图说明", 1);
+    input.msg_type = "IMAGE";
+    input.props = json!({
+        "files": [{"name": "a.png"}],
+        "imagePosition": "bottom"
+    });
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["simpleMessage"], json!("[图片]配图说明"));
+}
+
+#[test]
+fn build_file_simple_message_uses_stable_file_name() {
+    let mut input = base_input("", 1);
+    input.msg_type = "FILE";
+    input.props = json!({
+        "file": {
+            "mediaInput": {
+                "fileName": "季度报告.pdf"
+            }
+        }
+    });
+    let body = build_message_object(&input).unwrap();
+    assert_eq!(body["simpleMessage"], json!("[文件]季度报告.pdf"));
+}
+
 // findReplyRootId 三分支 ──────────────────────────────────────────────────────
 
 fn input_with_reply<'a>(replied: RepliedRef<'a>) -> BuildInput<'a> {
@@ -291,6 +318,20 @@ fn build_from_command_type_id_default_when_absent() {
     let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
     assert_eq!(body["type"], json!("TEXT"));
     assert_eq!(body["id"], json!(""));
+}
+
+#[test]
+fn media_message_types_are_canonicalized_for_posts_create() {
+    for (input, expected) in [
+        ("rich", "IMAGE"),
+        ("IMAGE", "IMAGE"),
+        ("file", "FILE"),
+        ("FILE", "FILE"),
+    ] {
+        let cmd = json!({"text":"caption", "type":input, "props":{"media":true}});
+        let body = build_from_command(&cmd, "ch", "tmp", 1, &identity()).unwrap();
+        assert_eq!(body["type"], expected);
+    }
 }
 
 // ─── 端到端：handle_send_message 经 build_message_object ─────────────────────
@@ -553,6 +594,7 @@ fn send_post_echo_reconciles_and_cancels_timer() {
 }
 
 #[test]
+/// 证明发送超时先持久化 unsend，再由回执链发布失败终态。
 fn send_timeout_marks_unsend_when_no_echo() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_t", "hello"), 1000);
@@ -566,9 +608,20 @@ fn send_timeout_marks_unsend_when_no_echo() {
         .unwrap();
     let effects = h.step(timer_tick(timer), 16_001);
     assert!(
-        effects.iter().any(|e| matches!(e, EffectKind::PersistFire)),
-        "15s 超时无 echo → PersistFire 标 unsend，got {effects:?}"
+        effects.iter().any(|e| matches!(e, EffectKind::Persist(_))),
+        "15s 超时无 echo → Persist 标 unsend，got {effects:?}"
     );
+    assert!(h.sink.as_slice().iter().any(|effect| match effect {
+        Effect::Persist { ops, .. } => ops.iter().any(|op| match op {
+            StorageOp::BatchUpsert(spec) if spec.table == "message" =>
+                spec.rows.iter().flatten().any(|(column, value)| {
+                    column == "send_status"
+                        && matches!(value, SqlValue::Text(value) if value == "unsend")
+                }),
+            _ => false,
+        }),
+        _ => false,
+    }));
 }
 
 fn sid(n: u64) -> String {

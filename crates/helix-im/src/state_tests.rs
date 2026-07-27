@@ -99,7 +99,9 @@ fn reconnect_batch_reset_preserves_live_action_grant() {
                     disabled_reason: None,
                 },
                 dispatch: ActionDispatch::RetryMessage {
+                    channel_id: "channel-1".to_string(),
                     message_id: "message-1".to_string(),
+                    window_token: "latest".to_string(),
                 },
             },
             1,

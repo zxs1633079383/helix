@@ -1,6 +1,4 @@
-use helix_im::interaction_frame::{
-    InteractionFrameV2, MessageContentVm, SurfaceDataVm,
-};
+use helix_im::interaction_frame::{InteractionFrameV2, MessageContentVm, SurfaceDataVm};
 use serde_json::json;
 
 #[path = "../g01_shared/scenario.rs"]
@@ -9,22 +7,18 @@ mod shared;
 
 #[allow(unused_imports)]
 pub use shared::{
-    assert_dialog_contract_for, assert_group_created_contract_for,
-    assert_timeline_contract_for, delivery_kinds, dialog_row, first_message,
-    surface_names, HttpScenarioTrace, RecoveryScenarioTrace, SendScenarioSpec, Terminal,
-    WsScenarioTrace,
+    assert_dialog_contract_for, assert_group_created_contract_for, assert_timeline_contract_for,
+    delivery_kinds, dialog_row, first_message, surface_names, HttpScenarioTrace,
+    RecoveryScenarioTrace, SendScenarioSpec, Terminal, WsScenarioTrace,
 };
 
 pub const CHANNEL_ID: &str = "chdocx00000000000000000001";
 pub const SERVER_ID: &str = "srvdoc00000000000000000001";
 pub const REQUEST_ID: &str = "g02-wdio-request-1";
-pub const DOCUMENT_URL: &str =
-    "http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15";
+pub const DOCUMENT_URL: &str = "http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15";
 pub const DOCUMENT_TITLE: &str = "打开文档";
-pub const MARKER: &str =
-    "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15";
-pub const SIMPLE_MESSAGE: &str =
-    "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a3";
+pub const MARKER: &str = "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15";
+pub const SIMPLE_MESSAGE: &str = "【文档】 http://doc-pre.cses7.com/doc/6a6036184de8e1a3";
 pub const ACTOR_ID: &str = "g02-wdio-actor";
 pub const OBSERVER_ID: &str = "g02-wdio-observer";
 pub const TEAM_ID: &str = "g02-wdio-company";
@@ -97,10 +91,7 @@ pub fn assert_document_timeline_contract(
 
 /// 逐字段验证冷启动 query Frame 的 typed Document 内容，query causation 可为空。
 #[allow(dead_code)]
-pub fn assert_recovered_document_timeline_contract(
-    frame: &InteractionFrameV2,
-    expected_id: &str,
-) {
+pub fn assert_recovered_document_timeline_contract(frame: &InteractionFrameV2, expected_id: &str) {
     let spec = g02_scenario_spec();
     assert_timeline_contract_for(frame, &spec, "sent", expected_id, None);
     assert_document_content(frame, expected_id);
@@ -131,10 +122,7 @@ fn assert_document_content(frame: &InteractionFrameV2, expected_id: &str) {
         access.get("title"),
         Some(&SurfaceDataVm::String(DOCUMENT_TITLE.to_string()))
     );
-    assert_eq!(
-        access.get("placeholder"),
-        Some(&SurfaceDataVm::Bool(true))
-    );
+    assert_eq!(access.get("placeholder"), Some(&SurfaceDataVm::Bool(true)));
     assert!(
         !first_message(frame).actions.is_empty(),
         "G02 document cards retain Helix-authored message actions"

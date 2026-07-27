@@ -202,11 +202,7 @@ fn gs1_persists_all_channels_but_bounds_initial_projection_window() {
     h.module.ingest_increment_end(None, &mut h.sink);
     let (persist_corr, tables) = increment_batch_persist(&h);
     assert!(
-        tables
-            .iter()
-            .filter(|table| **table == "channel")
-            .count()
-            >= 501,
+        tables.iter().filter(|table| **table == "channel").count() >= 501,
         "首屏窗口不得裁掉同批 SQLite channel 写入"
     );
 
@@ -220,7 +216,10 @@ fn gs1_persists_all_channels_but_bounds_initial_projection_window() {
         500,
         "首屏逐频道投影必须受 dialog window 上限约束"
     );
-    assert_eq!(events.last().map(String::as_str), Some("im:channels:loaded"));
+    assert_eq!(
+        events.last().map(String::as_str),
+        Some("im:channels:loaded")
+    );
 }
 
 fn prepare_sync_persist() -> (Harness, u64, Vec<&'static str>) {

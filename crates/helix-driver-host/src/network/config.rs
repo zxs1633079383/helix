@@ -12,8 +12,11 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 /// Platform-provided network initialization material.
 #[derive(Debug, Clone)]
 pub struct HostNetworkConfig {
+    /// Go IM base URL（例如 `/api/cses` 网关）。
     pub api_base_url: String,
-    /// 第二网关 base URL；空串表示未注入。
+    /// 前端/平台显式提供的 Java 默认业务网关 base URL；空串表示未注入。
+    ///
+    /// 不允许从 `api_base_url` 裁路径或拼域名推测，两者可以是完全不同的 origin。
     pub default_api_base_url: String,
     pub ws_url: String,
     pub timeout: Duration,
@@ -38,6 +41,12 @@ impl HostNetworkConfig {
 
     pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = Some(user_agent.into());
+        self
+    }
+
+    /// 显式注入 Java/default business gateway；不会从 Go base 派生。
+    pub fn with_default_api_base_url(mut self, api_base_url: impl Into<String>) -> Self {
+        self.default_api_base_url = api_base_url.into();
         self
     }
 }

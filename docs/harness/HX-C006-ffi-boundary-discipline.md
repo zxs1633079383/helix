@@ -84,10 +84,12 @@ driver-ffi 把一个 step 的多条 `Effect::Emit` 编码成单 buffer，经 `on
 - `ptr..ptr+len` 由 **Rust own**，**仅在 `cb` 回调期间有效**，回调返回后 Rust 就地复用/drop。**无 UAF**。
 - **host = C++ shim**（与 pump 同进程），**不是 Dart 直连**。Dart 异步如何吸收：C++ shim 在**回调线程内
   `malloc + memcpy`** 到稳定堆，再投递给 Dart isolate（`docs/flutter-demo-pointer.md` ①稳定化）。
-- **禁改 ownership-transfer、禁新增 `helix_free_batch`/`helix_shim_free_batch` 等 Rust 导出符号**——破
-  §1.3 七符号冻结。稳定化是 **shim 层**的事（`malloc/free` 在仓外 C++），非 Rust 导出。
+- **禁改 ownership-transfer、禁新增 `helix_free_batch`/`helix_shim_free_batch` 等 Rust 导出符号**——
+  当前 C ABI 为 9 个稳定导出；业务 UC 不得扩张符号面，只有经 ADR 拍板的平台初始化能力可
+  additive 增加。稳定化是 **shim 层**的事（`malloc/free` 在仓外 C++），非 Rust 导出。
 - **反模式（曾误判，已对抗证伪）**：「Dart listener 异步下 buffer UAF → 要 Rust 改 ownership-transfer +
-  加第 8 个 free 符号」——漏判 C++ shim 中间层得出的错误结论。shim memcpy 即解，Rust 侧零改动。
+  加 free 符号（当时会成为第 8 个导出）」——漏判 C++ shim 中间层得出的错误结论。shim memcpy
+  即解，Rust 侧零改动。
 - 配套：`now_ms` 同理由 **C++ shim 同步填**（vtable 字段保留，确定性注入 GOAL §1.2；禁移除字段让 Rust
   SystemTime 成正路）。
 
@@ -104,7 +106,8 @@ driver-ffi 把一个 step 的多条 `Effect::Emit` 编码成单 buffer，经 `on
 | 日期 | session/commit | 现象 | 根因 |
 |---|---|---|---|
 | 2026-06-08 | review MAJ-4 | FFI 同步 SQLite 未包 spawn_blocking，阻塞 tokio worker | 同步调用混进 async runtime；已文档化待实现 |
-| 2026-06-25 | driver-ffi 全量接管 SPEC | 误判投影批 UAF → 拟加第 8 个 free 符号破七符号冻结 | 漏判 C++ shim host 中间层；shim 回调线程 memcpy 即解，借出契约正确，Rust 零改动 |
+| 2026-06-25 | driver-ffi 全量接管 SPEC | 误判投影批 UAF → 拟加当时的第 8 个 free 符号破坏稳定 ABI | 漏判 C++ shim host 中间层；shim 回调线程 memcpy 即解，借出契约正确，Rust 零改动 |
+| 2026-07-24 | ADR-016 双 endpoint 初始化 | 平台必须分别注入 Go/Java/WS，新增第 9 个稳定导出 `helix_create_with_endpoints` | 平台初始化是经拍板的 additive ABI；旧入口保留，借出/free 契约不变，业务命令仍是数据 |
 
 ## §6 关联
 - 上游：rules/runtime-agnostic-core.md §7

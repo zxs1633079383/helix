@@ -11,7 +11,7 @@
 //! ## 路由策略（审查意见2 P3 落实）
 //!
 //! - `Inbound` / `Command`：遍历 modules，找第一个 `accepts()` 返回 true 的模块
-//! - `PortReply`：通过 `corr_map`（Correlation → module_index）O(1) 定向投递
+//! - `PortReply` / `PortProgress`：通过 `corr_map`（Correlation → module_index）O(1) 定向投递
 //! - `Timer`：通过 `timer_map`（TimerId → module_index）O(1) 定向投递
 //!
 //! 预期模块数 < 10，Inbound 的线性扫描实践 O(1)，可接受。
@@ -39,7 +39,7 @@ pub trait Module: MaybeSend + 'static {
     /// ## 约束
     ///
     /// - 仅用于 `Tick::Inbound` 和 `Tick::Command` 的路由
-    /// - `Tick::PortReply` 和 `Tick::Timer` **不调用此方法**，走 corr_map 定向路由
+    /// - `Tick::PortReply` / `Tick::PortProgress` 和 `Tick::Timer` **不调用此方法**，走映射定向路由
     /// - 必须是纯函数（不修改 self）
     fn accepts(&self, tick: &Tick) -> bool;
 
@@ -78,9 +78,9 @@ pub trait Module: MaybeSend + 'static {
 
 /// `Correlation → module_index` 映射，供 PortReply 定向路由。
 ///
-/// 每次 `step()` 产出含 Correlation 的 Effect（Persist/Http），
+/// 每次 `step()` 产出含 Correlation 的 Effect（Persist/Http/UploadFile），
 /// `ExecutionShell` 调用 `register()` 记录映射。
-/// PortReply 到达时，`lookup()` O(1) 查找目标 module_index。
+/// `PortProgress` 到达时 `peek()`，`PortReply` 到达时 `consume()`。
 #[derive(Default)]
 pub(crate) struct CorrelationMap {
     map: HashMap<Correlation, usize>,
@@ -95,6 +95,11 @@ impl CorrelationMap {
     /// MIN-8：原名 `lookup` 语义不明，改为 `consume` 体现"取出并移除"。
     pub fn consume(&mut self, corr: &Correlation) -> Option<usize> {
         self.map.remove(corr)
+    }
+
+    /// 非终态进度只读定位，不消费；同 corr 的最终 PortReply 必须仍可路由。
+    pub fn peek(&self, corr: &Correlation) -> Option<usize> {
+        self.map.get(corr).copied()
     }
 }
 

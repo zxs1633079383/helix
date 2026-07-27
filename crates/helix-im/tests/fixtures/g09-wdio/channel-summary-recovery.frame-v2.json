@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "transactionId": "surface-storage-channel|26:chfixx00000000000000000009-1",
+  "transactionId": "surface-storage-channel|26:chfixx00000000000000000009-2",
   "runtime": {
     "connection": "online",
     "initialSync": "ready",
@@ -13,7 +13,7 @@
         "kind": "channel",
         "channelId": "chfixx00000000000000000009"
       },
-      "revision": 1,
+      "revision": 2,
       "mutation": {
         "kind": "channelSummarySnapshot",
         "view": {

@@ -129,9 +129,9 @@ impl ImModule {
                         .and_then(|body| body.get("channelId"))
                         .and_then(serde_json::Value::as_str)
                         .and_then(crate::state::ChannelId::from_str)?;
-                    Some((channel_id, pending.request_id.clone()))
+                    Some((channel_id, pending.timeline_readback.clone()))
                 });
-            if let Some((channel_id, causation_id)) = failed_context {
+            if let Some((channel_id, timeline_readback)) = failed_context {
                 let reconcile_corr = self.alloc_corr_internal();
                 if self
                     .state
@@ -143,7 +143,8 @@ impl ImModule {
                         reconcile_corr,
                         crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
                             channel_id,
-                            causation_id,
+                            window_token: timeline_readback.window_token,
+                            causation_id: timeline_readback.causation_id,
                         },
                     );
                 }

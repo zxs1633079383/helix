@@ -6,8 +6,8 @@ mod scenario;
 use helix_im::interaction_frame::MessageContentVm;
 use scenario::{
     assert_dialog_contract_for, assert_document_timeline_contract,
-    assert_group_created_contract_for, assert_recovered_document_timeline_contract,
-    first_message, g02_scenario_spec, G02ScenarioRunner, Terminal, DOCUMENT_URL, SERVER_ID,
+    assert_group_created_contract_for, assert_recovered_document_timeline_contract, first_message,
+    g02_scenario_spec, G02ScenarioRunner, Terminal, DOCUMENT_URL, SERVER_ID,
 };
 
 #[test]
@@ -55,7 +55,8 @@ fn recovery_rebuilds_document_card_from_persisted_fact() {
     let trace = G02ScenarioRunner::run_recovery();
     assert_group_created_contract_for(&trace.group_created, &g02_scenario_spec());
     assert_recovered_document_timeline_contract(&trace.recovered, SERVER_ID);
-    let MessageContentVm::Document { summary, .. } = &first_message(&trace.recovered).content else {
+    let MessageContentVm::Document { summary, .. } = &first_message(&trace.recovered).content
+    else {
         panic!("recovered G02 row must remain a document card")
     };
     assert_eq!(summary, DOCUMENT_URL);

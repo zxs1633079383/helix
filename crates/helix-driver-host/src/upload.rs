@@ -1,18 +1,22 @@
 //! Shared local-file uploader for native and FFI host drivers.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use bytes::Bytes;
 use futures_util::stream;
 use reqwest::header;
 use reqwest::{Client, Method};
 use tokio::io::AsyncReadExt;
 
-use helix_core::effect::{FileUploadRequest, FileUploadResponse};
-use helix_core::ports::FileUploader;
+use helix_core::effect::{FileUploadProgress, FileUploadRequest, FileUploadResponse};
+use helix_core::ports::{FileUploadProgressReporter, FileUploader};
 use helix_core::PortError;
 
 #[derive(Clone)]
 pub struct SharedFileUploader {
     client: Client,
+    timeout: Duration,
 }
 
 impl Default for SharedFileUploader {
@@ -23,7 +27,15 @@ impl Default for SharedFileUploader {
 
 impl SharedFileUploader {
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 
     fn classify_error(e: reqwest::Error) -> PortError {
@@ -44,6 +56,14 @@ impl SharedFileUploader {
 #[async_trait::async_trait]
 impl FileUploader for SharedFileUploader {
     async fn upload(&self, req: FileUploadRequest) -> Result<FileUploadResponse, PortError> {
+        self.upload_with_progress(req, None).await
+    }
+
+    async fn upload_with_progress(
+        &self,
+        req: FileUploadRequest,
+        progress: Option<Arc<dyn FileUploadProgressReporter>>,
+    ) -> Result<FileUploadResponse, PortError> {
         let method = Method::from_bytes(req.method.as_bytes())
             .map_err(|e| PortError::Other(format!("invalid upload method: {e}")))?;
         if method != Method::PUT {
@@ -78,31 +98,51 @@ impl FileUploader for SharedFileUploader {
         let file = tokio::fs::File::open(&local_path)
             .await
             .map_err(|e| PortError::Other(format!("open upload file failed: {e}")))?;
-        let body = reqwest::Body::wrap_stream(stream::unfold(file, |mut file| async move {
-            let mut chunk = vec![0_u8; 64 * 1024];
-            match file.read(&mut chunk).await {
-                Ok(0) => None,
-                Ok(read) => {
-                    chunk.truncate(read);
-                    Some((Ok::<Bytes, std::io::Error>(Bytes::from(chunk)), file))
+        let body = reqwest::Body::wrap_stream(stream::unfold(
+            (file, 0_u64, progress),
+            move |(mut file, completed_bytes, progress)| async move {
+                let mut chunk = vec![0_u8; 64 * 1024];
+                match file.read(&mut chunk).await {
+                    Ok(0) => None,
+                    Ok(read) => {
+                        chunk.truncate(read);
+                        let completed_bytes = completed_bytes.saturating_add(read as u64);
+                        if let Some(reporter) = progress.as_ref() {
+                            reporter.report(FileUploadProgress {
+                                completed_bytes,
+                                total_bytes: actual_size,
+                            });
+                        }
+                        Some((
+                            Ok::<Bytes, std::io::Error>(Bytes::from(chunk)),
+                            (file, completed_bytes, progress),
+                        ))
+                    }
+                    Err(err) => Some((
+                        Err::<Bytes, std::io::Error>(err),
+                        (file, completed_bytes, progress),
+                    )),
                 }
-                Err(err) => Some((Err::<Bytes, std::io::Error>(err), file)),
-            }
-        }));
+            },
+        ));
 
+        let has_ticket_content_type = headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case(header::CONTENT_TYPE.as_str()));
         let mut builder = self.client.request(method, &upload_url);
         for (name, value) in headers {
             builder = builder.header(&name, value);
         }
         builder = builder.header(header::CONTENT_LENGTH, actual_size);
-        if let Some(content_type) = content_type {
+        if let Some(content_type) = content_type.filter(|_| !has_ticket_content_type) {
             builder = builder.header(header::CONTENT_TYPE, content_type);
         }
 
-        let response = builder
-            .body(body)
-            .send()
+        let response = tokio::time::timeout(self.timeout, builder.body(body).send())
             .await
+            .map_err(|_| {
+                PortError::Transport(format!("timeout after {} ms", self.timeout.as_millis()))
+            })?
             .map_err(Self::classify_error)?;
         let status = response.status();
         if !status.is_success() {

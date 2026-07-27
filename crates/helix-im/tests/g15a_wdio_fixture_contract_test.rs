@@ -201,10 +201,7 @@ fn current_g15a_producer_matches_canonical_v2_fixtures_and_provenance() {
     assert_eq!(cases.len(), 3, "G15a canonical inventory is explicit");
     assert_eq!(
         surface_names(&cases[0].frame),
-        BTreeSet::from([
-            "message.channel-summary",
-            "message.member-roster",
-        ])
+        BTreeSet::from(["message.channel-summary", "message.member-roster",])
     );
     let directory = fixture_dir();
     let update = std::env::var_os("UPDATE_G15A_WDIO_FIXTURES").is_some();

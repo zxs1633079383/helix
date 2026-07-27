@@ -255,7 +255,9 @@ impl G05ScenarioRunner {
             .effects()
             .iter()
             .filter_map(|effect| match effect {
-                Effect::PersistFire { ops } => Some(ops.as_slice()),
+                Effect::PersistAtomic { ops, .. } | Effect::PersistFire { ops } => {
+                    Some(ops.as_slice())
+                }
                 _ => None,
             })
             .flatten()
@@ -265,7 +267,18 @@ impl G05ScenarioRunner {
             persisted_tables.contains("channel") && persisted_tables.contains("channel_member"),
             "create response must persist channel and member facts; tables={persisted_tables:?}"
         );
-        self.only_frame()
+        let persist_corr = self.only_persist_corr_with(|ops| {
+            ops.iter()
+                .any(|op| storage_write_table(op) == Some("channel"))
+                && ops
+                    .iter()
+                    .any(|op| storage_write_table(op) == Some("channel_member"))
+        });
+        self.step(
+            ok(persist_corr, rows(json!([]))),
+            (CREATED_AT + offset + 2) as u64,
+        );
+        self.only_dialog_frame()
     }
 
     /// 通过 local-first production query 投影可转发 source message 与 opaque action。
@@ -474,7 +487,11 @@ impl G05ScenarioRunner {
     /// 按 StorageOp 语义提取当前批次唯一 Persist correlation。
     fn only_persist_corr_with(&self, predicate: impl Fn(&[StorageOp]) -> bool) -> Correlation {
         let mut matches = self.effects().iter().filter_map(|effect| match effect {
-            Effect::Persist { corr, ops } if predicate(ops) => Some(*corr),
+            Effect::Persist { corr, ops } | Effect::PersistAtomic { corr, ops }
+                if predicate(ops) =>
+            {
+                Some(*corr)
+            }
             _ => None,
         });
         let corr = matches.next().unwrap_or_else(|| {
@@ -515,6 +532,22 @@ impl G05ScenarioRunner {
         let mut frames = self.frames().into_iter();
         let frame = frames.next().expect("expected one InteractionFrameV2");
         assert!(frames.next().is_none(), "Frame output must be unambiguous");
+        frame
+    }
+
+    /// 从同时包含 typed create 的提交批次提取 fresh-group dialog Frame。
+    fn only_dialog_frame(&self) -> InteractionFrameV2 {
+        let mut matches = self.frames().into_iter().filter(|frame| {
+            frame
+                .mutations
+                .iter()
+                .any(|mutation| mutation.mutation.surface == SurfaceId::MessageLeftDialogList)
+        });
+        let frame = matches.next().expect("expected one created dialog Frame");
+        assert!(
+            matches.next().is_none(),
+            "created dialog Frame must be unique"
+        );
         frame
     }
 }

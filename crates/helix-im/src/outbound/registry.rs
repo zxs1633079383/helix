@@ -210,10 +210,15 @@ pub fn handle_outbound(
     };
 
     // 网关意图 → 选 base（Im=IM 网关 / Default=第二网关）。base 真值 host 注入，core 仅按意图选。
-    let base = match command.gateway() {
-        Gateway::Im => api_base_url,
-        Gateway::Default => default_api_base_url,
+    let (base, config_name) = match command.gateway() {
+        Gateway::Im => (api_base_url, "api_base_url"),
+        Gateway::Default => (default_api_base_url, "default_api_base_url"),
     };
+    if base.trim().is_empty() {
+        return Err(ImError::Parse(format!(
+            "{name}: host 未注入 {config_name}，拒绝把请求回落到其它网关"
+        )));
+    }
 
     Ok(vec![http_request(
         base,

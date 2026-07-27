@@ -11,7 +11,8 @@
 ## ✅ 已落地（pump 接通后功能可用）
 
 ### T1 — pump 线程 + tokio runtime（✅ 已落地）
-- `helix_create_with_network`（`api.rs`）起专用 `std::thread`，线程内建
+- `helix_create_with_endpoints`（推荐）或兼容 `helix_create_with_network`（`api.rs`）起专用
+  `std::thread`；前者分别接收 Go/Java/WS，后者不注入也不推测 Java。线程内建
   **current_thread** tokio runtime（`tokio::runtime::Builder::new_current_thread().enable_all()`），
   `block_on` host `run_engine_loop`（`pump.rs::run`）。core 在此专属单线程跑（GOAL §1.3）。
 - `HelixHandle` 持 `shutdown_tx` / `pump_thread`（`JoinHandle`）；不持业务查询 runtime/storage 句柄。

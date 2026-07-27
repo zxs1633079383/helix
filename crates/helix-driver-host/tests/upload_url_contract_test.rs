@@ -1,4 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{future, time::Duration};
 
 use helix_core::effect::{FileUploadRequest, FileUploadUrls};
 use helix_core::ports::FileUploader;
@@ -58,7 +59,10 @@ async fn put_uses_signed_upload_url_but_response_only_contains_public_url() {
             method: "PUT".to_string(),
             urls: FileUploadUrls::new(signed_upload_url.clone(), public_url.to_string())
                 .expect("distinct upload urls"),
-            headers: Vec::new(),
+            headers: vec![
+                ("Content-Type".to_string(), "text/plain".to_string()),
+                ("x-oss-forbid-overwrite".to_string(), "true".to_string()),
+            ],
             content_type: Some("text/plain".to_string()),
             size: Some(7),
         })
@@ -77,8 +81,75 @@ async fn put_uses_signed_upload_url_but_response_only_contains_public_url() {
     assert_eq!(response.etag.as_deref(), Some("test-etag"));
     assert!(!response.public_url.contains("X-Amz-Signature"));
     assert_ne!(response.public_url, signed_upload_url);
+    assert_eq!(
+        request_text
+            .lines()
+            .filter(|line| line.to_ascii_lowercase().starts_with("content-type:"))
+            .count(),
+        1,
+        "ticket Content-Type is authoritative and must not be appended twice: {request_text}"
+    );
+    assert!(
+        request_text
+            .to_ascii_lowercase()
+            .contains("x-oss-forbid-overwrite: true"),
+        "signed OSS headers must be forwarded unchanged: {request_text}"
+    );
 
     tokio::fs::remove_file(local_path)
         .await
         .expect("remove upload fixture");
+}
+
+#[tokio::test]
+async fn stalled_put_returns_a_bounded_timeout_error() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind local stalled upload server");
+    let address = listener.local_addr().expect("local address");
+    let server = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.expect("accept stalled upload");
+        future::pending::<()>().await;
+    });
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let local_path = std::env::temp_dir().join(format!("helix-upload-timeout-{nonce}.txt"));
+    tokio::fs::write(&local_path, b"payload")
+        .await
+        .expect("write timeout fixture");
+
+    let error = SharedFileUploader::default()
+        .with_timeout(Duration::from_millis(50))
+        .upload(FileUploadRequest {
+            local_path: local_path.to_string_lossy().into_owned(),
+            object_key: "media/stalled.txt".to_string(),
+            method: "PUT".to_string(),
+            urls: FileUploadUrls::new(
+                format!("http://{address}/stalled?signature=secret"),
+                "https://cdn.example.com/media/stalled.txt".to_string(),
+            )
+            .expect("valid upload urls"),
+            headers: vec![("Content-Type".to_string(), "text/plain".to_string())],
+            content_type: Some("text/plain".to_string()),
+            size: Some(7),
+        })
+        .await
+        .expect_err("stalled server must not hold an upload worker forever");
+
+    assert!(matches!(
+        error,
+        helix_core::PortError::Transport(ref message) if message.contains("timeout")
+    ));
+    assert!(
+        !error.to_string().contains("signature=secret"),
+        "timeout error must not leak the signed URL"
+    );
+
+    server.abort();
+    tokio::fs::remove_file(local_path)
+        .await
+        .expect("remove timeout fixture");
 }

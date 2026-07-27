@@ -1,121 +1,183 @@
 # Rich/File 消息上传发送设计
 
-日期：2026-07-14 纠偏更新
-状态：代码合同已落地；本地 HTTP 可证伪测试通过后方可称实现通过，真实对象存储仍待验收
+日期：2026-07-24
+状态：Rust/Java/Go 本地实现及 host/HTTP/FFI 合同验收已完成；产品前端接线、64 MiB v1
+边界确认、Java 发布部署与真实环境全链路仍需验收
 
-## 安全边界
+## 已拍板拓扑
 
-上传有两个不可混同的 URL：
+前端分别提供两个互不推导的地址：
 
-- `upload.url`：短期、可能携带写权限与签名查询串的 PUT URL，只能在进程内交给 driver。
-- `upload.publicUrl`：长期可读的对象/CDN URL，可进入本地 props 与 `posts/create`。
+- `api_base_url`：Go IM 地址，只承接 `/api/cses/posts/create`、同步与消息接口。
+- `default_api_base_url`：Java `env.restHost`，媒体 prepare/verify/稳定读取都走它。
 
-两者必须同时存在且非空。Helix 不从 PUT URL 推导 public URL，也不接受缺少
-`publicUrl` 的 rich/file 发送。driver 的兼容 PortReply 仍使用 JSON 键 `url`，但该键的值
-只能来自请求中的 `publicUrl`。
+媒体发送链固定为：
 
-## 输入合同
+```text
+UI 选文件
+  → Helix PersistAtomic(message + pending_media prepare journal)
+  → Rust → Java POST /oss/getPresignedUrl
+  → Rust host → OSS PUT
+  → Rust → Java POST /oss/completeMediaUpload
+  → Rust → Go POST /api/cses/posts/create
+```
+
+Rust 不从 Go 地址裁剪或猜出 Java 地址。Web 配置显式提供两个 base；FFI 使用
+`helix_create_with_endpoints(go_api_base, java_api_base, ws_url, ...)`。旧 FFI 网络构造入口
+只保留 ABI 兼容，不具备 Java 地址，媒体发送必须 fail-closed。
+
+## 本轮平台验收范围
+
+- 本轮真实媒体上传只验收 native/FFI：二者复用 shared host 文件上传 driver，可读取宿主
+  `localPath` 并执行 OSS PUT。
+- Web 的 `apiBaseUrl/defaultApiBaseUrl` 双地址配置槽已经存在，浏览器 bootstrap 必须分别
+  注入 Go 与 Java 地址；这只证明控制面配置边界，不代表浏览器文件上传已经实现。
+- `helix-driver-web` 当前对 `Effect::UploadFile` 明确返回 unsupported，并且 runtime issue
+  不记录本地路径。Web rich/file 上传不属于本轮可用性声明；后续需先增加浏览器
+  `File/Blob` 输入、上传 port 与 CORS 验收，才能纳入真实媒体 E2E。
+
+## 输入与服务端所有权
+
+UI 只提交本地文件事实：
 
 ```json
 {
-  "file": {
+  "mediaInput": {
     "localPath": "/tmp/report.pdf",
-    "name": "report.pdf",
-    "upload": {
-      "status": "pending",
-      "method": "PUT",
-      "url": "https://object.example/put/report.pdf?signature=short-lived",
-      "publicUrl": "https://cdn.example/im/report.pdf",
-      "headers": {"x-upload-token": "short-lived"},
-      "objectKey": "im/report.pdf"
-    }
+    "fileName": "report.pdf",
+    "contentType": "application/pdf",
+    "size": 8388608,
+    "sha256": "<64位小写hex>"
   }
 }
 ```
 
-`upload.url` 与 `upload.headers` 属于写凭据。它们允许在 `PendingSend` 内存态中支撑当次
-失败重试，但统一持久化入口必须剥离这两个字段。进程重启后不得从 SQLite 恢复旧签名；
-后续重试需要调用方重新取得有效预签名信息。
+UI 不得提交 `uploadToken/fileId/objectKey/url/stablePath/headers/state`。Helix 用业务消息
+`temporaryId + target(file|rich:index)` 生成稳定 `clientUploadId`；Java 结合登录 `userId`
+和服务端密钥派生不可预测、owner-bound 的 `fileId` 与 `objectKey`，客户端无权选择
+bucket、key 或 TTL。
 
-## 类型合同
+`mediaInput` 只用于建模内部上传任务，进入乐观消息前整体移除；兼容输入中的
+`localUrl/local_url/localPath/local_path` 也必须从 `props.file/props.files[]` 及其
+`upload` 子对象剥离。内部 `pending_media.local_path` 可为崩溃恢复保存宿主路径，但它不得
+进入 message props、Go `posts/create`、DomainEvent、trace 或 Web runtime issue。
 
-`helix-core` 用 `FileUploadUrls` 表达完整地址对：
+## Java prepare 合同
 
-```rust
-FileUploadUrls {
-    upload_url: String,
-    public_url: String,
+```http
+POST {javaBase}/oss/getPresignedUrl
+X-Auth-Kind: session
+Content-Type: application/json
+```
+
+```json
+{
+  "mediaUpload": true,
+  "clientUploadId": "helix_tmp_x:file",
+  "fileName": "report.pdf",
+  "contentType": "application/pdf",
+  "size": 8388608,
+  "sha256": "<64位小写hex>"
 }
 ```
 
-字段私有，只能通过拒绝空值的构造器创建。`FileUploadRequest` 持有该值对象；
-`FileUploadResponse` 只包含 `object_key`、`public_url` 与可选 `etag`，不包含 upload URL。
+Java raw response：
 
-## 发送流程
+```json
+{
+  "isSuccess": true,
+  "method": "PUT",
+  "uploadToken": "<绑定用户、clientUploadId、对象身份与完整性声明的 HMAC 票据>",
+  "fileId": "mf_<23位小写base36>",
+  "objectKey": "media/mf_<23位小写base36>",
+  "url": "<10分钟 PUT 预签名地址>",
+  "stablePath": "/oss/media/object/mf_<23位小写base36>",
+  "expiresAt": 0,
+  "headers": {
+    "Content-Type": "application/pdf",
+    "x-oss-forbid-overwrite": "true"
+  }
+}
+```
 
-1. `im_send_message` 校验 rich/file 结构，同时要求 `url/publicUrl/objectKey/headers`。
-2. Helix 生成 `Effect::UploadFile`；driver 只向 `upload_url` 发 PUT。
-3. 乐观消息落库前，统一剥离 `upload.url` 与 `upload.headers`。
-4. driver 成功后回报请求原有的 `public_url`、`object_key` 与响应 `etag`。
-5. Helix 将目标节点改为 `success`，只保留 `publicUrl/objectKey/etag`，再次持久化。
-6. 所有目标成功后才发 `posts/create`；其 props 不得包含 PUT URL、签名查询串或签名 headers。
-7. 回报缺少 `objectKey` 或长期可读 URL 时按 malformed reply 进入 `failed`，不得发 `posts/create`。
+Rust 只接受 `method=PUT`、`objectKey=media/{fileId}`、
+`stablePath=/oss/media/object/{fileId}`、非空有界 `uploadToken` 和两条精确必需 header。
+预签名 PUT URL 与 headers 只存在于进程内，禁止写 SQLite、事件、trace 或最终消息 props。
+`uploadToken` 只进入内部 `pending_media`，默认日志必须脱敏，公开消息 props 不得携带。
 
-## 可证伪验收
+## PUT 与 verify 合同
 
-- 本地 HTTP server 收到的请求行必须指向带明显签名的 PUT URL。
-- `FileUploadResponse.public_url` 必须等于一个明显不同的 CDN URL。
-- 初次乐观持久 props、成功持久 props、最终 `posts/create` body 都不得出现签名串或 headers。
-- 缺少输入 `publicUrl` 时不得产出任何 Effect。
-- 上传成功回报缺少 public URL 时目标必须为 `failed`，且 `posts/create` 计数为零。
+shared host driver 流式读取 `localPath` 并对 prepare URL 执行 PUT。成功后：
 
-上述只证明本地合同与 driver 路由，不等同于阿里云 OSS、pre 环境或真实对象可读性验收。
+```http
+POST {javaBase}/oss/completeMediaUpload
+X-Auth-Kind: session
+Content-Type: application/json
+```
 
-## 真实阿里云前置与 Rust 缺口（2026-07-14）
+```json
+{
+  "mediaUpload": true,
+  "clientUploadId": "helix_tmp_x:file",
+  "uploadToken": "<prepare 返回的 HMAC 票据>",
+  "fileId": "mf_x",
+  "objectKey": "media/mf_x",
+  "contentType": "application/pdf",
+  "size": 8388608,
+  "sha256": "<64位小写hex>"
+}
+```
 
-本轮以现网 Java `/oss/readAccessToken` 作为外部 authority 做了脱敏活体探针：真实
-`jqdl-file` 北京 endpoint 的 PUT、HEAD、GET 与 SHA-256 读回成功；探针对象已清理并确认
-404。当前 `/oss/getPresignedUrl` 却按 `oss-cn-zhangjiakou` 生成 URL，真实 PUT 返回 403；
-用户 STS policy 也没有 `DeleteObject`。这些是外部 authority 配置事实，不改变本仓归属。
+Java 重新计算 owner-bound 身份并常量时间校验 `uploadToken`，使 verify 的 size/type/SHA
+不能脱离 prepare 声明被篡改；随后从 OSS 读取真实 metadata/对象字节核对 size、
+Content-Type 与 SHA-256。全部通过后 Java 才写服务端 `media-completed/{fileId}` 标记。
+Rust 只接受 `isSuccess=true,state=completed` 且所有字段与 prepare、本地 journal 完全一致；
+否则 fail-closed，禁止调用 Go `posts/create`。
 
-Helix Rust 当前剩余 blocker：
+最终消息只保存稳定地址：
 
-1. `helix-im::send::flow` 只消费调用方预填的 `upload.url/publicUrl/objectKey`，尚未通过
-   `Effect::Http` 获取 `UploadPlan`。因此 Angular/宿主仍被迫承担上传业务前置。
-2. 本轮已让大写 `FILE` 与兼容输入 `file` 共用上传门控；`IMAGE/VIDEO/VOICE/AUDIO`
-   的 `props.file/props.files` 目标发现与上传编排仍未接入，不能用 FILE 单测替代全部媒体验收。
+```text
+{javaBase}/oss/media/object/{fileId}
+```
 
-正确的 Rust 收口边界：
+该地址只有在 completed 标记存在时才由 Java 返回 302 到 5 分钟 GET 预签名 URL；未 verify
+或校验失败对象不可读。Java 仅允许安全栅格图片 inline，其余类型强制 attachment 并覆盖为
+`application/octet-stream`。消息、SQLite 与 Go 数据库永不保存短时 GET/PUT 签名。
 
-- `helix-im` 根据媒体类型和本地文件元数据生成确定性的 plan request，发出
-  `Effect::Http`，并以 corr 保存 `PendingUploadPlan`。
-- plan 回包必须同时给出 `uploadUrl/publicUrl/objectKey/headers/expiresAt`；解析成功后才发
-  `Effect::UploadFile`，解析失败则只落上传失败状态，禁止 `posts/create`。
-- `helix-driver-host` 继续只负责 64 KiB 流式 PUT，不引入阿里云 SDK；native 与 FFI 共用。
-- `cses-im-server` 是上传计划与对象确认的正式服务端入口：校验用户/频道/文件约束，调用
-  阿里云 OSS 基础设施 adapter 签发计划，确认对象存在后产生可信 `MediaReference`，并继续
-  承接 `/posts/create`。Java `/oss/*` 只作为迁移参考或 Go 的临时上游。
-- PC Tauri 与 Flutter UI 只提交本地路径和文件元数据、绑定 Helix 投影；不得直接请求 Java、
-  Go upload-plan 或 OSS，也不得自行拼最终媒体 props。
-- Rust 运行配置只需要 authority URL、bucket/region/endpoint、长期读取 base URL、TTL 与大小
-  上限；长期 AccessKey/Secret 不进入 Helix 配置、命令、SQLite、trace 或日志。
+## 并发、进度与大文件
 
-## 消息 props 拼装归属
+- rich 最多九张图。九个 prepare Effect 在同一批次吐给 host，由 I/O 层并发执行，不逐张
+  等待上一张完成。
+- 图片不发逐图百分比；整条 rich 消息在全部图片 verify 完成前保持 Sending/转圈。
+- FILE 保留 5% 粒度进度；进度由 driver 已上传字节产生，经 Helix 投影回前端。
+- PUT 已完成但某个较早的进度 Persist 尚未回执时，终态推进必须等待该回执；否则不同
+  storage worker 的乱序完成可能让旧百分比覆盖 100%。进度写失败不阻断最终 verify，
+  最终完成持久化仍以 100% 收口。
+- 当前 Helix v1 媒体上限 64 MiB，使用流式单 PUT，内存不会按文件大小整体加载。
+- 现网客户端的 65 MiB+ multipart/checkpoint 能力不在本轮等价范围；若产品验收要求大文件，
+  必须在 driver port 增加 multipart/checkpoint 合同后再切换，不能只放大单 PUT 上限。
 
-Helix 必须拼最终消息 props，但不能自产可信 OSS 字段：
+## 重试与持久化
 
-- UI/平台文件选择器只提供 `localPath/name/size/contentType`，视频、图片、音频可再提供
-  `width/height/duration`；这些是待校验的本地元数据。
-- Go `upload-complete` 返回可信 `MediaReference`：`mediaId/objectKey/publicUrl/bucket/etag/
-  uploadedAt/ossType`，其中 `uploadedAt` 使用服务端时间。
-- Helix 合并两侧数据，生成现网兼容的 `props.file` 或 `props.files[]`：`id` 来自
-  `mediaId`，`url/uri` 来自 `publicUrl`，`lastModified` 来自 `uploadedAt`，并补齐
-  `name/size/contentType/bucket/etag/ossType/userId/userName` 与媒体尺寸/时长。
-- `upload.url/headers/localPath/planId` 只存在于内存上传态，最终 props、SQLite 和
-  `/posts/create` 均不得携带。
-- Go 在 `/posts/create` 按 `mediaId + owner` 反查并校验这些字段；Helix 负责跨端一致拼装，
-  Go 负责可信性，UI 只绑定投影。
+- Prepare 失败：使用同一 `clientUploadId` 重试 prepare。
+- PUT 失败或回包不确定：回到 Prepare。Java 若发现同 owner/clientUploadId 下存在无 completed
+  标记的 pending 对象，先删除该未可信对象，再签发新的 forbid-overwrite URL；旧签名永不复用。
+- 已有 completed 标记的对象不可再次 Prepare 覆盖，稳定消息引用保持不可变。
+- Verify 失败：持久化 fileId/objectKey/稳定 URL，只重复 verify，不重复 PUT。
+- `pending_media` 可以持久化稳定身份、HMAC `uploadToken` 和阶段，但 `upload_url` 必为空、
+  `headers_json` 必为空数组；token 必须在 storage trace 与 HTTP debug 中脱敏。
+- 媒体消息首次落库必须用一笔 `PersistAtomic` 同时提交 message 与 prepare journal。
+  若该事务失败，失败态补偿也必须原子提交 `unsend` message 与原始 prepare journal；
+  进程在补偿后重启，retry 只能恢复 journal 并重新请求 Java prepare，禁止把未校验 props
+  直接发给 Go。
+- 所有附件 verify 后才恰好一次调用 Go `posts/create`；重试不生成新的业务消息 ID。
 
-外部阿里云侧仍需把 `jqdl-file` 的 authority region 修正为 `oss-cn-beijing`，并提供服务端
-cleanup role 或 E2E 前缀生命周期。Tauri/Flutter 均由 Rust native driver 直传，当前不需要
-浏览器 CORS。
+## 验收底线
+
+- Go 与 Java 使用不同 origin 时，prepare/verify 命中 Java，`posts/create` 命中 Go。
+- 九图 prepare 同批产生，图片无进度事件；FILE 仍有 5% 进度与 100% 终态。
+- 任一 uploadToken/verify 字段缺失、篡改或冲突都不得发送消息。
+- 未完成对象的稳定 GET 必须失败；完成标记存在后才允许 302，且主动内容不得 inline。
+- 重启 Complete 阶段不重复 PUT，且任何持久化/日志中没有签名查询串。
+- 真实 OSS 验收必须覆盖 rich 与 FILE：PUT、verify、稳定 URL 302、最终 GET 的长度、
+  Content-Type、SHA-256，以及 Go 保存/WS 回声中的稳定 props。

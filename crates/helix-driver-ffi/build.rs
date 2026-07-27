@@ -8,7 +8,8 @@
 /// ## 触发条件
 ///
 /// cargo 只在以下变化时重跑（收窄到实际影响导出的文件，不监听整个 src/，避免无关 .rs 改动脏化头）：
-///   - 影响 C ABI 导出 / repr(C) 类型的源文件（api.rs / api/action.rs / vtable.rs / lib.rs）
+///   - 影响 C ABI 导出 / repr(C) 类型的源文件
+///     （api.rs / api/{action,command,handle,headers,query}.rs / vtable.rs / lib.rs）
 ///   - 两份 cbindgen 配置（cbindgen.toml / cbindgen-c.toml）
 ///
 /// ## 头文件位置
@@ -17,6 +18,10 @@
 fn main() {
     println!("cargo:rerun-if-changed=src/api.rs");
     println!("cargo:rerun-if-changed=src/api/action.rs");
+    println!("cargo:rerun-if-changed=src/api/command.rs");
+    println!("cargo:rerun-if-changed=src/api/handle.rs");
+    println!("cargo:rerun-if-changed=src/api/headers.rs");
+    println!("cargo:rerun-if-changed=src/api/query.rs");
     println!("cargo:rerun-if-changed=src/vtable.rs");
     println!("cargo:rerun-if-changed=src/lib.rs");
     println!("cargo:rerun-if-changed=cbindgen.toml");

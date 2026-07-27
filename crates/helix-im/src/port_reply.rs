@@ -9,6 +9,7 @@ mod dispatch_channel_create;
 mod dispatch_core;
 mod dispatch_projection;
 mod dispatch_read;
+mod progress;
 
 impl ImModule {
     fn handle_too_long_reload_reply(
@@ -122,7 +123,9 @@ impl ImModule {
         outcome: &helix_core::tick::PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
-        use crate::send::upload_props::{FailedMediaOp, PendingMediaOp, PendingMediaPut};
+        use crate::send::upload_props::{
+            FailedMediaOp, PendingMediaOp, PendingMediaPrepare, PendingMediaPut,
+        };
         use helix_core::tick::PortOutcome;
 
         match pending {
@@ -131,7 +134,7 @@ impl ImModule {
                     match crate::send::upload_props::parse_prepare_reply(
                         reply.0.as_ref(),
                         &prepare.input,
-                        prepare.channel_id.as_str(),
+                        &self.config.default_api_base_url,
                     ) {
                         Ok(prepared) => {
                             let put = PendingMediaPut {
@@ -155,6 +158,7 @@ impl ImModule {
                         Err(reason) => {
                             self.fail_media_operation(
                                 FailedMediaOp::Prepare(prepare),
+                                "prepare_reply",
                                 &reason,
                                 out,
                             )?;
@@ -164,60 +168,66 @@ impl ImModule {
                 PortOutcome::Err(error) => {
                     self.fail_media_operation(
                         FailedMediaOp::Prepare(prepare),
+                        "prepare_request",
                         &format!("{error:?}"),
                         out,
                     )?;
                 }
             },
             PendingMediaOp::Put(put) => match outcome {
-                PortOutcome::Ok(_) => {
-                    let persist_corr = self.alloc_corr_internal();
-                    out.push(helix_core::Effect::Persist {
-                        corr: persist_corr,
-                        ops: vec![crate::send::upload_props::durable_upsert_op(
-                            &PendingMediaOp::Complete(put.clone()),
-                        )?],
-                    });
-                    self.state
-                        .pending_media_stage_persists
-                        .insert(persist_corr, PendingMediaOp::Complete(put));
-                }
+                PortOutcome::Ok(_) => self.persist_media_complete_stage(put, out)?,
                 PortOutcome::Err(error) => {
-                    self.fail_media_operation(FailedMediaOp::Put(put), &format!("{error:?}"), out)?;
+                    self.fail_media_operation(
+                        FailedMediaOp::Prepare(PendingMediaPrepare {
+                            temporary_id: put.temporary_id,
+                            channel_id: put.channel_id,
+                            target: put.target,
+                            input: put.input,
+                        }),
+                        "put",
+                        &format!("{error:?}"),
+                        out,
+                    )?;
                 }
             },
-            PendingMediaOp::Complete(put) => {
-                self.state
-                    .waiting_media_complete
-                    .remove(&put.prepared.upload_id);
-                match outcome {
-                    PortOutcome::Ok(reply) => {
-                        match crate::send::upload_props::parse_complete_reply(
-                            reply.0.as_ref(),
-                            &put,
-                        ) {
-                            Ok(reference) => {
-                                self.persist_media_complete(put, reference, out)?;
-                            }
-                            Err(reason) => {
-                                self.fail_media_operation(
-                                    FailedMediaOp::Complete(put),
-                                    &reason,
-                                    out,
-                                )?;
-                            }
+            PendingMediaOp::Complete(put) => match outcome {
+                PortOutcome::Ok(reply) => {
+                    match crate::send::upload_props::parse_complete_reply(reply.0.as_ref(), &put) {
+                        Ok(reference) => {
+                            self.persist_media_complete(put, reference, out)?;
+                        }
+                        Err(reason) => {
+                            self.fail_media_verify_sequence(put, "complete_reply", &reason, out)?;
                         }
                     }
-                    PortOutcome::Err(error) => {
-                        self.fail_media_operation(
-                            FailedMediaOp::Complete(put),
-                            &format!("{error:?}"),
-                            out,
-                        )?;
-                    }
                 }
-            }
+                PortOutcome::Err(error) => {
+                    self.fail_media_verify_sequence(
+                        put,
+                        "complete_request",
+                        &format!("{error:?}"),
+                        out,
+                    )?;
+                }
+            },
         }
+        Ok(())
+    }
+
+    fn persist_media_complete_stage(
+        &mut self,
+        put: crate::send::upload_props::PendingMediaPut,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let operation = crate::send::upload_props::PendingMediaOp::Complete(put);
+        let persist_corr = self.alloc_corr_internal();
+        out.push(helix_core::Effect::Persist {
+            corr: persist_corr,
+            ops: vec![crate::send::upload_props::durable_upsert_op(&operation)?],
+        });
+        self.state
+            .pending_media_stage_persists
+            .insert(persist_corr, operation);
         Ok(())
     }
 
@@ -240,30 +250,25 @@ impl ImModule {
                     out,
                 )?,
                 PendingMediaOp::Put(put) => {
-                    let req =
-                        crate::send::upload_props::media_upload_request(&put.input, &put.prepared)?;
+                    let req = crate::send::upload_props::media_upload_request(
+                        &put.input,
+                        &put.prepared,
+                        &put.target,
+                    )?;
                     let corr = self.alloc_corr_internal();
+                    self.register_file_upload_progress(
+                        corr,
+                        put.temporary_id.clone(),
+                        put.channel_id,
+                        &put.target,
+                    );
                     self.state
                         .pending_media_ops
                         .insert(corr, PendingMediaOp::Put(put));
                     out.push(helix_core::Effect::UploadFile { corr, req });
                 }
                 PendingMediaOp::Complete(put) => {
-                    let req = crate::send::upload_props::complete_upload_request(
-                        &self.config.api_base_url,
-                        &put.prepared.upload_id,
-                        crate::acl::sync_http_effects::session_auth_headers(
-                            self.state.connection_id.as_deref(),
-                        ),
-                    )?;
-                    let corr = self.alloc_corr_internal();
-                    self.state
-                        .waiting_media_complete
-                        .insert(put.prepared.upload_id.clone(), put.clone());
-                    self.state
-                        .pending_media_ops
-                        .insert(corr, PendingMediaOp::Complete(put));
-                    out.push(helix_core::Effect::Http { corr, req });
+                    self.emit_or_queue_media_verify(put, out)?;
                 }
             },
             PortOutcome::Err(error) => {
@@ -275,17 +280,96 @@ impl ImModule {
                         target: put.target,
                         input: put.input,
                     }),
-                    PendingMediaOp::Complete(put) => FailedMediaOp::Put(put),
+                    PendingMediaOp::Complete(put) => FailedMediaOp::Complete(put),
                 };
-                self.fail_media_operation(fallback, &format!("{error:?}"), out)?;
+                self.fail_media_operation(fallback, "stage_persist", &format!("{error:?}"), out)?;
             }
         }
         Ok(())
     }
 
+    pub(crate) fn emit_or_queue_media_verify(
+        &mut self,
+        put: crate::send::upload_props::PendingMediaPut,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        if self.state.media_verify_inflight.contains(&put.temporary_id) {
+            self.state
+                .queued_media_verifies
+                .entry(put.temporary_id.clone())
+                .or_default()
+                .push_back(put);
+            return Ok(());
+        }
+        let req = crate::send::upload_props::complete_upload_request(
+            &self.config.default_api_base_url,
+            &put,
+            crate::acl::sync_http_effects::session_auth_headers(
+                self.state.connection_id.as_deref(),
+            ),
+        )?;
+        let corr = self.alloc_corr_internal();
+        self.state
+            .media_verify_inflight
+            .insert(put.temporary_id.clone());
+        self.state.pending_media_ops.insert(
+            corr,
+            crate::send::upload_props::PendingMediaOp::Complete(put),
+        );
+        out.push(helix_core::Effect::Http { corr, req });
+        Ok(())
+    }
+
+    fn fail_media_verify_sequence(
+        &mut self,
+        failed: crate::send::upload_props::PendingMediaPut,
+        hop: &'static str,
+        error: &str,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let temporary_id = failed.temporary_id.clone();
+        self.state.media_verify_inflight.remove(&temporary_id);
+        if let Some(queued) = self.state.queued_media_verifies.remove(&temporary_id) {
+            for pending in queued {
+                self.state.failed_media_ops.insert(
+                    (temporary_id.clone(), pending.target.clone()),
+                    crate::send::upload_props::FailedMediaOp::Complete(pending),
+                );
+            }
+        }
+        self.fail_media_operation(
+            crate::send::upload_props::FailedMediaOp::Complete(failed),
+            hop,
+            error,
+            out,
+        )
+    }
+
+    fn take_next_media_verify(
+        &mut self,
+        temporary_id: &crate::state::TemporaryId,
+    ) -> Option<crate::send::upload_props::PendingMediaPut> {
+        let next = self
+            .state
+            .queued_media_verifies
+            .get_mut(temporary_id)
+            .and_then(std::collections::VecDeque::pop_front);
+        if self
+            .state
+            .queued_media_verifies
+            .get(temporary_id)
+            .is_some_and(std::collections::VecDeque::is_empty)
+        {
+            self.state.queued_media_verifies.remove(temporary_id);
+        }
+        self.state.media_verify_inflight.remove(temporary_id);
+        next
+    }
+
     fn fail_media_operation(
         &mut self,
         failed: crate::send::upload_props::FailedMediaOp,
+        hop: &'static str,
         error: &str,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -293,6 +377,13 @@ impl ImModule {
             temporary_id: failed.temporary_id().clone(),
             target: failed.target().clone(),
         };
+        tracing::warn!(
+            tmp_id = pending.temporary_id.0.as_str(),
+            target = ?pending.target,
+            hop,
+            reason = error,
+            "media upload operation failed"
+        );
         self.state
             .media_retry_inflight
             .remove(&pending.temporary_id);
@@ -314,53 +405,165 @@ impl ImModule {
             .completed_media
             .contains_key(&pending.prepared.upload_id)
         {
+            let temporary_id = pending.temporary_id.clone();
+            if let Some(next) = self.take_next_media_verify(&temporary_id) {
+                self.emit_or_queue_media_verify(next, out)?;
+            }
             return Ok(());
         }
-        let persist_corr = self.alloc_corr_internal();
-        let mut ready_body = None;
-        {
-            let Some(send) = self.state.pending_sends.get_mut(&pending.temporary_id) else {
-                return Ok(());
-            };
-            let Some(body) = send.body.as_mut() else {
-                return Ok(());
-            };
-            let Some(props) = body.get_mut("props") else {
-                return Ok(());
-            };
-            crate::send::upload_props::mark_media_complete(props, &pending.target, &reference)?;
-            let props_json = serde_json::to_string(props)
-                .map_err(|error| ImError::Serialize(error.to_string()))?;
-            out.push(helix_core::Effect::Persist {
-                corr: persist_corr,
-                ops: vec![
-                    crate::pending_send::props_persist_op(&pending.temporary_id, props_json),
-                    crate::send::upload_props::durable_delete_op(
-                        &pending.temporary_id,
-                        &pending.target,
-                    ),
-                ],
-            });
-            if send.remaining_uploads > 0 {
-                send.remaining_uploads -= 1;
-            }
-            if send.remaining_uploads == 0 && !send.upload_failed {
-                ready_body = Some(body.clone());
-            }
+        self.start_media_completion_persist(pending, reference, out)
+    }
+
+    fn start_media_completion_persist(
+        &mut self,
+        pending: crate::send::upload_props::PendingMediaPut,
+        reference: crate::send::upload_props::TrustedMediaReference,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let props_snapshot = self
+            .state
+            .pending_sends
+            .get(&pending.temporary_id)
+            .and_then(|send| send.body.as_ref())
+            .map(|body| body.get("props").cloned());
+        let Some(props_snapshot) = props_snapshot else {
+            return self.fail_media_verify_sequence(
+                pending,
+                "complete_state",
+                "missing pending send body",
+                out,
+            );
+        };
+        let Some(mut props_after) = props_snapshot else {
+            return self.fail_media_verify_sequence(
+                pending,
+                "complete_state",
+                "missing media props",
+                out,
+            );
+        };
+        if let Err(error) = crate::send::upload_props::mark_media_complete(
+            &mut props_after,
+            &pending.target,
+            &reference,
+        ) {
+            return self.fail_media_verify_sequence(
+                pending,
+                "complete_state",
+                &error.to_string(),
+                out,
+            );
         }
-        self.state.completed_media.insert(
-            pending.prepared.upload_id.clone(),
-            crate::send::upload_props::CompletedMedia {
-                temporary_id: pending.temporary_id.clone(),
-                target: pending.target.clone(),
+        let props_json = serde_json::to_string(&props_after)
+            .map_err(|error| ImError::Serialize(error.to_string()))?;
+        let persist_corr = self.alloc_corr_internal();
+        let is_final_media = self
+            .state
+            .pending_sends
+            .get(&pending.temporary_id)
+            .is_some_and(|send| send.remaining_uploads == 1 && !send.upload_failed);
+        let is_file = matches!(
+            &pending.target,
+            crate::send::upload_props::UploadTarget::File
+        );
+        let message_op = if is_final_media {
+            // 最后一个附件的可信引用与 durable retry marker 同事务提交。内存态仍保持
+            // Sending，ACK 后立即发 posts/create；若进程死在 ACK→HTTP 窗口，重启后的
+            // completed props + unsend 行可由 im_retry_send 安全重放同一 temporaryId。
+            crate::send::upload_props::media_send_state_persist_op(
+                &pending.temporary_id,
+                props_json,
+                "unsend",
+                is_file.then_some(100),
+            )
+        } else {
+            crate::pending_send::props_persist_op(&pending.temporary_id, props_json)
+        };
+        let mut ops = vec![
+            message_op,
+            crate::send::upload_props::durable_delete_op(&pending.temporary_id, &pending.target),
+        ];
+        if is_file && !is_final_media {
+            ops.push(crate::pending_send::upload_progress_persist_op(
+                &pending.temporary_id,
+                100,
+            ));
+        }
+        out.push(helix_core::Effect::PersistAtomic {
+            corr: persist_corr,
+            ops,
+        });
+        self.state.pending_media_completion_persists.insert(
+            persist_corr,
+            crate::send::upload_props::PendingMediaCompletionCommit {
+                pending,
                 reference,
+                props_after,
             },
         );
-        if let Some(body) = ready_body {
-            self.state
-                .media_retry_inflight
-                .remove(&pending.temporary_id);
-            self.emit_posts_create_http(pending.channel_id, pending.temporary_id, &body, out)?;
+        Ok(())
+    }
+
+    fn handle_media_completion_persist_reply(
+        &mut self,
+        commit: crate::send::upload_props::PendingMediaCompletionCommit,
+        outcome: &helix_core::tick::PortOutcome,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        use crate::send::upload_props::CompletedMedia;
+        use helix_core::tick::PortOutcome;
+
+        match outcome {
+            PortOutcome::Ok(_) => {
+                let crate::send::upload_props::PendingMediaCompletionCommit {
+                    pending,
+                    reference,
+                    props_after,
+                } = commit;
+                let crate::send::upload_props::PendingMediaPut {
+                    temporary_id,
+                    channel_id,
+                    target,
+                    prepared,
+                    ..
+                } = pending;
+                let mut ready_body = None;
+                if let Some(send) = self.state.pending_sends.get_mut(&temporary_id) {
+                    if let Some(body) = send.body.as_mut() {
+                        body["props"] = props_after;
+                    }
+                    if send.remaining_uploads > 0 {
+                        send.remaining_uploads -= 1;
+                    }
+                    if send.remaining_uploads == 0 && !send.upload_failed {
+                        ready_body = send.body.clone();
+                    }
+                }
+                self.state.completed_media.insert(
+                    prepared.upload_id,
+                    CompletedMedia {
+                        temporary_id: temporary_id.clone(),
+                        target,
+                        reference,
+                    },
+                );
+
+                let next_verify = self.take_next_media_verify(&temporary_id);
+                if let Some(pending) = next_verify {
+                    self.emit_or_queue_media_verify(pending, out)?;
+                } else if let Some(body) = ready_body {
+                    self.state.media_retry_inflight.remove(&temporary_id);
+                    self.emit_posts_create_http(channel_id, temporary_id, &body, out)?;
+                }
+            }
+            PortOutcome::Err(error) => {
+                self.fail_media_verify_sequence(
+                    commit.pending,
+                    "complete_persist",
+                    &format!("{error:?}"),
+                    out,
+                )?;
+            }
         }
         Ok(())
     }
@@ -432,12 +635,22 @@ impl ImModule {
             crate::send::upload_props::mark_upload_success(props, &pending_upload.target, success)?;
             let props_json =
                 serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
+            let mut ops = vec![crate::pending_send::props_persist_op(
+                &pending_upload.temporary_id,
+                props_json,
+            )];
+            if matches!(
+                &pending_upload.target,
+                crate::send::upload_props::UploadTarget::File
+            ) {
+                ops.push(crate::pending_send::upload_progress_persist_op(
+                    &pending_upload.temporary_id,
+                    100,
+                ));
+            }
             out.push(helix_core::Effect::Persist {
                 corr: persist_corr,
-                ops: vec![crate::pending_send::props_persist_op(
-                    &pending_upload.temporary_id,
-                    props_json,
-                )],
+                ops,
             });
             if ps.remaining_uploads > 0 {
                 ps.remaining_uploads -= 1;
@@ -466,37 +679,67 @@ impl ImModule {
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         let persist_corr = self.alloc_corr_internal();
-        if let Some(ps) = self
+        let Some(ps) = self
             .state
             .pending_sends
             .get_mut(&pending_upload.temporary_id)
-        {
-            ps.upload_failed = true;
-            let Some(body) = ps.body.as_mut() else {
-                tracing::warn!(
-                    tmp_id = pending_upload.temporary_id.0.as_str(),
-                    "upload failure without cached send body"
-                );
-                return Ok(());
-            };
-            let Some(props) = body.get_mut("props") else {
-                tracing::warn!(
-                    tmp_id = pending_upload.temporary_id.0.as_str(),
-                    "upload failure without props"
-                );
-                return Ok(());
-            };
-            crate::send::upload_props::mark_upload_failed(props, &pending_upload.target, error)?;
-            let props_json =
-                serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
-            out.push(helix_core::Effect::Persist {
-                corr: persist_corr,
-                ops: vec![crate::pending_send::props_persist_op(
-                    &pending_upload.temporary_id,
-                    props_json,
-                )],
-            });
-        }
+        else {
+            return Ok(());
+        };
+        ps.upload_failed = true;
+        ps.status = crate::state::SendStatus::UnSend;
+        let crate::pending_send::TimelineReadbackContext {
+            window_token,
+            causation_id,
+        } = ps.timeline_readback.clone();
+        let Some(body) = ps.body.as_mut() else {
+            tracing::warn!(
+                tmp_id = pending_upload.temporary_id.0.as_str(),
+                "upload failure without cached send body"
+            );
+            return Ok(());
+        };
+        let channel_id = body
+            .get("channelId")
+            .and_then(serde_json::Value::as_str)
+            .and_then(ChannelId::from_str)
+            .ok_or_else(|| ImError::Parse("upload failure missing channelId".to_string()))?;
+        let Some(props) = body.get_mut("props") else {
+            tracing::warn!(
+                tmp_id = pending_upload.temporary_id.0.as_str(),
+                "upload failure without props"
+            );
+            return Ok(());
+        };
+        crate::send::upload_props::mark_upload_failed(props, &pending_upload.target, error)?;
+        let props_json =
+            serde_json::to_string(props).map_err(|e| ImError::Serialize(e.to_string()))?;
+        let reset_progress = matches!(
+            &pending_upload.target,
+            crate::send::upload_props::UploadTarget::File
+        )
+        .then_some(0);
+        out.push(helix_core::Effect::Persist {
+            corr: persist_corr,
+            ops: vec![crate::send::upload_props::media_send_state_persist_op(
+                &pending_upload.temporary_id,
+                props_json,
+                "unsend",
+                reset_progress,
+            )],
+        });
+        self.state.corr_map.insert(
+            persist_corr,
+            crate::state::CorrelationContext::TimelineRefreshAfterSendPersist {
+                channel_id,
+                window_token,
+                causation_id,
+            },
+        );
+        out.push(crate::acl::to_effect::emit_post_send_failed(
+            channel_id.as_str(),
+            pending_upload.temporary_id.0.as_str(),
+        ));
         Ok(())
     }
 }

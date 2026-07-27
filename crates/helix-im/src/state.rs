@@ -1,12 +1,12 @@
 //! ImState — ImModule 的全量纯数据状态；不持 I/O 句柄。
 
 use crate::channel::Channel;
-use crate::pending_send::PendingSend;
+use crate::pending_send::{PendingSend, TimelineReadbackContext};
 use crate::send::upload_props::{
-    CompletedMedia, FailedMediaOp, PendingMediaOp, PendingMediaPrepare, PendingMediaPut,
-    PendingUpload, UploadTarget,
+    CompletedMedia, FailedMediaOp, PendingMediaCompletionCommit, PendingMediaOp,
+    PendingMediaPrepare, PendingMediaPut, PendingMediaRetryReset, PendingUpload, UploadTarget,
 };
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 mod values;
 pub use values::{
@@ -22,6 +22,22 @@ pub use correlation::{
     ChannelLifecycleTransition, ChannelSettingsProjection, CorrelationContext, MakeTopicProjection,
     SyncTrigger,
 };
+
+pub(crate) struct FileUploadProgressState {
+    pub temporary_id: TemporaryId,
+    pub channel_id: ChannelId,
+    /// PUT 启动时冻结的 readback 上下文；多附件并发时不受后续 retry attempt 覆盖。
+    pub timeline_readback: TimelineReadbackContext,
+    pub highest_observed_percent: u8,
+    pub committed_percent: u8,
+    pub inflight_persist: Option<(helix_core::Correlation, u8)>,
+    pub queued_latest: Option<u8>,
+}
+
+pub(crate) struct FileUploadProgressPersist {
+    pub upload_corr: helix_core::Correlation,
+    pub percent: u8,
+}
 
 // ─── ImState ────────────────────────────────────────────────────────────────
 
@@ -48,8 +64,21 @@ pub struct ImState {
     /// 本地上传回包路由：upload corr → 目标消息/附件节点。
     pub pending_uploads: HashMap<helix_core::Correlation, PendingUpload>,
 
-    /// 媒体 Prepare/PUT 回包路由；corr 单次 O(1) remove 后按阶段分发。
+    /// 媒体 Prepare/PUT/Complete 回包路由；corr 单次 O(1) remove 后按阶段分发。
     pub pending_media_ops: HashMap<helix_core::Correlation, PendingMediaOp>,
+
+    /// 文件 PUT 的 5% 进度合并器；图片不注册。每个 upload corr 至多一条落库在途。
+    pub(crate) file_upload_progress: HashMap<helix_core::Correlation, FileUploadProgressState>,
+
+    /// 文件 PUT 已成功、但仍有进度 Persist 未回执时暂存终态推进。
+    ///
+    /// message-only 的 5..95% 与 message+pending_media 的 100% 走不同 host worker；
+    /// 必须等前者真实回执后再吐终态 Persist，避免慢盘下旧百分比反向覆盖 100。
+    pub(crate) media_put_after_progress: HashMap<helix_core::Correlation, PendingMediaPut>,
+
+    /// 进度落库 corr → upload corr；只在 PersistOk 后刷新已 attach timeline。
+    pub(crate) file_upload_progress_persists:
+        HashMap<helix_core::Correlation, FileUploadProgressPersist>,
 
     /// Initial Prepare operations released only after the optimistic message +
     /// pending_media journal batch is acknowledged.
@@ -59,18 +88,36 @@ pub struct ImState {
     /// journal update succeeds.
     pub pending_media_stage_persists: HashMap<helix_core::Correlation, PendingMediaOp>,
 
-    /// PUT 成功但尚未执行 complete 的媒体；B2 以 uploadId O(1) 继续状态机。
-    pub waiting_media_complete: HashMap<String, PendingMediaPut>,
+    /// 同一消息最多一条 Java verify/完成持久化链在途；prepare/PUT 仍可并发。
+    pub media_verify_inflight: HashSet<TemporaryId>,
+
+    /// 其它已进入 Complete 阶段的附件按到达顺序等待，避免并发 verify 结果争写整段 props。
+    pub queued_media_verifies: HashMap<TemporaryId, VecDeque<PendingMediaPut>>,
 
     /// 已通过 complete 严格校验的可信媒体引用；B2b 据此做多附件 barrier/readback。
     pub completed_media: HashMap<String, CompletedMedia>,
 
-    /// 最近失败的媒体阶段；im_retry_send 按消息/target 精确恢复，不越级重放。
+    /// verify 成功后的 message props + pending_media delete 原子提交回包路由。
+    pub pending_media_completion_persists:
+        HashMap<helix_core::Correlation, PendingMediaCompletionCommit>,
+
+    /// 用户 retry 先原子提交 Sending/Uploading，再允许 Java/OSS I/O。
+    pub pending_media_retry_resets: HashMap<helix_core::Correlation, PendingMediaRetryReset>,
+
+    /// 最近失败的媒体阶段；PUT 失败归一为 Prepare，Complete 失败才原阶段恢复。
     pub failed_media_ops: HashMap<(TemporaryId, UploadTarget), FailedMediaOp>,
 
     /// Startup `pending_media` scan correlation. Kept outside the generic
     /// correlation map because this is an internal recovery journal route.
     pub pending_media_rehydrate_corr: Option<helix_core::Correlation>,
+
+    /// 启动扫描出的孤儿媒体 journal，必须先把对应 message 原子补偿为 unsend，
+    /// PersistOk 后才允许进入 failed_media_ops 并开放 retry。
+    pub pending_media_recovery_compensation: Option<(helix_core::Correlation, Vec<FailedMediaOp>)>,
+
+    /// 只有 pending_media 全量 scan 成功且每行都可解码后才为 true。
+    /// false 时重启 retry 不得把未完成媒体 props 当成普通消息直发 Go。
+    pub media_recovery_ready: bool,
 
     /// 媒体 retry 在途消息；重复 im_retry_send 以 temporaryId O(1) 幂等 no-op。
     pub media_retry_inflight: HashSet<TemporaryId>,
@@ -245,12 +292,20 @@ impl ImState {
             pending_sends: HashMap::new(),
             pending_uploads: HashMap::new(),
             pending_media_ops: HashMap::new(),
+            file_upload_progress: HashMap::new(),
+            media_put_after_progress: HashMap::new(),
+            file_upload_progress_persists: HashMap::new(),
             pending_media_after_optimistic: HashMap::new(),
             pending_media_stage_persists: HashMap::new(),
-            waiting_media_complete: HashMap::new(),
+            media_verify_inflight: HashSet::new(),
+            queued_media_verifies: HashMap::new(),
             completed_media: HashMap::new(),
+            pending_media_completion_persists: HashMap::new(),
+            pending_media_retry_resets: HashMap::new(),
             failed_media_ops: HashMap::new(),
             pending_media_rehydrate_corr: None,
+            pending_media_recovery_compensation: None,
+            media_recovery_ready: false,
             media_retry_inflight: HashSet::new(),
             corr_map: HashMap::new(),
             reply_projection_revisions: HashMap::new(),

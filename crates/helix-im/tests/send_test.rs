@@ -355,9 +355,10 @@ fn send_p1_persist_ok_advances_status() {
     );
 }
 
-// ─── 15s 超时 → UnSend + PersistFire ─────────────────────────────────────────
+// ─── 15s 超时 → UnSend + Persist ─────────────────────────────────────────────
 
 #[test]
+/// 证明 15 秒无权威回声会进入有回执的 unsend 持久化边界。
 fn send_timeout_marks_unsend() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
@@ -375,12 +376,12 @@ fn send_timeout_marks_unsend() {
 
     // 15s 超时触发
     let timeout_effects = h.step(timer_tick(timeout_timer), 16_001);
-    // 应产出 PersistFire（标记 unsend）
+    // 应产出 Persist（标记 unsend）
     assert!(
         timeout_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::PersistFire)),
-        "timeout should emit PersistFire to mark unsend, got: {:?}",
+            .any(|e| matches!(e, EffectKind::Persist(_))),
+        "timeout should emit Persist to mark unsend, got: {:?}",
         timeout_effects
     );
     assert!(
@@ -739,6 +740,7 @@ fn retry_send_falls_back_from_temporary_id_to_server_id_lookup() {
 // ─── echo 先到（reconcile）→ CancelTimer + Persist + 清除 pending_send ──────
 
 #[test]
+/// 证明超时持久化只触发一次，重复 timer 不会重复失败写入。
 fn send_echo_reconcile_cancels_timer() {
     let mut h = Harness::new(&[1]);
     let initial_effects = h.step(send_message_cmd(1, "tmp_1", "hello"), 1000);
@@ -764,17 +766,15 @@ fn send_echo_reconcile_cancels_timer() {
     assert!(
         timeout_effects
             .iter()
-            .any(|e| matches!(e, EffectKind::PersistFire)),
-        "timeout should emit PersistFire"
+            .any(|e| matches!(e, EffectKind::Persist(_))),
+        "timeout should emit Persist"
     );
 
     // 超时后再次触发同一 timer → 静默（timer 已从 pending_sends 中无法找到，或 status=UnSend 幂等）
     let effects2 = h.step(timer_tick(timeout_timer), 16_002);
-    // 不应再次产出 PersistFire
+    // 不应再次产出 Persist
     assert!(
-        !effects2
-            .iter()
-            .any(|e| matches!(e, EffectKind::PersistFire)),
+        !effects2.iter().any(|e| matches!(e, EffectKind::Persist(_))),
         "double-fire timeout should be idempotent, got: {:?}",
         effects2
     );

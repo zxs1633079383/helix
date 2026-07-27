@@ -1,6 +1,7 @@
 {
   "schemaVersion": 2,
   "transactionId": "surface-storage-memberRoster|26:churgent000000000000000001|5:first-1",
+  "causationId": "g07-wdio-request-1:member-roster",
   "runtime": {
     "connection": "online",
     "initialSync": "ready",
@@ -15,6 +16,7 @@
         "cursor": "first"
       },
       "revision": 1,
+      "causationId": "g07-wdio-request-1:member-roster",
       "mutation": {
         "kind": "memberRosterSnapshot",
         "view": {

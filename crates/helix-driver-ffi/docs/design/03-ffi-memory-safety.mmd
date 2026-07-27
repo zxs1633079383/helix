@@ -5,7 +5,7 @@
 
 flowchart TD
     subgraph OWNER["① opaque ptr 单 owner（Box::into_raw / from_raw 各一次）"]
-        O1["helix_create_with_network<br/>Box::into_raw(Box::new(HelixHandle))"]
+        O1["任一 create 入口<br/>Box::into_raw(Box::new(HelixHandle))"]
         O2["✅ 唯一所有权交给 C 侧<br/>（Rust 不再持有，C 持 *mut HelixHandle）"]
         O3["C 侧把 ptr 回传后续每个 API<br/>set_header / command / query ... 仅 &*handle 借用，不夺所有权"]
         O4["helix_destroy<br/>Box::from_raw 回收（唯一一次）"]
@@ -25,7 +25,7 @@ flowchart TD
         B1["helix_command(name, payload)<br/>C 侧 buffer 返回后可能被复用"]
         B2["✅ slice::from_raw_parts(...).to_vec / Bytes::copy_from_slice<br/>当场拷贝到 Rust 堆"]
         B3["✅ 不持有原始切片<br/>（owned Vec&lt;u8&gt; 才能跨 step 进 engine）"]
-        B4["helix_create_with_network / set_header<br/>URL/header 字节只在入口期读取并转 owned String"]
+        B4["create_with_endpoints / create_with_network / set_header<br/>URL/header 字节只在入口期读取并转 owned String"]
         B1 --> B2 --> B3
         B4 --> B2
     end

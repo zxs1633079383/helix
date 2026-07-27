@@ -89,6 +89,10 @@ pub(super) fn rebuild_body(
     if !user_id.is_empty() {
         body["userId"] = Value::String(user_id.to_string());
     }
+    let simple_message = row_str(row, "simple_message");
+    if !simple_message.is_empty() {
+        body["simpleMessage"] = Value::String(simple_message.to_string());
+    }
     Ok(body)
 }
 

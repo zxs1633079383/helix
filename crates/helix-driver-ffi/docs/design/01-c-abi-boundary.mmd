@@ -4,15 +4,17 @@
 
 flowchart TD
     subgraph HOST["C++ / Flutter host"]
-        HCMD["调用导出函数<br/>create / destroy / set_header / command / query"]
+        HCMD["调用导出函数<br/>create / destroy / set_header / action / command / query"]
         HVT["CppHostVtable<br/>on_domain_events_batch · now_ms · ctx"]
     end
 
     subgraph ABI["C-ABI 导出函数（#no_mangle extern C · api.rs）"]
-        E_CREATE["✅ helix_create_with_network<br/>起 pump 线程 + current_thread runtime"]
+        E_CREATE["✅ helix_create_with_endpoints（推荐）<br/>Go + Java + WS 独立注入"]
+        E_CREATE_LEGACY["✅ helix_create_with_network（兼容）<br/>Go + WS；Java 为空且不推测"]
         E_DESTROY["✅ helix_destroy<br/>shutdown + join + Box::from_raw"]
         E_SETH["✅ helix_set_header"]
         E_RMH["✅ helix_remove_header"]
+        E_ACTION["✅ helix_invoke_action<br/>严格 action envelope"]
         E_CMD["✅ helix_command<br/>拷贝 name/payload → Tick::Command"]
         E_QUERY["✅ helix_query<br/>capabilities / version 元信息"]
     end
@@ -35,17 +37,21 @@ flowchart TD
     end
 
     HCMD --> E_CREATE
+    HCMD --> E_CREATE_LEGACY
     HCMD --> E_SETH
     HCMD --> E_RMH
+    HCMD --> E_ACTION
     HCMD --> E_CMD
     HCMD --> E_QUERY
     HCMD --> E_DESTROY
     HVT --> E_CREATE
 
     E_CREATE --> HANDLE
+    E_CREATE_LEGACY --> HANDLE
     E_DESTROY --> HANDLE
     E_SETH --> H_HDR
     E_RMH --> H_HDR
+    E_ACTION --> H_TICK
     E_CMD --> H_TICK
 
     HANDLE --> PUMP

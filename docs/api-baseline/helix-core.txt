@@ -40,6 +40,9 @@ pub helix_core::effect::Effect::HttpFire::req: helix_core::effect::HttpRequest
 pub helix_core::effect::Effect::Persist
 pub helix_core::effect::Effect::Persist::corr: helix_core::Correlation
 pub helix_core::effect::Effect::Persist::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
+pub helix_core::effect::Effect::PersistAtomic
+pub helix_core::effect::Effect::PersistAtomic::corr: helix_core::Correlation
+pub helix_core::effect::Effect::PersistAtomic::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
 pub helix_core::effect::Effect::PersistFire
 pub helix_core::effect::Effect::PersistFire::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
 pub helix_core::effect::Effect::Request
@@ -64,6 +67,27 @@ impl core::marker::Unpin for helix_core::Effect
 impl core::marker::UnsafeUnpin for helix_core::Effect
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::Effect
 impl core::panic::unwind_safe::UnwindSafe for helix_core::Effect
+pub enum helix_core::effect::FileUploadProgressPolicy
+pub helix_core::effect::FileUploadProgressPolicy::Disabled
+pub helix_core::effect::FileUploadProgressPolicy::PercentStep(u8)
+impl core::clone::Clone for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::clone(&self) -> helix_core::ports::upload::FileUploadProgressPolicy
+impl core::cmp::Eq for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::cmp::PartialEq for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::eq(&self, &helix_core::ports::upload::FileUploadProgressPolicy) -> bool
+impl core::default::Default for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::default() -> helix_core::ports::upload::FileUploadProgressPolicy
+impl core::fmt::Debug for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::StructuralPartialEq for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Freeze for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Send for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Sync for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Unpin for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadProgressPolicy
 pub enum helix_core::effect::SortDirection
 pub helix_core::effect::SortDirection::Asc
 pub helix_core::effect::SortDirection::Desc
@@ -202,6 +226,25 @@ impl core::marker::Unpin for helix_core::EffectSink
 impl core::marker::UnsafeUnpin for helix_core::EffectSink
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::EffectSink
 impl core::panic::unwind_safe::UnwindSafe for helix_core::EffectSink
+pub struct helix_core::effect::FileUploadProgress
+pub helix_core::effect::FileUploadProgress::completed_bytes: u64
+pub helix_core::effect::FileUploadProgress::total_bytes: u64
+impl core::clone::Clone for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::clone(&self) -> helix_core::ports::upload::FileUploadProgress
+impl core::cmp::Eq for helix_core::ports::upload::FileUploadProgress
+impl core::cmp::PartialEq for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::eq(&self, &helix_core::ports::upload::FileUploadProgress) -> bool
+impl core::fmt::Debug for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::ports::upload::FileUploadProgress
+impl core::marker::StructuralPartialEq for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Freeze for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Send for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Sync for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Unpin for helix_core::ports::upload::FileUploadProgress
+impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadProgress
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadProgress
+impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadProgress
 pub struct helix_core::effect::FileUploadRequest
 pub helix_core::effect::FileUploadRequest::content_type: core::option::Option<alloc::string::String>
 pub helix_core::effect::FileUploadRequest::headers: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
@@ -210,6 +253,8 @@ pub helix_core::effect::FileUploadRequest::method: alloc::string::String
 pub helix_core::effect::FileUploadRequest::object_key: alloc::string::String
 pub helix_core::effect::FileUploadRequest::size: core::option::Option<u64>
 pub helix_core::effect::FileUploadRequest::urls: helix_core::ports::upload::FileUploadUrls
+impl helix_core::effect::FileUploadRequest
+pub fn helix_core::effect::FileUploadRequest::progress_policy(&self) -> helix_core::ports::upload::FileUploadProgressPolicy
 impl core::clone::Clone for helix_core::effect::FileUploadRequest
 pub fn helix_core::effect::FileUploadRequest::clone(&self) -> helix_core::effect::FileUploadRequest
 impl core::fmt::Debug for helix_core::effect::FileUploadRequest
@@ -240,8 +285,10 @@ pub struct helix_core::effect::FileUploadUrls
 impl helix_core::ports::upload::FileUploadUrls
 pub fn helix_core::ports::upload::FileUploadUrls::into_parts(self) -> (alloc::string::String, alloc::string::String)
 pub fn helix_core::ports::upload::FileUploadUrls::new(alloc::string::String, alloc::string::String) -> core::result::Result<Self, &'static str>
+pub fn helix_core::ports::upload::FileUploadUrls::progress_policy(&self) -> helix_core::ports::upload::FileUploadProgressPolicy
 pub fn helix_core::ports::upload::FileUploadUrls::public_url(&self) -> &str
 pub fn helix_core::ports::upload::FileUploadUrls::upload_url(&self) -> &str
+pub fn helix_core::ports::upload::FileUploadUrls::with_progress_policy(self, helix_core::ports::upload::FileUploadProgressPolicy) -> Self
 impl core::clone::Clone for helix_core::ports::upload::FileUploadUrls
 pub fn helix_core::ports::upload::FileUploadUrls::clone(&self) -> helix_core::ports::upload::FileUploadUrls
 impl core::cmp::Eq for helix_core::ports::upload::FileUploadUrls
@@ -462,6 +509,8 @@ impl core::marker::Unpin for helix_core::effect::UpsertSpec
 impl core::marker::UnsafeUnpin for helix_core::effect::UpsertSpec
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::effect::UpsertSpec
 impl core::panic::unwind_safe::UnwindSafe for helix_core::effect::UpsertSpec
+pub trait helix_core::effect::FileUploadProgressReporter: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::effect::FileUploadProgressReporter::report(&self, helix_core::ports::upload::FileUploadProgress)
 pub type helix_core::effect::Row = alloc::vec::Vec<(alloc::string::String, helix_core::effect::SqlValue)>
 pub mod helix_core::engine
 pub struct helix_core::engine::ExecutionShell
@@ -577,6 +626,7 @@ pub trait helix_core::ports::id::Random: helix_core::platform::MaybeSend + 'stat
 pub fn helix_core::ports::id::Random::random_u64(&self, u64) -> u64
 pub mod helix_core::ports::storage
 pub trait helix_core::ports::storage::Storage: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::storage::Storage::atomic_write<'life0, 'async_trait>(&'life0 self, alloc::vec::Vec<helix_core::effect::StorageOp>) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: core::marker::Sync + 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::storage::Storage::batch_delete<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchDeleteSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::storage::Storage::batch_update<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchUpdateSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::storage::Storage::batch_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::UpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
@@ -585,12 +635,54 @@ pub fn helix_core::ports::storage::Storage::guarded_bump<'life0, 'async_trait>(&
 pub fn helix_core::ports::storage::Storage::monotonic_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::MonotonicUpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::storage::Storage::scan<'life0, 'async_trait>(&'life0 self, helix_core::effect::ScanSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<alloc::vec::Vec<helix_core::effect::Row>, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub mod helix_core::ports::upload
+pub enum helix_core::ports::upload::FileUploadProgressPolicy
+pub helix_core::ports::upload::FileUploadProgressPolicy::Disabled
+pub helix_core::ports::upload::FileUploadProgressPolicy::PercentStep(u8)
+impl core::clone::Clone for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::clone(&self) -> helix_core::ports::upload::FileUploadProgressPolicy
+impl core::cmp::Eq for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::cmp::PartialEq for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::eq(&self, &helix_core::ports::upload::FileUploadProgressPolicy) -> bool
+impl core::default::Default for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::default() -> helix_core::ports::upload::FileUploadProgressPolicy
+impl core::fmt::Debug for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::StructuralPartialEq for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Freeze for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Send for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Sync for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Unpin for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadProgressPolicy
+pub struct helix_core::ports::upload::FileUploadProgress
+pub helix_core::ports::upload::FileUploadProgress::completed_bytes: u64
+pub helix_core::ports::upload::FileUploadProgress::total_bytes: u64
+impl core::clone::Clone for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::clone(&self) -> helix_core::ports::upload::FileUploadProgress
+impl core::cmp::Eq for helix_core::ports::upload::FileUploadProgress
+impl core::cmp::PartialEq for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::eq(&self, &helix_core::ports::upload::FileUploadProgress) -> bool
+impl core::fmt::Debug for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::ports::upload::FileUploadProgress
+impl core::marker::StructuralPartialEq for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Freeze for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Send for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Sync for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Unpin for helix_core::ports::upload::FileUploadProgress
+impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadProgress
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadProgress
+impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadProgress
 pub struct helix_core::ports::upload::FileUploadUrls
 impl helix_core::ports::upload::FileUploadUrls
 pub fn helix_core::ports::upload::FileUploadUrls::into_parts(self) -> (alloc::string::String, alloc::string::String)
 pub fn helix_core::ports::upload::FileUploadUrls::new(alloc::string::String, alloc::string::String) -> core::result::Result<Self, &'static str>
+pub fn helix_core::ports::upload::FileUploadUrls::progress_policy(&self) -> helix_core::ports::upload::FileUploadProgressPolicy
 pub fn helix_core::ports::upload::FileUploadUrls::public_url(&self) -> &str
 pub fn helix_core::ports::upload::FileUploadUrls::upload_url(&self) -> &str
+pub fn helix_core::ports::upload::FileUploadUrls::with_progress_policy(self, helix_core::ports::upload::FileUploadProgressPolicy) -> Self
 impl core::clone::Clone for helix_core::ports::upload::FileUploadUrls
 pub fn helix_core::ports::upload::FileUploadUrls::clone(&self) -> helix_core::ports::upload::FileUploadUrls
 impl core::cmp::Eq for helix_core::ports::upload::FileUploadUrls
@@ -606,8 +698,11 @@ impl core::marker::Unpin for helix_core::ports::upload::FileUploadUrls
 impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadUrls
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadUrls
 impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadUrls
+pub trait helix_core::ports::upload::FileUploadProgressReporter: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::upload::FileUploadProgressReporter::report(&self, helix_core::ports::upload::FileUploadProgress)
 pub trait helix_core::ports::upload::FileUploader: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::upload::FileUploader::upload<'life0, 'async_trait>(&'life0 self, helix_core::effect::FileUploadRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::FileUploadResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::upload::FileUploader::upload_with_progress<'life0, 'async_trait>(&'life0 self, helix_core::effect::FileUploadRequest, core::option::Option<alloc::sync::Arc<dyn helix_core::ports::upload::FileUploadProgressReporter>>) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::FileUploadResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: core::marker::Sync + 'async_trait, 'life0: 'async_trait
 pub struct helix_core::ports::BatchDeleteSpec
 pub helix_core::ports::BatchDeleteSpec::key_col: &'static str
 pub helix_core::ports::BatchDeleteSpec::key_vals: alloc::vec::Vec<helix_core::effect::SqlValue>
@@ -733,8 +828,11 @@ pub trait helix_core::ports::Clock: core::clone::Clone + helix_core::platform::M
 pub fn helix_core::ports::Clock::now_ms(&self) -> u64
 pub trait helix_core::ports::EventSink: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::EventSink::emit(&self, helix_core::DomainEventBytes)
+pub trait helix_core::ports::FileUploadProgressReporter: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::FileUploadProgressReporter::report(&self, helix_core::ports::upload::FileUploadProgress)
 pub trait helix_core::ports::FileUploader: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::FileUploader::upload<'life0, 'async_trait>(&'life0 self, helix_core::effect::FileUploadRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::FileUploadResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn helix_core::ports::FileUploader::upload_with_progress<'life0, 'async_trait>(&'life0 self, helix_core::effect::FileUploadRequest, core::option::Option<alloc::sync::Arc<dyn helix_core::ports::upload::FileUploadProgressReporter>>) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<helix_core::effect::FileUploadResponse, helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: core::marker::Sync + 'async_trait, 'life0: 'async_trait
 pub trait helix_core::ports::FrameSender: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
 pub fn helix_core::ports::FrameSender::send<'life0, 'async_trait>(&'life0 self, bytes::bytes::Bytes) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub trait helix_core::ports::HttpRequester: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
@@ -744,6 +842,7 @@ pub fn helix_core::ports::IdSource::new_uuid(&self) -> core::result::Result<[u8;
 pub trait helix_core::ports::Random: helix_core::platform::MaybeSend + 'static
 pub fn helix_core::ports::Random::random_u64(&self, u64) -> u64
 pub trait helix_core::ports::Storage: helix_core::platform::MaybeSend + helix_core::platform::MaybeSync + 'static
+pub fn helix_core::ports::Storage::atomic_write<'life0, 'async_trait>(&'life0 self, alloc::vec::Vec<helix_core::effect::StorageOp>) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: core::marker::Sync + 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::Storage::batch_delete<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchDeleteSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::Storage::batch_update<'life0, 'async_trait>(&'life0 self, helix_core::effect::BatchUpdateSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 pub fn helix_core::ports::Storage::batch_upsert<'life0, 'async_trait>(&'life0 self, helix_core::effect::UpsertSpec) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<(), helix_core::error::PortError>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
@@ -792,6 +891,9 @@ pub helix_core::tick::Tick::Command(helix_core::tick::AppCommand)
 pub helix_core::tick::Tick::Connected(helix_core::effect::TransportId)
 pub helix_core::tick::Tick::Disconnected(helix_core::effect::TransportId)
 pub helix_core::tick::Tick::Inbound(helix_core::tick::InboundBytes)
+pub helix_core::tick::Tick::PortProgress
+pub helix_core::tick::Tick::PortProgress::corr: helix_core::Correlation
+pub helix_core::tick::Tick::PortProgress::progress: helix_core::ports::upload::FileUploadProgress
 pub helix_core::tick::Tick::PortReply
 pub helix_core::tick::Tick::PortReply::corr: helix_core::Correlation
 pub helix_core::tick::Tick::PortReply::outcome: helix_core::tick::PortOutcome
@@ -908,6 +1010,9 @@ pub helix_core::Effect::HttpFire::req: helix_core::effect::HttpRequest
 pub helix_core::Effect::Persist
 pub helix_core::Effect::Persist::corr: helix_core::Correlation
 pub helix_core::Effect::Persist::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
+pub helix_core::Effect::PersistAtomic
+pub helix_core::Effect::PersistAtomic::corr: helix_core::Correlation
+pub helix_core::Effect::PersistAtomic::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
 pub helix_core::Effect::PersistFire
 pub helix_core::Effect::PersistFire::ops: alloc::vec::Vec<helix_core::effect::StorageOp>
 pub helix_core::Effect::Request
@@ -932,6 +1037,27 @@ impl core::marker::Unpin for helix_core::Effect
 impl core::marker::UnsafeUnpin for helix_core::Effect
 impl core::panic::unwind_safe::RefUnwindSafe for helix_core::Effect
 impl core::panic::unwind_safe::UnwindSafe for helix_core::Effect
+pub enum helix_core::FileUploadProgressPolicy
+pub helix_core::FileUploadProgressPolicy::Disabled
+pub helix_core::FileUploadProgressPolicy::PercentStep(u8)
+impl core::clone::Clone for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::clone(&self) -> helix_core::ports::upload::FileUploadProgressPolicy
+impl core::cmp::Eq for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::cmp::PartialEq for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::eq(&self, &helix_core::ports::upload::FileUploadProgressPolicy) -> bool
+impl core::default::Default for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::default() -> helix_core::ports::upload::FileUploadProgressPolicy
+impl core::fmt::Debug for helix_core::ports::upload::FileUploadProgressPolicy
+pub fn helix_core::ports::upload::FileUploadProgressPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::StructuralPartialEq for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Freeze for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Send for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Sync for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::Unpin for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadProgressPolicy
+impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadProgressPolicy
 pub enum helix_core::PortError
 pub helix_core::PortError::Clock(alloc::string::String)
 pub helix_core::PortError::Http(alloc::string::String)
@@ -956,6 +1082,9 @@ pub helix_core::Tick::Command(helix_core::tick::AppCommand)
 pub helix_core::Tick::Connected(helix_core::effect::TransportId)
 pub helix_core::Tick::Disconnected(helix_core::effect::TransportId)
 pub helix_core::Tick::Inbound(helix_core::tick::InboundBytes)
+pub helix_core::Tick::PortProgress
+pub helix_core::Tick::PortProgress::corr: helix_core::Correlation
+pub helix_core::Tick::PortProgress::progress: helix_core::ports::upload::FileUploadProgress
 pub helix_core::Tick::PortReply
 pub helix_core::Tick::PortReply::corr: helix_core::Correlation
 pub helix_core::Tick::PortReply::outcome: helix_core::tick::PortOutcome
@@ -1037,6 +1166,25 @@ impl core::marker::Unpin for helix_core::engine::ExecutionShell
 impl core::marker::UnsafeUnpin for helix_core::engine::ExecutionShell
 impl !core::panic::unwind_safe::RefUnwindSafe for helix_core::engine::ExecutionShell
 impl !core::panic::unwind_safe::UnwindSafe for helix_core::engine::ExecutionShell
+pub struct helix_core::FileUploadProgress
+pub helix_core::FileUploadProgress::completed_bytes: u64
+pub helix_core::FileUploadProgress::total_bytes: u64
+impl core::clone::Clone for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::clone(&self) -> helix_core::ports::upload::FileUploadProgress
+impl core::cmp::Eq for helix_core::ports::upload::FileUploadProgress
+impl core::cmp::PartialEq for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::eq(&self, &helix_core::ports::upload::FileUploadProgress) -> bool
+impl core::fmt::Debug for helix_core::ports::upload::FileUploadProgress
+pub fn helix_core::ports::upload::FileUploadProgress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for helix_core::ports::upload::FileUploadProgress
+impl core::marker::StructuralPartialEq for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Freeze for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Send for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Sync for helix_core::ports::upload::FileUploadProgress
+impl core::marker::Unpin for helix_core::ports::upload::FileUploadProgress
+impl core::marker::UnsafeUnpin for helix_core::ports::upload::FileUploadProgress
+impl core::panic::unwind_safe::RefUnwindSafe for helix_core::ports::upload::FileUploadProgress
+impl core::panic::unwind_safe::UnwindSafe for helix_core::ports::upload::FileUploadProgress
 pub struct helix_core::ModuleHost
 impl helix_core::module_host::ModuleHost
 pub fn helix_core::module_host::ModuleHost::dispatch_inbound(&mut self, &helix_core::tick::Tick, u64, &mut helix_core::EffectSink) -> core::result::Result<core::option::Option<usize>, helix_core::error::CoreError>

@@ -94,6 +94,8 @@ pub enum CorrelationContext {
     /// renderer 只提交 surface+scope，不能选择表、SQL 或领域 command。
     SurfaceStorageSnapshot {
         request: crate::surface_runtime::SurfaceResyncRequest,
+        /// `true` 表示权威事实刷新既有 slot，允许产生 replace patch。
+        refresh_existing: bool,
     },
 
     /// thread 由既有 getReplies HTTP 权威回包建立 typed slot。
@@ -145,13 +147,24 @@ pub enum CorrelationContext {
         temporary_id: TemporaryId,
         channel_id: ChannelId,
     },
-    /// 发送事实已由本地存储确认后，重新读取已 attach 的 latest timeline。
+    /// 发送事实已由本地存储确认后，重新读取已 attach 的 timeline。
     ///
     /// 这把 P1、HTTP 对账、WS echo 和失败终态统一收敛为同一条
     /// "durable fact -> local-first projector -> typed Frame" 路径；renderer 不消费
     /// `im:post:*` 补业务状态。`causation_id` 只来自调用方 request id，缺失时保持 None。
     TimelineRefreshAfterSendPersist {
         channel_id: ChannelId,
+        /// Action retry 保留授权 binding 的原 window；legacy send/retry 为 None，按 latest 处理。
+        window_token: Option<String>,
+        causation_id: Option<String>,
+    },
+    /// 首笔媒体 message+journal 事务失败后的原子补偿 barrier。
+    /// 成功前 `media_retry_inflight` 保持占用，禁止 retry 启动任何 Java/OSS I/O；
+    /// 失败则继续 fail-closed，防止没有 durable journal 的上传逃逸。
+    MediaFailureCompensation {
+        temporary_id: TemporaryId,
+        channel_id: ChannelId,
+        window_token: Option<String>,
         causation_id: Option<String>,
     },
     /// G-03a Native 重启后的失败消息重试：先按 temporary_id 查 durable message，
@@ -160,6 +173,9 @@ pub enum CorrelationContext {
         message_id: String,
         requested_at_ms: u64,
         request_id: Option<String>,
+        /// Surface action 的可信 scope channel；legacy command 没有 action ledger，保持 None。
+        action_channel_id: Option<ChannelId>,
+        window_token: Option<String>,
         lookup_by_id: bool,
     },
     /// sync/notify **HTTP** 回报：清 `inflight_sync` 守卫 + `handle_sync_reply` 解析（取代旧 `corr_to_sync`）。

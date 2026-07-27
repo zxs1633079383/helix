@@ -85,6 +85,18 @@ async fn shared_http_resolves_relative_urls_and_keeps_request_headers_explicit()
     );
 }
 
+#[test]
+fn host_network_config_keeps_platform_supplied_java_origin() {
+    let config = HostNetworkConfig::new(
+        "https://go.example.test/api/cses",
+        "wss://go.example.test/api/v4/websocket",
+    )
+    .with_default_api_base_url("https://java.example.test");
+
+    assert_eq!(config.api_base_url, "https://go.example.test/api/cses");
+    assert_eq!(config.default_api_base_url, "https://java.example.test");
+}
+
 #[tokio::test]
 async fn shared_ws_send_before_connect_reports_transport_error() {
     let config = HostNetworkConfig::new("https://api.example.test", "wss://ws.example.test/socket");

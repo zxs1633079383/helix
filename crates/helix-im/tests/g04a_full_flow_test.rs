@@ -4,8 +4,8 @@
 mod scenario;
 
 use scenario::{
-    assert_group_created_contract_for, assert_offline_recalled_contract,
-    assert_revocable_contract, g04a_scenario_spec, G04AScenarioRunner,
+    assert_group_created_contract_for, assert_offline_recalled_contract, assert_revocable_contract,
+    g04a_scenario_spec, G04AScenarioRunner,
 };
 
 #[test]

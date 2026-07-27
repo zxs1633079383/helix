@@ -277,6 +277,7 @@ fn latest_posts_parser_distinguishes_empty_success_from_failed_status() {
 fn local_first_terminal_emits_typed_timeline_frame_not_legacy_query_result() {
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-1".to_string();
+    config.default_api_base_url = "http://java.test".to_string();
     let mut module = ImModule::new(config);
     let rows_desc = vec![serde_json::json!({
         "id": "message-1",
@@ -357,6 +358,7 @@ fn ordinary_authoritative_timeline_refresh_remains_a_revision_based_patch() {
 fn full_authoritative_recent_window_exposes_load_older_page_contract() {
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-1".to_string();
+    config.default_api_base_url = "http://java.test".to_string();
     let mut module = ImModule::new(config);
     let mut rows_desc: Vec<Value> = (1..=REMOTE_RECENT_WINDOW)
         .map(|index| {
@@ -1045,6 +1047,7 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
 
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-1".to_string();
+    config.api_base_url = "http://go.test".to_string();
     let mut module = ImModule::new(config);
     let rows_desc = vec![serde_json::json!({
         "id": "message-author-1",
@@ -1144,11 +1147,603 @@ fn non_query_timeline_patch_regrants_same_action_ref_at_new_revision() {
 }
 
 #[test]
+fn retry_action_invocation_runs_canonical_media_retry_after_acceptance_and_releases_on_frame() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    config.default_api_base_url = "http://java.test".to_string();
+    let mut module = ImModule::new(config);
+    let channel_id = channel_id();
+    let temporary_id = crate::state::TemporaryId("tmp-action-retry-file".to_string());
+    let mut pending = crate::pending_send::PendingSend::new(
+        temporary_id.clone(),
+        helix_core::TimerId::from_raw(91),
+        None,
+    );
+    pending.status = crate::state::SendStatus::UnSend;
+    pending.upload_failed = true;
+    pending.remaining_uploads = 1;
+    pending.body = Some(serde_json::json!({
+        "temporaryId": temporary_id.0,
+        "channelId": channel_id.as_str(),
+        "type": "FILE",
+        "message": "",
+        "props": {
+            "file": {
+                "name": "report.pdf",
+                "upload": {"status": "failed"}
+            }
+        }
+    }));
+    module
+        .state
+        .pending_sends
+        .insert(temporary_id.clone(), pending);
+    module.state.failed_media_ops.insert(
+        (
+            temporary_id.clone(),
+            crate::send::upload_props::UploadTarget::File,
+        ),
+        crate::send::upload_props::FailedMediaOp::Prepare(
+            crate::send::upload_props::PendingMediaPrepare {
+                temporary_id: temporary_id.clone(),
+                channel_id,
+                target: crate::send::upload_props::UploadTarget::File,
+                input: crate::send::upload_props::MediaInput {
+                    local_path: "/tmp/report.pdf".to_string(),
+                    file_name: "report.pdf".to_string(),
+                    content_type: "application/pdf".to_string(),
+                    size: 9,
+                    sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
+                },
+            },
+        ),
+    );
+
+    let rows_desc = vec![serde_json::json!({
+        "temporary_id": temporary_id.0,
+        "channel_id": channel_id.as_str(),
+        "user_id": "viewer-1",
+        "create_at": 10,
+        "message": "",
+        "type": "FILE",
+        "props": {
+            "file": {
+                "name": "report.pdf",
+                "upload": {"status": "failed"}
+            }
+        },
+        "send_status": "unsend",
+        "upload_progress_percent": 0
+    })];
+    let mut query = request(20);
+    query.window_token = "retry-action-window".to_string();
+    let Effect::Emit { event } = module
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None, None)
+        .expect("failed media timeline grants retry")
+    else {
+        panic!("failed media query must emit a timeline frame")
+    };
+    let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
+        &serde_json::to_vec(&event["data"]).unwrap(),
+    )
+    .unwrap();
+    let mutation = &frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &mutation.mutation.mutation
+    else {
+        panic!("initial retry timeline must be a snapshot")
+    };
+    let binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "retry")
+        .expect("failed media exposes retry capability")
+        .clone();
+    assert!(binding.enabled);
+    assert!(!binding.action_ref.contains(temporary_id.0.as_str()));
+
+    let envelope = crate::interaction_frame::ActionInvocationEnvelope {
+        schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        request_id: "retry-action-request".to_string(),
+        actor_id: "viewer-1".to_string(),
+        surface: mutation.mutation.surface,
+        scope: mutation.mutation.scope.clone(),
+        surface_epoch: binding.surface_epoch,
+        observed_revision: mutation.mutation.revision,
+        invocation: crate::interaction_frame::ActionInvocation {
+            action_ref: binding.action_ref.clone(),
+            input: std::collections::BTreeMap::new(),
+        },
+    };
+
+    let mut invalid = envelope.clone();
+    invalid.request_id = "retry-action-invalid-input".to_string();
+    invalid.invocation.input.insert(
+        "unexpected".to_string(),
+        crate::interaction_frame::SurfaceDataVm::String("value".to_string()),
+    );
+    let mut sink = EffectSink::new();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&invalid).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_001,
+            &mut sink,
+        )
+        .expect("non-empty retry input is rejected as a receipt");
+    let rejected = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("invalid retry invocation emits a receipt");
+    assert_eq!(rejected["data"]["status"], "rejected");
+    assert_eq!(rejected["data"]["validationErrors"][0]["field"], "input");
+    assert!(sink
+        .as_slice()
+        .iter()
+        .all(|effect| !matches!(effect, Effect::Http { .. } | Effect::Persist { .. })));
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.causation_id.as_deref()),
+        None,
+        "prepare rejection must not mutate pending media"
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_002,
+            &mut sink,
+        )
+        .expect("accepted retry invokes the canonical local command");
+    let accepted = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:action-receipt")
+        .expect("accepted retry publishes a receipt");
+    assert_eq!(accepted["data"]["status"], "accepted");
+    assert!(sink.as_slice().iter().all(|effect| {
+        emitted_event(effect).is_none_or(|event| event["event"] != "im:interaction:frame")
+    }));
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.causation_id.as_deref()),
+        None,
+        "retry reset PersistOk 前不能把内存事实提前推进到新 attempt"
+    );
+    let retry_persist_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PersistAtomic { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::BatchUpsert(spec)
+                            if spec.table == "message"
+                                && spec.rows.iter().flatten().any(|(column, value)| {
+                                    column == "send_status"
+                                        && matches!(
+                                            value,
+                                            helix_core::effect::SqlValue::Text(status)
+                                                if status == "sending"
+                                        )
+                                })
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("canonical im_retry_send atomically persists the sending state");
+    let reset = module
+        .state
+        .pending_media_retry_resets
+        .get(&retry_persist_corr)
+        .expect("retry context must wait behind its atomic persist");
+    assert_eq!(reset.channel_id, channel_id);
+    assert_eq!(
+        reset.timeline_readback.window_token.as_deref(),
+        Some("retry-action-window")
+    );
+    assert_eq!(
+        reset.timeline_readback.causation_id.as_deref(),
+        Some("retry-action-request")
+    );
+    assert!(
+        sink.as_slice()
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Http { .. })),
+        "PersistOk 前不得启动 Java prepare"
+    );
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: retry_persist_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes::default()),
+            },
+            1_003,
+            &mut sink,
+        )
+        .expect("retry sending PersistOk schedules causal timeline readback");
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.causation_id.as_deref()),
+        Some("retry-action-request")
+    );
+    assert_eq!(
+        module
+            .state
+            .pending_sends
+            .get(&temporary_id)
+            .and_then(|pending| pending.timeline_readback.window_token.as_deref()),
+        Some("retry-action-window")
+    );
+    assert!(sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Http { req, .. } if req.url.ends_with("/oss/getPresignedUrl")
+    )));
+    let scan_corr = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::Scan(spec) if spec.table == "message"
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("retry state re-enters local-first timeline projection");
+
+    sink.clear();
+    let sending_rows = serde_json::json!([{
+        "temporary_id": temporary_id.0,
+        "channel_id": channel_id.as_str(),
+        "user_id": "viewer-1",
+        "create_at": 10,
+        "message": "",
+        "type": "FILE",
+        "props": "{\"file\":{\"name\":\"report.pdf\",\"upload\":{\"status\":\"preparing\"}}}",
+        "send_status": "sending",
+        "upload_progress_percent": 0
+    }]);
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: scan_corr,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from(serde_json::to_vec(&sending_rows).unwrap()),
+                )),
+            },
+            1_004,
+            &mut sink,
+        )
+        .expect("causal sending readback emits the retry terminal frame");
+    let causal_frame = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("retry PersistOk readback emits a typed frame");
+    let causal_frame = crate::interaction_frame::InteractionFrameV2::decode(
+        &serde_json::to_vec(&causal_frame["data"]).unwrap(),
+    )
+    .unwrap();
+    assert!(crate::projector::action::matching_frame_confirmation(
+        &causal_frame,
+        "retry-action-request"
+    )
+    .unwrap()
+    .is_some());
+    assert_eq!(
+        causal_frame.mutations[0].mutation.scope, mutation.mutation.scope,
+        "retry terminal Frame must return to the scope that granted the actionRef"
+    );
+    let crate::interaction_frame::TypedSurfaceMutation::TimelinePatch { patch } =
+        &causal_frame.mutations[0].mutation.mutation
+    else {
+        panic!("retry sending readback must patch the attached timeline")
+    };
+    let retry = patch.view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "retry")
+        .expect("sending view keeps the typed retry binding disabled");
+    assert!(!retry.enabled);
+    assert!(
+        !module
+            .state
+            .action_registry
+            .complete_after_terminal_frame("retry-action-request"),
+        "the causal frame must already have released the accepted action ledger"
+    );
+}
+
+fn start_durable_retry_action(
+    module: &mut ImModule,
+    request_id: &str,
+    out: &mut EffectSink,
+) -> helix_core::Correlation {
+    use helix_core::Module;
+
+    let rows_desc = vec![serde_json::json!({
+        "temporary_id": "temporary-durable-retry",
+        "channel_id": channel_id().as_str(),
+        "user_id": "viewer-1",
+        "create_at": 10,
+        "message": "retry me",
+        "type": "TEXT",
+        "props": {},
+        "send_status": "unsend",
+        "actionCapabilities": {"canRetry": true}
+    })];
+    let mut query = request(20);
+    query.window_token = "durable-retry-window".to_string();
+    let Effect::Emit { event } = module
+        .emit_timeline_snapshot_with_causation(&query, &rows_desc, 1_000, None, None)
+        .expect("retryable durable row grants an action")
+    else {
+        panic!("retryable row must emit a timeline frame")
+    };
+    let event: serde_json::Value = serde_json::from_slice(event.0.as_ref()).unwrap();
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
+        &serde_json::to_vec(&event["data"]).unwrap(),
+    )
+    .unwrap();
+    let mutation = &frame.mutations[0];
+    let crate::interaction_frame::TypedSurfaceMutation::TimelineSnapshot { view } =
+        &mutation.mutation.mutation
+    else {
+        panic!("initial durable retry frame must be a snapshot")
+    };
+    let binding = view.items[0]
+        .actions
+        .iter()
+        .find(|action| action.kind == "retry")
+        .expect("failed durable row exposes retry")
+        .clone();
+    let envelope = crate::interaction_frame::ActionInvocationEnvelope {
+        schema_version: crate::interaction_frame::ACTION_INVOCATION_ENVELOPE_SCHEMA_VERSION,
+        request_id: request_id.to_string(),
+        actor_id: "viewer-1".to_string(),
+        surface: mutation.mutation.surface,
+        scope: mutation.mutation.scope.clone(),
+        surface_epoch: binding.surface_epoch,
+        observed_revision: mutation.mutation.revision,
+        invocation: crate::interaction_frame::ActionInvocation {
+            action_ref: binding.action_ref,
+            input: std::collections::BTreeMap::new(),
+        },
+    };
+    module
+        .handle(
+            &helix_core::Tick::Command(
+                crate::client_api::build_action_invocation_command(
+                    &serde_json::to_vec(&envelope).unwrap(),
+                )
+                .unwrap(),
+            ),
+            1_001,
+            out,
+        )
+        .expect("retry action is accepted");
+    out.as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::Get(spec)
+                            if spec.table == "message" && spec.key_col == "temporary_id"
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("durable retry starts with a message lookup")
+}
+
+#[test]
+fn durable_retry_lookup_failure_survives_query_supersession_and_releases_action() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    config.api_base_url = "http://go.test".to_string();
+    let mut module = ImModule::new(config);
+    let mut sink = EffectSink::new();
+    let request_id = "durable-retry-storage-error";
+    let lookup_corr = start_durable_retry_action(&mut module, request_id, &mut sink);
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: lookup_corr,
+                outcome: helix_core::tick::PortOutcome::Err(helix_core::tick::PortError::Storage(
+                    1,
+                )),
+            },
+            1_002,
+            &mut sink,
+        )
+        .expect("lookup failure schedules a causal local readback");
+    let causal_scan = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::Scan(spec) if spec.table == "message"
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("lookup failure must schedule the original timeline readback");
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "channel_id": channel_id().as_str(),
+        "window_token": "durable-retry-window",
+        "limit": 20
+    }))
+    .unwrap();
+    module
+        .dispatch_message_query(&payload, &mut EffectSink::new())
+        .expect("a newer renderer query supersedes the ordinary generation");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: causal_scan,
+                outcome: helix_core::tick::PortOutcome::Err(helix_core::tick::PortError::Storage(
+                    2,
+                )),
+            },
+            1_003,
+            &mut sink,
+        )
+        .expect("causal failure still emits a terminal frame");
+    let frame = sink
+        .as_slice()
+        .iter()
+        .filter_map(emitted_event)
+        .find(|event| event["event"] == "im:interaction:frame")
+        .expect("causal storage failure emits a frame");
+    let frame = crate::interaction_frame::InteractionFrameV2::decode(
+        &serde_json::to_vec(&frame["data"]).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        crate::projector::action::matching_frame_confirmation(&frame, request_id)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        !module
+            .state
+            .action_registry
+            .complete_after_terminal_frame(request_id),
+        "terminal failed frame already releases the accepted action ledger"
+    );
+}
+
+#[test]
+fn durable_retry_not_found_falls_back_to_causal_timeline_readback() {
+    use helix_core::Module;
+
+    let mut config = crate::module::ImConfig::default();
+    config.auth_user_id = "viewer-1".to_string();
+    config.api_base_url = "http://go.test".to_string();
+    let mut module = ImModule::new(config);
+    let mut sink = EffectSink::new();
+    let temporary_lookup =
+        start_durable_retry_action(&mut module, "durable-retry-not-found", &mut sink);
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: temporary_lookup,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from_static(b"[]"),
+                )),
+            },
+            1_002,
+            &mut sink,
+        )
+        .unwrap();
+    let id_lookup = sink
+        .as_slice()
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Persist { corr, ops }
+                if ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        helix_core::effect::StorageOp::Get(spec)
+                            if spec.table == "message" && spec.key_col == "id"
+                    )
+                }) =>
+            {
+                Some(*corr)
+            }
+            _ => None,
+        })
+        .expect("temporary-id miss falls back to server id");
+
+    sink.clear();
+    module
+        .handle(
+            &helix_core::Tick::PortReply {
+                corr: id_lookup,
+                outcome: helix_core::tick::PortOutcome::Ok(helix_core::tick::ReplyBytes(
+                    bytes::Bytes::from_static(b"[]"),
+                )),
+            },
+            1_003,
+            &mut sink,
+        )
+        .expect("final miss schedules a causal terminal readback");
+    assert!(sink.as_slice().iter().any(|effect| matches!(
+        effect,
+        Effect::Persist { ops, .. }
+            if ops.iter().any(|op| matches!(
+                op,
+                helix_core::effect::StorageOp::Scan(spec) if spec.table == "message"
+            ))
+    )));
+}
+
+#[test]
 fn view_receipt_action_uses_authority_and_only_matching_frame_confirms_completion() {
     use helix_core::Module;
 
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-1".to_string();
+    config.api_base_url = "http://go.test".to_string();
     let mut module = ImModule::new(config);
     let rows_desc = vec![serde_json::json!({
         "id": "message-author-1",
@@ -1472,6 +2067,7 @@ fn identity_reset_drops_old_view_receipt_corr_before_a_new_action_can_start() {
     let mut config = crate::module::ImConfig::default();
     config.auth_user_id = "viewer-before".to_string();
     config.company_id = "team-before".to_string();
+    config.api_base_url = "http://go.test".to_string();
     let mut module = ImModule::new(config);
     let mut query = request(20);
     query.window_token = "identity-reset-window".to_string();

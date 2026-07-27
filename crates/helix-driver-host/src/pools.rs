@@ -5,16 +5,19 @@
 //! - HttpFire(可丢)：全局单例 N，DropNewest 溢出（满即丢当前条目）。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use helix_core::effect::{FileUploadRequest, HttpRequest, StorageOp};
-use helix_core::ports::{FileUploader, HttpRequester, Storage};
+use helix_core::effect::{
+    FileUploadProgress, FileUploadProgressPolicy, FileUploadRequest, HttpRequest, StorageOp,
+};
+use helix_core::ports::{FileUploadProgressReporter, FileUploader, HttpRequester, Storage};
 use helix_core::tick::{PortOutcome, ReplyBytes};
-use helix_core::Tick;
+use helix_core::{Correlation, Tick};
 
 use crate::http_envelope::run_http_envelope;
 use crate::ops::classify_port_error;
@@ -29,6 +32,67 @@ pub struct PersistJobPayload {
     /// `Effect::PersistAtomic` opt-in; ordinary Persist/PersistFire retain their existing semantics.
     pub atomic: bool,
     pub trace: Option<StorageTraceContext>,
+}
+
+struct UploadProgressTickReporter {
+    corr: Correlation,
+    percent_step: u8,
+    last_emitted_percent: AtomicU8,
+    reply_tx: Arc<mpsc::UnboundedSender<Tick>>,
+}
+
+impl UploadProgressTickReporter {
+    fn new(
+        corr: Correlation,
+        percent_step: u8,
+        reply_tx: Arc<mpsc::UnboundedSender<Tick>>,
+    ) -> Option<Self> {
+        (1..=100).contains(&percent_step).then_some(Self {
+            corr,
+            percent_step,
+            last_emitted_percent: AtomicU8::new(0),
+            reply_tx,
+        })
+    }
+}
+
+impl FileUploadProgressReporter for UploadProgressTickReporter {
+    fn report(&self, progress: FileUploadProgress) {
+        if progress.total_bytes == 0 || progress.completed_bytes > progress.total_bytes {
+            return;
+        }
+        let raw_percent =
+            ((u128::from(progress.completed_bytes) * 100) / u128::from(progress.total_bytes)) as u8;
+        let bucket = if raw_percent == 100 {
+            100
+        } else {
+            (raw_percent / self.percent_step) * self.percent_step
+        };
+        if bucket == 0 {
+            return;
+        }
+
+        let mut seen = self.last_emitted_percent.load(Ordering::Relaxed);
+        while bucket > seen {
+            match self.last_emitted_percent.compare_exchange_weak(
+                seen,
+                bucket,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    self.reply_tx
+                        .send(Tick::PortProgress {
+                            corr: self.corr,
+                            progress,
+                        })
+                        .ok();
+                    return;
+                }
+                Err(actual) => seen = actual,
+            }
+        }
+    }
 }
 
 /// 启动（或复用）某 table-set 对应的 Persist BoundedSpawner（N=1 单消费者保序）。
@@ -53,7 +117,7 @@ where
             PERSIST_QUEUE_CAP,
             Overflow::Block,
             reply_tx,
-            move |payload: PersistJobPayload| {
+            move |_corr, payload: PersistJobPayload| {
                 let storage = Arc::clone(&storage);
                 async move {
                     let PersistJobPayload { ops, atomic, trace } = payload;
@@ -91,7 +155,7 @@ where
         HTTP_QUEUE_CAP,
         overflow,
         reply_tx,
-        move |req: HttpRequest| {
+        move |_corr, req: HttpRequest| {
             let http = Arc::clone(&http);
             async move { run_http_envelope(http.as_ref(), req).await }
         },
@@ -108,15 +172,25 @@ pub fn spawn_upload_pool<U>(
 where
     U: FileUploader + Send + Sync + 'static,
 {
+    let progress_reply_tx = Arc::new(reply_tx.clone());
     BoundedSpawner::new(
         concurrency,
         HTTP_QUEUE_CAP,
         overflow,
         reply_tx,
-        move |req: FileUploadRequest| {
+        move |corr, req: FileUploadRequest| {
             let uploader = Arc::clone(&uploader);
+            let progress_reply_tx = Arc::clone(&progress_reply_tx);
             async move {
-                match uploader.upload(req).await {
+                let progress = match (corr, req.progress_policy()) {
+                    (Some(corr), FileUploadProgressPolicy::PercentStep(step)) => {
+                        UploadProgressTickReporter::new(corr, step, progress_reply_tx).map(
+                            |reporter| Arc::new(reporter) as Arc<dyn FileUploadProgressReporter>,
+                        )
+                    }
+                    _ => None,
+                };
+                match uploader.upload_with_progress(req, progress).await {
                     Ok(resp) => {
                         let bytes = serde_json::to_vec(&json!({
                             "objectKey": resp.object_key,

@@ -86,6 +86,9 @@ impl Module for FakeModule {
                     "err"
                 }
             ),
+            Tick::PortProgress { corr, .. } => {
+                format!("PortProgress({})", corr.raw())
+            }
             Tick::Timer(id) => format!("Timer({})", id.raw()),
             Tick::Inbound(_) => "Inbound".to_string(),
             Tick::Command(c) => format!("Command({})", c.name),

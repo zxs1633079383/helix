@@ -100,7 +100,7 @@
   {
     "fileName": "member-roster.frame-v2.json",
     "fixtureId": "g07-member-roster-v2",
-    "fixtureSha256": "daa8be2fcb88463d5386bab3913f0ccf9d11171efce8c5f428914b39911d5ea4",
+    "fixtureSha256": "d723885901f622ebeaa7e3c0bf9c00f4042953a8ed50193eb6d386cb0ee73c69",
     "generatedAt": "2026-07-25T22:45:00-07:00",
     "helixCommit": "768dc9b3597523c6c40279e387d85e9f240fde8a",
     "parameterizableFields": [
@@ -173,7 +173,7 @@
       "messageId": null,
       "observerId": "g07-wdio-observer",
       "postId": "srvurgent00000000000000001",
-      "reqId": "g07-wdio-request-1",
+      "reqId": "g07-wdio-request-1:member-roster",
       "revision": 1,
       "surfaceEpoch": 1,
       "teamId": "g07-wdio-company",

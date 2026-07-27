@@ -13,7 +13,7 @@
 //!   消除 `'a` lifetime 污染，使 `Tick` 满足 `'static + Send`，
 //!   从而 driver 的 `tokio::sync::mpsc::Sender<Tick>` 和 timer channel 可以正常工作。
 
-use crate::effect::{Correlation, TimerId, TransportId};
+use crate::effect::{Correlation, FileUploadProgress, TimerId, TransportId};
 use std::borrow::Cow;
 
 /// 入站 wire bytes（未解析，由模块的 parser 解析为强类型事件）
@@ -99,7 +99,8 @@ impl AppCommand {
 /// ## 路由规则（重要）
 ///
 /// - `Inbound` / `Command`：通过 `Module::accepts()` 线性扫描路由到模块
-/// - `PortReply`：通过 `ExecutionShell::corr_map` 定向投递（O(1) HashMap 查找）
+/// - `PortReply`：通过 `ExecutionShell::corr_map` 定向投递并消费路由
+/// - `PortProgress`：通过同一 corr_map 定向投递但不消费，终态回报仍可命中
 /// - `Timer`：通过 `ExecutionShell::timer_map` 定向投递
 ///
 /// 这确保多模块并存时，PortReply/Timer 不会被错误模块的 `accepts()` 误吞。
@@ -113,6 +114,12 @@ pub enum Tick {
     PortReply {
         corr: Correlation,
         outcome: PortOutcome,
+    },
+
+    /// 长操作的非终态进度。corr_map 只做 peek；只有后续 PortReply 才消费该 corr。
+    PortProgress {
+        corr: Correlation,
+        progress: FileUploadProgress,
     },
 
     /// 定时器触发（ScheduleTimer 到期后由 driver TimerRegistry 产生）

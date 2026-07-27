@@ -6,9 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{
-    InteractionFrameV2, MessageContentVm, TypedSurfaceMutation,
-};
+use helix_im::interaction_frame::{InteractionFrameV2, MessageContentVm, TypedSurfaceMutation};
 use serde_json::{json, Value};
 
 #[path = "support/g02_scenario.rs"]
@@ -149,11 +147,15 @@ fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
 
 /// 提取 G02 固定文档卡片的稳定业务字段，排除可 rebase 的 message identity。
 fn document_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let message = frame.mutations.iter().find_map(|mutation| match &mutation.mutation.mutation {
-        TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
-        TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
-        _ => None,
-    })?;
+    let message =
+        frame
+            .mutations
+            .iter()
+            .find_map(|mutation| match &mutation.mutation.mutation {
+                TypedSurfaceMutation::TimelineSnapshot { view } => view.items.first(),
+                TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
+                _ => None,
+            })?;
     let MessageContentVm::Document {
         title,
         summary,
@@ -173,20 +175,23 @@ fn document_contract(frame: &InteractionFrameV2) -> Option<Value> {
 
 /// 提取 dialog preview 的稳定业务形状，区分 fresh-group empty 与 WS document patch。
 fn dialog_contract(frame: &InteractionFrameV2) -> Option<Value> {
-    let row = frame.mutations.iter().find_map(|mutation| match &mutation.mutation.mutation {
-        TypedSurfaceMutation::DialogListSnapshot { view } => view
-            .sections
-            .iter()
-            .flat_map(|section| &section.items)
-            .next(),
-        TypedSurfaceMutation::DialogListPatch { patch } => patch
-            .view
-            .sections
-            .iter()
-            .flat_map(|section| &section.items)
-            .next(),
-        _ => None,
-    })?;
+    let row = frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::DialogListSnapshot { view } => view
+                .sections
+                .iter()
+                .flat_map(|section| &section.items)
+                .next(),
+            TypedSurfaceMutation::DialogListPatch { patch } => patch
+                .view
+                .sections
+                .iter()
+                .flat_map(|section| &section.items)
+                .next(),
+            _ => None,
+        })?;
     Some(match &row.preview {
         helix_im::interaction_frame::PreviewVm::Empty => json!({"kind": "empty"}),
         helix_im::interaction_frame::PreviewVm::Document { title, .. } => {

@@ -120,10 +120,7 @@ fn message_contract(frame: &InteractionFrameV2) -> Option<Value> {
                 TypedSurfaceMutation::TimelinePatch { patch } => patch.view.items.first(),
                 _ => None,
             })?;
-    let react = message
-        .actions
-        .iter()
-        .find(|action| action.kind == "react");
+    let react = message.actions.iter().find(|action| action.kind == "react");
     Some(json!({
         "id": message.id,
         "content": message.content,

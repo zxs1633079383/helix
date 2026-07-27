@@ -13,7 +13,8 @@ Router 把用户任务、影响路径、关键词和约束订阅转成 agent 队
 ## 路由顺序
 
 1. 先按路径命中 `.agents/manifests/modules.json` 的模块 agent。
-2. 再按路径/关键词命中 `.agents/manifests/domains.json` 的领域 agent。
+2. 再按路径/关键词命中 `.agents/manifests/domains.json` 的领域 agent；Route 关键词支持
+   exact token，以及包含空格或中文的完整短语，禁止用短英文子串扩大命中面。
 3. 再按 `.agents/manifests/constraint-subscriptions.json` 追加 required references 和 reviewer。
 4. 跨 core/driver/IM/FFI/trace/WS/Storage 的任务升级为 `adversarial-workflow`。
 5. 如果只命中一个低风险边界，使用 `classify-and-act`；多边界默认 `route-and-synthesize`。

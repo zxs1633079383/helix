@@ -168,6 +168,46 @@
       "workflow": "adversarial-workflow"
     },
     {
+      "id": "gate-contract-specification",
+      "match": {
+        "keywords": [
+          "自然语言创建",
+          "自然语言创建 Gate",
+          "GateYAML",
+          "Gate YAML",
+          "StrictMatrixRequirements",
+          "Strict Matrix requirements",
+          "新UC合同",
+          "新 UC 合同",
+          "业务求证",
+          "创建 Spec 前业务求证",
+          "GateSpecification",
+          "FrameV2 Gate specification"
+        ],
+        "paths": [
+          ".agents/schemas/gate-contract.schema.json",
+          ".agents/schemas/strict-matrix-requirements.schema.json",
+          ".agents/templates/gate-contract.yaml",
+          ".agents/templates/strict-matrix-requirements.json",
+          "specs/_gate-intake"
+        ]
+      },
+      "primary_agents": [
+        "project/gate-contract-specification-agent"
+      ],
+      "reviewer_agents": [
+        "reviewers/contract-reviewer-agent"
+      ],
+      "required_references": [
+        "goal",
+        "roadmap-p0",
+        "interaction-v2-contract",
+        "gate-control-spec",
+        "projection-schema"
+      ],
+      "workflow": "route-and-synthesize"
+    },
+    {
       "id": "gate-v2-orchestration",
       "match": {
         "keywords": [
@@ -175,7 +215,10 @@
           "逐 Gate",
           "handoff",
           "PC Mobile V2",
-          "canonical Green"
+          "canonical Green",
+          "WDIO",
+          "GTest",
+          "最终 Review"
         ],
         "paths": [
           "docs/interaction-frame-v2-全量替换-按UC"

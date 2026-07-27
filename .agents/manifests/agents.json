@@ -463,6 +463,25 @@
         "swarm"
       ]
     },
+    "project/gate-contract-specification-agent": {
+      "file": ".agents/agents/project/gate-contract-specification-agent.md",
+      "full_constraints": true,
+      "kind": "project",
+      "owned_paths": [
+        ".agents/schemas/gate-contract.schema.json",
+        ".agents/schemas/strict-matrix-requirements.schema.json",
+        ".agents/templates/gate-contract.yaml",
+        ".agents/templates/strict-matrix-requirements.json"
+      ],
+      "triggers": [
+        "自然语言创建 Gate",
+        "Gate YAML",
+        "Strict Matrix requirements",
+        "新 UC 合同",
+        "创建 Spec 前业务求证",
+        "FrameV2 Gate specification"
+      ]
+    },
     "reviewers/contract-reviewer-agent": {
       "file": ".agents/agents/reviewers/contract-reviewer-agent.md",
       "full_constraints": true,

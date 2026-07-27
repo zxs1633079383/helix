@@ -1,0 +1,27 @@
+{
+  "documentKind": "strict-matrix-requirements",
+  "documentVersion": 1,
+  "example": true,
+  "gateId": "EXAMPLE-GATE",
+  "sourceContract": {
+    "path": ".agents/examples/sample-gate-contract.yaml",
+    "documentVersion": 1
+  },
+  "verdict": "not-run",
+  "lanes": [
+    {"id": "helix-six-scenarios", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "canonical-producer-fixture", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "fixture-provenance-hash", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "pc-fixture-parity", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "pc-mock", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "pc-single-real", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "pc-dual-real", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "mobile-production-gtest", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "mobile-sdk-ffi-surface-runtime", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "quickjs-typed-view", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "production-boundary", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "behavior-review", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "code-boundary-review", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"},
+    {"id": "frame-v2-review", "required": true, "status": "not-run", "evidence": [], "reason": "EXAMPLE ONLY"}
+  ]
+}

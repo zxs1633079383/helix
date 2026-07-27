@@ -18,6 +18,16 @@
 - crate 级 `AGENTS.md` 是源码目录的就近指令文件。
 - `.agents/agents/modules/<module>/AGENTS.md` 与 `.agents/agents/domains/<domain>/AGENTS.md` 是蜂群内部的模块/领域边界文件。
 
+## Gate 合同与验收
+
+- `project/gate-contract-specification-agent` 把自然语言编译成经过源码求证的 Gate YAML、
+  初始 Strict Matrix requirements 和 Spec Kit 输入；它不实现业务或回填 PASS。
+- `project/gate-acceptance-orchestrator-agent` 只在合同 source-validated 后编排三仓实施。
+- `domains/helix-gate-frame-producer-domain-agent` 与
+  `domains/frame-fixture-supply-chain-domain-agent` 分别拥有 producer 和只读分发。
+- `reviewers/cross-platform-gate-reviewer-agent` 保持独立，只裁决实际 evidence 交集。
+- 合同模板、schema 和明确标注 EXAMPLE 的样例位于 `.agents/{templates,schemas,examples}/`。
+
 ## 图谱
 
 - 总图：`.agents/diagrams/project-domain-map.mmd`

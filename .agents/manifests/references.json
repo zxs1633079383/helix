@@ -55,6 +55,18 @@
       "when": "csesapi 迁移和能力缺口对账读取"
     },
     {
+      "id": "interaction-v2-contract",
+      "kind": "contract",
+      "path": "docs/specs/2026-07-15-uc01-16-cross-platform-interaction-protocol-spec.md",
+      "when": "从自然语言定义新 Gate、Surface、Action 或三端交互合同时读取"
+    },
+    {
+      "id": "gate-control-spec",
+      "kind": "program-contract",
+      "path": "specs/020-ifv2-three-repo-uc-control/spec.md",
+      "when": "生成 Gate YAML、Strict Matrix requirements 或 Spec Kit 输入时读取"
+    },
+    {
       "id": "gate-v2-local-rules",
       "kind": "agent-boundary",
       "path": "docs/interaction-frame-v2-全量替换-按UC/AGENTS.md",

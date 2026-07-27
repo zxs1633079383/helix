@@ -13,6 +13,10 @@ flowchart TB
     CLI["helix-host-cli\nreal Go e2e harness"]
   end
   Gov["docs/scripts/.agents\ngovernance gates"]
+  subgraph ProjectAgents["项目级 Gate agents"]
+    GateContractSpec["Gate Contract Specification\n自然语言 -> source-validated contract"]
+    GateOrchestrator["Gate Acceptance Orchestrator\n三仓阶段与证据编排"]
+  end
   Core --> IM
   Host --> Core
   Native --> Host
@@ -56,6 +60,8 @@ flowchart TB
   CLI -.-> harness_governance
   Gov -.-> harness_governance
   Gov -.-> projection_observability
+  GateContractSpec --> GateOrchestrator
+  GateOrchestrator --> gate_frame_producer
   IM -.-> gate_frame_producer
   gate_frame_producer --> fixture_supply_chain
   fixture_supply_chain -.-> Gov

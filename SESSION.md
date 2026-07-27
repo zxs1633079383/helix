@@ -14,6 +14,10 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 创建并注册 Gate Contract Specification Agent；可证伪断言：① 新 Agent 只负责自然语言到 source-validated Gate YAML、Strict Matrix requirements 与 Spec 输入，不吞并实施总控、Fixture producer 或终态 reviewer；② Agent metadata、15 个必需章节、两份 schema、模板/示例、manifest/reference/Router/README/diagram 全部机器可解析且示例通过 schema；③ 至少三条合同定义语句命中新 Agent，实施、WDIO、GTest 和最终 Review 仍命中既有 Agent；④ 不修改任何业务生产代码，不运行 Cargo，验证通过后只提交本任务文件和本条 SESSION | 赌注 中 | 可逆 是 | @2026-07-26T20:36:20-07:00
+
+✅ DONE 已创建 Gate Contract Specification Agent，并完成合同/Strict Matrix 两份 Draft 2020-12 schema、可校验模板、明确标注 EXAMPLE 的样例、manifest/reference/Router/README/局部 AGENTS/总图注册；Router 新增完整短语匹配但排除短英文子串，三条自然语义均返回新 Agent，Gate 实施/WDIO/GTest/最终 Review 仍返回既有总控、Mobile domain 与独立 reviewer。Agent metadata、15 个章节、注册路径、required references、JSON/YAML、schema 正反例、模板/示例、Python 语法、Mermaid CLI 和 diff check 全部通过；未修改业务生产代码，未运行 Cargo | @2026-07-26T20:51:14-07:00
+
 🎯 EXPECT 按 Spec 042 串行完成 G15 创建话题三仓纵向闭环；可证伪断言：① 前序 G15a 保持 `CLOSED`，先锁定三仓 HEAD、PC/Mobile Helix pin 与 Strict Matrix hash；② Helix 独占 `im_make_topic -> HTTP/WS -> topic channel/root relation persist -> channel-summary/thread-detail Frame V2` 的权限、终态、竞态与恢复语义，PC/Mobile 不新增话题 reducer；③ canonical Fixture 只由 production `ImModule::handle -> Effect::Emit` 生成，PC/Mobile byte-exact mirror 且不补字段；④ PC Mock/single-real/dual-real/report 与 Mobile production-linked GTest/QuickJS typed view required fail=0/skip=0；⑤ 行为、代码边界、Frame V2、production-boundary 与 R4 全 Green 且 SpecKit `CLOSED` 前不进入 G16；⑥ Mobile shared real 的旧 raw CreateGroupPrerequisite 缺口归属后续 GS Gate，不得用来掩盖或替代 G15 required contract | 赌注 高 | 可逆 是 | @2026-07-26T11:38:45-0700
 
 ✅ DONE G15a 已完成 Helix、PC、Mobile 三仓纵向闭环并由 SpecKit event 32 `CLOSED`：Helix full-flow 6/6、Fixture 1/1；PC Mock 2/2、report 1/1、single-real 1/1、dual-real 最终 1/1；Mobile production-linked Frame/QuickJS 15/15、首轮 UC15 real 10/10、source pin/hard-cut/no-js-facade/共享 Venus 全绿；三仓三份 Fixture 与 provenance byte-exact。PC 首次 dual-real UCenter 目录超时与 Mobile shared full regression 的旧 raw create 前置/远端超时原文均保留为非 required 证据，不覆盖失败、不移动业务 reducer | @2026-07-26T11:38:45-0700

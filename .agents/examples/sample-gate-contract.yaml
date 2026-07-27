@@ -1,0 +1,130 @@
+# EXAMPLE ONLY：该文件展示结构，不代表 G-16c 或任何当前 Gate 的源码事实。
+documentKind: gate-contract
+documentVersion: 1
+example: true
+gate:
+  id: EXAMPLE-GATE
+  title: 示例群属性修改
+  contractStatus: draft
+  naturalLanguageIntent: 群管理员修改展示名称，在线成员观察到更新。
+sourcePins:
+  helix:
+    repo: helix
+    pin: EXAMPLE-NOT-A-REAL-PIN
+  go:
+    repo: cses-im-server
+    pin: EXAMPLE-NOT-A-REAL-PIN
+  pc:
+    repo: cses-client
+    pin: EXAMPLE-NOT-A-REAL-PIN
+  mobile:
+    repo: mobile
+    pin: EXAMPLE-NOT-A-REAL-PIN
+behavior:
+  trigger: 管理员提交群展示名称修改
+  actors:
+    - role: actor
+      description: 发起修改的群管理员
+    - role: observer
+      description: 同群在线成员
+  authorities:
+    - role: actor
+      terminalAuthority: EXAMPLE_HTTP_REPLY
+      evidenceIds: [example-go-http]
+    - role: observer
+      terminalAuthority: EXAMPLE_WS_BROADCAST
+      evidenceIds: [example-go-ws]
+  observableResults:
+    - Actor 和 Observer 最终看到一致的展示名称
+producer:
+  commands:
+    - name: EXAMPLE_COMMAND
+      evidenceIds: [example-helix-command]
+  surfaces:
+    - name: EXAMPLE_SURFACE
+      evidenceIds: [example-helix-surface]
+  mutationTypes: [EXAMPLE_SET_PROPS]
+  requiredFields: [channelId, displayName]
+scenarios:
+  - id: happy
+    class: happy
+    expectedObservation: Actor 与 Observer 收敛到新名称
+  - id: permission-denied
+    class: business-failure
+    expectedObservation: 权限失败且旧名称保持不变
+  - id: transport-error
+    class: infrastructure-failure
+    expectedObservation: 基础设施失败可观察且不产生伪成功
+  - id: duplicate-event
+    class: duplicate
+    expectedObservation: 重复权威事实不重复推进 revision
+  - id: late-old-event
+    class: out-of-order
+    expectedObservation: 旧版本事实不能覆盖新名称
+  - id: reconnect
+    class: recovery
+    expectedObservation: 恢复后从权威事实收敛
+requiredLaneIds:
+  - helix-six-scenarios
+  - canonical-producer-fixture
+  - fixture-provenance-hash
+  - pc-fixture-parity
+  - pc-mock
+  - pc-single-real
+  - pc-dual-real
+  - mobile-production-gtest
+  - mobile-sdk-ffi-surface-runtime
+  - quickjs-typed-view
+  - production-boundary
+  - behavior-review
+  - code-boundary-review
+  - frame-v2-review
+evidence:
+  - id: example-helix-command
+    repo: helix
+    pin: EXAMPLE-NOT-A-REAL-PIN
+    path: example/helix-command.rs
+    symbol: example_command
+    classification: not-proven
+    claim: 示例 command，不能用于真实 Gate
+  - id: example-helix-surface
+    repo: helix
+    pin: EXAMPLE-NOT-A-REAL-PIN
+    path: example/surface-composer.rs
+    symbol: example_surface
+    classification: not-proven
+    claim: 示例 Surface，不能用于真实 Gate
+  - id: example-go-http
+    repo: cses-im-server
+    pin: EXAMPLE-NOT-A-REAL-PIN
+    path: example/http-handler.go
+    symbol: exampleHTTP
+    classification: not-proven
+    claim: 示例 Actor authority
+  - id: example-go-ws
+    repo: cses-im-server
+    pin: EXAMPLE-NOT-A-REAL-PIN
+    path: example/ws-producer.go
+    symbol: exampleWS
+    classification: not-proven
+    claim: 示例 Observer authority
+currentTargetGap:
+  current: []
+  target:
+    - Helix 生产完整 Frame，PC/Mobile 机械消费
+  gap:
+    - 示例尚未进行源码求证
+unresolved:
+  - id: example-only
+    owner: Gate Contract Specification Agent
+    blocking: true
+    question: 示例值不是当前源码事实
+    resolutionCondition: 使用真实 Gate 描述和四仓 source pins 重新生成
+specInput:
+  summary: 示例群属性修改合同
+  userStories:
+    - 作为群管理员，我修改群名称后希望所有在线成员看到相同结果
+  successCriteria:
+    - 所有 required lane 在实施后 fail=0 且 skip=0
+  outOfScope:
+    - 示例不实现生产代码，也不声明任何 lane Green

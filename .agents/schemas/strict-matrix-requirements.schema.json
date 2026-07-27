@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helix.local/schemas/strict-matrix-requirements.schema.json",
+  "title": "Helix Strict Matrix Requirements",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "documentKind",
+    "documentVersion",
+    "example",
+    "gateId",
+    "sourceContract",
+    "verdict",
+    "lanes"
+  ],
+  "properties": {
+    "documentKind": {
+      "const": "strict-matrix-requirements"
+    },
+    "documentVersion": {
+      "const": 1
+    },
+    "example": {
+      "type": "boolean"
+    },
+    "gateId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "documentVersion"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "documentVersion": {
+          "const": 1
+        }
+      }
+    },
+    "verdict": {
+      "enum": [
+        "not-run",
+        "pass",
+        "fail",
+        "partial",
+        "blocked"
+      ]
+    },
+    "lanes": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": {
+        "$ref": "#/$defs/lane"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "helix-six-scenarios"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "canonical-producer-fixture"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "fixture-provenance-hash"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "pc-fixture-parity"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "pc-mock"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "pc-single-real"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "pc-dual-real"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "mobile-production-gtest"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "mobile-sdk-ffi-surface-runtime"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "quickjs-typed-view"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "production-boundary"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "behavior-review"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "code-boundary-review"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "const": "frame-v2-review"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "not-run"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "lanes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "not-run"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "lanes": {
+            "type": "array",
+            "not": {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "required": {
+                    "const": true
+                  },
+                  "status": {
+                    "not": {
+                      "const": "pass"
+                    }
+                  }
+                },
+                "required": [
+                  "required",
+                  "status"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "laneId": {
+      "enum": [
+        "helix-six-scenarios",
+        "canonical-producer-fixture",
+        "fixture-provenance-hash",
+        "pc-fixture-parity",
+        "pc-mock",
+        "pc-single-real",
+        "pc-dual-real",
+        "mobile-production-gtest",
+        "mobile-sdk-ffi-surface-runtime",
+        "quickjs-typed-view",
+        "production-boundary",
+        "behavior-review",
+        "code-boundary-review",
+        "frame-v2-review"
+      ]
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "required",
+        "status",
+        "evidence",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/laneId"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "not-run",
+            "pass",
+            "fail",
+            "partial",
+            "blocked",
+            "not-applicable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifact",
+              "pin"
+            ],
+            "properties": {
+              "artifact": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pin": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "not-applicable"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "required": {
+                "const": false
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

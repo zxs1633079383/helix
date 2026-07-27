@@ -1,0 +1,130 @@
+# Gate Contract 模板；由 Gate Contract Specification Agent 基于当前源码填写。
+documentKind: gate-contract
+documentVersion: 1
+example: false
+gate:
+  id: "$GATE_ID"
+  title: "$GATE_TITLE"
+  contractStatus: draft
+  naturalLanguageIntent: "$USER_INTENT"
+sourcePins:
+  helix:
+    repo: helix
+    pin: "$HELIX_PIN"
+  go:
+    repo: cses-im-server
+    pin: "$GO_PIN"
+  pc:
+    repo: cses-client
+    pin: "$PC_PIN"
+  mobile:
+    repo: mobile
+    pin: "$MOBILE_PIN"
+behavior:
+  trigger: "$TRIGGER"
+  actors:
+    - role: actor
+      description: "$ACTOR"
+    - role: observer
+      description: "$OBSERVER"
+  authorities:
+    - role: actor
+      terminalAuthority: "$ACTOR_AUTHORITY"
+      evidenceIds: [src-actor-authority]
+    - role: observer
+      terminalAuthority: "$OBSERVER_AUTHORITY"
+      evidenceIds: [src-observer-authority]
+  observableResults:
+    - "$OBSERVABLE_RESULT"
+producer:
+  commands:
+    - name: "$COMMAND"
+      evidenceIds: [src-command]
+  surfaces:
+    - name: "$SURFACE"
+      evidenceIds: [src-surface]
+  mutationTypes: ["$MUTATION_TYPE"]
+  requiredFields: ["$REQUIRED_FIELD"]
+scenarios:
+  - id: happy
+    class: happy
+    expectedObservation: "$HAPPY_OBSERVATION"
+  - id: business-failure
+    class: business-failure
+    expectedObservation: "$BUSINESS_FAILURE_OBSERVATION"
+  - id: infrastructure-failure
+    class: infrastructure-failure
+    expectedObservation: "$INFRASTRUCTURE_FAILURE_OBSERVATION"
+  - id: duplicate
+    class: duplicate
+    expectedObservation: "$DUPLICATE_OBSERVATION"
+  - id: out-of-order
+    class: out-of-order
+    expectedObservation: "$OUT_OF_ORDER_OBSERVATION"
+  - id: recovery
+    class: recovery
+    expectedObservation: "$RECOVERY_OBSERVATION"
+requiredLaneIds:
+  - helix-six-scenarios
+  - canonical-producer-fixture
+  - fixture-provenance-hash
+  - pc-fixture-parity
+  - pc-mock
+  - pc-single-real
+  - pc-dual-real
+  - mobile-production-gtest
+  - mobile-sdk-ffi-surface-runtime
+  - quickjs-typed-view
+  - production-boundary
+  - behavior-review
+  - code-boundary-review
+  - frame-v2-review
+evidence:
+  - id: src-command
+    repo: helix
+    pin: "$HELIX_PIN"
+    path: "$COMMAND_PATH"
+    symbol: "$COMMAND_SYMBOL"
+    classification: not-proven
+    claim: "$COMMAND_CLAIM"
+  - id: src-surface
+    repo: helix
+    pin: "$HELIX_PIN"
+    path: "$SURFACE_PATH"
+    symbol: "$SURFACE_SYMBOL"
+    classification: not-proven
+    claim: "$SURFACE_CLAIM"
+  - id: src-actor-authority
+    repo: cses-im-server
+    pin: "$GO_PIN"
+    path: "$ACTOR_AUTHORITY_PATH"
+    symbol: "$ACTOR_AUTHORITY_SYMBOL"
+    classification: not-proven
+    claim: "$ACTOR_AUTHORITY_CLAIM"
+  - id: src-observer-authority
+    repo: cses-im-server
+    pin: "$GO_PIN"
+    path: "$OBSERVER_AUTHORITY_PATH"
+    symbol: "$OBSERVER_AUTHORITY_SYMBOL"
+    classification: not-proven
+    claim: "$OBSERVER_AUTHORITY_CLAIM"
+currentTargetGap:
+  current: []
+  target:
+    - "$TARGET"
+  gap:
+    - "$GAP"
+unresolved:
+  - id: contract-not-yet-validated
+    owner: Gate Contract Specification Agent
+    blocking: true
+    question: "模板字段尚未经过四仓源码求证。"
+    resolutionCondition: "替换全部占位符并完成 source validation。"
+specInput:
+  summary: "$SPEC_SUMMARY"
+  userStories:
+    - "$USER_STORY"
+  successCriteria:
+    - "$SUCCESS_CRITERION"
+  outOfScope:
+    - "本合同阶段不修改三仓生产代码，也不声明任何运行 lane Green。"

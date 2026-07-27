@@ -237,10 +237,20 @@ def route_task(root: Path, impact: dict) -> dict:
     }
     paths = impact.get("paths", [])
     keywords = impact.get("keywords", [])
+    summary = str(impact.get("summary", "")).lower()
 
     for rule in cfg["routes"].get("routes", []):
         match = rule.get("match", {})
-        if any_prefix(paths, match.get("paths", [])) or any_keyword(keywords, match.get("keywords", [])):
+        phrase_match = any(
+            (" " in str(candidate) or any(ord(char) > 127 for char in str(candidate)))
+            and str(candidate).lower() in summary
+            for candidate in match.get("keywords", [])
+        )
+        if (
+            any_prefix(paths, match.get("paths", []))
+            or any_keyword(keywords, match.get("keywords", []))
+            or phrase_match
+        ):
             result["primary_agents"].extend(rule.get("primary_agents", []))
             result["reviewer_agents"].extend(rule.get("reviewer_agents", []))
             result["required_references"].extend(rule.get("required_references", []))

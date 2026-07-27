@@ -1,0 +1,586 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://helix.local/schemas/gate-contract.schema.json",
+  "title": "Helix Gate Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "documentKind",
+    "documentVersion",
+    "example",
+    "gate",
+    "sourcePins",
+    "behavior",
+    "producer",
+    "scenarios",
+    "requiredLaneIds",
+    "evidence",
+    "currentTargetGap",
+    "unresolved",
+    "specInput"
+  ],
+  "properties": {
+    "documentKind": {
+      "const": "gate-contract"
+    },
+    "documentVersion": {
+      "const": 1
+    },
+    "example": {
+      "type": "boolean"
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "contractStatus",
+        "naturalLanguageIntent"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contractStatus": {
+          "enum": [
+            "draft",
+            "source-validated",
+            "blocked"
+          ]
+        },
+        "naturalLanguageIntent": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "sourcePins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "helix",
+        "go",
+        "pc",
+        "mobile"
+      ],
+      "properties": {
+        "helix": {
+          "$ref": "#/$defs/sourcePin"
+        },
+        "go": {
+          "$ref": "#/$defs/sourcePin"
+        },
+        "pc": {
+          "$ref": "#/$defs/sourcePin"
+        },
+        "mobile": {
+          "$ref": "#/$defs/sourcePin"
+        }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trigger",
+        "actors",
+        "authorities",
+        "observableResults"
+      ],
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "description"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "actor",
+                  "observer"
+                ]
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "authorities": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "terminalAuthority",
+              "evidenceIds"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "actor",
+                  "observer"
+                ]
+              },
+              "terminalAuthority": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidenceIds": {
+                "$ref": "#/$defs/evidenceIds"
+              }
+            }
+          }
+        },
+        "observableResults": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commands",
+        "surfaces",
+        "mutationTypes",
+        "requiredFields"
+      ],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/namedEvidence"
+          }
+        },
+        "surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/namedEvidence"
+          }
+        },
+        "mutationTypes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "requiredFields": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "class",
+          "expectedObservation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "class": {
+            "enum": [
+              "prerequisite",
+              "happy",
+              "business-failure",
+              "infrastructure-failure",
+              "duplicate",
+              "out-of-order",
+              "recovery"
+            ]
+          },
+          "expectedObservation": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "const": "happy"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "const": "business-failure"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "const": "infrastructure-failure"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "const": "duplicate"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "const": "out-of-order"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "class": {
+                "const": "recovery"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          }
+        }
+      ]
+    },
+    "requiredLaneIds": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/laneId"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "currentTargetGap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "target",
+        "gap"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/stringList"
+        },
+        "target": {
+          "$ref": "#/$defs/stringList"
+        },
+        "gap": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "owner",
+          "blocking",
+          "question",
+          "resolutionCondition"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resolutionCondition": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "specInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "userStories",
+        "successCriteria",
+        "outOfScope"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userStories": {
+          "$ref": "#/$defs/stringListNonEmpty"
+        },
+        "successCriteria": {
+          "$ref": "#/$defs/stringListNonEmpty"
+        },
+        "outOfScope": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sourcePin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "pin"
+      ],
+      "properties": {
+        "repo": {
+          "enum": [
+            "helix",
+            "cses-im-server",
+            "cses-client",
+            "mobile"
+          ]
+        },
+        "pin": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "evidenceIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "namedEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "evidenceIds"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidenceIds": {
+          "$ref": "#/$defs/evidenceIds"
+        }
+      }
+    },
+    "laneId": {
+      "enum": [
+        "helix-six-scenarios",
+        "canonical-producer-fixture",
+        "fixture-provenance-hash",
+        "pc-fixture-parity",
+        "pc-mock",
+        "pc-single-real",
+        "pc-dual-real",
+        "mobile-production-gtest",
+        "mobile-sdk-ffi-surface-runtime",
+        "quickjs-typed-view",
+        "production-boundary",
+        "behavior-review",
+        "code-boundary-review",
+        "frame-v2-review"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "repo",
+        "pin",
+        "path",
+        "classification",
+        "claim"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repo": {
+          "enum": [
+            "helix",
+            "cses-im-server",
+            "cses-client",
+            "mobile"
+          ]
+        },
+        "pin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "classification": {
+          "enum": [
+            "deterministic-source-fact",
+            "runtime-dependent",
+            "not-proven",
+            "contract-drift"
+          ]
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "stringList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "stringListNonEmpty": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "gate": {
+            "type": "object",
+            "properties": {
+              "contractStatus": {
+                "const": "source-validated"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "classification": {
+                  "enum": [
+                    "deterministic-source-fact",
+                    "runtime-dependent"
+                  ]
+                }
+              }
+            }
+          },
+          "unresolved": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ]
+}

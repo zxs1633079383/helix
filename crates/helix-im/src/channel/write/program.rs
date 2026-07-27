@@ -92,11 +92,17 @@ pub fn program_full(
         "urgent_post_list",
         SqlValue::Text(j("urgentPostList", "[]")),
     ));
-    row.push((
-        "last_post",
-        SqlValue::Text(s("lastPost").unwrap_or_default()),
-    ));
-    match i("lastPostAt") {
+    let last_post = s("lastPost").unwrap_or_default();
+    row.push(("last_post", SqlValue::Text(last_post.clone())));
+    // Real increment_channel frames may omit lastPostAt while carrying the same last post boundary as lastRootPostAt.
+    let last_post_at = i("lastPostAt").or_else(|| {
+        if last_post.is_empty() {
+            None
+        } else {
+            i("lastRootPostAt")
+        }
+    });
+    match last_post_at {
         Some(v) => row.push(("last_post_at", SqlValue::Integer(v))),
         None => {
             // Recovery can persist a newer message before the following

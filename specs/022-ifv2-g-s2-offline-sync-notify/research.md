@@ -1,6 +1,23 @@
 # Research: G-S2 sync notify
 
-**Source Lock**: Helix `918999d649007d92b085d8f5aba73329c9241ee4`；cses-client `13e42ef2793ea5c9f39b29f5d1ce86b1aca074db`；Mobile `674c8fb639c5b945cbbe4a3a9431ba3beeb0cc21`
+**Source Lock**: Helix worktree `967bfec78d69922b6ecc0fb6e4b11ea2d5e73195`
+（runtime producer pin `33b6cf2d5621f6fc417a1229111b58bd6854d713`）；
+cses-client `fce658a81bddcc90c66145d87bf8e6aa643bbf5a`；
+Mobile `26c5abeca8d6b48256fe30f1836c9ef9d58c631f`；
+Go `e3f7c170ed681845f07cc95788c2f3a9fc799790`。
+
+## Current / Target / Gap
+
+- **CURRENT**: `sync/explicit.rs` 已忽略 UI 提交的 eventSeq，使用 Helix cursor
+  进入 scheduler；`gs_persist_barrier_test.rs` 已证明 facts -> ledger ->
+  coverage -> cursor 的 `PersistAtomic` 顺序及 PersistOk 后发布 sync state。
+  Mobile GS02 已有 production real-chain 的 old cursor、三条离线消息、remote
+  readback 与保留本地库的 restart-no-duplicate 测试。
+- **TARGET**: production `ImModule::handle -> Effect::Emit` 生成完整 G-S2
+  canonical Frame；PC/Mobile 机械 apply；四 persona 在物理删除各自本地库后
+  同路径重启，并对 message/cursor/authority rows 取得远端/本地 100% 一致。
+- **GAP**: 缺 G-S2 专属 full-flow/Fixture/PC WDIO 纵切；Mobile restart 当前
+  保留旧 SQLite，不证明空库冷恢复；缺四 persona reset/parity 与 Gate 报告。
 
 ## Decision 1 - 唯一业务真源
 
@@ -49,3 +66,16 @@
 
 - G03 文件上传和 G17-G27 不进入本 Feature。
 - 当前计划无未解决 `NEEDS CLARIFICATION`；代码漂移在 T001 source revalidation 中 fail-closed 处理。
+
+## Decision 6 - Physical cold-start parity
+
+**Decision**: 复用 GS1 已验证的 PC guarded reset 与 Mobile per-persona reset 边界，
+但为 GS2 单独建立 production offline-message dataset。四 persona 必须先停进程，
+只删除各自 SQLite main/WAL/SHM/journal，再在原路径执行 sync notify；远端
+PostgreSQL 只读快照与本地 SQLite 使用同一 canonical row/schema/hash 比较。
+
+**Rationale**: 原有 restart 测试保留本地数据库，只能证明幂等 readback，不能证明
+空库冷启动能从远端 100% 重建 message/cursor/typed projection。
+
+**Alternatives considered**: 换新 DB 路径、只比较行数、只看 HTTP/WS/Frame、
+清理远端数据；全部拒绝。

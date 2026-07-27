@@ -27,6 +27,7 @@
 1. **Given** 当前 actor、observer、群聊与权限满足 Gate 前置，**When** 用户执行或系统触发“sync notify”，**Then** Helix 必须先形成权威业务结果，PC 与 Mobile 只消费其完整 Frame。
 2. **Given** transport 已受理但权威事实或持久化尚未完成，**When** 平台收到中间结果，**Then** 两端均不得显示最终成功。
 3. **Given** 权威失败、权限拒绝、重复事实或迟到回包，**When** 三端处理结束，**Then** 两端保持同一失败/既有状态，不出现重复 mutation。
+4. **Given** PC 444/678 与 Mobile userA/userB 已用生产流程形成隔离的离线消息数据集，**When** 完全停止各端并只删除各 persona 的 Helix SQLite main/WAL/SHM/journal 后在同一路径重启，**Then** sync notify 必须恢复全部 Gate-scoped 消息、cursor 与投影，且每个 persona 的远端/本地规范化比较 missing=0、extra=0、mismatch=0。
 
 ---
 
@@ -78,6 +79,7 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - G03 文件/媒体上传与 G17-G27 全部不在本 Feature。
 - 不在 Mock、Angular、C++ 或 QuickJS 中补 Helix 缺失的业务字段、排序或 reducer。
 - 不在本 Feature 物理删除 V1/legacy 文件；最终删除必须等待 26 Gate 全绿和用户选择。
+- 本 Feature 允许且要求在本地验收中删除四个测试 persona 各自的 Helix SQLite main/WAL/SHM/journal；禁止删除远端数据、其他本地资产或用新 DB 路径伪装冷启动。
 - 同一 task/validator/失败签名自动修复最多两次，第三次进入 NeedsHuman。
 
 ### Human Gate
@@ -115,6 +117,8 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **FR-016**: Review 必须核对三仓同一业务逻辑、Fixture hash/schema、Frame surface/scope/revision/mutation/directive、PC DOM 与 Mobile typed view。
 - **FR-017**: 当前 Gate 的生产可达路径必须保持 InteractionFrame V2-only，V1 Frame 和 raw business render fallback 数量均为 0。
 - **FR-018**: 运行报告必须分别记录 Helix、Fixture、PC Mock、PC Real、Mobile Contract、Review 和 blocker，不得用一个总 PASS 掩盖缺失证据面。
+- **FR-019**: PC 444/678 与 Mobile userA/userB 必须在 production seed 完成且进程完全停止后，仅删除各自 Helix SQLite main/WAL/SHM/journal；reset 必须拒绝路径越界、符号链接、活动锁与删除后残留，并证明未删除远端数据。
+- **FR-020**: 四个 persona 必须复用删库前同一数据库路径完成冷启动 sync notify，并对隔离 Gate 数据集中的 message、channel_event_cursor 及投影所需权威行执行远端 PostgreSQL/本地 SQLite 规范化全量比较；只有 missing=0、extra=0、mismatch=0 且 FrameApplied/typed view 收敛才可 Green。
 
 ### Gate Contract Snapshot
 
@@ -144,6 +148,7 @@ Helix 六类场景、canonical Fixture/Golden、PC Mock/Real/Report、Mobile mir
 - **SC-004**: 所有故意注入的 persist failure、duplicate/late fact、scope/epoch/revision 错误中，伪成功 Frame、DOM 或 typed view 数量为 0。
 - **SC-005**: production-boundary 扫描中，生产构建可达 Fixture/Mock/test injection/raw business reducer 数量为 0。
 - **SC-006**: 行为、代码和 Frame V2 Review 全部为 `review-green`；任何 partial/blocked 都阻止进入下一 Gate。
+- **SC-007**: PC 444/678 与 Mobile userA/userB 四个 persona 的本地库删除清单、同路径恢复、零残留、remote/local hash 与完整差异均有证据，且四者 missing=0、extra=0、mismatch=0。
 
 ## Assumptions
 

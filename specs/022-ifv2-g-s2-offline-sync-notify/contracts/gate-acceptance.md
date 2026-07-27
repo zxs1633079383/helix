@@ -20,6 +20,15 @@
 - GTest 链接生产 MobileImSdk、MobileFfiBridge、SurfaceRuntime 与 QuickJS binding。
 - JS 只读 `im.surface.view` typed view；禁止 `im.store`、raw reducer 和测试业务字段。
 
+## Physical Cold-start
+
+- PC 444/678 与 Mobile userA/userB 必须在 production seed 后完全停止各自 runtime。
+- 仅删除对应 persona 的 Helix SQLite main/WAL/SHM/journal，拒绝链接、活动锁、
+  路径越界与删除后残留；不得删除 PostgreSQL 或其他本地资产。
+- 每个 persona 必须在同一 DB 路径重启并执行 production sync notify。
+- Gate-scoped message/cursor/authority rows 的 remote/local hash 必须相等，
+  missing/extra/mismatch 必须全部为 0，且 FrameApplied/typed view 同时 Green。
+
 ## Green Formula
 
 `Helix Green + Fixture Green + PC Mock Green + PC Real Green + Mobile Contract Green + production-boundary Green + Review Green`

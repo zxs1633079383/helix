@@ -42,6 +42,19 @@
 | evidence | verdict | required pass=100%、fail=0、skip=0 |
 | final | verdict | 四项全 Green 才可 review-green |
 
+## ColdStartParityEvidence
+
+| Field | Type | Rule |
+|---|---|---|
+| persona | enum | PC 444/678 或 Mobile userA/userB |
+| databasePathBefore / databasePathAfter | path | 必须为同一路径 |
+| deletedArtifacts | array | 只允许 main/WAL/SHM/journal |
+| residualArtifacts | array | 必须为空 |
+| remoteDeletionPerformed | boolean | 必须为 false |
+| remoteSha256 / localSha256 | string | 同一 canonical rows 必须相等 |
+| missing / extra / mismatch | array | 三者必须为空 |
+| projection | object | Persist 后 FrameApplied/typed view 必须收敛 |
+
 ## State Transitions
 
 `Draft -> HelixGreen -> PcGreen -> MobileGreen -> ReviewGreen`

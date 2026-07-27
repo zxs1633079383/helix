@@ -14,7 +14,7 @@
 
 **Primary Dependencies**: helix-core ports、helix-im `ImModule::handle`/InteractionFrameV2；cses-client TauriMockBridge/SurfaceRuntime/WebdriverIO；MobileImSdk/MobileFfiBridge/SurfaceRuntime/HelixImQuickJsBinding
 
-**Storage**: Helix SQLite StorageOp（channel_event_cursor、message）；远端 PostgreSQL `channel_event、post、channel、channel_member` 只作有界证据
+**Storage**: Helix SQLite StorageOp（channel_event_cursor、message）；远端 PostgreSQL `channel_event、post、channel、channel_member` 只作有界只读证据；PC 444/678 与 Mobile userA/userB 在 seed 后精确删除各自 main/WAL/SHM/journal 并同路径重建
 
 **Testing**: Rust deterministic replay + Golden；WDIO Mock/single-real/dual-real + reporter；C++ GTest + QuickJS typed view
 
@@ -40,7 +40,7 @@
 | Spec Kit Admission | PASS：R1 已通过；R2/R3 后才允许实现 |
 | 热路径与 FFI | PASS：Frame O(k) apply、batch crossing、无无界扫描 |
 
-**Post-design re-check**: PASS。contracts 只冻结 Gate 验收与报告，不增加第二套业务协议；平台 mirror 只读；真实删除仍由 26 Gate 总控和用户决定。
+**Post-design re-check**: PASS。contracts 只冻结 Gate 验收与报告，不增加第二套业务协议；平台 mirror 只读；本 Gate 的本地物理删除仅限四 persona Helix SQLite family，远端与其他资产禁止删除。
 
 ## Loop Detail Contract
 
@@ -61,6 +61,7 @@
 - **A-005**: 真实 MessageV4 UI -> Tauri invoke -> Helix/SQLite/HTTP/WS -> FrameApplied -> Actor/Observer DOM。
 - **A-006**: Helix Fixture -> Mobile mirror -> production SDK/FFI DomainEvent batch -> SurfaceRuntime atomic apply -> QuickJS `im.surface.view`。
 - **A-007**: 三仓证据 -> behavior/code/Frame V2 review -> review-green 或 fail-closed blocker。
+- **A-008**: production seed -> stop/dispose -> guarded local SQLite reset -> same-path restart -> sync notify -> PostgreSQL/SQLite canonical parity -> FrameApplied/typed view。
 
 ### State Contract
 
@@ -79,6 +80,7 @@
 - **V-005**: `./scripts/run-gtest-js-spec.sh surface-runtime --gtest-filter='GS2FrameContractTest.*'` 证明 Mobile production consumer 与 QuickJS typed view。
 - **V-006**: production-boundary/source scans 证明 Fixture、Mock、测试 ABI、raw reducer 在默认构建不可达。
 - **V-007**: cross-repo review 对齐 command、terminal、Frame、hash、DOM、typed view 与报告，输出 review-green 或 blocker。
+- **V-008**: PC/Mobile 四 persona 的 reset evidence、同路径 restart 与 remote/local canonical parity；任一 residual、path drift、missing、extra 或 mismatch 非零即失败。
 
 ## Project Structure
 
@@ -133,6 +135,7 @@ crates/helix-im/tests/fixtures/gs2-wdio/
 3. PC mirror、Mock、single/dual real、DOM/report 与 production-boundary。
 4. Mobile mirror、GTest、SDK/Bridge/SurfaceRuntime/QuickJS typed view 与 hard-cut。
 5. 行为、代码、Frame V2、evidence Review 与 R4。
+6. 四 persona 物理删库、同路径 sync notify 冷恢复与远端/本地 100% 对账；R4 重跑后方可关闭。
 
 ## Complexity Tracking
 

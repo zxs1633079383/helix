@@ -196,10 +196,10 @@ pub fn program_full(
         SqlValue::Integer(i("threadCount").unwrap_or(0)),
     ));
     row.push(("top_count", SqlValue::Integer(i("topCount").unwrap_or(0))));
-    row.push((
-        "topic_msg_count",
-        SqlValue::Integer(i("topicMsgCount").unwrap_or(0)),
-    ));
+    let topic_msg_count = i("topicMsgCount")
+        .or_else(|| (ch_type == "T").then(|| i("totalMsgCount")).flatten())
+        .unwrap_or(0);
+    row.push(("topic_msg_count", SqlValue::Integer(topic_msg_count)));
     row.push((
         "admin_max_count",
         SqlValue::Integer(i("adminMaxCount").unwrap_or(0)),
@@ -247,4 +247,33 @@ pub fn program_full(
     }
 
     Some((row, omit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Topic 全量快照只有 totalMsgCount 时也必须落入本地 topic_msg_count。
+    #[test]
+    fn topic_total_message_count_populates_local_topic_count() {
+        let channel_id = crate::state::test_channel_id(81);
+        let (row, _) = program_full(
+            &serde_json::json!({
+                "id": channel_id.as_str(),
+                "type": "T",
+                "displayName": "话题",
+                "totalMsgCount": 11
+            }),
+            "viewer",
+            1,
+        )
+        .expect("topic channel snapshot");
+
+        let Some((_, SqlValue::Integer(topic_count))) =
+            row.iter().find(|(column, _)| *column == "topic_msg_count")
+        else {
+            panic!("topic_msg_count integer column")
+        };
+        assert_eq!(*topic_count, 11);
+    }
 }

@@ -109,11 +109,15 @@ impl ImModule {
         {
             return Ok(());
         }
-        let reply_count = existing
+        let next_local_count = existing
             .get("replyCount")
             .and_then(Value::as_u64)
             .unwrap_or_default()
             .saturating_add(1);
+        let reply_count = integer(&root, &["reply_count", "replyCount"])
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or_default()
+            .max(next_local_count);
         let mut topic = json!({
             "parentChannelId": parent_channel_id.as_str(),
             "topicChannelId": projection.topic_channel_id.as_str(),
@@ -134,29 +138,61 @@ impl ImModule {
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
             corr,
-            ops: vec![StorageOp::BatchUpdate(BatchUpdateSpec {
-                table: "message",
-                key_col: "id",
-                key_vals: vec![SqlValue::Text(projection.root_message_id)],
-                patch: vec![("topic".to_string(), SqlValue::Text(topic.to_string()))],
-            })],
+            ops: vec![
+                StorageOp::BatchUpdate(BatchUpdateSpec {
+                    table: "message",
+                    key_col: "id",
+                    key_vals: vec![SqlValue::Text(projection.root_message_id)],
+                    patch: vec![("topic".to_string(), SqlValue::Text(topic.to_string()))],
+                }),
+                StorageOp::BatchUpdate(BatchUpdateSpec {
+                    table: "channel",
+                    key_col: "id",
+                    key_vals: vec![SqlValue::Text(
+                        projection.topic_channel_id.as_str().to_string(),
+                    )],
+                    patch: vec![(
+                        "topic_msg_count".to_string(),
+                        SqlValue::Integer(reply_count.min(i64::MAX as u64) as i64),
+                    )],
+                }),
+            ],
         });
         self.state.corr_map.insert(
             corr,
-            CorrelationContext::TopicActivityPersist { parent_channel_id },
+            CorrelationContext::TopicActivityPersist {
+                parent_channel_id,
+                topic_channel_id: projection.topic_channel_id,
+                topic_message_count: reply_count,
+            },
         );
         Ok(())
     }
 
-    /// Root card 落稳后只刷新仍 attach 的父群 latest timeline，detached 页面下次 resync 自然回读。
+    /// Root card 落稳后刷新父群 timeline，并原子推进在场 topic dialog 的消息总数。
     pub(crate) fn handle_topic_activity_persist(
         &mut self,
         parent_channel_id: ChannelId,
+        topic_channel_id: ChannelId,
+        topic_message_count: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
         if matches!(outcome, PortOutcome::Ok(_)) {
             self.refresh_attached_latest_timeline(parent_channel_id, None, out)?;
+            if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
+                let update = json!({
+                    "channelId": topic_channel_id.as_str(),
+                    "topicMsgCount": topic_message_count,
+                });
+                if let Some(frame) = self
+                    .state
+                    .dialog_list_frame
+                    .patch_from_channel_update(scope, &update)
+                {
+                    out.push(frame);
+                }
+            }
         }
         Ok(())
     }
@@ -192,6 +228,12 @@ fn text<'a>(row: &'a Value, keys: &[&str]) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
+/// 兼容 SQLite snake row 与 render-ready camel row 的整数读取。
+fn integer(row: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| row.get(*key).and_then(Value::as_i64))
+}
+
 /// 从文本列或对象列读取既有 topic JSON，供计数单调合并。
 fn json_value(row: &Value, keys: &[&str]) -> Option<Value> {
     keys.iter().find_map(|key| match row.get(*key) {
@@ -221,6 +263,7 @@ mod tests {
         let reply = serde_json::to_vec(&json!([{
             "id":"root-1",
             "channel_id":parent_channel_id.as_str(),
+            "reply_count":3,
             "topic":"{\"replyCount\":2}"
         }]))
         .unwrap();
@@ -256,6 +299,59 @@ mod tests {
         assert_eq!(topic["lastActivityAt"], 30);
         assert_eq!(topic["latestReply"]["author"]["userId"], "user-3");
         assert_eq!(topic["latestReply"]["preview"]["text"], "第三条");
+    }
+
+    /// 服务端 root 绝对回复数必须覆盖被 post_update 擦回 relation-only 的旧 topic 摘要。
+    #[test]
+    fn root_readback_recovers_reply_count_from_root_authority() {
+        let topic_channel_id = crate::state::test_channel_id(76);
+        let parent_channel_id = crate::state::test_channel_id(77);
+        let mut module = ImModule::new(ImConfig::default());
+        let mut out = EffectSink::new();
+        let reply = serde_json::to_vec(&json!([{
+            "id":"root-1",
+            "channel_id":parent_channel_id.as_str(),
+            "reply_count":10,
+            "topic":"{\"channelId\":\"topic-only\"}"
+        }]))
+        .unwrap();
+
+        module
+            .handle_topic_activity_root_read(
+                TopicActivityProjection {
+                    topic_channel_id,
+                    root_message_id: "root-1".to_string(),
+                    title: "研发话题".to_string(),
+                    post_id: "reply-10".to_string(),
+                    author_user_id: "user-10".to_string(),
+                    message_type: "TEXT".to_string(),
+                    preview_text: "第十条".to_string(),
+                    created_at: 100,
+                },
+                &PortOutcome::Ok(ReplyBytes(Bytes::from(reply))),
+                &mut out,
+            )
+            .unwrap();
+
+        let Effect::Persist { ops, .. } = &out.as_slice()[0] else {
+            panic!("topic activity requires one durable root patch")
+        };
+        let StorageOp::BatchUpdate(update) = &ops[0] else {
+            panic!("root relation updates by message id")
+        };
+        let SqlValue::Text(topic) = &update.patch[0].1 else {
+            panic!("topic activity persists as JSON text")
+        };
+        let topic: Value = serde_json::from_str(topic).unwrap();
+        assert_eq!(topic["replyCount"], 10);
+        let StorageOp::BatchUpdate(channel_update) = &ops[1] else {
+            panic!("topic count updates by topic channel id")
+        };
+        assert_eq!(channel_update.table, "channel");
+        let SqlValue::Integer(topic_count) = &channel_update.patch[0].1 else {
+            panic!("topic count persists as integer")
+        };
+        assert_eq!(*topic_count, 10);
     }
 
     /// 相同 reply id 的重放与更旧的乱序 post 都不得重复计数或回退卡片。
@@ -311,6 +407,8 @@ mod tests {
         module
             .handle_topic_activity_persist(
                 parent_channel_id,
+                crate::state::test_channel_id(74),
+                3,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
             )
@@ -321,5 +419,48 @@ mod tests {
             [Effect::Persist { ops, .. }]
                 if matches!(ops.as_slice(), [StorageOp::Scan(scan)] if scan.table == "message")
         ));
+    }
+
+    /// Topic activity 提交后必须把绝对消息数同步到已 attach 的左侧话题行。
+    #[test]
+    fn durable_topic_activity_patches_attached_topic_dialog_count() {
+        let parent_channel_id = crate::state::test_channel_id(75);
+        let topic_channel_id = crate::state::test_channel_id(76);
+        let mut module = ImModule::new(ImConfig::default());
+        let scope = crate::dialog_frame::DialogListScope::new("viewer", "company");
+        let row = crate::dialog_frame::row_from_dialog_projection(&json!({
+            "id": topic_channel_id.as_str(),
+            "type": "T",
+            "displayName": "研发话题",
+            "rootPostId": "root-1",
+            "topicMsgCount": 0,
+        }))
+        .expect("topic dialog row");
+        module.state.dialog_list_frame.snapshot(scope, vec![row]);
+        let mut out = EffectSink::new();
+
+        module
+            .handle_topic_activity_persist(
+                parent_channel_id,
+                topic_channel_id,
+                10,
+                &PortOutcome::Ok(ReplyBytes(Bytes::new())),
+                &mut out,
+            )
+            .unwrap();
+
+        let frame = out
+            .as_slice()
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Emit { event } => serde_json::from_slice::<Value>(event.0.as_ref()).ok(),
+                _ => None,
+            })
+            .expect("topic dialog count frame");
+        assert_eq!(
+            frame["data"]["mutations"][0]["mutation"]["patch"]["view"]["sections"][0]["items"][0]
+                ["topicCount"],
+            10
+        );
     }
 }

@@ -386,6 +386,7 @@ impl TimelineProjector {
         Ok(mutations)
     }
 
+    /// Builds one bounded timeline and collapses topic mirror replies into their root card.
     fn build_view(
         &mut self,
         request: &TimelineWindowRequest,
@@ -402,6 +403,7 @@ impl TimelineProjector {
             )?);
         }
         enrich_reply_threads(&mut items);
+        collapse_topic_reply_children(&mut items);
         if let Some(target) = request.target_message_id.as_deref() {
             if !items.iter().any(|item| item.id == target) {
                 return Err(TimelineProjectionError::TargetNotInWindow {
@@ -549,6 +551,22 @@ fn enrich_reply_threads(items: &mut [MessageVm]) {
             reply_count: existing_count.max(projected_count),
         });
     }
+}
+
+/// Removes topic mirror replies after their previews have been folded into the topic root.
+fn collapse_topic_reply_children(items: &mut Vec<MessageVm>) {
+    let topic_root_ids: BTreeSet<String> = items
+        .iter()
+        .filter(|item| item.topic_link.is_some())
+        .map(|item| item.id.clone())
+        .collect();
+    if topic_root_ids.is_empty() {
+        return;
+    }
+    items.retain(|item| {
+        let root_id = item.reply_root_id.as_deref().or(item.reply_id.as_deref());
+        !root_id.is_some_and(|root_id| topic_root_ids.contains(root_id))
+    });
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -1823,6 +1841,41 @@ mod tests {
                 "replyCount":0,
                 "lastActivityAt":1,
             })
+        );
+    }
+
+    /// 父群 timeline 只保留 topic root 卡片，topic 的镜像回复不得再次平铺成回复气泡。
+    #[test]
+    fn topic_reply_children_are_collapsed_into_root_card() {
+        let mut root = row(1);
+        root["topic"] = serde_json::json!({
+            "channelId":"topic-1",
+            "displayName":"design review",
+            "replyCount":2,
+            "lastActivityAt":3,
+        });
+        let mut first_reply = row(2);
+        first_reply["replyId"] = serde_json::json!("message-1");
+        first_reply["replyRootId"] = serde_json::json!("message-1");
+        let mut second_reply = row(3);
+        second_reply["replyId"] = serde_json::json!("message-1");
+        second_reply["replyRootId"] = serde_json::json!("message-1");
+        let mut projector = TimelineProjector::default();
+        let view = projector
+            .build_view(
+                &TimelineWindowRequest::latest("channel-1"),
+                &[root, first_reply, second_reply],
+            )
+            .unwrap();
+
+        assert_eq!(view.items.len(), 1);
+        assert_eq!(view.items[0].id, "message-1");
+        assert_eq!(
+            view.items[0]
+                .reply_thread
+                .as_ref()
+                .map(|thread| thread.reply_count),
+            Some(2)
         );
     }
 

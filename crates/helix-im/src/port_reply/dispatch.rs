@@ -1059,9 +1059,17 @@ impl ImModule {
                 self.handle_topic_activity_root_read(projection, outcome, out)?;
             }
 
-            CorrelationContext::TopicActivityPersist { parent_channel_id } => {
-                self.handle_topic_activity_persist(parent_channel_id, outcome, out)?;
-            }
+            CorrelationContext::TopicActivityPersist {
+                parent_channel_id,
+                topic_channel_id,
+                topic_message_count,
+            } => self.handle_topic_activity_persist(
+                parent_channel_id,
+                topic_channel_id,
+                topic_message_count,
+                outcome,
+                out,
+            )?,
 
             CorrelationContext::OutboundPostReaders { req_id } => {
                 crate::port_reply_emit::emit_post_readers(&req_id, outcome, out);

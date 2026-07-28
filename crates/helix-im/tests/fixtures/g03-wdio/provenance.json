@@ -1,0 +1,182 @@
+[
+  {
+    "fileName": "image-sending.frame-v2.json",
+    "fixtureId": "g03-image-sending-v2",
+    "fixtureSha256": "6e60a597ef207342b83f9ec2b7561e7e261edcf32caedfffab8306e94aa8895f",
+    "generatedAt": "2026-07-27T16:00:00+08:00",
+    "helixCommit": "ea3fbf379d359ad2f5ccc0d03976f4341a84d5ae",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt"
+    ],
+    "placeholderValues": {
+      "actorId": "g03-wdio-actor",
+      "baseRevision": null,
+      "channelId": "chg03media00000000000000001",
+      "createdAt": 1700000300003,
+      "messageId": "g03-image-post-1",
+      "reqId": "g03-image-sending-request",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "g03-image-sending-transaction"
+    },
+    "producer": "G03ScenarioRunner -> TimelineProjector -> SurfaceMutationV2 -> InteractionFrameV2",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "e7dbd8513d71bd337329efe0c03bde4c285aa724c6c8c7db4ee0ec4e52424757",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  },
+  {
+    "fileName": "image-sent.frame-v2.json",
+    "fixtureId": "g03-image-sent-v2",
+    "fixtureSha256": "883c0b01a1a7b99e9b8cbee4e53b2bbc926251dd85b8bf57240ca843b9beadc4",
+    "generatedAt": "2026-07-27T16:00:00+08:00",
+    "helixCommit": "ea3fbf379d359ad2f5ccc0d03976f4341a84d5ae",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt"
+    ],
+    "placeholderValues": {
+      "actorId": "g03-wdio-actor",
+      "baseRevision": null,
+      "channelId": "chg03media00000000000000001",
+      "createdAt": 1700000300003,
+      "messageId": "g03-image-post-1",
+      "reqId": "g03-image-sent-request",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "g03-image-sent-transaction"
+    },
+    "producer": "G03ScenarioRunner -> TimelineProjector -> SurfaceMutationV2 -> InteractionFrameV2",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "45397de0b2ab5eb7d695d71be6d7c7af55225ef8839998b3556e223a8df89f15",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  },
+  {
+    "fileName": "file-uploading.frame-v2.json",
+    "fixtureId": "g03-file-uploading-v2",
+    "fixtureSha256": "7230c3e7a48c37f538735fcb18de755c2d4891af9106a0b6c78b7e0c06b4ba90",
+    "generatedAt": "2026-07-27T16:00:00+08:00",
+    "helixCommit": "ea3fbf379d359ad2f5ccc0d03976f4341a84d5ae",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt"
+    ],
+    "placeholderValues": {
+      "actorId": "g03-wdio-actor",
+      "baseRevision": null,
+      "channelId": "chg03media00000000000000001",
+      "createdAt": 1700000300004,
+      "messageId": "g03-file-post-1",
+      "reqId": "g03-file-uploading-request",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "g03-file-uploading-transaction"
+    },
+    "producer": "G03ScenarioRunner -> TimelineProjector -> SurfaceMutationV2 -> InteractionFrameV2",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "c6e00f6959663843da64107eee95b39a849732234a69d7f558414e90cb7ea9ae",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  },
+  {
+    "fileName": "file-sent.frame-v2.json",
+    "fixtureId": "g03-file-sent-v2",
+    "fixtureSha256": "fa826d4885147237fb52fbae3392ff5034455e066d64eab2d292f2eee647b71a",
+    "generatedAt": "2026-07-27T16:00:00+08:00",
+    "helixCommit": "ea3fbf379d359ad2f5ccc0d03976f4341a84d5ae",
+    "parameterizableFields": [
+      "/transactionId",
+      "/causationId",
+      "/mutations/*/causationId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision",
+      "/mutations/*/scope/channelId",
+      "/mutations/*/mutation/view/channelId",
+      "/mutations/*/mutation/view/items/*/id",
+      "/mutations/*/mutation/view/items/*/channelId",
+      "/mutations/*/mutation/view/items/*/author/userId",
+      "/mutations/*/mutation/view/items/*/createdAt"
+    ],
+    "placeholderValues": {
+      "actorId": "g03-wdio-actor",
+      "baseRevision": null,
+      "channelId": "chg03media00000000000000001",
+      "createdAt": 1700000300004,
+      "messageId": "g03-file-post-1",
+      "reqId": "g03-file-sent-request",
+      "revision": 1,
+      "surfaceEpoch": 1,
+      "transactionId": "g03-file-sent-transaction"
+    },
+    "producer": "G03ScenarioRunner -> TimelineProjector -> SurfaceMutationV2 -> InteractionFrameV2",
+    "rebaseFields": [
+      "/transactionId",
+      "/mutations/*/surfaceEpoch",
+      "/mutations/*/revision",
+      "/mutations/*/baseRevision"
+    ],
+    "schemaVersion": 2,
+    "semanticSha256": "fc4f0d62da5129ed8e5e407641b653d61cb482b1ee0c39e81a42dfcbf72c1821",
+    "sourceKind": "rust-export",
+    "surfaces": [
+      "message.timeline"
+    ]
+  }
+]

@@ -18,6 +18,10 @@
 
 ✅ DONE（HELIX FOCUSED）`im_locate_message` 已移除 Native 非必要的 `StorageOp::Get` continuation，直接进入 Go `postContext` authority；HTTP 后的 message upsert PersistOk 与 target readback 屏障保持不变。`cargo check -p helix-im` PASS，G10b/G10c/G10d/G11a formal producer 4/4 PASS；PC real lane 待新 Helix revision 重建 candidate 后继续验证 | @2026-07-28T12:20:00-0700
 
+🎯 EXPECT 修复 pageSize=60 定位后双向分页把 target 从 Helix Range 提前淘汰的问题；可证伪断言：① consumer 可见窗口上限仍为 60，单页上限仍为 60；② Helix Range 工作集可同时容纳定位页及其上下各一页共 180 个复合键；③ locate 后 Older/Newer 只产生 Upsert/InsertKeys/Bounds，不隐式 ActivateWindow，target 始终留在活动 Range；④ 只修改 timeline projector、聚焦单测与本条 SESSION，不改 core/driver/协议字段 | 赌注 中 | 可逆 是 | @2026-07-28T14:55:00-0700
+
+✅ DONE（HELIX FOCUSED）Timeline projector 已拆分单次可见窗口上限 60 与 Range 工作集上限 180；pageSize=60 定位页可继续向旧侧、新侧各扩一页，target 保持在同一活动 Range，分页 Delta 不产生 ActivateWindow。`cargo check -p helix-im` PASS，新增聚焦单测 1/1 PASS，G10b/G10c/G10d/G11a formal producer 4/4 PASS，`git diff --check` PASS；未改 core/driver/协议字段 | @2026-07-28T15:05:00-0700
+
 🎯 EXPECT 建立 Timeline V3 下 G01 的三端测试与文档基线；可证伪断言：① Helix `g01_wdio_fixture_contract_test.rs` 仍是唯一 producer，并输出 2 份非 Timeline V2 Frame、4 份 Timeline V3 Frame及可校验 provenance；② cses-client WDIO 与 Mobile 仅 byte-exact 同步这些 JSON，不手写或补算业务字段；③ Mobile `G01FrameContractTest`、QuickJS 与 Venus 都消费 V3 timeline delta，断言 sending→sent/failed、WS 对账、原子失败和 typed view；④ 产出一份人读流程与一份 AI 执行合同，全部使用仓根相对路径，并把 AI 合同接入三仓就近 AGENTS/rule；⑤ 聚焦 Rust、WDIO contract、Mobile GTest、Venus 与 `git diff --check` 通过，任何 real/multiremote 未实际执行都保持 PARTIAL，不冒充 Green | 赌注 高 | 可逆 是 | @2026-07-28T02:20:00-0700
 
 ✅ DONE（PARTIAL/CONTRACT_DRIFT）G01 已形成 Helix canonical producer、6 份混合 V2/V3 fixture/provenance、PC byte-exact mirror、Mobile GTest/QuickJS/Venus 消费链，以及人读流程和 AI 执行合同；Rust producer 1/1、PC 聚焦 4 suites/56 tests、Mobile G01 6/6、两端同步校验、Mobile hard-cut 与显式 `HELIX_ROOT` Venus gate 均通过。PC 全量 contract 仍有 13 个非 G01 的既有 Timeline V2 迁移失败，实际 WDIO Mock 被候选二进制 Helix `148a8c4` 早于 fixture `b89c043` 的 provenance gate 阻断，real/multiremote 未运行；Mobile 默认 pin `8e6c2d3` 仍是 V2，故本轮不提交、不把消费兼容性冒充三端 Green | @2026-07-28T02:00:31-0700

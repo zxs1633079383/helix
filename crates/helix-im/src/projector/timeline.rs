@@ -19,12 +19,14 @@ use crate::interaction_frame::{
     WindowPageVm, MAX_SAFE_JSON_INTEGER, MIN_SAFE_JSON_INTEGER,
 };
 
-/// 单个 attached timeline slot 最多保留的消息数。分页/窗口边界由 Helix 决定。
+/// 单次快照及 Consumer 可见窗口最多承载的消息数。
 pub const MAX_TIMELINE_WINDOW_ITEMS: usize = 60;
 /// Timeline V3 所有方向的缺省页长。
 pub const DEFAULT_TIMELINE_PAGE_SIZE: u32 = 20;
 /// Timeline V3 所有方向的单页硬上限。
 pub const MAX_TIMELINE_PAGE_SIZE: u32 = MAX_TIMELINE_WINDOW_ITEMS as u32;
+/// Helix Range 保留定位页及其上下各一页，渲染窗口仍由 Consumer 限制为单页大小。
+const MAX_TIMELINE_RANGE_ITEMS: usize = MAX_TIMELINE_WINDOW_ITEMS * 3;
 const MAX_SURFACE_DATA_DEPTH: usize = 8;
 const MAX_SURFACE_DATA_ITEMS: usize = 128;
 
@@ -70,9 +72,9 @@ pub struct LocateWindowAllocation {
 /// 远端 Timeline V3 分页对既有窗口的唯一合并方向。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimelinePageMutation {
-    /// 向旧侧扩展，并在超过 60 条时从新侧淘汰。
+    /// 向旧侧扩展 Range；Consumer 独立维护可见窗口淘汰。
     Older,
-    /// 向新侧扩展，并在超过 60 条时从旧侧淘汰。
+    /// 向新侧扩展 Range；Consumer 独立维护可见窗口淘汰。
     Newer,
     /// 以远端上下文替换活动 segment，并只对当前导航令牌激活。
     Locate {
@@ -602,11 +604,11 @@ impl TimelineProjector {
             }
         };
         let mut items = by_key.into_values().collect::<Vec<_>>();
-        let overflow = items.len().saturating_sub(MAX_TIMELINE_WINDOW_ITEMS);
+        let overflow = items.len().saturating_sub(MAX_TIMELINE_RANGE_ITEMS);
         if overflow > 0 {
             match page_mutation {
                 TimelinePageMutation::Older => {
-                    items.truncate(MAX_TIMELINE_WINDOW_ITEMS);
+                    items.truncate(MAX_TIMELINE_RANGE_ITEMS);
                     request.page.has_newer = true;
                     request.page.has_more = true;
                 }
@@ -2895,6 +2897,72 @@ mod tests {
             patch.mutation,
             TypedSurfaceMutation::TimelineDelta { .. }
         ));
+    }
+
+    #[test]
+    /// 验证最大页长定位后可向两侧各扩一页，且分页不会激活或丢失目标窗口。
+    fn located_max_page_keeps_target_across_bidirectional_range_pagination() {
+        let mut projector = TimelineProjector::default();
+        let mut locate_request =
+            TimelineWindowRequest::latest_with_window_token("channel-1", "locate-60");
+        locate_request.page_size = MAX_TIMELINE_PAGE_SIZE;
+        locate_request.anchor = TimelineAnchorVm {
+            message_id: Some("message-90".to_string()),
+            mode: TimelineAnchorMode::Locate,
+        };
+        locate_request.target_message_id = Some("message-90".to_string());
+        projector
+            .snapshot_from_render_ready(
+                locate_request.clone(),
+                &(60..120).map(row).collect::<Vec<_>>(),
+            )
+            .expect("max-size locate page attaches");
+
+        let older = projector
+            .patch_page_from_render_ready(
+                locate_request.clone(),
+                &(0..60).map(row).collect::<Vec<_>>(),
+                TimelinePageMutation::Older,
+                Some("older-60".to_string()),
+            )
+            .expect("older page extends the located range");
+        let TypedSurfaceMutation::TimelineDelta {
+            operations: older_operations,
+        } = older.mutation
+        else {
+            panic!("older page must produce a timeline delta")
+        };
+        assert!(!older_operations
+            .iter()
+            .any(|operation| matches!(operation, TimelineDeltaOperationVm::ActivateWindow { .. })));
+
+        let newer = projector
+            .patch_page_from_render_ready(
+                locate_request.clone(),
+                &(120..180).map(row).collect::<Vec<_>>(),
+                TimelinePageMutation::Newer,
+                Some("newer-60".to_string()),
+            )
+            .expect("newer page extends the located range");
+        let TypedSurfaceMutation::TimelineDelta {
+            operations: newer_operations,
+        } = newer.mutation
+        else {
+            panic!("newer page must produce a timeline delta")
+        };
+        assert!(!newer_operations
+            .iter()
+            .any(|operation| matches!(operation, TimelineDeltaOperationVm::ActivateWindow { .. })));
+
+        let scope = SurfaceScope::Timeline {
+            channel_id: "channel-1".to_string(),
+            window_token: "locate-60".to_string(),
+        };
+        let view = projector.current_view(&scope).expect("located slot");
+        assert_eq!(view.items.len(), MAX_TIMELINE_RANGE_ITEMS);
+        assert_eq!(view.items.first().unwrap().id, "message-0");
+        assert_eq!(view.items.last().unwrap().id, "message-179");
+        assert_eq!(view.target_message_id.as_deref(), Some("message-90"));
     }
 
     #[test]

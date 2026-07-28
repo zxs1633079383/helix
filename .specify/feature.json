@@ -1,1 +1,3 @@
-{"feature_directory":"specs/024-ifv2-g-s4-unknown-channel-hydration"}
+{
+  "feature_directory": "specs/046-timeline-v3-delta-window"
+}

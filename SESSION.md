@@ -14,6 +14,8 @@
 
 ## 0. 当前任务
 
+🎯 EXPECT 将 cses-client `20260727-214840-timeline-v3-delta` 迁入 Helix 当前 Spec Kit `helix-loop/v1`；可证伪断言：① 只新增 `specs/046-timeline-v3-delta-window`、更新 `.specify/feature.json` 与本条 SESSION 记录，不覆盖现有 Rust/Fixture 脏改动；② Spec 保留 8 个用户故事、47 条 FR、17 条 SC，并补齐最新模板的 Loop Contract、边界、人审闸门和假设；③ requirements checklist 全绿、placeholder/clarification=0；④ mandatory after_specify hook 生成 source-grounded discovery/ledger 并达到 R1 PASS，否则如实标记 blocked | 赌注 中 | 可逆 是 | @2026-07-28T00:02:49-0700
+
 🎯 EXPECT 补齐 Go `types.RepliedMessage` 到 timeline `replySummary` 的 readback 别名；可证伪断言：① `repliedUserId/replied_user_id` 生成 available author，`isRevoke/is_revoke` 生成 recalled availability；② 原 `userId/user_id` 与 `revoked/revoke` 别名继续兼容；③ 仅修改 `timeline.rs`、聚焦单测与本条 SESSION 记录，聚焦测试及 `git diff --check` 通过 | 赌注 低 | 可逆 是 | @2026-07-27T04:25:00-0700
 
 ✅ DONE timeline readback 已优先识别 Go `types.RepliedMessage` 的 `repliedUserId/replied_user_id` 与 `isRevoke/is_revoke`，并继续接受历史 `userId/user_id`、`revoked/revoke`；新增表驱动单测证明 camelCase 与 snake_case 均生成 `replySummary.kind=available`，撤回后生成 recalled availability。`cargo test -p helix-im --lib reply_summary_` 2/2 PASS，`git diff --check` PASS；未提交 | @2026-07-27T04:35:00-0700

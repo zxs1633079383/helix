@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "feature_directory": "specs/046-timeline-v3-delta-window",
+  "phase": "planning",
+  "event_seq": 5,
+  "next_action": "run_speckit_plan",
+  "budget": {
+    "max_same_failure_attempts": 2
+  },
+  "failure_attempts": {
+    "324df701aa92e7b5": 1,
+    "99d08a36e6986a4a": 1
+  },
+  "gates": {
+    "r1_spec": {
+      "status": "pass",
+      "fingerprint": "ff6a0ed9aa35f1c74bc1d71027cc5a47d466e6d5cd87d3f6590b38d2838b4ec1",
+      "checked_at": "2026-07-28T07:07:37Z",
+      "issues": []
+    },
+    "r2_plan": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r3_tasks": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    },
+    "r4_evidence": {
+      "status": "pending",
+      "fingerprint": null,
+      "checked_at": null,
+      "issues": []
+    }
+  },
+  "convergence": {
+    "tasks_fingerprint": null,
+    "reason": null
+  },
+  "events": [
+    {
+      "seq": 1,
+      "at": "2026-07-28T07:05:08Z",
+      "kind": "failure",
+      "detail": "r1_spec:324df701aa92e7b5: attempt 1"
+    },
+    {
+      "seq": 2,
+      "at": "2026-07-28T07:05:08Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md still contains a template placeholder"
+    },
+    {
+      "seq": 3,
+      "at": "2026-07-28T07:07:03Z",
+      "kind": "failure",
+      "detail": "r1_spec:99d08a36e6986a4a: attempt 1"
+    },
+    {
+      "seq": 4,
+      "at": "2026-07-28T07:07:03Z",
+      "kind": "phase",
+      "detail": "specifying->specifying: discovery.md has no source lock; discovery.md needs at least one F-xxx fact with path:line evidence"
+    },
+    {
+      "seq": 5,
+      "at": "2026-07-28T07:07:37Z",
+      "kind": "phase",
+      "detail": "specifying->planning: r1_spec passed"
+    }
+  ]
+}

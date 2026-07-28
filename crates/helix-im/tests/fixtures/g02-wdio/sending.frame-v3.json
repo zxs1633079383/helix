@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chdocx00000000000000000001|6:latest-3",
+  "transactionId": "timeline-timeline|26:chdocx00000000000000000001|6:latest-2",
   "causationId": "g02-wdio-request-1",
   "runtime": {
     "connection": "online",
@@ -15,8 +15,8 @@
         "channelId": "chdocx00000000000000000001",
         "windowToken": "latest"
       },
-      "revision": 3,
-      "baseRevision": 2,
+      "revision": 2,
+      "baseRevision": 1,
       "causationId": "g02-wdio-request-1",
       "mutation": {
         "kind": "timelineDelta",
@@ -29,18 +29,18 @@
                 "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001"
               },
               "message": {
-                "id": "srvdoc00000000000000000001",
+                "id": "helix_tmp_0000018bcfe6eea4_0000000000000001",
                 "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001",
-                "serverId": "srvdoc00000000000000000001",
+                "serverId": "helix_tmp_0000018bcfe6eea4_0000000000000001",
                 "channelId": "chdocx00000000000000000001",
-                "eventSeq": 1,
+                "eventSeq": 0,
                 "author": {
                   "userId": "g02-wdio-actor"
                 },
                 "createdAt": 1700000100002,
                 "content": {
                   "kind": "document",
-                  "documentId": "srvdoc00000000000000000001",
+                  "documentId": "helix_tmp_0000018bcfe6eea4_0000000000000001",
                   "title": "打开文档",
                   "summary": "http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15",
                   "access": {
@@ -51,7 +51,7 @@
                   }
                 },
                 "delivery": {
-                  "kind": "sent"
+                  "kind": "sending"
                 },
                 "actions": [
                   {
@@ -187,17 +187,34 @@
             }
           },
           {
-            "kind": "activateWindow",
-            "window": {
-              "windowToken": "latest",
-              "rangeIds": [
-                "latest"
-              ],
-              "anchor": {
-                "messageId": "srvdoc00000000000000000001",
-                "mode": "latest"
-              },
-              "state": "ready"
+            "kind": "insertKeys",
+            "rangeId": "latest",
+            "position": {
+              "kind": "end"
+            },
+            "keys": [
+              {
+                "createAt": 1700000100002,
+                "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001"
+              }
+            ]
+          },
+          {
+            "kind": "setRangeBounds",
+            "rangeId": "latest",
+            "olderCursor": {
+              "createAt": 1700000100002,
+              "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001"
+            },
+            "newerCursor": {
+              "createAt": 1700000100002,
+              "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001"
+            },
+            "hasOlder": false,
+            "hasNewer": false,
+            "latestWatermark": {
+              "createAt": 1700000100002,
+              "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001"
             }
           }
         ]

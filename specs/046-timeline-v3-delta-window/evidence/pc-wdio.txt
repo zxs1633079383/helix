@@ -1,0 +1,31 @@
+PC Timeline V3 focused verification
+captured_at=2026-07-28
+repo=/System/Volumes/Data/workspace/angular/cses-client
+
+Fixture synchronization:
+for g in g10b g10c g10d g11a; do
+  node scripts/message-wdio/sync-helix-fixtures.mjs --gate="$g"
+  node scripts/message-wdio/sync-helix-fixtures.mjs --gate="$g" --check
+done
+
+Result:
+- G-10b: 5 files, FIXTURE_PARITY_OK
+- G-10c: 2 files, FIXTURE_PARITY_OK
+- G-10d: 2 files, FIXTURE_PARITY_OK
+- G-11a: 5 files, FIXTURE_PARITY_OK
+- Focused WDIO contracts: 3 suites, 14 tests PASS
+- Message SurfaceRuntime component: 1 suite, 33 tests PASS
+- Total focused: 4 suites, 47 tests PASS
+- git diff --check: PASS
+
+Physical Timeline V2 hard cut:
+- Removed the PC Schema2 Timeline positive characterization and bug-regression entry.
+- Production message.timeline accepts only timelineSnapshot/timelineDelta.
+- Shared positive Timeline fixtures are Frame V3/schema 3; non-Timeline V2 replace patches remain.
+- The only timelinePatch reference in the scoped scan is the explicit negative rejection case.
+- Final codec/runtime/cache/fixture/shell/component plus formal contracts: 10 suites,
+  121 tests PASS.
+
+Evidence boundary:
+- Contract and component tests prove closed-operation decoding, atomic apply and DOM-component state.
+- The native WDIO browser lane is recorded separately and is not replaced by this evidence.

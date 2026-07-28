@@ -392,7 +392,7 @@ fn g03_freezes_media_pipeline_ownership_barriers_and_real_readback() {
 #[test]
 fn uc15_uc16_freeze_canonical_go_request_and_authoritative_response() {
     let matrix = matrix();
-    assert_eq!(matrix.contract_epoch, 11);
+    assert_eq!(matrix.contract_epoch, 12);
 
     let create = gate(&matrix, "G-15a");
     assert!(create

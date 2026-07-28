@@ -1,6 +1,6 @@
 {
   "schema_version": "helix-im-strict-matrix/v1",
-  "contract_epoch": 11,
+  "contract_epoch": 12,
   "source_documents": [
     "docs/前端UC投影指令与数据清单-最新代码分析-2026-07-09.md",
     "docs/uc-automation/uc-command-set-spec.md",
@@ -41,7 +41,7 @@
     "im_company_exit"
   ],
   "coverage": {
-    "minimum_gate_count": 46,
+    "minimum_gate_count": 50,
     "required_gate_ids": [
       "G-S1",
       "G-S2",
@@ -60,6 +60,10 @@
       "G-09",
       "G-10",
       "G-10a",
+      "G-10b",
+      "G-10c",
+      "G-10d",
+      "G-11a",
       "G-11",
       "G-12",
       "G-13",
@@ -1289,6 +1293,239 @@
           "post"
         ],
         "contract": "`post.getPostContext`；`post`"
+      }
+    },
+    {
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
+        }
+      ],
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "Timeline V3 有界窗口；远端 post 仅提供事实，窗口/anchor/revision 由 Helix 裁决"
+      },
+      "gate_id": "G-10b",
+      "uc_id": "UC-2.2b",
+      "title": "下拉加载更新消息",
+      "commands": [
+        {
+          "name": "im_load_newer_context",
+          "input": {
+            "required": [
+              "channel_id",
+              "anchor_post_id"
+            ],
+            "optional": [
+              "page_size"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "allowed_actions": [
+        "load_newer"
+      ],
+      "negative_assertions": [
+        "不得全量 Replace；必须 UpsertMessage + InsertKeys(end) + 必要 SetRangeBounds",
+        "不得隐式 ActivateWindow；pageSize 只允许 1..=60，默认 20"
+      ],
+      "http": {
+        "request": "定位窗口按 newer cursor 请求后续上下文，pageSize 默认 20",
+        "response": "成功页、耗尽页与晚到消息均产出有界 TimelineDelta"
+      },
+      "ws": {
+        "events": "晚到 post 使用同一 UpsertMessage + InsertKeys(end) 合同"
+      }
+    },
+    {
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
+        }
+      ],
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "Timeline V3 有界窗口；远端 post 仅提供事实，窗口/anchor/revision 由 Helix 裁决"
+      },
+      "gate_id": "G-10c",
+      "uc_id": "UC-2.2c",
+      "title": "满窗口 append 与头部淘汰",
+      "commands": [
+        {
+          "name": "im_query_messages_by_channel",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [
+              "page_size"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "local_scan",
+            "projection"
+          ]
+        }
+      ],
+      "allowed_actions": [],
+      "negative_assertions": [
+        "producer 不得 trim/delete/Replace/InstallSegment",
+        "头部淘汰由 consumer 本地 last(pageSize) 选择器负责"
+      ],
+      "http": {
+        "request": "无直接 HTTP；沿用 attached window",
+        "response": "无"
+      },
+      "ws": {
+        "events": "post -> UpsertMessage + InsertKeys(end) + SetRangeBounds"
+      }
+    },
+    {
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
+        }
+      ],
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "Timeline V3 有界窗口；远端 post 仅提供事实，窗口/anchor/revision 由 Helix 裁决"
+      },
+      "gate_id": "G-10d",
+      "uc_id": "UC-2.2d",
+      "title": "离底 anchor 固定与新消息提示",
+      "commands": [
+        {
+          "name": "im_query_messages_by_channel",
+          "input": {
+            "required": [
+              "channel_id"
+            ],
+            "optional": [
+              "page_size"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "local_scan",
+            "projection"
+          ]
+        }
+      ],
+      "allowed_actions": [
+        "jump_to_latest"
+      ],
+      "negative_assertions": [
+        "anchored append 不得 ActivateWindow",
+        "新消息提示与 jump-to-latest 属于 consumer 状态/动作，不由 producer 强制滚动"
+      ],
+      "http": {
+        "request": "无直接 HTTP",
+        "response": "无"
+      },
+      "ws": {
+        "events": "post -> UpsertMessage + InsertKeys(end)，保持现有 anchor"
+      }
+    },
+    {
+      "phase": "P4",
+      "lifecycle": "active",
+      "contract_state": "declared",
+      "persistence": [
+        "message"
+      ],
+      "projections": [
+        {
+          "event": "im:interaction:frame",
+          "render_kind": "message.timeline",
+          "schema": "InteractionFrame/v2"
+        }
+      ],
+      "remote_store": {
+        "database": "mattermost-imv2",
+        "tables": [
+          "post"
+        ],
+        "contract": "Timeline V3 有界窗口；远端 post 仅提供事实，窗口/anchor/revision 由 Helix 裁决"
+      },
+      "gate_id": "G-11a",
+      "uc_id": "UC-2.3a",
+      "title": "未缓存消息定位与定位后双向分页",
+      "commands": [
+        {
+          "name": "im_locate_message",
+          "input": {
+            "required": [
+              "channel_id",
+              "message_id"
+            ],
+            "optional": [
+              "page_size"
+            ],
+            "forbid_unknown": true
+          },
+          "effect": [
+            "local_scan",
+            "http_read",
+            "storage_upsert",
+            "projection"
+          ]
+        }
+      ],
+      "allowed_actions": [
+        "load_older",
+        "load_newer",
+        "jump_to_latest"
+      ],
+      "negative_assertions": [
+        "未缓存 locate 必须包含目标并按 floor(N/2) 分配，短侧余额补给长侧",
+        "仅当前 navigation token 可 ActivateWindow；后续双向页不得重复 Activate"
+      ],
+      "http": {
+        "request": "本地 miss 后读取目标上下文，pageSize 默认 20",
+        "response": "UpsertMessage* + InstallSegment + ActivateWindow(current token)，随后 older/newer 仅扩展 range"
+      },
+      "ws": {
+        "events": "定位期间晚到 post 不得让 stale navigation 接管 active window"
       }
     },
     {

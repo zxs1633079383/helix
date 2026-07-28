@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chfixx00000000000000000001|6:latest-3",
+  "transactionId": "timeline-timeline|26:chfixx00000000000000000001|6:latest-2",
   "causationId": "g01-wdio-request-1",
   "runtime": {
     "connection": "online",
@@ -15,8 +15,8 @@
         "channelId": "chfixx00000000000000000001",
         "windowToken": "latest"
       },
-      "revision": 3,
-      "baseRevision": 2,
+      "revision": 2,
+      "baseRevision": 1,
       "causationId": "g01-wdio-request-1",
       "mutation": {
         "kind": "timelineDelta",
@@ -29,11 +29,11 @@
                 "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001"
               },
               "message": {
-                "id": "srvfix00000000000000000001",
+                "id": "helix_tmp_0000018bcfe56804_0000000000000001",
                 "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001",
-                "serverId": "srvfix00000000000000000001",
+                "serverId": "helix_tmp_0000018bcfe56804_0000000000000001",
                 "channelId": "chfixx00000000000000000001",
-                "eventSeq": 1,
+                "eventSeq": 0,
                 "author": {
                   "userId": "g01-wdio-actor"
                 },
@@ -43,7 +43,7 @@
                   "text": "g01-wdio-fixture-marker"
                 },
                 "delivery": {
-                  "kind": "sent"
+                  "kind": "sending"
                 },
                 "actions": [
                   {
@@ -179,17 +179,34 @@
             }
           },
           {
-            "kind": "activateWindow",
-            "window": {
-              "windowToken": "latest",
-              "rangeIds": [
-                "latest"
-              ],
-              "anchor": {
-                "messageId": "srvfix00000000000000000001",
-                "mode": "latest"
-              },
-              "state": "ready"
+            "kind": "insertKeys",
+            "rangeId": "latest",
+            "position": {
+              "kind": "end"
+            },
+            "keys": [
+              {
+                "createAt": 1700000000002,
+                "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001"
+              }
+            ]
+          },
+          {
+            "kind": "setRangeBounds",
+            "rangeId": "latest",
+            "olderCursor": {
+              "createAt": 1700000000002,
+              "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001"
+            },
+            "newerCursor": {
+              "createAt": 1700000000002,
+              "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001"
+            },
+            "hasOlder": false,
+            "hasNewer": false,
+            "latestWatermark": {
+              "createAt": 1700000000002,
+              "temporaryId": "helix_tmp_0000018bcfe56804_0000000000000001"
             }
           }
         ]

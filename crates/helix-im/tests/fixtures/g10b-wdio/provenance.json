@@ -1,0 +1,90 @@
+{
+  "canonicalEligible": true,
+  "evidencePlane": "helix-production-sans-io",
+  "fixtures": [
+    {
+      "fileName": "latest.snapshot.frame-v3.json",
+      "fixtureId": "G-10b-latest.snapshot",
+      "fixtureSha256": "8f0b335c051836728f4fa35c352cf3a80345c050e994bf407d89c67e63c532d3",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "9fdb65af004d5a7ca74c1351ad7bed3c2c84227a6bba74e3dd080d634d64dbab"
+    },
+    {
+      "fileName": "initial-located.delta.frame-v3.json",
+      "fixtureId": "G-10b-initial-located.delta",
+      "fixtureSha256": "3954ec94251487b3c0243e86556bcc90a7648ab07bd5f1c112f5c5e8400b7575",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "bfba0fc5c19728507d3c0c96282a44d5014a88003e628328420e18532d6e8fbc"
+    },
+    {
+      "fileName": "newer-loaded.delta.frame-v3.json",
+      "fixtureId": "G-10b-newer-loaded.delta",
+      "fixtureSha256": "f5a8832b0656af6827160a7db7ae489750df0e2acec7e48fec03b47d46202716",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "52f1ba3e4bc122c9132c817c6f4a3c178a0b053ed492a046e82b2629858468be"
+    },
+    {
+      "fileName": "newer-exhausted.delta.frame-v3.json",
+      "fixtureId": "G-10b-newer-exhausted.delta",
+      "fixtureSha256": "3b7f0942ab774b8cd04f87a38722eb554ca94d3f1d9000d6262e85c71450aefe",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "268e90c3bd4705fa88b2105cc660f1b509be6d0933ff0bd6ecb3cdb1ec5c1b64"
+    },
+    {
+      "fileName": "newer-late.delta.frame-v3.json",
+      "fixtureId": "G-10b-newer-late.delta",
+      "fixtureSha256": "e9f55da11104a6249052a3d984be3f3f58f01b784998f4e8803bcf142ed00d3c",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "2ea6f7f0c0142294e743c2cdea28735c95dcd5e430fed5a73458422470c5a6c3"
+    }
+  ],
+  "gateId": "G-10b",
+  "pageSize": 20,
+  "producer": "ImModule::handle -> Effect::Http -> PortReply -> Effect::Persist -> PersistOk -> Effect::Persist(Get/Scan) -> PortReply -> Effect::Emit",
+  "producerRevision": "312e331938054467f1de09d4a251fd47b12093b0",
+  "readbackRequired": true,
+  "semanticCoverage": [
+    "operationKind",
+    "entityKey",
+    "orderedKeys",
+    "rangeBounds",
+    "latestWatermark",
+    "revision",
+    "baseRevision",
+    "windowToken",
+    "compositeCursor",
+    "persistBarrier",
+    "readback"
+  ],
+  "testClass": "g10b_wdio_fixture_contract_test"
+}

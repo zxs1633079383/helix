@@ -1,0 +1,27 @@
+Timeline V3 Gate inventory
+captured_at=2026-07-28
+
+Existing Timeline families migrated by Helix:
+- G-01: g01-wdio, timeline files failed/sending/sent/ws-timeline-sent
+- G-02: g02-wdio, timeline files failed/sending/sent/ws-timeline-sent
+- G-03a: g03a-wdio, timeline files failed/group-timeline-empty/initial-sending/retry-sending/retry-sent/ws-timeline-sent
+- G-04: g04-wdio, timeline files revocable/recalled/recovered-recalled
+- G-04a: g04a-wdio, timeline files revocable/offline-recalled/recovered-recalled
+- G-05: g05-wdio, timeline files source-forwardable/target-forwarded
+- G-06: g06-wdio, timeline files reactable/reacted/recovered-reacted
+- G-07: g07-wdio, timeline files urgentable/urgent-active/urgent-confirmed
+- G-10: g10-wdio, timeline files ready/failed/race-current/cache-degraded/recovery
+- G-10a: g10a-wdio, timeline files loaded/exhausted/http-failed/persist-failed/race-current
+- G-11: g11-wdio, timeline files initial/located
+- G-14: g14-wdio, timeline files readable-message/receipt-viewable-message
+- G-14a: g14a-wdio, timeline files template-receivable/template-received/template-received-recovery
+
+New formal Gate inventories:
+- G-10b LoadNewerGate: latest.snapshot, initial-located.delta, newer-loaded.delta, newer-exhausted.delta, newer-late.delta, provenance
+- G-10c FullWindowAppendEvictionGate: full-window.snapshot, new-message-appended.delta, provenance
+- G-10d AnchoredNewMessageGate: anchored.snapshot, anchored-new-message.delta, provenance
+- G-11a UncachedLocateBidirectionalGate: latest.snapshot, uncached-located.delta, located-older.delta, located-newer.delta, stale-navigation.delta, provenance
+
+Evidence boundary:
+- Existing and new JSON files are present in the Helix fixture tree.
+- G-10b/G-10c/G-10d/G-11a remain non-canonical until production ScenarioRunner generation and provenance validation replace the current projector-contract assets.

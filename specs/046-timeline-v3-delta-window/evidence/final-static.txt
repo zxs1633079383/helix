@@ -1,0 +1,25 @@
+Timeline V3 final static audit
+captured_at=2026-07-28
+
+git diff --check:
+- /System/Volumes/Data/workspace/rust/helix: PASS
+- /System/Volumes/Data/workspace/golang/cses-im-server: PASS
+- /System/Volumes/Data/workspace/angular/cses-client: PASS
+- /System/Volumes/Data/workspace/c/mobile-qucik-c++: PASS
+
+Timeline hard-cut facts:
+- Helix timeline_v3_hard_cut_test: 2/2 PASS.
+- Formal PC/Mobile fixture helpers reject timelinePatch/replaceView in all four new Gates.
+- Timeline V3 recovery fixtures intentionally contain replaceView only as invalid negative input.
+- Non-Timeline V2 replaceView remains supported by contract.
+
+Residual compatibility debt:
+- PC physical Timeline hard cut is complete; its scoped timelinePatch scan retains only the
+  explicit negative rejection case.
+- Mobile physical Timeline hard cut is complete; 12 existing Gate families pass exact V3 sync and
+  the legacy hard-cut scanner.
+- Non-Timeline V2 replaceView remains supported by design.
+
+Dirty-tree safety:
+- No staging, reset, checkout or unrelated-file reversion was performed.
+- Existing unrelated dirty/untracked files in all repositories were preserved.

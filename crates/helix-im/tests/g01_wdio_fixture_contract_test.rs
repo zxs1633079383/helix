@@ -1,4 +1,4 @@
-//! G01 WDIO Frame V2 canonical Fixture 真源。
+//! G01 WDIO Frame V2/V3 canonical Fixture 真源。
 //!
 //! 所有文件都来自共享 `G01ScenarioRunner` 的公开 `ImModule::handle` 回放；普通测试只比较
 //! actual Frame 与 checked-in Golden，只有显式设置 `UPDATE_G01_WDIO_FIXTURES=1` 才写盘。
@@ -6,20 +6,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{InteractionFrameV2, TypedSurfaceMutation};
+use helix_im::interaction_frame::{
+    InteractionFrameV2, TimelineDeltaOperationVm, TypedSurfaceMutation,
+};
 use serde_json::{json, Value};
 
 #[path = "g01_shared/scenario.rs"]
 mod scenario;
 
 use scenario::{
-    assert_dialog_contract, assert_group_created_contract, assert_timeline_contract,
-    delivery_kinds, first_message, surface_names, G01ScenarioRunner, Terminal, ACTOR_ID,
-    CHANNEL_ID, CREATED_AT, GROUP_NAME, MARKER, OBSERVER_ID, REQUEST_ID, SERVER_ID,
+    assert_dialog_contract, assert_group_created_contract, assert_timeline_contract, first_message,
+    surface_names, G01ScenarioRunner, Terminal, ACTOR_ID, CHANNEL_ID, CREATED_AT, GROUP_NAME,
+    MARKER, OBSERVER_ID, REQUEST_ID, SERVER_ID,
 };
 
-const HELIX_COMMIT: &str = "ac15abd0b29ef62ea5d359fb22030800dd0dee2b";
-const GENERATED_AT: &str = "2026-07-25T09:00:00-07:00";
+const HELIX_COMMIT: &str = "b89c043899d2d137306c59b2f77dd87ec300c9c4";
+const GENERATED_AT: &str = "2026-07-28T00:35:28-07:00";
 const PRODUCER: &str =
     "G01ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";
 
@@ -64,6 +66,13 @@ fn produce_cases() -> Vec<FixtureCase> {
     assert_timeline_contract(&sent.terminal, "sent", SERVER_ID);
     assert_timeline_contract(&failed.terminal, "failed", &failed.temporary_id);
     assert_timeline_contract(&ws.timeline_sent, "sent", SERVER_ID);
+    assert_timeline_delta_operations(
+        &sent.sending,
+        &["upsertMessage", "insertKeys", "setRangeBounds"],
+    );
+    assert_timeline_delta_operations(&sent.terminal, &["upsertMessage"]);
+    assert_timeline_delta_operations(&failed.terminal, &["upsertMessage"]);
+    assert_timeline_delta_operations(&ws.timeline_sent, &["upsertMessage"]);
     assert_eq!(
         first_message(&ws.timeline_sent).event_seq,
         1,
@@ -77,23 +86,23 @@ fn produce_cases() -> Vec<FixtureCase> {
             frame: sent.group_created,
         },
         FixtureCase {
-            fixture_id: "g01-sending-v2",
-            file_name: "sending.frame-v2.json",
+            fixture_id: "g01-sending-v3",
+            file_name: "sending.frame-v3.json",
             frame: sent.sending,
         },
         FixtureCase {
-            fixture_id: "g01-sent-v2",
-            file_name: "sent.frame-v2.json",
+            fixture_id: "g01-sent-v3",
+            file_name: "sent.frame-v3.json",
             frame: sent.terminal,
         },
         FixtureCase {
-            fixture_id: "g01-failed-v2",
-            file_name: "failed.frame-v2.json",
+            fixture_id: "g01-failed-v3",
+            file_name: "failed.frame-v3.json",
             frame: failed.terminal,
         },
         FixtureCase {
-            fixture_id: "g01-ws-timeline-sent-v2",
-            file_name: "ws-timeline-sent.frame-v2.json",
+            fixture_id: "g01-ws-timeline-sent-v3",
+            file_name: "ws-timeline-sent.frame-v3.json",
             frame: ws.timeline_sent,
         },
         FixtureCase {
@@ -111,29 +120,46 @@ fn canonical_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
     bytes
 }
 
-/// 生成跨仓 parity 使用的业务语义摘要，排除 transaction 等可参数化身份。
+/// 生成覆盖 operation/key/range/bounds/revision 的跨仓语义摘要。
 fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
-    let mutation_kinds: Vec<&str> = frame
-        .mutations
-        .iter()
-        .map(|mutation| match mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
-            TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
-            TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
-            TypedSurfaceMutation::UnreadSummarySnapshot { .. } => "unreadSummarySnapshot",
-            TypedSurfaceMutation::UnreadSummaryPatch { .. } => "unreadSummaryPatch",
-            _ => "other",
-        })
-        .collect();
     serde_json::to_vec(&json!({
         "schemaVersion": frame.schema_version,
         "runtime": frame.runtime,
-        "surfaces": surface_names(frame),
-        "mutationKinds": mutation_kinds,
-        "deliveryKinds": delivery_kinds(frame),
+        "mutations": frame.mutations.iter().map(|mutation| json!({
+            "surface": mutation.mutation.surface,
+            "surfaceSchemaVersion": mutation.surface_schema_version,
+            "surfaceEpoch": mutation.surface_epoch,
+            "scope": mutation.mutation.scope,
+            "revision": mutation.mutation.revision,
+            "baseRevision": mutation.mutation.base_revision,
+            "mutation": mutation.mutation.mutation,
+        })).collect::<Vec<_>>(),
     }))
     .expect("semantic projection serializes")
+}
+
+/// 锁定发送生命周期的 V3 operation 顺序，并禁止普通终态隐式激活窗口。
+fn assert_timeline_delta_operations(frame: &InteractionFrameV2, expected: &[&str]) {
+    let operations = frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineDelta { operations } => Some(operations),
+            _ => None,
+        })
+        .expect("G01 positive message lifecycle must use TimelineDelta");
+    let kinds = operations
+        .iter()
+        .map(|operation| match operation {
+            TimelineDeltaOperationVm::UpsertMessage { .. } => "upsertMessage",
+            TimelineDeltaOperationVm::InstallSegment { .. } => "installSegment",
+            TimelineDeltaOperationVm::InsertKeys { .. } => "insertKeys",
+            TimelineDeltaOperationVm::MergeRanges { .. } => "mergeRanges",
+            TimelineDeltaOperationVm::SetRangeBounds { .. } => "setRangeBounds",
+            TimelineDeltaOperationVm::ActivateWindow { .. } => "activateWindow",
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, expected);
 }
 
 /// 返回 Helix canonical G01 Fixture 目录。
@@ -166,11 +192,16 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
         "fixtureId": case.fixture_id,
         "fileName": case.file_name,
         "schemaVersion": case.frame.schema_version,
+        "surfaceSchemaVersions": case.frame.mutations.iter().map(|mutation| json!({
+            "surface": mutation.mutation.surface,
+            "schemaVersion": mutation.surface_schema_version,
+        })).collect::<Vec<_>>(),
         "helixCommit": HELIX_COMMIT,
         "producer": PRODUCER,
         "sourceKind": "rust-export",
         "semanticSha256": sha256_hex(&semantic_bytes(&case.frame)),
         "fixtureSha256": sha256_hex(bytes),
+        "byteLength": bytes.len(),
         "surfaces": surface_names(&case.frame),
         "generatedAt": GENERATED_AT,
         "parameterizableFields": [
@@ -179,24 +210,64 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8], temporary_id: &str) -> Val
             "/mutations/*/causationId",
             "/mutations/*/surfaceEpoch",
             "/mutations/*/revision",
+            "/mutations/*/surfaceSchemaVersion",
+            "/mutations/*/mutation/view/entities/*/entityKey/createAt",
+            "/mutations/*/mutation/view/entities/*/entityKey/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/rangeId",
+            "/mutations/*/mutation/view/ranges/*/orderedKeys/*/createAt",
+            "/mutations/*/mutation/view/ranges/*/orderedKeys/*/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/olderCursor/createAt",
+            "/mutations/*/mutation/view/ranges/*/olderCursor/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/newerCursor/createAt",
+            "/mutations/*/mutation/view/ranges/*/newerCursor/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/latestWatermark/createAt",
+            "/mutations/*/mutation/view/ranges/*/latestWatermark/temporaryId",
+            "/mutations/*/mutation/view/activeWindow/windowToken",
+            "/mutations/*/mutation/view/activeWindow/rangeIds/*",
+            "/mutations/*/mutation/view/persistedWatermark/createAt",
+            "/mutations/*/mutation/view/persistedWatermark/temporaryId",
+            "/mutations/*/mutation/operations/*/entity/entityKey/createAt",
+            "/mutations/*/mutation/operations/*/entity/entityKey/temporaryId",
+            "/mutations/*/mutation/operations/*/range/rangeId",
+            "/mutations/*/mutation/operations/*/range/orderedKeys/*/createAt",
+            "/mutations/*/mutation/operations/*/range/orderedKeys/*/temporaryId",
+            "/mutations/*/mutation/operations/*/range/olderCursor/createAt",
+            "/mutations/*/mutation/operations/*/range/olderCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/range/newerCursor/createAt",
+            "/mutations/*/mutation/operations/*/range/newerCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/range/latestWatermark/createAt",
+            "/mutations/*/mutation/operations/*/range/latestWatermark/temporaryId",
+            "/mutations/*/mutation/operations/*/rangeId",
+            "/mutations/*/mutation/operations/*/position/entityKey/createAt",
+            "/mutations/*/mutation/operations/*/position/entityKey/temporaryId",
+            "/mutations/*/mutation/operations/*/keys/*/createAt",
+            "/mutations/*/mutation/operations/*/keys/*/temporaryId",
+            "/mutations/*/mutation/operations/*/olderCursor/createAt",
+            "/mutations/*/mutation/operations/*/olderCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/newerCursor/createAt",
+            "/mutations/*/mutation/operations/*/newerCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/latestWatermark/createAt",
+            "/mutations/*/mutation/operations/*/latestWatermark/temporaryId",
+            "/mutations/*/mutation/operations/*/window/windowToken",
+            "/mutations/*/mutation/operations/*/window/rangeIds/*",
             "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
             "/mutations/*/scope/userId",
             "/mutations/*/scope/teamId",
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/anchor/messageId",
-            "/mutations/*/mutation/view/items/*/id",
-            "/mutations/*/mutation/view/items/*/channelId",
-            "/mutations/*/mutation/view/items/*/author/userId",
-            "/mutations/*/mutation/view/items/*/createdAt",
-            "/mutations/*/mutation/view/items/*/content/text",
-            "/mutations/*/mutation/patch/view/channelId",
-            "/mutations/*/mutation/patch/view/anchor/messageId",
-            "/mutations/*/mutation/patch/view/items/*/id",
-            "/mutations/*/mutation/patch/view/items/*/channelId",
-            "/mutations/*/mutation/patch/view/items/*/author/userId",
-            "/mutations/*/mutation/patch/view/items/*/createdAt",
-            "/mutations/*/mutation/patch/view/items/*/content/text",
+            "/mutations/*/mutation/view/entities/*/message/id",
+            "/mutations/*/mutation/view/entities/*/message/serverId",
+            "/mutations/*/mutation/view/entities/*/message/channelId",
+            "/mutations/*/mutation/view/entities/*/message/author/userId",
+            "/mutations/*/mutation/view/entities/*/message/createdAt",
+            "/mutations/*/mutation/view/entities/*/message/content/text",
+            "/mutations/*/mutation/operations/*/entity/message/id",
+            "/mutations/*/mutation/operations/*/entity/message/serverId",
+            "/mutations/*/mutation/operations/*/entity/message/channelId",
+            "/mutations/*/mutation/operations/*/entity/message/author/userId",
+            "/mutations/*/mutation/operations/*/entity/message/createdAt",
+            "/mutations/*/mutation/operations/*/entity/message/content/text",
             "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/patch/view/sections/*/items/*/preview/text",
             "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
@@ -259,6 +330,20 @@ fn current_g01_producer_matches_canonical_fixtures_and_provenance() {
             2
         };
         assert_eq!(case.frame.schema_version, expected_schema_version);
+        let expected_suffix = if expected_schema_version == 3 {
+            "v3"
+        } else {
+            "v2"
+        };
+        assert!(
+            case.fixture_id.ends_with(expected_suffix),
+            "fixtureId must expose the actual Frame schema"
+        );
+        assert!(
+            case.file_name
+                .ends_with(&format!(".frame-{expected_suffix}.json")),
+            "file name must expose the actual Frame schema"
+        );
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes, &temporary_id));

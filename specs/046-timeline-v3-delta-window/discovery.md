@@ -8,7 +8,7 @@ uncommitted work in progress and are evidence of current shape only, not an acce
 
 ## Facts *(mandatory)*
 
-- **F-001**: The source Feature Spec defines eight prioritized user stories, 47 functional requirements and 17 measurable outcomes covering latest-window mount, bounded live updates, bidirectional paging, locate, bounded cache, recovery, V2 hard-cut and cross-client fixture migration. | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/specs/20260727-214840-timeline-v3-delta/spec.md:1`
+- **F-001**: The source Feature Spec defines eight prioritized user stories, 47 functional requirements and 17 measurable outcomes covering latest-window mount, bounded live updates, bidirectional paging, locate, bounded cache, recovery, V2 hard-cut and cross-client fixture migration; the Helix copy extends those inputs with the user-approved adaptive window and four formal Gate contracts. | **Evidence**: `/System/Volumes/Data/workspace/angular/cses-client/specs/20260727-214840-timeline-v3-delta/spec.md:1`
 - **F-002**: The source PRD is marked decided/pending implementation, assigns Timeline contract
   authority to Helix, and scopes delivery to Helix, PC and Mobile. | **Evidence**:
   `/System/Volumes/Data/workspace/angular/cses-client/docs/2026-07-27-message-v4-timeline-v3-prd.md:3`
@@ -48,30 +48,54 @@ uncommitted work in progress and are evidence of current shape only, not an acce
   fixture, consumer, real-chain and three-platform completion cannot be established from source
   inspection alone. | **Evidence**: `git status --short` and
   `git -C /System/Volumes/Data/workspace/angular/cses-client status --short`
+- **F-013**: Strict Matrix epoch 11 currently contains 46 cases, 43 active and three excluded; the
+  requested G-10b/G-10c/G-10d/G-11a cases are absent, so adding them is a denominator and epoch
+  change rather than a hidden extension of G-10/G-11. | **Evidence**:
+  `crates/helix-im/docs/Strict Matrix/strict-matrix.v1.json`
+- **F-014**: The current cses-client consumer still fixes Timeline at schema v2, accepts
+  `timelineSnapshot` or `timelinePatch + replaceView`, and replaces the full view in its runtime;
+  its load-newer, anchored hint and V3 Range cache behavior are not implemented. | **Evidence**:
+  `/System/Volumes/Data/workspace/angular/cses-client/src/pages/message-v4/surface-runtime/surface-contract.types.ts:7`
+- **F-015**: The current Mobile consumer still fixes Timeline at schema v2 and implements
+  `timelineSnapshot`/`timelinePatch` plus `replaceView`; V3 entity/range/window state and the four
+  formal GTest classes are absent. | **Evidence**:
+  `/System/Volumes/Data/workspace/c/mobile-qucik-c++/third_party/helix/app/SurfaceRuntime.hpp:190`
+- **F-016**: Existing Timeline fixture producers cover 13 affected business Gate families, while
+  send/revoke and other ordinary updates still include legacy full-replace expectations or
+  non-navigation activation in at least one producer/consumer asset. | **Evidence**:
+  `crates/helix-im/tests/fixtures/README.md`
+- **F-017**: Go's existing `/posts/getPostsAfterIndex` accepts only one `postIds` anchor, returns at
+  most 20 newer posts plus an authoritative remaining count, and can therefore serve `pageSize=60`
+  only through bounded stable-anchor rounds. | **Evidence**:
+  `/System/Volumes/Data/workspace/golang/cses-im-server/internal/api/post/handlers_read.go:186`
+- **F-018**: Helix's current production locate path stops when the target is absent from the attached
+  Timeline and has no navigation generation, persistence barrier or target-context readback; direct
+  `TimelineProjector` fixture generation does not prove that missing production chain. | **Evidence**:
+  `crates/helix-im/src/port_reply/dispatch.rs:990`
 
 ## Unknowns
 
-- **U-001**: Which Strict Matrix Gates and fixture families form the exact delivery denominator for
-  this cross-cutting Timeline migration? | **Resolution**: Resolve from the active Matrix and
-  producer/consumer inventories during `/speckit-plan`; do not derive completion from the story list.
 - **U-002**: Which current dirty Timeline V3 changes are intentional implementation versus
   incomplete experiments, and which have passing focused tests? | **Resolution**: Lock diffs and
   verification outputs during planning before any implementation task is admitted.
-- **U-003**: How the product-level latest page size of 20 composes with Helix's current bounded
-  60-item attached window is not established by the source inputs. | **Resolution**: Specify page,
-  resident window and render-window bounds independently in `plan.md`, then add falsifiable tests for
-  each bound.
 - **U-004**: PC and Mobile byte-exact fixture parity, normalized state parity and real rendering
   evidence have not been rerun against one fixed Helix revision. | **Resolution**: Treat each evidence
   plane as pending until a plan-defined command produces bounded artifacts.
 - **U-005**: Product-level Web Timeline consumption is absent from the source PRD. | **Resolution**:
   This Feature keeps the shared contract Web-compatible but explicitly excludes Web Consumer
   delivery and therefore cannot claim `ThreePlatformGreen`; a later Feature must own that closure.
+- **U-006**: The current Go newer-page store orders and filters only by `createAt`, so bounded
+  20-item rounds can skip remaining messages with the same timestamp and cannot satisfy stable
+  `(createAt, temporaryId)` pagination. | **Resolution**: APPROVED on 2026-07-28: include
+  cses-im-server, add a stable `(createAt, temporaryId)` composite cursor/order plus an explicit
+  PostgreSQL index/DDL script, then promote projector-only Gate JSON only after the production
+  producer chain passes.
 
 ## Decisions
 
-- **D-001**: Preserve the source Spec's eight stories, 47 requirements and 17 outcomes as the
-  behavioral baseline, while adopting the current Helix Spec Kit template and Loop Contract.
+- **D-001**: Preserve the source Spec's eight stories as the behavioral baseline, then extend its
+  47 requirements and 17 outcomes with the user-approved adaptive window and formal Gate delivery
+  contracts while adopting the current Helix Spec Kit template and Loop Contract.
 - **D-002**: Keep PC and Mobile as the consumer delivery scope because that is the decided source
   scope; record Web as a bounded follow-up rather than silently widening this Feature.
 - **D-003**: Treat protocol operation names, entity identity, Frame/surface versions and canonical
@@ -82,3 +106,27 @@ uncommitted work in progress and are evidence of current shape only, not an acce
   evidence planes.
 - **D-005**: Changes to entity identity, operation set, runtime fallback or physical V2 deletion are
   explicit human gates because they alter irreversible or cross-repository contracts.
+- **D-006**: Name the four formal cases G-10b `LoadNewerGate`, G-10c
+  `FullWindowAppendEvictionGate`, G-10d `AnchoredNewMessageGate` and G-11a
+  `UncachedLocateBidirectionalGate`; bump the Strict Matrix epoch and denominator by four rather
+  than folding them into existing cases.
+- **D-007**: Use one frontend-controlled `pageSize` for initial, older, newer, locate and the active
+  RenderWindow. It defaults to 20, accepts `1..=60`, rejects 0/61, and does not allow the frontend to
+  define order, cursor, Range or identity.
+- **D-008**: A located target counts toward `pageSize`; with data on both sides its index is
+  `floor(pageSize/2)`, and unused quota on a short side is deterministically reassigned to the other
+  side without exceeding the requested total.
+- **D-009**: Full-window head eviction is local Cache/RenderWindow policy, not a Helix Timeline
+  delete/trim operation. Away-from-bottom append must not activate latest; only an explicit consumer
+  jump action may change the active latest window.
+- **D-010**: Reject reuse of the current `/posts/getPostsAfterIndex` as the final stable paging
+  contract: its `createAt > anchor.createAt` filter and single-column order can lose same-timestamp
+  messages across 20-item rounds. The eventual Go contract must expose an equivalent stable
+  composite cursor/order before G-10b or G-11a can become canonical.
+- **D-011**: Locate/newer commands carry optional `pageSize` and a navigation token; when an older
+  caller omits the token Helix deterministically derives it from `req_id`. Only the current
+  scope-bound token can activate, while stale valid data may still persist and enter Cache.
+- **D-012**: The user explicitly authorized cses-im-server as the fourth implementation repository
+  and fixed server ordering to `(createAt ASC, temporaryId ASC)`. The migration supplies manual
+  forward/rollback SQL for a matching PostgreSQL composite index; no production DDL is executed by
+  this task.

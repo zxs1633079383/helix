@@ -1,0 +1,37 @@
+Mobile Timeline V3 focused verification
+captured_at=2026-07-28
+repo=/System/Volumes/Data/workspace/c/mobile-qucik-c++
+
+Fixture synchronization:
+export HELIX_ROOT=/System/Volumes/Data/workspace/rust/helix
+for gate in g10b g10c g10d g11a; do
+  node scripts/sync-${gate}-helix-fixtures.mjs
+  node scripts/sync-${gate}-helix-fixtures.mjs --check
+  node scripts/check-${gate}-fixture-parity.mjs
+done
+
+Formal command:
+./build/surface_runtime_test \
+  --gtest_filter='G10BFrameContractTest.*:G10CFrameContractTest.*:G10DFrameContractTest.*:G11AFrameContractTest.*'
+
+Result:
+- G-10b/G-10c/G-10d/G-11a fixture counts: 5/2/2/5
+- Raw and semantic parity: PASS
+- Four formal Gate classes: 8/8 PASS
+- Focused SurfaceRuntime set: 49 PASS, 1 SKIP, 0 FAIL
+- git diff --check: PASS
+
+Evidence boundary:
+- The one skip is the immutable source proof because HELIX_SURFACE_RUNTIME_SNAPSHOTS was not
+  supplied and producerRevision remains timeline-v3-production-worktree.
+- Business behavior has no focused failure; immutable source pin remains unresolved.
+
+Physical Timeline V2 hard cut and bounded cache:
+- Removed TimelinePatch type, descriptor and apply branch from the production SurfaceRuntime.
+- Exact-synced 12 existing Timeline Gate families to canonical V3 and deleted their positive V2
+  Timeline JSON; non-Timeline V2 remains supported.
+- Added TimelineCache with channel/entity/chunk indexes, dual budgets, chunk LRU,
+  Current/Anchor/Pending/InFlight pins, pending stable-identity release and cold revision checks.
+- Full SurfaceRuntime C++ test binary rebuilt successfully.
+- Hard-cut/cache/formal focused set: 23/23 PASS; cache subset: 5/5 PASS.
+- Twelve-Gate hard-cut sync --check, legacy hard-cut scan and git diff --check: PASS.

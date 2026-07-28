@@ -1,0 +1,64 @@
+Helix Timeline V3 production Gate verification
+captured_at=2026-07-28T02:44:10-07:00
+repo=/System/Volumes/Data/workspace/rust/helix
+head=b89c043899d2d137306c59b2f77dd87ec300c9c4
+
+Production chain:
+ImModule::handle
+-> Effect::Http
+-> PortReply
+-> Effect::Persist(BatchUpsert)
+-> PersistOk
+-> Effect::Persist(Get/Scan readback)
+-> PortReply
+-> Effect::Emit
+
+Implemented contracts:
+- latest/older/newer/locate use cursorVersion=1 and pageSize default 20, legal 1..=60.
+- older/newer use strict (createAt, temporaryId) composite cursors.
+- 0/61 are rejected before HTTP or persistence effects.
+- Timeline updates use stable-key Upsert and bounded range/bound operations; no Replace.
+- PersistOk and durable readback precede emitted visibility.
+- concurrent locate intents are scope-bound by current navigation token.
+- a stale locate response may install valid cache/range facts but emits no ActivateWindow.
+
+Commands reported by the owning Helix worker:
+cargo check -p helix-im
+cargo test -p helix-im --test timeline_v3_contract_test --test g10b_wdio_fixture_contract_test --test g10c_wdio_fixture_contract_test --test g10d_wdio_fixture_contract_test --test g11a_wdio_fixture_contract_test
+UPDATE_G11A_TIMELINE_FIXTURES=1 cargo test -p helix-im --test g11a_wdio_fixture_contract_test
+cargo test -p helix-im --test g11a_wdio_fixture_contract_test
+git diff --check
+
+Result: PASS
+
+Final consumer-led regression and repair:
+- PC and Mobile both rejected the first regenerated G-10b locate Delta because a changed RangeId
+  with unchanged ordered keys emitted SetRangeBounds/ActivateWindow without InstallSegment.
+- Helix delta_between now treats any RangeId change as a new segment and emits InstallSegment
+  before ActivateWindow; SetRangeBounds is not emitted redundantly for that new Range.
+- G-10b contains a producer regression assertion for InstallSegment.
+- All four formal Gate fixtures and Timeline V3 recovery fixtures were regenerated after the fix.
+
+Final no-update runs:
+- timeline_v3_contract_test: 4/4 PASS
+- timeline_window_policy_test: 5/5 PASS
+- timeline_delta_update_test: 3/3 PASS
+- timeline_latest_window_test: 2/2 PASS
+- timeline_v3_hard_cut_test: 2/2 PASS
+- timeline_v3_recovery_fixture_test: 1/1 PASS
+- G-10b/G-10c/G-10d/G-11a formal producers: 4/4 PASS
+- strict_matrix_contract_test: 9/9 PASS
+
+Canonical provenance:
+- G-10b: canonicalEligible=true, evidencePlane=helix-production-sans-io
+- G-10c: canonicalEligible=true, evidencePlane=helix-production-sans-io
+- G-10d: canonicalEligible=true, evidencePlane=helix-production-sans-io
+- G-11a: canonicalEligible=true, evidencePlane=helix-production-sans-io
+- all four declare the production Effect chain above.
+- the corrected inventories contain 18 Frame JSON files in total; G-10b begins with a revision-1
+  latest Snapshot followed by a revision-2 located Delta, and G-10d begins with a revision-1
+  Snapshot before consumer-local anchoring.
+
+Evidence boundary:
+- This proves deterministic Helix production state/effect/persistence-barrier composition.
+- It does not prove a deployed Go database, live WebSocket delivery, PC DOM, Mobile rendering, or PostgreSQL index use.

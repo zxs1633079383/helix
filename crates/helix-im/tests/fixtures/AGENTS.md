@@ -15,6 +15,8 @@
 
 ## Rules
 
+- 三端 Fixture 供应链执行
+  [`../../../../docs/三端功能测试基线/AI执行合同.md`](../../../../docs/三端功能测试基线/AI执行合同.md)。
 - 禁止手工编辑 Frame JSON 来修复 PC/Mobile 测试。
 - 每个 Gate 必须有显式 inventory 与 `provenance.json`。
 - provenance 至少记录 fixtureId、文件名、schema、producer commit、raw/semantic hash、
@@ -23,5 +25,5 @@
 - 新增 Fixture 时同步更新两个 consumer 的 loader、parity 测试和机器分母。
 - 新增、删除、拆分或重命名 Gate/Fixture 目录时，必须同步更新 `README.md` 的业务 Gate
   表、辅助 Fixture 表和 producer 入口；目录清单与文档不一致时任务不得标记完成。
-- `.frame-v2.json` 仅是现有文件命名；合同版本必须读取 `schemaVersion`，不得根据文件名
-  推断 Timeline 或其他 Surface 的 schema。
+- 一个 Gate 可以混合不同 Surface schema；合同版本以 Frame 与 provenance 为准，消费者不得把
+  `.frame-v2.json` 或 `.frame-v3.json` 写死为通用规则。

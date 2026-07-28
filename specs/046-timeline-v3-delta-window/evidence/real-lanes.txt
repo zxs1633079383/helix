@@ -1,0 +1,20 @@
+Timeline V3 real-lane attempts
+captured_at=2026-07-28
+
+PC:
+- Command: npm run message:wdio:g10b:mock
+- Result: BLOCKED before browser startup.
+- Exact blocker: WDIO candidate does not match the selected Helix source; rebuild it
+- Boundary: no DOM/browser/native Green is claimed from focused Jest evidence.
+
+Mobile:
+- Formal GTest business behavior: 8/8 PASS.
+- Immutable source proof: SKIP because producerRevision is timeline-v3-production-worktree and
+  HELIX_SURFACE_RUNTIME_SNAPSHOTS was not supplied.
+- Boundary: no immutable source-pin Green is claimed.
+
+Go/PostgreSQL:
+- Source, unit/API, build and vet checks pass.
+- Real PostgreSQL tuple query, DDL/index validity and EXPLAIN are BLOCKED because
+  CSES_IM_TEST_DSN is unavailable.
+- Boundary: no deployed PostgreSQL persistence/index Green is claimed.

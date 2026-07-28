@@ -1,0 +1,39 @@
+Timeline V3 source lock
+captured_at=2026-07-28T02:08:30-07:00
+
+helix
+path=/System/Volumes/Data/workspace/rust/helix
+head=b89c043899d2d137306c59b2f77dd87ec300c9c4
+branch=main
+upstream=origin/main
+dirty_count_at_lock=163
+preserve_exclusions=docs/specs/2026-07-26-message-visibility-approval/**;docs/三端功能测试基线/**
+
+cses-im-server
+path=/System/Volumes/Data/workspace/golang/cses-im-server
+head=e4815b7e57e0ed0f54a1b0ebad1b4bfbf2e2880d
+branch=main
+upstream=origin/main
+dirty_count_at_lock=11
+preserve_exclusions==
+
+cses-client
+path=/System/Volumes/Data/workspace/angular/cses-client
+head=1fe7ea53fff2bdc2f32695d979871b452e7ff333
+branch=feat/helix-reactor-im
+upstream=origin/feat/helix-reactor-im
+dirty_count_at_lock=30
+preserve_exclusions=scripts/message-wdio/wdio-origin-policy.mjs;scripts/message-wdio/__tests__/wdio-origin-policy.test.mjs;src/pages/message-v4/surface-runtime/__tests__/pc-schema2-timeline-send-receive.test.ts;tests/bug-regression/message/pc-schema2-timeline-send-receive.sh
+
+mobile
+path=/System/Volumes/Data/workspace/c/mobile-qucik-c++
+head=6bb106087758b689ea5727c691ba503c642dcaba
+branch=feat/reactof-helix-v2
+upstream=origin/feat/reactof-helix-v2
+dirty_count_at_lock=32
+preserve_exclusions=artifacts/helix/*.bundle;tests/.DS_Store;tests/fixtures/.DS_Store
+
+Notes:
+- The lock is an evidence boundary, not a clean-worktree claim.
+- Only Timeline V3 task-owned paths may be staged or committed.
+- Existing dirty exclusions must not be deleted, reset, reformatted, or staged.

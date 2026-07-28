@@ -6447,6 +6447,24 @@
                 "temporaryId": "g10a-temporary-20"
               }
             ]
+          },
+          {
+            "kind": "setRangeBounds",
+            "rangeId": "g10a-latest-window",
+            "olderCursor": {
+              "createAt": 1700001100001,
+              "temporaryId": "g10a-temporary-1"
+            },
+            "newerCursor": {
+              "createAt": 1700001100040,
+              "temporaryId": "g10a-temporary-40"
+            },
+            "hasOlder": true,
+            "hasNewer": false,
+            "latestWatermark": {
+              "createAt": 1700001100040,
+              "temporaryId": "g10a-temporary-40"
+            }
           }
         ]
       },

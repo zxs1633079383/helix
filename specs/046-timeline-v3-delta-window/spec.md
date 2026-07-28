@@ -232,6 +232,22 @@ Fixture，再由 PC 与 Mobile 原样同步和消费，验证三端 operation、
    hard-cut Gate，**那么** Gate 必须失败，不能因最终页面正确而放行。
 6. **给定** 一个 V2 Fixture 只包含未变化的非 Timeline Surface，**当** 执行迁移检查，**那么** 它
    继续作为合法资产保留，不被 Timeline hard-cut 误删。
+7. **给定** 既有 G-01/G-02/G-03a/G-04/G-04a/G-05/G-06/G-07/G-10/G-10a/G-11/G-14/G-14a
+   Timeline Gate，**当** 开始新增正式 Gate，**那么** 这些 Gate 的 Helix Producer、canonical
+   JSON 与 provenance 必须已先完成 V3 operation 级迁移。
+8. **给定** 一个定位或中间 Range，**当** G-10b 以 `pageSize=20` 或 60 执行下拉分页，**那么**
+   Helix 只发布尾部 Upsert、Insert 与必要 Bounds 更新，不自动激活最新窗口，PC 与 Mobile 均无
+   重复、遗漏或 anchor 抢占。
+9. **给定** RenderWindow 已达到当前 `pageSize`，**当** G-10c 收到一条最新消息，**那么** Helix
+   只追加稳定实体与 key；Consumer 在本地淘汰头部可见项并保持窗口上限，不把淘汰表达为业务
+   delete、move、trim 或新的 Timeline revision。
+10. **给定** 用户已经离开底部，**当** G-10d 收到新消息，**那么** Helix 更新实体、Range 与水位
+    但不激活最新窗口，Consumer 保持视觉 anchor、增加新消息提示，并且只在用户点击提示后返回最新。
+11. **给定** 目标消息未缓存，**当** G-11a 定位并继续双向分页，**那么** Helix 先安装含目标的
+    居中 Segment 并按当前 token 激活，再分别向 start/end 扩展；迟到 token 只能入 Cache，不能
+    抢占活动窗口。
+12. **给定** 四组正式 Gate 的 Helix JSON 与 provenance 尚未 Green，**当** PC 或 Mobile 尝试
+    新增对应 Consumer Fixture，**那么** 同步必须停止，Consumer 不得自行定义业务 JSON。
 
 ## Loop Contract *(mandatory)*
 
@@ -273,7 +289,10 @@ PC 与 Mobile 对同一固定输入得到等价的实体、Range、边界、水�
 
 以下变化必须获得显式批准：改变稳定实体身份或排序键、扩缩 V3 操作集合、允许运行时 V2 fallback、
 改变跨仓协调切换顺序、物理删除 Timeline V2 资产、或把尚未持久化的数据提升为本地权威事实。
-其余符合本规格且保持现有边界的实现选择可在 Plan 阶段决定。
+当前 Go newer 查询只有单列时间边界。用户已于 2026-07-28 显式批准把 cses-im-server 纳入变更
+范围，新增 `(createAt, temporaryId)` 复合 cursor/order 和配套 PostgreSQL 索引 SQL；生产 DDL 仍
+必须由环境所有者手工执行。G-10b/G-11a 只有在该生产链通过后才能从 projector 合同证据晋级
+canonical Producer Green。其余符合本规格且保持现有边界的实现选择可在 Plan 阶段决定。
 
 ### Edge Cases
 
@@ -295,6 +314,15 @@ PC 与 Mobile 对同一固定输入得到等价的实体、Range、边界、水�
   semantic parity。
 - 一个 Gate 的 Producer、Fixture、Mock、Consumer 或 hard-cut 任一层仍停留在 Timeline V2 时，
   该 Gate 不得声明完成。
+
+### Formal Gate Matrix
+
+| Gate | 测试类 | Helix operation 合同 | Consumer 行为合同 |
+|---|---|---|---|
+| G-10b | `LoadNewerGate` | `upsertMessage* + insertKeys(end) + setRangeBounds?`，禁止隐式 `activateWindow` | 下拉分页无重复/遗漏，原 anchor 不被抢占 |
+| G-10c | `FullWindowAppendEvictionGate` | `upsertMessage + insertKeys(end)` 与必要 Bounds，禁止 delete/move/trim/replace/activate | 满窗口本地头部淘汰，窗口保持 `pageSize`，业务 revision 不因淘汰变化 |
+| G-10d | `AnchoredNewMessageGate` | 离底新消息更新实体、Range 与水位，禁止隐式 `activateWindow` | anchor 偏移不变，提示计数增加，点击后才返回最新 |
+| G-11a | `UncachedLocateBidirectionalGate` | `upsertMessage* + installSegment + activateWindow(token)`，随后 older/newer 只扩展 Range | 目标居中、双向分页、迟到 token 不抢活动窗口 |
 
 ## Requirements *(mandatory)*
 
@@ -376,12 +404,34 @@ PC 与 Mobile 对同一固定输入得到等价的实体、Range、边界、水�
 - **FR-048**：首屏、上拉、下拉和定位必须接受同一个有界 `pageSize` 合同；缺失时默认 20，合法范围
   为 `1..=60`，非法值必须 fail closed。
 - **FR-049**：前端只能声明窗口数量，不能提交排序、Range、cursor、EntityKey 重写或服务端边界。
-- **FR-050**：首屏、上拉和下拉的单方向查询必须以 `pageSize+1` 判断是否还有数据，额外记录不得进入
-  渲染窗口。
+- **FR-050**：首屏、上拉和下拉必须以持久化 lookahead 或服务端权威剩余计数判断是否还有数据；
+  lookahead 记录不得进入渲染窗口，固定小批次服务端必须在有界轮数内累计到 `pageSize` 或耗尽。
 - **FR-051**：定位窗口的总实体数必须包含目标；双侧充足时目标上方数量为
   `floor(pageSize/2)`，下方数量为 `pageSize-1-floor(pageSize/2)`。
 - **FR-052**：定位一侧不足时必须把未使用额度补给另一侧，同时保持目标为视觉 anchor，并准确标记
   已耗尽方向。
+- **FR-053**：新增正式 Gate 前，既有 13 个 Timeline 业务 Gate 的 Helix Producer、canonical
+  JSON 与 provenance 必须先完成 V3 operation 级迁移。
+- **FR-054**：G-10b 必须覆盖下拉分页、更新方向耗尽和耗尽后迟到响应；正向 Delta 只能尾部
+  Upsert/Insert 和必要 Bounds 更新，不得隐式激活最新窗口。
+- **FR-055**：G-10c 必须证明满窗口 append 只产生尾部 Upsert/Insert；头部可见项淘汰是 Consumer
+  本地有界窗口行为，不得编码为 Helix delete、move、trim 或额外 revision。
+- **FR-056**：G-10d 必须证明离底新消息不激活最新窗口，Consumer 保持 anchor、累计新消息提示，
+  并仅在显式点击提示后返回最新与清除提示。
+- **FR-057**：G-11a 必须覆盖未缓存定位的 Segment 安装、当前 navigation token 激活、目标居中、
+  定位后 older/newer 双向分页和 stale token 不抢占。
+- **FR-058**：四组正式 Gate 必须各自拥有独立测试类、canonical 目录、`.frame-v3.json` inventory
+  与 provenance，不得复用旧 Gate 名称隐藏发布分母变化。
+- **FR-059**：正式执行顺序必须是既有 Helix Timeline Gate、四组新 Helix Gate、PC Fixture/WDIO、
+  Mobile Fixture/GTest、三仓 parity/hard-cut；前序未 Green 时后序 Consumer 不得手写替代资产。
+- **FR-060**：PC WDIO 必须对四组正式 Gate 执行 operation、Range、Bounds、window、anchor、提示与
+  点击跳转断言，不能只比较最终 DOM 文本。
+- **FR-061**：Mobile GTest 必须对四组正式 Gate执行与 PC 等价的 operation、normalized state、
+  window、anchor、提示与点击跳转断言。
+- **FR-062**：canonical semantic hash 必须覆盖 operation 种类与顺序、EntityKey、Range 位置、
+  Bounds、水位、revision 和活动窗口；省略任一字段的 hash 不具备 V3 parity 证明力。
+- **FR-063**：发送终态、撤回、Reaction、加急、模板、回执及其他普通消息更新的正向 Delta 只能
+  Upsert 目标稳定实体；除显式导航外不得附带 `activateWindow`，任何 Timeline 全量 Replace 均失败。
 
 ### Key Entities
 
@@ -396,6 +446,8 @@ PC 与 Mobile 对同一固定输入得到等价的实体、Range、边界、水�
   状态。
 - **Pending Pin**：保证发送中实体在终态对账前不被 Cache 淘汰的有界引用。
 - **Navigation Token**：标识当前显式定位、返回最新、跳未读或恢复意图，阻止迟到响应抢占窗口。
+- **Window Size Policy**：前端可选择的有界窗口数量；默认 20、合法范围 `1..=60`，同一值约束首屏、
+  上拉、下拉、定位和 Consumer RenderWindow。
 - **Timeline Epoch/Revision**：区分缓存世代和连续 Delta 顺序的协议状态。
 - **Persistence Revision**：表示当前窗口对应客户端持久化事实的新鲜度水位。
 
@@ -437,6 +489,16 @@ PC 与 Mobile 对同一固定输入得到等价的实体、Range、边界、水�
   数量上限、无重复、无遗漏和边界一致；`0/61` 的拒绝率为 100%。
 - **SC-019**：定位双侧充足的全部测试中，目标索引严格等于 `floor(pageSize/2)`；单侧不足时总数不
   超过 `pageSize`，可用额度浪费为 0。
+- **SC-020**：既有 13 个 Timeline Gate 的全部正向 Helix Fixture 中 Timeline Replace 为 0，
+  普通终态或业务更新的额外 `activateWindow` 为 0。
+- **SC-021**：G-10b/G-10c/G-10d/G-11a 在 `pageSize=20/60` 的 Helix 测试、canonical inventory
+  和 provenance 全部通过，且 `0/61` 请求 100% fail closed。
+- **SC-022**：PC 对四组正式 Gate 的 operation 级合同、标准化状态与 DOM/anchor/提示/点击行为
+  全部通过，且 Fixture 与 Helix byte-exact。
+- **SC-023**：Mobile 对四组正式 Gate 的 operation 级合同、标准化状态与 window/anchor/提示/点击
+  行为全部通过，且 Fixture 与 PC/Helix byte-exact。
+- **SC-024**：Strict Matrix 的版本化分母显式新增 G-10b/G-10c/G-10d/G-11a；三仓报告对同一 Matrix
+  epoch、Producer revision、raw hash 与 semantic hash 一致，任一漂移均 fail closed。
 
 ## Assumptions
 

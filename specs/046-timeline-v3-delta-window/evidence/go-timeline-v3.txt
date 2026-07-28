@@ -1,0 +1,28 @@
+Go Timeline V3 verification
+captured_at=2026-07-28T02:21:57-07:00
+repo=/System/Volumes/Data/workspace/golang/cses-im-server
+head=e4815b7e57e0ed0f54a1b0ebad1b4bfbf2e2880d
+
+Command:
+GOTOOLCHAIN=local go test ./internal/entity/post ./internal/store/sqlstore ./internal/app ./internal/api -run 'Timeline|LoadTimeline|PostsAfterIndex|PostContext' -count=1 -v
+
+Result: PASS with explicit real-PostgreSQL skips.
+- entity composite cursor/query/result tests: PASS
+- Store allocation/result-helper/SQL-script static tests: PASS
+- same-millisecond 65-row, visibility, membership and real tuple SQL tests: SKIP because CSES_IM_TEST_DSN is unset
+- App latest/older/newer/context tests: PASS
+- HTTP legacy, latest/newer/older/locate and invalid request tests: PASS
+- legacy postContext before=0 and V3 locate without before: PASS
+
+Commands:
+GOTOOLCHAIN=local go build ./...
+GOTOOLCHAIN=local go vet ./...
+git diff --check
+
+Result: PASS
+
+Evidence boundary:
+- Source, pure domain, helper, App and HTTP CommonRes contracts are verified.
+- SQL 005 up/down/verify files are static-validated and were not executed.
+- Real PostgreSQL tuple paging, data preflight, concurrent unique index creation and EXPLAIN (ANALYZE, BUFFERS) remain BLOCKED until an isolated CSES_IM_TEST_DSN is supplied.
+- No fixture, mock, HTTP or build result is promoted to real PostgreSQL Green.

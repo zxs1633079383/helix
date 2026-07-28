@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
-  "transactionId": "timeline-timeline|26:chretry0000000000000000001|6:latest-5",
-  "causationId": "g03a-wdio-request-1",
+  "transactionId": "timeline-timeline|26:chdocx00000000000000000001|6:latest-3",
+  "causationId": "g02-wdio-request-1",
   "runtime": {
     "connection": "online",
     "initialSync": "ready",
@@ -12,12 +12,12 @@
       "surface": "message.timeline",
       "scope": {
         "kind": "timeline",
-        "channelId": "chretry0000000000000000001",
+        "channelId": "chdocx00000000000000000001",
         "windowToken": "latest"
       },
-      "revision": 5,
-      "baseRevision": 4,
-      "causationId": "g03a-wdio-request-1",
+      "revision": 3,
+      "baseRevision": 2,
+      "causationId": "g02-wdio-request-1",
       "mutation": {
         "kind": "timelineDelta",
         "operations": [
@@ -25,29 +25,37 @@
             "kind": "upsertMessage",
             "entity": {
               "entityKey": {
-                "createAt": 1700000200002,
-                "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001"
+                "createAt": 1700000100002,
+                "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001"
               },
               "message": {
-                "id": "srvretry000000000000000001",
-                "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001",
-                "serverId": "srvretry000000000000000001",
-                "channelId": "chretry0000000000000000001",
-                "eventSeq": 1,
+                "id": "srvdoc00000000000000000001",
+                "temporaryId": "helix_tmp_0000018bcfe6eea4_0000000000000001",
+                "serverId": "srvdoc00000000000000000001",
+                "channelId": "chdocx00000000000000000001",
+                "eventSeq": 0,
                 "author": {
-                  "userId": "g03a-wdio-actor"
+                  "userId": "g02-wdio-actor"
                 },
-                "createdAt": 1700000200002,
+                "createdAt": 1700000100002,
                 "content": {
-                  "kind": "text",
-                  "text": "g03a-retry-fixture-marker"
+                  "kind": "document",
+                  "documentId": "srvdoc00000000000000000001",
+                  "title": "打开文档",
+                  "summary": "http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15",
+                  "access": {
+                    "placeholder": true,
+                    "title": "打开文档",
+                    "url": "http://doc-pre.cses7.com/doc/6a6036184de8e1a30ef73c15",
+                    "version": 1
+                  }
                 },
                 "delivery": {
                   "kind": "sent"
                 },
                 "actions": [
                   {
-                    "actionRef": "act.v1.32469675332a0efc6c1e186443822970",
+                    "actionRef": "act.v1.5692161d100b05e5e4d971771b652c20",
                     "kind": "reply",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -55,28 +63,28 @@
                     "disabledReason": "unsupportedByAuthority"
                   },
                   {
-                    "actionRef": "act.v1.df890a4933721ba2baa32132e1340f17",
+                    "actionRef": "act.v1.dbd238973a2b148a975835de1c9756ce",
                     "kind": "forward",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
                     "enabled": true
                   },
                   {
-                    "actionRef": "act.v1.4f7abb7627b74f52ae9b71a31d422e93",
+                    "actionRef": "act.v1.1e535eede31428f0910a2dec89025cc1",
                     "kind": "react",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
                     "enabled": true
                   },
                   {
-                    "actionRef": "act.v1.0724ea9269d42a72d484a1e7c35a0b13",
+                    "actionRef": "act.v1.b7a4712c74562914c164bb7b2b9b3e3a",
                     "kind": "urgent",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
                     "enabled": true
                   },
                   {
-                    "actionRef": "act.v1.540f172e046ef1656fc5530939fb94c3",
+                    "actionRef": "act.v1.b6bf613dbebb45dc16b1cba95fc60262",
                     "kind": "createTopic",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -84,14 +92,14 @@
                     "disabledReason": "unsupportedByAuthority"
                   },
                   {
-                    "actionRef": "act.v1.adfb1ebb497fad45eaeb7f27b54e2401",
+                    "actionRef": "act.v1.d17707977078336cf3203e9039f4a821",
                     "kind": "revoke",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
                     "enabled": true
                   },
                   {
-                    "actionRef": "act.v1.b4941eef820868c7d7599677879feaea",
+                    "actionRef": "act.v1.12ae30237b17df14f75f04cbb5a1a1dd",
                     "kind": "retry",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -99,7 +107,7 @@
                     "disabledReason": "notAvailable"
                   },
                   {
-                    "actionRef": "act.v1.c67949c3a864283c89242d2dd9d4a40d",
+                    "actionRef": "act.v1.d56b1fbb9ceba9e89e5651b0ef953636",
                     "kind": "urgentConfirm",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -107,7 +115,7 @@
                     "disabledReason": "notAvailable"
                   },
                   {
-                    "actionRef": "act.v1.43e7cefc06c022be2c0e0fedbe2218a8",
+                    "actionRef": "act.v1.826c6abf7fdd5ad763cbe1e459320dd7",
                     "kind": "urgentCancel",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -115,7 +123,7 @@
                     "disabledReason": "notAvailable"
                   },
                   {
-                    "actionRef": "act.v1.ff96b931ed5510e2905c768ad49f146c",
+                    "actionRef": "act.v1.075c8519a9320579088712be8a582fca",
                     "kind": "markRead",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -123,14 +131,14 @@
                     "disabledReason": "notAvailable"
                   },
                   {
-                    "actionRef": "act.v1.499ef488ef760e18974e35325981068a",
+                    "actionRef": "act.v1.3462d848f53abb6daeaf52febe706064",
                     "kind": "viewReceipt",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
                     "enabled": true
                   },
                   {
-                    "actionRef": "act.v1.5b64875d6615936ea8ee577af2720dce",
+                    "actionRef": "act.v1.37be58e8d7213bbc6e73e372e2338aca",
                     "kind": "templateConfirm",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -138,7 +146,7 @@
                     "disabledReason": "notAvailable"
                   },
                   {
-                    "actionRef": "act.v1.271c93c147c4cd83bb7b49ab8801cf70",
+                    "actionRef": "act.v1.dcfa9555b5f881d11d0b14e4db018fed",
                     "kind": "locate",
                     "inputShape": "object",
                     "surfaceEpoch": 1,
@@ -176,20 +184,6 @@
                 "pinned": false,
                 "bookmarked": false
               }
-            }
-          },
-          {
-            "kind": "activateWindow",
-            "window": {
-              "windowToken": "latest",
-              "rangeIds": [
-                "latest"
-              ],
-              "anchor": {
-                "messageId": "srvretry000000000000000001",
-                "mode": "latest"
-              },
-              "state": "ready"
             }
           }
         ]

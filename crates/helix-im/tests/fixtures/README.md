@@ -16,6 +16,12 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 
 ## 业务 Gate
 
+> **生产证据边界（2026-07-28）**：G-10b/G-10c/G-10d/G-11a 的 18 个 JSON 已改由
+> `TimelineProductionRunner -> ImModule::handle -> Http/PortReply -> PersistOk -> readback ->
+> Effect::Emit` 生成，并由各目录 `provenance.json` 固定 raw/semantic hash。它们可作为
+> PC/Mobile 正式 Gate 的 Helix producer 输入；但仍只证明确定性 sans-IO 生产链，不替代
+> 真实 Go、SQLite executor、Tauri/FFI、DOM 或真机证据。
+
 | 目录 | Gate | 用户功能 | Fixture 主要阶段 |
 |---|---|---|---|
 | `g01-wdio/` | G-01 | 发送文本消息基线 | 建群、发送中、发送成功/失败、WS timeline 终态、左侧会话更新 |
@@ -30,7 +36,11 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 | `g09-wdio/` | G-09 | 取消定时消息 | 已定时、取消终态、冷启动恢复 |
 | `g10-wdio/` | G-10 | 切群并加载最新消息首屏 | timeline ready、缓存降级、请求失败、竞态只接纳当前 generation、恢复 |
 | `g10a-wdio/` | G-10a | 上拉加载更早历史 | older page 合并、历史耗尽、HTTP/持久化失败、竞态只接纳当前 generation |
+| `g10b-wdio/` | G-10b | 下拉加载更新消息 | revision-1 latest Snapshot、定位 Delta、newer 尾插、耗尽边界、耗尽后晚到消息 |
+| `g10c-wdio/` | G-10c | 满窗口 append 与头部淘汰 | 60 条 snapshot、新消息 Upsert+尾插；头部淘汰由 consumer 本地选择器负责 |
+| `g10d-wdio/` | G-10d | 离底 anchor 固定与新消息提示 | revision-1 latest Snapshot、新消息 Delta；离底 anchor 由 consumer 本地动作建立且不得隐式 ActivateWindow |
 | `g11-wdio/` | G-11 | 按消息定位 | 初始 bounded window、定位目标后的 active window/滚动指令 |
+| `g11a-wdio/` | G-11a | 未缓存消息定位与双向分页 | latest、两个并发 locate 乱序回放、当前 token 激活、旧 response 仅合并数据、定位后 older/newer |
 | `g12-wdio/` | G-12 | 回复列表与话题分支 | thread snapshot、回复分支数据 |
 | `g13-wdio/` | G-13 | 会话已读 | 初始未读 dialog、会话已读终态、冷启动恢复 |
 | `g14-wdio/` | G-14 | 单条消息已读 | 可标记已读消息、发送者回执视图、pending/completed 回执、恢复 |
@@ -53,7 +63,7 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 | `real_go_frames/` | 真实 Go 协议帧样本，覆盖 connect、increment channel、sync 与忽略事件 |
 | `uc01-16-surface-runtime/` | SurfaceRuntime 原子 apply 合同，覆盖 snapshot/delta、重复、stale、gap、scope mismatch、action receipt 与持久失败 |
 
-这些辅助目录不是独立业务 Gate，不计入上表 26 个 Gate 的业务分母。
+这些辅助目录不是独立业务 Gate，不计入上表业务分母。
 
 ## Producer 与更新入口
 
@@ -68,6 +78,14 @@ Frame。PC WDIO 与 Mobile GTest/QuickJS 可以镜像并消费这些文件，但
 普通测试只读比较 Golden。需要更新时，必须使用对应测试声明的 `UPDATE_<GATE>_WDIO_FIXTURES=1`
 环境变量重新运行 producer test；不得直接编辑 Frame JSON。更新后还要同步 PC、Mobile
 consumer mirror、loader、parity 测试与机器分母。
+
+四个 Timeline V3 正式 Gate 的 L0 projector 合同分别由
+`g10b_wdio_fixture_contract_test.rs`、`g10c_wdio_fixture_contract_test.rs`、
+`g10d_wdio_fixture_contract_test.rs` 与 `g11a_wdio_fixture_contract_test.rs` 生成。
+其 provenance 固定 Gate ID、测试类、producer revision、raw/semantic SHA-256，并把
+operation kind、EntityKey、orderedKeys、range bounds、watermark、revision/baseRevision 与
+windowToken 纳入语义 hash；允许参数化字段不包含这些业务合同字段。它们不得替代尚未落地的
+production ScenarioRunner/provenance。
 
 业务顺序、前置 Gate 和 Spec 入口见
 [`specs/020-ifv2-three-repo-uc-control/plan-task-index.md`](../../../../specs/020-ifv2-three-repo-uc-control/plan-task-index.md)。

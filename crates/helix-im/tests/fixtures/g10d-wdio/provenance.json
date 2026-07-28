@@ -1,0 +1,51 @@
+{
+  "canonicalEligible": true,
+  "evidencePlane": "helix-production-sans-io",
+  "fixtures": [
+    {
+      "fileName": "anchored.snapshot.frame-v3.json",
+      "fixtureId": "G-10d-anchored.snapshot",
+      "fixtureSha256": "2ef13f30fe262ea442fddafd2b1eeaa9f6628368ffde6eba821f2c7c53449931",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "4c8f3222a31b82ab707c96a6f3e25fec7911120d70099194152e1fa496f1cde1"
+    },
+    {
+      "fileName": "anchored-new-message.delta.frame-v3.json",
+      "fixtureId": "G-10d-anchored-new-message.delta",
+      "fixtureSha256": "e693fd50c6ca38798b0fe951f746ea9868974996f8ee5306a50f9c1431d4e8ae",
+      "parameterizableFields": [
+        "/transactionId",
+        "/causationId",
+        "/mutations/*/causationId",
+        "/mutations/*/surfaceEpoch"
+      ],
+      "schemaVersion": 3,
+      "semanticSha256": "839090626275d56c5fba4bdb417e1690bdb4cabc38388e3890882ce392dc3810"
+    }
+  ],
+  "gateId": "G-10d",
+  "pageSize": 20,
+  "producer": "ImModule::handle -> Effect::Http -> PortReply -> Effect::Persist -> PersistOk -> Effect::Persist(Get/Scan) -> PortReply -> Effect::Emit",
+  "producerRevision": "312e331938054467f1de09d4a251fd47b12093b0",
+  "readbackRequired": true,
+  "semanticCoverage": [
+    "operationKind",
+    "entityKey",
+    "orderedKeys",
+    "rangeBounds",
+    "latestWatermark",
+    "revision",
+    "baseRevision",
+    "windowToken",
+    "compositeCursor",
+    "persistBarrier",
+    "readback"
+  ],
+  "testClass": "g10d_wdio_fixture_contract_test"
+}

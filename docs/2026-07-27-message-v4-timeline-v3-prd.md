@@ -301,7 +301,9 @@ interface ChannelTimelineWatermark {
 ### 查询规则
 
 - 最新、上拉、下拉和定位双侧均使用 `(create_at, temporary_id)` keyset pagination；
-- 每次单方向查询 `pageSize + 1`，额外一条只用于判断对应方向是否还有数据，不进入渲染窗口；
+- 本地单方向查询使用 `pageSize + 1` lookahead；现有固定 20 条的远端接口按稳定锚点最多执行
+  `ceil(pageSize/20)` 轮，并以服务端 `count` 或短批次判断耗尽。lookahead 和超出当前页的记录不进入
+  RenderWindow；
 - 上拉按复合键降序查询，返回前转换成 UI 正序；
 - 下拉按复合键升序查询；
 - 定位查询先把目标纳入窗口，再按 `before/after` 配额双向读取；一侧不足时把剩余额度补给另一侧，
@@ -524,15 +526,27 @@ G-11 定位，以及 G-14/G-14a 的消息行回执。每个 Gate 先把正向 Ti
 
 | Gate | Helix Scenario/Producer | Canonical 目录 | PC WDIO | Mobile GTest |
 |---|---|---|---|---|
-| `G-10b` | `support/g10b_scenario.rs` + `g10b_wdio_fixture_contract_test.rs` | `fixtures/g10b-wdio/` | `fixtures/g10b/` + `g10b-mock.e2e.ts` | `G10BFrameContractTest.cpp` |
-| `G-10c` | `support/g10c_scenario.rs` + `g10c_wdio_fixture_contract_test.rs` | `fixtures/g10c-wdio/` | `fixtures/g10c/` + `g10c-mock.e2e.ts` | `G10CFrameContractTest.cpp` |
-| `G-10d` | `support/g10d_scenario.rs` + `g10d_wdio_fixture_contract_test.rs` | `fixtures/g10d-wdio/` | `fixtures/g10d/` + `g10d-mock.e2e.ts` | `G10DFrameContractTest.cpp` |
-| `G-11a` | `support/g11a_scenario.rs` + `g11a_wdio_fixture_contract_test.rs` | `fixtures/g11a-wdio/` | `fixtures/g11a/` + `g11a-mock.e2e.ts` | `G11AFrameContractTest.cpp` |
+| `G-10b` | `support/timeline_formal_gate.rs` + `g10b_wdio_fixture_contract_test.rs` | `fixtures/g10b-wdio/` | `fixtures/g10b/` + `g10b-mock.e2e.ts` | `G10BFrameContractTest.cpp` |
+| `G-10c` | `support/timeline_formal_gate.rs` + `g10c_wdio_fixture_contract_test.rs` | `fixtures/g10c-wdio/` | `fixtures/g10c/` + `g10c-mock.e2e.ts` | `G10CFrameContractTest.cpp` |
+| `G-10d` | `support/timeline_formal_gate.rs` + `g10d_wdio_fixture_contract_test.rs` | `fixtures/g10d-wdio/` | `fixtures/g10d/` + `g10d-mock.e2e.ts` | `G10DFrameContractTest.cpp` |
+| `G-11a` | `support/timeline_formal_gate.rs` + `g11a_wdio_fixture_contract_test.rs` | `fixtures/g11a-wdio/` | `fixtures/g11a/` + `g11a-mock.e2e.ts` | `G11AFrameContractTest.cpp` |
 
 每个 canonical 目录至少包含 `provenance.json`、初始 Snapshot、目标 Delta 和必要的耗尽/失败负向
 Frame；provenance inventory 必须逐文件登记 raw/semantic SHA-256、schemaVersion、
 surfaceSchemaVersion、Surface inventory、producer revision 与参数化白名单。`.frame-v2.json`
 只是一项历史文件名，不得用后缀推断合同版本；新增四组正向资产统一使用 `.frame-v3.json`。
+
+四组正式 Gate 的最小正向 inventory 固定为：
+
+| Gate | Canonical 文件 |
+|---|---|
+| `G-10b` | `latest.snapshot.frame-v3.json`、`initial-located.delta.frame-v3.json`、`newer-loaded.delta.frame-v3.json`、`newer-exhausted.delta.frame-v3.json`、`newer-late.delta.frame-v3.json` |
+| `G-10c` | `full-window.snapshot.frame-v3.json`、`new-message-appended.delta.frame-v3.json` |
+| `G-10d` | `anchored.snapshot.frame-v3.json`、`anchored-new-message.delta.frame-v3.json` |
+| `G-11a` | `latest.snapshot.frame-v3.json`、`uncached-located.delta.frame-v3.json`、`located-older.delta.frame-v3.json`、`located-newer.delta.frame-v3.json`、`stale-navigation.delta.frame-v3.json` |
+
+G-10c 的头部淘汰必须在 Consumer normalized window 断言，不得额外生成 Helix trim/delete Frame；
+G-10d 的点击返回最新必须在 Window Selector/Action 断言，不得把点击预先编码进新消息 Delta。
 
 强制顺序：
 

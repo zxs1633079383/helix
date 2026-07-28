@@ -1,0 +1,3258 @@
+{
+  "causationId": "newer-server-049",
+  "directives": [],
+  "mutations": [
+    {
+      "baseRevision": 4,
+      "causationId": "newer-server-049",
+      "mutation": {
+        "kind": "timelineDelta",
+        "operations": [
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 21,
+                "temporaryId": "temporary-020"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.442ab0ed262d4e70769705f74b962977",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bc068866d39f50bd529878a5f00164d0",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f0882137d45811c54516efb3bfe33447",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0f9bb0b69d55c0988f3a467ab805f78b",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0ae9d342b872effb18f4aab2f9b648ae",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ddab08bd45bc166567862d683b2d1a12",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.13847bbb0666bddd8a0042853c958974",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.94c9e2906865c7ec5fe30b66e915a4c1",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.75825f4f197663bb149774e7fa57d166",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.75714d9c385804f8380dd353e2c900d3",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.2a2ec7619a33c4de968412cda34663ef",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.87d652998edc854dd24f53889692c2e1",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.adb67724f8827760699939aed8c256e0",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 20"
+                },
+                "createdAt": 21,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-020",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-020",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-020",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 22,
+                "temporaryId": "temporary-021"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.51698ae9b3c88d01d6431fc32e3c83f3",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c7e5c210b55ae1fe941e12fe5684907b",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.7c2dc95b401b90b571956e7901efada2",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.2c10574f3adcb767494f811a8f6cd556",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.500b19975b0cfccba1d1e81822f7ca21",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5bc56b21d5309554f3a926413bca779e",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.cd0a4c8946cd81720375e7316f64e94c",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8948c5b08a87f7df8b14d592f16d0b9a",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.39cc8158c14a82678c7fe3a3dbcae365",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8f8bef37943f92f84efb51222c43e8af",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5f8be298da28ed81dd049ba0b044eb9d",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e2e5cc9e2249e3fd5297c1cf1106dd94",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1cdc7616a4f52c4e3d9e880d8b595ba9",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 21"
+                },
+                "createdAt": 22,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-021",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-021",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-021",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 23,
+                "temporaryId": "temporary-022"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.7f5adb7c458de476e745ad91b1c9dab9",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.edeca133632ff33fcd265d32ef89f983",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.4c4272ce15a162a5cd7cbb300315d10d",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.9539741af204b58a1293ca3faee970c3",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.be3f84d6853af3399c2cdc2f251bf417",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.10f136515b8cdbca80ca9a86a667ce71",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.d997fcb22d90e2f8f262d1207a7bb6f7",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1b3bc530f48377f6ce492e20fa541e63",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c0a719777f57f2559f1b94974c07a371",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.123a9b97f51ecafeb3911442be00850c",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.fdc80869e36be355b2ae0e2cda2c9324",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.543c6247fafd5f76cdfa3098ed5dc4ac",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ad87340db1d7e73ea9b815222ada35e6",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 22"
+                },
+                "createdAt": 23,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-022",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-022",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-022",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 24,
+                "temporaryId": "temporary-023"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.6d244952aacd09b3b52b556d7d8bc6c1",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5537598e10251bb5309b1a1abb6e3def",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.9b7eea753ebf59a2afd4fc16d528998f",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b000cdc5faa7f408cdbbec341a5b1c6c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8f0bfda359cd760c2f0daab89d5b3d56",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.170703387f3617d6d0991ac7f848eb6c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c1273254a006c145e3c56d5799a60839",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.cd4b546dee4c877b18f002afba359d16",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.288a98f711e2de4850c7b76af632e034",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bd9e82456ffbe7259280b7dd012d5656",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e3c9804166da3d28dd9b778683862d21",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f43bebfc592c41f1af7083ffb8e7a69d",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5c83bdfb3bec6aa34118a5d0565fd5fc",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 23"
+                },
+                "createdAt": 24,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-023",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-023",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-023",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 25,
+                "temporaryId": "temporary-024"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.c875bc07f339f27f5f44c2279af69caf",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b9f8e274122952f86caf3d2affc485d0",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5a6c118abcf91a50219529e5a5096308",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bf16e9a94565d1b5a388ae2377d3944f",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f1890a1f0785e1dbb32e0cf6e4373a73",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.48a6fd43ddca2b2a4ded180f881a2d20",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.4c2824fb9afb17e57361d4d6606f7998",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.16c44b9fe0a39ae4fb64eaa1fae1b314",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.53ecd8eb8e3b4f42eb82238b63fca727",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ef35143e7d0410f6acc3cd736ca4cbaf",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f90631eaf794e76b29054f41887934ac",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f9e5468645614623b36526c037133218",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.890643ea2725886c4cb8ef05bdad00ab",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 24"
+                },
+                "createdAt": 25,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-024",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-024",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-024",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 26,
+                "temporaryId": "temporary-025"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.15675b1e8c897106f8fdf124a13eead7",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.40d48a4b71f353fb5232f3faa9a0770a",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.471349581c574953a37827e66e9bdf21",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3a3800261fe17f3d3d8e882fcd3bdf07",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0d19b37c6e10562cdded2429ec770e72",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bef2e72ce25ccc85d369f0fd2e977ec8",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8e10c48d3106dbe3fb600c4d24e80ecc",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.9484277172743bb77e4cf5b4eca3f71e",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8e4218f2a7e5692950faa6c5484465ec",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8a27582fd9f1eaf8aa942fee5e33f91d",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ed5a49abd4e11ecd8c74aead487142ee",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.943d20059b17d92bf200d3d29b66b162",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1f678dd6311f3adc1d66bd3a84cee72c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 25"
+                },
+                "createdAt": 26,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-025",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-025",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-025",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 27,
+                "temporaryId": "temporary-026"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.ae18ca287a5a40ad08b3a87604e9130e",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.9430af0158d8dfca7e44c8a0ba21d81c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5a2b00e8a809b700790e222a5252e7c6",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.baea633b7e3c73192ed2907f883014b4",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1a26b7d4b7f0bdd037fd592ba53b66eb",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.972c377d09ad0f88c30cea94a7ef93cb",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3c0416b1053b774dbb6984d34840da6e",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5667e65f7d3df8c870010abbe017fb1e",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.43d0c61aeef68804cbac3b89decdfba7",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a479cc1e447fdc57420740ca6b84d847",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.811da962e296123244db4bd719b367f7",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.25fd3b12d5207fb5c94ddf8596c5202d",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a3332f6f92240e1f4bd5ac2760056a5e",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 26"
+                },
+                "createdAt": 27,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-026",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-026",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-026",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 28,
+                "temporaryId": "temporary-027"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.076ad8e1d41b9b74a636e410a332b53b",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.23215cf320ecb05642d2c971095f6594",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f0d2f842718a1d5d455639387c19a76e",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ccc83ab9a7766d49117a12a7f1abb367",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a1f320aedf77b70231beb8b42c773ede",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5d6e99561bc7571387c5471617d460d3",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0b18f6b290eb623aec039746d489fc96",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.d7f545b2e0644f5d036875fe7f616886",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.15d7833304f8cc38ba86dcf9a77df022",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.4d00f44d92bccd169a5afcb486adce27",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8c6ad0003b2192b34846eea111c3e8d2",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b1e481596a79452a0329ac9f4ba93e7b",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3263e319a0f7f457f4cd8ec5a2c03a6c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 27"
+                },
+                "createdAt": 28,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-027",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-027",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-027",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 29,
+                "temporaryId": "temporary-028"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.091163f19e422d7833f4d93ea3c8962f",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b230aea8ea5634d1e23ad65f04673b8e",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.85b0cb86b85c6cbb0b91f63b2e4b5562",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.6c7afa298ecaee87b05a7926d3d401c5",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.61928750f40fba2956202ec9e3440ffb",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.442d917d49a118b7800a4027e5516c80",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e9704fc5910bb393a1099f88c91d3af5",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.124c7c41de90104040c4ceb7e45cb9ed",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.105d8ab27998eec0f9837ab5aae02e67",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.38db968961dbb1548736b16f33e2f1ba",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3b4fdaf0cd8fd24c0afeb4ee95c64630",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.11fbb7ddfb3141b78871dce9a22fb881",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.53f740b763307fc5d8421ac049cbc2ad",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 28"
+                },
+                "createdAt": 29,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-028",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-028",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-028",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 30,
+                "temporaryId": "temporary-029"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.956f30964ded77ddb3229319d6bcb4c6",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b509f23173277197fc0889cf7b0d76a6",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.80b464216ac65bb290bf71474412d212",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1f1d633b9b14472e1b0590c4eea813dc",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.7e433fb5edc473cfdc8daef334631f14",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a2332c3ffc76917b3641bae4945348cb",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.11bbc8b2dc0bdba630e0ef79d5c6787f",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.73ad3c5f58496d08c05490a0abadf339",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.db0e919be8e12f52e8b6bfa49c6eebd0",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ac02cc260990e20689bcb091b70d106d",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.d74d3d1def102bd920457730d55bc81c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f95a76568101b29c6838c026d26cb292",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.44e576743b321fb138d281d653751ef8",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 29"
+                },
+                "createdAt": 30,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-029",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerCount": 0,
+                  "readerIds": [],
+                  "unreadCount": 0
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-029",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-029",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 51,
+                "temporaryId": "temporary-050"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.e422c9302296af6c6687df857f849550",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e6c2bc089080383d143f9cc6d6894cef",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a26234dd435027a076324aba386680a5",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a8c33bccc0e153d6cc3481326da5b7d2",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.588716ee3865f6cc4d46690282f14a3a",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.70ace12256211dcda5cf01c4914fa83b",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.44ade90df5c670ac8d83295f0d7f022b",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.45b58c75bfa86f6d8b90f2348ffb2124",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.441b2240b6eccd9842316fadf20f572a",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.221f6b31222d845404802b14e605b770",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bcca44b2a1e670a258fa7bde937e5531",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.206ee89032c20178daca47be3b0d4def",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e1c9a8658bbd23eaf68e6501d21edb1f",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 50"
+                },
+                "createdAt": 51,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-050",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-050",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-050",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 52,
+                "temporaryId": "temporary-051"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.e625ddaecdca6ff9da2db165573c0176",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.abb6bd94f966ca98c9cee7ae98010aae",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.fc1e9b5f0d6f5f97efafe0574b2f576f",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.6dc149bf4452418ef7e32442971509bf",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e2989cc4249eea763c647e4f44d08dea",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f3c677dc9a5ea0cc1d068501ecda95d0",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1220daa0dce5a685a0b640b4272ced71",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0c4feeeb6708c55539e982b31a902ae2",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e329a46ea8554fe890d341f238197b5c",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.00bdbe823cbe2578966e9517ac74b89c",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f918c8f8b9cc883b71076fdadc4babd8",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.92c3bfdf822557575907fbd21ec91cbb",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.fded0fea847949a264eac12b81d045ad",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 51"
+                },
+                "createdAt": 52,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-051",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-051",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-051",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 53,
+                "temporaryId": "temporary-052"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.2009198dd597538821ffa24be4452108",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.348a476fe7509014255c7f70d846589f",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.481dcb7561b39c6ff9ef616820962a0e",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a636dea4103ba20f1f5ef98285cb06dc",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.6d2c901822be86d0f211076d108843a3",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.9ed3ed85646b583480ff44e1ae7645da",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.828c535692bd03b12fe995fa41676ae3",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ec37a5c31bcb6e8e94a8ec21560fdac6",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.aa2232492e89c624a2d7ff3bfcc9dab0",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bad9e78a9615df29abecfc55d8968ad0",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a2b2aa61e972be4cc27dbe597b201043",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bf5eefb2611d1a3fa5e6a072ddcb6a30",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b618d7be2b5127e4297833582b212403",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 52"
+                },
+                "createdAt": 53,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-052",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-052",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-052",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 54,
+                "temporaryId": "temporary-053"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.aedb02e622660a056f857e29f075a038",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.22d29e03000461e1843acc9b3114c918",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.52590e15d3828898da076c2a602ef8da",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1c65d1555b0da30b1c64a5ab8a054191",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.6ebf18f666752a584092d2eb4b03f993",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.354ff662a6495d3b2f12916233a3f0a7",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c81a624ff24909fc1ef294645f27a54e",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e4c961a8ee74fef5ca1941b1877ad9cc",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.d1c8d42f8b87fb729cbc978e501bf1d7",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e39066c39eed37245db89f465e979d98",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.483bb03656accfb49ff952f230e7a1de",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.2746473e19f5a0a1a3dd2cabe3b528d2",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0d9ef5fbdcb7b3578c97c15e6466c128",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 53"
+                },
+                "createdAt": 54,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-053",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-053",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-053",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 55,
+                "temporaryId": "temporary-054"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.e11814a503babc5662850df2bdc587ac",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ffbe3ea6f1d25731829291010f337ed1",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.394e5e90e82a6b81bed39bad0fc79735",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5e26bb16a2dc517e53ca9b6e54673a25",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.50573fdee8d742e576383155592e09e4",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.2be379ec0f14cbb88266dcd2fd101d08",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.de17acb7f26eaf42c6d6c31c483492c3",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5d20f40f53dbd1584b3ec8e72d809d52",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.089cdcde7590bbdc7652623617d15a2c",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.d641ff542df52335f6ef061a90c4cfbe",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0e72f7e31e14e4d301307aed5f69177c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e304749a22635a966853c9c2af5fb553",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bfbda9a7cf86035ffeb65533dbddcedc",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 54"
+                },
+                "createdAt": 55,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-054",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-054",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-054",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 56,
+                "temporaryId": "temporary-055"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.a58bf7eada6a481079f6c2295fb7eb46",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.9fdfe490b885a128d1d905a79f8deec5",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1337a1474801da94e19342f24f1e05db",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.fa992bef3c4893410ffff14809cd45c6",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.34880c3cd7dde7f4ae672311d5d4a542",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3b55a871f2811b3de1f7eb27d5db94a8",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.637dfae62c931cd99f42bc4a12595e80",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.10fa1bb1c1e95b6881263a75df4c46d4",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.f92b31a148133dd29f9f6efbd5f4e1a9",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.4f868a37fff85f72fbdcfa429b59b46c",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.46ac3ba8b234c9f1a2da8e6a70df5925",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8566e51d768ad37d3fdf3eb74cdccf89",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.655bd761b7b470461c7b47c89dfb93d3",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 55"
+                },
+                "createdAt": 56,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-055",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-055",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-055",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 57,
+                "temporaryId": "temporary-056"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.a6a0fc4aaeaf6a5c6c22b7cc01561e60",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.041ccbc5def2b2b85a7dcaabb2430033",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.555a695863ae746542cc51427d0aa5d3",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.24b241e184b883490087c4d42eac200f",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.1f047db145e9534bdaa67b1f13eba3d6",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.d810ba8063bd605f505a48316d9a6919",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.029167f5b6ea6a9dab1c01aef587cd26",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.ce3812eae7b868d5d967013acab3c65b",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b36652bcf20765d49ecbefd9332c21ce",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.495827ff680a528905bdc3cba3490688",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.836ed24bd80d44087dd71d07d20f0965",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c1936642eba4ead73c1eba8b4dccc148",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.7139bb242762738368925370be18119c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 56"
+                },
+                "createdAt": 57,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-056",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-056",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-056",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 58,
+                "temporaryId": "temporary-057"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.b421b8ccf87863b3eefa317fac7ab8fd",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.bacdd26df9ab155e533e00f7f3c606d4",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.cddc51df3ca40f5f565370f1fa4327c6",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.66c5b082b609c25c911801b2cdae6d8c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.8cc79e9ee397e5fa504ad2961fda8b7e",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.828080d4d2422c9d0cbe32eecf9760a9",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.284ed304ec78b8110186d3e0393b8df9",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.50e3e65e06d5e65a01f5e03dec576369",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.4f027fd69af20eb3b0e76c0dac56a759",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c56d57df2ef4e3555e31792ed684ece3",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.dddf89676b45a23c0d2b650569914a95",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3b2893355956b2e7ad539165b5119fc9",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.627aa56cfbf2a940902dec94a281bc36",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 57"
+                },
+                "createdAt": 58,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-057",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-057",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-057",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 59,
+                "temporaryId": "temporary-058"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.b335c05338684cbe129a47d124b4f91b",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.220cf9b0ee6fcd6eaf697cae0a2cc09e",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.46e520e75f9017975249bd91d1d819ed",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.3f7e28eb5f10d744586864b7be9a4889",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.fde5445a86fa6a977fb8ffe1c27ba942",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0200bbf91b6ace5a743f6a2ac40dfdea",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.868157c6d990d5c94c271673305f2352",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0dde7602c147697297749965d269c409",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.01c48482da03e9c6518abb70bab22792",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.706c8d494a7c523539097cf38650c028",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.0ea9269def702b9eb1ef5d302f28e65a",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.e7223df867b88caa99a75d2c88e87e99",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.08050a422e044cd685cc474508623fb9",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 58"
+                },
+                "createdAt": 59,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-058",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-058",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-058",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "entity": {
+              "entityKey": {
+                "createAt": 60,
+                "temporaryId": "temporary-059"
+              },
+              "message": {
+                "actions": [
+                  {
+                    "actionRef": "act.v1.0e194177935e48a348ebabfc11e5a12c",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "reply",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.fd29c3cb761dc4c63011a8c288fa1c53",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "forward",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5037aa251184efc1ce4b64d83877c3d4",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "react",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.03fc45b2a99fcb29c309b5a38c41dfe7",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "urgent",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.c2d81ab24dcdf34a791949dec9c892aa",
+                    "disabledReason": "unsupportedByAuthority",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "createTopic",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.df8e71364ae9f33ebe5eb7e222231ae2",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "revoke",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.b2fa1043162dbd20eea97a29165f08e8",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "retry",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a0aee4606f77d001afb1cfcf092b6f9e",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.5a7a1be76d7b76b47c5961d474d89175",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "urgentCancel",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.936a2c68ad804d5f43a6ae12f2f703b7",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "markRead",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.99df83ec0206293315b6d676ed00c1a7",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "viewReceipt",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.a4970e7b1a1dcd41251b235cf1b53e05",
+                    "disabledReason": "notAvailable",
+                    "enabled": false,
+                    "inputShape": "object",
+                    "kind": "templateConfirm",
+                    "surfaceEpoch": 1
+                  },
+                  {
+                    "actionRef": "act.v1.763a8c396a0208677b5b290e6e022a9c",
+                    "enabled": true,
+                    "inputShape": "object",
+                    "kind": "locate",
+                    "surfaceEpoch": 1
+                  }
+                ],
+                "author": {
+                  "userId": "timeline-gate-viewer"
+                },
+                "bookmarked": false,
+                "channelId": "chfixx0000000000000000110a",
+                "content": {
+                  "kind": "text",
+                  "text": "timeline message 59"
+                },
+                "createdAt": 60,
+                "delivery": {
+                  "kind": "sent"
+                },
+                "eventSeq": 0,
+                "id": "server-059",
+                "pinned": false,
+                "quickActions": [
+                  "react",
+                  "quoteReply",
+                  "createTopic"
+                ],
+                "readReceipt": {
+                  "readBits": "",
+                  "readerIds": []
+                },
+                "replySummary": {
+                  "kind": "none"
+                },
+                "serverId": "server-059",
+                "templateConfirmation": {
+                  "confirmedCount": 0,
+                  "readerIds": [],
+                  "templateReceived": false
+                },
+                "temporaryId": "temporary-059",
+                "urgency": {
+                  "canConfirmUrgent": false,
+                  "urgent": false,
+                  "urgentConfirmedCount": 0,
+                  "urgentConfirmedIds": [],
+                  "urgentRequesterId": null,
+                  "urgentRequiredCount": 0,
+                  "urgentState": "inactive",
+                  "urgentTargetCount": 0,
+                  "urgentTargetIds": []
+                }
+              }
+            },
+            "kind": "upsertMessage"
+          },
+          {
+            "keys": [
+              {
+                "createAt": 51,
+                "temporaryId": "temporary-050"
+              },
+              {
+                "createAt": 52,
+                "temporaryId": "temporary-051"
+              },
+              {
+                "createAt": 53,
+                "temporaryId": "temporary-052"
+              },
+              {
+                "createAt": 54,
+                "temporaryId": "temporary-053"
+              },
+              {
+                "createAt": 55,
+                "temporaryId": "temporary-054"
+              },
+              {
+                "createAt": 56,
+                "temporaryId": "temporary-055"
+              },
+              {
+                "createAt": 57,
+                "temporaryId": "temporary-056"
+              },
+              {
+                "createAt": 58,
+                "temporaryId": "temporary-057"
+              },
+              {
+                "createAt": 59,
+                "temporaryId": "temporary-058"
+              },
+              {
+                "createAt": 60,
+                "temporaryId": "temporary-059"
+              }
+            ],
+            "kind": "insertKeys",
+            "position": {
+              "kind": "end"
+            },
+            "rangeId": "range.located.801e33cb1af1606bb38b1fbbcc4c5928"
+          },
+          {
+            "hasNewer": true,
+            "hasOlder": true,
+            "kind": "setRangeBounds",
+            "latestWatermark": {
+              "createAt": 60,
+              "temporaryId": "temporary-059"
+            },
+            "newerCursor": {
+              "createAt": 60,
+              "temporaryId": "temporary-059"
+            },
+            "olderCursor": {
+              "createAt": 21,
+              "temporaryId": "temporary-020"
+            },
+            "rangeId": "range.located.801e33cb1af1606bb38b1fbbcc4c5928"
+          }
+        ]
+      },
+      "revision": 5,
+      "scope": {
+        "channelId": "chfixx0000000000000000110a",
+        "kind": "timeline",
+        "windowToken": "g11a-window"
+      },
+      "surface": "message.timeline",
+      "surfaceEpoch": 1,
+      "surfaceSchemaVersion": 3
+    }
+  ],
+  "runtime": {
+    "connection": "online",
+    "initialSync": "ready",
+    "recovery": "idle"
+  },
+  "schemaVersion": 3,
+  "transactionId": "timeline-timeline|26:chfixx0000000000000000110a|11:g11a-window-5"
+}

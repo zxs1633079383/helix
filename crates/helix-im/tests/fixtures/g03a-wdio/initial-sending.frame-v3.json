@@ -192,17 +192,21 @@
             ]
           },
           {
-            "kind": "activateWindow",
-            "window": {
-              "windowToken": "latest",
-              "rangeIds": [
-                "latest"
-              ],
-              "anchor": {
-                "messageId": "helix_tmp_0000018bcfe87544_0000000000000001",
-                "mode": "latest"
-              },
-              "state": "ready"
+            "kind": "setRangeBounds",
+            "rangeId": "latest",
+            "olderCursor": {
+              "createAt": 1700000200002,
+              "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001"
+            },
+            "newerCursor": {
+              "createAt": 1700000200002,
+              "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001"
+            },
+            "hasOlder": false,
+            "hasNewer": false,
+            "latestWatermark": {
+              "createAt": 1700000200002,
+              "temporaryId": "helix_tmp_0000018bcfe87544_0000000000000001"
             }
           }
         ]

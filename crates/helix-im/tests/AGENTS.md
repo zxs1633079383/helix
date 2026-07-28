@@ -8,6 +8,9 @@
 
 ## 不变量
 
+- 新功能与 schema 迁移遵循
+  [`../../../docs/三端功能测试基线/AI执行合同.md`](../../../docs/三端功能测试基线/AI执行合同.md)：
+  Helix 测试和 canonical Fixture 必须先于 PC/Mobile consumer 测试。
 - Frame 只能来自公开 `ImModule::handle` 的 `Effect::Emit`，不得由测试手写成业务结果。
 - full-flow 只证明 Helix sans-IO 边界，不声明 Tauri、SQLite 执行器、Go、WS 或 UI 已通过。
 - 每个 Gate 的 ScenarioRunner 必须表达真实 correlation 和 Persist barrier。

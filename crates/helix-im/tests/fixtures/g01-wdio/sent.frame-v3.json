@@ -177,20 +177,6 @@
                 "bookmarked": false
               }
             }
-          },
-          {
-            "kind": "activateWindow",
-            "window": {
-              "windowToken": "latest",
-              "rangeIds": [
-                "latest"
-              ],
-              "anchor": {
-                "messageId": "srvfix00000000000000000001",
-                "mode": "latest"
-              },
-              "state": "ready"
-            }
           }
         ]
       },

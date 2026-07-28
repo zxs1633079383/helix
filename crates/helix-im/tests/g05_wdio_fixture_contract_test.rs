@@ -1,4 +1,4 @@
-//! G05 WDIO/Mobile Frame V2 canonical Fixture 真源与字段级合同。
+//! G05 WDIO/Mobile Frame V2/V3 canonical Fixture 真源与字段级合同。
 //!
 //! 普通测试只比较 production actual 与 checked-in Golden；只有显式
 //! `UPDATE_G05_WDIO_FIXTURES=1` 才允许覆盖跨仓 canonical JSON。
@@ -6,7 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use helix_im::interaction_frame::{InteractionFrameV2, TypedSurfaceMutation};
+use helix_im::interaction_frame::{
+    InteractionFrameV2, TimelineDeltaOperationVm, TypedSurfaceMutation,
+};
 use serde_json::{json, Value};
 
 #[path = "support/g05_scenario.rs"]
@@ -21,8 +23,8 @@ use scenario::{
     TEAM_ID,
 };
 
-const HELIX_COMMIT: &str = "3798ffdd0bfd89b8922829dd252327bb0a2075ec";
-const GENERATED_AT: &str = "2026-07-25T13:30:00-07:00";
+const HELIX_COMMIT: &str = "b89c043899d2d137306c59b2f77dd87ec300c9c4";
+const GENERATED_AT: &str = "2026-07-28T00:35:28-07:00";
 const PRODUCER: &str =
     "G05ScenarioRunner -> ImModule::handle -> Effect::Emit -> InteractionFrameV2::decode";
 
@@ -46,6 +48,10 @@ fn produce_cases() -> Vec<FixtureCase> {
     );
     assert_source_forwardable_contract(&trace.source_forwardable);
     assert_target_forwarded_contract(&trace.target_forwarded);
+    assert_eq!(
+        timeline_operation_kinds(&trace.target_forwarded),
+        Some(vec!["upsertMessage", "insertKeys", "setRangeBounds"])
+    );
     assert_target_dialog_contract(&trace.target_dialog);
     vec![
         FixtureCase {
@@ -54,13 +60,13 @@ fn produce_cases() -> Vec<FixtureCase> {
             frame: trace.group_created,
         },
         FixtureCase {
-            fixture_id: "g05-source-forwardable-v2",
-            file_name: "source-forwardable.frame-v2.json",
+            fixture_id: "g05-source-forwardable-v3",
+            file_name: "source-forwardable.frame-v3.json",
             frame: trace.source_forwardable,
         },
         FixtureCase {
-            fixture_id: "g05-target-forwarded-v2",
-            file_name: "target-forwarded.frame-v2.json",
+            fixture_id: "g05-target-forwarded-v3",
+            file_name: "target-forwarded.frame-v3.json",
             frame: trace.target_forwarded,
         },
         FixtureCase {
@@ -78,29 +84,45 @@ fn canonical_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
     bytes
 }
 
-/// 生成排除 transaction 身份但保留 G05 业务语义的摘要。
+/// 生成覆盖 operation/key/range/bounds/revision 的跨仓语义摘要。
 fn semantic_bytes(frame: &InteractionFrameV2) -> Vec<u8> {
-    let mutation_kinds = frame
-        .mutations
-        .iter()
-        .map(|mutation| match mutation.mutation.mutation {
-            TypedSurfaceMutation::TimelineSnapshot { .. } => "timelineSnapshot",
-            TypedSurfaceMutation::TimelineDelta { .. } => "timelineDelta",
-            TypedSurfaceMutation::DialogListSnapshot { .. } => "dialogListSnapshot",
-            TypedSurfaceMutation::DialogListPatch { .. } => "dialogListPatch",
-            _ => "other",
-        })
-        .collect::<Vec<_>>();
     serde_json::to_vec(&json!({
         "schemaVersion": frame.schema_version,
         "runtime": frame.runtime,
-        "causationId": frame.causation_id,
-        "surfaces": surface_names(frame),
-        "mutationKinds": mutation_kinds,
-        "message": message_contract(frame),
-        "dialog": dialog_contract(frame),
+        "mutations": frame.mutations.iter().map(|mutation| json!({
+            "surface": mutation.mutation.surface,
+            "surfaceSchemaVersion": mutation.surface_schema_version,
+            "surfaceEpoch": mutation.surface_epoch,
+            "scope": mutation.mutation.scope,
+            "revision": mutation.mutation.revision,
+            "baseRevision": mutation.mutation.base_revision,
+            "mutation": mutation.mutation.mutation,
+        })).collect::<Vec<_>>(),
     }))
     .expect("semantic projection serializes")
+}
+
+/// 返回 TimelineDelta 的 closed-union operation 顺序；Snapshot 与非 Timeline 返回 None。
+fn timeline_operation_kinds(frame: &InteractionFrameV2) -> Option<Vec<&'static str>> {
+    frame
+        .mutations
+        .iter()
+        .find_map(|mutation| match &mutation.mutation.mutation {
+            TypedSurfaceMutation::TimelineDelta { operations } => Some(
+                operations
+                    .iter()
+                    .map(|operation| match operation {
+                        TimelineDeltaOperationVm::UpsertMessage { .. } => "upsertMessage",
+                        TimelineDeltaOperationVm::InstallSegment { .. } => "installSegment",
+                        TimelineDeltaOperationVm::InsertKeys { .. } => "insertKeys",
+                        TimelineDeltaOperationVm::MergeRanges { .. } => "mergeRanges",
+                        TimelineDeltaOperationVm::SetRangeBounds { .. } => "setRangeBounds",
+                        TimelineDeltaOperationVm::ActivateWindow { .. } => "activateWindow",
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        })
 }
 
 /// 提取 timeline content、event sequence、delivery 与 action kinds。
@@ -148,11 +170,16 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
         "fixtureId": case.fixture_id,
         "fileName": case.file_name,
         "schemaVersion": case.frame.schema_version,
+        "surfaceSchemaVersions": case.frame.mutations.iter().map(|mutation| json!({
+            "surface": mutation.mutation.surface,
+            "schemaVersion": mutation.surface_schema_version,
+        })).collect::<Vec<_>>(),
         "helixCommit": HELIX_COMMIT,
         "producer": PRODUCER,
         "sourceKind": "rust-export",
         "semanticSha256": sha256_hex(&semantic_bytes(&case.frame)),
         "fixtureSha256": sha256_hex(bytes),
+        "byteLength": bytes.len(),
         "surfaces": surface_names(&case.frame),
         "generatedAt": GENERATED_AT,
         "parameterizableFields": [
@@ -161,22 +188,62 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/causationId",
             "/mutations/*/surfaceEpoch",
             "/mutations/*/revision",
+            "/mutations/*/surfaceSchemaVersion",
+            "/mutations/*/mutation/view/entities/*/entityKey/createAt",
+            "/mutations/*/mutation/view/entities/*/entityKey/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/rangeId",
+            "/mutations/*/mutation/view/ranges/*/orderedKeys/*/createAt",
+            "/mutations/*/mutation/view/ranges/*/orderedKeys/*/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/olderCursor/createAt",
+            "/mutations/*/mutation/view/ranges/*/olderCursor/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/newerCursor/createAt",
+            "/mutations/*/mutation/view/ranges/*/newerCursor/temporaryId",
+            "/mutations/*/mutation/view/ranges/*/latestWatermark/createAt",
+            "/mutations/*/mutation/view/ranges/*/latestWatermark/temporaryId",
+            "/mutations/*/mutation/view/activeWindow/windowToken",
+            "/mutations/*/mutation/view/activeWindow/rangeIds/*",
+            "/mutations/*/mutation/view/persistedWatermark/createAt",
+            "/mutations/*/mutation/view/persistedWatermark/temporaryId",
+            "/mutations/*/mutation/operations/*/entity/entityKey/createAt",
+            "/mutations/*/mutation/operations/*/entity/entityKey/temporaryId",
+            "/mutations/*/mutation/operations/*/range/rangeId",
+            "/mutations/*/mutation/operations/*/range/orderedKeys/*/createAt",
+            "/mutations/*/mutation/operations/*/range/orderedKeys/*/temporaryId",
+            "/mutations/*/mutation/operations/*/range/olderCursor/createAt",
+            "/mutations/*/mutation/operations/*/range/olderCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/range/newerCursor/createAt",
+            "/mutations/*/mutation/operations/*/range/newerCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/range/latestWatermark/createAt",
+            "/mutations/*/mutation/operations/*/range/latestWatermark/temporaryId",
+            "/mutations/*/mutation/operations/*/rangeId",
+            "/mutations/*/mutation/operations/*/position/entityKey/createAt",
+            "/mutations/*/mutation/operations/*/position/entityKey/temporaryId",
+            "/mutations/*/mutation/operations/*/keys/*/createAt",
+            "/mutations/*/mutation/operations/*/keys/*/temporaryId",
+            "/mutations/*/mutation/operations/*/olderCursor/createAt",
+            "/mutations/*/mutation/operations/*/olderCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/newerCursor/createAt",
+            "/mutations/*/mutation/operations/*/newerCursor/temporaryId",
+            "/mutations/*/mutation/operations/*/latestWatermark/createAt",
+            "/mutations/*/mutation/operations/*/latestWatermark/temporaryId",
+            "/mutations/*/mutation/operations/*/window/windowToken",
+            "/mutations/*/mutation/operations/*/window/rangeIds/*",
             "/mutations/*/baseRevision",
             "/mutations/*/scope/channelId",
             "/mutations/*/scope/userId",
             "/mutations/*/scope/teamId",
             "/mutations/*/mutation/view/channelId",
-            "/mutations/*/mutation/view/items/*/id",
-            "/mutations/*/mutation/view/items/*/channelId",
-            "/mutations/*/mutation/view/items/*/createdAt",
-            "/mutations/*/mutation/view/items/*/content/text",
-            "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
-            "/mutations/*/mutation/patch/view/channelId",
-            "/mutations/*/mutation/patch/view/items/*/id",
-            "/mutations/*/mutation/patch/view/items/*/channelId",
-            "/mutations/*/mutation/patch/view/items/*/createdAt",
-            "/mutations/*/mutation/patch/view/items/*/content/text",
-            "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/view/entities/*/message/id",
+            "/mutations/*/mutation/view/entities/*/message/channelId",
+            "/mutations/*/mutation/view/entities/*/message/createdAt",
+            "/mutations/*/mutation/view/entities/*/message/content/text",
+            "/mutations/*/mutation/view/entities/*/message/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/operations/*/entity/message/channelId",
+            "/mutations/*/mutation/operations/*/entity/message/id",
+            "/mutations/*/mutation/operations/*/entity/message/channelId",
+            "/mutations/*/mutation/operations/*/entity/message/createdAt",
+            "/mutations/*/mutation/operations/*/entity/message/content/text",
+            "/mutations/*/mutation/operations/*/entity/message/actions/*/surfaceEpoch",
             "/mutations/*/mutation/patch/view/sections/*/items/*/channelId",
             "/mutations/*/mutation/patch/view/sections/*/items/*/lastActivityAt",
             "/mutations/*/mutation/patch/view/sections/*/items/*/preview/text",
@@ -191,8 +258,8 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/surfaceEpoch",
             "/mutations/*/revision",
             "/mutations/*/baseRevision",
-            "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
-            "/mutations/*/mutation/patch/view/items/*/actions/*/surfaceEpoch"
+            "/mutations/*/mutation/view/entities/*/message/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/operations/*/entity/message/actions/*/surfaceEpoch"
         ],
         "placeholderValues": {
             "actorId": ACTOR_ID,
@@ -236,6 +303,20 @@ fn g05_canonical_frames_match_checked_in_contract() {
             2
         };
         assert_eq!(case.frame.schema_version, expected_schema_version);
+        let expected_suffix = if expected_schema_version == 3 {
+            "v3"
+        } else {
+            "v2"
+        };
+        assert!(
+            case.fixture_id.ends_with(expected_suffix),
+            "fixtureId must expose the actual Frame schema"
+        );
+        assert!(
+            case.file_name
+                .ends_with(&format!(".frame-{expected_suffix}.json")),
+            "file name must expose the actual Frame schema"
+        );
         assert!(!surface_names(&case.frame).is_empty());
         let bytes = canonical_bytes(&case.frame);
         provenance.push(provenance_entry(case, &bytes));

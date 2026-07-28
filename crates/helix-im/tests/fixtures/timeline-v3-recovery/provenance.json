@@ -1,0 +1,23 @@
+{
+  "fixtures": [
+    {
+      "expected": "atomic-reject-and-request-recovery-snapshot",
+      "fileName": "entity-key-mismatch.frame-v3.json",
+      "fixtureSha256": "68896c3c4487272df4b036809ce696e45021fd3070aa42f6657dc35d10948e89"
+    },
+    {
+      "expected": "atomic-reject-and-request-recovery-snapshot",
+      "fileName": "duplicate-range-key.frame-v3.json",
+      "fixtureSha256": "c14d0e8fc6f6a9c6a32844a87efcf4a3d89bab4c0a9916069454773bcf5ab84c"
+    },
+    {
+      "expected": "atomic-reject-and-request-recovery-snapshot",
+      "fileName": "mixed-invalid-transaction.frame-v3.json",
+      "fixtureSha256": "d1650db9daf2df6e64e5655bd2e6246ab617b6a606b4126ef410afe6087f762f"
+    }
+  ],
+  "gateId": "Timeline-V3-Recovery",
+  "producer": "canonical V3 Snapshot -> deterministic invalid transaction derivation",
+  "producerRevision": "312e331938054467f1de09d4a251fd47b12093b0",
+  "testClass": "timeline_v3_recovery_fixture_test"
+}

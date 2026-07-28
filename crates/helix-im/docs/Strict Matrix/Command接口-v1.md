@@ -1,7 +1,7 @@
 # Helix IM Command API v1
 
 > 由 `contracts/strict-matrix.v1.json` 生成；禁止手工修改。
-> contract epoch: 11; raw matrix sha256: `caadafd2947ccadf647a134ab7c85f60b1d0feb6966f79a8717b32eef094c9c8`; semantic matrix sha256: `e40a34ee9d96b9c11258ad38293dc33a926dfbefc17d32e7aa603ab2868b5e23`。
+> contract epoch: 12; raw matrix sha256: `3a0acc3e6031861cfc0dc265aa05fe97153bef217cc0dd6517b6a3d122c84953`; semantic matrix sha256: `318bc60dcdda8e9e3b20907546a98fdb1e3ce482c2ff94d41dc1ecc0572c906e`。
 > raw hash 是正式 Helix commit blob、PC/Mobile pin 与生成物的唯一绑定值；semantic hash 仅用于诊断。
 
 ## 边界
@@ -32,7 +32,11 @@
 | im_create_schedule | G-08 / UC-1.10 定时消息 | channel_id, message, schedule_post_at | type, props | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_cancel_schedule | G-09 / UC-1.10-cancel 取消定时 | channel_id | ∅ | http_write, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_query_messages_by_channel | G-10 / UC-2.1 切群首屏 | channel_id | limit | local_scan, http_read, storage_upsert, projection | im:interaction:frame | active/declared |
+| im_query_messages_by_channel | G-10c / UC-2.2c 满窗口 append 与头部淘汰 | channel_id | page_size | local_scan, projection | im:interaction:frame | active/declared |
+| im_query_messages_by_channel | G-10d / UC-2.2d 离底 anchor 固定与新消息提示 | channel_id | page_size | local_scan, projection | im:interaction:frame | active/declared |
 | im_load_older_context | G-10a / UC-2.2 上拉更早历史 | channel_id, anchor_post_id | before | http_read, storage_upsert, projection | im:interaction:frame | active/declared |
+| im_load_newer_context | G-10b / UC-2.2b 下拉加载更新消息 | channel_id, anchor_post_id | page_size | http_read, storage_upsert, projection | im:interaction:frame | active/declared |
+| im_locate_message | G-11a / UC-2.3a 未缓存消息定位与定位后双向分页 | channel_id, message_id | page_size | local_scan, http_read, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_get_posts | G-11 / UC-2.3 按 postId 定位 | post_ids, req_id | locate | http_read, storage_upsert, projection | im:interaction:frame | active/declared |
 | im_get_replies | G-12 / UC-2.4 回复列表/分支 | reply_id, req_id | channel_id, root_message_id, page_number, page_size, revoke | http_read, projection | im:interaction:frame | active/declared |
 | im_get_reply_branch | G-12 / UC-2.4 回复列表/分支 | reply_first_level_id, req_id | channel_id, root_message_id, page_number, page_size | http_read, projection | im:interaction:frame | active/declared |

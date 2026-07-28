@@ -192,17 +192,21 @@
             ]
           },
           {
-            "kind": "activateWindow",
-            "window": {
-              "windowToken": "latest",
-              "rangeIds": [
-                "latest"
-              ],
-              "anchor": {
-                "messageId": "srvfix000000000000000001f5",
-                "mode": "latest"
-              },
-              "state": "ready"
+            "kind": "setRangeBounds",
+            "rangeId": "latest",
+            "olderCursor": {
+              "createAt": 1700000500023,
+              "temporaryId": "relay-g05-wdio-forward-1-0"
+            },
+            "newerCursor": {
+              "createAt": 1700000500023,
+              "temporaryId": "relay-g05-wdio-forward-1-0"
+            },
+            "hasOlder": false,
+            "hasNewer": false,
+            "latestWatermark": {
+              "createAt": 1700000500023,
+              "temporaryId": "relay-g05-wdio-forward-1-0"
             }
           }
         ]

@@ -31,7 +31,8 @@
 
 ## Notes
 
-- Validation iteration 1 passed 16/16 items.
+- Validation iteration 2 passed 16/16 items after adding the adaptive `pageSize` contract and the
+  four formal Gate delivery denominator.
 - Timeline V3 operation names, Frame versions, stable entity identity, canonical Fixture and evidence
   levels are external product contracts rather than implementation choices.
 - Current source paths, revisions and implementation facts belong to `discovery.md`, not this specification.

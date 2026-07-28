@@ -21,6 +21,7 @@ pub struct TopicActivityProjection {
     pub(crate) message_type: String,
     pub(crate) preview_text: String,
     pub(crate) created_at: i64,
+    pub(crate) topic_message_count: u64,
 }
 
 impl ImModule {
@@ -31,7 +32,7 @@ impl ImModule {
         channel_reply: &[u8],
         out: &mut EffectSink,
     ) {
-        if pending.source == "post-forward-authority" || !pending.update.visible {
+        if !pending.update.visible {
             return;
         }
         let channel = serde_json::from_slice::<Value>(channel_reply)
@@ -48,12 +49,30 @@ impl ImModule {
                 ],
             )?;
             let title = text(row, &["display_name", "displayName", "name"])?;
-            Some((root_message_id.to_string(), title.to_string()))
+            // Dialog patch readback keeps the prior T total; the committed post contributes one.
+            let topic_message_count = integer(
+                row,
+                &[
+                    "total_msg_count",
+                    "totalMsgCount",
+                    "topic_msg_count",
+                    "topicMsgCount",
+                ],
+            )
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or_default()
+            .saturating_add(1);
+            Some((
+                root_message_id.to_string(),
+                title.to_string(),
+                topic_message_count,
+            ))
         });
-        let Some((root_message_id, title)) = relation.or_else(|| {
+        let Some((root_message_id, title, topic_message_count)) = relation.or_else(|| {
             self.state
                 .dialog_list_frame
                 .topic_link_metadata(pending.channel_id.as_str())
+                .map(|(root_message_id, title)| (root_message_id, title, 0))
         }) else {
             return;
         };
@@ -70,6 +89,7 @@ impl ImModule {
                 pending.fields.simple_message.clone()
             },
             created_at: pending.fields.create_at,
+            topic_message_count,
         };
         let corr = self.alloc_corr_internal();
         out.push(Effect::Persist {
@@ -117,7 +137,14 @@ impl ImModule {
         let reply_count = integer(&root, &["reply_count", "replyCount"])
             .and_then(|value| u64::try_from(value).ok())
             .unwrap_or_default()
-            .max(next_local_count);
+            .max(next_local_count)
+            .max(projection.topic_message_count);
+        let parent_topic_message_count = self
+            .state
+            .dialog_list_frame
+            .topic_count_for(parent_channel_id.as_str())
+            .saturating_add(1)
+            .max(reply_count);
         let mut topic = json!({
             "parentChannelId": parent_channel_id.as_str(),
             "topicChannelId": projection.topic_channel_id.as_str(),
@@ -148,12 +175,10 @@ impl ImModule {
                 StorageOp::BatchUpdate(BatchUpdateSpec {
                     table: "channel",
                     key_col: "id",
-                    key_vals: vec![SqlValue::Text(
-                        projection.topic_channel_id.as_str().to_string(),
-                    )],
+                    key_vals: vec![SqlValue::Text(parent_channel_id.as_str().to_string())],
                     patch: vec![(
                         "topic_msg_count".to_string(),
-                        SqlValue::Integer(reply_count.min(i64::MAX as u64) as i64),
+                        SqlValue::Integer(parent_topic_message_count.min(i64::MAX as u64) as i64),
                     )],
                 }),
             ],
@@ -162,19 +187,17 @@ impl ImModule {
             corr,
             CorrelationContext::TopicActivityPersist {
                 parent_channel_id,
-                topic_channel_id: projection.topic_channel_id,
-                topic_message_count: reply_count,
+                parent_topic_message_count,
             },
         );
         Ok(())
     }
 
-    /// Root card 落稳后刷新父群 timeline，并原子推进在场 topic dialog 的消息总数。
+    /// Root card 落稳后刷新父群 timeline，并原子推进父群的话题消息总数。
     pub(crate) fn handle_topic_activity_persist(
         &mut self,
         parent_channel_id: ChannelId,
-        topic_channel_id: ChannelId,
-        topic_message_count: u64,
+        parent_topic_message_count: u64,
         outcome: &PortOutcome,
         out: &mut EffectSink,
     ) -> Result<(), ImError> {
@@ -182,8 +205,8 @@ impl ImModule {
             self.refresh_attached_latest_timeline(parent_channel_id, None, out)?;
             if let Some(scope) = self.state.dialog_list_frame.scope().cloned() {
                 let update = json!({
-                    "channelId": topic_channel_id.as_str(),
-                    "topicMsgCount": topic_message_count,
+                    "channelId": parent_channel_id.as_str(),
+                    "topicMsgCount": parent_topic_message_count,
                 });
                 if let Some(frame) = self
                     .state
@@ -253,6 +276,69 @@ mod tests {
     use crate::interaction_frame::SurfaceScope;
     use crate::module::ImConfig;
 
+    /// Live post-forward authority must schedule the durable parent root readback.
+    #[test]
+    fn live_topic_post_schedules_parent_activity_projection() {
+        let topic_channel_id = crate::state::test_channel_id(70);
+        let pending = PendingDialogPatch {
+            channel_id: topic_channel_id,
+            event_seq: 1,
+            msg_id: "reply-live".to_string(),
+            fields: crate::sync_session::PostFields {
+                user_id: "user-live".to_string(),
+                msg_type: "TEXT".to_string(),
+                message: "实时消息".to_string(),
+                simple_message: "实时消息".to_string(),
+                create_at: 101,
+                ..crate::sync_session::PostFields::default()
+            },
+            update: crate::channel_write::PostChannelUpdate {
+                channel_id: topic_channel_id,
+                unread_delta: 1,
+                unread_post_id: Some("reply-live".to_string()),
+                last_post: "{}".to_string(),
+                has_schedule_post: false,
+                msg_create_at: 101,
+                visible: true,
+                sender_user_id: "user-live".to_string(),
+                post_id: "reply-live".to_string(),
+                last_message: "实时消息".to_string(),
+                mentions: Vec::new(),
+                urgent_user_ids: Vec::new(),
+                mention_hit: false,
+                urgent_hit: false,
+            },
+            source: "post-forward-authority".to_string(),
+            causation_id: None,
+        };
+        let channel_reply = serde_json::to_vec(&json!([{
+            "id": topic_channel_id.as_str(),
+            "root_post_id": "root-live",
+            "display_name": "实时话题",
+            "topic_msg_count": 26
+        }]))
+        .unwrap();
+        let mut module = ImModule::new(ImConfig::default());
+        let mut out = EffectSink::new();
+
+        module.schedule_topic_activity_projection(&pending, &channel_reply, &mut out);
+
+        assert!(matches!(
+            out.as_slice(),
+            [Effect::Persist { ops, .. }]
+                if matches!(ops.as_slice(), [StorageOp::Get(get)] if get.table == "message")
+        ));
+        let Effect::Persist { corr, .. } = &out.as_slice()[0] else {
+            panic!("live topic post schedules a root read")
+        };
+        let Some(CorrelationContext::TopicActivityRootRead { projection }) =
+            module.state.corr_map.remove(corr)
+        else {
+            panic!("root read retains topic activity authority")
+        };
+        assert_eq!(projection.topic_message_count, 27);
+    }
+
     /// Root readback 必须单调增加回复数并写入 latestReply，不直接发布未持久化 Frame。
     #[test]
     fn root_readback_builds_durable_topic_activity_patch() {
@@ -279,6 +365,7 @@ mod tests {
                     message_type: "TEXT".to_string(),
                     preview_text: "第三条".to_string(),
                     created_at: 30,
+                    topic_message_count: 0,
                 },
                 &PortOutcome::Ok(ReplyBytes(Bytes::from(reply))),
                 &mut out,
@@ -327,6 +414,7 @@ mod tests {
                     message_type: "TEXT".to_string(),
                     preview_text: "第十条".to_string(),
                     created_at: 100,
+                    topic_message_count: 0,
                 },
                 &PortOutcome::Ok(ReplyBytes(Bytes::from(reply))),
                 &mut out,
@@ -348,6 +436,10 @@ mod tests {
             panic!("topic count updates by topic channel id")
         };
         assert_eq!(channel_update.table, "channel");
+        assert!(matches!(
+            channel_update.key_vals.as_slice(),
+            [SqlValue::Text(channel_id)] if channel_id == parent_channel_id.as_str()
+        ));
         let SqlValue::Integer(topic_count) = &channel_update.patch[0].1 else {
             panic!("topic count persists as integer")
         };
@@ -380,6 +472,7 @@ mod tests {
                         message_type: "TEXT".to_string(),
                         preview_text: "不应覆盖".to_string(),
                         created_at,
+                        topic_message_count: 0,
                     },
                     &PortOutcome::Ok(ReplyBytes(Bytes::from(reply))),
                     &mut out,
@@ -407,7 +500,6 @@ mod tests {
         module
             .handle_topic_activity_persist(
                 parent_channel_id,
-                crate::state::test_channel_id(74),
                 3,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
@@ -421,28 +513,37 @@ mod tests {
         ));
     }
 
-    /// Topic activity 提交后必须把绝对消息数同步到已 attach 的左侧话题行。
+    /// Topic activity 提交后必须把绝对消息数同步到父群，T 行保持无话题徽标。
     #[test]
-    fn durable_topic_activity_patches_attached_topic_dialog_count() {
+    fn durable_topic_activity_patches_attached_parent_dialog_count() {
         let parent_channel_id = crate::state::test_channel_id(75);
         let topic_channel_id = crate::state::test_channel_id(76);
         let mut module = ImModule::new(ImConfig::default());
         let scope = crate::dialog_frame::DialogListScope::new("viewer", "company");
-        let row = crate::dialog_frame::row_from_dialog_projection(&json!({
+        let parent_row = crate::dialog_frame::row_from_dialog_projection(&json!({
+            "id": parent_channel_id.as_str(),
+            "type": "P",
+            "displayName": "父群",
+            "topicCount": 9,
+        }))
+        .expect("parent dialog row");
+        let topic_row = crate::dialog_frame::row_from_dialog_projection(&json!({
             "id": topic_channel_id.as_str(),
             "type": "T",
             "displayName": "研发话题",
             "rootPostId": "root-1",
-            "topicMsgCount": 0,
+            "topicCount": 10,
         }))
         .expect("topic dialog row");
-        module.state.dialog_list_frame.snapshot(scope, vec![row]);
+        module
+            .state
+            .dialog_list_frame
+            .snapshot(scope, vec![parent_row, topic_row]);
         let mut out = EffectSink::new();
 
         module
             .handle_topic_activity_persist(
                 parent_channel_id,
-                topic_channel_id,
                 10,
                 &PortOutcome::Ok(ReplyBytes(Bytes::new())),
                 &mut out,
@@ -457,10 +558,19 @@ mod tests {
                 _ => None,
             })
             .expect("topic dialog count frame");
-        assert_eq!(
-            frame["data"]["mutations"][0]["mutation"]["patch"]["view"]["sections"][0]["items"][0]
-                ["topicCount"],
-            10
-        );
+        let items = frame["data"]["mutations"][0]["mutation"]["patch"]["view"]["sections"][0]
+            ["items"]
+            .as_array()
+            .expect("dialog items");
+        let parent = items
+            .iter()
+            .find(|item| item["channelId"] == parent_channel_id.as_str())
+            .expect("parent dialog");
+        let topic = items
+            .iter()
+            .find(|item| item["channelId"] == topic_channel_id.as_str())
+            .expect("topic dialog");
+        assert_eq!(parent["topicCount"], 10);
+        assert_eq!(topic["topicCount"], 0);
     }
 }

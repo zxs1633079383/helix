@@ -253,9 +253,9 @@ pub fn program_full(
 mod tests {
     use super::*;
 
-    /// Topic 全量快照只有 totalMsgCount 时也必须落入本地 topic_msg_count。
+    /// T 频道内部保留 totalMsgCount，dialog renderer 负责禁止把它画成父群话题徽标。
     #[test]
-    fn topic_total_message_count_populates_local_topic_count() {
+    fn topic_total_message_count_populates_internal_topic_count() {
         let channel_id = crate::state::test_channel_id(81);
         let (row, _) = program_full(
             &serde_json::json!({

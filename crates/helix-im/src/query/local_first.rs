@@ -904,6 +904,9 @@ fn close_topic_links(
         let Some((root_message_id, title)) = dialogs.topic_link_metadata(&topic_channel_id) else {
             continue;
         };
+        let (topic_message_count, topic_activity_at, topic_preview) = dialogs
+            .topic_activity_metadata(&topic_channel_id)
+            .unwrap_or_default();
         let row_message_id = row_object
             .get("msgId")
             .or_else(|| row_object.get("id"))
@@ -934,10 +937,27 @@ fn close_topic_links(
         topic.insert("rootMessageId".to_string(), Value::String(root_message_id));
         topic.insert("title".to_string(), Value::String(title));
         if !topic.get("replyCount").is_some_and(Value::is_u64) {
-            topic.insert("replyCount".to_string(), Value::from(0_u64));
+            topic.insert("replyCount".to_string(), Value::from(topic_message_count));
         }
         if !topic.get("lastActivityAt").is_some_and(Value::is_i64) {
-            topic.insert("lastActivityAt".to_string(), Value::from(root_created_at));
+            topic.insert(
+                "lastActivityAt".to_string(),
+                Value::from(topic_activity_at.max(root_created_at)),
+            );
+        }
+        if !topic.contains_key("latestReply") {
+            if let Some(preview) = topic_preview {
+                if let (Some(author_user_id), Some(text)) = (preview.sender_user_id, preview.text) {
+                    topic.insert(
+                        "latestReply".to_string(),
+                        serde_json::json!({
+                            "author": {"userId": author_user_id},
+                            "preview": {"kind": "text", "text": text},
+                            "createdAt": preview.sent_at.unwrap_or(topic_activity_at),
+                        }),
+                    );
+                }
+            }
         }
         topic.remove("channelId");
         topic.remove("latestReplyId");

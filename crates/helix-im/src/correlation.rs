@@ -378,8 +378,7 @@ pub enum CorrelationContext {
     /// Parent root card activity 持久成功后刷新父群 timeline 与 topic dialog 计数。
     TopicActivityPersist {
         parent_channel_id: ChannelId,
-        topic_channel_id: ChannelId,
-        topic_message_count: u64,
+        parent_topic_message_count: u64,
     },
 
     /// G-14 post/read/list 双 emit：通用 read result + render-ready readerIds/readers。

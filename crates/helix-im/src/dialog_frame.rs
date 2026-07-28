@@ -231,6 +231,28 @@ impl DialogListFrameState {
         Some((root_message_id.to_string(), row.title.clone()))
     }
 
+    /// Returns the T-row activity needed to close a historical parent topic card.
+    pub(crate) fn topic_activity_metadata(
+        &self,
+        topic_channel_id: &str,
+    ) -> Option<(u64, i64, Option<DialogPreviewVm>)> {
+        let row = self.rows_by_channel.get(topic_channel_id)?;
+        let message_count = row
+            .topic_count
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or_default();
+        Some((message_count, row.activity_at, row.preview.clone()))
+    }
+
+    /// Reads the materialized parent topic-message total without scanning storage.
+    pub(crate) fn topic_count_for(&self, channel_id: &str) -> u64 {
+        self.rows_by_channel
+            .get(channel_id)
+            .and_then(|row| row.topic_count)
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or_default()
+    }
+
     /// Materialize the already committed dialog/unread slots for a V2 recovery
     /// frame.  This is a read-only conversion: it never increments revisions
     /// and therefore cannot turn a storage failure into visible state.
@@ -821,7 +843,11 @@ fn dialog_row_to_surface_vm(row: &DialogListRowVm) -> interaction_frame::DialogR
         unread_count: nonnegative_u32(row.badges.unread_count),
         mention_count: nonnegative_u32(row.badges.mention_count),
         urgent_count: nonnegative_u32(row.badges.pending_urgent_count),
-        topic_count: row.topic_count.map_or(0, nonnegative_u32),
+        topic_count: if row.channel_kind == "topic" {
+            0
+        } else {
+            row.topic_count.map_or(0, nonnegative_u32)
+        },
         member_count: nonnegative_u32(row.member_count),
         member_leaves: row.member_leaves.clone(),
         has_scheduled_message: row.has_scheduled_message,
@@ -1201,7 +1227,7 @@ pub fn row_from_dialog_projection(value: &Value) -> Option<DialogListRowVm> {
     let row = DialogListRowVm {
         channel_id,
         title: text(value, &["displayName", "display_name", "name"]).unwrap_or_default(),
-        channel_kind,
+        channel_kind: channel_kind.clone(),
         root_message_id: text(
             value,
             &[

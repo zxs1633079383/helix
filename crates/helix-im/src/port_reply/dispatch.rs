@@ -1061,12 +1061,10 @@ impl ImModule {
 
             CorrelationContext::TopicActivityPersist {
                 parent_channel_id,
-                topic_channel_id,
-                topic_message_count,
+                parent_topic_message_count,
             } => self.handle_topic_activity_persist(
                 parent_channel_id,
-                topic_channel_id,
-                topic_message_count,
+                parent_topic_message_count,
                 outcome,
                 out,
             )?,

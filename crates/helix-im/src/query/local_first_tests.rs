@@ -54,7 +54,15 @@ fn historical_topic_root_closes_with_authority_safe_activity_defaults() {
     let topic_dialog = crate::dialog_frame::row_from_dialog_projection(&serde_json::json!({
         "id": topic_channel_id.as_str(),
         "displayName": "历史话题",
-        "rootPostId": "root-1"
+        "rootPostId": "root-1",
+        "topicCount": 26,
+        "lastPostAt": 456,
+        "lastPost": {
+            "id": "reply-26",
+            "userId": "user-26",
+            "message": "最后一条",
+            "createAt": 456
+        }
     }))
     .expect("topic dialog projection closes");
     dialogs.snapshot(scope, vec![topic_dialog]);
@@ -69,8 +77,16 @@ fn historical_topic_root_closes_with_authority_safe_activity_defaults() {
 
     close_topic_links(&mut shaped, parent_channel_id.as_str(), &dialogs);
 
-    assert_eq!(shaped[0]["topic"]["replyCount"], 0);
-    assert_eq!(shaped[0]["topic"]["lastActivityAt"], 123);
+    assert_eq!(shaped[0]["topic"]["replyCount"], 26);
+    assert_eq!(shaped[0]["topic"]["lastActivityAt"], 456);
+    assert_eq!(
+        shaped[0]["topic"]["latestReply"]["author"]["userId"],
+        "user-26"
+    );
+    assert_eq!(
+        shaped[0]["topic"]["latestReply"]["preview"]["text"],
+        "最后一条"
+    );
     assert!(shaped[0]["topic"].get("latestReplyId").is_none());
 }
 

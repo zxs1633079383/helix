@@ -3,6 +3,8 @@
 //! 所有文件来自共享 `G04ScenarioRunner` 的生产 `ImModule::handle` 回放；普通测试只比较
 //! actual Frame 与 checked-in Golden，只有 `UPDATE_G04_WDIO_FIXTURES=1` 才允许写盘。
 
+#![recursion_limit = "256"]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -281,13 +283,24 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/mutation/view/channelId",
             "/mutations/*/mutation/view/anchor/messageId",
             "/mutations/*/mutation/view/entities/*/message/id",
+            "/mutations/*/mutation/view/entities/*/message/temporaryId",
+            "/mutations/*/mutation/view/entities/*/message/serverId",
             "/mutations/*/mutation/view/entities/*/message/channelId",
             "/mutations/*/mutation/view/entities/*/message/author/userId",
             "/mutations/*/mutation/view/entities/*/message/createdAt",
             "/mutations/*/mutation/view/entities/*/message/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/view/items/*/id",
+            "/mutations/*/mutation/view/items/*/temporaryId",
+            "/mutations/*/mutation/view/items/*/serverId",
+            "/mutations/*/mutation/view/items/*/channelId",
+            "/mutations/*/mutation/view/items/*/author/userId",
+            "/mutations/*/mutation/view/items/*/createdAt",
+            "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/operations/*/entity/message/channelId",
             "/mutations/*/mutation/operations/*/window/anchor/messageId",
             "/mutations/*/mutation/operations/*/entity/message/id",
+            "/mutations/*/mutation/operations/*/entity/message/temporaryId",
+            "/mutations/*/mutation/operations/*/entity/message/serverId",
             "/mutations/*/mutation/operations/*/entity/message/channelId",
             "/mutations/*/mutation/operations/*/entity/message/author/userId",
             "/mutations/*/mutation/operations/*/entity/message/createdAt",
@@ -309,6 +322,7 @@ fn provenance_entry(case: &FixtureCase, bytes: &[u8]) -> Value {
             "/mutations/*/revision",
             "/mutations/*/baseRevision",
             "/mutations/*/mutation/view/entities/*/message/actions/*/surfaceEpoch",
+            "/mutations/*/mutation/view/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/operations/*/entity/message/actions/*/surfaceEpoch",
             "/mutations/*/mutation/patch/view/sections/*/items/*/actions/*/surfaceEpoch",
             "/mutations/*/mutation/view/sections/*/items/*/actions/*/surfaceEpoch"

@@ -58,19 +58,7 @@
                     "size": 33,
                     "contentType": "text/plain",
                     "bucket": "attachment",
-                    "uri": "media/g03-file-a",
-                    "resource": {
-                      "bucket": "attachment",
-                      "contentType": "text/plain",
-                      "id": "g03-file-a",
-                      "name": "g03-document.txt",
-                      "size": 33,
-                      "upload": {
-                        "status": "completed"
-                      },
-                      "uri": "media/g03-file-a"
-                    },
-                    "availability": {}
+                    "uri": "media/g03-file-a"
                   }
                 ],
                 "caption": "G03 文件投影"

@@ -65,16 +65,7 @@
                     "size": 68,
                     "contentType": "image/png",
                     "bucket": "picture",
-                    "uri": "media/g03-image-a",
-                    "resource": {
-                      "bucket": "picture",
-                      "contentType": "image/png",
-                      "id": "g03-image-a",
-                      "name": "g03-a.png",
-                      "size": 68,
-                      "uri": "media/g03-image-a"
-                    },
-                    "availability": {}
+                    "uri": "media/g03-image-a"
                   },
                   {
                     "fileId": "g03-image-b",
@@ -82,16 +73,7 @@
                     "size": 70,
                     "contentType": "image/png",
                     "bucket": "picture",
-                    "uri": "media/g03-image-b",
-                    "resource": {
-                      "bucket": "picture",
-                      "contentType": "image/png",
-                      "id": "g03-image-b",
-                      "name": "g03-b.png",
-                      "size": 70,
-                      "uri": "media/g03-image-b"
-                    },
-                    "availability": {}
+                    "uri": "media/g03-image-b"
                   }
                 ],
                 "caption": "G03 图文投影",

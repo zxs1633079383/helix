@@ -15,7 +15,7 @@ mod scenario;
 
 use scenario::{assert_g03_frame_contract, G03ScenarioRunner};
 
-const HELIX_COMMIT: &str = "ea3fbf379d359ad2f5ccc0d03976f4341a84d5ae";
+const HELIX_COMMIT: &str = "8e61747461ff823e818ed0599e55922b65b14854";
 const GENERATED_AT: &str = "2026-07-27T16:00:00+08:00";
 const PRODUCER: &str =
     "G03ScenarioRunner -> TimelineProjector -> SurfaceMutationV2 -> InteractionFrameV2";

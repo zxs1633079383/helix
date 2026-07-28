@@ -17,6 +17,7 @@ use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
+/// Proves a completed hello precedes heartbeat traffic and reconnect preserves the auth cookie.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn backend_drop_reconnects_with_cookie_and_restores_ping_pong() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind ws");
@@ -29,16 +30,6 @@ async fn backend_drop_reconnects_with_cookie_and_restores_ping_pong() {
     let (tick_tx, tick_rx) = mpsc::channel::<Tick>(64);
     let transport_id = TransportId::from_raw(0);
     let ws_url = format!("ws://{address}/api/cses/websocket");
-    let mut transport = NativeTransport::new(&ws_url, transport_id, Some(tick_tx.clone()))
-        .with_handshake_headers(vec![("cookieId".to_string(), "user-444".to_string())]);
-    let activation = transport.connect().await.expect("initial connect");
-
-    let mut transports = TransportTable::new();
-    transports.insert(transport_id, Arc::new(transport));
-    activation
-        .activate()
-        .await
-        .expect("activate initial transport");
     let db_path =
         std::env::temp_dir().join(format!("helix-native-reconnect-{}.db", std::process::id()));
     let _ = std::fs::remove_file(&db_path);
@@ -58,11 +49,21 @@ async fn backend_drop_reconnects_with_cookie_and_restores_ping_pong() {
     };
     let mut shell = ExecutionShell::new();
     shell.register(ImModule::new(ImConfig {
-        ws_url,
+        ws_url: ws_url.clone(),
         api_base_url: "http://127.0.0.1:1".to_string(),
         ping_interval_ms: 40,
         ..Default::default()
     }));
+    // Prepare slow storage and module dependencies before the backend starts its hello timeout.
+    let mut transport = NativeTransport::new(&ws_url, transport_id, Some(tick_tx.clone()))
+        .with_handshake_headers(vec![("cookieId".to_string(), "user-444".to_string())]);
+    let activation = transport.connect().await.expect("initial connect");
+    let mut transports = TransportTable::new();
+    transports.insert(transport_id, Arc::new(transport));
+    activation
+        .activate()
+        .await
+        .expect("activate initial transport");
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let engine = tokio::spawn(run_engine_loop_with_transports(
         shell,
@@ -72,7 +73,6 @@ async fn backend_drop_reconnects_with_cookie_and_restores_ping_pong() {
         shutdown_rx,
         transports,
     ));
-
     let first_cookie = recv_within(&mut cookie_rx, "first cookie").await;
     let second_cookie = recv_within(&mut cookie_rx, "reconnect cookie").await;
     assert_eq!(first_cookie, (1, "user-444".to_string()));

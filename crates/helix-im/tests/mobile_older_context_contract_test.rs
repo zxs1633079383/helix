@@ -27,6 +27,7 @@ fn post(id: &str, tmp: &str, create_at: i64, channel_id: &str) -> serde_json::Va
 }
 
 #[test]
+/// 验证移动端上拉请求接受默认值与完整合法页大小区间。
 fn canonical_request_accepts_only_channel_anchor_and_optional_before() {
     let default = serde_json::to_vec(&json!({
         "channel_id": CH,
@@ -38,7 +39,7 @@ fn canonical_request_accepts_only_channel_anchor_and_optional_before() {
     assert_eq!(state.pivot_id(), "anchor");
     assert_eq!(state.request_id(), None);
 
-    for before in [1, 100] {
+    for before in [1, 60] {
         let payload = serde_json::to_vec(&json!({
             "channel_id": CH,
             "anchor_post_id": "anchor",
@@ -50,8 +51,9 @@ fn canonical_request_accepts_only_channel_anchor_and_optional_before() {
 }
 
 #[test]
+/// 验证移动端上拉请求拒绝越界页大小与旧版字段。
 fn canonical_request_rejects_out_of_range_or_legacy_unknown_fields() {
-    for before in [0, 101] {
+    for before in [0, 61] {
         let payload = serde_json::to_vec(&json!({
             "channel_id": CH,
             "anchor_post_id": "anchor",

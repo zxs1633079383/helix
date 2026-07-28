@@ -144,6 +144,17 @@ impl TimelineNavigationState {
         &self.kind
     }
 
+    /// Returns the existing attached message that owns this navigation transaction.
+    pub fn anchor_message_id(&self) -> &str {
+        match &self.kind {
+            TimelineNavigationKind::Older { anchor_post_id, .. }
+            | TimelineNavigationKind::Newer { anchor_post_id, .. } => anchor_post_id,
+            TimelineNavigationKind::Locate {
+                target_message_id, ..
+            } => target_message_id,
+        }
+    }
+
     /// 返回成功 HTTP 页建立的边界。
     pub fn page(&self) -> WindowPageVm {
         self.page.clone()

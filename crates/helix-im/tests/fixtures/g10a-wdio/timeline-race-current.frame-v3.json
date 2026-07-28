@@ -1,6 +1,7 @@
 {
   "schemaVersion": 3,
   "transactionId": "timeline-timeline|26:chfixx0000000000000000001a|18:g10a-latest-window-2",
+  "causationId": "g10a-load-request-1",
   "runtime": {
     "connection": "online",
     "initialSync": "ready",
@@ -16,6 +17,7 @@
       },
       "revision": 2,
       "baseRevision": 1,
+      "causationId": "g10a-load-request-1",
       "mutation": {
         "kind": "timelineDelta",
         "operations": [
@@ -31,7 +33,7 @@
                 "temporaryId": "g10a-temporary-1",
                 "serverId": "srvfix00000000000000000001",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 1,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -189,7 +191,7 @@
                 "temporaryId": "g10a-temporary-2",
                 "serverId": "srvfix00000000000000000002",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 2,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -346,7 +348,7 @@
                 "temporaryId": "g10a-temporary-3",
                 "serverId": "srvfix00000000000000000003",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 3,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -504,7 +506,7 @@
                 "temporaryId": "g10a-temporary-4",
                 "serverId": "srvfix00000000000000000004",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 4,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -661,7 +663,7 @@
                 "temporaryId": "g10a-temporary-5",
                 "serverId": "srvfix00000000000000000005",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 5,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -819,7 +821,7 @@
                 "temporaryId": "g10a-temporary-6",
                 "serverId": "srvfix00000000000000000006",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 6,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -976,7 +978,7 @@
                 "temporaryId": "g10a-temporary-7",
                 "serverId": "srvfix00000000000000000007",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 7,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -1134,7 +1136,7 @@
                 "temporaryId": "g10a-temporary-8",
                 "serverId": "srvfix00000000000000000008",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 8,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -1291,7 +1293,7 @@
                 "temporaryId": "g10a-temporary-9",
                 "serverId": "srvfix00000000000000000009",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 9,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -1449,7 +1451,7 @@
                 "temporaryId": "g10a-temporary-10",
                 "serverId": "srvfix0000000000000000000a",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 10,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -1606,7 +1608,7 @@
                 "temporaryId": "g10a-temporary-11",
                 "serverId": "srvfix0000000000000000000b",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 11,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -1764,7 +1766,7 @@
                 "temporaryId": "g10a-temporary-12",
                 "serverId": "srvfix0000000000000000000c",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 12,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -1921,7 +1923,7 @@
                 "temporaryId": "g10a-temporary-13",
                 "serverId": "srvfix0000000000000000000d",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 13,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -2079,7 +2081,7 @@
                 "temporaryId": "g10a-temporary-14",
                 "serverId": "srvfix0000000000000000000e",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 14,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -2236,7 +2238,7 @@
                 "temporaryId": "g10a-temporary-15",
                 "serverId": "srvfix0000000000000000000f",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 15,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -2394,7 +2396,7 @@
                 "temporaryId": "g10a-temporary-16",
                 "serverId": "srvfix00000000000000000010",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 16,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -2551,7 +2553,7 @@
                 "temporaryId": "g10a-temporary-17",
                 "serverId": "srvfix00000000000000000011",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 17,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -2709,7 +2711,7 @@
                 "temporaryId": "g10a-temporary-18",
                 "serverId": "srvfix00000000000000000012",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 18,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -2866,7 +2868,7 @@
                 "temporaryId": "g10a-temporary-19",
                 "serverId": "srvfix00000000000000000013",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 19,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -3024,7 +3026,7 @@
                 "temporaryId": "g10a-temporary-20",
                 "serverId": "srvfix00000000000000000014",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 20,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -3181,7 +3183,7 @@
                 "temporaryId": "g10a-temporary-21",
                 "serverId": "srvfix00000000000000000015",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 21,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -3341,7 +3343,7 @@
                 "temporaryId": "g10a-temporary-22",
                 "serverId": "srvfix00000000000000000016",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 22,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -3500,7 +3502,7 @@
                 "temporaryId": "g10a-temporary-23",
                 "serverId": "srvfix00000000000000000017",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 23,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -3660,7 +3662,7 @@
                 "temporaryId": "g10a-temporary-24",
                 "serverId": "srvfix00000000000000000018",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 24,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -3819,7 +3821,7 @@
                 "temporaryId": "g10a-temporary-25",
                 "serverId": "srvfix00000000000000000019",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 25,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -3979,7 +3981,7 @@
                 "temporaryId": "g10a-temporary-26",
                 "serverId": "srvfix0000000000000000001a",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 26,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -4138,7 +4140,7 @@
                 "temporaryId": "g10a-temporary-27",
                 "serverId": "srvfix0000000000000000001b",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 27,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -4298,7 +4300,7 @@
                 "temporaryId": "g10a-temporary-28",
                 "serverId": "srvfix0000000000000000001c",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 28,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -4457,7 +4459,7 @@
                 "temporaryId": "g10a-temporary-29",
                 "serverId": "srvfix0000000000000000001d",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 29,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -4617,7 +4619,7 @@
                 "temporaryId": "g10a-temporary-30",
                 "serverId": "srvfix0000000000000000001e",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 30,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -4776,7 +4778,7 @@
                 "temporaryId": "g10a-temporary-31",
                 "serverId": "srvfix0000000000000000001f",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 31,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -4936,7 +4938,7 @@
                 "temporaryId": "g10a-temporary-32",
                 "serverId": "srvfix00000000000000000020",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 32,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -5095,7 +5097,7 @@
                 "temporaryId": "g10a-temporary-33",
                 "serverId": "srvfix00000000000000000021",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 33,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -5255,7 +5257,7 @@
                 "temporaryId": "g10a-temporary-34",
                 "serverId": "srvfix00000000000000000022",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 34,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -5414,7 +5416,7 @@
                 "temporaryId": "g10a-temporary-35",
                 "serverId": "srvfix00000000000000000023",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 35,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -5574,7 +5576,7 @@
                 "temporaryId": "g10a-temporary-36",
                 "serverId": "srvfix00000000000000000024",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 36,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -5733,7 +5735,7 @@
                 "temporaryId": "g10a-temporary-37",
                 "serverId": "srvfix00000000000000000025",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 37,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -5893,7 +5895,7 @@
                 "temporaryId": "g10a-temporary-38",
                 "serverId": "srvfix00000000000000000026",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 38,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },
@@ -6052,7 +6054,7 @@
                 "temporaryId": "g10a-temporary-39",
                 "serverId": "srvfix00000000000000000027",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 39,
                 "author": {
                   "userId": "g10a-wdio-observer"
                 },
@@ -6212,7 +6214,7 @@
                 "temporaryId": "g10a-temporary-40",
                 "serverId": "srvfix00000000000000000028",
                 "channelId": "chfixx0000000000000000001a",
-                "eventSeq": 0,
+                "eventSeq": 40,
                 "author": {
                   "userId": "g10a-wdio-actor"
                 },

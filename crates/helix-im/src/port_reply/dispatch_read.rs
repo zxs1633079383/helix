@@ -41,6 +41,7 @@ impl ImModule {
             PortOutcome::Ok(reply) => reply,
             PortOutcome::Err(error) => {
                 tracing::warn!(error = ?error, "timeline navigation HTTP failed");
+                self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
                 return Ok(());
             }
         };
@@ -48,11 +49,13 @@ impl ImModule {
             Ok(raw) => raw,
             Err(error) => {
                 tracing::warn!(error = ?error, "timeline navigation envelope invalid");
+                self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
                 return Ok(());
             }
         };
         if let Err(error) = state.ingest_http_body(&raw) {
             tracing::warn!(error = ?error, "timeline navigation body invalid");
+            self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
             return Ok(());
         }
         let (rows, ops) = crate::query::local_first::visible_remote_rows_and_cache_ops(
@@ -78,6 +81,32 @@ impl ImModule {
         self.state
             .corr_map
             .insert(corr, CorrelationContext::TimelineNavigationCache { state });
+        Ok(())
+    }
+
+    /// Publishes a bounded failed delta for the existing cursor-based Timeline window.
+    pub(super) fn emit_timeline_navigation_failed_frame(
+        &mut self,
+        state: &crate::timeline_navigation::TimelineNavigationState,
+        now_ms: u64,
+        out: &mut EffectSink,
+    ) -> Result<(), ImError> {
+        let mutation = self
+            .state
+            .timeline_projector
+            .patch_failed_for_anchor(state.channel_id().as_str(), state.anchor_message_id())
+            .map_err(|error| {
+                ImError::Parse(format!("timeline navigation failure projection: {error}"))
+            })?;
+        let Some(mutation) = mutation else {
+            return Ok(());
+        };
+        let frame_id = format!(
+            "timeline-{}-{}",
+            mutation.scope.canonical_key(),
+            mutation.revision
+        );
+        out.push(self.build_registered_timeline_frame(frame_id, vec![mutation], now_ms)?);
         Ok(())
     }
 

@@ -83,7 +83,7 @@ pub struct LoadOlderRecoveryTrace {
 pub struct G10AScenarioRunner;
 
 impl G10AScenarioRunner {
-    /// Captures the first production postContext request before any port reply.
+    /// Captures the first production cursor-page request before any port reply.
     pub fn post_context_request() -> HttpRequest {
         let mut replay = Replay::new();
         replay.attach_initial_window();
@@ -92,12 +92,12 @@ impl G10AScenarioRunner {
             .effects()
             .iter()
             .find_map(|effect| match effect {
-                Effect::Http { req, .. } if req.url.ends_with("/posts/postContext") => {
+                Effect::Http { req, .. } if req.url.ends_with("/posts/getPostsAfterIndex") => {
                     Some(req.clone())
                 }
                 _ => None,
             })
-            .expect("G10a trace contains postContext HTTP")
+            .expect("G10a trace contains cursor-page HTTP")
     }
 
     /// Replays fresh group, G10 attachment, G10a HTTP, message persist and durable readback.
@@ -115,7 +115,7 @@ impl G10AScenarioRunner {
             replay.frames().is_empty() && replay.has_message_cache_persist();
         let persist_corr = replay.only_message_write_corr();
         replay.reply(persist_corr, PortOutcome::Ok(ReplyBytes::default()), 11);
-        let readback_corr = replay.only_scan_corr();
+        let readback_corr = replay.only_message_readback_corr();
         replay.reply(
             readback_corr,
             PortOutcome::Ok(ReplyBytes(all_local_rows_bytes())),
@@ -196,7 +196,7 @@ impl G10AScenarioRunner {
         );
         let persist_corr = replay.only_message_write_corr();
         replay.reply(persist_corr, PortOutcome::Ok(ReplyBytes::default()), 11);
-        let readback_corr = replay.only_scan_corr();
+        let readback_corr = replay.only_message_readback_corr();
         replay.reply(persist_corr, PortOutcome::Ok(ReplyBytes::default()), 12);
         let duplicate_persist_effects = replay.effects().len();
         replay.reply(
@@ -229,7 +229,7 @@ impl G10AScenarioRunner {
         );
         let persist_corr = replay.only_message_write_corr();
         replay.reply(persist_corr, PortOutcome::Ok(ReplyBytes::default()), 11);
-        let readback_corr = replay.only_scan_corr();
+        let readback_corr = replay.only_message_readback_corr();
         replay.reply(
             readback_corr,
             PortOutcome::Ok(ReplyBytes(all_local_rows_bytes())),
@@ -240,17 +240,23 @@ impl G10AScenarioRunner {
         let second_http = replay.start_load(server_id(1).as_str());
         replay.reply(
             second_http,
-            PortOutcome::Ok(ReplyBytes(http_envelope(Bytes::from(
-                serde_json::to_vec(&vec![remote_post(1, "g10a-older")])
-                    .expect("G10a exhausted body serializes"),
+            PortOutcome::Ok(ReplyBytes(http_envelope(navigation_page_body(
+                vec![remote_post(1, "g10a-older")],
+                false,
             )))),
             20,
         );
-        let exhausted_readback = replay.only_scan_corr();
+        let exhausted_persist = replay.only_message_write_corr();
+        replay.reply(
+            exhausted_persist,
+            PortOutcome::Ok(ReplyBytes::default()),
+            21,
+        );
+        let exhausted_readback = replay.only_message_readback_corr();
         replay.reply(
             exhausted_readback,
             PortOutcome::Ok(ReplyBytes(all_local_rows_bytes())),
-            21,
+            22,
         );
         LoadOlderRecoveryTrace {
             loaded,
@@ -409,19 +415,19 @@ impl Replay {
         self.only_frame()
     }
 
-    /// Admits the canonical G10a command and returns its first postContext correlation.
+    /// Admits the canonical G10a command and returns its cursor-based page correlation.
     fn start_load(&mut self, anchor_post_id: &str) -> Correlation {
         self.step(Tick::Command(AppCommand::new(
             "im_load_older_context",
             serde_json::to_vec(&json!({
                 "channel_id": CHANNEL_ID,
                 "anchor_post_id": anchor_post_id,
-                "before": 20,
+                "pageSize": 20,
                 "req_id": REQUEST_ID,
             }))
             .expect("G10a command serializes"),
         )));
-        self.only_http_corr("/posts/postContext")
+        self.only_http_corr("/posts/getPostsAfterIndex")
     }
 
     /// Feeds one deterministic PortReply into the public module boundary.
@@ -461,6 +467,31 @@ impl Replay {
         corrs[0]
     }
 
+    /// Returns the unique cursor-page message readback correlation.
+    fn only_message_readback_corr(&self) -> Correlation {
+        let corrs = self
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Persist { corr, ops }
+                    if ops.iter().any(
+                        |op| matches!(op, StorageOp::Get(spec) if spec.table == "message"),
+                    ) =>
+                {
+                    Some(*corr)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            corrs.len(),
+            1,
+            "expected one G10a message readback, got effects: {:?}",
+            self.effects()
+        );
+        corrs[0]
+    }
+
     /// Returns the unique message BatchUpsert persistence correlation.
     fn only_message_write_corr(&self) -> Correlation {
         let corrs = self
@@ -477,7 +508,12 @@ impl Replay {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(corrs.len(), 1, "expected one G10a message write");
+        assert_eq!(
+            corrs.len(),
+            1,
+            "expected one G10a message write, got effects: {:?}",
+            self.effects()
+        );
         corrs[0]
     }
 
@@ -559,11 +595,26 @@ fn latest_posts_body() -> Bytes {
     )
 }
 
-/// Builds one postContext page containing the anchor and 20 strictly older posts.
+/// Builds one ascending cursor page containing 20 posts strictly older than the anchor.
 fn post_context_body() -> Bytes {
-    let mut posts = vec![remote_post(21, "g10a-recent")];
-    posts.extend((1..=20).rev().map(|index| remote_post(index, "g10a-older")));
-    Bytes::from(serde_json::to_vec(&posts).expect("G10a context body serializes"))
+    let posts = (1..=20)
+        .map(|index| remote_post(index, "g10a-older"))
+        .collect();
+    navigation_page_body(posts, true)
+}
+
+/// Wraps one cursor page in the current Go Timeline V3 response contract.
+fn navigation_page_body(posts: Vec<Value>, has_more: bool) -> Bytes {
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "status": "SUCCESS",
+            "data": {
+                "posts": posts,
+                "hasMore": has_more,
+            }
+        }))
+        .expect("G10a cursor page serializes"),
+    )
 }
 
 /// Builds the complete durable readback in storage-descending order.

@@ -57,7 +57,13 @@ fn query_messages_dispatches_filtered_scan() {
         filter,
         Some(("channel_id", SqlValue::Text(s))) if s == cid(1)
     ));
-    assert_eq!(order_by, &[ScanOrder::desc("create_at")]);
+    assert_eq!(
+        order_by,
+        &[
+            ScanOrder::desc("create_at"),
+            ScanOrder::desc("temporary_id"),
+        ]
+    );
 }
 
 /// 没有显式远端窗口 proof 时，即使本地非空也只能判 Partial，必须走远端。

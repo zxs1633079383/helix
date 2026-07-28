@@ -55,8 +55,9 @@ fn parse_request_extracts_canonical_anchor_and_before() {
 }
 
 #[test]
+/// 验证请求解析对 1..=60 页大小区间执行 fail-closed 校验。
 fn parse_request_enforces_before_range_and_default() {
-    for invalid in [0, 101] {
+    for invalid in [0, 61] {
         let payload = serde_json::to_vec(&json!({
             "channel_id": CH, "anchor_post_id": "p", "before": invalid
         }))
@@ -226,9 +227,10 @@ fn ingest_round_stops_when_pivot_cannot_advance() {
 }
 
 #[test]
+/// 验证合法最大页大小下仍由轮次预算终止多轮拉取。
 fn ingest_round_exhausts_rounds_budget() {
     // 每轮翻出 1 条更早 + pivot 能前进，但 target 大于轮数 → 预算（8）耗尽即停。
-    let mut st = state("p-anchor", 100);
+    let mut st = state("p-anchor", 60);
     let mut last = RoundDecision::Continue;
     let mut pivot_id = "p-anchor".to_string();
     let mut pivot_tmp = "t-anchor".to_string();

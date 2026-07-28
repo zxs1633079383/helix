@@ -74,7 +74,7 @@ fn business_failure_rejects_anchor_without_attached_timeline() {
         serde_json::to_vec(&json!({
             "channel_id": scenario::CHANNEL_ID,
             "anchor_post_id": "detached-anchor",
-            "before": 20,
+            "pageSize": 20,
         }))
         .expect("G10a detached command serializes"),
     ));

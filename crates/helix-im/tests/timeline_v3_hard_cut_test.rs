@@ -7,7 +7,7 @@ use serde_json::Value;
 #[test]
 fn positive_timeline_v2_is_rejected() {
     let mut legacy: Value = serde_json::from_slice(include_bytes!(
-        "fixtures/g10b-wdio/latest.snapshot.frame-v3.json"
+        "fixtures/g10b-wdio/latest-loaded.delta.frame-v3.json"
     ))
     .expect("canonical Timeline V3 fixture parses");
     legacy["schemaVersion"] = Value::from(2);

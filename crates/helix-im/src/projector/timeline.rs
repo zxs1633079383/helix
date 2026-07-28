@@ -183,7 +183,7 @@ pub struct TimelineProjector {
     // that intent separately from the first snapshot so terminal writes can
     // schedule the authoritative readback instead of falling back to a raw
     // post event while the initial storage query is in flight.
-    attached_slots: BTreeSet<String>,
+    attached_slots: BTreeMap<String, (String, String)>,
     /// 每个 attached scope 当前可激活的 locate token；旧 response 只能合并数据。
     current_navigation_tokens: BTreeMap<String, String>,
     /// 仅用于 opaque actionRef 的 Helix 内部发号；绝不包含 channel/message/kind 等业务标识。
@@ -200,7 +200,7 @@ impl Default for TimelineProjector {
     fn default() -> Self {
         Self {
             slots: BTreeMap::new(),
-            attached_slots: BTreeSet::new(),
+            attached_slots: BTreeMap::new(),
             current_navigation_tokens: BTreeMap::new(),
             next_action_ref: 1,
         }
@@ -299,15 +299,27 @@ impl TimelineProjector {
         &self,
         channel_id: &str,
     ) -> Option<(String, usize)> {
-        let mut matches = self
-            .slots
-            .values()
-            .filter(|slot| slot.view.channel_id == channel_id);
+        let mut matches =
+            self.attached_slots
+                .values()
+                .filter_map(|(attached_channel_id, window_token)| {
+                    if attached_channel_id != channel_id {
+                        return None;
+                    }
+                    let scope = SurfaceScope::Timeline {
+                        channel_id: attached_channel_id.clone(),
+                        window_token: window_token.clone(),
+                    };
+                    Some((
+                        window_token.clone(),
+                        self.current_view(&scope).map_or(0, |view| view.items.len()),
+                    ))
+                });
         let first = matches.next()?;
         if matches.next().is_some() {
             return None;
         }
-        Some((first.view.page.window_token.clone(), first.view.items.len()))
+        Some(first)
     }
 
     /// Advances one attached G10a window to a failure state without dropping its existing items.
@@ -366,13 +378,20 @@ impl TimelineProjector {
     }
 
     pub fn register_attachment(&mut self, scope: &SurfaceScope) {
-        if matches!(scope, SurfaceScope::Timeline { .. }) {
-            self.attached_slots.insert(scope.canonical_key());
+        if let SurfaceScope::Timeline {
+            channel_id,
+            window_token,
+        } = scope
+        {
+            self.attached_slots.insert(
+                scope.canonical_key(),
+                (channel_id.clone(), window_token.clone()),
+            );
         }
     }
 
     pub fn is_attached(&self, scope: &SurfaceScope) -> bool {
-        self.attached_slots.contains(&scope.canonical_key())
+        self.attached_slots.contains_key(&scope.canonical_key())
     }
 
     /// 建立完整 snapshot。`render_ready_rows` 必须已经是时间正序；本函数不会重新排序。
@@ -407,7 +426,10 @@ impl TimelineProjector {
             },
         };
         mutation.validate()?;
-        self.attached_slots.insert(slot_key.clone());
+        self.attached_slots.insert(
+            slot_key.clone(),
+            (view.channel_id.clone(), view.page.window_token.clone()),
+        );
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(mutation)
     }
@@ -449,7 +471,10 @@ impl TimelineProjector {
             },
         };
         mutation.validate()?;
-        self.attached_slots.insert(slot_key.clone());
+        self.attached_slots.insert(
+            slot_key.clone(),
+            (view.channel_id.clone(), view.page.window_token.clone()),
+        );
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(mutation)
     }
@@ -647,7 +672,10 @@ impl TimelineProjector {
             },
         };
         mutation.validate()?;
-        self.attached_slots.insert(slot_key.clone());
+        self.attached_slots.insert(
+            slot_key.clone(),
+            (view.channel_id.clone(), view.page.window_token.clone()),
+        );
         self.slots.insert(slot_key, TimelineSlot { revision, view });
         Ok(mutation)
     }
@@ -2315,6 +2343,7 @@ mod tests {
 
         let mut refreshed = row(1);
         refreshed["readBits"] = serde_json::json!("1");
+        refreshed["text"] = serde_json::json!("updated message");
         projector
             .patch_from_render_ready(
                 TimelineWindowRequest::latest("channel-1"),
@@ -2870,8 +2899,10 @@ mod tests {
     fn snapshot_bounds_latest_window_and_delta_advances_changed_view() {
         let mut projector = TimelineProjector::default();
         let rows = (0..80).map(row).collect::<Vec<_>>();
+        let mut request = TimelineWindowRequest::latest("channel-1");
+        request.page_size = MAX_TIMELINE_PAGE_SIZE;
         let snapshot = projector
-            .snapshot_from_render_ready(TimelineWindowRequest::latest("channel-1"), &rows)
+            .snapshot_from_render_ready(request.clone(), &rows)
             .expect("valid timeline snapshot");
         assert_eq!(snapshot.revision, 1);
         let TypedSurfaceMutation::TimelineSnapshot { view } = snapshot.mutation else {
@@ -2884,11 +2915,7 @@ mod tests {
 
         let advanced_rows = (1..=80).map(row).collect::<Vec<_>>();
         let patch = projector
-            .patch_from_render_ready(
-                TimelineWindowRequest::latest("channel-1"),
-                &advanced_rows,
-                Some("post:80".to_string()),
-            )
+            .patch_from_render_ready(request, &advanced_rows, Some("post:80".to_string()))
             .expect("existing slot can advance");
         assert_eq!(patch.base_revision, Some(1));
         assert_eq!(patch.revision, 2);

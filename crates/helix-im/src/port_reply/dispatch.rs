@@ -1302,11 +1302,14 @@ impl ImModule {
                 PortOutcome::Ok(_) => {
                     self.schedule_timeline_navigation_readback(state, out)?;
                 }
-                PortOutcome::Err(error) => tracing::warn!(
-                    channel_id = state.channel_id().as_str(),
-                    error = ?error,
-                    "timeline navigation persist failed; suppressing Frame"
-                ),
+                PortOutcome::Err(error) => {
+                    tracing::warn!(
+                        channel_id = state.channel_id().as_str(),
+                        error = ?error,
+                        "timeline navigation persist failed"
+                    );
+                    self.emit_timeline_navigation_failed_frame(&state, now_ms, out)?;
+                }
             },
 
             // readback 是 success Frame 的最后一道本地事实屏障。
